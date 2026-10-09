@@ -3319,3 +3319,16 @@ curves	Smooth	Lisser
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptateur GPU
+
+# Art History Brush (#213).
+	Art History Brush Tool	Outil Pinceau d'historique artistique
+	Tight Short	Serré court
+	Tight Medium	Serré moyen
+	Tight Long	Serré long
+	Loose Medium	Lâche moyen
+	Loose Long	Lâche long
+	Dab	Touche
+	Tight Curl	Boucle serrée
+	Loose Curl	Boucle lâche
+	Area	Zone
+	Stylized dabs from a history state	Touches stylisées depuis un état d'historique

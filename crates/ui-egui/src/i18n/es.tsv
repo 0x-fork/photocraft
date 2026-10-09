@@ -4270,3 +4270,15 @@ navigator	Zoom	Zoom
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptador de GPU
+
+# Art History Brush (#213).
+	Art History Brush Tool	Herramienta Pincel histórico artístico
+	Tight Short	Corto apretado
+	Tight Medium	Medio apretado
+	Tight Long	Largo apretado
+	Loose Medium	Medio suelto
+	Loose Long	Largo suelto
+	Dab	Toque
+	Tight Curl	Rizo apretado
+	Loose Curl	Rizo suelto
+	Stylized dabs from a history state	Toques estilizados desde un estado del historial

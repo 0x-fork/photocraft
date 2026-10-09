@@ -3286,3 +3286,15 @@ curves	Smooth	Сгладить
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Адаптер GPU
+
+# Art History Brush (#213).
+	Art History Brush Tool	Инструмент «Кисть истории искусств»
+	Tight Short	Плотный короткий
+	Tight Medium	Плотный средний
+	Tight Long	Плотный длинный
+	Loose Medium	Свободный средний
+	Loose Long	Свободный длинный
+	Dab	Мазок
+	Tight Curl	Плотный завиток
+	Loose Curl	Свободный завиток
+	Stylized dabs from a history state	Стилизованные мазки из состояния истории

@@ -4425,3 +4425,15 @@ shape	Appearance	Aspetto
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adattatore GPU
+
+# Art History Brush (#213).
+	Art History Brush Tool	Strumento Pennello storia artistica
+	Tight Short	Corto stretto
+	Tight Medium	Medio stretto
+	Tight Long	Lungo stretto
+	Loose Medium	Medio largo
+	Loose Long	Lungo largo
+	Dab	Tocco
+	Tight Curl	Riccio stretto
+	Loose Curl	Riccio largo
+	Stylized dabs from a history state	Tocchi stilizzati da uno stato della storia

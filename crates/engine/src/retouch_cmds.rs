@@ -1,5 +1,6 @@
 //! Retouching tools as commands: Clone Stamp, Pattern Stamp, Healing Brush, Spot Healing Brush,
-//! Patch, Content-Aware Move, Remove, Dodge, Burn, Sponge, Blur, Sharpen, Smudge and History Brush.
+//! Patch, Content-Aware Move, Remove, Dodge, Burn, Sponge, Blur, Sharpen, Smudge, History Brush and
+//! Art History Brush.
 //!
 //! Every command takes a Photoshop-style brush (`points`, `size`, `hardness`, `opacity`, `flow`,
 //! `spacing`, `layer`), respects the active selection as a mask and the layer's transparency lock, and
@@ -24,6 +25,7 @@ use serde_json::{Value, json};
 use crate::commands::{CommandSpec, blend_from_str};
 use crate::{EngineError, Result, Session};
 
+mod art_history;
 mod content_aware_move;
 mod patch;
 mod pattern_stamp;
@@ -1520,6 +1522,18 @@ pub fn specs() -> Vec<CommandSpec> {
             ),
             enabled: has_pixel_layer,
             run: history_brush,
+            journal: true,
+        },
+        CommandSpec {
+            id: "paint.artHistoryBrush",
+            label: "Art History Brush",
+            menu: &[],
+            shortcut: None,
+            params: brush_params!(
+                r#","state":index=0 (oldest held snapshot),"style":"tightShort|tightMedium|tightLong|looseMedium|looseLong|dab|tightCurl|looseCurl"="tightMedium","area":0..100=50,"tolerance":0..100=50"#
+            ),
+            enabled: has_pixel_layer,
+            run: art_history::run,
             journal: true,
         },
     ]

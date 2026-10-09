@@ -3908,3 +3908,15 @@ curves	Smooth	Wygładź
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Karta GPU
+
+# Art History Brush (#213).
+	Art History Brush Tool	Narzędzie Pędzel historii artystycznej
+	Tight Short	Ścisły krótki
+	Tight Medium	Ścisły średni
+	Tight Long	Ścisły długi
+	Loose Medium	Luźny średni
+	Loose Long	Luźny długi
+	Dab	Plama
+	Tight Curl	Ścisły lok
+	Loose Curl	Luźny lok
+	Stylized dabs from a history state	Stylizowane plamy ze stanu historii
