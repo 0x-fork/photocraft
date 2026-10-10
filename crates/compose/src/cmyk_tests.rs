@@ -71,10 +71,48 @@ fn ref_mask(l: &Layer, x: i32, y: i32) -> f32 {
 }
 
 fn ref_own(l: &Layer, x: i32, y: i32) -> Cmyka {
-    let Some(s) = l.surface() else { return [0.0; 5] };
+    let s = match &l.content {
+        LayerContent::Fill(f) => match &l.fill_cache {
+            Some(c) if c.fill == *f => Some(&c.surface),
+            _ => {
+                // A solid colour's inks and alpha, stored at the (8-bit) document's levels.
+                let photocraft_doc::Fill::Solid(color) = f else { return [0.0; 5] };
+                let c = color.in_mode(ColorMode::Cmyk);
+                return [q(c.c[0]), q(c.c[1]), q(c.c[2]), q(c.c[3]), q(color.alpha) * ref_mask(l, x, y)];
+            }
+        },
+        _ => l.surface(),
+    };
+    let Some(s) = s else { return [0.0; 5] };
     let p = s.pixel(x, y);
     let a = if s.format().alpha { p[4] } else { 1.0 };
     [p[0], p[1], p[2], p[3], a * ref_mask(l, x, y)]
+}
+
+/// Source-over with coverage mixed in the type gamma, on brightness (1 − ink), worked out from
+/// the colour transfer functions directly.
+fn over_text(b: Cmyka, s: Cmyka, opacity: f32) -> Cmyka {
+    let gamma = crate::psblend::text_gamma();
+    let sa = s[4] * opacity;
+    if sa <= 0.0 {
+        return b;
+    }
+    let a = sa + b[4] * (1.0 - sa);
+    if a <= 0.0 {
+        return [0.0; 5];
+    }
+    let enc = |ink: f32| photocraft_color::convert::srgb_to_linear((1.0 - ink).max(0.0)).powf(1.0 / gamma);
+    let dec = |v: f32| 1.0 - photocraft_color::convert::linear_to_srgb(v.max(0.0).powf(gamma));
+    let mut o = [0.0; 5];
+    for i in 0..4 {
+        o[i] = dec((1.0 - sa) * b[4] / a * enc(b[i]) + sa / a * enc(s[i]));
+    }
+    o[4] = a;
+    o
+}
+
+fn over_layer(l: &Layer, b: Cmyka, s: Cmyka, opacity: f32) -> Cmyka {
+    if matches!(l.content, LayerContent::Text(_)) { over_text(b, s, opacity) } else { over(b, s, opacity) }
 }
 
 fn ref_stack(layers: &[Layer], x: i32, y: i32, mut b: Cmyka) -> Cmyka {
@@ -124,11 +162,11 @@ fn ref_layer(l: &Layer, clipped: &[Layer], x: i32, y: i32, b: Cmyka) -> Cmyka {
     for c in clipped.iter().filter(|c| c.visible) {
         if content[4] > 0.0 {
             let a = content[4];
-            let r = over([content[0], content[1], content[2], content[3], 1.0], ref_own(c, x, y), c.opacity * c.fill_opacity);
+            let r = over_layer(c, [content[0], content[1], content[2], content[3], 1.0], ref_own(c, x, y), c.opacity * c.fill_opacity);
             content = [r[0], r[1], r[2], r[3], a];
         }
     }
-    over(b, content, op)
+    over_layer(l, b, content, op)
 }
 
 fn assert_matches_reference(d: &Document) {
@@ -315,8 +353,18 @@ struct Spec {
 
 #[derive(Debug, Clone)]
 enum LayerSpec {
-    Pixels { fills: Vec<(Rect, Cmyka)>, opacity: f32, fill: f32, clipped: bool, visible: bool, mask: Option<MaskSpec> },
+    Pixels { kind: Kind, fills: Vec<(Rect, Cmyka)>, opacity: f32, fill: f32, clipped: bool, visible: bool, mask: Option<MaskSpec> },
     Group { children: Vec<LayerSpec>, pass_through: bool, opacity: f32, fill: f32, mask: Option<MaskSpec> },
+}
+
+/// What kind of layer a [`LayerSpec::Pixels`] becomes: its pixels as a pixel layer, as a type or
+/// shape layer's rendered pixels, or a solid colour fill in the first fill's colour.
+#[derive(Debug, Clone, Copy)]
+enum Kind {
+    Raster,
+    Text,
+    Shape,
+    Solid,
 }
 
 #[derive(Debug, Clone)]
@@ -354,8 +402,10 @@ fn pixels(w: i32, h: i32) -> impl Strategy<Value = LayerSpec> {
         any::<bool>(),
         prop::bool::weighted(0.9),
         mask_spec(w, h),
+        prop_oneof![Just(Kind::Raster), Just(Kind::Text), Just(Kind::Shape), Just(Kind::Solid)],
     )
-        .prop_map(|(fills, opacity, fill, clipped, visible, mask)| LayerSpec::Pixels {
+        .prop_map(|(fills, opacity, fill, clipped, visible, mask, kind)| LayerSpec::Pixels {
+            kind,
             fills: fills.into_iter().map(|(r, (c, m, y, k, a))| (r, [c, m, y, k, a])).collect(),
             opacity,
             fill,
@@ -379,8 +429,18 @@ fn spec() -> impl Strategy<Value = Spec> {
 fn build(s: &LayerSpec) -> Layer {
     let make_mask = |m: &MaskSpec| mask(&m.rects, m.default, m.density, m.enabled);
     match s {
-        LayerSpec::Pixels { fills, opacity, fill, clipped, visible, mask } => {
-            let mut l = layer(fills);
+        LayerSpec::Pixels { kind, fills, opacity, fill, clipped, visible, mask } => {
+            let pixels = layer(fills);
+            let mut l = match kind {
+                Kind::Raster => pixels,
+                Kind::Text => Layer::new("t", LayerContent::Text(photocraft_doc::TextLayer { cache: pixels.surface().cloned(), ..Default::default() })),
+                Kind::Shape => Layer::new("s", LayerContent::Shape(photocraft_doc::ShapeLayer { cache: pixels.surface().cloned(), ..Default::default() })),
+                Kind::Solid => {
+                    let [c, m, y, k, a] = fills.first().map_or([0.0; 5], |f| f.1);
+                    let color = photocraft_color::Color { mode: ColorMode::Cmyk, c: [c, m, y, k], alpha: a };
+                    Layer::new("f", LayerContent::Fill(photocraft_doc::Fill::Solid(color)))
+                }
+            };
             (l.opacity, l.fill_opacity, l.clipped, l.visible) = (*opacity, *fill, *clipped, *visible);
             l.mask = mask.as_ref().map(make_mask);
             l
@@ -451,4 +511,118 @@ fn opaque_results_look_the_same_as_the_rgb_compositor() {
             assert!((0..4).all(|c| (shown[c] - r[c]).abs() <= 1e-4), "native {n:?} shows {shown:?}, RGB compositor {r:?}");
         }
     });
+}
+
+// ---- stage 2: type, shape, smart object and fill layers ----------------------------------------
+
+fn text_layer(rects: &[(Rect, Cmyka)]) -> Layer {
+    let cache = layer(rects).surface().cloned();
+    Layer::new("t", LayerContent::Text(photocraft_doc::TextLayer { cache, ..Default::default() }))
+}
+
+fn cmyk_color(c: [f32; 4], alpha: f32) -> photocraft_color::Color {
+    photocraft_color::Color { mode: ColorMode::Cmyk, c, alpha }
+}
+
+/// K-only type keeps K-only glyphs: fully covered pixels are exactly K100, and anti-aliased edges
+/// mix on brightness in the type gamma, adding no cyan, magenta or yellow.
+#[test]
+fn type_interiors_are_exact_and_edges_add_no_other_ink() {
+    let mut d = doc(3, 1);
+    d.layers.push(paper(3, 1, [0.0; 4]));
+    d.layers.push(text_layer(&[(Rect::new(0, 0, 1, 1), [0.0, 0.0, 0.0, 1.0, 1.0]), (Rect::new(1, 0, 2, 1), [0.0, 0.0, 0.0, 1.0, 0.5])]));
+    let got = render_cmyk(&d, d.bounds()).unwrap_or_else(|| panic!("supported"));
+    assert_eq!(got.px[0], [0.0, 0.0, 0.0, 1.0, 1.0], "glyph interior");
+    let edge = got.px[1];
+    assert_eq!(edge[..3], [0.0; 3], "an edge adds no CMY: {edge:?}");
+    let want = over_text([0.0, 0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0, q(0.5)], 1.0);
+    assert!((edge[3] - want[3]).abs() < 1e-6, "{edge:?} vs {want:?}");
+    // The gamma lightens dark edges compared with plain mixing.
+    assert!(edge[3] < q(0.5), "{edge:?}");
+    assert_eq!(got.px[2], [0.0, 0.0, 0.0, 0.0, 1.0], "paper");
+}
+
+#[test]
+fn solid_and_rendered_fills_keep_their_inks() {
+    let mut d = doc(4, 1);
+    d.layers.push(paper(4, 1, [0.0; 4]));
+    let mut solid = Layer::new("f", LayerContent::Fill(photocraft_doc::Fill::Solid(cmyk_color([0.1, 0.2, 0.3, 0.4], 1.0))));
+    solid.mask = Some(mask(&[(Rect::new(2, 0, 4, 1), 0.0)], 1.0, 1.0, true));
+    d.layers.push(solid);
+    // A gradient fill carrying the pixels it was rendered to (as a PSD supplies them).
+    let gradient = photocraft_doc::Fill::gradient(
+        vec![(0.0, cmyk_color([1.0, 0.0, 0.0, 0.0], 1.0)), (1.0, cmyk_color([0.0, 0.0, 0.0, 1.0], 1.0))],
+        0.0,
+        1.0,
+        Default::default(),
+        false,
+    );
+    let rendered = layer(&[(Rect::new(3, 0, 4, 1), [0.9, 0.0, 0.5, 0.0, 1.0])]);
+    let mut cached = Layer::new("g", LayerContent::Fill(gradient.clone()));
+    cached.fill_cache = rendered.surface().map(|s| photocraft_doc::FillCache { fill: gradient, surface: s.clone() });
+    d.layers.push(cached);
+    let got = render_cmyk(&d, d.bounds()).unwrap_or_else(|| panic!("supported"));
+    assert_eq!(got.px[0], [q(0.1), q(0.2), q(0.3), q(0.4), 1.0], "the colour's own inks, at the document's levels");
+    assert_eq!(got.px[2], [0.0, 0.0, 0.0, 0.0, 1.0], "masked out: paper");
+    assert_eq!(got.px[3], [q(0.9), 0.0, q(0.5), 0.0, 1.0], "the fill's rendered pixels");
+    assert_matches_reference(&d);
+}
+
+#[test]
+fn stage_two_layers_that_stay_on_the_rgb_compositor() {
+    let base = || {
+        let mut d = doc(2, 2);
+        d.layers.push(paper(2, 2, [0.0; 4]));
+        d
+    };
+    // A pattern fill without rendered pixels.
+    let mut d = base();
+    let p = photocraft_doc::Fill::Pattern { name: "p".into(), scale: 1.0, id: "p".into(), angle: 0.0, link: true, phase: (0.0, 0.0) };
+    d.layers.push(Layer::new("p", LayerContent::Fill(p)));
+    assert!(!supports(&d), "uncached pattern fill");
+    // Type rendered in RGB (not the document's model).
+    let mut d = base();
+    let mut rgb = Layer::raster("x", PixelFormat::RGBA8);
+    if let Some(s) = rgb.surface_mut() {
+        s.fill_rect(Rect::new(0, 0, 1, 1), &[0.0, 0.0, 0.0, 1.0]);
+    }
+    d.layers.push(Layer::new("t", LayerContent::Text(photocraft_doc::TextLayer { cache: rgb.surface().cloned(), ..Default::default() })));
+    assert!(!supports(&d), "RGB type pixels");
+    // A stroked shape with a clipped layer (its stroke goes above the clipped layers).
+    let mut d = base();
+    let shape = photocraft_doc::ShapeLayer { stroke: Some(Default::default()), cache: layer(&[]).surface().cloned(), ..Default::default() };
+    d.layers.push(Layer::new("s", LayerContent::Shape(shape)));
+    let mut clip = layer(&[(Rect::new(0, 0, 2, 2), [0.5; 5])]);
+    clip.clipped = true;
+    d.layers.push(clip);
+    assert!(!supports(&d), "stroked shape with clipped layers");
+    if let Some(c) = d.layers.last_mut() {
+        c.visible = false;
+    }
+    assert!(supports(&d), "without a visible clipped layer the stroked shape is plain pixels");
+}
+
+/// A gradient fill without rendered pixels is the compositor's own CMYK ramp: between cyan and
+/// black it holds only those two inks, pixel for pixel as the compositor renders it.
+#[test]
+fn uncached_gradient_fills_are_cmyk_ramps() {
+    let mut d = doc(8, 2);
+    let g = photocraft_doc::Fill::gradient(
+        vec![(0.0, cmyk_color([1.0, 0.0, 0.0, 0.0], 1.0)), (1.0, cmyk_color([0.0, 0.0, 0.0, 1.0], 1.0))],
+        0.0,
+        1.0,
+        Default::default(),
+        false,
+    );
+    d.layers.push(Layer::new("g", LayerContent::Fill(g.clone())));
+    assert!(supports(&d));
+    let got = render_cmyk(&d, d.bounds()).unwrap_or_else(|| panic!("supported"));
+    let frame = crate::fill_frame(&d.layers[0], d.bounds());
+    let want = crate::gradient_fill::render_cmyk_fill(&g, d.bounds(), frame, SampleType::U8).unwrap_or_else(|| panic!("ramp"));
+    for (i, p) in got.px.iter().enumerate() {
+        let (x, y) = ((i % 8) as i32, (i / 8) as i32);
+        assert_eq!(p[1..3], [0.0, 0.0], "only cyan and black: {p:?}");
+        assert_eq!(p.to_vec(), want.pixel(x, y), "({x},{y})");
+    }
+    assert!(got.px[0][0] > got.px[7][0] && got.px[0][3] < got.px[7][3], "cyan to black");
 }

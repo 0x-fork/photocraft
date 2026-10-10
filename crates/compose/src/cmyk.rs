@@ -3,10 +3,13 @@
 //! and back through the profile.
 //!
 //! This path covers the layer stacks whose blending is the same in every colour model: Normal
-//! pixel layers with opacity, fill opacity and masks, isolated and pass-through groups, and
-//! clipping groups. [`supports`] says whether a document stays on it; anything else (type,
-//! shapes, fills, effects, adjustments, other blend modes, knockouts, channel restrictions,
-//! Blend If) is left to the RGB compositor, whose result callers convert back to CMYK.
+//! layers with opacity, fill opacity and masks (pixel, type, shape and smart object layers
+//! through their rendered pixels, solid colour fills, and fills carrying their rendered pixels),
+//! isolated and pass-through groups, and clipping groups. Type layers mix their edges in the
+//! compositor's text gamma, on brightness. [`supports`] says whether a document stays on it;
+//! anything else (gradient and pattern fills without rendered pixels, effects, adjustments,
+//! other blend modes, knockouts, channel restrictions, Blend If) is left to the RGB compositor,
+//! whose result callers convert back to CMYK.
 //!
 //! Buffers hold straight-alpha `[C, M, Y, K, A]` in 0..1 ink (0 = no ink).
 
@@ -74,8 +77,22 @@ fn plain(l: &Layer) -> bool {
         && l.blend_if.is_default()
 }
 
-fn cmyk_raster(l: &Layer) -> bool {
-    matches!(&l.content, LayerContent::Raster(s) if s.format().mode == ColorMode::Cmyk)
+/// A layer whose own pixels this path reads in CMYK: pixel layers, and type, shape and smart
+/// object layers through their rendered pixels (rendered in the document's model, so a colour
+/// given in CMYK is drawn with exactly those inks); solid colour fills, and fills carrying the
+/// pixels they were rendered to. Gradient and pattern fills without those pixels aren't.
+fn cmyk_pixels(l: &Layer) -> bool {
+    let cmyk = |s: &photocraft_raster::Surface| s.format().mode == ColorMode::Cmyk;
+    match &l.content {
+        LayerContent::Raster(s) => cmyk(s),
+        LayerContent::Text(_) | LayerContent::Shape(_) | LayerContent::Smart(_) => l.surface().is_none_or(cmyk),
+        LayerContent::Fill(f) => match &l.fill_cache {
+            Some(c) if c.fill == *f => cmyk(&c.surface),
+            // Solid colours and gradients render natively in CMYK; patterns don't.
+            _ => !matches!(f, photocraft_doc::Fill::Pattern { .. }),
+        },
+        _ => false,
+    }
 }
 
 fn layer_supported(l: &Layer, clipped: &[Layer], depth: u32) -> bool {
@@ -83,7 +100,12 @@ fn layer_supported(l: &Layer, clipped: &[Layer], depth: u32) -> bool {
         return false;
     }
     let content = match &l.content {
-        LayerContent::Raster(_) => cmyk_raster(l) && l.blend == BlendMode::Normal,
+        // A stroked shape with clipped layers draws its stroke above them (the compositor's
+        // split path), which this path doesn't do.
+        LayerContent::Shape(sh) if sh.stroke.is_some() && clipped.iter().any(|c| c.visible) => false,
+        LayerContent::Raster(_) | LayerContent::Text(_) | LayerContent::Shape(_) | LayerContent::Smart(_) | LayerContent::Fill(_) => {
+            cmyk_pixels(l) && l.blend == BlendMode::Normal
+        }
         LayerContent::Group(g) => {
             g.artboard.is_none()
                 && matches!(l.blend, BlendMode::Normal | BlendMode::PassThrough)
@@ -93,7 +115,7 @@ fn layer_supported(l: &Layer, clipped: &[Layer], depth: u32) -> bool {
         }
         _ => false,
     };
-    content && clipped.iter().filter(|c| c.visible).all(|c| plain(c) && cmyk_raster(c) && c.blend == BlendMode::Normal)
+    content && clipped.iter().filter(|c| c.visible).all(|c| plain(c) && cmyk_pixels(c) && c.blend == BlendMode::Normal)
 }
 
 /// A group whose children composite straight into the backdrop (the compositor's rule).
@@ -126,10 +148,61 @@ fn clean(v: f32) -> f32 {
     if v.is_finite() { v } else { 0.0 }
 }
 
-/// A CMYK pixel layer's own pixels over `rect`, masks applied.
-fn raster_content(l: &Layer, rect: Rect, cx: &Ctx) -> CmykBuffer {
+/// [`normal`] with coverage mixed in the type-layer `gamma` space (1 = plain [`normal`]), as
+/// the compositor mixes type edges. The space is one of light, so inks are mixed as their
+/// brightness (1 − ink); fully covered pixels are the source's inks exactly.
+#[inline]
+pub fn normal_gamma(backdrop: Cmyka, source: Cmyka, opacity: f32, gamma: f32) -> Cmyka {
+    if gamma == 1.0 {
+        return normal(backdrop, source, opacity);
+    }
+    let ab = backdrop[4];
+    let as_ = source[4] * opacity;
+    if as_ <= 0.0 {
+        return backdrop;
+    }
+    let ao = as_ + ab * (1.0 - as_);
+    if ao <= 0.0 {
+        return [0.0; 5];
+    }
+    // Normal: the blended colour is the source's, so its weight joins the source's.
+    let (wb, ws) = ((1.0 - as_) * ab / ao, as_ / ao);
+    let g = |ink: f32| super::psblend::text_encode(1.0 - ink, gamma);
+    // A covered pixel, or a channel both sides agree on, is exactly that ink: the round trip
+    // through the gamma space would only add rounding (K-only type would gain a trace of CMY).
+    let c = |i: usize| {
+        if wb <= 0.0 || backdrop[i] == source[i] { source[i] } else { 1.0 - super::psblend::text_decode(wb * g(backdrop[i]) + ws * g(source[i]), gamma) }
+    };
+    [c(0), c(1), c(2), c(3), ao]
+}
+
+/// A layer's own CMYK pixels over `rect` (see [`cmyk_pixels`]), masks applied.
+fn layer_content(l: &Layer, rect: Rect, cx: &Ctx) -> CmykBuffer {
     let mut out = CmykBuffer::transparent(rect);
-    if let LayerContent::Raster(s) = &l.content {
+    let rendered;
+    let surface = match &l.content {
+        LayerContent::Fill(f) => match &l.fill_cache {
+            Some(c) if c.fill == *f => Some(&c.surface),
+            _ => {
+                // The compositor's own CMYK rendering of the fill, at the document's depth (a
+                // colour given in CMYK keeps its inks); a solid colour is one pixel, spread out.
+                let solid = matches!(f, photocraft_doc::Fill::Solid(_));
+                let at = if solid { Rect::new(0, 0, 1, 1) } else { rect };
+                rendered = super::gradient_fill::render_cmyk_fill(f, at, super::fill_frame(l, cx.canvas), cx.depth);
+                match &rendered {
+                    Some(s) if solid => {
+                        let p = s.pixel(0, 0);
+                        let v = |i: usize| p.get(i).copied().map_or(0.0, clean);
+                        out.px.fill([v(0), v(1), v(2), v(3), v(4)]);
+                        None
+                    }
+                    r => r.as_ref(),
+                }
+            }
+        },
+        _ => l.surface(),
+    };
+    if let Some(s) = surface {
         let ch = s.format().channels();
         let alpha = s.format().alpha;
         let mut v = Vec::new();
@@ -167,23 +240,24 @@ fn mask_at(m: &Option<Vec<f32>>, i: usize) -> f32 {
 /// the base keeps its alpha.
 fn composite_clipped(clipped: &[Layer], base: &mut CmykBuffer, cx: &Ctx) {
     for c in clipped.iter().filter(|c| c.visible) {
-        let content = raster_content(c, base.rect, cx);
+        let content = layer_content(c, base.rect, cx);
         let opacity = c.opacity * c.fill_opacity;
+        let gamma = super::text_gamma(c);
         for (p, s) in base.px.iter_mut().zip(&content.px) {
             let alpha = p[4];
             if alpha <= 0.0 {
                 continue;
             }
-            let r = normal([p[0], p[1], p[2], p[3], 1.0], *s, opacity);
+            let r = normal_gamma([p[0], p[1], p[2], p[3], 1.0], *s, opacity, gamma);
             *p = [r[0], r[1], r[2], r[3], alpha];
         }
     }
 }
 
-fn blend_into(backdrop: &mut CmykBuffer, src: &CmykBuffer, opacity: f32) {
+fn blend_into(backdrop: &mut CmykBuffer, src: &CmykBuffer, opacity: f32, gamma: f32) {
     for (b, s) in backdrop.px.iter_mut().zip(&src.px) {
         if s[4] > 0.0 {
-            *b = normal(*b, *s, opacity);
+            *b = normal_gamma(*b, *s, opacity, gamma);
         }
     }
 }
@@ -230,12 +304,12 @@ fn composite_layer(l: &Layer, clipped: &[Layer], backdrop: &mut CmykBuffer, cx: 
         composite_stack(&g.children, &mut content, cx);
         apply_mask(l, &mut content, cx);
         composite_clipped(clipped, &mut content, cx);
-        blend_into(backdrop, &content, opacity);
+        blend_into(backdrop, &content, opacity, 1.0);
         return;
     }
-    let mut content = raster_content(l, rect, cx);
+    let mut content = layer_content(l, rect, cx);
     composite_clipped(clipped, &mut content, cx);
-    blend_into(backdrop, &content, opacity);
+    blend_into(backdrop, &content, opacity, super::text_gamma(l));
 }
 
 fn render_tile(doc: &Document, rect: Rect, cx: &Ctx) -> CmykBuffer {
