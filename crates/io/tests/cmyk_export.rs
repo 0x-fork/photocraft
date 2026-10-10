@@ -148,3 +148,29 @@ fn rgb_only_formats_still_get_rgb_through_the_profile() {
     assert!(matches!(img.layout(), ChannelLayout::Rgb | ChannelLayout::Rgba), "{:?}", img.layout());
     assert!(r.warnings.iter().any(|w| w.contains("CMYK converted to sRGB")), "{:?}", r.warnings);
 }
+
+#[test]
+fn ink_adjustments_export_exact_inks() {
+    // Invert in CMYK turns every ink into its opposite: blank paper becomes four-colour black,
+    // K-only black loses its K and gains full C, M and Y.
+    let mut d = layered(SampleType::U8);
+    d.layers.push(Layer::new("inv", photocraft_doc::LayerContent::Adjustment(photocraft_doc::Adjustment::Invert)));
+    let r = export(&d, "a.tif", &ExportOptions::default()).unwrap_or_else(|e| panic!("{e}"));
+    assert!(!r.warnings.iter().any(|w| w.contains("converted back")), "{:?}", r.warnings);
+    let img = decode(&r.bytes);
+    assert_eq!(img.layout(), ChannelLayout::Cmyk);
+    assert_eq!(pixel(&img, 8, 6), vec![1.0, 1.0, 1.0, 1.0], "paper");
+    assert_eq!(pixel(&img, 2, 3), vec![1.0, 1.0, 1.0, 0.0], "K-only black");
+    let inv = |v: f32| (255.0 - (v * 255.0).round()) / 255.0;
+    assert_eq!(pixel(&img, 8, 1), vec![inv(0.2), inv(0.4), inv(0.6), inv(0.1)], "four-colour patch");
+}
+
+#[test]
+fn channel_weighing_adjustments_go_through_the_profile() {
+    // Threshold weighs the channels together: it isn't an ink-by-ink edit.
+    let mut d = layered(SampleType::U8);
+    d.layers.push(Layer::new("t", photocraft_doc::LayerContent::Adjustment(photocraft_doc::Adjustment::Threshold { level: 0.5 })));
+    let r = export(&d, "a.tif", &ExportOptions::default()).unwrap_or_else(|e| panic!("{e}"));
+    assert!(r.warnings.iter().any(|w| w.contains("converted back through the document's CMYK profile")), "{:?}", r.warnings);
+    assert_eq!(decode(&r.bytes).layout(), ChannelLayout::Cmyk);
+}

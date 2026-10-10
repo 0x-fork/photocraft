@@ -105,7 +105,8 @@ fn over_text(b: Cmyka, s: Cmyka, opacity: f32) -> Cmyka {
     let dec = |v: f32| 1.0 - photocraft_color::convert::linear_to_srgb(v.max(0.0).powf(gamma));
     let mut o = [0.0; 5];
     for i in 0..4 {
-        o[i] = dec((1.0 - sa) * b[4] / a * enc(b[i]) + sa / a * enc(s[i]));
+        // Mixing an ink with itself (or with nothing) leaves it exactly as it is.
+        o[i] = if b[4] <= 0.0 || b[i] == s[i] { s[i] } else { dec((1.0 - sa) * b[4] / a * enc(b[i]) + sa / a * enc(s[i])) };
     }
     o[4] = a;
     o
@@ -179,6 +180,72 @@ fn over_special_fill(l: &Layer, b: Cmyka, s: Cmyka) -> Cmyka {
     o
 }
 
+/// An adjustment on one pixel: each ink's brightness through the channel's table (Levels and
+/// Curves: the compositor's tables for an 8-bit document, interpolated here), Invert and
+/// Posterize written out.
+fn ref_adjust(adj: &Adjustment, p: Cmyka) -> Cmyka {
+    if p[4] <= 0.0 {
+        return p;
+    }
+    let luts = crate::adjust::tone_luts_depth(adj, Some(SampleType::U8));
+    let mut o = p;
+    for c in 0..4 {
+        let v = 1.0 - p[c];
+        let r = match adj {
+            Adjustment::Invert => 1.0 - v,
+            Adjustment::Posterize { levels } => {
+                let n = (*levels).clamp(2, 255) as f32;
+                let bin = ((v * 255.0).round() * n / 256.0).floor().min(n - 1.0);
+                (bin * 255.0 / (n - 1.0)).floor() / 255.0
+            }
+            _ => {
+                let t = &luts[c];
+                let x = v.clamp(0.0, 1.0) * (t.len() - 1) as f32;
+                let i = x.floor() as usize;
+                let j = (i + 1).min(t.len() - 1);
+                t[i] + (t[j] - t[i]) * (x - i as f32)
+            }
+        };
+        o[c] = 1.0 - r;
+    }
+    o
+}
+
+/// An adjustment layer `l` (adjusting `p`, then `clipped` onto that) mixed into `p` in its blend
+/// mode by its opacity and mask; coverage stays.
+fn ref_adjusted(l: &Layer, adj: &Adjustment, clipped: &[Layer], p: Cmyka, x: i32, y: i32) -> Cmyka {
+    let mut a = ref_adjust(adj, p);
+    if p[4] > 0.0 {
+        a = ref_clip(clipped, a, x, y);
+    }
+    let k = l.opacity * l.fill_opacity * ref_mask(l, x, y);
+    let mut o = p;
+    for c in 0..4 {
+        o[c] = p[c] + (ref_blend(l.blend, p[c], a[c]) - p[c]) * k;
+    }
+    o
+}
+
+/// `clipped` onto `content` (blending as if it were opaque; its coverage stays).
+fn ref_clip(clipped: &[Layer], mut content: Cmyka, x: i32, y: i32) -> Cmyka {
+    for c in clipped.iter().filter(|c| c.visible) {
+        if let LayerContent::Adjustment(adj) = &c.content {
+            content = ref_adjusted(c, adj, &[], content, x, y);
+        } else if content[4] > 0.0 {
+            let a = content[4];
+            let r = over_layer(c, [content[0], content[1], content[2], content[3], 1.0], ref_own(c, x, y), c.opacity * c.fill_opacity, None);
+            content = [r[0], r[1], r[2], r[3], a];
+        }
+    }
+    content
+}
+
+/// Rounding to an 8-bit document's levels: stored channel brightness, and coverage.
+fn ref_round(p: Cmyka) -> Cmyka {
+    let r = |v: f32| (v * 255.0 + 0.5).floor() / 255.0;
+    [1.0 - r(1.0 - p[0]), 1.0 - r(1.0 - p[1]), 1.0 - r(1.0 - p[2]), 1.0 - r(1.0 - p[3]), r(p[4])]
+}
+
 fn ref_stack(layers: &[Layer], x: i32, y: i32, mut b: Cmyka) -> Cmyka {
     let mut i = 0;
     while i < layers.len() {
@@ -189,6 +256,9 @@ fn ref_stack(layers: &[Layer], x: i32, y: i32, mut b: Cmyka) -> Cmyka {
         }
         if base.visible {
             b = ref_layer(base, &layers[i + 1..j], x, y, b);
+            if matches!(base.content, LayerContent::Adjustment(_)) {
+                b = ref_round(b);
+            }
         }
         i = j;
     }
@@ -216,6 +286,7 @@ fn ref_layer(l: &Layer, clipped: &[Layer], x: i32, y: i32, b: Cmyka) -> Cmyka {
             o[4] = a;
             return o;
         }
+        LayerContent::Adjustment(adj) => return ref_adjusted(l, adj, clipped, b, x, y),
         LayerContent::Group(g) => {
             let mut c = ref_stack(&g.children, x, y, [0.0; 5]);
             c[4] *= ref_mask(l, x, y);
@@ -223,13 +294,7 @@ fn ref_layer(l: &Layer, clipped: &[Layer], x: i32, y: i32, b: Cmyka) -> Cmyka {
         }
         _ => ref_own(l, x, y),
     };
-    for c in clipped.iter().filter(|c| c.visible) {
-        if content[4] > 0.0 {
-            let a = content[4];
-            let r = over_layer(c, [content[0], content[1], content[2], content[3], 1.0], ref_own(c, x, y), c.opacity * c.fill_opacity, None);
-            content = [r[0], r[1], r[2], r[3], a];
-        }
-    }
+    content = ref_clip(clipped, content, x, y);
     // A layer's own blend (not a group's) for the special eight below 100% Fill.
     if l.fill_opacity < 1.0 && crate::psblend::fill_is_special(l.blend) && !matches!(l.content, LayerContent::Group(_)) {
         return over_special_fill(l, b, content);
@@ -334,7 +399,13 @@ fn unsupported_documents_fall_back() {
     check("knockout", &|l| l.advanced.knockout = Knockout::Shallow);
     check("channels", &|l| l.excluded_channels = 1);
     check("nan opacity", &|l| l.opacity = f32::NAN);
-    check("adjustment", &|l| l.content = LayerContent::Adjustment(Adjustment::Invert));
+    // Adjustments that weigh the channels together, or whose records name RGB channels.
+    check("threshold", &|l| l.content = LayerContent::Adjustment(Adjustment::Threshold { level: 0.5 }));
+    check("rgb levels", &|l| l.content = LayerContent::Adjustment(rgb_levels()));
+    check("invert in colour mode", &|l| {
+        l.content = LayerContent::Adjustment(Adjustment::Invert);
+        l.blend = BlendMode::Color;
+    });
     check("rgb pixels", &|l| l.content = LayerContent::Raster(Surface::new(PixelFormat::RGBA8)));
     // Not a CMYK document.
     let mut rgb = simple();
@@ -428,12 +499,24 @@ enum LayerSpec {
 
 /// What kind of layer a [`LayerSpec::Pixels`] becomes: its pixels as a pixel layer, as a type or
 /// shape layer's rendered pixels, or a solid colour fill in the first fill's colour.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum Kind {
     Raster,
     Text,
     Shape,
     Solid,
+    /// An adjustment layer (its fills are unused).
+    Adjust(AdjSpec),
+}
+
+/// The adjustments this path applies on ink values; `channel` 0..=3 is C, M, Y, K and 4 the
+/// composite record.
+#[derive(Debug, Clone)]
+enum AdjSpec {
+    Invert,
+    Posterize(u32),
+    Levels { channel: usize, levels: [f32; 5] },
+    Curves { channel: usize, points: Vec<(f32, f32)> },
 }
 
 #[derive(Debug, Clone)]
@@ -450,6 +533,38 @@ fn blend_mode() -> impl Strategy<Value = BlendMode> {
         6 => Just(BlendMode::Normal),
         1 => prop::sample::select(SEPARABLE.to_vec()),
     ]
+}
+
+fn adj_spec() -> impl Strategy<Value = AdjSpec> {
+    prop_oneof![
+        Just(AdjSpec::Invert),
+        (2u32..9).prop_map(AdjSpec::Posterize),
+        (0usize..5, 0.0f32..0.4, 0.6f32..=1.0, 0.3f32..3.0, 0.0f32..0.3, 0.7f32..=1.0)
+            .prop_map(|(channel, ib, iw, g, ob, ow)| AdjSpec::Levels { channel, levels: [ib, iw, g, ob, ow] }),
+        (0usize..5, prop::collection::vec((unit(), unit()), 2..5)).prop_map(|(channel, mut points)| {
+            points.sort_by(|a, b| a.0.total_cmp(&b.0));
+            points.dedup_by(|a, b| (a.0 - b.0).abs() < 0.02);
+            AdjSpec::Curves { channel, points }
+        }),
+    ]
+}
+
+fn make_adjustment(a: &AdjSpec) -> Adjustment {
+    use photocraft_doc::adjust::{CurvePoint, LevelsChannel, ToneSpace};
+    match a {
+        AdjSpec::Invert => Adjustment::Invert,
+        AdjSpec::Posterize(levels) => Adjustment::Posterize { levels: *levels },
+        AdjSpec::Levels { channel, levels: [in_black, in_white, gamma, out_black, out_white] } => {
+            let rec = LevelsChannel { in_black: *in_black, in_white: *in_white, gamma: *gamma, out_black: *out_black, out_white: *out_white };
+            let pick = |c: usize| if c == *channel { rec.clone() } else { LevelsChannel::default() };
+            Adjustment::Levels { master: pick(4), per_channel: [pick(0), pick(1), pick(2)], space: ToneSpace::Cmyk, black: pick(3) }
+        }
+        AdjSpec::Curves { channel, points } => {
+            let curve: Vec<CurvePoint> = points.iter().map(|(input, output)| CurvePoint { input: *input, output: *output }).collect();
+            let pick = |c: usize| if c == *channel { curve.clone() } else { Vec::new() };
+            Adjustment::Curves { master: pick(4), per_channel: [pick(0), pick(1), pick(2)], space: ToneSpace::Cmyk, black: pick(3) }
+        }
+    }
 }
 
 fn unit() -> impl Strategy<Value = f32> {
@@ -479,7 +594,10 @@ fn pixels(w: i32, h: i32) -> impl Strategy<Value = LayerSpec> {
         any::<bool>(),
         prop::bool::weighted(0.9),
         mask_spec(w, h),
-        prop_oneof![Just(Kind::Raster), Just(Kind::Text), Just(Kind::Shape), Just(Kind::Solid)],
+        prop_oneof![
+            3 => prop_oneof![Just(Kind::Raster), Just(Kind::Text), Just(Kind::Shape), Just(Kind::Solid)],
+            1 => adj_spec().prop_map(Kind::Adjust),
+        ],
         blend_mode(),
     )
         .prop_map(|(fills, opacity, fill, clipped, visible, mask, kind, blend)| LayerSpec::Pixels {
@@ -519,6 +637,7 @@ fn build(s: &LayerSpec) -> Layer {
                     let color = photocraft_color::Color { mode: ColorMode::Cmyk, c: [c, m, y, k], alpha: a };
                     Layer::new("f", LayerContent::Fill(photocraft_doc::Fill::Solid(color)))
                 }
+                Kind::Adjust(a) => Layer::new("a", LayerContent::Adjustment(make_adjustment(a))),
             };
             (l.opacity, l.fill_opacity, l.clipped, l.visible) = (*opacity, *fill, *clipped, *visible);
             l.blend = *blend;
@@ -881,4 +1000,123 @@ fn fill_is_part_of_the_blend_for_the_special_eight() {
     let (b, s) = (1.0 - q(0.7), 1.0 - q(0.1));
     let as_coverage = 1.0 - (0.5 * b + 0.5 * (b - s).abs());
     assert!((want[0] - as_coverage).abs() > 0.2, "the two readings differ");
+}
+
+// ---- stage 4: adjustment layers on ink values --------------------------------------------------
+
+fn rgb_levels() -> Adjustment {
+    use photocraft_doc::adjust::{LevelsChannel, ToneSpace};
+    let d = LevelsChannel::default;
+    Adjustment::Levels { master: LevelsChannel { in_white: 0.5, ..d() }, per_channel: [d(), d(), d()], space: ToneSpace::Rgb, black: d() }
+}
+
+fn cmyk_levels(master: photocraft_doc::adjust::LevelsChannel, black: photocraft_doc::adjust::LevelsChannel) -> Adjustment {
+    use photocraft_doc::adjust::{LevelsChannel, ToneSpace};
+    let d = LevelsChannel::default;
+    Adjustment::Levels { master, per_channel: [d(), d(), d()], space: ToneSpace::Cmyk, black }
+}
+
+fn adjustment(a: Adjustment) -> Layer {
+    Layer::new("a", LayerContent::Adjustment(a))
+}
+
+fn render1(d: &Document, x: i32, y: i32) -> Cmyka {
+    let got = render_cmyk(d, d.bounds()).unwrap_or_else(|| panic!("supported"));
+    got.px[(y * d.size.width as i32 + x) as usize]
+}
+
+fn near(a: Cmyka, b: Cmyka, tol: f32) -> bool {
+    a.iter().zip(b).all(|(x, y)| (x - y).abs() <= tol)
+}
+
+/// Invert turns every ink into its opposite, black included (blank paper becomes four-colour
+/// black); Posterize steps each ink on its own.
+#[test]
+fn invert_and_posterize_work_ink_by_ink() {
+    let mut d = doc(2, 1);
+    d.layers.push(paper(2, 1, [0.0; 4]));
+    d.layers.push(layer(&[(Rect::new(1, 0, 2, 1), [0.0, 0.0, 0.0, 1.0, 1.0])]));
+    d.layers.push(adjustment(Adjustment::Invert));
+    assert_eq!(render1(&d, 0, 0), [1.0, 1.0, 1.0, 1.0, 1.0], "paper");
+    assert_eq!(render1(&d, 1, 0), [1.0, 1.0, 1.0, 0.0, 1.0], "K-only black");
+    let mut d = doc(1, 1);
+    d.layers.push(paper(1, 1, [0.2, 0.45, 0.7, 0.9]));
+    d.layers.push(adjustment(Adjustment::Posterize { levels: 2 }));
+    // Two levels: brightness below half goes dark (full ink), above half light (no ink).
+    assert_eq!(render1(&d, 0, 0), [0.0, 0.0, 1.0, 1.0, 1.0]);
+}
+
+/// Levels' composite record changes every ink, the black record only K; channels a record
+/// leaves alone keep their exact inks.
+#[test]
+fn levels_records_address_their_inks() {
+    use photocraft_doc::adjust::LevelsChannel;
+    let d0 = LevelsChannel::default;
+    // Composite: input white at 50% doubles each ink's brightness.
+    let mut d = doc(1, 1);
+    d.layers.push(paper(1, 1, [0.2, 0.4, 0.6, 0.1]));
+    d.layers.push(adjustment(cmyk_levels(LevelsChannel { in_white: 0.5, ..d0() }, d0())));
+    assert!(near(render1(&d, 0, 0), [0.0, 0.0, 0.2, 0.0, 1.0], 1.0 / 255.0), "{:?}", render1(&d, 0, 0));
+    // Black: output white at 50% leaves at least half K, and no other ink.
+    let mut d = doc(2, 1);
+    d.layers.push(paper(2, 1, [0.0; 4]));
+    d.layers.push(layer(&[(Rect::new(1, 0, 2, 1), [0.4, 0.0, 0.0, 0.0, 1.0])]));
+    d.layers.push(adjustment(cmyk_levels(d0(), LevelsChannel { out_white: 0.5, ..d0() })));
+    let (blank, cyan) = (render1(&d, 0, 0), render1(&d, 1, 0));
+    assert_eq!(&blank[..3], &[0.0; 3], "{blank:?}");
+    assert!((blank[3] - 0.5).abs() <= 1.0 / 255.0, "{blank:?}");
+    assert_eq!(cyan[0], q(0.4), "cyan untouched: {cyan:?}");
+}
+
+/// Opacity, masks, blend modes, clipping onto adjustments and adjustments clipped onto a layer,
+/// inside isolated and pass-through groups, against the reference.
+#[test]
+fn adjustment_stacks_match_the_reference() {
+    use photocraft_doc::adjust::LevelsChannel;
+    let d0 = LevelsChannel::default;
+    let mut d = doc(8, 6);
+    d.layers.push(paper(8, 6, [0.05, 0.1, 0.0, 0.0]));
+    d.layers.push(layer(&[(Rect::new(0, 0, 5, 6), [0.0, 0.0, 0.0, 1.0, 1.0]), (Rect::new(5, 0, 8, 3), [0.6, 0.2, 0.1, 0.3, 0.7])]));
+    let mut inv = adjustment(Adjustment::Invert);
+    inv.opacity = 0.4;
+    inv.mask = Some(mask(&[(Rect::new(0, 0, 3, 6), 0.0)], 1.0, 0.8, true));
+    let mut onto = layer(&[(Rect::new(2, 2, 8, 6), [0.0, 0.7, 0.0, 0.0, 1.0])]);
+    onto.clipped = true;
+    onto.blend = BlendMode::Multiply;
+    let mut base = layer(&[(Rect::new(1, 1, 7, 5), [0.1, 0.1, 0.5, 0.0, 0.9])]);
+    base.blend = BlendMode::Screen;
+    let mut lv = adjustment(cmyk_levels(LevelsChannel { gamma: 1.8, ..d0() }, LevelsChannel { in_black: 0.2, ..d0() }));
+    lv.clipped = true;
+    lv.blend = BlendMode::Overlay;
+    let mut pass = Layer::group("pass", vec![adjustment(Adjustment::Posterize { levels: 4 })]);
+    pass.opacity = 0.6;
+    let mut iso = Layer::group("iso", vec![layer(&[(Rect::new(0, 3, 8, 6), [0.5, 0.0, 0.5, 0.0, 0.5])]), adjustment(Adjustment::Invert)]);
+    iso.blend = BlendMode::Normal;
+    d.layers.extend([inv, onto, base, lv, pass, iso]);
+    assert_matches_reference(&d);
+}
+
+/// In a 32-bit document (no rounding to levels), inks an adjustment leaves alone come out
+/// bit for bit, at full strength and through blend modes that pick an input.
+#[test]
+fn untouched_inks_stay_bit_exact() {
+    use photocraft_doc::adjust::LevelsChannel;
+    let d0 = LevelsChannel::default;
+    let fmt = PixelFormat { mode: ColorMode::Cmyk, sample: SampleType::F32, alpha: false };
+    let inks = [0.123_456_7, 0.456_789_1, 0.789_123_4, 0.0];
+    for blend in [BlendMode::Normal, BlendMode::Darken, BlendMode::Lighten] {
+        let mut d = Document::new("f", Size::new(1, 1), ColorMode::Cmyk, SampleType::F32);
+        let mut bg = Layer::raster("bg", fmt);
+        if let Some(s) = bg.surface_mut() {
+            s.fill_rect(Rect::new(0, 0, 1, 1), &inks);
+        }
+        d.layers.push(bg);
+        let mut a = adjustment(cmyk_levels(d0(), LevelsChannel { out_white: 0.5, ..d0() }));
+        a.blend = blend;
+        d.layers.push(a);
+        let got = render1(&d, 0, 0);
+        assert_eq!(&got[..3], &inks[..3], "{blend:?}");
+        let want_k = if blend == BlendMode::Lighten { 0.0 } else { 0.5 };
+        assert!((got[3] - want_k).abs() < 1e-6, "{blend:?}: {got:?}");
+    }
 }

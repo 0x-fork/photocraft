@@ -9,16 +9,19 @@
 //! fills, and fills carrying their rendered pixels), isolated and pass-through groups, and
 //! clipping groups. Blend modes act on each ink's brightness (1 − ink), as the RGB compositor's
 //! do on each channel, and Dissolve uses the same noise. Type layers mix their edges in the
-//! compositor's text gamma, on brightness. [`supports`] says whether a document stays on it;
-//! anything else (gradient and pattern fills without rendered pixels, effects, adjustments,
-//! channel-mixing blend modes, knockouts, channel restrictions, Blend If) is left to the RGB
-//! compositor, whose result callers convert back to CMYK.
+//! compositor's text gamma, on brightness. Adjustment layers that are defined ink by ink (Invert,
+//! Posterize, and Levels and Curves recorded on the CMYK channels) change the inks themselves,
+//! rounded to the document's levels like the compositor's. [`supports`] says whether a document
+//! stays on it; anything else (gradient and pattern fills without rendered pixels, effects, other
+//! adjustments, channel-mixing blend modes, knockouts, channel restrictions, Blend If) is left to
+//! the RGB compositor, whose result callers convert back to CMYK.
 //!
 //! Buffers hold straight-alpha `[C, M, Y, K, A]` in 0..1 ink (0 = no ink).
 
-use photocraft_color::ColorMode;
 use photocraft_color::blend::BlendMode;
-use photocraft_doc::{Document, Knockout, Layer, LayerContent};
+use photocraft_color::{ColorMode, SampleType};
+use photocraft_doc::adjust::ToneSpace;
+use photocraft_doc::{Adjustment, Document, Knockout, Layer, LayerContent};
 use photocraft_geom::Rect;
 
 use super::{Ctx, RENDER_TILE, advanced, empty_in, mask_vals, pattern};
@@ -116,9 +119,23 @@ fn layer_supported(l: &Layer, clipped: &[Layer], depth: u32) -> bool {
                 && !(passes_through(l) && clipped.iter().any(|c| c.visible))
                 && stack_supported(&g.children, depth + 1)
         }
-        _ => false,
+        LayerContent::Adjustment(a) => ink_adjustment(a) && separable(l.blend),
     };
-    content && clipped.iter().filter(|c| c.visible).all(|c| plain(c) && cmyk_pixels(c) && separable(c.blend))
+    content && clipped.iter().filter(|c| c.visible).all(|c| plain(c) && (cmyk_pixels(c) || adjusts_inks(c)) && separable(c.blend))
+}
+
+/// Adjustments whose CMYK result is defined ink by ink, applied here on ink values: Invert and
+/// Posterize (each channel on its own), and Levels and Curves recorded on the CMYK channels.
+fn ink_adjustment(a: &Adjustment) -> bool {
+    match a {
+        Adjustment::Invert | Adjustment::Posterize { .. } => true,
+        Adjustment::Levels { space, .. } | Adjustment::Curves { space, .. } => *space == ToneSpace::Cmyk,
+        _ => false,
+    }
+}
+
+fn adjusts_inks(l: &Layer) -> bool {
+    matches!(&l.content, LayerContent::Adjustment(a) if ink_adjustment(a))
 }
 
 /// A group whose children composite straight into the backdrop (the compositor's rule).
@@ -170,7 +187,17 @@ pub fn blend_ink(mode: BlendMode, cb: [f32; 4], cs: [f32; 4]) -> [f32; 4] {
     let s = |i: usize| 1.0 - cs[i];
     let cmy = super::psblend::blend_rgb(mode, [b(0), b(1), b(2)], [s(0), s(1), s(2)]);
     let k = super::psblend::blend_rgb(mode, [b(3); 3], [s(3); 3]);
-    [1.0 - cmy[0], 1.0 - cmy[1], 1.0 - cmy[2], 1.0 - k[0]]
+    // A result that is one of the inputs (Normal, Darken, Lighten, ...) is that ink exactly.
+    let ink = |r: f32, i: usize| {
+        if r == s(i) {
+            cs[i]
+        } else if r == b(i) {
+            cb[i]
+        } else {
+            1.0 - r
+        }
+    };
+    [ink(cmy[0], 0), ink(cmy[1], 1), ink(cmy[2], 2), ink(k[0], 3)]
 }
 
 /// [`composite_ink`] for a layer with separate `opacity` and `fill`, as the RGB compositor's
@@ -331,10 +358,80 @@ fn mask_at(m: &Option<Vec<f32>>, i: usize) -> f32 {
     m.as_ref().and_then(|v| v.get(i)).copied().map_or(1.0, |k| clean(k).max(0.0))
 }
 
+/// `table` (samples evenly over 0..1) at `v`, interpolated like the compositor's adjustment LUTs.
+fn lut_at(table: &[f32], v: f32) -> f32 {
+    let Some(last) = table.len().checked_sub(1) else { return v };
+    let x = clean(v).clamp(0.0, 1.0) * last as f32;
+    let i = (x.floor() as usize).min(last);
+    let f = x - i as f32;
+    let at = |k: usize| table.get(k).copied().unwrap_or(v);
+    at(i) * (1.0 - f) + at((i + 1).min(last)) * f
+}
+
+/// Applies an [`ink_adjustment`] to every covered pixel. Like the document's channels, the
+/// adjustment acts on each ink's brightness (1 − ink); Levels and Curves work on the whole levels
+/// of a `depth` document as on the RGB compositor.
+fn adjust_inks(adj: &Adjustment, buf: &mut CmykBuffer, depth: SampleType) {
+    let luts = matches!(adj, Adjustment::Levels { .. } | Adjustment::Curves { .. }).then(|| super::adjust::tone_luts_depth(adj, Some(depth)));
+    let tone = |ch: usize, v: f32| match adj {
+        Adjustment::Invert => 1.0 - v,
+        Adjustment::Posterize { levels } => super::adjust::posterize(v, *levels),
+        _ => luts.as_ref().and_then(|t| t.get(ch)).map_or(v, |t| lut_at(t, v)),
+    };
+    for p in &mut buf.px {
+        if p[4] <= 0.0 {
+            continue;
+        }
+        for (ch, ink) in p.iter_mut().take(4).enumerate() {
+            // A channel the adjustment leaves alone keeps its ink exactly (1 − (1 − x) can differ).
+            let (v, r) = (1.0 - *ink, tone(ch, 1.0 - *ink));
+            if r != v {
+                *ink = 1.0 - r;
+            }
+        }
+    }
+}
+
+/// Mixes an adjustment's result back into `base` in the layer's blend mode, by its opacity and
+/// mask; coverage is unchanged (the compositor's adjustment mix).
+fn mix_adjusted(l: &Layer, base: &mut CmykBuffer, adjusted: &CmykBuffer, cx: &Ctx) {
+    let opacity = l.opacity * l.fill_opacity;
+    let mv = mask_vals(l, base.rect, cx);
+    for (i, (p, a)) in base.px.iter_mut().zip(&adjusted.px).enumerate() {
+        let k = opacity * mask_at(&mv, i);
+        if k <= 0.0 {
+            continue;
+        }
+        let bl = blend_ink(l.blend, [p[0], p[1], p[2], p[3]], [a[0], a[1], a[2], a[3]]);
+        for (v, b) in p.iter_mut().zip(bl) {
+            *v = if k >= 1.0 { b } else { *v + (b - *v) * k };
+        }
+    }
+}
+
+/// Rounds to the document's levels after an adjustment layer, as the compositor does (on the
+/// channel brightness the document stores, and coverage).
+fn quantize_inks(buf: &mut CmykBuffer, q: f32) {
+    let round = |v: f32| (v * q + 0.5).floor() / q;
+    for p in &mut buf.px {
+        for v in p.iter_mut().take(4) {
+            // Whole levels of ink: exactly the stored values, rounding ties as on brightness.
+            *v = (q - ((1.0 - *v) * q + 0.5).floor()) / q;
+        }
+        p[4] = round(p[4]);
+    }
+}
+
 /// Clipped layers onto their base's own rendering: each blends as if the base were opaque and
 /// the base keeps its alpha.
 fn composite_clipped(clipped: &[Layer], base: &mut CmykBuffer, cx: &Ctx) {
     for c in clipped.iter().filter(|c| c.visible) {
+        if let LayerContent::Adjustment(adj) = &c.content {
+            let mut adjusted = base.clone();
+            adjust_inks(adj, &mut adjusted, cx.depth);
+            mix_adjusted(c, base, &adjusted, cx);
+            continue;
+        }
         let content = layer_content(c, base.rect, cx);
         let opacity = c.opacity * c.fill_opacity;
         let gamma = super::text_gamma(c);
@@ -373,6 +470,9 @@ fn composite_stack(layers: &[Layer], backdrop: &mut CmykBuffer, cx: &Ctx) {
     for (base, clipped) in clip_groups(layers) {
         if base.visible {
             composite_layer(base, clipped, backdrop, cx);
+            if let (LayerContent::Adjustment(_), Some(q)) = (&base.content, super::adjustment_quantum(cx.depth)) {
+                quantize_inks(backdrop, q);
+            }
         }
     }
 }
@@ -412,6 +512,14 @@ fn composite_layer(l: &Layer, clipped: &[Layer], backdrop: &mut CmykBuffer, cx: 
         apply_mask(l, &mut content, cx);
         composite_clipped(clipped, &mut content, cx);
         blend_into(backdrop, &content, l.blend, opacity, 1.0);
+        return;
+    }
+    // Adjustment layers transform the backdrop, then blend the result back in.
+    if let LayerContent::Adjustment(adj) = &l.content {
+        let mut adjusted = backdrop.clone();
+        adjust_inks(adj, &mut adjusted, cx.depth);
+        composite_clipped(clipped, &mut adjusted, cx);
+        mix_adjusted(l, backdrop, &adjusted, cx);
         return;
     }
     let mut content = layer_content(l, rect, cx);
