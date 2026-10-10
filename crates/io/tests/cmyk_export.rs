@@ -1,0 +1,131 @@
+//! A CMYK document is written to flat formats as CMYK with its own profile whatever its layers
+//! (#2220), mixing Normal pixel layers on their ink values so opaque pixels keep their exact inks.
+
+use std::sync::Arc;
+
+use photocraft_cms::Builtin;
+use photocraft_codecs::ChannelLayout;
+use photocraft_color::{BlendMode, ColorMode, PixelFormat, SampleType};
+use photocraft_doc::{Document, Layer};
+use photocraft_geom::{Rect, Size};
+use photocraft_io::*;
+
+fn cmyk_doc(depth: SampleType) -> Document {
+    let mut d = Document::new("c", Size::new(12, 8), ColorMode::Cmyk, depth);
+    d.icc_profile = Some(Arc::new(Builtin::CoatedCmyk.profile().to_bytes().to_vec()));
+    d
+}
+
+fn fill(depth: SampleType, alpha: bool, rects: &[(Rect, [f32; 5])]) -> Layer {
+    let mut l = Layer::raster("l", PixelFormat::new(ColorMode::Cmyk, depth, alpha));
+    if let Some(s) = l.surface_mut() {
+        for (r, c) in rects {
+            s.fill_rect(*r, &c[..if alpha { 5 } else { 4 }]);
+        }
+    }
+    l
+}
+
+/// Paper (no ink), K-only black "type", and a four-colour patch, as separate layers.
+fn layered(depth: SampleType) -> Document {
+    let mut d = cmyk_doc(depth);
+    d.layers.push(fill(depth, false, &[(Rect::new(0, 0, 12, 8), [0.0; 5])]));
+    d.layers.push(fill(depth, true, &[(Rect::new(0, 0, 6, 8), [0.0, 0.0, 0.0, 1.0, 1.0])]));
+    d.layers.push(fill(depth, true, &[(Rect::new(6, 0, 12, 4), [0.2, 0.4, 0.6, 0.1, 1.0])]));
+    d
+}
+
+fn decode(bytes: &[u8]) -> photocraft_codecs::Image {
+    photocraft_codecs::decode(bytes).unwrap_or_else(|e| panic!("decode: {e}"))
+}
+
+/// Normalized C, M, Y, K (and alpha) of pixel (x, y).
+fn pixel(img: &photocraft_codecs::Image, x: u32, y: u32) -> Vec<f32> {
+    let n = img.layout().channels();
+    let (w, _) = img.dimensions();
+    let v = img.to_normalized();
+    let i = ((y * w + x) as usize) * n;
+    v[i..i + n].to_vec()
+}
+
+fn q8(v: f32) -> f32 {
+    (v * 255.0).round() / 255.0
+}
+
+#[test]
+fn layered_cmyk_tiff_stays_cmyk_with_the_document_profile_and_exact_inks() {
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        let d = layered(depth);
+        let r = export(&d, "a.tif", &ExportOptions::default()).unwrap_or_else(|e| panic!("{depth:?}: {e}"));
+        assert!(!r.warnings.iter().any(|w| w.contains("written as sRGB") || w.contains("converted back")), "{depth:?}: {:?}", r.warnings);
+        let img = decode(&r.bytes);
+        assert_eq!(img.layout(), ChannelLayout::Cmyk, "{depth:?}: opaque CMYK, no alpha");
+        assert_eq!(img.icc.as_deref(), d.icc_profile.as_deref().map(|v| &v[..]), "{depth:?}: the document's own profile");
+        // Exact inks: K-only black stays K-only, the four-colour patch keeps every ink, paper stays blank.
+        let (k, rich, paper) = (pixel(&img, 2, 3), pixel(&img, 8, 1), pixel(&img, 8, 6));
+        let tol = if depth == SampleType::U8 { 0.0 } else { 1e-4 };
+        let close = |a: &[f32], b: [f32; 4]| a.iter().zip(b).all(|(x, y)| (x - y).abs() <= tol);
+        let want_rich = if depth == SampleType::U8 { [q8(0.2), q8(0.4), q8(0.6), q8(0.1)] } else { [0.2, 0.4, 0.6, 0.1] };
+        assert!(close(&k, [0.0, 0.0, 0.0, 1.0]), "{depth:?}: {k:?}");
+        assert!(close(&rich, want_rich), "{depth:?}: {rich:?}");
+        assert!(close(&paper, [0.0; 4]), "{depth:?}: {paper:?}");
+        // And it reads back as a CMYK document.
+        let back = import("a.tif", &r.bytes).unwrap_or_else(|e| panic!("{e}")).document;
+        assert_eq!(back.mode, ColorMode::Cmyk, "{depth:?}");
+    }
+}
+
+#[test]
+fn the_reported_case_an_empty_extra_layer() {
+    // #2220: one layer converted to CMYK plus an empty layer used to export as RGB.
+    let mut d = cmyk_doc(SampleType::U8);
+    d.layers.push(fill(SampleType::U8, false, &[(Rect::new(0, 0, 12, 8), [0.3, 0.2, 0.1, 0.0, 1.0])]));
+    d.layers.push(Layer::raster("empty", PixelFormat::new(ColorMode::Cmyk, SampleType::U8, true)));
+    for ext in ["tif", "jpg"] {
+        let r = export(&d, &format!("a.{ext}"), &ExportOptions::default()).unwrap_or_else(|e| panic!("{ext}: {e}"));
+        assert_eq!(decode(&r.bytes).layout(), ChannelLayout::Cmyk, "{ext}");
+    }
+}
+
+#[test]
+fn transparency_is_kept_in_tiff_and_composited_over_paper_in_jpeg() {
+    let mut d = cmyk_doc(SampleType::U8);
+    d.layers.push(fill(SampleType::U8, true, &[(Rect::new(0, 0, 6, 8), [0.0, 0.0, 0.0, 1.0, 1.0])]));
+    d.layers.push(fill(SampleType::U8, true, &[(Rect::new(6, 0, 12, 4), [0.0, 1.0, 0.0, 0.0, 0.5])]));
+    let tif = decode(&export(&d, "a.tif", &ExportOptions::default()).unwrap_or_else(|e| panic!("{e}")).bytes);
+    assert_eq!(tif.layout(), ChannelLayout::CmykA);
+    assert_eq!(pixel(&tif, 8, 1), vec![0.0, 1.0, 0.0, 0.0, q8(0.5)], "straight ink and coverage");
+    assert_eq!(pixel(&tif, 8, 6)[4], 0.0, "uncovered stays transparent");
+    let r = export(&d, "a.jpg", &ExportOptions::default()).unwrap_or_else(|e| panic!("{e}"));
+    let jpg = decode(&r.bytes);
+    assert_eq!(jpg.layout(), ChannelLayout::Cmyk, "{:?}", r.warnings);
+    // JPEG is lossy: half-covered magenta over blank paper is about M50; uncovered paper has no ink.
+    let (half, blank, k) = (pixel(&jpg, 9, 1), pixel(&jpg, 9, 6), pixel(&jpg, 2, 3));
+    assert!((half[1] - 0.5).abs() < 0.06 && half[0] < 0.06 && half[3] < 0.06, "{half:?}");
+    assert!(blank.iter().all(|v| *v < 0.06), "{blank:?}");
+    assert!(k[3] > 0.94 && k[..3].iter().all(|v| *v < 0.06), "{k:?}");
+}
+
+#[test]
+fn other_stacks_stay_cmyk_through_the_profile() {
+    // A Multiply layer isn't composited on ink values (yet): the RGB composite is converted back.
+    let mut d = layered(SampleType::U8);
+    let mut m = fill(SampleType::U8, true, &[(Rect::new(0, 0, 12, 8), [0.0, 0.5, 0.0, 0.0, 1.0])]);
+    m.blend = BlendMode::Multiply;
+    d.layers.push(m);
+    let r = export(&d, "a.tif", &ExportOptions::default()).unwrap_or_else(|e| panic!("{e}"));
+    assert!(r.warnings.iter().any(|w| w.contains("converted back through the document's CMYK profile")), "{:?}", r.warnings);
+    let img = decode(&r.bytes);
+    assert_eq!(img.layout(), ChannelLayout::Cmyk);
+    assert_eq!(img.icc.as_deref(), d.icc_profile.as_deref().map(|v| &v[..]));
+    // Multiplying magenta over paper adds magenta ink; it doesn't empty the page.
+    assert!(pixel(&img, 8, 6)[1] > 0.3, "{:?}", pixel(&img, 8, 6));
+}
+
+#[test]
+fn rgb_only_formats_still_get_rgb_through_the_profile() {
+    let r = export(&layered(SampleType::U8), "a.png", &ExportOptions::default()).unwrap_or_else(|e| panic!("{e}"));
+    let img = decode(&r.bytes);
+    assert!(matches!(img.layout(), ChannelLayout::Rgb | ChannelLayout::Rgba), "{:?}", img.layout());
+    assert!(r.warnings.iter().any(|w| w.contains("CMYK converted to sRGB")), "{:?}", r.warnings);
+}

@@ -275,14 +275,20 @@ pub fn document_to_image(doc: &Document, warnings: &mut Vec<String>) -> Result<I
             y = y1;
         }
         Image::from_raw(w, h, layout, csample(fmt.sample), data)?
+    } else if fmt.mode == ColorMode::Cmyk {
+        let count = doc.layer_count();
+        warnings.push(format!("{count} layer(s) flattened; layers, masks and blend modes are not kept"));
+        // A CMYK document is written as CMYK with its own profile (#2220).
+        let cs = csample(fmt.sample);
+        let (data, opaque) = cmyk_composite(doc, canvas, cs, n, warnings)?;
+        Image::from_raw(w, h, layout_for(ColorMode::Cmyk, !opaque), cs, data)?
     } else {
         let count = doc.layer_count();
         warnings.push(format!("{count} layer(s) flattened; layers, masks and blend modes are not kept"));
         // The compositor works in RGB; write RGB/gray.
         let gray = fmt.mode == ColorMode::Grayscale;
-        if fmt.mode == ColorMode::Cmyk || fmt.mode == ColorMode::Lab {
-            // The compositor renders CMYK/Lab documents in sRGB (CMYK through the built-in
-            // profile), so the file is tagged sRGB.
+        if fmt.mode == ColorMode::Lab {
+            // The compositor renders Lab documents in sRGB, so the file is tagged sRGB.
             warnings.push(format!("{:?} composite written as sRGB RGB (colour-managed conversion)", fmt.mode));
             icc = Some(photocraft_cms::Builtin::Srgb.profile().to_bytes().to_vec());
         }
@@ -335,6 +341,71 @@ pub fn document_to_image(doc: &Document, warnings: &mut Vec<String>) -> Result<I
         ..Default::default()
     };
     Ok(img.with_icc(icc).with_meta(meta))
+}
+
+/// A CMYK document's composite as interleaved CMYK + alpha samples (`cs`), with whether every
+/// pixel came out opaque (the caller then drops the alpha). Stacks the native CMYK compositor
+/// handles are mixed on their ink values, so opaque pixels keep their exact inks; any other
+/// document is composited in RGB and converted back through its own CMYK profile, as PSD
+/// export's merged image is. Rendered and quantised in bands on every core.
+fn cmyk_composite(doc: &Document, canvas: Rect, cs: CSample, n: usize, warnings: &mut Vec<String>) -> Result<(Vec<u8>, bool), IoError> {
+    let mut data = try_buffer(n, 5 * cs.bytes())?;
+    let mut opaque = true;
+    let put = |out: &mut Vec<u8>, v: f32| {
+        let v = if v.is_finite() { v } else { 0.0 };
+        match cs {
+            CSample::U8 => out.push((v.clamp(0.0, 1.0) * 255.0).round() as u8),
+            CSample::U16 => out.extend_from_slice(&((v.clamp(0.0, 1.0) * 65535.0).round() as u16).to_ne_bytes()),
+            CSample::F16 | CSample::F32 => out.extend_from_slice(&v.to_ne_bytes()),
+        }
+    };
+    let native = photocraft_compose::cmyk::render_cmyk_bands(doc, canvas, 0, |band| -> Result<(), ()> {
+        opaque &= band.px.iter().all(|p| p[4] >= 1.0);
+        let parts = crate::pixels::par_map(crate::pixels::bands(band.px.len()), |range| {
+            let mut out = Vec::with_capacity(range.len() * 5 * cs.bytes());
+            for p in band.px.get(range).unwrap_or_default() {
+                for v in p {
+                    put(&mut out, *v);
+                }
+            }
+            out
+        });
+        for part in parts {
+            data.extend_from_slice(&part);
+        }
+        Ok(())
+    });
+    if native.is_none() {
+        // Through RGB and back: the colour model is kept, exact ink values are not.
+        warnings.push("CMYK composite converted back through the document's CMYK profile; ink values can differ from the layers'".to_string());
+        let space = photocraft_compose::cmyk_space(doc);
+        let to = PixelFormat::new(ColorMode::Cmyk, SampleType::F32, true);
+        let _ = photocraft_compose::render_bands(doc, canvas, 0, |band| -> Result<(), ()> {
+            opaque &= band.px.iter().all(|p| p[3] >= 1.0);
+            let parts = crate::pixels::par_map(crate::pixels::bands(band.px.len()), |range| {
+                // The composite came through the document's CMYK profile: convert back through it.
+                photocraft_color::convert::with_cmyk_space(space.as_ref(), || {
+                    let mut out = Vec::with_capacity(range.len() * 5 * cs.bytes());
+                    let mut v = [0.0f32; 5];
+                    for p in band.px.get(range).unwrap_or_default() {
+                        photocraft_raster::from_rgba_into(&to, *p, &mut v);
+                        for x in v {
+                            put(&mut out, x);
+                        }
+                    }
+                    out
+                })
+            });
+            for part in parts {
+                data.extend_from_slice(&part);
+            }
+            Ok(())
+        });
+    }
+    if opaque {
+        drop_alpha(&mut data, 4 * cs.bytes(), cs.bytes());
+    }
+    Ok((data, opaque))
 }
 
 /// An empty buffer with room for `pixels × bytes_per_pixel` bytes, or an error (not an abort)

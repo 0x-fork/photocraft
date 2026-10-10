@@ -19,6 +19,7 @@
 pub mod adjust;
 pub mod advanced;
 pub mod bounds;
+pub mod cmyk;
 pub mod effects;
 pub mod fill_layout;
 pub mod gradient_fill;

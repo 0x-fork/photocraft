@@ -1,0 +1,325 @@
+//! Mode-native CMYK compositing: a CMYK document's layers mixed on their ink values, so opaque
+//! pixels keep their exact inks (K-only black stays K-only) instead of going through display RGB
+//! and back through the profile.
+//!
+//! This path covers the layer stacks whose blending is the same in every colour model: Normal
+//! pixel layers with opacity, fill opacity and masks, isolated and pass-through groups, and
+//! clipping groups. [`supports`] says whether a document stays on it; anything else (type,
+//! shapes, fills, effects, adjustments, other blend modes, knockouts, channel restrictions,
+//! Blend If) is left to the RGB compositor, whose result callers convert back to CMYK.
+//!
+//! Buffers hold straight-alpha `[C, M, Y, K, A]` in 0..1 ink (0 = no ink).
+
+use photocraft_color::ColorMode;
+use photocraft_color::blend::BlendMode;
+use photocraft_doc::{Document, Knockout, Layer, LayerContent};
+use photocraft_geom::Rect;
+
+use super::{Ctx, RENDER_TILE, advanced, empty_in, mask_vals, pattern};
+
+/// One straight-alpha CMYK pixel: C, M, Y, K (0..1 ink), alpha.
+pub type Cmyka = [f32; 5];
+
+/// Deepest group nesting this path composites (deeper documents use the RGB compositor).
+pub const MAX_DEPTH: u32 = 64;
+
+/// Straight-alpha CMYK + alpha float buffer covering a rectangle.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CmykBuffer {
+    pub rect: Rect,
+    pub px: Vec<Cmyka>,
+}
+
+impl CmykBuffer {
+    pub fn transparent(rect: Rect) -> Self {
+        Self { rect, px: vec![[0.0; 5]; rect.width() as usize * rect.height() as usize] }
+    }
+}
+
+/// Whether [`render_cmyk`] composites `doc` natively (a CMYK document made only of layers this
+/// path handles; invisible layers don't count).
+pub fn supports(doc: &Document) -> bool {
+    doc.mode == ColorMode::Cmyk && stack_supported(&doc.layers, 0)
+}
+
+/// The sibling list grouped as the compositor groups it: each base with the clipped layers above it.
+fn clip_groups(layers: &[Layer]) -> impl Iterator<Item = (&Layer, &[Layer])> {
+    let mut i = 0;
+    std::iter::from_fn(move || {
+        let base = layers.get(i)?;
+        let mut j = i + 1;
+        while layers.get(j).is_some_and(|l| l.clipped) && !base.clipped {
+            j += 1;
+        }
+        let clipped = layers.get(i + 1..j).unwrap_or(&[]);
+        i = j.max(i + 1);
+        Some((base, clipped))
+    })
+}
+
+fn stack_supported(layers: &[Layer], depth: u32) -> bool {
+    if depth > MAX_DEPTH {
+        return false;
+    }
+    clip_groups(layers).all(|(base, clipped)| !base.visible || layer_supported(base, clipped, depth))
+}
+
+/// What every natively composited layer needs, whatever its content.
+fn plain(l: &Layer) -> bool {
+    l.opacity.is_finite()
+        && l.fill_opacity.is_finite()
+        && !super::effects::has_effects(l)
+        && l.advanced.knockout == Knockout::None
+        && l.excluded_channels == 0
+        && l.blend_if.is_default()
+}
+
+fn cmyk_raster(l: &Layer) -> bool {
+    matches!(&l.content, LayerContent::Raster(s) if s.format().mode == ColorMode::Cmyk)
+}
+
+fn layer_supported(l: &Layer, clipped: &[Layer], depth: u32) -> bool {
+    if !plain(l) || advanced::clips_individually(l, clipped) {
+        return false;
+    }
+    let content = match &l.content {
+        LayerContent::Raster(_) => cmyk_raster(l) && l.blend == BlendMode::Normal,
+        LayerContent::Group(g) => {
+            g.artboard.is_none()
+                && matches!(l.blend, BlendMode::Normal | BlendMode::PassThrough)
+                // A pass-through group with clipped layers mixes them through its isolated rendering.
+                && !(passes_through(l) && clipped.iter().any(|c| c.visible))
+                && stack_supported(&g.children, depth + 1)
+        }
+        _ => false,
+    };
+    content && clipped.iter().filter(|c| c.visible).all(|c| plain(c) && cmyk_raster(c) && c.blend == BlendMode::Normal)
+}
+
+/// A group whose children composite straight into the backdrop (the compositor's rule).
+fn passes_through(l: &Layer) -> bool {
+    matches!(l.content, LayerContent::Group(_)) && l.blend == BlendMode::PassThrough && l.fill_opacity >= 1.0 && !super::effects::has_effects(l)
+}
+
+/// Normal compositing of straight-alpha `source` (alpha times `opacity`) over `backdrop`: the
+/// compositor's Normal formula, on the four ink channels.
+#[inline]
+pub fn normal(backdrop: Cmyka, source: Cmyka, opacity: f32) -> Cmyka {
+    let ab = backdrop[4];
+    let as_ = source[4] * opacity;
+    if as_ <= 0.0 {
+        return backdrop;
+    }
+    let ao = as_ + ab * (1.0 - as_);
+    if ao <= 0.0 {
+        return [0.0; 5];
+    }
+    let kb = ab * (1.0 - as_);
+    let inv = 1.0 / ao;
+    let c = |i: usize| (kb * backdrop[i] + as_ * source[i]) * inv;
+    [c(0), c(1), c(2), c(3), ao]
+}
+
+/// A finite sample in 0..1 (non-finite samples, possible in 32-bit documents, count as 0).
+#[inline]
+fn clean(v: f32) -> f32 {
+    if v.is_finite() { v } else { 0.0 }
+}
+
+/// A CMYK pixel layer's own pixels over `rect`, masks applied.
+fn raster_content(l: &Layer, rect: Rect, cx: &Ctx) -> CmykBuffer {
+    let mut out = CmykBuffer::transparent(rect);
+    if let LayerContent::Raster(s) = &l.content {
+        let ch = s.format().channels();
+        let alpha = s.format().alpha;
+        let mut v = Vec::new();
+        s.read_region_into(rect, &mut v);
+        for (o, p) in out.px.iter_mut().zip(v.chunks_exact(ch.max(1))) {
+            let a = if alpha { p.get(4).copied().map_or(0.0, clean) } else { 1.0 };
+            *o = [
+                p.first().copied().map_or(0.0, clean),
+                p.get(1).copied().map_or(0.0, clean),
+                p.get(2).copied().map_or(0.0, clean),
+                p.get(3).copied().map_or(0.0, clean),
+                a,
+            ];
+        }
+    }
+    apply_mask(l, &mut out, cx);
+    out
+}
+
+fn apply_mask(l: &Layer, buf: &mut CmykBuffer, cx: &Ctx) {
+    if let Some(m) = mask_vals(l, buf.rect, cx) {
+        for (p, k) in buf.px.iter_mut().zip(&m) {
+            p[4] *= clean(*k).max(0.0);
+        }
+    }
+}
+
+/// Mask value `i` of `m` (1 where there is no mask or no value).
+#[inline]
+fn mask_at(m: &Option<Vec<f32>>, i: usize) -> f32 {
+    m.as_ref().and_then(|v| v.get(i)).copied().map_or(1.0, |k| clean(k).max(0.0))
+}
+
+/// Clipped layers onto their base's own rendering: each blends as if the base were opaque and
+/// the base keeps its alpha.
+fn composite_clipped(clipped: &[Layer], base: &mut CmykBuffer, cx: &Ctx) {
+    for c in clipped.iter().filter(|c| c.visible) {
+        let content = raster_content(c, base.rect, cx);
+        let opacity = c.opacity * c.fill_opacity;
+        for (p, s) in base.px.iter_mut().zip(&content.px) {
+            let alpha = p[4];
+            if alpha <= 0.0 {
+                continue;
+            }
+            let r = normal([p[0], p[1], p[2], p[3], 1.0], *s, opacity);
+            *p = [r[0], r[1], r[2], r[3], alpha];
+        }
+    }
+}
+
+fn blend_into(backdrop: &mut CmykBuffer, src: &CmykBuffer, opacity: f32) {
+    for (b, s) in backdrop.px.iter_mut().zip(&src.px) {
+        if s[4] > 0.0 {
+            *b = normal(*b, *s, opacity);
+        }
+    }
+}
+
+fn composite_stack(layers: &[Layer], backdrop: &mut CmykBuffer, cx: &Ctx) {
+    for (base, clipped) in clip_groups(layers) {
+        if base.visible {
+            composite_layer(base, clipped, backdrop, cx);
+        }
+    }
+}
+
+fn composite_layer(l: &Layer, clipped: &[Layer], backdrop: &mut CmykBuffer, cx: &Ctx) {
+    let rect = backdrop.rect;
+    if empty_in(l, rect) {
+        return;
+    }
+    let opacity = l.opacity * l.fill_opacity;
+    if let LayerContent::Group(g) = &l.content {
+        if passes_through(l) {
+            let needs_mix = opacity < 1.0 || l.mask.is_some() || l.vector_mask.is_some();
+            let before = needs_mix.then(|| backdrop.clone());
+            composite_stack(&g.children, backdrop, cx);
+            if let Some(before) = &before {
+                // The compositor's pass-through mix: coverage mixes premultiplied colour.
+                let mv = mask_vals(l, rect, cx);
+                for (i, (p, a)) in backdrop.px.iter_mut().zip(&before.px).enumerate() {
+                    let k = opacity * mask_at(&mv, i);
+                    let b = *p;
+                    let wa = a[4] * (1.0 - k);
+                    let wb = b[4] * k;
+                    let alpha = wa + wb;
+                    *p = if alpha > 0.0 {
+                        let c = |c: usize| (a[c] * wa + b[c] * wb) / alpha;
+                        [c(0), c(1), c(2), c(3), alpha]
+                    } else {
+                        [0.0; 5]
+                    };
+                }
+            }
+            return;
+        }
+        let mut content = CmykBuffer::transparent(rect);
+        composite_stack(&g.children, &mut content, cx);
+        apply_mask(l, &mut content, cx);
+        composite_clipped(clipped, &mut content, cx);
+        blend_into(backdrop, &content, opacity);
+        return;
+    }
+    let mut content = raster_content(l, rect, cx);
+    composite_clipped(clipped, &mut content, cx);
+    blend_into(backdrop, &content, opacity);
+}
+
+fn render_tile(doc: &Document, rect: Rect, cx: &Ctx) -> CmykBuffer {
+    let mut b = CmykBuffer::transparent(rect);
+    composite_stack(&doc.layers, &mut b, cx);
+    b
+}
+
+/// The composite of `doc` over `rect` in CMYK + alpha, mixed on ink values; `None` when
+/// [`supports`] is false. Tiles render in parallel on native targets (one at a time on wasm);
+/// every tile is independent, so the result doesn't depend on the tiling or the thread count.
+pub fn render_cmyk(doc: &Document, rect: Rect) -> Option<CmykBuffer> {
+    render_cmyk_tiled(doc, rect, RENDER_TILE)
+}
+
+/// [`render_cmyk`] with an explicit tile size (tests check tile independence).
+pub fn render_cmyk_tiled(doc: &Document, rect: Rect, tile: i32) -> Option<CmykBuffer> {
+    if !supports(doc) {
+        return None;
+    }
+    let patterns = pattern::PreparedPatterns::new(&doc.patterns, pattern::PREPARED_PATTERN_BYTES).in_mode(doc.pixel_format().mode);
+    let cx = Ctx::for_doc(doc, &patterns);
+    Some(render_with(doc, rect, tile, &cx))
+}
+
+fn render_with(doc: &Document, rect: Rect, tile: i32, cx: &Ctx) -> CmykBuffer {
+    let tile = tile.max(1);
+    let mut out = CmykBuffer::transparent(rect);
+    if rect.is_empty() {
+        return out;
+    }
+    let w = rect.width() as usize;
+    let mut tiles = Vec::new();
+    let mut y = rect.y0;
+    while y < rect.y1 {
+        let y1 = y.saturating_add(tile).min(rect.y1);
+        let mut x = rect.x0;
+        while x < rect.x1 {
+            let x1 = x.saturating_add(tile).min(rect.x1);
+            tiles.push(Rect::new(x, y, x1, y1));
+            x = x1;
+        }
+        y = y1;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let parts: Vec<CmykBuffer> = {
+        use rayon::prelude::*;
+        tiles.par_iter().map(|t| render_tile(doc, *t, cx)).collect()
+    };
+    #[cfg(target_arch = "wasm32")]
+    let parts: Vec<CmykBuffer> = tiles.iter().map(|t| render_tile(doc, *t, cx)).collect();
+    for part in &parts {
+        let pw = part.rect.width() as usize;
+        for (row, src) in part.px.chunks_exact(pw.max(1)).enumerate() {
+            let o = ((part.rect.y0 - rect.y0) as usize + row) * w + (part.rect.x0 - rect.x0) as usize;
+            if let Some(dst) = out.px.get_mut(o..o + pw) {
+                dst.copy_from_slice(src);
+            }
+        }
+    }
+    out
+}
+
+/// [`render_cmyk`] in horizontal bands, top to bottom, handing each band to `sink` (so a huge
+/// document is never held as one full-size float composite); `None` when [`supports`] is false.
+/// `band_rows` as in [`super::render_bands`].
+pub fn render_cmyk_bands<E>(doc: &Document, rect: Rect, band_rows: i32, mut sink: impl FnMut(CmykBuffer) -> Result<(), E>) -> Option<Result<(), E>> {
+    if !supports(doc) {
+        return None;
+    }
+    let patterns = pattern::PreparedPatterns::new(&doc.patterns, pattern::PREPARED_PATTERN_BYTES).in_mode(doc.pixel_format().mode);
+    let cx = Ctx::for_doc(doc, &patterns);
+    let rows = super::band_rows_for(rect.width(), band_rows);
+    let mut y = rect.y0;
+    while y < rect.y1 {
+        let y1 = y.saturating_add(rows).min(rect.y1);
+        if let Err(e) = sink(render_with(doc, Rect::new(rect.x0, y, rect.x1, y1), RENDER_TILE, &cx)) {
+            return Some(Err(e));
+        }
+        y = y1;
+    }
+    Some(Ok(()))
+}
+
+#[cfg(test)]
+#[path = "cmyk_tests.rs"]
+mod tests;
