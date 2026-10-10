@@ -396,7 +396,6 @@ fn unsupported_documents_fall_back() {
     check("hue", &|l| l.blend = BlendMode::Hue);
     check("luminosity", &|l| l.blend = BlendMode::Luminosity);
     check("lighter colour", &|l| l.blend = BlendMode::LighterColor);
-    check("knockout", &|l| l.advanced.knockout = Knockout::Shallow);
     check("channels", &|l| l.excluded_channels = 1);
     check("nan opacity", &|l| l.opacity = f32::NAN);
     // Adjustments that weigh the channels together, or whose records name RGB channels.
@@ -418,7 +417,14 @@ fn unsupported_documents_fall_back() {
     }
     let mut d = simple();
     d.layers.push(deep);
-    assert!(!supports(&d));
+    assert!(!supports(&d) && !renders_inks(&d));
+    // Knockouts take the ink-by-ink route through the RGB compositor instead.
+    let mut d = simple();
+    let mut l = layer(&[(Rect::new(0, 0, 1, 1), [0.5; 5])]);
+    l.advanced.knockout = Knockout::Shallow;
+    d.layers.push(l);
+    assert!(!supports(&d) && split::supports(&d));
+    assert!(render_cmyk(&d, d.bounds()).is_some());
 }
 
 #[test]
@@ -1094,6 +1100,8 @@ fn adjustment_stacks_match_the_reference() {
     iso.blend = BlendMode::Normal;
     d.layers.extend([inv, onto, base, lv, pass, iso]);
     assert_matches_reference(&d);
+    // The black record and the rest go the same way through the stand-ins.
+    assert_routes_agree(&d);
 }
 
 /// In a 32-bit document (no rounding to levels), inks an adjustment leaves alone come out
@@ -1118,5 +1126,490 @@ fn untouched_inks_stay_bit_exact() {
         assert_eq!(&got[..3], &inks[..3], "{blend:?}");
         let want_k = if blend == BlendMode::Lighten { 0.0 } else { 0.5 };
         assert!((got[3] - want_k).abs() < 1e-6, "{blend:?}: {got:?}");
+    }
+}
+
+// ---- stage 4: layer effects, ink by ink through the RGB compositor -----------------------------
+
+use photocraft_doc::effects::{
+    Bevel, BevelStyle, BevelTechnique, Contour, Effect, FxCommon, FxPaint, Glow, GlowSource, GlowTechnique, Gradient, Satin, Shadow, StrokeFx, StrokePosition,
+};
+
+fn ink_color(c: [f32; 4]) -> photocraft_color::Color {
+    photocraft_color::Color { mode: ColorMode::Cmyk, c, alpha: 1.0 }
+}
+
+/// `d` over its canvas grown by a pixel, through the split route in 3-pixel tiles.
+fn split_render(d: &Document) -> CmykBuffer {
+    let rect = Rect::new(-1, -1, d.size.width as i32 + 1, d.size.height as i32 + 1);
+    let mut out = CmykBuffer::transparent(rect);
+    let r = split::render_bands(d, rect, 0, 3, |b| {
+        super::place(&mut out, &b);
+        Ok::<(), ()>(())
+    });
+    assert!(r.is_ok());
+    out
+}
+
+#[derive(Debug, Clone)]
+enum FxSpec {
+    Shadow { inner: bool, color: [f32; 4], blend: BlendMode, opacity: f32, distance: f32, size: f32, spread: f32, knocks_out: bool },
+    Glow { inner: bool, color: [f32; 4], gradient: Option<[f32; 4]>, blend: BlendMode, opacity: f32, size: f32 },
+    Stroke { color: [f32; 4], gradient: Option<[f32; 4]>, position: u8, size: f32, blend: BlendMode, opacity: f32 },
+    Overlay { color: [f32; 4], blend: BlendMode, opacity: f32 },
+    GradientOverlay { from: [f32; 4], to: [f32; 4], blend: BlendMode, opacity: f32 },
+    Satin { color: [f32; 4], blend: BlendMode, opacity: f32, invert: bool },
+    Bevel { style: u8, size: f32, up: bool, highlight: [f32; 4], shadow: [f32; 4] },
+}
+
+fn inks4() -> impl Strategy<Value = [f32; 4]> {
+    (unit(), unit(), unit(), unit()).prop_map(|(c, m, y, k)| [c, m, y, k])
+}
+
+fn fx_spec() -> impl Strategy<Value = FxSpec> {
+    prop_oneof![
+        (any::<bool>(), inks4(), blend_mode(), unit(), 0.0f32..3.0, 0.0f32..3.0, unit(), any::<bool>()).prop_map(
+            |(inner, color, blend, opacity, distance, size, spread, knocks_out)| FxSpec::Shadow {
+                inner,
+                color,
+                blend,
+                opacity,
+                distance,
+                size,
+                spread,
+                knocks_out
+            }
+        ),
+        (any::<bool>(), inks4(), prop::option::of(inks4()), blend_mode(), unit(), 0.0f32..3.0)
+            .prop_map(|(inner, color, gradient, blend, opacity, size)| FxSpec::Glow { inner, color, gradient, blend, opacity, size }),
+        (inks4(), prop::option::of(inks4()), 0u8..3, 1.0f32..3.0, blend_mode(), unit())
+            .prop_map(|(color, gradient, position, size, blend, opacity)| FxSpec::Stroke { color, gradient, position, size, blend, opacity }),
+        (inks4(), blend_mode(), unit()).prop_map(|(color, blend, opacity)| FxSpec::Overlay { color, blend, opacity }),
+        (inks4(), inks4(), blend_mode(), unit()).prop_map(|(from, to, blend, opacity)| FxSpec::GradientOverlay { from, to, blend, opacity }),
+        (inks4(), blend_mode(), unit(), any::<bool>()).prop_map(|(color, blend, opacity, invert)| FxSpec::Satin { color, blend, opacity, invert }),
+        (0u8..5, 1.0f32..3.0, any::<bool>(), inks4(), inks4()).prop_map(|(style, size, up, highlight, shadow)| FxSpec::Bevel {
+            style,
+            size,
+            up,
+            highlight,
+            shadow
+        }),
+    ]
+}
+
+fn make_effect(f: &FxSpec) -> Effect {
+    let paint = |c: &[f32; 4], g: &Option<[f32; 4]>| match g {
+        Some(to) => FxPaint::Gradient(Gradient { stops: vec![(0.0, ink_color(*c)), (1.0, ink_color(*to))], ..Default::default() }),
+        None => FxPaint::Color(ink_color(*c)),
+    };
+    match f {
+        FxSpec::Shadow { inner, color, blend, opacity, distance, size, spread, knocks_out } => {
+            let s = Shadow {
+                common: FxCommon::new(*blend, *opacity),
+                color: ink_color(*color),
+                angle: 120.0,
+                use_global_light: false,
+                distance: *distance,
+                spread: *spread,
+                size: *size,
+                contour: Contour::Linear,
+                anti_alias: false,
+                noise: 0.0,
+                knocks_out: *knocks_out,
+            };
+            if *inner { Effect::InnerShadow(s) } else { Effect::DropShadow(s) }
+        }
+        FxSpec::Glow { inner, color, gradient, blend, opacity, size } => {
+            let g = Glow {
+                common: FxCommon::new(*blend, *opacity),
+                paint: paint(color, gradient),
+                technique: GlowTechnique::Softer,
+                spread: 0.0,
+                size: *size,
+                contour: Contour::Linear,
+                anti_alias: false,
+                range: 0.5,
+                jitter: 0.0,
+                noise: 0.0,
+                source: GlowSource::Edge,
+            };
+            if *inner { Effect::InnerGlow(g) } else { Effect::OuterGlow(g) }
+        }
+        FxSpec::Stroke { color, gradient, position, size, blend, opacity } => Effect::Stroke(StrokeFx {
+            common: FxCommon::new(*blend, *opacity),
+            size: *size,
+            position: [StrokePosition::Outside, StrokePosition::Inside, StrokePosition::Center][usize::from(*position) % 3],
+            paint: paint(color, gradient),
+        }),
+        FxSpec::Overlay { color, blend, opacity } => Effect::ColorOverlay { common: FxCommon::new(*blend, *opacity), color: ink_color(*color) },
+        FxSpec::GradientOverlay { from, to, blend, opacity } => Effect::GradientOverlay {
+            common: FxCommon::new(*blend, *opacity),
+            gradient: Gradient { stops: vec![(0.0, ink_color(*from)), (1.0, ink_color(*to))], ..Default::default() },
+            dither: false,
+        },
+        FxSpec::Satin { color, blend, opacity, invert } => Effect::Satin(Satin {
+            common: FxCommon::new(*blend, *opacity),
+            color: ink_color(*color),
+            angle: 19.0,
+            distance: 2.0,
+            size: 2.0,
+            contour: Contour::Linear,
+            anti_alias: false,
+            invert: *invert,
+        }),
+        FxSpec::Bevel { style, size, up, highlight, shadow } => Effect::BevelEmboss(Bevel {
+            enabled: true,
+            style: [BevelStyle::OuterBevel, BevelStyle::InnerBevel, BevelStyle::Emboss, BevelStyle::PillowEmboss, BevelStyle::StrokeEmboss]
+                [usize::from(*style) % 5],
+            technique: BevelTechnique::Smooth,
+            depth: 1.0,
+            up: *up,
+            size: *size,
+            soften: 0.0,
+            angle: 120.0,
+            altitude: 30.0,
+            use_global_light: false,
+            gloss_contour: Contour::Linear,
+            highlight: FxCommon::new(BlendMode::Screen, 0.75),
+            highlight_color: ink_color(*highlight),
+            shadow: FxCommon::new(BlendMode::Multiply, 0.75),
+            shadow_color: ink_color(*shadow),
+            contour: None,
+            texture: None,
+        }),
+    }
+}
+
+/// A random document with effects on some of its layers (and a knockout now and then).
+fn with_effects(s: &Spec, fx: &[(usize, FxSpec)], knockout: Option<usize>) -> Document {
+    let mut d = doc(s.w as u32, s.h as u32);
+    d.layers = s.layers.iter().map(build).collect();
+    let n = d.layers.len().max(1);
+    for (i, f) in fx {
+        // Adjustment layers don't carry effects (see `split::supports`).
+        if let Some(l) = d.layers.get_mut(i % n).filter(|l| !matches!(l.content, LayerContent::Adjustment(_))) {
+            l.effects.enabled = true;
+            l.effects.items.push(make_effect(f));
+        }
+    }
+    if let Some(l) = knockout.and_then(|i| d.layers.get_mut(i % n)) {
+        l.advanced.knockout = Knockout::Shallow;
+    }
+    d
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 120, ..ProptestConfig::default() })]
+
+    /// On every stack the exact path handles, the split route gives the same inks.
+    #[test]
+    fn the_split_route_agrees_with_the_exact_path(s in spec()) {
+        prop_assume!(!clips_onto_pass_through(&s.layers));
+        let mut d = doc(s.w as u32, s.h as u32);
+        d.layers = s.layers.iter().map(build).collect();
+        prop_assume!(supports(&d) && split::supports(&d));
+        // Both are exact up to float rounding, which a mode that jumps can magnify (see [`jumps`]).
+        prop_assume!(!any_layer(&d.layers, &|l| jumps(l.blend)));
+        let via = split_render(&d);
+        let exact = render_cmyk(&d, via.rect).unwrap_or_else(|| panic!("supported"));
+        for (i, (g, w)) in via.px.iter().zip(&exact.px).enumerate() {
+            prop_assert!((g[4] - w[4]).abs() <= 1e-5, "alpha {i}: {g:?} vs {w:?}");
+            if w[4] > 1e-4 {
+                prop_assert!((0..4).all(|c| (g[c] - w[c]).abs() <= 1e-5), "ink {i}: {g:?} vs {w:?}");
+            }
+        }
+    }
+
+    /// The RGB compositor treats every channel on its own for everything the split route
+    /// allows, effects included: which ink feeds which channel doesn't change any ink's result
+    /// (nor coverage). That is what makes running it on inks' brightness exact.
+    #[test]
+    fn effects_work_channel_by_channel(
+        s in spec(),
+        fx in prop::collection::vec((0usize..8, fx_spec()), 1..4),
+        knockout in prop::option::of(0usize..8),
+    ) {
+        let d = with_effects(&s, &fx, knockout);
+        prop_assume!(split::supports(&d));
+        let rect = Rect::new(-2, -2, s.w + 2, s.h + 2);
+        let cmy = split::render_planes(&d, rect, [0, 1, 2]);
+        let rot = split::render_planes(&d, rect, [1, 2, 0]);
+        let k = split::render_planes(&d, rect, [3, 3, 3]);
+        let mix = split::render_planes(&d, rect, [3, 0, 3]);
+        let same = |a: f32, b: f32| (a - b).abs() <= 1e-6 || (a.is_nan() && b.is_nan());
+        for i in 0..cmy.px.len() {
+            let (p, r, q, m) = (cmy.px[i], rot.px[i], k.px[i], mix.px[i]);
+            prop_assert!(same(p[3], r[3]) && same(p[3], q[3]) && same(p[3], m[3]), "coverage {i}: {p:?} {r:?} {q:?} {m:?}");
+            prop_assert!(same(r[0], p[1]) && same(r[1], p[2]) && same(r[2], p[0]), "rotated {i}: {p:?} vs {r:?}");
+            prop_assert!(same(q[0], q[1]) && same(q[1], q[2]), "black {i}: {q:?}");
+            prop_assert!(same(m[0], q[0]) && same(m[1], p[0]) && same(m[2], q[0]), "mixed {i}: {m:?} vs {p:?} / {q:?}");
+        }
+    }
+
+    /// Effects don't depend on the tiling or banding (beyond the RGB compositor's own float
+    /// rounding, which can differ by an ulp between tilings).
+    #[test]
+    fn split_tiling_is_invisible(s in spec(), fx in prop::collection::vec((0usize..8, fx_spec()), 1..3), tile in 1i32..9) {
+        let d = with_effects(&s, &fx, None);
+        prop_assume!(split::supports(&d));
+        let whole = render_cmyk_tiled(&d, d.bounds(), 1024).unwrap_or_else(|| panic!("supported"));
+        let tiled = render_cmyk_tiled(&d, d.bounds(), tile).unwrap_or_else(|| panic!("supported"));
+        for (p, q) in tiled.px.iter().zip(&whole.px) {
+            prop_assert!(p.iter().zip(q).all(|(a, b)| (a - b).abs() <= 1e-6), "{p:?} vs {q:?}");
+        }
+    }
+}
+
+/// A K-only drop shadow under K-only type on blank paper puts down black ink only.
+#[test]
+fn k_only_shadows_stay_k_only() {
+    let mut d = doc(12, 8);
+    d.layers.push(paper(12, 8, [0.0; 4]));
+    let mut t = layer(&[(Rect::new(2, 2, 6, 5), [0.0, 0.0, 0.0, 1.0, 1.0])]);
+    t.effects.enabled = true;
+    t.effects.items.push(Effect::DropShadow(Shadow {
+        common: FxCommon::new(BlendMode::Multiply, 0.75),
+        color: ink_color([0.0, 0.0, 0.0, 1.0]),
+        angle: 135.0,
+        use_global_light: false,
+        distance: 2.0,
+        spread: 0.0,
+        size: 0.0,
+        contour: Contour::Linear,
+        anti_alias: false,
+        noise: 0.0,
+        knocks_out: true,
+    }));
+    d.layers.push(t);
+    assert!(!supports(&d) && split::supports(&d));
+    let got = render_cmyk(&d, d.bounds()).unwrap_or_else(|| panic!("supported"));
+    assert!(got.px.iter().all(|p| p[..3].iter().all(|v| *v <= 1e-6)), "no C, M or Y anywhere");
+    // Light from the upper left: the shadow falls a pixel down and to the right of the type.
+    let at = |x: i32, y: i32| got.px[(y * 12 + x) as usize];
+    assert!((at(6, 5)[3] - 0.75).abs() < 1e-5, "shadow: {:?}", at(6, 5));
+    assert!((at(3, 3)[3] - 1.0).abs() < 1e-6, "type: {:?}", at(3, 3));
+    assert!(at(10, 1)[3] <= 1e-6, "paper: {:?}", at(10, 1));
+}
+
+/// A colour overlay paints the layer in exactly its inks; an outside stroke in its own.
+#[test]
+fn overlays_and_strokes_paint_exact_inks() {
+    let mut d = doc(10, 8);
+    d.layers.push(paper(10, 8, [0.0; 4]));
+    let mut l = layer(&[(Rect::new(3, 3, 7, 6), [0.0, 0.0, 0.0, 1.0, 1.0])]);
+    l.effects.enabled = true;
+    l.effects.items.push(Effect::ColorOverlay { common: FxCommon::new(BlendMode::Normal, 1.0), color: ink_color([0.2, 0.4, 0.6, 0.1]) });
+    l.effects.items.push(Effect::Stroke(StrokeFx {
+        common: FxCommon::new(BlendMode::Normal, 1.0),
+        size: 1.0,
+        position: StrokePosition::Outside,
+        paint: FxPaint::Color(ink_color([0.0, 1.0, 0.0, 0.0])),
+    }));
+    d.layers.push(l);
+    let got = render_cmyk(&d, d.bounds()).unwrap_or_else(|| panic!("supported"));
+    let at = |x: i32, y: i32| got.px[(y * 10 + x) as usize];
+    let near = |a: Cmyka, b: Cmyka| a.iter().zip(b).all(|(x, y)| (x - y).abs() <= 1e-6);
+    assert!(near(at(4, 4), [0.2, 0.4, 0.6, 0.1, 1.0]), "overlay: {:?}", at(4, 4));
+    assert!(near(at(2, 4), [0.0, 1.0, 0.0, 0.0, 1.0]), "stroke: {:?}", at(2, 4));
+    assert!(near(at(0, 0), [0.0, 0.0, 0.0, 0.0, 1.0]), "paper: {:?}", at(0, 0));
+}
+
+/// Pattern paints and channel-mixing effect modes stay on the RGB compositor.
+#[test]
+fn effects_that_mix_channels_fall_back() {
+    let with = |e: Effect| {
+        let mut d = doc(2, 2);
+        let mut l = layer(&[(Rect::new(0, 0, 1, 1), [0.5; 5])]);
+        l.effects.enabled = true;
+        l.effects.items.push(e);
+        d.layers.push(l);
+        d
+    };
+    let overlay = |blend| Effect::ColorOverlay { common: FxCommon::new(blend, 1.0), color: ink_color([0.5; 4]) };
+    assert!(split::supports(&with(overlay(BlendMode::Multiply))));
+    assert!(!renders_inks(&with(overlay(BlendMode::Color))));
+    let pattern = Effect::PatternOverlay {
+        common: FxCommon::new(BlendMode::Normal, 1.0),
+        name: "p".into(),
+        id: "p".into(),
+        scale: 1.0,
+        angle: 0.0,
+        link: true,
+        phase: (0.0, 0.0),
+    };
+    assert!(!renders_inks(&with(pattern)));
+    // Effects on an adjustment layer (it has no pixels of its own to shape them).
+    let mut adj = adjustment(Adjustment::Invert);
+    adj.effects.enabled = true;
+    adj.effects.items.push(overlay(BlendMode::Multiply));
+    let mut d = doc(2, 2);
+    d.layers.push(adj);
+    assert!(!split::supports(&d));
+    // 32-bit CMYK documents too.
+    let mut d = with(overlay(BlendMode::Multiply));
+    d.depth = SampleType::F32;
+    assert!(!split::supports(&d));
+}
+
+/// Found by a long random run: Normal mixing onto nothing must give the source's ink exactly. A
+/// rounding error (1 → 0.99999994) is magnified by modes that jump at full ink, here Reflect
+/// turning no ink into full K.
+#[test]
+fn normal_onto_nothing_is_exact() {
+    let shape = LayerSpec::Pixels {
+        kind: Kind::Shape,
+        blend: BlendMode::Normal,
+        fills: vec![(Rect::new(0, 0, 1, 1), [0.0, 0.0, 0.0, 1.0, 1.0])],
+        opacity: 1.0,
+        fill: 1.0,
+        clipped: false,
+        visible: true,
+        mask: Some(MaskSpec { rects: vec![], default: 0.4949783, density: 1.0, enabled: true }),
+    };
+    let inv = LayerSpec::Pixels {
+        kind: Kind::Adjust(AdjSpec::Invert),
+        blend: BlendMode::Reflect,
+        fills: vec![(Rect::new(0, 0, 1, 1), [0.0; 5])],
+        opacity: 1.0,
+        fill: 1.0,
+        clipped: false,
+        visible: true,
+        mask: None,
+    };
+    let mut d = doc(4, 6);
+    d.layers =
+        vec![build(&LayerSpec::Group { children: vec![shape, inv], pass_through: false, blend: BlendMode::Normal, opacity: 1.0, fill: 1.0, mask: None })];
+    assert_matches_reference(&d);
+    assert_eq!(render1(&d, 0, 0)[..4], [0.0; 4]);
+}
+
+/// Found by a long random run: a transparent pixel with ink of its own counts towards the
+/// layer's bounds, which lay out a gradient overlay; the stand-ins keep it counted whichever ink
+/// they carry.
+#[test]
+fn transparent_inked_pixels_keep_their_bounds() {
+    let inner = LayerSpec::Pixels {
+        kind: Kind::Raster,
+        blend: BlendMode::Normal,
+        fills: vec![(Rect::new(0, -1, 1, 1), [0.0, 0.0, 0.0, 0.0, 1.0]), (Rect::new(0, 1, 1, 2), [0.0, 0.0, 1.0, 0.0, 0.0])],
+        opacity: 1.0,
+        fill: 1.0,
+        clipped: false,
+        visible: true,
+        mask: None,
+    };
+    let g = |children: Vec<LayerSpec>, pass_through: bool| LayerSpec::Group {
+        children,
+        pass_through,
+        blend: BlendMode::Normal,
+        opacity: 1.0,
+        fill: 1.0,
+        mask: None,
+    };
+    let s = Spec { w: 2, h: 2, layers: vec![g(vec![g(vec![g(vec![inner], false)], false)], true)] };
+    let fx = [(0usize, FxSpec::GradientOverlay { from: [1.0, 0.0, 0.0, 0.0], to: [0.0; 4], blend: BlendMode::Normal, opacity: 1.0 })];
+    let d = with_effects(&s, &fx, None);
+    let rect = Rect::new(-2, -2, 4, 4);
+    let cmy = split::render_planes(&d, rect, [0, 1, 2]);
+    for planes in [[3, 0, 3], [0, 0, 0], [0, 3, 3]] {
+        let other = split::render_planes(&d, rect, planes);
+        let at = planes.iter().position(|p| *p == 0).unwrap_or(0);
+        for (p, o) in cmy.px.iter().zip(&other.px) {
+            assert!((p[0] - o[at]).abs() <= 1e-6 && (p[3] - o[3]).abs() <= 1e-6, "{planes:?}: {p:?} vs {o:?}");
+        }
+    }
+}
+
+/// Blend modes that jump (at no ink or full ink): a rounding difference between two exact
+/// computations can land on either side of the jump.
+fn jumps(mode: BlendMode) -> bool {
+    use BlendMode as B;
+    matches!(mode, B::ColorBurn | B::ColorDodge | B::VividLight | B::HardMix | B::Divide | B::Reflect | B::Glow | B::PaintNetColorBurn | B::PaintNetColorDodge)
+}
+
+fn any_layer(layers: &[Layer], f: &dyn Fn(&Layer) -> bool) -> bool {
+    layers.iter().any(|l| f(l) || matches!(&l.content, LayerContent::Group(g) if any_layer(&g.children, f)))
+}
+
+/// The display form of the ink composite: where a single opaque layer's pixel shows, it is the
+/// colour the RGB compositor shows (both read the inks through the document's profile).
+#[test]
+fn display_shows_the_inks_through_the_profile() {
+    let mut d = doc(8, 4);
+    d.layers.push(paper(8, 4, [0.0; 4]));
+    d.layers.push(layer(&[(Rect::new(0, 0, 4, 4), [0.0, 0.0, 0.0, 1.0, 1.0]), (Rect::new(4, 0, 8, 2), [0.7, 0.1, 0.0, 0.3, 1.0])]));
+    let shown = render_display(&d, d.bounds()).unwrap_or_else(|| panic!("supported"));
+    let rgb = crate::render(&d, d.bounds());
+    for (s, r) in shown.px.iter().zip(&rgb.px) {
+        assert!(s.iter().zip(r).all(|(a, b)| (a - b).abs() <= 1e-4), "{s:?} vs {r:?}");
+    }
+    // Unsupported documents have no ink composite to show.
+    let mut lum = layer(&[(Rect::new(0, 0, 1, 1), [0.5; 5])]);
+    lum.blend = BlendMode::Luminosity;
+    d.layers.push(lum);
+    assert!(render_display(&d, d.bounds()).is_none());
+}
+
+/// The split route gives the exact path's inks on `d` (which both handle).
+fn assert_routes_agree(d: &Document) {
+    assert!(supports(d) && split::supports(d));
+    let via = split_render(d);
+    let exact = render_cmyk(d, via.rect).unwrap_or_else(|| panic!("supported"));
+    for (g, w) in via.px.iter().zip(&exact.px) {
+        assert!((g[4] - w[4]).abs() <= 1e-5 && (w[4] <= 1e-4 || (0..4).all(|c| (g[c] - w[c]).abs() <= 1e-5)), "{g:?} vs {w:?}");
+    }
+}
+
+/// Black-only Levels and Curves through the stand-ins: K changes, nothing else does.
+#[test]
+fn black_records_reach_k_through_the_stand_ins() {
+    use photocraft_doc::adjust::{CurvePoint, LevelsChannel, ToneSpace};
+    let d0 = LevelsChannel::default;
+    for adj in [
+        cmyk_levels(d0(), LevelsChannel { out_white: 0.5, ..d0() }),
+        Adjustment::Curves {
+            master: Vec::new(),
+            per_channel: [Vec::new(), Vec::new(), Vec::new()],
+            space: ToneSpace::Cmyk,
+            black: vec![CurvePoint { input: 0.0, output: 0.0 }, CurvePoint { input: 1.0, output: 0.6 }],
+        },
+    ] {
+        let mut d = doc(3, 1);
+        d.layers.push(paper(3, 1, [0.1, 0.2, 0.3, 0.0]));
+        d.layers.push(adjustment(adj));
+        assert_routes_agree(&d);
+        assert!(split_render(&d).px.iter().filter(|p| p[4] > 0.0).all(|p| p[3] > 0.3), "K added");
+    }
+}
+
+/// Effects are laid out over the layer's bounds, which on a layer without transparency the
+/// stand-ins can't keep (its pixels that differ only in other inks would match the default):
+/// such a layer stays on the RGB compositor.
+#[test]
+fn effects_on_opaque_layers_fall_back() {
+    let mut d = doc(4, 4);
+    let mut bg = paper(4, 4, [0.0; 4]);
+    bg.effects.enabled = true;
+    bg.effects.items.push(Effect::ColorOverlay { common: FxCommon::new(BlendMode::Multiply, 0.5), color: ink_color([0.0, 0.0, 0.0, 1.0]) });
+    d.layers.push(bg);
+    assert!(!split::supports(&d) && !renders_inks(&d));
+}
+
+/// Solid and gradient fills without rendered pixels give the same inks on both routes (both
+/// stored at the document's levels, as the compositor renders CMYK fills).
+#[test]
+fn fills_agree_on_both_routes() {
+    let g = photocraft_doc::Fill::gradient(
+        vec![(0.0, cmyk_color([1.0, 0.2, 0.0, 0.0], 1.0)), (1.0, cmyk_color([0.0, 0.0, 0.7, 1.0], 0.6))],
+        30.0,
+        1.0,
+        Default::default(),
+        false,
+    );
+    for fill in [g, photocraft_doc::Fill::Solid(cmyk_color([0.13, 0.0, 0.9375, 0.0], 0.55))] {
+        let mut d = doc(9, 5);
+        d.layers.push(paper(9, 5, [0.0, 0.1, 0.0, 0.0]));
+        d.layers.push(Layer::new("f", LayerContent::Fill(fill)));
+        assert_routes_agree(&d);
     }
 }

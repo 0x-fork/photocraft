@@ -26,6 +26,9 @@ use photocraft_geom::Rect;
 
 use super::{Ctx, RENDER_TILE, advanced, empty_in, mask_vals, pattern};
 
+#[path = "cmyk_split.rs"]
+pub mod split;
+
 /// One straight-alpha CMYK pixel: C, M, Y, K (0..1 ink), alpha.
 pub type Cmyka = [f32; 5];
 
@@ -550,30 +553,85 @@ fn render_tile(doc: &Document, rect: Rect, cx: &Ctx) -> CmykBuffer {
     b
 }
 
-/// The composite of `doc` over `rect` in CMYK + alpha, mixed on ink values; `None` when
-/// [`supports`] is false. Tiles render in parallel on native targets (one at a time on wasm);
+/// Whether [`render_cmyk`] composites `doc` on ink values: on this module's exact path
+/// ([`supports`]) or, for layer effects and knockouts, ink by ink through the RGB compositor
+/// ([`split::supports`]).
+pub fn renders_inks(doc: &Document) -> bool {
+    supports(doc) || split::supports(doc)
+}
+
+/// The composite of `doc` over `rect` in CMYK + alpha, mixed on ink values; `None` unless
+/// [`renders_inks`]. Tiles render in parallel on native targets (one at a time on wasm);
 /// every tile is independent, so the result doesn't depend on the tiling or the thread count.
 pub fn render_cmyk(doc: &Document, rect: Rect) -> Option<CmykBuffer> {
     render_cmyk_tiled(doc, rect, RENDER_TILE)
 }
 
-/// [`render_cmyk`] with an explicit tile size (tests check tile independence).
-pub fn render_cmyk_tiled(doc: &Document, rect: Rect, tile: i32) -> Option<CmykBuffer> {
-    if !supports(doc) {
-        return None;
-    }
-    let patterns = pattern::PreparedPatterns::new(&doc.patterns, pattern::PREPARED_PATTERN_BYTES).in_mode(doc.pixel_format().mode);
-    let cx = Ctx::for_doc(doc, &patterns);
-    Some(render_with(doc, rect, tile, &cx))
+/// [`render_cmyk`] as display RGB (straight alpha), each pixel's inks shown through the
+/// document's CMYK profile as the RGB compositor reads CMYK pixels; `None` unless
+/// [`renders_inks`]. What a canvas showing the ink composite would draw.
+pub fn render_display(doc: &Document, rect: Rect) -> Option<super::Buffer> {
+    let inks = render_cmyk(doc, rect)?;
+    let space = super::cmyk_space(doc);
+    let show = |part: &[Cmyka]| -> Vec<[f32; 4]> {
+        photocraft_color::convert::with_cmyk_space(space.as_ref(), || {
+            part.iter()
+                .map(|p| {
+                    let [r, g, b] = photocraft_color::convert::cmyk_to_rgb([p[0], p[1], p[2], p[3]]);
+                    [r, g, b, p[4]]
+                })
+                .collect()
+        })
+    };
+    // Rows of tiles at a time, on every core (the profile is set per worker thread).
+    let chunk = (rect.width() as usize).max(1) * RENDER_TILE as usize;
+    #[cfg(not(target_arch = "wasm32"))]
+    let px: Vec<[f32; 4]> = {
+        use rayon::prelude::*;
+        inks.px.par_chunks(chunk).flat_map_iter(show).collect()
+    };
+    #[cfg(target_arch = "wasm32")]
+    let px: Vec<[f32; 4]> = inks.px.chunks(chunk).flat_map(show).collect();
+    Some(super::Buffer { rect, px })
 }
 
-fn render_with(doc: &Document, rect: Rect, tile: i32, cx: &Ctx) -> CmykBuffer {
+/// [`render_cmyk`] with an explicit tile size (tests check tile independence).
+pub fn render_cmyk_tiled(doc: &Document, rect: Rect, tile: i32) -> Option<CmykBuffer> {
+    if supports(doc) {
+        let patterns = pattern::PreparedPatterns::new(&doc.patterns, pattern::PREPARED_PATTERN_BYTES).in_mode(doc.pixel_format().mode);
+        let cx = Ctx::for_doc(doc, &patterns);
+        return Some(render_with(rect, tile, |t| render_tile(doc, t, &cx)));
+    }
+    if !split::supports(doc) {
+        return None;
+    }
+    let mut out = CmykBuffer::transparent(rect);
+    let done = split::render_bands(doc, rect, 0, tile, |band| {
+        place(&mut out, &band);
+        Ok::<(), ()>(())
+    });
+    done.ok().map(|()| out)
+}
+
+/// Copies `part` into `out` where their rectangles overlap (`part` lies within `out`).
+fn place(out: &mut CmykBuffer, part: &CmykBuffer) {
+    let (rect, w) = (out.rect, out.rect.width() as usize);
+    let pw = part.rect.width() as usize;
+    for (row, src) in part.px.chunks_exact(pw.max(1)).enumerate() {
+        let o = ((part.rect.y0 - rect.y0) as usize + row) * w + (part.rect.x0 - rect.x0) as usize;
+        if let Some(dst) = out.px.get_mut(o..o + pw) {
+            dst.copy_from_slice(src);
+        }
+    }
+}
+
+/// `rect` rendered tile by tile by `render_tile`, tiles in parallel on native targets.
+fn render_with(rect: Rect, tile: i32, render_tile: impl Fn(Rect) -> CmykBuffer + Sync) -> CmykBuffer {
     let tile = tile.max(1);
     let mut out = CmykBuffer::transparent(rect);
     if rect.is_empty() {
         return out;
     }
-    let w = rect.width() as usize;
     let mut tiles = Vec::new();
     let mut y = rect.y0;
     while y < rect.y1 {
@@ -589,28 +647,22 @@ fn render_with(doc: &Document, rect: Rect, tile: i32, cx: &Ctx) -> CmykBuffer {
     #[cfg(not(target_arch = "wasm32"))]
     let parts: Vec<CmykBuffer> = {
         use rayon::prelude::*;
-        tiles.par_iter().map(|t| render_tile(doc, *t, cx)).collect()
+        tiles.par_iter().map(|t| render_tile(*t)).collect()
     };
     #[cfg(target_arch = "wasm32")]
-    let parts: Vec<CmykBuffer> = tiles.iter().map(|t| render_tile(doc, *t, cx)).collect();
+    let parts: Vec<CmykBuffer> = tiles.iter().map(|t| render_tile(*t)).collect();
     for part in &parts {
-        let pw = part.rect.width() as usize;
-        for (row, src) in part.px.chunks_exact(pw.max(1)).enumerate() {
-            let o = ((part.rect.y0 - rect.y0) as usize + row) * w + (part.rect.x0 - rect.x0) as usize;
-            if let Some(dst) = out.px.get_mut(o..o + pw) {
-                dst.copy_from_slice(src);
-            }
-        }
+        place(&mut out, part);
     }
     out
 }
 
 /// [`render_cmyk`] in horizontal bands, top to bottom, handing each band to `sink` (so a huge
-/// document is never held as one full-size float composite); `None` when [`supports`] is false.
+/// document is never held as one full-size float composite); `None` unless [`renders_inks`].
 /// `band_rows` as in [`super::render_bands`].
 pub fn render_cmyk_bands<E>(doc: &Document, rect: Rect, band_rows: i32, mut sink: impl FnMut(CmykBuffer) -> Result<(), E>) -> Option<Result<(), E>> {
     if !supports(doc) {
-        return None;
+        return split::supports(doc).then(|| split::render_bands(doc, rect, band_rows, RENDER_TILE, sink));
     }
     let patterns = pattern::PreparedPatterns::new(&doc.patterns, pattern::PREPARED_PATTERN_BYTES).in_mode(doc.pixel_format().mode);
     let cx = Ctx::for_doc(doc, &patterns);
@@ -618,7 +670,7 @@ pub fn render_cmyk_bands<E>(doc: &Document, rect: Rect, band_rows: i32, mut sink
     let mut y = rect.y0;
     while y < rect.y1 {
         let y1 = y.saturating_add(rows).min(rect.y1);
-        if let Err(e) = sink(render_with(doc, Rect::new(rect.x0, y, rect.x1, y1), RENDER_TILE, &cx)) {
+        if let Err(e) = sink(render_with(Rect::new(rect.x0, y, rect.x1, y1), RENDER_TILE, |t| render_tile(doc, t, &cx))) {
             return Some(Err(e));
         }
         y = y1;

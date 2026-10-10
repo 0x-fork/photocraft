@@ -174,3 +174,42 @@ fn channel_weighing_adjustments_go_through_the_profile() {
     assert!(r.warnings.iter().any(|w| w.contains("converted back through the document's CMYK profile")), "{:?}", r.warnings);
     assert_eq!(decode(&r.bytes).layout(), ChannelLayout::Cmyk);
 }
+
+#[test]
+fn layer_effects_export_their_inks() {
+    // K-only type with a K-only drop shadow on blank paper: the TIFF has black ink only.
+    use photocraft_doc::effects::{Contour, Effect, FxCommon, Shadow};
+    let mut d = cmyk_doc(SampleType::U8);
+    d.layers.push(fill(SampleType::U8, false, &[(Rect::new(0, 0, 12, 8), [0.0; 5])]));
+    let mut t = fill(SampleType::U8, true, &[(Rect::new(2, 2, 6, 5), [0.0, 0.0, 0.0, 1.0, 1.0])]);
+    t.effects.enabled = true;
+    t.effects.items.push(Effect::DropShadow(Shadow {
+        common: FxCommon::new(BlendMode::Multiply, 0.75),
+        color: photocraft_color::Color { mode: ColorMode::Cmyk, c: [0.0, 0.0, 0.0, 1.0], alpha: 1.0 },
+        angle: 135.0,
+        use_global_light: false,
+        distance: 2.0,
+        spread: 0.0,
+        size: 1.0,
+        contour: Contour::Linear,
+        anti_alias: false,
+        noise: 0.0,
+        knocks_out: true,
+    }));
+    d.layers.push(t);
+    let r = export(&d, "a.tif", &ExportOptions::default()).unwrap_or_else(|e| panic!("{e}"));
+    assert!(!r.warnings.iter().any(|w| w.contains("converted back")), "{:?}", r.warnings);
+    let img = decode(&r.bytes);
+    assert_eq!(img.layout(), ChannelLayout::Cmyk);
+    let mut shadow = 0;
+    for y in 0..8 {
+        for x in 0..12 {
+            let p = pixel(&img, x, y);
+            assert_eq!(&p[..3], &[0.0; 3], "({x},{y}) {p:?}");
+            shadow += usize::from(p[3] > 0.0 && p[3] < 1.0);
+        }
+    }
+    assert!(shadow > 0, "a soft shadow");
+    assert_eq!(pixel(&img, 3, 3), vec![0.0, 0.0, 0.0, 1.0], "type");
+}
+
