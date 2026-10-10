@@ -213,3 +213,25 @@ fn layer_effects_export_their_inks() {
     assert_eq!(pixel(&img, 3, 3), vec![0.0, 0.0, 0.0, 1.0], "type");
 }
 
+#[test]
+fn psd_merged_image_keeps_exact_inks() {
+    // The PSD's merged image (what other apps show and print) is mixed on the inks too: K-only
+    // black under a Multiply layer stays K-only, and the four-colour patch keeps its inks.
+    let mut d = layered(SampleType::U8);
+    let mut m = fill(SampleType::U8, true, &[(Rect::new(0, 0, 12, 8), [0.0, 0.4, 0.0, 0.0, 1.0])]);
+    m.blend = BlendMode::Multiply;
+    d.layers.push(m);
+    let r = export(&d, "a.psd", &ExportOptions::default()).unwrap_or_else(|e| panic!("{e}"));
+    let f = photocraft_psd::PsdFile::from_bytes(&r.bytes).unwrap_or_else(|e| panic!("{e}"));
+    let planes = f.decode_merged().unwrap_or_else(|e| panic!("{e}"));
+    let n = 12 * 8;
+    // Planar, inverted (255 = no ink).
+    let ink = |c: usize, x: usize, y: usize| 255 - i32::from(planes.get(c * n + y * 12 + x).copied().unwrap_or(0));
+    let q = |v: f32| (v * 255.0).round() as i32;
+    assert_eq!([ink(0, 2, 3), ink(1, 2, 3), ink(2, 2, 3), ink(3, 2, 3)], [0, q(0.4), 0, 255], "K-only black with magenta multiplied in");
+    let mul = |b: f32, s: f32| b + s - b * s;
+    let qb = |v: f32| ((v * 255.0).round()) / 255.0;
+    let want = [q(0.2), q(mul(qb(0.4), qb(0.4))), q(0.6), q(0.1)];
+    let got = [ink(0, 8, 1), ink(1, 8, 1), ink(2, 8, 1), ink(3, 8, 1)];
+    assert!(got.iter().zip(want).all(|(g, w)| (g - w).abs() <= 1), "{got:?} vs {want:?}");
+}
