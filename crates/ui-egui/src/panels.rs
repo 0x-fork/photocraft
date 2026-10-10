@@ -17,7 +17,7 @@ use crate::{PhotocraftApp, icons, widgets};
 const TOOL_SECTIONS: &[&[&[Tool]]] = &[
     &[&[Tool::Move]],
     &[
-        &[Tool::RectMarquee, Tool::EllipseMarquee],
+        &[Tool::RectMarquee, Tool::EllipseMarquee, Tool::SingleRowMarquee, Tool::SingleColumnMarquee],
         &[Tool::Lasso, Tool::PolygonLasso, Tool::MagneticLasso],
         &[Tool::ObjectSelection, Tool::QuickSelection, Tool::MagicWand],
         &[Tool::Crop, Tool::Slice, Tool::SliceSelect],
@@ -936,7 +936,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         widgets::vline(ui, 22.0);
                         widgets::checkbox(ui, &mut b.mixer.sample_all_layers, tl!("Sample All Layers"));
                     }
-                    Tool::RectMarquee | Tool::EllipseMarquee if t.pro => {
+                    Tool::RectMarquee | Tool::EllipseMarquee | Tool::SingleRowMarquee | Tool::SingleColumnMarquee if t.pro => {
                         ui.spacing_mut().item_spacing.x = 2.0;
                         for (i, (icon, tip)) in [
                             ("square", tl!("New selection").to_string()),
@@ -962,16 +962,18 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         // Photoshop greys Anti-alias for the Rectangular Marquee (its edges are always hard).
                         ui.add_enabled_ui(app.ui.tool == Tool::EllipseMarquee, |ui| widgets::checkbox(ui, &mut o.anti_alias, tl!("Anti-alias")));
                         widgets::vline(ui, 22.0);
-                        opt_label(ui, tl!("Style"));
+                        // A single row or column has no style or size: Photoshop greys them.
+                        let sized = matches!(app.ui.tool, Tool::RectMarquee | Tool::EllipseMarquee);
+                        ui.add_enabled_ui(sized, |ui| opt_label(ui, tl!("Style")));
                         let styles = [
                             ("normal".to_string(), tl!("Normal")),
                             ("fixedRatio".to_string(), tl!("Fixed Ratio")),
                             ("fixedSize".to_string(), tl!("Fixed Size")),
                         ];
-                        if widgets::dropdown(ui, "marquee-style", &mut o.marquee_style, &styles, 96.0) {
+                        if ui.add_enabled_ui(sized, |ui| widgets::dropdown(ui, "marquee-style", &mut o.marquee_style, &styles, 96.0)).inner {
                             (o.marquee_width, o.marquee_height) = if o.marquee_style == "fixedSize" { (64.0, 64.0) } else { (1.0, 1.0) };
                         }
-                        let fixed = o.marquee_style != "normal";
+                        let fixed = sized && o.marquee_style != "normal";
                         let (unit, range) = if o.marquee_style == "fixedSize" { ("px", 1.0..=300_000.0) } else { ("", 0.001..=999.0) };
                         ui.add_enabled_ui(fixed, |ui| {
                             opt_label(ui, tl!("Width"));
@@ -1205,6 +1207,15 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         ui,
                         &format!(
                             "Drag to select  ·  {} add  ·  {} subtract  ·  {} intersect  ·  click to deselect",
+                            crate::shortcuts::pretty("Shift"),
+                            crate::shortcuts::pretty("Alt"),
+                            crate::shortcuts::pretty("Shift+Alt")
+                        ),
+                    ),
+                    Tool::SingleRowMarquee | Tool::SingleColumnMarquee => hint(
+                        ui,
+                        &format!(
+                            "Click to select a one-pixel line  ·  {} add  ·  {} subtract  ·  {} intersect",
                             crate::shortcuts::pretty("Shift"),
                             crate::shortcuts::pretty("Alt"),
                             crate::shortcuts::pretty("Shift+Alt")
@@ -3203,6 +3214,15 @@ fn layer_drop_payload(dragged: u64, target: LayerId, position: &str, selected: &
     }
 }
 
+/// Would this drop move the Background off the bottom, or put a layer below it? Photoshop
+/// refuses both (no drop indicator); ⌥-dragging the Background still copies it above.
+fn background_drop_refused(doc: &photocraft_doc::Document, payload: &Value, target: LayerId, position: &str, copy: bool) -> bool {
+    let Some(bg) = doc.layers.first().filter(|b| crate::doc_props_ui::is_background(doc, b)).map(|b| b.id) else { return false };
+    let moves_bg =
+        !copy && (payload["layer"].as_u64() == Some(bg.0) || payload["layers"].as_array().is_some_and(|a| a.iter().any(|v| v.as_u64() == Some(bg.0))));
+    moves_bg || (target == bg && position == "below")
+}
+
 /// Drag a layer row to reorder: drop above, below, or inside an existing group. With ⌥ held on
 /// release the layers stay put and copies land there instead (Photoshop).
 /// Multi-layer moves are atomic (one undo step), using the engine's stable document order.
@@ -3271,6 +3291,11 @@ fn layer_drag_and_drop(
     } else {
         "below"
     };
+    let Some(st) = app.session.active() else { return };
+    let mut payload = layer_drop_payload(dragged, l.id, position, &st.selected_layers());
+    if background_drop_refused(&st.doc, &payload, l.id, position, copy) {
+        return;
+    }
     let painter = ui.painter();
     match position {
         "into" => {
@@ -3284,8 +3309,6 @@ fn layer_drag_and_drop(
         }
     }
     if released {
-        let selected = app.session.active().map(|st| st.selected_layers()).unwrap_or_default();
-        let mut payload = layer_drop_payload(dragged, l.id, position, &selected);
         if copy && let Some(o) = payload.as_object_mut() {
             o.insert("copy".into(), json!(true));
         }
@@ -4403,6 +4426,31 @@ mod group_drag_selection_tests {
         // Above/below use the same batch route; engine preserves the document stack order.
         assert_eq!(layer_drop_payload(b.0, group, "above", &[a, b])["position"], "above");
         assert_eq!(layer_drop_payload(b.0, group, "below", &[a, b])["position"], "below");
+    }
+
+    #[test]
+    fn the_background_row_neither_moves_nor_takes_a_layer_below_it() {
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+        let bg = s.active().unwrap().doc.layers[0].id;
+        let a = LayerId(s.execute("layer.new.layer", json!({})).unwrap()["layer"].as_u64().unwrap());
+        let doc = &s.active().unwrap().doc;
+        let refused = |dragged: LayerId, target: LayerId, pos: &str, sel: &[LayerId], copy: bool| {
+            background_drop_refused(doc, &layer_drop_payload(dragged.0, target, pos, sel), target, pos, copy)
+        };
+        assert!(refused(bg, a, "above", &[bg], false));
+        assert!(refused(a, bg, "below", &[a], false));
+        assert!(refused(a, bg, "below", &[a], true));
+        assert!(refused(a, a, "above", &[bg, a], false), "the Background is among the dragged layers");
+        assert!(!refused(a, bg, "above", &[a], false));
+        assert!(!refused(bg, a, "above", &[bg], true), "⌥-dragging copies the Background above");
+        // Without a Background every drop is fine.
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+        s.execute("layer.new.layerFromBackground", json!({})).unwrap();
+        let l0 = s.active().unwrap().doc.layers[0].id;
+        let doc = &s.active().unwrap().doc;
+        assert!(!background_drop_refused(doc, &layer_drop_payload(l0.0, a, "above", &[l0]), a, "above", false));
     }
 
     #[test]

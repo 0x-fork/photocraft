@@ -1460,6 +1460,7 @@
 	Show only crosshair while painting	Εμφάνιση μόνο σταυρονήματος κατά τη ζωγραφική
 	Show slice numbers	Εμφάνιση αριθμών τομών
 	Show tooltips	Εμφάνιση επεξηγήσεων
+	Show highlight on rollover	Εμφάνιση επισήμανσης κατά την κατάδειξη
 	Show bounding box when dragging layer	Εμφάνιση πλαισίου οριοθέτησης κατά τη μετακίνηση επιπέδου
 	Show transformation values	Εμφάνιση τιμών μετασχηματισμού
 	Slice color	Χρώμα τομής
@@ -1749,6 +1750,7 @@
 	Layer via Cut	Επίπεδο μέσω αποκοπής
 	Layer From Background…	Επίπεδο από φόντο…
 	Layer from Background…	Επίπεδο από φόντο…
+	Background From Layer	Φόντο από επίπεδο
 	New Shape Layer	Νέο επίπεδο σχήματος
 	New Type Layer	Νέο επίπεδο κειμένου
 	New Fill Layer	Νέο επίπεδο γεμίσματος
@@ -2092,6 +2094,10 @@
 	Classic Theme	Κλασικό θέμα
 	Solarized dark	Solarized σκούρο
 	Solarized Dark Theme	Σκούρο θέμα Solarized
+	Breeze dark	Breeze σκούρο
+	Breeze Dark Theme	Σκούρο θέμα Breeze
+	Breeze light	Breeze φωτεινό
+	Breeze Light Theme	Φωτεινό θέμα Breeze
 	Clear Canvas Guides	Απαλοιφή οδηγών καμβά
 	Clear Override	Απαλοιφή παράκαμψης
 	Clear Samples	Απαλοιφή δειγμάτων
@@ -3239,6 +3245,8 @@ cameraRaw	Yellow	Κίτρινο
 	Dodge Tool	Φωτισμός (Dodge Tool)
 	Ellipse Tool	Έλλειψη (Ellipse Tool)
 	Elliptical Marquee Tool	Ελλειπτική επιλογή (Elliptical Marquee Tool)
+	Single Row Marquee Tool	Επιλογή μίας γραμμής (Single Row Marquee Tool)
+	Single Column Marquee Tool	Επιλογή μίας στήλης (Single Column Marquee Tool)
 	Eraser Tool	Γόμα (Eraser Tool)
 	Eyedropper Tool	Σταγονόμετρο (Eyedropper Tool)
 	Gradient Tool	Διαβάθμιση (Gradient Tool)

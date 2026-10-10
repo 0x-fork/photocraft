@@ -295,6 +295,8 @@
 	Layer via Cut	剪下的圖層
 	Layer From Background…	從背景建立圖層…
 	Layer from Background…	從背景建立圖層…
+	Background from Layer	從圖層建立背景
+	Background From Layer	從圖層建立背景
 	New Shape Layer	新增形狀圖層
 	New Type Layer	新增文字圖層
 	New Fill Layer	新增填滿圖層
@@ -718,6 +720,10 @@
 	Classic Theme	經典主題
 	Solarized dark	Solarized 深色
 	Solarized Dark Theme	Solarized 深色主題
+	Breeze dark	Breeze 深色
+	Breeze Dark Theme	Breeze 深色主題
+	Breeze light	Breeze 淺色
+	Breeze Light Theme	Breeze 淺色主題
 	Next Theme	下一個主題
 	Actions	動作
 	Brush Settings	筆刷設定
@@ -1611,6 +1617,8 @@
 	Efficiency: 100%	效率：100%
 	Ellipse Tool	橢圓工具
 	Elliptical Marquee Tool	橢圓選取畫面工具
+	Single Row Marquee Tool	單列選取畫面工具
+	Single Column Marquee Tool	單欄選取畫面工具
 	Emboss	浮雕
 	Eraser	橡皮擦
 	Eraser Tool	橡皮擦工具
@@ -1928,6 +1936,7 @@
 	Show only crosshair while painting	繪圖時僅顯示十字線
 	Show slice numbers	顯示切片編號
 	Show tooltips	顯示工具提示
+	Show highlight on rollover	滑鼠懸停時顯示醒目提示
 	Show bounding box when dragging layer	拖曳圖層時顯示邊界框
 	System title bar	系統標題列
 	Show transformation values	顯示變形數值

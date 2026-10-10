@@ -283,6 +283,7 @@
 	Layer via Cut	Camada via recorte
 	Layer From Background…	Camada a partir do plano de fundo…
 	Layer from Background…	Camada a partir do plano de fundo…
+	Background From Layer	Plano de fundo a partir da camada
 	New Shape Layer	Nova camada de forma
 	New Type Layer	Nova camada de texto
 	New Fill Layer	Nova camada de preenchimento
@@ -699,6 +700,10 @@
 	Classic Theme	Tema clássico
 	Solarized dark	Solarized escuro
 	Solarized Dark Theme	Tema Solarized Escuro
+	Breeze dark	Breeze escuro
+	Breeze Dark Theme	Tema Breeze Escuro
+	Breeze light	Breeze claro
+	Breeze Light Theme	Tema Breeze Claro
 	Next Theme	Próximo tema
 	Actions	Ações
 	Brush Settings	Configurações do pincel
@@ -1582,6 +1587,8 @@
 	Efficiency: 100%	Eficiência: 100%
 	Ellipse Tool	Ferramenta Elipse
 	Elliptical Marquee Tool	Ferramenta Letreiro elíptico
+	Single Row Marquee Tool	Ferramenta Letreiro de linha única
+	Single Column Marquee Tool	Ferramenta Letreiro de coluna única
 	Emboss	Entalhe
 	Eraser	Borracha
 	Eraser Tool	Ferramenta Borracha
@@ -1897,6 +1904,7 @@
 	Show only crosshair while painting	Mostrar apenas a mira ao pintar
 	Show slice numbers	Mostrar números das fatias
 	Show tooltips	Mostrar dicas de ferramentas
+	Show highlight on rollover	Mostrar realce ao passar o mouse
 	Show transformation values	Mostrar valores de transformação
 	Slice color	Cor das fatias
 	Smart guide color	Cor das guias inteligentes

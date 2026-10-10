@@ -290,6 +290,7 @@
 	Layer via Cut	通过剪切创建图层
 	Layer From Background…	从背景创建图层…
 	Layer from Background…	从背景创建图层…
+	Background From Layer	从图层创建背景
 	Background from Layer	从图层创建背景
 	New Shape Layer	新建形状图层
 	New Type Layer	新建文字图层
@@ -714,6 +715,10 @@
 	Classic Theme	经典主题
 	Solarized dark	Solarized 深色
 	Solarized Dark Theme	Solarized 深色主题
+	Breeze dark	Breeze 深色
+	Breeze Dark Theme	Breeze 深色主题
+	Breeze light	Breeze 浅色
+	Breeze Light Theme	Breeze 浅色主题
 	Next Theme	下一代主题
 	Actions	动作
 	Brush Settings	画笔设置
@@ -1617,6 +1622,8 @@
 	Efficiency: 100%	效率：100%
 	Ellipse Tool	椭圆工具
 	Elliptical Marquee Tool	椭圆选框工具
+	Single Row Marquee Tool	单行选框工具
+	Single Column Marquee Tool	单列选框工具
 	Emboss	浮雕
 	Eraser	橡皮擦
 	Eraser Tool	橡皮擦工具
@@ -1935,6 +1942,7 @@
 	Show only crosshair while painting	绘画时仅显示十字线
 	Show slice numbers	显示切片编号
 	Show tooltips	显示工具提示
+	Show highlight on rollover	鼠标悬停时显示高亮
 	Show bounding box when dragging layer	拖动图层时显示边界框
 	System title bar	系统标题栏
 	Show transformation values	显示变换值

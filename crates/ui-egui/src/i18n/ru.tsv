@@ -174,6 +174,8 @@
 	Rename Layer	Переименовать слой
 	Layer From Background…	Слой из фона…
 	Layer from Background…	Слой из фона…
+	Background from Layer	Фон из слоя
+	Background From Layer	Фон из слоя
 	Group Layers	Сгруппировать слои
 	Group…	Группировать…
 	Ungroup Layers	Разгруппировать слои
@@ -1415,6 +1417,10 @@
 	Classic Theme	Классическая тема
 	Solarized dark	Solarized тёмная
 	Solarized Dark Theme	Тёмная тема Solarized
+	Breeze dark	Breeze тёмная
+	Breeze Dark Theme	Тёмная тема Breeze
+	Breeze light	Breeze светлая
+	Breeze Light Theme	Светлая тема Breeze
 	Studio Theme	Тема Studio
 	Studio Light Theme	Светлая тема Studio
 	Adwaita Light Theme	Светлая тема Adwaita
@@ -1544,6 +1550,8 @@
 	Could not complete the Free Transform command because the layer is locked.	Не удалось выполнить команду «Свободное трансформирование», потому что слой заблокирован.
 	Rectangular Marquee Tool	Прямоугольная область
 	Elliptical Marquee Tool	Овальная область
+	Single Row Marquee Tool	Область (горизонтальная строка)
+	Single Column Marquee Tool	Область (вертикальная строка)
 	Brush Tool	Кисть
 	Pencil Tool	Карандаш
 	Eraser Tool	Ластик
@@ -2342,6 +2350,7 @@
 	Show only crosshair while painting	Только перекрестье при рисовании
 	Show slice numbers	Показывать номера фрагментов
 	Show tooltips	Показывать подсказки
+	Show highlight on rollover	Показывать подсветку при наведении
 	Show bounding box when dragging layer	Показывать рамку при перетаскивании слоя
 	System title bar	Системная строка заголовка
 	Show transformation values	Показывать значения трансформации

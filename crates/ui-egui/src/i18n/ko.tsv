@@ -274,6 +274,8 @@
 	Layer via Cut	잘라내어 레이어 만들기
 	Layer From Background…	배경에서 레이어 만들기…
 	Layer from Background…	배경에서 레이어 만들기…
+	Background from Layer	레이어에서 배경 만들기
+	Background From Layer	레이어에서 배경 만들기
 	New Shape Layer	새 모양 레이어
 	New Type Layer	새 문자 레이어
 	New Fill Layer	새 칠 레이어
@@ -686,6 +688,10 @@
 	Classic Theme	클래식 테마
 	Solarized dark	Solarized 어두움
 	Solarized Dark Theme	Solarized 어두운 테마
+	Breeze dark	Breeze 어두움
+	Breeze Dark Theme	Breeze 어두운 테마
+	Breeze light	Breeze 밝게
+	Breeze Light Theme	Breeze 밝은 테마
 	Next Theme	다음 테마
 	Actions	액션
 	Brush Settings	브러시 설정
@@ -1575,6 +1581,8 @@
 	Efficiency: 100%	효율: 100%
 	Ellipse Tool	타원 도구
 	Elliptical Marquee Tool	원형 선택 윤곽 도구
+	Single Row Marquee Tool	단일 행 선택 윤곽 도구
+	Single Column Marquee Tool	단일 열 선택 윤곽 도구
 	Emboss	엠보스
 	Eraser	지우개
 	Eraser Tool	지우개 도구
@@ -1890,6 +1898,7 @@
 	Show only crosshair while painting	칠하는 동안 십자선만 표시
 	Show slice numbers	분할 영역 번호 표시
 	Show tooltips	도구 설명 표시
+	Show highlight on rollover	롤오버 시 강조 표시
 	Show transformation values	변형 값 표시
 	Slice color	분할 영역 색상
 	Smart guide color	고급 안내선 색상

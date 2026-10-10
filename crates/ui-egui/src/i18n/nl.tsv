@@ -281,6 +281,7 @@
 	Layer via Cut	Laag via knippen
 	Layer From Background…	Laag uit achtergrond…
 	Layer from Background…	Laag uit achtergrond…
+	Background From Layer	Achtergrond uit laag
 	New Shape Layer	Nieuwe vormlaag
 	New Type Layer	Nieuwe tekstlaag
 	New Fill Layer	Nieuwe opvullaag
@@ -692,6 +693,10 @@
 	Classic Theme	Klassiek thema
 	Solarized dark	Solarized donker
 	Solarized Dark Theme	Solarized-thema donker
+	Breeze dark	Breeze donker
+	Breeze Dark Theme	Breeze-thema donker
+	Breeze light	Breeze licht
+	Breeze Light Theme	Breeze-thema licht
 	Adwaita Light Theme	Adwaita-thema licht
 	Adwaita Dark Theme	Adwaita-thema donker
 	Adwaita	Adwaita
@@ -1585,6 +1590,8 @@
 	Efficiency: 100%	Efficiëntie: 100%
 	Ellipse Tool	Ellipsgereedschap
 	Elliptical Marquee Tool	Ovaal selectiekader
+	Single Row Marquee Tool	Selectiekader enkele rij
+	Single Column Marquee Tool	Selectiekader enkele kolom
 	Emboss	Reliëf
 	Eraser	Gum
 	Eraser Tool	Gumgereedschap
@@ -1902,6 +1909,7 @@
 	Show only crosshair while painting	Alleen dradenkruis tonen tijdens schilderen
 	Show slice numbers	Segmentnummers tonen
 	Show tooltips	Knopinfo tonen
+	Show highlight on rollover	Markering bij aanwijzen tonen
 	Show bounding box when dragging layer	Selectiekader tonen bij slepen van laag
 	System title bar	Titelbalk van systeem
 	Show transformation values	Transformatiewaarden tonen

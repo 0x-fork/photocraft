@@ -286,6 +286,7 @@
 	Layer via Cut	Calque par coupe
 	Layer From Background…	Calque d'après l'arrière-plan…
 	Layer from Background…	Calque d'après l'arrière-plan…
+	Background From Layer	Arrière-plan d'après le calque
 	New Shape Layer	Nouveau calque de forme
 	New Type Layer	Nouveau calque de texte
 	New Fill Layer	Nouveau calque de remplissage
@@ -702,6 +703,10 @@
 	Classic Theme	Thème Classique
 	Solarized dark	Solarized sombre
 	Solarized Dark Theme	Thème Solarized sombre
+	Breeze dark	Breeze sombre
+	Breeze Dark Theme	Thème Breeze sombre
+	Breeze light	Breeze clair
+	Breeze Light Theme	Thème Breeze clair
 	Next Theme	Thème suivant
 	Actions	Actions
 	Brush Settings	Paramètres du pinceau
@@ -1583,6 +1588,8 @@
 	Efficiency: 100%	Efficacité : 100 %
 	Ellipse Tool	Outil Ellipse
 	Elliptical Marquee Tool	Outil Sélection elliptique
+	Single Row Marquee Tool	Outil Sélection de ligne unique
+	Single Column Marquee Tool	Outil Sélection de colonne unique
 	Emboss	Relief
 	Eraser	Gomme
 	Eraser Tool	Outil Gomme
@@ -1898,6 +1905,7 @@
 	Show only crosshair while painting	N'afficher que le réticule pendant la peinture
 	Show slice numbers	Afficher les numéros de tranche
 	Show tooltips	Afficher les info-bulles
+	Show highlight on rollover	Afficher la mise en surbrillance au survol
 	Show transformation values	Afficher les valeurs de transformation
 	Slice color	Couleur des tranches
 	Smart guide color	Couleur des repères intelligents

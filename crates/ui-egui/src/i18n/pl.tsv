@@ -289,6 +289,7 @@
 	Layer via Cut	Warstwa przez wycięcie
 	Layer From Background…	Warstwa z tła…
 	Layer from Background…	Warstwa z tła…
+	Background From Layer	Tło z warstwy
 	New Shape Layer	Nowa warstwa kształtu
 	New Type Layer	Nowa warstwa tekstowa
 	New Fill Layer	Nowa warstwa wypełnienia
@@ -712,6 +713,10 @@
 	Classic Theme	Motyw klasyczny
 	Solarized dark	Solarized ciemny
 	Solarized Dark Theme	Ciemny motyw Solarized
+	Breeze dark	Breeze ciemny
+	Breeze Dark Theme	Ciemny motyw Breeze
+	Breeze light	Breeze jasny
+	Breeze Light Theme	Jasny motyw Breeze
 	Next Theme	Następny motyw
 	Actions	Akcje
 	Brush Settings	Ustawienia pędzla
@@ -1601,6 +1606,8 @@
 	Efficiency: 100%	Wydajność: 100%
 	Ellipse Tool	Narzędzie Elipsa
 	Elliptical Marquee Tool	Narzędzie Zaznaczenie eliptyczne
+	Single Row Marquee Tool	Narzędzie Zaznaczenie pojedynczego wiersza
+	Single Column Marquee Tool	Narzędzie Zaznaczenie pojedynczej kolumny
 	Emboss	Płaskorzeźba
 	Eraser	Gumka
 	Eraser Tool	Narzędzie Gumka
@@ -1921,6 +1928,7 @@
 	Show only crosshair while painting	Podczas malowania pokaż tylko celownik
 	Show slice numbers	Pokaż numery plasterków
 	Show tooltips	Pokaż podpowiedzi
+	Show highlight on rollover	Pokaż podświetlenie po najechaniu
 	Show bounding box when dragging layer	Pokaż ramkę ograniczającą podczas przeciągania warstwy
 	Show transformation values	Pokaż wartości przekształcenia
 	Slice color	Kolor plasterków

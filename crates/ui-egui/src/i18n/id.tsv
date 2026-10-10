@@ -279,6 +279,7 @@
 	Layer via Cut	Layer via Potong
 	Layer From Background…	Layer dari Background…
 	Layer from Background…	Layer dari Background…
+	Background From Layer	Background dari Layer
 	New Shape Layer	Layer Bentuk Baru
 	New Type Layer	Layer Teks Baru
 	New Fill Layer	Layer Isian Baru
@@ -695,6 +696,10 @@
 	Classic Theme	Tema Klasik
 	Solarized dark	Solarized gelap
 	Solarized Dark Theme	Tema Solarized Gelap
+	Breeze dark	Breeze gelap
+	Breeze Dark Theme	Tema Breeze Gelap
+	Breeze light	Breeze terang
+	Breeze Light Theme	Tema Breeze Terang
 	Next Theme	Tema Berikutnya
 	Actions	Action
 	Brush Settings	Pengaturan Kuas
@@ -1577,6 +1582,8 @@
 	Efficiency: 100%	Efisiensi: 100%
 	Ellipse Tool	Alat Ellipse
 	Elliptical Marquee Tool	Alat Elliptical Marquee
+	Single Row Marquee Tool	Alat Single Row Marquee
+	Single Column Marquee Tool	Alat Single Column Marquee
 	Emboss	Emboss
 	Eraser	Penghapus
 	Eraser Tool	Alat Penghapus
@@ -1892,6 +1899,7 @@
 	Show only crosshair while painting	Tampilkan crosshair saja saat melukis
 	Show slice numbers	Tampilkan nomor slice
 	Show tooltips	Tampilkan tooltip
+	Show highlight on rollover	Tampilkan sorotan saat kursor melintas
 	Show transformation values	Tampilkan nilai transformasi
 	Slice color	Warna slice
 	Smart guide color	Warna smart guide

@@ -163,6 +163,7 @@
 	Rename Layer	Перейменувати шар
 	Layer From Background…	Шар із фону…
 	Layer from Background…	Шар із фону…
+	Background From Layer	Фон із шару
 	Group Layers	Згрупувати шари
 	Group…	Група…
 	Ungroup Layers	Розгрупувати шари
@@ -1394,6 +1395,10 @@
 	Classic Theme	Класична тема
 	Solarized dark	Solarized темна
 	Solarized Dark Theme	Темна тема Solarized
+	Breeze dark	Breeze темна
+	Breeze Dark Theme	Темна тема Breeze
+	Breeze light	Breeze світла
+	Breeze Light Theme	Світла тема Breeze
 	Adwaita Light Theme	Світла тема Adwaita
 	Adwaita Dark Theme	Темна тема Adwaita
 	Adwaita	Adwaita
@@ -1525,6 +1530,8 @@
 	Could not complete the Free Transform command because the layer is locked.	Не вдалося виконати команду «Вільна трансформація», бо шар заблоковано.
 	Rectangular Marquee Tool	Інструмент «Прямокутне виділення»
 	Elliptical Marquee Tool	Інструмент «Еліптичне виділення»
+	Single Row Marquee Tool	Інструмент «Виділення одного рядка»
+	Single Column Marquee Tool	Інструмент «Виділення одного стовпця»
 	Brush Tool	Інструмент «Пензель»
 	Pencil Tool	Інструмент «Олівець»
 	Eraser Tool	Інструмент «Гумка»
@@ -2318,6 +2325,7 @@
 	Show only crosshair while painting	Показувати лише перехрестя під час малювання
 	Show slice numbers	Показувати номери фрагментів
 	Show tooltips	Показувати підказки
+	Show highlight on rollover	Показувати підсвічування під час наведення
 	Show bounding box when dragging layer	Показувати рамку під час перетягування шару
 	System title bar	Системний рядок заголовка
 	Show transformation values	Показувати значення трансформації

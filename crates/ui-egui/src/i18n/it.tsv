@@ -287,6 +287,8 @@
 	Layer via Cut	Livello tramite taglia
 	Layer From Background…	Livello dallo sfondo…
 	Layer from Background…	Livello dallo sfondo…
+	Background from Layer	Sfondo da livello
+	Background From Layer	Sfondo da livello
 	New Shape Layer	Nuovo livello forma
 	New Type Layer	Nuovo livello testo
 	New Fill Layer	Nuovo livello riempimento
@@ -708,6 +710,10 @@
 	Classic Theme	Tema classico
 	Solarized dark	Solarized scuro
 	Solarized Dark Theme	Tema Solarized scuro
+	Breeze dark	Breeze scuro
+	Breeze Dark Theme	Tema Breeze scuro
+	Breeze light	Breeze chiaro
+	Breeze Light Theme	Tema Breeze chiaro
 	Next Theme	Tema successivo
 	Actions	Azioni
 	Brush Settings	Impostazioni pennello
@@ -1602,6 +1608,8 @@
 	Efficiency: 100%	Efficienza: 100%
 	Ellipse Tool	Strumento Ellisse
 	Elliptical Marquee Tool	Strumento Selezione ellittica
+	Single Row Marquee Tool	Strumento Selezione singola riga
+	Single Column Marquee Tool	Strumento Selezione singola colonna
 	Emboss	Rilievo
 	Eraser	Gomma
 	Eraser Tool	Strumento Gomma
@@ -1923,6 +1931,7 @@
 	Show only crosshair while painting	Mostra solo mirino durante pittura
 	Show slice numbers	Mostra numeri sezioni
 	Show tooltips	Mostra tooltip
+	Show highlight on rollover	Mostra evidenziazione al passaggio del mouse
 	Show bounding box when dragging layer	Mostra riquadro selezione al trascinamento livello
 	System title bar	Barra del titolo di sistema
 	Show transformation values	Mostra valori trasformazione

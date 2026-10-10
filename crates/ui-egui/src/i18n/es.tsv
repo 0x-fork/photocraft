@@ -287,6 +287,8 @@
 	Layer via Cut	Capa vía corte
 	Layer From Background…	Capa a partir del fondo…
 	Layer from Background…	Capa a partir del fondo…
+	Background from Layer	Fondo a partir de capa
+	Background From Layer	Fondo a partir de capa
 	New Shape Layer	Nueva capa de forma
 	New Type Layer	Nueva capa de texto
 	New Fill Layer	Nueva capa de relleno
@@ -710,6 +712,10 @@
 	Classic Theme	Tema Clásico
 	Solarized dark	Solarized oscuro
 	Solarized Dark Theme	Tema Solarized oscuro
+	Breeze dark	Breeze oscuro
+	Breeze Dark Theme	Tema Breeze oscuro
+	Breeze light	Breeze claro
+	Breeze Light Theme	Tema Breeze claro
 	Next Theme	Tema siguiente
 	Actions	Acciones
 	Brush Settings	Ajustes del pincel
@@ -1604,6 +1610,8 @@
 	Efficiency: 100%	Eficiencia: 100%
 	Ellipse Tool	Herramienta Elipse
 	Elliptical Marquee Tool	Herramienta Marco elíptico
+	Single Row Marquee Tool	Herramienta Marco de fila única
+	Single Column Marquee Tool	Herramienta Marco de columna única
 	Emboss	Relieve
 	Eraser	Borrador
 	Eraser Tool	Herramienta Borrador
@@ -1925,6 +1933,7 @@
 	Show only crosshair while painting	Mostrar solo la retícula al pintar
 	Show slice numbers	Mostrar los números de sección
 	Show tooltips	Mostrar las descripciones emergentes
+	Show highlight on rollover	Mostrar resaltado al pasar el cursor
 	Show bounding box when dragging layer	Mostrar el cuadro delimitador al arrastrar la capa
 	System title bar	Barra de título del sistema
 	Show transformation values	Mostrar los valores de transformación

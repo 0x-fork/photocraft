@@ -295,6 +295,8 @@
 	Layer via Cut	Vrstva vyjmutím
 	Layer From Background…	Vrstva z pozadí…
 	Layer from Background…	Vrstva z pozadí…
+	Background from Layer	Pozadí z vrstvy
+	Background From Layer	Pozadí z vrstvy
 	New Shape Layer	Nová vrstva tvaru
 	New Type Layer	Nová textová vrstva
 	New Fill Layer	Nová vrstva výplně
@@ -718,6 +720,10 @@
 	Classic Theme	Klasický motiv
 	Solarized dark	Solarized tmavý
 	Solarized Dark Theme	Tmavý motiv Solarized
+	Breeze dark	Breeze tmavý
+	Breeze Dark Theme	Tmavý motiv Breeze
+	Breeze light	Breeze světlý
+	Breeze Light Theme	Světlý motiv Breeze
 	Next Theme	Další motiv
 	Actions	Akce
 	Brush Settings	Nastavení štětce
@@ -1621,6 +1627,8 @@
 	Efficiency: 100%	Efektivita: 100 %
 	Ellipse Tool	Nástroj elipsa
 	Elliptical Marquee Tool	Nástroj eliptický výběr
+	Single Row Marquee Tool	Nástroj výběr jednoho řádku
+	Single Column Marquee Tool	Nástroj výběr jednoho sloupce
 	Emboss	Reliéf
 	Eraser	Guma
 	Eraser Tool	Nástroj guma
@@ -1942,6 +1950,7 @@
 	Show only crosshair while painting	Při malování zobrazit jen nitkový kříž
 	Show slice numbers	Zobrazit čísla řezů
 	Show tooltips	Zobrazit popisky nástrojů
+	Show highlight on rollover	Zobrazit zvýraznění při přejetí
 	Show bounding box when dragging layer	Při přetahování vrstvy zobrazit ohraničovací rámeček
 	System title bar	Systémové záhlaví okna
 	Show transformation values	Zobrazit hodnoty transformace
