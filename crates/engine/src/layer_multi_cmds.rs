@@ -345,19 +345,7 @@ fn shift_shown(doc: &Document, l: &mut Layer, dx: i32, dy: i32) {
                 *c = translate_surface(c, dx, dy);
             }
         }
-        LayerContent::Shape(sh) => {
-            // The rendered shape is cut at the canvas: one that reaches past it renders again.
-            let canvas = doc.bounds();
-            let inside = sh.cache.as_ref().is_some_and(|c| {
-                let b = photocraft_compose::bounds::content_bounds(c);
-                b.is_empty() || (b.x0 > canvas.x0 && b.y0 > canvas.y0 && b.x1 < canvas.x1 && b.y1 < canvas.y1)
-            });
-            crate::vector_cmds::transform_shape(sh, &a);
-            match &mut sh.cache {
-                Some(c) if inside => *c = translate_surface(c, dx, dy),
-                _ => crate::vector_cmds::refresh_shape(doc, sh),
-            }
-        }
+        LayerContent::Shape(sh) => crate::vector_cmds::shift_shape(doc, sh, f64::from(dx), f64::from(dy)),
         LayerContent::Smart(sm) => crate::smart_cmds::shift_smart(sm, dx, dy),
         LayerContent::Group(g) => {
             if let Some(ab) = &mut g.artboard {
