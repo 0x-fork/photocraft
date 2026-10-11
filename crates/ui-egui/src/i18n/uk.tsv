@@ -494,6 +494,7 @@
 	Magnetic Lasso	Магнітне ласо
 	Mixer Brush	Змішувальний пензель
 	Mixer Brush Tool	Інструмент «Змішувальний пензель»
+	Color Replacement Tool	Інструмент «Заміна кольору»
 	History Brush	Пензель історії
 	Art History Brush	Художній пензель історії
 	Pattern Stamp	Візерунковий штамп
@@ -1394,6 +1395,9 @@
 	New Workspace…	Новий робочий простір…
 	Delete Workspace…	Видалити робочий простір…
 	Reset Workspace	Скинути робочий простір
+	Reset Tool	Скинути інструмент
+	Reset All Tools	Скинути всі інструменти
+	Reset all tools to their default settings?	Скинути всі інструменти до налаштувань за замовчуванням?
 	Lock Workspace	Заблокувати робочий простір
 	Photography	Фотографія
 	Graphic and web	Графіка та веб
@@ -1528,6 +1532,8 @@
 	Gradient Tool	Інструмент «Градієнт»
 	Paint Bucket Tool	Інструмент «Відро з фарбою»
 	Horizontal Type Tool	Інструмент «Горизонтальний текст»
+	Horizontal Type Mask Tool	Інструмент «Горизонтальний текст-маска»
+	Vertical Type Mask Tool	Інструмент «Вертикальний текст-маска»
 	Hand Tool	Інструмент «Рука»
 	Zoom Tool	Інструмент «Масштаб»
 	Spot Healing Brush Tool	Інструмент «Точковий відновлювальний пензель»
@@ -1545,6 +1551,10 @@
 	Pen Tool	Інструмент «Перо»
 	Path Selection Tool	Інструмент «Виділення контуру»
 	Direct Selection Tool	Інструмент «Пряме виділення»
+	Add Anchor Point Tool	Інструмент «Додати вузол»
+	Delete Anchor Point Tool	Інструмент «Видалити вузол»
+	Click a segment to add an anchor point · {alt}-click an anchor to delete it	Клацніть сегмент, щоб додати вузол · {alt}+клацання по вузлу видаляє його
+	Click an anchor point to delete it · {alt}-click a segment to add one	Клацніть вузол, щоб видалити його · {alt}+клацання по сегменту додає вузол
 	Rectangle Tool	Інструмент «Прямокутник»
 	Ellipse Tool	Інструмент «Еліпс»
 	Triangle Tool	Інструмент «Трикутник»
@@ -2436,6 +2446,9 @@ cameraRaw	Roughness	Шорсткість
 	Structure:	Структура:
 	Content-Aware Move Tool	Інструмент «Переміщення з урахуванням вмісту»
 	TIFF Options	Параметри TIFF
+	Targa Options	Параметри Targa
+	24 bits/pixel	24 біт/піксель
+	32 bits/pixel	32 біт/піксель
 	Including layers will increase file size.	Додавання шарів збільшить розмір файлу.
 	Discard Layers and Save a Copy	Відкинути шари та зберегти копію
 	Don't show again	Більше не показувати
@@ -3539,6 +3552,14 @@ cameraRaw	Masking	Маскування
 	Quick Selection found nothing there	Швидке виділення нічого тут не знайшло
 	Object Selection found nothing there — try a tighter rectangle	Виділення об'єктів нічого тут не знайшло — спробуйте вужчий прямокутник
 	No subject found — try a rectangle around the object	Об'єкт не знайдено — спробуйте прямокутник навколо об'єкта
+	Click the first point or press {key} to close · {del} removes a point · Esc cancels	Клацніть першу точку або натисніть {key}, щоб замкнути · {del} видаляє точку · Esc скасовує
+	Click, then move along an edge · click to fasten a point · {alt}-click for a straight segment · double-click to close	Клацніть і ведіть уздовж краю · клацання закріплює точку · {alt}-клацання — прямий відрізок · подвійне клацання замикає
+	Follows only edges this close to the pointer ([ and ] change it)	Відстежує лише краї на такій відстані від вказівника ([ і ] змінюють її)
+	Higher values follow only edges that contrast sharply with their surroundings	Що більше значення, то лише краї з різким контрастом до оточення
+	How often fastening points are placed by themselves	Як часто точки прив’язки ставляться автоматично
+	Appearance Settings…	Налаштування вигляду…
+	Add to favorites	Додати до вибраного
+	Remove from favorites	Видалити з вибраного
 # File Info ▸ Camera Data (read-only EXIF fields; "Make" is the camera maker, not the verb).
 cameraData	Make	Виробник
 cameraData	Model	Модель
@@ -3567,6 +3588,25 @@ cameraData	Lens	Об'єктив
 	Previous Document	Попередній документ
 	W x H x Resolution	Ш x В x Роздільна здатність
 	Front Image	Зображення переднього плану
+	Perspective Crop Tool	Інструмент «Перспективне кадрування»
+	Show Grid	Показати сітку
+	Drag a box or click four corners · drag the corners onto the edges of a skewed shape · {commit} commits · Esc cancels	Розтягніть рамку або клацніть чотири кути · перетягніть кути на краї похилої фігури · {commit} застосовує · Esc скасовує
+	Artboard Tool	Інструмент «Монтажна область»
+	Make Portrait	Зробити портретною
+	Make Landscape	Зробити альбомною
+	Add New Artboard	Додати монтажну область
+	Freeform Pen Tool	Інструмент «Довільне перо»
+	Curvature Pen Tool	Інструмент «Перо кривизни»
+	Curve Fit:	Точність кривої:
+	Drag: draw freehand · Release on the start point: close	Перетягування: малювати від руки · Відпускання на початковій точці: замкнути
+	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	Клацання: плавна точка · Подвійне клацання: кут · Перетягування точки: перемістити · Клацання першої точки: замкнути · {key}: завершити
 	Search settings…	Пошук налаштувань…
 	No matching settings	Немає відповідних налаштувань
 	PhotoCraft — Screen Color Picker	PhotoCraft — Піпетка кольору екрана
+	Include in playback	Включити у відтворення
+	New Crop Preset…	Новий набір параметрів кадрування…
+	Delete Crop Preset…	Видалити набір параметрів кадрування…
+	Select the crop presets to delete:	Виберіть набори параметрів кадрування для видалення:
+	Select the crop presets to delete	Виберіть набори параметрів кадрування для видалення
+	Enter a name for the crop preset	Введіть назву набору параметрів кадрування
+	There is no crop size or ratio to save	Немає розміру чи співвідношення сторін кадрування для збереження

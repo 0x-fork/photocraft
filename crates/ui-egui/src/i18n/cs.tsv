@@ -687,6 +687,9 @@
 	New Workspace…	Nový pracovní prostor…
 	Delete Workspace…	Odstranit pracovní prostor…
 	Reset Workspace	Obnovit pracovní prostor
+	Reset Tool	Obnovit nástroj
+	Reset All Tools	Obnovit všechny nástroje
+	Reset all tools to their default settings?	Obnovit výchozí nastavení všech nástrojů?
 	Lock Workspace	Zamknout pracovní prostor
 	Theme	Motiv
 	Pro Theme	Motiv Pro
@@ -1629,6 +1632,8 @@
 	Highlights from:	Světla od:
 	History Brush Tool	Nástroj štětec historie
 	Horizontal Type Tool	Nástroj vodorovný text
+	Horizontal Type Mask Tool	Nástroj maska vodorovného textu
+	Vertical Type Mask Tool	Nástroj maska svislého textu
 	Image Size:	Velikost obrazu:
 	Inches	Palce
 	Indexed	Indexované
@@ -1683,6 +1688,10 @@
 	Paints from the document's opening state	Maluje ze stavu dokumentu při otevření
 	Path Selection Tool	Nástroj výběr cesty
 	Direct Selection Tool	Nástroj přímý výběr
+	Add Anchor Point Tool	Nástroj přidat kotevní bod
+	Delete Anchor Point Tool	Nástroj odstranit kotevní bod
+	Click a segment to add an anchor point · {alt}-click an anchor to delete it	Klepnutím na segment přidáte kotevní bod · {alt}+klik na kotevní bod jej odstraní
+	Click an anchor point to delete it · {alt}-click a segment to add one	Klepnutím na kotevní bod jej odstraníte · {alt}+klik na segment přidá nový bod
 	Pattern Overlay	Překrytí vzorkem
 	Pen Pressure	Přítlak pera
 	Pen Tilt	Náklon pera
@@ -2061,6 +2070,8 @@
 	Apply the pen's tilt and rotation to the tip shape	Použít náklon a natočení pera na tvar hrotu
 	Mixer Brush	Míchací štětec
 	Mixer Brush Tool	Nástroj Míchací štětec
+	Color Replacement Tool	Nástroj Nahrazení barvy
+	Color Replacement	Nahrazení barvy
 	Wet	Vlhkost
 	Mix	Míchání
 	Wetness Jitter	Kolísání vlhkosti
@@ -2189,6 +2200,9 @@ cameraRaw	Color	Barvy
 	Structure:	Struktura:
 	Content-Aware Move Tool	Nástroj přesun s ohledem na obsah
 	TIFF Options	Možnosti TIFF
+	Targa Options	Možnosti Targa
+	24 bits/pixel	24 bitů/pixel
+	32 bits/pixel	32 bitů/pixel
 	Including layers will increase file size.	Zahrnutí vrstev zvětší velikost souboru.
 	Discard Layers and Save a Copy	Zahodit vrstvy a uložit kopii
 	Don't show again	Příště nezobrazovat
@@ -2435,6 +2449,18 @@ fontWeight	Italic	Kurzíva
 	Quick Selection found nothing there	Rychlý výběr zde nic nenašel
 	Object Selection found nothing there — try a tighter rectangle	Výběr objektu zde nic nenašel — zkuste těsnější obdélník
 	No subject found — try a rectangle around the object	Nebyl nalezen žádný objekt — zkuste obdélník kolem objektu
+	Auto Erase	Automatické mazání
+	Click the first point or press {key} to close · {del} removes a point · Esc cancels	Klikněte na první bod nebo stiskněte {key} pro uzavření · {del} odebere bod · Esc zruší
+	Click, then move along an edge · click to fasten a point · {alt}-click for a straight segment · double-click to close	Klikněte a veďte podél okraje · kliknutím připevníte bod · {alt}-kliknutí pro rovný úsek · dvojklik uzavře
+	Follows only edges this close to the pointer ([ and ] change it)	Sleduje jen okraje takto blízko ukazatele ([ a ] hodnotu mění)
+	Higher values follow only edges that contrast sharply with their surroundings	Vyšší hodnoty sledují jen okraje s výrazným kontrastem k okolí
+	How often fastening points are placed by themselves	Jak často se kotevní body umisťují samy
+	Scrubby Zoom	Plynulá lupa
+	{mode} Color · {bits} bit	Barva {mode} · {bits} bitů
+	Drag a crop box · drag inside to move · edges resize ({ratio} ratio, {centre} centre) · Space moves while drawing · arrows nudge · X swaps orientation · {commit} commits · Esc cancels	Tažením nakreslete ořez · tažením uvnitř posunete · okraje mění velikost ({ratio} poměr, {centre} střed) · Mezerník posouvá při kreslení · šipky posunují · X prohodí orientaci · {commit} potvrdí · Esc zruší
+	Appearance Settings…	Nastavení vzhledu…
+	Add to favorites	Přidat do oblíbených
+	Remove from favorites	Odebrat z oblíbených
 # File Info ▸ Camera Data (read-only EXIF fields; "Make" is the camera maker, not the verb).
 	Camera Data	Údaje fotoaparátu
 cameraData	Make	Výrobce
@@ -2464,5 +2490,26 @@ cameraData	Lens	Objektiv
 	Previous Document	Předchozí dokument
 	W x H x Resolution	Š x V x Rozlišení
 	Front Image	Přední obraz
+	Include in playback	Zahrnout do přehrávání
+	Perspective Crop Tool	Nástroj perspektivní oříznutí
+	Show Grid	Zobrazit mřížku
+	Drag a box or click four corners · drag the corners onto the edges of a skewed shape · {commit} commits · Esc cancels	Táhněte rámeček nebo klikněte na čtyři rohy · přetáhněte rohy na okraje zkoseného tvaru · {commit} potvrdí · Esc zruší
+	Artboard Tool	Nástroj kreslicí plocha
+	Make Portrait	Na výšku
+	Make Landscape	Na šířku
+	Add New Artboard	Přidat novou kreslicí plochu
+	W	Š
+	H	V
+	Freeform Pen Tool	Nástroj pero od ruky
+	Curvature Pen Tool	Nástroj pero křivosti
+	Curve Fit:	Přizpůsobení křivky:
+	Drag: draw freehand · Release on the start point: close	Tažení: kreslit od ruky · uvolnění na počátečním bodě: uzavřít
+	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	Kliknutí: hladký bod · dvojklik: roh · tažení bodu: přesunout · kliknutí na první bod: uzavřít · {key} dokončit
+	New Crop Preset…	Nová předvolba oříznutí…
+	Delete Crop Preset…	Odstranit předvolbu oříznutí…
+	Select the crop presets to delete:	Vyberte předvolby oříznutí k odstranění:
+	Select the crop presets to delete	Vyberte předvolby oříznutí k odstranění
+	Enter a name for the crop preset	Zadejte název předvolby oříznutí
+	There is no crop size or ratio to save	Není žádná velikost ani poměr oříznutí k uložení
 	Search settings…	Hledat nastavení…
 	No matching settings	Žádná odpovídající nastavení

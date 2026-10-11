@@ -106,6 +106,10 @@ panels. These offscreen checks do not establish native window or platform input 
 
 ## Menus
 
+Horizontal and vertical ruler ticks, labels and pointer markers are clipped to their respective
+strips. Their intersection is a clear origin square, including when the view is panned, flipped
+or rotated; the origin square retains its ruler-unit context menu.
+
 An embedding application's `panels.menu_bar` and `panels.rail` flags belong to its current
 session. Restoring a saved workspace or remembered panel layout preserves both flags, including
 when the serialized layout contains their values. Panel visibility, dock layout, tabs and Timeline

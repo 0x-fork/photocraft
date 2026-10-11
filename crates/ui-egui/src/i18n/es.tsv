@@ -679,6 +679,9 @@
 	New Workspace…	Nuevo espacio de trabajo…
 	Delete Workspace…	Eliminar espacio de trabajo…
 	Reset Workspace	Restablecer espacio de trabajo
+	Reset Tool	Restablecer herramienta
+	Reset All Tools	Restablecer todas las herramientas
+	Reset all tools to their default settings?	¿Restablecer todas las herramientas a sus valores predeterminados?
 	Lock Workspace	Bloquear espacio de trabajo
 	Theme	Tema
 	Pro Theme	Tema Pro
@@ -1612,6 +1615,8 @@
 	Highlights from:	Luces desde:
 	History Brush Tool	Herramienta Pincel de historia
 	Horizontal Type Tool	Herramienta Texto horizontal
+	Horizontal Type Mask Tool	Herramienta Máscara de texto horizontal
+	Vertical Type Mask Tool	Herramienta Máscara de texto vertical
 	Image Size:	Tamaño de imagen:
 	Inches	Pulgadas
 	Indexed	Indexado
@@ -1666,6 +1671,10 @@
 	Paints from the document's opening state	Pinta a partir del estado en que se abrió el documento.
 	Path Selection Tool	Herramienta Selección de trazado
 	Direct Selection Tool	Herramienta Selección directa
+	Add Anchor Point Tool	Herramienta Añadir punto de ancla
+	Delete Anchor Point Tool	Herramienta Eliminar punto de ancla
+	Click a segment to add an anchor point · {alt}-click an anchor to delete it	Haz clic en un segmento para añadir un punto de ancla · {alt}-clic en un punto de ancla para eliminarlo
+	Click an anchor point to delete it · {alt}-click a segment to add one	Haz clic en un punto de ancla para eliminarlo · {alt}-clic en un segmento para añadir uno
 	Pattern Overlay	Superposición de patrón
 	Pen Pressure	Presión del lápiz
 	Pen Tilt	Inclinación del lápiz
@@ -2044,6 +2053,7 @@
 	Apply the pen's tilt and rotation to the tip shape	Aplicar la inclinación y la rotación del lápiz a la forma de la punta
 	Mixer Brush	Pincel mezclador
 	Mixer Brush Tool	Herramienta Pincel mezclador
+	Color Replacement Tool	Herramienta Sustitución de color
 	Wet	Húmedo
 	Mix	Mezcla
 	Wetness Jitter	Variación de humedad
@@ -2259,6 +2269,9 @@ cameraRaw	Amount	Cantidad
 	Structure:	Estructura:
 	Content-Aware Move Tool	Herramienta Mover según el contenido
 	TIFF Options	Opciones de TIFF
+	Targa Options	Opciones de Targa
+	24 bits/pixel	24 bits/píxel
+	32 bits/pixel	32 bits/píxel
 	Including layers will increase file size.	Incluir las capas aumentará el tamaño del archivo.
 	Discard Layers and Save a Copy	Descartar capas y guardar una copia
 	Don't show again	No volver a mostrar
@@ -2502,6 +2515,14 @@ fontWeight	Italic	Cursiva
 	Quick Selection found nothing there	Selección rápida no encontró nada ahí
 	Object Selection found nothing there — try a tighter rectangle	Selección de objeto no encontró nada ahí — pruebe un rectángulo más ajustado
 	No subject found — try a rectangle around the object	No se encontró ningún sujeto — pruebe un rectángulo alrededor del objeto
+	Click the first point or press {key} to close · {del} removes a point · Esc cancels	Haz clic en el primer punto o pulsa {key} para cerrar · {del} elimina un punto · Esc cancela
+	Click, then move along an edge · click to fasten a point · {alt}-click for a straight segment · double-click to close	Haz clic y sigue un borde · haz clic para fijar un punto · {alt}-clic para un segmento recto · doble clic para cerrar
+	Follows only edges this close to the pointer ([ and ] change it)	Solo sigue bordes así de cerca del puntero ([ y ] lo cambian)
+	Higher values follow only edges that contrast sharply with their surroundings	Los valores altos solo siguen bordes con mucho contraste con su entorno
+	How often fastening points are placed by themselves	Con qué frecuencia se colocan puntos de fijación automáticamente
+	Appearance Settings…	Ajustes de apariencia…
+	Add to favorites	Añadir a favoritos
+	Remove from favorites	Quitar de favoritos
 # File Info ▸ Camera Data (read-only EXIF fields; "Make" is the camera maker, not the verb).
 	Camera Data	Datos de cámara
 cameraData	Make	Marca
@@ -2543,5 +2564,24 @@ cameraData	Lens	Objetivo
 	Previous Document	Documento anterior
 	W x H x Resolution	An. x Al. x Resolución
 	Front Image	Imagen frontal
+	Include in playback	Incluir en la reproducción
+	Perspective Crop Tool	Herramienta Recortar con perspectiva
+	Show Grid	Mostrar cuadrícula
+	Drag a box or click four corners · drag the corners onto the edges of a skewed shape · {commit} commits · Esc cancels	Arrastre un cuadro o haga clic en cuatro esquinas · arrastre las esquinas a los bordes de una forma inclinada · {commit} confirma · Esc cancela
+	Artboard Tool	Herramienta Lienzo
+	Make Portrait	Hacer vertical
+	Make Landscape	Hacer horizontal
+	Add New Artboard	Añadir nuevo lienzo
+	Freeform Pen Tool	Herramienta Pluma de forma libre
+	Curvature Pen Tool	Herramienta Pluma de curvatura
+	Curve Fit:	Ajuste de curva:
+	Drag: draw freehand · Release on the start point: close	Arrastrar: dibujar a mano alzada · Soltar en el punto inicial: cerrar
+	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	Clic: punto suave · Doble clic: esquina · Arrastrar un punto: mover · Clic en el primer punto: cerrar · {key}: terminar
+	New Crop Preset…	Nuevo ajuste preestablecido de recorte…
+	Delete Crop Preset…	Eliminar ajuste preestablecido de recorte…
+	Select the crop presets to delete:	Seleccione los ajustes preestablecidos de recorte que desea eliminar:
+	Select the crop presets to delete	Seleccione los ajustes preestablecidos de recorte que desea eliminar
+	Enter a name for the crop preset	Introduzca un nombre para el ajuste preestablecido de recorte
+	There is no crop size or ratio to save	No hay ningún tamaño ni proporción de recorte que guardar
 	Search settings…	Buscar ajustes…
 	No matching settings	No hay ajustes que coincidan

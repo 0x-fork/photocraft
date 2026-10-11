@@ -476,6 +476,7 @@ fn video_layer_frames_survive_roundtrip() {
         frames.push(s);
     }
     let mut vd = VideoData::new(frames, 24.0);
+    vd.original_frames = Some(vd.frames.clone());
     vd.source = VideoSource::File { path: "/tmp/seq".into() };
     vd.show_altered = false;
     l.video = Some(vd);
@@ -485,6 +486,8 @@ fn video_layer_frames_survive_roundtrip() {
     let back = load_from_bytes(&bytes).unwrap();
     let v = back.layers.last().unwrap().video.as_ref().expect("video survived");
     assert_eq!(v.frames.len(), 3);
+    assert_eq!(v.original_frames.as_ref().map(Vec::len), Some(3));
+    assert_eq!(v.original_frames.as_ref().unwrap()[2].rgba(1, 1), v.frames[2].rgba(1, 1));
     assert_eq!(v.fps, 24.0);
     assert!(!v.show_altered);
     assert_eq!(v.source, VideoSource::File { path: "/tmp/seq".into() });

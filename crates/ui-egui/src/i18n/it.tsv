@@ -677,6 +677,9 @@
 	New Workspace…	Nuova area di lavoro…
 	Delete Workspace…	Elimina area di lavoro…
 	Reset Workspace	Ripristina area di lavoro
+	Reset Tool	Ripristina strumento
+	Reset All Tools	Ripristina tutti gli strumenti
+	Reset all tools to their default settings?	Ripristinare tutti gli strumenti alle impostazioni predefinite?
 	Lock Workspace	Blocca area di lavoro
 	Theme	Tema
 	Pro Theme	Tema Pro
@@ -1610,6 +1613,8 @@
 	Highlights from:	Luci da:
 	History Brush Tool	Strumento Pennello storia
 	Horizontal Type Tool	Strumento Testo orizzontale
+	Horizontal Type Mask Tool	Strumento Maschera testo orizzontale
+	Vertical Type Mask Tool	Strumento Maschera testo verticale
 	Image Size:	Dimensione immagine:
 	Inches	Pollici
 	Indexed	Indicizzato
@@ -1664,6 +1669,10 @@
 	Paints from the document's opening state	Dipinge dallo stato di apertura del documento
 	Path Selection Tool	Strumento Selezione tracciato
 	Direct Selection Tool	Strumento Selezione diretta
+	Add Anchor Point Tool	Strumento Aggiungi punto di ancoraggio
+	Delete Anchor Point Tool	Strumento Elimina punto di ancoraggio
+	Click a segment to add an anchor point · {alt}-click an anchor to delete it	Fai clic su un segmento per aggiungere un punto di ancoraggio · {alt}-clic su un punto di ancoraggio per eliminarlo
+	Click an anchor point to delete it · {alt}-click a segment to add one	Fai clic su un punto di ancoraggio per eliminarlo · {alt}-clic su un segmento per aggiungerne uno
 	Pattern Overlay	Sovrapposizione pattern
 	Pen Pressure	Pressione penna
 	Pen Tilt	Inclinazione penna
@@ -2042,6 +2051,7 @@
 	Apply the pen's tilt and rotation to the tip shape	Applica inclinazione e rotazione penna alla forma punta
 	Mixer Brush	Pennello miscelatore
 	Mixer Brush Tool	Strumento Pennello miscelatore
+	Color Replacement Tool	Strumento Sostituzione colore
 	Wet	Bagnato
 	Mix	Miscela
 	Wetness Jitter	Variazione bagnato
@@ -2255,6 +2265,9 @@ cameraRaw	Amount	Quantità
 	Hold Alt while drawing for straight segments	Tieni premuto Alt mentre disegni per segmenti dritti
 	Drag or click polygon points · hold Alt during lasso for straight segments · {add} add · {sub} before drawing subtracts	Trascina o fai clic sui punti del poligono · tieni premuto Alt durante il lazo per segmenti dritti · {add} aggiunge · {sub} prima di disegnare sottrae
 	TIFF Options	Opzioni TIFF
+	Targa Options	Opzioni Targa
+	24 bits/pixel	24 bit/pixel
+	32 bits/pixel	32 bit/pixel
 	Including layers will increase file size.	Includere i livelli aumenterà le dimensioni del file.
 	Discard Layers and Save a Copy	Elimina i livelli e salva una copia
 	Don't show again	Non mostrare più
@@ -2504,6 +2517,14 @@ fontWeight	Italic	Corsivo
 	Quick Selection found nothing there	Selezione rapida non ha trovato nulla lì
 	Object Selection found nothing there — try a tighter rectangle	Selezione oggetto non ha trovato nulla lì — prova un rettangolo più stretto
 	No subject found — try a rectangle around the object	Nessun soggetto trovato — prova un rettangolo attorno all'oggetto
+	Click the first point or press {key} to close · {del} removes a point · Esc cancels	Fai clic sul primo punto o premi {key} per chiudere · {del} rimuove un punto · Esc annulla
+	Click, then move along an edge · click to fasten a point · {alt}-click for a straight segment · double-click to close	Fai clic e segui un bordo · fai clic per fissare un punto · {alt}-clic per un segmento dritto · doppio clic per chiudere
+	Follows only edges this close to the pointer ([ and ] change it)	Segue solo i bordi così vicini al puntatore ([ e ] lo cambiano)
+	Higher values follow only edges that contrast sharply with their surroundings	Valori più alti seguono solo bordi molto contrastati rispetto all’intorno
+	How often fastening points are placed by themselves	Frequenza con cui i punti di ancoraggio vengono posti da soli
+	Appearance Settings…	Impostazioni aspetto…
+	Add to favorites	Aggiungi ai preferiti
+	Remove from favorites	Rimuovi dai preferiti
 # File Info ▸ Camera Data (read-only EXIF fields; "Make" is the camera maker, not the verb).
 	Camera Data	Dati fotocamera
 cameraData	Make	Marca
@@ -2533,5 +2554,24 @@ cameraData	Lens	Obiettivo
 	Previous Document	Documento precedente
 	W x H x Resolution	L x A x Risoluzione
 	Front Image	Immagine in primo piano
+	Include in playback	Includi nella riproduzione
+	Perspective Crop Tool	Strumento Taglierina prospettica
+	Show Grid	Mostra griglia
+	Drag a box or click four corners · drag the corners onto the edges of a skewed shape · {commit} commits · Esc cancels	Trascina un riquadro o fai clic su quattro angoli · trascina gli angoli sui bordi di una forma inclinata · {commit} conferma · Esc annulla
+	Artboard Tool	Strumento Tavola da disegno
+	Make Portrait	Rendi verticale
+	Make Landscape	Rendi orizzontale
+	Add New Artboard	Aggiungi nuova tavola da disegno
+	Freeform Pen Tool	Strumento Penna a mano libera
+	Curvature Pen Tool	Strumento Penna curvatura
+	Curve Fit:	Adattamento curva:
+	Drag: draw freehand · Release on the start point: close	Trascina: disegna a mano libera · Rilascia sul punto iniziale: chiudi
+	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	Click: punto morbido · Doppio click: angolo · Trascina un punto: sposta · Click primo punto: chiudi · {key} termina
+	New Crop Preset…	Nuovo predefinito di ritaglio…
+	Delete Crop Preset…	Elimina predefinito di ritaglio…
+	Select the crop presets to delete:	Seleziona i predefiniti di ritaglio da eliminare:
+	Select the crop presets to delete	Seleziona i predefiniti di ritaglio da eliminare
+	Enter a name for the crop preset	Inserisci un nome per il predefinito di ritaglio
+	There is no crop size or ratio to save	Non c'è nessuna dimensione o proporzione di ritaglio da salvare
 	Search settings…	Cerca impostazioni…
 	No matching settings	Nessuna impostazione corrispondente

@@ -663,6 +663,9 @@
 	New Workspace…	Ruang Kerja Baru…
 	Delete Workspace…	Hapus Ruang Kerja…
 	Reset Workspace	Reset Ruang Kerja
+	Reset Tool	Reset Alat
+	Reset All Tools	Reset Semua Alat
+	Reset all tools to their default settings?	Reset semua alat ke pengaturan bawaannya?
 	Lock Workspace	Kunci Ruang Kerja
 	Theme	Tema
 	Pro Theme	Tema Pro
@@ -1584,6 +1587,8 @@
 	Highlights from:	Highlight dari:
 	History Brush Tool	Alat History Brush
 	Horizontal Type Tool	Alat Teks Horizontal
+	Horizontal Type Mask Tool	Alat Masker Teks Horizontal
+	Vertical Type Mask Tool	Alat Masker Teks Vertikal
 	Image Size:	Ukuran Gambar:
 	Inches	Inci
 	Indexed	Terindeks
@@ -1638,6 +1643,10 @@
 	Paints from the document's opening state	Melukis dari kondisi awal dokumen saat dibuka
 	Path Selection Tool	Alat Path Selection
 	Direct Selection Tool	Alat Direct Selection
+	Add Anchor Point Tool	Alat Tambah Titik Jangkar
+	Delete Anchor Point Tool	Alat Hapus Titik Jangkar
+	Click a segment to add an anchor point · {alt}-click an anchor to delete it	Klik segmen untuk menambah titik jangkar · {alt}-klik titik jangkar untuk menghapusnya
+	Click an anchor point to delete it · {alt}-click a segment to add one	Klik titik jangkar untuk menghapusnya · {alt}-klik segmen untuk menambah titik
 	Pattern Overlay	Overlay Pola
 	Pen Pressure	Tekanan Pena
 	Pen Tilt	Kemiringan Pena
@@ -2534,6 +2543,7 @@
 	Edit › Paste	Edit › Tempel
 	Use File › Open, or paste a copied image with {paste}.	Gunakan Berkas › Buka, atau tempel gambar yang disalin dengan {paste}.
 	Mixer Brush Tool	Alat Kuas Pencampur
+	Color Replacement Tool	Alat Penggantian Warna
 	Invalid {mode} profile	Profil {mode} tidak valid
 	Unnamed {mode} profile	Profil {mode} tanpa nama
 	Show bounding box when dragging layer	Tampilkan kotak pembatas saat menyeret layer
@@ -2600,6 +2610,9 @@ cameraRaw	Blending	Pembauran
 	Structure:	Struktur:
 	Content-Aware Move Tool	Alat Content-Aware Move
 	TIFF Options	Opsi TIFF
+	Targa Options	Opsi Targa
+	24 bits/pixel	24 Bit/Piksel
+	32 bits/pixel	32 Bit/Piksel
 	Including layers will increase file size.	Menyertakan layer akan memperbesar ukuran file.
 	Discard Layers and Save a Copy	Buang Layer dan Simpan Salinan
 	Don't show again	Jangan tampilkan lagi
@@ -2839,6 +2852,14 @@ fontWeight	Italic	Miring
 	Quick Selection found nothing there	Seleksi Cepat tidak menemukan apa pun di sana
 	Object Selection found nothing there — try a tighter rectangle	Seleksi Objek tidak menemukan apa pun di sana — coba persegi panjang yang lebih rapat
 	No subject found — try a rectangle around the object	Subjek tidak ditemukan — coba persegi panjang di sekitar objek
+	Click the first point or press {key} to close · {del} removes a point · Esc cancels	Klik titik pertama atau tekan {key} untuk menutup · {del} menghapus titik · Esc membatalkan
+	Click, then move along an edge · click to fasten a point · {alt}-click for a straight segment · double-click to close	Klik, lalu gerakkan di sepanjang tepi · klik untuk menancapkan titik · {alt}-klik untuk segmen lurus · klik dua kali untuk menutup
+	Follows only edges this close to the pointer ([ and ] change it)	Hanya mengikuti tepi sedekat ini dengan penunjuk ([ dan ] mengubahnya)
+	Higher values follow only edges that contrast sharply with their surroundings	Nilai lebih tinggi hanya mengikuti tepi yang kontras tajam dengan sekitarnya
+	How often fastening points are placed by themselves	Seberapa sering titik penambat ditempatkan sendiri
+	Appearance Settings…	Pengaturan Tampilan…
+	Add to favorites	Tambahkan ke favorit
+	Remove from favorites	Hapus dari favorit
 # File Info ▸ Camera Data (read-only EXIF fields; "Make" is the camera maker, not the verb).
 cameraData	Make	Merek
 cameraData	Model	Model
@@ -2867,5 +2888,24 @@ cameraData	Lens	Lensa
 	Previous Document	Dokumen Sebelumnya
 	W x H x Resolution	L x T x Resolusi
 	Front Image	Gambar Depan
+	Include in playback	Sertakan dalam pemutaran
+	Perspective Crop Tool	Alat Crop Perspektif
+	Show Grid	Tampilkan Grid
+	Drag a box or click four corners · drag the corners onto the edges of a skewed shape · {commit} commits · Esc cancels	Seret kotak atau klik empat sudut · seret sudut ke tepi bentuk yang miring · {commit} menerapkan · Esc membatalkan
+	Artboard Tool	Alat Artboard
+	Make Portrait	Jadikan Potret
+	Make Landscape	Jadikan Lanskap
+	Add New Artboard	Tambah Artboard Baru
+	Freeform Pen Tool	Alat Pen Bebas
+	Curvature Pen Tool	Alat Pen Kelengkungan
+	Curve Fit:	Penyesuaian Kurva:
+	Drag: draw freehand · Release on the start point: close	Seret: gambar bebas · Lepas di titik awal: tutup
+	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	Klik: titik halus · Klik ganda: sudut · Seret titik: pindahkan · Klik titik pertama: tutup · {key} selesai
+	New Crop Preset…	Preset Pangkas Baru…
+	Delete Crop Preset…	Hapus Preset Pangkas…
+	Select the crop presets to delete:	Pilih preset pangkas yang akan dihapus:
+	Select the crop presets to delete	Pilih preset pangkas yang akan dihapus
+	Enter a name for the crop preset	Masukkan nama untuk preset pangkas
+	There is no crop size or ratio to save	Tidak ada ukuran atau rasio pangkas untuk disimpan
 	Search settings…	Cari pengaturan…
 	No matching settings	Tidak ada pengaturan yang cocok

@@ -515,6 +515,7 @@
 	Magnetic Lasso	Магнитное лассо
 	Mixer Brush	Смешивающая кисть
 	Mixer Brush Tool	Инструмент «Смешивающая кисть»
+	Color Replacement Tool	Инструмент «Замена цвета»
 	History Brush	Кисть истории
 	Art History Brush	Кисть истории искусств
 	Pattern Stamp	Узорный штамп
@@ -1412,6 +1413,9 @@
 	New Workspace…	Новая рабочая среда…
 	Delete Workspace…	Удалить рабочую среду…
 	Reset Workspace	Сбросить рабочую среду
+	Reset Tool	Сбросить инструмент
+	Reset All Tools	Сбросить все инструменты
+	Reset all tools to their default settings?	Сбросить все инструменты к настройкам по умолчанию?
 	Lock Workspace	Заблокировать рабочую среду
 	Photography	Фотография
 	Graphic and web	Графика и web
@@ -1546,6 +1550,8 @@
 	Gradient Tool	Градиент
 	Paint Bucket Tool	Заливка
 	Horizontal Type Tool	Горизонтальный текст
+	Horizontal Type Mask Tool	Горизонтальный текст-маска
+	Vertical Type Mask Tool	Вертикальный текст-маска
 	Hand Tool	Рука
 	Zoom Tool	Масштаб
 	Spot Healing Brush Tool	Точечная восстанавливающая кисть
@@ -1563,6 +1569,10 @@
 	Pen Tool	Перо
 	Path Selection Tool	Выделение контура
 	Direct Selection Tool	Выделение узла
+	Add Anchor Point Tool	Добавить узел
+	Delete Anchor Point Tool	Удалить узел
+	Click a segment to add an anchor point · {alt}-click an anchor to delete it	Щёлкните сегмент, чтобы добавить узел · {alt}-щелчок по узлу удаляет его
+	Click an anchor point to delete it · {alt}-click a segment to add one	Щёлкните узел, чтобы удалить его · {alt}-щелчок по сегменту добавляет узел
 	Rectangle Tool	Прямоугольник
 	Ellipse Tool	Овал
 	Triangle Tool	Треугольник
@@ -2462,6 +2472,9 @@ cameraRaw	Roughness	Неровность
 	Structure:	Структура:
 	Content-Aware Move Tool	Перемещение с учётом содержимого
 	TIFF Options	Параметры TIFF
+	Targa Options	Параметры Targa
+	24 bits/pixel	24 бит/пиксел
+	32 bits/pixel	32 бит/пиксел
 	Including layers will increase file size.	Включение слоёв увеличит размер файла.
 	Discard Layers and Save a Copy	Удалить слои и сохранить копию
 	Don't show again	Больше не показывать
@@ -2717,6 +2730,78 @@ fontWeight	Italic	Курсив
 	Missing delete command	Отсутствует команда удаления
 	Invalid delete command	Недопустимая команда удаления
 	Layer deleted, but confirmation preference could not be saved: {error}	Слой удалён, но не удалось сохранить настройку подтверждения: {error}
+	Add a layer style	Добавить стиль слоя
+	Add a mask  (from the selection; {key} inverts)	Добавить маску  (из выделения; {key} инвертирует)
+	Add an adjustment	Добавить коррекцию
+	Add to selection  ({key})	Добавить к выделению  ({key})
+	Adjustment visible	Коррекция видима
+	Align and distribute	Выровнять и распределить
+	Align horizontal centers	Выровнять центры по горизонтали
+	Align left edges	Выровнять по левому краю
+	Align right edges	Выровнять по правому краю
+	Always use pressure for opacity	Всегда использовать нажим для непрозрачности
+	Always use pressure for size	Всегда использовать нажим для размера
+	Angle Gradient	Угловой градиент
+	Auto-Select:	Автовыбор:
+	Brush Preset picker	Выбор набора кистей
+	Cancel current crop operation  (Esc)	Отменить текущее кадрирование  (Esc)
+	Click the first point or press {key} to close · Esc cancels	Щёлкните первую точку или нажмите {key}, чтобы замкнуть · Esc отменяет
+	Click the first point or press {key} to close · {del} removes a point · Esc cancels	Щёлкните первую точку или нажмите {key}, чтобы замкнуть · {del} удаляет точку · Esc отменяет
+	Click, then move along an edge · click to fasten a point · {alt}-click for a straight segment · double-click to close	Щёлкните и ведите вдоль края · щелчок закрепляет точку · {alt}-щелчок — прямой отрезок · двойной щелчок замыкает
+	Clip to layer below	Обтравить по нижнему слою
+	Color & Swatches	Цвет и образцы
+	Commit current crop operation  ({key})	Принять текущее кадрирование  ({key})
+	Create a new group	Создать новую группу
+	Create a new layer	Создать новый слой
+	Create new document from current state	Создать новый документ из текущего состояния
+	Create new fill or adjustment layer	Создать новый слой-заливку или корректирующий слой
+	Create new snapshot	Создать новый снимок
+	Delete Cropped Pixels	Удалить отсечённые пикселы
+	Delete current state	Удалить текущее состояние
+	Delete layer	Удалить слой
+	Diamond Gradient	Ромбовидный градиент
+	Doc: {w} × {h} px	Док: {w} × {h} px
+	Enable airbrush-style build-up effects	Включить эффекты наслоения в стиле аэрографа
+	Filter for adjustment layers	Фильтр корректирующих слоёв
+	Filter for pixel layers	Фильтр пиксельных слоёв
+	Filter for shape layers	Фильтр слоёв-фигур
+	Filter for smart objects	Фильтр смарт-объектов
+	Filter for type layers	Фильтр текстовых слоёв
+	Fixed Ratio	Заданные пропорции
+	Fixed Size	Заданный размер
+	Follows only edges this close to the pointer ([ and ] change it)	Следует только за краями на таком расстоянии от указателя ([ и ] меняют его)
+	Hide Properties	Скрыть свойства
+	Higher values follow only edges that contrast sharply with their surroundings	Чем выше значение, тем только более контрастные края учитываются
+	How often fastening points are placed by themselves	Как часто точки привязки ставятся автоматически
+	Hue/Saturation	Цветовой тон/Насыщенность
+	Intersect with selection  ({key})	Пересечь с выделением  ({key})
+	Kind	Вид
+	Linear Gradient	Линейный градиент
+	Link layers	Связать слои
+	Lock	Закрепить
+	Lock all	Закрепить все
+	Lock image pixels	Сохранить цвета пикселов
+	Lock layer	Закрепить слой
+	Lock position	Закрепить положение
+	Lock transparent pixels	Сохранить прозрачность пикселов
+	New selection	Новое выделение
+	No properties	Нет свойств
+	Pressure for Opacity	Нажим для непрозрачности
+	Pressure for Size	Нажим для размера
+	Prevent auto-nesting in and out of Artboards and Frames	Запретить автоматическое вложение в монтажные области и кадры и извлечение из них
+	Radial Gradient	Радиальный градиент
+	Reflected Gradient	Зеркальный градиент
+	Reset to defaults	Сбросить к значениям по умолчанию
+	Set additional smoothing options	Дополнительные параметры сглаживания
+	Show Transform Controls	Показать управляющие элементы трансформации
+	Subtract from selection  ({key})	Вычесть из выделения  ({key})
+	Swaps height and width	Меняет местами высоту и ширину
+	Tolerance	Допуск
+	Add vector mask	Добавить векторную маску
+	Click to zoom in  ·  {key}-click to zoom out  ·  drag right/left to zoom in/out	Щелчок увеличивает  ·  {key}-щелчок уменьшает  ·  перетаскивание вправо/влево увеличивает/уменьшает
+	Appearance Settings…	Настройки оформления…
+	Add to favorites	Добавить в избранное
+	Remove from favorites	Удалить из избранного
 # File Info ▸ Camera Data (read-only EXIF fields; "Make" is the camera maker, not the verb).
 cameraData	Make	Производитель
 cameraData	Model	Модель
@@ -2745,7 +2830,25 @@ cameraData	Lens	Объектив
 	Previous Document	Предыдущий документ
 	W x H x Resolution	Ш x В x Разрешение
 	Front Image	Изображение переднего плана
-	Swaps height and width	Меняет местами высоту и ширину
+	Include in playback	Включить в воспроизведение
+	Perspective Crop Tool	Кадрирование перспективы
+	Show Grid	Показать сетку
+	Drag a box or click four corners · drag the corners onto the edges of a skewed shape · {commit} commits · Esc cancels	Растяните рамку или щёлкните четыре угла · перетащите углы на края наклонной фигуры · {commit} применяет · Esc отменяет
+	Artboard Tool	Монтажная область (инструмент)
+	Make Portrait	Сделать книжной
+	Make Landscape	Сделать альбомной
+	Add New Artboard	Добавить монтажную область
+	Freeform Pen Tool	Свободное перо
+	Curvature Pen Tool	Перо кривизны
+	Curve Fit:	Точность кривой:
+	Drag: draw freehand · Release on the start point: close	Перетаскивание: рисовать от руки · отпустить на начальной точке: замкнуть
+	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	Клик: гладкая точка · двойной клик: угол · перетаскивание точки: переместить · клик по первой точке: замкнуть · {key} завершить
 	Rasterize Layer Style	Растрировать стиль слоя
 	Search settings…	Поиск настроек…
 	No matching settings	Нет подходящих настроек
+	New Crop Preset…	Новый набор параметров кадрирования…
+	Delete Crop Preset…	Удалить набор параметров кадрирования…
+	Select the crop presets to delete:	Выберите наборы параметров кадрирования для удаления:
+	Select the crop presets to delete	Выберите наборы параметров кадрирования для удаления
+	Enter a name for the crop preset	Введите имя набора параметров кадрирования
+	There is no crop size or ratio to save	Нет размера или соотношения сторон кадрирования для сохранения

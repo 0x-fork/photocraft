@@ -670,6 +670,9 @@
 	New Workspace…	Nouvel espace de travail…
 	Delete Workspace…	Supprimer l'espace de travail…
 	Reset Workspace	Réinitialiser l'espace de travail
+	Reset Tool	Réinitialiser l'outil
+	Reset All Tools	Réinitialiser tous les outils
+	Reset all tools to their default settings?	Réinitialiser tous les outils à leurs paramètres par défaut ?
 	Lock Workspace	Verrouiller l'espace de travail
 	Theme	Thème
 	Pro Theme	Thème Pro
@@ -1590,6 +1593,8 @@
 	Highlights from:	Hautes lumières à partir de :
 	History Brush Tool	Outil Pinceau d'historique
 	Horizontal Type Tool	Outil Texte horizontal
+	Horizontal Type Mask Tool	Outil Masque de texte horizontal
+	Vertical Type Mask Tool	Outil Masque de texte vertical
 	Image Size:	Taille de l'image :
 	Inches	Pouces
 	Indexed	Indexé
@@ -1644,6 +1649,10 @@
 	Paints from the document's opening state	Peint à partir de l'état d'ouverture du document
 	Path Selection Tool	Outil Sélection de tracé
 	Direct Selection Tool	Outil Sélection directe
+	Add Anchor Point Tool	Outil Ajout de point d'ancrage
+	Delete Anchor Point Tool	Outil Suppression de point d'ancrage
+	Click a segment to add an anchor point · {alt}-click an anchor to delete it	Cliquez sur un segment pour ajouter un point d'ancrage · {alt}-clic sur un point d'ancrage pour le supprimer
+	Click an anchor point to delete it · {alt}-click a segment to add one	Cliquez sur un point d'ancrage pour le supprimer · {alt}-clic sur un segment pour en ajouter un
 	Pattern Overlay	Superposition de motif
 	Pen Pressure	Pression du stylet
 	Pen Tilt	Inclinaison du stylet
@@ -2545,6 +2554,7 @@
 	Edit › Paste	Édition › Coller
 	Use File › Open, or paste a copied image with {paste}.	Utilisez Fichier › Ouvrir, ou collez une image copiée avec {paste}.
 	Mixer Brush Tool	Outil Pinceau mélangeur
+	Color Replacement Tool	Outil Remplacement de couleur
 	Invalid {mode} profile	Profil {mode} non valide
 	Unnamed {mode} profile	Profil {mode} sans nom
 	Show bounding box when dragging layer	Afficher le cadre de sélection lors du déplacement du calque
@@ -2613,6 +2623,9 @@ cameraRaw	Blending	Fusion
 	Structure:	Structure :
 	Content-Aware Move Tool	Outil Déplacement selon le contenu
 	TIFF Options	Options TIFF
+	Targa Options	Options Targa
+	24 bits/pixel	24 bits/pixel
+	32 bits/pixel	32 bits/pixel
 	Including layers will increase file size.	L'inclusion des calques augmentera la taille du fichier.
 	Discard Layers and Save a Copy	Supprimer les calques et enregistrer une copie
 	Don't show again	Ne plus afficher
@@ -2852,6 +2865,14 @@ fontWeight	Italic	Italique
 	Quick Selection found nothing there	La Sélection rapide n'a rien trouvé à cet endroit
 	Object Selection found nothing there — try a tighter rectangle	La Sélection d'objet n'a rien trouvé à cet endroit — essayez un rectangle plus serré
 	No subject found — try a rectangle around the object	Aucun sujet trouvé — essayez un rectangle autour de l'objet
+	Click the first point or press {key} to close · {del} removes a point · Esc cancels	Cliquez sur le premier point ou appuyez sur {key} pour fermer · {del} supprime un point · Échap annule
+	Click, then move along an edge · click to fasten a point · {alt}-click for a straight segment · double-click to close	Cliquez, puis suivez un contour · cliquez pour fixer un point · {alt}-clic pour un segment droit · double-cliquez pour fermer
+	Follows only edges this close to the pointer ([ and ] change it)	Ne suit que les contours aussi proches du pointeur ([ et ] le modifient)
+	Higher values follow only edges that contrast sharply with their surroundings	Plus la valeur est élevée, plus seuls les contours très contrastés sont suivis
+	How often fastening points are placed by themselves	Fréquence de pose automatique des points d’ancrage
+	Appearance Settings…	Réglages d’apparence…
+	Add to favorites	Ajouter aux favoris
+	Remove from favorites	Retirer des favoris
 # File Info ▸ Camera Data (read-only EXIF fields; "Make" is the camera maker, not the verb).
 cameraData	Make	Marque
 cameraData	Model	Modèle
@@ -2880,5 +2901,24 @@ cameraData	Lens	Objectif
 	Previous Document	Document précédent
 	W x H x Resolution	L x H x Résolution
 	Front Image	Image de premier plan
+	Include in playback	Inclure dans la lecture
+	Perspective Crop Tool	Outil Recadrage perspective
+	Show Grid	Afficher la grille
+	Drag a box or click four corners · drag the corners onto the edges of a skewed shape · {commit} commits · Esc cancels	Tracez un cadre ou cliquez sur quatre coins · faites glisser les coins sur les bords d'une forme inclinée · {commit} valide · Échap annule
+	Artboard Tool	Outil Plan de travail
+	Make Portrait	Format portrait
+	Make Landscape	Format paysage
+	Add New Artboard	Ajouter un plan de travail
+	Freeform Pen Tool	Outil Plume libre
+	Curvature Pen Tool	Outil Plume de courbure
+	Curve Fit:	Ajustement de courbe :
+	Drag: draw freehand · Release on the start point: close	Glisser : dessin à main levée · Relâcher sur le point de départ : fermer
+	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	Clic : point lisse · Double-clic : angle · Glisser un point : déplacer · Clic sur le premier point : fermer · {key} : terminer
+	New Crop Preset…	Nouveau paramètre prédéfini de recadrage…
+	Delete Crop Preset…	Supprimer le paramètre prédéfini de recadrage…
+	Select the crop presets to delete:	Sélectionnez les paramètres prédéfinis de recadrage à supprimer :
+	Select the crop presets to delete	Sélectionnez les paramètres prédéfinis de recadrage à supprimer
+	Enter a name for the crop preset	Saisissez un nom pour le paramètre prédéfini de recadrage
+	There is no crop size or ratio to save	Aucune taille ni proportion de recadrage à enregistrer
 	Search settings…	Rechercher des réglages…
 	No matching settings	Aucun réglage correspondant

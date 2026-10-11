@@ -1060,6 +1060,9 @@
 	Enable {name}	Ενεργοποίηση: {name}
 	Hold Alt while drawing for straight segments	Κρατήστε πατημένο το Alt κατά τη σχεδίαση για ευθύγραμμα τμήματα
 	TIFF Options	Επιλογές TIFF
+	Targa Options	Επιλογές Targa
+	24 bits/pixel	24 bit/εικονοστοιχείο
+	32 bits/pixel	32 bit/εικονοστοιχείο
 	Including layers will increase file size.	Η συμπερίληψη επιπέδων θα αυξήσει το μέγεθος του αρχείου.
 	Discard Layers and Save a Copy	Απόρριψη επιπέδων και αποθήκευση αντιγράφου
 	Don't show again	Να μην εμφανιστεί ξανά
@@ -1898,6 +1901,8 @@
 	White Balance: As Shot	Ισορροπία λευκού: όπως στη λήψη
 	Mixer Brush	Πινέλο ανάμειξης (Mixer Brush)
 	Mixer Brush Tool	Πινέλο ανάμειξης (Mixer Brush Tool)
+	Color Replacement Tool	Αντικατάσταση χρώματος (Color Replacement Tool)
+	Color Replacement	Αντικατάσταση χρώματος
 	Wet	Υγρασία
 	Load	Φόρτωση
 	Mix	Ανάμειξη
@@ -2844,6 +2849,9 @@
 	Reset Transform	Επαναφορά μετασχηματισμού
 	Reset View	Επαναφορά προβολής
 	Reset Workspace	Επαναφορά χώρου εργασίας
+	Reset Tool	Επαναφορά εργαλείου
+	Reset All Tools	Επαναφορά όλων των εργαλείων
+	Reset all tools to their default settings?	Επαναφορά όλων των εργαλείων στις προεπιλεγμένες ρυθμίσεις τους;
 	Reset to defaults	Επαναφορά προεπιλογών
 	Resize image during place	Αλλαγή μεγέθους εικόνας κατά την τοποθέτηση
 	Resolution:	Ανάλυση:
@@ -3235,6 +3243,8 @@ cameraRaw	Yellow	Κίτρινο
 	Healing Brush Tool	Πινέλο επιδιόρθωσης (Healing Brush Tool)
 	History Brush Tool	Πινέλο ιστορικού (History Brush Tool)
 	Horizontal Type Tool	Οριζόντιο κείμενο (Horizontal Type Tool)
+	Horizontal Type Mask Tool	Μάσκα οριζόντιου κειμένου (Horizontal Type Mask Tool)
+	Vertical Type Mask Tool	Μάσκα κατακόρυφου κειμένου (Vertical Type Mask Tool)
 	Lasso Tool	Λάσο (Lasso Tool)
 	Line Tool	Γραμμή (Line Tool)
 	Magic Eraser Tool	Μαγική γόμα (Magic Eraser Tool)
@@ -3247,6 +3257,10 @@ cameraRaw	Yellow	Κίτρινο
 	Paint Bucket Tool	Κουβάς γεμίσματος (Paint Bucket Tool)
 	Path Selection Tool	Επιλογή διαδρομής (Path Selection Tool)
 	Direct Selection Tool	Άμεση επιλογή (Direct Selection Tool)
+	Add Anchor Point Tool	Εργαλείο προσθήκης σημείου αγκύρωσης
+	Delete Anchor Point Tool	Εργαλείο διαγραφής σημείου αγκύρωσης
+	Click a segment to add an anchor point · {alt}-click an anchor to delete it	Κάντε κλικ σε ένα τμήμα για να προσθέσετε σημείο αγκύρωσης · {alt}-κλικ σε σημείο αγκύρωσης για διαγραφή
+	Click an anchor point to delete it · {alt}-click a segment to add one	Κάντε κλικ σε ένα σημείο αγκύρωσης για να το διαγράψετε · {alt}-κλικ σε τμήμα για προσθήκη
 	Pen Tool	Πένα (Pen Tool)
 	Polygon Tool	Πολύγωνο (Polygon Tool)
 	Polygonal Lasso Tool	Πολυγωνικό λάσο (Polygonal Lasso Tool)
@@ -3542,6 +3556,9 @@ fontWeight	Thin	Πολύ λεπτά
 	Quick Selection found nothing there	Η Γρήγορη επιλογή δεν βρήκε τίποτα εκεί
 	Object Selection found nothing there — try a tighter rectangle	Η Επιλογή αντικειμένου δεν βρήκε τίποτα εκεί — δοκιμάστε ένα πιο στενό ορθογώνιο
 	No subject found — try a rectangle around the object	Δεν βρέθηκε θέμα — δοκιμάστε ένα ορθογώνιο γύρω από το αντικείμενο
+	Appearance Settings…	Ρυθμίσεις εμφάνισης…
+	Add to favorites	Προσθήκη στα αγαπημένα
+	Remove from favorites	Αφαίρεση από τα αγαπημένα
 # File Info ▸ Camera Data (read-only EXIF fields; "Make" is the camera maker, not the verb).
 cameraData	Make	Κατασκευαστής
 cameraData	Model	Μοντέλο
@@ -3570,5 +3587,25 @@ cameraData	Lens	Φακός
 	Previous Document	Προηγούμενο έγγραφο
 	W x H x Resolution	Π x Υ x Ανάλυση
 	Front Image	Μπροστινή εικόνα
+	Include in playback	Συμπερίληψη στην αναπαραγωγή
+	Perspective Crop Tool	Περικοπή προοπτικής (Perspective Crop Tool)
+	Drag a box or click four corners · drag the corners onto the edges of a skewed shape · {commit} commits · Esc cancels	Σύρετε ένα πλαίσιο ή κάντε κλικ σε τέσσερις γωνίες · σύρετε τις γωνίες στις άκρες ενός λοξού σχήματος · {commit} για εφαρμογή · Esc για ακύρωση
+	Artboard Tool	Πίνακας σχεδίασης (Artboard Tool)
+	Make Portrait	Κατακόρυφος προσανατολισμός
+	Make Landscape	Οριζόντιος προσανατολισμός
+	Add New Artboard	Προσθήκη νέου πίνακα σχεδίασης
+	W	Π
+	H	Υ
+	Freeform Pen Tool	Πένα ελεύθερης σχεδίασης
+	Curvature Pen Tool	Πένα καμπυλότητας
+	Curve Fit:	Προσαρμογή καμπύλης:
+	Drag: draw freehand · Release on the start point: close	Σύρσιμο: ελεύθερη σχεδίαση · Άφημα στο αρχικό σημείο: κλείσιμο
+	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	Κλικ: ομαλό σημείο · Διπλό κλικ: γωνία · Σύρσιμο σημείου: μετακίνηση · Κλικ στο πρώτο σημείο: κλείσιμο · {key}: τέλος
+	New Crop Preset…	Νέα προεπιλογή περικοπής…
+	Delete Crop Preset…	Διαγραφή προεπιλογής περικοπής…
+	Select the crop presets to delete:	Επιλέξτε τις προεπιλογές περικοπής για διαγραφή:
+	Select the crop presets to delete	Επιλέξτε τις προεπιλογές περικοπής για διαγραφή
+	Enter a name for the crop preset	Εισαγάγετε ένα όνομα για την προεπιλογή περικοπής
+	There is no crop size or ratio to save	Δεν υπάρχει μέγεθος ή αναλογία περικοπής για αποθήκευση
 	Search settings…	Αναζήτηση ρυθμίσεων…
 	No matching settings	Δεν βρέθηκαν ρυθμίσεις
