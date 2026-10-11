@@ -18,6 +18,25 @@
 # « : ; ? ! » and "%", and inside guillemets « … ». Product and technology names (PhotoCraft,
 # ArtCraft, OpenType, Lab ...) stay as they are; RGB/CMYK read RVB/CMJN; the trailing "…" of
 # dialog commands is kept.
+
+# Guide layout dialog
+	Rows	Lignes
+	Number	Nombre
+	Margin	Marge
+	Top:	Haut :
+	Left:	Gauche :
+	Bottom:	Bas :
+	Right:	Droite :
+	Target:	Cible :
+	Selected Artboards	Plans de travail sélectionnés
+	Center Columns	Centrer les colonnes
+	Clear Existing Guides	Effacer les repères existants
+	Invalid guide layout	Disposition des repères non valide
+	Leave empty for automatic size	Laisser vide pour une taille automatique
+	5 Columns, 3 Rows	5 colonnes, 3 lignes
+	8 Columns	8 colonnes
+	12 Columns	12 colonnes
+
 	File	Fichier
 	Edit	Édition
 	Image	Image
@@ -677,6 +696,8 @@
 	Theme	Thème
 	Pro Theme	Thème Pro
 	Pro Medium Gray Theme	Thème Pro gris moyen
+	Pro Light Gray Theme	Thème Pro gris clair
+	Pro Light Theme	Thème Pro clair
 	Studio Theme	Thème Studio
 	Studio Light Theme	Thème Studio clair
 	Adwaita Light Theme	Thème Adwaita clair
@@ -809,6 +830,9 @@
 	Bend:	Courbure :
 	Bicubic	Bicubique
 	Bicubic (smooth gradients)	Bicubique (dégradés lisses)
+	Automatic	Automatique
+	Bicubic Smoother (enlargement)	Bicubique plus lisse (agrandissement)
+	Bicubic Sharper (reduction)	Bicubique plus net (réduction)
 	Bilinear	Bilinéaire
 	Black	Noir
 	Black & White	Noir et blanc
@@ -1672,6 +1696,8 @@
 	Postcard	Carte postale
 	Poster	Affiche
 	Pro (Dark)	Pro (sombre)
+	Pro (Light)	Pro (clair)
+	Pro (Light Gray)	Pro (gris clair)
 	Pro (Medium Gray)	Pro (gris moyen)
 	Protect Texture	Protéger la texture
 	Purple	Violet
@@ -1866,6 +1892,8 @@
 	Preserve details	Préserver les détails
 	Print resolution	Résolution d'impression
 	Pro	Pro
+	Pro light	Pro clair
+	Pro light gray	Pro gris clair
 	Pro medium	Pro moyen
 	Pro photo	ProPhoto
 	Quick export format	Format d'exportation rapide
@@ -2901,6 +2929,9 @@ cameraData	Lens	Objectif
 	Previous Document	Document précédent
 	W x H x Resolution	L x H x Résolution
 	Front Image	Image de premier plan
+	Frame Tool	Outil Cadre
+	Create a new rectangular frame	Créer un cadre rectangulaire
+	Create a new elliptical frame	Créer un cadre elliptique
 	Include in playback	Inclure dans la lecture
 	Perspective Crop Tool	Outil Recadrage perspective
 	Show Grid	Afficher la grille

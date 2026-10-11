@@ -977,6 +977,8 @@ pub(crate) fn family_picker_in(
 ) -> bool {
     let mut changed = false;
     let search_id = ui.id().with(("font-search", salt));
+    // The list opens on the press, so a press-drag-release picks a font too (#2735).
+    let (press, close) = crate::press_menu::PressCombo::before(ui, salt);
     let combo = egui::ComboBox::from_id_salt(salt)
         .selected_text(current.as_str())
         .width(width)
@@ -984,7 +986,7 @@ pub(crate) fn family_picker_in(
         .icon(crate::widgets::chevron_icon)
         // Clicks inside the menu (the search field, the scroll bar) must not close it (#1369);
         // picking a font closes it explicitly below.
-        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        .close_behavior(if matches!(close, egui::PopupCloseBehavior::IgnoreClicks) { close } else { egui::PopupCloseBehavior::CloseOnClickOutside });
 
     let response = combo.show_ui(ui, |ui| {
         let (pass_id, focus_id, height_id) = (search_id.with("pass"), search_id.with("focus"), search_id.with("height"));
@@ -1054,7 +1056,7 @@ pub(crate) fn family_picker_in(
             if response.hovered() {
                 hovered = Some(f.clone());
             }
-            if response.clicked() {
+            if press.chosen(ui, &response) {
                 *current = f.clone();
                 // A served family not fetched yet: start now, before any text needs it.
                 photocraft_text::served::request(f);
@@ -1075,6 +1077,7 @@ pub(crate) fn family_picker_in(
         }
         if accept { None } else { hovered }
     });
+    press.after(&response.response);
     let hovered_font = response.inner.unwrap_or_default();
 
     if salt == "type-font" {
@@ -1397,13 +1400,22 @@ fn kerning_field(ui: &mut egui::Ui, shown: &str, width: f32) -> Option<serde_jso
             out = parse_kerning(&buf);
         }
         let presets = ["Metrics", "Optical", "0", "-100", "-75", "-50", "-25", "-10", "-5", "5", "10", "25", "50", "75", "100", "200"];
-        egui::ComboBox::from_id_salt("props-kern-presets").selected_text("").width(16.0).height(420.0).icon(crate::widgets::chevron_icon).show_ui(ui, |ui| {
-            for p in presets {
-                if ui.selectable_label(p == shown, p).clicked() {
-                    out = parse_kerning(p);
+        let (press, close) = crate::press_menu::PressCombo::before(ui, "props-kern-presets");
+        let combo = egui::ComboBox::from_id_salt("props-kern-presets")
+            .selected_text("")
+            .width(16.0)
+            .height(420.0)
+            .icon(crate::widgets::chevron_icon)
+            .close_behavior(close)
+            .show_ui(ui, |ui| {
+                for p in presets {
+                    let item = ui.selectable_label(p == shown, p);
+                    if press.chosen(ui, &item) {
+                        out = parse_kerning(p);
+                    }
                 }
-            }
-        });
+            });
+        press.after(&combo.response);
     });
     out
 }

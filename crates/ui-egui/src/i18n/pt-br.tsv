@@ -15,6 +15,24 @@
 # entries the same way. Product and technology names (PhotoCraft, ArtCraft, OpenType, CMYK, Lab ...)
 # stay as they are; the trailing "…" of dialog commands is kept.
 
+# Guide layout dialog
+	Rows	Linhas
+	Number	Número
+	Margin	Margem
+	Top:	Superior:
+	Left:	Esquerda:
+	Bottom:	Inferior:
+	Right:	Direita:
+	Target:	Destino:
+	Selected Artboards	Pranchetas selecionadas
+	Center Columns	Centralizar colunas
+	Clear Existing Guides	Limpar guias existentes
+	Invalid guide layout	Layout de guias inválido
+	Leave empty for automatic size	Deixe vazio para tamanho automático
+	5 Columns, 3 Rows	5 colunas, 3 linhas
+	8 Columns	8 colunas
+	12 Columns	12 colunas
+
 	File	Arquivo
 	Edit	Editar
 	Image	Imagem
@@ -674,6 +692,8 @@
 	Theme	Tema
 	Pro Theme	Tema Pro
 	Pro Medium Gray Theme	Tema Pro cinza médio
+	Pro Light Gray Theme	Tema Pro cinza claro
+	Pro Light Theme	Tema Pro claro
 	Studio Theme	Tema Studio
 	Studio Light Theme	Tema Studio claro
 	Adwaita Light Theme	Tema Adwaita claro
@@ -806,6 +826,9 @@
 	Bend:	Curvatura:
 	Bicubic	Bicúbica
 	Bicubic (smooth gradients)	Bicúbica (degradês suaves)
+	Automatic	Automático
+	Bicubic Smoother (enlargement)	Bicúbica mais suave (ampliação)
+	Bicubic Sharper (reduction)	Bicúbica mais nítida (redução)
 	Bilinear	Bilinear
 	Black	Preto
 	Black & White	Preto e branco
@@ -1671,6 +1694,8 @@
 	Postcard	Cartão-postal
 	Poster	Pôster
 	Pro (Dark)	Pro (escuro)
+	Pro (Light)	Pro (claro)
+	Pro (Light Gray)	Pro (cinza claro)
 	Pro (Medium Gray)	Pro (cinza médio)
 	Protect Texture	Proteger textura
 	Purple	Roxo
@@ -1865,6 +1890,8 @@
 	Preserve details	Preservar detalhes
 	Print resolution	Resolução de impressão
 	Pro	Pro
+	Pro light	Pro claro
+	Pro light gray	Pro cinza claro
 	Pro medium	Pro médio
 	Pro photo	ProPhoto
 	Quick export format	Formato da exportação rápida
@@ -2909,6 +2936,9 @@ cameraData	Lens	Lente
 	Previous Document	Documento anterior
 	W x H x Resolution	L x A x Resolução
 	Front Image	Imagem frontal
+	Frame Tool	Ferramenta Quadro
+	Create a new rectangular frame	Criar um quadro retangular
+	Create a new elliptical frame	Criar um quadro elíptico
 	Include in playback	Incluir na reprodução
 	Perspective Crop Tool	Ferramenta Corte demarcado em perspectiva
 	Show Grid	Mostrar grade

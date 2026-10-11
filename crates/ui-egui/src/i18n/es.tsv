@@ -11,6 +11,26 @@
 # resource, string table or product UI was consulted or copied; add entries the same way.
 # Product and technology names (PhotoCraft, ArtCraft, OpenType, CMYK, Lab ...) stay in Latin
 # letters; the trailing "…" of dialog commands is kept.
+
+# Guide layout dialog
+	Columns	Columnas
+	Rows	Filas
+	Number	Número
+	Margin	Margen
+	Top:	Superior:
+	Left:	Izquierda:
+	Bottom:	Inferior:
+	Right:	Derecha:
+	Target:	Destino:
+	Selected Artboards	Mesas de trabajo seleccionadas
+	Center Columns	Centrar columnas
+	Clear Existing Guides	Eliminar guías existentes
+	Invalid guide layout	Disposición de guías no válida
+	Leave empty for automatic size	Dejar vacío para el tamaño automático
+	5 Columns, 3 Rows	5 columnas, 3 filas
+	8 Columns	8 columnas
+	12 Columns	12 columnas
+
 	File	Archivo
 	Edit	Edición
 	Image	Imagen
@@ -686,6 +706,8 @@
 	Theme	Tema
 	Pro Theme	Tema Pro
 	Pro Medium Gray Theme	Tema Pro (gris medio)
+	Pro Light Gray Theme	Tema Pro (gris claro)
+	Pro Light Theme	Tema Pro (claro)
 	Studio Theme	Tema Estudio
 	Studio Light Theme	Tema Estudio (claro)
 	Adwaita Light Theme	Tema Adwaita (claro)
@@ -820,6 +842,9 @@
 	Bend:	Curvatura:
 	Bicubic	Bicúbica
 	Bicubic (smooth gradients)	Bicúbica (degradados suaves)
+	Automatic	Automático
+	Bicubic Smoother (enlargement)	Bicúbica más suavizada (ampliación)
+	Bicubic Sharper (reduction)	Bicúbica más enfocada (reducción)
 	Bilinear	Bilineal
 	Black	Negro
 	Black & White	Blanco y negro
@@ -1694,6 +1719,8 @@
 	Postcard	Postal
 	Poster	Póster
 	Pro (Dark)	Pro (oscuro)
+	Pro (Light)	Pro (claro)
+	Pro (Light Gray)	Pro (gris claro)
 	Pro (Medium Gray)	Pro (gris medio)
 	Protect Texture	Proteger textura
 	Purple	Morado
@@ -1894,6 +1921,8 @@
 	Preserve details	Conservar detalles
 	Print resolution	Resolución de impresión
 	Pro	Pro
+	Pro light	Pro (claro)
+	Pro light gray	Pro (gris claro)
 	Pro medium	Pro (medio)
 	Pro photo	ProPhoto
 	Quick export format	Formato de exportación rápida
@@ -2564,6 +2593,9 @@ cameraData	Lens	Objetivo
 	Previous Document	Documento anterior
 	W x H x Resolution	An. x Al. x Resolución
 	Front Image	Imagen frontal
+	Frame Tool	Herramienta Marco
+	Create a new rectangular frame	Crear un marco rectangular nuevo
+	Create a new elliptical frame	Crear un marco elíptico nuevo
 	Include in playback	Incluir en la reproducción
 	Perspective Crop Tool	Herramienta Recortar con perspectiva
 	Show Grid	Mostrar cuadrícula
