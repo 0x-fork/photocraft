@@ -1817,6 +1817,7 @@
 	Cache tile size	Dimensione tile cache
 	Camera Raw Defaults	Default Camera Raw
 	Canvas border	Bordo quadro
+	Show canvas dots	Mostra punti del quadro
 	Canvas color	Colore quadro
 	Canvas custom color	Colore personalizzato quadro
 	Color picker	Selettore colore
@@ -2115,6 +2116,7 @@
 	Cancelled {label}	{label} annullato
 	Esc to cancel	Esc per annullare
 	Opening {name}	Apertura {name}
+	Saved {name}	Salvato: {name}
 	Saving {name}	Salvataggio {name}
 	A save to {name} is still running; try again when it finishes	Un salvataggio in {name} è ancora in corso; riprova quando termina
 	{label} is writing the file and can no longer be cancelled	{label} sta scrivendo il file e non può più essere annullato
@@ -2524,6 +2526,37 @@ fontWeight	Italic	Corsivo
 	Quick Selection found nothing there	Selezione rapida non ha trovato nulla lì
 	Object Selection found nothing there — try a tighter rectangle	Selezione oggetto non ha trovato nulla lì — prova un rettangolo più stretto
 	No subject found — try a rectangle around the object	Nessun soggetto trovato — prova un rettangolo attorno all'oggetto
+	Click the first point or press {key} to close · {del} removes a point · Esc cancels	Fai clic sul primo punto o premi {key} per chiudere · {del} rimuove un punto · Esc annulla
+	Click, then move along an edge · click to fasten a point · {alt}-click for a straight segment · double-click to close	Fai clic e segui un bordo · fai clic per fissare un punto · {alt}-clic per un segmento dritto · doppio clic per chiudere
+	Follows only edges this close to the pointer ([ and ] change it)	Segue solo i bordi così vicini al puntatore ([ e ] lo cambiano)
+	Higher values follow only edges that contrast sharply with their surroundings	Valori più alti seguono solo bordi molto contrastati rispetto all’intorno
+	How often fastening points are placed by themselves	Frequenza con cui i punti di ancoraggio vengono posti da soli
+	Appearance Settings…	Impostazioni aspetto…
+	Add to favorites	Aggiungi ai preferiti
+	Remove from favorites	Rimuovi dai preferiti
+# File Info ▸ Camera Data (read-only EXIF fields; "Make" is the camera maker, not the verb).
+	Camera Data	Dati fotocamera
+cameraData	Make	Marca
+cameraData	Model	Modello
+cameraData	Date Taken	Data di scatto
+cameraData	Exposure	Tempo di esposizione
+cameraData	F-Stop	Diaframma
+cameraData	ISO Speed	Sensibilità ISO
+cameraData	Focal Length	Lunghezza focale
+cameraData	Focal Length (35 mm)	Lunghezza focale (35 mm)
+cameraData	Lens	Obiettivo
+# Shared panel docking
+	Activate Panel	Attiva pannello
+	Change Panel Group	Cambia gruppo di pannelli
+	Change Panel Layout	Cambia disposizione dei pannelli
+	Close Panel	Chiudi pannello
+	Dock Panel	Aggancia pannello
+	Float Panel	Pannello mobile
+	Move Panel	Sposta pannello
+	Group with	Raggruppa con
+	Panel menu	Menu del pannello
+	Resize panel window	Ridimensiona finestra del pannello
+	Resize panels	Ridimensiona pannelli
 	Use Classic Mode	Usa modalità classica
 	Auto Center Preview	Centra anteprima automaticamente
 	Next Document	Documento successivo

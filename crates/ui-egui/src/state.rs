@@ -999,6 +999,20 @@ pub struct UiState {
     /// Right-dock group order, heights and collapsed groups (see `dock`).
     #[serde(default)]
     pub dock: crate::dock::DockLayout,
+    /// Authoritative custom panel membership and placement; legacy fields are compatibility projections.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub docking: Option<craft_ui::docking::Layout<String>>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub docking_hidden: std::collections::BTreeMap<String, craft_ui::docking::Location<String>>,
+    /// Invalidates in-flight gestures when a workspace is replaced.
+    #[serde(skip)]
+    pub docking_generation: u64,
+    /// Panels belonging to explicitly collapsed custom tab groups.
+    #[serde(default)]
+    pub docking_collapsed: Vec<String>,
+    /// One-frame focus/raise request from an explicit panel reveal.
+    #[serde(skip)]
+    pub docking_reveal: Option<String>,
     /// Which chip the Color panel edits.
     #[serde(default)]
     pub color_panel: ColorPanelState,
@@ -1106,6 +1120,11 @@ impl Default for UiState {
             palette_open: false,
             dock_tabs: DockTabs::default(),
             dock: Default::default(),
+            docking: None,
+            docking_hidden: Default::default(),
+            docking_generation: 0,
+            docking_collapsed: Vec::new(),
+            docking_reveal: None,
             color_panel: Default::default(),
             brush_section: 0,
             brush_tab: 0,

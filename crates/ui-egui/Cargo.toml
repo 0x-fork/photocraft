@@ -12,6 +12,7 @@ default = []
 local-ml = ["photocraft-engine/local-ml"]
 
 [dependencies]
+craft-ui = { workspace = true }
 photocraft-geom = { workspace = true }
 photocraft-color = { workspace = true }
 photocraft-cms = { workspace = true }

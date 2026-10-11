@@ -481,6 +481,16 @@ These implementations remove the tools from the missing list; they do not establ
 behavioural parity. The historical estimates and corpus measurements in this assessment are
 unchanged; current measured floors remain in the scorecard.
 
+2026-10-08: GPU lower-stack checkpoints reuse unchanged composites after property edits.
+On a dense 24 MP / 12-layer stack, warm top-layer opacity edits at 8/16/32-bit depth measured
+p50 229/228/186 → 31/25/26 ms (AMD Radeon 860M, Windows, Vulkan; synchronized compositor only,
+`bench_stack_reuse`). Gains in the existing 20 MP P2–P5 canvas fixture were small and
+run-order sensitive: a reversed-order repeat measured p50
+13.2/13.2/12.0/8.2 → 12.5/12.2/12.0/8.0 ms; P5 p95 remains 13.7 ms, above its 10 ms budget.
+One checkpoint is capped at 512 MiB within the existing total budget;
+the 24 MP run held 384 MB. Planning and output/mipmap work remain. These local comparisons
+do not replace the published baseline or enable budget enforcement on other hardware.
+
 2026-10-07: Camera Raw PSD mapping covers relative custom white balance, Light/Presence,
 parametric and four point curves, HSL, Color Grading, sharpening/noise detail, grain and numeric
 post-crop vignette controls. Two revisions of one supplied Photoshop ACR 18.4 PSD preserve their

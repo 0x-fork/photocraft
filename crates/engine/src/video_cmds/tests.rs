@@ -117,6 +117,41 @@ fn render_video_to_animated_gif() {
 }
 
 #[test]
+fn animated_gif_keeps_transparency() {
+    // #3061: a transparent document rendered as an animated GIF came out opaque black.
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 8, "height": 8, "background": "transparent"})).unwrap();
+    s.execute("timeline.create", json!({"duration": 2, "fps": 10})).unwrap();
+    s.execute("select.rect", json!({"x": 2, "y": 2, "width": 4, "height": 4})).unwrap();
+    s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+    let mut gif = Vec::new();
+    render_video_with(
+        &s,
+        &json!({"format": "gif"}),
+        |_, bytes| {
+            gif = bytes.to_vec();
+            Ok(())
+        },
+        |_, _| true,
+    )
+    .unwrap();
+    // Each frame has a transparent index and is cleared before the next (disposal 2).
+    let packed: Vec<u8> = gif.windows(4).filter(|w| w[..3] == [0x21, 0xF9, 0x04]).map(|w| w[3]).collect();
+    assert_eq!(packed, [0x09, 0x09]);
+    let px = photocraft_compose::flatten(&photocraft_io::import("t.gif", &gif).unwrap().document).px;
+    assert_eq!(px[0][3], 0.0, "the corner stays transparent");
+    assert_eq!(px[3 * 8 + 3], [1.0, 0.0, 0.0, 1.0], "the square stays red");
+}
+
+#[test]
+fn a_fully_transparent_animated_gif_frame_encodes() {
+    let px = vec![[0.0f32; 4]; 4];
+    let f = gif_frame(px, 2, 5).unwrap();
+    assert_eq!(f.transparent, Some((f.palette.len() - 1) as u8));
+    assert!(f.indices.iter().all(|&i| Some(i) == f.transparent));
+}
+
+#[test]
 fn inspect_reports_video_layer() {
     let dir = tmpdir("vinsp");
     write_png(&format!("{dir}/a.png"), 6, 4, "#ff0000");

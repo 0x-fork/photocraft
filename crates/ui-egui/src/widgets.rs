@@ -73,6 +73,7 @@ pub struct CardResponse {
     /// Rects of the tabs on the strip, `(tab index, rect)`; tabs that don't fit are in the
     /// chevron menu instead (#151).
     pub tabs: Vec<(usize, Rect)>,
+    pub responses: Vec<(usize, Response)>,
     /// The » overflow button, when some tabs didn't fit.
     pub chevron: Option<Rect>,
     /// A tab dragged along the strip was dropped: `(tab, before)` (#2272).
@@ -92,6 +93,7 @@ impl CardResponse {
             tab_double_clicked: tabs.double_clicked,
             tab_context: tabs.context,
             tabs: tabs.tabs,
+            responses: tabs.responses,
             chevron: tabs.chevron,
             tab_reorder: tabs.reorder,
             tab_dragging_out: tabs.dragging_out,

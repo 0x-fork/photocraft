@@ -68,7 +68,11 @@ pub fn replayable(id: &str) -> bool {
     // Again journals its concrete transform too; recording the wrapper would replay it twice.
     id == "actions.play"
         || (!id.starts_with("actions.")
+            // Browse executes its steps through Session::execute, so those concrete
+            // commands are already journaled. Recording the wrapper as well replays
+            // every script edit twice (#3057).
             && id != "edit.transform.again"
+            && id != "file.scripts.browse"
             && (shell_view_command(id) || shell_save_command(id) || crate::commands::find(id).is_some_and(|c| c.journal)))
 }
 

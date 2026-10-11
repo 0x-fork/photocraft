@@ -1791,6 +1791,7 @@
 	Cache tile size	Taille des tuiles du cache
 	Camera Raw Defaults	Valeurs par défaut de Camera Raw
 	Canvas border	Bordure du canevas
+	Show canvas dots	Afficher les points du canevas
 	Canvas color	Couleur du canevas
 	Canvas custom color	Couleur personnalisée du canevas
 	Color picker	Sélecteur de couleurs
@@ -2080,6 +2081,7 @@
 	Cancelled {label}	{label} : annulé
 	Esc to cancel	Échap pour annuler
 	Opening {name}	Ouverture de {name}
+	Saved {name}	Enregistré : {name}
 	Saving {name}	Enregistrement de {name}
 	A save to {name} is still running; try again when it finishes	Un enregistrement de {name} est encore en cours ; réessayez lorsqu’il sera terminé
 	{label} is writing the file and can no longer be cancelled	{label} écrit le fichier et ne peut plus être annulé
@@ -2872,6 +2874,36 @@ fontWeight	Italic	Italique
 	Quick Selection found nothing there	La Sélection rapide n'a rien trouvé à cet endroit
 	Object Selection found nothing there — try a tighter rectangle	La Sélection d'objet n'a rien trouvé à cet endroit — essayez un rectangle plus serré
 	No subject found — try a rectangle around the object	Aucun sujet trouvé — essayez un rectangle autour de l'objet
+	Click the first point or press {key} to close · {del} removes a point · Esc cancels	Cliquez sur le premier point ou appuyez sur {key} pour fermer · {del} supprime un point · Échap annule
+	Click, then move along an edge · click to fasten a point · {alt}-click for a straight segment · double-click to close	Cliquez, puis suivez un contour · cliquez pour fixer un point · {alt}-clic pour un segment droit · double-cliquez pour fermer
+	Follows only edges this close to the pointer ([ and ] change it)	Ne suit que les contours aussi proches du pointeur ([ et ] le modifient)
+	Higher values follow only edges that contrast sharply with their surroundings	Plus la valeur est élevée, plus seuls les contours très contrastés sont suivis
+	How often fastening points are placed by themselves	Fréquence de pose automatique des points d’ancrage
+	Appearance Settings…	Réglages d’apparence…
+	Add to favorites	Ajouter aux favoris
+	Remove from favorites	Retirer des favoris
+# File Info ▸ Camera Data (read-only EXIF fields; "Make" is the camera maker, not the verb).
+cameraData	Make	Marque
+cameraData	Model	Modèle
+cameraData	Date Taken	Date de prise de vue
+cameraData	Exposure	Temps de pose
+cameraData	F-Stop	Ouverture
+cameraData	ISO Speed	Sensibilité ISO
+cameraData	Focal Length	Focale
+cameraData	Focal Length (35 mm)	Focale (35 mm)
+cameraData	Lens	Objectif
+# Shared panel docking
+	Activate Panel	Activer le panneau
+	Change Panel Group	Modifier le groupe de panneaux
+	Change Panel Layout	Modifier la disposition des panneaux
+	Close Panel	Fermer le panneau
+	Dock Panel	Ancrer le panneau
+	Float Panel	Panneau flottant
+	Move Panel	Déplacer le panneau
+	Group with	Grouper avec
+	Panel menu	Menu du panneau
+	Resize panel window	Redimensionner la fenêtre du panneau
+	Resize panels	Redimensionner les panneaux
 	Use Classic Mode	Utiliser le mode classique
 	Auto Center Preview	Centrer automatiquement l'aperçu
 	Next Document	Document suivant

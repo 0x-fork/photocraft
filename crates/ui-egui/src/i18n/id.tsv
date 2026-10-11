@@ -1785,6 +1785,7 @@
 	Cache tile size	Ukuran tile cache
 	Camera Raw Defaults	Default Camera Raw
 	Canvas border	Border kanvas
+	Show canvas dots	Tampilkan titik kanvas
 	Canvas color	Warna kanvas
 	Canvas custom color	Warna kustom kanvas
 	Color picker	Pemilih warna
@@ -2073,6 +2074,7 @@
 	Cancelled {label}	{label} dibatalkan
 	Esc to cancel	Esc untuk batal
 	Opening {name}	Membuka {name}
+	Saved {name}	Tersimpan: {name}
 	Saving {name}	Menyimpan {name}
 	A save to {name} is still running; try again when it finishes	Penyimpanan ke {name} masih berjalan; coba lagi setelah selesai
 	{label} is writing the file and can no longer be cancelled	{label} sedang menulis berkas dan tidak dapat dibatalkan lagi
@@ -2859,6 +2861,36 @@ fontWeight	Italic	Miring
 	Quick Selection found nothing there	Seleksi Cepat tidak menemukan apa pun di sana
 	Object Selection found nothing there — try a tighter rectangle	Seleksi Objek tidak menemukan apa pun di sana — coba persegi panjang yang lebih rapat
 	No subject found — try a rectangle around the object	Subjek tidak ditemukan — coba persegi panjang di sekitar objek
+	Click the first point or press {key} to close · {del} removes a point · Esc cancels	Klik titik pertama atau tekan {key} untuk menutup · {del} menghapus titik · Esc membatalkan
+	Click, then move along an edge · click to fasten a point · {alt}-click for a straight segment · double-click to close	Klik, lalu gerakkan di sepanjang tepi · klik untuk menancapkan titik · {alt}-klik untuk segmen lurus · klik dua kali untuk menutup
+	Follows only edges this close to the pointer ([ and ] change it)	Hanya mengikuti tepi sedekat ini dengan penunjuk ([ dan ] mengubahnya)
+	Higher values follow only edges that contrast sharply with their surroundings	Nilai lebih tinggi hanya mengikuti tepi yang kontras tajam dengan sekitarnya
+	How often fastening points are placed by themselves	Seberapa sering titik penambat ditempatkan sendiri
+	Appearance Settings…	Pengaturan Tampilan…
+	Add to favorites	Tambahkan ke favorit
+	Remove from favorites	Hapus dari favorit
+# File Info ▸ Camera Data (read-only EXIF fields; "Make" is the camera maker, not the verb).
+cameraData	Make	Merek
+cameraData	Model	Model
+cameraData	Date Taken	Tanggal Diambil
+cameraData	Exposure	Waktu Eksposur
+cameraData	F-Stop	Bukaan
+cameraData	ISO Speed	Sensitivitas ISO
+cameraData	Focal Length	Panjang Fokal
+cameraData	Focal Length (35 mm)	Panjang Fokal (35 mm)
+cameraData	Lens	Lensa
+# Shared panel docking
+	Activate Panel	Aktifkan Panel
+	Change Panel Group	Ubah Grup Panel
+	Change Panel Layout	Ubah Tata Letak Panel
+	Close Panel	Tutup Panel
+	Dock Panel	Tambatkan Panel
+	Float Panel	Panel Mengambang
+	Move Panel	Pindahkan Panel
+	Group with	Kelompokkan dengan
+	Panel menu	Menu panel
+	Resize panel window	Ubah ukuran jendela panel
+	Resize panels	Ubah ukuran panel
 	Use Classic Mode	Gunakan Mode Klasik
 	Auto Center Preview	Pusatkan Pratinjau Otomatis
 	Next Document	Dokumen Berikutnya

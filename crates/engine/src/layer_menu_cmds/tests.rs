@@ -579,3 +579,21 @@ fn transfer_effects_moves_or_copies_between_layers() {
     }
     assert_eq!(s.active().unwrap().history.past_len(), steps);
 }
+
+#[test]
+fn from_transparency_preserves_mask_coverage_outside_the_canvas() {
+    for depth in DEPTHS {
+        let mut s = session(depth, "rgb");
+        paint(&mut s, |_, _| [1.0, 0.0, 0.0, 0.5]);
+        let before = photocraft_compose::flatten(doc(&s)).px;
+        s.execute("layer.translate", json!({"dx": 20})).unwrap();
+        s.execute("layer.layerMask.fromTransparency", json!({})).unwrap();
+        let mask = active(&s).mask.as_ref().unwrap();
+        assert!((mask.value(50, 10) - 0.5).abs() < 1.0 / 255.0 + 1e-6, "off-canvas mask at depth {depth}");
+        s.execute("layer.translate", json!({"dx": -20})).unwrap();
+        let after = photocraft_compose::flatten(doc(&s)).px;
+        for (a, b) in before.iter().zip(&after) {
+            assert!((a[3] - b[3]).abs() <= 1.0 / 255.0 + 1e-6, "alpha changed at depth {depth}: {a:?} -> {b:?}");
+        }
+    }
+}

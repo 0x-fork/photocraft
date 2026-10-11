@@ -2,6 +2,13 @@
 
 > **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-10 · **Change:** minor (Photomerge implementation status corrected; real-world quality validation remains open) · **Target:** Adobe Photoshop 2026
 
+- UI.5: Panels can detach, join other tab groups, split, resize and redock through shared docking transactions. Custom layouts persist with workspaces, respect workspace locking, and retain collapse flags for intact native groups.
+
+- UI.3: Shared icons, accessible icon buttons and panel tabs come from the pinned `craft-ui` library. Tab overflow stays within narrow panels; document tiling uses bounded shared geometry. Palettes and document commands remain app-owned. Existing strict-Clippy boolean/range warnings are corrected.
+
+- UI.4: Compact toolbars keep colour and mode controls visible while tool rows scroll. Long tool-options rows scroll horizontally and reveal keyboard focus; offscreen geometry and interaction regressions cover all themes and 1×/1.5×/2× display scales.
+
+
 Forward-looking plan: milestones, the **Current focus** list, and what's next with estimates.
 Where we stand today is in [`target-app-parity.md`](target-app-parity.md) (two numbers, by
 dimension and area) and the ranked work list in [`gaps.md`](gaps.md); the one-page summary is
