@@ -2034,6 +2034,7 @@
 	Apply the pen's tilt and rotation to the tip shape	Kanteling en rotatie van de pen toepassen op de vorm van de punt
 	Mixer Brush	Mengpenseel
 	Mixer Brush Tool	Mengpenseelgereedschap
+	Color Replacement Tool	Kleurvervangingsgereedschap
 	Wet	Nat
 	Mix	Mengen
 	Wetness Jitter	Nattigheidsvariatie
@@ -3662,6 +3663,12 @@ cameraData	Lens	Lens
 	Previous Document	Vorig document
 	W x H x Resolution	B x H x Resolutie
 	Front Image	Voorste afbeelding
+	New Crop Preset…	Nieuwe uitsnijvoorinstelling…
+	Delete Crop Preset…	Uitsnijvoorinstelling verwijderen…
+	Select the crop presets to delete:	Selecteer de uitsnijvoorinstellingen die u wilt verwijderen:
+	Select the crop presets to delete	Selecteer de uitsnijvoorinstellingen die u wilt verwijderen
+	Enter a name for the crop preset	Voer een naam in voor de uitsnijvoorinstelling
+	There is no crop size or ratio to save	Er is geen uitsnijformaat of verhouding om op te slaan
 	Search settings…	Instellingen zoeken…
 	No matching settings	Geen overeenkomende instellingen
 	PhotoCraft — Screen Color Picker	PhotoCraft — Schermkleurkiezer

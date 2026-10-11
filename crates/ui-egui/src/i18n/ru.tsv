@@ -537,6 +537,7 @@
 	Magnetic Lasso	Магнитное лассо
 	Mixer Brush	Смешивающая кисть
 	Mixer Brush Tool	Инструмент «Смешивающая кисть»
+	Color Replacement Tool	Инструмент «Замена цвета»
 	History Brush	Кисть истории
 	Art History Brush	Кисть истории искусств
 	Pattern Stamp	Узорный штамп
@@ -2842,3 +2843,9 @@ cameraData	Lens	Объектив
 	Rasterize Layer Style	Растрировать стиль слоя
 	Search settings…	Поиск настроек…
 	No matching settings	Нет подходящих настроек
+	New Crop Preset…	Новый набор параметров кадрирования…
+	Delete Crop Preset…	Удалить набор параметров кадрирования…
+	Select the crop presets to delete:	Выберите наборы параметров кадрирования для удаления:
+	Select the crop presets to delete	Выберите наборы параметров кадрирования для удаления
+	Enter a name for the crop preset	Введите имя набора параметров кадрирования
+	There is no crop size or ratio to save	Нет размера или соотношения сторон кадрирования для сохранения

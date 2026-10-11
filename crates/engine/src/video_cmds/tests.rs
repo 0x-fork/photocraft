@@ -266,3 +266,55 @@ fn tga_sequence_frames_keep_their_transparency() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn imported_video_restore_frame_and_all_keep_source_pixels() {
+    let dir = tmpdir("original-footage");
+    write_png(&format!("{dir}/f0.png"), 8, 8, "#ff0000");
+    write_png(&format!("{dir}/f1.png"), 8, 8, "#00ff00");
+    let mut s = session();
+    let id = LayerId(s.execute("layer.videoLayers.newVideoLayerFromFile", json!({"path": dir})).unwrap()["layer"].as_u64().unwrap());
+    assert_eq!(layer_px(&s, id), vec![1.0, 0.0, 0.0, 1.0]);
+
+    s.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+    s.execute("layer.videoLayers.restoreFrame", json!({})).unwrap();
+    assert_eq!(layer_px(&s, id), vec![1.0, 0.0, 0.0, 1.0], "current frame restores the red original");
+
+    s.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+    s.execute("timeline.setFrame", json!({"frame": 1})).unwrap();
+    s.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+    s.execute("layer.videoLayers.restoreAllFrames", json!({})).unwrap();
+    assert_eq!(layer_px(&s, id), vec![0.0, 1.0, 0.0, 1.0], "frame 1 restores green");
+    s.execute("timeline.setFrame", json!({"frame": 0})).unwrap();
+    assert_eq!(layer_px(&s, id), vec![1.0, 0.0, 0.0, 1.0], "frame 0 restores red");
+    assert!(s.undo(), "restoration stays in history");
+}
+
+#[test]
+fn show_altered_video_switches_between_original_and_edited_frames() {
+    let dir = tmpdir("show-altered-original");
+    write_png(&format!("{dir}/f0.png"), 8, 8, "#ff0000");
+    write_png(&format!("{dir}/f1.png"), 8, 8, "#00ff00");
+    let mut s = session();
+    let id = LayerId(s.execute("layer.videoLayers.newVideoLayerFromFile", json!({"path": dir})).unwrap()["layer"].as_u64().unwrap());
+    s.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+    assert_eq!(layer_px(&s, id), vec![0.0, 0.0, 1.0, 1.0]);
+
+    s.execute("layer.videoLayers.showAlteredVideo", json!({})).unwrap();
+    assert!(!s.active().unwrap().doc.layer(id).unwrap().video.as_ref().unwrap().show_altered);
+    assert_eq!(layer_px(&s, id), vec![1.0, 0.0, 0.0, 1.0], "hidden altered footage shows red original");
+    s.execute("timeline.setFrame", json!({"frame": 1})).unwrap();
+    assert_eq!(layer_px(&s, id), vec![0.0, 1.0, 0.0, 1.0], "scrubbing while hidden shows green original");
+    s.execute("timeline.setFrame", json!({"frame": 0})).unwrap();
+    s.execute("layer.videoLayers.showAlteredVideo", json!({})).unwrap();
+    assert_eq!(layer_px(&s, id), vec![0.0, 0.0, 1.0, 1.0], "switching back reveals the blue edit");
+}
+
+#[test]
+fn restoring_blank_video_frames_still_produces_blank_frames() {
+    let mut s = session();
+    let id = LayerId(s.execute("layer.videoLayers.newBlankVideoLayer", json!({})).unwrap()["layer"].as_u64().unwrap());
+    s.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+    s.execute("layer.videoLayers.restoreFrame", json!({})).unwrap();
+    assert_eq!(layer_px(&s, id)[3], 0.0);
+}

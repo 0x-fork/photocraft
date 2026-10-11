@@ -2050,6 +2050,7 @@
 	Apply the pen's tilt and rotation to the tip shape	Neigung und Drehung des Stifts auf die Spitzenform anwenden
 	Mixer Brush	Mischer-Pinsel
 	Mixer Brush Tool	Mischer-Pinsel-Werkzeug
+	Color Replacement Tool	Farbersatz-Werkzeug
 	Wet	Feucht
 	Mix	Mischen
 	Wetness Jitter	Feuchtigkeitsschwankung
@@ -2532,5 +2533,11 @@ cameraData	Lens	Objektiv
 	Previous Document	Vorheriges Dokument
 	W x H x Resolution	B x H x Auflösung
 	Front Image	Vorderes Bild
+	New Crop Preset…	Neue Freistellungsvorgabe…
+	Delete Crop Preset…	Freistellungsvorgabe löschen…
+	Select the crop presets to delete:	Wählen Sie die zu löschenden Freistellungsvorgaben:
+	Select the crop presets to delete	Wählen Sie die zu löschenden Freistellungsvorgaben
+	Enter a name for the crop preset	Geben Sie einen Namen für die Freistellungsvorgabe ein
+	There is no crop size or ratio to save	Es gibt keine Freistellungsgröße und kein Seitenverhältnis zum Speichern
 	Search settings…	Einstellungen durchsuchen…
 	No matching settings	Keine passenden Einstellungen

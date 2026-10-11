@@ -2065,6 +2065,8 @@
 	Apply the pen's tilt and rotation to the tip shape	將筆的傾斜和旋轉套用至筆尖形狀
 	Mixer Brush	混合器筆刷
 	Mixer Brush Tool	混合器筆刷工具
+	Color Replacement Tool	顏色取代工具
+	Color Replacement	顏色取代
 	Wet	濕度
 	Mix	混合
 	Wetness Jitter	濕度快速變換
@@ -2477,3 +2479,9 @@ cameraData	Lens	鏡頭
 	Front Image	前面的影像
 	Search settings…	搜尋設定…
 	No matching settings	沒有符合的設定
+	New Crop Preset…	新增裁切預設集…
+	Delete Crop Preset…	刪除裁切預設集…
+	Select the crop presets to delete:	選取要刪除的裁切預設集：
+	Select the crop presets to delete	選取要刪除的裁切預設集
+	Enter a name for the crop preset	輸入裁切預設集的名稱
+	There is no crop size or ratio to save	沒有可儲存的裁切尺寸或比例

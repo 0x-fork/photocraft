@@ -2556,6 +2556,7 @@
 	Edit › Paste	Edit › Tempel
 	Use File › Open, or paste a copied image with {paste}.	Gunakan Berkas › Buka, atau tempel gambar yang disalin dengan {paste}.
 	Mixer Brush Tool	Alat Kuas Pencampur
+	Color Replacement Tool	Alat Penggantian Warna
 	Invalid {mode} profile	Profil {mode} tidak valid
 	Unnamed {mode} profile	Profil {mode} tanpa nama
 	Show bounding box when dragging layer	Tampilkan kotak pembatas saat menyeret layer
@@ -2897,5 +2898,11 @@ cameraData	Lens	Lensa
 	Previous Document	Dokumen Sebelumnya
 	W x H x Resolution	L x T x Resolusi
 	Front Image	Gambar Depan
+	New Crop Preset…	Preset Pangkas Baru…
+	Delete Crop Preset…	Hapus Preset Pangkas…
+	Select the crop presets to delete:	Pilih preset pangkas yang akan dihapus:
+	Select the crop presets to delete	Pilih preset pangkas yang akan dihapus
+	Enter a name for the crop preset	Masukkan nama untuk preset pangkas
+	There is no crop size or ratio to save	Tidak ada ukuran atau rasio pangkas untuk disimpan
 	Search settings…	Cari pengaturan…
 	No matching settings	Tidak ada pengaturan yang cocok

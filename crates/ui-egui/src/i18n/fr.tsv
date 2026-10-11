@@ -2567,6 +2567,7 @@
 	Edit › Paste	Édition › Coller
 	Use File › Open, or paste a copied image with {paste}.	Utilisez Fichier › Ouvrir, ou collez une image copiée avec {paste}.
 	Mixer Brush Tool	Outil Pinceau mélangeur
+	Color Replacement Tool	Outil Remplacement de couleur
 	Invalid {mode} profile	Profil {mode} non valide
 	Unnamed {mode} profile	Profil {mode} sans nom
 	Show bounding box when dragging layer	Afficher le cadre de sélection lors du déplacement du calque
@@ -2910,5 +2911,11 @@ cameraData	Lens	Objectif
 	Previous Document	Document précédent
 	W x H x Resolution	L x H x Résolution
 	Front Image	Image de premier plan
+	New Crop Preset…	Nouveau paramètre prédéfini de recadrage…
+	Delete Crop Preset…	Supprimer le paramètre prédéfini de recadrage…
+	Select the crop presets to delete:	Sélectionnez les paramètres prédéfinis de recadrage à supprimer :
+	Select the crop presets to delete	Sélectionnez les paramètres prédéfinis de recadrage à supprimer
+	Enter a name for the crop preset	Saisissez un nom pour le paramètre prédéfini de recadrage
+	There is no crop size or ratio to save	Aucune taille ni proportion de recadrage à enregistrer
 	Search settings…	Rechercher des réglages…
 	No matching settings	Aucun réglage correspondant

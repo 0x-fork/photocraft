@@ -357,15 +357,24 @@ pub fn style_paragraphs(t: &mut TextLayer, a: usize, b: usize, f: &dyn Fn(&mut P
         .collect();
     let style_at = |off: usize| old[starts.iter().rposition(|&s| s <= off).unwrap_or(0)].style.clone();
     let mut out: Vec<(usize, ParagraphStyle)> = Vec::new();
+    let trailing_break = t.text.ends_with(['\r', '\n']);
     for pr in photocraft_text::layout::split_paragraphs(&t.text) {
         let mut st = style_at(pr.start);
-        let touches = (pr.start < b && pr.end > a) || (a == b && a >= pr.start && (a < pr.end || pr.end == t.text.len()));
+        let terminal_empty = pr.start == pr.end;
+        let touches =
+            (pr.start < b && pr.end > a) || (a == b && a >= pr.start && (a < pr.end || terminal_empty || (pr.end == t.text.len() && !trailing_break)));
         if touches {
             f(&mut st);
         }
-        push_merge(&mut out, pr.len(), st.clone());
-        if out.is_empty() {
+        if terminal_empty && trailing_break {
+            // This paragraph has no bytes but must retain its own style for the
+            // next typed character and for the PSD's final paragraph marker.
             out.push((0, st));
+        } else {
+            push_merge(&mut out, pr.len(), st.clone());
+            if out.is_empty() {
+                out.push((0, st));
+            }
         }
     }
     t.paragraphs = out.into_iter().map(|(len, style)| ParagraphRun { len, style }).collect();
@@ -374,18 +383,23 @@ pub fn style_paragraphs(t: &mut TextLayer, a: usize, b: usize, f: &dyn Fn(&mut P
 /// Replaces bytes `a..b` with `new`, keeping styles: inserted text takes the style of the
 /// character before it (or after it at the start).
 pub fn replace_text(t: &mut TextLayer, a: usize, b: usize, new: &str) {
-    fn adjust<S: Clone + PartialEq>(runs: Vec<(usize, S)>, a: usize, b: usize, ins: usize) -> Vec<(usize, S)> {
+    fn adjust<S: Clone + PartialEq>(runs: Vec<(usize, S)>, a: usize, b: usize, ins: usize, trailing_paragraph: bool) -> Vec<(usize, S)> {
         let mut out: Vec<(usize, S)> = Vec::new();
         let mut at = 0;
-        let host = runs
-            .iter()
-            .scan(0, |acc, r| {
-                let s = *acc;
-                *acc += r.0;
-                Some((s, s + r.0))
-            })
-            .position(|(s, e)| if a == 0 { e > 0 || s == 0 } else { a > s && a <= e })
-            .unwrap_or(0);
+        let host = if trailing_paragraph && a == b && runs.last().is_some_and(|r| r.0 == 0) && a == runs.iter().map(|r| r.0).sum::<usize>() {
+            // Inserted text belongs to a styled final empty paragraph, not to
+            // the preceding paragraph whose break ends at this byte offset.
+            runs.len() - 1
+        } else {
+            runs.iter()
+                .scan(0, |acc, r| {
+                    let s = *acc;
+                    *acc += r.0;
+                    Some((s, s + r.0))
+                })
+                .position(|(s, e)| if a == 0 { e > 0 || s == 0 } else { a > s && a <= e })
+                .unwrap_or(0)
+        };
         for (i, (len, st)) in runs.into_iter().enumerate() {
             let (rs, re) = (at, at + len);
             at = re;
@@ -401,9 +415,15 @@ pub fn replace_text(t: &mut TextLayer, a: usize, b: usize, new: &str) {
     let pr: Vec<(usize, ParagraphStyle)> = t.paragraph_runs().into_iter().map(|r| (r.len, r.style)).collect();
     let first_c = cr.first().map(|r| r.1.clone()).unwrap_or_default();
     let first_p = pr.first().map(|r| r.1.clone()).unwrap_or_default();
-    let mut cr = adjust(cr, a, b, new.len());
-    let mut pr = adjust(pr, a, b, new.len());
+    let trailing_style = t.text.ends_with(['\r', '\n']).then(|| pr.last().filter(|r| r.0 == 0).map(|r| r.1.clone())).flatten();
+    let mut cr = adjust(cr, a, b, new.len(), false);
+    let mut pr = adjust(pr, a, b, new.len(), true);
     t.text.replace_range(a..b, &new);
+    if t.text.ends_with(['\r', '\n'])
+        && let Some(style) = trailing_style
+    {
+        pr.push((0, style));
+    }
     if cr.is_empty() {
         cr.push((t.text.len(), first_c));
     }
@@ -1091,6 +1111,37 @@ mod tests {
         assert_eq!(info["lines"].as_array().unwrap().len(), 2);
         let t = text_layer(&s, id);
         assert_eq!(t.runs.iter().map(|r| r.len).sum::<usize>(), t.text.len());
+    }
+
+    #[test]
+    fn trailing_empty_paragraph_styles_without_changing_previous_lines() {
+        let mut s = session();
+        let id = s.execute("type.create", json!({"text":"a\nb\n","x":20,"y":20,"size":12,"font":"Inter","align":"left"})).unwrap()["layer"].as_u64().unwrap();
+        let before = s.execute("type.info", json!({"layer":id})).unwrap();
+        let previous_line = before["lines"][1].clone();
+
+        let styled = s.execute("type.setStyle", json!({"layer":id,"range":[4,4],"align":"right"})).unwrap();
+        assert_eq!(styled["paragraphs"].as_array().unwrap().len(), 2);
+        assert_eq!(styled["paragraphs"][0]["start"], 0);
+        assert_eq!(styled["paragraphs"][0]["end"], 4);
+        assert_eq!(styled["paragraphs"][0]["style"]["align"], "Left");
+        assert_eq!(styled["paragraphs"][1]["start"], 4);
+        assert_eq!(styled["paragraphs"][1]["end"], 4);
+        assert_eq!(styled["paragraphs"][1]["style"]["align"], "Right");
+        assert_eq!(styled["lines"][1], previous_line, "the preceding paragraph must not move");
+        let raw = text_layer(&s, id).psd_raw.clone().unwrap();
+        let round_trip = photocraft_text::psd::text_layer_from_tysh(&raw, 72.0).unwrap();
+        assert_eq!(round_trip.paragraph_runs().last().unwrap().style.align, TextAlign::Right);
+
+        // Typing directly into the previously empty final paragraph retains its style.
+        let edited = s.execute("type.edit", json!({"layer":id,"replace":{"start":4,"end":4,"text":"c"}})).unwrap();
+        assert_eq!(edited["text"], "a\nb\nc");
+        assert_eq!(edited["paragraphs"][0]["end"], 4);
+        assert_eq!(edited["paragraphs"][0]["style"]["align"], "Left");
+        assert_eq!(edited["paragraphs"][1]["start"], 4);
+        assert_eq!(edited["paragraphs"][1]["end"], 5);
+        assert_eq!(edited["paragraphs"][1]["style"]["align"], "Right");
+        assert_eq!(edited["lines"][1], previous_line, "typing in the final paragraph does not move b");
     }
 
     #[test]

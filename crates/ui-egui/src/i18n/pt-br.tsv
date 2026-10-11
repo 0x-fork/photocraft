@@ -2564,6 +2564,7 @@
 	Edit › Paste	Editar › Colar
 	Use File › Open, or paste a copied image with {paste}.	Use Arquivo › Abrir ou cole uma imagem copiada com {paste}.
 	Mixer Brush Tool	Ferramenta Pincel misturador
+	Color Replacement Tool	Ferramenta Substituição de cor
 	Invalid {mode} profile	Perfil {mode} inválido
 	Unnamed {mode} profile	Perfil {mode} sem nome
 	Show bounding box when dragging layer	Mostrar caixa delimitadora ao arrastar a camada
@@ -2918,5 +2919,11 @@ cameraData	Lens	Lente
 	Previous Document	Documento anterior
 	W x H x Resolution	L x A x Resolução
 	Front Image	Imagem frontal
+	New Crop Preset…	Nova predefinição de corte…
+	Delete Crop Preset…	Excluir predefinição de corte…
+	Select the crop presets to delete:	Selecione as predefinições de corte a excluir:
+	Select the crop presets to delete	Selecione as predefinições de corte a excluir
+	Enter a name for the crop preset	Digite um nome para a predefinição de corte
+	There is no crop size or ratio to save	Não há tamanho nem proporção de corte para salvar
 	Search settings…	Pesquisar configurações…
 	No matching settings	Nenhuma configuração encontrada

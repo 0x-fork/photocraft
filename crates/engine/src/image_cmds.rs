@@ -41,6 +41,12 @@ pub(crate) fn for_each_surface(layers: &mut [Layer], masks: bool, f: &mut dyn Fn
                 if let Some(c) = &mut sm.cache {
                     f(c, false)
                 }
+                // Selection-derived smart-filter masks live in document coordinates. Every
+                // canvas resize/translation must carry them with the smart object's cache;
+                // otherwise toggling a filter recomputes its coverage at stale positions (#3077).
+                if masks && let Some(mask) = &mut sm.filter_mask {
+                    f(&mut mask.surface, true);
+                }
             }
             LayerContent::Group(g) => for_each_surface(&mut g.children, masks, f),
             _ => {}

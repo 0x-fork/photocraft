@@ -25,7 +25,7 @@ const TOOL_SECTIONS: &[&[&[Tool]]] = &[
     ],
     &[
         &[Tool::Remove, Tool::SpotHealing, Tool::Healing, Tool::Patch, Tool::ContentAwareMove, Tool::RedEye],
-        &[Tool::Brush, Tool::Pencil, Tool::MixerBrush],
+        &[Tool::Brush, Tool::Pencil, Tool::MixerBrush, Tool::ColorReplacement],
         &[Tool::CloneStamp, Tool::PatternStamp],
         &[Tool::HistoryBrush],
         &[Tool::Eraser, Tool::BackgroundEraser, Tool::MagicEraser],
@@ -1148,25 +1148,22 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         crate::gradient_ui::options_changed(app, &before);
                     }
                     Tool::Crop if t.pro => {
-                        let presets = crate::crop_size::dropdown_options();
-                        if widgets::dropdown(ui, "crop-ratio", &mut app.ui.tool_options.crop_ratio, &presets, 140.0) {
-                            // A size preset or Front Image fills W x H x Resolution (#2443).
-                            crate::crop_size::chosen(app);
-                        }
+                        // Ratios, sizes, saved presets, New / Delete Crop Preset… (#2443, #1919).
+                        crate::crop_presets::dropdown(app, ui);
                         let o = &mut app.ui.tool_options;
                         if o.crop_ratio == crate::crop_size::WHR {
                             crate::crop_size::fields(o, ui);
                         } else {
-                            // Custom ratio fields (Photoshop shows the preset's numbers here).
-                            let (mut rw, mut rh) = crate::chrome_ui::crop_ratio(&o.crop_ratio, 0.0, 0.0).map_or((0.0, 0.0), |(w, h)| (w as f32, h as f32));
+                            // Keep partial edits in ToolOptions so the first side survives a frame.
+                            let (mut rw, mut rh) = crate::crop_size::custom_ratio_fields(o);
                             let cw = widgets::value_field(ui, &mut rw, 0.0..=99_999.0, "", 54.0).changed();
                             let swap = icons::button(ui, "arrow-left-right", 22.0, false, tl!("Swaps height and width")).clicked();
                             let ch = widgets::value_field(ui, &mut rh, 0.0..=99_999.0, "", 54.0).changed();
                             if swap {
                                 std::mem::swap(&mut rw, &mut rh);
                             }
-                            if (cw || ch || swap) && rw > 0.0 && rh > 0.0 {
-                                o.crop_ratio = format!("{}:{}", widgets::fmt_num(rw as f64), widgets::fmt_num(rh as f64));
+                            if cw || ch || swap {
+                                crate::crop_size::set_custom_ratio_fields(o, rw, rh);
                             }
                         }
                         widgets::vline(ui, 22.0);
@@ -4175,6 +4172,44 @@ mod type_flyout_tests {
     }
 
     #[test]
+    fn long_press_brush_selects_color_replacement() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        PhotocraftApp::setup_context(&ctx, crate::theme::ThemeKind::ALL[0]);
+        frame(&mut app, &ctx, 0.0, vec![]);
+        frame(&mut app, &ctx, 0.1, vec![]);
+        let index = TOOL_SECTIONS.iter().flat_map(|section| section.iter()).position(|slot| slot.contains(&Tool::Brush)).unwrap();
+        let slot = TOOL_SECTIONS.iter().flat_map(|section| section.iter()).nth(index).copied().unwrap();
+        // Photoshop's Brush group, Color Replacement after the Mixer Brush.
+        assert_eq!(slot, &[Tool::Brush, Tool::Pencil, Tool::MixerBrush, Tool::ColorReplacement]);
+        let bx = if Tokens::get(&ctx).pro { 30.0 } else { 36.0 };
+        let mut buttons: Vec<Rect> = ctx.viewport(|v| {
+            v.prev_pass
+                .widgets
+                .layers()
+                .flat_map(|(_, w)| w.iter())
+                .filter(|w| w.rect.size() == egui::Vec2::splat(bx) && w.sense.senses_click())
+                .map(|w| w.rect)
+                .collect()
+        });
+        buttons.sort_by(|a, b| a.top().total_cmp(&b.top()));
+        let at = buttons[index].center();
+        let pointer = |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() };
+        frame(&mut app, &ctx, 1.0, vec![egui::Event::PointerMoved(at), pointer(at, true)]);
+        frame(&mut app, &ctx, 1.36, vec![]);
+        frame(&mut app, &ctx, 1.4, vec![pointer(at, false)]);
+        frame(&mut app, &ctx, 1.45, vec![]);
+        let key = egui::Id::new(("tool-slot", index));
+        let menu = ctx.memory(|m| m.area_rect(key.with("flyout"))).unwrap();
+        // The last of the four 26-point rows.
+        let row = egui::pos2(menu.left() + 65.0, menu.bottom() - 20.0);
+        frame(&mut app, &ctx, 2.0, vec![egui::Event::PointerMoved(row), pointer(row, true)]);
+        frame(&mut app, &ctx, 2.05, vec![pointer(row, false)]);
+        assert_eq!(app.ui.tool, Tool::ColorReplacement);
+        assert_eq!(crate::icons::tool_icon(Tool::ColorReplacement), "brush-replace");
+    }
+
+    #[test]
     fn rotate_view_is_in_the_hand_flyout() {
         let hand = TOOL_SECTIONS.iter().flat_map(|section| section.iter()).find(|slot| slot.contains(&Tool::Hand)).expect("Hand group");
         assert_eq!(*hand, [Tool::Hand, Tool::RotateView]);
@@ -4213,7 +4248,7 @@ mod toolbar_hidden_tests {
         let slots: usize = TOOL_SECTIONS.iter().map(|section| section.len()).sum();
         hide(&mut app, &Tool::ALL);
         assert_eq!(tool_buttons(&mut app), all - slots, "every tool slot is gone when every tool is hidden");
-        hide(&mut app, &[Tool::Brush, Tool::Pencil, Tool::MixerBrush]);
+        hide(&mut app, &[Tool::Brush, Tool::Pencil, Tool::MixerBrush, Tool::ColorReplacement]);
         assert_eq!(tool_buttons(&mut app), all - 1, "a slot whose tools are all hidden is gone");
         hide(&mut app, &[Tool::Sponge]);
         assert_eq!(tool_buttons(&mut app), all, "a slot with a visible tool stays");
