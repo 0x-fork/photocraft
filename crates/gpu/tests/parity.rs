@@ -2654,10 +2654,7 @@ fn dissolve_effects_stack_matches_cpu() {
     let mut styled = Layer::new("styled", LayerContent::Fill(Fill::Solid(Color::BLACK)));
     styled.blend = BlendMode::Dissolve;
     styled.opacity = 0.5;
-    styled.effects.items.push(Effect::ColorOverlay {
-        common: FxCommon::new(BlendMode::Normal, 1.0),
-        color: Color::BLACK,
-    });
+    styled.effects.items.push(Effect::ColorOverlay { common: FxCommon::new(BlendMode::Normal, 1.0), color: Color::BLACK });
     d.layers.push(styled);
     check(&mut g, &d, "dissolve effects");
 }
