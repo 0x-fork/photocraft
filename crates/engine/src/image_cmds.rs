@@ -179,6 +179,11 @@ fn image_size(s: &mut Session, p: &Value) -> Result<Value> {
         check_resample_budget("image.imageSize", &d.doc, nw, nh, ", or turn Resample off to change only the resolution")?;
     }
     let dpi = p.get("resolution").and_then(Value::as_f64).map(|v| v as f32);
+    if !matches!(resample, Method::None) && (nw, nh) != (ow, oh) {
+        // Color Sampler points scale with the pixels (same map `transform_geometry` applies).
+        let (sx, sy) = (f64::from(nw) / f64::from(ow.max(1)), f64::from(nh) / f64::from(oh.max(1)));
+        s.set_sampler_map(photocraft_geom::Affine { m: [sx, 0.0, 0.0, sy, 0.0, 0.0] });
+    }
     s.edit("Image Size", |doc, _| {
         if let Some(r) = dpi {
             doc.resolution_dpi = r.clamp(1.0, 10_000.0);
@@ -336,6 +341,7 @@ fn canvas_size(s: &mut Session, p: &Value) -> Result<Value> {
     let dx = ((nw as f64 - ow) * ax).round() as i32;
     let dy = ((nh as f64 - oh) * ay).round() as i32;
     let ext = extension_color(s, p);
+    s.set_sampler_map(photocraft_geom::Affine::translate(f64::from(dx), f64::from(dy)));
     s.edit("Canvas Size", |doc, _| {
         translate_doc(doc, "image.canvasSize", dx, dy)?;
         doc.size = Size::new(nw, nh);
@@ -419,6 +425,7 @@ fn crop(s: &mut Session, p: &Value) -> Result<Value> {
     if r.is_empty() {
         return Err(EngineError::Other("nothing to crop: pass x/y/width/height or make a selection".into()));
     }
+    s.set_sampler_map(photocraft_geom::Affine::translate(-f64::from(r.x0), -f64::from(r.y0)));
     s.edit("Crop", |doc, _| {
         crop_doc(doc, "image.crop", r, delete)?;
         doc.selection = None;
@@ -552,6 +559,8 @@ fn rotated_crop(s: &mut Session, r: Rect, angle: f64, delete: bool, crop_target:
     let target = Rect::new(x, y, x1, y1);
     crate::analysis_cmds::compound(s, "Crop", |s| {
         crate::mode_cmds::rotate_arbitrary(s, &json!({"angle": angle, "direction": "ccw"}))?;
+        // Color Sampler points follow the crop's origin shift too (the rotation moved them above).
+        s.set_sampler_map(photocraft_geom::Affine::translate(-f64::from(target.x0), -f64::from(target.y0)));
         s.edit("Crop", |doc, _| {
             crop_doc(doc, CMD, target, delete)?;
             doc.selection = None;
@@ -595,6 +604,7 @@ fn trim(s: &mut Session, p: &Value) -> Result<Value> {
         if side("right") { b.x1 } else { canvas.x1 },
         if side("bottom") { b.y1 } else { canvas.y1 },
     );
+    s.set_sampler_map(photocraft_geom::Affine::translate(-f64::from(r.x0), -f64::from(r.y0)));
     s.edit("Trim", |doc, _| crop_doc(doc, "image.trim", r, true))?;
     Ok(json!({ "x": r.x0, "y": r.y0, "width": r.width(), "height": r.height() }))
 }

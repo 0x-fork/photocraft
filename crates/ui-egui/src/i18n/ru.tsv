@@ -287,6 +287,12 @@
 	Inverse	Инверсия
 	Color Range…	Цветовой диапазон…
 	Select and Mask…	Выделение и маска…
+# Select and Mask dialog labels
+	Smart Radius	Умный радиус
+	Shift Edge	Сместить край
+	Decontaminate	Очистить
+	Output	Вывод
+	Refine Edge	Уточнить край
 	Select Subject	Выбрать объект
 	Sky	Небо
 	Focus Area…	Область фокусировки…
@@ -307,6 +313,7 @@
 	All Layers	Все слои
 	Current & Below	Текущий и ниже
 	Current Layer	Текущий слой
+	Refine Strokes	Штрихи уточнения
 
 # Filter
 	Last Filter	Последний фильтр
@@ -662,6 +669,7 @@
 	Efficiency: 100%	Эффективность: 100%
 	Dimensions:	Габариты:
 	Width	Ширина
+	Slant	Наклон
 	Height	Высота
 	Width:	Ширина:
 	Height:	Высота:
@@ -1515,6 +1523,7 @@
 	Click to add a point · drag off or {key}-click or Delete to remove	Щёлкните, чтобы добавить точку · уведите или {key}-клик, либо Delete — удалить
 	Click to apply, {key}-click to clear overrides, double-click for Style Options	Щёлкните, чтобы применить · {key}-клик сбрасывает переопределения · двойной клик — параметры стиля
 	Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel	Клик: угол · перетаскивание: гладкая · клик по первой точке: замкнуть · {key} завершить · Esc отмена
+	Click: corner · Drag: smooth · {alt}-drag: break handle · Click or drag first point: close · {key} finish · Esc cancel	Клик: угол · перетаскивание: гладкая · {alt}+перетаскивание: разбить маркер · клик или перетаскивание первой точки: замкнуть · {key} завершить · Esc отмена
 	Commit Perspective Warp ({key})	Принять перспективную деформацию ({key})
 	Commit Puppet Warp ({key})	Принять кукольную деформацию ({key})
 	Commit any current edits ({key})	Принять все текущие правки ({key})
@@ -1588,6 +1597,7 @@
 	Quick Selection Tool	Быстрое выделение
 	Object Selection Tool	Выделение объектов
 	Pen Tool	Перо
+	Convert Point Tool	Преобразование узла
 	Path Selection Tool	Выделение контура
 	Direct Selection Tool	Выделение узла
 	Add Anchor Point Tool	Добавить узел
@@ -1751,6 +1761,9 @@
 	Divide	Разделить
 	Result	Результат
 	New Document	Новый документ
+	New Document With Mask	Новый документ с маской
+	New Layer With Mask	Новый слой с маской
+	New Layer	Новый слой
 	Preset Name	Имя набора
 	No saved presets yet.	Сохранённых наборов пока нет.
 	New Channel	Новый канал
@@ -2911,6 +2924,12 @@ cameraData	Lens	Объектив
 	Show Edge	Показать край
 	Show Original	Показать исходное
 	F cycles the views; hold X to see the image	F переключает виды; удерживайте X, чтобы увидеть изображение
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	Кисть уточнения края (R)
+	Expand Detection Area	Расширить область обнаружения
+	Restore Original Edge	Восстановить исходный край
+	Paint over hair or fur on the image; Alt paints the other mode	Рисуйте по волосам или шерсти на изображении; Alt рисует в другом режиме
+	Clear Brush Strokes	Очистить мазки кисти
 	Show rulers	Показать линейки
 	New Crop Preset…	Новый набор параметров кадрирования…
 	Delete Crop Preset…	Удалить набор параметров кадрирования…
@@ -2918,3 +2937,12 @@ cameraData	Lens	Объектив
 	Select the crop presets to delete	Выберите наборы параметров кадрирования для удаления
 	Enter a name for the crop preset	Введите имя набора параметров кадрирования
 	There is no crop size or ratio to save	Нет размера или соотношения сторон кадрирования для сохранения
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	Щёлкните, чтобы разместить · Alt-щелчок или перетаскивание за пределы холста для удаления
+	No document open	Документ не открыт
+	{n} of {max} sample points	{n} из {max} точек замера
+# Print dialog (#2697)
+	Emulsion Down	Эмульсией вниз
+	Functions	Функции
+	Print Resolution:	Разрешение печати:

@@ -103,3 +103,6 @@ sync_github_name = true
 
 [people.timothydaly1]
 display_name = "SyntaxError"
+
+[people.axlecoffee]
+sync_github_name = true

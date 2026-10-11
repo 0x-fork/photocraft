@@ -507,6 +507,12 @@
 	Color Range…	Rozsah barev…
 	Focus Area…	Oblast zaostření…
 	Select and Mask…	Vybrat a maskovat…
+# Select and Mask dialog labels
+	Smart Radius	Chytrý poloměr
+	Shift Edge	Posunout okraj
+	Decontaminate	Dekontaminovat
+	Output	Výstup
+	Refine Edge	Upřesnit okraj
 	Modify	Upravit
 	Border…	Okraj…
 	Smooth…	Vyhladit…
@@ -775,6 +781,7 @@
 	Split Warp Horizontally	Rozdělit deformaci vodorovně
 	Split Warp Vertically	Rozdělit deformaci svisle
 	Statistics…	Statistika…
+	Refine Strokes	Tahy zpřesnění
 @plural	{n} item|{n} items	{n} položka|{n} položky|{n} položek
 	Auto	Automaticky
 
@@ -915,6 +922,7 @@
 	Click to zoom in  ·  {key}-click to zoom out  ·  drag right/left to zoom in/out	Kliknutím přiblížíte  ·  {key}+kliknutím oddálíte  ·  tažením doprava/doleva přiblížíte/oddálíte
 	Click with the Note tool to add a note.	Poznámku přidáte kliknutím nástrojem poznámka.
 	Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel	Kliknutí: roh · tažení: hladký bod · kliknutí na první bod: uzavřít · {key} dokončit · Esc zrušit
+	Click: corner · Drag: smooth · {alt}-drag: break handle · Click or drag first point: close · {key} finish · Esc cancel	Kliknutí: roh · tažení: hladký bod · {alt}+tažení: rozdělit úchyt · kliknutí nebo tažení na první bod: uzavřít · {key} dokončit · Esc zrušit
 	Clip to layer below	Oříznout podle vrstvy pod
 	Clipped	Oříznuto
 	Close Style Options	Zavřít možnosti stylu
@@ -1543,6 +1551,7 @@
 	White Balance: As Shot	Vyvážení bílé: jako při snímání
 	Whites	Bílé
 	Width	Šířka
+	Slant	Sklon
 	Width:	Šířka:
 	Work Path	Pracovní cesta
 	Yellow	Žlutá
@@ -1560,6 +1569,9 @@
 	↑↓ navigate   {key} run   esc close	↑↓ pohyb   {key} spustit   esc zavřít
 	Version {version}	Verze {version}
 	New Document	Nový dokument
+	New Document With Mask	Nový dokument s maskou
+	New Layer With Mask	Nová vrstva s maskou
+	New Layer	Nová vrstva
 	Saved	Uložené
 	Save Preset…	Uložit předvolbu…
 	Preset Name	Název předvolby
@@ -1720,6 +1732,7 @@
 	Pen Pressure	Přítlak pera
 	Pen Tilt	Náklon pera
 	Pen Tool	Nástroj pero
+	Convert Point Tool	Nástroj převést bod
 	Photo	Fotografie
 	PhotoCraft website	Web PhotoCraft
 	Picas	Pica
@@ -2582,4 +2595,19 @@ cameraData	Lens	Objektiv
 	Show Edge	Zobrazit okraj
 	Show Original	Zobrazit originál
 	F cycles the views; hold X to see the image	F přepíná zobrazení; podržením X uvidíte obraz
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	Štětec pro upřesnění okraje (R)
+	Expand Detection Area	Rozšířit oblast detekce
+	Restore Original Edge	Obnovit původní okraj
+	Paint over hair or fur on the image; Alt paints the other mode	Malujte přes vlasy nebo srst v obraze; Alt maluje v opačném režimu
+	Clear Brush Strokes	Vymazat tahy štětce
 	Show rulers	Zobrazit pravítka
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	Kliknutím umístíte · Alt-kliknutím nebo přetažením mimo plátno odeberete
+	No document open	Není otevřen žádný dokument
+	{n} of {max} sample points	{n} z {max} bodů měření
+# Print dialog (#2697)
+	Emulsion Down	Emulze dolů
+	Functions	Funkce
+	Print Resolution:	Rozlišení tisku:

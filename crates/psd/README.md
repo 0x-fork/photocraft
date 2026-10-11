@@ -28,6 +28,7 @@ PsdFile::layers() -> &[LayerRecord]         // file order = bottom-most first
 PsdFile::layers_mut() -> &mut Vec<LayerRecord>
 PsdFile::layer(i) -> Option<Layer<'_>>;  iter_layers()
 PsdFile::layer_tree() -> Vec<LayerNode>     // nested groups, children bottom-to-top
+PsdFile::layer_tree_max_depth(n) -> Vec<LayerNode> // same, groups nested n deep keep no children
 PsdFile::decode_merged() -> Result<Vec<u8>> // planar big-endian samples
 PsdFile::composite_rgba8() -> Result<RgbaImage>
 PsdFile::resource(id), global_block(key), icc_profile(), resolution(),
