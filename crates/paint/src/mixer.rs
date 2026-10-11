@@ -6,7 +6,7 @@
 //! weight. The reservoir amount drains per dab unless `load` is 100 %, so low Load strokes dry out.
 //! A dry brush (`wet = 0`) paints only reservoir colour; an empty, wet brush smears canvas colour.
 
-use photocraft_raster::{Surface, from_rgba, to_rgba};
+use photocraft_raster::{Surface, from_rgba, from_rgba_into, to_rgba};
 use serde::{Deserialize, Serialize};
 
 use crate::Stroke;
@@ -120,6 +120,33 @@ pub fn apply_mixer_dab(
     state: &mut MixerState,
     lock_transparency: bool,
 ) {
+    let sample = sample.map(|surface| {
+        let source = crate::retouch::Region::read(surface, work.rect);
+        if surface.format().mode == fmt.mode && surface.format().alpha == fmt.alpha {
+            source
+        } else {
+            let mut native = crate::retouch::Region::new(work.rect, fmt.channels());
+            for (src, dst) in source.data.chunks_exact(source.ch).zip(native.data.chunks_exact_mut(native.ch)) {
+                from_rgba_into(&fmt, to_rgba(&surface.format(), src), dst);
+            }
+            native
+        }
+    });
+    apply_mixer_dab_region(work, fp, fmt, sample.as_ref(), m, state, lock_transparency);
+}
+
+/// Contiguous native-channel sample variant. `sample` must have the same rectangle and
+/// channel layout as `work`. The live compositor supplies it directly, avoiding a tiled
+/// temporary surface and a heap allocation for every sampled/deposited pixel.
+pub fn apply_mixer_dab_region(
+    work: &mut crate::retouch::Region,
+    fp: &crate::retouch::Footprint,
+    fmt: photocraft_color::PixelFormat,
+    sample: Option<&crate::retouch::Region>,
+    m: &MixerSettings,
+    state: &mut MixerState,
+    lock_transparency: bool,
+) {
     let n = fmt.channels();
     let a = alpha_index(&fmt);
     let nc = fmt.mode.color_channels();
@@ -148,13 +175,7 @@ pub fn apply_mixer_dab(
             if w <= 0.0 {
                 continue;
             }
-            let px: Vec<f32> = match sample {
-                Some(s) => {
-                    let v = s.pixel(x, y);
-                    if s.format() == fmt { v } else { from_rgba(&fmt, s.rgba(x, y)) }
-                }
-                None => work.px(x, y).to_vec(),
-            };
+            let px = sample.unwrap_or(work).px(x, y);
             let al = a.map_or(1.0, |ai| px[ai]);
             for c in 0..nc {
                 acc[c] += px[c] * w * al;
@@ -181,17 +202,18 @@ pub fn apply_mixer_dab(
             paint[c] = (rv * wr + pv * wp) / total;
         }
         let dep = total.min(1.0) * flow;
+        let mut local = vec![0.0; n];
+        let mut mixed = vec![0.0; n];
         for y in r.y0..r.y1 {
             for x in r.x0..r.x1 {
                 let k = fp.at(x, y) * dep;
                 if k > 0.0 {
                     if let Some(load) = &state.spatial {
                         let loaded = load_at(load, &fp.dab, x as f32 + 0.5, y as f32 + 0.5);
-                        let local = from_rgba(&fmt, loaded);
+                        from_rgba_into(&fmt, loaded, &mut local);
                         let local_wr = wr * loaded[3];
                         let local_total = local_wr + wp;
                         if local_total > 1e-6 {
-                            let mut mixed = paint.clone();
                             for (c, value) in mixed.iter_mut().enumerate() {
                                 *value = (local.get(c).copied().unwrap_or(0.0) * local_wr
                                     + pickup.as_ref().and_then(|p| p.get(c)).copied().unwrap_or(0.0) * wp)
@@ -304,3 +326,7 @@ mod tests {
         assert!(run(1.0).is_some_and(|p| p[2] > 0.2));
     }
 }
+
+#[cfg(test)]
+#[path = "mixer_reference_tests.rs"]
+mod reference_tests;

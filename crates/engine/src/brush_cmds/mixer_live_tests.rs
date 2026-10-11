@@ -224,3 +224,19 @@ fn mixer_rejects_malformed_load_and_retains_or_reloads_paint() {
     s.execute("paint.mixerBrush", json!({"points":[[40,40],[80,40]],"size":10,"loadAfterStroke":true,"load":10})).unwrap();
     assert_eq!(s.tools.mixer.amount, 1.0);
 }
+
+#[test]
+fn mixer_large_tip_retains_off_canvas_paint_and_commits_the_live_result() {
+    let mut s = fixture(PixelFormat::RGBA8);
+    let source = s.active().unwrap().doc.clone();
+    let params = json!({"points":[[96,48]],"size":1024,"wet":0,"mix":0,"color":"#1122ee","brush":{"pressureSize":false}});
+    let live = LiveMixer::begin(&s, &params).unwrap();
+    let id = s.active().unwrap().active_layer.unwrap();
+    let shown = live.doc.layer(id).unwrap().surface().unwrap().clone();
+    assert!(shown.rgba(-100, 48)[3] > 0.99, "off-canvas layer pixels remain paintable");
+    let params = live.prepare_commit(&mut s).unwrap();
+    s.execute("paint.mixerBrush", params).unwrap();
+    assert_eq!(target(&s), shown);
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(*s.active().unwrap().doc, *source);
+}

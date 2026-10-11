@@ -4,7 +4,7 @@ use super::*;
 use photocraft_color::{PixelFormat, SampleType};
 use photocraft_doc::{Document, LayerId};
 use photocraft_paint::dynamics::DabGenerator;
-use photocraft_paint::mixer::{MixerState, apply_mixer_dab};
+use photocraft_paint::mixer::{MixerState, apply_mixer_dab_region};
 use photocraft_paint::retouch::{Region, mix_back};
 use photocraft_paint::{BrushContext, Dab};
 use std::collections::BTreeSet;
@@ -59,8 +59,8 @@ impl Core {
                 continue;
             }
             let full = self.ctx.dab_rect(dab, false);
-            if u64::from(full.width()).saturating_mul(u64::from(full.height())) > 1_048_576 {
-                return Err(bad(CMD, "Mixer Brush footprint exceeds 1048576 pixels"));
+            if u64::from(full.width()).saturating_mul(u64::from(full.height())) > 4_194_304 {
+                return Err(bad(CMD, "Mixer Brush footprint exceeds 4194304 pixels"));
             }
             // Float working tiles avoid repeated integer-depth quantization. Initialize only
             // touched tiles, keeping unchanged source tiles shared by the document snapshots.
@@ -80,13 +80,16 @@ impl Core {
             // deposition. Masks, transforms, blend modes and adjustments use the compositor.
             let sample = self.settings.sample_all_layers.then(|| {
                 let buf = photocraft_compose::render(&self.doc, r);
-                let mut sample = Surface::new(PixelFormat::RGBA32F);
-                sample.write_region(r, &buf.px.iter().flatten().copied().collect::<Vec<_>>());
+                let fmt = self.pre.format();
+                let mut sample = Region::new(r, fmt.channels());
+                for (src, dst) in buf.px.iter().zip(sample.data.chunks_exact_mut(sample.ch)) {
+                    photocraft_raster::from_rgba_into(&fmt, *src, dst);
+                }
                 sample
             });
             let fp = self.ctx.footprint(dab, index);
             let mut region = Region::read(&self.work, r);
-            apply_mixer_dab(&mut region, &fp, self.pre.format(), sample.as_ref(), &self.settings, &mut self.state, self.lock);
+            apply_mixer_dab_region(&mut region, &fp, self.pre.format(), sample.as_ref(), &self.settings, &mut self.state, self.lock);
             region.write(&mut self.work);
             let original = Region::read(&self.pre, r);
             let (target, _) = crate::channel_cmds::target_surface(Arc::make_mut(&mut self.doc), self.layer, &self.params)?;
@@ -133,8 +136,8 @@ impl LiveMixer {
         let points = parse_points(p, CMD)?;
         let brush = resolve_brush(s, p, CMD)?;
         // Reject unsupported sizes before allocating a dense brush footprint.
-        if brush.size > 512.0 {
-            return Err(bad(CMD, "live Mixer Brush size is limited to 512 pixels"));
+        if brush.size > 1024.0 {
+            return Err(bad(CMD, "live Mixer Brush size is limited to 1024 pixels; choose Brush for larger tips"));
         }
         let bm = &brush.mixer;
         let settings = MixerSettings {
@@ -274,7 +277,7 @@ impl LiveMixer {
 
 pub(super) fn run(s: &mut Session, p: &Value) -> Result<Value> {
     let cached = s.prepared_mixer.take().filter(|live| {
-        s.active().is_some_and(|st| Arc::ptr_eq(&st.doc, &live.original))
+        s.active().is_some_and(|st| Arc::ptr_eq(&st.doc, &live.original) && (live.core.layer.is_none() || st.active_layer == live.core.layer))
             && s.tools.mixer == live.original_state
             && live.commit_params().is_ok_and(|params| params == *p)
     });
@@ -308,15 +311,15 @@ pub(super) fn sample(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(bad("brush.mixer.sample", "exactly one sample point is required"));
     }
     let mut brush = resolve_brush(s, p, "brush.mixer.sample")?;
-    if brush.size > 512.0 {
-        return Err(bad("brush.mixer.sample", "sampling size is limited to 512 pixels"));
+    if brush.size > 1024.0 {
+        return Err(bad("brush.mixer.sample", "sampling size is limited to 1024 pixels"));
     }
     brush.flow = 1.0;
     let dabs = photocraft_paint::dabs(&Stroke { brush: brush.clone(), points });
     let dab = dabs.first().ok_or_else(|| bad("brush.mixer.sample", "brush has no contact"))?;
     let ctx = BrushContext::new(&brush);
     let rect = ctx.dab_rect(dab, false);
-    if u64::from(rect.width()).saturating_mul(u64::from(rect.height())) > 1_048_576 {
+    if u64::from(rect.width()).saturating_mul(u64::from(rect.height())) > 4_194_304 {
         return Err(bad("brush.mixer.sample", "sampling footprint is too large"));
     }
     let fp = ctx.footprint(dab, 0);
