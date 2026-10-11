@@ -1244,6 +1244,43 @@ pub fn checker(painter: &egui::Painter, rect: Rect, cell: f32) {
     }
 }
 
+/// A transparency checkerboard of `cell`-point squares clipped to `rect` with `radius` corners,
+/// for rounded swatches (#3208): [`checker`] paints square cells, which showed past a rounded
+/// fill's corners. This one is a repeating two-by-two tile textured onto the rounded rect.
+pub fn checker_rounded(painter: &egui::Painter, rect: Rect, cell: f32, radius: impl Into<CornerRadius>) {
+    let tile = checker_tile(painter.ctx());
+    painter.add(egui::epaint::RectShape::filled(rect, radius, Color32::WHITE).with_texture(tile.id(), checker_uv(rect, cell)));
+}
+
+/// The texture range that tiles `rect` with `cell`-point squares: the tile holds two cells a side.
+fn checker_uv(rect: Rect, cell: f32) -> Rect {
+    let cell = if cell.is_finite() && cell > 0.0 { cell } else { 4.0 };
+    Rect::from_min_max(Pos2::ZERO, pos2(rect.width() / (2.0 * cell), rect.height() / (2.0 * cell)))
+}
+
+fn checker_tile_id() -> egui::Id {
+    egui::Id::new("transparency-checker-tile")
+}
+
+/// The checker's two-by-two tile (light, dark / dark, light), loaded once per context and shared
+/// by every rounded checker; it repeats and never blurs.
+fn checker_tile(ctx: &egui::Context) -> egui::TextureHandle {
+    if let Some(tile) = ctx.data(|d| d.get_temp::<egui::TextureHandle>(checker_tile_id())) {
+        return tile;
+    }
+    let (light, dark) = (Color32::from_gray(250), Color32::from_gray(214));
+    let image = egui::ColorImage::new([2, 2], vec![light, dark, dark, light]);
+    let options = egui::TextureOptions {
+        magnification: egui::TextureFilter::Nearest,
+        minification: egui::TextureFilter::Nearest,
+        wrap_mode: egui::TextureWrapMode::Repeat,
+        mipmap_mode: None,
+    };
+    let tile = ctx.load_texture("transparency-checker-tile", image, options);
+    ctx.data_mut(|d| d.insert_temp(checker_tile_id(), tile.clone()));
+    tile
+}
+
 /// Spectrum-style checkbox (blue when checked).
 pub fn checkbox(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
     let t = Tokens::get(ui.ctx());
@@ -1321,6 +1358,32 @@ fn clean(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use egui::{Key, Modifiers};
+
+    /// #3208: a rounded swatch's checker is one shared, repeating, unblurred two-by-two tile on
+    /// the rounded rect, scaled so a cell stays `cell` points, so nothing shows past the corners.
+    #[test]
+    fn rounded_swatches_clip_their_checker_to_the_corners() {
+        use egui::{Pos2, Rect, pos2, vec2};
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(200.0, 100.0)).build_ui(|ui| {
+            super::color_swatch(ui, egui::Color32::RED);
+            super::color_swatch_button(ui, egui::Color32::from_rgba_unmultiplied(0, 0, 255, 128), "Blue");
+        });
+        crate::PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(2);
+        let tile = h.ctx.data(|d| d.get_temp::<egui::TextureHandle>(super::checker_tile_id())).expect("the tile is loaded once");
+        let manager = h.ctx.tex_manager();
+        let manager = manager.read();
+        let meta = manager.meta(tile.id()).expect("the tile is in the texture manager");
+        assert_eq!(meta.size, [2, 2]);
+        assert_eq!(meta.options.wrap_mode, egui::TextureWrapMode::Repeat);
+        assert_eq!(meta.options.magnification, egui::TextureFilter::Nearest);
+        assert_eq!(super::checker_uv(Rect::from_min_size(Pos2::ZERO, vec2(40.0, 18.0)), 4.0), Rect::from_min_max(Pos2::ZERO, pos2(5.0, 2.25)));
+        assert_eq!(
+            super::checker_uv(Rect::from_min_size(Pos2::ZERO, vec2(8.0, 8.0)), 0.0),
+            Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)),
+            "a bad cell falls back to 4 pt"
+        );
+    }
 
     #[test]
     fn spectrum_popup_style_matches_main_menu_and_preserves_studio() {
@@ -1794,7 +1857,7 @@ pub(crate) fn color_swatch(ui: &mut Ui, color: Color32) -> Response {
     let t = Tokens::get(ui.ctx());
     let (rect, response) = ui.allocate_exact_size(ui.spacing().interact_size, Sense::click());
     response.widget_info(|| egui::WidgetInfo::new(egui::WidgetType::ColorButton));
-    checker(ui.painter(), rect, 4.0);
+    checker_rounded(ui.painter(), rect, 4.0, t.radius_sm);
     ui.painter().rect_filled(rect.shrink(1.0), t.radius_sm, color);
     ui.painter().rect_stroke(rect, t.radius_sm, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
     response
@@ -1805,7 +1868,7 @@ pub fn color_swatch_button(ui: &mut Ui, color: Color32, label: &str) -> Response
     let t = Tokens::get(ui.ctx());
     let (rect, response) = ui.allocate_exact_size(ui.spacing().interact_size, Sense::click());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ColorButton, true, label));
-    checker(ui.painter(), rect, 4.0);
+    checker_rounded(ui.painter(), rect, 4.0, t.radius_sm);
     ui.painter().rect_filled(rect.shrink(1.0), t.radius_sm, color);
     ui.painter().rect_stroke(rect, t.radius_sm, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
     response.on_hover_text(label)

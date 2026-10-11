@@ -32,7 +32,7 @@ Triangle and Curvature Pen (minus legacy Rounded Rectangle and Targeted Adjustme
 | Selection | Object Selection, Quick Selection, Magic Wand | |
 | Crop and slice | Crop, Perspective Crop, Slice, Slice Select | |
 | Frame | Frame (frames are groups clipped by a rectangular or elliptical mask) | |
-| Eyedropper | Eyedropper, Ruler, Note, Count | Color Sampler (#1046) |
+| Eyedropper | Eyedropper, Color Sampler, Ruler, Note, Count | |
 | Retouch | Remove, Spot Healing, Healing, Patch, Content-Aware Move, Red Eye | |
 | Brush | Brush, Pencil, Mixer Brush | Color Replacement (`paint.colorReplacement` exists) |
 | Stamp | Clone Stamp, Pattern Stamp | |

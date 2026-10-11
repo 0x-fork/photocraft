@@ -942,6 +942,13 @@ impl PhotocraftApp {
         match &r {
             Ok(_) => {
                 self.sync_views();
+                let removed = self.session.take_samplers_removed();
+                if removed > 0 {
+                    // A canvas-size change (crop, Canvas Size, Image Size, rotation) dropped Color
+                    // Sampler points that fell outside the new canvas (#1046).
+                    self.ui.status = if removed == 1 { "1 sample point removed".into() } else { format!("{removed} sample points removed") };
+                    self.ui.status_error = false;
+                }
                 if self.ui.status_error {
                     self.ui.status.clear();
                     self.ui.status_error = false;

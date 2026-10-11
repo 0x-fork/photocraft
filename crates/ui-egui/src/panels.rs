@@ -22,7 +22,7 @@ const TOOL_SECTIONS: &[&[&[Tool]]] = &[
         &[Tool::ObjectSelection, Tool::QuickSelection, Tool::MagicWand],
         &[Tool::Crop, Tool::PerspectiveCrop, Tool::Slice, Tool::SliceSelect],
         &[Tool::Frame],
-        &[Tool::Eyedropper, Tool::Ruler, Tool::Note, Tool::Count],
+        &[Tool::Eyedropper, Tool::ColorSampler, Tool::Ruler, Tool::Note, Tool::Count],
     ],
     &[
         &[Tool::Remove, Tool::SpotHealing, Tool::Healing, Tool::Patch, Tool::ContentAwareMove, Tool::RedEye],
@@ -1744,12 +1744,9 @@ fn info_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         row(&mut cols[0], "R:", rgba.map_or_else(dash, |c| q(c[0]).to_string()));
         row(&mut cols[0], "G:", rgba.map_or_else(dash, |c| q(c[1]).to_string()));
         row(&mut cols[0], "B:", rgba.map_or_else(dash, |c| q(c[2]).to_string()));
-        // Naive device CMYK (no ICC profile yet), in percent like Photoshop's readout.
-        let cmyk = rgba.map(|c| {
-            let k = 1.0 - c[0].max(c[1]).max(c[2]);
-            let f = |v: f32| if k >= 1.0 { 0.0 } else { (1.0 - v - k) / (1.0 - k) };
-            [f(c[0]), f(c[1]), f(c[2]), k].map(|v| (v * 100.0).round() as i32)
-        });
+        // Naive device CMYK (no ICC profile yet), in percent like Photoshop's readout. The Color
+        // Sampler readout uses the same conversion (`sampler_cmds::device_cmyk`).
+        let cmyk = rgba.map(|c| photocraft_engine::sampler_cmds::device_cmyk(c[0], c[1], c[2]));
         for (i, k) in ["C:", "M:", "Y:", "K:"].iter().enumerate() {
             row(&mut cols[1], k, cmyk.map_or_else(dash, |c| format!("{}%", c[i])));
         }
@@ -1768,6 +1765,36 @@ fn info_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             .color(t.text_dim)
             .size(11.5),
     );
+    // Color Sampler points (#1046): each under its number, with its position in the current ruler
+    // unit and the same RGB/CMYK readout as the pointer (one composite pixel each).
+    let samplers = app.session.execute("view.colorSamplers.list", json!({})).ok();
+    let samplers = samplers.as_ref().and_then(|v| v["samplers"].as_array()).cloned().unwrap_or_default();
+    if !samplers.is_empty() {
+        widgets::hairline(ui);
+        let cell = |ui: &mut egui::Ui, s: String| {
+            ui.label(RichText::new(s).font(mono.clone()).color(t.text));
+        };
+        for s in &samplers {
+            let n = s["number"].as_i64().unwrap_or(0);
+            let at = s["position"]
+                .as_array()
+                .map_or((0.0, 0.0), |a| (a.first().and_then(Value::as_f64).unwrap_or(0.0), a.get(1).and_then(Value::as_f64).unwrap_or(0.0)));
+            let num = |v: &Value, i: usize| v.get(i).and_then(Value::as_i64).map_or_else(|| "—".to_string(), |n| n.to_string());
+            let (rgb, cmyk) = (&s["rgb"], &s["cmyk"]);
+            ui.horizontal(|ui| {
+                ui.add_sized([24.0, 16.0], egui::Label::new(RichText::new(format!("#{n}")).color(t.text_dim).size(11.5)));
+                cell(ui, format!("X: {}  Y: {}", fx(at.0), fy(at.1)));
+            });
+            ui.horizontal(|ui| {
+                ui.add_sized([24.0, 16.0], egui::Label::new(RichText::new("").size(11.5)));
+                cell(ui, format!("R:{} G:{} B:{}", num(rgb, 0), num(rgb, 1), num(rgb, 2)));
+            });
+            ui.horizontal(|ui| {
+                ui.add_sized([24.0, 16.0], egui::Label::new(RichText::new("").size(11.5)));
+                cell(ui, format!("C:{}% M:{}% Y:{}% K:{}%", num(cmyk, 0), num(cmyk, 1), num(cmyk, 2), num(cmyk, 3)));
+            });
+        }
+    }
 }
 
 fn navigator(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
@@ -4011,6 +4038,34 @@ mod color_tests {
         click(&mut h, min + vec2(265.0, 10.0));
         let [r, g, b] = srgb_bytes(h.state().session.tools.foreground);
         assert!(g > 200 && r < 64 && b < 64, "the foreground's green, not the background's blue: {:?}", [r, g, b]);
+    }
+}
+
+#[cfg(test)]
+mod info_panel_sampler_tests {
+    use super::*;
+    use egui_kittest::{Harness, kittest::Queryable};
+
+    /// #1046: the Info panel lists each Color Sampler point under its number, with its position and
+    /// the composite RGB/CMYK readout, one composite pixel each.
+    #[test]
+    fn info_panel_lists_the_sample_points() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 80, "height": 60, "background": "white"})).unwrap();
+        app.run("view.colorSamplers.add", json!({"x": 5, "y": 6})).unwrap();
+        app.run("view.colorSamplers.add", json!({"x": 40, "y": 30})).unwrap();
+        let mut h = Harness::builder().with_size(vec2(340.0, 400.0)).build_ui_state(|ui, app: &mut PhotocraftApp| info_panel(app, ui), app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Pro);
+        h.run_steps(3);
+        // Both points are listed, numbered, and read as white (RGB 255 / CMYK 0%).
+        assert!(h.query_by_label("#1").is_some(), "point 1 is listed");
+        assert!(h.query_by_label("#2").is_some(), "point 2 is listed");
+        assert_eq!(h.query_all_by_label_contains("R:255 G:255 B:255").count(), 2, "each point shows its RGB");
+        assert_eq!(h.query_all_by_label_contains("C:0% M:0% Y:0% K:0%").count(), 2, "each point shows its CMYK");
+        // Clearing them takes the list away.
+        h.state_mut().run("view.colorSamplers.clear", json!({})).unwrap();
+        h.run_steps(2);
+        assert!(h.query_by_label("#1").is_none(), "no points listed once cleared");
     }
 }
 

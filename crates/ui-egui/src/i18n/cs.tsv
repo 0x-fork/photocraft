@@ -2573,3 +2573,8 @@ cameraData	Lens	Objektiv
 	Show Original	Zobrazit originál
 	F cycles the views; hold X to see the image	F přepíná zobrazení; podržením X uvidíte obraz
 	Show rulers	Zobrazit pravítka
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	Kliknutím umístíte · Alt-kliknutím nebo přetažením mimo plátno odeberete
+	No document open	Není otevřen žádný dokument
+	{n} of {max} sample points	{n} z {max} bodů měření

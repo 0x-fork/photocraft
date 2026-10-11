@@ -2969,3 +2969,8 @@ cameraData	Lens	Lensa
 	Show Original	Tampilkan Asli
 	F cycles the views; hold X to see the image	F berganti tampilan; tahan X untuk melihat gambar
 	Show rulers	Tampilkan Penggaris
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	Klik untuk menempatkan · Alt-klik atau seret ke luar kanvas untuk menghapus
+	No document open	Tidak ada dokumen yang terbuka
+	{n} of {max} sample points	{n} dari {max} titik sampel

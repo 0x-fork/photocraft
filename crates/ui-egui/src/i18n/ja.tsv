@@ -3579,3 +3579,8 @@ cameraData	Lens	レンズ
 	Show Original	元の状態を表示
 	F cycles the views; hold X to see the image	F で表示を切り替え、X を押している間は画像を表示
 	Show rulers	定規を表示
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	クリックで配置 · Alt キーを押しながらクリック、またはカンバス外へドラッグで削除
+	No document open	ドキュメントが開かれていません
+	{n} of {max} sample points	{max} 個中 {n} 個のサンプルポイント

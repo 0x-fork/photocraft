@@ -54,9 +54,9 @@ what an agent can't finish alone.
   scripted check there) is the only real oracle.
 
 ### G6. Missing tools
-- **Missing (5 of 68):** Color Sampler (#1046), Color Replacement (engine command exists), Art
+- **Missing (4 of 68):** Color Replacement (engine command exists), Art
   History Brush, Add Anchor Point, Delete Anchor Point. Convert Point landed (#3204). Freeform
-  Pen and Curvature Pen landed (#1054); Horizontal and Vertical Type Mask landed (#1055,
+  Pen and Curvature Pen landed (#1054); Color Sampler landed (#1046, `view.colorSamplers.*`); Horizontal and Vertical Type Mask landed (#1055,
   `type.createSelection`); Perspective Crop landed (#1043, `image.perspectiveCrop`); Frame landed
   (#2914).
 - **Evidence:** `Tool` enum (`crates/ui-egui/src/state.rs`) against the 67 `<tool>` entries of

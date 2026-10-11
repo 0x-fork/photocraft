@@ -3665,3 +3665,7 @@ cameraData	Lens	Φακός
 	Show Original	Εμφάνιση αρχικού
 	F cycles the views; hold X to see the image	Το F εναλλάσσει τις προβολές· κρατήστε το X για να δείτε την εικόνα
 	Show rulers	Εμφάνιση χαράκων
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	Κλικ για τοποθέτηση · Alt-κλικ ή σύρσιμο εκτός καμβά για αφαίρεση
+	{n} of {max} sample points	{n} από {max} σημεία δειγματοληψίας

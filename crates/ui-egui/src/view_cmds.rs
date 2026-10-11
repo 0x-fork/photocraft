@@ -397,17 +397,19 @@ pub fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
     })
 }
 
-/// Checkmarks of the Type menu's anti-aliasing, orientation and OpenType items.
+/// Checkmarks of the Type menu's anti-aliasing, orientation and OpenType items, for the layer the
+/// options bar and Properties show: the one being edited, else the active or a selected type layer.
+/// Anti-aliasing and orientation stay check items (`Some(false)`) without a type layer: a native
+/// menu can't change an item's kind in place.
 fn type_checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
-    use photocraft_doc::LayerContent;
-    let st = app.session.active()?;
-    let LayerContent::Text(t) = &st.doc.layer(st.active_layer?)?.content else { return None };
+    let t = crate::type_tool::target_text(app);
     if let Some(k) = id.strip_prefix("type.antiAlias.") {
-        return Some(photocraft_engine::type_extra_cmds::aa_name(t.antialias) == k);
+        return Some(t.is_some_and(|t| photocraft_engine::type_extra_cmds::aa_name(t.antialias) == k));
     }
     if let Some(k) = id.strip_prefix("type.orientation.") {
-        return Some((t.orientation == photocraft_doc::text::Orientation::Vertical) == (k == "vertical"));
+        return Some(t.is_some_and(|t| (t.orientation == photocraft_doc::text::Orientation::Vertical) == (k == "vertical")));
     }
+    let t = t?;
     let tag = match id.strip_prefix("type.openType.")? {
         "standardLigatures" => "liga",
         "contextualAlternates" => "calt",

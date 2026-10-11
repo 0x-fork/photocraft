@@ -3148,3 +3148,8 @@ cameraData	Lens	렌즈
 	Show Original	원본 표시
 	F cycles the views; hold X to see the image	F로 보기 전환, X를 누르고 있으면 이미지 표시
 	Show rulers	눈금자 표시
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	클릭하여 배치 · Alt-클릭 또는 캔버스 밖으로 드래그하여 제거
+	No document open	열린 문서 없음
+	{n} of {max} sample points	{max}개 중 {n}개의 샘플 지점
