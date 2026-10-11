@@ -34,7 +34,7 @@ const TOOL_SECTIONS: &[&[&[Tool]]] = &[
         &[Tool::Dodge, Tool::Burn, Tool::Sponge],
     ],
     &[
-        &[Tool::Pen],
+        &[Tool::Pen, Tool::AddAnchorPoint, Tool::DeleteAnchorPoint],
         &[Tool::Type, Tool::VerticalType],
         &[Tool::PathSelection, Tool::DirectSelection],
         &[Tool::Rectangle, Tool::EllipseShape, Tool::Triangle, Tool::Polygon, Tool::Line, Tool::CustomShape],
@@ -826,6 +826,9 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             ui.painter().line_segment([r.left_bottom(), r.right_bottom()], Stroke::new(1.0, t.separator));
             ui.style_mut().spacing.scroll = egui::style::ScrollStyle { bar_width: 4.0, ..egui::style::ScrollStyle::floating() };
             egui::ScrollArea::horizontal().id_salt("tool-options").auto_shrink([false, false]).show(ui, |ui| {
+            // Font ink can extend beyond its advance width at fractional positions.
+            // Include its gutter in the container layout, including right-aligned actions.
+            egui::Frame::NONE.inner_margin(egui::Margin { right: 2, ..Default::default() }).show(ui, |ui| {
             ui.horizontal_centered(|ui| {
                 if t.pro {
                     crate::chrome_ui::home_button(app, ui);
@@ -1148,14 +1151,17 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         crate::gradient_ui::options_changed(app, &before);
                     }
                     Tool::Crop if t.pro => {
+                        let before_ratio = crate::crop_ui::preset_ratio(app);
+                        let doc_size = app.session.active().map_or((0.0, 0.0), |s| (f64::from(s.doc.size.width), f64::from(s.doc.size.height)));
                         // Ratios, sizes, saved presets, New / Delete Crop Preset… (#2443, #1919).
                         crate::crop_presets::dropdown(app, ui);
                         let o = &mut app.ui.tool_options;
                         if o.crop_ratio == crate::crop_size::WHR {
                             crate::crop_size::fields(o, ui);
                         } else {
-                            // Keep partial edits in ToolOptions so the first side survives a frame.
-                            let (mut rw, mut rh) = crate::crop_size::custom_ratio_fields(o);
+                            // Keep partial edits in ToolOptions so the first side survives a frame;
+                            // Original Ratio shows the document's numbers, as Photoshop does.
+                            let (mut rw, mut rh) = crate::crop_size::custom_ratio_fields(o, doc_size);
                             let cw = widgets::value_field(ui, &mut rw, 0.0..=99_999.0, "", 54.0).changed();
                             let swap = icons::button(ui, "arrow-left-right", 22.0, false, tl!("Swaps height and width")).clicked();
                             let ch = widgets::value_field(ui, &mut rh, 0.0..=99_999.0, "", 54.0).changed();
@@ -1178,6 +1184,9 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         crate::crop_overlay::options_button(o, ui);
                         let pick_shield_color = crate::crop_shield::options_button(&mut o.crop_shield, ui);
                         widgets::checkbox(ui, &mut o.crop_delete, tl!("Delete Cropped Pixels"));
+                        if crate::crop_ui::preset_ratio(app) != before_ratio {
+                            crate::crop_ui::apply_ratio(app);
+                        }
                         if pick_shield_color {
                             crate::crop_shield::pick_custom_color(app);
                         }
@@ -1362,9 +1371,8 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 }
                 crate::brush_panel::commit_gesture(app, ui.ctx(), &brush_before, &brush);
             });
-            // Font ink can extend beyond its advance width at fractional positions.
-            ui.expand_to_include_x(ui.min_rect().right() + 2.0);
             reveal_focused_control(ui);
+            });
             });
         });
 }
@@ -4900,6 +4908,62 @@ mod compact_visual_regressions {
                 let current = if pro { harness.state().ui.tool_options.pencil_auto_erase } else { harness.state().session.tools.brush.pressure_opacity };
                 assert_ne!(current, previous, "{kind:?} at {scale}x: Space must activate the revealed option");
                 assert!(harness.state().ui.panels.options_bar, "widget traversal must preserve the options bar");
+            }
+        }
+    }
+
+    #[test]
+    fn a_wide_crop_options_bar_does_not_scroll() {
+        for kind in crate::theme::ThemeKind::ALL {
+            for scale in [1.0, 1.5, 2.0] {
+                for mode in ["", crate::crop_size::WHR] {
+                    let ctx = egui::Context::default();
+                    crate::theme::install_fonts(&ctx);
+                    crate::theme::apply(&ctx, kind);
+                    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+                    if !Tokens::get(&ctx).pro {
+                        continue;
+                    }
+                    app.ui.tool = Tool::Crop;
+                    app.ui.tool_options.crop_ratio = mode.into();
+                    let screen = Rect::from_min_size(egui::Pos2::ZERO, vec2(1600.0, 120.0));
+                    let clear_x = |output: &egui::FullOutput| {
+                        output
+                            .shapes
+                            .iter()
+                            .find_map(|s| match &s.shape {
+                                egui::Shape::Text(t) if t.galley.job.text == "Clear" => Some(t.pos.x),
+                                _ => None,
+                            })
+                            .unwrap()
+                    };
+                    let mut before = ctx.run_ui(input_at_scale(screen, scale), |ui| options_bar(&mut app, ui));
+                    before.textures_delta.clear();
+                    for _ in 0..3 {
+                        before = ctx.run_ui(input_at_scale(screen, scale), |ui| options_bar(&mut app, ui));
+                        before.textures_delta.clear();
+                    }
+                    let mut after = before.clone();
+                    for _ in 0..6 {
+                        after = ctx.run_ui(
+                            egui::RawInput {
+                                events: vec![
+                                    egui::Event::PointerMoved(pos2(800.0, 20.0)),
+                                    egui::Event::MouseWheel {
+                                        unit: egui::MouseWheelUnit::Point,
+                                        delta: vec2(-100.0, 0.0),
+                                        modifiers: egui::Modifiers::NONE,
+                                        phase: egui::TouchPhase::Move,
+                                    },
+                                ],
+                                ..input_at_scale(screen, scale)
+                            },
+                            |ui| options_bar(&mut app, ui),
+                        );
+                        after.textures_delta.clear();
+                    }
+                    assert_eq!(clear_x(&before), clear_x(&after), "a roomy bar must not have horizontal overflow");
+                }
             }
         }
     }

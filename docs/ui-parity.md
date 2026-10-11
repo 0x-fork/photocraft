@@ -1,6 +1,6 @@
 # UI parity: tools, handles, modifiers and feel
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-10 · **Change:** major (first version: tools, transform, nudging, snapping, modifiers, navigation, shortcuts, panels audited from source and open issues) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-10 · **Change:** minor (Crop resize stability, immediate ratio previews, and options-bar overflow regression coverage) · **Target:** Adobe Photoshop 2026
 
 How PhotoCraft's direct manipulation compares with Photoshop 2026 (27.11.0): the toolbox, the
 handles and modifier keys of each gesture, nudging, snapping, numeric precision, navigation,
@@ -129,6 +129,9 @@ Triangle and Curvature Pen (minus legacy Rounded Rectangle and Targeted Adjustme
 |---|---|---|
 | Drag outside rotates (⇧ 15°), angle readout; ↵ rotates and crops in one undo step | done | TOOL-214-18 |
 | Straighten button and ⌘-drag line | done | TOOL-214-21 |
+| Default-mode resize snaps handles without camera feedback; image and frame use the same camera in each rendered frame | done | `crop_mode.rs::a_live_resize_snaps_the_handle_without_feedback_from_the_camera`, `tests/crop_default_mode.rs::a_resize_renders_the_frame_and_image_with_the_same_camera` (2026-10-10) |
+| Ratio presets and W × H changes immediately fit the current frame around its centre; Swap button and X share the fitted ratio, Enter needs no resize | done | `crop_ui.rs::choosing_a_ratio_fits_and_commits_without_a_resize`, `crop_size.rs::choosing_a_size_with_the_canvas_ratio_commits_without_a_resize`, `tests/crop_default_mode.rs` (2026-10-10) |
+| Roomy Crop options bar does not scroll; narrow tool bars retain horizontal scrolling | done | `panels.rs::a_wide_crop_options_bar_does_not_scroll`, `panels.rs::narrow_tool_options_can_scroll_to_the_last_control` (2026-10-10) |
 | Overlays (thirds, grid, diagonal, triangle, golden ratio/spiral), O / ⇧O | done | TOOL-214-20 |
 | Crop shield, Show Cropped Area (H) | done | TOOL-214-22 |
 | Default mode: the image turns and moves behind an upright box; Auto Center Preview; Use Classic Mode | done | TOOL-214-23 |
@@ -204,3 +207,4 @@ Paragraph; the rest open as in-app floating windows.
 | Date | Change | Summary |
 |---|---|---|
 | 2026-10-10 | major | First version, from a source audit against Photoshop 2026 27.11.0's shortcuts file and the open issues |
+| 2026-10-10 | minor | Fixed Crop live resize snapping feedback and outdated-camera rendering, applied ratios immediately to centred inscribed previews, and removed two-point options-bar overflow; added pointer, rendering, dropdown/Enter, Swap/X and scrolling regressions |
