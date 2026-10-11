@@ -55,11 +55,15 @@ const SAVE_FILTERS: &[(&str, &[&str])] = &[
     ("PhotoCraft", &["pcraft"]),
     ("OpenRaster", &["ora"]),
     ("PNG", &["png"]),
-    ("JPEG", &["jpg"]),
+    ("JPEG", &["jpg", "jpeg"]),
     ("WebP", &["webp"]),
-    ("TIFF", &["tif"]),
+    ("TIFF", &["tif", "tiff"]),
     ("Targa", &["tga"]),
     ("OpenEXR", &["exr"]),
+    ("GIF", &["gif"]),
+    ("BMP", &["bmp", "dib"]),
+    ("Netpbm", &["pbm", "pgm", "ppm", "pnm", "pam", "pfm"]),
+    ("Radiance HDR", &["hdr"]),
 ];
 
 /// Non-document files the shell saves (Swatches panel exports): offered alone, so the dialog
@@ -637,6 +641,12 @@ mod tests {
             assert!(save_filters(name)[0].1.iter().any(|e| e == ext), "{name}: {:?}", save_filters(name)[0]);
         }
         assert_eq!(save_filters("Untitled")[0].0, "PSD Document", "no extension keeps the default");
+        let untitled = save_filters("Untitled");
+        let untitled_filters: Vec<&str> = untitled.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(untitled_filters.contains(&"GIF"));
+        assert!(untitled_filters.contains(&"BMP"));
+        assert!(untitled_filters.contains(&"Netpbm"));
+        assert!(untitled_filters.contains(&"Radiance HDR"));
     }
 
     #[test]
