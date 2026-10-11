@@ -43,7 +43,7 @@ pub struct ProofSetup {
 impl Default for ProofSetup {
     fn default() -> Self {
         ProofSetup {
-            name: Builtin::CoatedCmyk.id().into(),
+            name: "working-cmyk".into(),
             profile: Arc::new(Builtin::CoatedCmyk.profile().clone()),
             intent: Intent::RelativeColorimetric,
             bpc: true,

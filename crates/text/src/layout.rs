@@ -234,9 +234,10 @@ impl TextLayout {
         self.hit_test_line(x, y)
     }
 
-    /// Byte offset of the caret nearest to a line-space point.
-    pub fn hit_test_line(&self, x: f32, y: f32) -> usize {
-        let Some((li, line)) = self.lines.iter().enumerate().min_by(|a, b| {
+    /// The visual line nearest to a line-space ordinate, including its ascent and descent.
+    /// Pointer hit testing uses this even where adjacent lines share a caret byte offset.
+    fn closest_line(&self, y: f32) -> Option<(usize, &LineInfo)> {
+        self.lines.iter().enumerate().min_by(|a, b| {
             let d = |l: &LineInfo| {
                 if y < l.baseline - l.ascent {
                     l.baseline - l.ascent - y
@@ -247,7 +248,12 @@ impl TextLayout {
                 }
             };
             d(a.1).total_cmp(&d(b.1))
-        }) else {
+        })
+    }
+
+    /// Byte offset of the caret nearest to a line-space point.
+    pub fn hit_test_line(&self, x: f32, y: f32) -> usize {
+        let Some((li, line)) = self.closest_line(y) else {
             return 0;
         };
         let mut best = (f32::MAX, line.range.end);
@@ -311,15 +317,20 @@ pub fn char_index(text: &str, byte: usize) -> usize {
     text[..byte].chars().count()
 }
 
-/// Line containing a byte offset (the last line when the offset sits past every line).
+/// Line containing a byte offset. At a shared wrap boundary the caret belongs to
+/// the following line, while an offset at the end of the text stays on the last.
 pub fn line_index(layout: &TextLayout, byte: usize) -> usize {
-    layout.lines.iter().position(|ln| byte >= ln.range.start && byte <= ln.range.end).unwrap_or_else(|| layout.lines.len().saturating_sub(1))
+    layout.lines.iter().rposition(|ln| byte >= ln.range.start && byte <= ln.range.end).unwrap_or_else(|| layout.lines.len().saturating_sub(1))
 }
 
 /// Nearest caret to a text-space point: character index and the line it sits on.
 pub fn hit_char(layout: &TextLayout, text: &str, x: f32, y: f32) -> (usize, usize) {
     let byte = layout.hit_test(x, y);
-    (char_index(text, byte), line_index(layout, byte))
+    // At a soft-wrap boundary either visual line can share this byte offset. The
+    // pointer's line, not the caret's preferred (following) line, is authoritative.
+    let (_, line_y) = layout.to_line(x, y);
+    let line = layout.closest_line(line_y).map_or_else(|| line_index(layout, byte), |(index, _)| index);
+    (char_index(text, byte), line)
 }
 
 /// Text-space point inside the laid-out line boxes, expanded by `slop` px on every side.
@@ -377,7 +388,7 @@ pub fn line_edge(layout: &TextLayout, text: &str, idx: usize, end: bool) -> usiz
     let n = text.chars().count();
     let idx = idx.min(n);
     let byte = byte_index(text, idx);
-    let line = layout.lines.iter().find(|ln| byte >= ln.range.start && byte <= ln.range.end).or(layout.lines.last());
+    let line = layout.lines.get(line_index(layout, byte));
     line.map_or(idx, |ln| char_index(text, if end { ln.range.end } else { ln.range.start }))
 }
 
@@ -1202,6 +1213,18 @@ fn feature_list(st: &CharStyle, small_caps: SmallCapsMode) -> Vec<String> {
     feats
 }
 
+/// The font variations for a run: the explicit axis values, plus `opsz` at the type size when the
+/// style doesn't set it (as CSS `font-optical-sizing: auto`). A font without an `opsz` axis
+/// ignores it.
+fn variation_list(st: &CharStyle) -> Vec<String> {
+    let mut vars: Vec<String> =
+        st.variations.iter().filter(|v| v.axis.len() == 4 && v.axis.is_ascii() && v.value.is_finite()).map(|v| format!("\"{}\" {}", v.axis, v.value)).collect();
+    if st.size_pt.is_finite() && !st.variations.iter().any(|v| v.axis == "opsz") {
+        vars.push(format!("\"opsz\" {}", st.size_pt.max(0.01)));
+    }
+    vars
+}
+
 fn style_props(st: &CharStyle, k: f32, fallback: &[String], idx: u32, small_caps: SmallCapsMode) -> Vec<StyleProperty<'static, RunBrush>> {
     let px = (st.size_pt * k).max(0.01);
     let mut fam: Vec<String> = Vec::new();
@@ -1216,7 +1239,7 @@ fn style_props(st: &CharStyle, k: f32, fallback: &[String], idx: u32, small_caps
     }
     fam.push("sans-serif".into());
     let feats = feature_list(st, small_caps);
-    let vars: Vec<String> = st.variations.iter().filter(|v| v.axis.len() == 4 && v.axis.is_ascii()).map(|v| format!("\"{}\" {}", v.axis, v.value)).collect();
+    let vars = variation_list(st);
     vec![
         StyleProperty::FontFamily(FontFamily::Source(Cow::Owned(fam.join(", ")))),
         StyleProperty::FontSize(px),
@@ -1320,8 +1343,17 @@ fn first_ascent(line: &parley::Line<'_, RunBrush>) -> Option<f32> {
 
 #[cfg(test)]
 mod tests {
-    use super::{SmallCapsMode, feature_list, small_caps_mode};
-    use photocraft_doc::text::{Caps, CharStyle};
+    use super::{SmallCapsMode, feature_list, small_caps_mode, variation_list};
+    use photocraft_doc::text::{Caps, CharStyle, FontVariation};
+
+    /// A variable font's optical size follows the type size unless the style sets `opsz` (#2985).
+    #[test]
+    fn optical_size_follows_the_type_size_unless_set() {
+        let style = CharStyle { size_pt: 36.0, variations: vec![FontVariation { axis: "wght".into(), value: 650.0 }], ..Default::default() };
+        assert_eq!(variation_list(&style), ["\"wght\" 650", "\"opsz\" 36"]);
+        let set = CharStyle { size_pt: 36.0, variations: vec![FontVariation { axis: "opsz".into(), value: 12.0 }], ..Default::default() };
+        assert_eq!(variation_list(&set), ["\"opsz\" 12"]);
+    }
 
     #[test]
     fn uses_real_small_caps_only_when_the_selected_face_supports_smcp() {
