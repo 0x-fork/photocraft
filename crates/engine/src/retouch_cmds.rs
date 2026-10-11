@@ -501,14 +501,15 @@ fn healing_brush(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 /// The History Brush's source: the targeted surface (pixels, mask, channel) as it was in history
-/// state `state` (default: the oldest state still held, the "Open" snapshot unless trimmed).
+/// state `state` (default: the source set in the History panel, `history.setSource`, else the
+/// oldest state still held, the "Open" snapshot unless trimmed).
 fn history_source(s: &Session, id: Option<LayerId>, p: &Value, cmd: &str) -> Result<Surface> {
     let st = s.active().ok_or(EngineError::NoDocument)?;
     let explicit = p.get("state").and_then(Value::as_u64).map(|v| v as usize);
     let source_doc = match explicit {
         Some(i) if i == st.history.past_len() => st.doc.clone(),
         Some(i) => st.history.state(i).ok_or_else(|| bad(cmd, format!("no history state {i} (0..={})", st.history.past_len())))?,
-        None => st.history.state(0).unwrap_or_else(|| st.doc.clone()),
+        None => crate::history_source_cmds::source_doc(st)?,
     };
     let mut source_doc = (*source_doc).clone();
     crate::channel_cmds::target_surface(&mut source_doc, id, p)
@@ -1242,7 +1243,9 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "History Brush",
             menu: &[],
             shortcut: None,
-            params: brush_params!(r#","state":index (into history.entries; default 0 = the oldest held state, normally the Open snapshot)"#),
+            params: brush_params!(
+                r#","state":index (into history.entries; default the History panel's source, history.setSource, else 0 = the oldest held state)"#
+            ),
             enabled: has_pixel_layer,
             run: history_brush,
             journal: true,

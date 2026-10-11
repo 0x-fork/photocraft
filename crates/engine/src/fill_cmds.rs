@@ -121,8 +121,8 @@ pub fn fill(s: &mut Session, p: &Value) -> Result<Value> {
             let source_doc = match explicit {
                 Some(i) if i == past => st.doc.clone(),
                 Some(i) => st.history.state(i).ok_or_else(|| bad(format!("no history state {i} (0..={past})")))?,
-                // The History Brush's default source: the oldest state still held.
-                None => st.history.state(0).unwrap_or_else(|| st.doc.clone()),
+                // The History Brush's source (History panel), by default the oldest state held.
+                None => crate::history_source_cmds::source_doc(st)?,
             };
             let mut source_doc = (*source_doc).clone();
             let (src, _) = crate::channel_cmds::target_surface(&mut source_doc, id, p)

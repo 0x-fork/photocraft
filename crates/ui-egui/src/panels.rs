@@ -2799,6 +2799,7 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let entries = st.history.entries();
     let current = entries.len() - 1;
     let redo: Vec<String> = st.history.redo_labels().map(str::to_string).collect();
+    let source = st.history.brush_source();
     // Snapshot row (Photoshop shows the document's opening state with a thumbnail).
     {
         let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::hover());
@@ -2814,6 +2815,7 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui.painter().line_segment([rect.left_bottom(), rect.right_bottom()], Stroke::new(1.0, t.separator));
     }
     let mut target: Option<isize> = None;
+    let mut set_source: Option<usize> = None;
     let all = entries.iter().map(|e| (e.clone(), false)).chain(redo.iter().map(|e| (e.clone(), true)));
     // The dock gives History a fixed height: the rows scroll above the footer.
     let footer = if t.pro { widgets::footer_height(ui) + ui.spacing().item_spacing.y } else { 0.0 };
@@ -2843,11 +2845,20 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 if is_redo { t.text_faint } else { t.icon },
             );
             ui.painter().text(pos2(rect.left() + 58.0, rect.center().y), Align2::LEFT_CENTER, &e, egui::FontId::proportional(12.0), color);
+            if history_source_column(ui, rect, i, source == Some(i)) {
+                set_source = Some(i);
+            }
             if resp.clicked() {
                 target = Some(i as isize - current as isize);
             }
         }
     });
+    if let Some(i) = set_source
+        && let Err(e) = app.run("history.setSource", json!({"state": i}))
+    {
+        app.ui.status = e;
+        app.ui.status_error = true;
+    }
     let mut footer_cmd: Option<&str> = None;
     if t.pro {
         let can_delete = app.session.is_enabled("history.deleteState");
@@ -2879,6 +2890,21 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             }
         }
     }
+}
+
+/// The History panel's source column at the left of a state row: the History Brush icon on the
+/// source state; a click makes the row the source (`history.setSource`). It sits above the row, so
+/// the click doesn't also step to the state.
+fn history_source_column(ui: &mut egui::Ui, row: Rect, i: usize, is_source: bool) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let cell = Rect::from_min_size(row.min, vec2(24.0, row.height()));
+    let resp = ui.interact(cell, ui.id().with(("history-source", i)), Sense::click()).on_hover_text(tl!("Sets the source for the history brush"));
+    if is_source {
+        icons::paint(ui, cell.shrink(4.0), icons::tool_icon(Tool::HistoryBrush), 12.0, t.icon);
+    } else if resp.hovered() {
+        icons::paint(ui, cell.shrink(4.0), icons::tool_icon(Tool::HistoryBrush), 12.0, t.text_faint);
+    }
+    resp.clicked()
 }
 
 // ----------------------------------------------------------------------------- properties
@@ -4081,6 +4107,30 @@ mod history_transform_tests {
         let st = h.state().session.active().unwrap();
         assert_eq!(st.history.entries().len(), steps - 1, "trash deletes the current state");
         assert!(!st.history.can_redo(), "and it can't be redone");
+    }
+
+    /// The source column at the left of each state (#2966): a click makes that state the History
+    /// Brush's source through `history.setSource`, without stepping to it.
+    #[test]
+    fn history_source_column_sets_the_history_brush_source() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 200, "height": 150})).unwrap();
+        app.run("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        app.run("edit.fill", json!({"color": "#00ff00"})).unwrap();
+        let mut h = Harness::builder().with_size(vec2(300.0, 400.0)).build_ui_state(|ui, app: &mut PhotocraftApp| history(app, ui), app);
+        h.run_steps(2);
+        // The column cells are the only 24 pt squares, one per state, top to bottom.
+        let mut cells: Vec<Rect> = h
+            .ctx
+            .viewport(|v| v.prev_pass.widgets.layers().flat_map(|(_, w)| w.iter()).filter(|w| w.rect.size() == vec2(24.0, 24.0)).map(|w| w.rect).collect());
+        cells.sort_by(|a, b| a.center().y.total_cmp(&b.center().y));
+        cells.dedup();
+        assert_eq!(cells.len(), 3, "Open, Fill, Fill: {cells:?}");
+        assert_eq!(h.state().session.active().unwrap().history.brush_source(), Some(0), "the default source");
+        click(&mut h, cells[1].center());
+        let st = h.state().session.active().unwrap();
+        assert_eq!(st.history.brush_source(), Some(1), "the clicked state is the source");
+        assert_eq!((st.history.entries().len(), st.history.can_redo()), (3, false), "and the document did not step back");
     }
 }
 
