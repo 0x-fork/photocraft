@@ -2182,6 +2182,7 @@
 	Cache tile size	Розмір плитки кешу
 	Camera Raw Defaults	Типові параметри Camera Raw
 	Canvas border	Межа полотна
+	Show canvas dots	Показувати крапки полотна
 	Canvas color	Колір полотна
 	Canvas custom color	Довільний колір полотна
 	Classic	Класична
@@ -2351,6 +2352,7 @@
 	Cancelled {label}	Скасовано: {label}
 	Esc to cancel	Esc для скасування
 	Opening {name}	Відкриття {name}
+	Saved {name}	Збережено: {name}
 	Saving {name}	Збереження {name}
 	A save to {name} is still running; try again when it finishes	Збереження в {name} ще триває; спробуйте ще раз, коли воно завершиться
 	{label} is writing the file and can no longer be cancelled	{label}: триває запис файлу, скасувати вже не можна
@@ -3537,6 +3539,31 @@ cameraRaw	Masking	Маскування
 	Quick Selection found nothing there	Швидке виділення нічого тут не знайшло
 	Object Selection found nothing there — try a tighter rectangle	Виділення об'єктів нічого тут не знайшло — спробуйте вужчий прямокутник
 	No subject found — try a rectangle around the object	Об'єкт не знайдено — спробуйте прямокутник навколо об'єкта
+	Appearance Settings…	Налаштування вигляду…
+	Add to favorites	Додати до вибраного
+	Remove from favorites	Видалити з вибраного
+# File Info ▸ Camera Data (read-only EXIF fields; "Make" is the camera maker, not the verb).
+cameraData	Make	Виробник
+cameraData	Model	Модель
+cameraData	Date Taken	Дата зйомки
+cameraData	Exposure	Витримка
+cameraData	F-Stop	Діафрагма
+cameraData	ISO Speed	Світлочутливість ISO
+cameraData	Focal Length	Фокусна відстань
+cameraData	Focal Length (35 mm)	Фокусна відстань (35 мм)
+cameraData	Lens	Об'єктив
+# Shared panel docking
+	Activate Panel	Активувати панель
+	Change Panel Group	Змінити групу панелей
+	Change Panel Layout	Змінити розташування панелей
+	Close Panel	Закрити панель
+	Dock Panel	Закріпити панель
+	Float Panel	Зробити панель плаваючою
+	Move Panel	Перемістити панель
+	Group with	Згрупувати з
+	Panel menu	Меню панелі
+	Resize panel window	Змінити розмір вікна панелі
+	Resize panels	Змінити розмір панелей
 	Use Classic Mode	Використовувати класичний режим
 	Auto Center Preview	Автоматично центрувати перегляд
 	Next Document	Наступний документ

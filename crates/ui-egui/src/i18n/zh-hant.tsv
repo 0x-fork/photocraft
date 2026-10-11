@@ -1800,6 +1800,7 @@
 	Cache tile size	快取拼貼大小
 	Camera Raw Defaults	Camera Raw 預設值
 	Canvas border	畫布邊框
+	Show canvas dots	顯示畫布圓點
 	Canvas color	畫布顏色
 	Canvas custom color	畫布自訂顏色
 	Color picker	檢色器
@@ -2093,6 +2094,7 @@
 	Cancelled {label}	已取消 {label}
 	Esc to cancel	按 Esc 取消
 	Opening {name}	正在開啟 {name}
+	Saved {name}	已儲存 {name}
 	Saving {name}	正在儲存 {name}
 	A save to {name} is still running; try again when it finishes	仍在儲存到 {name}；請在完成後再試一次
 	{label} is writing the file and can no longer be cancelled	{label} 正在寫入檔案，已無法取消
@@ -2410,6 +2412,32 @@ fontWeight	Italic	斜體
 	Quick Selection found nothing there	快速選取在該處找不到任何內容
 	Object Selection found nothing there — try a tighter rectangle	物件選取在該處找不到任何內容 — 請嘗試更緊密的矩形
 	No subject found — try a rectangle around the object	找不到主體 — 請嘗試在物件周圍繪製矩形
+	Appearance Settings…	外觀設定…
+	Add to favorites	加入最愛
+	Remove from favorites	從最愛移除
+# File Info ▸ Camera Data (read-only EXIF fields; "Make" is the camera maker, not the verb).
+	Camera Data	相機資料
+cameraData	Make	製造商
+cameraData	Model	型號
+cameraData	Date Taken	拍攝日期
+cameraData	Exposure	曝光時間
+cameraData	F-Stop	光圈值
+cameraData	ISO Speed	ISO 感光度
+cameraData	Focal Length	焦距
+cameraData	Focal Length (35 mm)	焦距（35 公釐等效）
+cameraData	Lens	鏡頭
+# Shared panel docking
+	Activate Panel	啟用面板
+	Change Panel Group	變更面板群組
+	Change Panel Layout	變更面板配置
+	Close Panel	關閉面板
+	Dock Panel	停駐面板
+	Float Panel	浮動面板
+	Move Panel	移動面板
+	Group with	與此面板分組
+	Panel menu	面板選單
+	Resize panel window	調整面板視窗大小
+	Resize panels	調整面板大小
 	Use Classic Mode	使用傳統模式
 	Auto Center Preview	自動置中預視
 	Next Document	下一個文件

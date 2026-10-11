@@ -1785,6 +1785,7 @@
 	Cache tile size	Cache-Kachelgröße
 	Camera Raw Defaults	Camera-Raw-Standardeinstellungen
 	Canvas border	Zeichenflächenrand
+	Show canvas dots	Punkte der Zeichenfläche anzeigen
 	Canvas color	Zeichenflächenfarbe
 	Canvas custom color	Benutzerdefinierte Zeichenflächenfarbe
 	Color picker	Farbwähler
@@ -2079,6 +2080,7 @@
 	Cancelled {label}	{label} abgebrochen
 	Esc to cancel	Esc zum Abbrechen
 	Opening {name}	Öffne {name}
+	Saved {name}	Gespeichert: {name}
 	Saving {name}	Speichere {name}
 	A save to {name} is still running; try again when it finishes	{name} wird noch gespeichert; versuchen Sie es erneut, wenn der Vorgang abgeschlossen ist
 	{label} is writing the file and can no longer be cancelled	{label} schreibt die Datei und kann nicht mehr abgebrochen werden
@@ -2471,6 +2473,32 @@ fontWeight	Italic	Kursiv
 	Quick Selection found nothing there	Die Schnellauswahl hat dort nichts gefunden
 	Object Selection found nothing there — try a tighter rectangle	Die Objektauswahl hat dort nichts gefunden — versuchen Sie ein engeres Rechteck
 	No subject found — try a rectangle around the object	Kein Motiv gefunden — versuchen Sie ein Rechteck um das Objekt
+	Appearance Settings…	Erscheinungsbild-Einstellungen…
+	Add to favorites	Zu Favoriten hinzufügen
+	Remove from favorites	Aus Favoriten entfernen
+# File Info ▸ Camera Data (read-only EXIF fields; "Make" is the camera maker, not the verb).
+	Camera Data	Kameradaten
+cameraData	Make	Hersteller
+cameraData	Model	Modell
+cameraData	Date Taken	Aufnahmedatum
+cameraData	Exposure	Belichtungszeit
+cameraData	F-Stop	Blende
+cameraData	ISO Speed	ISO-Empfindlichkeit
+cameraData	Focal Length	Brennweite
+cameraData	Focal Length (35 mm)	Brennweite (35 mm)
+cameraData	Lens	Objektiv
+# Shared panel docking
+	Activate Panel	Bedienfeld aktivieren
+	Change Panel Group	Bedienfeldgruppe ändern
+	Change Panel Layout	Bedienfeldlayout ändern
+	Close Panel	Bedienfeld schließen
+	Dock Panel	Bedienfeld andocken
+	Float Panel	Schwebendes Bedienfeld
+	Move Panel	Bedienfeld verschieben
+	Group with	Gruppieren mit
+	Panel menu	Bedienfeldmenü
+	Resize panel window	Bedienfeldfenstergröße ändern
+	Resize panels	Bedienfeldgröße ändern
 	Use Classic Mode	Classic-Modus verwenden
 	Auto Center Preview	Automatische zentrierte Vorschau
 	Next Document	Nächstes Dokument

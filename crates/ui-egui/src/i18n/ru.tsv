@@ -2205,6 +2205,7 @@
 	Cache tile size	Размер блока кэша
 	Camera Raw Defaults	Значения Camera Raw по умолчанию
 	Canvas border	Рамка холста
+	Show canvas dots	Показывать точки холста
 	Canvas color	Цвет холста
 	Canvas custom color	Свой цвет холста
 	Classic	Классическая
@@ -2376,6 +2377,7 @@
 	Cancelled {label}	{label}: отменено
 	Esc to cancel	Esc — отмена
 	Opening {name}	Открытие {name}
+	Saved {name}	Сохранено: {name}
 	Saving {name}	Сохранение {name}
 	A save to {name} is still running; try again when it finishes	Сохранение в {name} ещё выполняется; повторите попытку после его завершения
 	{label} is writing the file and can no longer be cancelled	{label}: идёт запись файла, отменить уже нельзя
@@ -2715,6 +2717,31 @@ fontWeight	Italic	Курсив
 	Missing delete command	Отсутствует команда удаления
 	Invalid delete command	Недопустимая команда удаления
 	Layer deleted, but confirmation preference could not be saved: {error}	Слой удалён, но не удалось сохранить настройку подтверждения: {error}
+	Appearance Settings…	Настройки оформления…
+	Add to favorites	Добавить в избранное
+	Remove from favorites	Удалить из избранного
+# File Info ▸ Camera Data (read-only EXIF fields; "Make" is the camera maker, not the verb).
+cameraData	Make	Производитель
+cameraData	Model	Модель
+cameraData	Date Taken	Дата съёмки
+cameraData	Exposure	Выдержка
+cameraData	F-Stop	Диафрагма
+cameraData	ISO Speed	Светочувствительность ISO
+cameraData	Focal Length	Фокусное расстояние
+cameraData	Focal Length (35 mm)	Фокусное расстояние (35 мм)
+cameraData	Lens	Объектив
+# Shared panel docking
+	Activate Panel	Активировать панель
+	Change Panel Group	Изменить группу панелей
+	Change Panel Layout	Изменить расположение панелей
+	Close Panel	Закрыть панель
+	Dock Panel	Закрепить панель
+	Float Panel	Сделать панель плавающей
+	Move Panel	Переместить панель
+	Group with	Сгруппировать с
+	Panel menu	Меню панели
+	Resize panel window	Изменить размер окна панели
+	Resize panels	Изменить размер панелей
 	Use Classic Mode	Использовать классический режим
 	Auto Center Preview	Автоматически центрировать просмотр
 	Next Document	Следующий документ

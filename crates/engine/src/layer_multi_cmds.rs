@@ -100,6 +100,19 @@ pub(crate) fn reselect(s: &mut Session, ids: Vec<LayerId>, active: Option<LayerI
     }
 }
 
+/// Layer rows follow the Layers panel's visual order, not Document::walk's storage order.
+/// Closed groups hide their children unless both endpoints were selected programmatically.
+fn range_order(layers: &[Layer], include_collapsed: bool, out: &mut Vec<LayerId>) {
+    for layer in layers.iter().rev() {
+        out.push(layer.id);
+        if let LayerContent::Group(group) = &layer.content
+            && (group.expanded || include_collapsed)
+        {
+            range_order(&group.children, include_collapsed, out);
+        }
+    }
+}
+
 /// `layer.select`: `{"layer": id, "mode": "replace|toggle|range|add"}`.
 pub fn select(s: &mut Session, p: &Value) -> Result<Value> {
     let id = LayerId(p.get("layer").and_then(Value::as_u64).ok_or_else(|| bad("layer.select", "missing `layer`"))?);
@@ -133,7 +146,14 @@ pub fn select(s: &mut Session, p: &Value) -> Result<Value> {
         }
         "range" => {
             let anchor = st.layer_anchor.filter(|a| st.doc.layer(*a).is_some()).or(st.active_layer).unwrap_or(id);
-            let order: Vec<LayerId> = st.doc.walk().into_iter().map(|(_, _, l)| l.id).collect();
+            let mut order = Vec::new();
+            range_order(&st.doc.layers, false, &mut order);
+            // Engine clients may target a child of a collapsed group that the panel cannot
+            // click. Retain that capability by using expanded visual order for such calls.
+            if !order.contains(&anchor) || !order.contains(&id) {
+                order.clear();
+                range_order(&st.doc.layers, true, &mut order);
+            }
             let (a, b) = (order.iter().position(|x| *x == anchor).unwrap_or(0), order.iter().position(|x| *x == id).unwrap_or(0));
             let range = order[a.min(b)..=a.max(b)].to_vec();
             set_selection(s, range, Some(id), Some(anchor))?;

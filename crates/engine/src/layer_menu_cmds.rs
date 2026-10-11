@@ -148,9 +148,10 @@ fn apply_mask(s: &mut Session, p: &Value) -> Result<Value> {
 fn mask_from_transparency(s: &mut Session, p: &Value) -> Result<Value> {
     let id = layer_param(s, p)?;
     s.edit("From Transparency", |doc, _| {
-        let bounds = doc.bounds();
         let surf = crate::commands::paint_surface(doc, id, &Value::Null)?;
-        let r = surf.content_bounds().intersect(&bounds);
+        // Masks are attached to layer coordinates, including pixels temporarily off-canvas.
+        // Clipping to document bounds loses their alpha permanently when moved back (#3043).
+        let r = surf.content_bounds();
         let mut mask = LayerMask::hide_all();
         if !r.is_empty() {
             let mut px = read_rgba(surf, r);

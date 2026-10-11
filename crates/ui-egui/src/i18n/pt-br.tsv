@@ -1768,6 +1768,7 @@
 	Cache tile size	Tamanho do bloco do cache
 	Camera Raw Defaults	Padrões do Camera Raw
 	Canvas border	Borda da tela de pintura
+	Show canvas dots	Mostrar pontos da tela de pintura
 	Canvas color	Cor da tela de pintura
 	Canvas custom color	Cor personalizada da tela de pintura
 	Color picker	Seletor de cores
@@ -2058,6 +2059,7 @@
 	Cancelled {label}	{label} cancelado
 	Esc to cancel	Esc para cancelar
 	Opening {name}	Abrindo {name}
+	Saved {name}	Salvo: {name}
 	Saving {name}	Salvando {name}
 	A save to {name} is still running; try again when it finishes	Um salvamento em {name} ainda está em andamento; tente novamente quando terminar
 	{label} is writing the file and can no longer be cancelled	{label} está gravando o arquivo e não pode mais ser cancelado
@@ -2858,6 +2860,31 @@ fontWeight	Italic	Itálico
 	Quick Selection found nothing there	A Seleção rápida não encontrou nada ali
 	Object Selection found nothing there — try a tighter rectangle	A Seleção de objeto não encontrou nada ali — tente um retângulo mais justo
 	No subject found — try a rectangle around the object	Nenhum assunto encontrado — tente um retângulo ao redor do objeto
+	Appearance Settings…	Configurações de aparência…
+	Add to favorites	Adicionar aos favoritos
+	Remove from favorites	Remover dos favoritos
+# File Info ▸ Camera Data (read-only EXIF fields; "Make" is the camera maker, not the verb).
+cameraData	Make	Fabricante
+cameraData	Model	Modelo
+cameraData	Date Taken	Data de captura
+cameraData	Exposure	Tempo de exposição
+cameraData	F-Stop	Abertura
+cameraData	ISO Speed	Sensibilidade ISO
+cameraData	Focal Length	Distância focal
+cameraData	Focal Length (35 mm)	Distância focal (35 mm)
+cameraData	Lens	Lente
+# Shared panel docking
+	Activate Panel	Ativar painel
+	Change Panel Group	Alterar grupo de painéis
+	Change Panel Layout	Alterar disposição dos painéis
+	Close Panel	Fechar painel
+	Dock Panel	Encaixar painel
+	Float Panel	Painel flutuante
+	Move Panel	Mover painel
+	Group with	Agrupar com
+	Panel menu	Menu do painel
+	Resize panel window	Redimensionar janela do painel
+	Resize panels	Redimensionar painéis
 	Use Classic Mode	Usar modo clássico
 	Auto Center Preview	Centralizar visualização automaticamente
 	Next Document	Próximo documento

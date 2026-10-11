@@ -892,7 +892,21 @@ fn path_transform(s: &mut Session, p: &Value) -> Result<Value> {
         let (tx, ty) = (number("translateX", 0.0)?, number("translateY", 0.0)?);
         let (sx, sy) = (number("scaleX", 1.0)?, number("scaleY", 1.0)?);
         let angle = number("angle", 0.0)?;
-        let path = resolve_path(s, Some(&name))?;
+        // An explicit `layer` parameter must determine both the transformed path and its
+        // pivot. resolve_path("layer") otherwise reads the currently active layer (#3062).
+        let path = if let Some(id) = layer_id {
+            let layer = s.active().and_then(|st| st.doc.layer(id)).ok_or(EngineError::NoLayer(id))?;
+            match &layer.content {
+                LayerContent::Shape(shape) => shape.path.clone(),
+                _ => layer
+                    .vector_mask
+                    .as_ref()
+                    .map(|mask| mask.path.clone())
+                    .ok_or_else(|| EngineError::Other("target layer has no shape path or vector mask".into()))?,
+            }
+        } else {
+            resolve_path(s, Some(&name))?
+        };
         let (x0, y0, x1, y1) = path.control_bounds().ok_or_else(|| bad(CMD, "path has no points to transform"))?;
         let (cx, cy) = ((x0 + x1) * 0.5, (y0 + y1) * 0.5);
         Affine::translate(-cx, -cy)

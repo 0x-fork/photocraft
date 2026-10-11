@@ -1793,6 +1793,7 @@
 	Cache tile size	Rozmiar kafla pamięci podręcznej
 	Camera Raw Defaults	Domyślne ustawienia Camera Raw
 	Canvas border	Obramowanie płótna
+	Show canvas dots	Pokaż kropki płótna
 	Canvas color	Kolor płótna
 	Canvas custom color	Własny kolor płótna
 	Color picker	Próbnik kolorów
@@ -2084,6 +2085,7 @@
 	Cancelled {label}	Anulowano: {label}
 	Esc to cancel	Esc, aby anulować
 	Opening {name}	Otwieranie {name}
+	Saved {name}	Zapisano: {name}
 	Saving {name}	Zapisywanie {name}
 	A save to {name} is still running; try again when it finishes	Zapisywanie do {name} wciąż trwa; spróbuj ponownie, gdy się zakończy
 	{label} is writing the file and can no longer be cancelled	{label} zapisuje plik i nie można już tego anulować
@@ -3451,6 +3453,31 @@ cameraRaw	Roughness	Chropowatość
 	Quick Selection found nothing there	Szybkie zaznaczanie nic tam nie znalazło
 	Object Selection found nothing there — try a tighter rectangle	Zaznaczanie obiektu nic tam nie znalazło — spróbuj ciaśniejszego prostokąta
 	No subject found — try a rectangle around the object	Nie znaleziono obiektu — spróbuj prostokąta wokół obiektu
+	Appearance Settings…	Ustawienia wyglądu…
+	Add to favorites	Dodaj do ulubionych
+	Remove from favorites	Usuń z ulubionych
+# File Info ▸ Camera Data (read-only EXIF fields; "Make" is the camera maker, not the verb).
+cameraData	Make	Producent
+cameraData	Model	Model
+cameraData	Date Taken	Data wykonania
+cameraData	Exposure	Czas naświetlania
+cameraData	F-Stop	Przysłona
+cameraData	ISO Speed	Czułość ISO
+cameraData	Focal Length	Ogniskowa
+cameraData	Focal Length (35 mm)	Ogniskowa (35 mm)
+cameraData	Lens	Obiektyw
+# Shared panel docking
+	Activate Panel	Aktywuj panel
+	Change Panel Group	Zmień grupę paneli
+	Change Panel Layout	Zmień układ paneli
+	Close Panel	Zamknij panel
+	Dock Panel	Dokuj panel
+	Float Panel	Panel pływający
+	Move Panel	Przenieś panel
+	Group with	Grupuj z
+	Panel menu	Menu panelu
+	Resize panel window	Zmień rozmiar okna panelu
+	Resize panels	Zmień rozmiar paneli
 	Use Classic Mode	Użyj trybu klasycznego
 	Auto Center Preview	Automatycznie wyśrodkuj podgląd
 	Next Document	Następny dokument
