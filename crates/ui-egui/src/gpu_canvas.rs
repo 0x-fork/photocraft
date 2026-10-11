@@ -1970,8 +1970,13 @@ fn fs_tile(in: VOut) -> @location(0) vec4<f32> {
     if (grid > 0.0) {
         let e = fract(d) * scale;
         if (e.x < 1.0 || e.y < 1.0) {
-            let on_light = dot(rgb, vec3(0.299, 0.587, 0.114)) > 0.55;
-            rgb = mix(rgb, select(vec3(1.0), vec3(0.0), on_light), select(grid, grid * 0.64, on_light));
+            // White over dark pixels, a weaker black over light ones, cross-faded by luma so a
+            // mid-tone image never flips line colour from one cell to the next (pixel_grid.rs
+            // `light_share`: same band, same numbers).
+            let t = smoothstep(0.35, 0.75, dot(rgb, vec3(0.299, 0.587, 0.114)));
+            let white = grid * (1.0 - t);
+            let black = grid * 0.64 * t;
+            rgb = rgb * (1.0 - white - black) + vec3(white);
         }
     }
     if (view.d.w > 0.5) {

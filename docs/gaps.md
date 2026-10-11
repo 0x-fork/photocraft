@@ -65,8 +65,8 @@ what an agent can't finish alone.
 - **Estimate:** 60–100 h (2–9 h each, per the calibration).
 
 ### G7. Workspaces shown as parameter dialogs
-- **Missing:** Select and Mask workspace with view modes, Refine Edge brush and outputs
-  (TOOL-214-1, Refine Hair #2671); Content-Aware Fill workspace with a paintable sampling area
+- **Missing:** Select and Mask workspace layout, Refine Edge brush and outputs
+  (TOOL-214-1, Refine Hair #2671; its view modes preview live since #1754); Content-Aware Fill workspace with a paintable sampling area
   (TOOL-214-15); Vanishing Point plane editor (TOOL-214-14); Content-Aware Scale through the
   transform box (TOOL-214-7); Puppet Warp mesh following the outline (TOOL-214-6); Content-Aware
   Move's Transform On Drop (TOOL-213-4).
