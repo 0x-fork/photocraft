@@ -2989,6 +2989,7 @@ cameraData	Lens	Lente
 	Snap to Origin	Ajustar à origem
 	Search settings…	Pesquisar configurações…
 	No matching settings	Nenhuma configuração encontrada
+	Loading fonts…	Carregando fontes…
 	Grid Size:	Tamanho da grade:
 	New Layer	Nova camada
 	Vanishing Point: click four corners to create a plane	Ponto de fuga: clique em quatro cantos para criar um plano
@@ -3063,7 +3064,6 @@ layerLabel	No Color	Sem cor
 	Workspaces	Áreas de trabalho
 	Show All	Mostrar tudo
 	Hidden	Oculto
-	New Layer	Nova camada
 	Duplicate Layer	Duplicar camada
 	Ungroup	Desagrupar
 	Lock Transparent Pixels	Bloquear pixels transparentes

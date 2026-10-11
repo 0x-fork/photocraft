@@ -2907,8 +2907,8 @@ cameraData	Lens	Объектив
 	Rasterize Layer Style	Растрировать стиль слоя
 	Search settings…	Поиск настроек…
 	No matching settings	Нет подходящих настроек
+	Loading fonts…	Загрузка шрифтов…
 	Grid Size:	Размер сетки:
-	New Layer	Новый слой
 	Vanishing Point: click four corners to create a plane	Точка схода: щелкните четыре угла, чтобы создать плоскость
 	Vanishing Point is not active	Точка схода не активна
 	Apply Vanishing Point ({key})	Применить точку схода ({key})

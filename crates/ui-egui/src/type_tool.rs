@@ -1074,8 +1074,10 @@ fn axis_label(tag: &str) -> String {
 
 /// One slider row per variable-font axis of the style's font, below the font style (#2985).
 fn axis_sliders(app: &mut PhotocraftApp, ui: &mut egui::Ui, c: &photocraft_doc::text::CharStyle) {
+    // Drawn every frame: no sliders until the background font scan is done (#3021).
+    let Some(engine) = photocraft_text::try_shared() else { return };
     let axes = {
-        let faces = photocraft_text::shared().lock().unwrap_or_else(PoisonError::into_inner).fonts.faces(&c.font_family);
+        let faces = engine.lock().unwrap_or_else(PoisonError::into_inner).fonts.faces(&c.font_family);
         slider_axes(&faces, c.italic)
     };
     let t = crate::theme::Tokens::get(ui.ctx());
@@ -1105,8 +1107,11 @@ fn axis_sliders(app: &mut PhotocraftApp, ui: &mut egui::Ui, c: &photocraft_doc::
 
 /// PSD text can identify a face only by its PostScript name. Show its real subfamily too.
 pub(crate) fn selected_style(style: &photocraft_doc::text::CharStyle) -> String {
-    if let Some(ps) = &style.postscript_name {
-        let faces = photocraft_text::shared().lock().unwrap_or_else(|e| e.into_inner()).fonts.faces(&style.font_family);
+    // Drawn every frame: while the font scan runs, the stored style name stands in.
+    if let Some(ps) = &style.postscript_name
+        && let Some(engine) = photocraft_text::try_shared()
+    {
+        let faces = engine.lock().unwrap_or_else(|e| e.into_inner()).fonts.faces(&style.font_family);
         if let Some(face) = faces.into_iter().find(|f| f.postscript_name.as_ref() == Some(ps)) {
             return face.style;
         }
@@ -1119,6 +1124,26 @@ pub(crate) fn selected_style(style: &photocraft_doc::text::CharStyle) -> String 
 /// means a weight — unlike the Camera Raw "Light" section.
 pub fn style_label(style: &str) -> String {
     style.split(' ').map(|w| crate::i18n::tr_ctx(crate::i18n::current(), "fontWeight", w)).collect::<Vec<_>>().join(" ")
+}
+
+/// Starts scanning the installed fonts on a background thread (desktop start-up), so choosing
+/// the Type tool doesn't stall the UI while they are read (#3021). Does nothing on the web.
+pub fn warm_fonts() {
+    photocraft_text::warm_shared();
+}
+
+/// Whether the font database is ready. The installed fonts are scanned on a background thread
+/// from launch (`photocraft_text::warm_shared`); until that finishes, font menus draw this
+/// disabled "Loading fonts…" box `width` wide instead of blocking the UI, and a repaint picks the
+/// menus up once the scan is done.
+pub(crate) fn fonts_ready(ui: &mut egui::Ui, width: f32) -> bool {
+    if photocraft_text::try_shared().is_some() {
+        return true;
+    }
+    let label = tl!("Loading fonts…").to_string();
+    ui.add_enabled_ui(false, |ui| crate::widgets::dropdown(ui, "fonts-loading", &mut label.clone(), &[(label.clone(), label.as_str())], width));
+    ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+    false
 }
 
 /// Searchable font-family combo box.
@@ -1404,18 +1429,21 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             app.ui.status_error = true;
         }
     }
-    if font_picker(ui, &mut fam, 170.0, app.session.prefs().type_.font_preview) {
-        app.ui.tool_options.type_font = fam.clone();
-        let st = styles(&fam);
-        style = if st.contains(&style) { style } else { st.first().cloned().unwrap_or_else(|| "Regular".into()) };
-        app.ui.tool_options.type_style = style.clone();
-        apply(app, ui.ctx(), json!({"font": fam}));
-    }
-    let opts: Vec<(String, String)> = styles(&fam).into_iter().map(|s| (s.clone(), style_label(&s))).collect();
-    let opts_ref: Vec<(String, &str)> = opts.iter().map(|(a, b)| (a.clone(), b.as_str())).collect();
-    if crate::widgets::dropdown(ui, "type-style", &mut style, &opts_ref, 110.0) {
-        app.ui.tool_options.type_style = style.clone();
-        apply(app, ui.ctx(), json!({"fontStyle": style}));
+    // Font family and style menus (one placeholder in their place while the fonts load).
+    if fonts_ready(ui, 170.0 + ui.spacing().item_spacing.x + 110.0) {
+        if font_picker(ui, &mut fam, 170.0, app.session.prefs().type_.font_preview) {
+            app.ui.tool_options.type_font = fam.clone();
+            let st = styles(&fam);
+            style = if st.contains(&style) { style } else { st.first().cloned().unwrap_or_else(|| "Regular".into()) };
+            app.ui.tool_options.type_style = style.clone();
+            apply(app, ui.ctx(), json!({"font": fam}));
+        }
+        let opts: Vec<(String, String)> = styles(&fam).into_iter().map(|s| (s.clone(), style_label(&s))).collect();
+        let opts_ref: Vec<(String, &str)> = opts.iter().map(|(a, b)| (a.clone(), b.as_str())).collect();
+        if crate::widgets::dropdown(ui, "type-style", &mut style, &opts_ref, 110.0) {
+            app.ui.tool_options.type_style = style.clone();
+            apply(app, ui.ctx(), json!({"fontStyle": style}));
+        }
     }
     let (r, _) = ui.allocate_exact_size(egui::vec2(18.0, 22.0), egui::Sense::hover());
     crate::icons::paint(ui, r, "type", 13.0, t.icon);
@@ -1715,13 +1743,18 @@ fn type_sections(app: &mut PhotocraftApp, ui: &mut egui::Ui, character: bool, pa
         let full = ui.available_width();
         let w = field_width(full, 2, LABEL_W);
         let mut fam = c.font_family.clone();
+        let mut ready = true;
         row(ui, &mut |ui| {
-            if font_picker(ui, &mut fam, full, app.session.prefs().type_.font_preview) {
+            ready = fonts_ready(ui, full);
+            if ready && font_picker(ui, &mut fam, full, app.session.prefs().type_.font_preview) {
                 app.ui.tool_options.type_font = fam.clone();
                 apply(app, ui.ctx(), json!({"font": fam}));
             }
         });
         row(ui, &mut |ui| {
+            if !ready {
+                return;
+            }
             let mut style = selected_style(&c);
             let opts: Vec<(String, String)> = styles(&fam).into_iter().map(|s| (s.clone(), style_label(&s))).collect();
             let opts_ref: Vec<(String, &str)> = opts.iter().map(|(a, b)| (a.clone(), b.as_str())).collect();

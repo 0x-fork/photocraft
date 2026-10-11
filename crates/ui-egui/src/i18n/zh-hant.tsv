@@ -2546,10 +2546,10 @@ cameraData	Lens	鏡頭
 	Snap to Origin	靠齊原點
 	Search settings…	搜尋設定…
 	No matching settings	沒有符合的設定
+	Loading fonts…	正在載入字體…
 	Edit Plane	編輯平面
 	Create Plane	建立平面
 	Grid Size:	格點大小：
-	New Layer	新增圖層
 	Vanishing Point: click four corners to create a plane	消失點：按一下四個角以建立平面
 	Vanishing Point is not active	消失點未啟用
 	Apply Vanishing Point ({key})	套用消失點 ({key})
