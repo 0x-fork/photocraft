@@ -11,6 +11,25 @@
 # Licensed MIT OR Apache-2.0, as the code.
 # Product and technology names retain their spelling. See docs/localization-zh-hans.md.
 
+# Guide layout dialog
+	Columns	列
+	Rows	行
+	Number	数量
+	Margin	边距
+	Top:	上:
+	Left:	左:
+	Bottom:	下:
+	Right:	右:
+	Target:	目标:
+	Selected Artboards	所选画板
+	Center Columns	列居中
+	Clear Existing Guides	清除现有参考线
+	Invalid guide layout	参考线布局无效
+	Leave empty for automatic size	留空以自动设置大小
+	5 Columns, 3 Rows	5列，3行
+	8 Columns	8列
+	12 Columns	12列
+
 	File	文件
 	Edit	编辑
 	Image	图像
@@ -689,6 +708,8 @@
 	Theme	主题
 	Pro Theme	专业主题
 	Pro Medium Gray Theme	专业中灰主题
+	Pro Light Gray Theme	专业浅灰主题
+	Pro Light Theme	专业浅色主题
 	Studio Theme	工作室主题
 	Studio Light Theme	工作室浅色主题
 	Adwaita Light Theme	Adwaita 浅色主题
@@ -823,6 +844,9 @@
 	Bend:	弯曲：
 	Bicubic	双三次
 	Bicubic (smooth gradients)	双三次（平滑渐变）
+	Automatic	自动
+	Bicubic Smoother (enlargement)	双三次（较平滑）（扩大）
+	Bicubic Sharper (reduction)	双三次（较锐利）（缩减）
 	Bilinear	双线性
 	Black	黑色
 	Black & White	黑白
@@ -1709,6 +1733,8 @@
 	Postcard	明信片
 	Poster	海报
 	Pro (Dark)	专业（深色）
+	Pro (Light)	专业（浅色）
+	Pro (Light Gray)	专业（浅灰色）
 	Pro (Medium Gray)	专业（中灰色）
 	Protect Texture	保护纹理
 	Purple	紫色
@@ -1905,6 +1931,8 @@
 	Preserve details	保留细节
 	Print resolution	打印分辨率
 	Pro	专业
+	Pro light	专业（浅色）
+	Pro light gray	专业（浅灰色）
 	Pro medium	专业（中灰色）
 	Pro photo	专业（摄影）
 	Quick export format	快速导出格式
@@ -2497,6 +2525,9 @@ cameraData	Lens	镜头
 	Previous Document	上一个文档
 	W x H x Resolution	宽 x 高 x 分辨率
 	Front Image	前面的图像
+	Frame Tool	图框工具
+	Create a new rectangular frame	新建矩形图框
+	Create a new elliptical frame	新建椭圆图框
 	Include in playback	包含在播放中
 	Perspective Crop Tool	透视裁剪工具
 	Show Grid	显示网格

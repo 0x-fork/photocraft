@@ -216,7 +216,7 @@ fn snap_slot<'a>(s: &'a mut SnapTo, key: &str) -> Option<&'a mut bool> {
 
 /// Window › <panel>: (panel, dock tab) for panels that live as tabs of a dock card.
 fn panel_tab(app: &PhotocraftApp, id: &str) -> Option<(&'static str, usize)> {
-    let pro = matches!(app.ui.theme, crate::theme::ThemeKind::Pro | crate::theme::ThemeKind::ProMedium);
+    let pro = app.ui.theme.is_pro();
     Some(match id {
         "window.panel.info" => ("navigator", 2),
         "window.panel.histogram" => ("navigator", 1),
@@ -1003,10 +1003,7 @@ fn front(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<Val
             json!({"from": "any", "to": "rgb"}),
             json!({"from": ["any", "rgb", "grayscale", "cmyk", "lab", "indexed", "bitmap", "duotone", "multichannel"], "to": ["rgb", "grayscale", "cmyk", "lab"]}),
         ),
-        "view.newGuideLayout" => {
-            let fields = app.ui.view.guide_layout.clone();
-            dialog(app, fields, json!({}))
-        }
+        "view.newGuideLayout" => Some(Ok(json!({"dialog": crate::guide_layout_ui::open(app)}))),
         "type.warpText" => Some(Ok(json!({"dialog": crate::dialogs::open_command_dialog(app, id, label)}))),
         "file.export.layersToFiles" => {
             let (_, _, name) = doc?;

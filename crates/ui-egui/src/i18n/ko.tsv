@@ -7,6 +7,24 @@
 # Licensed MIT OR Apache-2.0. See LICENSE-translations.txt and ATTRIBUTION.md.
 # Product names and technology names retain their spelling.
 
+# Guide layout dialog
+	Columns	열
+	Rows	행
+	Number	개수
+	Top:	위:
+	Left:	왼쪽:
+	Bottom:	아래:
+	Right:	오른쪽:
+	Target:	대상:
+	Selected Artboards	선택한 아트보드
+	Center Columns	열 가운데 정렬
+	Clear Existing Guides	기존 안내선 지우기
+	Invalid guide layout	잘못된 안내선 레이아웃
+	Leave empty for automatic size	자동 크기를 사용하려면 비워 두세요
+	5 Columns, 3 Rows	5열, 3행
+	8 Columns	8열
+	12 Columns	12열
+
 	File	파일
 	Edit	편집
 	Image	이미지
@@ -662,6 +680,8 @@
 	Theme	테마
 	Pro Theme	프로 테마
 	Pro Medium Gray Theme	프로 중간 회색 테마
+	Pro Light Gray Theme	프로 밝은 회색 테마
+	Pro Light Theme	프로 밝은 테마
 	Studio Theme	스튜디오 테마
 	Studio Light Theme	스튜디오 밝은 테마
 	Adwaita Light Theme	Adwaita 밝은 테마
@@ -795,6 +815,9 @@
 	Bend:	구부림:
 	Bicubic	쌍입방
 	Bicubic (smooth gradients)	쌍입방(부드러운 그레이디언트)
+	Automatic	자동
+	Bicubic Smoother (enlargement)	쌍입방 더 부드럽게(확대)
+	Bicubic Sharper (reduction)	쌍입방 더 선명하게(축소)
 	Bilinear	쌍선형
 	Black	검정
 	Black & White	흑백
@@ -1665,6 +1688,8 @@
 	Postcard	엽서
 	Poster	포스터
 	Pro (Dark)	프로(어둡게)
+	Pro (Light)	프로(밝게)
+	Pro (Light Gray)	프로(밝은 회색)
 	Pro (Medium Gray)	프로(중간 회색)
 	Protect Texture	텍스처 보호
 	Purple	보라
@@ -1859,6 +1884,8 @@
 	Preserve details	세부 정보 유지
 	Print resolution	인쇄 해상도
 	Pro	프로
+	Pro light	프로 밝게
+	Pro light gray	프로 밝은 회색
 	Pro medium	프로 중간 회색
 	Pro photo	ProPhoto
 	Quick export format	빠른 내보내기 형식
@@ -3068,6 +3095,9 @@ cameraData	Lens	렌즈
 	Previous Document	이전 문서
 	W x H x Resolution	폭 x 높이 x 해상도
 	Front Image	전면 이미지
+	Frame Tool	프레임 도구
+	Create a new rectangular frame	새 사각형 프레임 만들기
+	Create a new elliptical frame	새 타원형 프레임 만들기
 	Include in playback	재생에 포함
 	Perspective Crop Tool	원근 자르기 도구
 	Show Grid	격자 표시
