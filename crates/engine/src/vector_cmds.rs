@@ -511,7 +511,17 @@ pub fn transform_shape(sh: &mut ShapeLayer, a: &Affine) {
                 }
                 LiveShape::Ellipse { rect } => LiveShape::Ellipse { rect: r(rect) },
                 LiveShape::Polygon { rect, sides, star_ratio } => LiveShape::Polygon { rect: r(rect), sides, star_ratio },
-                LiveShape::Line { from, to, weight } => LiveShape::Line { from: pt(from), to: pt(to), weight },
+                LiveShape::Line { from, to, weight } => {
+                    // Live-shape edits regenerate the line's filled bar from its parameters.
+                    // Keep the weight in sync with a positive scale of the path, or an
+                    // unchanged endpoint edit unexpectedly restores the old thickness (#3063).
+                    // A line's width scales perpendicular to its direction.
+                    let (dx, dy) = (to[0] - from[0], to[1] - from[1]);
+                    let old_length = dx.hypot(dy);
+                    let new_length = (dx * m0).hypot(dy * m3);
+                    let width_scale = if old_length > 0.0 && new_length > 0.0 { m0 * m3 * old_length / new_length } else { m0.min(m3) };
+                    LiveShape::Line { from: pt(from), to: pt(to), weight: weight * width_scale }
+                }
             })
         }
         // Flips and 90° turns keep rectangles, ellipses and lines live (Image Rotation): the new
