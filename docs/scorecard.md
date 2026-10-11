@@ -124,7 +124,7 @@ Corpus floors (`crates/io/tests/corpus.rs`): the enforced minimums; the corpus t
 | FILE-216-3 | TIFF, RAW and EXR corpora read by tests; per-camera RAW coverage reported | partial | [#216](https://github.com/storytold/photocraft/issues/216) | EXR: corpus/exr (the OpenEXR deep test images, pinned) is read by codecs tests/deep_exr.rs in the CI corpus job, against the ID manifests of the upstream sidecars. corpus/tiff and corpus/raw are still copied in by hand and no test reads them; no per-camera RAW report |
 | FILE-216-4 | Exports re-open in a third-party oracle editor | missing | [#216](https://github.com/storytold/photocraft/issues/216) | The round trip is our export -> our import |
 | FILE-216-5 | Save-path tests: layered TIFF, PDF, SVG, ACO/ASE, .shc, Smart Filters, atomic-save failure | missing | [#216](https://github.com/storytold/photocraft/issues/216) | Save paths for layered TIFF, PDF, SVG, ACO/ASE, .shc and Smart Filters are absent. Atomic-save failure injection is covered: format/src/atomic/tests.rs write_failure_halfway_keeps_original and rename_failure_keeps_original (see BUG-203-6) |
-| FILE-216-6 | 30-50 end-to-end workflow acceptance tasks driven through MCP or commands | partial | [#216](https://github.com/storytold/photocraft/issues/216) | automation/tests/agent_tasks.rs: 10 MCP tasks |
+| FILE-216-6 | 30-50 end-to-end workflow acceptance tasks driven through MCP or commands | partial | [#216](https://github.com/storytold/photocraft/issues/216) | automation/tests/agent_tasks.rs and agent_tasks_extended.rs: 20 MCP tasks |
 
 ## Tools
 
