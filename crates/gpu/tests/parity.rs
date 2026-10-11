@@ -2618,3 +2618,35 @@ fn pass_through_clipping_base_with_an_adjustment() {
     d.layers.push(clip);
     check(&mut g, &d, "pass-through clipping base with an adjustment");
 }
+
+
+/// Dissolve must use document-coordinate binary coverage on both renderers.
+#[test]
+fn dissolve_specialized_paths_match_cpu() {
+    let Some(mut g) = gpu() else { return };
+    let mut d = base_doc(64, 48);
+    let mut adjustment = Layer::new("invert", LayerContent::Adjustment(Adjustment::Invert));
+    adjustment.blend = BlendMode::Dissolve;
+    adjustment.opacity = 0.5;
+    d.layers.push(adjustment);
+    check(&mut g, &d, "dissolve adjustment");
+
+    let mut d = base_doc(64, 48);
+    let mut clipped = Layer::new("clipped", LayerContent::Fill(Fill::Solid(Color::BLACK)));
+    clipped.clipped = true;
+    clipped.blend = BlendMode::Dissolve;
+    clipped.opacity = 0.5;
+    d.layers.push(clipped);
+    check(&mut g, &d, "dissolve clipped");
+
+    let mut d = base_doc(64, 48);
+    let mut styled = Layer::new("styled", LayerContent::Fill(Fill::Solid(Color::BLACK)));
+    styled.blend = BlendMode::Dissolve;
+    styled.opacity = 0.5;
+    styled.effects.items.push(Effect::ColorOverlay {
+        common: FxCommon::new(BlendMode::Normal, 1.0),
+        color: Color::BLACK,
+    });
+    d.layers.push(styled);
+    check(&mut g, &d, "dissolve effects");
+}
