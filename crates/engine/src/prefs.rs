@@ -218,9 +218,14 @@ pub struct Interface {
     pub appearance_mode: AppearanceMode,
     pub dark_theme: DarkTheme,
     pub light_theme: LightTheme,
+    /// Theme shortcuts shown in the appearance button's context menu.
+    pub favorite_themes: Vec<Theme>,
     /// Pasteboard colour in standard screen mode (`canvasCustomColor` when "custom").
     pub canvas_color: CanvasColor,
     pub canvas_custom_color: String,
+    /// Show the repeating dot pattern on the canvas surround (including the empty workspace).
+    /// Disable for a uniform background, for example on OLED displays (#2264).
+    pub show_canvas_dots: bool,
     /// Document border in standard screen mode.
     pub canvas_border: CanvasBorder,
     pub ui_scale: UiScale,
@@ -255,8 +260,10 @@ impl Default for Interface {
             appearance_mode: AppearanceMode::Dark,
             dark_theme: DarkTheme::ProMedium,
             light_theme: LightTheme::StudioLight,
+            favorite_themes: Vec::new(),
             canvas_color: CanvasColor::Default,
             canvas_custom_color: "#282828".into(),
+            show_canvas_dots: true,
             canvas_border: CanvasBorder::DropShadow,
             ui_scale: UiScale::Auto,
             language: "auto".into(),
@@ -940,6 +947,10 @@ pub struct Preferences {
     /// the footer slider's card scale, saved as the user changes them and restored at launch.
     /// JSON owned by the shell.
     pub brush_picker: Value,
+    /// The tools' options-bar settings (Move › Auto-Select, marquee Feather, tolerance, …) that
+    /// differ from their defaults, saved as the user changes them and restored at launch, as
+    /// Photoshop remembers each tool's options between sessions. JSON owned by the shell.
+    pub tool_options: Value,
     /// File › Scripts › Script Events Manager: event → script bindings.
     pub script_events: crate::automate_cmds::ScriptEvents,
 }
@@ -974,7 +985,6 @@ pub const SECTIONS: [(&str, &str); 18] = [
 /// preference is read anywhere outside `prefs.rs`, and while an unlisted one is read nowhere.
 pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
     "general.colorPicker",
-    "general.beepWhenDone",
     "general.alwaysCreateSmartObjectsWhenPlacing",
     "general.animatedZoom",
     "general.zoomResizesWindows",
@@ -983,7 +993,6 @@ pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
     "workspace.enableFloatingDocumentWindowDocking",
     "workspace.enableNarrowOptionsBar",
     "tools.enableFlickPanning",
-    "tools.varyRoundBrushHardnessOnHud",
     "tools.showTransformationValues",
     "fileHandling.imagePreviews",
     "fileHandling.saveInBackground",
@@ -993,8 +1002,6 @@ pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
     "performance.effectCacheMb",
     "performance.legacyCompositing",
     "scratchDisks.disks",
-    "cursors.brushPreviewColor",
-    "unitsAndRulers.typeUnits",
     "unitsAndRulers.columnWidth",
     "unitsAndRulers.gutter",
     "unitsAndRulers.printResolution",
@@ -1004,11 +1011,9 @@ pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
     "type.missingGlyphProtection",
     "type.showFontNamesInEnglish",
     "type.textEngine",
-    "type.fontPreview",
     "type.recentFonts",
     "enhancedControls.scrubbySliderAcceleration",
     "enhancedControls.touchGestures",
-    "enhancedControls.zoomWithTrackpadPinch",
     "rawDefaults.colorSpace",
     "rawDefaults.bitDepth",
     "rawDefaults.resolution",
@@ -1172,6 +1177,20 @@ fn set_path(root: &mut Value, path: &str, value: Value) -> std::result::Result<(
 
 /// Validate one value for `path` before it is stored (choices, ranges, colours).
 fn check_value(path: &str, v: &Value) -> std::result::Result<(), String> {
+    if path == "interface.favoriteThemes" {
+        let items = v.as_array().ok_or("`interface.favoriteThemes` must be a list of theme ids")?;
+        if items.len() > Theme::NAMES.len() {
+            return Err("`interface.favoriteThemes` contains too many themes".into());
+        }
+        let mut seen = Vec::with_capacity(items.len());
+        for item in items {
+            let theme = item.as_str().and_then(Theme::parse).ok_or_else(|| format!("unknown favorite theme `{item}`"))?;
+            if seen.contains(&theme) {
+                return Err(format!("duplicate favorite theme `{}`", theme.name()));
+            }
+            seen.push(theme);
+        }
+    }
     if path == "performance.renderingMode" && v.is_null() {
         return Ok(()); // Legacy policy, resolved from useGpu and gpuBackend.
     }

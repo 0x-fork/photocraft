@@ -41,6 +41,12 @@ pub(crate) fn for_each_surface(layers: &mut [Layer], masks: bool, f: &mut dyn Fn
                 if let Some(c) = &mut sm.cache {
                     f(c, false)
                 }
+                // Selection-derived smart-filter masks live in document coordinates. Every
+                // canvas resize/translation must carry them with the smart object's cache;
+                // otherwise toggling a filter recomputes its coverage at stale positions (#3077).
+                if masks && let Some(mask) = &mut sm.filter_mask {
+                    f(&mut mask.surface, true);
+                }
             }
             LayerContent::Group(g) => for_each_surface(&mut g.children, masks, f),
             _ => {}
@@ -175,7 +181,7 @@ fn image_size(s: &mut Session, p: &Value) -> Result<Value> {
 
 /// Refuses to resample `doc` to `nw` x `nh` px when the raster alone would pass the budget, before
 /// allocating any of it (#1544). `hint` ends the message with what the caller can do instead.
-fn check_resample_budget(cmd: &str, doc: &Document, nw: u32, nh: u32, hint: &str) -> Result<()> {
+pub(crate) fn check_resample_budget(cmd: &str, doc: &Document, nw: u32, nh: u32, hint: &str) -> Result<()> {
     let bpp = doc.pixel_format().bytes_per_pixel().max(1) as u64;
     let bytes = u64::from(nw).saturating_mul(u64::from(nh)).saturating_mul(bpp);
     if bytes <= MAX_RESAMPLE_BYTES {
@@ -891,7 +897,7 @@ mod tests {
         let surf = st.doc.layers[0].surface().unwrap();
         for (x, y) in [(0, 0), (1, 1), (2, 3)] {
             let v = surf.rgba(x, y)[0];
-            assert!(v < 0.01 || v > 0.99, "nearest produced an averaged value {v} at ({x},{y})");
+            assert!(!v.is_nan() && !(0.01..=0.99).contains(&v), "nearest produced an averaged value {v} at ({x},{y})");
         }
     }
 

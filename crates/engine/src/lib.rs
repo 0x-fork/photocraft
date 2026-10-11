@@ -71,6 +71,7 @@ pub mod notes_cmds;
 pub mod paint_cmds;
 mod path_edit_cmds;
 pub mod pattern_cmds;
+pub mod perspective_crop_cmds;
 pub mod photo_cmds;
 pub mod pick_cmds;
 mod pixels;
@@ -102,6 +103,7 @@ mod trap_cmds;
 pub mod type_caret_cmds;
 pub mod type_cmds;
 pub mod type_extra_cmds;
+pub mod type_mask_cmds;
 pub mod type_spell_cmds;
 pub mod type_styles_cmds;
 mod variables_cmds;
@@ -372,6 +374,11 @@ pub struct Session {
     pub authorize: Option<fn(&str, &serde_json::Value) -> Result<()>>,
     /// Background jobs (see [`jobs`]).
     jobs: jobs::Jobs,
+    /// Select Subject's last result, reused while the pixels are unchanged (#2865).
+    subject_cache: smartselect_cmds::SubjectCache,
+    /// A finished live stroke offered to the `paint.stroke` / `paint.pencil` that commits it
+    /// ([`Session::offer_live_stroke`]).
+    pub(crate) live_commit: Option<brush_cmds::LiveCommit>,
 }
 
 /// Move item `i` of `v` to position `to`, clamped to the end. Returns where it went; `None` when
@@ -445,6 +452,7 @@ impl Session {
         smart_cmds::on_close(self, index);
         if let Some(id) = self.docs.get(index).map(|d| d.doc.id) {
             self.cancel_jobs_on(id);
+            self.subject_cache.forget_doc(id);
         }
         let d = self.docs.remove(index);
         self.active = if self.docs.is_empty() {
@@ -473,6 +481,20 @@ impl Session {
             // Not reached: inline dispatch never starts a job. Waiting is still correct.
             jobs::Started::Job(j) => self.wait_job(j),
         }
+    }
+
+    /// Offer a finished live stroke to the next command: a `paint.stroke` / `paint.pencil` whose
+    /// params match it exactly takes its pixels instead of rendering the stroke again (its result
+    /// then says `"fromLive": true`); any other command drops the offer. The command still runs
+    /// through the normal dispatch, so authorization, the journal and history are unchanged.
+    pub fn offer_live_stroke(&mut self, live: brush_cmds::LiveStroke) -> Result<()> {
+        self.live_commit = Some(live.into_commit()?);
+        Ok(())
+    }
+
+    /// Withdraw an offer the command didn't take.
+    pub fn clear_live_stroke(&mut self) {
+        self.live_commit = None;
     }
 
     /// Is the command currently runnable? (drives menu enablement)
@@ -549,6 +571,10 @@ impl Session {
         st.coalesce = key;
         st.revision += 1;
         st.last_damage = unchanged.then_some(photocraft_geom::Rect::EMPTY);
+        if !unchanged {
+            // Free the mask early; a stale entry would only miss (it is keyed by pixels).
+            self.subject_cache = Default::default();
+        }
         Ok(r)
     }
 
@@ -664,6 +690,15 @@ impl Session {
 
 /// Undo / redo: target the layers the restored state targeted, as far as they still exist.
 fn restore_target(st: &mut DocState, layers: LayerTarget) {
+    // Deselect Layers is a valid history target, not a missing layer to replace with the top
+    // layer. An edit after deselection must undo back to no active or selected layers (#3042).
+    if layers.active.is_none() && layers.selected.is_empty() {
+        st.active_layer = None;
+        st.selected_layers.clear();
+        st.layer_anchor = None;
+        channel_cmds::fix_view(st);
+        return;
+    }
     if layers.active.is_some_and(|id| st.doc.layer(id).is_some()) {
         st.active_layer = layers.active;
         st.selected_layers = layers.selected;

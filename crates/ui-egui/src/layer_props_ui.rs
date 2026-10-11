@@ -38,7 +38,7 @@ fn field(ui: &mut egui::Ui, id: &str, label: &str, current: f32, width: f32, u: 
     let t = Tokens::get(ui.ctx());
     let (r, _) = ui.allocate_exact_size(vec2(LABEL_W, 22.0), Sense::hover());
     ui.painter().text(pos2(r.right() - 2.0, r.center().y), egui::Align2::RIGHT_CENTER, tl!(label), egui::FontId::proportional(12.0), t.text_dim);
-    let key = egui::Id::new(("layer-props-field", id));
+    let key = ui.make_persistent_id(("layer-props-field", id));
     let mut v = ui.data(|d| d.get_temp::<f32>(key)).unwrap_or_else(|| u.shown(f64::from(current), extent));
     let resp = widgets::value_field(ui, &mut v, -300_000.0..=300_000.0, u.unit.suffix(), width);
     if resp.dragged() || resp.has_focus() {

@@ -117,7 +117,7 @@ impl Group {
         matches!((self, tab), (Group::Layers, 0) | (Group::History, 0) | (Group::Navigator, 0))
     }
 
-    fn tab_mut(self, tabs: &mut DockTabs) -> &mut usize {
+    pub(crate) fn tab_mut(self, tabs: &mut DockTabs) -> &mut usize {
         match self {
             Group::Color => &mut tabs.color,
             Group::Properties => &mut tabs.properties,
@@ -144,7 +144,7 @@ impl Group {
         }
     }
 
-    fn shown_mut(self, panels: &mut Panels) -> &mut bool {
+    pub(crate) fn shown_mut(self, panels: &mut Panels) -> &mut bool {
         match self {
             Group::Color => &mut panels.color,
             Group::Properties => &mut panels.properties,
@@ -492,6 +492,11 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, shown: &[Group], mut bod
                     .show(ui, |ui| body(app, ui, g, tab));
             }
         });
+        for (index, response) in &resp.responses {
+            if let Some(panel) = tabs.get(*index) {
+                crate::panel_docking::legacy_tab(app, &mut child, panel, response);
+            }
+        }
         strips.push(StripRects {
             group: g,
             tabs: resp.tabs.iter().filter_map(|(i, r)| indices.get(*i).map(|original| (*original, *r))).collect(),
@@ -525,10 +530,11 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, shown: &[Group], mut bod
             actions.push(Action::MoveTab(g, tab, before.and_then(|b| indices.get(b).copied())));
         }
         // A tab dragged off its strip moves the whole group, as the strip itself does.
-        if !locked && (resp.strip.dragged() || resp.tab_dragging_out) {
+        if !locked && app.ui.docking.is_none() && (resp.strip.dragged() || resp.tab_dragging_out) {
             dragging = Some(g);
         }
         if !locked
+            && app.ui.docking.is_none()
             && (resp.strip.drag_stopped() || resp.tab_dropped_out)
             && let Some(p) = ui.ctx().pointer_interact_pos().or_else(|| ui.ctx().pointer_latest_pos())
         {
@@ -547,6 +553,9 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, shown: &[Group], mut bod
             if tabs.get(sel) == Some(&"Swatches") {
                 crate::swatches_ui::panel_menu(app, ui);
                 ui.separator();
+            }
+            if let Some(label) = tabs.get(sel) {
+                crate::panel_docking::legacy_menu(app, ui, label);
             }
             if ui.button(if collapsed { tl!("Expand Panel Group") } else { tl!("Collapse Panel Group") }).clicked() {
                 actions.push(Action::ToggleCollapse(g));
@@ -698,7 +707,7 @@ fn resize(layout: &mut DockLayout, heights: &[(Group, f32)], i: usize, dy: f32) 
 
 /// What `prefs.panelLayout` holds: the live layout and open panels.
 fn snapshot(app: &PhotocraftApp) -> Value {
-    json!({"workspace": app.ui.workspace, "panels": app.ui.panels, "dockTabs": app.ui.dock_tabs, "dock": app.ui.dock, "timelineOpen": app.ui.timeline.open})
+    json!({"workspace": app.ui.workspace, "panels": app.ui.panels, "dockTabs": app.ui.dock_tabs, "dock": app.ui.dock, "timelineOpen": app.ui.timeline.open, "docking": app.ui.docking, "dockingHidden": app.ui.docking_hidden, "dockingCollapsed": app.ui.docking_collapsed})
 }
 
 /// Remember the layout in the preferences once the user lets go of the mouse (Workspace ›
@@ -729,6 +738,11 @@ pub fn restore(app: &mut PhotocraftApp) {
 /// (a workspace or `panelLayout`). Missing or invalid dock parts are left alone; old
 /// layouts without Timeline visibility restore it closed.
 pub fn apply(app: &mut PhotocraftApp, v: &Value) {
+    app.ui.docking_collapsed = v.get("dockingCollapsed").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
+    app.ui.docking_reveal = None;
+    app.ui.docking_generation = app.ui.docking_generation.wrapping_add(1);
+    app.ui.docking_hidden = v.get("dockingHidden").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
+    app.ui.docking = v.get("docking").and_then(|d| serde_json::from_value(d.clone()).ok()).filter(crate::panel_docking::valid);
     if let Some(mut p) = v.get("panels").and_then(|p| serde_json::from_value::<Panels>(p.clone()).ok()) {
         // The embedding host owns these flags, including for layouts that serialize them.
         p.menu_bar = app.ui.panels.menu_bar;
@@ -741,6 +755,7 @@ pub fn apply(app: &mut PhotocraftApp, v: &Value) {
     if let Some(d) = v.get("dock").and_then(|d| serde_json::from_value(d.clone()).ok()) {
         app.ui.dock = d;
     }
+    crate::panel_docking::sync_visibility(app);
     app.ui.timeline.open = v.get("timelineOpen").and_then(Value::as_bool).unwrap_or(false);
     if !app.ui.timeline.open {
         app.ui.timeline.playing = false;
