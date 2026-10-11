@@ -32,7 +32,7 @@ Triangle and Curvature Pen (minus legacy Rounded Rectangle and Targeted Adjustme
 | Selection | Object Selection, Quick Selection, Magic Wand | |
 | Crop and slice | Crop, Perspective Crop, Slice, Slice Select | |
 | Frame | Frame (frames are groups clipped by a rectangular or elliptical mask) | |
-| Eyedropper | Eyedropper, Ruler, Note, Count | Color Sampler (#1046) |
+| Eyedropper | Eyedropper, Color Sampler, Ruler, Note, Count | |
 | Retouch | Remove, Spot Healing, Healing, Patch, Content-Aware Move, Red Eye | |
 | Brush | Brush, Pencil, Mixer Brush | Color Replacement (`paint.colorReplacement` exists) |
 | Stamp | Clone Stamp, Pattern Stamp | |
@@ -40,7 +40,7 @@ Triangle and Curvature Pen (minus legacy Rounded Rectangle and Targeted Adjustme
 | Eraser | Eraser, Background Eraser, Magic Eraser | |
 | Fill | Gradient, Paint Bucket | |
 | Focus, toning | Blur, Sharpen, Smudge, Dodge, Burn, Sponge | |
-| Pen | Pen, Freeform Pen, Curvature Pen (#1054) | Add Anchor Point, Delete Anchor Point, Convert Point (⌥ with Pen only) |
+| Pen | Pen, Freeform Pen, Curvature Pen (#1054), Convert Point (#3204; also ⌥ with Pen) | Add Anchor Point, Delete Anchor Point |
 | Type | Horizontal, Vertical, Vertical Type Mask, Horizontal Type Mask | |
 | Path selection | Path Selection, Direct Selection | |
 | Shapes | Rectangle, Ellipse, Triangle, Polygon, Line, Custom Shape | (Star is a Polygon option in Photoshop) |
@@ -96,6 +96,7 @@ Triangle and Curvature Pen (minus legacy Rounded Rectangle and Targeted Adjustme
 | Auto-Select bounding box and snapping follow the picked layer | partial | follow the previous layer (#2666) |
 | ⌘-drag temporary Move shows the box and snaps | partial | #2681 |
 | ⌘-right-click layer list under the pointer | done | `layer_pick_ui.rs` |
+| Double-click type to edit it (caret at the pointer, Type tool) | done | #1132, `type_tool::edit_at` |
 | Moving a selection on a mask moves the mask, not the pixels | partial | #2468 |
 
 ## Selection modifiers

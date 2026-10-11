@@ -640,6 +640,7 @@
 	Efficiency: 100%	Ефективність: 100%
 	Dimensions:	Розміри:
 	Width	Ширина
+	Slant	Нахил
 	Height	Висота
 	Width:	Ширина:
 	Height:	Висота:
@@ -1569,6 +1570,7 @@
 	Quick Selection Tool	Інструмент «Швидке виділення»
 	Object Selection Tool	Інструмент «Виділення об'єкта»
 	Pen Tool	Інструмент «Перо»
+	Convert Point Tool	Інструмент «Перетворення вузла»
 	Path Selection Tool	Інструмент «Виділення контуру»
 	Direct Selection Tool	Інструмент «Пряме виділення»
 	Add Anchor Point Tool	Інструмент «Додати вузол»
@@ -3644,6 +3646,21 @@ cameraData	Lens	Об'єктив
 	Search settings…	Пошук налаштувань…
 	No matching settings	Немає відповідних налаштувань
 	PhotoCraft — Screen Color Picker	PhotoCraft — Піпетка кольору екрана
+# Select and Mask view modes (#1754)
+	Onion Skin	Калька
+	Marching Ants	Мурашки
+	On Black	На чорному
+	On White	На білому
+	On Layers	На шарах
+	Show Edge	Показати край
+	Show Original	Показати початкове
+	F cycles the views; hold X to see the image	F перемикає види; утримуйте X, щоб побачити зображення
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	Пензель уточнення краю (R)
+	Expand Detection Area	Розширити область виявлення
+	Restore Original Edge	Відновити початковий край
+	Paint over hair or fur on the image; Alt paints the other mode	Малюйте по волоссю чи хутру на зображенні; Alt малює в іншому режимі
+	Clear Brush Strokes	Очистити мазки пензля
 	Show rulers	Показати лінійки
 	Frame Tool	Інструмент «Рамка»
 	Create a new rectangular frame	Створити прямокутну рамку
@@ -3657,3 +3674,8 @@ cameraData	Lens	Об'єктив
 	There is no crop size or ratio to save	Немає розміру чи співвідношення сторін кадрування для збереження
 	Scale:	Масштаб:
 	Snap to Origin	Прив'язати до початку координат
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	Клацніть, щоб розмістити · Alt-клацання або перетягування за межі полотна для видалення
+	No document open	Документ не відкрито
+	{n} of {max} sample points	{n} з {max} точок вимірювання

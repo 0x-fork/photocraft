@@ -164,11 +164,9 @@ change the current window's decorations; the next launch reads the saved choice.
 
 Edit → Preferences → Interface → UI Scale applies immediately. Auto follows the operating
 system's display scale, including fractional scales such as 125%, 150% and 175% (on Linux,
-Wayland's fractional scale or X11's `Xft.dpi`). Only when the system reports no scaling (100%) on
-a 4K or larger monitor does Auto use 200%, so text and controls remain readable. Detection uses the current monitor,
-including portrait displays, and updates when the window moves between monitors. If monitor
-size is unavailable, Auto follows system DPI. The fixed choices (75% to 300%) set an absolute UI
-scale, allowing large 4K displays to use smaller controls when desired. Canvas zoom shortcuts
+Wayland's fractional scale or X11's `Xft.dpi`), and updates when the window moves between
+monitors. A 4K display the system runs at 100% stays at 100% (#1278). The fixed choices (75% to
+300%) set an absolute UI scale, for example 200% on an unscaled 4K display. Canvas zoom shortcuts
 continue to control the document independently of UI scaling.
 
 Interface → UI Font Size changes interface text independently of UI Scale and canvas zoom.

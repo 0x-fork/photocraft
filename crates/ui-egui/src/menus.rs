@@ -100,6 +100,10 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("help.about", "About PhotoCraft", &["Help"], None),
 ];
 
+/// Window › <document>: the open documents, listed at the end of the Window menu as in Photoshop.
+/// The id ends in the document's index, which is its tab's position.
+pub(crate) const DOCUMENT_ITEM: &str = "window.document.";
+
 /// Photoshop's Window › <panel> ids for the panels the shell already has, as `window.toggle.*`.
 pub(crate) fn panel_alias(id: &str) -> Option<&'static str> {
     Some(match id.strip_prefix("window.panel.")? {
@@ -588,6 +592,13 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             app.jobs.focus = None;
             Ok(json!({"document": to}))
         }
+        id if let Some(index) = id.strip_prefix(DOCUMENT_ITEM) => {
+            let n = app.session.documents().len();
+            let to = index.parse::<usize>().ok().filter(|i| *i < n).ok_or("no such document")?;
+            app.session.set_active(to);
+            app.jobs.focus = None;
+            Ok(json!({"document": to}))
+        }
         t if t.starts_with("window.toggle.") => {
             // A shown but collapsed dock group is expanded rather than hidden (#129).
             if let Some(g) = crate::dock::Group::from_key(&t["window.toggle.".len()..]).filter(|g| g.shown(&app.ui.panels) && app.ui.dock.is_collapsed(*g)) {
@@ -667,6 +678,7 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
         "window.panel.group" | "window.panel.move" | "window.panel.float" | "window.panel.dock" | "window.panel.close" => !app.session.prefs().workspace_locked,
         "file.open" | "file.exit" | "file.clearRecent" | "file.removeRecent" | "help.about" | "help.systemInfo" | "edit.search" => true,
         i if i.starts_with("file.openRecent.") => true,
+        i if i.starts_with(DOCUMENT_ITEM) => true,
         i if crate::links::url_for(i).is_some() => true,
         i if i.starts_with("window.theme.") => true,
         "file.save" | "file.saveAs" | "file.export.exportAs" | "file.export.quickExportAsPng" => {
@@ -820,6 +832,10 @@ pub(crate) fn reveal_label() -> &'static str {
 /// Translate the fixed command label and substitute the currently configured export format.
 /// Reuse the existing translated PNG sentence, so dynamic formats work in every UI language.
 fn translated_menu_label(lang: crate::i18n::Lang, item: &MenuItem) -> String {
+    // A document's name is shown as it is.
+    if item.id.starts_with(DOCUMENT_ITEM) {
+        return item.label.clone();
+    }
     if item.id == "file.export.quickExportAsPng"
         && let Some(fmt) = item.label.strip_prefix("Quick Export as ")
     {
@@ -987,6 +1003,25 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             at,
             MenuItem { id: "---".into(), label: "---".into(), path: vec!["Help".into()], shortcut: None, enabled: false, checked: None, color: None },
         );
+    }
+    // Window: the open documents in tab order, after a separator, the active one checked.
+    if let Some(last) = items.iter().rposition(|i| i.path.first().map(String::as_str) == Some("Window")) {
+        let window = || vec!["Window".to_string()];
+        let active = app.session.active_index();
+        let docs = app.session.documents().iter().enumerate().map(|(i, st)| MenuItem {
+            id: format!("{DOCUMENT_ITEM}{i}"),
+            label: st.doc.name.clone(),
+            path: window(),
+            shortcut: None,
+            enabled: true,
+            checked: Some(active == Some(i)),
+            color: None,
+        });
+        let separator = MenuItem { id: "---".into(), label: "---".into(), path: window(), shortcut: None, enabled: false, checked: None, color: None };
+        let rows: Vec<MenuItem> = std::iter::once(separator).chain(docs).collect();
+        if rows.len() > 1 {
+            items.splice(last + 1..last + 1, rows);
+        }
     }
     // Edit › Keyboard Shortcuts overrides, Edit › Menus hidden items and colours.
     let prefs = app.session.prefs();
@@ -1877,7 +1912,9 @@ mod tests {
         assert!(invoke(&mut app, &ctx, "view.proofSetup.custom", Value::Null).unwrap()["dialog"].is_u64());
         let spec = photocraft_engine::commands::find("edit.convertToProfile").unwrap();
         let params = crate::filter_dialog::parse_spec(spec.params);
-        assert!(matches!(&params[0].kind, crate::filter_dialog::Kind::Choice(c) if c[0] == "srgb" && !c.iter().any(|v| v.contains('/'))));
+        assert!(
+            matches!(&params[0].kind, crate::filter_dialog::Kind::Choice { options, .. } if options[0] == "srgb" && !options.iter().any(|v| v.contains('/')))
+        );
     }
 }
 
@@ -2020,5 +2057,90 @@ mod reveal_label_tests {
         assert_eq!(translated_menu_label(de, reveal[0]), expected);
         // The menu catalogue (and docs/parity-checklist.md) keeps Photoshop's macOS name.
         assert!(crate::menu_catalog::CATALOG.iter().any(|(_, label, _, i)| *i == id && *label == "Reveal in Finder"));
+    }
+}
+
+#[cfg(test)]
+mod window_documents_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn app(docs: usize) -> PhotocraftApp {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        for _ in 0..docs {
+            app.run("file.new", json!({"width": 64, "height": 48})).unwrap();
+        }
+        app.sync_views();
+        app
+    }
+
+    /// The rows after Window's last own item: a separator and the documents.
+    fn listed(app: &PhotocraftApp) -> Vec<(String, String, Option<bool>)> {
+        let items = menu_items(app);
+        let window: Vec<&MenuItem> = items.iter().filter(|i| i.path == ["Window"]).collect();
+        let at = window.iter().position(|i| i.id.starts_with(DOCUMENT_ITEM)).unwrap_or(window.len());
+        if at > 0 && at < window.len() {
+            assert_eq!(window[at - 1].label, "---", "a separator comes before the documents");
+        }
+        window[at..].iter().map(|i| (i.id.clone(), i.label.clone(), i.checked)).collect()
+    }
+
+    /// #2991: Window ends with the open documents in tab order, the active one checked, as in
+    /// Photoshop; choosing one brings it to the front.
+    #[test]
+    fn the_window_menu_lists_the_open_documents_and_switches_between_them() {
+        assert!(listed(&app(0)).is_empty(), "no documents, no list (and no separator)");
+
+        let mut app = app(3);
+        let ctx = egui::Context::default();
+        let names: Vec<String> = app.session.documents().iter().map(|d| d.doc.name.clone()).collect();
+        let row = |i: usize, active: bool| (format!("window.document.{i}"), names[i].clone(), Some(active));
+        assert_eq!(listed(&app), [row(0, false), row(1, false), row(2, true)]);
+        // It stays last in Window, after the panels.
+        let items = menu_items(&app);
+        let last = items.iter().rposition(|i| i.path.first().map(String::as_str) == Some("Window")).unwrap();
+        assert_eq!(items[last].id, "window.document.2");
+
+        assert_eq!(invoke(&mut app, &ctx, "window.document.0", json!({})).unwrap(), json!({"document": 0}));
+        assert_eq!(app.session.active_index(), Some(0));
+        assert_eq!(listed(&app), [row(0, true), row(1, false), row(2, false)]);
+
+        // A stale or malformed id (a document closed since the menu was built) is an error.
+        for id in ["window.document.3", "window.document.", "window.document.x", "window.document.-1"] {
+            assert!(is_enabled(&app, id), "{id}: rows are always enabled");
+            assert!(invoke(&mut app, &ctx, id, json!({})).is_err(), "{id}");
+        }
+        assert_eq!(app.session.active_index(), Some(0));
+    }
+
+    /// The rows show the document's name as it is, never a translation of it, and follow a
+    /// rename (Save As).
+    #[test]
+    fn document_names_are_shown_as_they_are_and_follow_a_rename() {
+        let mut app = app(1);
+        let before = crate::native_menu::state_hash(&app, None);
+        if let Some(d) = app.session.active_mut() {
+            d.saved_to("/tmp/Layers".into());
+        }
+        assert_ne!(crate::native_menu::state_hash(&app, None), before, "a rename updates the native menu");
+        let de = crate::i18n::Lang::from_code("de").unwrap();
+        let items = menu_items(&app);
+        let row = items.iter().find(|i| i.id == "window.document.0").unwrap();
+        assert_eq!(translated_menu_label(de, row), "Layers");
+        let bar = crate::native_menu::photocraft_layout(&items, de, "de").bar;
+        assert_eq!(bar.find("window.document.0").map(|i| i.label.as_str()), Some("Layers"));
+        let panel = items.iter().find(|i| i.path == ["Window"] && i.label == "Layers").unwrap();
+        assert_eq!(bar.find(&panel.id).map(|i| i.label.as_str()), Some("Ebenen"), "Window › Layers is still translated");
+    }
+
+    /// The rows go through the control channel's `ui.menu.invoke`, like a click.
+    #[test]
+    fn control_can_choose_a_document_from_the_window_menu() {
+        let mut app = app(2);
+        let ctx = egui::Context::default();
+        let (req, _rx) = crate::control::ControlRequest::new("ui.menu.invoke", json!({"id": "window.document.0"}));
+        let crate::control::Outcome::Done(r) = crate::control::handle(&mut app, &ctx, &req) else { panic!("expected an immediate reply") };
+        assert_eq!(r["ok"], true, "{r}");
+        assert_eq!(app.session.active_index(), Some(0));
     }
 }

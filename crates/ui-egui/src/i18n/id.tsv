@@ -1503,6 +1503,7 @@
 	White Balance: As Shot	White Balance: Sesuai Pemotretan
 	Whites	Putih
 	Width	Lebar
+	Slant	Kemiringan
 	Width:	Lebar:
 	Work Path	Work Path
 	Yellow	Kuning
@@ -1675,6 +1676,7 @@
 	Pen Pressure	Tekanan Pena
 	Pen Tilt	Kemiringan Pena
 	Pen Tool	Alat Pen
+	Convert Point Tool	Alat Convert Point
 	Photo	Foto
 	PhotoCraft website	Situs web PhotoCraft
 	Picas	Pica
@@ -2958,4 +2960,24 @@ cameraData	Lens	Lensa
 	Snap to Origin	Jepret ke Titik Asal
 	Search settings…	Cari pengaturan…
 	No matching settings	Tidak ada pengaturan yang cocok
+# Select and Mask view modes (#1754)
+	Onion Skin	Kulit Bawang
+	Marching Ants	Semut Berbaris
+	On Black	Di Atas Hitam
+	On White	Di Atas Putih
+	On Layers	Di Atas Lapisan
+	Show Edge	Tampilkan Tepi
+	Show Original	Tampilkan Asli
+	F cycles the views; hold X to see the image	F berganti tampilan; tahan X untuk melihat gambar
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	Kuas Perhalus Tepi (R)
+	Expand Detection Area	Perluas Area Deteksi
+	Restore Original Edge	Pulihkan Tepi Asli
+	Paint over hair or fur on the image; Alt paints the other mode	Lukis di atas rambut atau bulu pada gambar; Alt melukis dalam mode lainnya
+	Clear Brush Strokes	Hapus Goresan Kuas
 	Show rulers	Tampilkan Penggaris
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	Klik untuk menempatkan · Alt-klik atau seret ke luar kanvas untuk menghapus
+	No document open	Tidak ada dokumen yang terbuka
+	{n} of {max} sample points	{n} dari {max} titik sampel

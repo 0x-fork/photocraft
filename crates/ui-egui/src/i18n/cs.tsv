@@ -1543,6 +1543,7 @@
 	White Balance: As Shot	Vyvážení bílé: jako při snímání
 	Whites	Bílé
 	Width	Šířka
+	Slant	Sklon
 	Width:	Šířka:
 	Work Path	Pracovní cesta
 	Yellow	Žlutá
@@ -1720,6 +1721,7 @@
 	Pen Pressure	Přítlak pera
 	Pen Tilt	Náklon pera
 	Pen Tool	Nástroj pero
+	Convert Point Tool	Nástroj převést bod
 	Photo	Fotografie
 	PhotoCraft website	Web PhotoCraft
 	Picas	Pica
@@ -2562,4 +2564,24 @@ cameraData	Lens	Objektiv
 	Snap to Origin	Přichytit k počátku
 	Search settings…	Hledat nastavení…
 	No matching settings	Žádná odpovídající nastavení
+# Select and Mask view modes (#1754)
+	Onion Skin	Cibulová slupka
+	Marching Ants	Pochodující mravenci
+	On Black	Na černé
+	On White	Na bílé
+	On Layers	Na vrstvách
+	Show Edge	Zobrazit okraj
+	Show Original	Zobrazit originál
+	F cycles the views; hold X to see the image	F přepíná zobrazení; podržením X uvidíte obraz
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	Štětec pro upřesnění okraje (R)
+	Expand Detection Area	Rozšířit oblast detekce
+	Restore Original Edge	Obnovit původní okraj
+	Paint over hair or fur on the image; Alt paints the other mode	Malujte přes vlasy nebo srst v obraze; Alt maluje v opačném režimu
+	Clear Brush Strokes	Vymazat tahy štětce
 	Show rulers	Zobrazit pravítka
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	Kliknutím umístíte · Alt-kliknutím nebo přetažením mimo plátno odeberete
+	No document open	Není otevřen žádný dokument
+	{n} of {max} sample points	{n} z {max} bodů měření

@@ -3,7 +3,7 @@
 > **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-10 · **Change:** minor (right-to-left shell layout) · **Target:** Adobe Photoshop 2026
 
 Per-language status of PhotoCraft's UI. How catalogs work and how to add one:
-[`localization.md`](localization.md). Language notes: [Korean](localization-ko.md),
+[`localization.md`](localization.md). Language notes: [Korean](localization-ko.md), [Spanish](localization-es.md),
 [Simplified Chinese](localization-zh-hans.md).
 
 **How measured.** `cargo xtask i18n-coverage` (`xtask/src/i18n_coverage.rs`) defines the key

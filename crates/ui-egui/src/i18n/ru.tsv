@@ -662,6 +662,7 @@
 	Efficiency: 100%	Эффективность: 100%
 	Dimensions:	Габариты:
 	Width	Ширина
+	Slant	Наклон
 	Height	Высота
 	Width:	Ширина:
 	Height:	Высота:
@@ -1588,6 +1589,7 @@
 	Quick Selection Tool	Быстрое выделение
 	Object Selection Tool	Выделение объектов
 	Pen Tool	Перо
+	Convert Point Tool	Преобразование узла
 	Path Selection Tool	Выделение контура
 	Direct Selection Tool	Выделение узла
 	Add Anchor Point Tool	Добавить узел
@@ -2894,6 +2896,21 @@ cameraData	Lens	Объектив
 	Rasterize Layer Style	Растрировать стиль слоя
 	Search settings…	Поиск настроек…
 	No matching settings	Нет подходящих настроек
+# Select and Mask view modes (#1754)
+	Onion Skin	Калька
+	Marching Ants	Бегущие муравьи
+	On Black	На черном
+	On White	На белом
+	On Layers	На слоях
+	Show Edge	Показать край
+	Show Original	Показать исходное
+	F cycles the views; hold X to see the image	F переключает виды; удерживайте X, чтобы увидеть изображение
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	Кисть уточнения края (R)
+	Expand Detection Area	Расширить область обнаружения
+	Restore Original Edge	Восстановить исходный край
+	Paint over hair or fur on the image; Alt paints the other mode	Рисуйте по волосам или шерсти на изображении; Alt рисует в другом режиме
+	Clear Brush Strokes	Очистить мазки кисти
 	Show rulers	Показать линейки
 	New Crop Preset…	Новый набор параметров кадрирования…
 	Delete Crop Preset…	Удалить набор параметров кадрирования…
@@ -2901,3 +2918,8 @@ cameraData	Lens	Объектив
 	Select the crop presets to delete	Выберите наборы параметров кадрирования для удаления
 	Enter a name for the crop preset	Введите имя набора параметров кадрирования
 	There is no crop size or ratio to save	Нет размера или соотношения сторон кадрирования для сохранения
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	Щёлкните, чтобы разместить · Alt-щелчок или перетаскивание за пределы холста для удаления
+	No document open	Документ не открыт
+	{n} of {max} sample points	{n} из {max} точек замера

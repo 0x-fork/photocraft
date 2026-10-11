@@ -1,6 +1,6 @@
 # PhotoCraft vs Adobe Photoshop: target-app parity
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** minor (Type evidence: kerning and the Warp Text preview are done; percentages unchanged) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** minor (Type evidence: kerning, the Warp Text preview and variable-font axes are done; percentages unchanged) · **Target:** Adobe Photoshop 2026
 
 The authoritative answer to "how close is PhotoCraft to Photoshop, and how much work is left". The
 one-page summary is [`ROADMAP.md`](../ROADMAP.md); the ranked work list is [`gaps.md`](gaps.md);
@@ -61,7 +61,7 @@ architecture and the PSD writer are the serial parts.
 | Component | Weight | Ours / Photoshop | % | Kind |
 |---|---:|---|---:|---|
 | Menu commands | 30% | 628 / 628 catalog items dispatch a live command | 100% | measured (`cargo xtask parity`) |
-| Toolbox tools | 15% | 58 / 68 (Photoshop's 67 `.kys` tools plus Remove, Triangle, Curvature Pen; minus legacy Rounded Rectangle and Targeted Adjustment) | 85% | measured (`Tool` enum in `ui-egui/src/state.rs`, `TOOL_SECTIONS` in `panels.rs`) |
+| Toolbox tools | 15% | 59 / 68 (Photoshop's 67 `.kys` tools plus Remove, Triangle, Curvature Pen; minus legacy Rounded Rectangle and Targeted Adjustment) | 87% | measured (`Tool` enum in `ui-egui/src/state.rs`, `TOOL_SECTIONS` in `panels.rs`) |
 | Panels | 10% | 30 / 35 Window-menu panels | 86% | measured (`view_cmds.rs`, panel modules) |
 | Filters and adjustments | 10% | every Filter and Image › Adjustments item live; Filter Gallery 47 looks | 100% | measured (menu catalog) |
 | File formats (usage-weighted) | 15% | 13 of 31 Photoshop formats supported in Photoshop's directions, 4 partial; the common ones (PSD/PSB, TIFF, JPEG, PNG, WebP) all present | ~80% (48% by count) | measured list, estimated weights ([file-format-parity.md](file-format-parity.md)) |
@@ -173,7 +173,7 @@ parity for the area and are already contained in the dimension rows above.
 | Retouching (healing, clone, patch, remove, content-aware) | 50% | 100–180 | Remove tool non-generative; Content-Aware Fill has no workspace (TOOL-214-15); live stroke preview only for Brush/Eraser (TOOL-213-7) |
 | Transform, warp, puppet, perspective, liquify | 55% | 100–180 | Free Transform modifiers right; no transform context menu (TOOL-214-5), no skew fields, puppet mesh is a block grid (TOOL-214-6), Liquify called "useless" by a user (#2606) |
 | Adjustments and filters | 70% | 120–200 | All present; smart-filter re-render matches Photoshop on 5 of 30 files; Filter Gallery looks approximate; no Neural Filters |
-| Type | 40% | 120–200 | Engine works; manual/optical kerning and a live Warp Text preview (2026-10-11); no type on a path, RTL paragraphs, OpenType panel UI; Type tool freeze on macOS (#2518) |
+| Type | 40% | 120–200 | Engine works; manual/optical kerning, a live Warp Text preview and variable-font axis sliders (2026-10-11); no type on a path, RTL paragraphs, OpenType panel UI; Type tool freeze on macOS (#2518) |
 | Vector shapes and paths | 55% | 80–140 | Pen, Direct/Path Selection, shapes, shape strokes. Freeform and Curvature Pen (#1054). Missing anchor tools, on-canvas corner radius, path-point nudge; shape parity tracking issue #2496 |
 | Colour management and modes | 70% | 60–100 | Own ICC engine, soft proof, CMYK/Lab/Indexed/Duotone/Multichannel; no Adobe CMYK profiles, no spot plates (FILE-215-17), monitor profile only at launch |
 | Camera Raw and computational photo (Photomerge, HDR, lens) | 45% | 120–200 | Raw for DNG/CR2/NEF/ARW/RW2/ORF/RAF(uncompressed)/PEF; no CR3; ACR dialog partial (no masking, calibration); generic lens profiles only |
@@ -382,6 +382,17 @@ Confidence: moderate — the next users of 0.2.x will move these numbers either 
 
 ### By dimension
 
+2026-10-10: Tilt-Shift reuses the established contiguous premultiplication and
+per-level trailing-halo trimming. Nine local 24 MP RGB U8/U16/F32 cases improve
+1.07–1.49× with separated observed ranges (Ryzen 7 9700X, Windows, eight workers):
+default blur 15, 609.5 → 451.7 ms; rotated blur 80, 1729.3 → 1241.4 ms. At 36 MP,
+rotated blur 80: 2458.7 → 1668.0 ms; the saturated-field gain is inconclusive.
+The existing filtered preview proxy at document blur 80/300 improves from
+66.9/179.4 → 55.9/132.8 ms; its default blur 15 gain is inconclusive.
+Finite pixel bits match the frozen starting kernel exactly. These are computation
+timings with two baseline rounds, not GUI frame latency or a Photoshop parity
+increase; see [method, upstream SIMD/rustfft investigation and full ranges](tilt-shift-performance.md).
+
 2026-10-10: Iris Blur pin preparation, saturated-distance evaluation and trailing
 Gaussian-level halo trimming measure 1.18–1.76× faster across eight local 24 MP
 RGB U8/U16/F32 cases (Ryzen 7 9700X, Windows, eight workers). Default blur 15:
@@ -431,7 +442,7 @@ filled bar. This extends UI reachability and does not claim Photoshop-authored s
 | Smart filters / text / effect shapes in PSDs | Measured on our Photoshop-authored set (https://github.com/storytold/photocraft-corpus, `corpus/photoshop`, 258 files): see the per-group floors in `crates/io/tests/corpus.rs` and `crates/engine/tests/photoshop_oracles.rs`. Smart objects and smart filters now survive PSD save and open (41 corpus files, 206 smart objects, round trip strict; Photoshop opens our exports with live filters); re-rendering Photoshop's smart filters with ours matches 5/30 (was 1/30) | low–medium | Remaining re-render gaps are filter maths (Gaussian/Motion Blur, Unsharp Mask, Emboss, Add Noise RNG) and bicubic placement. |
 | Core editing (layers, masks, selections, adjustments, filters, transforms) | Broad engine coverage; many interaction bugs fixed after 0.2.0 (adjustment dialogs, Curves, crop, Move/Transform modifiers, gesture origin) | medium | Fixes not yet user-validated. |
 | UI / UX polish | Shortcut audit 214 → 0 failures; dock, Layers rows and menus reworked; first visual-QA sweep found 14 defects (#147–#157). 2026-10-07: the keyboard-only shortcuts with no menu item (⌥[ ⌥] ⌥, ⌥. layer navigation, ⇧⌥[ ⇧⌥] to extend the selection, 1–0 for opacity and ⇧ for flow or fill, ⇧[ ⇧] hardness, ⌥⌘T to transform a copy and ⌥⇧⌘T to step and repeat), ⌥-click colour sampling with painting tools, double-click a Layers row for Layer Style, File › New from Clipboard, a centred main window and remembered Liquify settings (#352, #417, #350, #368, #419, #418). 2026-10-09: canvas zoom is physical at any display scale — 100% is one document pixel per physical display pixel, and every screen-space overlay, cursor, scrollbar, navigator and fit follows it (#1943) | low–medium | Needs recurring visual QA with realistic documents. |
-| Tools | 2026-10-10: Pencil, Mixer Brush, Color Replacement, Patch, Content-Aware Move, Vertical Type, Pattern Stamp and Rotate View are toolbar tools. Remaining missing tools include Red Eye, Art History Brush, Color Sampler and Frame (Perspective Crop landed 2026-10-10, #1043: `image.perspectiveCrop`) | low–medium | Patch has a live healing preview. Content-Aware Move is partial: Move/Extend, Structure/Color and Sample All Layers exist; Transform On Drop and a live result preview remain missing (`TOOL-213-4` in the scorecard). Magic/Background Eraser added; live gradients in progress (#180). Magnetic Lasso added 2026-10-08 (live-wire edge tracing, Width/Contrast/Frequency, `select.magneticLasso`). Pattern Stamp added 2026-10-08 (S flyout, `paint.patternStamp`, Aligned / Impressionist). Rotate View (2026-10-09) turns the canvas camera around its centre without rewriting pixels; Reset View and Match Rotation copy the angle. Crop rotation (2026-10-09, #1792): dragging outside the crop frame turns it (⇧ 15° steps, angle readout), and ↵ rotates the document and crops in one undo step (`image.crop` `angle`); the frame turns over the image as in Photoshop's Classic Mode, and the options-bar Straighten is still missing. |
+| Tools | 2026-10-10: Pencil, Mixer Brush, Color Replacement, Patch, Content-Aware Move, Vertical Type, Pattern Stamp and Rotate View are toolbar tools. Remaining missing tools include Red Eye, Art History Brush and Frame (Perspective Crop landed 2026-10-10, #1043: `image.perspectiveCrop`) | low–medium | Patch has a live healing preview. Content-Aware Move is partial: Move/Extend, Structure/Color and Sample All Layers exist; Transform On Drop and a live result preview remain missing (`TOOL-213-4` in the scorecard). Magic/Background Eraser added; live gradients in progress (#180). Magnetic Lasso added 2026-10-08 (live-wire edge tracing, Width/Contrast/Frequency, `select.magneticLasso`). Pattern Stamp added 2026-10-08 (S flyout, `paint.patternStamp`, Aligned / Impressionist). Rotate View (2026-10-09) turns the canvas camera around its centre without rewriting pixels; Reset View and Match Rotation copy the angle. Crop rotation (2026-10-09, #1792): dragging outside the crop frame turns it (⇧ 15° steps, angle readout), and ↵ rotates the document and crops in one undo step (`image.crop` `angle`); the frame turns over the image as in Photoshop's Classic Mode, and the options-bar Straighten is still missing. |
 | Painting | Brush model and Brush Settings panel near Photoshop; .abr/.grd import; persistent presets; pen pressure/tilt on Windows, web, macOS and X11 | medium | Native Wayland pen input open (#79; a pen opens the window through Xwayland meanwhile); X11 pressure confirmed by a user, macOS not yet verified on tablet hardware. |
 | Text / typography | Engine works; caret placement and size editing fixed; OpenType features, text-on-path editing, composer parity partial | medium-low | Measure with the Photoshop-authored set. |
 | Colour management | Colour-managed canvas (document → monitor), embedded CMYK profiles, linear EXR/HDR, 16-bit float canvas | medium-high | Monitor profile follows only at launch. |
@@ -514,6 +525,18 @@ Bounded halo tiles reduce the large-mask workspace allocation bound from 192/288
 to about 115/163 MB, including output and 16 workers' scratch, excluding the source.
 See [method and results](octagonal-mask-performance.md).
 
+2026-10-10: five CPU imaging algorithms now reuse source work and interpolation.
+On an m7i.4xlarge (16 vCPUs), three alternating paired release runs measured
+dense Extrude Blocks (8/128 px, 24 MP RGB8) 160.301 s -> 0.387 s (414.69x);
+Blast (24 MP CMYK8) 6.231 s -> 0.709 s (8.79x);
+Spin Blur (36 MP RGB8) 9.439 s -> 5.869 s (1.61x);
+Lens Correction (24 MP CMYK16) 0.808 s -> 0.565 s (1.43x);
+Trap (50 px, 36 MP CMYK16) 4.627 s -> 1.333 s (3.47x).
+Default 30/30 px Extrude is 6.26x faster at 24 MP. All 72 full-operation output
+comparisons match exactly, including alpha, across 24 cases and 8/16/32-bit depths.
+Timers include surface assembly but exclude UI, undo and Trap document flattening.
+See [method, raw measurements and reproduction](five-algorithm-performance.md).
+
 ### Where we're going (priority order)
 
 1. **Ship the fixes:** cut 0.2.1 once the current batch lands, so users validate them.
@@ -537,7 +560,8 @@ See [method and results](octagonal-mask-performance.md).
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-11 | minor | Type row evidence: manual/optical kerning and the live Warp Text preview are done (TYPE-218-6/7); the 40% estimate is not re-measured |
+| 2026-10-11 | minor | Type row evidence: manual/optical kerning and the live Warp Text preview are done (TYPE-218-6/7; variable-font axes TYPE-218-4 too); the 40% estimate is not re-measured |
+| 2026-10-10 | minor | Added measured Tilt-Shift computation/filtered-proxy gains and inconclusive cases; parity percentages and budgets unchanged |
 | 2026-10-10 | minor | Readiness-by-audience table: percent and hours for full, mainstream and essentials; full number confirmed as the additive weighted sum over dimensions (46%, reported ~45%) |
 | 2026-10-10 | minor | Added mainstream-practitioner (~43%) and essentials-user (~61%) numbers with written weights and discounts; full ready-for-real-work rechecked against its written weights (46%, reported ~45%), unchanged |
 | 2026-10-10 | minor | Stage checked against the core-workflow alpha gate in `roadmap.md`: passes |

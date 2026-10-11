@@ -1522,6 +1522,7 @@
 	White Balance: As Shot	Weißabgleich: Wie Aufnahme
 	Whites	Weiß
 	Width	Breite
+	Slant	Neigung
 	Width:	Breite:
 	Work Path	Arbeitspfad
 	Yellow	Gelb
@@ -1695,6 +1696,7 @@
 	Pen Pressure	Stiftdruck
 	Pen Tilt	Stiftneigung
 	Pen Tool	Stift-Werkzeug
+	Convert Point Tool	Punkt-umwandeln-Werkzeug
 	Photo	Foto
 	PhotoCraft website	PhotoCraft-Website
 	Picas	Pica
@@ -2593,4 +2595,24 @@ cameraData	Lens	Objektiv
 	Snap to Origin	An Ursprung ausrichten
 	Search settings…	Einstellungen durchsuchen…
 	No matching settings	Keine passenden Einstellungen
+# Select and Mask view modes (#1754)
+	Onion Skin	Zwiebelschicht
+	Marching Ants	Laufende Ameisen
+	On Black	Auf Schwarz
+	On White	Auf Weiß
+	On Layers	Auf Ebenen
+	Show Edge	Kante anzeigen
+	Show Original	Original anzeigen
+	F cycles the views; hold X to see the image	F wechselt die Ansicht; X gedrückt halten zeigt das Bild
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	Kante-verbessern-Pinsel (R)
+	Expand Detection Area	Erkennungsbereich erweitern
+	Restore Original Edge	Ursprüngliche Kante wiederherstellen
+	Paint over hair or fur on the image; Alt paints the other mode	Über Haare oder Fell im Bild malen; Alt malt im anderen Modus
+	Clear Brush Strokes	Pinselstriche löschen
 	Show rulers	Lineale anzeigen
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	Klicken zum Platzieren · Alt-Klick oder Ziehen außerhalb der Arbeitsfläche zum Entfernen
+	No document open	Kein Dokument geöffnet
+	{n} of {max} sample points	{n} von {max} Messpunkten

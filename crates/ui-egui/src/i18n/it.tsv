@@ -1527,6 +1527,7 @@
 	White Balance: As Shot	Bilanciamento bianco: Come scattato
 	Whites	Bianchi
 	Width	Larghezza
+	Slant	Inclinazione
 	Width:	Larghezza:
 	Work Path	Tracciato di lavoro
 	Yellow	Giallo
@@ -1702,6 +1703,7 @@
 	Pen Pressure	Pressione penna
 	Pen Tilt	Inclinazione penna
 	Pen Tool	Strumento Penna
+	Convert Point Tool	Strumento Converti punto
 	Photo	Foto
 	PhotoCraft website	Sito web PhotoCraft
 	Picas	Pica
@@ -2625,4 +2627,24 @@ cameraData	Lens	Obiettivo
 	Snap to Origin	Aggancia all'origine
 	Search settings…	Cerca impostazioni…
 	No matching settings	Nessuna impostazione corrispondente
+# Select and Mask view modes (#1754)
+	Onion Skin	Velina
+	Marching Ants	Formiche in marcia
+	On Black	Su nero
+	On White	Su bianco
+	On Layers	Su livelli
+	Show Edge	Mostra bordo
+	Show Original	Mostra originale
+	F cycles the views; hold X to see the image	F scorre le viste; tieni premuto X per vedere l'immagine
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	Pennello per migliorare il bordo (R)
+	Expand Detection Area	Espandi area di rilevamento
+	Restore Original Edge	Ripristina bordo originale
+	Paint over hair or fur on the image; Alt paints the other mode	Dipingi su capelli o pelo nell'immagine; Alt dipinge nell'altra modalità
+	Clear Brush Strokes	Cancella tratti del pennello
 	Show rulers	Mostra righelli
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	Fai clic per posizionare · Alt-clic o trascina fuori dalla tela per rimuovere
+	No document open	Nessun documento aperto
+	{n} of {max} sample points	{n} di {max} punti di campionamento

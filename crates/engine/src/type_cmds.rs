@@ -133,6 +133,9 @@ pub fn apply_char_props(s: &mut CharStyle, p: &Value) -> bool {
     if let Some(v) = p.get("fontStyle").and_then(Value::as_str) {
         s.font_style = v.to_string();
         s.postscript_name = None;
+        // The style sets the weight, so a weight slider value set earlier stops overriding it
+        // (`variations` in the same call apply after this).
+        s.variations.retain(|f| f.axis != "wght");
         let l = v.to_lowercase();
         s.italic = l.contains("italic") || l.contains("oblique");
         let g = photocraft_text::fonts::guess_from_postscript(&format!("X-{}", v.replace(' ', "")));
@@ -150,6 +153,7 @@ pub fn apply_char_props(s: &mut CharStyle, p: &Value) -> bool {
             s.postscript_name = None;
             s.font_style.clear();
         }
+        s.variations.retain(|f| f.axis != "wght");
         s.weight = weight;
         hit(true);
     }
@@ -984,6 +988,21 @@ mod tests {
         assert!(style.postscript_name.is_none());
         apply_char_props(&mut style, &json!({"fontStyle": "Regular", "postscriptName": "ExplicitFace"}));
         assert_eq!(style.postscript_name.as_deref(), Some("ExplicitFace"));
+    }
+
+    /// Picking a style or weight resets the weight axis to it; other axes keep their values (#2985).
+    #[test]
+    fn a_style_or_weight_resets_the_weight_axis() {
+        let mut style = CharStyle::default();
+        apply_char_props(&mut style, &json!({"variations": {"wght": 650, "wdth": 80}}));
+        apply_char_props(&mut style, &json!({"fontStyle": "Bold"}));
+        let axes = |s: &CharStyle| s.variations.iter().map(|v| (v.axis.clone(), v.value)).collect::<Vec<_>>();
+        assert_eq!(axes(&style), [("wdth".to_string(), 80.0)]);
+        apply_char_props(&mut style, &json!({"variations": {"wght": 650}}));
+        apply_char_props(&mut style, &json!({"weight": 300}));
+        assert_eq!(axes(&style), [("wdth".to_string(), 80.0)]);
+        apply_char_props(&mut style, &json!({"fontStyle": "Light", "variations": {"wght": 350}}));
+        assert_eq!(axes(&style), [("wdth".to_string(), 80.0), ("wght".to_string(), 350.0)], "same-call values apply after the style");
     }
 
     #[test]

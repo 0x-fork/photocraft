@@ -22,7 +22,7 @@ const TOOL_SECTIONS: &[&[&[Tool]]] = &[
         &[Tool::ObjectSelection, Tool::QuickSelection, Tool::MagicWand],
         &[Tool::Crop, Tool::PerspectiveCrop, Tool::Slice, Tool::SliceSelect],
         &[Tool::Frame],
-        &[Tool::Eyedropper, Tool::Ruler, Tool::Note, Tool::Count],
+        &[Tool::Eyedropper, Tool::ColorSampler, Tool::Ruler, Tool::Note, Tool::Count],
     ],
     &[
         &[Tool::Remove, Tool::SpotHealing, Tool::Healing, Tool::Patch, Tool::ContentAwareMove, Tool::RedEye],
@@ -35,7 +35,7 @@ const TOOL_SECTIONS: &[&[&[Tool]]] = &[
         &[Tool::Dodge, Tool::Burn, Tool::Sponge],
     ],
     &[
-        &[Tool::Pen, Tool::FreeformPen, Tool::CurvaturePen, Tool::AddAnchorPoint, Tool::DeleteAnchorPoint],
+        &[Tool::Pen, Tool::FreeformPen, Tool::CurvaturePen, Tool::AddAnchorPoint, Tool::DeleteAnchorPoint, Tool::ConvertPoint],
         &[Tool::Type, Tool::VerticalType, Tool::VerticalTypeMask, Tool::HorizontalTypeMask],
         &[Tool::PathSelection, Tool::DirectSelection],
         &[Tool::Rectangle, Tool::EllipseShape, Tool::Triangle, Tool::Polygon, Tool::Line, Tool::CustomShape],
@@ -1744,12 +1744,9 @@ fn info_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         row(&mut cols[0], "R:", rgba.map_or_else(dash, |c| q(c[0]).to_string()));
         row(&mut cols[0], "G:", rgba.map_or_else(dash, |c| q(c[1]).to_string()));
         row(&mut cols[0], "B:", rgba.map_or_else(dash, |c| q(c[2]).to_string()));
-        // Naive device CMYK (no ICC profile yet), in percent like Photoshop's readout.
-        let cmyk = rgba.map(|c| {
-            let k = 1.0 - c[0].max(c[1]).max(c[2]);
-            let f = |v: f32| if k >= 1.0 { 0.0 } else { (1.0 - v - k) / (1.0 - k) };
-            [f(c[0]), f(c[1]), f(c[2]), k].map(|v| (v * 100.0).round() as i32)
-        });
+        // Naive device CMYK (no ICC profile yet), in percent like Photoshop's readout. The Color
+        // Sampler readout uses the same conversion (`sampler_cmds::device_cmyk`).
+        let cmyk = rgba.map(|c| photocraft_engine::sampler_cmds::device_cmyk(c[0], c[1], c[2]));
         for (i, k) in ["C:", "M:", "Y:", "K:"].iter().enumerate() {
             row(&mut cols[1], k, cmyk.map_or_else(dash, |c| format!("{}%", c[i])));
         }
@@ -1768,6 +1765,36 @@ fn info_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             .color(t.text_dim)
             .size(11.5),
     );
+    // Color Sampler points (#1046): each under its number, with its position in the current ruler
+    // unit and the same RGB/CMYK readout as the pointer (one composite pixel each).
+    let samplers = app.session.execute("view.colorSamplers.list", json!({})).ok();
+    let samplers = samplers.as_ref().and_then(|v| v["samplers"].as_array()).cloned().unwrap_or_default();
+    if !samplers.is_empty() {
+        widgets::hairline(ui);
+        let cell = |ui: &mut egui::Ui, s: String| {
+            ui.label(RichText::new(s).font(mono.clone()).color(t.text));
+        };
+        for s in &samplers {
+            let n = s["number"].as_i64().unwrap_or(0);
+            let at = s["position"]
+                .as_array()
+                .map_or((0.0, 0.0), |a| (a.first().and_then(Value::as_f64).unwrap_or(0.0), a.get(1).and_then(Value::as_f64).unwrap_or(0.0)));
+            let num = |v: &Value, i: usize| v.get(i).and_then(Value::as_i64).map_or_else(|| "—".to_string(), |n| n.to_string());
+            let (rgb, cmyk) = (&s["rgb"], &s["cmyk"]);
+            ui.horizontal(|ui| {
+                ui.add_sized([24.0, 16.0], egui::Label::new(RichText::new(format!("#{n}")).color(t.text_dim).size(11.5)));
+                cell(ui, format!("X: {}  Y: {}", fx(at.0), fy(at.1)));
+            });
+            ui.horizontal(|ui| {
+                ui.add_sized([24.0, 16.0], egui::Label::new(RichText::new("").size(11.5)));
+                cell(ui, format!("R:{} G:{} B:{}", num(rgb, 0), num(rgb, 1), num(rgb, 2)));
+            });
+            ui.horizontal(|ui| {
+                ui.add_sized([24.0, 16.0], egui::Label::new(RichText::new("").size(11.5)));
+                cell(ui, format!("C:{}% M:{}% Y:{}% K:{}%", num(cmyk, 0), num(cmyk, 1), num(cmyk, 2), num(cmyk, 3)));
+            });
+        }
+    }
 }
 
 fn navigator(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
@@ -3177,17 +3204,32 @@ fn color_field_height(avail: Option<f32>, width: f32) -> f32 {
     avail.filter(|a| a.is_finite()).map_or(120.0, |a| (a - reserve).clamp(120.0, 2000.0))
 }
 
+/// The colour the SV field draws for `hsva`, with what the field showed last (`hue`, `saturation`)
+/// filling in what the colour itself cannot carry: a grey has no hue of its own, and black has
+/// neither hue nor saturation — so a drag that bottoms out into black would otherwise round-trip
+/// through RGB as `s = 0` and drop the knob from the bottom-right corner to the bottom-left one
+/// (#3228).
+fn field_hsva(mut hsva: egui::ecolor::Hsva, remembered: (f32, f32)) -> egui::ecolor::Hsva {
+    if hsva.v < 0.01 {
+        hsva.h = remembered.0;
+        hsva.s = remembered.1;
+    } else if hsva.s < 0.01 {
+        // A grey: the saturation really is zero (that is where the knob belongs), only the hue
+        // is undefined.
+        hsva.h = remembered.0;
+    }
+    hsva
+}
+
 /// Photoshop Color panel: saturation/brightness field + hue strip, drawn as shaded meshes.
 fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let bg_active = app.ui.color_panel.background;
     let key = egui::Id::new(("color-field-hue", bg_active));
     let mut hsva = srgb_hsva(if bg_active { app.session.tools.background } else { app.session.tools.foreground });
-    // Keep hue stable for greys (where RGB->HSV hue is undefined).
-    let remembered: f32 = ui.data(|d| d.get_temp(key)).unwrap_or(hsva.h);
-    if hsva.s < 0.01 || hsva.v < 0.01 {
-        hsva.h = remembered;
-    }
+    // What the field showed last: a grey carries no hue, black neither hue nor saturation (#3228).
+    let remembered: (f32, f32) = ui.data(|d| d.get_temp(key)).unwrap_or((hsva.h, hsva.s));
+    hsva = field_hsva(hsva, remembered);
     let w = ui.available_width();
     let strip_w = 14.0;
     // Photoshop's Color panel field fills the panel: take the height the dock offers, less the
@@ -3261,7 +3303,7 @@ fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 app.session.tools.foreground = hsva_srgb(hsva);
                 crate::type_tool::foreground_changed(app);
             }
-            ui.data_mut(|d| d.insert_temp(key, hsva.h));
+            ui.data_mut(|d| d.insert_temp(key, (hsva.h, hsva.s)));
         }
     });
     ui.add_space(6.0);
@@ -3274,10 +3316,11 @@ fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 app.session.tools.foreground = c;
                 crate::type_tool::foreground_changed(app);
             }
-            // Keep the hue for greys, so the field marker doesn't jump to red.
+            // Keep the hue for greys, so the field marker doesn't jump to red; the saturation with
+            // it, so a later black lands on the corner it was last dragged to (#3228).
             let h = srgb_hsva(c);
             if h.s >= 0.01 && h.v >= 0.01 {
-                ui.data_mut(|d| d.insert_temp(key, h.h));
+                ui.data_mut(|d| d.insert_temp(key, (h.h, h.s)));
             }
         }
     });
@@ -3981,6 +4024,61 @@ mod color_tests {
         }
     }
 
+    /// Press at `from`, move to `to` in six steps and release, as egui sees a drag.
+    fn drag(h: &mut egui_kittest::Harness<'_, PhotocraftApp>, from: egui::Pos2, to: egui::Pos2) {
+        h.hover_at(from);
+        h.run_steps(1);
+        h.drag_at(from);
+        h.run_steps(1);
+        for i in 1..=6 {
+            h.hover_at(from + (to - from) * (i as f32 / 6.0));
+            h.run_steps(1);
+        }
+        h.drop_at(to);
+        h.run_steps(3);
+    }
+
+    /// Black carries neither hue nor saturation, a grey only the saturation it really has, and any
+    /// other colour nothing at all: the knob keeps where it was dragged instead of round-tripping
+    /// through RGB to the left edge (#3228).
+    #[test]
+    fn field_hsva_keeps_black_where_it_was_and_leaves_a_real_colour_alone() {
+        // Read back from black, as every frame does: nothing of the drag survives the RGB trip.
+        let black = field_hsva(egui::ecolor::Hsva::new(0.0, 0.0, 0.0, 1.0), (0.6, 1.0));
+        assert_eq!((black.h, black.s), (0.6, 1.0), "the corner the drag ended in");
+        // A grey: the saturation is genuinely zero — that is where the knob belongs — only the
+        // hue was undefined.
+        let grey = field_hsva(egui::ecolor::Hsva::new(0.0, 0.0, 0.5, 1.0), (0.6, 1.0));
+        assert_eq!((grey.h, grey.s), (0.6, 0.0), "the grey stays on the left edge");
+        // An ordinary colour is left as it is.
+        let red = field_hsva(egui::ecolor::Hsva::new(0.1, 0.8, 0.9, 1.0), (0.6, 1.0));
+        assert_eq!((red.h, red.s), (0.1, 0.8));
+    }
+
+    /// Dragging the selector into the bottom-right corner picks black there and leaves the knob
+    /// in that corner: black has no saturation of its own, so it used to be read back as `s = 0`
+    /// and drawn at the bottom-left instead, one frame after the drag that put it on the right
+    /// (#3228).
+    #[test]
+    fn dragging_to_the_bottom_right_keeps_the_knob_there() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.tools.foreground = [1.0, 1.0, 1.0, 1.0];
+        let mut h = field_harness(app);
+        let min = h.ctx.input(|i| i.viewport_rect()).min;
+        // Into the far bottom-right corner of the SV field: full saturation, no value. The end
+        // point lies past the corner on purpose — a real drag goes there too, and the widget
+        // clamps it to the field.
+        drag(&mut h, min + vec2(200.0, 60.0), min + vec2(280.0, 170.0));
+        assert_eq!(srgb_bytes(h.state().session.tools.foreground), [0, 0, 0], "both corners are black");
+        // What the knob is drawn from on the very next frame: the field kept the saturation the
+        // drag ended at (not the zero black reads back as), together with the hue.
+        let remembered: (f32, f32) = h.ctx.data(|d| d.get_temp(egui::Id::new(("color-field-hue", false)))).expect("the field remembers what it showed");
+        assert!(remembered.1 > 0.9, "the saturation the corner was dragged to: {remembered:?}");
+        let shown = field_hsva(egui::ecolor::Hsva::new(0.0, 0.0, 0.0, 1.0), remembered);
+        assert!(shown.s > 0.9, "the knob stays at the right edge, not the left: {remembered:?}");
+        assert!(shown.v < 0.01, "still black: {shown:?}");
+    }
+
     /// Black has no hue of its own, so each chip remembers the hue last picked for it.
     #[test]
     fn each_chip_keeps_its_own_hue_on_black() {
@@ -3999,6 +4097,34 @@ mod color_tests {
         click(&mut h, min + vec2(265.0, 10.0));
         let [r, g, b] = srgb_bytes(h.state().session.tools.foreground);
         assert!(g > 200 && r < 64 && b < 64, "the foreground's green, not the background's blue: {:?}", [r, g, b]);
+    }
+}
+
+#[cfg(test)]
+mod info_panel_sampler_tests {
+    use super::*;
+    use egui_kittest::{Harness, kittest::Queryable};
+
+    /// #1046: the Info panel lists each Color Sampler point under its number, with its position and
+    /// the composite RGB/CMYK readout, one composite pixel each.
+    #[test]
+    fn info_panel_lists_the_sample_points() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 80, "height": 60, "background": "white"})).unwrap();
+        app.run("view.colorSamplers.add", json!({"x": 5, "y": 6})).unwrap();
+        app.run("view.colorSamplers.add", json!({"x": 40, "y": 30})).unwrap();
+        let mut h = Harness::builder().with_size(vec2(340.0, 400.0)).build_ui_state(|ui, app: &mut PhotocraftApp| info_panel(app, ui), app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Pro);
+        h.run_steps(3);
+        // Both points are listed, numbered, and read as white (RGB 255 / CMYK 0%).
+        assert!(h.query_by_label("#1").is_some(), "point 1 is listed");
+        assert!(h.query_by_label("#2").is_some(), "point 2 is listed");
+        assert_eq!(h.query_all_by_label_contains("R:255 G:255 B:255").count(), 2, "each point shows its RGB");
+        assert_eq!(h.query_all_by_label_contains("C:0% M:0% Y:0% K:0%").count(), 2, "each point shows its CMYK");
+        // Clearing them takes the list away.
+        h.state_mut().run("view.colorSamplers.clear", json!({})).unwrap();
+        h.run_steps(2);
+        assert!(h.query_by_label("#1").is_none(), "no points listed once cleared");
     }
 }
 

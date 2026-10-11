@@ -1534,6 +1534,7 @@
 	White Balance: As Shot	白平衡：原始拍攝
 	Whites	白色
 	Width	寬度
+	Slant	傾斜
 	Width:	寬度：
 	Work Path	工作路徑
 	Yellow	黃色
@@ -1710,6 +1711,7 @@
 	Pen Pressure	筆壓
 	Pen Tilt	筆傾斜
 	Pen Tool	筆型工具
+	Convert Point Tool	轉換錨點工具
 	Photo	相片
 	PhotoCraft website	PhotoCraft 網站
 	Picas	派卡
@@ -2533,6 +2535,21 @@ cameraData	Lens	鏡頭
 	Snap to Origin	靠齊原點
 	Search settings…	搜尋設定…
 	No matching settings	沒有符合的設定
+# Select and Mask view modes (#1754)
+	Onion Skin	洋蔥皮
+	Marching Ants	螞蟻線
+	On Black	黑底
+	On White	白底
+	On Layers	圖層上
+	Show Edge	顯示邊緣
+	Show Original	顯示原始
+	F cycles the views; hold X to see the image	按 F 切換檢視；按住 X 檢視影像
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	調整邊緣筆刷 (R)
+	Expand Detection Area	擴展偵測區域
+	Restore Original Edge	恢復原始邊緣
+	Paint over hair or fur on the image; Alt paints the other mode	在影像中的頭髮或毛髮上塗抹；按住 Alt 以另一種模式塗抹
+	Clear Brush Strokes	清除筆刷筆觸
 	Show rulers	顯示尺標
 	New Crop Preset…	新增裁切預設集…
 	Delete Crop Preset…	刪除裁切預設集…
@@ -2540,3 +2557,8 @@ cameraData	Lens	鏡頭
 	Select the crop presets to delete	選取要刪除的裁切預設集
 	Enter a name for the crop preset	輸入裁切預設集的名稱
 	There is no crop size or ratio to save	沒有可儲存的裁切尺寸或比例
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	按一下以放置 · Alt 按一下或拖曳至畫布外以移除
+	No document open	未開啟任何文件
+	{n} of {max} sample points	{max} 個取樣點中的 {n} 個

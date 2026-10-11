@@ -1522,6 +1522,7 @@
 	White Balance: As Shot	Balans bieli: jak w zdjęciu
 	Whites	Biele
 	Width	Szerokość
+	Slant	Pochylenie
 	Width:	Szerokość:
 	Work Path	Ścieżka robocza
 	Yellow	Żółty
@@ -1697,6 +1698,7 @@
 	Pen Pressure	Nacisk pióra
 	Pen Tilt	Nachylenie pióra
 	Pen Tool	Narzędzie Pióro
+	Convert Point Tool	Narzędzie Konwertuj punkt
 	Photo	Zdjęcie
 	PhotoCraft website	Strona internetowa PhotoCraft
 	Picas	Pikasy
@@ -3569,4 +3571,24 @@ cameraData	Lens	Obiektyw
 	Snap to Origin	Przyciągnij do początku
 	Search settings…	Szukaj ustawień…
 	No matching settings	Brak pasujących ustawień
+# Select and Mask view modes (#1754)
+	Onion Skin	Skórka cebuli
+	Marching Ants	Maszerujące mrówki
+	On Black	Na czarnym
+	On White	Na białym
+	On Layers	Na warstwach
+	Show Edge	Pokaż krawędź
+	Show Original	Pokaż oryginał
+	F cycles the views; hold X to see the image	F przełącza widoki; przytrzymaj X, aby zobaczyć obraz
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	Pędzel dopracowania krawędzi (R)
+	Expand Detection Area	Rozszerz obszar wykrywania
+	Restore Original Edge	Przywróć oryginalną krawędź
+	Paint over hair or fur on the image; Alt paints the other mode	Maluj po włosach lub sierści na obrazie; Alt maluje w drugim trybie
+	Clear Brush Strokes	Wyczyść pociągnięcia pędzla
 	Show rulers	Pokaż linijki
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	Kliknij, aby umieścić · Alt-kliknij lub przeciągnij poza obszar roboczy, aby usunąć
+	No document open	Brak otwartego dokumentu
+	{n} of {max} sample points	{n} z {max} punktów próbkowania

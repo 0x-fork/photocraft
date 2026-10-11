@@ -1509,6 +1509,7 @@
 	White Balance: As Shot	Witbalans: zoals opgenomen
 	Whites	Witten
 	Width	Breedte
+	Slant	Helling
 	Width:	Breedte:
 	Work Path	Werkpad
 	Yellow	Geel
@@ -1682,6 +1683,7 @@
 	Pen Pressure	Pendruk
 	Pen Tilt	Penkanteling
 	Pen Tool	Pengereedschap
+	Convert Point Tool	Punt-converteergereedschap
 	Photo	Foto
 	PhotoCraft website	Website van PhotoCraft
 	Picas	Pica's
@@ -3714,6 +3716,21 @@ cameraData	Lens	Lens
 	Search settings…	Instellingen zoeken…
 	No matching settings	Geen overeenkomende instellingen
 	PhotoCraft — Screen Color Picker	PhotoCraft — Schermkleurkiezer
+# Select and Mask view modes (#1754)
+	Onion Skin	Uienschil
+	Marching Ants	Mierenmars
+	On Black	Op zwart
+	On White	Op wit
+	On Layers	Op lagen
+	Show Edge	Rand tonen
+	Show Original	Origineel tonen
+	F cycles the views; hold X to see the image	F wisselt de weergaven; houd X ingedrukt om de afbeelding te zien
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	Penseel Rand verfijnen (R)
+	Expand Detection Area	Detectiegebied uitbreiden
+	Restore Original Edge	Oorspronkelijke rand herstellen
+	Paint over hair or fur on the image; Alt paints the other mode	Schilder over haar of vacht in de afbeelding; Alt schildert in de andere modus
+	Clear Brush Strokes	Penseelstreken wissen
 	Show rulers	Linialen tonen
 	Frame Tool	Kadergereedschap
 	Create a new rectangular frame	Nieuw rechthoekig kader maken
@@ -3721,3 +3738,7 @@ cameraData	Lens	Lens
 	Include in playback	Opnemen in afspelen
 	Scale:	Schaal:
 	Snap to Origin	Uitlijnen op oorsprong
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	Klik om te plaatsen · Alt-klik of sleep buiten het canvas om te verwijderen
+	{n} of {max} sample points	{n} van {max} steekproefpunten

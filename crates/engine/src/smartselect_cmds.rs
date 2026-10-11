@@ -205,12 +205,66 @@ fn refine_params(p: &Value) -> RefineParams {
     }
 }
 
+/// Most Refine Edge Brush strokes, and points across them, one Select and Mask takes.
+pub const MAX_STROKES: usize = 4096;
+pub const MAX_STROKE_POINTS: usize = 100_000;
+
+/// The Refine Edge Brush strokes of `refineStrokes`:
+/// `[{"points":[[x,y],…],"size":px,"mode":"add|subtract"}]`, in painting order.
+fn refine_strokes(p: &Value) -> Result<Vec<matting::EdgeStroke>> {
+    const CMD: &str = "select.refineEdge";
+    let Some(v) = p.get("refineStrokes").filter(|v| !v.is_null()) else { return Ok(Vec::new()) };
+    let list = v.as_array().ok_or_else(|| bad(CMD, "refineStrokes must be an array of strokes"))?;
+    if list.len() > MAX_STROKES {
+        return Err(bad(CMD, &format!("refineStrokes holds more than {MAX_STROKES} strokes")));
+    }
+    let mut total = 0usize;
+    let mut strokes = Vec::with_capacity(list.len());
+    for stroke in list {
+        let o = stroke.as_object().ok_or_else(|| bad(CMD, "each refineStrokes entry must be {\"points\":[[x,y],…],\"size\":px,\"mode\":\"add|subtract\"}"))?;
+        let pts = o.get("points").and_then(Value::as_array).filter(|a| !a.is_empty()).ok_or_else(|| bad(CMD, "each stroke needs a non-empty points array"))?;
+        total = total.saturating_add(pts.len());
+        if total > MAX_STROKE_POINTS {
+            return Err(bad(CMD, &format!("refineStrokes holds more than {MAX_STROKE_POINTS} points")));
+        }
+        let points = pts
+            .iter()
+            .map(|pt| {
+                let xy = pt.as_array().filter(|a| a.len() == 2)?;
+                let (x, y) = (xy.first()?.as_f64()?, xy.get(1)?.as_f64()?);
+                let ok = |v: f64| v.is_finite() && v.abs() <= 1e7;
+                (ok(x) && ok(y)).then_some((x as f32, y as f32))
+            })
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(|| bad(CMD, "stroke points must be [x,y] pairs of finite numbers"))?;
+        let range = matting::BRUSH_SIZE_RANGE;
+        let size = match o.get("size") {
+            None => 30.0,
+            Some(v) => v
+                .as_f64()
+                .filter(|s| s.is_finite() && (f64::from(*range.start())..=f64::from(*range.end())).contains(s))
+                .ok_or_else(|| bad(CMD, &format!("stroke size must be {}..{} px", range.start(), range.end())))? as f32,
+        };
+        let add = match o.get("mode").map(|m| m.as_str()) {
+            None | Some(Some("add")) => true,
+            Some(Some("subtract")) => false,
+            Some(_) => return Err(bad(CMD, "stroke mode must be add|subtract")),
+        };
+        strokes.push(matting::EdgeStroke { points, size, add });
+    }
+    if matting::swept_area(&strokes) > matting::MAX_SWEPT_AREA {
+        return Err(bad(CMD, "refineStrokes paint too large an area"));
+    }
+    Ok(strokes)
+}
+
 /// Select and Mask: refines the selection edge, then outputs to the selection, a layer mask on
 /// the active layer, or a new layer (with or without a mask). Decontaminating colours needs a
 /// new layer, so it upgrades `selection` / `layerMask` output to `newLayerWithMask` (as
 /// Photoshop does). New-layer outputs hide the source layer.
 fn refine_edge(s: &mut Session, p: &Value) -> Result<Value> {
     let params = refine_params(p);
+    let strokes = refine_strokes(p)?;
     let decontaminate = b(p, "decontaminate", false);
     let amount = f(p, "amount", 100.0).clamp(0.0, 100.0);
     let d = s.active().ok_or(EngineError::NoDocument)?;
@@ -227,7 +281,8 @@ fn refine_edge(s: &mut Session, p: &Value) -> Result<Value> {
     let region = with_sampler(s, b(p, "sampleAllLayers", false), |smp, doc| {
         let mask_surf = active.and_then(|id| doc.layer(id)).and_then(|l| l.mask.as_ref()).map(|m| &m.surface);
         let sel = doc.selection.as_ref().or(mask_surf)?;
-        matting::refine_mask(smp, &matting::surface_reader(sel), sel.content_bounds(), doc.bounds(), &params)
+        let brush = matting::EdgeBrush::new(&strokes, doc.bounds());
+        matting::refine_mask_brushed(smp, &matting::surface_reader(sel), sel.content_bounds(), doc.bounds(), &params, brush.as_ref())
     })?;
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let active = d.active_layer.filter(|id| d.doc.layer(*id).is_some());
@@ -319,7 +374,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "select.refineEdge",
             "Refine Edge",
             [],
-            r##"{"radius":px=0,"smartRadius":bool=false,"smooth":0..100=0,"feather":px=0,"contrast":0..100=0,"shiftEdge":-100..100=0,"decontaminate":bool=false,"amount":0..100=100,"output":"selection|layerMask|newLayer|newLayerWithMask"="selection","sampleAllLayers":bool=false}"##,
+            r##"{"radius":px=0,"smartRadius":bool=false,"smooth":0..100=0,"feather":px=0,"contrast":0..100=0,"shiftEdge":-100..100=0,"decontaminate":bool=false,"amount":0..100=100,"output":"selection|layerMask|newLayer|newLayerWithMask"="selection","sampleAllLayers":bool=false,"refineStrokes":[{"points":[[x,y],…],"size":px=30,"mode":"add|subtract"="add"},…]=[]} (refineStrokes: the Refine Edge Brush, in painting order: add refines the painted area from the image, subtract keeps the original edge there)"##,
             has_selection_or_mask,
             refine_edge
         ),
@@ -618,6 +673,41 @@ mod tests {
         s.execute("edit.undo", json!({})).unwrap();
         s.execute("select.refineEdge", json!({"feather": 8, "contrast": 100})).unwrap();
         assert!(cov(&s, 38, 20) == 1.0 && cov(&s, 42, 20) == 0.0);
+    }
+
+    /// The Refine Edge Brush adds strands beyond the radius band, at every depth, and rejects
+    /// malformed strokes.
+    #[test]
+    fn refine_edge_brush_strokes() {
+        for depth in [8, 16, 32] {
+            // Warm subject (x < 40) with warm strands every 4th column from x = 60, on blue.
+            let strand = |x: u32| x < 40 || ((60..84).contains(&x) && x.is_multiple_of(4));
+            let mut s = session_with(120, 40, depth, |x, _| if strand(x) { [0.9, 0.7, 0.2] } else { [0.1, 0.3, 0.8] });
+            s.execute("select.rect", json!({"x": 0, "y": 0, "width": 40, "height": 40})).unwrap();
+            let stroke = json!([{"points": [[70, 5], [70, 35]], "size": 30}]);
+            s.execute("select.refineEdge", json!({"radius": 4, "refineStrokes": stroke})).unwrap();
+            assert!(cov(&s, 64, 20) > 0.9 && cov(&s, 72, 20) > 0.9, "depth {depth}: strands {}", cov(&s, 64, 20));
+            assert!(cov(&s, 66, 20) < 0.1 && cov(&s, 100, 20) < 0.01, "depth {depth}: background");
+            s.execute("edit.undo", json!({})).unwrap();
+            // Subtract over the same place paints the refinement out again.
+            let both = json!([{"points": [[70, 5], [70, 35]], "size": 30}, {"points": [[70, 5], [70, 35]], "size": 40, "mode": "subtract"}]);
+            s.execute("select.refineEdge", json!({"radius": 4, "refineStrokes": both})).unwrap();
+            assert!(cov(&s, 64, 20) < 0.01, "depth {depth}");
+            s.execute("edit.undo", json!({})).unwrap();
+            for bad in [
+                json!(7),
+                json!([5]),
+                json!([{"points": []}]),
+                json!([{"points": [[1, "x"]]}]),
+                json!([{"points": [[1, 2, 3]]}]),
+                json!([{"points": [[1, 2]], "size": 0}]),
+                json!([{"points": [[1, 2]], "size": 1e9}]),
+                json!([{"points": [[1, 2]], "mode": "xor"}]),
+                json!([{"points": [[0, 0], [1e6, 1e6], [0, 0], [1e6, 1e6]], "size": 5000}]),
+            ] {
+                assert!(s.execute("select.refineEdge", json!({"refineStrokes": bad})).is_err(), "{bad}");
+            }
+        }
     }
 
     #[test]

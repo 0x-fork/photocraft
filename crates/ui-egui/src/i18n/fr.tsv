@@ -1509,6 +1509,7 @@
 	White Balance: As Shot	Balance des blancs : telle quelle
 	Whites	Blancs
 	Width	Largeur
+	Slant	Inclinaison
 	Width:	Largeur :
 	Work Path	Tracé de travail
 	Yellow	Jaune
@@ -1681,6 +1682,7 @@
 	Pen Pressure	Pression du stylet
 	Pen Tilt	Inclinaison du stylet
 	Pen Tool	Outil Plume
+	Convert Point Tool	Outil Conversion de point
 	Photo	Photo
 	PhotoCraft website	Site web de PhotoCraft
 	Picas	Picas
@@ -2971,4 +2973,24 @@ cameraData	Lens	Objectif
 	Snap to Origin	Aligner sur l'origine
 	Search settings…	Rechercher des réglages…
 	No matching settings	Aucun réglage correspondant
+# Select and Mask view modes (#1754)
+	Onion Skin	Pelure d'oignon
+	Marching Ants	Fourmis en marche
+	On Black	Sur fond noir
+	On White	Sur fond blanc
+	On Layers	Sur les calques
+	Show Edge	Afficher le bord
+	Show Original	Afficher l'original
+	F cycles the views; hold X to see the image	F fait défiler les vues ; maintenez X pour voir l'image
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	Pinceau d'amélioration du contour (R)
+	Expand Detection Area	Étendre la zone de détection
+	Restore Original Edge	Restaurer le contour d'origine
+	Paint over hair or fur on the image; Alt paints the other mode	Peignez sur les cheveux ou la fourrure dans l'image ; Alt peint dans l'autre mode
+	Clear Brush Strokes	Effacer les traits de pinceau
 	Show rulers	Afficher les règles
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	Cliquez pour placer · Alt-clic ou glisser hors du canevas pour supprimer
+	No document open	Aucun document ouvert
+	{n} of {max} sample points	{n} sur {max} points d'échantillonnage

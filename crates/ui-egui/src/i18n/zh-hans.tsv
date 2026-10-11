@@ -1540,6 +1540,7 @@
 	White Balance: As Shot	白平衡：拍摄时设置
 	Whites	白色色阶
 	Width	宽度
+	Slant	倾斜
 	Width:	宽度：
 	Work Path	工作路径
 	Yellow	黄色
@@ -1718,6 +1719,7 @@
 	Pen Pressure	钢笔压力
 	Pen Tilt	钢笔倾斜
 	Pen Tool	钢笔工具
+	Convert Point Tool	转换点工具
 	Photo	照片
 	PhotoCraft website	PhotoCraft 网站
 	Picas	派卡
@@ -2563,6 +2565,21 @@ cameraData	Lens	镜头
 	Snap to Origin	贴紧原点
 	Search settings…	搜索设置…
 	No matching settings	没有匹配的设置
+# Select and Mask view modes (#1754)
+	Onion Skin	洋葱皮
+	Marching Ants	蚂蚁线
+	On Black	黑底
+	On White	白底
+	On Layers	图层上
+	Show Edge	显示边缘
+	Show Original	显示原始
+	F cycles the views; hold X to see the image	按 F 切换视图；按住 X 查看图像
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	调整边缘画笔 (R)
+	Expand Detection Area	扩展检测区域
+	Restore Original Edge	恢复原始边缘
+	Paint over hair or fur on the image; Alt paints the other mode	在图像中的头发或毛发上涂抹；按住 Alt 以另一种模式涂抹
+	Clear Brush Strokes	清除画笔描边
 	Show rulers	显示标尺
 	New Crop Preset…	新建裁剪预设…
 	Delete Crop Preset…	删除裁剪预设…
@@ -2570,3 +2587,8 @@ cameraData	Lens	镜头
 	Select the crop presets to delete	选择要删除的裁剪预设
 	Enter a name for the crop preset	输入裁剪预设的名称
 	There is no crop size or ratio to save	没有可保存的裁剪大小或比例
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	单击以放置 · Alt 单击或拖到画布外以移除
+	No document open	未打开任何文档
+	{n} of {max} sample points	{max} 个取样点中的 {n} 个
