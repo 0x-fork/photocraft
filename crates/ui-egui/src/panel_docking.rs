@@ -51,7 +51,7 @@ fn cancel_legacy_drag(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
     }
 }
 
-fn normalize(raw: &str) -> Option<&'static str> {
+pub(crate) fn normalize(raw: &str) -> Option<&'static str> {
     PANELS.iter().find(|(id, label, _)| id.eq_ignore_ascii_case(raw.trim()) || label.eq_ignore_ascii_case(raw.trim())).map(|p| p.0)
 }
 

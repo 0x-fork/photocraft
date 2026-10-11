@@ -1988,6 +1988,39 @@ fn scale_limit_pct(side: f64) -> f32 {
     ((f64::from(POSITION_LIMIT_PX) / side * 100.0) as f32).clamp(100.0, SCALE_LIMIT_PCT)
 }
 
+/// Where Free Transform remembers the unit of its W and H fields, picked by right-clicking either
+/// of them as in Photoshop (Percent until another is picked).
+const SIZE_UNIT_KEY: &str = "edit.freeTransform";
+
+/// The W/H unit, with the document's resolution and the points per inch it converts with.
+fn size_unit(app: &PhotocraftApp) -> crate::layer_props_ui::LenUnit {
+    use photocraft_engine::prefs::Unit;
+    let unit = app.session.prefs().dialogs.get(SIZE_UNIT_KEY).and_then(|v| v.get("sizeUnit")).and_then(serde_json::Value::as_str).and_then(Unit::parse);
+    crate::layer_props_ui::LenUnit { unit: unit.unwrap_or(Unit::Percent), ..crate::layer_props_ui::LenUnit::of(app) }
+}
+
+fn set_size_unit(app: &mut PhotocraftApp, name: &str) {
+    app.session.prefs.edit(|p| {
+        let entry = p.dialogs.entry(SIZE_UNIT_KEY.to_string()).or_insert_with(|| json!({}));
+        if !entry.is_object() {
+            *entry = json!({});
+        }
+        entry["sizeUnit"] = json!(name);
+    });
+}
+
+/// A W or H value shown in `u`: the box side `side` px wide at the original size, scaled by `pct`.
+/// Percent stays the scale itself (100 % is the original size), lengths are the side's length.
+fn size_shown(u: &crate::layer_props_ui::LenUnit, pct: f64, side: f64) -> f32 {
+    u.shown(pct / 100.0 * side, side)
+}
+
+/// The scale (%) a W or H value typed in `u` asks for, for a box side `side` px wide originally.
+fn size_pct(u: &crate::layer_props_ui::LenUnit, v: f32, side: f64) -> f64 {
+    let side = side.abs().max(1e-9);
+    u.px(v, side) / side * 100.0
+}
+
 /// Options bar while transforming: the fields (reference point X/Y, W/H %, angle, interpolation,
 /// or the warp controls), then the mode switch, cancel and commit right after them. A bar too
 /// narrow for both pins the buttons to the right edge and clips the fields, so Commit and Cancel
@@ -2033,10 +2066,18 @@ fn transform_fields(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &TransformSes
         s.pivot = [px as f64, py as f64];
     }
     crate::widgets::vline(ui, 22.0);
-    let (mut w, mut h) = (sx as f32, sy as f32);
-    let (wlim, hlim) = (scale_limit_pct(t.rect[2] - t.rect[0]), scale_limit_pct(t.rect[3] - t.rect[1]));
+    // W and H in the unit picked from their right-click menu: the scale in percent, or the box's
+    // length (Photoshop's units, at the document's resolution).
+    let u = size_unit(app);
+    let (side_w, side_h) = (t.rect[2] - t.rect[0], t.rect[3] - t.rect[1]);
+    let (wlim, hlim) = (scale_limit_pct(side_w), scale_limit_pct(side_h));
+    let (wlim_u, hlim_u) = (size_shown(&u, f64::from(wlim), side_w), size_shown(&u, f64::from(hlim), side_h));
+    let (mut w, mut h) = (size_shown(&u, sx, side_w), size_shown(&u, sy, side_h));
+    let (suffix, places) = (u.unit.suffix(), u.unit.decimals() as u32);
+    // Lengths need more room than a percentage ("2116.67 mm").
+    let size_w = if u.unit == photocraft_engine::prefs::Unit::Percent { 66.0 } else { 84.0 };
     lbl(ui, "W:");
-    let rw = crate::widgets::value_field(ui, &mut w, -wlim..=wlim, "%", 66.0);
+    let rw = crate::widgets::value_field_prec(ui, &mut w, -wlim_u..=wlim_u, suffix, size_w, places);
     let link_id = egui::Id::new("transform-link");
     let mut link: bool = ui.data(|d| d.get_temp(link_id)).unwrap_or(true);
     if crate::icons::button(ui, if link { "link" } else { "unlink" }, 22.0, link, tl!("Maintain aspect ratio")).clicked() {
@@ -2044,7 +2085,15 @@ fn transform_fields(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &TransformSes
         ui.data_mut(|d| d.insert_temp(link_id, link));
     }
     lbl(ui, "H:");
-    let rh = crate::widgets::value_field(ui, &mut h, -hlim..=hlim, "%", 66.0);
+    let rh = crate::widgets::value_field_prec(ui, &mut h, -hlim_u..=hlim_u, suffix, size_w, places);
+    for r in [&rw, &rh] {
+        r.context_menu(|ui| {
+            if let Some(name) = crate::rulers::unit_menu(ui, u.unit) {
+                set_size_unit(app, name);
+            }
+        });
+    }
+    let (w, h) = (size_pct(&u, w, side_w) as f32, size_pct(&u, h, side_h) as f32);
     if rw.changed() || rh.changed() {
         let (kx, ky) = if link {
             let k = if rw.changed() { w as f64 / sx.max(1e-9) } else { h as f64 / sy.max(1e-9) };
@@ -2477,11 +2526,17 @@ mod tests {
 
     /// Types `text` + Enter into the `n`th numeric field of the transform bar (X, Y, W, H, angle…).
     fn type_into_bar_field(n: usize, text: &str) -> TransformSession {
+        type_into_bar_field_with(|_| {}, n, text)
+    }
+
+    /// The transform bar over the test box, after `setup` (e.g. picking the W/H unit). Tall enough
+    /// for the fields' unit menu to open below the bar unscrolled.
+    fn bar_harness(setup: impl FnOnce(&mut PhotocraftApp)) -> egui_kittest::Harness<'static, PhotocraftApp> {
         use egui_kittest::Harness;
-        use egui_kittest::kittest::Queryable;
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.ui.transform = Some(session());
-        let mut h = Harness::builder().with_size(vec2(900.0, 48.0)).build_ui_state(
+        setup(&mut app);
+        let mut h = Harness::builder().with_size(vec2(900.0, 360.0)).build_ui_state(
             |ui, app: &mut PhotocraftApp| {
                 if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
                     return;
@@ -2492,6 +2547,13 @@ mod tests {
         );
         PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
         h.run_steps(6);
+        h
+    }
+
+    /// [`type_into_bar_field`] after `setup`.
+    fn type_into_bar_field_with(setup: impl FnOnce(&mut PhotocraftApp), n: usize, text: &str) -> TransformSession {
+        use egui_kittest::kittest::Queryable;
+        let mut h = bar_harness(setup);
         h.get_all_by_role(egui::accesskit::Role::SpinButton).nth(n).unwrap().click();
         h.run();
         for c in text.chars() {
@@ -2501,6 +2563,87 @@ mod tests {
         h.key_press(egui::Key::Enter);
         h.run_steps(2);
         h.state().ui.transform.clone().unwrap()
+    }
+
+    /// The values the W and H fields show (the 3rd and 4th numeric fields).
+    fn shown_size(h: &egui_kittest::Harness<'static, PhotocraftApp>) -> Vec<String> {
+        use egui_kittest::kittest::{NodeT, Queryable};
+        h.get_all_by_role(egui::accesskit::Role::SpinButton).skip(2).take(2).map(|n| n.accesskit_node().value().unwrap_or_default().to_string()).collect()
+    }
+
+    #[test]
+    fn size_fields_convert_between_percent_and_lengths() {
+        use crate::layer_props_ui::LenUnit;
+        use photocraft_engine::prefs::Unit;
+        // A 300 px side at 300 ppi is one inch at 100 %.
+        let at = |unit| LenUnit { unit, dpi: 300.0, ppi: 72.0 };
+        for (unit, at_100) in [
+            (Unit::Percent, 100.0),
+            (Unit::Pixels, 300.0),
+            (Unit::Inches, 1.0),
+            (Unit::Centimeters, 2.54),
+            (Unit::Millimeters, 25.4),
+            (Unit::Points, 72.0),
+            (Unit::Picas, 6.0),
+        ] {
+            let u = at(unit);
+            let shown = size_shown(&u, 100.0, 300.0);
+            assert!((f64::from(shown) - at_100).abs() < 1e-3, "{unit:?}: {shown}");
+            assert!((size_shown(&u, 150.0, 300.0) - shown * 1.5).abs() < 1e-3, "{unit:?} scales with the box");
+            assert!((size_pct(&u, shown * 2.0, 300.0) - 200.0).abs() < 1e-3, "{unit:?}: twice the length is 200 %");
+            assert!((size_pct(&u, -shown, 300.0) + 100.0).abs() < 1e-3, "{unit:?}: a negative length flips");
+        }
+        // A degenerate side never divides by zero.
+        assert!(size_pct(&at(Unit::Inches), 1.0, 0.0).is_finite());
+    }
+
+    #[test]
+    fn w_and_h_take_lengths_in_the_unit_picked_for_them() {
+        use photocraft_engine::prefs::Unit;
+        // The test box is 100 × 50 px; with no document open, lengths convert at 72 ppi.
+        let cm = |app: &mut PhotocraftApp| set_size_unit(app, Unit::Centimeters.name());
+        let h = bar_harness(cm);
+        assert_eq!(shown_size(&h), ["3.53", "1.76"], "the box's size in cm, not 100 %");
+        // 7.06 cm is twice the width; linked, the height follows.
+        let t = type_into_bar_field_with(cm, 2, "7.06");
+        let (sx, sy, _, _) = readout(&t);
+        assert!((sx - 200.0).abs() < 0.2 && (sy - 200.0).abs() < 0.2, "{sx} {sy}");
+        // Pixels: an exact width.
+        let t = type_into_bar_field_with(|app| set_size_unit(app, Unit::Pixels.name()), 2, "250");
+        assert!((t.quad[1][0] - t.quad[0][0] - 250.0).abs() < 0.01, "{:?}", t.quad);
+        // Percent is still the default.
+        assert_eq!(shown_size(&bar_harness(|_| {})), ["100", "100"]);
+    }
+
+    #[test]
+    fn right_clicking_w_or_h_picks_their_unit_and_remembers_it() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = bar_harness(|_| {});
+        h.get_all_by_role(egui::accesskit::Role::SpinButton).nth(2).unwrap().click_secondary();
+        h.run_steps(2);
+        h.get_by_label("Inches").click();
+        h.run_steps(3);
+        assert_eq!(size_unit(h.state()).unit, photocraft_engine::prefs::Unit::Inches);
+        assert_eq!(h.state().session.prefs().dialogs[SIZE_UNIT_KEY]["sizeUnit"], "inches");
+        assert_eq!(shown_size(&h), ["1.389", "0.694"], "100 × 50 px at 72 ppi");
+        // H opens the same menu, with the current unit checked.
+        h.get_all_by_role(egui::accesskit::Role::SpinButton).nth(3).unwrap().click_secondary();
+        h.run_steps(2);
+        assert!(h.query_by_label("✓ Inches").is_some(), "the current unit is checked");
+        h.get_by_label("Percent").click();
+        h.run_steps(3);
+        assert_eq!(shown_size(&h), ["100", "100"]);
+        // A hand-edited or stale preference falls back to Percent instead of failing.
+        h.state_mut().session.prefs.edit(|p| {
+            p.dialogs.insert(SIZE_UNIT_KEY.into(), json!({"sizeUnit": "furlongs"}));
+        });
+        assert_eq!(size_unit(h.state()).unit, photocraft_engine::prefs::Unit::Percent);
+        h.state_mut().session.prefs.edit(|p| {
+            p.dialogs.insert(SIZE_UNIT_KEY.into(), json!("not an object"));
+        });
+        assert_eq!(size_unit(h.state()).unit, photocraft_engine::prefs::Unit::Percent);
+        set_size_unit(h.state_mut(), "points");
+        assert_eq!(size_unit(h.state()).unit, photocraft_engine::prefs::Unit::Points, "a bad entry is replaced, not kept");
     }
 
     #[test]

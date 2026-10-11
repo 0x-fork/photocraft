@@ -1213,6 +1213,18 @@ fn feature_list(st: &CharStyle, small_caps: SmallCapsMode) -> Vec<String> {
     feats
 }
 
+/// The font variations for a run: the explicit axis values, plus `opsz` at the type size when the
+/// style doesn't set it (as CSS `font-optical-sizing: auto`). A font without an `opsz` axis
+/// ignores it.
+fn variation_list(st: &CharStyle) -> Vec<String> {
+    let mut vars: Vec<String> =
+        st.variations.iter().filter(|v| v.axis.len() == 4 && v.axis.is_ascii() && v.value.is_finite()).map(|v| format!("\"{}\" {}", v.axis, v.value)).collect();
+    if st.size_pt.is_finite() && !st.variations.iter().any(|v| v.axis == "opsz") {
+        vars.push(format!("\"opsz\" {}", st.size_pt.max(0.01)));
+    }
+    vars
+}
+
 fn style_props(st: &CharStyle, k: f32, fallback: &[String], idx: u32, small_caps: SmallCapsMode) -> Vec<StyleProperty<'static, RunBrush>> {
     let px = (st.size_pt * k).max(0.01);
     let mut fam: Vec<String> = Vec::new();
@@ -1227,7 +1239,7 @@ fn style_props(st: &CharStyle, k: f32, fallback: &[String], idx: u32, small_caps
     }
     fam.push("sans-serif".into());
     let feats = feature_list(st, small_caps);
-    let vars: Vec<String> = st.variations.iter().filter(|v| v.axis.len() == 4 && v.axis.is_ascii()).map(|v| format!("\"{}\" {}", v.axis, v.value)).collect();
+    let vars = variation_list(st);
     vec![
         StyleProperty::FontFamily(FontFamily::Source(Cow::Owned(fam.join(", ")))),
         StyleProperty::FontSize(px),
@@ -1331,8 +1343,17 @@ fn first_ascent(line: &parley::Line<'_, RunBrush>) -> Option<f32> {
 
 #[cfg(test)]
 mod tests {
-    use super::{SmallCapsMode, feature_list, small_caps_mode};
-    use photocraft_doc::text::{Caps, CharStyle};
+    use super::{SmallCapsMode, feature_list, small_caps_mode, variation_list};
+    use photocraft_doc::text::{Caps, CharStyle, FontVariation};
+
+    /// A variable font's optical size follows the type size unless the style sets `opsz` (#2985).
+    #[test]
+    fn optical_size_follows_the_type_size_unless_set() {
+        let style = CharStyle { size_pt: 36.0, variations: vec![FontVariation { axis: "wght".into(), value: 650.0 }], ..Default::default() };
+        assert_eq!(variation_list(&style), ["\"wght\" 650", "\"opsz\" 36"]);
+        let set = CharStyle { size_pt: 36.0, variations: vec![FontVariation { axis: "opsz".into(), value: 12.0 }], ..Default::default() };
+        assert_eq!(variation_list(&set), ["\"opsz\" 12"]);
+    }
 
     #[test]
     fn uses_real_small_caps_only_when_the_selected_face_supports_smcp() {

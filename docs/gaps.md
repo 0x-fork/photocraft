@@ -1,6 +1,6 @@
 # Where PhotoCraft falls short of Photoshop
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-10 · **Change:** major (first version: every known shortfall ranked, from the 2026-10-10 re-measure) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-10 · **Change:** minor (Tilt-Shift evidence added to G2; earlier the same day: major, every known shortfall ranked from the re-measure) · **Target:** Adobe Photoshop 2026
 
 Every known shortfall against Photoshop 2026 (27.11.0), one entry each, ranked by user impact
 on the way to beta. This is the work list agents pick from: take the highest-ranked entry that
@@ -65,8 +65,8 @@ what an agent can't finish alone.
 - **Estimate:** 60–100 h (2–9 h each, per the calibration).
 
 ### G7. Workspaces shown as parameter dialogs
-- **Missing:** Select and Mask workspace layout, Refine Edge brush and outputs
-  (TOOL-214-1, Refine Hair #2671; its view modes preview live since #1754); Content-Aware Fill workspace with a paintable sampling area
+- **Missing:** Select and Mask workspace layout and New Document outputs
+  (TOOL-214-1, Refine Hair #2671; its view modes preview live since #1754, Refine Edge Brush #2972); Content-Aware Fill workspace with a paintable sampling area
   (TOOL-214-15); Vanishing Point plane editor (TOOL-214-14); Content-Aware Scale through the
   transform box (TOOL-214-7); Puppet Warp mesh following the outline (TOOL-214-6); Content-Aware
   Move's Transform On Drop (TOOL-213-4).
@@ -158,6 +158,12 @@ what an agent can't finish alone.
 - **Estimate:** 150–250 h.
 
 ### G2. Interactive performance
+- **Measured progress (2026-10-10):** Tilt-Shift's existing per-level halo/copy
+  optimization measures 1.07–1.49× faster across nine local 24 MP cases, with exact
+  finite output bits. The filtered proxy improves for medium/large blur; its
+  default small blur and the 36 MP saturated-field gain are inconclusive.
+  [Method and full ranges](tilt-shift-performance.md). Native GUI latency remains
+  unmeasured; no scorecard budget or parity percentage is changed by this work.
 - **Missing:** 22 of 25 budgeted scenarios are over budget (baseline 2026-10-05, a heavily
   loaded machine): layer move with styles 321 ms p50 against 25 ms, opacity change 276 ms
   against 20 ms, paste 12 MP 1.2 s against 100 ms, layer move on 15000×10000 16-bit 2.7 s,
@@ -212,5 +218,6 @@ what an agent can't finish alone.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-10 | minor | G2: recorded Tilt-Shift computation/filtered-proxy measurements and limits; gap and estimate remain open |
 | 2026-10-10 | minor | Checked against the alpha gate (no alpha blockers); #2374 marked closed |
 | 2026-10-10 | major | First version, from the full re-measure against Photoshop 2026 27.11.0 and the open issues |

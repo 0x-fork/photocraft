@@ -222,6 +222,23 @@ impl GpuCanvas {
         r.callback_resources.get::<Resources>()?.compositor_budget
     }
 
+    /// Set the GPU bytes one document's display texture set may take (see [`canvas_budget`]).
+    pub fn set_canvas_budget(&self, bytes: u64) {
+        let mut r = self.rs.renderer.write();
+        if let Some(res) = r.callback_resources.get_mut::<Resources>() {
+            res.canvas_budget = bytes;
+        }
+    }
+
+    /// Whether `doc`'s display textures fit [`canvas_budget`]; when they don't, nothing is
+    /// created for it and it is drawn on the CPU canvas.
+    pub fn fits_canvas(&self, doc: &photocraft_doc::Document) -> bool {
+        let size = [doc.size.width, doc.size.height];
+        let bytes = canvas_texture_bytes(size, self.tile, texel_bytes(self.format_for(doc.depth, size)));
+        let r = self.rs.renderer.read();
+        r.callback_resources.get::<Resources>().is_some_and(|res| bytes <= res.canvas_budget)
+    }
+
     /// Cap lower-stack composite reuse; zero disables it for profiling the uncached path.
     pub fn set_composite_cache_budget(&self, bytes: u64) {
         let mut r = self.rs.renderer.write();
@@ -297,7 +314,10 @@ impl GpuCanvas {
         let mut renderer = self.rs.renderer.write();
         let Some(res) = renderer.callback_resources.get_mut::<Resources>() else { return };
         if res.docs.get(&doc).is_none_or(|d| d.size != size || d.format != format) {
-            let tex = DocTextures::new(device, res, size, self.tile, format);
+            let Some(tex) = DocTextures::new(device, res, size, self.tile, format) else {
+                res.docs.remove(&doc);
+                return;
+            };
             res.docs.insert(doc, tex);
         }
         let Some(d) = res.docs.get(&doc) else { return };
@@ -418,7 +438,11 @@ impl GpuCanvas {
             return Err(photocraft_gpu::Unsupported(OVER_BUDGET.into()));
         }
         if fresh {
-            let tex = DocTextures::new(device, res, size, self.tile, format);
+            let Some(tex) = DocTextures::new(device, res, size, self.tile, format) else {
+                res.docs.remove(&key);
+                res.compositor = Some(comp);
+                return Err(photocraft_gpu::Unsupported(OVER_CANVAS_BUDGET.into()));
+            };
             res.docs.insert(key, tex);
         }
         let (Some(pipe), Some(d)) = (res.encode_pipeline(format), res.docs.get(&key)) else {
@@ -508,6 +532,14 @@ impl GpuCanvas {
             // Nothing reaches the GPU any more; the app switches to the CPU canvas.
             return Refresh { kind: "lost", fallback: Some(f.to_string()), ..Default::default() };
         }
+        if !self.fits_canvas(doc) {
+            // Neither compositor can fill textures that are never created: the CPU canvas draws
+            // it. A set left from before the canvas grew is stale, so it goes too.
+            if let Some(res) = self.rs.renderer.write().callback_resources.get_mut::<Resources>() {
+                res.docs.remove(&key);
+            }
+            return Refresh { kind: REFRESH_OVER_BUDGET, fallback: Some(OVER_CANVAS_BUDGET.into()), ..Default::default() };
+        }
         let bounds = doc.bounds();
         let size = [doc.size.width, doc.size.height];
         let format = self.format_for(doc.depth, size);
@@ -568,7 +600,10 @@ impl GpuCanvas {
             let mut renderer = self.rs.renderer.write();
             let Some(res) = renderer.callback_resources.get_mut::<Resources>() else { return };
             if res.docs.get(&key).is_none_or(|d| d.size != size || d.format != format) {
-                let tex = DocTextures::new(device, res, size, self.tile, format);
+                let Some(tex) = DocTextures::new(device, res, size, self.tile, format) else {
+                    res.docs.remove(&key);
+                    return;
+                };
                 res.docs.insert(key, tex);
             }
         }
@@ -732,7 +767,8 @@ fn texture_buffer<'a>(
 /// What a [`GpuCanvas::refresh`] did.
 #[derive(Clone, Debug, Default)]
 pub struct Refresh {
-    /// "gpu-rect", "gpu-full" (wgpu compositor), "rect" or "full" (CPU compositor).
+    /// "gpu-rect", "gpu-full" (wgpu compositor), "rect" or "full" (CPU compositor); "lost" or
+    /// [`REFRESH_OVER_BUDGET`] when nothing was drawn and the caller should use the CPU canvas.
     pub kind: &'static str,
     /// Pixels refreshed.
     pub px: u64,
@@ -1083,6 +1119,41 @@ pub fn memory_budget(allowance: u64, pixels: u64, ram: Option<u64>) -> u64 {
     allowance.saturating_sub(pixels).min(ram / 4).max(MIN_GPU_BUDGET)
 }
 
+/// Why a document whose display textures don't fit [`canvas_budget`] is drawn on the CPU canvas.
+pub const OVER_CANVAS_BUDGET: &str = "the canvas exceeds the GPU texture budget; drawing it on the CPU canvas";
+
+/// [`Refresh::kind`] when the document's display textures don't fit [`canvas_budget`]: nothing
+/// was created, and the caller draws the CPU canvas instead.
+pub const REFRESH_OVER_BUDGET: &str = "over-budget";
+
+/// GPU bytes one document's display texture set (every tile and mip level) may take: a quarter
+/// of physical memory (`ram`; 16 GB assumed when unknown), at least [`MIN_GPU_BUDGET`]. The set
+/// covers the whole canvas at full resolution, so its size follows the declared canvas, not the
+/// layer pixels; a larger canvas is drawn on the (reduced) CPU canvas instead (#2934).
+pub fn canvas_budget(ram: Option<u64>) -> u64 {
+    (ram.unwrap_or(16 << 30) / 4).max(MIN_GPU_BUDGET)
+}
+
+/// GPU bytes of a display texture set for a `size` canvas in `tile`-sided tiles of `bpp` bytes
+/// per texel, with every mip level (what [`GpuCanvas::texture_info`] reports once it exists).
+/// Closed form over the (at most four) distinct tile shapes, so any size is cheap to price.
+pub fn canvas_texture_bytes(size: [u32; 2], tile: u32, bpp: u64) -> u64 {
+    let tile = tile.max(1);
+    // (how many tiles, their side) along one axis: whole tiles, then the remainder.
+    let spans = |n: u32| [(n / tile, tile), (u32::from(!n.is_multiple_of(tile)), n % tile)];
+    let mut total = 0u64;
+    for (nx, w) in spans(size[0]) {
+        for (ny, h) in spans(size[1]) {
+            if nx == 0 || ny == 0 {
+                continue;
+            }
+            let one = (0..mip_count(w, h)).map(|l| u64::from((w >> l).max(1)) * u64::from((h >> l).max(1)) * bpp).fold(0, u64::saturating_add);
+            total = total.saturating_add(one.saturating_mul(u64::from(nx) * u64::from(ny)));
+        }
+    }
+    total
+}
+
 /// Physical memory of this machine in bytes, if known. `PHOTOCRAFT_RAM_MB` overrides it (to
 /// simulate a smaller machine).
 pub fn physical_memory() -> Option<u64> {
@@ -1148,6 +1219,8 @@ struct Resources {
     compositor_budget: Option<u64>,
     compositor_cache_budget: Option<u64>,
     compositor_focus: Option<photocraft_geom::Rect>,
+    /// GPU bytes one document's display texture set may take (see [`canvas_budget`]).
+    canvas_budget: u64,
     encode_bgl: wgpu::BindGroupLayout,
     encode_pipeline: wgpu::RenderPipeline,
     lut_bgl: wgpu::BindGroupLayout,
@@ -1413,6 +1486,7 @@ impl Resources {
             compositor_budget: None,
             compositor_cache_budget: None,
             compositor_focus: None,
+            canvas_budget: canvas_budget(physical_memory()),
             encode_bgl,
             encode_pipeline,
         }
@@ -1448,7 +1522,12 @@ fn init_buffer(device: &wgpu::Device, label: &str, contents: &[u8], usage: wgpu:
 }
 
 impl DocTextures {
-    fn new(device: &wgpu::Device, res: &Resources, size: [u32; 2], tile: u32, format: wgpu::TextureFormat) -> Self {
+    /// The texture set for a `size` canvas, or `None` (nothing created) when it doesn't fit
+    /// the canvas budget.
+    fn new(device: &wgpu::Device, res: &Resources, size: [u32; 2], tile: u32, format: wgpu::TextureFormat) -> Option<Self> {
+        if canvas_texture_bytes(size, tile, texel_bytes(format)) > res.canvas_budget {
+            return None;
+        }
         let mut tiles = Vec::new();
         for ty in (0..size[1]).step_by(tile as usize) {
             for tx in (0..size[0]).step_by(tile as usize) {
@@ -1483,7 +1562,7 @@ impl DocTextures {
                 tiles.push(Tile { rect: [tx, ty, w, h], texture, levels, bind_group, _uniform: uniform });
             }
         }
-        Self { size, format, tiles }
+        Some(Self { size, format, tiles })
     }
 
     /// Write `size` pixels at document `origin` from `texels` (in the texture format, row stride
@@ -2054,6 +2133,35 @@ mod tests {
         assert_eq!(memory_budget(8 * G, 10 * G, Some(48 * G)), MIN_GPU_BUDGET);
         assert_eq!(memory_budget(64 * G, 0, None), 4 * G);
         assert!(physical_memory().is_none_or(|b| b >= 256 << 20));
+    }
+
+    #[test]
+    fn canvas_texture_bytes_price_every_tile_and_mip_level() {
+        // The same sum DocTextures builds tile by tile (and texture_info reports).
+        let brute = |size: [u32; 2], tile: u32, bpp: u64| -> u64 {
+            let mut total = 0;
+            for ty in (0..size[1]).step_by(tile as usize) {
+                for tx in (0..size[0]).step_by(tile as usize) {
+                    let (w, h) = (tile.min(size[0] - tx), tile.min(size[1] - ty));
+                    total += (0..mip_count(w, h)).map(|l| u64::from((w >> l).max(1)) * u64::from((h >> l).max(1)) * bpp).sum::<u64>();
+                }
+            }
+            total
+        };
+        for (size, tile) in [([1, 1], 64), ([300, 200], 64), ([128, 64], 64), ([1000, 7], 256), ([8192, 8193], 8192), ([20_000, 9_000], 8192)] {
+            for bpp in [4, 8] {
+                assert_eq!(canvas_texture_bytes(size, tile, bpp), brute(size, tile, bpp), "{size:?} tile {tile}");
+            }
+        }
+        assert_eq!(canvas_texture_bytes([0, 500], 64, 4), 0);
+        // A canvas declared in a few bytes of a file is priced without building (or looping over) it.
+        let huge = canvas_texture_bytes([300_000, 300_000], 8192, 4);
+        assert!(huge > 300_000u64 * 300_000 * 4 && huge > canvas_budget(Some(1 << 40)));
+        assert_eq!(canvas_texture_bytes([u32::MAX, u32::MAX], 64, 8), u64::MAX, "saturates");
+        // A quarter of RAM (16 GB assumed), never below the compositor's floor.
+        assert_eq!(canvas_budget(None), 4 << 30);
+        assert_eq!(canvas_budget(Some(1 << 30)), MIN_GPU_BUDGET);
+        assert!(canvas_texture_bytes([12_000, 8_000], DEFAULT_TILE, 8) < canvas_budget(None), "a 96 MP 16-bit canvas stays on the GPU");
     }
 
     #[test]

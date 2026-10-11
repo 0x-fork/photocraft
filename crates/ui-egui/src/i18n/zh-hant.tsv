@@ -1534,6 +1534,7 @@
 	White Balance: As Shot	白平衡：原始拍攝
 	Whites	白色
 	Width	寬度
+	Slant	傾斜
 	Width:	寬度：
 	Work Path	工作路徑
 	Yellow	黃色
@@ -2543,6 +2544,12 @@ cameraData	Lens	鏡頭
 	Show Edge	顯示邊緣
 	Show Original	顯示原始
 	F cycles the views; hold X to see the image	按 F 切換檢視；按住 X 檢視影像
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	調整邊緣筆刷 (R)
+	Expand Detection Area	擴展偵測區域
+	Restore Original Edge	恢復原始邊緣
+	Paint over hair or fur on the image; Alt paints the other mode	在影像中的頭髮或毛髮上塗抹；按住 Alt 以另一種模式塗抹
+	Clear Brush Strokes	清除筆刷筆觸
 	Show rulers	顯示尺標
 	New Crop Preset…	新增裁切預設集…
 	Delete Crop Preset…	刪除裁切預設集…

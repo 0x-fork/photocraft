@@ -3204,17 +3204,32 @@ fn color_field_height(avail: Option<f32>, width: f32) -> f32 {
     avail.filter(|a| a.is_finite()).map_or(120.0, |a| (a - reserve).clamp(120.0, 2000.0))
 }
 
+/// The colour the SV field draws for `hsva`, with what the field showed last (`hue`, `saturation`)
+/// filling in what the colour itself cannot carry: a grey has no hue of its own, and black has
+/// neither hue nor saturation — so a drag that bottoms out into black would otherwise round-trip
+/// through RGB as `s = 0` and drop the knob from the bottom-right corner to the bottom-left one
+/// (#3228).
+fn field_hsva(mut hsva: egui::ecolor::Hsva, remembered: (f32, f32)) -> egui::ecolor::Hsva {
+    if hsva.v < 0.01 {
+        hsva.h = remembered.0;
+        hsva.s = remembered.1;
+    } else if hsva.s < 0.01 {
+        // A grey: the saturation really is zero (that is where the knob belongs), only the hue
+        // is undefined.
+        hsva.h = remembered.0;
+    }
+    hsva
+}
+
 /// Photoshop Color panel: saturation/brightness field + hue strip, drawn as shaded meshes.
 fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let bg_active = app.ui.color_panel.background;
     let key = egui::Id::new(("color-field-hue", bg_active));
     let mut hsva = srgb_hsva(if bg_active { app.session.tools.background } else { app.session.tools.foreground });
-    // Keep hue stable for greys (where RGB->HSV hue is undefined).
-    let remembered: f32 = ui.data(|d| d.get_temp(key)).unwrap_or(hsva.h);
-    if hsva.s < 0.01 || hsva.v < 0.01 {
-        hsva.h = remembered;
-    }
+    // What the field showed last: a grey carries no hue, black neither hue nor saturation (#3228).
+    let remembered: (f32, f32) = ui.data(|d| d.get_temp(key)).unwrap_or((hsva.h, hsva.s));
+    hsva = field_hsva(hsva, remembered);
     let w = ui.available_width();
     let strip_w = 14.0;
     // Photoshop's Color panel field fills the panel: take the height the dock offers, less the
@@ -3288,7 +3303,7 @@ fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 app.session.tools.foreground = hsva_srgb(hsva);
                 crate::type_tool::foreground_changed(app);
             }
-            ui.data_mut(|d| d.insert_temp(key, hsva.h));
+            ui.data_mut(|d| d.insert_temp(key, (hsva.h, hsva.s)));
         }
     });
     ui.add_space(6.0);
@@ -3301,10 +3316,11 @@ fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 app.session.tools.foreground = c;
                 crate::type_tool::foreground_changed(app);
             }
-            // Keep the hue for greys, so the field marker doesn't jump to red.
+            // Keep the hue for greys, so the field marker doesn't jump to red; the saturation with
+            // it, so a later black lands on the corner it was last dragged to (#3228).
             let h = srgb_hsva(c);
             if h.s >= 0.01 && h.v >= 0.01 {
-                ui.data_mut(|d| d.insert_temp(key, h.h));
+                ui.data_mut(|d| d.insert_temp(key, (h.h, h.s)));
             }
         }
     });
@@ -4006,6 +4022,61 @@ mod color_tests {
             let [d] = h.state().ui.dialogs.as_slice() else { panic!("one Color Picker") };
             assert_eq!(d.fields.get("__colorPicker").and_then(Value::as_str), Some(target));
         }
+    }
+
+    /// Press at `from`, move to `to` in six steps and release, as egui sees a drag.
+    fn drag(h: &mut egui_kittest::Harness<'_, PhotocraftApp>, from: egui::Pos2, to: egui::Pos2) {
+        h.hover_at(from);
+        h.run_steps(1);
+        h.drag_at(from);
+        h.run_steps(1);
+        for i in 1..=6 {
+            h.hover_at(from + (to - from) * (i as f32 / 6.0));
+            h.run_steps(1);
+        }
+        h.drop_at(to);
+        h.run_steps(3);
+    }
+
+    /// Black carries neither hue nor saturation, a grey only the saturation it really has, and any
+    /// other colour nothing at all: the knob keeps where it was dragged instead of round-tripping
+    /// through RGB to the left edge (#3228).
+    #[test]
+    fn field_hsva_keeps_black_where_it_was_and_leaves_a_real_colour_alone() {
+        // Read back from black, as every frame does: nothing of the drag survives the RGB trip.
+        let black = field_hsva(egui::ecolor::Hsva::new(0.0, 0.0, 0.0, 1.0), (0.6, 1.0));
+        assert_eq!((black.h, black.s), (0.6, 1.0), "the corner the drag ended in");
+        // A grey: the saturation is genuinely zero — that is where the knob belongs — only the
+        // hue was undefined.
+        let grey = field_hsva(egui::ecolor::Hsva::new(0.0, 0.0, 0.5, 1.0), (0.6, 1.0));
+        assert_eq!((grey.h, grey.s), (0.6, 0.0), "the grey stays on the left edge");
+        // An ordinary colour is left as it is.
+        let red = field_hsva(egui::ecolor::Hsva::new(0.1, 0.8, 0.9, 1.0), (0.6, 1.0));
+        assert_eq!((red.h, red.s), (0.1, 0.8));
+    }
+
+    /// Dragging the selector into the bottom-right corner picks black there and leaves the knob
+    /// in that corner: black has no saturation of its own, so it used to be read back as `s = 0`
+    /// and drawn at the bottom-left instead, one frame after the drag that put it on the right
+    /// (#3228).
+    #[test]
+    fn dragging_to_the_bottom_right_keeps_the_knob_there() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.tools.foreground = [1.0, 1.0, 1.0, 1.0];
+        let mut h = field_harness(app);
+        let min = h.ctx.input(|i| i.viewport_rect()).min;
+        // Into the far bottom-right corner of the SV field: full saturation, no value. The end
+        // point lies past the corner on purpose — a real drag goes there too, and the widget
+        // clamps it to the field.
+        drag(&mut h, min + vec2(200.0, 60.0), min + vec2(280.0, 170.0));
+        assert_eq!(srgb_bytes(h.state().session.tools.foreground), [0, 0, 0], "both corners are black");
+        // What the knob is drawn from on the very next frame: the field kept the saturation the
+        // drag ended at (not the zero black reads back as), together with the hue.
+        let remembered: (f32, f32) = h.ctx.data(|d| d.get_temp(egui::Id::new(("color-field-hue", false)))).expect("the field remembers what it showed");
+        assert!(remembered.1 > 0.9, "the saturation the corner was dragged to: {remembered:?}");
+        let shown = field_hsva(egui::ecolor::Hsva::new(0.0, 0.0, 0.0, 1.0), remembered);
+        assert!(shown.s > 0.9, "the knob stays at the right edge, not the left: {remembered:?}");
+        assert!(shown.v < 0.01, "still black: {shown:?}");
     }
 
     /// Black has no hue of its own, so each chip remembers the hue last picked for it.

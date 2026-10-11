@@ -80,10 +80,10 @@ pub struct CardResponse {
     pub chevron: Option<Rect>,
     /// A tab dragged along the strip was dropped: `(tab, before)` (#2272).
     pub tab_reorder: Option<(usize, Option<usize>)>,
-    /// A tab is being dragged away from the strip.
-    pub tab_dragging_out: bool,
-    /// A tab drag ended away from the strip.
-    pub tab_dropped_out: bool,
+    /// The index of a tab being dragged away from the strip.
+    pub tab_dragging_out: Option<usize>,
+    /// The index of a tab whose drag ended away from the strip.
+    pub tab_dropped_out: Option<usize>,
 }
 
 impl CardResponse {

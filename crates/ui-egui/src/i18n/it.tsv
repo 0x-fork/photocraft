@@ -1527,6 +1527,7 @@
 	White Balance: As Shot	Bilanciamento bianco: Come scattato
 	Whites	Bianchi
 	Width	Larghezza
+	Slant	Inclinazione
 	Width:	Larghezza:
 	Work Path	Tracciato di lavoro
 	Yellow	Giallo
@@ -2635,6 +2636,12 @@ cameraData	Lens	Obiettivo
 	Show Edge	Mostra bordo
 	Show Original	Mostra originale
 	F cycles the views; hold X to see the image	F scorre le viste; tieni premuto X per vedere l'immagine
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	Pennello per migliorare il bordo (R)
+	Expand Detection Area	Espandi area di rilevamento
+	Restore Original Edge	Ripristina bordo originale
+	Paint over hair or fur on the image; Alt paints the other mode	Dipingi su capelli o pelo nell'immagine; Alt dipinge nell'altra modalità
+	Clear Brush Strokes	Cancella tratti del pennello
 	Show rulers	Mostra righelli
 
 # Color Sampler (added with the i18n coverage repair)

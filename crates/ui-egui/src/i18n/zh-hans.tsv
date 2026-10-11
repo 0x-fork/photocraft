@@ -1540,6 +1540,7 @@
 	White Balance: As Shot	白平衡：拍摄时设置
 	Whites	白色色阶
 	Width	宽度
+	Slant	倾斜
 	Width:	宽度：
 	Work Path	工作路径
 	Yellow	黄色
@@ -2573,6 +2574,12 @@ cameraData	Lens	镜头
 	Show Edge	显示边缘
 	Show Original	显示原始
 	F cycles the views; hold X to see the image	按 F 切换视图；按住 X 查看图像
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	调整边缘画笔 (R)
+	Expand Detection Area	扩展检测区域
+	Restore Original Edge	恢复原始边缘
+	Paint over hair or fur on the image; Alt paints the other mode	在图像中的头发或毛发上涂抹；按住 Alt 以另一种模式涂抹
+	Clear Brush Strokes	清除画笔描边
 	Show rulers	显示标尺
 	New Crop Preset…	新建裁剪预设…
 	Delete Crop Preset…	删除裁剪预设…

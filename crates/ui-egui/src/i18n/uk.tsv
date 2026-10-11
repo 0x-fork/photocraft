@@ -640,6 +640,7 @@
 	Efficiency: 100%	Ефективність: 100%
 	Dimensions:	Розміри:
 	Width	Ширина
+	Slant	Нахил
 	Height	Висота
 	Width:	Ширина:
 	Height:	Висота:
@@ -3654,6 +3655,12 @@ cameraData	Lens	Об'єктив
 	Show Edge	Показати край
 	Show Original	Показати початкове
 	F cycles the views; hold X to see the image	F перемикає види; утримуйте X, щоб побачити зображення
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	Пензель уточнення краю (R)
+	Expand Detection Area	Розширити область виявлення
+	Restore Original Edge	Відновити початковий край
+	Paint over hair or fur on the image; Alt paints the other mode	Малюйте по волоссю чи хутру на зображенні; Alt малює в іншому режимі
+	Clear Brush Strokes	Очистити мазки пензля
 	Show rulers	Показати лінійки
 	Frame Tool	Інструмент «Рамка»
 	Create a new rectangular frame	Створити прямокутну рамку

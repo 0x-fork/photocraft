@@ -126,6 +126,29 @@ pub fn edit_active(app: &mut PhotocraftApp) -> Result<(), String> {
     Ok(())
 }
 
+/// Double-click with the Move tool (Photoshop CC 2019+): edit the type layer under document
+/// point (`x`, `y`) with the caret on the glyph there, switching to the Type tool. False when no
+/// type is there.
+pub fn edit_at(app: &mut PhotocraftApp, x: f64, y: f64) -> bool {
+    let Some(id) = hit_layer(app, x, y) else { return false };
+    commit(app);
+    if app.session.select_layer(id).is_err() {
+        return false;
+    }
+    let key = session_key(app);
+    if begin_edit(app, id, &key).is_err() {
+        return false;
+    }
+    let off = hit_offset(app, id, x, y);
+    app.ui.text_edit =
+        Some(TextEdit { layer: id.0, caret: off, anchor: off, session: key, created: false, mask: false, dragging: false, resize: None, preedit: None });
+    let vertical = app.session.active().and_then(|st| text_layer(&st.doc, id)).is_some_and(|t| t.orientation == photocraft_doc::text::Orientation::Vertical);
+    app.ui.tool = if vertical { crate::state::Tool::VerticalType } else { crate::state::Tool::Type };
+    app.ui.mask_target = false;
+    app.ui.vector_mask_target = false;
+    true
+}
+
 fn hit_offset(app: &mut PhotocraftApp, id: LayerId, x: f64, y: f64) -> usize {
     let Some((l, aff, text)) = layout(app, id) else { return 0 };
     let (tx, ty) = to_text(&aff, x, y);
@@ -1003,6 +1026,83 @@ fn style_names(faces: &[photocraft_text::FaceInfo]) -> Vec<String> {
     names
 }
 
+/// A variable-font axis: (tag, min, default, max), as [`photocraft_text::FaceInfo::axes`].
+pub(crate) type Axis = (String, f32, f32, f32);
+
+/// The axes the Character section shows as sliders (#2985): those of the faces matching the
+/// style's italic, else of any face. Optical size has none: it follows the type size.
+pub(crate) fn slider_axes(faces: &[photocraft_text::FaceInfo], italic: bool) -> Vec<Axis> {
+    let pick = |want: Option<bool>| {
+        let mut v: Vec<Axis> = Vec::new();
+        for f in faces.iter().filter(|f| want.is_none_or(|w| f.italic == w)) {
+            for a in &f.axes {
+                let usable = a.0 != "opsz" && a.1.is_finite() && a.3.is_finite() && a.1 < a.3;
+                if usable && !v.iter().any(|b| b.0 == a.0) {
+                    v.push(a.clone());
+                }
+            }
+        }
+        v
+    };
+    let v = pick(Some(italic));
+    if v.is_empty() { pick(None) } else { v }
+}
+
+/// The value an axis slider shows: the style's own value for the axis, else what the layout
+/// draws (the style's weight on `wght`, the axis default otherwise), within the axis range.
+pub(crate) fn axis_value(c: &photocraft_doc::text::CharStyle, (tag, min, default, max): &Axis) -> f32 {
+    let v = c.variations.iter().find(|v| &v.axis == tag).map(|v| v.value).unwrap_or_else(|| match tag.as_str() {
+        "wght" => f32::from(c.weight),
+        "ital" if c.italic => *max,
+        _ => *default,
+    });
+    let d = default.clamp(*min, *max);
+    if v.is_finite() { v.clamp(*min, *max) } else { d }
+}
+
+/// Slider label for an axis: the registered axes by name, others by their tag (as the font
+/// names them in its `fvar` table, e.g. `GRAD`).
+fn axis_label(tag: &str) -> String {
+    match tag {
+        "wght" => tl!("Weight").to_string(),
+        "wdth" => tl!("Width").to_string(),
+        "slnt" => tl!("Slant").to_string(),
+        "ital" => tl!("Italic").to_string(),
+        _ => tag.to_string(),
+    }
+}
+
+/// One slider row per variable-font axis of the style's font, below the font style (#2985).
+fn axis_sliders(app: &mut PhotocraftApp, ui: &mut egui::Ui, c: &photocraft_doc::text::CharStyle) {
+    let axes = {
+        let faces = photocraft_text::shared().lock().unwrap_or_else(PoisonError::into_inner).fonts.faces(&c.font_family);
+        slider_axes(&faces, c.italic)
+    };
+    let t = crate::theme::Tokens::get(ui.ctx());
+    for axis in &axes {
+        let (min, max) = (axis.1, axis.3);
+        let mut v = axis_value(c, axis);
+        let mut changed = false;
+        ui.push_id(("type-axis", &axis.0), |ui| {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(axis_label(&axis.0)).color(t.text_dim));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    changed |= crate::widgets::value_field(ui, &mut v, min..=max, "", 74.0).changed();
+                });
+            });
+            changed |= crate::widgets::slider(ui, &mut v, min..=max, None).changed();
+        });
+        ui.add_space(crate::theme::ROW_GAP);
+        if changed {
+            // Whole units on wide axes (weight 100–900), hundredths on narrow ones (ital 0–1).
+            let v = if max - min >= 10.0 { v.round() } else { (v * 100.0).round() / 100.0 };
+            let mut m = serde_json::Map::new();
+            m.insert(axis.0.clone(), json!(v));
+            apply(app, ui.ctx(), json!({ "variations": m }));
+        }
+    }
+}
+
 /// PSD text can identify a face only by its PostScript name. Show its real subfamily too.
 pub(crate) fn selected_style(style: &photocraft_doc::text::CharStyle) -> String {
     if let Some(ps) = &style.postscript_name {
@@ -1629,6 +1729,7 @@ fn type_sections(app: &mut PhotocraftApp, ui: &mut egui::Ui, character: bool, pa
                 apply(app, ui.ctx(), json!({"fontStyle": style}));
             }
         });
+        axis_sliders(app, ui, &c);
         row(ui, &mut |ui| {
             let k = shown_scale(app);
             if let Some(v) = num_field(ui, "tT", "Font size", c.size_pt * k, 0.1..=1296.0, "pt", w) {

@@ -1509,6 +1509,7 @@
 	White Balance: As Shot	Balance des blancs : telle quelle
 	Whites	Blancs
 	Width	Largeur
+	Slant	Inclinaison
 	Width:	Largeur :
 	Work Path	Tracé de travail
 	Yellow	Jaune
@@ -2981,6 +2982,12 @@ cameraData	Lens	Objectif
 	Show Edge	Afficher le bord
 	Show Original	Afficher l'original
 	F cycles the views; hold X to see the image	F fait défiler les vues ; maintenez X pour voir l'image
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	Pinceau d'amélioration du contour (R)
+	Expand Detection Area	Étendre la zone de détection
+	Restore Original Edge	Restaurer le contour d'origine
+	Paint over hair or fur on the image; Alt paints the other mode	Peignez sur les cheveux ou la fourrure dans l'image ; Alt peint dans l'autre mode
+	Clear Brush Strokes	Effacer les traits de pinceau
 	Show rulers	Afficher les règles
 
 # Color Sampler (added with the i18n coverage repair)
