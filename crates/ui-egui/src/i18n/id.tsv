@@ -483,6 +483,12 @@
 	Color Range…	Rentang Warna…
 	Focus Area…	Area Fokus…
 	Select and Mask…	Seleksi dan Mask…
+# Select and Mask dialog labels
+	Smart Radius	Radius Cerdas
+	Shift Edge	Geser Tepi
+	Decontaminate	Dekontaminasi
+	Output	Keluaran
+	Refine Edge	Perbaiki Tepi
 	Modify	Ubah
 	Border…	Border…
 	Smooth…	Haluskan…
@@ -751,6 +757,7 @@
 	Split Warp Horizontally	Bagi Warp Horizontal
 	Split Warp Vertically	Bagi Warp Vertikal
 	Statistics…	Statistik…
+	Refine Strokes	Goresan penyempurnaan
 @plural	{n} item|{n} items	{n} item
 	Auto	Otomatis
 	(print to the printer)	(cetak ke printer)
@@ -2982,6 +2989,7 @@ cameraData	Lens	Lensa
 	Preview on canvas when reordering layers	Pratinjau pada kanvas saat mengurutkan ulang lapisan
 	Show layer mask badges	Tampilkan Lencana Masker Lapisan
 
+	Loading fonts…	Memuat font…
 # Select and Mask view modes (#1754)
 	Onion Skin	Kulit Bawang
 	Marching Ants	Semut Berbaris

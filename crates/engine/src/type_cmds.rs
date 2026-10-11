@@ -452,6 +452,13 @@ pub fn refresh(doc: &Document, t: &mut TextLayer) {
 /// `name`), which is applied in the same step; otherwise an auto-named layer follows its text.
 fn with_text_layer<R>(s: &mut Session, p: &Value, label: &str, f: impl FnOnce(&mut TextLayer, &Document, &mut Option<String>) -> Result<R>) -> Result<R> {
     let id = layer_id(s, p)?;
+    {
+        let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
+        let layer = doc.layer(id).ok_or(EngineError::NoLayer(id))?;
+        if doc.effective_locks(id).all {
+            return Err(EngineError::Other(format!("Could not complete your request because the layer \"{}\" is locked", layer.name)));
+        }
+    }
     let (r, damage) = s.edit(label, |doc, _| {
         let snapshot = doc.clone();
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
@@ -1220,6 +1227,28 @@ mod tests {
         assert_eq!(info["lines"].as_array().unwrap().len(), 2);
         let t = text_layer(&s, id);
         assert_eq!(t.runs.iter().map(|r| r.len).sum::<usize>(), t.text.len());
+    }
+
+    #[test]
+    fn all_locked_type_edit_rejects_text_replacement_without_history() {
+        let mut s = session();
+        let id = s.execute("type.create", json!({"x": 20, "y": 20, "text": "a", "size": 12})).unwrap()["layer"].as_u64().unwrap();
+        s.execute("layer.setProps", json!({"layer": id, "locked": true})).unwrap();
+        let history = s.active().unwrap().history.past_len();
+
+        let result = s.execute("type.edit", json!({"layer": id, "text": "b"}));
+        assert!(matches!(&result, Err(EngineError::Other(message)) if message.contains("locked")), "{result:?}");
+        assert_eq!(text_layer(&s, id).text, "a");
+        assert_eq!(s.active().unwrap().history.past_len(), history);
+
+        s.execute("layer.setProps", json!({"layer": id, "locked": false})).unwrap();
+        let history = s.active().unwrap().history.past_len();
+        s.execute("type.edit", json!({"layer": id, "text": "b"})).unwrap();
+        assert_eq!(text_layer(&s, id).text, "b");
+        assert_eq!(s.active().unwrap().history.past_len(), history + 1);
+        s.execute("edit.undo", json!({})).unwrap();
+        assert_eq!(text_layer(&s, id).text, "a");
+        assert_eq!(s.active().unwrap().history.past_len(), history);
     }
 
     #[test]

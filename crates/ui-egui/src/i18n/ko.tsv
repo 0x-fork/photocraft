@@ -484,6 +484,12 @@
 	Color Range…	색상 범위…
 	Focus Area…	초점 영역…
 	Select and Mask…	선택 및 마스크…
+# Select and Mask dialog labels
+	Smart Radius	고급 반경
+	Shift Edge	가장자리 이동
+	Decontaminate	오염 제거
+	Output	출력
+	Refine Edge	가장자리 다듬기
 	Modify	수정
 	Border…	테두리…
 	Smooth…	매끄럽게…
@@ -742,6 +748,7 @@
 	Split Warp Horizontally	뒤틀기 가로로 분할
 	Split Warp Vertically	뒤틀기 세로로 분할
 	Statistics…	통계…
+	Refine Strokes	다듬기 획
 @plural	{n} item|{n} items	항목 {n}개
 	Auto	자동
 	(print to the printer)	(프린터로 인쇄)
@@ -3162,6 +3169,7 @@ cameraData	Lens	렌즈
 	Preview on canvas when reordering layers	레이어 순서 변경 시 캔버스에서 미리보기
 	Show layer mask badges	레이어 마스크 배지 표시
 
+	Loading fonts…	글꼴 불러오는 중…
 # Select and Mask view modes (#1754)
 	Onion Skin	어니언 스킨
 	Marching Ants	점선 윤곽

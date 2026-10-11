@@ -499,6 +499,12 @@
 	Color Range…	Intervallo colori…
 	Focus Area…	Area di messa a fuoco…
 	Select and Mask…	Seleziona e maschera…
+# Select and Mask dialog labels
+	Smart Radius	Raggio avanzato
+	Shift Edge	Sposta bordo
+	Decontaminate	Decontamina
+	Output	Output
+	Refine Edge	Migliora bordo
 	Modify	Modifica
 	Border…	Bordo…
 	Smooth…	Smussa…
@@ -766,6 +772,7 @@
 	Split Warp Horizontally	Dividi altera orizzontalmente
 	Split Warp Vertically	Dividi altera verticalmente
 	Statistics…	Statistiche…
+	Refine Strokes	Tratti di perfezionamento
 @plural	{n} item|{n} items	{n} elemento|{n} elementi
 	Auto	Automatico
 
@@ -2651,6 +2658,7 @@ cameraData	Lens	Obiettivo
 	Preview on canvas when reordering layers	Anteprima sulla tela durante il riordino dei livelli
 	Show layer mask badges	Mostra distintivi delle maschere di livello
 
+	Loading fonts…	Caricamento font…
 # Select and Mask view modes (#1754)
 	Onion Skin	Velina
 	Marching Ants	Formiche in marcia

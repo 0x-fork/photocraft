@@ -498,6 +498,13 @@
 	Color Range…	Zakres kolorów…
 	Focus Area…	Obszar ostrości…
 	Select and Mask…	Zaznacz i maskuj…
+# Select and Mask dialog labels
+	Smart Radius	Inteligentny promień
+	Shift Edge	Przesuń krawędź
+	Decontaminate	Dekontaminacja
+	Output	Wyjście
+	Refine Edge	Popraw krawędź
+	Apply At Canvas Bounds	Zastosuj w granicach obszaru roboczego
 	Modify	Modyfikuj
 	Border…	Obramowanie…
 	Smooth…	Wygładź…
@@ -766,6 +773,7 @@
 	Split Warp Horizontally	Podziel wypaczenie w poziomie
 	Split Warp Vertically	Podziel wypaczenie w pionie
 	Statistics…	Statystyki…
+	Refine Strokes	Pociągnięcia udoskonalania
 @plural	{n} item|{n} items	{n} element|{n} elementy|{n} elementów
 	Auto	Automatycznie
 
@@ -3591,6 +3599,7 @@ cameraData	Lens	Obiektyw
 	Preview on canvas when reordering layers	Podgląd na obszarze roboczym podczas zmiany kolejności warstw
 	Show layer mask badges	Pokaż odznaki masek warstw
 
+	Loading fonts…	Wczytywanie czcionek…
 # Select and Mask view modes (#1754)
 	Onion Skin	Skórka cebuli
 	Marching Ants	Maszerujące mrówki

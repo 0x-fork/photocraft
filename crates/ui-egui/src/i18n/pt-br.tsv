@@ -486,6 +486,11 @@
 	Color Range…	Intervalo de cores…
 	Focus Area…	Área de foco…
 	Select and Mask…	Selecionar e mascarar…
+# Select and Mask dialog labels
+	Smart Radius	Raio inteligente
+	Shift Edge	Deslocar borda
+	Decontaminate	Descontaminar
+	Refine Edge	Refinar borda
 	Modify	Modificar
 	Border…	Borda…
 	Smooth…	Suavizar…
@@ -754,6 +759,7 @@
 	Split Warp Horizontally	Dividir deformação horizontalmente
 	Split Warp Vertically	Dividir deformação verticalmente
 	Statistics…	Estatísticas…
+	Refine Strokes	Traços de refinamento
 @plural	{n} item|{n} items	{n} item|{n} itens
 	Auto	Automático
 	(print to the printer)	(imprimir na impressora)
@@ -3000,6 +3006,7 @@ cameraData	Lens	Lente
 	Preview on canvas when reordering layers	Pré-visualizar na tela ao reordenar camadas
 	Show layer mask badges	Mostrar emblemas de máscaras de camada
 
+	Loading fonts…	Carregando fontes…
 # Select and Mask view modes (#1754)
 	Onion Skin	Papel vegetal
 	Marching Ants	Formigas marchando

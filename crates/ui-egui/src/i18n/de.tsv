@@ -503,6 +503,12 @@
 	Color Range…	Farbbereich…
 	Focus Area…	Schärfebereich…
 	Select and Mask…	Auswählen und maskieren…
+# Select and Mask dialog labels
+	Smart Radius	Smartradius
+	Shift Edge	Kante verschieben
+	Decontaminate	Dekontaminieren
+	Output	Ausgabe
+	Refine Edge	Kante verbessern
 	Modify	Modifizieren
 	Border…	Rand…
 	Smooth…	Glätten…
@@ -761,6 +767,7 @@
 	Split Warp Horizontally	Verkrümmung horizontal teilen
 	Split Warp Vertically	Verkrümmung vertikal teilen
 	Statistics…	Statistiken…
+	Refine Strokes	Verfeinerungsstriche
 @plural	{n} item|{n} items	{n} Element|{n} Elemente
 	Auto	Automatisch
 	(print to the printer)	(an den Drucker senden)
@@ -2619,6 +2626,7 @@ cameraData	Lens	Objektiv
 	Preview on canvas when reordering layers	Vorschau auf der Arbeitsfläche beim Neuanordnen von Ebenen
 	Show layer mask badges	Ebenenmasken-Abzeichen anzeigen
 
+	Loading fonts…	Schriften werden geladen…
 # Select and Mask view modes (#1754)
 	Onion Skin	Zwiebelschicht
 	Marching Ants	Laufende Ameisen

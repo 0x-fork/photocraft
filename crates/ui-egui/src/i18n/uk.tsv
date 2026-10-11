@@ -265,6 +265,12 @@
 	Inverse	Інвертувати
 	Color Range…	Колірний діапазон…
 	Select and Mask…	Виділити та маскувати…
+# Select and Mask dialog labels
+	Smart Radius	Розумний радіус
+	Shift Edge	Змістити край
+	Decontaminate	Очистити
+	Output	Вивід
+	Refine Edge	Уточнити край
 	Select Subject	Виділити об'єкт
 	Sky	Небо
 	Focus Area…	Область фокуса…
@@ -285,6 +291,7 @@
 	All Layers	Усі шари
 	Current & Below	Поточний і нижчі
 	Current Layer	Поточний шар
+	Refine Strokes	Штрихи уточнення
 
 # Filter
 	Last Filter	Останній фільтр
@@ -3666,6 +3673,7 @@ cameraData	Lens	Об'єктив
 	Preview on canvas when reordering layers	Попередній перегляд на полотні під час зміни порядку шарів
 	Show layer mask badges	Показувати позначки масок шарів
 
+	Loading fonts…	Завантаження шрифтів…
 # Select and Mask view modes (#1754)
 	Onion Skin	Калька
 	Marching Ants	Мурашки

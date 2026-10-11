@@ -1127,6 +1127,33 @@ mod tests {
         assert!(missing.is_empty(), "missing Korean dynamic labels: {missing:#?}");
     }
 
+    /// The Select menu's generated dialogs (Select and Mask, Modify ▸ …) show their
+    /// params, choices and title in every UI language, not just Korean.
+    #[test]
+    fn select_dialogs_are_translated_in_every_language() {
+        let mut missing = std::collections::BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
+        for lang in crate::i18n::Lang::all().filter(|l| l.code() != "en") {
+            let mut check = |s: String| {
+                if !crate::i18n::has(lang, &s) {
+                    missing.entry(lang.code()).or_default().insert(s);
+                }
+            };
+            for c in photocraft_engine::command_specs().iter().filter(|c| c.id.starts_with("select.") && has_dialog(c.id)) {
+                let title = c.label.trim_end_matches('…');
+                if !crate::i18n::has(lang, title) {
+                    check(format!("{title}…"));
+                }
+                for p in parse_spec(c.params) {
+                    check(source_label(&p.key));
+                    if let Kind::Choice { options: choices, .. } = p.kind {
+                        choices.iter().for_each(|choice| check(source_label(choice)));
+                    }
+                }
+            }
+        }
+        assert!(missing.is_empty(), "untranslated Select dialog labels: {missing:#?}");
+    }
+
     /// Select and Mask's Output To lists all six of Photoshop's targets, each translated.
     #[test]
     fn select_and_mask_output_choices_are_translated() {

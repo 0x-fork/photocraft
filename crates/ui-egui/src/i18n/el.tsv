@@ -230,6 +230,12 @@
 	Mask All Objects	Απόκρυψη όλων των αντικειμένων με μάσκα
 	Update All Text Layers	Ενημέρωση όλων των επιπέδων κειμένου
 	Select and Mask…	Επιλογή και μάσκα…
+# Select and Mask dialog labels
+	Smart Radius	Έξυπνη ακτίνα
+	Shift Edge	Μετατόπιση άκρης
+	Decontaminate	Απομάκρυνση επιμόλυνσης
+	Refine Edge	Βελτίωση άκρης
+	Apply At Canvas Bounds	Εφαρμογή στα όρια του καμβά
 	Edit in Quick Mask Mode	Επεξεργασία σε λειτουργία γρήγορης μάσκας
 	Blur Gallery	Συλλογή θολώσεων
 	Blur More	Περισσότερη θόλωση
@@ -1540,6 +1546,7 @@
 	Align with layer	Στοίχιση με το επίπεδο
 	Reset Alignment	Επαναφορά στοίχισης
 	Centre the gradient (offset 0, 0)	Κεντράρισμα διαβάθμισης (μετατόπιση 0, 0)
+	Refine Strokes	Πινελιές βελτίωσης
 # Gradient Editor window, opened from the options bar's gradient swatch.
 	Gradient Editor	Επεξεργασία διαβάθμισης
 	Gradient picker	Επιλογή διαβάθμισης
@@ -3676,6 +3683,7 @@ cameraData	Lens	Φακός
 	Preview on canvas when reordering layers	Προεπισκόπηση στον καμβά κατά την αναδιάταξη επιπέδων
 	Show layer mask badges	Εμφάνιση σημάτων μασκών επιπέδου
 
+	Loading fonts…	Φόρτωση γραμματοσειρών…
 # Select and Mask view modes (#1754)
 	Onion Skin	Φλούδα κρεμμυδιού
 	Marching Ants	Κινούμενο περίγραμμα
