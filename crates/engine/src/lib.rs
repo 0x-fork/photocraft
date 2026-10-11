@@ -347,6 +347,9 @@ pub struct Session {
     pub quick_mask_options: channel_cmds::QuickMaskOptions,
     /// Colour channel the running command may change (a single colour channel is targeted).
     color_restrict: Option<usize>,
+    /// Smart object whose filter mask the running command edits (`"target":"filterMask"`): each
+    /// edit re-renders it, in the same history step.
+    filter_mask_layer: Option<LayerId>,
     /// Edit › Preferences, keyboard shortcuts, menu and toolbar customisation (see `prefs`).
     pub prefs: prefs::PrefsStore,
     /// Edit menu state: Fade source, custom shape library (see `edit_menu_cmds`).
@@ -533,6 +536,7 @@ impl Session {
     /// Apply an undoable edit to the active document.
     pub fn edit<R>(&mut self, label: &str, f: impl FnOnce(&mut Document, &mut Option<LayerId>) -> Result<R>) -> Result<R> {
         let restrict = self.color_restrict;
+        let filter_mask_layer = self.filter_mask_layer;
         let st = self.active_mut().ok_or(EngineError::NoDocument)?;
         let before = st.doc.clone();
         // Selecting layers is not a step, so the state this edit leaves behind targets what was
@@ -543,6 +547,9 @@ impl Session {
         let r = f(&mut doc, &mut active)?;
         if let (Some(k), Some(id)) = (restrict, active) {
             channel_cmds::restrict_to_color(&before, &mut doc, id, k);
+        }
+        if let Some(id) = filter_mask_layer {
+            smart_cmds::refresh_after_filter_mask_edit(&mut doc, id)?;
         }
         st.doc = Arc::new(doc);
         st.active_layer = active;
