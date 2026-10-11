@@ -1675,6 +1675,7 @@
 	Pen Pressure	Tekanan Pena
 	Pen Tilt	Kemiringan Pena
 	Pen Tool	Alat Pen
+	Convert Point Tool	Alat Convert Point
 	Photo	Foto
 	PhotoCraft website	Situs web PhotoCraft
 	Picas	Pica
@@ -2088,6 +2089,7 @@
 	Developing {name}	Mengembangkan {name}
 	Cancelled {label}	{label} dibatalkan
 	Esc to cancel	Esc untuk batal
+	Opened {name}	Dibuka: {name}
 	Opening {name}	Membuka {name}
 	Saved {name}	Tersimpan: {name}
 	Saving {name}	Menyimpan {name}
@@ -2729,6 +2731,21 @@ cameraRaw	Blending	Pembauran
 	Domed	Kubah
 	Domed (Inverted)	Kubah (Terbalik)
 	Diagonal (Descending)	Diagonal (Menurun)
+	Contour Editor	Editor Kontur
+	Anti-aliased	Dihaluskan
+	Corner	Sudut
+	Gloss Contour	Kontur Kilap
+	Contour	Kontur
+	Cone - Inverted	Kerucut - Terbalik
+	Cove - Deep	Teluk - Dalam
+	Cove - Shallow	Teluk - Dangkal
+	Gaussian	Gaussian
+	Half Round	Setengah Bulat
+	Ring	Cincin
+	Ring - Double	Cincin - Ganda
+	Rolling Slope - Descending	Lereng Bergelombang - Menurun
+	Rounded Steps	Tangga Bulat
+	Sawtooth 1	Gigi Gergaji 1
 
 	Red Eye Tool	Alat Mata Merah
 	Pupil Size	Ukuran pupil
@@ -2938,5 +2955,17 @@ cameraData	Lens	Lensa
 	Select the crop presets to delete	Pilih preset pangkas yang akan dihapus
 	Enter a name for the crop preset	Masukkan nama untuk preset pangkas
 	There is no crop size or ratio to save	Tidak ada ukuran atau rasio pangkas untuk disimpan
+	Scale:	Skala:
+	Snap to Origin	Jepret ke Titik Asal
 	Search settings…	Cari pengaturan…
 	No matching settings	Tidak ada pengaturan yang cocok
+# Select and Mask view modes (#1754)
+	Onion Skin	Kulit Bawang
+	Marching Ants	Semut Berbaris
+	On Black	Di Atas Hitam
+	On White	Di Atas Putih
+	On Layers	Di Atas Lapisan
+	Show Edge	Tampilkan Tepi
+	Show Original	Tampilkan Asli
+	F cycles the views; hold X to see the image	F berganti tampilan; tahan X untuk melihat gambar
+	Show rulers	Tampilkan Penggaris

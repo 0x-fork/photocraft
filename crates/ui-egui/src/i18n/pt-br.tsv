@@ -1679,6 +1679,7 @@
 	Pen Pressure	Pressão da caneta
 	Pen Tilt	Inclinação da caneta
 	Pen Tool	Ferramenta Caneta
+	Convert Point Tool	Ferramenta Converter ponto
 	Photo	Foto
 	PhotoCraft website	Site do PhotoCraft
 	Picas	Paicas
@@ -2094,6 +2095,7 @@
 	Developing {name}	Revelando {name}
 	Cancelled {label}	{label} cancelado
 	Esc to cancel	Esc para cancelar
+	Opened {name}	Aberto: {name}
 	Opening {name}	Abrindo {name}
 	Saved {name}	Salvo: {name}
 	Saving {name}	Salvando {name}
@@ -2749,6 +2751,21 @@ cameraRaw	Whites	Brancos
 	Domed	Abaulado
 	Domed (Inverted)	Abaulado (invertido)
 	Diagonal (Descending)	Diagonal (descendente)
+	Contour Editor	Editor de contorno
+	Anti-aliased	Suavizado
+	Corner	Canto
+	Gloss Contour	Contorno de brilho
+	Contour	Contorno
+	Cone - Inverted	Cone - invertido
+	Cove - Deep	Enseada - profunda
+	Cove - Shallow	Enseada - rasa
+	Gaussian	Gaussiana
+	Half Round	Meio-círculo
+	Ring	Anel
+	Ring - Double	Anel - duplo
+	Rolling Slope - Descending	Declive ondulado - descendente
+	Rounded Steps	Degraus arredondados
+	Sawtooth 1	Dente de serra 1
 
 	Red Eye Tool	Ferramenta Olhos vermelhos
 	Pupil Size	Tamanho da pupila
@@ -2958,5 +2975,17 @@ cameraData	Lens	Lente
 	Select the crop presets to delete	Selecione as predefinições de corte a excluir
 	Enter a name for the crop preset	Digite um nome para a predefinição de corte
 	There is no crop size or ratio to save	Não há tamanho nem proporção de corte para salvar
+	Scale:	Escala:
+	Snap to Origin	Ajustar à origem
 	Search settings…	Pesquisar configurações…
 	No matching settings	Nenhuma configuração encontrada
+# Select and Mask view modes (#1754)
+	Onion Skin	Papel vegetal
+	Marching Ants	Formigas marchando
+	On Black	Sobre preto
+	On White	Sobre branco
+	On Layers	Sobre camadas
+	Show Edge	Mostrar borda
+	Show Original	Mostrar original
+	F cycles the views; hold X to see the image	F alterna as visualizações; segure X para ver a imagem
+	Show rulers	Mostrar réguas

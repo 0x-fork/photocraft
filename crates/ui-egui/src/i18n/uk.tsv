@@ -1569,6 +1569,7 @@
 	Quick Selection Tool	Інструмент «Швидке виділення»
 	Object Selection Tool	Інструмент «Виділення об'єкта»
 	Pen Tool	Інструмент «Перо»
+	Convert Point Tool	Інструмент «Перетворення вузла»
 	Path Selection Tool	Інструмент «Виділення контуру»
 	Direct Selection Tool	Інструмент «Пряме виділення»
 	Add Anchor Point Tool	Інструмент «Додати вузол»
@@ -2386,6 +2387,7 @@
 	Developing {name}	Обробка {name}
 	Cancelled {label}	Скасовано: {label}
 	Esc to cancel	Esc для скасування
+	Opened {name}	Відкрито: {name}
 	Opening {name}	Відкриття {name}
 	Saved {name}	Збережено: {name}
 	Saving {name}	Збереження {name}
@@ -2562,6 +2564,19 @@ cameraRaw	Roughness	Шорсткість
 	Domed	Купол
 	Domed (Inverted)	Купол (інвертований)
 	Diagonal (Descending)	Діагональ (спадна)
+	Contour Editor	Редактор контуру
+	Anti-aliased	Згладжування
+	Corner	Кут
+	Gloss Contour	Контур глянцю
+	Contour	Контур
+	Cone - Inverted	Конус - інвертований
+	Cove - Deep	Бухта - глибока
+	Cove - Shallow	Бухта - мілка
+	Half Round	Півколо
+	Ring - Double	Кільце - подвійне
+	Rolling Slope - Descending	Хвилястий схил - низхідний
+	Rounded Steps	Заокруглені сходинки
+	Sawtooth 1	Пилка 1
 	Linear	Лінійний
 
 	Red Eye Tool	Інструмент «Червоні очі»
@@ -3630,6 +3645,16 @@ cameraData	Lens	Об'єктив
 	Search settings…	Пошук налаштувань…
 	No matching settings	Немає відповідних налаштувань
 	PhotoCraft — Screen Color Picker	PhotoCraft — Піпетка кольору екрана
+# Select and Mask view modes (#1754)
+	Onion Skin	Калька
+	Marching Ants	Мурашки
+	On Black	На чорному
+	On White	На білому
+	On Layers	На шарах
+	Show Edge	Показати край
+	Show Original	Показати початкове
+	F cycles the views; hold X to see the image	F перемикає види; утримуйте X, щоб побачити зображення
+	Show rulers	Показати лінійки
 	Frame Tool	Інструмент «Рамка»
 	Create a new rectangular frame	Створити прямокутну рамку
 	Create a new elliptical frame	Створити еліптичну рамку
@@ -3640,3 +3665,5 @@ cameraData	Lens	Об'єктив
 	Select the crop presets to delete	Виберіть набори параметрів кадрування для видалення
 	Enter a name for the crop preset	Введіть назву набору параметрів кадрування
 	There is no crop size or ratio to save	Немає розміру чи співвідношення сторін кадрування для збереження
+	Scale:	Масштаб:
+	Snap to Origin	Прив'язати до початку координат

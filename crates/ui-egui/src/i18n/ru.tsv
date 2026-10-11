@@ -1588,6 +1588,7 @@
 	Quick Selection Tool	Быстрое выделение
 	Object Selection Tool	Выделение объектов
 	Pen Tool	Перо
+	Convert Point Tool	Преобразование узла
 	Path Selection Tool	Выделение контура
 	Direct Selection Tool	Выделение узла
 	Add Anchor Point Tool	Добавить узел
@@ -2412,6 +2413,7 @@
 	Developing {name}	Обработка {name}
 	Cancelled {label}	{label}: отменено
 	Esc to cancel	Esc — отмена
+	Opened {name}	Открыто: {name}
 	Opening {name}	Открытие {name}
 	Saved {name}	Сохранено: {name}
 	Saving {name}	Сохранение {name}
@@ -2589,6 +2591,21 @@ cameraRaw	Roughness	Неровность
 	Domed	Купол
 	Domed (Inverted)	Купол (инвертированный)
 	Diagonal (Descending)	Диагональ (нисходящая)
+	Contour Editor	Редактор контура
+	Anti-aliased	Сглаживание
+	Corner	Угол
+	Gloss Contour	Контур глянца
+	Contour	Контур
+	Cone - Inverted	Конус - инвертированный
+	Cove - Deep	Бухта - глубокая
+	Cove - Shallow	Бухта - мелкая
+	Gaussian	Гауссова
+	Half Round	Полукруг
+	Ring	Кольцо
+	Ring - Double	Кольцо - двойное
+	Rolling Slope - Descending	Волнистый склон - нисходящий
+	Rounded Steps	Скруглённые ступени
+	Sawtooth 1	Пила 1
 	Linear	Линейный
 
 	Red Eye Tool	Инструмент «Красные глаза»
@@ -2872,9 +2889,22 @@ cameraData	Lens	Объектив
 	Curve Fit:	Точность кривой:
 	Drag: draw freehand · Release on the start point: close	Перетаскивание: рисовать от руки · отпустить на начальной точке: замкнуть
 	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	Клик: гладкая точка · двойной клик: угол · перетаскивание точки: переместить · клик по первой точке: замкнуть · {key} завершить
+	Scale:	Масштаб:
+	Snap to Origin	Привязать к началу координат
+	Link with Layer	Связать со слоем
 	Rasterize Layer Style	Растрировать стиль слоя
 	Search settings…	Поиск настроек…
 	No matching settings	Нет подходящих настроек
+# Select and Mask view modes (#1754)
+	Onion Skin	Калька
+	Marching Ants	Бегущие муравьи
+	On Black	На черном
+	On White	На белом
+	On Layers	На слоях
+	Show Edge	Показать край
+	Show Original	Показать исходное
+	F cycles the views; hold X to see the image	F переключает виды; удерживайте X, чтобы увидеть изображение
+	Show rulers	Показать линейки
 	New Crop Preset…	Новый набор параметров кадрирования…
 	Delete Crop Preset…	Удалить набор параметров кадрирования…
 	Select the crop presets to delete:	Выберите наборы параметров кадрирования для удаления:

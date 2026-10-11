@@ -9,7 +9,9 @@
 //! 2. Add one row to [`LANGUAGES`] (code, native name, catalog, plural rule).
 //!
 //! That is all: the Preferences dropdown, the system-locale match and the catalog tests (parse,
-//! placeholders, plural forms) pick it up from the registry.
+//! placeholders, plural forms) pick it up from the registry. A right-to-left language (Arabic,
+//! Hebrew, Persian, Urdu, see [`dir_for_code`]) also mirrors the window's chrome
+//! ([`crate::direction`]).
 //!
 //! # Looking strings up
 //! - [`tr`]: a plain string. [`tr_ctx`]: when one English word needs different translations.
@@ -44,6 +46,23 @@ pub struct LangInfo {
     /// Must the catalog cover every menu string? (checked by the tests)
     pub complete_menus: bool,
     catalog: OnceLock<Catalog>,
+}
+
+/// A script's reading direction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Dir {
+    Ltr,
+    Rtl,
+}
+
+/// Languages written right to left, by primary subtag: Arabic, Sorani Kurdish, Dhivehi, Persian,
+/// Hebrew, Pashto, Sindhi, Uyghur, Urdu, Yiddish.
+const RTL_LANGUAGES: [&str; 10] = ["ar", "ckb", "dv", "fa", "he", "ps", "sd", "ug", "ur", "yi"];
+
+/// The reading direction of a language code (`ar`, `fa-ir`, `he`; any case).
+pub fn dir_for_code(code: &str) -> Dir {
+    let primary = code.split(['-', '_']).next().unwrap_or("");
+    if RTL_LANGUAGES.iter().any(|l| l.eq_ignore_ascii_case(primary)) { Dir::Rtl } else { Dir::Ltr }
 }
 
 fn plural_one_other(n: u64) -> usize {
@@ -212,6 +231,11 @@ impl Lang {
     /// Does this language's catalog claim to cover every menu string and `tl!` literal?
     pub fn complete_menus(self) -> bool {
         self.0.complete_menus
+    }
+
+    /// The language's reading direction.
+    pub fn dir(self) -> Dir {
+        dir_for_code(self.0.code)
     }
 
     fn catalog(self) -> &'static Catalog {

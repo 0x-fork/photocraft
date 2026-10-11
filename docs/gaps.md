@@ -54,8 +54,8 @@ what an agent can't finish alone.
   scripted check there) is the only real oracle.
 
 ### G6. Missing tools
-- **Missing (6 of 68):** Color Sampler (#1046), Color Replacement (engine command exists), Art
-  History Brush, Add Anchor Point, Delete Anchor Point, Convert Point (only as Pen + ⌥). Freeform
+- **Missing (5 of 68):** Color Sampler (#1046), Color Replacement (engine command exists), Art
+  History Brush, Add Anchor Point, Delete Anchor Point. Convert Point landed (#3204). Freeform
   Pen and Curvature Pen landed (#1054); Horizontal and Vertical Type Mask landed (#1055,
   `type.createSelection`); Perspective Crop landed (#1043, `image.perspectiveCrop`); Frame landed
   (#2914).
@@ -65,8 +65,8 @@ what an agent can't finish alone.
 - **Estimate:** 60–100 h (2–9 h each, per the calibration).
 
 ### G7. Workspaces shown as parameter dialogs
-- **Missing:** Select and Mask workspace with view modes, Refine Edge brush and outputs
-  (TOOL-214-1, Refine Hair #2671); Content-Aware Fill workspace with a paintable sampling area
+- **Missing:** Select and Mask workspace layout, Refine Edge brush and outputs
+  (TOOL-214-1, Refine Hair #2671; its view modes preview live since #1754); Content-Aware Fill workspace with a paintable sampling area
   (TOOL-214-15); Vanishing Point plane editor (TOOL-214-14); Content-Aware Scale through the
   transform box (TOOL-214-7); Puppet Warp mesh following the outline (TOOL-214-6); Content-Aware
   Move's Transform On Drop (TOOL-213-4).

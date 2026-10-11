@@ -18,6 +18,7 @@ pub static ICONS: &[(&str, &[u8])] = &[
     ("brush-cleaning", include_bytes!("../../../assets/icons/brush-cleaning.svg")),
     ("check", include_bytes!("../../../assets/icons/check.svg")),
     ("chevron-down", include_bytes!("../../../assets/icons/chevron-down.svg")),
+    ("chevron-left", include_bytes!("../../../assets/icons/chevron-left.svg")),
     ("chevron-right", include_bytes!("../../../assets/icons/chevron-right.svg")),
     ("chevron-up", include_bytes!("../../../assets/icons/chevron-up.svg")),
     ("chevrons-left", include_bytes!("../../../assets/icons/chevrons-left.svg")),
@@ -31,6 +32,8 @@ pub static ICONS: &[(&str, &[u8])] = &[
     ("cloud", include_bytes!("../../../assets/icons/cloud.svg")),
     ("compass", include_bytes!("../../../assets/icons/compass.svg")),
     ("contrast", include_bytes!("../../../assets/icons/contrast.svg")),
+    // PhotoCraft original: the Convert Point tool glyph.
+    ("convert-point", include_bytes!("../../../assets/icons/convert-point.svg")),
     ("copy", include_bytes!("../../../assets/icons/copy.svg")),
     ("crop", include_bytes!("../../../assets/icons/crop.svg")),
     ("diamond", include_bytes!("../../../assets/icons/diamond.svg")),

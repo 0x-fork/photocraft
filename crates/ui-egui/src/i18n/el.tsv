@@ -1568,6 +1568,7 @@
 	Cancelled opening {name}	Ακυρώθηκε το άνοιγμα του {name}
 	Cancelled {label}	Ακυρώθηκε: {label}
 	Esc to cancel	Esc για ακύρωση
+	Opened {name}	Άνοιξε το {name}
 	Opening {name}	Άνοιγμα του {name}
 	Saved {name}	Αποθηκεύτηκε το {name}
 	Saving {name}	Αποθήκευση του {name}
@@ -3286,6 +3287,7 @@ cameraRaw	Yellow	Κίτρινο
 	Click a segment to add an anchor point · {alt}-click an anchor to delete it	Κάντε κλικ σε ένα τμήμα για να προσθέσετε σημείο αγκύρωσης · {alt}-κλικ σε σημείο αγκύρωσης για διαγραφή
 	Click an anchor point to delete it · {alt}-click a segment to add one	Κάντε κλικ σε ένα σημείο αγκύρωσης για να το διαγράψετε · {alt}-κλικ σε τμήμα για προσθήκη
 	Pen Tool	Πένα (Pen Tool)
+	Convert Point Tool	Μετατροπή σημείου (Convert Point Tool)
 	Polygon Tool	Πολύγωνο (Polygon Tool)
 	Polygonal Lasso Tool	Πολυγωνικό λάσο (Polygonal Lasso Tool)
 	Quick Selection Tool	Γρήγορη επιλογή (Quick Selection Tool)
@@ -3417,6 +3419,19 @@ cameraRaw	Yellow	Κίτρινο
 	Could not open	Δεν ήταν δυνατό το άνοιγμα
 	Default PhotoCraft Size	Προεπιλεγμένο μέγεθος PhotoCraft
 	Diagonal (Descending)	Διαγώνιος (φθίνουσα)
+	Contour Editor	Επεξεργαστής περιγράμματος
+	Anti-aliased	Εξομάλυνση
+	Corner	Γωνία
+	Gloss Contour	Περίγραμμα γυαλάδας
+	Contour	Περίγραμμα
+	Cone - Inverted	Κώνος - ανεστραμμένος
+	Cove - Deep	Όρμος - βαθύς
+	Cove - Shallow	Όρμος - ρηχός
+	Half Round	Ημικύκλιο
+	Ring - Double	Δακτύλιος - διπλός
+	Rolling Slope - Descending	Κυματιστή κλίση - φθίνουσα
+	Rounded Steps	Στρογγυλεμένα σκαλοπάτια
+	Sawtooth 1	Πριονωτό 1
 	DirectX 12	DirectX 12
 	Display p3	Display P3
 	Divide	Διαίρεση
@@ -3636,5 +3651,17 @@ cameraData	Lens	Φακός
 	Select the crop presets to delete	Επιλέξτε τις προεπιλογές περικοπής για διαγραφή
 	Enter a name for the crop preset	Εισαγάγετε ένα όνομα για την προεπιλογή περικοπής
 	There is no crop size or ratio to save	Δεν υπάρχει μέγεθος ή αναλογία περικοπής για αποθήκευση
+	Scale:	Κλίμακα:
+	Snap to Origin	Προσκόλληση στην αρχή
 	Search settings…	Αναζήτηση ρυθμίσεων…
 	No matching settings	Δεν βρέθηκαν ρυθμίσεις
+# Select and Mask view modes (#1754)
+	Onion Skin	Φλούδα κρεμμυδιού
+	Marching Ants	Κινούμενο περίγραμμα
+	On Black	Σε μαύρο
+	On White	Σε λευκό
+	On Layers	Σε επίπεδα
+	Show Edge	Εμφάνιση άκρης
+	Show Original	Εμφάνιση αρχικού
+	F cycles the views; hold X to see the image	Το F εναλλάσσει τις προβολές· κρατήστε το X για να δείτε την εικόνα
+	Show rulers	Εμφάνιση χαράκων

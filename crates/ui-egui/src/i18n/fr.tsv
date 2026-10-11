@@ -1681,6 +1681,7 @@
 	Pen Pressure	Pression du stylet
 	Pen Tilt	Inclinaison du stylet
 	Pen Tool	Outil Plume
+	Convert Point Tool	Outil Conversion de point
 	Photo	Photo
 	PhotoCraft website	Site web de PhotoCraft
 	Picas	Picas
@@ -2095,6 +2096,7 @@
 	Developing {name}	Développement de {name}
 	Cancelled {label}	{label} : annulé
 	Esc to cancel	Échap pour annuler
+	Opened {name}	Ouvert : {name}
 	Opening {name}	Ouverture de {name}
 	Saved {name}	Enregistré : {name}
 	Saving {name}	Enregistrement de {name}
@@ -2742,6 +2744,21 @@ cameraRaw	Blending	Fusion
 	Domed	Bombé
 	Domed (Inverted)	Bombé (inversé)
 	Diagonal (Descending)	Diagonale (descendante)
+	Contour Editor	Éditeur de contour
+	Anti-aliased	Lissé
+	Corner	Angle
+	Gloss Contour	Contour brillant
+	Contour	Contour
+	Cone - Inverted	Cône - inversé
+	Cove - Deep	Crique - profonde
+	Cove - Shallow	Crique - peu profonde
+	Gaussian	Gaussienne
+	Half Round	Demi-arrondi
+	Ring	Anneau
+	Ring - Double	Anneau - double
+	Rolling Slope - Descending	Pente ondulée - descendante
+	Rounded Steps	Paliers arrondis
+	Sawtooth 1	Dents de scie 1
 
 	Red Eye Tool	Outil Yeux rouges
 	Pupil Size	Taille de la pupille
@@ -2951,5 +2968,17 @@ cameraData	Lens	Objectif
 	Select the crop presets to delete	Sélectionnez les paramètres prédéfinis de recadrage à supprimer
 	Enter a name for the crop preset	Saisissez un nom pour le paramètre prédéfini de recadrage
 	There is no crop size or ratio to save	Aucune taille ni proportion de recadrage à enregistrer
+	Scale:	Échelle :
+	Snap to Origin	Aligner sur l'origine
 	Search settings…	Rechercher des réglages…
 	No matching settings	Aucun réglage correspondant
+# Select and Mask view modes (#1754)
+	Onion Skin	Pelure d'oignon
+	Marching Ants	Fourmis en marche
+	On Black	Sur fond noir
+	On White	Sur fond blanc
+	On Layers	Sur les calques
+	Show Edge	Afficher le bord
+	Show Original	Afficher l'original
+	F cycles the views; hold X to see the image	F fait défiler les vues ; maintenez X pour voir l'image
+	Show rulers	Afficher les règles

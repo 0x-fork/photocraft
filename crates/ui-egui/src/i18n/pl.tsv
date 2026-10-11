@@ -1697,6 +1697,7 @@
 	Pen Pressure	Nacisk pióra
 	Pen Tilt	Nachylenie pióra
 	Pen Tool	Narzędzie Pióro
+	Convert Point Tool	Narzędzie Konwertuj punkt
 	Photo	Zdjęcie
 	PhotoCraft website	Strona internetowa PhotoCraft
 	Picas	Pikasy
@@ -2120,6 +2121,7 @@
 	Cancelled opening {name}	Anulowano otwieranie {name}
 	Cancelled {label}	Anulowano: {label}
 	Esc to cancel	Esc, aby anulować
+	Opened {name}	Otworzono: {name}
 	Opening {name}	Otwieranie {name}
 	Saved {name}	Zapisano: {name}
 	Saving {name}	Zapisywanie {name}
@@ -3357,6 +3359,19 @@ cameraRaw	Roughness	Chropowatość
 	Domed	Kopuła
 	Domed (Inverted)	Kopuła (odwrócona)
 	Diagonal (Descending)	Przekątna (malejąca)
+	Contour Editor	Edytor konturu
+	Anti-aliased	Wygładzanie
+	Corner	Narożnik
+	Gloss Contour	Kontur połysku
+	Contour	Kontur
+	Cone - Inverted	Stożek - odwrócony
+	Cove - Deep	Zatoka - głęboka
+	Cove - Shallow	Zatoka - płytka
+	Half Round	Półokrągły
+	Ring - Double	Pierścień - podwójny
+	Rolling Slope - Descending	Falisty spadek - malejący
+	Rounded Steps	Zaokrąglone stopnie
+	Sawtooth 1	Piła 1
 	Red Eye Tool	Narzędzie Czerwone oczy
 	Pupil Size	Rozmiar źrenicy
 	Darken Amount	Stopień przyciemnienia
@@ -3551,5 +3566,17 @@ cameraData	Lens	Obiektyw
 	Select the crop presets to delete	Wybierz ustawienia kadrowania do usunięcia
 	Enter a name for the crop preset	Wprowadź nazwę ustawienia kadrowania
 	There is no crop size or ratio to save	Brak rozmiaru lub proporcji kadrowania do zapisania
+	Scale:	Skala:
+	Snap to Origin	Przyciągnij do początku
 	Search settings…	Szukaj ustawień…
 	No matching settings	Brak pasujących ustawień
+# Select and Mask view modes (#1754)
+	Onion Skin	Skórka cebuli
+	Marching Ants	Maszerujące mrówki
+	On Black	Na czarnym
+	On White	Na białym
+	On Layers	Na warstwach
+	Show Edge	Pokaż krawędź
+	Show Original	Pokaż oryginał
+	F cycles the views; hold X to see the image	F przełącza widoki; przytrzymaj X, aby zobaczyć obraz
+	Show rulers	Pokaż linijki
