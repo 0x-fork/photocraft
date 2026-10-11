@@ -540,6 +540,24 @@ pub(crate) fn target_surface<'a>(doc: &'a mut Document, layer: Option<LayerId>, 
     }
 }
 
+pub(crate) fn read_target_surface<'a>(doc: &'a Document, layer: Option<LayerId>, p: &Value) -> Result<&'a Surface> {
+    match target_of(p) {
+        Target::Alpha(i) => {
+            let n = doc.channels.len();
+            doc.channels.get(i).map(|c| &c.surface).ok_or_else(|| EngineError::Other(format!("no alpha channel {i} (document has {n})")))
+        }
+        Target::QuickMask => doc.quick_mask.as_ref().map(|c| &c.surface).ok_or_else(|| EngineError::Other("not in Quick Mask mode".into())),
+        Target::Pixels => {
+            let id = layer.ok_or_else(|| EngineError::Other("no active layer".into()))?;
+            doc.layer(id).and_then(Layer::surface).ok_or(EngineError::NoLayer(id))
+        }
+        Target::Mask => {
+            let id = layer.ok_or_else(|| EngineError::Other("no active layer".into()))?;
+            doc.layer(id).and_then(|l| l.mask.as_ref()).map(|m| &m.surface).ok_or(EngineError::NoLayer(id))
+        }
+    }
+}
+
 /// The grayscale surface filters and adjustments edit instead of the layer's pixels (made explicit
 /// over the canvas), if the params target one: an alpha channel, the Quick Mask, or the mask of
 /// `layer`.

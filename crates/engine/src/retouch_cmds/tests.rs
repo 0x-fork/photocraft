@@ -380,6 +380,40 @@ fn history_brush_restores_earlier_pixels() {
 }
 
 #[test]
+fn history_brush_reads_a_source_when_its_pixels_were_locked() {
+    // Given a white layer locked in history state 1, then unlocked and filled red.
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 16, "height": 16, "depth": 8, "mode": "rgb", "background": "white"})).unwrap();
+    s.execute("layer.lockLayers", json!({"pixels": true})).unwrap();
+    s.execute("layer.lockLayers", json!({"pixels": false})).unwrap();
+    s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+
+    // When History Brush samples the locked historical pixels.
+    let result = s.execute("paint.historyBrush", json!({"points": [[8, 8]], "size": 4, "hardness": 100, "state": 1}));
+
+    // Then it paints white; the historical lock limits edits, not reads.
+    assert!(result.is_ok(), "{result:?}");
+    assert!(rgba(&s, 8, 8).iter().all(|v| *v > 0.99), "{:?}", rgba(&s, 8, 8));
+}
+
+#[test]
+fn history_brush_refuses_a_locked_destination_when_source_is_unlocked() {
+    // Given an unlocked white source and a red, currently locked destination.
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 16, "height": 16, "depth": 8, "mode": "rgb", "background": "white"})).unwrap();
+    s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+    s.execute("layer.lockLayers", json!({"pixels": true})).unwrap();
+
+    // When History Brush samples the unlocked source and attempts to paint the locked destination.
+    let result = s.execute("paint.historyBrush", json!({"points": [[8, 8]], "size": 4, "hardness": 100, "state": 0}));
+
+    // Then the destination lock still rejects the edit and preserves red pixels.
+    assert!(result.is_err());
+    let pixel = rgba(&s, 8, 8);
+    assert!(pixel[0] > 0.99 && pixel[1] < 0.01, "{pixel:?}");
+}
+
+#[test]
 fn history_brush_errors_when_layer_is_new() {
     let mut s = session(20, 20, 8, "rgb");
     s.execute("layer.new.layer", json!({})).unwrap();

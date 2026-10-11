@@ -326,7 +326,8 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             #[cfg(target_arch = "wasm32")]
             {
                 let _ = app;
-                Err("Open Recent is unavailable on the web".to_string())
+                let message = "Open Recent is unavailable on the web";
+                Err(tl!(message).to_string())
             }
         }
         "file.saveAs" => {
@@ -393,7 +394,7 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             if l == "layer.exportAs" {
                 Ok(json!({"dialog": crate::export_dialog::open_layer(app, layer)?}))
             } else {
-                crate::export_dialog::quick_export_layer_png(app, layer)
+                crate::export_dialog::quick_export_selected_layers_png(app)
             }
         }
         "layer.layerStyle.blendingOptions" if params.as_object().is_none_or(|o| o.is_empty()) => {
@@ -559,6 +560,8 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
         "edit.transform.warpGrid" if app.ui.transform.as_ref().is_some_and(|t| t.warp.is_some()) && params.get("warp").is_none() => {
             crate::transform_tool::edit_session_warp(app, id, &params).map(|_| json!({"transform": app.ui.transform}))
         }
+        // Layer › New › Layer… (⇧⌘N) asks first, as in Photoshop; with params it runs as is.
+        crate::new_layer_ui::COMMAND if params.as_object().is_none_or(|o| o.is_empty()) => Ok(json!({"dialog": crate::new_layer_ui::open(app)?})),
         sz if crate::sizing::is_sizing(sz) && params.as_object().is_none_or(|o| o.is_empty()) => {
             Ok(json!({"dialog": crate::sizing::open(app, sz).ok_or("no document")?}))
         }
@@ -671,6 +674,9 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
         return e;
     }
     if let Some(e) = crate::transform_tool::is_enabled(app, id) {
+        return e;
+    }
+    if let Some(e) = crate::crop_ui::is_enabled(app, id) {
         return e;
     }
     match id {

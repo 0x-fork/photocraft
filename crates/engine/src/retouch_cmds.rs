@@ -510,9 +510,8 @@ fn history_source(s: &Session, id: Option<LayerId>, p: &Value, cmd: &str) -> Res
         Some(i) => st.history.state(i).ok_or_else(|| bad(cmd, format!("no history state {i} (0..={})", st.history.past_len())))?,
         None => st.history.state(0).unwrap_or_else(|| st.doc.clone()),
     };
-    let mut source_doc = (*source_doc).clone();
-    crate::channel_cmds::target_surface(&mut source_doc, id, p)
-        .map(|(surf, _)| surf.clone())
+    crate::channel_cmds::read_target_surface(source_doc.as_ref(), id, p)
+        .cloned()
         .map_err(|_| EngineError::Other("the target did not exist (as pixels, a mask or a channel) in that history state".into()))
 }
 

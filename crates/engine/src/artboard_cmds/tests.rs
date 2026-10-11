@@ -426,3 +426,61 @@ fn moving_an_artboard_past_the_canvas_keeps_its_shapes_whole() {
         }
     }
 }
+
+#[test]
+fn moving_an_artboard_left_of_or_above_the_origin_grows_the_canvas_there() {
+    // Photoshop grows an artboard document in every direction; the canvas only grew right and
+    // down, so a board moved past the origin stayed partly off-canvas. Now everything shifts
+    // right/down (boards, contents, guides) and the canvas grows, in the move's undo step.
+    for (cmd, p) in [("layer.translate", json!({"dx": -60, "dy": -30})), ("layer.artboard.set", json!({"x": -50, "y": -20}))] {
+        let mut s = session(8);
+        let gid = board_with_square(&mut s);
+        let other = s.execute("layer.new.artboard", json!({"rect": [60, 10, 30, 30]})).unwrap()["layer"].as_u64().unwrap();
+        s.edit("guide", |doc, _| {
+            doc.guides.vertical.push(70.0);
+            Ok(())
+        })
+        .unwrap();
+        s.execute("layer.select", json!({"layer": gid.0})).unwrap();
+        s.execute(cmd, p.clone()).unwrap();
+        assert_eq!(board_rect(&s, gid.0), Rect::new(0, 0, 40, 40), "{cmd}");
+        assert_eq!(board_rect(&s, other), Rect::new(110, 30, 140, 60), "{cmd}: the other board shifts too");
+        assert_eq!((doc(&s).size.width, doc(&s).size.height), (150, 100), "{cmd}");
+        assert_eq!(doc(&s).guides.vertical, vec![120.0], "{cmd}");
+        assert!(red_at(&s, 0, 0) && red_at(&s, 19, 19) && !red_at(&s, 20, 20), "{cmd}: the contents moved with the board");
+        // One undo step back.
+        s.undo();
+        assert_eq!(board_rect(&s, gid.0), Rect::new(10, 10, 50, 50), "{cmd}");
+        assert_eq!(board_rect(&s, other), Rect::new(60, 10, 90, 40), "{cmd}");
+        assert_eq!((doc(&s).size.width, doc(&s).size.height), (100, 80), "{cmd}");
+        assert_eq!(doc(&s).guides.vertical, vec![70.0], "{cmd}");
+    }
+}
+
+#[test]
+fn add_beside_places_a_board_on_each_side_and_alt_duplicates_contents() {
+    // #3033: the Artboard tool's "+" buttons. Board 40×40 at (10, 10) holding a red square.
+    let mut s = session(8);
+    let gid = board_with_square(&mut s);
+    let r = s.execute("layer.artboard.addBeside", json!({"side": "right"})).unwrap();
+    assert_eq!(r["rect"], json!([150, 10, 40, 40]), "same size, a gap to the right");
+    assert!(!red_at(&s, 155, 15), "a plain \"+\" adds an empty board");
+    let r = s.execute("layer.artboard.addBeside", json!({"layer": gid.0, "side": "bottom", "duplicate": true})).unwrap();
+    assert_eq!(r["rect"], json!([10, 150, 40, 40]));
+    assert!(red_at(&s, 15, 155), "⌥: the copy brings the contents");
+    // Again on the right: that spot is taken, so the next free one.
+    let r = s.execute("layer.artboard.addBeside", json!({"layer": gid.0})).unwrap();
+    assert_eq!(r["rect"], json!([290, 10, 40, 40]));
+    // Left of x = 10 is past the canvas origin: everything shifts right by 130 to make room.
+    let before = doc(&s).size;
+    let r = s.execute("layer.artboard.addBeside", json!({"layer": gid.0, "side": "left"})).unwrap();
+    assert_eq!(r["rect"], json!([0, 10, 40, 40]));
+    assert_eq!(board_rect(&s, gid.0), Rect::new(140, 10, 180, 50));
+    assert!(red_at(&s, 145, 15), "the original's contents moved with the shift");
+    assert_eq!(doc(&s).size.width, before.width + 130);
+    // One undo step.
+    s.undo();
+    assert_eq!(board_rect(&s, gid.0), Rect::new(10, 10, 50, 50));
+    assert_eq!(doc(&s).size, before);
+    assert!(s.execute("layer.artboard.addBeside", json!({"side": "diagonal"})).is_err());
+}

@@ -476,7 +476,10 @@ fn on_event(app: &mut PhotocraftApp, ctx: &egui::Context, e: JobEvent) {
         JobOutcome::Done(v) if e.command == "brush.presets.importAbr" => {
             let n = v.get("count").and_then(Value::as_u64).unwrap_or(0);
             let group = v.get("group").and_then(Value::as_str).unwrap_or_default();
-            app.ui.status = format!("Imported {n} brushes from {group}");
+            app.ui.status = crate::i18n::fmt(
+                &crate::i18n::trn(crate::i18n::current(), n, "Imported {n} brush from {group}", "Imported {n} brushes from {group}"),
+                &[("group", group)],
+            );
             app.ui.status_error = false;
             app.ui.panels.brush_settings = true;
             app.ui.brush_tab = 1;
@@ -513,14 +516,14 @@ fn finish_open(app: &mut PhotocraftApp, name: &str, path: Option<&str>, v: &Valu
         app.opened_from(p);
     }
     app.sync_views();
-    app.ui.status = format!("Opened {name}");
+    app.ui.status = crate::i18n::fmt(tl!("Opened {name}"), &[("name", name)]);
     app.ui.status_error = false;
     // A raw opens in Camera Raw first; the dialog says how it was developed.
     if crate::camera_raw_ui::wants_open_dialog(app, &warnings) {
         crate::camera_raw_ui::queue_open_dialog(app, name, path, None);
-        notices::io_warnings(app, &format!("Opened {name}"), &crate::camera_raw_ui::without_develop_note(&warnings));
+        notices::io_warnings(app, &crate::i18n::fmt(tl!("Opened {name}"), &[("name", name)]), &crate::camera_raw_ui::without_develop_note(&warnings));
     } else {
-        notices::io_warnings(app, &format!("Opened {name}"), &warnings);
+        notices::io_warnings(app, &crate::i18n::fmt(tl!("Opened {name}"), &[("name", name)]), &warnings);
     }
     // Script events bound to "Open Document".
     photocraft_engine::automate_cmds::document_opened(&mut app.session);

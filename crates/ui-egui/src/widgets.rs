@@ -5,7 +5,9 @@ use egui::{Align2, Color32, CornerRadius, Pos2, Rect, Response, Sense, Stroke, S
 
 use crate::theme::{self, Tokens};
 
+mod angle_dial;
 mod color_count;
+pub use angle_dial::angle_dial_row;
 pub use color_count::color_count_row;
 mod type_ahead;
 pub use type_ahead::list_open as dropdown_list_open;
@@ -777,6 +779,12 @@ pub fn toggle(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
 pub fn primary_button(ui: &mut Ui, label: &str, min_width: f32) -> Response {
     let t = Tokens::get(ui.ctx());
     button_impl(ui, label, min_width, t.primary_bg, t.primary_text, true)
+}
+
+/// The width of the widest of `labels` as a button, for a column of equal-width buttons.
+pub fn button_width(ui: &Ui, labels: &[&str]) -> f32 {
+    let fg = Tokens::get(ui.ctx()).text;
+    labels.iter().map(|l| button_layout(ui, l, 0.0, None, fg).1.x).fold(0.0, f32::max)
 }
 
 pub fn secondary_button(ui: &mut Ui, label: &str, min_width: f32) -> Response {

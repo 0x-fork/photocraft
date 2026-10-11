@@ -744,9 +744,12 @@ fn single_row_and_column_marquee_select_one_pixel_lines() {
     click_with(&mut app, Tool::SingleRowMarquee, 15.0, 60.2, Modifiers::SHIFT);
     assert_eq!(bounds(&app), Rect::new(0, 37, 200, 61));
     assert!(at(&app, 5, 37) > 0.99 && at(&app, 199, 60) > 0.99 && at(&app, 100, 50) < 0.01, "two rows, nothing between");
+    let step = |app: &PhotocraftApp| app.session.active().unwrap().history.undo_label().map(str::to_string);
+    assert_eq!(step(&app).as_deref(), Some("Single Row Marquee"), "History names the step after the tool (#3031)");
 
     click_with(&mut app, Tool::SingleColumnMarquee, 42.9, 80.0, Modifiers::NONE);
     assert_eq!(bounds(&app), Rect::new(42, 0, 43, 100));
+    assert_eq!(step(&app).as_deref(), Some("Single Column Marquee"));
     click_with(&mut app, Tool::SingleColumnMarquee, 150.5, 3.0, Modifiers::SHIFT);
     assert_eq!(bounds(&app), Rect::new(42, 0, 151, 100));
     click_with(&mut app, Tool::SingleColumnMarquee, 42.0, 10.0, Modifiers::ALT);

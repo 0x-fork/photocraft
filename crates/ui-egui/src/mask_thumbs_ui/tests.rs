@@ -603,3 +603,41 @@ fn selecting_mask_thumbnail_toggles_swatches_to_mask_colors_and_back() {
     assert!(h.state().ui.mask_target, "new adjustment layer targets its mask");
     assert_eq!(h.state().session.tools.foreground, grey);
 }
+
+// #3369: a new adjustment or fill layer targets its mask, but Properties shows its settings
+// until the mask thumbnail is clicked, as in Photoshop.
+#[test]
+fn a_new_adjustment_or_fill_layer_shows_its_settings_until_the_mask_thumbnail_is_clicked() {
+    for (command, settings) in [("layer.newAdjustmentLayer.curves", Some("Reset to defaults")), ("layer.newFillLayer.solidColor", None)] {
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 200, "height": 100})).unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        let mut h = harness(s, 0, 1.0, 290.0);
+        let ctx = h.ctx.clone();
+        let (req, _rx) = crate::control::ControlRequest::new("ui.set", json!({"dock": {"collapsed": ["color", "history", "navigator"]}}));
+        crate::control::handle(h.state_mut(), &ctx, &req);
+        h.state_mut().run(command, json!({})).unwrap();
+        h.run_steps(6);
+        let id = h.state().session.active().unwrap().active_layer.unwrap().0;
+        assert!(h.state().ui.mask_target, "{command}: the new mask is targeted");
+        assert_eq!(crate::canvas::paint_target(h.state()), json!("mask"), "{command}: painting edits the mask");
+        assert!(h.query_all_by_label("Density").next().is_none(), "{command}: Properties shows the layer, not its mask");
+        if let Some(label) = settings {
+            assert!(h.query_all_by_label(label).next().is_some(), "{command}: its settings show");
+        }
+        // Clicking the row (not a thumbnail) keeps the settings.
+        let row = h.get_by_label(&layer(&h, id).name).rect().center();
+        click_with(&mut h, row, Modifiers::NONE);
+        assert!(h.state().ui.mask_target);
+        assert!(h.query_all_by_label("Density").next().is_none(), "{command}: a row click keeps the settings");
+        // The mask thumbnail switches Properties to the mask.
+        let r = mask_rect(&h, id, MaskKind::Pixel);
+        click_with(&mut h, r.center(), Modifiers::NONE);
+        h.run_steps(2);
+        assert!(h.state().ui.mask_target);
+        assert!(h.query_all_by_label("Density").next().is_some(), "{command}: the mask thumbnail shows the mask controls");
+        if let Some(label) = settings {
+            assert!(h.query_all_by_label(label).next().is_none());
+        }
+    }
+}

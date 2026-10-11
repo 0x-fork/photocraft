@@ -1353,6 +1353,24 @@ fn word_and_line_navigation() {
     assert!(jumped > kept);
 }
 
+#[test]
+fn line_navigation_reaches_adjacent_line_with_large_leading() {
+    use crate::layout::{byte_index, line_step};
+
+    let mut e = TextEngine::new();
+    let text = "ab\ncd";
+    let mut t = point(text, 12.0);
+    t.runs = vec![TextRun { len: text.len(), style: CharStyle { font_family: "Inter".into(), size_pt: 12.0, leading_pt: Some(40.0), ..Default::default() } }];
+    let l = e.layout(&t, 72.0);
+
+    assert_eq!(l.lines.len(), 2);
+    assert!((l.lines[1].baseline - l.lines[0].baseline - 40.0).abs() < 0.01);
+    let next = line_step(&l, text, 1, l.caret(byte_index(text, 1)).0, 1);
+    assert_eq!(next, 4, "lineNext must reach the second line");
+    let prev = line_step(&l, text, 4, l.caret(byte_index(text, 4)).0, -1);
+    assert_eq!(prev, 1, "linePrev must reach the first line");
+}
+
 /// Thai text sample with above/below marks (sara i, mai ek, mai tho, mai han-akat, sara u).
 const THAI_SAMPLE: &str = "ภาษาไทย สวัสดีครับ ผู้ที่น้ำ";
 

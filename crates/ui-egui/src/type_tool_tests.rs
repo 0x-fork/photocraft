@@ -1661,3 +1661,225 @@ fn type_mask_escape_leaves_the_selection_unchanged() {
     assert_eq!(selection_bounds(h.state()), before);
     assert_eq!(h.state().session.active().unwrap().doc.layers.len(), layers);
 }
+
+/// A harness with short frames, so a run of clicks stays inside egui's double-click delay.
+fn quick_harness(app: PhotocraftApp) -> Harness<'static, PhotocraftApp> {
+    let mut h = Harness::builder().with_size(vec2(1200.0, 800.0)).with_step_dt(0.02).build_ui_state(
+        |ui, app: &mut PhotocraftApp| {
+            let ctx = ui.ctx().clone();
+            if !ctx.fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                return;
+            }
+            crate::shortcuts::handle(app, &ctx);
+            egui::CentralPanel::default().show(ui, |ui| crate::canvas::document_area(app, ui));
+        },
+        app,
+    );
+    PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+    h.run_steps(4);
+    h
+}
+
+/// `n` quick clicks at `p`, then a pause long enough that the next click starts a new run.
+fn clicks(h: &mut Harness<'static, PhotocraftApp>, p: Pos2, n: usize) -> (usize, usize) {
+    h.hover_at(p);
+    h.run_steps(1);
+    for _ in 0..n {
+        press(h, p, true);
+        press(h, p, false);
+    }
+    let sel = selection(h);
+    h.run_steps(40);
+    sel
+}
+
+/// Centre the view on layer `id` at 50 % zoom.
+fn centre_on(h: &mut Harness<'static, PhotocraftApp>, id: LayerId) {
+    let (l, aff, _) = layout(h.state_mut(), id).unwrap();
+    let b = l.bounds().unwrap();
+    let m = aff.apply(Point::new(f64::from(b[0] + b[2]) / 2.0, f64::from(b[1] + b[3]) / 2.0));
+    let v = &mut h.state_mut().ui.views[0];
+    (v.zoom, v.center, v.fit_pending) = (0.5, [m.x as f32, m.y as f32], false);
+    h.run_steps(2);
+}
+
+/// Laid-out line (character range) holding character `i`.
+fn line_chars(h: &mut Harness<'static, PhotocraftApp>, id: LayerId, i: usize) -> (usize, usize) {
+    let (l, _, text) = layout(h.state_mut(), id).unwrap();
+    let b = text.char_indices().nth(i).unwrap().0;
+    let c = l.clusters.iter().find(|c| c.range.start == b).unwrap();
+    let ln = &l.lines[c.line];
+    (photocraft_text::char_index(&text, ln.range.start), photocraft_text::char_index(&text, ln.range.end))
+}
+
+/// #3493: like Photoshop, two clicks select the word, three the line, four the paragraph (up
+/// to the hard return) and five all text; the sixth starts over with a caret.
+#[test]
+fn multi_click_selects_word_line_paragraph_and_all_in_point_text() {
+    let mut app = new_app();
+    app.ui.extras.snap = false;
+    let s = "alpha beta\ngamma delta\nepsilon";
+    let id = LayerId(app.run("type.create", json!({"text": s, "size": 60, "x": 300, "y": 200})).unwrap()["layer"].as_u64().unwrap());
+    let mut h = quick_harness(app);
+    centre_on(&mut h, id);
+    // Glyph 19 is the 'l' of "delta" (characters 17..22), on the line "gamma delta" (11..22).
+    let p = glyph(&mut h, id, 19, 0.2);
+    assert_eq!(clicks(&mut h, p, 1), (19, 19), "one click: caret");
+    assert_eq!(clicks(&mut h, p, 2), (17, 22), "two clicks: word");
+    assert_eq!(clicks(&mut h, p, 3), (11, 22), "three clicks: line");
+    assert_eq!(clicks(&mut h, p, 4), (11, 22), "four clicks: paragraph without its return");
+    assert_eq!(clicks(&mut h, p, 5), (0, s.chars().count()), "five clicks: all text");
+    assert_eq!(clicks(&mut h, p, 6), (19, 19), "a sixth click starts over with a caret");
+    assert_eq!(clicks(&mut h, p, 7), (17, 22), "and a seventh selects the word again");
+    // After a pause the run restarts: a single click places the caret.
+    assert_eq!(clicks(&mut h, p, 1), (19, 19), "a click after a pause is a caret");
+    // Paste replaces the selected word; ⌘A then selects all of the edited text.
+    assert_eq!(clicks(&mut h, p, 2), (17, 22));
+    h.event(egui::Event::Paste("omega\nzeta".into()));
+    h.run_steps(2);
+    let edited = "alpha beta\ngamma omega\nzeta\nepsilon";
+    assert_eq!(text(h.state(), id).text, edited, "paste replaces the selection");
+    assert_eq!(selection(&h), (27, 27), "caret after the pasted text");
+    h.key_press_modifiers(Modifiers::COMMAND, egui::Key::A);
+    h.run_steps(2);
+    assert_eq!(selection(&h), (0, edited.chars().count()), "⌘A selects all text");
+}
+
+/// Paragraph text: three clicks select only the visual (soft-wrapped) line, four the whole
+/// paragraph; vertical type selects the column the same way.
+#[test]
+fn multi_click_separates_wrapped_lines_from_paragraphs() {
+    let mut app = new_app();
+    app.ui.extras.snap = false;
+    let text = "one two three four five six\nseven";
+    let id = LayerId(app.run("type.create", json!({"text": text, "size": 40, "box": [200, 150, 260, 600]})).unwrap()["layer"].as_u64().unwrap());
+    let mut h = quick_harness(app);
+    centre_on(&mut h, id);
+    // Glyph 9 is inside "three"; the first paragraph wraps, so its line is only part of it.
+    let line = line_chars(&mut h, id, 9);
+    assert!(line.0 > 0 || line.1 < 27, "the paragraph wraps: line {line:?}");
+    let p = glyph(&mut h, id, 9, 0.5);
+    assert_eq!(clicks(&mut h, p, 2), (8, 13), "two clicks: the word \"three\"");
+    assert_eq!(clicks(&mut h, p, 3), line, "three clicks: the visual line");
+    assert_eq!(clicks(&mut h, p, 4), (0, 27), "four clicks: the wrapped paragraph");
+    let p = glyph(&mut h, id, 30, 0.5);
+    assert_eq!(clicks(&mut h, p, 4), (28, 33), "four clicks in the last paragraph");
+
+    let mut app = new_app();
+    app.ui.extras.snap = false;
+    let id = LayerId(app.run("type.create", json!({"text": "HOHOHO\nHOHO", "size": 60, "x": 800, "y": 120})).unwrap()["layer"].as_u64().unwrap());
+    app.run("type.orientation.vertical", json!({"layer": id.0})).unwrap();
+    let mut h = quick_harness(app);
+    centre_on(&mut h, id);
+    let p = vglyph(&mut h, id, 9, 0.5);
+    assert_eq!(clicks(&mut h, p, 3), (7, 11), "three clicks in vertical type: the column");
+    assert_eq!(clicks(&mut h, p, 5), (0, 11), "five clicks: all text");
+}
+
+#[test]
+fn click_counts_cycle_and_restart() {
+    use super::next_click_count as next;
+    // egui counts 1, 2, 3, 3, 3, ... for a quick run; ours goes on to 5 and then starts over.
+    let mut n = 0;
+    let mut seen = vec![];
+    for egui in [1, 2, 3, 3, 3, 3, 3] {
+        n = next(n, egui);
+        seen.push(n);
+    }
+    assert_eq!(seen, [1, 2, 3, 4, 5, 1, 2]);
+    // A slow or distant click (egui: 1) restarts at a caret, whatever came before.
+    assert_eq!(next(4, 1), 1);
+    assert_eq!(next(4, 0), 1);
+    // No previous count (another layer, a fresh session): egui's count stands, capped.
+    assert_eq!(next(0, 2), 2);
+    assert_eq!(next(0, 3), 3);
+    assert_eq!(next(0, u32::MAX), 5);
+    assert_eq!(next(u32::MAX, 2), 1, "a corrupt count wraps without overflow");
+}
+
+#[test]
+fn click_selection_without_layout_and_on_hostile_input() {
+    use super::click_selection as sel;
+    let text = "ab cd\nef gh\r\nij";
+    // Without a layout a line falls back to its paragraph.
+    assert_eq!(sel(None, text, 7, None, 2), (6, 8));
+    assert_eq!(sel(None, text, 7, None, 3), (6, 11));
+    assert_eq!(sel(None, text, 7, None, 4), (6, 11), "the CR LF is not selected");
+    assert_eq!(sel(None, text, 13, None, 4), (13, 15));
+    assert_eq!(sel(None, text, 7, None, 5), (0, 15));
+    // Empty layer, caret past the end, absurd counts and line indices: no panic, clamped.
+    for count in [0, 1, 2, 3, 4, 5, 6, u32::MAX] {
+        assert_eq!(sel(None, "", 99, Some(usize::MAX), count), (0, 0), "empty text, count {count}");
+        let (a, b) = sel(None, text, usize::MAX, Some(usize::MAX), count);
+        assert!(a <= b && b <= 15, "caret past the end, count {count}: {a}..{b}");
+        let empty = photocraft_text::TextLayout::default();
+        let (a, b) = sel(Some(&empty), text, usize::MAX, Some(usize::MAX), count);
+        assert!(a <= b && b <= 15, "empty layout, count {count}: {a}..{b}");
+    }
+    // A trailing return ends in an empty paragraph: four clicks there select nothing.
+    assert_eq!(sel(None, "ab\n", 3, None, 4), (3, 3));
+    // Multi-byte text keeps character offsets.
+    assert_eq!(sel(None, "é ü\nñø", 4, None, 2), (4, 6));
+    assert_eq!(sel(None, "é ü\nñø", 1, None, 4), (0, 3));
+}
+
+/// Clicks with no edit session, or one on a layer that is gone, never panic or select.
+#[test]
+fn multi_click_without_a_session_does_nothing() {
+    let mut app = new_app();
+    super::multi_click(&mut app, 3, 10.0, 10.0);
+    assert!(app.ui.text_edit.is_none() && app.type_clicks.is_none());
+    app.ui.text_edit = Some(crate::state::TextEdit {
+        layer: 999_999,
+        caret: 5,
+        anchor: 5,
+        session: "stale".into(),
+        created: false,
+        mask: false,
+        dragging: false,
+        resize: None,
+        preedit: None,
+    });
+    for egui in [1, 2, 3, 3, 3, 3] {
+        super::multi_click(&mut app, egui, f64::NAN, f64::INFINITY);
+    }
+    let ed = app.ui.text_edit.as_ref().unwrap();
+    assert_eq!((ed.anchor, ed.caret), (5, 5));
+}
+
+/// #3036: ⇧ on the click that commits a Type Mask adds the glyphs to the selection and ⌥
+/// subtracts them, as in Photoshop; while typing, the working text has no Layers panel row.
+#[test]
+fn type_mask_shift_adds_and_alt_subtracts_without_a_layer_row() {
+    use crate::canvas::{ToolEvent, tool_event};
+    use crate::state::Tool;
+    use photocraft_geom::Rect;
+    let mut app = new_app();
+    type_with(&mut app, Tool::HorizontalTypeMask, "I");
+    let glyphs = selection_bounds(&app).unwrap();
+    let mut app = new_app();
+    app.ui.extras.snap = false; // the second text would snap to the first one's selected edge
+    let rect = Rect::new(1000, 100, 1100, 200);
+    app.run("select.rect", json!({"x": 1000, "y": 100, "width": 100, "height": 100})).unwrap();
+    // Type, then commit with a click outside the text holding `m`.
+    let type_and_commit = |app: &mut PhotocraftApp, m: Modifiers| {
+        app.ui.tool = Tool::HorizontalTypeMask;
+        tool_event(app, ToolEvent::Down { x: 200.0, y: 300.0, pressure: 1.0 }, Modifiers::NONE);
+        tool_event(app, ToolEvent::Up { x: 200.0, y: 300.0 }, Modifiers::NONE);
+        super::insert(app, "I");
+        let doc = app.session.active().unwrap().doc.clone();
+        let rows = crate::layer_tree_ui::panel_rows(app, &doc);
+        assert_eq!(rows.len(), doc.layers.len() - 1, "the working text is not listed");
+        tool_event(app, ToolEvent::Down { x: 1500.0, y: 800.0, pressure: 1.0 }, m);
+        tool_event(app, ToolEvent::Up { x: 1500.0, y: 800.0 }, m);
+        assert!(app.ui.text_edit.is_none());
+    };
+    let at = |app: &PhotocraftApp, x: i32, y: i32| app.session.active().unwrap().doc.selection.as_ref().map_or(0.0, |s| s.sample_channel(x, y, 0));
+    let stem = ((glyphs.x0 + glyphs.x1) / 2, (glyphs.y0 + glyphs.y1) / 2);
+    type_and_commit(&mut app, Modifiers::SHIFT);
+    assert_eq!(selection_bounds(&app), Some(rect.union(&glyphs)), "⇧ adds");
+    assert!(at(&app, stem.0, stem.1) > 0.99 && at(&app, 1050, 150) > 0.99);
+    type_and_commit(&mut app, Modifiers::ALT);
+    assert!(at(&app, stem.0, stem.1) < 0.01, "⌥ subtracts the glyphs");
+    assert!(at(&app, 1050, 150) > 0.99, "and keeps the rest");
+}

@@ -227,7 +227,7 @@ fn resize_box(app: &mut PhotocraftApp, ed: &TextEdit, i: u8, x: f64, y: f64) {
 }
 
 /// Pointer down with the Type tool. Returns true when the press was consumed (no box drag).
-pub fn pointer_down(app: &mut PhotocraftApp, x: f64, y: f64, shift: bool) -> bool {
+pub fn pointer_down(app: &mut PhotocraftApp, x: f64, y: f64, mods: egui::Modifiers) -> bool {
     if let Some(ed) = app.ui.text_edit.clone() {
         let id = LayerId(ed.layer);
         if let Some(i) = box_handle_at(app, id, x, y) {
@@ -240,14 +240,15 @@ pub fn pointer_down(app: &mut PhotocraftApp, x: f64, y: f64, shift: bool) -> boo
             let off = hit_offset(app, id, x, y);
             if let Some(e) = app.ui.text_edit.as_mut() {
                 e.caret = off;
-                if !shift {
+                if !mods.shift {
                     e.anchor = off;
                 }
                 e.dragging = true;
             }
             return true;
         }
-        commit(app);
+        // ⇧/⌥ on that click combine a Type Mask with the selection.
+        commit_with(app, mods);
         return true; // Photoshop: a click outside commits without starting new text
     }
     // The Type Mask tools always start new text: existing type layers are just pixels to them.
@@ -496,18 +497,91 @@ fn word_boundary(text: &str, from: usize, forward: bool) -> usize {
     photocraft_text::word_boundary(text, from, forward)
 }
 
-/// Double-click: select the word under the caret.
-pub fn select_word(app: &mut PhotocraftApp) {
-    let Some(ed) = app.ui.text_edit.clone() else { return };
-    let Some(text) = current_text(app, LayerId(ed.layer)) else { return };
-    let chars: Vec<char> = text.chars().collect();
-    let (mut a, mut b) = (ed.caret.min(chars.len()), ed.caret.min(chars.len()));
-    while a > 0 && chars[a - 1].is_alphanumeric() {
-        a -= 1;
+/// Most clicks in a run that select more: 2 a word, 3 a line, 4 a paragraph, 5 all text. The
+/// next quick click starts over with a caret.
+const MAX_CLICKS: u32 = 5;
+
+/// Count of this click in a run of clicks at one spot. `egui_count` is egui's own count for the
+/// click (1 single, 2 double, 3 triple; it never goes past 3), which already applies the
+/// double-click delay and distance; `prev` is our count for the previous click (0: none). A slow
+/// or distant click (egui says 1) starts a new run; after five clicks the run starts over.
+pub(crate) fn next_click_count(prev: u32, egui_count: u32) -> u32 {
+    match (egui_count, prev) {
+        (0 | 1, _) => 1,
+        (n, 0) => n.min(MAX_CLICKS),
+        (_, p) => p % MAX_CLICKS + 1,
     }
-    while b < chars.len() && chars[b].is_alphanumeric() {
-        b += 1;
+}
+
+/// The selection (anchor, caret) a run of `count` clicks makes at character `caret`: 1 a caret,
+/// 2 the word under it, 3 its visual line as laid out (a column in vertical type), 4 its
+/// paragraph up to the hard return, 5 all text. `line` is the laid-out line the click hit; it
+/// decides at a soft wrap, where one caret offset ends a line and starts the next. Without a
+/// layout a line is its paragraph. Offsets past the text are clamped, so an empty layer or a
+/// stale caret never panics.
+pub(crate) fn click_selection(layout: Option<&TextLayout>, text: &str, caret: usize, line: Option<usize>, count: u32) -> (usize, usize) {
+    let n = text.chars().count();
+    let c = caret.min(n);
+    match count {
+        2 => {
+            let chars: Vec<char> = text.chars().collect();
+            let word = |i: usize| chars.get(i).is_some_and(|ch| ch.is_alphanumeric());
+            let (mut a, mut b) = (c, c);
+            while a > 0 && word(a - 1) {
+                a -= 1;
+            }
+            while word(b) {
+                b += 1;
+            }
+            (a, b)
+        }
+        3 => {
+            let Some(l) = layout else { return paragraph_of(text, c) };
+            let ln = line.and_then(|i| l.lines.get(i)).or_else(|| l.lines.get(photocraft_text::line_index(l, byte_of(text, c))));
+            ln.map_or((c, c), |ln| (photocraft_text::char_index(text, ln.range.start), photocraft_text::char_index(text, ln.range.end)))
+        }
+        4 => paragraph_of(text, c),
+        5 => (0, n),
+        _ => (c, c),
     }
+}
+
+/// Characters of the paragraph holding character `c`, without its hard return.
+fn paragraph_of(text: &str, c: usize) -> (usize, usize) {
+    let b = byte_of(text, c);
+    let paras = photocraft_text::layout::split_paragraphs(text);
+    let Some(r) = paras.iter().find(|r| b >= r.start && b < r.end).or_else(|| paras.last()) else { return (c, c) };
+    let body = text.get(r.clone()).unwrap_or("").trim_end_matches(['\r', '\n']);
+    let start = photocraft_text::char_index(text, r.start);
+    (start, start + body.chars().count())
+}
+
+/// A click while editing type at document point (`x`, `y`), after it placed the caret there.
+/// `egui_count` is egui's count for the click (see [`next_click_count`]). Like Photoshop, two
+/// clicks select a word, three the line, four the paragraph and five all text.
+pub fn multi_click(app: &mut PhotocraftApp, egui_count: u32, x: f64, y: f64) {
+    let Some(ed) = app.ui.text_edit.clone() else {
+        app.type_clicks = None;
+        return;
+    };
+    let prev = app.type_clicks.filter(|(layer, _)| *layer == ed.layer).map_or(0, |(_, n)| n);
+    let count = next_click_count(prev, egui_count);
+    app.type_clicks = Some((ed.layer, count));
+    if count < 2 {
+        return;
+    }
+    let id = LayerId(ed.layer);
+    let Some(text) = current_text(app, id) else { return };
+    let laid = layout(app, id);
+    let (caret, line) = match &laid {
+        Some((l, aff, t)) if *t == text && x.is_finite() && y.is_finite() => {
+            let (tx, ty) = to_text(aff, x, y);
+            let (ci, line) = photocraft_text::hit_char(l, t, tx, ty);
+            (ci, Some(line))
+        }
+        _ => (ed.caret, None),
+    };
+    let (a, b) = click_selection(laid.as_ref().map(|(l, _, _)| l.as_ref()), &text, caret, line, count);
     if let Some(e) = app.ui.text_edit.as_mut() {
         (e.anchor, e.caret) = (a, b);
     }
@@ -654,7 +728,7 @@ pub fn handle_keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
                         let to = line_edge(app, id, ed.caret, *key == Key::End);
                         set(app, to, m.shift);
                     }
-                    Key::Enter if m.command => commit(app),
+                    Key::Enter if m.command => commit_with(app, *m),
                     Key::Enter => insert(app, "\n"),
                     // Photoshop types a tab character; layout advances it to the next tab stop.
                     Key::Tab if !m.command && !m.alt && !m.shift => insert(app, "\t"),
@@ -705,6 +779,13 @@ pub fn handle_keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
 
 /// End the editing session. A new layer left empty is deleted; a new layer is named after its text.
 pub fn commit(app: &mut PhotocraftApp) {
+    commit_with(app, egui::Modifiers::NONE);
+}
+
+/// [`commit`] with the modifiers held while committing: a Type Mask adds its glyphs to the
+/// selection with ⇧, subtracts them with ⌥ and intersects with ⇧⌥ (Photoshop); with none it
+/// replaces the selection.
+pub fn commit_with(app: &mut PhotocraftApp, mods: egui::Modifiers) {
     if app.ui.tool.is_type() {
         crate::type_transform::finish(app);
     }
@@ -712,10 +793,11 @@ pub fn commit(app: &mut PhotocraftApp) {
     let Some(ed) = app.ui.text_edit.take() else { return };
     let Some(text) = current_text(app, LayerId(ed.layer)) else { return };
     if ed.mask {
-        // Type Mask: the text's glyphs replace the selection and the working layer goes, all in
-        // the session's one history step. No text: nothing changes.
+        // Type Mask: the text's glyphs become (or combine with) the selection and the working
+        // layer goes, all in the session's one history step. No text: nothing changes.
+        let operation = crate::tool_feedback::selection_mode(crate::state::Tool::HorizontalTypeMask, 0, mods);
         if !text.trim().is_empty()
-            && let Err(e) = app.run("type.createSelection", json!({"layer": ed.layer, "removeLayer": true, "coalesce": ed.session}))
+            && let Err(e) = app.run("type.createSelection", json!({"layer": ed.layer, "removeLayer": true, "operation": operation, "coalesce": ed.session}))
         {
             app.ui.status = e;
             app.ui.status_error = true;
@@ -1074,8 +1156,10 @@ fn axis_label(tag: &str) -> String {
 
 /// One slider row per variable-font axis of the style's font, below the font style (#2985).
 fn axis_sliders(app: &mut PhotocraftApp, ui: &mut egui::Ui, c: &photocraft_doc::text::CharStyle) {
+    // Drawn every frame: no sliders until the background font scan is done (#3021).
+    let Some(engine) = photocraft_text::try_shared() else { return };
     let axes = {
-        let faces = photocraft_text::shared().lock().unwrap_or_else(PoisonError::into_inner).fonts.faces(&c.font_family);
+        let faces = engine.lock().unwrap_or_else(PoisonError::into_inner).fonts.faces(&c.font_family);
         slider_axes(&faces, c.italic)
     };
     let t = crate::theme::Tokens::get(ui.ctx());
@@ -1105,8 +1189,11 @@ fn axis_sliders(app: &mut PhotocraftApp, ui: &mut egui::Ui, c: &photocraft_doc::
 
 /// PSD text can identify a face only by its PostScript name. Show its real subfamily too.
 pub(crate) fn selected_style(style: &photocraft_doc::text::CharStyle) -> String {
-    if let Some(ps) = &style.postscript_name {
-        let faces = photocraft_text::shared().lock().unwrap_or_else(|e| e.into_inner()).fonts.faces(&style.font_family);
+    // Drawn every frame: while the font scan runs, the stored style name stands in.
+    if let Some(ps) = &style.postscript_name
+        && let Some(engine) = photocraft_text::try_shared()
+    {
+        let faces = engine.lock().unwrap_or_else(|e| e.into_inner()).fonts.faces(&style.font_family);
         if let Some(face) = faces.into_iter().find(|f| f.postscript_name.as_ref() == Some(ps)) {
             return face.style;
         }
@@ -1119,6 +1206,26 @@ pub(crate) fn selected_style(style: &photocraft_doc::text::CharStyle) -> String 
 /// means a weight — unlike the Camera Raw "Light" section.
 pub fn style_label(style: &str) -> String {
     style.split(' ').map(|w| crate::i18n::tr_ctx(crate::i18n::current(), "fontWeight", w)).collect::<Vec<_>>().join(" ")
+}
+
+/// Starts scanning the installed fonts on a background thread (desktop start-up), so choosing
+/// the Type tool doesn't stall the UI while they are read (#3021). Does nothing on the web.
+pub fn warm_fonts() {
+    photocraft_text::warm_shared();
+}
+
+/// Whether the font database is ready. The installed fonts are scanned on a background thread
+/// from launch (`photocraft_text::warm_shared`); until that finishes, font menus draw this
+/// disabled "Loading fonts…" box `width` wide instead of blocking the UI, and a repaint picks the
+/// menus up once the scan is done.
+pub(crate) fn fonts_ready(ui: &mut egui::Ui, width: f32) -> bool {
+    if photocraft_text::try_shared().is_some() {
+        return true;
+    }
+    let label = tl!("Loading fonts…").to_string();
+    ui.add_enabled_ui(false, |ui| crate::widgets::dropdown(ui, "fonts-loading", &mut label.clone(), &[(label.clone(), label.as_str())], width));
+    ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+    false
 }
 
 /// Searchable font-family combo box.
@@ -1404,18 +1511,21 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             app.ui.status_error = true;
         }
     }
-    if font_picker(ui, &mut fam, 170.0, app.session.prefs().type_.font_preview) {
-        app.ui.tool_options.type_font = fam.clone();
-        let st = styles(&fam);
-        style = if st.contains(&style) { style } else { st.first().cloned().unwrap_or_else(|| "Regular".into()) };
-        app.ui.tool_options.type_style = style.clone();
-        apply(app, ui.ctx(), json!({"font": fam}));
-    }
-    let opts: Vec<(String, String)> = styles(&fam).into_iter().map(|s| (s.clone(), style_label(&s))).collect();
-    let opts_ref: Vec<(String, &str)> = opts.iter().map(|(a, b)| (a.clone(), b.as_str())).collect();
-    if crate::widgets::dropdown(ui, "type-style", &mut style, &opts_ref, 110.0) {
-        app.ui.tool_options.type_style = style.clone();
-        apply(app, ui.ctx(), json!({"fontStyle": style}));
+    // Font family and style menus (one placeholder in their place while the fonts load).
+    if fonts_ready(ui, 170.0 + ui.spacing().item_spacing.x + 110.0) {
+        if font_picker(ui, &mut fam, 170.0, app.session.prefs().type_.font_preview) {
+            app.ui.tool_options.type_font = fam.clone();
+            let st = styles(&fam);
+            style = if st.contains(&style) { style } else { st.first().cloned().unwrap_or_else(|| "Regular".into()) };
+            app.ui.tool_options.type_style = style.clone();
+            apply(app, ui.ctx(), json!({"font": fam}));
+        }
+        let opts: Vec<(String, String)> = styles(&fam).into_iter().map(|s| (s.clone(), style_label(&s))).collect();
+        let opts_ref: Vec<(String, &str)> = opts.iter().map(|(a, b)| (a.clone(), b.as_str())).collect();
+        if crate::widgets::dropdown(ui, "type-style", &mut style, &opts_ref, 110.0) {
+            app.ui.tool_options.type_style = style.clone();
+            apply(app, ui.ctx(), json!({"fontStyle": style}));
+        }
     }
     let (r, _) = ui.allocate_exact_size(egui::vec2(18.0, 22.0), egui::Sense::hover());
     crate::icons::paint(ui, r, "type", 13.0, t.icon);
@@ -1485,7 +1595,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             )
             .clicked()
             {
-                commit(app);
+                commit_with(app, ui.input(|i| i.modifiers));
             }
             if crate::icons::button(ui, "ban", 24.0, false, tl!("Cancel any current edits (Esc)")).clicked() {
                 cancel(app);
@@ -1715,13 +1825,18 @@ fn type_sections(app: &mut PhotocraftApp, ui: &mut egui::Ui, character: bool, pa
         let full = ui.available_width();
         let w = field_width(full, 2, LABEL_W);
         let mut fam = c.font_family.clone();
+        let mut ready = true;
         row(ui, &mut |ui| {
-            if font_picker(ui, &mut fam, full, app.session.prefs().type_.font_preview) {
+            ready = fonts_ready(ui, full);
+            if ready && font_picker(ui, &mut fam, full, app.session.prefs().type_.font_preview) {
                 app.ui.tool_options.type_font = fam.clone();
                 apply(app, ui.ctx(), json!({"font": fam}));
             }
         });
         row(ui, &mut |ui| {
+            if !ready {
+                return;
+            }
             let mut style = selected_style(&c);
             let opts: Vec<(String, String)> = styles(&fam).into_iter().map(|s| (s.clone(), style_label(&s))).collect();
             let opts_ref: Vec<(String, &str)> = opts.iter().map(|(a, b)| (a.clone(), b.as_str())).collect();
@@ -2006,7 +2121,7 @@ mod tests {
     #[test]
     fn click_creates_placeholder_selected_and_typing_replaces_it() {
         let mut app = app();
-        assert!(!pointer_down(&mut app, 50.0, 100.0, false));
+        assert!(!pointer_down(&mut app, 50.0, 100.0, egui::Modifiers::NONE));
         pointer_up(&mut app, [50.0, 100.0], [50.0, 100.0]);
         let ed = app.ui.text_edit.clone().unwrap();
         assert_eq!((ed.anchor, ed.caret), (0, PLACEHOLDER.chars().count()));
@@ -2096,7 +2211,7 @@ mod tests {
         let id = LayerId(app.ui.text_edit.as_ref().unwrap().layer);
         let steps = app.session.active().unwrap().history.entries().len();
         // Top-left corner: the box keeps its bottom-right corner.
-        assert!(pointer_down(&mut app, 10.0, 10.0, false));
+        assert!(pointer_down(&mut app, 10.0, 10.0, egui::Modifiers::NONE));
         assert_eq!(app.ui.text_edit.as_ref().unwrap().resize, Some(0));
         pointer_move(&mut app, 20.0, 25.0);
         pointer_move(&mut app, 30.0, 30.0);
@@ -2108,7 +2223,7 @@ mod tests {
         assert_eq!(app.session.active().unwrap().history.entries().len(), steps);
         assert!(app.ui.text_edit.is_some());
         // Right edge: only the width changes, and never below the minimum.
-        assert!(pointer_down(&mut app, 110.0, 45.0, false));
+        assert!(pointer_down(&mut app, 110.0, 45.0, egui::Modifiers::NONE));
         pointer_move(&mut app, 0.0, 99.0);
         pointer_up(&mut app, [110.0, 45.0], [0.0, 99.0]);
         assert_eq!(box_shape(&app, id), Some((0.0, 0.0, MIN_BOX, 30.0)));

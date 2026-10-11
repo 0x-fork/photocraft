@@ -21,6 +21,22 @@ pub struct Homography(pub [f64; 9]);
 impl Homography {
     pub const IDENTITY: Homography = Homography([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
 
+    pub fn is_identity(&self) -> bool {
+        let m = &self.0;
+        if m[8].abs() < 1e-12 {
+            return false;
+        }
+        let w = m[8];
+        ((m[0] / w) - 1.0).abs() < 1e-9
+            && ((m[4] / w) - 1.0).abs() < 1e-9
+            && (m[1] / w).abs() < 1e-9
+            && (m[2] / w).abs() < 1e-9
+            && (m[3] / w).abs() < 1e-9
+            && (m[5] / w).abs() < 1e-9
+            && (m[6] / w).abs() < 1e-9
+            && (m[7] / w).abs() < 1e-9
+    }
+
     pub fn apply(&self, x: f64, y: f64) -> (f64, f64) {
         let m = &self.0;
         let w = m[6] * x + m[7] * y + m[8];
@@ -514,5 +530,13 @@ mod tests {
         assert!(o.format().alpha);
         assert_eq!(o.pixel(2, 2)[3], 0.0);
         assert_eq!(o.pixel(7, 2), vec![1.0, 0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn homography_is_identity() {
+        assert!(Homography::IDENTITY.is_identity());
+        assert!(Homography([2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0]).is_identity());
+        assert!(!Homography([1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]).is_identity());
+        assert!(!Homography([1.0, 0.1, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]).is_identity());
     }
 }

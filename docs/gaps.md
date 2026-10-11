@@ -1,6 +1,6 @@
 # Where PhotoCraft falls short of Photoshop
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** minor (G8: kerning, the Warp Text preview and variable-font axes are done) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** minor (G8: the live Warp Text preview is done, TYPE-218-7; earlier the same day: triple-, quadruple- and five-click type selection landed, TYPE-218-8 done; Czech UI localization evidence added to G13) · **Target:** Adobe Photoshop 2026
 
 Every known shortfall against Photoshop 2026 (27.11.0), one entry each, ranked by user impact
 on the way to beta. This is the work list agents pick from: take the highest-ranked entry that
@@ -65,7 +65,7 @@ what an agent can't finish alone.
 - **Estimate:** 60–100 h (2–9 h each, per the calibration).
 
 ### G7. Workspaces shown as parameter dialogs
-- **Missing:** Select and Mask workspace layout and New Document outputs
+- **Missing:** Select and Mask workspace layout
   (TOOL-214-1, Refine Hair #2671; its view modes preview live since #1754, Refine Edge Brush #2972); Content-Aware Fill workspace with a paintable sampling area
   (TOOL-214-15); Vanishing Point plane editor (TOOL-214-14); Content-Aware Scale through the
   transform box (TOOL-214-7); Puppet Warp mesh following the outline (TOOL-214-6); Content-Aware
@@ -77,13 +77,13 @@ what an agent can't finish alone.
 
 ### G8. Type depth
 - **Missing:** type on a path (TYPE-218-1), paragraph direction UI (TYPE-218-2), complex-script
-  fallback fonts and golden tests (TYPE-218-3), OpenType panel UI (TYPE-218-5), triple/quadruple
-  click (TYPE-218-8), "rasterize and continue" for distort/perspective on type (TYPE-218-9), text
-  free transform (#2630). Done since the re-measure: manual and optical kerning with PSD round
-  trip (TYPE-218-6, #206), the live Warp Text preview that opens with the layer's warp
-  (TYPE-218-7, #2689), and variable-font axis sliders with optical size following the type size
-  (TYPE-218-4, #2985).
-- **Evidence:** scorecard Type: 3 done, 3 partial, 3 missing (2026-10-11). The Type tool froze the app for
+  fallback fonts and golden tests (TYPE-218-3), OpenType panel UI (TYPE-218-5), text free
+  transform (#2630). Done since the re-measure: manual and optical kerning with PSD round trip
+  (TYPE-218-6, #206), variable-font axes (TYPE-218-4, #2985), Warp on live type without a
+  rasterize prompt, as in Photoshop (TYPE-218-9, #3004), and the live Warp Text preview that opens
+  with the layer's warp (TYPE-218-7, #2689).
+- **Evidence:** scorecard Type: 5 done, 2 partial, 2 missing. 2026-10-11: 2/3/4/5 clicks select
+  word, line, paragraph and all text, with tests (TYPE-218-8, #3493). The Type tool froze the app for
   60 s on one macOS machine (#2518).
 - **Estimate:** 120–200 h.
 
@@ -204,6 +204,8 @@ what an agent can't finish alone.
   English in every language; browser-locale detection and CJK fonts on the web; Japanese IME on
   Windows (#590); installed Japanese fonts missing from the font list (#2330); Arabic layer names
   as tofu (#1408, #1693).
+- **Evidence (2026-10-11):** Czech dynamic UI wrappers, hardware labels and composed messages
+  translate at display sites; engine errors remain English. This does not close G13.
 - **Detail:** [`localization-parity.md`](localization-parity.md).
 - **Estimate:** 80–140 h. **Human:** native-speaker review of every catalog (none is recorded).
 
@@ -220,7 +222,9 @@ what an agent can't finish alone.
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-11 | minor | G8 Type depth: manual/optical kerning (TYPE-218-6) and the live Warp Text preview (TYPE-218-7) moved to done, with variable-font axes (TYPE-218-4) done on main; scorecard Type evidence updated to 3/3/3 |
+| 2026-10-11 | minor | G8: the live Warp Text preview (TYPE-218-7) moved to done; TYPE-218-9 listed as done; Type evidence recounted to 5/2/2 |
+| 2026-10-11 | minor | G13: Czech dynamic UI text localized; engine messages and native review remain open |
+| 2026-10-11 | minor | G8: triple/quadruple/five-click type selection done (TYPE-218-8, #3493); Type evidence recounted |
 | 2026-10-10 | minor | G2: recorded Tilt-Shift computation/filtered-proxy measurements and limits; gap and estimate remain open |
 | 2026-10-10 | minor | Checked against the alpha gate (no alpha blockers); #2374 marked closed |
 | 2026-10-10 | major | First version, from the full re-measure against Photoshop 2026 27.11.0 and the open issues |

@@ -547,6 +547,46 @@ pub fn transform_shape(sh: &mut ShapeLayer, a: &Affine) {
     sh.psd_raw = None;
 }
 
+/// Is every anchor and control point of `path` a finite point?
+fn finite_path(path: &Path) -> bool {
+    path.subpaths.iter().flat_map(|s| &s.knots).all(|k| [k.anchor, k.in_ctrl, k.out_ctrl].iter().all(|p| p.x.is_finite() && p.y.is_finite()))
+}
+
+/// `path` through Distort / Perspective (`h`, a projective map of its points: exact for straight
+/// segments, the end tangents of curves exact) or, with `warp`, Warp (split where the warp bends
+/// it). Refused when the map sends a point to infinity (past a perspective's horizon).
+pub(crate) fn map_path(path: &Path, h: Option<&photocraft_algo::transform::Homography>, warp: Option<&photocraft_geom::warp::Warp>) -> Result<Path> {
+    let out = match (h, warp) {
+        (_, Some(w)) => vector::map::map_path(
+            path,
+            |p| {
+                let (x, y) = w.map(p.x, p.y);
+                Point::new(x, y)
+            },
+            0.1,
+        ),
+        (Some(h), None) => vector::map::map_points(path, |p| {
+            let (x, y) = h.apply(p.x, p.y);
+            Point::new(x, y)
+        }),
+        (None, None) => path.clone(),
+    };
+    if !finite_path(&out) {
+        return Err(EngineError::Other("the distortion sends part of the path out of bounds".into()));
+    }
+    Ok(out)
+}
+
+/// Distort, Perspective or Warp of a shape layer (#3009): the shape stays a shape, its path
+/// mapped ([`map_path`]), as in Photoshop. A live rectangle, ellipse, polygon or line becomes a
+/// plain path, as its parameters can't describe the distorted outline.
+pub(crate) fn map_shape(sh: &mut ShapeLayer, h: Option<&photocraft_algo::transform::Homography>, warp: Option<&photocraft_geom::warp::Warp>) -> Result<()> {
+    sh.path = map_path(&sh.path, h, warp)?;
+    sh.live = None;
+    sh.psd_raw = None;
+    Ok(())
+}
+
 fn shape_info(s: &Session, id: LayerId) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let l = d.doc.layer(id).ok_or(EngineError::NoLayer(id))?;
@@ -877,11 +917,62 @@ fn clipping_path_clear(s: &mut Session, _p: &Value) -> Result<Value> {
     Ok(Value::Null)
 }
 
+/// The path `path.transform` edits: `layer`'s shape path or vector mask, else the work path or a
+/// saved path.
+fn transform_target(s: &Session, name: &str, layer: Option<LayerId>) -> Result<Path> {
+    let Some(id) = layer else { return resolve_path(s, Some(name)) };
+    let d = s.active().ok_or(EngineError::NoDocument)?;
+    let l = d.doc.layer(id).ok_or(EngineError::NoLayer(id))?;
+    match &l.content {
+        LayerContent::Shape(sh) => Ok(sh.path.clone()),
+        _ => l.vector_mask.as_ref().map(|v| v.path.clone()).ok_or_else(|| EngineError::Other("target layer has no shape path or vector mask".into())),
+    }
+}
+
+/// `n` numbers at `key` (`[x0, y0, x1, y1]` or `[[x, y] × 4]`, flattened): finite, magnitude at
+/// most 1000000. `None` when `key` is absent.
+fn coords(p: &Value, key: &str, n: usize) -> Result<Option<Vec<f64>>> {
+    const CMD: &str = "path.transform";
+    let Some(v) = p.get(key) else { return Ok(None) };
+    let flat: Vec<&Value> = match v.as_array() {
+        Some(a) if a.iter().all(Value::is_array) => a.iter().filter_map(Value::as_array).flatten().collect(),
+        Some(a) => a.iter().collect(),
+        None => Vec::new(),
+    };
+    let nums: Vec<f64> = flat.iter().filter_map(|v| v.as_f64()).filter(|x| x.is_finite() && x.abs() <= 1_000_000.0).collect();
+    if flat.len() != n || nums.len() != n {
+        return Err(bad(CMD, format!("`{key}` must hold {n} finite numbers with magnitude at most 1000000")));
+    }
+    Ok(Some(nums))
+}
+
+/// How `path.transform` moves the path.
+enum PathMap {
+    Affine(Affine),
+    /// Distort / Perspective: the box's corners go to a quad.
+    Projective(photocraft_algo::transform::Homography),
+    Warp(Box<photocraft_geom::warp::Warp>),
+}
+
 fn path_transform(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "path.transform";
     let name = p.get("name").and_then(Value::as_str).unwrap_or("work").to_owned();
     let layer_id = if name == "layer" { Some(layer_id(s, p)?) } else { None };
-    let transform = if let Some(values) = p.get("matrix") {
+    // The box Distort, Perspective and Warp frame: `rect`, else the path's control bounds.
+    let frame = |s: &Session| -> Result<[f64; 4]> {
+        let r = match coords(p, "rect", 4)? {
+            Some(r) => [r[0], r[1], r[2], r[3]],
+            None => {
+                let (x0, y0, x1, y1) = transform_target(s, &name, layer_id)?.control_bounds().ok_or_else(|| bad(CMD, "path has no points to transform"))?;
+                [x0, y0, x1, y1]
+            }
+        };
+        if r[2] - r[0] <= 0.0 || r[3] - r[1] <= 0.0 {
+            return Err(bad(CMD, "`rect` must have a positive width and height (a straight path needs a `rect`)"));
+        }
+        Ok(r)
+    };
+    let map = if let Some(values) = p.get("matrix") {
         let values = values.as_array().filter(|values| values.len() == 6).ok_or_else(|| bad(CMD, "`matrix` must contain six numbers"))?;
         let mut m = [0.0; 6];
         for (slot, value) in m.iter_mut().zip(values) {
@@ -890,7 +981,26 @@ fn path_transform(s: &mut Session, p: &Value) -> Result<Value> {
                 .filter(|number| number.is_finite() && number.abs() <= 1_000_000.0)
                 .ok_or_else(|| bad(CMD, "matrix entries must be finite numbers with magnitude at most 1000000"))?;
         }
-        Affine { m }
+        PathMap::Affine(Affine { m })
+    } else if let Some(q) = coords(p, "quad", 8)? {
+        // Distort and Perspective (#3027): where the frame's corners go, clockwise from top-left.
+        let quad = [[q[0], q[1]], [q[2], q[3]], [q[4], q[5]], [q[6], q[7]]];
+        let h = photocraft_algo::transform::Homography::rect_to_quad(frame(s)?, quad)
+            .filter(|h| h.0.iter().all(|v| v.is_finite()) && h.inverse().is_some())
+            .ok_or_else(|| bad(CMD, "degenerate quad"))?;
+        let [a, b, c, d, e, f, g, hh, i] = h.0;
+        if g.abs() < 1e-12 && hh.abs() < 1e-12 && i.abs() > 1e-12 {
+            // A parallelogram is affine: a live shape stays live.
+            PathMap::Affine(Affine { m: [a / i, d / i, b / i, e / i, c / i, f / i] })
+        } else {
+            PathMap::Projective(h)
+        }
+    } else if ["warp", "style", "mesh"].iter().any(|key| p.get(*key).is_some()) {
+        let w = crate::warp_cmds::warp_from_params(CMD, p, frame(s)?)?;
+        if [w.bend, w.h_distort, w.v_distort].iter().chain(w.bounds.iter()).any(|v| !v.is_finite() || v.abs() > 1_000_000.0) {
+            return Err(bad(CMD, "warp values must be finite numbers with magnitude at most 1000000"));
+        }
+        PathMap::Warp(Box::new(w))
     } else {
         let number = |key: &str, default: f64| -> Result<f64> {
             match p.get(key) {
@@ -902,50 +1012,51 @@ fn path_transform(s: &mut Session, p: &Value) -> Result<Value> {
             }
         };
         if !["translateX", "translateY", "scaleX", "scaleY", "angle"].iter().any(|key| p.get(*key).is_some()) {
-            return Err(bad(CMD, "pass `matrix` or translate/scale/angle parameters"));
+            return Err(bad(CMD, "pass `matrix`, `quad`, a warp (`style`, `mesh` or `warp`) or translate/scale/angle parameters"));
         }
         let (tx, ty) = (number("translateX", 0.0)?, number("translateY", 0.0)?);
         let (sx, sy) = (number("scaleX", 1.0)?, number("scaleY", 1.0)?);
         let angle = number("angle", 0.0)?;
-        // An explicit `layer` parameter must determine both the transformed path and its
-        // pivot. resolve_path("layer") otherwise reads the currently active layer (#3062).
-        let path = if let Some(id) = layer_id {
-            let layer = s.active().and_then(|st| st.doc.layer(id)).ok_or(EngineError::NoLayer(id))?;
-            match &layer.content {
-                LayerContent::Shape(shape) => shape.path.clone(),
-                _ => layer
-                    .vector_mask
-                    .as_ref()
-                    .map(|mask| mask.path.clone())
-                    .ok_or_else(|| EngineError::Other("target layer has no shape path or vector mask".into()))?,
-            }
-        } else {
-            resolve_path(s, Some(&name))?
-        };
+        // An explicit `layer` parameter determines both the transformed path and its pivot (#3062).
+        let path = transform_target(s, &name, layer_id)?;
         let (x0, y0, x1, y1) = path.control_bounds().ok_or_else(|| bad(CMD, "path has no points to transform"))?;
         let (cx, cy) = ((x0 + x1) * 0.5, (y0 + y1) * 0.5);
-        Affine::translate(-cx, -cy)
-            .then(&Affine { m: [sx, 0.0, 0.0, sy, 0.0, 0.0] })
-            .then(&Affine::rotate(angle.to_radians()))
-            .then(&Affine::translate(cx + tx, cy + ty))
+        PathMap::Affine(
+            Affine::translate(-cx, -cy)
+                .then(&Affine { m: [sx, 0.0, 0.0, sy, 0.0, 0.0] })
+                .then(&Affine::rotate(angle.to_radians()))
+                .then(&Affine::translate(cx + tx, cy + ty)),
+        )
     };
-    let m = transform.m;
+    let out = match &map {
+        PathMap::Affine(a) => json!({ "name": name, "matrix": a.m }),
+        PathMap::Projective(h) => json!({ "name": name, "homography": h.0 }),
+        PathMap::Warp(_) => json!({ "name": name, "warp": true }),
+    };
     if let Some(id) = layer_id
         && s.active().and_then(|d| d.doc.layer(id)).is_some_and(|layer| matches!(layer.content, LayerContent::Shape(_)))
     {
         with_shape(s, id, "Transform Path", |shape, _| {
-            transform_shape(shape, &transform);
+            match &map {
+                PathMap::Affine(a) => transform_shape(shape, a),
+                PathMap::Projective(h) => map_shape(shape, Some(h), None)?,
+                PathMap::Warp(w) => map_shape(shape, None, Some(w))?,
+            }
             shape.psd_raw = None;
             Ok(())
         })?;
-        return Ok(json!({ "name": name, "matrix": m }));
+        return Ok(out);
     }
     s.edit("Transform Path", |doc, _| {
         let path = path_mut(doc, &name, layer_id)?;
-        *path = path.transform(&transform);
+        *path = match &map {
+            PathMap::Affine(a) => path.transform(a),
+            PathMap::Projective(h) => map_path(path, Some(h), None)?,
+            PathMap::Warp(w) => map_path(path, None, Some(w))?,
+        };
         Ok(())
     })?;
-    Ok(json!({ "name": name, "matrix": m }))
+    Ok(out)
 }
 
 fn path_rename(s: &mut Session, p: &Value) -> Result<Value> {
@@ -1081,9 +1192,119 @@ fn paint_coverage(surf: &mut photocraft_raster::Surface, area: Rect, cov: &[f32]
     surf.prune();
 }
 
+/// Stroke Path's brush-based tools besides the Brush, Pencil and Eraser it renders itself: each
+/// paints the path with its own `paint.*` command (Photoshop's Stroke Path dialog Tool list).
+pub const STROKE_PATH_TOOLS: &[(&str, &str)] = &[
+    ("backgroundEraser", "paint.backgroundEraser"),
+    ("cloneStamp", "paint.cloneStamp"),
+    ("patternStamp", "paint.patternStamp"),
+    ("healingBrush", "paint.healingBrush"),
+    ("spotHealingBrush", "paint.spotHealing"),
+    ("historyBrush", "paint.historyBrush"),
+    ("blur", "paint.blur"),
+    ("sharpen", "paint.sharpen"),
+    ("smudge", "paint.smudge"),
+    ("dodge", "paint.dodge"),
+    ("burn", "paint.burn"),
+    ("sponge", "paint.sponge"),
+    ("colorReplacement", "paint.colorReplacement"),
+    ("mixerBrush", "paint.mixerBrush"),
+];
+
+/// At most this many points per subpath when Simulate Pressure resamples it.
+const MAX_PRESSURE_POINTS: f64 = 200_000.0;
+
+/// The stroke points along one flattened subpath. With `simulate` (Stroke Path's Simulate
+/// Pressure) the subpath is resampled about every pixel and the pressure rises from 0 at its start
+/// to full at the middle and falls back to 0 at its end, so a brush whose size or opacity follows
+/// pen pressure tapers at both ends, as in Photoshop. Otherwise every point has full pressure.
+fn stroke_points(pts: &[(f64, f64)], closed: bool, simulate: bool) -> Vec<photocraft_paint::StrokePoint> {
+    use photocraft_paint::StrokePoint;
+    let mut line = pts.to_vec();
+    if closed && let Some(&first) = pts.first() {
+        line.push(first);
+    }
+    let full = |line: Vec<(f64, f64)>| line.into_iter().map(|(x, y)| StrokePoint::new(x, y, 1.0)).collect();
+    if !simulate {
+        return full(line);
+    }
+    let seg = |a: &(f64, f64), b: &(f64, f64)| (b.0 - a.0).hypot(b.1 - a.1);
+    let total: f64 = line.iter().zip(line.iter().skip(1)).map(|(a, b)| seg(a, b)).sum();
+    if !(total.is_finite() && total > 0.0) {
+        return full(line);
+    }
+    let step = (total / MAX_PRESSURE_POINTS).max(1.0);
+    let pressure = |d: f64| (d / total * std::f64::consts::PI).sin().clamp(0.0, 1.0) as f32;
+    let mut out = Vec::new();
+    let mut walked = 0.0;
+    for (a, b) in line.iter().zip(line.iter().skip(1)) {
+        let len = seg(a, b);
+        let n = (len / step).ceil().clamp(1.0, MAX_PRESSURE_POINTS) as usize;
+        for i in 0..n {
+            let t = i as f64 / n as f64;
+            out.push(StrokePoint::new(a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t, pressure(walked + len * t)));
+        }
+        walked += len;
+    }
+    if let Some(&(x, y)) = line.last() {
+        out.push(StrokePoint::new(x, y, 0.0));
+    }
+    out
+}
+
+/// Stroke Path with a tool that has its own `paint.*` command: the command runs once per subpath,
+/// with the caller's params (size, opacity, the tool's options) and the path's points, all in one
+/// history step. Only `path.stroke` itself is journalled, so a recorded action replays it once.
+fn stroke_with_command(s: &mut Session, p: &Value, cmd: &str, lines: &[vector::Polyline], simulate: bool) -> Result<Value> {
+    let mut params = p.as_object().cloned().unwrap_or_default();
+    for k in ["name", "tool", "simulatePressure", "coalesce"] {
+        params.remove(k);
+    }
+    let journal = s.journal.len();
+    let r = crate::analysis_cmds::compound(s, "Stroke Path", |s| {
+        // The union of what each subpath's command changed; None when one of them didn't say.
+        let mut dmg = Some(Rect::EMPTY);
+        for pl in lines {
+            let pts = stroke_points(&pl.pts, pl.closed, simulate);
+            if pts.is_empty() {
+                continue;
+            }
+            let mut call = params.clone();
+            call.insert("points".into(), Value::Array(pts.iter().map(|q| json!([q.x, q.y, q.pressure])).collect()));
+            s.execute(cmd, Value::Object(call))?;
+            let r = s.active().and_then(|d| d.last_damage);
+            dmg = dmg.zip(r).map(|(a, b)| {
+                if a.is_empty() {
+                    b
+                } else if b.is_empty() {
+                    a
+                } else {
+                    a.union(&b)
+                }
+            });
+        }
+        Ok(dmg)
+    });
+    s.journal.truncate(journal);
+    let dmg = r?;
+    if let Some(st) = s.active_mut() {
+        st.last_damage = dmg;
+    }
+    let dmg = dmg.unwrap_or_else(|| s.active().map_or(Rect::EMPTY, |d| d.doc.bounds()));
+    Ok(json!({ "damage": [dmg.x0, dmg.y0, dmg.width(), dmg.height()] }))
+}
+
 fn path_stroke(s: &mut Session, p: &Value) -> Result<Value> {
     let path = resolve_path(s, p.get("name").and_then(Value::as_str))?;
     let tool = p.get("tool").and_then(Value::as_str).unwrap_or("brush");
+    let simulate = match p.get("simulatePressure") {
+        None | Some(Value::Null) => false,
+        Some(v) => v.as_bool().ok_or_else(|| bad("path.stroke", "`simulatePressure` must be true or false"))?,
+    };
+    if let Some(&(_, cmd)) = STROKE_PATH_TOOLS.iter().find(|(t, _)| *t == tool) {
+        let lines = vector::flatten_path(&path, 0.1);
+        return stroke_with_command(s, p, cmd, &lines, simulate);
+    }
     let base = s.tools.brush.clone();
     let fg = s.tools.foreground;
     let mut brush = photocraft_paint::BrushSettings {
@@ -1102,7 +1323,10 @@ fn path_stroke(s: &mut Session, p: &Value) -> Result<Value> {
     match tool {
         "pencil" => brush.hardness = 1.0,
         "brush" | "eraser" => {}
-        o => return Err(bad("path.stroke", format!("unknown tool `{o}` (brush|pencil|eraser)"))),
+        o => {
+            let tools: Vec<&str> = ["brush", "pencil", "eraser"].into_iter().chain(STROKE_PATH_TOOLS.iter().map(|(t, _)| *t)).collect();
+            return Err(bad("path.stroke", format!("unknown tool `{o}` ({})", tools.join("|"))));
+        }
     }
     crate::brush_cmds::validate_brush(&brush, "path.stroke")?;
     let lines = vector::flatten_path(&path, 0.1);
@@ -1126,12 +1350,7 @@ fn path_stroke(s: &mut Session, p: &Value) -> Result<Value> {
         }
         let mut dmg = Rect::EMPTY;
         for pl in &lines {
-            let mut pts: Vec<photocraft_paint::StrokePoint> = pl.pts.iter().map(|&(x, y)| photocraft_paint::StrokePoint::new(x, y, 1.0)).collect();
-            if pl.closed
-                && let Some(first) = pts.first().copied()
-            {
-                pts.push(first);
-            }
+            let pts = stroke_points(&pl.pts, pl.closed, simulate);
             if pts.is_empty() {
                 continue;
             }
@@ -1522,7 +1741,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "path.transform",
             "Free Transform Path",
             [],
-            r##"{"name":str|"work"|"layer"="work","layer":id? (with layer target),"matrix":[a,b,c,d,e,f] | "translateX":px?,"translateY":px?,"scaleX":factor?,"scaleY":factor?,"angle":degrees?} (numeric transforms pivot on path bounds center)"##,
+            r##"{"name":str|"work"|"layer"="work","layer":id? (with layer target),"matrix":[a,b,c,d,e,f] | "quad":[[x,y]×4] (Distort/Perspective: where the frame's corners go, clockwise from top-left) | "style"|"mesh"|"warp":… (Warp, as edit.transform.warp) | "translateX":px?,"translateY":px?,"scaleX":factor?,"scaleY":factor?,"angle":degrees?,"rect":[x0,y0,x1,y1]? (the quad's or warp's frame; default = path control bounds)} (numeric transforms pivot on path bounds center)"##,
             has_doc,
             path_transform
         ),
@@ -1578,7 +1797,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "path.stroke",
             "Stroke Path",
             [],
-            r##"{"name":str|"work"|"layer"="work","layer":id? (pixel layer),"tool":"brush|pencil|eraser"="brush","size":0.5..5000 px?,"hardness":0..1?,"opacity":0..100?,"color":"#rrggbb"=foreground} (current brush settings otherwise)"##,
+            r##"{"name":str|"work"|"layer"="work","layer":id? (pixel layer),"tool":"brush|pencil|eraser|backgroundEraser|cloneStamp|patternStamp|healingBrush|spotHealingBrush|historyBrush|blur|sharpen|smudge|dodge|burn|sponge|colorReplacement|mixerBrush"="brush","simulatePressure":bool=false (taper both ends when the brush follows pen pressure),"size":0.5..5000 px?,"hardness":0..1?,"opacity":0..100?,"color":"#rrggbb"=foreground} (current brush settings otherwise; tools past the Eraser run their paint.* command along the path and take its params)"##,
             has_layer,
             path_stroke
         ),

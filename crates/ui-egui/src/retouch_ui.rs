@@ -287,7 +287,8 @@ pub fn set_source(app: &mut PhotocraftApp, x: f64, y: f64) {
     app.ui.clone_source = Some([x.round(), y.round()]);
     app.ui.clone_offset = None;
     let _ = app.run("cloneSource.set", json!({"source": [x.round(), y.round()]}));
-    app.ui.status = format!("Clone source set at {:.0}, {:.0}", x, y);
+    let template = "Clone source set at {x}, {y}";
+    app.ui.status = crate::i18n::fmt(tl!(template), &[("x", &format!("{x:.0}")), ("y", &format!("{y:.0}"))]);
     app.ui.status_error = false;
 }
 
@@ -438,11 +439,11 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
             crate::widgets::vline(ui, 22.0);
             ui.spacing_mut().item_spacing.x = 2.0;
             for (k, icon, tip) in [
-                ("continuous", "pipette", tl!("Sampling: Continuous")),
-                ("once", "circle-dot", tl!("Sampling: Once")),
-                ("backgroundSwatch", "square", tl!("Sampling: Background Swatch")),
+                ("continuous", "pipette", "Sampling: Continuous"),
+                ("once", "circle-dot", "Sampling: Once"),
+                ("backgroundSwatch", "square", "Sampling: Background Swatch"),
             ] {
-                if crate::brush_picker::named(crate::icons::button(ui, icon, 24.0, o.cr_sampling == k, tip), tip).clicked() {
+                if crate::brush_picker::named(crate::icons::button(ui, icon, 24.0, o.cr_sampling == k, tl!(tip)), tip).clicked() {
                     o.cr_sampling = k.into();
                 }
             }
