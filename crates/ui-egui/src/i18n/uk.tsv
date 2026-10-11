@@ -1497,6 +1497,7 @@
 	Click to add a point · drag off or {key}-click or Delete to remove	Клацніть, щоб додати точку · перетягніть за межі, натисніть {key} і клацніть або натисніть Delete, щоб вилучити
 	Click to apply, {key}-click to clear overrides, double-click for Style Options	Клацніть, щоб застосувати, {key}+клацання, щоб очистити перевизначення, подвійне клацання для параметрів стилю
 	Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel	Клацання: кут · Перетягування: плавна точка · Клацання першої точки: замкнути · {key}: завершити · Esc: скасувати
+	Click: corner · Drag: smooth · {alt}-drag: break handle · Click or drag first point: close · {key} finish · Esc cancel	Клацання: кут · Перетягування: плавна точка · {alt}+перетягування: розбити маркер · Клацання або перетягування першої точки: замкнути · {key}: завершити · Esc: скасувати
 	Commit Perspective Warp ({key})	Підтвердити перспективну деформацію ({key})
 	Commit Puppet Warp ({key})	Підтвердити маріонеткову деформацію ({key})
 	Commit any current edits ({key})	Підтвердити поточні зміни ({key})
@@ -1733,6 +1734,8 @@
 	Divide	Ділення
 	Result	Результат
 	New Document	Новий документ
+	New Document With Mask	Новий документ з маскою
+	New Layer With Mask	Новий шар з маскою
 	Preset Name	Назва набору
 	No saved presets yet.	Збережених наборів ще немає.
 	New Channel	Новий канал
@@ -3688,3 +3691,7 @@ cameraData	Lens	Об'єктив
 	Click to place · Alt-click or drag off-canvas to remove	Клацніть, щоб розмістити · Alt-клацання або перетягування за межі полотна для видалення
 	No document open	Документ не відкрито
 	{n} of {max} sample points	{n} з {max} точок вимірювання
+# Print dialog (#2697)
+	Emulsion Down	Емульсією донизу
+	Functions	Функції
+	Print Resolution:	Роздільна здатність друку:

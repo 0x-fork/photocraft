@@ -1558,6 +1558,9 @@
 	↑↓ navigate   ↵ run   esc close	↑↓ 导航   ↵ 运行   esc 关闭
 	Version {version}	版本 {version}
 	New Document	新建文档
+	New Document With Mask	带蒙版的新建文档
+	New Layer With Mask	带蒙版的新建图层
+	New Layer	新建图层
 	Saved	已保存
 	Save Preset…	保存预设…
 	Preset Name	预设名称
@@ -2080,6 +2083,7 @@ cameraRaw	Blending	混合
 	Click to apply, {key}-click to clear overrides, double-click for Style Options	单击应用，按 {key} 单击清除覆盖设置，双击打开样式选项
 	Click to zoom in  ·  {key}-click to zoom out  ·  drag right/left to zoom in/out	单击放大  ·  按 {key} 单击缩小  ·  向右或向左拖动以放大或缩小
 	Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel	单击：角点 · 拖动：平滑点 · 单击起点：闭合 · {key} 完成 · Esc 取消
+	Click: corner · Drag: smooth · {alt}-drag: break handle · Click or drag first point: close · {key} finish · Esc cancel	单击：角点 · 拖动：平滑点 · {alt}+拖动：断开手柄 · 单击或拖动起点：闭合 · {key} 完成 · Esc 取消
 	Commit Perspective Warp ({key})	应用透视变形（{key}）
 	Commit Puppet Warp ({key})	应用操控变形（{key}）
 	Commit any current edits ({key})	应用当前所有编辑（{key}）
@@ -2601,3 +2605,7 @@ cameraData	Lens	镜头
 	Click to place · Alt-click or drag off-canvas to remove	单击以放置 · Alt 单击或拖到画布外以移除
 	No document open	未打开任何文档
 	{n} of {max} sample points	{max} 个取样点中的 {n} 个
+# Print dialog (#2697)
+	Emulsion Down	药膜朝下
+	Functions	功能
+	Print Resolution:	打印分辨率：

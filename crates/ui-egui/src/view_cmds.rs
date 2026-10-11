@@ -1173,8 +1173,9 @@ fn save_a_copy(app: &mut PhotocraftApp) -> Result<Value, String> {
         if parked {
             return Ok(json!({"path": path, "warnings": []}));
         }
+        let settings = app.save_settings();
         let export = app.services.export.as_ref().ok_or("no exporter configured")?;
-        let (bytes, warnings) = export(&doc, &path, &crate::ExportSettings::default())?;
+        let (bytes, warnings) = export(&doc, &path, &settings)?;
         let write = app.services.write.as_mut().ok_or("no writer configured")?;
         write(&path, &bytes)?;
         app.ui.status = format!("Saved a copy as {path}");

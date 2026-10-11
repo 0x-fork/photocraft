@@ -436,6 +436,8 @@
 	Text Layer	Επίπεδο κειμένου
 	Type Layer	Επίπεδο κειμένου
 	New Document	Νέο έγγραφο
+	New Document With Mask	Νέο έγγραφο με μάσκα
+	New Layer With Mask	Νέο επίπεδο με μάσκα
 	Document	Έγγραφο
 	Documents	Έγγραφα
 	File Name	Όνομα αρχείου
@@ -2122,6 +2124,7 @@
 	Click to sample the foreground colour  ·  {key}-click for background	Κλικ για δειγματοληψία χρώματος προσκηνίου · {key}-κλικ για φόντο
 	Click to zoom in  ·  {key}-click to zoom out  ·  drag right/left to zoom in/out	Κλικ για μεγέθυνση · {key}-κλικ για σμίκρυνση · σύρσιμο δεξιά/αριστερά για αλλαγή μεγέθυνσης
 	Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel	Κλικ: γωνία · Σύρσιμο: εξομάλυνση · Κλικ στο πρώτο σημείο: κλείσιμο · {key}: τέλος · Esc: ακύρωση
+	Click: corner · Drag: smooth · {alt}-drag: break handle · Click or drag first point: close · {key} finish · Esc cancel	Κλικ: γωνία · Σύρσιμο: εξομάλυνση · {alt}+σύρσιμο: διάσπαση λαβής · Κλικ ή σύρσιμο στο πρώτο σημείο: κλείσιμο · {key}: τέλος · Esc: ακύρωση
 	Click: select anchor · Drag: move anchor, handle or segment · {shift}-click: add · {alt}-click: whole subpath	Κλικ: επιλογή σημείου αγκύρωσης · Σύρσιμο: μετακίνηση σημείου, λαβής ή τμήματος · {shift}-κλικ: προσθήκη · {alt}-κλικ: ολόκληρη υποδιαδρομή
 	Clip to layer below	Περικοπή στο υποκείμενο επίπεδο
 	Clipped	Περικομμένο
@@ -3685,3 +3688,7 @@ cameraData	Lens	Φακός
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	Κλικ για τοποθέτηση · Alt-κλικ ή σύρσιμο εκτός καμβά για αφαίρεση
 	{n} of {max} sample points	{n} από {max} σημεία δειγματοληψίας
+# Print dialog (#2697)
+	Emulsion Down	Γαλάκτωμα προς τα κάτω
+	Functions	Λειτουργίες
+	Print Resolution:	Ανάλυση εκτύπωσης:

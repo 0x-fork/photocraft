@@ -889,6 +889,7 @@
 	Click to zoom in  ·  {key}-click to zoom out  ·  drag right/left to zoom in/out	Cliquez pour zoomer  ·  {key}-clic pour dézoomer  ·  faites glisser vers la droite/gauche pour zoomer/dézoomer
 	Click with the Note tool to add a note.	Cliquez avec l'outil Note pour ajouter une note.
 	Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel	Clic : angle · Glisser : lisse · Clic sur le premier point : fermer · {key} : terminer · Échap : annuler
+	Click: corner · Drag: smooth · {alt}-drag: break handle · Click or drag first point: close · {key} finish · Esc cancel	Clic : angle · Glisser : lisse · {alt}+glisser : briser la poignée · Clic ou glisser sur le premier point : fermer · {key} : terminer · Échap : annuler
 	Clip to layer below	Découper selon le calque inférieur
 	Clipped	Découpé
 	Close Style Options	Fermer les options de style
@@ -1527,6 +1528,9 @@
 	↑↓ navigate   {key} run   esc close	↑↓ naviguer   {key} exécuter   échap fermer
 	Version {version}	Version {version}
 	New Document	Nouveau document
+	New Document With Mask	Nouveau document avec masque
+	New Layer With Mask	Nouveau calque avec masque
+	New Layer	Nouveau calque
 	Preset Name	Nom du préréglage
 	No saved presets yet.	Aucun préréglage enregistré pour le moment.
 	Error	Erreur
@@ -3003,3 +3007,7 @@ cameraData	Lens	Objectif
 	Click to place · Alt-click or drag off-canvas to remove	Cliquez pour placer · Alt-clic ou glisser hors du canevas pour supprimer
 	No document open	Aucun document ouvert
 	{n} of {max} sample points	{n} sur {max} points d'échantillonnage
+# Print dialog (#2697)
+	Emulsion Down	Émulsion verso
+	Functions	Fonctions
+	Print Resolution:	Résolution d’impression :

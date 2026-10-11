@@ -885,6 +885,7 @@
 	Click to zoom in  ·  {key}-click to zoom out  ·  drag right/left to zoom in/out	Clique para aumentar o zoom  ·  {key}-clique para diminuir  ·  arraste para a direita/esquerda para aumentar/diminuir
 	Click with the Note tool to add a note.	Clique com a ferramenta Anotação para adicionar uma anotação.
 	Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel	Clique: canto · Arrastar: suave · Clique no primeiro ponto: fechar · {key}: concluir · Esc: cancelar
+	Click: corner · Drag: smooth · {alt}-drag: break handle · Click or drag first point: close · {key} finish · Esc cancel	Clique: canto · Arrastar: suave · {alt}+arrastar: quebrar alça · Clique ou arraste no primeiro ponto: fechar · {key}: concluir · Esc: cancelar
 	Clip to layer below	Recortar na camada abaixo
 	Clipped	Recortado
 	Close Style Options	Fechar opções de estilo
@@ -1525,6 +1526,8 @@
 	↑↓ navigate   {key} run   esc close	↑↓ navegar   {key} executar   esc fechar
 	Version {version}	Versão {version}
 	New Document	Novo documento
+	New Document With Mask	Novo documento com máscara
+	New Layer With Mask	Nova camada com máscara
 	Preset Name	Nome da predefinição
 	No saved presets yet.	Nenhuma predefinição salva ainda.
 	Error	Erro
@@ -3781,3 +3784,7 @@ layerLabel	No Color	Sem cor
 	Set Colors	Definir cores
 	Switch Foreground and Background Colors	Alternar cores de primeiro plano e plano de fundo
 	Target	Alvo
+# Print dialog (#2697)
+	Emulsion Down	Emulsão para baixo
+	Functions	Funções
+	Print Resolution:	Resolução de impressão:

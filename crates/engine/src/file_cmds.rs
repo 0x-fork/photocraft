@@ -218,8 +218,9 @@ pub(crate) fn import(name: &str, bytes: &[u8]) -> Result<Document> {
     Ok(r.document)
 }
 
-/// What a headless save writes beyond the format: JPEG quality, TIFF layers and Targa bits.
-#[derive(Debug, Clone, Copy, Default)]
+/// What a headless save writes beyond the format: JPEG quality, TIFF layers, Targa bits and PSD
+/// previews.
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct SaveOpts {
     /// Photoshop's 0–12 JPEG scale.
     pub quality: Option<f64>,
@@ -228,16 +229,27 @@ pub(crate) struct SaveOpts {
     /// Targa: 24 or 32 bits per pixel (`"tgaBits"`); unset, 32 with an alpha channel or
     /// transparency, else 24.
     pub tga_bits: Option<photocraft_io::TgaBits>,
+    /// PSD/PSB: embed the thumbnail resource (Preferences › File Handling › Image Previews).
+    pub image_previews: bool,
+}
+
+impl Default for SaveOpts {
+    fn default() -> Self {
+        SaveOpts { quality: None, tiff_layers: false, tga_bits: None, image_previews: true }
+    }
 }
 
 impl SaveOpts {
-    /// `quality`, `tiffLayers` and `tgaBits` from command `cmd`'s params; a `tgaBits` other than
-    /// 24 or 32 is an error.
-    pub(crate) fn from_params(p: &Value, cmd: &str) -> Result<Self> {
+    /// `quality`, `tiffLayers` and `tgaBits` from command `cmd`'s params (a `tgaBits` other than
+    /// 24 or 32 is an error); the image previews from the session's File Handling preferences
+    /// (Ask When Saving has no dialog here, so it saves them, as Photoshop's Save As checkbox
+    /// starts on).
+    pub(crate) fn from_params(s: &Session, p: &Value, cmd: &str) -> Result<Self> {
         Ok(SaveOpts {
             quality: f64_param(p, "quality"),
             tiff_layers: p.get("tiffLayers").and_then(Value::as_bool).unwrap_or(false),
             tga_bits: tga_bits_param(p, cmd)?,
+            image_previews: s.prefs().file_handling.image_previews != crate::prefs::Ask::Never,
         })
     }
 
@@ -271,7 +283,8 @@ pub fn tga_bits_param(p: &Value, cmd: &str) -> Result<Option<photocraft_io::TgaB
 pub(crate) fn encode(doc: &Document, path: &str, save: impl Into<SaveOpts>) -> Result<(Vec<u8>, Vec<String>)> {
     crate::allocation::checkpoint("saving document")?;
     let save = save.into();
-    let mut opts = photocraft_io::ExportOptions { tiff_layers: save.tiff_layers, tga_bits: save.tga_bits, ..Default::default() };
+    let mut opts =
+        photocraft_io::ExportOptions { tiff_layers: save.tiff_layers, tga_bits: save.tga_bits, image_previews: save.image_previews, ..Default::default() };
     if let Some(q) = save.quality {
         let q = (q.clamp(0.0, 12.0) / 12.0 * 99.0 + 1.0).round() as u8;
         opts.encode.jpeg_quality = q;
@@ -378,7 +391,7 @@ fn save_a_copy(s: &mut Session, p: &Value) -> Result<Value> {
         let px = flattened(&doc, fmt);
         doc.layers = vec![Layer::new("Background", LayerContent::Raster(px))];
     }
-    let warnings = save_doc(&doc, &path, SaveOpts::from_params(p, "file.saveACopy")?)?;
+    let warnings = save_doc(&doc, &path, SaveOpts::from_params(s, p, "file.saveACopy")?)?;
     Ok(json!({"path": path, "warnings": warnings}))
 }
 
@@ -938,7 +951,7 @@ fn batch(s: &mut Session, p: &Value) -> Result<Value> {
         }
     };
     let actions = crate::actions_cmds::ActionState { list, playing: s.actions.playing, playback_stack: s.actions.playback_stack.clone(), ..Default::default() };
-    let r = process_files(&inputs, &output, &format, SaveOpts::from_params(p, cmd)?, "", &|scratch| {
+    let r = process_files(&inputs, &output, &format, SaveOpts::from_params(s, p, cmd)?, "", &|scratch| {
         scratch.actions = actions.clone();
         for (id, params) in &steps {
             let r = scratch.execute(id, params.clone())?;
@@ -952,7 +965,7 @@ fn batch(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(r)
 }
 
-fn image_processor(_s: &mut Session, p: &Value) -> Result<Value> {
+fn image_processor(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.scripts.imageProcessor";
     let inputs = batch_inputs(p, cmd)?;
     let output = str_param(p, "output", cmd)?.to_string();
@@ -962,7 +975,7 @@ fn image_processor(_s: &mut Session, p: &Value) -> Result<Value> {
         (w, h) => Some(json!({"width": w.unwrap_or(1e9), "height": h.unwrap_or(1e9), "dontEnlarge": true})),
     };
     let to_srgb = p.get("convertToSrgb").and_then(Value::as_bool).unwrap_or(false);
-    let r = process_files(&inputs, &output, &format, SaveOpts::from_params(p, cmd)?.or_quality(8.0), "", &|scratch| {
+    let r = process_files(&inputs, &output, &format, SaveOpts::from_params(s, p, cmd)?.or_quality(8.0), "", &|scratch| {
         if to_srgb && scratch.active().is_some_and(|d| d.doc.mode != ColorMode::Rgb) {
             scratch.execute("image.mode.rgb", json!({}))?;
         }
@@ -1103,7 +1116,7 @@ fn layers_to_files(s: &mut Session, p: &Value) -> Result<Value> {
     let dir = str_param(p, "dir", cmd).or_else(|_| str_param(p, "output", cmd))?.to_string();
     let format = p.get("format").and_then(Value::as_str).unwrap_or("png").trim_start_matches('.').to_ascii_lowercase();
     let visible_only = p.get("visibleOnly").and_then(Value::as_bool).unwrap_or(true);
-    let save = SaveOpts::from_params(p, cmd)?;
+    let save = SaveOpts::from_params(s, p, cmd)?;
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let prefix = p.get("prefix").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| stem(&d.doc.name));
     let doc = d.doc.clone();

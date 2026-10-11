@@ -875,6 +875,7 @@
 	Click to zoom in  ·  {key}-click to zoom out  ·  drag right/left to zoom in/out	클릭하여 확대 · {key} 키를 누른 채 클릭하여 축소 · 오른쪽/왼쪽으로 드래그하여 확대/축소
 	Click with the Note tool to add a note.	메모 도구로 클릭하여 메모를 추가하세요.
 	Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel	클릭: 모서리 · 드래그: 곡선 · 첫 점 클릭: 닫기 · {key}: 완료 · Esc: 취소
+	Click: corner · Drag: smooth · {alt}-drag: break handle · Click or drag first point: close · {key} finish · Esc cancel	클릭: 모서리 · 드래그: 곡선 · {alt}+드래그: 핸들 분리 · 첫 점 클릭 또는 드래그: 닫기 · {key}: 완료 · Esc: 취소
 	Clip to layer below	아래 레이어에 클리핑
 	Clipped	클리핑됨
 	Close Style Options	스타일 옵션 닫기
@@ -1516,6 +1517,8 @@
 	↑↓ navigate   {key} run   esc close	↑↓ 이동   {key} 실행   esc 닫기
 	Version {version}	버전 {version}
 	New Document	새 문서
+	New Document With Mask	새 문서(마스크 포함)
+	New Layer With Mask	새 레이어(마스크 포함)
 	Saved	저장됨
 	Save Preset…	사전 설정 저장…
 	Preset Name	사전 설정 이름
@@ -3169,3 +3172,7 @@ cameraData	Lens	렌즈
 	Click to place · Alt-click or drag off-canvas to remove	클릭하여 배치 · Alt-클릭 또는 캔버스 밖으로 드래그하여 제거
 	No document open	열린 문서 없음
 	{n} of {max} sample points	{max}개 중 {n}개의 샘플 지점
+# Print dialog (#2697)
+	Emulsion Down	감광면 아래로
+	Functions	기능
+	Print Resolution:	인쇄 해상도:

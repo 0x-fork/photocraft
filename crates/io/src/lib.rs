@@ -49,6 +49,7 @@ mod pdn;
 pub mod pixels;
 mod psd_export;
 mod psd_import;
+pub mod psd_thumbnail;
 pub mod raw;
 pub mod slices_map;
 pub mod smart_map;
@@ -165,11 +166,14 @@ pub struct ExportOptions {
     /// Targa: bits per pixel of an RGB file. `None` writes 32 when the document has an alpha
     /// channel or transparency, else 24; Save As asks, starting at [`tga_default_bits`].
     pub tga_bits: Option<TgaBits>,
+    /// PSD/PSB: embed the thumbnail image resource (1036), Preferences › File Handling › Image
+    /// Previews. On by default, as Photoshop's Always Save.
+    pub image_previews: bool,
 }
 
 impl Default for ExportOptions {
     fn default() -> Self {
-        ExportOptions { encode: EncodeOptions::default(), force_psb: false, tiff_layers: false, xmp: XmpEmbed::All, tga_bits: None }
+        ExportOptions { encode: EncodeOptions::default(), force_psb: false, tiff_layers: false, xmp: XmpEmbed::All, tga_bits: None, image_previews: true }
     }
 }
 
@@ -320,6 +324,16 @@ pub fn export(doc: &Document, name_or_ext: &str, opts: &ExportOptions) -> Result
             warnings.push("free-form text metadata is not supported by PSD/PSB; it will be dropped".into());
         }
         warnings.extend(tiff_layers::strip_foreign_order_blocks(&mut file));
+        if opts.image_previews {
+            match psd_thumbnail::resource(doc) {
+                // Beside the other resources Photoshop writes ahead of the version info.
+                Ok(r) => {
+                    let at = file.resources.iter().position(|r| r.id == photocraft_psd::resources::ids::VERSION_INFO).unwrap_or(file.resources.len());
+                    file.resources.insert(at, r);
+                }
+                Err(e) => warnings.push(format!("image preview not saved: {e}")),
+            }
+        }
         // Never write a header the reader would refuse (e.g. a zero-sized canvas).
         file.header.validate()?;
         let bytes = file.to_bytes()?;

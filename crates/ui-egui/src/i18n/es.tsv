@@ -901,6 +901,7 @@
 	Click to zoom in  ·  {key}-click to zoom out  ·  drag right/left to zoom in/out	Clic para acercar  ·  {key}-clic para alejar  ·  arrastre a la derecha/izquierda para acercar/alejar
 	Click with the Note tool to add a note.	Haga clic con la herramienta Nota para añadir una nota.
 	Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel	Clic: esquina · Arrastrar: suavizar · Clic en el primer punto: cerrar · {key}: terminar · Esc: cancelar
+	Click: corner · Drag: smooth · {alt}-drag: break handle · Click or drag first point: close · {key} finish · Esc cancel	Clic: esquina · Arrastrar: suavizar · {alt}+arrastrar: romper manejador · Clic o arrastrar en el primer punto: cerrar · {key}: terminar · Esc: cancelar
 	Clip to layer below	Recortar a la capa inferior
 	Clipped	Recortado
 	Close Style Options	Cerrar opciones de estilo
@@ -1546,6 +1547,9 @@
 	↑↓ navigate   {key} run   esc close	↑↓ navegar   {key} ejecutar   esc cerrar
 	Version {version}	Versión {version}
 	New Document	Documento nuevo
+	New Document With Mask	Documento nuevo con máscara
+	New Layer With Mask	Nueva capa con máscara
+	New Layer	Nueva capa
 	Save Preset…	Guardar ajuste preestablecido…
 	Preset Name	Nombre del ajuste preestablecido
 	No saved presets yet.	Todavía no hay ajustes preestablecidos guardados.
@@ -2666,3 +2670,7 @@ cameraData	Lens	Objetivo
 	Click to place · Alt-click or drag off-canvas to remove	Clic para colocar · Alt-clic o arrastrar fuera del lienzo para quitar
 	No document open	Ningún documento abierto
 	{n} of {max} sample points	{n} de {max} puntos de muestreo
+# Print dialog (#2697)
+	Emulsion Down	Emulsión hacia abajo
+	Functions	Funciones
+	Print Resolution:	Resolución de impresión:

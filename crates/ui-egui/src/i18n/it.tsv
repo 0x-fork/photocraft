@@ -900,6 +900,7 @@
 	Click to zoom in  ·  {key}-click to zoom out  ·  drag right/left to zoom in/out	Click per ingrandire · {key}-click per ridurre · trascina dx/sx per zoom
 	Click with the Note tool to add a note.	Fai click con lo strumento Nota per aggiungere una nota.
 	Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel	Click: angolo · Trascina: morbido · Click primo punto: chiudi · {key} termina · Esc annulla
+	Click: corner · Drag: smooth · {alt}-drag: break handle · Click or drag first point: close · {key} finish · Esc cancel	Click: angolo · Trascina: morbido · {alt}+trascina: spezza maniglia · Click o trascina sul primo punto: chiudi · {key} termina · Esc annulla
 	Clip to layer below	Ritaglia al livello sotto
 	Clipped	Ritagliato
 	Close Style Options	Chiudi opzioni stile
@@ -1545,6 +1546,9 @@
 	↑↓ navigate   {key} run   esc close	↑↓ naviga {key} esegui esc chiudi
 	Version {version}	Versione {version}
 	New Document	Nuovo documento
+	New Document With Mask	Nuovo documento con maschera
+	New Layer With Mask	Nuovo livello con maschera
+	New Layer	Nuovo livello
 	Save Preset…	Salva predefinito…
 	Preset Name	Nome del predefinito
 	No saved presets yet.	Nessun predefinito salvato.
@@ -2657,3 +2661,7 @@ cameraData	Lens	Obiettivo
 	Click to place · Alt-click or drag off-canvas to remove	Fai clic per posizionare · Alt-clic o trascina fuori dalla tela per rimuovere
 	No document open	Nessun documento aperto
 	{n} of {max} sample points	{n} di {max} punti di campionamento
+# Print dialog (#2697)
+	Emulsion Down	Emulsione sotto
+	Functions	Funzioni
+	Print Resolution:	Risoluzione di stampa:

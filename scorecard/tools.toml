@@ -115,7 +115,7 @@ id = "TOOL-214-1"
 target = "Select and Mask workspace: view modes, Refine Edge brush, 6 outputs"
 status = "partial"
 issue = 214
-note = "select.refineEdge dialog with a live preview in Photoshop's view modes: Onion Skin, Marching Ants, Overlay, On Black, On White, Black & White, On Layers, per-view Opacity, Show Edge (J), Show Original (P), F cycles, X shows the image (select_mask_view.rs, #1754); Refine Edge Brush (R, size, Expand Detection Area / Restore Original Edge, Alt swaps) paints select.refineEdge refineStrokes, estimated by colour-line matting (matting/brush.rs, #2972); outputs Selection, Layer Mask, New Layer, New Layer with Mask; no workspace layout or New Document outputs"
+note = "select.refineEdge dialog with a live preview in Photoshop's view modes: Onion Skin, Marching Ants, Overlay, On Black, On White, Black & White, On Layers, per-view Opacity, Show Edge (J), Show Original (P), F cycles, X shows the image (select_mask_view.rs, #1754); Refine Edge Brush (R, size, Expand Detection Area / Restore Original Edge, Alt swaps) paints select.refineEdge refineStrokes, estimated by colour-line matting (matting/brush.rs, #2972); outputs Selection, Layer Mask, New Layer, New Layer with Mask, New Document, New Document with Mask (#2998); no workspace layout"
 
 [[item]]
 id = "TOOL-214-2"
@@ -178,7 +178,7 @@ id = "TOOL-214-10"
 target = "Pen: Alt breaks a handle, Shift 45 deg, Ctrl direct-selects, Backspace, close-drag handle"
 status = "partial"
 issue = 214
-note = "Ctrl/Cmd = Direct Selection and Alt = Convert Point on existing paths (direct_select.rs, #790); no Shift 45 deg, Backspace or Alt while drawing"
+note = "Ctrl/Cmd = Direct Selection and Alt = Convert Point on existing paths (direct_select.rs, #790); Backspace/Delete retracts the last point while drawing (#1466); Alt during a drag breaks the handle pair, Alt-drag turns the last anchor's outgoing handle alone, and dragging on the first anchor closes with that anchor's handles (vector_ui.rs, #3306); no Shift 45 deg"
 
 [[item]]
 id = "TOOL-214-11"

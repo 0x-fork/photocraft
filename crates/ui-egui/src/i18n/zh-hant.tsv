@@ -906,6 +906,7 @@
 	Click to zoom in  ·  {key}-click to zoom out  ·  drag right/left to zoom in/out	按一下放大  ·  {key}+按一下縮小  ·  向右/向左拖曳以放大/縮小
 	Click with the Note tool to add a note.	使用註解工具按一下以新增註解。
 	Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel	按一下：轉角 · 拖曳：平滑 · 按一下第一點：閉合 · {key} 完成 · Esc 取消
+	Click: corner · Drag: smooth · {alt}-drag: break handle · Click or drag first point: close · {key} finish · Esc cancel	按一下：轉角 · 拖曳：平滑 · {alt}+拖曳：分離控制點 · 按一下或拖曳第一點：閉合 · {key} 完成 · Esc 取消
 	Clip to layer below	剪裁至下方圖層
 	Clipped	已剪裁
 	Close Style Options	關閉樣式選項
@@ -1552,6 +1553,9 @@
 	↑↓ navigate   {key} run   esc close	↑↓ 瀏覽   {key} 執行   esc 關閉
 	Version {version}	版本 {version}
 	New Document	新增文件
+	New Document With Mask	含遮色片的新增文件
+	New Layer With Mask	含遮色片的新增圖層
+	New Layer	新增圖層
 	Saved	已儲存
 	Save Preset…	儲存預設…
 	Preset Name	預設集名稱
@@ -2571,3 +2575,7 @@ cameraData	Lens	鏡頭
 	Click to place · Alt-click or drag off-canvas to remove	按一下以放置 · Alt 按一下或拖曳至畫布外以移除
 	No document open	未開啟任何文件
 	{n} of {max} sample points	{max} 個取樣點中的 {n} 個
+# Print dialog (#2697)
+	Emulsion Down	感光乳劑面朝下
+	Functions	功能
+	Print Resolution:	列印解析度：
