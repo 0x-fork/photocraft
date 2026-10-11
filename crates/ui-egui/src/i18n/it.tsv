@@ -2132,6 +2132,7 @@
 	Developing {name}	Sviluppo di {name}
 	Cancelled {label}	{label} annullato
 	Esc to cancel	Esc per annullare
+	Opened {name}	Aperto: {name}
 	Opening {name}	Apertura {name}
 	Saved {name}	Salvato: {name}
 	Saving {name}	Salvataggio {name}
@@ -2392,6 +2393,21 @@ cameraRaw	Amount	Quantità
 	Domed	Bombato
 	Domed (Inverted)	Bombato (invertito)
 	Diagonal (Descending)	Diagonale (discendente)
+	Contour Editor	Editor contorno
+	Anti-aliased	Con antialiasing
+	Corner	Angolo
+	Gloss Contour	Contorno lucido
+	Contour	Contorno
+	Cone - Inverted	Cono - invertito
+	Cove - Deep	Insenatura - profonda
+	Cove - Shallow	Insenatura - poco profonda
+	Gaussian	Gaussiana
+	Half Round	Semicerchio
+	Ring	Anello
+	Ring - Double	Anello - doppio
+	Rolling Slope - Descending	Pendio ondulato - discendente
+	Rounded Steps	Gradini arrotondati
+	Sawtooth 1	Dente di sega 1
 	Red Eye Tool	Strumento Occhi rossi
 	Red Eye	Occhi rossi
 	Pupil Size	Dimensione pupilla
@@ -2605,6 +2621,8 @@ cameraData	Lens	Obiettivo
 	Select the crop presets to delete	Seleziona i predefiniti di ritaglio da eliminare
 	Enter a name for the crop preset	Inserisci un nome per il predefinito di ritaglio
 	There is no crop size or ratio to save	Non c'è nessuna dimensione o proporzione di ritaglio da salvare
+	Scale:	Scala:
+	Snap to Origin	Aggancia all'origine
 	Search settings…	Cerca impostazioni…
 	No matching settings	Nessuna impostazione corrispondente
 	Edit Plane	Modifica piano
@@ -2615,3 +2633,13 @@ cameraData	Lens	Obiettivo
 	Vanishing Point is not active	Punto di fuga non è attivo
 	Apply Vanishing Point ({key})	Applica punto di fuga ({key})
 	Fix the red plane first: its corners must form a convex quad	Correggi prima il piano rosso: i suoi angoli devono formare un quadrilatero convesso
+# Select and Mask view modes (#1754)
+	Onion Skin	Velina
+	Marching Ants	Formiche in marcia
+	On Black	Su nero
+	On White	Su bianco
+	On Layers	Su livelli
+	Show Edge	Mostra bordo
+	Show Original	Mostra originale
+	F cycles the views; hold X to see the image	F scorre le viste; tieni premuto X per vedere l'immagine
+	Show rulers	Mostra righelli

@@ -84,13 +84,17 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // Two columns when the header chevron asks for them; a column that doesn't fit scrolls.
     let double = app.ui.panels.toolbar_double;
     let w = if double { w1 + bx + 2.0 } else { w1 };
-    egui::Panel::left("toolbar").resizable(false).exact_size(w).frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(m, 8))).show(
-        ui,
-        |ui| {
+    crate::direction::start_panel("toolbar")
+        .resizable(false)
+        .exact_size(w)
+        .frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(m, 8)))
+        .show(ui, |ui| {
             if t.pro {
                 // Photoshop's toolbar header chevrons switch between one and two columns.
                 let (cr, resp) = ui.allocate_exact_size(vec2(bx, 14.0), Sense::click());
-                icons::paint(ui, cr, if double { "chevrons-left" } else { "chevrons-right" }, 11.0, if resp.hovered() { t.text } else { t.text_faint });
+                // The chevrons point the way the toolbar grows or shrinks: towards the canvas.
+                let (shrink, grow) = if crate::direction::is_rtl() { ("chevrons-right", "chevrons-left") } else { ("chevrons-left", "chevrons-right") };
+                icons::paint(ui, cr, if double { shrink } else { grow }, 11.0, if resp.hovered() { t.text } else { t.text_faint });
                 resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Toolbar")));
                 if resp.clicked() {
                     app.ui.panels.toolbar_double = !app.ui.panels.toolbar_double;
@@ -189,10 +193,15 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                     if let Some((open_key, anchor)) = ui.data(|d| d.get_temp::<(egui::Id, Rect)>(flyout_id))
                                         && open_key == key
                                     {
-                                        let area = egui::Area::new(key.with("flyout"))
-                                            .order(egui::Order::Foreground)
-                                            .fixed_pos(anchor.right_top() + vec2(6.0, 0.0))
-                                            .show(ui.ctx(), |ui| {
+                                        // Beside the tool, towards the canvas.
+                                        let (pivot, pos) = if crate::direction::is_rtl() {
+                                            (egui::Align2::RIGHT_TOP, anchor.left_top() - vec2(6.0, 0.0))
+                                        } else {
+                                            (egui::Align2::LEFT_TOP, anchor.right_top() + vec2(6.0, 0.0))
+                                        };
+                                        let area = egui::Area::new(key.with("flyout")).order(egui::Order::Foreground).pivot(pivot).fixed_pos(pos).show(
+                                            ui.ctx(),
+                                            |ui| {
                                                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                                                     let label_w = slot
                                                         .iter()
@@ -245,7 +254,8 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                                         }
                                                     }
                                                 });
-                                            });
+                                            },
+                                        );
                                         let held_release = resp.clicked() && ui.data(|d| d.get_temp::<egui::Id>(held_id)) == Some(key);
                                         let clicked_outside =
                                             ui.input(|i| i.pointer.any_click()) && !held_release && !area.response.hovered() && !resp.hovered();
@@ -305,8 +315,7 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     });
                 });
             }
-        },
-    );
+        });
 }
 
 /// Glyph size of a toolbar tool button. Pro fills two thirds of the button, close to Photoshop's
@@ -315,10 +324,15 @@ fn toolbar_icon_size(box_size: f32, pro: bool) -> f32 {
     (box_size * if pro { 2.0 / 3.0 } else { 0.52 }).round()
 }
 
-/// Paints a triangle on the bottom right corner of an icon button to indicate that a toolbar item has a submenu.
+/// Paints a triangle on the bottom corner of an icon button that faces the canvas (bottom right,
+/// bottom left in a right-to-left UI) to indicate that a toolbar item has a submenu.
 pub fn paint_toolbar_flyout_indicator(ui: &mut egui::Ui, tokens: &Tokens, resp: &egui::Response) {
     let r = resp.rect;
-    let tri = vec![r.right_bottom() + vec2(-2.0, -2.0), r.right_bottom() + vec2(-6.0, -2.0), r.right_bottom() + vec2(-2.0, -6.0)];
+    let tri = if crate::direction::is_rtl() {
+        vec![r.left_bottom() + vec2(2.0, -2.0), r.left_bottom() + vec2(6.0, -2.0), r.left_bottom() + vec2(2.0, -6.0)]
+    } else {
+        vec![r.right_bottom() + vec2(-2.0, -2.0), r.right_bottom() + vec2(-6.0, -2.0), r.right_bottom() + vec2(-2.0, -6.0)]
+    };
     ui.painter().add(egui::Shape::convex_polygon(tri, tokens.text_faint, Stroke::NONE));
 }
 
@@ -523,7 +537,7 @@ pub fn title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         .frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin { left, right, top: 0, bottom: 0 }))
         .show(ui, |ui| {
             let full = ui.max_rect();
-            // Only the free gap between the menus and the right-hand controls drags the window: a
+            // Only the free gap between the menus and the far-end controls drags the window: a
             // press on a menu title must open the menu, never move the window. The gap is last
             // frame's, as the menus are laid out after this.
             let span_id = ui.id().with("titledrag-span");
@@ -538,24 +552,40 @@ pub fn title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 ui.ctx().send_viewport_cmd(egui::ViewportCommand::Maximized(!max));
             }
             let title = app.session.active().map(|d| format!("{}{}", d.doc.name, if d.is_dirty() { "  •" } else { "" })).unwrap_or_else(|| "PhotoCraft".into());
-            // The menus and the right-hand controls are laid out first; the title is centred in
-            // whatever room is left between them, shortened or dropped rather than drawn over them.
-            let (mut menus_right, mut controls_left) = (full.left(), full.right());
-            ui.horizontal_centered(|ui| {
+            // The menus and the far-end controls are laid out first; the title is centred in
+            // whatever room is left between them (`free`, left to right: menus then controls, or
+            // controls then menus in a right-to-left UI), shortened or dropped rather than drawn
+            // over them.
+            let rtl = crate::direction::is_rtl();
+            let mut free = (full.left(), full.right());
+            crate::direction::horizontal_centered(ui, |ui| {
+                if rtl && custom {
+                    // The caption buttons keep the right end; the menus start beside them.
+                    ui.add_space(crate::titlebar::WIDTH + 4.0);
+                }
                 if !system {
                     let side = if t.pro { 18.0 } else { 20.0 };
                     let (mark, _) = ui.allocate_exact_size(vec2(side, side), Sense::hover());
                     crate::brand::paint_mark(ui, mark);
                     ui.add_space(6.0);
                 }
-                // With the macOS menu bar the menus are at the top of the screen instead.
-                menus_right = if app.services.native_menu.is_some() { ui.cursor().left() } else { crate::menus::menu_bar(app, ui) };
-                // The menu bar takes the whole row, so the right-hand group gets its own rect:
-                // from the menus to the bar's end, or to the caption buttons.
-                let right_edge = if custom { full.right() - crate::titlebar::WIDTH - 4.0 } else { full.right() };
-                let group = egui::Rect::from_min_max(egui::pos2((menus_right + TITLE_GAP).min(right_edge), full.top()), egui::pos2(right_edge, full.bottom()));
-                let mut group_ui = ui.new_child(egui::UiBuilder::new().max_rect(group).layout(egui::Layout::right_to_left(egui::Align::Center)));
-                controls_left = {
+                // With the macOS menu bar the menus are at the top of the screen instead. Either way
+                // this is the menus' inner edge, facing the title.
+                let menus_end = if app.services.native_menu.is_some() {
+                    if rtl { ui.cursor().right() } else { ui.cursor().left() }
+                } else {
+                    crate::menus::menu_bar(app, ui)
+                };
+                // The menu bar takes the whole row, so the far-end group gets its own rect: from
+                // the menus to the bar's end, or to the caption buttons.
+                let group = if rtl {
+                    egui::Rect::from_min_max(egui::pos2(full.left(), full.top()), egui::pos2((menus_end - TITLE_GAP).max(full.left()), full.bottom()))
+                } else {
+                    let right_edge = if custom { full.right() - crate::titlebar::WIDTH - 4.0 } else { full.right() };
+                    egui::Rect::from_min_max(egui::pos2((menus_end + TITLE_GAP).min(right_edge), full.top()), egui::pos2(right_edge, full.bottom()))
+                };
+                let mut group_ui = ui.new_child(egui::UiBuilder::new().max_rect(group).layout(crate::direction::trailing()));
+                let controls_end = {
                     let ui = &mut group_ui;
                     ui.spacing_mut().item_spacing.x = 6.0;
                     let mut ws = app.ui.workspace.clone();
@@ -615,24 +645,27 @@ pub fn title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             crate::links::open(app, ui.ctx(), crate::links::DISCORD);
                         }
                     }
-                    ui.min_rect().left()
+                    if rtl { ui.min_rect().right() } else { ui.min_rect().left() }
                 };
+                free = if rtl { (controls_end, menus_end) } else { (menus_end, controls_end) };
             });
-            ui.ctx().data_mut(|d| d.insert_temp(span_id, (menus_right, controls_left)));
+            ui.ctx().data_mut(|d| d.insert_temp(span_id, free));
             if system {
                 return;
             }
             let font = theme::medium(13.0);
             let galley = ui.painter().layout_no_wrap(title.clone(), font.clone(), t.text_dim);
-            if let Some(x) = title_x(full.center().x, menus_right, controls_left, galley.size().x) {
+            if let Some(x) = title_x(full.center().x, free.0, free.1, galley.size().x) {
                 ui.painter().galley(egui::pos2(x, full.center().y - galley.size().y / 2.0), galley, t.text_dim);
-            } else if controls_left - menus_right > 80.0 {
-                // Too narrow for the whole name: show the start of it, elided, in the free gap.
-                let avail = controls_left - menus_right - 2.0 * TITLE_GAP;
+            } else if free.1 - free.0 > 80.0 {
+                // Too narrow for the whole name: show the start of it, elided, in the free gap
+                // next to the menus.
+                let avail = free.1 - free.0 - 2.0 * TITLE_GAP;
                 let mut job = egui::text::LayoutJob::simple_singleline(title, font, t.text_dim);
                 job.wrap = egui::text::TextWrapping::truncate_at_width(avail);
                 let g = ui.painter().layout_job(job);
-                ui.painter().galley(egui::pos2(menus_right + TITLE_GAP, full.center().y - g.size().y / 2.0), g, t.text_dim);
+                let x = if rtl { free.1 - TITLE_GAP - g.size().x } else { free.0 + TITLE_GAP };
+                ui.painter().galley(egui::pos2(x, full.center().y - g.size().y / 2.0), g, t.text_dim);
             }
         });
     if custom {
@@ -674,11 +707,11 @@ const DISCORD_ROOM: f32 = 120.0;
 const WORKSPACE_MIN: f32 = 90.0;
 const ICON_SLOT: f32 = 34.0;
 
-/// Left edge for a title `width` wide: centred on `center` when it fits between the menus
-/// (ending at `menus_right`) and the right-hand controls (starting at `controls_left`), else
-/// slid into that gap; None when the gap is too small for the whole title.
-fn title_x(center: f32, menus_right: f32, controls_left: f32, width: f32) -> Option<f32> {
-    let (lo, hi) = (menus_right + TITLE_GAP, controls_left - TITLE_GAP - width);
+/// Left edge for a title `width` wide: centred on `center` when it fits in the free gap from
+/// `left` to `right` (the menus' and the controls' facing edges, whichever side each is on),
+/// else slid into that gap; None when the gap is too small for the whole title.
+fn title_x(center: f32, left: f32, right: f32, width: f32) -> Option<f32> {
+    let (lo, hi) = (left + TITLE_GAP, right - TITLE_GAP - width);
     if !(lo.is_finite() && hi.is_finite() && width.is_finite()) || hi < lo {
         return None;
     }
@@ -836,7 +869,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             // Font ink can extend beyond its advance width at fractional positions.
             // Include its gutter in the container layout, including right-aligned actions.
             egui::Frame::NONE.inner_margin(egui::Margin { right: 2, ..Default::default() }).show(ui, |ui| {
-            ui.horizontal_centered(|ui| {
+            crate::direction::horizontal_centered(ui, |ui| {
                 if t.pro {
                     crate::chrome_ui::home_button(app, ui);
                     widgets::vline(ui, 22.0);
@@ -1500,11 +1533,12 @@ pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         .frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(10, 0)))
         .show(ui, |ui| {
             let control_h = status_bar_heights(&t).1;
-            ui.horizontal_centered(|ui| {
+            // Read from the right in a right-to-left UI, with the trailing group at the left.
+            crate::direction::horizontal_centered(ui, |ui| {
                 if t.pro {
                     crate::chrome_ui::status_bar_pro(app, ui);
-                    // Background job progress with Cancel, at the right end (#210).
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| crate::jobs_ui::status_progress(app, ui));
+                    // Background job progress with Cancel, at the far end (#210).
+                    ui.with_layout(crate::direction::trailing(), |ui| crate::jobs_ui::status_progress(app, ui));
                     return;
                 }
                 if let (Some(st), Some(i)) = (app.session.active(), app.session.active_index()) {
@@ -1529,7 +1563,7 @@ pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     let is_err = app.ui.status_error || app.ui.status.starts_with("Couldn");
                     ui.label(RichText::new(&app.ui.status).color(if is_err { t.warning } else { t.text_faint }));
                 }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.with_layout(crate::direction::trailing(), |ui| {
                     if app.session.active().is_some()
                         && !t.pro
                         && widgets::compact_button(ui, tl!("Fit"), control_h).clicked()
@@ -1559,11 +1593,15 @@ pub fn right_dock(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // Narrow icon rail, unless an embedding app hides it: shows, expands or collapses panel groups.
     if p.rail {
         let (rw, rb) = if t.pro { (36.0, 28.0) } else { (44.0, 32.0) };
-        egui::Panel::right("rail").resizable(false).exact_size(rw).frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(4, 8))).show(
-            ui,
-            |ui| {
+        crate::direction::end_panel("rail")
+            .resizable(false)
+            .exact_size(rw)
+            .frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(4, 8)))
+            .show(ui, |ui| {
+                // The separator is on the canvas side.
                 let r = ui.max_rect();
-                ui.painter().line_segment([r.left_top() - vec2(6.0, 8.0), r.left_bottom() + vec2(-6.0, 8.0)], Stroke::new(1.0, t.separator));
+                let x = if crate::direction::is_rtl() { r.right() + 6.0 } else { r.left() - 6.0 };
+                ui.painter().line_segment([pos2(x, r.top() - 8.0), pos2(x, r.bottom() + 8.0)], Stroke::new(1.0, t.separator));
                 ui.spacing_mut().item_spacing.y = 4.0;
                 use crate::dock::Group;
                 let entries: [(&str, &str, Group); 5] = [
@@ -1585,8 +1623,7 @@ pub fn right_dock(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         }
                     }
                 }
-            },
-        );
+            });
     }
     if !t.pro && !customized {
         dock_panels(app, ui, &p, &t);
@@ -1594,7 +1631,7 @@ pub fn right_dock(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     crate::dock::persist(app, ui.ctx());
 }
 
-/// The right dock's width range (points).
+/// The dock's width range (points). It is the right dock, on the left in a right-to-left UI.
 pub(crate) const DOCK_WIDTH: std::ops::RangeInclusive<f32> = 250.0..=520.0;
 
 pub(crate) fn dock_width_id() -> egui::Id {
@@ -1625,7 +1662,7 @@ fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &crate::state::Pan
         return;
     }
     let margin = if t.pro { 2 } else { 8 };
-    let mut panel = egui::Panel::right("dock").resizable(true).default_size(if t.pro { 290.0 } else { 300.0 }).size_range(DOCK_WIDTH);
+    let mut panel = crate::direction::end_panel("dock").resizable(true).default_size(if t.pro { 290.0 } else { 300.0 }).size_range(DOCK_WIDTH);
     if let Some(w) = ui.ctx().data_mut(|d| d.remove_temp::<f32>(dock_width_id())) {
         panel = panel.exact_size(w);
     }
@@ -3376,7 +3413,7 @@ fn brush_preset_chip(ui: &mut egui::Ui, b: &photocraft_engine::BrushSettings, st
         if state.brush_picker.is_some() {
             crate::brush_picker::close(state);
         } else {
-            state.brush_picker = Some([r.left(), r.bottom() + 2.0]);
+            crate::brush_picker::open(state, ui.ctx(), [r.left(), r.bottom() + 2.0]);
         }
     }
 }

@@ -1699,7 +1699,8 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
             let toward = xf.to_screen((p[0] + k[0] * 16.0) as f32, (p[1] + k[1] * 16.0) as f32) - at;
             crate::crop_ui::draw_turn_cursor(painter.ctx(), at, toward);
         }
-        if let Some(r) = live_readout(app) {
+        // Preferences › Tools › Show Transformation Values off hides it, as in Photoshop (#204).
+        if let Some(r) = live_readout(app).filter(|_| app.session.prefs().tools.show_transformation_values) {
             draw_live_readout(painter.ctx(), at, r);
         }
     }
@@ -3272,7 +3273,7 @@ mod tests {
         let mut app = app_with_square(64, photocraft_geom::Rect::new(8, 8, 24, 24));
         let ctx = egui::Context::default();
         begin(&mut app, &ctx).unwrap();
-        assert!(crate::canvas_tool_menu::open_transform(&mut app, [10.0, 10.0]));
+        assert!(crate::canvas_tool_menu::open_transform(&mut app, &ctx, [10.0, 10.0]));
         let menu = app.ui.canvas_tool_menu.clone().unwrap();
         let ids: Vec<&str> = crate::canvas_tool_menu::rows(&menu).iter().flatten().map(|e| e.1).collect();
         assert!(ids.contains(&"edit.transform.distort") && ids.contains(&"edit.freeTransform"));
@@ -3285,7 +3286,7 @@ mod tests {
         let mut app = app_with_square(64, photocraft_geom::Rect::new(8, 8, 24, 24));
         let ctx = egui::Context::default();
         begin(&mut app, &ctx).unwrap();
-        assert!(crate::canvas_tool_menu::open_transform(&mut app, [10.0, 10.0]));
+        assert!(crate::canvas_tool_menu::open_transform(&mut app, &ctx, [10.0, 10.0]));
         let menu = app.ui.canvas_tool_menu.clone().unwrap();
         assert!(crate::canvas_tool_menu::rows(&menu).iter().flatten().any(|e| e.1 == "edit.transform.warp"));
         assert!(crate::canvas_tool_menu::available(&app, &menu, "edit.transform.warp"));
@@ -3305,7 +3306,7 @@ mod tests {
         let ctx = egui::Context::default();
         begin(&mut app, &ctx).unwrap();
         app.ui.transform.as_mut().unwrap().path = Some(json!({}));
-        assert!(crate::canvas_tool_menu::open_transform(&mut app, [10.0, 10.0]));
+        assert!(crate::canvas_tool_menu::open_transform(&mut app, &ctx, [10.0, 10.0]));
         let menu = app.ui.canvas_tool_menu.clone().unwrap();
         assert!(!crate::canvas_tool_menu::available(&app, &menu, "edit.transform.warp"));
     }

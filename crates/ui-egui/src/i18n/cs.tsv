@@ -2150,6 +2150,7 @@
 	Developing {name}	Vyvolávání {name}
 	Cancelled {label}	Zrušeno: {label}
 	Esc to cancel	Esc pro zrušení
+	Opened {name}	Otevřeno: {name}
 	Opening {name}	Otevírání {name}
 	Saved {name}	Uloženo: {name}
 	Saving {name}	Ukládání {name}
@@ -2321,6 +2322,21 @@ cameraRaw	Color	Barvy
 	Domed	Kopule
 	Domed (Inverted)	Kopule (obrácená)
 	Diagonal (Descending)	Diagonála (sestupná)
+	Contour Editor	Editor kontury
+	Anti-aliased	Vyhlazení
+	Corner	Roh
+	Gloss Contour	Kontura lesku
+	Contour	Kontura
+	Cone - Inverted	Kužel - obrácený
+	Cove - Deep	Zátoka - hluboká
+	Cove - Shallow	Zátoka - mělká
+	Gaussian	Gaussovský
+	Half Round	Půlkruh
+	Ring	Prstenec
+	Ring - Double	Prstenec - dvojitý
+	Rolling Slope - Descending	Zvlněný svah - sestupný
+	Rounded Steps	Zaoblené stupně
+	Sawtooth 1	Pila 1
 
 	Red Eye Tool	Nástroj červené oči
 	Red Eye	Červené oči
@@ -2542,6 +2558,8 @@ cameraData	Lens	Objektiv
 	Select the crop presets to delete	Vyberte předvolby oříznutí k odstranění
 	Enter a name for the crop preset	Zadejte název předvolby oříznutí
 	There is no crop size or ratio to save	Není žádná velikost ani poměr oříznutí k uložení
+	Scale:	Měřítko:
+	Snap to Origin	Přichytit k počátku
 	Search settings…	Hledat nastavení…
 	No matching settings	Žádná odpovídající nastavení
 	Edit Plane	Upravit rovinu
@@ -2552,3 +2570,13 @@ cameraData	Lens	Objektiv
 	Vanishing Point is not active	Úběžník není aktivní
 	Apply Vanishing Point ({key})	Použít úběžník ({key})
 	Fix the red plane first: its corners must form a convex quad	Nejprve opravte červenou rovinu: její rohy musí tvořit konvexní čtyřúhelník
+# Select and Mask view modes (#1754)
+	Onion Skin	Cibulová slupka
+	Marching Ants	Pochodující mravenci
+	On Black	Na černé
+	On White	Na bílé
+	On Layers	Na vrstvách
+	Show Edge	Zobrazit okraj
+	Show Original	Zobrazit originál
+	F cycles the views; hold X to see the image	F přepíná zobrazení; podržením X uvidíte obraz
+	Show rulers	Zobrazit pravítka

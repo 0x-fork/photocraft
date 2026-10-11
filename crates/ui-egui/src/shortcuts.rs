@@ -311,6 +311,18 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if crate::menu_nav::is_open(ctx) || crate::widgets::dropdown_list_open(ctx) {
         return;
     }
+    // Stroke Options owns plain navigation/activation keys, including while its child
+    // dropdown is open. This runs before Popup::show registers the current pass, so use
+    // the editor's explicit state; otherwise Escape deselects or commits a pending Pen path.
+    // Modified commands such as Undo still follow the ordinary dispatch below.
+    if app.ui.stroke_editor.is_some() && !ctx.input(|i| i.modifiers.command || i.modifiers.ctrl) {
+        return;
+    }
+    // So does the right-click menu of text being edited: Esc closes only it, and keys typed while
+    // it is open don't reach the text beneath.
+    if app.ui.canvas_tool_menu.as_ref().is_some_and(|m| m.text) {
+        return;
+    }
     let symmetry_editing = app.ui.symmetry_transform.is_some();
     crate::symmetry_ui::track(app, ctx);
     if symmetry_editing && (app.ui.symmetry_transform.is_none() || egui::Popup::is_any_open(ctx)) {
