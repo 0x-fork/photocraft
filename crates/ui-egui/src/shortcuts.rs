@@ -8,29 +8,39 @@ use crate::state::Tool;
 
 /// Parse `Cmd+Shift+N` style strings. `Cmd` maps to ⌘ on macOS and Ctrl elsewhere.
 pub fn parse(s: &str) -> Option<KeyboardShortcut> {
+    // A trailing '+' names the Plus key (both "Cmd+" and "Cmd++" are accepted).
+    // Split the key off first: otherwise an unrecognised component could be ignored
+    // when a later component overwrites it with a valid key.
+    let (prefix, key_name) = if let Some(without_plus) = s.strip_suffix('+') {
+        (without_plus.strip_suffix('+').unwrap_or(without_plus), "+")
+    } else {
+        s.rsplit_once('+').unwrap_or(("", s))
+    };
     let mut mods = Modifiers::NONE;
-    let mut key = None;
-    for part in s.split('+') {
-        match part {
-            "Cmd" => mods |= Modifiers::COMMAND,
-            "Shift" => mods |= Modifiers::SHIFT,
-            "Alt" => mods |= Modifiers::ALT,
-            "Ctrl" => mods |= Modifiers::CTRL,
-            "" => key = Some(Key::Plus),
-            k => {
-                key = Key::from_name(k).or(match k {
-                    "=" => Some(Key::Equals),
-                    "-" => Some(Key::Minus),
-                    "[" => Some(Key::OpenBracket),
-                    ";" => Some(Key::Semicolon),
-                    "'" => Some(Key::Quote),
-                    "]" => Some(Key::CloseBracket),
-                    _ => None,
-                })
+    if !prefix.is_empty() {
+        for part in prefix.split('+') {
+            match part {
+                "Cmd" if !mods.command => mods |= Modifiers::COMMAND,
+                "Shift" if !mods.shift => mods |= Modifiers::SHIFT,
+                "Alt" if !mods.alt => mods |= Modifiers::ALT,
+                "Ctrl" if !mods.ctrl => mods |= Modifiers::CTRL,
+                // Unknown keys, duplicate modifiers, and extra components must not
+                // silently turn a malformed binding into a different shortcut.
+                _ => return None,
             }
         }
     }
-    Some(KeyboardShortcut::new(mods, key?))
+    let key = match key_name {
+        "+" => Some(Key::Plus),
+        "=" => Some(Key::Equals),
+        "-" => Some(Key::Minus),
+        "[" => Some(Key::OpenBracket),
+        ";" => Some(Key::Semicolon),
+        "'" => Some(Key::Quote),
+        "]" => Some(Key::CloseBracket),
+        name => Key::from_name(name),
+    }?;
+    Some(KeyboardShortcut::new(mods, key))
 }
 
 /// Human-readable form for menus, tooltips and inline hints (`Cmd+Shift+N` → `⌘⇧N` on
@@ -38,7 +48,18 @@ pub fn parse(s: &str) -> Option<KeyboardShortcut> {
 /// `pretty("Enter")` is `↩`/`Enter`.
 pub fn pretty(s: &str) -> String {
     let mac = cfg!(target_os = "macos");
-    s.split('+')
+    let mut parts: Vec<&str> = s.split('+').collect();
+    if s.ends_with('+') {
+        // A final '+' is the Plus key, not an empty component. This matters on
+        // macOS, where the modifier separator is hidden ("Cmd++" is "⌘+").
+        parts.pop();
+        if parts.last().copied() == Some("") {
+            parts.pop();
+        }
+        parts.push("+");
+    }
+    parts
+        .into_iter()
         .map(|p| match (p, mac) {
             ("Cmd", true) => "⌘".to_string(),
             ("Cmd", false) => "Ctrl".to_string(),
@@ -609,6 +630,19 @@ mod tests {
         assert_eq!(parse("Cmd+=").unwrap().logical_key, Key::Equals);
         assert_eq!(parse("F7").unwrap().logical_key, Key::F7);
         assert!(parse("Cmd+Nonsense").is_none());
+    }
+
+    #[test]
+    fn malformed_bindings_do_not_silently_match_a_different_shortcut() {
+        for invalid in ["Cmd+Typo+Z", "Cmd+X+Z", "Cmd+Z+X", "Cmd+Z+", "Cmd+Cmd+Z", "Ctrl+Ctrl+Z", "Shift+Shift+Z", "Cmd+Shift+++"] {
+            assert!(parse(invalid).is_none(), "{invalid} must not bind a command");
+        }
+        // '+' is a key name as well as a separator; keep existing shortcut spellings.
+        for plus in ["+", "Cmd+", "Cmd++", "Cmd+Shift++"] {
+            assert_eq!(parse(plus).unwrap().logical_key, Key::Plus, "{plus}");
+        }
+        assert!(parse("Cmd+Shift+Z").is_some());
+        assert_eq!(parse("Cmd+;").unwrap().logical_key, Key::Semicolon);
     }
 
     #[test]

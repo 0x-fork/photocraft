@@ -15,6 +15,7 @@ mod allocation;
 pub mod analysis_cmds;
 pub mod artboard_cmds;
 pub mod automate_cmds;
+pub mod background_cmds;
 pub mod brush_cmds;
 pub mod brush_key_cmds;
 pub mod brush_preset_cmds;
@@ -80,6 +81,7 @@ pub mod preset_store;
 pub mod presets;
 pub mod print_cmds;
 pub mod proof_sim;
+pub mod rasterize_style_cmds;
 pub mod redeye_cmds;
 pub mod render_cmds;
 pub mod retouch_cmds;
@@ -370,6 +372,9 @@ pub struct Session {
     pub authorize: Option<fn(&str, &serde_json::Value) -> Result<()>>,
     /// Background jobs (see [`jobs`]).
     jobs: jobs::Jobs,
+    /// A finished live stroke offered to the `paint.stroke` / `paint.pencil` that commits it
+    /// ([`Session::offer_live_stroke`]).
+    pub(crate) live_commit: Option<brush_cmds::LiveCommit>,
 }
 
 /// Move item `i` of `v` to position `to`, clamped to the end. Returns where it went; `None` when
@@ -471,6 +476,20 @@ impl Session {
             // Not reached: inline dispatch never starts a job. Waiting is still correct.
             jobs::Started::Job(j) => self.wait_job(j),
         }
+    }
+
+    /// Offer a finished live stroke to the next command: a `paint.stroke` / `paint.pencil` whose
+    /// params match it exactly takes its pixels instead of rendering the stroke again (its result
+    /// then says `"fromLive": true`); any other command drops the offer. The command still runs
+    /// through the normal dispatch, so authorization, the journal and history are unchanged.
+    pub fn offer_live_stroke(&mut self, live: brush_cmds::LiveStroke) -> Result<()> {
+        self.live_commit = Some(live.into_commit()?);
+        Ok(())
+    }
+
+    /// Withdraw an offer the command didn't take.
+    pub fn clear_live_stroke(&mut self) {
+        self.live_commit = None;
     }
 
     /// Is the command currently runnable? (drives menu enablement)

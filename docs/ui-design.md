@@ -84,6 +84,26 @@ The app's top bar (`panels::title_bar`) starts with the brand mark (the app icon
 - **macOS:** the traffic lights sit over the integrated title strip (`integrated_titlebar`).
 - **Narrow windows** drop controls that are also in a menu before anything overlaps: Discord (Help › Discord), then the theme toggle, then search (Edit › Search), then the workspace switcher narrows (Window › Workspace).
 
+## Compact tool controls
+
+The toolbar scrolls its tool rows when two columns still exceed the available height. Foreground
+and background colours stay visible below those rows, together with Pro's Quick Mask and Screen
+Mode controls. Long options rows scroll horizontally. Both scrollers bring newly focused
+controls into view and retain the existing tool actions and popups.
+
+The offscreen regression fixture uses production panels, fonts and SVG loaders across every
+theme, 800×480 and 1280×720 point viewports, and 1×, 1.5× and 2× display scales. To retain its
+60 initial/scrolled PNGs while running the compact geometry and interaction checks:
+
+```sh
+CRAFT_UI_VISUAL_FIXTURES=/tmp/photocraft-compact cargo test -p photocraft-ui-egui --lib compact_visual_regressions -- --nocapture
+```
+
+Keyboard tests clear the configurable `window.togglePanels` canvas shortcut through preferences,
+then send normal Tab and Space events through the app's shortcut dispatcher. They exercise
+focus traversal and activation with that nondefault binding; default canvas Tab still toggles
+panels. These offscreen checks do not establish native window or platform input acceptance.
+
 ## Menus
 
 An embedding application's `panels.menu_bar` and `panels.rail` flags belong to its current

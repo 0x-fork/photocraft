@@ -269,6 +269,7 @@
 	Layer via Cut	切り取ったレイヤー
 	Layer From Background…	背景からレイヤーへ…
 	Layer from Background…	背景からレイヤーへ…
+	Background From Layer	レイヤーから背景
 	New Shape Layer	新規シェイプレイヤー
 	New Type Layer	新規文字レイヤー
 	New Fill Layer	新規塗りつぶしレイヤー
@@ -1590,6 +1591,8 @@
 	Efficiency: 100%	効率: 100%
 	Ellipse Tool	楕円形ツール
 	Elliptical Marquee Tool	楕円形選択ツール
+	Single Row Marquee Tool	一行選択ツール
+	Single Column Marquee Tool	一列選択ツール
 	Emboss	エンボス
 	Eraser	消しゴム
 	Eraser Tool	消しゴムツール
@@ -1797,6 +1800,7 @@
 	Cache tile size	キャッシュタイルのサイズ
 	Camera Raw Defaults	Camera Raw の既定値
 	Canvas border	カンバスの境界
+	Show canvas dots	カンバスのドットを表示
 	Canvas color	カンバスの色
 	Canvas custom color	カンバスのカスタム色
 	Color picker	カラーピッカー
@@ -2019,6 +2023,7 @@
 	Create Warped Text	ワープテキストを作成
 	Rasterize Smart Object	スマートオブジェクトをラスタライズ
 	Rasterize Fill Content	塗りの内容をラスタライズ
+	Rasterize Layer Style	レイヤースタイルをラスタライズ
 	Unlock: picking a preset replaces these settings	ロック解除: プリセットを選ぶとこの設定は置き換わります
 	Lock: keep these settings when picking another preset	ロック: 別のプリセットを選んでもこの設定を保持します
 	Diameter:	直径:
@@ -2090,6 +2095,7 @@
 	Cancelled {label}	{label} をキャンセルしました
 	Esc to cancel	Esc キーでキャンセル
 	Opening {name}	{name} を開いています
+	Saved {name}	{name} を保存しました
 	Saving {name}	{name} を保存しています
 	A save to {name} is still running; try again when it finishes	{name} への保存がまだ実行中です。完了してからもう一度お試しください
 	{label} is writing the file and can no longer be cancelled	{label} はファイルを書き込み中のため、キャンセルできません
@@ -3447,6 +3453,31 @@ fontWeight	Italic	斜体
 	Quick Selection found nothing there	クイック選択ではそこに何も見つかりませんでした
 	Object Selection found nothing there — try a tighter rectangle	オブジェクト選択ではそこに何も見つかりませんでした — より狭い長方形で試してください
 	No subject found — try a rectangle around the object	被写体が見つかりません — オブジェクトを囲む長方形を試してください
+	Appearance Settings…	外観設定…
+	Add to favorites	お気に入りに追加
+	Remove from favorites	お気に入りから削除
+# File Info ▸ Camera Data (read-only EXIF fields; "Make" is the camera maker, not the verb).
+cameraData	Make	メーカー
+cameraData	Model	モデル
+cameraData	Date Taken	撮影日時
+cameraData	Exposure	露出時間
+cameraData	F-Stop	絞り値
+cameraData	ISO Speed	ISO 感度
+cameraData	Focal Length	焦点距離
+cameraData	Focal Length (35 mm)	焦点距離 (35 mm 換算)
+cameraData	Lens	レンズ
+# Shared panel docking
+	Activate Panel	パネルをアクティブにする
+	Change Panel Group	パネルグループを変更
+	Change Panel Layout	パネルレイアウトを変更
+	Close Panel	パネルを閉じる
+	Dock Panel	パネルをドッキング
+	Float Panel	パネルをフロート
+	Move Panel	パネルを移動
+	Group with	グループ化するパネル
+	Panel menu	パネルメニュー
+	Resize panel window	パネルウィンドウのサイズを変更
+	Resize panels	パネルのサイズを変更
 	Use Classic Mode	クラシックモードを使用
 	Auto Center Preview	プレビューを自動的に中央に配置
 	Next Document	次のドキュメント

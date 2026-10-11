@@ -158,7 +158,7 @@ editing session; non-type layers return an error without changing the tool or do
 
 ### Background jobs (#210)
 
-Long commands (every `filter.*`, `edit.contentAwareFill`, `edit.contentAwareScale`, `file.automate.photomerge`, `brush.presets.importAbr`), file opens and interactive saves (File › Save, Save As and the TIFF Options continuation, #2017) run as background jobs in the desktop app: the window keeps drawing, the status bar shows progress with a Cancel button, and jobs that lock the active document show a modal progress dialog (Esc cancels). `engine.execute`, `ui.menu.invoke` and `ui.dialog.confirm` still wait for the result by default; pass `"wait": false` to get `{job, pending: true}` at once, then poll `jobs.list` (`state`: running, done, failed, cancelled; `progress` 0–1; the result or error) and stop it with `jobs.cancel {job}`. A cancelled or failed job leaves the document unchanged. While a job runs, commands that would edit its document fail with "… is still running on this document". `ui.inspect` reports `jobs` (running jobs, opening files, saving files). `app.save` still writes before it replies. Set `PHOTOCRAFT_INLINE_JOBS=1` to run everything inline.
+Long commands (every `filter.*`, `edit.contentAwareFill`, `edit.contentAwareScale`, `file.automate.photomerge`, `brush.presets.importAbr`), file opens and interactive saves (File › Save, Save As and the TIFF Options continuation, #2017) run as background jobs in the desktop app: the window keeps drawing, the status bar shows progress with a Cancel button, and jobs that lock the active document show a modal progress dialog (Esc cancels). `engine.execute`, `ui.menu.invoke`, `ui.dialog.confirm` and `app.save` still wait for the result by default; pass `"wait": false` to get `{job, pending: true}` at once, then poll `jobs.list` (`state`: running, done, failed, cancelled; `progress` 0–1; the result or error) and stop it with `jobs.cancel {job}`. A cancelled or failed job leaves the document unchanged. While a job runs, commands that would edit its document fail with "… is still running on this document". `ui.inspect` reports `jobs` (running jobs, opening files, saving files). Set `PHOTOCRAFT_INLINE_JOBS=1` to run everything inline.
 
 ## Preferences
 
@@ -502,3 +502,56 @@ Missing actions, recursive calls and nesting beyond 16 levels fail visibly; a ch
 the parent before its next step. Every nested command retains the normal automation permission check.
 Existing recordings containing expanded commands remain unchanged; remove those steps and record
 the named call again if desired.
+
+## Shared panel docking
+
+Panel arrangements support tab grouping and reordering, horizontal and vertical splits,
+and movable, resizable floating groups inside the application window. Drag a panel tab,
+or use its context menu. Floating groups remain within the application viewport.
+
+The shared layout begins with the existing workspace on the first docking operation.
+Workspace saves retain its groups, active tabs, split sizes, floating geometry, and the
+positions of hidden panels. Resetting a built-in workspace restores its default dock.
+
+- `window.panel.move {panel, anchor, zone?, before?}` moves a panel into the target group.
+  `zone` is `tab` (default), `center`, `left`, `right`, `top`, or `bottom`; `before` reorders
+  tabs by panel ID. The destination must already be visible.
+- `window.panel.float {panel, x?, y?, width?, height?}` detaches a panel.
+- `window.panel.dock {panel, anchor?, zone?, before?}` returns a panel to its previous
+  dock placement when possible, or to the supplied destination.
+- `window.panel.activate {panel}` reveals and selects a panel, restoring its saved
+  position when possible. `window.panel.close {panel}` hides it.
+
+Panel IDs are stable across themes. Invalid IDs, non-finite or invalid geometry, and
+invalid destinations return an error without changing the arrangement.
+
+Lock Workspace prevents moving, detaching, and closing panels; activating a panel remains available.
+
+`window.panel.layout {action}` also accepts the shared, externally tagged action schema.
+For example, `{"action":{"MoveFloating":{"panel":"properties","rect":[44,66,360,450]}}}`
+updates a floating group's position and size; `{"action":{"ResizeSplit":{"path":[],"size":{"Ratio":0.35}}}}`
+resizes the root divider (`false`/`true` path entries select first/second children).
+`Move` with `placement: {"Tab":{"before":"swatches"}}` reorders tabs, and
+`SetStackOpen {panel,open}` / `ResizeStack {panel,height}` control accordion entries.
+The UI dispatches these same commands. Unknown panel IDs, invalid geometry, and stale
+split paths return an error without changing the workspace.
+
+The existing `ui.set` panel visibility, `dockTabs` selection and `dockWidth` controls
+remain available after customization. Width keeps its 250–520 point clamp. Named
+`dock.hidden_tabs` and intact native-group collapse settings are also preserved. A
+legacy `dock` replacement that changes flat group order or heights is rejected after
+customization: use `window.panel.layout` to change a custom split tree. A replacement
+that changes legacy collapse settings is also rejected when a custom root group mixes
+panels from different native groups; use `window.panel.group` to collapse or expand
+that group. Validation is atomic across mixed `ui.set` requests.
+
+`window.panel.group {panel, operation}` applies `close`, `collapse`, `expand`, `up`,
+or `down` to the panel's entire current group. With `operation:"move"`, provide
+`anchor` and optional `zone`/`before` (as for panel.move), or a serialized `placement`,
+to transfer all members atomically while preserving their order and selecting the
+requested `panel`.
+The floating group's header grip also transfers the whole group when dropped on a
+dock target. The panel menu and icon rail remain
+available in custom workspaces. `window.panel.<id> {show:true}` always reveals, selects
+and expands the panel, including when another tab is selected. Workspace snapshots
+retain custom collapse settings and Timeline visibility.

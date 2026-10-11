@@ -1166,6 +1166,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::select_extra_cmds::specs());
     v.extend(crate::paint_cmds::specs());
     v.extend(crate::extra_cmds::specs());
+    v.extend(crate::background_cmds::specs());
     v.extend(crate::file_cmds::specs());
     v.extend(crate::exr_cmds::specs());
     v.extend(crate::type_extra_cmds::specs());
@@ -1216,6 +1217,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::video_cmds::specs());
     v.extend(crate::jobs::specs());
     v.extend(crate::wia_cmds::specs());
+    v.extend(crate::rasterize_style_cmds::specs());
     v.extend(crate::variables_cmds::specs());
     v.extend(crate::plugin_cmds::specs());
     v.extend(crate::group_view_cmds::specs());
@@ -1278,6 +1280,11 @@ pub fn adjustment_kind(a: &Adjustment) -> &'static str {
 fn arrange(s: &mut Session, p: &Value, delta: i32) -> Result<Value> {
     let id = layer_param(s, p)?;
     s.edit("Arrange", |doc, _| {
+        // The Background stays at the bottom: it doesn't move and nothing goes below it.
+        let bg = crate::background_cmds::background_id(doc);
+        if bg == Some(id) {
+            return Err(EngineError::Other("the Background layer can't be moved".into()));
+        }
         let steps = match delta {
             i32::MAX => 10_000,
             i32::MIN => -10_000,
@@ -1287,6 +1294,10 @@ fn arrange(s: &mut Session, p: &Value, delta: i32) -> Result<Value> {
         let mut moved = false;
         for _ in 0..steps.abs() {
             if !doc.shift(id, dir) {
+                break;
+            }
+            if crate::background_cmds::keep_background_at_bottom(bg, doc).is_err() {
+                doc.shift(id, -dir);
                 break;
             }
             moved = true;

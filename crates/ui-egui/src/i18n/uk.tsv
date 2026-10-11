@@ -143,6 +143,7 @@
 	Rename Layer	Перейменувати шар
 	Layer From Background…	Шар із фону…
 	Layer from Background…	Шар із фону…
+	Background From Layer	Фон із шару
 	Group Layers	Згрупувати шари
 	Group…	Група…
 	Ungroup Layers	Розгрупувати шари
@@ -1509,6 +1510,8 @@
 	Could not complete the Free Transform command because the layer is locked.	Не вдалося виконати команду «Вільна трансформація», бо шар заблоковано.
 	Rectangular Marquee Tool	Інструмент «Прямокутне виділення»
 	Elliptical Marquee Tool	Інструмент «Еліптичне виділення»
+	Single Row Marquee Tool	Інструмент «Виділення одного рядка»
+	Single Column Marquee Tool	Інструмент «Виділення одного стовпця»
 	Brush Tool	Інструмент «Пензель»
 	Pencil Tool	Інструмент «Олівець»
 	Eraser Tool	Інструмент «Гумка»
@@ -2179,6 +2182,7 @@
 	Cache tile size	Розмір плитки кешу
 	Camera Raw Defaults	Типові параметри Camera Raw
 	Canvas border	Межа полотна
+	Show canvas dots	Показувати крапки полотна
 	Canvas color	Колір полотна
 	Canvas custom color	Довільний колір полотна
 	Classic	Класична
@@ -2348,6 +2352,7 @@
 	Cancelled {label}	Скасовано: {label}
 	Esc to cancel	Esc для скасування
 	Opening {name}	Відкриття {name}
+	Saved {name}	Збережено: {name}
 	Saving {name}	Збереження {name}
 	A save to {name} is still running; try again when it finishes	Збереження в {name} ще триває; спробуйте ще раз, коли воно завершиться
 	{label} is writing the file and can no longer be cancelled	{label}: триває запис файлу, скасувати вже не можна
@@ -2777,6 +2782,7 @@ fontWeight	Italic	Курсивний
 	Create Warped Text	Створити деформований текст
 	Rasterize Smart Object	Растеризувати смартоб'єкт
 	Rasterize Fill Content	Растеризувати вміст заливки
+	Rasterize Layer Style	Растеризувати стиль шару
 	Toggle the Brush Settings panel  (F5)	Перемкнути панель налаштувань пензля  (F5)
 	Create new brush preset from the current settings	Створити новий набір пензля з поточних параметрів
 	Brush Settings…  (F5): every option of this brush	Налаштування пензля…  (F5): усі параметри цього пензля
@@ -3533,6 +3539,31 @@ cameraRaw	Masking	Маскування
 	Quick Selection found nothing there	Швидке виділення нічого тут не знайшло
 	Object Selection found nothing there — try a tighter rectangle	Виділення об'єктів нічого тут не знайшло — спробуйте вужчий прямокутник
 	No subject found — try a rectangle around the object	Об'єкт не знайдено — спробуйте прямокутник навколо об'єкта
+	Appearance Settings…	Налаштування вигляду…
+	Add to favorites	Додати до вибраного
+	Remove from favorites	Видалити з вибраного
+# File Info ▸ Camera Data (read-only EXIF fields; "Make" is the camera maker, not the verb).
+cameraData	Make	Виробник
+cameraData	Model	Модель
+cameraData	Date Taken	Дата зйомки
+cameraData	Exposure	Витримка
+cameraData	F-Stop	Діафрагма
+cameraData	ISO Speed	Світлочутливість ISO
+cameraData	Focal Length	Фокусна відстань
+cameraData	Focal Length (35 mm)	Фокусна відстань (35 мм)
+cameraData	Lens	Об'єктив
+# Shared panel docking
+	Activate Panel	Активувати панель
+	Change Panel Group	Змінити групу панелей
+	Change Panel Layout	Змінити розташування панелей
+	Close Panel	Закрити панель
+	Dock Panel	Закріпити панель
+	Float Panel	Зробити панель плаваючою
+	Move Panel	Перемістити панель
+	Group with	Згрупувати з
+	Panel menu	Меню панелі
+	Resize panel window	Змінити розмір вікна панелі
+	Resize panels	Змінити розмір панелей
 	Use Classic Mode	Використовувати класичний режим
 	Auto Center Preview	Автоматично центрувати перегляд
 	Next Document	Наступний документ

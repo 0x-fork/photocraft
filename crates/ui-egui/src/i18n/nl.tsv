@@ -261,6 +261,7 @@
 	Layer via Cut	Laag via knippen
 	Layer From Background…	Laag uit achtergrond…
 	Layer from Background…	Laag uit achtergrond…
+	Background From Layer	Achtergrond uit laag
 	New Shape Layer	Nieuwe vormlaag
 	New Type Layer	Nieuwe tekstlaag
 	New Fill Layer	Nieuwe opvullaag
@@ -1569,6 +1570,8 @@
 	Efficiency: 100%	Efficiëntie: 100%
 	Ellipse Tool	Ellipsgereedschap
 	Elliptical Marquee Tool	Ovaal selectiekader
+	Single Row Marquee Tool	Selectiekader enkele rij
+	Single Column Marquee Tool	Selectiekader enkele kolom
 	Emboss	Reliëf
 	Eraser	Gum
 	Eraser Tool	Gumgereedschap
@@ -1772,6 +1775,7 @@
 	Cache tile size	Tegelgrootte cache
 	Camera Raw Defaults	Standaardwaarden Camera Raw
 	Canvas border	Canvasrand
+	Show canvas dots	Canvasstippen tonen
 	Canvas color	Canvaskleur
 	Canvas custom color	Aangepaste canvaskleur
 	Color picker	Kleurkiezer
@@ -1988,6 +1992,7 @@
 	Create Warped Text	Verbogen tekst maken
 	Rasterize Smart Object	Slim object rasteren
 	Rasterize Fill Content	Vulinhoud rasteren
+	Rasterize Layer Style	Laagstijl rasteren
 	Unlock: picking a preset replaces these settings	Ontgrendelen: een voorinstelling kiezen vervangt deze instellingen
 	Lock: keep these settings when picking another preset	Vergrendelen: deze instellingen behouden bij het kiezen van een andere voorinstelling
 	Diameter:	Diameter:
@@ -2061,6 +2066,7 @@
 	Cancelled {label}	{label} geannuleerd
 	Esc to cancel	Esc om te annuleren
 	Opening {name}	{name} openen
+	Saved {name}	{name} opgeslagen
 	Saving {name}	{name} opslaan
 	A save to {name} is still running; try again when it finishes	Er wordt nog opgeslagen naar {name}; probeer het opnieuw zodra dat klaar is
 	{label} is writing the file and can no longer be cancelled	{label} schrijft het bestand en kan niet meer worden geannuleerd
@@ -3605,6 +3611,31 @@ cameraRaw	Whites	Witten
 	Quick Selection found nothing there	Snelle selectie heeft daar niets gevonden
 	Object Selection found nothing there — try a tighter rectangle	Objectselectie heeft daar niets gevonden — probeer een krappere rechthoek
 	No subject found — try a rectangle around the object	Geen onderwerp gevonden — probeer een rechthoek rond het object
+	Appearance Settings…	Weergave-instellingen…
+	Add to favorites	Toevoegen aan favorieten
+	Remove from favorites	Verwijderen uit favorieten
+# File Info ▸ Camera Data (read-only EXIF fields; "Make" is the camera maker, not the verb).
+cameraData	Make	Merk
+cameraData	Model	Model
+cameraData	Date Taken	Opnamedatum
+cameraData	Exposure	Sluitertijd
+cameraData	F-Stop	Diafragma
+cameraData	ISO Speed	ISO-waarde
+cameraData	Focal Length	Brandpuntsafstand
+cameraData	Focal Length (35 mm)	Brandpuntsafstand (35 mm)
+cameraData	Lens	Lens
+# Shared panel docking
+	Activate Panel	Paneel activeren
+	Change Panel Group	Paneelgroep wijzigen
+	Change Panel Layout	Paneelindeling wijzigen
+	Close Panel	Paneel sluiten
+	Dock Panel	Paneel vastzetten
+	Float Panel	Zwevend paneel
+	Move Panel	Paneel verplaatsen
+	Group with	Groeperen met
+	Panel menu	Paneelmenu
+	Resize panel window	Paneelvenster vergroten of verkleinen
+	Resize panels	Panelen vergroten of verkleinen
 	Use Classic Mode	Klassieke modus gebruiken
 	Auto Center Preview	Voorvertoning automatisch centreren
 	Next Document	Volgend document

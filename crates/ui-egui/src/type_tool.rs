@@ -870,7 +870,8 @@ pub(crate) fn family_picker_in(ui: &mut egui::Ui, salt: &str, current: &mut Stri
         // Clicks inside the menu (the search field, the scroll bar) must not close it (#1369);
         // picking a font closes it explicitly below.
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
-    combo.show_ui(ui, |ui| {
+
+    let response = combo.show_ui(ui, |ui| {
         let (pass_id, focus_id, height_id) = (search_id.with("pass"), search_id.with("focus"), search_id.with("height"));
         let pass = ui.ctx().cumulative_pass_nr();
         let last_pass: Option<u64> = ui.data(|d| d.get_temp(pass_id));
@@ -911,10 +912,13 @@ pub(crate) fn family_picker_in(ui: &mut egui::Ui, salt: &str, current: &mut Stri
                 photocraft_text::served::request(f);
             }
         }
-        if enter && filtered.iter().any(|f| *f == current) {
+        let accept = enter && filtered.iter().any(|f| *f == current);
+        if accept {
             ui.data_mut(|d| d.remove::<String>(search_id));
             ui.close();
         }
+
+        let mut hovered: Option<String> = None;
         for f in filtered {
             let response = ui.add_sized(
                 [330.0, 28.0],
@@ -928,12 +932,16 @@ pub(crate) fn family_picker_in(ui: &mut egui::Ui, salt: &str, current: &mut Stri
             if ui.is_rect_visible(response.rect) {
                 crate::font_preview::paint(ui, f, response.rect);
             }
+            if response.hovered() {
+                hovered = Some(f.clone());
+            }
             if response.clicked() {
                 *current = f.clone();
                 // A served family not fetched yet: start now, before any text needs it.
                 photocraft_text::served::request(f);
                 changed = true;
                 ui.data_mut(|d| d.remove::<String>(search_id));
+                hovered = None;
                 ui.close();
             }
         }
@@ -946,12 +954,24 @@ pub(crate) fn family_picker_in(ui: &mut egui::Ui, salt: &str, current: &mut Stri
         } else if let Some(h) = ui.data(|d| d.get_temp::<f32>(height_id)) {
             ui.set_min_height(h.min(FONT_MENU_HEIGHT));
         }
+        if accept { None } else { hovered }
     });
+    let hovered_font = response.inner.unwrap_or_default();
+
+    if salt == "type-font" {
+        let hover_id = egui::Id::new("type-font-hover");
+        if let Some(f) = hovered_font {
+            ui.ctx().data_mut(|d| d.insert_temp(hover_id, f));
+        } else {
+            ui.ctx().data_mut(|d| d.remove::<String>(hover_id));
+        }
+    }
+
     changed
 }
 
 /// Representative for the displayed properties: the edit layer, else a selected type layer.
-fn target(app: &PhotocraftApp) -> Option<(u64, Option<[usize; 2]>)> {
+pub(crate) fn target(app: &PhotocraftApp) -> Option<(u64, Option<[usize; 2]>)> {
     if let Some(ed) = &app.ui.text_edit {
         let (a, b) = (ed.caret.min(ed.anchor), ed.caret.max(ed.anchor));
         return Some((ed.layer, (a < b).then_some([a, b])));
@@ -994,6 +1014,17 @@ fn shown_scale(app: &PhotocraftApp) -> f32 {
     let m = t.transform.m;
     let k = (m[0] * m[3] - m[1] * m[2]).abs().sqrt() as f32;
     if k.is_finite() && k > 1e-3 { k } else { 1.0 }
+}
+
+/// The display unit for type metrics (Preferences ▸ Units & Rulers ▸ Type): the multiplier from
+/// the model's points to the unit, and its label. Pixels follow the document's resolution.
+pub(crate) fn type_unit(app: &PhotocraftApp) -> (f32, &'static str) {
+    let dpi = app.session.active().map_or(72.0, |d| d.doc.resolution_dpi.max(1.0));
+    match app.session.prefs().units_and_rulers.type_units {
+        photocraft_engine::prefs::TypeUnit::Points => (1.0, "pt"),
+        photocraft_engine::prefs::TypeUnit::Pixels => (dpi / 72.0, "px"),
+        photocraft_engine::prefs::TypeUnit::Millimeters => (25.4 / 72.0, "mm"),
+    }
 }
 
 /// Coalesce key while a field is being scrubbed: every step of one drag shares one history step
@@ -1050,7 +1081,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         Some((tl.font_family.clone(), run.as_ref().map(selected_style).unwrap_or_default(), size, styles_at(app).map_or(tl.color, |(c, _)| c.color)))
     });
     let o = app.ui.tool_options.clone();
-    let (mut fam, mut style, mut size) = match &shown {
+    let (mut fam, mut style, size) = match &shown {
         Some((f, s, z, _)) => (f.clone(), if s.is_empty() { "Regular".into() } else { s.clone() }, *z),
         None => (o.type_font.clone(), o.type_style.clone(), o.type_size),
     };
@@ -1079,7 +1110,10 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
     let (r, _) = ui.allocate_exact_size(egui::vec2(18.0, 22.0), egui::Sense::hover());
     crate::icons::paint(ui, r, "type", 13.0, t.icon);
-    if crate::widgets::value_field(ui, &mut size, 1.0..=1296.0, "pt", 66.0).changed() {
+    let (unit, label) = type_unit(app);
+    let mut display = size * unit;
+    if crate::widgets::value_field(ui, &mut display, unit..=1296.0 * unit, label, 66.0).changed() {
+        let size = display / unit;
         app.ui.tool_options.type_size = size;
         apply(app, ui.ctx(), json!({"size": size, "metricsAsShown": true}));
     }
@@ -1662,6 +1696,20 @@ mod tests {
         let doc = &app.session.active().unwrap().doc;
         assert_eq!(doc.layers.last().unwrap().name, "Héllo world");
         assert!(app.ui.text_edit.is_none());
+    }
+
+    /// Preferences ▸ Units & Rulers ▸ Type switches the display unit of type metrics: points by
+    /// default, pixels by the document's resolution, or millimetres.
+    #[test]
+    fn type_unit_follows_the_units_and_rulers_preference() {
+        let mut app = app();
+        assert_eq!(type_unit(&app), (1.0, "pt"));
+        app.run("prefs.set", json!({"path": "unitsAndRulers.typeUnits", "value": "pixels"})).unwrap();
+        assert_eq!(type_unit(&app), (1.0, "px"), "a 72 ppi document: 1 pt is 1 px");
+        app.run("image.imageSize", json!({"resolution": 144, "resample": "none"})).unwrap();
+        assert_eq!(type_unit(&app), (2.0, "px"), "144 ppi: a point is two pixels");
+        app.run("prefs.set", json!({"path": "unitsAndRulers.typeUnits", "value": "mm"})).unwrap();
+        assert!((type_unit(&app).0 - 25.4 / 72.0).abs() < 1e-6, "millimetres ignore the resolution");
     }
 
     /// Preferences ▸ Type ▸ Fill new type layers with placeholder text: off, a click creates an

@@ -1319,8 +1319,7 @@ mod multi_layer_formatting {
         h.run();
         h.get_by_label("Sharp").click();
         h.run();
-        // The options bar's leading orientation icon has a tooltip but no accessibility label.
-        h.get_all_by_role(Role::Unknown).next().expect("orientation icon").click();
+        h.get_by_role_and_label(Role::Button, "Toggle text orientation").click();
         h.run();
         for id in &ids[..2] {
             let t = text(h.state(), *id);

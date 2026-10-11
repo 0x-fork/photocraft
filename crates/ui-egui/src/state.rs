@@ -127,6 +127,11 @@ pub enum Tool {
     Move,
     RectMarquee,
     EllipseMarquee,
+    /// Selects one pixel row across the whole canvas at the clicked y (Photoshop's flyout only:
+    /// no key, not in the ⇧M cycle).
+    SingleRowMarquee,
+    /// Selects one pixel column down the whole canvas at the clicked x.
+    SingleColumnMarquee,
     Lasso,
     PolygonLasso,
     MagneticLasso,
@@ -180,10 +185,12 @@ pub enum Tool {
 }
 
 impl Tool {
-    pub const ALL: [Tool; 53] = [
+    pub const ALL: [Tool; 55] = [
         Tool::Move,
         Tool::RectMarquee,
         Tool::EllipseMarquee,
+        Tool::SingleRowMarquee,
+        Tool::SingleColumnMarquee,
         Tool::Lasso,
         Tool::PolygonLasso,
         Tool::MagneticLasso,
@@ -241,6 +248,8 @@ impl Tool {
             Tool::Move => "Move Tool",
             Tool::RectMarquee => "Rectangular Marquee Tool",
             Tool::EllipseMarquee => "Elliptical Marquee Tool",
+            Tool::SingleRowMarquee => "Single Row Marquee Tool",
+            Tool::SingleColumnMarquee => "Single Column Marquee Tool",
             Tool::Brush => "Brush Tool",
             Tool::Pencil => "Pencil Tool",
             Tool::MixerBrush => "Mixer Brush Tool",
@@ -340,6 +349,8 @@ impl Tool {
             Tool::CloneStamp | Tool::PatternStamp => 'S',
             Tool::HistoryBrush => 'Y',
             Tool::Blur | Tool::Sharpen | Tool::Smudge => '\0',
+            // In the Marquee flyout, but M cycles only the Rectangular and Elliptical Marquee.
+            Tool::SingleRowMarquee | Tool::SingleColumnMarquee => '\0',
             Tool::Dodge | Tool::Burn | Tool::Sponge => 'O',
             Tool::QuickSelection | Tool::ObjectSelection => 'W',
             Tool::Pen => 'P',
@@ -1056,6 +1067,20 @@ pub struct UiState {
     /// Right-dock group order, heights and collapsed groups (see `dock`).
     #[serde(default)]
     pub dock: crate::dock::DockLayout,
+    /// Authoritative custom panel membership and placement; legacy fields are compatibility projections.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub docking: Option<craft_ui::docking::Layout<String>>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub docking_hidden: std::collections::BTreeMap<String, craft_ui::docking::Location<String>>,
+    /// Invalidates in-flight gestures when a workspace is replaced.
+    #[serde(skip)]
+    pub docking_generation: u64,
+    /// Panels belonging to explicitly collapsed custom tab groups.
+    #[serde(default)]
+    pub docking_collapsed: Vec<String>,
+    /// One-frame focus/raise request from an explicit panel reveal.
+    #[serde(skip)]
+    pub docking_reveal: Option<String>,
     /// Which chip the Color panel edits.
     #[serde(default)]
     pub color_panel: ColorPanelState,
@@ -1165,6 +1190,11 @@ impl Default for UiState {
             palette_open: false,
             dock_tabs: DockTabs::default(),
             dock: Default::default(),
+            docking: None,
+            docking_hidden: Default::default(),
+            docking_generation: 0,
+            docking_collapsed: Vec::new(),
+            docking_reveal: None,
             color_panel: Default::default(),
             brush_section: 0,
             brush_tab: 0,
@@ -1250,7 +1280,7 @@ mod tests {
         assert!(!Tool::RedEye.is_brushlike());
         assert_eq!(Tool::from_name("patternStamp"), Some(Tool::PatternStamp));
         assert_eq!(Tool::from_name("Pattern Stamp Tool"), Some(Tool::PatternStamp));
-        assert_eq!(Tool::ALL.len(), 53);
+        assert_eq!(Tool::ALL.len(), 55);
         assert_eq!(Tool::from_name("Remove Tool"), Some(Tool::Remove));
         assert_eq!(Tool::Remove.key(), 'J');
         assert!(Tool::Remove.is_brushlike());
