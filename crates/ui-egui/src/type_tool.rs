@@ -1529,6 +1529,65 @@ fn num_field(ui: &mut egui::Ui, label: &str, tip: &str, v: f32, range: std::ops:
     out
 }
 
+/// Common Photoshop-style choices for the Character panel. The text field stays editable:
+/// these menus are shortcuts, not constraints on the value the user may type.
+const SIZE_PRESETS: &[f32] = &[6.0, 8.0, 9.0, 10.0, 11.0, 12.0, 14.0, 18.0, 24.0, 30.0, 36.0, 48.0, 60.0, 72.0, 96.0];
+const LEADING_PRESETS: &[f32] = &[6.0, 8.0, 9.0, 10.0, 11.0, 12.0, 14.0, 16.0, 18.0, 20.0, 24.0, 30.0, 36.0, 48.0, 60.0, 72.0, 96.0];
+const TRACKING_PRESETS: &[f32] = &[-100.0, -75.0, -50.0, -25.0, -10.0, 0.0, 10.0, 25.0, 50.0, 75.0, 100.0, 200.0];
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum MetricChoice {
+    Value(f32),
+    Auto,
+}
+
+/// Label, editable numeric value and a preset chevron sharing one Character-panel cell.
+/// Returned values follow the same engine-command path as typing into the numeric field.
+fn metric_field(
+    ui: &mut egui::Ui,
+    salt: &str,
+    label: &str,
+    tip: &str,
+    value: f32,
+    range: std::ops::RangeInclusive<f32>,
+    unit: &str,
+    width: f32,
+    presets: &[f32],
+    auto_selected: Option<bool>,
+) -> Option<MetricChoice> {
+    let mut chosen = None;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        if let Some(v) = num_field(ui, label, tip, value, range, unit, (width - 28.0).max(24.0)) {
+            chosen = Some(MetricChoice::Value(v));
+        }
+        let (press, close) = crate::press_menu::PressCombo::before(ui, salt);
+        let combo = egui::ComboBox::from_id_salt(salt)
+            .selected_text("")
+            .width(16.0)
+            .height(420.0)
+            .icon(crate::widgets::chevron_icon)
+            .close_behavior(close)
+            .show_ui(ui, |ui| {
+                if let Some(selected) = auto_selected {
+                    let item = ui.selectable_label(selected, tl!("Auto"));
+                    if press.chosen(ui, &item) {
+                        chosen = Some(MetricChoice::Auto);
+                    }
+                }
+                for &preset in presets {
+                    let text = if unit.is_empty() { format!("{preset}") } else { format!("{preset} {unit}") };
+                    let item = ui.selectable_label((preset - value).abs() < f32::EPSILON && auto_selected != Some(true), text);
+                    if press.chosen(ui, &item) {
+                        chosen = Some(MetricChoice::Value(preset));
+                    }
+                }
+            });
+        press.after(&combo.response);
+    });
+    chosen
+}
+
 /// Photoshop's paragraph alignment glyphs: four text lines whose widths/offsets show the mode
 /// (justify variants run full width, with the last line placed left/centre/right).
 fn align_glyph(p: &egui::Painter, r: egui::Rect, a: photocraft_doc::text::TextAlign, c: Color32) {
@@ -1631,13 +1690,26 @@ fn type_sections(app: &mut PhotocraftApp, ui: &mut egui::Ui, character: bool, pa
         });
         row(ui, &mut |ui| {
             let k = shown_scale(app);
-            if let Some(v) = num_field(ui, "tT", "Font size", c.size_pt * k, 0.1..=1296.0, "pt", w) {
+            if let Some(MetricChoice::Value(v)) = metric_field(ui, "props-font-size-presets", "tT", "Font size", c.size_pt * k, 0.1..=1296.0, "pt", w, SIZE_PRESETS, None) {
                 app.ui.tool_options.type_size = v;
                 apply(app, ui.ctx(), json!({"size": v, "metricsAsShown": true}));
             }
             let lead = c.leading_pt.unwrap_or(c.size_pt * para.auto_leading.max(0.01)) * k;
-            if let Some(v) = num_field(ui, "A↕", "Leading (set to the font size × auto-leading when Auto)", lead, 0.1..=5000.0, "pt", w) {
-                apply(app, ui.ctx(), json!({"leading": v, "metricsAsShown": true}));
+            match metric_field(
+                ui,
+                "props-leading-presets",
+                "A↕",
+                "Leading (Auto uses font size × auto-leading)",
+                lead,
+                0.1..=5000.0,
+                "pt",
+                w,
+                LEADING_PRESETS,
+                Some(c.leading_pt.is_none()),
+            ) {
+                Some(MetricChoice::Value(v)) => apply(app, ui.ctx(), json!({"leading": v, "metricsAsShown": true})),
+                Some(MetricChoice::Auto) => apply(app, ui.ctx(), json!({"leading": "auto"})),
+                None => {}
             }
         });
         row(ui, &mut |ui| {
@@ -1649,7 +1721,9 @@ fn type_sections(app: &mut PhotocraftApp, ui: &mut egui::Ui, character: bool, pa
                     apply_kerning(app, ui.ctx(), v);
                 }
             });
-            if let Some(v) = num_field(ui, "VA", "Tracking (1/1000 em)", c.tracking, -1000.0..=10000.0, "", w) {
+            if let Some(MetricChoice::Value(v)) =
+                metric_field(ui, "props-tracking-presets", "VA", "Tracking (1/1000 em)", c.tracking, -1000.0..=10000.0, "", w, TRACKING_PRESETS, None)
+            {
                 apply(app, ui.ctx(), json!({"tracking": v}));
             }
         });
