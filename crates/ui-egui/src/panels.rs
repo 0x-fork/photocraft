@@ -2840,12 +2840,16 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui.painter().text(pos2(thumb.right() + 8.0, rect.center().y), Align2::LEFT_CENTER, &doc.name, egui::FontId::proportional(12.0), t.text);
         ui.painter().line_segment([rect.left_bottom(), rect.right_bottom()], Stroke::new(1.0, t.separator));
     }
+    let mut snap_cmd = None;
     let mut target: Option<isize> = None;
     let all = entries.iter().map(|e| (e.clone(), false)).chain(redo.iter().map(|e| (e.clone(), true)));
     // The dock gives History a fixed height: the rows scroll above the footer.
     let footer = if t.pro { widgets::footer_height(ui) + ui.spacing().item_spacing.y } else { 0.0 };
     let max_h = (ui.available_height() - footer).max(40.0);
     egui::ScrollArea::vertical().id_salt("history-rows").max_height(max_h).auto_shrink([false, false]).show(ui, |ui| {
+        // Snapshots head the list and scroll with the states, so many of them never push the
+        // footer out of a short dock.
+        snap_cmd = snapshot_rows(app, ui);
         for (i, (e, is_redo)) in all.enumerate() {
             let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
             if i == current {
@@ -2883,8 +2887,10 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             if ui.add_enabled_ui(can_delete, |ui| icons::button(ui, "trash", 26.0, false, tl!("Delete current state"))).inner.clicked() {
                 footer_cmd = Some("history.deleteState");
             }
-            // Snapshots are not implemented yet: shown greyed, as Photoshop's footer has the button.
-            ui.add_enabled_ui(false, |ui| icons::button(ui, "scan", 26.0, false, tl!("Create new snapshot")));
+            let can_snap = app.session.is_enabled("history.newSnapshot");
+            if ui.add_enabled_ui(can_snap, |ui| icons::button(ui, "scan", 26.0, false, tl!("Create new snapshot"))).inner.clicked() {
+                footer_cmd = Some("history.newSnapshot");
+            }
             if ui.add_enabled_ui(can_new, |ui| icons::button(ui, "file-plus", 26.0, false, tl!("Create new document from current state"))).inner.clicked() {
                 footer_cmd = Some("history.newDocument");
             }
@@ -2892,8 +2898,10 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
     // An open Free Transform owns Undo (transform_tool::intercept): stepping the document's history under
     // its box would leave it transforming pixels that changed.
-    if let Some(cmd) = footer_cmd.filter(|_| app.ui.transform.is_none())
-        && let Err(e) = app.run(cmd, json!({}))
+    // Selecting a snapshot changes the document, so it waits for an open transform like the rows.
+    let snap_cmd = snap_cmd.filter(|(cmd, _)| *cmd != "history.selectSnapshot" || app.ui.transform.is_none());
+    if let Some((cmd, p)) = footer_cmd.map(|c| (c, json!({}))).filter(|_| app.ui.transform.is_none()).or(snap_cmd)
+        && let Err(e) = app.run(cmd, p)
     {
         app.ui.status = e;
         app.ui.status_error = true;
@@ -2906,6 +2914,79 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             }
         }
     }
+}
+
+/// The History panel's snapshot rows (#2966), under the opening row, each with its thumbnail and
+/// name: a click returns to the snapshot (a new state), a double-click or right-click › Rename…
+/// edits the name in place (Enter or a click elsewhere keeps it, Escape cancels), and
+/// right-click › Delete removes it. Returns the command a row asks for.
+fn snapshot_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> Option<(&'static str, Value)> {
+    let t = Tokens::get(ui.ctx());
+    let st = app.session.active()?;
+    let (doc_id, snaps) = (st.doc.id, st.snapshots.clone());
+    let live: Vec<u64> = snaps.iter().map(|s| s.id).collect();
+    // Per document: snapshot ids restart in each, and a tab switch must not carry the edit over.
+    let rename_id = egui::Id::new(("history-snapshot-rename", doc_id));
+    let mut renaming: Option<(u64, String)> = ui.data(|d| d.get_temp(rename_id)).flatten();
+    let mut cmd = None;
+    let ctx = ui.ctx().clone();
+    for snap in &snaps {
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::click());
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &snap.name));
+        if resp.hovered() {
+            ui.painter().rect_filled(rect, 0.0, t.hover.gamma_multiply(0.5));
+        }
+        let thumb = Rect::from_min_size(pos2(rect.left() + 28.0, rect.center().y - 14.0), vec2(28.0, 28.0));
+        widgets::checker(ui.painter(), thumb, 4.0);
+        let tex = app.snapshot_thumb(&ctx, doc_id, snap, &live);
+        ui.painter().image(tex, thumb, Rect::from_min_max(egui::Pos2::ZERO, pos2(1.0, 1.0)), Color32::WHITE);
+        ui.painter().rect_stroke(thumb, 0.0, Stroke::new(1.0, t.separator), StrokeKind::Outside);
+        match renaming.as_mut().filter(|(id, _)| *id == snap.id) {
+            Some((_, text)) => {
+                let field = Rect::from_min_max(pos2(thumb.right() + 6.0, rect.center().y - 10.0), pos2(rect.right() - 6.0, rect.center().y + 10.0));
+                let r = ui.put(field, egui::TextEdit::singleline(text));
+                if r.lost_focus() {
+                    if !ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        cmd = Some(("history.renameSnapshot", json!({"snapshot": snap.id, "name": text.clone()})));
+                    }
+                    renaming = None;
+                } else if !r.has_focus() {
+                    // Starting to rename: focus the field with the whole name selected, so typing
+                    // replaces it (Photoshop).
+                    r.request_focus();
+                    if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), r.id) {
+                        let all = egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(text.chars().count()));
+                        state.cursor.set_char_range(Some(all));
+                        state.store(ui.ctx(), r.id);
+                    }
+                }
+            }
+            None => {
+                ui.painter().text(pos2(thumb.right() + 8.0, rect.center().y), Align2::LEFT_CENTER, &snap.name, egui::FontId::proportional(12.0), t.text);
+            }
+        }
+        if resp.double_clicked() {
+            renaming = Some((snap.id, snap.name.clone()));
+        } else if resp.clicked() {
+            cmd = Some(("history.selectSnapshot", json!({"snapshot": snap.id})));
+        }
+        resp.context_menu(|ui| {
+            if ui.button(tl!("Rename…")).clicked() {
+                renaming = Some((snap.id, snap.name.clone()));
+                ui.close();
+            }
+            if ui.button(tl!("Delete")).clicked() {
+                cmd = Some(("history.deleteSnapshot", json!({"snapshot": snap.id})));
+                ui.close();
+            }
+        });
+    }
+    if !snaps.is_empty() {
+        let y = ui.cursor().top();
+        ui.painter().hline(ui.max_rect().x_range(), y, Stroke::new(1.0, t.separator));
+    }
+    ui.data_mut(|d| d.insert_temp(rename_id, renaming));
+    cmd
 }
 
 // ----------------------------------------------------------------------------- properties
@@ -4102,8 +4183,8 @@ mod history_transform_tests {
         }
     }
 
-    /// The Photoshop-theme footer (#1117): trash deletes the current state, file-plus makes a
-    /// new document from it, and the snapshot button is greyed (snapshots aren't implemented).
+    /// The Photoshop-theme footer (#1117): trash deletes the current state, the camera takes a
+    /// snapshot (#2966), and file-plus makes a new document from the current state.
     #[test]
     fn history_footer_buttons_run_their_commands() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
@@ -4124,7 +4205,12 @@ mod history_transform_tests {
         };
         let b = buttons(&h);
         assert_eq!(b.len(), 3, "trash, snapshot, new document: {b:?}");
-        assert!(b[0].1 && !b[1].1 && b[2].1, "only the snapshot button is disabled: {b:?}");
+        assert!(b.iter().all(|b| b.1), "all enabled: {b:?}");
+        let steps = h.state().session.active().unwrap().history.entries().len();
+        click(&mut h, b[1].0.center());
+        let st = h.state().session.active().unwrap();
+        assert_eq!(st.snapshots.len(), 1, "the camera takes a snapshot");
+        assert_eq!(st.history.entries().len(), steps, "which is not a history state");
         let docs = h.state().session.documents().len();
         click(&mut h, b[2].0.center());
         assert_eq!(h.state().session.documents().len(), docs + 1, "file-plus makes a new document");
@@ -4136,6 +4222,123 @@ mod history_transform_tests {
         let st = h.state().session.active().unwrap();
         assert_eq!(st.history.entries().len(), steps - 1, "trash deletes the current state");
         assert!(!st.history.can_redo(), "and it can't be redone");
+    }
+}
+
+#[cfg(test)]
+mod snapshot_row_tests {
+    use egui::vec2;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+    use serde_json::json;
+
+    use super::*;
+
+    fn top_pixel(h: &Harness<'static, PhotocraftApp>) -> [f32; 4] {
+        h.state().session.active().unwrap().doc.layers.last().unwrap().surface().unwrap().rgba(1, 1)
+    }
+
+    fn snapshot_names(h: &Harness<'static, PhotocraftApp>) -> Vec<String> {
+        h.state().session.active().unwrap().snapshots.iter().map(|s| s.name.clone()).collect()
+    }
+
+    /// Snapshot rows (#2966) sit under the opening row: clicking one returns to it as a new
+    /// state, and its right-click menu renames or deletes it.
+    #[test]
+    fn snapshot_rows_select_rename_and_delete() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 200, "height": 150})).unwrap();
+        app.run("layer.new.layer", json!({})).unwrap();
+        app.run("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        app.run("history.newSnapshot", json!({})).unwrap();
+        app.run("edit.fill", json!({"color": "#0000ff"})).unwrap();
+        // 60 fps steps, so two clicks a frame apart count as a double-click.
+        let mut h =
+            Harness::builder().with_size(vec2(300.0, 400.0)).with_step_dt(1.0 / 60.0).build_ui_state(|ui, app: &mut PhotocraftApp| history(app, ui), app);
+        h.run_steps(3);
+        let steps = h.state().session.active().unwrap().history.entries().len();
+        h.get_by_label("Snapshot 1").click();
+        h.run_steps(2);
+        let st = h.state().session.active().unwrap();
+        assert_eq!(st.history.entries().len(), steps + 1);
+        assert_eq!(st.history.entries().last().map(String::as_str), Some("Snapshot 1"));
+        assert_eq!(top_pixel(&h), [1.0, 0.0, 0.0, 1.0], "back to red");
+        // Right-click › Rename…: type a name, Enter.
+        h.get_by_label("Snapshot 1").click_secondary();
+        h.run_steps(2);
+        h.get_by_label("Rename…").click();
+        h.run_steps(2);
+        h.get_by_role(egui::accesskit::Role::TextInput).type_text("Lesson start");
+        h.key_press(egui::Key::Enter);
+        h.run_steps(2);
+        assert_eq!(snapshot_names(&h), ["Lesson start"]);
+        // A double-click renames too; Escape keeps the old name.
+        let steps_now = h.state().session.active().unwrap().history.entries().len();
+        // A real double-click (accessibility clicks are single clicks).
+        let p = h.get_by_label("Lesson start").rect().center();
+        let p = egui::pos2(p.x as f32, p.y as f32);
+        h.event(egui::Event::PointerMoved(p));
+        // Wait out the double-click window of the earlier clicks.
+        h.run_steps(30);
+        for pressed in [true, false, true, false] {
+            h.event(egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+            h.step();
+        }
+        h.run_steps(3);
+        h.get_by_role(egui::accesskit::Role::TextInput).type_text("Oops");
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        assert_eq!(snapshot_names(&h), ["Lesson start"], "Escape cancels");
+        assert_eq!(h.state().session.active().unwrap().history.entries().len(), steps_now + 1, "the click selected it once");
+        // Right-click › Delete.
+        h.get_by_label("Lesson start").click_secondary();
+        h.run_steps(2);
+        h.get_by_label("Delete").click();
+        h.run_steps(2);
+        assert!(snapshot_names(&h).is_empty());
+        assert_eq!(h.state().session.active().unwrap().history.entries().len(), steps + 2, "deleting leaves the history alone");
+    }
+
+    /// Snapshot rows scroll with the states: many snapshots in a short dock leave the footer and
+    /// its camera button in view.
+    #[test]
+    fn many_snapshots_keep_the_footer_in_a_short_panel() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 200, "height": 150})).unwrap();
+        for _ in 0..6 {
+            app.run("history.newSnapshot", json!({})).unwrap();
+        }
+        let mut h = Harness::builder().with_size(vec2(300.0, 250.0)).build_ui_state(|ui, app: &mut PhotocraftApp| history(app, ui), app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ProMedium);
+        h.state_mut().ui.theme = crate::theme::ThemeKind::ProMedium;
+        h.run_steps(3);
+        let view = h.ctx.input(|i| i.viewport_rect());
+        let buttons: Vec<Rect> = h
+            .ctx
+            .viewport(|v| v.prev_pass.widgets.layers().flat_map(|(_, w)| w.iter()).filter(|w| w.rect.size() == vec2(26.0, 26.0)).map(|w| w.rect).collect());
+        assert_eq!(buttons.len(), 3, "{buttons:?}");
+        assert!(buttons.iter().all(|b| view.contains_rect(*b)), "footer in view: {buttons:?} in {view:?}");
+    }
+
+    /// Renaming belongs to one document: snapshot ids restart in each, so switching tabs must not
+    /// carry the edit over to the other document's snapshot with the same id.
+    #[test]
+    fn a_rename_in_progress_stays_with_its_document() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        for _ in 0..2 {
+            app.run("file.new", json!({"width": 200, "height": 150})).unwrap();
+            app.run("history.newSnapshot", json!({})).unwrap();
+        }
+        let mut h = Harness::builder().with_size(vec2(300.0, 400.0)).build_ui_state(|ui, app: &mut PhotocraftApp| history(app, ui), app);
+        h.run_steps(3);
+        h.get_by_label("Snapshot 1").click_secondary();
+        h.run_steps(2);
+        h.get_by_label("Rename…").click();
+        h.run_steps(2);
+        assert!(h.query_by_role(egui::accesskit::Role::TextInput).is_some(), "renaming in document 2");
+        h.state_mut().session.set_active(0);
+        h.run_steps(2);
+        assert!(h.query_by_role(egui::accesskit::Role::TextInput).is_none(), "not in document 1");
     }
 }
 
