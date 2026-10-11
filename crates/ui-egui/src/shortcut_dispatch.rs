@@ -268,8 +268,9 @@ fn delete_key_command(app: &PhotocraftApp, id: String) -> String {
     let colors_off = st.channel_view.visible_colors(photocraft_engine::channel_cmds::color_count(&st.doc)) == 0;
     let alpha_on = (0..st.doc.channels.len()).any(|i| st.channel_view.alpha_shown(i));
     let solo_mask = colors_off && has_mask && !alpha_on && st.doc.quick_mask.is_none();
-    let mask = (app.ui.mask_target || solo_mask) && has_mask;
-    if mask && composite {
+    let layer_mask = st.channel_view.target == photocraft_engine::channel_cmds::ChannelTarget::LayerMask;
+    let mask = (app.ui.mask_target || solo_mask || layer_mask) && has_mask;
+    if mask && (composite || layer_mask) {
         let cmd = if st.doc.selection.is_some() { "edit.fillBackground" } else { "layer.layerMask.delete" };
         return cmd.into();
     }
