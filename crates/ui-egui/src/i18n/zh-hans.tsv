@@ -682,6 +682,9 @@
 	New Workspace…	新建工作区…
 	Delete Workspace…	删除工作区…
 	Reset Workspace	重置工作区
+	Reset Tool	重置工具
+	Reset All Tools	重置所有工具
+	Reset all tools to their default settings?	要将所有工具重置为默认设置吗？
 	Lock Workspace	锁定工作区
 	Theme	主题
 	Pro Theme	专业主题
@@ -1198,6 +1201,8 @@
 	Midtones from:	中间调下限：
 	Midtones to:	中间调上限：
 	Mixer Brush Tool	混合画笔工具
+	Color Replacement Tool	颜色替换工具
+	Color Replacement	颜色替换
 	Minimum Depth	最小深度
 	Minimum Diameter	最小直径
 	Minimum Roundness	最小圆度
@@ -1624,6 +1629,8 @@
 	Highlights from:	高光下限：
 	History Brush Tool	历史记录画笔工具
 	Horizontal Type Tool	横排文字工具
+	Horizontal Type Mask Tool	横排文字蒙版工具
+	Vertical Type Mask Tool	直排文字蒙版工具
 	Image Size:	图像大小：
 	Inches	英寸
 	Indexed	索引色
@@ -1679,6 +1686,10 @@
 	Paints from the document's opening state	从文档打开时的状态绘制
 	Path Selection Tool	路径选择工具
 	Direct Selection Tool	直接选择工具
+	Add Anchor Point Tool	添加锚点工具
+	Delete Anchor Point Tool	删除锚点工具
+	Click a segment to add an anchor point · {alt}-click an anchor to delete it	单击线段以添加锚点 · {alt}-单击锚点：删除锚点
+	Click an anchor point to delete it · {alt}-click a segment to add one	单击锚点将其删除 · {alt}-单击线段：添加锚点
 	Pattern Overlay	图案叠加
 	Pen Pressure	钢笔压力
 	Pen Tilt	钢笔倾斜
@@ -2197,6 +2208,9 @@ cameraRaw	Blending	混合
 	Structure:	结构：
 	Content-Aware Move Tool	内容感知移动工具
 	TIFF Options	TIFF 选项
+	Targa Options	Targa 选项
+	24 bits/pixel	24 位/像素
+	32 bits/pixel	32 位/像素
 	Including layers will increase file size.	包含图层会增加文件大小。
 	Discard Layers and Save a Copy	扔掉图层并存储副本
 	Don't show again	不再显示
@@ -2483,6 +2497,21 @@ cameraData	Lens	镜头
 	Previous Document	上一个文档
 	W x H x Resolution	宽 x 高 x 分辨率
 	Front Image	前面的图像
+	Include in playback	包含在播放中
+	Perspective Crop Tool	透视裁剪工具
+	Show Grid	显示网格
+	Drag a box or click four corners · drag the corners onto the edges of a skewed shape · {commit} commits · Esc cancels	拖动方框或单击四个角 · 将角拖到倾斜形状的边缘 · {commit} 确认 · Esc 取消
+	Artboard Tool	画板工具
+	Make Portrait	设为纵向
+	Make Landscape	设为横向
+	Add New Artboard	添加新画板
+	W	宽
+	H	高
+	Freeform Pen Tool	自由钢笔工具
+	Curvature Pen Tool	弯度钢笔工具
+	Curve Fit:	曲线拟合：
+	Drag: draw freehand · Release on the start point: close	拖动：自由绘制 · 在起点松开：闭合
+	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	单击：平滑点 · 双击：角点 · 拖动点：移动 · 单击起点：闭合 · {key} 完成
 	Search settings…	搜索设置…
 	No matching settings	没有匹配的设置
 	Edit Plane	编辑平面
@@ -2496,3 +2525,9 @@ cameraData	Lens	镜头
 	Alt-click a plane to set the clone source	按住 Alt 键单击平面以设置仿制源
 	Too many clone strokes: apply Vanishing Point first	仿制描边过多：请先应用消失点
 	Stamp	图章
+	New Crop Preset…	新建裁剪预设…
+	Delete Crop Preset…	删除裁剪预设…
+	Select the crop presets to delete:	选择要删除的裁剪预设：
+	Select the crop presets to delete	选择要删除的裁剪预设
+	Enter a name for the crop preset	输入裁剪预设的名称
+	There is no crop size or ratio to save	没有可保存的裁剪大小或比例

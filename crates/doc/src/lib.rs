@@ -414,12 +414,20 @@ impl TextLayer {
             .map(|(len, style)| text::TextRun { len, style })
             .collect()
     }
-    /// Paragraph runs covering exactly `text.len()` bytes.
+    /// Paragraph runs covering exactly `text.len()` bytes, with an optional zero-length
+    /// final run for an empty paragraph after a trailing line break.
     pub fn paragraph_runs(&self) -> Vec<text::ParagraphRun> {
-        normalize_runs(&self.text, self.paragraphs.iter().map(|r| (r.len, r.style.clone())).collect(), text::ParagraphStyle::default())
-            .into_iter()
-            .map(|(len, style)| text::ParagraphRun { len, style })
-            .collect()
+        let mut runs = normalize_runs(&self.text, self.paragraphs.iter().map(|r| (r.len, r.style.clone())).collect(), text::ParagraphStyle::default());
+        // The final empty paragraph owns the synthetic terminal paragraph marker in PSD
+        // text. Its formatting has no source bytes; do not lose that last run when normalizing.
+        if self.text.ends_with(['\r', '\n'])
+            && let Some((last, preceding)) = self.paragraphs.split_last()
+            && last.len <= 1
+            && preceding.iter().try_fold(0usize, |n, r| n.checked_add(r.len)) == Some(self.text.len())
+        {
+            runs.push((0, last.style.clone()));
+        }
+        runs.into_iter().map(|(len, style)| text::ParagraphRun { len, style }).collect()
     }
     /// Copies the first run's family, size and colour into the summary fields.
     pub fn sync_summary(&mut self) {

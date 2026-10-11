@@ -365,6 +365,7 @@ fn hovering_a_font_previews_only_the_selected_characters() {
         anchor: 3,
         session: "font-preview-test".into(),
         created: false,
+        mask: false,
         dragging: false,
         resize: None,
         preedit: None,

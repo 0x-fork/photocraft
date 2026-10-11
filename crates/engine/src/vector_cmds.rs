@@ -671,9 +671,14 @@ fn shape_edit(s: &mut Session, p: &Value) -> Result<Value> {
             // Explicit radii on a plain rectangle keep it a (now rounded) rectangle.
             let kind = if kind == "rect" && radii(p).is_some_and(|r| r.iter().any(|v| *v > 0.0)) { "roundedRect".to_string() } else { kind };
             let l = live_from_params(CMD, &kind, p, sh.live.as_ref())?;
-            sh.path = vector::shapes::live_path(&l);
-            sh.live = Some(l);
-            sh.psd_raw = None;
+            // A transformed live shape's path may carry nonuniform corner scaling
+            // that its scalar radii cannot represent. Re-entering unchanged values
+            // must not regenerate the outline and silently discard that geometry.
+            if sh.live.as_ref() != Some(&l) {
+                sh.path = vector::shapes::live_path(&l);
+                sh.live = Some(l);
+                sh.psd_raw = None;
+            }
         }
         if let Some(m) = nums::<6>(p, "transform") {
             transform_shape(sh, &Affine { m });

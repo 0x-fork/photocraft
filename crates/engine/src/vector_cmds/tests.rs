@@ -217,6 +217,34 @@ fn shape_edit_live_params_and_undo() {
 }
 
 #[test]
+fn reapplying_unchanged_live_rectangle_keeps_nonuniformly_scaled_corners() {
+    for depth in [8, 16, 32] {
+        let mut s = session(128, 128, depth);
+        let id = s.execute("shape.create", json!({"kind":"roundedRect","rect":[10,10,20,20],"radius":4})).unwrap()["layer"].as_u64().unwrap();
+        s.execute("shape.edit", json!({"layer":id,"transform":[2,0,0,1,0,0]})).unwrap();
+        let scaled = shape(&s, id);
+        assert_eq!(
+            scaled.live.as_ref().and_then(|l| match l {
+                LiveShape::Rect { rect, .. } => Some(*rect),
+                _ => None,
+            }),
+            Some([20.0, 10.0, 40.0, 20.0])
+        );
+        // The transformed path has an anisotropic top-left corner.
+        let path = scaled.path.clone();
+        s.execute("shape.edit", json!({"layer":id,"rect":[20,10,40,20]})).unwrap();
+        assert_eq!(shape(&s, id).path, path, "depth {depth}: no-op rectangle edit must preserve all control points");
+        s.execute("shape.edit", json!({"layer":id,"kind":"roundedRect","rect":[20,10,40,20],"radius":4})).unwrap();
+        assert_eq!(shape(&s, id).path, path, "depth {depth}: explicitly unchanged radius preserves scaled outline");
+        // A real radius edit must still rebuild the outline, and Undo must restore it.
+        s.execute("shape.edit", json!({"layer":id,"radii":[6,6,6,6]})).unwrap();
+        assert_ne!(shape(&s, id).path, path, "depth {depth}: changed radii must take effect");
+        s.execute("edit.undo", json!({})).unwrap();
+        assert_eq!(shape(&s, id).path, path);
+    }
+}
+
+#[test]
 fn shape_add_to_with_path_ops() {
     let mut s = session(100, 100, 8);
     let id = s.execute("shape.create", json!({"kind": "rect", "rect": [0, 0, 60, 60]})).unwrap()["layer"].as_u64().unwrap();

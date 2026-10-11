@@ -358,6 +358,10 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if focus == Focus::None && crate::crop_ui::keys(app, ctx) {
         return;
     }
+    // Perspective Crop with a pending quad: ↵ commits, Esc cancels.
+    if focus == Focus::None && crate::perspective_crop_ui::keys(app, ctx) {
+        return;
+    }
     // Move tool / Free Transform: arrows nudge (⇧ ×10, ⌥ duplicates first).
     if focus == Focus::None && crate::move_mods::arrow_keys(app, ctx) {
         return;
@@ -487,7 +491,7 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
         || app.ui.brush_picker.is_some()
         || app.ui.tool == Tool::RotateView
         || app.wide_angle.is_some()
-        || app.tiff_options.is_some()
+        || app.save_options_open()
         || app.distort.gallery.is_some()
         || ctx.any_popup_open()
         || ctx.data(|d| d.get_temp::<(egui::Id, egui::Rect)>(egui::Id::new("tool-flyout")).is_some());

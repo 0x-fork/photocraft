@@ -515,6 +515,7 @@
 	Magnetic Lasso	Магнитное лассо
 	Mixer Brush	Смешивающая кисть
 	Mixer Brush Tool	Инструмент «Смешивающая кисть»
+	Color Replacement Tool	Инструмент «Замена цвета»
 	History Brush	Кисть истории
 	Art History Brush	Кисть истории искусств
 	Pattern Stamp	Узорный штамп
@@ -1412,6 +1413,9 @@
 	New Workspace…	Новая рабочая среда…
 	Delete Workspace…	Удалить рабочую среду…
 	Reset Workspace	Сбросить рабочую среду
+	Reset Tool	Сбросить инструмент
+	Reset All Tools	Сбросить все инструменты
+	Reset all tools to their default settings?	Сбросить все инструменты к настройкам по умолчанию?
 	Lock Workspace	Заблокировать рабочую среду
 	Photography	Фотография
 	Graphic and web	Графика и web
@@ -1546,6 +1550,8 @@
 	Gradient Tool	Градиент
 	Paint Bucket Tool	Заливка
 	Horizontal Type Tool	Горизонтальный текст
+	Horizontal Type Mask Tool	Горизонтальный текст-маска
+	Vertical Type Mask Tool	Вертикальный текст-маска
 	Hand Tool	Рука
 	Zoom Tool	Масштаб
 	Spot Healing Brush Tool	Точечная восстанавливающая кисть
@@ -1563,6 +1569,10 @@
 	Pen Tool	Перо
 	Path Selection Tool	Выделение контура
 	Direct Selection Tool	Выделение узла
+	Add Anchor Point Tool	Добавить узел
+	Delete Anchor Point Tool	Удалить узел
+	Click a segment to add an anchor point · {alt}-click an anchor to delete it	Щёлкните сегмент, чтобы добавить узел · {alt}-щелчок по узлу удаляет его
+	Click an anchor point to delete it · {alt}-click a segment to add one	Щёлкните узел, чтобы удалить его · {alt}-щелчок по сегменту добавляет узел
 	Rectangle Tool	Прямоугольник
 	Ellipse Tool	Овал
 	Triangle Tool	Треугольник
@@ -2462,6 +2472,9 @@ cameraRaw	Roughness	Неровность
 	Structure:	Структура:
 	Content-Aware Move Tool	Перемещение с учётом содержимого
 	TIFF Options	Параметры TIFF
+	Targa Options	Параметры Targa
+	24 bits/pixel	24 бит/пиксел
+	32 bits/pixel	32 бит/пиксел
 	Including layers will increase file size.	Включение слоёв увеличит размер файла.
 	Discard Layers and Save a Copy	Удалить слои и сохранить копию
 	Don't show again	Больше не показывать
@@ -2817,6 +2830,19 @@ cameraData	Lens	Объектив
 	Previous Document	Предыдущий документ
 	W x H x Resolution	Ш x В x Разрешение
 	Front Image	Изображение переднего плана
+	Include in playback	Включить в воспроизведение
+	Perspective Crop Tool	Кадрирование перспективы
+	Show Grid	Показать сетку
+	Drag a box or click four corners · drag the corners onto the edges of a skewed shape · {commit} commits · Esc cancels	Растяните рамку или щёлкните четыре угла · перетащите углы на края наклонной фигуры · {commit} применяет · Esc отменяет
+	Artboard Tool	Монтажная область (инструмент)
+	Make Portrait	Сделать книжной
+	Make Landscape	Сделать альбомной
+	Add New Artboard	Добавить монтажную область
+	Freeform Pen Tool	Свободное перо
+	Curvature Pen Tool	Перо кривизны
+	Curve Fit:	Точность кривой:
+	Drag: draw freehand · Release on the start point: close	Перетаскивание: рисовать от руки · отпустить на начальной точке: замкнуть
+	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	Клик: гладкая точка · двойной клик: угол · перетаскивание точки: переместить · клик по первой точке: замкнуть · {key} завершить
 	Rasterize Layer Style	Растрировать стиль слоя
 	Search settings…	Поиск настроек…
 	No matching settings	Нет подходящих настроек
@@ -2828,3 +2854,9 @@ cameraData	Lens	Объектив
 	Fix the red plane first: its corners must form a convex quad	Сначала исправьте красную плоскость: ее углы должны образовывать выпуклый четырехугольник
 	Alt-click a plane to set the clone source	Щёлкните плоскость с Alt, чтобы задать источник клонирования
 	Too many clone strokes: apply Vanishing Point first	Слишком много мазков клонирования: сначала примените «Точку схода»
+	New Crop Preset…	Новый набор параметров кадрирования…
+	Delete Crop Preset…	Удалить набор параметров кадрирования…
+	Select the crop presets to delete:	Выберите наборы параметров кадрирования для удаления:
+	Select the crop presets to delete	Выберите наборы параметров кадрирования для удаления
+	Enter a name for the crop preset	Введите имя набора параметров кадрирования
+	There is no crop size or ratio to save	Нет размера или соотношения сторон кадрирования для сохранения
