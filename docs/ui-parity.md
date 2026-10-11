@@ -96,6 +96,7 @@ Triangle and Curvature Pen (minus legacy Rounded Rectangle and Targeted Adjustme
 | Auto-Select bounding box and snapping follow the picked layer | partial | follow the previous layer (#2666) |
 | ⌘-drag temporary Move shows the box and snaps | partial | #2681 |
 | ⌘-right-click layer list under the pointer | done | `layer_pick_ui.rs` |
+| Double-click type to edit it (caret at the pointer, Type tool) | done | #1132, `type_tool::edit_at` |
 | Moving a selection on a mask moves the mask, not the pixels | partial | #2468 |
 
 ## Selection modifiers
