@@ -2648,6 +2648,14 @@ cameraData	Lens	Objetivo
 	Search settings…	Buscar ajustes…
 	No matching settings	No hay ajustes que coincidan
 	Loading fonts…	Cargando fuentes…
+	Tool	Herramienta
+	Simulate Pressure	Simular presión
+	Stroke Path…	Contornear trazado…
+	Background Eraser	Borrador de fondo
+	Healing Brush	Pincel corrector
+	Spot Healing Brush	Pincel corrector puntual
+	Smudge	Dedo
+	Sponge	Esponja
 # Select and Mask view modes (#1754)
 	Onion Skin	Papel cebolla
 	Marching Ants	Hormigas en marcha

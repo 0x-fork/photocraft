@@ -1,6 +1,6 @@
 # Where PhotoCraft falls short of Photoshop
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-11 · **Change:** minor (G4: Pattern Stamp and Background Eraser draw live, TOOL-213-7; 2026-10-10: Tilt-Shift evidence added to G2, and major, every known shortfall ranked from the re-measure) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-11 · **Change:** minor (G4: Pattern Stamp and Background Eraser draw live, TOOL-213-7; Czech UI localization evidence added to G13; Tilt-Shift evidence added to G2; earlier the same day: major, every known shortfall ranked from the re-measure) · **Target:** Adobe Photoshop 2026
 
 Every known shortfall against Photoshop 2026 (27.11.0), one entry each, ranked by user impact
 on the way to beta. This is the work list agents pick from: take the highest-ranked entry that
@@ -203,6 +203,8 @@ what an agent can't finish alone.
   English in every language; browser-locale detection and CJK fonts on the web; Japanese IME on
   Windows (#590); installed Japanese fonts missing from the font list (#2330); Arabic layer names
   as tofu (#1408, #1693).
+- **Evidence (2026-10-11):** Czech dynamic UI wrappers, hardware labels and composed messages
+  translate at display sites; engine errors remain English. This does not close G13.
 - **Detail:** [`localization-parity.md`](localization-parity.md).
 - **Estimate:** 80–140 h. **Human:** native-speaker review of every catalog (none is recorded).
 
@@ -223,3 +225,4 @@ what an agent can't finish alone.
 | 2026-10-10 | minor | G2: recorded Tilt-Shift computation/filtered-proxy measurements and limits; gap and estimate remain open |
 | 2026-10-10 | minor | Checked against the alpha gate (no alpha blockers); #2374 marked closed |
 | 2026-10-10 | major | First version, from the full re-measure against Photoshop 2026 27.11.0 and the open issues |
+| 2026-10-11 | minor | G13: Czech dynamic UI text localized; engine messages and native review remain open |

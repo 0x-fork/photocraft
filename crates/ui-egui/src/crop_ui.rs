@@ -311,10 +311,14 @@ fn frame(app: &mut PhotocraftApp) {
     if app.ui.tool != Tool::Crop {
         app.crop.editing = false;
         crate::crop_straighten::reset(app);
-        // Leaving the tool drops an untouched default frame (a drawn one stays pending).
+        // Leaving the tool drops an untouched default frame and, as in Photoshop, commits a
+        // drawn one (#3368).
         if app.crop.default_frame {
             app.ui.crop_rect = None;
             app.crop.default_frame = false;
+        }
+        if app.ui.crop_rect.is_some() && !keeps_pending(app) {
+            commit_on_leave(app);
         }
         if app.ui.crop_rect.is_none() {
             app.ui.crop_angle = 0.0;
@@ -346,6 +350,21 @@ fn frame(app: &mut PhotocraftApp) {
     app.crop.editing = false;
     claim(app);
     fit_frame(app);
+}
+
+/// Another tool is current but the drawn frame stays pending: a gesture on it is still in
+/// progress, or the pen's eraser end stands in for the Crop tool until the tip comes back
+/// (`stylus`). The held tools (Space, ⌘…, `hold_keys`) never change the current tool.
+fn keeps_pending(app: &PhotocraftApp) -> bool {
+    app.crop.drag.is_some() || app.stylus.tool_before_eraser == Some(Tool::Crop)
+}
+
+/// Commits the drawn frame on leaving the Crop tool as ↵ would with the tool still picked (so the
+/// view goes upright too, `crop_mode::upright`), then gives the new tool back.
+fn commit_on_leave(app: &mut PhotocraftApp) {
+    let tool = std::mem::replace(&mut app.ui.tool, Tool::Crop);
+    crate::canvas::commit_crop(app);
+    app.ui.tool = tool;
 }
 
 /// A crop gesture is in progress: Space repositions the frame rather than panning.
@@ -1453,6 +1472,88 @@ mod tests {
         drag(&mut app, &[[5.0, 5.0], [20.0, 20.0]], NONE);
         app.ui.tool = Tool::Brush;
         assert!(!blocks(&app, "file.new"));
+    }
+
+    /// #3368: as in Photoshop, picking another tool (toolbar or its key) with a drawn frame
+    /// commits the crop silently, and the new tool is current.
+    #[test]
+    fn another_tool_commits_a_drawn_frame_at_8_and_16_bit() {
+        for depth in [SampleType::U8, SampleType::U16] {
+            let mut app = app(depth);
+            drag(&mut app, &[[10.0, 10.0], [50.0, 40.0]], NONE);
+            assert!(pending(&app));
+            app.ui.tool = Tool::Move;
+            ensure_frame(&mut app);
+            let st = app.session.active().unwrap();
+            assert_eq!((st.doc.size, st.doc.depth), (Size::new(40, 30), depth));
+            assert_eq!(st.history.undo_label(), Some("Crop"));
+            assert_eq!(app.ui.tool, Tool::Move);
+            assert_eq!((app.ui.crop_rect, app.ui.crop_angle), (None, 0.0));
+            // Nothing is left to commit: back on the Crop tool, the new canvas gets a default frame.
+            ensure_frame(&mut app);
+            assert_eq!(app.session.active().unwrap().doc.size, Size::new(40, 30));
+            app.ui.tool = Tool::Crop;
+            ensure_frame(&mut app);
+            assert!(app.crop.default_frame && app.ui.crop_rect == Some([0.0, 0.0, 40.0, 30.0]));
+        }
+    }
+
+    /// #3368, default mode: a turned frame crops turned, and the view it turned is left upright.
+    #[test]
+    fn another_tool_commits_a_turned_frame_and_leaves_the_view_upright() {
+        let mut app = app(SampleType::U8);
+        app.sync_views();
+        app.ui.tool_options.crop_shield.classic_mode = false;
+        app.ui.crop_rect = Some([40.0, 30.0, 100.0, 70.0]);
+        app.ui.crop_angle = 10.0;
+        ensure_frame(&mut app);
+        assert!(pending(&app) && crate::crop_mode::view_rotation(&app) != 0.0);
+        app.ui.tool = Tool::Brush;
+        ensure_frame(&mut app);
+        assert_eq!(app.session.active().unwrap().doc.size, Size::new(60, 40));
+        assert_eq!(crate::crop_mode::view_rotation(&app), 0.0);
+        assert_eq!((app.ui.tool, app.ui.crop_rect), (Tool::Brush, None));
+    }
+
+    /// #3368: the untouched default frame (the canvas, or the selection's bounds) is just dropped
+    /// on leaving the tool: nothing is cropped.
+    #[test]
+    fn another_tool_drops_an_untouched_default_frame() {
+        for select in [false, true] {
+            let mut app = app(SampleType::U8);
+            if select {
+                app.run("select.rect", json!({"x": 10, "y": 20, "width": 30, "height": 40})).unwrap();
+            }
+            ensure_frame(&mut app);
+            assert!(app.crop.default_frame && app.ui.crop_rect.is_some());
+            let steps = app.session.active().unwrap().history.past_len();
+            app.ui.tool = Tool::Move;
+            ensure_frame(&mut app);
+            let st = app.session.active().unwrap();
+            assert_eq!((st.doc.size, st.history.past_len()), (Size::new(200, 100), steps), "selection: {select}");
+            assert_eq!(app.ui.crop_rect, None);
+        }
+    }
+
+    /// The pen's eraser end stands in for the Crop tool only until the tip comes back (`stylus`),
+    /// and a gesture still in progress isn't cut short: neither commits the frame.
+    #[test]
+    fn the_stylus_eraser_and_a_gesture_in_progress_keep_the_frame_pending() {
+        let mut app = app(SampleType::U8);
+        drag(&mut app, &[[10.0, 10.0], [50.0, 40.0]], NONE);
+        app.stylus.tool_before_eraser = Some(Tool::Crop);
+        app.ui.tool = Tool::Eraser;
+        ensure_frame(&mut app);
+        assert_eq!(app.session.active().unwrap().doc.size, Size::new(200, 100));
+        app.ui.tool = app.stylus.tool_before_eraser.take().unwrap();
+        ensure_frame(&mut app);
+        assert!(pending(&app) && app.ui.crop_rect == Some([10.0, 10.0, 50.0, 40.0]));
+
+        tool_event(&mut app, ToolEvent::Down { x: 20.0, y: 20.0, pressure: 1.0 }, NONE);
+        assert!(app.crop.drag.is_some());
+        app.ui.tool = Tool::Move;
+        ensure_frame(&mut app);
+        assert_eq!(app.session.active().unwrap().doc.size, Size::new(200, 100));
     }
 
     /// Image › Crop with a pending crop commits the frame (the one Image item Photoshop keeps).

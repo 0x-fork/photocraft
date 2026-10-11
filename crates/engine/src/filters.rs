@@ -244,7 +244,7 @@ pub(crate) fn run_filter(s: &mut Session, id: &str, p: &Value) -> Result<Value> 
             // Neighbourhood filters repeat edge pixels at the canvas edge (or past it, where the
             // layer has off-canvas pixels) instead of fading in transparency, as Photoshop does.
             if let Some(surf) = crate::channel_cmds::channel_surface_for_filter(doc, Some(layer), &p)? {
-                let content = surf.content_bounds();
+                let content = doc_bounds.union(&surf.content_bounds());
                 let area = algo::output_area(&fp, content, bounds, sel_bounds);
                 *surf = filter(surf, &fp, area, bounds, selection.as_ref(), doc_bounds.union(&content))?;
                 return Ok(fp.clone());
@@ -436,6 +436,30 @@ mod tests {
         l.surface().unwrap().read_region(photocraft_geom::Rect::new(0, 0, 48, 32))
     }
 
+    fn mask_session(reveal_selection: bool) -> Session {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 16, "height": 16, "background": "#ff0000"})).unwrap();
+        if reveal_selection {
+            s.execute("select.all", json!({})).unwrap();
+            s.execute("layer.layerMask.revealSelection", json!({})).unwrap();
+            s.execute("select.deselect", json!({})).unwrap();
+        } else {
+            s.execute("layer.layerMask.revealAll", json!({})).unwrap();
+        }
+        s
+    }
+
+    fn mask_pixels(s: &Session) -> Vec<f32> {
+        let d = s.active().unwrap();
+        let mask = d.doc.layer(d.active_layer.unwrap()).unwrap().mask.as_ref().unwrap();
+        mask.surface.read_region(d.doc.bounds())
+    }
+
+    fn canvas_pixels(s: &Session) -> Vec<f32> {
+        let d = s.active().unwrap();
+        d.doc.layer(d.active_layer.unwrap()).unwrap().surface().unwrap().read_region(d.doc.bounds())
+    }
+
     fn paint_pattern(s: &mut Session) {
         s.edit("pattern", |doc, active| {
             let l = doc.layer_mut(active.unwrap()).unwrap();
@@ -559,6 +583,44 @@ mod tests {
             assert_eq!(after[i..i + 4], before[i..i + 4]);
             let j = (5 * 48 + 5) * 4;
             assert_ne!(after[j..j + 4], before[j..j + 4]);
+        }
+    }
+
+    #[test]
+    fn solarize_and_add_noise_process_untouched_reveal_all_masks() {
+        for (id, params) in [
+            ("filter.stylize.solarize", json!({"target": "mask"})),
+            ("filter.noise.addNoise", json!({"amount": 100, "seed": 1, "monochromatic": true, "target": "mask"})),
+        ] {
+            let mut reveal_all = mask_session(false);
+            let mut reveal_selection = mask_session(true);
+            let all_mask = reveal_all.active().unwrap().doc.layer(reveal_all.active().unwrap().active_layer.unwrap()).unwrap().mask.as_ref().unwrap();
+            assert!(all_mask.surface.content_bounds().is_empty(), "{id}: Reveal All stores its white canvas in the default pixel");
+            let initial_all = mask_pixels(&reveal_all);
+            let initial_selection = mask_pixels(&reveal_selection);
+            assert_eq!(initial_all, initial_selection, "{id}: masks start with equal white values");
+            assert_eq!(initial_all, vec![1.0; 16 * 16], "{id}: the full canvas starts revealed");
+            let pixels_before = canvas_pixels(&reveal_all);
+
+            reveal_all.execute(id, params.clone()).unwrap();
+            reveal_selection.execute(id, params).unwrap();
+
+            let actual = mask_pixels(&reveal_all);
+            let expected = mask_pixels(&reveal_selection);
+            assert!(
+                actual == expected,
+                "{id}: Reveal All differs from Reveal Selection: first={:?}/{:?}, changed pixels={}/{}",
+                actual[0],
+                expected[0],
+                actual.iter().filter(|&&v| v != 1.0).count(),
+                expected.iter().filter(|&&v| v != 1.0).count()
+            );
+            assert_eq!(canvas_pixels(&reveal_all), pixels_before, "{id}: the mask target must leave layer pixels unchanged");
+            if id == "filter.stylize.solarize" {
+                assert!(actual.iter().all(|&v| v == 0.0), "Solarize maps the white mask to black");
+            } else {
+                assert!(actual.iter().any(|&v| v != 1.0), "seeded Add Noise changes the Reveal All mask");
+            }
         }
     }
 

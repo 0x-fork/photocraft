@@ -1352,7 +1352,8 @@ pub fn layer_editor(app: &mut PhotocraftApp, ui: &mut egui::Ui, id: LayerId, adj
             return;
         }
         Adjustment::Unsupported { psd_key, .. } => {
-            ui.label(RichText::new(format!("This adjustment ({psd_key}) is kept as imported and can't be edited yet.")).color(t.text_faint));
+            let template = "This adjustment ({key}) is kept as imported and can't be edited yet.";
+            ui.label(RichText::new(crate::i18n::fmt(tl!(template), &[("key", psd_key)])).color(t.text_faint));
             return;
         }
         _ => {}

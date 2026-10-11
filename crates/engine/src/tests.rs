@@ -415,6 +415,12 @@ fn marquee_steps_are_named_after_their_tool() {
     assert_eq!(last(&s).as_deref(), Some("Elliptical Marquee"));
     s.execute("select.rect", json!({"x": 0, "y": 0, "width": 20, "height": 10})).unwrap();
     assert_eq!(last(&s).as_deref(), Some("Rectangular Marquee"));
+    // #3031: the Single Row / Single Column Marquee name theirs; an unknown `line` is an error.
+    s.execute("select.rect", json!({"x": 0, "y": 3, "width": 64, "height": 1, "line": "row"})).unwrap();
+    assert_eq!(last(&s).as_deref(), Some("Single Row Marquee"));
+    s.execute("select.rect", json!({"x": 3, "y": 0, "width": 1, "height": 48, "line": "column"})).unwrap();
+    assert_eq!(last(&s).as_deref(), Some("Single Column Marquee"));
+    assert!(s.execute("select.rect", json!({"x": 0, "y": 0, "width": 1, "height": 1, "line": "diagonal"})).is_err());
 }
 
 #[test]

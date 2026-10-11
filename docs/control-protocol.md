@@ -121,6 +121,8 @@ store expose and persist the same setting; scripts keep using canonical command 
 | `actions.toggle` | `{"action": name or index, "step": index?, "enabled": bool?}` → `{action, disabled}`. Switches one 0-based step (pending recorded steps included) on or off; omitting `enabled` flips it. Without `step`, switches every step: on unless all already are. Playback, Batch and droplets skip steps that are off. In the desktop panel, click a step's check box |
 | `actions.rename` | `{"action": name or index, "name": str}` → `{action, index}`. Empty, whitespace-only or duplicate names are rejected and keep the old name. Nested `actions.play` steps that call the action by name and its function key follow the new name. In the desktop panel, double-click an action's name to rename it in place (Enter commits, Esc cancels) |
 
+The Actions list fills the resizable dock group.
+
 The Actions panel shows replayable steps immediately while recording. Click an individual
 step to select it, then use the trash button to remove that step; selecting the action
 heading instead targets the whole action. Step deletion also works during recording
@@ -508,6 +510,10 @@ Missing actions, recursive calls and nesting beyond 16 levels fail visibly; a ch
 the parent before its next step. Every nested command retains the normal automation permission check.
 Existing recordings containing expanded commands remain unchanged; remove those steps and record
 the named call again if desired.
+
+Layer-panel **Quick Export as PNG** exports every selected layer as a separate PNG. A single
+Save dialog chooses the first filename; remaining files are numbered siblings with sanitized
+layer names. Selection is captured before opening the dialog; an unselected layer is excluded.
 
 ## Shared panel docking
 

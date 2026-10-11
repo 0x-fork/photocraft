@@ -895,7 +895,8 @@ impl PhotocraftApp {
             }
             if self.session.clipboard.is_none() && self.services.clipboard_get_image.is_some() {
                 // Enabled on the strength of the OS clipboard, which held no image: a quiet no-op.
-                self.ui.status = "Nothing to paste: the clipboard holds no image".into();
+                let message = "Nothing to paste: the clipboard holds no image";
+                self.ui.status = tl!(message).into();
                 self.ui.status_error = false;
                 return Ok(serde_json::json!({"pasted": false}));
             }
@@ -922,6 +923,9 @@ impl PhotocraftApp {
             // Adding a layer mask targets it, as in Photoshop (#2166).
             self.ui.mask_target = true;
             self.ui.vector_mask_target = false;
+            // Properties still shows the new adjustment or fill layer's settings, not its mask,
+            // as in Photoshop (#3369): clicking the mask thumbnail switches it to the mask.
+            self.ui.properties_layer = if creates_adjustment_or_fill { self.session.active().and_then(|st| st.active_layer).map(|l| l.0) } else { None };
         }
         if r.is_ok() && id == "select.toWorkPath" {
             // Make Work Path selects the new work path in the Paths panel, as in Photoshop.
@@ -950,7 +954,7 @@ impl PhotocraftApp {
                 if removed > 0 {
                     // A canvas-size change (crop, Canvas Size, Image Size, rotation) dropped Color
                     // Sampler points that fell outside the new canvas (#1046).
-                    self.ui.status = if removed == 1 { "1 sample point removed".into() } else { format!("{removed} sample points removed") };
+                    self.ui.status = crate::i18n::trn(crate::i18n::current(), removed as u64, "{n} sample point removed", "{n} sample points removed");
                     self.ui.status_error = false;
                 }
                 if self.ui.status_error {
@@ -1085,13 +1089,13 @@ impl PhotocraftApp {
             st.source_read_only = photocraft_io::affinity::is_affinity(bytes);
         }
         self.sync_views();
-        self.ui.status = format!("Opened {name}");
+        self.ui.status = crate::i18n::fmt(tl!("Opened {name}"), &[("name", name)]);
         self.ui.status_error = false;
         if camera_raw_ui::wants_open_dialog(self, &warnings) {
             camera_raw_ui::queue_open_dialog(self, name, None, Some(bytes));
-            notices::io_warnings(self, &format!("Opened {name}"), &camera_raw_ui::without_develop_note(&warnings));
+            notices::io_warnings(self, &crate::i18n::fmt(tl!("Opened {name}"), &[("name", name)]), &camera_raw_ui::without_develop_note(&warnings));
         } else {
-            notices::io_warnings(self, &format!("Opened {name}"), &warnings);
+            notices::io_warnings(self, &crate::i18n::fmt(tl!("Opened {name}"), &[("name", name)]), &warnings);
         }
         // Script events bound to "Open Document".
         photocraft_engine::automate_cmds::document_opened(&mut self.session);
@@ -1134,9 +1138,9 @@ impl PhotocraftApp {
             st.source_read_only = photocraft_io::affinity::is_affinity(bytes);
         }
         self.sync_views();
-        self.ui.status = format!("Opened {name}");
+        self.ui.status = crate::i18n::fmt(tl!("Opened {name}"), &[("name", name)]);
         self.ui.status_error = false;
-        notices::io_warnings(self, &format!("Opened {name}"), &warnings);
+        notices::io_warnings(self, &crate::i18n::fmt(tl!("Opened {name}"), &[("name", name)]), &warnings);
         Ok(warnings)
     }
 
@@ -1338,7 +1342,11 @@ impl PhotocraftApp {
                     && let Some(i) = app.session.active_index()
                     && let Some(r) = photocraft_engine::automate_cmds::document_saved(&mut app.session, i)
                 {
-                    app.ui.status = format!("Saved {path}; {} image assets in {}", r["files"].as_array().map_or(0, Vec::len), r["dir"].as_str().unwrap_or(""));
+                    let template = "Saved {path}; image assets: {n} in {dir}";
+                    app.ui.status = crate::i18n::fmt(
+                        tl!(template),
+                        &[("path", path), ("n", &r["files"].as_array().map_or(0, Vec::len).to_string()), ("dir", r["dir"].as_str().unwrap_or(""))],
+                    );
                 }
                 Ok(())
             });
@@ -1755,6 +1763,9 @@ impl PhotocraftApp {
             if !self.ui.mask_target && st.channel_view.target == photocraft_engine::channel_cmds::ChannelTarget::LayerMask {
                 st.channel_view.target = photocraft_engine::channel_cmds::ChannelTarget::Composite;
             }
+            if !self.ui.mask_target || self.ui.properties_layer != st.active_layer.map(|l| l.0) {
+                self.ui.properties_layer = None;
+            }
         }
         let mask = self.layer_mask_targeted();
         self.session.tools.target_mask(mask);
@@ -1800,6 +1811,12 @@ impl PhotocraftApp {
     }
 
     pub(crate) fn apply_theme(&mut self, ctx: &egui::Context, kind: theme::ThemeKind) {
+        // Color and Swatches trade indices between Pro and Studio layouts.
+        if let Some(selected) = dock::Group::Color.tabs(theme::Tokens::for_kind(self.ui.theme).pro).get(self.ui.dock_tabs.color)
+            && let Some(tab) = dock::Group::Color.tabs(theme::Tokens::for_kind(kind).pro).iter().position(|name| name == selected)
+        {
+            self.ui.dock_tabs.color = tab;
+        }
         self.ui.theme = kind;
         panel_docking::sync_visibility(self);
         theme::apply(ctx, kind);

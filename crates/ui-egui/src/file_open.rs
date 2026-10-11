@@ -133,7 +133,10 @@ impl PhotocraftApp {
 
     /// Show "Couldn't open <name>: <error>" as an error (status bar + notice).
     pub fn open_failed(&mut self, name: &str, err: &str) {
-        self.failed(format!("Couldn't open {name}: {err}"));
+        self.failed({
+            let template = "Couldn't open {name}: {error}";
+            crate::i18n::fmt(tl!(template), &[("name", name), ("error", err)])
+        });
     }
 
     /// Log `msg` and show it as an error (status bar + notice).

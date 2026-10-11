@@ -198,13 +198,13 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     }
                 }
                 DialogKind::About if fields.get("systemInfo").and_then(Value::as_bool) == Some(true) => {
-                    let lines = crate::gpu_status::system_info(app);
+                    let lines = crate::gpu_status::system_info_ui(app);
                     for l in &lines {
                         ui.add(egui::Label::new(egui::RichText::new(l).font(crate::theme::mono(12.0))).selectable(true));
                     }
                     ui.add_space(8.0);
                     if crate::widgets::secondary_button(ui, tl!("Copy"), 84.0).clicked() {
-                        ui.ctx().copy_text(lines.join("\n"));
+                        ui.ctx().copy_text(crate::gpu_status::system_info(app).join("\n"));
                     }
                 }
                 DialogKind::About => {

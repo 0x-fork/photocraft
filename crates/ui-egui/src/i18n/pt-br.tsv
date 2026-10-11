@@ -2990,6 +2990,14 @@ cameraData	Lens	Lente
 	Search settings…	Pesquisar configurações…
 	No matching settings	Nenhuma configuração encontrada
 	Loading fonts…	Carregando fontes…
+	Tool	Ferramenta
+	Simulate Pressure	Simular pressão
+	Stroke Path…	Traçar demarcador…
+	Background Eraser	Borracha de plano de fundo
+	Healing Brush	Pincel de recuperação
+	Spot Healing Brush	Pincel de recuperação para manchas
+	Smudge	Borrar
+	Sponge	Esponja
 # Select and Mask view modes (#1754)
 	Onion Skin	Papel vegetal
 	Marching Ants	Formigas marchando
@@ -3734,7 +3742,6 @@ layerLabel	No Color	Sem cor
 	Texturizer	Texturizador
 	Tiles	Ladrilhos
 	Tilt-Shift	Tilt-Shift
-	Tool	Ferramenta
 	Trace Contour	Traçar contorno
 	Trap	Encaixe
 	Tree	Árvore
@@ -3766,7 +3773,6 @@ layerLabel	No Color	Sem cor
 	Prime105	Prime 105 mm
 	Prime35	Prime 35 mm
 	Rgb	RGB
-	Sponge	Esponja
 	Warming L B A	Filtro quente LBA
 	Warming81	Filtro quente (81)
 	Warming85	Filtro quente (85)

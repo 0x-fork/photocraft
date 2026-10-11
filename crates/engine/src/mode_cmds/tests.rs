@@ -82,6 +82,48 @@ fn rotate_arbitrary_other_modes() {
 }
 
 #[test]
+fn rotate_arbitrary_rotates_grouped_locked_children_and_preserves_lock() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 16, "height": 16, "background": "white"})).unwrap();
+    s.execute("layer.new.layer", json!({"name": "Paint"})).unwrap();
+    s.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+    s.execute("layer.setProps", json!({"locks": {"position": true}})).unwrap();
+    s.execute("layer.groupLayers", json!({})).unwrap();
+
+    // 1. 30 degree rotation succeeds and canvas grows to 22x22.
+    let r30 = s.execute("image.rotation.arbitrary", json!({"angle": 30, "interpolation": "nearest"})).unwrap();
+    assert_eq!((r30["width"].as_u64(), r30["height"].as_u64()), (Some(22), Some(22)));
+
+    // 2. Child remains position-locked after canvas rotation.
+    let d = doc(&s);
+    let group = &d.layers[1];
+    let photocraft_doc::LayerContent::Group(g) = &group.content else { panic!("expected group") };
+    assert_eq!(g.children.len(), 1);
+    let child = &g.children[0];
+    assert_eq!(child.name, "Paint");
+    assert!(child.locks.position, "position lock must be preserved on child");
+
+    // 3. Free Transform of the child alone still refuses with lock error.
+    let child_id = child.id.0;
+    s.execute("layer.select", json!({"layer": child_id})).unwrap();
+    let err = s.execute("edit.transform", json!({"matrix": [1, 0, 0, 1, 0, 0]})).unwrap_err();
+    assert!(err.to_string().contains("locked"), "child Free Transform must remain refused");
+
+    // 4. Undo restores 16x16 size.
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(doc(&s).size, Size::new(16, 16));
+
+    // 5. 90 degree rotation also succeeds and composite matches dedicated 90cw turn.
+    let r90 = s.execute("image.rotation.arbitrary", json!({"angle": 90, "direction": "cw", "interpolation": "nearest"})).unwrap();
+    assert_eq!((r90["width"].as_u64(), r90["height"].as_u64()), (Some(16), Some(16)));
+    let d_arb = doc(&s).clone();
+    s.execute("edit.undo", json!({})).unwrap();
+    s.execute("image.imageRotation.90cw", json!({})).unwrap();
+    let d_cw = doc(&s);
+    assert_eq!(photocraft_compose::flatten(&d_arb).px, photocraft_compose::flatten(d_cw).px);
+}
+
+#[test]
 fn flattened_mode_pixels_match_the_allocating_conversion_at_every_channel_count() {
     let px = [[0.0, 0.25, 0.75, 0.0], [0.9, 0.3, 0.2, 0.2], [0.1, 0.7, 0.4, 0.7], [1.0; 4]];
     for mode in [ColorMode::Indexed, ColorMode::Bitmap, ColorMode::Duotone] {

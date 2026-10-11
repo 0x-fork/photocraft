@@ -107,12 +107,8 @@ pub(crate) fn rotate_arbitrary(s: &mut Session, p: &Value) -> Result<Value> {
                     m.surface = crate::transform_cmds::warp_gray(&m.surface, &h, interp)?;
                 }
             } else {
-                // Rotating the whole image moves locked layers too.
-                let locks = l.locks;
-                l.locks.position = false;
-                l.locks.all = false;
-                crate::transform_cmds::transform_layer(None, photocraft_doc::Locks::default(), l, &h, Some(a), interp)?;
-                l.locks = locks;
+                // Rotating the whole image moves locked layers too, including inside groups.
+                with_released_movement_locks(l, |l| crate::transform_cmds::transform_layer(None, photocraft_doc::Locks::default(), l, &h, Some(a), interp))?;
             }
             // What Free Transform leaves alone: unlinked vector masks, gradient angles, artboards…
             crate::canvas_geom::transform_layer_geometry(l, &a, false, dpi);
@@ -130,6 +126,25 @@ pub(crate) fn rotate_arbitrary(s: &mut Session, p: &Value) -> Result<Value> {
         Ok(new)
     })?;
     Ok(json!({"width": size.width, "height": size.height}))
+}
+
+/// Runs `f` with movement locks (`position` and `all`) temporarily released on `l` and all its
+/// descendants, so canvas-wide rotation moves every layer, then restores each lock.
+fn with_released_movement_locks<R>(l: &mut Layer, f: impl FnOnce(&mut Layer) -> Result<R>) -> Result<R> {
+    let mut saved = Vec::new();
+    crate::image_cmds::for_each_layer(std::slice::from_mut(l), &mut |x| {
+        saved.push(x.locks);
+        x.locks.position = false;
+        x.locks.all = false;
+    });
+    let r = f(l);
+    let mut saved = saved.into_iter();
+    crate::image_cmds::for_each_layer(std::slice::from_mut(l), &mut |x| {
+        if let Some(locks) = saved.next() {
+            x.locks = locks;
+        }
+    });
+    r
 }
 
 // ---------- flatten helpers ----------

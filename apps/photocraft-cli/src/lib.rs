@@ -434,6 +434,9 @@ fn batch(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> R {
             h.session.actions.list = set.clone();
             h.open(input).map_err(|e| e.to_string())?;
             for (id, p) in &actions {
+                if photocraft_engine::actions_cmds::shell_view_command(id) || photocraft_engine::actions_cmds::shell_save_command(id) {
+                    continue;
+                }
                 let r = h.command_run(id, p.clone()).map_err(|e| format!("`{id}`: {e}"))?;
                 // A failed step inside a called action makes this file an error, not a saved result.
                 if let Some(e) = photocraft_engine::actions_cmds::nested_failure(id, &r) {

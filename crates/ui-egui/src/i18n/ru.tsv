@@ -2908,6 +2908,14 @@ cameraData	Lens	Объектив
 	Search settings…	Поиск настроек…
 	No matching settings	Нет подходящих настроек
 	Loading fonts…	Загрузка шрифтов…
+	Tool	Инструмент
+	Simulate Pressure	Имитировать нажим
+	Stroke Path…	Обвести контур…
+	Background Eraser	Фоновый ластик
+	Healing Brush	Восстанавливающая кисть
+	Spot Healing Brush	Точечная восстанавливающая кисть
+	Smudge	Палец
+	Sponge	Губка
 # Select and Mask view modes (#1754)
 	Onion Skin	Калька
 	Marching Ants	Бегущие муравьи

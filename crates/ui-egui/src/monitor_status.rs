@@ -135,14 +135,35 @@ pub fn read_now(app: &mut PhotocraftApp) {
 /// now (the dialog asks again each time it draws).
 pub fn note(app: &PhotocraftApp) -> String {
     let st = app.session.color.monitor_status();
-    let on = st.display.as_ref().map(|d| format!(" on {d}")).unwrap_or_default();
-    format!("Monitor profile in use{on}: {}{}", st.summary(), retained(app).map(|r| format!(" ({r})")).unwrap_or_default())
+    let template = if st.display.is_some() { "Monitor profile in use on {display}: {profile}" } else { "Monitor profile in use: {profile}" };
+    let profile = profile_summary(&st);
+    let mut note = crate::i18n::fmt(tl!(template), &[("display", st.display.as_deref().unwrap_or_default()), ("profile", &profile)]);
+    if let Some(reason) = retained(app) {
+        note.push_str(&format!(" ({reason})"));
+    }
+    note
+}
+
+/// Display-only counterpart of the engine's English monitor summary.
+fn profile_summary(st: &photocraft_engine::display_color::MonitorStatus) -> String {
+    let name = match (&st.profile_name, st.source) {
+        (Some(name), "auto") => name.as_str(),
+        _ => st.profile.as_str(),
+    };
+    let source = tl!(st.source);
+    match &st.reason {
+        Some(reason) => format!("{name} ({source}: {reason})"),
+        None => format!("{name} ({source})"),
+    }
 }
 
 /// When the last re-read failed and an earlier reading is shown: why.
 fn retained(app: &PhotocraftApp) -> Option<String> {
     match &app.session.color.monitor_detection {
-        MonitorDetection::Retained { reason } => Some(format!("previous reading kept; the last re-read failed: {reason}")),
+        MonitorDetection::Retained { reason } => Some({
+            let template = "previous reading kept; the last re-read failed: {reason}";
+            crate::i18n::fmt(tl!(template), &[("reason", reason)])
+        }),
         _ => None,
     }
 }
@@ -184,8 +205,12 @@ pub fn apply(app: &mut PhotocraftApp, r: Detection) {
             continue;
         }
         app.monitors.reported.push((id, reason.clone()));
-        let on = if name.is_empty() { String::new() } else { format!(" on {name}") };
-        let lines = vec![reason, format!("The canvas{on} is shown as sRGB. Choose a monitor profile in Edit › Color Settings.")];
+        let template = if name.is_empty() {
+            "The canvas is shown as sRGB. Choose a monitor profile in Edit › Color Settings."
+        } else {
+            "The canvas on {display} is shown as sRGB. Choose a monitor profile in Edit › Color Settings."
+        };
+        let lines = vec![reason, crate::i18n::fmt(tl!(template), &[("display", &name)])];
         crate::notices::post(app, FALLBACK_TITLE, lines, true, None);
     }
 }
@@ -230,17 +255,24 @@ fn displays_changed(app: &PhotocraftApp, ctx: &egui::Context) -> bool {
 pub fn summary_lines(app: &PhotocraftApp) -> Vec<String> {
     let c = &app.session.color;
     if c.displays.is_empty() {
-        return vec![format!("Monitor profile: {}", c.monitor_status().summary())];
+        return vec![{
+            let template = "Monitor profile: {profile}";
+            crate::i18n::fmt(tl!(template), &[("profile", &profile_summary(&c.monitor_status()))])
+        }];
     }
     let mut lines: Vec<String> = c
         .displays
         .iter()
         .map(|d| {
-            let main = if c.main_display == Some(d.id) { " (main window)" } else { "" };
-            format!("Monitor profile on {}{main}: {}", d.name, c.monitor_status_for(Some(d.id)).summary())
+            let template =
+                if c.main_display == Some(d.id) { "Monitor profile on {display} (main window): {profile}" } else { "Monitor profile on {display}: {profile}" };
+            crate::i18n::fmt(tl!(template), &[("display", &d.name), ("profile", &profile_summary(&c.monitor_status_for(Some(d.id))))])
         })
         .collect();
-    lines.extend(retained(app).map(|r| format!("Display profiles: {r}")));
+    lines.extend(retained(app).map(|r| {
+        let template = "Display profiles: {reason}";
+        crate::i18n::fmt(tl!(template), &[("reason", &r)])
+    }));
     lines
 }
 

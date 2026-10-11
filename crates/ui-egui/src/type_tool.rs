@@ -227,7 +227,7 @@ fn resize_box(app: &mut PhotocraftApp, ed: &TextEdit, i: u8, x: f64, y: f64) {
 }
 
 /// Pointer down with the Type tool. Returns true when the press was consumed (no box drag).
-pub fn pointer_down(app: &mut PhotocraftApp, x: f64, y: f64, shift: bool) -> bool {
+pub fn pointer_down(app: &mut PhotocraftApp, x: f64, y: f64, mods: egui::Modifiers) -> bool {
     if let Some(ed) = app.ui.text_edit.clone() {
         let id = LayerId(ed.layer);
         if let Some(i) = box_handle_at(app, id, x, y) {
@@ -240,14 +240,15 @@ pub fn pointer_down(app: &mut PhotocraftApp, x: f64, y: f64, shift: bool) -> boo
             let off = hit_offset(app, id, x, y);
             if let Some(e) = app.ui.text_edit.as_mut() {
                 e.caret = off;
-                if !shift {
+                if !mods.shift {
                     e.anchor = off;
                 }
                 e.dragging = true;
             }
             return true;
         }
-        commit(app);
+        // ⇧/⌥ on that click combine a Type Mask with the selection.
+        commit_with(app, mods);
         return true; // Photoshop: a click outside commits without starting new text
     }
     // The Type Mask tools always start new text: existing type layers are just pixels to them.
@@ -654,7 +655,7 @@ pub fn handle_keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
                         let to = line_edge(app, id, ed.caret, *key == Key::End);
                         set(app, to, m.shift);
                     }
-                    Key::Enter if m.command => commit(app),
+                    Key::Enter if m.command => commit_with(app, *m),
                     Key::Enter => insert(app, "\n"),
                     // Photoshop types a tab character; layout advances it to the next tab stop.
                     Key::Tab if !m.command && !m.alt && !m.shift => insert(app, "\t"),
@@ -705,6 +706,13 @@ pub fn handle_keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
 
 /// End the editing session. A new layer left empty is deleted; a new layer is named after its text.
 pub fn commit(app: &mut PhotocraftApp) {
+    commit_with(app, egui::Modifiers::NONE);
+}
+
+/// [`commit`] with the modifiers held while committing: a Type Mask adds its glyphs to the
+/// selection with ⇧, subtracts them with ⌥ and intersects with ⇧⌥ (Photoshop); with none it
+/// replaces the selection.
+pub fn commit_with(app: &mut PhotocraftApp, mods: egui::Modifiers) {
     if app.ui.tool.is_type() {
         crate::type_transform::finish(app);
     }
@@ -712,10 +720,11 @@ pub fn commit(app: &mut PhotocraftApp) {
     let Some(ed) = app.ui.text_edit.take() else { return };
     let Some(text) = current_text(app, LayerId(ed.layer)) else { return };
     if ed.mask {
-        // Type Mask: the text's glyphs replace the selection and the working layer goes, all in
-        // the session's one history step. No text: nothing changes.
+        // Type Mask: the text's glyphs become (or combine with) the selection and the working
+        // layer goes, all in the session's one history step. No text: nothing changes.
+        let operation = crate::tool_feedback::selection_mode(crate::state::Tool::HorizontalTypeMask, 0, mods);
         if !text.trim().is_empty()
-            && let Err(e) = app.run("type.createSelection", json!({"layer": ed.layer, "removeLayer": true, "coalesce": ed.session}))
+            && let Err(e) = app.run("type.createSelection", json!({"layer": ed.layer, "removeLayer": true, "operation": operation, "coalesce": ed.session}))
         {
             app.ui.status = e;
             app.ui.status_error = true;
@@ -1513,7 +1522,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             )
             .clicked()
             {
-                commit(app);
+                commit_with(app, ui.input(|i| i.modifiers));
             }
             if crate::icons::button(ui, "ban", 24.0, false, tl!("Cancel any current edits (Esc)")).clicked() {
                 cancel(app);
@@ -2039,7 +2048,7 @@ mod tests {
     #[test]
     fn click_creates_placeholder_selected_and_typing_replaces_it() {
         let mut app = app();
-        assert!(!pointer_down(&mut app, 50.0, 100.0, false));
+        assert!(!pointer_down(&mut app, 50.0, 100.0, egui::Modifiers::NONE));
         pointer_up(&mut app, [50.0, 100.0], [50.0, 100.0]);
         let ed = app.ui.text_edit.clone().unwrap();
         assert_eq!((ed.anchor, ed.caret), (0, PLACEHOLDER.chars().count()));
@@ -2129,7 +2138,7 @@ mod tests {
         let id = LayerId(app.ui.text_edit.as_ref().unwrap().layer);
         let steps = app.session.active().unwrap().history.entries().len();
         // Top-left corner: the box keeps its bottom-right corner.
-        assert!(pointer_down(&mut app, 10.0, 10.0, false));
+        assert!(pointer_down(&mut app, 10.0, 10.0, egui::Modifiers::NONE));
         assert_eq!(app.ui.text_edit.as_ref().unwrap().resize, Some(0));
         pointer_move(&mut app, 20.0, 25.0);
         pointer_move(&mut app, 30.0, 30.0);
@@ -2141,7 +2150,7 @@ mod tests {
         assert_eq!(app.session.active().unwrap().history.entries().len(), steps);
         assert!(app.ui.text_edit.is_some());
         // Right edge: only the width changes, and never below the minimum.
-        assert!(pointer_down(&mut app, 110.0, 45.0, false));
+        assert!(pointer_down(&mut app, 110.0, 45.0, egui::Modifiers::NONE));
         pointer_move(&mut app, 0.0, 99.0);
         pointer_up(&mut app, [110.0, 45.0], [0.0, 99.0]);
         assert_eq!(box_shape(&app, id), Some((0.0, 0.0, MIN_BOX, 30.0)));

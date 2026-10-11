@@ -211,7 +211,8 @@ pub fn load(app: &mut PhotocraftApp) {
     if let Some(text) = app.services.load_prefs.as_mut().and_then(|f| f())
         && let Err(e) = app.session.load_prefs_json(&text)
     {
-        app.ui.status = format!("Preferences were reset: {e}");
+        let template = "Preferences were reset: {error}";
+        app.ui.status = crate::i18n::fmt(tl!(template), &[("error", &e)]);
     }
     crate::dock::restore(app);
     crate::brush_picker::restore(app);
@@ -292,7 +293,8 @@ fn finish_recovery(app: &mut PhotocraftApp, key: &str, v: &Value) {
         app.ui.chrome.home = None;
     }
     app.sync_views();
-    app.ui.status = format!("Recovered {name}");
+    let template = "Recovered {name}";
+    app.ui.status = crate::i18n::fmt(tl!(template), &[("name", &name)]);
     app.ui.status_error = false;
 }
 
@@ -310,7 +312,7 @@ pub(crate) fn on_recovery_event(app: &mut PhotocraftApp, e: &JobEvent) -> bool {
             // Native bundle decoding cannot stop midway. Cancel admission and the rest of the
             // batch so another large decoder isn't started while this worker finishes.
             app.prefs_rt.recovery_queue.clear();
-            app.ui.status = format!("Cancelled {}", e.label);
+            app.ui.status = crate::i18n::fmt(tl!("Cancelled {label}"), &[("label", tl!(&e.label))]);
             app.ui.status_error = false;
         }
     }
@@ -327,7 +329,19 @@ fn presets_store(app: &mut PhotocraftApp) {
                 app.services.preset_store = None;
                 let warnings = app.session.attach_preset_store(opened);
                 if let Some(w) = warnings.first() {
-                    app.ui.status = if warnings.len() == 1 { w.clone() } else { format!("{w} (+{} more brush preset warnings)", warnings.len() - 1) };
+                    app.ui.status = if warnings.len() == 1 {
+                        w.clone()
+                    } else {
+                        crate::i18n::fmt(
+                            &crate::i18n::trn(
+                                crate::i18n::current(),
+                                (warnings.len() - 1) as u64,
+                                "{warning} (+{n} more brush preset warning)",
+                                "{warning} (+{n} more brush preset warnings)",
+                            ),
+                            &[("warning", w)],
+                        )
+                    };
                 }
             }
             Err(std::sync::mpsc::TryRecvError::Empty) => {}
@@ -453,7 +467,8 @@ fn persist(app: &mut PhotocraftApp, now: f64) -> Option<f64> {
             app.prefs_rt.saved_value = Some(ours);
             let r = std::mem::take(&mut app.prefs_rt.save_retry);
             if r.failures > 0 {
-                app.ui.status = "Preferences saved".into();
+                let message = "Preferences saved";
+                app.ui.status = tl!(message).into();
                 app.ui.status_error = false;
                 if let Some(id) = r.notice {
                     app.ui.notices.retain(|n| n.id != id);
@@ -469,7 +484,8 @@ fn persist(app: &mut PhotocraftApp, now: f64) -> Option<f64> {
             r.at = now + delay;
             let failures = r.failures;
             if failures == 1 {
-                app.ui.status = format!("Couldn't save preferences: {e}. Retrying…");
+                let template = "Couldn't save preferences: {error}. Retrying…";
+                app.ui.status = crate::i18n::fmt(tl!(template), &[("error", &e)]);
                 app.ui.status_error = true;
             } else if failures == SAVE_NOTICE_AFTER {
                 let lines = vec![e, "PhotoCraft keeps retrying; until a save succeeds, preference changes are lost when it closes.".into()];
@@ -547,7 +563,12 @@ fn link_updates(app: &mut PhotocraftApp, ctx: &egui::Context) {
     match app.session.poll_link_scan() {
         Some(Ok(r)) => {
             if let Some(n) = r["updated"].as_array().map(Vec::len).filter(|n| *n > 0) {
-                app.ui.status = format!("Updated {n} linked smart object(s) changed on disk");
+                app.ui.status = crate::i18n::trn(
+                    crate::i18n::current(),
+                    n as u64,
+                    "Updated {n} linked smart object changed on disk",
+                    "Updated {n} linked smart objects changed on disk",
+                );
             }
         }
         Some(Err(e)) => app.ui.status = e.to_string(),
@@ -592,7 +613,8 @@ fn autosave(app: &mut PhotocraftApp) {
                     app.prefs_rt.autosaved.insert(id, revision);
                 }
                 Err(e) => {
-                    app.ui.status = format!("Autosave failed: {e}");
+                    let template = "Autosave failed: {error}";
+                    app.ui.status = crate::i18n::fmt(tl!(template), &[("error", &e)]);
                     app.ui.status_error = true;
                 }
             }
@@ -641,7 +663,8 @@ fn autosave(app: &mut PhotocraftApp) {
                     }
                 }
                 Err(e) => {
-                    app.ui.status = format!("Autosave failed: {e}");
+                    let template = "Autosave failed: {error}";
+                    app.ui.status = crate::i18n::fmt(tl!(template), &[("error", &e)]);
                     app.ui.status_error = true;
                 }
             }
@@ -961,13 +984,11 @@ pub fn open_shortcuts(app: &mut PhotocraftApp, tab: u64) -> u64 {
 /// Open the Embedded Profile Mismatch prompt for the active document.
 pub fn open_mismatch(app: &mut PhotocraftApp, report: &Value) -> u64 {
     let msg = if report.get("missing").and_then(Value::as_bool) == Some(true) {
-        format!("The document does not have an embedded colour profile. Working space: {}.", report["working"].as_str().unwrap_or("?"))
+        let template = "The document does not have an embedded colour profile. Working space: {working}.";
+        crate::i18n::fmt(tl!(template), &[("working", report["working"].as_str().unwrap_or("?"))])
     } else {
-        format!(
-            "The document has an embedded colour profile that does not match the working space.\nEmbedded: {}\nWorking: {}",
-            report["embedded"].as_str().unwrap_or("?"),
-            report["working"].as_str().unwrap_or("?")
-        )
+        let template = "The document has an embedded colour profile that does not match the working space.\nEmbedded: {embedded}\nWorking: {working}";
+        crate::i18n::fmt(tl!(template), &[("embedded", report["embedded"].as_str().unwrap_or("?")), ("working", report["working"].as_str().unwrap_or("?"))])
     };
     let action = match report["action"].as_str() {
         Some("converted") => "convert",
@@ -1586,6 +1607,7 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
     let mut selected = f.get("selected").and_then(Value::as_str).unwrap_or("").to_string();
     let mut capture = f.get("capture").and_then(Value::as_bool).unwrap_or(false);
     let mut message = f.get("message").and_then(Value::as_str).unwrap_or("").to_string();
+    let mut message_warning = f.get("messageWarning").and_then(Value::as_bool).unwrap_or(false);
     let items = shortcut_items(app);
     // Menu path and command label as shown in the menus, in the UI language.
     let shown = |id: &str, label: &str, path: &[String]| -> (Vec<String>, String) {
@@ -1617,6 +1639,7 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
                 overrides.insert(selected.clone(), String::new());
                 capture = false;
                 message = tl!("Shortcut removed.").into();
+                message_warning = false;
             } else if let Some(sc) = shortcut_text(key, m) {
                 let clash: Vec<String> = items
                     .iter()
@@ -1627,10 +1650,13 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
                     })
                     .collect();
                 overrides.insert(selected.clone(), sc.clone());
+                message_warning = !clash.is_empty();
                 message = if clash.is_empty() {
-                    format!("{} assigned.", crate::shortcuts::pretty(&sc))
+                    let template = "{shortcut} assigned.";
+                    crate::i18n::fmt(tl!(template), &[("shortcut", &crate::shortcuts::pretty(&sc))])
                 } else {
-                    format!("{} is already in use by {} and will be removed from it when you click OK.", crate::shortcuts::pretty(&sc), clash.join(", "))
+                    let template = "{shortcut} is already in use by {commands} and will be removed from it when you click OK.";
+                    crate::i18n::fmt(tl!(template), &[("shortcut", &crate::shortcuts::pretty(&sc)), ("commands", &clash.join(", "))])
                 };
                 capture = false;
             }
@@ -1677,6 +1703,7 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
                         selected = id.clone();
                         capture = true;
                         message.clear();
+                        message_warning = false;
                     }
                     ui.label(if changed { RichText::new(tl!("modified")).color(t.text_faint).size(10.5) } else { RichText::new("") });
                 } else {
@@ -1708,14 +1735,17 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
             if ui.add_enabled(has_sel, egui::Button::new(tl!("Use Default"))).clicked() {
                 overrides.remove(&selected);
                 message = tl!("Default restored.").into();
+                message_warning = false;
             }
             if ui.add_enabled(has_sel, egui::Button::new(tl!("Delete Shortcut"))).clicked() {
                 overrides.insert(selected.clone(), String::new());
                 message = tl!("Shortcut removed.").into();
+                message_warning = false;
             }
             if ui.button(tl!("Reset All to Defaults")).clicked() {
                 overrides.clear();
                 message = tl!("All shortcuts reset to PhotoCraft defaults.").into();
+                message_warning = false;
             }
             // A Photoshop set (`.kys`) fills the overrides; the file arrives after this frame
             // and `kys_import` writes the dialog's fields then (#1163).
@@ -1723,6 +1753,7 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
                 && let Err(e) = crate::kys_import::import_dialog(app)
             {
                 message = e;
+                message_warning = false;
             }
         });
     } else if ui.button(tl!("Show All Menu Items")).clicked() {
@@ -1730,7 +1761,7 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
         colors.clear();
     }
     if !message.is_empty() {
-        ui.label(RichText::new(&message).color(if message.contains("already in use") { t.warning } else { t.text_dim }));
+        ui.label(RichText::new(&message).color(if message_warning { t.warning } else { t.text_dim }));
     }
     if overrides_ok {
         f.insert("overrides".into(), json!(overrides));
@@ -1740,6 +1771,7 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
     f.insert("selected".into(), json!(selected));
     f.insert("capture".into(), json!(capture));
     f.insert("message".into(), json!(message));
+    f.insert("messageWarning".into(), json!(message_warning));
 }
 
 fn toolbar_tab(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
@@ -1914,7 +1946,8 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
                 app.pick_save("Presets.pcpresets", move |app, path| {
                     let write = app.services.write.as_mut().ok_or("no writer configured")?;
                     write(&path, text.as_bytes())?;
-                    app.ui.status = format!("Exported presets to {path}");
+                    let template = "Exported presets to {path}";
+                    app.ui.status = crate::i18n::fmt(tl!(template), &[("path", &path)]);
                     Ok(json!({"path": path}))
                 })
             }

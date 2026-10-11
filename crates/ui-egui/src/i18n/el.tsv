@@ -3667,6 +3667,15 @@ cameraData	Lens	Φακός
 	Search settings…	Αναζήτηση ρυθμίσεων…
 	No matching settings	Δεν βρέθηκαν ρυθμίσεις
 	Loading fonts…	Φόρτωση γραμματοσειρών…
+	Simulate Pressure	Προσομοίωση πίεσης
+	Stroke Path…	Περίγραμμα διαδρομής…
+	Background Eraser	Γόμα φόντου
+	Healing Brush	Πινέλο επιδιόρθωσης
+	Spot Healing Brush	Πινέλο τοπικής επιδιόρθωσης
+	Smudge	Μουντζούρωμα
+	Dodge	Φωτισμός
+	Burn	Σκοτείνιασμα
+	Sponge	Σφουγγάρι
 # Select and Mask view modes (#1754)
 	Onion Skin	Φλούδα κρεμμυδιού
 	Marching Ants	Κινούμενο περίγραμμα
