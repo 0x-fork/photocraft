@@ -3005,3 +3005,8 @@ cameraData	Lens	Lensa
 	Emulsion Down	Emulsi di Bawah
 	Functions	Fungsi
 	Print Resolution:	Resolusi Cetak:
+	Use Previous Layer to Create Clipping Mask	Gunakan Layer Sebelumnya untuk Membuat Clipping Mask
+	Fill with {mode}-neutral color (white)	Isi dengan warna netral {mode} (putih)
+	Fill with {mode}-neutral color (black)	Isi dengan warna netral {mode} (hitam)
+	Fill with {mode}-neutral color (50% gray)	Isi dengan warna netral {mode} (abu-abu 50%)
+	(No neutral color exists for {mode} mode.)	(Tidak ada warna netral untuk mode {mode}.)

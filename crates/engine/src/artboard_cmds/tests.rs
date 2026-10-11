@@ -428,6 +428,36 @@ fn moving_an_artboard_past_the_canvas_keeps_its_shapes_whole() {
 }
 
 #[test]
+fn moving_an_artboard_left_of_or_above_the_origin_grows_the_canvas_there() {
+    // Photoshop grows an artboard document in every direction; the canvas only grew right and
+    // down, so a board moved past the origin stayed partly off-canvas. Now everything shifts
+    // right/down (boards, contents, guides) and the canvas grows, in the move's undo step.
+    for (cmd, p) in [("layer.translate", json!({"dx": -60, "dy": -30})), ("layer.artboard.set", json!({"x": -50, "y": -20}))] {
+        let mut s = session(8);
+        let gid = board_with_square(&mut s);
+        let other = s.execute("layer.new.artboard", json!({"rect": [60, 10, 30, 30]})).unwrap()["layer"].as_u64().unwrap();
+        s.edit("guide", |doc, _| {
+            doc.guides.vertical.push(70.0);
+            Ok(())
+        })
+        .unwrap();
+        s.execute("layer.select", json!({"layer": gid.0})).unwrap();
+        s.execute(cmd, p.clone()).unwrap();
+        assert_eq!(board_rect(&s, gid.0), Rect::new(0, 0, 40, 40), "{cmd}");
+        assert_eq!(board_rect(&s, other), Rect::new(110, 30, 140, 60), "{cmd}: the other board shifts too");
+        assert_eq!((doc(&s).size.width, doc(&s).size.height), (150, 100), "{cmd}");
+        assert_eq!(doc(&s).guides.vertical, vec![120.0], "{cmd}");
+        assert!(red_at(&s, 0, 0) && red_at(&s, 19, 19) && !red_at(&s, 20, 20), "{cmd}: the contents moved with the board");
+        // One undo step back.
+        s.undo();
+        assert_eq!(board_rect(&s, gid.0), Rect::new(10, 10, 50, 50), "{cmd}");
+        assert_eq!(board_rect(&s, other), Rect::new(60, 10, 90, 40), "{cmd}");
+        assert_eq!((doc(&s).size.width, doc(&s).size.height), (100, 80), "{cmd}");
+        assert_eq!(doc(&s).guides.vertical, vec![70.0], "{cmd}");
+    }
+}
+
+#[test]
 fn add_beside_places_a_board_on_each_side_and_alt_duplicates_contents() {
     // #3033: the Artboard tool's "+" buttons. Board 40×40 at (10, 10) holding a red square.
     let mut s = session(8);

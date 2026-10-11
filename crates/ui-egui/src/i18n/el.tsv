@@ -3700,3 +3700,8 @@ cameraData	Lens	Φακός
 	Emulsion Down	Γαλάκτωμα προς τα κάτω
 	Functions	Λειτουργίες
 	Print Resolution:	Ανάλυση εκτύπωσης:
+	Use Previous Layer to Create Clipping Mask	Χρήση του προηγούμενου επιπέδου για δημιουργία μάσκας αποκοπής
+	Fill with {mode}-neutral color (white)	Γέμισμα με το ουδέτερο χρώμα της λειτουργίας {mode} (λευκό)
+	Fill with {mode}-neutral color (black)	Γέμισμα με το ουδέτερο χρώμα της λειτουργίας {mode} (μαύρο)
+	Fill with {mode}-neutral color (50% gray)	Γέμισμα με το ουδέτερο χρώμα της λειτουργίας {mode} (50% γκρι)
+	(No neutral color exists for {mode} mode.)	(Δεν υπάρχει ουδέτερο χρώμα για τη λειτουργία {mode}.)

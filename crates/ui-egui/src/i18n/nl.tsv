@@ -3762,3 +3762,8 @@ cameraData	Lens	Lens
 	Emulsion Down	Emulsie omlaag
 	Functions	Functies
 	Print Resolution:	Afdrukresolutie:
+	Use Previous Layer to Create Clipping Mask	Vorige laag gebruiken om uitknipmasker te maken
+	Fill with {mode}-neutral color (white)	Vullen met neutrale kleur voor {mode} (wit)
+	Fill with {mode}-neutral color (black)	Vullen met neutrale kleur voor {mode} (zwart)
+	Fill with {mode}-neutral color (50% gray)	Vullen met neutrale kleur voor {mode} (50% grijs)
+	(No neutral color exists for {mode} mode.)	(Voor de modus {mode} bestaat geen neutrale kleur.)

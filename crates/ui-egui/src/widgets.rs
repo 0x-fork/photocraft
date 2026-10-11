@@ -781,6 +781,12 @@ pub fn primary_button(ui: &mut Ui, label: &str, min_width: f32) -> Response {
     button_impl(ui, label, min_width, t.primary_bg, t.primary_text, true)
 }
 
+/// The width of the widest of `labels` as a button, for a column of equal-width buttons.
+pub fn button_width(ui: &Ui, labels: &[&str]) -> f32 {
+    let fg = Tokens::get(ui.ctx()).text;
+    labels.iter().map(|l| button_layout(ui, l, 0.0, None, fg).1.x).fold(0.0, f32::max)
+}
+
 pub fn secondary_button(ui: &mut Ui, label: &str, min_width: f32) -> Response {
     let t = Tokens::get(ui.ctx());
     button_impl(ui, label, min_width, t.field, t.text, false)

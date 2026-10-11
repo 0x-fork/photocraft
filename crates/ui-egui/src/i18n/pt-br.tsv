@@ -3792,3 +3792,8 @@ layerLabel	No Color	Sem cor
 	Emulsion Down	Emulsão para baixo
 	Functions	Funções
 	Print Resolution:	Resolução de impressão:
+	Use Previous Layer to Create Clipping Mask	Usar a camada anterior para criar máscara de corte
+	Fill with {mode}-neutral color (white)	Preencher com a cor neutra de {mode} (branco)
+	Fill with {mode}-neutral color (black)	Preencher com a cor neutra de {mode} (preto)
+	Fill with {mode}-neutral color (50% gray)	Preencher com a cor neutra de {mode} (cinza 50%)
+	(No neutral color exists for {mode} mode.)	(Não existe cor neutra para o modo {mode}.)

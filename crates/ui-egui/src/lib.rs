@@ -116,6 +116,7 @@ pub mod move_mods;
 pub mod move_ui;
 pub mod native_menu;
 pub mod new_doc_ui;
+pub mod new_layer_ui;
 pub mod notices;
 mod numeric_expression;
 mod opacity_keys;
@@ -630,6 +631,8 @@ pub struct PhotocraftApp {
     pub(crate) pcrop: perspective_crop_ui::PerspectiveCrop,
     /// Type tool layout cache: ((doc, revision, layer), layout).
     pub(crate) type_layout: Option<((u64, u64, u64), std::sync::Arc<photocraft_text::TextLayout>)>,
+    /// Type tool: (layer, clicks in the current run) for word / line / paragraph / all selection.
+    pub(crate) type_clicks: Option<(u64, u32)>,
     pub(crate) type_transform_preview: Option<type_transform::Preview>,
     /// A font hovered in the Type tool's font picker, shown live (`type_font_preview`).
     pub(crate) type_font_preview: Option<type_font_preview::TypeFontPreview>,
@@ -741,6 +744,7 @@ impl PhotocraftApp {
             channel_thumbs: None,
             channel_views: HashMap::new(),
             type_layout: None,
+            type_clicks: None,
             type_transform_preview: None,
             type_font_preview: None,
             guide_drag: None,
@@ -881,6 +885,9 @@ impl PhotocraftApp {
             return result;
         }
         if let Some(r) = transform_tool::intercept(self, id) {
+            return r;
+        }
+        if let Some(r) = crate::crop_ui::intercept(self, id) {
             return r;
         }
         let suppress_events = self.automation_input && self.session.prefs().script_events.enabled;
@@ -2217,6 +2224,9 @@ mod move_auto_select_tests;
 
 #[cfg(test)]
 mod new_group_button_tests;
+
+#[cfg(test)]
+mod new_layer_button_tests;
 
 #[cfg(test)]
 mod move_outline_tests;

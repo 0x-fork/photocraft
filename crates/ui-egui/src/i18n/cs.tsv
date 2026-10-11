@@ -3637,3 +3637,8 @@ navigator	Zoom	Zvětšení
 	Emulsion Down	Emulze dolů
 	Functions	Funkce
 	Print Resolution:	Rozlišení tisku:
+	Use Previous Layer to Create Clipping Mask	Použít předchozí vrstvu k vytvoření ořezové masky
+	Fill with {mode}-neutral color (white)	Vyplnit neutrální barvou pro režim {mode} (bílá)
+	Fill with {mode}-neutral color (black)	Vyplnit neutrální barvou pro režim {mode} (černá)
+	Fill with {mode}-neutral color (50% gray)	Vyplnit neutrální barvou pro režim {mode} (50% šedá)
+	(No neutral color exists for {mode} mode.)	(Pro režim {mode} neexistuje neutrální barva.)

@@ -2590,3 +2590,8 @@ cameraData	Lens	鏡頭
 	Emulsion Down	感光乳劑面朝下
 	Functions	功能
 	Print Resolution:	列印解析度：
+	Use Previous Layer to Create Clipping Mask	使用上一個圖層建立剪裁遮色片
+	Fill with {mode}-neutral color (white)	使用{mode}中性色填滿（白色）
+	Fill with {mode}-neutral color (black)	使用{mode}中性色填滿（黑色）
+	Fill with {mode}-neutral color (50% gray)	使用{mode}中性色填滿（50% 灰色）
+	(No neutral color exists for {mode} mode.)	（{mode}模式沒有中性色。）

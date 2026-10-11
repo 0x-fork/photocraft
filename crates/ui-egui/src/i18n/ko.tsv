@@ -3185,3 +3185,8 @@ cameraData	Lens	렌즈
 	Emulsion Down	감광면 아래로
 	Functions	기능
 	Print Resolution:	인쇄 해상도:
+	Use Previous Layer to Create Clipping Mask	이전 레이어를 사용하여 클리핑 마스크 만들기
+	Fill with {mode}-neutral color (white)	{mode} 중립 색상으로 채우기(흰색)
+	Fill with {mode}-neutral color (black)	{mode} 중립 색상으로 채우기(검정)
+	Fill with {mode}-neutral color (50% gray)	{mode} 중립 색상으로 채우기(50% 회색)
+	(No neutral color exists for {mode} mode.)	({mode} 모드에는 중립 색상이 없습니다.)

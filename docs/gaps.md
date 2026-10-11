@@ -1,6 +1,6 @@
 # Where PhotoCraft falls short of Photoshop
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-11 · **Change:** minor (G4: Pattern Stamp and Background Eraser draw live, TOOL-213-7; Czech UI localization evidence added to G13; Tilt-Shift evidence added to G2; earlier the same day: major, every known shortfall ranked from the re-measure) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** minor (G4: Pattern Stamp and Background Eraser draw live, TOOL-213-7; G8: triple-, quadruple- and five-click type selection landed, TYPE-218-8 done; Czech UI localization evidence added to G13) · **Target:** Adobe Photoshop 2026
 
 Every known shortfall against Photoshop 2026 (27.11.0), one entry each, ranked by user impact
 on the way to beta. This is the work list agents pick from: take the highest-ranked entry that
@@ -77,11 +77,12 @@ what an agent can't finish alone.
 
 ### G8. Type depth
 - **Missing:** type on a path (TYPE-218-1), paragraph direction UI (TYPE-218-2), complex-script
-  fallback fonts and golden tests (TYPE-218-3), variable-font axes (TYPE-218-4), OpenType panel
-  UI (TYPE-218-5), manual and optical kerning with PSD round trip (TYPE-218-6, #206), live Warp
-  Text preview (TYPE-218-7, #2689), triple/quadruple click (TYPE-218-8), "rasterize and continue"
-  for distort/perspective on type (TYPE-218-9), text free transform (#2630).
-- **Evidence:** scorecard Type: 0 done, 3 partial, 6 missing. The Type tool froze the app for
+  fallback fonts and golden tests (TYPE-218-3), OpenType panel UI (TYPE-218-5), live Warp Text
+  preview (TYPE-218-7, #2689), "rasterize and continue" for distort/perspective on type
+  (TYPE-218-9), text free transform (#2630). Done since the re-measure: manual and optical kerning
+  with PSD round trip (TYPE-218-6, #206), variable-font axes (TYPE-218-4, #2985).
+- **Evidence:** scorecard Type: 3 done, 2 partial, 4 missing. 2026-10-11: 2/3/4/5 clicks select
+  word, line, paragraph and all text, with tests (TYPE-218-8, #3493). The Type tool froze the app for
   60 s on one macOS machine (#2518).
 - **Estimate:** 120–200 h.
 
@@ -221,8 +222,9 @@ what an agent can't finish alone.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-11 | minor | G13: Czech dynamic UI text localized; engine messages and native review remain open |
+| 2026-10-11 | minor | G8: triple/quadruple/five-click type selection done (TYPE-218-8, #3493); Type evidence recounted |
 | 2026-10-11 | minor | G4: Pattern Stamp and Background Eraser draw live, Spot Healing shows a dark overlay while dragging (#3754); only the Mixer Brush is left of TOOL-213-7 |
 | 2026-10-10 | minor | G2: recorded Tilt-Shift computation/filtered-proxy measurements and limits; gap and estimate remain open |
 | 2026-10-10 | minor | Checked against the alpha gate (no alpha blockers); #2374 marked closed |
 | 2026-10-10 | major | First version, from the full re-measure against Photoshop 2026 27.11.0 and the open issues |
-| 2026-10-11 | minor | G13: Czech dynamic UI text localized; engine messages and native review remain open |

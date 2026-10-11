@@ -3700,3 +3700,8 @@ cameraData	Lens	Об'єктив
 	Emulsion Down	Емульсією донизу
 	Functions	Функції
 	Print Resolution:	Роздільна здатність друку:
+	Use Previous Layer to Create Clipping Mask	Використати попередній шар для створення відсічної маски
+	Fill with {mode}-neutral color (white)	Залити нейтральним кольором режиму «{mode}» (білий)
+	Fill with {mode}-neutral color (black)	Залити нейтральним кольором режиму «{mode}» (чорний)
+	Fill with {mode}-neutral color (50% gray)	Залити нейтральним кольором режиму «{mode}» (50% сірого)
+	(No neutral color exists for {mode} mode.)	(Для режиму «{mode}» немає нейтрального кольору.)

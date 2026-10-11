@@ -305,7 +305,7 @@ pub fn translate(s: &mut Session, p: &Value) -> Result<Value> {
         }
         let moves: Vec<_> = ids.iter().map(|&id| (id, dx, dy)).collect();
         move_layers(doc, &moves)?;
-        // A board moved past the right or bottom edge grows the canvas, as a new one does (#1531).
+        // A board moved past any canvas edge grows the canvas, as a new one does (#1531, #3070).
         if ids.iter().any(|id| doc.layer(*id).is_some_and(|l| l.artboard().is_some())) {
             crate::artboard_cmds::fit_canvas(doc);
         }

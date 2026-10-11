@@ -2672,3 +2672,8 @@ cameraData	Lens	Obiettivo
 	Emulsion Down	Emulsione sotto
 	Functions	Funzioni
 	Print Resolution:	Risoluzione di stampa:
+	Use Previous Layer to Create Clipping Mask	Usa il livello precedente per creare una maschera di ritaglio
+	Fill with {mode}-neutral color (white)	Riempi con il colore neutro di {mode} (bianco)
+	Fill with {mode}-neutral color (black)	Riempi con il colore neutro di {mode} (nero)
+	Fill with {mode}-neutral color (50% gray)	Riempi con il colore neutro di {mode} (grigio 50%)
+	(No neutral color exists for {mode} mode.)	(Non esiste un colore neutro per il metodo {mode}.)

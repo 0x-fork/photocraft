@@ -3612,3 +3612,8 @@ cameraData	Lens	レンズ
 	Emulsion Down	乳剤面を下
 	Functions	機能
 	Print Resolution:	プリント解像度:
+	Use Previous Layer to Create Clipping Mask	下のレイヤーを使用してクリッピングマスクを作成
+	Fill with {mode}-neutral color (white)	{mode} の中間色で塗りつぶす (白)
+	Fill with {mode}-neutral color (black)	{mode} の中間色で塗りつぶす (黒)
+	Fill with {mode}-neutral color (50% gray)	{mode} の中間色で塗りつぶす (50% グレー)
+	(No neutral color exists for {mode} mode.)	({mode} モードには中間色がありません。)

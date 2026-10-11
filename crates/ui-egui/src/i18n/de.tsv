@@ -2640,3 +2640,8 @@ cameraData	Lens	Objektiv
 	Emulsion Down	Schichtseite unten
 	Functions	Funktionen
 	Print Resolution:	Druckauflösung:
+	Use Previous Layer to Create Clipping Mask	Vorherige Ebene zum Erstellen einer Schnittmaske verwenden
+	Fill with {mode}-neutral color (white)	Mit neutraler Farbe für {mode} füllen (Weiß)
+	Fill with {mode}-neutral color (black)	Mit neutraler Farbe für {mode} füllen (Schwarz)
+	Fill with {mode}-neutral color (50% gray)	Mit neutraler Farbe für {mode} füllen (50 % Grau)
+	(No neutral color exists for {mode} mode.)	(Für den Modus {mode} gibt es keine neutrale Farbe.)

@@ -3614,3 +3614,8 @@ cameraData	Lens	Obiektyw
 	Emulsion Down	Emulsja w dół
 	Functions	Funkcje
 	Print Resolution:	Rozdzielczość druku:
+	Use Previous Layer to Create Clipping Mask	Użyj poprzedniej warstwy do utworzenia maski przycinającej
+	Fill with {mode}-neutral color (white)	Wypełnij kolorem neutralnym dla trybu {mode} (biały)
+	Fill with {mode}-neutral color (black)	Wypełnij kolorem neutralnym dla trybu {mode} (czarny)
+	Fill with {mode}-neutral color (50% gray)	Wypełnij kolorem neutralnym dla trybu {mode} (50% szarości)
+	(No neutral color exists for {mode} mode.)	(Dla trybu {mode} nie istnieje kolor neutralny.)

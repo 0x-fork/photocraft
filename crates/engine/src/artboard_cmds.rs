@@ -4,8 +4,8 @@
 //!
 //! An artboard is a top-level group with [`photocraft_doc::Artboard`] set; the compositor clips
 //! its children to the board and paints its background. Moving the group (Move tool,
-//! `layer.translate`) moves the board with its contents. The canvas grows to the right and
-//! bottom to fit new boards, like Photoshop's auto-expanding artboard canvas.
+//! `layer.translate`) moves the board with its contents. The canvas grows to fit every board,
+//! in every direction, like Photoshop's auto-expanding artboard canvas ([`fit_canvas`]).
 
 use photocraft_color::{Color, ColorMode, PixelFormat, SampleType};
 use photocraft_doc::{Artboard, ArtboardBackground, Document, Layer, LayerContent, LayerId, Size};
@@ -181,14 +181,28 @@ pub(crate) fn place_copy(doc: &mut Document, id: LayerId) -> Result<()> {
     Ok(())
 }
 
-/// Grow the canvas (right/bottom) so every artboard fits.
+/// Grow the canvas so every artboard fits. Photoshop's artboard documents grow in every
+/// direction: a board left of or above the origin shifts the whole document (boards, their
+/// contents, guides, paths…) right/down by its overhang, then the canvas grows to show it. An
+/// axis whose boards span more than the largest canvas, or a shift that would push pixels past
+/// the 32-bit range, stays unshifted: the board stays partly off-canvas, as one past the size
+/// limit does.
 pub(crate) fn fit_canvas(doc: &mut Document) {
-    let (mut w, mut h) = (doc.size.width as i64, doc.size.height as i64);
-    for (_, _, a) in doc.artboards() {
-        w = w.max(i64::from(a.rect.x1));
-        h = h.max(i64::from(a.rect.y1));
+    let max = i64::from(crate::document_preset_cmds::MAX_DIMENSION);
+    let boards: Vec<Rect> = doc.artboards().iter().map(|b| b.2.rect).collect();
+    // The canvas and every board, per axis (`lo` ≤ 0 is the canvas origin or a board past it).
+    let span = |edges: &dyn Fn(&Rect) -> (i32, i32), len: u32| {
+        boards.iter().map(edges).fold((0, i64::from(len)), |(lo, hi), (a, b)| (lo.min(i64::from(a)), hi.max(i64::from(b))))
+    };
+    let (x0, x1) = span(&|r| (r.x0, r.x1), doc.size.width);
+    let (y0, y1) = span(&|r| (r.y0, r.y1), doc.size.height);
+    let shift = |lo: i64, hi: i64| if hi - lo <= max { i32::try_from(-lo).unwrap_or(0) } else { 0 };
+    let (mut sx, mut sy) = (shift(x0, x1), shift(y0, y1));
+    // `translate_doc` checks before it moves anything, so a refusal leaves the document as is.
+    if (sx, sy) != (0, 0) && crate::image_cmds::translate_doc(doc, "artboard", sx, sy).is_err() {
+        (sx, sy) = (0, 0);
     }
-    let size = Size::new(w.clamp(1, 300_000) as u32, h.clamp(1, 300_000) as u32);
+    let size = Size::new((x1 + i64::from(sx)).clamp(1, max) as u32, (y1 + i64::from(sy)).clamp(1, max) as u32);
     if size != doc.size {
         doc.size = size;
         // Shape pixels are cut at the canvas: a board moved past the old edge rendered its

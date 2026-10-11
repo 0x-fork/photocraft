@@ -57,6 +57,20 @@ pub struct CropState {
     doc: Option<photocraft_doc::DocId>,
     /// The options-bar Straighten button and ⌘-drag (`crop_straighten`).
     pub straighten: crate::crop_straighten::Straighten,
+    /// The box's own Undo/Redo while a crop is pending (Photoshop keeps Edit › Undo live during a
+    /// crop, so it must step the box, not the document — #3145): frame snapshots.
+    undo: Vec<CropStep>,
+    redo: Vec<CropStep>,
+    /// The frame at the current gesture's press; pushed to `undo` on release when the box changed.
+    press_step: Option<CropStep>,
+}
+
+/// One frame state of the crop box's own Undo/Redo.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct CropStep {
+    rect: Option<[f64; 4]>,
+    angle: f64,
+    default_frame: bool,
 }
 
 /// A crop gesture in progress. Rects are `[x0, y0, x1, y1]` in document coordinates.
@@ -348,6 +362,9 @@ fn frame(app: &mut PhotocraftApp) {
     app.crop.default_frame = true;
     app.crop.frame_for = key;
     app.crop.editing = false;
+    app.crop.undo.clear();
+    app.crop.redo.clear();
+    app.crop.press_step = None;
     claim(app);
     fit_frame(app);
 }
@@ -382,7 +399,71 @@ pub fn cancel(app: &mut PhotocraftApp) {
     app.crop.default_frame = false;
     app.crop.frame_for = None;
     app.crop.editing = false;
+    clear_history(app);
     crate::crop_straighten::reset(app);
+}
+
+/// Drop the box's own Undo/Redo (leaving the tool, cancelling or committing a crop).
+pub fn clear_history(app: &mut PhotocraftApp) {
+    app.crop.undo.clear();
+    app.crop.redo.clear();
+    app.crop.press_step = None;
+}
+
+/// The frame's current state, as an undo step.
+fn step_of(app: &PhotocraftApp) -> CropStep {
+    CropStep { rect: app.ui.crop_rect, angle: app.ui.crop_angle, default_frame: app.crop.default_frame }
+}
+
+/// Put a frame state back.
+fn apply_step(app: &mut PhotocraftApp, s: CropStep) {
+    app.ui.crop_rect = s.rect;
+    app.ui.crop_angle = s.angle;
+    app.crop.default_frame = s.default_frame;
+}
+
+/// While the Crop tool has box history, Undo/Redo step the *box*, not the document (Photoshop keeps
+/// Edit › Undo live during a crop, #1918/#3145). `Some(enabled)` for those commands, else `None` so
+/// the caller falls back to document history.
+pub fn is_enabled(app: &PhotocraftApp, id: &str) -> Option<bool> {
+    if app.ui.tool != Tool::Crop {
+        return None;
+    }
+    match id {
+        "edit.undo" if !app.crop.undo.is_empty() => Some(true),
+        "edit.redo" if !app.crop.redo.is_empty() => Some(true),
+        "edit.toggleLastState" if !app.crop.undo.is_empty() || !app.crop.redo.is_empty() => Some(false),
+        _ => None,
+    }
+}
+
+/// Intercept Undo/Redo/Toggle Last State while the Crop tool owns box history, for every caller
+/// (menus, shortcuts, the control channel, MCP) — as `transform_tool::intercept` does.
+pub fn intercept(app: &mut PhotocraftApp, id: &str) -> Option<Result<serde_json::Value, String>> {
+    if app.ui.tool != Tool::Crop || (app.crop.undo.is_empty() && app.crop.redo.is_empty()) {
+        return None;
+    }
+    match id {
+        "edit.undo" => Some(Ok(step(app, false))),
+        "edit.redo" => Some(Ok(step(app, true))),
+        "edit.toggleLastState" => Some(Err("Commit or cancel the crop first".into())),
+        _ => None,
+    }
+}
+
+/// Undo (or redo) one box step.
+fn step(app: &mut PhotocraftApp, redo: bool) -> serde_json::Value {
+    let s = if redo { app.crop.redo.pop() } else { app.crop.undo.pop() };
+    let Some(s) = s else { return serde_json::Value::Null };
+    let now = step_of(app);
+    apply_step(app, s);
+    if redo {
+        app.crop.undo.push(now);
+    } else {
+        app.crop.redo.push(now);
+    }
+    crate::crop_mode::sync_frame(app);
+    serde_json::Value::Null
 }
 
 /// The pending frame belongs to the active document.
@@ -635,6 +716,7 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: Modifiers) -> bool 
         ToolEvent::Down { .. } => {
             claim(app);
             app.crop.editing = true;
+            app.crop.press_step = Some(step_of(app));
             // Default mode: the view is upright for the frame (picking the tool already made it so;
             // this catches a frame set over the control channel), about the pressed point.
             crate::crop_mode::sync(app, Some(p));
@@ -691,6 +773,12 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: Modifiers) -> bool 
                     crate::crop_mode::auto_center(app);
                 }
                 _ => {}
+            }
+            if let Some(before) = app.crop.press_step.take()
+                && step_of(app) != before
+            {
+                app.crop.undo.push(before);
+                app.crop.redo.clear();
             }
         }
     }
@@ -1188,6 +1276,25 @@ mod tests {
         app.ui.crop_rect = Some([10.0, 10.0, 50.0, 40.0]);
         drag(&mut app, &[[30.0, 25.0], [23.0, 25.0]], NONE);
         assert_eq!(app.ui.crop_rect, Some([0.0, 10.0, 40.0, 40.0]), "left edge snaps to the document edge");
+    }
+
+    /// #3145: Edit › Undo while a crop is pending steps the *box*, not the document (Photoshop keeps
+    /// Undo live during a crop), so a moved frame comes back.
+    #[test]
+    fn edit_undo_steps_the_crop_box_not_the_document() {
+        let mut app = app(SampleType::U8);
+        app.ui.crop_rect = Some([40.0, 30.0, 100.0, 70.0]);
+        app.crop.default_frame = false;
+        let before = app.ui.crop_rect.unwrap();
+        let doc_steps = app.session.active().unwrap().history.past_len();
+        drag(&mut app, &[[70.0, 50.0], [90.0, 50.0]], NONE); // move the frame right 20
+        let moved = app.ui.crop_rect.unwrap();
+        assert!((moved[0] - 60.0).abs() < 1e-3, "{moved:?}");
+        app.run("edit.undo", json!({})).unwrap();
+        assert_eq!(app.ui.crop_rect, Some(before), "undo restores the box");
+        assert_eq!(app.session.active().unwrap().history.past_len(), doc_steps, "the document is untouched");
+        app.run("edit.redo", json!({})).unwrap();
+        assert!((app.ui.crop_rect.unwrap()[0] - 60.0).abs() < 1e-3, "redo re-applies the move");
     }
 
     #[test]

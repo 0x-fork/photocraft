@@ -2620,3 +2620,8 @@ cameraData	Lens	镜头
 	Emulsion Down	药膜朝下
 	Functions	功能
 	Print Resolution:	打印分辨率：
+	Use Previous Layer to Create Clipping Mask	使用前一图层创建剪贴蒙版
+	Fill with {mode}-neutral color (white)	使用{mode}中性色填充（白色）
+	Fill with {mode}-neutral color (black)	使用{mode}中性色填充（黑色）
+	Fill with {mode}-neutral color (50% gray)	使用{mode}中性色填充（50% 灰色）
+	(No neutral color exists for {mode} mode.)	（{mode}模式不存在中性色。）

@@ -197,7 +197,7 @@ fn items(app: &crate::PhotocraftApp, ui: &mut egui::Ui, l: &Layer, on_set: bool,
     }
 }
 
-fn color_name(color: LabelColor) -> &'static str {
+pub(crate) fn color_name(color: LabelColor) -> &'static str {
     crate::i18n::tr_ctx(crate::i18n::current(), "layerLabel", color.label())
 }
 

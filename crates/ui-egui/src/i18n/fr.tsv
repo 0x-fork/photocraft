@@ -3018,3 +3018,8 @@ cameraData	Lens	Objectif
 	Emulsion Down	Émulsion verso
 	Functions	Fonctions
 	Print Resolution:	Résolution d’impression :
+	Use Previous Layer to Create Clipping Mask	Utiliser le calque précédent pour créer un masque de découpe
+	Fill with {mode}-neutral color (white)	Remplir avec la couleur neutre de {mode} (blanc)
+	Fill with {mode}-neutral color (black)	Remplir avec la couleur neutre de {mode} (noir)
+	Fill with {mode}-neutral color (50% gray)	Remplir avec la couleur neutre de {mode} (gris 50 %)
+	(No neutral color exists for {mode} mode.)	(Il n’existe aucune couleur neutre pour le mode {mode}.)
