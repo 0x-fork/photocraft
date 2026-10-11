@@ -2441,3 +2441,11 @@ fontWeight	Italic	Kurzíva
 	Front Image	Přední obraz
 	Search settings…	Hledat nastavení…
 	No matching settings	Žádná odpovídající nastavení
+	Edit Plane	Upravit rovinu
+	Create Plane	Vytvořit rovinu
+	Grid Size:	Velikost mřížky:
+	New Layer	Nová vrstva
+	Vanishing Point: click four corners to create a plane	Úběžník: klepnutím na čtyři rohy vytvoříte rovinu
+	Vanishing Point is not active	Úběžník není aktivní
+	Apply Vanishing Point ({key})	Použít úběžník ({key})
+	Fix the red plane first: its corners must form a convex quad	Nejprve opravte červenou rovinu: její rohy musí tvořit konvexní čtyřúhelník

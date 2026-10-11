@@ -2510,3 +2510,11 @@ fontWeight	Italic	Corsivo
 	Front Image	Immagine in primo piano
 	Search settings…	Cerca impostazioni…
 	No matching settings	Nessuna impostazione corrispondente
+	Edit Plane	Modifica piano
+	Create Plane	Crea piano
+	Grid Size:	Dimensione griglia:
+	New Layer	Nuovo livello
+	Vanishing Point: click four corners to create a plane	Punto di fuga: fai clic su quattro angoli per creare un piano
+	Vanishing Point is not active	Punto di fuga non è attivo
+	Apply Vanishing Point ({key})	Applica punto di fuga ({key})
+	Fix the red plane first: its corners must form a convex quad	Correggi prima il piano rosso: i suoi angoli devono formare un quadrilatero convesso

@@ -2866,3 +2866,9 @@ fontWeight	Italic	Itálico
 	Front Image	Imagem frontal
 	Search settings…	Pesquisar configurações…
 	No matching settings	Nenhuma configuração encontrada
+	Grid Size:	Tamanho da grade:
+	New Layer	Nova camada
+	Vanishing Point: click four corners to create a plane	Ponto de fuga: clique em quatro cantos para criar um plano
+	Vanishing Point is not active	Ponto de fuga não está ativo
+	Apply Vanishing Point ({key})	Aplicar ponto de fuga ({key})
+	Fix the red plane first: its corners must form a convex quad	Corrija primeiro o plano vermelho: seus cantos devem formar um quadrilátero convexo

@@ -2845,3 +2845,9 @@ fontWeight	Italic	Miring
 	Front Image	Gambar Depan
 	Search settings…	Cari pengaturan…
 	No matching settings	Tidak ada pengaturan yang cocok
+	Grid Size:	Ukuran Grid:
+	New Layer	Layer Baru
+	Vanishing Point: click four corners to create a plane	Vanishing Point: klik empat sudut untuk membuat bidang
+	Vanishing Point is not active	Vanishing Point tidak aktif
+	Apply Vanishing Point ({key})	Terapkan Vanishing Point ({key})
+	Fix the red plane first: its corners must form a convex quad	Perbaiki bidang merah dulu: sudut-sudutnya harus membentuk segi empat cembung

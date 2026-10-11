@@ -2520,3 +2520,11 @@ fontWeight	Italic	Cursiva
 	Front Image	Imagen frontal
 	Search settings…	Buscar ajustes…
 	No matching settings	No hay ajustes que coincidan
+	Edit Plane	Editar plano
+	Create Plane	Crear plano
+	Grid Size:	Tamaño de rejilla:
+	New Layer	Capa nueva
+	Vanishing Point: click four corners to create a plane	Punto de fuga: haga clic en cuatro esquinas para crear un plano
+	Vanishing Point is not active	Punto de fuga no está activo
+	Apply Vanishing Point ({key})	Aplicar punto de fuga ({key})
+	Fix the red plane first: its corners must form a convex quad	Corrija primero el plano rojo: sus esquinas deben formar un cuadrilátero convexo

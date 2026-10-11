@@ -2418,3 +2418,11 @@ fontWeight	Italic	斜體
 	Front Image	前面的影像
 	Search settings…	搜尋設定…
 	No matching settings	沒有符合的設定
+	Edit Plane	編輯平面
+	Create Plane	建立平面
+	Grid Size:	格點大小：
+	New Layer	新增圖層
+	Vanishing Point: click four corners to create a plane	消失點：按一下四個角以建立平面
+	Vanishing Point is not active	消失點未啟用
+	Apply Vanishing Point ({key})	套用消失點 ({key})
+	Fix the red plane first: its corners must form a convex quad	請先修正紅色平面：其四個角必須構成凸四邊形

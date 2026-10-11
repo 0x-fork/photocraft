@@ -2858,3 +2858,9 @@ fontWeight	Italic	Italique
 	Front Image	Image de premier plan
 	Search settings…	Rechercher des réglages…
 	No matching settings	Aucun réglage correspondant
+	Grid Size:	Taille de la grille :
+	New Layer	Nouveau calque
+	Vanishing Point: click four corners to create a plane	Point de fuite : cliquez sur quatre coins pour créer un plan
+	Vanishing Point is not active	Point de fuite n’est pas actif
+	Apply Vanishing Point ({key})	Appliquer le point de fuite ({key})
+	Fix the red plane first: its corners must form a convex quad	Corrigez d’abord le plan rouge : ses coins doivent former un quadrilatère convexe
