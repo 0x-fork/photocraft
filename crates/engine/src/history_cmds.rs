@@ -30,13 +30,19 @@ fn state_index(s: &Session, cmd: &str, p: &Value) -> Result<(usize, usize)> {
 }
 
 /// History panel › Delete: drop the state and every state after it, as Photoshop does in linear
-/// history. The document returns to the state before it, and the deleted steps can't be redone.
+/// history (in non-linear history only that state, `history_options_cmds::delete_state`). The document returns to the state before it, and the deleted steps can't be redone.
 /// The oldest state (the document as opened) can't be deleted.
 fn delete_state(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "history.deleteState";
     let (i, current) = state_index(s, CMD, p)?;
     if i == 0 {
         return Err(bad(CMD, "the oldest state can't be deleted"));
+    }
+    // History Options › Allow Non-Linear History: only that state goes.
+    if s.active().is_some_and(|st| st.history.non_linear) {
+        crate::history_options_cmds::delete_state(s, i, current)?;
+        let entries = s.active().ok_or(EngineError::NoDocument)?.history.entries();
+        return Ok(json!({ "states": entries.len(), "current": entries.last() }));
     }
     // Step back to the state before `i`; the steps from `i` on are then redo states.
     for _ in i..=current {

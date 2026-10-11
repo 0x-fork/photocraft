@@ -598,7 +598,10 @@ fn build() -> Vec<CommandSpec> {
                 let before = s.active().ok_or(EngineError::NoDocument)?.doc.clone();
                 // Clipping and channel changes reach the layers around it: recomposite everything.
                 let local = p.get("clipped").is_none() && p.get("channels").is_none();
-                s.edit(label, |doc, _| {
+                // The eye: a history state only with History Options › Make Layer Visibility
+                // Changes Undoable.
+                let record = !only_visibility || s.visibility_undoable();
+                s.edit_with(label, record, |doc, _| {
                     let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
                     if let Some(v) = p.get("name").and_then(Value::as_str) {
                         l.name = v.to_string();
@@ -1179,6 +1182,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::analysis_cmds::specs());
     v.extend(crate::notes_cmds::specs());
     v.extend(crate::history_cmds::specs());
+    v.extend(crate::history_options_cmds::specs());
     v.extend(crate::proof_sim::specs());
     v.extend(crate::presets::specs());
     v.extend(crate::document_preset_cmds::specs());

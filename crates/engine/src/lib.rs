@@ -51,6 +51,7 @@ pub mod group_view_cmds;
 pub mod guide_layout;
 pub mod hidden_target;
 pub mod history_cmds;
+pub mod history_options_cmds;
 pub mod image_cmds;
 pub mod inspect;
 pub mod jobs;
@@ -478,6 +479,7 @@ impl Session {
         let mut st = DocState::new(doc, path);
         st.history.max_states = self.prefs.get().performance.history_states.max(1) as usize;
         st.history.max_bytes = self.prefs.get().performance.history_budget_bytes();
+        st.history.non_linear = self.prefs.get().history_options.allow_non_linear_history;
         self.docs.push(st);
         let i = self.docs.len() - 1;
         self.active = Some(i);
@@ -576,6 +578,25 @@ impl Session {
 
     /// Apply an undoable edit to the active document.
     pub fn edit<R>(&mut self, label: &str, f: impl FnOnce(&mut Document, &mut Option<LayerId>) -> Result<R>) -> Result<R> {
+        self.edit_with(label, true, f)
+    }
+
+    /// Apply a change of layer visibility (and nothing else): a history state when History
+    /// Options › Make Layer Visibility Changes Undoable is on (the default, as in Photoshop),
+    /// otherwise the document changes without one, so the History panel and Undo skip it.
+    pub fn edit_visibility<R>(&mut self, label: &str, f: impl FnOnce(&mut Document, &mut Option<LayerId>) -> Result<R>) -> Result<R> {
+        let record = self.visibility_undoable();
+        self.edit_with(label, record, f)
+    }
+
+    /// History Options › Make Layer Visibility Changes Undoable.
+    pub fn visibility_undoable(&self) -> bool {
+        self.prefs().history_options.make_layer_visibility_changes_undoable
+    }
+
+    /// [`Self::edit`], recording a history state only when `record` is set. An unrecorded change
+    /// still marks the document modified and leaves the redo states alone.
+    pub(crate) fn edit_with<R>(&mut self, label: &str, record: bool, f: impl FnOnce(&mut Document, &mut Option<LayerId>) -> Result<R>) -> Result<R> {
         let restrict = self.color_restrict;
         let sampler_map = self.sampler_map.take();
         let st = self.active_mut().ok_or(EngineError::NoDocument)?;
@@ -621,14 +642,18 @@ impl Session {
         let key = self.coalesce_request.clone();
         let st = self.active_mut().ok_or(EngineError::NoDocument)?;
         let layers = st.layer_target();
-        if key.is_none() || st.coalesce != key || !st.history.can_undo() {
+        if !record {
+            // Nothing to coalesce with: the next recorded step starts a state of its own.
+            st.coalesce = None;
+        } else if key.is_none() || st.coalesce != key || !st.history.can_undo() {
             st.history.set_current_layers(prior);
             st.history.record(label, before, layers);
             st.history.trim(&st.doc);
+            st.coalesce = key;
         } else {
             st.history.set_current_layers(layers);
+            st.coalesce = key;
         }
-        st.coalesce = key;
         st.revision += 1;
         st.last_damage = unchanged.then_some(photocraft_geom::Rect::EMPTY);
         self.samplers_removed += samplers_removed;

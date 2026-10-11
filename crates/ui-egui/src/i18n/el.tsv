@@ -3675,3 +3675,8 @@ cameraData	Lens	Φακός
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	Κλικ για τοποθέτηση · Alt-κλικ ή σύρσιμο εκτός καμβά για αφαίρεση
 	{n} of {max} sample points	{n} από {max} σημεία δειγματοληψίας
+
+# History panel › History Options… (#2966)
+	History Options…	Επιλογές ιστορικού…
+	Allow Non-Linear History	Να επιτρέπεται μη γραμμικό ιστορικό
+	Make Layer Visibility Changes Undoable	Οι αλλαγές ορατότητας επιπέδων να αναιρούνται
