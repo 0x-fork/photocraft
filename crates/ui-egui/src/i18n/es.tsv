@@ -499,7 +499,13 @@
 	Similar	Similar
 	Color Range…	Gama de colores…
 	Focus Area…	Área de enfoque…
-	Select and Mask…	Seleccionar y aplicar máscara…
+	Select and Mask…	Selección y máscara…
+# Select and Mask dialog labels
+	Smart Radius	Radio inteligente
+	Shift Edge	Desplazar borde
+	Decontaminate	Descontaminar
+	Output	Salida
+	Refine Edge	Perfeccionar borde
 	Modify	Modificar
 	Border…	Borde…
 	Smooth…	Suavizar…
@@ -768,6 +774,7 @@
 	Split Warp Horizontally	Dividir deformación horizontalmente
 	Split Warp Vertically	Dividir deformación verticalmente
 	Statistics…	Estadísticas…
+	Refine Strokes	Trazos de perfeccionamiento
 @plural	{n} item|{n} items	{n} elemento|{n} elementos
 	Auto	Automático
 
@@ -2649,6 +2656,7 @@ cameraData	Lens	Objetivo
 	The document or Smart Filter changed. Reopen its dialog.	El documento o el filtro inteligente ha cambiado. Vuelva a abrir su diálogo.
 	Opacity must be between 0% and 100%.	La opacidad debe estar entre 0% y 100%.
 
+	Loading fonts…	Cargando fuentes…
 # Select and Mask view modes (#1754)
 	Onion Skin	Papel cebolla
 	Marching Ants	Hormigas en marcha

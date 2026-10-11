@@ -287,6 +287,12 @@
 	Inverse	Инверсия
 	Color Range…	Цветовой диапазон…
 	Select and Mask…	Выделение и маска…
+# Select and Mask dialog labels
+	Smart Radius	Умный радиус
+	Shift Edge	Сместить край
+	Decontaminate	Очистить
+	Output	Вывод
+	Refine Edge	Уточнить край
 	Select Subject	Выбрать объект
 	Sky	Небо
 	Focus Area…	Область фокусировки…
@@ -307,6 +313,7 @@
 	All Layers	Все слои
 	Current & Below	Текущий и ниже
 	Current Layer	Текущий слой
+	Refine Strokes	Штрихи уточнения
 
 # Filter
 	Last Filter	Последний фильтр
@@ -2909,6 +2916,7 @@ cameraData	Lens	Объектив
 	The document or Smart Filter changed. Reopen its dialog.	Документ или смарт-фильтр изменился. Откройте его диалог заново.
 	Opacity must be between 0% and 100%.	Непрозрачность должна быть от 0% до 100%.
 
+	Loading fonts…	Загрузка шрифтов…
 # Select and Mask view modes (#1754)
 	Onion Skin	Калька
 	Marching Ants	Бегущие муравьи

@@ -502,6 +502,12 @@
 	Color Range…	色彩范围…
 	Focus Area…	焦点区域…
 	Select and Mask…	选择与蒙版…
+# Select and Mask dialog labels
+	Smart Radius	智能半径
+	Shift Edge	移动边缘
+	Decontaminate	净化
+	Output	输出
+	Refine Edge	调整边缘
 	Modify	修改
 	Border…	边界…
 	Smooth…	平滑…
@@ -770,6 +776,7 @@
 	Split Warp Horizontally	水平分割变形
 	Split Warp Vertically	垂直分割变形
 	Statistics…	统计…
+	Refine Strokes	调整描边
 @plural	{n} item|{n} items	{n} 项
 	Auto	自动
 	(print to the printer)	（输出到打印机）
@@ -2578,6 +2585,7 @@ cameraData	Lens	镜头
 	The document or Smart Filter changed. Reopen its dialog.	文档或智能滤镜已更改。请重新打开其对话框。
 	Opacity must be between 0% and 100%.	不透明度必须介于 0% 和 100% 之间。
 
+	Loading fonts…	正在加载字体…
 # Select and Mask view modes (#1754)
 	Onion Skin	洋葱皮
 	Marching Ants	蚂蚁线

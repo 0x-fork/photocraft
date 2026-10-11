@@ -621,9 +621,20 @@ fn fields(ui: &mut egui::Ui, f: &mut Map<String, Value>, mode: &str, now: &Compo
                 // While the field has focus it shows what is being typed, not the colour: rebuilding it from
                 // the colour every frame would throw away every keystroke until six valid digits were in.
                 let id = ui.id().with("cp-hex");
+                crate::field_tab::register(ui.ctx(), id);
+                if !f.contains_key("__focused") {
+                    f.insert("__focused".into(), json!(true));
+                    crate::field_tab::focus(ui.ctx(), id);
+                    let current_hex = hex(rgb);
+                    crate::field_tab::select_all(ui.ctx(), id, current_hex.trim_start_matches('#'));
+                    ui.memory_mut(|m| m.request_focus(id));
+                }
                 let typing = if ui.memory(|m| m.has_focus(id)) { ui.data(|d| d.get_temp::<String>(id)) } else { None };
                 let mut h = typing.unwrap_or_else(|| hex(rgb).trim_start_matches('#').to_string());
                 let r = ui.add(egui::TextEdit::singleline(&mut h).id(id).char_limit(6).desired_width(80.0).font(crate::theme::mono(12.0)));
+                if r.gained_focus() {
+                    crate::field_tab::select_all(ui.ctx(), id, &h);
+                }
                 if r.has_focus() {
                     ui.data_mut(|d| d.insert_temp(id, h.clone()));
                 } else {
@@ -786,6 +797,33 @@ mod tests {
         h.key_press(egui::Key::Tab);
         h.run_steps(2);
         assert_eq!(color(&h), "#ff8800");
+    }
+
+    #[test]
+    fn color_picker_opens_with_hex_focused_and_selected() {
+        let mut h = picker("#336699");
+        let hex_field = h.get_by_role(Role::TextInput);
+        assert!(hex_field.is_focused(), "the hex field automatically has focus on open");
+        // Typing directly replaces the selected hex digits without manual clicking or Command+A.
+        type_keys(&mut h, "ff8800");
+        assert_eq!(color(&h), "#ff8800", "typing replaces the selected hex code");
+    }
+
+    #[test]
+    fn color_picker_dialog_hex_field_is_in_tab_order_and_confirms_typed_color() {
+        let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let mut h = Harness::builder().with_size(vec2(760.0, 480.0)).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        open(h.state_mut(), "foreground");
+        h.run_steps(3);
+        assert!(h.get_by_role(Role::TextInput).is_focused(), "hex field has focus in dialog frame");
+        for ch in "ff8800".chars() {
+            h.event(egui::Event::Text(ch.to_string()));
+            h.run_steps(1);
+        }
+        h.key_press(egui::Key::Enter);
+        h.run_steps(3);
+        assert_eq!(hex([h.state().session.tools.foreground[0], h.state().session.tools.foreground[1], h.state().session.tools.foreground[2]]), "#ff8800");
     }
 
     #[test]
