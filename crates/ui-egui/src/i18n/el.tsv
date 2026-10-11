@@ -1082,6 +1082,9 @@
 	Enable {name}	Ενεργοποίηση: {name}
 	Hold Alt while drawing for straight segments	Κρατήστε πατημένο το Alt κατά τη σχεδίαση για ευθύγραμμα τμήματα
 	TIFF Options	Επιλογές TIFF
+	Targa Options	Επιλογές Targa
+	24 bits/pixel	24 bit/εικονοστοιχείο
+	32 bits/pixel	32 bit/εικονοστοιχείο
 	Including layers will increase file size.	Η συμπερίληψη επιπέδων θα αυξήσει το μέγεθος του αρχείου.
 	Discard Layers and Save a Copy	Απόρριψη επιπέδων και αποθήκευση αντιγράφου
 	Don't show again	Να μην εμφανιστεί ξανά
@@ -2868,6 +2871,9 @@
 	Reset Transform	Επαναφορά μετασχηματισμού
 	Reset View	Επαναφορά προβολής
 	Reset Workspace	Επαναφορά χώρου εργασίας
+	Reset Tool	Επαναφορά εργαλείου
+	Reset All Tools	Επαναφορά όλων των εργαλείων
+	Reset all tools to their default settings?	Επαναφορά όλων των εργαλείων στις προεπιλεγμένες ρυθμίσεις τους;
 	Reset to defaults	Επαναφορά προεπιλογών
 	Resize image during place	Αλλαγή μεγέθους εικόνας κατά την τοποθέτηση
 	Resolution:	Ανάλυση:

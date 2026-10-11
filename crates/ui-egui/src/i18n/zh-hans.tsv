@@ -704,6 +704,9 @@
 	New Workspace…	新建工作区…
 	Delete Workspace…	删除工作区…
 	Reset Workspace	重置工作区
+	Reset Tool	重置工具
+	Reset All Tools	重置所有工具
+	Reset all tools to their default settings?	要将所有工具重置为默认设置吗？
 	Lock Workspace	锁定工作区
 	Theme	主题
 	Pro Theme	专业主题
@@ -2225,6 +2228,9 @@ cameraRaw	Blending	混合
 	Structure:	结构：
 	Content-Aware Move Tool	内容感知移动工具
 	TIFF Options	TIFF 选项
+	Targa Options	Targa 选项
+	24 bits/pixel	24 位/像素
+	32 bits/pixel	32 位/像素
 	Including layers will increase file size.	包含图层会增加文件大小。
 	Discard Layers and Save a Copy	扔掉图层并存储副本
 	Don't show again	不再显示

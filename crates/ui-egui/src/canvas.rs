@@ -955,6 +955,9 @@ pub(crate) fn display_doc(app: &mut PhotocraftApp, idx: usize) -> (std::sync::Ar
     if let Some(shown) = crate::solid_fill_ui::display_doc(app, idx) {
         return shown;
     }
+    if let Some(shown) = crate::shape_fill_ui::display_doc(app, idx) {
+        return shown;
+    }
     if let Some(shown) = crate::shape_stroke_ui::display_doc(app, idx) {
         return shown;
     }
@@ -2864,7 +2867,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             }
         }
         // Right-click while transforming: switch the box's mode (Free Transform, Scale, Rotate,
-        // Skew, Distort, Perspective, Warp).
+        // Skew, Distort, Perspective, Warp), or rotate or flip the box.
         let transforming = app.ui.transform.as_ref().is_some_and(|t| t.warp.is_none());
         if response.secondary_clicked()
             && transforming

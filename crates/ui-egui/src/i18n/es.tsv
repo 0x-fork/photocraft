@@ -701,6 +701,9 @@
 	New Workspace…	Nuevo espacio de trabajo…
 	Delete Workspace…	Eliminar espacio de trabajo…
 	Reset Workspace	Restablecer espacio de trabajo
+	Reset Tool	Restablecer herramienta
+	Reset All Tools	Restablecer todas las herramientas
+	Reset all tools to their default settings?	¿Restablecer todas las herramientas a sus valores predeterminados?
 	Lock Workspace	Bloquear espacio de trabajo
 	Theme	Tema
 	Pro Theme	Tema Pro
@@ -2286,6 +2289,9 @@ cameraRaw	Amount	Cantidad
 	Structure:	Estructura:
 	Content-Aware Move Tool	Herramienta Mover según el contenido
 	TIFF Options	Opciones de TIFF
+	Targa Options	Opciones de Targa
+	24 bits/pixel	24 bits/píxel
+	32 bits/pixel	32 bits/píxel
 	Including layers will increase file size.	Incluir las capas aumentará el tamaño del archivo.
 	Discard Layers and Save a Copy	Descartar capas y guardar una copia
 	Don't show again	No volver a mostrar

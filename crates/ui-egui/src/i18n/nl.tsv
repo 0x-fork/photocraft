@@ -684,6 +684,9 @@
 	New Workspace…	Nieuwe werkruimte…
 	Delete Workspace…	Werkruimte verwijderen…
 	Reset Workspace	Werkruimte herstellen
+	Reset Tool	Gereedschap herstellen
+	Reset All Tools	Alle gereedschappen herstellen
+	Reset all tools to their default settings?	Alle gereedschappen herstellen naar hun standaardinstellingen?
 	Lock Workspace	Werkruimte vergrendelen
 	Theme	Thema
 	Pro Theme	Pro-thema
@@ -2233,6 +2236,9 @@
 	Structure:	Structuur:
 	Content-Aware Move Tool	Inhoudsbewust verplaatsen
 	TIFF Options	TIFF-opties
+	Targa Options	Targa-opties
+	24 bits/pixel	24 bits/pixel
+	32 bits/pixel	32 bits/pixel
 	Including layers will increase file size.	Lagen meenemen vergroot de bestandsgrootte.
 	Discard Layers and Save a Copy	Lagen negeren en kopie opslaan
 	Don't show again	Niet meer tonen

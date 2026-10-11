@@ -1415,6 +1415,9 @@
 	New Workspace…	Новий робочий простір…
 	Delete Workspace…	Видалити робочий простір…
 	Reset Workspace	Скинути робочий простір
+	Reset Tool	Скинути інструмент
+	Reset All Tools	Скинути всі інструменти
+	Reset all tools to their default settings?	Скинути всі інструменти до налаштувань за замовчуванням?
 	Lock Workspace	Заблокувати робочий простір
 	Photography	Фотографія
 	Graphic and web	Графіка та веб
@@ -2461,6 +2464,9 @@ cameraRaw	Roughness	Шорсткість
 	Structure:	Структура:
 	Content-Aware Move Tool	Інструмент «Переміщення з урахуванням вмісту»
 	TIFF Options	Параметри TIFF
+	Targa Options	Параметри Targa
+	24 bits/pixel	24 біт/піксель
+	32 bits/pixel	32 біт/піксель
 	Including layers will increase file size.	Додавання шарів збільшить розмір файлу.
 	Discard Layers and Save a Copy	Відкинути шари та зберегти копію
 	Don't show again	Більше не показувати

@@ -692,6 +692,9 @@
 	New Workspace…	Nouvel espace de travail…
 	Delete Workspace…	Supprimer l'espace de travail…
 	Reset Workspace	Réinitialiser l'espace de travail
+	Reset Tool	Réinitialiser l'outil
+	Reset All Tools	Réinitialiser tous les outils
+	Reset all tools to their default settings?	Réinitialiser tous les outils à leurs paramètres par défaut ?
 	Lock Workspace	Verrouiller l'espace de travail
 	Theme	Thème
 	Pro Theme	Thème Pro
@@ -2640,6 +2643,9 @@ cameraRaw	Blending	Fusion
 	Structure:	Structure :
 	Content-Aware Move Tool	Outil Déplacement selon le contenu
 	TIFF Options	Options TIFF
+	Targa Options	Options Targa
+	24 bits/pixel	24 bits/pixel
+	32 bits/pixel	32 bits/pixel
 	Including layers will increase file size.	L'inclusion des calques augmentera la taille du fichier.
 	Discard Layers and Save a Copy	Supprimer les calques et enregistrer une copie
 	Don't show again	Ne plus afficher

@@ -834,7 +834,24 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     crate::chrome_ui::home_button(app, ui);
                     widgets::vline(ui, 22.0);
                 }
-                let _ = icons::button(ui, icons::tool_icon(app.ui.tool), if t.pro { 26.0 } else { 28.0 }, !t.pro, tl!(app.ui.tool.label()));
+                let tool_icon = icons::button(ui, icons::tool_icon(app.ui.tool), if t.pro { 26.0 } else { 28.0 }, !t.pro, tl!(app.ui.tool.label()));
+                // Photoshop: right-click the tool icon for Reset Tool / Reset All Tools (#2825).
+                let mut reset = None;
+                tool_icon.context_menu(|ui| {
+                    if ui.button(tl!("Reset Tool")).clicked() {
+                        reset = Some("tool.reset");
+                        ui.close();
+                    }
+                    if ui.button(tl!("Reset All Tools")).clicked() {
+                        reset = Some("tool.resetAll");
+                        ui.close();
+                    }
+                });
+                if let Some(id) = reset
+                    && let Err(e) = crate::menus::invoke(app, ui.ctx(), id, json!({}))
+                {
+                    app.ui.status = e;
+                }
                 if t.pro {
                     let (r, _) = ui.allocate_exact_size(vec2(10.0, 20.0), Sense::hover());
                     icons::paint(ui, r, "chevron-down", 10.0, t.text_faint);
@@ -2599,8 +2616,9 @@ fn layer_row(
     }
     // Double-click: the name renames in place (over the row's full height, not just the glyphs:
     // #651); the Background, which can't be renamed while it's locked, becomes a normal layer; an
-    // adjustment or fill thumbnail opens its settings and a Smart Object thumbnail its contents,
-    // and a type thumbnail edits its text; anywhere else on the row opens Layer Style (#350, #537).
+    // adjustment, fill or shape thumbnail opens its settings (a solid colour: the Color Picker,
+    // #2812) and a Smart Object thumbnail its contents, and a type thumbnail edits its text;
+    // anywhere else on the row opens Layer Style (#350, #537).
     // The first click already made this the active layer.
     if resp.double_clicked() {
         let pos = resp.interact_pointer_pos();
@@ -2626,7 +2644,7 @@ fn layer_row(
             }
         } else if pos.and_then(|p| masks.hit(p)).is_none() {
             let id = match &l.content {
-                LayerContent::Adjustment(_) | LayerContent::Fill(_) if on(thumb) => "layer.layerContentOptions",
+                LayerContent::Adjustment(_) | LayerContent::Fill(_) | LayerContent::Shape(_) if on(thumb) => "layer.layerContentOptions",
                 LayerContent::Smart(_) if on(thumb) => "layer.smartObjects.editContents",
                 LayerContent::Text(_) if on(thumb) => "type.editText",
                 _ => "layer.layerStyle.blendingOptions",

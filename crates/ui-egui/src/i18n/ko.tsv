@@ -677,6 +677,9 @@
 	New Workspace…	새 작업 영역…
 	Delete Workspace…	작업 영역 삭제…
 	Reset Workspace	작업 영역 초기화
+	Reset Tool	도구 초기화
+	Reset All Tools	모든 도구 초기화
+	Reset all tools to their default settings?	모든 도구를 기본 설정으로 초기화하시겠습니까?
 	Lock Workspace	작업 영역 잠금
 	Theme	테마
 	Pro Theme	프로 테마
@@ -2805,6 +2808,9 @@ cameraRaw	Color	색상
 	Structure:	구조:
 	Content-Aware Move Tool	내용 인식 이동 도구
 	TIFF Options	TIFF 옵션
+	Targa Options	Targa 옵션
+	24 bits/pixel	24비트/픽셀
+	32 bits/pixel	32비트/픽셀
 	Including layers will increase file size.	레이어를 포함하면 파일 크기가 커집니다.
 	Discard Layers and Save a Copy	레이어를 삭제하고 사본 저장
 	Don't show again	다시 표시 안 함

@@ -695,6 +695,9 @@
 	New Workspace…	Neuer Arbeitsbereich…
 	Delete Workspace…	Arbeitsbereich löschen…
 	Reset Workspace	Arbeitsbereich zurücksetzen
+	Reset Tool	Werkzeug zurücksetzen
+	Reset All Tools	Alle Werkzeuge zurücksetzen
+	Reset all tools to their default settings?	Alle Werkzeuge auf ihre Standardeinstellungen zurücksetzen?
 	Lock Workspace	Arbeitsbereich sperren
 	Theme	Design
 	Pro Theme	Pro-Design
@@ -2250,6 +2253,9 @@
 	Structure:	Struktur:
 	Content-Aware Move Tool	Inhaltsbasiert-verschieben-Werkzeug
 	TIFF Options	TIFF-Optionen
+	Targa Options	Targa-Optionen
+	24 bits/pixel	24 Bit/Pixel
+	32 bits/pixel	32 Bit/Pixel
 	Including layers will increase file size.	Das Einbeziehen von Ebenen vergrößert die Datei.
 	Discard Layers and Save a Copy	Ebenen verwerfen und Kopie speichern
 	Don't show again	Nicht mehr anzeigen
