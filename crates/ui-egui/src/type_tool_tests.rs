@@ -1408,6 +1408,33 @@ mod multi_layer_formatting {
         assert_eq!(text(&app, ids[0]).antialias, AntiAlias::Sharp);
     }
 
+    /// Type › Anti-Alias and Type › Orientation check the edited (else selected) layer's value.
+    #[test]
+    fn type_menu_checks_the_current_anti_alias_and_orientation() {
+        let (mut app, ids) = fixture();
+        app.run("type.antiAlias.none", json!({"layer": ids[0].0})).unwrap();
+        app.run("type.orientation.vertical", json!({"layer": ids[0].0})).unwrap();
+        app.run("type.antiAlias.crisp", json!({"layer": ids[1].0})).unwrap();
+        app.run("type.orientation.horizontal", json!({"layer": ids[1].0})).unwrap();
+        let checks = |app: &PhotocraftApp| -> Vec<String> {
+            let items = crate::menus::menu_items(app);
+            for id in ["type.antiAlias.none", "type.antiAlias.crisp", "type.orientation.horizontal", "type.orientation.vertical"] {
+                let it = items.iter().find(|i| i.id == id).unwrap();
+                assert!(it.checked.is_some(), "{id} is a check item");
+            }
+            items
+                .iter()
+                .filter(|i| (i.id.starts_with("type.antiAlias.") || i.id.starts_with("type.orientation.")) && i.checked == Some(true))
+                .map(|i| i.id.clone())
+                .collect()
+        };
+        editing(&mut app, ids[0]);
+        assert_eq!(checks(&app), ["type.antiAlias.none", "type.orientation.vertical"]);
+        app.ui.text_edit = None;
+        app.session.active_mut().unwrap().active_layer = Some(ids[1]);
+        assert_eq!(checks(&app), ["type.antiAlias.crisp", "type.orientation.horizontal"]);
+    }
+
     #[test]
     fn warp_dialog_captures_layer_selection_or_inline_edit_before_confirmation() {
         for inline in [false, true] {

@@ -1757,6 +1757,18 @@ mod tests {
         assert_eq!(app.ui.tool_options.eyedropper_size, 1);
     }
 
+    /// #1046: the Color Sampler tool is selectable over the control channel and reported as active.
+    #[test]
+    fn ui_set_selects_the_color_sampler_tool() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        assert_eq!(call(&mut app, &ctx, "ui.set", json!({"tool": "colorSampler"}))["ok"], true);
+        assert_eq!(app.ui.tool, Tool::ColorSampler);
+        assert_eq!(call(&mut app, &ctx, "ui.inspect", json!({}))["result"]["tool"], "ColorSampler");
+        // The `I` key group cycles through the eyedropper tools, so the sampler is on the same key.
+        assert_eq!(Tool::ColorSampler.key(), 'I');
+    }
+
     /// #1919: the Crop tool's overlay menu over the control channel, reported by `ui.inspect`.
     #[test]
     fn ui_set_drives_the_crop_overlay_options() {

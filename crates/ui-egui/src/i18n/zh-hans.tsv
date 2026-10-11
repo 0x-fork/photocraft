@@ -2580,3 +2580,8 @@ cameraData	Lens	镜头
 	Select the crop presets to delete	选择要删除的裁剪预设
 	Enter a name for the crop preset	输入裁剪预设的名称
 	There is no crop size or ratio to save	没有可保存的裁剪大小或比例
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	单击以放置 · Alt 单击或拖到画布外以移除
+	No document open	未打开任何文档
+	{n} of {max} sample points	{max} 个取样点中的 {n} 个

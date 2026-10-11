@@ -2982,3 +2982,8 @@ cameraData	Lens	Objectif
 	Show Original	Afficher l'original
 	F cycles the views; hold X to see the image	F fait défiler les vues ; maintenez X pour voir l'image
 	Show rulers	Afficher les règles
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	Cliquez pour placer · Alt-clic ou glisser hors du canevas pour supprimer
+	No document open	Aucun document ouvert
+	{n} of {max} sample points	{n} sur {max} points d'échantillonnage

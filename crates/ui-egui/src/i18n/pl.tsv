@@ -3580,3 +3580,8 @@ cameraData	Lens	Obiektyw
 	Show Original	Pokaż oryginał
 	F cycles the views; hold X to see the image	F przełącza widoki; przytrzymaj X, aby zobaczyć obraz
 	Show rulers	Pokaż linijki
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	Kliknij, aby umieścić · Alt-kliknij lub przeciągnij poza obszar roboczy, aby usunąć
+	No document open	Brak otwartego dokumentu
+	{n} of {max} sample points	{n} z {max} punktów próbkowania

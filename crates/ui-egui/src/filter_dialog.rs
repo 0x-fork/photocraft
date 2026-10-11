@@ -368,6 +368,9 @@ pub fn open(app: &mut PhotocraftApp, command: &str) -> Option<u64> {
     if command == "edit.definePattern" {
         fields.insert("name".into(), json!(photocraft_engine::pattern_cmds::default_name(&app.session)));
     }
+    if command == "layer.layerStyle.globalLight" {
+        global_light_defaults(app, &mut fields);
+    }
     if command == "view.proofSetup" {
         proof_setup_defaults(app, &mut fields);
     }
@@ -412,6 +415,13 @@ fn warp_defaults(app: &PhotocraftApp, fields: &mut Map<String, Value>) {
     fields.insert("horizontalDistortion".into(), json!(w.horizontal_distortion));
     fields.insert("verticalDistortion".into(), json!(w.vertical_distortion));
     fields.insert("orientation".into(), json!(if w.horizontal { "horizontal" } else { "vertical" }));
+}
+
+/// Global Light reflects the active document's current shared lighting, never remembered values.
+fn global_light_defaults(app: &PhotocraftApp, fields: &mut Map<String, Value>) {
+    let Some(st) = app.session.active() else { return };
+    fields.insert("angle".into(), json!(st.doc.global_light.angle));
+    fields.insert("altitude".into(), json!(st.doc.global_light.altitude));
 }
 
 /// Proof Setup reflects the active document's current proofing condition, never remembered values.
@@ -788,6 +798,96 @@ mod tests {
         f.insert("__command".into(), json!("edit.autoAlignLayers"));
         egui::Context::default().run_ui(Default::default(), |ui| body(ui, &mut f)).textures_delta.clear();
         assert!(!params_of(&f).as_object().unwrap().contains_key("reference"), "{f:?}");
+    }
+
+    /// Layer › Layer Style › Global Light (#3054): Global Light dialog opens with the active
+    /// document's current shared lighting, preserving it on unchanged OK, ignoring stale
+    /// remembered dialog values, tracking document switching, applying edits, and leaving the
+    /// document unchanged on Cancel.
+    #[test]
+    fn global_light_dialog_reflects_active_document_light() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        let ctx = egui::Context::default();
+        app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        let doc1_id = app.session.active().unwrap().doc.id;
+
+        // 0. Default-document control: fresh document starts at angle 120 and altitude 30.
+        let d_default = crate::menus::invoke(&mut app, &ctx, "layer.layerStyle.globalLight", Value::Null).unwrap()["dialog"].as_u64().unwrap();
+        assert_eq!(app.ui.dialog_mut(d_default).unwrap().fields["angle"], json!(120.0));
+        assert_eq!(app.ui.dialog_mut(d_default).unwrap().fields["altitude"], json!(30.0));
+        crate::dialogs::confirm(&mut app, d_default).unwrap();
+        assert_eq!(app.session.active().unwrap().doc.global_light.angle, 120.0);
+        assert_eq!(app.session.active().unwrap().doc.global_light.altitude, 30.0);
+
+        // 1. Change document's global light to 30 degrees angle and 45 degrees altitude.
+        app.run("layer.layerStyle.globalLight", json!({"angle": 30.0, "altitude": 45.0})).unwrap();
+        assert_eq!(app.session.active().unwrap().doc.global_light.angle, 30.0);
+        assert_eq!(app.session.active().unwrap().doc.global_light.altitude, 45.0);
+
+        // 2. Open Global Light dialog: opens with the active document's light (30 / 45).
+        let d_id = crate::menus::invoke(&mut app, &ctx, "layer.layerStyle.globalLight", Value::Null).unwrap()["dialog"].as_u64().unwrap();
+        let fields = &app.ui.dialog_mut(d_id).unwrap().fields;
+        assert_eq!(fields["angle"], json!(30.0));
+        assert_eq!(fields["altitude"], json!(45.0));
+
+        // 3. Unchanged OK preserves the document's light.
+        crate::dialogs::confirm(&mut app, d_id).unwrap();
+        let gl = app.session.active().unwrap().doc.global_light;
+        assert_eq!(gl.angle, 30.0);
+        assert_eq!(gl.altitude, 45.0);
+
+        // 4. Stale remembered values do not override the active document.
+        app.session.prefs.edit(|prefs| {
+            prefs.dialogs.insert(
+                "layer.layerStyle.globalLight".into(),
+                json!({
+                    "angle": 75.0,
+                    "altitude": 60.0,
+                }),
+            );
+        });
+        let d_id = open(&mut app, "layer.layerStyle.globalLight").unwrap();
+        let fields = &app.ui.dialog_mut(d_id).unwrap().fields;
+        assert_eq!(fields["angle"], json!(30.0), "reads active document, not remembered");
+        assert_eq!(fields["altitude"], json!(45.0));
+
+        // 5. Cancel preserves the document's light.
+        app.ui.close_dialog(d_id);
+        let gl = app.session.active().unwrap().doc.global_light;
+        assert_eq!(gl.angle, 30.0);
+        assert_eq!(gl.altitude, 45.0);
+
+        // 6. Multiple documents: each document initializes the dialog to its own light.
+        app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        let doc2_id = app.session.active().unwrap().doc.id;
+        assert_ne!(doc1_id, doc2_id);
+        app.run("layer.layerStyle.globalLight", json!({"angle": -45.0, "altitude": 15.0})).unwrap();
+        assert_eq!(app.session.active().unwrap().doc.global_light.angle, -45.0);
+        assert_eq!(app.session.active().unwrap().doc.global_light.altitude, 15.0);
+
+        let d_id2 = open(&mut app, "layer.layerStyle.globalLight").unwrap();
+        let fields2 = &app.ui.dialog_mut(d_id2).unwrap().fields;
+        assert_eq!(fields2["angle"], json!(-45.0));
+        assert_eq!(fields2["altitude"], json!(15.0));
+        app.ui.close_dialog(d_id2);
+
+        // Switch back to doc1: dialog still reflects doc1's light (30 / 45).
+        assert!(app.session.set_active(0));
+        let d_id1 = open(&mut app, "layer.layerStyle.globalLight").unwrap();
+        assert_eq!(app.ui.dialog_mut(d_id1).unwrap().fields["angle"], json!(30.0));
+        assert_eq!(app.ui.dialog_mut(d_id1).unwrap().fields["altitude"], json!(45.0));
+
+        // 7. Modifying the dialog updates the active document.
+        app.ui.dialog_mut(d_id1).unwrap().fields.insert("angle".into(), json!(-60.0));
+        app.ui.dialog_mut(d_id1).unwrap().fields.insert("altitude".into(), json!(20.0));
+        crate::dialogs::confirm(&mut app, d_id1).unwrap();
+        assert_eq!(app.session.active().unwrap().doc.global_light.angle, -60.0);
+        assert_eq!(app.session.active().unwrap().doc.global_light.altitude, 20.0);
+
+        // Switch to doc2: doc2 is untouched (-45 / 15).
+        assert!(app.session.set_active(1));
+        assert_eq!(app.session.active().unwrap().doc.global_light.angle, -45.0);
+        assert_eq!(app.session.active().unwrap().doc.global_light.altitude, 15.0);
     }
 
     /// View › Proof Setup (#3055): Custom Proof Setup opens with the active document's current
