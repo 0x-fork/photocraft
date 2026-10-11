@@ -61,7 +61,7 @@ architecture and the PSD writer are the serial parts.
 | Component | Weight | Ours / Photoshop | % | Kind |
 |---|---:|---|---:|---|
 | Menu commands | 30% | 628 / 628 catalog items dispatch a live command | 100% | measured (`cargo xtask parity`) |
-| Toolbox tools | 15% | 58 / 68 (Photoshop's 67 `.kys` tools plus Remove, Triangle, Curvature Pen; minus legacy Rounded Rectangle and Targeted Adjustment) | 85% | measured (`Tool` enum in `ui-egui/src/state.rs`, `TOOL_SECTIONS` in `panels.rs`) |
+| Toolbox tools | 15% | 59 / 68 (Photoshop's 67 `.kys` tools plus Remove, Triangle, Curvature Pen; minus legacy Rounded Rectangle and Targeted Adjustment) | 87% | measured (`Tool` enum in `ui-egui/src/state.rs`, `TOOL_SECTIONS` in `panels.rs`) |
 | Panels | 10% | 30 / 35 Window-menu panels | 86% | measured (`view_cmds.rs`, panel modules) |
 | Filters and adjustments | 10% | every Filter and Image › Adjustments item live; Filter Gallery 47 looks | 100% | measured (menu catalog) |
 | File formats (usage-weighted) | 15% | 13 of 31 Photoshop formats supported in Photoshop's directions, 4 partial; the common ones (PSD/PSB, TIFF, JPEG, PNG, WebP) all present | ~80% (48% by count) | measured list, estimated weights ([file-format-parity.md](file-format-parity.md)) |
@@ -513,6 +513,18 @@ circular soft-mask kernels improve 20.76-172.16x at 24-36 MP, radii 4-64.
 Bounded halo tiles reduce the large-mask workspace allocation bound from 192/288 MB
 to about 115/163 MB, including output and 16 workers' scratch, excluding the source.
 See [method and results](octagonal-mask-performance.md).
+
+2026-10-10: five CPU imaging algorithms now reuse source work and interpolation.
+On an m7i.4xlarge (16 vCPUs), three alternating paired release runs measured
+dense Extrude Blocks (8/128 px, 24 MP RGB8) 160.301 s -> 0.387 s (414.69x);
+Blast (24 MP CMYK8) 6.231 s -> 0.709 s (8.79x);
+Spin Blur (36 MP RGB8) 9.439 s -> 5.869 s (1.61x);
+Lens Correction (24 MP CMYK16) 0.808 s -> 0.565 s (1.43x);
+Trap (50 px, 36 MP CMYK16) 4.627 s -> 1.333 s (3.47x).
+Default 30/30 px Extrude is 6.26x faster at 24 MP. All 72 full-operation output
+comparisons match exactly, including alpha, across 24 cases and 8/16/32-bit depths.
+Timers include surface assembly but exclude UI, undo and Trap document flattening.
+See [method, raw measurements and reproduction](five-algorithm-performance.md).
 
 ### Where we're going (priority order)
 

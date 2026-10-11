@@ -46,6 +46,8 @@ pub static ICONS: &[(&str, &[u8])] = &[
     ("cloud", include_bytes!("../../../assets/icons/cloud.svg")),
     ("compass", include_bytes!("../../../assets/icons/compass.svg")),
     ("contrast", include_bytes!("../../../assets/icons/contrast.svg")),
+    // PhotoCraft original: the Convert Point tool glyph.
+    ("convert-point", include_bytes!("../../../assets/icons/convert-point.svg")),
     ("copy", include_bytes!("../../../assets/icons/copy.svg")),
     ("crop", include_bytes!("../../../assets/icons/crop.svg")),
     ("diamond", include_bytes!("../../../assets/icons/diamond.svg")),

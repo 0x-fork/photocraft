@@ -254,9 +254,15 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     // Long parameter lists (Flame, Lighting Effects) scroll, so the title and the
                     // OK / Cancel buttons stay inside a small window.
                     let room = (ctx.content_rect().height() - DIALOG_CHROME).max(120.0);
-                    first_field_focused(ui, id, |ui| {
-                        egui::ScrollArea::vertical().id_salt(id.with("body")).max_height(room).show(ui, |ui| crate::filter_dialog::body(ui, &mut fields));
-                    });
+                    let body = |ui: &mut egui::Ui, fields: &mut serde_json::Map<String, Value>| {
+                        egui::ScrollArea::vertical().id_salt(id.with("body")).max_height(room).show(ui, |ui| crate::filter_dialog::body(ui, fields));
+                    };
+                    // Select and Mask leaves the keyboard to its view keys (F, X, O, V…).
+                    if crate::select_mask_view::owns(&fields) {
+                        body(ui, &mut fields);
+                    } else {
+                        first_field_focused(ui, id, |ui| body(ui, &mut fields));
+                    }
                 }
                 DialogKind::Command if fields.contains_key("__form") => crate::view_cmds::form_body(ui, &mut fields),
                 DialogKind::Command => {}

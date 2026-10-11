@@ -1710,6 +1710,7 @@
 	Pen Pressure	筆壓
 	Pen Tilt	筆傾斜
 	Pen Tool	筆型工具
+	Convert Point Tool	轉換錨點工具
 	Photo	相片
 	PhotoCraft website	PhotoCraft 網站
 	Picas	派卡
@@ -2533,6 +2534,15 @@ cameraData	Lens	鏡頭
 	Snap to Origin	靠齊原點
 	Search settings…	搜尋設定…
 	No matching settings	沒有符合的設定
+# Select and Mask view modes (#1754)
+	Onion Skin	洋蔥皮
+	Marching Ants	螞蟻線
+	On Black	黑底
+	On White	白底
+	On Layers	圖層上
+	Show Edge	顯示邊緣
+	Show Original	顯示原始
+	F cycles the views; hold X to see the image	按 F 切換檢視；按住 X 檢視影像
 	Show rulers	顯示尺標
 	New Crop Preset…	新增裁切預設集…
 	Delete Crop Preset…	刪除裁切預設集…

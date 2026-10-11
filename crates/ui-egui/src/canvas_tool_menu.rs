@@ -1,5 +1,5 @@
-//! Canvas context menus for the selection tools, the Pen, an active Free Transform box and the
-//! pasteboard (outside the image).
+//! Canvas context menus for the selection tools, the Pen, an active Free Transform box, text being
+//! edited with a Type tool and the pasteboard (outside the image).
 
 use egui::Context;
 use photocraft_doc::LayerContent;
@@ -24,6 +24,9 @@ pub struct CanvasToolMenu {
     /// Opened outside the image: the pasteboard colour instead of the tool's actions.
     #[serde(default)]
     pub pasteboard: bool,
+    /// Opened while a Type tool edits text: the text and type rows instead of the tool's actions.
+    #[serde(default)]
+    pub text: bool,
 }
 
 /// One menu row: label and command id. `None` is a separator.
@@ -65,6 +68,53 @@ pub const PASTEBOARD_MENU: &[Row] = &[
     None,
     Some(("Select Custom Color…", PASTEBOARD_PICK)),
 ];
+
+/// Photoshop's right-click menu inside text being edited: the edit rows act on the text (its
+/// selection, the OS clipboard), the type rows on the layer, as the Type menu's do. Faux Bold and
+/// Faux Italic are the Character panel's toggles (this menu's own ids, run as `type.setStyle`).
+/// Convert to Paragraph Text and Convert to Point Text are both listed; the one that doesn't apply
+/// greys out. The exact Photoshop placement is inferred (docs/context-menu-parity.md).
+pub const TYPE_EDIT_MENU: &[Row] = &[
+    Some(("Undo", "edit.undo")),
+    None,
+    Some(("Cut", "edit.cut")),
+    Some(("Copy", "edit.copy")),
+    Some(("Paste", "edit.paste")),
+    Some(("Select All", "select.all")),
+    None,
+    Some(("Check Spelling…", "edit.checkSpelling")),
+    Some(("Find and Replace Text…", "edit.findAndReplaceText")),
+    None,
+    Some(("Faux Bold", FAUX_BOLD)),
+    Some(("Faux Italic", FAUX_ITALIC)),
+    None,
+    Some(("Rasterize Type", "type.rasterizeTypeLayer")),
+    Some(("Create Work Path", "type.createWorkPath")),
+    Some(("Convert to Shape", "type.convertToShape")),
+    None,
+    Some(("Horizontal", "type.orientation.horizontal")),
+    Some(("Vertical", "type.orientation.vertical")),
+    None,
+    Some(("None", "type.antiAlias.none")),
+    Some(("Sharp", "type.antiAlias.sharp")),
+    Some(("Crisp", "type.antiAlias.crisp")),
+    Some(("Strong", "type.antiAlias.strong")),
+    Some(("Smooth", "type.antiAlias.smooth")),
+    Some(("Windows LCD", "type.antiAlias.windowsLcd")),
+    Some(("Windows", "type.antiAlias.windows")),
+    None,
+    Some(("Convert to Paragraph Text", "type.convertToParagraphText")),
+    Some(("Convert to Point Text", "type.convertToPointText")),
+    Some(("Warp Text…", "type.warpText")),
+];
+
+/// The type edit menu's Faux Bold and Faux Italic rows.
+pub const FAUX_BOLD: &str = "type.fauxBold";
+pub const FAUX_ITALIC: &str = "type.fauxItalic";
+
+/// Type edit rows that act on the whole layer (it may stop being type): the edit ends first.
+const ENDS_TYPE_EDIT: [&str; 5] =
+    ["type.rasterizeTypeLayer", "type.createWorkPath", "type.convertToShape", "type.convertToParagraphText", "type.convertToPointText"];
 
 /// The pasteboard menu's Select Custom Color… row.
 pub const PASTEBOARD_PICK: &str = "pasteboard.selectCustomColor";
@@ -171,6 +221,8 @@ pub fn rows(menu: &CanvasToolMenu) -> &'static [Row] {
         PASTEBOARD_MENU
     } else if menu.transform {
         TRANSFORM_MENU
+    } else if menu.text {
+        TYPE_EDIT_MENU
     } else if menu.tool == Tool::Pen {
         PEN_MENU
     } else {
@@ -190,9 +242,30 @@ pub(crate) fn mode_checked(app: &PhotocraftApp, menu: &CanvasToolMenu, command: 
     if menu.pasteboard {
         return pasteboard_choice(command) == Some(app.session.prefs().interface.canvas_color);
     }
+    if menu.text {
+        return type_checked(app, command);
+    }
     menu.transform
         && matches!(command, "edit.freeTransform" | "edit.transform.skew" | "edit.transform.distort" | "edit.transform.perspective")
         && app.ui.transform.as_ref().is_some_and(|t| t.mode == crate::state::TransformMode::for_command(command))
+}
+
+/// The type edit menu's checkmarks: the faux styles at the selection, the layer's orientation and
+/// anti-aliasing.
+fn type_checked(app: &PhotocraftApp, command: &str) -> bool {
+    use photocraft_doc::text::Orientation;
+    let Some(t) = crate::type_tool::target_text(app) else { return false };
+    match command {
+        FAUX_BOLD | FAUX_ITALIC => crate::type_tool::styles_at(app).is_some_and(|(c, _)| if command == FAUX_BOLD { c.faux_bold } else { c.faux_italic }),
+        "type.orientation.horizontal" => t.orientation == Orientation::Horizontal,
+        "type.orientation.vertical" => t.orientation == Orientation::Vertical,
+        c => c.strip_prefix("type.antiAlias.") == Some(photocraft_engine::type_extra_cmds::aa_name(t.antialias)),
+    }
+}
+
+/// Is the Type tool editing text, so that a right-click opens the type edit menu?
+pub fn editing_text(app: &PhotocraftApp, tool: Tool) -> bool {
+    tool.is_type() && app.ui.text_edit.is_some()
 }
 
 /// Right-click over a Free Transform box: its modes.
@@ -202,8 +275,16 @@ pub fn open_transform(app: &mut PhotocraftApp, ctx: &Context, pos: [f32; 2]) -> 
     }
     app.ui.brush_picker = None;
     app.ui.layer_menu = None;
-    app.ui.canvas_tool_menu =
-        Some(CanvasToolMenu { pos, tool: app.ui.tool, has_selection: false, has_path: false, path_name: None, transform: true, pasteboard: false });
+    app.ui.canvas_tool_menu = Some(CanvasToolMenu {
+        pos,
+        tool: app.ui.tool,
+        has_selection: false,
+        has_path: false,
+        path_name: None,
+        transform: true,
+        pasteboard: false,
+        text: false,
+    });
     crate::canvas_popup::mark_open(ctx, menu_id());
     true
 }
@@ -220,6 +301,7 @@ pub fn engine_call(menu: &CanvasToolMenu, command: &str) -> (String, Value) {
     match pasteboard_choice(command) {
         Some(c) if menu.pasteboard => ("prefs.set".into(), json!({"values": {"interface.canvasColor": c.name()}})),
         _ if menu.pasteboard => ("prefs.set".into(), json!({})),
+        _ if menu.text && matches!(command, FAUX_BOLD | FAUX_ITALIC) => ("type.setStyle".into(), json!({})),
         _ => (command.into(), json!({})),
     }
 }
@@ -241,7 +323,8 @@ pub fn open_pasteboard(app: &mut PhotocraftApp, ctx: &Context, tool: Tool, pos: 
     }
     app.ui.brush_picker = None;
     app.ui.layer_menu = None;
-    app.ui.canvas_tool_menu = Some(CanvasToolMenu { pos, tool, has_selection: false, has_path: false, path_name: None, transform: false, pasteboard: true });
+    app.ui.canvas_tool_menu =
+        Some(CanvasToolMenu { pos, tool, has_selection: false, has_path: false, path_name: None, transform: false, pasteboard: true, text: false });
     crate::canvas_popup::mark_open(ctx, menu_id());
     true
 }
@@ -264,6 +347,12 @@ pub fn entry_enabled(app: &PhotocraftApp, menu: &CanvasToolMenu, command: &str) 
     // Warp needs a layer or selection box: a lone mask, channel or path keeps the plain box.
     if menu.transform && command == "edit.transform.warp" {
         return app.ui.transform.as_ref().is_some_and(|t| t.warp.is_none() && t.target.is_none() && t.path.is_none());
+    }
+    if menu.text {
+        return match command {
+            FAUX_BOLD | FAUX_ITALIC => app.ui.text_edit.is_some(),
+            c => TYPE_EDIT_MENU.iter().flatten().any(|(_, id)| *id == c) && crate::menus::is_enabled(app, c),
+        };
     }
     if menu.transform || menu.tool != Tool::Pen {
         return crate::menus::is_enabled(app, command);
@@ -304,7 +393,8 @@ pub fn entry_enabled(app: &PhotocraftApp, menu: &CanvasToolMenu, command: &str) 
 }
 
 pub fn open(app: &mut PhotocraftApp, ctx: &Context, tool: Tool, pos: [f32; 2]) -> bool {
-    if !applies(tool) || !pos.iter().all(|v| v.is_finite()) {
+    let text = editing_text(app, tool);
+    if !(applies(tool) || text) || !pos.iter().all(|v| v.is_finite()) {
         return false;
     }
     app.ui.brush_picker = None;
@@ -312,7 +402,7 @@ pub fn open(app: &mut PhotocraftApp, ctx: &Context, tool: Tool, pos: [f32; 2]) -
     let has_selection = app.session.active().is_some_and(|s| s.doc.selection.is_some());
     let has_path = crate::vector_ui::active_path_name(app).is_some() || app.ui.pen.as_ref().is_some_and(|p| p.knots.len() >= 2);
     let path_name = crate::vector_ui::active_path_name(app);
-    app.ui.canvas_tool_menu = Some(CanvasToolMenu { pos, tool, has_selection, has_path, path_name, transform: false, pasteboard: false });
+    app.ui.canvas_tool_menu = Some(CanvasToolMenu { pos, tool, has_selection, has_path, path_name, transform: false, pasteboard: false, text });
     crate::canvas_popup::mark_open(ctx, menu_id());
     true
 }
@@ -324,6 +414,8 @@ pub fn choose(app: &mut PhotocraftApp, ctx: &Context, command: &str) {
     }
     let result = if menu.pasteboard {
         choose_pasteboard(app, &menu, command)
+    } else if menu.text {
+        choose_type(app, ctx, command)
     } else if menu.tool == Tool::Pen && !menu.transform {
         choose_pen(app, ctx, &menu, command)
     } else if command == "select.toWorkPath" {
@@ -337,6 +429,27 @@ pub fn choose(app: &mut PhotocraftApp, ctx: &Context, command: &str) {
         app.ui.status = e;
         app.ui.status_error = true;
     }
+}
+
+/// A type edit row. Undo, Cut, Copy, Paste and Select All run as their Edit and Select menu items,
+/// which act on the text while it is being edited (Paste asks the window for the clipboard text).
+fn choose_type(app: &mut PhotocraftApp, ctx: &Context, command: &str) -> Result<(), String> {
+    match command {
+        FAUX_BOLD | FAUX_ITALIC => {
+            let bold = command == FAUX_BOLD;
+            let on = !type_checked(app, command);
+            let mut p = crate::type_tool::formatting_params(app).ok_or("No type is being edited")?;
+            p[if bold { "fauxBold" } else { "fauxItalic" }] = json!(on);
+            app.run("type.setStyle", p)?;
+        }
+        _ => {
+            if ENDS_TYPE_EDIT.contains(&command) {
+                crate::type_tool::commit(app);
+            }
+            crate::menus::invoke(app, ctx, command, json!({}))?;
+        }
+    }
+    Ok(())
 }
 
 /// A parameter dialog for `command` following `spec` (registry notation), prefilled with `fields`.
@@ -412,7 +525,11 @@ fn menu_id() -> egui::Id {
 
 pub fn show(app: &mut PhotocraftApp, ctx: &Context) {
     let Some(menu) = app.ui.canvas_tool_menu.clone() else { return };
-    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) || app.ui.tool != menu.tool || (menu.transform && app.ui.transform.is_none()) {
+    if ctx.input(|i| i.key_pressed(egui::Key::Escape))
+        || app.ui.tool != menu.tool
+        || (menu.transform && app.ui.transform.is_none())
+        || (menu.text && app.ui.text_edit.is_none())
+    {
         app.ui.canvas_tool_menu = None;
         return;
     }
@@ -528,6 +645,92 @@ mod tests {
         assert!(h.state().ui.canvas_tool_menu.is_none());
         right_click(&mut h, center, Modifiers::COMMAND);
         assert!(h.state().ui.canvas_tool_menu.is_none(), "command right-click belongs to layer picker");
+    }
+
+    /// A type layer reading "Hello", being edited with every character selected.
+    fn editing_type(app: &mut PhotocraftApp) -> u64 {
+        app.ui.tool = Tool::Type;
+        let id = app.run("type.create", json!({"text": "Hello", "size": 12, "x": 4, "y": 20})).unwrap()["layer"].as_u64().unwrap();
+        crate::menus::invoke(app, &Context::default(), "type.editText", json!({})).unwrap();
+        id
+    }
+
+    fn text_of(app: &PhotocraftApp, id: u64) -> Option<photocraft_doc::TextLayer> {
+        match &app.session.active().unwrap().doc.layer(photocraft_doc::LayerId(id)).unwrap().content {
+            LayerContent::Text(t) => Some(t.clone()),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn right_click_while_typing_opens_the_type_edit_menu_and_esc_keeps_the_edit() {
+        let mut app = app();
+        editing_type(&mut app);
+        app.sync_views();
+        let mut h = Harness::builder().with_size(vec2(1000.0, 700.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                let ctx = ui.ctx().clone();
+                if !ctx.fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                    return;
+                }
+                // The app's order: shortcuts (inline type's keys among them), then the canvas.
+                crate::shortcuts::handle(app, &ctx);
+                egui::CentralPanel::default().show(ui, |ui| crate::canvas::document_area(app, ui));
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::default());
+        h.run_steps(4);
+        let center = h.state().last_canvas_rect.center();
+        right_click(&mut h, center, Modifiers::NONE);
+        let menu = h.state().ui.canvas_tool_menu.clone().expect("right-click in a type edit opens a menu");
+        assert!(menu.text && !menu.pasteboard && !menu.transform);
+        assert_eq!(rows(&menu), TYPE_EDIT_MENU);
+        let edit = h.state().ui.text_edit.clone().expect("the edit goes on under the menu");
+        assert_eq!((edit.anchor, edit.caret), (0, 5), "the right-click keeps the selection for Cut and Copy");
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        assert!(h.state().ui.canvas_tool_menu.is_none(), "Esc closes the menu");
+        assert!(h.state().ui.text_edit.is_some(), "and only the menu: the edit isn't committed");
+    }
+
+    #[test]
+    fn type_edit_menu_rows_act_on_the_text_and_the_layer() {
+        let mut app = app();
+        let id = editing_type(&mut app);
+        let ctx = Context::default();
+        let reopen = |app: &mut PhotocraftApp| assert!(open(app, &Context::default(), Tool::Type, [10.0, 10.0]));
+        // Faux Bold toggles the style of the selected characters, and shows checked.
+        reopen(&mut app);
+        let menu = app.ui.canvas_tool_menu.clone().unwrap();
+        assert!(!mode_checked(&app, &menu, FAUX_BOLD) && mode_checked(&app, &menu, "type.antiAlias.smooth"));
+        choose(&mut app, &ctx, FAUX_BOLD);
+        assert!(text_of(&app, id).unwrap().char_runs().iter().all(|r| r.style.faux_bold));
+        assert!(mode_checked(&app, &menu, FAUX_BOLD));
+        // Cut takes the selection out of the text; with nothing selected Copy and Cut grey out.
+        reopen(&mut app);
+        choose(&mut app, &ctx, "edit.cut");
+        assert_eq!(text_of(&app, id).unwrap().text, "");
+        reopen(&mut app);
+        let menu = app.ui.canvas_tool_menu.clone().unwrap();
+        assert!(!entry_enabled(&app, &menu, "edit.copy") && !entry_enabled(&app, &menu, "edit.cut"));
+        app.ui.canvas_tool_menu = None;
+        crate::menus::invoke(&mut app, &ctx, "edit.undo", json!({})).unwrap();
+        assert_eq!(text_of(&app, id).unwrap().text, "Hello");
+        // Select All selects every character, not the canvas.
+        reopen(&mut app);
+        choose(&mut app, &ctx, "select.all");
+        let edit = app.ui.text_edit.clone().unwrap();
+        assert_eq!((edit.anchor, edit.caret), (0, 5));
+        assert!(app.session.active().unwrap().doc.selection.is_none());
+        // Warp Text… opens its dialog; Rasterize Type ends the edit and rasterizes the layer.
+        reopen(&mut app);
+        choose(&mut app, &ctx, "type.warpText");
+        assert!(!app.ui.dialogs.is_empty(), "Warp Text… asks for its settings");
+        app.ui.dialogs.clear();
+        reopen(&mut app);
+        choose(&mut app, &ctx, "type.rasterizeTypeLayer");
+        assert!(app.ui.text_edit.is_none() && text_of(&app, id).is_none(), "the type layer is pixels now");
     }
 
     #[test]

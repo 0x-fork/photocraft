@@ -1702,6 +1702,7 @@
 	Pen Pressure	Pressione penna
 	Pen Tilt	Inclinazione penna
 	Pen Tool	Strumento Penna
+	Convert Point Tool	Strumento Converti punto
 	Photo	Foto
 	PhotoCraft website	Sito web PhotoCraft
 	Picas	Pica
@@ -2625,4 +2626,13 @@ cameraData	Lens	Obiettivo
 	Snap to Origin	Aggancia all'origine
 	Search settings…	Cerca impostazioni…
 	No matching settings	Nessuna impostazione corrispondente
+# Select and Mask view modes (#1754)
+	Onion Skin	Velina
+	Marching Ants	Formiche in marcia
+	On Black	Su nero
+	On White	Su bianco
+	On Layers	Su livelli
+	Show Edge	Mostra bordo
+	Show Original	Mostra originale
+	F cycles the views; hold X to see the image	F scorre le viste; tieni premuto X per vedere l'immagine
 	Show rulers	Mostra righelli
