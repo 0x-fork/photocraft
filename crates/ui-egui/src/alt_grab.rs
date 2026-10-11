@@ -29,7 +29,7 @@ struct Watch {
 
 /// Tools whose ⌥-click does something: the ⌥ Eyedropper and the clone source point.
 pub(crate) fn alt_click_tool(tool: Tool, mods: egui::Modifiers) -> bool {
-    crate::canvas::alt_samples(tool, mods) || (mods.alt && !mods.ctrl && matches!(tool, Tool::CloneStamp | Tool::Healing))
+    crate::canvas::alt_samples(tool, mods) || (mods.alt && !mods.ctrl && matches!(tool, Tool::MixerBrush | Tool::CloneStamp | Tool::Healing))
 }
 
 /// The status-bar message for an ⌥-click the desktop took.

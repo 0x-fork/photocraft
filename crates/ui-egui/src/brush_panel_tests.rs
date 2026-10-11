@@ -97,7 +97,7 @@ fn edit_section(i: usize, b: &mut BrushSettings) {
             b.transfer.flow = dynamic(0.25, Control::Fade, 0.3);
             b.transfer.wetness = dynamic(0.35, Control::PenPressure, 0.1);
             b.transfer.mix = dynamic(0.45, Control::Fade, 0.2);
-            b.mixer = paint::MixerSettings { wet: 0.9, load: 0.15, mix: 0.7, flow: 0.8, sample_all_layers: true };
+            b.mixer = paint::MixerSettings { wet: 0.9, load: 0.15, mix: 0.7, flow: 0.8, sample_all_layers: true, ..Default::default() };
         }
         7 => {
             let p = &mut b.pose;
@@ -391,11 +391,11 @@ fn mixer_brush_options_update_the_persisted_mixer_settings() {
     h.drop_at(at);
     h.run_steps(2);
 
-    assert!(h.state().session.tools.brush.mixer.sample_all_layers);
+    assert!(!h.state().session.tools.brush.mixer.sample_all_layers);
     assert_eq!(h.state().session.journal.len(), initial + 1);
     let (id, params) = h.state().session.journal.last().unwrap();
     assert_eq!(id, "tools.setBrush");
-    assert_eq!(params["brush"]["mixer"]["sampleAllLayers"], true);
+    assert_eq!(params["brush"]["mixer"]["sampleAllLayers"], false);
 }
 
 #[test]

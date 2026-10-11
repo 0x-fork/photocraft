@@ -353,6 +353,7 @@ enum EngineStroke {
     Brush(Box<photocraft_engine::brush_cmds::LiveStroke>),
     Retouch(photocraft_engine::retouch_cmds::LiveRetouch),
     Dab(photocraft_engine::retouch_cmds::LiveDab),
+    Mixer(Box<photocraft_engine::brush_cmds::mixer_live::LiveMixer>),
 }
 
 impl EngineStroke {
@@ -361,6 +362,7 @@ impl EngineStroke {
     fn wants_time(&self) -> bool {
         match self {
             EngineStroke::Brush(l) => l.wants_time(),
+            EngineStroke::Mixer(l) => l.wants_time(),
             EngineStroke::Retouch(_) | EngineStroke::Dab(_) => false,
         }
     }
@@ -370,6 +372,7 @@ impl EngineStroke {
             Self::Brush(s) => &s.doc,
             Self::Retouch(s) => &s.doc,
             Self::Dab(s) => &s.doc,
+            Self::Mixer(s) => &s.doc,
         }
     }
     fn bounds(&self) -> DRect {
@@ -377,6 +380,7 @@ impl EngineStroke {
             Self::Brush(s) => s.bounds(),
             Self::Retouch(s) => s.bounds(),
             Self::Dab(s) => s.bounds(),
+            Self::Mixer(s) => s.bounds(),
         }
     }
     fn push(&mut self, pts: &[photocraft_engine::paint::StrokePoint]) -> photocraft_engine::Result<DRect> {
@@ -384,12 +388,14 @@ impl EngineStroke {
             Self::Brush(s) => s.push(pts),
             Self::Retouch(s) => s.push(pts),
             Self::Dab(s) => s.push(pts),
+            Self::Mixer(s) => s.push(pts),
         }
     }
     /// The jitter seed the commit must reuse (the Clone Stamp's comes from the session brush).
     fn seed(&self) -> Option<u64> {
         match self {
             Self::Brush(s) => Some(s.seed),
+            Self::Mixer(s) => Some(s.seed),
             Self::Retouch(_) => None,
             Self::Dab(_) => None,
         }
@@ -444,8 +450,10 @@ fn stroke_params(app: &PhotocraftApp, tool: Tool, erase: bool, points: &[Vec<f64
 
 /// Tools whose strokes the engine renders while they are drawn (`LiveStroke`).
 pub(crate) fn strokes_live(tool: Tool) -> bool {
-    matches!(tool, Tool::Brush | Tool::Pencil | Tool::Eraser | Tool::Blur | Tool::Sharpen | Tool::Smudge | Tool::Dodge | Tool::Burn | Tool::Sponge)
-        || live_retouch_command(tool).is_some()
+    matches!(
+        tool,
+        Tool::Brush | Tool::Pencil | Tool::MixerBrush | Tool::Eraser | Tool::Blur | Tool::Sharpen | Tool::Smudge | Tool::Dodge | Tool::Burn | Tool::Sponge
+    ) || live_retouch_command(tool).is_some()
 }
 
 /// The retouching tools drawn live (`LiveRetouch`), by the command their live stroke previews.
@@ -561,7 +569,10 @@ fn begin_live_stroke(app: &PhotocraftApp) -> Option<LiveStroke> {
     static STROKES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let st = app.session.active()?;
     let d = app.drag.as_ref()?;
-    let stroke = if let Some((cmd, mut p)) = crate::retouch_ui::dab_params(app, d.tool) {
+    let stroke = if d.tool == Tool::MixerBrush {
+        let p = stroke_params(app, d.tool, false, &app.stylus.stroke_points(&d.points));
+        EngineStroke::Mixer(Box::new(photocraft_engine::brush_cmds::mixer_live::LiveMixer::begin(&app.session, &p).ok()?))
+    } else if let Some((cmd, mut p)) = crate::retouch_ui::dab_params(app, d.tool) {
         // The params `retouch_ui::finish_stroke` commits; Sample All Layers isn't previewed.
         p["points"] = json!(d.points);
         p["target"] = paint_target(app);
@@ -583,6 +594,20 @@ fn begin_live_stroke(app: &PhotocraftApp) -> Option<LiveStroke> {
 
 /// Render the drag points the live stroke hasn't seen yet, with the pen pressure, tilt and
 /// rotation the commit's `paint.stroke` gets for them.
+pub(crate) fn cancel_mixer_on_context_change(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
+    if !app.drag.as_ref().is_some_and(|drag| drag.tool == Tool::MixerBrush) {
+        return false;
+    }
+    let changed = app.ui.tool != Tool::MixerBrush
+        || app.live_stroke.as_ref().is_some_and(|live| !app.session.active().is_some_and(|st| st.doc.id == live.doc && st.revision == live.revision));
+    if changed || ctx.input(|input| !input.focused) || ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+        app.drag = None;
+        app.live_stroke = None;
+        return true;
+    }
+    false
+}
+
 fn feed_live_stroke(app: &mut PhotocraftApp) {
     // A batched move replays several samples in one frame and calls this once at the end, so the
     // per-sample calls from `tool_event` are skipped (see `canvas_view`).
@@ -609,7 +634,15 @@ fn feed_live_stroke(app: &mut PhotocraftApp) {
     l.fed = d.points.len();
     match l.stroke.push(&pts) {
         Ok(r) => l.damage.push(r),
-        Err(_) => app.live_stroke = None,
+        Err(e) => {
+            let mixer = d.tool == Tool::MixerBrush;
+            app.live_stroke = None;
+            if mixer {
+                app.drag = None;
+                app.ui.status = e.to_string();
+                app.ui.status_error = true;
+            }
+        }
     }
 }
 
@@ -621,8 +654,15 @@ fn tap_at_peak_pressure(app: &mut PhotocraftApp) {
         return;
     }
     let peak = f64::from(app.stylus.tap_pressure());
-    if let Some(p) = app.drag.as_mut().filter(|d| d.points.len() == 1).and_then(|d| d.points.first_mut()) {
+    let mut refresh_mixer = false;
+    if let Some(d) = app.drag.as_mut().filter(|d| d.points.len() == 1)
+        && let Some(p) = d.points.first_mut()
+    {
+        refresh_mixer = d.tool == Tool::MixerBrush && peak > p[2];
         p[2] = p[2].max(peak);
+    }
+    if refresh_mixer {
+        app.live_stroke = begin_live_stroke(app);
     }
 }
 
@@ -3959,6 +3999,17 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
         return;
     }
     // View › Snap / Snap To and smart guides (snap_ui.rs).
+    if app.ui.tool == Tool::MixerBrush && mods.alt && !mods.ctrl && app.drag.is_none() {
+        if let ToolEvent::Down { x, y, pressure } = ev {
+            let pen = app.stylus.sample().unwrap_or_default();
+            let p = json!({"points":[[x,y,pressure,pen.tilt_x,pen.tilt_y,pen.rotation]],"target":paint_target(app)});
+            if let Err(e) = app.run("brush.mixer.sample", p) {
+                app.ui.status = e;
+                app.ui.status_error = true;
+            }
+        }
+        return;
+    }
     let raw = ev;
     // A press anywhere but on the floating piece (or with ⇧ / ⌥, to draw) drops it first; the
     // Move tool (⌘ with a painting tool too, `event_tool`) drags it from anywhere.
@@ -4231,6 +4282,18 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
                 app.stylus.record_point();
             }
             app.live_stroke = if strokes_live(tool) { begin_live_stroke(app) } else { None };
+            if tool == Tool::MixerBrush && app.live_stroke.is_none() {
+                // A refused mixer stroke must never fall back to a stand-in trail and paint
+                // unexpectedly on release. Surface the engine's concrete error immediately.
+                if let Some(d) = app.drag.as_ref() {
+                    let p = stroke_params(app, tool, false, &app.stylus.stroke_points(&d.points));
+                    if let Err(e) = photocraft_engine::brush_cmds::mixer_live::LiveMixer::begin(&app.session, &p) {
+                        app.ui.status = e.to_string();
+                        app.ui.status_error = true;
+                    }
+                }
+                app.drag = None;
+            }
         }
         ToolEvent::Move { x, y, pressure } => {
             // Polygonal Lasso: ⌥ held while the button is down draws freehand into the polygon;
@@ -4455,6 +4518,36 @@ pub(crate) fn finish_gesture(app: &mut PhotocraftApp, d: Drag) {
         && let Some(st) = app.session.active()
     {
         app.last_stroke_end = Some((st.doc.id, [end[0], end[1]]));
+    }
+    if d.tool == Tool::MixerBrush {
+        // The release can carry a new endpoint, including moves deferred in this frame.
+        // Feed those samples before offering the already-rendered document for commit.
+        app.drag = Some(d);
+        let deferred = std::mem::replace(&mut app.defer_live_stroke, false);
+        feed_live_stroke(app);
+        app.defer_live_stroke = deferred;
+        let Some(d) = app.drag.take() else { return };
+        let live = app.live_stroke.take();
+        if let Some(l) = live {
+            let (doc, key, steps) = (l.doc, l.key, l.damage.len() as u64);
+            if let EngineStroke::Mixer(mixer) = l.stroke {
+                match mixer.prepare_commit(&mut app.session) {
+                    Ok(p) => {
+                        if app.run("paint.mixerBrush", p).is_ok() {
+                            shown_as_document(app, doc, |k| k == 0 || (key..=key + steps).contains(&k));
+                        }
+                    }
+                    Err(e) => {
+                        app.ui.status = e.to_string();
+                        app.ui.status_error = true;
+                    }
+                }
+            }
+        } else {
+            let p = stroke_params(app, d.tool, false, &app.stylus.stroke_points(&d.points));
+            let _ = app.run("paint.mixerBrush", p);
+        }
+        return;
     }
     // A live Clone Stamp preview ends here; the commit below replaces it.
     if live_retouch_command(d.tool).is_some() || crate::retouch_ui::dab_params(app, d.tool).is_some() {
@@ -5588,6 +5681,104 @@ mod tests {
             let egui::ImageData::Color(image) = &upload.image;
             assert_eq!(image.pixels, crate::channel_view::render(&original, &app.session.documents()[0].channel_view, original.bounds(), 1, false).unwrap());
             delta.clear();
+        }
+    }
+
+    #[test]
+    fn mixer_drag_shows_actual_mixed_paint_before_release_and_alt_never_paints() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width":120,"height":60,"background":"#00ff00"})).unwrap();
+        app.run("layer.new.layer", json!({})).unwrap();
+        app.run("tools.setColors", json!({"foreground":"#ff0000"})).unwrap();
+        app.run("tools.setBrush", json!({"brush":{"size":16,"mixer":{"wet":1.0,"mix":0.7},"smoothing":{"amount":0.0}}})).unwrap();
+        app.ui.tool = Tool::MixerBrush;
+        let before = app.session.active().unwrap().doc.clone();
+        let count = app.session.active().unwrap().history.past_len();
+        let alt = egui::Modifiers { alt: true, ..Default::default() };
+        tool_event(&mut app, ToolEvent::Down { x: 30.0, y: 30.0, pressure: 1.0 }, alt);
+        tool_event(&mut app, ToolEvent::Move { x: 35.0, y: 30.0, pressure: 1.0 }, egui::Modifiers::NONE);
+        tool_event(&mut app, ToolEvent::Up { x: 35.0, y: 30.0 }, egui::Modifiers::NONE);
+        assert!(app.drag.is_none());
+        assert!(app.session.tools.mixer.spatial.is_some());
+        assert!(std::sync::Arc::ptr_eq(&before, &app.session.active().unwrap().doc));
+        app.run("brush.mixer.load", json!({})).unwrap();
+        tool_event(&mut app, ToolEvent::Down { x: 20.0, y: 30.0, pressure: 1.0 }, egui::Modifiers::NONE);
+        tool_event(&mut app, ToolEvent::Move { x: 70.0, y: 30.0, pressure: 0.6 }, egui::Modifiers::NONE);
+        assert!(app.live_stroke.is_some());
+        let shown = display_doc(&mut app, 0).0;
+        let id = app.session.active().unwrap().active_layer.unwrap();
+        let pixel = shown.layer(id).unwrap().surface().unwrap().rgba(45, 30);
+        assert!(pixel[0] > 0.0 && pixel[1] > 0.0 && pixel[3] > 0.0, "actual red/green mixture {pixel:?}");
+        assert!(std::sync::Arc::ptr_eq(&before, &app.session.active().unwrap().doc));
+        assert_eq!(app.session.active().unwrap().history.past_len(), count);
+        tool_event(&mut app, ToolEvent::Up { x: 70.0, y: 30.0 }, egui::Modifiers::NONE);
+        let st = app.session.active().unwrap();
+        assert_eq!(st.history.past_len(), count + 1);
+        assert_eq!(
+            shown.layer(id).unwrap().surface().unwrap().read_region(before.bounds()),
+            st.doc.layer(id).unwrap().surface().unwrap().read_region(before.bounds())
+        );
+        app.session.undo();
+        assert_eq!(app.session.active().unwrap().doc.layer(id).unwrap().surface().unwrap().rgba(45, 30)[3], 0.0);
+    }
+
+    #[test]
+    fn mixer_release_includes_a_new_endpoint_and_deferred_frame_samples() {
+        for deferred in [false, true] {
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+            app.run("file.new", json!({"width":120,"height":60,"background":"#00ff00"})).unwrap();
+            app.run("layer.new.layer", json!({})).unwrap();
+            app.run("tools.setBrush", json!({"size":12,"pressureSize":false})).unwrap();
+            app.ui.tool = Tool::MixerBrush;
+            let before = app.session.active().unwrap().doc.clone();
+            let m = egui::Modifiers::NONE;
+            tool_event(&mut app, ToolEvent::Down { x: 20.0, y: 30.0, pressure: 1.0 }, m);
+            app.defer_live_stroke = deferred;
+            tool_event(&mut app, ToolEvent::Move { x: 50.0, y: 30.0, pressure: 1.0 }, m);
+            tool_event(&mut app, ToolEvent::Up { x: 95.0, y: 30.0 }, m);
+            let doc = app.session.active().unwrap().doc.clone();
+            let id = app.session.active().unwrap().active_layer.unwrap();
+            assert!(doc.layer(id).unwrap().surface().unwrap().rgba(92, 30)[3] > 0.0);
+            let params = app.session.journal.iter().rev().find(|(name, _)| name == "paint.mixerBrush").unwrap().1.clone();
+            app.run("edit.undo", json!({})).unwrap();
+            assert_eq!(*app.session.active().unwrap().doc, *before);
+            app.run("paint.mixerBrush", params).unwrap();
+            assert_eq!(*app.session.active().unwrap().doc, *doc);
+        }
+    }
+
+    #[test]
+    fn mixer_escape_focus_loss_and_tool_switch_cancel_without_an_edit() {
+        for mode in 0..3 {
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+            app.run("file.new", json!({"width":120,"height":60,"background":"#00ff00"})).unwrap();
+            app.run("layer.new.layer", json!({})).unwrap();
+            app.ui.tool = Tool::MixerBrush;
+            let before = app.session.active().unwrap().doc.clone();
+            let steps = app.session.active().unwrap().history.past_len();
+            tool_event(&mut app, ToolEvent::Down { x: 30.0, y: 30.0, pressure: 1.0 }, egui::Modifiers::NONE);
+            assert!(app.live_stroke.is_some());
+            let ctx = egui::Context::default();
+            let mut raw = egui::RawInput { focused: mode != 1, ..Default::default() };
+            if mode == 0 {
+                raw.events.push(egui::Event::Key {
+                    key: egui::Key::Escape,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                });
+            }
+            if mode == 2 {
+                app.ui.tool = Tool::Brush;
+            }
+            ctx.begin_pass(raw);
+            assert!(cancel_mixer_on_context_change(&mut app, &ctx));
+            let _ = ctx.end_pass();
+            tool_event(&mut app, ToolEvent::Up { x: 30.0, y: 30.0 }, egui::Modifiers::NONE);
+            assert!(app.drag.is_none() && app.live_stroke.is_none());
+            assert!(std::sync::Arc::ptr_eq(&before, &app.session.active().unwrap().doc));
+            assert_eq!(app.session.active().unwrap().history.past_len(), steps);
         }
     }
 

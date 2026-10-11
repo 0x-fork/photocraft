@@ -112,6 +112,36 @@ fn alt_click_with_the_brush_samples_the_foreground() {
 }
 
 #[test]
+fn mixer_alt_click_samples_the_tip_through_zoomed_rotated_canvas_input() {
+    for (zoom, rotation) in [(0.5, 0.0), (1.0, 0.0), (2.0, 30.0)] {
+        let mut app = two_colours();
+        app.run("layer.new.layer", json!({})).unwrap();
+        app.run("tools.setBrush", json!({"brush":{"size":24,"roundness":0.4,"hardness":1.0,"pressureSize":false,"mixer":{"wet":0.0,"mix":0.0}}})).unwrap();
+        let mut h = harness(app);
+        h.state_mut().ui.tool = Tool::MixerBrush;
+        h.state_mut().ui.views[0].zoom = zoom;
+        h.state_mut().ui.views[0].rotation = rotation;
+        h.run_steps(2);
+        let before = h.state().session.active().unwrap().doc.clone();
+        let steps = h.state().session.active().unwrap().history.past_len();
+        click(&mut h, 100.0, 50.0, Modifiers::ALT);
+        let state = &h.state().session.tools.mixer;
+        let load = state.spatial.as_ref().expect("Alt loads a spatial brush tip");
+        assert!(load.iter().any(|c| c[0] > 0.9 && c[1] < 0.1 && c[3] > 0.9));
+        assert!(load.iter().any(|c| c[1] > 0.9 && c[0] < 0.1 && c[3] > 0.9));
+        assert!(std::sync::Arc::ptr_eq(&before, &h.state().session.active().unwrap().doc));
+        assert_eq!(h.state().session.active().unwrap().history.past_len(), steps);
+        click(&mut h, 40.0, 50.0, Modifiers::NONE);
+        let st = h.state().session.active().unwrap();
+        let surface = st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap();
+        assert!(surface.rgba(34, 50)[0] > 0.9 && surface.rgba(46, 50)[1] > 0.9, "loaded halves follow document coordinates at {zoom}x/{rotation}°");
+        assert_eq!(st.history.past_len(), steps + 1);
+        assert!(crate::alt_grab::alt_click_tool(Tool::MixerBrush, Modifiers::ALT));
+        assert!(!crate::alt_grab::alt_click_tool(Tool::MixerBrush, Modifiers::ALT | Modifiers::CTRL));
+    }
+}
+
+#[test]
 fn alt_click_sets_the_clone_source_and_a_drag_paints_it() {
     let mut h = harness(two_colours());
     h.state_mut().ui.tool = Tool::CloneStamp;

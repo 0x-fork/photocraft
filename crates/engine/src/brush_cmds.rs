@@ -8,7 +8,7 @@
 
 use photocraft_doc::LayerContent;
 use photocraft_geom::Rect;
-use photocraft_paint::mixer::{MixerSettings, apply_mixer_stroke};
+use photocraft_paint::mixer::MixerSettings;
 use photocraft_paint::replace::{Limits, ReplaceMode, ReplaceSettings, Sampling, apply_color_replacement};
 use photocraft_paint::{BrushPreset, BrushSettings, GrayTile, Stroke, StrokePoint, StrokeRenderer, TipShape, render_stroke};
 use photocraft_raster::Surface;
@@ -546,51 +546,9 @@ fn pct(p: &Value, k: &str, d: f32) -> f32 {
     num(p, k).unwrap_or(d).clamp(0.0, 100.0) / 100.0
 }
 
+pub mod mixer_live;
 fn mixer_brush(s: &mut Session, p: &Value) -> Result<Value> {
-    let cmd = "paint.mixerBrush";
-    let pts = parse_points(p, cmd)?;
-    let brush = resolve_brush(s, p, cmd)?;
-    // The brush's Mixer Brush options, overridden by the scalar params.
-    let bm = &brush.mixer;
-    let m = MixerSettings {
-        wet: pct(p, "wet", bm.wet * 100.0),
-        load: pct(p, "load", bm.load * 100.0),
-        mix: pct(p, "mix", bm.mix * 100.0),
-        flow: pct(p, "flow", bm.flow * 100.0),
-        sample_all_layers: flag(p, "sampleAllLayers", bm.sample_all_layers),
-    };
-    let sample_all = m.sample_all_layers;
-    let (clean, load_after) = (flag(p, "cleanAfterStroke", true), flag(p, "loadAfterStroke", true));
-    let mut state = s.tools.mixer.clone();
-    if load_after || state.reservoir.is_none() {
-        state.load(color(p.get("color"), s.tools.foreground));
-    }
-    let id = if crate::channel_cmds::is_channel_target(p) { None } else { Some(layer_id(s, p)?) };
-    let stroke = Stroke { brush, points: pts };
-    let dmg = s.edit("Mixer Brush", |doc, _| {
-        let sel = doc.selection.clone();
-        let sample = if sample_all {
-            let ds = photocraft_paint::dabs(&stroke);
-            let ctx = photocraft_paint::BrushContext::new(&stroke.brush);
-            let area = ds.iter().fold(Rect::EMPTY, |r, d| r.union(&ctx.dab_rect(d, false)));
-            let buf = photocraft_compose::render(doc, area);
-            let mut surf = Surface::new(photocraft_color::PixelFormat::RGBA32F);
-            let flat: Vec<f32> = buf.px.iter().flatten().copied().collect();
-            if !area.is_empty() {
-                surf.write_region(area, &flat);
-            }
-            Some(surf)
-        } else {
-            None
-        };
-        let (surf, lock) = crate::channel_cmds::target_surface(doc, id, p)?;
-        Ok(apply_mixer_stroke(surf, sample.as_ref(), &stroke, &m, &mut state, sel.as_ref(), lock))
-    })?;
-    if clean {
-        state.clean();
-    }
-    s.tools.mixer = state;
-    Ok(damage_json(s, dmg))
+    mixer_live::run(s, p)
 }
 
 fn color_replacement(s: &mut Session, p: &Value) -> Result<Value> {
@@ -919,6 +877,16 @@ macro_rules! spec {
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         spec!(
+            "brush.mixer.sample",
+            "Sample Mixer Brush",
+            r#"{"points":[[x,y,pressure?,tiltX?,tiltY?,rotation?]],"sampleAllLayers":bool=brush setting,"size":px?,"target":"pixels"|"mask"|"quickMask"|{"channel":i}}"#,
+            |s| s.active().map(|_| ()).ok_or_else(|| "no document".into()),
+            mixer_live::sample,
+            true
+        ),
+        spec!("brush.mixer.load", "Load Mixer Brush", r##"{"color":"#rrggbb"?=foreground}"##, always, mixer_live::load, true),
+        spec!("brush.mixer.clean", "Clean Mixer Brush", "{}", always, mixer_live::clean, true),
+        spec!(
             "paint.pencil",
             "Pencil",
             r##"{"points":[[x,y,pressure?,tiltX?,tiltY?,rotation?,timeMs?,wheel?],…],"brush":{…}?,"preset":name?,"size":0.5..5000 px?,"opacity":0..1?,"color":"#rrggbb"?=foreground,"mode":"normal|multiply|screen|…"="normal","erase":bool?,"block":bool=false (a hard 16×16 screen-px square, 16/zoom doc px; size, opacity, flow, hardness and dynamics ignored: the Eraser's Block mode),"zoom":view zoom=1,"autoErase":bool=false,"seed":u64?,"target":"pixels"|"mask"|"quickMask"|{"channel":i}=Channels panel target}"##,
@@ -929,7 +897,7 @@ pub fn specs() -> Vec<CommandSpec> {
         spec!(
             "paint.mixerBrush",
             "Mixer Brush",
-            r##"{"points":[…],"brush":{…}?,"preset":name?,"size":0.5..5000 px?,"wet":0..100=brush.mixer.wet,"load":0..100=brush.mixer.load,"mix":0..100=brush.mixer.mix,"flow":0..100=brush.mixer.flow,"color":"#rrggbb"?=foreground,"sampleAllLayers":bool=brush.mixer.sampleAllLayers,"cleanAfterStroke":bool=true,"loadAfterStroke":bool=true,"seed":u64?}"##,
+            r##"{"points":[…] (max 65536 samples, 2048px per segment),"brush":{…}?,"preset":name?,"size":0.5..512 px?,"wet":0..100=brush.mixer.wet,"load":0..100=brush.mixer.load,"mix":0..100=brush.mixer.mix,"flow":0..100=brush.mixer.flow,"color":"#rrggbb"?=foreground,"sampleAllLayers":bool=brush.mixer.sampleAllLayers,"cleanAfterStroke":bool=brush.mixer.cleanAfterStroke,"loadAfterStroke":bool=brush.mixer.reloadAfterStroke,"seed":u64?,"mixerState":{reservoir,amount,pickup,spatial} (optional captured replay state; spatial is null or 4096 RGBA colors)}"##,
             has_paintable,
             mixer_brush,
             true
@@ -962,3 +930,6 @@ pub fn specs() -> Vec<CommandSpec> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod mixer_live_tests;
