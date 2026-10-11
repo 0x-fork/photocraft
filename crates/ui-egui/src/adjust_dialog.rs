@@ -176,7 +176,12 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, fields: &mut Map<String,
         ui.add_space(4.0);
     }
     let mut values = crate::filter_dialog::params_of(fields);
-    let active = app.session.active().and_then(|s| s.active_layer);
+    let active = fields
+        .get("__smartFilter")
+        .and_then(|f| f.get("layer"))
+        .and_then(Value::as_u64)
+        .map(photocraft_doc::LayerId)
+        .or_else(|| app.session.active().and_then(|s| s.active_layer));
     let gray = app.session.active().is_some_and(|s| adjust_editors::is_gray(s.doc.mode));
     let hist = match active {
         Some(id) if adjust_editors::needs_histogram(&kind) => Some(tone::histograms(app, HistSource::Layer(id), adjust_editors::space_of(&values))),

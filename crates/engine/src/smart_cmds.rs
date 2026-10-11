@@ -278,8 +278,11 @@ pub fn stack_image(file_name: &str, bytes: &[u8], fmt: PixelFormat, mode: photoc
 
 // ---------- rendering ----------
 
-/// `top` blended over `base` with `mode` at `opacity` (a smart filter's blending options).
+/// Mix a filter's result with its input, without stacking the same pixel coverage twice.
 fn blend_surfaces(base: &Surface, top: &Surface, mode: BlendMode, opacity: f32) -> Surface {
+    if opacity <= 0.0 {
+        return base.clone();
+    }
     let fmt = base.format();
     let area = base.content_bounds().union(&top.content_bounds());
     let mut out = base.clone();
@@ -290,7 +293,25 @@ fn blend_surfaces(base: &Surface, top: &Surface, mode: BlendMode, opacity: f32) 
     let (b, t) = (base.read_region(area), top.read_region(area));
     let mut o = vec![0.0f32; b.len()];
     for ((bp, tp), op) in b.chunks_exact(n).zip(t.chunks_exact(n)).zip(o.chunks_exact_mut(n)) {
-        let rgba = photocraft_color::blend::composite(mode, photocraft_raster::to_rgba(&fmt, bp), photocraft_raster::to_rgba(&fmt, tp), opacity);
+        let b = photocraft_raster::to_rgba(&fmt, bp);
+        let t = photocraft_raster::to_rgba(&fmt, tp);
+        let cb = [b[0], b[1], b[2]];
+        let ct = [t[0], t[1], t[2]];
+        let color = if fmt.sample == photocraft_color::SampleType::F32 {
+            photocraft_color::blend::blend_rgb_hdr(mode, cb, ct)
+        } else {
+            photocraft_color::blend::blend_rgb(mode, cb, ct)
+        };
+        // A filter edits this surface, rather than adding a second source-over layer. Mix
+        // premultiplied results so alpha-preserving filters keep coverage at every opacity,
+        // while filters that actually change coverage (e.g. blur) interpolate it too.
+        let a = b[3] + (t[3] - b[3]) * opacity;
+        let mut rgba = [0.0, 0.0, 0.0, a];
+        if a > 0.0 {
+            for c in 0..3 {
+                rgba[c] = (cb[c] * b[3] * (1.0 - opacity) + color[c] * t[3] * opacity) / a;
+            }
+        }
         photocraft_raster::from_rgba_into(&fmt, rgba, op);
     }
     out.write_region(area, &o);

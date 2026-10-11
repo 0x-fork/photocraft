@@ -7,6 +7,41 @@ const DEPTHS: [u64; 3] = [8, 16, 32];
 const W: i32 = 64;
 const H: i32 = 48;
 
+#[test]
+fn filter_strength_preserves_alpha_and_interpolates_changed_coverage() {
+    for sample in photocraft_color::SampleType::ALL {
+        let fmt = PixelFormat { mode: photocraft_color::ColorMode::Rgb, sample, alpha: true };
+        let mut base = Surface::new(fmt);
+        let mut filtered = Surface::new(fmt);
+        base.fill_rect(Rect::new(0, 0, 1, 1), &[0.2, 0.4, 0.6, 0.5]);
+        filtered.fill_rect(Rect::new(0, 0, 1, 1), &[0.8, 0.6, 0.4, 0.5]);
+        let before = base.pixel(0, 0);
+        let after = filtered.pixel(0, 0);
+        let tolerance = match sample {
+            photocraft_color::SampleType::U8 => 1.0 / 255.0,
+            photocraft_color::SampleType::U16 => 1.0 / 65535.0,
+            photocraft_color::SampleType::F32 => 1e-6,
+        };
+        for opacity in [0.0, 0.01, 0.5, 1.0] {
+            for mode in [BlendMode::Normal, BlendMode::Multiply, BlendMode::Luminosity] {
+                let mixed = blend_surfaces(&base, &filtered, mode, opacity).pixel(0, 0);
+                assert!((mixed[3] - before[3]).abs() <= tolerance);
+                if mode == BlendMode::Normal {
+                    for c in 0..3 {
+                        assert!((mixed[c] - (before[c] + (after[c] - before[c]) * opacity)).abs() <= tolerance);
+                    }
+                }
+            }
+        }
+        filtered.fill_rect(Rect::new(0, 0, 1, 1), &[0.8, 0.6, 0.4, 0.0]);
+        let mixed = blend_surfaces(&base, &filtered, BlendMode::Normal, 0.5).pixel(0, 0);
+        assert!((mixed[3] - before[3] * 0.5).abs() <= tolerance);
+        for c in 0..3 {
+            assert!((mixed[c] - before[c]).abs() <= tolerance);
+        }
+    }
+}
+
 fn session(depth: u64) -> Session {
     let mut s = Session::new();
     s.execute("file.new", json!({"width": W, "height": H, "depth": depth})).unwrap();
