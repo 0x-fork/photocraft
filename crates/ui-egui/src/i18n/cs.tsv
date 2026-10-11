@@ -2578,3 +2578,10 @@ cameraData	Lens	Objektiv
 	Click to place · Alt-click or drag off-canvas to remove	Kliknutím umístíte · Alt-kliknutím nebo přetažením mimo plátno odeberete
 	No document open	Není otevřen žádný dokument
 	{n} of {max} sample points	{n} z {max} bodů měření
+
+# History panel menu (#2966)
+	Step Forward	Krok vpřed
+	Step Backward	Krok zpět
+	Clear History	Vymazat historii
+	New Snapshot…	Nový snímek…
+	History Options…	Volby historie…

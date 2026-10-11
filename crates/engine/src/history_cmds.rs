@@ -73,7 +73,7 @@ fn new_document(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn can_delete(s: &Session) -> std::result::Result<(), String> {
-    s.active().filter(|d| d.history.can_undo()).map(|_| ()).ok_or_else(|| "the oldest state can't be deleted".into())
+    s.active().filter(|d| d.history.past_len() > 0).map(|_| ()).ok_or_else(|| "the oldest state can't be deleted".into())
 }
 
 fn has_doc(s: &Session) -> std::result::Result<(), String> {

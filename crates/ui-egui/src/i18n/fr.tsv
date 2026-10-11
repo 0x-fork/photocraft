@@ -2987,3 +2987,7 @@ cameraData	Lens	Objectif
 	Click to place · Alt-click or drag off-canvas to remove	Cliquez pour placer · Alt-clic ou glisser hors du canevas pour supprimer
 	No document open	Aucun document ouvert
 	{n} of {max} sample points	{n} sur {max} points d'échantillonnage
+
+# History panel menu (#2966)
+	New Snapshot…	Nouvel instantané…
+	History Options…	Options d'historique…

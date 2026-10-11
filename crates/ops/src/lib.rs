@@ -50,7 +50,20 @@ pub struct History {
     current_label: String,
     /// The layers targeted when the current document was created (opened or edited).
     current_layers: LayerTarget,
+    /// The states History panel › Clear History took off the list, kept so the next undo puts
+    /// them back (Clear History is itself undoable). Any new step drops them.
+    cleared: Option<Box<Cleared>>,
 }
+
+/// The undo and redo states [`History::clear_states`] removed.
+#[derive(Clone, Debug)]
+struct Cleared {
+    undo: VecDeque<HistoryState>,
+    redo: Vec<HistoryState>,
+}
+
+/// The undo label of the step [`History::clear_states`] adds (Edit › Undo Clear History).
+pub const CLEAR_HISTORY_LABEL: &str = "Clear History";
 
 impl Default for History {
     fn default() -> Self {
@@ -68,6 +81,7 @@ impl History {
             max_bytes: 0,
             current_label: "Open".into(),
             current_layers: LayerTarget::default(),
+            cleared: None,
         }
     }
 
@@ -80,6 +94,7 @@ impl History {
         if let Some(tiles) = &mut self.tiles {
             tiles.add(&before);
         }
+        self.cleared = None;
         let prev_label = std::mem::replace(&mut self.current_label, label.into());
         let prev_layers = std::mem::replace(&mut self.current_layers, layers);
         self.undo.push_back(HistoryState { label: prev_label, doc: before, layers: prev_layers });
@@ -94,12 +109,15 @@ impl History {
     }
 
     pub fn can_undo(&self) -> bool {
-        !self.undo.is_empty()
+        !self.undo.is_empty() || self.cleared.is_some()
     }
     pub fn can_redo(&self) -> bool {
         !self.redo.is_empty()
     }
     pub fn undo_label(&self) -> Option<&str> {
+        if self.cleared.is_some() {
+            return Some(CLEAR_HISTORY_LABEL);
+        }
         self.can_undo().then_some(self.current_label.as_str())
     }
     pub fn redo_label(&self) -> Option<&str> {
@@ -119,6 +137,14 @@ impl History {
     /// Undo: `current` becomes redoable; returns the document to make current and the layers it
     /// targeted when it was created.
     pub fn undo(&mut self, current: Arc<Document>) -> Option<(Arc<Document>, LayerTarget)> {
+        // Undo Clear History: the cleared states come back; the document doesn't change.
+        if let Some(cleared) = self.cleared.take() {
+            let Cleared { undo, redo } = *cleared;
+            self.undo = undo;
+            self.redo = redo;
+            self.tiles = None;
+            return Some((current, self.current_layers.clone()));
+        }
         let prev = self.undo.pop_back()?;
         if let Some(tiles) = &mut self.tiles {
             tiles.remove(&prev.doc);
@@ -168,6 +194,9 @@ impl History {
     /// last step can no longer be undone and its pixels are released.
     pub fn purge_last(&mut self) -> bool {
         self.clear_redo();
+        if self.cleared.take().is_some() {
+            return true;
+        }
         let Some(state) = self.undo.pop_back() else { return false };
         if let Some(tiles) = &mut self.tiles {
             tiles.remove(&state.doc);
@@ -189,6 +218,27 @@ impl History {
         self.undo.clear();
         self.redo.clear();
         self.tiles = None;
+        self.cleared = None;
+    }
+
+    /// History panel › Clear History: take every state but the current one off the list without
+    /// changing the document. Unlike [`Self::clear`] (Edit › Purge › Histories) it is undoable:
+    /// the next [`Self::undo`] puts the states back, and the next recorded step forgets them.
+    /// Returns false (and changes nothing) when the current state is the only one.
+    pub fn clear_states(&mut self) -> bool {
+        if self.undo.is_empty() && self.redo.is_empty() {
+            return false;
+        }
+        let undo = std::mem::take(&mut self.undo);
+        let redo = std::mem::take(&mut self.redo);
+        self.cleared = Some(Box::new(Cleared { undo, redo }));
+        self.tiles = None;
+        true
+    }
+
+    /// Whether the last change to the list was Clear History (so undo restores the states).
+    pub fn is_cleared(&self) -> bool {
+        self.cleared.is_some()
     }
 
     /// Approximate unique pixel bytes held by history (tiles not shared with `current`).
@@ -529,5 +579,48 @@ mod tests {
         h.record("B", before, LayerTarget::default());
         assert_eq!(h.trim(&current), 1, "current alone exceeds the budget; only the mandatory undo survives");
         assert_counter(&h, &current);
+    }
+
+    #[test]
+    fn clear_states_keeps_the_document_and_undo_brings_the_list_back() {
+        let mut h = History::new(10);
+        let mut cur = Arc::new(base());
+        edit(&mut h, &mut cur, "A", |d| d.name = "a".into());
+        edit(&mut h, &mut cur, "B", |d| d.name = "b".into());
+        edit(&mut h, &mut cur, "C", |d| d.name = "c".into());
+        let (d, _) = h.undo(cur.clone()).unwrap();
+        cur = d;
+        let entries = h.entries();
+        assert_eq!(entries, ["Open", "A", "B"]);
+        assert!(h.clear_states());
+        assert_eq!(h.entries(), ["B"], "only the current state is left");
+        assert!(!h.can_redo() && h.can_undo() && h.is_cleared());
+        assert_eq!(h.undo_label(), Some(CLEAR_HISTORY_LABEL));
+        assert!(!h.clear_states(), "nothing left to clear");
+        assert!(h.is_cleared(), "and the cleared states are still held");
+        let (d, _) = h.undo(cur.clone()).unwrap();
+        assert!(Arc::ptr_eq(&d, &cur), "undoing Clear History doesn't change the document");
+        assert_eq!(h.entries(), entries);
+        assert_eq!(h.redo_labels().collect::<Vec<_>>(), ["C"], "the redo state is back too");
+        assert!(!h.is_cleared());
+    }
+
+    #[test]
+    fn a_new_step_or_purge_forgets_the_cleared_states() {
+        let mut h = History::new(10);
+        let mut cur = Arc::new(base());
+        edit(&mut h, &mut cur, "A", |d| d.name = "a".into());
+        assert!(h.clear_states());
+        edit(&mut h, &mut cur, "B", |d| d.name = "b".into());
+        assert_eq!(h.entries(), ["A", "B"]);
+        assert!(!h.is_cleared());
+        assert!(h.undo(cur.clone()).is_some());
+        assert!(!h.can_undo(), "the cleared states are gone");
+        let mut h = History::new(10);
+        edit(&mut h, &mut cur, "A", |d| d.name = "a".into());
+        assert!(h.clear_states());
+        assert!(h.purge_last());
+        assert!(!h.can_undo() && !h.is_cleared());
+        assert!(!h.clear_states(), "a single state can't be cleared");
     }
 }

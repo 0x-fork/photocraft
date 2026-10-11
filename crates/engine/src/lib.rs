@@ -51,6 +51,7 @@ pub mod group_view_cmds;
 pub mod guide_layout;
 pub mod hidden_target;
 pub mod history_cmds;
+pub mod history_menu_cmds;
 pub mod image_cmds;
 pub mod inspect;
 pub mod jobs;
