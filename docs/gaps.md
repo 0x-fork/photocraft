@@ -1,6 +1,6 @@
 # Where PhotoCraft falls short of Photoshop
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-10 · **Change:** major (first version: every known shortfall ranked, from the 2026-10-10 re-measure) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** minor (G8: kerning and the Warp Text preview are done) · **Target:** Adobe Photoshop 2026
 
 Every known shortfall against Photoshop 2026 (27.11.0), one entry each, ranked by user impact
 on the way to beta. This is the work list agents pick from: take the highest-ranked entry that
@@ -78,10 +78,11 @@ what an agent can't finish alone.
 ### G8. Type depth
 - **Missing:** type on a path (TYPE-218-1), paragraph direction UI (TYPE-218-2), complex-script
   fallback fonts and golden tests (TYPE-218-3), variable-font axes (TYPE-218-4), OpenType panel
-  UI (TYPE-218-5), manual and optical kerning with PSD round trip (TYPE-218-6, #206), live Warp
-  Text preview (TYPE-218-7, #2689), triple/quadruple click (TYPE-218-8), "rasterize and continue"
-  for distort/perspective on type (TYPE-218-9), text free transform (#2630).
-- **Evidence:** scorecard Type: 0 done, 3 partial, 6 missing. The Type tool froze the app for
+  UI (TYPE-218-5), triple/quadruple click (TYPE-218-8), "rasterize and continue" for
+  distort/perspective on type (TYPE-218-9), text free transform (#2630). Done since the
+  re-measure: manual and optical kerning with PSD round trip (TYPE-218-6, #206) and the live Warp
+  Text preview that opens with the layer's warp (TYPE-218-7, #2689).
+- **Evidence:** scorecard Type: 2 done, 4 partial, 3 missing (2026-10-11). The Type tool froze the app for
   60 s on one macOS machine (#2518).
 - **Estimate:** 120–200 h.
 
@@ -212,5 +213,6 @@ what an agent can't finish alone.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-11 | minor | G8 Type depth: manual/optical kerning (TYPE-218-6) and the live Warp Text preview (TYPE-218-7) moved to done; scorecard Type evidence updated to 2/4/3 |
 | 2026-10-10 | minor | Checked against the alpha gate (no alpha blockers); #2374 marked closed |
 | 2026-10-10 | major | First version, from the full re-measure against Photoshop 2026 27.11.0 and the open issues |
