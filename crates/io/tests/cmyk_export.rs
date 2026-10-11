@@ -1,5 +1,5 @@
 //! A CMYK document is written to flat formats as CMYK with its own profile whatever its layers
-//! (#2220), mixing Normal pixel layers on their ink values so opaque pixels keep their exact inks.
+//! (#2220), mixing layers on their ink values so opaque pixels keep their exact inks.
 
 use std::sync::Arc;
 
@@ -107,19 +107,38 @@ fn transparency_is_kept_in_tiff_and_composited_over_paper_in_jpeg() {
 }
 
 #[test]
+fn multiply_adds_inks_exactly() {
+    // Multiply darkens: each ink of the result is b + s − b·s, with no ink the layers don't have.
+    let mut d = layered(SampleType::U16);
+    let mut m = fill(SampleType::U16, true, &[(Rect::new(0, 0, 12, 8), [0.0, 0.5, 0.0, 0.0, 1.0])]);
+    m.blend = BlendMode::Multiply;
+    d.layers.push(m);
+    let r = export(&d, "a.tif", &ExportOptions::default()).unwrap_or_else(|e| panic!("{e}"));
+    assert!(!r.warnings.iter().any(|w| w.contains("converted back")), "{:?}", r.warnings);
+    let img = decode(&r.bytes);
+    assert_eq!(img.layout(), ChannelLayout::Cmyk);
+    let mul = |b: f32, s: f32| b + s - b * s;
+    let close = |a: &[f32], b: [f32; 4]| a.iter().zip(b).all(|(x, y)| (x - y).abs() <= 1e-4);
+    let (k, rich, paper) = (pixel(&img, 2, 3), pixel(&img, 8, 1), pixel(&img, 8, 6));
+    assert!(close(&k, [0.0, 0.5, 0.0, 1.0]), "{k:?}");
+    assert!(close(&rich, [0.2, mul(0.4, 0.5), 0.6, 0.1]), "{rich:?}");
+    assert!(close(&paper, [0.0, 0.5, 0.0, 0.0]), "{paper:?}");
+}
+
+#[test]
 fn other_stacks_stay_cmyk_through_the_profile() {
-    // A Multiply layer isn't composited on ink values (yet): the RGB composite is converted back.
+    // Hue mixes channels, so it isn't composited on ink values: the RGB composite is converted back.
     let mut d = layered(SampleType::U8);
     let mut m = fill(SampleType::U8, true, &[(Rect::new(0, 0, 12, 8), [0.0, 0.5, 0.0, 0.0, 1.0])]);
-    m.blend = BlendMode::Multiply;
+    m.blend = BlendMode::Hue;
     d.layers.push(m);
     let r = export(&d, "a.tif", &ExportOptions::default()).unwrap_or_else(|e| panic!("{e}"));
     assert!(r.warnings.iter().any(|w| w.contains("converted back through the document's CMYK profile")), "{:?}", r.warnings);
     let img = decode(&r.bytes);
     assert_eq!(img.layout(), ChannelLayout::Cmyk);
     assert_eq!(img.icc.as_deref(), d.icc_profile.as_deref().map(|v| &v[..]));
-    // Multiplying magenta over paper adds magenta ink; it doesn't empty the page.
-    assert!(pixel(&img, 8, 6)[1] > 0.3, "{:?}", pixel(&img, 8, 6));
+    // Magenta's hue on the four-colour patch shifts its colour; the page still has ink.
+    assert!(pixel(&img, 2, 3)[3] > 0.5, "{:?}", pixel(&img, 2, 3));
 }
 
 #[test]

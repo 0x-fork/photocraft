@@ -111,8 +111,72 @@ fn over_text(b: Cmyka, s: Cmyka, opacity: f32) -> Cmyka {
     o
 }
 
-fn over_layer(l: &Layer, b: Cmyka, s: Cmyka, opacity: f32) -> Cmyka {
-    if matches!(l.content, LayerContent::Text(_)) { over_text(b, s, opacity) } else { over(b, s, opacity) }
+/// The blended ink of one channel: the blend function on brightness, back to ink.
+fn ref_blend(mode: BlendMode, b: f32, s: f32) -> f32 {
+    1.0 - crate::psblend::blend_rgb(mode, [1.0 - b; 3], [1.0 - s; 3])[0]
+}
+
+/// The general compositing formula (W3C / PDF), written out on each ink.
+fn over_mode(mode: BlendMode, b: Cmyka, s: Cmyka, opacity: f32, text: bool) -> Cmyka {
+    if mode == BlendMode::Normal {
+        return if text { over_text(b, s, opacity) } else { over(b, s, opacity) };
+    }
+    let sa = s[4] * opacity;
+    if sa <= 0.0 {
+        return b;
+    }
+    let a = sa + b[4] * (1.0 - sa);
+    if a <= 0.0 {
+        return [0.0; 5];
+    }
+    let gamma = if text { crate::psblend::text_gamma() } else { 1.0 };
+    let enc = |ink: f32| photocraft_color::convert::srgb_to_linear((1.0 - ink).max(0.0)).powf(1.0 / gamma);
+    let dec = |v: f32| 1.0 - photocraft_color::convert::linear_to_srgb(v.max(0.0).powf(gamma));
+    let (wb, ws, wbs) = ((1.0 - sa) * b[4] / a, (1.0 - b[4]) * sa / a, sa * b[4] / a);
+    let mut o = [0.0; 5];
+    for i in 0..4 {
+        let m = ref_blend(mode, b[i], s[i]);
+        o[i] = if text { dec(wb * enc(b[i]) + ws * enc(s[i]) + wbs * enc(m)) } else { wb * b[i] + ws * s[i] + wbs * m };
+    }
+    o[4] = a;
+    o
+}
+
+/// `l` onto the backdrop in its blend mode (Dissolve: every pixel shown fully or not at all).
+fn over_layer(l: &Layer, b: Cmyka, s: Cmyka, opacity: f32, at: Option<(i32, i32)>) -> Cmyka {
+    if let (BlendMode::Dissolve, Some((x, y))) = (l.blend, at) {
+        let shown = crate::dissolve_noise(x, y) < s[4] * opacity;
+        return over(b, [s[0], s[1], s[2], s[3], if shown { 1.0 } else { 0.0 }], 1.0);
+    }
+    over_mode(l.blend, b, s, opacity, matches!(l.content, LayerContent::Text(_)))
+}
+
+/// Photoshop's special eight below 100% Fill, written out on each ink: the source pulled toward
+/// the mode's neutral colour is blended at full strength (`psblend::blend_rgb_fill`, on
+/// brightness), Opacity is its coverage over the backdrop, Fill × Opacity over nothing.
+fn over_special_fill(l: &Layer, b: Cmyka, s: Cmyka) -> Cmyka {
+    let f = l.fill_opacity.clamp(0.0, 1.0);
+    let over = s[4] * l.opacity;
+    if over <= 0.0 {
+        return b;
+    }
+    let a = b[4] + (1.0 - b[4]) * over * f;
+    if a <= 0.0 {
+        return [0.0; 5];
+    }
+    let text = matches!(l.content, LayerContent::Text(_));
+    let gamma = crate::psblend::text_gamma();
+    let enc = |v: f32| if text { photocraft_color::convert::srgb_to_linear(v.max(0.0)).powf(1.0 / gamma) } else { v };
+    let dec = |v: f32| if text { photocraft_color::convert::linear_to_srgb(v.max(0.0).powf(gamma)) } else { v };
+    let (wb, wbs, ws) = (b[4] * (1.0 - over) / a, b[4] * over / a, (1.0 - b[4]) * over * f / a);
+    let mut o = [0.0; 5];
+    for i in 0..4 {
+        let (bb, sb) = (1.0 - b[i], 1.0 - s[i]);
+        let m = crate::psblend::blend_rgb_fill(l.blend, [bb; 3], [sb; 3], f)[0];
+        o[i] = 1.0 - dec(wb * enc(bb) + wbs * enc(m) + ws * enc(sb));
+    }
+    o[4] = a;
+    o
 }
 
 fn ref_stack(layers: &[Layer], x: i32, y: i32, mut b: Cmyka) -> Cmyka {
@@ -162,11 +226,15 @@ fn ref_layer(l: &Layer, clipped: &[Layer], x: i32, y: i32, b: Cmyka) -> Cmyka {
     for c in clipped.iter().filter(|c| c.visible) {
         if content[4] > 0.0 {
             let a = content[4];
-            let r = over_layer(c, [content[0], content[1], content[2], content[3], 1.0], ref_own(c, x, y), c.opacity * c.fill_opacity);
+            let r = over_layer(c, [content[0], content[1], content[2], content[3], 1.0], ref_own(c, x, y), c.opacity * c.fill_opacity, None);
             content = [r[0], r[1], r[2], r[3], a];
         }
     }
-    over_layer(l, b, content, op)
+    // A layer's own blend (not a group's) for the special eight below 100% Fill.
+    if l.fill_opacity < 1.0 && crate::psblend::fill_is_special(l.blend) && !matches!(l.content, LayerContent::Group(_)) {
+        return over_special_fill(l, b, content);
+    }
+    over_layer(l, b, content, op, Some((x, y)))
 }
 
 fn assert_matches_reference(d: &Document) {
@@ -260,8 +328,9 @@ fn unsupported_documents_fall_back() {
         }
         assert!(supports(&d), "hidden {what}");
     };
-    check("multiply", &|l| l.blend = BlendMode::Multiply);
-    check("dissolve", &|l| l.blend = BlendMode::Dissolve);
+    check("hue", &|l| l.blend = BlendMode::Hue);
+    check("luminosity", &|l| l.blend = BlendMode::Luminosity);
+    check("lighter colour", &|l| l.blend = BlendMode::LighterColor);
     check("knockout", &|l| l.advanced.knockout = Knockout::Shallow);
     check("channels", &|l| l.excluded_channels = 1);
     check("nan opacity", &|l| l.opacity = f32::NAN);
@@ -353,8 +422,8 @@ struct Spec {
 
 #[derive(Debug, Clone)]
 enum LayerSpec {
-    Pixels { kind: Kind, fills: Vec<(Rect, Cmyka)>, opacity: f32, fill: f32, clipped: bool, visible: bool, mask: Option<MaskSpec> },
-    Group { children: Vec<LayerSpec>, pass_through: bool, opacity: f32, fill: f32, mask: Option<MaskSpec> },
+    Pixels { kind: Kind, blend: BlendMode, fills: Vec<(Rect, Cmyka)>, opacity: f32, fill: f32, clipped: bool, visible: bool, mask: Option<MaskSpec> },
+    Group { children: Vec<LayerSpec>, pass_through: bool, blend: BlendMode, opacity: f32, fill: f32, mask: Option<MaskSpec> },
 }
 
 /// What kind of layer a [`LayerSpec::Pixels`] becomes: its pixels as a pixel layer, as a type or
@@ -373,6 +442,14 @@ struct MaskSpec {
     default: f32,
     density: f32,
     enabled: bool,
+}
+
+/// Every blend mode this path composites natively, Normal most often.
+fn blend_mode() -> impl Strategy<Value = BlendMode> {
+    prop_oneof![
+        6 => Just(BlendMode::Normal),
+        1 => prop::sample::select(SEPARABLE.to_vec()),
+    ]
 }
 
 fn unit() -> impl Strategy<Value = f32> {
@@ -403,9 +480,11 @@ fn pixels(w: i32, h: i32) -> impl Strategy<Value = LayerSpec> {
         prop::bool::weighted(0.9),
         mask_spec(w, h),
         prop_oneof![Just(Kind::Raster), Just(Kind::Text), Just(Kind::Shape), Just(Kind::Solid)],
+        blend_mode(),
     )
-        .prop_map(|(fills, opacity, fill, clipped, visible, mask, kind)| LayerSpec::Pixels {
+        .prop_map(|(fills, opacity, fill, clipped, visible, mask, kind, blend)| LayerSpec::Pixels {
             kind,
+            blend,
             fills: fills.into_iter().map(|(r, (c, m, y, k, a))| (r, [c, m, y, k, a])).collect(),
             opacity,
             fill,
@@ -417,8 +496,8 @@ fn pixels(w: i32, h: i32) -> impl Strategy<Value = LayerSpec> {
 
 fn layer_spec(w: i32, h: i32) -> impl Strategy<Value = LayerSpec> {
     pixels(w, h).prop_recursive(3, 12, 4, move |inner| {
-        (prop::collection::vec(inner, 1..4), any::<bool>(), unit(), prop_oneof![Just(1.0f32), unit()], mask_spec(w, h))
-            .prop_map(move |(children, pass_through, opacity, fill, mask)| LayerSpec::Group { children, pass_through, opacity, fill, mask })
+        (prop::collection::vec(inner, 1..4), any::<bool>(), unit(), prop_oneof![Just(1.0f32), unit()], mask_spec(w, h), blend_mode())
+            .prop_map(move |(children, pass_through, opacity, fill, mask, blend)| LayerSpec::Group { children, pass_through, blend, opacity, fill, mask })
     })
 }
 
@@ -429,7 +508,7 @@ fn spec() -> impl Strategy<Value = Spec> {
 fn build(s: &LayerSpec) -> Layer {
     let make_mask = |m: &MaskSpec| mask(&m.rects, m.default, m.density, m.enabled);
     match s {
-        LayerSpec::Pixels { kind, fills, opacity, fill, clipped, visible, mask } => {
+        LayerSpec::Pixels { kind, blend, fills, opacity, fill, clipped, visible, mask } => {
             let pixels = layer(fills);
             let mut l = match kind {
                 Kind::Raster => pixels,
@@ -442,12 +521,13 @@ fn build(s: &LayerSpec) -> Layer {
                 }
             };
             (l.opacity, l.fill_opacity, l.clipped, l.visible) = (*opacity, *fill, *clipped, *visible);
+            l.blend = *blend;
             l.mask = mask.as_ref().map(make_mask);
             l
         }
-        LayerSpec::Group { children, pass_through, opacity, fill, mask } => {
+        LayerSpec::Group { children, pass_through, blend, opacity, fill, mask } => {
             let mut g = Layer::group("g", children.iter().map(build).collect());
-            g.blend = if *pass_through { BlendMode::PassThrough } else { BlendMode::Normal };
+            g.blend = if *pass_through { BlendMode::PassThrough } else { *blend };
             (g.opacity, g.fill_opacity) = (*opacity, *fill);
             g.mask = mask.as_ref().map(make_mask);
             g
@@ -625,4 +705,180 @@ fn uncached_gradient_fills_are_cmyk_ramps() {
         assert_eq!(p.to_vec(), want.pixel(x, y), "({x},{y})");
     }
     assert!(got.px[0][0] > got.px[7][0] && got.px[0][3] < got.px[7][3], "cyan to black");
+}
+
+// ---- stage 3: blend modes on ink values --------------------------------------------------------
+
+const ALL_MODES: [BlendMode; 34] = [
+    BlendMode::PassThrough,
+    BlendMode::Normal,
+    BlendMode::Dissolve,
+    BlendMode::Darken,
+    BlendMode::Multiply,
+    BlendMode::ColorBurn,
+    BlendMode::LinearBurn,
+    BlendMode::DarkerColor,
+    BlendMode::Lighten,
+    BlendMode::Screen,
+    BlendMode::ColorDodge,
+    BlendMode::LinearDodge,
+    BlendMode::LighterColor,
+    BlendMode::Overlay,
+    BlendMode::SoftLight,
+    BlendMode::HardLight,
+    BlendMode::VividLight,
+    BlendMode::LinearLight,
+    BlendMode::PinLight,
+    BlendMode::HardMix,
+    BlendMode::Difference,
+    BlendMode::Exclusion,
+    BlendMode::Subtract,
+    BlendMode::Divide,
+    BlendMode::Hue,
+    BlendMode::Saturation,
+    BlendMode::Color,
+    BlendMode::Luminosity,
+    BlendMode::Reflect,
+    BlendMode::Glow,
+    BlendMode::Negation,
+    BlendMode::Xor,
+    BlendMode::PaintNetColorBurn,
+    BlendMode::PaintNetColorDodge,
+];
+
+/// The modes [`separable`] accepts, besides Normal.
+const SEPARABLE: [BlendMode; 27] = [
+    BlendMode::Dissolve,
+    BlendMode::Darken,
+    BlendMode::Multiply,
+    BlendMode::ColorBurn,
+    BlendMode::LinearBurn,
+    BlendMode::Lighten,
+    BlendMode::Screen,
+    BlendMode::ColorDodge,
+    BlendMode::LinearDodge,
+    BlendMode::Overlay,
+    BlendMode::SoftLight,
+    BlendMode::HardLight,
+    BlendMode::VividLight,
+    BlendMode::LinearLight,
+    BlendMode::PinLight,
+    BlendMode::HardMix,
+    BlendMode::Difference,
+    BlendMode::Exclusion,
+    BlendMode::Subtract,
+    BlendMode::Divide,
+    BlendMode::Reflect,
+    BlendMode::Glow,
+    BlendMode::Negation,
+    BlendMode::Xor,
+    BlendMode::PaintNetColorBurn,
+    BlendMode::PaintNetColorDodge,
+    BlendMode::Normal,
+];
+
+/// Every mode treated as per-channel really is: a channel's result depends only on that
+/// channel's values (checked on many inputs), so applying it to each ink is exact. The modes left
+/// to the RGB compositor really do mix channels.
+#[test]
+fn separable_modes_are_channel_by_channel() {
+    let mut seed = 0x2545_f491_4f6c_dd1du64;
+    let mut r = || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        (seed >> 40) as f32 / (1u64 << 24) as f32
+    };
+    for mode in ALL_MODES {
+        let mut mixes = false;
+        for _ in 0..2000 {
+            let (b, s) = ([r(), r(), r()], [r(), r(), r()]);
+            let (b2, s2) = ([b[0], r(), r()], [s[0], r(), r()]);
+            let (x, y) = (crate::psblend::blend_rgb(mode, b, s)[0], crate::psblend::blend_rgb(mode, b2, s2)[0]);
+            mixes |= (x - y).abs() > 1e-6 || x.is_nan() != y.is_nan();
+        }
+        // Pass Through is a group behaviour (its pixel formula is Normal's); it's checked apart.
+        if mode != BlendMode::PassThrough {
+            assert_eq!(separable(mode), !mixes, "{mode:?}");
+        }
+        assert_eq!(SEPARABLE.contains(&mode), separable(mode), "{mode:?} list");
+    }
+}
+
+/// Opaque layers over opaque paper in common modes give the inks worked out by hand.
+#[test]
+fn blend_modes_give_the_expected_inks() {
+    type Ink = fn(f32, f32) -> f32;
+    let cases: [(BlendMode, Ink); 7] = [
+        (BlendMode::Multiply, |b, s| b + s - b * s), // darker: inks add up
+        (BlendMode::Screen, |b, s| b * s),           // lighter: inks thin out
+        (BlendMode::Darken, f32::max),
+        (BlendMode::Lighten, f32::min),
+        (BlendMode::Difference, |b, s| 1.0 - (b - s).abs()),
+        (BlendMode::LinearBurn, |b, s| (b + s).min(1.0)),
+        (BlendMode::LinearDodge, |b, s| (b + s - 1.0).max(0.0)),
+    ];
+    let inks = [0.0, 0.2, 0.5, 0.8, 1.0];
+    for (mode, want) in cases {
+        for (bi, si) in inks.iter().flat_map(|b| inks.iter().map(move |s| (*b, *s))) {
+            let mut d = doc(1, 1);
+            d.layers.push(paper(1, 1, [bi, 0.0, bi, si]));
+            let mut l = layer(&[(Rect::new(0, 0, 1, 1), [si, si, 0.0, bi, 1.0])]);
+            l.blend = mode;
+            d.layers.push(l);
+            let got = render_cmyk(&d, d.bounds()).unwrap_or_else(|| panic!("supported"))[0];
+            let (b, s) = (q(bi), q(si));
+            let exp = [want(b, s), want(0.0, s), want(b, 0.0), want(s, b), 1.0];
+            assert!(got.iter().zip(exp).all(|(g, e)| (g - e).abs() < 1e-5), "{mode:?} b={b} s={s}: {got:?} vs {exp:?}");
+        }
+    }
+}
+
+impl std::ops::Index<usize> for CmykBuffer {
+    type Output = Cmyka;
+    fn index(&self, i: usize) -> &Cmyka {
+        &self.px[i]
+    }
+}
+
+/// Dissolve shows a pixel fully or not at all, with the RGB compositor's noise: coverage is
+/// either the layer's full ink or untouched paper, and agrees pixel for pixel with the RGB one.
+#[test]
+fn dissolve_matches_the_rgb_compositors_pixels() {
+    let mut d = doc(16, 16);
+    d.layers.push(paper(16, 16, [0.0; 4]));
+    let mut l = layer(&[(Rect::new(0, 0, 16, 16), [0.0, 0.0, 0.0, 1.0, 0.4])]);
+    l.blend = BlendMode::Dissolve;
+    d.layers.push(l);
+    let got = render_cmyk(&d, d.bounds()).unwrap_or_else(|| panic!("supported"));
+    let rgb = crate::render(&d, d.bounds());
+    let mut shown = 0;
+    for (c, r) in got.px.iter().zip(&rgb.px) {
+        assert!(*c == [0.0, 0.0, 0.0, 1.0, 1.0] || *c == [0.0, 0.0, 0.0, 0.0, 1.0], "{c:?}");
+        // Paper is white on screen; a shown pixel is the K100's dark colour.
+        assert_eq!(c[3] == 1.0, r[0] < 0.5, "{c:?} vs {r:?}");
+        shown += usize::from(c[3] == 1.0);
+    }
+    assert!((60..150).contains(&shown), "about 40% of 256 shown: {shown}");
+}
+
+/// Photoshop's special eight: Fill below 100% is part of the blend, not coverage. Difference at
+/// 50% Fill subtracts half the source's brightness, where 50% coverage would mix the full
+/// difference in by half (the RGB compositor does the same per channel). An ink neither side
+/// has comes out at 50%: the half-pulled source differs from the paper by half.
+#[test]
+fn fill_is_part_of_the_blend_for_the_special_eight() {
+    let mut d = doc(1, 1);
+    d.layers.push(paper(1, 1, [0.7, 0.0, 0.0, 0.0]));
+    let mut l = layer(&[(Rect::new(0, 0, 1, 1), [0.1, 0.0, 0.0, 0.0, 1.0])]);
+    l.blend = BlendMode::Difference;
+    l.fill_opacity = 0.5;
+    d.layers.push(l);
+    let got = render_cmyk(&d, d.bounds()).unwrap_or_else(|| panic!("supported"))[0];
+    let inside = |bi: f32, si: f32| 1.0 - ((1.0 - bi) - 0.5 * (1.0 - si)).abs();
+    let want = [inside(q(0.7), q(0.1)), inside(0.0, 0.0), inside(0.0, 0.0), inside(0.0, 0.0), 1.0];
+    assert!(got.iter().zip(want).all(|(g, w)| (g - w).abs() < 1e-5), "{got:?} vs {want:?}");
+    let (b, s) = (1.0 - q(0.7), 1.0 - q(0.1));
+    let as_coverage = 1.0 - (0.5 * b + 0.5 * (b - s).abs());
+    assert!((want[0] - as_coverage).abs() > 0.2, "the two readings differ");
 }
