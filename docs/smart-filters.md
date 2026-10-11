@@ -46,6 +46,10 @@ large-image performance budgets.
 
 Filter opacity interpolates premultiplied input and filtered results, so
 alpha-preserving filters retain translucent coverage at partial strength. This
-is scoped to Smart Filters; global layer compositing is unchanged. Dissolve
+also applies to Normal mode when a filter changes coverage. Non-Normal modes
+use source-over compositing when the filtered surface changes alpha, preserving
+input-only and filtered-only pixels around blur edges. The choice applies to
+the whole filtered surface. This is scoped to Smart Filters; global layer
+compositing is unchanged. Dissolve
 currently follows the inherited Smart Filter color-blending path without
 per-pixel coverage sampling; exact Dissolve parity remains a separate task.

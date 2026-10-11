@@ -23,7 +23,7 @@ fn filter_strength_preserves_alpha_and_interpolates_changed_coverage() {
             photocraft_color::SampleType::F32 => 1e-6,
         };
         for opacity in [0.0, 0.01, 0.5, 1.0] {
-            for mode in [BlendMode::Normal, BlendMode::Multiply, BlendMode::Luminosity] {
+            for mode in [BlendMode::Normal, BlendMode::Multiply, BlendMode::Screen, BlendMode::Luminosity] {
                 let mixed = blend_surfaces(&base, &filtered, mode, opacity).pixel(0, 0);
                 assert!((mixed[3] - before[3]).abs() <= tolerance);
                 if mode == BlendMode::Normal {
@@ -38,6 +38,39 @@ fn filter_strength_preserves_alpha_and_interpolates_changed_coverage() {
         assert!((mixed[3] - before[3] * 0.5).abs() <= tolerance);
         for c in 0..3 {
             assert!((mixed[c] - before[c]).abs() <= tolerance);
+        }
+    }
+}
+
+#[test]
+fn non_normal_coverage_changes_retain_source_over_semantics() {
+    for sample in photocraft_color::SampleType::ALL {
+        let fmt = PixelFormat { mode: photocraft_color::ColorMode::Rgb, sample, alpha: true };
+        let mut base = Surface::new(fmt);
+        let mut filtered = Surface::new(fmt);
+        // Input-only, output-only, opaque input with blurred output, and a
+        // translucent pixel whose alpha happens to be unchanged by this filter.
+        for (x, (ba, ta)) in [(0.5, 0.0), (0.0, 0.5), (1.0, 0.25), (0.5, 0.5)].into_iter().enumerate() {
+            let x = x as i32;
+            base.fill_rect(Rect::new(x, 0, 1, 1), &[0.2, 0.4, 0.6, ba]);
+            filtered.fill_rect(Rect::new(x, 0, 1, 1), &[0.8, 0.6, 0.4, ta]);
+        }
+        for mode in [BlendMode::Screen, BlendMode::Multiply, BlendMode::Luminosity] {
+            for opacity in [0.0, 0.01, 0.5, 1.0] {
+                let mixed = blend_surfaces(&base, &filtered, mode, opacity);
+                for x in 0..4 {
+                    if opacity == 0.0 {
+                        assert_eq!(mixed.pixel(x, 0), base.pixel(x, 0));
+                        continue;
+                    }
+                    let b = photocraft_raster::to_rgba(&fmt, &base.pixel(x, 0));
+                    let t = photocraft_raster::to_rgba(&fmt, &filtered.pixel(x, 0));
+                    let expected = photocraft_color::blend::composite(mode, b, t, opacity);
+                    let mut reference = Surface::new(fmt);
+                    reference.fill_rect(Rect::new(x, 0, 1, 1), &expected);
+                    assert_eq!(mixed.pixel(x, 0), reference.pixel(x, 0), "{sample:?} {mode:?} {opacity} x={x}");
+                }
+            }
         }
     }
 }

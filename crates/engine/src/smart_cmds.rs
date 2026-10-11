@@ -291,10 +291,21 @@ fn blend_surfaces(base: &Surface, top: &Surface, mode: BlendMode, opacity: f32) 
     }
     let n = fmt.channels();
     let (b, t) = (base.read_region(area), top.read_region(area));
+    // Alpha-preserving filters edit the same coverage. A non-Normal filter that
+    // changes coverage (e.g. blur) must also retain input-only pixels and admit
+    // filtered-only pixels, as Photoshop's Smart Filter blend oracles require.
+    // Classify the whole result so unchanged pixels do not switch blend rules
+    // independently at the edge of a blur.
+    let composite_coverage = mode != BlendMode::Normal && fmt.alpha && b.chunks_exact(n).zip(t.chunks_exact(n)).any(|(bp, tp)| bp.last() != tp.last());
     let mut o = vec![0.0f32; b.len()];
     for ((bp, tp), op) in b.chunks_exact(n).zip(t.chunks_exact(n)).zip(o.chunks_exact_mut(n)) {
         let b = photocraft_raster::to_rgba(&fmt, bp);
         let t = photocraft_raster::to_rgba(&fmt, tp);
+        if composite_coverage {
+            let rgba = photocraft_color::blend::composite(mode, b, t, opacity);
+            photocraft_raster::from_rgba_into(&fmt, rgba, op);
+            continue;
+        }
         let cb = [b[0], b[1], b[2]];
         let ct = [t[0], t[1], t[2]];
         let color = if fmt.sample == photocraft_color::SampleType::F32 {
@@ -304,7 +315,7 @@ fn blend_surfaces(base: &Surface, top: &Surface, mode: BlendMode, opacity: f32) 
         };
         // A filter edits this surface, rather than adding a second source-over layer. Mix
         // premultiplied results so alpha-preserving filters keep coverage at every opacity,
-        // while filters that actually change coverage (e.g. blur) interpolate it too.
+        // while Normal-mode filters that change coverage interpolate it too.
         let a = b[3] + (t[3] - b[3]) * opacity;
         let mut rgba = [0.0, 0.0, 0.0, a];
         if a > 0.0 {
