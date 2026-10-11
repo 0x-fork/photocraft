@@ -1020,6 +1020,20 @@ impl PhotocraftApp {
         self.session.prefs.edit(|p| p.file_handling.recent_files = r);
     }
 
+    /// Records a picked type family for the font menu's Recent group, capped by
+    /// Preferences ▸ Type ▸ Recent Fonts (0 keeps no list), most recent first, de-duplicated.
+    pub fn note_recent_font(&mut self, family: &str) {
+        let cap = self.session.prefs().type_.recent_fonts.min(50) as usize;
+        let r = &mut self.ui.recent_fonts;
+        r.retain(|f| f != family);
+        if cap == 0 {
+            r.clear();
+            return;
+        }
+        r.insert(0, family.to_string());
+        r.truncate(cap);
+    }
+
     /// File › Open Recent › Clear Recent File List.
     pub fn clear_recent(&mut self) {
         self.ui.recent_files.clear();
