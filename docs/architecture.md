@@ -466,7 +466,8 @@ psd/src/
 
 - **`automation`:** an MCP server built on `rmcp`. Its tool names use underscores (the dotted
   names such as `doc.open` belong to the JSON control protocol, `docs/control-protocol.md`). It exposes:
-  - `session_list`, `doc_open`, `doc_new`, `doc_save`, `doc_export`, `doc_inspect` (layer tree as JSON), `doc_render_preview` (PNG), `doc_select`, `doc_close`.
+  - `session_list`, `doc_open`, `doc_new`, `doc_place` (place from the read root as a Smart Object),
+    `doc_save`, `doc_export`, `doc_inspect` (layer tree as JSON), `doc_render_preview` (PNG), `doc_select`, `doc_close`.
   - `command_list`, `command_run` and `command_batch`, generated from the registry; `jobs_list` and `jobs_cancel` for background jobs.
   - Bridge only (a running app): `ui_inspect`, `ui_screenshot`, `ui_pointer`, `ui_menu_invoke`, `ui_set`, `control_call`. The full list is in `docs/development.md` › MCP.
   - Stdio for agent CLIs, and optionally loopback TCP with a token so it can attach to a running GUI.

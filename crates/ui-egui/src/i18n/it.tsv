@@ -499,6 +499,12 @@
 	Color Range…	Intervallo colori…
 	Focus Area…	Area di messa a fuoco…
 	Select and Mask…	Seleziona e maschera…
+# Select and Mask dialog labels
+	Smart Radius	Raggio avanzato
+	Shift Edge	Sposta bordo
+	Decontaminate	Decontamina
+	Output	Output
+	Refine Edge	Migliora bordo
 	Modify	Modifica
 	Border…	Bordo…
 	Smooth…	Smussa…
@@ -766,6 +772,7 @@
 	Split Warp Horizontally	Dividi altera orizzontalmente
 	Split Warp Vertically	Dividi altera verticalmente
 	Statistics…	Statistiche…
+	Refine Strokes	Tratti di perfezionamento
 @plural	{n} item|{n} items	{n} elemento|{n} elementi
 	Auto	Automatico
 
@@ -900,6 +907,7 @@
 	Click to zoom in  ·  {key}-click to zoom out  ·  drag right/left to zoom in/out	Click per ingrandire · {key}-click per ridurre · trascina dx/sx per zoom
 	Click with the Note tool to add a note.	Fai click con lo strumento Nota per aggiungere una nota.
 	Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel	Click: angolo · Trascina: morbido · Click primo punto: chiudi · {key} termina · Esc annulla
+	Click: corner · Drag: smooth · {alt}-drag: break handle · Click or drag first point: close · {key} finish · Esc cancel	Click: angolo · Trascina: morbido · {alt}+trascina: spezza maniglia · Click o trascina sul primo punto: chiudi · {key} termina · Esc annulla
 	Clip to layer below	Ritaglia al livello sotto
 	Clipped	Ritagliato
 	Close Style Options	Chiudi opzioni stile
@@ -1527,6 +1535,7 @@
 	White Balance: As Shot	Bilanciamento bianco: Come scattato
 	Whites	Bianchi
 	Width	Larghezza
+	Slant	Inclinazione
 	Width:	Larghezza:
 	Work Path	Tracciato di lavoro
 	Yellow	Giallo
@@ -1544,6 +1553,9 @@
 	↑↓ navigate   {key} run   esc close	↑↓ naviga {key} esegui esc chiudi
 	Version {version}	Versione {version}
 	New Document	Nuovo documento
+	New Document With Mask	Nuovo documento con maschera
+	New Layer With Mask	Nuovo livello con maschera
+	New Layer	Nuovo livello
 	Save Preset…	Salva predefinito…
 	Preset Name	Nome del predefinito
 	No saved presets yet.	Nessun predefinito salvato.
@@ -1702,6 +1714,7 @@
 	Pen Pressure	Pressione penna
 	Pen Tilt	Inclinazione penna
 	Pen Tool	Strumento Penna
+	Convert Point Tool	Strumento Converti punto
 	Photo	Foto
 	PhotoCraft website	Sito web PhotoCraft
 	Picas	Pica
@@ -2285,6 +2298,8 @@ cameraRaw	Amount	Quantità
 	Patch Tool	Strumento Toppa
 	Patch:	Toppa:
 	Lasso around an area, then drag the selection	Seleziona un'area con lazo, poi trascina la selezione
+	Transform On Drop	Trasforma al rilascio
+	Scale or rotate the moved area, then press {key}	Ridimensiona o ruota l'area spostata, poi premi {key}
 	Now drag the selection onto another area	Ora trascina la selezione su un'altra area
 	Edit Type	Modifica testo
 
@@ -2613,7 +2628,7 @@ cameraData	Lens	Obiettivo
 	Freeform Pen Tool	Strumento Penna a mano libera
 	Curvature Pen Tool	Strumento Penna curvatura
 	Curve Fit:	Adattamento curva:
-	Drag: draw freehand · Release on the start point: close	Trascina: disegna a mano libera · Rilascia sul punto iniziale: chiudi
+	Drag: draw freehand · {alt}-click: straight segment · Release on the start point: close	Trascina: disegna a mano libera · {alt}-clic: segmento retto · Rilascia sul punto iniziale: chiudi
 	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	Click: punto morbido · Doppio click: angolo · Trascina un punto: sposta · Click primo punto: chiudi · {key} termina
 	New Crop Preset…	Nuovo predefinito di ritaglio…
 	Delete Crop Preset…	Elimina predefinito di ritaglio…
@@ -2625,6 +2640,18 @@ cameraData	Lens	Obiettivo
 	Snap to Origin	Aggancia all'origine
 	Search settings…	Cerca impostazioni…
 	No matching settings	Nessuna impostazione corrispondente
+	Loading fonts…	Caricamento font…
+	Tool	Strumento
+	Simulate Pressure	Simula pressione
+	Stroke Path…	Traccia tracciato…
+	Background Eraser	Gomma per sfondo
+	Healing Brush	Pennello correttivo
+	Spot Healing Brush	Pennello correttivo al volo
+	Smudge	Sfumino
+	Sponge	Spugna
+	Amount:	Quantità:
+	Protect:	Proteggi:
+	Protect skin tones	Proteggi toni pelle
 # Select and Mask view modes (#1754)
 	Onion Skin	Velina
 	Marching Ants	Formiche in marcia
@@ -2634,4 +2661,24 @@ cameraData	Lens	Obiettivo
 	Show Edge	Mostra bordo
 	Show Original	Mostra originale
 	F cycles the views; hold X to see the image	F scorre le viste; tieni premuto X per vedere l'immagine
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	Pennello per migliorare il bordo (R)
+	Expand Detection Area	Espandi area di rilevamento
+	Restore Original Edge	Ripristina bordo originale
+	Paint over hair or fur on the image; Alt paints the other mode	Dipingi su capelli o pelo nell'immagine; Alt dipinge nell'altra modalità
+	Clear Brush Strokes	Cancella tratti del pennello
 	Show rulers	Mostra righelli
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	Fai clic per posizionare · Alt-clic o trascina fuori dalla tela per rimuovere
+	No document open	Nessun documento aperto
+	{n} of {max} sample points	{n} di {max} punti di campionamento
+# Print dialog (#2697)
+	Emulsion Down	Emulsione sotto
+	Functions	Funzioni
+	Print Resolution:	Risoluzione di stampa:
+	Use Previous Layer to Create Clipping Mask	Usa il livello precedente per creare una maschera di ritaglio
+	Fill with {mode}-neutral color (white)	Riempi con il colore neutro di {mode} (bianco)
+	Fill with {mode}-neutral color (black)	Riempi con il colore neutro di {mode} (nero)
+	Fill with {mode}-neutral color (50% gray)	Riempi con il colore neutro di {mode} (grigio 50%)
+	(No neutral color exists for {mode} mode.)	(Non esiste un colore neutro per il metodo {mode}.)

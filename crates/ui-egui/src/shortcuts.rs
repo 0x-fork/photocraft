@@ -147,6 +147,40 @@ pub fn key_matches(sc: &KeyboardShortcut, key: Key, mods: Modifiers) -> bool {
     mods.alt == sc.modifiers.alt && shift_ok && mods.cmd_ctrl_matches(sc.modifiers)
 }
 
+/// Gives a ⇧ press the key its layout's unshifted symbol stands for, where egui can't name what it
+/// typed (#3102). On layouts with a key of its own for `+` (German, Italian, Spanish…) ⇧+ types
+/// `*`, which egui has no key for, so it reports the physical key instead: `]` on German, which
+/// would be ⇧] (Increase Brush Hardness). ⇧- types `_` and arrives as the physical `/`. Such
+/// presses become `+` and `-`, as ⇧= arrives as `+` on a US layout, so ⇧+ / ⇧− step the blend
+/// mode on every layout. A US ⇧] still arrives as `}` and ⇧8 (`*` too) as a digit.
+///
+/// What was typed comes as the text event next to the key press: right after it natively, right
+/// before it on the web.
+fn layout_symbols(ctx: &egui::Context) {
+    use egui::Event;
+    ctx.input_mut(|i| {
+        for at in 0..i.events.len() {
+            let text_at = if cfg!(target_arch = "wasm32") { at.checked_sub(1) } else { at.checked_add(1) };
+            let symbol = match text_at.and_then(|t| i.events.get(t)) {
+                Some(Event::Text(t)) if t == "*" => Key::Plus,
+                Some(Event::Text(t)) if t == "_" => Key::Minus,
+                _ => continue,
+            };
+            if let Some(Event::Key { key, physical_key, pressed: true, modifiers, .. }) = i.events.get_mut(at)
+                && modifiers.shift
+                && !modifiers.command
+                && !modifiers.ctrl
+                && !modifiers.alt
+                // egui fell back to the physical key: it had no name for the typed symbol.
+                && *physical_key == Some(*key)
+                && !matches!(key, Key::Num0 | Key::Num1 | Key::Num2 | Key::Num3 | Key::Num4 | Key::Num5 | Key::Num6 | Key::Num7 | Key::Num8 | Key::Num9)
+            {
+                *key = symbol;
+            }
+        }
+    });
+}
+
 /// Consume a press of `sc` (see [`key_matches`]); true when one was found.
 pub fn consume(ctx: &egui::Context, sc: &KeyboardShortcut) -> bool {
     ctx.input_mut(|i| {
@@ -351,6 +385,7 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
         dispatch_pressed(app, ctx, focus, false);
         return;
     }
+    layout_symbols(ctx);
     // Liquify / Puppet Warp / Perspective Warp: ↩ commits, Esc cancels.
     if crate::distort_ui::keys(app, ctx) {
         return;
@@ -363,6 +398,17 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
         }
         if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
             crate::transform_tool::cancel(app);
+            return;
+        }
+    }
+    // Content-Aware Move's Transform On Drop box: ↩ computes the move, Esc drops it.
+    if crate::cam_transform::active(app) {
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter)) {
+            crate::cam_transform::commit(app);
+            return;
+        }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+            crate::cam_transform::cancel(app);
             return;
         }
     }
@@ -534,6 +580,8 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
     // 1–0 set opacity, ⇧1–0 flow or fill (`opacity_keys`).
     crate::opacity_keys::handle(app, ctx);
+    // ⇧+ / ⇧− step the blend mode (`blend_keys`).
+    crate::blend_keys::handle(app, ctx);
 }
 
 #[cfg(test)]

@@ -21,8 +21,8 @@ mod recovery_tests;
 /// (.kys), which go to the preset libraries and Edit › Keyboard Shortcuts.
 const OPEN_EXTS: &[&str] = &[
     "pcraft", "pdn", "ora", "psd", "psb", "psdt", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "ico", "qoi", "exr", "hdr", "pbm", "pgm",
-    "ppm", "pam", "pfm", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf", "abr", "grd", "svg", "svgz", "aco",
-    "ase", "kys", "af", "afdesign", "afphoto", "afpub",
+    "ppm", "pam", "pfm", "fits", "fit", "fts", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf", "abr", "grd",
+    "svg", "svgz", "aco", "ase", "kys", "af", "afdesign", "afphoto", "afpub",
 ];
 const SVG_EXTS: &[&str] = &["svg", "svgz"];
 
@@ -60,6 +60,7 @@ const SAVE_FILTERS: &[(&str, &[&str])] = &[
     ("TIFF", &["tif"]),
     ("Targa", &["tga"]),
     ("OpenEXR", &["exr"]),
+    ("FITS", &["fits", "fit"]),
 ];
 
 /// Non-document files the shell saves (Swatches panel exports): offered alone, so the dialog
@@ -129,7 +130,11 @@ fn show_file_dialog(request: FileDialogRequest, parent: Option<&eframe::Frame>, 
         }
     };
     // Without the thread the reply is dropped unanswered, which the app takes as Cancel.
-    if let Err(e) = std::thread::Builder::new().name("file dialog".into()).spawn(move || reply.send(block_on(answer))) {
+    if let Err(e) = std::thread::Builder::new().name("file dialog".into()).spawn(move || {
+        // An empty answer from a system with no dialog backend isn't a Cancel (#3354).
+        let answer = block_on(answer).or_else(|| crate::file_dialog_probe::known_problem().map(FileDialogAnswer::Unavailable));
+        reply.send(answer)
+    }) {
         log::error!("couldn't wait for the file dialog: {e}");
     }
 }
@@ -198,6 +203,7 @@ fn export_options(settings: &photocraft_ui_egui::ExportSettings) -> photocraft_i
     opts.tiff_layers = settings.tiff_layers;
     opts.xmp = if settings.xmp_all { photocraft_io::XmpEmbed::All } else { photocraft_io::XmpEmbed::None };
     opts.tga_bits = settings.tga_bits;
+    opts.image_previews = settings.image_previews;
     opts
 }
 

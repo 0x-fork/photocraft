@@ -492,6 +492,11 @@
 	Color Range…	Kleurbereik…
 	Focus Area…	Scherptegebied…
 	Select and Mask…	Selecteren en maskeren…
+# Select and Mask dialog labels
+	Smart Radius	Slimme straal
+	Shift Edge	Rand verschuiven
+	Decontaminate	Verontreiniging verwijderen
+	Refine Edge	Rand verfijnen
 	Modify	Wijzigen
 	Border…	Rand…
 	Smooth…	Vloeiend maken…
@@ -752,6 +757,7 @@
 	Split Warp Horizontally	Verbuiging horizontaal splitsen
 	Split Warp Vertically	Verbuiging verticaal splitsen
 	Statistics…	Statistieken…
+	Refine Strokes	Verfijningsstreken
 @plural	{n} item|{n} items	{n} element|{n} elementen
 	Auto	Automatisch
 	(print to the printer)	(naar de printer afdrukken)
@@ -883,6 +889,7 @@
 	Click to zoom in  ·  {key}-click to zoom out  ·  drag right/left to zoom in/out	Klik om in te zoomen  ·  {key}-klik om uit te zoomen  ·  sleep naar rechts/links om in/uit te zoomen
 	Click with the Note tool to add a note.	Klik met het notitiegereedschap om een notitie toe te voegen.
 	Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel	Klik: hoek · Slepen: vloeiend · Klik op eerste punt: sluiten · {key} voltooien · Esc annuleren
+	Click: corner · Drag: smooth · {alt}-drag: break handle · Click or drag first point: close · {key} finish · Esc cancel	Klik: hoek · Slepen: vloeiend · {alt}-slepen: greep breken · Klik of sleep op eerste punt: sluiten · {key} voltooien · Esc annuleren
 	Clip to layer below	Uitknippen naar laag eronder
 	Clipped	Uitgeknipt
 	Close Style Options	Stijlopties sluiten
@@ -1509,6 +1516,7 @@
 	White Balance: As Shot	Witbalans: zoals opgenomen
 	Whites	Witten
 	Width	Breedte
+	Slant	Helling
 	Width:	Breedte:
 	Work Path	Werkpad
 	Yellow	Geel
@@ -1526,6 +1534,8 @@
 	↑↓ navigate   {key} run   esc close	↑↓ navigeren   {key} uitvoeren   esc sluiten
 	Version {version}	Versie {version}
 	New Document	Nieuw document
+	New Document With Mask	Nieuw document met masker
+	New Layer With Mask	Nieuwe laag met masker
 	Save Preset…	Voorinstelling opslaan…
 	Preset Name	Naam voorinstelling
 	No saved presets yet.	Nog geen opgeslagen voorinstellingen.
@@ -1682,6 +1692,7 @@
 	Pen Pressure	Pendruk
 	Pen Tilt	Penkanteling
 	Pen Tool	Pengereedschap
+	Convert Point Tool	Punt-converteergereedschap
 	Photo	Foto
 	PhotoCraft website	Website van PhotoCraft
 	Picas	Pica's
@@ -2218,6 +2229,8 @@
 	Grid:	Raster:
 	Highlight Clipping Warning (O)	Waarschuwing afsnijden hooglichten (O)
 	Lasso around an area, then drag the selection	Trek een lasso rond een gebied en sleep daarna de selectie
+	Transform On Drop	Transformeren bij neerzetten
+	Scale or rotate the moved area, then press {key}	Schaal of draai het verplaatste gebied en druk daarna op {key}
 	Patch:	Lap:
 	Shadow Clipping Warning (U)	Waarschuwing afsnijden schaduwen (U)
 	Show Lab Color Readouts	Lab-kleurwaarden tonen
@@ -3703,7 +3716,7 @@ cameraData	Lens	Lens
 	Freeform Pen Tool	Pengereedschap Vrije vorm
 	Curvature Pen Tool	Pengereedschap Kromming
 	Curve Fit:	Curve aanpassen:
-	Drag: draw freehand · Release on the start point: close	Slepen: uit de vrije hand tekenen · Loslaten op beginpunt: sluiten
+	Drag: draw freehand · {alt}-click: straight segment · Release on the start point: close	Slepen: uit de vrije hand tekenen · {alt}-klik: recht segment · Loslaten op beginpunt: sluiten
 	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	Klik: vloeiend punt · Dubbelklik: hoek · Punt slepen: verplaatsen · Klik op eerste punt: sluiten · {key} voltooien
 	New Crop Preset…	Nieuwe uitsnijvoorinstelling…
 	Delete Crop Preset…	Uitsnijvoorinstelling verwijderen…
@@ -3714,6 +3727,16 @@ cameraData	Lens	Lens
 	Search settings…	Instellingen zoeken…
 	No matching settings	Geen overeenkomende instellingen
 	PhotoCraft — Screen Color Picker	PhotoCraft — Schermkleurkiezer
+	Loading fonts…	Lettertypen laden…
+	Simulate Pressure	Druk simuleren
+	Stroke Path…	Pad omlijnen…
+	Background Eraser	Achtergrondgum
+	Healing Brush	Herstelpenseel
+	Spot Healing Brush	Snel herstelpenseel
+	Smudge	Uitsmeren
+	Amount:	Hoeveelheid:
+	Protect:	Beschermen:
+	Protect skin tones	Huidtinten beschermen
 # Select and Mask view modes (#1754)
 	Onion Skin	Uienschil
 	Marching Ants	Mierenmars
@@ -3723,6 +3746,12 @@ cameraData	Lens	Lens
 	Show Edge	Rand tonen
 	Show Original	Origineel tonen
 	F cycles the views; hold X to see the image	F wisselt de weergaven; houd X ingedrukt om de afbeelding te zien
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	Penseel Rand verfijnen (R)
+	Expand Detection Area	Detectiegebied uitbreiden
+	Restore Original Edge	Oorspronkelijke rand herstellen
+	Paint over hair or fur on the image; Alt paints the other mode	Schilder over haar of vacht in de afbeelding; Alt schildert in de andere modus
+	Clear Brush Strokes	Penseelstreken wissen
 	Show rulers	Linialen tonen
 	Frame Tool	Kadergereedschap
 	Create a new rectangular frame	Nieuw rechthoekig kader maken
@@ -3730,3 +3759,16 @@ cameraData	Lens	Lens
 	Include in playback	Opnemen in afspelen
 	Scale:	Schaal:
 	Snap to Origin	Uitlijnen op oorsprong
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	Klik om te plaatsen · Alt-klik of sleep buiten het canvas om te verwijderen
+	{n} of {max} sample points	{n} van {max} steekproefpunten
+# Print dialog (#2697)
+	Emulsion Down	Emulsie omlaag
+	Functions	Functies
+	Print Resolution:	Afdrukresolutie:
+	Use Previous Layer to Create Clipping Mask	Vorige laag gebruiken om uitknipmasker te maken
+	Fill with {mode}-neutral color (white)	Vullen met neutrale kleur voor {mode} (wit)
+	Fill with {mode}-neutral color (black)	Vullen met neutrale kleur voor {mode} (zwart)
+	Fill with {mode}-neutral color (50% gray)	Vullen met neutrale kleur voor {mode} (50% grijs)
+	(No neutral color exists for {mode} mode.)	(Voor de modus {mode} bestaat geen neutrale kleur.)

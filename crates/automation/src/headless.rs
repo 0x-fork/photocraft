@@ -106,6 +106,34 @@ impl Headless {
         }))
     }
 
+    /// Place a file into a document as a Smart Object layer: the capability-scoped counterpart
+    /// of `file.placeEmbedded`, which reads an ambient path and is therefore refused in
+    /// automation (#2810). `path` resolves beneath the read root the way `open` resolves one,
+    /// and `params` carries the command's own options (`scale`, `fit`, `center`).
+    pub fn place(&mut self, index: Option<usize>, path: &str, params: &Value) -> Result<Value, AutomationError> {
+        let i = self.doc_index(index)?;
+        if self.session.active_index() != Some(i) && !self.session.set_active(i) {
+            return Err(AutomationError::BadRequest(format!("no document at index {i}")));
+        }
+        let mut opts = params.as_object().cloned().unwrap_or_default();
+        opts.insert("path".into(), json!(path));
+        // Where ambient paths are allowed the command reads the file itself, as everywhere else.
+        if matches!(&self.filesystem, Filesystem::TrustedLocal) {
+            return self.command_run("file.placeEmbedded", Value::Object(opts));
+        }
+        let bytes = match &self.filesystem {
+            Filesystem::Workspace(workspace) => workspace.read(path)?,
+            _ => {
+                return Err(AutomationError::BadRequest("automation filesystem access is not granted: read authority is absent".into()));
+            }
+        };
+        let name = Path::new(path).file_name().and_then(|name| name.to_str()).unwrap_or(path);
+        self.sync_jobs();
+        // The bytes are already in memory and the path resolved beneath the root capability, so
+        // placing them needs no filesystem check of its own (`place_bytes` is the command body).
+        Ok(file_cmds::place_bytes(&mut self.session, name, bytes, None, &Value::Object(opts))?)
+    }
+
     /// Save (`.pcraft` or any export format by extension). With no path,
     /// saves to the document's own path.
     pub fn save(&mut self, index: Option<usize>, path: Option<&Path>, format: Option<&str>, opts: &ExportOptions) -> Result<Value, AutomationError> {

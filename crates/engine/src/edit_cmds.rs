@@ -533,7 +533,11 @@ fn transform_again(s: &mut Session) -> Result<Value> {
 fn transform_again_copy(s: &mut Session) -> Result<Value> {
     let p = transform_again_params(s)?;
     let id = active_id(s)?;
-    s.execute("layer.duplicate", json!({"layer": id.0}))?;
+    let journal = s.journal.len();
+    // The steps are recorded (Again on a Copy is not replayable itself): with one layer selected,
+    // "duplicate the current layer" plays back on any document, a layer id only on this one.
+    let dup = if crate::layer_multi_cmds::multi(s, &Value::Null) { json!({"layer": id.0}) } else { json!({}) };
+    s.execute("layer.duplicate", dup)?;
     match s.execute("edit.transform", p) {
         Ok(r) => {
             let st = s.active_mut().ok_or(EngineError::NoDocument)?;
@@ -543,8 +547,9 @@ fn transform_again_copy(s: &mut Session) -> Result<Value> {
         }
         Err(e) => {
             // The copy (e.g. of a layer whose position is locked) couldn't be transformed: take
-            // it back, leaving nothing to redo.
+            // it back, leaving nothing to redo and no Duplicate step to record.
             s.undo();
+            s.journal.truncate(journal);
             if let Some(st) = s.active_mut() {
                 st.history.clear_redo();
             }

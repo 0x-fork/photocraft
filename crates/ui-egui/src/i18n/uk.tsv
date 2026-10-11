@@ -265,6 +265,12 @@
 	Inverse	Інвертувати
 	Color Range…	Колірний діапазон…
 	Select and Mask…	Виділити та маскувати…
+# Select and Mask dialog labels
+	Smart Radius	Розумний радіус
+	Shift Edge	Змістити край
+	Decontaminate	Очистити
+	Output	Вивід
+	Refine Edge	Уточнити край
 	Select Subject	Виділити об'єкт
 	Sky	Небо
 	Focus Area…	Область фокуса…
@@ -285,6 +291,7 @@
 	All Layers	Усі шари
 	Current & Below	Поточний і нижчі
 	Current Layer	Поточний шар
+	Refine Strokes	Штрихи уточнення
 
 # Filter
 	Last Filter	Останній фільтр
@@ -640,6 +647,7 @@
 	Efficiency: 100%	Ефективність: 100%
 	Dimensions:	Розміри:
 	Width	Ширина
+	Slant	Нахил
 	Height	Висота
 	Width:	Ширина:
 	Height:	Висота:
@@ -1496,6 +1504,7 @@
 	Click to add a point · drag off or {key}-click or Delete to remove	Клацніть, щоб додати точку · перетягніть за межі, натисніть {key} і клацніть або натисніть Delete, щоб вилучити
 	Click to apply, {key}-click to clear overrides, double-click for Style Options	Клацніть, щоб застосувати, {key}+клацання, щоб очистити перевизначення, подвійне клацання для параметрів стилю
 	Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel	Клацання: кут · Перетягування: плавна точка · Клацання першої точки: замкнути · {key}: завершити · Esc: скасувати
+	Click: corner · Drag: smooth · {alt}-drag: break handle · Click or drag first point: close · {key} finish · Esc cancel	Клацання: кут · Перетягування: плавна точка · {alt}+перетягування: розбити маркер · Клацання або перетягування першої точки: замкнути · {key}: завершити · Esc: скасувати
 	Commit Perspective Warp ({key})	Підтвердити перспективну деформацію ({key})
 	Commit Puppet Warp ({key})	Підтвердити маріонеткову деформацію ({key})
 	Commit any current edits ({key})	Підтвердити поточні зміни ({key})
@@ -1569,6 +1578,7 @@
 	Quick Selection Tool	Інструмент «Швидке виділення»
 	Object Selection Tool	Інструмент «Виділення об'єкта»
 	Pen Tool	Інструмент «Перо»
+	Convert Point Tool	Інструмент «Перетворення вузла»
 	Path Selection Tool	Інструмент «Виділення контуру»
 	Direct Selection Tool	Інструмент «Пряме виділення»
 	Add Anchor Point Tool	Інструмент «Додати вузол»
@@ -1731,6 +1741,8 @@
 	Divide	Ділення
 	Result	Результат
 	New Document	Новий документ
+	New Document With Mask	Новий документ з маскою
+	New Layer With Mask	Новий шар з маскою
 	Preset Name	Назва набору
 	No saved presets yet.	Збережених наборів ще немає.
 	New Channel	Новий канал
@@ -2452,6 +2464,8 @@ cameraRaw	Roughness	Шорсткість
 	Patch Tool	Інструмент «Латка»
 	Patch:	Латка:
 	Lasso around an area, then drag the selection	Обведіть область ласо, потім перетягніть виділення
+	Transform On Drop	Трансформувати після відпускання
+	Scale or rotate the moved area, then press {key}	Змініть масштаб або поверніть переміщену область, потім натисніть {key}
 	Edit Type	Редагувати текст
 
 
@@ -3639,11 +3653,21 @@ cameraData	Lens	Об'єктив
 	Freeform Pen Tool	Інструмент «Довільне перо»
 	Curvature Pen Tool	Інструмент «Перо кривизни»
 	Curve Fit:	Точність кривої:
-	Drag: draw freehand · Release on the start point: close	Перетягування: малювати від руки · Відпускання на початковій точці: замкнути
+	Drag: draw freehand · {alt}-click: straight segment · Release on the start point: close	Перетягування: малювати від руки · {alt}+клацання: прямий сегмент · Відпускання на початковій точці: замкнути
 	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	Клацання: плавна точка · Подвійне клацання: кут · Перетягування точки: перемістити · Клацання першої точки: замкнути · {key}: завершити
 	Search settings…	Пошук налаштувань…
 	No matching settings	Немає відповідних налаштувань
 	PhotoCraft — Screen Color Picker	PhotoCraft — Піпетка кольору екрана
+	Loading fonts…	Завантаження шрифтів…
+	Simulate Pressure	Імітувати натиск
+	Stroke Path…	Обвести контур…
+	Background Eraser	Фонова гумка
+	Healing Brush	Відновлювальний пензель
+	Spot Healing Brush	Точковий відновлювальний пензель
+	Smudge	Розмазування
+	Amount:	Величина:
+	Protect:	Захистити:
+	Protect skin tones	Захистити тони шкіри
 # Select and Mask view modes (#1754)
 	Onion Skin	Калька
 	Marching Ants	Мурашки
@@ -3653,6 +3677,12 @@ cameraData	Lens	Об'єктив
 	Show Edge	Показати край
 	Show Original	Показати початкове
 	F cycles the views; hold X to see the image	F перемикає види; утримуйте X, щоб побачити зображення
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	Пензель уточнення краю (R)
+	Expand Detection Area	Розширити область виявлення
+	Restore Original Edge	Відновити початковий край
+	Paint over hair or fur on the image; Alt paints the other mode	Малюйте по волоссю чи хутру на зображенні; Alt малює в іншому режимі
+	Clear Brush Strokes	Очистити мазки пензля
 	Show rulers	Показати лінійки
 	Frame Tool	Інструмент «Рамка»
 	Create a new rectangular frame	Створити прямокутну рамку
@@ -3666,3 +3696,17 @@ cameraData	Lens	Об'єктив
 	There is no crop size or ratio to save	Немає розміру чи співвідношення сторін кадрування для збереження
 	Scale:	Масштаб:
 	Snap to Origin	Прив'язати до початку координат
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	Клацніть, щоб розмістити · Alt-клацання або перетягування за межі полотна для видалення
+	No document open	Документ не відкрито
+	{n} of {max} sample points	{n} з {max} точок вимірювання
+# Print dialog (#2697)
+	Emulsion Down	Емульсією донизу
+	Functions	Функції
+	Print Resolution:	Роздільна здатність друку:
+	Use Previous Layer to Create Clipping Mask	Використати попередній шар для створення відсічної маски
+	Fill with {mode}-neutral color (white)	Залити нейтральним кольором режиму «{mode}» (білий)
+	Fill with {mode}-neutral color (black)	Залити нейтральним кольором режиму «{mode}» (чорний)
+	Fill with {mode}-neutral color (50% gray)	Залити нейтральним кольором режиму «{mode}» (50% сірого)
+	(No neutral color exists for {mode} mode.)	(Для режиму «{mode}» немає нейтрального кольору.)

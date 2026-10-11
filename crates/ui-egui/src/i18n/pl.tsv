@@ -498,6 +498,13 @@
 	Color Range…	Zakres kolorów…
 	Focus Area…	Obszar ostrości…
 	Select and Mask…	Zaznacz i maskuj…
+# Select and Mask dialog labels
+	Smart Radius	Inteligentny promień
+	Shift Edge	Przesuń krawędź
+	Decontaminate	Dekontaminacja
+	Output	Wyjście
+	Refine Edge	Popraw krawędź
+	Apply At Canvas Bounds	Zastosuj w granicach obszaru roboczego
 	Modify	Modyfikuj
 	Border…	Obramowanie…
 	Smooth…	Wygładź…
@@ -766,6 +773,7 @@
 	Split Warp Horizontally	Podziel wypaczenie w poziomie
 	Split Warp Vertically	Podziel wypaczenie w pionie
 	Statistics…	Statystyki…
+	Refine Strokes	Pociągnięcia udoskonalania
 @plural	{n} item|{n} items	{n} element|{n} elementy|{n} elementów
 	Auto	Automatycznie
 
@@ -899,6 +907,7 @@
 	Click to zoom in  ·  {key}-click to zoom out  ·  drag right/left to zoom in/out	Kliknij, aby powiększyć  ·  kliknij z {key}, aby pomniejszyć  ·  przeciągnij w prawo/lewo, aby powiększyć/pomniejszyć
 	Click with the Note tool to add a note.	Kliknij narzędziem Notatka, aby dodać notatkę.
 	Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel	Klik: narożnik · Przeciągnięcie: gładki · Klik w pierwszy punkt: zamknij · {key} zakończ · Esc anuluj
+	Click: corner · Drag: smooth · {alt}-drag: break handle · Click or drag first point: close · {key} finish · Esc cancel	Klik: narożnik · Przeciągnięcie: gładki · {alt}+przeciągnięcie: rozdziel uchwyt · Klik lub przeciągnięcie pierwszego punktu: zamknij · {key} zakończ · Esc anuluj
 	Clip to layer below	Przytnij do warstwy poniżej
 	Clipped	Przycięta
 	Close Style Options	Zamknij opcje stylu
@@ -1522,6 +1531,7 @@
 	White Balance: As Shot	Balans bieli: jak w zdjęciu
 	Whites	Biele
 	Width	Szerokość
+	Slant	Pochylenie
 	Width:	Szerokość:
 	Work Path	Ścieżka robocza
 	Yellow	Żółty
@@ -1539,6 +1549,8 @@
 	↑↓ navigate   {key} run   esc close	↑↓ nawigacja   {key} uruchom   esc zamknij
 	Version {version}	Wersja {version}
 	New Document	Nowy dokument
+	New Document With Mask	Nowy dokument z maską
+	New Layer With Mask	Nowa warstwa z maską
 	Preset Name	Nazwa ustawienia wstępnego
 	No saved presets yet.	Nie ma jeszcze zapisanych ustawień wstępnych.
 	Error	Błąd
@@ -1697,6 +1709,7 @@
 	Pen Pressure	Nacisk pióra
 	Pen Tilt	Nachylenie pióra
 	Pen Tool	Narzędzie Pióro
+	Convert Point Tool	Narzędzie Konwertuj punkt
 	Photo	Zdjęcie
 	PhotoCraft website	Strona internetowa PhotoCraft
 	Picas	Pikasy
@@ -2659,6 +2672,8 @@ cameraRaw	Roughness	Chropowatość
 	Patch Tool	Narzędzie Łatka
 	Patch:	Łatka:
 	Lasso around an area, then drag the selection	Zakreśl obszar lassem, a następnie przeciągnij zaznaczenie
+	Transform On Drop	Przekształć po upuszczeniu
+	Scale or rotate the moved area, then press {key}	Przeskaluj lub obróć przeniesiony obszar, a następnie naciśnij {key}
 	Now drag the selection onto another area	Teraz przeciągnij zaznaczenie na inny obszar
 	Edit Type	Edytuj tekst
 	Make Default	Ustaw jako domyślne
@@ -3557,7 +3572,7 @@ cameraData	Lens	Obiektyw
 	Freeform Pen Tool	Narzędzie Pióro dowolne
 	Curvature Pen Tool	Narzędzie Pióro krzywizny
 	Curve Fit:	Dopasowanie krzywej:
-	Drag: draw freehand · Release on the start point: close	Przeciągnięcie: rysowanie odręczne · Puszczenie w punkcie początkowym: zamknij
+	Drag: draw freehand · {alt}-click: straight segment · Release on the start point: close	Przeciągnięcie: rysowanie odręczne · {alt}-klik: prosty segment · Puszczenie w punkcie początkowym: zamknij
 	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	Klik: punkt gładki · Dwuklik: narożnik · Przeciągnięcie punktu: przesuń · Klik w pierwszy punkt: zamknij · {key} zakończ
 	New Crop Preset…	Nowe ustawienie kadrowania…
 	Delete Crop Preset…	Usuń ustawienie kadrowania…
@@ -3569,6 +3584,16 @@ cameraData	Lens	Obiektyw
 	Snap to Origin	Przyciągnij do początku
 	Search settings…	Szukaj ustawień…
 	No matching settings	Brak pasujących ustawień
+	Loading fonts…	Wczytywanie czcionek…
+	Simulate Pressure	Symuluj nacisk
+	Stroke Path…	Obrysuj ścieżkę…
+	Background Eraser	Gumka tła
+	Healing Brush	Pędzel korygujący
+	Spot Healing Brush	Punktowy pędzel korygujący
+	Smudge	Palec
+	Amount:	Wartość:
+	Protect:	Chroń:
+	Protect skin tones	Chroń odcienie skóry
 # Select and Mask view modes (#1754)
 	Onion Skin	Skórka cebuli
 	Marching Ants	Maszerujące mrówki
@@ -3578,4 +3603,24 @@ cameraData	Lens	Obiektyw
 	Show Edge	Pokaż krawędź
 	Show Original	Pokaż oryginał
 	F cycles the views; hold X to see the image	F przełącza widoki; przytrzymaj X, aby zobaczyć obraz
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	Pędzel dopracowania krawędzi (R)
+	Expand Detection Area	Rozszerz obszar wykrywania
+	Restore Original Edge	Przywróć oryginalną krawędź
+	Paint over hair or fur on the image; Alt paints the other mode	Maluj po włosach lub sierści na obrazie; Alt maluje w drugim trybie
+	Clear Brush Strokes	Wyczyść pociągnięcia pędzla
 	Show rulers	Pokaż linijki
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	Kliknij, aby umieścić · Alt-kliknij lub przeciągnij poza obszar roboczy, aby usunąć
+	No document open	Brak otwartego dokumentu
+	{n} of {max} sample points	{n} z {max} punktów próbkowania
+# Print dialog (#2697)
+	Emulsion Down	Emulsja w dół
+	Functions	Funkcje
+	Print Resolution:	Rozdzielczość druku:
+	Use Previous Layer to Create Clipping Mask	Użyj poprzedniej warstwy do utworzenia maski przycinającej
+	Fill with {mode}-neutral color (white)	Wypełnij kolorem neutralnym dla trybu {mode} (biały)
+	Fill with {mode}-neutral color (black)	Wypełnij kolorem neutralnym dla trybu {mode} (czarny)
+	Fill with {mode}-neutral color (50% gray)	Wypełnij kolorem neutralnym dla trybu {mode} (50% szarości)
+	(No neutral color exists for {mode} mode.)	(Dla trybu {mode} nie istnieje kolor neutralny.)

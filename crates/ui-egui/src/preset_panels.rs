@@ -834,7 +834,8 @@ pub fn finish_custom_shape(app: &mut PhotocraftApp, rect: [f64; 4], keep: bool, 
     let name = app.ui.presets_ui.shape().to_string();
     let r = run(app, "shape.presets.place", json!({"preset": name, "rect": rect, "keepAspect": keep, "fill": fill, "stroke": stroke}));
     if r.is_none() && !photocraft_engine::presets::shapes::all_groups(&app.session).iter().any(|g| g.items.iter().any(|s| s.name == name)) {
-        app.ui.status = format!("No custom shape \"{name}\": pick one in the options bar or Window › Shapes");
+        let template = "No custom shape \"{name}\": pick one in the options bar or Window › Shapes";
+        app.ui.status = crate::i18n::fmt(tl!(template), &[("name", &name)]);
     }
 }
 

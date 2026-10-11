@@ -8,6 +8,8 @@
 //! - `engine.execute {command, params?, wait?}` / `engine.commands {filter?}`
 //! - `jobs.list` / `jobs.cancel {job?}`: background jobs (#210)
 //! - `session.list`, `doc.open {path}`, `doc.new {…file.new params}`,
+//!   `doc.place {path, scale?, fit?, center?, index?}` (#2810: the read root is the scope,
+//!   the counterpart of the refused ambient `file.placeEmbedded`),
 //!   `doc.save {path?, format?, quality?, index?}`, `doc.inspect {index?}`,
 //!   `doc.render {index?, maxSide?, path?}` (writes a PNG to `path`, else
 //!   returns it base64-encoded), `doc.select {index}`, `doc.close {index?}`
@@ -37,6 +39,7 @@ pub const METHODS: &[&str] = &[
     "engine.commands",
     "session.list",
     "doc.open",
+    "doc.place",
     "doc.new",
     "doc.save",
     "doc.inspect",
@@ -94,6 +97,14 @@ impl Headless {
             "doc.open" => {
                 let path = str_of(&p, "path").ok_or_else(|| bad("doc.open needs `path`"))?;
                 self.open(&PathBuf::from(path))
+            }
+            "doc.place" => {
+                let path = str_of(&p, "path").ok_or_else(|| bad("doc.place needs `path`"))?;
+                let index = p.get("index").and_then(Value::as_u64).map(|i| i as usize);
+                let mut opts = p.as_object().cloned().unwrap_or_default();
+                opts.remove("path");
+                opts.remove("index");
+                self.place(index, path, &Value::Object(opts))
             }
             "doc.new" => self.command_run("file.new", p),
             "doc.save" => {
@@ -570,6 +581,45 @@ mod tests {
         drop(h);
         std::fs::remove_file(root.join("accepted.png")).unwrap();
         std::fs::remove_dir(root).unwrap();
+    }
+
+    #[test]
+    fn doc_place_reads_through_the_read_root_and_never_outside_it() {
+        let base = std::env::temp_dir().join(format!("pc-doc-place-{}", std::process::id()));
+        let root = base.join("workspace");
+        let outside = base.join("outside");
+        for dir in [&root, &outside] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        let img = photocraft_codecs::Image::from_u8(8, 6, photocraft_codecs::ChannelLayout::Rgb, vec![42; 8 * 6 * 3]).unwrap();
+        let png = photocraft_codecs::encode(&img, photocraft_codecs::Format::Png, &Default::default()).unwrap();
+        std::fs::write(root.join("logo.png"), &png).unwrap();
+        std::fs::write(outside.join("logo.png"), &png).unwrap();
+        let absolute = outside.join("logo.png").to_string_lossy().into_owned();
+
+        let mut h = Headless::with_workspace(crate::AuthorizedWorkspace::new(Some(&root), Some(&root)).unwrap());
+        h.handle("doc.new", json!({"width": 40, "height": 30})).unwrap();
+        let placed = h.handle("doc.place", json!({"path": "logo.png", "scale": 50})).unwrap();
+        assert!(placed["layer"].as_u64().is_some(), "{placed}");
+        assert_eq!(placed["scale"].as_f64(), Some(50.0), "the options reach the command: {placed}");
+        let inspected = h.handle("doc.inspect", json!({})).unwrap();
+        assert_eq!(inspected["layers"].as_array().map(Vec::len), Some(2), "the placed layer is in the document: {inspected}");
+        // A path outside the read root is refused the way the ambient command is (#2810).
+        for (path, reason) in [("../outside/logo.png", "parent traversal"), (absolute.as_str(), "must be inside the automation root")] {
+            let refused = h.handle("doc.place", json!({"path": path})).unwrap_err().to_string();
+            assert!(refused.contains(reason), "{refused}");
+            let inspected = h.handle("doc.inspect", json!({})).unwrap();
+            assert_eq!(inspected["layers"].as_array().map(Vec::len), Some(2), "nothing was placed: {refused}");
+        }
+        // Trusted local keeps the ambient command: that caller may read the path itself.
+        let mut t = Headless::trusted_local();
+        t.handle("doc.new", json!({"width": 40, "height": 30})).unwrap();
+        let trusted = t.handle("doc.place", json!({"path": root.join("logo.png").to_string_lossy()})).unwrap();
+        assert!(trusted["layer"].as_u64().is_some(), "{trusted}");
+        // Release directory capabilities before cleanup on Windows.
+        drop(t);
+        drop(h);
+        std::fs::remove_dir_all(base).unwrap();
     }
 
     #[test]
