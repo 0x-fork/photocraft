@@ -1180,9 +1180,14 @@ fn fs_fxmerge(in: VOut) -> @location(0) vec4<f32> {
     let atop = (op.flags & F_ATOP) != 0u;
     var before = c;
     if (atop) { before = vec4(c.rgb, 1.0); }
-    let o = select(mix_premul(before, w, op.opacity),
-                   select(before, w, dissolve_noise(doc_px(p)) < op.opacity),
-                   op.mode == M_DISSOLVE);
+    var o: vec4<f32>;
+    if (op.mode == M_DISSOLVE) {
+        // Match the CPU effects compositor: opacity gates the completed stack, not
+        // its individual colours or alpha. Use document coordinates across chunks.
+        o = select(before, w, dissolve_noise(doc_px(p)) < op.opacity);
+    } else {
+        o = mix_premul(before, w, op.opacity);
+    }
     if (atop) {
         if (c.a > 0.0) { return vec4(o.rgb, c.a); }
         return c;
