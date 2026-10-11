@@ -883,6 +883,7 @@
 	Click to zoom in  ·  {key}-click to zoom out  ·  drag right/left to zoom in/out	Klik untuk zoom in  ·  {key}-klik untuk zoom out  ·  seret kanan/kiri untuk zoom in/out
 	Click with the Note tool to add a note.	Klik dengan alat Catatan untuk menambah catatan.
 	Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel	Klik: sudut · Seret: halus · Klik titik pertama: tutup · {key} selesai · Esc batal
+	Click: corner · Drag: smooth · {alt}-drag: break handle · Click or drag first point: close · {key} finish · Esc cancel	Klik: sudut · Seret: halus · {alt}+seret: pisahkan pegangan · Klik atau seret titik pertama: tutup · {key} selesai · Esc batal
 	Clip to layer below	Klip ke layer di bawah
 	Clipped	Terklip
 	Close Style Options	Tutup Opsi Gaya
@@ -1521,6 +1522,9 @@
 	↑↓ navigate   {key} run   esc close	↑↓ navigasi   {key} jalankan   esc tutup
 	Version {version}	Versi {version}
 	New Document	Dokumen Baru
+	New Document With Mask	Dokumen Baru dengan Mask
+	New Layer With Mask	Layer Baru dengan Mask
+	New Layer	Layer Baru
 	Preset Name	Nama Preset
 	No saved presets yet.	Belum ada preset tersimpan.
 	Error	Error
@@ -2968,7 +2972,6 @@ cameraData	Lens	Lensa
 	Lock Layers	Kunci Lapisan
 	New Artboard…	Artboard Baru…
 	New Group…	Grup Baru…
-	New Layer	Lapisan Baru
 	Prevent Auto-Nesting	Cegah Pengelompokan Otomatis
 	Show Layers	Tampilkan Lapisan
 	Thumbnail Contents	Isi Gambar Mini
@@ -3000,3 +3003,7 @@ cameraData	Lens	Lensa
 	Click to place · Alt-click or drag off-canvas to remove	Klik untuk menempatkan · Alt-klik atau seret ke luar kanvas untuk menghapus
 	No document open	Tidak ada dokumen yang terbuka
 	{n} of {max} sample points	{n} dari {max} titik sampel
+# Print dialog (#2697)
+	Emulsion Down	Emulsi di Bawah
+	Functions	Fungsi
+	Print Resolution:	Resolusi Cetak:

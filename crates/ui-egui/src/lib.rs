@@ -232,11 +232,14 @@ pub struct ExportSettings {
     /// Targa: bits per pixel from Targa Options or Export As (`None`: 32 with an alpha channel or
     /// transparency, else 24).
     pub tga_bits: Option<photocraft_io::TgaBits>,
+    /// PSD/PSB: embed a thumbnail (Preferences › File Handling › Image Previews; see
+    /// [`PhotocraftApp::save_settings`]).
+    pub image_previews: bool,
 }
 
 impl Default for ExportSettings {
     fn default() -> Self {
-        ExportSettings { jpeg_quality: None, webp_lossless: true, webp_quality: None, tiff_layers: true, xmp_all: true, tga_bits: None }
+        ExportSettings { jpeg_quality: None, webp_lossless: true, webp_quality: None, tiff_layers: true, xmp_all: true, tga_bits: None, image_previews: true }
     }
 }
 
@@ -1265,6 +1268,14 @@ impl PhotocraftApp {
         self.save_as_step(path.to_string(), params.get("tiffLayers").and_then(Value::as_bool), tga_bits)
     }
 
+    /// What a save writes by default under the preferences: File Handling › Image Previews
+    /// decides whether a PSD/PSB gets its thumbnail. Ask When Saving has no Save As checkbox
+    /// here yet, so it saves the preview, as Photoshop's checkbox starts on.
+    pub(crate) fn save_settings(&self) -> ExportSettings {
+        let previews = self.session.prefs().file_handling.image_previews != photocraft_engine::prefs::Ask::Never;
+        ExportSettings { image_previews: previews, ..ExportSettings::default() }
+    }
+
     /// Whether saving the active document to `path` writes a copy. `tiff_layers` is the TIFF
     /// Options answer: `Some(false)` discards the layers and saves a copy.
     fn saves_copy(&self, path: &str, tiff_layers: Option<bool>) -> Result<bool, String> {
@@ -1282,7 +1293,7 @@ impl PhotocraftApp {
     /// pixel (`None`: 32 with an alpha channel or transparency, else 24).
     fn write_save(&mut self, path: String, tiff_layers: Option<bool>, tga_bits: Option<photocraft_io::TgaBits>) -> Result<Value, String> {
         let copy = self.saves_copy(&path, tiff_layers)?;
-        let settings = ExportSettings { tiff_layers: tiff_layers.unwrap_or(ExportSettings::default().tiff_layers), tga_bits, ..Default::default() };
+        let settings = ExportSettings { tiff_layers: tiff_layers.unwrap_or(ExportSettings::default().tiff_layers), tga_bits, ..self.save_settings() };
         match self.write_document(path.clone(), &settings, copy)? {
             Some((path, warnings)) => Ok(serde_json::json!({"path": path, "warnings": warnings})),
             None => Ok(serde_json::json!({"path": path, "warnings": [], "pending": true, "job": self.jobs.last_started.map(|j| j.0)})),
@@ -1387,7 +1398,7 @@ impl PhotocraftApp {
         if self.background_jobs
             && let Some(save) = self.services.automation_save.clone()
         {
-            return match jobs_ui::start_save(self, target.clone(), ExportSettings { tga_bits, ..Default::default() }, false, save, true)? {
+            return match jobs_ui::start_save(self, target.clone(), ExportSettings { tga_bits, ..self.save_settings() }, false, save, true)? {
                 Some((path, warnings)) => Ok(reply(&path, &warnings)),
                 None => {
                     let job = self.jobs.last_started;
@@ -1397,8 +1408,9 @@ impl PhotocraftApp {
         }
         let state = self.session.active().ok_or("no document")?;
         let (doc, revision) = (state.doc.id, state.revision);
+        let settings = ExportSettings { tga_bits, ..self.save_settings() };
         let export = self.services.export.as_ref().ok_or("no exporter configured")?;
-        let (bytes, warnings) = export(&state.doc, &target, &ExportSettings { tga_bits, ..Default::default() })?;
+        let (bytes, warnings) = export(&state.doc, &target, &settings)?;
         let write = self.services.automation_write.as_mut().ok_or("automation write authority is not configured")?;
         write(&target, &bytes)?;
         self.saved_automation(doc, revision, &target, &warnings, false);

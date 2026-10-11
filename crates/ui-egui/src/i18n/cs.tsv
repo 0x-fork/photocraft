@@ -915,6 +915,7 @@
 	Click to zoom in  ·  {key}-click to zoom out  ·  drag right/left to zoom in/out	Kliknutím přiblížíte  ·  {key}+kliknutím oddálíte  ·  tažením doprava/doleva přiblížíte/oddálíte
 	Click with the Note tool to add a note.	Poznámku přidáte kliknutím nástrojem poznámka.
 	Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel	Kliknutí: roh · tažení: hladký bod · kliknutí na první bod: uzavřít · {key} dokončit · Esc zrušit
+	Click: corner · Drag: smooth · {alt}-drag: break handle · Click or drag first point: close · {key} finish · Esc cancel	Kliknutí: roh · tažení: hladký bod · {alt}+tažení: rozdělit úchyt · kliknutí nebo tažení na první bod: uzavřít · {key} dokončit · Esc zrušit
 	Clip to layer below	Oříznout podle vrstvy pod
 	Clipped	Oříznuto
 	Close Style Options	Zavřít možnosti stylu
@@ -1561,6 +1562,9 @@
 	↑↓ navigate   {key} run   esc close	↑↓ pohyb   {key} spustit   esc zavřít
 	Version {version}	Verze {version}
 	New Document	Nový dokument
+	New Document With Mask	Nový dokument s maskou
+	New Layer With Mask	Nová vrstva s maskou
+	New Layer	Nová vrstva
 	Saved	Uložené
 	Save Preset…	Uložit předvolbu…
 	Preset Name	Název předvolby
@@ -2573,7 +2577,6 @@ cameraData	Lens	Objektiv
 	New Artboard…	Nové kreslicí plátno…
 	New Group	Nová skupina
 	New Group…	Nová skupina…
-	New Layer	Nová vrstva
 	New Layer…	Nová vrstva…
 	Panel Options…	Možnosti panelu…
 	Prevent Auto-Nesting	Zabránit automatickému vnoření
@@ -2607,3 +2610,7 @@ cameraData	Lens	Objektiv
 	Click to place · Alt-click or drag off-canvas to remove	Kliknutím umístíte · Alt-kliknutím nebo přetažením mimo plátno odeberete
 	No document open	Není otevřen žádný dokument
 	{n} of {max} sample points	{n} z {max} bodů měření
+# Print dialog (#2697)
+	Emulsion Down	Emulze dolů
+	Functions	Funkce
+	Print Resolution:	Rozlišení tisku:
