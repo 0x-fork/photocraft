@@ -1543,18 +1543,20 @@ enum MetricChoice {
 
 /// Label, editable numeric value and a preset chevron sharing one Character-panel cell.
 /// Returned values follow the same engine-command path as typing into the numeric field.
-fn metric_field(
-    ui: &mut egui::Ui,
-    salt: &str,
-    label: &str,
-    tip: &str,
+struct MetricField<'a> {
+    salt: &'a str,
+    label: &'a str,
+    tip: &'a str,
     value: f32,
     range: std::ops::RangeInclusive<f32>,
-    unit: &str,
+    unit: &'a str,
     width: f32,
-    presets: &[f32],
+    presets: &'a [f32],
     auto_selected: Option<bool>,
-) -> Option<MetricChoice> {
+}
+
+fn metric_field(ui: &mut egui::Ui, field: MetricField<'_>) -> Option<MetricChoice> {
+    let MetricField { salt, label, tip, value, range, unit, width, presets, auto_selected } = field;
     let mut chosen = None;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
@@ -1690,22 +1692,37 @@ fn type_sections(app: &mut PhotocraftApp, ui: &mut egui::Ui, character: bool, pa
         });
         row(ui, &mut |ui| {
             let k = shown_scale(app);
-            if let Some(MetricChoice::Value(v)) = metric_field(ui, "props-font-size-presets", "tT", "Font size", c.size_pt * k, 0.1..=1296.0, "pt", w, SIZE_PRESETS, None) {
+            if let Some(MetricChoice::Value(v)) = metric_field(
+                ui,
+                MetricField {
+                    salt: "props-font-size-presets",
+                    label: "tT",
+                    tip: "Font size",
+                    value: c.size_pt * k,
+                    range: 0.1..=1296.0,
+                    unit: "pt",
+                    width: w,
+                    presets: SIZE_PRESETS,
+                    auto_selected: None,
+                },
+            ) {
                 app.ui.tool_options.type_size = v;
                 apply(app, ui.ctx(), json!({"size": v, "metricsAsShown": true}));
             }
             let lead = c.leading_pt.unwrap_or(c.size_pt * para.auto_leading.max(0.01)) * k;
             match metric_field(
                 ui,
-                "props-leading-presets",
-                "A↕",
-                "Leading (Auto uses font size × auto-leading)",
-                lead,
-                0.1..=5000.0,
-                "pt",
-                w,
-                LEADING_PRESETS,
-                Some(c.leading_pt.is_none()),
+                MetricField {
+                    salt: "props-leading-presets",
+                    label: "A↕",
+                    tip: "Leading (Auto uses font size × auto-leading)",
+                    value: lead,
+                    range: 0.1..=5000.0,
+                    unit: "pt",
+                    width: w,
+                    presets: LEADING_PRESETS,
+                    auto_selected: Some(c.leading_pt.is_none()),
+                },
             ) {
                 Some(MetricChoice::Value(v)) => apply(app, ui.ctx(), json!({"leading": v, "metricsAsShown": true})),
                 Some(MetricChoice::Auto) => apply(app, ui.ctx(), json!({"leading": "auto"})),
@@ -1722,7 +1739,20 @@ fn type_sections(app: &mut PhotocraftApp, ui: &mut egui::Ui, character: bool, pa
                 }
             });
             if let Some(MetricChoice::Value(v)) =
-                metric_field(ui, "props-tracking-presets", "VA", "Tracking (1/1000 em)", c.tracking, -1000.0..=10000.0, "", w, TRACKING_PRESETS, None)
+                metric_field(
+                    ui,
+                    MetricField {
+                        salt: "props-tracking-presets",
+                        label: "VA",
+                        tip: "Tracking (1/1000 em)",
+                        value: c.tracking,
+                        range: -1000.0..=10000.0,
+                        unit: "",
+                        width: w,
+                        presets: TRACKING_PRESETS,
+                        auto_selected: None,
+                    },
+                )
             {
                 apply(app, ui.ctx(), json!({"tracking": v}));
             }
