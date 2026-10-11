@@ -153,7 +153,8 @@ Wayland's fractional scale or X11's `Xft.dpi`). Only when the system reports no 
 a 4K or larger monitor does Auto use 200%, so text and controls remain readable. Detection uses the current monitor,
 including portrait displays, and updates when the window moves between monitors. If monitor
 size is unavailable, Auto follows system DPI. The fixed choices (75% to 300%) set an absolute UI
-scale, allowing large 4K displays to use smaller controls when desired. Canvas zoom shortcuts
+scale, including 105%, 110%, 115% and 120% for finer control between 100% and 125%, allowing
+large 4K displays to use smaller controls when desired. Canvas zoom shortcuts
 continue to control the document independently of UI scaling.
 
 Interface → UI Font Size changes interface text independently of UI Scale and canvas zoom.
