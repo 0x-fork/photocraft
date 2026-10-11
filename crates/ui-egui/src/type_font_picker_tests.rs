@@ -12,6 +12,7 @@ struct State {
     families: Vec<String>,
     popup: egui::Id,
     preview: FontPreview,
+    recents: Vec<String>,
 }
 
 fn harness() -> Harness<'static, State> {
@@ -19,15 +20,20 @@ fn harness() -> Harness<'static, State> {
 }
 
 fn harness_with(preview: FontPreview) -> Harness<'static, State> {
+    harness_with_recents(preview, Vec::new())
+}
+
+fn harness_with_recents(preview: FontPreview, recents: Vec<String>) -> Harness<'static, State> {
     // Enough families that the unfiltered menu hits its maximum height and scrolls.
     let mut families: Vec<String> = (0..60).map(|i| format!("Family {i:02}")).collect();
     families.push("Zeta Sans".into());
-    let state = State { current: "Family 00".into(), families, popup: egui::Id::NULL, preview };
+    let state = State { current: "Family 00".into(), families, popup: egui::Id::NULL, preview, recents };
     let mut h = Harness::builder().with_size(vec2(600.0, 900.0)).build_ui_state(
         |ui, s: &mut State| {
             s.popup = ui.make_persistent_id(egui::IdSalt::new("type-font")).with("popup");
             let fams = s.families.clone();
-            font_picker_in(ui, &mut s.current, 170.0, &fams, s.preview);
+            let recents = s.recents.clone();
+            font_picker_in(ui, &mut s.current, 170.0, &fams, s.preview, &recents);
         },
         state,
     );
@@ -413,12 +419,14 @@ fn localized_font_names_label_the_menu_but_pick_the_family() {
         families: vec!["Arial".into(), "MS Gothic".into(), "Zeta Sans".into()],
         popup: egui::Id::NULL,
         preview: FontPreview::Medium,
+        recents: Vec::new(),
     };
     let mut h = Harness::builder().with_size(vec2(600.0, 900.0)).build_ui_state(
         |ui, s: &mut State| {
             s.popup = ui.make_persistent_id(egui::IdSalt::new("type-font")).with("popup");
             let fams = s.families.clone();
-            font_picker_in(ui, &mut s.current, 170.0, &fams, s.preview);
+            let recents = s.recents.clone();
+            font_picker_in(ui, &mut s.current, 170.0, &fams, s.preview, &recents);
         },
         state,
     );
@@ -453,7 +461,7 @@ fn font_menu_rows_search_both_names_and_sort_by_label() {
     let labels: HashMap<String, String> =
         [("MS Gothic", "ＭＳ ゴシック"), ("Microsoft YaHei", "微软雅黑")].iter().map(|(a, b)| (a.to_string(), b.to_string())).collect();
     let rows = |labels: Option<&HashMap<String, String>>, q: &str| -> Vec<(String, String)> {
-        super::font_menu_rows(&families, labels, q).into_iter().map(|(f, l)| (f.clone(), l.to_string())).collect()
+        super::font_menu_rows(&families, labels, q, &[]).into_iter().map(|(f, l)| (f.clone(), l.to_string())).collect()
     };
     let english = rows(None, "");
     assert!(english.iter().all(|(f, l)| f == l));
@@ -462,4 +470,26 @@ fn font_menu_rows_search_both_names_and_sort_by_label() {
     assert_eq!(rows(Some(&labels), "yahei"), [("Microsoft YaHei".to_string(), "微软雅黑".to_string())]);
     assert_eq!(rows(Some(&labels), "雅黑"), [("Microsoft YaHei".to_string(), "微软雅黑".to_string())]);
     assert!(rows(Some(&labels), "nothing").is_empty());
+}
+
+/// Preferences ▸ Type ▸ Recent Fonts: recently used families move to the top (most recent first,
+/// once each); a query drops the hoisting so the list stays alphabetical while searching.
+#[test]
+fn recent_fonts_are_hoisted_to_the_top() {
+    let families: Vec<String> = ["Arial", "Baskerville", "Courier", "Zeta Sans"].iter().map(|s| s.to_string()).collect();
+    let recents: Vec<String> = vec!["Zeta Sans".into(), "Courier".into()];
+    let rows = |q: &str| -> Vec<String> { super::font_menu_rows(&families, None, q, &recents).into_iter().map(|(f, _)| f.clone()).collect() };
+    assert_eq!(rows(""), ["Zeta Sans", "Courier", "Arial", "Baskerville"], "recents hoist, most recent first, once each");
+    assert_eq!(rows("a"), ["Arial", "Baskerville", "Zeta Sans"], "a query drops the hoisting");
+}
+
+/// The menu itself draws the hoisted recents first.
+#[test]
+fn recent_fonts_appear_first_in_the_menu() {
+    let mut h = harness_with_recents(FontPreview::Medium, vec!["Zeta Sans".into(), "Family 05".into()]);
+    open(&mut h);
+    let zeta = h.get_by_label("Zeta Sans").rect().top();
+    let five = h.get_by_label("Family 05").rect().top();
+    let six = h.get_by_label("Family 06").rect().top();
+    assert!(zeta < five && five < six, "recents come first, in order: {zeta} {five} {six}");
 }
