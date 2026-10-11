@@ -3258,10 +3258,12 @@ fn dissolve_color_overlay_preserves_binary_layer_coverage() {
     layer.opacity = 0.5;
     d.layers.push(layer);
     let control = render(&d, d.bounds()).px;
-    d.layers.last_mut().unwrap().effects.items.push(photocraft_doc::Effect::ColorOverlay {
-        common: photocraft_doc::FxCommon::new(BlendMode::Normal, 1.0),
-        color: Color::BLACK,
-    });
+    d.layers
+        .last_mut()
+        .unwrap()
+        .effects
+        .items
+        .push(photocraft_doc::Effect::ColorOverlay { common: photocraft_doc::FxCommon::new(BlendMode::Normal, 1.0), color: Color::BLACK });
     let styled = render(&d, d.bounds()).px;
     assert_eq!(styled, control, "an identity overlay should not turn dissolve pixels gray");
     d.layers.last_mut().unwrap().blend = BlendMode::Normal;
