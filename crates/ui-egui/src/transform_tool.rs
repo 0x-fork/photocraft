@@ -1699,7 +1699,8 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
             let toward = xf.to_screen((p[0] + k[0] * 16.0) as f32, (p[1] + k[1] * 16.0) as f32) - at;
             crate::crop_ui::draw_turn_cursor(painter.ctx(), at, toward);
         }
-        if let Some(r) = live_readout(app) {
+        // Preferences › Tools › Show Transformation Values off hides it, as in Photoshop (#204).
+        if let Some(r) = live_readout(app).filter(|_| app.session.prefs().tools.show_transformation_values) {
             draw_live_readout(painter.ctx(), at, r);
         }
     }

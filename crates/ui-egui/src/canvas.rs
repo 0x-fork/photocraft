@@ -317,8 +317,17 @@ pub fn readout_in(ur: &photocraft_engine::prefs::UnitsAndRulers, dpi: f64, exten
 
 /// Draw the marquee size readout below-right of the cursor (kept on screen), like Photoshop's:
 /// two rows, `W:` / `H:` labels on the left and the values right-aligned.
-fn draw_marquee_readout(ctx: &egui::Context, cursor: Pos2, values: [String; 2]) {
-    draw_readout(ctx, "marquee-readout", cursor, ["W:", "H:"], values);
+fn draw_marquee_readout(app: &PhotocraftApp, ctx: &egui::Context, cursor: Pos2, values: [String; 2]) {
+    draw_value_readout(app, ctx, "marquee-readout", cursor, ["W:", "H:"], values);
+}
+
+/// A transformation-values readout beside the pointer (a marquee's or the crop frame's size, an
+/// angle), unless Preferences › Tools › Show Transformation Values is off, as in Photoshop (#204).
+/// The brush HUD isn't one: Show Transformation Values doesn't hide it, so it calls [`draw_readout`].
+pub(crate) fn draw_value_readout<const N: usize>(app: &PhotocraftApp, ctx: &egui::Context, id: &str, cursor: Pos2, labels: [&str; N], values: [String; N]) {
+    if app.session.prefs().tools.show_transformation_values {
+        draw_readout(ctx, id, cursor, labels, values);
+    }
 }
 
 /// A readout of `N` rows beside the pointer (labels left, values right-aligned), above everything.
@@ -2821,6 +2830,20 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     // box is only drawn and driven on the primary canvas.
     let transform_owns_pointer = primary && app.ui.transform.is_some() && temporary.is_none() && !middle;
     let hand_pan = tool == Tool::Hand && !transform_owns_pointer;
+    // Preferences › Tools › Enable Flick Panning: a Hand drag let go while moving glides on.
+    let flick_id = egui::Id::new(("pc-flick-pan", idx, primary, ctx.viewport_id()));
+    let flick_on = app.session.prefs().tools.enable_flick_panning;
+    if let Some(d) = crate::flick_pan::frame(&ctx, flick_id, hand_pan && response.dragged(), response.drag_delta(), flick_on) {
+        let d = xf.unmap_vec(d) / (view.zoom / ppp);
+        if d.is_finite() {
+            view.center[0] -= d.x;
+            view.center[1] -= d.y;
+        }
+        // Overscroll off: the glide stops at the pan limit, as the scrollbars do.
+        if !app.session.prefs().tools.overscroll && crate::scrollbars::clamp_view(&mut view, rect.size() / vec2(aspect, 1.0), ppp) {
+            ctx.data_mut(|m| m.get_temp_mut_or_default::<crate::flick_pan::Flick>(flick_id).stop());
+        }
+    }
     if hand_pan && response.dragged() {
         let d = xf.unmap_vec(response.drag_delta()) / (view.zoom / ppp);
         view.center[0] -= d.x;
@@ -3829,10 +3852,10 @@ fn draw_tool_state(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform,
         }
         // The frame's angle beside the pointer while it turns (#1792).
         if let (Some(a), Some(h)) = (crate::crop_ui::turning(app), hover) {
-            draw_readout(painter.ctx(), "crop-angle-readout", h, ["Angle:"], [format!("{a:.1}°")]);
+            draw_value_readout(app, painter.ctx(), "crop-angle-readout", h, ["Angle:"], [format!("{a:.1}°")]);
         } else if let (Some([w, h]), Some(at)) = (crate::crop_ui::sizing(app), hover) {
             // Its W × H while it is drawn or resized (#1919), like the marquee's.
-            draw_marquee_readout(painter.ctx(), at, size_readout(app, [0.0, 0.0, w, h]));
+            draw_marquee_readout(app, painter.ctx(), at, size_readout(app, [0.0, 0.0, w, h]));
         }
     }
 }
@@ -3936,7 +3959,7 @@ fn draw_drag_preview(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &View
     let last = d.points.last().map(|p| [p[0], p[1]]).unwrap_or(d.start);
     let marquee = marquee_preview_px(&app.ui.tool_options, d, app.point_zoom());
     if let Some(r) = marquee {
-        draw_marquee_readout(painter.ctx(), xf.to_screen(last[0] as f32, last[1] as f32), size_readout(app, r));
+        draw_marquee_readout(app, painter.ctx(), xf.to_screen(last[0] as f32, last[1] as f32), size_readout(app, r));
     }
     match d.tool {
         // The canvas shows the live stroke itself (`LiveStroke`); a stroke that couldn't start one
@@ -5763,7 +5786,15 @@ mod tests {
                         let f = factor as i32;
                         let r = DRect::new(pos[0] as i32 * f, pos[1] as i32 * f, (pos[0] + image.size[0]) as i32 * f, (pos[1] + image.size[1]) as i32 * f)
                             .intersect(&shown.bounds());
-                        let expected = crate::channel_view::render(&shown, &app.session.documents()[0].channel_view, r, factor, false).unwrap();
+                        let expected = crate::channel_view::render(
+                            &shown,
+                            &app.session.documents()[0].channel_view,
+                            r,
+                            factor,
+                            false,
+                            app.session.documents()[0].active_layer,
+                        )
+                        .unwrap();
                         assert_eq!(image.pixels, expected, "uploaded mask values match the live stroke");
                         delta.clear();
                         assert_eq!(app.session.documents()[0].revision, revision);
@@ -5791,7 +5822,7 @@ mod tests {
                     let st = &app.session.documents()[0];
                     assert_eq!(
                         image.pixels,
-                        crate::channel_view::render(&st.doc, &st.channel_view, st.doc.bounds(), factor, false).unwrap(),
+                        crate::channel_view::render(&st.doc, &st.channel_view, st.doc.bounds(), factor, false, st.active_layer).unwrap(),
                         "undo restores the shown mask"
                     );
                     delta.clear();
@@ -5834,10 +5865,14 @@ mod tests {
             let pos = upload.pos.expect("partial channel upload");
             let egui::ImageData::Color(image) = &upload.image;
             let r = DRect::new(pos[0] as i32, pos[1] as i32, (pos[0] + image.size[0]) as i32, (pos[1] + image.size[1]) as i32);
-            assert_eq!(image.pixels, crate::channel_view::render(&shown, &app.session.documents()[0].channel_view, r, 1, false).unwrap(), "{target}");
+            assert_eq!(
+                image.pixels,
+                crate::channel_view::render(&shown, &app.session.documents()[0].channel_view, r, 1, false, app.session.documents()[0].active_layer).unwrap(),
+                "{target}"
+            );
             assert_ne!(
                 image.pixels,
-                crate::channel_view::render(&original, &app.session.documents()[0].channel_view, r, 1, false).unwrap(),
+                crate::channel_view::render(&original, &app.session.documents()[0].channel_view, r, 1, false, app.session.documents()[0].active_layer).unwrap(),
                 "target was painted"
             );
             delta.clear();
@@ -5852,7 +5887,18 @@ mod tests {
             let upload = &delta.set.get(&tex).unwrap()[0];
             assert!(upload.pos.is_none(), "discarding a preview refreshes the view");
             let egui::ImageData::Color(image) = &upload.image;
-            assert_eq!(image.pixels, crate::channel_view::render(&original, &app.session.documents()[0].channel_view, original.bounds(), 1, false).unwrap());
+            assert_eq!(
+                image.pixels,
+                crate::channel_view::render(
+                    &original,
+                    &app.session.documents()[0].channel_view,
+                    original.bounds(),
+                    1,
+                    false,
+                    app.session.documents()[0].active_layer
+                )
+                .unwrap()
+            );
             delta.clear();
         }
     }
@@ -6119,6 +6165,63 @@ mod tests {
         let xf = ViewXform::active(&app).unwrap();
         let step = xf.to_screen(1.0, 0.0) - xf.to_screen(0.0, 0.0);
         assert!((step.x - 0.5).abs() < 1e-3, "{step:?}");
+    }
+
+    #[test]
+    fn a_flicked_hand_drag_glides_on_only_with_flick_panning() {
+        // #204: Preferences › Tools › Enable Flick Panning. A fast Hand drag let go while moving
+        // keeps the view gliding for a while; off, the view stops where the drag ended.
+        for flick in [true, false] {
+            let ctx = egui::Context::default();
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+            app.run("file.new", json!({"width": 2000, "height": 1500})).unwrap();
+            app.run("prefs.set", json!({"path": "tools.enableFlickPanning", "value": flick})).unwrap();
+            app.ui.tool = Tool::Hand;
+            app.sync_views();
+            let mut view = app.ui.views[0].clone();
+            view.zoom = 1.0;
+            view.center = [1000.0, 750.0];
+            view.fit_pending = false;
+            view.fill_pending = false;
+            let rect = Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0));
+            let mut frame = |app: &mut PhotocraftApp, events: Vec<egui::Event>| -> View {
+                let input = egui::RawInput { screen_rect: Some(rect), events, ..Default::default() };
+                let mut out = ctx.run_ui(input, |ui| {
+                    view = canvas_view(app, ui, 0, rect, view.clone(), true);
+                });
+                out.textures_delta.clear();
+                view.clone()
+            };
+            let start = Pos2::new(200.0, 150.0);
+            let press =
+                |pos: Pos2, pressed: bool| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+            frame(&mut app, vec![egui::Event::PointerMoved(start)]);
+            frame(&mut app, vec![press(start, true)]);
+            let mut end = start;
+            for i in 1..=8 {
+                end = start + vec2(-20.0 * i as f32, 0.0);
+                frame(&mut app, vec![egui::Event::PointerMoved(end)]);
+            }
+            let released = frame(&mut app, vec![press(end, false)]).center;
+            let mut centers = vec![released];
+            for _ in 0..5 {
+                centers.push(frame(&mut app, vec![]).center);
+            }
+            if flick {
+                // Dragged left: the image follows the pointer, the view keeps moving right.
+                for w in centers.windows(2) {
+                    assert!(w[1][0] > w[0][0], "glides on: {centers:?}");
+                }
+                // ...and comes to rest.
+                let mut last = *centers.last().unwrap();
+                for _ in 0..120 {
+                    last = frame(&mut app, vec![]).center;
+                }
+                assert_eq!(frame(&mut app, vec![]).center, last, "the glide stops");
+            } else {
+                assert!(centers.iter().all(|c| *c == released), "no glide when off: {centers:?}");
+            }
+        }
     }
 
     #[test]
