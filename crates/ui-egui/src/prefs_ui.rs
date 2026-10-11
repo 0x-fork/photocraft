@@ -48,6 +48,10 @@ pub struct Runtime {
     pub(crate) checker_key: Option<[[u8; 3]; 2]>,
     /// Style last sent to the GPU canvas.
     pub(crate) gpu_style: Option<crate::gpu_canvas::CanvasStyle>,
+    /// `unitsAndRulers.showRulers` as last applied to View › Rulers.
+    show_rulers: Option<bool>,
+    /// Tool options as last remembered in the preferences (see `tool_memory`).
+    pub(crate) tool_options: Option<crate::state::ToolOptions>,
 }
 
 /// The GPU canvas colours from Preferences › Transparency & Gamut.
@@ -88,6 +92,8 @@ fn selected_theme(interface: &prefs::Interface, system: Option<egui::Theme>) -> 
     if light {
         match interface.light_theme {
             LightTheme::StudioLight => ThemeKind::StudioLight,
+            LightTheme::ProLightGray => ThemeKind::ProLightGray,
+            LightTheme::ProLight => ThemeKind::ProLight,
             LightTheme::Classic => ThemeKind::Classic,
             LightTheme::Adwaita => ThemeKind::Adwaita,
             LightTheme::BreezeLight => ThemeKind::BreezeLight,
@@ -120,8 +126,14 @@ pub(crate) fn cycle_appearance(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
 }
 
-const LIGHT_THEME_OPTIONS: &[(&str, ThemeKind)] =
-    &[("studioLight", ThemeKind::StudioLight), ("classic", ThemeKind::Classic), ("adwaita", ThemeKind::Adwaita), ("breezeLight", ThemeKind::BreezeLight)];
+const LIGHT_THEME_OPTIONS: &[(&str, ThemeKind)] = &[
+    ("studioLight", ThemeKind::StudioLight),
+    ("proLightGray", ThemeKind::ProLightGray),
+    ("proLight", ThemeKind::ProLight),
+    ("classic", ThemeKind::Classic),
+    ("adwaita", ThemeKind::Adwaita),
+    ("breezeLight", ThemeKind::BreezeLight),
+];
 const DARK_THEME_OPTIONS: &[(&str, ThemeKind)] = &[
     ("proMedium", ThemeKind::ProMedium),
     ("pro", ThemeKind::Pro),
@@ -170,6 +182,24 @@ fn system_theme(app: &PhotocraftApp, ctx: &egui::Context) -> Option<egui::Theme>
     app.services.system_theme.as_ref().and_then(|read| read(ctx)).or_else(|| ctx.system_theme())
 }
 
+/// View › Rulers follows `unitsAndRulers.showRulers` when the preference changes (at launch, from
+/// `prefs.set` or a reset), so documents open with the rulers as last set.
+fn sync_rulers(app: &mut PhotocraftApp) {
+    let want = app.session.prefs().units_and_rulers.show_rulers;
+    if app.prefs_rt.show_rulers != Some(want) {
+        app.ui.extras.rulers = want;
+        app.prefs_rt.show_rulers = Some(want);
+    }
+}
+
+/// View › Rulers was toggled: remember it for the next launch (Photoshop keeps the last state).
+pub(crate) fn remember_rulers(app: &mut PhotocraftApp, on: bool) {
+    if app.session.prefs().units_and_rulers.show_rulers != on {
+        app.session.prefs.edit(|p| p.units_and_rulers.show_rulers = on);
+    }
+    app.prefs_rt.show_rulers = Some(on);
+}
+
 // ------------------------------------------------------------------ lifecycle
 
 /// Load saved preferences once, when the app is created. Recovery starts during frame upkeep.
@@ -185,6 +215,8 @@ pub fn load(app: &mut PhotocraftApp) {
     }
     crate::dock::restore(app);
     crate::brush_picker::restore(app);
+    sync_rulers(app);
+    crate::tool_memory::restore(app);
     app.sync_recent();
     app.prefs_rt.saved_rev = app.session.prefs.rev();
     app.prefs_rt.saved_value = Some(app.session.prefs_value());
@@ -309,30 +341,20 @@ fn presets_store(app: &mut PhotocraftApp) {
 
 /// Resolve an absolute pixels-per-point preference without multiplying the OS DPI twice.
 /// Monitor dimensions are physical pixels, independent of window size and UI zoom.
-fn display_scale(pref: prefs::UiScale, native: Option<f32>, monitor_px: Option<egui::Vec2>) -> f32 {
+fn display_scale(pref: prefs::UiScale, native: Option<f32>) -> f32 {
     let native = native.filter(|v| v.is_finite() && *v > 0.0).unwrap_or(1.0);
     match pref {
-        prefs::UiScale::Auto => {
-            // Follow the system's scale, fractional ones included (125%, 150%, 175%: #1072).
-            // Only when the system reports no scaling at all (100%) does a 4K display fall back
-            // to 200%, since unscaled 4K controls are unreadably small (#225). Overriding a scale
-            // the user picked in their desktop settings left only "too small" or "too big".
-            let unscaled = (native - 1.0).abs() < 0.01;
-            let is_4k = monitor_px.is_some_and(|s| s.x.is_finite() && s.y.is_finite() && s.x.min(s.y) >= 2160.0 && s.x.max(s.y) >= 3840.0);
-            if unscaled && is_4k { 2.0 } else { native }
-        }
+        // The system's scale, fractional ones included (125%, 150%, 175%: #1072), and 100% on a
+        // large 4K display run unscaled (#1278); 200% there is a fixed choice.
+        prefs::UiScale::Auto => native,
         fixed => fixed.name().parse::<f32>().map_or(1.0, |pct| pct / 100.0),
     }
 }
 
 fn sync_display_scale(app: &PhotocraftApp, ctx: &egui::Context) {
     let native = ctx.native_pixels_per_point();
-    // ViewportInfo uses egui points, including the current UI zoom. Converting back to
-    // physical pixels avoids oscillating between 100% and 200% on successive frames.
-    // logic() can receive new viewport DPI before InputState::pixels_per_point updates.
     let native_scale = native.filter(|v| v.is_finite() && *v > 0.0).unwrap_or(1.0);
-    let monitor_px = ctx.input(|i| i.viewport().monitor_size).map(|s| s * (native_scale * ctx.zoom_factor()));
-    let scale = display_scale(app.session.prefs().interface.ui_scale, native, monitor_px);
+    let scale = display_scale(app.session.prefs().interface.ui_scale, native);
     ctx.set_zoom_factor(scale / native_scale);
 }
 
@@ -364,6 +386,7 @@ pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
         load(app);
     }
     recovery(app);
+    sync_rulers(app);
     sync_display_scale(app, ctx);
     sync_appearance(app, ctx);
     crate::theme::set_ui_font_size(ctx, app.session.prefs().interface.ui_font_size);
@@ -381,6 +404,8 @@ pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
         app.prefs_rt.gpu_style = Some(style);
     }
     autosave(app);
+    #[cfg(not(target_arch = "wasm32"))]
+    link_updates(app, ctx);
     history_log(app);
 }
 
@@ -511,6 +536,39 @@ pub(crate) fn save_preferences(app: &mut PhotocraftApp) -> Result<(), String> {
         app.ui.notices.retain(|n| n.id != id);
     }
     Ok(())
+}
+
+/// Linked smart objects follow their files while the document is open, as in Photoshop: every two
+/// seconds, and as soon as the window comes back to the front (after saving in another app), stamp
+/// the active document's linked files on a worker thread and re-render the layers of the ones that
+/// changed ([`photocraft_engine::link_watch`]).
+#[cfg(not(target_arch = "wasm32"))]
+fn link_updates(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    match app.session.poll_link_scan() {
+        Some(Ok(r)) => {
+            if let Some(n) = r["updated"].as_array().map(Vec::len).filter(|n| *n > 0) {
+                app.ui.status = format!("Updated {n} linked smart object(s) changed on disk");
+            }
+        }
+        Some(Err(e)) => app.ui.status = e.to_string(),
+        None => {}
+    }
+    let (last_key, focus_key) = (egui::Id::new("linkWatch.lastScan"), egui::Id::new("linkWatch.focused"));
+    let now = ctx.input(|i| i.time);
+    let focused = ctx.input(|i| i.focused);
+    let was_focused: bool = ctx.data(|d| d.get_temp(focus_key)).unwrap_or(focused);
+    ctx.data_mut(|d| d.insert_temp(focus_key, focused));
+    let has_links = app.session.active().is_some_and(|d| !photocraft_engine::link_watch::linked_files(&d.doc).is_empty());
+    if !has_links {
+        return;
+    }
+    let last: f64 = ctx.data(|d| d.get_temp(last_key)).unwrap_or(f64::NEG_INFINITY);
+    if now - last >= 2.0 || (focused && !was_focused) {
+        ctx.data_mut(|d| d.insert_temp(last_key, now));
+        app.session.start_link_scan();
+    }
+    let wait = if app.session.link_scan.is_some() { 100 } else { 2000 };
+    ctx.request_repaint_after(std::time::Duration::from_millis(wait));
 }
 
 /// Background autosave of documents with unsaved changes every N minutes (File Handling).
@@ -1379,6 +1437,8 @@ fn section_fields(
             // Settings nothing reads yet stay out of the dialog (issue #204); their stored values
             // pass through untouched.
             if (section == "interface" && matches!(k.as_str(), "theme" | "appearanceMode" | "darkTheme" | "lightTheme" | "favoriteThemes"))
+                // View › Rulers (⌘R) sets it, as in Photoshop.
+                || path == "unitsAndRulers.showRulers"
                 || prefs::is_hidden(&path)
                 || (section == "performance" && matches!(k.as_str(), "useGpu" | "gpuBackend" | "renderingMode"))
                 || (section == "export" && !export_field_visible(obj, &k))
@@ -2393,28 +2453,16 @@ mod tests {
     }
 
     #[test]
-    fn auto_scale_detects_4k_and_preserves_system_scale() {
+    fn auto_scale_preserves_system_scale() {
         use prefs::UiScale::Auto;
-        for size in [vec2(3840.0, 2160.0), vec2(4096.0, 2160.0), vec2(2160.0, 3840.0)] {
-            assert_eq!(display_scale(Auto, Some(1.0), Some(size)), 2.0);
-            // A fractional system scale is the user's choice and is kept as is (#1072).
-            for dpi in [1.25, 1.5, 1.75, 2.0, 2.5] {
-                assert_eq!(display_scale(Auto, Some(dpi), Some(size)), dpi);
-            }
+        // Whatever the monitor, 4K included: an unscaled desktop stays at 100% (#1278), and a
+        // fractional or below-100% system scale is the user's choice (#1072).
+        for dpi in [0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0] {
+            assert_eq!(display_scale(Auto, Some(dpi)), dpi);
         }
-        // Below 100% is a system choice too, even on 4K.
-        assert_eq!(display_scale(Auto, Some(0.75), Some(vec2(3840.0, 2160.0))), 0.75);
-        for size in [vec2(1920.0, 1080.0), vec2(2560.0, 1440.0)] {
-            for dpi in [1.25, 1.5, 1.75] {
-                assert_eq!(display_scale(Auto, Some(dpi), Some(size)), dpi);
-            }
-        }
-        assert_eq!(display_scale(Auto, Some(3.0), Some(vec2(3840.0, 2160.0))), 3.0);
-        for size in [vec2(1920.0, 1080.0), vec2(2560.0, 1440.0), vec2(3840.0, 1080.0)] {
-            assert_eq!(display_scale(Auto, Some(1.0), Some(size)), 1.0);
-        }
-        assert_eq!(display_scale(Auto, None, None), 1.0);
-        assert_eq!(display_scale(Auto, Some(f32::NAN), Some(vec2(f32::INFINITY, 2160.0))), 1.0);
+        assert_eq!(display_scale(Auto, None), 1.0);
+        assert_eq!(display_scale(Auto, Some(f32::NAN)), 1.0);
+        assert_eq!(display_scale(Auto, Some(-2.0)), 1.0);
     }
 
     #[test]
@@ -2437,13 +2485,13 @@ mod tests {
                 assert!((ctx.pixels_per_point() - expected).abs() < 1e-4);
             };
             for _ in 0..4 {
-                step(vec2(3840.0, 2160.0), 1.0, 2.0);
+                step(vec2(3840.0, 2160.0), 1.0, 1.0);
             }
             step(vec2(1920.0, 1080.0), 1.0, 1.0);
             step(vec2(3840.0, 2160.0), 1.5, 1.5);
             step(vec2(3840.0, 2160.0), 1.25, 1.25);
             step(vec2(2560.0, 1440.0), 1.75, 1.75);
-            step(vec2(3840.0, 2160.0), 1.0, 2.0);
+            step(vec2(3840.0, 2160.0), 1.0, 1.0);
         }
         for (pref, expected) in [("200", 2.0), ("125", 1.25), ("150", 1.5), ("100", 1.0), ("95", 0.95), ("90", 0.9), ("85", 0.85), ("80", 0.8), ("auto", 1.5)] {
             app.run("prefs.set", json!({"values": {"interface.uiScale": pref}})).unwrap();
@@ -2540,6 +2588,33 @@ mod tests {
     }
 
     #[test]
+    fn tool_options_survive_a_restart() {
+        let (mut app, store) = app_with_store();
+        let ctx = egui::Context::default();
+        tick(&mut app, &ctx);
+        app.ui.tool_options.move_auto_select = false;
+        app.ui.tool_options.feather = 12.0;
+        crate::tool_memory::persist(&mut app, &ctx);
+        tick(&mut app, &ctx);
+        // Only what differs from the defaults is stored.
+        assert_eq!(stored(&store)["toolOptions"], json!({"move_auto_select": false, "feather": 12.0}));
+        let saved = store.lock().unwrap().clone().unwrap();
+        let (mut app2, _) = app_with_saved(Some(saved));
+        tick(&mut app2, &ctx);
+        assert!(!app2.ui.tool_options.move_auto_select);
+        assert_eq!(app2.ui.tool_options.feather, 12.0);
+        assert_eq!(app2.ui.tool_options.tolerance, crate::state::ToolOptions::default().tolerance);
+        // A hand-edited file: unreadable fields keep their defaults, the good ones still load.
+        for bad in [json!("junk"), json!({"move_auto_select": "no", "feather": 1e300, "tolerance": 5.0, "unknown": 1})] {
+            let (mut app3, _) = app_with_saved(Some(json!({"toolOptions": bad}).to_string()));
+            tick(&mut app3, &ctx);
+            let o = &app3.ui.tool_options;
+            assert!(o.move_auto_select && o.feather == 0.0, "{bad}");
+            assert_eq!(o.tolerance, if bad.is_object() { 5.0 } else { 32.0 });
+        }
+    }
+
+    #[test]
     fn show_tooltips_preferences_turn_tooltips_off() {
         let (mut app, _) = app_with_store();
         let ctx = egui::Context::default();
@@ -2569,6 +2644,7 @@ mod tests {
         assert!(!prefs::is_hidden("type.fillNewTypeLayersWithPlaceholder"));
         assert!(!prefs::is_hidden("type.useEscToCommit"));
         assert!(!prefs::is_hidden("type.smartQuotes"));
+        assert!(!prefs::is_hidden("type.showFontNamesInEnglish"));
         // Rotate View with Trackpad and the pinch zoom are live; the other Enhanced Controls rows
         // stay hidden.
         assert!(has_visible_fields(&values, "enhancedControls"));

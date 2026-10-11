@@ -55,10 +55,10 @@ choice!(TypeUnit { Points = "points", Pixels = "pixels", Millimeters = "mm" } de
 choice!(PointSize { PostScript = "postScript", Traditional = "traditional" } default PostScript);
 choice!(Interpolation { BicubicAutomatic = "bicubicAutomatic", Nearest = "nearestNeighbor", Bilinear = "bilinear", Bicubic = "bicubic", BicubicSmoother = "bicubicSmoother", BicubicSharper = "bicubicSharper", PreserveDetails = "preserveDetails" } default BicubicAutomatic);
 choice!(ColorPicker { Adobe = "adobe", System = "system" } default Adobe);
-choice!(Theme { Pro = "pro", ProMedium = "proMedium", Studio = "studio", StudioLight = "studioLight", Classic = "classic", SolarizedDark = "solarizedDark", Adwaita = "adwaita", AdwaitaDark = "adwaitaDark", BreezeLight = "breezeLight", BreezeDark = "breezeDark" } default ProMedium);
+choice!(Theme { Pro = "pro", ProMedium = "proMedium", ProLightGray = "proLightGray", ProLight = "proLight", Studio = "studio", StudioLight = "studioLight", Classic = "classic", SolarizedDark = "solarizedDark", Adwaita = "adwaita", AdwaitaDark = "adwaitaDark", BreezeLight = "breezeLight", BreezeDark = "breezeDark" } default ProMedium);
 choice!(AppearanceMode { Auto = "auto", Dark = "dark", Light = "light" } default Dark);
 choice!(DarkTheme { Pro = "pro", ProMedium = "proMedium", Studio = "studio", SolarizedDark = "solarizedDark", AdwaitaDark = "adwaitaDark", BreezeDark = "breezeDark" } default ProMedium);
-choice!(LightTheme { StudioLight = "studioLight", Classic = "classic", Adwaita = "adwaita", BreezeLight = "breezeLight" } default StudioLight);
+choice!(LightTheme { StudioLight = "studioLight", ProLightGray = "proLightGray", ProLight = "proLight", Classic = "classic", Adwaita = "adwaita", BreezeLight = "breezeLight" } default StudioLight);
 choice!(CanvasColor { Default = "default", Black = "black", DarkGray = "darkGray", MediumGray = "mediumGray", LightGray = "lightGray", Custom = "custom" } default Default);
 choice!(CanvasBorder { DropShadow = "dropShadow", Line = "line", None = "none" } default DropShadow);
 choice!(UiScale { Auto = "auto", P75 = "75", P80 = "80", P85 = "85", P90 = "90", P95 = "95", P100 = "100", P125 = "125", P150 = "150", P175 = "175", P200 = "200", P250 = "250", P300 = "300" } default Auto);
@@ -317,6 +317,8 @@ pub struct Tools {
     pub vary_round_brush_hardness_on_hud: bool,
     /// Round snapped vector and transform coordinates to whole pixels.
     pub snap_vector_tools_and_transforms_to_pixel_grid: bool,
+    /// The size and angle readouts beside the pointer while a marquee or crop frame is drawn,
+    /// resized or turned (off: none).
     pub show_transformation_values: bool,
     /// Move tool with Auto-Select: outline the layer a click would pick under the pointer.
     pub show_highlight_on_rollover: bool,
@@ -695,6 +697,10 @@ pub struct UnitsAndRulers {
     pub print_resolution: f64,
     pub screen_resolution: f64,
     pub point_size: PointSize,
+    /// View › Rulers as last set: written when the user toggles the rulers and applied at
+    /// launch, so new and opened documents show them as Photoshop does. Set from the View
+    /// menu (⌘R), not from the Preferences dialog.
+    pub show_rulers: bool,
 }
 
 impl Default for UnitsAndRulers {
@@ -707,6 +713,7 @@ impl Default for UnitsAndRulers {
             print_resolution: 300.0,
             screen_resolution: 72.0,
             point_size: PointSize::PostScript,
+            show_rulers: false,
         }
     }
 }
@@ -947,6 +954,10 @@ pub struct Preferences {
     /// the footer slider's card scale, saved as the user changes them and restored at launch.
     /// JSON owned by the shell.
     pub brush_picker: Value,
+    /// The tools' options-bar settings (Move › Auto-Select, marquee Feather, tolerance, …) that
+    /// differ from their defaults, saved as the user changes them and restored at launch, as
+    /// Photoshop remembers each tool's options between sessions. JSON owned by the shell.
+    pub tool_options: Value,
     /// File › Scripts › Script Events Manager: event → script bindings.
     pub script_events: crate::automate_cmds::ScriptEvents,
 }
@@ -981,17 +992,12 @@ pub const SECTIONS: [(&str, &str); 18] = [
 /// preference is read anywhere outside `prefs.rs`, and while an unlisted one is read nowhere.
 pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
     "general.colorPicker",
-    "general.beepWhenDone",
-    "general.alwaysCreateSmartObjectsWhenPlacing",
     "general.animatedZoom",
     "general.zoomResizesWindows",
     "workspace.autoCollapseIconPanels",
     "workspace.autoShowHiddenPanels",
     "workspace.enableFloatingDocumentWindowDocking",
     "workspace.enableNarrowOptionsBar",
-    "tools.enableFlickPanning",
-    "tools.varyRoundBrushHardnessOnHud",
-    "tools.showTransformationValues",
     "fileHandling.imagePreviews",
     "fileHandling.saveInBackground",
     "fileHandling.ignoreExifProfileTag",
@@ -1000,17 +1006,13 @@ pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
     "performance.effectCacheMb",
     "performance.legacyCompositing",
     "scratchDisks.disks",
-    "cursors.brushPreviewColor",
     "unitsAndRulers.columnWidth",
     "unitsAndRulers.gutter",
-    "unitsAndRulers.printResolution",
     "plugIns.showExtensionPanels",
     "plugIns.allowScriptsToConnect",
     "plugIns.generatorEnabled",
     "type.missingGlyphProtection",
-    "type.showFontNamesInEnglish",
     "type.textEngine",
-    "type.fontPreview",
     "type.recentFonts",
     "enhancedControls.scrubbySliderAcceleration",
     "enhancedControls.touchGestures",
@@ -1485,7 +1487,7 @@ impl Session {
         {
             let (mode, slot) = match theme {
                 Theme::Pro | Theme::ProMedium | Theme::Studio | Theme::SolarizedDark | Theme::AdwaitaDark | Theme::BreezeDark => ("dark", "darkTheme"),
-                Theme::StudioLight | Theme::Classic | Theme::Adwaita | Theme::BreezeLight => ("light", "lightTheme"),
+                Theme::StudioLight | Theme::ProLightGray | Theme::ProLight | Theme::Classic | Theme::Adwaita | Theme::BreezeLight => ("light", "lightTheme"),
             };
             interface.insert("appearanceMode".into(), json!(mode));
             interface.insert(slot.into(), json!(theme.name()));
@@ -1568,6 +1570,14 @@ impl Session {
                 }
                 Theme::StudioLight => {
                     next.interface.light_theme = LightTheme::StudioLight;
+                    next.interface.appearance_mode = AppearanceMode::Light;
+                }
+                Theme::ProLightGray => {
+                    next.interface.light_theme = LightTheme::ProLightGray;
+                    next.interface.appearance_mode = AppearanceMode::Light;
+                }
+                Theme::ProLight => {
+                    next.interface.light_theme = LightTheme::ProLight;
                     next.interface.appearance_mode = AppearanceMode::Light;
                 }
                 Theme::Classic => {

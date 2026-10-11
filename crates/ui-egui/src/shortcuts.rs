@@ -306,8 +306,21 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if app.camera_raw.is_some() {
         return;
     }
-    // An open menu owns the keyboard (arrows, ↩, Esc), like a native menu.
-    if crate::menu_nav::is_open(ctx) {
+    // An open menu owns the keyboard (arrows, ↩, Esc), like a native menu; so does an open
+    // dropdown list, whose letters pick an option rather than a tool (#1481).
+    if crate::menu_nav::is_open(ctx) || crate::widgets::dropdown_list_open(ctx) {
+        return;
+    }
+    // Stroke Options owns plain navigation/activation keys, including while its child
+    // dropdown is open. This runs before Popup::show registers the current pass, so use
+    // the editor's explicit state; otherwise Escape deselects or commits a pending Pen path.
+    // Modified commands such as Undo still follow the ordinary dispatch below.
+    if app.ui.stroke_editor.is_some() && !ctx.input(|i| i.modifiers.command || i.modifiers.ctrl) {
+        return;
+    }
+    // So does the right-click menu of text being edited: Esc closes only it, and keys typed while
+    // it is open don't reach the text beneath.
+    if app.ui.canvas_tool_menu.as_ref().is_some_and(|m| m.text) {
         return;
     }
     let symmetry_editing = app.ui.symmetry_transform.is_some();
@@ -356,6 +369,10 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     // Crop tool with a pending frame: arrows nudge it (⇧ ×10) and X swaps its orientation, before
     // the selection / layer nudge and the X colour swap (#1919).
     if focus == Focus::None && crate::crop_ui::keys(app, ctx) {
+        return;
+    }
+    // Perspective Crop with a pending quad: ↵ commits, Esc cancels.
+    if focus == Focus::None && crate::perspective_crop_ui::keys(app, ctx) {
         return;
     }
     // Move tool / Free Transform: arrows nudge (⇧ ×10, ⌥ duplicates first).
@@ -487,7 +504,7 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
         || app.ui.brush_picker.is_some()
         || app.ui.tool == Tool::RotateView
         || app.wide_angle.is_some()
-        || app.tiff_options.is_some()
+        || app.save_options_open()
         || app.distort.gallery.is_some()
         || ctx.any_popup_open()
         || ctx.data(|d| d.get_temp::<(egui::Id, egui::Rect)>(egui::Id::new("tool-flyout")).is_some());

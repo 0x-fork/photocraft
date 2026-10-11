@@ -8,6 +8,23 @@
 # stay as they are; the trailing "…" of dialog commands is kept. UI text addresses the user
 # informally ("je") and uses sentence case.
 
+# Guide layout dialog
+	Rows	Rijen
+	Number	Aantal
+	Top:	Boven:
+	Left:	Links:
+	Bottom:	Onder:
+	Right:	Rechts:
+	Target:	Doel:
+	Selected Artboards	Geselecteerde tekengebieden
+	Center Columns	Kolommen centreren
+	Clear Existing Guides	Bestaande hulplijnen wissen
+	Invalid guide layout	Ongeldige hulplijnindeling
+	Leave empty for automatic size	Leeg laten voor automatische grootte
+	5 Columns, 3 Rows	5 kolommen, 3 rijen
+	8 Columns	8 kolommen
+	12 Columns	12 kolommen
+
 	File	Bestand
 	Edit	Bewerken
 	Image	Afbeelding
@@ -664,10 +681,15 @@
 	New Workspace…	Nieuwe werkruimte…
 	Delete Workspace…	Werkruimte verwijderen…
 	Reset Workspace	Werkruimte herstellen
+	Reset Tool	Gereedschap herstellen
+	Reset All Tools	Alle gereedschappen herstellen
+	Reset all tools to their default settings?	Alle gereedschappen herstellen naar hun standaardinstellingen?
 	Lock Workspace	Werkruimte vergrendelen
 	Theme	Thema
 	Pro Theme	Pro-thema
 	Pro Medium Gray Theme	Pro-thema middelgrijs
+	Pro Light Gray Theme	Pro-thema lichtgrijs
+	Pro Light Theme	Pro-thema licht
 	Studio Theme	Studio-thema
 	Studio Light Theme	Studio-thema licht
 	Classic Theme	Klassiek thema
@@ -802,6 +824,8 @@
 	Bend:	Buiging:
 	Bicubic	Bicubisch
 	Bicubic (smooth gradients)	Bicubisch (vloeiende verlopen)
+	Bicubic Smoother (enlargement)	Bicubisch vloeiender (vergroten)
+	Bicubic Sharper (reduction)	Bicubisch scherper (verkleinen)
 	Bilinear	Bilineair
 	Black	Zwart
 	Black & White	Zwart-wit
@@ -1485,6 +1509,7 @@
 	White Balance: As Shot	Witbalans: zoals opgenomen
 	Whites	Witten
 	Width	Breedte
+	Slant	Helling
 	Width:	Breedte:
 	Work Path	Werkpad
 	Yellow	Geel
@@ -1594,6 +1619,8 @@
 	Highlights from:	Hooglichten van:
 	History Brush Tool	Historiepenseel
 	Horizontal Type Tool	Horizontaal tekstgereedschap
+	Horizontal Type Mask Tool	Horizontaal tekstmaskergereedschap
+	Vertical Type Mask Tool	Verticaal tekstmaskergereedschap
 	Image Size:	Afbeeldingsgrootte:
 	Inches	Inch
 	Indexed	Geïndexeerd
@@ -1648,10 +1675,15 @@
 	Paints from the document's opening state	Schildert vanuit de staat waarin het document werd geopend
 	Path Selection Tool	Padselectiegereedschap
 	Direct Selection Tool	Direct-selectiegereedschap
+	Add Anchor Point Tool	Gereedschap Ankerpunt toevoegen
+	Delete Anchor Point Tool	Gereedschap Ankerpunt verwijderen
+	Click a segment to add an anchor point · {alt}-click an anchor to delete it	Klik op een segment om een ankerpunt toe te voegen · {alt}-klik op een ankerpunt om het te verwijderen
+	Click an anchor point to delete it · {alt}-click a segment to add one	Klik op een ankerpunt om het te verwijderen · {alt}-klik op een segment om er een toe te voegen
 	Pattern Overlay	Patroonbedekking
 	Pen Pressure	Pendruk
 	Pen Tilt	Penkanteling
 	Pen Tool	Pengereedschap
+	Convert Point Tool	Punt-converteergereedschap
 	Photo	Foto
 	PhotoCraft website	Website van PhotoCraft
 	Picas	Pica's
@@ -1667,6 +1699,8 @@
 	Postcard	Ansichtkaart
 	Poster	Poster
 	Pro (Dark)	Pro (donker)
+	Pro (Light)	Pro (licht)
+	Pro (Light Gray)	Pro (lichtgrijs)
 	Pro (Medium Gray)	Pro (middelgrijs)
 	Protect Texture	Textuur beschermen
 	Purple	Paars
@@ -1863,6 +1897,8 @@
 	Preserve details	Details behouden
 	Print resolution	Afdrukresolutie
 	Pro	Pro
+	Pro light	Pro licht
+	Pro light gray	Pro lichtgrijs
 	Pro medium	Pro middel
 	Pro photo	Pro Photo
 	Quick export format	Formaat snel exporteren
@@ -2014,6 +2050,7 @@
 	Apply the pen's tilt and rotation to the tip shape	Kanteling en rotatie van de pen toepassen op de vorm van de punt
 	Mixer Brush	Mengpenseel
 	Mixer Brush Tool	Mengpenseelgereedschap
+	Color Replacement Tool	Kleurvervangingsgereedschap
 	Wet	Nat
 	Mix	Mengen
 	Wetness Jitter	Nattigheidsvariatie
@@ -2065,6 +2102,7 @@
 	Developing {name}	{name} wordt ontwikkeld
 	Cancelled {label}	{label} geannuleerd
 	Esc to cancel	Esc om te annuleren
+	Opened {name}	{name} geopend
 	Opening {name}	{name} openen
 	Saved {name}	{name} opgeslagen
 	Saving {name}	{name} opslaan
@@ -2208,6 +2246,9 @@
 	Structure:	Structuur:
 	Content-Aware Move Tool	Inhoudsbewust verplaatsen
 	TIFF Options	TIFF-opties
+	Targa Options	Targa-opties
+	24 bits/pixel	24 bits/pixel
+	32 bits/pixel	32 bits/pixel
 	Including layers will increase file size.	Lagen meenemen vergroot de bestandsgrootte.
 	Discard Layers and Save a Copy	Lagen negeren en kopie opslaan
 	Don't show again	Niet meer tonen
@@ -2290,6 +2331,19 @@
 	Domed	Koepel
 	Domed (Inverted)	Koepel (omgekeerd)
 	Diagonal (Descending)	Diagonaal (aflopend)
+	Contour Editor	Contoureditor
+	Anti-aliased	Anti-aliasing
+	Corner	Hoek
+	Gloss Contour	Glanscontour
+	Contour	Contour
+	Cone - Inverted	Kegel - omgekeerd
+	Cove - Deep	Inham - diep
+	Cove - Shallow	Inham - ondiep
+	Half Round	Halfrond
+	Ring - Double	Ring - dubbel
+	Rolling Slope - Descending	Glooiende helling - aflopend
+	Rounded Steps	Afgeronde treden
+	Sawtooth 1	Zaagtand 1
 	Red Eye Tool	Rode-ogengereedschap
 	Red Eye	Rode ogen
 	Pupil Size	Pupilgrootte
@@ -3642,6 +3696,23 @@ cameraData	Lens	Lens
 	Previous Document	Vorig document
 	W x H x Resolution	B x H x Resolutie
 	Front Image	Voorste afbeelding
+	Perspective Crop Tool	Gereedschap Perspectief bijsnijden
+	Drag a box or click four corners · drag the corners onto the edges of a skewed shape · {commit} commits · Esc cancels	Sleep een kader of klik op vier hoeken · sleep de hoeken naar de randen van een scheve vorm · {commit} past toe · Esc annuleert
+	Artboard Tool	Tekengebiedgereedschap
+	Make Portrait	Staand maken
+	Make Landscape	Liggend maken
+	Add New Artboard	Nieuw tekengebied toevoegen
+	Freeform Pen Tool	Pengereedschap Vrije vorm
+	Curvature Pen Tool	Pengereedschap Kromming
+	Curve Fit:	Curve aanpassen:
+	Drag: draw freehand · Release on the start point: close	Slepen: uit de vrije hand tekenen · Loslaten op beginpunt: sluiten
+	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	Klik: vloeiend punt · Dubbelklik: hoek · Punt slepen: verplaatsen · Klik op eerste punt: sluiten · {key} voltooien
+	New Crop Preset…	Nieuwe uitsnijvoorinstelling…
+	Delete Crop Preset…	Uitsnijvoorinstelling verwijderen…
+	Select the crop presets to delete:	Selecteer de uitsnijvoorinstellingen die u wilt verwijderen:
+	Select the crop presets to delete	Selecteer de uitsnijvoorinstellingen die u wilt verwijderen
+	Enter a name for the crop preset	Voer een naam in voor de uitsnijvoorinstelling
+	There is no crop size or ratio to save	Er is geen uitsnijformaat of verhouding om op te slaan
 	Search settings…	Instellingen zoeken…
 	No matching settings	Geen overeenkomende instellingen
 	PhotoCraft — Screen Color Picker	PhotoCraft — Schermkleurkiezer
@@ -3661,3 +3732,30 @@ cameraData	Lens	Lens
 	Add “copy” to Copied Layers and Groups	„kopie” toevoegen aan gekopieerde lagen en groepen
 	Preview on canvas when reordering layers	Voorvertoning op canvas bij herschikken van lagen
 	Show layer mask badges	Badges voor laagmaskers tonen
+
+# Select and Mask view modes (#1754)
+	Onion Skin	Uienschil
+	Marching Ants	Mierenmars
+	On Black	Op zwart
+	On White	Op wit
+	On Layers	Op lagen
+	Show Edge	Rand tonen
+	Show Original	Origineel tonen
+	F cycles the views; hold X to see the image	F wisselt de weergaven; houd X ingedrukt om de afbeelding te zien
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	Penseel Rand verfijnen (R)
+	Expand Detection Area	Detectiegebied uitbreiden
+	Restore Original Edge	Oorspronkelijke rand herstellen
+	Paint over hair or fur on the image; Alt paints the other mode	Schilder over haar of vacht in de afbeelding; Alt schildert in de andere modus
+	Clear Brush Strokes	Penseelstreken wissen
+	Show rulers	Linialen tonen
+	Frame Tool	Kadergereedschap
+	Create a new rectangular frame	Nieuw rechthoekig kader maken
+	Create a new elliptical frame	Nieuw ovaal kader maken
+	Include in playback	Opnemen in afspelen
+	Scale:	Schaal:
+	Snap to Origin	Uitlijnen op oorsprong
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	Klik om te plaatsen · Alt-klik of sleep buiten het canvas om te verwijderen
+	{n} of {max} sample points	{n} van {max} steekproefpunten

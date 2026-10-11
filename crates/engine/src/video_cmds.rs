@@ -19,7 +19,10 @@ pub fn sync(doc: &mut Document) {
 
 fn sync_layers(layers: &mut [Layer], cur: usize) {
     for l in layers.iter_mut() {
-        let frame = l.video.as_ref().and_then(|v| v.frames.get(cur.min(v.frames.len().saturating_sub(1)))).cloned();
+        let frame = l.video.as_ref().and_then(|v| {
+            let visible = if v.show_altered { &v.frames } else { v.original_frames.as_ref().unwrap_or(&v.frames) };
+            visible.get(cur.min(visible.len().saturating_sub(1))).cloned()
+        });
         if let Some(f) = frame
             && let LayerContent::Raster(s) = &mut l.content
         {
@@ -42,7 +45,11 @@ fn store_layers(layers: &mut [Layer], cur: usize) {
     for l in layers.iter_mut() {
         if let (Some(v), LayerContent::Raster(s)) = (&mut l.video, &l.content) {
             let at = cur.min(v.frames.len().saturating_sub(1));
-            if let Some(f) = v.frames.get_mut(at) {
+            // When showing the original, the layer's displayed surface is a preview,
+            // not an edit to write over the altered frame (#3060).
+            if (v.show_altered || v.original_frames.is_none())
+                && let Some(f) = v.frames.get_mut(at)
+            {
                 *f = s.clone();
             }
         }
@@ -116,6 +123,10 @@ fn insert_blank(s: &mut Session, _p: &Value) -> Result<Value> {
     edit_video(s, "Insert Blank Frame", move |v, cur| {
         let at = (cur + 1).min(v.frames.len());
         v.frames.insert(at, blank_of(fmt));
+        if let Some(original) = &mut v.original_frames {
+            // The stacks stay aligned, but never index past a shorter one.
+            original.insert(at.min(original.len()), blank_of(fmt));
+        }
         Ok(())
     })
 }
@@ -123,6 +134,10 @@ fn insert_blank(s: &mut Session, _p: &Value) -> Result<Value> {
 fn duplicate_frame(s: &mut Session, _p: &Value) -> Result<Value> {
     edit_video(s, "Duplicate Frame", |v, cur| {
         if let Some(f) = v.frames.get(cur).cloned() {
+            if let Some(original) = &mut v.original_frames {
+                let orig = original.get(cur).cloned().unwrap_or_else(|| blank_of(f.format()));
+                original.insert((cur + 1).min(original.len()), orig);
+            }
             v.frames.insert(cur + 1, f);
         }
         Ok(())
@@ -133,6 +148,11 @@ fn delete_frame(s: &mut Session, _p: &Value) -> Result<Value> {
     edit_video(s, "Delete Frame", |v, cur| {
         if v.frames.len() > 1 && cur < v.frames.len() {
             v.frames.remove(cur);
+            if let Some(original) = &mut v.original_frames
+                && cur < original.len()
+            {
+                original.remove(cur);
+            }
         }
         Ok(())
     })
@@ -141,8 +161,9 @@ fn delete_frame(s: &mut Session, _p: &Value) -> Result<Value> {
 fn restore_frame(s: &mut Session, _p: &Value) -> Result<Value> {
     let fmt = s.active().ok_or(EngineError::NoDocument)?.doc.pixel_format();
     edit_video(s, "Restore Frame", move |v, cur| {
+        let original = v.original_frames.as_ref().and_then(|frames| frames.get(cur)).cloned();
         if let Some(f) = v.frames.get_mut(cur) {
-            *f = blank_of(fmt);
+            *f = original.unwrap_or_else(|| blank_of(fmt));
         }
         Ok(())
     })
@@ -151,8 +172,8 @@ fn restore_frame(s: &mut Session, _p: &Value) -> Result<Value> {
 fn restore_all(s: &mut Session, _p: &Value) -> Result<Value> {
     let fmt = s.active().ok_or(EngineError::NoDocument)?.doc.pixel_format();
     edit_video(s, "Restore All Frames", move |v, _| {
-        for f in v.frames.iter_mut() {
-            *f = blank_of(fmt);
+        for (i, f) in v.frames.iter_mut().enumerate() {
+            *f = v.original_frames.as_ref().and_then(|frames| frames.get(i)).cloned().unwrap_or_else(|| blank_of(fmt));
         }
         Ok(())
     })
@@ -238,6 +259,7 @@ fn new_from_file(s: &mut Session, p: &Value) -> Result<Value> {
         let name = doc.next_layer_name(std::path::Path::new(&path).file_stem().and_then(|s| s.to_str()).unwrap_or("Video"));
         let mut l = Layer::raster(name, fmt);
         let mut v = VideoData::new(frames, fps);
+        v.original_frames = Some(v.frames.clone());
         v.source = photocraft_doc::VideoSource::File { path: path.clone() };
         l.video = Some(v);
         let id = doc.insert_above(*active, l);
@@ -257,6 +279,7 @@ fn replace_footage(s: &mut Session, p: &Value) -> Result<Value> {
     let fmt = s.active().ok_or(EngineError::NoDocument)?.doc.pixel_format();
     let frames = load_frames(&path, fmt)?;
     edit_video(s, "Replace Footage", move |v, _| {
+        v.original_frames = Some(frames.clone());
         v.frames = frames;
         v.source = photocraft_doc::VideoSource::File { path: path.clone() };
         Ok(())
@@ -290,6 +313,7 @@ fn reload_frame(s: &mut Session, _p: &Value) -> Result<Value> {
     };
     let frames = load_frames(&path, fmt)?;
     edit_video(s, "Reload Frame", move |v, _| {
+        v.original_frames = Some(frames.clone());
         v.frames = frames;
         Ok(())
     })
