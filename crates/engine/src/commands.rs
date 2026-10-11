@@ -67,7 +67,9 @@ pub(crate) fn has_paintable(s: &Session) -> std::result::Result<(), String> {
 
 /// Surface a paint command writes to: the layer's pixels, or its mask with `"target":"mask"`.
 pub(crate) fn paint_surface<'a>(doc: &'a mut Document, id: LayerId, p: &Value) -> Result<&'a mut photocraft_raster::Surface> {
-    if !is_mask_target(p) {
+    if is_mask_target(p) {
+        check_all_unlocked(doc, id)?;
+    } else {
         check_pixels_unlocked(doc, id)?;
     }
     let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
@@ -76,6 +78,15 @@ pub(crate) fn paint_surface<'a>(doc: &'a mut Document, id: LayerId, p: &Value) -
     } else {
         l.surface_mut().ok_or_else(|| EngineError::Other("not a pixel layer".into()))
     }
+}
+
+fn check_all_unlocked(doc: &Document, id: LayerId) -> Result<()> {
+    let locks = doc.effective_locks(id);
+    let l = doc.layer(id).ok_or(EngineError::NoLayer(id))?;
+    if locks.all {
+        return Err(EngineError::Other(format!("Could not complete your request because the layer \"{}\" is locked", l.name)));
+    }
+    Ok(())
 }
 
 /// Refuse a layer whose pixels are locked (directly or through a group), with Photoshop's message.
@@ -104,6 +115,10 @@ fn has_selection(s: &Session) -> std::result::Result<(), String> {
 
 /// Image › Image Rotation by a right angle or a flip (pixels, vectors, guides, … all move).
 fn turn(s: &mut Session, label: &str, t: crate::canvas_geom::Turn) -> Result<Value> {
+    if let Some(d) = s.active() {
+        let a = t.affine(f64::from(d.doc.size.width), f64::from(d.doc.size.height));
+        s.set_sampler_map(a);
+    }
     s.edit(label, |doc, _| {
         crate::canvas_geom::turn_canvas(doc, t);
         Ok(())
@@ -452,17 +467,26 @@ fn build() -> Vec<CommandSpec> {
             "Rectangular Selection",
             [],
             None,
-            r##"{"x":i32,"y":i32,"width":u32,"height":u32,"mode":"replace|add|subtract|intersect"="replace","ellipse":bool=false,"antiAlias":bool=true,"feather":px=0}"##,
+            r##"{"x":i32,"y":i32,"width":u32,"height":u32,"mode":"replace|add|subtract|intersect"="replace","ellipse":bool=false,"line":"row|column"?,"antiAlias":bool=true,"feather":px=0}"##,
             has_doc,
             |s, p| {
                 let get = |k: &str| int_i32("select.rect", p, k).and_then(|v| v.ok_or_else(|| bad("select.rect", format!("missing `{k}`"))));
                 let r = Rect::from_xywh(get("x")?, get("y")?, get("width")?.max(0) as u32, get("height")?.max(0) as u32);
                 let mode = p.get("mode").and_then(Value::as_str).unwrap_or("replace").to_string();
                 let ellipse = p.get("ellipse").and_then(Value::as_bool).unwrap_or(false);
+                // The History step is named after the tool: the Single Row / Single Column
+                // Marquee send `line` (Photoshop).
+                let step = match p.get("line").and_then(Value::as_str) {
+                    Some("row") => "Single Row Marquee",
+                    Some("column") => "Single Column Marquee",
+                    Some(other) => return Err(bad("select.rect", format!("unknown `line` {other:?} (row|column)"))),
+                    None if ellipse => "Elliptical Marquee",
+                    None => "Rectangular Marquee",
+                };
                 // Options bar: anti-aliased ellipse edges (4x4 supersampled) and Feather (applied to the new shape only).
                 let aa = p.get("antiAlias").and_then(Value::as_bool).unwrap_or(true);
                 let feather = p.get("feather").and_then(Value::as_f64).unwrap_or(0.0).clamp(0.0, 1000.0) as f32;
-                s.edit(if ellipse { "Elliptical Marquee" } else { "Rectangular Marquee" }, |doc, _| {
+                s.edit(step, |doc, _| {
                     let area = doc.bounds();
                     // A marquee dragged past the canvas stops at its edge (Photoshop); the ellipse
                     // keeps the dragged shape and is only cut there.
@@ -496,16 +520,15 @@ fn build() -> Vec<CommandSpec> {
             }
         ),
         // Layer
-        cmd!("layer.new.layer", "Layer…", ["Layer", "New"], Some("Cmd+Shift+N"), r##"{"name":str?}"##, has_doc, |s, p| {
-            let id = s.edit("New Layer", |doc, active| {
-                let name = p.get("name").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| doc.next_layer_name("Layer"));
-                let id = doc.insert_above(*active, Layer::raster(name, doc.pixel_format()));
-                *active = Some(id);
-                Ok(id)
-            })?;
-            crate::layer_multi_cmds::note_inert_insert(s, id);
-            Ok(json!({ "layer": id.0 }))
-        }),
+        cmd!(
+            "layer.new.layer",
+            "Layer…",
+            ["Layer", "New"],
+            Some("Cmd+Shift+N"),
+            r##"{"name":str?,"clipToPrevious":bool=false (Use Previous Layer to Create Clipping Mask; inside a clip group the layer joins it anyway),"color":"none|red|orange|yellow|green|seafoam|blue|indigo|magenta|fuchsia|violet|gray"="none","mode":"Normal|Multiply|…"="Normal","opacity":0..1=1,"fillNeutral":bool=false (fill with the mode's neutral color: modes without one are an error)}"##,
+            has_doc,
+            crate::new_layer::run
+        ),
         cmd!("layer.new.group", "Group…", ["Layer", "New"], None, r##"{"name":str?}"##, has_doc, |s, p| {
             let id = s.edit("New Group", |doc, active| {
                 let name = p.get("name").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| doc.next_layer_name("Group"));
@@ -559,7 +582,9 @@ fn build() -> Vec<CommandSpec> {
             let id = layer_param(s, p)?;
             s.edit("Delete Layer", |doc, active| {
                 let neighbours = crate::layer_multi_cmds::deletion_neighbours(doc, id);
+                let before = crate::clip_group::Before::read(doc, &[id]);
                 doc.remove(id).ok_or(EngineError::NoLayer(id))?;
+                crate::clip_group::settle(doc, &[], &before, false);
                 if doc.layers.is_empty() {
                     return Err(EngineError::Other("a document must keep at least one layer".into()));
                 }
@@ -1154,6 +1179,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::edit_menu_cmds::specs());
     v.extend(crate::fill_key_cmds::specs());
     v.extend(crate::sample_cmds::specs());
+    v.extend(crate::sampler_cmds::specs());
     v.extend(crate::brush_key_cmds::specs());
     v.extend(crate::stamp_cmds::specs());
     v.extend(crate::align_cmds::specs());
@@ -1182,6 +1208,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::web_cmds::specs());
     v.extend(crate::automate_cmds::specs());
     v.extend(crate::print_cmds::specs());
+    v.extend(crate::installed_profiles::specs());
     v.extend(crate::pick_cmds::specs());
     v.extend(crate::layer_nav_cmds::specs());
     v.extend(crate::frame_cmds::specs());
@@ -1265,6 +1292,7 @@ fn arrange(s: &mut Session, p: &Value, delta: i32) -> Result<Value> {
             d => d,
         };
         let dir = steps.signum();
+        let before = crate::clip_group::Before::read(doc, &[id]);
         let mut moved = false;
         for _ in 0..steps.abs() {
             if !doc.shift(id, dir) {
@@ -1276,7 +1304,11 @@ fn arrange(s: &mut Session, p: &Value, delta: i32) -> Result<Value> {
             }
             moved = true;
         }
-        if moved { Ok(()) } else { Err(EngineError::Other("layer can't move further".into())) }
+        if !moved {
+            return Err(EngineError::Other("layer can't move further".into()));
+        }
+        crate::clip_group::settle(doc, &[id], &before, false);
+        Ok(())
     })?;
     Ok(Value::Null)
 }
@@ -1314,7 +1346,18 @@ pub(crate) fn translate_layer(doc: &Document, l: &mut Layer, dx: i32, dy: i32) {
         LayerContent::Raster(s) => *s = translate_surface(s, dx, dy),
         LayerContent::Text(t) => {
             t.transform = photocraft_geom::Affine::translate(dx as f64, dy as f64).mul(&t.transform);
-            crate::type_cmds::refresh(doc, t);
+            // A whole-pixel move shifts the rendered text and its PSD position as they are.
+            // Re-rendering would replace Photoshop's rendering of imported type, and drop the
+            // text when its font is missing (artboard export, moving type with the Move tool).
+            let raw = t.psd_raw.as_deref().map(|r| photocraft_text::psd::translate_tysh(r, f64::from(dx), f64::from(dy)));
+            match (&mut t.cache, raw) {
+                (Some(c), Some(Some(r))) => {
+                    *c = translate_surface(c, dx, dy);
+                    t.psd_raw = Some(std::sync::Arc::new(r));
+                }
+                (Some(c), None) => *c = translate_surface(c, dx, dy),
+                _ => crate::type_cmds::refresh(doc, t),
+            }
         }
         LayerContent::Group(g) => {
             // Moving an artboard moves the board with its contents.

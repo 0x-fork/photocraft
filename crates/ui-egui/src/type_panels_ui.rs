@@ -511,6 +511,9 @@ fn options_editor(app: &mut PhotocraftApp, ui: &mut egui::Ui, paragraph: bool, s
 
 /// Searchable family combo box.
 fn family_picker(ui: &mut egui::Ui, salt: &str, current: &mut String, preview: photocraft_engine::prefs::FontPreview, recents: &[String]) -> bool {
+    if !crate::type_tool::fonts_ready(ui, 140.0) {
+        return false;
+    }
     let mut shown = if current.is_empty() { photocraft_text::fonts::DEFAULT_FAMILY.to_string() } else { current.clone() };
     let changed = crate::type_tool::family_picker_in(ui, salt, &mut shown, 140.0, &crate::type_tool::families(), preview, recents);
     if changed {
@@ -596,6 +599,10 @@ pub fn insert_glyph(app: &mut PhotocraftApp, g: &str) -> bool {
 }
 
 pub fn glyphs_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    // Every glyph cell needs the font database: wait for the font scan without blocking.
+    if !crate::type_tool::fonts_ready(ui, 260.0) {
+        return;
+    }
     let t = Tokens::get(ui.ctx());
     let ctx = ui.ctx().clone();
     let (family, style) = glyph_font(app);

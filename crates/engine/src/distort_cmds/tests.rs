@@ -216,6 +216,42 @@ fn perspective_identity_known_homography_and_mask() {
 }
 
 #[test]
+fn perspective_with_a_selection_moves_only_the_selected_part_of_a_linked_mask() {
+    // #3083: the mask hides a stripe inside the selection (x 12..16) and one outside it (x 40..44).
+    let mask_at = |s: &Session, x, y| {
+        let st = s.active().unwrap();
+        st.doc.layer(st.active_layer.unwrap()).unwrap().mask.as_ref().unwrap().surface.sample_channel(x, y, 0)
+    };
+    for selected in [true, false] {
+        let mut s = session(8);
+        s.execute("layer.layerMask.revealAll", json!({})).unwrap();
+        s.edit("mask", |doc, active| {
+            let m = doc.layer_mut(active.unwrap()).unwrap().mask.as_mut().unwrap();
+            m.surface.fill_rect(Rect::new(12, 10, 16, 40), &[0.0]);
+            m.surface.fill_rect(Rect::new(40, 10, 44, 40), &[0.0]);
+            Ok(())
+        })
+        .unwrap();
+        if selected {
+            s.execute("select.rect", json!({"x": 0, "y": 0, "width": 30, "height": 60})).unwrap();
+        }
+        let q = [[0.0, 0.0], [30.0, 0.0], [30.0, 60.0], [0.0, 60.0]];
+        let d = q.map(|p| [p[0] + 4.0, p[1]]);
+        s.execute(PERSPECTIVE, json!({"planes": [{"src": q, "dst": d}], "interpolation": "bilinear"})).unwrap();
+        // The selected stripe moves with the pixels either way.
+        assert!(mask_at(&s, 17, 25) < 0.01 && mask_at(&s, 13, 25) > 0.99, "selected={selected}");
+        if selected {
+            // The unselected stripe stays over the unselected pixels.
+            assert!(mask_at(&s, 43, 25) < 0.01 && mask_at(&s, 47, 25) > 0.99);
+            assert_eq!(active_surface(&s).pixel(43, 25)[3], 1.0);
+        } else {
+            // Without a selection the whole mask moves with the layer.
+            assert!(mask_at(&s, 47, 25) < 0.01 && mask_at(&s, 43, 25) > 0.99);
+        }
+    }
+}
+
+#[test]
 fn smart_objects_store_distortions_as_smart_filters_losslessly() {
     for depth in [8u64, 16, 32] {
         let mut s = session(depth);

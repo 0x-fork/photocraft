@@ -502,6 +502,12 @@
 	Color Range…	色彩范围…
 	Focus Area…	焦点区域…
 	Select and Mask…	选择与蒙版…
+# Select and Mask dialog labels
+	Smart Radius	智能半径
+	Shift Edge	移动边缘
+	Decontaminate	净化
+	Output	输出
+	Refine Edge	调整边缘
 	Modify	修改
 	Border…	边界…
 	Smooth…	平滑…
@@ -770,6 +776,7 @@
 	Split Warp Horizontally	水平分割变形
 	Split Warp Vertically	垂直分割变形
 	Statistics…	统计…
+	Refine Strokes	调整描边
 @plural	{n} item|{n} items	{n} 项
 	Auto	自动
 	(print to the printer)	（输出到打印机）
@@ -1540,6 +1547,7 @@
 	White Balance: As Shot	白平衡：拍摄时设置
 	Whites	白色色阶
 	Width	宽度
+	Slant	倾斜
 	Width:	宽度：
 	Work Path	工作路径
 	Yellow	黄色
@@ -1557,6 +1565,9 @@
 	↑↓ navigate   ↵ run   esc close	↑↓ 导航   ↵ 运行   esc 关闭
 	Version {version}	版本 {version}
 	New Document	新建文档
+	New Document With Mask	带蒙版的新建文档
+	New Layer With Mask	带蒙版的新建图层
+	New Layer	新建图层
 	Saved	已保存
 	Save Preset…	保存预设…
 	Preset Name	预设名称
@@ -1718,6 +1729,7 @@
 	Pen Pressure	钢笔压力
 	Pen Tilt	钢笔倾斜
 	Pen Tool	钢笔工具
+	Convert Point Tool	转换点工具
 	Photo	照片
 	PhotoCraft website	PhotoCraft 网站
 	Picas	派卡
@@ -2069,6 +2081,8 @@ cameraRaw	Blending	混合
 	Patch Tool	修补工具
 	Patch:	修补：
 	Lasso around an area, then drag the selection	用套索圈出区域，然后拖动选区
+	Transform On Drop	放下时变换
+	Scale or rotate the moved area, then press {key}	缩放或旋转移动的区域，然后按 {key}
 	Now drag the selection onto another area	现在将选区拖动到另一个区域
 # Current shell labels and shortcut templates. Keep {key} platform-dependent.
 	Add a mask  (from the selection; {key} inverts)	添加蒙版  （基于选区；{key} 反相）
@@ -2078,6 +2092,7 @@ cameraRaw	Blending	混合
 	Click to apply, {key}-click to clear overrides, double-click for Style Options	单击应用，按 {key} 单击清除覆盖设置，双击打开样式选项
 	Click to zoom in  ·  {key}-click to zoom out  ·  drag right/left to zoom in/out	单击放大  ·  按 {key} 单击缩小  ·  向右或向左拖动以放大或缩小
 	Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel	单击：角点 · 拖动：平滑点 · 单击起点：闭合 · {key} 完成 · Esc 取消
+	Click: corner · Drag: smooth · {alt}-drag: break handle · Click or drag first point: close · {key} finish · Esc cancel	单击：角点 · 拖动：平滑点 · {alt}+拖动：断开手柄 · 单击或拖动起点：闭合 · {key} 完成 · Esc 取消
 	Commit Perspective Warp ({key})	应用透视变形（{key}）
 	Commit Puppet Warp ({key})	应用操控变形（{key}）
 	Commit any current edits ({key})	应用当前所有编辑（{key}）
@@ -2557,12 +2572,28 @@ cameraData	Lens	镜头
 	Freeform Pen Tool	自由钢笔工具
 	Curvature Pen Tool	弯度钢笔工具
 	Curve Fit:	曲线拟合：
-	Drag: draw freehand · Release on the start point: close	拖动：自由绘制 · 在起点松开：闭合
+	Drag: draw freehand · {alt}-click: straight segment · Release on the start point: close	拖动：自由绘制 · {alt}-单击：直线段 · 在起点松开：闭合
 	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	单击：平滑点 · 双击：角点 · 拖动点：移动 · 单击起点：闭合 · {key} 完成
 	Scale:	缩放：
 	Snap to Origin	贴紧原点
 	Search settings…	搜索设置…
 	No matching settings	没有匹配的设置
+	Loading fonts…	正在加载字体…
+	Tool	工具
+	Simulate Pressure	模拟压力
+	Stroke Path…	描边路径…
+	Background Eraser	背景橡皮擦
+	Clone Stamp	仿制图章
+	Healing Brush	修复画笔
+	Spot Healing Brush	污点修复画笔
+	History Brush	历史记录画笔
+	Smudge	涂抹
+	Dodge	减淡
+	Burn	加深
+	Sponge	海绵
+	Amount:	数量：
+	Protect:	保护：
+	Protect skin tones	保护肤色
 # Select and Mask view modes (#1754)
 	Onion Skin	洋葱皮
 	Marching Ants	蚂蚁线
@@ -2572,6 +2603,12 @@ cameraData	Lens	镜头
 	Show Edge	显示边缘
 	Show Original	显示原始
 	F cycles the views; hold X to see the image	按 F 切换视图；按住 X 查看图像
+# Select and Mask Refine Edge Brush (#2972)
+	Refine Edge Brush (R)	调整边缘画笔 (R)
+	Expand Detection Area	扩展检测区域
+	Restore Original Edge	恢复原始边缘
+	Paint over hair or fur on the image; Alt paints the other mode	在图像中的头发或毛发上涂抹；按住 Alt 以另一种模式涂抹
+	Clear Brush Strokes	清除画笔描边
 	Show rulers	显示标尺
 	New Crop Preset…	新建裁剪预设…
 	Delete Crop Preset…	删除裁剪预设…
@@ -2579,3 +2616,17 @@ cameraData	Lens	镜头
 	Select the crop presets to delete	选择要删除的裁剪预设
 	Enter a name for the crop preset	输入裁剪预设的名称
 	There is no crop size or ratio to save	没有可保存的裁剪大小或比例
+
+# Color Sampler (added with the i18n coverage repair)
+	Click to place · Alt-click or drag off-canvas to remove	单击以放置 · Alt 单击或拖到画布外以移除
+	No document open	未打开任何文档
+	{n} of {max} sample points	{max} 个取样点中的 {n} 个
+# Print dialog (#2697)
+	Emulsion Down	药膜朝下
+	Functions	功能
+	Print Resolution:	打印分辨率：
+	Use Previous Layer to Create Clipping Mask	使用前一图层创建剪贴蒙版
+	Fill with {mode}-neutral color (white)	使用{mode}中性色填充（白色）
+	Fill with {mode}-neutral color (black)	使用{mode}中性色填充（黑色）
+	Fill with {mode}-neutral color (50% gray)	使用{mode}中性色填充（50% 灰色）
+	(No neutral color exists for {mode} mode.)	（{mode}模式不存在中性色。）

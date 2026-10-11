@@ -129,12 +129,19 @@ pub fn owns(fields: &Map<String, Value>) -> bool {
 }
 
 /// A view key pressed in the dialog: a view letter picks that view, F the next one, J toggles
-/// Show Edge and P Show Original. Returns whether the key was one of them.
+/// Show Edge and P Show Original, R the Refine Edge Brush, and [ / ] change its size. Returns
+/// whether the key was one of them.
 pub fn apply_key(fields: &mut Map<String, Value>, key: egui::Key) -> bool {
     if key == egui::Key::F {
         fields.insert("__view".into(), json!(mode(fields).next().id()));
     } else if let Some(m) = Mode::ALL.into_iter().find(|m| m.key() == key) {
         fields.insert("__view".into(), json!(m.id()));
+    } else if key == egui::Key::R {
+        fields.insert("__brush".into(), json!(!brush_on(fields)));
+    } else if key == egui::Key::OpenBracket || key == egui::Key::CloseBracket {
+        let size = brush_size(fields);
+        let next = if key == egui::Key::OpenBracket { (size * 0.9).min(size - 1.0) } else { (size * 1.1).max(size + 1.0) };
+        fields.insert("__brushSize".into(), json!(next.round().clamp(BRUSH_SIZES.0, BRUSH_SIZES.1)));
     } else if key == egui::Key::J || key == egui::Key::P {
         let field = if key == egui::Key::J { "__showEdge" } else { "__showOriginal" };
         fields.insert(field.into(), json!(!flag(fields, field)));
@@ -193,6 +200,114 @@ pub fn controls(ui: &mut egui::Ui, fields: &mut Map<String, Value>) {
     ui.add_space(4.0);
     crate::widgets::hairline(ui);
     ui.add_space(6.0);
+    brush_controls(ui, fields);
+}
+
+/// The Refine Edge Brush (R): painting on the canvas sets where edge refinement happens.
+fn brush_controls(ui: &mut egui::Ui, fields: &mut Map<String, Value>) {
+    let t = Tokens::get(ui.ctx());
+    let mut on = brush_on(fields);
+    crate::widgets::checkbox(ui, &mut on, tl!("Refine Edge Brush (R)"));
+    fields.insert("__brush".into(), json!(on));
+    if on {
+        let mut subtract = brush_subtract(fields);
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(tl!("Mode")).color(t.text_dim));
+            let options = [(false, tl!("Expand Detection Area")), (true, tl!("Restore Original Edge"))];
+            crate::widgets::dropdown(ui, "select-mask-brush-mode", &mut subtract, &options, 170.0);
+        });
+        fields.insert("__brushMode".into(), json!(if subtract { "subtract" } else { "add" }));
+        let mut size = brush_size(fields);
+        crate::widgets::slider_row(ui, tl!("Size"), &mut size, BRUSH_SIZES.0..=BRUSH_SIZES.1, "px", None);
+        fields.insert("__brushSize".into(), json!(size.round().clamp(BRUSH_SIZES.0, BRUSH_SIZES.1)));
+        ui.label(egui::RichText::new(tl!("Paint over hair or fur on the image; Alt paints the other mode")).color(t.text_dim).small());
+    }
+    let painted = fields.get("refineStrokes").and_then(Value::as_array).is_some_and(|a| !a.is_empty());
+    if painted && crate::widgets::secondary_button(ui, tl!("Clear Brush Strokes"), 0.0).clicked() {
+        fields.remove("refineStrokes");
+    }
+    ui.add_space(4.0);
+    crate::widgets::hairline(ui);
+    ui.add_space(6.0);
+}
+
+/// The Refine Edge Brush's diameters (px) in the dialog.
+const BRUSH_SIZES: (f32, f32) = (1.0, 1000.0);
+
+/// Whether the Refine Edge Brush is the dialog's tool.
+pub fn brush_on(fields: &Map<String, Value>) -> bool {
+    flag(fields, "__brush")
+}
+
+fn brush_size(fields: &Map<String, Value>) -> f32 {
+    let size = fields.get("__brushSize").and_then(Value::as_f64).filter(|v| v.is_finite()).map_or(30.0, |v| v as f32);
+    size.clamp(BRUSH_SIZES.0, BRUSH_SIZES.1)
+}
+
+/// The brush restores the original edge (Photoshop's − mode) instead of expanding the area.
+fn brush_subtract(fields: &Map<String, Value>) -> bool {
+    fields.get("__brushMode").and_then(Value::as_str) == Some("subtract")
+}
+
+/// Paints the Refine Edge Brush at document point `at` into the dialog's `refineStrokes`:
+/// `start` begins a new stroke (in `subtract` mode or not), otherwise the point extends the last
+/// one. Points closer than an eighth of the brush to the previous one are skipped, and painting
+/// stops at the command's stroke and point limits.
+pub fn paint(fields: &mut Map<String, Value>, at: [f64; 2], start: bool, subtract: bool) {
+    if !at[0].is_finite() || !at[1].is_finite() {
+        return;
+    }
+    let size = f64::from(brush_size(fields));
+    let mut strokes = fields.get("refineStrokes").and_then(Value::as_array).cloned().unwrap_or_default();
+    let points = |s: &Value| s.get("points").and_then(Value::as_array).map_or(0, Vec::len);
+    if strokes.iter().map(points).sum::<usize>() >= photocraft_engine::smartselect_cmds::MAX_STROKE_POINTS {
+        return;
+    }
+    let round = |v: f64| (v * 10.0).round() / 10.0;
+    let pt = json!([round(at[0]), round(at[1])]);
+    let room = strokes.len() < photocraft_engine::smartselect_cmds::MAX_STROKES;
+    let last = strokes.last_mut().and_then(|s| s.get_mut("points")).and_then(Value::as_array_mut);
+    match last {
+        Some(pts) if !start => {
+            let prev = pts.last().and_then(|p| Some((p.get(0)?.as_f64()?, p.get(1)?.as_f64()?)));
+            if prev.is_none_or(|(x, y)| (x - at[0]).hypot(y - at[1]) >= (size / 8.0).max(1.0)) {
+                pts.push(pt);
+            }
+        }
+        _ if room => {
+            strokes.push(json!({"points": [pt], "size": size, "mode": if subtract { "subtract" } else { "add" }}));
+        }
+        _ => return,
+    }
+    fields.insert("refineStrokes".into(), Value::Array(strokes));
+}
+
+/// The canvas under a Select and Mask dialog with the Refine Edge Brush on: shows the brush at
+/// `over` (zoom = screen points per document pixel) and paints at document point `press`. False
+/// when the brush isn't the top dialog's tool.
+pub fn canvas_brush(app: &mut PhotocraftApp, painter: &egui::Painter, over: egui::Pos2, press: Option<[f64; 2]>, zoom: f32) -> bool {
+    let ctx = painter.ctx().clone();
+    let Some(d) = app.ui.dialogs.last_mut().filter(|d| owns(&d.fields) && brush_on(&d.fields)) else { return false };
+    let (alt, start) = ctx.input(|i| (i.modifiers.alt, i.pointer.primary_pressed()));
+    // Alt paints in the other mode, as in Photoshop.
+    let subtract = brush_subtract(&d.fields) != alt;
+    let r = (brush_size(&d.fields) / 2.0 * zoom).max(1.5);
+    let (dark, light) = (egui::Stroke::new(1.0, egui::Color32::from_black_alpha(140)), egui::Stroke::new(1.0, egui::Color32::from_white_alpha(220)));
+    painter.circle_stroke(over, r + 0.5, dark);
+    painter.circle_stroke(over, r, light);
+    let arm = 3.0;
+    for stroke in [egui::Stroke::new(2.5, egui::Color32::from_black_alpha(140)), egui::Stroke::new(1.0, egui::Color32::from_white_alpha(220))] {
+        painter.line_segment([over - egui::vec2(arm, 0.0), over + egui::vec2(arm, 0.0)], stroke);
+        if !subtract {
+            painter.line_segment([over - egui::vec2(0.0, arm), over + egui::vec2(0.0, arm)], stroke);
+        }
+    }
+    ctx.set_cursor_icon(egui::CursorIcon::None);
+    if let Some(at) = press {
+        paint(&mut d.fields, at, start, subtract);
+        ctx.request_repaint();
+    }
+    true
 }
 
 /// The preview request: the command's params plus the view (`__view`), so a view change
@@ -268,6 +383,30 @@ impl Coverage {
         Coverage { area, values: grown.iter().zip(&shrunk).map(|(g, s)| (g - s).clamp(0.0, 1.0)).collect(), outside: 0.0 }
     }
 
+    /// Coverage at canvas pixel `(x, y)`.
+    fn at(&self, x: i32, y: i32) -> f32 {
+        if !self.area.contains(x, y) {
+            return self.outside;
+        }
+        let i = (y - self.area.y0) as usize * self.area.width() as usize + (x - self.area.x0) as usize;
+        self.values.get(i).copied().unwrap_or(self.outside)
+    }
+
+    /// The edge band as the Refine Edge Brush changes it: painted areas join it, restored ones
+    /// leave it.
+    fn with_brush(self, brush: Option<&photocraft_algo::matting::EdgeBrush>, canvas: Rect) -> Coverage {
+        let Some(brush) = brush else { return self };
+        let area = self.area.union(&brush.bounds()).intersect(&canvas);
+        let values = (area.y0..area.y1)
+            .flat_map(|y| (area.x0..area.x1).map(move |x| (x, y)))
+            .map(|(x, y)| {
+                let (v, b) = (self.at(x, y), brush.at(x, y));
+                if b >= 0.0 { v.max(b) } else { v * (1.0 + b) }
+            })
+            .collect();
+        Coverage { area, values, outside: self.outside }
+    }
+
     /// A GRAY8 mask surface holding `f(coverage)`.
     fn surface(&self, f: impl Fn(f32) -> f32) -> Surface {
         let g = |v: f32| f(v).clamp(0.0, 1.0);
@@ -317,7 +456,8 @@ pub fn preview_document(doc: &Document, active: Option<LayerId>, params: &Value,
     let original = proxy.selection.clone().or_else(|| active.and_then(|id| proxy.layer(id)).and_then(|l| l.mask.as_ref()).map(|m| m.surface.clone()));
     let canvas = Rect::new(0, 0, i32::try_from(proxy.size.width).unwrap_or(i32::MAX), i32::try_from(proxy.size.height).unwrap_or(i32::MAX));
     let coverage = if view.show_edge {
-        Coverage::edge_band(original.as_ref(), canvas, length(params, "radius", k).round().clamp(1.0, 250.0) as usize)
+        let band = Coverage::edge_band(original.as_ref(), canvas, length(params, "radius", k).round().clamp(1.0, 250.0) as usize);
+        band.with_brush(scaled_strokes(params, k).as_ref().and_then(|s| photocraft_algo::matting::EdgeBrush::new(s, canvas)).as_ref(), canvas)
     } else if view.show_original {
         Coverage::read(original.as_ref(), canvas)
     } else {
@@ -344,8 +484,52 @@ fn refine(proxy: &Document, active: Option<LayerId>, params: &Value, k: u32, can
             p.insert(key.into(), json!(length(params, key, k)));
         }
     }
+    if let Some(strokes) = p.get("refineStrokes").and_then(Value::as_array).cloned() {
+        let k = f64::from(k.max(1));
+        let scale = |v: &Value| v.as_f64().map_or(v.clone(), |n| json!(n / k));
+        let scaled: Vec<Value> = strokes
+            .into_iter()
+            .map(|mut s| {
+                if let Some(o) = s.as_object_mut() {
+                    if let Some(size) = o.get("size").and_then(Value::as_f64) {
+                        o.insert("size".into(), json!((size / k).max(1.0)));
+                    }
+                    if let Some(pts) = o.get_mut("points").and_then(Value::as_array_mut) {
+                        for pt in pts.iter_mut() {
+                            if let Some(xy) = pt.as_array_mut() {
+                                xy.iter_mut().for_each(|v| *v = scale(v));
+                            }
+                        }
+                    }
+                }
+                s
+            })
+            .collect();
+        p.insert("refineStrokes".into(), Value::Array(scaled));
+    }
     s.execute(COMMAND, Value::Object(p)).ok()?;
     Some(s.active()?.doc.selection.clone())
+}
+
+/// The Refine Edge Brush strokes of `params`, reduced by `k`, for Show Edge; `None` when there
+/// are none (or they are malformed: the refinement itself reports those).
+fn scaled_strokes(params: &Value, k: u32) -> Option<Vec<photocraft_algo::matting::EdgeStroke>> {
+    let k = k.max(1) as f32;
+    params
+        .get("refineStrokes")?
+        .as_array()?
+        .iter()
+        .map(|s| {
+            let points = s
+                .get("points")?
+                .as_array()?
+                .iter()
+                .map(|p| Some((p.get(0)?.as_f64()? as f32 / k, p.get(1)?.as_f64()? as f32 / k)))
+                .collect::<Option<Vec<_>>>()?;
+            let size = (s.get("size").and_then(Value::as_f64).unwrap_or(30.0) as f32 / k).max(1.0);
+            Some(photocraft_algo::matting::EdgeStroke { points, size, add: s.get("mode").and_then(Value::as_str) != Some("subtract") })
+        })
+        .collect()
 }
 
 /// A solid fill layer named for the view.
@@ -470,6 +654,42 @@ mod tests {
         let doc = half_selected();
         let bad = json!({"radius": -5, "feather": "x", "__view": {"mode": 7, "opacity": "nan"}});
         assert!(preview_document(&doc, None, &bad, 3, None).is_some());
+    }
+
+    /// Refine Edge Brush strokes painted in the dialog reach the (reduced) preview: strands
+    /// beyond the band join the selection, and Show Edge includes the painted area.
+    #[test]
+    fn brush_strokes_reach_the_preview() {
+        // Warm subject (x < 40) with warm strands every 4th column from x = 60, on blue.
+        let strand = |x: u32| x < 40 || ((60..84).contains(&x) && x.is_multiple_of(4));
+        let mut doc = Document::with_background("d", Size::new(120, 40), ColorMode::Rgb, SampleType::U8, Color::WHITE);
+        if let Some(bg) = doc.layers.first_mut().and_then(|l| l.surface_mut()) {
+            let n = bg.channels();
+            let data: Vec<f32> = (0..40u32)
+                .flat_map(|_| (0..120u32).flat_map(move |x| if strand(x) { [0.9, 0.7, 0.2, 1.0] } else { [0.1, 0.3, 0.8, 1.0] }.into_iter().take(n)))
+                .collect();
+            bg.write_region(Rect::new(0, 0, 120, 40), &data);
+        }
+        let mut sel = Surface::new(PixelFormat::GRAY8);
+        sel.fill_rect(Rect::new(0, 0, 40, 40), &[1.0]);
+        doc.selection = Some(sel);
+        let active = doc.layers.first().map(|l| l.id);
+        let mut f = Map::new();
+        apply_key(&mut f, egui::Key::R);
+        assert!(brush_on(&f), "R picks the brush");
+        f.insert("__brushSize".into(), json!(30));
+        paint(&mut f, [70.0, 2.0], true, false);
+        paint(&mut f, [70.0, 2.5], false, false);
+        paint(&mut f, [70.0, 38.0], false, false);
+        let strokes = f.get("refineStrokes").cloned().unwrap_or_default();
+        assert_eq!(strokes, json!([{"points": [[70.0, 2.0], [70.0, 38.0]], "size": 30.0, "mode": "add"}]), "near points are skipped");
+        let mut params = json!({"radius": 4, "refineStrokes": strokes, "__view": {"mode": "blackWhite"}});
+        let shown = preview_document(&doc, active, &params, 2, None).expect("a preview");
+        assert!(pixel(&shown, 32, 10)[0] > 0.8, "a strand at full size x = 64 joins the selection");
+        assert!(pixel(&shown, 50, 10)[0] < 0.01, "the background past the strands stays out");
+        params["__view"]["showEdge"] = json!(true);
+        let edge = preview_document(&doc, active, &params, 2, None).expect("a preview");
+        assert!(pixel(&edge, 35, 10)[0] > 0.99 && pixel(&edge, 55, 10)[0] < 0.01, "Show Edge includes the painted area");
     }
 
     /// Show Edge shows the band around the selection's edge; Show Original the unrefined selection.

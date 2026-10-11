@@ -621,3 +621,29 @@ fn cmd_is_not_the_move_tool_for_selection_hand_zoom_pen_shape_or_type_tools() {
         assert!(cmd_moves(tool), "{tool:?}");
     }
 }
+
+/// #3368 through the real key handling: holding Space (the temporary Hand) with a pending crop
+/// keeps it pending, while V (another tool) commits it, as in Photoshop.
+#[test]
+fn a_held_key_keeps_a_pending_crop_and_another_tools_key_commits_it() {
+    let mut h = harness(Tool::Crop);
+    {
+        let app = h.state_mut();
+        app.ui.crop_rect = Some([100.0, 50.0, 300.0, 200.0]);
+        app.crop.default_frame = false;
+    }
+    h.run_steps(2);
+    assert!(crate::crop_ui::pending(h.state()));
+    key(&mut h, Key::Space, true, Modifiers::NONE);
+    h.run_steps(2);
+    key(&mut h, Key::Space, false, Modifiers::NONE);
+    h.run_steps(2);
+    assert_eq!(h.state().ui.tool, Tool::Crop);
+    assert_eq!(h.state().session.active().unwrap().doc.size, photocraft_doc::Size::new(400, 300));
+    assert!(crate::crop_ui::pending(h.state()));
+    tap(&mut h, Key::V, Modifiers::NONE);
+    h.run_steps(2);
+    assert_eq!(h.state().ui.tool, Tool::Move);
+    assert_eq!(h.state().session.active().unwrap().doc.size, photocraft_doc::Size::new(200, 150));
+    assert_eq!(h.state().ui.crop_rect, None);
+}

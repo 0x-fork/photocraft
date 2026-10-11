@@ -54,6 +54,25 @@ pub struct OpenParams {
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct PlaceParams {
+    /// Path beneath the configured automation read root: relative (forward slashes) or absolute.
+    pub path: String,
+    /// Document index from `session_list` (default: the active document).
+    #[serde(default)]
+    pub index: Option<usize>,
+    /// Scale as a percentage; defaults to fitting a file larger than the canvas.
+    #[serde(default)]
+    pub scale: Option<f64>,
+    /// Place at a centred size instead of a scaled one.
+    #[serde(default)]
+    pub fit: Option<bool>,
+    /// Centre of the placed layer, in document pixels.
+    #[serde(default)]
+    pub center: Option<[f64; 2]>,
+}
+
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct NewParams {
     #[serde(default)]
     pub width: Option<u32>,
@@ -246,7 +265,8 @@ pub struct UiSetParams {
     /// color ("matchCanvas" or "custom"), custom_color ([r, g, b]), opacity (0..100),
     /// auto_adjust, classic_mode and auto_center_preview), shapeStroke (an object patching width, align, cap, join, miterLimit,
     /// dashes, dashOffset and opacity; null disables the stroke). Shape stroke fields use
-    /// `shape.edit` names and units; colour comes from `tools.setColors`. Other fields are an error.
+    /// `shape.edit` names and units; colour comes from `tools.setColors`. camTransformOnDrop (bool,
+    /// the Content-Aware Move tool's Transform On Drop). Other fields are an error.
     pub fields: Value,
 }
 
@@ -517,6 +537,33 @@ impl PhotocraftMcp {
             return Ok(no_backend());
         };
         to_result(b.call("app.open", json!({"path": p.path})).await)
+    }
+
+    #[tool(
+        description = "Place a file into the document as a Smart Object layer (Place Embedded), reading `path` beneath the read root. `scale` (percent), `fit` and `center` are the command's own."
+    )]
+    async fn doc_place(&self, Parameters(p): Parameters<PlaceParams>) -> Result<CallToolResult, McpError> {
+        let mut opts = serde_json::Map::new();
+        if let Some(v) = p.scale {
+            opts.insert("scale".into(), json!(v));
+        }
+        if let Some(v) = p.fit {
+            opts.insert("fit".into(), json!(v));
+        }
+        if let Some(v) = p.center {
+            opts.insert("center".into(), json!(v));
+        }
+        let opts = Value::Object(opts);
+        // Bridge mode runs the app on this machine, which reads the path itself like any command.
+        let mut bridge_params = opts.clone();
+        if let Some(o) = bridge_params.as_object_mut() {
+            o.insert("path".into(), Value::String(p.path.clone()));
+        }
+        let (path, index) = (p.path, p.index);
+        if let Some(r) = self.headless_op(move |h| h.place(index, &path, &opts)).await {
+            return to_result(r);
+        }
+        self.run_command("file.placeEmbedded".into(), bridge_params, true).await
     }
 
     #[tool(description = "Create a new document (defaults: 1920x1080 RGB 8-bit white).")]

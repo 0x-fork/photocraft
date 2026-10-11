@@ -79,6 +79,7 @@ async fn lists_expected_tools() {
         "session_list",
         "doc_open",
         "doc_new",
+        "doc_place",
         "doc_save",
         "doc_export",
         "doc_inspect",
@@ -607,6 +608,45 @@ async fn filesystem_policy_rejects_absolute_and_escaping_paths_before_effects() 
     let response = call(&client, "command_run", json!({"id": "layer.smartObjects.exportContents", "params": {"path": "outside.bin"}})).await;
     assert_eq!(response.is_error, Some(true));
     assert!(text(&response).contains("ambient filesystem paths"), "{}", text(&response));
+    client.cancel().await.unwrap();
+    cleanup(&base);
+}
+
+/// #2810: a file from the read root places as a Smart Object layer; `file.placeEmbedded` itself
+/// stays refused, so `doc_place` is the only way in and the root is still the scope.
+#[tokio::test(flavor = "multi_thread")]
+async fn doc_place_is_capability_scoped() {
+    let base = tmp("place");
+    let root = base.join("workspace");
+    let outside = base.join("outside");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    let img = photocraft_codecs::Image::from_u8(8, 6, photocraft_codecs::ChannelLayout::Rgb, vec![42; 144]).unwrap();
+    let bytes = photocraft_codecs::encode(&img, photocraft_codecs::Format::Png, &Default::default()).unwrap();
+    std::fs::write(root.join("inside.png"), &bytes).unwrap();
+    std::fs::write(outside.join("outside.png"), bytes).unwrap();
+    let client = connect(headless_in(&root)).await;
+
+    json_of(&call(&client, "doc_new", json!({"width": 40, "height": 30})).await);
+    let placed = call(&client, "doc_place", json!({"path": "inside.png", "center": [10, 10]})).await;
+    assert_ne!(placed.is_error, Some(true), "{}", text(&placed));
+    let layers = json_of(&call(&client, "doc_inspect", json!({})).await)["layers"].as_array().unwrap().len();
+    assert_eq!(layers, 2, "the placed layer is in the document");
+    // An absolute path beneath the root is the same file (#2176), so it places too; outside it,
+    // nothing.
+    let inside = call(&client, "doc_place", json!({"path": root.join("inside.png").to_string_lossy()})).await;
+    assert_ne!(inside.is_error, Some(true), "{}", text(&inside));
+    let placed = json_of(&call(&client, "doc_inspect", json!({})).await)["layers"].as_array().unwrap().len();
+    assert_eq!(placed, 3, "the absolute path beneath the root places as well");
+    let refused = call(&client, "doc_place", json!({"path": outside.join("outside.png").to_string_lossy()})).await;
+    assert_eq!(refused.is_error, Some(true));
+    assert!(text(&refused).contains("must be inside the automation root"), "{}", text(&refused));
+    let after = json_of(&call(&client, "doc_inspect", json!({})).await)["layers"].as_array().unwrap().len();
+    assert_eq!(after, placed, "nothing outside the root was placed");
+    // The ambient command keeps its refusal: the capability-scoped method is the only way in.
+    let ambient = call(&client, "command_run", json!({"id": "file.placeEmbedded", "params": {"path": "inside.png"}})).await;
+    assert_eq!(ambient.is_error, Some(true));
+    assert!(text(&ambient).contains("ambient filesystem paths"), "{}", text(&ambient));
     client.cancel().await.unwrap();
     cleanup(&base);
 }

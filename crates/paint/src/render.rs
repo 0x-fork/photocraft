@@ -245,6 +245,29 @@ impl BrushContext {
         // position, and thin lines beaded.
         let small = mips.is_none() && !aliased && rm < SMALL_TIP_RADIUS;
         let small_reach2 = (rm + 0.75) * (rm + 0.75);
+        // Keep ordinary computed tips separate from the feature loop, so their dense rows
+        // can be vectorised without the per-pixel sampled-mask and stroke-depth branches.
+        if mips.is_none()
+            && !small
+            && !(aliased && b.square)
+            && !noise
+            && !tex_tip
+            && !wet
+            && depth.is_none()
+            && proj.is_none()
+            && d.angle == 0.0
+            && d.radius.is_finite()
+            && d.roundness.is_finite()
+            && rm.is_finite()
+            && cx.is_finite()
+            && cy.is_finite()
+            && hardness.is_finite()
+            && d.alpha.is_finite()
+            && w > 0
+        {
+            rasterize_round(d, rect, out, hardness, aliased);
+            return;
+        }
         for yy in 0..h {
             let y = rect.y0 + yy as i32;
             let dy = y as f32 + 0.5 - cy;
@@ -889,3 +912,48 @@ pub fn render_stroke(
     r.finish();
     r.composite(&pre, target, selection, lock_transparency, true)
 }
+
+// The zero-angle transform only changes signs; squaring gives the same radial distance.
+#[inline(never)]
+fn rasterize_round(d: &Dab, rect: Rect, out: &mut [f32], hardness: f32, aliased: bool) {
+    let (cx, cy) = if aliased { grid_center(d.center.x, d.center.y, 2.0 * d.radius) } else { (d.center.x as f32, d.center.y as f32) };
+    let ro = d.roundness.max(0.5 / d.radius).min(1.0);
+    let rm = (d.radius * ro).max(0.5);
+    let w = rect.width() as usize;
+    let reach2 = (rm + 0.5) * (rm + 0.5);
+    let inner = rm * hardness.clamp(0.0, 1.0);
+    for (yy, row) in out.chunks_exact_mut(w).enumerate() {
+        let dy = (rect.y0 + yy as i32) as f32 + 0.5 - cy;
+        if aliased {
+            for (xx, dst) in row.iter_mut().enumerate() {
+                let dx = (rect.x0 + xx as i32) as f32 + 0.5 - cx;
+                let d2 = (dx * ro).powi(2) + dy * dy;
+                *dst = if d2 < reach2 && d2.sqrt() <= rm { d.alpha } else { 0.0 };
+            }
+        } else if rm - inner < 1e-3 {
+            for (xx, dst) in row.iter_mut().enumerate() {
+                let dx = (rect.x0 + xx as i32) as f32 + 0.5 - cx;
+                let d2 = (dx * ro).powi(2) + dy * dy;
+                let edge = ((rm + 0.5 - d2.sqrt()).clamp(0.0, 1.0)).min(1.0);
+                *dst = if d2 >= reach2 || edge <= 0.0 { 0.0 } else { edge * d.alpha };
+            }
+        } else {
+            for (xx, dst) in row.iter_mut().enumerate() {
+                let dx = (rect.x0 + xx as i32) as f32 + 0.5 - cx;
+                let d2 = (dx * ro).powi(2) + dy * dy;
+                let dd = d2.sqrt();
+                let edge = ((rm + 0.5 - dd).clamp(0.0, 1.0)).min(1.0);
+                let t = ((dd - inner) / (rm - inner)).clamp(0.0, 1.0);
+                let s = 1.0 - t * t;
+                let s2 = s * s;
+                let falloff = if dd <= inner { 1.0 } else { s2 * s2 };
+                let val = edge * falloff;
+                *dst = if d2 >= reach2 || val <= 0.0 { 0.0 } else { val * d.alpha };
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "render_reference.rs"]
+mod reference;

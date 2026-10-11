@@ -1353,6 +1353,24 @@ fn word_and_line_navigation() {
     assert!(jumped > kept);
 }
 
+#[test]
+fn line_navigation_reaches_adjacent_line_with_large_leading() {
+    use crate::layout::{byte_index, line_step};
+
+    let mut e = TextEngine::new();
+    let text = "ab\ncd";
+    let mut t = point(text, 12.0);
+    t.runs = vec![TextRun { len: text.len(), style: CharStyle { font_family: "Inter".into(), size_pt: 12.0, leading_pt: Some(40.0), ..Default::default() } }];
+    let l = e.layout(&t, 72.0);
+
+    assert_eq!(l.lines.len(), 2);
+    assert!((l.lines[1].baseline - l.lines[0].baseline - 40.0).abs() < 0.01);
+    let next = line_step(&l, text, 1, l.caret(byte_index(text, 1)).0, 1);
+    assert_eq!(next, 4, "lineNext must reach the second line");
+    let prev = line_step(&l, text, 4, l.caret(byte_index(text, 4)).0, -1);
+    assert_eq!(prev, 1, "linePrev must reach the first line");
+}
+
 /// Thai text sample with above/below marks (sara i, mai ek, mai tho, mai han-akat, sara u).
 const THAI_SAMPLE: &str = "ภาษาไทย สวัสดีครับ ผู้ที่น้ำ";
 
@@ -1400,4 +1418,19 @@ fn a_served_script_fallback_joins_the_fallback_stack_once_it_arrives() {
     assert!(!db.fallback_stack().any(|f| f == "Cairo"), "not before it arrives");
     db.register_font_data(cairo.bytes.to_vec());
     assert!(db.fallback_stack().any(|f| f == "Cairo"), "{:?}", db.fallback_stack().collect::<Vec<_>>());
+}
+
+#[test]
+fn translate_tysh_moves_only_the_translation() {
+    let mut t = point("Hello!", 26.0);
+    t.transform = Affine { m: [1.5, 0.0, 0.0, 1.5, 80.0, 340.0] };
+    let tysh = crate::psd::build_tysh(&t, 72.0, Some([0.0, -20.0, 300.0, 4.0]));
+    let moved = crate::psd::translate_tysh(&tysh, -8.0, -279.0).unwrap();
+    let back = crate::psd::parse_tysh(&moved).unwrap();
+    assert_eq!(back.transform.m, [1.5, 0.0, 0.0, 1.5, 72.0, 61.0]);
+    // Everything but the 16 translation bytes is unchanged.
+    assert_eq!(moved.len(), tysh.len());
+    assert_eq!((&moved[..34], &moved[50..]), (&tysh[..34], &tysh[50..]));
+    assert_eq!(crate::psd::parse_tysh(&tysh).unwrap().bounds, back.bounds, "bounds are in text space");
+    assert!(crate::psd::translate_tysh(&tysh[..40], 1.0, 1.0).is_none(), "a truncated block is refused");
 }
