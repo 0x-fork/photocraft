@@ -232,11 +232,40 @@ pub fn band_rows_for(width: u32, requested: i32) -> i32 {
 
 /// The document's composite as a pixel surface in `fmt` (straight RGBA converted to its model
 /// and depth), optionally flattened over an opaque `background`; rendered and written in bands,
-/// so no full-size float composite is held. Tiles equal to the default pixel are pruned.
+/// so no full-size float composite is held. Tiles equal to the default pixel are pruned. A CMYK
+/// document flattened to CMYK keeps its inks where its layers mix on them ([`cmyk`]); otherwise
+/// its composite goes back to CMYK through its own profile, the one its layers were read through.
 pub fn flatten_to_surface(doc: &Document, fmt: photocraft_color::PixelFormat, background: Option<[f32; 3]>) -> Surface {
     let mut s = Surface::new(fmt);
     let n = fmt.channels();
     let mut data = Vec::new();
+    let space = cmyk_space(doc);
+    let to_cmyk = fmt.mode == photocraft_color::ColorMode::Cmyk && doc.mode == photocraft_color::ColorMode::Cmyk;
+    if to_cmyk && cmyk::renders_inks(doc) {
+        // White paper is no ink; another background colour goes through the profile.
+        let paper = background.map(|bg| {
+            if bg == [1.0; 3] { [0.0; 4] } else { photocraft_color::convert::with_cmyk_space(space.as_ref(), || photocraft_color::convert::rgb_to_cmyk(bg)) }
+        });
+        let _ = cmyk::render_cmyk_bands(doc, doc.bounds(), 0, |band| -> Result<(), ()> {
+            data.clear();
+            data.reserve(band.px.len() * n);
+            for p in &band.px {
+                // Over the paper (fully covered pixels keep their inks exactly), or straight.
+                let ink = |c: usize| match paper {
+                    Some(bg) if p[4] < 1.0 => p[c] * p[4] + bg[c] * (1.0 - p[4]),
+                    _ => p[c],
+                };
+                data.extend((0..4).map(ink));
+                if fmt.alpha {
+                    data.push(if paper.is_some() { 1.0 } else { p[4] });
+                }
+            }
+            s.write_region(band.rect, &data);
+            Ok(())
+        });
+        s.prune();
+        return s;
+    }
     let _ = render_bands(doc, doc.bounds(), 0, |band| -> Result<(), ()> {
         let band = match background {
             Some(bg) => band.over_background(bg),
@@ -244,9 +273,11 @@ pub fn flatten_to_surface(doc: &Document, fmt: photocraft_color::PixelFormat, ba
         };
         data.clear();
         data.resize(band.px.len() * n, 0.0);
-        for (p, out) in band.px.iter().zip(data.chunks_exact_mut(n)) {
-            photocraft_raster::from_rgba_into(&fmt, *p, out);
-        }
+        photocraft_color::convert::with_cmyk_space(space.as_ref(), || {
+            for (p, out) in band.px.iter().zip(data.chunks_exact_mut(n)) {
+                photocraft_raster::from_rgba_into(&fmt, *p, out);
+            }
+        });
         s.write_region(band.rect, &data);
         Ok(())
     });

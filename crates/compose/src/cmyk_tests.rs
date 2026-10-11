@@ -1613,3 +1613,22 @@ fn fills_agree_on_both_routes() {
         assert_routes_agree(&d);
     }
 }
+
+/// Flatten Image, Stamp Visible and Copy Merged (all [`crate::flatten_to_surface`]) keep a CMYK
+/// document's inks: K-only black stays K-only instead of turning four-colour.
+#[test]
+fn flattening_keeps_exact_inks() {
+    let mut d = doc(3, 1);
+    d.layers.push(layer(&[
+        (Rect::new(0, 0, 1, 1), [0.0, 0.0, 0.0, 1.0, 1.0]),
+        (Rect::new(1, 0, 2, 1), [0.2, 0.4, 0.6, 0.1, 1.0]),
+        (Rect::new(2, 0, 3, 1), [0.0, 0.0, 0.0, 1.0, 0.4]),
+    ]));
+    // Over white paper (Flatten Image) and kept transparent (Stamp Visible).
+    let flat = crate::flatten_to_surface(&d, CMYK8, Some([1.0; 3]));
+    assert_eq!(flat.pixel(0, 0), vec![0.0, 0.0, 0.0, 1.0]);
+    assert_eq!(flat.pixel(1, 0), vec![q(0.2), q(0.4), q(0.6), q(0.1)]);
+    assert_eq!(flat.pixel(2, 0), vec![0.0, 0.0, 0.0, q(0.4)], "40% K over paper");
+    let stamp = crate::flatten_to_surface(&d, CMYKA8, None);
+    assert_eq!(stamp.pixel(2, 0), vec![0.0, 0.0, 0.0, 1.0, q(0.4)]);
+}
