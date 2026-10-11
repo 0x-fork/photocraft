@@ -607,6 +607,8 @@ fn run(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, p: &Value) -> Res
             let screen = app.session.prefs().units_and_rulers.screen_resolution.max(1.0) as f32;
             let z = if id == "view.twoHundredPercent" { 2.0 } else { screen / dpi };
             app.ui.views[i].zoom = crate::zoom_levels::clamp(z, size);
+            app.ui.views[i].zoom_animating = true;
+            app.ui.views[i].zoom_anchor = None;
             Ok(json!({"zoom": app.ui.views[i].zoom}))
         }
         "view.fitLayersOnScreen" => fit_layers(app),
@@ -638,12 +640,18 @@ fn fit_layers(app: &mut PhotocraftApp) -> Result<Value, String> {
     v.zoom = crate::zoom_levels::clamp(points * ppp, size);
     v.center = [(b.x0 + b.x1) as f32 / 2.0, (b.y0 + b.y1) as f32 / 2.0];
     v.fit_pending = false;
+    v.zoom_animating = true;
+    v.zoom_anchor = None;
     Ok(json!({"zoom": v.zoom, "bounds": [b.x0, b.y0, b.x1, b.y1]}))
 }
 
 pub(crate) fn float_window(app: &mut PhotocraftApp, doc: usize, offset: usize) -> u64 {
     let wid = app.ui.alloc_id();
     let mut view = app.ui.views.get(doc).cloned().unwrap_or_default();
+    view.zoom_animating = false;
+    view.zoom_anchor = None;
+    view.zoom_transition = None;
+    view.display_camera = None;
     view.fit_pending = offset > 0 || view.fit_pending;
     app.ui.windows.push(crate::state::DocWindow { id: wid, document: doc, view, open: true });
     wid
@@ -679,6 +687,8 @@ fn arrange(app: &mut PhotocraftApp, k: &str) -> Result<Value, String> {
             let apply = |v: &mut crate::state::View| {
                 if zoom {
                     v.zoom = src.zoom;
+                    v.zoom_animating = true;
+                    v.zoom_anchor = None;
                 }
                 if loc {
                     v.center = src.center;

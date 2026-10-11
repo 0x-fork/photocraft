@@ -1332,11 +1332,17 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             && let Some(i) = app.session.active_index()
                         {
                             app.ui.views[i].fit_pending = true;
+                            app.ui.views[i].zoom_animating = true;
+                            app.ui.views[i].zoom_anchor = None;
                         }
                         if widgets::secondary_button(ui, "100%", 0.0).clicked()
                             && let Some(i) = app.session.active_index()
                         {
                             app.ui.views[i].zoom = 1.0;
+                            app.ui.views[i].zoom_animating = true;
+                            app.ui.views[i].zoom_anchor = None;
+                            app.ui.views[i].fit_pending = false;
+                            app.ui.views[i].fill_pending = false;
                         }
                     }
                     Tool::RotateView => {
@@ -1362,6 +1368,8 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             && let Some(i) = app.session.active_index()
                         {
                             app.ui.views[i].zoom = 1.0;
+                            app.ui.views[i].zoom_animating = true;
+                            app.ui.views[i].zoom_anchor = None;
                             app.ui.views[i].fit_pending = false;
                             app.ui.views[i].fill_pending = false;
                         }
@@ -1369,12 +1377,16 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             && let Some(i) = app.session.active_index()
                         {
                             app.ui.views[i].fit_pending = true;
+                            app.ui.views[i].zoom_animating = true;
+                            app.ui.views[i].zoom_anchor = None;
                             app.ui.views[i].fill_pending = false;
                         }
                         if widgets::secondary_button(ui, tl!("Fill Screen"), 0.0).clicked()
                             && let Some(i) = app.session.active_index()
                         {
                             app.ui.views[i].fill_pending = true;
+                            app.ui.views[i].zoom_animating = true;
+                            app.ui.views[i].zoom_anchor = None;
                             app.ui.views[i].fit_pending = false;
                         }
                     }
@@ -1531,6 +1543,8 @@ pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     let mut pct = app.ui.views[i].zoom * 100.0;
                     if widgets::compact_value_field(ui, &mut pct, crate::zoom_levels::percent_range(&app.ui.views[i]), "%", 78.0, control_h).changed() {
                         app.ui.views[i].zoom = crate::zoom_levels::clamp(pct / 100.0, app.ui.views[i].doc_size);
+                        app.ui.views[i].zoom_animating = false;
+                        app.ui.views[i].zoom_anchor = None;
                         app.ui.views[i].fit_pending = false;
                     }
                     widgets::vline(ui, 16.0);
@@ -1808,6 +1822,8 @@ fn navigator(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     {
         let d = (pp - rect.min) / s;
         app.ui.views[idx].center = [d.x.clamp(0.0, size.width as f32), d.y.clamp(0.0, size.height as f32)];
+        app.ui.views[idx].zoom_animating = false;
+        app.ui.views[idx].zoom_anchor = None;
         app.ui.views[idx].fit_pending = false;
     }
     // The Navigator has its own zoom target: an unmodified wheel over the preview
@@ -1822,6 +1838,8 @@ fn navigator(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let next = crate::zoom_levels::clamp(view.zoom * factor, view.doc_size);
         if next != view.zoom {
             view.zoom = next;
+            view.zoom_animating = false;
+            view.zoom_anchor = None;
             view.fit_pending = false;
         }
     }
@@ -1843,11 +1861,15 @@ fn navigator(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 for (lbl, z) in [("200%", 2.0), ("100%", 1.0)] {
                     if widgets::pill_tab(ui, lbl, (v.zoom - z).abs() < 1e-3).clicked() {
                         app.ui.views[idx].zoom = z;
+                        app.ui.views[idx].zoom_animating = true;
+                        app.ui.views[idx].zoom_anchor = None;
                         app.ui.views[idx].fit_pending = false;
                     }
                 }
                 if widgets::pill_tab(ui, tl!("Fit"), false).clicked() {
                     app.ui.views[idx].fit_pending = true;
+                    app.ui.views[idx].zoom_animating = true;
+                    app.ui.views[idx].zoom_anchor = None;
                 }
             });
         });
@@ -1856,6 +1878,8 @@ fn navigator(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let mut lz = v.zoom.log2();
         if lz.is_finite() && widgets::slider(ui, &mut lz, lo..=hi, None).changed() {
             app.ui.views[idx].zoom = crate::zoom_levels::clamp(2f32.powf(lz), v.doc_size);
+            app.ui.views[idx].zoom_animating = false;
+            app.ui.views[idx].zoom_anchor = None;
             app.ui.views[idx].fit_pending = false;
         }
     });

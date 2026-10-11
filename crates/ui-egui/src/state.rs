@@ -479,11 +479,40 @@ pub struct View {
     /// Canvas camera rotation in degrees, wrapped to (−180, 180]. Turns the view, not the pixels.
     #[serde(default)]
     pub rotation: f32,
+    /// Transient presentation state for a discrete zoom command; the target camera above remains
+    /// authoritative and this flag is never persisted.
+    #[serde(skip)]
+    pub(crate) zoom_animating: bool,
+    /// Optional document/screen anchor for a pointer-centred Zoom-tool transition.
+    #[serde(skip)]
+    pub(crate) zoom_anchor: Option<([f64; 2], [f32; 2])>,
+    #[serde(skip)]
+    pub(crate) display_camera: Option<(f32, [f32; 2])>,
+    #[serde(skip)]
+    pub(crate) zoom_transition: Option<ZoomTransition>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ZoomTransition {
+    pub from: (f32, [f32; 2]),
+    pub target: (f32, [f32; 2]),
+    pub started: f64,
 }
 
 impl Default for View {
     fn default() -> Self {
-        Self { zoom: 1.0, center: [0.0, 0.0], fit_pending: true, fill_pending: false, doc_size: [0, 0], rotation: 0.0 }
+        Self {
+            zoom: 1.0,
+            center: [0.0, 0.0],
+            fit_pending: true,
+            fill_pending: false,
+            doc_size: [0, 0],
+            rotation: 0.0,
+            zoom_animating: false,
+            zoom_anchor: None,
+            display_camera: None,
+            zoom_transition: None,
+        }
     }
 }
 

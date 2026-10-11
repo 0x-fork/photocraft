@@ -480,6 +480,8 @@ fn choose_view(app: &mut PhotocraftApp, ctx: &Context, menu: &CanvasToolMenu, co
         let v = app.ui.views.get_mut(i).ok_or("no document view")?;
         v.fit_pending = false;
         v.fill_pending = true;
+        v.zoom_animating = true;
+        v.zoom_anchor = None;
         return Ok(());
     }
     let before = app.ui.views.get(i).map(|v| (v.zoom, v.center));
@@ -495,6 +497,7 @@ fn choose_view(app: &mut PhotocraftApp, ctx: &Context, menu: &CanvasToolMenu, co
     // from the centre shrinks (or grows) by the zoom ratio, whatever the rotation or flip.
     let ratio = zoom0 / v.zoom;
     v.center = if center_on_point || !ratio.is_finite() { d } else { [d[0] - (d[0] - c[0]) * ratio, d[1] - (d[1] - c[1]) * ratio] };
+    v.zoom_anchor = (!center_on_point).then_some(([d[0] as f64, d[1] as f64], menu.pos));
     Ok(())
 }
 
@@ -1122,6 +1125,29 @@ mod tests {
         h.run_steps(3);
         assert_eq!(h.state().ui.views[0].zoom, zoom);
         assert!((screen_of(h.state(), doc) - p).length() < 1.0);
+    }
+
+    #[test]
+    fn view_menu_zoom_keeps_its_anchor_during_the_animation() {
+        let mut app = zoom_app(400, 300);
+        app.ui.tool = Tool::Zoom;
+        let mut h = harness(app);
+        let zoom = h.state().ui.views[0].zoom;
+        let doc = [300.0, 100.0];
+        let p = screen_of(h.state(), doc);
+        right_click(&mut h, p, Modifiers::NONE);
+        let ctx = h.ctx.clone();
+        // Choose without the widget click helper, which runs repaint frames until settled.
+        choose(h.state_mut(), &ctx, "view.zoomIn");
+        h.step();
+        h.input_mut().time = Some(ctx.input(|i| i.time) + 0.11);
+        h.step();
+        let displayed = crate::canvas::ViewXform::active(h.state()).unwrap();
+        assert!(displayed.zoom > zoom && displayed.zoom < h.state().ui.views[0].zoom);
+        assert!(displayed.to_screen(doc[0], doc[1]).distance(p) < 1.0);
+        h.input_mut().time = Some(ctx.input(|i| i.time) + 0.3);
+        h.step();
+        assert!(!h.state().ui.views[0].zoom_animating);
     }
 
     #[test]
