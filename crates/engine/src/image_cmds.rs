@@ -131,11 +131,24 @@ pub(crate) fn scale_effects(fx: &mut Effects, k: f32) {
     }
 }
 
-fn parse_resample(s: &str) -> Option<Resample> {
-    Some(match s {
-        "none" => return None,
+/// Image Size's resampling methods; `None` changes the resolution only.
+#[derive(Clone, Copy)]
+enum Method {
+    None,
+    Filter(Resample),
+    /// Photoshop's Automatic: Preserve Details where the image grows, Bicubic Sharper otherwise.
+    Automatic,
+}
+
+fn parse_resample(s: &str) -> Method {
+    Method::Filter(match s {
+        "none" => return Method::None,
+        "automatic" => return Method::Automatic,
         "nearest" | "nearestNeighbor" => Resample::Nearest,
         "bilinear" => Resample::Bilinear,
+        "bicubicSmoother" => Resample::BicubicSmoother,
+        "bicubicSharper" => Resample::BicubicSharper,
+        "bicubicAutomatic" => Resample::BicubicAutomatic,
         "lanczos" => Resample::Lanczos,
         "preserveDetails" => Resample::PreserveDetails,
         _ => Resample::Bicubic,
@@ -162,7 +175,7 @@ fn image_size(s: &mut Session, p: &Value) -> Result<Value> {
     let (nw, nh) = (nw.round().clamp(1.0, 300_000.0) as u32, nh.round().clamp(1.0, 300_000.0) as u32);
     // Each side may reach 300000 px, but resampling writes real pixels: refuse a canvas whose
     // raster alone would pass the budget, before allocating any of it (#1544).
-    if resample.is_some() && (nw, nh) != (ow, oh) {
+    if !matches!(resample, Method::None) && (nw, nh) != (ow, oh) {
         check_resample_budget("image.imageSize", &d.doc, nw, nh, ", or turn Resample off to change only the resolution")?;
     }
     let dpi = p.get("resolution").and_then(Value::as_f64).map(|v| v as f32);
@@ -170,7 +183,12 @@ fn image_size(s: &mut Session, p: &Value) -> Result<Value> {
         if let Some(r) = dpi {
             doc.resolution_dpi = r.clamp(1.0, 10_000.0);
         }
-        let Some(filter) = resample else { return Ok(()) };
+        let filter = match resample {
+            Method::None => return Ok(()),
+            Method::Filter(f) => f,
+            Method::Automatic if nw > ow || nh > oh => Resample::PreserveDetails,
+            Method::Automatic => Resample::BicubicSharper,
+        };
         resample_doc(doc, nw, nh, filter);
         Ok(())
     })?;
@@ -462,7 +480,12 @@ fn crop_target(p: &Value) -> Result<CropTarget> {
     };
     let filter = match p.get("resample") {
         None | Some(Value::Null) => Some(Resample::Bicubic),
-        Some(v) => parse_resample(v.as_str().ok_or_else(|| bad(CMD, "`resample` must be a string"))?),
+        Some(v) => match parse_resample(v.as_str().ok_or_else(|| bad(CMD, "`resample` must be a string"))?) {
+            Method::None => None,
+            Method::Filter(f) => Some(f),
+            // The direction is known only once the frame is: bicubic's own automatic choice.
+            Method::Automatic => Some(Resample::BicubicAutomatic),
+        },
     };
     let filter = match (filter, size) {
         (Some(f), _) => f,
@@ -639,7 +662,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "image.imageSize",
             "Image Size…",
             ["Image"],
-            r##"{"width":px,"height":px,"resolution":ppi,"resample":"bicubic|bilinear|nearest|lanczos|preserveDetails|none"="bicubic"} → {width,height} (the document's size after the command; "none" changes the resolution only)"##,
+            r##"{"width":px,"height":px,"resolution":ppi,"resample":"automatic|preserveDetails|bicubicSmoother|bicubicSharper|bicubicAutomatic|bicubic|nearest|bilinear|lanczos|none"="bicubic"} → {width,height} (the document's size after the command; "none" changes the resolution only)"##,
             has_doc,
             image_size
         ),
@@ -784,7 +807,7 @@ mod tests {
 
     #[test]
     fn image_size_scales_everything() {
-        for resample in ["bicubic", "bilinear", "nearest", "lanczos", "preserveDetails"] {
+        for resample in ["bicubic", "bicubicSmoother", "bicubicSharper", "bicubicAutomatic", "automatic", "bilinear", "nearest", "lanczos", "preserveDetails"] {
             let mut s = session();
             s.execute("image.imageSize", json!({"width": 80, "resample": resample})).unwrap();
             let d = doc(&s);
@@ -819,7 +842,15 @@ mod tests {
     #[test]
     fn image_size_keeps_canvas_edges_opaque() {
         for depth in [8, 16, 32] {
-            for (w, resample) in [(60, "bicubic"), (41, "lanczos"), (15, "bilinear"), (77, "preserveDetails")] {
+            for (w, resample) in [
+                (60, "bicubic"),
+                (41, "lanczos"),
+                (15, "bilinear"),
+                (77, "preserveDetails"),
+                (21, "bicubicSharper"),
+                (47, "automatic"),
+                (9, "bicubicAutomatic"),
+            ] {
                 let mut s = Session::new();
                 s.execute("file.new", json!({"width": 30, "height": 20, "depth": depth, "background": "#336699"})).unwrap();
                 s.execute("select.all", json!({})).unwrap();

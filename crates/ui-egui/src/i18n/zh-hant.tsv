@@ -19,6 +19,25 @@
 # kept. Full-width punctuation (，。：) inside sentences; half-width parentheses and the " · "
 # separators as in the English.
 
+# Guide layout dialog
+	Columns	欄
+	Rows	列
+	Number	數量
+	Margin	邊界
+	Top:	上:
+	Left:	左:
+	Bottom:	下:
+	Right:	右:
+	Target:	目標:
+	Selected Artboards	選取的工作區域
+	Center Columns	欄置中
+	Clear Existing Guides	清除現有參考線
+	Invalid guide layout	參考線版面配置無效
+	Leave empty for automatic size	留白以自動設定大小
+	5 Columns, 3 Rows	5欄，3列
+	8 Columns	8欄
+	12 Columns	12欄
+
 	File	檔案
 	Edit	編輯
 	Image	影像
@@ -694,6 +713,8 @@
 	Theme	主題
 	Pro Theme	專業主題
 	Pro Medium Gray Theme	專業中灰主題
+	Pro Light Gray Theme	專業淺灰主題
+	Pro Light Theme	專業淺色主題
 	Studio Theme	工作室主題
 	Studio Light Theme	工作室淺色主題
 	Adwaita Light Theme	Adwaita 淺色主題
@@ -826,6 +847,9 @@
 	Bend:	彎曲：
 	Bicubic	雙三次
 	Bicubic (smooth gradients)	雙三次 (平滑漸層)
+	Automatic	自動
+	Bicubic Smoother (enlargement)	雙三次 (較平滑) (放大)
+	Bicubic Sharper (reduction)	雙三次 (較銳利) (縮小)
 	Bilinear	雙線性
 	Black	黑色
 	Black & White	黑白
@@ -1701,6 +1725,8 @@
 	Postcard	明信片
 	Poster	海報
 	Pro (Dark)	Pro (深色)
+	Pro (Light)	Pro (淺色)
+	Pro (Light Gray)	Pro (淺灰)
 	Pro (Medium Gray)	Pro (中灰)
 	Protect Texture	保護紋理
 	Purple	紫色
@@ -1897,6 +1923,8 @@
 	Preserve details	保留細節
 	Print resolution	列印解析度
 	Pro	Pro
+	Pro light	Pro 淺色
+	Pro light gray	Pro 淺灰
 	Pro medium	Pro 中灰
 	Pro photo	ProPhoto
 	Quick export format	快速匯出格式
@@ -2467,6 +2495,9 @@ cameraData	Lens	鏡頭
 	Previous Document	上一個文件
 	W x H x Resolution	寬 x 高 x 解析度
 	Front Image	前面的影像
+	Frame Tool	影格工具
+	Create a new rectangular frame	建立新的矩形影格
+	Create a new elliptical frame	建立新的橢圓形影格
 	Include in playback	包含在播放中
 	Perspective Crop Tool	透視裁切工具
 	Show Grid	顯示格點

@@ -18,6 +18,25 @@
 # the Russian typographic equivalent, with the space the source carries.
 
 # Menus
+
+# Guide layout dialog
+	Rows	Строки
+	Number	Количество
+	Margin	Поля
+	Top:	Сверху:
+	Left:	Слева:
+	Bottom:	Снизу:
+	Right:	Справа:
+	Target:	Цель:
+	Selected Artboards	Выбранные монтажные области
+	Center Columns	Центрировать столбцы
+	Clear Existing Guides	Удалить существующие направляющие
+	Invalid guide layout	Недопустимый макет направляющих
+	Leave empty for automatic size	Оставьте пустым для автоматического размера
+	5 Columns, 3 Rows	5 столбцов, 3 строки
+	8 Columns	8 столбцов
+	12 Columns	12 столбцов
+
 	File	Файл
 	Edit	Редактирование
 	Image	Изображение
@@ -1406,6 +1425,8 @@
 	Adwaita Dark Theme	Тёмная тема Adwaita
 	Pro Theme	Тема Pro
 	Pro Medium Gray Theme	Средне-серая тема Pro
+	Pro Light Gray Theme	Светло-серая тема Pro
+	Pro Light Theme	Светлая тема Pro
 
 # Workspaces
 	Workspace…	Рабочая среда…
@@ -1957,6 +1978,9 @@
 	Baseline	Базовая линия
 	Bicubic	Бикубическая
 	Bicubic (smooth gradients)	Бикубическая (плавные градиенты)
+	Automatic	Автоматически
+	Bicubic Smoother (enlargement)	Бикубическая, глаже (увеличение)
+	Bicubic Sharper (reduction)	Бикубическая, чётче (уменьшение)
 	Bilinear	Билинейная
 	Black, White	Чёрный, белый
 	Blue, Red, Yellow	Синий, красный, жёлтый
@@ -2311,6 +2335,8 @@
 	Preserve details	Сохранять детали
 	Print resolution	Разрешение при печати
 	Pro	Pro
+	Pro light	Светлая Pro
+	Pro light gray	Светло-серая Pro
 	Pro medium	Средняя Pro
 	Pro photo	ProPhoto
 	Purple	Фиолетовая
@@ -2830,6 +2856,9 @@ cameraData	Lens	Объектив
 	Previous Document	Предыдущий документ
 	W x H x Resolution	Ш x В x Разрешение
 	Front Image	Изображение переднего плана
+	Frame Tool	Рамка
+	Create a new rectangular frame	Создать прямоугольную рамку
+	Create a new elliptical frame	Создать эллиптическую рамку
 	Include in playback	Включить в воспроизведение
 	Perspective Crop Tool	Кадрирование перспективы
 	Show Grid	Показать сетку

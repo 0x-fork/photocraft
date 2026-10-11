@@ -11,6 +11,25 @@
 # resource, string table or product UI was consulted or copied; add entries the same way.
 # Product and technology names (PhotoCraft, ArtCraft, OpenType, CMYK, Lab ...) stay in Latin
 # letters; the trailing "…" of dialog commands is kept.
+
+# Guide layout dialog
+	Rows	Baris
+	Number	Jumlah
+	Margin	Margin
+	Top:	Atas:
+	Left:	Kiri:
+	Bottom:	Bawah:
+	Right:	Kanan:
+	Target:	Target:
+	Selected Artboards	Artboard yang dipilih
+	Center Columns	Pusatkan kolom
+	Clear Existing Guides	Hapus panduan yang ada
+	Invalid guide layout	Tata letak panduan tidak valid
+	Leave empty for automatic size	Kosongkan untuk ukuran otomatis
+	5 Columns, 3 Rows	5 kolom, 3 baris
+	8 Columns	8 kolom
+	12 Columns	12 kolom
+
 	File	Berkas
 	Edit	Edit
 	Image	Gambar
@@ -670,6 +689,8 @@
 	Theme	Tema
 	Pro Theme	Tema Pro
 	Pro Medium Gray Theme	Tema Pro Abu-abu Sedang
+	Pro Light Gray Theme	Tema Pro Abu-abu Terang
+	Pro Light Theme	Tema Pro Terang
 	Studio Theme	Tema Studio
 	Studio Light Theme	Tema Studio Terang
 	Adwaita Light Theme	Tema Adwaita Terang
@@ -803,6 +824,9 @@
 	Bend:	Lengkung:
 	Bicubic	Bicubic
 	Bicubic (smooth gradients)	Bicubic (gradien halus)
+	Automatic	Otomatis
+	Bicubic Smoother (enlargement)	Bicubic lebih halus (pembesaran)
+	Bicubic Sharper (reduction)	Bicubic lebih tajam (pengecilan)
 	Bilinear	Bilinear
 	Black	Hitam
 	Black & White	Hitam & Putih
@@ -1666,6 +1690,8 @@
 	Postcard	Kartu Pos
 	Poster	Poster
 	Pro (Dark)	Pro (Gelap)
+	Pro (Light)	Pro (Terang)
+	Pro (Light Gray)	Pro (Abu-abu Terang)
 	Pro (Medium Gray)	Pro (Abu-abu Sedang)
 	Protect Texture	Lindungi Tekstur
 	Purple	Ungu
@@ -1860,6 +1886,8 @@
 	Preserve details	Pertahankan detail
 	Print resolution	Resolusi cetak
 	Pro	Pro
+	Pro light	Pro terang
+	Pro light gray	Pro abu-abu terang
 	Pro medium	Pro sedang
 	Pro photo	Pro photo
 	Quick export format	Format ekspor cepat
@@ -2888,6 +2916,9 @@ cameraData	Lens	Lensa
 	Previous Document	Dokumen Sebelumnya
 	W x H x Resolution	L x T x Resolusi
 	Front Image	Gambar Depan
+	Frame Tool	Alat Bingkai
+	Create a new rectangular frame	Buat bingkai persegi panjang baru
+	Create a new elliptical frame	Buat bingkai elips baru
 	Include in playback	Sertakan dalam pemutaran
 	Perspective Crop Tool	Alat Crop Perspektif
 	Show Grid	Tampilkan Grid

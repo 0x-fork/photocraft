@@ -19,6 +19,25 @@
 # (PhotoCraft, ArtCraft, OpenType, CMYK, Lab ...) stay in Latin letters; the trailing "…" of
 # dialog commands is kept.
 
+# Guide layout dialog
+	Columns	Sloupce
+	Rows	Řádky
+	Number	Počet
+	Margin	Okraj
+	Top:	Nahoře:
+	Left:	Vlevo:
+	Bottom:	Dole:
+	Right:	Vpravo:
+	Target:	Cíl:
+	Selected Artboards	Vybraná kreslicí plátna
+	Center Columns	Vystředit sloupce
+	Clear Existing Guides	Odstranit stávající vodítka
+	Invalid guide layout	Neplatné rozvržení vodítek
+	Leave empty for automatic size	Pro automatickou velikost ponechte prázdné
+	5 Columns, 3 Rows	5 sloupců, 3 řádky
+	8 Columns	8 sloupců
+	12 Columns	12 sloupců
+
 	File	Soubor
 	Edit	Úpravy
 	Image	Obraz
@@ -694,6 +713,8 @@
 	Theme	Motiv
 	Pro Theme	Motiv Pro
 	Pro Medium Gray Theme	Motiv Pro (středně šedý)
+	Pro Light Gray Theme	Motiv Pro (světle šedý)
+	Pro Light Theme	Motiv Pro (světlý)
 	Studio Theme	Motiv Studio
 	Studio Light Theme	Motiv Studio (světlý)
 	Adwaita Light Theme	Motiv Adwaita (světlý)
@@ -835,6 +856,9 @@
 	Bend:	Ohyb:
 	Bicubic	Bikubická
 	Bicubic (smooth gradients)	Bikubická (plynulé přechody)
+	Automatic	Automaticky
+	Bicubic Smoother (enlargement)	Bikubická hladší (zvětšení)
+	Bicubic Sharper (reduction)	Bikubická ostřejší (zmenšení)
 	Bilinear	Bilineární
 	Black	Černá
 	Black & White	Černobílá
@@ -1711,6 +1735,8 @@
 	Postcard	Pohlednice
 	Poster	Plakát
 	Pro (Dark)	Pro (tmavý)
+	Pro (Light)	Pro (světlý)
+	Pro (Light Gray)	Pro (světle šedý)
 	Pro (Medium Gray)	Pro (středně šedý)
 	Protect Texture	Chránit texturu
 	Purple	Nachová
@@ -1911,6 +1937,8 @@
 	Preserve details	Zachovat detaily
 	Print resolution	Rozlišení tisku
 	Pro	Pro
+	Pro light	Pro světlý
+	Pro light gray	Pro světle šedý
 	Pro medium	Pro střední
 	Pro photo	ProPhoto
 	Quick export format	Formát rychlého exportu
@@ -2490,6 +2518,9 @@ cameraData	Lens	Objektiv
 	Previous Document	Předchozí dokument
 	W x H x Resolution	Š x V x Rozlišení
 	Front Image	Přední obraz
+	Frame Tool	Nástroj rámeček
+	Create a new rectangular frame	Vytvořit nový obdélníkový rámeček
+	Create a new elliptical frame	Vytvořit nový eliptický rámeček
 	Include in playback	Zahrnout do přehrávání
 	Perspective Crop Tool	Nástroj perspektivní oříznutí
 	Show Grid	Zobrazit mřížku

@@ -54,10 +54,11 @@ what an agent can't finish alone.
   scripted check there) is the only real oracle.
 
 ### G6. Missing tools
-- **Missing (7 of 68):** Frame, Color Sampler (#1046), Color Replacement (engine command exists),
-  Art History Brush, Add Anchor Point, Delete Anchor Point, Convert Point (only as Pen + ⌥).
-  Freeform Pen and Curvature Pen landed (#1054); Horizontal and Vertical Type Mask landed (#1055,
-  `type.createSelection`); Perspective Crop landed (#1043, `image.perspectiveCrop`).
+- **Missing (6 of 68):** Color Sampler (#1046), Color Replacement (engine command exists), Art
+  History Brush, Add Anchor Point, Delete Anchor Point, Convert Point (only as Pen + ⌥). Freeform
+  Pen and Curvature Pen landed (#1054); Horizontal and Vertical Type Mask landed (#1055,
+  `type.createSelection`); Perspective Crop landed (#1043, `image.perspectiveCrop`); Frame landed
+  (#2914).
 - **Evidence:** `Tool` enum (`crates/ui-egui/src/state.rs`) against the 67 `<tool>` entries of
   Photoshop's `Default Keyboard Shortcuts.kys` plus Remove, Triangle and Curvature Pen.
 - **Impact:** users look for them by name and shortcut; several are daily tools for designers.

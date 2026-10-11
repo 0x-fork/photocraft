@@ -15,6 +15,23 @@
 # Product and technology names (PhotoCraft, ArtCraft, OpenType, CMYK, Lab ...) stay in Latin
 # letters; the trailing "…" of dialog commands is kept.
 
+# Guide layout dialog
+	Rows	行
+	Number	数
+	Top:	上:
+	Left:	左:
+	Bottom:	下:
+	Right:	右:
+	Target:	対象:
+	Selected Artboards	選択したアートボード
+	Center Columns	列を中央に配置
+	Clear Existing Guides	既存のガイドを削除
+	Invalid guide layout	ガイドレイアウトが無効です
+	Leave empty for automatic size	自動サイズにするには空欄にします
+	5 Columns, 3 Rows	5列、3行
+	8 Columns	8列
+	12 Columns	12列
+
 	File	ファイル
 	Edit	編集
 	Image	画像
@@ -689,6 +706,8 @@
 	Theme	テーマ
 	Pro Theme	プロテーマ
 	Pro Medium Gray Theme	プロ(中間グレー)テーマ
+	Pro Light Gray Theme	プロ(ライトグレー)テーマ
+	Pro Light Theme	プロ(ライト)テーマ
 	Studio Theme	スタジオテーマ
 	Studio Light Theme	スタジオ(ライト)テーマ
 	Adwaita Light Theme	Adwaita(ライト)テーマ
@@ -824,6 +843,9 @@
 	Bend:	曲げ:
 	Bicubic	バイキュービック
 	Bicubic (smooth gradients)	バイキュービック(滑らかな階調)
+	Automatic	自動
+	Bicubic Smoother (enlargement)	バイキュービック法 - 滑らか(拡大)
+	Bicubic Sharper (reduction)	バイキュービック法 - シャープ(縮小)
 	Bilinear	バイリニア
 	Black	黒
 	Black & White	白黒
@@ -1697,6 +1719,8 @@
 	Postcard	はがき
 	Poster	ポスター
 	Pro (Dark)	プロ(ダーク)
+	Pro (Light)	プロ(ライト)
+	Pro (Light Gray)	プロ(ライトグレー)
 	Pro (Medium Gray)	プロ(中間グレー)
 	Protect Texture	テクスチャを保護
 	Purple	紫
@@ -1897,6 +1921,8 @@
 	Preserve details	ディテールを保持
 	Print resolution	印刷解像度
 	Pro	プロ
+	Pro light	プロ(ライト)
+	Pro light gray	プロ(ライトグレー)
 	Pro medium	プロ(中間)
 	Pro photo	ProPhoto
 	Quick export format	クイック書き出しの形式
@@ -3502,6 +3528,9 @@ cameraData	Lens	レンズ
 	Previous Document	前のドキュメント
 	W x H x Resolution	幅 x 高さ x 解像度
 	Front Image	前面の画像
+	Frame Tool	フレームツール
+	Create a new rectangular frame	新しい長方形フレームを作成
+	Create a new elliptical frame	新しい楕円形フレームを作成
 	Include in playback	再生に含める
 	Perspective Crop Tool	遠近法の切り抜きツール
 	Show Grid	グリッドを表示
