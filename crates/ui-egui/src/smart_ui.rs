@@ -33,16 +33,15 @@ fn filter_label(f: &photocraft_doc::SmartFilter) -> String {
         .map_or_else(|| command.rsplit('.').next().unwrap_or(command).to_string(), |c| tl!(c.label).trim_end_matches('…').to_string())
 }
 
-/// Smart-filter sub-rows scale with the main Layers panel setting. The eye column
-/// remains independently clickable, while the filter mask and text keep their
-/// own alignment and avoid overlap when the thumbnail is set to None.
-pub(crate) fn smart_filter_row_geometry(size: LayerThumbnailSize, pro: bool) -> (f32, f32, f32, f32) {
-    let (thumb, row) = crate::layers_panel_ui::thumbnail_geometry(size, pro);
-    let height = row.max(22.0);
-    let mask = if thumb == 0.0 { 0.0 } else { thumb.min(height - 8.0) };
-    let eye = if thumb >= 40.0 { 17.0 } else { 12.0 };
-    let font = if thumb >= 40.0 { 13.0 } else { 11.5 };
-    (height, mask, eye, font)
+/// Height of a Smart Filter or effect sub-row. As in Photoshop, these stay compact at every
+/// Layers panel thumbnail size; only the layer row itself grows with its thumbnails.
+pub(crate) const SUB_ROW_H: f32 = 22.0;
+
+/// The Smart Filters header row: (row height, shared-mask thumbnail side). The mask follows the
+/// Layers panel thumbnail size (hidden at None) and the row grows just enough to hold it.
+pub(crate) fn smart_filters_header_geometry(size: LayerThumbnailSize, pro: bool) -> (f32, f32) {
+    let (thumb, _) = crate::layers_panel_ui::thumbnail_geometry(size, pro);
+    if thumb == 0.0 { (SUB_ROW_H, 0.0) } else { ((thumb + 6.0).max(SUB_ROW_H), thumb) }
 }
 
 /// Smart Filters header + one row per filter (top filter first, as in Photoshop) under a smart
@@ -53,11 +52,11 @@ pub fn filter_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, l: &Layer, depth:
         return;
     }
     let t = Tokens::get(ui.ctx());
-    let (row_height, mask_size, eye_size, font_size) = smart_filter_row_geometry(app.ui.layers_panel_options.thumbnail_size, t.pro);
+    let (header_height, mask_size) = smart_filters_header_geometry(app.ui.layers_panel_options.thumbnail_size, t.pro);
     let indent = 30.0 + depth as f32 * 14.0 + 34.0;
     let rows = std::iter::once(None).chain((0..sm.smart_filters.len()).rev().map(Some));
     for index in rows {
-        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_height), Sense::click());
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), if index.is_none() { header_height } else { SUB_ROW_H }), Sense::click());
         if resp.hovered() {
             ui.painter().rect_filled(rect, 0.0, t.hover.gamma_multiply(0.35));
         }
@@ -75,7 +74,7 @@ pub fn filter_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, l: &Layer, depth:
             Some(i) => sm.smart_filters[i].visible,
         };
         if shown {
-            icons::paint(ui, eye, "eye", eye_size, t.icon);
+            icons::paint(ui, eye, "eye", 12.0, t.icon);
         }
         if eye_resp.clicked() {
             actions.push(match index {
@@ -98,7 +97,7 @@ pub fn filter_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, l: &Layer, depth:
             rect.center().y,
             rect.right() - crate::layer_row_ui::RIGHT_PAD,
             &name,
-            egui::FontId::proportional(font_size),
+            egui::FontId::proportional(11.5),
             if on { t.text_dim } else { t.text_faint },
         );
         resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name.clone()));
@@ -154,7 +153,7 @@ mod layer_thumbnail_scaling_tests {
     use egui_kittest::{Harness, kittest::Queryable};
 
     #[test]
-    fn smart_filters_and_layer_effect_rows_follow_thumbnail_setting() {
+    fn sub_rows_stay_compact_while_the_smart_filter_mask_follows_thumbnail_setting() {
         for setting in [LayerThumbnailSize::None, LayerThumbnailSize::Small, LayerThumbnailSize::Medium, LayerThumbnailSize::Large] {
             let mut session = photocraft_engine::Session::new();
             session.execute("file.new", json!({"width": 50, "height": 38})).unwrap();
@@ -170,10 +169,21 @@ mod layer_thumbnail_scaling_tests {
             });
             h.state_mut().ui.layers_panel_options.thumbnail_size = setting;
             h.run_steps(8);
-            let expected = smart_filter_row_geometry(setting, true).0;
-            for label in ["Smart Filters", "Gaussian Blur", "Unsharp Mask", "Effects", "Drop Shadow"] {
+            // Filter and effect rows keep Photoshop's compact height at every thumbnail size.
+            for label in ["Gaussian Blur", "Unsharp Mask", "Effects", "Drop Shadow"] {
                 let rect = h.get_by_label(label).rect();
-                assert!((rect.height() - expected).abs() < 1.0, "{setting:?}: {label} was {rect:?}, expected {expected}");
+                assert!((rect.height() - SUB_ROW_H).abs() < 1.0, "{setting:?}: {label} was {rect:?}, expected {SUB_ROW_H}");
+            }
+            // Only the Smart Filters header grows, just enough for its shared-mask thumbnail.
+            let (header, mask) = smart_filters_header_geometry(setting, true);
+            let rect = h.get_by_label("Smart Filters").rect();
+            assert!((rect.height() - header).abs() < 1.0, "{setting:?}: Smart Filters was {rect:?}, expected {header}");
+            assert!(mask <= header - 6.0 || mask == 0.0, "{setting:?}: a {mask} mask must fit a {header} row");
+            assert_eq!(mask == 0.0, setting == LayerThumbnailSize::None, "{setting:?}: the mask hides only at None");
+            if let Some(dir) = std::env::var_os("PHOTOCRAFT_LAYERS_SNAPSHOTS") {
+                let dir = std::path::PathBuf::from(dir);
+                std::fs::create_dir_all(&dir).unwrap();
+                h.render().unwrap().save(dir.join(format!("layers-sub-rows-{setting:?}.png"))).unwrap();
             }
         }
     }
