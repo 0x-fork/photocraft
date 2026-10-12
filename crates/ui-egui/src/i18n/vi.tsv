@@ -3536,3 +3536,11 @@ curves	Smooth	Làm mượt
 	Remove after each stroke	Xóa sau mỗi nét vẽ
 	Apply the removal ({key})	Áp dụng việc xóa ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Nét vẽ cần xóa: {n} (Enter áp dụng, Esc hủy)
+
+# Layers panel options and Smart Filter editors
+	Blending Options ({filter})	Tùy chọn hòa trộn ({filter})
+	Hide the layer's effects and Smart Filters  ({key}-click: all layers)	Ẩn hiệu ứng và bộ lọc thông minh của lớp  ({key}-bấm: tất cả các lớp)
+	Opacity must be between 0% and 100%.	Độ mờ phải nằm trong khoảng từ 0% đến 100%.
+	Show the layer's effects and Smart Filters  ({key}-click: all layers)	Hiện hiệu ứng và bộ lọc thông minh của lớp  ({key}-bấm: tất cả các lớp)
+	The document or Smart Filter changed. Reopen its dialog.	Tài liệu hoặc bộ lọc thông minh đã thay đổi. Hãy mở lại hộp thoại của nó.
+	Wait for the current job to finish.	Hãy chờ tác vụ hiện tại hoàn tất.
