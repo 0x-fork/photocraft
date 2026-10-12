@@ -572,7 +572,10 @@ pub(crate) fn read_target_surface<'a>(doc: &'a Document, layer: Option<LayerId>,
         }
         Target::FilterMask => {
             let id = layer.ok_or_else(|| EngineError::Other("no active layer".into()))?;
-            doc.layer(id).and_then(|l| crate::mask_view_cmds::viewed_mask(l, true)).map(|m| &m.surface).ok_or_else(|| EngineError::Other("the layer has no filter mask".into()))
+            doc.layer(id)
+                .and_then(|l| crate::mask_view_cmds::viewed_mask(l, true))
+                .map(|m| &m.surface)
+                .ok_or_else(|| EngineError::Other("the layer has no filter mask".into()))
         }
     }
 }
