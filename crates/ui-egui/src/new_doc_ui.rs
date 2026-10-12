@@ -775,8 +775,8 @@ mod tests {
     #[test]
     fn new_document_depth_labels_and_tooltips_are_translated() {
         // Bit-depth labels are unit/number strings that some languages legitimately write exactly
-        // like the English source (Turkish "8 bit"); they only need a catalog entry there.
-        const SAME_AS_SOURCE: &[(&str, &str)] = &[("tr", "8 bit"), ("tr", "16 bit")];
+        // like the English source (Turkish and Italian "8 bit"); they only need a catalog entry there.
+        const SAME_AS_SOURCE: &[(&str, &str)] = &[("tr", "8 bit"), ("tr", "16 bit"), ("it", "8 bit"), ("it", "16 bit")];
         for lang in crate::i18n::Lang::all().filter(|lang| lang.code() != "en") {
             for (_, label, tooltip) in DEPTH_OPTIONS {
                 if SAME_AS_SOURCE.contains(&(lang.code(), *label)) {

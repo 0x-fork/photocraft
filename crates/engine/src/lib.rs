@@ -299,9 +299,31 @@ pub struct ToolState {
     /// The foreground/background pair of the edit target that isn't current: the layer pixels'
     /// colours while a mask is targeted, the mask's while the pixels are (#2166).
     pub other_colors: [[f32; 4]; 2],
+    /// Colours picked as CMYK, newest last: the sRGB colour that stands for them and the ink
+    /// values chosen. The tool colours are stored as sRGB, and an sRGB round trip does not give
+    /// back what was typed (100/0/0/0 cyan is outside sRGB), so a CMYK document is filled with
+    /// the inks the person picked (#4196). Matched by colour, so it follows a swap, a reset or a
+    /// mask pair without bookkeeping.
+    pub cmyk_picks: Vec<([f32; 3], [f32; 4])>,
 }
 
 impl ToolState {
+    /// How many CMYK picks are remembered.
+    const CMYK_PICKS: usize = 8;
+
+    /// Remember that sRGB colour `rgb` was picked as the inks `cmyk` (each 0..1).
+    pub fn remember_cmyk(&mut self, rgb: [f32; 3], cmyk: [f32; 4]) {
+        self.cmyk_picks.retain(|(c, _)| *c != rgb);
+        self.cmyk_picks.push((rgb, cmyk));
+        let extra = self.cmyk_picks.len().saturating_sub(Self::CMYK_PICKS);
+        self.cmyk_picks.drain(..extra);
+    }
+
+    /// The inks `rgb` was picked as, if it was picked as CMYK.
+    pub fn picked_cmyk(&self, rgb: [f32; 3]) -> Option<[f32; 4]> {
+        self.cmyk_picks.iter().rev().find(|(c, _)| *c == rgb).map(|(_, k)| *k)
+    }
+
     /// Photoshop's colour pair for a layer mask that has none yet: white foreground, black
     /// background (reveal-paint first).
     pub const MASK_COLORS: [[f32; 4]; 2] = [[1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 1.0]];
@@ -340,6 +362,7 @@ impl Default for ToolState {
             current_preset: None,
             mask_targeted: false,
             other_colors: Self::MASK_COLORS,
+            cmyk_picks: Vec::new(),
         }
     }
 }

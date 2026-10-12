@@ -292,6 +292,35 @@ mod tests {
         }
     }
 
+    /// The inks of the active layer's pixel at (0, 0), exactly as stored.
+    fn inks(s: &Session) -> Vec<f32> {
+        let st = s.active().unwrap();
+        let surf = st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap();
+        surf.read_region(photocraft_geom::Rect::new(0, 0, 1, 1)).into_iter().take(4).collect()
+    }
+
+    /// #4196: a foreground picked as CMYK 100/0/0/0 fills a CMYK document with those inks, not with
+    /// whatever its sRGB stand-in converts back to (100/28/0/17).
+    #[test]
+    fn cmyk_pick_fills_a_cmyk_document_with_the_picked_inks() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 4, "height": 4})).unwrap();
+        s.execute("image.mode.cmyk", json!({})).unwrap();
+        let rgb = photocraft_color::convert::cmyk_to_rgb([1.0, 0.0, 0.0, 0.0]).map(|c| c.clamp(0.0, 1.0));
+        s.execute("tools.setColors", json!({"foreground": rgb, "foregroundCmyk": [1.0, 0.0, 0.0, 0.0]})).unwrap();
+        s.execute("edit.fillForeground", json!({})).unwrap();
+        let got = inks(&s);
+        assert!(got.iter().zip([1.0, 0.0, 0.0, 0.0]).all(|(a, b)| (a - b).abs() < 0.01), "{got:?}");
+    }
+
+    #[test]
+    fn malformed_cmyk_pick_is_an_error_not_a_panic() {
+        let mut s = session();
+        for bad in [json!([1.0]), json!("cyan"), json!([1.0, 0.0, 0.0, "x"]), json!({"c": 1})] {
+            assert!(s.execute("tools.setColors", json!({"foregroundCmyk": bad})).is_err());
+        }
+    }
+
     #[test]
     fn registered_with_photoshop_default_shortcuts() {
         let sc = |id| crate::commands::find(id).and_then(|c| c.shortcut);
