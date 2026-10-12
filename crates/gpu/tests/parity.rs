@@ -45,12 +45,19 @@ fn hdr_adjustments_preserve_range_and_cpu_parity() {
             space: Default::default(),
             black: Default::default(),
         },
-        Adjustment::Curves { master: identity.clone(), per_channel: std::array::from_fn(|_| identity.clone()), space: Default::default(), black: Vec::new() },
+        Adjustment::Curves {
+            master: identity.clone(),
+            per_channel: std::array::from_fn(|_| identity.clone()),
+            space: Default::default(),
+            black: Vec::new(),
+            pencil: false,
+        },
         Adjustment::Curves {
             master: Vec::new(),
             per_channel: [Vec::new(), identity.clone(), vec![CurvePoint { input: 0.0, output: 0.0 }, CurvePoint { input: 1.0, output: 0.5 }]],
             space: Default::default(),
             black: Vec::new(),
+            pencil: false,
         },
     ] {
         let mut d = Document::new("HDR adjustments", Size::new(3, 1), ColorMode::Rgb, SampleType::F32);
@@ -484,6 +491,7 @@ fn adjustments() -> Vec<Adjustment> {
             per_channel: [pts(&[(0.0, 0.0), (0.5, 0.3), (1.0, 1.0)]), pts(&[(0.0, 0.0), (1.0, 1.0)]), pts(&[(0.0, 0.2), (1.0, 1.0)])],
             space: Default::default(),
             black: Vec::new(),
+            pencil: false,
         },
         Adjustment::HueSaturation { hue: 40.0, saturation: 30.0, lightness: -10.0, colorize: false, ranges: HueRange::defaults() },
         Adjustment::HueSaturation { hue: 200.0, saturation: 50.0, lightness: 20.0, colorize: true, ranges: HueRange::defaults() },
@@ -1458,6 +1466,14 @@ fn layer_effects_on_groups_clipping_and_fills() {
         d.layers.push(grp);
         fx_check(&mut g, &d, &format!("group {blend:?}"));
     }
+    // A child's stroke reaching past the group's own effect reach (#3274).
+    let mut d = fx_doc(100, 80, SampleType::U8);
+    let mut a = blob("a", d.pixel_format(), 45.0, 40.0, 16.0, [0.6, 0.6, 0.6]);
+    a.effects.items = vec![Effect::Stroke(stroke(8.0, StrokePosition::Outside, FxPaint::Color(Color::rgb(0.0, 0.0, 0.0))))];
+    let mut grp = Layer::group("g", vec![a]);
+    grp.effects.items = vec![Effect::DropShadow(shadow(BlendMode::Multiply, 0.8, 120.0, 3.0, 2.0, 0.0))];
+    d.layers.push(grp);
+    fx_check(&mut g, &d, "group effects around a child's stroke");
     // An effect layer as a clipping base, and a clipped layer with effects.
     let mut d = fx_doc(100, 80, SampleType::U8);
     let mut base = blob("base", d.pixel_format(), 45.0, 40.0, 24.0, [0.3, 0.8, 0.4]);
