@@ -307,8 +307,7 @@ fn params_contain_ambient_path(id: &str, params: &Value) -> bool {
 }
 
 fn profile_command_may_read_ambient(id: &str, params: &Value) -> bool {
-    // Installed profiles scan OS and user directories even without a request path.
-    if matches!(id, "color.profileMismatch" | "edit.colorSettings" | "edit.installedProfiles" | "view.proofSetup") {
+    if matches!(id, "color.profileMismatch" | "edit.colorSettings" | "view.proofSetup") {
         return true;
     }
     matches!(id, "edit.assignProfile" | "edit.convertToProfile" | "edit.profileInfo")
@@ -751,22 +750,6 @@ mod tests {
             authorize_engine_command("prefs.set", &serde_json::json!({"values": {"interface.language": "fr", "historyLog.filePath": "/outside/log"}})).is_err()
         );
         assert!(authorize_engine_command("prefs.set", &serde_json::json!({"path": "interface.language", "value": "fr"})).is_ok());
-    }
-
-    #[test]
-    fn installed_profile_discovery_requires_filesystem_authority() {
-        for params in [serde_json::json!({}), serde_json::json!({"class": "output", "colorSpace": "cmyk"}), serde_json::json!({"path": "/outside/profile.icc"})]
-        {
-            assert!(authorize_engine_command("edit.installedProfiles", &params).is_err());
-            assert!(authorize_desktop_engine_command("edit.installedProfiles", &params).is_err());
-            assert!(authorize_engine_step("edit.installedProfiles", &params).is_err());
-            assert!(authorize_desktop_engine_step("edit.installedProfiles", &params).is_err());
-        }
-        // Built-in profiles remain usable without reading installed profile files.
-        for id in ["edit.assignProfile", "edit.convertToProfile", "edit.profileInfo"] {
-            assert!(authorize_engine_command(id, &serde_json::json!({"profile": "srgb"})).is_ok());
-            assert!(authorize_desktop_engine_command(id, &serde_json::json!({"profile": "srgb"})).is_ok());
-        }
     }
 
     #[test]

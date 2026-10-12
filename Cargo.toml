@@ -100,11 +100,6 @@ opt-level = "s"
 [profile.wasm-release.package.photocraft-ui-egui]
 opt-level = "z"
 
-# Prefer compact command dispatch and parameter handling in the browser. Native profiles
-# and the speed-oriented pixel-processing crates below keep their existing settings.
-[profile.wasm-release.package.photocraft-engine]
-opt-level = "z"
-
 [profile.wasm-release.package.photocraft-raster]
 opt-level = 3
 [profile.wasm-release.package.photocraft-color]
