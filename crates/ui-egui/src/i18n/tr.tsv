@@ -3784,3 +3784,20 @@ cameraData	Lens	Lens
 @plural	{n} step|{n} steps	{n} adım
 @plural	{warning} (+{n} more brush preset warning)|{warning} (+{n} more brush preset warnings)	{warning} (+{n} fırça ön ayarı uyarısı daha)
 @plural	{what} with {n} warning|{what} with {n} warnings	{what}, {n} uyarı ile
+
+# Layers panel options and Smart Filter editors
+	Add “copy” to Copied Layers and Groups	Kopyalanan Katman ve Gruplara “kopya” Ekle
+	Animation Options	Animasyon Seçenekleri
+	Entire Document	Tüm Belge
+	Expand New Effects	Yeni Efektleri Genişlet
+	Filter Options	Filtre Seçenekleri
+	Layer Bounds	Katman Sınırları
+	Layers Panel Options	Katmanlar Paneli Seçenekleri
+	New Artboard…	Yeni Çalışma Yüzeyi…
+	New Group…	Yeni Grup…
+	Prevent Auto-Nesting	Otomatik Yerleştirmeyi Önle
+	Preview on canvas when reordering layers	Katmanları yeniden sıralarken kanvasta önizle
+	Show Layers	Katmanları Göster
+	Show layer mask badges	Katman maskesi rozetlerini göster
+	Thumbnail Contents	Küçük Resim İçeriği
+	Thumbnail Size	Küçük Resim Boyutu

@@ -3536,3 +3536,21 @@ curves	Smooth	Làm mượt
 	Remove after each stroke	Xóa sau mỗi nét vẽ
 	Apply the removal ({key})	Áp dụng việc xóa ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Nét vẽ cần xóa: {n} (Enter áp dụng, Esc hủy)
+
+# Layers panel options and Smart Filter editors
+	Add “copy” to Copied Layers and Groups	Thêm “bản sao” vào lớp và nhóm được sao chép
+	Animation Options	Tùy chọn hoạt ảnh
+	Entire Document	Toàn bộ tài liệu
+	Expand New Effects	Mở rộng hiệu ứng mới
+	Filter Options	Tùy chọn bộ lọc
+	Layer Bounds	Đường biên lớp
+	Layers Panel Options	Tùy chọn bảng Lớp
+	New Artboard…	Bảng vẽ mới…
+	New Group…	Nhóm mới…
+	Panel Options…	Tùy chọn bảng…
+	Prevent Auto-Nesting	Chặn tự lồng
+	Preview on canvas when reordering layers	Xem trước trên Canvas khi sắp xếp lại lớp
+	Show Layers	Hiện các lớp
+	Show layer mask badges	Hiện huy hiệu mặt nạ lớp
+	Thumbnail Contents	Nội dung hình thu nhỏ
+	Thumbnail Size	Kích thước hình thu nhỏ
