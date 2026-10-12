@@ -526,6 +526,17 @@ the parent before its next step. Every nested command retains the normal automat
 Existing recordings containing expanded commands remain unchanged; remove those steps and record
 the named call again if desired.
 
+Actions sit in **set folders** (`set` on `actions.list` / `actions.get`, filled by Load Actions,
+written by Save Actions, changed with `actions.assignSet`): the panel shows loose actions first,
+then each set as a collapsible folder (`ui.actions.collapsedSets`); dropping an action among
+another set's rows moves it into that set. Each step has Photoshop's two toggles: the check
+(`actions.toggle`, skipped when off) and the **dialog** toggle (`actions.dialog`). Playing a
+step with its dialog on opens that command's dialog seeded with the recorded values and pauses:
+the play result carries `paused: {step, id, dialog}`, OK runs the dialog's values and continues
+from the next step, Cancel stops the action. Agents (`automation_input`) play headlessly with the
+recorded values. The panel menu's **Insert Stop…** adds an `actions.stopMessage` step after the
+selected step (`actions.insert` takes any command id and params).
+
 Layer-panel **Quick Export as PNG** exports every selected layer as a separate PNG. A single
 Save dialog chooses the first filename; remaining files are numbered siblings with sanitized
 layer names. Selection is captured before opening the dialog; an unselected layer is excluded.

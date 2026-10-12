@@ -415,6 +415,21 @@ Input calls (`ui.key`, `ui.type`, `ui.click`) now reply only after the app has p
 so a following `ui.inspect` observes their effect.
 
 
+## Photoshop Actions (.atn)
+
+`photocraft-psd` reads and writes Photoshop Actions files (`atn`, version 16: Photoshop 6 and
+later); `photocraft-engine`'s `atn_cmds` maps their events onto commands (`actions.load`,
+`actions.save`; the Actions panel menu's Load/Save Actions…; `photocraft-cli batch --actions
+set.atn`). To see what a set holds (event ids, panel names, the parameter keys Photoshop
+recorded) when adding an event to the table:
+
+```sh
+cargo run -p photocraft-psd --example atn_dump -- "Default Actions.atn"
+```
+
+Events outside the table load as `actions.photoshopStep` steps that keep the descriptor
+verbatim (so Save Actions writes them back) and fail at playback with the step's Photoshop name.
+
 ## Remove Tool quality
 
 `cargo run --release -p photocraft-engine --example remove_quality -- <dir> [out dir]` fills

@@ -503,6 +503,73 @@ fn non_srgb_rgb_is_converted_to_srgb_for_formats_without_a_profile() {
     }
 }
 
+/// A linear gray document needs the same display encoding as linear RGB when its profile
+/// cannot be embedded. Check decoded samples against the transfer function independently.
+#[test]
+fn linear_gray_exports_without_profiles_use_display_encoding() {
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        let mut d = columns(ColorMode::Grayscale, depth, &[&[0.25, 1.0], &[0.5, 1.0]]);
+        d.icc_profile = Some(photocraft_cms::builtin::linear_gray().to_bytes());
+        let stored = column_pixels(&d, 2);
+        for ext in ["tga", "bmp", "gif", "qoi"] {
+            let r = export(&d, ext, &ExportOptions::default()).unwrap();
+            let img = photocraft_codecs::decode(&r.bytes).unwrap();
+            let values = img.to_normalized();
+            let stride = img.layout().channels();
+            for (i, src) in stored.iter().enumerate() {
+                let expected = photocraft_color::convert::linear_to_srgb(src[0]);
+                assert!(
+                    (values[16 * i * stride] - expected).abs() <= 1.5 / 255.0,
+                    "{depth:?} {ext} pixel {i}: got {}, expected {expected}",
+                    values[16 * i * stride]
+                );
+            }
+            assert!(r.warnings.iter().any(|w| w.contains("converted to sGray")), "{depth:?} {ext}: {:?}", r.warnings);
+        }
+    }
+}
+
+#[test]
+fn default_gray_exports_without_profiles_keep_samples() {
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        for icc in [None, Some(photocraft_cms::Builtin::SGray.profile().to_bytes())] {
+            let mut d = columns(ColorMode::Grayscale, depth, &[&[0.25, 1.0], &[0.5, 1.0]]);
+            d.icc_profile = icc;
+            let stored = column_pixels(&d, 2);
+            for ext in ["tga", "bmp", "gif", "qoi"] {
+                let r = export(&d, ext, &ExportOptions::default()).unwrap();
+                let img = photocraft_codecs::decode(&r.bytes).unwrap();
+                let values = img.to_normalized();
+                let stride = img.layout().channels();
+                for (i, src) in stored.iter().enumerate() {
+                    assert!((values[16 * i * stride] - src[0]).abs() <= 1.0 / 255.0, "{depth:?} {ext} pixel {i}");
+                }
+                assert!(!r.warnings.iter().any(|w| w.contains("converted to sGray")), "{depth:?} {ext}: {:?}", r.warnings);
+            }
+        }
+    }
+}
+
+#[test]
+fn linear_gray_export_preserves_alpha_and_embeddable_profiles() {
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        let mut d = columns(ColorMode::Grayscale, depth, &[&[0.25, 0.5]]);
+        d.icc_profile = Some(photocraft_cms::builtin::linear_gray().to_bytes());
+        let stored = column_pixels(&d, 1);
+        let r = export(&d, "tga", &ExportOptions::default()).unwrap();
+        let img = photocraft_codecs::decode(&r.bytes).unwrap();
+        assert_eq!(img.layout(), photocraft_codecs::ChannelLayout::GrayA);
+        let values = img.to_normalized();
+        let expected = photocraft_color::convert::linear_to_srgb(stored[0][0]);
+        assert!((values[0] - expected).abs() <= 1.5 / 255.0, "{depth:?}: gray {} vs {expected}", values[0]);
+        assert!((values[1] - stored[0][1]).abs() <= 1.0 / 255.0, "{depth:?}: alpha changed");
+        let r = export(&d, "png", &ExportOptions::default()).unwrap();
+        let back = import("gray.png", &r.bytes).unwrap().document;
+        assert_eq!(back.icc_profile, d.icc_profile, "{depth:?}: PNG keeps linear gray ICC");
+        assert_colors(&column_pixels(&back, 1), &stored, 1.0 / 255.0, "PNG keeps gray samples");
+    }
+}
+
 /// #518: a JPEG cut off inside its image data opens with a warning, never silently.
 #[test]
 fn truncated_jpeg_imports_with_a_warning() {

@@ -1400,3 +1400,18 @@ fn dithering_never_moves_an_exact_colour_or_an_untouched_pixel() {
     }
     assert_eq!(s.rgba(50, 5), [1.0, 1.0, 1.0, 1.0], "far from the stroke: untouched");
 }
+
+#[test]
+fn an_aliased_stroke_at_partial_opacity_is_one_flat_colour() {
+    // 30% of red 219/41/61 over white lands between 8-bit levels (244.2, 190.7, 196.8); dithering
+    // used to scatter the Pencil's line over several neighbouring levels.
+    let mut s = Surface::with_default(PixelFormat::RGBA8, &[1.0, 1.0, 1.0, 1.0]);
+    let color = [219.0 / 255.0, 41.0 / 255.0, 61.0 / 255.0, 1.0];
+    let b = BrushSettings { size: 1.0, aliased: true, opacity: 0.3, color, pressure_size: false, ..Default::default() };
+    render_stroke(&mut s, &b, &line(2.0, 60.0, 5.0), None, false, 1.0);
+    let first = s.rgba(3, 5);
+    assert_ne!(first, [1.0, 1.0, 1.0, 1.0], "the line was painted");
+    for x in 3..60 {
+        assert_eq!(s.rgba(x, 5), first, "pixel {x} of the Pencil line");
+    }
+}

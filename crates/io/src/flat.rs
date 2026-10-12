@@ -489,11 +489,14 @@ pub(crate) fn export_flat_with(doc: &Document, format: Format, opts: &ExportOpti
             img = linear;
         }
     } else if !format.caps().icc {
-        // Untagged files read back as sRGB: convert to it (as Quick Export does) rather than
+        // Untagged files read back as sRGB/sGray: convert to it (as Quick Export does) rather than
         // write values that only mean something under the dropped profile.
         if let Some(srgb) = convert_rgb(&img, Builtin::Srgb.profile(), Intent::Perceptual, true, img.sample_type())? {
             img = srgb;
             warnings.push(format!("colours converted to sRGB; {format:?} can't embed the document's colour profile"));
+        } else if let Some(gray) = convert_gray(&img, Builtin::SGray.profile(), img.sample_type())? {
+            img = gray;
+            warnings.push(format!("colours converted to sGray; {format:?} can't embed the document's colour profile"));
         }
     }
     if format == Format::Tga {

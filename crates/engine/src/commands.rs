@@ -254,9 +254,33 @@ fn set_clipped(s: &mut Session, p: &Value, clip: bool) -> Result<Value> {
     Ok(json!({"layers": ids.iter().map(|id| id.0).collect::<Vec<_>>()}))
 }
 
+/// The layer a command's `"layer"` param names: an id, or a name (the topmost layer of that
+/// name, as Photoshop's "select layer by name" action step finds it, so a loaded action replays
+/// in another document). `None` when the param is absent.
+pub(crate) fn explicit_layer(s: &Session, p: &Value) -> Result<Option<LayerId>> {
+    match p.get("layer") {
+        Some(Value::Number(n)) => {
+            n.as_u64().map(|id| Some(LayerId(id))).ok_or_else(|| EngineError::Other(format!("layer id {n} is not a non-negative integer")))
+        }
+        Some(Value::String(name)) => {
+            let d = s.active().ok_or(EngineError::NoDocument)?;
+            d.doc
+                .walk()
+                .into_iter()
+                .rev()
+                .find(|(_, _, l)| l.name == *name)
+                .map(|(_, _, l)| Some(l.id))
+                .ok_or_else(|| EngineError::Other(format!("no layer named \"{name}\"")))
+        }
+        Some(Value::Null) | None => Ok(None),
+        Some(other) => Err(EngineError::Other(format!("`layer` must be an id or a name, not {other}"))),
+    }
+}
+
+/// The layer a command targets: [`explicit_layer`], else the active layer.
 pub(crate) fn layer_param(s: &Session, p: &Value) -> Result<LayerId> {
-    match p.get("layer").and_then(Value::as_u64) {
-        Some(id) => Ok(LayerId(id)),
+    match explicit_layer(s, p)? {
+        Some(id) => Ok(id),
         None => s.active().and_then(|d| d.active_layer).ok_or(EngineError::Other("no active layer".into())),
     }
 }
@@ -1200,6 +1224,8 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::brush_preset_cmds::specs());
     v.extend(crate::eraser_cmds::specs());
     v.extend(crate::preset_import_cmds::specs());
+    v.extend(crate::atn_cmds::specs());
+    v.extend(crate::actions_edit_cmds::specs());
     v.extend(crate::swatch_cmds::specs());
     v.extend(crate::retouch_cmds::specs());
     v.extend(crate::redeye_cmds::specs());
