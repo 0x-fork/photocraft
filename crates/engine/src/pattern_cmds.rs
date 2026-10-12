@@ -183,6 +183,20 @@ fn composite_surface(doc: &Document, r: Rect) -> Surface {
     s
 }
 
+/// The name Define Pattern gives a pattern without one: the active document's name without its
+/// extension ("Pattern" without a document), numbered past the library's existing names. The
+/// Define Pattern dialog starts from it.
+pub fn default_name(s: &Session) -> String {
+    let doc_name = s.active().map(|st| st.doc.name.clone()).unwrap_or_default();
+    let base =
+        std::path::Path::new(&doc_name).file_stem().map(|x| x.to_string_lossy().to_string()).filter(|b| !b.is_empty()).unwrap_or_else(|| "Pattern".into());
+    let taken = |n: &str| s.patterns.items.iter().any(|q| q.name == n);
+    if !taken(&base) {
+        return base;
+    }
+    (2..).map(|i| format!("{base} {i}")).find(|n| !taken(n)).unwrap_or(base)
+}
+
 fn define(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "edit.definePattern";
     let st = s.active().ok_or(EngineError::NoDocument)?;
@@ -210,17 +224,7 @@ fn define(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let name = match p.get("name").and_then(Value::as_str) {
         Some(n) if !n.trim().is_empty() => n.to_string(),
-        _ => {
-            let base = std::path::Path::new(&doc.name).file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_else(|| "Pattern".into());
-            let mut i = 1;
-            loop {
-                let n = if i == 1 { base.clone() } else { format!("{base} {i}") };
-                if !s.patterns.items.iter().any(|q| q.name == n) {
-                    break n;
-                }
-                i += 1;
-            }
-        }
+        _ => default_name(s),
     };
     let pat = Pattern::new(name, surf, r.width(), r.height());
     let id = pat.id.clone();
@@ -301,18 +305,22 @@ pub(crate) fn placement(p: &Value) -> (f32, f32, bool, (f32, f32)) {
     ((num("scale", 100.0) / 100.0).clamp(0.01, 10.0), num("angle", 0.0), p.get("link").and_then(Value::as_bool).unwrap_or(true), phase)
 }
 
+/// The edit of `layer.newFillLayer.pattern`: a Pattern Fill layer of `pat` placed as `p` asks,
+/// above `active`. The Pattern Fill dialog previews it on a copy of the document.
+pub(crate) fn insert_fill_layer(doc: &mut Document, active: &mut Option<photocraft_doc::LayerId>, pat: &Pattern, p: &Value) -> Result<photocraft_doc::LayerId> {
+    let (scale, angle, link, phase) = placement(p);
+    ensure_in_doc(doc, pat);
+    let fill = Fill::Pattern { name: pat.name.clone(), scale, id: pat.id.clone(), angle, link, phase };
+    let mut l = Layer::new(doc.next_layer_name("Pattern Fill"), LayerContent::Fill(fill));
+    crate::commands::mask_new_layer(doc, &mut l, p, "layer.newFillLayer.pattern")?;
+    let id = doc.insert_above(*active, l);
+    *active = Some(id);
+    Ok(id)
+}
+
 fn new_fill_layer(s: &mut Session, p: &Value) -> Result<Value> {
     let pat = resolve_param(s, "layer.newFillLayer.pattern", p)?;
-    let (scale, angle, link, phase) = placement(p);
-    let id = s.edit("New Pattern Fill Layer", |doc, active| {
-        ensure_in_doc(doc, &pat);
-        let fill = Fill::Pattern { name: pat.name.clone(), scale, id: pat.id.clone(), angle, link, phase };
-        let mut l = Layer::new(doc.next_layer_name("Pattern Fill"), LayerContent::Fill(fill));
-        crate::commands::mask_new_layer(doc, &mut l, p, "layer.newFillLayer.pattern")?;
-        let id = doc.insert_above(*active, l);
-        *active = Some(id);
-        Ok(id)
-    })?;
+    let id = s.edit("New Pattern Fill Layer", |doc, active| insert_fill_layer(doc, active, &pat, p))?;
     Ok(json!({"layer": id.0, "pattern": pat.id}))
 }
 
@@ -354,7 +362,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Define Pattern…",
             menu: &["Edit"],
             shortcut: None,
-            params: r##"{"name":str?,"rect":[x0,y0,x1,y1]? (default: selection bounds, else the canvas)} → {"pattern":id} (added to the library; samples the visible composite)"##,
+            params: r##"{"name":text,"rect":[x0,y0,x1,y1]?} → {"pattern":id} (name: default the document's name numbered past the library's names; rect: default the selection bounds or else the canvas; added to the library from the visible composite)"##,
             enabled: has_doc,
             journal: true,
             run: define,

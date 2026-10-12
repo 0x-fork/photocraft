@@ -30,31 +30,41 @@ const MAX_CELLS: usize = 512;
 /// through `warp` (source space) and then the affine `t` (source → document) in one resampling
 /// pass, an exact shift for whole-pixel translations (so conversions and re-renders are
 /// lossless), bicubic otherwise. Shared by the engine's re-render and PSD export's filter cache.
-pub fn place_source(src: &Surface, src_rect: Rect, t: &photocraft_geom::Affine, warp: Option<&photocraft_geom::warp::Warp>) -> Surface {
+pub fn place_source(
+    src: &Surface,
+    src_rect: Rect,
+    t: &photocraft_geom::Affine,
+    warp: Option<&photocraft_geom::warp::Warp>,
+) -> Result<Surface, photocraft_raster::AllocationError> {
     let [a, b, c, d, e, f] = t.m;
     if let Some(w) = warp.filter(|w| !w.is_identity()) {
         let map = |x: f64, y: f64| {
             let (u, v) = w.map(x, y);
             (a * u + c * v + e, b * u + d * v + f)
         };
-        return warp_mesh_surface(src, src_rect, &map, Interp::Bicubic);
+        return Ok(warp_mesh_surface(src, src_rect, &map, Interp::Bicubic));
     }
     let near = |x: f64, y: f64| (x - y).abs() < 1e-9;
     if near(a, 1.0) && near(b, 0.0) && near(c, 0.0) && near(d, 1.0) && near(e, e.round()) && near(f, f.round()) {
-        return crate::resample::translate_surface(src, e.round() as i32, f.round() as i32);
+        return Ok(crate::resample::translate_surface(src, e.round() as i32, f.round() as i32));
     }
     crate::transform::warp_surface(src, src_rect, &crate::transform::Homography([a, c, e, b, d, f, 0.0, 0.0, 1.0]), Interp::Bicubic)
 }
 
 /// [`place_source`] through a projective map `h` (source → document; Distort, Perspective): the
 /// warp first (in source space), then `h`.
-pub fn place_source_projective(src: &Surface, src_rect: Rect, h: &crate::transform::Homography, warp: Option<&photocraft_geom::warp::Warp>) -> Surface {
+pub fn place_source_projective(
+    src: &Surface,
+    src_rect: Rect,
+    h: &crate::transform::Homography,
+    warp: Option<&photocraft_geom::warp::Warp>,
+) -> Result<Surface, photocraft_raster::AllocationError> {
     if let Some(w) = warp.filter(|w| !w.is_identity()) {
         let map = |x: f64, y: f64| {
             let (u, v) = w.map(x, y);
             h.apply(u, v)
         };
-        return warp_mesh_surface(src, src_rect, &map, Interp::Bicubic);
+        return Ok(warp_mesh_surface(src, src_rect, &map, Interp::Bicubic));
     }
     crate::transform::warp_surface(src, src_rect, h, Interp::Bicubic)
 }
@@ -384,17 +394,17 @@ mod tests {
         let out = warp_mesh_surface(&src, r, &|x, y| (x + 10.0, y - 2.0), Interp::Bilinear);
         assert_eq!(out.content_bounds(), r.translate(10, -2));
         assert_eq!(out.pixel(20, 10), src.pixel(10, 12));
-        // Arc 50 %: the centre column keeps its pixels, the ends drop.
+        // Arc 50 % (Photoshop): the bottom corners keep their pixels, the top rises and spreads.
         let b = [f64::from(r.x0), f64::from(r.y0), f64::from(r.x1), f64::from(r.y1)];
         let w = Warp::preset(WarpStyle::Arc, 50.0, b);
         let arc = warp_mesh_surface(&src, r, &|x, y| w.map(x, y), Interp::Bilinear);
-        let cx = (r.x0 + r.x1) / 2;
-        let (p, q) = (arc.pixel(cx, 10), src.pixel(cx, 10));
-        assert!(p.iter().zip(&q).all(|(a, b)| (a - b).abs() < 0.05), "{p:?} vs {q:?}");
+        let corner = w.map(f64::from(r.x0), f64::from(r.y1));
+        assert!((corner.0 - f64::from(r.x0)).abs() < 1e-9 && (corner.1 - f64::from(r.y1)).abs() < 1e-9, "{corner:?}");
         let (ex, ey) = w.map(f64::from(r.x0) + 2.5, f64::from(r.y0) + 2.5);
         let e = arc.pixel(ex.floor() as i32, ey.floor() as i32);
         assert!(e[3] > 0.2, "a point near the top-left corner lands at its mapped position: {e:?}");
-        assert!(arc.content_bounds().y1 > r.y1 + 2, "ends drop below the original box");
+        let c = arc.content_bounds();
+        assert!(c.y0 < r.y0 - 2 && c.x0 < r.x0 && c.x1 > r.x1, "the top rises and spreads past the box: {c:?}");
     }
 
     #[test]

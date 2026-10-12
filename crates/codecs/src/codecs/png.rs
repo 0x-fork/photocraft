@@ -161,9 +161,11 @@ fn read_text_metadata(bytes: &[u8], mut remaining: usize, meta: &mut Metadata) -
         remaining = remaining.checked_sub(keyword_len).and_then(|left| left.checked_sub(text.len())).ok_or_else(text_limit)?;
         let keyword: String = keyword.iter().map(|&b| char::from(b)).collect();
         match kind {
+            // Some writers put XMP in Latin-1 text chunks instead of the usual iTXt.
+            // Treat the reserved keyword consistently, after the same budget checks.
+            _ if keyword == XMP_KEYWORD => meta.xmp = Some(text),
             b"tEXt" => plain.push((keyword, text)),
             b"zTXt" => compressed.push((keyword, text)),
-            _ if keyword == XMP_KEYWORD => meta.xmp = Some(text),
             _ => international.push((keyword, text)),
         }
     }
@@ -261,7 +263,7 @@ pub(crate) fn encode(src: &Image, plan: Plan, opts: &EncodeOptions) -> Result<Ve
     if opts.embed_metadata {
         if let Some(exif) = &img.meta.exif {
             // The pixels are written as they are shown: never let a viewer rotate them again.
-            info.exif_metadata = Some(crate::orientation::upright_exif(exif).into_owned().into());
+            info.exif_metadata = Some(crate::resolution::export_exif(exif, img.meta.dpi).into_owned().into());
         }
         if let Some((x, y)) = img.meta.dpi
             && x > 0.0
@@ -294,7 +296,9 @@ pub(crate) fn encode(src: &Image, plan: Plan, opts: &EncodeOptions) -> Result<Ve
                 res.map_err(|e| CodecError::encode(F, e))?;
             }
             if let Some(xmp) = &img.meta.xmp {
-                encoder.add_itxt_chunk(XMP_KEYWORD.into(), crate::orientation::upright_xmp(xmp).into_owned()).map_err(|e| CodecError::encode(F, e))?;
+                encoder
+                    .add_itxt_chunk(XMP_KEYWORD.into(), crate::resolution::export_xmp(xmp, img.meta.dpi).into_owned())
+                    .map_err(|e| CodecError::encode(F, e))?;
             }
         }
         let mut writer = encoder.write_header().map_err(|e| CodecError::encode(F, e))?;
@@ -359,11 +363,17 @@ fn parallel_idat(data: &[u8], w: usize, h: usize, bpp: usize, level: PngCompress
         return None;
     }
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 32);
-    if threads < 2 {
-        return None;
-    }
+    banded_idat(data, w, h, bpp, level, threads)
+}
+
+/// Filtered bytes per deflate band. The bands depend only on the image, never on the number of
+/// threads, so the same image and options give the same bytes whatever the machine's core count.
+const BAND_BYTES: usize = 512 << 10;
+
+/// [`parallel_idat`] on `threads` worker threads.
+fn banded_idat(data: &[u8], w: usize, h: usize, bpp: usize, level: PngCompression, threads: usize) -> Option<Vec<u8>> {
     let stride = w * bpp;
-    let band_rows = h.div_ceil(threads * 4).max(1);
+    let band_rows = (BAND_BYTES / stride.saturating_add(1)).max(1);
     let bands: Vec<(usize, usize)> = (0..h).step_by(band_rows).map(|y| (y, (y + band_rows).min(h))).collect();
     let lvl = match level {
         PngCompression::Fast => flate2::Compression::fast(),
@@ -373,7 +383,7 @@ fn parallel_idat(data: &[u8], w: usize, h: usize, bpp: usize, level: PngCompress
     let next = std::sync::atomic::AtomicUsize::new(0);
     type Band = (usize, Vec<u8>, u32, usize);
     let mut parts: Vec<Band> = std::thread::scope(|sc| {
-        let workers: Vec<_> = (0..threads.min(bands.len()))
+        let workers: Vec<_> = (0..threads.min(bands.len()).max(1))
             .map(|_| {
                 sc.spawn(|| {
                     let mut out: Vec<Band> = Vec::new();
@@ -511,8 +521,16 @@ fn adler32_combine(a1: u32, a2: u32, len2: usize) -> u32 {
 }
 
 /// Writes an 8-bit palette PNG (PNG-8): `indices` row-major, `palette` RGB entries (≤ 256),
-/// optional fully transparent entry (`tRNS`). Used for Indexed Color documents.
-pub fn encode_indexed(width: u32, height: u32, indices: &[u8], palette: &[[u8; 3]], transparent: Option<u8>) -> Result<Vec<u8>, CodecError> {
+/// optional fully transparent entry (`tRNS`) and optional resolution in dpi (`pHYs`, written when
+/// both axes are positive and finite). Used for Indexed Color documents.
+pub fn encode_indexed(
+    width: u32,
+    height: u32,
+    indices: &[u8],
+    palette: &[[u8; 3]],
+    transparent: Option<u8>,
+    dpi: Option<(f32, f32)>,
+) -> Result<Vec<u8>, CodecError> {
     if width == 0 || height == 0 || indices.len() != width as usize * height as usize {
         return Err(CodecError::InvalidImage("index data does not match the size".into()));
     }
@@ -527,6 +545,15 @@ pub fn encode_indexed(width: u32, height: u32, indices: &[u8], palette: &[[u8; 3
         let mut trns = vec![255u8; usize::from(t) + 1];
         trns[usize::from(t)] = 0;
         info.trns = Some(trns.into());
+    }
+    if let Some((x, y)) = dpi
+        && x.is_finite()
+        && y.is_finite()
+        && x > 0.0
+        && y > 0.0
+    {
+        info.pixel_dims =
+            Some(png::PixelDimensions { xppu: (x / METERS_PER_INCH).round() as u32, yppu: (y / METERS_PER_INCH).round() as u32, unit: png::Unit::Meter });
     }
     let mut out = Vec::new();
     {
@@ -546,14 +573,14 @@ mod indexed_tests {
     fn png8_roundtrips_through_the_decoder() {
         let pal = [[255, 0, 0], [0, 0, 255], [0, 0, 0]];
         let idx = [0u8, 1, 2, 1, 0, 2];
-        let bytes = encode_indexed(3, 2, &idx, &pal, Some(2)).unwrap();
+        let bytes = encode_indexed(3, 2, &idx, &pal, Some(2), None).unwrap();
         let img = decode(&bytes, &Limits::default()).unwrap();
         assert_eq!(img.dimensions(), (3, 2));
         let px = img.convert(ChannelLayout::Rgba, SampleType::U8);
         assert_eq!(&px.data()[..8], &[255, 0, 0, 255, 0, 0, 255, 255]);
         assert_eq!(px.data()[11], 0, "transparent entry");
-        assert!(encode_indexed(3, 2, &[9; 6], &pal, None).is_err());
-        assert!(encode_indexed(3, 3, &idx, &pal, None).is_err());
+        assert!(encode_indexed(3, 2, &[9; 6], &pal, None, None).is_err());
+        assert!(encode_indexed(3, 3, &idx, &pal, None, None).is_err());
     }
 }
 
@@ -591,6 +618,28 @@ mod parallel_tests {
                 d.decompress_vec(&z, &mut back, flate2::FlushDecompress::Sync).unwrap();
                 assert!(back == data, "k {k} len {len} last {last}: {} of {len} bytes", back.len());
             }
+        }
+    }
+
+    /// The bytes depend on the image, not on the machine: one, two, seven and 32 worker threads
+    /// (and the machine's own count, through `encode`) give the same stream.
+    #[test]
+    fn the_parallel_encoder_gives_the_same_bytes_on_any_thread_count() {
+        let (w, h, bpp) = (1201usize, 1013usize, 4usize);
+        let px: Vec<u8> =
+            (0..w * h * bpp).map(|i| ((i / 5) as u32).wrapping_mul(2_654_435_761).rotate_left(i as u32 % 11) as u8 / 5 + (i % 89) as u8).collect();
+        assert!(px.len() >= PARALLEL_MIN_BYTES && px.len() > 2 * BAND_BYTES);
+        for level in [PngCompression::Fast, PngCompression::Default, PngCompression::Best] {
+            let one = banded_idat(&px, w, h, bpp, level, 1).unwrap();
+            for threads in [2, 7, 32] {
+                assert!(banded_idat(&px, w, h, bpp, level, threads).unwrap() == one, "{level:?}: {threads} threads differ from one");
+            }
+            assert!(parallel_idat(&px, w, h, bpp, level).unwrap() == one, "{level:?}: this machine's thread count differs from one");
+            let img = Image::from_raw(w as u32, h as u32, ChannelLayout::Rgba, SampleType::U8, px.clone()).unwrap();
+            let opts = EncodeOptions { png_compression: level, ..Default::default() };
+            let png = crate::encode(&img, Format::Png, &opts).unwrap();
+            assert!(png.windows(one.len()).any(|c| c == one.as_slice()), "{level:?}: the file carries the stream");
+            assert_eq!(decode(&png, &Limits::default()).unwrap().data(), img.data());
         }
     }
 
