@@ -2138,6 +2138,7 @@
 	Opening {name}	Otwieranie {name}
 	Saved {name}	Zapisano: {name}
 	Saving {name}	Zapisywanie {name}
+	Saving {percent}	Zapisywanie {percent}
 	A save to {name} is still running; try again when it finishes	Zapisywanie do {name} wciąż trwa; spróbuj ponownie, gdy się zakończy
 	{label} is writing the file and can no longer be cancelled	{label} zapisuje plik i nie można już tego anulować
 	Opening {name}…	Otwieranie {name}…
@@ -3600,6 +3601,11 @@ cameraData	Lens	Obiektyw
 curves	Smooth	Wygładź
 	Smooth the curve values	Wygładź wartości krzywej
 	Drag to draw the curve · {key}-click draws a straight line	Przeciągnij, aby narysować krzywą · {key}-klik rysuje linię prostą
+	Grid Size:	Rozmiar siatki:
+	Vanishing Point: click four corners to create a plane	Punkt zbieżności: kliknij cztery narożniki, aby utworzyć płaszczyznę
+	Vanishing Point is not active	Punkt zbieżności nie jest aktywny
+	Apply Vanishing Point ({key})	Zastosuj punkt zbieżności ({key})
+	Fix the red plane first: its corners must form a convex quad	Najpierw popraw czerwoną płaszczyznę: jej narożniki muszą tworzyć czworokąt wypukły
 # Select and Mask view modes (#1754)
 	Onion Skin	Skórka cebuli
 	Marching Ants	Maszerujące mrówki

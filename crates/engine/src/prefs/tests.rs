@@ -346,7 +346,13 @@ fn temporary_tools_and_fill_keys_are_rebindable() {
     let mut s = session();
     let r = s.execute("edit.keyboardShortcuts", json!({"filter": "tools.temporary"})).unwrap();
     let ids: Vec<&str> = r["commands"].as_array().unwrap().iter().filter_map(|c| c["id"].as_str()).collect();
-    assert!(ids.contains(&"tools.temporary.hand") && ids.contains(&"tools.temporary.zoomIn") && ids.contains(&"tools.temporary.zoomOut"), "{ids:?}");
+    assert!(
+        ids.contains(&"tools.temporary.hand")
+            && ids.contains(&"tools.temporary.zoomIn")
+            && ids.contains(&"tools.temporary.zoomOut")
+            && ids.contains(&"tools.temporary.erase"),
+        "{ids:?}"
+    );
     assert!(r["commands"].as_array().unwrap().iter().all(|c| c["hold"] == true));
     // Rebind the temporary zoom; an unknown id still fails.
     s.execute("edit.keyboardShortcuts", json!({"set": {"tools.temporary.zoomIn": "Ctrl+Space"}})).unwrap();

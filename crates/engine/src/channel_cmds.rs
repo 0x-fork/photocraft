@@ -125,10 +125,10 @@ pub(crate) fn fix_view(st: &mut DocState) {
         match v.target {
             ChannelTarget::Alpha(i) if i >= n => v.target = ChannelTarget::Composite,
             ChannelTarget::Color(k) if k >= colors || colors < 2 => v.target = ChannelTarget::Composite,
-            ChannelTarget::LayerMask if !st.active_layer.and_then(|id| st.doc.layer(id)).is_some_and(|l| l.mask.is_some()) => {
+            ChannelTarget::LayerMask if st.active_layer.and_then(|id| st.doc.layer(id)).is_none_or(|l| l.mask.is_none()) => {
                 v.target = ChannelTarget::Composite;
             }
-            ChannelTarget::VectorMask if !st.active_layer.and_then(|id| st.doc.layer(id)).is_some_and(|l| l.vector_mask.is_some()) => {
+            ChannelTarget::VectorMask if st.active_layer.and_then(|id| st.doc.layer(id)).is_none_or(|l| l.vector_mask.is_none()) => {
                 v.target = ChannelTarget::Composite;
             }
             _ => {}
@@ -359,8 +359,19 @@ fn ref_planes(doc: &Document, layer: Option<LayerId>, active: Option<LayerId>, r
                     s.read_rgba_into(area, &mut px);
                     vec![px.iter().map(|p| p[3]).collect()]
                 }
-                // Adjustment and fill layers cover the whole canvas.
-                None => vec![vec![1.0; area.width() as usize * area.height() as usize]],
+                // A shape can have no pixel cache yet (for example after loading a document).
+                // Use its existing renderer rather than treating it as a canvas-wide fill.
+                None => match &l.content {
+                    LayerContent::Shape(shape) => vec![
+                        photocraft_vector::CompiledShape::new(shape, photocraft_vector::DEFAULT_TOLERANCE, area)
+                            .render_rgba(area)
+                            .into_iter()
+                            .map(|p| p[3])
+                            .collect(),
+                    ],
+                    // Adjustment and fill layers cover the whole canvas.
+                    _ => vec![vec![1.0; area.width() as usize * area.height() as usize]],
+                },
             }
         }
         ChanRef::LayerMask => {

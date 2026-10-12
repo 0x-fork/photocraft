@@ -10,6 +10,7 @@ use photocraft_engine::prefs::UnitsAndRulers;
 
 use crate::theme::Tokens;
 use crate::{icons, widgets};
+use photocraft_engine::document_preset_cmds::DocumentSettings;
 
 /// A blank-document preset: (name, width px, height px, ppi).
 pub type Preset = (&'static str, u32, u32, f32);
@@ -256,17 +257,101 @@ fn page_icon(ui: &egui::Ui, r: Rect, w: u32, h: u32, t: &Tokens) {
 
 /// Restore a snapshot without replacing the new document's name or its clipboard offer.
 pub fn apply_saved_preset(f: &mut Map<String, Value>, preset: &photocraft_engine::document_preset_cmds::DocumentPreset) {
+    apply_settings(f, &preset.settings);
+    f.insert("__savedPreset".into(), json!(preset.name));
+}
+
+/// Restore every setting of a saved or recent document (all but its name).
+pub fn apply_settings(f: &mut Map<String, Value>, settings: &DocumentSettings) {
     f.remove("backgroundColor");
-    if let Some(params) = preset.settings.command_params().as_object() {
+    if let Some(params) = settings.command_params().as_object() {
         f.extend(params.clone());
     }
-    f.insert("__unit".into(), json!(preset.settings.unit));
-    f.insert("__resUnit".into(), json!(preset.settings.resolution_unit));
-    f.insert("__savedPreset".into(), json!(preset.name));
+    f.insert("__unit".into(), json!(settings.unit));
+    f.insert("__resUnit".into(), json!(settings.resolution_unit));
+    f.remove("__savedPreset");
     f.remove("__preset");
     // Typed Width/Height belong to the previous values (`shown_size`).
     f.remove(&typed_key("width"));
     f.remove(&typed_key("height"));
+}
+
+/// The dialog's settings as `document.presets.save` / `document.recent.add` take them: the
+/// `file.new` params plus the display units.
+pub fn document_settings(f: &Map<String, Value>) -> Value {
+    let mut settings = command_params(f);
+    let unit = get_s(f, "__unit", "px");
+    settings["unit"] = json!(if UNITS.iter().any(|u| u.0 == unit) { unit.as_str() } else { "px" });
+    settings["resolutionUnit"] = json!(if get_s(f, "__resUnit", "in") == "cm" { "cm" } else { "in" });
+    settings
+}
+
+/// Whether the dialog currently holds `settings` (so its Recent card shows selected).
+fn holds(f: &Map<String, Value>, settings: &DocumentSettings) -> bool {
+    // Unset fields hold the dialog's defaults, as the details pane shows them.
+    let (w, h) = (get_f(f, "width", 1920.0), get_f(f, "height", 1080.0));
+    (w, h, get_f(f, "resolution", 72.0)) == (settings.width as f32, settings.height as f32, settings.resolution)
+        && f.get("depth").and_then(Value::as_u64).unwrap_or(8) == u64::from(settings.depth)
+        && get_s(f, "mode", "rgb") == settings.mode
+        && get_s(f, "background", "white") == settings.background
+}
+
+/// A card in the preset grid: a built-in preset or a recently created document.
+enum Card {
+    Builtin(Preset),
+    Recent(DocumentSettings),
+}
+
+impl Card {
+    /// Pixel size and resolution; a built-in preset at the Units & Rulers preset resolutions.
+    fn size(&self, units: &UnitsAndRulers) -> (u32, u32, f32) {
+        match self {
+            Card::Builtin(listed) => {
+                let p = at_pref_resolutions(listed, units);
+                (p.1, p.2, p.3)
+            }
+            Card::Recent(s) => (s.width, s.height, s.resolution),
+        }
+    }
+
+    /// The preset's name; a recent document takes the name of the built-in preset it matches.
+    fn title(&self) -> &'static str {
+        match self {
+            Card::Builtin(p) => p.0,
+            Card::Recent(s) => {
+                CATEGORIES.iter().flat_map(|c| c.1.iter()).find(|p| (p.1, p.2, p.3) == (s.width, s.height, s.resolution)).map_or("Custom", |p| p.0)
+            }
+        }
+    }
+
+    /// The size line, in the unit the preset is specified in (a recent one: the unit it was made in).
+    fn size_line(&self, units: &UnitsAndRulers) -> String {
+        let (w, h, ppi) = self.size(units);
+        let unit = match self {
+            Card::Builtin(p) if is_print(p) => "in",
+            Card::Builtin(_) => "px",
+            Card::Recent(s) => s.unit.as_str(),
+        };
+        if unit == "px" {
+            format!("{w} x {h} px @ {} ppi", widgets::fmt_num(f64::from(ppi)))
+        } else {
+            let v = |n: u32| widgets::fmt_num(f64::from(to_unit(n as f32, unit, ppi)));
+            format!("{} x {} {unit} @ {} ppi", v(w), v(h), widgets::fmt_num(f64::from(ppi)))
+        }
+    }
+}
+
+/// The Recent category: the Clipboard preset, the documents recently created here (newest
+/// first), then the built-in defaults they don't already cover.
+fn recent_cards(f: &Map<String, Value>, recent: &[DocumentSettings], units: &UnitsAndRulers) -> Vec<Card> {
+    let mut cards: Vec<Card> = clipboard_preset(f).map(Card::Builtin).into_iter().collect();
+    cards.extend(recent.iter().cloned().map(Card::Recent));
+    let defaults = CATEGORIES[0].1.iter().filter(|p| {
+        let (_, w, h, ppi) = at_pref_resolutions(p, units);
+        !recent.iter().any(|s| (s.width, s.height, s.resolution) == (w, h, ppi))
+    });
+    cards.extend(defaults.copied().map(Card::Builtin));
+    cards
 }
 
 fn saved_presets(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) -> bool {
@@ -326,10 +411,7 @@ fn save_preset(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<St
         f.insert("__presetName".into(), json!(name));
         ui.horizontal(|ui| {
             if widgets::secondary_button(ui, tl!("Save"), 110.0).clicked() || enter {
-                let mut settings = command_params(f);
-                settings["unit"] = json!(get_s(f, "__unit", "px"));
-                settings["resolutionUnit"] = json!(get_s(f, "__resUnit", "in"));
-                match app.run("document.presets.save", json!({"name":name,"settings":settings})) {
+                match app.run("document.presets.save", json!({"name":name,"settings":document_settings(f)})) {
                     Ok(_) => {
                         if let Some(preset) = app.session.presets.documents.last() {
                             apply_saved_preset(f, preset);
@@ -380,11 +462,12 @@ pub fn body(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<Strin
     ui.add_space(6.0);
     widgets::hairline(ui);
     ui.add_space(8.0);
-    let presets = CATEGORIES.iter().find(|c| c.0 == cat).map_or(CATEGORIES[0].1, |c| c.1);
-    // The clipboard image's size comes first among the Recent presets.
-    let presets: Vec<Preset> = clipboard_preset(f).filter(|_| cat == CATEGORIES[0].0).into_iter().chain(presets.iter().copied()).collect();
-    let chosen = get_s(f, "__preset", "");
     let units = app.session.prefs().units_and_rulers.clone();
+    let presets: Vec<Card> = match CATEGORIES.iter().find(|c| c.0 == cat) {
+        Some(c) if c.0 != CATEGORIES[0].0 => c.1.iter().copied().map(Card::Builtin).collect(),
+        _ => recent_cards(f, &app.session.presets.recent_documents, &units),
+    };
+    let chosen = get_s(f, "__preset", "");
     ui.horizontal_top(|ui| {
         // Left: preset grid.
         ui.vertical(|ui| {
@@ -396,51 +479,65 @@ pub fn body(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<Strin
             ui.label(RichText::new(crate::i18n::fmt(tl!("BLANK DOCUMENT PRESETS ({n})"), &[("n", &presets.len().to_string())])).size(11.0).color(t.text_faint));
             ui.add_space(6.0);
             let card = vec2(164.0, 112.0);
-            for row in presets.chunks(3) {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 8.0;
-                    for listed in row {
-                        let p = &at_pref_resolutions(listed, &units);
-                        let (r, resp) = ui.allocate_exact_size(card, Sense::click());
-                        let on = chosen == p.0;
-                        ui.painter().rect_filled(
-                            r,
-                            t.radius,
+            // Up to 20 recent documents: scroll past three rows rather than grow the dialog.
+            egui::ScrollArea::vertical().id_salt("new-document-presets").max_height(3.0 * (card.y + 8.0)).show(ui, |ui| {
+                for row in presets.chunks(3) {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 8.0;
+                        for c in row {
+                            let (r, resp) = ui.allocate_exact_size(card, Sense::click());
+                            let (w, h, _) = c.size(&units);
+                            let on = match c {
+                                Card::Builtin(p) => chosen == p.0,
+                                Card::Recent(settings) => holds(f, settings),
+                            };
+                            ui.painter().rect_filled(
+                                r,
+                                t.radius,
+                                if on {
+                                    t.row_selected
+                                } else if resp.hovered() {
+                                    t.hover
+                                } else {
+                                    t.field
+                                },
+                            );
                             if on {
-                                t.row_selected
-                            } else if resp.hovered() {
-                                t.hover
-                            } else {
-                                t.field
-                            },
-                        );
-                        if on {
-                            ui.painter().rect_stroke(r, t.radius, Stroke::new(1.5, t.accent), StrokeKind::Inside);
+                                ui.painter().rect_stroke(r, t.radius, Stroke::new(1.5, t.accent), StrokeKind::Inside);
+                            }
+                            page_icon(ui, Rect::from_center_size(pos2(r.center().x, r.top() + 34.0), vec2(40.0, 40.0)), w, h, &t);
+                            let title = card_title(ui.painter(), tl!(c.title()), card.x - 12.0, t.text);
+                            let elided = title.elided;
+                            ui.painter().galley(pos2(r.center().x, r.top() + 70.0 - title.size().y / 2.0), title, t.text);
+                            let size = c.size_line(&units);
+                            ui.painter().text(pos2(r.center().x, r.top() + 97.0), Align2::CENTER_CENTER, &size, egui::FontId::proportional(10.5), t.text_faint);
+                            let resp = match c {
+                                // A recent document's tooltip names everything it restores.
+                                Card::Recent(s) => {
+                                    let background = match s.background.as_str() {
+                                        "white" => tl!("White"),
+                                        "black" => tl!("Black"),
+                                        "transparent" => tl!("Transparent"),
+                                        "backgroundColor" => tl!("Background Color"),
+                                        hex => hex,
+                                    };
+                                    resp.on_hover_text(format!("{} · {size} · {}/{} · {background}", tl!(c.title()), s.mode.to_uppercase(), s.depth))
+                                }
+                                Card::Builtin(_) if elided => resp.on_hover_text(tl!(c.title())),
+                                Card::Builtin(_) => resp,
+                            };
+                            if resp.clicked() {
+                                match c {
+                                    Card::Builtin(p) => apply_preset(f, p, &units),
+                                    Card::Recent(settings) => apply_settings(f, settings),
+                                }
+                                create |= resp.double_clicked() || resp.triple_clicked();
+                            }
                         }
-                        page_icon(ui, Rect::from_center_size(pos2(r.center().x, r.top() + 34.0), vec2(40.0, 40.0)), p.1, p.2, &t);
-                        let title = card_title(ui.painter(), tl!(p.0), card.x - 12.0, t.text);
-                        let elided = title.elided;
-                        ui.painter().galley(pos2(r.center().x, r.top() + 70.0 - title.size().y / 2.0), title, t.text);
-                        let size = if is_print(listed) {
-                            format!(
-                                "{} x {} in @ {} ppi",
-                                widgets::fmt_num(to_unit(p.1 as f32, "in", p.3) as f64),
-                                widgets::fmt_num(to_unit(p.2 as f32, "in", p.3) as f64),
-                                p.3
-                            )
-                        } else {
-                            format!("{} x {} px @ {} ppi", p.1, p.2, p.3)
-                        };
-                        ui.painter().text(pos2(r.center().x, r.top() + 97.0), Align2::CENTER_CENTER, size, egui::FontId::proportional(10.5), t.text_faint);
-                        let resp = if elided { resp.on_hover_text(tl!(p.0)) } else { resp };
-                        if resp.clicked() {
-                            apply_preset(f, listed, &units);
-                            create |= resp.double_clicked() || resp.triple_clicked();
-                        }
-                    }
-                });
-                ui.add_space(8.0);
-            }
+                    });
+                    ui.add_space(8.0);
+                }
+            });
         });
         ui.add_space(10.0);
         // Right: Preset Details.
@@ -679,6 +776,35 @@ mod tests {
                 assert_ne!(crate::i18n::tr(lang, tooltip), *tooltip, "{}: {tooltip}", lang.code());
             }
         }
+    }
+
+    #[test]
+    fn recent_category_lists_clipboard_then_created_documents_then_uncovered_defaults() {
+        let settings = |w, h, ppi| DocumentSettings {
+            width: w,
+            height: h,
+            resolution: ppi,
+            mode: "rgb".into(),
+            depth: 8,
+            background: "white".into(),
+            background_color: None,
+            unit: "px".into(),
+            resolution_unit: "in".into(),
+        };
+        let mut f = Map::new();
+        set_clipboard(&mut f, 20, 30);
+        let cards = recent_cards(&f, &[settings(800, 600, 72.0), settings(1920, 1080, 72.0)], &UnitsAndRulers::default());
+        let titles: Vec<(&str, String)> = cards.iter().map(|c| (c.title(), c.size_line(&UnitsAndRulers::default()))).collect();
+        assert_eq!(
+            titles,
+            [
+                (CLIPBOARD, "20 x 30 px @ 72 ppi".to_string()),
+                ("Custom", "800 x 600 px @ 72 ppi".to_string()),
+                ("HDTV 1080p", "1920 x 1080 px @ 72 ppi".to_string()),
+                ("Default PhotoCraft Size", "7 x 5 in @ 300 ppi".to_string()),
+            ]
+        );
+        assert!(holds(&f, &settings(20, 30, 72.0)) && !holds(&f, &settings(800, 600, 72.0)));
     }
 
     #[test]

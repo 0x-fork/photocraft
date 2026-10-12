@@ -735,6 +735,22 @@ fn build_txt2_round_trips_kerning_modes() {
     assert_eq!(modes, vec![(1, Kerning::Off), (1, Kerning::Metrics)]);
 }
 
+/// #3514: the document `Txt2` is only needed for a non-Metrics (`Optical`) auto-kern mode. A fresh
+/// document of ordinary Metrics (or EngineData-carried Off) text must not write Photoshop's empty
+/// stub, which some readers (Photopea) reject.
+#[test]
+fn needs_txt2_only_for_optical() {
+    use photocraft_doc::text::Kerning;
+    let style = |kerning: Kerning| CharStyle { kerning, ..Default::default() };
+    let metrics = runs_of("AV", &[(2, style(Kerning::Metrics))]);
+    assert!(!crate::psd::needs_txt2(&[(0, &metrics)]));
+    let off = runs_of("AV", &[(2, style(Kerning::Off))]);
+    assert!(!crate::psd::needs_txt2(&[(0, &off)]), "Off lives in EngineData, not Txt2");
+    let optical = runs_of("AV", &[(1, style(Kerning::Optical)), (1, CharStyle::default())]);
+    assert!(crate::psd::needs_txt2(&[(0, &optical)]));
+    assert!(!crate::psd::needs_txt2(&[]));
+}
+
 /// A kept `Txt2` object — same text, so its extras are still true — keeps everything the file
 /// held beyond the regenerated keys (Photoshop stores glyph pen positions under `/21 /1`), and a
 /// changed text drops those extras with the stale runs. The block's own extras always survive.

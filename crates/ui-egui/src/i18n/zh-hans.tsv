@@ -2211,6 +2211,7 @@ cameraRaw	Blending	混合
 	Opening {name}	正在打开 {name}
 	Saved {name}	已保存 {name}
 	Saving {name}	正在保存 {name}
+	Saving {percent}	正在保存 {percent}
 	A save to {name} is still running; try again when it finishes	仍在保存到 {name}；请在完成后重试
 	{label} is writing the file and can no longer be cancelled	{label} 正在写入文件，已无法取消
 	Opening {name}…	正在打开 {name}…
@@ -2600,6 +2601,13 @@ cameraData	Lens	镜头
 curves	Smooth	平滑
 	Smooth the curve values	平滑曲线值
 	Drag to draw the curve · {key}-click draws a straight line	拖动以绘制曲线 · 按住 {key} 单击可绘制直线
+	Edit Plane	编辑平面
+	Create Plane	创建平面
+	Grid Size:	网格大小：
+	Vanishing Point: click four corners to create a plane	消失点：单击四个角以创建平面
+	Vanishing Point is not active	消失点未处于活动状态
+	Apply Vanishing Point ({key})	应用消失点（{key}）
+	Fix the red plane first: its corners must form a convex quad	请先修正红色平面：其四个角必须构成凸四边形
 # Select and Mask view modes (#1754)
 	Onion Skin	洋葱皮
 	Marching Ants	蚂蚁线

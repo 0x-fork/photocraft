@@ -942,11 +942,8 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             crate::eraser_ui::mode_dropdown(ui, &mut app.ui.tool_options.eraser_mode);
                         } else {
                             opt_label(ui, tl!("Mode"));
-                            let mut mode = b.mode;
-                            let opts: Vec<(BlendMode, &str)> = BlendMode::LAYER_MODES.iter().map(|m| (*m, m.label())).collect();
-                            if widgets::dropdown(ui, "brush-mode", &mut mode, &opts, 96.0) {
-                                b.mode = mode;
-                            }
+                            let held = app.held_erase;
+                            paint_mode_dropdown(ui, "brush-mode", b, &mut app.ui.tool_options.brush_clear, held);
                         }
                         ui.add_enabled_ui(!block, |ui| {
                             percent_field(ui, tl!("Opacity"), &mut b.opacity, 0.0..=100.0, 62.0);
@@ -981,11 +978,8 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             widgets::vline(ui, 22.0);
                         }
                         opt_label(ui, tl!("Mode"));
-                        let mut mode = b.mode;
-                        let opts: Vec<(BlendMode, &str)> = BlendMode::LAYER_MODES.iter().map(|m| (*m, m.label())).collect();
-                        if widgets::dropdown(ui, "pencil-mode", &mut mode, &opts, 96.0) {
-                            b.mode = mode;
-                        }
+                        let held = app.held_erase;
+                        paint_mode_dropdown(ui, "pencil-mode", b, &mut app.ui.tool_options.pencil_clear, held);
                         percent_field(ui, tl!("Opacity"), &mut b.opacity, 0.0..=100.0, if t.pro { 62.0 } else { 66.0 });
                         opt_label(ui, tl!("Smoothing"));
                         smoothing_field(ui, b, if t.pro { 58.0 } else { 66.0 });
@@ -3485,6 +3479,22 @@ fn brush_tip(p: &egui::Painter, c: egui::Pos2, rad: f32, hardness: f32, color: C
         let rr = inner + (rad - inner) * f;
         let a = if hardness >= 0.99 { 1.0 } else { (1.0 - f).powf(1.5) };
         p.circle_filled(c, rr, color.gamma_multiply(a));
+    }
+}
+
+/// The Brush's or Pencil's Mode dropdown: the blend modes, with Photoshop's painting-only Clear
+/// after Dissolve (#3439). Clear erases with the brush (`clear`); it shows while chosen, or while
+/// `~` is held (`held`).
+fn paint_mode_dropdown(ui: &mut egui::Ui, id: &str, b: &mut photocraft_engine::BrushSettings, clear: &mut bool, held: bool) {
+    let mut opts: Vec<(Option<BlendMode>, &str)> = BlendMode::LAYER_MODES.iter().map(|m| (Some(*m), m.label())).collect();
+    let at = opts.iter().position(|o| o.0 == Some(BlendMode::Dissolve)).map_or(opts.len(), |i| i + 1);
+    opts.insert(at, (None, "Clear"));
+    let mut mode = if *clear || held { None } else { Some(b.mode) };
+    if widgets::dropdown(ui, id, &mut mode, &opts, 96.0) {
+        *clear = mode.is_none();
+        if let Some(m) = mode {
+            b.mode = m;
+        }
     }
 }
 

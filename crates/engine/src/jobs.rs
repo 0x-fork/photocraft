@@ -634,7 +634,7 @@ impl Session {
         }
         // Pixel commands follow the Channels panel target unless the caller names one.
         let run_params = crate::channel_cmds::inject_target(self, id, crate::commands::inject_kind(id, params.clone()));
-        if let Err(why) = crate::smart_cmds::target_enabled(self, spec, &params).unwrap_or_else(|| self.precondition(spec, &run_params)) {
+        if let Err(why) = self.explicit_layer_enabled(spec, &params).unwrap_or_else(|| self.precondition(spec, &run_params)) {
             return Err(EngineError::Disabled(id.to_string(), why));
         }
         if let Some(why) = self.job_conflict(id, spec.journal) {

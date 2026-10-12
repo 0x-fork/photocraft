@@ -841,8 +841,9 @@ impl PhotocraftMcp {
         self.jobs_call("jobs.cancel", p.job.map_or_else(|| json!({}), |j| json!({"job": j})), false).await
     }
 
-    #[tool(description = "Run several engine commands in one call (fewer round trips). Returns {completed, failed, \
-        results:[{ok, result|error}]}; stops at the first error unless stop_on_error is false.")]
+    #[tool(description = "Run several engine commands in one call, in order (fewer round trips). Returns {completed, failed, \
+        results:[{ok, result|error}]}; stops at the first error unless stop_on_error is false. \
+        Not an atomic transaction: earlier successful steps stay applied (no rollback).")]
     async fn command_batch(&self, Parameters(p): Parameters<BatchParams>) -> Result<CallToolResult, McpError> {
         if p.steps.len() > MAX_BATCH_STEPS {
             return Ok(fail(format!("batch contains {} steps; maximum is {MAX_BATCH_STEPS}", p.steps.len())));

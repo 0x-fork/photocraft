@@ -2168,6 +2168,7 @@
 	Opening {name}	Otevírání {name}
 	Saved {name}	Uloženo: {name}
 	Saving {name}	Ukládání {name}
+	Saving {percent}	Ukládání {percent}
 	A save to {name} is still running; try again when it finishes	Ukládání do {name} stále probíhá; zkuste to znovu, až skončí
 	{label} is writing the file and can no longer be cancelled	{label} zapisuje soubor a už ho nelze zrušit
 	Opening {name}…	Otevírání {name}…
@@ -3430,18 +3431,11 @@ cameraRaw	Vibrance	Živost
 cameraRaw	Whites	Bílé
 layerLabel	No Color	Žádná barva
 	Loading fonts…	Načítání písem…
-	Tool	Nástroj
 	Simulate Pressure	Simulovat přítlak
-	Stroke Path…	Vytáhnout cestu…
 	Background Eraser	Guma pozadí
-	Clone Stamp	Klonovací razítko
 	Healing Brush	Retušovací štětec
 	Spot Healing Brush	Bodový retušovací štětec
-	History Brush	Štětec historie
 	Smudge	Rozmazání
-	Dodge	Zesvětlení
-	Burn	Ztmavení
-	Sponge	Houba
 	Amount:	Míra:
 	Protect:	Chránit:
 	Protect skin tones	Chránit tóny pleti
@@ -3450,6 +3444,13 @@ layerLabel	No Color	Žádná barva
 curves	Smooth	Vyhladit
 	Smooth the curve values	Vyhladit hodnoty křivky
 	Drag to draw the curve · {key}-click draws a straight line	Tažením nakreslíte křivku · {key}-klik nakreslí rovnou čáru
+	Edit Plane	Upravit rovinu
+	Create Plane	Vytvořit rovinu
+	Grid Size:	Velikost mřížky:
+	Vanishing Point: click four corners to create a plane	Úběžník: klepnutím na čtyři rohy vytvoříte rovinu
+	Vanishing Point is not active	Úběžník není aktivní
+	Apply Vanishing Point ({key})	Použít úběžník ({key})
+	Fix the red plane first: its corners must form a convex quad	Nejprve opravte červenou rovinu: její rohy musí tvořit konvexní čtyřúhelník
 # Select and Mask view modes (#1754)
 	Onion Skin	Cibulová slupka
 	Marching Ants	Pochodující mravenci

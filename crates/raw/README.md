@@ -63,7 +63,7 @@ camera colour tables were copied.
 
 | Format | Status |
 |---|---|
-| DNG | Uncompressed (8–16 bit, packed or not), Deflate (compression 8, predictors 1 and 2), lossless JPEG and JPEG XL (DNG 1.7, e.g. Samsung Expert RAW; decoded by `jxl-oxide`; not in wasm32 builds, where it is `Unsupported`); strips and tiles; CFA (Bayer) and LinearRaw; LinearizationTable, BlackLevel (+ repeat, DeltaH/V), WhiteLevel, ActiveArea, DefaultCrop, ColorMatrix1/2, CameraCalibration, ForwardMatrix, AnalogBalance, AsShotNeutral / AsShotWhiteXY, BaselineExposure, Orientation, OpcodeList2 GainMap (lens shading) |
+| DNG | Uncompressed (8–16 bit, packed or not), Deflate (compression 8, predictors 1 and 2), lossless JPEG and JPEG XL (DNG 1.7, e.g. Samsung Expert RAW; decoded by `jxl-oxide`; not in wasm32 builds, where it is `Unsupported`); strips and tiles; CFA (Bayer) and LinearRaw (three-sample colour, or one-sample monochrome such as Leica Monochrom and film-scanner DNGs, developed as neutral grey with no white balance or colour matrix); LinearizationTable, BlackLevel (+ repeat, DeltaH/V), WhiteLevel, ActiveArea, DefaultCrop, ColorMatrix1/2, CameraCalibration, ForwardMatrix, AnalogBalance, AsShotNeutral / AsShotWhiteXY, BaselineExposure, Orientation, OpcodeList2 GainMap (lens shading) |
 | DNG (lossy JPEG, floating point; opcodes other than GainMap; ProfileGainTableMap) | Unsupported / not applied (reported) |
 | CR2 | Lossless JPEG with slices, borders and as-shot white balance from the maker note, black measured on the masked border. CR2 has no CFA tag and the row phase varies by model, so it is measured from the data (the green diagonal), with a Canon model-ID table as the fallback (see `src/cr2.rs`) |
 | CR2 sRAW / mRAW | Unsupported |

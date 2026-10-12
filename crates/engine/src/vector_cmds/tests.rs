@@ -638,8 +638,7 @@ fn rasterizing_a_vector_mask_keeps_what_the_masks_show() {
             s.execute("layer.rasterize.vectorMask", json!({})).unwrap();
             let l = doc(&s).layer(id).unwrap();
             assert!(l.vector_mask.is_none() && l.mask.is_some(), "{what}");
-            // An integer mask stores the soft values rounded to its depth (a mask made from a
-            // selection is 8-bit at every document depth).
+            // An integer mask stores the soft values rounded to its depth.
             let tol = match l.mask.as_ref().unwrap().surface.format().sample {
                 photocraft_color::SampleType::U8 => 1.5 / 255.0,
                 _ => 1e-3,

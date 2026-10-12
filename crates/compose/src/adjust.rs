@@ -213,19 +213,9 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
                 p[..3].copy_from_slice(&o);
             }
         }
-        Adjustment::ColorBalance { shadows, midtones, highlights, preserve_luminosity } => map_rgb(buf, |c| {
-            let l = rgb_to_gray(c);
-            let ws = (1.0 - l * 2.0).clamp(0.0, 1.0);
-            let wh = (l * 2.0 - 1.0).clamp(0.0, 1.0);
-            let wm = 1.0 - ws - wh;
-            let out: [f32; 3] = std::array::from_fn(|i| (c[i] + (shadows[i] * ws + midtones[i] * wm + highlights[i] * wh) / 100.0 * 0.5).clamp(0.0, 1.0));
-            if *preserve_luminosity {
-                let l1 = rgb_to_gray(out).max(1e-6);
-                out.map(|v| (v * l / l1).clamp(0.0, 1.0))
-            } else {
-                out
-            }
-        }),
+        Adjustment::ColorBalance { shadows, midtones, highlights, preserve_luminosity } => {
+            map_rgb(buf, |c| std::array::from_fn(|ch| color_balance_channel([*shadows, *midtones, *highlights], *preserve_luminosity, ch, c[ch])))
+        }
         Adjustment::SelectiveColor { relative, adjustments } => map_rgb(buf, |c| selective_color(c, *relative, adjustments)),
         Adjustment::ColorLookup { lut: Some(table), size, tetrahedral, dither, .. } if lut3d_len(*size).is_some_and(|len| table.len() >= len) => {
             let (n, w, x0, y0) = (*size as usize, buf.rect.width().max(1) as usize, buf.rect.x0, buf.rect.y0);
@@ -432,6 +422,63 @@ pub fn lut3d_sample(lut: &[f32], n: usize, c: [f32; 3], tetrahedral: bool) -> [f
         let c11 = lerp(at(0, 1, 1), at(1, 1, 1), fr);
         lerp(lerp(c00, c10, fg), lerp(c01, c11, fg), fb)
     }
+}
+
+/// How far one Color Balance slider at ±100 moves the black or white point (Photoshop 27.11:
+/// shadows −100 maps 99.6 of 255 to black, highlights +100 maps 155.5 to white).
+const BALANCE_LEVELS: f32 = 0.39;
+
+/// Color Balance on channel `ch` (0 red, 1 green, 2 blue) of `v` (0..1); `tones` are the
+/// shadows, midtones and highlights slider triples (cyan–red, magenta–green, yellow–blue,
+/// −100..100).
+///
+/// Reverse-engineered from Photoshop 27.11 (a gray ramp and pure colours through each slider at
+/// ±25, ±50 and ±100, with Preserve Luminosity on and off): every slider is a levels-and-gamma
+/// curve per channel, exact within 1 level for a single slider. With `a` = slider / 100:
+/// - Preserve Luminosity off: a slider only moves its own channel. Midtones is gamma 2^−a.
+///   Shadows is gamma 2^(−a/2) after a black point at 0.39·|a| when lowered; highlights is
+///   gamma 2^(−a/2) after a white point at 1 − 0.39·a when raised.
+/// - Preserve Luminosity on: midtones is gamma 2^(−a/2) on the slider's channel and 2^(a/2) on
+///   the other two. Shadows and highlights go by the differences between a tone's three sliders:
+///   each channel gets a plain black point at 0.39·(max − its own) for shadows and a plain white
+///   point at 1 − 0.39·(its own − min) for highlights (so one raised shadows slider darkens the
+///   other two channels, and two raised together darken only the third).
+///
+/// Tones apply highlights, shadows, then midtones (measured with two and three tones on one
+/// channel: within 1 level).
+pub fn color_balance_channel(tones: [[f32; 3]; 3], preserve_luminosity: bool, ch: usize, v: f32) -> f32 {
+    let [shadows, midtones, highlights] = tones;
+    let black = |v: f32, b: f32| ((v - b) / (1.0 - b)).max(0.0);
+    let white = |v: f32, w: f32| (v / w).min(1.0);
+    let mut v = v.clamp(0.0, 1.0);
+    for (tone, sliders) in [(2, highlights), (0, shadows), (1, midtones)] {
+        let a: [f32; 3] = sliders.map(|s| (s / 100.0).clamp(-1.0, 1.0));
+        if preserve_luminosity && tone != 1 {
+            let own = a.get(ch).copied().unwrap_or(0.0);
+            let (lo, hi) = a.iter().fold((f32::MAX, f32::MIN), |m, x| (m.0.min(*x), m.1.max(*x)));
+            v = if tone == 0 { black(v, BALANCE_LEVELS * (hi - own)) } else { white(v, 1.0 - BALANCE_LEVELS * (own - lo)) };
+            continue;
+        }
+        for (src, slider) in sliders.iter().enumerate() {
+            let a = (slider / 100.0).clamp(-1.0, 1.0);
+            let own = src == ch;
+            if a == 0.0 || (!preserve_luminosity && !own) {
+                continue;
+            }
+            v = match (tone, preserve_luminosity) {
+                (1, false) => v.powf(2f32.powf(-a)),
+                (1, true) => v.powf(2f32.powf(if own { -a } else { a } / 2.0)),
+                (0, false) if a < 0.0 => black(v, BALANCE_LEVELS * -a).powf(2f32.powf(-a / 2.0)),
+                (0, false) => v.powf(2f32.powf(-a / 2.0)),
+
+                (2, false) if a > 0.0 => white(v, 1.0 - BALANCE_LEVELS * a).powf(2f32.powf(-a / 2.0)),
+                (2, false) => v.powf(2f32.powf(-a / 2.0)),
+
+                _ => v,
+            };
+        }
+    }
+    v
 }
 
 /// How much a colour belongs to each Selective Color range: reds, yellows, greens, cyans,
@@ -964,6 +1011,46 @@ mod tone_tests {
             let mut b = ramp();
             apply(&a, &mut b);
             assert_eq!(b.px, ramp().px, "size {size}");
+        }
+    }
+
+    /// Photoshop 27.11, measured: Color Balance with one cyan–red slider moved, over a gray ramp
+    /// (x = 0, 16, …, 240, 255); red and green out (blue follows green on gray).
+    #[test]
+    fn color_balance_matches_photoshop() {
+        const X: [u8; 17] = [0, 16, 32, 48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 208, 224, 240, 255];
+        type Row = (&'static str, f32, bool, [u8; 17], [u8; 17]);
+        let measured: [Row; 6] = [
+            ("midtones", 50.0, false, [0, 36, 59, 78, 96, 112, 128, 142, 156, 170, 183, 196, 209, 221, 233, 244, 255], X),
+            ("shadows", -100.0, false, [0, 0, 0, 0, 0, 0, 0, 7, 23, 43, 67, 93, 122, 154, 186, 221, 255], X),
+            ("highlights", 100.0, false, [0, 51, 84, 111, 136, 160, 182, 202, 223, 242, 255, 255, 255, 255, 255, 255, 255], X),
+            ("shadows", 50.0, true, X, [0, 0, 0, 0, 17, 37, 57, 77, 97, 117, 137, 157, 177, 197, 216, 236, 255]),
+            (
+                "midtones",
+                100.0,
+                true,
+                [0, 36, 59, 78, 96, 112, 128, 142, 156, 170, 183, 196, 209, 221, 233, 244, 255],
+                [0, 5, 14, 24, 36, 50, 64, 80, 97, 114, 132, 151, 171, 191, 212, 234, 255],
+            ),
+            ("highlights", -100.0, true, X, [0, 26, 53, 79, 105, 132, 158, 184, 211, 237, 255, 255, 255, 255, 255, 255, 255]),
+        ];
+        // Two sliders in one tone, Preserve Luminosity on (measured): shadows red and blue +50 darken
+        // only green; highlights red −50 with green +50 lift green by 100 and blue by 50.
+        let two =
+            |tones: [[f32; 3]; 3], x: f32| -> [i32; 3] { std::array::from_fn(|ch| (color_balance_channel(tones, true, ch, x / 255.0) * 255.0).round() as i32) };
+        assert_eq!(two([[50.0, 0.0, 50.0], [0.0; 3], [0.0; 3]], 128.0), [128, 97, 128]);
+        let hi = two([[0.0; 3], [0.0; 3], [-50.0, 50.0, 0.0]], 128.0);
+        assert!((hi[0] - 128).abs() <= 1 && (hi[1] - 211).abs() <= 1 && (hi[2] - 159).abs() <= 1, "{hi:?}");
+        for (tone, amount, preserve, red, green) in measured {
+            let mut tones = [[0.0f32; 3]; 3];
+            tones[["shadows", "midtones", "highlights"].iter().position(|t| *t == tone).unwrap()][0] = amount;
+            for (i, x) in X.iter().enumerate() {
+                let v = f32::from(*x) / 255.0;
+                let got = |ch| (color_balance_channel(tones, preserve, ch, v) * 255.0).round() as i32;
+                let (r, g) = (got(0), got(1));
+                assert!((r - i32::from(red[i])).abs() <= 1, "{tone} {amount} pl {preserve} at {x}: red {r} vs Photoshop {}", red[i]);
+                assert!((g - i32::from(green[i])).abs() <= 1, "{tone} {amount} pl {preserve} at {x}: green {g} vs Photoshop {}", green[i]);
+            }
         }
     }
 

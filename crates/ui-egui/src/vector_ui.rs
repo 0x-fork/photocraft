@@ -1468,7 +1468,8 @@ pub fn paths_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 } else if resp.hovered() {
                     ui.painter().rect_filled(r, 0.0, t.hover.gamma_multiply(0.5));
                 }
-                thumb(ui, Rect::from_min_size(pos2(r.left() + 8.0, r.top() + 4.0), vec2(28.0, 28.0)), path, &doc);
+                let thumbnail = Rect::from_min_size(pos2(r.left() + 8.0, r.top() + 4.0), vec2(28.0, 28.0));
+                thumb(ui, thumbnail, path, &doc);
                 let mut job = egui::text::LayoutJob::default();
                 // Temporary paths (the work path, the selected layer's shape path or vector mask) are italic.
                 let italics = *kind != PathRow::Saved;
@@ -1479,11 +1480,20 @@ pub fn paths_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 );
                 let g = ui.painter().layout_job(job);
                 ui.painter().galley(pos2(r.left() + 46.0, r.center().y - g.size().y / 2.0), g, t.text);
-                if resp.clicked() {
+                // Ctrl/Cmd-click loads only the thumbnail's path, without changing the panel target.
+                let modifiers = ui.input(|i| i.modifiers);
+                let load = resp.clicked() && modifiers.command && resp.interact_pointer_pos().is_some_and(|p| thumbnail.contains(p));
+                if load {
+                    let mode = match crate::channels_panel::load_operation(modifiers) {
+                        "new" => "replace",
+                        mode => mode,
+                    };
+                    action = Some(("path.toSelection", json!({"name": key, "mode": mode})));
+                } else if resp.clicked() {
                     app.ui.selected_path = Some(key.clone());
                 }
                 // Double-clicking the Work Path saves it (Photoshop's "Save Path").
-                if resp.double_clicked() && *kind == PathRow::Work {
+                if !load && resp.double_clicked() && *kind == PathRow::Work {
                     let n = doc.paths.len() + 1;
                     action = Some(("path.rename", json!({"name": "work", "to": format!("Path {n}")})));
                 }

@@ -594,6 +594,11 @@ impl Surface {
         }
     }
 
+    /// A tile filled with the default pixel (what a missing tile reads as), allocated fallibly.
+    pub fn try_default_tile(&self) -> Result<Tile, AllocationError> {
+        Tile::try_filled(&self.format, &self.default_pixel)
+    }
+
     /// A tile of this surface's format filled with `px` (normalised channel values). Sharing one
     /// across many coordinates fills them without copying (tiles are copy-on-write).
     pub fn solid_tile(&self, px: &[f32]) -> Arc<Tile> {

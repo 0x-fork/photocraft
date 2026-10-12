@@ -653,6 +653,22 @@ fn drop_shadow_falls_away_from_light() {
 }
 
 #[test]
+fn group_effects_reach_past_children_effects() {
+    // A child's outside stroke reaches further than its group's drop shadow: the group's shadow
+    // follows the stroke, not the child's pixels alone (#3274).
+    let mut d = doc_white(48, 48);
+    let mut sq = solid_layer("sq", Rect::new(14, 14, 34, 34), [1.0, 0.0, 0.0, 1.0]);
+    sq.effects.items = vec![stroke(6.0, StrokePosition::Outside)];
+    let mut grp = Layer::group("g", vec![sq]);
+    grp.effects.items = vec![Effect::DropShadow(shadow(2.0, 90.0))];
+    d.layers.push(grp);
+    assert!(close4(px(&d, 9, 24), [0.0, 0.0, 1.0, 1.0]), "stroke left of the pixels: {:?}", px(&d, 9, 24));
+    assert!(close4(px(&d, 24, 38), [0.0, 0.0, 1.0, 1.0]), "stroke below the pixels: {:?}", px(&d, 24, 38));
+    assert!(close4(px(&d, 24, 41), [0.0, 0.0, 0.0, 1.0]), "shadow below the stroke: {:?}", px(&d, 24, 41));
+    assert!(close4(px(&d, 24, 43), [1.0; 4]), "nothing past the shadow: {:?}", px(&d, 24, 43));
+}
+
+#[test]
 fn drop_shadow_uses_global_light_and_knockout() {
     let mut d = fx_doc(vec![Effect::DropShadow(Shadow { use_global_light: true, ..shadow(5.0, 0.0) })]);
     d.global_light.angle = 90.0;

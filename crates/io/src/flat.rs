@@ -377,14 +377,33 @@ fn opaque_surface(s: &Surface, r: Rect) -> bool {
     })
 }
 
+/// The part of a flat export that rendering the composite takes, the encoder taking the rest.
+/// Measured on a 24 MP RGB/8 document: ~1 s to composite, then TIFF ~2.3 s, JPEG ~0.9 s,
+/// PNG ~0.4 s, WebP ~0.25 s to encode.
+fn composite_share(format: Format) -> f32 {
+    match format {
+        Format::Tiff => 0.3,
+        Format::Jpeg => 0.55,
+        _ => 0.7,
+    }
+}
+
 /// Flattens and encodes as `format`.
 pub fn export_flat(doc: &Document, format: Format, opts: &ExportOptions) -> Result<ExportResult, IoError> {
+    export_flat_with(doc, format, opts, &photocraft_raster::Interrupt::NONE)
+}
+
+/// [`export_flat`] reporting a coarse step through `ctl` once the composite is rendered; the
+/// encoder does the rest (#3389).
+pub(crate) fn export_flat_with(doc: &Document, format: Format, opts: &ExportOptions, ctl: &photocraft_raster::Interrupt) -> Result<ExportResult, IoError> {
     use photocraft_cms::{Builtin, Intent};
     if let Some(r) = export_mode_specific(doc, format, opts)? {
         return Ok(r);
     }
     let mut warnings = Vec::new();
     let mut img = document_to_image(doc, &mut warnings)?;
+    ctl.check().map_err(|_| IoError::Cancelled)?;
+    ctl.progress(composite_share(format));
     if opts.xmp == XmpEmbed::None {
         // Export As's Metadata: None: the packet lists the text of every type layer and one id
         // per placed document (#647).

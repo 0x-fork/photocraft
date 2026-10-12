@@ -2106,6 +2106,7 @@
 	Opening {name}	Membuka {name}
 	Saved {name}	Tersimpan: {name}
 	Saving {name}	Menyimpan {name}
+	Saving {percent}	Menyimpan {percent}
 	A save to {name} is still running; try again when it finishes	Penyimpanan ke {name} masih berjalan; coba lagi setelah selesai
 	{label} is writing the file and can no longer be cancelled	{label} sedang menulis berkas dan tidak dapat dibatalkan lagi
 	Opening {name}…	Membuka {name}…
@@ -2991,6 +2992,11 @@ cameraData	Lens	Lensa
 curves	Smooth	Haluskan
 	Smooth the curve values	Haluskan nilai kurva
 	Drag to draw the curve · {key}-click draws a straight line	Seret untuk menggambar kurva · {key}-klik menggambar garis lurus
+	Grid Size:	Ukuran Grid:
+	Vanishing Point: click four corners to create a plane	Vanishing Point: klik empat sudut untuk membuat bidang
+	Vanishing Point is not active	Vanishing Point tidak aktif
+	Apply Vanishing Point ({key})	Terapkan Vanishing Point ({key})
+	Fix the red plane first: its corners must form a convex quad	Perbaiki bidang merah dulu: sudut-sudutnya harus membentuk segi empat cembung
 # Select and Mask view modes (#1754)
 	Onion Skin	Kulit Bawang
 	Marching Ants	Semut Berbaris

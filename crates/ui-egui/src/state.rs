@@ -681,6 +681,13 @@ pub struct ToolOptions {
     /// Pencil › Auto Erase: a stroke that starts on the foreground colour paints the background colour.
     #[serde(default)]
     pub pencil_auto_erase: bool,
+    /// Brush › Mode: Clear, which erases with the Brush (Photoshop's painting-only mode, #3439).
+    /// Not a blend mode, so it is kept beside the brush's `mode` rather than in it.
+    #[serde(default)]
+    pub brush_clear: bool,
+    /// Pencil › Mode: Clear (see `brush_clear`).
+    #[serde(default)]
+    pub pencil_clear: bool,
     /// Eraser › Mode: `brush` (soft, anti-aliased) or `pencil` (hard, aliased pixels, through
     /// `paint.pencil`), as in Photoshop's options bar (#2662).
     #[serde(default = "default_eraser_mode")]
@@ -838,6 +845,8 @@ impl Default for ToolOptions {
             cr_anti_alias: true,
             zoom_scrubby: true,
             pencil_auto_erase: false,
+            brush_clear: false,
+            pencil_clear: false,
             eraser_mode: default_eraser_mode(),
             magnetic_width: 10.0,
             magnetic_contrast: 10.0,

@@ -247,12 +247,7 @@ impl BrushContext {
         let small_reach2 = (rm + 0.75) * (rm + 0.75);
         // Keep ordinary computed tips separate from the feature loop, so their dense rows
         // can be vectorised without the per-pixel sampled-mask and stroke-depth branches.
-        if mips.is_none()
-            && !small
-            && !(aliased && b.square)
-            && !noise
-            && !tex_tip
-            && !wet
+        if !(mips.is_some() || small || (aliased && b.square) || noise || tex_tip || wet)
             && depth.is_none()
             && proj.is_none()
             && d.angle == 0.0
@@ -652,6 +647,12 @@ impl StrokeRenderer {
     /// See [`DabGenerator::wants_time`].
     pub fn wants_time(&self) -> bool {
         self.generator.wants_time()
+    }
+
+    /// The string between the brush and the pointer while smoothing lags (see
+    /// [`Smoother::string`](crate::dynamics::Smoother::string)).
+    pub fn smoothing_string(&self) -> Option<([f64; 2], [f64; 2])> {
+        self.generator.smoothing_string()
     }
 
     /// Feed input points (any chunking gives the same result).

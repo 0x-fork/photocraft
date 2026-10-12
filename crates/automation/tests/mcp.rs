@@ -1041,6 +1041,18 @@ async fn bridge_reports_unreachable_app() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn command_batch_description_exposes_non_atomic_semantics_when_tools_are_listed() {
+    let client = connect(PhotocraftMcp::headless()).await;
+    let tools = client.list_all_tools().await.unwrap();
+    let tool = tools.iter().find(|tool| tool.name == "command_batch").expect("command_batch tool");
+    let description = tool.description.as_deref().expect("command_batch description");
+    for contract in ["in order", "Not an atomic transaction", "first error", "stop_on_error is false", "no rollback"] {
+        assert!(description.contains(contract), "command_batch description omits `{contract}`: {description}");
+    }
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn command_batch_runs_steps_in_order() {
     let client = connect(PhotocraftMcp::headless()).await;
     json_of(&call(&client, "doc_new", json!({"width": 32, "height": 32})).await);
@@ -1216,7 +1228,20 @@ async fn convention_resources_are_live_json() {
     assert!(read("photocraft://document").await["document"].is_null());
     json_of(&call(&client, "doc_new", json!({"width":8,"height":6})).await);
     assert_eq!(read("photocraft://document").await["width"], 8);
-    assert_eq!(read("photocraft://commands").await, json_of(&call(&client, "command_list", json!({})).await));
+    // Edit › Purge › All is enabled while the process-wide effect, mask and stack caches hold
+    // anything, and the other tests in this binary fill and purge those caches concurrently, so
+    // its `enabled` flag can flip between the two reads. Every other field must match exactly.
+    let stable = |mut v: Value| {
+        for c in v.as_array_mut().into_iter().flatten() {
+            if c["id"] == "edit.purge.all" {
+                c.as_object_mut().map(|o| o.remove("enabled"));
+            }
+        }
+        v
+    };
+    let commands = stable(read("photocraft://commands").await);
+    assert!(commands.as_array().is_some_and(|a| a.len() > 100), "{commands}");
+    assert_eq!(commands, stable(json_of(&call(&client, "command_list", json!({})).await)));
     assert!(client.read_resource(rmcp::model::ReadResourceRequestParams::new("photocraft://missing")).await.is_err());
     let preview = call(&client, "render_preview", json!({"max_side":4})).await;
     assert!(preview.content.iter().any(|c| c.as_image().is_some()));

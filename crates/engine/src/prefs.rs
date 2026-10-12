@@ -1388,10 +1388,12 @@ fn capitalize(s: &str) -> String {
 /// Tools › Temporary, `edit.keyboardShortcuts`) but held rather than pressed, so they are not
 /// commands; the UI reads their keys through [`Preferences::shortcut`]. While a selection or
 /// shape is being dragged, the Hand key repositions it instead of panning (Photoshop's Space).
+/// The erase key keeps the Brush or Pencil and makes its strokes erase (Photoshop's `~`).
 pub const TEMPORARY_TOOLS: &[(&str, &str, &str)] = &[
     ("tools.temporary.hand", "Hand Tool (hold)", "Space"),
     ("tools.temporary.zoomIn", "Zoom In (hold, drag to scrub)", "Cmd+Space"),
     ("tools.temporary.zoomOut", "Zoom Out (hold)", "Alt+Space"),
+    ("tools.temporary.erase", "Erase with Brush or Pencil (hold)", "`"),
 ];
 
 /// Every bindable id with its default: commands, then the temporary tools.

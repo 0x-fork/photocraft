@@ -85,9 +85,9 @@ note = "theme.rs ThemeKind has twelve themes (the four Pro brightness levels, St
 [[item]]
 id = "UI-217-12"
 target = "Save custom New Document presets; a real Recent category"
-status = "partial"
+status = "done"
 issue = 217
-note = "document_preset_cmds.rs and new_doc_ui.rs: named presets save/select/delete through preferences; Recent remains a static list plus Clipboard"
+note = "document_preset_cmds.rs and new_doc_ui.rs: named presets save/select/delete through preferences; Recent lists Clipboard, the last 20 documents created in the dialog (document.recent.*, persisted with the presets, newest first, deduplicated) and the uncovered defaults (#3131); created_documents_fill_the_recent_category"
 
 [[item]]
 id = "UI-217-13"

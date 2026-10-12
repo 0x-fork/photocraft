@@ -68,8 +68,7 @@ what an agent can't finish alone.
 - **Missing:** Select and Mask workspace layout
   (TOOL-214-1, Refine Hair #2671; its view modes preview live since #1754, Refine Edge Brush #2972); Content-Aware Fill workspace with a paintable sampling area
   (TOOL-214-15); Vanishing Point plane editor (TOOL-214-14); Content-Aware Scale through the
-  transform box (TOOL-214-7); Puppet Warp mesh following the outline (TOOL-214-6); Content-Aware
-  Move's Transform On Drop (TOOL-213-4).
+  transform box (TOOL-214-7); Content-Aware Move's Transform On Drop (TOOL-213-4).
 - **Evidence:** scorecard rows above, all partial or missing.
 - **Impact:** these are the tools retouchers and compositors use daily; a slider dialog is not a
   substitute.

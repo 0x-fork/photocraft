@@ -743,6 +743,15 @@ fn txt2_mode_runs(layer: &TextLayer) -> Vec<(i64, usize)> {
 /// `i32::MAX`, and sizing the array by it would make every save allocate gigabytes.
 pub const MAX_TEXT_INDEX: i32 = 0xFFFF;
 
+/// Whether the document `Txt2` block is needed for `objects`: only a non-Metrics auto-kern mode
+/// (`Optical`) is exclusive to `Txt2` — EngineData's `AutoKerning` cannot distinguish Metrics from
+/// Optical — so a fresh document of ordinary Metrics text has nothing to put in the block.
+/// Writing Photoshop's empty `<< /0 << >> >>` stub anyway makes some readers (Photopea) fail
+/// (#3514); the export omits the block for such a document.
+pub fn needs_txt2(objects: &[(i32, &TextLayer)]) -> bool {
+    objects.iter().any(|(_, l)| l.char_runs().iter().any(|r| r.style.kerning == Kerning::Optical))
+}
+
 /// The document's `Txt2` block for `objects`: `(TextIndex, layer)` pairs, one text object each
 /// at the slot its `TextIndex` names (see [`set_text_index`] and [`text_index`]; unused slots are
 /// empty dictionaries), carrying the automatic kerning mode of every pair (`/11`: 0 manual,

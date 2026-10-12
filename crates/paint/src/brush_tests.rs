@@ -657,6 +657,25 @@ fn smoothing_modes() {
 }
 
 #[test]
+fn smoothing_string_runs_from_the_lagging_brush_to_the_pointer() {
+    // #3479: the canvas draws the line between the brush and the pointer.
+    let cfg = Smoothing { amount: 0.8, ..Default::default() };
+    let mut s = Smoother::new(&cfg, 1.0);
+    let mut out = Vec::new();
+    assert_eq!(s.string(), None, "no stroke yet");
+    s.push(StrokePoint::new(0.0, 0.0, 1.0), &mut out);
+    assert_eq!(s.string(), None, "the first point is the brush");
+    s.push(StrokePoint::new(100.0, 0.0, 1.0), &mut out);
+    let (brush, pointer) = s.string().unwrap();
+    assert!(brush[0] > 0.0 && brush[0] < 100.0, "the brush lags: {brush:?}");
+    assert_eq!(pointer, [100.0, 0.0]);
+    let mut off = Smoother::new(&Smoothing { amount: 0.0, ..cfg }, 1.0);
+    off.push(StrokePoint::new(0.0, 0.0, 1.0), &mut out);
+    off.push(StrokePoint::new(100.0, 0.0, 1.0), &mut out);
+    assert_eq!(off.string(), None, "smoothing off: no string");
+}
+
+#[test]
 fn smoothing_pulls_by_time_not_by_how_often_the_device_reports() {
     // The pointer jumps 100 px and is held there for 32 ms, reported at 1000 Hz or about 60 Hz.
     let cfg = Smoothing { amount: 0.8, catch_up: true, catch_up_on_end: false, ..Default::default() };

@@ -189,9 +189,11 @@ fn run_commands_and_save() {
     let lines: Vec<Value> = out.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
     assert_eq!(lines.len(), 3);
     assert_eq!(lines[2]["command"], "document.inspect");
+    assert_eq!(lines[2]["result"]["name"], "Run");
     let (info, _) = ok(bin().arg("info").arg(&out_pc));
     let v: Value = serde_json::from_str(&info).unwrap();
-    assert_eq!(v["name"], "Run");
+    // Saving a native document gives the reopened bundle its output filename.
+    assert_eq!(v["name"], "r.pcraft");
     let names: Vec<&str> = v["layers"].as_array().unwrap().iter().filter_map(|l| l["name"].as_str()).collect();
     assert_eq!(names, ["Ink", "Background"]);
     // Continue from the saved file and export PNG.

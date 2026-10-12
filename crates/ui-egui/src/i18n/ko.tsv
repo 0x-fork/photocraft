@@ -2105,6 +2105,7 @@
 	Opening {name}	{name} 여는 중
 	Saved {name}	{name} 저장됨
 	Saving {name}	{name} 저장 중
+	Saving {percent}	저장 중 {percent}
 	A save to {name} is still running; try again when it finishes	{name}에 저장하는 작업이 아직 진행 중입니다. 완료된 후 다시 시도하세요
 	{label} is writing the file and can no longer be cancelled	{label}: 파일을 쓰는 중이므로 더 이상 취소할 수 없습니다
 	Opening {name}…	{name} 여는 중…
@@ -3171,6 +3172,13 @@ cameraData	Lens	렌즈
 curves	Smooth	매끄럽게
 	Smooth the curve values	곡선 값을 매끄럽게 하기
 	Drag to draw the curve · {key}-click draws a straight line	드래그하여 곡선 그리기 · {key}-클릭으로 직선 그리기
+	Edit Plane	평면 편집
+	Create Plane	평면 만들기
+	Grid Size:	격자 크기:
+	Vanishing Point: click four corners to create a plane	소실점: 네 모서리를 클릭하여 평면을 만드십시오
+	Vanishing Point is not active	소실점이 활성화되어 있지 않습니다
+	Apply Vanishing Point ({key})	소실점 적용 ({key})
+	Fix the red plane first: its corners must form a convex quad	먼저 빨간색 평면을 수정하십시오: 모서리가 볼록 사각형을 이루어야 합니다
 # Select and Mask view modes (#1754)
 	Onion Skin	어니언 스킨
 	Marching Ants	점선 윤곽

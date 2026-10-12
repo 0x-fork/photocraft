@@ -186,7 +186,7 @@ pub fn quad_size(q: &[[f64; 2]; 4]) -> (f64, f64) {
 /// Mapping and Image Warping", 1989, §2.2.3) scaled to the rectangle. `None` when `q` isn't a
 /// [`convex_quad`] or the size isn't positive.
 pub fn quad_to_rect(q: &[[f64; 2]; 4], w: f64, h: f64) -> Option<Homography> {
-    if !convex_quad(q) || !(w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0) {
+    if !(convex_quad(q) && w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0) {
         return None;
     }
     Homography::rect_to_quad([0.0, 0.0, w, h], *q)?.inverse()

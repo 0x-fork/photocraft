@@ -27,6 +27,7 @@ pub mod artboard_ui;
 mod blend_keys;
 pub(crate) mod blend_preview;
 mod brand;
+pub(crate) mod brush_cursor;
 pub mod brush_panel;
 pub mod brush_picker;
 pub mod brush_preview;
@@ -68,6 +69,7 @@ pub mod discard_ui;
 pub mod distort_ui;
 pub mod doc_props_ui;
 pub mod dock;
+pub mod duplicate_layer_ui;
 pub mod enable_rules;
 pub mod eraser_ui;
 pub mod export_dialog;
@@ -198,6 +200,7 @@ mod type_transform;
 mod variables_ui;
 pub mod vector_ui;
 pub mod view_cmds;
+pub mod vp_ui;
 pub mod warp_preview;
 pub mod wheel_nav;
 pub mod wide_angle_ui;
@@ -492,6 +495,8 @@ pub struct PhotocraftApp {
     pub(crate) magnetic: magnetic_lasso_ui::Runtime,
     /// The next tool `Down` is a right-button drag that erases (see `paint_mouse`).
     secondary_erase: bool,
+    /// The Brush or Pencil erase key is held this frame (`hold_keys::erase_held`, #3439).
+    held_erase: bool,
     /// While a batch of recovered pointer samples is replayed, defer the live-stroke update to one
     /// call for the whole frame (see `canvas::canvas_view`).
     defer_live_stroke: bool,
@@ -705,6 +710,7 @@ impl PhotocraftApp {
             patch_preview: None,
             magnetic: Default::default(),
             secondary_erase: false,
+            held_erase: false,
             defer_live_stroke: false,
             press_stroke: false,
             last_stroke_end: None,
