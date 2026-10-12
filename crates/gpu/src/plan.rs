@@ -1626,11 +1626,9 @@ pub fn adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photocraf
             (13, p, Some(rows))
         }
         Adjustment::ColorBalance { shadows, midtones, highlights, preserve_luminosity } => {
-            p[0] = [shadows[0], shadows[1], shadows[2], 0.0];
-            p[1] = [midtones[0], midtones[1], midtones[2], 0.0];
-            p[2] = [highlights[0], highlights[1], highlights[2], 0.0];
-            p[3][0] = if *preserve_luminosity { 1.0 } else { 0.0 };
-            (14, p, None)
+            // Per-channel curves (compose::adjust::color_balance_channel), through the Levels kernel.
+            let tones = [*shadows, *midtones, *highlights];
+            (7, p, Some(lut_rows(|ch, v| adjust::color_balance_channel(tones, *preserve_luminosity, ch, v), 3)))
         }
         Adjustment::SelectiveColor { relative, adjustments } => {
             // 9 ranges × CMYK don't fit the 16 params: they go in LUT row 0 (read texel-exact).
