@@ -2656,3 +2656,9 @@ curves	Smooth	平滑
 	Remove after each stroke	每次描边后移除
 	Apply the removal ({key})	应用移除 ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	待移除的描边：{n}（Enter 应用，Esc 取消）
+	Import Styles…	导入样式…
+	Export Selected Styles…	导出所选样式…
+	Export Styles…	导出样式…
+	{file} is not a style library (.asl)	{file} 不是样式库 (.asl)
+@plural	Imported {n} style from {file}|Imported {n} styles from {file}	已从 {file} 导入 {n} 个样式
+@plural	Exported {n} style to {file}|Exported {n} styles to {file}	已将 {n} 个样式导出到 {file}

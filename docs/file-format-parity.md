@@ -1,6 +1,6 @@
 # File-format parity
 
-> **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-12 · **Change:** minor (indexed BMP palette mode; Save keeps a JPEG's quality and a WebP's encoding) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-12 · **Change:** minor (indexed BMP palette mode; `.asl` layer style libraries read and written; Save keeps a JPEG's quality and a WebP's encoding) · **Target:** Adobe Photoshop 2026
 
 Every format Photoshop 2026 (27.11.0) reads or writes, with PhotoCraft's support, fidelity and
 tests. Photoshop's list comes from its `Info.plist` `CFBundleDocumentTypes`, the PiPL read/write
@@ -131,7 +131,7 @@ remaining gaps in #1606 stay tracked with per-sample corpus ceilings.
 | Keyboard shortcuts `.kys` | R/W | R | `engine/src/kys.rs` |
 | ICC profiles | R | R | Own CMS |
 | Actions `.atn` | R/W | no | AUTO-219-2 |
-| Styles `.asl` | R/W | no | #1693 |
+| Styles `.asl` | R/W | R/W | `psd/src/asl.rs`, `io/src/asl_map.rs`; Styles panel Import/Export Styles…, `style.presets.importAsl`/`exportAsl` (#1051) |
 | Contours `.shc`, custom shapes `.csh`, tool presets `.tpl` | R/W | no | FILE-215-15 |
 | Curves `.acv`, Levels `.alv`, other adjustment presets | R/W | not audited | |
 | C2PA Content Credentials | R/W | no | #1050 |
@@ -141,6 +141,7 @@ remaining gaps in #1606 stay tracked with per-sample corpus ceilings.
 | Date | Change | Summary |
 |---|---|---|
 | 2026-10-12 | minor | Palette BMPs open in Indexed Color mode (#3802) |
+| 2026-10-12 | minor | `.asl` layer style libraries: import and export with embedded patterns and blending options |
 | 2026-10-12 | minor | Save writes a JPEG at its own estimated quality and a WebP lossy or lossless as opened (#2399) |
 | 2026-10-11 | minor | D5100 image area and fitted-look preservation in Camera Raw tuning |
 | 2026-10-10 | major | First version: Photoshop 2026 27.11.0's formats from its bundle, against our codecs; Affinity notes moved from `roadmap.md` |

@@ -3648,3 +3648,9 @@ curves	Smooth	Wygładź
 	Remove after each stroke	Usuwaj po każdym pociągnięciu
 	Apply the removal ({key})	Zastosuj usuwanie ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Pociągnięcia do usunięcia: {n} (Enter stosuje, Esc anuluje)
+	Import Styles…	Importuj style…
+	Export Selected Styles…	Eksportuj zaznaczone style…
+	Export Styles…	Eksportuj style…
+	{file} is not a style library (.asl)	{file} nie jest biblioteką stylów (.asl)
+@plural	Imported {n} style from {file}|Imported {n} styles from {file}	Zaimportowano {n} styl z {file}|Zaimportowano {n} style z {file}|Zaimportowano {n} stylów z {file}
+@plural	Exported {n} style to {file}|Exported {n} styles to {file}	Wyeksportowano {n} styl do {file}|Wyeksportowano {n} style do {file}|Wyeksportowano {n} stylów do {file}

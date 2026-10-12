@@ -756,6 +756,14 @@ fn float_window(
                     if crate::icons::button(ui, "x", 20.0, false, tl!("Close")).clicked() {
                         close = true;
                     }
+                    if key == "styles" {
+                        let resp = crate::icons::button(ui, "ellipsis", 20.0, false, tl!("Panel menu"));
+                        egui::Popup::menu(&resp).show(|ui| {
+                            crate::widgets::style_spectrum_popup_menu(ui);
+                            ui.set_min_width(180.0);
+                            styles_menu(app, ui);
+                        });
+                    }
                 });
             });
             crate::widgets::hairline(ui);
@@ -828,6 +836,61 @@ pub fn styles_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             }
         }
     }
+}
+
+/// The Styles panel menu ("…"): Import Styles… / Export Selected Styles… / Export Styles…
+/// (Photoshop layer style libraries, `.asl`).
+fn styles_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    let any = app.session.presets.styles.iter().any(|g| !g.items.is_empty());
+    let selected = app.ui.presets_ui.selected.get("styles").cloned();
+    let mut act: Option<&str> = None;
+    if ui.button(tl!("Import Styles…")).clicked() {
+        act = Some("import");
+    }
+    if ui.add_enabled(selected.is_some(), egui::Button::new(tl!("Export Selected Styles…"))).clicked() {
+        act = Some("selected");
+    }
+    if ui.add_enabled(any, egui::Button::new(tl!("Export Styles…"))).clicked() {
+        act = Some("all");
+    }
+    let Some(a) = act else { return };
+    ui.close();
+    let r = match a {
+        "import" => app.pick_file_bytes_filtered(&["asl"], |app, name, bytes| match crate::preset_files_ui::open(app, &name, &bytes) {
+            Some(r) => r.map(|()| Value::Null),
+            None => Err(crate::i18n::fmt(tl!("{file} is not a style library (.asl)"), &[("file", &crate::file_open::display_name(&name))])),
+        }),
+        "selected" => match selected {
+            Some(name) => export_styles(app, json!({"styles": [name.clone()]}), &name),
+            None => Ok(Value::Null),
+        },
+        _ => export_styles(app, json!({}), "Styles"),
+    };
+    if let Err(e) = r
+        && e != "cancelled"
+    {
+        app.ui.status = e;
+        app.ui.status_error = true;
+    }
+}
+
+/// Builds the `.asl` through `style.presets.exportAsl`, then asks where to save it.
+fn export_styles(app: &mut PhotocraftApp, params: Value, suggested: &str) -> Result<Value, String> {
+    let r = app.run("style.presets.exportAsl", params)?;
+    let bytes = r["data"].as_str().and_then(photocraft_engine::paint::tile::b64_decode).ok_or("the export returned no data")?;
+    let n = r["count"].as_u64().unwrap_or(0);
+    let stem: String = suggested.chars().filter(|c| !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')).collect();
+    let stem = if stem.trim().is_empty() { "Styles".to_string() } else { stem.trim().to_string() };
+    app.pick_save(&format!("{stem}.asl"), move |app, path| {
+        let write = app.services.write.as_mut().ok_or("no writer configured")?;
+        write(&path, &bytes)?;
+        app.ui.status_error = false;
+        app.ui.status = crate::i18n::fmt(
+            &crate::i18n::trn(crate::i18n::current(), n, "Exported {n} style to {file}", "Exported {n} styles to {file}"),
+            &[("file", &crate::file_open::display_name(&path))],
+        );
+        Ok(json!({"path": path, "count": n}))
+    })
 }
 
 // ------------------------------------------------------------------ Shapes

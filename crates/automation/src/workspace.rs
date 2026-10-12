@@ -362,12 +362,12 @@ fn preference_uses_ambient_filesystem(path: &str) -> bool {
 
 fn command_uses_ambient_path(id: &str, params: &Value) -> bool {
     match id {
-        "brush.presets.importAbr" | "gradient.presets.importGrd" | "plugin.install" | "swatches.import" => {
+        "brush.presets.importAbr" | "gradient.presets.importGrd" | "plugin.install" | "swatches.import" | "style.presets.importAsl" => {
             // `data` wins over `path` in these commands; any `path` without it reads the filesystem.
             params.get("data").is_none() && params.get("path").is_some()
         }
         // With a `path` the file is written there; without one the bytes come back as `data`.
-        "swatches.export" => params.get("path").is_some(),
+        "swatches.export" | "style.presets.exportAsl" => params.get("path").is_some(),
         "plugin.reload" => true,
         _ => false,
     }
@@ -762,6 +762,9 @@ mod tests {
             ("plugin.install", serde_json::json!({"path": " "})),
             ("swatches.import", serde_json::json!({"path": "/outside/set.aco"})),
             ("swatches.export", serde_json::json!({"path": "/outside/set.ase"})),
+            ("style.presets.importAsl", serde_json::json!({"path": "/outside/set.asl"})),
+            ("style.presets.exportAsl", serde_json::json!({"path": "/outside/set.asl"})),
+            ("style.presets.exportAsl", serde_json::json!({"path": 5})),
         ] {
             assert!(authorize_engine_command(id, &params).is_err(), "{id}: {params}");
         }
@@ -771,6 +774,8 @@ mod tests {
             ("plugin.install", serde_json::json!({"data": "QUJD"})),
             ("swatches.import", serde_json::json!({"data": "QUJD"})),
             ("swatches.export", serde_json::json!({"format": "ase"})),
+            ("style.presets.importAsl", serde_json::json!({"data": "QUJD"})),
+            ("style.presets.exportAsl", serde_json::json!({"group": "Basics"})),
         ] {
             assert!(authorize_engine_command(id, &params).is_ok(), "{id}: {params}");
         }
@@ -896,6 +901,8 @@ mod tests {
             ("gradient.presets.importGrd", serde_json::json!({"path": "/outside/set.grd"})),
             ("plugin.install", serde_json::json!({"path": "/outside/plugin.wasm"})),
             ("plugin.reload", serde_json::json!({"path": "/outside/plugins"})),
+            ("style.presets.importAsl", serde_json::json!({"path": "/outside/set.asl"})),
+            ("style.presets.exportAsl", serde_json::json!({"path": "/outside/set.asl"})),
             ("prefs.set", serde_json::json!({"path": "historyLog.filePath", "value": "/outside/log"})),
             ("prefs.set", serde_json::json!({"values": {"interface.language": "fr", "historyLog.filePath": "/outside/log"}})),
         ] {

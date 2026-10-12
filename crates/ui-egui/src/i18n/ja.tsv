@@ -3661,3 +3661,9 @@ curves	Smooth	スムーズ
 	Remove after each stroke	ストロークごとに削除
 	Apply the removal ({key})	削除を適用 ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	削除するストローク: {n}（Enter で適用、Esc で取り消し）
+	Import Styles…	スタイルを読み込み…
+	Export Selected Styles…	選択したスタイルを書き出し…
+	Export Styles…	スタイルを書き出し…
+	{file} is not a style library (.asl)	{file} はスタイルライブラリ (.asl) ではありません
+@plural	Imported {n} style from {file}|Imported {n} styles from {file}	{file} からスタイル {n} 個を読み込みました
+@plural	Exported {n} style to {file}|Exported {n} styles to {file}	{file} にスタイル {n} 個を書き出しました

@@ -3039,3 +3039,9 @@ curves	Smooth	Haluskan
 	Remove after each stroke	Hapus setelah setiap goresan
 	Apply the removal ({key})	Terapkan penghapusan ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Goresan untuk dihapus: {n} (Enter menerapkan, Esc membatalkan)
+	Import Styles…	Impor Gaya…
+	Export Selected Styles…	Ekspor Gaya Terpilih…
+	Export Styles…	Ekspor Gaya…
+	{file} is not a style library (.asl)	{file} bukan pustaka gaya (.asl)
+@plural	Imported {n} style from {file}|Imported {n} styles from {file}	{n} gaya diimpor dari {file}
+@plural	Exported {n} style to {file}|Exported {n} styles to {file}	{n} gaya diekspor ke {file}

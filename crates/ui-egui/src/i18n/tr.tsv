@@ -3782,3 +3782,9 @@ cameraData	Lens	Lens
 @plural	{n} step|{n} steps	{n} adım
 @plural	{warning} (+{n} more brush preset warning)|{warning} (+{n} more brush preset warnings)	{warning} (+{n} fırça ön ayarı uyarısı daha)
 @plural	{what} with {n} warning|{what} with {n} warnings	{what}, {n} uyarı ile
+@plural	Imported {n} style from {file}|Imported {n} styles from {file}	{file} dosyasından {n} stil içe aktarıldı
+@plural	Exported {n} style to {file}|Exported {n} styles to {file}	{n} stil {file} dosyasına dışa aktarıldı
+	Import Styles…	Stilleri İçe Aktar…
+	Export Selected Styles…	Seçili Stilleri Dışa Aktar…
+	Export Styles…	Stilleri Dışa Aktar…
+	{file} is not a style library (.asl)	{file} bir stil kitaplığı değil (.asl)

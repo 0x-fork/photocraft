@@ -3221,3 +3221,9 @@ curves	Smooth	매끄럽게
 	Remove after each stroke	획마다 제거
 	Apply the removal ({key})	제거 적용 ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	제거할 획: {n} (Enter 적용, Esc 취소)
+	Import Styles…	스타일 가져오기…
+	Export Selected Styles…	선택한 스타일 내보내기…
+	Export Styles…	스타일 내보내기…
+	{file} is not a style library (.asl)	{file}은(는) 스타일 라이브러리(.asl)가 아닙니다
+@plural	Imported {n} style from {file}|Imported {n} styles from {file}	{file}에서 스타일 {n}개를 가져왔습니다
+@plural	Exported {n} style to {file}|Exported {n} styles to {file}	스타일 {n}개를 {file}(으)로 내보냈습니다

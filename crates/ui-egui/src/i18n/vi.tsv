@@ -3535,3 +3535,9 @@ curves	Smooth	Làm mượt
 	Remove after each stroke	Xóa sau mỗi nét vẽ
 	Apply the removal ({key})	Áp dụng việc xóa ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Nét vẽ cần xóa: {n} (Enter áp dụng, Esc hủy)
+	Import Styles…	Nhập kiểu…
+	Export Selected Styles…	Xuất các kiểu đã chọn…
+	Export Styles…	Xuất kiểu…
+	{file} is not a style library (.asl)	{file} không phải là thư viện kiểu (.asl)
+@plural	Imported {n} style from {file}|Imported {n} styles from {file}	Đã nhập {n} kiểu từ {file}
+@plural	Exported {n} style to {file}|Exported {n} styles to {file}	Đã xuất {n} kiểu sang {file}

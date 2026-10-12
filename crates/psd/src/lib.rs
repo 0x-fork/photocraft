@@ -43,6 +43,7 @@
 pub mod abr;
 pub mod aco;
 pub mod ase;
+pub mod asl;
 pub mod blend;
 pub mod builder;
 pub mod compression;

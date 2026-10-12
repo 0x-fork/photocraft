@@ -3749,3 +3749,9 @@ curves	Smooth	Згладити
 	Remove after each stroke	Видаляти після кожного штриха
 	Apply the removal ({key})	Застосувати видалення ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Штрихів для видалення: {n} (Enter застосовує, Esc скасовує)
+	Import Styles…	Імпортувати стилі…
+	Export Selected Styles…	Експортувати вибрані стилі…
+	Export Styles…	Експортувати стилі…
+	{file} is not a style library (.asl)	{file} не є бібліотекою стилів (.asl)
+@plural	Imported {n} style from {file}|Imported {n} styles from {file}	Імпортовано {n} стиль з {file}|Імпортовано {n} стилі з {file}|Імпортовано {n} стилів з {file}
+@plural	Exported {n} style to {file}|Exported {n} styles to {file}	Експортовано {n} стиль до {file}|Експортовано {n} стилі до {file}|Експортовано {n} стилів до {file}

@@ -35,6 +35,7 @@ pub mod abr_map;
 mod adjust_map;
 pub mod affinity;
 pub mod annotations_map;
+pub mod asl_map;
 pub mod blocks;
 mod channel_map;
 pub mod comps_map;
