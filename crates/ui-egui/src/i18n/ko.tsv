@@ -3217,3 +3217,7 @@ curves	Smooth	매끄럽게
 	Light Red	연한 빨강
 	Medium Blue	중간 파랑
 	Light Gray	연한 회색
+
+# History panel › History Brush source (#2966)
+	Paints from the History panel's source state	작업 내역 패널의 소스 상태에서 칠합니다
+	Sets the source for the history brush	작업 내역 브러시의 소스를 설정합니다

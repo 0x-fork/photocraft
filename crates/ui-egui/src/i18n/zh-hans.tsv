@@ -2652,3 +2652,7 @@ curves	Smooth	平滑
 	Light Red	浅红色
 	Medium Blue	中蓝色
 	Light Gray	浅灰色
+
+# History panel › History Brush source (#2966)
+	Paints from the History panel's source state	从历史记录面板的源状态绘画
+	Sets the source for the history brush	设置历史记录画笔的源

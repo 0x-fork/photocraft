@@ -3035,3 +3035,7 @@ curves	Smooth	Haluskan
 	Light Red	Merah Terang
 	Medium Blue	Biru Sedang
 	Light Gray	Abu-abu Muda
+
+# History panel › History Brush source (#2966)
+	Paints from the History panel's source state	Melukis dari status sumber panel Riwayat
+	Sets the source for the history brush	Menetapkan sumber untuk kuas riwayat

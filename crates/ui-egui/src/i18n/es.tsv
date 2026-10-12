@@ -2728,3 +2728,7 @@ curves	Smooth	Suavizar
 	Light Red	Rojo claro
 	Medium Blue	Azul medio
 	Light Gray	Gris claro
+
+# History panel › History Brush source (#2966)
+	Paints from the History panel's source state	Pinta a partir del estado de origen del panel Historia
+	Sets the source for the history brush	Establece el origen del pincel de historia

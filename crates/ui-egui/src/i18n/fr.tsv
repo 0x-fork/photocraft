@@ -3048,3 +3048,7 @@ curves	Smooth	Lisser
 	Light Red	Rouge clair
 	Medium Blue	Bleu moyen
 	Light Gray	Gris clair
+
+# History panel › History Brush source (#2966)
+	Paints from the History panel's source state	Peint à partir de l'état source du panneau Historique
+	Sets the source for the history brush	Définit la source du pinceau d'historique

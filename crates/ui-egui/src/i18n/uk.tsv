@@ -3745,3 +3745,7 @@ curves	Smooth	Згладити
 	Light Red	Світло-червоний
 	Medium Blue	Середньо-синій
 	Light Gray	Світло-сірий
+
+# History panel › History Brush source (#2966)
+	Paints from the History panel's source state	Малює з вихідного стану панелі «Історія»
+	Sets the source for the history brush	Задає джерело для пензля історії

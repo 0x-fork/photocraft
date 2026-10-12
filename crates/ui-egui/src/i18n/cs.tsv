@@ -3661,3 +3661,7 @@ navigator	Zoom	Zvětšení
 	Light Blue	Světle modrá
 	Light Red	Světle červená
 	Medium Blue	Středně modrá
+
+# History panel › History Brush source (#2966)
+	Paints from the History panel's source state	Maluje ze zdrojového stavu panelu Historie
+	Sets the source for the history brush	Nastaví zdroj pro štětec historie

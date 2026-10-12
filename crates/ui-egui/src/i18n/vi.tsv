@@ -3531,3 +3531,7 @@ curves	Smooth	Làm mượt
 	Stroke Path…	Đi nét đường dẫn…
 	Apply mask to layer before removing?	Áp dụng mặt nạ vào lớp trước khi xóa?
 	Delete the vector mask?	Xóa mặt nạ vectơ?
+
+# History panel › History Brush source (#2966)
+	Paints from the History panel's source state	Vẽ từ trạng thái nguồn của bảng Lịch sử
+	Sets the source for the history brush	Đặt nguồn cho cọ lịch sử

@@ -3644,3 +3644,7 @@ curves	Smooth	Wygładź
 	Light Red	Jasnoczerwony
 	Medium Blue	Średnioniebieski
 	Light Gray	Jasnoszary
+
+# History panel › History Brush source (#2966)
+	Paints from the History panel's source state	Maluje ze stanu źródłowego panelu Historia
+	Sets the source for the history brush	Ustawia źródło dla pędzla historii

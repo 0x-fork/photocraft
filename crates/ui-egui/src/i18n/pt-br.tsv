@@ -3837,3 +3837,7 @@ layerLabel	No Color	Sem cor
 	Light Red	Vermelho-claro
 	Medium Blue	Azul médio
 	Light Gray	Cinza-claro
+
+# History panel › History Brush source (#2966)
+	Paints from the History panel's source state	Pinta a partir do estado de origem do painel Histórico
+	Sets the source for the history brush	Define a origem do pincel do histórico

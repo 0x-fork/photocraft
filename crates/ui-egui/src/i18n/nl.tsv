@@ -3807,3 +3807,7 @@ curves	Smooth	Vloeiend maken
 	Light Red	Lichtrood
 	Medium Blue	Middelblauw
 	Light Gray	Lichtgrijs
+
+# History panel › History Brush source (#2966)
+	Paints from the History panel's source state	Schildert vanuit de bronstatus van het deelvenster Geschiedenis
+	Sets the source for the history brush	Stelt de bron voor het historiepenseel in

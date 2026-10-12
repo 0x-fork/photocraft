@@ -3657,3 +3657,7 @@ curves	Smooth	スムーズ
 	Light Red	ライトレッド
 	Medium Blue	ミディアムブルー
 	Light Gray	ライトグレー
+
+# History panel › History Brush source (#2966)
+	Paints from the History panel's source state	ヒストリーパネルのソース状態からペイントします
+	Sets the source for the history brush	ヒストリーブラシのソースを設定します
