@@ -390,6 +390,7 @@
 	Select Linked Layers	Seleziona livelli collegati
 	Merge Layers	Unisci livelli
 	Merge Down	Unisci sotto
+	Merge Group	Unisci gruppo
 	Merge Visible	Unisci visibili
 	Stamp Visible	Unisci visibili in nuovo
 	Select Layer Above	Seleziona livello sopra
@@ -874,6 +875,7 @@
 	Cancel	Annulla
 	Reset	Ripristina
 	Cancel (Esc)	Annulla (Esc)
+	Manage submitted jobs in the system print queue	Gestisci i lavori inviati nella coda di stampa del sistema
 	Cancel any current edits (Esc)	Annulla modifiche correnti (Esc)
 	Cancel current crop operation  (Esc)	Annulla operazione ritaglio corrente (Esc)
 	Cancel transform (Esc)	Annulla trasformazione (Esc)
@@ -4011,3 +4013,6 @@ navigator	Zoom	Zoom
 	{index} of {total}	{index} di {total}
 	{shortcut} assigned.	{shortcut} assegnata.
 	{shortcut} is already in use by {commands} and will be removed from it when you click OK.	{shortcut} è già usata da {commands} e verrà rimossa quando fai clic su OK.
+	Remove after each stroke	Rimuovi dopo ogni tratto
+	Apply the removal ({key})	Applica la rimozione ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Tratti da rimuovere: {n} (Invio applica, Esc annulla)

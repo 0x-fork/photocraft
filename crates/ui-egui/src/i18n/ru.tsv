@@ -579,6 +579,7 @@
 	OK	OK
 	Cancel	Отмена
 	Cancel (Esc)	Отмена (Esc)
+	Manage submitted jobs in the system print queue	Управляйте отправленными заданиями в системной очереди печати
 	Done	Готово
 	Apply	Применить
 	Reset	Сброс
@@ -1897,6 +1898,7 @@
 	Lock Layers…	Заблокировать слои…
 	Mean	Среднее
 	Merge Down	Выполнить сведение
+	Merge Group	Объединить группу
 	Merge Layers	Объединить слои
 	Merge Shape Components	Объединить компоненты фигуры
 	Merge Visible	Свести видимые
@@ -2992,3 +2994,6 @@ curves	Smooth	Сгладить
 	Light Red	Светло-красный
 	Medium Blue	Средне-синий
 	Light Gray	Светло-серый
+	Remove after each stroke	Удалять после каждого штриха
+	Apply the removal ({key})	Применить удаление ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Штрихов к удалению: {n} (Enter применяет, Esc отменяет)

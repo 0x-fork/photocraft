@@ -251,8 +251,9 @@ pub fn pointer_down(app: &mut PhotocraftApp, x: f64, y: f64, mods: egui::Modifie
         commit_with(app, mods);
         return true; // Photoshop: a click outside commits without starting new text
     }
-    // The Type Mask tools always start new text: existing type layers are just pixels to them.
-    if app.ui.tool.is_type_mask() {
+    // The Type Mask tools always start new text: existing type layers are just pixels to them;
+    // so does a ⇧-click with the Type tool, as in Photoshop, to start new text over old.
+    if app.ui.tool.is_type_mask() || mods.shift {
         return false;
     }
     if let Some(id) = hit_layer(app, x, y) {
@@ -2218,6 +2219,22 @@ mod tests {
     fn layer_text(app: &PhotocraftApp) -> String {
         let ed = app.ui.text_edit.as_ref().unwrap();
         current_text(app, LayerId(ed.layer)).unwrap()
+    }
+
+    /// Photoshop: a click on existing type edits it; a ⇧-click there starts a new type layer.
+    #[test]
+    fn shift_click_on_existing_type_starts_new_text() {
+        let mut app = app();
+        pointer_up(&mut app, [50.0, 100.0], [50.0, 100.0]);
+        insert(&mut app, "Existing words");
+        commit(&mut app);
+        let existing = app.session.active().unwrap().doc.layers.last().unwrap().id;
+        let (x, y) = (60.0, 95.0);
+        assert_eq!(hit_layer(&mut app, x, y), Some(existing), "the click lands on the existing text");
+        assert!(!pointer_down(&mut app, x, y, egui::Modifiers::SHIFT), "⇧: not consumed, so a new type layer starts");
+        assert!(app.ui.text_edit.is_none());
+        assert!(pointer_down(&mut app, x, y, egui::Modifiers::NONE), "a plain click edits the existing text");
+        assert_eq!(app.ui.text_edit.as_ref().map(|e| e.layer), Some(existing.0));
     }
 
     #[test]

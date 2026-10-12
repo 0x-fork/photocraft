@@ -1838,6 +1838,7 @@
 	New Guide Layout…	Νέα διάταξη οδηγών…
 	New Guides From Shape	Νέοι οδηγοί από σχήμα
 	Merge Down	Συγχώνευση με το υποκείμενο επίπεδο
+	Merge Group	Συγχώνευση ομάδας
 	Stamp Visible	Συνένωση ορατών σε νέο επίπεδο
 	Select Layer Above	Επιλογή επάνω επιπέδου
 	Select Layer Below	Επιλογή κάτω επιπέδου
@@ -2084,6 +2085,7 @@
 	Camera Raw Filter…	Φίλτρο επεξεργασίας ακατέργαστης εικόνας…
 	Camera Raw…	Επεξεργασία ακατέργαστης εικόνας…
 	Cancel (Esc)	Ακύρωση (Esc)
+	Manage submitted jobs in the system print queue	Διαχειριστείτε τις υποβληθείσες εργασίες στην ουρά εκτύπωσης του συστήματος
 	Cancel any current edits (Esc)	Ακύρωση τρεχουσών αλλαγών (Esc)
 	Cancel transform (Esc)	Ακύρωση μετασχηματισμού (Esc)
 	Cancel warp (Esc)	Ακύρωση παραμόρφωσης (Esc)
@@ -3745,3 +3747,6 @@ curves	Smooth	Εξομάλυνση
 	Light Red	Ανοιχτό κόκκινο
 	Medium Blue	Μεσαίο μπλε
 	Light Gray	Ανοιχτό γκρι
+	Remove after each stroke	Αφαίρεση μετά από κάθε πινελιά
+	Apply the removal ({key})	Εφαρμογή της αφαίρεσης ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Πινελιές προς αφαίρεση: {n} (Enter εφαρμόζει, Esc ακυρώνει)

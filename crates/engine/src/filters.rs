@@ -185,7 +185,10 @@ pub fn apply_filter_to_surface(
     if id == crate::plugin_cmds::RUN {
         return crate::plugin_cmds::apply_to_surface(id, params, surf, selection, canvas);
     }
-    let fp = params_for(id, params)?;
+    let mut fp = params_for(id, params)?;
+    // A map that can no longer be read (moved or deleted since) leaves the pixels alone, like an
+    // unknown filter; the command itself already refused an unreadable map when it was added.
+    crate::filters_ext::resolve_map_path(&mut fp, params).ok()?;
     let sel_bounds = selection.map(photocraft_raster::Surface::content_bounds);
     let content = surf.content_bounds();
     let area = algo::output_area(&fp, content, bounds, sel_bounds);

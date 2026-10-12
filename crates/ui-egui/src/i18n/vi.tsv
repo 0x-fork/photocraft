@@ -936,6 +936,7 @@
 	Disable Layer Mask	Tắt mặt nạ lớp
 	Release Clipping Mask	Nhả mặt nạ cắt
 	Merge Down	Gộp xuống
+	Merge Group	Gộp nhóm
 	Quick Export As PNG	Xuất nhanh dạng PNG
 	Rename Layer…	Đổi tên lớp…
 	Frame from Layers…	Frame từ các lớp…
@@ -1523,6 +1524,7 @@ cameraRaw	Shadows	Vùng tối
 	Working…	Đang xử lý…
 	Reading…	Đang đọc…
 	Cancel (Esc)	Hủy (Esc)
+	Manage submitted jobs in the system print queue	Quản lý các lệnh in đã gửi trong hàng đợi in của hệ thống
 	Esc to cancel	Esc để hủy
 	Cancel opening	Hủy mở tệp
 	Cancelled opening {name}	Đã hủy mở {name}
@@ -3531,3 +3533,6 @@ curves	Smooth	Làm mượt
 	Stroke Path…	Đi nét đường dẫn…
 	Apply mask to layer before removing?	Áp dụng mặt nạ vào lớp trước khi xóa?
 	Delete the vector mask?	Xóa mặt nạ vectơ?
+	Remove after each stroke	Xóa sau mỗi nét vẽ
+	Apply the removal ({key})	Áp dụng việc xóa ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Nét vẽ cần xóa: {n} (Enter áp dụng, Esc hủy)

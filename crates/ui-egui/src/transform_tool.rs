@@ -64,6 +64,9 @@ pub struct TransformPreview {
     pub opacity: f32,
     /// The layers stacked over the moving one, drawn over its pixels ([`Above`]).
     above: Option<Above>,
+    /// A layer with a style: its pixels composited with the style as the box has them now,
+    /// drawn instead of the bare pixels (transform_fx.rs, #3653).
+    styled: Option<crate::transform_fx::StyledPreview>,
     gesture: Option<Gesture>,
     /// Warp-mode drag in progress.
     warp_drag: Option<WarpDrag>,
@@ -213,7 +216,10 @@ pub fn begin(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String>
     // The layers covering the moving pixels draw over them instead of under them.
     let above = Above::new(ctx, format!("transform-{session}-above"), &doc, id, max_side);
     above.hide_in(&mut pd.layers);
-    let (image, uv) = preview_image(&doc, id, lifted.as_ref(), b, max_side);
+    // A style is drawn again from the pixels as the box moves them, so they are read without it.
+    // Not for the selected part of a layer: its style belongs to that part and the rest together.
+    let styled = lifted.is_none() && photocraft_compose::effects::has_effects(layer);
+    let (image, uv) = preview_image(&doc, id, lifted.as_ref(), b, max_side, styled);
     let texture = crate::transform_tex::PreviewTextures::new(ctx, format!("transform-{session}"), image, uv);
     app.transform_preview = Some(TransformPreview {
         session,
@@ -221,6 +227,7 @@ pub fn begin(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String>
         texture,
         opacity: layer.opacity * layer.fill_opacity,
         above: Some(above),
+        styled: styled.then(|| crate::transform_fx::StyledPreview::new(format!("transform-{session}-styled"))),
         follow: Some(Follow { revision, hidden: lifted.is_none() }),
         gesture: None,
         warp_drag: None,
@@ -330,6 +337,7 @@ pub(crate) fn begin_content_aware(
         tool: app.ui.tool,
         path: None,
         content_aware: Some(live),
+        styled: None,
     });
     app.ui.transform = Some(TransformSession {
         session,
@@ -430,6 +438,7 @@ fn begin_lone(
         texture,
         opacity: 0.6,
         above: None,
+        styled: None,
         follow: None,
         gesture: None,
         warp_drag: None,
@@ -479,6 +488,7 @@ fn begin_path(app: &mut PhotocraftApp, ctx: &egui::Context, params: serde_json::
         doc,
         texture,
         opacity: 1.0,
+        styled: None,
         gesture: None,
         warp_drag: None,
         split_tool: None,
@@ -562,6 +572,7 @@ pub fn begin_selection(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(
         texture,
         opacity: 1.0,
         above: None,
+        styled: None,
         follow: None,
         gesture: None,
         warp_drag: None,
@@ -681,7 +692,8 @@ fn enter_type_warp(app: &mut PhotocraftApp, ctx: &egui::Context) {
         && let Some(pv) = app.transform_preview.as_mut()
     {
         let max_side = ctx.input(|i| i.max_texture_side).max(app.gpu.as_ref().map_or(1, |g| g.max_texture_side()));
-        let (image, uv) = preview_image(&plain, id, None, b, max_side);
+        // Read as the session's texels were: without the style when the box draws it itself.
+        let (image, uv) = preview_image(&plain, id, None, b, max_side, pv.styled.is_some());
         pv.texture = crate::transform_tex::PreviewTextures::new(ctx, format!("transform-{session}"), image, uv);
     }
     let warp =
@@ -717,13 +729,15 @@ pub fn leave_warp(app: &mut PhotocraftApp) {
 
 /// Texels of the moving pixels over `b`: full resolution unless the long side exceeds the GPU's
 /// `max_side` (#91: this used to be capped at 2048 px, so big layers previewed blurry), plus the
-/// uv extent covering `b`.
+/// uv extent covering `b`. `bare` leaves the layer's own style, opacity and fill out of a
+/// flattened render: the styled preview applies them to the moved pixels itself.
 fn preview_image(
     doc: &Document,
     id: LayerId,
     lifted: Option<&photocraft_raster::Surface>,
     b: photocraft_geom::Rect,
     max_side: usize,
+    bare: bool,
 ) -> (egui::ColorImage, [f32; 2]) {
     let layer = doc.layer(id);
     // Linked masks move with the pixels, so the moving texels carry them (#205).
@@ -739,6 +753,11 @@ fn preview_image(
                 if l.id != id && doc.layer(id).is_some_and(|_| !contains(l, id)) {
                     l.visible = false;
                 }
+            }
+            if let Some(l) = solo.layer_mut(id).filter(|_| bare) {
+                l.effects.enabled = false;
+                l.opacity = 1.0;
+                l.fill_opacity = 1.0;
             }
             let buf = photocraft_compose::render(&solo, b);
             let mut s = photocraft_raster::Surface::new(photocraft_color::PixelFormat::RGBA8);
@@ -1912,7 +1931,17 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
         draw_warp(painter, xf, t, w, pv, guide);
         return;
     }
-    if let Some(h) = Homography::rect_to_quad([0.0, 0.0, 1.0, 1.0], t.quad) {
+    let ctx = painter.ctx();
+    let styled = styled_frame(app, xf.zoom * ctx.pixels_per_point(), ctx.input(|i| i.pointer.any_down())).and_then(|(s, frame)| s.texture(ctx, &frame));
+    if let Some((tex, r)) = styled {
+        let mut mesh = egui::Mesh::with_texture(tex);
+        for (x, y, u, v) in [(r[0], r[1], 0.0, 0.0), (r[2], r[1], 1.0, 0.0), (r[2], r[3], 1.0, 1.0), (r[0], r[3], 0.0, 1.0)] {
+            mesh.vertices.push(egui::epaint::Vertex { pos: pos2(x, y), uv: pos2(u, v), color: Color32::WHITE });
+        }
+        mesh.add_triangle(0, 1, 2);
+        mesh.add_triangle(0, 2, 3);
+        painter.add(clip_to_canvas(mesh, canvas_size(pv), |p| xf.to_screen(p.x, p.y)));
+    } else if let Some(h) = Homography::rect_to_quad([0.0, 0.0, 1.0, 1.0], t.quad) {
         // A 24×24 grid keeps perspective previews straight.
         let n = 24;
         let zoom = xf.zoom * painter.ctx().pixels_per_point();
@@ -1982,6 +2011,29 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
             draw_live_readout(painter.ctx(), at, r);
         }
     }
+}
+
+/// What the styled preview of the moving layer is drawn from (transform_fx.rs), at `zoom` screen
+/// pixels per document pixel. `None` for a layer without a style (also once it is switched off
+/// while the box is open) or a hidden one: the bare pixels are drawn instead. The style, opacity
+/// and fill are the layer's as they are now, so edits made while the box is open show.
+pub(crate) fn styled_frame(app: &PhotocraftApp, zoom: f32, dragging: bool) -> Option<(&crate::transform_fx::StyledPreview, crate::transform_fx::Frame<'_>)> {
+    let (t, pv) = (app.ui.transform.as_ref()?, app.transform_preview.as_ref()?);
+    let styled = pv.styled.as_ref().filter(|_| t.warp.is_none())?;
+    let st = app.session.active().filter(|st| st.doc.id == pv.doc.id)?;
+    let layer = st.doc.layer(LayerId(t.layer)).filter(|l| l.visible && photocraft_compose::effects::has_effects(l))?;
+    let frame = crate::transform_fx::Frame {
+        doc: &st.doc,
+        layer,
+        revision: st.revision,
+        texels: &pv.texture,
+        quad: t.quad,
+        quad_scale: quad_scale(t),
+        nearest: t.interpolation == "nearest",
+        zoom,
+        dragging,
+    };
+    Some((styled, frame))
 }
 
 /// The value shown beside the pointer while the box is dragged, like Photoshop's Show
@@ -4318,7 +4370,7 @@ mod tests {
             let st = app.session.active().unwrap();
             let id = st.active_layer.unwrap();
             let b = photocraft_geom::Rect::new(8, 8, 24, 24);
-            let (img, _) = preview_image(&st.doc, id, None, b, 4096);
+            let (img, _) = preview_image(&st.doc, id, None, b, 4096, false);
             // Texel x = doc x − 8: x 10 is hidden by the mask, x 20 shows.
             assert_eq!(texel_alpha(&img, 12, 4), 255);
             assert_eq!(texel_alpha(&img, 2, 4), if linked { 0 } else { 255 }, "linked={linked}");
@@ -4333,7 +4385,7 @@ mod tests {
         let id = st.active_layer.unwrap();
         let (lifted, _) = photocraft_engine::transform_cmds::split_selected(st.doc.layer(id).unwrap().surface().unwrap(), &sel).unwrap();
         let b = photocraft_geom::Rect::new(8, 8, 20, 24);
-        let (img, _) = preview_image(&st.doc, id, Some(&lifted), b, 4096);
+        let (img, _) = preview_image(&st.doc, id, Some(&lifted), b, 4096, false);
         assert_eq!(texel_alpha(&img, 2, 4), 0, "masked");
         assert_eq!(texel_alpha(&img, 10, 4), 255, "revealed");
     }

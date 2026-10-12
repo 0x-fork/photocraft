@@ -59,19 +59,6 @@ fn active_pixel_layer(s: &Session, cmd: &str) -> Result<LayerId> {
     s.active().and_then(|d| d.active_layer).ok_or_else(|| bad(cmd, "no active layer"))
 }
 
-fn is_background(l: &Layer) -> bool {
-    l.name == "Background" && l.locks.transparency && l.locks.position && matches!(l.content, LayerContent::Raster(_))
-}
-
-/// Photoshop converts the Background to a normal layer before erasing to transparency.
-fn unlock_background(l: &mut Layer) {
-    if is_background(l) {
-        l.name = "Layer 0".into();
-        l.locks.transparency = false;
-        l.locks.position = false;
-    }
-}
-
 fn pixels_locked(doc: &Document, l: &Layer) -> Option<EngineError> {
     let locks = doc.effective_locks(l.id);
     (locks.pixels || locks.all).then(|| EngineError::Other(format!("Could not complete your request because the layer \"{}\" is locked", l.name)))
@@ -114,7 +101,9 @@ fn magic_eraser(s: &mut Session, p: &Value) -> Result<Value> {
     let bg = s.tools.background;
     let dmg = s.edit("Magic Eraser", |doc, _| {
         let selection = doc.selection.clone();
-        unlock_background(doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?);
+        // Photoshop converts the Background to a normal layer before erasing to transparency.
+        doc.layer(id).ok_or(EngineError::NoLayer(id))?;
+        crate::extra_cmds::background_to_layer(doc, id);
         let lock = doc.effective_locks(id).transparency;
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
         let surf = l.surface_mut().ok_or_else(|| bad(CMD, "not a pixel layer"))?;
@@ -149,7 +138,7 @@ fn background_eraser_setup(s: &Session, p: &Value) -> Result<(Stroke, BgEraseSet
     if let Some(e) = pixels_locked(&d.doc, l) {
         return Err(e);
     }
-    if d.doc.effective_locks(id).transparency && !is_background(l) {
+    if d.doc.effective_locks(id).transparency && !d.doc.is_background(id) {
         return Err(EngineError::Other(format!("Could not use the Background Eraser because the transparency of layer \"{}\" is locked", l.name)));
     }
     Ok((Stroke { brush, points: pts }, bs, id))
@@ -161,8 +150,8 @@ fn background_eraser(s: &mut Session, p: &Value) -> Result<Value> {
     let (stroke, bs, id) = background_eraser_setup(s, p)?;
     let dmg = s.edit("Background Eraser", |doc, _| {
         let selection = doc.selection.clone();
+        crate::extra_cmds::background_to_layer(doc, id);
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
-        unlock_background(l);
         let surf = l.surface_mut().ok_or_else(|| bad(CMD, "not a pixel layer"))?;
         Ok(apply_background_eraser(surf, &stroke, &bs, selection.as_ref()))
     })?;
@@ -176,7 +165,8 @@ pub fn live_background_eraser(s: &Session, p: &Value) -> Result<crate::retouch_c
     const CMD: &str = "paint.backgroundEraser";
     let (stroke, bs, id) = background_eraser_setup(s, p)?;
     let mut doc = (*s.active().ok_or(EngineError::NoDocument)?.doc).clone();
-    unlock_background(doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?);
+    doc.layer(id).ok_or(EngineError::NoLayer(id))?;
+    crate::extra_cmds::background_to_layer(&mut doc, id);
     let stroke = background_eraser_stroke(&stroke);
     crate::retouch_cmds::LiveDab::with_effect_on(doc, CMD, &json!({}), stroke, Some(id), 0, true, |pre| match background_eraser_effect(pre.format(), &bs) {
         Some(effect) => Box::new(effect),

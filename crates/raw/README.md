@@ -122,6 +122,14 @@ brightened shadows locally (Active D-Lighting), which one global curve cannot fo
 (preview decode included) takes about 50–70 ms on a 24 MP file. It is an estimate of the camera's
 look, not a measured calibration: picture styles and hue-dependent rendering are approximated.
 
+Cameras with a profile measured against Photoshop's Camera Raw (`src/cameras.rs`: the Nikon D4) carry
+a calibration, so no look is fitted for them. On 6 D4 NEFs against Photoshop 25.4's default Camera
+Raw rendering (quarter size, medians over the frames) the measured profile is 0.048 stop from its
+luminance with a mean CIE76 ΔE of 1.8; the look fitted to the embedded JPEG would be 0.30 stop and
+ΔE 6.4, as it follows the camera's picture style instead. The open-time re-develop
+(`photocraft-io`'s `import_raw_tuned`) and the tone curve its previews use (`tone_curve`) take the
+same look as the default open, so changing a slider does not change the colour rendering.
+
 ## Tools
 
 `cargo run --release -p photocraft-raw --example rawinfo -- [--dump] [--demosaic ahd] [--png DIR] FILE...`

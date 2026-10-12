@@ -557,6 +557,7 @@
 	OK	Гаразд
 	Cancel	Скасувати
 	Cancel (Esc)	Скасувати (Esc)
+	Manage submitted jobs in the system print queue	Керуйте надісланими завданнями в системній черзі друку
 	Done	Готово
 	Apply	Застосувати
 	Reset	Скинути
@@ -1876,6 +1877,7 @@
 	Lock Layers…	Заблокувати шари…
 	Mean	Середнє значення
 	Merge Down	Об'єднати з нижнім
+	Merge Group	Об'єднати групу
 	Merge Layers	Об'єднати шари
 	Merge Shape Components	Об'єднати компоненти фігури
 	Merge Visible	Об'єднати видимі
@@ -3745,3 +3747,6 @@ curves	Smooth	Згладити
 	Light Red	Світло-червоний
 	Medium Blue	Середньо-синій
 	Light Gray	Світло-сірий
+	Remove after each stroke	Видаляти після кожного штриха
+	Apply the removal ({key})	Застосувати видалення ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Штрихів для видалення: {n} (Enter застосовує, Esc скасовує)

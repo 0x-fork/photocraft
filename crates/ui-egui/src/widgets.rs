@@ -661,6 +661,45 @@ pub fn popup_value_field(ui: &mut Ui, name: &str, value: &mut f32, range: std::o
     out
 }
 
+/// Height of a [`text_field`]'s box, matching a [`value_field`].
+pub const TEXT_FIELD_H: f32 = 24.0;
+
+/// Inner padding of a [`text_field`]'s box: 6 pt either side, 2 pt above and below.
+const TEXT_FIELD_PAD: Vec2 = vec2(6.0, 2.0);
+
+/// A single-line text field in PhotoCraft's shared field style (#3789): the same box as a
+/// [`value_field`] -- the theme's field fill and `field_border`, rounded by `radius_sm` -- with a
+/// consistent inner padding and no focus outline. egui's default white focus ring (its
+/// `selection.stroke`) is what made the Preferences search field look different from the Color
+/// Picker's hex field, so every plain, non-numeric input (search, hex, name, filter) is drawn
+/// through here to look and behave the same. `id` carries the field's text and focus across
+/// frames; `hint` shows while it is empty; `mono` picks the monospaced face for hex and other
+/// code-like values.
+pub fn text_field(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str, width: f32, mono: bool) -> Response {
+    text_field_ex(ui, id, text, hint, width, mono, None)
+}
+
+/// [`text_field`] limited to `char_limit` characters (a hex field's six digits, say).
+pub fn text_field_ex(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str, width: f32, mono: bool, char_limit: Option<usize>) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let (rect, _) = ui.allocate_exact_size(vec2(width.max(16.0), TEXT_FIELD_H), Sense::hover());
+    surface(ui, rect, t.field, false);
+    if !t.bevel {
+        ui.painter().rect_stroke(rect, t.radius_sm, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
+    }
+    let font = if mono { theme::mono(12.0) } else { egui::FontId::proportional(12.5) };
+    let mut edit = egui::TextEdit::singleline(text).id(id).hint_text(hint).frame(egui::Frame::NONE).font(font);
+    if let Some(limit) = char_limit {
+        edit = edit.char_limit(limit);
+    }
+    // A child Ui keeps the field's selection colour local: `Visuals::selection` also fills selected
+    // list rows and slider trails, which must keep the theme's.
+    let layout = egui::Layout::centered_and_justified(egui::Direction::TopDown);
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(TEXT_FIELD_PAD)).layout(layout));
+    child.style_mut().visuals.selection.bg_fill = t.field_selection();
+    child.add(edit)
+}
+
 fn first_field_id() -> egui::Id {
     egui::Id::new("pc-focus-first-field")
 }
@@ -1509,6 +1548,7 @@ pub fn checkbox(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
         .horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             let (rect, resp) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::click());
+            let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
             let p = ui.painter();
             if *on {
                 p.rect_filled(rect, 2.0, t.accent);
@@ -1521,7 +1561,9 @@ pub fn checkbox(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
                 p.rect_filled(rect, 2.0, t.field);
                 p.rect_stroke(rect, 2.0, Stroke::new(1.5, if resp.hovered() { t.text_dim } else { t.text_faint }), StrokeKind::Inside);
             }
-            let l = ui.add(egui::Label::new(egui::RichText::new(tl!(label)).color(t.text_dim)).sense(Sense::click()));
+            let l = ui
+                .add(egui::Label::new(egui::RichText::new(tl!(label)).color(t.text_dim)).selectable(false).sense(Sense::click()))
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
             resp.union(l)
         })
         .inner;
@@ -1589,6 +1631,27 @@ fn clean(text: &str) -> String {
 mod tests {
     use egui::{Key, Modifiers};
 
+    #[test]
+    fn checkbox_label_is_a_button_target_not_selectable_text() {
+        use egui::CursorIcon;
+        use egui_kittest::{Harness, kittest::Queryable};
+
+        let mut h = Harness::builder().with_size(egui::vec2(300.0, 80.0)).build_ui_state(
+            |ui, on: &mut bool| {
+                super::checkbox(ui, on, "Show Transform Controls");
+            },
+            false,
+        );
+        h.run_steps(2);
+        let label = h.get_by_label("Show Transform Controls").rect();
+        h.hover_at(label.center());
+        h.run_steps(2);
+        assert_eq!(h.output().platform_output.cursor_icon, CursorIcon::PointingHand);
+        h.get_by_label("Show Transform Controls").click();
+        h.run_steps(2);
+        assert!(*h.state());
+    }
+
     /// #3208: a rounded swatch's checker is one shared, repeating, unblurred two-by-two tile on
     /// the rounded rect, scaled so a cell stays `cell` points, so nothing shows past the corners.
     #[test]
@@ -1652,6 +1715,31 @@ mod tests {
         }
     }
     use egui_kittest::{Harness, kittest::Queryable};
+
+    /// #3789: a plain text field is one boxed, outline-free input whose text-selection colour stays
+    /// local, so it isn't recoloured for the rest of the frame (selected rows, slider trails).
+    #[test]
+    fn text_field_is_a_boxed_input_whose_selection_colour_stays_local() {
+        use egui::accesskit::Role;
+        let mut h = Harness::new_ui_state(
+            |ui, s: &mut (String, egui::Color32, egui::Color32)| {
+                s.1 = ui.visuals().selection.bg_fill;
+                super::text_field(ui, egui::Id::new("tf"), &mut s.0, "hint", 140.0, false);
+                s.2 = ui.visuals().selection.bg_fill;
+            },
+            (String::new(), egui::Color32::WHITE, egui::Color32::BLACK),
+        );
+        crate::PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run();
+        assert_eq!(h.state().1, h.state().2, "the field's selection colour does not leak into its parent");
+        h.get_by_role(Role::TextInput).click();
+        h.run_steps(1);
+        for ch in "abc".chars() {
+            h.event(egui::Event::Text(ch.to_string()));
+            h.run_steps(1);
+        }
+        assert_eq!(h.state().0, "abc", "typing reaches the bound string");
+    }
 
     /// Sets up a test with one value field. Its state is its value and how many times it changed.
     fn field(value: f32, range: std::ops::RangeInclusive<f32>) -> Harness<'static, (f32, u32)> {

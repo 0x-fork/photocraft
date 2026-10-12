@@ -1,10 +1,10 @@
 //! Alpha / spot channel options <-> PSD `DisplayInfo` image resources (1077, and the older 1007).
 //!
 //! Layout (Adobe PSD spec, "DisplayInfo"): resource 1077 starts with a 4-byte version (1), then
-//! one 14-byte record per extra channel: colour space (u16), four u16 colour components, opacity
-//! (u16, 0..100), kind (u8: 0 = colour indicates selected areas, 1 = masked ("protected") areas,
-//! 2 = spot channel) and one padding byte. Resource 1007 has the same records without the
-//! version and without the spot kind.
+//! one 13-byte record per extra channel: colour space (u16), four u16 colour components, opacity
+//! (u16, 0..100) and kind (u8: 0 = colour indicates selected areas, 1 = masked ("protected")
+//! areas, 2 = spot channel). Resource 1007 has the same records without the version and the spot
+//! kind, each followed by a padding byte (14 bytes).
 
 use photocraft_color::{Color, ColorMode};
 use photocraft_doc::{AlphaChannel, ColorIndicates};
@@ -59,6 +59,8 @@ pub(crate) fn apply_display_info(data: &[u8], versioned: bool, skip: usize, chan
         match rec[12] {
             2 => c.spot = Some((color, opacity)),
             k => {
+                // An alpha channel, not an ink (a Multichannel import starts every channel as one).
+                c.spot = None;
                 c.color = color;
                 c.opacity = opacity;
                 c.indicates = if k == 0 { ColorIndicates::SelectedAreas } else { ColorIndicates::MaskedAreas };

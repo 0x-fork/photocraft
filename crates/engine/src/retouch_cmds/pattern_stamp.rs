@@ -62,7 +62,7 @@ impl Setup {
             return Err(bad(CMD, "`points` is empty"));
         };
         let phase = stamp_phase(p, CMD, aligned, first)?;
-        let tile = std::sync::Arc::new(Tile::new(&pat).ok_or_else(|| bad(CMD, "the pattern is empty"))?);
+        let tile = std::sync::Arc::new(Tile::new(&pat).ok_or_else(|| bad(CMD, "the pattern is empty or too large to paint"))?);
         reject_huge_stroke(CMD, &stroke)?;
         let seed = p.get("seed").and_then(Value::as_u64).unwrap_or_else(|| {
             let bytes = p.get("points").map(std::string::ToString::to_string).unwrap_or_default();

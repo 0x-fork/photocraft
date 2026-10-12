@@ -40,14 +40,13 @@ pub fn mask_button_command(layer: Option<&Layer>, has_selection: bool, alt: bool
 }
 
 /// Commands that act on the active layer only and have no sensible meaning for a selection: Blending
-/// Options (one dialog), Copy Layer Style (copy from which layer?), Export As, and the per-layer
-/// mask items. With several layers selected they would hit whichever layer is active, not the one
-/// that was right-clicked, so the menu greys them. Adding a mask, Paste/Clear Layer Style and
-/// Rasterize run on every selected layer instead.
+/// Options (one dialog), Copy Layer Style (copy from which layer?) and the per-layer mask items.
+/// With several layers selected they would hit whichever layer is active, not the one that was
+/// right-clicked, so the menu greys them. Adding a mask, Paste/Clear Layer Style, Rasterize and
+/// Export As (one file per layer, #3629) run on every selected layer instead.
 pub fn single_layer_only(id: &str) -> bool {
     let adds_mask = matches!(id, "layer.layerMask.revealAll" | "layer.layerMask.hideAll" | "layer.layerMask.revealSelection" | "layer.layerMask.hideSelection");
-    matches!(id, "layer.layerStyle.blendingOptions" | "layer.layerStyle.copyLayerStyle" | "layer.exportAs")
-        || (id.starts_with("layer.layerMask.") && !adds_mask)
+    matches!(id, "layer.layerStyle.blendingOptions" | "layer.layerStyle.copyLayerStyle") || (id.starts_with("layer.layerMask.") && !adds_mask)
 }
 
 /// The context menu entries for a layer (Photoshop 2026 order, trimmed to the layer kind).
@@ -112,6 +111,9 @@ pub fn entries(l: &Layer, multi: bool, has_selection: bool) -> Vec<Entry> {
     v.push(None);
     if multi {
         v.push(Some((tl!("Merge Layers"), "layer.mergeLayers")));
+    } else if matches!(l.content, LayerContent::Group(_)) {
+        // Photoshop's Merge Group: a group merges itself, not into the layer below (#3832).
+        v.push(Some((tl!("Merge Group"), "layer.mergeGroup")));
     } else {
         v.push(Some((tl!("Merge Down"), "layer.mergeDown")));
     }
@@ -213,26 +215,31 @@ fn common_color(app: &crate::PhotocraftApp, l: &Layer, on_set: bool) -> Option<L
 }
 
 fn color_menu(app: &crate::PhotocraftApp, ui: &mut egui::Ui, l: &Layer, on_set: bool, actions: &mut Vec<(String, Value)>) {
-    let current = common_color(app, l, on_set);
     ui.menu_button(tl!("Color"), |ui| {
-        crate::widgets::menu_scroll(ui, |ui| {
-            ui.set_min_width(170.0);
-            for color in LabelColor::ALL {
-                if color == LabelColor::Red {
-                    ui.separator();
-                }
-                if color_button(ui, color, current == Some(color)).clicked() {
-                    let params = if on_set {
-                        json!({"color": color.id()})
-                    } else {
-                        actions.push(("layer.select".into(), json!({"layer": l.id.0})));
-                        json!({"layer": l.id.0, "color": color.id()})
-                    };
-                    actions.push(("layer.setLabelColor".into(), params));
-                    ui.close();
-                }
+        color_choices(app, ui, l, on_set, actions);
+    });
+}
+
+/// The eye column opens the same color choices directly, without the row's full context menu.
+pub(crate) fn color_choices(app: &crate::PhotocraftApp, ui: &mut egui::Ui, l: &Layer, on_set: bool, actions: &mut Vec<(String, Value)>) {
+    let current = common_color(app, l, on_set);
+    crate::widgets::menu_scroll(ui, |ui| {
+        ui.set_min_width(170.0);
+        for color in LabelColor::ALL {
+            if color == LabelColor::Red {
+                ui.separator();
             }
-        });
+            if color_button(ui, color, current == Some(color)).clicked() {
+                let params = if on_set {
+                    json!({"color": color.id()})
+                } else {
+                    actions.push(("layer.select".into(), json!({"layer": l.id.0})));
+                    json!({"layer": l.id.0, "color": color.id()})
+                };
+                actions.push(("layer.setLabelColor".into(), params));
+                ui.close();
+            }
+        }
     });
 }
 
@@ -567,11 +574,12 @@ mod tests {
     fn multi_selection_menu_greys_what_acts_on_one_layer() {
         use egui_kittest::kittest::{NodeT, Queryable};
         let (h, _) = open_multi_selection_menu();
-        for label in ["Blending Options…", "Copy Layer Style", "Export As…"] {
+        for label in ["Blending Options…", "Copy Layer Style"] {
             assert!(h.get_by_label(label).accesskit_node().is_disabled(), "{label} works on one layer only");
         }
         for label in [
             "Quick Export As PNG",
+            "Export As…",
             "Add Layer Mask",
             "Duplicate Layers…",
             "Delete Layers",
@@ -602,12 +610,12 @@ mod tests {
             "layer.layerMask.enabled",
             "layer.layerMask.apply",
             "layer.layerMask.delete",
-            "layer.exportAs",
         ] {
             assert!(single_layer_only(id), "{id}");
         }
         for id in [
             "layer.quickExportAsPng",
+            "layer.exportAs",
             "layer.duplicate",
             "layer.delete",
             "layer.rasterize.layer",
@@ -647,6 +655,31 @@ mod tests {
         assert!(ids.contains(&"layer.layerMask.revealSelection") && !ids.contains(&"layer.layerMask.revealAll"));
         let ids: Vec<&str> = entries(&l, true, false).into_iter().flatten().map(|e| e.1).collect();
         assert!(ids.contains(&"layer.mergeLayers"));
+    }
+
+    /// #3832: a group's right-click menu and the Layer menu offer Photoshop's Merge Group, which
+    /// merges the group itself (not into the layer below), and it is enabled.
+    #[test]
+    fn a_group_offers_merge_group() {
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 10, "height": 10})).unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("layer.groupLayers", json!({"name": "G"})).unwrap();
+        let st = s.active().unwrap();
+        let g = st.doc.layer(st.active_layer.unwrap()).unwrap().clone();
+        let e: Vec<(&str, &str)> = entries(&g, false, false).into_iter().flatten().collect();
+        assert!(e.contains(&("Merge Group", "layer.mergeGroup")), "{e:?}");
+        assert!(!e.iter().any(|x| x.0 == "Merge Down"));
+        let mut app = crate::PhotocraftApp::new(s, Default::default());
+        app.sync_views();
+        let items = crate::menus::menu_items(&app);
+        let item = items.iter().find(|i| i.id == "layer.mergeLayers").unwrap();
+        assert_eq!(item.label, "Merge Group");
+        assert!(item.enabled, "Merge Group runs on a group");
+        // A plain layer keeps Merge Layers.
+        app.run("layer.new.layer", json!({})).unwrap();
+        let items = crate::menus::menu_items(&app);
+        assert_eq!(items.iter().find(|i| i.id == "layer.mergeLayers").unwrap().label, "Merge Layers");
     }
 
     #[test]

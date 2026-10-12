@@ -241,3 +241,21 @@ fn benchmark_clear_large_selection() {
         println!("#3463 clear 8000x6000, background {background}, feather {feather}: {:?}", t.elapsed());
     }
 }
+
+/// Image › Adjustments › Invert in a Lab document mirrors L, a and b, at every depth.
+#[test]
+fn invert_in_a_lab_document_mirrors_l_a_and_b() {
+    use photocraft_color::convert::{lab_to_srgb, srgb_to_lab};
+    let c = lab_to_srgb([30.0, 12.0, -18.0]);
+    for depth in SampleType::ALL {
+        let fmt = PixelFormat { mode: ColorMode::Lab, sample: depth, alpha: true };
+        let mut s = Surface::new(fmt);
+        let r = Rect::new(0, 0, 2, 2);
+        s.write_region(r, &(0..4).flat_map(|_| from_rgba(&fmt, [c[0], c[1], c[2], 1.0])).collect::<Vec<_>>());
+        adjust_surface(&mut s, &Adjustment::Invert, None, ColorMode::Lab);
+        let px = s.read_region(Rect::new(1, 1, 2, 2));
+        let rgba = photocraft_raster::to_rgba(&fmt, &px);
+        let got = srgb_to_lab([rgba[0], rgba[1], rgba[2]]);
+        assert!(got.iter().zip([70.0, -13.0, 17.0]).all(|(g, w)| (g - w).abs() < 1.0), "{depth:?}: {got:?}");
+    }
+}
