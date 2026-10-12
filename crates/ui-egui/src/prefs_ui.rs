@@ -383,6 +383,21 @@ fn sync_tooltips(app: &PhotocraftApp, ctx: &egui::Context) {
     }
 }
 
+/// Interface › Enable Animations: off, egui's fades and slides take no time and scroll areas jump
+/// straight to their target (#3273). Re-checked every frame because a theme change rebuilds the
+/// style; both the dark and light styles are set, so a system appearance switch keeps it.
+fn sync_animations(app: &PhotocraftApp, ctx: &egui::Context) {
+    let on = app.session.prefs().interface.enable_animations;
+    let time = if on { egui::Style::default().animation_time } else { 0.0 };
+    if ctx.global_style().animation_time != time {
+        let scroll = if on { egui::style::ScrollAnimation::default() } else { egui::style::ScrollAnimation::none() };
+        ctx.all_styles_mut(|s| {
+            s.animation_time = time;
+            s.scroll_animation = scroll;
+        });
+    }
+}
+
 /// Resolve the saved appearance mode without changing it or either theme slot.
 pub(crate) fn sync_appearance(app: &mut PhotocraftApp, ctx: &egui::Context) {
     // A restored or embedding-supplied pin must not suppress native appearance events.
@@ -406,6 +421,7 @@ pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
     crate::theme::set_ui_font_size(ctx, app.session.prefs().interface.ui_font_size);
     presets_store(app);
     sync_tooltips(app, ctx);
+    sync_animations(app, ctx);
     app.sync_recent();
     if let Some(wait) = persist(app, ctx.input(|i| i.time)) {
         ctx.request_repaint_after(std::time::Duration::try_from_secs_f64(wait).unwrap_or_default());
@@ -800,7 +816,7 @@ pub fn is_modifier_key(key: egui::Key) -> bool {
 
 /// Shell front ends for Edit-menu commands invoked without parameters (dialogs, pickers).
 /// `None` when `id` isn't handled here.
-pub fn invoke(app: &mut PhotocraftApp, _ctx: &egui::Context, id: &str, params: &Value) -> Option<Result<Value, String>> {
+pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Value) -> Option<Result<Value, String>> {
     let empty = params.as_object().is_none_or(|o| o.is_empty());
     if !empty {
         return None;
@@ -857,22 +873,8 @@ pub fn invoke(app: &mut PhotocraftApp, _ctx: &egui::Context, id: &str, params: &
             }
             dialog(d)
         }
-        "edit.contentAwareScale" => {
-            let st = app.session.active()?;
-            let b = match &st.doc.selection {
-                Some(s) => s.content_bounds(),
-                None => st.active_layer.and_then(|l| st.doc.layer(l)).and_then(|l| l.surface()).map(|s| s.content_bounds()).unwrap_or_default(),
-            };
-            let d = crate::filter_dialog::open(app, id);
-            if let Some(dm) = d.and_then(|d| app.ui.dialog_mut(d)) {
-                dm.fields.insert("width".into(), json!(b.width()));
-                dm.fields.insert("height".into(), json!(b.height()));
-                dm.fields.remove("scaleX");
-                dm.fields.remove("scaleY");
-                dm.fields.insert("__preview".into(), json!(true));
-            }
-            dialog(d)
-        }
+        // Photoshop has no dialog: the menu opens the scale box (with params: the engine).
+        crate::cas_transform::COMMAND => Some(crate::cas_transform::begin(app, ctx)),
         "edit.presets.presetManager" => {
             Some(Ok(json!({"dialog": open_kind(app, "presets", "Preset Manager", json!({"kind": "brushes", "selected": 0, "newName": ""}))})))
         }
@@ -2664,6 +2666,31 @@ mod tests {
     }
 
     #[test]
+    fn enable_animations_off_stops_fades_and_scroll_glides_and_is_remembered() {
+        let on = egui::Style::default().animation_time;
+        let both = |ctx: &egui::Context| [egui::Theme::Dark, egui::Theme::Light].map(|t| ctx.style_of(t).animation_time);
+        // Saved off: the first frame after a restart applies it to both appearance styles.
+        let (mut app, _) = app_with_saved(Some(json!({"interface": {"enableAnimations": false}}).to_string()));
+        let ctx = egui::Context::default();
+        tick(&mut app, &ctx);
+        assert_eq!(both(&ctx), [0.0, 0.0]);
+        assert_eq!(ctx.global_style().scroll_animation.duration.max, 0.0);
+        // A theme change rebuilds the style; the next frame turns animations off again.
+        app.apply_theme(&ctx, crate::theme::ThemeKind::StudioLight);
+        tick(&mut app, &ctx);
+        assert_eq!(both(&ctx), [0.0, 0.0]);
+        app.run("prefs.set", json!({"values": {"interface.enableAnimations": true}})).unwrap();
+        tick(&mut app, &ctx);
+        assert_eq!(both(&ctx), [on, on]);
+        assert!(on > 0.0 && ctx.global_style().scroll_animation.duration.max > 0.0);
+        // A hand-edited value of the wrong type doesn't crash: the defaults (animations on) stay.
+        let (mut bad, _) = app_with_saved(Some(json!({"interface": {"enableAnimations": "nope"}}).to_string()));
+        let ctx2 = egui::Context::default();
+        tick(&mut bad, &ctx2);
+        assert_eq!(both(&ctx2), [on, on]);
+    }
+
+    #[test]
     fn unimplemented_preferences_are_hidden_from_the_dialog() {
         let values = prefs::Preferences::default().to_json();
         assert!(has_visible_fields(&values, "general"));
@@ -3124,8 +3151,9 @@ mod tests {
         let d = crate::menus::invoke(&mut app, &ctx, "edit.contentAwareFill", json!({})).unwrap()["dialog"].as_u64().unwrap();
         assert_eq!(app.ui.dialogs.iter().find(|x| x.id == d).unwrap().fields["__preview"], true);
         crate::dialogs::confirm(&mut app, d).unwrap();
-        let d = crate::menus::invoke(&mut app, &ctx, "edit.contentAwareScale", json!({})).unwrap()["dialog"].as_u64().unwrap();
-        assert_eq!(app.ui.dialogs.iter().find(|x| x.id == d).unwrap().fields["width"], 8);
+        let r = crate::menus::invoke(&mut app, &ctx, "edit.contentAwareScale", json!({})).unwrap();
+        assert_eq!(r["transform"]["rect"], json!([4.0, 4.0, 12.0, 12.0]));
+        crate::transform_tool::cancel(&mut app);
         let d = crate::menus::invoke(&mut app, &ctx, "edit.presets.presetManager", json!({})).unwrap()["dialog"].as_u64().unwrap();
         assert!(crate::dialogs::confirm(&mut app, d).is_ok());
     }

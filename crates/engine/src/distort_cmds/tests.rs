@@ -181,6 +181,42 @@ fn puppet_two_pins_bend_the_block() {
 }
 
 #[test]
+fn puppet_mesh_follows_the_outline_so_separate_shapes_move_separately() {
+    // #3105: the mesh was every grid cell touching opaque pixels, so two bars 24 px apart (more
+    // than a mesh cell at Fewer Points) shared cells and a pin on one dragged the other along.
+    // The mesh now follows the outline grown by the expansion: two meshes, and the unpinned one
+    // stays put.
+    for depth in [8u64, 16, 32] {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 260, "height": 140, "depth": depth})).unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.edit("paint", |doc, active| {
+            let surf = doc.layer_mut(active.unwrap()).unwrap().surface_mut().unwrap();
+            for (y0, y1) in [(20, 60), (84, 120)] {
+                for y in y0..y1 {
+                    for x in 10..250 {
+                        let v = ((x / 4 + y / 4) % 2) as f32;
+                        surf.write_pixel(x, y, &[v, 1.0 - v, (y as f32) / 140.0, 1.0]);
+                    }
+                }
+            }
+            Ok(())
+        })
+        .unwrap();
+        let before = active_surface(&s);
+        s.execute(PUPPET, json!({"pins": [{"src": [130, 40], "dst": [130, 30]}], "density": "fewer", "expansion": 2, "interpolation": "bilinear"})).unwrap();
+        let after = active_surface(&s).convert(before.format());
+        let lower = Rect::new(0, 70, 260, 140);
+        let still = worst(&after, &before, lower);
+        assert!(still <= 1.0 / 255.0, "{depth}: the unpinned bar stays ({still})");
+        assert!(
+            worst(&after, &photocraft_algo::resample::translate_surface(&before, 0, -10), Rect::new(0, 0, 260, 60)) <= 1.0 / 255.0,
+            "{depth}: the pinned bar moves"
+        );
+    }
+}
+
+#[test]
 fn perspective_identity_known_homography_and_mask() {
     for depth in [8u64, 16, 32] {
         let mut s = session(depth);

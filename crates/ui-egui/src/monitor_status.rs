@@ -36,6 +36,8 @@ pub const REREAD_SECS: f64 = 30.0;
 #[derive(Default)]
 pub struct State {
     pending: Option<Receiver<Detection>>,
+    #[cfg(target_os = "linux")]
+    root_output_name: Option<String>,
     /// Another reading is wanted once the pending one is done or the interval has passed.
     again: bool,
     /// A reading is wanted at once (ignores the interval).
@@ -64,6 +66,22 @@ pub fn pending(app: &mut PhotocraftApp, rx: Receiver<Detection>) {
 /// Per-frame (main window): apply a reading that arrived, track the main window's display, and
 /// start a new reading when the displays may have changed.
 pub fn poll(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    poll_with_output_name(app, ctx, None);
+}
+
+#[cfg(target_os = "linux")]
+pub fn poll_frame(app: &mut PhotocraftApp, ctx: &egui::Context, frame: &eframe::Frame) {
+    let output_name = frame.winit_window().and_then(|window| window.current_monitor()).and_then(|monitor| monitor.name());
+    poll_with_output_name(app, ctx, output_name);
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn poll_frame(app: &mut PhotocraftApp, ctx: &egui::Context, _frame: &eframe::Frame) {
+    poll(app, ctx);
+}
+
+fn poll_with_output_name(app: &mut PhotocraftApp, ctx: &egui::Context, output_name: Option<String>) {
+    set_root_output_name(app, output_name);
     if let Some(rx) = &app.monitors.pending {
         let r = match rx.try_recv() {
             Ok(r) => Some(r),
@@ -228,7 +246,46 @@ fn window_frame(ctx: &egui::Context) -> Option<[f64; 4]> {
 /// The display showing most of the window `ctx` draws (`None`: unknown, e.g. no displays read
 /// or no window position, as on Wayland).
 pub fn view_display(app: &PhotocraftApp, ctx: &egui::Context) -> Option<u32> {
+    display_for_view(app, ctx)
+}
+
+fn display_for_view(app: &PhotocraftApp, ctx: &egui::Context) -> Option<u32> {
+    if let Some(display) = root_output_display(app, ctx) {
+        return display;
+    }
     display_at(&app.session.color.displays, window_frame(ctx)?)
+}
+
+#[cfg(target_os = "linux")]
+fn set_root_output_name(app: &mut PhotocraftApp, name: Option<String>) {
+    app.monitors.root_output_name = name;
+}
+
+#[cfg(not(target_os = "linux"))]
+fn set_root_output_name(_app: &mut PhotocraftApp, _name: Option<String>) {}
+
+#[cfg(target_os = "linux")]
+fn root_output_display(app: &PhotocraftApp, ctx: &egui::Context) -> Option<Option<u32>> {
+    if ctx.viewport_id() != egui::ViewportId::ROOT {
+        return None;
+    }
+    let name = app.monitors.root_output_name.as_deref()?;
+    Some(app.session.color.displays.iter().find(|display| display.name == name).map(|display| display.id))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn root_output_display(_app: &PhotocraftApp, _ctx: &egui::Context) -> Option<Option<u32>> {
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn root_output_name_known(app: &PhotocraftApp, ctx: &egui::Context) -> bool {
+    ctx.viewport_id() == egui::ViewportId::ROOT && app.monitors.root_output_name.is_some()
+}
+
+#[cfg(not(target_os = "linux"))]
+fn root_output_name_known(_app: &PhotocraftApp, _ctx: &egui::Context) -> bool {
+    false
 }
 
 /// The window is on no display we know, or on one whose size differs from what was read.
@@ -237,8 +294,12 @@ fn displays_changed(app: &PhotocraftApp, ctx: &egui::Context) -> bool {
     if c.displays.is_empty() || !matches!(c.monitor_detection, MonitorDetection::Found | MonitorDetection::Retained { .. }) {
         return false;
     }
-    let Some(frame) = window_frame(ctx) else { return false };
-    let Some(d) = display_at(&c.displays, frame).and_then(|id| c.displays.iter().find(|d| d.id == id)) else { return true };
+    let Some(d) = display_for_view(app, ctx).and_then(|id| c.displays.iter().find(|d| d.id == id)) else {
+        if root_output_name_known(app, ctx) {
+            return true;
+        }
+        return window_frame(ctx).is_some();
+    };
     // egui's monitor size is the window's display (winit's rule, AppKit's on macOS).
     let size = ctx.input(|i| i.viewport().monitor_size);
     let native = ctx.input(|i| i.viewport().native_pixels_per_point).filter(|n| *n > 0.0);
@@ -530,5 +591,21 @@ mod tests {
         apply(&mut app, Ok(displays(Some(Arc::new(vec![0u8; 200])))));
         assert!(app.ui.notices.is_empty());
         assert!(summary_lines(&app).iter().all(|l| l.contains("(manual)")), "{:?}", summary_lines(&app));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn root_window_uses_winit_monitor_name_to_select_its_profile() {
+        let mut app = app();
+        app.session.color.set_displays(Ok(vec![
+            Display { id: 1, name: "DP-1".into(), frame: [0.0, 0.0, 1920.0, 1080.0], profile_name: None, icc: None },
+            Display { id: 2, name: "HDMI-1".into(), frame: [1920.0, 0.0, 1920.0, 1080.0], profile_name: None, icc: None },
+        ]));
+        app.monitors.root_output_name = Some("HDMI-1".into());
+        let ctx = egui::Context::default();
+
+        assert_eq!(view_display(&app, &ctx), Some(2));
+        app.monitors.root_output_name = Some("DP-3".into());
+        assert_eq!(view_display(&app, &ctx), None);
     }
 }

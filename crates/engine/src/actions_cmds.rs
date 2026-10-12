@@ -1224,4 +1224,44 @@ mod tests {
         assert!(bad.actions.list.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// AUTO-219-4: a recording made on one document replays on a second one — a crop, a filter,
+    /// a selection fill and styled text all act on the document the replay runs in.
+    #[test]
+    fn a_recorded_edit_run_replays_on_a_second_document() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 64, "height": 64, "background": "white"})).unwrap();
+        s.execute("actions.record", json!({"name": "Studio"})).unwrap();
+        s.execute("image.crop", json!({"x": 8, "y": 8, "width": 48, "height": 48})).unwrap();
+        s.execute("filter.blur.gaussianBlur", json!({"radius": 2})).unwrap();
+        s.execute("select.rect", json!({"x": 10, "y": 10, "width": 12, "height": 12})).unwrap();
+        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        s.execute("select.deselect", json!({})).unwrap();
+        s.execute("type.create", json!({"x": 10, "y": 36, "text": "Hi", "size": 12, "color": "#000000"})).unwrap();
+        s.execute("type.setStyle", json!({"fauxBold": true})).unwrap();
+        let stopped = s.execute("actions.stop", json!({})).unwrap();
+        let steps = stopped["steps"].as_u64().unwrap();
+        assert!(steps >= 7, "the recording keeps every family: {stopped}");
+
+        // The second document: a different size, background and name. The replay must act here.
+        s.execute("file.new", json!({"width": 100, "height": 80, "background": "black", "name": "Second"})).unwrap();
+        let played = s.execute("actions.play", json!({"action": "Studio"})).unwrap();
+        assert!(played.get("failed").is_none(), "replay: {played}");
+        assert_eq!(played["ran"].as_u64(), Some(steps), "every step ran: {played}");
+        let d = &s.active().unwrap().doc;
+        assert_eq!((d.size.width, d.size.height), (48, 48), "the crop replayed onto the second document");
+        assert_eq!(pixel(&s, 0, 16, 16), vec![1.0, 0.0, 0.0, 1.0], "the selection fill replayed");
+        assert_eq!(pixel(&s, 0, 2, 2), vec![0.0, 0.0, 0.0, 1.0], "outside the selection stays black");
+        let last = d.layers.last().unwrap();
+        match &last.content {
+            photocraft_doc::LayerContent::Text(t) => {
+                assert_eq!(t.text, "Hi", "the styled text replayed");
+                assert!(t.char_runs().iter().any(|r| r.style.faux_bold), "the bold run replayed");
+            }
+            other => panic!("expected the recorded type layer, got {other:?}"),
+        }
+        // The first document is untouched.
+        let first = &s.documents()[0].doc;
+        assert_eq!((first.size.width, first.size.height), (48, 48), "the recording document keeps its own crop");
+    }
 }

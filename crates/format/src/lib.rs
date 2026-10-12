@@ -37,7 +37,7 @@ use std::path::Path;
 use photocraft_doc::Document;
 use photocraft_raster::Rgba8Image;
 
-pub use atomic::atomic_write;
+pub use atomic::{atomic_write, atomic_write_progress};
 #[cfg(not(target_arch = "wasm32"))]
 pub use autosave::RecoveryStore;
 pub use autosave::{Autosaver, RecoveryEntry, discard_recovery, list_recovery, recover};
@@ -95,11 +95,35 @@ pub struct LoadOptions {
     /// Keep document and layer ids from the file (the id counter is advanced
     /// past them). When `false`, fresh ids are assigned.
     pub preserve_ids: bool,
+    /// Longest canvas side the manifest may declare (Photoshop's PSB limit, as for PSD and
+    /// `file.new`).
+    pub max_canvas_side: u32,
+    /// Most canvas pixels the manifest may declare. A canvas is a few bytes of JSON, but the
+    /// compositor, thumbnails and display textures work in proportion to its area, so a caller
+    /// handling untrusted files (a previewer, a batch job) may lower it. The default admits every
+    /// canvas the app lets a user create.
+    pub max_canvas_pixels: u64,
 }
+
+/// Default [`LoadOptions::max_canvas_side`].
+pub const MAX_CANVAS_SIDE: u32 = 300_000;
+/// Default [`LoadOptions::max_canvas_pixels`]: the full 300000 × 300000 PSB canvas. `file.new`,
+/// Canvas Size, Image Size (Resample off) and PSB import all reach it, and a document that can be
+/// created and saved must reopen. Loading itself stays proportional to the file: layers, masks
+/// and channels are sparse tiles read from the bundle under the byte budgets, so a huge declared
+/// canvas with no content allocates nothing for its area.
+pub const MAX_CANVAS_PIXELS: u64 = MAX_CANVAS_SIDE as u64 * MAX_CANVAS_SIDE as u64;
 
 impl Default for LoadOptions {
     fn default() -> Self {
-        LoadOptions { max_manifest_bytes: 256 << 20, max_blob_bytes: 1 << 30, max_total_bytes: 16 << 30, preserve_ids: true }
+        LoadOptions {
+            max_manifest_bytes: 256 << 20,
+            max_blob_bytes: 1 << 30,
+            max_total_bytes: 16 << 30,
+            preserve_ids: true,
+            max_canvas_side: MAX_CANVAS_SIDE,
+            max_canvas_pixels: MAX_CANVAS_PIXELS,
+        }
     }
 }
 

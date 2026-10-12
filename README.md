@@ -331,6 +331,8 @@ sha256-verified. Fetch them with `cargo xtask corpus --all` and run the tests wi
 | arm64 (Snapdragon and other ARM PCs) | `photocraft-<ver>-windows-arm64.msi` | `photocraft-<ver>-windows-arm64-portable.zip` |
 | x86 (32-bit) | `photocraft-<ver>-windows-x86.msi` | `photocraft-<ver>-windows-x86-portable.zip` |
 
+Windows 10 or later is required. On Windows 7 and 8 the app can't start (the installer says so).
+
 Installers and executables are code-signed.
 
 ### macOS

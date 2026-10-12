@@ -1930,6 +1930,7 @@
 	Show only crosshair while painting	Mostrar apenas a mira ao pintar
 	Show slice numbers	Mostrar números das fatias
 	Show tooltips	Mostrar dicas de ferramentas
+	Enable animations	Ativar animações
 	Show highlight on rollover	Mostrar realce ao passar o mouse
 	Show transformation values	Mostrar valores de transformação
 	Slice color	Cor das fatias
@@ -2109,6 +2110,7 @@
 	Opening {name}	Abrindo {name}
 	Saved {name}	Salvo: {name}
 	Saving {name}	Salvando {name}
+	Saving {percent}	Salvando {percent}
 	A save to {name} is still running; try again when it finishes	Um salvamento em {name} ainda está em andamento; tente novamente quando terminar
 	{label} is writing the file and can no longer be cancelled	{label} está gravando o arquivo e não pode mais ser cancelado
 	Opening {name}…	Abrindo {name}…
@@ -2630,6 +2632,8 @@ cameraRaw	Blending	Mesclagem
 	Patch Tool	Ferramenta Correção
 	Patch:	Correção:
 	Lasso around an area, then drag the selection	Contorne uma área com o laço e arraste a seleção
+	Transform On Drop	Transformar ao soltar
+	Scale or rotate the moved area, then press {key}	Dimensione ou gire a área movida e pressione {key}
 	Now drag the selection onto another area	Agora arraste a seleção para outra área
 	3 x 3	3 × 3
 	4 x 4	4 × 4
@@ -2977,7 +2981,7 @@ cameraData	Lens	Lente
 	Freeform Pen Tool	Ferramenta Caneta de forma livre
 	Curvature Pen Tool	Ferramenta Caneta de curvatura
 	Curve Fit:	Ajuste de curva:
-	Drag: draw freehand · Release on the start point: close	Arrastar: desenhar à mão livre · Soltar no ponto inicial: fechar
+	Drag: draw freehand · {alt}-click: straight segment · Release on the start point: close	Arrastar: desenhar à mão livre · {alt}-clique: segmento reto · Soltar no ponto inicial: fechar
 	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	Clique: ponto suave · Clique duplo: canto · Arrastar um ponto: mover · Clique no primeiro ponto: fechar · {key}: concluir
 	New Crop Preset…	Nova predefinição de corte…
 	Delete Crop Preset…	Excluir predefinição de corte…
@@ -2998,6 +3002,20 @@ cameraData	Lens	Lente
 	Spot Healing Brush	Pincel de recuperação para manchas
 	Smudge	Borrar
 	Sponge	Esponja
+	Amount:	Quantidade:
+	Protect:	Proteger:
+	Protect skin tones	Proteger tons de pele
+	Edit points to modify the curve	Editar pontos para modificar a curva
+	Draw to modify the curve	Desenhar para modificar a curva
+curves	Smooth	Suavizar
+	Smooth the curve values	Suavizar os valores da curva
+	Drag to draw the curve · {key}-click draws a straight line	Arraste para desenhar a curva · {key}-clique traça uma linha reta
+	Grid Size:	Tamanho da grade:
+	New Layer	Nova camada
+	Vanishing Point: click four corners to create a plane	Ponto de fuga: clique em quatro cantos para criar um plano
+	Vanishing Point is not active	Ponto de fuga não está ativo
+	Apply Vanishing Point ({key})	Aplicar ponto de fuga ({key})
+	Fix the red plane first: its corners must form a convex quad	Corrija primeiro o plano vermelho: seus cantos devem formar um quadrilátero convexo
 # Select and Mask view modes (#1754)
 	Onion Skin	Papel vegetal
 	Marching Ants	Formigas marchando
@@ -3064,7 +3082,6 @@ layerLabel	No Color	Sem cor
 	Workspaces	Áreas de trabalho
 	Show All	Mostrar tudo
 	Hidden	Oculto
-	New Layer	Nova camada
 	Duplicate Layer	Duplicar camada
 	Ungroup	Desagrupar
 	Lock Transparent Pixels	Bloquear pixels transparentes
@@ -3797,3 +3814,26 @@ layerLabel	No Color	Sem cor
 	Fill with {mode}-neutral color (black)	Preencher com a cor neutra de {mode} (preto)
 	Fill with {mode}-neutral color (50% gray)	Preencher com a cor neutra de {mode} (cinza 50%)
 	(No neutral color exists for {mode} mode.)	(Não existe cor neutra para o modo {mode}.)
+	Apply mask to layer before removing?	Aplicar a máscara à camada antes de removê-la?
+	The layer or its mask changed. Drag the mask onto the Trash again.	A camada ou a máscara mudou. Arraste a máscara para a Lixeira novamente.
+	Delete the vector mask?	Excluir a máscara vetorial?
+# Counted status messages and labels (#3454; adapted from PR #3821)
+@plural	Exported {n} swatch to {file}|Exported {n} swatches to {file}	{n} amostra exportada para {file}|{n} amostras exportadas para {file}
+@plural	Imported {n} brush from {group}|Imported {n} brushes from {group}	{n} pincel importado de {group}|{n} pincéis importados de {group}
+@plural	Imported {n} swatch from {file}|Imported {n} swatches from {file}	{n} amostra importada de {file}|{n} amostras importadas de {file}
+@plural	Played {n} step|Played {n} steps	{n} etapa reproduzida|{n} etapas reproduzidas
+@plural	Updated {n} linked smart object changed on disk|Updated {n} linked smart objects changed on disk	{n} objeto inteligente vinculado alterado no disco foi atualizado|{n} objetos inteligentes vinculados alterados no disco foram atualizados
+@plural	Saved for Web: {n} file|Saved for Web: {n} files	Salvo para Web: {n} arquivo|Salvo para Web: {n} arquivos
+@plural	{n} layer recorded by this comp was deleted. Update the comp, or clear the warning.|{n} layers recorded by this comp were deleted. Update the comp, or clear the warning.	{n} camada registrada por esta composição foi excluída. Atualize a composição ou limpe o aviso.|{n} camadas registradas por esta composição foram excluídas. Atualize a composição ou limpe o aviso.
+@plural	{n} plane|{n} planes	{n} plano|{n} planos
+@plural	{n} preset|{n} presets	{n} predefinição|{n} predefinições
+@plural	{n} sample point removed|{n} sample points removed	{n} ponto de amostragem removido|{n} pontos de amostragem removidos
+@plural	{n} slice|{n} slices	{n} fatia|{n} fatias
+@plural	{n} step|{n} steps	{n} etapa|{n} etapas
+@plural	{warning} (+{n} more brush preset warning)|{warning} (+{n} more brush preset warnings)	{warning} (+{n} outro aviso de predefinição de pincel)|{warning} (+{n} outros avisos de predefinição de pincel)
+@plural	{what} with {n} warning|{what} with {n} warnings	{what} com {n} aviso|{what} com {n} avisos
+# View › Guides › New Guide… › Color
+	Light Blue	Azul-claro
+	Light Red	Vermelho-claro
+	Medium Blue	Azul médio
+	Light Gray	Cinza-claro
