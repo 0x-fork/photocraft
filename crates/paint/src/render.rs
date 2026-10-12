@@ -245,6 +245,24 @@ impl BrushContext {
         // position, and thin lines beaded.
         let small = mips.is_none() && !aliased && rm < SMALL_TIP_RADIUS;
         let small_reach2 = (rm + 0.75) * (rm + 0.75);
+        // Keep ordinary computed tips separate from the feature loop, so their dense rows
+        // can be vectorised without the per-pixel sampled-mask and stroke-depth branches.
+        if !(mips.is_some() || small || (aliased && b.square) || noise || tex_tip || wet)
+            && depth.is_none()
+            && proj.is_none()
+            && d.angle == 0.0
+            && d.radius.is_finite()
+            && d.roundness.is_finite()
+            && rm.is_finite()
+            && cx.is_finite()
+            && cy.is_finite()
+            && hardness.is_finite()
+            && d.alpha.is_finite()
+            && w > 0
+        {
+            rasterize_round(d, rect, out, hardness, aliased);
+            return;
+        }
         for yy in 0..h {
             let y = rect.y0 + yy as i32;
             let dy = y as f32 + 0.5 - cy;
@@ -473,6 +491,13 @@ impl CoverageMap {
         v
     }
 
+    /// The finished coverage over the tiles `keys`: `tail`'s copy of a tile where finishing the
+    /// stroke changes it (see [`StrokeRenderer::tail_preview`]), else this map's own.
+    fn finished_subset(&self, tail: Option<&Self>, keys: &HashSet<(i32, i32)>) -> Self {
+        let tile = |k: &(i32, i32)| tail.and_then(|t| t.tiles.get(k)).or_else(|| self.tiles.get(k)).map(|t| (*k, t.clone()));
+        Self { tiles: keys.iter().filter_map(tile).collect(), nc: self.nc, bounds: tail.map_or(self.bounds, |t| t.bounds), dirty: HashSet::new() }
+    }
+
     /// Union two passes of the same brush stroke without applying opacity twice where they
     /// overlap. The stronger coverage wins, including its per-dab colour when present.
     fn union_max(&mut self, other: &Self) {
@@ -508,6 +533,21 @@ impl CoverageMap {
 // ---------------------------------------------------------------------------
 // Stroke renderer
 // ---------------------------------------------------------------------------
+
+/// What [`StrokeRenderer::composite_union_live`] drew last: the coverage tiles of the passes'
+/// smoothing tails (redrawn without them next time) and the merged bounds.
+#[derive(Clone, Debug, Default)]
+pub struct UnionLive {
+    tail_keys: HashSet<(i32, i32)>,
+    bounds: Rect,
+}
+
+impl UnionLive {
+    /// The merged bounds of the finished passes, as last drawn.
+    pub fn bounds(&self) -> Rect {
+        self.bounds
+    }
+}
 
 /// Incremental stroke rendering: feed points, composite dirty tiles from the pre-stroke pixels.
 #[derive(Clone, Debug)]
@@ -551,6 +591,105 @@ impl StrokeRenderer {
             }
         }
         merged.composite(pre, target, selection, lock_transparency, true)
+    }
+
+    /// Coverage tiles (stroke and Dual Brush) changed since the last call or composite, into
+    /// `keys`; forgets them.
+    fn drain_dirty_into(&mut self, keys: &mut HashSet<(i32, i32)>) {
+        keys.extend(self.cov.dirty.drain());
+        if let Some(d) = self.dual.as_mut() {
+            keys.extend(d.dirty.drain());
+        }
+    }
+
+    /// Every coverage tile (stroke and Dual Brush), into `keys`.
+    fn keys_into(&self, keys: &mut HashSet<(i32, i32)>) {
+        keys.extend(self.cov.tiles.keys());
+        if let Some(d) = &self.dual {
+            keys.extend(d.tiles.keys());
+        }
+    }
+
+    /// Live preview of a stroke painted as several passes (the stroke, then its symmetry
+    /// mirrors): leaves `target` as finishing every pass now and compositing them with
+    /// [`composite_union_many`](Self::composite_union_many) over `pre` would, but redraws only the
+    /// coverage tiles that changed since the previous call (new dabs, and the smoothing tail now
+    /// and before). `full` redraws every tile: on the first call, or when a pass joins. Returns
+    /// the damaged rectangle.
+    pub fn composite_union_live(
+        passes: &mut [&mut Self],
+        live: &mut UnionLive,
+        full: bool,
+        pre: &Surface,
+        target: &mut Surface,
+        selection: Option<&Surface>,
+        lock_transparency: bool,
+    ) -> Rect {
+        let mut keys = std::mem::take(&mut live.tail_keys);
+        for p in passes.iter_mut() {
+            p.drain_dirty_into(&mut keys);
+            if full {
+                p.keys_into(&mut keys);
+            }
+        }
+        let tails: Vec<_> = passes.iter().map(|p| p.tail_preview()).collect();
+        let mut tail_keys = HashSet::new();
+        for t in tails.iter().flatten() {
+            t.keys_into(&mut tail_keys);
+        }
+        keys.extend(&tail_keys);
+        let mut merged: Option<Self> = None;
+        for (p, t) in passes.iter().zip(&tails) {
+            let cov = p.cov.finished_subset(t.as_ref().map(|t| &t.cov), &keys);
+            let dual = p.dual.as_ref().map(|d| d.finished_subset(t.as_ref().and_then(|t| t.dual.as_ref()), &keys));
+            match merged.as_mut() {
+                None => {
+                    merged = Some(Self {
+                        ctx: p.ctx.clone(),
+                        generator: p.generator.clone(),
+                        cov,
+                        dual,
+                        fmt: p.fmt,
+                        per_dab_color: p.per_dab_color,
+                        dabs_done: p.dabs_done,
+                        scratch: Vec::new(),
+                        depth_scratch: Vec::new(),
+                        dab_buf: Vec::new(),
+                        dual_buf: Vec::new(),
+                        all_dabs: None,
+                    })
+                }
+                Some(m) => {
+                    m.cov.union_max(&cov);
+                    if let (Some(to), Some(from)) = (&mut m.dual, &dual) {
+                        to.union_max(from);
+                    }
+                }
+            }
+        }
+        let Some(mut merged) = merged else { return Rect::EMPTY };
+        let (before, after) = (live.bounds, merged.bounds());
+        // Back to the pre-stroke pixels where the previous call drew and nothing covers now.
+        let mut keys: Vec<_> = keys.into_iter().collect();
+        keys.sort_unstable();
+        let mut dmg = Rect::EMPTY;
+        let mut region = Vec::new();
+        for &(tx, ty) in &keys {
+            let tile = Rect::new(tx * COV_TILE, ty * COV_TILE, (tx + 1) * COV_TILE, (ty + 1) * COV_TILE);
+            let old = tile.intersect(&before);
+            if !old.is_empty() {
+                pre.read_region_into(old, &mut region);
+                target.write_region(old, &region);
+                dmg = dmg.union(&old);
+            }
+            if merged.cov.tiles.contains_key(&(tx, ty)) {
+                dmg = dmg.union(&tile.intersect(&after));
+            }
+        }
+        merged.composite(pre, target, selection, lock_transparency, true);
+        live.tail_keys = tail_keys;
+        live.bounds = after;
+        dmg
     }
     /// `fmt` = target pixel format (needed for per-dab colour); `zoom` for smoothing.
     pub fn new(brush: &BrushSettings, fmt: Option<PixelFormat>, zoom: f32) -> Self {
@@ -629,6 +768,12 @@ impl StrokeRenderer {
     /// See [`DabGenerator::wants_time`].
     pub fn wants_time(&self) -> bool {
         self.generator.wants_time()
+    }
+
+    /// The string between the brush and the pointer while smoothing lags (see
+    /// [`Smoother::string`](crate::dynamics::Smoother::string)).
+    pub fn smoothing_string(&self) -> Option<([f64; 2], [f64; 2])> {
+        self.generator.smoothing_string()
     }
 
     /// Feed input points (any chunking gives the same result).
@@ -889,3 +1034,48 @@ pub fn render_stroke(
     r.finish();
     r.composite(&pre, target, selection, lock_transparency, true)
 }
+
+// The zero-angle transform only changes signs; squaring gives the same radial distance.
+#[inline(never)]
+fn rasterize_round(d: &Dab, rect: Rect, out: &mut [f32], hardness: f32, aliased: bool) {
+    let (cx, cy) = if aliased { grid_center(d.center.x, d.center.y, 2.0 * d.radius) } else { (d.center.x as f32, d.center.y as f32) };
+    let ro = d.roundness.max(0.5 / d.radius).min(1.0);
+    let rm = (d.radius * ro).max(0.5);
+    let w = rect.width() as usize;
+    let reach2 = (rm + 0.5) * (rm + 0.5);
+    let inner = rm * hardness.clamp(0.0, 1.0);
+    for (yy, row) in out.chunks_exact_mut(w).enumerate() {
+        let dy = (rect.y0 + yy as i32) as f32 + 0.5 - cy;
+        if aliased {
+            for (xx, dst) in row.iter_mut().enumerate() {
+                let dx = (rect.x0 + xx as i32) as f32 + 0.5 - cx;
+                let d2 = (dx * ro).powi(2) + dy * dy;
+                *dst = if d2 < reach2 && d2.sqrt() <= rm { d.alpha } else { 0.0 };
+            }
+        } else if rm - inner < 1e-3 {
+            for (xx, dst) in row.iter_mut().enumerate() {
+                let dx = (rect.x0 + xx as i32) as f32 + 0.5 - cx;
+                let d2 = (dx * ro).powi(2) + dy * dy;
+                let edge = ((rm + 0.5 - d2.sqrt()).clamp(0.0, 1.0)).min(1.0);
+                *dst = if d2 >= reach2 || edge <= 0.0 { 0.0 } else { edge * d.alpha };
+            }
+        } else {
+            for (xx, dst) in row.iter_mut().enumerate() {
+                let dx = (rect.x0 + xx as i32) as f32 + 0.5 - cx;
+                let d2 = (dx * ro).powi(2) + dy * dy;
+                let dd = d2.sqrt();
+                let edge = ((rm + 0.5 - dd).clamp(0.0, 1.0)).min(1.0);
+                let t = ((dd - inner) / (rm - inner)).clamp(0.0, 1.0);
+                let s = 1.0 - t * t;
+                let s2 = s * s;
+                let falloff = if dd <= inner { 1.0 } else { s2 * s2 };
+                let val = edge * falloff;
+                *dst = if d2 >= reach2 || val <= 0.0 { 0.0 } else { val * d.alpha };
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "render_reference.rs"]
+mod reference;

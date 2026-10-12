@@ -5,7 +5,9 @@ use egui::{Align2, Color32, CornerRadius, Pos2, Rect, Response, Sense, Stroke, S
 
 use crate::theme::{self, Tokens};
 
+mod angle_dial;
 mod color_count;
+pub use angle_dial::angle_dial_row;
 pub use color_count::color_count_row;
 mod type_ahead;
 pub use type_ahead::list_open as dropdown_list_open;
@@ -237,9 +239,32 @@ pub fn pill_tab(ui: &mut Ui, label: &str, selected: bool) -> Response {
     resp
 }
 
-/// Monospace numeric field with a dimmed unit suffix, Photoshop style. Drag to scrub.
+/// Monospace numeric field with a dimmed unit suffix, Photoshop style. Drag to scrub. Typed
+/// arithmetic (`1920/2`) applies on Enter, Tab or click-away, and a unit after a number converts
+/// into the field's unit (`1in` in a px field, at the resolution [`set_field_resolution`] gave).
 pub fn value_field(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>, suffix: &str, width: f32) -> Response {
-    value_field_in(ui, value, range, suffix, width, 0.0, None).0
+    value_field_in(ui, value, range, suffix, width, 0.0, FieldOpts::default()).0
+}
+
+/// A single-line label for a row that also holds fixed-width controls: laid out no wider than
+/// `max_w`, cut with '…' when the text (often a longer translation) does not fit, with the full
+/// string on hover. Fixed chrome must never let a label overrun its row (#3580), so an *essential*
+/// label beside a fixed control should use this rather than a show/hide fit check; a *redundant*
+/// label (one whose control already carries the meaning, e.g. an icon row's caption) may be dropped.
+pub fn elided_label_sensed(ui: &mut Ui, text: &str, max_w: f32, sense: Sense) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let galley = crate::tab_strip::elided(ui, text, font, t.text_dim, max_w);
+    let elided = galley.elided;
+    let (rect, resp) = ui.allocate_exact_size(galley.size(), sense);
+    ui.painter().galley(rect.min, galley, t.text_dim);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, ui.is_enabled(), text));
+    if elided { resp.on_hover_text(text) } else { resp }
+}
+
+/// [`elided_label_sensed`] with hover only (a plain, non-interactive label).
+pub fn elided_label(ui: &mut Ui, text: &str, max_w: f32) -> Response {
+    elided_label_sensed(ui, text, max_w, Sense::hover())
 }
 
 /// Height of a [`value_field`]'s box.
@@ -248,15 +273,13 @@ pub const VALUE_FIELD_H: f32 = 24.0;
 /// A [`value_field`] `height` points tall instead of [`VALUE_FIELD_H`], for slim bars such as
 /// the status bar (#2823).
 pub fn compact_value_field(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>, suffix: &str, width: f32, height: f32) -> Response {
-    value_field_box(ui, value, range, suffix, vec2(width, height), 0.0, None).0
+    value_field_box(ui, value, range, suffix, vec2(width, height), 0.0, FieldOpts::default()).0
 }
 
-/// Decimal places for a size dialog's unit key (`px`, `in`, `cm`, `mm`, `pt`, `pica`, `percent`).
-/// The places themselves live on [`photocraft_engine::prefs::Unit`], so the dialogs, the Info
-/// panel and the rulers agree (#2434).
-pub fn unit_decimals(key: &str) -> u32 {
+/// A size dialog's unit key (`px`, `in`, `cm`, `mm`, `pt`, `pica`, `percent`) as a unit.
+pub fn unit_of_key(key: &str) -> photocraft_engine::prefs::Unit {
     use photocraft_engine::prefs::Unit;
-    let unit = match key {
+    match key {
         "in" => Unit::Inches,
         "cm" => Unit::Centimeters,
         "mm" => Unit::Millimeters,
@@ -264,14 +287,163 @@ pub fn unit_decimals(key: &str) -> u32 {
         "pica" => Unit::Picas,
         "percent" => Unit::Percent,
         _ => Unit::Pixels,
-    };
-    unit.decimals() as u32
+    }
+}
+
+/// Decimal places for a size dialog's unit key (`px`, `in`, `cm`, `mm`, `pt`, `pica`, `percent`).
+/// The places themselves live on [`photocraft_engine::prefs::Unit`], so the dialogs, the Info
+/// panel and the rulers agree (#2434).
+pub fn unit_decimals(key: &str) -> u32 {
+    unit_of_key(key).decimals() as u32
 }
 
 /// A [`value_field`] showing `decimals` decimal places instead of the one (or two, for a small
 /// range) it picks itself: the ruler units need their own precision (#2434).
 pub fn value_field_prec(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>, suffix: &str, width: f32, decimals: u32) -> Response {
-    value_field_in(ui, value, range, suffix, width, 0.0, Some(decimals)).0
+    value_field_in(ui, value, range, suffix, width, 0.0, FieldOpts { decimals: Some(decimals), units: None }).0
+}
+
+/// A field's unit and the resolution a typed unit converts at (`1in` in a px field).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FieldUnits {
+    pub unit: photocraft_engine::prefs::Unit,
+    /// Pixels per inch.
+    pub dpi: f64,
+    /// Points per inch (72 PostScript, 72.27 traditional).
+    pub ppi: f64,
+}
+
+/// A [`value_field_prec`] without a suffix, whose unit is chosen beside it (Image Size and New
+/// Document's unit menus) and converts typed units at that dialog's own resolution.
+pub fn value_field_units(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>, width: f32, decimals: u32, units: FieldUnits) -> Response {
+    value_field_in(ui, value, range, "", width, 0.0, FieldOpts { decimals: Some(decimals), units: Some(units) }).0
+}
+
+fn field_resolution_id() -> egui::Id {
+    egui::Id::new("pc-field-resolution")
+}
+
+/// The resolution (pixels per inch) and point size (points per inch) a unit typed into a value
+/// field converts at: the active document's. The app sets it each frame; 72 / 72 without it.
+pub fn set_field_resolution(ctx: &egui::Context, dpi: f64, ppi: f64) {
+    ctx.data_mut(|d| d.insert_temp(field_resolution_id(), (dpi, ppi)));
+}
+
+/// The unit a field's suffix names (`px`, `in`, `cm`, `mm`, `pt`, `pica`/`pc`, `%`), if any.
+fn unit_of_suffix(suffix: &str) -> Option<photocraft_engine::prefs::Unit> {
+    use photocraft_engine::prefs::Unit;
+    Some(match suffix {
+        "px" => Unit::Pixels,
+        "in" => Unit::Inches,
+        "cm" => Unit::Centimeters,
+        "mm" => Unit::Millimeters,
+        "pt" => Unit::Points,
+        "pica" | "pc" => Unit::Picas,
+        "%" => Unit::Percent,
+        _ => return None,
+    })
+}
+
+/// A drag on a value field's label this frame, for the value field drawn next on the label's row
+/// (Photoshop's scrubby labels). Left by [`scrub_label`], taken by that field.
+#[derive(Clone, Copy, Debug)]
+struct LabelScrub {
+    pass: u64,
+    label: egui::Id,
+    rect: Rect,
+    /// How far right of the label the field may start (the whole row for a slider row).
+    max_gap: f32,
+    /// Whole steps to move the value (left negative; Shift ×10, Alt a tenth as fast).
+    steps: f32,
+    started: bool,
+    dragging: bool,
+    stopped: bool,
+}
+
+fn label_scrub_id() -> egui::Id {
+    egui::Id::new("pc-label-scrub")
+}
+
+/// Makes `label` scrubby: dragging it left or right moves the value field drawn right after it on
+/// the same row (one step a point, ×10 with Shift, a tenth as fast with Alt), with Photoshop's
+/// scrubby cursor. A label with no value field right after it stays a plain label.
+pub fn scrub_label(ui: &Ui, label: &Response) -> Response {
+    scrub_label_within(ui, label, 24.0)
+}
+
+fn scrub_label_within(ui: &Ui, label: &Response, max_gap: f32) -> Response {
+    // Drag only, not focusable: Tab goes to the value field, not to its label as well.
+    let resp = label.interact(Sense::DRAG);
+    // Whether a field took this label's drags last frame: only then is it scrubby.
+    let linked = ui.data(|d| d.get_temp::<bool>(resp.id.with("pc-scrub-linked"))).unwrap_or(false);
+    if linked && resp.enabled() && (resp.hovered() || resp.dragged()) {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+    }
+    let acc_id = resp.id.with("pc-scrub-acc");
+    let mut steps = 0.0;
+    if resp.dragged() || resp.drag_stopped() {
+        let mut acc: f32 = if resp.drag_started() { 0.0 } else { ui.data(|d| d.get_temp(acc_id)).unwrap_or(0.0) };
+        let mods = ui.input(|i| i.modifiers);
+        let rate = if mods.shift {
+            10.0
+        } else if mods.alt {
+            0.1
+        } else {
+            1.0
+        };
+        // The drag starts once the pointer has moved a few points: count those too.
+        let dx = match (resp.drag_started(), ui.input(|i| i.pointer.press_origin()), resp.interact_pointer_pos()) {
+            (true, Some(origin), Some(pos)) => pos.x - origin.x,
+            _ => resp.drag_delta().x,
+        };
+        acc += dx * rate;
+        if !acc.is_finite() {
+            acc = 0.0;
+        }
+        steps = acc.trunc();
+        ui.data_mut(|d| d.insert_temp(acc_id, acc - steps));
+    }
+    let scrub = LabelScrub {
+        pass: ui.ctx().cumulative_pass_nr(),
+        label: resp.id,
+        rect: resp.rect,
+        max_gap,
+        steps,
+        started: resp.drag_started(),
+        dragging: resp.dragged(),
+        stopped: resp.drag_stopped(),
+    };
+    ui.data_mut(|d| {
+        d.insert_temp(label_scrub_id(), scrub);
+        d.insert_temp(resp.id.with("pc-scrub-linked"), false);
+    });
+    resp
+}
+
+/// The label drag left for the field at `rect` this frame, if its label is just left of it on
+/// its row. Taken either way: a label only scrubs the next field drawn.
+fn take_label_scrub(ui: &Ui, rect: Rect) -> Option<LabelScrub> {
+    let s = ui.data_mut(|d| {
+        let s = d.get_temp::<LabelScrub>(label_scrub_id());
+        d.remove::<LabelScrub>(label_scrub_id());
+        s
+    })?;
+    let same_row = rect.top() < s.rect.bottom() && rect.bottom() > s.rect.top();
+    let gap = rect.left() - s.rect.right();
+    let linked = s.pass == ui.ctx().cumulative_pass_nr() && same_row && gap >= -1.0 && gap <= s.max_gap;
+    if linked {
+        ui.data_mut(|d| d.insert_temp(s.label.with("pc-scrub-linked"), true));
+    }
+    linked.then_some(s)
+}
+
+/// How a [`value_field_in`] shows and reads its number, beyond its suffix.
+#[derive(Clone, Copy, Debug, Default)]
+struct FieldOpts {
+    /// Decimal places shown (default: one, or two for a small range).
+    decimals: Option<u32>,
+    /// The unit typed units convert into (default: the suffix's, at [`set_field_resolution`]).
+    units: Option<FieldUnits>,
 }
 
 /// A [`value_field`] that leaves `trailing` points free inside its box, right of the suffix, and
@@ -283,9 +455,9 @@ fn value_field_in(
     suffix: &str,
     width: f32,
     trailing: f32,
-    decimals: Option<u32>,
+    opts: FieldOpts,
 ) -> (Response, Rect) {
-    value_field_box(ui, value, range, suffix, vec2(width, VALUE_FIELD_H), trailing, decimals)
+    value_field_box(ui, value, range, suffix, vec2(width, VALUE_FIELD_H), trailing, opts)
 }
 
 /// [`value_field_in`] with a box of any `size`.
@@ -296,10 +468,19 @@ fn value_field_box(
     suffix: &str,
     size: Vec2,
     trailing: f32,
-    decimals: Option<u32>,
+    opts: FieldOpts,
 ) -> (Response, Rect) {
+    let FieldOpts { decimals, units } = opts;
     let t = Tokens::get(ui.ctx());
     let (rect, slot) = ui.allocate_exact_size(size, Sense::hover());
+    let scrub = take_label_scrub(ui, rect);
+    let (dpi, ppi) = ui.data(|d| d.get_temp::<(f64, f64)>(field_resolution_id())).unwrap_or((72.0, 72.0));
+    // Typed text loses its spaces before parsing, so a " pt" suffix reads as "pt".
+    let typed_suffix = suffix.trim();
+    let units = match units {
+        Some(u) => crate::numeric_expression::Units { unit: Some(u.unit), suffix: typed_suffix, dpi: u.dpi, ppi: u.ppi },
+        None => crate::numeric_expression::Units { unit: unit_of_suffix(typed_suffix), suffix: typed_suffix, dpi, ppi },
+    };
     surface(ui, rect, t.field, false);
     if !t.bevel {
         ui.painter().rect_stroke(rect, t.radius_sm, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
@@ -337,12 +518,34 @@ fn value_field_box(
             ui.spacing_mut().button_padding = Vec2::ZERO;
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let layout = egui::Layout::centered_and_justified(ui.layout().main_dir());
-                ui.allocate_ui_with_layout(field.size(), layout, |ui| number_edit(ui, value, range, fine, decimals)).inner
+                ui.allocate_ui_with_layout(field.size(), layout, |ui| number_edit(ui, value, range, fine, decimals, units)).inner
             })
             .inner
         }
     };
     ui.data_mut(|d| d.insert_temp(slot.id, resp.id));
+    if let Some(s) = scrub {
+        if s.started && ui.memory(|m| m.has_focus(resp.id)) {
+            ui.memory_mut(|m| m.surrender_focus(resp.id));
+        }
+        if s.steps != 0.0 {
+            let unit = if fine { 0.01 } else { 1.0 };
+            // Onto the step grid first, so a whole-number field drops its decimals (55.4 + 1 = 56).
+            let v = ((*value / unit).round() + s.steps) * unit;
+            let v = (v * 1e4).round() / 1e4;
+            // `f32::clamp` panics on a reversed or NaN range, which `DragValue::range` accepts.
+            let v = if lo <= hi { v.clamp(lo, hi) } else { v };
+            if v.is_finite() && v != *value {
+                *value = v;
+                resp.mark_changed();
+            }
+        }
+        // Callers coalesce a drag into one history step; the label's drag is the field's.
+        use egui::response::Flags;
+        resp.flags.set(Flags::DRAG_STARTED, resp.flags.contains(Flags::DRAG_STARTED) || s.started);
+        resp.flags.set(Flags::DRAGGED, resp.flags.contains(Flags::DRAGGED) || s.dragging);
+        resp.flags.set(Flags::DRAG_STOPPED, resp.flags.contains(Flags::DRAG_STOPPED) || s.stopped);
+    }
     if !suffix.is_empty() {
         ui.painter().text(pos2(rect.right() - 6.0 - trailing, rect.center().y), Align2::RIGHT_CENTER, suffix, suffix_font, t.text_faint);
     }
@@ -386,7 +589,7 @@ pub struct PopupFieldResponse {
 pub fn popup_value_field(ui: &mut Ui, name: &str, value: &mut f32, range: std::ops::RangeInclusive<f32>, suffix: &str, width: f32) -> PopupFieldResponse {
     let t = Tokens::get(ui.ctx());
     let (lo, hi) = (*range.start(), *range.end());
-    let (field, rect) = value_field_in(ui, value, range.clone(), suffix, width, POPUP_ARROW_W, None);
+    let (field, rect) = value_field_in(ui, value, range.clone(), suffix, width, POPUP_ARROW_W, FieldOpts::default());
     let arrow = Rect::from_min_max(pos2(rect.right() - POPUP_ARROW_W - 2.0, rect.top() + 2.0), rect.max - vec2(2.0, 2.0));
     let resp = ui.interact(arrow, field.id.with("popup-slider"), Sense::click_and_drag());
     let name = name.trim_end_matches([':', '：']).to_string();
@@ -458,6 +661,45 @@ pub fn popup_value_field(ui: &mut Ui, name: &str, value: &mut f32, range: std::o
     out
 }
 
+/// Height of a [`text_field`]'s box, matching a [`value_field`].
+pub const TEXT_FIELD_H: f32 = 24.0;
+
+/// Inner padding of a [`text_field`]'s box: 6 pt either side, 2 pt above and below.
+const TEXT_FIELD_PAD: Vec2 = vec2(6.0, 2.0);
+
+/// A single-line text field in PhotoCraft's shared field style (#3789): the same box as a
+/// [`value_field`] -- the theme's field fill and `field_border`, rounded by `radius_sm` -- with a
+/// consistent inner padding and no focus outline. egui's default white focus ring (its
+/// `selection.stroke`) is what made the Preferences search field look different from the Color
+/// Picker's hex field, so every plain, non-numeric input (search, hex, name, filter) is drawn
+/// through here to look and behave the same. `id` carries the field's text and focus across
+/// frames; `hint` shows while it is empty; `mono` picks the monospaced face for hex and other
+/// code-like values.
+pub fn text_field(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str, width: f32, mono: bool) -> Response {
+    text_field_ex(ui, id, text, hint, width, mono, None)
+}
+
+/// [`text_field`] limited to `char_limit` characters (a hex field's six digits, say).
+pub fn text_field_ex(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str, width: f32, mono: bool, char_limit: Option<usize>) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let (rect, _) = ui.allocate_exact_size(vec2(width.max(16.0), TEXT_FIELD_H), Sense::hover());
+    surface(ui, rect, t.field, false);
+    if !t.bevel {
+        ui.painter().rect_stroke(rect, t.radius_sm, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
+    }
+    let font = if mono { theme::mono(12.0) } else { egui::FontId::proportional(12.5) };
+    let mut edit = egui::TextEdit::singleline(text).id(id).hint_text(hint).frame(egui::Frame::NONE).font(font);
+    if let Some(limit) = char_limit {
+        edit = edit.char_limit(limit);
+    }
+    // A child Ui keeps the field's selection colour local: `Visuals::selection` also fills selected
+    // list rows and slider trails, which must keep the theme's.
+    let layout = egui::Layout::centered_and_justified(egui::Direction::TopDown);
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(TEXT_FIELD_PAD)).layout(layout));
+    child.style_mut().visuals.selection.bg_fill = t.field_selection();
+    child.add(edit)
+}
+
 fn first_field_id() -> egui::Id {
     egui::Id::new("pc-focus-first-field")
 }
@@ -477,7 +719,14 @@ pub fn focus_first_field(ctx: &egui::Context, on: bool) {
 /// The number in a [`value_field`]. A typed number applies as it's typed; arithmetic waits for
 /// Enter, Tab or click-away, because per keystroke `5/2` would land first and a caller that
 /// rounds it would cut `5/2*2` short. `changed()` means a new value, not just a keystroke.
-fn number_edit(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>, fine: bool, decimals: Option<u32>) -> Response {
+fn number_edit(
+    ui: &mut Ui,
+    value: &mut f32,
+    range: std::ops::RangeInclusive<f32>,
+    fine: bool,
+    decimals: Option<u32>,
+    units: crate::numeric_expression::Units,
+) -> Response {
     let (id, ctx) = (ui.next_auto_id(), ui.ctx().clone());
     // Focused before the DragValue is drawn, so it gains focus this frame and selects its text.
     if ui.data_mut(|d| d.remove_temp::<bool>(first_field_id())).unwrap_or(false) {
@@ -503,7 +752,7 @@ fn number_edit(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32
             .update_while_editing(!math)
             // Focus is read when parsing, not above: Tab hands it on inside `ui.add`.
             .custom_parser(move |s| {
-                let v = parse_num(s);
+                let v = parse_num_in(s, units);
                 if ctx.memory(|m| m.has_focus(id)) && plain(s).is_none() {
                     // Still typing arithmetic: hold it, and stop applying keystrokes once it parses.
                     ctx.data_mut(|d| d.insert_temp(held, v.is_some()));
@@ -728,17 +977,22 @@ pub fn slider_row_with(
     let t = Tokens::get(ui.ctx());
     let mut changed_resp = None;
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(tl!(label)).color(t.text_dim));
+        // The label scrubs the row's field, across the row (Photoshop's scrubby labels).
+        let l = ui.label(egui::RichText::new(tl!(label)).color(t.text_dim));
+        scrub_label_within(ui, &l, f32::INFINITY);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             changed_resp = Some(value_field(ui, value, range.clone(), suffix, 74.0));
         });
     });
     let s = slider_with(ui, value, range, gradient, g);
     let mut r = s.clone();
-    if let Some(v) = changed_resp
-        && v.changed()
-    {
-        r.mark_changed();
+    if let Some(v) = changed_resp {
+        if v.changed() {
+            r.mark_changed();
+        }
+        // A scrub of the field or its label is one drag, like the slider's, for history.
+        use egui::response::Flags;
+        r.flags |= v.flags & (Flags::DRAG_STARTED | Flags::DRAGGED | Flags::DRAG_STOPPED);
     }
     ui.add_space(4.0);
     r
@@ -777,6 +1031,12 @@ pub fn toggle(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
 pub fn primary_button(ui: &mut Ui, label: &str, min_width: f32) -> Response {
     let t = Tokens::get(ui.ctx());
     button_impl(ui, label, min_width, t.primary_bg, t.primary_text, true)
+}
+
+/// The width of the widest of `labels` as a button, for a column of equal-width buttons.
+pub fn button_width(ui: &Ui, labels: &[&str]) -> f32 {
+    let fg = Tokens::get(ui.ctx()).text;
+    labels.iter().map(|l| button_layout(ui, l, 0.0, None, fg).1.x).fold(0.0, f32::max)
 }
 
 pub fn secondary_button(ui: &mut Ui, label: &str, min_width: f32) -> Response {
@@ -1346,6 +1606,15 @@ pub fn parse_num(text: &str) -> Option<f64> {
     crate::numeric_expression::parse(&clean(text))
 }
 
+/// [`parse_num`] in a field with `units`: a number may carry a unit (`2in`, `5mm`, `50%`),
+/// converted into the field's unit; one that can't convert makes the text invalid.
+pub(crate) fn parse_num_in(text: &str, units: crate::numeric_expression::Units) -> Option<f64> {
+    if text.len() > 1024 {
+        return None;
+    }
+    crate::numeric_expression::parse_with_units(&clean(text), Some(units))
+}
+
 /// A plain typed number, no arithmetic.
 fn plain(text: &str) -> Option<f64> {
     clean(text).parse().ok()
@@ -1385,6 +1654,20 @@ mod tests {
         );
     }
 
+    /// #3580: the shared eliding label never lays out wider than the room it is given, so a longer
+    /// translation shrinks with '…' instead of overrunning its row; a short label is untouched.
+    #[test]
+    fn elided_label_never_exceeds_its_room() {
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(240.0, 60.0)).build_ui(|ui| {
+            let long = super::elided_label(ui, "Preenchimento:", 24.0); // pt-br Fill:, the longest catalog
+            assert!(long.rect.width() <= 25.0, "elided to the room, got {}", long.rect.width());
+            let short = super::elided_label(ui, "Fill", 200.0);
+            assert!(short.rect.width() < 60.0, "a short label is not padded: {}", short.rect.width());
+        });
+        crate::PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(2);
+    }
+
     #[test]
     fn spectrum_popup_style_matches_main_menu_and_preserves_studio() {
         for kind in [crate::theme::ThemeKind::Pro, crate::theme::ThemeKind::ProMedium, crate::theme::ThemeKind::Studio, crate::theme::ThemeKind::StudioLight] {
@@ -1408,6 +1691,31 @@ mod tests {
         }
     }
     use egui_kittest::{Harness, kittest::Queryable};
+
+    /// #3789: a plain text field is one boxed, outline-free input whose text-selection colour stays
+    /// local, so it isn't recoloured for the rest of the frame (selected rows, slider trails).
+    #[test]
+    fn text_field_is_a_boxed_input_whose_selection_colour_stays_local() {
+        use egui::accesskit::Role;
+        let mut h = Harness::new_ui_state(
+            |ui, s: &mut (String, egui::Color32, egui::Color32)| {
+                s.1 = ui.visuals().selection.bg_fill;
+                super::text_field(ui, egui::Id::new("tf"), &mut s.0, "hint", 140.0, false);
+                s.2 = ui.visuals().selection.bg_fill;
+            },
+            (String::new(), egui::Color32::WHITE, egui::Color32::BLACK),
+        );
+        crate::PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run();
+        assert_eq!(h.state().1, h.state().2, "the field's selection colour does not leak into its parent");
+        h.get_by_role(Role::TextInput).click();
+        h.run_steps(1);
+        for ch in "abc".chars() {
+            h.event(egui::Event::Text(ch.to_string()));
+            h.run_steps(1);
+        }
+        assert_eq!(h.state().0, "abc", "typing reaches the bound string");
+    }
 
     /// Sets up a test with one value field. Its state is its value and how many times it changed.
     fn field(value: f32, range: std::ops::RangeInclusive<f32>) -> Harness<'static, (f32, u32)> {
@@ -1441,7 +1749,7 @@ mod tests {
     fn value_field_digits_sit_one_point_above_centre() {
         let mut h = Harness::new_ui_state(
             |ui, s: &mut (f32, egui::Rect)| {
-                s.1 = super::value_field_in(ui, &mut s.0, 0.0..=100.0, "px", 80.0, 0.0, None).1;
+                s.1 = super::value_field_in(ui, &mut s.0, 0.0..=100.0, "px", 80.0, 0.0, super::FieldOpts::default()).1;
             },
             (50.0, egui::Rect::NOTHING),
         );
@@ -1557,6 +1865,67 @@ mod tests {
         let mut h = field(100.0, 0.0..=1000.0);
         assert_eq!(press(&mut h, Modifiers::NONE, Key::ArrowUp), 100.0);
         assert_eq!(h.state().1, 0);
+    }
+
+    /// Photoshop: a unit typed into a px field converts at the document resolution on Enter, and
+    /// an expression that can't convert (or divides by zero) keeps the value.
+    #[test]
+    fn enter_commits_a_typed_unit_expression_at_the_document_resolution() {
+        let mut h = field(100.0, 0.0..=10_000.0);
+        super::set_field_resolution(&h.ctx, 300.0, 72.0);
+        for (text, want) in [("1in+10", 310.0), ("2.54 cm * 2", 600.0), ("50%", 600.0), ("1in/0", 600.0), ("10px", 10.0)] {
+            h.get_by_role(egui::accesskit::Role::SpinButton).click();
+            h.run();
+            h.key_press_modifiers(Modifiers::COMMAND, Key::A);
+            h.event(egui::Event::Text(text.into()));
+            h.run();
+            h.key_press(Key::Enter);
+            h.run();
+            assert_eq!(h.state().0, want, "{text}");
+        }
+    }
+
+    /// Photoshop's scrubby labels: dragging the label right before a field moves its value, a
+    /// step a point (Shift ×10); a label with no field right after it moves nothing.
+    #[test]
+    fn dragging_a_label_scrubs_the_field_right_after_it() {
+        let mut h = Harness::new_ui_state(
+            |ui, s: &mut (f32, f32)| {
+                ui.horizontal(|ui| {
+                    let l = ui.label("Size:");
+                    super::scrub_label(ui, &l);
+                    super::value_field(ui, &mut s.0, 0.0..=1000.0, "px", 80.0);
+                });
+                ui.horizontal(|ui| {
+                    let l = ui.label("Mode:");
+                    super::scrub_label(ui, &l);
+                    ui.add_space(60.0);
+                    super::value_field(ui, &mut s.1, 0.0..=1000.0, "px", 80.0);
+                });
+            },
+            (100.0, 100.0),
+        );
+        h.run();
+        let drag = |h: &mut Harness<'static, (f32, f32)>, label: &str, dx: f32, mods: Modifiers| {
+            let at = h.get_by_label(label).rect().center();
+            h.hover_at(at);
+            h.run();
+            h.drag_at(at);
+            h.run();
+            for i in 1..=4 {
+                h.event(egui::Event::PointerMoved(at + egui::vec2(dx * i as f32 / 4.0, 0.0)));
+                h.event(egui::Event::ModifiersChanged(mods));
+                h.run();
+            }
+            h.drop_at(at + egui::vec2(dx, 0.0));
+            h.run();
+        };
+        drag(&mut h, "Size:", 20.0, Modifiers::NONE);
+        assert_eq!(h.state().0, 120.0);
+        drag(&mut h, "Size:", -3.0, Modifiers::SHIFT);
+        assert_eq!(h.state().0, 90.0);
+        drag(&mut h, "Mode:", 20.0, Modifiers::NONE);
+        assert_eq!(h.state().1, 100.0, "the field isn't right after the label");
     }
 
     /// A right-aligned OK / Cancel / Apply row as `os` draws it: labels left to right, and the

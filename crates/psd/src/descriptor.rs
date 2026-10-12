@@ -44,6 +44,10 @@ impl UnicodeString {
     }
 }
 
+/// Four-character class and key ids Photoshop writes as length-4 strings, never as codes
+/// (`00000004 'warp'`, not `00000000 'warp'`).
+pub const STRING_IDS: [&str; 3] = ["warp", "list", "time"];
+
 /// A class / key / type identifier: a length-prefixed string, where a stored
 /// length of 0 means a 4-character code follows.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -57,10 +61,15 @@ pub enum Id {
 
 impl Id {
     /// Convenience constructor: 4-byte strings become [`Id::Code`], others
-    /// [`Id::Str`].
+    /// [`Id::Str`]. The four-character names Photoshop stores as length-4 strings
+    /// ([`STRING_IDS`]: `warp`, `list`, `time`) are [`Id::Str`] too: Photoshop treats the
+    /// string and the code as different keys and doesn't recognise the code form.
     pub fn new(s: &str) -> Self {
         let b = s.as_bytes();
-        if b.len() == 4 { Id::Code([b[0], b[1], b[2], b[3]]) } else { Id::Str(b.to_vec()) }
+        match b {
+            [a, b, c, d] if !STRING_IDS.contains(&s) => Id::Code([*a, *b, *c, *d]),
+            _ => Id::Str(b.to_vec()),
+        }
     }
     /// The identifier's bytes.
     pub fn as_bytes(&self) -> &[u8] {
@@ -607,6 +616,34 @@ mod tests {
         let p = Descriptor::from_bytes(&b).unwrap();
         assert_eq!(p, d);
         assert_eq!(p.to_bytes(), b);
+    }
+
+    /// `warp`, `list` and `time` are written as length-4 strings, as Photoshop writes them, both
+    /// as keys and as class ids; other four-character names stay codes. Reading accepts both
+    /// forms, and a code read from a file is written back as a code.
+    #[test]
+    fn photoshop_string_ids_are_written_as_strings() {
+        let str_id = |s: &str| [&[0, 0, 0, 4][..], s.as_bytes()].concat();
+        let code_id = |s: &str| [&[0, 0, 0, 0][..], s.as_bytes()].concat();
+        for name in STRING_IDS {
+            assert_eq!(Id::new(name), Id::Str(name.as_bytes().to_vec()));
+            let d = Descriptor::new(name).with(name, Value::Integer(1));
+            let b = d.to_bytes();
+            // Name (empty unicode string), then the class id; then the item count and the key.
+            assert_eq!(&b[4..12], &str_id(name)[..], "class {name}");
+            assert_eq!(&b[16..24], &str_id(name)[..], "key {name}");
+            let back = Descriptor::from_bytes(&b).unwrap();
+            assert_eq!(back, d);
+            assert!(back.class_id.is(name) && back.get(name).is_some());
+            // A file that wrote the code form keeps it, and lookups still find the key.
+            let mut coded = b.clone();
+            coded.splice(16..24, code_id(name));
+            let back = Descriptor::from_bytes(&coded).unwrap();
+            assert_eq!(back.get(name), Some(&Value::Integer(1)));
+            assert_eq!(back.to_bytes(), coded);
+        }
+        assert_eq!(Id::new("view"), Id::Code(*b"view"));
+        assert_eq!(Id::new("Txt "), Id::Code(*b"Txt "));
     }
 
     #[test]

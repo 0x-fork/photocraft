@@ -387,7 +387,8 @@ pub(crate) fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
     let Some(layout) = app.ui.docking.as_ref() else { return false };
     if !valid(layout) {
         app.ui.docking = None;
-        app.ui.status = "Invalid panel layout; restored the default dock".into();
+        let message = "Invalid panel layout; restored the default dock";
+        app.ui.status = tl!(message).into();
         return false;
     }
     let layout = layout.clone();

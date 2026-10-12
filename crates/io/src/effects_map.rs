@@ -144,7 +144,7 @@ fn common(d: &Descriptor, blend: BlendMode, opacity: f32) -> FxCommon {
 }
 
 fn gradient_from(d: &Descriptor) -> Gradient {
-    let (stops, opacity_stops) = get_desc(d, "Grad").map(|g| crate::blocks::gradient_stops_with(g, enum_of(d, "gs99"))).unwrap_or_default();
+    let (stops, opacity_stops) = get_desc(d, "Grad").map(|g| crate::blocks::gradient_stops_with(g, crate::blocks::gradient_method(d))).unwrap_or_default();
     let off = get_desc(d, "Ofst");
     Gradient {
         stops: if stops.is_empty() { Gradient::default().stops } else { stops },
