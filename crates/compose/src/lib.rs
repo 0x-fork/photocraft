@@ -24,6 +24,7 @@ pub mod fill_layout;
 pub mod gradient_fill;
 pub mod masks;
 pub mod multichannel;
+pub mod native;
 pub mod pattern;
 pub mod proxy;
 pub mod psblend;
@@ -232,20 +233,38 @@ pub fn band_rows_for(width: u32, requested: i32) -> i32 {
 /// The document's composite as a pixel surface in `fmt` (straight RGBA converted to its model
 /// and depth), optionally flattened over an opaque `background`; rendered and written in bands,
 /// so no full-size float composite is held. Tiles equal to the default pixel are pruned.
+/// A CMYK document of plain Normal layers is composited in its ink values instead
+/// ([`native::flatten_cmyk`]), so flattening doesn't round-trip its pixels through RGB (#3778).
 pub fn flatten_to_surface(doc: &Document, fmt: photocraft_color::PixelFormat, background: Option<[f32; 3]>) -> Surface {
+    composite_to_surface(doc, doc.bounds(), fmt, background)
+}
+
+/// [`flatten_to_surface`] over `rect` only (the rest of the surface stays empty).
+pub fn composite_to_surface(doc: &Document, rect: Rect, fmt: photocraft_color::PixelFormat, background: Option<[f32; 3]>) -> Surface {
+    let paper = background.is_some_and(|bg| bg == [1.0; 3]);
+    if (background.is_none() || paper)
+        && let Some(s) = native::flatten_cmyk(doc, rect, fmt, paper)
+    {
+        return s;
+    }
     let mut s = Surface::new(fmt);
     let n = fmt.channels();
     let mut data = Vec::new();
-    let _ = render_bands(doc, doc.bounds(), 0, |band| -> Result<(), ()> {
+    // The composite separates back to CMYK through the document's own profile, the one its
+    // pixels were read through.
+    let cmyk = cmyk_space(doc);
+    let _ = render_bands(doc, rect, 0, |band| -> Result<(), ()> {
         let band = match background {
             Some(bg) => band.over_background(bg),
             None => band,
         };
         data.clear();
         data.resize(band.px.len() * n, 0.0);
-        for (p, out) in band.px.iter().zip(data.chunks_exact_mut(n)) {
-            photocraft_raster::from_rgba_into(&fmt, *p, out);
-        }
+        photocraft_color::convert::with_cmyk_space(cmyk.as_ref(), || {
+            for (p, out) in band.px.iter().zip(data.chunks_exact_mut(n)) {
+                photocraft_raster::from_rgba_into(&fmt, *p, out);
+            }
+        });
         s.write_region(band.rect, &data);
         Ok(())
     });

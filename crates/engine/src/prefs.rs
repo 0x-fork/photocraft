@@ -869,6 +869,15 @@ impl Default for TypePrefs {
     }
 }
 
+impl TypePrefs {
+    /// Preferences ▸ Type ▸ Missing Glyph Protection: with it on (the default, as in Photoshop),
+    /// glyphs the chosen face lacks fall back through the coverage fonts (#1909). The text engine
+    /// applies this in `Session::apply_prefs`.
+    pub fn missing_glyph_protection(&self) -> bool {
+        self.missing_glyph_protection
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct EnhancedControls {
@@ -1049,7 +1058,6 @@ pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
     "plugIns.showExtensionPanels",
     "plugIns.allowScriptsToConnect",
     "plugIns.generatorEnabled",
-    "type.missingGlyphProtection",
     "type.textEngine",
     "type.recentFonts",
     "enhancedControls.scrubbySliderAcceleration",
@@ -1484,8 +1492,8 @@ impl Session {
         r
     }
 
-    /// Push engine-relevant preferences into live state: every document's history limit and
-    /// the layer-effect cache budget.
+    /// Push engine-relevant preferences into live state: every document's history limit, the
+    /// layer-effect cache budget and the text engine's missing-glyph protection.
     pub fn apply_prefs(&mut self) {
         let n = self.prefs().performance.history_states.max(1) as usize;
         let bytes = self.prefs().performance.history_budget_bytes();
@@ -1496,6 +1504,9 @@ impl Session {
             st.history.trim(&st.doc);
         }
         photocraft_compose::set_effect_cache_budget(budget << 20);
+        if let Ok(mut engine) = photocraft_text::shared().lock() {
+            engine.fonts.set_missing_glyph_protection(self.prefs().type_.missing_glyph_protection());
+        }
         crate::plugin_cmds::sync_prefs(self);
     }
 

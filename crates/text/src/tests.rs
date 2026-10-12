@@ -1580,6 +1580,25 @@ fn a_served_script_fallback_joins_the_fallback_stack_once_it_arrives() {
     assert!(db.fallback_stack().any(|f| f == "Cairo"), "{:?}", db.fallback_stack().collect::<Vec<_>>());
 }
 
+/// Preferences ▸ Type ▸ Missing Glyph Protection: off, only the default family is in the
+/// fallback stack, so a face without the glyph shows the missing-glyph box instead of a
+/// fallback's glyph (#1909).
+#[test]
+fn missing_glyph_protection_can_turn_the_fallback_stack_off() {
+    let Some(cairo) = crate::CRAFT_FONTS.iter().find(|f| f.family == "Cairo") else {
+        eprintln!("skipping: built without craft-fonts (set CRAFT_FONTS_DIR to a craft-fonts checkout)");
+        return;
+    };
+    let mut db = fonts::FontDb::new();
+    db.register_font_data(cairo.bytes.to_vec());
+    assert!(db.missing_glyph_protection(), "on by default, as in Photoshop");
+    assert!(db.fallback_stack().any(|f| f == "Cairo"));
+    db.set_missing_glyph_protection(false);
+    assert_eq!(db.fallback_stack().collect::<Vec<_>>(), [fonts::DEFAULT_FAMILY], "only the default family remains");
+    db.set_missing_glyph_protection(true);
+    assert!(db.fallback_stack().any(|f| f == "Cairo"), "turning it back on restores the coverage fonts");
+}
+
 #[test]
 fn translate_tysh_moves_only_the_translation() {
     let mut t = point("Hello!", 26.0);
