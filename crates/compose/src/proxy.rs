@@ -79,6 +79,9 @@ pub fn proxy_document(doc: &Document, k: u32) -> Document {
         c.surface = downsample(&c.surface, k);
     }
     p.selection = p.selection.as_ref().map(|s| downsample(s, k));
+    if let Some(mask) = &mut p.quick_mask {
+        mask.surface = downsample(&mask.surface, k);
+    }
     p
 }
 
@@ -170,6 +173,27 @@ mod tests {
         let s = p.selection.as_ref().expect("selection kept");
         assert_eq!((s.pixel(7, 15)[0], s.pixel(8, 0)[0]), (1.0, 0.0));
         assert!(proxy_document(&Document::new("n", Size::new(8, 8), ColorMode::Rgb, SampleType::U8), 4).selection.is_none());
+    }
+
+    #[test]
+    fn proxy_scales_quick_mask_at_every_depth() {
+        for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+            let mut doc = Document::new("mask", Size::new(16, 12), ColorMode::Rgb, depth);
+            let mut surface = Surface::new(PixelFormat::new(ColorMode::Grayscale, depth, false));
+            surface.fill_rect(Rect::new(0, 0, 8, 12), &[1.0]);
+            let mut mask = photocraft_doc::AlphaChannel::new("Quick Mask", surface);
+            mask.opacity = 0.25;
+            doc.quick_mask = Some(mask);
+            for k in [1, 2, 4] {
+                let proxy = proxy_document(&doc, k);
+                let mask = proxy.quick_mask.as_ref().unwrap();
+                assert_eq!(mask.surface.pixel((8 / k - 1) as i32, 0), vec![1.0]);
+                assert_eq!(mask.surface.pixel((8 / k) as i32, 0), vec![0.0], "depth {depth:?}, factor {k}");
+                assert_eq!(mask.opacity, 0.25);
+                assert_eq!(mask.surface.format().sample, depth);
+            }
+            assert_eq!(doc.quick_mask.as_ref().unwrap().surface.pixel(7, 0), vec![1.0], "source stays intact");
+        }
     }
 
     #[test]

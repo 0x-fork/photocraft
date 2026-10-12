@@ -3232,6 +3232,17 @@ curves	Smooth	매끄럽게
 @plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n}개 단계에는 아직 PhotoCraft에 해당하는 기능이 없습니다
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	{file}에 액션 {n}개를 저장했습니다
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Photoshop에 해당하는 기능이 없는 {n}개 단계를 제외했습니다
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	정지 삽입…
+	Save Set…	세트 저장…
+	Message:	메시지:
+	Allow Continue	계속 허용
+	Show dialog during playback	재생 중 대화 상자 표시
+	Select an action first	먼저 액션을 선택하세요
+	Action playback stopped	액션 재생이 중지되었습니다
+	Step {step} is waiting for its dialog	{step}단계가 대화 상자를 기다리고 있습니다
+@plural	{n} action|{n} actions	액션 {n}개
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	작업 내역 패널의 소스 상태에서 칠합니다
 	Sets the source for the history brush	작업 내역 브러시의 소스를 설정합니다

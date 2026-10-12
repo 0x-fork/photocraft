@@ -217,6 +217,7 @@ fn export_options(settings: &photocraft_ui_egui::ExportSettings) -> photocraft_i
     opts.xmp = if settings.xmp_all { photocraft_io::XmpEmbed::All } else { photocraft_io::XmpEmbed::None };
     opts.tga_bits = settings.tga_bits;
     opts.image_previews = settings.image_previews;
+    opts.psd_maximize_compatibility = settings.psd_maximize_compatibility;
     opts
 }
 

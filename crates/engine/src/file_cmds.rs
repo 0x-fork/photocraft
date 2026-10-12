@@ -218,8 +218,8 @@ pub(crate) fn import(name: &str, bytes: &[u8]) -> Result<Document> {
     Ok(r.document)
 }
 
-/// What a headless save writes beyond the format: JPEG quality, TIFF layers, Targa bits and PSD
-/// previews.
+/// What a headless save writes beyond the format: JPEG quality, TIFF layers, Targa bits, PSD
+/// previews and the PSD merged image.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SaveOpts {
     /// Photoshop's 0–12 JPEG scale.
@@ -231,25 +231,30 @@ pub(crate) struct SaveOpts {
     pub tga_bits: Option<photocraft_io::TgaBits>,
     /// PSD/PSB: embed the thumbnail resource (Preferences › File Handling › Image Previews).
     pub image_previews: bool,
+    /// PSD/PSB: write the real merged image (Preferences › File Handling › Maximize PSD and PSB
+    /// File Compatibility).
+    pub psd_maximize_compatibility: bool,
 }
 
 impl Default for SaveOpts {
     fn default() -> Self {
-        SaveOpts { quality: None, tiff_layers: false, tga_bits: None, image_previews: true }
+        SaveOpts { quality: None, tiff_layers: false, tga_bits: None, image_previews: true, psd_maximize_compatibility: true }
     }
 }
 
 impl SaveOpts {
     /// `quality`, `tiffLayers` and `tgaBits` from command `cmd`'s params (a `tgaBits` other than
-    /// 24 or 32 is an error); the image previews from the session's File Handling preferences
-    /// (Ask When Saving has no dialog here, so it saves them, as Photoshop's Save As checkbox
-    /// starts on).
+    /// 24 or 32 is an error); the image previews and the PSD merged image from the session's File
+    /// Handling preferences (Ask When Saving has no dialog here, so it saves them, as Photoshop's
+    /// Save As checkbox and its Maximize Compatibility checkbox both start on).
     pub(crate) fn from_params(s: &Session, p: &Value, cmd: &str) -> Result<Self> {
+        let file_handling = &s.prefs().file_handling;
         Ok(SaveOpts {
             quality: f64_param(p, "quality"),
             tiff_layers: p.get("tiffLayers").and_then(Value::as_bool).unwrap_or(false),
             tga_bits: tga_bits_param(p, cmd)?,
-            image_previews: s.prefs().file_handling.image_previews != crate::prefs::Ask::Never,
+            image_previews: file_handling.image_previews != crate::prefs::Ask::Never,
+            psd_maximize_compatibility: file_handling.maximize_psd_compatibility != crate::prefs::Ask::Never,
         })
     }
 
@@ -283,8 +288,13 @@ pub fn tga_bits_param(p: &Value, cmd: &str) -> Result<Option<photocraft_io::TgaB
 pub(crate) fn encode(doc: &Document, path: &str, save: impl Into<SaveOpts>) -> Result<(Vec<u8>, Vec<String>)> {
     crate::allocation::checkpoint("saving document")?;
     let save = save.into();
-    let mut opts =
-        photocraft_io::ExportOptions { tiff_layers: save.tiff_layers, tga_bits: save.tga_bits, image_previews: save.image_previews, ..Default::default() };
+    let mut opts = photocraft_io::ExportOptions {
+        tiff_layers: save.tiff_layers,
+        tga_bits: save.tga_bits,
+        image_previews: save.image_previews,
+        psd_maximize_compatibility: save.psd_maximize_compatibility,
+        ..Default::default()
+    };
     // No quality chosen: write the file the way it was opened (a JPEG at its own quality, a WebP
     // lossy or lossless as it was), as Photoshop's Save does.
     photocraft_io::apply_file_encoding(doc, &mut opts.encode);

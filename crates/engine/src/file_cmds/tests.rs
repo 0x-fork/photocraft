@@ -192,6 +192,26 @@ fn image_previews_preference_controls_the_psd_thumbnail() {
     }
 }
 
+/// Preferences › File Handling › Maximize PSD and PSB File Compatibility decides whether a
+/// layered PSD keeps its real merged image: Always and Ask When Saving write it, Never writes
+/// Photoshop's placeholder and says so in resource 1057.
+#[test]
+fn maximize_compatibility_preference_controls_the_psd_merged_image() {
+    use crate::prefs::Ask;
+    let dir = tmp("maximize");
+    let mut s = session(300, 200, 16);
+    s.execute("layer.new.layer", json!({})).unwrap();
+    let real_merged = |path: &str| photocraft_psd::PsdFile::from_bytes(&std::fs::read(path).unwrap()).unwrap().has_real_merged_data();
+    for (ask, expect) in [(Ask::Always, true), (Ask::Never, false), (Ask::Ask, true)] {
+        s.edit_prefs(|p| p.file_handling.maximize_psd_compatibility = ask);
+        for ext in ["psd", "psb"] {
+            let out = join(&dir, &format!("{ask:?}.{ext}"));
+            s.execute("file.saveACopy", json!({"path": out})).unwrap();
+            assert_eq!(real_merged(&out), Some(expect), "{ask:?} {ext}");
+        }
+    }
+}
+
 #[test]
 fn open_as_forces_the_decoder() {
     let dir = tmp("openas");
