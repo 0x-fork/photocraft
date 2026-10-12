@@ -803,7 +803,7 @@ impl<'a> Planner<'a> {
                 // compose::render_fill: the pattern tiled from the layer's frame (transparent
                 // when missing), then the layer's masks.
                 let empty = self.clear();
-                let Some(pat) = photocraft_doc::pattern::find(self.cx.patterns, id, name).filter(|p| !p.is_empty()) else { return Ok(empty) };
+                let Some(pat) = photocraft_doc::pattern::find(self.cx.patterns, id, name).filter(|p| p.is_paintable()) else { return Ok(empty) };
                 let frame = photocraft_compose::fill_frame(layer, self.cx.canvas);
                 let anchor = if frame.is_empty() { (0.0, 0.0) } else { (f64::from(frame.x0), f64::from(frame.y0)) };
                 let paint = Paint::Pattern(pat, placement(anchor, *link, *phase, *scale, *angle));
@@ -934,7 +934,7 @@ impl<'a> Planner<'a> {
 
     /// adjust::apply_with on a slot (consumes it).
     fn adjust(&mut self, adj: &Adjustment, src: Slot) -> Result<Slot, Unsupported> {
-        if !adjustment_on_gpu(adj) {
+        if !adjustment_on_gpu(adj, self.cx.mode) {
             return Err(Unsupported(format!("{} on CMYK/Lab channels (evaluated on the CPU)", adj.label())));
         }
         if let Adjustment::GradientMap { stops, .. } = adj {
@@ -1097,7 +1097,7 @@ impl<'a> Planner<'a> {
         };
         for &(_, e) in &rev {
             if let Effect::PatternOverlay { common, name, id, scale, angle, link, phase } = e
-                && let Some(pat) = photocraft_doc::pattern::find(self.cx.patterns, id, name).filter(|p| !p.is_empty())
+                && let Some(pat) = photocraft_doc::pattern::find(self.cx.patterns, id, name).filter(|p| p.is_paintable())
             {
                 let paint = Paint::Pattern(pat, placement(anchor, *link, *phase, *scale, *angle));
                 l = self.paint(l, content, Cov::One, &paint, common.blend, common.opacity, F_GATE, clip, sb);
@@ -1312,7 +1312,7 @@ impl<'a> Planner<'a> {
         match p {
             FxPaint::Color(c) => Paint::Color(c.to_rgb()),
             FxPaint::Gradient(g) => Paint::Gradient(g),
-            FxPaint::Pattern { name, id, scale } => match photocraft_doc::pattern::find(self.cx.patterns, id, name).filter(|p| !p.is_empty()) {
+            FxPaint::Pattern { name, id, scale } => match photocraft_doc::pattern::find(self.cx.patterns, id, name).filter(|p| p.is_paintable()) {
                 Some(pat) => Paint::Pattern(pat, placement(anchor, true, (0.0, 0.0), *scale, 0.0)),
                 None => Paint::None,
             },
@@ -1512,10 +1512,15 @@ fn to_row(t: &[f32]) -> [f32; 4096] {
     row
 }
 
-/// Whether the adjustment kernel can evaluate `adj`: Levels and Curves on CMYK ink or Lab
-/// channels convert through ICC profiles per pixel, which only the CPU does.
-pub fn adjustment_on_gpu(adj: &Adjustment) -> bool {
-    !matches!(adj, Adjustment::Levels { space: ToneSpace::Cmyk | ToneSpace::Lab, .. } | Adjustment::Curves { space: ToneSpace::Cmyk | ToneSpace::Lab, .. })
+/// Whether the adjustment kernel can evaluate `adj` in a document of colour `mode`: Levels and
+/// Curves on CMYK ink or Lab channels convert through ICC profiles per pixel, and so do the
+/// adjustments a Lab document evaluates on L, a and b (`photocraft_compose::adjust::lab_channel_adjustment`),
+/// which only the CPU does.
+pub fn adjustment_on_gpu(adj: &Adjustment, mode: photocraft_color::ColorMode) -> bool {
+    let tone_in_space =
+        matches!(adj, Adjustment::Levels { space: ToneSpace::Cmyk | ToneSpace::Lab, .. } | Adjustment::Curves { space: ToneSpace::Cmyk | ToneSpace::Lab, .. });
+    let lab_channels = mode == photocraft_color::ColorMode::Lab && photocraft_compose::adjust::lab_channel_adjustment(adj);
+    !tone_in_space && !lab_channels
 }
 
 /// A tone transfer as the shader's `t_decode`/`t_encode` exponent (0: the sRGB curve).
@@ -1730,6 +1735,25 @@ mod tests {
     use super::*;
     use photocraft_color::{Color, ColorMode, SampleType};
     use photocraft_geom::Size;
+
+    #[test]
+    fn lab_channel_adjustments_defer_to_the_cpu_in_lab_documents() {
+        let lab_rules = [
+            Adjustment::Invert,
+            Adjustment::Posterize { levels: 4 },
+            Adjustment::Threshold { level: 0.5 },
+            Adjustment::BrightnessContrast { brightness: 10.0, contrast: 5.0, legacy: false },
+            Adjustment::GradientMap { stops: vec![(0.0, [0.0; 3]), (1.0, [1.0; 3])], reverse: false, dither: false },
+        ];
+        for adj in &lab_rules {
+            assert!(!adjustment_on_gpu(adj, ColorMode::Lab), "{adj:?}");
+            for mode in [ColorMode::Rgb, ColorMode::Cmyk, ColorMode::Grayscale] {
+                assert!(adjustment_on_gpu(adj, mode), "{adj:?} in {mode:?}");
+            }
+        }
+        // Screen-colour adjustments stay on the GPU in Lab documents.
+        assert!(adjustment_on_gpu(&Adjustment::Exposure { exposure: 1.0, offset: 0.0, gamma: 1.0 }, ColorMode::Lab));
+    }
 
     #[test]
     fn native_cmyk_fills_fall_back_only_without_a_valid_cache() {

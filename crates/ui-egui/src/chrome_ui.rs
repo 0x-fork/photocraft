@@ -22,7 +22,14 @@ pub struct ChromeState {
 impl ChromeState {
     /// Is the Home screen up, given the current number of open documents? With no documents it
     /// shows by itself when `auto_show` (Preferences › General › Auto show the Home Screen).
-    pub fn shows_home(&self, documents: usize, auto_show: bool) -> bool {
+    ///
+    /// `home` stores the document count when Home was opened so File › New / Open can leave it.
+    /// Closing a tab that returns to that count must not bring Home back (#3981): once the
+    /// document set has changed, the overlay is gone until the user opens Home again.
+    pub fn shows_home(&mut self, documents: usize, auto_show: bool) -> bool {
+        if self.home.is_some_and(|n| n != documents) {
+            self.home = None;
+        }
         (documents == 0 && auto_show) || self.home == Some(documents)
     }
 }
@@ -377,6 +384,30 @@ mod tests {
         c.home = Some(2);
         assert!(c.shows_home(2, true));
         assert!(!c.shows_home(3, true));
+        assert!(c.home.is_none(), "leaving Home by opening a document dismisses it");
+        c.home = Some(1);
+        assert!(!c.shows_home(2, true));
+        assert!(!c.shows_home(1, true), "closing back to the stored count must not re-open Home");
+        assert!(c.home.is_none());
+    }
+
+    #[test]
+    fn closing_a_tab_does_not_return_to_home() {
+        use crate::PhotocraftApp;
+        use photocraft_engine::Session;
+        use serde_json::json;
+
+        let mut app = PhotocraftApp::new(Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 8, "height": 8, "name": "Keep"})).unwrap();
+        let n = app.session.documents().len();
+        app.ui.chrome.home = Some(n);
+        assert!(app.ui.chrome.shows_home(n, true));
+        app.run("file.new", json!({"width": 8, "height": 8, "name": "Other"})).unwrap();
+        assert!(!app.ui.chrome.shows_home(app.session.documents().len(), true));
+        app.run("file.close", json!({"document": 1, "discard": true})).unwrap();
+        assert_eq!(app.session.documents().len(), 1);
+        assert!(!app.ui.chrome.shows_home(1, true), "Home must stay dismissed after closing the extra tab");
+        assert_eq!(app.session.documents()[0].doc.name, "Keep");
     }
 
     #[test]

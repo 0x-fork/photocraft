@@ -298,6 +298,15 @@ pub fn owns(f: &Map<String, Value>) -> bool {
     f.contains_key("__colorPicker")
 }
 
+/// Alt+Cancel (Reset): restore the colour from when the picker opened (same as clicking Current).
+pub fn reset(f: &mut Map<String, Value>) {
+    if !owns(f) {
+        return;
+    }
+    let orig = f.get("__orig").and_then(Value::as_str).and_then(parse_hex).unwrap_or([0.0; 3]);
+    set_rgb(f, orig, Keep::Nothing);
+}
+
 /// The Color Picker, when it is the top dialog (another dialog opened over it takes the input).
 pub fn top(app: &PhotocraftApp) -> Option<u64> {
     app.ui.dialogs.last().filter(|d| owns(&d.fields)).map(|d| d.id)
@@ -638,7 +647,7 @@ fn fields(ui: &mut egui::Ui, f: &mut Map<String, Value>, mode: &str, now: &Compo
                 }
                 let typing = if ui.memory(|m| m.has_focus(id)) { ui.data(|d| d.get_temp::<String>(id)) } else { None };
                 let mut h = typing.unwrap_or_else(|| hex(rgb).trim_start_matches('#').to_string());
-                let r = ui.add(egui::TextEdit::singleline(&mut h).id(id).char_limit(6).desired_width(64.0).font(crate::theme::mono(12.0)));
+                let r = crate::widgets::text_field_ex(ui, id, &mut h, "", 64.0, true, Some(6));
                 if r.gained_focus() {
                     crate::field_tab::select_all(ui.ctx(), id, &h);
                 }
@@ -831,6 +840,18 @@ mod tests {
         h.key_press(egui::Key::Enter);
         h.run_steps(3);
         assert_eq!(hex([h.state().session.tools.foreground[0], h.state().session.tools.foreground[1], h.state().session.tools.foreground[2]]), "#ff8800");
+    }
+
+    #[test]
+    fn alt_reset_restores_orig_color() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.tools.foreground = [0.2, 0.4, 0.6, 1.0];
+        let id = open(&mut app, "foreground");
+        let f = &mut app.ui.dialog_mut(id).unwrap().fields;
+        f.insert("color".into(), json!("#ff0000"));
+        reset(f);
+        assert_eq!(f["color"], json!(hex([0.2, 0.4, 0.6])));
+        assert_eq!(f["__orig"], json!(hex([0.2, 0.4, 0.6])));
     }
 
     #[test]

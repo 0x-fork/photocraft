@@ -140,6 +140,9 @@ pub struct FontDb {
     /// PostScript name → (family, weight, italic), filled lazily.
     ps_cache: HashMap<String, Option<ResolvedFont>>,
     fallbacks: Vec<String>,
+    /// Preferences ▸ Type ▸ Missing Glyph Protection: route glyphs the chosen face lacks through
+    /// [`Self::fallback_stack`] (#1909). Off, only the default family shapes the text.
+    missing_glyph_protection: bool,
     face_cache: HashMap<String, Vec<FaceInfo>>,
     face_aliases: HashMap<(String, usize), String>,
 }
@@ -159,6 +162,7 @@ impl FontDb {
             system_loaded: false,
             ps_cache: HashMap::new(),
             fallbacks: Vec::new(),
+            missing_glyph_protection: true,
             face_cache: HashMap::new(),
             face_aliases: HashMap::new(),
         };
@@ -272,8 +276,20 @@ impl FontDb {
     }
 
     /// Families available after the requested one (bundled default + installed coverage fonts).
+    /// With missing glyph protection off (Preferences ▸ Type), only the default family shapes.
     pub(crate) fn fallback_stack(&self) -> impl Iterator<Item = &str> {
-        std::iter::once(DEFAULT_FAMILY).chain(self.fallbacks.iter().map(String::as_str))
+        let fallbacks = self.missing_glyph_protection.then_some(self.fallbacks.iter().map(String::as_str));
+        std::iter::once(DEFAULT_FAMILY).chain(fallbacks.into_iter().flatten())
+    }
+
+    /// Preferences ▸ Type ▸ Missing Glyph Protection, applied by the engine's `apply_prefs`.
+    pub fn set_missing_glyph_protection(&mut self, on: bool) {
+        self.missing_glyph_protection = on;
+    }
+
+    /// Is missing glyph protection on?
+    pub fn missing_glyph_protection(&self) -> bool {
+        self.missing_glyph_protection
     }
 
     /// All family names, sorted.

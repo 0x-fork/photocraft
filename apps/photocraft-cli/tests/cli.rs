@@ -204,6 +204,50 @@ fn run_commands_and_save() {
 }
 
 #[test]
+fn run_stops_after_failed_action_without_exporting() {
+    let d = tmp("run-failed-action");
+    let out = d.join("result.png");
+    let result = bin()
+        .args(["run", "--new", r#"{"width":8,"height":8}"#])
+        .args(["--cmd", "layer.new.layer"])
+        .args(["--cmd", "actions.record", "--params", r#"{"name":"Delete"}"#])
+        .args(["--cmd", "layer.delete", "--cmd", "actions.stop"])
+        // The recorded deletion succeeded with two layers; replay cannot delete the last one.
+        .args(["--cmd", "actions.play", "--params", r#"{"action":"Delete"}"#])
+        .args(["--cmd", "document.inspect", "--out"])
+        .arg(&out)
+        .output()
+        .unwrap();
+    let error = String::from_utf8_lossy(&result.stderr);
+    assert_eq!(result.status.code(), Some(1), "stdout: {}\nstderr: {error}", String::from_utf8_lossy(&result.stdout));
+    assert!(error.contains("actions.play") && error.contains("Delete") && error.contains("step 1"), "{error}");
+    let rows: Vec<Value> = String::from_utf8_lossy(&result.stdout).lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+    assert!(rows.iter().all(|row| row["command"] != "document.inspect"), "later commands must not run");
+    assert!(!out.exists(), "a failed action must not export a partial result");
+    std::fs::remove_dir_all(d).unwrap();
+}
+
+#[test]
+fn run_continues_after_successful_action_and_exports() {
+    let d = tmp("run-successful-action");
+    let out = d.join("result.png");
+    let (stdout, _) = ok(bin()
+        .args(["run", "--new", r#"{"width":8,"height":8}"#])
+        .args(["--cmd", "actions.record", "--params", r#"{"name":"Add"}"#])
+        .args(["--cmd", "layer.new.layer", "--cmd", "actions.stop"])
+        .args(["--cmd", "actions.play", "--params", r#"{"action":"Add"}"#])
+        .args(["--cmd", "document.inspect", "--out"])
+        .arg(&out));
+    let rows: Vec<Value> = stdout.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+    let playback = rows.iter().find(|row| row["command"] == "actions.play").unwrap();
+    assert_eq!(playback["result"]["ran"], 1);
+    assert!(playback["result"].get("failed").is_none());
+    assert!(rows.iter().any(|row| row["command"] == "document.inspect"));
+    assert!(out.is_file());
+    std::fs::remove_dir_all(d).unwrap();
+}
+
+#[test]
 fn run_errors() {
     let o = bin().args(["run", "--new", "{}", "--cmd", "no.such"]).output().unwrap();
     assert_eq!(o.status.code(), Some(1));

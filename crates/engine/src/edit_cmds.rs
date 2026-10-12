@@ -82,7 +82,7 @@ fn whole_layers(d: &crate::DocState, ids: &[LayerId]) -> Option<Box<Document>> {
     let mut copies = scratch_doc(&d.doc);
     for id in ids {
         let mut l = d.doc.layer(*id)?.clone();
-        if crate::extra_cmds::is_background(&l) {
+        if d.doc.is_background(*id) {
             l.name = "Layer 0".into();
             l.locks = Default::default();
         }
@@ -277,7 +277,8 @@ fn clear_selected(doc: &mut Document, id: LayerId, background: [f32; 4]) -> Resu
 /// Cut / Clear on a layer: makes the selected pixels transparent. The Background can't hold
 /// transparency, so there the area is filled with the background colour instead (Photoshop).
 pub(crate) fn clear_area(doc: &mut Document, id: LayerId, area: Rect, sel: Option<&Surface>, background: [f32; 4]) -> Result<()> {
-    let bg = crate::extra_cmds::is_background(doc.layer(id).ok_or(EngineError::NoLayer(id))?);
+    doc.layer(id).ok_or(EngineError::NoLayer(id))?;
+    let bg = doc.is_background(id);
     let surf = crate::commands::paint_surface(doc, id, &Value::Null)?;
     if bg {
         crate::pixels::try_fill_surface(surf, area, background, sel, true)?;
@@ -461,7 +462,7 @@ fn merge_visible(s: &mut Session) -> Result<Value> {
         }
         let lowest = visible[0];
         let base = doc.layers[lowest].clone();
-        let is_background = base.name == "Background" && base.locks.transparency;
+        let is_background = lowest == 0 && doc.is_background(base.id);
         // Composite of visible layers only (hidden ones stay where they are).
         let mut solo = doc.clone();
         solo.layers.retain(|l| l.visible);
@@ -1363,7 +1364,7 @@ mod tests {
             let mut s = fresh();
             s.execute(cmd, json!({})).unwrap();
             let d = &s.active().unwrap().doc;
-            assert!(crate::extra_cmds::is_background(&d.layers[0]), "{cmd}: still the Background");
+            assert!(d.is_background(d.layers[0].id), "{cmd}: still the Background");
             assert_eq!(px(&s, 0, 8, 8), vec![1.0, 0.0, 0.0, 1.0], "{cmd}: cut area is the background colour");
             assert_eq!(px(&s, 0, 30, 20), vec![1.0, 1.0, 1.0, 1.0], "{cmd}: outside untouched");
         }
@@ -1609,9 +1610,9 @@ mod tests {
         let st = s.active().unwrap();
         assert_eq!(st.doc.layers.len(), 4);
         let pasted = &st.doc.layers[st.doc.layers.len() - 2];
-        assert!(!crate::extra_cmds::is_background(pasted));
+        assert!(!st.doc.is_background(pasted.id));
         assert_eq!(pasted.locks, Default::default());
-        assert!(crate::extra_cmds::is_background(&st.doc.layers[0]), "the real Background is untouched");
+        assert!(st.doc.is_background(st.doc.layers[0].id), "the real Background is untouched");
     }
 
     /// #2428: a smart object copied in one document pastes into another as a smart object, in
