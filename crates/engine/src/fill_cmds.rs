@@ -106,7 +106,7 @@ pub fn fill(s: &mut Session, p: &Value) -> Result<Value> {
         "pattern" => {
             let pat = crate::pattern_cmds::resolve_param(s, CMD, p)?;
             let (scale, angle, _, phase) = crate::pattern_cmds::placement(p);
-            let tile = photocraft_compose::pattern::Tile::new(&pat).ok_or_else(|| bad("the pattern is empty"))?;
+            let tile = photocraft_compose::pattern::Tile::new(&pat).ok_or_else(|| bad("the pattern is empty or too large to paint"))?;
             // Photoshop's Fill uses the canvas origin.
             let place = photocraft_compose::pattern::Placement::new(Rect::EMPTY, false, phase, scale, angle);
             out["pattern"] = json!(pat.id);
@@ -526,7 +526,7 @@ mod tests {
         assert!(blacks > 300 && blacks < 900, "{blacks}");
         assert!((0..40).all(|x| {
             let v = surf.rgba(x, 3)[0];
-            !v.is_nan() && !(0.01..=0.99).contains(&v)
+            v.is_finite() && !(0.01..=0.99).contains(&v)
         }));
     }
 
