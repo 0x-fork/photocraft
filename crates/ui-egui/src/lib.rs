@@ -2289,6 +2289,8 @@ mod color_replacement_tests;
 mod layer_shortcut_tests;
 #[cfg(test)]
 mod pencil_tests;
+#[cfg(test)]
+mod tool_options_theme_tests;
 
 #[cfg(test)]
 mod pixel_aspect_tests;
