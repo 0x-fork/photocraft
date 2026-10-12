@@ -605,6 +605,10 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, shown: &[Group], mut bod
                 crate::history_menu_ui::panel_menu(app, ui);
                 ui.separator();
             }
+            if tabs.get(sel) == Some(&"Actions") {
+                crate::actions::panel_menu(app, ui);
+                ui.separator();
+            }
             if let Some(label) = tabs.get(sel) {
                 crate::panel_docking::legacy_menu(app, ui, label);
             }

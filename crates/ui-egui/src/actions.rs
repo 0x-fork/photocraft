@@ -218,8 +218,123 @@ fn step_label(id: &str, params: &Value) -> String {
     if id == "actions.play" {
         let target = params.get("action").map(|v| v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string())).unwrap_or_default();
         format!("{}: {target}", label_of(id))
+    } else if id == photocraft_engine::atn_cmds::STOP_MESSAGE {
+        format!("{}: {}", label_of(id), params.get("message").and_then(Value::as_str).unwrap_or_default())
+    } else if id == photocraft_engine::atn_cmds::PHOTOSHOP_STEP {
+        // A step from a .atn file PhotoCraft can't play yet: its Photoshop name, marked.
+        let name = params.get("name").and_then(Value::as_str).filter(|n| !n.is_empty()).unwrap_or("?");
+        crate::i18n::fmt(tl!("{name} (Photoshop)"), &[("name", name)])
     } else {
         label_of(id)
+    }
+}
+
+/// Command params for a picked file: a real path keeps the journal small; browser files arrive
+/// as bytes.
+fn source(name: &str, bytes: &[u8]) -> Value {
+    #[cfg(not(target_arch = "wasm32"))]
+    if std::path::Path::new(name).is_absolute() && std::path::Path::new(name).is_file() {
+        return json!({"path": name});
+    }
+    let _ = name;
+    json!({"data": photocraft_engine::paint::tile::b64_encode(bytes)})
+}
+
+/// Load a `.atn` file's bytes into the Actions panel (the panel menu's Load Actions…).
+pub fn load_bytes(app: &mut PhotocraftApp, name: &str, bytes: &[u8]) -> Result<Value, String> {
+    let r = app.run("actions.load", source(name, bytes))?;
+    let n = r["actions"].as_array().map_or(0, Vec::len) as u64;
+    let unsupported = r["unsupported"].as_array().map_or(0, Vec::len);
+    let shown = crate::file_open::display_name(name);
+    let loaded =
+        crate::i18n::fmt(&crate::i18n::trn(crate::i18n::current(), n, "Loaded {n} action from {file}", "Loaded {n} actions from {file}"), &[("file", &shown)]);
+    app.ui.status_error = false;
+    app.ui.status = if unsupported > 0 {
+        let note = crate::i18n::trn(
+            crate::i18n::current(),
+            unsupported as u64,
+            "{n} step has no PhotoCraft equivalent yet",
+            "{n} steps have no PhotoCraft equivalent yet",
+        );
+        let template = "{message} ({note})";
+        crate::i18n::fmt(tl!(template), &[("message", &loaded), ("note", &note)])
+    } else {
+        loaded
+    };
+    // Show what arrived: select the first loaded action, expanded.
+    let list = &app.session.actions.list;
+    if let Some(first) = r["actions"][0].as_str()
+        && let Some(i) = list.iter().position(|a| a.name == first)
+    {
+        app.ui.actions.selected = Some(i);
+        app.ui.actions.selected_step = None;
+        app.ui.actions.expanded.resize(list.len(), false);
+        if let Some(e) = app.ui.actions.expanded.get_mut(i) {
+            *e = true;
+        }
+    }
+    app.ui.panels.history = true;
+    Ok(r)
+}
+
+fn load_dialog(app: &mut PhotocraftApp) -> Result<Value, String> {
+    app.pick_file_bytes_filtered(&["atn"], |app, name, bytes| load_bytes(app, &name, &bytes))
+}
+
+/// Save Actions…: the selected action's set (every action of it), or every action when none
+/// came from a set, as a `.atn` file Photoshop loads.
+fn save_dialog(app: &mut PhotocraftApp) -> Result<Value, String> {
+    let set = selected_action(app).and_then(|a| a.set.clone());
+    let params = match &set {
+        Some(set) => json!({"set": set, "skipUnsupported": true}),
+        None => json!({"skipUnsupported": true}),
+    };
+    let r = app.run("actions.save", params)?;
+    let bytes = r["data"].as_str().and_then(photocraft_engine::paint::tile::b64_decode).ok_or("the export returned no data")?;
+    let n = r["actions"].as_array().map_or(0, Vec::len) as u64;
+    let skipped = r["skipped"].as_array().map_or(0, Vec::len);
+    let file = format!("{}.atn", r["set"].as_str().unwrap_or("Actions"));
+    app.pick_save(&file, move |app, path| {
+        let write = app.services.write.as_mut().ok_or("no writer configured")?;
+        write(&path, &bytes)?;
+        let shown = crate::file_open::display_name(&path);
+        let saved =
+            crate::i18n::fmt(&crate::i18n::trn(crate::i18n::current(), n, "Saved {n} action to {file}", "Saved {n} actions to {file}"), &[("file", &shown)]);
+        app.ui.status_error = false;
+        app.ui.status = if skipped > 0 {
+            let note = crate::i18n::trn(
+                crate::i18n::current(),
+                skipped as u64,
+                "{n} step with no Photoshop equivalent left out",
+                "{n} steps with no Photoshop equivalent left out",
+            );
+            let template = "{message} ({note})";
+            crate::i18n::fmt(tl!(template), &[("message", &saved), ("note", &note)])
+        } else {
+            saved
+        };
+        Ok(json!({"path": path, "actions": n, "skipped": skipped}))
+    })
+}
+
+/// The Actions entries of the panel group's menu ("…").
+pub fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    let mut act: Option<&str> = None;
+    if ui.button(tl!("Load Actions…")).clicked() {
+        act = Some("load");
+    }
+    let any = !app.session.actions.list.is_empty();
+    if ui.add_enabled(any, egui::Button::new(tl!("Save Actions…"))).clicked() {
+        act = Some("save");
+    }
+    let Some(a) = act else { return };
+    ui.close();
+    let r = if a == "load" { load_dialog(app) } else { save_dialog(app) };
+    if let Err(e) = r
+        && e != "cancelled"
+    {
+        app.ui.status = e;
+        app.ui.status_error = true;
     }
 }
 
@@ -555,7 +670,7 @@ mod tests {
         let bottom = |height: f32| {
             let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
             for i in 0..50 {
-                app.session.actions.list.push(Action { name: format!("Action {i}"), steps: vec![], disabled: Default::default() });
+                app.session.actions.list.push(Action { name: format!("Action {i}"), steps: vec![], disabled: Default::default(), ..Default::default() });
             }
             let mut h = Harness::builder().with_size(vec2(320.0, height)).build_ui_state(|ui, app| panel(app, ui), app);
             h.run_steps(3);
@@ -572,7 +687,12 @@ mod tests {
         use egui_kittest::{Harness, kittest::Queryable};
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.run("file.new", json!({"width": 32, "height": 32})).unwrap();
-        app.session.actions.list.push(Action { name: "Action 1".into(), steps: vec![("layer.new.layer".into(), json!({}))], disabled: Default::default() });
+        app.session.actions.list.push(Action {
+            name: "Action 1".into(),
+            steps: vec![("layer.new.layer".into(), json!({}))],
+            disabled: Default::default(),
+            ..Default::default()
+        });
         let layers = app.session.active().unwrap().doc.layers.len();
         // 60 fps steps, so two clicks a frame apart count as a double-click.
         let mut h = Harness::builder().with_size(vec2(320.0, 260.0)).with_step_dt(1.0 / 60.0).build_ui_state(|ui, app| panel(app, ui), app);
@@ -606,8 +726,18 @@ mod tests {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.run("file.new", json!({"width": 32, "height": 32})).unwrap();
         assert_eq!(playback_selection(&app), None);
-        app.session.actions.list.push(Action { name: "Make Layer".into(), steps: vec![("layer.new.layer".into(), json!({}))], disabled: Default::default() });
-        app.session.actions.list.push(Action { name: "Fit".into(), steps: vec![("view.fitOnScreen".into(), json!({}))], disabled: Default::default() });
+        app.session.actions.list.push(Action {
+            name: "Make Layer".into(),
+            steps: vec![("layer.new.layer".into(), json!({}))],
+            disabled: Default::default(),
+            ..Default::default()
+        });
+        app.session.actions.list.push(Action {
+            name: "Fit".into(),
+            steps: vec![("view.fitOnScreen".into(), json!({}))],
+            disabled: Default::default(),
+            ..Default::default()
+        });
         assert_eq!(playback_selection(&app), Some(0));
         app.ui.actions.selected = Some(1);
         assert_eq!(playback_selection(&app), Some(1));
@@ -654,7 +784,12 @@ mod tests {
         use egui_kittest::{Harness, kittest::Queryable};
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.run("file.new", json!({"width": 32, "height": 32})).unwrap();
-        app.session.actions.list.push(Action { name: "Bad action".into(), steps: vec![("not.a.command".into(), json!({}))], disabled: Default::default() });
+        app.session.actions.list.push(Action {
+            name: "Bad action".into(),
+            steps: vec![("not.a.command".into(), json!({}))],
+            disabled: Default::default(),
+            ..Default::default()
+        });
         let mut h = Harness::builder().with_size(vec2(400.0, 320.0)).build_ui_state(|ui, app| panel(app, ui), app);
         h.run_steps(3);
         h.get_by_label("Play selection").click();
@@ -669,7 +804,7 @@ mod tests {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.run("file.new", json!({"width":4,"height":4})).unwrap();
         for i in 0..30 {
-            app.session.actions.list.push(Action { name: format!("Existing {i}"), steps: vec![], disabled: Default::default() });
+            app.session.actions.list.push(Action { name: format!("Existing {i}"), steps: vec![], disabled: Default::default(), ..Default::default() });
         }
         let mut h = Harness::builder().with_size(vec2(320.0, 260.0)).build_ui_state(|ui, app| panel(app, ui), app);
         h.run_steps(4);
@@ -694,8 +829,9 @@ mod tests {
             name: "First".into(),
             steps: vec![("view.zoomOut".into(), json!({})), ("view.fitOnScreen".into(), json!({})), ("view.actualPixels".into(), json!({}))],
             disabled: Default::default(),
+            ..Default::default()
         });
-        app.session.actions.list.push(Action { name: "Second".into(), steps: vec![], disabled: Default::default() });
+        app.session.actions.list.push(Action { name: "Second".into(), steps: vec![], disabled: Default::default(), ..Default::default() });
         app.ui.actions.expanded = vec![true, false];
         let mut h = Harness::builder().with_size(vec2(320.0, 400.0)).build_ui_state(|ui, app| panel(app, ui), app);
         h.run_steps(4);
@@ -735,6 +871,7 @@ mod tests {
             name: "Child".into(),
             steps: vec![("layer.new.layer".into(), json!({})), ("view.fitOnScreen".into(), json!({}))],
             disabled: Default::default(),
+            ..Default::default()
         });
         app.run("actions.record", json!({"name":"Parent"})).unwrap();
         app.run("actions.play", json!({"action":"Child"})).unwrap();
@@ -827,6 +964,7 @@ mod tests {
             name: "Fit".into(),
             steps: vec![("view.fitOnScreen".into(), json!({})), ("view.actualPixels".into(), json!({}))],
             disabled: Default::default(),
+            ..Default::default()
         });
         let result = app.run("actions.play", json!({"action": "Fit"})).unwrap();
         assert_eq!(result["ran"], 0);

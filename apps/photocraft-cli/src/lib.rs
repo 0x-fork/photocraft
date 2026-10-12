@@ -26,8 +26,9 @@ USAGE:
   photocraft-cli run (<file> | --new <json>) --cmd <id> [--params <json>] [--cmd …] [--out <file>] [--format <ext>] [--quality <1-100>] [--tiff-layers] [--tga-bits <24|32>]
       Open a file, run engine commands in order, save the result. Each --params
       applies to the preceding --cmd. Prints each command's JSON result.
-  photocraft-cli batch --actions <actions.json> [--action <name>] --in <dir> --out <dir> [--format <ext>] [--quality <1-100>] [--in-place] [--tiff-layers] [--tga-bits <24|32>]
-      Apply an action list to every image in a directory. Steps are [id, params] pairs,
+  photocraft-cli batch --actions <actions.json|set.atn> [--action <name>] --in <dir> --out <dir> [--format <ext>] [--quality <1-100>] [--in-place] [--tiff-layers] [--tga-bits <24|32>]
+      Apply an action list to every image in a directory. A Photoshop Actions file (.atn) is a
+      set: its action --action names plays, as below. JSON steps are [id, params] pairs,
       {\"command\": id, \"params\": {…}} objects or bare ids, as a recorded action or droplet stores them
       (a list, or wrapped in {\"actions\": …}, {\"steps\": …} or a droplet). An Actions set (the Actions
       panel's actions.json, {\"actions\": [{\"name\", \"steps\"}…]}) plays the action --action names (needed
@@ -392,6 +393,38 @@ pub fn load_actions(text: &str, name: Option<&str>) -> Result<(Steps, Vec<Action
     Ok((play, set))
 }
 
+/// [`load_actions`] for a file on disk: a Photoshop Actions file (`.atn`, by extension or by
+/// its version word) is converted first; the played action's steps with no PhotoCraft
+/// equivalent come back as warnings (they fail at playback, as in Photoshop when a step can't run).
+pub fn load_actions_file(path: &str, name: Option<&str>) -> Result<(Steps, Vec<Action>, Vec<String>), String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+    let is_atn = Path::new(path).extension().is_some_and(|e| e.eq_ignore_ascii_case("atn")) || bytes.starts_with(&[0, 0, 0, 16]);
+    if !is_atn {
+        let text = String::from_utf8(bytes).map_err(|e| format!("{path}: {e}"))?;
+        let (steps, set) = load_actions(&text, name)?;
+        return Ok((steps, set, Vec::new()));
+    }
+    let imp = photocraft_engine::atn_cmds::import(&bytes).map_err(|e| format!("{path}: {e}"))?;
+    let names = || imp.actions.iter().map(|a| format!("`{}`", a.name)).collect::<Vec<_>>().join(", ");
+    let action = match (name, imp.actions.as_slice()) {
+        (Some(n), _) => {
+            imp.actions.iter().find(|a| a.name == n).ok_or_else(|| format!("no action named `{n}` in the set `{}` (it holds {})", imp.set, names()))?
+        }
+        (None, [only]) => only,
+        (None, []) => return Err(format!("{path}: the set holds no actions")),
+        (None, _) => return Err(format!("the set `{}` holds {} actions: pick one with --action <name> ({})", imp.set, imp.actions.len(), names())),
+    };
+    let warnings = imp
+        .unsupported
+        .iter()
+        .filter(|u| u.action == action.name)
+        .map(|u| format!("`{}` step {}: Photoshop's \"{}\" ({}) has no PhotoCraft equivalent yet", u.action, u.step + 1, u.name, u.event))
+        .chain(imp.warnings.iter().cloned())
+        .collect();
+    let play = vec![("actions.play".to_string(), json!({"action": action.name}))];
+    Ok((play, imp.actions, warnings))
+}
+
 /// Whether `a` and `b` name the same existing folder, however they are spelt (relative, with a
 /// trailing separator, through a symbolic link).
 fn same_dir(a: &Path, b: &Path) -> bool {
@@ -410,8 +443,10 @@ fn batch(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> R {
     let actions_path = a.get("--actions").ok_or("batch needs --actions <file>")?;
     let in_dir = PathBuf::from(a.get("--in").ok_or("batch needs --in <dir>")?);
     let out_dir = PathBuf::from(a.get("--out").ok_or("batch needs --out <dir>")?);
-    let text = std::fs::read_to_string(actions_path).map_err(|e| format!("{actions_path}: {e}"))?;
-    let (actions, set) = load_actions(&text, a.get("--action"))?;
+    let (actions, set, warnings) = load_actions_file(actions_path, a.get("--action"))?;
+    for w in &warnings {
+        let _ = writeln!(err, "warning: {w}");
+    }
     let opts = export_opts(a)?;
     // Results are saved as `<out>/<stem>.<ext>`, so an `--out` that is the `--in` folder would
     // replace the originals (#492).
