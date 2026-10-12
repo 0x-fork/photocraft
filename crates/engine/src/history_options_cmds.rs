@@ -190,6 +190,8 @@ mod tests {
         s.execute("layer.hideLayers", json!({"layer": id})).unwrap();
         s.execute("layer.showOnly", json!({"layer": id})).unwrap();
         s.execute("layer.showOnly", json!({"layer": id})).unwrap();
+        // Hide Layers toggles (⌘,), so show the layer first for it to hide.
+        s.execute("layer.showLayers", json!({"layer": id})).unwrap();
         s.execute("layer.hideLayers", json!({"layer": id})).unwrap();
         assert_eq!(entries(&s), before, "no visibility state was recorded");
         let st = s.active().unwrap();
