@@ -86,7 +86,9 @@ pub fn effect_defaults(kind: &str) -> Value {
         }
         "patternOverlay" => json!({"blend": "Normal", "opacity": 100, "pattern": "", "angle": 0, "scale": 100, "link": true}),
         "bevelEmboss" => {
-            json!({"style": "inner", "depth": 100, "direction": "up", "size": 5, "soften": 0, "angle": 120, "useGlobalLight": true, "altitude": 30, "glossContour": "Linear", "contour": false, "contourName": "Linear", "contourRange": 50, "contourAntiAlias": false})
+            json!({"style": "inner", "depth": 100, "direction": "up", "size": 5, "soften": 0, "angle": 120, "useGlobalLight": true, "altitude": 30, "glossContour": "Linear", "highlightBlend": "Screen", "highlightColor": "#ffffff", "highlightOpacity": 75,
+                "shadowBlend": "Multiply", "shadowColor": "#000000", "shadowOpacity": 75,
+                "contour": false, "contourName": "Linear", "contourRange": 50, "contourAntiAlias": false)
         }
         "satin" => {
             json!({"blend": "Multiply", "color": "#000000", "opacity": 50, "angle": 19, "distance": 11, "size": 14, "contour": "Linear", "antiAlias": true, "invert": true})
@@ -559,6 +561,21 @@ pub fn overlay_effect(fx: &mut Effect, p: &Value) {
                 bv.use_global_light = x;
             }
             set_contour(p, "glossContour", &mut bv.gloss_contour);
+            // Photoshop exposes separate shading controls for each side of the bevel.
+            if let Some(blend) = p.get("highlightBlend").and_then(Value::as_str).and_then(blend_from_str) {
+                bv.highlight.blend = blend;
+            }
+            if let Some(blend) = p.get("shadowBlend").and_then(Value::as_str).and_then(blend_from_str) {
+                bv.shadow.blend = blend;
+            }
+            set_color(p, "highlightColor", &mut bv.highlight_color);
+            set_color(p, "shadowColor", &mut bv.shadow_color);
+            if let Some(x) = f_of(p, "highlightOpacity") {
+                bv.highlight.opacity = (x / 100.0).clamp(0.0, 1.0);
+            }
+            if let Some(x) = f_of(p, "shadowOpacity") {
+                bv.shadow.opacity = (x / 100.0).clamp(0.0, 1.0);
+            }
             // The Contour element: `contour` turns it on/off; its curve, Range and
             // Anti-aliased edit the element in place, so an imported curve survives.
             match b_of(p, "contour") {
@@ -908,6 +925,33 @@ mod tests {
         assert!((b.contour.as_ref().unwrap().range - 0.7).abs() < 1e-6);
         let t = b.texture.as_ref().unwrap();
         assert_eq!((t.name.as_str(), t.depth, t.invert), ("Bubbles", -2.0, true));
+    }
+
+    #[test]
+    fn bevel_shading_fields_are_independent_and_preserved_on_partial_edits() {
+        let mut s = session();
+        s.execute("layer.layerStyle.bevelEmboss", json!({
+            "highlightBlend": "Normal", "highlightColor": "#ff0000", "highlightOpacity": 35,
+            "shadowBlend": "Color Burn", "shadowColor": "#0000ff", "shadowOpacity": 60
+        })).unwrap();
+        let fx = effects(&s);
+        let Effect::BevelEmboss(bevel) = &fx[0] else { panic!("{fx:?}") };
+        assert_eq!(bevel.highlight.blend, BlendMode::Normal);
+        assert_eq!(bevel.highlight_color, Color::rgb(1.0, 0.0, 0.0));
+        assert!((bevel.highlight.opacity - 0.35).abs() < 0.001);
+        assert_eq!(bevel.shadow.blend, BlendMode::ColorBurn);
+        assert_eq!(bevel.shadow_color, Color::rgb(0.0, 0.0, 1.0));
+        assert!((bevel.shadow.opacity - 0.60).abs() < 0.001);
+        let mut changed = fx[0].clone();
+        overlay_effect(&mut changed, &json!({"size": 12}));
+        let Effect::BevelEmboss(partial) = &changed else { panic!("expected bevel") };
+        assert_eq!(partial.highlight, bevel.highlight);
+        assert_eq!(partial.highlight_color, bevel.highlight_color);
+        assert_eq!(partial.shadow, bevel.shadow);
+        assert_eq!(partial.shadow_color, bevel.shadow_color);
+        overlay_effect(&mut changed, &json!({"highlightOpacity": 120, "shadowOpacity": -30}));
+        let Effect::BevelEmboss(limits) = &changed else { panic!("expected bevel") };
+        assert_eq!((limits.highlight.opacity, limits.shadow.opacity), (1.0, 0.0));
     }
 
     #[test]

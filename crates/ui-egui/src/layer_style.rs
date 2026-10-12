@@ -171,6 +171,12 @@ fn spec(kind: &str) -> &'static [(&'static str, &'static str, P)] {
             ("useGlobalLight", "Use Global Light", P::Check),
             ("altitude", "Altitude", P::Slider(0.0, 90.0, "°")),
             ("glossContour", "Gloss Contour", P::Contour(None)),
+            ("highlightBlend", "Highlight Mode", P::Blend),
+            ("highlightColor", "Highlight Color", P::Color),
+            ("highlightOpacity", "Highlight Opacity", P::Slider(0.0, 100.0, "%")),
+            ("shadowBlend", "Shadow Mode", P::Blend),
+            ("shadowColor", "Shadow Color", P::Color),
+            ("shadowOpacity", "Shadow Opacity", P::Slider(0.0, 100.0, "%")),
             // Bevel & Emboss › Contour element.
             ("contour", "Contour", P::Check),
             ("contourName", "", P::Contour(Some("contourAntiAlias"))),
@@ -350,6 +356,12 @@ fn values_of(e: &Effect, light: f32) -> Value {
             set(&mut v, "altitude", json!(b.altitude));
             set(&mut v, "direction", json!(if b.up { "up" } else { "down" }));
             set(&mut v, "glossContour", photocraft_engine::layer_style::contour_param(&b.gloss_contour));
+            set(&mut v, "highlightBlend", json!(b.highlight.blend.label()));
+            set(&mut v, "highlightColor", json!(hex(&b.highlight_color)));
+            set(&mut v, "highlightOpacity", json!((b.highlight.opacity * 100.0).round()));
+            set(&mut v, "shadowBlend", json!(b.shadow.blend.label()));
+            set(&mut v, "shadowColor", json!(hex(&b.shadow_color)));
+            set(&mut v, "shadowOpacity", json!((b.shadow.opacity * 100.0).round()));
             set(&mut v, "contour", json!(b.contour.is_some()));
             if let Some(c) = &b.contour {
                 set(&mut v, "contourName", photocraft_engine::layer_style::contour_param(&c.contour));
@@ -1887,6 +1899,34 @@ mod tests {
             h.run();
             assert_eq!(*h.state(), expected);
         }
+    }
+
+    #[test]
+    fn bevel_shading_round_trips_through_dialog_preview_and_confirm() {
+        let mut s = session();
+        s.execute("layer.layerStyle.bevelEmboss", json!({
+            "highlightBlend": "Normal", "highlightColor": "#e08020", "highlightOpacity": 25,
+            "shadowBlend": "Multiply", "shadowColor": "#204080", "shadowOpacity": 40
+        })).unwrap();
+        let st = s.active().unwrap();
+        let id = st.active_layer.unwrap();
+        let mut fields = initial_fields(st.doc.layer(id).unwrap(), Some("bevelEmboss"), st.doc.global_light.angle);
+        let values = &entry(&fields, "fx1").unwrap()["params"];
+        assert_eq!(values["highlightColor"], "#e08020");
+        assert_eq!(values["highlightOpacity"], 25.0);
+        assert_eq!(values["shadowColor"], "#204080");
+        assert_eq!(values["shadowOpacity"], 40.0);
+        set_param(&mut fields, "fx1", "highlightBlend", json!("Screen"));
+        set_param(&mut fields, "fx1", "highlightOpacity", json!(80.0));
+        set_param(&mut fields, "fx1", "shadowColor", json!("#ff0000"));
+        assert!(preview_document(&st.doc, &s.patterns, &fields).is_ok());
+        apply(&fields, |cmd, p| s.execute(cmd, p).map_err(|e| e.to_string())).unwrap();
+        let effect = &s.active().unwrap().doc.layer(id).unwrap().effects.items[0];
+        let Effect::BevelEmboss(bevel) = effect else { panic!("expected bevel") };
+        assert_eq!(bevel.highlight.blend, photocraft_doc::BlendMode::Screen);
+        assert!((bevel.highlight.opacity - 0.8).abs() < 0.001);
+        assert_eq!(hex(&bevel.shadow_color), "#ff0000");
+        assert_eq!(hex(&bevel.highlight_color), "#e08020");
     }
 
     #[test]
