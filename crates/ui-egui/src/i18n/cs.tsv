@@ -3665,3 +3665,9 @@ navigator	Zoom	Zvětšení
 	Remove after each stroke	Odstranit po každém tahu
 	Apply the removal ({key})	Použít odstranění ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Tahy k odstranění: {n} (Enter použije, Esc zruší)
+	Load Contours…	Načíst obrysy…
+	Replace Contours…	Nahradit obrysy…
+	Save Contours…	Uložit obrysy…
+	Delete Contour	Smazat obrys
+	Loaded contours from {file}	Obrysy načteny ze souboru {file}
+	Saved contours to {file}	Obrysy uloženy do souboru {file}

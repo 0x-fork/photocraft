@@ -3648,3 +3648,9 @@ curves	Smooth	Wygładź
 	Remove after each stroke	Usuwaj po każdym pociągnięciu
 	Apply the removal ({key})	Zastosuj usuwanie ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Pociągnięcia do usunięcia: {n} (Enter stosuje, Esc anuluje)
+	Load Contours…	Wczytaj kontury…
+	Replace Contours…	Zamień kontury…
+	Save Contours…	Zapisz kontury…
+	Delete Contour	Usuń kontur
+	Loaded contours from {file}	Wczytano kontury z {file}
+	Saved contours to {file}	Zapisano kontury w {file}

@@ -3970,3 +3970,9 @@ cameraRaw	Yellow	Sárga
 	Transform On Drop	Átalakítás elengedéskor
 	Vanishing Point is not active	Az Enyészpont nem aktív
 	Vanishing Point: click four corners to create a plane	Enyészpont: sík létrehozásához kattintson a négy sarokra
+	Load Contours…	Kontúrok betöltése…
+	Replace Contours…	Kontúrok cseréje…
+	Save Contours…	Kontúrok mentése…
+	Delete Contour	Kontúr törlése
+	Loaded contours from {file}	Kontúrok betöltve: {file}
+	Saved contours to {file}	Kontúrok mentve: {file}
