@@ -37,7 +37,7 @@ id = "TYPE-218-5"
 target = "OpenType UI: Character panel buttons, Numerals and Stylistic Sets submenus"
 status = "partial"
 issue = 218
-note = "Type > OpenType toggles (type_extra_cmds.rs:512); no panel buttons or submenus"
+note = "Type > OpenType toggles (type_extra_cmds.rs:512). Character panel (and the Properties Character section) has Photoshop's eight OpenType buttons: Standard Ligatures, Contextual Alternates, Discretionary Ligatures, Swash, Stylistic Alternates, Titling Alternates, Ordinals, Fractions, pressed while the feature is on at the selection and dispatching the type.openType.* commands (type_tool.rs opentype_row; character_panel_opentype_buttons_toggle_and_show_the_feature, #3752). Still missing: the Numerals and Stylistic Sets submenus, and greying out features the font lacks"
 
 [[item]]
 id = "TYPE-218-6"

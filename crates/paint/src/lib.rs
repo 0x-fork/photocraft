@@ -37,7 +37,7 @@ pub use brush::{
     SectionLocks, ShapeDynamics, Smoothing, Texture, TipShape, Transfer,
 };
 pub use mixer::MixerSettings;
-pub use render::{BrushContext, StrokeRenderer, grid_center, grid_square, render_stroke};
+pub use render::{BrushContext, StrokeRenderer, UnionLive, grid_center, grid_square, render_stroke};
 pub use tile::{GrayTile, StoredTile};
 
 /// One input sample. Missing stylus data defaults to "mouse": full pressure, no tilt/rotation.

@@ -393,6 +393,7 @@
 	Select Linked Layers	选择链接的图层
 	Merge Layers	合并图层
 	Merge Down	向下合并
+	Merge Group	合并组
 	Merge Visible	合并可见图层
 	Stamp Visible	盖印可见图层
 	Select Layer Above	选择上方图层
@@ -2655,3 +2656,6 @@ curves	Smooth	平滑
 	Light Red	浅红色
 	Medium Blue	中蓝色
 	Light Gray	浅灰色
+	Remove after each stroke	每次描边后移除
+	Apply the removal ({key})	应用移除 ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	待移除的描边：{n}（Enter 应用，Esc 取消）

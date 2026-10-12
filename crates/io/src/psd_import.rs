@@ -307,6 +307,7 @@ impl Ctx<'_> {
             });
             if let Some(txt2) = &self.txt2 {
                 photocraft_text::psd::apply_txt2(&mut t, &data, txt2);
+                photocraft_text::psd::apply_txt2_frame(&mut t, &data, txt2);
             }
             // Photoshop's pixels are the cache only when the file has some: ag-psd, GIMP and
             // other writers leave type layers without image data (Photoshop re-renders them on
@@ -702,7 +703,20 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &photocraft_raster::Interrupt) 
         // Capped like `build` (#2940): a group past the document's nesting cap keeps no children,
         // so no file can make this tree, or anything walking or dropping it, recurse deeper.
         let tree = file.layer_tree_max_depth(photocraft_doc::MAX_GROUP_DEPTH);
-        doc.layers = cx.build(&tree, 0);
+        // Colours stored in the document's CMYK space (Gradient Map stops…) convert through
+        // its own profile, as the compositor and the PSD writer read them.
+        let space = photocraft_compose::cmyk_space(&doc);
+        doc.layers = photocraft_color::convert::with_cmyk_space(space.as_ref(), || cx.build(&tree, 0));
+        // Photoshop's Background: the bottom record, a transparency-protected pixel layer stored
+        // without a transparency channel (-1). It is also position-locked, whatever its
+        // (localized) name and whether or not the file carries an `lspf` block.
+        if let (Some(rec), Some(bottom)) = (file.layers().first(), doc.layers.first_mut())
+            && rec.flags.transparency_protected()
+            && !rec.channels.iter().any(|c| c.id == -1)
+            && matches!(bottom.content, LayerContent::Raster(_))
+        {
+            bottom.locks.position = true;
+        }
         // Layer › Link Layers: resource 1026 holds one group id per layer record (0 = unlinked).
         if let Some(Ok(photocraft_psd::resources::ResourceData::LayerGroupInfo(groups))) =
             file.resources.iter().find(|r| r.id == ids::LAYER_GROUP_INFO).and_then(photocraft_psd::resources::ImageResource::parsed)
@@ -808,6 +822,9 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &photocraft_raster::Interrupt) 
         let first = cc + usize::from(file.merged_has_alpha());
         let plane = h.row_bytes() * hh;
         let names = file.resource(1045).map(|r| unicode_names(&r.data)).unwrap_or_default();
+        // Photoshop lists every extra channel, the merged transparency first when there is one.
+        let skip = usize::from(file.merged_has_alpha() && names.len() == usize::from(h.channels).saturating_sub(cc));
+        let names = names.get(skip..).unwrap_or_default();
         for (k, idx) in (first..usize::from(h.channels)).enumerate() {
             let Some(p) = all.get(idx * plane..(idx + 1) * plane) else { break };
             let mut s = Surface::new(cx.mask_fmt);
@@ -818,9 +835,9 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &photocraft_raster::Interrupt) 
         }
         // Channel options (overlay colour, opacity, colour indicates) and spot inks.
         if let Some(r) = file.resource(crate::channel_map::DISPLAY_INFO) {
-            crate::channel_map::apply_display_info(&r.data, true, &mut doc.channels);
+            crate::channel_map::apply_display_info(&r.data, true, skip, &mut doc.channels);
         } else if let Some(r) = file.resource(crate::channel_map::DISPLAY_INFO_OLD) {
-            crate::channel_map::apply_display_info(&r.data, false, &mut doc.channels);
+            crate::channel_map::apply_display_info(&r.data, false, skip, &mut doc.channels);
         }
         // Saved in Quick Mask mode: that channel becomes the document's Quick Mask again.
         if let Some(r) = file.resource(crate::channel_map::QUICK_MASK_INFO)

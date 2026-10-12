@@ -398,6 +398,7 @@
 	Select Linked Layers	選取連結的圖層
 	Merge Layers	合併圖層
 	Merge Down	向下合併圖層
+	Merge Group	合併群組
 	Merge Visible	合併可見圖層
 	Stamp Visible	蓋印可見圖層
 	Select Layer Above	選取上方圖層
@@ -2640,3 +2641,6 @@ curves	Smooth	平滑
 	Light Red	淺紅色
 	Medium Blue	中藍色
 	Light Gray	淺灰色
+	Remove after each stroke	每次描邊後移除
+	Apply the removal ({key})	套用移除 ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	待移除的描邊：{n}（Enter 套用，Esc 取消）

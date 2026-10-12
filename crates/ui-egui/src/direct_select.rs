@@ -139,7 +139,20 @@ pub fn shows(app: &PhotocraftApp, mods: Modifiers) -> bool {
 pub(crate) fn candidates(app: &PhotocraftApp) -> Vec<(PathRef, Path)> {
     let layer = crate::vector_ui::targeted_vector_mask(app).or_else(|| crate::vector_ui::active_shape_path(app));
     let work = app.session.active().and_then(|st| st.doc.work_path.clone());
-    layer.map(|(id, p)| (PathRef::Layer(id), p)).into_iter().chain(work.map(|p| (PathRef::Work, p))).collect()
+    let mut out: Vec<_> = layer.map(|(id, p)| (PathRef::Layer(id), p)).into_iter().chain(work.map(|p| (PathRef::Work, p))).collect();
+    if let Some(st) = app.session.active() {
+        for (path, _, l) in st.doc.walk().iter().rev() {
+            if !l.visible || !(1..=path.len()).all(|n| st.doc.layer_at(&path[..n]).is_some_and(|a| a.visible)) {
+                continue;
+            }
+            if let photocraft_doc::LayerContent::Shape(sh) = &l.content
+                && !out.iter().any(|(r, _)| *r == PathRef::Layer(l.id.0))
+            {
+                out.push((PathRef::Layer(l.id.0), sh.path.clone()));
+            }
+        }
+    }
+    out
 }
 
 fn retracted(k: &photocraft_doc::Knot, h: Handle) -> bool {
@@ -222,14 +235,19 @@ fn press(app: &mut PhotocraftApp, p: [f64; 2], mods: Modifiers, convert: bool) -
         let handles = if ds.target == Some(r) { shown_handles(ds, &path) } else { Vec::new() };
         edit::hit(&path, Point::new(p[0], p[1]), tol, &handles).map(|h| (r, path, h))
     });
-    let ds = &mut app.ui.direct_selection;
     let Some((target, base, hit)) = found else {
         if convert {
             return own_tool;
         }
-        ds.drag = Some(Drag::Marquee { start: p, end: p, add: mods.shift });
+        app.ui.direct_selection.drag = Some(Drag::Marquee { start: p, end: p, add: mods.shift });
         return true;
     };
+    if let PathRef::Layer(id) = target
+        && app.session.active().and_then(|st| st.active_layer).map(|l| l.0) != Some(id)
+    {
+        let _ = app.run("layer.select", json!({"layer": id}));
+    }
+    let ds = &mut app.ui.direct_selection;
     if ds.target != Some(target) {
         *ds = DirectSelection { target: Some(target), ..Default::default() };
     }

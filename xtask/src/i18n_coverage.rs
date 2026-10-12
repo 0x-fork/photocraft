@@ -579,6 +579,8 @@ mod tests {
             ("el", "el.tsv"),
             ("uk", "uk.tsv"),
             ("nl", "nl.tsv"),
+            ("hu", "hu.tsv"),
+            ("tr", "tr.tsv"),
             ("vi", "vi.tsv"),
         ] {
             let catalog_path = root.join("crates/ui-egui/src/i18n").join(path);

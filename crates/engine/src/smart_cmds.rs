@@ -666,7 +666,7 @@ fn any_layer(l: &Layer, f: &dyn Fn(&Layer) -> bool) -> bool {
 /// blend mode, clipping and label stay on the smart layer. The cache is the exact composite, so
 /// the document looks the same before and after.
 pub fn layer_to_smart(doc: &Document, l: &Layer) -> Result<Layer> {
-    let background = l.name == "Background" && l.locks.position;
+    let background = doc.is_background(l.id);
     let mut inner = l.clone();
     inner.visible = true;
     inner.opacity = 1.0;

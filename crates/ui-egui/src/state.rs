@@ -494,6 +494,10 @@ pub struct DocWindow {
     pub document: usize,
     pub view: View,
     pub open: bool,
+    /// Where the window opens on screen (outer top-left, in points); `None` lets the OS place it.
+    /// A tab dragged off the tab strip opens its window where it was dropped (#3733).
+    #[serde(default)]
+    pub position: Option<[f32; 2]>,
 }
 
 /// Options-bar state for tools (Photoshop keeps these per tool).
@@ -504,6 +508,11 @@ pub struct ToolOptions {
     pub contiguous: bool,
     pub anti_alias: bool,
     pub sample_all_layers: bool,
+    /// Remove tool: the fill goes to a new layer above the target (Photoshop's Create a new layer).
+    pub remove_new_layer: bool,
+    /// Remove tool: each stroke is filled when released (Photoshop's default). Off, the strokes
+    /// collect as a tint on the canvas and ↩ applies them together (Esc drops them).
+    pub remove_after_each_stroke: bool,
     pub feather: f32,
     /// linear | radial | angle | reflected | diamond
     pub gradient_style: String,
@@ -740,6 +749,8 @@ impl Default for ToolOptions {
             contiguous: true,
             anti_alias: true,
             sample_all_layers: false,
+            remove_new_layer: false,
+            remove_after_each_stroke: true,
             feather: 0.0,
             gradient_style: "linear".into(),
             gradient_reverse: false,

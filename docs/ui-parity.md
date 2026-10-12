@@ -1,6 +1,6 @@
 # UI parity: tools, handles, modifiers and feel
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** minor (History snapshots) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (⇧-dragged guides land on ruler ticks; layer and selection keys; tool keys) · **Target:** Adobe Photoshop 2026
 
 How PhotoCraft's direct manipulation compares with Photoshop 2026 (27.11.0): the toolbox, the
 handles and modifier keys of each gesture, nudging, snapping, numeric precision, navigation,
@@ -149,6 +149,7 @@ Triangle and Curvature Pen (minus legacy Rounded Rectangle and Targeted Adjustme
 | Smart guides (magenta alignment lines) | done | |
 | Smart guide distance and spacing labels | missing | |
 | Ruler units px/in/cm/mm/pt/pica/% | done | |
+| ⇧-drag a guide out of a ruler: it lands on the nearest ruler tick | done | `rulers.rs` `snap_to_tick` (#3770) |
 | Status bar follows the ruler unit | partial | #2602 |
 | Ruler corner and gaps drawn as Photoshop | partial | #2600, #2601, #2551 |
 | Guides stored as f64 | missing | `Vec<f32>` (UI-217-20) |
@@ -182,6 +183,8 @@ Triangle and Curvature Pen (minus legacy Rounded Rectangle and Targeted Adjustme
 | `.kys` import | done (`engine/src/kys.rs`) | |
 | Shortcut glyphs per platform | done (UI-217-19) | |
 | Brush size/hardness keys on non-US layouts | done (#3109): `[` `]` need AltGr on many layouts, so Photoshop uses other keys there (German: Ö / #, ⇧ for hardness). `layout_keys.rs` has a data table of such layouts (`LAYOUTS`, add rows to support one more) and a fallback for all others: the keys at the US `[` / `]` positions act as `[` / `]` when they don't type brackets. Off once a real bracket is typed; Edit › Keyboard Shortcuts overrides still apply | |
+| Layer and selection keys: ⌘, toggles visibility, ⌘\ targets the mask, / locks transparency, ⌘⌥2 loads luminosity, ⌘⌥⌫ fills from history, Tab / ⇧Tab rename the next layer, ⌥-click a thumbnail fits the layer | done (2026-10-11) | |
+| Tool keys: ← / → turn the brush tip (1°, ⇧ 15°), ⇧-click with Type starts new text over old, Space+F / ⇧Space+F cycle the pasteboard colour | done (2026-10-11) | |
 
 ## Panels and workspace
 
@@ -213,3 +216,6 @@ Paragraph; the rest open as in-app floating windows.
 | 2026-10-10 | minor | Fixed Crop live resize snapping feedback and outdated-camera rendering, applied ratios immediately to centred inscribed previews, and removed two-point options-bar overflow; added pointer, rendering, dropdown/Enter, Swap/X and scrolling regressions |
 | 2026-10-11 | minor | Flick panning done: releasing a moving Hand drag (tool, Space or middle button) glides and decays, gated by Enable Flick Panning |
 | 2026-10-11 | minor | History snapshots: the camera button takes one, snapshot rows return to it as a new state, rename and delete it (#2966) |
+| 2026-10-11 | minor | ⇧-drag a guide out of a ruler lands on the nearest ruler tick (#3770) |
+| 2026-10-11 | minor | Layer and selection keys from Photoshop's shortcut set: ⌘, toggles, ⌘\, /, ⌘⌥2, ⌘⌥⌫, Tab rename-next, ⌥-click thumbnail to fit |
+| 2026-10-11 | minor | Tool keys from Photoshop's shortcut set: ← / → rotate the brush tip, ⇧-click for new type, Space+F canvas colour |
