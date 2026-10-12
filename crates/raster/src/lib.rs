@@ -732,6 +732,31 @@ impl Surface {
         out
     }
 
+    /// Applies `f` to every colour sample (not alpha), including the default pixel: a tone-curve
+    /// change such as linearising when a document becomes 32-bit.
+    pub fn map_color(&mut self, f: impl Fn(f32) -> f32) {
+        let format = self.format;
+        let color = format.mode.color_channels();
+        let n = format.channels();
+        let mut dp = decode_pixel(&format, &self.default_pixel);
+        for v in dp.iter_mut().take(color) {
+            *v = f(*v);
+        }
+        encode_pixel(&format, &dp, &mut self.default_pixel);
+        let coords: Vec<TileCoord> = self.tiles.keys().copied().collect();
+        let px_count = (TILE_SIZE * TILE_SIZE) as usize;
+        for c in coords {
+            let tile = self.tile_mut(c);
+            for i in 0..px_count {
+                for k in 0..color {
+                    let at = i * n + k;
+                    let v = read_sample(&tile.data, format.sample, at);
+                    write_sample(&mut tile.data, format.sample, at, f(v));
+                }
+            }
+        }
+    }
+
     /// Convert to another pixel format (depth and/or model; colour models via [`convert_pixel`]).
     pub fn convert(&self, to: PixelFormat) -> Surface {
         let mut out = Surface::with_default(to, &convert_pixel(&self.format, &to, &self.default_pixel()));

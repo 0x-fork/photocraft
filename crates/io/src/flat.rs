@@ -20,7 +20,15 @@ pub fn import_flat(name: &str, bytes: &[u8]) -> Result<ImportResult, IoError> {
         return import_tiff_page(name, bytes, None);
     }
     let img = codecs::decode(bytes)?;
+    // A palette BMP opens in Indexed Color mode with its colour table, as in Photoshop (#3802).
+    let bmp_palette = if codecs::detect(bytes) == Some(Format::Bmp) { codecs::bmp_palette(bytes).ok().flatten() } else { None };
     let mut r = image_to_document(name, &img)?;
+    if let Some(colors) = bmp_palette.filter(|c| !c.is_empty())
+        && r.document.mode == ColorMode::Rgb
+    {
+        r.document.mode = ColorMode::Indexed;
+        r.document.color_table = Some(photocraft_doc::ColorTable { colors, transparent: None });
+    }
     r.document.file_encoding = file_encoding(bytes);
     if codecs::detect(bytes) == Some(Format::Tga) && img.layout() == ChannelLayout::Rgba {
         tga_alpha_to_channel(&mut r.document)?;

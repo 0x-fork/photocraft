@@ -650,7 +650,20 @@ fn convert_depth(s: &mut Session, depth: SampleType) -> Result<Value> {
         return Ok(Value::Null);
     }
     s.edit("Bit Depth", |doc, _| {
+        // 32-bit documents hold linear light (as Photoshop's do: grey 128 becomes 0.2159, measured
+        // in Photoshop 27.11), so the colour samples cross the document's tone curve when the
+        // depth crosses 32 bits: decoded after widening, encoded before narrowing (so no linear
+        // value is quantised to 8 or 16 bits). Masks, alpha and channels are not colour.
+        let crosses = (current == SampleType::F32) != (depth == SampleType::F32) && matches!(doc.mode, ColorMode::Rgb | ColorMode::Grayscale);
+        let to_linear = depth == SampleType::F32;
+        let transfer = photocraft_compose::adjust::Transfer::for_document(doc.mode, if to_linear { current } else { depth });
+        if crosses && !to_linear {
+            for_each_surface(&mut doc.layers, false, &mut |surf, _| surf.map_color(|v| transfer.encode(v).clamp(0.0, 1.0)));
+        }
         convert_layers_depth(&mut doc.layers, depth);
+        if crosses && to_linear {
+            for_each_surface(&mut doc.layers, false, &mut |surf, _| surf.map_color(|v| transfer.decode(v)));
+        }
         for ch in doc.channels.iter_mut().chain(doc.quick_mask.as_mut()) {
             let f = ch.surface.format().with_sample(depth);
             ch.surface = ch.surface.convert(f);
@@ -1335,6 +1348,31 @@ mod tests {
         .unwrap();
         s.execute("image.trim", json!({"basedOn": "topLeft"})).unwrap();
         assert_eq!(doc(&s).size, Size::new(10, 10));
+    }
+
+    #[test]
+    fn thirty_two_bit_holds_linear_light() {
+        // Photoshop 27.11: an 8-bit sRGB grey 128 becomes 0.2159 in 32 bits (and 32 → 0.0144),
+        // and comes back unchanged; alpha keeps its value.
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 4, "height": 1, "background": "white"})).unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.edit("paint", |doc, active| {
+            let l = doc.layer_mut(active.unwrap()).unwrap();
+            l.surface_mut().unwrap().fill_rect(Rect::new(0, 0, 2, 1), &[128.0 / 255.0, 32.0 / 255.0, 1.0, 0.5]);
+            Ok(())
+        })
+        .unwrap();
+        s.execute("image.mode.bits32", json!({})).unwrap();
+        let px = doc(&s).layers[1].surface().unwrap().pixel(0, 0);
+        for (got, want) in px.iter().zip([0.2159, 0.0144, 1.0, 128.0 / 255.0]) {
+            assert!((got - want).abs() < 2e-4, "{px:?}");
+        }
+        s.execute("image.mode.bits8", json!({})).unwrap();
+        let px = doc(&s).layers[1].surface().unwrap().pixel(0, 0);
+        for (got, want) in px.iter().zip([128.0 / 255.0, 32.0 / 255.0, 1.0, 128.0 / 255.0]) {
+            assert!((got - want).abs() < 0.6 / 255.0, "{px:?}");
+        }
     }
 
     #[test]

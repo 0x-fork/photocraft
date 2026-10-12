@@ -696,10 +696,34 @@ fn rasterize_content(s: &mut Session, id: LayerId, only: Option<&str>, key: &str
         "shape" => {
             s.execute("layer.rasterize.shape", json!({"layer": id.0, "coalesce": key}))?;
         }
-        _ => {
-            let label = if kind == "fill" { "Rasterize Fill Content" } else { "Rasterize Smart Object" };
+        "smart" => {
             s.coalesce_request = Some(key.to_string());
-            let r = s.edit(label, |doc, _| {
+            let r = s.edit("Rasterize Smart Object", |doc, _| {
+                let snapshot = doc.clone();
+                let mut snap = doc.layer(id).cloned().ok_or(EngineError::NoLayer(id))?;
+                if matches!(snap.content, LayerContent::Smart(ref sm) if sm.cache.is_none()) {
+                    let _ = crate::smart_cmds::refresh_layer(&snapshot, &mut snap);
+                }
+                let fmt = snapshot.pixel_format();
+                let surface = match &mut snap.content {
+                    LayerContent::Smart(sm) => match sm.cache.take() {
+                        Some(c) => c,
+                        None => content_pixels(&snapshot, &snap),
+                    },
+                    _ => return Err(EngineError::Other(format!("layer {} is not a smart object", id.0))),
+                };
+                let surface = if surface.format() == fmt { surface } else { surface.convert(fmt) };
+                let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
+                l.content = LayerContent::Raster(surface);
+                l.psd_blocks.retain(|(k, _)| k != b"SoLd" && k != b"SoLE" && k != b"PlLd");
+                Ok(())
+            });
+            s.coalesce_request = None;
+            r?;
+        }
+        _ => {
+            s.coalesce_request = Some(key.to_string());
+            let r = s.edit("Rasterize Fill Content", |doc, _| {
                 let snap = doc.layer(id).cloned().ok_or(EngineError::NoLayer(id))?;
                 let px = content_pixels(doc, &snap);
                 let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
@@ -1654,5 +1678,57 @@ mod tests {
         assert_eq!(s.execute("layer.rasterize.allLayers", json!({})).unwrap()["rasterized"], 1);
         assert_eq!(s.active().unwrap().history.past_len(), steps + 1);
         assert!(doc(&s).walk().iter().all(|(_, _, l)| !matches!(l.content, LayerContent::Fill(_))));
+    }
+
+    #[test]
+    fn rasterize_smart_object_layer() {
+        let mut s = session(8);
+        s.execute("edit.fill", json!({"contents": "color", "color": "#ff0000"})).unwrap();
+        let px_before = pixel(&s, 5, 5);
+        s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        assert!(matches!(active(&s).content, LayerContent::Smart(_)));
+        s.execute("layer.rasterize.smartObject", json!({})).unwrap();
+        assert!(matches!(active(&s).content, LayerContent::Raster(_)));
+        let px_after = pixel(&s, 5, 5);
+        assert_eq!(px_after, px_before);
+
+        // Case 2: New layer above background
+        let mut s2 = session(8);
+        s2.execute("layer.new.layer", json!({})).unwrap();
+        s2.execute("select.rect", json!({"x": 10, "y": 10, "width": 20, "height": 20})).unwrap();
+        s2.execute("edit.fill", json!({"contents": "color", "color": "#00ff00"})).unwrap();
+        s2.execute("select.deselect", json!({})).unwrap();
+        let px_mid = pixel(&s2, 20, 20);
+        assert_eq!(px_mid[1], 1.0); // green
+        s2.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        assert!(matches!(active(&s2).content, LayerContent::Smart(_)));
+        s2.execute("layer.rasterize.smartObject", json!({})).unwrap();
+        assert!(matches!(active(&s2).content, LayerContent::Raster(_)));
+        let px_after_rast = pixel(&s2, 20, 20);
+        assert_eq!(px_after_rast, px_mid);
+
+        // Case 3: Shape layer converted to smart object then rasterized
+        let mut s3 = session(8);
+        s3.execute("shape.create", json!({"kind": "rect", "rect": [10, 10, 40, 40], "fill": "#0000ff"})).unwrap();
+        let px_shape = pixel(&s3, 20, 20);
+        s3.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        assert!(matches!(active(&s3).content, LayerContent::Smart(_)));
+        s3.execute("layer.rasterize.layer", json!({})).unwrap();
+        assert!(matches!(active(&s3).content, LayerContent::Raster(_)));
+        let px_after_shape = pixel(&s3, 20, 20);
+        assert_eq!(px_after_shape, px_shape);
+
+        // Case 4: Transformed smart object
+        let mut s4 = session(8);
+        s4.execute("layer.new.layer", json!({})).unwrap();
+        s4.execute("select.rect", json!({"x": 10, "y": 10, "width": 20, "height": 20})).unwrap();
+        s4.execute("edit.fill", json!({"contents": "color", "color": "#ffff00"})).unwrap();
+        s4.execute("select.deselect", json!({})).unwrap();
+        s4.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        // Move smart object by 10, 10
+        s4.execute("edit.transform", json!({"matrix": [1, 0, 0, 1, 10, 10]})).unwrap();
+        s4.execute("layer.rasterize.smartObject", json!({})).unwrap();
+        assert!(matches!(active(&s4).content, LayerContent::Raster(_)));
+        assert_eq!(pixel(&s4, 30, 30), vec![1.0, 1.0, 0.0, 1.0]);
     }
 }

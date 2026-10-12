@@ -391,6 +391,7 @@
 	Select Linked Layers	リンクしたレイヤーを選択
 	Merge Layers	レイヤーを結合
 	Merge Down	下のレイヤーと結合
+	Merge Group	グループを結合
 	Merge Visible	表示レイヤーを結合
 	Stamp Visible	表示レイヤーをスタンプ
 	Select Layer Above	上のレイヤーを選択
@@ -3660,3 +3661,6 @@ curves	Smooth	スムーズ
 	Light Red	ライトレッド
 	Medium Blue	ミディアムブルー
 	Light Gray	ライトグレー
+	Remove after each stroke	ストロークごとに削除
+	Apply the removal ({key})	削除を適用 ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	削除するストローク: {n}（Enter で適用、Esc で取り消し）

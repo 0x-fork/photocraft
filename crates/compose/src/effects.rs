@@ -882,6 +882,16 @@ fn contour_lut(c: &Contour) -> Option<Vec<f32>> {
     }
 }
 
+/// Satin's coverage transfer: the contour read from its far end, `|c(1 − v) − c(1)|`. Measured in
+/// Photoshop 27.11: Cone and Cone − Inverted Satins are identical, and a Gaussian Satin runs under
+/// the diagonal (0.36 at 0.5) while the same Gaussian on a glow or gloss runs over it (0.65).
+/// `None` = identity.
+pub fn satin_lut(c: &Contour) -> Option<Vec<f32>> {
+    let lut = contour_lut(c)?;
+    let end = lut.last().copied().unwrap_or(1.0);
+    Some(lut.iter().rev().map(|v| (v - end).abs()).collect())
+}
+
 /// Interpolated lookup in a 0..=1 table (as the GPU's `lut()`).
 fn lut_at(l: &[f32], v: f32) -> f32 {
     let x = v.clamp(0.0, 1.0) * (l.len() - 1) as f32;
@@ -1706,7 +1716,7 @@ fn satin_map(shape: &Map, s: &photocraft_doc::effects::Satin) -> Map {
     if s.invert {
         m = m.map(|v| 1.0 - v);
     }
-    let mut m = apply_contour(m, &s.contour);
+    let mut m = apply_lut(m, satin_lut(&s.contour));
     for (v, a) in m.v.iter_mut().zip(&shape.v) {
         *v *= a;
     }

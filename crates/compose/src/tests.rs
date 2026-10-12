@@ -604,6 +604,34 @@ fn cmyk_document_renders_via_rgb() {
     assert!(p[0] < 0.3 && (p[0] - p[1]).abs() < 0.05 && (p[1] - p[2]).abs() < 0.05 && p[3] == 1.0, "{p:?}");
 }
 
+/// Transparent pixels convert to colour in CMYK (K = 100%) and Lab (a/b = 0.5). A flattened
+/// surface must still treat them as empty, or its content spans the whole canvas.
+#[test]
+fn flatten_to_surface_leaves_transparent_pixels_empty_in_every_mode() {
+    let modes = [
+        (ColorMode::Rgb, [SampleType::U8, SampleType::U16, SampleType::F32].as_slice()),
+        (ColorMode::Grayscale, &[SampleType::U8, SampleType::U16, SampleType::F32]),
+        (ColorMode::Cmyk, &[SampleType::U8, SampleType::U16]),
+        (ColorMode::Lab, &[SampleType::U8, SampleType::U16]),
+    ];
+    for (mode, samples) in modes {
+        for &sample in samples {
+            let mut d = Document::new("t", Size::new(300, 200), mode, sample);
+            let fmt = PixelFormat::new(mode, sample, true);
+            let mut l = Layer::raster("dot", fmt);
+            let opaque: Vec<f32> = photocraft_raster::from_rgba(&fmt, [0.9, 0.4, 0.1, 1.0]);
+            l.surface_mut().unwrap().fill_rect(Rect::new(120, 80, 140, 90), &opaque);
+            d.layers.push(l);
+            let s = flatten_to_surface(&d, fmt, None);
+            assert_eq!(s.content_bounds(), Rect::new(120, 80, 140, 90), "{mode:?} {sample:?}");
+            // Over a background everything is content, as before.
+            let fmt_opaque = PixelFormat::new(mode, sample, false);
+            let s = flatten_to_surface(&d, fmt_opaque, Some([1.0, 1.0, 1.0]));
+            assert_eq!(s.rgba(5, 5)[3], 1.0, "{mode:?} {sample:?}: background stays opaque");
+        }
+    }
+}
+
 #[test]
 fn sixteen_bit_and_float_layers_composite() {
     for fmt in [PixelFormat::RGBA16, PixelFormat::RGBA32F] {

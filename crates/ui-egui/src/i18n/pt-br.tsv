@@ -383,6 +383,7 @@
 	Select Linked Layers	Selecionar camadas vinculadas
 	Merge Layers	Mesclar camadas
 	Merge Down	Mesclar para baixo
+	Merge Group	Mesclar grupo
 	Merge Visible	Mesclar visíveis
 	Stamp Visible	Carimbar visíveis
 	Stamp Down	Carimbar para baixo
@@ -3840,3 +3841,6 @@ layerLabel	No Color	Sem cor
 	Light Red	Vermelho-claro
 	Medium Blue	Azul médio
 	Light Gray	Cinza-claro
+	Remove after each stroke	Remover após cada traço
+	Apply the removal ({key})	Aplicar a remoção ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Traços a remover: {n} (Enter aplica, Esc cancela)

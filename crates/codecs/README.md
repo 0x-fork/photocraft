@@ -61,6 +61,9 @@ the encode plan, and `fidelity_warnings` reports the conversion when it loses in
 `Image::convert` applies the same ICC rule: it keeps the profile only when the colour model stays
 the same.
 
+Palette BMP pixels decode as RGB in `Image`; `bmp_palette` exposes the embedded table so
+`photocraft-io` can open them in Indexed Color mode.
+
 ## Documented asymmetries and limitations
 
 * **FITS.** The image in the primary HDU, or the first `IMAGE` extension, is read; `NAXIS3 = 3`

@@ -1469,3 +1469,41 @@ fn delete_layer_preserves_an_unaffected_active_layer_and_last_layer_guard() {
     assert_eq!(s.active().unwrap().active_layer, Some(other));
     assert_eq!(s.active().unwrap().history.past_len(), before);
 }
+
+#[test]
+fn merge_down_on_a_group_merges_the_group() {
+    // #3832: with a group selected, Merge Down is Photoshop's Merge Group (⌘E): the group's
+    // contents become one layer in its place, named after it, and the layer below is untouched.
+    let mut s = session_with_doc();
+    let below = s.execute("layer.new.layer", json!({"name": "Below"})).unwrap()["layer"].as_u64().unwrap();
+    s.execute("edit.fill", json!({"color": "#00ff00"})).unwrap();
+    let a = s.execute("layer.new.layer", json!({"name": "A"})).unwrap()["layer"].as_u64().unwrap();
+    s.execute("select.rect", json!({"x": 0, "y": 0, "width": 10, "height": 48})).unwrap();
+    s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+    s.execute("select.deselect", json!({})).unwrap();
+    let b = s.execute("layer.new.layer", json!({"name": "B"})).unwrap()["layer"].as_u64().unwrap();
+    s.execute("select.rect", json!({"x": 20, "y": 0, "width": 10, "height": 48})).unwrap();
+    s.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+    s.execute("select.deselect", json!({})).unwrap();
+    s.execute("layer.select", json!({"layer": b})).unwrap();
+    s.execute("layer.select", json!({"layer": a, "mode": "add"})).unwrap();
+    let group = s.execute("layer.groupLayers", json!({"name": "Badge"})).unwrap()["layer"].as_u64().unwrap();
+    s.execute("layer.setProps", json!({"layer": group, "opacity": 0.5})).ok();
+    let before = [px(&mut s, 5, 5), px(&mut s, 25, 5), px(&mut s, 50, 5)];
+    let layers = s.active().unwrap().doc.layer_count();
+    s.execute("layer.select", json!({"layer": group})).unwrap();
+    s.execute("layer.mergeLayers", json!({})).unwrap();
+    let st = s.active().unwrap();
+    let merged = st.doc.layer(st.active_layer.unwrap()).unwrap().clone();
+    assert_eq!(merged.name, "Badge");
+    assert!(matches!(merged.content, photocraft_doc::LayerContent::Raster(_)), "one pixel layer");
+    assert!(st.doc.layer(photocraft_doc::LayerId(below)).is_some(), "the layer below stays");
+    assert_eq!(st.doc.layer_count(), layers - 2, "group and its two layers became one");
+    let after = [px(&mut s, 5, 5), px(&mut s, 25, 5), px(&mut s, 50, 5)];
+    for (a, b) in before.iter().zip(&after) {
+        assert!(a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1.0 / 255.0), "{before:?} -> {after:?}");
+    }
+    // Undo brings the group back.
+    s.execute("edit.undo", json!({})).unwrap();
+    assert!(s.active().unwrap().doc.layer(photocraft_doc::LayerId(group)).is_some());
+}

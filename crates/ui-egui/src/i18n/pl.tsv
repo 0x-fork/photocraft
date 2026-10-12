@@ -389,6 +389,7 @@
 	Select Linked Layers	Zaznacz połączone warstwy
 	Merge Layers	Scal warstwy
 	Merge Down	Scal w dół
+	Merge Group	Scal grupę
 	Merge Visible	Scal widoczne
 	Stamp Visible	Odbij widoczne
 	Select Layer Above	Zaznacz warstwę powyżej
@@ -3647,3 +3648,6 @@ curves	Smooth	Wygładź
 	Light Red	Jasnoczerwony
 	Medium Blue	Średnioniebieski
 	Light Gray	Jasnoszary
+	Remove after each stroke	Usuwaj po każdym pociągnięciu
+	Apply the removal ({key})	Zastosuj usuwanie ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Pociągnięcia do usunięcia: {n} (Enter stosuje, Esc anuluje)

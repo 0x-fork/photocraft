@@ -391,6 +391,7 @@
 	Select Linked Layers	Seleccionar capas vinculadas
 	Merge Layers	Combinar capas
 	Merge Down	Combinar hacia abajo
+	Merge Group	Combinar grupo
 	Merge Visible	Combinar visibles
 	Stamp Visible	Sellar visibles
 	Select Layer Above	Seleccionar la capa de arriba
@@ -2732,3 +2733,6 @@ curves	Smooth	Suavizar
 	Light Red	Rojo claro
 	Medium Blue	Azul medio
 	Light Gray	Gris claro
+	Remove after each stroke	Eliminar después de cada trazo
+	Apply the removal ({key})	Aplicar la eliminación ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Trazos por eliminar: {n} (Intro aplica, Esc cancela)

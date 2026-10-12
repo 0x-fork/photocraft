@@ -45,14 +45,16 @@ impl Transfer {
             t => t,
         }
     }
-    fn decode(self, v: f32) -> f32 {
+    /// Tone-encoded value → linear light.
+    pub fn decode(self, v: f32) -> f32 {
         match self {
             Transfer::Srgb => photocraft_color::convert::srgb_to_linear(v.max(0.0)),
             Transfer::Gamma(1.0) => v.max(0.0),
             Transfer::Gamma(g) => v.max(0.0).powf(g),
         }
     }
-    fn encode(self, v: f32) -> f32 {
+    /// Linear light → tone-encoded value.
+    pub fn encode(self, v: f32) -> f32 {
         match self {
             Transfer::Srgb => photocraft_color::convert::linear_to_srgb(v.max(0.0)),
             Transfer::Gamma(1.0) => v.max(0.0),
@@ -606,10 +608,12 @@ pub fn selective_color_weights(c: [f32; 3]) -> [f32; 9] {
     ]
 }
 
-/// Photoshop Selective Color (approximation): each range shifts the cyan, magenta and yellow ink
-/// (1 − R, G, B) by its percentage, plus its black percentage on every ink, weighted by how much
-/// the colour belongs to the range. Relative mode scales the shift by the ink already present
-/// (so it can't tint pure white); absolute adds it outright.
+/// Photoshop Selective Color: each range shifts the cyan, magenta and yellow ink (1 − R, G, B) by
+/// its percentage, plus its black percentage on every ink, weighted by how much the colour belongs
+/// to the range. Relative mode scales the shift by the ink already present (so it can't tint pure
+/// white). Absolute mode scales it by the room the ink has: adding ink by min(1, 2 × (1 − ink)),
+/// removing it by min(1, 2 × ink), so Neutrals Cyan +50 darkens red 64 by 32, not 64 (all 72
+/// absolute range × ink cases within 1 level of Photoshop 27.11).
 pub fn selective_color(c: [f32; 3], relative: bool, adj: &[[f32; 4]; 9]) -> [f32; 3] {
     let w = selective_color_weights(c);
     let mut delta = [0.0f32; 3];
@@ -620,7 +624,14 @@ pub fn selective_color(c: [f32; 3], relative: bool, adj: &[[f32; 4]; 9]) -> [f32
         let a = adj[r].map(|v| v / 100.0);
         for i in 0..3 {
             let ink = 1.0 - c[i];
-            let d = if relative { (a[i] + a[3]) * ink } else { a[i] + a[3] };
+            let d = a[i] + a[3];
+            let d = if relative {
+                d * ink
+            } else if d > 0.0 {
+                d * (2.0 * (1.0 - ink)).min(1.0)
+            } else {
+                d * (2.0 * ink).min(1.0)
+            };
             delta[i] += d * wr;
         }
     }
@@ -1039,6 +1050,30 @@ mod lookup_tests {
                     assert!((o[k] - c[k]).abs() < 1e-5, "{c:?} {tet} {o:?}");
                 }
             }
+        }
+    }
+
+    /// Photoshop 27.11, measured: absolute Selective Color on greys (red channel after one range's
+    /// cyan change).
+    #[test]
+    fn absolute_selective_color_matches_photoshop() {
+        // (range index, cyan %, grey, Photoshop's red)
+        let measured = [
+            (7, 50.0, 64u8, 32u8),
+            (7, 50.0, 192, 129),
+            (7, -50.0, 192, 223),
+            (7, -50.0, 64, 128),
+            (6, -50.0, 192, 224),
+            (6, -50.0, 240, 253),
+            (8, 50.0, 64, 32),
+            (8, 50.0, 16, 2),
+        ];
+        for (range, cyan, grey, want) in measured {
+            let mut adj = [[0.0f32; 4]; 9];
+            adj[range][0] = cyan;
+            let g = grey as f32 / 255.0;
+            let got = selective_color([g; 3], false, &adj)[0] * 255.0;
+            assert!((got - want as f32).abs() <= 1.5, "range {range} cyan {cyan} grey {grey}: {got} vs {want}");
         }
     }
 
