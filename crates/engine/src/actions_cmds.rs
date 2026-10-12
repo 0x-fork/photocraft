@@ -353,7 +353,7 @@ pub fn finish_playback(s: &mut Session, recording: Option<(usize, usize)>, actio
 /// Nested playback returns a structured failure even though the command itself succeeded.
 /// Promote it to the caller's failed step so no later parent steps run after a child fails.
 pub fn nested_failure(id: &str, value: &Value) -> Option<String> {
-    (id == "actions.play").then(|| value.get("failed")).flatten().map(|failure| {
+    (id == "actions.play" || id == "actions.conditional").then(|| value.get("failed")).flatten().map(|failure| {
         format!(
             "action `{}` step {} failed: {}",
             value.get("action").and_then(Value::as_str).unwrap_or(""),

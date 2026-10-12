@@ -164,8 +164,9 @@ fn class(c: &str) -> Class {
     Class { name: UnicodeString::new_nul(""), class_id: code(c) }
 }
 
-/// The pixel unit of a `UntF` value.
+/// The pixel and percent units of a `UntF` value.
 const PX: [u8; 4] = *b"#Pxl";
+const PCT: [u8; 4] = *b"#Prc";
 
 fn px(v: f64) -> D {
     D::UnitFloat { unit: PX, value: v }
@@ -268,6 +269,31 @@ fn color_desc(hex: &str) -> Option<Descriptor> {
     }
     let ch = |i: usize| u8::from_str_radix(h.get(i..i + 2)?, 16).ok().map(f64::from);
     Some(desc("RGBC").with("Rd  ", D::Double(ch(0)?)).with("Grn ", D::Double(ch(2)?)).with("Bl  ", D::Double(ch(4)?)))
+}
+
+/// A `Pth ` value's text: Photoshop stores `"txtu"`, a little-endian total length, a
+/// little-endian UTF-16 unit count and the units (NUL-terminated).
+fn path_text(v: &D) -> Option<String> {
+    let D::Path(b) = v else { return None };
+    if b.get(0..4)? != b"txtu" {
+        return None;
+    }
+    let n = u32::from_le_bytes(b.get(8..12)?.try_into().ok()?) as usize;
+    let units: Vec<u16> = b.get(12..12usize.checked_add(n.checked_mul(2)?)?)?.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect();
+    let text = String::from_utf16_lossy(&units);
+    let text = text.trim_end_matches('\0');
+    (!text.is_empty()).then(|| text.to_string())
+}
+
+fn path_value(text: &str) -> D {
+    let units: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+    let mut b = b"txtu".to_vec();
+    b.extend_from_slice(&((12 + units.len() * 2) as u32).to_le_bytes());
+    b.extend_from_slice(&(units.len() as u32).to_le_bytes());
+    for u in units {
+        b.extend_from_slice(&u.to_le_bytes());
+    }
+    D::Path(b)
 }
 
 /// Photoshop's `BlnM` enumeration ↔ PhotoCraft's blend mode labels.
@@ -713,6 +739,60 @@ fn selective_to(p: &Value) -> Option<Descriptor> {
     )
 }
 
+/// Gradient Map: the gradient's colour stops at 0..4096 → `stops: [[0..1, "#rrggbb"], …]`.
+fn gradient_map_from(d: &Descriptor) -> Option<Value> {
+    let grad = get_obj(d, "Grad")?;
+    let stops: Option<Vec<Value>> = get_list(grad, "Clrs")?
+        .iter()
+        .map(|v| match v {
+            D::Descriptor(stop) => Some(json!([(get_num(stop, "Lctn")? / 4096.0).clamp(0.0, 1.0), color_hex(get_obj(stop, "Clr ")?)?])),
+            _ => None,
+        })
+        .collect();
+    let mut out = json!({"stops": stops?});
+    if let Some(r) = get_bool(d, "Rvrs") {
+        out["reverse"] = json!(r);
+    }
+    if let Some(dd) = get_bool(d, "Dthr") {
+        out["dither"] = json!(dd);
+    }
+    Some(out)
+}
+
+fn gradient_map_to(p: &Value) -> Option<Descriptor> {
+    let stops: Option<Vec<D>> = p
+        .get("stops")?
+        .as_array()?
+        .iter()
+        .map(|st| {
+            let a = st.as_array()?;
+            Some(D::Descriptor(
+                desc("Clrt")
+                    .with("Clr ", D::Descriptor(color_desc(a.get(1)?.as_str()?)?))
+                    .with("Type", enm("Clry", "UsrS"))
+                    .with("Lctn", long((a.first()?.as_f64()? * 4096.0).round()))
+                    .with("Mdpn", long(50.0)),
+            ))
+        })
+        .collect();
+    let transparency = D::List(vec![
+        D::Descriptor(desc("TrnS").with("Opct", pct(100.0)).with("Lctn", long(0.0)).with("Mdpn", long(50.0))),
+        D::Descriptor(desc("TrnS").with("Opct", pct(100.0)).with("Lctn", long(4096.0)).with("Mdpn", long(50.0))),
+    ]);
+    let grad = desc("Grdn")
+        .with("Nm  ", text("Custom"))
+        .with("GrdF", enm("GrdF", "CstS"))
+        .with("Intr", D::Double(4096.0))
+        .with("Clrs", D::List(stops?))
+        .with("Trns", transparency);
+    Some(
+        desc("GdMp")
+            .with("Grad", D::Descriptor(grad))
+            .with("Rvrs", D::Boolean(jbool(p, "reverse").unwrap_or(false)))
+            .with("Dthr", D::Boolean(jbool(p, "dither").unwrap_or(false))),
+    )
+}
+
 /// An adjustment: its Photoshop class (also the direct event's code), the command suffix (`image.adjustments.<suffix>`, `layer.newAdjustmentLayer.<suffix>`), and
 /// the converters between the adjustment descriptor and the command params.
 struct Adjustment {
@@ -743,6 +823,7 @@ const ADJUSTMENTS: &[Adjustment] = &[
     adj_fields!("BlnW", "blackWhite", BW),
     Adjustment { class: "ChnM", suffix: "channelMixer", from: channel_mixer_from, to: channel_mixer_to },
     Adjustment { class: "SlcC", suffix: "selectiveColor", from: selective_from, to: selective_to },
+    Adjustment { class: "GdMp", suffix: "gradientMap", from: gradient_map_from, to: gradient_map_to },
 ];
 
 fn adjustment_by_class(c: &str) -> Option<&'static Adjustment> {
@@ -1028,6 +1109,20 @@ fn set_from(d: &Descriptor) -> Mapped {
                 (Some("Chnl"), Target::Name(n)) => step("select.loadSelection", json!({"channel": n})),
                 _ => unsupported,
             },
+            Some(D::Descriptor(t)) if t.class_id.is("Plgn") => {
+                let pts: Option<Vec<Value>> = get_list(t, "Pts ")
+                    .unwrap_or(&[])
+                    .iter()
+                    .map(|v| match v {
+                        D::Descriptor(pt) => Some(json!([get_num(pt, "Hrzn")?, get_num(pt, "Vrtc")?])),
+                        _ => None,
+                    })
+                    .collect();
+                match pts {
+                    Some(pts) if pts.len() >= 3 => step("select.lasso", json!({"points": pts})),
+                    _ => unsupported,
+                }
+            }
             Some(D::Descriptor(t)) if t.class_id.is("Rctn") || t.class_id.is("Elps") => {
                 let (Some(top), Some(left), Some(bottom), Some(right)) = (get_num(t, "Top "), get_num(t, "Left"), get_num(t, "Btom"), get_num(t, "Rght"))
                 else {
@@ -1041,6 +1136,8 @@ fn set_from(d: &Descriptor) -> Mapped {
             }
             _ => unsupported,
         },
+        // Quick Mask mode on (`set` of the document's quick-mask property); `clearEvent` turns it off.
+        (Some("Prpr"), Target::Property(p)) if p == "QucM" => step("select.editInQuickMaskMode", json!({"on": true})),
         (Some("Lyr"), _) => {
             let Some(mut p) = layer_target(r) else { return unsupported };
             let Some(t) = get_obj(d, "T   ") else { return unsupported };
@@ -1095,6 +1192,24 @@ fn set_to(id: &str, p: &Value) -> Option<Descriptor> {
             "transparency" => sel(D::Reference(vec![ReferenceItem::Enumerated { class: class("Chnl"), type_id: Id::new("Chnl"), value: Id::new("Trsp") }])),
             name => sel(name_ref("Chnl", name)),
         },
+        "select.lasso" => {
+            let pts: Option<Vec<D>> = p
+                .get("points")?
+                .as_array()?
+                .iter()
+                .map(|pt| {
+                    let a = pt.as_array()?;
+                    Some(D::Descriptor(desc("Pnt ").with("Hrzn", px(a.first()?.as_f64()?)).with("Vrtc", px(a.get(1)?.as_f64()?))))
+                })
+                .collect();
+            sel(D::Descriptor(desc("Plgn").with("Pts ", D::List(pts?))))
+        }
+        "select.editInQuickMaskMode" => {
+            if jbool(p, "on") != Some(true) {
+                return None;
+            }
+            desc("null").with("null", quick_mask_ref())
+        }
         "select.rect" => {
             let (x, y, w, h) = (jnum(p, "x")?, jnum(p, "y")?, jnum(p, "width")?, jnum(p, "height")?);
             let cls = if jbool(p, "ellipse") == Some(true) { "Elps" } else { "Rctn" };
@@ -1195,14 +1310,342 @@ fn delete_from(d: &Descriptor) -> Mapped {
             Some(p) => step("layer.delete", Value::Object(p)),
             None => Mapped::Unsupported { harmless: false },
         },
+        // The targeted channel of a layer is its mask (what Photoshop records after making an
+        // adjustment layer over a selection and discarding the mask).
+        Some(r) if ref_class(r).as_deref() == Some("Chnl") && matches!(target(r), Target::Ordinal(o) if o == "Trgt") => none("layer.layerMask.delete"),
         Some(_) => Mapped::Unsupported { harmless: false },
     }
+}
+
+fn quick_mask_ref() -> D {
+    D::Reference(vec![
+        ReferenceItem::Property { class: class("Prpr"), key: code("QucM") },
+        ReferenceItem::Enumerated { class: class("Dcmn"), type_id: code("Ordn"), value: code("Trgt") },
+    ])
+}
+
+fn clear_from(d: &Descriptor) -> Mapped {
+    match get_ref(d, "null").map(target) {
+        Some(Target::Property(p)) if p == "QucM" => step("select.editInQuickMaskMode", json!({"on": false})),
+        None => none("edit.clear"),
+        _ => Mapped::Unsupported { harmless: false },
+    }
+}
+
+fn clear_to(id: &str, p: &Value) -> Option<Descriptor> {
+    match id {
+        "select.editInQuickMaskMode" if jbool(p, "on") == Some(false) => Some(desc("null").with("null", quick_mask_ref())),
+        _ => None,
+    }
+}
+
+/// `placeEvent`: File › Place Embedded / Linked, with the file and the recorded scale.
+fn place_from(d: &Descriptor) -> Mapped {
+    let Some(path) = d.get("null").and_then(path_text) else { return Mapped::Unsupported { harmless: false } };
+    let mut p = json!({"path": path});
+    if let Some(w) = get_num(d, "Wdth") {
+        p["scale"] = json!(w);
+    }
+    step(if get_bool(d, "Lnkd") == Some(true) { "file.placeLinked" } else { "file.placeEmbedded" }, p)
+}
+
+fn place_to(id: &str, p: &Value) -> Option<Descriptor> {
+    let mut d = desc("null").with("null", path_value(jstr(p, "path")?)).with("FTcs", enm("QCSt", "Qcsa"));
+    if let Some(s) = jnum(p, "scale") {
+        d = d.with("Wdth", pct(s)).with("Hght", pct(s));
+    }
+    Some(d.with("Lnkd", D::Boolean(id == "file.placeLinked")).with("Antl", D::Boolean(true)))
+}
+
+/// `open`: File › Open of a recorded path.
+fn open_from(d: &Descriptor) -> Mapped {
+    match d.get("null").and_then(path_text) {
+        Some(path) => step("file.openAs", json!({"path": path})),
+        None => Mapped::Unsupported { harmless: false },
+    }
+}
+
+fn open_to(_: &str, p: &Value) -> Option<Descriptor> {
+    Some(desc("null").with("null", path_value(jstr(p, "path")?)))
+}
+
+/// Photoshop's four-character condition codes that differ from the string ids.
+const CONDITION_CODES: &[(&str, &str)] = &[("Lyrs", "hasLayers")];
+
+/// `conditional`: Insert Conditional, with its Then and Else actions by name.
+fn conditional_from(d: &Descriptor) -> Mapped {
+    let Some(c) = get_enum(d, "null") else { return Mapped::Unsupported { harmless: false } };
+    let condition = lookup(CONDITION_CODES, &c).unwrap_or(c.as_str());
+    if !crate::actions_edit_cmds::CONDITIONS.contains(&condition) {
+        return Mapped::Unsupported { harmless: false };
+    }
+    let branch = |key: &str| match get_ref(d, key).map(target) {
+        Some(Target::Name(n)) => Some(n),
+        _ => None,
+    };
+    step("actions.conditional", json!({"if": condition, "then": branch("then"), "else": branch("else")}))
+}
+
+fn conditional_to(_: &str, p: &Value) -> Option<Descriptor> {
+    let condition = jstr(p, "if")?;
+    let code = lookup_back(CONDITION_CODES, condition).unwrap_or(condition);
+    let mut d = desc("null").with("null", enm("Cndt", code));
+    for key in ["then", "else"] {
+        if let Some(name) = jstr(p, key) {
+            let mut items = vec![ReferenceItem::Name { class: class("Actn"), name: UnicodeString::new_nul(name) }];
+            if let Some(set) = jstr(p, "set") {
+                items.push(ReferenceItem::Name { class: class("ASet"), name: UnicodeString::new_nul(set) });
+            }
+            d = d.with(key, D::Reference(items));
+        }
+    }
+    Some(d)
+}
+
+/// `close`: Photoshop's Save prompt answer becomes a Save step before the Close.
+fn close_from(d: &Descriptor) -> Mapped {
+    if get_enum(d, "Svng").as_deref() == Some("Ys") { steps(vec![("file.save", json!({})), ("file.close", json!({}))]) } else { none("file.close") }
+}
+
+fn close_to(_: &str, _: &Value) -> Option<Descriptor> {
+    Some(desc("null").with("Svng", enm("YsN ", "N   ")))
+}
+
+/// `transform`: Photoshop records a Free Transform relative to the frame (offset of its centre,
+/// width/height in percent, angle). A layer moved only becomes `layer.translate`; anything
+/// else is `edit.transform`'s relative form; the selection's frame is `select.transformSelection`.
+fn transform_from(d: &Descriptor) -> Mapped {
+    let Some(r) = get_ref(d, "null") else { return Mapped::Unsupported { harmless: false } };
+    let unsupported = Mapped::Unsupported { harmless: false };
+    let mut p = Map::new();
+    if let Some(o) = get_obj(d, "Ofst") {
+        let in_px = |k: &str| matches!(o.get(k), Some(D::UnitFloat { unit: PX, .. }));
+        if !in_px("Hrzn") || !in_px("Vrtc") {
+            return unsupported;
+        }
+        if let Some(x) = get_num(o, "Hrzn") {
+            p.insert("dx".into(), x.into());
+        }
+        if let Some(y) = get_num(o, "Vrtc") {
+            p.insert("dy".into(), y.into());
+        }
+    }
+    for (key, param) in [("Wdth", "scaleX"), ("Hght", "scaleY"), ("Angl", "rotate")] {
+        if let Some(v) = get_num(d, key) {
+            p.insert(param.into(), v.into());
+        }
+    }
+    if d.get("Skew").is_some() || d.get("Usng").is_some() {
+        return unsupported;
+    }
+    let geometry_only = p.keys().all(|k| k == "dx" || k == "dy");
+    match (ref_class(r).as_deref(), target(r)) {
+        (Some("Chnl"), Target::Property(prop)) if prop == "fsel" => step("select.transformSelection", Value::Object(p)),
+        (Some("Lyr"), _) => {
+            let Some(mut lp) = layer_target(r) else { return unsupported };
+            if geometry_only {
+                lp.insert("dx".into(), p.get("dx").and_then(Value::as_f64).unwrap_or(0.0).round().into());
+                lp.insert("dy".into(), p.get("dy").and_then(Value::as_f64).unwrap_or(0.0).round().into());
+                return step("layer.translate", Value::Object(lp));
+            }
+            lp.extend(p);
+            if let Some(i) = get_enum(d, "Intr").and_then(|i| lookup(INTERPOLATION, &i)).filter(|i| matches!(*i, "bicubic" | "bilinear" | "nearest")) {
+                lp.insert("interpolation".into(), i.into());
+            }
+            step("edit.transform", Value::Object(lp))
+        }
+        _ => unsupported,
+    }
+}
+
+fn transform_to(id: &str, p: &Value) -> Option<Descriptor> {
+    if p.get("quad").is_some() || p.get("matrix").is_some() || p.get("rect").is_some() {
+        return None;
+    }
+    let target = match id {
+        "edit.transform" => layer_ref(p),
+        "select.transformSelection" => D::Reference(vec![ReferenceItem::Property { class: class("Chnl"), key: code("fsel") }]),
+        _ => return None,
+    };
+    let mut d = desc("null").with("null", target).with("FTcs", enm("QCSt", "Qcsa"));
+    d = d.with("Ofst", D::Descriptor(desc("Ofst").with("Hrzn", px(jnum(p, "dx").unwrap_or(0.0))).with("Vrtc", px(jnum(p, "dy").unwrap_or(0.0)))));
+    for (key, param) in [("Wdth", "scaleX"), ("Hght", "scaleY")] {
+        if let Some(v) = jnum(p, param) {
+            d = d.with(key, pct(v));
+        }
+    }
+    if let Some(a) = jnum(p, "rotate") {
+        d = d.with("Angl", ang(a));
+    }
+    if let Some(i) = jstr(p, "interpolation").and_then(|i| lookup_back(INTERPOLATION, i)) {
+        d = d.with("Intr", enm("Intp", i));
+    }
+    Some(d)
+}
+
+/// `Clcn` (Apply Image / Calculations blending) ↔ `image.applyImage`'s `blending`.
+const CALC_BLEND: &[(&str, &str)] = &[
+    ("Nrml", "normal"),
+    ("Mltp", "multiply"),
+    ("Scrn", "screen"),
+    ("Ovrl", "overlay"),
+    ("SftL", "softLight"),
+    ("HrdL", "hardLight"),
+    ("CDdg", "colorDodge"),
+    ("CBrn", "colorBurn"),
+    ("Drkn", "darken"),
+    ("Lghn", "lighten"),
+    ("Dfrn", "difference"),
+    ("Xclu", "exclusion"),
+    ("linearBurn", "linearBurn"),
+    ("linearDodge", "linearDodge"),
+    ("Add ", "add"),
+    ("Sbtr", "subtract"),
+];
+const SOURCE_CHANNELS: &[(&str, &str)] =
+    &[("RGB", "composite"), ("CMYK", "composite"), ("Lab", "composite"), ("Trsp", "transparency"), ("Msk", "mask"), ("fsel", "selection")];
+
+fn apply_image_from(d: &Descriptor) -> Mapped {
+    let unsupported = Mapped::Unsupported { harmless: false };
+    let Some(with) = get_obj(d, "With") else { return unsupported };
+    let Some(r) = get_ref(with, "T   ") else { return unsupported };
+    let mut source = Map::new();
+    for item in r {
+        match item {
+            ReferenceItem::Enumerated { class, value, .. } if class.class_id.is("Chnl") => {
+                let v = trimmed(value);
+                let Some(channel) = lookup(SOURCE_CHANNELS, &v).or_else(|| lookup(CHANNELS, &v)) else { return unsupported };
+                source.insert("channel".into(), channel.into());
+            }
+            ReferenceItem::Name { class, name } if class.class_id.is("Lyr ") => {
+                source.insert("layer".into(), name.to_string_lossy().into());
+            }
+            ReferenceItem::Enumerated { class, value, .. } if class.class_id.is("Lyr ") && trimmed(value) == "Mrgd" => {
+                source.insert("layer".into(), "merged".into());
+            }
+            _ => return unsupported,
+        }
+    }
+    if let Some(i) = get_bool(with, "Invr") {
+        source.insert("invert".into(), i.into());
+    }
+    let mut p = json!({"source": source});
+    if let Some(c) = get_enum(with, "Clcl") {
+        match lookup(CALC_BLEND, &c) {
+            Some(b) => p["blending"] = json!(b),
+            None => return unsupported,
+        }
+    }
+    for (key, param) in [("Scl ", "scale"), ("Ofst", "offset"), ("Opct", "opacity")] {
+        if let Some(v) = get_num(with, key) {
+            p[param] = json!(v);
+        }
+    }
+    if let Some(t) = get_bool(with, "PrsT") {
+        p["preserveTransparency"] = json!(t);
+    }
+    step("image.applyImage", p)
+}
+
+fn apply_image_to(_: &str, p: &Value) -> Option<Descriptor> {
+    let source = p.get("source").cloned().unwrap_or(json!({}));
+    let channel = jstr(&source, "channel").unwrap_or("composite");
+    let chan = lookup_back(SOURCE_CHANNELS, channel).or_else(|| lookup_back(CHANNELS, channel))?;
+    let mut items = vec![ReferenceItem::Enumerated { class: class("Chnl"), type_id: code("Chnl"), value: code(chan) }];
+    match jstr(&source, "layer") {
+        Some("merged") | None => items.push(ReferenceItem::Enumerated { class: class("Lyr "), type_id: code("Ordn"), value: code("Mrgd") }),
+        Some(name) => items.push(ReferenceItem::Name { class: class("Lyr "), name: UnicodeString::new_nul(name) }),
+    }
+    let mut with = desc("null").with("T   ", D::Reference(items));
+    if let Some(i) = jbool(&source, "invert") {
+        with = with.with("Invr", D::Boolean(i));
+    }
+    with = with.with("Clcl", enm("Clcn", lookup_back(CALC_BLEND, jstr(p, "blending").unwrap_or("multiply"))?));
+    if let Some(v) = jnum(p, "opacity") {
+        with = with.with("Opct", pct(v));
+    }
+    if let Some(v) = jnum(p, "scale") {
+        with = with.with("Scl ", D::Double(v));
+    }
+    if let Some(v) = jnum(p, "offset") {
+        with = with.with("Ofst", D::Double(v));
+    }
+    if let Some(t) = jbool(p, "preserveTransparency") {
+        with = with.with("PrsT", D::Boolean(t));
+    }
+    Some(desc("null").with("With", D::Descriptor(with)))
+}
+
+const WEB_FORMATS: &[(&str, &str)] = &[("PN24", "png24"), ("PN8", "png8"), ("JPEG", "jpeg"), ("GIFf", "gif"), ("WBMP", "wbmp")];
+
+/// `export` (Save for Web): needs the destination path (`In`), as the command writes a file.
+fn export_from(d: &Descriptor) -> Mapped {
+    let unsupported = Mapped::Unsupported { harmless: false };
+    let Some(u) = get_obj(d, "Usng") else { return unsupported };
+    let Some(path) = d.get("In  ").and_then(path_text) else { return unsupported };
+    let mut p = json!({"path": path});
+    if let Some(f) = get_enum(u, "Fmt ") {
+        match lookup(WEB_FORMATS, &f) {
+            Some(f) => p["format"] = json!(f),
+            None => return unsupported,
+        }
+    }
+    for (key, param) in [("Intr", "interlaced"), ("Trns", "transparency"), ("EICC", "embedIcc"), ("Prgr", "progressive"), ("Optm", "optimized")] {
+        if let Some(b) = get_bool(u, key) {
+            p[param] = json!(b);
+        }
+    }
+    for (key, param) in [("Qlty", "quality"), ("NCol", "colors")] {
+        if let Some(v) = get_num(u, key) {
+            p[param] = json!(v);
+        }
+    }
+    if get_bool(u, "Mtt ") == Some(false) {
+        p["matte"] = json!("none");
+    } else if let (Some(r), Some(g), Some(b)) = (get_num(u, "MttR"), get_num(u, "MttG"), get_num(u, "MttB")) {
+        p["matte"] =
+            json!(format!("#{:02x}{:02x}{:02x}", r.round().clamp(0.0, 255.0) as u8, g.round().clamp(0.0, 255.0) as u8, b.round().clamp(0.0, 255.0) as u8));
+    }
+    step("file.export.saveForWebLegacy", p)
+}
+
+fn export_to(_: &str, p: &Value) -> Option<Descriptor> {
+    let path = jstr(p, "path")?;
+    let mut u = desc("SaveForWeb").with("Op  ", enm("SWOp", "OpSa")).with("Fmt ", enm("IRFm", lookup_back(WEB_FORMATS, jstr(p, "format").unwrap_or("png24"))?));
+    for (key, param, default) in [
+        ("Intr", "interlaced", false),
+        ("Trns", "transparency", true),
+        ("EICC", "embedIcc", false),
+        ("Prgr", "progressive", false),
+        ("Optm", "optimized", true),
+    ] {
+        u = u.with(key, D::Boolean(jbool(p, param).unwrap_or(default)));
+    }
+    if let Some(q) = jnum(p, "quality") {
+        u = u.with("Qlty", long(q));
+    }
+    if let Some(c) = jnum(p, "colors") {
+        u = u.with("NCol", long(c));
+    }
+    match jstr(p, "matte") {
+        Some("none") => u = u.with("Mtt ", D::Boolean(false)),
+        matte => {
+            let c = color_desc(matte.unwrap_or("#ffffff"))?;
+            u = u
+                .with("Mtt ", D::Boolean(true))
+                .with("MttR", get_num(&c, "Rd  ").map(long)?)
+                .with("MttG", get_num(&c, "Grn ").map(long)?)
+                .with("MttB", get_num(&c, "Bl  ").map(long)?);
+        }
+    }
+    Some(desc("null").with("Usng", D::Descriptor(u)).with("In  ", path_value(path)))
 }
 
 fn delete_to(id: &str, p: &Value) -> Option<Descriptor> {
     Some(match id {
         "edit.clear" => desc("null"),
         "layer.delete" => desc("null").with("null", layer_ref(p)),
+        "layer.layerMask.delete" => desc("null").with("null", target_ref("Chnl")),
         _ => return None,
     })
 }
@@ -1333,9 +1776,36 @@ fn play_to(_: &str, p: &Value) -> Option<Descriptor> {
 }
 
 fn fill_from(d: &Descriptor) -> Mapped {
-    if d.get("From").is_some() {
-        // The Paint Bucket tool's click, not Edit › Fill.
-        return Mapped::Unsupported { harmless: false };
+    if let Some(from) = get_obj(d, "From") {
+        // The Paint Bucket tool's click: its point is in pixels, or in percent of the canvas
+        // (not replayable without the document size).
+        let in_px = |k: &str| matches!(from.get(k), Some(D::UnitFloat { unit: PX, .. }));
+        let (Some(x), Some(y)) = (get_num(from, "Hrzn"), get_num(from, "Vrtc")) else { return Mapped::Unsupported { harmless: false } };
+        if !in_px("Hrzn") || !in_px("Vrtc") {
+            return Mapped::Unsupported { harmless: false };
+        }
+        let mut p = json!({"x": x.round(), "y": y.round()});
+        match get_enum(d, "Usng").as_deref() {
+            Some("FrgC") | None => {}
+            Some("Pttn") => p["contents"] = json!("pattern"),
+            Some(_) => return Mapped::Unsupported { harmless: false },
+        }
+        if let Some(t) = get_num(d, "Tlrn") {
+            p["tolerance"] = json!(t);
+        }
+        if let Some(c) = get_bool(d, "Cntg") {
+            p["contiguous"] = json!(c);
+        }
+        if let Some(a) = get_bool(d, "AntA") {
+            p["antiAlias"] = json!(a);
+        }
+        if let Some(m) = get_bool(d, "Mrgd") {
+            p["sampleAllLayers"] = json!(m);
+        }
+        if let Some(o) = get_num(d, "Opct") {
+            p["opacity"] = json!(o);
+        }
+        return step("paint.bucket", p);
     }
     let Some(contents) = get_enum(d, "Usng").and_then(|u| lookup(FILL_CONTENTS, &u)) else { return Mapped::Unsupported { harmless: false } };
     let mut p = json!({"contents": contents});
@@ -1360,7 +1830,20 @@ fn fill_from(d: &Descriptor) -> Mapped {
     step("edit.fill", p)
 }
 
-fn fill_to(_: &str, p: &Value) -> Option<Descriptor> {
+fn fill_to(id: &str, p: &Value) -> Option<Descriptor> {
+    if id == "paint.bucket" {
+        let mut d = desc("null").with("From", D::Descriptor(desc("Pnt ").with("Hrzn", px(jnum(p, "x")?)).with("Vrtc", px(jnum(p, "y")?))));
+        d = d.with("Tlrn", long(jnum(p, "tolerance").unwrap_or(32.0))).with("AntA", D::Boolean(jbool(p, "antiAlias").unwrap_or(true)));
+        d = d.with("Usng", enm("FlCn", if jstr(p, "contents") == Some("pattern") { "Pttn" } else { "FrgC" }));
+        if let Some(o) = jnum(p, "opacity") {
+            d = d.with("Opct", pct(o));
+        }
+        d = d.with("Cntg", D::Boolean(jbool(p, "contiguous").unwrap_or(true)));
+        if let Some(m) = jbool(p, "sampleAllLayers") {
+            d = d.with("Mrgd", D::Boolean(m));
+        }
+        return Some(d);
+    }
     let contents = jstr(p, "contents").unwrap_or("color");
     let mut d = desc("null").with("Usng", enm("FlCn", lookup_back(FILL_CONTENTS, contents)?));
     if contents == "color" {
@@ -1556,15 +2039,24 @@ fn canvas_size_to(_: &str, p: &Value) -> Option<Descriptor> {
 
 fn image_size_from(d: &Descriptor) -> Mapped {
     let mut p = Map::new();
+    let mut percent: Option<f64> = None;
     for (k, param) in [("Wdth", "width"), ("Hght", "height")] {
         match d.get(k) {
             Some(D::UnitFloat { unit: PX, value }) => {
                 p.insert(param.into(), value.round().into());
             }
-            // Percent or physical units need the document's size: not replayable headlessly.
+            // Percent scales both sides at playback; two different percentages, or physical
+            // units, need the document's size and resolution and stay unsupported.
+            Some(D::UnitFloat { unit: PCT, value }) => match percent {
+                Some(other) if (other - value).abs() > 1e-9 => return Mapped::Unsupported { harmless: false },
+                _ => percent = Some(*value),
+            },
             Some(_) => return Mapped::Unsupported { harmless: false },
             None => {}
         }
+    }
+    if let Some(pc) = percent {
+        p.insert("percent".into(), pc.into());
     }
     if let Some(r) = get_num(d, "Rslt") {
         p.insert("resolution".into(), r.into());
@@ -1576,7 +2068,7 @@ fn image_size_from(d: &Descriptor) -> Mapped {
             }
             None => return Mapped::Unsupported { harmless: false },
         }
-    } else if p.contains_key("resolution") && !p.contains_key("width") && !p.contains_key("height") {
+    } else if p.contains_key("resolution") && !p.contains_key("width") && !p.contains_key("height") && !p.contains_key("percent") {
         p.insert("resample".into(), "none".into());
     }
     if p.is_empty() {
@@ -1587,6 +2079,9 @@ fn image_size_from(d: &Descriptor) -> Mapped {
 
 fn image_size_to(_: &str, p: &Value) -> Option<Descriptor> {
     let mut d = desc("null");
+    if let Some(pc) = jnum(p, "percent") {
+        d = d.with("Wdth", pct(pc)).with("Hght", pct(pc)).with("CnsP", D::Boolean(true));
+    }
     if let Some(w) = jnum(p, "width") {
         d = d.with("Wdth", px(w));
     }
@@ -1866,6 +2361,17 @@ const EVENTS: &[Event] = &[
         to: |_, p| adjustment_by_class("BlnW").and_then(|a| (a.to)(p)),
     },
     adjustment_event!("ChnM", "ChnM", "channelMixer", "Channel Mixer"),
+    Event {
+        code: "GdMp",
+        name: "gradientMapEvent",
+        label: "Gradient Map",
+        ids: &["image.adjustments.gradientMap"],
+        from: |d| match adjustment_by_class("GdMp") {
+            Some(a) => adjustment_steps(a, "image.adjustments.", Some(d)),
+            None => Mapped::Unsupported { harmless: false },
+        },
+        to: |_, p| adjustment_by_class("GdMp").and_then(|a| (a.to)(p)),
+    },
     adjustment_event!("SlcC", "SlcC", "selectiveColor", "Selective Color"),
     ev!("Dstt", "desaturate", "Desaturate", "image.adjustments.desaturate", &[]),
     ev!("Eqlz", "equalize", "Equalize", "image.adjustments.equalize", &[]),
@@ -1961,6 +2467,7 @@ const EVENTS: &[Event] = &[
             "layer.newAdjustmentLayer.blackWhite",
             "layer.newAdjustmentLayer.channelMixer",
             "layer.newAdjustmentLayer.selectiveColor",
+            "layer.newAdjustmentLayer.gradientMap",
             "file.new",
             "file.newFromClipboard",
         ],
@@ -1977,6 +2484,8 @@ const EVENTS: &[Event] = &[
             "select.reselect",
             "select.loadSelection",
             "select.rect",
+            "select.lasso",
+            "select.editInQuickMaskMode",
             "layer.setProps",
             "layer.renameLayer",
             "layer.setLabelColor",
@@ -2001,7 +2510,20 @@ const EVENTS: &[Event] = &[
         from: select_from,
         to: select_to,
     },
-    Event { code: "Dlt ", name: "delete", label: "Delete", ids: &["layer.delete", "edit.clear"], from: delete_from, to: delete_to },
+    Event { code: "Dlt ", name: "delete", label: "Delete", ids: &["layer.delete", "edit.clear", "layer.layerMask.delete"], from: delete_from, to: delete_to },
+    Event { code: "", name: "clearEvent", label: "Clear", ids: &["select.editInQuickMaskMode"], from: clear_from, to: clear_to },
+    Event {
+        code: "Trnf",
+        name: "transform",
+        label: "Transform",
+        ids: &["edit.transform", "select.transformSelection"],
+        from: transform_from,
+        to: transform_to,
+    },
+    Event { code: "AppI", name: "applyImageEvent", label: "Apply Image", ids: &["image.applyImage"], from: apply_image_from, to: apply_image_to },
+    ev!("", "newPlacedLayer", "Convert to Smart Object", "layer.smartObjects.convertToSmartObject", &[]),
+    ev!("", "placedLayerEditContents", "Edit Contents", "layer.smartObjects.editContents", &[]),
+    ev!("", "updatePlacedLayer", "Update Smart Objects", "layer.smartObjects.updateModifiedContent", &[]),
     Event { code: "Hd  ", name: "hide", label: "Hide", ids: &["layer.hideLayers"], from: |d| visibility_from(d, "layer.hideLayers"), to: visibility_to },
     Event { code: "Shw ", name: "show", label: "Show", ids: &["layer.showLayers"], from: |d| visibility_from(d, "layer.showLayers"), to: visibility_to },
     Event {
@@ -2053,7 +2575,7 @@ const EVENTS: &[Event] = &[
     ev!("Grow", "grow", "Grow", "select.grow", &[F("Tlrn", "tolerance", Kind::Long)]),
     ev!("Smlr", "similar", "Similar", "select.similar", &[F("Tlrn", "tolerance", Kind::Long)]),
     // Edit.
-    Event { code: "Fl  ", name: "fill", label: "Fill", ids: &["edit.fill"], from: fill_from, to: fill_to },
+    Event { code: "Fl  ", name: "fill", label: "Fill", ids: &["edit.fill", "paint.bucket"], from: fill_from, to: fill_to },
     ev!("Strk", "stroke", "Stroke", "edit.stroke", STROKE),
     ev!("copy", "copyEvent", "Copy", "edit.copy", &[]),
     ev!("CpyM", "copyMerged", "Copy Merged", "edit.copyMerged", &[]),
@@ -2086,7 +2608,11 @@ const EVENTS: &[Event] = &[
         to: profile_to,
     },
     // File and actions.
-    ev!("Cls ", "close", "Close", "file.close", &[]),
+    Event { code: "Cls ", name: "close", label: "Close", ids: &["file.close"], from: close_from, to: close_to },
+    Event { code: "Expr", name: "export", label: "Export", ids: &["file.export.saveForWebLegacy"], from: export_from, to: export_to },
+    Event { code: "Plc ", name: "placeEvent", label: "Place", ids: &["file.placeEmbedded", "file.placeLinked"], from: place_from, to: place_to },
+    Event { code: "Opn ", name: "open", label: "Open", ids: &["file.openAs"], from: open_from, to: open_to },
+    Event { code: "", name: "conditional", label: "If", ids: &["actions.conditional"], from: conditional_from, to: conditional_to },
     ev!("save", "save", "Save", "file.save", &[]),
     ev!("Rvrt", "revert", "Revert", "file.revert", &[]),
     Event { code: "Ply ", name: "play", label: "Play", ids: &["actions.play"], from: play_from, to: play_to },
@@ -2098,8 +2624,10 @@ fn event_for(item: &AtnEvent) -> Option<&'static Event> {
     EVENTS.iter().find(|e| (!e.code.is_empty() && e.code.trim_end() == id.trim_end()) || e.name == id)
 }
 
-fn event_for_id(id: &str) -> Option<&'static Event> {
-    EVENTS.iter().find(|e| e.ids.contains(&id))
+/// The event `id` exports as: the first event listing it whose converter accepts the params
+/// (Quick Mask on is a `set`, off a `clearEvent`).
+fn event_and_descriptor(id: &str, params: &Value) -> Option<(&'static Event, Descriptor)> {
+    EVENTS.iter().filter(|e| e.ids.contains(&id)).find_map(|e| (e.to)(id, params).map(|d| (e, d)))
 }
 
 // ------------------------------------------------------------------ import
@@ -2220,12 +2748,11 @@ fn export_item(id: &str, params: &Value, set: &str) -> Option<AtnItem> {
         };
         return Some(AtnItem { event, dictionary: jstr(params, "name").unwrap_or("").to_string(), descriptor, ..Default::default() });
     }
-    let e = event_for_id(id)?;
     let mut params = params.clone();
-    if id == "actions.play" && params.get("set").is_none() {
+    if (id == "actions.play" || id == "actions.conditional") && params.get("set").is_none() {
         params["set"] = json!(set);
     }
-    let descriptor = (e.to)(id, &params)?;
+    let (e, descriptor) = event_and_descriptor(id, &params)?;
     let event = if e.code.is_empty() { AtnEvent::Name(e.name.to_string()) } else { AtnEvent::Code(e.code.as_bytes().try_into().ok()?) };
     Some(AtnItem { event, dictionary: e.label.to_string(), descriptor: Some(descriptor), ..Default::default() })
 }

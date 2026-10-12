@@ -593,6 +593,7 @@ mod tests {
             revision: st.revision,
             dialog: id,
             active: st.active_layer,
+            target: st.channel_view.target,
             command: "filter.blur.gaussianBlur".into(),
             params: serde_json::json!({"radius": 4.0}),
             k: 1,

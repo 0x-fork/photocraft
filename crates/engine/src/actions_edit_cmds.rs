@@ -126,6 +126,123 @@ fn assign_set(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(result)
 }
 
+/// The conditions of Photoshop's Insert Conditional, by their string ids.
+pub const CONDITIONS: &[&str] = &[
+    "always",
+    "never",
+    "isOpen",
+    "landscape",
+    "square",
+    "portrait",
+    "modeIsRGB",
+    "modeIsCMYK",
+    "modeIsGrayscale",
+    "modeIsLab",
+    "modeIsBitmap",
+    "modeIsIndexed",
+    "modeIsDuotone",
+    "modeIsMultichannel",
+    "depth8",
+    "depth16",
+    "depth32",
+    "unsaved",
+    "hasSelection",
+    "hasLayers",
+    "hasAlphaChannels",
+    "isBackground",
+    "isPixelLayer",
+    "isAdjustmentLayer",
+    "isShapeLayer",
+    "isTypeLayer",
+    "isSmartObject",
+    "isLayerGroup",
+    "isLocked",
+    "isVisible",
+    "hasPixelMask",
+    "hasVectorMask",
+    "hasEffects",
+];
+
+/// Whether `condition` holds for the active document and layer. Layer conditions are false
+/// without a document or an active layer; `isOpen` is whether a document is open.
+pub fn evaluate(s: &Session, condition: &str) -> Result<bool> {
+    use photocraft_color::ColorMode;
+    use photocraft_doc::LayerContent;
+    if !CONDITIONS.contains(&condition) {
+        return Err(bad("actions.conditional", format!("unknown condition `{condition}` ({})", CONDITIONS.join("|"))));
+    }
+    let Some(d) = s.active() else { return Ok(condition == "always") };
+    let doc = &d.doc;
+    let layer = d.active_layer.and_then(|id| doc.layer(id));
+    let (w, h) = (doc.size.width, doc.size.height);
+    Ok(match condition {
+        "always" | "isOpen" => true,
+        "never" => false,
+        "landscape" => w > h,
+        "square" => w == h,
+        "portrait" => h > w,
+        "modeIsRGB" => doc.mode == ColorMode::Rgb,
+        "modeIsCMYK" => doc.mode == ColorMode::Cmyk,
+        "modeIsGrayscale" => doc.mode == ColorMode::Grayscale,
+        "modeIsLab" => doc.mode == ColorMode::Lab,
+        "modeIsBitmap" => doc.mode == ColorMode::Bitmap,
+        "modeIsIndexed" => doc.mode == ColorMode::Indexed,
+        "modeIsDuotone" => doc.mode == ColorMode::Duotone,
+        "modeIsMultichannel" => doc.mode == ColorMode::Multichannel,
+        "depth8" => doc.depth == photocraft_color::SampleType::U8,
+        "depth16" => doc.depth == photocraft_color::SampleType::U16,
+        "depth32" => doc.depth == photocraft_color::SampleType::F32,
+        "unsaved" => d.is_dirty(),
+        "hasSelection" => doc.selection.is_some(),
+        // More than a lone Background: any layer that isn't the background.
+        "hasLayers" => doc.walk().iter().any(|(_, _, l)| !doc.is_background(l.id)),
+        "hasAlphaChannels" => !doc.channels.is_empty(),
+        "isBackground" => layer.is_some_and(|l| doc.is_background(l.id)),
+        "isPixelLayer" => layer.is_some_and(|l| matches!(l.content, LayerContent::Raster(_)) && !doc.is_background(l.id)),
+        "isAdjustmentLayer" => layer.is_some_and(|l| matches!(l.content, LayerContent::Adjustment(_))),
+        "isShapeLayer" => layer.is_some_and(|l| matches!(l.content, LayerContent::Shape(_))),
+        "isTypeLayer" => layer.is_some_and(|l| matches!(l.content, LayerContent::Text(_))),
+        "isSmartObject" => layer.is_some_and(|l| matches!(l.content, LayerContent::Smart(_))),
+        "isLayerGroup" => layer.is_some_and(|l| l.is_group()),
+        "isLocked" => layer.is_some_and(|l| l.locks.all || l.locks.pixels || l.locks.position || l.locks.transparency),
+        "isVisible" => layer.is_some_and(|l| l.visible),
+        "hasPixelMask" => layer.is_some_and(|l| l.mask.is_some()),
+        "hasVectorMask" => layer.is_some_and(|l| l.vector_mask.is_some()),
+        "hasEffects" => layer.is_some_and(|l| !l.effects.items.is_empty()),
+        _ => false,
+    })
+}
+
+/// Photoshop's Insert Conditional as a step: test the condition, play `then` or `else`.
+fn conditional(s: &mut Session, p: &Value) -> Result<Value> {
+    let cmd = "actions.conditional";
+    let condition = match p.get("if") {
+        Some(Value::String(c)) => c.clone(),
+        _ => return Err(bad(cmd, format!("needs `if`, one of {}", CONDITIONS.join("|")))),
+    };
+    let branch = |key: &str| -> Result<Option<String>> {
+        match p.get(key) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(n)) if !n.trim().is_empty() => Ok(Some(n.clone())),
+            Some(Value::String(_)) => Ok(None),
+            Some(_) => Err(bad(cmd, format!("`{key}` must be an action name or null"))),
+        }
+    };
+    let (then, otherwise) = (branch("then")?, branch("else")?);
+    let holds = evaluate(s, &condition)?;
+    let played = if holds { then } else { otherwise };
+    let mut out = json!({"if": condition, "holds": holds, "played": played});
+    if let Some(name) = played {
+        let r = s.execute("actions.play", json!({"action": name}))?;
+        if let Some(f) = r.get("failed") {
+            out["failed"] = f.clone();
+        }
+        out["ran"] = r.get("ran").cloned().unwrap_or(json!(0));
+        out["action"] = json!(name);
+    }
+    Ok(out)
+}
+
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec {
@@ -147,6 +264,16 @@ pub fn specs() -> Vec<CommandSpec> {
             enabled: always,
             run: dialog,
             journal: false,
+        },
+        CommandSpec {
+            id: "actions.conditional",
+            label: "Conditional",
+            menu: &[],
+            shortcut: None,
+            params: r##"{"if":condition, "then":action name|null, "else":action name|null} → {if, holds, played, ran?, failed?}. Photoshop's Insert Conditional: conditions always|never|isOpen|landscape|square|portrait|modeIsRGB|modeIsCMYK|modeIsGrayscale|modeIsLab|modeIsBitmap|modeIsIndexed|modeIsDuotone|modeIsMultichannel|depth8|depth16|depth32|unsaved|hasSelection|hasLayers|hasAlphaChannels|isBackground|isPixelLayer|isAdjustmentLayer|isShapeLayer|isTypeLayer|isSmartObject|isLayerGroup|isLocked|isVisible|hasPixelMask|hasVectorMask|hasEffects (layer conditions test the active layer). The branch plays as actions.play does; its failure stops the calling action."##,
+            enabled: always,
+            run: conditional,
+            journal: true,
         },
         CommandSpec {
             id: "actions.assignSet",
@@ -221,6 +348,68 @@ mod tests {
         // Deleting a step keeps the flags of the others in place.
         s.execute("actions.delete", json!({"action": "A", "step": 0})).unwrap();
         assert_eq!(s.actions.list[0].dialogs.iter().copied().collect::<Vec<_>>(), [0]);
+    }
+
+    #[test]
+    fn conditional_tests_the_document_and_plays_a_branch() {
+        let mut s = session_with(&[]);
+        s.actions.list.push(Action::new("Yes", vec![("layer.new.layer".into(), json!({"name": "yes"}))]));
+        s.actions.list.push(Action::new("No", vec![("layer.new.layer".into(), json!({"name": "no"}))]));
+        let names = |s: &Session| s.active().unwrap().doc.walk().iter().map(|(_, _, l)| l.name.clone()).collect::<Vec<_>>();
+        // 8 × 8: square, not landscape; one Background: no layers yet.
+        for (cond, expect) in [
+            ("square", true),
+            ("landscape", false),
+            ("portrait", false),
+            ("modeIsRGB", true),
+            ("modeIsCMYK", false),
+            ("depth8", true),
+            ("hasLayers", false),
+            ("hasSelection", false),
+            ("isBackground", true),
+            ("isPixelLayer", false),
+            ("hasEffects", false),
+            ("always", true),
+            ("never", false),
+            ("isOpen", true),
+        ] {
+            assert_eq!(evaluate(&s, cond).unwrap(), expect, "{cond}");
+        }
+        let r = s.execute("actions.conditional", json!({"if": "square", "then": "Yes", "else": "No"})).unwrap();
+        assert_eq!((r["holds"].as_bool(), r["played"].as_str(), r["ran"].as_u64()), (Some(true), Some("Yes"), Some(1)));
+        assert_eq!(names(&s).last().map(String::as_str), Some("yes"));
+        for (cond, expect) in [("hasLayers", true), ("isPixelLayer", true), ("isBackground", false), ("isVisible", true)] {
+            assert_eq!(evaluate(&s, cond).unwrap(), expect, "{cond}");
+        }
+        let r = s.execute("actions.conditional", json!({"if": "landscape", "then": "Yes", "else": "No"})).unwrap();
+        assert_eq!((r["holds"].as_bool(), r["played"].as_str()), (Some(false), Some("No")));
+        assert_eq!(names(&s).last().map(String::as_str), Some("no"));
+        // No branch for the outcome: nothing plays, no error.
+        let r = s.execute("actions.conditional", json!({"if": "landscape", "then": "Yes"})).unwrap();
+        assert!(r["played"].is_null());
+        // A failing branch reports like a nested Play, and stops a calling action.
+        s.actions.list.push(Action::new("Bad", vec![("layer.delete".into(), json!({"layer": 999}))]));
+        let r = s.execute("actions.conditional", json!({"if": "always", "then": "Bad"})).unwrap();
+        assert!(r["failed"].is_object(), "{r}");
+        assert!(crate::actions_cmds::nested_failure("actions.conditional", &r).is_some());
+        s.actions.list.push(Action::new(
+            "Caller",
+            vec![("actions.conditional".into(), json!({"if": "always", "then": "Bad"})), ("layer.new.layer".into(), json!({"name": "after"}))],
+        ));
+        let played = s.execute("actions.play", json!({"action": "Caller"})).unwrap();
+        assert_eq!(played["failed"]["step"], 0, "{played}");
+        assert_ne!(names(&s).last().map(String::as_str), Some("after"));
+        // Without a document only always/never answer; layer conditions are false.
+        let t = Session::new();
+        assert!(evaluate(&t, "always").unwrap());
+        assert!(!evaluate(&t, "isOpen").unwrap());
+        assert!(!evaluate(&t, "isBackground").unwrap());
+        for p in [json!({}), json!({"if": "sometimes"}), json!({"if": 3}), json!({"if": "always", "then": 5}), json!({"if": "always", "then": "Nope"})] {
+            assert!(
+                s.execute("actions.conditional", p.clone()).is_err() || s.execute("actions.conditional", p.clone()).unwrap().get("failed").is_some(),
+                "{p}"
+            );
+        }
     }
 
     #[test]

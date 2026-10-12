@@ -248,6 +248,11 @@ fn step_label(id: &str, params: &Value) -> String {
     if id == "actions.play" {
         let target = params.get("action").map(|v| v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string())).unwrap_or_default();
         format!("{}: {target}", label_of(id))
+    } else if id == "actions.conditional" {
+        // "If hasLayers: FS8-Layers / FS8-No-Layers"
+        let cond = params.get("if").and_then(Value::as_str).unwrap_or("?");
+        let branch = |k: &str| params.get(k).and_then(Value::as_str).unwrap_or("–").to_string();
+        format!("{}: {cond} → {} / {}", label_of(id), branch("then"), branch("else"))
     } else if id == photocraft_engine::atn_cmds::STOP_MESSAGE {
         format!("{}: {}", label_of(id), params.get("message").and_then(Value::as_str).unwrap_or_default())
     } else if id == photocraft_engine::atn_cmds::PHOTOSHOP_STEP {

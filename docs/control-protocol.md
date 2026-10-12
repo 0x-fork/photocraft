@@ -535,7 +535,10 @@ step with its dialog on opens that command's dialog seeded with the recorded val
 the play result carries `paused: {step, id, dialog}`, OK runs the dialog's values and continues
 from the next step, Cancel stops the action. Agents (`automation_input`) play headlessly with the
 recorded values. The panel menu's **Insert Stop…** adds an `actions.stopMessage` step after the
-selected step (`actions.insert` takes any command id and params).
+selected step (`actions.insert` takes any command id and params). `actions.conditional {if, then,
+else}` is Photoshop's Insert Conditional as a step: it tests the document or active layer
+(`always`, `landscape`, `modeIsRGB`, `hasLayers`, `isBackground`, `hasPixelMask`… see its params)
+and plays the matching action by name, failing the caller when that action fails.
 
 Layer-panel **Quick Export as PNG** exports every selected layer as a separate PNG. A single
 Save dialog chooses the first filename; remaining files are numbered siblings with sanitized
