@@ -391,6 +391,7 @@
 	Select Linked Layers	リンクしたレイヤーを選択
 	Merge Layers	レイヤーを結合
 	Merge Down	下のレイヤーと結合
+	Merge Group	グループを結合
 	Merge Visible	表示レイヤーを結合
 	Stamp Visible	表示レイヤーをスタンプ
 	Select Layer Above	上のレイヤーを選択

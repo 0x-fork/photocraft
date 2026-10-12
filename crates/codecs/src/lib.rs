@@ -98,6 +98,11 @@ pub fn decode_as_with(format: Format, bytes: &[u8], opts: &DecodeOptions) -> Res
     finish_decode(img, o, opts)
 }
 
+/// Returns the embedded colour table for an indexed BMP, if it has one.
+pub fn bmp_palette(bytes: &[u8]) -> Result<Option<Vec<[u8; 3]>>, CodecError> {
+    via_image::bmp_palette(bytes)
+}
+
 /// Lists the pages (image directories) of a TIFF or BigTIFF file without decoding pixels: the
 /// main IFD chain and its SubIFDs, each with its size, kind (page, reduced-resolution copy or
 /// mask) and storage. [`TiffInfo::default_page`] is the page [`decode`] opens.

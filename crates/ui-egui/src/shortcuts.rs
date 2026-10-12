@@ -456,6 +456,17 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
             return;
         }
     }
+    // Space+F (⇧Space+F backwards) cycles the pasteboard colour, as in Photoshop: F while the
+    // Hand key is held, before F's own Cycle Screen Mode.
+    if !matches!(focus, Focus::Text) && app.ui.text_edit.is_none() && crate::hold_keys::reposition_held(app, ctx) {
+        let back = ctx.input_mut(|i| i.consume_key(Modifiers::SHIFT, Key::F));
+        if back || ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F)) {
+            if let Err(e) = crate::canvas_tool_menu::cycle_canvas_color(app, back) {
+                app.ui.status = e;
+            }
+            return;
+        }
+    }
     // Inline type editing eats text and navigation keys; ⌘-shortcuts still reach the menus.
     let editing = crate::type_tool::handle_keys(app, ctx);
     // Registry, UI and menu-catalogue shortcuts (see [`crate::shortcut_dispatch::bindings`]).

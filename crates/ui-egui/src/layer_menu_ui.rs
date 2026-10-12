@@ -111,6 +111,9 @@ pub fn entries(l: &Layer, multi: bool, has_selection: bool) -> Vec<Entry> {
     v.push(None);
     if multi {
         v.push(Some((tl!("Merge Layers"), "layer.mergeLayers")));
+    } else if matches!(l.content, LayerContent::Group(_)) {
+        // Photoshop's Merge Group: a group merges itself, not into the layer below (#3832).
+        v.push(Some((tl!("Merge Group"), "layer.mergeGroup")));
     } else {
         v.push(Some((tl!("Merge Down"), "layer.mergeDown")));
     }
@@ -652,6 +655,31 @@ mod tests {
         assert!(ids.contains(&"layer.layerMask.revealSelection") && !ids.contains(&"layer.layerMask.revealAll"));
         let ids: Vec<&str> = entries(&l, true, false).into_iter().flatten().map(|e| e.1).collect();
         assert!(ids.contains(&"layer.mergeLayers"));
+    }
+
+    /// #3832: a group's right-click menu and the Layer menu offer Photoshop's Merge Group, which
+    /// merges the group itself (not into the layer below), and it is enabled.
+    #[test]
+    fn a_group_offers_merge_group() {
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 10, "height": 10})).unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("layer.groupLayers", json!({"name": "G"})).unwrap();
+        let st = s.active().unwrap();
+        let g = st.doc.layer(st.active_layer.unwrap()).unwrap().clone();
+        let e: Vec<(&str, &str)> = entries(&g, false, false).into_iter().flatten().collect();
+        assert!(e.contains(&("Merge Group", "layer.mergeGroup")), "{e:?}");
+        assert!(!e.iter().any(|x| x.0 == "Merge Down"));
+        let mut app = crate::PhotocraftApp::new(s, Default::default());
+        app.sync_views();
+        let items = crate::menus::menu_items(&app);
+        let item = items.iter().find(|i| i.id == "layer.mergeLayers").unwrap();
+        assert_eq!(item.label, "Merge Group");
+        assert!(item.enabled, "Merge Group runs on a group");
+        // A plain layer keeps Merge Layers.
+        app.run("layer.new.layer", json!({})).unwrap();
+        let items = crate::menus::menu_items(&app);
+        assert_eq!(items.iter().find(|i| i.id == "layer.mergeLayers").unwrap().label, "Merge Layers");
     }
 
     #[test]

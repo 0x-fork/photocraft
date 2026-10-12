@@ -1217,6 +1217,12 @@ pub fn group_layers(s: &mut Session, p: &Value) -> Result<Value> {
 fn merge_layers(s: &mut Session) -> Result<Value> {
     let sel = selected(s);
     if sel.len() < 2 {
+        // ⌘E on a lone group is Photoshop's Merge Group (#3832); on a layer, Merge Down.
+        if let Some(&id) = sel.first()
+            && s.active().and_then(|d| d.doc.layer(id)).is_some_and(|l| matches!(l.content, LayerContent::Group(_)))
+        {
+            return s.execute("layer.mergeGroup", json!({ "layer": id.0 }));
+        }
         return s.execute("layer.mergeDown", json!({}));
     }
     let mid = s.edit("Merge Layers", |doc, active| {

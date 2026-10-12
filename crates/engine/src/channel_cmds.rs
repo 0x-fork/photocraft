@@ -1126,11 +1126,15 @@ fn delete_channel(s: &mut Session, p: &Value) -> Result<Value> {
             _ => return Err(bad(cmd, "missing `channel`")),
         },
     };
+    // `edit` validates the view against the shorter channel list before we can remap it.
+    // Keep the original indices and eyes so a surviving final channel is not discarded.
+    let view = s.active().ok_or(EngineError::NoDocument)?.channel_view.clone();
     s.edit("Delete Channel", |doc, _| {
         doc.channels.remove(i);
         Ok(())
     })?;
     if let Some(st) = s.active_mut() {
+        st.channel_view = view;
         let v = &mut st.channel_view;
         if i < v.alpha_visible.len() {
             v.alpha_visible.remove(i);
