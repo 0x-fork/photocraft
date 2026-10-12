@@ -1,4 +1,5 @@
 pub(crate) mod deep_exr;
+pub(crate) mod dicom;
 pub(crate) mod exr;
 pub(crate) mod exr_cryptomatte;
 pub(crate) mod fits;

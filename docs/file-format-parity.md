@@ -44,7 +44,7 @@ XL are missing (gap G10). Remaining: 300–500 h including PSD fidelity.
 | SVG | R (rasterize) | yes, as editable shape layers or a vector smart object | no | Better than Photoshop for editing; gradients approximated (FILE-215-9) |
 | JPEG 2000 | R/W | no (#1047) | no | |
 | Cineon / DPX | R (DPX), R/W (CIN) | no (#1049) | no | |
-| DICOM | R/W | no | no | |
+| DICOM | R/W | yes (#1048) | no | Read-only, uncompressed syntaxes: MONOCHROME1/2, RGB, YBR_FULL |
 | PCX | R/W | no | no | |
 | Pixar | R/W | no | no | |
 | Amiga IFF | R/W | no | no | |

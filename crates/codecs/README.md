@@ -45,6 +45,7 @@ let out = encode(&img, Format::Tiff, &EncodeOptions::default())?;
 | OpenEXR | yes | yes | F16, F32 | Y, YA, RGB, RGBA | yes | no | no | no | no | no | no | `exr` |
 | Radiance HDR | yes | yes | F32 | RGB | no | no | no | no | no | no | yes (RGBE) | `image` |
 | FITS | yes | yes | U8, U16, F32 | Gray, RGB | no | no | no | no | no | yes (header cards) | no | built in |
+| DICOM | yes | **no** | U8, U16 | Gray, RGB | no | no | no | no | no | no | n/a | built in |
 | AVIF | **no** | only with feature `avif` | U8 | RGB, RGBA | yes | no | no | no | no | no | yes | `image` + `ravif` |
 | HEIF/HEIC | with feature `heif` | **no** | U8, U16 (10/12-bit decodes to U16) | RGB, RGBA | yes (auxiliary alpha) | yes (`colr` prof) | yes | yes | no | no | n/a | `heic-rs` |
 
@@ -77,6 +78,14 @@ Palette BMP pixels decode as RGB in `Image`; `bmp_palette` exposes the embedded 
 * **Camera raw files** (DNG, CR2, NEF, ARW… which are TIFF-structured) are recognised and refused
   with `CodecError::Unsupported`: they are sensor data, not flat images. `photocraft-raw` decodes
   and develops them, and `photocraft-io` routes them there.
+
+* **DICOM (read-only).** Single-frame medical images over the uncompressed transfer syntaxes
+  (implicit VR little-endian, explicit VR little/big-endian): MONOCHROME1/2 gray (with the
+  1 = white inversion) and RGB/YBR_FULL (8-bit), 8- and 16-bit allocated samples, interleaved or
+  planar, scaled from `BitsStored`/`HighBit` and mapped up when `PixelRepresentation` is signed.
+  Compressed transfer syntaxes, sequences, overlays, multi-frame pixel data and other photometric
+  interpretations return `Unsupported`/`Malformed`. There is no DICOM writer
+  (`ASYMMETRIC_EXCEPTIONS`).
 
 * **HEIF/HEIC (read-only, feature `heif`).** Decoding lives in the optional `photocraft-heif` crate
   behind the non-default `heif` feature (official PhotoCraft builds enable it; distributors choose).
