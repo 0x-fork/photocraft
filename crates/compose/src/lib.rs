@@ -313,13 +313,19 @@ pub fn thumbnail(doc: &Document, max_side: u32) -> Rgba8Image {
     thumbnail_buffer(doc, max_side).to_rgba8()
 }
 
+/// Width and height of [`thumbnail`]`(doc, max_side)`.
+pub fn thumbnail_size(doc: &Document, max_side: u32) -> (u32, u32) {
+    let b = doc.bounds();
+    let longest = b.width().max(b.height()).max(1);
+    let scale = (max_side as f32 / longest as f32).min(1.0);
+    (((b.width() as f32 * scale).round() as u32).max(1), ((b.height() as f32 * scale).round() as u32).max(1))
+}
+
 /// [`thumbnail`] as straight-alpha floats (for callers that colour-convert it first).
 pub fn thumbnail_buffer(doc: &Document, max_side: u32) -> Buffer {
     let b = doc.bounds();
     let longest = b.width().max(b.height()).max(1);
-    let scale = (max_side as f32 / longest as f32).min(1.0);
-    let w = ((b.width() as f32 * scale).round() as u32).max(1);
-    let h = ((b.height() as f32 * scale).round() as u32).max(1);
+    let (w, h) = thumbnail_size(doc, max_side);
     let k = longest / max_side.max(1).saturating_mul(2);
     if k >= 2 && doc.size.area() > PROXY_THUMBNAIL_PIXELS && proxy::proxy_faithful(doc) {
         render_reduced(&proxy::proxy_document(doc, k), w, h)

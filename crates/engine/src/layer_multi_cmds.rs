@@ -667,35 +667,31 @@ pub fn same_pixels(a: &Document, b: &Document) -> bool {
 }
 
 /// Pixels a single history step can have changed between `a` and `b` (the documents on either
-/// side of an undo or redo): the union of the change bounds of every layer whose pixels
-/// differ, so undoing a local edit recomposites only that area instead of the whole canvas.
-/// `None` (composite everything, as before) when the step touched anything the layer walk
-/// cannot bound: document-level fields the compositor reads (canvas size, mode, depth,
-/// profile, global light, patterns, channels, palettes), the layer structure (order,
-/// additions, removals, kind changes; adding or removing a layer that draws nothing, see
-/// [`inert_at`], is no change), layer properties that reach outside their own bounds
-/// (clipping, excluded channels — what `layer.setProps` already reports as unbounded), and
-/// video layers.
-pub fn step_damage(a: &Document, b: &Document) -> Option<Rect> {
-    damage_between(a, b, false)
-}
-
-/// [`step_damage`] for an edit from `before` to `after` that may also have added layers which
-/// change pixels only within their own bounds (see [`added_bounds`]), as Duplicate Layer does:
-/// each contributes its change bounds instead of making the whole canvas recomposite. Inserting a
-/// copy of a 12 MP layer used to recomposite every layer of the document (#2883, P8/P9 in
+/// side of an edit, its undo or its redo): the union of the change bounds of every layer whose
+/// pixels differ, so a local edit recomposites only that area instead of the whole canvas. A
+/// layer only one side has (a duplicate, a paste, a deleted layer) counts where it draws (see
+/// [`one_sided_bounds`]); one that draws nothing ([`inert_at`]) changes nothing. `None`
+/// (composite everything) when the step touched anything the layer walk cannot bound:
+/// document-level fields the compositor reads (canvas size, mode, depth, profile, global light,
+/// patterns, channels, palettes), layer order and kind changes, layers added or removed that
+/// reach outside their own bounds, layer properties that do (clipping, excluded channels —
+/// what `layer.setProps` already reports as unbounded), and video layers. Inserting a copy of a
+/// 12 MP layer used to recomposite every layer of the document (#2883, P8/P9 in
 /// `perf/budgets.toml`).
-pub(crate) fn insert_damage(before: &Document, after: &Document) -> Option<Rect> {
-    damage_between(before, after, true)
-}
-
-fn damage_between(a: &Document, b: &Document, bounded_additions: bool) -> Option<Rect> {
+pub fn step_damage(a: &Document, b: &Document) -> Option<Rect> {
     if !doc_pixels_equal(a, b) {
         return None;
     }
-    fn walk(xs: &[Layer], ys: &[Layer], a: &Document, b: &Document, added: bool, out: &mut Rect) -> bool {
-        // Pair the layers by id, stepping over layers only one side has when they draw nothing
-        // (a new empty layer or group, #1771): adding or deleting one changes no pixels.
+    fn walk(xs: &[Layer], ys: &[Layer], a: &Document, b: &Document, out: &mut Rect) -> bool {
+        // Pair the layers by id, stepping over layers only one side has: one that draws nothing
+        // changes no pixels (a new empty layer or group, #1771), any other only where it draws.
+        let one_sided = |layers: &[Layer], k: usize, canvas: Rect, out: &mut Rect| {
+            let Some(r) = one_sided_bounds(layers, k, canvas) else { return false };
+            if !r.is_empty() {
+                *out = if out.is_empty() { r } else { out.union(&r) };
+            }
+            true
+        };
         let (mut i, mut j) = (0, 0);
         loop {
             let (x, y) = match (xs.get(i), ys.get(j)) {
@@ -705,19 +701,25 @@ fn damage_between(a: &Document, b: &Document, bounded_additions: bool) -> Option
                     j += 1;
                     continue;
                 }
-                _ if added && ys.get(j).is_some_and(|y| xs.iter().all(|x| x.id != y.id)) => {
-                    // A layer only `b` has: bounded when it is self-contained.
-                    let Some(r) = added_bounds(ys, j, b.bounds()) else { return false };
-                    if !r.is_empty() {
-                        *out = if out.is_empty() { r } else { out.union(&r) };
-                    }
-                    j += 1;
-                    continue;
-                }
                 _ if inert_at(xs, i) => {
                     i += 1;
                     continue;
                 }
+                (_, Some(y)) if xs.iter().all(|x| x.id != y.id) => {
+                    if !one_sided(ys, j, b.bounds(), out) {
+                        return false;
+                    }
+                    j += 1;
+                    continue;
+                }
+                (Some(x), _) if ys.iter().all(|y| y.id != x.id) => {
+                    if !one_sided(xs, i, a.bounds(), out) {
+                        return false;
+                    }
+                    i += 1;
+                    continue;
+                }
+                // Both sides have the layer, in another order.
                 _ => return false,
             };
             i += 1;
@@ -739,7 +741,7 @@ fn damage_between(a: &Document, b: &Document, bounded_additions: bool) -> Option
             }
             match (x.children(), y.children()) {
                 (Some(xc), Some(yc)) => {
-                    if !walk(xc, yc, a, b, added, out) {
+                    if !walk(xc, yc, a, b, out) {
                         return false;
                     }
                 }
@@ -749,15 +751,15 @@ fn damage_between(a: &Document, b: &Document, bounded_additions: bool) -> Option
         }
     }
     let mut out = Rect::EMPTY;
-    if walk(&a.layers, &b.layers, a, b, bounded_additions, &mut out) { Some(out) } else { None }
+    if walk(&a.layers, &b.layers, a, b, &mut out) { Some(out) } else { None }
 }
 
-/// The pixels adding `layers[k]` can change, when that is bounded: its change bounds
+/// The pixels adding or removing `layers[k]` can change, when that is bounded: its change bounds
 /// (`photocraft_compose::change_bounds`: not for an adjustment, or a pass-through group holding
-/// one), provided it doesn't become the clipping base of clipped layers above it, and neither it
-/// nor anything inside it is a video layer or excludes channels (both reach outside the layer's
-/// bounds, see [`step_damage`]).
-fn added_bounds(layers: &[Layer], k: usize, canvas: Rect) -> Option<Rect> {
+/// one), provided it isn't the clipping base of clipped layers above it (they would change base),
+/// and neither it nor anything inside it is a video layer or excludes channels (both reach
+/// outside the layer's bounds, see [`step_damage`]).
+fn one_sided_bounds(layers: &[Layer], k: usize, canvas: Rect) -> Option<Rect> {
     fn contained(l: &Layer, depth: usize) -> bool {
         depth < 256 && l.video.is_none() && l.excluded_channels == 0 && l.children().is_none_or(|c| c.iter().all(|c| contained(c, depth + 1)))
     }
@@ -804,11 +806,12 @@ pub(crate) fn note_inert_insert(s: &mut Session, id: LayerId) {
     }
 }
 
-/// Report the pixels an edit from `before` that added layers changed ([`insert_damage`]), so
-/// the canvas recomposites only where the new layers draw instead of the whole document.
+/// Report the pixels an edit from `before` that added layers changed ([`step_damage`]), for
+/// commands made of more than one edit, so the canvas recomposites only where the new layers
+/// draw instead of the whole document.
 pub(crate) fn note_insert(s: &mut Session, before: &Document) {
     let Some(st) = s.active_mut() else { return };
-    st.last_damage = insert_damage(before, &st.doc);
+    st.last_damage = step_damage(before, &st.doc);
 }
 
 /// Content bounds used by Align/Distribute: the layer's pixels (type and shape layers use their
@@ -1588,7 +1591,7 @@ mod tests {
     }
 
     #[test]
-    fn new_layers_that_change_pixels_still_recomposite_everything() {
+    fn new_layers_that_change_clipping_recomposite_everything() {
         let mut s = session(8);
         let base = rect_layer(&mut s, Rect::new(10, 10, 20, 20));
         let clipped = rect_layer(&mut s, Rect::new(0, 0, 100, 80));
@@ -1612,21 +1615,33 @@ mod tests {
         assert_eq!(step_damage(&before, &split), None);
         assert_eq!(step_damage(&split, &before), None);
         s.execute("edit.undo", json!({})).unwrap();
-        // A step that adds a layer with pixels (Layer via Copy, paste…) is not inert either.
+        // A step that adds a layer with pixels (Layer via Copy, paste…) changes where it draws.
         let before = doc(&s).clone();
         let mut after = before.clone();
         let mut l = Layer::raster("painted", after.pixel_format());
         l.surface_mut().unwrap().fill_rect(Rect::new(1, 1, 2, 2), &[0.0, 1.0, 0.0, 1.0]);
         after.insert_above(None, l);
-        assert_eq!(step_damage(&before, &after), None);
-        assert_eq!(step_damage(&after, &before), None);
-        // Nor, conservatively, an empty layer in another blend mode.
+        assert_eq!(step_damage(&before, &after), Some(Rect::new(1, 1, 2, 2)));
+        assert_eq!(step_damage(&after, &before), Some(Rect::new(1, 1, 2, 2)));
+        // Unless it becomes the base of clipped layers above it.
+        let mut based = before.clone();
+        let mut l = Layer::raster("base", based.pixel_format());
+        l.surface_mut().unwrap().fill_rect(Rect::new(1, 1, 2, 2), &[0.0, 1.0, 0.0, 1.0]);
+        let under = based.layers.iter().position(|l| l.id == clipped).unwrap();
+        based.layers.insert(under, l);
+        assert_eq!(step_damage(&before, &based), None);
+        assert_eq!(step_damage(&based, &before), None);
+        // An adjustment reaches every pixel below it.
+        let mut adjusted = before.clone();
+        adjusted.insert_above(None, Layer::new("inv", LayerContent::Adjustment(photocraft_doc::Adjustment::Invert)));
+        assert_eq!(step_damage(&before, &adjusted), None);
+        assert_eq!(step_damage(&adjusted, &before), None);
+        // Empty layers draw nothing, in any blend mode.
         let mut styled = before.clone();
         let mut l = Layer::raster("styled", styled.pixel_format());
         l.blend = photocraft_doc::BlendMode::Multiply;
         styled.insert_above(None, l);
-        assert_eq!(step_damage(&before, &styled), None);
-        // An empty layer in Normal mode is.
+        assert_eq!(step_damage(&before, &styled), Some(Rect::EMPTY));
         let mut plain = before.clone();
         plain.insert_above(None, Layer::raster("plain", plain.pixel_format()));
         assert_eq!(step_damage(&before, &plain), Some(Rect::EMPTY));
@@ -1667,6 +1682,40 @@ mod tests {
             s.execute("layer.duplicate", json!({"layer": a.0})).unwrap();
             assert_eq!(damage(&s), None, "{depth}-bit: a new clipping base");
         }
+    }
+
+    /// The composite of `after` equals `before`'s outside `damage`.
+    fn unchanged_outside(before: &Document, after: &Document, damage: Rect) -> bool {
+        let (x, y) = (photocraft_compose::render(before, before.bounds()), photocraft_compose::render(after, after.bounds()));
+        let w = before.bounds().width() as i32;
+        x.px.iter().zip(&y.px).enumerate().all(|(i, (p, q))| p == q || damage.contains(i as i32 % w, i as i32 / w))
+    }
+
+    /// Duplicate, paste and delete, and their undo and redo, recomposite only where the layer
+    /// draws; undoing a duplicate used to recomposite the whole document.
+    #[test]
+    fn duplicate_paste_and_delete_report_where_the_layer_draws() {
+        let mut s = session(8);
+        let a = rect_layer(&mut s, Rect::new(10, 10, 20, 20));
+        let full = doc(&s).bounds();
+        let step = |s: &mut Session, id: &str, p: serde_json::Value| {
+            let before = doc(s).clone();
+            s.execute(id, p).unwrap();
+            let d = damage(s).unwrap_or_else(|| panic!("{id}: unbounded damage"));
+            assert!(d.width() < full.width(), "{id}: {d:?}");
+            assert!(unchanged_outside(&before, doc(s), d), "{id}: pixels changed outside {d:?}");
+            s.execute("edit.undo", json!({})).unwrap();
+            assert_eq!(damage(s), Some(d), "undo {id}");
+            s.execute("edit.redo", json!({})).unwrap();
+            assert_eq!(damage(s), Some(d), "redo {id}");
+        };
+        step(&mut s, "layer.duplicate", json!({"layer": a.0}));
+        s.execute("layer.select", json!({"layer": a.0})).unwrap();
+        s.execute("select.rect", json!({"x": 12, "y": 12, "width": 4, "height": 4})).unwrap();
+        s.execute("edit.copy", json!({})).unwrap();
+        s.execute("select.deselect", json!({})).unwrap();
+        step(&mut s, "edit.paste", json!({}));
+        step(&mut s, "layer.delete", json!({"layer": a.0}));
     }
 
     #[test]
@@ -2205,12 +2254,12 @@ mod tests {
         assert_ne!(doc(&s).size, photocraft_doc::Size::new(100, 80));
         s.undo();
         assert_eq!(damage(&s), None, "a size change recomposites the whole canvas");
-        // A structural change (a layer removed and restored) neither.
+        // A layer removed and restored changes only where it draws.
         let b = rect_layer(&mut s, Rect::new(0, 0, 5, 5));
         select_all(&mut s, &[b]);
         s.execute("layer.delete", json!({})).unwrap();
         s.undo();
-        assert_eq!(damage(&s), None);
+        assert_eq!(damage(&s), Some(Rect::new(0, 0, 5, 5)));
     }
 
     #[test]
