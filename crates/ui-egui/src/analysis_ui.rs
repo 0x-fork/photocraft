@@ -782,7 +782,9 @@ fn notes_panel(app: &mut PhotocraftApp, ctx: &egui::Context) {
             if ui.add_enabled_ui(n > 1, |ui| crate::icons::button(ui, "chevrons-right", 22.0, false, tl!("Next note"))).inner.clicked() {
                 sel = sel.map(|i| (i + 1) % n);
             }
-            ui.label(RichText::new(sel.map_or("0 of 0".into(), |i| format!("{} of {n}", i + 1))).color(t.text_dim).size(11.0));
+            let template = "{index} of {total}";
+            let position = crate::i18n::fmt(tl!(template), &[("index", &sel.map_or(0, |i| i + 1).to_string()), ("total", &n.to_string())]);
+            ui.label(RichText::new(position).color(t.text_dim).size(11.0));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.add_enabled_ui(sel.is_some(), |ui| crate::icons::button(ui, "trash", 22.0, false, tl!("Delete note"))).inner.clicked() {
                     delete = true;

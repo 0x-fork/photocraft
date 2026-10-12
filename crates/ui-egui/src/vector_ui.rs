@@ -179,6 +179,11 @@ pub fn draw_shape_preview(app: &PhotocraftApp, painter: &egui::Painter, xf: &Vie
 // Pen
 
 fn pen_to_json(pen: &PenPath, closed: bool) -> Value {
+    let folded = fold_close(pen);
+    let (pen, closed) = match &folded {
+        Some(p) => (p, true),
+        None => (pen, closed),
+    };
     json!({"subpaths": [{"closed": closed, "knots": pen.knots.iter().enumerate().map(|(i, k)| json!({"anchor": k[0], "in": k[1], "out": k[2], "smooth": !pen.unlinked.contains(&i) && (k[1] != k[0] || k[2] != k[0])})).collect::<Vec<_>>()}]})
 }
 
@@ -191,7 +196,11 @@ pub fn pen_down(app: &mut PhotocraftApp, x: f64, y: f64) {
         && pen.knots.len() >= 2
         && (first[0] - x).hypot(first[1] - y) < tol
     {
-        pen_commit(app, true);
+        // Pressing the first anchor closes the path on release. Until then a stand-in for it
+        // takes the drag, which pulls out that anchor's handles (close-drag, #3306).
+        pen.knots.push([first; 3]);
+        pen.dragging = true;
+        pen.adjusting_last = false;
         return;
     }
     // Clicking the last anchor breaks its outgoing handle without throwing away the incoming
@@ -250,10 +259,76 @@ pub fn pen_undo_last_point(app: &mut PhotocraftApp) -> bool {
 }
 
 pub fn pen_up(app: &mut PhotocraftApp) {
-    if let Some(pen) = app.ui.pen.as_mut() {
-        pen.dragging = false;
-        pen.adjusting_last = false;
+    let jitter = 2.0 / f64::from(app.point_zoom().max(0.01));
+    let Some(pen) = app.ui.pen.as_mut() else { return };
+    pen.dragging = false;
+    pen.adjusting_last = false;
+    if closing(pen) {
+        // A click on the first anchor closes the path and leaves that anchor's handles alone.
+        if let Some(k) = pen.knots.last_mut()
+            && (k[2][0] - k[0][0]).hypot(k[2][1] - k[0][1]) < jitter
+        {
+            k[1] = k[0];
+            k[2] = k[0];
+        }
+        pen_commit(app, true);
     }
+}
+
+/// ⌥/Alt during a Pen drag breaks the pair of handles being pulled out: from then on only the
+/// outgoing handle follows the pointer and the incoming curve stays as it is (#3306).
+pub fn pen_break_handle(app: &mut PhotocraftApp) {
+    let Some(pen) = app.ui.pen.as_mut().filter(|p| p.dragging && !p.adjusting_last) else { return };
+    let Some(i) = pen.knots.len().checked_sub(1) else { return };
+    if !pen.unlinked.contains(&i) {
+        pen.unlinked.push(i);
+    }
+    pen.adjusting_last = true;
+}
+
+/// ⌥/Alt-press on the last anchor's outgoing handle while drawing grabs that handle alone: the
+/// drag turns it and the incoming curve stays put (#3306). False when the press misses it.
+pub fn pen_grab_handle(app: &mut PhotocraftApp, x: f64, y: f64) -> bool {
+    let tol = 6.0 / f64::from(app.point_zoom().max(0.01));
+    let Some(pen) = app.ui.pen.as_mut() else { return false };
+    let Some((i, k)) = pen.knots.len().checked_sub(1).zip(pen.knots.last()) else { return false };
+    let dist = |p: [f64; 2]| (p[0] - x).hypot(p[1] - y);
+    if k[2] == k[0] || dist(k[2]) >= tol || dist(k[2]) >= dist(k[0]) {
+        return false;
+    }
+    if !pen.unlinked.contains(&i) {
+        pen.unlinked.push(i);
+    }
+    pen.dragging = true;
+    pen.adjusting_last = true;
+    true
+}
+
+/// Is a close-drag in progress: does the path end in the stand-in for its first anchor?
+fn closing(pen: &PenPath) -> bool {
+    pen.knots.len() >= 3 && pen.knots.first().map(|k| k[0]) == pen.knots.last().map(|k| k[0])
+}
+
+/// The path with a close-drag's stand-in folded into the first knot, which takes the dragged
+/// handles (smooth, or a cusp after ⌥/Alt); `None` when no close-drag is in progress.
+fn fold_close(pen: &PenPath) -> Option<PenPath> {
+    if !closing(pen) {
+        return None;
+    }
+    let mut p = pen.clone();
+    let stand_in = p.knots.pop()?;
+    let broken = p.unlinked.contains(&p.knots.len());
+    p.unlinked.retain(|&i| i < p.knots.len());
+    if stand_in[1] != stand_in[0] || stand_in[2] != stand_in[0] {
+        let first = p.knots.first_mut()?;
+        first[1] = stand_in[1];
+        first[2] = stand_in[2];
+        p.unlinked.retain(|&i| i != 0);
+        if broken {
+            p.unlinked.push(0);
+        }
+    }
+    Some(p)
 }
 
 /// Finish the pen path: a work path (Path mode) or a new shape layer (Shape mode).
@@ -304,17 +379,80 @@ fn commit_path(app: &mut PhotocraftApp, pen: &PenPath, closed: bool) {
 // Freeform Pen and Curvature Pen
 
 /// Freeform Pen release: fit the drag's trace within the options bar's Curve Fit and commit it
-/// as the Pen does. Releasing on the start point closes the path; a click draws nothing.
-pub fn freeform_finish(app: &mut PhotocraftApp, points: &[[f64; 3]]) {
+/// as the Pen does. Releasing on the start point closes the path; a click draws nothing. The
+/// points at indices `straight` were ⌥-clicked: the segment into each one stays straight.
+pub fn freeform_finish(app: &mut PhotocraftApp, points: &[[f64; 3]], straight: &[usize]) {
     let trace: Vec<[f64; 2]> = points.iter().map(|p| [p[0], p[1]]).collect();
     let (Some(first), Some(last)) = (trace.first(), trace.last()) else { return };
     let tol = 6.0 / app.point_zoom().max(0.01) as f64;
     let length: f64 = trace.windows(2).map(|w| (w[1][0] - w[0][0]).hypot(w[1][1] - w[0][1])).sum();
     let closed = (first[0] - last[0]).hypot(first[1] - last[1]) < tol && length > 4.0 * tol;
-    let Some(sub) = photocraft_vector::trace::fit_trace(&trace, f64::from(app.ui.tool_options.curve_fit), closed) else { return };
-    let knots = sub.knots.iter().map(|k| [[k.anchor.x, k.anchor.y], [k.in_ctrl.x, k.in_ctrl.y], [k.out_ctrl.x, k.out_ctrl.y]]).collect();
-    let unlinked = sub.knots.iter().enumerate().filter(|(_, k)| !k.smooth).map(|(i, _)| i).collect();
-    commit_path(app, &PenPath { knots, unlinked, ..Default::default() }, sub.closed);
+    let fit = f64::from(app.ui.tool_options.curve_fit);
+    let pen = if straight.is_empty() {
+        let Some(sub) = photocraft_vector::trace::fit_trace(&trace, fit, closed) else { return };
+        let knots = sub.knots.iter().map(knot_points).collect();
+        let unlinked = sub.knots.iter().enumerate().filter(|(_, k)| !k.smooth).map(|(i, _)| i).collect();
+        (PenPath { knots, unlinked, ..Default::default() }, sub.closed)
+    } else {
+        fit_with_straight_segments(&trace, straight, fit, closed.then_some(tol))
+    };
+    commit_path(app, &pen.0, pen.1);
+}
+
+fn knot_points(k: &photocraft_doc::Knot) -> [[f64; 2]; 3] {
+    [[k.anchor.x, k.anchor.y], [k.in_ctrl.x, k.in_ctrl.y], [k.out_ctrl.x, k.out_ctrl.y]]
+}
+
+/// A Freeform Pen trace with ⌥-clicked straight segments (into the points at `straight`): each
+/// freehand run between them is fitted on its own, and the runs are joined by straight lines
+/// between corner anchors. `close` (a reach) closes the path when it ends on its start point.
+fn fit_with_straight_segments(trace: &[[f64; 2]], straight: &[usize], fit: f64, close: Option<f64>) -> (PenPath, bool) {
+    let mut cuts: Vec<usize> = straight.iter().copied().filter(|&i| i > 0 && i < trace.len()).collect();
+    cuts.sort_unstable();
+    cuts.dedup();
+    cuts.push(trace.len());
+    let (mut knots, mut corners): (Vec<[[f64; 2]; 3]>, Vec<usize>) = (Vec::new(), Vec::new());
+    let mut start = 0;
+    for end in cuts {
+        let run = trace.get(start..end).unwrap_or_default();
+        let first = knots.len();
+        match photocraft_vector::trace::fit_trace(run, fit, false) {
+            Some(sub) => {
+                corners.extend(sub.knots.iter().enumerate().filter(|(_, k)| !k.smooth).map(|(i, _)| first + i));
+                knots.extend(sub.knots.iter().map(knot_points));
+            }
+            // A single click (or a run that never moved): one corner anchor.
+            None => knots.extend(run.first().map(|p| [*p; 3])),
+        }
+        // Where a straight segment meets the run: a corner with no handle on that side.
+        if let Some(k) = knots.get_mut(first).filter(|_| first > 0) {
+            k[1] = k[0];
+            corners.push(first);
+        }
+        if end < trace.len()
+            && let Some(k) = knots.last_mut()
+        {
+            k[2] = k[0];
+            corners.push(knots.len() - 1);
+        }
+        start = end;
+    }
+    // Ended on the start point: the last anchor is the first one.
+    let ends_on_start = |k: &[[[f64; 2]; 3]], reach: f64| match (k.first(), k.last()) {
+        (Some(a), Some(b)) => k.len() > 3 && (a[0][0] - b[0][0]).hypot(a[0][1] - b[0][1]) < reach,
+        _ => false,
+    };
+    let closed = close.is_some_and(|reach| ends_on_start(&knots, reach));
+    if closed && let Some(last) = knots.pop() {
+        if let Some(k) = knots.first_mut() {
+            k[1] = [last[1][0] - last[0][0] + k[0][0], last[1][1] - last[0][1] + k[0][1]];
+        }
+        corners.retain(|&i| i < knots.len());
+        corners.push(0);
+    }
+    corners.sort_unstable();
+    corners.dedup();
+    (PenPath { knots, unlinked: corners, ..Default::default() }, closed)
 }
 
 /// Recompute a Curvature Pen path's handles from its anchors and corner points.
@@ -504,10 +642,97 @@ pub(crate) fn free_transform_path(app: &PhotocraftApp) -> Option<(Value, Path)> 
     Some((params, path))
 }
 
+fn point_in_subpath(sp: &photocraft_doc::vector::Subpath, pt: [f64; 2]) -> bool {
+    if !sp.closed || sp.knots.len() < 3 {
+        return false;
+    }
+    let mut inside = false;
+    let n = sp.knots.len();
+    for i in 0..n {
+        let j = (i + 1) % n;
+        let xi = sp.knots[i].anchor.x;
+        let yi = sp.knots[i].anchor.y;
+        let xj = sp.knots[j].anchor.x;
+        let yj = sp.knots[j].anchor.y;
+        let intersect = ((yi > pt[1]) != (yj > pt[1])) && (pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi);
+        if intersect {
+            inside = !inside;
+        }
+    }
+    inside
+}
+
+/// The topmost visible shape layer under `at` (document coordinates):
+/// hits the shape path or anchor within `tol`, or any non-transparent pixel of the shape's raster surface,
+/// or point inside the shape's filled geometry.
+pub fn pick_shape_at(doc: &Document, at: [f64; 2], tol: f64) -> Option<photocraft_doc::LayerId> {
+    let (x, y) = (at[0].floor() as i32, at[1].floor() as i32);
+    for (path, _, l) in doc.walk().iter().rev() {
+        if !l.visible || !(1..=path.len()).all(|n| doc.layer_at(&path[..n]).is_some_and(|a| a.visible)) {
+            continue;
+        }
+        let board = path.first().and_then(|i| doc.layers.get(*i)).and_then(|t| t.artboard());
+        if board.is_some_and(|a| !a.rect.contains(x, y)) {
+            continue;
+        }
+        if let LayerContent::Shape(sh) = &l.content {
+            if photocraft_vector::edit::hit(&sh.path, photocraft_geom::Point::new(at[0], at[1]), tol, &[]).is_some() {
+                return Some(l.id);
+            }
+            if sh.fill.is_some() {
+                if let Some(surf) = l.surface() {
+                    let mut px = [[0.0f32; 4]; 1];
+                    surf.read_rgba_into(photocraft_doc::Rect::from_xywh(x, y, 1, 1), &mut px);
+                    if px[0][3] > 0.0 {
+                        return Some(l.id);
+                    }
+                }
+                if let Some(photocraft_doc::LiveShape::Rect { rect, .. }) = &sh.live {
+                    let x0 = rect[0].min(rect[0] + rect[2]);
+                    let x1 = rect[0].max(rect[0] + rect[2]);
+                    let y0 = rect[1].min(rect[1] + rect[3]);
+                    let y1 = rect[1].max(rect[1] + rect[3]);
+                    if at[0] >= x0 && at[0] <= x1 && at[1] >= y0 && at[1] <= y1 {
+                        return Some(l.id);
+                    }
+                }
+                if let Some(photocraft_doc::LiveShape::Ellipse { rect }) = &sh.live {
+                    let rx = rect[2].abs() / 2.0;
+                    let ry = rect[3].abs() / 2.0;
+                    if rx > 1e-6 && ry > 1e-6 {
+                        let cx = rect[0] + rect[2] / 2.0;
+                        let cy = rect[1] + rect[3] / 2.0;
+                        let dx = (at[0] - cx) / rx;
+                        let dy = (at[1] - cy) / ry;
+                        if dx * dx + dy * dy <= 1.0 {
+                            return Some(l.id);
+                        }
+                    }
+                }
+                if sh.path.subpaths.iter().any(|sp| point_in_subpath(sp, at)) {
+                    return Some(l.id);
+                }
+            }
+        }
+    }
+    None
+}
+
 pub fn path_selection_finish(app: &mut PhotocraftApp, start: [f64; 2], end: [f64; 2]) {
     let (dx, dy) = (end[0] - start[0], end[1] - start[1]);
+    let tol = 6.0 / f64::from(app.point_zoom().max(0.01));
     if dx.abs() + dy.abs() < 0.5 {
+        let Some(st) = app.session.active() else { return };
+        if let Some(id) = pick_shape_at(&st.doc, start, tol) {
+            let _ = app.run("layer.select", json!({"layer": id.0}));
+        }
         return;
+    }
+    if target_path(app).is_none() {
+        let Some(st) = app.session.active() else { return };
+        if let Some(id) = pick_shape_at(&st.doc, start, tol) {
+            let _ = app.run("layer.select", json!({"layer": id.0}));
+        }
     }
     let Some((target, path)) = target_path(app) else { return };
     let _ = match target {
@@ -625,7 +850,16 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
     // Pen path in progress, with handles of the last knot and a rubber band to the pointer.
     if let Some(pen) = &app.ui.pen {
         let mut pts = Vec::new();
-        for w in pen.knots.windows(2) {
+        // A close-drag shows the first segment bending with the handle being pulled out.
+        let mut knots = pen.knots.clone();
+        if closing(pen)
+            && let Some(&[a, _, out]) = pen.knots.last()
+            && out != a
+            && let Some(first) = knots.first_mut()
+        {
+            first[2] = out;
+        }
+        for w in knots.windows(2) {
             for k in 0..=16 {
                 pts.push(to_scr(bezier(w[0][0], w[0][2], w[1][1], w[1][0], k as f64 / 16.0)));
             }
@@ -679,11 +913,12 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
         ui.label(egui::RichText::new(s).color(t.text_dim).size(12.0));
     };
     let o = &mut app.ui.tool_options;
-    if tool == Tool::PathSelection {
+    let target = selected_shape(&app.session);
+    if tool == Tool::PathSelection && target.is_none() {
         lbl(ui, if app.ui.vector_mask_target { "Drag to move the targeted vector mask" } else { tl!("Drag to move the active shape's path or the Work Path") });
         return true;
     }
-    if tool == Tool::DirectSelection {
+    if tool == Tool::DirectSelection && target.is_none() {
         let (shift, alt) = (crate::shortcuts::pretty("Shift"), crate::shortcuts::pretty("Alt"));
         lbl(
             ui,
@@ -722,7 +957,8 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
                 crate::widgets::vline(ui, 22.0);
                 lbl(ui, tl!("Curve Fit:"));
                 crate::widgets::value_field(ui, &mut o.curve_fit, 0.5..=10.0, "px", 58.0);
-                lbl(ui, tl!("Drag: draw freehand · Release on the start point: close"));
+                let alt = crate::shortcuts::pretty("Alt");
+                lbl(ui, &crate::i18n::fmt(tl!("Drag: draw freehand · {alt}-click: straight segment · Release on the start point: close"), &[("alt", &alt)]));
             }
             Tool::CurvaturePen => lbl(
                 ui,
@@ -731,33 +967,55 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
                     &[("key", &enter)],
                 ),
             ),
-            _ => lbl(ui, &crate::i18n::fmt(tl!("Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel"), &[("key", &enter)])),
+            _ => lbl(
+                ui,
+                &crate::i18n::fmt(
+                    tl!("Click: corner · Drag: smooth · {alt}-drag: break handle · Click or drag first point: close · {key} finish · Esc cancel"),
+                    &[("alt", &crate::shortcuts::pretty("Alt")), ("key", &enter)],
+                ),
+            ),
         }
         return true;
     }
     let mut mode = "shape".to_string();
     crate::widgets::dropdown(ui, "shape-mode", &mut mode, &[("shape".to_string(), tl!("Shape"))], 80.0);
     crate::widgets::vline(ui, 22.0);
+    // Fill and Stroke edit the selected shape layer too (#3347), and still set the next shape's.
+    let (fg, bg) = (app.session.tools.foreground, app.session.tools.background);
+    let (mut has_fill, fill, stroke) = match &target {
+        Some(s) => (s.fill.is_some(), s.fill.clone(), s.stroke.clone()),
+        None => (o.shape_fill, o.shape_fill.then(|| solid_paint(fg)), (o.stroke_width > 0.0).then(|| o.shape_stroke.stroke(o.stroke_width, solid_paint(bg)))),
+    };
+    let mut width = stroke.as_ref().map_or(0.0, |s| s.width);
+    let style = stroke.as_ref().map_or_else(|| o.shape_stroke.clone(), crate::shape_stroke_ui::StrokeOptions::from);
+    let key = |k: &str| target.as_ref().map(|s| format!("shape-options-{:?}-{}-{k}", s.doc, s.layer.0));
+    let mut edit: Option<Value> = None;
     lbl(ui, tl!("Fill:"));
-    crate::widgets::checkbox(ui, &mut o.shape_fill, "");
-    let fg = app.session.tools.foreground;
-    let fill = solid_paint(fg);
-    let fill_color = swatch(ui, o.shape_fill.then_some(&fill), fg, tl!("Fill color"));
+    if crate::widgets::checkbox(ui, &mut has_fill, "").changed() {
+        o.shape_fill = has_fill;
+        edit = Some(json!({"fill": if has_fill { json!(fg) } else { Value::Null }}));
+    }
+    let fill_color = swatch(ui, fill.as_ref(), fg, tl!("Fill color"));
     lbl(ui, tl!("Stroke:"));
-    let bg = app.session.tools.background;
-    let stroke = solid_paint(bg);
-    let stroke_color = swatch(ui, (o.stroke_width > 0.0).then_some(&stroke), bg, tl!("Stroke color"));
-    crate::widgets::value_field(ui, &mut o.stroke_width, 0.0..=288.0, "px", 58.0);
-    if let Some(change) = crate::shape_stroke_ui::button(
-        ui,
-        "tool-stroke",
-        &o.shape_stroke,
-        &mut app.ui.stroke_editor,
-        true,
-        tool != Tool::EllipseShape,
-        None,
-        o.stroke_width > 0.0,
-    ) {
+    let stroke_color = swatch(ui, stroke.as_ref().map(|s| &s.paint), bg, tl!("Stroke color"));
+    if crate::widgets::value_field(ui, &mut width, 0.0..=288.0, "px", 58.0).changed() {
+        o.stroke_width = width;
+        let mut p = json!({"width": width});
+        if stroke.is_none() {
+            p["color"] = json!(bg);
+        }
+        edit = Some(if width <= 0.0 { json!({"stroke": null}) } else { json!({"stroke": p, "coalesce": key("stroke-w")}) });
+    }
+    let preview = target.as_ref().filter(|s| s.stroke.is_some()).map(|s| (s.doc, s.layer));
+    if let Some(change) =
+        crate::shape_stroke_ui::button(ui, "tool-stroke", &style, &mut app.ui.stroke_editor, true, tool != Tool::EllipseShape, preview, stroke.is_some())
+    {
+        let mut p = change.options.params();
+        if stroke.is_none() {
+            p["width"] = json!(3.0);
+            p["color"] = json!(bg);
+        }
+        edit = Some(json!({"stroke": p, "coalesce": change.coalesce}));
         o.shape_stroke = change.options;
         o.stroke_width = enabled_stroke_width(o.stroke_width);
     }
@@ -765,7 +1023,15 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
         Tool::Rectangle => {
             crate::widgets::vline(ui, 22.0);
             lbl(ui, tl!("Radius:"));
-            crate::widgets::value_field(ui, &mut o.corner_radius, 0.0..=10000.0, "px", 62.0);
+            let mut r = match target.as_ref().and_then(|s| s.live.as_ref()) {
+                Some(photocraft_doc::LiveShape::Rect { radii, .. }) => radii[0] as f32,
+                _ => o.corner_radius,
+            };
+            if crate::widgets::value_field(ui, &mut r, 0.0..=10000.0, "px", 62.0).changed() {
+                o.corner_radius = r;
+                let rf = r as f64;
+                edit = Some(json!({"radii": [rf, rf, rf, rf], "coalesce": key("radius")}));
+            }
         }
         Tool::Polygon => {
             crate::widgets::vline(ui, 22.0);
@@ -784,17 +1050,59 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
             crate::widgets::vline(ui, 22.0);
             crate::preset_panels::shape_picker(app, ui);
         }
+        _ if matches!(tool, Tool::PathSelection | Tool::DirectSelection) => {
+            if let Some(photocraft_doc::LiveShape::Rect { radii, .. }) = target.as_ref().and_then(|s| s.live.as_ref()) {
+                crate::widgets::vline(ui, 22.0);
+                lbl(ui, tl!("Radius:"));
+                let mut r = radii[0] as f32;
+                if crate::widgets::value_field(ui, &mut r, 0.0..=10000.0, "px", 62.0).changed() {
+                    o.corner_radius = r;
+                    let rf = r as f64;
+                    edit = Some(json!({"radii": [rf, rf, rf, rf], "coalesce": key("radius")}));
+                }
+            }
+        }
         _ => {}
     }
     for (is_stroke, change) in [(false, fill_color), (true, stroke_color)] {
-        if let Some(change) = change
-            && let Err(e) = set_tool_paint(app, is_stroke, change)
-        {
+        let Some(change) = change else { continue };
+        if let Err(e) = set_tool_paint(app, is_stroke, change) {
+            app.ui.status = e;
+            app.ui.status_error = true;
+        }
+        edit = Some(match (is_stroke, change) {
+            (false, PaintChange::None) => json!({"fill": null}),
+            (false, PaintChange::Color(color)) => json!({"fill": color, "coalesce": key("fill")}),
+            (true, PaintChange::None) => json!({"stroke": null}),
+            (true, PaintChange::Color(color)) => json!({"stroke": {"color": color, "width": enabled_stroke_width(width)}, "coalesce": key("stroke")}),
+        });
+    }
+    if let (Some(mut p), Some(s)) = (edit, &target) {
+        p["layer"] = json!(s.layer.0);
+        if let Err(e) = app.run("shape.edit", p) {
             app.ui.status = e;
             app.ui.status_error = true;
         }
     }
     true
+}
+
+/// The shape layer the options bar edits.
+struct SelectedShape {
+    doc: photocraft_doc::DocId,
+    layer: photocraft_doc::LayerId,
+    fill: Option<photocraft_doc::Fill>,
+    stroke: Option<photocraft_doc::ShapeStroke>,
+    live: Option<photocraft_doc::LiveShape>,
+}
+
+fn selected_shape(session: &photocraft_engine::Session) -> Option<SelectedShape> {
+    let st = session.active()?;
+    let layer = st.active_layer?;
+    match &st.doc.layer(layer)?.content {
+        LayerContent::Shape(sh) => Some(SelectedShape { doc: st.doc.id, layer, fill: sh.fill.clone(), stroke: sh.stroke.clone(), live: sh.live.clone() }),
+        _ => None,
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -993,7 +1301,8 @@ pub fn shape_properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, id: photocra
     let gesture = paint_gesture(ui, gesture_key);
     let coalesce = |field: &str| format!("{}:{}:{gesture}", key(field), gesture_key.value());
     // The shared collapsible section headers (#155).
-    if crate::props_layout::section(ui, "appearance", tl!("Appearance")) {
+    // Prefs "Appearance" is theme chrome (Giao diện); shape fill/stroke is Diện mạo.
+    if crate::props_layout::section(ui, "appearance", crate::i18n::tr_ctx(crate::i18n::current(), "shape", "Appearance")) {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(tl!("Fill")).color(t.text_dim).size(12.0));
             if let Some(change) = swatch(ui, sh.fill.as_ref(), app.session.tools.foreground, tl!("Set shape fill type")) {
@@ -1202,7 +1511,7 @@ fn path_context_actions(entry: &PathEntry, doc: &Document) -> Vec<(&'static str,
     let mut actions = vec![
         ("Make Selection", "path.toSelection", json!({"name": key})),
         ("Fill Path", "path.fill", json!({"name": key})),
-        ("Stroke Path", "path.stroke", json!({"name": key, "tool": "brush"})),
+        ("Stroke Path…", "path.stroke", json!({"name": key})),
     ];
     if entry.kind == PathRow::Work {
         let mut n = doc.paths.len().saturating_add(1);
@@ -1242,6 +1551,7 @@ pub fn paths_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let rows = path_rows(&doc, st.active_layer);
     let has_layer_path = rows.iter().any(|r| r.kind == PathRow::Layer);
     let mut action: Option<(&str, Value)> = None;
+    let mut stroke_dialog: Option<String> = None;
     // The buttons sit in a footer at the panel's bottom, like Photoshop's.
     let footer = crate::widgets::footer_height(ui) + ui.spacing().item_spacing.y;
     let fill = ui.available_height() > footer + 60.0;
@@ -1267,7 +1577,8 @@ pub fn paths_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 } else if resp.hovered() {
                     ui.painter().rect_filled(r, 0.0, t.hover.gamma_multiply(0.5));
                 }
-                thumb(ui, Rect::from_min_size(pos2(r.left() + 8.0, r.top() + 4.0), vec2(28.0, 28.0)), path, &doc);
+                let thumbnail = Rect::from_min_size(pos2(r.left() + 8.0, r.top() + 4.0), vec2(28.0, 28.0));
+                thumb(ui, thumbnail, path, &doc);
                 let mut job = egui::text::LayoutJob::default();
                 // Temporary paths (the work path, the selected layer's shape path or vector mask) are italic.
                 let italics = *kind != PathRow::Saved;
@@ -1278,11 +1589,20 @@ pub fn paths_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 );
                 let g = ui.painter().layout_job(job);
                 ui.painter().galley(pos2(r.left() + 46.0, r.center().y - g.size().y / 2.0), g, t.text);
-                if resp.clicked() {
+                // Ctrl/Cmd-click loads only the thumbnail's path, without changing the panel target.
+                let modifiers = ui.input(|i| i.modifiers);
+                let load = resp.clicked() && modifiers.command && resp.interact_pointer_pos().is_some_and(|p| thumbnail.contains(p));
+                if load {
+                    let mode = match crate::channels_panel::load_operation(modifiers) {
+                        "new" => "replace",
+                        mode => mode,
+                    };
+                    action = Some(("path.toSelection", json!({"name": key, "mode": mode})));
+                } else if resp.clicked() {
                     app.ui.selected_path = Some(key.clone());
                 }
                 // Double-clicking the Work Path saves it (Photoshop's "Save Path").
-                if resp.double_clicked() && *kind == PathRow::Work {
+                if !load && resp.double_clicked() && *kind == PathRow::Work {
                     let n = doc.paths.len() + 1;
                     action = Some(("path.rename", json!({"name": "work", "to": format!("Path {n}")})));
                 }
@@ -1294,7 +1614,12 @@ pub fn paths_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         for (label, cmd, params) in path_context_actions(&entry, &doc) {
                             let enabled = !matches!(cmd, "path.fill" | "path.stroke") || can_paint;
                             if ui.add_enabled(enabled, egui::Button::new(tl!(label))).clicked() {
-                                action = Some((cmd, params));
+                                if cmd == "path.stroke" {
+                                    // Stroke Path… asks for the tool first, as in Photoshop (#2978).
+                                    stroke_dialog = Some(params.get("name").and_then(Value::as_str).unwrap_or("work").to_string());
+                                } else {
+                                    action = Some((cmd, params));
+                                }
                                 ui.close();
                             }
                         }
@@ -1339,13 +1664,21 @@ pub fn paths_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             let icon = if crate::icons::exists(icon) { icon } else { "square" };
             let b = crate::icons::button(ui, icon, 26.0, false, tip);
             if b.clicked() {
-                action = Some((cmd, p));
+                if cmd == "path.stroke" && ui.input(|i| i.modifiers.alt) {
+                    // Alt-click opens the Stroke Path dialog, as in Photoshop (#2978).
+                    stroke_dialog = Some(sel.clone());
+                } else {
+                    action = Some((cmd, p));
+                }
             }
             buttons = buttons.union(b.rect);
         }
         buttons
     });
     ctx_data_footer(ui.ctx(), buttons);
+    if let Some(name) = stroke_dialog {
+        crate::canvas_tool_menu::stroke_path_dialog(app, &name);
+    }
     if let Some((cmd, p)) = action
         && let Err(e) = app.run(cmd, p)
     {
@@ -1560,6 +1893,7 @@ mod tests {
         pen_move(&mut app, 140.0, 140.0); // smooth knot
         pen_up(&mut app);
         pen_down(&mut app, 20.5, 20.5); // click the first anchor: close
+        pen_up(&mut app);
         assert!(app.ui.pen.is_none());
         let wp = app.session.active().unwrap().doc.work_path.clone().unwrap();
         assert!(wp.subpaths[0].closed && wp.subpaths[0].knots.len() == 3);
@@ -1629,6 +1963,7 @@ mod tests {
             pen_up(&mut app);
         }
         pen_down(&mut app, 20.5, 20.5);
+        pen_up(&mut app);
         assert_eq!(app.ui.selected_path.as_deref(), Some("work"));
         let wp = app.session.active().unwrap().doc.work_path.clone().unwrap();
         app.run("select.rect", json!({"x": 150, "y": 150, "width": 20, "height": 20})).unwrap();
@@ -1846,11 +2181,137 @@ mod tests {
         press(&mut h, start, false);
         assert_ne!(fill(&h), before, "the drag picked a colour");
     }
+
+    /// The options bar edits the selected shape's fill and stroke.
+    #[test]
+    fn shape_options_bar_edits_the_selected_shape() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::Queryable;
+        let mut app = app();
+        app.run("tools.setColors", json!({"foreground": "#ff0000", "background": "#0000ff"})).unwrap();
+        finish_shape(&mut app, Tool::Rectangle, [20.0, 20.0], [120.0, 100.0], Default::default());
+        let shape = |app: &PhotocraftApp| {
+            let st = app.session.active().unwrap();
+            match &st.doc.layer(st.active_layer.unwrap()).unwrap().content {
+                LayerContent::Shape(sh) => (sh.fill.clone(), sh.stroke.clone()),
+                _ => panic!("not a shape layer"),
+            }
+        };
+        assert!(shape(&app).0.is_some() && shape(&app).1.is_none());
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1100.0, 48.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                    ui.horizontal_centered(|ui| options_bar(app, ui, Tool::Rectangle));
+                }
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(4);
+        let click_fill = |h: &mut egui_kittest::Harness<'_, PhotocraftApp>| {
+            let label = h.query_all(egui_kittest::kittest::by().label("Fill:").include_labels()).next().expect("the Fill label").rect();
+            let at = egui::pos2(label.right() + h.ctx.global_style().spacing.item_spacing.x + 7.0, label.center().y);
+            h.hover_at(at);
+            h.step();
+            for pressed in [true, false] {
+                h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+                h.step();
+            }
+            h.run_steps(2);
+        };
+        // Stroke width.
+        h.get_all_by_role(Role::SpinButton).next().expect("the stroke width").click();
+        h.run();
+        for c in "6".chars() {
+            h.event(egui::Event::Text(c.to_string()));
+            h.run();
+        }
+        h.key_press(egui::Key::Enter);
+        h.run_steps(2);
+        let stroke = shape(h.state()).1.expect("the width field stroked the shape");
+        assert_eq!(stroke.width, 6.0);
+        assert_eq!(stroke.paint, photocraft_doc::Fill::Solid(photocraft_doc::Color::rgba(0.0, 0.0, 1.0, 1.0)));
+        // Fill off.
+        click_fill(&mut h);
+        assert_eq!(shape(h.state()).0, None, "unchecking Fill removed the shape's fill");
+        assert!(!h.state().ui.tool_options.shape_fill, "and the next shape has none either");
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        assert!(shape(h.state()).0.is_some());
+        // No shape selected: no edit.
+        h.state_mut().run("layer.new.layer", json!({})).unwrap();
+        let history = h.state().session.active().unwrap().history.past_len();
+        h.run_steps(2);
+        click_fill(&mut h);
+        assert_eq!(h.state().session.active().unwrap().history.past_len(), history);
+    }
+
+    /// #3915: Path Selection and Direct Selection options bars show Fill, Stroke, and Radius
+    /// controls when a shape is selected, and editing them edits the selected shape.
+    #[test]
+    fn path_selection_options_bar_edits_the_selected_shape() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::Queryable;
+        let mut app = app();
+        app.run("tools.setColors", json!({"foreground": "#ff0000", "background": "#0000ff"})).unwrap();
+        finish_shape(&mut app, Tool::Rectangle, [20.0, 20.0], [120.0, 100.0], Default::default());
+        let shape = |app: &PhotocraftApp| {
+            let st = app.session.active().unwrap();
+            match &st.doc.layer(st.active_layer.unwrap()).unwrap().content {
+                LayerContent::Shape(sh) => (sh.fill.clone(), sh.stroke.clone()),
+                _ => panic!("not a shape layer"),
+            }
+        };
+        assert!(shape(&app).0.is_some() && shape(&app).1.is_none());
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1100.0, 48.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                    ui.horizontal_centered(|ui| options_bar(app, ui, Tool::PathSelection));
+                }
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(4);
+        let click_fill = |h: &mut egui_kittest::Harness<'_, PhotocraftApp>| {
+            let label = h.query_all(egui_kittest::kittest::by().label("Fill:").include_labels()).next().expect("the Fill label").rect();
+            let at = egui::pos2(label.right() + h.ctx.global_style().spacing.item_spacing.x + 7.0, label.center().y);
+            h.hover_at(at);
+            h.step();
+            for pressed in [true, false] {
+                h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+                h.step();
+            }
+            h.run_steps(2);
+        };
+        // Stroke width field is available on Path Selection bar too.
+        h.get_all_by_role(Role::SpinButton).next().expect("the stroke width").click();
+        h.run();
+        for c in "6".chars() {
+            h.event(egui::Event::Text(c.to_string()));
+            h.run();
+        }
+        h.key_press(egui::Key::Enter);
+        h.run_steps(2);
+        let stroke = shape(h.state()).1.expect("the width field stroked the shape");
+        assert_eq!(stroke.width, 6.0);
+        assert_eq!(stroke.paint, photocraft_doc::Fill::Solid(photocraft_doc::Color::rgba(0.0, 0.0, 1.0, 1.0)));
+        // Fill toggle.
+        click_fill(&mut h);
+        assert_eq!(shape(h.state()).0, None, "unchecking Fill removed the shape's fill");
+        // No shape selected: renders hint text instead.
+        h.state_mut().run("layer.new.layer", json!({})).unwrap();
+        h.run_steps(2);
+        assert!(h.query_all(egui_kittest::kittest::by().label("Fill:").include_labels()).next().is_none());
+    }
 }
 
 #[cfg(test)]
 #[path = "path_selection_tests.rs"]
 mod path_selection_tests;
+
+#[cfg(test)]
+#[path = "pen_draw_tests.rs"]
+mod pen_draw_tests;
 
 #[cfg(test)]
 #[path = "vector_paint_tests.rs"]

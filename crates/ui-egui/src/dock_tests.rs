@@ -638,6 +638,29 @@ fn is_pro(theme: ThemeKind) -> bool {
     theme.is_pro()
 }
 
+#[test]
+fn theme_switch_keeps_the_selected_color_group_panel() {
+    use egui_kittest::kittest::Queryable;
+
+    for theme in ThemeKind::ALL {
+        for (tab, name) in Group::Color.tabs(true).iter().enumerate() {
+            let (mut app, _, _) = app_with_layers();
+            app.ui.dock_tabs.color = tab;
+            let mut h = harness(app, vec2(1200.0, 900.0), ThemeKind::Pro);
+            let ctx = h.ctx.clone();
+            h.state_mut().set_theme(&ctx, theme);
+            h.run_steps(4);
+            assert_eq!(Group::Color.tabs(is_pro(theme)).get(h.state().ui.dock_tabs.color), Some(name), "{theme:?}");
+            if *name == "Color" && !is_pro(theme) {
+                assert!(h.query_by_label("Hue").is_some(), "{theme:?}: Color picker missing");
+            }
+            h.state_mut().set_theme(&ctx, ThemeKind::Pro);
+            h.run_steps(4);
+            assert_eq!(h.state().ui.dock_tabs.color, tab, "{theme:?}: switching back changed the panel");
+        }
+    }
+}
+
 /// Full app at `size` (1× scale) on a document with `n` layers named "Row 00", "Row 01", …
 fn app_harness_rows(size: egui::Vec2, theme: ThemeKind, n: usize) -> Harness<'static, PhotocraftApp> {
     let mut h = Harness::builder().with_size(size).with_max_steps(64).build_eframe(move |cc| {
@@ -1058,4 +1081,32 @@ fn a_tab_dragged_off_the_strip_moves_the_group_and_locking_stops_reordering() {
     let paths = tab_rect(&h, Group::Layers, 2);
     drag(&mut h, paths.center(), paths.center() + vec2(0.0, 500.0));
     assert_eq!(h.state().ui.dock.order(), order);
+}
+
+#[test]
+fn brush_settings_window_is_closed_on_restart_but_can_be_reopened() {
+    let mut first = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    first.ui.panels.brush_settings = true;
+    first.ui.panels.history = true;
+    let saved = snapshot(&first);
+    first.session.prefs.edit(|p| {
+        p.workspace.remember_workspace_changes = true;
+        p.panel_layout = saved.clone();
+    });
+    let persisted = first.session.prefs_to_json();
+
+    let mut session = photocraft_engine::Session::new();
+    session.load_prefs_json(&persisted).unwrap();
+    let mut next = PhotocraftApp::new(session, crate::Services::default());
+    restore(&mut next);
+    assert!(!next.ui.panels.brush_settings, "a floating Brush Settings window should not reopen on startup");
+    assert!(next.ui.panels.history, "remembered dock panel visibility is preserved");
+
+    let ctx = egui::Context::default();
+    crate::menus::invoke(&mut next, &ctx, "window.toggle.brushSettings", json!({})).unwrap();
+    assert!(next.ui.panels.brush_settings, "Window > Brush Settings can still open it");
+
+    let mut workspace = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    apply(&mut workspace, &saved);
+    assert!(workspace.ui.panels.brush_settings, "switching workspaces still restores their saved layout");
 }

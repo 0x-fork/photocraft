@@ -1,6 +1,7 @@
-//! Direct Selection tool (A, #790), the Convert Point tool (#3204), and the Pen's ⌘/Ctrl (Direct
-//! Selection) and ⌥/Alt (Convert Point) modifiers, as in Photoshop. It edits the paths the canvas
-//! shows: the targeted vector mask or the active shape layer's path, and the work path.
+//! Direct Selection tool (A, #790), the Convert Point tool (#3204), the Pens' ⌘/Ctrl (Direct
+//! Selection: the Pen, Freeform Pen and Curvature Pen) and the Pen's ⌥/Alt (Convert Point)
+//! modifiers, as in Photoshop. It edits the paths the canvas shows: the targeted vector mask or
+//! the active shape layer's path, and the work path.
 //!
 //! * Click an anchor to select it (⇧ adds or removes, ⌥ selects its whole subpath), drag on empty
 //!   canvas to marquee-select anchors, click empty canvas to deselect.
@@ -106,10 +107,12 @@ impl Edit {
     }
 }
 
-/// Is Direct Selection what the pointer does now: its own tool, or the Pen, an anchor point tool
-/// or Convert Point with ⌘/Ctrl held.
+/// Is Direct Selection what the pointer does now: its own tool, or a Pen (the Pen, Freeform Pen
+/// or Curvature Pen), an anchor point tool or Convert Point with ⌘/Ctrl held.
 fn direct(tool: Tool, mods: Modifiers) -> bool {
-    tool == Tool::DirectSelection || (matches!(tool, Tool::Pen | Tool::AddAnchorPoint | Tool::DeleteAnchorPoint | Tool::ConvertPoint) && mods.command)
+    tool == Tool::DirectSelection
+        || (matches!(tool, Tool::Pen | Tool::FreeformPen | Tool::CurvaturePen | Tool::AddAnchorPoint | Tool::DeleteAnchorPoint | Tool::ConvertPoint)
+            && mods.command)
 }
 
 /// Is Convert Point what the pointer does now: its own tool, or the Pen with ⌥ held while no path
@@ -136,7 +139,20 @@ pub fn shows(app: &PhotocraftApp, mods: Modifiers) -> bool {
 pub(crate) fn candidates(app: &PhotocraftApp) -> Vec<(PathRef, Path)> {
     let layer = crate::vector_ui::targeted_vector_mask(app).or_else(|| crate::vector_ui::active_shape_path(app));
     let work = app.session.active().and_then(|st| st.doc.work_path.clone());
-    layer.map(|(id, p)| (PathRef::Layer(id), p)).into_iter().chain(work.map(|p| (PathRef::Work, p))).collect()
+    let mut out: Vec<_> = layer.map(|(id, p)| (PathRef::Layer(id), p)).into_iter().chain(work.map(|p| (PathRef::Work, p))).collect();
+    if let Some(st) = app.session.active() {
+        for (path, _, l) in st.doc.walk().iter().rev() {
+            if !l.visible || !(1..=path.len()).all(|n| st.doc.layer_at(&path[..n]).is_some_and(|a| a.visible)) {
+                continue;
+            }
+            if let photocraft_doc::LayerContent::Shape(sh) = &l.content
+                && !out.iter().any(|(r, _)| *r == PathRef::Layer(l.id.0))
+            {
+                out.push((PathRef::Layer(l.id.0), sh.path.clone()));
+            }
+        }
+    }
+    out
 }
 
 fn retracted(k: &photocraft_doc::Knot, h: Handle) -> bool {
@@ -173,9 +189,13 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: Modifiers) -> bool 
             if !(direct(tool, mods) || convert) {
                 return false;
             }
-            if tool == Tool::Pen && !pen_idle {
+            if !pen_idle && tool != Tool::DirectSelection {
                 // ⌘-click ends the path being drawn, which becomes editable, as in Photoshop.
                 crate::vector_ui::pen_commit(app, false);
+            }
+            if tool == Tool::FreeformPen {
+                // The same for a Freeform Pen path waiting for its next ⌥-click.
+                crate::lasso_ui::commit(app);
             }
             press(app, [x, y], mods, convert)
         }
@@ -215,14 +235,19 @@ fn press(app: &mut PhotocraftApp, p: [f64; 2], mods: Modifiers, convert: bool) -
         let handles = if ds.target == Some(r) { shown_handles(ds, &path) } else { Vec::new() };
         edit::hit(&path, Point::new(p[0], p[1]), tol, &handles).map(|h| (r, path, h))
     });
-    let ds = &mut app.ui.direct_selection;
     let Some((target, base, hit)) = found else {
         if convert {
             return own_tool;
         }
-        ds.drag = Some(Drag::Marquee { start: p, end: p, add: mods.shift });
+        app.ui.direct_selection.drag = Some(Drag::Marquee { start: p, end: p, add: mods.shift });
         return true;
     };
+    if let PathRef::Layer(id) = target
+        && app.session.active().and_then(|st| st.active_layer).map(|l| l.0) != Some(id)
+    {
+        let _ = app.run("layer.select", json!({"layer": id}));
+    }
+    let ds = &mut app.ui.direct_selection;
     if ds.target != Some(target) {
         *ds = DirectSelection { target: Some(target), ..Default::default() };
     }

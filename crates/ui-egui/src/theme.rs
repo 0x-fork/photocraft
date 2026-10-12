@@ -702,6 +702,15 @@ impl Tokens {
         self.histogram_bg
     }
 
+    /// The background behind selected text in a text field (#3789): a subtle shade rather than
+    /// egui's default blue. The monochrome Pro themes use a grey so a selection doesn't read as a
+    /// second accent; coloured themes keep their own accent. Scoped to text fields by
+    /// [`crate::widgets::text_field`], because `Visuals::selection` also fills selected list rows
+    /// and slider trails, which must keep the theme's.
+    pub fn field_selection(&self) -> Color32 {
+        if self.pro { Color32::from_gray(if self.dark() { 96 } else { 201 }) } else { self.accent_soft }
+    }
+
     pub fn dark(&self) -> bool {
         matches!(
             self.kind,
@@ -1064,6 +1073,16 @@ mod tests {
         assert!(!ThemeKind::Studio.is_pro() && !ThemeKind::StudioLight.is_pro() && !ThemeKind::Classic.is_pro());
         assert_eq!(ThemeKind::from_name("light gray"), Some(ThemeKind::ProLightGray));
         assert_eq!(ThemeKind::from_name("lightest"), Some(ThemeKind::ProLight));
+    }
+
+    #[test]
+    fn field_selection_is_grey_only_for_the_monochrome_pro_themes() {
+        // #3789: a text field's selection is a subtle grey in the monochrome Pro themes, not a
+        // second blue accent; coloured themes keep their accent.
+        assert_eq!(Tokens::for_kind(ThemeKind::Pro).field_selection(), Color32::from_gray(96));
+        assert_eq!(Tokens::for_kind(ThemeKind::ProLight).field_selection(), Color32::from_gray(201));
+        assert_eq!(Tokens::for_kind(ThemeKind::Studio).field_selection(), Tokens::for_kind(ThemeKind::Studio).accent_soft);
+        assert_eq!(Tokens::for_kind(ThemeKind::Classic).field_selection(), Tokens::for_kind(ThemeKind::Classic).accent_soft);
     }
 
     #[test]

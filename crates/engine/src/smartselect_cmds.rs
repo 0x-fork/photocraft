@@ -259,9 +259,10 @@ fn refine_strokes(p: &Value) -> Result<Vec<matting::EdgeStroke>> {
 }
 
 /// Select and Mask: refines the selection edge, then outputs to the selection, a layer mask on
-/// the active layer, or a new layer (with or without a mask). Decontaminating colours needs a
-/// new layer, so it upgrades `selection` / `layerMask` output to `newLayerWithMask` (as
-/// Photoshop does). New-layer outputs hide the source layer.
+/// the active layer, a new layer or a new document (each with or without a mask).
+/// Decontaminating colours needs new pixels, so it upgrades `selection` / `layerMask` output to
+/// `newLayerWithMask` (as Photoshop does). New-layer outputs hide the source layer; new-document
+/// outputs leave the source document untouched.
 fn refine_edge(s: &mut Session, p: &Value) -> Result<Value> {
     let params = refine_params(p);
     let strokes = refine_strokes(p)?;
@@ -272,8 +273,8 @@ fn refine_edge(s: &mut Session, p: &Value) -> Result<Value> {
     let default_output =
         if d.doc.selection.is_none() && active.and_then(|id| d.doc.layer(id)).and_then(|l| l.mask.as_ref()).is_some() { "layerMask" } else { "selection" };
     let mut output = p.get("output").and_then(Value::as_str).unwrap_or(default_output).to_string();
-    if !matches!(output.as_str(), "selection" | "layerMask" | "newLayer" | "newLayerWithMask") {
-        return Err(bad("select.refineEdge", "output must be selection|layerMask|newLayer|newLayerWithMask"));
+    if !matches!(output.as_str(), "selection" | "layerMask" | "newLayer" | "newLayerWithMask" | "newDocument" | "newDocumentWithMask") {
+        return Err(bad("select.refineEdge", "output must be selection|layerMask|newLayer|newLayerWithMask|newDocument|newDocumentWithMask"));
     }
     if decontaminate && matches!(output.as_str(), "selection" | "layerMask") {
         output = "newLayerWithMask".into();
@@ -315,12 +316,26 @@ fn refine_edge(s: &mut Session, p: &Value) -> Result<Value> {
             let empty = Region { bbox: Rect::EMPTY, mask: Vec::new() };
             let reg = region.as_ref().unwrap_or(&empty);
             let pixels = if decontaminate { matting::decontaminate(src, reg, params.radius, amount) } else { src.clone() };
-            let with_mask = output == "newLayerWithMask";
+            let with_mask = matches!(output.as_str(), "newLayerWithMask" | "newDocumentWithMask");
             let (content, mask) = if with_mask {
                 (pixels, Some(LayerMask { surface: matting::region_surface(reg), ..LayerMask::reveal_all() }))
             } else {
                 (matting::masked_copy(&pixels, reg), None)
             };
+            if output.starts_with("newDocument") {
+                // Same canvas, colour mode, depth and profile, so the pixels need no conversion.
+                let mut doc = Document::new("Untitled", d.doc.size, d.doc.mode, d.doc.depth);
+                doc.resolution_dpi = d.doc.resolution_dpi;
+                doc.icc_profile = d.doc.icc_profile.clone();
+                doc.color_table = d.doc.color_table.clone();
+                doc.duotone = d.doc.duotone.clone();
+                let mut layer = Layer::new(src_layer.name.clone(), LayerContent::Raster(content));
+                layer.mask = mask;
+                let layer_id = layer.id;
+                doc.layers.push(layer);
+                let i = s.add_document(doc, None);
+                return Ok(json!({ "output": output, "document": i, "layer": layer_id.0, "selected": false }));
+            }
             let new_id = s.edit("Select and Mask", |doc, act| {
                 let mut layer = Layer::new(name, LayerContent::Raster(content));
                 layer.mask = mask;
@@ -374,7 +389,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "select.refineEdge",
             "Refine Edge",
             [],
-            r##"{"radius":px=0,"smartRadius":bool=false,"smooth":0..100=0,"feather":px=0,"contrast":0..100=0,"shiftEdge":-100..100=0,"decontaminate":bool=false,"amount":0..100=100,"output":"selection|layerMask|newLayer|newLayerWithMask"="selection","sampleAllLayers":bool=false,"refineStrokes":[{"points":[[x,y],…],"size":px=30,"mode":"add|subtract"="add"},…]=[]} (refineStrokes: the Refine Edge Brush, in painting order: add refines the painted area from the image, subtract keeps the original edge there)"##,
+            r##"{"radius":px=0,"smartRadius":bool=false,"smooth":0..100=0,"feather":px=0,"contrast":0..100=0,"shiftEdge":-100..100=0,"decontaminate":bool=false,"amount":0..100=100,"output":"selection|layerMask|newLayer|newLayerWithMask|newDocument|newDocumentWithMask"="selection","sampleAllLayers":bool=false,"refineStrokes":[{"points":[[x,y],…],"size":px=30,"mode":"add|subtract"="add"},…]=[]} (refineStrokes: the Refine Edge Brush, in painting order: add refines the painted area from the image, subtract keeps the original edge there)"##,
             has_selection_or_mask,
             refine_edge
         ),
@@ -590,7 +605,11 @@ mod tests {
 
     /// A vertical Gaussian-blurred edge at x = 40 (warm left, cool right) with the left half selected.
     fn blurred_edge_selected() -> Session {
-        let mut s = session_with(80, 40, 8, |x, _| {
+        blurred_edge_selected_at(8)
+    }
+
+    fn blurred_edge_selected_at(depth: u32) -> Session {
+        let mut s = session_with(80, 40, depth, |x, _| {
             let t = 1.0 / (1.0 + ((x as f32 + 0.5 - 40.0) / 1.8).exp());
             [0.9 * t + 0.1 * (1.0 - t), 0.8 * t + 0.2 * (1.0 - t), 0.2 * t + 0.6 * (1.0 - t)]
         });
@@ -663,6 +682,47 @@ mod tests {
         assert!(s.execute("select.refineEdge", json!({"output": "bogus"})).is_err());
         s.execute("select.deselect", json!({})).unwrap();
         assert!(!s.is_enabled("select.refineEdge"));
+    }
+
+    /// Output To New Document (with or without a layer mask) opens a document like the source,
+    /// at every depth, and leaves the source document as it was.
+    #[test]
+    fn refine_edge_outputs_to_a_new_document() {
+        for depth in [8, 16, 32] {
+            let mut s = blurred_edge_selected_at(depth);
+            s.edit("profile", |doc, _| {
+                doc.resolution_dpi = 300.0;
+                Ok(())
+            })
+            .unwrap();
+            let before = s.active().unwrap().doc.clone();
+            let r = s.execute("select.refineEdge", json!({"radius": 8, "output": "newDocument"})).unwrap();
+            assert_eq!((r["output"].as_str(), r["document"].as_u64()), (Some("newDocument"), Some(1)), "depth {depth}");
+            assert_eq!(s.active_index(), Some(1));
+            let nd = &s.active().unwrap().doc;
+            assert_eq!((nd.size, nd.mode, nd.depth, nd.resolution_dpi), (before.size, before.mode, before.depth, 300.0));
+            assert_eq!(nd.layers.len(), 1);
+            assert!(nd.selection.is_none() && nd.layers[0].mask.is_none());
+            let surf = nd.layers[0].surface().unwrap();
+            let a = |x: i32| surf.pixel(x, 20)[3];
+            assert!(a(5) > 0.99 && a(75) == 0.0 && a(40) > 0.05 && a(40) < 0.95, "depth {depth}: {} {} {}", a(5), a(40), a(75));
+            // The source is untouched: same layers, still visible, selection kept, no history step.
+            let src = &s.documents()[0];
+            assert_eq!(src.doc.layers, before.layers);
+            assert_eq!(src.doc.selection, before.selection);
+            assert_eq!(src.history.undo_label(), Some("profile"));
+
+            // With a layer mask: full pixels, the refined matte as the mask.
+            s.execute("file.close", json!({"document": 1})).unwrap();
+            let r = s.execute("select.refineEdge", json!({"radius": 8, "output": "newDocumentWithMask"})).unwrap();
+            assert_eq!(r["output"], "newDocumentWithMask");
+            let nd = &s.active().unwrap().doc;
+            let l = &nd.layers[0];
+            assert_eq!(l.surface().unwrap().pixel(75, 20), before.layers[0].surface().unwrap().pixel(75, 20), "depth {depth}");
+            let m = l.mask.as_ref().unwrap();
+            assert!(soft_count(&m.surface, 20) >= 4, "depth {depth}");
+            assert!(m.value(5, 20) > 0.99 && m.value(75, 20) < 0.01, "depth {depth}");
+        }
     }
 
     #[test]

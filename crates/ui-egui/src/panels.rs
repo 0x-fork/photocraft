@@ -5,6 +5,7 @@ use photocraft_color::BlendMode;
 use photocraft_doc::{Layer, LayerContent, LayerId};
 use serde_json::{Value, json};
 
+use crate::mask_thumbs_ui::MaskKind;
 use crate::state::Tool;
 use crate::theme::{self, Tokens};
 use crate::{PhotocraftApp, icons, widgets};
@@ -127,9 +128,11 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 + chips_height(t.pro, t.round_chips, t.round_chips && double)
                 + if t.pro { 8.0 + if double { bx } else { bx * 2.0 + 3.0 } } else { 0.0 }
                 + 6.0;
+            // As tall as the tools, so the colour chips sit right under them (Photoshop); a column
+            // taller than the window scrolls and keeps the chips at the bottom.
             egui::ScrollArea::vertical()
                 .id_salt("toolbar-columns")
-                .auto_shrink([false, false])
+                .auto_shrink([false, true])
                 .max_height((ui.available_height() - footer).max(0.0))
                 .min_scrolled_height(0.0)
                 .show(ui, |ui| {
@@ -480,22 +483,9 @@ fn color_chips(app: &mut PhotocraftApp, ui: &mut egui::Ui, two_columns: bool) {
             p.add(egui::Shape::convex_polygon(vec![tip, base + side * 3.0, base - side * 3.0], ink(&s), Stroke::NONE));
         }
     } else {
-        // Switch Colors: a quarter-circle arrow with a head at each end.
-        let stroke = Stroke::new(1.3, ink(&s));
-        let (c, rad) = (pos2(sr.left() + 2.0, sr.bottom() - 1.0), sr.width() - 4.0);
-        let arc: Vec<_> = (0..=8)
-            .map(|i| {
-                let a = std::f32::consts::FRAC_PI_2 * i as f32 / 8.0;
-                c + vec2(rad * a.sin(), -rad * a.cos())
-            })
-            .collect();
-        let (start, end) = (arc[0], arc[arc.len() - 1]);
-        p.add(egui::Shape::line(arc, stroke));
-        let head = 3.0;
-        p.line_segment([start, start + vec2(head, -head)], stroke);
-        p.line_segment([start, start + vec2(head, head)], stroke);
-        p.line_segment([end, end + vec2(-head, -head)], stroke);
-        p.line_segment([end, end + vec2(head, -head)], stroke);
+        // Switch Colors: the compact clockwise bend has left- and down-pointing heads.
+        // swap_arrow.rs owns its geometry and the pixel-level render regression test.
+        crate::swap_arrow::paint(p, sr.min, ink(&s));
     }
     // Default Colors: a small black chip over a small white one.
     if let (Some(dr), Some(d)) = (dr, d.as_ref()) {
@@ -641,7 +631,14 @@ pub fn title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             egui::RichText::new(tl!("Discord")).color(t.text_dim).size(12.0),
                         )
                         .frame(false);
-                        if ui.add(discord).on_hover_text(format!("Join the ArtCraft Discord ({})", crate::links::DISCORD)).clicked() {
+                        if ui
+                            .add(discord)
+                            .on_hover_text({
+                                let template = "Join the ArtCraft Discord ({url})";
+                                crate::i18n::fmt(tl!(template), &[("url", crate::links::DISCORD)])
+                            })
+                            .clicked()
+                        {
                             crate::links::open(app, ui.ctx(), crate::links::DISCORD);
                         }
                     }
@@ -861,9 +858,6 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         .exact_size(if t.pro { 36.0 } else { 42.0 })
         .frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(10, 0)))
         .show(ui, |ui| {
-            let r = ui.max_rect();
-            ui.painter().line_segment([r.left_top(), r.right_top()], Stroke::new(1.0, t.separator));
-            ui.painter().line_segment([r.left_bottom(), r.right_bottom()], Stroke::new(1.0, t.separator));
             ui.style_mut().spacing.scroll = egui::style::ScrollStyle { bar_width: 4.0, ..egui::style::ScrollStyle::floating() };
             egui::ScrollArea::horizontal().id_salt("tool-options").auto_shrink([false, false]).show(ui, |ui| {
             // Font ink can extend beyond its advance width at fractional positions.
@@ -950,11 +944,8 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             crate::eraser_ui::mode_dropdown(ui, &mut app.ui.tool_options.eraser_mode);
                         } else {
                             opt_label(ui, tl!("Mode"));
-                            let mut mode = b.mode;
-                            let opts: Vec<(BlendMode, &str)> = BlendMode::LAYER_MODES.iter().map(|m| (*m, m.label())).collect();
-                            if widgets::dropdown(ui, "brush-mode", &mut mode, &opts, 96.0) {
-                                b.mode = mode;
-                            }
+                            let held = app.held_erase;
+                            paint_mode_dropdown(ui, "brush-mode", b, &mut app.ui.tool_options.brush_clear, held);
                         }
                         ui.add_enabled_ui(!block, |ui| {
                             percent_field(ui, tl!("Opacity"), &mut b.opacity, 0.0..=100.0, 62.0);
@@ -966,7 +957,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         ui.add_enabled_ui(!block && !crate::eraser_ui::pencil_mode(app, app.ui.tool), |ui| {
                             percent_field(ui, tl!("Flow"), &mut b.flow, 1.0..=100.0, 62.0);
                             let airbrush = icons::button(ui, "sparkles", 24.0, b.build_up, tl!("Enable airbrush-style build-up effects"));
-                            if crate::brush_picker::named(airbrush, tl!("Enable airbrush-style build-up effects")).clicked() {
+                            if crate::brush_picker::named(airbrush, "Enable airbrush-style build-up effects").clicked() {
                                 b.build_up = !b.build_up;
                             }
                         });
@@ -989,11 +980,8 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             widgets::vline(ui, 22.0);
                         }
                         opt_label(ui, tl!("Mode"));
-                        let mut mode = b.mode;
-                        let opts: Vec<(BlendMode, &str)> = BlendMode::LAYER_MODES.iter().map(|m| (*m, m.label())).collect();
-                        if widgets::dropdown(ui, "pencil-mode", &mut mode, &opts, 96.0) {
-                            b.mode = mode;
-                        }
+                        let held = app.held_erase;
+                        paint_mode_dropdown(ui, "pencil-mode", b, &mut app.ui.tool_options.pencil_clear, held);
                         percent_field(ui, tl!("Opacity"), &mut b.opacity, 0.0..=100.0, if t.pro { 62.0 } else { 66.0 });
                         opt_label(ui, tl!("Smoothing"));
                         smoothing_field(ui, b, if t.pro { 58.0 } else { 66.0 });
@@ -1171,7 +1159,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         widgets::checkbox(ui, &mut app.ui.tool_options.contiguous, tl!("Contiguous"));
                         widgets::checkbox(ui, &mut app.ui.tool_options.sample_all_layers, tl!("All Layers"));
                     }
-                    Tool::Gradient if t.pro => {
+                    Tool::Gradient => {
                         // Live "Gradient" (a Gradient Fill layer) or "Classic gradient" (pixels).
                         let mut classic = app.ui.tool_options.gradient_classic;
                         if widgets::dropdown(ui, "gradient-mode", &mut classic, &[(false, "Gradient"), (true, "Classic gradient")], 118.0) {
@@ -1426,7 +1414,6 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             &[("commit", &crate::shortcuts::pretty("Enter"))],
                         ),
                     ),
-                    Tool::Gradient => hint(ui, tl!("Drag to draw a gradient")),
                     Tool::PaintBucket => hint(ui, tl!("Click to fill similar colours")),
                     // Retouching and smart-selection tools draw their bar in `retouch_ui::options_bar`.
                     _ => {}
@@ -1464,10 +1451,10 @@ fn label(ui: &mut egui::Ui, s: &str) {
 
 /// Photoshop's scrubby Opacity/Fill labels: drag horizontally to change the percentage without
 /// hitting the small number field. The unique drag ID coalesces every frame into one undo step.
-fn scrub_pct_label(ui: &mut egui::Ui, text: &str, percent: &mut f32) -> widgets::PopupFieldResponse {
-    let t = Tokens::get(ui.ctx());
-    let resp =
-        ui.add(egui::Label::new(RichText::new(text).color(t.text_dim)).sense(Sense::click_and_drag())).on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
+fn scrub_pct_label(ui: &mut egui::Ui, text: &str, percent: &mut f32, max_w: f32) -> widgets::PopupFieldResponse {
+    // Elide to the room left in the row (full text on hover): a longer translation shrinks here
+    // instead of running over the fixed controls beside it (#3580).
+    let resp = widgets::elided_label_sensed(ui, text, max_w, Sense::click_and_drag()).on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
     let key = resp.id.with("percent-label-drag");
     if resp.drag_started() {
         let stamp = ui.ctx().cumulative_pass_nr();
@@ -1499,10 +1486,12 @@ fn body_text_width(ui: &egui::Ui, s: &str) -> f32 {
 }
 
 /// Options-bar label: Photoshop writes "Size:" with a colon.
+/// An options-bar label; one right before a value field scrubs it when dragged (Photoshop).
 fn opt_label(ui: &mut egui::Ui, s: &str) {
     let t = Tokens::get(ui.ctx());
     let text = if t.pro && !s.ends_with(':') { format!("{s}:") } else { s.to_string() };
-    ui.label(RichText::new(tl!(&text)).color(t.text_dim));
+    let label = ui.label(RichText::new(tl!(&text)).color(t.text_dim));
+    widgets::scrub_label(ui, &label);
 }
 
 fn percent_field(ui: &mut egui::Ui, label: &str, value: &mut f32, range: std::ops::RangeInclusive<f32>, width: f32) {
@@ -1854,7 +1843,7 @@ fn navigator(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let controls = ui.vertical(|ui| {
         ui.add_space(4.0);
         ui.horizontal(|ui| {
-            label(ui, tl!("Zoom"));
+            label(ui, crate::i18n::tr_ctx(crate::i18n::current(), "navigator", "Zoom"));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 for (lbl, z) in [("200%", 2.0), ("100%", 1.0)] {
                     if widgets::pill_tab(ui, lbl, (v.zoom - z).abs() < 1e-3).clicked() {
@@ -1968,7 +1957,7 @@ fn color_picker(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // saturation of their own, so recomputing them from RGB would reset what was just typed to 0.
     let key = egui::Id::new("color-picker-hsva");
     let stored: Option<egui::ecolor::Hsva> = ui.data(|d| d.get_temp(key));
-    let hsva0 = stored.filter(|h| h.to_srgb() == srgb_bytes(fg)).unwrap_or_else(|| srgb_hsva(fg));
+    let hsva0 = stored.filter(|h| srgb_bytes(hsva_srgb(*h)) == srgb_bytes(fg)).unwrap_or_else(|| srgb_hsva(fg));
     let mut h = hsva0.h * 360.0;
     let mut s = hsva0.s * 100.0;
     let mut v = hsva0.v * 100.0;
@@ -1977,9 +1966,9 @@ fn color_picker(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let dynamic = app.session.prefs().interface.dynamic_color_sliders;
     let mut changed = widgets::slider_row(ui, tl!("Hue"), &mut h, 0.0..=360.0, "°", dynamic.then_some(&hue)).changed();
     let sat_stops =
-        [egui::ecolor::Hsva::new(hsva0.h, 0.0, hsva0.v.max(0.2), 1.0), egui::ecolor::Hsva::new(hsva0.h, 1.0, hsva0.v.max(0.2), 1.0)].map(Color32::from);
+        [egui::ecolor::Hsva::new(hsva0.h, 0.0, hsva0.v.max(0.2), 1.0), egui::ecolor::Hsva::new(hsva0.h, 1.0, hsva0.v.max(0.2), 1.0)].map(hsva_color32);
     changed |= widgets::slider_row(ui, tl!("Saturation"), &mut s, 0.0..=100.0, "%", dynamic.then_some(&sat_stops)).changed();
-    let val_stops = [Color32::BLACK, Color32::from(egui::ecolor::Hsva::new(hsva0.h, hsva0.s, 1.0, 1.0))];
+    let val_stops = [Color32::BLACK, hsva_color32(egui::ecolor::Hsva::new(hsva0.h, hsva0.s, 1.0, 1.0))];
     changed |= widgets::slider_row(ui, tl!("Brightness"), &mut v, 0.0..=100.0, "%", dynamic.then_some(&val_stops)).changed();
     let hsva = egui::ecolor::Hsva::new(h / 360.0, s / 100.0, v / 100.0, 1.0);
     // Only an edit counts: the h/s/v round trip isn't exact, so comparing values would rewrite
@@ -1989,10 +1978,9 @@ fn color_picker(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui.data_mut(|d| d.insert_temp(key, hsva));
         crate::type_tool::foreground_changed(app);
     }
-    let [r, g, b, _] = hsva.to_srgba_unmultiplied();
     ui.horizontal(|ui| {
         let (sw, _) = ui.allocate_exact_size(vec2(26.0, 26.0), Sense::hover());
-        ui.painter().rect_filled(sw, 6.0, Color32::from_rgb(r, g, b));
+        ui.painter().rect_filled(sw, 6.0, hsva_color32(hsva));
         let mut c = app.session.tools.foreground;
         if color_readout(ui, ui.id().with("color-panel"), &mut c) {
             app.session.tools.foreground = c;
@@ -2128,7 +2116,11 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     let mut o = l.opacity * 100.0;
                     let field = widgets::popup_value_field(ui, opacity_label, &mut o, 0.0..=100.0, "%", LAYER_PCT_W);
                     // On a narrow dock the (scrubby) label yields its room to the controls (#2309).
-                    let scrub = if show_opacity_label { scrub_pct_label(ui, opacity_label, &mut o) } else { widgets::PopupFieldResponse::default() };
+                    let scrub = if show_opacity_label {
+                        scrub_pct_label(ui, opacity_label, &mut o, ui.available_width())
+                    } else {
+                        widgets::PopupFieldResponse::default()
+                    };
                     if field.changed || scrub.changed {
                         actions.push(pct_action(l, "opacity", o, scrub.drag.or(field.drag)));
                     }
@@ -2139,7 +2131,9 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui.add_space((theme::ROW_GAP - ui.spacing().item_spacing.y).max(0.0));
         ui.horizontal(|ui| {
             let lock_label = if t.pro { tl!("Lock:") } else { tl!("Lock") };
-            let fill_label = if t.pro { tl!("Fill:") } else { tl!("Fill") };
+            // Layer fill opacity (≠ Edit › Fill / path fill → Tô).
+            let lang = crate::i18n::current();
+            let fill_label = if t.pro { crate::i18n::tr_ctx(lang, "layers", "Fill:") } else { crate::i18n::tr_ctx(lang, "layers", "Fill") };
             // In a narrow panel with long translated labels, drop the "Lock:" text (the icons keep
             // their tooltips) rather than let the Fill label run over the lock icons.
             let gap = ui.spacing().item_spacing.x;
@@ -2177,7 +2171,7 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let mut f = l.fill_opacity * 100.0;
                     let field = widgets::popup_value_field(ui, fill_label, &mut f, 0.0..=100.0, "%", LAYER_PCT_W);
-                    let scrub = scrub_pct_label(ui, fill_label, &mut f);
+                    let scrub = scrub_pct_label(ui, fill_label, &mut f, ui.available_width());
                     if field.changed || scrub.changed {
                         actions.push(pct_action(l, "fill", f, scrub.drag.or(field.drag)));
                     }
@@ -2188,7 +2182,7 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
 
     // Top of the stack first, groups above their contents, closed groups' contents hidden (#126).
-    let rows = crate::layer_tree_ui::display_rows(&doc, !app.ui.layer_filter.is_empty());
+    let rows = crate::layer_tree_ui::panel_rows(app, &doc);
     let ctx = ui.ctx().clone();
     let footer = widgets::footer_height(ui) + ui.spacing().item_spacing.y;
     let fill = ui.available_height() > footer + 60.0;
@@ -2204,6 +2198,7 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             // An fx drag that never saw its release (the panel was hidden) must not outlive the button.
             if !ctx.input(|i| i.pointer.primary_down() || i.pointer.any_released()) {
                 ctx.data_mut(|d| d.remove::<FxDrag>(fx_drag_key()));
+                ctx.data_mut(|d| d.remove::<MaskDrag>(mask_drag_key()));
             }
             let held = ctx.data(|d| d.get_temp::<u64>(egui::Id::new("layer-drag")).is_some() || d.get_temp::<FxDrag>(fx_drag_key()).is_some());
             let dragging = held && ctx.input(|i| i.pointer.primary_down());
@@ -2276,11 +2271,21 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let in_selection = selection.iter().any(|s| s.0 == id);
         (id, in_selection)
     });
+    // An effect row can be dropped on Delete too (#3102), and a mask's thumbnail (#3113, #3119).
+    let fx_footer_drag = ctx.data(|d| d.get_temp::<FxDrag>(fx_drag_key()));
     fx_drag_feedback(&ctx, &doc);
+    let mask_footer_drag = ctx.data(|d| d.get_temp::<MaskDrag>(mask_drag_key()));
+    if let Some((_, kind)) = mask_footer_drag
+        && let Some(p) = ctx.input(|i| i.pointer.interact_pos())
+    {
+        let label = if kind == MaskKind::Vector { tl!("Vector Mask") } else { tl!("Layer Mask") };
+        crate::layer_transfer::ghost(&ctx, p, label);
+    }
     // End any layer drag after every row has had a chance to accept the drop.
     if ctx.input(|i| i.pointer.any_released()) {
         ctx.data_mut(|d| d.remove::<u64>(egui::Id::new("layer-drag")));
         ctx.data_mut(|d| d.remove::<FxDrag>(fx_drag_key()));
+        ctx.data_mut(|d| d.remove::<MaskDrag>(mask_drag_key()));
     }
     widgets::panel_footer(ui, |ui| {
         let active_layer = active.and_then(|id| doc.layer(id));
@@ -2299,12 +2304,22 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             actions.push((delete.into(), params));
         }
         actions.extend(footer_drop(ui, &trash, footer_drag, "layer.delete"));
+        actions.extend(fx_trash_drop(ui, &trash, fx_footer_drag));
+        // Photoshop asks "Apply mask to layer before removing?" or "Delete the vector mask?"
+        // (`mask_trash_prompt`).
+        if let Some((layer, kind)) = mask_footer_drag
+            && dropped_on(ui, &trash)
+        {
+            actions.push(crate::mask_trash_prompt::drop_action(layer, kind));
+        }
         // A click follows the selected thumbnail; name that action for screen readers even
         // though dropping a whole layer row onto the same button always deletes the layer.
         trash.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!(label)));
         let new_layer = icons::button(ui, "square-plus", 26.0, false, &crate::shortcuts::tip_label(app, "Create a new layer", "layer.new.layer"));
         if new_layer.clicked() {
-            actions.push(("layer.new.layer".into(), json!({})));
+            // A click makes the layer; ⌥-click asks first (the New Layer dialog), as in Photoshop.
+            let alt = ui.input(|i| i.modifiers.alt);
+            actions.push(("layer.new.layer".into(), if alt { Value::Null } else { json!({}) }));
         }
         actions.extend(footer_drop(ui, &new_layer, footer_drag, "layer.duplicate"));
         let group = icons::button(ui, "folder", 26.0, false, tl!("Create a new group"));
@@ -2409,16 +2424,32 @@ fn footer_drop(ui: &egui::Ui, button: &egui::Response, drag: Option<(u64, bool)>
     // Named for screen readers (and tests) after the command a drop runs.
     button.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, footer_label(command)));
     let (layer, in_selection) = drag?;
-    let p = ui.ctx().input(|i| i.pointer.interact_pos())?;
+    dropped_on(ui, button).then(|| (command.into(), if in_selection { json!({}) } else { json!({"layer": layer}) }))
+}
+
+/// While something is dragged over a footer `button`: highlights it, and is true on the release.
+fn dropped_on(ui: &egui::Ui, button: &egui::Response) -> bool {
+    let Some(p) = ui.ctx().input(|i| i.pointer.interact_pos()) else { return false };
     if !button.rect.contains(p) {
-        return None;
+        return false;
     }
     let t = Tokens::get(ui.ctx());
     ui.painter().rect_stroke(button.rect, t.radius_sm, Stroke::new(2.0, t.accent), StrokeKind::Inside);
-    if !ui.ctx().input(|i| i.pointer.any_released()) {
+    ui.ctx().input(|i| i.pointer.any_released())
+}
+
+/// Effects dragged onto the footer's Delete button, as in Photoshop (#3102): the "Effects" row
+/// clears the layer style, an effect's row deletes just that effect.
+fn fx_trash_drop(ui: &egui::Ui, button: &egui::Response, drag: Option<FxDrag>) -> Option<(String, Value)> {
+    let (layer, effect) = drag?;
+    if !dropped_on(ui, button) {
         return None;
     }
-    Some((command.into(), if in_selection { json!({}) } else { json!({"layer": layer}) }))
+    let params = match effect {
+        Some(i) => json!({"layer": layer, "effect": i}),
+        None => json!({"layer": layer}),
+    };
+    Some(("layer.layerStyle.clear".into(), params))
 }
 
 fn footer_label(command: &str) -> &'static str {
@@ -2521,6 +2552,14 @@ fn eye_sweep(ctx: &egui::Context, l: &Layer, row: Rect, eye: &egui::Response, ac
     ctx.data_mut(|d| d.insert_temp(id, sweep));
 }
 
+/// Marker in the clipped row's existing 12-point slot, beside its thumbnail.
+fn paint_clipping_indicator(painter: &egui::Painter, at: Pos2, color: Color32) {
+    let tip = at + vec2(5.0, 3.0);
+    let stroke = Stroke::new(1.0, color);
+    painter.add(egui::Shape::line(vec![at + vec2(9.0, -4.0), at + vec2(5.0, -4.0), tip], stroke));
+    painter.add(egui::Shape::line(vec![at + vec2(2.0, 0.0), tip, at + vec2(8.0, 0.0)], stroke));
+}
+
 #[allow(clippy::too_many_arguments)]
 fn layer_row(
     app: &mut PhotocraftApp,
@@ -2537,9 +2576,15 @@ fn layer_row(
     // Photoshop's default (medium) thumbnails: 32 pt rows.
     let row_h = if t.pro { 32.0 } else { 46.0 };
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::click_and_drag());
+    // A drag from a mask's thumbnail drags that mask, not the layer (#3113, #3119).
+    let mask_drag = starts_mask_drag(ctx, l, &resp);
+    if let Some(kind) = mask_drag {
+        ctx.data_mut(|d| d.insert_temp::<MaskDrag>(mask_drag_key(), (l.id.0, kind)));
+    }
+    let mask_drag = mask_drag.is_some();
     layer_drag_and_drop(app, ctx, ui, l, rect, &resp, actions);
     fx_drop(ctx, ui, l, rect, actions);
-    if resp.drag_started() {
+    if resp.drag_started() && !mask_drag {
         crate::layer_transfer::begin_from_panel(app, ctx, l.id);
     }
     // Rows are painted: name them for screen readers and UI tests.
@@ -2603,7 +2648,7 @@ fn layer_row(
     x += 28.0 + crate::layer_row_ui::indent(depth, rect.width(), fixed);
     let toggled = crate::layer_tree_ui::disclosure(ui, rect, &mut x, l, actions);
     if l.clipped {
-        painter.text(pos2(x, rect.center().y), Align2::LEFT_CENTER, "↳", egui::FontId::proportional(13.0), t.text_faint);
+        paint_clipping_indicator(&painter, pos2(x, rect.center().y), t.text_faint);
         x += 12.0;
     }
     let thumb = Rect::from_min_size(pos2(x, rect.center().y - ts / 2.0), vec2(ts, ts));
@@ -2697,6 +2742,10 @@ fn layer_row(
             app.ui.selected_path = Some("layer".into());
             actions.push(("ui.vectorMaskTarget".into(), json!(true)));
         } else if on_mask || (content_less && l.mask.is_some() && !on_thumb) {
+            if on_mask {
+                // The mask thumbnail also switches Properties to the mask (#3369).
+                app.ui.properties_layer = None;
+            }
             actions.push(("ui.maskTarget".into(), json!(true)));
         } else if on_thumb || !row.primary {
             actions.push(("ui.maskTarget".into(), json!(false)));
@@ -3128,7 +3177,7 @@ fn layer_controls(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
         let _ = app.run("layer.setProps", json!({"layer": layer.id.0, "opacity": o / 100.0}));
     }
     let mut f = layer.fill_opacity * 100.0;
-    let r = widgets::slider_row(ui, tl!("Fill"), &mut f, 0.0..=100.0, "%", None);
+    let r = widgets::slider_row(ui, crate::i18n::tr_ctx(crate::i18n::current(), "layers", "Fill"), &mut f, 0.0..=100.0, "%", None);
     if r.drag_stopped() || (r.changed() && !r.dragged()) {
         let _ = app.run("layer.setProps", json!({"layer": layer.id.0, "fill": f / 100.0}));
     }
@@ -3136,7 +3185,7 @@ fn layer_controls(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
 
 /// Docked Properties body (Pro theme).
 fn properties_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    let identity = app.session.active().map(|st| (st.doc.id, st.active_layer, app.ui.mask_target, app.ui.vector_mask_target));
+    let identity = app.session.active().map(|st| (st.doc.id, st.active_layer, app.ui.mask_target, app.ui.vector_mask_target, app.ui.properties_layer));
     ui.push_id(("properties-target", identity), |ui| properties_body_inner(app, ui));
 }
 
@@ -3279,17 +3328,32 @@ fn color_field_height(avail: Option<f32>, width: f32) -> f32 {
     avail.filter(|a| a.is_finite()).map_or(120.0, |a| (a - reserve).clamp(120.0, 2000.0))
 }
 
+/// The colour the SV field draws for `hsva`, with what the field showed last (`hue`, `saturation`)
+/// filling in what the colour itself cannot carry: a grey has no hue of its own, and black has
+/// neither hue nor saturation — so a drag that bottoms out into black would otherwise round-trip
+/// through RGB as `s = 0` and drop the knob from the bottom-right corner to the bottom-left one
+/// (#3228).
+fn field_hsva(mut hsva: egui::ecolor::Hsva, remembered: (f32, f32)) -> egui::ecolor::Hsva {
+    if hsva.v < 0.01 {
+        hsva.h = remembered.0;
+        hsva.s = remembered.1;
+    } else if hsva.s < 0.01 {
+        // A grey: the saturation really is zero (that is where the knob belongs), only the hue
+        // is undefined.
+        hsva.h = remembered.0;
+    }
+    hsva
+}
+
 /// Photoshop Color panel: saturation/brightness field + hue strip, drawn as shaded meshes.
 fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let bg_active = app.ui.color_panel.background;
     let key = egui::Id::new(("color-field-hue", bg_active));
     let mut hsva = srgb_hsva(if bg_active { app.session.tools.background } else { app.session.tools.foreground });
-    // Keep hue stable for greys (where RGB->HSV hue is undefined).
-    let remembered: f32 = ui.data(|d| d.get_temp(key)).unwrap_or(hsva.h);
-    if hsva.s < 0.01 || hsva.v < 0.01 {
-        hsva.h = remembered;
-    }
+    // What the field showed last: a grey carries no hue, black neither hue nor saturation (#3228).
+    let remembered: (f32, f32) = ui.data(|d| d.get_temp(key)).unwrap_or((hsva.h, hsva.s));
+    hsva = field_hsva(hsva, remembered);
     let w = ui.available_width();
     let strip_w = 14.0;
     // Photoshop's Color panel field fills the panel: take the height the dock offers, less the
@@ -3307,7 +3371,7 @@ fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         for j in 0..=n {
             for i in 0..=n {
                 let (sx, vy) = (i as f32 / n as f32, j as f32 / n as f32);
-                let c = Color32::from(egui::ecolor::Hsva::new(hsva.h, sx, 1.0 - vy, 1.0));
+                let c = hsva_color32(egui::ecolor::Hsva::new(hsva.h, sx, 1.0 - vy, 1.0));
                 mesh.colored_vertex(pos2(field.left() + sx * field.width(), field.top() + vy * field.height()), c);
             }
         }
@@ -3338,7 +3402,7 @@ fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let steps = 24;
         for k in 0..=steps {
             let f = k as f32 / steps as f32;
-            let c = Color32::from(egui::ecolor::Hsva::new(1.0 - f, 1.0, 1.0, 1.0));
+            let c = hsva_color32(egui::ecolor::Hsva::new(1.0 - f, 1.0, 1.0, 1.0));
             m2.colored_vertex(pos2(strip.left(), strip.top() + f * strip.height()), c);
             m2.colored_vertex(pos2(strip.right(), strip.top() + f * strip.height()), c);
         }
@@ -3363,7 +3427,7 @@ fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 app.session.tools.foreground = hsva_srgb(hsva);
                 crate::type_tool::foreground_changed(app);
             }
-            ui.data_mut(|d| d.insert_temp(key, hsva.h));
+            ui.data_mut(|d| d.insert_temp(key, (hsva.h, hsva.s)));
         }
     });
     ui.add_space(6.0);
@@ -3376,10 +3440,11 @@ fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 app.session.tools.foreground = c;
                 crate::type_tool::foreground_changed(app);
             }
-            // Keep the hue for greys, so the field marker doesn't jump to red.
+            // Keep the hue for greys, so the field marker doesn't jump to red; the saturation with
+            // it, so a later black lands on the corner it was last dragged to (#3228).
             let h = srgb_hsva(c);
             if h.s >= 0.01 && h.v >= 0.01 {
-                ui.data_mut(|d| d.insert_temp(key, h.h));
+                ui.data_mut(|d| d.insert_temp(key, (h.h, h.s)));
             }
         }
     });
@@ -3392,13 +3457,23 @@ fn srgb_bytes(c: [f32; 4]) -> [u8; 3] {
     [q(c[0]), q(c[1]), q(c[2])]
 }
 
+/// The Color panel's HSB, as Photoshop's and the Color Picker's: on the sRGB-encoded values,
+/// so a 50% grey has Brightness 50%. egui's `Hsva` conversions work in linear light, which put
+/// that grey at 22% and drew the field's middle as 188 (#3323); `Hsva` only holds the numbers.
 fn srgb_hsva(c: [f32; 4]) -> egui::ecolor::Hsva {
-    egui::ecolor::Hsva::from_srgb(srgb_bytes(c))
+    let [h, s, v] = crate::color_picker_ui::rgb_to_hsv([c[0], c[1], c[2]].map(|v| v.clamp(0.0, 1.0)));
+    egui::ecolor::Hsva::new(h / 360.0, s, v, 1.0)
 }
 
 fn hsva_srgb(h: egui::ecolor::Hsva) -> [f32; 4] {
-    let [r, g, b] = h.to_srgb();
-    [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0]
+    let [r, g, b] = crate::color_picker_ui::hsv_to_rgb(h.h * 360.0, h.s.clamp(0.0, 1.0), h.v.clamp(0.0, 1.0));
+    [r, g, b, 1.0]
+}
+
+/// The colour to draw for Color panel HSB `h` (see [`srgb_hsva`]).
+fn hsva_color32(h: egui::ecolor::Hsva) -> Color32 {
+    let [r, g, b] = srgb_bytes(hsva_srgb(h));
+    Color32::from_rgb(r, g, b)
 }
 
 /// The Color panel's editable colour readout: a hex field and R, G, B fields, all drawn like the
@@ -3473,6 +3548,22 @@ fn brush_tip(p: &egui::Painter, c: egui::Pos2, rad: f32, hardness: f32, color: C
     }
 }
 
+/// The Brush's or Pencil's Mode dropdown: the blend modes, with Photoshop's painting-only Clear
+/// after Dissolve (#3439). Clear erases with the brush (`clear`); it shows while chosen, or while
+/// `~` is held (`held`).
+fn paint_mode_dropdown(ui: &mut egui::Ui, id: &str, b: &mut photocraft_engine::BrushSettings, clear: &mut bool, held: bool) {
+    let mut opts: Vec<(Option<BlendMode>, &str)> = BlendMode::LAYER_MODES.iter().map(|m| (Some(*m), m.label())).collect();
+    let at = opts.iter().position(|o| o.0 == Some(BlendMode::Dissolve)).map_or(opts.len(), |i| i + 1);
+    opts.insert(at, (None, "Clear"));
+    let mut mode = if *clear || held { None } else { Some(b.mode) };
+    if widgets::dropdown(ui, id, &mut mode, &opts, 96.0) {
+        *clear = mode.is_none();
+        if let Some(m) = mode {
+            b.mode = m;
+        }
+    }
+}
+
 /// Options-bar Smoothing % (the brush's stroke smoothing; the live stroke and the commit use it).
 fn smoothing_field(ui: &mut egui::Ui, b: &mut photocraft_engine::BrushSettings, width: f32) {
     let mut sm = (b.smoothing.amount * 100.0).round();
@@ -3485,7 +3576,7 @@ fn smoothing_field(ui: &mut egui::Ui, b: &mut photocraft_engine::BrushSettings, 
 /// like the Smoothing % (so they stay per tool and reach the live stroke and the commit).
 fn smoothing_options(ui: &mut egui::Ui, b: &mut photocraft_engine::BrushSettings) {
     let resp = icons::button(ui, "settings", 24.0, false, tl!("Set additional smoothing options"));
-    let resp = crate::brush_picker::named(resp, tl!("Set additional smoothing options"));
+    let resp = crate::brush_picker::named(resp, "Set additional smoothing options");
     egui::Popup::from_toggle_button_response(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
         let s = &mut b.smoothing;
         widgets::checkbox(ui, &mut s.pulled_string, tl!("Pulled String Mode"));
@@ -3553,7 +3644,9 @@ fn layer_drag_and_drop(
 ) {
     let t = Tokens::get(ctx);
     let key = egui::Id::new("layer-drag");
-    if resp.drag_started() {
+    // A drag from the mask thumbnail (`starts_mask_drag`) moves the mask, not the layer.
+    let mask_drag = ctx.data(|d| d.get_temp::<MaskDrag>(mask_drag_key())).is_some_and(|(id, _)| id == l.id.0);
+    if resp.drag_started() && !mask_drag {
         ctx.data_mut(|d| d.insert_temp(key, l.id.0));
     }
     let Some(dragged) = ctx.data(|d| d.get_temp::<u64>(key)) else { return };
@@ -3671,6 +3764,28 @@ fn layer_drop_zone(
 /// An fx row being dragged: the layer it belongs to and the effect index (`None` = the "Effects"
 /// row, all of them).
 type FxDrag = (u64, Option<usize>);
+
+/// A mask thumbnail being dragged: the layer and which of its masks (#3113, #3119).
+type MaskDrag = (u64, MaskKind);
+
+fn mask_drag_key() -> egui::Id {
+    egui::Id::new("mask-drag")
+}
+
+/// Which mask's thumbnail (where it was drawn last frame) the row's drag starts on, if any.
+fn starts_mask_drag(ctx: &egui::Context, l: &Layer, resp: &egui::Response) -> Option<MaskKind> {
+    if !resp.drag_started() {
+        return None;
+    }
+    let p = ctx.input(|i| i.pointer.press_origin())?;
+    let (thumbs, _) = crate::mask_thumbs_ui::recorded(ctx, l.id.0)?;
+    let kind = thumbs.iter().find(|(_, r)| r.contains(p))?.0;
+    let present = match kind {
+        MaskKind::Pixel => l.mask.is_some(),
+        MaskKind::Vector => l.vector_mask.is_some(),
+    };
+    present.then_some(kind)
+}
 
 fn fx_drag_key() -> egui::Id {
     egui::Id::new("fx-drag")
@@ -3830,6 +3945,23 @@ mod symmetry_theme_tests {
 #[cfg(test)]
 mod color_tests {
     use super::*;
+
+    #[test]
+    /// #3323: the Color panel's HSB is Photoshop's (and the Color Picker's), on sRGB values, not
+    /// egui's linear-light HSV: a 50% grey has Brightness 50%, and the field's left edge halfway
+    /// down is that grey (128), not 188.
+    fn color_panel_hsb_is_srgb_like_photoshop() {
+        let grey = srgb_hsva([128.0 / 255.0, 128.0 / 255.0, 128.0 / 255.0, 1.0]);
+        assert!((grey.v - 128.0 / 255.0).abs() < 1e-3 && grey.s < 1e-3, "{grey:?}");
+        let mid = hsva_srgb(egui::ecolor::Hsva::new(0.3, 0.0, 0.5, 1.0));
+        assert!(mid[..3].iter().all(|v| (v - 0.5).abs() <= 1.0 / 255.0), "{mid:?}");
+        // What the field paints there.
+        assert_eq!(hsva_color32(egui::ecolor::Hsva::new(0.3, 0.0, 0.5, 1.0)), Color32::from_gray(128));
+        // The same numbers as the Color Picker dialog for a saturated colour.
+        let c = [0.847, 0.271, 0.180];
+        let (ours, dialog) = (srgb_hsva([c[0], c[1], c[2], 1.0]), crate::color_picker_ui::rgb_to_hsv(c));
+        assert!((ours.h * 360.0 - dialog[0]).abs() < 0.5 && (ours.s - dialog[1]).abs() < 1e-3 && (ours.v - dialog[2]).abs() < 1e-3, "{ours:?} vs {dialog:?}");
+    }
 
     #[test]
     fn srgb_hsva_roundtrip() {
@@ -4081,6 +4213,61 @@ mod color_tests {
             let [d] = h.state().ui.dialogs.as_slice() else { panic!("one Color Picker") };
             assert_eq!(d.fields.get("__colorPicker").and_then(Value::as_str), Some(target));
         }
+    }
+
+    /// Press at `from`, move to `to` in six steps and release, as egui sees a drag.
+    fn drag(h: &mut egui_kittest::Harness<'_, PhotocraftApp>, from: egui::Pos2, to: egui::Pos2) {
+        h.hover_at(from);
+        h.run_steps(1);
+        h.drag_at(from);
+        h.run_steps(1);
+        for i in 1..=6 {
+            h.hover_at(from + (to - from) * (i as f32 / 6.0));
+            h.run_steps(1);
+        }
+        h.drop_at(to);
+        h.run_steps(3);
+    }
+
+    /// Black carries neither hue nor saturation, a grey only the saturation it really has, and any
+    /// other colour nothing at all: the knob keeps where it was dragged instead of round-tripping
+    /// through RGB to the left edge (#3228).
+    #[test]
+    fn field_hsva_keeps_black_where_it_was_and_leaves_a_real_colour_alone() {
+        // Read back from black, as every frame does: nothing of the drag survives the RGB trip.
+        let black = field_hsva(egui::ecolor::Hsva::new(0.0, 0.0, 0.0, 1.0), (0.6, 1.0));
+        assert_eq!((black.h, black.s), (0.6, 1.0), "the corner the drag ended in");
+        // A grey: the saturation is genuinely zero — that is where the knob belongs — only the
+        // hue was undefined.
+        let grey = field_hsva(egui::ecolor::Hsva::new(0.0, 0.0, 0.5, 1.0), (0.6, 1.0));
+        assert_eq!((grey.h, grey.s), (0.6, 0.0), "the grey stays on the left edge");
+        // An ordinary colour is left as it is.
+        let red = field_hsva(egui::ecolor::Hsva::new(0.1, 0.8, 0.9, 1.0), (0.6, 1.0));
+        assert_eq!((red.h, red.s), (0.1, 0.8));
+    }
+
+    /// Dragging the selector into the bottom-right corner picks black there and leaves the knob
+    /// in that corner: black has no saturation of its own, so it used to be read back as `s = 0`
+    /// and drawn at the bottom-left instead, one frame after the drag that put it on the right
+    /// (#3228).
+    #[test]
+    fn dragging_to_the_bottom_right_keeps_the_knob_there() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.tools.foreground = [1.0, 1.0, 1.0, 1.0];
+        let mut h = field_harness(app);
+        let min = h.ctx.input(|i| i.viewport_rect()).min;
+        // Into the far bottom-right corner of the SV field: full saturation, no value. The end
+        // point lies past the corner on purpose — a real drag goes there too, and the widget
+        // clamps it to the field.
+        drag(&mut h, min + vec2(200.0, 60.0), min + vec2(280.0, 170.0));
+        assert_eq!(srgb_bytes(h.state().session.tools.foreground), [0, 0, 0], "both corners are black");
+        // What the knob is drawn from on the very next frame: the field kept the saturation the
+        // drag ended at (not the zero black reads back as), together with the hue.
+        let remembered: (f32, f32) = h.ctx.data(|d| d.get_temp(egui::Id::new(("color-field-hue", false)))).expect("the field remembers what it showed");
+        assert!(remembered.1 > 0.9, "the saturation the corner was dragged to: {remembered:?}");
+        let shown = field_hsva(egui::ecolor::Hsva::new(0.0, 0.0, 0.0, 1.0), remembered);
+        assert!(shown.s > 0.9, "the knob stays at the right edge, not the left: {remembered:?}");
+        assert!(shown.v < 0.01, "still black: {shown:?}");
     }
 
     /// Black has no hue of its own, so each chip remembers the hue last picked for it.
@@ -5097,6 +5284,10 @@ mod opacity_row_layout_tests {
 }
 
 #[cfg(test)]
+#[path = "clipping_indicator_tests.rs"]
+mod clipping_indicator_tests;
+
+#[cfg(test)]
 #[path = "mask_props_ui_tests.rs"]
 mod mask_properties_tests;
 
@@ -5112,8 +5303,12 @@ mod compact_visual_regressions {
     }
 
     fn toolbar_harness(kind: theme::ThemeKind, scale: f32) -> egui_kittest::Harness<'static, PhotocraftApp> {
+        toolbar_harness_sized(kind, scale, 360.0)
+    }
+
+    fn toolbar_harness_sized(kind: theme::ThemeKind, scale: f32, height: f32) -> egui_kittest::Harness<'static, PhotocraftApp> {
         let mut ready = false;
-        let mut harness = egui_kittest::Harness::builder().with_size(vec2(400.0, 360.0)).with_pixels_per_point(scale).build_ui_state(
+        let mut harness = egui_kittest::Harness::builder().with_size(vec2(400.0, height)).with_pixels_per_point(scale).build_ui_state(
             move |ui, app: &mut PhotocraftApp| {
                 if !ready {
                     egui_extras::install_image_loaders(ui.ctx());
@@ -5179,6 +5374,18 @@ mod compact_visual_regressions {
                 harness.run_steps(3);
                 assert_eq!(harness.state().ui.tool, Tool::Zoom, "Space must select the revealed tool");
             }
+        }
+    }
+
+    /// A window taller than the tools keeps the colour chips right under the last tool, as
+    /// Photoshop does, instead of at the bottom of the toolbar.
+    #[test]
+    fn tall_toolbar_keeps_the_colour_chips_under_the_tools() {
+        for kind in theme::ThemeKind::ALL {
+            let harness = toolbar_harness_sized(kind, 1.0, 1600.0);
+            let last = harness.get_by_label("Zoom Tool  (Z)").rect();
+            let swap = harness.get_by_label("Swap colours (X)").rect();
+            assert!(swap.top() - last.bottom() < 80.0, "{kind:?}: the chips {swap:?} sit far below the last tool {last:?}");
         }
     }
 

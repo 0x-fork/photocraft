@@ -114,7 +114,7 @@ impl Group {
     /// Tabs that lay out their own scrolling list and footer, or size themselves to the group
     /// (the Navigator's preview grows with it, as in Photoshop: #2726).
     pub fn scrolls_itself(self, tab: usize) -> bool {
-        matches!((self, tab), (Group::Layers, 0) | (Group::History, 0) | (Group::Navigator, 0))
+        matches!((self, tab), (Group::Layers, 0) | (Group::History, 0) | (Group::History, 1) | (Group::Navigator, 0))
     }
 
     pub(crate) fn tab_mut(self, tabs: &mut DockTabs) -> &mut usize {
@@ -765,6 +765,10 @@ pub fn restore(app: &mut PhotocraftApp) {
     }
     let saved = app.session.prefs().panel_layout.clone();
     apply(app, &saved);
+    // The floating Brush Settings window is transient, not a dock panel: remembering the
+    // workspace must not leave it open on a fresh launch, especially with no document.
+    // Explicit workspace switches still use `apply` and keep their stored panel visibility.
+    app.ui.panels.brush_settings = false;
     if let Some(ws) = saved.get("workspace").and_then(Value::as_str) {
         app.ui.workspace = ws.to_string();
     }
