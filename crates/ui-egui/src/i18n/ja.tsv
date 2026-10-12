@@ -877,6 +877,7 @@
 	Camera Raw isn't open	Camera Raw は開いていません
 	Cancel	キャンセル
 	Cancel (Esc)	キャンセル(Esc)
+	Manage submitted jobs in the system print queue	送信済みのジョブはシステムの印刷キューで管理してください
 	Cancel any current edits (Esc)	現在の編集をキャンセル(Esc)
 	Cancel current crop operation  (Esc)	現在の切り抜きをキャンセル(Esc)
 	Cancel transform (Esc)	変形をキャンセル(Esc)
@@ -3664,3 +3665,13 @@ curves	Smooth	スムーズ
 	Remove after each stroke	ストロークごとに削除
 	Apply the removal ({key})	削除を適用 ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	削除するストローク: {n}（Enter で適用、Esc で取り消し）
+
+# Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
+	Load Actions…	アクションを読み込み…
+	Save Actions…	アクションを保存…
+	{name} (Photoshop)	{name}（Photoshop）
+	{message} ({note})	{message}（{note}）
+@plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{file} からアクション {n} 個を読み込みました
+@plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} 個のステップにはまだ PhotoCraft の対応機能がありません
+@plural	Saved {n} action to {file}|Saved {n} actions to {file}	{file} にアクション {n} 個を保存しました
+@plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Photoshop に対応するもののない {n} 個のステップを省きました

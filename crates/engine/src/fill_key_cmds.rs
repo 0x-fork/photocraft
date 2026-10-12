@@ -6,7 +6,9 @@
 //!
 //! Each one is `edit.fill` with the colour and Preserve Transparency fixed: one "Fill" history
 //! step, the Channels panel target (alpha channel, Quick Mask) honoured, locked layers refused.
+//! When targeting a vector shape layer, the fill keys recolor the shape's fill.
 
+use photocraft_doc::{LayerContent, LayerId};
 use serde_json::{Map, Value, json};
 
 use crate::commands::CommandSpec;
@@ -17,18 +19,56 @@ pub const IDS: [&str; 5] = ["edit.fillForeground", "edit.fillBackground", "edit.
 
 const PARAMS: &str = r##"{"layer":id?,"target":"pixels"|"mask"|"quickMask"|{"channel":i}?}"##;
 
+fn target_shape_layer(s: &Session, p: &Value) -> Option<LayerId> {
+    if let Some(t) = p.get("target")
+        && (t.as_str() == Some("mask") || t.as_str() == Some("quickMask") || t.get("channel").is_some())
+    {
+        return None;
+    }
+    let st = s.active()?;
+    if st.channel_view.target == crate::channel_cmds::ChannelTarget::LayerMask {
+        return None;
+    }
+    let id = if let Some(v) = p.get("layer") { LayerId(v.as_u64()?) } else { st.active_layer? };
+    let layer = st.doc.layer(id)?;
+    if matches!(layer.content, LayerContent::Shape(_)) { Some(id) } else { None }
+}
+
+/// The colour fill keys also recolor a targeted shape layer's fill.
 fn enabled(s: &Session) -> std::result::Result<(), String> {
+    if target_shape_layer(s, &Value::Null).is_some() {
+        return Ok(());
+    }
+    fill_enabled(s)
+}
+
+/// Enabled when `edit.fill` is (Fill from History has no shape-layer meaning).
+fn fill_enabled(s: &Session) -> std::result::Result<(), String> {
     let edit_fill = crate::commands::find("edit.fill").ok_or_else(|| "Fill is unavailable".to_string())?;
     (edit_fill.enabled)(s)
 }
 
-/// Run `edit.fill` with `color` (the foreground or background colour) and Preserve Transparency.
+/// Run `edit.fill` with `color` (the foreground or background colour) and Preserve Transparency,
+/// or recolor the vector shape fill when targeting a vector shape layer.
 fn fill(s: &mut Session, p: &Value, cmd: &str, background: bool, preserve: bool) -> Result<Value> {
     let mut q: Map<String, Value> = match p {
         Value::Object(m) => m.clone(),
         Value::Null => Map::new(),
         _ => return Err(EngineError::BadParams { cmd: cmd.into(), msg: "expected an object".into() }),
     };
+
+    if let Some(id) = target_shape_layer(s, p) {
+        let c = if background { s.tools.background } else { s.tools.foreground };
+        let q_u8 = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+        let hex = if c[3] < 1.0 {
+            format!("#{:02x}{:02x}{:02x}{:02x}", q_u8(c[0]), q_u8(c[1]), q_u8(c[2]), q_u8(c[3]))
+        } else {
+            format!("#{:02x}{:02x}{:02x}", q_u8(c[0]), q_u8(c[1]), q_u8(c[2]))
+        };
+        let shape_edit = crate::commands::find("shape.edit").ok_or_else(|| EngineError::Other("shape.edit is unavailable".into()))?;
+        return (shape_edit.run)(s, &json!({ "layer": id.0, "fill": hex }));
+    }
+
     // The colour and transparency handling are what the key means; don't let params override them.
     for k in ["color", "contents", "pattern", "preserveTransparency", "opacity"] {
         q.remove(k);
@@ -104,7 +144,7 @@ pub fn specs() -> Vec<CommandSpec> {
             menu: &[],
             shortcut: Some("Cmd+Alt+Backspace"),
             params: r##"{"state":n? (default: the History Brush's source, the oldest state still held),"layer":id?,"target":"pixels"|"mask"|"quickMask"|{"channel":i}?,"preserveTransparency":bool?}"##,
-            enabled,
+            enabled: fill_enabled,
             run: fill_history,
             journal: true,
         },
@@ -259,5 +299,41 @@ mod tests {
         assert_eq!(sc("edit.fillBackground"), Some("Cmd+Backspace"));
         assert_eq!(sc("edit.fillForegroundPreserve"), Some("Alt+Shift+Backspace"));
         assert_eq!(sc("edit.fillBackgroundPreserve"), Some("Cmd+Shift+Backspace"));
+    }
+
+    #[test]
+    fn fill_keys_recolor_shape_layer() {
+        let mut s = session();
+        s.execute("shape.create", json!({"kind": "rect", "rect": [1, 1, 5, 5], "fill": "#000000"})).unwrap();
+        let info = s.execute("shape.info", json!({})).unwrap();
+        assert_eq!(info["fill"], "#000000");
+
+        // Alt+Backspace fills with foreground (#ff0000)
+        s.execute("edit.fillForeground", json!({})).unwrap();
+        let info_fg = s.execute("shape.info", json!({})).unwrap();
+        assert_eq!(info_fg["fill"], "#ff0000");
+
+        // Cmd+Backspace fills with background (#0000ff)
+        s.execute("edit.fillBackground", json!({})).unwrap();
+        let info_bg = s.execute("shape.info", json!({})).unwrap();
+        assert_eq!(info_bg["fill"], "#0000ff");
+
+        // Undo restores previous fill (#ff0000)
+        assert!(s.undo());
+        let info_undone = s.execute("shape.info", json!({})).unwrap();
+        assert_eq!(info_undone["fill"], "#ff0000");
+
+        // Alt+Shift+Backspace also recolors shape
+        s.execute("tools.setColors", json!({"foreground": "#00ff00"})).unwrap();
+        s.execute("edit.fillForegroundPreserve", json!({})).unwrap();
+        let info_shift = s.execute("shape.info", json!({})).unwrap();
+        assert_eq!(info_shift["fill"], "#00ff00");
+
+        // Locked shape layer errors gracefully without crashing
+        s.execute("layer.lockLayers", json!({"pixels": true})).unwrap();
+        for id in &IDS[..4] {
+            let err = s.execute(id, json!({})).unwrap_err().to_string();
+            assert!(err.contains("locked"), "{id}: {err}");
+        }
     }
 }

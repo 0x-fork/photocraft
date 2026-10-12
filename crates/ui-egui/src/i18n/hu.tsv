@@ -1947,6 +1947,7 @@ navigator	Zoom	Nagyítás mértéke
 	Burlap	Zsákvászon
 	Camera Calibration	Fényképezőgép-kalibráció
 	Cancel (Esc)	Mégse (Esc)
+	Manage submitted jobs in the system print queue	Az elküldött feladatok kezelése a rendszer nyomtatási sorában
 	Candle Light	Gyertyaláng
 	Cell Size	Cellaméret
 	Center X	Középpont X
@@ -3161,6 +3162,7 @@ cameraRaw	Yellow	Sárga
 	Ellipse Tool	Ellipszis
 	Elliptical Marquee Tool	Ellipszis-kijelölés
 	Enable	Bekapcsolás
+	Enable animations	Animációk engedélyezése
 	Enable flick panning	Lendítéses pásztázás engedélyezése
 	Enable floating document window docking	Lebegő dokumentumablakok dokkolásának engedélyezése
 	Enable narrow options bar	Keskeny beállítósáv engedélyezése
@@ -3973,3 +3975,13 @@ cameraRaw	Yellow	Sárga
 	Transform On Drop	Átalakítás elengedéskor
 	Vanishing Point is not active	Az Enyészpont nem aktív
 	Vanishing Point: click four corners to create a plane	Enyészpont: sík létrehozásához kattintson a négy sarokra
+
+# Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
+	Load Actions…	Műveletek betöltése…
+	Save Actions…	Műveletek mentése…
+	{name} (Photoshop)	{name} (Photoshop)
+	{message} ({note})	{message} ({note})
+@plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{n} művelet betöltve. Forrás: {file}
+@plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} lépésnek még nincs megfelelője a PhotoCraftban
+@plural	Saved {n} action to {file}|Saved {n} actions to {file}	{n} művelet mentve. Cél: {file}
+@plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	{n} Photoshop-megfelelő nélküli lépés kihagyva

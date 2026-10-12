@@ -29,16 +29,20 @@ pub fn moves_whole(layer: &Layer) -> bool {
 /// content within the selection, or all of it for a layer that [`moves_whole`] (#2630).
 /// Content scans are cached per tile: snapping asks for every layer's bounds per Move drag.
 pub fn transform_bounds(doc: &Document, layer: &Layer) -> Rect {
-    let content = match &layer.content {
-        LayerContent::Group(g) => g.children.iter().map(|l| transform_bounds(doc, l)).fold(Rect::EMPTY, |a, b| a.union(&b)),
-        _ => layer.surface().map_or(Rect::EMPTY, photocraft_compose::bounds::content_bounds),
-    };
-    let content =
-        if content.is_empty() { layer.mask.as_ref().map_or(Rect::EMPTY, |m| photocraft_compose::bounds::content_bounds(&m.surface)) } else { content };
+    let content = whole_layer_bounds(layer);
     match &doc.selection {
         Some(sel) if !moves_whole(layer) => content.intersect(&sel.content_bounds()),
         _ => content,
     }
+}
+
+/// A group moves all its descendants, so its frame must not clip raster children to the selection.
+fn whole_layer_bounds(layer: &Layer) -> Rect {
+    let content = match &layer.content {
+        LayerContent::Group(g) => g.children.iter().map(whole_layer_bounds).fold(Rect::EMPTY, |a, b| a.union(&b)),
+        _ => layer.surface().map_or(Rect::EMPTY, photocraft_compose::bounds::content_bounds),
+    };
+    if content.is_empty() { layer.mask.as_ref().map_or(Rect::EMPTY, |m| photocraft_compose::bounds::content_bounds(&m.surface)) } else { content }
 }
 
 /// Warp a surface whose pixels outside the content read as `default` (masks, selections):
@@ -422,10 +426,7 @@ fn with_panel_target(s: &Session, p: &Value) -> Value {
 fn transform(s: &mut Session, p: &Value) -> Result<Value> {
     let p = &with_panel_target(s, p);
     let st = s.active().ok_or(EngineError::NoDocument)?;
-    let id = match p.get("layer").and_then(Value::as_u64) {
-        Some(v) => Some(LayerId(v)),
-        None => st.active_layer,
-    };
+    let id = crate::commands::explicit_layer(s, p)?.or(st.active_layer);
     let lone = lone_target(&st.doc, id, p)?;
     let id = match (id, lone.is_some() && crate::channel_cmds::is_channel_target(p)) {
         (_, true) => None,
@@ -526,8 +527,12 @@ mod tests {
     use super::*;
 
     fn session() -> Session {
+        session_depth(8)
+    }
+
+    fn session_depth(depth: u32) -> Session {
         let mut s = Session::new();
-        s.execute("file.new", json!({"width": 100, "height": 100})).unwrap();
+        s.execute("file.new", json!({"width": 100, "height": 100, "depth": depth})).unwrap();
         s.execute("layer.new.layer", json!({})).unwrap();
         s.edit("paint", |doc, active| {
             let l = doc.layer_mut(active.unwrap()).unwrap();
@@ -689,7 +694,11 @@ mod tests {
 
     /// `session()` plus a reveal-all mask with `hide` painted black (linked unless `linked` is false).
     fn masked(hide: &[Rect], linked: bool) -> Session {
-        let mut s = session();
+        masked_depth(hide, linked, 8)
+    }
+
+    fn masked_depth(hide: &[Rect], linked: bool, depth: u32) -> Session {
+        let mut s = session_depth(depth);
         s.execute("layer.layerMask.revealAll", json!({})).unwrap();
         s.edit("mask", |doc, active| {
             let m = doc.layer_mut(active.unwrap()).unwrap().mask.as_mut().unwrap();
@@ -885,6 +894,66 @@ mod tests {
         s.execute("select.rect", json!({"x": 10, "y": 10, "width": 5, "height": 10})).unwrap();
         let st = s.active().unwrap();
         assert_eq!(transform_bounds(&st.doc, st.doc.layer(st.active_layer.unwrap()).unwrap()), Rect::new(10, 10, 15, 20));
+    }
+
+    #[test]
+    fn group_transform_ignores_selections_inside_its_children() {
+        group_transform_with_selection(Rect::new(10, 10, 15, 15));
+    }
+
+    #[test]
+    fn group_transform_ignores_selections_outside_its_children() {
+        group_transform_with_selection(Rect::new(70, 70, 80, 80));
+    }
+
+    #[test]
+    fn group_transform_presets_rotate_about_the_whole_group() {
+        for depth in [8, 16, 32] {
+            for x in [10, 70] {
+                let mut s = masked_depth(&[Rect::new(10, 10, 15, 20)], true, depth);
+                let child = s.active().unwrap().active_layer.unwrap();
+                s.execute("layer.groupLayers", json!({})).unwrap();
+                s.execute("select.rect", json!({"x": x, "y": 10, "width": 5, "height": 5})).unwrap();
+                s.execute("edit.transform.rotate180", json!({})).unwrap();
+                let layer = s.active().unwrap().doc.layer(child).unwrap();
+                assert_eq!(layer.surface().unwrap().content_bounds(), Rect::new(10, 10, 30, 20), "rotate about the group's centre, not the selection's");
+                let mask = &layer.mask.as_ref().unwrap().surface;
+                assert_eq!(mask.sample_channel(27, 15, 0), 0.0);
+                assert_eq!(mask.sample_channel(12, 15, 0), 1.0);
+            }
+        }
+    }
+
+    fn group_transform_with_selection(selection: Rect) {
+        for depth in [8, 16, 32] {
+            for nested in [false, true] {
+                let mut s = masked_depth(&[Rect::new(10, 10, 15, 20)], true, depth);
+                let child = s.active().unwrap().active_layer.unwrap();
+                s.execute("layer.groupLayers", json!({})).unwrap();
+                if nested {
+                    s.execute("layer.groupLayers", json!({})).unwrap();
+                }
+                s.execute("select.rect", json!({"x": selection.x0, "y": selection.y0, "width": selection.width(), "height": selection.height()})).unwrap();
+                let steps = s.active().unwrap().history.entries().len();
+                let result = s.execute("edit.transform", json!({"quad": [[10, 10], [50, 10], [50, 30], [10, 30]], "interpolation": "nearest"})).unwrap();
+                assert_eq!(result["rect"], json!([10.0, 10.0, 30.0, 20.0]), "frame must include the whole group (nested={nested})");
+                let st = s.active().unwrap();
+                let layer = st.doc.layer(child).unwrap();
+                assert_eq!(layer.surface().unwrap().content_bounds(), Rect::new(10, 10, 50, 30));
+                let mask = &layer.mask.as_ref().unwrap().surface;
+                assert_eq!(mask.sample_channel(19, 20, 0), 0.0, "the linked mask scales with its complete layer");
+                assert_eq!(mask.sample_channel(21, 20, 0), 1.0);
+                assert_eq!(st.history.entries().len(), steps + 1);
+                assert!(s.undo());
+                let st = s.active().unwrap();
+                let layer = st.doc.layer(child).unwrap();
+                assert_eq!(layer.surface().unwrap().content_bounds(), Rect::new(10, 10, 30, 20));
+                assert_eq!(layer.mask.as_ref().unwrap().surface.sample_channel(19, 15, 0), 1.0);
+                assert_eq!(st.doc.selection.as_ref().unwrap().content_bounds(), selection);
+                assert!(s.redo());
+                assert_eq!(s.active().unwrap().doc.layer(child).unwrap().surface().unwrap().content_bounds(), Rect::new(10, 10, 50, 30));
+            }
+        }
     }
 
     #[test]

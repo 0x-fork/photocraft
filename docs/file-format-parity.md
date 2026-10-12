@@ -1,6 +1,6 @@
 # File-format parity
 
-> **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-12 · **Change:** minor (indexed BMP palette mode; Save keeps a JPEG's quality and a WebP's encoding) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-12 · **Change:** minor (Photoshop Actions `.atn` read and write; earlier the same day: indexed BMP palette mode; Save keeps a JPEG's quality and a WebP's encoding) · **Target:** Adobe Photoshop 2026
 
 Every format Photoshop 2026 (27.11.0) reads or writes, with PhotoCraft's support, fidelity and
 tests. Photoshop's list comes from its `Info.plist` `CFBundleDocumentTypes`, the PiPL read/write
@@ -130,7 +130,7 @@ remaining gaps in #1606 stay tracked with per-sample corpus ceilings.
 | LUTs `.cube` / `.3dl` / `.look` | R/W (Export Color Lookup) | R/W / R / R | `cms/src/lutfile.rs` |
 | Keyboard shortcuts `.kys` | R/W | R | `engine/src/kys.rs` |
 | ICC profiles | R | R | Own CMS |
-| Actions `.atn` | R/W | no | AUTO-219-2 |
+| Actions `.atn` | R/W | R/W | `psd/src/atn.rs` (version 16 sets, exact round trip), `engine/src/atn_cmds.rs` (90 Photoshop events ↔ commands; other steps kept verbatim). Panel menu, CLI `batch --actions set.atn`, `actions.load`/`actions.save`. Photoshop 5-era version 12 files unsupported (AUTO-219-2) |
 | Styles `.asl` | R/W | no | #1693 |
 | Contours `.shc`, custom shapes `.csh`, tool presets `.tpl` | R/W | no | FILE-215-15 |
 | Curves `.acv`, Levels `.alv`, other adjustment presets | R/W | not audited | |
@@ -140,6 +140,7 @@ remaining gaps in #1606 stay tracked with per-sample corpus ceilings.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-12 | minor | Photoshop Actions `.atn`: read and write, 90 events mapped, the rest kept verbatim (AUTO-219-2) |
 | 2026-10-12 | minor | Palette BMPs open in Indexed Color mode (#3802) |
 | 2026-10-12 | minor | Save writes a JPEG at its own estimated quality and a WebP lossy or lossless as opened (#2399) |
 | 2026-10-11 | minor | D5100 image area and fitted-look preservation in Camera Raw tuning |

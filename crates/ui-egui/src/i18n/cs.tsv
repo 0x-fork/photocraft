@@ -890,6 +890,7 @@
 	Camera Raw isn't open	Camera Raw není otevřen
 	Cancel	Zrušit
 	Cancel (Esc)	Zrušit (Esc)
+	Manage submitted jobs in the system print queue	Spravovat odeslané úlohy v systémové tiskové frontě
 	Cancel any current edits (Esc)	Zrušit aktuální úpravy (Esc)
 	Cancel current crop operation  (Esc)	Zrušit aktuální oříznutí  (Esc)
 	Cancel transform (Esc)	Zrušit transformaci (Esc)
@@ -2670,7 +2671,6 @@ cameraData	Lens	Objektiv
 	Brush Type	Typ štětce
 	Bulge	Vyboulení
 	Burlap	Pytlovina
-	Burn	Ztmavení
 	Calculations	Výpočty
 	Camera Calibration	Kalibrace fotoaparátu
 	Camera Raw	Camera Raw
@@ -2700,7 +2700,6 @@ cameraData	Lens	Objektiv
 	Clear Selection	Zrušit výběr
 	Clipping Path	Ořezová cesta
 	Clone	Klonovat
-	Clone Stamp	Klonovací razítko
 	Close Window	Zavřít okno
 	Clumped	Shlukované
 	Coarse Dots	Hrubé tečky
@@ -2797,7 +2796,6 @@ cameraData	Lens	Objektiv
 	Distribution	Rozložení
 	Documentation	Dokumentace
 	Documents	Dokumenty
-	Dodge	Zesvětlení
 	Dot	Tečka
 	Double Line	Dvojitá čára
 	Draft	Koncept
@@ -2938,7 +2936,6 @@ cameraData	Lens	Objektiv
 	Highlight Radius	Poloměr světel
 	Highlight Strength	Síla odlesku
 	Highlight Tone	Tón světel
-	History Brush	Štětec historie
 	Horizontal Only	Pouze vodorovně
 	Hotspot	Jádro světla
 	Hsb	HSB
@@ -3283,7 +3280,6 @@ cameraData	Lens	Objektiv
 	Spherize	Sférická deformace
 	Spin	Rotace
 	Spin Blur	Rotační rozostření
-	Sponge	Houba
 	Spot	Reflektor
 	Spot Color	Přímá barva
 	Spot Healing	Bodové retušování
@@ -3341,7 +3337,6 @@ cameraData	Lens	Objektiv
 	Tiny Lens	Drobné čočky
 	To Center	Ke středu
 	Tone Curve	Tónová křivka
-	Tool	Nástroj
 	Tool Options	Možnosti nástroje
 	Toolbars	Panely nástrojů
 	Torn Edges	Roztřepené okraje
@@ -3669,3 +3664,13 @@ navigator	Zoom	Zvětšení
 	Remove after each stroke	Odstranit po každém tahu
 	Apply the removal ({key})	Použít odstranění ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Tahy k odstranění: {n} (Enter použije, Esc zruší)
+
+# Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
+	Load Actions…	Načíst akce…
+	Save Actions…	Uložit akce…
+	{name} (Photoshop)	{name} (Photoshop)
+	{message} ({note})	{message} ({note})
+@plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Načtena {n} akce ze souboru {file}|Načteny {n} akce ze souboru {file}|Načteno {n} akcí ze souboru {file}
+@plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} krok zatím nemá v PhotoCraftu obdobu|{n} kroky zatím nemají v PhotoCraftu obdobu|{n} kroků zatím nemá v PhotoCraftu obdobu
+@plural	Saved {n} action to {file}|Saved {n} actions to {file}	Uložena {n} akce do souboru {file}|Uloženy {n} akce do souboru {file}|Uloženo {n} akcí do souboru {file}
+@plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Vynechán {n} krok bez obdoby v Photoshopu|Vynechány {n} kroky bez obdoby v Photoshopu|Vynecháno {n} kroků bez obdoby v Photoshopu

@@ -970,8 +970,11 @@ impl StrokeRenderer {
             src[a] = b.color[3];
         }
         // 8-bit targets: the pixels the stroke changes are dithered as they are quantised, so
-        // soft, low-flow strokes don't band (see `dither8`).
-        let dither = fmt.sample == SampleType::U8;
+        // soft, low-flow strokes don't band (see `dither8`). Aliased strokes (the Pencil, the
+        // Eraser's Pencil and Block modes) paint every pixel by the same amount, so they have no
+        // gradient to band and are not dithered: a Pencil line at partial opacity is one flat
+        // colour, as in Photoshop, not grain that a tolerance-0 Magic Wand or Paint Bucket trips on.
+        let dither = fmt.sample == SampleType::U8 && !b.aliased;
         let mut dmg = Rect::EMPTY;
         let mut region = Vec::new();
         for (tx, ty) in keys {

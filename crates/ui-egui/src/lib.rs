@@ -977,6 +977,16 @@ impl PhotocraftApp {
             // as in Photoshop (#3369): clicking the mask thumbnail switches it to the mask.
             self.ui.properties_layer = if creates_adjustment_or_fill { self.session.active().and_then(|st| st.active_layer).map(|l| l.0) } else { None };
         }
+        if r.is_ok() && creates_adjustment_or_fill {
+            // Properties comes to the front, shown and expanded, so the new layer's settings can
+            // be edited at once, as in Photoshop (#4028). The layer is made whatever happens here.
+            if self.ui.docking.is_some() {
+                let _ = panel_docking::command(self, "window.panel.activate", &json!({"panel": "properties"}));
+            } else {
+                self.ui.dock_tabs.properties = 0;
+                dock::reveal(self, dock::Group::Properties);
+            }
+        }
         if r.is_ok() && id == "select.toWorkPath" {
             // Make Work Path selects the new work path in the Paths panel, as in Photoshop.
             self.ui.selected_path = Some("work".into());
@@ -1420,6 +1430,11 @@ impl PhotocraftApp {
     /// TIFF Options or Targa Options is waiting on an answer before a save is written.
     pub(crate) fn save_options_open(&self) -> bool {
         self.tiff_options.is_some() || self.targa_options.is_some()
+    }
+
+    /// A print worker may still be handing a job to the system queue.
+    pub(crate) fn printing(&self) -> bool {
+        self.session.jobs().iter().any(|j| matches!(j.command.as_str(), "file.print" | "file.printOneCopy"))
     }
 
     /// A save is running in the background.

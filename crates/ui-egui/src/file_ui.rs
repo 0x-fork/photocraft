@@ -840,6 +840,13 @@ fn print_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Va
 
 fn print_confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value, String> {
     let r = app.run("file.print", params(f))?;
+    if r["pending"] != json!(true) {
+        print_status(app, &r);
+    }
+    Ok(r)
+}
+
+pub(crate) fn print_status(app: &mut PhotocraftApp, r: &Value) {
     app.ui.status = if r["sent"] == json!(true) {
         let template = "Sent to the printer ({spooler})";
         crate::i18n::fmt(tl!(template), &[("spooler", r["spooler"].as_str().unwrap_or(""))])
@@ -847,7 +854,7 @@ fn print_confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Valu
         let template = "Printed to {path}";
         crate::i18n::fmt(tl!(template), &[("path", r["pdf"].as_str().unwrap_or(""))])
     };
-    Ok(r)
+    app.ui.status_error = false;
 }
 
 #[cfg(test)]
