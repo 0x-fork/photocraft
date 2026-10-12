@@ -13,6 +13,9 @@
 # French computing vocabulary (calque, sélection, pinceau, dégradé, flou, opacité ...). No
 # proprietary localisation resource, string table or product UI was consulted or copied; in
 # particular not the French localisation of Adobe Photoshop. Add entries the same way.
+# Exception, 2026-10: about 370 entries were realigned on the terms French retouchers use and that
+# Adobe's public French help pages show (Couche, Zone de travail, Masque de fusion, Objet dynamique,
+# Pixelliser, Réglage ...), so the paragraph above no longer holds for those entries.
 # Conventions: menus are nouns (Fichier, Édition, Image ...), commands are infinitives (Ouvrir…,
 # Enregistrer sous…), sentence case. French typography: a no-break space (U+00A0) before
 # « : ; ? ! » and "%", and inside guillemets « … ». Product and technology names (PhotoCraft,
@@ -91,8 +94,8 @@
 	Render Video…	Rendu vidéo…
 	Generate	Générer
 	Image Assets	Ressources d'image
-	Place Embedded…	Placer incorporé…
-	Place Linked…	Placer lié…
+	Place Embedded…	Importer et incorporer…
+	Place Linked…	Importer et lier…
 	Package…	Rassembler…
 	Automate	Automatisation
 	Batch…	Traitement par lots…
@@ -125,11 +128,11 @@
 	Fade…	Estomper…
 	Cut	Couper
 	Copy	Copier
-	Copy Merged	Copier les calques fusionnés
+	Copy Merged	Copier avec fusion
 	Paste	Coller
 	Paste Special	Collage spécial
-	Paste in Place	Coller sur place
-	Paste Into	Coller dans la sélection
+	Paste in Place	Coller en place
+	Paste Into	Coller dedans
 	Paste Outside	Coller hors de la sélection
 	Paste Lorem Ipsum	Coller du Lorem Ipsum
 	Clear	Effacer
@@ -137,13 +140,13 @@
 	Check Spelling…	Vérifier l'orthographe…
 	Find and Replace Text…	Rechercher et remplacer du texte…
 	Fill…	Remplir…
-	Stroke…	Contourner…
+	Stroke…	Contour…
 	Content-Aware Fill…	Remplissage d'après le contenu…
 	Delete and Fill Selection	Supprimer et remplir la sélection
-	Content-Aware Scale	Mise à l'échelle d'après le contenu
-	Puppet Warp	Déformation par épingles
+	Content-Aware Scale	Échelle basée sur le contenu
+	Puppet Warp	Déformation de la marionnette
 	Perspective Warp	Déformation de la perspective
-	Free Transform	Transformation libre
+	Free Transform	Transformation manuelle
 	Transform	Transformation
 	Again	Répéter
 	Scale	Mise à l'échelle
@@ -191,37 +194,37 @@
 	Export…	Exportation…
 	Performance…	Performances…
 	Scratch Disks…	Disques de travail…
-	Cursors…	Curseurs…
-	Transparency & Gamut…	Transparence et gamut…
+	Cursors…	Pointeurs…
+	Transparency & Gamut…	Transparence et couleurs non imprimables…
 	Units & Rulers…	Unités et règles…
 	Guides, Grid & Slices…	Repères, grille et tranches…
-	Plug-ins…	Extensions…
+	Plug-ins…	Modules externes…
 	Type…	Texte…
 	Enhanced Controls…	Commandes avancées…
 	Camera Raw…	Camera Raw…
 	Raw Defaults…	Valeurs Raw par défaut…
 	Integrations…	Intégrations…
 	AI Integrations…	Intégrations d'IA…
-	Install Plug-in…	Installer une extension…
+	Install Plug-in…	Installer un module externe…
 	Language Options	Options de langue
 	Settings…	Paramètres…
 	Mode	Mode
 	Bitmap	Bitmap
 	Grayscale	Niveaux de gris
-	Duotone	Duotone
+	Duotone	Bichromie
 	Indexed Color	Couleurs indexées
 	RGB Color	Couleurs RVB
 	CMYK Color	Couleurs CMJN
 	Lab Color	Couleurs Lab
-	Multichannel	Multicanal
-	8 Bits/Channel	8 bits/canal
-	16 Bits/Channel	16 bits/canal
-	32 Bits/Channel	32 bits/canal
+	Multichannel	Multicouche
+	8 Bits/Channel	8 bits/couche
+	16 Bits/Channel	16 bits/couche
+	32 Bits/Channel	32 bits/couche
 	Color Table…	Table des couleurs…
 	Bitmap…	Bitmap…
-	Duotone…	Duotone…
+	Duotone…	Bichromie…
 	Indexed Color…	Couleurs indexées…
-	Adjustments	Ajustements
+	Adjustments	Réglages
 	Brightness/Contrast…	Luminosité/Contraste…
 	Levels…	Niveaux…
 	Curves…	Courbes…
@@ -231,33 +234,33 @@
 	Color Balance…	Balance des couleurs…
 	Black & White…	Noir et blanc…
 	Photo Filter…	Filtre photo…
-	Channel Mixer…	Mélangeur de canaux…
-	Color Lookup…	Table de correspondance des couleurs…
+	Channel Mixer…	Mélangeur de couches…
+	Color Lookup…	Correspondance des couleurs…
 	Invert	Inverser
-	Posterize…	Postériser…
+	Posterize…	Isohélie…
 	Threshold…	Seuil…
-	Gradient Map…	Mappage de dégradé…
-	Selective Color…	Couleur sélective…
-	Shadows/Highlights…	Ombres/Hautes lumières…
-	HDR Toning…	Tonalité HDR…
-	Desaturate	Désaturer
-	Match Color…	Faire correspondre la couleur…
-	Replace Color…	Remplacer la couleur…
+	Gradient Map…	Courbe de transfert de dégradé…
+	Selective Color…	Correction sélective…
+	Shadows/Highlights…	Tons foncés/Tons clairs…
+	HDR Toning…	Virage HDR…
+	Desaturate	Désaturation
+	Match Color…	Correspondance de la couleur…
+	Replace Color…	Remplacement de couleur…
 	Equalize	Égaliser
-	Auto Tone	Tonalité automatique
+	Auto Tone	Ton automatique
 	Auto Contrast	Contraste automatique
 	Auto Color	Couleur automatique
 	Image Size…	Taille de l'image…
-	Canvas Size…	Taille du canevas…
+	Canvas Size…	Taille de la zone de travail…
 	Image Rotation	Rotation de l'image
-	Flip Canvas Horizontal	Retourner le canevas horizontalement
-	Flip Canvas Vertical	Retourner le canevas verticalement
+	Flip Canvas Horizontal	Symétrie horizontale de la zone de travail
+	Flip Canvas Vertical	Symétrie verticale de la zone de travail
 	Crop	Recadrer
-	Trim…	Rogner les bords…
-	Reveal All	Tout afficher
+	Trim…	Rognage…
+	Reveal All	Tout faire apparaître
 	Duplicate…	Dupliquer…
 	Apply Image…	Appliquer une image…
-	Calculations…	Calculs…
+	Calculations…	Opérations…
 	Variables	Variables
 	Define…	Définir…
 	Data Sets…	Jeux de données…
@@ -269,7 +272,7 @@
 	Select Data Points…	Sélectionner les points de données…
 	Record Measurements	Enregistrer les mesures
 	Ruler Tool	Outil Règle
-	Count Tool	Outil Compteur
+	Count Tool	Outil Comptage
 	Place Scale Marker…	Placer un repère d'échelle…
 	Custom…	Personnalisé…
 	New	Nouveau
@@ -289,7 +292,7 @@
 	New Fill Layer	Nouveau calque de remplissage
 	New Adjustment Layer	Nouveau calque de réglage
 	New Layer Based Slice	Nouvelle tranche d'après un calque
-	New Smart Object via Copy	Nouvel objet intelligent par copie
+	New Smart Object via Copy	Nouvel objet dynamique par copie
 	New Blank Video Layer	Nouveau calque vidéo vide
 	New Video Layer from File…	Nouveau calque vidéo à partir d'un fichier…
 	Duplicate Layer…	Dupliquer le calque…
@@ -299,14 +302,14 @@
 	Create Layer	Créer un calque
 	Layer Style	Style de calque
 	Blending Options…	Options de fusion…
-	Bevel & Emboss…	Biseau et relief…
-	Inner Shadow…	Ombre intérieure…
-	Inner Glow…	Lueur intérieure…
+	Bevel & Emboss…	Biseautage et estampage…
+	Inner Shadow…	Ombre interne…
+	Inner Glow…	Lueur interne…
 	Satin…	Satin…
-	Color Overlay…	Superposition de couleur…
-	Gradient Overlay…	Superposition de dégradé…
-	Pattern Overlay…	Superposition de motif…
-	Outer Glow…	Lueur extérieure…
+	Color Overlay…	Incrustation couleur…
+	Gradient Overlay…	Incrustation en dégradé…
+	Pattern Overlay…	Incrustation de motif…
+	Outer Glow…	Lueur externe…
 	Drop Shadow…	Ombre portée…
 	Copy Layer Style	Copier le style de calque
 	Paste Layer Style	Coller le style de calque
@@ -314,35 +317,35 @@
 	Global Light…	Lumière globale…
 	Hide All Effects	Masquer tous les effets
 	Scale Effects…	Mettre les effets à l'échelle…
-	Smart Filter	Filtre intelligent
-	Convert for Smart Filters	Convertir pour les filtres intelligents
-	Clear Smart Filters	Effacer les filtres intelligents
-	Disable Smart Filters	Désactiver les filtres intelligents
+	Smart Filter	Filtre dynamique
+	Convert for Smart Filters	Convertir pour les filtres dynamiques
+	Clear Smart Filters	Effacer les filtres dynamiques
+	Disable Smart Filters	Désactiver les filtres dynamiques
 	Delete Filter Mask	Supprimer le masque de filtre
 	Disable Filter Mask	Désactiver le masque de filtre
 	Solid Color…	Couleur unie…
 	Gradient…	Dégradé…
 	Pattern…	Motif…
-	Layer Mask	Masque de calque
+	Layer Mask	Masque de fusion
 	Vector Mask	Masque vectoriel
-	Reveal Selection	Afficher la sélection
+	Reveal Selection	Faire apparaître la sélection
 	Hide Selection	Masquer la sélection
 	Hide All	Tout masquer
 	From Transparency	D'après la transparence
 	Delete Vector Mask	Supprimer le masque vectoriel
-	Enable Layer Mask	Activer le masque de calque
-	Disable Layer Mask	Désactiver le masque de calque
+	Enable Layer Mask	Activer le masque de fusion
+	Disable Layer Mask	Désactiver le masque de fusion
 	Enable Vector Mask	Activer le masque vectoriel
-	Link Layer Mask	Lier le masque de calque
-	Unlink Layer Mask	Délier le masque de calque
+	Link Layer Mask	Lier le masque de fusion
+	Unlink Layer Mask	Délier le masque de fusion
 	Link Vector Mask	Lier le masque vectoriel
 	Add Vector Mask	Ajouter un masque vectoriel
 	Vector Mask from Current Path	Masque vectoriel d'après le tracé actif
-	Create Clipping Mask	Créer un masque de découpe
-	Release Clipping Mask	Libérer le masque de découpe
-	Smart Objects	Objets intelligents
-	Smart Object	Objet intelligent
-	Convert to Smart Object	Convertir en objet intelligent
+	Create Clipping Mask	Créer un masque d'écrêtage
+	Release Clipping Mask	Libérer le masque d'écrêtage
+	Smart Objects	Objets dynamiques
+	Smart Object	Objet dynamique
+	Convert to Smart Object	Convertir en objet dynamique
 	Convert to Embedded	Convertir en objet incorporé
 	Convert to Layers	Convertir en calques
 	Convert to Linked…	Convertir en objet lié…
@@ -376,10 +379,10 @@
 	Duplicate Frame	Dupliquer l'image
 	Frame from Layers	Image d'après les calques
 	Video Frames to Layers…	Images vidéo dans des calques…
-	Rasterize	Rastériser
-	Rasterize Type	Rastériser le texte
-	Rasterize Type Layer	Rastériser le calque de texte
-	Rasterize Shape	Rastériser la forme
+	Rasterize	Pixelliser
+	Rasterize Type	Pixelliser le texte
+	Rasterize Type Layer	Pixelliser le calque de texte
+	Rasterize Shape	Pixelliser la forme
 	New Guide Layout…	Nouvelle disposition de repères…
 	New Guides From Shape	Nouveaux repères d'après la forme
 	Lock Layers…	Verrouiller les calques…
@@ -485,9 +488,9 @@
 	Save Default Type Styles	Enregistrer les styles de texte par défaut
 	Deselect	Désélectionner
 	Reselect	Resélectionner
-	Inverse	Inverser
-	Inverse Selection	Inverser la sélection
-	Similar	Similaire
+	Inverse	Intervertir
+	Inverse Selection	Intervertir la sélection
+	Similar	Généraliser
 	Color Range…	Plage de couleurs…
 	Focus Area…	Zone de mise au point…
 	Select and Mask…	Sélectionner et masquer…
@@ -500,40 +503,40 @@
 	Modify	Modifier
 	Border…	Bordure…
 	Smooth…	Lisser…
-	Expand…	Étendre…
+	Expand…	Dilater…
 	Contract…	Contracter…
-	Feather…	Adoucir…
-	Grow	Agrandir
+	Feather…	Contour progressif…
+	Grow	Étendre
 	Transform Selection	Transformer la sélection
-	Edit in Quick Mask Mode	Modifier en mode masque rapide
-	Load Selection…	Charger la sélection…
-	Save Selection…	Enregistrer la sélection…
+	Edit in Quick Mask Mode	Modifier en mode Masque
+	Load Selection…	Récupérer la sélection…
+	Save Selection…	Mémoriser la sélection…
 	Match All	Tout faire correspondre
 	Last Filter	Dernier filtre
 	Filter Gallery…	Galerie de filtres…
 	Adaptive Wide Angle…	Grand angle adaptatif…
 	Camera Raw Filter…	Filtre Camera Raw…
-	Liquify…	Liquéfier…
+	Liquify…	Fluidité…
 	Vanishing Point…	Point de fuite…
 	Blur	Flou
-	Blur Gallery	Galerie de flous
-	Field Blur…	Flou de champ…
-	Iris Blur…	Flou d'iris…
+	Blur Gallery	Galerie d'effets de flou
+	Field Blur…	Flou de profondeur de champ…
+	Iris Blur…	Flou de diaphragme…
 	Tilt-Shift…	Inclinaison-décalage…
 	Path Blur…	Flou de tracé…
 	Spin Blur…	Flou de rotation…
-	Blur More	Flou accentué
+	Blur More	Plus flou
 	Box Blur…	Flou par boîte…
 	Gaussian Blur…	Flou gaussien…
-	Lens Blur…	Flou d'objectif…
-	Motion Blur…	Flou de mouvement…
+	Lens Blur…	Flou de l'objectif…
+	Motion Blur…	Flou directionnel…
 	Radial Blur…	Flou radial…
 	Shape Blur…	Flou selon une forme…
-	Smart Blur…	Flou intelligent…
+	Smart Blur…	Flou optimisé…
 	Surface Blur…	Flou de surface…
 	Average	Moyenne
-	Displace…	Déplacement…
-	Pinch…	Pincement…
+	Displace…	Dispersion…
+	Pinch…	Contraction…
 	Polar Coordinates…	Coordonnées polaires…
 	Ripple…	Ondulation…
 	Shear…	Cisaillement…
@@ -543,16 +546,16 @@
 	ZigZag…	Zigzag…
 	Noise	Bruit
 	Add Noise…	Ajout de bruit…
-	Despeckle	Supprimer les mouchetures
-	Dust & Scratches…	Poussière et rayures…
+	Despeckle	Flou intérieur
+	Dust & Scratches…	Antipoussière…
 	Median…	Médiane…
 	Reduce Noise…	Réduction du bruit…
-	Pixelate	Pixeliser
-	Color Halftone…	Trame de demi-teintes couleur…
+	Pixelate	Pixellisation
+	Color Halftone…	Demi-teintes couleur…
 	Crystallize…	Cristallisation…
 	Facet	Facettes
 	Fragment	Fragmentation
-	Mezzotint…	Manière noire…
+	Mezzotint…	Mezzo-tinto…
 	Mosaic…	Mosaïque…
 	Pointillize…	Pointillisme…
 	Render	Rendu
@@ -560,38 +563,38 @@
 	Difference Clouds	Nuages par différence
 	Fibers…	Fibres…
 	Flame…	Flamme…
-	Lens Flare…	Reflet d'objectif…
-	Lighting Effects…	Effets d'éclairage…
+	Lens Flare…	Halo…
+	Lighting Effects…	Éclairage…
 	Relight…	Rééclairage…
 	Picture Frame…	Cadre d'image…
 	Tree…	Arbre…
 	Sharpen	Netteté
-	Sharpen Edges	Netteté des contours
-	Sharpen More	Netteté accentuée
-	Smart Sharpen…	Netteté intelligente…
-	Unsharp Mask…	Masque flou…
+	Sharpen Edges	Contours plus nets
+	Sharpen More	Encore plus net
+	Smart Sharpen…	Netteté optimisée…
+	Unsharp Mask…	Accentuation…
 	High Pass…	Passe-haut…
-	Stylize	Styliser
-	Diffuse…	Diffuser…
-	Emboss…	Relief…
-	Extrude…	Extruder…
-	Find Edges	Détecter les contours
+	Stylize	Esthétiques
+	Diffuse…	Diffusion…
+	Emboss…	Estampage…
+	Extrude…	Extrusion…
+	Find Edges	Tracé des contours
 	Oil Paint…	Peinture à l'huile…
-	Solarize	Solariser
-	Tiles…	Carreaux…
-	Trace Contour…	Tracer les contours…
-	Wind…	Vent…
+	Solarize	Solarisation
+	Tiles…	Carrelage…
+	Trace Contour…	Courbes de niveau…
+	Wind…	Soufflerie…
 	Video	Vidéo
-	De-Interlace…	Désentrelacer…
+	De-Interlace…	Désentrelacement…
 	NTSC Colors	Couleurs NTSC
-	Other	Autres
+	Other	Divers
 	Maximum…	Maximum…
 	Minimum…	Minimum…
-	Offset…	Décalage…
-	Plug-ins	Extensions
+	Offset…	Translation…
+	Plug-ins	Modules externes
 	Proof Setup	Configuration d'épreuve
 	Proof Colors	Couleurs d'épreuve
-	Gamut Warning	Alerte de gamut
+	Gamut Warning	Couleurs non imprimables
 	Working CMYK	CMJN de travail
 	Working Cyan Plate	Plaque cyan de travail
 	Working Magenta Plate	Plaque magenta de travail
@@ -633,11 +636,11 @@
 	HDV 1080/DVCPRO HD 720 (1.33)	HDV 1080/DVCPRO HD 720 (1,33)
 	DVCPRO HD 1080/HDV 1080 (1.5)	DVCPRO HD 1080/HDV 1080 (1,5)
 	32-bit Preview Options…	Options d'aperçu 32 bits…
-	Screen Mode	Mode d'écran
-	Standard Screen Mode	Mode d'écran standard
+	Screen Mode	Mode d'affichage
+	Standard Screen Mode	Mode d'affichage standard
 	Full Screen Mode With Menu Bar	Mode plein écran avec barre de menus
 	Full Screen Mode	Mode plein écran
-	Cycle Screen Mode	Changer de mode d'écran
+	Cycle Screen Mode	Changer de mode d'affichage
 	Show	Afficher
 	Extras	Extras
 	Selection Edges	Contours de la sélection
@@ -645,12 +648,12 @@
 	Current Path	Tracé actif
 	Grid	Grille
 	Guides	Repères
-	Canvas Guides	Repères du canevas
+	Canvas Guides	Repères de la zone de travail
 	Artboard Guides	Repères du plan de travail
 	Count	Compteur
-	Smart Guides	Repères intelligents
+	Smart Guides	Repères commentés
 	Slices	Tranches
-	Notes	Notes
+	Notes	Annotations
 	Pixel Grid	Grille de pixels
 	Pixel Art	Pixel art
 	Pixel Art Preview	Aperçu pixel art
@@ -666,7 +669,7 @@
 	Lock Guides	Verrouiller les repères
 	Clear Guides	Effacer les repères
 	Clear Selected Artboard Guides	Effacer les repères du plan de travail sélectionné
-	Clear Canvas Guides	Effacer les repères du canevas
+	Clear Canvas Guides	Effacer les repères de la zone de travail
 	New Guide…	Nouveau repère…
 	Lock Slices	Verrouiller les tranches
 	Clear Slices	Effacer les tranches
@@ -720,16 +723,16 @@
 	Actions	Actions
 	Brush Settings	Paramètres du pinceau
 	Brushes	Pinceaux
-	Channels	Canaux
+	Channels	Couches
 	Character	Caractère
 	Character Styles	Styles de caractère
-	Clone Source	Source de clonage
+	Clone Source	Source de duplication
 	Color	Couleur
 	Glyphs	Glyphes
 	Gradients	Dégradés
 	Histogram	Histogramme
 	History	Historique
-	Info	Infos
+	Info	Informations
 	Measurement Log	Journal des mesures
 	Modifier Keys	Touches de modification
 	Navigator	Navigation
@@ -757,7 +760,7 @@
 	Invert…	Inverser…
 	Load Files into Stack…	Charger des fichiers dans une pile…
 	Motion	Mouvement
-	Notes…	Notes…
+	Notes…	Annotations…
 	Other…	Autre…
 	Remove Warp Split	Supprimer la division de la déformation
 	Shape	Forme
@@ -778,18 +781,18 @@
 	Adaptive	Adaptative
 	Adaptive Wide Angle isn't open	Grand angle adaptatif n'est pas ouvert
 	Add	Ajouter
-	Add Layer Mask	Ajouter un masque de calque
+	Add Layer Mask	Ajouter un masque de fusion
 	Add Stop	Ajouter un point
 	Add a layer style	Ajouter un style de calque
 	Add a mask  (from the selection; {key} inverts)	Ajouter un masque  (d'après la sélection ; {key} l'inverse)
-	Add an adjustment	Ajouter un ajustement
+	Add an adjustment	Ajouter un réglage
 	Add disk	Ajouter un disque
 	Add space after paragraph	Espace après le paragraphe
 	Add space before paragraph	Espace avant le paragraphe
 	Add to Sample	Ajouter à l'échantillon
 	Add to selection  ({key})	Ajouter à la sélection  ({key})
 	Adjust for Zoom	Adapter au zoom
-	Adjustment visible	Ajustement visible
+	Adjustment visible	Réglage visible
 	Adobe RGB (1998) compatible	Compatible Adobe RGB (1998)
 	Align and Distribute	Aligner et répartir
 	Align and distribute	Aligner et répartir
@@ -813,7 +816,7 @@
 	Anti-alias	Lissage
 	Appearance	Apparence
 	Appearance (Layer Style)	Apparence (style de calque)
-	Apply Layer Mask	Appliquer le masque de calque
+	Apply Layer Mask	Appliquer le masque de fusion
 	Apply Per Tip	Appliquer par pointe
 	Apply next selected layer comp	Appliquer la composition de calques sélectionnée suivante
 	Apply previous selected layer comp	Appliquer la composition de calques sélectionnée précédente
@@ -870,7 +873,7 @@
 	Cancel transform (Esc)	Annuler la transformation (Échap)
 	Cancel warp (Esc)	Annuler la déformation (Échap)
 	Canvas	Canevas
-	Canvas extension color:	Couleur d'extension du canevas :
+	Canvas extension color:	Couleur d'extension de la zone de travail :
 	Capture	Capturer
 	Capture the visibility, position and style of every layer with + below, then switch between versions.	Capturez la visibilité, la position et le style de chaque calque avec le + ci-dessous, puis passez d'une version à l'autre.
 	Catch-up on Stroke End	Rattraper en fin de trait
@@ -879,10 +882,10 @@
 	Center text	Centrer le texte
 	Change	Remplacer
 	Change All	Tout remplacer
-	Change Screen Mode  (F)	Changer de mode d'écran  (F)
+	Change Screen Mode  (F)	Changer de mode d'affichage  (F)
 	Change To:	Remplacer par :
-	Channel Mixer	Mélangeur de canaux
-	Channel:	Canal :
+	Channel Mixer	Mélangeur de couches
+	Channel:	Couche :
 	Check All Layers	Vérifier tous les calques
 	Check Spelling	Vérifier l'orthographe
 	Clarity	Clarté
@@ -896,11 +899,11 @@
 	Click to edit the gradient	Cliquez pour modifier le dégradé
 	Click to restore the current colour	Cliquez pour rétablir la couleur actuelle
 	Click to zoom in  ·  {key}-click to zoom out  ·  drag right/left to zoom in/out	Cliquez pour zoomer  ·  {key}-clic pour dézoomer  ·  faites glisser vers la droite/gauche pour zoomer/dézoomer
-	Click with the Note tool to add a note.	Cliquez avec l'outil Note pour ajouter une note.
+	Click with the Note tool to add a note.	Cliquez avec l'outil Annotation pour ajouter une annotation.
 	Click: corner · Drag: smooth · Click first point: close · {key} finish · Esc cancel	Clic : angle · Glisser : lisse · Clic sur le premier point : fermer · {key} : terminer · Échap : annuler
 	Click: corner · Drag: smooth · {alt}-drag: break handle · Click or drag first point: close · {key} finish · Esc cancel	Clic : angle · Glisser : lisse · {alt}+glisser : briser la poignée · Clic ou glisser sur le premier point : fermer · {key} : terminer · Échap : annuler
-	Clip to layer below	Découper selon le calque inférieur
-	Clipped	Découpé
+	Clip to layer below	Écrêter selon le calque inférieur
+	Clipped	Écrêté
 	Close Style Options	Fermer les options de style
 	Cmd	Cmd
 	Coated CMYK	CMJN papier couché
@@ -908,7 +911,7 @@
 	Color Balance	Balance des couleurs
 	Color Detail	Détail des couleurs
 	Color Grading	Étalonnage des couleurs
-	Color Lookup	Table de correspondance des couleurs
+	Color Lookup	Correspondance des couleurs
 	Color Management	Gestion des couleurs
 	Color Mixer	Mélangeur de couleurs
 	Color Mode	Mode colorimétrique
@@ -918,7 +921,7 @@
 	Colorize	Colorer
 	Colors	Couleurs
 	Commit Perspective Warp ({key})	Valider la déformation de la perspective ({key})
-	Commit Puppet Warp ({key})	Valider la déformation par épingles ({key})
+	Commit Puppet Warp ({key})	Valider la déformation de la marionnette ({key})
 	Commit any current edits ({key})	Valider les modifications en cours ({key})
 	Commit current crop operation  ({key})	Valider le recadrage en cours  ({key})
 	Commit transform ({key})	Valider la transformation ({key})
@@ -926,7 +929,7 @@
 	Constant	Constant
 	Constrain proportions	Conserver les proportions
 	Contact Sheet II	Planche contact II
-	Content-Aware	Selon le contenu
+	Content-Aware	Contenu pris en compte
 	Contiguous	Contigu
 	Contrast	Contraste
 	Control:	Contrôle :
@@ -949,9 +952,9 @@
 	Create a new group	Créer un nouveau groupe
 	Create a new layer	Créer un nouveau calque
 	Create new action	Créer une nouvelle action
-	Create new channel	Créer un nouveau canal
+	Create new channel	Créer une nouvelle couche
 	Create new document from current state	Créer un nouveau document à partir de l'état actuel
-	Create new fill or adjustment layer	Créer un nouveau calque de remplissage ou d'ajustement
+	Create new fill or adjustment layer	Créer un nouveau calque de remplissage ou de réglage
 	Create new gradient	Créer un nouveau dégradé
 	Create new group	Créer un nouveau groupe
 	Create new layer comp	Créer une nouvelle composition de calques
@@ -972,7 +975,7 @@
 	Cyan	Cyan
 	Cyan  ·  Red	Cyan  ·  Rouge
 	Darken	Obscurcir
-	Darks	Tons sombres
+	Darks	Teintes sombres
 	Data Sets	Jeux de données
 	Default	Par défaut
 	Default colours (D)	Couleurs par défaut (D)
@@ -983,13 +986,13 @@
 	Dehaze	Correction de la brume
 	Delete Cropped Pixels	Supprimer les pixels recadrés
 	Delete Group	Supprimer le groupe
-	Delete Layer Mask	Supprimer le masque de calque
+	Delete Layer Mask	Supprimer le masque de fusion
 	Delete Layers	Supprimer les calques
 	Delete Shortcut	Supprimer le raccourci
 	Delete Timeline	Supprimer le montage
 	Delete Tool Preset	Supprimer le préréglage d'outil
 	Delete count group	Supprimer le groupe de comptage
-	Delete current channel	Supprimer le canal actif
+	Delete current channel	Supprimer la couche active
 	Delete current state	Supprimer l'état actuel
 	Delete effect layer	Supprimer le calque d'effet
 
@@ -1005,7 +1008,7 @@
 
 	Delete layer	Supprimer le calque
 	Delete layer comp	Supprimer la composition de calques
-	Delete note	Supprimer la note
+	Delete note	Supprimer l'annotation
 	Delete selected measurements	Supprimer les mesures sélectionnées
 	Delete style	Supprimer le style
 	Delete tool preset	Supprimer le préréglage d'outil
@@ -1042,7 +1045,7 @@
 	Duplicate Layers…	Dupliquer les calques…
 	Duplicate style	Dupliquer le style
 	Edit Toolbar…	Modifier la barre d'outils…
-	Edit in Quick Mask Mode  (Q)	Modifier en mode masque rapide  (Q)
+	Edit in Quick Mask Mode  (Q)	Modifier en mode Masque  (Q)
 	Edit in Standard Mode  (Q)	Modifier en mode standard  (Q)
 	Effects	Effets
 	Embed Color Profile	Incorporer le profil colorimétrique
@@ -1061,15 +1064,15 @@
 	Factor:	Facteur :
 	Faux Bold	Faux gras
 	Faux Italic	Faux italique
-	Feather	Adoucissement
+	Feather	Contour progressif
 	Fewer Points	Moins de points
 	File Settings	Paramètres du fichier
 	Fill	Remplissage
-	Fill:	Remplissage :
-	Filter for adjustment layers	Filtrer les calques d'ajustement
+	Fill:	Fond :
+	Filter for adjustment layers	Filtrer les calques de réglage
 	Filter for pixel layers	Filtrer les calques de pixels
 	Filter for shape layers	Filtrer les calques de forme
-	Filter for smart objects	Filtrer les objets intelligents
+	Filter for smart objects	Filtrer les objets dynamiques
 	Filter for type layers	Filtrer les calques de texte
 	Filter:	Filtre :
 	Finger Painting	Peinture au doigt
@@ -1105,7 +1108,7 @@
 	Gamma:	Gamma :
 	Global	Global
 	Glow Color	Couleur de la lueur
-	Gradient Map	Mappage de dégradé
+	Gradient Map	Courbe de transfert de dégradé
 	Grain	Grain
 	Gray	Gris
 	Gray Gamma 2.2	Gris gamma 2,2
@@ -1117,9 +1120,9 @@
 	Height:	Hauteur :
 	Hide Auto Slices	Masquer les tranches automatiques
 	Hide Properties	Masquer les propriétés
-	Highlight Compression	Compression des hautes lumières
-	Highlight Priority	Priorité aux hautes lumières
-	Highlights	Hautes lumières
+	Highlight Compression	Compression des tons clairs
+	Highlight Priority	Priorité aux tons clairs
+	Highlights	Tons clairs
 	Home	Accueil
 	Horizontal scale	Échelle horizontale
 	Hue	Teinte
@@ -1145,7 +1148,7 @@
 	Interpolation:	Interpolation :
 	Intersect with selection  ({key})	Intersection avec la sélection  ({key})
 	Invert All	Tout inverser
-	Invert has no settings.	Inverser n'a aucun réglage.
+	Invert has no settings.	Inverser n'a aucun paramètre.
 	Italic	Italique
 	Join us on Discord	Rejoignez-nous sur Discord
 	Justify all	Justifier tout
@@ -1171,15 +1174,15 @@
 	Levels	Niveaux
 	Lighten	Éclaircir
 	Lightness	Luminosité
-	Lights	Tons clairs
+	Lights	Teintes claires
 	Limits:	Limites :
 	Linear Gradient	Dégradé linéaire
 	Link layers	Lier les calques
 	Link width and height	Lier la largeur et la hauteur
-	Liquify is not open	Liquéfier n'est pas ouvert
+	Liquify is not open	Fluidité n'est pas ouvert
 	Load	Charger
 	Load 3D LUT…	Charger une LUT 3D…
-	Load channel as selection	Charger le canal comme sélection
+	Load channel as selection	Récupérer la couche comme sélection
 	Load…	Charger…
 	Localized Color Clusters	Groupes de couleurs localisés
 	Lock	Verrouiller
@@ -1229,7 +1232,7 @@
 	New effect layer	Nouveau calque d'effet
 	New selection	Nouvelle sélection
 	Next frame	Image suivante
-	Next note	Note suivante
+	Next note	Annotation suivante
 	No Color	Aucune couleur
 	No Color Management	Aucune gestion des couleurs
 	No Dither	Sans tramage
@@ -1255,9 +1258,9 @@
 	Open a document to use the timeline.	Ouvrez un document pour utiliser le montage.
 	Optical	Optique
 	Optimized	Optimisé
-	Option-click to define a source point to clone from	Option-clic pour définir le point source du clonage
+	Option-click to define a source point to clone from	Option-clic pour définir le point source de la duplication
 	Original	Original
-	Output Channel:	Canal de sortie :
+	Output Channel:	Couche de sortie :
 	Output Levels:	Niveaux de sortie :
 	Output:	Sortie :
 	Outside	Extérieur
@@ -1294,7 +1297,7 @@
 	Portrait	Portrait
 	Position	Position
 	Position and Size	Position et taille
-	Posterize	Postériser
+	Posterize	Isohélie
 	Preserve Details	Préserver les détails
 	Preserve Luminosity	Préserver la luminosité
 	Preset	Préréglage
@@ -1308,7 +1311,7 @@
 	Prevent auto-nesting in and out of Artboards and Frames	Empêcher l'imbrication automatique dans et hors des plans de travail et des cadres
 	Preview	Aperçu
 	Previous frame	Image précédente
-	Previous note	Note précédente
+	Previous note	Annotation précédente
 	Print	Imprimer
 	Printer	Imprimante
 	Printer Manages Colors	L'imprimante gère les couleurs
@@ -1321,7 +1324,7 @@
 	Protect Tones	Protéger les tons
 	Proximity Match	Correspondance de proximité
 	Pulled String Mode	Mode corde tendue
-	Puppet Warp is not active	La déformation par épingles n'est pas active
+	Puppet Warp is not active	La déformation de la marionnette n'est pas active
 	Purity	Pureté
 	Quality	Qualité
 	Quick Actions	Actions rapides
@@ -1393,7 +1396,7 @@
 	Saturation Jitter	Variation de la saturation
 	Save HTML and Images	Enregistrer le HTML et les images
 	Save as PDF	Enregistrer en PDF
-	Save selection as channel	Enregistrer la sélection comme canal
+	Save selection as channel	Mémoriser la sélection sur une couche
 	Save…	Enregistrer…
 	Scale to Fit Media	Adapter au support
 	Scatter	Diffusion
@@ -1409,17 +1412,17 @@
 	Select:	Sélection :
 	Selections	Sélections
 	Selective	Sélective
-	Selective Color	Couleur sélective
+	Selective Color	Correction sélective
 	Send the selected pin backward	Reculer l'épingle sélectionnée
 	Set additional smoothing options	Définir des options de lissage supplémentaires
 	Set background color	Définir la couleur d'arrière-plan
 	Set foreground color	Définir la couleur de premier plan
 	Set painting symmetry options	Définir les options de symétrie de peinture
 	Symmetry Off	Symétrie désactivée
-	Set shape fill type	Définir le type de remplissage de la forme
+	Set shape fill type	Définir le type de fond de la forme
 	Set shape stroke type	Définir le type de contour de la forme
 	Set the text color	Définir la couleur du texte
-	Shadows	Ombres
+	Shadows	Tons foncés
 	Shape:	Forme :
 	Sharpening	Netteté
 	Shift	Maj
@@ -1431,7 +1434,7 @@
 	Show Mesh	Afficher le maillage
 	Show Overlay	Afficher la superposition
 	Show Transform Controls	Afficher les contrôles de transformation
-	Show or hide the Notes panel	Afficher ou masquer le panneau Notes
+	Show or hide the Notes panel	Afficher ou masquer le panneau Annotations
 	Show:	Afficher :
 	Sides	Côtés
 	Sides:	Côtés :
@@ -1467,7 +1470,7 @@
 	Suggestions:	Suggestions :
 	Swap colours (X)	Permuter les couleurs (X)
 	Swaps height and width	Permute la hauteur et la largeur
-	Switch between free transform and warp modes	Basculer entre les modes transformation libre et déformation
+	Switch between free transform and warp modes	Basculer entre les modes transformation manuelle et déformation
 	Switch theme	Changer de thème
 	Temperature	Température
 	Tetrahedral	Tétraédrique
@@ -1544,7 +1547,7 @@
 	No saved presets yet.	Aucun préréglage enregistré pour le moment.
 	Error	Erreur
 	Command	Commande
-	Adjustment layers have nothing to transform	Les calques d'ajustement n'ont rien à transformer
+	Adjustment layers have nothing to transform	Les calques de réglage n'ont rien à transformer
 	Altitude	Altitude
 	Android 1080p	Android 1080p
 	Apple Watch 45mm	Apple Watch 45 mm
@@ -1552,10 +1555,10 @@
 	Art & Illustration	Art et illustration
 	ArtCraft	ArtCraft
 	Background Eraser Tool	Outil Gomme d'arrière-plan
-	Bevel & Emboss	Biseau et relief
+	Bevel & Emboss	Biseautage et estampage
 	Blend Mode	Mode de fusion
 	Blues	Bleus
-	Blur Tool	Outil Flou
+	Blur Tool	Outil Goutte d'eau
 	Bold	Gras
 	Brush	Pinceau
 	Block	Carré
@@ -1563,24 +1566,24 @@
 	Brush Tip Shape	Forme de la pointe
 	Brush Tool	Outil Pinceau
 	Build-up	Accumulation
-	Burn Tool	Outil Assombrir
+	Burn Tool	Outil Densité +
 	Centimeters	Centimètres
 	Choke	Resserrement
 	Classic	Classique
 	Click to add text	Cliquez pour ajouter du texte
 	Click to fill similar colours	Cliquez pour remplir les couleurs similaires
-	Clone Stamp Tool	Outil Tampon de clonage
+	Clone Stamp Tool	Outil Tampon de duplication
 	Color Burn	Densité couleur +
 	Color Dodge	Densité couleur −
 	Color Dynamics	Dynamique de la couleur
-	Color Overlay	Superposition de couleur
+	Color Overlay	Incrustation couleur
 	Comic Book	Bande dessinée
 	Conform	Conforme
-	Content-Aware Fill needs a selection on a pixel layer	Le remplissage selon le contenu nécessite une sélection sur un calque de pixels
+	Content-Aware Fill needs a selection on a pixel layer	Le remplissage d'après le contenu nécessite une sélection sur un calque de pixels
 	Could not transform: the layer is empty	Transformation impossible : le calque est vide
 	Could not use Perspective Warp: the layer is empty	Impossible d'utiliser la déformation de la perspective : le calque est vide
-	Could not use Puppet Warp: no opaque pixels	Impossible d'utiliser la déformation par épingles : aucun pixel opaque
-	Could not use Puppet Warp: the layer is empty	Impossible d'utiliser la déformation par épingles : le calque est vide
+	Could not use Puppet Warp: no opaque pixels	Impossible d'utiliser la déformation de la marionnette : aucun pixel opaque
+	Could not use Puppet Warp: the layer is empty	Impossible d'utiliser la déformation de la marionnette : le calque est vide
 	Crop Tool	Outil Recadrage
 	Crosswise	En croix
 	Current Tool	Outil actif
@@ -1595,7 +1598,7 @@
 	Document Dimensions	Dimensions du document
 	Document Profile	Profil du document
 	Document Sizes	Tailles du document
-	Dodge Tool	Outil Éclaircir
+	Dodge Tool	Outil Densité −
 	Down	Bas
 	Drag to draw a gradient	Faites glisser pour tracer un dégradé
 	Drag to move the active layer	Faites glisser pour déplacer le calque actif
@@ -1606,30 +1609,30 @@
 	Efficiency	Efficacité
 	Efficiency: 100%	Efficacité : 100 %
 	Ellipse Tool	Outil Ellipse
-	Elliptical Marquee Tool	Outil Sélection elliptique
-	Single Row Marquee Tool	Outil Sélection de ligne unique
-	Single Column Marquee Tool	Outil Sélection de colonne unique
-	Emboss	Relief
+	Elliptical Marquee Tool	Outil Ellipse de sélection
+	Single Row Marquee Tool	Outil Rectangle de sélection 1 rangée
+	Single Column Marquee Tool	Outil Rectangle de sélection 1 colonne
+	Emboss	Estampage
 	Eraser	Gomme
 	Eraser Tool	Outil Gomme
 	ExtraBold	Extra-gras
 	ExtraLight	Extra-maigre
 	Eyedropper Tool	Outil Pipette
 	Fade	Estompage
-	Fill Opacity	Opacité du remplissage
+	Fill Opacity	Opacité du fond
 	Film & Video	Film et vidéo
 	From	De
 	General	Général
 	GitHub	GitHub
-	Gradient Overlay	Superposition de dégradé
+	Gradient Overlay	Incrustation en dégradé
 	Gradient Tool	Outil Dégradé
 	Greens	Verts
 	Hand Tool	Outil Main
 	Hard	Dur
 	Hard Mix	Mélange maximal
-	Healing Brush Tool	Outil Pinceau correcteur
-	Highlights from:	Hautes lumières à partir de :
-	History Brush Tool	Outil Pinceau d'historique
+	Healing Brush Tool	Outil Correcteur
+	Highlights from:	Tons clairs à partir de :
+	History Brush Tool	Outil Forme d'historique
 	Horizontal Type Tool	Outil Texte horizontal
 	Horizontal Type Mask Tool	Outil Masque de texte horizontal
 	Vertical Type Mask Tool	Outil Masque de texte vertical
@@ -1637,9 +1640,9 @@
 	Inches	Pouces
 	Indexed	Indexé
 	Initial Direction	Direction initiale
-	Inner Bevel	Biseau intérieur
-	Inner Glow	Lueur intérieure
-	Inner Shadow	Ombre intérieure
+	Inner Bevel	Biseau interne
+	Inner Glow	Lueur interne
+	Inner Shadow	Ombre interne
 	Lab	Lab
 	Landscape, 10 x 8	Paysage, 10 x 8
 	Landscape, 6 x 4	Paysage, 6 x 4
@@ -1668,20 +1671,20 @@
 	Mobile	Mobile
 	Move Tool	Outil Déplacement
 	Could not use the move tool because the layer is locked.	Impossible d'utiliser l'outil Déplacement, car le calque est verrouillé.
-	Could not complete the Free Transform command because the layer is locked.	Impossible d'exécuter la commande Transformation libre, car le calque est verrouillé.
+	Could not complete the Free Transform command because the layer is locked.	Impossible d'exécuter la commande Transformation manuelle, car le calque est verrouillé.
 	Multiply	Produit
 	My Brushes	Mes pinceaux
 	Neutrals	Neutres
 	New Workspace	Nouvel espace de travail
-	Note Tool	Outil Note
+	Note Tool	Outil Annotation
 	Object Selection Tool	Outil Sélection d'objet
 	Off	Désactivé
 	Open	Ouvrir
 	Orange	Orange
 	Original Ratio	Proportions d'origine
-	Out Of Gamut	Hors gamut
-	Outer Bevel	Biseau extérieur
-	Outer Glow	Lueur extérieure
+	Out Of Gamut	Couleurs non imprimables
+	Outer Bevel	Biseau externe
+	Outer Glow	Lueur externe
 	Overlay	Incrustation
 	Paint Bucket Tool	Outil Pot de peinture
 	Paints from the document's opening state	Peint à partir de l'état d'ouverture du document
@@ -1691,7 +1694,7 @@
 	Delete Anchor Point Tool	Outil Suppression de point d'ancrage
 	Click a segment to add an anchor point · {alt}-click an anchor to delete it	Cliquez sur un segment pour ajouter un point d'ancrage · {alt}-clic sur un point d'ancrage pour le supprimer
 	Click an anchor point to delete it · {alt}-click a segment to add one	Cliquez sur un point d'ancrage pour le supprimer · {alt}-clic sur un segment pour en ajouter un
-	Pattern Overlay	Superposition de motif
+	Pattern Overlay	Incrustation de motif
 	Pen Pressure	Pression du stylet
 	Pen Tilt	Inclinaison du stylet
 	Pen Tool	Outil Plume
@@ -1699,7 +1702,7 @@
 	Photo	Photo
 	PhotoCraft website	Site web de PhotoCraft
 	Picas	Picas
-	Pillow Emboss	Relief en coussin
+	Pillow Emboss	Estampage oreiller
 	Pixel Replacement	Remplacement de pixels
 	Pixels	Pixels
 	Points	Points
@@ -1716,15 +1719,15 @@
 	Pro (Medium Gray)	Pro (gris moyen)
 	Protect Texture	Protéger la texture
 	Purple	Violet
-	Quick Mask	Masque rapide
+	Quick Mask	Mode Masque
 	Quick Selection Tool	Outil Sélection rapide
 	Radial	Radial
-	Rasterize Layer	Rastériser le calque
-	Rasterize Layers	Rastériser les calques
+	Rasterize Layer	Pixelliser le calque
+	Rasterize Layers	Pixelliser les calques
 	Ratio	Proportions
 	Recent	Récent
 	Rectangle Tool	Outil Rectangle
-	Rectangular Marquee Tool	Outil Sélection rectangulaire
+	Rectangular Marquee Tool	Outil Rectangle de sélection
 	Reds	Rouges
 	Reflected	Réfléchi
 	Sample: foreground colour	Échantillon : couleur de premier plan
@@ -1736,13 +1739,13 @@
 	Select Data Points	Sélectionner les points de données
 	Selection	Sélection
 	SemiBold	Demi-gras
-	Shadows up to:	Ombres jusqu'à :
+	Shadows up to:	Tons foncés jusqu'à :
 	Shape Dynamics	Dynamique de la forme
 	Sharpen Tool	Outil Netteté
 	Show Extras Options	Options d'affichage des extras
 	Slice Select Tool	Outil Sélection de tranche
 	Slice Tool	Outil Tranche
-	Smart Filters	Filtres intelligents
+	Smart Filters	Filtres dynamiques
 	Smudge Tool	Outil Doigt
 	Soft	Doux
 	Soften	Adoucir
@@ -1793,15 +1796,15 @@
 @plural	{n} Layer|{n} Layers	{n} calque|{n} calques
 @plural	{n} layer|{n} layers	{n} calque|{n} calques
 @plural	Group · {n} layer|Group · {n} layers	Groupe · {n} calque|Groupe · {n} calques
-	Additional plugins folder	Dossier d'extensions supplémentaire
+	Additional plugins folder	Dossier de modules externes supplémentaire
 	Adobe	Adobe
 	Adobe rgb	Adobe RGB
 	Allow agent control	Autoriser le pilotage par des agents
 	Allow scripts to connect	Autoriser la connexion des scripts
 	Always	Toujours
-	Always create smart objects when placing	Toujours créer des objets intelligents lors du placement
+	Always create smart objects when placing	Toujours créer des objets dynamiques lors du placement
 	Animated zoom	Zoom animé
-	Apply auto tone	Appliquer la tonalité automatique
+	Apply auto tone	Appliquer le ton automatique
 	Ask	Demander
 	Ask before saving layered tiff	Demander avant d'enregistrer un TIFF avec calques
 	Auto collapse icon panels	Réduire automatiquement les panneaux en icônes
@@ -1818,17 +1821,17 @@
 	Cache levels	Niveaux de cache
 	Cache tile size	Taille des tuiles du cache
 	Camera Raw Defaults	Valeurs par défaut de Camera Raw
-	Canvas border	Bordure du canevas
-	Show canvas dots	Afficher les points du canevas
-	Canvas color	Couleur du canevas
-	Canvas custom color	Couleur personnalisée du canevas
+	Canvas border	Bordure de la zone de travail
+	Show canvas dots	Afficher les points de la zone de travail
+	Canvas color	Couleur de la zone de travail
+	Canvas custom color	Couleur personnalisée de la zone de travail
 	Color picker	Sélecteur de couleurs
 	Color space	Espace colorimétrique
 	Column width	Largeur de colonne
 	Concise	Concis
 	Control port	Port de contrôle
 	Convert to srgb	Convertir en sRVB
-	Cursors	Curseurs
+	Cursors	Pointeurs
 	Custom dark	Personnalisé sombre
 	Custom light	Personnalisé clair
 	Dark	Sombre
@@ -1838,7 +1841,7 @@
 	Detailed	Détaillé
 	Disks	Disques
 	Display p3	Display P3
-	Double click layer mask launches select and mask	Un double-clic sur le masque de calque ouvre Sélectionner et masquer
+	Double click layer mask launches select and mask	Un double-clic sur le masque de fusion ouvre Sélectionner et masquer
 	Drop shadow	Ombre portée
 	Dynamic color sliders	Curseurs de couleur dynamiques
 	East asian	Asie orientale
@@ -1855,8 +1858,8 @@
 	Fill new type layers with placeholder	Remplir les nouveaux calques de texte avec un texte de substitution
 	Font preview	Aperçu des polices
 	Full size tip	Pointe en taille réelle
-	Gamut warning color	Couleur de l'alerte de gamut
-	Gamut warning opacity	Opacité de l'alerte de gamut
+	Gamut warning color	Couleur des alertes de couleurs non imprimables
+	Gamut warning opacity	Opacité des alertes de couleurs non imprimables
 	Generator enabled	Générateur activé
 	Gif	GIF
 	Glossy	Brillant
@@ -1896,7 +1899,7 @@
 	Nearest neighbor	Au plus proche
 	Never	Jamais
 	Normal tip	Pointe normale
-	Open as smart object	Ouvrir en tant qu'objet intelligent
+	Open as smart object	Ouvrir en tant qu'objet dynamique
 	Open in camera raw	Ouvrir dans Camera Raw
 	Open documents as tabs	Ouvrir les documents dans des onglets
 	Overscroll	Défilement au-delà des bords
@@ -1928,7 +1931,7 @@
 	Scrubby slider acceleration	Accélération des curseurs glissants
 	Sessions only	Sessions uniquement
 	Sharpen for	Netteté pour
-	Show channels in color	Afficher les canaux en couleur
+	Show channels in color	Afficher les couches en couleur
 	Show crosshair in brush tip	Afficher le réticule dans la pointe
 	Show extension panels	Afficher les panneaux d'extension
 	Show font names in english	Afficher les noms de police en anglais
@@ -1940,7 +1943,7 @@
 	Show highlight on rollover	Afficher la mise en surbrillance au survol
 	Show transformation values	Afficher les valeurs de transformation
 	Slice color	Couleur des tranches
-	Smart guide color	Couleur des repères intelligents
+	Smart guide color	Couleur des repères commentés
 	Smart quotes	Guillemets typographiques
 	Snap vector tools and transforms to pixel grid	Aimanter les outils vectoriels et les transformations à la grille de pixels
 	Srgb	sRVB
@@ -1955,15 +1958,15 @@
 	Text file	Fichier texte
 	Tiny	Minuscule
 	Touch gestures	Gestes tactiles
-	Transparency & Gamut	Transparence et gamut
+	Transparency & Gamut	Transparence et couleurs non imprimables
 	Type units	Unités de texte
 	UI font size	Taille de police de l'interface
 	UI scale	Échelle de l'interface
 	Units & Rulers	Unités et règles
-	Use additional plugins folder	Utiliser le dossier d'extensions supplémentaire
+	Use additional plugins folder	Utiliser le dossier de modules externes supplémentaire
 	Use esc to commit	Valider avec Échap
 	Use gpu	Utiliser le GPU
-	Use legacy free transform	Utiliser l'ancienne transformation libre
+	Use legacy free transform	Utiliser l'ancienne transformation manuelle
 	Use shift key for tool switch	Utiliser Maj pour changer d'outil
 	Vary round brush hardness on hud	Varier la dureté du pinceau rond dans l'affichage tête haute
 	Webp	WebP
@@ -1975,9 +1978,9 @@
 	Pass Through	Transfert
 	Dissolve	Fondu
 	Darker Color	Couleur plus foncée
-	Linear Dodge (Add)	Densité linéaire − (Addition)
+	Linear Dodge (Add)	Densité linéaire − (Ajout)
 	Lighter Color	Couleur plus claire
-	Soft Light	Lumière douce
+	Soft Light	Lumière tamisée
 	Hard Light	Lumière crue
 	Vivid Light	Lumière vive
 	Linear Light	Lumière linéaire
@@ -1987,7 +1990,7 @@
 	Luminosity	Luminosité
 @plural	{n} sample|{n} samples	{n} échantillon|{n} échantillons
 	{added}, {removed} subtracted	{added}, {removed} soustraits
-	Adjustment Preview	Aperçu de l'ajustement
+	Adjustment Preview	Aperçu du réglage
 	Airbrush: keeps depositing paint while the pointer rests.	Aérographe : continue de déposer de la peinture tant que le pointeur reste immobile.
 	Angle:	Angle :
 	Blend If	Fusion si
@@ -2028,18 +2031,18 @@
 	Click to sample the foreground colour  ·  {key}-click for background	Cliquez pour prélever la couleur de premier plan  ·  {key}-clic pour l'arrière-plan
 	{key}-click to set the source	{key}-clic pour définir la source
 	{key} to subtract	{key} pour soustraire
-	Clone source {n} ({key}-click with Clone Stamp to set)	Source de clonage {n} ({key}-clic avec le tampon de clonage pour la définir)
-	Source: not set ({key}-click with Clone Stamp)	Source : non définie ({key}-clic avec le tampon de clonage)
+	Clone source {n} ({key}-click with Clone Stamp to set)	Source de duplication {n} ({key}-clic avec le tampon de duplication pour la définir)
+	Source: not set ({key}-click with Clone Stamp)	Source : non définie ({key}-clic avec le tampon de duplication)
 	Pixel Layer	Calque de pixels
 	Type Layer	Calque de texte
 	Shape Layer	Calque de forme
 	Group Layer	Calque de groupe
 	Fill Layer	Calque de remplissage
-	Smart Object Layer	Calque d'objet intelligent
+	Smart Object Layer	Calque d'objet dynamique
 	Create Warped Text	Créer un texte déformé
-	Rasterize Smart Object	Rastériser l'objet intelligent
-	Rasterize Fill Content	Rastériser le contenu du remplissage
-	Rasterize Layer Style	Rastériser le style de calque
+	Rasterize Smart Object	Pixelliser l'objet dynamique
+	Rasterize Fill Content	Pixelliser le contenu du remplissage
+	Rasterize Layer Style	Pixelliser le style de calque
 	Unlock: picking a preset replaces these settings	Déverrouiller : choisir un préréglage remplace ces paramètres
 	Lock: keep these settings when picking another preset	Verrouiller : conserver ces paramètres en choisissant un autre préréglage
 	Diameter:	Diamètre :
@@ -2065,7 +2068,7 @@
 	Mix	Mélange
 	Wetness Jitter	Variation de l'humidité
 	Mix Jitter	Variation du mélange
-	Show the layer mask as an overlay	Afficher le masque de calque en superposition
+	Show the layer mask as an overlay	Afficher le masque de fusion en superposition
 	Toggle visibility	Afficher/masquer
 	Unlink the mask from the layer	Délier le masque du calque
 	Link the mask to the layer	Lier le masque au calque
@@ -2077,7 +2080,7 @@
 # Gradient Editor window, opened from the options bar's gradient swatch.
 	Gradient Editor	Éditeur de dégradé
 	Gradient picker	Sélecteur de dégradé
-	Save As Preset	Enregistrer comme préreglage
+	Save As Preset	Enregistrer comme préréglage
 	The gradient the Gradient tool paints with	Le dégradé que l'outil Dégradé applique
 	Adds the current gradient to the Gradients panel	Ajoute le dégradé actuel au panneau Dégradés
 	Gradient stops	Arrêts de dégradé
@@ -2089,7 +2092,7 @@
 	Vertical type	Texte vertical
 	Fill path with foreground color	Remplir le tracé avec la couleur de premier plan
 	Stroke path with brush	Contourner le tracé avec le pinceau
-	Load path as a selection	Charger le tracé comme sélection
+	Load path as a selection	Récupérer le tracé comme sélection
 	Make work path from selection	Créer un tracé de travail à partir de la sélection
 	Add vector mask	Ajouter un masque vectoriel
 	Create new path	Créer un nouveau tracé
@@ -2104,7 +2107,7 @@
 	OpenGL	OpenGL
 	Use tablet pressure	Utiliser la pression de la tablette
 	Vulkan	Vulkan
-	Alt-click to define a source point to clone from	Alt-clic pour définir le point source du clonage
+	Alt-click to define a source point to clone from	Alt-clic pour définir le point source de la duplication
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Aucun tracé à partir duquel créer une sélection : dessinez-en un avec l'outil Plume ou sélectionnez-en un dans le panneau Tracés.
 	Cancel opening	Annuler l'ouverture
 	Cancelled opening {name}	Ouverture de {name} annulée
@@ -2124,8 +2127,8 @@
 	Working…	Traitement…
 @id	select.all	Tout sélectionner
 @id	edit.purge.undo	Historique d'annulation
-	Delete Smart Filters	Supprimer les filtres intelligents
-	Enable Smart Filters	Activer les filtres intelligents
+	Delete Smart Filters	Supprimer les filtres dynamiques
+	Enable Smart Filters	Activer les filtres dynamiques
 	New Layer…	Nouveau calque…
 	Delete Layer…	Supprimer le calque…
 	Color Range	Plage de couleurs
@@ -2145,7 +2148,7 @@
 	Stamp	Tampon
 	Torn Edges	Bords déchirés
 	Water Paper	Papier mouillé
-	Canvas rotation	Rotation du canevas
+	Canvas rotation	Rotation de la zone de travail
 	Extensions	Extensions
 	Libraries	Bibliothèques
 	3D	3D
@@ -2153,27 +2156,27 @@
 	Move	Déplacement
 	Wand	Baguette magique
 	Pencil	Crayon
-	Clone Stamp	Tampon de clonage
+	Clone Stamp	Tampon de duplication
 	Healing	Correcteur
-	Dodge	Éclaircir
-	Burn	Assombrir
+	Dodge	Densité −
+	Burn	Densité +
 	Pen	Plume
 	Hand	Main
 	Sampler	Échantillonneur de couleur
-	Note tool	Outil Note
+	Note tool	Outil Annotation
 	Quick Selection	Sélection rapide
 	Magnetic Lasso	Lasso magnétique
-	History Brush	Pinceau d'historique
-	Art History Brush	Pinceau d'historique artistique
+	History Brush	Forme d'historique
+	Art History Brush	Forme d'historique artistique
 	Pattern Stamp	Tampon de motif
 	Spot Healing	Correcteur localisé
-	Red Eye	Yeux rouges
+	Red Eye	Œil rouge
 	Patch	Pièce
-	Content-Aware Move	Déplacement selon le contenu
+	Content-Aware Move	Déplacement basé sur le contenu
 	Rotate View	Rotation de la vue
-	Perspective Crop	Recadrage en perspective
+	Perspective Crop	Correction de perspective par recadrage
 	Color Replacement	Remplacement de couleur
-	Dodge/Burn	Éclaircir/Assombrir
+	Dodge/Burn	Densité −/Densité +
 	Dynamics	Dynamique
 	Tilt	Inclinaison
 	Reset	Réinitialiser
@@ -2189,7 +2192,7 @@
 	Advanced Blending	Fusion avancée
 	RGB	RVB
 	Alpha	Alpha
-	Spot Channel	Canal de ton direct
+	Spot Channel	Couche de ton direct
 	Working Gray Plate	Plaque grise de travail
 	HSL/Grayscale	TSL/Niveaux de gris
 	Tone Curve	Courbe des tonalités
@@ -2226,7 +2229,7 @@
 	Localize Color Clusters	Localiser les groupes de couleurs
 	Duplicated selection name	Nom de la sélection dupliquée
 	Operation	Opération
-	New channel only	Nouveau canal uniquement
+	New channel only	Nouvelle couche uniquement
 	Masked Areas	Zones masquées
 	Selected Areas	Zones sélectionnées
 	Spot Color	Ton direct
@@ -2352,7 +2355,7 @@
 	Document Size	Taille du document
 	Timing	Minutage
 	Status Information	Informations d'état
-	Saved Multichannel	Multicanal enregistré
+	Saved Multichannel	Multicouche enregistré
 	Mouse Coordinates	Coordonnées de la souris
 	Ruler Units	Unités des règles
 	Hide	Masquer
@@ -2475,10 +2478,10 @@
 	Units	Unités
 	Columns	Colonnes
 	Create new count group	Créer un nouveau groupe de comptage
-	Adjustment Layer	Calque d'ajustement
+	Adjustment Layer	Calque de réglage
 	Pencil Tool	Outil Crayon
 	Pixel	Pixel
-	Adjustment	Ajustement
+	Adjustment	Réglage
 	Drag (lasso) or click points (polygonal) · {add} add · {sub} subtract	Faites glisser (lasso) ou cliquez des points (polygonal) · {add} ajouter · {sub} soustraire
 	Drag a crop box · drag inside to move · edges resize ({ratio} ratio, {centre} centre) · Space moves while drawing · arrows nudge · X swaps orientation · {commit} commits · Esc cancels	Tracez un cadre de recadrage · faites glisser à l'intérieur pour le déplacer · les bords le redimensionnent ({ratio} proportions, {centre} centre) · Espace le déplace pendant le tracé · flèches le décalent · X permute l'orientation · {commit} valide · Échap annule
 	{mode} Color · {bits} bit	Couleurs {mode} · {bits} bits
@@ -2522,12 +2525,12 @@
 	Brush Size	Taille du pinceau
 	Heal Color	Couleur de correction
 	Mask	Masque
-	Channel	Canal
+	Channel	Couche
 	Rectangle	Rectangle
 	Result	Résultat
-	New Channel	Nouveau canal
-	Save Selection	Enregistrer la sélection
-	Load Selection	Charger la sélection
+	New Channel	Nouvelle couche
+	Save Selection	Mémoriser la sélection
+	Load Selection	Récupérer la sélection
 	Duplicate	Dupliquer
 	Fast	Rapide
 	Accurate	Précis
@@ -2549,7 +2552,7 @@
 	Click to zoom in  ·  ⌥-click to zoom out	Cliquez pour zoomer  ·  ⌥-clic pour dézoomer
 	Click: corner · Drag: smooth · Click first point: close · ↩ finish · Esc cancel	Clic : angle · Glisser : lisse · Clic sur le premier point : fermer · ↩ : terminer · Échap : annuler
 	Commit Perspective Warp (↩)	Valider la déformation de la perspective (↩)
-	Commit Puppet Warp (↩)	Valider la déformation par épingles (↩)
+	Commit Puppet Warp (↩)	Valider la déformation de la marionnette (↩)
 	Commit any current edits (⌘↩)	Valider les modifications en cours (⌘↩)
 	Commit current crop operation  (↵)	Valider le recadrage en cours  (↵)
 	Commit transform (↩)	Valider la transformation (↩)
@@ -2577,7 +2580,7 @@
 
 # Copy transforms, layer navigation and cancellable opening (from PR #582 by neko233-com).
 	New from Clipboard	Créer depuis le presse-papiers
-	Free Transform a Copy	Transformer librement une copie
+	Free Transform a Copy	Transformation manuelle d'une copie
 	Transform Again on a Copy	Répéter la transformation sur une copie
 	Select Layer Above	Sélectionner le calque au-dessus
 	Select Layer Below	Sélectionner le calque au-dessous
@@ -2632,8 +2635,8 @@
 cameraRaw	Light	Lumière
 	Camera Raw Filter ({layer})	Filtre Camera Raw ({layer})
 	Camera Raw ({name})	Camera Raw ({name})
-cameraRaw	Lights	Tons clairs
-cameraRaw	Darks	Tons sombres
+cameraRaw	Lights	Teintes claires
+cameraRaw	Darks	Teintes sombres
 cameraRaw	Blacks	Noirs
 cameraRaw	Amount	Quantité
 cameraRaw	Tint	Teinte
@@ -2669,7 +2672,7 @@ cameraRaw	Blending	Fusion
 	Drag or click polygon points · hold Alt during lasso for straight segments · {add} add · {sub} before drawing subtracts	Faites glisser ou cliquez des points de polygone · maintenez Alt pendant le lasso pour des segments droits · {add} ajouter · {sub} avant de dessiner soustrait
 	Extend	Extension
 	Structure:	Structure :
-	Content-Aware Move Tool	Outil Déplacement selon le contenu
+	Content-Aware Move Tool	Outil Déplacement basé sur le contenu
 	TIFF Options	Options TIFF
 	Targa Options	Options Targa
 	24 bits/pixel	24 bits/pixel
@@ -2736,8 +2739,8 @@ cameraRaw	Blending	Fusion
 # Shared screen eyedropper and text Color Picker (#1128).
 	Color Picker (Text Color)	Sélecteur de couleurs (Couleur du texte)
 	Color Picker ({name})	Sélecteur de couleurs ({name})
-	Color Picker (Fill Color)	Sélecteur de couleurs (Couleur de remplissage)
-	Fill color	Couleur de remplissage
+	Color Picker (Fill Color)	Sélecteur de couleurs (Couleur de fond)
+	Fill color	Couleur de fond
 	Color Picker (Stroke Color)	Sélecteur de couleurs (Couleur du contour)
 	Stroke color	Couleur du contour
 	Pick screen color	Choisir une couleur à l’écran
@@ -2778,7 +2781,7 @@ cameraRaw	Blending	Fusion
 	Rounded Steps	Paliers arrondis
 	Sawtooth 1	Dents de scie 1
 
-	Red Eye Tool	Outil Yeux rouges
+	Red Eye Tool	Outil Œil rouge
 	Pupil Size	Taille de la pupille
 	Darken Amount	Quantité d'assombrissement
 	Click a red pupil to neutralize it	Cliquez sur une pupille rouge pour la corriger
@@ -2836,8 +2839,8 @@ fontWeight	Italic	Italique
 	51 by 51 Average	Moyenne 51 × 51
 	101 by 101 Average	Moyenne 101 × 101
 	Sample Size:	Taille de l'échantillon :
-	All Layers No Adjustments	Tous les calques sans ajustements
-	Current & Below No Adjustments	Actif et inférieurs sans ajustements
+	All Layers No Adjustments	Tous les calques sans réglages
+	Current & Below No Adjustments	Actif et inférieurs sans réglages
 	Show Sampling Ring	Afficher l'anneau d'échantillonnage
 
 # Color Picker warnings
@@ -2933,7 +2936,7 @@ fontWeight	Italic	Italique
 	Follows only edges this close to the pointer ([ and ] change it)	Ne suit que les contours aussi proches du pointeur ([ et ] le modifient)
 	Higher values follow only edges that contrast sharply with their surroundings	Plus la valeur est élevée, plus seuls les contours très contrastés sont suivis
 	How often fastening points are placed by themselves	Fréquence de pose automatique des points d’ancrage
-	Appearance Settings…	Réglages d’apparence…
+	Appearance Settings…	Paramètres d’apparence…
 	Add to favorites	Ajouter aux favoris
 	Remove from favorites	Retirer des favoris
 # File Info ▸ Camera Data (read-only EXIF fields; "Make" is the camera maker, not the verb).
@@ -2968,7 +2971,7 @@ cameraData	Lens	Objectif
 	Create a new rectangular frame	Créer un cadre rectangulaire
 	Create a new elliptical frame	Créer un cadre elliptique
 	Include in playback	Inclure dans la lecture
-	Perspective Crop Tool	Outil Recadrage perspective
+	Perspective Crop Tool	Outil Correction de perspective par recadrage
 	Show Grid	Afficher la grille
 	Drag a box or click four corners · drag the corners onto the edges of a skewed shape · {commit} commits · Esc cancels	Tracez un cadre ou cliquez sur quatre coins · faites glisser les coins sur les bords d'une forme inclinée · {commit} valide · Échap annule
 	Artboard Tool	Outil Plan de travail
@@ -2988,14 +2991,14 @@ cameraData	Lens	Objectif
 	There is no crop size or ratio to save	Aucune taille ni proportion de recadrage à enregistrer
 	Scale:	Échelle :
 	Snap to Origin	Aligner sur l'origine
-	Search settings…	Rechercher des réglages…
-	No matching settings	Aucun réglage correspondant
+	Search settings…	Rechercher des paramètres…
+	No matching settings	Aucun paramètre correspondant
 	Loading fonts…	Chargement des polices…
 	Tool	Outil
 	Simulate Pressure	Simuler la pression
 	Stroke Path…	Contourner le tracé…
 	Background Eraser	Gomme d'arrière-plan
-	Healing Brush	Pinceau correcteur
+	Healing Brush	Correcteur
 	Spot Healing Brush	Correcteur localisé
 	Smudge	Doigt
 	Sponge	Éponge
@@ -3030,14 +3033,14 @@ curves	Smooth	Lisser
 	Show rulers	Afficher les règles
 
 # Color Sampler (added with the i18n coverage repair)
-	Click to place · Alt-click or drag off-canvas to remove	Cliquez pour placer · Alt-clic ou glisser hors du canevas pour supprimer
+	Click to place · Alt-click or drag off-canvas to remove	Cliquez pour placer · Alt-clic ou glisser hors de la zone de travail pour supprimer
 	No document open	Aucun document ouvert
 	{n} of {max} sample points	{n} sur {max} points d'échantillonnage
 # Print dialog (#2697)
 	Emulsion Down	Émulsion verso
 	Functions	Fonctions
 	Print Resolution:	Résolution d’impression :
-	Use Previous Layer to Create Clipping Mask	Utiliser le calque précédent pour créer un masque de découpe
+	Use Previous Layer to Create Clipping Mask	Utiliser le calque précédent pour créer un masque d'écrêtage
 	Fill with {mode}-neutral color (white)	Remplir avec la couleur neutre de {mode} (blanc)
 	Fill with {mode}-neutral color (black)	Remplir avec la couleur neutre de {mode} (noir)
 	Fill with {mode}-neutral color (50% gray)	Remplir avec la couleur neutre de {mode} (gris 50 %)
@@ -3064,8 +3067,8 @@ curves	Smooth	Lisser
 	Add Noise	Ajout de bruit
 	Added swatch {name}	Nuance {name} ajoutée
 	Adjust Interval For Loops	Ajuster l'intervalle pour les boucles
-	Adjustment Layers	Calques d'ajustement
-	Adjustment Properties	Propriétés de l'ajustement
+	Adjustment Layers	Calques de réglage
+	Adjustment Properties	Propriétés du réglage
 	Adobe-rgb-compat	Adobe RGB (compatible)
 	Adwaita (Dark)	Adwaita (sombre)
 	Adwaita (Light)	Adwaita (clair)
@@ -3096,7 +3099,7 @@ curves	Smooth	Lisser
 	Artboards	Plans de travail
 	Artboards to Files	Plans de travail en fichiers
 	Artboards to PDF	Plans de travail en PDF
-	Artistic	Artistique
+	Artistic	Artistiques
 	Ask On Mismatch	Demander en cas de non-concordance
 	Ask On Missing	Demander en cas d'absence
 	Ask On Paste	Demander au collage
@@ -3122,7 +3125,7 @@ curves	Smooth	Lisser
 	Blade Curvature	Courbure des lames
 	Blast	Rafale
 	Bleach Bypass	Sans blanchiment
-	Blend Clipped Layers as Group	Fusionner les calques découpés en tant que groupe
+	Blend Clipped Layers as Group	Fusionner les calques écrêtés en tant que groupe
 	Blend Interior Effects as Group	Fusionner les effets internes en tant que groupe
 	Blend Text Gamma	Gamma de fusion du texte
 	Blending Mode	Mode de fusion
@@ -3146,12 +3149,12 @@ curves	Smooth	Lisser
 	Brush Strokes	Traits de pinceau
 	Brush Type	Type de pinceau
 	Burlap	Toile de jute
-	Calculations	Calculs
+	Calculations	Opérations
 	Camera Raw	Camera Raw
 	Camera Raw Filter	Filtre Camera Raw
 	Cancel transform	Annuler la transformation
 	Candle Light	Bougie
-	Canvas Size	Taille du canevas
+	Canvas Size	Taille de la zone de travail
 	Cell Size	Taille des cellules
 	Center X	Centre X
 	Center Y	Centre Y
@@ -3159,10 +3162,10 @@ curves	Smooth	Lisser
 	Changes Saved	Modifications enregistrées
 	Changes have not been saved.	Les modifications n'ont pas été enregistrées.
 	Change…	Modifier…
-	Channel1	Canal 1
-	Channel2	Canal 2
-	Channel3	Canal 3
-	Channel4	Canal 4
+	Channel1	Couche 1
+	Channel2	Couche 2
+	Channel3	Couche 3
+	Channel4	Couche 4
 	Charcoal Area	Zone de fusain
 	Charcoal Thickness	Épaisseur du fusain
 	Check for Updates	Rechercher des mises à jour
@@ -3172,22 +3175,22 @@ curves	Smooth	Lisser
 	Cleanliness	Propreté
 	Clear Amount	Zone sans lueur
 	Clear Selection	Effacer la sélection
-	Clipping Mask	Masque de découpe
+	Clipping Mask	Masque d'écrêtage
 	Clipping Path…	Tracé de détourage…
 	Clone	Cloner
-	Clone source set at {x}, {y}	Source de clonage définie en {x}, {y}
+	Clone source set at {x}, {y}	Source de duplication définie en {x}, {y}
 	Close Window	Fermer la fenêtre
 	Clumped	Aggloméré
 	Coarse Dots	Points grossiers
 	Coated-cmyk	CMJN papier couché
 	Color Decontaminate	Décontaminer les couleurs
-	Color Halftone	Trame de demi-teintes couleur
+	Color Halftone	Demi-teintes couleur
 	Color Indicates Masked Areas	La couleur indique les zones masquées
 	Color Indicates Selected Areas	La couleur indique les zones sélectionnées
 	Color Lookup Tables	Tables de correspondance des couleurs
 	Color Picker	Sélecteur de couleurs
 	Color Picker (Background Color)	Sélecteur de couleurs (Couleur d'arrière-plan)
-	Color Picker (Custom Canvas Color)	Sélecteur de couleurs (Couleur personnalisée du canevas)
+	Color Picker (Custom Canvas Color)	Sélecteur de couleurs (Couleur personnalisée de la zone de travail)
 	Color Picker (Foreground Color)	Sélecteur de couleurs (Couleur de premier plan)
 	Color Settings	Paramètres de couleur
 	Color Swatches	Nuancier
@@ -3205,7 +3208,7 @@ curves	Smooth	Lisser
 	Contract	Contracter
 	Contrasty	Contrasté
 	Convert	Convertir
-	Convert to Alpha Channel	Convertir en canal alpha
+	Convert to Alpha Channel	Convertir en couche alpha
 	Convert to Linked	Convertir en objet lié
 	Convert to Profile	Convertir en profil
 	Cool	Froid
@@ -3213,7 +3216,7 @@ curves	Smooth	Lisser
 	Cooling80	Refroidissement 80
 	Cooling82	Refroidissement 82
 	Copy Complete Stroke	Copier le contour complet
-	Copy Fill	Copier le remplissage
+	Copy Fill	Copier le fond
 	Correct C A	Corriger l'aberration chromatique
 	Correct Distortion	Corriger la distorsion
 	Correct Vignette	Corriger le vignettage
@@ -3232,10 +3235,10 @@ curves	Smooth	Lisser
 	Crosshatch	Hachures croisées
 	Crystallize	Cristallisation
 	Currency	Devise
-	Curve Darks	Courbe : tons sombres
-	Curve Highlights	Courbe : hautes lumières
-	Curve Lights	Courbe : tons clairs
-	Curve Shadows	Courbe : ombres
+	Curve Darks	Courbe : teintes sombres
+	Curve Highlights	Courbe : tons clairs
+	Curve Lights	Courbe : teintes claires
+	Curve Shadows	Courbe : tons foncés
 	Curve Splits	Courbe : points de séparation
 	Custom Branch Color	Couleur de branche personnalisée
 	Custom Pixel Aspect Ratio	Format des pixels personnalisé
@@ -3254,7 +3257,7 @@ curves	Smooth	Lisser
 	Date	Date
 	Date and Time	Date et heure
 	Day For Night	Nuit américaine
-	De-Interlace	Désentrelacer
+	De-Interlace	Désentrelacement
 	Deep	Profond
 	Deep Blue	Bleu profond
 	Deep Emerald	Émeraude profond
@@ -3270,13 +3273,13 @@ curves	Smooth	Lisser
 	Definition	Définition
 	Defringe	Supprimer les franges
 	Degrees	Degrés
-	Delete Channel	Supprimer le canal
+	Delete Channel	Supprimer la couche
 	Delete Mask	Supprimer le masque
 	Delete…	Supprimer…
 	Depth Map	Carte de profondeur
 	Depth Mode	Mode de profondeur
 	Diameter	Diamètre
-	Diffuse	Diffuser
+	Diffuse	Diffusion
 	Diffuse Glow	Lueur diffuse
 	Direction Balance	Équilibre des directions
 	Disable	Désactiver
@@ -3284,7 +3287,7 @@ curves	Smooth	Lisser
 	Disable Symmetry Path	Désactiver le tracé de symétrie
 	Disabled	Désactivé
 	Discard Changes	Ignorer les modifications
-	Displace	Déplacement
+	Displace	Dispersion
 	Display	Affichage
 	Display profile not used	Profil d'affichage non utilisé
 	Display profiles: {reason}	Profils d'affichage : {reason}
@@ -3301,11 +3304,11 @@ curves	Smooth	Lisser
 	Drag: draw freehand · Release on the start point: close	Glisser : tracer à main levée · Relâcher sur le point de départ : fermer
 	Driver: {driver}	Pilote : {driver}
 	Dry Brush	Pinceau sec
-	Duplicate Channel	Dupliquer le canal
+	Duplicate Channel	Dupliquer la couche
 	Duplicate Layer	Dupliquer le calque
 	Duplicate Layers	Dupliquer les calques
 	Duplication	Duplication
-	Dust & Scratches	Poussière et rayures
+	Dust & Scratches	Antipoussière
 	Edge Brightness	Luminosité du contour
 	Edge Extension	Extension du contour
 	Edge Fidelity	Fidélité des contours
@@ -3324,7 +3327,7 @@ curves	Smooth	Lisser
 	End Y	Fin Y
 	Enlarged	Agrandi
 	Even Fields	Trames paires
-	Exit Quick Mask	Quitter le mode masque rapide
+	Exit Quick Mask	Quitter le mode Masque
 	Export As	Exporter sous
 	Export Contents	Exporter le contenu
 	Export Image	Exporter l'image
@@ -3338,23 +3341,23 @@ curves	Smooth	Lisser
 	Exported {path}	{path} exporté
 	Exported {path} ({size})	{path} exporté ({size})
 	Exporting…	Exportation…
-	Extrude	Extruder
+	Extrude	Extrusion
 	Faded Film	Film délavé
 	Failed	Échec
 	Failed to open file	Échec de l'ouverture du fichier
 	Failed to save file	Échec de l'enregistrement du fichier
 	Fallback: {reason}	Repli : {reason}
-	Feather Radius	Rayon d'adoucissement
+	Feather Radius	Rayon du contour progressif
 	Fiber Length	Longueur des fibres
 	Fibers	Fibres
-	Field Blur	Flou de champ
+	Field Blur	Flou de profondeur de champ
 	File Format	Format de fichier
 	File Info	Informations sur le fichier
 	File Name	Nom du fichier
 	File Size	Taille du fichier
 	File not found	Fichier introuvable
 	Filename	Nom de fichier
-	Fill Color	Couleur de remplissage
+	Fill Color	Couleur de fond
 	Fill Path…	Remplir le tracé…
 	Film Grain	Grain de film
 	Filter Gallery	Galerie de filtres
@@ -3381,7 +3384,7 @@ curves	Smooth	Lisser
 	Foreground Level	Niveau de premier plan
 	Forward Warp	Déformation vers l'avant
 	Frame	Cadre
-	Free Transform Path	Transformation libre du tracé
+	Free Transform Path	Transformation manuelle du tracé
 	Freeze Lasso	Lasso de figeage
 	Freeze Mask	Masque de figeage
 	Fresco	Fresque
@@ -3411,9 +3414,9 @@ curves	Smooth	Lisser
 	Grade Balance	Balance de l'étalonnage
 	Grade Blending	Fusion de l'étalonnage
 	Grade Global	Étalonnage global
-	Grade Highlights	Étalonnage des hautes lumières
+	Grade Highlights	Étalonnage des tons clairs
 	Grade Midtones	Étalonnage des tons moyens
-	Grade Shadows	Étalonnage des ombres
+	Grade Shadows	Étalonnage des tons foncés
 	Grain Amount	Quantité de grain
 	Grain Roughness	Rugosité du grain
 	Grain Size	Taille du grain
@@ -3433,7 +3436,7 @@ curves	Smooth	Lisser
 	Groups	Groupes
 	Grout Width	Largeur du joint
 	Guide Layout…	Disposition des repères…
-	HDR Toning	Tonalité HDR
+	HDR Toning	Virage HDR
 	Hearts	Cœurs
 	Heptagon	Heptagone
 	Hexagon	Hexagone
@@ -3442,12 +3445,12 @@ curves	Smooth	Lisser
 	Hide Others	Masquer les autres
 	Hide {app}	Masquer {app}
 	High Pass	Passe-haut
-	Highlight	Hautes lumières
-	Highlight Amount	Quantité des hautes lumières
-	Highlight Area	Zone des hautes lumières
-	Highlight Radius	Rayon des hautes lumières
-	Highlight Strength	Intensité des hautes lumières
-	Highlight Tone	Amplitude tonale des hautes lumières
+	Highlight	Tons clairs
+	Highlight Amount	Quantité des tons clairs
+	Highlight Area	Zone des tons clairs
+	Highlight Radius	Rayon des tons clairs
+	Highlight Strength	Intensité des tons clairs
+	Highlight Tone	Amplitude tonale des tons clairs
 	Horizontal Only	Horizontal seulement
 	Hotspot	Point chaud
 	Hsb	TSL
@@ -3473,7 +3476,7 @@ curves	Smooth	Lisser
 	Input	Entrée
 	Input Levels	Niveaux d'entrée
 	Input Mode	Mode d'entrée
-	Install Plug-in	Installer une extension
+	Install Plug-in	Installer un module externe
 	Integrated Density	Densité intégrée
 	Intensity	Intensité
 	Intent	Intention de rendu
@@ -3481,8 +3484,8 @@ curves	Smooth	Lisser
 	Interval	Intervalle
 	Invalid panel layout; restored the default dock	Disposition des panneaux non valide ; l'ancrage par défaut a été rétabli
 	Invert Mask	Inverser le masque
-	Invert Selection	Inverser la sélection
-	Iris Blur	Flou d'iris
+	Invert Selection	Intervertir la sélection
+	Iris Blur	Flou de diaphragme
 	Ivy	Lierre
 	Jag	Dentelé
 	Join the ArtCraft Discord	Rejoindre le Discord d'ArtCraft
@@ -3497,7 +3500,7 @@ curves	Smooth	Lisser
 	Layer Comps to Files	Compositions de calques en fichiers
 	Layer Content Options	Options de contenu du calque
 	Layer From Background	Calque d'après l'arrière-plan
-	Layer Mask Hides Effects	Le masque de calque masque les effets
+	Layer Mask Hides Effects	Le masque de fusion masque les effets
 	Layer Properties	Propriétés du calque
 	Layer Styles	Styles de calque
 	Layer from Background	Calque d'après l'arrière-plan
@@ -3510,9 +3513,9 @@ curves	Smooth	Lisser
 	Left Diagonal	Diagonale gauche
 	Legacy	Ancienne version
 	Length	Longueur
-	Lens Blur	Flou d'objectif
+	Lens Blur	Flou de l'objectif
 	Lens Correction	Correction de l'objectif
-	Lens Flare	Reflet d'objectif
+	Lens Flare	Halo
 	Less	Moins
 	Level Based	Selon les niveaux
 	Library	Bibliothèque
@@ -3527,11 +3530,11 @@ curves	Smooth	Lisser
 	Lighten Grout	Éclaircir le joint
 	Lighten Only	Éclaircir seulement
 	Lighting	Éclairage
-	Lighting Effects	Effets d'éclairage
+	Lighting Effects	Éclairage
 	Linear Dodge	Densité linéaire −
 	Linear-srgb	sRVB linéaire
 	Link	Lier
-	Liquify	Liquéfier
+	Liquify	Fluidité
 	List	Liste
 	List view	Affichage en liste
 	Live Preview	Aperçu en direct
@@ -3559,7 +3562,7 @@ curves	Smooth	Lisser
 	Mask Incomplete Blocks	Masquer les blocs incomplets
 	Mask None	Ne rien masquer
 	Masks	Masques
-	Match Color	Faire correspondre la couleur
+	Match Color	Correspondance de la couleur
 	Math Symbols	Symboles mathématiques
 	Max Offset	Décalage max.
 	Max Radius	Rayon max.
@@ -3567,11 +3570,11 @@ curves	Smooth	Lisser
 	Medium Gray	Gris moyen
 	Medium Lines	Lignes moyennes
 	Medium Strokes	Traits moyens
-	Merge Channels…	Fusionner les canaux…
-	Merge Spot Channel	Fusionner le canal de ton direct
+	Merge Channels…	Fusionner les couches…
+	Merge Spot Channel	Fusionner la couche de ton direct
 	Merge to HDR Pro	Fusionner en HDR Pro
 	Metallic	Métallique
-	Mezzotint	Manière noire
+	Mezzotint	Mezzo-tinto
 	Middle	Milieu
 	Midtone	Contraste des tons moyens
 	Monitor Profile	Profil du moniteur
@@ -3585,7 +3588,7 @@ curves	Smooth	Lisser
 	More	Plus
 	Mosaic	Mosaïque
 	Mosaic Tiles	Carreaux de mosaïque
-	Motion Blur	Flou de mouvement
+	Motion Blur	Flou directionnel
 	Mouse	Souris
 	Move Layer	Déplacer le calque
 	Movie Prime	Focale fixe cinéma
@@ -3597,10 +3600,10 @@ curves	Smooth	Lisser
 	Neon Glow	Lueur néon
 	Neutralize	Neutraliser
 	New Brush Preset	Nouveau préréglage de pinceau
-	New Channel…	Nouveau canal…
+	New Channel…	Nouvelle couche…
 	New Guide	Nouveau repère
 	New Guide Layout	Nouvelle disposition de repères
-	New Spot Channel…	Nouveau canal de ton direct…
+	New Spot Channel…	Nouvelle couche de ton direct…
 	New Video Layer from File	Nouveau calque vidéo à partir d'un fichier
 	New Window	Nouvelle fenêtre
 	New document	Nouveau document
@@ -3656,7 +3659,7 @@ curves	Smooth	Lisser
 	Paper Brightness	Luminosité du papier
 	Parallel	Parallèle
 	Paste Complete Stroke	Coller le contour complet
-	Paste Fill	Coller le remplissage
+	Paste Fill	Coller le fond
 	Patchwork	Patchwork
 	Path Blur	Flou de tracé
 	Paths to Illustrator	Tracés vers Illustrator
@@ -3669,10 +3672,10 @@ curves	Smooth	Lisser
 	PhotoCraft keeps retrying; until a save succeeds, preference changes are lost when it closes.	PhotoCraft continue de réessayer ; tant qu'un enregistrement n'a pas abouti, les modifications des préférences seront perdues à la fermeture.
 	Photomerge	Photomerge
 	Picture Frame	Cadre d'image
-	Pinch	Pincement
+	Pinch	Contraction
 	Pins	Épingles
-	Place Embedded	Placer incorporé
-	Place Linked	Placer lié
+	Place Embedded	Importer et incorporer
+	Place Linked	Importer et lier
 	Place Scale Marker	Placer un repère d'échelle
 	Plane	Plan
 	Planes	Plans
@@ -3739,14 +3742,14 @@ curves	Smooth	Lisser
 	Remove All	Tout supprimer
 	Remove Jpeg Artifact	Supprimer l'artefact JPEG
 	Rename Brush	Renommer le pinceau
-	Rename Channel…	Renommer le canal…
+	Rename Channel…	Renommer la couche…
 	Rename Group	Renommer le groupe
 	Rename Tool Preset	Renommer le préréglage d'outil
 	Render Video	Rendu vidéo
 	Rendering…	Rendu en cours…
 	Reorder Layer	Réorganiser le calque
 	Replace	Remplacer
-	Replace Color	Remplacer la couleur
+	Replace Color	Remplacement de couleur
 	Replace Contents	Remplacer le contenu
 	Replace Footage	Remplacer le métrage
 	Report a Bug	Signaler un bogue
@@ -3795,7 +3798,7 @@ curves	Smooth	Lisser
 	Search menus	Rechercher dans les menus
 	Seed	Valeur initiale
 	Select Custom Color…	Choisir une couleur personnalisée…
-	Select Inverse	Inverser la sélection
+	Select Inverse	Intervertir la sélection
 	Select Layer	Sélectionner le calque
 	Select and Mask	Sélectionner et masquer
 	Selected at launch: {backend}	Sélectionné au lancement : {backend}
@@ -3806,12 +3809,12 @@ curves	Smooth	Lisser
 	Set Colors	Définir les couleurs
 	Set Measurement Scale	Définir l'échelle de mesure
 	Sgray	sGray
-	Shadow	Ombres
-	Shadow Amount	Quantité des ombres
-	Shadow Intensity	Intensité des ombres
-	Shadow Radius	Rayon des ombres
-	Shadow Tone	Amplitude tonale des ombres
-	Shadows/Highlights	Ombres/Hautes lumières
+	Shadow	Tons foncés
+	Shadow Amount	Quantité des tons foncés
+	Shadow Intensity	Intensité des tons foncés
+	Shadow Radius	Rayon des tons foncés
+	Shadow Tone	Amplitude tonale des tons foncés
+	Shadows/Highlights	Tons foncés/Tons clairs
 	Shallow	Superficiel
 	Shape Blur	Flou selon une forme
 	Sharpen Amount	Quantité de netteté
@@ -3832,8 +3835,8 @@ curves	Smooth	Lisser
 	Sketch	Esquisse
 	Skip	Ignorer
 	Slice Options	Options de tranche
-	Smart Blur	Flou intelligent
-	Smart Sharpen	Netteté intelligente
+	Smart Blur	Flou optimisé
+	Smart Sharpen	Netteté optimisée
 	Smoothness	Lissage
 	Smudge Stick	Estompe
 	Snap to Grid	Aimanter à la grille
@@ -3851,7 +3854,7 @@ curves	Smooth	Lisser
 	Spherize	Sphérisation
 	Spin	Rotation
 	Spin Blur	Flou de rotation
-	Split Channels	Séparer les canaux
+	Split Channels	Séparer les couches
 	Spot	Spot
 	Spray Radius	Rayon de pulvérisation
 	Sprayed Strokes	Traits pulvérisés
@@ -3894,8 +3897,8 @@ curves	Smooth	Lisser
 	Texture Coverage	Couverture de la texture
 	Texturizer	Texturisation
 	Thaw Mask	Masque de libération
-	The canvas is shown as sRGB. Choose a monitor profile in Edit › Color Settings.	Le canevas est affiché en sRVB. Choisissez un profil de moniteur dans Édition › Paramètres de couleur.
-	The canvas on {display} is shown as sRGB. Choose a monitor profile in Edit › Color Settings.	Le canevas sur {display} est affiché en sRVB. Choisissez un profil de moniteur dans Édition › Paramètres de couleur.
+	The canvas is shown as sRGB. Choose a monitor profile in Edit › Color Settings.	La zone de travail est affichée en sRVB. Choisissez un profil de moniteur dans Édition › Paramètres de couleur.
+	The canvas on {display} is shown as sRGB. Choose a monitor profile in Edit › Color Settings.	La zone de travail sur {display} est affichée en sRVB. Choisissez un profil de moniteur dans Édition › Paramètres de couleur.
 	The current gradient (pick one in Window › Gradients)	Le dégradé actuel (à choisir dans Fenêtre › Dégradés)
 	The document does not have an embedded colour profile. Working space: {working}.	Le document ne contient aucun profil colorimétrique incorporé. Espace de travail : {working}.
 	The document has an embedded colour profile that does not match the working space.\nEmbedded: {embedded}\nWorking: {working}	Le document contient un profil colorimétrique incorporé qui ne correspond pas à l'espace de travail.\nIncorporé : {embedded}\nEspace de travail : {working}
@@ -3903,15 +3906,15 @@ curves	Smooth	Lisser
 	The file could not be saved.	Impossible d'enregistrer le fichier.
 	Thickness	Épaisseur
 	This Layer:	Ce calque :
-	This Smart Object must be rasterized before proceeding. Its contents will no longer be editable. Rasterize the Smart Object?	Cet objet intelligent doit être rastérisé pour continuer. Son contenu ne sera plus modifiable. Rastériser l'objet intelligent ?
-	This adjustment ({key}) is kept as imported and can't be edited yet.	Cet ajustement ({key}) est conservé tel qu'il a été importé et ne peut pas encore être modifié.
-	This fill layer must be rasterized before proceeding. Its fill content will no longer be editable. Rasterize the layer?	Ce calque de remplissage doit être rastérisé pour continuer. Son contenu de remplissage ne sera plus modifiable. Rastériser le calque ?
-	This layer must be rasterized before proceeding.	Ce calque doit être rastérisé pour continuer.
+	This Smart Object must be rasterized before proceeding. Its contents will no longer be editable. Rasterize the Smart Object?	Cet objet dynamique doit être pixellisé pour continuer. Son contenu ne sera plus modifiable. Pixelliser l'objet dynamique ?
+	This adjustment ({key}) is kept as imported and can't be edited yet.	Ce réglage ({key}) est conservé tel qu'il a été importé et ne peut pas encore être modifié.
+	This fill layer must be rasterized before proceeding. Its fill content will no longer be editable. Rasterize the layer?	Ce calque de remplissage doit être pixellisé pour continuer. Son contenu de remplissage ne sera plus modifiable. Pixelliser le calque ?
+	This layer must be rasterized before proceeding.	Ce calque doit être pixellisé pour continuer.
 	This session: {reason}	Cette session : {reason}
-	This shape layer must be rasterized before proceeding. It will no longer be editable as a shape. Rasterize the shape?	Ce calque de forme doit être rastérisé pour continuer. Il ne sera plus modifiable en tant que forme. Rastériser la forme ?
-	This type layer must be rasterized before proceeding. Its text will no longer be editable. Rasterize the type?	Ce calque de texte doit être rastérisé pour continuer. Son texte ne sera plus modifiable. Rastériser le texte ?
+	This shape layer must be rasterized before proceeding. It will no longer be editable as a shape. Rasterize the shape?	Ce calque de forme doit être pixellisé pour continuer. Il ne sera plus modifiable en tant que forme. Pixelliser la forme ?
+	This type layer must be rasterized before proceeding. Its text will no longer be editable. Rasterize the type?	Ce calque de texte doit être pixellisé pour continuer. Son texte ne sera plus modifiable. Pixelliser le texte ?
 	Tile Size	Taille des carreaux
-	Tiles	Carreaux
+	Tiles	Carrelage
 	Tilt-Shift	Inclinaison-décalage
 	Tint Color	Couleur de la nuance
 	Tiny Lens	Petites lentilles
@@ -3919,13 +3922,13 @@ curves	Smooth	Lisser
 	To Center	Vers le centre
 	Toggle the Brush Settings panel	Afficher/masquer le panneau Paramètres du pinceau
 	Tool Options	Options d'outil
-	Trace Contour	Tracer les contours
+	Trace Contour	Courbes de niveau
 	Transformation	Transformation
 	Transition	Transition
 	Transparency Shapes Layer	La transparence détermine la forme du calque
 	Trap	Recouvrement
 	Tree	Arbre
-	Trim	Rogner les bords
+	Trim	Rognage
 	Turbulent	Turbulent
 	Twirl	Tourbillon
 	Twirl Clockwise	Tourbillon horaire
@@ -3942,7 +3945,7 @@ curves	Smooth	Lisser
 	Unlock	Déverrouiller
 	Unlocked	Déverrouillé
 	Unsaved Changes	Modifications non enregistrées
-	Unsharp Mask	Masque flou
+	Unsharp Mask	Accentuation
 	Unsupported file format	Format de fichier non pris en charge
 	Unsupported format	Format non pris en charge
 	Up	Haut
@@ -3960,8 +3963,8 @@ curves	Smooth	Lisser
 	Vertical Type Tool	Outil Texte vertical
 	Video Frames to Layers	Images vidéo dans des calques
 	Vignette Amount	Quantité de vignettage
-	Vignette Feather	Adoucissement du vignettage
-	Vignette Highlights	Hautes lumières du vignettage
+	Vignette Feather	Contour progressif du vignettage
+	Vignette Highlights	Tons clairs du vignettage
 	Vignette Midpoint	Point médian du vignettage
 	Vignette Roundness	Arrondi du vignettage
 	Vignette Style	Style du vignettage
@@ -3987,7 +3990,7 @@ curves	Smooth	Lisser
 	White Is High	Le blanc est le plus haut
 	Wide Blurry	Large et flou
 	Wide Sharp	Large et net
-	Wind	Vent
+	Wind	Soufflerie
 	Window renderer: {renderer}	Moteur de rendu de la fenêtre : {renderer}
 	Working	Espace de travail
 	Working Cmyk	CMJN de travail
@@ -4004,7 +4007,7 @@ curves	Smooth	Lisser
 	gradients	dégradés
 	gray	gris
 	green	vert
-	layer mask	masque de calque
+	layer mask	masque de fusion
 	manual	manuel
 	none	aucun
 	off	désactivé
@@ -4026,11 +4029,11 @@ curves	Smooth	Lisser
 	✓ Color Indicates Masked Areas	✓ La couleur indique les zones masquées
 	✓ Color Indicates Selected Areas	✓ La couleur indique les zones sélectionnées
 @id	edit.clear	Effacer
-@id	edit.stroke	Contourner…
-@id	edit.transform.scale	Mise à l'échelle
+@id	edit.stroke	Contour…
+@id	edit.transform.scale	Homothétie
 @id	file.close	Fermer
-@id	filter.sharpen.sharpen	Netteté
-@id	layer.layerMask.apply	Appliquer le masque de calque
+@id	filter.sharpen.sharpen	Plus net
+@id	layer.layerMask.apply	Appliquer le masque de fusion
 @plural	Exported {n} swatch to {file}|Exported {n} swatches to {file}	{n} nuance exportée vers {file}|{n} nuances exportées vers {file}
 @plural	Imported {n} brush from {file}|Imported {n} brushes from {file}	{n} pinceau importé depuis {file}|{n} pinceaux importés depuis {file}
 @plural	Imported {n} brush from {group}|Imported {n} brushes from {group}	{n} pinceau importé depuis {group}|{n} pinceaux importés depuis {group}
@@ -4038,7 +4041,7 @@ curves	Smooth	Lisser
 @plural	Imported {n} swatch from {file}|Imported {n} swatches from {file}	{n} nuance importée depuis {file}|{n} nuances importées depuis {file}
 @plural	Played {n} step|Played {n} steps	{n} étape lue|{n} étapes lues
 @plural	Saved for Web: {n} file|Saved for Web: {n} files	Enregistré pour le Web : {n} fichier|Enregistré pour le Web : {n} fichiers
-@plural	Updated {n} linked smart object changed on disk|Updated {n} linked smart objects changed on disk	Mise à jour de {n} objet intelligent lié modifié sur le disque|Mise à jour de {n} objets intelligents liés modifiés sur le disque
+@plural	Updated {n} linked smart object changed on disk|Updated {n} linked smart objects changed on disk	Mise à jour de {n} objet dynamique lié modifié sur le disque|Mise à jour de {n} objets dynamiques liés modifiés sur le disque
 @plural	{n} layer recorded by this comp was deleted. Update the comp, or clear the warning.|{n} layers recorded by this comp were deleted. Update the comp, or clear the warning.	{n} calque enregistré par cette composition a été supprimé. Mettez la composition à jour ou effacez l'avertissement.|{n} calques enregistrés par cette composition ont été supprimés. Mettez la composition à jour ou effacez l'avertissement.
 @plural	{n} plane|{n} planes	{n} plan|{n} plans
 @plural	{n} preset|{n} presets	{n} préréglage|{n} préréglages
@@ -4061,10 +4064,10 @@ cameraRaw	Dehaze	Correction de la brume
 cameraRaw	Detail	Détail
 cameraRaw	Effects	Effets
 cameraRaw	Exposure	Exposition
-cameraRaw	Feather	Adoucissement
+cameraRaw	Feather	Contour progressif
 cameraRaw	Global	Global
 cameraRaw	Green	Vert
-cameraRaw	Highlights	Hautes lumières
+cameraRaw	Highlights	Tons clairs
 cameraRaw	Hue	Teinte
 cameraRaw	Luminance	Luminance
 cameraRaw	Luminance Detail	Détail de la luminance
@@ -4078,7 +4081,7 @@ cameraRaw	Red	Rouge
 cameraRaw	Roughness	Rugosité
 cameraRaw	Roundness	Arrondi
 cameraRaw	Saturation	Saturation
-cameraRaw	Shadows	Ombres
+cameraRaw	Shadows	Tons foncés
 cameraRaw	Size	Taille
 cameraRaw	Temperature	Température
 cameraRaw	Texture	Texture
@@ -4090,7 +4093,7 @@ document	Orientation	Orientation
 layerLabel	Magenta	Magenta
 layerLabel	No Color	Aucune couleur
 layerLabel	Red	Rouge
-layers	Fill	Remplissage
-layers	Fill:	Remplissage :
+layers	Fill	Fond
+layers	Fill:	Fond :
 navigator	Zoom	Zoom
 shape	Appearance	Apparence
