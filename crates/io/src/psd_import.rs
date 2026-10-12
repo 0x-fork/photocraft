@@ -706,6 +706,16 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &photocraft_raster::Interrupt) 
         // its own profile, as the compositor and the PSD writer read them.
         let space = photocraft_compose::cmyk_space(&doc);
         doc.layers = photocraft_color::convert::with_cmyk_space(space.as_ref(), || cx.build(&tree, 0));
+        // Photoshop's Background: the bottom record, a transparency-protected pixel layer stored
+        // without a transparency channel (-1). It is also position-locked, whatever its
+        // (localized) name and whether or not the file carries an `lspf` block.
+        if let (Some(rec), Some(bottom)) = (file.layers().first(), doc.layers.first_mut())
+            && rec.flags.transparency_protected()
+            && !rec.channels.iter().any(|c| c.id == -1)
+            && matches!(bottom.content, LayerContent::Raster(_))
+        {
+            bottom.locks.position = true;
+        }
         // Layer › Link Layers: resource 1026 holds one group id per layer record (0 = unlinked).
         if let Some(Ok(photocraft_psd::resources::ResourceData::LayerGroupInfo(groups))) =
             file.resources.iter().find(|r| r.id == ids::LAYER_GROUP_INFO).and_then(photocraft_psd::resources::ImageResource::parsed)

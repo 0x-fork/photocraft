@@ -18,6 +18,7 @@
 //! * Paint.NET PDN3 documents open as editable bitmap layers (import only).
 //! * OpenRaster (`.ora`) documents open and save with their layers, groups, blend modes,
 //!   opacity and visibility; see `ora`.
+//! * Krita (`.kra`) documents open as their merged composite; source layers are not imported.
 //! * Affinity documents (`.af`, `.afdesign`, `.afphoto`, `.afpub`) open natively
 //!   with no source save path, what isn't imported listed in the warnings; a file
 //!   whose native data can't be read opens as its embedded preview; see `affinity`.
@@ -41,6 +42,7 @@ pub mod effects_map;
 pub mod exr_parts;
 mod flat;
 mod gradient_bake;
+mod kra;
 pub mod linked;
 mod multichannel_map;
 mod ora;
@@ -80,6 +82,9 @@ pub enum IoError {
     /// OpenRaster read failure.
     #[error("OpenRaster: {0}")]
     Ora(String),
+    /// Krita document decode failure.
+    #[error("Krita: {0}")]
+    Kra(String),
     /// PSD parse/write failure.
     #[error("PSD: {0}")]
     Psd(#[from] PsdError),
@@ -267,6 +272,11 @@ fn import_stages(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt, m
     }
     if ora::is_ora(bytes) || has_extension(name, "ora") {
         return ora::import(name, bytes, ctl);
+    }
+    // Krita files are ZIP containers carrying a merged PNG. A recognized raster signature
+    // still wins over a misleading .kra suffix (as with SVG imports).
+    if kra::is_kra(bytes) || (has_extension(name, "kra") && photocraft_codecs::detect(bytes).is_none()) {
+        return kra::import(name, bytes, ctl);
     }
     if has_extension(name, "pdn") || bytes.starts_with(b"PDN3") {
         return pdn::import(name, bytes, ctl);

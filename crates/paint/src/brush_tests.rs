@@ -6,7 +6,7 @@ use photocraft_raster::Surface;
 
 use crate::brush::*;
 use crate::dynamics::{Smoother, smooth_points};
-use crate::render::{BrushContext, StrokeRenderer, mask_combine, render_stroke};
+use crate::render::{BrushContext, StrokeRenderer, mask_combine, render_stroke, texture_combine};
 use crate::tile::GrayTile;
 use crate::{Dab, Stroke, StrokePoint, dabs};
 
@@ -525,7 +525,9 @@ fn texture_modulates_coverage() {
     b.texture.invert = false;
     b.texture.brightness = 1.0;
     let s = paint(&b, &line(20.0, 80.0, 30.0), 100, 60);
-    assert!(s.rgba(46, 30)[3] > 0.9);
+    // +150 lifts a black texel by 150 levels of 255, not to white (#3340).
+    let lifted = s.rgba(46, 30)[3];
+    assert!((lifted - 150.0 / 255.0).abs() < 0.02, "{lifted}");
     // All modes keep zero coverage at zero and stay in range.
     for m in [
         MaskMode::Multiply,
@@ -544,6 +546,12 @@ fn texture_modulates_coverage() {
             let v = mask_combine(m, 0.7, t, 0.8);
             assert!((0.0..=1.0).contains(&v), "{m:?}");
         }
+        for t in [0.0, 0.3, 1.0] {
+            assert_eq!(texture_combine(m, 0.0, t, 1.0), 0.0, "{m:?}");
+            let v = texture_combine(m, 0.7, t, 0.8);
+            assert!((0.0..=1.0).contains(&v), "{m:?}");
+        }
+        assert!((0.0..=1.0).contains(&texture_combine(m, 0.7, f32::NAN, f32::INFINITY)), "{m:?}");
         // Full-white texture never reduces multiply-like masks below the brush.
         assert!(mask_combine(m, 0.6, 1.0, 1.0) >= 0.6 - 1e-5 || matches!(m, MaskMode::Overlay), "{m:?}");
     }
@@ -553,6 +561,98 @@ fn texture_modulates_coverage() {
     let d = dabs_of(&b, &line(0.0, 200.0, 0.0));
     assert!(d.iter().all(|x| x.depth <= 0.8 + 1e-6 && x.depth >= 0.8 * 0.25 - 1e-6));
     assert!(d.iter().any(|x| x.depth < 0.6));
+}
+
+/// Texture Brightness and Contrast as Photoshop applies them, measured by stroking a 0..255 grey
+/// ramp pattern in Multiply mode at 100 % depth (the stroke's opacity is then the pattern value):
+/// (setting, ramp value, opacity read back), in levels of 255 (#3340).
+#[test]
+fn texture_brightness_and_contrast_match_photoshop() {
+    let level = |brightness: f32, contrast: f32, invert: bool, v: f32| {
+        // The model's ranges: brightness ±150 → ±1; contrast -50..0 → -1..0, 0..100 → 0..1.
+        let c = if contrast < 0.0 { contrast / 50.0 } else { contrast / 100.0 };
+        let t = Texture { brightness: brightness / 150.0, contrast: c, invert, ..Default::default() };
+        t.level(v / 255.0) * 255.0
+    };
+    for (b, c, inv, v, want) in [
+        (87.0, 0.0, false, 8.0, 95.0),
+        (87.0, 0.0, false, 200.0, 255.0),
+        (-87.0, 0.0, false, 104.0, 17.0),
+        (150.0, 0.0, false, 8.0, 158.0),
+        (0.0, 50.0, false, 104.0, 81.0),
+        (0.0, 50.0, false, 136.0, 145.0),
+        (0.0, -50.0, false, 8.0, 67.0),
+        (0.0, -50.0, false, 248.0, 188.0),
+        (0.0, 100.0, false, 120.0, 0.0),
+        (0.0, 100.0, false, 136.0, 255.0),
+        // Positive contrast after the shift, negative contrast before it.
+        (40.0, 50.0, false, 104.0, 161.0),
+        (40.0, 50.0, false, 40.0, 33.0),
+        (-40.0, -30.0, false, 120.0, 82.0),
+        (-40.0, -30.0, false, 248.0, 172.0),
+        // Invert comes last.
+        (40.0, 0.0, true, 8.0, 207.0),
+        (0.0, 50.0, true, 72.0, 238.0),
+    ] {
+        let got = level(b, c, inv, v);
+        assert!((got - want).abs() <= 2.0, "brightness {b}, contrast {c}, invert {inv}, ramp {v}: {got} (Photoshop {want})");
+    }
+}
+
+/// The Texture modes that differ from the Dual Brush's, against single Photoshop dabs over a
+/// 0..255 ramp: (mode, depth, brush coverage, ramp value, opacity read back), in levels of 255.
+#[test]
+fn texture_modes_match_photoshop() {
+    use MaskMode::*;
+    for (m, d, v, t, want) in [
+        // Height: a low depth paints the dark valleys only, more depth fills the pattern.
+        (Height, 0.0, 255.0, 8.0, 0.0),
+        (Height, 0.01, 255.0, 8.0, 28.0),
+        (Height, 0.05, 255.0, 8.0, 148.0),
+        (Height, 0.05, 255.0, 136.0, 20.0),
+        (Height, 0.13, 255.0, 8.0, 255.0),
+        (Height, 0.13, 255.0, 152.0, 244.0),
+        (Height, 0.13, 255.0, 248.0, 148.0),
+        (Height, 0.13, 186.0, 88.0, 201.0),
+        (Height, 0.13, 142.0, 104.0, 116.0),
+        (Height, 0.25, 255.0, 248.0, 255.0),
+        // Linear Height: graded by the pattern while the reach stays below its top.
+        (LinearHeight, 0.01, 255.0, 152.0, 15.0),
+        (LinearHeight, 0.05, 255.0, 8.0, 151.0),
+        (LinearHeight, 0.05, 255.0, 152.0, 63.0),
+        (LinearHeight, 0.10, 255.0, 72.0, 240.0),
+        (LinearHeight, 0.13, 101.0, 120.0, 82.0),
+        (LinearHeight, 0.13, 142.0, 104.0, 130.0),
+        // Subtract: the light parts take paint away.
+        (Subtract, 1.0, 255.0, 8.0, 247.0),
+        (Subtract, 1.0, 255.0, 248.0, 7.0),
+        (Subtract, 0.5, 224.0, 72.0, 188.0),
+        // Color Burn / Color Dodge below full depth.
+        (ColorBurn, 0.5, 224.0, 72.0, 207.0),
+        (ColorDodge, 0.5, 99.0, 120.0, 130.0),
+        // Unchanged modes.
+        (Multiply, 0.13, 255.0, 8.0, 223.0),
+        (Darken, 0.5, 255.0, 8.0, 131.0),
+    ] {
+        let got = texture_combine(m, v / 255.0, t / 255.0, d) * 255.0;
+        assert!((got - want).abs() <= 3.0, "{m:?} depth {d}, coverage {v}, ramp {t}: {got} (Photoshop {want})");
+    }
+}
+
+/// #3340: an imported Height-mode brush at a low depth with a darkened pattern painted nothing.
+#[test]
+fn low_depth_height_texture_paints() {
+    let tile = GrayTile::from_fn(8, 8, |x, y| if (x + y) % 2 == 0 { 0.45 } else { 0.6 });
+    for mode in [MaskMode::Height, MaskMode::LinearHeight] {
+        let b = BrushSettings {
+            size: 40.0,
+            texture: Texture { enabled: true, pattern: Pattern::Tile(tile.clone()), mode, depth: 0.13, brightness: -87.0 / 150.0, ..Default::default() },
+            ..brush()
+        };
+        let s = paint(&b, &line(20.0, 80.0, 30.0), 100, 60);
+        let a = s.rgba(50, 30)[3];
+        assert!(a > 0.95, "{mode:?}: {a}");
+    }
 }
 
 #[test]

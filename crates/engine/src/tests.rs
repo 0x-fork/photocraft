@@ -767,6 +767,33 @@ fn command_list_reports_enablement() {
     assert_eq!(find("layer.new.layer")["enabled"], false);
 }
 
+/// With no document open, a document command says so instead of only `enabled: false` (#3664).
+#[test]
+fn command_list_tells_no_document_from_other_preconditions() {
+    let mut s = Session::new();
+    let list = s.execute("command.list", json!({})).unwrap();
+    let find = |list: &Value, id: &str| list.as_array().unwrap().iter().find(|c| c["id"] == id).unwrap().clone();
+    for id in ["paint.stroke", "layer.new.layer", "filter.blur.gaussianBlur"] {
+        let c = find(&list, id);
+        assert_eq!((c["enabled"].clone(), c["needsDocument"].clone()), (json!(false), json!(true)), "{id}: {c}");
+        assert!(c["disabledReason"].as_str().is_some_and(|r| r.starts_with("no document")), "{id}: {c}");
+    }
+    let new = find(&list, "file.new");
+    assert_eq!((new["enabled"].clone(), new["needsDocument"].clone(), new["disabledReason"].clone()), (json!(true), json!(false), Value::Null));
+    // A precondition that isn't the missing document keeps its own reason.
+    let paste = find(&list, "file.newFromClipboard");
+    assert_eq!((paste["enabled"].clone(), paste["needsDocument"].clone()), (json!(false), json!(false)));
+    assert_eq!(paste["disabledReason"], "the clipboard is empty");
+    // With a document, the same commands run; a missing selection is not a missing document.
+    let mut s = session_with_doc();
+    let list = s.execute("command.list", json!({})).unwrap();
+    assert_eq!(find(&list, "paint.stroke")["needsDocument"], false);
+    assert_eq!(find(&list, "paint.stroke")["disabledReason"], Value::Null);
+    let deselect = find(&list, "select.deselect");
+    assert_eq!((deselect["enabled"].clone(), deselect["needsDocument"].clone()), (json!(false), json!(false)));
+    assert_eq!(deselect["disabledReason"], "no selection");
+}
+
 #[test]
 fn translate_moves_pixels_and_respects_locks() {
     let mut s = session_with_doc();

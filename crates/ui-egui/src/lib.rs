@@ -890,6 +890,16 @@ impl PhotocraftApp {
         if gate.is_some() {
             self.session.authorize = None;
         }
+        // An explicit channel target (⌘2, ⌘\, ⌘3…) decides what the Layers panel targets too:
+        // ⌘2 after the mask was targeted goes back to the layer's pixels.
+        if result.is_ok() && id.starts_with("channel.target") {
+            if let Some(t) = self.session.active().map(|st| st.channel_view.target) {
+                use photocraft_engine::channel_cmds::ChannelTarget;
+                self.ui.mask_target = t == ChannelTarget::LayerMask;
+                self.ui.vector_mask_target = t == ChannelTarget::VectorMask;
+            }
+            self.sync_mask_targets();
+        }
         result
     }
 
@@ -1715,6 +1725,8 @@ impl eframe::App for PhotocraftApp {
         brush_picker::persist(self, &ctx);
         // Tool options are remembered between launches the same way (#2814).
         tool_memory::persist(self, &ctx);
+        // So are View › Extras, Show and Snap To (#3762).
+        view_cmds::persist(self, &ctx);
         self.automation_input = false;
         shape_stroke_ui::finish_frame(self, &ctx);
         native_menu::sync(self, &ctx);
@@ -2265,6 +2277,8 @@ mod pen_variants_tests;
 
 #[cfg(test)]
 mod color_replacement_tests;
+#[cfg(test)]
+mod layer_shortcut_tests;
 #[cfg(test)]
 mod pencil_tests;
 

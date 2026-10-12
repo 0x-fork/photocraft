@@ -1674,6 +1674,18 @@ fn blend_into_fill(backdrop: &mut Buffer, src: &Buffer, mode: BlendMode, opacity
 
 /// [`blend_into`] mixing coverage in a `gamma` space (type layers).
 fn blend_into_g(backdrop: &mut Buffer, src: &Buffer, mode: BlendMode, opacity: f32, gamma: f32) {
+    // The blend space is constant in this loop. Some TLS implementations synchronise even a
+    // boolean read, so select the common Normal kernel once instead of once per pixel.
+    if mode == BlendMode::Normal && gamma == 1.0 && !psblend::LAB_MIX.with(|l| l.get()) {
+        for (i, b) in backdrop.px.iter_mut().enumerate() {
+            let s = src.px[i];
+            if s[3] <= 0.0 {
+                continue;
+            }
+            *b = psblend::composite_normal_rgb(*b, s, opacity);
+        }
+        return;
+    }
     let rect = backdrop.rect;
     let w = rect.width() as i32;
     for (i, b) in backdrop.px.iter_mut().enumerate() {

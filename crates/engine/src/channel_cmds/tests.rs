@@ -742,6 +742,33 @@ fn clear_with_an_alpha_channel_or_quick_mask_targeted_fills_it_not_the_layer() {
 }
 
 #[test]
+fn command_backslash_targets_the_layer_mask_and_command_2_the_composite() {
+    let mut s = session();
+    s.execute("layer.new.layer", json!({})).unwrap();
+    assert!(!s.is_enabled("channel.target.layerMask"), "no mask yet");
+    assert!(s.execute("channel.target.layerMask", json!({})).is_err());
+    s.execute("layer.layerMask.revealAll", json!({})).unwrap();
+    s.execute("channel.target.composite", json!({})).unwrap();
+    assert_eq!(crate::commands::find("channel.target.layerMask").and_then(|c| c.shortcut), Some("Cmd+\\"));
+    s.execute("channel.target.layerMask", json!({})).unwrap();
+    assert_eq!(s.active().unwrap().channel_view.target, ChannelTarget::LayerMask);
+    s.execute("channel.target.composite", json!({})).unwrap();
+    assert_eq!(s.active().unwrap().channel_view.target, ChannelTarget::Composite);
+}
+
+#[test]
+fn command_alt_2_loads_the_images_luminosity() {
+    let mut s = session();
+    rect(&mut s, 0, 0, 20, 20, "replace");
+    s.execute("edit.fill", json!({"contents": "black"})).unwrap();
+    s.execute("select.deselect", json!({})).unwrap();
+    assert_eq!(crate::commands::find("select.loadLuminosity").and_then(|c| c.shortcut), Some("Cmd+Alt+2"));
+    s.execute("select.loadLuminosity", json!({})).unwrap();
+    assert!(sel_at(&s, 5, 5) < 0.01, "black: unselected");
+    assert!(sel_at(&s, 30, 5) > 0.99, "white: selected");
+}
+
+#[test]
 fn thumbnail_selection_shape_without_pixel_cache_uses_its_transparency() {
     for depth in [8, 16, 32] {
         let mut s = Session::new();
