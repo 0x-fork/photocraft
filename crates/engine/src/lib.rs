@@ -217,6 +217,11 @@ pub struct DocState {
     /// pixel coordinates. Per-document view state: discarded when the document closes, never saved
     /// to `.pcraft` or PSD, and not a history step.
     pub color_samplers: Vec<[f64; 2]>,
+    /// History panel snapshots, oldest first (`history.newSnapshot`, #2966). Kept for the
+    /// session only, as in Photoshop: not history states, and not saved with the document.
+    pub snapshots: Vec<history_cmds::Snapshot>,
+    /// The id the next snapshot gets; ids are never reused, so deleting one keeps the others.
+    next_snapshot: u64,
 }
 
 impl DocState {
@@ -243,6 +248,8 @@ impl DocState {
             show_only: None,
             floating: None,
             color_samplers: Vec::new(),
+            snapshots: Vec::new(),
+            next_snapshot: 1,
         }
     }
     /// The selected layers in bottom-to-top document order, always including the active layer.
