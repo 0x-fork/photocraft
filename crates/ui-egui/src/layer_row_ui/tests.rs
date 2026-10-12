@@ -37,6 +37,8 @@ fn busy() -> photocraft_engine::Session {
         s.execute("layer.layerStyle.dropShadow", json!({"layer": g})).unwrap();
         prev = Some(g);
     }
+    // Group Layers makes collapsed groups, as in Photoshop; these tests need every row shown.
+    s.execute("layer.setExpanded", json!({"all": true, "expanded": true})).unwrap();
     s
 }
 
@@ -223,6 +225,23 @@ fn collapse_all_groups_from_the_panel_menu_and_it_is_saved() {
         let mut s = photocraft_engine::Session::new();
         s.add_document(back, None);
         assert!(groups_open(&s).iter().all(|o| !o), "{name}: groups stay closed");
+    }
+}
+
+/// Photoshop's panel menu has New Group… and New Group from Layers… just above Collapse All
+/// Groups; both open the New Group dialog.
+#[test]
+fn new_group_items_in_the_panel_menu_open_the_dialog() {
+    for (label, command) in [("New Group…", "layer.new.group"), ("New Group from Layers…", "layer.new.groupFromLayers")] {
+        let mut h = harness(busy(), 1.0, "promedium", 290.0);
+        let menu = crate::dock::last_rects(&h.ctx).into_iter().find(|(g, _)| *g == crate::dock::Group::Layers).expect("layers group").1;
+        click(&mut h, pos2(menu.right() - 14.0, menu.top() + 14.0));
+        let item = h.get_by_label(label).rect();
+        assert!(item.top() < h.get_by_label("Collapse All Groups").rect().top(), "{label} comes before Collapse All Groups");
+        click(&mut h, item.center());
+        let fields = h.state().ui.dialogs.last().map(|d| d.fields.clone()).expect("the New Group dialog opened");
+        assert!(crate::new_group_ui::owns(&fields));
+        assert_eq!(fields["__command"], command);
     }
 }
 

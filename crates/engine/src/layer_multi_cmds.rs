@@ -1187,6 +1187,8 @@ pub(crate) fn check_group_depth(doc: &Document, what: &str) -> Result<()> {
 
 /// Group Layers (⌘G) / Group from Layers: the explicit layer, or every selected layer, moves
 /// into a new group placed where the top-most of them was. Bottom-to-top order is preserved.
+/// Like Photoshop the new group starts collapsed; the New Group dialog's colour, mode and opacity
+/// are set in the same history step.
 pub fn group_layers(s: &mut Session, p: &Value) -> Result<Value> {
     let ids = match p.get("layer").and_then(Value::as_u64) {
         Some(id) => vec![LayerId(id)],
@@ -1195,17 +1197,27 @@ pub fn group_layers(s: &mut Session, p: &Value) -> Result<Value> {
     if ids.is_empty() {
         return Err(EngineError::Other("no layer selected".into()));
     }
-    let name = p.get("name").and_then(Value::as_str).map(str::to_string);
+    let opts = crate::group_options::GroupOptions::parse("layer.groupLayers", p)?;
     let gid = s.edit("Group Layers", |doc, active| {
         let ids = top_level(doc, &ids);
+        // Artboards stay at the top level: inside a group they would stop being boards.
+        if ids.iter().any(|id| doc.layer(*id).is_some_and(|l| l.artboard().is_some())) {
+            return Err(EngineError::Other("artboards can't go into a group".into()));
+        }
         let top = *ids.last().ok_or(EngineError::NoLayer(LayerId(0)))?;
-        let name = name.unwrap_or_else(|| doc.next_layer_name("Group"));
-        let gid = doc.insert_above(Some(top), Layer::group(name, vec![]));
+        let name = opts.name.clone().unwrap_or_else(|| doc.next_layer_name("Group"));
+        let mut group = Layer::group(name, vec![]);
+        if let LayerContent::Group(g) = &mut group.content {
+            g.expanded = false;
+        }
+        let gid = doc.insert_above(Some(top), group);
         let mut children = Vec::with_capacity(ids.len());
         for id in &ids {
             children.push(doc.remove(*id).ok_or(EngineError::NoLayer(*id))?);
         }
-        *doc.layer_mut(gid).and_then(Layer::children_mut).ok_or(EngineError::NoLayer(gid))? = children;
+        let group = doc.layer_mut(gid).ok_or(EngineError::NoLayer(gid))?;
+        *group.children_mut().ok_or(EngineError::NoLayer(gid))? = children;
+        opts.apply(group);
         check_group_depth(doc, "Group Layers")?;
         *active = Some(gid);
         Ok(gid)
@@ -1405,7 +1417,15 @@ pub fn specs() -> Vec<CommandSpec> {
             link_layers(s)
         }),
         spec!("layer.mergeLayers", "Merge Layers", &["Layer"], Some("Cmd+E"), "{} (one layer selected: Merge Down)", has_layer, |s, _| merge_layers(s)),
-        spec!("layer.new.groupFromLayers", "Group from Layers…", &["Layer", "New"], None, r##"{"name":str?}"##, has_layer, group_layers),
+        spec!(
+            "layer.new.groupFromLayers",
+            "Group from Layers…",
+            &["Layer", "New"],
+            None,
+            r##"{"name":text?,"color":"none|red|orange|yellow|green|seafoam|blue|indigo|magenta|fuchsia|violet|gray"="none","mode":str="passThrough" (blend mode),"opacity":0..100=100 (percent)} (every selected layer; the new group starts collapsed)"##,
+            has_layer,
+            group_layers
+        ),
         spec!("layer.arrange.reverse", "Reverse", &["Layer", "Arrange"], None, "{}", two_plus, |s, _| reverse(s)),
         spec!(
             "layer.lockLayers",
@@ -2099,6 +2119,29 @@ mod tests {
         select_all(&mut s, &[b, d]);
         s.execute("layer.groupLayers", json!({})).unwrap();
         assert_eq!(doc(&s).layers.len(), 4);
+    }
+
+    /// Artboards are top-level groups; grouping them (now a plain click on the Layers panel's New
+    /// Group button with two boards selected) is refused and leaves them as they were.
+    #[test]
+    fn grouping_artboards_is_refused() {
+        let mut s = session(8);
+        let a = LayerId(s.execute("layer.new.artboard", json!({"rect": [0, 0, 100, 80]})).unwrap()["layer"].as_u64().unwrap());
+        let b = LayerId(s.execute("layer.new.artboard", json!({"rect": [120, 0, 100, 80]})).unwrap()["layer"].as_u64().unwrap());
+        select_all(&mut s, &[a, b]);
+        let before = doc(&s).clone();
+        let err = s.execute("layer.groupLayers", json!({})).unwrap_err();
+        assert!(err.to_string().contains("artboards"), "{err}");
+        assert!(s.execute("layer.groupLayers", json!({"layer": a.0})).is_err(), "one board is refused too");
+        assert_eq!(doc(&s).layers.iter().map(|l| l.id).collect::<Vec<_>>(), before.layers.iter().map(|l| l.id).collect::<Vec<_>>());
+        assert_eq!(doc(&s).artboards().len(), 2);
+        // A layer inside a board still groups, inside its board.
+        let inner = rect_layer(&mut s, Rect::new(0, 0, 5, 5));
+        select_all(&mut s, &[inner]);
+        let c = LayerId(s.execute("layer.new.artboardFromLayers", json!({})).unwrap()["layer"].as_u64().unwrap());
+        assert_eq!(doc(&s).artboard_of(inner), Some(c));
+        let g = LayerId(s.execute("layer.groupLayers", json!({"layer": inner.0})).unwrap()["layer"].as_u64().unwrap());
+        assert_eq!(doc(&s).artboard_of(g), Some(c));
     }
 
     #[test]

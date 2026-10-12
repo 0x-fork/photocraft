@@ -195,6 +195,17 @@ pub fn label(painter: &Painter, x: f32, cy: f32, right: f32, text: &str, font: F
 
 /// The Layers panel's own items at the top of its panel menu (Photoshop's flyout).
 pub fn panel_menu(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui) {
+    // New Group… and New Group from Layers… open the New Group dialog, like their Layer › New twins.
+    for (label, id) in [(tl!("New Group…"), crate::new_group_ui::NEW_GROUP), (tl!("New Group from Layers…"), crate::new_group_ui::FROM_LAYERS)] {
+        if ui.add_enabled(crate::menus::is_enabled(app, id), egui::Button::new(label)).clicked() {
+            let ctx = ui.ctx().clone();
+            if let Err(e) = crate::menus::invoke(app, &ctx, id, json!({})) {
+                app.ui.status = e;
+                app.ui.status_error = true;
+            }
+            ui.close();
+        }
+    }
     let can = app.session.is_enabled("layer.setExpanded");
     if ui.add_enabled(can, egui::Button::new(tl!("Collapse All Groups"))).clicked() {
         if let Err(e) = app.run("layer.setExpanded", json!({"all": true, "expanded": false})) {

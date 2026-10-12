@@ -553,22 +553,44 @@ fn build() -> Vec<CommandSpec> {
             has_doc,
             crate::new_layer::run
         ),
-        cmd!("layer.new.group", "Group…", ["Layer", "New"], None, r##"{"name":str?}"##, has_doc, |s, p| {
-            let id = s.edit("New Group", |doc, active| {
-                let name = p.get("name").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| doc.next_layer_name("Group"));
-                let id = doc.insert_above(*active, Layer::group(name, vec![]));
-                *active = Some(id);
-                Ok(id)
-            })?;
-            crate::layer_multi_cmds::note_inert_insert(s, id);
-            Ok(json!({ "layer": id.0 }))
-        }),
+        cmd!(
+            "layer.new.group",
+            "Group…",
+            ["Layer", "New"],
+            None,
+            r##"{"name":text?,"color":"none|red|orange|yellow|green|seafoam|blue|indigo|magenta|fuchsia|violet|gray"="none","mode":str="passThrough" (blend mode),"opacity":0..100=100 (percent),"below":bool=false (under the active layer, as ⌘-click on the Layers panel's New Group button)}"##,
+            has_doc,
+            |s, p| {
+                let opts = crate::group_options::GroupOptions::parse("layer.new.group", p)?;
+                let below = match p.get("below").filter(|v| !v.is_null()) {
+                    None => false,
+                    Some(v) => v.as_bool().ok_or_else(|| bad("layer.new.group", "`below` must be a boolean"))?,
+                };
+                let id = s.edit("New Group", |doc, active| {
+                    let name = opts.name.clone().unwrap_or_else(|| doc.next_layer_name("Group"));
+                    let mut group = Layer::group(name, vec![]);
+                    opts.apply(&mut group);
+                    let bg = crate::background_cmds::background_id(doc);
+                    // Below only a layer that is in the document, and never under the Background.
+                    let under = (*active).filter(|a| below && Some(*a) != bg && doc.path_of(*a).is_some());
+                    let id = doc.insert_above(*active, group);
+                    if under.is_some() {
+                        doc.shift(id, -1);
+                    }
+                    crate::background_cmds::keep_background_at_bottom(bg, doc)?;
+                    *active = Some(id);
+                    Ok(id)
+                })?;
+                crate::layer_multi_cmds::note_inert_insert(s, id);
+                Ok(json!({ "layer": id.0 }))
+            }
+        ),
         cmd!(
             "layer.groupLayers",
             "Group Layers",
             ["Layer"],
             Some("Cmd+G"),
-            r##"{"layer":id?,"name":str?} (no layer: every selected layer)"##,
+            r##"{"layer":id?,"name":text?,"color":"none|red|orange|yellow|green|seafoam|blue|indigo|magenta|fuchsia|violet|gray"="none","mode":str="passThrough" (blend mode),"opacity":0..100=100 (percent)} (no layer: every selected layer; the new group starts collapsed)"##,
             has_layer,
             crate::layer_multi_cmds::group_layers
         ),

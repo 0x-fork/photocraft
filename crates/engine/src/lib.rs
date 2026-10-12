@@ -48,6 +48,7 @@ pub mod fx_view_cmds;
 pub mod fx_visibility_cmds;
 pub mod gallery_cmds;
 pub mod gradient_fill_cmds;
+mod group_options;
 pub mod group_view_cmds;
 pub mod guide_layout;
 pub mod hidden_target;

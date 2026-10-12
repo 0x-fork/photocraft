@@ -21,6 +21,8 @@ fn layered() -> photocraft_engine::Session {
     s.execute("layer.new.layer", json!({"name": "in-outer"})).unwrap();
     s.execute("layer.select", json!({"layer": outer})).unwrap();
     s.execute("layer.new.layer", json!({"name": "top"})).unwrap();
+    // Group Layers makes collapsed groups, as in Photoshop; these tests start from open ones.
+    s.execute("layer.setExpanded", json!({"all": true, "expanded": true})).unwrap();
     s
 }
 
