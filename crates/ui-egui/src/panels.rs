@@ -1040,7 +1040,10 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         widgets::vline(ui, 22.0);
                         widgets::checkbox(ui, &mut b.mixer.sample_all_layers, tl!("Sample All Layers"));
                     }
-                    Tool::RectMarquee | Tool::EllipseMarquee | Tool::SingleRowMarquee | Tool::SingleColumnMarquee if t.pro => {
+                    // Every theme gets Photoshop's tool options (#4178): outside the Pro themes the
+                    // Marquee, Lasso, Paint Bucket, Crop, Perspective Crop and Move tools used to
+                    // show a one-line hint instead, so switching theme "removed" their options.
+                    Tool::RectMarquee | Tool::EllipseMarquee | Tool::SingleRowMarquee | Tool::SingleColumnMarquee => {
                         ui.spacing_mut().item_spacing.x = 2.0;
                         for (i, (icon, tip)) in [
                             ("square", tl!("New selection").to_string()),
@@ -1093,7 +1096,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             let _ = crate::menus::invoke(app, ui.ctx(), "select.selectAndMask", json!({}));
                         }
                     }
-                    Tool::Lasso | Tool::PolygonLasso | Tool::MagneticLasso if t.pro => {
+                    Tool::Lasso | Tool::PolygonLasso | Tool::MagneticLasso => {
                         selection_mode_buttons(app, ui);
                         widgets::vline(ui, 22.0);
                         opt_label(ui, tl!("Feather"));
@@ -1157,7 +1160,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             let _ = crate::menus::invoke(app, ui.ctx(), "select.selectAndMask", json!({}));
                         }
                     }
-                    Tool::PaintBucket if t.pro => {
+                    Tool::PaintBucket => {
                         opt_label(ui, tl!("Fill"));
                         let mut src = u8::from(app.ui.tool_options.bucket_fill_pattern);
                         if widgets::dropdown(ui, "bucket-src", &mut src, &[(0u8, tl!("Foreground")), (1, tl!("Pattern"))], 100.0) {
@@ -1209,8 +1212,8 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         // Live mode: the options also change a selected gradient fill layer.
                         crate::gradient_ui::options_changed(app, &before);
                     }
-                    Tool::PerspectiveCrop if t.pro => crate::perspective_crop_ui::options_bar(app, ui),
-                    Tool::Crop if t.pro => {
+                    Tool::PerspectiveCrop => crate::perspective_crop_ui::options_bar(app, ui),
+                    Tool::Crop => {
                         let before_ratio = crate::crop_ui::preset_ratio(app);
                         let doc_size = app.session.active().map_or((0.0, 0.0), |s| (f64::from(s.doc.size.width), f64::from(s.doc.size.height)));
                         // Ratios, sizes, saved presets, New / Delete Crop Preset… (#2443, #1919).
@@ -1269,7 +1272,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     }
                     // Every theme gets the font, style and size controls (#1387), as with Auto-Select (#1275).
                     Tool::Type | Tool::VerticalType | Tool::HorizontalTypeMask | Tool::VerticalTypeMask => crate::type_tool::options_bar(app, ui),
-                    Tool::Move if t.pro => {
+                    Tool::Move => {
                         let o = &mut app.ui.tool_options;
                         widgets::checkbox(ui, &mut o.move_auto_select, tl!("Auto-Select:"));
                         widgets::dropdown(
@@ -1310,29 +1313,6 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             ui.separator();
                             section(ui, tl!("Distribute"), "layer.distribute.");
                         });
-                    }
-                    Tool::RectMarquee | Tool::EllipseMarquee => hint(
-                        ui,
-                        &format!(
-                            "Drag to select  ·  {} add  ·  {} subtract  ·  {} intersect  ·  click to deselect",
-                            crate::shortcuts::pretty("Shift"),
-                            crate::shortcuts::pretty("Alt"),
-                            crate::shortcuts::pretty("Shift+Alt")
-                        ),
-                    ),
-                    Tool::SingleRowMarquee | Tool::SingleColumnMarquee => hint(
-                        ui,
-                        &format!(
-                            "Click to select a one-pixel line  ·  {} add  ·  {} subtract  ·  {} intersect",
-                            crate::shortcuts::pretty("Shift"),
-                            crate::shortcuts::pretty("Alt"),
-                            crate::shortcuts::pretty("Shift+Alt")
-                        ),
-                    ),
-                    Tool::Move => {
-                        // The Studio themes keep Photoshop's Auto-Select toggle too (#1275).
-                        widgets::checkbox(ui, &mut app.ui.tool_options.move_auto_select, tl!("Auto-Select:"));
-                        hint(ui, tl!("Drag to move the active layer"));
                     }
                     Tool::Eyedropper => crate::eyedropper_ui::options(app, ui),
                     Tool::Zoom => {
@@ -1394,39 +1374,6 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             app.ui.views[i].fit_pending = false;
                         }
                     }
-                    Tool::Lasso | Tool::PolygonLasso => hint(
-                        ui,
-                        &crate::i18n::fmt(
-                            tl!("Drag or click polygon points · hold Alt during lasso for straight segments · {add} add · {sub} before drawing subtracts"),
-                            &[("add", &crate::shortcuts::pretty("Shift")), ("sub", &crate::shortcuts::pretty("Alt"))],
-                        ),
-                    ),
-                    Tool::MagneticLasso => hint(
-                        ui,
-                        &crate::i18n::fmt(
-                            tl!("Click, then move along an edge · click to fasten a point · {alt}-click for a straight segment · double-click to close"),
-                            &[("alt", &crate::shortcuts::pretty("Alt"))],
-                        ),
-                    ),
-                    Tool::Crop => hint(
-                        ui,
-                        &crate::i18n::fmt(
-                            tl!("Drag a crop box · drag inside to move · edges resize ({ratio} ratio, {centre} centre) · Space moves while drawing · arrows nudge · X swaps orientation · {commit} commits · Esc cancels"),
-                            &[
-                                ("ratio", &crate::shortcuts::pretty("Shift")),
-                                ("centre", &crate::shortcuts::pretty("Alt")),
-                                ("commit", &crate::shortcuts::pretty("Enter")),
-                            ],
-                        ),
-                    ),
-                    Tool::PerspectiveCrop => hint(
-                        ui,
-                        &crate::i18n::fmt(
-                            tl!("Drag a box or click four corners · drag the corners onto the edges of a skewed shape · {commit} commits · Esc cancels"),
-                            &[("commit", &crate::shortcuts::pretty("Enter"))],
-                        ),
-                    ),
-                    Tool::PaintBucket => hint(ui, tl!("Click to fill similar colours")),
                     // Retouching and smart-selection tools draw their bar in `retouch_ui::options_bar`.
                     _ => {}
                 }
@@ -5521,9 +5468,6 @@ mod compact_visual_regressions {
                     crate::theme::install_fonts(&ctx);
                     crate::theme::apply(&ctx, kind);
                     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
-                    if !Tokens::get(&ctx).pro {
-                        continue;
-                    }
                     app.ui.tool = Tool::Crop;
                     app.ui.tool_options.crop_ratio = mode.into();
                     let screen = Rect::from_min_size(egui::Pos2::ZERO, vec2(1600.0, 120.0));
