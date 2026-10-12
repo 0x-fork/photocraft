@@ -481,6 +481,17 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     // brush keys [ ] ⇧[ ⇧] (`tools.decreaseBrushSize`…) are commands, dispatched above with any
     // Keyboard Shortcuts override.
     let pressed = |k: Key| ctx.input_mut(|i| i.consume_key(Modifiers::NONE, k));
+    // Remove tool with strokes waiting (Remove after each stroke off): ↩ applies them, Esc drops them.
+    if !app.remove_pending.is_empty() {
+        if pressed(Key::Enter) {
+            crate::retouch_ui::remove_pending_commit(app);
+            return;
+        }
+        if pressed(Key::Escape) {
+            crate::retouch_ui::remove_pending_cancel(app);
+            return;
+        }
+    }
     // Enter / Escape commit or cancel in-progress tool state (polygonal lasso, crop).
     if crate::lasso_ui::active(app) {
         let mods = ctx.input(|i| i.modifiers);

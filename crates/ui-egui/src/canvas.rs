@@ -4251,6 +4251,8 @@ fn draw_smoothing_string(painter: &egui::Painter, xf: &ViewXform, (brush, pointe
 
 fn draw_drag_preview(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewXform) {
     draw_tool_state(app, painter, xf, painter.ctx().input(|i| i.pointer.hover_pos()));
+    // Remove strokes waiting for ↩ stay tinted between drags.
+    crate::retouch_ui::draw_remove_pending(app, painter, xf);
     let Some(d) = &app.drag else {
         app.trail = None;
         return;

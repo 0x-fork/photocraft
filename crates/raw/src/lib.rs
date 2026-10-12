@@ -64,6 +64,7 @@ mod sensor;
 mod sony;
 mod tiff;
 mod tiffep;
+mod tone;
 
 #[cfg(feature = "testgen")]
 pub mod testgen;
@@ -76,6 +77,7 @@ pub use crate::look::{CameraLook, LookRejected, PROXY_EDGE, Reference, ToneCurve
 pub use crate::opcodes::GainMap;
 pub use crate::preview::{Preview, PreviewColorSpace, embedded_preview, embedded_preview_color_space, embedded_previews};
 pub use crate::sensor::{BlackLevels, Cfa, Rect, Sensor};
+pub use crate::tone::{Tone, retone};
 
 use crate::tiff::{Tiff, tag};
 

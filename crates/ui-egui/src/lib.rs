@@ -485,6 +485,11 @@ pub struct PhotocraftApp {
     committed_stroke: Option<canvas::CommittedStroke>,
     /// Footprint trail of a retouching drag (see `stroke_trail`).
     trail: Option<stroke_trail::Trail>,
+    /// Remove tool strokes waiting to be applied together (Remove after each stroke off), the
+    /// document they belong to, and their tint on the canvas (`retouch_ui`).
+    pub(crate) remove_pending: Vec<Vec<[f64; 3]>>,
+    pub(crate) remove_pending_doc: Option<photocraft_doc::DocId>,
+    pub(crate) remove_trail: Option<stroke_trail::Trail>,
     /// The open menus' items, reused between frames (`menus::ItemCache`).
     pub(crate) menu_cache: Option<menus::ItemCache>,
     /// Move tool drag shown live (`move_ui`).
@@ -710,6 +715,9 @@ impl PhotocraftApp {
             live_stroke: None,
             committed_stroke: None,
             trail: None,
+            remove_pending: Vec::new(),
+            remove_pending_doc: None,
+            remove_trail: None,
             menu_cache: None,
             move_preview: None,
             move_hover: None,

@@ -2657,3 +2657,6 @@ curves	Smooth	平滑
 	Light Red	浅红色
 	Medium Blue	中蓝色
 	Light Gray	浅灰色
+	Remove after each stroke	每次描边后移除
+	Apply the removal ({key})	应用移除 ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	待移除的描边：{n}（Enter 应用，Esc 取消）

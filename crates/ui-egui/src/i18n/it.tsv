@@ -4016,3 +4016,6 @@ navigator	Zoom	Zoom
 	{index} of {total}	{index} di {total}
 	{shortcut} assigned.	{shortcut} assegnata.
 	{shortcut} is already in use by {commands} and will be removed from it when you click OK.	{shortcut} è già usata da {commands} e verrà rimossa quando fai clic su OK.
+	Remove after each stroke	Rimuovi dopo ogni tratto
+	Apply the removal ({key})	Applica la rimozione ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Tratti da rimuovere: {n} (Invio applica, Esc annulla)

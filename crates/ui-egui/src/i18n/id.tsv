@@ -3040,3 +3040,6 @@ curves	Smooth	Haluskan
 	Light Red	Merah Terang
 	Medium Blue	Biru Sedang
 	Light Gray	Abu-abu Muda
+	Remove after each stroke	Hapus setelah setiap goresan
+	Apply the removal ({key})	Terapkan penghapusan ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Goresan untuk dihapus: {n} (Enter menerapkan, Esc membatalkan)

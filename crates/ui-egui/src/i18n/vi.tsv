@@ -3531,6 +3531,9 @@ curves	Smooth	Làm mượt
 	Stroke Path…	Đi nét đường dẫn…
 	Apply mask to layer before removing?	Áp dụng mặt nạ vào lớp trước khi xóa?
 	Delete the vector mask?	Xóa mặt nạ vectơ?
+	Remove after each stroke	Xóa sau mỗi nét vẽ
+	Apply the removal ({key})	Áp dụng việc xóa ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Nét vẽ cần xóa: {n} (Enter áp dụng, Esc hủy)
 
 # History panel › History Options… (#2966)
 	History Options…	Tùy chọn lịch sử…

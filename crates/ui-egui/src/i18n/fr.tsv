@@ -3053,3 +3053,6 @@ curves	Smooth	Lisser
 	Light Red	Rouge clair
 	Medium Blue	Bleu moyen
 	Light Gray	Gris clair
+	Remove after each stroke	Supprimer après chaque trait
+	Apply the removal ({key})	Appliquer la suppression ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Traits à supprimer : {n} (Entrée applique, Échap annule)

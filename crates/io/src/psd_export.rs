@@ -1356,6 +1356,13 @@ pub(crate) fn estimate_psd_size(doc: &Document) -> Option<u64> {
     estimate_encoded_size(raw_bytes, rows, structural_bytes)
 }
 
+/// The signature a kept tagged block is written with. `8B64` exists only in PSB files: a PSD
+/// with an `8B64` block (kept from a PSB source, e.g. its global `FMsk` or `cinf`) is refused by
+/// Photoshop as "not compatible with this version" (measured in Photoshop 27.11).
+fn block_signature(sig: [u8; 4], version: Version) -> [u8; 4] {
+    if version == Version::Psd && sig == *b"8B64" { *b"8BIM" } else { sig }
+}
+
 pub(crate) fn psd_version(doc: &Document, force_psb: bool, size_exceeds_limit: bool) -> Version {
     let exceeds_dimensions = doc.size.width > 30_000 || doc.size.height > 30_000;
     if force_psb || exceeds_dimensions || size_exceeds_limit { Version::Psb } else { Version::Psd }
@@ -1578,7 +1585,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
         if !ex.records.is_empty() && matches!(&key, b"Lr16" | b"Lr32" | b"Layr") {
             continue;
         }
-        global_blocks.push(global_block(sig, key, &data));
+        global_blocks.push(global_block(block_signature(sig, version), key, &data));
     }
     if let Some(txt2) = txt2 {
         let mut tb = TaggedBlock::new(*b"Txt2", txt2.clone());
@@ -1783,6 +1790,24 @@ mod tests {
         let small_size_exceeds_limit = psd_size_exceeds_limit(&small);
         assert_eq!(psd_version(&small, false, small_size_exceeds_limit), Version::Psd);
         assert_eq!(psd_version(&small, true, small_size_exceeds_limit), Version::Psb);
+    }
+    #[test]
+    fn kept_psb_blocks_are_written_as_8bim_in_a_psd() {
+        // Photoshop 27.11 refuses a PSD holding `8B64` blocks ("not compatible with this
+        // version"); they came from re-saving a PSB as PSD with its global FMsk and cinf kept.
+        let mut doc = document(4, 4);
+        doc.metadata.psd_global_blocks = vec![
+            (*b"8B64", *b"FMsk", std::sync::Arc::new(vec![0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0, 50])),
+            (*b"8BIM", *b"Patt", std::sync::Arc::new(Vec::new())),
+        ];
+        let signatures = |force_psb| {
+            let opts = PsdExportOptions { force_psb, ..PsdExportOptions::default() };
+            let bytes = document_to_psd_with(&doc, &opts).0.to_bytes().unwrap();
+            let file = PsdFile::from_bytes(&bytes).unwrap();
+            file.global_blocks.iter().map(|b| (b.signature, b.key)).collect::<Vec<_>>()
+        };
+        assert_eq!(signatures(false), vec![(*b"8BIM", *b"FMsk"), (*b"8BIM", *b"Patt")]);
+        assert_eq!(signatures(true), vec![(*b"8B64", *b"FMsk"), (*b"8BIM", *b"Patt")], "a PSB keeps 8B64");
     }
 
     /// A layered document with transparency in the merged image and an alpha channel: the name
