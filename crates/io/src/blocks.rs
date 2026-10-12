@@ -582,6 +582,22 @@ pub(crate) fn parse_prefix_versioned(data: &[u8]) -> Option<Descriptor> {
     VersionedDescriptor::parse_prefix(data).ok().map(|(v, _)| v.descriptor)
 }
 
+/// The source-space box Photoshop maps onto a placed layer's `Trnf` quad: the bounding box of a
+/// single-patch custom warp's 16 control points, which may spill past the source, else the source
+/// rect `0..w × 0..h`. Mapping the source rect instead counts the overhang twice and stretches the
+/// placement. A degenerate or non-finite box falls back to the source rect.
+pub(crate) fn placed_frame(warp: Option<&photocraft_geom::warp::Warp>, w: f64, h: f64) -> [f64; 4] {
+    let rect = [0.0, 0.0, w, h];
+    let Some(m) = warp.filter(|wp| wp.style == photocraft_geom::warp::WarpStyle::Custom).and_then(|wp| wp.mesh.as_ref()).filter(|m| m.points.len() == 16)
+    else {
+        return rect;
+    };
+    let inf = f64::INFINITY;
+    let b = m.points.iter().fold([inf, inf, -inf, -inf], |b, [x, y]| [b[0].min(*x), b[1].min(*y), b[2].max(*x), b[3].max(*y)]);
+    let ok = b.iter().all(|v| v.is_finite()) && b[2] - b[0] > 1e-9 && b[3] - b[1] > 1e-9;
+    if ok { b } else { rect }
+}
+
 /// Smart object identifier and transform from `SoLd`/`PlLd` (best effort).
 pub fn parse_smart(key: &[u8; 4], data: &[u8]) -> (String, Affine) {
     // SoLd: 'soLD' + version(4) + versioned descriptor.
@@ -596,7 +612,10 @@ pub fn parse_smart(key: &[u8; 4], data: &[u8]) -> (String, Affine) {
         let p: Vec<f64> = pts.iter().filter_map(|v| num(Some(v))).collect();
         let (w, h) = (num(sz.get("Wdth")).unwrap_or(0.0), num(sz.get("Hght")).unwrap_or(0.0));
         if p.len() == 8 && w > 0.0 && h > 0.0 {
-            affine = Affine { m: [(p[2] - p[0]) / w, (p[3] - p[1]) / w, (p[6] - p[0]) / h, (p[7] - p[1]) / h, p[0], p[1]] };
+            let [x0, y0, x1, y1] = placed_frame(parse_placed_warp(key, data).as_ref(), w, h);
+            let (bw, bh) = (x1 - x0, y1 - y0);
+            let (a, b, c, d) = ((p[2] - p[0]) / bw, (p[3] - p[1]) / bw, (p[6] - p[0]) / bh, (p[7] - p[1]) / bh);
+            affine = Affine { m: [a, b, c, d, p[0] - a * x0 - c * y0, p[1] - b * x0 - d * y0] };
         }
     }
     (id, affine)
@@ -897,6 +916,63 @@ mod more_tests {
         assert_eq!(id, "uuid-1");
         assert_eq!(a.m, [2.0, 0.0, 0.0, 2.0, 10.0, 20.0]);
         assert_eq!(parse_smart(b"PlLd", &data).0, "");
+    }
+
+    /// `SoLd` data with a 50 × 25 source, the quad `trnf` and, when given, a custom warp whose
+    /// 16 control points are `pts`.
+    fn sold_with_warp(trnf: [f64; 8], pts: Option<&[[f64; 2]]>) -> Vec<u8> {
+        use photocraft_psd::descriptor::ObjectArray;
+        let e = |t: &str, v: &str| Value::Enumerated { type_id: Id::new(t), value: Id::new(v) };
+        let mut d = Descriptor::new("null")
+            .with("Idnt", Value::Text(UnicodeString::new_nul("uuid-1")))
+            .with("Trnf", Value::List(trnf.map(Value::Double).to_vec()))
+            .with("Sz  ", Value::Descriptor(Descriptor::new("Pnt ").with("Wdth", Value::Double(50.0)).with("Hght", Value::Double(25.0))));
+        if let Some(pts) = pts {
+            let bounds = Descriptor::new("Rctn")
+                .with("Top ", Value::Double(0.0))
+                .with("Left", Value::Double(0.0))
+                .with("Btom", Value::Double(25.0))
+                .with("Rght", Value::Double(50.0));
+            let mesh = Descriptor::new("null")
+                .with("Hrzn", Value::UnitFloats { unit: *b"#Pxl", values: pts.iter().map(|p| p[0]).collect() })
+                .with("Vrtc", Value::UnitFloats { unit: *b"#Pxl", values: pts.iter().map(|p| p[1]).collect() });
+            let warp = Descriptor::new("warp").with("warpStyle", e("warpStyle", "warpCustom")).with("bounds", Value::Descriptor(bounds)).with(
+                "customEnvelopeWarp",
+                Value::Descriptor(Descriptor::new("customEnvelopeWarp").with("meshPoints", Value::ObjectArray(ObjectArray { prefix: 16, body: mesh }))),
+            );
+            d = d.with("warp", Value::Descriptor(warp));
+        }
+        let mut data = b"soLD".to_vec();
+        data.extend_from_slice(&4u32.to_be_bytes());
+        data.extend(VersionedDescriptor::new(d).to_bytes());
+        data
+    }
+
+    /// Photoshop's `Trnf` is the image of the custom warp's control-point bounding box, not of the
+    /// source rect: a mesh spilling to x = -10, y = -5 and x = 60 frames a 70 × 30 box.
+    #[test]
+    fn smart_transform_maps_the_warp_control_box_onto_the_quad() {
+        let mut pts = photocraft_geom::warp::BezierMesh::identity([0.0, 0.0, 50.0, 25.0], 1, 1).points;
+        pts[0] = [-10.0, -5.0];
+        pts[15] = [60.0, 25.0];
+        let quad = [100.0, 200.0, 240.0, 200.0, 240.0, 260.0, 100.0, 260.0];
+        let (_, a) = parse_smart(b"SoLd", &sold_with_warp(quad, Some(&pts)));
+        assert_eq!(a.m, [2.0, 0.0, 0.0, 2.0, 120.0, 210.0]);
+        // Without a warp the source rect is the frame, as before.
+        assert_eq!(parse_smart(b"SoLd", &sold_with_warp(quad, None)).1.m, [2.8, 0.0, 0.0, 2.4, 100.0, 200.0]);
+    }
+
+    /// A custom mesh with no area (every control point on one spot) can't frame the quad: the
+    /// source rect does, with no division by zero.
+    #[test]
+    fn smart_transform_with_a_degenerate_warp_box_uses_the_source_rect() {
+        let quad = [100.0, 200.0, 240.0, 200.0, 240.0, 260.0, 100.0, 260.0];
+        let (_, a) = parse_smart(b"SoLd", &sold_with_warp(quad, Some(&[[7.0, 7.0]; 16])));
+        assert_eq!(a.m, [2.8, 0.0, 0.0, 2.4, 100.0, 200.0]);
+        let mut warp = photocraft_geom::warp::Warp::preset(photocraft_geom::warp::WarpStyle::Custom, 0.0, [0.0, 0.0, 50.0, 25.0]);
+        warp.mesh = Some(photocraft_geom::warp::BezierMesh { us: vec![0.0, 1.0], vs: vec![0.0, 1.0], points: vec![[f64::NAN, 1.0]; 16] });
+        assert_eq!(placed_frame(Some(&warp), 50.0, 25.0), [0.0, 0.0, 50.0, 25.0]);
+        assert_eq!(placed_frame(None, 50.0, 25.0), [0.0, 0.0, 50.0, 25.0]);
     }
 
     #[test]

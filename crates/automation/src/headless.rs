@@ -96,13 +96,15 @@ impl Headless {
             st.source_read_only = o.source_read_only;
         }
         let d = &self.session.documents()[index];
+        let mut warnings = o.warnings;
+        warnings.extend(photocraft_engine::type_extra_cmds::missing_font_warnings(&d.doc));
         Ok(json!({
             "index": index,
             "name": d.doc.name,
             "width": d.doc.size.width,
             "height": d.doc.size.height,
             "layers": d.doc.layer_count(),
-            "warnings": o.warnings,
+            "warnings": warnings,
         }))
     }
 
@@ -240,7 +242,7 @@ impl Headless {
             }
         };
         let target_text = target.to_str().ok_or_else(|| AutomationError::BadRequest("automation paths must be valid UTF-8".into()))?;
-        let warnings = match &self.filesystem {
+        let mut warnings = match &self.filesystem {
             Filesystem::Denied => return Err(AutomationError::BadRequest("automation filesystem access is not granted: write authority is absent".into())),
             Filesystem::TrustedLocal => {
                 let writer = self.writers.entry(doc.id.0).or_default();
@@ -252,6 +254,7 @@ impl Headless {
                 warnings
             }
         };
+        warnings.extend(photocraft_engine::type_extra_cmds::missing_font_warnings(&doc));
         // A layered document save (PSD, PSB, OpenRaster or .pcraft) is a full write, not a flattened copy:
         // record the current revision as saved so the session stops reporting `dirty`, and make
         // the file the document's path. A flat export (PNG, JPEG, …) is a copy and leaves both
@@ -317,21 +320,7 @@ impl Headless {
     }
 
     pub fn command_list(&self) -> Value {
-        Value::Array(
-            command_specs()
-                .iter()
-                .map(|c| {
-                    json!({
-                        "id": c.id,
-                        "label": c.label,
-                        "menu": c.menu,
-                        "shortcut": c.shortcut,
-                        "params": c.params,
-                        "enabled": self.session.is_enabled(c.id),
-                    })
-                })
-                .collect(),
-        )
+        Value::Array(command_specs().iter().map(|c| photocraft_engine::commands::list_entry(&self.session, c, self.session.disabled_reason(c.id))).collect())
     }
 
     pub fn command_run(&mut self, id: &str, params: Value) -> Result<Value, AutomationError> {

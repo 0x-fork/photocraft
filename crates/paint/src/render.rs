@@ -108,6 +108,40 @@ pub fn mask_combine(mode: MaskMode, v: f32, t: f32, d: f32) -> f32 {
     r.clamp(0.0, 1.0)
 }
 
+/// How far a Height-mode dab at full depth and coverage reaches into the pattern, in pattern
+/// ranges (measured against Photoshop, #3340).
+const HEIGHT_REACH: f32 = 12.0;
+
+/// Combine brush coverage `v` with a Texture pattern value `t` at `depth` (Brush Settings ›
+/// Texture). Where it differs from [`mask_combine`] (still used for the Dual Brush) it follows
+/// Photoshop as measured with single dabs over a grey ramp (#3340):
+/// - Subtract takes `depth × t` away, so a white pattern removes the most paint.
+/// - Color Dodge and Color Burn move the pattern toward their neutral colour as depth falls.
+/// - Height treats the pattern as a height field the brush presses into: the paint reaches
+///   `12 × depth × v` and fills whatever lies below that, so a low depth paints only the dark
+///   valleys, from about 17 % the whole pattern is under the paint, and a brighter pattern
+///   takes paint away.
+/// - Linear Height is Height, but where the reach stays below the top of the pattern the paint
+///   fades with the pattern instead of being cut off.
+pub fn texture_combine(mode: MaskMode, v: f32, t: f32, d: f32) -> f32 {
+    if v <= 0.0 {
+        return 0.0;
+    }
+    let r = match mode {
+        MaskMode::Subtract => v - d * t,
+        MaskMode::ColorDodge => v / (1.0 - d * t).max(1e-3),
+        MaskMode::ColorBurn => 1.0 - (1.0 - v) / (1.0 - d + d * t).max(1e-3),
+        // Photoshop steps the depth in 1/255ths here, which shows at the lowest depths.
+        MaskMode::Height => HEIGHT_REACH * (d * 255.0).round() / 255.0 * v - t,
+        MaskMode::LinearHeight => {
+            let reach = HEIGHT_REACH * (d * 255.0).round() / 255.0 * v;
+            if reach < 1.0 { reach * (1.0 - t) } else { reach - t }
+        }
+        _ => mask_combine(mode, v, t, d),
+    };
+    if r.is_finite() { r.clamp(0.0, 1.0) } else { 0.0 }
+}
+
 /// A stroke-ready brush: the settings plus prepared tip mips and texture.
 #[derive(Clone, Debug)]
 pub struct BrushContext {
@@ -129,11 +163,8 @@ fn prepare_pattern(b: &BrushSettings) -> Option<Arc<PatternImage>> {
             _ => return None,
         },
     };
-    let (br, ct) = (t.brightness.clamp(-1.0, 1.0), t.contrast.clamp(-1.0, 1.0));
     for v in &mut img.data {
-        let mut x = (*v - 0.5) * (1.0 + ct) + 0.5 + br;
-        x = x.clamp(0.0, 1.0);
-        *v = if t.invert { 1.0 - x } else { x };
+        *v = t.level(*v);
     }
     Some(Arc::new(img))
 }
@@ -326,7 +357,7 @@ impl BrushContext {
                     val += (hard - val) * 0.7;
                 }
                 if tex_tip {
-                    val = mask_combine(b.texture.mode, val, self.texture_at(x, y), d.depth);
+                    val = texture_combine(b.texture.mode, val, self.texture_at(x, y), d.depth);
                 }
                 if wet {
                     val *= wet_factor(rn);
@@ -366,7 +397,7 @@ impl BrushContext {
             m = mask_combine(b.dual_brush.mode, m, dv, 1.0);
         }
         if self.texture.is_some() && !b.texture.each_tip {
-            m = mask_combine(b.texture.mode, m, self.texture_at(x, y), b.texture.depth.clamp(0.0, 1.0));
+            m = texture_combine(b.texture.mode, m, self.texture_at(x, y), b.texture.depth.clamp(0.0, 1.0));
         }
         m
     }

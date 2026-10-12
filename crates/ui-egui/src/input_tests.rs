@@ -564,6 +564,22 @@ fn eyedropper_and_alt_sampling_show_a_pipette() {
     assert_eq!(precise(&mut h), (egui::CursorIcon::Crosshair, desktop));
 }
 
+/// The Paint Bucket shows a bucket instead of the crosshair (#3968); Precise Other Cursors keeps
+/// the crosshair.
+#[test]
+fn paint_bucket_shows_a_bucket_cursor() {
+    let mut h = harness();
+    let p = h.state().last_canvas_rect.center();
+    h.state_mut().ui.tool = crate::state::Tool::PaintBucket;
+    h.hover_at(p);
+    h.run_steps(2);
+    assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::None, "the bucket replaces the pointer");
+    h.state_mut().run("prefs.set", json!({"values": {"cursors.other": "precise"}})).unwrap();
+    h.hover_at(p);
+    h.run_steps(2);
+    assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::Crosshair, "Precise keeps the crosshair");
+}
+
 /// The Hand tool, and Space held over another tool, show an open hand while hovering and a fist
 /// while they pan (#2196). The OS draws those everywhere but Windows, where winit maps `Grab` to
 /// the four-arrow move cursor, so the app hands it a bitmap there (`Crosshair` is the fallback).
