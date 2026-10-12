@@ -383,6 +383,7 @@
 	Select Linked Layers	Selecionar camadas vinculadas
 	Merge Layers	Mesclar camadas
 	Merge Down	Mesclar para baixo
+	Merge Group	Mesclar grupo
 	Merge Visible	Mesclar visíveis
 	Stamp Visible	Carimbar visíveis
 	Stamp Down	Carimbar para baixo
@@ -3832,3 +3833,11 @@ layerLabel	No Color	Sem cor
 @plural	{n} step|{n} steps	{n} etapa|{n} etapas
 @plural	{warning} (+{n} more brush preset warning)|{warning} (+{n} more brush preset warnings)	{warning} (+{n} outro aviso de predefinição de pincel)|{warning} (+{n} outros avisos de predefinição de pincel)
 @plural	{what} with {n} warning|{what} with {n} warnings	{what} com {n} aviso|{what} com {n} avisos
+# View › Guides › New Guide… › Color
+	Light Blue	Azul-claro
+	Light Red	Vermelho-claro
+	Medium Blue	Azul médio
+	Light Gray	Cinza-claro
+	Remove after each stroke	Remover após cada traço
+	Apply the removal ({key})	Aplicar a remoção ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Traços a remover: {n} (Enter aplica, Esc cancela)

@@ -642,10 +642,97 @@ pub(crate) fn free_transform_path(app: &PhotocraftApp) -> Option<(Value, Path)> 
     Some((params, path))
 }
 
+fn point_in_subpath(sp: &photocraft_doc::vector::Subpath, pt: [f64; 2]) -> bool {
+    if !sp.closed || sp.knots.len() < 3 {
+        return false;
+    }
+    let mut inside = false;
+    let n = sp.knots.len();
+    for i in 0..n {
+        let j = (i + 1) % n;
+        let xi = sp.knots[i].anchor.x;
+        let yi = sp.knots[i].anchor.y;
+        let xj = sp.knots[j].anchor.x;
+        let yj = sp.knots[j].anchor.y;
+        let intersect = ((yi > pt[1]) != (yj > pt[1])) && (pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi);
+        if intersect {
+            inside = !inside;
+        }
+    }
+    inside
+}
+
+/// The topmost visible shape layer under `at` (document coordinates):
+/// hits the shape path or anchor within `tol`, or any non-transparent pixel of the shape's raster surface,
+/// or point inside the shape's filled geometry.
+pub fn pick_shape_at(doc: &Document, at: [f64; 2], tol: f64) -> Option<photocraft_doc::LayerId> {
+    let (x, y) = (at[0].floor() as i32, at[1].floor() as i32);
+    for (path, _, l) in doc.walk().iter().rev() {
+        if !l.visible || !(1..=path.len()).all(|n| doc.layer_at(&path[..n]).is_some_and(|a| a.visible)) {
+            continue;
+        }
+        let board = path.first().and_then(|i| doc.layers.get(*i)).and_then(|t| t.artboard());
+        if board.is_some_and(|a| !a.rect.contains(x, y)) {
+            continue;
+        }
+        if let LayerContent::Shape(sh) = &l.content {
+            if photocraft_vector::edit::hit(&sh.path, photocraft_geom::Point::new(at[0], at[1]), tol, &[]).is_some() {
+                return Some(l.id);
+            }
+            if sh.fill.is_some() {
+                if let Some(surf) = l.surface() {
+                    let mut px = [[0.0f32; 4]; 1];
+                    surf.read_rgba_into(photocraft_doc::Rect::from_xywh(x, y, 1, 1), &mut px);
+                    if px[0][3] > 0.0 {
+                        return Some(l.id);
+                    }
+                }
+                if let Some(photocraft_doc::LiveShape::Rect { rect, .. }) = &sh.live {
+                    let x0 = rect[0].min(rect[0] + rect[2]);
+                    let x1 = rect[0].max(rect[0] + rect[2]);
+                    let y0 = rect[1].min(rect[1] + rect[3]);
+                    let y1 = rect[1].max(rect[1] + rect[3]);
+                    if at[0] >= x0 && at[0] <= x1 && at[1] >= y0 && at[1] <= y1 {
+                        return Some(l.id);
+                    }
+                }
+                if let Some(photocraft_doc::LiveShape::Ellipse { rect }) = &sh.live {
+                    let rx = rect[2].abs() / 2.0;
+                    let ry = rect[3].abs() / 2.0;
+                    if rx > 1e-6 && ry > 1e-6 {
+                        let cx = rect[0] + rect[2] / 2.0;
+                        let cy = rect[1] + rect[3] / 2.0;
+                        let dx = (at[0] - cx) / rx;
+                        let dy = (at[1] - cy) / ry;
+                        if dx * dx + dy * dy <= 1.0 {
+                            return Some(l.id);
+                        }
+                    }
+                }
+                if sh.path.subpaths.iter().any(|sp| point_in_subpath(sp, at)) {
+                    return Some(l.id);
+                }
+            }
+        }
+    }
+    None
+}
+
 pub fn path_selection_finish(app: &mut PhotocraftApp, start: [f64; 2], end: [f64; 2]) {
     let (dx, dy) = (end[0] - start[0], end[1] - start[1]);
+    let tol = 6.0 / f64::from(app.point_zoom().max(0.01));
     if dx.abs() + dy.abs() < 0.5 {
+        let Some(st) = app.session.active() else { return };
+        if let Some(id) = pick_shape_at(&st.doc, start, tol) {
+            let _ = app.run("layer.select", json!({"layer": id.0}));
+        }
         return;
+    }
+    if target_path(app).is_none() {
+        let Some(st) = app.session.active() else { return };
+        if let Some(id) = pick_shape_at(&st.doc, start, tol) {
+            let _ = app.run("layer.select", json!({"layer": id.0}));
+        }
     }
     let Some((target, path)) = target_path(app) else { return };
     let _ = match target {
@@ -826,11 +913,12 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
         ui.label(egui::RichText::new(s).color(t.text_dim).size(12.0));
     };
     let o = &mut app.ui.tool_options;
-    if tool == Tool::PathSelection {
+    let target = selected_shape(&app.session);
+    if tool == Tool::PathSelection && target.is_none() {
         lbl(ui, if app.ui.vector_mask_target { "Drag to move the targeted vector mask" } else { tl!("Drag to move the active shape's path or the Work Path") });
         return true;
     }
-    if tool == Tool::DirectSelection {
+    if tool == Tool::DirectSelection && target.is_none() {
         let (shift, alt) = (crate::shortcuts::pretty("Shift"), crate::shortcuts::pretty("Alt"));
         lbl(
             ui,
@@ -893,7 +981,6 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
     crate::widgets::dropdown(ui, "shape-mode", &mut mode, &[("shape".to_string(), tl!("Shape"))], 80.0);
     crate::widgets::vline(ui, 22.0);
     // Fill and Stroke edit the selected shape layer too (#3347), and still set the next shape's.
-    let target = selected_shape(&app.session);
     let (fg, bg) = (app.session.tools.foreground, app.session.tools.background);
     let (mut has_fill, fill, stroke) = match &target {
         Some(s) => (s.fill.is_some(), s.fill.clone(), s.stroke.clone()),
@@ -936,7 +1023,15 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
         Tool::Rectangle => {
             crate::widgets::vline(ui, 22.0);
             lbl(ui, tl!("Radius:"));
-            crate::widgets::value_field(ui, &mut o.corner_radius, 0.0..=10000.0, "px", 62.0);
+            let mut r = match target.as_ref().and_then(|s| s.live.as_ref()) {
+                Some(photocraft_doc::LiveShape::Rect { radii, .. }) => radii[0] as f32,
+                _ => o.corner_radius,
+            };
+            if crate::widgets::value_field(ui, &mut r, 0.0..=10000.0, "px", 62.0).changed() {
+                o.corner_radius = r;
+                let rf = r as f64;
+                edit = Some(json!({"radii": [rf, rf, rf, rf], "coalesce": key("radius")}));
+            }
         }
         Tool::Polygon => {
             crate::widgets::vline(ui, 22.0);
@@ -954,6 +1049,18 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
         Tool::CustomShape => {
             crate::widgets::vline(ui, 22.0);
             crate::preset_panels::shape_picker(app, ui);
+        }
+        _ if matches!(tool, Tool::PathSelection | Tool::DirectSelection) => {
+            if let Some(photocraft_doc::LiveShape::Rect { radii, .. }) = target.as_ref().and_then(|s| s.live.as_ref()) {
+                crate::widgets::vline(ui, 22.0);
+                lbl(ui, tl!("Radius:"));
+                let mut r = radii[0] as f32;
+                if crate::widgets::value_field(ui, &mut r, 0.0..=10000.0, "px", 62.0).changed() {
+                    o.corner_radius = r;
+                    let rf = r as f64;
+                    edit = Some(json!({"radii": [rf, rf, rf, rf], "coalesce": key("radius")}));
+                }
+            }
         }
         _ => {}
     }
@@ -986,13 +1093,14 @@ struct SelectedShape {
     layer: photocraft_doc::LayerId,
     fill: Option<photocraft_doc::Fill>,
     stroke: Option<photocraft_doc::ShapeStroke>,
+    live: Option<photocraft_doc::LiveShape>,
 }
 
 fn selected_shape(session: &photocraft_engine::Session) -> Option<SelectedShape> {
     let st = session.active()?;
     let layer = st.active_layer?;
     match &st.doc.layer(layer)?.content {
-        LayerContent::Shape(sh) => Some(SelectedShape { doc: st.doc.id, layer, fill: sh.fill.clone(), stroke: sh.stroke.clone() }),
+        LayerContent::Shape(sh) => Some(SelectedShape { doc: st.doc.id, layer, fill: sh.fill.clone(), stroke: sh.stroke.clone(), live: sh.live.clone() }),
         _ => None,
     }
 }
@@ -1193,7 +1301,8 @@ pub fn shape_properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, id: photocra
     let gesture = paint_gesture(ui, gesture_key);
     let coalesce = |field: &str| format!("{}:{}:{gesture}", key(field), gesture_key.value());
     // The shared collapsible section headers (#155).
-    if crate::props_layout::section(ui, "appearance", tl!("Appearance")) {
+    // Prefs "Appearance" is theme chrome (Giao diện); shape fill/stroke is Diện mạo.
+    if crate::props_layout::section(ui, "appearance", crate::i18n::tr_ctx(crate::i18n::current(), "shape", "Appearance")) {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(tl!("Fill")).color(t.text_dim).size(12.0));
             if let Some(change) = swatch(ui, sh.fill.as_ref(), app.session.tools.foreground, tl!("Set shape fill type")) {
@@ -2134,6 +2243,65 @@ mod tests {
         h.run_steps(2);
         click_fill(&mut h);
         assert_eq!(h.state().session.active().unwrap().history.past_len(), history);
+    }
+
+    /// #3915: Path Selection and Direct Selection options bars show Fill, Stroke, and Radius
+    /// controls when a shape is selected, and editing them edits the selected shape.
+    #[test]
+    fn path_selection_options_bar_edits_the_selected_shape() {
+        use egui::accesskit::Role;
+        use egui_kittest::kittest::Queryable;
+        let mut app = app();
+        app.run("tools.setColors", json!({"foreground": "#ff0000", "background": "#0000ff"})).unwrap();
+        finish_shape(&mut app, Tool::Rectangle, [20.0, 20.0], [120.0, 100.0], Default::default());
+        let shape = |app: &PhotocraftApp| {
+            let st = app.session.active().unwrap();
+            match &st.doc.layer(st.active_layer.unwrap()).unwrap().content {
+                LayerContent::Shape(sh) => (sh.fill.clone(), sh.stroke.clone()),
+                _ => panic!("not a shape layer"),
+            }
+        };
+        assert!(shape(&app).0.is_some() && shape(&app).1.is_none());
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1100.0, 48.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                    ui.horizontal_centered(|ui| options_bar(app, ui, Tool::PathSelection));
+                }
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(4);
+        let click_fill = |h: &mut egui_kittest::Harness<'_, PhotocraftApp>| {
+            let label = h.query_all(egui_kittest::kittest::by().label("Fill:").include_labels()).next().expect("the Fill label").rect();
+            let at = egui::pos2(label.right() + h.ctx.global_style().spacing.item_spacing.x + 7.0, label.center().y);
+            h.hover_at(at);
+            h.step();
+            for pressed in [true, false] {
+                h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+                h.step();
+            }
+            h.run_steps(2);
+        };
+        // Stroke width field is available on Path Selection bar too.
+        h.get_all_by_role(Role::SpinButton).next().expect("the stroke width").click();
+        h.run();
+        for c in "6".chars() {
+            h.event(egui::Event::Text(c.to_string()));
+            h.run();
+        }
+        h.key_press(egui::Key::Enter);
+        h.run_steps(2);
+        let stroke = shape(h.state()).1.expect("the width field stroked the shape");
+        assert_eq!(stroke.width, 6.0);
+        assert_eq!(stroke.paint, photocraft_doc::Fill::Solid(photocraft_doc::Color::rgba(0.0, 0.0, 1.0, 1.0)));
+        // Fill toggle.
+        click_fill(&mut h);
+        assert_eq!(shape(h.state()).0, None, "unchecking Fill removed the shape's fill");
+        // No shape selected: renders hint text instead.
+        h.state_mut().run("layer.new.layer", json!({})).unwrap();
+        h.run_steps(2);
+        assert!(h.query_all(egui_kittest::kittest::by().label("Fill:").include_labels()).next().is_none());
     }
 }
 

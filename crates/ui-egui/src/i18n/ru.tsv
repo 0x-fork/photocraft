@@ -1897,6 +1897,7 @@
 	Lock Layers…	Заблокировать слои…
 	Mean	Среднее
 	Merge Down	Выполнить сведение
+	Merge Group	Объединить группу
 	Merge Layers	Объединить слои
 	Merge Shape Components	Объединить компоненты фигуры
 	Merge Visible	Свести видимые
@@ -2987,3 +2988,11 @@ curves	Smooth	Сгладить
 @plural	{n} step|{n} steps	{n} шаг|{n} шага|{n} шагов
 @plural	{warning} (+{n} more brush preset warning)|{warning} (+{n} more brush preset warnings)	{warning} (и ещё {n} предупреждение о наборах кистей)|{warning} (и ещё {n} предупреждения о наборах кистей)|{warning} (и ещё {n} предупреждений о наборах кистей)
 @plural	{what} with {n} warning|{what} with {n} warnings	{what}: {n} предупреждение|{what}: {n} предупреждения|{what}: {n} предупреждений
+# View › Guides › New Guide… › Color
+	Light Blue	Светло-синий
+	Light Red	Светло-красный
+	Medium Blue	Средне-синий
+	Light Gray	Светло-серый
+	Remove after each stroke	Удалять после каждого штриха
+	Apply the removal ({key})	Применить удаление ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Штрихов к удалению: {n} (Enter применяет, Esc отменяет)

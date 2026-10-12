@@ -255,10 +255,14 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         fields.insert("__note".into(), Value::String(crate::monitor_status::note(app)));
                     }
                     // Long parameter lists (Flame, Lighting Effects) scroll, so the title and the
-                    // OK / Cancel buttons stay inside a small window.
-                    let room = (ctx.content_rect().height() - DIALOG_CHROME).max(120.0);
+                    // OK / Cancel buttons stay inside a small window. The preview window below the
+                    // parameters reserves its own space (#3769).
+                    let room = (ctx.content_rect().height() - DIALOG_CHROME - crate::filter_preview_ui::reserved_height(&fields)).max(120.0);
                     let body = |ui: &mut egui::Ui, fields: &mut serde_json::Map<String, Value>| {
                         egui::ScrollArea::vertical().id_salt(id.with("body")).max_height(room).show(ui, |ui| crate::filter_dialog::body(ui, fields));
+                        // The in-dialog preview window sits under the scrolling parameters (#3769),
+                        // so it never shifts them.
+                        crate::filter_preview_ui::window(app, d.id, ui, fields);
                     };
                     // Select and Mask leaves the keyboard to its view keys (F, X, O, V…).
                     if crate::select_mask_view::owns(&fields) {
@@ -267,6 +271,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         first_field_focused(ui, id, |ui| body(ui, &mut fields));
                     }
                 }
+                DialogKind::Command if crate::new_guide_ui::owns(&fields) => crate::new_guide_ui::body(ui, &mut fields),
                 DialogKind::Command if fields.contains_key("__form") => crate::view_cmds::form_body(ui, &mut fields),
                 DialogKind::Command => {}
                 DialogKind::LayerStyle => crate::layer_style::body(app, ui, &mut fields),
@@ -490,6 +495,7 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
         DialogKind::Command if crate::crop_presets::owns(&d.fields) => crate::crop_presets::confirm(app, &d.fields),
         DialogKind::Command if crate::variables_ui::owns(&d.fields) => crate::variables_ui::confirm(app, &d.fields),
         DialogKind::Command if crate::file_ui::owns(&d.fields) => crate::file_ui::confirm(app, &d.fields),
+        DialogKind::Command if crate::new_guide_ui::owns(&d.fields) => crate::new_guide_ui::confirm(app, &d.fields),
         DialogKind::Command if crate::color_picker_ui::owns(&d.fields) => crate::color_picker_ui::confirm(app, &d.fields),
         DialogKind::Command if crate::color_range_ui::owns(&d.fields) => crate::color_range_ui::confirm(app, &d.fields),
         DialogKind::Command if crate::prefs_ui::owns(&d.fields) => crate::prefs_ui::confirm(app, &d.fields),

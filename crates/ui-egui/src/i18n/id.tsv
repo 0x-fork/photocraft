@@ -380,6 +380,7 @@
 	Select Linked Layers	Pilih Layer Tertaut
 	Merge Layers	Gabungkan Layer
 	Merge Down	Gabung ke Bawah
+	Merge Group	Gabungkan Grup
 	Merge Visible	Gabung yang Terlihat
 	Stamp Visible	Stamp yang Terlihat
 	Stamp Down	Stamp ke Bawah
@@ -3030,3 +3031,11 @@ curves	Smooth	Haluskan
 	Apply mask to layer before removing?	Terapkan masker ke layer sebelum dihapus?
 	The layer or its mask changed. Drag the mask onto the Trash again.	Layer atau maskernya berubah. Seret masker ke Tempat Sampah lagi.
 	Delete the vector mask?	Hapus masker vektor?
+# View › Guides › New Guide… › Color
+	Light Blue	Biru Muda
+	Light Red	Merah Terang
+	Medium Blue	Biru Sedang
+	Light Gray	Abu-abu Muda
+	Remove after each stroke	Hapus setelah setiap goresan
+	Apply the removal ({key})	Terapkan penghapusan ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Goresan untuk dihapus: {n} (Enter menerapkan, Esc membatalkan)

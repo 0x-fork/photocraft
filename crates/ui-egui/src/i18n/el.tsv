@@ -1838,6 +1838,7 @@
 	New Guide Layout…	Νέα διάταξη οδηγών…
 	New Guides From Shape	Νέοι οδηγοί από σχήμα
 	Merge Down	Συγχώνευση με το υποκείμενο επίπεδο
+	Merge Group	Συγχώνευση ομάδας
 	Stamp Visible	Συνένωση ορατών σε νέο επίπεδο
 	Select Layer Above	Επιλογή επάνω επιπέδου
 	Select Layer Below	Επιλογή κάτω επιπέδου
@@ -3740,3 +3741,11 @@ curves	Smooth	Εξομάλυνση
 @plural	{n} step|{n} steps	{n} βήμα|{n} βήματα
 @plural	{warning} (+{n} more brush preset warning)|{warning} (+{n} more brush preset warnings)	{warning} (+{n} ακόμη προειδοποίηση προεπιλογών πινέλων)|{warning} (+{n} ακόμη προειδοποιήσεις προεπιλογών πινέλων)
 @plural	{what} with {n} warning|{what} with {n} warnings	{what} με {n} προειδοποίηση|{what} με {n} προειδοποιήσεις
+# View › Guides › New Guide… › Color
+	Light Blue	Ανοιχτό μπλε
+	Light Red	Ανοιχτό κόκκινο
+	Medium Blue	Μεσαίο μπλε
+	Light Gray	Ανοιχτό γκρι
+	Remove after each stroke	Αφαίρεση μετά από κάθε πινελιά
+	Apply the removal ({key})	Εφαρμογή της αφαίρεσης ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Πινελιές προς αφαίρεση: {n} (Enter εφαρμόζει, Esc ακυρώνει)

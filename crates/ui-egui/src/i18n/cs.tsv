@@ -398,6 +398,7 @@
 	Select Linked Layers	Vybrat propojené vrstvy
 	Merge Layers	Sloučit vrstvy
 	Merge Down	Sloučit dolů
+	Merge Group	Sloučit skupinu
 	Merge Visible	Sloučit viditelné
 	Stamp Visible	Otisknout viditelné
 	Select Layer Above	Vybrat vrstvu nad
@@ -3657,3 +3658,10 @@ navigator	Zoom	Zvětšení
 	Apply mask to layer before removing?	Použít masku na vrstvu před odstraněním?
 	The layer or its mask changed. Drag the mask onto the Trash again.	Vrstva nebo její maska se změnila. Přetáhněte masku do koše znovu.
 	Delete the vector mask?	Odstranit vektorovou masku?
+# View › Guides › New Guide… › Color
+	Light Blue	Světle modrá
+	Light Red	Světle červená
+	Medium Blue	Středně modrá
+	Remove after each stroke	Odstranit po každém tahu
+	Apply the removal ({key})	Použít odstranění ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Tahy k odstranění: {n} (Enter použije, Esc zruší)

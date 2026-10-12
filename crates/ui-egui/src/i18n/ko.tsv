@@ -375,6 +375,7 @@
 	Select Linked Layers	연결된 레이어 선택
 	Merge Layers	레이어 병합
 	Merge Down	아래 레이어와 병합
+	Merge Group	그룹 병합
 	Merge Visible	보이는 레이어 병합
 	Stamp Visible	보이는 레이어의 병합 사본 만들기
 	Select Layer Above	위 레이어 선택
@@ -3212,3 +3213,11 @@ curves	Smooth	매끄럽게
 	Apply mask to layer before removing?	제거하기 전에 마스크를 레이어에 적용하시겠습니까?
 	The layer or its mask changed. Drag the mask onto the Trash again.	레이어 또는 마스크가 변경되었습니다. 마스크를 휴지통으로 다시 드래그하세요.
 	Delete the vector mask?	벡터 마스크를 삭제하시겠습니까?
+# View › Guides › New Guide… › Color
+	Light Blue	연한 파랑
+	Light Red	연한 빨강
+	Medium Blue	중간 파랑
+	Light Gray	연한 회색
+	Remove after each stroke	획마다 제거
+	Apply the removal ({key})	제거 적용 ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	제거할 획: {n} (Enter 적용, Esc 취소)

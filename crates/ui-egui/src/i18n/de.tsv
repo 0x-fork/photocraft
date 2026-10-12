@@ -394,6 +394,7 @@
 	Select Linked Layers	Verknüpfte Ebenen auswählen
 	Merge Layers	Ebenen zusammenfügen
 	Merge Down	Nach unten zusammenfügen
+	Merge Group	Gruppe zusammenfügen
 	Merge Visible	Sichtbare zusammenfügen
 	Stamp Visible	Sichtbare Ebenen stempeln
 	Select Layer Above	Ebene darüber auswählen
@@ -2682,3 +2683,11 @@ curves	Smooth	Glätten
 @plural	{n} step|{n} steps	{n} Schritt|{n} Schritte
 @plural	{warning} (+{n} more brush preset warning)|{warning} (+{n} more brush preset warnings)	{warning} (+{n} weitere Pinselvorgaben-Warnung)|{warning} (+{n} weitere Pinselvorgaben-Warnungen)
 @plural	{what} with {n} warning|{what} with {n} warnings	{what} mit {n} Warnung|{what} mit {n} Warnungen
+# View › Guides › New Guide… › Color
+	Light Blue	Hellblau
+	Light Red	Hellrot
+	Medium Blue	Mittelblau
+	Light Gray	Hellgrau
+	Remove after each stroke	Nach jedem Strich entfernen
+	Apply the removal ({key})	Entfernen anwenden ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Striche zum Entfernen: {n} (Eingabe wendet an, Esc bricht ab)

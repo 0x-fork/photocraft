@@ -391,6 +391,7 @@
 	Select Linked Layers	Seleccionar capas vinculadas
 	Merge Layers	Combinar capas
 	Merge Down	Combinar hacia abajo
+	Merge Group	Combinar grupo
 	Merge Visible	Combinar visibles
 	Stamp Visible	Sellar visibles
 	Select Layer Above	Seleccionar la capa de arriba
@@ -2723,3 +2724,11 @@ curves	Smooth	Suavizar
 @plural	{n} step|{n} steps	{n} paso|{n} pasos
 @plural	{warning} (+{n} more brush preset warning)|{warning} (+{n} more brush preset warnings)	{warning} (+{n} advertencia más de ajustes preestablecidos de pincel)|{warning} (+{n} advertencias más de ajustes preestablecidos de pincel)
 @plural	{what} with {n} warning|{what} with {n} warnings	{what} con {n} advertencia|{what} con {n} advertencias
+# View › Guides › New Guide… › Color
+	Light Blue	Azul claro
+	Light Red	Rojo claro
+	Medium Blue	Azul medio
+	Light Gray	Gris claro
+	Remove after each stroke	Eliminar después de cada trazo
+	Apply the removal ({key})	Aplicar la eliminación ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Trazos por eliminar: {n} (Intro aplica, Esc cancela)

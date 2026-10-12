@@ -613,3 +613,13 @@ fn ruler_units_round_to_their_own_decimal_places() {
     let r = super::UnitsAndRulers { rulers: Unit::Inches, ..Default::default() };
     assert_eq!(r.format(100.0, 300.0, 1500.0), "0.333");
 }
+
+/// #3296: like Photoshop, "Use Shift Key for Tool Switch" is on by default; a stored choice wins.
+#[test]
+fn shift_key_tool_switch_is_on_by_default_and_a_stored_false_is_kept() {
+    assert!(Preferences::default().tools.use_shift_key_for_tool_switch);
+    let missing: Tools = serde_json::from_value(json!({"showTooltips": false})).unwrap();
+    assert!(missing.use_shift_key_for_tool_switch, "a settings file without the key gets the new default");
+    let stored: Tools = serde_json::from_value(json!({"useShiftKeyForToolSwitch": false})).unwrap();
+    assert!(!stored.use_shift_key_for_tool_switch);
+}

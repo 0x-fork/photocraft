@@ -579,6 +579,7 @@ mod tests {
             ("el", "el.tsv"),
             ("uk", "uk.tsv"),
             ("nl", "nl.tsv"),
+            ("vi", "vi.tsv"),
         ] {
             let catalog_path = root.join("crates/ui-egui/src/i18n").join(path);
             let text = fs::read_to_string(&catalog_path).unwrap_or_default();

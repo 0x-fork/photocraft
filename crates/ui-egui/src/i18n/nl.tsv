@@ -383,6 +383,7 @@
 	Select Linked Layers	Gekoppelde lagen selecteren
 	Merge Layers	Lagen samenvoegen
 	Merge Down	Omlaag samenvoegen
+	Merge Group	Groep samenvoegen
 	Merge Visible	Zichtbare samenvoegen
 	Stamp Visible	Zichtbare stempelen
 	Select Layer Above	Laag erboven selecteren
@@ -3802,3 +3803,11 @@ curves	Smooth	Vloeiend maken
 @plural	{n} step|{n} steps	{n} stap|{n} stappen
 @plural	{warning} (+{n} more brush preset warning)|{warning} (+{n} more brush preset warnings)	{warning} (+{n} andere waarschuwing over penseelvoorinstellingen)|{warning} (+{n} andere waarschuwingen over penseelvoorinstellingen)
 @plural	{what} with {n} warning|{what} with {n} warnings	{what} met {n} waarschuwing|{what} met {n} waarschuwingen
+# View › Guides › New Guide… › Color
+	Light Blue	Lichtblauw
+	Light Red	Lichtrood
+	Medium Blue	Middelblauw
+	Light Gray	Lichtgrijs
+	Remove after each stroke	Verwijderen na elke streek
+	Apply the removal ({key})	Verwijdering toepassen ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Streken om te verwijderen: {n} (Enter past toe, Esc annuleert)

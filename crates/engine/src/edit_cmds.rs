@@ -82,7 +82,7 @@ fn whole_layers(d: &crate::DocState, ids: &[LayerId]) -> Option<Box<Document>> {
     let mut copies = scratch_doc(&d.doc);
     for id in ids {
         let mut l = d.doc.layer(*id)?.clone();
-        if crate::extra_cmds::is_background(&l) {
+        if d.doc.is_background(*id) {
             l.name = "Layer 0".into();
             l.locks = Default::default();
         }
@@ -277,7 +277,8 @@ fn clear_selected(doc: &mut Document, id: LayerId, background: [f32; 4]) -> Resu
 /// Cut / Clear on a layer: makes the selected pixels transparent. The Background can't hold
 /// transparency, so there the area is filled with the background colour instead (Photoshop).
 pub(crate) fn clear_area(doc: &mut Document, id: LayerId, area: Rect, sel: Option<&Surface>, background: [f32; 4]) -> Result<()> {
-    let bg = crate::extra_cmds::is_background(doc.layer(id).ok_or(EngineError::NoLayer(id))?);
+    doc.layer(id).ok_or(EngineError::NoLayer(id))?;
+    let bg = doc.is_background(id);
     let surf = crate::commands::paint_surface(doc, id, &Value::Null)?;
     if bg {
         crate::pixels::try_fill_surface(surf, area, background, sel, true)?;
@@ -461,7 +462,7 @@ fn merge_visible(s: &mut Session) -> Result<Value> {
         }
         let lowest = visible[0];
         let base = doc.layers[lowest].clone();
-        let is_background = base.name == "Background" && base.locks.transparency;
+        let is_background = lowest == 0 && doc.is_background(base.id);
         // Composite of visible layers only (hidden ones stay where they are).
         let mut solo = doc.clone();
         solo.layers.retain(|l| l.visible);
@@ -675,10 +676,65 @@ fn transform_again_params(s: &Session) -> Result<Value> {
     Ok(p)
 }
 
+/// Guides further than this from the canvas origin are refused: far past any document (300000 px)
+/// yet well within f32 precision.
+const MAX_GUIDE_PX: f64 = 1_000_000.0;
+
+/// A guide `position` in document pixels: a number of pixels, or text with a unit as in Photoshop's
+/// New Guide dialog ("50%", "2.5 cm", "12 pt"). Percent is of the document's width for a vertical
+/// guide and its height for a horizontal one; points and picas follow Units & Rulers › Point Size.
+/// `None` when there is no `position`.
+fn guide_position(s: &Session, p: &Value, vertical: bool) -> Result<Option<f64>> {
+    let Some(v) = p.get("position") else { return Ok(None) };
+    let px = match (v.as_f64(), v.as_str()) {
+        (Some(n), _) => n,
+        (None, Some(text)) => {
+            let (n, unit) = crate::prefs::Unit::parse_length(text).ok_or_else(|| {
+                EngineError::Other(format!("`position` {text:?} is not a length: give a number of pixels, or a number with px, in, cm, mm, pt, pc or %"))
+            })?;
+            let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
+            let extent = if vertical { doc.size.width } else { doc.size.height };
+            unit.unwrap_or(crate::prefs::Unit::Pixels).to_px(n, doc.resolution_dpi as f64, extent as f64, s.prefs().units_and_rulers.point_size.per_inch())
+        }
+        _ => return Err(EngineError::Other("`position` must be a number of pixels or text with a unit".into())),
+    };
+    if !px.is_finite() || px.abs() > MAX_GUIDE_PX {
+        return Err(EngineError::Other(format!("`position` is out of range (at most {MAX_GUIDE_PX} px from the canvas origin)")));
+    }
+    Ok(Some(px))
+}
+
+/// Photoshop's guide colours, in its order, by the names `view.newGuide` takes: New Guide's and
+/// New Guide Layout's Color lists. Cyan (the default guide colour in Preferences, so a guide
+/// dragged from a ruler reads as Cyan), Magenta and Yellow are the values New Guide Layout first
+/// shipped with; the rest approximate Photoshop's on screen, rounded to web-safe steps.
+pub const GUIDE_COLORS: [(&str, [u8; 3]); 9] = [
+    ("lightBlue", [0x33, 0x66, 0xff]),
+    ("lightRed", [0xff, 0x33, 0x33]),
+    ("green", [0x33, 0xff, 0x33]),
+    ("mediumBlue", [0x33, 0x33, 0xff]),
+    ("yellow", [0xff, 0xcc, 0x00]),
+    ("magenta", [0xff, 0x00, 0xff]),
+    ("cyan", [0x4a, 0xff, 0xff]),
+    ("lightGray", [0xe7, 0xe7, 0xe7]),
+    ("black", [0x00, 0x00, 0x00]),
+];
+
+/// A guide `color`: one of [`GUIDE_COLORS`]' names or `"#rrggbb"`. `None` when there is no `color`
+/// (the guide uses Preferences › Guides, Grid & Slices › Guide colour).
+fn guide_color(p: &Value) -> Result<Option<[u8; 3]>> {
+    let Some(v) = p.get("color") else { return Ok(None) };
+    let text = v.as_str().ok_or(EngineError::Other("`color` must be a colour name or \"#rrggbb\"".into()))?;
+    GUIDE_COLORS.iter().find(|(name, ..)| name.eq_ignore_ascii_case(text)).map(|(.., rgb)| *rgb).or_else(|| crate::prefs::parse_hex(text)).map(Some).ok_or_else(
+        || EngineError::Other(format!("`color` {text:?} is not a guide colour: use \"#rrggbb\" or one of {}", GUIDE_COLORS.map(|c| c.0).join(", "))),
+    )
+}
+
 /// View › New Guide / guide moves (undoable, like Photoshop's "New Guide"/"Move Guide" states).
 fn guide_cmd(s: &mut Session, p: &Value, op: &str) -> Result<Value> {
     let vertical = p.get("orientation").and_then(Value::as_str).unwrap_or("horizontal") == "vertical";
-    let pos = p.get("position").and_then(Value::as_f64);
+    let pos = guide_position(s, p, vertical)?;
+    let color = if op == "new" { guide_color(p)? } else { None };
     let index = p.get("index").and_then(Value::as_u64).map(|v| v as usize);
     let label = match op {
         "new" => "New Guide",
@@ -687,20 +743,35 @@ fn guide_cmd(s: &mut Session, p: &Value, op: &str) -> Result<Value> {
         _ => "Clear Guides",
     };
     s.edit(label, |doc, _| {
-        let g = if vertical { &mut doc.guides.vertical } else { &mut doc.guides.horizontal };
+        let guides = &mut doc.guides;
+        let g = if vertical { &mut guides.vertical } else { &mut guides.horizontal };
         match op {
-            "new" => g.push(pos.ok_or(EngineError::Other("missing `position`".into()))?),
+            "new" => {
+                let at = pos.ok_or(EngineError::Other("missing `position`".into()))?;
+                g.push(at);
+                if color.is_some() {
+                    guides.set_color(vertical, at, color);
+                }
+            }
             "move" => {
                 let i = index.filter(|i| *i < g.len()).ok_or(EngineError::Other("no such guide".into()))?;
-                g[i] = pos.ok_or(EngineError::Other("missing `position`".into()))?;
+                let to = pos.ok_or(EngineError::Other("missing `position`".into()))?;
+                let from = std::mem::replace(&mut g[i], to);
+                // The guide takes its colour along; another guide left at the old position keeps it.
+                if let Some(rgb) = guides.color(vertical, from) {
+                    guides.set_color(vertical, to, Some(rgb));
+                }
+                guides.prune_colors();
             }
             "delete" => {
                 let i = index.filter(|i| *i < g.len()).ok_or(EngineError::Other("no such guide".into()))?;
                 g.remove(i);
+                guides.prune_colors();
             }
             _ => {
-                doc.guides.horizontal.clear();
-                doc.guides.vertical.clear();
+                guides.horizontal.clear();
+                guides.vertical.clear();
+                guides.colors.clear();
             }
         }
         Ok(())
@@ -794,12 +865,24 @@ pub fn specs() -> Vec<CommandSpec> {
             has_doc,
             |s, _| transform_again_copy(s)
         ),
-        spec!("view.newGuide", "New Guide…", &["View"], None, r##"{"orientation":"horizontal|vertical","position":px}"##, has_doc, |s, p| guide_cmd(
-            s, p, "new"
-        )),
-        spec!("view.moveGuide", "Move Guide", &[], None, r##"{"orientation":"horizontal|vertical","index":n,"position":px}"##, has_doc, |s, p| guide_cmd(
-            s, p, "move"
-        )),
+        spec!(
+            "view.newGuide",
+            "New Guide…",
+            &["View"],
+            None,
+            r##"{"orientation":"horizontal|vertical","position":px or "<number><unit>","color":"lightBlue|lightRed|green|mediumBlue|yellow|magenta|cyan|lightGray|black" or "#rrggbb"?} (units px, in, cm, mm, pt, pc or %; % is of the width for a vertical guide, the height for a horizontal one; without a color the guide uses the guide colour in Preferences)"##,
+            has_doc,
+            |s, p| guide_cmd(s, p, "new")
+        ),
+        spec!(
+            "view.moveGuide",
+            "Move Guide",
+            &[],
+            None,
+            r##"{"orientation":"horizontal|vertical","index":n,"position":px or "<number><unit>"} (units as for view.newGuide)"##,
+            has_doc,
+            |s, p| guide_cmd(s, p, "move")
+        ),
         spec!("view.deleteGuide", "Delete Guide", &[], None, r##"{"orientation":"horizontal|vertical","index":n}"##, has_doc, |s, p| guide_cmd(s, p, "delete")),
         spec!("view.clearGuides", "Clear Guides", &["View"], None, "{}", has_doc, |s, p| guide_cmd(s, p, "clear")),
     ]
@@ -1281,7 +1364,7 @@ mod tests {
             let mut s = fresh();
             s.execute(cmd, json!({})).unwrap();
             let d = &s.active().unwrap().doc;
-            assert!(crate::extra_cmds::is_background(&d.layers[0]), "{cmd}: still the Background");
+            assert!(d.is_background(d.layers[0].id), "{cmd}: still the Background");
             assert_eq!(px(&s, 0, 8, 8), vec![1.0, 0.0, 0.0, 1.0], "{cmd}: cut area is the background colour");
             assert_eq!(px(&s, 0, 30, 20), vec![1.0, 1.0, 1.0, 1.0], "{cmd}: outside untouched");
         }
@@ -1527,9 +1610,9 @@ mod tests {
         let st = s.active().unwrap();
         assert_eq!(st.doc.layers.len(), 4);
         let pasted = &st.doc.layers[st.doc.layers.len() - 2];
-        assert!(!crate::extra_cmds::is_background(pasted));
+        assert!(!st.doc.is_background(pasted.id));
         assert_eq!(pasted.locks, Default::default());
-        assert!(crate::extra_cmds::is_background(&st.doc.layers[0]), "the real Background is untouched");
+        assert!(st.doc.is_background(st.doc.layers[0].id), "the real Background is untouched");
     }
 
     /// #2428: a smart object copied in one document pastes into another as a smart object, in
@@ -1685,6 +1768,123 @@ mod tests {
         s.execute("view.clearGuides", json!({})).unwrap();
         assert!(s.active().unwrap().doc.guides.vertical.is_empty());
         assert!(s.execute("view.moveGuide", json!({"orientation": "vertical", "index": 3, "position": 1})).is_err());
+    }
+
+    /// The last guide added in `orientation` for `position`.
+    fn new_guide(s: &mut Session, orientation: &str, position: Value) -> f64 {
+        s.execute("view.newGuide", json!({"orientation": orientation, "position": position})).unwrap();
+        let g = &s.active().unwrap().doc.guides;
+        *if orientation == "vertical" { &g.vertical } else { &g.horizontal }.last().unwrap()
+    }
+
+    #[test]
+    fn guide_positions_take_photoshop_units() {
+        let mut s = Session::new();
+        // 4 × 2 inches at 100 ppi.
+        s.execute("file.new", json!({"width": 400, "height": 200, "resolution": 100})).unwrap();
+        // Percent follows the guide's own axis: the width for a vertical guide, the height for a horizontal one.
+        assert_eq!(new_guide(&mut s, "vertical", json!("50%")), 200.0);
+        assert_eq!(new_guide(&mut s, "horizontal", json!("50%")), 100.0);
+        for one_inch in ["1in", "1 in", "2.54cm", "25.4 mm", "72pt", "6pc", "100px", "100", "1,0 inch"] {
+            assert!((new_guide(&mut s, "vertical", json!(one_inch)) - 100.0).abs() < 1e-3, "{one_inch}");
+        }
+        // Fractional and negative positions are kept; a plain number is pixels, as before.
+        assert_eq!(new_guide(&mut s, "horizontal", json!("12.5px")), 12.5);
+        assert_eq!(new_guide(&mut s, "vertical", json!("-10px")), -10.0);
+        assert_eq!(new_guide(&mut s, "vertical", json!(40)), 40.0);
+        // Points and picas follow Units & Rulers › Point Size.
+        s.execute("prefs.set", json!({"path": "unitsAndRulers.pointSize", "value": "traditional"})).unwrap();
+        assert!((new_guide(&mut s, "vertical", json!("72.27pt")) - 100.0).abs() < 1e-3);
+        // A guide moved with a unit lands where a new one would.
+        s.execute("view.moveGuide", json!({"orientation": "horizontal", "index": 0, "position": "25%"})).unwrap();
+        assert_eq!(s.active().unwrap().doc.guides.horizontal[0], 50.0);
+    }
+
+    #[test]
+    fn new_guides_keep_their_own_colour_through_moves_deletes_and_undo() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 400, "height": 200})).unwrap();
+        let color = |s: &Session, vertical: bool, p: f64| s.active().unwrap().doc.guides.color(vertical, p);
+        // Without a colour a guide uses the preference colour, as ruler-drag guides always did.
+        s.execute("view.newGuide", json!({"orientation": "vertical", "position": 10})).unwrap();
+        assert_eq!(color(&s, true, 10.0), None);
+        assert!(s.active().unwrap().doc.guides.colors.is_empty());
+        s.execute("view.newGuide", json!({"orientation": "vertical", "position": 20, "color": "magenta"})).unwrap();
+        s.execute("view.newGuide", json!({"orientation": "horizontal", "position": 20, "color": "#123456"})).unwrap();
+        s.execute("view.newGuide", json!({"orientation": "vertical", "position": 30, "color": "LightBlue"})).unwrap();
+        assert_eq!(color(&s, true, 20.0), Some([0xff, 0x00, 0xff]));
+        assert_eq!(color(&s, false, 20.0), Some([0x12, 0x34, 0x56]), "the same position across is a different guide");
+        assert_eq!(color(&s, true, 30.0), Some([0x33, 0x66, 0xff]), "names are case-insensitive");
+        // Moving takes the colour along.
+        s.execute("view.moveGuide", json!({"orientation": "vertical", "index": 1, "position": 25})).unwrap();
+        assert_eq!((color(&s, true, 20.0), color(&s, true, 25.0)), (None, Some([0xff, 0x00, 0xff])));
+        // Undo restores it where it was.
+        s.undo();
+        assert_eq!((color(&s, true, 20.0), color(&s, true, 25.0)), (Some([0xff, 0x00, 0xff]), None));
+        // Deleting drops it; clearing drops them all.
+        s.execute("view.deleteGuide", json!({"orientation": "vertical", "index": 2})).unwrap();
+        assert_eq!(color(&s, true, 30.0), None);
+        assert_eq!(s.active().unwrap().doc.guides.colors.len(), 2);
+        s.execute("view.clearGuides", json!({})).unwrap();
+        assert!(s.active().unwrap().doc.guides.colors.is_empty());
+    }
+
+    #[test]
+    fn moving_one_of_two_coloured_guides_at_one_position_leaves_the_other_its_colour() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 400, "height": 200})).unwrap();
+        for _ in 0..2 {
+            s.execute("view.newGuide", json!({"orientation": "vertical", "position": 50, "color": "green"})).unwrap();
+        }
+        s.execute("view.moveGuide", json!({"orientation": "vertical", "index": 0, "position": 60})).unwrap();
+        let g = &s.active().unwrap().doc.guides;
+        assert_eq!((g.color(true, 50.0), g.color(true, 60.0)), (Some([0x33, 0xff, 0x33]), Some([0x33, 0xff, 0x33])));
+    }
+
+    #[test]
+    fn cyan_is_the_default_guide_colour_so_ruler_guides_read_as_cyan() {
+        let default = crate::prefs::Preferences::default().guides_grid_and_slices.guide_color;
+        let cyan = GUIDE_COLORS.iter().find(|(name, ..)| *name == "cyan").map(|(.., rgb)| *rgb);
+        assert_eq!(cyan, crate::prefs::parse_hex(&default));
+    }
+
+    #[test]
+    fn bad_guide_colours_are_refused_without_a_guide() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 400, "height": 200})).unwrap();
+        let undo_before = s.active().unwrap().history.can_undo();
+        for bad in [json!("puce"), json!("#12345"), json!("#gggggg"), json!(""), json!(7), json!(null), json!(["cyan"])] {
+            assert!(s.execute("view.newGuide", json!({"orientation": "vertical", "position": 10, "color": bad.clone()})).is_err(), "{bad}");
+        }
+        let g = &s.active().unwrap().doc.guides;
+        assert!(g.vertical.is_empty() && g.colors.is_empty());
+        assert_eq!(s.active().unwrap().history.can_undo(), undo_before);
+    }
+
+    #[test]
+    fn bad_guide_positions_are_refused_without_a_guide() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 400, "height": 200, "resolution": 100})).unwrap();
+        let undo_before = s.active().unwrap().history.can_undo();
+        for bad in [
+            json!("abc"),
+            json!("50 furlongs"),
+            json!(""),
+            json!("%"),
+            json!("NaN"),
+            json!("inf"),
+            json!("1e400"),
+            json!("2000000px"),
+            json!(1e300),
+            json!(true),
+            json!([1]),
+        ] {
+            assert!(s.execute("view.newGuide", json!({"orientation": "vertical", "position": bad.clone()})).is_err(), "{bad}");
+        }
+        assert!(s.execute("view.newGuide", json!({"orientation": "vertical"})).is_err(), "no position");
+        let g = &s.active().unwrap().doc.guides;
+        assert!(g.vertical.is_empty() && g.horizontal.is_empty());
+        assert_eq!(s.active().unwrap().history.can_undo(), undo_before, "a refused guide records no history step");
     }
 
     /// Guides keep their exact place (#2918): 1 cm at 300 ppi through New Guide and .pcraft, and

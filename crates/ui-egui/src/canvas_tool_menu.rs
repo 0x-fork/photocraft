@@ -123,6 +123,20 @@ const ENDS_TYPE_EDIT: [&str; 5] =
 /// The pasteboard menu's Select Custom Color… row.
 pub const PASTEBOARD_PICK: &str = "pasteboard.selectCustomColor";
 
+/// The pasteboard colours in the menu's order, which Space+F steps through.
+const CANVAS_COLORS: [CanvasColor; 6] =
+    [CanvasColor::Default, CanvasColor::Black, CanvasColor::DarkGray, CanvasColor::MediumGray, CanvasColor::LightGray, CanvasColor::Custom];
+
+/// Photoshop's Space+F (⇧Space+F backwards): the next pasteboard colour, round and round. Saved
+/// like a choice in the pasteboard menu (`interface.canvasColor`).
+pub fn cycle_canvas_color(app: &mut PhotocraftApp, backward: bool) -> Result<(), String> {
+    let n = CANVAS_COLORS.len();
+    let at = CANVAS_COLORS.iter().position(|c| *c == app.session.prefs().interface.canvas_color).unwrap_or(0);
+    let next = if backward { (at + n - 1) % n } else { (at + 1) % n };
+    let name = CANVAS_COLORS.get(next).map_or("default", |c| c.name());
+    app.run("prefs.set", json!({"values": {"interface.canvasColor": name}})).map(|_| ())
+}
+
 /// The Zoom and Hand tools' context menu: the zoom steps and fixed zooms of the View menu, plus
 /// the Hand tool's Fill Screen.
 pub const VIEW_MENU: &[Row] = &[

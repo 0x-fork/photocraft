@@ -1876,6 +1876,7 @@
 	Lock Layers…	Заблокувати шари…
 	Mean	Середнє значення
 	Merge Down	Об'єднати з нижнім
+	Merge Group	Об'єднати групу
 	Merge Layers	Об'єднати шари
 	Merge Shape Components	Об'єднати компоненти фігури
 	Merge Visible	Об'єднати видимі
@@ -3740,3 +3741,11 @@ curves	Smooth	Згладити
 @plural	{n} step|{n} steps	{n} крок|{n} кроки|{n} кроків
 @plural	{warning} (+{n} more brush preset warning)|{warning} (+{n} more brush preset warnings)	{warning} (і ще {n} попередження щодо наборів пензлів)|{warning} (і ще {n} попередження щодо наборів пензлів)|{warning} (і ще {n} попереджень щодо наборів пензлів)
 @plural	{what} with {n} warning|{what} with {n} warnings	{what}: {n} попередження|{what}: {n} попередження|{what}: {n} попереджень
+# View › Guides › New Guide… › Color
+	Light Blue	Світло-синій
+	Light Red	Світло-червоний
+	Medium Blue	Середньо-синій
+	Light Gray	Світло-сірий
+	Remove after each stroke	Видаляти після кожного штриха
+	Apply the removal ({key})	Застосувати видалення ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Штрихів для видалення: {n} (Enter застосовує, Esc скасовує)
