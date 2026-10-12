@@ -1421,6 +1421,11 @@ impl PhotocraftApp {
         self.tiff_options.is_some() || self.targa_options.is_some()
     }
 
+    /// A print worker may still be handing a job to the system queue.
+    pub(crate) fn printing(&self) -> bool {
+        self.session.jobs().iter().any(|j| matches!(j.command.as_str(), "file.print" | "file.printOneCopy"))
+    }
+
     /// A save is running in the background.
     pub(crate) fn saving(&self) -> bool {
         !self.jobs.saves.is_empty()

@@ -120,9 +120,9 @@ pub fn guard_window_close(app: &mut PhotocraftApp, ctx: &egui::Context) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         return;
     }
-    // A save still writing in the background finishes first (a saved copy, say, leaves nothing
-    // unsaved); `jobs_ui` repeats the close when it ends.
-    if app.saving() {
+    // A save or print worker must finish its external side effect before the process exits;
+    // `jobs_ui` repeats the close after completion and keeps errors visible.
+    if app.saving() || app.printing() {
         ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         app.jobs.close_after_saves = true;
         return;

@@ -66,9 +66,16 @@ fn slow_job(app: &mut PhotocraftApp, gate: &Arc<AtomicBool>) -> JobId {
 
 /// Step frames for `ms` of wall time; returns (frames, slowest frame in ms).
 fn frames_for(h: &mut Harness<'_, PhotocraftApp>, ms: u64) -> (u64, f64) {
+    frames_for_at_least(h, ms, 0)
+}
+
+/// Prove the frame loop advances while a gated worker stays blocked, without assuming a
+/// minimum frame rate on software-rendered CI machines. Also wait for the progress modal.
+fn frames_for_at_least(h: &mut Harness<'_, PhotocraftApp>, ms: u64, min_frames: u64) -> (u64, f64) {
     let t = Instant::now();
     let (mut n, mut worst) = (0, 0.0f64);
-    while t.elapsed() < Duration::from_millis(ms) {
+    while t.elapsed() < Duration::from_millis(ms) || n < min_frames {
+        assert!(t.elapsed() < Duration::from_secs(30), "frame observation timed out after {n} frames");
         let f = Instant::now();
         h.step();
         worst = worst.max(f.elapsed().as_secs_f64() * 1000.0);
@@ -84,7 +91,7 @@ fn the_frame_loop_keeps_running_during_a_slow_job_and_esc_cancels_it() {
     let doc_before = h.state().session.active().unwrap().doc.clone();
     let job = slow_job(h.state_mut(), &gate);
     let frame0 = h.state().frame;
-    let (n, worst) = frames_for(&mut h, 400);
+    let (n, worst) = frames_for_at_least(&mut h, 400, 10);
     assert!(h.state().frame - frame0 >= 10, "the UI kept rendering ({n} frames)");
     eprintln!("{n} frames during the job, slowest {worst:.1} ms");
     // The status bar shows the job, and after the delay the modal progress dialog.
@@ -418,7 +425,7 @@ fn saves_run_in_the_background_and_are_recorded_when_they_end() {
     assert!(h.state().saving());
 
     // The window keeps drawing; the document stays unsaved and can't be edited meanwhile.
-    let (frames, _) = frames_for(&mut h, 400);
+    let (frames, _) = frames_for_at_least(&mut h, 400, 4);
     assert!(frames >= 4, "only {frames} frames while saving");
     let st = h.state().session.active().unwrap();
     assert!(st.is_dirty() && st.path.is_none());
@@ -634,4 +641,66 @@ fn a_finished_job_beeps_when_the_preference_is_on() {
     let _ = slow_job(h.state_mut(), &gate);
     frames_for(&mut h, 800);
     assert_eq!(BEEPS.load(Ordering::Relaxed), 1, "one beep for the finished job");
+}
+
+#[test]
+fn printing_keeps_drawing_and_reports_only_the_final_spooler_result() {
+    for success in [true, false] {
+        let mut h = app_harness();
+        let gate = Arc::new(AtomicBool::new(false));
+        let worker_gate = gate.clone();
+        let Started::Job(id) = h
+            .state_mut()
+            .session
+            .start_job(
+                "file.print",
+                json!({}),
+                "Print",
+                false,
+                move |_| {
+                    while !worker_gate.load(Ordering::Relaxed) {
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                    if success {
+                        Ok(json!({"sent": true, "spooler": "request id is Office-42", "pdf": null}))
+                    } else {
+                        Err(photocraft_engine::EngineError::Other("queue refused".into()))
+                    }
+                },
+                |_, result| Ok(result),
+            )
+            .unwrap()
+        else {
+            panic!("must run on a worker")
+        };
+        let frame = h.state().frame;
+        h.run_steps(4);
+        assert!(h.state().frame > frame);
+        assert!(!h.state().ui.status.contains("Sent to the printer"));
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        assert!(h.state().session.job(id).is_some(), "Esc cannot retract a submitted job");
+        let (request, _) = crate::control::ControlRequest::new("jobs.cancel", json!({"job": id.0}));
+        let ctx = h.ctx.clone();
+        let crate::control::Outcome::Done(reply) = crate::control::handle(h.state_mut(), &ctx, &request) else { panic!("cancel replies immediately") };
+        assert_eq!(reply["result"]["cancelled"], 0, "control must not falsely report cancellation: {reply}");
+        let st = h.state_mut().session.active_mut().unwrap();
+        st.saved_revision = st.revision;
+        assert!(press_window_close(h.state_mut()), "quit waits for print submission");
+        assert!(h.state().jobs.close_after_saves);
+        gate.store(true, Ordering::Relaxed);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while h.state().session.has_jobs() && Instant::now() < deadline {
+            h.step();
+        }
+        assert!(!h.state().session.has_jobs());
+        assert!(!h.state().jobs.close_after_saves, "close repeats on success or is cleared for a visible error");
+        if success {
+            assert!(h.state().ui.status.contains("Office-42"), "{}", h.state().ui.status);
+            assert!(!h.state().ui.status_error);
+        } else {
+            assert!(h.state().ui.status.contains("queue refused"), "{}", h.state().ui.status);
+            assert!(h.state().ui.status_error);
+        }
+    }
 }
