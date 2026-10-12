@@ -1058,8 +1058,6 @@ pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
     "rawDefaults.applyAutoTone",
     // Agent access is governed by the launch flags (`--control`, the automation roots), not
     // by these yet.
-    "integrations.allowAgentControl",
-    "integrations.controlPort",
 ];
 
 /// Is the preference at `path` (`"section.key"`) hidden from the Preferences dialog?
