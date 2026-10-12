@@ -1,6 +1,6 @@
 # Where PhotoCraft falls short of Photoshop
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** minor (G8: Character panel OpenType buttons landed, TYPE-218-5 stays partial; G8: triple-, quadruple- and five-click type selection landed, TYPE-218-8 done; Czech UI localization evidence added to G13; G14: D5100 crop and Camera Raw tuning validation) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (G11: Load/Save Actions `.atn` landed, AUTO-219-2 partial; 2026-10-11: G8: Character panel OpenType buttons landed, TYPE-218-5 stays partial; G8: triple-, quadruple- and five-click type selection landed, TYPE-218-8 done; Czech UI localization evidence added to G13; G14: D5100 crop and Camera Raw tuning validation) · **Target:** Adobe Photoshop 2026
 
 Every known shortfall against Photoshop 2026 (27.11.0), one entry each, ranked by user impact
 on the way to beta. This is the work list agents pick from: take the highest-ranked entry that
@@ -87,9 +87,14 @@ what an agent can't finish alone.
 - **Estimate:** 120–200 h.
 
 ### G11. Actions and scripting
-- **Missing:** document-independent action recording (AUTO-219-1), a full Actions panel with
-  step toggles and .atn import (AUTO-219-2), replay tests (AUTO-219-4), Batch recursion and
-  naming (AUTO-219-5), ExtendScript/UXP compatibility.
+- **Missing:** document-independent action recording (AUTO-219-1), the rest of the Actions
+  panel: grouping by set, an Insert Stop item and editing the dialog toggle (AUTO-219-2), Batch
+  recursion and naming (AUTO-219-5), ExtendScript/UXP compatibility. `.atn` steps outside the
+  90 mapped events (Transform with scale or rotation, Apply Image, Save for Web, Place, smart
+  object edits, Generative Fill…) load as kept Photoshop steps that fail at playback by name.
+- **Done 2026-10-12:** Load/Save Actions `.atn` in the panel menu, `batch --actions set.atn`
+  and `actions.load`/`actions.save`; 90 Photoshop events map to commands both ways, Play and
+  Stop steps included; layer steps replay by layer name in any document (AUTO-219-2 partial).
 - **Ahead of Photoshop:** CLI, MCP and the JSON control channel drive every command.
 - **Estimate:** 120–200 h. **Human:** whether to support a JavaScript scripting dialect at all
   (AGENTS.md forbids JS in the app).
@@ -225,6 +230,7 @@ what an agent can't finish alone.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-12 | minor | G11: Load/Save Actions `.atn` landed (AUTO-219-2 partial); remaining panel work listed |
 | 2026-10-11 | minor | D5100 image area and Camera Raw tuning validation; G14 remains open |
 | 2026-10-11 | minor | G13: Czech dynamic UI text localized; engine messages and native review remain open |
 | 2026-10-11 | minor | G8: triple/quadruple/five-click type selection done (TYPE-218-8, #3493); Type evidence recounted |

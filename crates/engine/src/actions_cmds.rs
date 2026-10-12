@@ -36,11 +36,26 @@ pub struct Action {
     /// Indices of steps excluded from playback (unchecked in the Actions panel).
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub disabled: BTreeSet<usize>,
+    /// Indices of steps whose dialog Photoshop shows during playback (the panel's dialog
+    /// toggle column). Headless playback runs them with their recorded params; the flag is
+    /// kept so Save Actions writes it back.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub dialogs: BTreeSet<usize>,
+    /// The action set the action belongs to: the folder Photoshop shows in the Actions panel,
+    /// filled by Load Actions (`actions.load`) and written by Save Actions (`actions.save`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set: Option<String>,
 }
 
 impl Action {
     pub fn new(name: impl Into<String>, steps: Vec<(String, Value)>) -> Self {
-        Self { name: name.into(), steps, disabled: BTreeSet::new() }
+        Self { name: name.into(), steps, disabled: BTreeSet::new(), dialogs: BTreeSet::new(), set: None }
+    }
+
+    /// Apply `f` to every per-step index set (`disabled`, `dialogs`) after steps moved.
+    fn remap_steps(&mut self, f: impl Fn(usize) -> Option<usize>) {
+        self.disabled = self.disabled.iter().filter_map(|&i| f(i)).collect();
+        self.dialogs = self.dialogs.iter().filter_map(|&i| f(i)).collect();
     }
 
     pub fn step_enabled(&self, step: usize) -> bool {
@@ -166,7 +181,7 @@ fn num(v: &Value) -> Option<i64> {
     v.as_i64().or_else(|| v.as_f64().filter(|f| f.is_finite()).map(|f| f.round() as i64))
 }
 
-fn resolve(list: &[Action], p: &Value, cmd: &str) -> Result<usize> {
+pub(crate) fn resolve(list: &[Action], p: &Value, cmd: &str) -> Result<usize> {
     let Some(v) = p.get("action") else {
         return Err(bad(cmd, "needs \"action\" (a name or an index)"));
     };
@@ -210,7 +225,7 @@ fn from_step(p: &Value, len: usize) -> Result<usize> {
 }
 
 fn list(s: &mut Session, _p: &Value) -> Result<Value> {
-    let actions: Vec<Value> = s.actions.list.iter().map(|a| json!({"name": a.name, "steps": a.steps.len()})).collect();
+    let actions: Vec<Value> = s.actions.list.iter().map(|a| json!({"name": a.name, "steps": a.steps.len(), "set": a.set})).collect();
     let recording = s.actions.recording.and_then(|(_, i)| s.actions.list.get(i).map(|a| a.name.clone()));
     Ok(json!({"actions": actions, "recording": recording}))
 }
@@ -219,7 +234,7 @@ fn get(s: &mut Session, p: &Value) -> Result<Value> {
     let idx = resolve(&s.actions.list, p, "actions.get")?;
     let action = &s.actions.list[idx];
     let steps: Vec<Value> = action.steps.iter().map(|(id, params)| json!([id, params])).collect();
-    Ok(json!({"name": action.name, "steps": steps, "disabled": action.disabled}))
+    Ok(json!({"name": action.name, "steps": steps, "disabled": action.disabled, "dialogs": action.dialogs, "set": action.set}))
 }
 
 fn record(s: &mut Session, p: &Value) -> Result<Value> {
@@ -386,7 +401,7 @@ fn move_item(s: &mut Session, p: &Value) -> Result<Value> {
         let action = &mut s.actions.list[idx];
         let moved = action.steps.remove(step);
         action.steps.insert(to, moved);
-        action.disabled = action.disabled.iter().map(|&i| moved_index(i, step, to)).collect();
+        action.remap_steps(|i| Some(moved_index(i, step, to)));
         let result = json!({"action": action.name, "step": to});
         s.actions.touch();
         Ok(result)
@@ -434,7 +449,15 @@ fn delete(s: &mut Session, p: &Value) -> Result<Value> {
         }
         let action = &mut s.actions.list[idx];
         action.steps.remove(step);
-        action.disabled = action.disabled.iter().filter(|&&i| i != step).map(|&i| if i > step { i - 1 } else { i }).collect();
+        action.remap_steps(|i| {
+            if i == step {
+                None
+            } else if i > step {
+                Some(i - 1)
+            } else {
+                Some(i)
+            }
+        });
         let result = json!({"action": action.name, "deletedStep": step, "steps": action.steps.len()});
         s.actions.touch();
         return Ok(result);
@@ -546,7 +569,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "List Actions",
             menu: &[],
             shortcut: None,
-            params: "{} → {actions:[{name, steps:count}], recording:name|null}",
+            params: "{} → {actions:[{name, steps:count, set:name|null}], recording:name|null}",
             enabled: always,
             run: list,
             journal: false,
@@ -556,7 +579,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Get Action",
             menu: &[],
             shortcut: None,
-            params: r##"{"action":name|index} → {name, steps:[[id, params]…], disabled:[step…]} (steps is the shape file.automate.batch and droplets take; disabled lists the 0-based steps playback skips)"##,
+            params: r##"{"action":name|index} → {name, steps:[[id, params]…], disabled:[step…], dialogs:[step…], set:name|null} (steps is the shape file.automate.batch and droplets take; disabled lists the 0-based steps playback skips; dialogs the steps whose dialog Photoshop would show; set the action set from Load Actions)"##,
             enabled: always,
             run: get,
             journal: false,
@@ -679,11 +702,17 @@ mod tests {
     #[test]
     fn rename_keeps_calls_and_function_key_and_rejects_bad_names() {
         let mut s = Session::new();
-        s.actions.list.push(Action { name: "Action 1".into(), steps: vec![("layer.new.layer".into(), json!({}))], disabled: Default::default() });
+        s.actions.list.push(Action {
+            name: "Action 1".into(),
+            steps: vec![("layer.new.layer".into(), json!({}))],
+            disabled: Default::default(),
+            ..Default::default()
+        });
         s.actions.list.push(Action {
             name: "Caller".into(),
             steps: vec![("actions.play".into(), json!({"action": "Action 1"}))],
             disabled: Default::default(),
+            ..Default::default()
         });
         s.edit_prefs(|p| p.shortcuts.insert(format!("{PLAY_SHORTCUT_PREFIX}Action 1"), "F2".into()));
         assert_eq!(s.execute("actions.rename", json!({"action": 0, "name": "Sepia"})).unwrap()["action"], "Sepia");
@@ -950,7 +979,12 @@ mod tests {
     #[test]
     fn play_refuses_recursion() {
         let mut s = Session::new();
-        s.actions.list.push(Action { name: "Loop".into(), steps: vec![("actions.play".into(), json!({"action": "Loop"}))], disabled: Default::default() });
+        s.actions.list.push(Action {
+            name: "Loop".into(),
+            steps: vec![("actions.play".into(), json!({"action": "Loop"}))],
+            disabled: Default::default(),
+            ..Default::default()
+        });
         let r = s.execute("actions.play", json!({"action": "Loop"})).unwrap();
         assert_eq!(r["ran"], 0);
         assert_eq!(r["failed"]["id"], "actions.play");
@@ -969,6 +1003,7 @@ mod tests {
             name: "Open".into(),
             steps: vec![("file.open".into(), json!({"path": "/etc/passwd"})), ("layer.new.layer".into(), json!({}))],
             disabled: Default::default(),
+            ..Default::default()
         });
         let r = s.execute("actions.play", json!({"action": "Open"})).unwrap();
         assert_eq!(r["ran"], 0);
@@ -1046,6 +1081,7 @@ mod tests {
             name: "Child".into(),
             steps: vec![("layer.new.layer".into(), json!({"name": "Child layer"}))],
             disabled: Default::default(),
+            ..Default::default()
         });
         s.execute("actions.record", json!({"name": "Parent"})).unwrap();
         s.execute("layer.new.layer", json!({"name": "Before"})).unwrap();
@@ -1075,8 +1111,14 @@ mod tests {
             name: "A".into(),
             steps: vec![("actions.play".into(), json!({"action": "B"})), ("file.new".into(), json!({"width": 2,"height": 2}))],
             disabled: Default::default(),
+            ..Default::default()
         });
-        s.actions.list.push(Action { name: "B".into(), steps: vec![("actions.play".into(), json!({"action": "A"}))], disabled: Default::default() });
+        s.actions.list.push(Action {
+            name: "B".into(),
+            steps: vec![("actions.play".into(), json!({"action": "A"}))],
+            disabled: Default::default(),
+            ..Default::default()
+        });
         let r = s.execute("actions.play", json!({"action": "A"})).unwrap();
         assert!(r["failed"]["error"].as_str().unwrap().contains("recursive"));
         assert!(s.documents().is_empty());
@@ -1092,6 +1134,7 @@ mod tests {
                 name: format!("N{i}"),
                 steps: if i < 16 { vec![("actions.play".into(), json!({"action":format!("N{}", i + 1)}))] } else { vec![] },
                 disabled: Default::default(),
+                ..Default::default()
             });
         }
         let r = s.execute("actions.play", json!({"action": "N0"})).unwrap();
@@ -1136,7 +1179,7 @@ mod tests {
     #[test]
     fn new_names_do_not_collide_with_named_calls() {
         let mut s = Session::new();
-        s.actions.list.push(Action { name: "Action 2".into(), steps: vec![], disabled: Default::default() });
+        s.actions.list.push(Action { name: "Action 2".into(), steps: vec![], disabled: Default::default(), ..Default::default() });
         assert_eq!(s.execute("actions.record", json!({})).unwrap()["action"], "Action 3");
         s.execute("actions.stop", json!({})).unwrap();
         assert!(s.execute("actions.record", json!({"name":"Action 2"})).is_err());
@@ -1148,7 +1191,7 @@ mod tests {
         let mut s = Session::new();
         s.execute("file.new", json!({"width":4,"height":4})).unwrap();
         for name in ["A", "B", "C"] {
-            s.actions.list.push(Action { name: name.into(), steps: vec![], disabled: Default::default() });
+            s.actions.list.push(Action { name: name.into(), steps: vec![], disabled: Default::default(), ..Default::default() });
         }
         s.execute("actions.record", json!({"action":"B"})).unwrap();
         s.execute("layer.new.layer", json!({"name":"before"})).unwrap();

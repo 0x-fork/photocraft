@@ -172,12 +172,17 @@ impl ColorSettings {
     }
 }
 
-/// Check that each working space resolves to a profile of the right colour space.
+/// Check that each working space resolves to the right colour space and RGB can be both a
+/// source and editing destination for the configured rendering intent.
 pub fn validate_settings(c: &ColorSettings) -> std::result::Result<(), String> {
     for (space, spec) in [(ColorSpace::Rgb, &c.working_rgb), (ColorSpace::Cmyk, &c.working_cmyk), (ColorSpace::Gray, &c.working_gray)] {
         let p = resolve_profile(spec, None, space_mode(space)).map_err(|e| e.to_string())?;
         if p.color_space != space {
             return Err(format!("working space `{spec}` is {:?}, not {space:?}", p.color_space));
+        }
+        if space == ColorSpace::Rgb {
+            p.pcs_to_device(c.intent()).map_err(|e| format!("working RGB space `{spec}` cannot be a destination for {}: {e}", c.intent().id()))?;
+            p.device_to_pcs(c.intent()).map_err(|e| format!("working RGB space `{spec}` cannot be a source for {}: {e}", c.intent().id()))?;
         }
     }
     let m = c.monitor_profile.as_str();
@@ -215,13 +220,16 @@ pub struct ColorState {
 
 impl ColorState {
     /// The working profile of a mode from Color Settings (the built-in default when the
-    /// setting does not resolve).
+    /// setting does not resolve or cannot be both an RGB source and editing destination).
     pub fn working(&self, mode: ColorMode) -> Arc<Profile> {
         let space = mode_space(mode);
         self.settings
             .working_spec(space)
             .and_then(|spec| resolve_profile(spec, None, Some(mode)).ok())
-            .filter(|p| p.color_space == space)
+            .filter(|p| {
+                p.color_space == space
+                    && (space != ColorSpace::Rgb || (p.pcs_to_device(self.settings.intent()).is_ok() && p.device_to_pcs(self.settings.intent()).is_ok()))
+            })
             .unwrap_or_else(|| working_profile(mode))
     }
 
