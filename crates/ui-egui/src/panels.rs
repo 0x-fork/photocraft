@@ -5,6 +5,7 @@ use photocraft_color::BlendMode;
 use photocraft_doc::{Layer, LayerContent, LayerId};
 use serde_json::{Value, json};
 
+use crate::mask_thumbs_ui::MaskKind;
 use crate::state::Tool;
 use crate::theme::{self, Tokens};
 use crate::{PhotocraftApp, icons, widgets};
@@ -127,9 +128,11 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 + chips_height(t.pro, t.round_chips, t.round_chips && double)
                 + if t.pro { 8.0 + if double { bx } else { bx * 2.0 + 3.0 } } else { 0.0 }
                 + 6.0;
+            // As tall as the tools, so the colour chips sit right under them (Photoshop); a column
+            // taller than the window scrolls and keeps the chips at the bottom.
             egui::ScrollArea::vertical()
                 .id_salt("toolbar-columns")
-                .auto_shrink([false, false])
+                .auto_shrink([false, true])
                 .max_height((ui.available_height() - footer).max(0.0))
                 .min_scrolled_height(0.0)
                 .show(ui, |ui| {
@@ -941,11 +944,8 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             crate::eraser_ui::mode_dropdown(ui, &mut app.ui.tool_options.eraser_mode);
                         } else {
                             opt_label(ui, tl!("Mode"));
-                            let mut mode = b.mode;
-                            let opts: Vec<(BlendMode, &str)> = BlendMode::LAYER_MODES.iter().map(|m| (*m, m.label())).collect();
-                            if widgets::dropdown(ui, "brush-mode", &mut mode, &opts, 96.0) {
-                                b.mode = mode;
-                            }
+                            let held = app.held_erase;
+                            paint_mode_dropdown(ui, "brush-mode", b, &mut app.ui.tool_options.brush_clear, held);
                         }
                         ui.add_enabled_ui(!block, |ui| {
                             percent_field(ui, tl!("Opacity"), &mut b.opacity, 0.0..=100.0, 62.0);
@@ -980,11 +980,8 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             widgets::vline(ui, 22.0);
                         }
                         opt_label(ui, tl!("Mode"));
-                        let mut mode = b.mode;
-                        let opts: Vec<(BlendMode, &str)> = BlendMode::LAYER_MODES.iter().map(|m| (*m, m.label())).collect();
-                        if widgets::dropdown(ui, "pencil-mode", &mut mode, &opts, 96.0) {
-                            b.mode = mode;
-                        }
+                        let held = app.held_erase;
+                        paint_mode_dropdown(ui, "pencil-mode", b, &mut app.ui.tool_options.pencil_clear, held);
                         percent_field(ui, tl!("Opacity"), &mut b.opacity, 0.0..=100.0, if t.pro { 62.0 } else { 66.0 });
                         opt_label(ui, tl!("Smoothing"));
                         smoothing_field(ui, b, if t.pro { 58.0 } else { 66.0 });
@@ -1162,7 +1159,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         widgets::checkbox(ui, &mut app.ui.tool_options.contiguous, tl!("Contiguous"));
                         widgets::checkbox(ui, &mut app.ui.tool_options.sample_all_layers, tl!("All Layers"));
                     }
-                    Tool::Gradient if t.pro => {
+                    Tool::Gradient => {
                         // Live "Gradient" (a Gradient Fill layer) or "Classic gradient" (pixels).
                         let mut classic = app.ui.tool_options.gradient_classic;
                         if widgets::dropdown(ui, "gradient-mode", &mut classic, &[(false, "Gradient"), (true, "Classic gradient")], 118.0) {
@@ -1417,7 +1414,6 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             &[("commit", &crate::shortcuts::pretty("Enter"))],
                         ),
                     ),
-                    Tool::Gradient => hint(ui, tl!("Drag to draw a gradient")),
                     Tool::PaintBucket => hint(ui, tl!("Click to fill similar colours")),
                     // Retouching and smart-selection tools draw their bar in `retouch_ui::options_bar`.
                     _ => {}
@@ -1455,10 +1451,10 @@ fn label(ui: &mut egui::Ui, s: &str) {
 
 /// Photoshop's scrubby Opacity/Fill labels: drag horizontally to change the percentage without
 /// hitting the small number field. The unique drag ID coalesces every frame into one undo step.
-fn scrub_pct_label(ui: &mut egui::Ui, text: &str, percent: &mut f32) -> widgets::PopupFieldResponse {
-    let t = Tokens::get(ui.ctx());
-    let resp =
-        ui.add(egui::Label::new(RichText::new(text).color(t.text_dim)).sense(Sense::click_and_drag())).on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
+fn scrub_pct_label(ui: &mut egui::Ui, text: &str, percent: &mut f32, max_w: f32) -> widgets::PopupFieldResponse {
+    // Elide to the room left in the row (full text on hover): a longer translation shrinks here
+    // instead of running over the fixed controls beside it (#3580).
+    let resp = widgets::elided_label_sensed(ui, text, max_w, Sense::click_and_drag()).on_hover_cursor(egui::CursorIcon::ResizeHorizontal);
     let key = resp.id.with("percent-label-drag");
     if resp.drag_started() {
         let stamp = ui.ctx().cumulative_pass_nr();
@@ -2120,7 +2116,11 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     let mut o = l.opacity * 100.0;
                     let field = widgets::popup_value_field(ui, opacity_label, &mut o, 0.0..=100.0, "%", LAYER_PCT_W);
                     // On a narrow dock the (scrubby) label yields its room to the controls (#2309).
-                    let scrub = if show_opacity_label { scrub_pct_label(ui, opacity_label, &mut o) } else { widgets::PopupFieldResponse::default() };
+                    let scrub = if show_opacity_label {
+                        scrub_pct_label(ui, opacity_label, &mut o, ui.available_width())
+                    } else {
+                        widgets::PopupFieldResponse::default()
+                    };
                     if field.changed || scrub.changed {
                         actions.push(pct_action(l, "opacity", o, scrub.drag.or(field.drag)));
                     }
@@ -2131,7 +2131,9 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui.add_space((theme::ROW_GAP - ui.spacing().item_spacing.y).max(0.0));
         ui.horizontal(|ui| {
             let lock_label = if t.pro { tl!("Lock:") } else { tl!("Lock") };
-            let fill_label = if t.pro { tl!("Fill:") } else { tl!("Fill") };
+            // Layer fill opacity (≠ Edit › Fill / path fill → Tô).
+            let lang = crate::i18n::current();
+            let fill_label = if t.pro { crate::i18n::tr_ctx(lang, "layers", "Fill:") } else { crate::i18n::tr_ctx(lang, "layers", "Fill") };
             // In a narrow panel with long translated labels, drop the "Lock:" text (the icons keep
             // their tooltips) rather than let the Fill label run over the lock icons.
             let gap = ui.spacing().item_spacing.x;
@@ -2169,7 +2171,7 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let mut f = l.fill_opacity * 100.0;
                     let field = widgets::popup_value_field(ui, fill_label, &mut f, 0.0..=100.0, "%", LAYER_PCT_W);
-                    let scrub = scrub_pct_label(ui, fill_label, &mut f);
+                    let scrub = scrub_pct_label(ui, fill_label, &mut f, ui.available_width());
                     if field.changed || scrub.changed {
                         actions.push(pct_action(l, "fill", f, scrub.drag.or(field.drag)));
                     }
@@ -2196,6 +2198,7 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             // An fx drag that never saw its release (the panel was hidden) must not outlive the button.
             if !ctx.input(|i| i.pointer.primary_down() || i.pointer.any_released()) {
                 ctx.data_mut(|d| d.remove::<FxDrag>(fx_drag_key()));
+                ctx.data_mut(|d| d.remove::<MaskDrag>(mask_drag_key()));
             }
             let held = ctx.data(|d| d.get_temp::<u64>(egui::Id::new("layer-drag")).is_some() || d.get_temp::<FxDrag>(fx_drag_key()).is_some());
             let dragging = held && ctx.input(|i| i.pointer.primary_down());
@@ -2268,13 +2271,21 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let in_selection = selection.iter().any(|s| s.0 == id);
         (id, in_selection)
     });
-    // An effect row can be dropped on Delete too (#3102).
+    // An effect row can be dropped on Delete too (#3102), and a mask's thumbnail (#3113, #3119).
     let fx_footer_drag = ctx.data(|d| d.get_temp::<FxDrag>(fx_drag_key()));
     fx_drag_feedback(&ctx, &doc);
+    let mask_footer_drag = ctx.data(|d| d.get_temp::<MaskDrag>(mask_drag_key()));
+    if let Some((_, kind)) = mask_footer_drag
+        && let Some(p) = ctx.input(|i| i.pointer.interact_pos())
+    {
+        let label = if kind == MaskKind::Vector { tl!("Vector Mask") } else { tl!("Layer Mask") };
+        crate::layer_transfer::ghost(&ctx, p, label);
+    }
     // End any layer drag after every row has had a chance to accept the drop.
     if ctx.input(|i| i.pointer.any_released()) {
         ctx.data_mut(|d| d.remove::<u64>(egui::Id::new("layer-drag")));
         ctx.data_mut(|d| d.remove::<FxDrag>(fx_drag_key()));
+        ctx.data_mut(|d| d.remove::<MaskDrag>(mask_drag_key()));
     }
     widgets::panel_footer(ui, |ui| {
         let active_layer = active.and_then(|id| doc.layer(id));
@@ -2294,6 +2305,13 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         }
         actions.extend(footer_drop(ui, &trash, footer_drag, "layer.delete"));
         actions.extend(fx_trash_drop(ui, &trash, fx_footer_drag));
+        // Photoshop asks "Apply mask to layer before removing?" or "Delete the vector mask?"
+        // (`mask_trash_prompt`).
+        if let Some((layer, kind)) = mask_footer_drag
+            && dropped_on(ui, &trash)
+        {
+            actions.push(crate::mask_trash_prompt::drop_action(layer, kind));
+        }
         // A click follows the selected thumbnail; name that action for screen readers even
         // though dropping a whole layer row onto the same button always deletes the layer.
         trash.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!(label)));
@@ -2534,6 +2552,14 @@ fn eye_sweep(ctx: &egui::Context, l: &Layer, row: Rect, eye: &egui::Response, ac
     ctx.data_mut(|d| d.insert_temp(id, sweep));
 }
 
+/// Marker in the clipped row's existing 12-point slot, beside its thumbnail.
+fn paint_clipping_indicator(painter: &egui::Painter, at: Pos2, color: Color32) {
+    let tip = at + vec2(5.0, 3.0);
+    let stroke = Stroke::new(1.0, color);
+    painter.add(egui::Shape::line(vec![at + vec2(9.0, -4.0), at + vec2(5.0, -4.0), tip], stroke));
+    painter.add(egui::Shape::line(vec![at + vec2(2.0, 0.0), tip, at + vec2(8.0, 0.0)], stroke));
+}
+
 #[allow(clippy::too_many_arguments)]
 fn layer_row(
     app: &mut PhotocraftApp,
@@ -2550,9 +2576,15 @@ fn layer_row(
     // Photoshop's default (medium) thumbnails: 32 pt rows.
     let row_h = if t.pro { 32.0 } else { 46.0 };
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::click_and_drag());
+    // A drag from a mask's thumbnail drags that mask, not the layer (#3113, #3119).
+    let mask_drag = starts_mask_drag(ctx, l, &resp);
+    if let Some(kind) = mask_drag {
+        ctx.data_mut(|d| d.insert_temp::<MaskDrag>(mask_drag_key(), (l.id.0, kind)));
+    }
+    let mask_drag = mask_drag.is_some();
     layer_drag_and_drop(app, ctx, ui, l, rect, &resp, actions);
     fx_drop(ctx, ui, l, rect, actions);
-    if resp.drag_started() {
+    if resp.drag_started() && !mask_drag {
         crate::layer_transfer::begin_from_panel(app, ctx, l.id);
     }
     // Rows are painted: name them for screen readers and UI tests.
@@ -2604,6 +2636,10 @@ fn layer_row(
             actions.push(("layer.setProps".into(), json!({"layer": l.id.0, "visible": !l.visible})));
         }
     }
+    eye_resp.context_menu(|ui| {
+        crate::widgets::style_spectrum_popup_menu(ui);
+        crate::layer_menu_ui::color_choices(app, ui, l, row.multi && selected, actions);
+    });
     // Everything but the thumbnails, the indentation and the name, so a narrow panel squeezes
     // the indentation first, then the thumbnails (a layer with two masks has three).
     let others = 6.0
@@ -2616,7 +2652,7 @@ fn layer_row(
     x += 28.0 + crate::layer_row_ui::indent(depth, rect.width(), fixed);
     let toggled = crate::layer_tree_ui::disclosure(ui, rect, &mut x, l, actions);
     if l.clipped {
-        painter.text(pos2(x, rect.center().y), Align2::LEFT_CENTER, "↳", egui::FontId::proportional(13.0), t.text_faint);
+        paint_clipping_indicator(&painter, pos2(x, rect.center().y), t.text_faint);
         x += 12.0;
     }
     let thumb = Rect::from_min_size(pos2(x, rect.center().y - ts / 2.0), vec2(ts, ts));
@@ -2764,17 +2800,19 @@ fn layer_row(
     if let Some(done) = crate::layer_row_ui::rename_field(ui, l.id.0, edit_rect) {
         actions.push(done);
     }
-    // Right-click context menu.
-    resp.context_menu(|ui| {
-        crate::widgets::style_spectrum_popup_menu(ui);
-        // Right-clicking inside a multi-selection keeps it and acts on every selected layer.
-        let on_set = row.multi && selected;
-        if crate::layer_menu_ui::show(app, ui, l, on_set, actions)
-            && let Some(done) = crate::layer_row_ui::start_rename(ui.ctx(), l.id.0, &l.name)
-        {
-            actions.push(done);
-        }
-    });
+    // The visibility icon has its own color menu; elsewhere use the full layer menu.
+    if !eye_resp.secondary_clicked() && !eye_resp.context_menu_opened() {
+        resp.context_menu(|ui| {
+            crate::widgets::style_spectrum_popup_menu(ui);
+            // Right-clicking inside a multi-selection keeps it and acts on every selected layer.
+            let on_set = row.multi && selected;
+            if crate::layer_menu_ui::show(app, ui, l, on_set, actions)
+                && let Some(done) = crate::layer_row_ui::start_rename(ui.ctx(), l.id.0, &l.name)
+            {
+                actions.push(done);
+            }
+        });
+    }
     rect
 }
 
@@ -2857,12 +2895,16 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui.painter().text(pos2(thumb.right() + 8.0, rect.center().y), Align2::LEFT_CENTER, &doc.name, egui::FontId::proportional(12.0), t.text);
         ui.painter().line_segment([rect.left_bottom(), rect.right_bottom()], Stroke::new(1.0, t.separator));
     }
+    let mut snap_cmd = None;
     let mut target: Option<isize> = None;
     let all = entries.iter().map(|e| (e.clone(), false)).chain(redo.iter().map(|e| (e.clone(), true)));
     // The dock gives History a fixed height: the rows scroll above the footer.
     let footer = if t.pro { widgets::footer_height(ui) + ui.spacing().item_spacing.y } else { 0.0 };
     let max_h = (ui.available_height() - footer).max(40.0);
     egui::ScrollArea::vertical().id_salt("history-rows").max_height(max_h).auto_shrink([false, false]).show(ui, |ui| {
+        // Snapshots head the list and scroll with the states, so many of them never push the
+        // footer out of a short dock.
+        snap_cmd = snapshot_rows(app, ui);
         for (i, (e, is_redo)) in all.enumerate() {
             let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
             if i == current {
@@ -2900,8 +2942,10 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             if ui.add_enabled_ui(can_delete, |ui| icons::button(ui, "trash", 26.0, false, tl!("Delete current state"))).inner.clicked() {
                 footer_cmd = Some("history.deleteState");
             }
-            // Snapshots are not implemented yet: shown greyed, as Photoshop's footer has the button.
-            ui.add_enabled_ui(false, |ui| icons::button(ui, "scan", 26.0, false, tl!("Create new snapshot")));
+            let can_snap = app.session.is_enabled("history.newSnapshot");
+            if ui.add_enabled_ui(can_snap, |ui| icons::button(ui, "scan", 26.0, false, tl!("Create new snapshot"))).inner.clicked() {
+                footer_cmd = Some("history.newSnapshot");
+            }
             if ui.add_enabled_ui(can_new, |ui| icons::button(ui, "file-plus", 26.0, false, tl!("Create new document from current state"))).inner.clicked() {
                 footer_cmd = Some("history.newDocument");
             }
@@ -2909,8 +2953,10 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
     // An open Free Transform owns Undo (transform_tool::intercept): stepping the document's history under
     // its box would leave it transforming pixels that changed.
-    if let Some(cmd) = footer_cmd.filter(|_| app.ui.transform.is_none())
-        && let Err(e) = app.run(cmd, json!({}))
+    // Selecting a snapshot changes the document, so it waits for an open transform like the rows.
+    let snap_cmd = snap_cmd.filter(|(cmd, _)| *cmd != "history.selectSnapshot" || app.ui.transform.is_none());
+    if let Some((cmd, p)) = footer_cmd.map(|c| (c, json!({}))).filter(|_| app.ui.transform.is_none()).or(snap_cmd)
+        && let Err(e) = app.run(cmd, p)
     {
         app.ui.status = e;
         app.ui.status_error = true;
@@ -2923,6 +2969,79 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             }
         }
     }
+}
+
+/// The History panel's snapshot rows (#2966), under the opening row, each with its thumbnail and
+/// name: a click returns to the snapshot (a new state), a double-click or right-click › Rename…
+/// edits the name in place (Enter or a click elsewhere keeps it, Escape cancels), and
+/// right-click › Delete removes it. Returns the command a row asks for.
+fn snapshot_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> Option<(&'static str, Value)> {
+    let t = Tokens::get(ui.ctx());
+    let st = app.session.active()?;
+    let (doc_id, snaps) = (st.doc.id, st.snapshots.clone());
+    let live: Vec<u64> = snaps.iter().map(|s| s.id).collect();
+    // Per document: snapshot ids restart in each, and a tab switch must not carry the edit over.
+    let rename_id = egui::Id::new(("history-snapshot-rename", doc_id));
+    let mut renaming: Option<(u64, String)> = ui.data(|d| d.get_temp(rename_id)).flatten();
+    let mut cmd = None;
+    let ctx = ui.ctx().clone();
+    for snap in &snaps {
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), Sense::click());
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &snap.name));
+        if resp.hovered() {
+            ui.painter().rect_filled(rect, 0.0, t.hover.gamma_multiply(0.5));
+        }
+        let thumb = Rect::from_min_size(pos2(rect.left() + 28.0, rect.center().y - 14.0), vec2(28.0, 28.0));
+        widgets::checker(ui.painter(), thumb, 4.0);
+        let tex = app.snapshot_thumb(&ctx, doc_id, snap, &live);
+        ui.painter().image(tex, thumb, Rect::from_min_max(egui::Pos2::ZERO, pos2(1.0, 1.0)), Color32::WHITE);
+        ui.painter().rect_stroke(thumb, 0.0, Stroke::new(1.0, t.separator), StrokeKind::Outside);
+        match renaming.as_mut().filter(|(id, _)| *id == snap.id) {
+            Some((_, text)) => {
+                let field = Rect::from_min_max(pos2(thumb.right() + 6.0, rect.center().y - 10.0), pos2(rect.right() - 6.0, rect.center().y + 10.0));
+                let r = ui.put(field, egui::TextEdit::singleline(text));
+                if r.lost_focus() {
+                    if !ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        cmd = Some(("history.renameSnapshot", json!({"snapshot": snap.id, "name": text.clone()})));
+                    }
+                    renaming = None;
+                } else if !r.has_focus() {
+                    // Starting to rename: focus the field with the whole name selected, so typing
+                    // replaces it (Photoshop).
+                    r.request_focus();
+                    if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), r.id) {
+                        let all = egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(text.chars().count()));
+                        state.cursor.set_char_range(Some(all));
+                        state.store(ui.ctx(), r.id);
+                    }
+                }
+            }
+            None => {
+                ui.painter().text(pos2(thumb.right() + 8.0, rect.center().y), Align2::LEFT_CENTER, &snap.name, egui::FontId::proportional(12.0), t.text);
+            }
+        }
+        if resp.double_clicked() {
+            renaming = Some((snap.id, snap.name.clone()));
+        } else if resp.clicked() {
+            cmd = Some(("history.selectSnapshot", json!({"snapshot": snap.id})));
+        }
+        resp.context_menu(|ui| {
+            if ui.button(tl!("Rename…")).clicked() {
+                renaming = Some((snap.id, snap.name.clone()));
+                ui.close();
+            }
+            if ui.button(tl!("Delete")).clicked() {
+                cmd = Some(("history.deleteSnapshot", json!({"snapshot": snap.id})));
+                ui.close();
+            }
+        });
+    }
+    if !snaps.is_empty() {
+        let y = ui.cursor().top();
+        ui.painter().hline(ui.max_rect().x_range(), y, Stroke::new(1.0, t.separator));
+    }
+    ui.data_mut(|d| d.insert_temp(rename_id, renaming));
+    cmd
 }
 
 // ----------------------------------------------------------------------------- properties
@@ -3070,7 +3189,7 @@ fn layer_controls(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
         let _ = app.run("layer.setProps", json!({"layer": layer.id.0, "opacity": o / 100.0}));
     }
     let mut f = layer.fill_opacity * 100.0;
-    let r = widgets::slider_row(ui, tl!("Fill"), &mut f, 0.0..=100.0, "%", None);
+    let r = widgets::slider_row(ui, crate::i18n::tr_ctx(crate::i18n::current(), "layers", "Fill"), &mut f, 0.0..=100.0, "%", None);
     if r.drag_stopped() || (r.changed() && !r.dragged()) {
         let _ = app.run("layer.setProps", json!({"layer": layer.id.0, "fill": f / 100.0}));
     }
@@ -3441,6 +3560,22 @@ fn brush_tip(p: &egui::Painter, c: egui::Pos2, rad: f32, hardness: f32, color: C
     }
 }
 
+/// The Brush's or Pencil's Mode dropdown: the blend modes, with Photoshop's painting-only Clear
+/// after Dissolve (#3439). Clear erases with the brush (`clear`); it shows while chosen, or while
+/// `~` is held (`held`).
+fn paint_mode_dropdown(ui: &mut egui::Ui, id: &str, b: &mut photocraft_engine::BrushSettings, clear: &mut bool, held: bool) {
+    let mut opts: Vec<(Option<BlendMode>, &str)> = BlendMode::LAYER_MODES.iter().map(|m| (Some(*m), m.label())).collect();
+    let at = opts.iter().position(|o| o.0 == Some(BlendMode::Dissolve)).map_or(opts.len(), |i| i + 1);
+    opts.insert(at, (None, "Clear"));
+    let mut mode = if *clear || held { None } else { Some(b.mode) };
+    if widgets::dropdown(ui, id, &mut mode, &opts, 96.0) {
+        *clear = mode.is_none();
+        if let Some(m) = mode {
+            b.mode = m;
+        }
+    }
+}
+
 /// Options-bar Smoothing % (the brush's stroke smoothing; the live stroke and the commit use it).
 fn smoothing_field(ui: &mut egui::Ui, b: &mut photocraft_engine::BrushSettings, width: f32) {
     let mut sm = (b.smoothing.amount * 100.0).round();
@@ -3521,7 +3656,9 @@ fn layer_drag_and_drop(
 ) {
     let t = Tokens::get(ctx);
     let key = egui::Id::new("layer-drag");
-    if resp.drag_started() {
+    // A drag from the mask thumbnail (`starts_mask_drag`) moves the mask, not the layer.
+    let mask_drag = ctx.data(|d| d.get_temp::<MaskDrag>(mask_drag_key())).is_some_and(|(id, _)| id == l.id.0);
+    if resp.drag_started() && !mask_drag {
         ctx.data_mut(|d| d.insert_temp(key, l.id.0));
     }
     let Some(dragged) = ctx.data(|d| d.get_temp::<u64>(key)) else { return };
@@ -3639,6 +3776,28 @@ fn layer_drop_zone(
 /// An fx row being dragged: the layer it belongs to and the effect index (`None` = the "Effects"
 /// row, all of them).
 type FxDrag = (u64, Option<usize>);
+
+/// A mask thumbnail being dragged: the layer and which of its masks (#3113, #3119).
+type MaskDrag = (u64, MaskKind);
+
+fn mask_drag_key() -> egui::Id {
+    egui::Id::new("mask-drag")
+}
+
+/// Which mask's thumbnail (where it was drawn last frame) the row's drag starts on, if any.
+fn starts_mask_drag(ctx: &egui::Context, l: &Layer, resp: &egui::Response) -> Option<MaskKind> {
+    if !resp.drag_started() {
+        return None;
+    }
+    let p = ctx.input(|i| i.pointer.press_origin())?;
+    let (thumbs, _) = crate::mask_thumbs_ui::recorded(ctx, l.id.0)?;
+    let kind = thumbs.iter().find(|(_, r)| r.contains(p))?.0;
+    let present = match kind {
+        MaskKind::Pixel => l.mask.is_some(),
+        MaskKind::Vector => l.vector_mask.is_some(),
+    };
+    present.then_some(kind)
+}
 
 fn fx_drag_key() -> egui::Id {
     egui::Id::new("fx-drag")
@@ -4217,8 +4376,8 @@ mod history_transform_tests {
         }
     }
 
-    /// The Photoshop-theme footer (#1117): trash deletes the current state, file-plus makes a
-    /// new document from it, and the snapshot button is greyed (snapshots aren't implemented).
+    /// The Photoshop-theme footer (#1117): trash deletes the current state, the camera takes a
+    /// snapshot (#2966), and file-plus makes a new document from the current state.
     #[test]
     fn history_footer_buttons_run_their_commands() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
@@ -4239,7 +4398,12 @@ mod history_transform_tests {
         };
         let b = buttons(&h);
         assert_eq!(b.len(), 3, "trash, snapshot, new document: {b:?}");
-        assert!(b[0].1 && !b[1].1 && b[2].1, "only the snapshot button is disabled: {b:?}");
+        assert!(b.iter().all(|b| b.1), "all enabled: {b:?}");
+        let steps = h.state().session.active().unwrap().history.entries().len();
+        click(&mut h, b[1].0.center());
+        let st = h.state().session.active().unwrap();
+        assert_eq!(st.snapshots.len(), 1, "the camera takes a snapshot");
+        assert_eq!(st.history.entries().len(), steps, "which is not a history state");
         let docs = h.state().session.documents().len();
         click(&mut h, b[2].0.center());
         assert_eq!(h.state().session.documents().len(), docs + 1, "file-plus makes a new document");
@@ -4251,6 +4415,123 @@ mod history_transform_tests {
         let st = h.state().session.active().unwrap();
         assert_eq!(st.history.entries().len(), steps - 1, "trash deletes the current state");
         assert!(!st.history.can_redo(), "and it can't be redone");
+    }
+}
+
+#[cfg(test)]
+mod snapshot_row_tests {
+    use egui::vec2;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+    use serde_json::json;
+
+    use super::*;
+
+    fn top_pixel(h: &Harness<'static, PhotocraftApp>) -> [f32; 4] {
+        h.state().session.active().unwrap().doc.layers.last().unwrap().surface().unwrap().rgba(1, 1)
+    }
+
+    fn snapshot_names(h: &Harness<'static, PhotocraftApp>) -> Vec<String> {
+        h.state().session.active().unwrap().snapshots.iter().map(|s| s.name.clone()).collect()
+    }
+
+    /// Snapshot rows (#2966) sit under the opening row: clicking one returns to it as a new
+    /// state, and its right-click menu renames or deletes it.
+    #[test]
+    fn snapshot_rows_select_rename_and_delete() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 200, "height": 150})).unwrap();
+        app.run("layer.new.layer", json!({})).unwrap();
+        app.run("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        app.run("history.newSnapshot", json!({})).unwrap();
+        app.run("edit.fill", json!({"color": "#0000ff"})).unwrap();
+        // 60 fps steps, so two clicks a frame apart count as a double-click.
+        let mut h =
+            Harness::builder().with_size(vec2(300.0, 400.0)).with_step_dt(1.0 / 60.0).build_ui_state(|ui, app: &mut PhotocraftApp| history(app, ui), app);
+        h.run_steps(3);
+        let steps = h.state().session.active().unwrap().history.entries().len();
+        h.get_by_label("Snapshot 1").click();
+        h.run_steps(2);
+        let st = h.state().session.active().unwrap();
+        assert_eq!(st.history.entries().len(), steps + 1);
+        assert_eq!(st.history.entries().last().map(String::as_str), Some("Snapshot 1"));
+        assert_eq!(top_pixel(&h), [1.0, 0.0, 0.0, 1.0], "back to red");
+        // Right-click › Rename…: type a name, Enter.
+        h.get_by_label("Snapshot 1").click_secondary();
+        h.run_steps(2);
+        h.get_by_label("Rename…").click();
+        h.run_steps(2);
+        h.get_by_role(egui::accesskit::Role::TextInput).type_text("Lesson start");
+        h.key_press(egui::Key::Enter);
+        h.run_steps(2);
+        assert_eq!(snapshot_names(&h), ["Lesson start"]);
+        // A double-click renames too; Escape keeps the old name.
+        let steps_now = h.state().session.active().unwrap().history.entries().len();
+        // A real double-click (accessibility clicks are single clicks).
+        let p = h.get_by_label("Lesson start").rect().center();
+        let p = egui::pos2(p.x as f32, p.y as f32);
+        h.event(egui::Event::PointerMoved(p));
+        // Wait out the double-click window of the earlier clicks.
+        h.run_steps(30);
+        for pressed in [true, false, true, false] {
+            h.event(egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+            h.step();
+        }
+        h.run_steps(3);
+        h.get_by_role(egui::accesskit::Role::TextInput).type_text("Oops");
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        assert_eq!(snapshot_names(&h), ["Lesson start"], "Escape cancels");
+        assert_eq!(h.state().session.active().unwrap().history.entries().len(), steps_now + 1, "the click selected it once");
+        // Right-click › Delete.
+        h.get_by_label("Lesson start").click_secondary();
+        h.run_steps(2);
+        h.get_by_label("Delete").click();
+        h.run_steps(2);
+        assert!(snapshot_names(&h).is_empty());
+        assert_eq!(h.state().session.active().unwrap().history.entries().len(), steps + 2, "deleting leaves the history alone");
+    }
+
+    /// Snapshot rows scroll with the states: many snapshots in a short dock leave the footer and
+    /// its camera button in view.
+    #[test]
+    fn many_snapshots_keep_the_footer_in_a_short_panel() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 200, "height": 150})).unwrap();
+        for _ in 0..6 {
+            app.run("history.newSnapshot", json!({})).unwrap();
+        }
+        let mut h = Harness::builder().with_size(vec2(300.0, 250.0)).build_ui_state(|ui, app: &mut PhotocraftApp| history(app, ui), app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ProMedium);
+        h.state_mut().ui.theme = crate::theme::ThemeKind::ProMedium;
+        h.run_steps(3);
+        let view = h.ctx.input(|i| i.viewport_rect());
+        let buttons: Vec<Rect> = h
+            .ctx
+            .viewport(|v| v.prev_pass.widgets.layers().flat_map(|(_, w)| w.iter()).filter(|w| w.rect.size() == vec2(26.0, 26.0)).map(|w| w.rect).collect());
+        assert_eq!(buttons.len(), 3, "{buttons:?}");
+        assert!(buttons.iter().all(|b| view.contains_rect(*b)), "footer in view: {buttons:?} in {view:?}");
+    }
+
+    /// Renaming belongs to one document: snapshot ids restart in each, so switching tabs must not
+    /// carry the edit over to the other document's snapshot with the same id.
+    #[test]
+    fn a_rename_in_progress_stays_with_its_document() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        for _ in 0..2 {
+            app.run("file.new", json!({"width": 200, "height": 150})).unwrap();
+            app.run("history.newSnapshot", json!({})).unwrap();
+        }
+        let mut h = Harness::builder().with_size(vec2(300.0, 400.0)).build_ui_state(|ui, app: &mut PhotocraftApp| history(app, ui), app);
+        h.run_steps(3);
+        h.get_by_label("Snapshot 1").click_secondary();
+        h.run_steps(2);
+        h.get_by_label("Rename…").click();
+        h.run_steps(2);
+        assert!(h.query_by_role(egui::accesskit::Role::TextInput).is_some(), "renaming in document 2");
+        h.state_mut().session.set_active(0);
+        h.run_steps(2);
+        assert!(h.query_by_role(egui::accesskit::Role::TextInput).is_none(), "not in document 1");
     }
 }
 
@@ -4942,6 +5223,10 @@ mod opacity_row_layout_tests {
 }
 
 #[cfg(test)]
+#[path = "clipping_indicator_tests.rs"]
+mod clipping_indicator_tests;
+
+#[cfg(test)]
 #[path = "mask_props_ui_tests.rs"]
 mod mask_properties_tests;
 
@@ -4957,8 +5242,12 @@ mod compact_visual_regressions {
     }
 
     fn toolbar_harness(kind: theme::ThemeKind, scale: f32) -> egui_kittest::Harness<'static, PhotocraftApp> {
+        toolbar_harness_sized(kind, scale, 360.0)
+    }
+
+    fn toolbar_harness_sized(kind: theme::ThemeKind, scale: f32, height: f32) -> egui_kittest::Harness<'static, PhotocraftApp> {
         let mut ready = false;
-        let mut harness = egui_kittest::Harness::builder().with_size(vec2(400.0, 360.0)).with_pixels_per_point(scale).build_ui_state(
+        let mut harness = egui_kittest::Harness::builder().with_size(vec2(400.0, height)).with_pixels_per_point(scale).build_ui_state(
             move |ui, app: &mut PhotocraftApp| {
                 if !ready {
                     egui_extras::install_image_loaders(ui.ctx());
@@ -5024,6 +5313,18 @@ mod compact_visual_regressions {
                 harness.run_steps(3);
                 assert_eq!(harness.state().ui.tool, Tool::Zoom, "Space must select the revealed tool");
             }
+        }
+    }
+
+    /// A window taller than the tools keeps the colour chips right under the last tool, as
+    /// Photoshop does, instead of at the bottom of the toolbar.
+    #[test]
+    fn tall_toolbar_keeps_the_colour_chips_under_the_tools() {
+        for kind in theme::ThemeKind::ALL {
+            let harness = toolbar_harness_sized(kind, 1.0, 1600.0);
+            let last = harness.get_by_label("Zoom Tool  (Z)").rect();
+            let swap = harness.get_by_label("Swap colours (X)").rect();
+            assert!(swap.top() - last.bottom() < 80.0, "{kind:?}: the chips {swap:?} sit far below the last tool {last:?}");
         }
     }
 

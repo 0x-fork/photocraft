@@ -459,6 +459,8 @@ fn wraps(id: &str) -> bool {
             | "type.pasteLoremIpsum"
             | "image.applyImage"
             | "image.calculations"
+            | "select.saveSelection"
+            | "select.loadSelection"
     )
 }
 
@@ -575,7 +577,7 @@ fn run(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, p: &Value) -> Res
         return Ok(json!(k));
     }
     if let Some(k) = id.strip_prefix("window.arrange.") {
-        return arrange(app, k);
+        return arrange(app, k, p);
     }
     match id {
         "view.extras" => {
@@ -641,15 +643,23 @@ fn fit_layers(app: &mut PhotocraftApp) -> Result<Value, String> {
     Ok(json!({"zoom": v.zoom, "bounds": [b.x0, b.y0, b.x1, b.y1]}))
 }
 
+/// A finite `[x, y]` screen position within a sane range (window systems reject wild values).
+fn screen_position(v: &Value) -> Option<[f32; 2]> {
+    const LIMIT: f64 = 1.0e6;
+    let a = v.as_array().filter(|a| a.len() == 2)?;
+    let n = |i: usize| a.get(i).and_then(Value::as_f64).filter(|x| x.is_finite() && x.abs() <= LIMIT).map(|x| x as f32);
+    Some([n(0)?, n(1)?])
+}
+
 pub(crate) fn float_window(app: &mut PhotocraftApp, doc: usize, offset: usize) -> u64 {
     let wid = app.ui.alloc_id();
     let mut view = app.ui.views.get(doc).cloned().unwrap_or_default();
     view.fit_pending = offset > 0 || view.fit_pending;
-    app.ui.windows.push(crate::state::DocWindow { id: wid, document: doc, view, open: true });
+    app.ui.windows.push(crate::state::DocWindow { id: wid, document: doc, view, open: true, position: None });
     wid
 }
 
-fn arrange(app: &mut PhotocraftApp, k: &str) -> Result<Value, String> {
+fn arrange(app: &mut PhotocraftApp, k: &str, p: &Value) -> Result<Value, String> {
     if LAYOUTS.contains(&k) {
         app.ui.view.arrange = k.to_string();
         // Each document fits its new cell.
@@ -662,9 +672,30 @@ fn arrange(app: &mut PhotocraftApp, k: &str) -> Result<Value, String> {
             app.ui.windows.clear();
             Ok(json!({"arrange": "tabs"}))
         }
-        "newWindowForDocument" | "floatInWindow" => {
+        "newWindowForDocument" => {
             let doc = app.session.active_index().ok_or("no document")?;
             Ok(json!({"window": float_window(app, doc, 0)}))
+        }
+        // Optional `document` (index; default the active one) and `position` (`[x, y]`, the
+        // window's screen position in points): dragging a tab off the tab strip uses both (#3733).
+        "floatInWindow" => {
+            let doc = match p.get("document") {
+                None | Some(Value::Null) => app.session.active_index().ok_or("no document")?,
+                Some(v) => {
+                    let i = v.as_u64().ok_or("document must be a document index")?;
+                    usize::try_from(i).ok().filter(|&i| i < app.session.documents().len()).ok_or(format!("no document {i}"))?
+                }
+            };
+            let position = match p.get("position") {
+                None | Some(Value::Null) => None,
+                Some(v) => Some(screen_position(v).ok_or("position must be [x, y] in points")?),
+            };
+            let wid = float_window(app, doc, 0);
+            if let Some(w) = app.ui.windows.iter_mut().find(|w| w.id == wid) {
+                w.position = position;
+            }
+            app.session.set_active(doc);
+            Ok(json!({"window": wid}))
         }
         "floatAllInWindows" | "cascade" => {
             let n = app.session.documents().len();
@@ -851,6 +882,21 @@ pub fn form_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     egui::Grid::new("form-dialog").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         for k in keys {
             let v = f.get(&k).cloned().unwrap_or(Value::Null);
+            if k == "quality" && f.get("__command").and_then(Value::as_str) == Some("file.automate.batch") {
+                ui.label(label(&k));
+                let mut custom = v.as_f64().is_some();
+                let mut quality = v.as_f64().or_else(|| f.get("__batchQuality").and_then(Value::as_f64)).unwrap_or(8.0).clamp(0.0, 12.0) as f32;
+                ui.horizontal(|ui| {
+                    crate::widgets::checkbox(ui, &mut custom, tl!("Custom"));
+                    ui.add_enabled_ui(custom, |ui| crate::widgets::value_field(ui, &mut quality, 0.0..=12.0, "", 74.0));
+                });
+                // None preserves the command's existing JPEG and lossless WebP defaults.
+                // The inactive custom value is shell state, never a command parameter.
+                f.insert("__batchQuality".into(), json!(quality));
+                f.insert(k, if custom { json!(quality) } else { Value::Null });
+                ui.end_row();
+                continue;
+            }
             let new = match &v {
                 Value::Array(_) | Value::Object(_) | Value::Null => continue,
                 Value::Bool(b) => {
@@ -1075,7 +1121,7 @@ fn front(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<Val
         "file.scripts.imageProcessor" => dialog(
             app,
             json!({"input": dir, "output": format!("{dir}/processed"), "format": "jpg", "quality": 8, "width": 0, "height": 0, "convertToSrgb": true}),
-            json!({"format": ["jpg", "png", "psd", "tiff"]}),
+            json!({"format": ["jpg", "png", "psd", "tiff", "webp"]}),
         ),
         "file.automate.batch" => {
             let Some(action) = crate::actions::selected_action(app) else {
@@ -1085,8 +1131,8 @@ fn front(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<Val
             let name = action.name.clone();
             dialog(
                 app,
-                json!({"action": name, "steps": steps, "input": dir, "output": format!("{dir}/batch"), "format": "same"}),
-                json!({"format": ["same", "png", "jpg", "psd", "tiff"]}),
+                json!({"action": name, "steps": steps, "input": dir, "output": format!("{dir}/batch"), "format": "same", "quality": null, "__batchQuality": 8}),
+                json!({"format": ["same", "png", "jpg", "psd", "tiff", "webp"]}),
             )
         }
         // Channel workflow dialogs (see channels_panel.rs for the channel references).
@@ -1118,8 +1164,16 @@ fn front(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<Val
                 "add",
                 "subtract",
             ];
+            // The active layer's transparency, and its mask only when it has one.
+            let layer = st.active_layer.and_then(|l| d.layer(l));
             let mut load = chans.clone();
-            load.extend(["transparency", "mask", "selection"].map(String::from));
+            if layer.is_some() {
+                load.push("transparency".into());
+            }
+            if layer.is_some_and(|l| l.mask.is_some()) {
+                load.push("mask".into());
+            }
+            load.push("selection".into());
             match id {
                 "select.saveSelection" => dialog(
                     app,

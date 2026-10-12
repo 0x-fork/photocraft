@@ -59,7 +59,7 @@ id = "TOOL-213-8"
 target = "Clone Source: W/H link, drawn overlay (opacity/blend/clip/auto-hide), Alt target cursor"
 status = "partial"
 issue = 213
-note = "Clone Source overlay drawn with opacity, inversion, circular clipping and auto-hide; W/H link, custom-tip clipping and overlay blend modes remain missing"
+note = "Clone Source overlay drawn with opacity, inversion, circular clipping, auto-hide and the Normal/Darken/Lighten/Difference blend against the image under the brush (canvas.rs draw_clone_preview, clone_source::overlay_blend); W/H link (cloneSource.set linked, panel chain button, #3298); custom-tip clipping remains missing"
 
 [[item]]
 id = "TOOL-213-9"
@@ -148,9 +148,9 @@ note = "canvas_tool_menu.rs TRANSFORM_MENU: modes, Content-Aware Scale / Puppet 
 [[item]]
 id = "TOOL-214-6"
 target = "Puppet Warp mesh follows the object outline (constrained triangulation)"
-status = "missing"
+status = "done"
 issue = 214
-note = "algo/puppet.rs:136 builds a block-grid mesh"
+note = "algo/puppet.rs build_mesh: traced outline of the opaque region grown by Expansion, triangulated with a Density-spaced lattice (conforming Delaunay); separate shapes get separate meshes (#3105)"
 
 [[item]]
 id = "TOOL-214-7"
@@ -206,7 +206,7 @@ id = "TOOL-214-14"
 target = "Vanishing Point window: draw and edit planes, paste, clone in perspective"
 status = "partial"
 issue = 214
-note = "filter.vanishingPoint (vp_cmds.rs:15) behind a parameter dialog"
+note = "filter.vanishingPoint (vp_cmds.rs:15); on-canvas plane editor (vp_ui.rs: Create/Edit Plane, edge nodes, valid/doubtful/invalid grid colours, Grid Size, clipboard pasted onto the plane on OK); clone stamp, marquee and tear-off planes in the window still missing"
 
 [[item]]
 id = "TOOL-214-15"

@@ -25,7 +25,7 @@ pub fn stepped(modes: &[BlendMode], current: BlendMode, step: i32) -> Option<Ble
 }
 
 /// Consumes this frame's ⇧+ / ⇧− presses (⇧= on a US layout is `+`; on a German one
-/// `shortcuts::layout_symbols` has already turned ⇧+ and ⇧- into `+` and `-`) and applies them.
+/// `layout_keys::apply` has already turned ⇧+ and ⇧- into `+` and `-`) and applies them.
 pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let steps: Vec<i32> = ctx.input_mut(|i| {
         let mut out = Vec::new();

@@ -246,6 +246,67 @@ pub(crate) fn window_size(window: Rect) -> Result<(usize, usize)> {
     Ok((w as usize, h as usize))
 }
 
+/// [`Surface::read_region`] of `r`, read in parallel bands and asking `cancelled` before each
+/// (`None` once it says so): a Content-Aware window can be tens of megapixels.
+pub(crate) fn read_window(surf: &Surface, r: Rect, cancelled: &(dyn Fn() -> bool + Sync)) -> Option<Vec<f32>> {
+    use rayon::prelude::*;
+    const BAND: usize = 64;
+    let n = surf.channels();
+    let (w, h) = (r.width() as usize, r.height() as usize);
+    let mut out = vec![0.0f32; w * h * n];
+    if out.is_empty() {
+        return Some(out);
+    }
+    // Each worker reads its bands through one buffer of its own.
+    out.par_chunks_mut(BAND * w * n).enumerate().for_each_init(Vec::new, |buf, (i, chunk)| {
+        if cancelled() {
+            return;
+        }
+        let y0 = r.y0 + (i * BAND) as i32;
+        let band = Rect::new(r.x0, y0, r.x1, y0 + (chunk.len() / (w * n)) as i32);
+        surf.read_region_into(band, buf);
+        if buf.len() == chunk.len() {
+            chunk.copy_from_slice(buf);
+        }
+    });
+    if cancelled() { None } else { Some(out) }
+}
+
+/// Which pixels of `r` a selection (or mask) covers at all: channel 0 above zero, read in
+/// parallel bands as [`read_window`] does, without holding the coverage itself.
+pub(crate) fn read_window_cover(surf: &Surface, r: Rect, cancelled: &(dyn Fn() -> bool + Sync)) -> Option<Vec<bool>> {
+    use rayon::prelude::*;
+    const BAND: usize = 64;
+    let n = surf.channels().max(1);
+    let (w, h) = (r.width() as usize, r.height() as usize);
+    let mut out = vec![false; w * h];
+    if out.is_empty() {
+        return Some(out);
+    }
+    out.par_chunks_mut(BAND * w).enumerate().for_each_init(Vec::new, |buf, (i, chunk)| {
+        if cancelled() {
+            return;
+        }
+        let y0 = r.y0 + (i * BAND) as i32;
+        surf.read_region_into(Rect::new(r.x0, y0, r.x1, y0 + (chunk.len() / w) as i32), buf);
+        for (o, px) in chunk.iter_mut().zip(buf.chunks_exact(n)) {
+            *o = px[0] > 0.0;
+        }
+    });
+    if cancelled() { None } else { Some(out) }
+}
+
+/// Channel 0 of [`read_window`] (a selection's or an alpha channel's coverage).
+pub(crate) fn read_window_mask(surf: &Surface, r: Rect, cancelled: &(dyn Fn() -> bool + Sync)) -> Option<Vec<f32>> {
+    use rayon::prelude::*;
+    let n = surf.channels().max(1);
+    let all = read_window(surf, r, cancelled)?;
+    if n == 1 {
+        return Some(all);
+    }
+    Some(all.par_chunks_exact(n).map(|px| px[0]).collect())
+}
+
 /// How the source goes onto the target.
 #[derive(Clone, Copy)]
 struct Blend {
@@ -291,7 +352,7 @@ fn blend_into(surf: &mut Surface, area: Rect, source: &Source, sel: Option<&Surf
     let done = std::sync::Mutex::new(done);
     tiles.into_par_iter().try_for_each(|(tc, tile)| -> Result<()> {
         let tr = tc.rect().intersect(&area);
-        let mask = sel.map(|m| Mask { bytes: m.tile(tc).map_or(m.default_bytes(), |t| t.bytes()), fmt: m.format(), origin: tc.rect() });
+        let mask = sel.map(|m| Mask::of(m, tc));
         if let Some(s) = &solid
             && tr == tc.rect()
             && mask.as_ref().is_none_or(|m| m.full(tr))
@@ -315,21 +376,25 @@ fn blend_into(surf: &mut Surface, area: Rect, source: &Source, sel: Option<&Surf
 }
 
 /// The selection's coverage over one tile (its channel 0).
-struct Mask<'a> {
+pub(crate) struct Mask<'a> {
     bytes: &'a [u8],
     fmt: photocraft_color::PixelFormat,
     origin: Rect,
 }
 
-impl Mask<'_> {
-    fn at(&self, x: i32, y: i32) -> f32 {
+impl<'a> Mask<'a> {
+    /// `sel` over the tile at `tc` (its default pixel where it has no tile there).
+    pub(crate) fn of(sel: &'a Surface, tc: photocraft_geom::TileCoord) -> Self {
+        Mask { bytes: sel.tile(tc).map_or(sel.default_bytes(), |t| t.bytes()), fmt: sel.format(), origin: tc.rect() }
+    }
+    pub(crate) fn at(&self, x: i32, y: i32) -> f32 {
         let bpp = self.fmt.bytes_per_pixel();
         // A default-pixel mask is one pixel long: every position reads it.
         let i = if self.bytes.len() == bpp { 0 } else { ((y - self.origin.y0) as usize * TILE_SIZE as usize + (x - self.origin.x0) as usize) * bpp };
         self.bytes.get(i..i + bpp).map_or(0.0, |px| photocraft_color::read_sample(px, self.fmt.sample, 0))
     }
     /// Fully selected over `r`?
-    fn full(&self, r: Rect) -> bool {
+    pub(crate) fn full(&self, r: Rect) -> bool {
         (r.y0..r.y1).all(|y| (r.x0..r.x1).all(|x| self.at(x, y) >= 1.0))
     }
 }
@@ -461,7 +526,7 @@ mod tests {
         assert!(blacks > 300 && blacks < 900, "{blacks}");
         assert!((0..40).all(|x| {
             let v = surf.rgba(x, 3)[0];
-            !v.is_nan() && !(0.01..=0.99).contains(&v)
+            v.is_finite() && !(0.01..=0.99).contains(&v)
         }));
     }
 

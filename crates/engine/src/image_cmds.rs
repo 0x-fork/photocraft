@@ -99,7 +99,9 @@ pub(crate) fn reidentify_copied_layers(doc: &mut Document) {
     }
 }
 
-pub(crate) fn scale_effects(fx: &mut Effects, k: f32) {
+/// Scale every size and distance of a style by `k` (Image Size's Scale Styles, Layer Style ›
+/// Scale Effects, and previews that draw a style at a reduced resolution).
+pub fn scale_effects(fx: &mut Effects, k: f32) {
     for e in &mut fx.items {
         match e {
             Effect::DropShadow(s) | Effect::InnerShadow(s) => {
@@ -315,22 +317,28 @@ fn crop_doc(doc: &mut Document, cmd: &str, r: Rect, delete_pixels: bool, extensi
     Ok(())
 }
 
-fn anchor_factors(a: &str) -> (f64, f64) {
-    let x = if a.contains("Left") || a == "left" {
-        0.0
-    } else if a.contains("Right") || a == "right" {
-        1.0
-    } else {
-        0.5
-    };
-    let y = if a.starts_with("top") {
-        0.0
-    } else if a.starts_with("bottom") {
-        1.0
-    } else {
-        0.5
-    };
-    (x, y)
+/// The nine documented canvas-size anchors, in the order the command lists them, each mapped to
+/// its (x, y) factor (0.0 = top/left edge, 0.5 = centre, 1.0 = bottom/right edge).
+const ANCHORS: [(&str, (f64, f64)); 9] = [
+    ("topLeft", (0.0, 0.0)),
+    ("top", (0.5, 0.0)),
+    ("topRight", (1.0, 0.0)),
+    ("left", (0.0, 0.5)),
+    ("center", (0.5, 0.5)),
+    ("right", (1.0, 0.5)),
+    ("bottomLeft", (0.0, 1.0)),
+    ("bottom", (0.5, 1.0)),
+    ("bottomRight", (1.0, 1.0)),
+];
+
+/// Resolves an anchor name to its (x, y) factors, matching the nine documented values exactly.
+/// Anything else is an error naming `anchor` and listing them, rather than resolving the two axes
+/// independently (which let a misspelling like `"topleft"` land between two valid anchors, #2946).
+fn anchor_factors(cmd: &str, a: &str) -> Result<(f64, f64)> {
+    ANCHORS.iter().find(|(name, _)| *name == a).map(|&(_, f)| f).ok_or_else(|| {
+        let names = ANCHORS.iter().map(|&(n, _)| n).collect::<Vec<_>>().join("|");
+        bad(cmd, format!("`anchor` must be one of {names}"))
+    })
 }
 
 fn extension_color(s: &Session, p: &Value) -> [f32; 4] {
@@ -357,7 +365,7 @@ fn canvas_size(s: &mut Session, p: &Value) -> Result<Value> {
     let h = p.get("height").and_then(Value::as_f64).unwrap_or(if relative { 0.0 } else { oh });
     let (nw, nh) = if relative { (ow + w, oh + h) } else { (w, h) };
     let (nw, nh) = (nw.round().clamp(1.0, 300_000.0) as u32, nh.round().clamp(1.0, 300_000.0) as u32);
-    let (ax, ay) = anchor_factors(p.get("anchor").and_then(Value::as_str).unwrap_or("center"));
+    let (ax, ay) = anchor_factors("image.canvasSize", p.get("anchor").and_then(Value::as_str).unwrap_or("center"))?;
     let dx = ((nw as f64 - ow) * ax).round() as i32;
     let dy = ((nh as f64 - oh) * ay).round() as i32;
     let ext = extension_color(s, p);
@@ -961,7 +969,7 @@ mod tests {
         let surf = st.doc.layers[0].surface().unwrap();
         for (x, y) in [(0, 0), (1, 1), (2, 3)] {
             let v = surf.rgba(x, y)[0];
-            assert!(!v.is_nan() && !(0.01..=0.99).contains(&v), "nearest produced an averaged value {v} at ({x},{y})");
+            assert!(v.is_finite() && !(0.01..=0.99).contains(&v), "nearest produced an averaged value {v} at ({x},{y})");
         }
     }
 
@@ -978,6 +986,42 @@ mod tests {
         let mut s = session();
         s.execute("image.canvasSize", json!({"width": 20, "height": 10, "relative": true, "anchor": "center"})).unwrap();
         assert_eq!(doc(&s).layers[1].surface().unwrap().content_bounds(), Rect::new(20, 10, 30, 20));
+    }
+
+    #[test]
+    fn canvas_size_anchor_offsets_and_rejects_unlisted() {
+        // 64x48 -> 100x80: dx spans 36 and dy spans 32, so each anchor factor lands on a known
+        // offset. All nine documented values must anchor exactly where they do today (#2946).
+        let expected = [
+            ("topLeft", [0, 0]),
+            ("top", [18, 0]),
+            ("topRight", [36, 0]),
+            ("left", [0, 16]),
+            ("center", [18, 16]),
+            ("right", [36, 16]),
+            ("bottomLeft", [0, 32]),
+            ("bottom", [18, 32]),
+            ("bottomRight", [36, 32]),
+        ];
+        for (anchor, off) in expected {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": 64, "height": 48, "background": "white"})).unwrap();
+            let r = s.execute("image.canvasSize", json!({"width": 100, "height": 80, "anchor": anchor})).unwrap();
+            assert_eq!(r["offset"], json!(off), "anchor {anchor}");
+        }
+        // An omitted anchor still defaults to center.
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 64, "height": 48, "background": "white"})).unwrap();
+        assert_eq!(s.execute("image.canvasSize", json!({"width": 100, "height": 80})).unwrap()["offset"], json!([18, 16]));
+        // A misspelling or unknown value is a BadParams error naming `anchor`, never an anchor
+        // between two of the nine (the old independent-axis matching produced top-centre etc.).
+        for anchor in ["topleft", "TopLeft", "TOPLEFT", "bottomleft", "bottomright", "middle", "", "NOPE"] {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": 64, "height": 48, "background": "white"})).unwrap();
+            let err = s.execute("image.canvasSize", json!({"width": 100, "height": 80, "anchor": anchor})).unwrap_err();
+            assert!(matches!(err, EngineError::BadParams { .. }), "anchor {anchor:?} must be rejected, got {err:?}");
+            assert!(err.to_string().contains("anchor"), "the error for {anchor:?} must name `anchor`: {err}");
+        }
     }
 
     #[test]

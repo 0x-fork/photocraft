@@ -171,6 +171,7 @@ fn develop_fitted(bytes: &[u8], opts: &DevelopOptions) -> Result<photocraft_raw:
     let mut opts = Cow::Borrowed(opts);
     if opts.camera_look.is_none()
         && sensor.color.calibrations.is_empty()
+        && !sensor.is_monochrome()
         && let Ok(look) = fit_preview_look(bytes, &sensor, &opts)
     {
         opts.to_mut().camera_look = Some(look);

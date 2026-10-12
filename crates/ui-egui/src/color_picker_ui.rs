@@ -638,7 +638,7 @@ fn fields(ui: &mut egui::Ui, f: &mut Map<String, Value>, mode: &str, now: &Compo
                 }
                 let typing = if ui.memory(|m| m.has_focus(id)) { ui.data(|d| d.get_temp::<String>(id)) } else { None };
                 let mut h = typing.unwrap_or_else(|| hex(rgb).trim_start_matches('#').to_string());
-                let r = ui.add(egui::TextEdit::singleline(&mut h).id(id).char_limit(6).desired_width(64.0).font(crate::theme::mono(12.0)));
+                let r = crate::widgets::text_field_ex(ui, id, &mut h, "", 64.0, true, Some(6));
                 if r.gained_focus() {
                     crate::field_tab::select_all(ui.ctx(), id, &h);
                 }

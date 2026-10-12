@@ -22,6 +22,18 @@ fn dng_opens_as_16_bit_prophoto() {
     assert!(r.warnings.iter().any(|w| w.contains("DNG") && w.contains("ProPhoto")), "{:?}", r.warnings);
 }
 
+/// #3497: a monochrome (one-sample LinearRaw) DNG, as VueScan writes film scans, opens as a
+/// 16-bit RGB document (neutral grey) instead of failing as unsupported.
+#[test]
+fn monochrome_dng_opens() {
+    let (w, h) = (40, 24);
+    let data: Vec<u16> = (0..w * h).map(|i| (i % w * 1600) as u16).collect();
+    let r = import("S261009_90_67.dng", &DngSpec::monochrome(w, h, data).build()).unwrap();
+    let d = &r.document;
+    assert_eq!((d.size.width, d.size.height, d.mode, d.depth), (40, 24, ColorMode::Rgb, SampleType::U16));
+    assert!(r.warnings.iter().all(|w| !w.contains("colour matrix") && !w.contains("preview")), "{:?}", r.warnings);
+}
+
 #[test]
 fn cr2_opens() {
     let (w, h) = (48, 16);

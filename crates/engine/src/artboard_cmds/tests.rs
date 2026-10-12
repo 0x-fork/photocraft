@@ -108,6 +108,31 @@ fn clear_artboard_guides_only_inside() {
     assert_eq!(doc(&s).guides.vertical, vec![10.0]);
 }
 
+/// Clearing guides drops their colours, so a guide added later at the same place doesn't inherit one.
+#[test]
+fn clearing_guides_drops_their_colours() {
+    let mut s = session(8);
+    let coloured = |s: &mut Session, x: f64| s.execute("view.newGuide", json!({"orientation": "vertical", "position": x, "color": "magenta"})).unwrap();
+    let colour = |s: &Session, x: f64| doc(s).guides.color(true, x);
+    s.execute("layer.new.artboard", json!({"rect": [0, 0, 50, 50]})).unwrap();
+    coloured(&mut s, 10.0);
+    coloured(&mut s, 70.0);
+    s.execute("view.clearSelectedArtboardGuides", json!({})).unwrap();
+    s.execute("view.clearCanvasGuides", json!({})).unwrap();
+    assert!(doc(&s).guides.colors.is_empty());
+    s.execute("view.newGuide", json!({"orientation": "vertical", "position": 10})).unwrap();
+    s.execute("view.newGuide", json!({"orientation": "vertical", "position": 70})).unwrap();
+    assert_eq!((colour(&s, 10.0), colour(&s, 70.0)), (None, None));
+    // New Guide Layout's Clear Existing Guides likewise; a guide it keeps keeps its colour.
+    s.execute("view.clearGuides", json!({})).unwrap();
+    coloured(&mut s, 0.0);
+    s.execute("view.newGuideLayout", json!({"columns": 1})).unwrap();
+    assert_eq!(colour(&s, 0.0), Some([0xff, 0x00, 0xff]));
+    s.execute("view.newGuideLayout", json!({"columns": 1, "clearExisting": true})).unwrap();
+    assert!(doc(&s).guides.vertical.contains(&0.0));
+    assert_eq!(colour(&s, 0.0), None);
+}
+
 #[test]
 fn export_to_files_and_pdf() {
     let mut s = session(16);

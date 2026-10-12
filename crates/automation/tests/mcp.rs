@@ -80,6 +80,9 @@ async fn lists_expected_tools() {
         "doc_open",
         "doc_new",
         "doc_place",
+        "doc_export_layers",
+        "doc_export_data_sets",
+        "doc_import_data_sets",
         "doc_save",
         "doc_export",
         "doc_inspect",
@@ -651,6 +654,68 @@ async fn doc_place_is_capability_scoped() {
     cleanup(&base);
 }
 
+/// #3216: the export half of #2810. The write root scopes both exports, the read root the CSV,
+/// and the three ambient commands keep their refusal.
+#[tokio::test(flavor = "multi_thread")]
+async fn doc_exports_and_data_set_import_are_capability_scoped() {
+    let base = tmp("export");
+    let root = base.join("workspace");
+    std::fs::create_dir_all(&root).unwrap();
+    let client = connect(headless_in(&root)).await;
+
+    json_of(&call(&client, "doc_new", json!({"width": 10, "height": 6, "background": "white", "name": "card"})).await);
+    let inspected = json_of(&call(&client, "doc_inspect", json!({})).await);
+    let layer = inspected["layers"][0]["id"].clone();
+    json_of(
+        &call(&client, "command_run", json!({"id": "image.variables.define", "params": {"defs": [{"name": "show", "layer": layer, "type": "visibility"}]}}))
+            .await,
+    );
+    json_of(
+        &call(
+            &client,
+            "command_run",
+            json!({"id": "image.variables.dataSets", "params": {"dataSets": [
+                {"name": "one", "values": [{"variable": "show", "kind": "visibility", "value": true}]},
+                {"name": "two", "values": [{"variable": "show", "kind": "visibility", "value": false}]},
+            ]}}),
+        )
+        .await,
+    );
+
+    let layers = call(&client, "doc_export_layers", json!({"dir": "layers", "prefix": "card"})).await;
+    assert_ne!(layers.is_error, Some(true), "{}", text(&layers));
+    assert_eq!(json_of(&layers)["count"], 1, "{}", text(&layers));
+    assert_eq!(std::fs::read_dir(root.join("layers")).unwrap().count(), 1);
+    let sets = call(&client, "doc_export_data_sets", json!({"dir": "sets", "format": "png"})).await;
+    assert_ne!(sets.is_error, Some(true), "{}", text(&sets));
+    assert_eq!(json_of(&sets)["count"], 2, "{}", text(&sets));
+    assert_eq!(std::fs::read_dir(root.join("sets")).unwrap().count(), 2);
+    // A colliding template is refused before any file of the batch is written.
+    let clash = call(&client, "doc_export_data_sets", json!({"dir": "clash", "naming": "{document}"})).await;
+    assert_eq!(clash.is_error, Some(true), "{}", text(&clash));
+    assert_eq!(std::fs::read_dir(root.join("clash")).unwrap().count(), 0);
+    // A CSV from the read root.
+    std::fs::write(root.join("sets.csv"), "Data Set,show\none,true\n").unwrap();
+    let imported = call(&client, "doc_import_data_sets", json!({"path": "sets.csv"})).await;
+    assert_ne!(imported.is_error, Some(true), "{}", text(&imported));
+    assert_eq!(json_of(&imported)["imported"], 1, "{}", text(&imported));
+
+    // Outside the roots nothing happens at all.
+    let escaped = call(&client, "doc_export_layers", json!({"dir": base.join("escaped").to_string_lossy()})).await;
+    assert_eq!(escaped.is_error, Some(true), "{}", text(&escaped));
+    assert!(!base.join("escaped").exists());
+    std::fs::write(base.join("outside.csv"), "Data Set,show\none,true\n").unwrap();
+    let outside = call(&client, "doc_import_data_sets", json!({"path": base.join("outside.csv").to_string_lossy()})).await;
+    assert_eq!(outside.is_error, Some(true), "{}", text(&outside));
+    for command in ["file.export.layersToFiles", "file.export.dataSetsAsFiles", "file.import.variableDataSets"] {
+        let refused = call(&client, "command_run", json!({"id": command, "params": {}})).await;
+        assert_eq!(refused.is_error, Some(true), "{command}");
+        assert!(text(&refused).contains("ambient filesystem paths"), "{}", text(&refused));
+    }
+    client.cancel().await.unwrap();
+    cleanup(&base);
+}
+
 /// The template workflow stays in memory, including saving nested contents back to the parent.
 #[tokio::test(flavor = "multi_thread")]
 async fn embedded_smart_objects_can_be_edited_saved_and_unpacked_without_file_authority() {
@@ -976,6 +1041,18 @@ async fn bridge_reports_unreachable_app() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn command_batch_description_exposes_non_atomic_semantics_when_tools_are_listed() {
+    let client = connect(PhotocraftMcp::headless()).await;
+    let tools = client.list_all_tools().await.unwrap();
+    let tool = tools.iter().find(|tool| tool.name == "command_batch").expect("command_batch tool");
+    let description = tool.description.as_deref().expect("command_batch description");
+    for contract in ["in order", "Not an atomic transaction", "first error", "stop_on_error is false", "no rollback"] {
+        assert!(description.contains(contract), "command_batch description omits `{contract}`: {description}");
+    }
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn command_batch_runs_steps_in_order() {
     let client = connect(PhotocraftMcp::headless()).await;
     json_of(&call(&client, "doc_new", json!({"width": 32, "height": 32})).await);
@@ -1151,7 +1228,20 @@ async fn convention_resources_are_live_json() {
     assert!(read("photocraft://document").await["document"].is_null());
     json_of(&call(&client, "doc_new", json!({"width":8,"height":6})).await);
     assert_eq!(read("photocraft://document").await["width"], 8);
-    assert_eq!(read("photocraft://commands").await, json_of(&call(&client, "command_list", json!({})).await));
+    // Edit › Purge › All is enabled while the process-wide effect, mask and stack caches hold
+    // anything, and the other tests in this binary fill and purge those caches concurrently, so
+    // its `enabled` flag can flip between the two reads. Every other field must match exactly.
+    let stable = |mut v: Value| {
+        for c in v.as_array_mut().into_iter().flatten() {
+            if c["id"] == "edit.purge.all" {
+                c.as_object_mut().map(|o| o.remove("enabled"));
+            }
+        }
+        v
+    };
+    let commands = stable(read("photocraft://commands").await);
+    assert!(commands.as_array().is_some_and(|a| a.len() > 100), "{commands}");
+    assert_eq!(commands, stable(json_of(&call(&client, "command_list", json!({})).await)));
     assert!(client.read_resource(rmcp::model::ReadResourceRequestParams::new("photocraft://missing")).await.is_err());
     let preview = call(&client, "render_preview", json!({"max_side":4})).await;
     assert!(preview.content.iter().any(|c| c.as_image().is_some()));

@@ -147,40 +147,6 @@ pub fn key_matches(sc: &KeyboardShortcut, key: Key, mods: Modifiers) -> bool {
     mods.alt == sc.modifiers.alt && shift_ok && mods.cmd_ctrl_matches(sc.modifiers)
 }
 
-/// Gives a ⇧ press the key its layout's unshifted symbol stands for, where egui can't name what it
-/// typed (#3102). On layouts with a key of its own for `+` (German, Italian, Spanish…) ⇧+ types
-/// `*`, which egui has no key for, so it reports the physical key instead: `]` on German, which
-/// would be ⇧] (Increase Brush Hardness). ⇧- types `_` and arrives as the physical `/`. Such
-/// presses become `+` and `-`, as ⇧= arrives as `+` on a US layout, so ⇧+ / ⇧− step the blend
-/// mode on every layout. A US ⇧] still arrives as `}` and ⇧8 (`*` too) as a digit.
-///
-/// What was typed comes as the text event next to the key press: right after it natively, right
-/// before it on the web.
-fn layout_symbols(ctx: &egui::Context) {
-    use egui::Event;
-    ctx.input_mut(|i| {
-        for at in 0..i.events.len() {
-            let text_at = if cfg!(target_arch = "wasm32") { at.checked_sub(1) } else { at.checked_add(1) };
-            let symbol = match text_at.and_then(|t| i.events.get(t)) {
-                Some(Event::Text(t)) if t == "*" => Key::Plus,
-                Some(Event::Text(t)) if t == "_" => Key::Minus,
-                _ => continue,
-            };
-            if let Some(Event::Key { key, physical_key, pressed: true, modifiers, .. }) = i.events.get_mut(at)
-                && modifiers.shift
-                && !modifiers.command
-                && !modifiers.ctrl
-                && !modifiers.alt
-                // egui fell back to the physical key: it had no name for the typed symbol.
-                && *physical_key == Some(*key)
-                && !matches!(key, Key::Num0 | Key::Num1 | Key::Num2 | Key::Num3 | Key::Num4 | Key::Num5 | Key::Num6 | Key::Num7 | Key::Num8 | Key::Num9)
-            {
-                *key = symbol;
-            }
-        }
-    });
-}
-
 /// Consume a press of `sc` (see [`key_matches`]); true when one was found.
 pub fn consume(ctx: &egui::Context, sc: &KeyboardShortcut) -> bool {
     ctx.input_mut(|i| {
@@ -362,6 +328,10 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if symmetry_editing && (app.ui.symmetry_transform.is_none() || egui::Popup::is_any_open(ctx)) {
         return;
     }
+    // Before any key handler: per-layout symbol keys and the bracket fallback (#3102, #3109).
+    if !ctx.text_edit_focused() {
+        crate::layout_keys::apply(ctx);
+    }
     // Liquify is a full-window custom dialog with focusable sliders. egui can therefore claim
     // keyboard input before the distortion-mode handler below runs. Give Liquify's local
     // shortcuts first refusal (Undo, brush size, tool keys), but never steal keys from text edits.
@@ -385,7 +355,6 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
         dispatch_pressed(app, ctx, focus, false);
         return;
     }
-    layout_symbols(ctx);
     // Liquify / Puppet Warp / Perspective Warp: ↩ commits, Esc cancels.
     if crate::distort_ui::keys(app, ctx) {
         return;
@@ -411,6 +380,11 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
             crate::cam_transform::cancel(app);
             return;
         }
+    }
+    // A Properties Levels/Curves eyedropper: Esc disarms it.
+    if crate::layer_picker::armed(app).is_some() && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+        crate::layer_picker::cancel(app);
+        return;
     }
     // Crop tool with a pending frame: arrows nudge it (⇧ ×10) and X swaps its orientation, before
     // the selection / layer nudge and the X colour swap (#1919).
@@ -602,6 +576,8 @@ mod tests {
             handle(app, &ctx);
             ctx.end_pass().textures_delta.clear();
         };
+        // Plain-key cycling (the pref is on by default, as in Photoshop).
+        app.session.edit_prefs(|p| p.tools.use_shift_key_for_tool_switch = false);
         // Polygonal Lasso picked from the toolbar flyout, then the Brush (#2608).
         app.ui.tool = Tool::PolygonLasso;
         press(&mut app, Key::B, Modifiers::NONE);
@@ -620,6 +596,64 @@ mod tests {
         press(&mut app, Key::B, Modifiers::NONE);
         press(&mut app, Key::L, Modifiers::NONE);
         assert_eq!(app.ui.tool, Tool::MagneticLasso);
+    }
+
+    /// #3296: by default T keeps the current type tool and only Shift+T cycles, as in Photoshop.
+    #[test]
+    fn shift_key_tool_switch_is_the_default() {
+        use crate::state::Tool;
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        let ctx = egui::Context::default();
+        let press = |app: &mut PhotocraftApp, modifiers| {
+            let raw = egui::RawInput {
+                events: vec![
+                    egui::Event::ModifiersChanged(modifiers),
+                    egui::Event::Key { key: Key::T, physical_key: None, pressed: true, repeat: false, modifiers },
+                ],
+                ..Default::default()
+            };
+            ctx.begin_pass(raw);
+            handle(app, &ctx);
+            ctx.end_pass().textures_delta.clear();
+        };
+        app.ui.tool = Tool::Type;
+        press(&mut app, Modifiers::NONE);
+        press(&mut app, Modifiers::NONE);
+        assert_eq!(app.ui.tool, Tool::Type);
+        press(&mut app, Modifiers::SHIFT);
+        assert_ne!(app.ui.tool, Tool::Type);
+        // A stored "off" restores plain-key cycling.
+        app.session.edit_prefs(|p| p.tools.use_shift_key_for_tool_switch = false);
+        app.ui.tool = Tool::Type;
+        press(&mut app, Modifiers::NONE);
+        assert_ne!(app.ui.tool, Tool::Type);
+    }
+
+    /// #3109: on a German layout Ö / # (physical `;` / `\`) step the brush size and ⇧Ö / ⇧#
+    /// (⇧# types `'`) its hardness, as Photoshop's German shortcuts.
+    #[test]
+    fn german_o_umlaut_and_hash_are_the_brush_keys() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width": 32, "height": 32})).unwrap();
+        app.ui.tool = Tool::Brush;
+        app.session.tools.brush.hardness = 0.5;
+        let ctx = egui::Context::default();
+        let typed = |app: &mut PhotocraftApp, key, physical_key, text: &str, modifiers| {
+            let press = egui::Event::Key { key, physical_key: Some(physical_key), pressed: true, repeat: false, modifiers };
+            let raw = egui::RawInput { events: vec![egui::Event::ModifiersChanged(modifiers), press, egui::Event::Text(text.into())], ..Default::default() };
+            ctx.begin_pass(raw);
+            handle(app, &ctx);
+            ctx.end_pass().textures_delta.clear();
+        };
+        let size = app.session.tools.brush.size;
+        typed(&mut app, Key::Backslash, Key::Backslash, "#", Modifiers::NONE);
+        assert!(app.session.tools.brush.size > size, "# is ]");
+        typed(&mut app, Key::Semicolon, Key::Semicolon, "ö", Modifiers::NONE);
+        assert_eq!(app.session.tools.brush.size, size, "ö is [");
+        typed(&mut app, Key::Quote, Key::Backslash, "'", Modifiers::SHIFT);
+        assert!(app.session.tools.brush.hardness > 0.5, "⇧# is ⇧]");
+        typed(&mut app, Key::Semicolon, Key::Semicolon, "Ö", Modifiers::SHIFT);
+        assert_eq!(app.session.tools.brush.hardness, 0.5, "⇧Ö is ⇧[");
     }
 
     #[test]

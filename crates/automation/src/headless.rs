@@ -9,7 +9,7 @@ use photocraft_format::PcraftWriter;
 use photocraft_io::ExportOptions;
 use serde_json::{Value, json};
 
-use crate::workspace::{authorize_engine_command, authorize_engine_step};
+use crate::workspace::{ExportSequence, authorize_engine_command, authorize_engine_step};
 use crate::{AuthorizedWorkspace, AutomationError, files};
 
 fn untrusted(filesystem: Filesystem) -> Headless {
@@ -132,6 +132,85 @@ impl Headless {
         // The bytes are already in memory and the path resolved beneath the root capability, so
         // placing them needs no filesystem check of its own (`place_bytes` is the command body).
         Ok(file_cmds::place_bytes(&mut self.session, name, bytes, None, &Value::Object(opts))?)
+    }
+
+    /// Export each exported layer of a document as its own file beneath the write root: the
+    /// capability-scoped `file.export.layersToFiles`, which takes an ambient `dir` and is
+    /// therefore refused in automation (#3216). The bytes come from the command's own core, so
+    /// both paths write the same files. The write capability refuses to overwrite a file that
+    /// already exists, where the ambient command would, and it creates the directory before the
+    /// export runs, so a refused export can leave an empty directory behind — never a file.
+    pub fn export_layers(&mut self, index: Option<usize>, dir: &str, params: &Value) -> Result<Value, AutomationError> {
+        let i = self.doc_index(index)?;
+        if self.session.active_index() != Some(i) && !self.session.set_active(i) {
+            return Err(AutomationError::BadRequest(format!("no document at index {i}")));
+        }
+        if matches!(&self.filesystem, Filesystem::TrustedLocal) {
+            let mut opts = params.as_object().cloned().unwrap_or_default();
+            opts.insert("dir".into(), json!(dir));
+            return self.command_run("file.export.layersToFiles", Value::Object(opts));
+        }
+        self.sync_jobs();
+        let workspace = match &self.filesystem {
+            Filesystem::Workspace(workspace) => workspace,
+            _ => return Err(AutomationError::BadRequest("automation filesystem access is not granted: write authority is absent".into())),
+        };
+        let mut outputs = workspace.export_sequence(dir)?;
+        let written = file_cmds::export_layers_with(&self.session, params, |name, bytes| {
+            outputs.write(name, bytes).map_err(|e| photocraft_engine::EngineError::Other(e.to_string()))
+        });
+        exported(dir, written, &mut outputs)
+    }
+
+    /// Export each data set of a document as its own flattened file beneath the write root: the
+    /// capability-scoped `file.export.dataSetsAsFiles` (#3216). As in the command, the whole
+    /// batch is planned first and colliding names are refused before any file is written; the
+    /// directory itself is created before that, so a refused batch can leave it empty behind.
+    pub fn export_data_sets(&mut self, index: Option<usize>, dir: &str, params: &Value) -> Result<Value, AutomationError> {
+        let i = self.doc_index(index)?;
+        if self.session.active_index() != Some(i) && !self.session.set_active(i) {
+            return Err(AutomationError::BadRequest(format!("no document at index {i}")));
+        }
+        if matches!(&self.filesystem, Filesystem::TrustedLocal) {
+            let mut opts = params.as_object().cloned().unwrap_or_default();
+            opts.insert("dir".into(), json!(dir));
+            return self.command_run("file.export.dataSetsAsFiles", Value::Object(opts));
+        }
+        self.sync_jobs();
+        let workspace = match &self.filesystem {
+            Filesystem::Workspace(workspace) => workspace,
+            _ => return Err(AutomationError::BadRequest("automation filesystem access is not granted: write authority is absent".into())),
+        };
+        let mut outputs = workspace.export_sequence(dir)?;
+        let written = photocraft_engine::export_data_sets_with(&self.session, params, |name, bytes| {
+            outputs.write(name, bytes).map_err(|e| photocraft_engine::EngineError::Other(e.to_string()))
+        });
+        exported(dir, written, &mut outputs)
+    }
+
+    /// Import a data set CSV from the read root: the capability-scoped
+    /// `file.import.variableDataSets`, which takes an ambient `path` and is therefore refused
+    /// in automation (#3216). The file is read beneath the root the way `open` reads one and
+    /// handed to the command's own parser over the text it already has.
+    pub fn import_data_sets(&mut self, index: Option<usize>, path: &str, params: &Value) -> Result<Value, AutomationError> {
+        let i = self.doc_index(index)?;
+        if self.session.active_index() != Some(i) && !self.session.set_active(i) {
+            return Err(AutomationError::BadRequest(format!("no document at index {i}")));
+        }
+        if matches!(&self.filesystem, Filesystem::TrustedLocal) {
+            let mut opts = params.as_object().cloned().unwrap_or_default();
+            opts.insert("path".into(), json!(path));
+            return self.command_run("file.import.variableDataSets", Value::Object(opts));
+        }
+        let text = match &self.filesystem {
+            Filesystem::Workspace(workspace) => {
+                let bytes = workspace.read(path)?;
+                String::from_utf8(bytes).map_err(|e| AutomationError::BadRequest(format!("automation read `{path}` is not valid UTF-8: {e}")))?
+            }
+            _ => return Err(AutomationError::BadRequest("automation filesystem access is not granted: read authority is absent".into())),
+        };
+        self.sync_jobs();
+        Ok(photocraft_engine::import_data_sets_text(&mut self.session, &text, params)?)
     }
 
     /// Save (`.pcraft` or any export format by extension). With no path,
@@ -307,6 +386,23 @@ impl Headless {
                 outputs.cleanup()?;
                 Err(error.into())
             }
+        }
+    }
+}
+
+/// Common tail of the two capability-scoped exports: the sequence keeps what it wrote, or drops
+/// every file it created, so a half-finished export never looks like a finished one.
+fn exported(dir: &str, written: photocraft_engine::Result<Vec<String>>, outputs: &mut ExportSequence) -> Result<Value, AutomationError> {
+    match written {
+        Ok(names) => {
+            outputs.commit();
+            let files: Vec<String> = names.iter().map(|name| format!("{dir}/{name}")).collect();
+            let count = files.len();
+            Ok(json!({"files": files, "count": count}))
+        }
+        Err(error) => {
+            outputs.cleanup()?;
+            Err(error.into())
         }
     }
 }
