@@ -20,8 +20,11 @@
 //! frames, so zooming reads the wheel events themselves and ignores that smoothed tail; panning
 //! keeps the smoothed delta. The Alt state is taken from the wheel events and kept until the next
 //! wheel event: releasing Alt while the tail is still settling must not turn it into a pan.
+//!
+//! Preferences › Interface › Animation Effects off takes that smoothing out everywhere, panels
+//! and lists included: [`unsmooth`] scrolls a notch's whole distance the frame it arrives.
 
-use egui::{Context, Event, Id, Modifiers, MouseWheelUnit, RawInput, Vec2};
+use egui::{Context, Event, Id, Modifiers, MouseWheelUnit, RawInput, TouchPhase, Vec2};
 
 /// Zoom factor of one wheel notch: every step is exactly ×1.1.
 pub const NOTCH: f32 = 1.1;
@@ -132,6 +135,67 @@ pub fn fold_legacy_pinch(ctx: &Context, raw: &mut RawInput) {
     }
 }
 
+fn touch_id() -> Id {
+    Id::new("pc-wheel-touch")
+}
+
+/// What this frame's wheel events scroll in all, in points: each one in its unit and folded
+/// sideways or upright by its modifiers, as egui does before it smooths them. `touch` follows
+/// trackpad gestures (the ones with a begin and an end phase). `None` leaves egui's own value
+/// alone: for a frame with part of such a gesture, which egui applies as it arrives (and whose
+/// modifiers it holds from the start), for a wheel event that zooms, and for a hostile sum.
+fn arrived(events: &[Event], options: &egui::InputOptions, page: f32, touch: &mut bool) -> Option<Vec2> {
+    let mut gesture = *touch;
+    let mut sum = Vec2::ZERO;
+    for event in events {
+        let Event::MouseWheel { unit, delta, phase, modifiers } = event else { continue };
+        match phase {
+            TouchPhase::Start => (*touch, gesture) = (true, true),
+            TouchPhase::End | TouchPhase::Cancel => (*touch, gesture) = (false, true),
+            TouchPhase::Move => {
+                if modifiers.matches_any(options.zoom_modifier) {
+                    return None;
+                }
+                let delta = *delta
+                    * match unit {
+                        MouseWheelUnit::Point => 1.0,
+                        MouseWheelUnit::Line => options.line_scroll_speed,
+                        MouseWheelUnit::Page => page,
+                    };
+                let sideways = modifiers.matches_any(options.horizontal_scroll_modifier);
+                let upright = modifiers.matches_any(options.vertical_scroll_modifier);
+                sum += match (sideways, upright) {
+                    (true, false) => Vec2::new(delta.x + delta.y, 0.0),
+                    (false, true) => Vec2::new(0.0, delta.x + delta.y),
+                    _ => delta,
+                };
+            }
+        }
+    }
+    (!gesture && sum.x.is_finite() && sum.y.is_finite()).then_some(sum)
+}
+
+/// Interface › Animation Effects off: scroll the whole distance of a wheel notch in the frame
+/// it arrives. egui spreads a notch over the next several frames (a glide of about 0.2 s, with
+/// no setting to turn it off), so this replaces the frame's smoothed scroll with everything its
+/// wheel events add up to; the frames after it carry only the rest of that glide and no wheel
+/// events, and so scroll nothing. Call it once a frame before anything reads the scroll
+/// (`PhotocraftApp::logic`). Zooming already reads the wheel events themselves ([`read`]).
+pub fn unsmooth(ctx: &Context) {
+    let options = ctx.options(|o| o.input_options);
+    let was = ctx.data(|d| d.get_temp::<bool>(touch_id())).unwrap_or(false);
+    let mut touch = was;
+    ctx.input_mut(|i| {
+        let page = i.viewport_rect().height();
+        if let Some(scroll) = arrived(&i.events, &options, page, &mut touch) {
+            i.smooth_scroll_delta = scroll;
+        }
+    });
+    if touch != was {
+        ctx.data_mut(|d| d.insert_temp(touch_id(), touch));
+    }
+}
+
 fn alt_id() -> Id {
     Id::new("pc-wheel-alt")
 }
@@ -180,8 +244,6 @@ pub fn read(ctx: &Context, zoom_with_wheel: bool, pinch_zooms: bool) -> Option<W
 
 #[cfg(test)]
 mod tests {
-    use egui::TouchPhase;
-
     use super::*;
 
     fn input(scroll: Vec2, alt: bool) -> Input {
@@ -360,6 +422,166 @@ mod tests {
         let mut ev = [wheel(Vec2::new(0.0, 0.5), Modifiers::NONE)];
         assert_eq!(legacy_pinch_to_zoom(&mut ev, 2.0, None, 40.0, 0.005), None);
         assert!(matches!(ev[0], Event::MouseWheel { .. }));
+    }
+
+    /// `smooth_scroll_delta` as the UI reads it on each of 30 frames at 60 fps, in a context set
+    /// up like the app's; `off` is Animation Effects off ([`unsmooth`] at the start of the frame).
+    fn scrolled(frames: Vec<Vec<Event>>, off: bool) -> Vec<Vec2> {
+        let ctx = Context::default();
+        configure(&ctx);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        let mut frames = frames.into_iter();
+        (0..30)
+            .map(|n| {
+                let events = frames.next().unwrap_or_default();
+                let raw = RawInput { time: Some(f64::from(n) / 60.0), predicted_dt: 1.0 / 60.0, screen_rect: Some(screen), events, ..Default::default() };
+                let mut seen = Vec2::ZERO;
+                let mut out = ctx.run_ui(raw, |ui| {
+                    if off {
+                        unsmooth(ui.ctx());
+                    }
+                    seen = ui.input(|i| i.smooth_scroll_delta);
+                });
+                out.textures_delta.clear();
+                seen
+            })
+            .collect()
+    }
+
+    fn total(frames: &[Vec2]) -> Vec2 {
+        frames.iter().fold(Vec2::ZERO, |sum, d| sum + *d)
+    }
+
+    /// Animation Effects off: a wheel notch scrolls its whole distance the frame it arrives,
+    /// instead of gliding there over the frames that follow.
+    #[test]
+    fn animations_off_scrolls_a_wheel_notch_at_once() {
+        let notch = || vec![vec![], vec![wheel(Vec2::new(0.0, -1.0), Modifiers::NONE)]];
+        // egui by itself: part of the notch on the frame it arrives, the rest over the next ones.
+        let glide = scrolled(notch(), false);
+        assert!(glide[1].y < 0.0 && glide[1].y > -30.0, "the notch starts gliding: {:?}", glide[1]);
+        assert!(glide[2..8].iter().all(|d| d.y < 0.0), "and keeps gliding: {:?}", &glide[2..8]);
+        assert!(near(total(&glide), Vec2::new(0.0, -40.0)), "{:?}", total(&glide));
+        // Off: all of it at once, and nothing after.
+        let jump = scrolled(notch(), true);
+        assert_eq!(jump[1], Vec2::new(0.0, -40.0));
+        assert!(jump.iter().enumerate().all(|(n, d)| n == 1 || *d == Vec2::ZERO), "{jump:?}");
+        // Sideways (⇧ or ⌘/Ctrl + wheel), two notches in one frame, a fraction of a notch each
+        // way, a page and a coarse pixel step (a wheel on Wayland or the web) jump the same way.
+        let sent = |unit, y: f32| Event::MouseWheel { unit, delta: Vec2::new(0.0, y), phase: TouchPhase::Move, modifiers: Modifiers::NONE };
+        for (events, want) in [
+            (vec![wheel(Vec2::new(0.0, 1.0), Modifiers::SHIFT)], Vec2::new(40.0, 0.0)),
+            (vec![wheel(Vec2::new(0.0, 1.0), CTRL)], Vec2::new(40.0, 0.0)),
+            (vec![wheel(Vec2::new(0.0, 1.0), Modifiers::NONE), wheel(Vec2::new(0.0, 1.0), Modifiers::NONE)], Vec2::new(0.0, 80.0)),
+            (vec![wheel(Vec2::new(-0.5, 0.25), Modifiers::NONE)], Vec2::new(-20.0, 10.0)),
+            (vec![sent(MouseWheelUnit::Page, -1.0)], Vec2::new(0.0, -600.0)),
+            (vec![sent(MouseWheelUnit::Point, 53.0)], Vec2::new(0.0, 53.0)),
+        ] {
+            let jump = scrolled(vec![events.clone()], true);
+            assert!(near(jump[0], want) && jump[1..].iter().all(|d| *d == Vec2::ZERO), "{events:?}: {jump:?}");
+            let glide = total(&scrolled(vec![events.clone()], false));
+            assert!((glide - want).length() < 1.0, "the same distance as with animations on: {events:?}: {glide:?}");
+        }
+        // The canvas pans by all of it on that frame too, and Alt + wheel still zooms one step.
+        let ctx = Context::default();
+        configure(&ctx);
+        let mut seen = None;
+        for (time, modifiers) in [(0.0, Modifiers::NONE), (1.0, Modifiers::ALT)] {
+            let raw = RawInput { time: Some(time), predicted_dt: 1.0 / 60.0, events: vec![wheel(Vec2::new(0.0, 1.0), modifiers)], ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| {
+                unsmooth(ui.ctx());
+                seen = read(ui.ctx(), false, true);
+            });
+            out.textures_delta.clear();
+            if modifiers.alt {
+                assert!(matches!(seen, Some(Wheel::Zoom(f)) if (f - 1.1).abs() < 1e-4), "{seen:?}");
+            } else {
+                assert_eq!(seen, Some(Wheel::Pan(Vec2::new(0.0, 40.0))));
+            }
+        }
+    }
+
+    /// What the setting is for: an egui scroll area (panels, lists, long menus) is at its new
+    /// place on the frame the notch arrives, where it otherwise glides there.
+    #[test]
+    fn animations_off_scroll_areas_jump() {
+        let offsets = |off: bool| -> Vec<f32> {
+            let ctx = Context::default();
+            configure(&ctx);
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, 200.0));
+            (0..40)
+                .map(|n| {
+                    let mut events = vec![Event::PointerMoved(egui::pos2(100.0, 100.0))];
+                    if n == 3 {
+                        events.push(wheel(Vec2::new(0.0, -1.0), Modifiers::NONE));
+                    }
+                    let raw = RawInput { time: Some(f64::from(n) / 60.0), predicted_dt: 1.0 / 60.0, screen_rect: Some(screen), events, ..Default::default() };
+                    let mut offset = 0.0;
+                    let mut out = ctx.run_ui(raw, |ui| {
+                        if off {
+                            unsmooth(ui.ctx());
+                        }
+                        let area = egui::ScrollArea::vertical().show(ui, |ui| ui.allocate_space(egui::vec2(100.0, 2000.0)));
+                        offset = area.state.offset.y;
+                    });
+                    out.textures_delta.clear();
+                    offset
+                })
+                .collect()
+        };
+        let (glide, jump) = (offsets(false), offsets(true));
+        assert!(glide[3] > 0.0 && glide[3] < 30.0 && glide[4] > glide[3], "it glides: {:?}", &glide[..8]);
+        assert!((glide[39] - 40.0).abs() < 0.01, "to one notch down: {}", glide[39]);
+        assert_eq!(jump[..3], [0.0; 3]);
+        assert!(jump[3..].iter().all(|y| *y == 40.0), "off, it is there at once: {:?}", &jump[..8]);
+    }
+
+    /// A trackpad gesture (begin and end phases) is already applied as it arrives, with its
+    /// modifiers held from the start: off leaves it exactly as egui has it.
+    #[test]
+    fn animations_off_leaves_trackpad_gestures_to_egui() {
+        let touch = |phase, y: f32, modifiers| Event::MouseWheel { unit: MouseWheelUnit::Point, delta: Vec2::new(0.0, y), phase, modifiers };
+        let gesture = || {
+            vec![
+                vec![touch(TouchPhase::Start, 0.0, Modifiers::SHIFT)],
+                vec![touch(TouchPhase::Move, 3.0, Modifiers::SHIFT)],
+                // Shift let go mid-gesture: egui keeps scrolling sideways.
+                vec![touch(TouchPhase::Move, 30.0, Modifiers::NONE)],
+                vec![touch(TouchPhase::Move, 2.0, Modifiers::NONE), touch(TouchPhase::End, 0.0, Modifiers::NONE)],
+                vec![],
+                // The wheel afterwards jumps again.
+                vec![wheel(Vec2::new(0.0, 1.0), Modifiers::NONE)],
+            ]
+        };
+        let (on, off) = (scrolled(gesture(), false), scrolled(gesture(), true));
+        assert_eq!(on[..5], off[..5], "the gesture reads the same");
+        assert_eq!(on[2], Vec2::new(30.0, 0.0), "sideways for the whole gesture");
+        assert_eq!(off[5], Vec2::new(0.0, 40.0));
+        assert!(off[6..].iter().all(|d| *d == Vec2::ZERO));
+    }
+
+    /// A wheel event that zooms (egui's own zoom modifier, which the app turns off) and hostile
+    /// deltas leave the frame's scroll as egui computed it.
+    #[test]
+    fn unsmoothing_skips_zoom_and_hostile_numbers() {
+        let options = egui::InputOptions::default();
+        let mut touch = false;
+        let zoom = [wheel(Vec2::new(0.0, 1.0), CTRL)];
+        assert_eq!(arrived(&zoom, &options, 600.0, &mut touch), None, "egui's default: ⌘/Ctrl + wheel zooms");
+        let plain = [wheel(Vec2::new(0.0, 1.0), Modifiers::NONE)];
+        assert_eq!(arrived(&plain, &options, 600.0, &mut touch), Some(Vec2::new(0.0, options.line_scroll_speed)));
+        assert_eq!(arrived(&[], &options, 600.0, &mut touch), Some(Vec2::ZERO), "no wheel event: the rest of a glide is dropped");
+        for bad in [f32::NAN, f32::INFINITY, -f32::INFINITY, f32::MAX] {
+            for page in [600.0, f32::NAN, f32::INFINITY, 0.0, -1.0] {
+                for unit in [MouseWheelUnit::Point, MouseWheelUnit::Line, MouseWheelUnit::Page] {
+                    let events = [Event::MouseWheel { unit, delta: Vec2::new(bad, bad), phase: TouchPhase::Move, modifiers: Modifiers::SHIFT }];
+                    if let Some(sum) = arrived(&events, &options, page, &mut touch) {
+                        assert!(sum.x.is_finite() && sum.y.is_finite(), "{sum:?} from {bad} {page} {unit:?}");
+                    }
+                }
+            }
+        }
+        assert!(!touch, "no gesture phase was seen");
     }
 
     #[test]
