@@ -109,7 +109,11 @@ fn eval(stops: &[(f32, [f32; 3])], mids: &[f32], smooth: f32, t: f32) -> [f32; 3
     std::array::from_fn(|c| {
         let linear = p0[c] + (p1[c] - p0[c]) * u;
         let spline = h00 * p0[c] + h10 * h * m0[c] + h01 * p1[c] + h11 * h * m1[c];
-        linear + (spline - linear) * smooth
+        let value = linear + (spline - linear) * smooth;
+        // Catmull-Rom tangents can overshoot neighboring stops, turning even a flat segment into
+        // a dip. Smoothness should bend the ramp without inventing colours outside this segment.
+        let (lo, hi) = (p0[c].min(p1[c]), p0[c].max(p1[c]));
+        if lo.is_finite() && hi.is_finite() { value.clamp(lo, hi) } else { value }
     })
 }
 
@@ -173,6 +177,16 @@ mod tests {
             let want = t + 0.5 * (ss - t);
             assert!((at(&s, t)[0] - want).abs() < 2e-3, "{t}: {} vs {want}", at(&s, t)[0]);
         }
+    }
+
+    #[test]
+    fn smoothness_does_not_overshoot_a_flat_stop_segment() {
+        let gray = |v: f32| Color::rgb(v, v, v);
+        let dark = 28.0 / 255.0;
+        let stops = vec![(0.0, gray(202.0 / 255.0)), (0.27, gray(dark)), (0.53, gray(dark)), (0.72, gray(148.0 / 255.0))];
+        let baked = bake(stops, &[0.5, 0.5, 0.5], 1.0, Method::Classic);
+        let sample = at(&baked, 0.4);
+        assert!(sample.iter().all(|v| (*v - dark).abs() < 1e-4), "flat segment dipped below its stops: {sample:?}");
     }
 
     #[test]

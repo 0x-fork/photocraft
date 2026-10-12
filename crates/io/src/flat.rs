@@ -664,7 +664,9 @@ fn export_mode_specific(doc: &Document, format: Format, opts: &ExportOptions) ->
                 }));
                 Ok(())
             });
-            let bytes = codecs::encode_png_indexed(doc.size.width, doc.size.height, &idx, &table.colors, table.transparent)?;
+            // Same rule as the ordinary PNG encoder: the resolution goes into `pHYs` with the metadata.
+            let dpi = opts.encode.embed_metadata.then_some((doc.resolution_dpi, doc.resolution_dpi));
+            let bytes = codecs::encode_png_indexed(doc.size.width, doc.size.height, &idx, &table.colors, table.transparent, dpi)?;
             let mut warnings = vec![format!("written as an 8-bit palette PNG ({} colours)", table.colors.len())];
             if opts.encode.embed_metadata && opts.xmp == XmpEmbed::All && !doc.metadata.text.is_empty() {
                 warnings.push("text metadata is not supported by the palette PNG exporter; it will be dropped".into());

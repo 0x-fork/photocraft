@@ -2378,6 +2378,7 @@
 	Show only crosshair while painting	Только перекрестье при рисовании
 	Show slice numbers	Показывать номера фрагментов
 	Show tooltips	Показывать подсказки
+	Enable animations	Включить анимацию
 	Show highlight on rollover	Показывать подсветку при наведении
 	Show bounding box when dragging layer	Показывать рамку при перетаскивании слоя
 	System title bar	Системная строка заголовка
@@ -2491,6 +2492,8 @@ cameraRaw	Roughness	Неровность
 	Patch Tool	Заплатка
 	Patch:	Заплатка:
 	Lasso around an area, then drag the selection	Обведите область лассо, затем перетащите выделение
+	Transform On Drop	Трансформировать при отпускании
+	Scale or rotate the moved area, then press {key}	Масштабируйте или поверните перемещённую область, затем нажмите {key}
 	Now drag the selection onto another area	Теперь перетащите выделение на другую область
 	Edit Type	Редактировать текст
 
@@ -2899,7 +2902,7 @@ cameraData	Lens	Объектив
 	Freeform Pen Tool	Свободное перо
 	Curvature Pen Tool	Перо кривизны
 	Curve Fit:	Точность кривой:
-	Drag: draw freehand · Release on the start point: close	Перетаскивание: рисовать от руки · отпустить на начальной точке: замкнуть
+	Drag: draw freehand · {alt}-click: straight segment · Release on the start point: close	Перетаскивание: рисовать от руки · {alt}-щелчок: прямой сегмент · отпустить на начальной точке: замкнуть
 	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	Клик: гладкая точка · двойной клик: угол · перетаскивание точки: переместить · клик по первой точке: замкнуть · {key} завершить
 	Scale:	Масштаб:
 	Snap to Origin	Привязать к началу координат
@@ -2908,6 +2911,22 @@ cameraData	Lens	Объектив
 	Search settings…	Поиск настроек…
 	No matching settings	Нет подходящих настроек
 	Loading fonts…	Загрузка шрифтов…
+	Tool	Инструмент
+	Simulate Pressure	Имитировать нажим
+	Stroke Path…	Обвести контур…
+	Background Eraser	Фоновый ластик
+	Healing Brush	Восстанавливающая кисть
+	Spot Healing Brush	Точечная восстанавливающая кисть
+	Smudge	Палец
+	Sponge	Губка
+	Amount:	Эффект:
+	Protect:	Защитить:
+	Protect skin tones	Защищать тона кожи
+	Edit points to modify the curve	Изменять кривую по точкам
+	Draw to modify the curve	Рисовать кривую
+curves	Smooth	Сгладить
+	Smooth the curve values	Сгладить значения кривой
+	Drag to draw the curve · {key}-click draws a straight line	Перетащите, чтобы нарисовать кривую · {key}-щелчок рисует прямую линию
 # Select and Mask view modes (#1754)
 	Onion Skin	Калька
 	Marching Ants	Бегущие муравьи
@@ -2939,3 +2958,11 @@ cameraData	Lens	Объектив
 	Emulsion Down	Эмульсией вниз
 	Functions	Функции
 	Print Resolution:	Разрешение печати:
+	Use Previous Layer to Create Clipping Mask	Использовать предыдущий слой для создания обтравочной маски
+	Fill with {mode}-neutral color (white)	Залить нейтральным цветом режима «{mode}» (белый)
+	Fill with {mode}-neutral color (black)	Залить нейтральным цветом режима «{mode}» (черный)
+	Fill with {mode}-neutral color (50% gray)	Залить нейтральным цветом режима «{mode}» (50% серого)
+	(No neutral color exists for {mode} mode.)	(Для режима «{mode}» нет нейтрального цвета.)
+	Apply mask to layer before removing?	Применить маску к слою перед удалением?
+	The layer or its mask changed. Drag the mask onto the Trash again.	Слой или его маска изменились. Перетащите маску в корзину ещё раз.
+	Delete the vector mask?	Удалить векторную маску?

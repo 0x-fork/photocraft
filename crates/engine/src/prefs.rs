@@ -239,6 +239,9 @@ pub struct Interface {
     /// Draw menu item colours set with Edit › Menus.
     pub show_menu_colors: bool,
     pub show_tooltips: bool,
+    /// Menus, popups and collapsing sections fade and slide, and scroll areas glide to a new
+    /// position. Off, everything changes at once (a reduced-motion mode; #1218, #3273).
+    pub enable_animations: bool,
     /// Move tool drags show only the layer's outline and an arrow, leaving its pixels in place
     /// until release. Off (the default), the pixels follow the pointer live inside the outline.
     pub show_bounding_box_when_dragging_layer: bool,
@@ -272,6 +275,7 @@ impl Default for Interface {
             dynamic_color_sliders: true,
             show_menu_colors: true,
             show_tooltips: true,
+            enable_animations: true,
             show_bounding_box_when_dragging_layer: false,
             system_title_bar: false,
             notification_auto_hide: true,

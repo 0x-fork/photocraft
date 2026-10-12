@@ -1961,6 +1961,7 @@
 	Show only crosshair while painting	Mostra solo mirino durante pittura
 	Show slice numbers	Mostra numeri sezioni
 	Show tooltips	Mostra tooltip
+	Enable animations	Attiva animazioni
 	Show highlight on rollover	Mostra evidenziazione al passaggio del mouse
 	Show bounding box when dragging layer	Mostra riquadro selezione al trascinamento livello
 	System title bar	Barra del titolo di sistema
@@ -2298,6 +2299,8 @@ cameraRaw	Amount	Quantità
 	Patch Tool	Strumento Toppa
 	Patch:	Toppa:
 	Lasso around an area, then drag the selection	Seleziona un'area con lazo, poi trascina la selezione
+	Transform On Drop	Trasforma al rilascio
+	Scale or rotate the moved area, then press {key}	Ridimensiona o ruota l'area spostata, poi premi {key}
 	Now drag the selection onto another area	Ora trascina la selezione su un'altra area
 	Edit Type	Modifica testo
 
@@ -2626,7 +2629,7 @@ cameraData	Lens	Obiettivo
 	Freeform Pen Tool	Strumento Penna a mano libera
 	Curvature Pen Tool	Strumento Penna curvatura
 	Curve Fit:	Adattamento curva:
-	Drag: draw freehand · Release on the start point: close	Trascina: disegna a mano libera · Rilascia sul punto iniziale: chiudi
+	Drag: draw freehand · {alt}-click: straight segment · Release on the start point: close	Trascina: disegna a mano libera · {alt}-clic: segmento retto · Rilascia sul punto iniziale: chiudi
 	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	Click: punto morbido · Doppio click: angolo · Trascina un punto: sposta · Click primo punto: chiudi · {key} termina
 	New Crop Preset…	Nuovo predefinito di ritaglio…
 	Delete Crop Preset…	Elimina predefinito di ritaglio…
@@ -2639,6 +2642,22 @@ cameraData	Lens	Obiettivo
 	Search settings…	Cerca impostazioni…
 	No matching settings	Nessuna impostazione corrispondente
 	Loading fonts…	Caricamento font…
+	Tool	Strumento
+	Simulate Pressure	Simula pressione
+	Stroke Path…	Traccia tracciato…
+	Background Eraser	Gomma per sfondo
+	Healing Brush	Pennello correttivo
+	Spot Healing Brush	Pennello correttivo al volo
+	Smudge	Sfumino
+	Sponge	Spugna
+	Amount:	Quantità:
+	Protect:	Proteggi:
+	Protect skin tones	Proteggi toni pelle
+	Edit points to modify the curve	Modifica i punti per cambiare la curva
+	Draw to modify the curve	Disegna per modificare la curva
+curves	Smooth	Leviga
+	Smooth the curve values	Leviga i valori della curva
+	Drag to draw the curve · {key}-click draws a straight line	Trascina per disegnare la curva · {key}-clic traccia una linea retta
 # Select and Mask view modes (#1754)
 	Onion Skin	Velina
 	Marching Ants	Formiche in marcia
@@ -2664,3 +2683,11 @@ cameraData	Lens	Obiettivo
 	Emulsion Down	Emulsione sotto
 	Functions	Funzioni
 	Print Resolution:	Risoluzione di stampa:
+	Use Previous Layer to Create Clipping Mask	Usa il livello precedente per creare una maschera di ritaglio
+	Fill with {mode}-neutral color (white)	Riempi con il colore neutro di {mode} (bianco)
+	Fill with {mode}-neutral color (black)	Riempi con il colore neutro di {mode} (nero)
+	Fill with {mode}-neutral color (50% gray)	Riempi con il colore neutro di {mode} (grigio 50%)
+	(No neutral color exists for {mode} mode.)	(Non esiste un colore neutro per il metodo {mode}.)
+	Apply mask to layer before removing?	Applicare la maschera al livello prima di rimuoverla?
+	The layer or its mask changed. Drag the mask onto the Trash again.	Il livello o la sua maschera è cambiato. Trascina di nuovo la maschera nel cestino.
+	Delete the vector mask?	Eliminare la maschera vettoriale?

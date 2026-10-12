@@ -2353,6 +2353,7 @@
 	Show only crosshair while painting	Показувати лише перехрестя під час малювання
 	Show slice numbers	Показувати номери фрагментів
 	Show tooltips	Показувати підказки
+	Enable animations	Увімкнути анімацію
 	Show highlight on rollover	Показувати підсвічування під час наведення
 	Show bounding box when dragging layer	Показувати рамку під час перетягування шару
 	System title bar	Системний рядок заголовка
@@ -2464,6 +2465,8 @@ cameraRaw	Roughness	Шорсткість
 	Patch Tool	Інструмент «Латка»
 	Patch:	Латка:
 	Lasso around an area, then drag the selection	Обведіть область ласо, потім перетягніть виділення
+	Transform On Drop	Трансформувати після відпускання
+	Scale or rotate the moved area, then press {key}	Змініть масштаб або поверніть переміщену область, потім натисніть {key}
 	Edit Type	Редагувати текст
 
 
@@ -3651,12 +3654,26 @@ cameraData	Lens	Об'єктив
 	Freeform Pen Tool	Інструмент «Довільне перо»
 	Curvature Pen Tool	Інструмент «Перо кривизни»
 	Curve Fit:	Точність кривої:
-	Drag: draw freehand · Release on the start point: close	Перетягування: малювати від руки · Відпускання на початковій точці: замкнути
+	Drag: draw freehand · {alt}-click: straight segment · Release on the start point: close	Перетягування: малювати від руки · {alt}+клацання: прямий сегмент · Відпускання на початковій точці: замкнути
 	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	Клацання: плавна точка · Подвійне клацання: кут · Перетягування точки: перемістити · Клацання першої точки: замкнути · {key}: завершити
 	Search settings…	Пошук налаштувань…
 	No matching settings	Немає відповідних налаштувань
 	PhotoCraft — Screen Color Picker	PhotoCraft — Піпетка кольору екрана
 	Loading fonts…	Завантаження шрифтів…
+	Simulate Pressure	Імітувати натиск
+	Stroke Path…	Обвести контур…
+	Background Eraser	Фонова гумка
+	Healing Brush	Відновлювальний пензель
+	Spot Healing Brush	Точковий відновлювальний пензель
+	Smudge	Розмазування
+	Amount:	Величина:
+	Protect:	Захистити:
+	Protect skin tones	Захистити тони шкіри
+	Edit points to modify the curve	Змінювати криву за точками
+	Draw to modify the curve	Малювати криву
+curves	Smooth	Згладити
+	Smooth the curve values	Згладити значення кривої
+	Drag to draw the curve · {key}-click draws a straight line	Перетягніть, щоб намалювати криву · {key}-клацання малює пряму лінію
 # Select and Mask view modes (#1754)
 	Onion Skin	Калька
 	Marching Ants	Мурашки
@@ -3694,3 +3711,11 @@ cameraData	Lens	Об'єктив
 	Emulsion Down	Емульсією донизу
 	Functions	Функції
 	Print Resolution:	Роздільна здатність друку:
+	Use Previous Layer to Create Clipping Mask	Використати попередній шар для створення відсічної маски
+	Fill with {mode}-neutral color (white)	Залити нейтральним кольором режиму «{mode}» (білий)
+	Fill with {mode}-neutral color (black)	Залити нейтральним кольором режиму «{mode}» (чорний)
+	Fill with {mode}-neutral color (50% gray)	Залити нейтральним кольором режиму «{mode}» (50% сірого)
+	(No neutral color exists for {mode} mode.)	(Для режиму «{mode}» немає нейтрального кольору.)
+	Apply mask to layer before removing?	Застосувати маску до шару перед видаленням?
+	The layer or its mask changed. Drag the mask onto the Trash again.	Шар або його маска змінилися. Перетягніть маску до кошика ще раз.
+	Delete the vector mask?	Видалити векторну маску?

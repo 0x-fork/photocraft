@@ -1790,6 +1790,7 @@ fn documents(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     app.tab_strip = None;
     retain_gpu_documents(app);
     crate::transform_tool::track_steps(app, ui.ctx());
+    crate::cas_transform::tick(app, ui.ctx());
     crate::symmetry_ui::track(app, ui.ctx());
     let n = app.session.documents().len();
     // Files opening in the background (#210) have tabs before they have documents.
@@ -2544,7 +2545,8 @@ fn sync_display_lut(app: &mut PhotocraftApp, doc: &photocraft_doc::Document, key
             0
         }
         Err(e) => {
-            app.ui.status = format!("Color management: {e}");
+            let template = "Color management: {error}";
+            app.ui.status = crate::i18n::fmt(tl!(template), &[("error", &e.to_string())]);
             gpu.set_display_lut(key, output, DISPLAY_LUT as u32, None);
             0
         }
@@ -2858,7 +2860,8 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 app.perf.span("outline", crate::gpu_canvas::now_ms() - t0);
                 app.outline_cache = Some((doc.id, key, std::sync::Arc::new(segs)));
             }
-            if let Some((_, _, segs)) = &app.outline_cache {
+            // Under Content-Aware Move's Transform On Drop box the ants are drawn where it puts them.
+            if let Some((_, _, segs)) = app.outline_cache.as_ref().filter(|_| !crate::cam_transform::active(app)) {
                 let time = ui.input(|i| i.time);
                 // A floating piece (and a selection being dragged) draws its ants where it is shown.
                 let mut shown = xf;
@@ -2922,6 +2925,8 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     crate::stylus::Stylus::sync_eraser_tool(app);
     // A Magnetic Lasso border left behind by a tool or document switch is dropped.
     crate::magnetic_lasso_ui::frame(app);
+    // A Properties Levels/Curves eyedropper left behind by a tool or layer switch is dropped.
+    crate::layer_picker::prune(app);
     // Held keys (hold_keys.rs): Space repositions a crop frame, marquee, lasso or shape being
     // drawn; otherwise Space is the Hand and ⌘Space / ⌥Space the Zoom tool while held.
     let reposition = crate::hold_keys::reposition_held(app, &ctx);
@@ -3034,6 +3039,25 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         view.center[1] -= d.y;
         // The tool cursors below are skipped while panning: the fist is set here (#2196).
         ctx.set_cursor_icon(crate::tool_cursor::hand(&ctx, true));
+    } else if primary && !stroke_dismissal && temporary.is_none() && !middle && crate::layer_picker::armed(app).is_some() {
+        // A Properties Levels/Curves eyedropper (layer_picker.rs) owns the image until Esc or another
+        // tool; Space and the middle button still pan. It samples on the press.
+        if response.hovered()
+            && let Some(p) = ui.input(|i| i.pointer.hover_pos())
+        {
+            if app.session.prefs().cursors.other == photocraft_engine::prefs::OtherCursor::Precise {
+                ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
+            } else {
+                ctx.set_cursor_icon(pipette_cursor(&ctx, p));
+            }
+        }
+        if response.is_pointer_button_down_on()
+            && ui.input(|i| i.pointer.primary_pressed())
+            && let Some(p) = ui.input(|i| i.pointer.interact_pos())
+        {
+            let d = xf.to_doc(p);
+            crate::layer_picker::sample_at(app, d[0], d[1]);
+        }
     } else if primary && !stroke_dismissal {
         let mods = ui.input(|i| i.modifiers);
         // An ⌥-click the window manager took never arrives; say so (alt_grab.rs).
@@ -3079,13 +3103,14 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         }
         let lasso_retracted = response.secondary_clicked()
             && match tool {
-                Tool::Lasso => crate::lasso_ui::undo_last_vertex(app),
+                Tool::Lasso | Tool::FreeformPen => crate::lasso_ui::undo_last_vertex(app),
                 Tool::PolygonLasso => polygon_retract(app),
                 _ => false,
             };
-        // The Lasso reads its own presses and drops the moves of a drag it didn't start, so an
-        // open Free Transform box takes the usual drag path instead (#2153).
-        if tool == Tool::Lasso && !transform_owns_pointer {
+        // The Lasso (and the Freeform Pen, which draws the same way) reads its own presses and
+        // drops the moves of a drag it didn't start, so an open Free Transform box takes the
+        // usual drag path instead (#2153).
+        if crate::lasso_ui::owns(tool) && !transform_owns_pointer {
             crate::lasso_ui::canvas_input(app, &ctx, &xf, &response);
             (buttons.started, buttons.dragged, buttons.stopped, buttons.clicked) = (false, false, false, false);
         }
@@ -3324,12 +3349,31 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         if app.ui.transform.is_some() && response.double_clicked() {
             crate::transform_tool::commit(app);
         }
+        if crate::cam_transform::active(app) && response.double_clicked() {
+            crate::cam_transform::commit(app);
+        }
         // Crop: a double-click inside the frame commits it, as ↵ does (#1792).
         if tool == Tool::Crop && response.double_clicked() && response.interact_pointer_pos().is_some_and(|p| crate::crop_ui::commits_at(app, xf.to_doc(p))) {
             commit_crop(app);
         }
-        if tool.is_type() && response.double_clicked() && !crate::type_transform::visible(app, crate::workspace_ui::sticky_mods(app, mods)) {
-            crate::type_tool::select_word(app);
+        // Type: 2 clicks select a word, 3 the line, 4 the paragraph, 5 all text (Photoshop).
+        if tool.is_type()
+            && response.clicked()
+            && let Some(p) = response.interact_pointer_pos()
+        {
+            if crate::type_transform::visible(app, crate::workspace_ui::sticky_mods(app, mods)) {
+                app.type_clicks = None;
+            } else {
+                let n = if response.triple_clicked() {
+                    3
+                } else if response.double_clicked() {
+                    2
+                } else {
+                    1
+                };
+                let d = xf.to_doc(p);
+                crate::type_tool::multi_click(app, n, d[0], d[1]);
+            }
         }
     }
     if crop_camera && let (Some((center, rotation)), Some(now)) = (camera, app.ui.views.get(idx)) {
@@ -3391,6 +3435,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         }
         crate::type_tool::draw_overlay(app, &painter, &xf);
         crate::transform_tool::draw_overlay(app, &painter, &xf);
+        crate::cam_transform::draw(app, &painter, &xf);
         crate::distort_ui::draw_overlay(app, &painter, &xf);
         crate::perspective_crop_ui::draw_overlay(app, &painter, &xf);
         crate::retouch_ui::draw_source_marker(app, &painter, &xf);
@@ -3414,6 +3459,8 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         } else if let Some(c) =
             response.hover_pos().and_then(|p| crate::transform_tool::cursor(app, xf.to_doc(p), ui.input(|i| i.modifiers.alt || i.modifiers.command)))
         {
+            ui.ctx().set_cursor_icon(c);
+        } else if let Some(c) = response.hover_pos().and_then(|p| crate::cam_transform::cursor(app, &ctx, &xf, p)) {
             ui.ctx().set_cursor_icon(c);
         } else if let Some(c) = response.hover_pos().and_then(|p| transform_controls_rect(app, &xf).and_then(|r| transform_controls_cursor(r, p))) {
             // The Move tool draws handles without opening a Free Transform session.
@@ -3736,14 +3783,20 @@ fn paint_mapped_quad(painter: &egui::Painter, xf: &ViewXform, size: [f32; 2], co
 
 /// Draw boundary segments as marching ants: white base, black dashes phased along x + y.
 fn marching_ants_segments(painter: &egui::Painter, xf: &ViewXform, segs: &[crate::outline::Segment], time: f64) {
+    marching_ants_mapped(painter, segs, time, |p| xf.to_screen(p[0] as f32, p[1] as f32));
+}
+
+/// [`marching_ants_segments`] with each outline point placed on screen by `to_screen` (a
+/// transformed outline: Content-Aware Move's Transform On Drop).
+pub(crate) fn marching_ants_mapped(painter: &egui::Painter, segs: &[crate::outline::Segment], time: f64, to_screen: impl Fn([i32; 2]) -> Pos2) {
     let dash = 4.0f32;
     let phase = ((time * 10.0) % (dash as f64 * 2.0)) as f32;
     let white = Stroke::new(1.0, Color32::WHITE);
     let black = Stroke::new(1.0, Color32::BLACK);
     let clip = painter.clip_rect();
     for (a, b) in segs {
-        let pa = xf.to_screen(a[0] as f32, a[1] as f32);
-        let pb = xf.to_screen(b[0] as f32, b[1] as f32);
+        let pa = to_screen(*a);
+        let pb = to_screen(*b);
         if !clip.intersects(Rect::from_two_pos(pa, pb).expand(1.0)) {
             continue;
         }
@@ -4118,6 +4171,8 @@ fn transform_controls_rect(app: &PhotocraftApp, xf: &ViewXform) -> Option<Rect> 
         return None;
     }
     let b = photocraft_engine::transform_cmds::transform_bounds(&st.doc, l);
+    let (dx, dy) = crate::move_ui::floating_offset(app).unwrap_or((0, 0));
+    let b = b.translate(dx, dy);
     if b.is_empty() {
         return None;
     }
@@ -4242,7 +4297,11 @@ fn draw_drag_preview(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &View
             }
         }
         Tool::FreeformPen => {
-            let pts: Vec<Pos2> = d.points.iter().map(|p| xf.to_screen(p[0] as f32, p[1] as f32)).collect();
+            let mut pts: Vec<Pos2> = d.points.iter().map(|p| xf.to_screen(p[0] as f32, p[1] as f32)).collect();
+            // Between ⌥-clicks: the straight segment the next click makes.
+            if let Some(lasso) = &d.lasso {
+                pts.push(xf.to_screen(lasso.cursor[0] as f32, lasso.cursor[1] as f32));
+            }
             painter.add(egui::Shape::line(pts, Stroke::new(1.5, crate::theme::Tokens::get(painter.ctx()).accent)));
         }
         Tool::Lasso | Tool::Patch | Tool::ContentAwareMove => {
@@ -4394,6 +4453,10 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
     crate::transform_tool::end_if_left(app);
     let mods = crate::workspace_ui::sticky_mods(app, mods);
     if app.ui.transform.is_none() && crate::type_transform::pointer(app, ev, mods) {
+        return;
+    }
+    // Content-Aware Move's Transform On Drop box takes every press until ↩ or Esc.
+    if crate::cam_transform::pointer(app, ev, mods) {
         return;
     }
     // View › Snap / Snap To and smart guides (snap_ui.rs).
@@ -4680,9 +4743,7 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
                     polygon_click(app, x, y, mods);
                     return;
                 }
-                Tool::Type | Tool::VerticalType | Tool::HorizontalTypeMask | Tool::VerticalTypeMask
-                    if crate::type_tool::pointer_down(app, x, y, mods.shift) =>
-                {
+                Tool::Type | Tool::VerticalType | Tool::HorizontalTypeMask | Tool::VerticalTypeMask if crate::type_tool::pointer_down(app, x, y, mods) => {
                     return;
                 }
                 _ => {}
@@ -4999,7 +5060,7 @@ pub(crate) fn finish_gesture(app: &mut PhotocraftApp, d: Drag) {
     }
     match d.tool {
         Tool::ObjectSelection => crate::retouch_ui::finish_object_selection(app, d.start, [end[0], end[1]], d.modifiers),
-        Tool::FreeformPen => crate::vector_ui::freeform_finish(app, &d.points),
+        Tool::FreeformPen => crate::vector_ui::freeform_finish(app, &d.points, d.lasso.as_ref().map_or(&[], |l| l.straight())),
         // Photoshop: a click without dragging opens Create Rectangle / Ellipse / … instead.
         t if crate::vector_ui::is_shape_tool(t)
             && crate::shape_dialog::is_click(d.start, &d.points, app.current_zoom())
@@ -5178,6 +5239,8 @@ pub fn commit_polygon(app: &mut PhotocraftApp) {
 pub fn commit_crop(app: &mut PhotocraftApp) {
     // Never another document's frame (#1918).
     crate::crop_ui::cancel_stale(app);
+    // Committing ends the box's own Undo/Redo: from here Edit › Undo reverts the document.
+    crate::crop_ui::clear_history(app);
     let Some(r) = app.ui.crop_rect.take() else { return };
     // The crop's default mode leaves the view upright (`crop_mode`).
     crate::crop_mode::upright(app);
@@ -6737,6 +6800,25 @@ mod transform_controls_tests {
         assert!(begin_transform_controls_at(&mut app, &ctx, &xf, r.right_bottom()));
         let t = app.ui.transform.as_ref().expect("control press starts Free Transform");
         assert_eq!(t.rect, [20.0, 30.0, 100.0, 70.0]);
+    }
+
+    #[test]
+    fn move_transform_controls_follow_floating_selected_pixels() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 400, "height": 300})).unwrap();
+        app.run("layer.new.layer", json!({})).unwrap();
+        app.run("select.rect", json!({"x": 100, "y": 100, "width": 100, "height": 60})).unwrap();
+        app.run("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        app.ui.tool = Tool::Move;
+        app.ui.tool_options.move_show_transform = true;
+        assert!(crate::move_ui::float_selected(&mut app, false, 100.0, 50.0));
+        let xf =
+            ViewXform { rect: Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0)), zoom: 1.0, center: [200.0, 150.0], flip: false, rotation: 0.0, aspect: 1.0 };
+        let r = transform_controls_rect(&app, &xf).unwrap();
+        assert_eq!(r, Rect::from_min_max(pos2(200.0, 150.0), pos2(300.0, 210.0)));
+        let ctx = egui::Context::default();
+        assert!(begin_transform_controls_at(&mut app, &ctx, &xf, r.right_bottom()));
+        assert_eq!(app.ui.transform.as_ref().unwrap().rect, [200.0, 150.0, 300.0, 210.0]);
     }
 
     /// #2585: Free Transform on a position-locked layer is refused before the box opens, with

@@ -1587,10 +1587,14 @@ fn float_adjustments_preserve_hdr_range() {
                 per_channel: std::array::from_fn(|_| identity.clone()),
                 space: Default::default(),
                 black: Vec::new(),
+                pencil: false,
             },
             [4.0, 2.0, 0.5],
         ),
-        (Adjustment::Curves { master: Vec::new(), per_channel: Default::default(), space: Default::default(), black: Vec::new() }, [4.0, 2.0, 0.5]),
+        (
+            Adjustment::Curves { master: Vec::new(), per_channel: Default::default(), space: Default::default(), black: Vec::new(), pencil: false },
+            [4.0, 2.0, 0.5],
+        ),
     ];
     for (adj, want) in adjustments {
         let mut d = Document::new("HDR", Size::new(1, 1), ColorMode::Rgb, SampleType::F32);
@@ -1615,7 +1619,13 @@ fn float_tone_adjustments_preserve_negative_and_untouched_channels() {
             [-0.1, 4.0, 0.5],
         ),
         (
-            Adjustment::Curves { master: identity.clone(), per_channel: [identity.clone(), Vec::new(), edited], space: Default::default(), black: Vec::new() },
+            Adjustment::Curves {
+                master: identity.clone(),
+                per_channel: [identity.clone(), Vec::new(), edited],
+                space: Default::default(),
+                black: Vec::new(),
+                pencil: false,
+            },
             [-0.1, 4.0, 0.25],
         ),
     ] {

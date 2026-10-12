@@ -1965,6 +1965,7 @@
 	Show only crosshair while painting	繪圖時僅顯示十字線
 	Show slice numbers	顯示切片編號
 	Show tooltips	顯示工具提示
+	Enable animations	啟用動畫
 	Show highlight on rollover	滑鼠懸停時顯示醒目提示
 	Show bounding box when dragging layer	拖曳圖層時顯示邊界框
 	System title bar	系統標題列
@@ -2198,6 +2199,8 @@ cameraRaw	Blending	混合
 	Patch Tool	修補工具
 	Patch:	修補：
 	Lasso around an area, then drag the selection	用套索圈出區域，然後拖曳選取範圍
+	Transform On Drop	放下時變形
+	Scale or rotate the moved area, then press {key}	縮放或旋轉移動的區域，然後按 {key}
 	Now drag the selection onto another area	現在將選取範圍拖曳到另一個區域
 	Edit Type	編輯文字
 
@@ -2540,13 +2543,33 @@ cameraData	Lens	鏡頭
 	Freeform Pen Tool	自由筆型工具
 	Curvature Pen Tool	曲線筆工具
 	Curve Fit:	曲線擬合：
-	Drag: draw freehand · Release on the start point: close	拖曳：手繪 · 在起點放開：閉合
+	Drag: draw freehand · {alt}-click: straight segment · Release on the start point: close	拖曳：手繪 · {alt}-按一下：直線段 · 在起點放開：閉合
 	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	按一下：平滑點 · 按兩下：轉角 · 拖曳點：移動 · 按一下第一點：閉合 · {key} 完成
 	Scale:	縮放：
 	Snap to Origin	靠齊原點
 	Search settings…	搜尋設定…
 	No matching settings	沒有符合的設定
 	Loading fonts…	正在載入字體…
+	Tool	工具
+	Simulate Pressure	模擬壓力
+	Stroke Path…	筆畫路徑…
+	Background Eraser	背景橡皮擦
+	Clone Stamp	仿製印章
+	Healing Brush	修復筆刷
+	Spot Healing Brush	污點修復筆刷
+	History Brush	步驟記錄筆刷
+	Smudge	指尖
+	Dodge	加亮
+	Burn	加深
+	Sponge	海綿
+	Amount:	總量：
+	Protect:	保護：
+	Protect skin tones	保護膚色
+	Edit points to modify the curve	編輯點以修改曲線
+	Draw to modify the curve	繪製以修改曲線
+curves	Smooth	平滑
+	Smooth the curve values	平滑曲線數值
+	Drag to draw the curve · {key}-click draws a straight line	拖曳以繪製曲線 · 按住 {key} 按一下可繪製直線
 # Select and Mask view modes (#1754)
 	Onion Skin	洋蔥皮
 	Marching Ants	螞蟻線
@@ -2578,3 +2601,11 @@ cameraData	Lens	鏡頭
 	Emulsion Down	感光乳劑面朝下
 	Functions	功能
 	Print Resolution:	列印解析度：
+	Use Previous Layer to Create Clipping Mask	使用上一個圖層建立剪裁遮色片
+	Fill with {mode}-neutral color (white)	使用{mode}中性色填滿（白色）
+	Fill with {mode}-neutral color (black)	使用{mode}中性色填滿（黑色）
+	Fill with {mode}-neutral color (50% gray)	使用{mode}中性色填滿（50% 灰色）
+	(No neutral color exists for {mode} mode.)	（{mode}模式沒有中性色。）
+	Apply mask to layer before removing?	移除之前將遮色片套用到圖層嗎？
+	The layer or its mask changed. Drag the mask onto the Trash again.	圖層或其遮色片已變更。請再次將遮色片拖曳到垃圾桶。
+	Delete the vector mask?	要刪除向量遮色片嗎？

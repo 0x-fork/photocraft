@@ -181,6 +181,7 @@ Triangle and Curvature Pen (minus legacy Rounded Rectangle and Targeted Adjustme
 | Shortcut audit | 214 → 0 failures (2026-10-07) | measured then; not re-run here |
 | `.kys` import | done (`engine/src/kys.rs`) | |
 | Shortcut glyphs per platform | done (UI-217-19) | |
+| Brush size/hardness keys on non-US layouts | done (#3109): `[` `]` need AltGr on many layouts, so Photoshop uses other keys there (German: Ö / #, ⇧ for hardness). `layout_keys.rs` has a data table of such layouts (`LAYOUTS`, add rows to support one more) and a fallback for all others: the keys at the US `[` / `]` positions act as `[` / `]` when they don't type brackets. Off once a real bracket is typed; Edit › Keyboard Shortcuts overrides still apply | |
 
 ## Panels and workspace
 

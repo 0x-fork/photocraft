@@ -379,17 +379,80 @@ fn commit_path(app: &mut PhotocraftApp, pen: &PenPath, closed: bool) {
 // Freeform Pen and Curvature Pen
 
 /// Freeform Pen release: fit the drag's trace within the options bar's Curve Fit and commit it
-/// as the Pen does. Releasing on the start point closes the path; a click draws nothing.
-pub fn freeform_finish(app: &mut PhotocraftApp, points: &[[f64; 3]]) {
+/// as the Pen does. Releasing on the start point closes the path; a click draws nothing. The
+/// points at indices `straight` were ⌥-clicked: the segment into each one stays straight.
+pub fn freeform_finish(app: &mut PhotocraftApp, points: &[[f64; 3]], straight: &[usize]) {
     let trace: Vec<[f64; 2]> = points.iter().map(|p| [p[0], p[1]]).collect();
     let (Some(first), Some(last)) = (trace.first(), trace.last()) else { return };
     let tol = 6.0 / app.point_zoom().max(0.01) as f64;
     let length: f64 = trace.windows(2).map(|w| (w[1][0] - w[0][0]).hypot(w[1][1] - w[0][1])).sum();
     let closed = (first[0] - last[0]).hypot(first[1] - last[1]) < tol && length > 4.0 * tol;
-    let Some(sub) = photocraft_vector::trace::fit_trace(&trace, f64::from(app.ui.tool_options.curve_fit), closed) else { return };
-    let knots = sub.knots.iter().map(|k| [[k.anchor.x, k.anchor.y], [k.in_ctrl.x, k.in_ctrl.y], [k.out_ctrl.x, k.out_ctrl.y]]).collect();
-    let unlinked = sub.knots.iter().enumerate().filter(|(_, k)| !k.smooth).map(|(i, _)| i).collect();
-    commit_path(app, &PenPath { knots, unlinked, ..Default::default() }, sub.closed);
+    let fit = f64::from(app.ui.tool_options.curve_fit);
+    let pen = if straight.is_empty() {
+        let Some(sub) = photocraft_vector::trace::fit_trace(&trace, fit, closed) else { return };
+        let knots = sub.knots.iter().map(knot_points).collect();
+        let unlinked = sub.knots.iter().enumerate().filter(|(_, k)| !k.smooth).map(|(i, _)| i).collect();
+        (PenPath { knots, unlinked, ..Default::default() }, sub.closed)
+    } else {
+        fit_with_straight_segments(&trace, straight, fit, closed.then_some(tol))
+    };
+    commit_path(app, &pen.0, pen.1);
+}
+
+fn knot_points(k: &photocraft_doc::Knot) -> [[f64; 2]; 3] {
+    [[k.anchor.x, k.anchor.y], [k.in_ctrl.x, k.in_ctrl.y], [k.out_ctrl.x, k.out_ctrl.y]]
+}
+
+/// A Freeform Pen trace with ⌥-clicked straight segments (into the points at `straight`): each
+/// freehand run between them is fitted on its own, and the runs are joined by straight lines
+/// between corner anchors. `close` (a reach) closes the path when it ends on its start point.
+fn fit_with_straight_segments(trace: &[[f64; 2]], straight: &[usize], fit: f64, close: Option<f64>) -> (PenPath, bool) {
+    let mut cuts: Vec<usize> = straight.iter().copied().filter(|&i| i > 0 && i < trace.len()).collect();
+    cuts.sort_unstable();
+    cuts.dedup();
+    cuts.push(trace.len());
+    let (mut knots, mut corners): (Vec<[[f64; 2]; 3]>, Vec<usize>) = (Vec::new(), Vec::new());
+    let mut start = 0;
+    for end in cuts {
+        let run = trace.get(start..end).unwrap_or_default();
+        let first = knots.len();
+        match photocraft_vector::trace::fit_trace(run, fit, false) {
+            Some(sub) => {
+                corners.extend(sub.knots.iter().enumerate().filter(|(_, k)| !k.smooth).map(|(i, _)| first + i));
+                knots.extend(sub.knots.iter().map(knot_points));
+            }
+            // A single click (or a run that never moved): one corner anchor.
+            None => knots.extend(run.first().map(|p| [*p; 3])),
+        }
+        // Where a straight segment meets the run: a corner with no handle on that side.
+        if let Some(k) = knots.get_mut(first).filter(|_| first > 0) {
+            k[1] = k[0];
+            corners.push(first);
+        }
+        if end < trace.len()
+            && let Some(k) = knots.last_mut()
+        {
+            k[2] = k[0];
+            corners.push(knots.len() - 1);
+        }
+        start = end;
+    }
+    // Ended on the start point: the last anchor is the first one.
+    let ends_on_start = |k: &[[[f64; 2]; 3]], reach: f64| match (k.first(), k.last()) {
+        (Some(a), Some(b)) => k.len() > 3 && (a[0][0] - b[0][0]).hypot(a[0][1] - b[0][1]) < reach,
+        _ => false,
+    };
+    let closed = close.is_some_and(|reach| ends_on_start(&knots, reach));
+    if closed && let Some(last) = knots.pop() {
+        if let Some(k) = knots.first_mut() {
+            k[1] = [last[1][0] - last[0][0] + k[0][0], last[1][1] - last[0][1] + k[0][1]];
+        }
+        corners.retain(|&i| i < knots.len());
+        corners.push(0);
+    }
+    corners.sort_unstable();
+    corners.dedup();
+    (PenPath { knots, unlinked: corners, ..Default::default() }, closed)
 }
 
 /// Recompute a Curvature Pen path's handles from its anchors and corner points.
@@ -806,7 +869,8 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
                 crate::widgets::vline(ui, 22.0);
                 lbl(ui, tl!("Curve Fit:"));
                 crate::widgets::value_field(ui, &mut o.curve_fit, 0.5..=10.0, "px", 58.0);
-                lbl(ui, tl!("Drag: draw freehand · Release on the start point: close"));
+                let alt = crate::shortcuts::pretty("Alt");
+                lbl(ui, &crate::i18n::fmt(tl!("Drag: draw freehand · {alt}-click: straight segment · Release on the start point: close"), &[("alt", &alt)]));
             }
             Tool::CurvaturePen => lbl(
                 ui,
@@ -1338,7 +1402,7 @@ fn path_context_actions(entry: &PathEntry, doc: &Document) -> Vec<(&'static str,
     let mut actions = vec![
         ("Make Selection", "path.toSelection", json!({"name": key})),
         ("Fill Path", "path.fill", json!({"name": key})),
-        ("Stroke Path", "path.stroke", json!({"name": key, "tool": "brush"})),
+        ("Stroke Path…", "path.stroke", json!({"name": key})),
     ];
     if entry.kind == PathRow::Work {
         let mut n = doc.paths.len().saturating_add(1);
@@ -1378,6 +1442,7 @@ pub fn paths_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let rows = path_rows(&doc, st.active_layer);
     let has_layer_path = rows.iter().any(|r| r.kind == PathRow::Layer);
     let mut action: Option<(&str, Value)> = None;
+    let mut stroke_dialog: Option<String> = None;
     // The buttons sit in a footer at the panel's bottom, like Photoshop's.
     let footer = crate::widgets::footer_height(ui) + ui.spacing().item_spacing.y;
     let fill = ui.available_height() > footer + 60.0;
@@ -1430,7 +1495,12 @@ pub fn paths_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         for (label, cmd, params) in path_context_actions(&entry, &doc) {
                             let enabled = !matches!(cmd, "path.fill" | "path.stroke") || can_paint;
                             if ui.add_enabled(enabled, egui::Button::new(tl!(label))).clicked() {
-                                action = Some((cmd, params));
+                                if cmd == "path.stroke" {
+                                    // Stroke Path… asks for the tool first, as in Photoshop (#2978).
+                                    stroke_dialog = Some(params.get("name").and_then(Value::as_str).unwrap_or("work").to_string());
+                                } else {
+                                    action = Some((cmd, params));
+                                }
                                 ui.close();
                             }
                         }
@@ -1475,13 +1545,21 @@ pub fn paths_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             let icon = if crate::icons::exists(icon) { icon } else { "square" };
             let b = crate::icons::button(ui, icon, 26.0, false, tip);
             if b.clicked() {
-                action = Some((cmd, p));
+                if cmd == "path.stroke" && ui.input(|i| i.modifiers.alt) {
+                    // Alt-click opens the Stroke Path dialog, as in Photoshop (#2978).
+                    stroke_dialog = Some(sel.clone());
+                } else {
+                    action = Some((cmd, p));
+                }
             }
             buttons = buttons.union(b.rect);
         }
         buttons
     });
     ctx_data_footer(ui.ctx(), buttons);
+    if let Some(name) = stroke_dialog {
+        crate::canvas_tool_menu::stroke_path_dialog(app, &name);
+    }
     if let Some((cmd, p)) = action
         && let Err(e) = app.run(cmd, p)
     {

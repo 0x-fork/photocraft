@@ -1963,6 +1963,7 @@
 	Show only crosshair while painting	Mostrar solo la retícula al pintar
 	Show slice numbers	Mostrar los números de sector
 	Show tooltips	Mostrar las descripciones emergentes
+	Enable animations	Activar las animaciones
 	Show highlight on rollover	Mostrar resaltado al pasar el cursor
 	Show bounding box when dragging layer	Mostrar el cuadro delimitador al arrastrar la capa
 	System title bar	Barra de título del sistema
@@ -2291,6 +2292,8 @@ cameraRaw	Amount	Cantidad
 	Patch Tool	Herramienta Parche
 	Patch:	Parche:
 	Lasso around an area, then drag the selection	Rodee un área con el lazo y arrastre la selección
+	Transform On Drop	Transformar al soltar
+	Scale or rotate the moved area, then press {key}	Escale o gire el área movida y pulse {key}
 	Now drag the selection onto another area	Ahora arrastre la selección a otra área
 	Edit Type	Editar texto
 
@@ -2635,7 +2638,7 @@ cameraData	Lens	Objetivo
 	Freeform Pen Tool	Herramienta Pluma de forma libre
 	Curvature Pen Tool	Herramienta Pluma de curvatura
 	Curve Fit:	Ajuste de curva:
-	Drag: draw freehand · Release on the start point: close	Arrastrar: dibujar a mano alzada · Soltar en el punto inicial: cerrar
+	Drag: draw freehand · {alt}-click: straight segment · Release on the start point: close	Arrastrar: dibujar a mano alzada · {alt}-clic: segmento recto · Soltar en el punto inicial: cerrar
 	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	Clic: punto suave · Doble clic: esquina · Arrastrar un punto: mover · Clic en el primer punto: cerrar · {key}: terminar
 	New Crop Preset…	Nuevo ajuste preestablecido de recorte…
 	Delete Crop Preset…	Eliminar ajuste preestablecido de recorte…
@@ -2648,6 +2651,22 @@ cameraData	Lens	Objetivo
 	Search settings…	Buscar ajustes…
 	No matching settings	No hay ajustes que coincidan
 	Loading fonts…	Cargando fuentes…
+	Tool	Herramienta
+	Simulate Pressure	Simular presión
+	Stroke Path…	Contornear trazado…
+	Background Eraser	Borrador de fondo
+	Healing Brush	Pincel corrector
+	Spot Healing Brush	Pincel corrector puntual
+	Smudge	Dedo
+	Sponge	Esponja
+	Amount:	Cantidad:
+	Protect:	Proteger:
+	Protect skin tones	Proteger tonos de piel
+	Edit points to modify the curve	Editar puntos para modificar la curva
+	Draw to modify the curve	Dibujar para modificar la curva
+curves	Smooth	Suavizar
+	Smooth the curve values	Suavizar los valores de la curva
+	Drag to draw the curve · {key}-click draws a straight line	Arrastre para dibujar la curva · {key}-clic traza una línea recta
 # Select and Mask view modes (#1754)
 	Onion Skin	Papel cebolla
 	Marching Ants	Hormigas en marcha
@@ -2673,3 +2692,11 @@ cameraData	Lens	Objetivo
 	Emulsion Down	Emulsión hacia abajo
 	Functions	Funciones
 	Print Resolution:	Resolución de impresión:
+	Use Previous Layer to Create Clipping Mask	Usar la capa anterior para crear una máscara de recorte
+	Fill with {mode}-neutral color (white)	Rellenar con el color neutro de {mode} (blanco)
+	Fill with {mode}-neutral color (black)	Rellenar con el color neutro de {mode} (negro)
+	Fill with {mode}-neutral color (50% gray)	Rellenar con el color neutro de {mode} (gris al 50%)
+	(No neutral color exists for {mode} mode.)	(No existe un color neutro para el modo {mode}.)
+	Apply mask to layer before removing?	¿Aplicar la máscara a la capa antes de eliminarla?
+	The layer or its mask changed. Drag the mask onto the Trash again.	La capa o su máscara ha cambiado. Arrastre de nuevo la máscara a la papelera.
+	Delete the vector mask?	¿Eliminar la máscara vectorial?

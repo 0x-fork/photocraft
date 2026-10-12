@@ -1972,6 +1972,7 @@
 	Show only crosshair while painting	绘画时仅显示十字线
 	Show slice numbers	显示切片编号
 	Show tooltips	显示工具提示
+	Enable animations	启用动画
 	Show highlight on rollover	鼠标悬停时显示高亮
 	Show bounding box when dragging layer	拖动图层时显示边界框
 	System title bar	系统标题栏
@@ -2081,6 +2082,8 @@ cameraRaw	Blending	混合
 	Patch Tool	修补工具
 	Patch:	修补：
 	Lasso around an area, then drag the selection	用套索圈出区域，然后拖动选区
+	Transform On Drop	放下时变换
+	Scale or rotate the moved area, then press {key}	缩放或旋转移动的区域，然后按 {key}
 	Now drag the selection onto another area	现在将选区拖动到另一个区域
 # Current shell labels and shortcut templates. Keep {key} platform-dependent.
 	Add a mask  (from the selection; {key} inverts)	添加蒙版  （基于选区；{key} 反相）
@@ -2570,13 +2573,33 @@ cameraData	Lens	镜头
 	Freeform Pen Tool	自由钢笔工具
 	Curvature Pen Tool	弯度钢笔工具
 	Curve Fit:	曲线拟合：
-	Drag: draw freehand · Release on the start point: close	拖动：自由绘制 · 在起点松开：闭合
+	Drag: draw freehand · {alt}-click: straight segment · Release on the start point: close	拖动：自由绘制 · {alt}-单击：直线段 · 在起点松开：闭合
 	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	单击：平滑点 · 双击：角点 · 拖动点：移动 · 单击起点：闭合 · {key} 完成
 	Scale:	缩放：
 	Snap to Origin	贴紧原点
 	Search settings…	搜索设置…
 	No matching settings	没有匹配的设置
 	Loading fonts…	正在加载字体…
+	Tool	工具
+	Simulate Pressure	模拟压力
+	Stroke Path…	描边路径…
+	Background Eraser	背景橡皮擦
+	Clone Stamp	仿制图章
+	Healing Brush	修复画笔
+	Spot Healing Brush	污点修复画笔
+	History Brush	历史记录画笔
+	Smudge	涂抹
+	Dodge	减淡
+	Burn	加深
+	Sponge	海绵
+	Amount:	数量：
+	Protect:	保护：
+	Protect skin tones	保护肤色
+	Edit points to modify the curve	编辑点以修改曲线
+	Draw to modify the curve	绘制以修改曲线
+curves	Smooth	平滑
+	Smooth the curve values	平滑曲线值
+	Drag to draw the curve · {key}-click draws a straight line	拖动以绘制曲线 · 按住 {key} 单击可绘制直线
 # Select and Mask view modes (#1754)
 	Onion Skin	洋葱皮
 	Marching Ants	蚂蚁线
@@ -2608,3 +2631,11 @@ cameraData	Lens	镜头
 	Emulsion Down	药膜朝下
 	Functions	功能
 	Print Resolution:	打印分辨率：
+	Use Previous Layer to Create Clipping Mask	使用前一图层创建剪贴蒙版
+	Fill with {mode}-neutral color (white)	使用{mode}中性色填充（白色）
+	Fill with {mode}-neutral color (black)	使用{mode}中性色填充（黑色）
+	Fill with {mode}-neutral color (50% gray)	使用{mode}中性色填充（50% 灰色）
+	(No neutral color exists for {mode} mode.)	（{mode}模式不存在中性色。）
+	Apply mask to layer before removing?	移去之前将蒙版应用到图层吗？
+	The layer or its mask changed. Drag the mask onto the Trash again.	图层或其蒙版已更改。请再次将蒙版拖到垃圾桶。
+	Delete the vector mask?	要删除矢量蒙版吗？

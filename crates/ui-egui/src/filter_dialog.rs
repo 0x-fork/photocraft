@@ -563,7 +563,9 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                     }
                     ui.add_space(4.0);
                 } else {
-                    crate::widgets::slider_row(ui, &label(&p.key), &mut v, min..=max, unit, None);
+                    // A double-click on the slider puts it back to the filter's default.
+                    let gestures = crate::widgets::RowGestures { reset: Some(default), wheel_step: None };
+                    crate::widgets::slider_row_with(ui, &label(&p.key), &mut v, min..=max, unit, None, gestures);
                 }
                 // Small ranges (0–1 thresholds and centres) keep the two decimals their field shows.
                 let scale = if max - min <= 10.0 { 100.0 } else { 10.0 };

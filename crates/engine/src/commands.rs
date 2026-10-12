@@ -520,16 +520,15 @@ fn build() -> Vec<CommandSpec> {
             }
         ),
         // Layer
-        cmd!("layer.new.layer", "Layer…", ["Layer", "New"], Some("Cmd+Shift+N"), r##"{"name":str?}"##, has_doc, |s, p| {
-            let id = s.edit("New Layer", |doc, active| {
-                let name = p.get("name").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| doc.next_layer_name("Layer"));
-                let id = doc.insert_above(*active, Layer::raster(name, doc.pixel_format()));
-                *active = Some(id);
-                Ok(id)
-            })?;
-            crate::layer_multi_cmds::note_inert_insert(s, id);
-            Ok(json!({ "layer": id.0 }))
-        }),
+        cmd!(
+            "layer.new.layer",
+            "Layer…",
+            ["Layer", "New"],
+            Some("Cmd+Shift+N"),
+            r##"{"name":str?,"clipToPrevious":bool=false (Use Previous Layer to Create Clipping Mask; inside a clip group the layer joins it anyway),"color":"none|red|orange|yellow|green|seafoam|blue|indigo|magenta|fuchsia|violet|gray"="none","mode":"Normal|Multiply|…"="Normal","opacity":0..1=1,"fillNeutral":bool=false (fill with the mode's neutral color: modes without one are an error)}"##,
+            has_doc,
+            crate::new_layer::run
+        ),
         cmd!("layer.new.group", "Group…", ["Layer", "New"], None, r##"{"name":str?}"##, has_doc, |s, p| {
             let id = s.edit("New Group", |doc, active| {
                 let name = p.get("name").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| doc.next_layer_name("Group"));
@@ -583,7 +582,9 @@ fn build() -> Vec<CommandSpec> {
             let id = layer_param(s, p)?;
             s.edit("Delete Layer", |doc, active| {
                 let neighbours = crate::layer_multi_cmds::deletion_neighbours(doc, id);
+                let before = crate::clip_group::Before::read(doc, &[id]);
                 doc.remove(id).ok_or(EngineError::NoLayer(id))?;
+                crate::clip_group::settle(doc, &[], &before, false);
                 if doc.layers.is_empty() {
                     return Err(EngineError::Other("a document must keep at least one layer".into()));
                 }
@@ -817,26 +818,37 @@ fn build() -> Vec<CommandSpec> {
                 Ok(json!({ "layer": id.0 }))
             }
         ),
-        cmd!("layer.setAdjustment", "Adjustment Properties", [], None, r##"{"layer":id?, …params of that adjustment kind}"##, has_layer, |s, p| {
-            let id = layer_param(s, p)?;
-            s.edit("Modify Adjustment", |doc, _| {
-                let mode = doc.mode;
-                let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
-                let LayerContent::Adjustment(adj) = &mut l.content else { return Err(EngineError::Other("not an adjustment layer".into())) };
-                if matches!(adj, Adjustment::Unsupported { .. }) {
-                    return Err(EngineError::Other("this adjustment can't be edited (kept as imported)".into()));
-                }
-                let kind = adjustment_kind(adj);
-                // No params resets to the defaults; otherwise params merge over the current values.
-                *adj = if crate::adjust_params::user_keys(p).is_empty() {
-                    crate::adjust_params::default_for(kind, mode)?
-                } else {
-                    crate::adjust_params::from_params(kind, p, Some(adj), mode)?
-                };
-                Ok(())
-            })?;
-            Ok(Value::Null)
-        }),
+        cmd!(
+            "layer.setAdjustment",
+            "Adjustment Properties",
+            [],
+            None,
+            r##"{"layer":id?, …params of that adjustment kind} (Levels, Curves: "eyedropper":{"point":"black|gray|white","at":[x,y],"size":1..101=1} or {"point",…,"color":[r,g,b] 0..1} = the Properties panel's Set Black/Neutral Gray/White Point, sampling the image below the layer, RGB and Grayscale (no gray) only)"##,
+            has_layer,
+            |s, p| {
+                let id = layer_param(s, p)?;
+                let eyedropped = crate::adjust_params::layer_eyedropper(s, id, p)?;
+                s.edit("Modify Adjustment", |doc, _| {
+                    let mode = doc.mode;
+                    let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
+                    let LayerContent::Adjustment(adj) = &mut l.content else { return Err(EngineError::Other("not an adjustment layer".into())) };
+                    if matches!(adj, Adjustment::Unsupported { .. }) {
+                        return Err(EngineError::Other("this adjustment can't be edited (kept as imported)".into()));
+                    }
+                    let kind = adjustment_kind(adj);
+                    // No params resets to the defaults; otherwise params merge over the current values.
+                    *adj = if let Some(eyedropped) = eyedropped {
+                        eyedropped
+                    } else if crate::adjust_params::user_keys(p).is_empty() {
+                        crate::adjust_params::default_for(kind, mode)?
+                    } else {
+                        crate::adjust_params::from_params(kind, p, Some(adj), mode)?
+                    };
+                    Ok(())
+                })?;
+                Ok(Value::Null)
+            }
+        ),
         cmd!(
             "layer.moveTo",
             "Reorder Layer",
@@ -1028,12 +1040,12 @@ fn build() -> Vec<CommandSpec> {
         (
             "levels",
             "Levels…",
-            r##"{"inBlack":0..253=0,"gamma":0.01..9.99=1,"inWhite":2..255=255,"outBlack":0..255=0,"outWhite":0..255=255,"red":json,"green":json,"blue":json} (top level = composite; per channel {"inBlack","gamma","inWhite","outBlack","outWhite"} under red/green/blue, gray, cyan/magenta/yellow/black or lightness/a/b)"##,
+            r##"{"inBlack":0..253=0,"gamma":0.01..9.99=1,"inWhite":2..255=255,"outBlack":0..255=0,"outWhite":0..255=255,"red":json,"green":json,"blue":json,"eyedropper":json} (top level = composite; per channel {"inBlack","gamma","inWhite","outBlack","outWhite"} under red/green/blue, gray, cyan/magenta/yellow/black or lightness/a/b; eyedropper = the dialog's Set Black/Neutral Gray/White Point picker {"point":"black|gray|white","at":[x,y],"size":1..101=1} or {"point",…,"color":[r,g,b] 0..1}: black/white set each channel's input black/white to the sample, gray each channel's gamma so the sample turns neutral at its luma; RGB and Grayscale (no gray) only, applied over the given levels)"##,
         ),
         (
             "curves",
             "Curves…",
-            r##"{"points":json,"red":json,"green":json,"blue":json,"eyedropper":json} (curves as [[in,out],…] in 0..255, 2..19 points: points = composite; red/green/blue, gray, cyan/magenta/yellow/black or lightness/a/b per channel; eyedropper = the dialog's Set Black/Neutral Gray/White Point picker {"point":"black|gray|white","at":[x,y]} or {"point",…,"color":[r,g,b] 0..1}, RGB and Grayscale (no gray) only, applied over the given curves)"##,
+            r##"{"points":json,"red":json,"green":json,"blue":json,"pencil":bool=false,"smooth":0..10=0,"eyedropper":json} (curves as [[in,out],…] in 0..255, 2..19 points: points = composite; red/green/blue, gray, cyan/magenta/yellow/black or lightness/a/b per channel; pencil = drawn curves (Draw to modify the curve): each curve is 256 output levels in 0..255 (point curves given are drawn in, and turning pencil off fits points to the drawing); smooth = Smooth passes over the drawn curves; eyedropper = the dialog's Set Black/Neutral Gray/White Point picker {"point":"black|gray|white","at":[x,y],"size":1..101=1} or {"point",…,"color":[r,g,b] 0..1}, RGB and Grayscale (no gray) only, applied over the given curves)"##,
         ),
         ("exposure", "Exposure…", r##"{"exposure":-20..20=0,"offset":-0.5..0.5=0,"gamma":0.01..9.99=1}"##),
         ("vibrance", "Vibrance…", r##"{"vibrance":-100..100=0,"saturation":-100..100=0}"##),
@@ -1089,7 +1101,7 @@ fn build() -> Vec<CommandSpec> {
             enabled: has_doc,
             run: |s, p| {
                 let kind = p.get("__kind").and_then(Value::as_str).unwrap_or("invert").to_string();
-                let eyedropped = if kind == "curves" { crate::adjust_params::curves_eyedropper_from_params(s, p)? } else { None };
+                let eyedropped = if matches!(kind.as_str(), "levels" | "curves") { crate::adjust_params::eyedropper_from_params(s, &kind, p)? } else { None };
                 let adj = match eyedropped {
                     Some(adj) => adj,
                     None => crate::adjust_params::from_params(&kind, p, None, doc_mode(s))?,
@@ -1115,7 +1127,17 @@ fn build() -> Vec<CommandSpec> {
             enabled: crate::adjust_cmds::has_adjustable,
             run: |s, p| {
                 let kind = p.get("__kind").and_then(Value::as_str).unwrap_or("invert").to_string();
-                let eyedropped = if kind == "curves" { crate::adjust_params::curves_eyedropper_from_params(s, p)? } else { None };
+                let eyedropped = if matches!(kind.as_str(), "levels" | "curves") { crate::adjust_params::eyedropper_from_params(s, &kind, p)? } else { None };
+                // A smart filter re-runs its params, so it records what an eyedropper resolved
+                // to, not the sample (#3127).
+                let recorded = eyedropped.as_ref().map(|adj| {
+                    let mut q = p.clone();
+                    if let (Value::Object(q), Value::Object(resolved)) = (&mut q, crate::adjust_params::to_params(adj)) {
+                        q.remove("eyedropper");
+                        q.extend(resolved);
+                    }
+                    q
+                });
                 let adj = match eyedropped {
                     Some(adj) => adj,
                     None => crate::adjust_params::from_params(&kind, p, None, doc_mode(s))?,
@@ -1123,7 +1145,7 @@ fn build() -> Vec<CommandSpec> {
                 let label = adj.label().to_string();
                 // A smart object records the adjustment as a smart filter (Photoshop), which
                 // re-runs from the source instead of baking into a copy of the pixels.
-                if crate::adjust_cmds::adjust_as_smart_filter(s, &kind, &label, p)? {
+                if crate::adjust_cmds::adjust_as_smart_filter(s, &kind, &label, recorded.as_ref().unwrap_or(p))? {
                     return Ok(Value::Null);
                 }
                 destructive_adjust(s, &label, adj, p)
@@ -1291,6 +1313,7 @@ fn arrange(s: &mut Session, p: &Value, delta: i32) -> Result<Value> {
             d => d,
         };
         let dir = steps.signum();
+        let before = crate::clip_group::Before::read(doc, &[id]);
         let mut moved = false;
         for _ in 0..steps.abs() {
             if !doc.shift(id, dir) {
@@ -1302,7 +1325,11 @@ fn arrange(s: &mut Session, p: &Value, delta: i32) -> Result<Value> {
             }
             moved = true;
         }
-        if moved { Ok(()) } else { Err(EngineError::Other("layer can't move further".into())) }
+        if !moved {
+            return Err(EngineError::Other("layer can't move further".into()));
+        }
+        crate::clip_group::settle(doc, &[id], &before, false);
+        Ok(())
     })?;
     Ok(Value::Null)
 }
@@ -1340,7 +1367,18 @@ pub(crate) fn translate_layer(doc: &Document, l: &mut Layer, dx: i32, dy: i32) {
         LayerContent::Raster(s) => *s = translate_surface(s, dx, dy),
         LayerContent::Text(t) => {
             t.transform = photocraft_geom::Affine::translate(dx as f64, dy as f64).mul(&t.transform);
-            crate::type_cmds::refresh(doc, t);
+            // A whole-pixel move shifts the rendered text and its PSD position as they are.
+            // Re-rendering would replace Photoshop's rendering of imported type, and drop the
+            // text when its font is missing (artboard export, moving type with the Move tool).
+            let raw = t.psd_raw.as_deref().map(|r| photocraft_text::psd::translate_tysh(r, f64::from(dx), f64::from(dy)));
+            match (&mut t.cache, raw) {
+                (Some(c), Some(Some(r))) => {
+                    *c = translate_surface(c, dx, dy);
+                    t.psd_raw = Some(std::sync::Arc::new(r));
+                }
+                (Some(c), None) => *c = translate_surface(c, dx, dy),
+                _ => crate::type_cmds::refresh(doc, t),
+            }
         }
         LayerContent::Group(g) => {
             // Moving an artboard moves the board with its contents.

@@ -1114,13 +1114,24 @@ fn flatten_all_masks(s: &mut Session) -> Result<Value> {
 fn layers_to_files(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.export.layersToFiles";
     let dir = str_param(p, "dir", cmd).or_else(|_| str_param(p, "output", cmd))?.to_string();
+    let names = export_layers_with(s, p, |name, bytes| write_file(&join(&dir, name), bytes))?;
+    let files: Vec<String> = names.iter().map(|name| join(&dir, name)).collect();
+    Ok(json!({"files": files}))
+}
+
+/// The bodies of `file.export.layersToFiles`, streamed to `write` as a single-component filename
+/// plus its bytes: one file per exported layer (top to bottom, like Photoshop's numbering),
+/// encoded but never touched as a path. Automation writes exactly these bytes beneath its write
+/// root (#3216), so the two paths cannot drift. Returns the filenames written, in order.
+pub fn export_layers_with(s: &Session, p: &Value, mut write: impl FnMut(&str, &[u8]) -> Result<()>) -> Result<Vec<String>> {
+    let cmd = "file.export.layersToFiles";
     let format = p.get("format").and_then(Value::as_str).unwrap_or("png").trim_start_matches('.').to_ascii_lowercase();
     let visible_only = p.get("visibleOnly").and_then(Value::as_bool).unwrap_or(true);
     let save = SaveOpts::from_params(s, p, cmd)?;
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let prefix = p.get("prefix").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| stem(&d.doc.name));
     let doc = d.doc.clone();
-    let mut files = Vec::new();
+    let mut written = Vec::new();
     // Top-level layers (groups export merged), top to bottom like Photoshop's numbering.
     let layers: Vec<&Layer> = doc.layers.iter().rev().filter(|l| l.visible || !visible_only).collect();
     for (i, l) in layers.iter().enumerate() {
@@ -1132,11 +1143,12 @@ fn layers_to_files(s: &mut Session, p: &Value) -> Result<Value> {
         only.visible = true;
         only.clipped = false;
         one.layers = vec![only];
-        let path = join(&dir, &format!("{}_{:04}_{}.{format}", sanitize(&prefix), i, sanitize(&l.name)));
-        save_doc(&one, &path, save)?;
-        files.push(path);
+        let name = format!("{}_{:04}_{}.{format}", sanitize(&prefix), i, sanitize(&l.name));
+        let (bytes, _warnings) = encode(&one, &name, save)?;
+        write(&name, &bytes)?;
+        written.push(name);
     }
-    Ok(json!({"files": files}))
+    Ok(written)
 }
 
 /// Adjustment layers that can be represented as an RGB-only LUT, in document stack order.

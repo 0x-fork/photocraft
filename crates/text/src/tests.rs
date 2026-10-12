@@ -1407,6 +1407,61 @@ fn thai_fallback_candidates_cover_every_platform() {
     }
 }
 
+/// The Southeast Asian scripts with their hard cases: Khmer coeng subscripts, the ah-sat mark and
+/// numerals; Lao vowel and tone signs; Myanmar medials, stacks and dependent vowels (#218).
+const SOUTHEAST_ASIAN: &[(&str, &str, &[&str])] = &[
+    ("Khmer", "ភាសាខ្មែរ កម្ពុជា សួស្ដី រដ្ឋធម្ណុសាស្តៗ ១២៣", fonts::KHMER_FAMILIES),
+    ("Lao", "ພາສາລາວ ສະບາຍດີ ຄ ໂລກ ຂອບໃຈ", fonts::LAO_FAMILIES),
+    ("Myanmar", "မြန်မာဘာသာ မင်္ဂလာပါ ကျေးဇူးတင်ပါတယ်", fonts::MYANMAR_FAMILIES),
+];
+
+#[test]
+fn southeast_asian_scripts_fall_back_to_installed_fonts() {
+    // Detection and selection are tested apart, so a failure names its layer.
+    for (name, sample, families) in SOUTHEAST_ASIAN {
+        let mut e = TextEngine::with_system_fonts();
+        let Some(hit) = families.iter().find(|f| e.fonts.has_family(f)) else {
+            eprintln!("skipped: no {name}-capable font installed");
+            continue;
+        };
+        // Layer 1, detection + loading + shaping: the installed family, asked for by name.
+        let direct = TextLayer { text: (*sample).into(), font_family: hit.to_string(), size_pt: 24.0, ..Default::default() };
+        let l = e.layout(&direct, 72.0);
+        assert!(!l.glyphs.is_empty() && l.glyphs.iter().all(|g| g.id != 0), "{hit} is installed but shapes .notdef for {name}");
+        // Layer 2, selection: the same text in a Latin-only font falls back instead of drawing
+        // tofu, and the Latin around it keeps the chosen face.
+        let mixed = format!("Latin {sample}");
+        let l = e.layout(&point(&mixed, 24.0), 72.0);
+        assert!(l.glyphs.iter().all(|g| g.id != 0), "{name} in a Latin font drawn with .notdef although {hit} is installed");
+        let latin = l.glyphs.first().map(|g| g.face);
+        assert!(l.glyphs.iter().any(|g| Some(g.face) != latin), "Latin and {name} drawn with the same face");
+    }
+}
+
+#[test]
+fn southeast_asian_fallback_candidates_cover_every_platform() {
+    // Logic-level half of #218 (runs without these fonts): each script has a family for Windows,
+    // macOS and Linux in the fallback candidates, ahead of the broad last-resort fonts.
+    for order in [crate::cjk::script_order(None), crate::cjk::script_order(Some("ja"))] {
+        let fb = fonts::fallback_candidates(&order);
+        let last = fb.iter().position(|f| *f == "Arial Unicode MS").unwrap();
+        for fam in [
+            "Khmer UI",
+            "Khmer Sangam MN",
+            "Noto Sans Khmer",
+            "Lao UI",
+            "Lao Sangam MN",
+            "Noto Sans Lao",
+            "Myanmar Text",
+            "Myanmar Sangam MN",
+            "Noto Sans Myanmar",
+        ] {
+            let i = fb.iter().position(|f| *f == fam).unwrap_or_else(|| panic!("{fam} missing from {fb:?}"));
+            assert!(i < last, "{fam} after the last-resort fonts");
+        }
+    }
+}
+
 #[test]
 fn a_served_script_fallback_joins_the_fallback_stack_once_it_arrives() {
     let Some(cairo) = crate::CRAFT_FONTS.iter().find(|f| f.family == "Cairo") else {
@@ -1418,4 +1473,19 @@ fn a_served_script_fallback_joins_the_fallback_stack_once_it_arrives() {
     assert!(!db.fallback_stack().any(|f| f == "Cairo"), "not before it arrives");
     db.register_font_data(cairo.bytes.to_vec());
     assert!(db.fallback_stack().any(|f| f == "Cairo"), "{:?}", db.fallback_stack().collect::<Vec<_>>());
+}
+
+#[test]
+fn translate_tysh_moves_only_the_translation() {
+    let mut t = point("Hello!", 26.0);
+    t.transform = Affine { m: [1.5, 0.0, 0.0, 1.5, 80.0, 340.0] };
+    let tysh = crate::psd::build_tysh(&t, 72.0, Some([0.0, -20.0, 300.0, 4.0]));
+    let moved = crate::psd::translate_tysh(&tysh, -8.0, -279.0).unwrap();
+    let back = crate::psd::parse_tysh(&moved).unwrap();
+    assert_eq!(back.transform.m, [1.5, 0.0, 0.0, 1.5, 72.0, 61.0]);
+    // Everything but the 16 translation bytes is unchanged.
+    assert_eq!(moved.len(), tysh.len());
+    assert_eq!((&moved[..34], &moved[50..]), (&tysh[..34], &tysh[50..]));
+    assert_eq!(crate::psd::parse_tysh(&tysh).unwrap().bounds, back.bounds, "bounds are in text space");
+    assert!(crate::psd::translate_tysh(&tysh[..40], 1.0, 1.0).is_none(), "a truncated block is refused");
 }

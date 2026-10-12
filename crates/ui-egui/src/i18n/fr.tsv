@@ -1934,6 +1934,7 @@
 	Show only crosshair while painting	N'afficher que le réticule pendant la peinture
 	Show slice numbers	Afficher les numéros de tranche
 	Show tooltips	Afficher les info-bulles
+	Enable animations	Activer les animations
 	Show highlight on rollover	Afficher la mise en surbrillance au survol
 	Show transformation values	Afficher les valeurs de transformation
 	Slice color	Couleur des tranches
@@ -2638,6 +2639,8 @@ cameraRaw	Blending	Fusion
 	Patch Tool	Outil Pièce
 	Patch:	Pièce :
 	Lasso around an area, then drag the selection	Entourez une zone au lasso, puis faites glisser la sélection
+	Transform On Drop	Transformer au dépôt
+	Scale or rotate the moved area, then press {key}	Mettez à l'échelle ou faites pivoter la zone déplacée, puis appuyez sur {key}
 	Now drag the selection onto another area	Faites maintenant glisser la sélection vers une autre zone
 
 # Warp grid presets (#388)
@@ -2972,7 +2975,7 @@ cameraData	Lens	Objectif
 	Freeform Pen Tool	Outil Plume libre
 	Curvature Pen Tool	Outil Plume de courbure
 	Curve Fit:	Ajustement de courbe :
-	Drag: draw freehand · Release on the start point: close	Glisser : dessin à main levée · Relâcher sur le point de départ : fermer
+	Drag: draw freehand · {alt}-click: straight segment · Release on the start point: close	Glisser : dessin à main levée · {alt}-clic : segment droit · Relâcher sur le point de départ : fermer
 	Click: smooth point · Double-click: corner · Drag a point: move · Click first point: close · {key} finish	Clic : point lisse · Double-clic : angle · Glisser un point : déplacer · Clic sur le premier point : fermer · {key} : terminer
 	New Crop Preset…	Nouveau paramètre prédéfini de recadrage…
 	Delete Crop Preset…	Supprimer le paramètre prédéfini de recadrage…
@@ -2985,6 +2988,22 @@ cameraData	Lens	Objectif
 	Search settings…	Rechercher des réglages…
 	No matching settings	Aucun réglage correspondant
 	Loading fonts…	Chargement des polices…
+	Tool	Outil
+	Simulate Pressure	Simuler la pression
+	Stroke Path…	Contourner le tracé…
+	Background Eraser	Gomme d'arrière-plan
+	Healing Brush	Pinceau correcteur
+	Spot Healing Brush	Correcteur localisé
+	Smudge	Doigt
+	Sponge	Éponge
+	Amount:	Quantité :
+	Protect:	Protéger :
+	Protect skin tones	Protéger les tons chair
+	Edit points to modify the curve	Modifier les points pour changer la courbe
+	Draw to modify the curve	Dessiner pour changer la courbe
+curves	Smooth	Lisser
+	Smooth the curve values	Lisser les valeurs de la courbe
+	Drag to draw the curve · {key}-click draws a straight line	Faites glisser pour dessiner la courbe · {key}-clic trace une ligne droite
 # Select and Mask view modes (#1754)
 	Onion Skin	Pelure d'oignon
 	Marching Ants	Fourmis en marche
@@ -3010,3 +3029,11 @@ cameraData	Lens	Objectif
 	Emulsion Down	Émulsion verso
 	Functions	Fonctions
 	Print Resolution:	Résolution d’impression :
+	Use Previous Layer to Create Clipping Mask	Utiliser le calque précédent pour créer un masque de découpe
+	Fill with {mode}-neutral color (white)	Remplir avec la couleur neutre de {mode} (blanc)
+	Fill with {mode}-neutral color (black)	Remplir avec la couleur neutre de {mode} (noir)
+	Fill with {mode}-neutral color (50% gray)	Remplir avec la couleur neutre de {mode} (gris 50 %)
+	(No neutral color exists for {mode} mode.)	(Il n’existe aucune couleur neutre pour le mode {mode}.)
+	Apply mask to layer before removing?	Appliquer le masque au calque avant de le supprimer ?
+	The layer or its mask changed. Drag the mask onto the Trash again.	Le calque ou son masque a changé. Faites de nouveau glisser le masque sur la corbeille.
+	Delete the vector mask?	Supprimer le masque vectoriel ?

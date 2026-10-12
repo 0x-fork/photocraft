@@ -276,9 +276,9 @@ pub fn tone_luts_q(adj: &Adjustment, quantum: Option<f32>) -> [Vec<f32>; 4] {
             let row = |c: &LevelsChannel| (0..LUT_SIZE).map(|k| levels_q(m, levels_q(c, x(k), quantum), quantum)).collect();
             [row(&per_channel[0]), row(&per_channel[1]), row(&per_channel[2]), row(if *space == ToneSpace::Cmyk { black } else { &ident })]
         }
-        Adjustment::Curves { master, per_channel, space, black } => {
-            let m = if *space == ToneSpace::Lab { curve_lut(&[]) } else { curve_lut(master) };
-            let row = |c: &[CurvePoint]| curve_lut(c).iter().map(|&v| lut(&m, v)).collect();
+        Adjustment::Curves { master, per_channel, space, black, pencil } => {
+            let m = if *space == ToneSpace::Lab { curve_lut(&[]) } else { curve_lut_mode(master, *pencil) };
+            let row = |c: &[CurvePoint]| curve_lut_mode(c, *pencil).iter().map(|&v| lut(&m, v)).collect();
             [row(&per_channel[0]), row(&per_channel[1]), row(&per_channel[2]), row(if *space == ToneSpace::Cmyk { black } else { &[] })]
         }
         _ => std::array::from_fn(|_| (0..LUT_SIZE).map(x).collect()),
@@ -688,6 +688,39 @@ pub fn levels_float(ch: &LevelsChannel, v: f32) -> f32 {
     ch.out_black + t * (ch.out_white - ch.out_black)
 }
 
+/// The LUT of one Curves curve: [`curve_map_lut`] for a pencil-drawn map, else [`curve_lut`].
+pub fn curve_lut_mode(points: &[CurvePoint], pencil: bool) -> Vec<f32> {
+    if pencil { curve_map_lut(points) } else { curve_lut(points) }
+}
+
+/// A pencil-drawn Curves map (see [`photocraft_doc::adjust::curve_map`]): straight segments
+/// between its entries, constant outside the first/last, clamped to 0..=1, sampled into a LUT.
+pub fn curve_map_lut(points: &[CurvePoint]) -> Vec<f32> {
+    let mut pts: Vec<(f32, f32)> = points.iter().filter(|p| p.input.is_finite() && p.output.is_finite()).map(|p| (p.input, p.output)).collect();
+    pts.sort_by(|a, b| a.0.total_cmp(&b.0));
+    pts.dedup_by(|a, b| (a.0 - b.0).abs() < 1e-6);
+    let ident = |k: usize| k as f32 / (LUT_SIZE - 1) as f32;
+    let (Some(&first), Some(&last)) = (pts.first(), pts.last()) else { return (0..LUT_SIZE).map(ident).collect() };
+    let mut seg = 0;
+    (0..LUT_SIZE)
+        .map(|k| {
+            let xv = ident(k);
+            if xv <= first.0 {
+                return first.1.clamp(0.0, 1.0);
+            }
+            if xv >= last.0 {
+                return last.1.clamp(0.0, 1.0);
+            }
+            while pts.get(seg + 1).is_some_and(|p| p.0 < xv) {
+                seg += 1;
+            }
+            let (Some(&(x0, y0)), Some(&(x1, y1))) = (pts.get(seg), pts.get(seg + 1)) else { return last.1.clamp(0.0, 1.0) };
+            let t = if x1 > x0 { (xv - x0) / (x1 - x0) } else { 0.0 };
+            (y0 + (y1 - y0) * t).clamp(0.0, 1.0)
+        })
+        .collect()
+}
+
 /// Photoshop curve: a natural cubic spline through the points (it may
 /// overshoot between points, as Photoshop's does), constant outside the
 /// first/last point, clamped to 0..=1, sampled into a LUT.
@@ -946,8 +979,13 @@ mod tone_tests {
             space: ToneSpace::Rgb,
             black: Default::default(),
         };
-        let curves =
-            Adjustment::Curves { master: line(0.0, 0.5), per_channel: std::array::from_fn(|_| line(0.5, 1.0)), space: ToneSpace::Rgb, black: Vec::new() };
+        let curves = Adjustment::Curves {
+            master: line(0.0, 0.5),
+            per_channel: std::array::from_fn(|_| line(0.5, 1.0)),
+            space: ToneSpace::Rgb,
+            black: Vec::new(),
+            pencil: false,
+        };
         for depth in [None, Some(SampleType::U8), Some(SampleType::U16), Some(SampleType::F32)] {
             let ll = tone_luts_depth(&levels, depth);
             let cl = tone_luts_depth(&curves, depth);
@@ -1012,6 +1050,7 @@ mod tone_tests {
             per_channel: [line(0.0, 1.0), line(0.0, 1.0), line(0.0, 1.0)],
             space: ToneSpace::Cmyk,
             black: line(0.0, 0.5),
+            pencil: false,
         };
         let mut b = Buffer { rect: Rect::new(0, 0, 1, 1), px: vec![[0.8, 0.8, 0.8, 1.0]] };
         apply(&a, &mut b);
@@ -1022,6 +1061,7 @@ mod tone_tests {
             per_channel: [line(0.2, 1.0), line(0.0, 1.0), line(0.0, 1.0)],
             space: ToneSpace::Lab,
             black: Vec::new(),
+            pencil: false,
         };
         let mut b = Buffer { rect: Rect::new(0, 0, 1, 1), px: vec![[0.2, 0.2, 0.2, 1.0]] };
         apply(&a, &mut b);
