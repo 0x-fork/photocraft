@@ -527,7 +527,12 @@ fn color_lookup(c: vec3<f32>, n: i32, tetra: bool) -> vec3<f32> {
 fn selective_row(r: i32, w: f32, c: vec3<f32>, relative: bool) -> vec3<f32> {
     let k = lut_at(r * 4 + 3) / 100.0;
     var d = vec3(lut_at(r * 4), lut_at(r * 4 + 1), lut_at(r * 4 + 2)) / 100.0 + k;
-    if (relative) { d = d * (1.0 - c); }
+    if (relative) {
+        d = d * (1.0 - c);
+    } else {
+        // Absolute: scaled by the room the ink has (adding: 2 × (1 − ink), removing: 2 × ink, capped at 1).
+        d = d * select(min(2.0 * (1.0 - c), vec3(1.0)), min(2.0 * c, vec3(1.0)), d > vec3(0.0));
+    }
     return select(vec3(0.0), d * w, w > 0.0);
 }
 
@@ -633,19 +638,31 @@ fn adjust(c: vec3<f32>) -> vec3<f32> {
                 dl = lut(2, hsl.x) * chroma;
             }
             let sat = clamp(p0.y + ds, -1.0, 1.0);
-            let light = clamp(p0.z + dl, -1.0, 1.0);
+            let light = clamp(p0.z, -1.0, 1.0);
             if (p0.w > 0.5) {
-                hh = rem_euclid(p0.x, 360.0) / 360.0;
-                ss = min(abs(sat), 1.0);
-            } else {
-                hh = rem_euclid(hsl.x + (p0.x + dh) / 360.0, 1.0);
-                ss = clamp(hsl.y * (1.0 + sat), 0.0, 1.0);
+                // compose::adjust::hue_saturation: Colorize at the lightened / darkened lightness.
+                var ll = hsl.z * (1.0 + light);
+                if (light > 0.0) { ll = hsl.z + (1.0 - hsl.z) * light; }
+                return hsl_to_rgb(rem_euclid(p0.x, 360.0) / 360.0, min(abs(sat), 1.0), ll);
             }
-            var rgb = hsl_to_rgb(hh, ss, hsl.z);
-            if (light > 0.0) {
-                rgb = rgb + (1.0 - rgb) * light;
-            } else if (light < 0.0) {
-                rgb = rgb * (1.0 + light);
+            // Lightness first, then hue and saturation of the result.
+            var lc = c * (1.0 + light);
+            if (light > 0.0) { lc = c + (1.0 - c) * light; }
+            let lh = rgb_to_hsl(lc);
+            hh = rem_euclid(lh.x + (p0.x + dh) / 360.0, 1.0);
+            // Raising saturation divides by 1 - s; lowering it multiplies by 1 + s.
+            if (sat > 0.0) {
+                ss = clamp(lh.y / max(1.0 - sat, 1.0 / 512.0), 0.0, 1.0);
+            } else {
+                ss = clamp(lh.y * (1.0 + sat), 0.0, 1.0);
+            }
+            var rgb = hsl_to_rgb(hh, ss, lh.z);
+            // compose::adjust::range_lightness: towards the brightest channel when raised, the darkest when lowered.
+            let rl = clamp(dl, -1.0, 1.0);
+            if (rl > 0.0) {
+                rgb = rgb + (vec3(max(rgb.r, max(rgb.g, rgb.b))) - rgb) * rl;
+            } else if (rl < 0.0) {
+                rgb = rgb + (vec3(min(rgb.r, min(rgb.g, rgb.b))) - rgb) * -rl;
             }
             return rgb;
         }
@@ -686,7 +703,7 @@ fn adjust(c: vec3<f32>) -> vec3<f32> {
             if (c.b <= c.r && c.b <= c.g) { secondary = 1; } else if (c.r <= c.g) { secondary = 3; }
             let g = clamp(mn + (mid - mn) * w[secondary] / 100.0 + (mx - mid) * w[primary] / 100.0, 0.0, 1.0);
             if (p1.z > 0.5) {
-                return clamp(g * p2.rgb * 2.0, vec3(0.0), vec3(1.0)) * 0.5 + g * 0.5;
+                return clamp(set_lum(p2.rgb, g, 1.0), vec3(0.0), vec3(1.0));   // Color blend of the tint
             }
             return vec3(g);
         }

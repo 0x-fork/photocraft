@@ -349,6 +349,15 @@ impl VersionedDescriptor {
     }
 }
 
+/// Most items preallocated for a file-declared count. `check_count` only
+/// guarantees a few bytes per item while parsed items are far larger, so the
+/// count must not drive the up-front reservation (or abort on allocation).
+const MAX_PREALLOC: usize = 4096;
+
+fn vec_for_count<T>(n: u32) -> Vec<T> {
+    Vec::with_capacity((n as usize).min(MAX_PREALLOC))
+}
+
 fn read_descriptor(r: &mut Reader<'_>, depth: usize) -> Result<Descriptor> {
     if depth > MAX_DEPTH {
         return Err(PsdError::LimitExceeded("descriptor nesting too deep"));
@@ -358,7 +367,7 @@ fn read_descriptor(r: &mut Reader<'_>, depth: usize) -> Result<Descriptor> {
     let n = r.u32()?;
     // Each item needs at least 5 (1-byte string key) + 4 (type) + 1 (bool).
     r.check_count(u64::from(n), 10)?;
-    let mut items = Vec::with_capacity(n as usize);
+    let mut items = vec_for_count(n);
     for _ in 0..n {
         let key = Id::read(r)?;
         let v = read_value(r, depth + 1)?;
@@ -380,7 +389,7 @@ fn read_typed_value(r: &mut Reader<'_>, ty: &[u8; 4], depth: usize) -> Result<Va
         b"obj " => {
             let n = r.u32()?;
             r.check_count(u64::from(n), 8)?;
-            let mut items = Vec::with_capacity(n as usize);
+            let mut items = vec_for_count(n);
             for _ in 0..n {
                 items.push(read_reference_item(r)?);
             }
@@ -391,7 +400,7 @@ fn read_typed_value(r: &mut Reader<'_>, ty: &[u8; 4], depth: usize) -> Result<Va
         b"VlLs" => {
             let n = r.u32()?;
             r.check_count(u64::from(n), 4)?;
-            let mut items = Vec::with_capacity(n as usize);
+            let mut items = vec_for_count(n);
             for _ in 0..n {
                 items.push(read_value(r, depth + 1)?);
             }
@@ -569,6 +578,22 @@ mod tests {
 
     fn class(name: &str, id: &str) -> Class {
         Class { name: UnicodeString::new(name), class_id: Id::new(id) }
+    }
+
+    #[test]
+    fn declared_counts_do_not_drive_preallocation() {
+        assert!(vec_for_count::<Value>(u32::MAX).capacity() <= MAX_PREALLOC);
+        // A 1M-item list of booleans parses (items grow the vector as needed).
+        let n = 1_000_000u32;
+        let mut data = n.to_be_bytes().to_vec();
+        for _ in 0..n {
+            data.extend_from_slice(b"bool\x01");
+        }
+        let mut r = Reader::new(&data);
+        match read_typed_value(&mut r, b"VlLs", 0).unwrap() {
+            Value::List(v) => assert_eq!(v.len(), n as usize),
+            other => panic!("expected list, got {other:?}"),
+        }
     }
 
     pub(crate) fn sample() -> Descriptor {

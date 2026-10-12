@@ -201,10 +201,10 @@ pub(crate) fn group_locks(doc: &Document, id: LayerId) -> Locks {
 }
 
 /// The locks a transform of `l` meets: its own and `group`'s (those it inherits). The Background's
-/// position lock doesn't count: Photoshop turns it into a normal layer first ([`transform_layer`]).
-fn transform_locks(l: &Layer, group: Locks) -> Locks {
+/// position lock doesn't count: Photoshop turns it into a normal layer first.
+fn transform_locks(l: &Layer, group: Locks, background: bool) -> Locks {
     let mut own = l.locks;
-    if own.position && l.name == "Background" {
+    if background {
         own.position = false;
         own.transparency = false;
     }
@@ -217,29 +217,24 @@ fn transform_locks(l: &Layer, group: Locks) -> Locks {
 pub fn locked_for_transform(doc: &Document, id: LayerId) -> bool {
     let Some(l) = doc.layer(id) else { return false };
     // An explicit stack rather than recursion: documents can nest deeply.
-    let mut stack = vec![(l, group_locks(doc, id))];
-    while let Some((l, group)) = stack.pop() {
-        let locks = transform_locks(l, group);
+    let mut stack = vec![(l, group_locks(doc, id), doc.is_background(id))];
+    while let Some((l, group, background)) = stack.pop() {
+        let locks = transform_locks(l, group, background);
         if locks.position || locks.all {
             return true;
         }
         if let LayerContent::Group(g) = &l.content {
-            stack.extend(g.children.iter().map(|c| (c, locks)));
+            stack.extend(g.children.iter().map(|c| (c, locks, false)));
         }
     }
     false
 }
 
-/// `group` holds the locks `l` inherits from the groups around it ([`group_locks`]).
+/// `group` holds the locks `l` inherits from the groups around it ([`group_locks`]). A Background
+/// is turned into a normal layer by the caller first ([`crate::extra_cmds::background_to_layer`]).
 pub(crate) fn transform_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut Layer, h: &Homography, affine: Option<Affine>, interp: Interp) -> Result<()> {
     crate::allocation::checkpoint("transforming pixels")?;
-    let locks = transform_locks(l, group);
-    // Photoshop turns the Background into a normal layer before transforming it.
-    if l.locks.position && l.name == "Background" {
-        l.locks.position = false;
-        l.locks.transparency = false;
-        l.name = "Layer 0".into();
-    }
+    let locks = transform_locks(l, group, false);
     if locks.position || locks.all {
         return Err(EngineError::Other(format!("layer \"{}\" is locked", l.name)));
     }
@@ -493,6 +488,8 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
         let id = id.ok_or_else(|| EngineError::Other("no active layer".into()))?;
         let is_group = doc.layer(id).is_some_and(Layer::is_group);
         let group = group_locks(doc, id);
+        // Photoshop turns the Background into a normal layer before transforming it.
+        crate::extra_cmds::background_to_layer(doc, id);
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
         transform_layer(if is_group { None } else { sel.as_ref() }, group, l, &h, affine, interp)?;
         if !h.is_identity() {

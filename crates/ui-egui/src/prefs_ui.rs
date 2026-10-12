@@ -218,6 +218,7 @@ pub fn load(app: &mut PhotocraftApp) {
     crate::brush_picker::restore(app);
     sync_rulers(app);
     crate::tool_memory::restore(app);
+    crate::view_cmds::restore(app);
     app.sync_recent();
     app.prefs_rt.saved_rev = app.session.prefs.rev();
     app.prefs_rt.saved_value = Some(app.session.prefs_value());
@@ -2646,6 +2647,39 @@ mod tests {
             let o = &app3.ui.tool_options;
             assert!(o.move_auto_select && o.feather == 0.0, "{bad}");
             assert_eq!(o.tolerance, if bad.is_object() { 5.0 } else { 32.0 });
+        }
+    }
+
+    #[test]
+    fn view_show_items_survive_a_restart() {
+        let (mut app, store) = app_with_store();
+        let ctx = egui::Context::default();
+        tick(&mut app, &ctx);
+        // Untouched: nothing is stored, so later default changes still reach the user.
+        crate::view_cmds::persist(&mut app, &ctx);
+        tick(&mut app, &ctx);
+        assert!(stored(&store).get("viewExtras").is_none_or(Value::is_null));
+        // The menu commands, as a user toggles them (#3762: Pixel Grid off).
+        for id in ["view.show.pixelGrid", "view.show.grid", "view.snapTo.layers", "view.extras"] {
+            crate::menus::invoke(&mut app, &ctx, id, json!({})).unwrap();
+        }
+        crate::view_cmds::persist(&mut app, &ctx);
+        tick(&mut app, &ctx);
+        assert_eq!(stored(&store)["viewExtras"], json!({"extras": false, "grid": true, "show": {"pixelGrid": false}, "snapTo": {"layers": false}}));
+        // A restart gets them back.
+        let saved = store.lock().unwrap().clone().unwrap();
+        let (mut app2, _) = app_with_saved(Some(saved));
+        tick(&mut app2, &ctx);
+        let v = &app2.ui.view;
+        assert!(!v.extras && !v.show.pixel_grid && !v.snap_to.layers && app2.ui.extras.grid);
+        assert!(v.show.selection_edges && v.snap_to.guides && app2.ui.extras.guides, "the rest keep their defaults");
+        // A hand-edited file: unknown keys and non-booleans keep the defaults, good ones still load.
+        for bad in [json!("junk"), json!({"extras": 0, "show": {"pixelGrid": "no", "mesh": true, "bogus": true}, "snapTo": [1]})] {
+            let (mut app3, _) = app_with_saved(Some(json!({"viewExtras": bad}).to_string()));
+            tick(&mut app3, &ctx);
+            let v = &app3.ui.view;
+            assert!(v.extras && v.show.pixel_grid && v.snap_to.layers, "{bad}");
+            assert_eq!(v.show.mesh, bad.is_object());
         }
     }
 

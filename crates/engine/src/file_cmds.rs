@@ -1035,8 +1035,10 @@ fn has_live_effects(l: &Layer) -> bool {
     l.effects.enabled && l.effects.items.iter().any(|e| e.enabled())
 }
 
-/// The layer rendered alone (keeping what `keep` says), as a surface in `fmt`.
-fn bake(l: &Layer, canvas: Rect, fmt: PixelFormat, keep_effects: bool) -> Surface {
+/// The layer rendered alone (keeping what `keep` says), as a surface in `fmt`. With `apply_mask`
+/// off the layer's pixel and vector masks are left out of the render, so a caller that keeps them
+/// live on the baked raster does not mask the pixels twice.
+fn bake(l: &Layer, canvas: Rect, fmt: PixelFormat, keep_effects: bool, apply_mask: bool) -> Surface {
     let mut tmp = l.clone();
     tmp.opacity = 1.0;
     tmp.blend = photocraft_color::BlendMode::Normal;
@@ -1045,6 +1047,10 @@ fn bake(l: &Layer, canvas: Rect, fmt: PixelFormat, keep_effects: bool) -> Surfac
     if !keep_effects {
         tmp.effects.items.clear();
         tmp.fill_opacity = 1.0;
+    }
+    if !apply_mask {
+        tmp.mask = None;
+        tmp.vector_mask = None;
     }
     // Render over the union of the canvas and the content so off-canvas pixels survive.
     let area = l.surface().map_or(canvas, |s| s.content_bounds().union(&canvas));
@@ -1066,12 +1072,12 @@ fn flatten_all_effects(s: &mut Session) -> Result<Value> {
             if !has_live_effects(l) || matches!(l.content, LayerContent::Group(_) | LayerContent::Adjustment(_)) {
                 continue;
             }
-            let px = bake(l, canvas, fmt, true);
+            // The pixel and vector masks stay on the layer (baking must not destroy them), so the
+            // pixels are baked without them and each mask then applies once to the baked raster.
+            let px = bake(l, canvas, fmt, true, false);
             let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
             l.content = LayerContent::Raster(px);
             l.effects = Default::default();
-            l.mask = None;
-            l.vector_mask = None;
             l.fill_opacity = 1.0;
             l.fill_cache = None;
             l.psd_blocks.retain(|(k, _)| !matches!(k, b"TySh" | b"SoLd" | b"PlLd" | b"SoLE" | b"vmsk" | b"vsms" | b"vogk" | b"vscg" | b"vstk"));
@@ -1099,7 +1105,7 @@ fn flatten_all_masks(s: &mut Session) -> Result<Value> {
                 skipped += 1;
                 continue;
             }
-            let px = bake(l, canvas, fmt, false);
+            let px = bake(l, canvas, fmt, false, true);
             let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
             l.content = LayerContent::Raster(px);
             l.mask = None;
