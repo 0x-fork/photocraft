@@ -3531,3 +3531,8 @@ curves	Smooth	Làm mượt
 	Stroke Path…	Đi nét đường dẫn…
 	Apply mask to layer before removing?	Áp dụng mặt nạ vào lớp trước khi xóa?
 	Delete the vector mask?	Xóa mặt nạ vectơ?
+
+# History panel › History Options… (#2966)
+	History Options…	Tùy chọn lịch sử…
+	Allow Non-Linear History	Cho phép lịch sử không tuyến tính
+	Make Layer Visibility Changes Undoable	Cho phép hoàn tác thay đổi hiển thị lớp
