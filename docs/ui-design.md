@@ -26,7 +26,8 @@ The toolbar's foreground and background colour chips follow the `Tokens::round_c
 ## Rules
 
 - **Colours and radii come from tokens.** Read them with `Tokens::get(ctx)`; never hard-code a colour in a widget.
-- **Shared widgets live in `widgets.rs`:** `card` (panel group; Pro renders a Photoshop tab strip), `value_field`, `slider`/`slider_row`, `toggle`/`checkbox`, `primary_button`/`secondary_button`, `dropdown` (with a chevron icon), `hairline`/`vline`.
+- **Shared widgets live in `widgets.rs`:** `card` (panel group; Pro renders a Photoshop tab strip), `value_field`, `slider`/`slider_row`, `toggle`/`checkbox`, `primary_button`/`secondary_button`, `dropdown` (with a chevron icon), `hairline`/`vline`, `elided_label`.
+- **A label never overflows its row.** Wrap by default. Beside a fixed-width control, or anywhere the row cannot reflow, use `widgets::elided_label(ui, text, max_w)`: a longer translation shrinks with `…` and shows the full string on hover instead of running over its neighbours (#3580). A *redundant* caption may be dropped on a narrow dock where its control already carries the meaning (e.g. the Layers lock icons); an *essential* one elides. This mirrors Photoshop: a fixed layout with elision and tooltips, not per-locale reflow.
 - **Icons:** Lucide SVGs in `assets/icons` (ISC licence), embedded via `icon_data.rs`. Regenerate that file when you add icons.
 - **Fonts:** Inter (UI) and JetBrains Mono (numbers), both OFL. Named families `medium` and `semibold` are available via `theme::medium()` and `theme::semibold()`.
 - **Photoshop layout grammar (Pro):**

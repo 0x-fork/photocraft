@@ -564,6 +564,22 @@ fn eyedropper_and_alt_sampling_show_a_pipette() {
     assert_eq!(precise(&mut h), (egui::CursorIcon::Crosshair, desktop));
 }
 
+/// The Paint Bucket shows a bucket instead of the crosshair (#3968); Precise Other Cursors keeps
+/// the crosshair.
+#[test]
+fn paint_bucket_shows_a_bucket_cursor() {
+    let mut h = harness();
+    let p = h.state().last_canvas_rect.center();
+    h.state_mut().ui.tool = crate::state::Tool::PaintBucket;
+    h.hover_at(p);
+    h.run_steps(2);
+    assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::None, "the bucket replaces the pointer");
+    h.state_mut().run("prefs.set", json!({"values": {"cursors.other": "precise"}})).unwrap();
+    h.hover_at(p);
+    h.run_steps(2);
+    assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::Crosshair, "Precise keeps the crosshair");
+}
+
 /// The Hand tool, and Space held over another tool, show an open hand while hovering and a fist
 /// while they pan (#2196). The OS draws those everywhere but Windows, where winit maps `Grab` to
 /// the four-arrow move cursor, so the app hands it a bitmap there (`Crosshair` is the fallback).
@@ -706,4 +722,63 @@ fn escape_with_targa_options_open_does_not_deselect() {
     h.key_press(Key::Escape);
     h.run_steps(2);
     assert!(h.state().session.active().unwrap().doc.selection.is_some(), "Esc belongs to Targa Options");
+}
+
+/// How much of the 400 × 300 document is on screen: the visible document span on each axis,
+/// clipped to the image (0 when the image has left the view on that axis).
+fn visible_image(h: &Harness<'static, PhotocraftApp>) -> [f32; 2] {
+    let r = h.state().last_canvas_rect;
+    let (a, b) = (doc_at(h, r.min), doc_at(h, r.max));
+    [(b[0].min(400.0) - a[0].max(0.0)).max(0.0), (b[1].min(300.0) - a[1].max(0.0)).max(0.0)]
+}
+
+#[test]
+fn wheel_zoom_over_the_pasteboard_keeps_the_image_in_view() {
+    // #3720: zooming in with the pointer on the gray pasteboard anchored on the pointer, so a few
+    // notches pushed the image out of the window. The anchor is now the nearest point of the image.
+    for (zoom_with_wheel, m) in [(true, Modifiers::NONE), (false, Modifiers::ALT)] {
+        let mut h = harness();
+        h.state_mut().session.edit_prefs(|p| p.general.zoom_with_scroll_wheel = zoom_with_wheel);
+        let r = h.state().last_canvas_rect;
+        let p = pos2(r.left() + 20.0, r.top() + 20.0);
+        let d = doc_at(&h, p);
+        assert!(d[0] < 0.0 && d[1] < 0.0, "the pointer starts on the pasteboard: {d:?}");
+        h.hover_at(p);
+        h.run_steps(2);
+        let z0 = zoom(&h);
+        for _ in 0..20 {
+            wheel(&h, 1.0, m);
+            h.run_steps(3);
+        }
+        h.run_steps(20);
+        assert!(zoom(&h) > z0 * 5.0, "the notches zoomed in: {z0} -> {}", zoom(&h));
+        let v = visible_image(&h);
+        assert!(v[0] > 0.0 && v[1] > 0.0, "zoom_with_wheel {zoom_with_wheel}: the image left the view {v:?}");
+        // The image's corner nearest the pointer is the anchor: it stays where it was on screen.
+        let c = doc_at(&h, pos2(r.left() + 20.0, r.top() + 20.0));
+        assert!(c[0] < 0.0 && c[1] < 0.0, "still pasteboard under the pointer, the corner held: {c:?}");
+        // A pinch from there behaves the same.
+        h.event(egui::Event::Zoom(4.0));
+        h.run_steps(3);
+        let v = visible_image(&h);
+        assert!(v[0] > 0.0 && v[1] > 0.0, "pinch: the image left the view {v:?}");
+    }
+}
+
+#[test]
+fn wheel_zoom_over_the_image_still_anchors_on_the_pointer() {
+    let mut h = harness();
+    let r = h.state().last_canvas_rect;
+    let p = pos2(r.center().x - 150.0, r.center().y - 100.0);
+    h.hover_at(p);
+    h.run_steps(2);
+    let d0 = doc_at(&h, p);
+    assert!(d0[0] > 0.0 && d0[1] > 0.0);
+    for _ in 0..5 {
+        wheel(&h, 1.0, Modifiers::ALT);
+        h.run_steps(3);
+    }
+    h.run_steps(20);
+    let d1 = doc_at(&h, p);
+    assert!((d1[0] - d0[0]).abs() < 0.1 && (d1[1] - d0[1]).abs() < 0.1, "{d0:?} -> {d1:?}");
 }

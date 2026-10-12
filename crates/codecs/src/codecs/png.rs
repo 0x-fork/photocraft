@@ -7,7 +7,7 @@ use crate::Format;
 use crate::error::CodecError;
 use crate::fidelity::Plan;
 use crate::image::{ChannelLayout, DecodeWarning, Image, Metadata, SampleType};
-use crate::options::{EncodeOptions, Limits, PngCompression};
+use crate::options::{EncodeOptions, Limits, PngCompression, alloc_zeroed};
 
 const F: Format = Format::Png;
 pub(crate) const XMP_KEYWORD: &str = "XML:com.adobe.xmp";
@@ -29,6 +29,10 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Image, CodecError>
         let (w, h) = info.size();
         // Worst case output: 4 channels x 16 bit.
         limits.check_bytes(w, h, 8)?;
+        // zlib never beats 1032:1; refuse a file too small for the declared image before the
+        // output buffer exists. Measured on the stored samples (before palette/bit expansion).
+        let stored = u64::from(w).saturating_mul(u64::from(h)).saturating_mul(info.bits_per_pixel() as u64).div_ceil(8);
+        Limits::check_plausible(stored, bytes.len(), 1100)?;
     }
     let mut reader = decoder.read_info().map_err(map_png_err)?;
     // APNG: the IDAT image is the first frame, or an extra default image when no fcTL precedes it.
@@ -47,7 +51,7 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Image, CodecError>
         d => return Err(err(format!("unexpected output bit depth {d:?}"))),
     };
     let size = reader.output_buffer_size().ok_or_else(|| err("image too large"))?;
-    let mut buf = vec![0u8; size];
+    let mut buf = alloc_zeroed::<u8>(size)?;
     let out = reader.next_frame(&mut buf).map_err(map_png_err)?;
     buf.truncate(out.buffer_size());
     // Collect ancillary chunks after IDAT. Tolerate malformed tails once pixels
