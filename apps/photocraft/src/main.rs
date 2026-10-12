@@ -90,9 +90,19 @@ fn native_options(custom_titlebar: bool) -> eframe::NativeOptions {
         // eframe saves native window geometry and egui panel/window sizes on exit.
         // Keep that state beside preferences, including config overrides and portable mode.
         persistence_path: services::config_dir().map(|dir| dir.join("ui.ron")),
-        window_builder: Some(Box::new(at_least_min_size)),
+        window_builder: Some(Box::new(restored_window)),
         ..Default::default()
     }
+}
+
+/// The window eframe restores from `ui.ron`, corrected before it is created: at least the
+/// minimum size, and never full screen. PhotoCraft always starts in Standard Screen Mode, but
+/// eframe also saves and restores full screen, and a window closed in a full-screen mode is
+/// saved full screen and maximized at once: the overlap `view_cmds::screen_mode_commands` keeps
+/// apart at run time. [OBSERVED 2026-10-12, Windows 11] Restored that way, View › Screen Mode ›
+/// Full Screen did nothing until `F` had cycled through Standard.
+fn restored_window(builder: egui::ViewportBuilder) -> egui::ViewportBuilder {
+    at_least_min_size(builder).with_fullscreen(false)
 }
 
 /// Grow a restored window that is smaller than the minimum size, keeping its centre. On
@@ -622,6 +632,22 @@ mod tests {
         let mut builder = super::native_options(false).viewport;
         builder.inner_size = None;
         assert_eq!(super::at_least_min_size(builder).inner_size, None);
+    }
+
+    #[test]
+    fn a_window_saved_in_full_screen_reopens_maximized_not_full_screen() {
+        let hook = super::native_options(super::CUSTOM_TITLEBAR).window_builder.expect("a window builder hook");
+        // What eframe restores from a ui.ron saved in a full-screen mode on Windows.
+        let saved = super::native_options(super::CUSTOM_TITLEBAR)
+            .viewport
+            .with_inner_size([2560.0, 1392.0])
+            .with_position([0.0, 0.0])
+            .with_fullscreen(true)
+            .with_maximized(true);
+        let opened = hook(saved);
+        assert_eq!(opened.fullscreen, Some(false), "Standard Screen Mode is where PhotoCraft starts");
+        assert_eq!(opened.maximized, Some(true), "the rest of the saved geometry is kept");
+        assert_eq!(opened.inner_size, Some(egui::vec2(2560.0, 1392.0)));
     }
 
     #[test]

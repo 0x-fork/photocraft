@@ -231,6 +231,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 DialogKind::Command if crate::stroke_ui::owns(&fields) => crate::stroke_ui::body(ui, &mut fields),
                 DialogKind::Command if crate::shape_dialog::owns(&fields) => crate::shape_dialog::body(app, ui, &mut fields),
                 DialogKind::Command if crate::delete_layer_prompt::owns(&fields) => crate::delete_layer_prompt::body(ui, &mut fields),
+                DialogKind::Command if crate::actions::owns_insert_stop(&fields) => crate::actions::insert_stop_body(ui, &mut fields),
                 DialogKind::Command if crate::new_layer_ui::owns(&fields) => crate::new_layer_ui::body(ui, &mut fields),
                 DialogKind::Command if crate::mask_trash_prompt::owns(&fields) => crate::mask_trash_prompt::body(ui, &fields),
                 DialogKind::Command if crate::rasterize_prompt::owns(&fields) => crate::rasterize_prompt::body(ui, &fields),
@@ -332,6 +333,21 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                                 fields.insert("choice".into(), json!("delete"));
                             } else if hit == Some(ButtonRole::Default) {
                                 fields.insert("choice".into(), json!("apply"));
+                            }
+                            hit
+                        } else if crate::rasterize_prompt::is_filter(&fields) {
+                            // Photoshop: Convert to Smart Object / Rasterize / Cancel (#4303).
+                            let rasterize = DialogButton::new(ButtonRole::Default, tl!("Rasterize"), 84.0);
+                            let hit = if crate::rasterize_prompt::offers_smart_object(&fields) {
+                                let convert = DialogButton::new(ButtonRole::Alternate, tl!("Convert to Smart Object"), 160.0);
+                                dialog_buttons(ui, &[rasterize, cancel, convert])
+                            } else {
+                                dialog_buttons(ui, &[rasterize, cancel])
+                            };
+                            if hit == Some(ButtonRole::Alternate) {
+                                fields.insert("choice".into(), json!("smartObject"));
+                            } else if hit == Some(ButtonRole::Default) {
+                                fields.insert("choice".into(), json!("rasterize"));
                             }
                             hit
                         } else {
@@ -488,6 +504,7 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
         DialogKind::Command if crate::stroke_ui::owns(&d.fields) => crate::stroke_ui::confirm(app, &d.fields),
         DialogKind::Command if crate::shape_dialog::owns(&d.fields) => crate::shape_dialog::confirm(app, &d.fields),
         DialogKind::Command if crate::delete_layer_prompt::owns(&d.fields) => crate::delete_layer_prompt::confirm(app, &d.fields),
+        DialogKind::Command if crate::actions::owns_insert_stop(&d.fields) => crate::actions::insert_stop_confirm(app, &d.fields),
         DialogKind::Command if crate::new_layer_ui::owns(&d.fields) => crate::new_layer_ui::confirm(app, &d.fields),
         DialogKind::Command if crate::mask_trash_prompt::owns(&d.fields) => crate::mask_trash_prompt::confirm(app, &d.fields),
         DialogKind::Command if crate::rasterize_prompt::owns(&d.fields) => crate::rasterize_prompt::confirm(app, &d.fields),
@@ -523,6 +540,8 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
             }
             if result.is_ok() {
                 crate::filter_dialog::remember(app, &cmd, &d.fields);
+                // A step dialog of a playing action: the action continues after it.
+                crate::actions::resume(app, &d.fields);
             }
             result
         }
@@ -534,6 +553,7 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
 /// Cancel a dialog and its dependent Layer Style picker, without applying edits.
 pub fn cancel(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
     let closed = app.ui.close_dialog(id).ok_or_else(|| format!("no dialog {id}"))?;
+    crate::actions::stopped(app, &closed.fields);
     if crate::guide_layout_ui::owns(&closed.fields) {
         app.ui.dialogs.retain(|child| child.fields.get("__dialog").and_then(Value::as_u64) != Some(id));
     }
@@ -588,6 +608,7 @@ mod tests {
             revision: st.revision,
             dialog: id,
             active: st.active_layer,
+            target: st.channel_view.target,
             command: "filter.blur.gaussianBlur".into(),
             params: serde_json::json!({"radius": 4.0}),
             k: 1,

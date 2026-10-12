@@ -177,11 +177,23 @@ pub struct ExportOptions {
     /// PSD/PSB: embed the thumbnail image resource (1036), Preferences › File Handling › Image
     /// Previews. On by default, as Photoshop's Always Save.
     pub image_previews: bool,
+    /// PSD/PSB: write the real merged image, Preferences › File Handling › Maximize PSD and PSB
+    /// File Compatibility (see [`PsdExportOptions::maximize_compatibility`]). On by default, as
+    /// Photoshop's Always.
+    pub psd_maximize_compatibility: bool,
 }
 
 impl Default for ExportOptions {
     fn default() -> Self {
-        ExportOptions { encode: EncodeOptions::default(), force_psb: false, tiff_layers: false, xmp: XmpEmbed::All, tga_bits: None, image_previews: true }
+        ExportOptions {
+            encode: EncodeOptions::default(),
+            force_psb: false,
+            tiff_layers: false,
+            xmp: XmpEmbed::All,
+            tga_bits: None,
+            image_previews: true,
+            psd_maximize_compatibility: true,
+        }
     }
 }
 
@@ -310,6 +322,22 @@ fn has_extension(name: &str, expected: &str) -> bool {
     name.rsplit(['/', '\\']).next().and_then(|name| name.rsplit_once('.')).is_some_and(|(base, ext)| !base.is_empty() && ext.eq_ignore_ascii_case(expected))
 }
 
+/// The document as it is written to `name` (a file name, path or bare extension): a copy whose
+/// name is that file's own, so a `.pcraft` manifest reports the file it lives in — the name the
+/// session adopts on the save that wrote it, and the name every other format gives the document
+/// when it is opened (#3312). A bare extension ("pcraft") names no file and changes nothing.
+pub fn named_for_file<'a>(doc: &'a Document, name: &str) -> std::borrow::Cow<'a, Document> {
+    let file = name.contains(['/', '\\', '.']).then(|| name.rsplit(['/', '\\']).next().unwrap_or(name));
+    match file {
+        Some(file) if !file.is_empty() && doc.name != file => {
+            let mut owned = (*doc).clone();
+            owned.name = file.to_string();
+            std::borrow::Cow::Owned(owned)
+        }
+        _ => std::borrow::Cow::Borrowed(doc),
+    }
+}
+
 /// Exports `doc` to the format named by `name_or_ext` (a file name, path or
 /// bare extension).
 pub fn export(doc: &Document, name_or_ext: &str, opts: &ExportOptions) -> Result<ExportResult, IoError> {
@@ -355,17 +383,18 @@ fn export_stages(doc: &Document, name_or_ext: &str, opts: &ExportOptions, ctl: &
         return ora::export(doc);
     }
     if ext == photocraft_format::EXTENSION {
-        let thumbnail = Some(photocraft_compose::thumbnail(doc, 256));
+        let doc = named_for_file(doc, name_or_ext);
+        let thumbnail = Some(photocraft_compose::thumbnail(doc.as_ref(), 256));
         ctl.check().map_err(|_| IoError::Cancelled)?;
         ctl.progress(PCRAFT_THUMBNAIL_DONE);
-        let composite = Some(photocraft_compose::thumbnail(doc, 1024));
+        let composite = Some(photocraft_compose::thumbnail(doc.as_ref(), 1024));
         ctl.check().map_err(|_| IoError::Cancelled)?;
         ctl.progress(PCRAFT_PREVIEWS_DONE);
         let previews = photocraft_format::SaveOptions { thumbnail, composite };
-        return Ok(ExportResult { bytes: photocraft_format::save_to_bytes(doc, &previews)?, warnings: Vec::new() });
+        return Ok(ExportResult { bytes: photocraft_format::save_to_bytes(doc.as_ref(), &previews)?, warnings: Vec::new() });
     }
     if ext == "psd" || ext == "psb" {
-        let o = PsdExportOptions { force_psb: opts.force_psb || ext == "psb", ..Default::default() };
+        let o = PsdExportOptions { force_psb: opts.force_psb || ext == "psb", maximize_compatibility: opts.psd_maximize_compatibility, ..Default::default() };
         let (mut file, mut warnings) = with_span(ctl, 0.0, PSD_MODEL_DONE, |ctl| psd_export::document_to_psd_interruptible(doc, &o, ctl));
         // A cancelled conversion stops early with an incomplete model: never write it.
         ctl.check().map_err(|_| IoError::Cancelled)?;

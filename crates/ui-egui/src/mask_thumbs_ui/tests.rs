@@ -737,3 +737,22 @@ fn a_new_adjustment_or_fill_layer_shows_its_settings_until_the_mask_thumbnail_is
         }
     }
 }
+
+// #4028: with Adjustments showing in a collapsed Properties group, a new adjustment layer brings
+// Properties to the front and expands it, as in Photoshop, so its settings can be edited at once.
+#[test]
+fn a_new_adjustment_layer_brings_properties_to_the_front() {
+    let mut s = photocraft_engine::Session::new();
+    s.execute("file.new", json!({"width": 200, "height": 100})).unwrap();
+    let mut h = harness(s, 0, 1.0, 290.0);
+    let ctx = h.ctx.clone();
+    let (req, _rx) = crate::control::ControlRequest::new("ui.set", json!({"dockTabs": {"properties": 1}}));
+    crate::control::handle(h.state_mut(), &ctx, &req);
+    h.run_steps(2);
+    assert!(h.state().ui.dock.is_collapsed(crate::dock::Group::Properties));
+    h.state_mut().run("layer.newAdjustmentLayer.curves", json!({})).unwrap();
+    h.run_steps(6);
+    assert_eq!(h.state().ui.dock_tabs.properties, 0, "Properties is the group's tab");
+    assert!(!h.state().ui.dock.is_collapsed(crate::dock::Group::Properties), "the group is expanded");
+    assert!(h.query_all_by_label("Reset to defaults").next().is_some(), "the Curves settings show");
+}

@@ -746,6 +746,19 @@ pub fn preview_document_with(
     k: u32,
     cancel: Option<&photocraft_engine::jobs::JobCtx>,
 ) -> Option<Document> {
+    preview_document_for_target(doc, active, command, params, k, cancel, photocraft_engine::channel_cmds::ChannelTarget::Composite)
+}
+
+/// Run the preview with the same pixel target as the final command, including individual channels.
+pub(crate) fn preview_document_for_target(
+    doc: &Document,
+    active: Option<photocraft_doc::LayerId>,
+    command: &str,
+    params: &Value,
+    k: u32,
+    cancel: Option<&photocraft_engine::jobs::JobCtx>,
+    target: photocraft_engine::channel_cmds::ChannelTarget,
+) -> Option<Document> {
     if command == crate::select_mask_view::COMMAND {
         return crate::select_mask_view::preview_document(doc, active, params, k, cancel);
     }
@@ -759,6 +772,7 @@ pub fn preview_document_with(
     if let Some(id) = active {
         s.select_layer(id).ok()?;
     }
+    s.active_mut()?.channel_view.target = target;
     let mut p = params.clone();
     if run_k > 1
         && let Some(o) = p.as_object_mut()
@@ -802,6 +816,7 @@ pub struct FilterPreviewKey {
     pub revision: u64,
     pub dialog: u64,
     pub active: Option<photocraft_doc::LayerId>,
+    pub target: photocraft_engine::channel_cmds::ChannelTarget,
     pub command: String,
     pub params: Value,
     pub k: u32,

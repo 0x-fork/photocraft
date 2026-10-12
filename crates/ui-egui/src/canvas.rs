@@ -559,15 +559,16 @@ pub(crate) fn pencil_tip_is_round(size: f32) -> bool {
 
 /// Whether a brush-tip circle draws its centre mark.
 /// Clone Stamp and Healing Brush stay an empty circle until Option is held, the source-point
-/// cursor. Other brushes follow the cursor preference, the large-tip mark, or the Background Eraser.
-fn brush_tip_centre(tool: Tool, option: bool, show_crosshair: bool, radius: f32) -> bool {
+/// cursor. Other brushes follow Preferences › Cursors › Show Crosshair in Brush Tip, as in
+/// Photoshop; the Background Eraser always shows its sampling hotspot.
+fn brush_tip_centre(tool: Tool, option: bool, show_crosshair: bool) -> bool {
     if tool == Tool::QuickSelection {
         return false;
     }
     if matches!(tool, Tool::CloneStamp | Tool::Healing) {
         return option || show_crosshair;
     }
-    show_crosshair || radius > 6.0 || tool == Tool::BackgroundEraser
+    show_crosshair || tool == Tool::BackgroundEraser
 }
 
 /// The display colour of an RGB triple (0..1 per channel) as an egui colour.
@@ -1466,8 +1467,16 @@ pub(crate) fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize, ctx: &e
     let st = app.session.documents().get(idx)?;
     // Filters whose features don't scale with a proxy preview at full resolution (#2063).
     let k = crate::filter_dialog::preview_factor(&cmd, &params, crate::proxy::preview_factor(&st.doc, crate::proxy::reduced_previews(app)));
-    let request =
-        crate::filter_dialog::FilterPreviewKey { doc: st.doc.id, revision: st.revision, dialog: d.id, active: st.active_layer, command: cmd, params, k };
+    let request = crate::filter_dialog::FilterPreviewKey {
+        doc: st.doc.id,
+        revision: st.revision,
+        dialog: d.id,
+        active: st.active_layer,
+        target: st.channel_view.target,
+        command: cmd,
+        params,
+        k,
+    };
     let key = request.doc.0 ^ (1u64 << 61);
     // Every filter's preview computes off the UI thread in the desktop app: Gaussian Blur at
     // 1000 px takes long enough to freeze the window. Once the slider settles, a preview still
@@ -1492,10 +1501,13 @@ pub(crate) fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize, ctx: &e
             let task = request.clone();
             if let Err(error) = app.filter_preview_worker.start(request.clone(), ctx.clone(), move |cancel| {
                 let t0 = crate::gpu_canvas::now_ms();
-                let result = crate::filter_dialog::preview_document_with(&doc, task.active, &task.command, &task.params, task.k, Some(cancel)).map(|doc| {
-                    let buffer = photocraft_compose::flatten(&doc);
-                    (std::sync::Arc::new(doc), buffer)
-                });
+                let result =
+                    crate::filter_dialog::preview_document_for_target(&doc, task.active, &task.command, &task.params, task.k, Some(cancel), task.target).map(
+                        |doc| {
+                            let buffer = photocraft_compose::flatten(&doc);
+                            (std::sync::Arc::new(doc), buffer)
+                        },
+                    );
                 crate::filter_preview_worker::Computed { result, ms: crate::gpu_canvas::now_ms() - t0 }
             }) {
                 app.filter_preview = Some(crate::filter_dialog::FilterPreview { key: request.clone(), result: None, committing: false });
@@ -1512,6 +1524,7 @@ pub(crate) fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize, ctx: &e
             || preview.key.revision != request.revision
             || preview.key.dialog != request.dialog
             || preview.key.active != request.active
+            || preview.key.target != request.target
             || preview.key.k != request.k
             || preview.key.command != request.command
         {
@@ -1526,7 +1539,9 @@ pub(crate) fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize, ctx: &e
     if app.filter_preview.as_ref().is_none_or(|p| p.key != request) {
         let doc = app.session.documents().get(idx)?.doc.clone();
         let t0 = crate::gpu_canvas::now_ms();
-        let result = crate::filter_dialog::preview_document(&doc, request.active, &request.command, &request.params, request.k).map(std::sync::Arc::new);
+        let result =
+            crate::filter_dialog::preview_document_for_target(&doc, request.active, &request.command, &request.params, request.k, None, request.target)
+                .map(std::sync::Arc::new);
         if let Some(r) = &result {
             let buf = photocraft_compose::flatten(r);
             let t1 = crate::gpu_canvas::now_ms();
@@ -1542,6 +1557,18 @@ pub(crate) fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize, ctx: &e
     let preview = app.filter_preview.as_ref()?;
     let result = preview.result.as_ref()?;
     Some((preview.key.k, key, [result.size.width, result.size.height]))
+}
+
+/// Channel overlays must use the filter's current proxy too, including on the CPU canvas.
+/// The cache key changes with the completed request; unchanged frames reuse the overlay texture.
+pub(crate) fn filter_channel_preview(app: &mut PhotocraftApp, idx: usize, ctx: &egui::Context) -> Option<(std::sync::Arc<Document>, u64)> {
+    use std::hash::{Hash, Hasher};
+    ensure_filter_preview(app, idx, ctx)?;
+    let preview = app.filter_preview.as_ref()?;
+    let doc = preview.result.as_ref()?.clone();
+    let mut key = std::collections::hash_map::DefaultHasher::new();
+    format!("{:?}", preview.key).hash(&mut key);
+    Some((doc, key.finish() | (1 << 59)))
 }
 
 fn publish_filter_preview(
@@ -3489,11 +3516,6 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                         let painting = app.drag.is_some();
                         let brush = &app.session.tools.brush;
                         let full = (brush.size / 2.0 * xf.zoom).max(1.0);
-                        let r = if cur.painting == PaintingCursor::NormalTip {
-                            photocraft_paint::half_coverage_radius(full, brush.hardness).max(1.0)
-                        } else {
-                            full
-                        };
                         match cur.painting {
                             PaintingCursor::Standard => egui::CursorIcon::Default,
                             PaintingCursor::Precise => crate::tool_cursor::crosshair(&painter, p, 6.0, 0.0),
@@ -3526,7 +3548,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                             // A shaped tip (sampled bitmap, or a rotated/flattened round tip)
                             // traces its outline; a plain round tip keeps the circle.
                             _ => {
-                                let centre = brush_tip_centre(tool, alt || app.ui.shell.sticky_alt, cur.show_crosshair_in_brush_tip, r);
+                                let centre = brush_tip_centre(tool, alt || app.ui.shell.sticky_alt, cur.show_crosshair_in_brush_tip);
                                 crate::brush_cursor::cursor(&painter, p, brush, full, cur.painting == PaintingCursor::NormalTip, centre)
                             }
                         }
@@ -4629,10 +4651,29 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
                 let target = app.ui.tool_options.move_target.clone();
                 let mode = if mods.shift { "add" } else { "replace" };
                 let before = app.session.active().map(|st| st.selected_layers());
+                // A locked layer under the pointer (the Background) can't move. Photoshop draws
+                // the layer marquee instead of reporting the lock (#4058). Probe without
+                // selecting so a locked hit doesn't become the selection first.
+                let probe = app.run("layer.pickAt", json!({"x": x, "y": y, "target": target, "select": false}));
+                let locked_hit = probe.as_ref().ok().and_then(|v| v["layer"].as_u64()).is_some_and(|id| {
+                    app.session.active().is_some_and(|st| {
+                        let id = photocraft_doc::LayerId(id);
+                        let locks = st.doc.effective_locks(id);
+                        locks.position || locks.all || st.doc.is_background(id)
+                    })
+                });
+                if locked_hit || (probe.as_ref().is_ok_and(|v| v["layer"].is_null()) && crate::move_box::empty_at(app, [x, y])) {
+                    if locked_hit {
+                        // A click still selects the locked layer, as in Photoshop; a drag's
+                        // marquee then replaces that selection on release.
+                        let _ = app.run("layer.pickAt", json!({"x": x, "y": y, "target": target, "mode": mode}));
+                    }
+                    crate::move_box::begin(app, [x, y], mods.shift);
+                    return;
+                }
                 let picked = app.run("layer.pickAt", json!({"x": x, "y": y, "target": target, "mode": mode}));
                 // No pixels there at all (an empty spot, or off the canvas): drag a marquee that
-                // selects the layers it touches instead (move_box.rs). A fully locked layer's
-                // pixels still say it is locked once the pointer moves (`move_lock`).
+                // selects the layers it touches instead (move_box.rs).
                 if picked.is_ok_and(|v| v["layer"].is_null()) && crate::move_box::empty_at(app, [x, y]) {
                     crate::move_box::begin(app, [x, y], mods.shift);
                     return;
@@ -5388,6 +5429,7 @@ mod tests {
             revision: st.revision,
             dialog: d.id,
             active: st.active_layer,
+            target: st.channel_view.target,
             command: "filter.blur.gaussianBlur".into(),
             params: json!({"radius": 999.0}),
             k: 1,
@@ -5435,6 +5477,7 @@ mod tests {
                 revision: st.revision,
                 dialog: d.id,
                 active: st.active_layer,
+                target: st.channel_view.target,
                 command: "image.mode.indexedColor".into(),
                 params: app.with_mask_target("image.mode.indexedColor", crate::filter_dialog::params_of(&d.fields)),
                 k: 1,
@@ -6100,20 +6143,23 @@ mod tests {
 
     #[test]
     fn clone_stamp_centre_appears_only_with_option() {
-        assert!(!brush_tip_centre(Tool::CloneStamp, false, false, 20.0));
-        assert!(brush_tip_centre(Tool::CloneStamp, true, false, 20.0));
-        assert!(brush_tip_centre(Tool::Healing, true, false, 20.0));
-        assert!(!brush_tip_centre(Tool::Healing, false, false, 20.0));
-        assert!(brush_tip_centre(Tool::CloneStamp, false, true, 20.0));
-        assert!(brush_tip_centre(Tool::PatternStamp, false, false, 20.0));
-        assert!(
-            brush_tip_centre(Tool::PatternStamp, true, false, 20.0),
-            "Pattern Stamp keeps the brush centre; Option does not switch it to a clone-source mark"
-        );
-        assert!(!brush_tip_centre(Tool::PatternStamp, false, false, 2.0));
-        assert!(brush_tip_centre(Tool::Brush, false, false, 20.0));
-        assert!(!brush_tip_centre(Tool::QuickSelection, false, false, 20.0));
-        assert!(brush_tip_centre(Tool::BackgroundEraser, false, false, 2.0));
+        assert!(!brush_tip_centre(Tool::CloneStamp, false, false));
+        assert!(brush_tip_centre(Tool::CloneStamp, true, false));
+        assert!(brush_tip_centre(Tool::Healing, true, false));
+        assert!(!brush_tip_centre(Tool::Healing, false, false));
+        assert!(brush_tip_centre(Tool::CloneStamp, false, true));
+        assert!(!brush_tip_centre(Tool::PatternStamp, true, false), "Pattern Stamp keeps the brush cursor; Option does not switch it to a clone-source mark");
+        assert!(!brush_tip_centre(Tool::QuickSelection, false, true));
+        assert!(brush_tip_centre(Tool::BackgroundEraser, false, false));
+    }
+
+    #[test]
+    fn brush_tip_centre_follows_the_crosshair_preference_at_any_size() {
+        // A large tip used to show the centre mark whatever Show Crosshair in Brush Tip said.
+        for tool in [Tool::Brush, Tool::Eraser, Tool::PatternStamp, Tool::Dodge] {
+            assert!(!brush_tip_centre(tool, false, false), "{tool:?}: off");
+            assert!(brush_tip_centre(tool, false, true), "{tool:?}: on");
+        }
     }
 
     #[test]
@@ -7121,6 +7167,200 @@ mod layer_edges_tests;
 mod rotation_preview_isolation_tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn channel_overlay_shows_filter_preview_and_restores_on_cancel() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.background_jobs = false;
+        app.run("file.new", json!({"width":16,"height":16})).unwrap();
+        app.run("channel.new", json!({"name":"Alpha","fill":"black"})).unwrap();
+        app.session
+            .edit("Fixture", |doc, _| {
+                for y in 0..16 {
+                    for x in 0..8 {
+                        doc.channels[0].surface.write_pixel(x, y, &[1.0]);
+                    }
+                }
+                Ok(())
+            })
+            .unwrap();
+        let before = app.session.active().unwrap().doc.clone();
+        let ctx = egui::Context::default();
+        let texture = crate::channel_view::ensure(&mut app, &ctx, 0).unwrap();
+        ctx.tex_manager().write().take_delta().clear();
+        let dialog = crate::filter_dialog::open(&mut app, "filter.blur.gaussianBlur").unwrap();
+        app.ui.dialogs.last_mut().unwrap().fields.insert("radius".into(), json!(2.0));
+        ensure_filter_preview(&mut app, 0, &ctx).unwrap();
+        crate::channel_view::ensure(&mut app, &ctx, 0);
+        let mut delta = ctx.tex_manager().write().take_delta();
+        let egui::ImageData::Color(image) = &delta.set.get(&texture).expect("filter preview must update channel overlay")[0].image;
+        let st = app.session.active().unwrap();
+        let original = crate::channel_view::render(&before, &st.channel_view, before.bounds(), 1, false, st.active_layer).unwrap();
+        assert_ne!(image.pixels, original, "a nontrivial filter must be visible before OK");
+        delta.clear();
+        assert!(std::sync::Arc::ptr_eq(&before, &app.session.active().unwrap().doc));
+        app.ui.dialogs.last_mut().unwrap().fields.insert("__preview".into(), json!(false));
+        crate::channel_view::ensure(&mut app, &ctx, 0);
+        let mut delta = ctx.tex_manager().write().take_delta();
+        let egui::ImageData::Color(image) = &delta.set.get(&texture).expect("Preview off restores channel")[0].image;
+        assert_eq!(image.pixels, original);
+        delta.clear();
+        app.ui.dialogs.last_mut().unwrap().fields.insert("__preview".into(), json!(true));
+        crate::channel_view::ensure(&mut app, &ctx, 0);
+        ctx.tex_manager().write().take_delta().clear();
+        crate::dialogs::cancel(&mut app, dialog).unwrap();
+        crate::channel_view::ensure(&mut app, &ctx, 0);
+        let mut delta = ctx.tex_manager().write().take_delta();
+        let egui::ImageData::Color(image) = &delta.set.get(&texture).expect("Cancel restores channel")[0].image;
+        assert_eq!(image.pixels, original);
+        delta.clear();
+        assert!(std::sync::Arc::ptr_eq(&before, &app.session.active().unwrap().doc));
+    }
+
+    fn assert_filter_preview_target(target: photocraft_engine::channel_cmds::ChannelTarget) {
+        for depth in [8, 16, 32] {
+            let mut session = photocraft_engine::Session::new();
+            session.execute("file.new", json!({"width":16,"height":16,"depth":depth})).unwrap();
+            session.execute("channel.new", json!({"name":"Alpha","fill":"black"})).unwrap();
+            session
+                .edit("Fixture", |doc, active| {
+                    let layer = doc.layer_mut(active.unwrap()).unwrap();
+                    layer.mask = Some(photocraft_doc::LayerMask::hide_all());
+                    for y in 0..16 {
+                        for x in 0..8 {
+                            layer.surface_mut().unwrap().write_pixel(x, y, &[0.0, 0.25, 0.5, 1.0]);
+                            layer.mask.as_mut().unwrap().surface.write_pixel(x, y, &[1.0]);
+                        }
+                    }
+                    for y in 0..16 {
+                        for x in 0..8 {
+                            doc.channels[0].surface.write_pixel(x, y, &[1.0]);
+                        }
+                    }
+                    Ok(())
+                })
+                .unwrap();
+            session.active_mut().unwrap().channel_view.target = target;
+            let mut app = PhotocraftApp::new(session, crate::Services::default());
+            app.background_jobs = false;
+            let dialog = crate::filter_dialog::open(&mut app, "filter.blur.gaussianBlur").unwrap();
+            app.ui.dialogs.last_mut().unwrap().fields.insert("radius".into(), json!(2.0));
+            ensure_filter_preview(&mut app, 0, &egui::Context::default()).unwrap();
+            let preview = app.filter_preview.as_ref().unwrap().result.as_ref().unwrap().clone();
+            crate::dialogs::confirm(&mut app, dialog).unwrap();
+            let final_doc = &app.session.active().unwrap().doc;
+            let bounds = final_doc.bounds();
+            assert_eq!(
+                preview.layers[0].surface().unwrap().read_region(bounds),
+                final_doc.layers[0].surface().unwrap().read_region(bounds),
+                "RGB: {depth} {target:?}"
+            );
+            assert_eq!(preview.channels[0].surface.read_region(bounds), final_doc.channels[0].surface.read_region(bounds), "alpha: {depth} {target:?}");
+            assert_eq!(
+                preview.layers[0].mask.as_ref().unwrap().surface.read_region(bounds),
+                final_doc.layers[0].mask.as_ref().unwrap().surface.read_region(bounds),
+                "mask: {depth} {target:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn filter_preview_matches_applied_alpha_target() {
+        assert_filter_preview_target(photocraft_engine::channel_cmds::ChannelTarget::Alpha(0));
+    }
+
+    #[test]
+    fn filter_preview_matches_applied_color_target() {
+        assert_filter_preview_target(photocraft_engine::channel_cmds::ChannelTarget::Color(0));
+    }
+
+    #[test]
+    fn filter_preview_matches_applied_layer_mask_target() {
+        assert_filter_preview_target(photocraft_engine::channel_cmds::ChannelTarget::LayerMask);
+    }
+
+    #[test]
+    fn filter_preview_refreshes_when_channel_target_changes() {
+        use photocraft_engine::channel_cmds::ChannelTarget;
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.background_jobs = false;
+        app.run("file.new", json!({"width":16,"height":16})).unwrap();
+        for name in ["First", "Second"] {
+            app.run("channel.new", json!({"name":name,"fill":"black"})).unwrap();
+        }
+        app.session
+            .edit("Fixture", |doc, _| {
+                for y in 0..16 {
+                    for x in 0..8 {
+                        doc.channels[1].surface.write_pixel(x, y, &[1.0]);
+                    }
+                }
+                Ok(())
+            })
+            .unwrap();
+        app.session.active_mut().unwrap().channel_view.target = ChannelTarget::Alpha(0);
+        let revision = app.session.active().unwrap().revision;
+        let dialog = crate::filter_dialog::open(&mut app, "filter.blur.gaussianBlur").unwrap();
+        app.ui.dialogs.last_mut().unwrap().fields.insert("radius".into(), json!(2.0));
+        let ctx = egui::Context::default();
+        let (first, first_key) = filter_channel_preview(&mut app, 0, &ctx).unwrap();
+        app.session.active_mut().unwrap().channel_view.target = ChannelTarget::Alpha(1);
+        let (second, second_key) = filter_channel_preview(&mut app, 0, &ctx).unwrap();
+        assert_eq!(app.session.active().unwrap().revision, revision);
+        assert_ne!(first_key, second_key);
+        assert_ne!(first.channels[1].surface.read_region(first.bounds()), second.channels[1].surface.read_region(second.bounds()));
+        let (unchanged, unchanged_key) = filter_channel_preview(&mut app, 0, &ctx).unwrap();
+        assert!(std::sync::Arc::ptr_eq(&second, &unchanged));
+        assert_eq!(second_key, unchanged_key);
+        crate::dialogs::confirm(&mut app, dialog).unwrap();
+        let applied = &app.session.active().unwrap().doc;
+        assert_eq!(second.channels[1].surface.read_region(second.bounds()), applied.channels[1].surface.read_region(applied.bounds()));
+    }
+
+    #[test]
+    fn filter_preview_overlay_matches_quick_mask_and_mixed_color_views() {
+        for quick_mask in [false, true] {
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+            app.background_jobs = false;
+            app.run("file.new", json!({"width":16,"height":16})).unwrap();
+            app.session
+                .edit("Fixture", |doc, active| {
+                    if quick_mask {
+                        doc.quick_mask =
+                            Some(photocraft_doc::AlphaChannel::new("Quick Mask", photocraft_raster::Surface::new(photocraft_color::PixelFormat::GRAY8)));
+                    }
+                    for y in 0..16 {
+                        for x in 0..8 {
+                            if let Some(mask) = &mut doc.quick_mask {
+                                mask.surface.write_pixel(x, y, &[1.0]);
+                            } else {
+                                doc.layer_mut(active.unwrap()).unwrap().surface_mut().unwrap().write_pixel(x, y, &[0.0, 0.25, 0.5, 1.0]);
+                            }
+                        }
+                    }
+                    Ok(())
+                })
+                .unwrap();
+            if !quick_mask {
+                let view = &mut app.session.active_mut().unwrap().channel_view;
+                view.target = photocraft_engine::channel_cmds::ChannelTarget::Color(0);
+                view.set_color_visible(2, false);
+            }
+            let ctx = egui::Context::default();
+            let texture = crate::channel_view::ensure(&mut app, &ctx, 0).unwrap();
+            ctx.tex_manager().write().take_delta().clear();
+            let dialog = crate::filter_dialog::open(&mut app, "filter.blur.gaussianBlur").unwrap();
+            app.ui.dialogs.last_mut().unwrap().fields.insert("radius".into(), json!(2.0));
+            crate::channel_view::ensure(&mut app, &ctx, 0).unwrap();
+            let mut delta = ctx.tex_manager().write().take_delta();
+            let egui::ImageData::Color(image) = &delta.set.get(&texture).expect("preview must refresh overlay")[0].image;
+            crate::dialogs::confirm(&mut app, dialog).unwrap();
+            let st = app.session.active().unwrap();
+            let expected = crate::channel_view::render(&st.doc, &st.channel_view, st.doc.bounds(), 1, false, st.active_layer).unwrap();
+            assert_eq!(image.pixels, expected, "quick_mask={quick_mask}");
+            delta.clear();
+        }
+    }
 
     /// A CPU-only app must be able to generate the actual rotation preview without a
     /// GPU adapter; checking the result also verifies Preview off and document integrity.
