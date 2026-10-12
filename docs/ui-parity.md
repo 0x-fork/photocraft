@@ -212,4 +212,5 @@ Paragraph; the rest open as in-app floating windows.
 | 2026-10-10 | major | First version, from a source audit against Photoshop 2026 27.11.0's shortcuts file and the open issues |
 | 2026-10-10 | minor | Fixed Crop live resize snapping feedback and outdated-camera rendering, applied ratios immediately to centred inscribed previews, and removed two-point options-bar overflow; added pointer, rendering, dropdown/Enter, Swap/X and scrolling regressions |
 | 2026-10-11 | minor | Flick panning done: releasing a moving Hand drag (tool, Space or middle button) glides and decays, gated by Enable Flick Panning |
+| 2026-10-11 | minor | History snapshots: the camera button takes one, snapshot rows return to it as a new state, rename and delete it (#2966) |
 | 2026-10-11 | minor | Animated zoom done: 220 ms transitions per view for discrete Zoom clicks and View controls; GPU composites are reused, coordinates follow the displayed camera, and direct navigation interrupts immediately |
