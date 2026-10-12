@@ -2519,6 +2519,19 @@ mod layers_panel_parity_tests {
     }
 
     #[test]
+    fn fill_layers_respect_use_default_masks_option() {
+        let (mut s, _) = new_session();
+        option(&mut s, "useDefaultMasksOnFillLayers", false);
+        let new = s.execute("layer.newFillLayer.solidColor", json!({"color": "#112233"})).unwrap();
+        let id = LayerId(new["layer"].as_u64().unwrap());
+        assert!(s.active().unwrap().doc.layer(id).unwrap().mask.is_none());
+        option(&mut s, "useDefaultMasksOnFillLayers", true);
+        let new = s.execute("layer.newFillLayer.gradient", json!({})).unwrap();
+        let id = LayerId(new["layer"].as_u64().unwrap());
+        assert!(s.active().unwrap().doc.layer(id).unwrap().mask.is_some());
+    }
+
+    #[test]
     fn expand_new_effects_is_view_state_and_keeps_edit_history_clean() {
         let (mut s, ids) = new_session();
         option(&mut s, "expandNewEffects", false);
