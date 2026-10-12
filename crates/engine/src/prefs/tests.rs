@@ -87,6 +87,17 @@ fn appearance_choices_validate_and_legacy_theme_still_selects() {
     assert_eq!(s.prefs().interface.appearance_mode, AppearanceMode::Light);
     assert_eq!(s.prefs().interface.light_theme, LightTheme::StudioLight);
     assert_eq!(s.prefs().interface.dark_theme, DarkTheme::Pro);
+    // #2661: the light Pro brightness levels are light themes.
+    for (theme, light) in [("proLightGray", LightTheme::ProLightGray), ("proLight", LightTheme::ProLight)] {
+        s.execute("prefs.set", json!({"path": "interface.theme", "value": theme})).unwrap();
+        assert_eq!(s.prefs().interface.appearance_mode, AppearanceMode::Light);
+        assert_eq!(s.prefs().interface.light_theme, light);
+        s.execute("prefs.set", json!({"path": "interface.lightTheme", "value": theme})).unwrap();
+        let mut migrated = Session::new();
+        migrated.load_prefs_json(&json!({"interface": {"theme": theme}}).to_string()).unwrap();
+        assert_eq!(migrated.prefs().interface.appearance_mode, AppearanceMode::Light);
+        assert_eq!(migrated.prefs().interface.light_theme, light);
+    }
 }
 
 #[test]
@@ -335,7 +346,13 @@ fn temporary_tools_and_fill_keys_are_rebindable() {
     let mut s = session();
     let r = s.execute("edit.keyboardShortcuts", json!({"filter": "tools.temporary"})).unwrap();
     let ids: Vec<&str> = r["commands"].as_array().unwrap().iter().filter_map(|c| c["id"].as_str()).collect();
-    assert!(ids.contains(&"tools.temporary.hand") && ids.contains(&"tools.temporary.zoomIn") && ids.contains(&"tools.temporary.zoomOut"), "{ids:?}");
+    assert!(
+        ids.contains(&"tools.temporary.hand")
+            && ids.contains(&"tools.temporary.zoomIn")
+            && ids.contains(&"tools.temporary.zoomOut")
+            && ids.contains(&"tools.temporary.erase"),
+        "{ids:?}"
+    );
     assert!(r["commands"].as_array().unwrap().iter().all(|c| c["hold"] == true));
     // Rebind the temporary zoom; an unknown id still fails.
     s.execute("edit.keyboardShortcuts", json!({"set": {"tools.temporary.zoomIn": "Ctrl+Space"}})).unwrap();

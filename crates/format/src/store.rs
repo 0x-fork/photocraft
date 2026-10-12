@@ -54,7 +54,7 @@ fn png(img: &Rgba8Image) -> Result<Vec<u8>> {
 // Sources
 // ---------------------------------------------------------------------------
 
-pub(crate) trait Source {
+pub trait ByteSource {
     fn get(&self, path: &str, max: usize) -> Result<Vec<u8>>;
 }
 
@@ -68,7 +68,7 @@ impl<'a> ZipSource<'a> {
     }
 }
 
-impl Source for ZipSource<'_> {
+impl ByteSource for ZipSource<'_> {
     fn get(&self, path: &str, max: usize) -> Result<Vec<u8>> {
         self.zip.read_by_name(path, max)
     }
@@ -78,15 +78,29 @@ pub(crate) struct DirSource {
     pub root: PathBuf,
 }
 
-impl Source for DirSource {
+impl ByteSource for DirSource {
     fn get(&self, path: &str, max: usize) -> Result<Vec<u8>> {
         let p = self.root.join(path);
-        let len = std::fs::metadata(&p).map_err(|_| FormatError::corrupt(format!("missing `{path}`")))?.len();
-        if len > max as u64 {
-            return Err(FormatError::LimitExceeded(format!("`{path}` is {len} bytes (max {max})")));
+        let metadata = std::fs::metadata(&p).map_err(|_| FormatError::corrupt(format!("missing `{path}`")))?;
+        if !metadata.is_file() {
+            return Err(FormatError::corrupt(format!("`{path}` is not a regular file")));
         }
-        Ok(std::fs::read(p)?)
+        let mut file = std::fs::File::open(&p).map_err(|_| FormatError::corrupt(format!("missing `{path}`")))?;
+        read_entry(&mut file, metadata.len(), max, path)
     }
+}
+
+/// Read one opened bundle entry under its `max` budget. The stat `len` is a buffer hint only
+/// (files can change while open, and a FIFO reports 0), so the bound is enforced on the read
+/// itself, never on the hint.
+pub fn read_entry(file: &mut impl std::io::Read, len: u64, max: usize, path: &str) -> Result<Vec<u8>> {
+    let mut limited = file.take((max as u64).saturating_add(1));
+    let hint = len.min((max as u64).saturating_add(1));
+    let bytes = crate::read::read_all(&mut limited, hint)?;
+    if bytes.len() > max {
+        return Err(FormatError::LimitExceeded(format!("`{path}` exceeds {max} bytes")));
+    }
+    Ok(bytes)
 }
 
 // ---------------------------------------------------------------------------
@@ -127,7 +141,7 @@ fn check_manifest_depth(json: &[u8]) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn read_manifest(src: &dyn Source, opts: &LoadOptions) -> Result<Manifest> {
+pub(crate) fn read_manifest(src: &dyn ByteSource, opts: &LoadOptions) -> Result<Manifest> {
     let raw = src.get(MANIFEST, opts.max_manifest_bytes)?;
     // serde_json stops at 128 levels (about 40 nested groups); the bounded check replaces that limit.
     check_manifest_depth(&raw)?;
@@ -172,7 +186,7 @@ fn take_array(v: &mut serde_json::Value, pointer: &str) -> Vec<serde_json::Value
 }
 
 struct LoadFetch<'a> {
-    src: &'a dyn Source,
+    src: &'a dyn ByteSource,
     opts: LoadOptions,
     total: u64,
     blobs: HashMap<String, Arc<Vec<u8>>>,
@@ -230,8 +244,24 @@ impl Fetch for LoadFetch<'_> {
     }
 }
 
-pub(crate) fn load(src: &dyn Source, opts: &LoadOptions) -> Result<Document> {
+/// Refuses a declared canvas outside `opts`' budget before anything is decoded for it (#2935).
+fn admit_canvas(size: photocraft_geom::Size, opts: &LoadOptions) -> Result<()> {
+    let (w, h) = (size.width, size.height);
+    if w == 0 || h == 0 {
+        return Err(FormatError::corrupt(format!("canvas size {w}x{h} is empty")));
+    }
+    if w > opts.max_canvas_side || h > opts.max_canvas_side {
+        return Err(FormatError::LimitExceeded(format!("canvas {w}x{h} exceeds {} pixels per side", opts.max_canvas_side)));
+    }
+    if size.area() > opts.max_canvas_pixels {
+        return Err(FormatError::LimitExceeded(format!("canvas {w}x{h} exceeds {} pixels", opts.max_canvas_pixels)));
+    }
+    Ok(())
+}
+
+pub(crate) fn load(src: &dyn ByteSource, opts: &LoadOptions) -> Result<Document> {
     let m = read_manifest(src, opts)?;
+    admit_canvas(m.document.size, opts)?;
     let mut fetch = LoadFetch { src, opts: *opts, total: 0, blobs: HashMap::new() };
     let mut loader = Loader {
         fetch: &mut fetch,
@@ -239,6 +269,7 @@ pub(crate) fn load(src: &dyn Source, opts: &LoadOptions) -> Result<Document> {
         id_map: HashMap::new(),
         contents_id_map: HashMap::new(),
         legacy_linked_contents: HashMap::new(),
+        tiles: HashMap::new(),
     };
     loader.document(&m.document)
 }
@@ -649,10 +680,14 @@ impl PcraftWriter {
             }
         }
         write_atomic(&dir.join(MANIFEST), &p.manifest)?;
+        // The manifest is committed: the save has succeeded. Removing objects it no longer
+        // references is best-effort housekeeping (a vanished or locked file must not turn a
+        // complete save into a reported failure); a leftover is retried on the next save.
         for path in existing {
             if !p.objects.contains_key(&path) {
-                std::fs::remove_file(dir.join(&path))?;
-                stats.objects_removed += 1;
+                if std::fs::remove_file(dir.join(&path)).is_ok() {
+                    stats.objects_removed += 1;
+                }
                 if let Some(cache) = &mut self.verified_directory {
                     cache.objects.remove(&path);
                 }

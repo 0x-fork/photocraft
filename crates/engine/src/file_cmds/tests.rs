@@ -135,6 +135,63 @@ fn save_a_copy_keeps_path_and_dirty_state() {
     assert!(s.execute("file.saveACopy", json!({})).is_err());
 }
 
+/// `tgaBits` picks the Targa's bits per pixel (byte 16 of the header); unset, a document with an
+/// alpha channel is written as 32-bit, with the channel as the alpha.
+#[test]
+fn save_a_copy_writes_the_targa_bits_asked_for() {
+    let dir = tmp("tga-bits");
+    let mut s = session(20, 10, 8);
+    s.execute("select.all", json!({})).unwrap();
+    s.execute("select.saveSelection", json!({})).unwrap();
+    for (params, bpp) in [(json!({}), 32), (json!({"tgaBits": 24}), 24), (json!({"tgaBits": 32}), 32), (json!({"tgaBits": null}), 32)] {
+        let out = join(&dir, "a.tga");
+        let mut p = params.clone();
+        p["path"] = json!(out);
+        s.execute("file.saveACopy", p).unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        assert_eq!(bytes[16], bpp, "{params}");
+        let back = photocraft_io::import("a.tga", &bytes).unwrap().document;
+        assert_eq!(back.channels.len(), usize::from(bpp == 32), "{params}: the selection reopens as Alpha 1");
+    }
+}
+
+/// A `tgaBits` other than 24 or 32 is a bad parameter, reported before anything is written.
+#[test]
+fn bad_targa_bits_are_refused_before_writing() {
+    let dir = tmp("tga-bad");
+    let mut s = session(8, 8, 8);
+    for bad in [json!(16), json!(0), json!(-32), json!(32.5), json!("32"), json!(true), json!([32])] {
+        let out = join(&dir, "a.tga");
+        let r = s.execute("file.saveACopy", json!({"path": out, "tgaBits": bad}));
+        assert!(matches!(r, Err(EngineError::BadParams { .. })), "{bad}: {r:?}");
+        assert!(!std::path::Path::new(&out).exists(), "{bad}: nothing written");
+        let r = s.execute("file.export.layersToFiles", json!({"dir": dir, "format": "tga", "tgaBits": bad}));
+        assert!(matches!(r, Err(EngineError::BadParams { .. })), "{bad}: {r:?}");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0, "{bad}: no layer written");
+    }
+}
+
+/// Preferences › File Handling › Image Previews decides whether a PSD gets Photoshop's
+/// thumbnail resource (1036): Always and Ask When Saving write it, Never doesn't.
+#[test]
+fn image_previews_preference_controls_the_psd_thumbnail() {
+    use crate::prefs::Ask;
+    let dir = tmp("previews");
+    let mut s = session(300, 200, 16);
+    let has_thumbnail = |path: &str| {
+        let file = photocraft_psd::PsdFile::from_bytes(&std::fs::read(path).unwrap()).unwrap();
+        file.resources.iter().any(|r| r.id == photocraft_psd::resources::ids::THUMBNAIL)
+    };
+    for (ask, expect) in [(Ask::Always, true), (Ask::Never, false), (Ask::Ask, true)] {
+        s.edit_prefs(|p| p.file_handling.image_previews = ask);
+        let out = join(&dir, &format!("{ask:?}.psd"));
+        s.execute("file.saveACopy", json!({"path": out})).unwrap();
+        assert_eq!(has_thumbnail(&out), expect, "{ask:?}");
+        let png = join(&dir, &format!("{ask:?}.png"));
+        s.execute("file.saveACopy", json!({"path": png})).unwrap();
+    }
+}
+
 #[test]
 fn open_as_forces_the_decoder() {
     let dir = tmp("openas");
@@ -178,6 +235,28 @@ fn place_embedded_centres_fits_and_embeds() {
         assert!(s.undo() && s.undo());
         assert_eq!(doc(&s).layers.len(), 1);
     }
+}
+
+/// Preferences ▸ General ▸ Always Create Smart Objects When Placing: unchecked, an embedded place
+/// lands as a plain pixel layer; a linked place is always a smart object and `"smartObject"` wins.
+#[test]
+fn always_create_smart_objects_preference_places_a_pixel_layer() {
+    let dir = tmp("place-smart-pref");
+    let big = png(&dir, "big.png", 200, 100, "#ff0000");
+    let mut s = session(100, 100, 8);
+    s.execute("prefs.set", json!({"path": "general.alwaysCreateSmartObjectsWhenPlacing", "value": false})).unwrap();
+    let r = s.execute("file.placeEmbedded", json!({"path": big})).unwrap();
+    assert_eq!(r["smartObject"], json!(false));
+    let d = s.active().unwrap();
+    let l = d.doc.layer(d.active_layer.unwrap()).unwrap();
+    assert!(matches!(l.content, LayerContent::Raster(_)), "a pixel layer");
+    // Fitted to the canvas width, centred vertically, exactly like the smart-object place.
+    assert!(composite(&s, 50, 50)[0] > 0.99 && composite(&s, 50, 50)[2] < 0.01);
+    assert!(composite(&s, 50, 10)[1] > 0.99, "white background above");
+    // An explicit "smartObject": true overrides, and Place Linked with the preference off still
+    // creates a linked smart object.
+    assert_eq!(s.execute("file.placeEmbedded", json!({"path": big, "smartObject": true})).unwrap()["smartObject"], json!(true));
+    assert_eq!(s.execute("file.placeLinked", json!({"path": big})).unwrap()["smartObject"], json!(true));
 }
 
 /// Preferences ▸ General ▸ Resize Image During Place: off, a larger image keeps its natural size
