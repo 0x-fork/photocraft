@@ -735,6 +735,22 @@ fn build_txt2_round_trips_kerning_modes() {
     assert_eq!(modes, vec![(1, Kerning::Off), (1, Kerning::Metrics)]);
 }
 
+/// #3514: the document `Txt2` is only needed for a non-Metrics (`Optical`) auto-kern mode. A fresh
+/// document of ordinary Metrics (or EngineData-carried Off) text must not write Photoshop's empty
+/// stub, which some readers (Photopea) reject.
+#[test]
+fn needs_txt2_only_for_optical() {
+    use photocraft_doc::text::Kerning;
+    let style = |kerning: Kerning| CharStyle { kerning, ..Default::default() };
+    let metrics = runs_of("AV", &[(2, style(Kerning::Metrics))]);
+    assert!(!crate::psd::needs_txt2(&[(0, &metrics)]));
+    let off = runs_of("AV", &[(2, style(Kerning::Off))]);
+    assert!(!crate::psd::needs_txt2(&[(0, &off)]), "Off lives in EngineData, not Txt2");
+    let optical = runs_of("AV", &[(1, style(Kerning::Optical)), (1, CharStyle::default())]);
+    assert!(crate::psd::needs_txt2(&[(0, &optical)]));
+    assert!(!crate::psd::needs_txt2(&[]));
+}
+
 /// A kept `Txt2` object — same text, so its extras are still true — keeps everything the file
 /// held beyond the regenerated keys (Photoshop stores glyph pen positions under `/21 /1`), and a
 /// changed text drops those extras with the stale runs. The block's own extras always survive.
@@ -1353,6 +1369,24 @@ fn word_and_line_navigation() {
     assert!(jumped > kept);
 }
 
+#[test]
+fn line_navigation_reaches_adjacent_line_with_large_leading() {
+    use crate::layout::{byte_index, line_step};
+
+    let mut e = TextEngine::new();
+    let text = "ab\ncd";
+    let mut t = point(text, 12.0);
+    t.runs = vec![TextRun { len: text.len(), style: CharStyle { font_family: "Inter".into(), size_pt: 12.0, leading_pt: Some(40.0), ..Default::default() } }];
+    let l = e.layout(&t, 72.0);
+
+    assert_eq!(l.lines.len(), 2);
+    assert!((l.lines[1].baseline - l.lines[0].baseline - 40.0).abs() < 0.01);
+    let next = line_step(&l, text, 1, l.caret(byte_index(text, 1)).0, 1);
+    assert_eq!(next, 4, "lineNext must reach the second line");
+    let prev = line_step(&l, text, 4, l.caret(byte_index(text, 4)).0, -1);
+    assert_eq!(prev, 1, "linePrev must reach the first line");
+}
+
 /// Thai text sample with above/below marks (sara i, mai ek, mai tho, mai han-akat, sara u).
 const THAI_SAMPLE: &str = "ภาษาไทย สวัสดีครับ ผู้ที่น้ำ";
 
@@ -1389,6 +1423,61 @@ fn thai_fallback_candidates_cover_every_platform() {
     }
 }
 
+/// The Southeast Asian scripts with their hard cases: Khmer coeng subscripts, the ah-sat mark and
+/// numerals; Lao vowel and tone signs; Myanmar medials, stacks and dependent vowels (#218).
+const SOUTHEAST_ASIAN: &[(&str, &str, &[&str])] = &[
+    ("Khmer", "ភាសាខ្មែរ កម្ពុជា សួស្ដី រដ្ឋធម្ណុសាស្តៗ ១២៣", fonts::KHMER_FAMILIES),
+    ("Lao", "ພາສາລາວ ສະບາຍດີ ຄ ໂລກ ຂອບໃຈ", fonts::LAO_FAMILIES),
+    ("Myanmar", "မြန်မာဘာသာ မင်္ဂလာပါ ကျေးဇူးတင်ပါတယ်", fonts::MYANMAR_FAMILIES),
+];
+
+#[test]
+fn southeast_asian_scripts_fall_back_to_installed_fonts() {
+    // Detection and selection are tested apart, so a failure names its layer.
+    for (name, sample, families) in SOUTHEAST_ASIAN {
+        let mut e = TextEngine::with_system_fonts();
+        let Some(hit) = families.iter().find(|f| e.fonts.has_family(f)) else {
+            eprintln!("skipped: no {name}-capable font installed");
+            continue;
+        };
+        // Layer 1, detection + loading + shaping: the installed family, asked for by name.
+        let direct = TextLayer { text: (*sample).into(), font_family: hit.to_string(), size_pt: 24.0, ..Default::default() };
+        let l = e.layout(&direct, 72.0);
+        assert!(!l.glyphs.is_empty() && l.glyphs.iter().all(|g| g.id != 0), "{hit} is installed but shapes .notdef for {name}");
+        // Layer 2, selection: the same text in a Latin-only font falls back instead of drawing
+        // tofu, and the Latin around it keeps the chosen face.
+        let mixed = format!("Latin {sample}");
+        let l = e.layout(&point(&mixed, 24.0), 72.0);
+        assert!(l.glyphs.iter().all(|g| g.id != 0), "{name} in a Latin font drawn with .notdef although {hit} is installed");
+        let latin = l.glyphs.first().map(|g| g.face);
+        assert!(l.glyphs.iter().any(|g| Some(g.face) != latin), "Latin and {name} drawn with the same face");
+    }
+}
+
+#[test]
+fn southeast_asian_fallback_candidates_cover_every_platform() {
+    // Logic-level half of #218 (runs without these fonts): each script has a family for Windows,
+    // macOS and Linux in the fallback candidates, ahead of the broad last-resort fonts.
+    for order in [crate::cjk::script_order(None), crate::cjk::script_order(Some("ja"))] {
+        let fb = fonts::fallback_candidates(&order);
+        let last = fb.iter().position(|f| *f == "Arial Unicode MS").unwrap();
+        for fam in [
+            "Khmer UI",
+            "Khmer Sangam MN",
+            "Noto Sans Khmer",
+            "Lao UI",
+            "Lao Sangam MN",
+            "Noto Sans Lao",
+            "Myanmar Text",
+            "Myanmar Sangam MN",
+            "Noto Sans Myanmar",
+        ] {
+            let i = fb.iter().position(|f| *f == fam).unwrap_or_else(|| panic!("{fam} missing from {fb:?}"));
+            assert!(i < last, "{fam} after the last-resort fonts");
+        }
+    }
+}
+
 #[test]
 fn a_served_script_fallback_joins_the_fallback_stack_once_it_arrives() {
     let Some(cairo) = crate::CRAFT_FONTS.iter().find(|f| f.family == "Cairo") else {
@@ -1400,4 +1489,59 @@ fn a_served_script_fallback_joins_the_fallback_stack_once_it_arrives() {
     assert!(!db.fallback_stack().any(|f| f == "Cairo"), "not before it arrives");
     db.register_font_data(cairo.bytes.to_vec());
     assert!(db.fallback_stack().any(|f| f == "Cairo"), "{:?}", db.fallback_stack().collect::<Vec<_>>());
+}
+
+#[test]
+fn translate_tysh_moves_only_the_translation() {
+    let mut t = point("Hello!", 26.0);
+    t.transform = Affine { m: [1.5, 0.0, 0.0, 1.5, 80.0, 340.0] };
+    let tysh = crate::psd::build_tysh(&t, 72.0, Some([0.0, -20.0, 300.0, 4.0]));
+    let moved = crate::psd::translate_tysh(&tysh, -8.0, -279.0).unwrap();
+    let back = crate::psd::parse_tysh(&moved).unwrap();
+    assert_eq!(back.transform.m, [1.5, 0.0, 0.0, 1.5, 72.0, 61.0]);
+    // Everything but the 16 translation bytes is unchanged.
+    assert_eq!(moved.len(), tysh.len());
+    assert_eq!((&moved[..34], &moved[50..]), (&tysh[..34], &tysh[50..]));
+    assert_eq!(crate::psd::parse_tysh(&tysh).unwrap().bounds, back.bounds, "bounds are in text space");
+    assert!(crate::psd::translate_tysh(&tysh[..40], 1.0, 1.0).is_none(), "a truncated block is refused");
+}
+
+/// The four values after the `TySh` warp descriptor are big-endian f32, as Photoshop writes them:
+/// zeros for unwarped type, the text-space bounds for warped type.
+#[test]
+fn tysh_trailing_bounds_are_f32() {
+    use photocraft_doc::text::TextWarp;
+    let tail = |b: &[u8]| -> [f32; 4] {
+        let t = b.get(b.len() - 16..).unwrap();
+        std::array::from_fn(|i| f32::from_be_bytes(t[i * 4..i * 4 + 4].try_into().unwrap()))
+    };
+    let ink = [0.0, -34.316406, 288.90625, 15.058594];
+    let plain = crate::psd::build_tysh(&point("Type", 20.0), 72.0, Some(ink));
+    assert_eq!(tail(&plain), [0.0; 4]);
+    let warped = TextLayer {
+        warp: Some(TextWarp { style: "warpArc".into(), value: 50.0, horizontal_distortion: 0.0, vertical_distortion: 0.0, horizontal: true }),
+        ..point("Type", 20.0)
+    };
+    let bytes = crate::psd::build_tysh(&warped, 72.0, Some(ink));
+    assert_eq!(tail(&bytes), ink);
+    let parsed = crate::psd::parse_tysh(&bytes).unwrap();
+    assert_eq!(parsed.bounds, ink);
+    assert_eq!(crate::psd::write_tysh(&parsed), bytes);
+}
+
+/// EngineData's `AntiAlias` numbers as Photoshop writes them, beside the `AntA` descriptor:
+/// 0 None, 1 Crisp, 2 Strong, 3 Smooth, 4 Sharp. Read back from EngineData alone (no `AntA`),
+/// every mode survives.
+#[test]
+fn engine_data_antialias_numbers_match_photoshop() {
+    use photocraft_doc::text::AntiAlias;
+    for (mode, n) in [(AntiAlias::None, 0), (AntiAlias::Crisp, 1), (AntiAlias::Strong, 2), (AntiAlias::Smooth, 3), (AntiAlias::Sharp, 4)] {
+        let t = TextLayer { antialias: mode, ..point("Type", 20.0) };
+        let mut tysh = crate::psd::parse_tysh(&crate::psd::build_tysh(&t, 72.0, None)).unwrap();
+        let e = crate::psd::engine_data(&tysh.text).unwrap();
+        assert_eq!(e.path(&["EngineDict", "AntiAlias"]).and_then(crate::engine_data::Value::as_f64), Some(f64::from(n)), "{mode:?}");
+        tysh.text.items.retain(|(k, _)| !k.is("AntA"));
+        let back = crate::psd::text_layer_from_tysh(&crate::psd::write_tysh(&tysh), 72.0).unwrap();
+        assert_eq!(back.antialias, mode, "{n}");
+    }
 }

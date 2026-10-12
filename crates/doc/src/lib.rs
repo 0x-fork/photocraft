@@ -723,6 +723,42 @@ impl Layer {
 pub struct Guides {
     pub horizontal: Vec<f64>,
     pub vertical: Vec<f64>,
+    /// Guides given their own colour (View › Guides › New Guide… › Color). The rest use
+    /// Preferences › Guides, Grid & Slices › Guide colour.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub colors: Vec<GuideColor>,
+}
+
+/// One guide's own colour. It is keyed by orientation and position, not by index, so code that
+/// drops or reorders guide positions (crop, artboards, guide layouts) can never move a colour onto
+/// another guide: a guide whose entry no longer matches simply uses the preference colour.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GuideColor {
+    pub vertical: bool,
+    pub position: f64,
+    /// sRGB, 0–255.
+    pub rgb: [u8; 3],
+}
+
+impl Guides {
+    /// The guide's own colour, if it has one.
+    pub fn color(&self, vertical: bool, position: f64) -> Option<[u8; 3]> {
+        self.colors.iter().find(|c| c.vertical == vertical && c.position == position).map(|c| c.rgb)
+    }
+
+    /// Give the guide at `position` its own colour (`None` returns it to the preference colour).
+    pub fn set_color(&mut self, vertical: bool, position: f64, rgb: Option<[u8; 3]>) {
+        self.colors.retain(|c| !(c.vertical == vertical && c.position == position));
+        if let Some(rgb) = rgb {
+            self.colors.push(GuideColor { vertical, position, rgb });
+        }
+    }
+
+    /// Drop colours whose guide no longer exists (after a guide moved, was deleted or cleared).
+    pub fn prune_colors(&mut self) {
+        let (h, v) = (&self.horizontal, &self.vertical);
+        self.colors.retain(|c| if c.vertical { v.contains(&c.position) } else { h.contains(&c.position) });
+    }
 }
 
 /// Which areas an alpha channel's overlay colour marks (Channel Options › Color Indicates).
@@ -839,6 +875,32 @@ pub struct Document {
     pub variables: Variables,
     /// Window › Timeline (None until a video timeline is created).
     pub timeline: Option<Timeline>,
+    /// How the document's lossy file was encoded (its JPEG quality, WebP lossy or lossless), so
+    /// a save writes it back the same way rather than at fixed defaults.
+    pub file_encoding: FileEncoding,
+}
+
+/// The encoder settings a document's file was opened or saved with: what File › Save and the
+/// Save As defaults reuse for that format. Empty for a new document or a file without lossy
+/// options. Qualities are on the codecs' 1–100 scale.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct FileEncoding {
+    /// JPEG quality (estimated from the file's quantisation tables on open).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jpeg_quality: Option<u8>,
+    /// WebP: `Some(true)` lossless (VP8L), `Some(false)` lossy (VP8 at [`Self::webp_quality`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub webp_lossless: Option<bool>,
+    /// Lossy WebP quality.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub webp_quality: Option<u8>,
+}
+
+impl FileEncoding {
+    pub fn is_empty(&self) -> bool {
+        *self == FileEncoding::default()
+    }
 }
 
 /// Where a layer lives in the tree: indices from the root down.
@@ -877,6 +939,7 @@ impl Document {
             slices: Slices::default(),
             variables: Variables::default(),
             timeline: None,
+            file_encoding: FileEncoding::default(),
         }
     }
 
