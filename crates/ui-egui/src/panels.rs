@@ -2339,9 +2339,17 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         trash.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!(label)));
         let new_layer = icons::button(ui, "square-plus", 26.0, false, &crate::shortcuts::tip_label(app, "Create a new layer", "layer.new.layer"));
         if new_layer.clicked() {
-            // A click makes the layer; ⌥-click asks first (the New Layer dialog), as in Photoshop.
-            let alt = ui.input(|i| i.modifiers.alt);
-            actions.push(("layer.new.layer".into(), if alt { Value::Null } else { json!({}) }));
+            // A click makes the layer; ⌥-click asks first (the New Layer dialog) and ⌘-click adds it
+            // below the active layer, as in Photoshop.
+            let m = ui.input(|i| i.modifiers);
+            let params = if m.alt {
+                Value::Null
+            } else if m.command {
+                json!({"below": true})
+            } else {
+                json!({})
+            };
+            actions.push(("layer.new.layer".into(), params));
         }
         actions.extend(footer_drop(ui, &new_layer, footer_drag, "layer.duplicate"));
         let group = icons::button(ui, "folder", 26.0, false, tl!("Create a new group"));

@@ -685,7 +685,7 @@ fn shape_create(s: &mut Session, p: &Value) -> Result<Value> {
     let id = s.edit("New Shape Layer", |doc, active| {
         refresh_shape(doc, &mut sh);
         let name = name.unwrap_or_else(|| doc.next_layer_name(default_name(kind)));
-        let id = doc.insert_above(*active, Layer::new(name, LayerContent::Shape(sh)));
+        let id = crate::layer_place::insert_new(doc, *active, Layer::new(name, LayerContent::Shape(sh)), crate::layer_place::Place::Auto);
         *active = Some(id);
         Ok(id)
     })?;

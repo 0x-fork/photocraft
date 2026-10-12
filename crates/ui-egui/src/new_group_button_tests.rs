@@ -133,3 +133,18 @@ fn command_click_adds_an_empty_group_below_the_active_layer() {
         assert_eq!(top[1..], [a, groups[0].id, b]);
     }
 }
+
+/// Its neighbour, the New Layer button: ⌘-click adds the layer below the active one, a plain
+/// click above it, as in Photoshop.
+#[test]
+fn command_click_on_new_layer_adds_it_below_the_active_layer() {
+    for (modifiers, below) in [(Modifiers::COMMAND, true), (Modifiers::NONE, false)] {
+        let (mut h, a, b) = selected(false);
+        h.get_by_label("Create a new layer").click_modifiers(modifiers);
+        h.run_steps(4);
+        let top: Vec<LayerId> = h.state().session.active().unwrap().doc.layers.iter().map(|l| l.id).collect();
+        assert_eq!(top.len(), 4);
+        let new = *top.iter().find(|id| ![a, b].contains(id) && **id != top[0]).unwrap();
+        assert_eq!(top[1..], if below { [a, new, b] } else { [a, b, new] });
+    }
+}

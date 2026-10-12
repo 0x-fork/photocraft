@@ -2135,7 +2135,9 @@ mod tests {
         assert!(s.execute("layer.groupLayers", json!({"layer": a.0})).is_err(), "one board is refused too");
         assert_eq!(doc(&s).layers.iter().map(|l| l.id).collect::<Vec<_>>(), before.layers.iter().map(|l| l.id).collect::<Vec<_>>());
         assert_eq!(doc(&s).artboards().len(), 2);
-        // A layer inside a board still groups, inside its board.
+        // A layer inside a board still groups, inside its board. (Made with no layer selected: a
+        // new layer with a board selected goes into that board, as in Photoshop.)
+        s.execute("select.deselectLayers", json!({})).unwrap();
         let inner = rect_layer(&mut s, Rect::new(0, 0, 5, 5));
         select_all(&mut s, &[inner]);
         let c = LayerId(s.execute("layer.new.artboardFromLayers", json!({})).unwrap()["layer"].as_u64().unwrap());

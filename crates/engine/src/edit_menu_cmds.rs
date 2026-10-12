@@ -503,7 +503,7 @@ fn apply_content_aware_fill(s: &mut Session, label: &str, id: LayerId, output: &
                     s.write_region(window, &px);
                     s.prune();
                 }
-                let nid = doc.insert_above(Some(id), l);
+                let nid = crate::layer_place::insert_new(doc, Some(id), l, crate::layer_place::Place::Above);
                 *active = Some(nid);
                 return Ok(nid);
             }

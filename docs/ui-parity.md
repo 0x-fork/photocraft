@@ -1,6 +1,6 @@
 # UI parity: tools, handles, modifiers and feel
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (New Group dialog, ⌥/⌘-click New Group, groups from layers start collapsed) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (new layers go into an open active group and join a clipping mask; ⌘-click New Layer) · **Target:** Adobe Photoshop 2026
 
 How PhotoCraft's direct manipulation compares with Photoshop 2026 (27.11.0): the toolbox, the
 handles and modifier keys of each gesture, nudging, snapping, numeric precision, navigation,
@@ -210,6 +210,9 @@ Paragraph; the rest open as in-app floating windows.
 | Layers panel New Group button: click with 2+ layers selected groups them (CC 2014+), ⇧-click groups, one layer gives an empty group, ⌥-click opens the New Group dialog, ⌘-click adds the group below the active layer | done | #2561, `new_group_button_tests.rs` |
 | New Group dialog (Name, Color, Mode, Opacity) for Layer › New › Group… / Group from Layers…, the Layers panel menu and the row menu; ⌘G stays immediate | done | `new_group_ui.rs`, `new_group_ui_tests.rs` |
 | Groups made from layers (⌘G, New Group button, Group from Layers) start collapsed; selecting a layer inside opens the group | done | `group_options.rs` tests, `new_group_button_tests.rs` |
+| New layers (New Layer/Group, adjustment, fill, type, shape, paste, place…) go in as the top layer of an open active group (or an artboard the new content is on), above a closed one; a new frame starts closed | done | `layer_place.rs`, `layer_place_tests.rs` |
+| A new layer or group inside a clipping mask joins it (clipped when the layer above its slot is), so the clipped layers keep their base | done | `layer_place_tests.rs` (#2203) |
+| Layers panel New Layer button: ⌘-click adds the layer below the active one (never under the Background) | done | `layer_place_tests.rs`, `new_group_button_tests.rs` |
 
 ## Revision history
 
@@ -217,6 +220,7 @@ Paragraph; the rest open as in-app floating windows.
 |---|---|---|
 | 2026-10-10 | major | First version, from a source audit against Photoshop 2026 27.11.0's shortcuts file and the open issues |
 | 2026-10-12 | minor | New Group button groups two or more selected layers (CC 2014+); New Group dialog (Layer › New, Layers panel menu, row menu, ⌥-click); ⌘-click New Group adds the group below; groups made from layers start collapsed (#2561) |
+| 2026-10-12 | minor | New layers go into an open active group (or the artboard their content is on) and join the clip group they land in (#2203); ⌘-click New Layer adds below |
 | 2026-10-10 | minor | Fixed Crop live resize snapping feedback and outdated-camera rendering, applied ratios immediately to centred inscribed previews, and removed two-point options-bar overflow; added pointer, rendering, dropdown/Enter, Swap/X and scrolling regressions |
 | 2026-10-11 | minor | Flick panning done: releasing a moving Hand drag (tool, Space or middle button) glides and decays, gated by Enable Flick Panning |
 | 2026-10-11 | minor | History snapshots: the camera button takes one, snapshot rows return to it as a new state, rename and delete it (#2966) |

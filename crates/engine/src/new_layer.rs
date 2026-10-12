@@ -24,7 +24,9 @@ pub fn neutral_color(mode: BlendMode) -> Option<([f32; 3], &'static str)> {
     }
 }
 
-/// `layer.new.layer`: a pixel layer above the active one, joining the clip group it lands in.
+/// `layer.new.layer`: a pixel layer where Photoshop puts a new one ([`crate::layer_place`]: above
+/// the active layer, inside it when it is an open group, below it with `below`), joining the clip
+/// group it lands in.
 pub fn run(s: &mut Session, p: &Value) -> Result<Value> {
     let flag = |k: &str| match p.get(k) {
         None | Some(Value::Null) => Ok(false),
@@ -32,6 +34,7 @@ pub fn run(s: &mut Session, p: &Value) -> Result<Value> {
     };
     let clip = flag("clipToPrevious")?;
     let fill_neutral = flag("fillNeutral")?;
+    let place = if flag("below")? { crate::layer_place::Place::Below } else { crate::layer_place::Place::Auto };
     let mode = match p.get("mode") {
         None | Some(Value::Null) => BlendMode::Normal,
         Some(v) => {
@@ -65,7 +68,7 @@ pub fn run(s: &mut Session, p: &Value) -> Result<Value> {
             let px = photocraft_raster::from_rgba(&surface.format(), [rgb[0], rgb[1], rgb[2], 1.0]);
             surface.fill_rect(bounds, &px);
         }
-        let id = doc.insert_above(*active, layer);
+        let id = crate::layer_place::insert_new(doc, *active, layer, place);
         crate::clip_group::settle(doc, &[id], &Default::default(), clip);
         *active = Some(id);
         Ok(id)

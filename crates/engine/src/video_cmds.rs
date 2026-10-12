@@ -110,7 +110,7 @@ fn new_blank(s: &mut Session, _p: &Value) -> Result<Value> {
         let name = doc.next_layer_name("Video Layer");
         let mut l = Layer::raster(name, fmt);
         l.video = Some(VideoData::new(frames, fps));
-        let id = doc.insert_above(*active, l);
+        let id = crate::layer_place::insert_new(doc, *active, l, crate::layer_place::Place::Auto);
         *active = Some(id);
         sync(doc);
         Ok(id)
@@ -304,7 +304,7 @@ fn new_from_file(s: &mut Session, p: &Value) -> Result<Value> {
         v.original_frames = Some(v.frames.clone());
         v.source = photocraft_doc::VideoSource::File { path: path.clone() };
         l.video = Some(v);
-        let id = doc.insert_above(*active, l);
+        let id = crate::layer_place::insert_new(doc, *active, l, crate::layer_place::Place::Auto);
         *active = Some(id);
         sync(doc);
         Ok(id)
@@ -373,12 +373,14 @@ fn frames_to_layers(s: &mut Session, p: &Value) -> Result<Value> {
     let n = frames.len();
     s.edit("Video Frames to Layers", |doc, active| {
         let mut above = *active;
+        let mut place = crate::layer_place::Place::Auto;
         for (i, f) in frames.into_iter().enumerate() {
             let mut l = Layer::raster(format!("Frame {}", i + 1), fmt);
             if let LayerContent::Raster(surf) = &mut l.content {
                 *surf = f;
             }
-            above = Some(doc.insert_above(above, l));
+            above = Some(crate::layer_place::insert_new(doc, above, l, place));
+            place = crate::layer_place::Place::Above;
         }
         *active = above;
         Ok(())

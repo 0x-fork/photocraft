@@ -64,6 +64,7 @@ pub mod layer_mask_props_cmds;
 pub mod layer_menu_cmds;
 pub mod layer_multi_cmds;
 pub mod layer_nav_cmds;
+pub mod layer_place;
 pub mod layer_style;
 pub mod lens_cmds;
 pub mod link_watch;

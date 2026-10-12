@@ -194,6 +194,30 @@ mod tests {
         assert_eq!(top(&s).last(), Some(&g3));
     }
 
+    /// A group added inside a clipping mask (⌘-click under a clipped layer, or a plain New Group
+    /// on the base) joins the mask, as in Photoshop: the clipped layers keep their base and stay
+    /// visible, and nothing needs recompositing.
+    #[test]
+    fn a_group_added_inside_a_clipping_mask_joins_it() {
+        let (mut s, a, b) = session();
+        s.execute("layer.setProps", json!({"layer": b.0, "clipped": true})).unwrap();
+        s.execute("layer.select", json!({"layer": b.0})).unwrap();
+        let g = id(s.execute("layer.new.group", json!({"below": true})).unwrap());
+        assert_eq!(top(&s)[1..], [a, g, b]);
+        assert!(layer(&s, g).clipped, "under a clipped layer the group is clipped too");
+        assert_eq!(s.active().unwrap().last_damage, Some(photocraft_geom::Rect::EMPTY), "B still clips to A");
+        // On the base itself: the new group goes between A and its clipped layers.
+        s.undo();
+        s.execute("layer.select", json!({"layer": a.0})).unwrap();
+        let g = id(s.execute("layer.new.group", json!({})).unwrap());
+        assert_eq!(top(&s)[1..], [a, g, b]);
+        assert!(layer(&s, g).clipped);
+        // Outside a clipping mask nothing changes.
+        s.execute("layer.select", json!({"layer": b.0})).unwrap();
+        let g = id(s.execute("layer.new.group", json!({})).unwrap());
+        assert!(!layer(&s, g).clipped);
+    }
+
     #[test]
     fn bad_options_fail_without_touching_the_document() {
         let (mut s, a, b) = session();
