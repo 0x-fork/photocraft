@@ -307,18 +307,12 @@ pub(crate) fn placement(p: &Value) -> (f32, f32, bool, (f32, f32)) {
 
 /// The edit of `layer.newFillLayer.pattern`: a Pattern Fill layer of `pat` placed as `p` asks,
 /// above `active`. The Pattern Fill dialog previews it on a copy of the document.
-pub(crate) fn insert_fill_layer(
-    doc: &mut Document,
-    active: &mut Option<photocraft_doc::LayerId>,
-    pat: &Pattern,
-    p: &Value,
-    default_mask: bool,
-) -> Result<photocraft_doc::LayerId> {
+pub(crate) fn insert_fill_layer(doc: &mut Document, active: &mut Option<photocraft_doc::LayerId>, pat: &Pattern, p: &Value) -> Result<photocraft_doc::LayerId> {
     let (scale, angle, link, phase) = placement(p);
     ensure_in_doc(doc, pat);
     let fill = Fill::Pattern { name: pat.name.clone(), scale, id: pat.id.clone(), angle, link, phase };
     let mut l = Layer::new(doc.next_layer_name("Pattern Fill"), LayerContent::Fill(fill));
-    crate::commands::mask_new_layer(doc, &mut l, p, "layer.newFillLayer.pattern", default_mask)?;
+    crate::commands::mask_new_layer(doc, &mut l, p, "layer.newFillLayer.pattern")?;
     let id = doc.insert_above(*active, l);
     *active = Some(id);
     Ok(id)
@@ -326,8 +320,7 @@ pub(crate) fn insert_fill_layer(
 
 fn new_fill_layer(s: &mut Session, p: &Value) -> Result<Value> {
     let pat = resolve_param(s, "layer.newFillLayer.pattern", p)?;
-    let default_mask = crate::commands::layer_panel_option(s, "useDefaultMasksOnFillLayers", true);
-    let id = s.edit("New Pattern Fill Layer", |doc, active| insert_fill_layer(doc, active, &pat, p, default_mask))?;
+    let id = s.edit("New Pattern Fill Layer", |doc, active| insert_fill_layer(doc, active, &pat, p))?;
     Ok(json!({"layer": id.0, "pattern": pat.id}))
 }
 
