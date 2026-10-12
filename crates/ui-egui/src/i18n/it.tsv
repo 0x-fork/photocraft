@@ -87,14 +87,14 @@
 	Generate	Genera
 	Image Assets	Risorse immagine
 	Place Embedded…	Inserisci incorporato…
-	Place Linked…	Inserisci collegato…
+	Place Linked…	Inserisci oggetto collegato…
 	Package…	Crea pacchetto…
 	Automate	Automatizza
 	Batch…	Batch…
 	Create Droplet…	Crea droplet…
 	Crop and Straighten Photos	Ritaglia e raddrizza foto
 	Contact Sheet II…	Provino a contatto II…
-	Conditional Mode Change…	Cambio modo condizionale…
+	Conditional Mode Change…	Cambia metodo condizionale…
 	Fit Image…	Adatta immagine…
 	Lens Correction…	Correzione lente…
 	Merge to HDR Pro…	Unisci in HDR Pro…
@@ -212,10 +212,10 @@
 	Lab Color	Colore Lab
 	Multichannel	Multicanale
 	8 Bits/Channel	8 bit/canale
-	8 bit	8 bit/canale
+	8 bit	8 bit
 	Integer	Intero
 	16 Bits/Channel	16 bit/canale
-	16 bit	16 bit/canale
+	16 bit	16 bit
 	32 Bits/Channel	32 bit/canale
 	32 bit (float)	32 bit (virgola mobile)
 	Floating point	Virgola mobile
@@ -241,7 +241,7 @@
 	Gradient Map…	Mappa sfumatura…
 	Selective Color…	Colore selettivo…
 	Shadows/Highlights…	Ombre/Luci…
-	HDR Toning…	Viraggio HDR…
+	HDR Toning…	Mappatura tonale HDR…
 	Desaturate	Desatura
 	Match Color…	Corrispondenza colore…
 	Replace Color…	Sostituisci colore…
@@ -265,7 +265,7 @@
 	Data Sets…	Set di dati…
 	Apply Data Set…	Applica set di dati…
 	Variable Data Sets…	Set di dati variabili…
-	Trap…	Sovrastampa…
+	Trap…	Trapping…
 	Analysis	Analisi
 	Set Measurement Scale…	Imposta scala misurazione…
 	Select Data Points…	Seleziona punti dati…
@@ -302,7 +302,7 @@
 	Create Layer	Crea livello
 	Layer Style	Stile livello
 	Blending Options…	Opzioni di fusione…
-	Bevel & Emboss…	Smusso ed effetto rilievo…
+	Bevel & Emboss…	Smusso e rilievo…
 	Use Global Light	Usa luce globale
 	Inner Shadow…	Ombra interna…
 	Inner Glow…	Bagliore interno…
@@ -348,7 +348,7 @@
 	Smart Object	Oggetto avanzato
 	Convert to Smart Object	Converti in oggetto avanzato
 	Convert to Embedded	Converti in incorporato
-	Convert to Linked…	Converti in collegato…
+	Convert to Linked…	Converti in oggetto collegato…
 	Edit Contents	Modifica contenuto
 	Replace Contents…	Sostituisci contenuto…
 	Relink to File…	Ricollega al file…
@@ -477,8 +477,8 @@
 	Convert to Point Text	Converti in testo a riga
 	Convert to Paragraph Text	Converti in testo a paragrafo
 	Default Features	Funzionalità predefinite
-	East Asian Features	Funzionalità Asia orientale
-	Middle Eastern Features	Funzionalità Medio Oriente
+	East Asian Features	Funzionalità est-asiatiche
+	Middle Eastern Features	Funzionalità mediorientali
 	Middle Eastern & South Asian Composer	Compositore Medio Oriente e Asia meridionale
 	Update All Text Layers	Aggiorna tutti i livelli di testo
 	Replace All Missing Fonts	Sostituisci tutti i font mancanti
@@ -1037,7 +1037,7 @@
 	Discord	Discord
 	Dismiss	Chiudi
 	Display P3	Display P3
-	Display Text	Testo display
+	Display Text	Mostra testo
 	Dither	Dithering
 	Divide…	Dividi…
 	Document	Documento
@@ -1573,7 +1573,7 @@
 	Art & Illustration	Arte e illustrazione
 	ArtCraft	ArtCraft
 	Background Eraser Tool	Strumento Gomma per sfondo
-	Bevel & Emboss	Smusso ed effetto rilievo
+	Bevel & Emboss	Smusso e rilievo
 	Blend Mode	Metodo di fusione
 	Blues	Blu
 	Blur Tool	Strumento Sfoca
@@ -2964,7 +2964,7 @@ curves	Smooth	Leviga
 	Web Photo Gallery…	Galleria fotografica web…
 	Choose…	Scegli…
 	Select Folder…	Seleziona cartella…
-	Override Action "Save" Commands	Ignora i comandi "Salva" dell'azione
+	Override Action "Save" Commands	Sostituisci i comandi "Salva" dell'azione
 	File Naming	Denominazione file
 	Compatibility	Compatibilità
 	Mac OS	Mac OS
@@ -3327,7 +3327,7 @@ layerLabel	No Color	Nessun colore
 	Frame	Cornice
 	Arrangement	Disposizione
 	Thickness	Spessore
-	Vine Color	Colore rampicante
+	Vine Color	Colore del rampicante
 	Flower Color	Colore fiori
 	Leaf Color	Colore foglie
 	Base Tree Type	Tipo di albero base
@@ -3696,9 +3696,9 @@ layerLabel	No Color	Nessun colore
 	Color Lookup Tables	Tabelle ricerca colore
 	Color Settings	Impostazioni colore
 	Color Table	Tabella colori
-	Conditional Mode Change	Cambio modo condizionale
+	Conditional Mode Change	Cambia metodo condizionale
 	Content-Aware Fill	Riempimento in base al contenuto
-	Convert to Linked	Converti in collegato
+	Convert to Linked	Converti in oggetto collegato
 	Convert to Profile	Converti in profilo
 	Crystallize	Cristallizza
 	Data	Dati
@@ -3728,7 +3728,7 @@ layerLabel	No Color	Nessun colore
 	Gaussian Blur	Sfocatura gaussiana
 	Global Light	Luce globale
 	Group from Layers	Gruppo da livelli
-	HDR Toning	Viraggio HDR
+	HDR Toning	Mappatura tonale HDR
 	High Pass	Passa alto
 	Highlight	Luci
 	Image Processor	Elaborazione immagini
@@ -3770,7 +3770,7 @@ layerLabel	No Color	Nessun colore
 	Picture Frame	Cornice immagine
 	Pinch	Pizzica
 	Place Embedded	Inserisci incorporato
-	Place Linked	Inserisci collegato
+	Place Linked	Inserisci oggetto collegato
 	Place Scale Marker	Inserisci indicatore scala
 	Plastic Wrap	Pellicola plastica
 	Pointillize	Puntinatura
@@ -3818,7 +3818,7 @@ layerLabel	No Color	Nessun colore
 	Tiles	Mattonelle
 	Tilt-Shift	Miniatura
 	Trace Contour	Traccia contorno
-	Trap	Sovrastampa
+	Trap	Trapping
 	Tree	Albero
 	Trim	Elimina bordi
 	Turbulent	Turbolento

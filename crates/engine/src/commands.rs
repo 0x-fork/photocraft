@@ -966,11 +966,39 @@ fn build() -> Vec<CommandSpec> {
             has_paintable,
             crate::brush_cmds::paint_stroke
         ),
-        cmd!("tools.setColors", "Set Colors", [], None, r##"{"foreground":"#rrggbb"?,"background":"#rrggbb"?}"##, always, |s, p| {
-            s.tools.foreground = color_param(p, "foreground", s.tools.foreground);
-            s.tools.background = color_param(p, "background", s.tools.background);
-            Ok(Value::Null)
-        }),
+        cmd!(
+            "tools.setColors",
+            "Set Colors",
+            [],
+            None,
+            r##"{"foreground":"#rrggbb"|[r,g,b,a?]?,"background":same?,"foregroundCmyk":[c,m,y,k]? (inks 0..1 the foreground was picked as: a CMYK document is filled with exactly these),"backgroundCmyk":same?}"##,
+            always,
+            |s, p| {
+                let cmyk = |key: &str| -> Result<Option<[f32; 4]>> {
+                    let Some(v) = p.get(key).filter(|v| !v.is_null()) else { return Ok(None) };
+                    let inks: Option<Vec<f32>> = v
+                        .as_array()
+                        .filter(|a| a.len() == 4)
+                        .and_then(|a| a.iter().map(|x| x.as_f64().filter(|x| x.is_finite()).map(|x| x.clamp(0.0, 1.0) as f32)).collect());
+                    match inks.as_deref() {
+                        Some(&[c, m, y, k]) => Ok(Some([c, m, y, k])),
+                        _ => Err(bad("tools.setColors", format!("`{key}` must be [c, m, y, k] numbers 0..1"))),
+                    }
+                };
+                let (fg_cmyk, bg_cmyk) = (cmyk("foregroundCmyk")?, cmyk("backgroundCmyk")?);
+                s.tools.foreground = color_param(p, "foreground", s.tools.foreground);
+                s.tools.background = color_param(p, "background", s.tools.background);
+                if let Some(k) = fg_cmyk {
+                    let [r, g, b, _] = s.tools.foreground;
+                    s.tools.remember_cmyk([r, g, b], k);
+                }
+                if let Some(k) = bg_cmyk {
+                    let [r, g, b, _] = s.tools.background;
+                    s.tools.remember_cmyk([r, g, b], k);
+                }
+                Ok(Value::Null)
+            }
+        ),
         cmd!("tools.swapColors", "Switch Foreground and Background Colors", [], Some("X"), "{}", always, |s, _| {
             std::mem::swap(&mut s.tools.foreground, &mut s.tools.background);
             Ok(Value::Null)
