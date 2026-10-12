@@ -115,8 +115,8 @@ fn plural_polish(n: u64) -> usize {
     }
 }
 
-/// A catalog file as deflated by build.rs (the binary would otherwise carry ~1.9 MB of
-/// translations, which the web build's size gate can't afford).
+/// A catalog file as packed by build.rs (`pack_catalogs`; the binary would otherwise carry ~2.2 MB
+/// of translations, which the web build's size gate can't afford). See [`unpack`].
 macro_rules! catalog {
     ($code:literal) => {
         include_bytes!(concat!(env!("OUT_DIR"), "/i18n/", $code, ".tsv.deflate"))
@@ -136,6 +136,52 @@ fn inflate(source: &[u8]) -> Result<String, String> {
     flate2::read::DeflateDecoder::new(source).take(MAX_CATALOG_BYTES + 1).read_to_string(&mut text).map_err(|e| e.to_string())?;
     if text.len() as u64 > MAX_CATALOG_BYTES {
         return Err(format!("over {MAX_CATALOG_BYTES} bytes"));
+    }
+    Ok(text)
+}
+
+/// Every catalog entry's `context<TAB>source`, stored once for all catalogs (build.rs).
+static KEYS: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/i18n/keys.deflate"));
+
+/// Restore a catalog file from its packed form (build.rs `pack_catalogs`): entry lines refer to
+/// [`KEYS`] instead of repeating the English source. Bad data gives an error (and the language
+/// falls back to English), never a panic.
+fn unpack(source: &[u8]) -> Result<String, String> {
+    static KEY_TEXT: OnceLock<Result<String, String>> = OnceLock::new();
+    if source.is_empty() {
+        return Ok(String::new());
+    }
+    let keys: Vec<&str> = KEY_TEXT.get_or_init(|| inflate(KEYS)).as_ref().map_err(|e| format!("catalog keys: {e}"))?.split('\n').collect();
+    expand(&inflate(source)?, &keys)
+}
+
+/// [`unpack`]'s second step: replace each packed entry line with its key and translation.
+fn expand(packed: &str, keys: &[&str]) -> Result<String, String> {
+    let mut text = String::with_capacity(packed.len().saturating_mul(2));
+    let mut next = 0usize;
+    for (n, line) in packed.split('\n').enumerate() {
+        if n > 0 {
+            text.push('\n');
+        }
+        let bad = || format!("packed line {}: bad key reference", n + 1);
+        let (index, tr) = if let Some(tr) = line.strip_prefix('\x01') {
+            (next, tr)
+        } else if let Some(rest) = line.strip_prefix('\x02') {
+            let (offset, tr) = rest.split_once('\t').ok_or_else(bad)?;
+            let offset: i64 = offset.parse().map_err(|_| bad())?;
+            let index = i64::try_from(next).ok().and_then(|n| n.checked_add(offset)).and_then(|i| usize::try_from(i).ok()).ok_or_else(bad)?;
+            (index, tr)
+        } else {
+            text.push_str(line.strip_prefix('\x03').unwrap_or(line));
+            continue;
+        };
+        text.push_str(keys.get(index).ok_or_else(bad)?);
+        text.push('\t');
+        text.push_str(tr);
+        next = index.saturating_add(1);
+        if text.len() as u64 > MAX_CATALOG_BYTES {
+            return Err(format!("over {MAX_CATALOG_BYTES} bytes"));
+        }
     }
     Ok(text)
 }
@@ -175,7 +221,7 @@ pub static LANGUAGES: [LangInfo; 20] = [
 impl LangInfo {
     /// The catalog file's text (empty for English, or if the bundled data can't be inflated).
     pub fn text(&self) -> String {
-        inflate(self.source).unwrap_or_else(|e| {
+        unpack(self.source).unwrap_or_else(|e| {
             log::error!("translation catalog {}: {e}; showing English", self.code);
             String::new()
         })
@@ -702,13 +748,13 @@ mod tests {
         assert_eq!(tr(CS(), "All"), "Vše");
     }
 
-    /// The deflated catalogs in the binary inflate to exactly the `.tsv` files.
+    /// The packed catalogs in the binary unpack to exactly the `.tsv` files.
     #[test]
-    fn deflated_catalogs_match_their_files() {
+    fn packed_catalogs_match_their_files() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/i18n");
         for l in LANGUAGES.iter().skip(1) {
             let file = std::fs::read_to_string(dir.join(format!("{}.tsv", l.code))).unwrap();
-            assert_eq!(inflate(l.source).unwrap(), file, "{}", l.code);
+            assert_eq!(unpack(l.source).unwrap(), file, "{}", l.code);
             assert!(l.source.len() < file.len() / 2, "{}: stored deflated", l.code);
         }
         assert_eq!(LANGUAGES[0].text(), "", "English has no catalog");
@@ -730,6 +776,18 @@ mod tests {
         }));
         assert_eq!(info.text(), "");
         assert_eq!(tr(Lang(info), "Layer"), "Layer", "falls back to English");
+    }
+
+    /// Packed lines unpack to their keys; references to keys that don't exist are an error, not a
+    /// panic.
+    #[test]
+    fn packed_lines_unpack_and_bad_references_are_errors() {
+        let keys = ["\tOpen", "@id\tfile.open", "\tClose"];
+        let packed = "# c\n\x01Ouvrir\n\x02-1\tOuvrir\n\x02+1\tFermer\n\x03\x01x\n";
+        assert_eq!(expand(packed, &keys).unwrap(), "# c\n\tOpen\tOuvrir\n\tOpen\tOuvrir\n\tClose\tFermer\n\x01x\n");
+        for bad in ["\x02-1\tx", "\x02 3\tx", "\x023", "\x029223372036854775807\tx", "\x02-9223372036854775808\tx", "\x01a\n\x01b\n\x01c\n\x01d"] {
+            assert!(expand(bad, &keys).is_err(), "{bad:?}");
+        }
     }
 
     /// Every bundled catalog is well-formed and consistent with its sources.

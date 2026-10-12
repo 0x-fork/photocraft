@@ -381,16 +381,14 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
             let all = p.get("job").is_none_or(Value::is_null);
             match p.get("job").and_then(Value::as_u64) {
                 Some(j) if app.session.job(photocraft_engine::jobs::JobId(j)).is_some() => {
-                    crate::jobs_ui::cancel(app, photocraft_engine::jobs::JobId(j));
-                    ok(json!({"cancelled": 1}))
+                    let cancelled = crate::jobs_ui::cancel(app, photocraft_engine::jobs::JobId(j));
+                    ok(json!({"cancelled": usize::from(cancelled)}))
                 }
                 Some(j) => err(format!("no running job {j}")),
                 None if all => {
                     let ids: Vec<_> = app.session.jobs().into_iter().map(|j| j.id).collect();
-                    for j in &ids {
-                        crate::jobs_ui::cancel(app, *j);
-                    }
-                    ok(json!({"cancelled": ids.len()}))
+                    let cancelled = ids.into_iter().filter(|j| crate::jobs_ui::cancel(app, *j)).count();
+                    ok(json!({"cancelled": cancelled}))
                 }
                 None => err("`job` must be a job id"),
             }

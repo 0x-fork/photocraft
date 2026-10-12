@@ -1947,6 +1947,7 @@ navigator	Zoom	Nagyítás mértéke
 	Burlap	Zsákvászon
 	Camera Calibration	Fényképezőgép-kalibráció
 	Cancel (Esc)	Mégse (Esc)
+	Manage submitted jobs in the system print queue	Az elküldött feladatok kezelése a rendszer nyomtatási sorában
 	Candle Light	Gyertyaláng
 	Cell Size	Cellaméret
 	Center X	Középpont X
@@ -3161,6 +3162,7 @@ cameraRaw	Yellow	Sárga
 	Ellipse Tool	Ellipszis
 	Elliptical Marquee Tool	Ellipszis-kijelölés
 	Enable	Bekapcsolás
+	Enable animations	Animációk engedélyezése
 	Enable flick panning	Lendítéses pásztázás engedélyezése
 	Enable floating document window docking	Lebegő dokumentumablakok dokkolásának engedélyezése
 	Enable narrow options bar	Keskeny beállítósáv engedélyezése

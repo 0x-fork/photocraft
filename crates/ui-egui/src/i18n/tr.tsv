@@ -202,12 +202,12 @@
 	Lab Color	Laboratuvar Rengi
 	Multichannel	Çok kanallı
 	8 Bits/Channel	8 Bit/Kanal
-	8 bit	8 bit
+	8 bit	8 bitlik
 	Integer	Tamsayı
 	16 Bits/Channel	16 Bit/Kanal
-	16 bit	16 bit
+	16 bit	16 bitlik
 	32 Bits/Channel	32 Bit/Kanal
-	32 bit (float)	32 bit (kayan)
+	32 bit (float)	32 bitlik (kayan noktalı)
 	Floating point	Kayan nokta
 	Color Table…	Renk Tablosu…
 	Bitmap…	Bit eşlem…
@@ -852,6 +852,7 @@
 	Cancel	İptal
 	Reset	Sıfırla
 	Cancel (Esc)	İptal (Esc)
+	Manage submitted jobs in the system print queue	Gönderilen işleri sistem yazdırma kuyruğunda yönetin
 	Cancel any current edits (Esc)	Mevcut düzenlemeleri iptal et (Esc)
 	Cancel current crop operation  (Esc)	Geçerli kırpma işlemini iptal et (Esc)
 	Cancel transform (Esc)	Dönüşümü iptal et (Esc)
@@ -2422,6 +2423,7 @@ cameraRaw	Color	Renk
 	Remove All	Tümünü Kaldır
 	Unlock	Kilidi aç
 	Enable	Etkinleştir
+	Enable animations	Animasyonları etkinleştir
 	Disable	Devre dışı bırak
 	On	Açık
 	Selected	Seçilen
