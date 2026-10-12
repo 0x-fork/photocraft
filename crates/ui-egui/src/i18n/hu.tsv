@@ -3982,3 +3982,14 @@ cameraRaw	Yellow	Sárga
 @plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} lépésnek még nincs megfelelője a PhotoCraftban
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	{n} művelet mentve. Cél: {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	{n} Photoshop-megfelelő nélküli lépés kihagyva
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Leállítás beszúrása…
+	Save Set…	Készlet mentése…
+	Message:	Üzenet:
+	Allow Continue	Folytatás engedélyezése
+	Show dialog during playback	Párbeszédablak megjelenítése lejátszáskor
+	Select an action first	Először válasszon ki egy műveletet
+	Action playback stopped	A művelet lejátszása leállt
+	Step {step} is waiting for its dialog	A(z) {step}. lépés a párbeszédablakára vár
+@plural	{n} action|{n} actions	{n} művelet

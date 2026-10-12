@@ -400,6 +400,36 @@ fn grid_mesh(rect: Rect, n: usize, color: impl Fn(f32, f32) -> [f32; 3]) -> Mesh
     m
 }
 
+/// Cells per side of the banded Only Web Colors field: fine enough that the band edges follow the
+/// colour model, coarse enough to stay cheap to draw each frame.
+const WEB_CELLS: usize = 64;
+
+/// Snap each channel to the web-safe ramp (00, 33, 66, 99, CC, FF).
+fn web_safe(c: [f32; 3]) -> [f32; 3] {
+    c.map(|v| (v.clamp(0.0, 1.0) * 5.0).round() / 5.0)
+}
+
+/// Like [`grid_mesh`], but every cell is one flat colour sampled at its centre, so a quantized
+/// field shows hard bands instead of blending between the snapped corners.
+fn flat_grid_mesh(rect: Rect, n: usize, color: impl Fn(f32, f32) -> [f32; 3]) -> Mesh {
+    let mut m = Mesh::default();
+    let n = n.max(1);
+    let (cw, ch) = (rect.width() / n as f32, rect.height() / n as f32);
+    for j in 0..n {
+        for i in 0..n {
+            let c = c32(color((i as f32 + 0.5) / n as f32, (j as f32 + 0.5) / n as f32));
+            let (x0, y0) = (rect.left() + i as f32 * cw, rect.top() + j as f32 * ch);
+            let a = m.vertices.len() as u32;
+            for (dx, dy) in [(0.0, 0.0), (cw, 0.0), (cw, ch), (0.0, ch)] {
+                m.colored_vertex(pos2(x0 + dx, y0 + dy), c);
+            }
+            m.add_triangle(a, a + 1, a + 2);
+            m.add_triangle(a, a + 2, a + 3);
+        }
+    }
+    m
+}
+
 /// Room for both component columns, including units, without overflowing the title's width; with
 /// the frame and title the window fits Photoshop's (about 534 x 376 points).
 pub(crate) const CONTENT_WIDTH: f32 = 488.0;
@@ -469,7 +499,12 @@ fn color_field(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     let (fx, fy, fz) = locate(&mode, hsv, rgb, lab);
     // Colour field.
     let (field, resp) = ui.allocate_exact_size(vec2(FIELD, FIELD), Sense::click_and_drag());
-    ui.painter().add(grid_mesh(field, 32, |x, y| field_color(&mode, fz, x, y)));
+    let web_only = f.get("__webOnly").and_then(Value::as_bool).unwrap_or(false);
+    // Only Web Colors bands the field to the 216 web-safe colours, as in Photoshop (#4107).
+    let mesh = |rect: Rect, color: &dyn Fn(f32, f32) -> [f32; 3]| {
+        if web_only { flat_grid_mesh(rect, WEB_CELLS, |x, y| web_safe(color(x, y))) } else { grid_mesh(rect, 32, color) }
+    };
+    ui.painter().add(mesh(field, &|x, y| field_color(&mode, fz, x, y)));
     ui.painter().rect_stroke(field, 0.0, Stroke::new(1.0, t.field_border), StrokeKind::Outside);
     let marker = pos2(field.left() + fx * field.width(), field.top() + fy * field.height());
     ui.painter().circle_stroke(marker, 5.0, Stroke::new(1.5, if hsv[2] > 0.6 && hsv[1] < 0.4 { Color32::BLACK } else { Color32::WHITE }));
@@ -486,7 +521,7 @@ fn color_field(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     }
     // Component slider (hue runs 360° at the top to 0° at the bottom, like Photoshop).
     let (strip, sresp) = ui.allocate_exact_size(vec2(18.0, FIELD), Sense::click_and_drag());
-    ui.painter().add(grid_mesh(strip, 32, |_, y| slider_color(&mode, 1.0 - y, hsv, rgb, lab)));
+    ui.painter().add(mesh(strip, &|_, y| slider_color(&mode, 1.0 - y, hsv, rgb, lab)));
     let sy = strip.top() + (1.0 - fz) * strip.height();
     for (x, dir) in [(strip.left() - 1.0, 1.0f32), (strip.right() + 1.0, -1.0)] {
         let tri = vec![pos2(x, sy), pos2(x - 6.0 * dir, sy - 4.0), pos2(x - 6.0 * dir, sy + 4.0)];
@@ -766,6 +801,23 @@ mod tests {
     use egui_kittest::kittest::Queryable;
 
     use super::*;
+
+    /// #4107: with Only Web Colors on, the field is drawn in flat web-safe bands.
+    #[test]
+    fn web_only_field_is_flat_web_safe_bands() {
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(200.0, 200.0));
+        let m = flat_grid_mesh(rect, WEB_CELLS, |x, y| web_safe(field_color("h", 0.3, x, y)));
+        let ramp = [0u8, 51, 102, 153, 204, 255];
+        for v in &m.vertices {
+            assert!([v.color.r(), v.color.g(), v.color.b()].iter().all(|c| ramp.contains(c)), "{:?}", v.color);
+        }
+        // Each cell's four corners share one colour (no blending between bands).
+        for q in m.vertices.chunks(4) {
+            assert!(q.iter().all(|v| v.color == q[0].color));
+        }
+        let distinct: std::collections::HashSet<_> = m.vertices.iter().map(|v| v.color).collect();
+        assert!(distinct.len() > 1 && distinct.len() <= 216);
+    }
 
     fn picker(color: &str) -> Harness<'static, Map<String, Value>> {
         let mut f = Map::new();
