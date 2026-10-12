@@ -804,7 +804,8 @@ impl ViewXform {
     /// The main canvas's mapping for the active document as last laid out (inside the rulers).
     pub fn active(app: &PhotocraftApp) -> Option<Self> {
         let v = app.ui.views.get(app.session.active_index()?)?;
-        let (zoom, center) = if v.zoom_animating { v.display_camera.unwrap_or((v.zoom, v.center)) } else { (v.zoom, v.center) };
+        let (zoom, center) =
+            if v.zoom_animating && app.session.prefs().general.animated_zoom { v.display_camera.unwrap_or((v.zoom, v.center)) } else { (v.zoom, v.center) };
         Some(Self {
             rect: crate::rulers::content_rect(app, app.last_canvas_rect),
             zoom: zoom / app.canvas_ppp(),
@@ -897,7 +898,10 @@ pub fn fit_view(view: &mut View, doc: &Document, area: Vec2, ppp: f32, aspect: f
 }
 
 /// Ease a transient presentation camera over 220 ms without changing the requested camera.
-fn animated_view(view: &mut View, xf: ViewXform, ppp: f32, time: f64) -> View {
+fn animated_view(view: &mut View, xf: ViewXform, ppp: f32, animated_zoom: bool, time: f64) -> View {
+    if !animated_zoom {
+        view.request_zoom_animation(false);
+    }
     let target = (view.zoom, view.center);
     // Clamping, a canvas resize, or another camera command can make the original anchor
     // incompatible with the requested camera. The target must always win.
@@ -2674,7 +2678,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     let target_xf = ViewXform { rect, zoom: view.zoom / ppp, center: view.center, flip, rotation: view.rotation, aspect };
     let render_zoom = view.zoom;
     let render_visible = visible_doc_rect(&target_xf);
-    let mut display_view = animated_view(&mut view, target_xf, ppp, ctx.input(|i| i.time));
+    let mut display_view = animated_view(&mut view, target_xf, ppp, app.session.prefs().general.animated_zoom, ctx.input(|i| i.time));
     if primary && let Some(stored) = app.ui.views.get_mut(idx) {
         stored.zoom_animating = view.zoom_animating;
         stored.display_camera = view.display_camera;
@@ -3343,7 +3347,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                     let doc_anchor = xf.to_doc(p);
                     let screen_anchor = p;
                     zoom_about(&mut view, &xf, p, nz, center, ppp);
-                    view.zoom_animating = nz != display_view.zoom;
+                    view.request_zoom_animation(app.session.prefs().general.animated_zoom && nz != display_view.zoom);
                     view.zoom_anchor = (view.zoom_animating && !center).then_some((doc_anchor, [screen_anchor.x, screen_anchor.y]));
                 }
                 // A click with the (temporary) Hand does nothing, never the tool underneath.
@@ -7269,34 +7273,85 @@ mod zoom_animation_tests {
     }
 
     #[test]
+    fn disabling_animated_zoom_snaps_a_secondary_canvas_on_its_next_frame() {
+        let ctx = egui::Context::default();
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width": 400, "height": 300})).unwrap();
+        app.sync_views();
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0));
+        let mut secondary = view();
+        let frame = |app: &mut PhotocraftApp, view: View, time: f64| {
+            let input = egui::RawInput { screen_rect: Some(rect), time: Some(time), ..Default::default() };
+            let mut shown = view.clone();
+            let mut out = ctx.run_ui(input, |ui| {
+                shown = canvas_view(app, ui, 0, rect, view.clone(), false);
+            });
+            out.textures_delta.clear();
+            shown
+        };
+        secondary = frame(&mut app, secondary, 0.0);
+        secondary.zoom = 2.0;
+        secondary.request_zoom_animation(true);
+        secondary = frame(&mut app, secondary, 0.01);
+        secondary = frame(&mut app, secondary, 0.12);
+        assert!(secondary.zoom_animating);
+        assert!(secondary.display_camera.unwrap().0 < secondary.zoom);
+        app.run("prefs.set", serde_json::json!({"values": {"general.animatedZoom": false}})).unwrap();
+        secondary = frame(&mut app, secondary, 0.13);
+        assert_eq!(secondary.display_camera, Some((secondary.zoom, secondary.center)));
+        assert_eq!(secondary.zoom, 2.0);
+        assert!(!secondary.zoom_animating && secondary.zoom_transition.is_none() && secondary.zoom_anchor.is_none());
+    }
+
+    #[test]
+    fn animated_zoom_off_cancels_each_views_presentation_camera() {
+        for target in [(2.0, [210.0, 170.0]), (3.0, [250.0, 180.0])] {
+            let mut v = view();
+            let xf = camera(&v);
+            animated_view(&mut v, xf, 1.0, true, 0.0);
+            v.zoom = target.0;
+            v.center = target.1;
+            v.request_zoom_animation(true);
+            animated_view(&mut v, xf, 1.0, true, 0.0);
+            let halfway = animated_view(&mut v, xf, 1.0, true, 0.11);
+            assert_ne!((halfway.zoom, halfway.center), target);
+            v.zoom_anchor = Some(([200.0, 150.0], [500.0, 350.0]));
+            let shown = animated_view(&mut v, xf, 1.0, false, 0.11);
+            assert_eq!((shown.zoom, shown.center), target);
+            assert_eq!(v.display_camera, Some(target));
+            assert!(!v.zoom_animating && v.zoom_anchor.is_none() && v.zoom_transition.is_none());
+        }
+    }
+
+    #[test]
     fn zoom_animation_obeys_clamped_targets_and_eases_recentering() {
         let mut v = view();
         let xf = camera(&v);
-        animated_view(&mut v, xf, 1.0, 0.0);
+        animated_view(&mut v, xf, 1.0, true, 0.0);
         let pointer = xf.to_screen(390.0, 150.0);
         zoom_about(&mut v, &xf, pointer, 2.0, false, 1.0);
         v.zoom_anchor = Some(([390.0, 150.0], [pointer.x, pointer.y]));
         v.zoom_animating = true;
         crate::scrollbars::clamp_view(&mut v, xf.rect.size(), 1.0);
         let xf = camera(&v);
-        animated_view(&mut v, xf, 1.0, 0.0);
+        animated_view(&mut v, xf, 1.0, true, 0.0);
         assert!(v.zoom_anchor.is_none());
-        let done = animated_view(&mut v, xf, 1.0, 0.22);
+        let done = animated_view(&mut v, xf, 1.0, true, 0.22);
         assert_eq!((done.zoom, done.center), (v.zoom, v.center));
         assert!(!v.zoom_animating);
 
         let mut v = view();
         let xf = camera(&v);
-        animated_view(&mut v, xf, 1.0, 0.0);
+        animated_view(&mut v, xf, 1.0, true, 0.0);
         zoom_about(&mut v, &xf, pointer, 2.0, true, 1.0);
         v.zoom_animating = true;
         let target = v.center;
         let xf = camera(&v);
-        let start = animated_view(&mut v, xf, 1.0, 0.0);
+        let start = animated_view(&mut v, xf, 1.0, true, 0.0);
         assert_eq!(start.center, [200.0, 150.0], "recentering must not teleport");
-        let halfway = animated_view(&mut v, xf, 1.0, 0.11);
+        let halfway = animated_view(&mut v, xf, 1.0, true, 0.11);
         assert!(halfway.center[0] > start.center[0] && halfway.center[0] < target[0]);
-        assert_eq!(animated_view(&mut v, xf, 1.0, 0.22).center, target);
+        assert_eq!(animated_view(&mut v, xf, 1.0, true, 0.22).center, target);
     }
 
     #[test]
@@ -7304,21 +7359,21 @@ mod zoom_animation_tests {
         let mut a = view();
         let mut b = view();
         let xf = camera(&a);
-        animated_view(&mut a, xf, 1.0, 0.0);
-        animated_view(&mut b, xf, 1.0, 0.0);
+        animated_view(&mut a, xf, 1.0, true, 0.0);
+        animated_view(&mut b, xf, 1.0, true, 0.0);
         a.zoom = 2.0;
         a.zoom_animating = true;
-        animated_view(&mut a, xf, 1.0, 0.0);
+        animated_view(&mut a, xf, 1.0, true, 0.0);
         b.zoom = 3.0;
         b.zoom_animating = true;
-        animated_view(&mut b, xf, 1.0, 0.11);
-        assert_eq!(animated_view(&mut a, xf, 1.0, 0.22).zoom, 2.0);
-        let shown = animated_view(&mut b, xf, 1.0, 0.22);
+        animated_view(&mut b, xf, 1.0, true, 0.11);
+        assert_eq!(animated_view(&mut a, xf, 1.0, true, 0.22).zoom, 2.0);
+        let shown = animated_view(&mut b, xf, 1.0, true, 0.22);
         assert!(shown.zoom > 1.0 && shown.zoom < 3.0);
         assert!(b.zoom_animating && !a.zoom_animating);
         b.zoom_animating = false;
         b.center = [220.0, 170.0];
-        let shown = animated_view(&mut b, xf, 1.0, 0.23);
+        let shown = animated_view(&mut b, xf, 1.0, true, 0.23);
         assert_eq!((shown.zoom, shown.center), (b.zoom, b.center));
         assert!(b.zoom_transition.is_none() && b.zoom_anchor.is_none());
     }

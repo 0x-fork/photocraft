@@ -499,6 +499,19 @@ pub(crate) struct ZoomTransition {
     pub started: f64,
 }
 
+impl View {
+    /// Start a discrete zoom only when Animated Zoom is enabled; otherwise discard the
+    /// presentation camera so the requested camera takes effect immediately.
+    pub(crate) fn request_zoom_animation(&mut self, enabled: bool) {
+        self.zoom_animating = enabled;
+        self.zoom_anchor = None;
+        if !enabled {
+            self.zoom_transition = None;
+            self.display_camera = Some((self.zoom, self.center));
+        }
+    }
+}
+
 impl Default for View {
     fn default() -> Self {
         Self {

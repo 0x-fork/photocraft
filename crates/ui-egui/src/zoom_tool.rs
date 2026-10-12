@@ -197,6 +197,71 @@ mod tests {
     }
 
     #[test]
+    fn animated_zoom_off_click_jumps_to_the_anchored_target() {
+        let mut h = harness(true, 1.0);
+        h.state_mut()
+            .run("prefs.set", json!({"values": {"general.animatedZoom": false, "tools.zoomClickedPointToCenter": false, "tools.overscroll": true}}))
+            .unwrap();
+        let pointer = h.state().last_canvas_rect.center() + vec2(90.0, -45.0);
+        let anchor = view_xf(&h).to_doc(pointer);
+        let start = h.state().current_zoom();
+        h.event(Event::PointerMoved(pointer));
+        h.step();
+        press(&mut h, pointer, true);
+        press(&mut h, pointer, false);
+        let target = crate::zoom_levels::step(start, 1, [400, 300]);
+        let v = &h.state().ui.views[0];
+        assert_eq!(v.zoom, target);
+        assert_eq!(view_xf(&h).zoom, target);
+        assert!(!v.zoom_animating && v.zoom_anchor.is_none() && v.zoom_transition.is_none());
+        assert!(view_xf(&h).to_screen(anchor[0] as f32, anchor[1] as f32).distance(pointer) < 0.5);
+    }
+
+    #[test]
+    fn animated_zoom_off_view_commands_show_the_target_on_the_first_frame() {
+        for command in
+            ["view.zoomIn", "view.zoomOut", "view.actualPixels", "view.fitOnScreen", "view.twoHundredPercent", "view.printSize", "view.fitLayersOnScreen"]
+        {
+            let mut h = harness(true, 1.0);
+            h.state_mut().run("prefs.set", json!({"values": {"general.animatedZoom": false}})).unwrap();
+            if crate::view_cmds::handles(command) {
+                crate::view_cmds::invoke(h.state_mut(), &egui::Context::default(), command, &json!({})).unwrap().unwrap();
+            } else {
+                h.state_mut().run(command, json!({})).unwrap();
+            }
+            assert!(!h.state().ui.views[0].zoom_animating, "{command}");
+            h.step();
+            let v = &h.state().ui.views[0];
+            let xf = view_xf(&h);
+            assert_eq!((xf.zoom, xf.center), (v.zoom, v.center), "{command}");
+            assert!(v.zoom_anchor.is_none() && v.zoom_transition.is_none(), "{command}");
+        }
+    }
+
+    #[test]
+    fn disabling_animated_zoom_during_a_transition_snaps_and_does_not_resume() {
+        let mut h = harness(true, 1.0);
+        h.state_mut().run("view.zoomIn", json!({})).unwrap();
+        h.step();
+        let time = h.ctx.input(|i| i.time) + 0.11;
+        h.input_mut().time = Some(time);
+        h.step();
+        assert!(h.state().ui.views[0].zoom_animating);
+        let target = (h.state().ui.views[0].zoom, h.state().ui.views[0].center);
+        assert_ne!(view_xf(&h).zoom, target.0);
+        h.state_mut().run("prefs.set", json!({"values": {"general.animatedZoom": false}})).unwrap();
+        assert_eq!((view_xf(&h).zoom, view_xf(&h).center), target, "pointer mapping switches immediately");
+        h.step();
+        let v = &h.state().ui.views[0];
+        assert!(!v.zoom_animating && v.zoom_anchor.is_none() && v.zoom_transition.is_none());
+        assert_eq!((view_xf(&h).zoom, view_xf(&h).center), target);
+        h.state_mut().run("prefs.set", json!({"values": {"general.animatedZoom": true}})).unwrap();
+        h.step();
+        assert!(!h.state().ui.views[0].zoom_animating);
+        assert_eq!((view_xf(&h).zoom, view_xf(&h).center), target);
+    }
+
+    #[test]
     fn discrete_zoom_animates_and_keeps_its_document_anchor_fixed() {
         let mut h = harness(true, 1.0);
         let r = h.state().last_canvas_rect;
@@ -285,6 +350,18 @@ mod tests {
         }
         assert!(!h.state().ui.views[0].zoom_animating);
         assert_eq!(view_xf(&h).zoom, target);
+        h.state_mut().run("prefs.set", json!({"values": {"general.animatedZoom": false}})).unwrap();
+        h.state_mut().run("view.zoomIn", json!({})).unwrap();
+        h.state_mut().perf.last_refresh = "";
+        h.step();
+        assert_eq!(view_xf(&h).zoom, h.state().current_zoom());
+        assert!(!h.state().ui.views[0].zoom_animating);
+        assert!(h.state().perf.gpu);
+        assert_eq!(h.state().perf.last_refresh, "", "immediate zoom reuses the GPU composite");
+        let image = h.render().unwrap();
+        if let Some(directory) = &directory {
+            image.save(directory.join("photocraft-zoom-disabled.png")).unwrap();
+        }
     }
 
     #[test]

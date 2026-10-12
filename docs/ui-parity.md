@@ -164,7 +164,7 @@ Triangle and Curvature Pen (minus legacy Rounded Rectangle and Targeted Adjustme
 | Hold any tool letter for a temporary tool | missing | #2672 |
 | Scrubby zoom | done | `zoom_tool.rs` |
 | Flick panning | done | `flick_pan.rs` (Preferences › Tools › Enable Flick Panning) |
-| Animated zoom | done | `canvas.rs`, `zoom_tool.rs`; #566; discrete Zoom clicks and View zoom controls ease over 220 ms by default, with anchored transitions and immediate direct navigation; the existing preference remains hidden |
+| Animated zoom | done | `canvas.rs`, `zoom_tool.rs`; #566; discrete Zoom clicks and View zoom controls ease over 220 ms by default, with anchored transitions and immediate direct navigation; General › Animated Zoom (default on) controls transitions; off snaps immediately, including when disabled mid-transition |
 | Double-click Zoom tool = 100%, double-click Hand = fit | partial | Zoom missing (#2508) |
 | ⌥-wheel zoom in gentle steps | missing | UI-217-18 |
 | Wheel, smooth scrolling and pinch as in Photoshop | partial | #2485, #2463, #1989 |
@@ -220,3 +220,4 @@ Paragraph; the rest open as in-app floating windows.
 | 2026-10-11 | minor | ⇧-drag a guide out of a ruler lands on the nearest ruler tick (#3770) |
 | 2026-10-11 | minor | Layer and selection keys from Photoshop's shortcut set: ⌘, toggles, ⌘\, /, ⌘⌥2, ⌘⌥⌫, Tab rename-next, ⌥-click thumbnail to fit |
 | 2026-10-11 | minor | Tool keys from Photoshop's shortcut set: ← / → rotate the brush tip, ⇧-click for new type, Space+F canvas colour |
+| 2026-10-12 | minor | General › Animated Zoom is visible and gates every discrete zoom transition; disabling it snaps all views to their target on the next frame |
