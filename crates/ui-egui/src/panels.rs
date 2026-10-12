@@ -3859,6 +3859,7 @@ fn fx_drop(ctx: &egui::Context, ui: &egui::Ui, l: &Layer, rect: Rect, actions: &
 /// on "Effects" shows or hides them all, the eye on an effect's row just that one (#1622).
 fn effect_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, l: &Layer, depth: usize, actions: &mut Vec<(String, Value)>) {
     let t = Tokens::get(ui.ctx());
+    let (row_height, _, eye_size, font_size) = crate::smart_ui::smart_filter_row_geometry(app.ui.layers_panel_options.thumbnail_size, t.pro);
     let indent = 30.0 + depth as f32 * 14.0 + 34.0;
     let mut rows: Vec<(String, bool, Option<&'static str>)> = vec![("Effects".into(), l.effects.enabled, None)];
     for e in &l.effects.items {
@@ -3866,7 +3867,7 @@ fn effect_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, l: &Layer, depth: usi
         rows.push((e.label().to_string(), e.enabled(), kind));
     }
     for (i, (name, on, kind)) in rows.into_iter().enumerate() {
-        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click_and_drag());
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_height), Sense::click_and_drag());
         // Drag the row onto another layer to move its effects there, ⌥-drag to copy them.
         if resp.drag_started() {
             start_fx_drag(ui.ctx(), l.id, i.checked_sub(1));
@@ -3883,7 +3884,7 @@ fn effect_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, l: &Layer, depth: usi
         let eye = Rect::from_min_size(pos2(rect.left() + 6.0, rect.center().y - 9.0), vec2(18.0, 18.0));
         // A hidden effect's eye box is left empty (still clickable), like a hidden layer's.
         if on {
-            icons::paint(ui, eye, "eye", 12.0, t.icon);
+            icons::paint(ui, eye, "eye", eye_size, t.icon);
         }
         // The whole eye column of the row takes the click, so it never opens the Layer Style dialog.
         let eye_cell = Rect::from_min_max(rect.left_top(), pos2((rect.left() + 30.0).min(rect.right()), rect.bottom()));
@@ -3905,7 +3906,7 @@ fn effect_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, l: &Layer, depth: usi
             rect.center().y,
             right,
             &name,
-            egui::FontId::proportional(11.5),
+            egui::FontId::proportional(font_size),
             if on { t.text_dim } else { t.text_faint },
         );
         resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name.clone()));
