@@ -30,14 +30,24 @@ fn compress(data: &[u8]) -> Vec<u8> {
     ruzstd::encoding::compress_to_vec(data, ruzstd::encoding::CompressionLevel::Fastest)
 }
 
-fn decompress(data: &[u8], expected: usize, what: &str) -> Result<Vec<u8>> {
-    let mut dec = ruzstd::decoding::StreamingDecoder::new(data).map_err(|e| FormatError::corrupt(format!("{what}: zstd: {e}")))?;
-    let mut out = Vec::with_capacity(expected.min(64 << 20));
-    (&mut dec).take(expected as u64 + 1).read_to_end(&mut out).map_err(|e| FormatError::corrupt(format!("{what}: zstd: {e}")))?;
-    if out.len() != expected {
-        return Err(FormatError::corrupt(format!("{what}: expected {expected} bytes, got {}", out.len())));
+/// Decodes a zstd frame of at most `max` bytes (`LimitExceeded` beyond). With `exact`, the
+/// decoded length must be exactly that (`Corrupt` otherwise).
+fn decompress_bounded(data: &[u8], max: usize, exact: Option<usize>, what: &str) -> Result<Vec<u8>> {
+    let zstd = |e: &dyn std::fmt::Display| FormatError::corrupt(format!("{what}: zstd: {e}"));
+    let mut dec = ruzstd::decoding::StreamingDecoder::new(data).map_err(|e| zstd(&e))?;
+    let mut out = Vec::with_capacity(exact.unwrap_or(0).min(max).min(64 << 20));
+    // `max` may be `usize::MAX`: one byte past it must not overflow.
+    let limit = u64::try_from(max).unwrap_or(u64::MAX).saturating_add(1);
+    (&mut dec).take(limit).read_to_end(&mut out).map_err(|e| zstd(&e))?;
+    match exact {
+        Some(n) if out.len() != n => Err(FormatError::corrupt(format!("{what}: expected {n} bytes, got {}", out.len()))),
+        None if out.len() > max => Err(FormatError::LimitExceeded(format!("{what} exceeds {max} bytes"))),
+        _ => Ok(out),
     }
-    Ok(out)
+}
+
+fn decompress(data: &[u8], expected: usize, what: &str) -> Result<Vec<u8>> {
+    decompress_bounded(data, expected, Some(expected), what)
 }
 
 fn hash_bytes(b: &[u8]) -> Hash {
@@ -228,12 +238,7 @@ impl Fetch for LoadFetch<'_> {
         let z = self.src.get(&path, self.opts.max_blob_bytes)?;
         // Blob length is not in the manifest; the frame header bounds it and
         // we cap at max_blob_bytes.
-        let mut dec = ruzstd::decoding::StreamingDecoder::new(&z[..]).map_err(|e| FormatError::corrupt(format!("{path}: zstd: {e}")))?;
-        let mut data = Vec::new();
-        (&mut dec).take(self.opts.max_blob_bytes as u64 + 1).read_to_end(&mut data).map_err(|e| FormatError::corrupt(format!("{path}: zstd: {e}")))?;
-        if data.len() > self.opts.max_blob_bytes {
-            return Err(FormatError::LimitExceeded(format!("{path} exceeds max_blob_bytes")));
-        }
+        let data = decompress_bounded(&z, self.opts.max_blob_bytes, None, &path)?;
         self.account(data.len())?;
         if hash_bytes(&data) != hash {
             return Err(FormatError::corrupt(format!("{path}: content does not match its hash")));
@@ -313,13 +318,7 @@ impl Sink for Collect<'_> {
             self.tiles.entry(h.clone()).or_insert_with(|| (tile.clone(), format.sample));
             return h;
         }
-        let h = if cfg!(target_endian = "big") {
-            let mut b = tile.bytes().to_vec();
-            swap_to_le(&mut b, format.sample);
-            hash_bytes(&b)
-        } else {
-            hash_bytes(tile.bytes())
-        };
+        let h = hash_bytes(&tile_le(tile, format.sample));
         if let Some(cache) = self.hash_cache.as_deref_mut() {
             cache.insert(key, (Arc::downgrade(tile), h.clone()));
         }
@@ -414,19 +413,21 @@ enum Object {
 
 impl Object {
     fn compressed(&self) -> Vec<u8> {
-        match self {
-            Object::Tile(t, s) => compress(&tile_le(t, *s)),
-            Object::Blob(b) => compress(b),
-        }
+        compress(&self.content())
     }
 
-    fn matches_content_hash(&self, compressed: &[u8], what: &str) -> bool {
-        let expected = match self {
+    /// The bytes this object stores (tiles little-endian).
+    fn content(&self) -> std::borrow::Cow<'_, [u8]> {
+        match self {
             Object::Tile(tile, sample) => tile_le(tile, *sample),
             Object::Blob(blob) => std::borrow::Cow::Borrowed(blob.as_slice()),
-        };
-        decompress(compressed, expected.len(), what).is_ok_and(|actual| hash_bytes(&actual) == hash_bytes(&expected))
+        }
     }
+}
+
+/// Whether `compressed` decodes to exactly `expected`.
+fn content_matches(expected: &[u8], compressed: &[u8], what: &str) -> bool {
+    decompress(compressed, expected.len(), what).is_ok_and(|actual| hash_bytes(&actual) == hash_bytes(expected))
 }
 
 fn file_signature(metadata: &std::fs::Metadata) -> Option<FileSignature> {
@@ -587,10 +588,8 @@ fn existing_object_is_valid(path: &Path, object: &Object, what: &str) -> Result<
     }
     let signature = file_signature(&metadata);
 
-    let expected_len = match object {
-        Object::Tile(tile, sample) => tile_le(tile, *sample).len(),
-        Object::Blob(blob) => blob.len(),
-    };
+    let expected = object.content();
+    let expected_len = expected.len();
     // This is the same bound used by the tile loader. It comfortably includes
     // zstd framing overhead while keeping damaged files bounded when inspected.
     let max_compressed_len = expected_len.saturating_add(expected_len / 8).saturating_add(4096);
@@ -604,7 +603,7 @@ fn existing_object_is_valid(path: &Path, object: &Object, what: &str) -> Result<
     if compressed.len() > max_compressed_len {
         return Ok((false, None));
     }
-    Ok((object.matches_content_hash(&compressed, what), signature))
+    Ok((content_matches(&expected, &compressed, what), signature))
 }
 
 /// A bundle path and its compressed bytes.
