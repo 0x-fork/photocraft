@@ -415,8 +415,9 @@ pub struct LiveStroke {
     symmetry: Option<crate::symmetry_cmds::PaintingSymmetry>,
     mirrors: Vec<StrokeRenderer>,
     mirror_distinct: Vec<bool>,
-    /// Restore passes separately; their union may span an otherwise untouched document.
-    symmetry_regions: Vec<Rect>,
+    /// What the symmetric preview drew last, once a mirror differs from the stroke, and how many
+    /// passes it merged (a mirror joining redraws every tile).
+    union_live: Option<(photocraft_paint::UnionLive, usize)>,
     pre: Surface,
     sel: Option<Surface>,
     lock: bool,
@@ -508,7 +509,7 @@ impl LiveStroke {
             symmetry,
             mirrors,
             mirror_distinct,
-            symmetry_regions: Vec::new(),
+            union_live: None,
             pre,
             sel,
             lock,
@@ -567,33 +568,27 @@ impl LiveStroke {
             }
             let (surf, _) = crate::channel_cmds::target_surface(std::sync::Arc::make_mut(&mut self.doc), self.layer, &self.params)?;
             if self.mirror_distinct.iter().any(|d| *d) {
-                // Merge every finished pass once, both here and on commit, including shared axes.
+                // The stroke and its distinct mirrors composite as one stroke, as the commit
+                // merges them; only the tiles that changed are redrawn.
                 let old = self.tail;
-                let mut original_preview = self.renderer.clone();
-                original_preview.finish();
-                let copies: Vec<_> = self
-                    .mirrors
-                    .iter()
-                    .zip(&self.mirror_distinct)
-                    .filter(|(_, d)| **d)
-                    .map(|(r, _)| {
-                        let mut r = r.clone();
-                        r.finish();
-                        r
-                    })
+                let passes = 1 + self.mirror_distinct.iter().filter(|d| **d).count();
+                let (mut live, full, mut dmg) = match self.union_live.take() {
+                    Some((live, merged)) => (live, merged != passes, Rect::EMPTY),
+                    None => {
+                        // Leaving the single-pass preview: take its smoothing tail back first.
+                        if !old.is_empty() {
+                            surf.write_region(old, &self.pre.read_region(old));
+                        }
+                        (photocraft_paint::UnionLive::default(), true, old)
+                    }
+                };
+                let mut renderers: Vec<&mut StrokeRenderer> = std::iter::once(&mut self.renderer)
+                    .chain(self.mirrors.iter_mut().zip(&self.mirror_distinct).filter(|(_, d)| **d).map(|(r, _)| r))
                     .collect();
-                let bounds = copies.iter().fold(original_preview.bounds().union(&old), |b, r| b.union(&r.bounds()));
-                if self.symmetry_regions.is_empty() && !old.is_empty() {
-                    surf.write_region(old, &self.pre.read_region(old));
-                }
-                for region in &self.symmetry_regions {
-                    surf.write_region(*region, &self.pre.read_region(*region));
-                }
-                self.symmetry_regions =
-                    std::iter::once(original_preview.bounds()).chain(copies.iter().map(StrokeRenderer::bounds)).filter(|r| !r.is_empty()).collect();
-                let damage = original_preview.composite_union_many(&copies, &self.pre, surf, self.sel.as_ref(), self.lock);
-                self.tail = bounds;
-                return Ok(damage.union(&bounds));
+                dmg = dmg.union(&StrokeRenderer::composite_union_live(&mut renderers, &mut live, full, &self.pre, surf, self.sel.as_ref(), self.lock));
+                self.tail = old.union(&live.bounds());
+                self.union_live = Some((live, passes));
+                return Ok(dmg);
             }
             let mut dmg = Rect::EMPTY;
             let old = std::mem::replace(&mut self.tail, Rect::EMPTY);

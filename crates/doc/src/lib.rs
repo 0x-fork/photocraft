@@ -636,6 +636,13 @@ pub struct Layer {
 }
 
 impl Layer {
+    /// Whether the layer has the Background's own properties: an unclipped pixel layer with
+    /// transparency and position locked. Only the bottom layer of a document with them is the
+    /// Background: use [`Document::background`] / [`Document::is_background`] to identify it.
+    pub fn has_background_traits(&self) -> bool {
+        self.locks.transparency && self.locks.position && !self.clipped && matches!(self.content, LayerContent::Raster(_))
+    }
+
     pub fn new(name: impl Into<String>, content: LayerContent) -> Self {
         Layer {
             id: LayerId::fresh(),
@@ -875,6 +882,32 @@ pub struct Document {
     pub variables: Variables,
     /// Window › Timeline (None until a video timeline is created).
     pub timeline: Option<Timeline>,
+    /// How the document's lossy file was encoded (its JPEG quality, WebP lossy or lossless), so
+    /// a save writes it back the same way rather than at fixed defaults.
+    pub file_encoding: FileEncoding,
+}
+
+/// The encoder settings a document's file was opened or saved with: what File › Save and the
+/// Save As defaults reuse for that format. Empty for a new document or a file without lossy
+/// options. Qualities are on the codecs' 1–100 scale.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct FileEncoding {
+    /// JPEG quality (estimated from the file's quantisation tables on open).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jpeg_quality: Option<u8>,
+    /// WebP: `Some(true)` lossless (VP8L), `Some(false)` lossy (VP8 at [`Self::webp_quality`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub webp_lossless: Option<bool>,
+    /// Lossy WebP quality.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub webp_quality: Option<u8>,
+}
+
+impl FileEncoding {
+    pub fn is_empty(&self) -> bool {
+        *self == FileEncoding::default()
+    }
 }
 
 /// Where a layer lives in the tree: indices from the root down.
@@ -913,6 +946,7 @@ impl Document {
             slices: Slices::default(),
             variables: Variables::default(),
             timeline: None,
+            file_encoding: FileEncoding::default(),
         }
     }
 
@@ -1011,6 +1045,25 @@ impl Document {
     /// [`Self::locks_at`] for the layer `id`.
     pub fn effective_locks(&self, id: LayerId) -> Locks {
         self.path_of(id).map_or_else(Locks::default, |p| self.locks_at(&p))
+    }
+
+    /// The Background layer, identified structurally as Photoshop does, never by its name (a file
+    /// from a German or Japanese Photoshop names it "Hintergrund" or "背景"): the bottom layer of
+    /// the stack, a pixel layer that is not clipped, with transparency and position locked (a PSD
+    /// stores it without a transparency channel and transparency-protected; File › New and opaque
+    /// flat files create it the same way).
+    pub fn background(&self) -> Option<&Layer> {
+        self.layers.first().filter(|l| Layer::has_background_traits(l))
+    }
+
+    /// [`Self::background`], mutably.
+    pub fn background_mut(&mut self) -> Option<&mut Layer> {
+        self.layers.first_mut().filter(|l| Layer::has_background_traits(l))
+    }
+
+    /// Whether `id` is the document's Background layer ([`Self::background`]).
+    pub fn is_background(&self, id: LayerId) -> bool {
+        self.background().is_some_and(|b| b.id == id)
     }
 
     pub fn layer(&self, id: LayerId) -> Option<&Layer> {
@@ -1176,6 +1229,30 @@ mod tests {
         assert_eq!(s.pixel(0, 0), vec![1.0, 1.0, 1.0, 1.0]);
         assert_eq!(s.pixel(99, 49), vec![1.0, 1.0, 1.0, 1.0]);
         assert_eq!(s.pixel(100, 0), vec![0.0; 4]);
+    }
+
+    /// The Background is the locked bottom pixel layer, whatever it is called.
+    #[test]
+    fn background_is_structural_not_named() {
+        let mut d = doc();
+        let id = d.layers[0].id;
+        assert!(d.is_background(id));
+        for name in ["Hintergrund", "背景", "Arrière-plan"] {
+            d.layers[0].name = name.into();
+            assert_eq!(d.background().map(|l| l.id), Some(id), "{name}");
+        }
+        // A layer called "Background" without the locks, or above the bottom, is not it.
+        let mut top = Layer::raster("Background", d.pixel_format());
+        top.locks.transparency = true;
+        top.locks.position = true;
+        let top_id = top.id;
+        d.layers.push(top);
+        assert!(!d.is_background(top_id));
+        d.layers[0].locks.position = false;
+        assert!(d.background().is_none());
+        d.layers[0].locks.position = true;
+        d.layers[0].clipped = true;
+        assert!(d.background_mut().is_none());
     }
 
     #[test]
