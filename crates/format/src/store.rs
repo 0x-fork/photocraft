@@ -244,8 +244,24 @@ impl Fetch for LoadFetch<'_> {
     }
 }
 
+/// Refuses a declared canvas outside `opts`' budget before anything is decoded for it (#2935).
+fn admit_canvas(size: photocraft_geom::Size, opts: &LoadOptions) -> Result<()> {
+    let (w, h) = (size.width, size.height);
+    if w == 0 || h == 0 {
+        return Err(FormatError::corrupt(format!("canvas size {w}x{h} is empty")));
+    }
+    if w > opts.max_canvas_side || h > opts.max_canvas_side {
+        return Err(FormatError::LimitExceeded(format!("canvas {w}x{h} exceeds {} pixels per side", opts.max_canvas_side)));
+    }
+    if size.area() > opts.max_canvas_pixels {
+        return Err(FormatError::LimitExceeded(format!("canvas {w}x{h} exceeds {} pixels", opts.max_canvas_pixels)));
+    }
+    Ok(())
+}
+
 pub(crate) fn load(src: &dyn ByteSource, opts: &LoadOptions) -> Result<Document> {
     let m = read_manifest(src, opts)?;
+    admit_canvas(m.document.size, opts)?;
     let mut fetch = LoadFetch { src, opts: *opts, total: 0, blobs: HashMap::new() };
     let mut loader = Loader {
         fetch: &mut fetch,
@@ -253,6 +269,7 @@ pub(crate) fn load(src: &dyn ByteSource, opts: &LoadOptions) -> Result<Document>
         id_map: HashMap::new(),
         contents_id_map: HashMap::new(),
         legacy_linked_contents: HashMap::new(),
+        tiles: HashMap::new(),
     };
     loader.document(&m.document)
 }
@@ -663,10 +680,14 @@ impl PcraftWriter {
             }
         }
         write_atomic(&dir.join(MANIFEST), &p.manifest)?;
+        // The manifest is committed: the save has succeeded. Removing objects it no longer
+        // references is best-effort housekeeping (a vanished or locked file must not turn a
+        // complete save into a reported failure); a leftover is retried on the next save.
         for path in existing {
             if !p.objects.contains_key(&path) {
-                std::fs::remove_file(dir.join(&path))?;
-                stats.objects_removed += 1;
+                if std::fs::remove_file(dir.join(&path)).is_ok() {
+                    stats.objects_removed += 1;
+                }
                 if let Some(cache) = &mut self.verified_directory {
                     cache.objects.remove(&path);
                 }

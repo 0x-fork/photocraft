@@ -795,6 +795,73 @@ mod tests {
         assert!(code.starts_with("a\n") && code.ends_with("\nc"), "{code}");
     }
 
+    #[test]
+    fn czech_status_templates_preserve_details_and_plural_counts() {
+        let cs = CS();
+        let template = "Step {step} ({id}) failed: {error}";
+        let args = [("step", "2"), ("id", "file.export"), ("error", "disk full: /tmp/image.psd")];
+        assert_eq!(fmt(tr(cs, template), &args), "Krok 2 (file.export) selhal: disk full: /tmp/image.psd");
+        assert_eq!(fmt(tr(Lang::EN, template), &args), "Step 2 (file.export) failed: disk full: /tmp/image.psd");
+        // Languages without these dynamic templates keep the English source.
+        assert_eq!(tr(JA(), template), template);
+        for (n, expected) in [(0, "Odstraněno 0 bodů měření"), (1, "Odstraněn 1 bod měření"), (2, "Odstraněny 2 body měření"), (5, "Odstraněno 5 bodů měření")]
+        {
+            assert_eq!(trn(cs, n, "{n} sample point removed", "{n} sample points removed"), expected);
+        }
+        let one = "Imported {n} swatch from {file}";
+        let other = "Imported {n} swatches from {file}";
+        assert_eq!(fmt(&trn(cs, 3, one, other), &[("file", "English name.aco")]), "Importovány 3 vzorky ze souboru English name.aco");
+        assert_eq!(tr(cs, "Preferences can't be saved"), "Předvolby nelze uložit");
+    }
+
+    #[test]
+    fn czech_dialog_and_hardware_labels_preserve_names() {
+        let cs = CS();
+        for label in [
+            "New Crop Preset…",
+            "Delete Crop Preset…",
+            "Color Picker (Background Color)",
+            "Color Picker (Foreground Color)",
+            "Pro (Medium Gray)",
+            "Grid view",
+            "List view",
+            "Scroll menu up",
+            "Scroll menu down",
+            "Commit transform",
+            "Cancel transform",
+        ] {
+            assert_ne!(tr(cs, label), label, "{label}");
+        }
+        for kind in [
+            crate::rasterize_prompt::Kind::Type,
+            crate::rasterize_prompt::Kind::Shape,
+            crate::rasterize_prompt::Kind::SmartObject,
+            crate::rasterize_prompt::Kind::Fill,
+        ] {
+            assert_ne!(tr(cs, kind.message()), kind.message());
+        }
+        assert_eq!(fmt(tr(cs, "Driver: {driver}"), &[("driver", "Mesa 25.0")]), "Ovladač: Mesa 25.0");
+        assert_eq!(
+            fmt(tr(cs, "Monitor profile on {display}: {profile}"), &[("display", "DELL U2720Q"), ("profile", "sRGB IEC61966-2.1")]),
+            "Profil monitoru DELL U2720Q: sRGB IEC61966-2.1"
+        );
+    }
+
+    #[test]
+    fn czech_composed_labels_use_context_and_preserve_document_names() {
+        let cs = CS();
+        assert_eq!(tr(cs, "Zoom"), "Lupa");
+        assert_eq!(tr_ctx(cs, "navigator", "Zoom"), "Zvětšení");
+        assert_eq!(tr_ctx(Lang::EN, "navigator", "Zoom"), "Zoom");
+        let template = "Data Set: {name}  ({index}/{total})";
+        assert_eq!(fmt(tr(cs, template), &[("name", "Data Set 1"), ("index", "1"), ("total", "2")]), "Datová sada: Data Set 1  (1/2)");
+        for (n, expected) in
+            [(1, "Importován 1 přechod ze souboru Sunset"), (3, "Importovány 3 přechody ze souboru Sunset"), (5, "Importováno 5 přechodů ze souboru Sunset")]
+        {
+            assert_eq!(fmt(&trn(cs, n, "Imported {n} gradient from {file}", "Imported {n} gradients from {file}"), &[("file", "Sunset")]), expected);
+        }
+    }
+
     /// Every `tl!("literal")` in the shell has an entry in each language that claims complete menus
     /// (so a new label can't ship untranslated by accident). Literals that are deliberately shown as
     /// they are (names, units) are listed in `KEEP_AS_IS`.

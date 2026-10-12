@@ -638,6 +638,29 @@ fn is_pro(theme: ThemeKind) -> bool {
     theme.is_pro()
 }
 
+#[test]
+fn theme_switch_keeps_the_selected_color_group_panel() {
+    use egui_kittest::kittest::Queryable;
+
+    for theme in ThemeKind::ALL {
+        for (tab, name) in Group::Color.tabs(true).iter().enumerate() {
+            let (mut app, _, _) = app_with_layers();
+            app.ui.dock_tabs.color = tab;
+            let mut h = harness(app, vec2(1200.0, 900.0), ThemeKind::Pro);
+            let ctx = h.ctx.clone();
+            h.state_mut().set_theme(&ctx, theme);
+            h.run_steps(4);
+            assert_eq!(Group::Color.tabs(is_pro(theme)).get(h.state().ui.dock_tabs.color), Some(name), "{theme:?}");
+            if *name == "Color" && !is_pro(theme) {
+                assert!(h.query_by_label("Hue").is_some(), "{theme:?}: Color picker missing");
+            }
+            h.state_mut().set_theme(&ctx, ThemeKind::Pro);
+            h.run_steps(4);
+            assert_eq!(h.state().ui.dock_tabs.color, tab, "{theme:?}: switching back changed the panel");
+        }
+    }
+}
+
 /// Full app at `size` (1× scale) on a document with `n` layers named "Row 00", "Row 01", …
 fn app_harness_rows(size: egui::Vec2, theme: ThemeKind, n: usize) -> Harness<'static, PhotocraftApp> {
     let mut h = Harness::builder().with_size(size).with_max_steps(64).build_eframe(move |cc| {

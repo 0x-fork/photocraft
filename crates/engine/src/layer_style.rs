@@ -836,9 +836,12 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Clear Layer Style",
             menu: &["Layer", "Layer Style"],
             shortcut: None,
-            params: r##"{"layer":id? (no layer: every selected layer that has a style)}"##,
+            params: r##"{"layer":id? (no layer: every selected layer that has a style),"effect":index? (only that effect of "layer", as an effect row dropped on the Layers panel's Delete button)}"##,
             enabled: has_layer,
             run: |s, p| {
+                if let Some(effect) = p.get("effect").filter(|v| !v.is_null()) {
+                    return delete_effect(s, p, effect);
+                }
                 let ids = crate::extra_cmds::style_targets(s, p, |l| !l.effects.items.is_empty())?;
                 s.edit("Clear Layer Style", |doc, _| {
                     for id in ids {
@@ -852,6 +855,30 @@ pub fn specs() -> Vec<CommandSpec> {
             journal: true,
         },
     ]
+}
+
+/// `layer.layerStyle.clear` with an `effect` index: deletes that one effect of `layer` (the active
+/// layer without one), as Photoshop does for an effect row dropped on the Delete button.
+fn delete_effect(s: &mut Session, p: &Value, effect: &Value) -> Result<Value> {
+    const CMD: &str = "layer.layerStyle.clear";
+    let index = effect.as_u64().and_then(|i| usize::try_from(i).ok()).ok_or_else(|| bad(CMD, "`effect` must be an effect index"))?;
+    let d = s.active().ok_or(EngineError::NoDocument)?;
+    let id = match p.get("layer").filter(|v| !v.is_null()) {
+        Some(v) => photocraft_doc::LayerId(v.as_u64().ok_or_else(|| bad(CMD, "`layer` must be a layer id"))?),
+        None => d.active_layer.ok_or_else(|| bad(CMD, "no active layer"))?,
+    };
+    let count = d.doc.layer(id).ok_or(EngineError::NoLayer(id))?.effects.items.len();
+    if index >= count {
+        return Err(bad(CMD, format!("the layer has {count} effect(s), no effect {index}")));
+    }
+    s.edit("Delete Effect", |doc, _| {
+        let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
+        if index < l.effects.items.len() {
+            l.effects.items.remove(index);
+        }
+        Ok(())
+    })?;
+    Ok(Value::Null)
 }
 
 #[cfg(test)]
@@ -944,6 +971,23 @@ mod tests {
         assert!(effects(&s).is_empty());
         s.execute("edit.undo", json!({})).unwrap();
         assert_eq!(effects(&s).len(), 1);
+    }
+
+    /// #3102: an effect row dropped on the Delete button deletes only that effect, in one step.
+    #[test]
+    fn clear_one_effect_by_index() {
+        let mut s = session();
+        s.execute("layer.layerStyle.dropShadow", json!({})).unwrap();
+        s.execute("layer.layerStyle.colorOverlay", json!({"color": "#ff0000"})).unwrap();
+        let layer = s.active().unwrap().active_layer.unwrap().0;
+        s.execute("layer.layerStyle.clear", json!({"layer": layer, "effect": 0})).unwrap();
+        assert!(matches!(effects(&s)[..], [Effect::ColorOverlay { .. }]));
+        for bad in [json!({"effect": 5}), json!({"effect": -1}), json!({"effect": "x"}), json!({"effect": 0, "layer": 999_999})] {
+            assert!(s.execute("layer.layerStyle.clear", bad).is_err());
+        }
+        assert_eq!(effects(&s).len(), 1, "bad params change nothing");
+        s.execute("edit.undo", json!({})).unwrap();
+        assert_eq!(effects(&s).len(), 2);
     }
 
     #[test]

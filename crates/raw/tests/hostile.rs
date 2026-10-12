@@ -39,6 +39,16 @@ fn samples() -> Vec<Vec<u8>> {
     j.jxl_segments = vec![jxl_rgb16(&rgb, w, h)];
     j.profile_gain_table_map = Some(vec![0; 32]);
     out.push(j.build());
+    // Monochrome LinearRaw (one sample, no CFA, no colour matrix), as film scanners write it (#3497).
+    let grey: Vec<u16> = scene(w, h).iter().map(|p| 64 + (p[1] * 3900.0) as u16).collect();
+    let mut m = DngSpec::monochrome(w, h, grey);
+    m.bits = 12;
+    m.white = 4000;
+    m.black = vec![64];
+    m.storage = DngStorage::Lj92Tiles { width: 16, height: 8 };
+    out.push(m.build());
+    m.storage = DngStorage::DeflateStrips { rows: 5, predictor: 2 };
+    out.push(m.build());
     let mut data = vec![600u16; 40 * 10];
     for (i, v) in data.iter_mut().enumerate() {
         *v = 600 + (i as u16 * 7) % 3000;

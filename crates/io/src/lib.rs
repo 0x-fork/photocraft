@@ -98,7 +98,7 @@ pub enum IoError {
     /// An SVG that does not parse (or is too large to rasterise).
     #[error("SVG: {0}")]
     Svg(String),
-    /// A background import was cancelled ([`import_with`]).
+    /// A background import or save was cancelled ([`import_with`], [`export_with`]).
     #[error("cancelled")]
     Cancelled,
 }
@@ -300,6 +300,37 @@ fn has_extension(name: &str, expected: &str) -> bool {
 /// Exports `doc` to the format named by `name_or_ext` (a file name, path or
 /// bare extension).
 pub fn export(doc: &Document, name_or_ext: &str, opts: &ExportOptions) -> Result<ExportResult, IoError> {
+    export_with(doc, name_or_ext, opts, &photocraft_raster::Interrupt::NONE)
+}
+
+/// [`export`] for a background save (#3389): reports how far encoding has got through `ctl`
+/// (monotonic, `1.0` once the bytes are ready; per layer and per composite band for PSD/PSB and
+/// layered TIFF, in coarse steps for the other formats) and checks it between stages. A cancelled
+/// export fails with [`IoError::Cancelled`]; otherwise the bytes are exactly [`export`]'s.
+pub fn export_with(doc: &Document, name_or_ext: &str, opts: &ExportOptions, ctl: &photocraft_raster::Interrupt) -> Result<ExportResult, IoError> {
+    ctl.check().map_err(|_| IoError::Cancelled)?;
+    let r = export_stages(doc, name_or_ext, opts, ctl)?;
+    ctl.check().map_err(|_| IoError::Cancelled)?;
+    ctl.progress(1.0);
+    Ok(r)
+}
+
+/// Run `f` with an interrupt whose progress `0..=1` fills `lo..=hi` of `ctl`'s (same cancellation).
+pub(crate) fn with_span<R>(ctl: &photocraft_raster::Interrupt, lo: f32, hi: f32, f: impl FnOnce(&photocraft_raster::Interrupt) -> R) -> R {
+    let cancelled = || ctl.cancelled();
+    let progress = |p: f32| ctl.progress(lo + (hi - lo) * p.clamp(0.0, 1.0));
+    f(&photocraft_raster::Interrupt::new(&cancelled, &progress))
+}
+
+/// Where a .pcraft save's progress stands once its thumbnail, then its 1024 px composite preview,
+/// are rendered (the bundle itself is written after them).
+const PCRAFT_THUMBNAIL_DONE: f32 = 0.15;
+const PCRAFT_PREVIEWS_DONE: f32 = 0.4;
+/// The share of a PSD/PSB export spent converting the document (layers, then the composite)
+/// before its bytes are assembled: about 2.7 s of 3.0 s for a 24 MP, 5-layer RGB/8 document.
+const PSD_MODEL_DONE: f32 = 0.9;
+
+fn export_stages(doc: &Document, name_or_ext: &str, opts: &ExportOptions, ctl: &photocraft_raster::Interrupt) -> Result<ExportResult, IoError> {
     let ext = extension(name_or_ext);
     if ext == "pdn" {
         return Err(IoError::Unsupported("PDN is import-only; save as .pcraft to preserve all layers and blend modes".into()));
@@ -311,15 +342,20 @@ pub fn export(doc: &Document, name_or_ext: &str, opts: &ExportOptions) -> Result
         return ora::export(doc);
     }
     if ext == photocraft_format::EXTENSION {
-        let previews = photocraft_format::SaveOptions {
-            thumbnail: Some(photocraft_compose::thumbnail(doc, 256)),
-            composite: Some(photocraft_compose::thumbnail(doc, 1024)),
-        };
+        let thumbnail = Some(photocraft_compose::thumbnail(doc, 256));
+        ctl.check().map_err(|_| IoError::Cancelled)?;
+        ctl.progress(PCRAFT_THUMBNAIL_DONE);
+        let composite = Some(photocraft_compose::thumbnail(doc, 1024));
+        ctl.check().map_err(|_| IoError::Cancelled)?;
+        ctl.progress(PCRAFT_PREVIEWS_DONE);
+        let previews = photocraft_format::SaveOptions { thumbnail, composite };
         return Ok(ExportResult { bytes: photocraft_format::save_to_bytes(doc, &previews)?, warnings: Vec::new() });
     }
     if ext == "psd" || ext == "psb" {
         let o = PsdExportOptions { force_psb: opts.force_psb || ext == "psb", ..Default::default() };
-        let (mut file, mut warnings) = document_to_psd_with(doc, &o);
+        let (mut file, mut warnings) = with_span(ctl, 0.0, PSD_MODEL_DONE, |ctl| psd_export::document_to_psd_interruptible(doc, &o, ctl));
+        // A cancelled conversion stops early with an incomplete model: never write it.
+        ctl.check().map_err(|_| IoError::Cancelled)?;
         if !doc.metadata.text.is_empty() {
             warnings.push("free-form text metadata is not supported by PSD/PSB; it will be dropped".into());
         }
@@ -341,9 +377,9 @@ pub fn export(doc: &Document, name_or_ext: &str, opts: &ExportOptions) -> Result
     }
     let format = photocraft_codecs::from_extension(&ext).ok_or_else(|| IoError::UnknownFormat(name_or_ext.to_string()))?;
     if format == photocraft_codecs::Format::Tiff && opts.tiff_layers && tiff_layers::would_write_layers(doc) {
-        return tiff_layers::export_layered(doc, opts);
+        return tiff_layers::export_layered(doc, opts, ctl);
     }
-    flat::export_flat(doc, format, opts)
+    flat::export_flat_with(doc, format, opts, ctl)
 }
 
 /// The PSD's merged composite as straight RGBA floats (row-major), converted

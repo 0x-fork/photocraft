@@ -483,7 +483,8 @@ pub fn level(ui: &mut Ui, depth: usize, nav: &mut Nav, rows: impl FnOnce(&mut Ui
         ui.painter().add(egui::Shape::convex_polygon(tri, if live { t.text } else { t.text_faint.gamma_multiply(0.5) }, egui::Stroke::NONE));
         let id = key.with(dir < 0.0);
         let r = ui.interact(strip, id, Sense::hover());
-        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, live, if dir < 0.0 { "Scroll menu up" } else { "Scroll menu down" }));
+        let label = if dir < 0.0 { "Scroll menu up" } else { "Scroll menu down" };
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, live, tl!(label)));
         if live && pointer_on(ui, strip) {
             target = (offset + dir * SPEED * dt.max(1.0 / 120.0)).clamp(0.0, max);
             ctx.request_repaint();
