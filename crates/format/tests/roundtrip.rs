@@ -270,6 +270,28 @@ fn identical_tiles_are_stored_once() {
     assert_eq!(s.tiles_total, per_layer);
 }
 
+/// A solid fill saves one tile however many coordinates share it; reopening must decode it once,
+/// charge the byte budget once and keep the sharing (#3315). The budget here holds one tile,
+/// standing in for a canvas too large to expand tile by tile.
+#[test]
+fn solid_fill_reopens_with_one_shared_tile() {
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        let size = photocraft_doc::Size::new(2048, 2048);
+        let mut doc = Document::new("d", size, ColorMode::Rgb, depth);
+        let mut l = Layer::raster("solid", doc.pixel_format());
+        l.surface_mut().unwrap().fill_rect(photocraft_geom::Rect::from_size(size), &[1.0, 0.5, 0.25, 1.0]);
+        doc.layers.push(l);
+        let bytes = save_to_bytes(&doc, &SaveOptions::default()).unwrap();
+        let one_tile = (256 * 256 * doc.pixel_format().bytes_per_pixel()) as u64;
+        let back = load_from_bytes_with(&bytes, &LoadOptions { max_total_bytes: one_tile, ..Default::default() }).unwrap();
+        assert_eq!(back, doc, "{depth:?}");
+        let s = back.layers[0].surface().unwrap();
+        assert_eq!(s.tile_count(), 64, "{depth:?}");
+        let first = s.tiles().next().unwrap().1;
+        assert!(s.tiles().all(|(_, t)| std::sync::Arc::ptr_eq(t, first)), "{depth:?}: tiles not shared after reopening");
+    }
+}
+
 #[test]
 fn ids_preserved_and_counter_advanced() {
     let doc = rich_doc(ColorMode::Rgb, SampleType::U8);

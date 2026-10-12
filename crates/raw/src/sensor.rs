@@ -129,7 +129,7 @@ pub struct Sensor {
     /// Data width and height in pixels.
     pub width: usize,
     pub height: usize,
-    /// Samples per pixel: 1 for CFA data, 3 for LinearRaw.
+    /// Samples per pixel: 1 for CFA data, 3 for LinearRaw (1 for monochrome LinearRaw).
     pub samples: usize,
     /// Row-major interleaved samples, `width * height * samples`.
     pub data: Vec<u16>,
@@ -158,6 +158,14 @@ pub struct Sensor {
     /// exposure. Below the first point the curve is a line through 0; empty: no curve.
     pub tone_curve: Vec<[f32; 2]>,
     pub warnings: Vec<String>,
+}
+
+impl Sensor {
+    /// `true` for monochrome data (one-sample LinearRaw: monochrome cameras, scanner DNGs), which
+    /// develops to neutral grey with no white balance or colour calibration.
+    pub fn is_monochrome(&self) -> bool {
+        self.samples == 1 && self.cfa.is_none()
+    }
 }
 
 /// Raw samples read from one IFD.

@@ -57,7 +57,7 @@ fn color(v: &Value) -> Option<Color> {
 }
 
 /// Normalises line breaks to `\n`.
-fn norm_text(s: &str) -> String {
+pub(crate) fn norm_text(s: &str) -> String {
     s.replace("\r\n", "\n").replace('\r', "\n")
 }
 

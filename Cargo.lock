@@ -4199,6 +4199,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "open",
  "photocraft-automation",
+ "photocraft-cms",
  "photocraft-codecs",
  "photocraft-color",
  "photocraft-compose",

@@ -56,9 +56,9 @@ note = "view_cmds.rs:834 always seeds arc, bend 50"
 [[item]]
 id = "TYPE-218-8"
 target = "Text editing: select all, double/triple/quadruple-click selection, paste, with tests"
-status = "partial"
+status = "done"
 issue = 218
-note = "Cmd+A, paste and double-click exist; no triple/quadruple click, no tests"
+note = "Like Photoshop, 2 clicks select the word, 3 the laid-out line (a column in vertical type), 4 the paragraph up to the hard return, 5 all text, and the next quick click starts over (#3493; type_tool.rs next_click_count, click_selection, multi_click). Tested through real canvas clicks in point, paragraph and vertical type, with paste replacing the selection and Cmd+A selecting all (type_tool_tests.rs multi_click_selects_word_line_paragraph_and_all_in_point_text, multi_click_separates_wrapped_lines_from_paragraphs, click_counts_cycle_and_restart, click_selection_without_layout_and_on_hostile_input, multi_click_without_a_session_does_nothing)"
 
 [[item]]
 id = "TYPE-218-9"

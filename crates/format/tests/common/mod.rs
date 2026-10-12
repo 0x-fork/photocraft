@@ -228,7 +228,8 @@ pub fn rich_doc(mode: ColorMode, depth: SampleType) -> Document {
         inks: vec![photocraft_doc::DuotoneInk::new("Black", [0.0; 3]), photocraft_doc::DuotoneInk::new("PANTONE 151 C", [1.0, 0.5, 0.0])],
         psd_raw: Some(vec![1, 2, 3]),
     });
-    d.guides = Guides { horizontal: vec![10.0, 20.5], vertical: vec![100.25] };
+    d.guides =
+        Guides { horizontal: vec![10.0, 20.5], vertical: vec![100.25], colors: vec![GuideColor { vertical: true, position: 100.25, rgb: [0x33, 0x66, 0xff] }] };
     let mut sel = Surface::new(PixelFormat::GRAY8);
     scribble(&mut sel, 14, false);
     d.selection = Some(sel);

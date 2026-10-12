@@ -4,7 +4,7 @@ Codecs for flat raster image formats, written in pure Rust. The crate is standal
 workspace crate and defines its own `Image` type. It also builds for `wasm32-unknown-unknown` and
 does no I/O: decoders take `&[u8]` and encoders return `Vec<u8>`.
 
-It follows the "avoid GIMP's hole" rules in `plan/architecture.md` §1.1:
+It follows the "Avoiding GIMP's hole" rules in `docs/architecture.md` §1.1:
 
 * **Symmetric.** Every format we write, we can also read. The only exceptions are listed in
   `ASYMMETRIC_EXCEPTIONS`, each with a reason. The test suite checks this.
