@@ -639,7 +639,8 @@ fn info(s: &Session, p: &Value) -> Result<Value> {
         .map(|ln| json!({ "start": char_at(text, ln.range.start), "end": char_at(text, ln.range.end), "baseline": ln.baseline, "x0": ln.x0, "x1": ln.x1, "ascent": ln.ascent, "descent": ln.descent }))
         .collect();
     let bounds = t.cache.as_ref().map(|c| c.content_bounds()).map(|r| json!([r.x0, r.y0, r.x1, r.y1]));
-    Ok(json!({
+    let warnings = crate::type_extra_cmds::missing_font_warnings_for_layer(t);
+    let mut out = json!({
         "layer": id.0,
         "text": text,
         "shape": t.shape,
@@ -652,7 +653,11 @@ fn info(s: &Session, p: &Value) -> Result<Value> {
         "lines": lines,
         "bounds": bounds,
         "pxPerPt": layout.px_per_pt,
-    }))
+    });
+    if !warnings.is_empty() {
+        out["warnings"] = json!(warnings);
+    }
+    Ok(out)
 }
 
 /// A type layer (not yet rendered or added) from `type.create`'s params: text, point `x`/`y` or
@@ -723,7 +728,14 @@ pub fn specs() -> Vec<CommandSpec> {
                     Ok(id)
                 })?;
                 let bounds = s.active().and_then(|d| d.doc.layer(id)).and_then(|l| l.surface()).map(|c| c.content_bounds());
-                Ok(json!({ "layer": id.0, "bounds": bounds.map(|r| [r.x0, r.y0, r.x1, r.y1]) }))
+                let mut out = json!({ "layer": id.0, "bounds": bounds.map(|r| [r.x0, r.y0, r.x1, r.y1]) });
+                if let Some(LayerContent::Text(t)) = s.active().and_then(|d| d.doc.layer(id)).map(|l| &l.content) {
+                    let warnings = crate::type_extra_cmds::missing_font_warnings_for_layer(t);
+                    if !warnings.is_empty() {
+                        out["warnings"] = json!(warnings);
+                    }
+                }
+                Ok(out)
             },
         },
         CommandSpec {
@@ -1581,5 +1593,23 @@ mod tests {
             s.execute("edit.undo", json!({})).unwrap();
             assert!(s.active().unwrap().doc.layer(LayerId(id)).is_none());
         }
+    }
+
+    #[test]
+    fn missing_font_emits_warning_in_create_set_style_and_edit() {
+        let mut s = session();
+        let r = s.execute("type.create", json!({"x": 10, "y": 20, "text": "Hello", "font": "NoSuchFamily123"})).unwrap();
+        assert_eq!(r["warnings"], json!(["font 'NoSuchFamily123' is not installed; text may render using a fallback face"]));
+        let id = r["layer"].as_u64().unwrap();
+        let styled = s.execute("type.setStyle", json!({"layer": id, "font": "StillNoSuchFamily456"})).unwrap();
+        assert_eq!(styled["warnings"], json!(["font 'StillNoSuchFamily456' is not installed; text may render using a fallback face"]));
+        let edited = s.execute("type.edit", json!({"layer": id, "runs": [{"start": 0, "end": 2, "font": "AnotherMissingFont789"}]})).unwrap();
+        assert_eq!(
+            edited["warnings"],
+            json!([
+                "font 'AnotherMissingFont789' is not installed; text may render using a fallback face",
+                "font 'StillNoSuchFamily456' is not installed; text may render using a fallback face"
+            ])
+        );
     }
 }

@@ -1548,6 +1548,7 @@ pub fn checkbox(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
         .horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             let (rect, resp) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::click());
+            let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
             let p = ui.painter();
             if *on {
                 p.rect_filled(rect, 2.0, t.accent);
@@ -1560,7 +1561,9 @@ pub fn checkbox(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
                 p.rect_filled(rect, 2.0, t.field);
                 p.rect_stroke(rect, 2.0, Stroke::new(1.5, if resp.hovered() { t.text_dim } else { t.text_faint }), StrokeKind::Inside);
             }
-            let l = ui.add(egui::Label::new(egui::RichText::new(tl!(label)).color(t.text_dim)).sense(Sense::click()));
+            let l = ui
+                .add(egui::Label::new(egui::RichText::new(tl!(label)).color(t.text_dim)).selectable(false).sense(Sense::click()))
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
             resp.union(l)
         })
         .inner;
@@ -1627,6 +1630,27 @@ fn clean(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use egui::{Key, Modifiers};
+
+    #[test]
+    fn checkbox_label_is_a_button_target_not_selectable_text() {
+        use egui::CursorIcon;
+        use egui_kittest::{Harness, kittest::Queryable};
+
+        let mut h = Harness::builder().with_size(egui::vec2(300.0, 80.0)).build_ui_state(
+            |ui, on: &mut bool| {
+                super::checkbox(ui, on, "Show Transform Controls");
+            },
+            false,
+        );
+        h.run_steps(2);
+        let label = h.get_by_label("Show Transform Controls").rect();
+        h.hover_at(label.center());
+        h.run_steps(2);
+        assert_eq!(h.output().platform_output.cursor_icon, CursorIcon::PointingHand);
+        h.get_by_label("Show Transform Controls").click();
+        h.run_steps(2);
+        assert!(*h.state());
+    }
 
     /// #3208: a rounded swatch's checker is one shared, repeating, unblurred two-by-two tile on
     /// the rounded rect, scaled so a cell stays `cell` points, so nothing shows past the corners.

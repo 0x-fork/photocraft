@@ -170,6 +170,12 @@ async fn command_list_filters() {
     let enabled = json_of(&call(&client, "command_list", json!({"enabled_only": true})).await);
     assert!(enabled.as_array().unwrap().iter().any(|c| c["id"] == "file.new"));
     assert!(!enabled.as_array().unwrap().iter().any(|c| c["id"] == "layer.new.layer"), "needs a document");
+    // The full list says why a document command is off with no document open (#3664).
+    let layer = all.as_array().unwrap().iter().find(|c| c["id"] == "layer.new.layer").unwrap();
+    assert_eq!((layer["enabled"].clone(), layer["needsDocument"].clone()), (json!(false), json!(true)), "{layer}");
+    assert!(layer["disabledReason"].as_str().is_some_and(|r| r.starts_with("no document")), "{layer}");
+    let new = all.as_array().unwrap().iter().find(|c| c["id"] == "file.new").unwrap();
+    assert_eq!((new["needsDocument"].clone(), new["disabledReason"].clone()), (json!(false), Value::Null), "{new}");
     client.cancel().await.unwrap();
 }
 

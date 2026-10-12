@@ -140,9 +140,11 @@ pub fn parse_txt2(data: &[u8]) -> Option<E> {
     ed::parse(&wrapped).ok().filter(|v| matches!(v, E::Dict(_)))
 }
 
-/// Applies the automatic kerning modes that Photoshop keeps only in `Txt2` (EngineData writes
-/// Optical and "0" alike as `AutoKerning true`) to `layer`, read from `tysh`. Only when the
-/// layer's `TextIndex` entry still holds the layer's text (an edit elsewhere leaves `Txt2`
+/// Applies what Photoshop keeps only in `Txt2` to `layer`, read from `tysh`: the automatic
+/// kerning modes (EngineData writes Optical and "0" alike as `AutoKerning true`) and the
+/// OpenType settings besides (discretionary) ligatures: stylistic sets, contextual alternates,
+/// swashes and the rest ([`TXT2_FEATURES`]), which Photoshop leaves out of EngineData. Only when
+/// the layer's `TextIndex` entry still holds the layer's text (an edit elsewhere leaves `Txt2`
 /// stale).
 ///
 /// Observed layout: `Txt2 /1` is the list of text objects; an object's `/0` is its text model
@@ -168,11 +170,10 @@ pub fn apply_txt2(layer: &mut TextLayer, tysh: &[u8], txt2: &E) {
     let Some(style_runs) = model.path(&["6", "0"]).and_then(E::as_array) else {
         return;
     };
-    let modes: Vec<(f64, Option<i64>)> =
-        style_runs.iter().map(|r| (r.get("1").and_then(E::as_f64).unwrap_or(0.0), r.path(&["0", "0", "6", "11"]).and_then(E::as_i64))).collect();
-    let lens = utf16_to_byte_lengths(text, &modes.iter().map(|m| m.0).collect::<Vec<_>>());
-    // Auto-kern mode per byte segment, then split the model runs at segment boundaries.
-    let mut segs: Vec<(usize, Option<i64>)> = lens.into_iter().zip(modes.iter().map(|m| m.1)).collect();
+    let styles: Vec<(f64, Option<&E>)> = style_runs.iter().map(|r| (r.get("1").and_then(E::as_f64).unwrap_or(0.0), r.path(&["0", "0", "6"]))).collect();
+    let lens = utf16_to_byte_lengths(text, &styles.iter().map(|m| m.0).collect::<Vec<_>>());
+    // Txt2 style per byte segment, then split the model runs at segment boundaries.
+    let mut segs: Vec<(usize, Option<&E>)> = lens.into_iter().zip(styles.iter().map(|m| m.1)).collect();
     segs.retain(|s| s.0 > 0);
     let runs = layer.char_runs();
     let mut out: Vec<TextRun> = Vec::new();
@@ -187,13 +188,17 @@ pub fn apply_txt2(layer: &mut TextLayer, tysh: &[u8], txt2: &E) {
             }
             let piece_end = if at < seg_end { end.min(seg_end) } else { end };
             let mut style = r.style.clone();
+            let txt2_style = segs.get(si).and_then(|s| s.1).filter(|_| at < seg_end);
             // Txt2 has the exact mode (EngineData's reading also marks neighbours of manual
             // kerns manual, like Photoshop's legacy reader).
-            match segs.get(si).and_then(|s| s.1).filter(|_| at < seg_end) {
+            match txt2_style.and_then(|st| st.get("11")).and_then(E::as_i64) {
                 Some(0) => style.kerning = Kerning::Off,
                 Some(1) => style.kerning = Kerning::Metrics,
                 Some(2) => style.kerning = Kerning::Optical,
                 _ => {}
+            }
+            if let Some(st) = txt2_style {
+                add_txt2_features(&mut style, st);
             }
             let len = piece_end - at;
             match out.last_mut() {
@@ -205,6 +210,43 @@ pub fn apply_txt2(layer: &mut TextLayer, tysh: &[u8], txt2: &E) {
     }
     layer.runs = out;
     layer.sync_summary();
+}
+
+/// OpenType settings of a `Txt2` style that are on/off flags, by style key, as Photoshop
+/// writes them (each turned on alone in the Character panel's OpenType settings and read back):
+/// `/20` Contextual Alternates, `/23` Fractions, `/24` Ordinals, `/25` Swash, `/26` Titling
+/// Alternates, `/28` Stylistic Alternates, `/29` Ornaments. (`/18` and `/19` are the standard and
+/// discretionary ligatures, which EngineData carries too; `/27` is Arabic connection forms.)
+pub const TXT2_FEATURES: [(&str, &str); 7] = [("20", "calt"), ("23", "frac"), ("24", "ordn"), ("25", "swsh"), ("26", "titl"), ("28", "salt"), ("29", "ornm")];
+
+/// The `Txt2` style key holding the Stylistic Sets as a bit mask: bit n is set n + 1
+/// (`ss01`..`ss20`).
+pub const TXT2_STYLISTIC_SETS: &str = "85";
+
+/// Sets in `style` the OpenType features a `Txt2` style dictionary turns on ([`TXT2_FEATURES`]
+/// and the Stylistic Sets mask). A feature the style already sets keeps its value. A flag that is
+/// off changes nothing, except Contextual Alternates: shapers apply `calt` by default, Photoshop
+/// only when it is on (its default is off), so off is written as `calt` 0.
+fn add_txt2_features(style: &mut CharStyle, txt2_style: &E) {
+    let mut set = |tag: String, value: u16| {
+        if !style.features.iter().any(|f| f.tag == tag) {
+            style.features.push(photocraft_doc::text::FontFeature { tag, value });
+        }
+    };
+    for (key, tag) in TXT2_FEATURES {
+        match txt2_style.get(key).and_then(E::as_bool) {
+            Some(true) => set(tag.to_string(), 1),
+            Some(false) if tag == "calt" => set(tag.to_string(), 0),
+            _ => {}
+        }
+    }
+    // A mask beyond the 20 sets is not Photoshop's: ignore it.
+    let sets = txt2_style.get(TXT2_STYLISTIC_SETS).and_then(E::as_i64).filter(|m| (0..1 << 20).contains(m)).unwrap_or(0);
+    for n in 0..20 {
+        if sets & (1 << n) != 0 {
+            set(format!("ss{:02}", n + 1), 1);
+        }
+    }
 }
 
 /// Builds a [`TextLayer`] (model, text and transform; no cache, no `psd_raw`) from `TySh` data.

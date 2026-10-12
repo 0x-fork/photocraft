@@ -212,26 +212,31 @@ fn common_color(app: &crate::PhotocraftApp, l: &Layer, on_set: bool) -> Option<L
 }
 
 fn color_menu(app: &crate::PhotocraftApp, ui: &mut egui::Ui, l: &Layer, on_set: bool, actions: &mut Vec<(String, Value)>) {
-    let current = common_color(app, l, on_set);
     ui.menu_button(tl!("Color"), |ui| {
-        crate::widgets::menu_scroll(ui, |ui| {
-            ui.set_min_width(170.0);
-            for color in LabelColor::ALL {
-                if color == LabelColor::Red {
-                    ui.separator();
-                }
-                if color_button(ui, color, current == Some(color)).clicked() {
-                    let params = if on_set {
-                        json!({"color": color.id()})
-                    } else {
-                        actions.push(("layer.select".into(), json!({"layer": l.id.0})));
-                        json!({"layer": l.id.0, "color": color.id()})
-                    };
-                    actions.push(("layer.setLabelColor".into(), params));
-                    ui.close();
-                }
+        color_choices(app, ui, l, on_set, actions);
+    });
+}
+
+/// The eye column opens the same color choices directly, without the row's full context menu.
+pub(crate) fn color_choices(app: &crate::PhotocraftApp, ui: &mut egui::Ui, l: &Layer, on_set: bool, actions: &mut Vec<(String, Value)>) {
+    let current = common_color(app, l, on_set);
+    crate::widgets::menu_scroll(ui, |ui| {
+        ui.set_min_width(170.0);
+        for color in LabelColor::ALL {
+            if color == LabelColor::Red {
+                ui.separator();
             }
-        });
+            if color_button(ui, color, current == Some(color)).clicked() {
+                let params = if on_set {
+                    json!({"color": color.id()})
+                } else {
+                    actions.push(("layer.select".into(), json!({"layer": l.id.0})));
+                    json!({"layer": l.id.0, "color": color.id()})
+                };
+                actions.push(("layer.setLabelColor".into(), params));
+                ui.close();
+            }
+        }
     });
 }
 
