@@ -186,7 +186,7 @@ pub fn quad_size(q: &[[f64; 2]; 4]) -> (f64, f64) {
 /// Mapping and Image Warping", 1989, §2.2.3) scaled to the rectangle. `None` when `q` isn't a
 /// [`convex_quad`] or the size isn't positive.
 pub fn quad_to_rect(q: &[[f64; 2]; 4], w: f64, h: f64) -> Option<Homography> {
-    if !convex_quad(q) || !(w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0) {
+    if !(convex_quad(q) && w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0) {
         return None;
     }
     Homography::rect_to_quad([0.0, 0.0, w, h], *q)?.inverse()
@@ -368,7 +368,8 @@ fn warp(src: &Surface, src_rect: Rect, h: &Homography, interp: Interp, clip: Opt
                 any = true;
                 let o = ((y - t.y0) as usize * w + (x - t.x0) as usize) * n;
                 for c in 0..a {
-                    outp[o + c] = (acc[c] / al).clamp(0.0, 1.0) as f32;
+                    // Integer storage clips on write; float colours retain their signed/HDR range.
+                    outp[o + c] = (acc[c] / al) as f32;
                 }
                 outp[o + a] = al as f32;
             }
@@ -480,6 +481,44 @@ mod tests {
             assert_eq!(o.content_bounds(), Rect::new(11, 1, 27, 9), "{interp:?}");
             assert_eq!(o.pixel(15, 5), vec![1.0, 128.0 / 255.0, 0.0, 1.0], "{interp:?}");
         }
+    }
+
+    #[test]
+    fn translation_preserves_colour_range_at_every_depth() {
+        use photocraft_color::{ColorMode, SampleType};
+
+        let h = Homography([1.0, 0.0, 7.0, 0.0, 1.0, -3.0, 0.0, 0.0, 1.0]);
+        for sample in SampleType::ALL {
+            for mode in [ColorMode::Rgb, ColorMode::Grayscale] {
+                for alpha in [false, true] {
+                    let mut s = Surface::new(PixelFormat::new(mode, sample, alpha));
+                    let mut pixel = if mode == ColorMode::Rgb { vec![2.0, -0.25, 0.5] } else { vec![2.0] };
+                    if alpha {
+                        pixel.push(0.5);
+                    }
+                    s.fill_rect(Rect::new(4, 4, 8, 8), &pixel);
+                    let mut expected = s.pixel(5, 5);
+                    if !alpha {
+                        expected.push(1.0);
+                    }
+                    for interp in [Interp::Nearest, Interp::Bilinear, Interp::Bicubic] {
+                        let out = warp_surface(&s, s.content_bounds(), &h, interp).unwrap();
+                        assert_eq!(out.pixel(12, 2), expected, "{sample:?}/{mode:?}/alpha={alpha}/{interp:?}");
+                        assert_eq!(out.pixel(0, 0).last(), Some(&0.0));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn bilinear_translation_interpolates_signed_hdr_colours() {
+        let mut s = Surface::new(PixelFormat::RGBA32F);
+        s.write_pixel(0, 0, &[2.0, -0.5, 0.25, 0.5]);
+        s.write_pixel(1, 0, &[4.0, -0.25, 0.75, 0.5]);
+        let h = Homography([1.0, 0.0, 0.5, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+        let out = warp_surface(&s, s.content_bounds(), &h, Interp::Bilinear).unwrap();
+        assert_eq!(out.pixel(1, 0), vec![3.0, -0.375, 0.5, 0.5]);
     }
 
     #[test]

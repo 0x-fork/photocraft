@@ -204,3 +204,30 @@ fn image_previews_preference_reaches_the_exporter() {
         assert_eq!(*seen.borrow(), [expect; 3], "{value}");
     }
 }
+
+/// #2399: Save and Save As start at the opened file's own encoding: a JPEG's estimated quality,
+/// a WebP lossy (at its quality) or lossless; a new document keeps the codec defaults.
+#[test]
+fn save_settings_start_at_the_opened_files_encoding() {
+    use photocraft_codecs::{ChannelLayout, EncodeOptions, Format, Image, SampleType};
+    let px: Vec<u8> = (0..32u32 * 24).flat_map(|i| [(i * 3) as u8, (i / 32 * 9) as u8, (i % 97) as u8]).collect();
+    let img = Image::from_raw(32, 24, ChannelLayout::Rgb, SampleType::U8, px).unwrap();
+    let mut app = app();
+    assert_eq!(app.save_settings().jpeg_quality, None);
+    assert!(app.save_settings().webp_lossless);
+
+    let jpeg = photocraft_codecs::encode(&img, Format::Jpeg, &EncodeOptions { jpeg_quality: 65, ..Default::default() }).unwrap();
+    app.open_bytes("photo.jpg", &jpeg).unwrap();
+    let q = app.save_settings().jpeg_quality.unwrap();
+    assert!(q.abs_diff(65) <= 2, "estimated {q}");
+
+    let lossy = photocraft_codecs::encode(&img, Format::WebP, &EncodeOptions { webp_lossless: false, webp_quality: 80, ..Default::default() }).unwrap();
+    app.open_bytes("photo.webp", &lossy).unwrap();
+    let s = app.save_settings();
+    assert!(!s.webp_lossless);
+    assert!(s.webp_quality.unwrap().abs_diff(80) <= 2, "{:?}", s.webp_quality);
+
+    let lossless = photocraft_codecs::encode(&img, Format::WebP, &EncodeOptions::default()).unwrap();
+    app.open_bytes("art.webp", &lossless).unwrap();
+    assert!(app.save_settings().webp_lossless);
+}

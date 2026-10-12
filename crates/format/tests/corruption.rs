@@ -154,6 +154,37 @@ fn total_size_limit() {
     assert!(matches!(load_from_bytes_with(&b, &opts), Err(FormatError::LimitExceeded(_))));
 }
 
+/// A hostile manifest may name one stored tile at very many coordinates. The load decodes and
+/// charges it once, each reference only clones the shared tile, and the budget still bounds the
+/// distinct bytes (#3315).
+#[test]
+fn many_references_to_one_tile_load_within_the_budget() {
+    let mut doc = photocraft_doc::Document::new("d", photocraft_doc::Size::new(256, 256), ColorMode::Rgb, SampleType::U8);
+    let mut l = photocraft_doc::Layer::raster("solid", doc.pixel_format());
+    l.surface_mut().unwrap().fill_rect(photocraft_geom::Rect::new(0, 0, 256, 256), &[1.0, 0.0, 0.0, 1.0]);
+    doc.layers.push(l);
+    let bytes = save_to_bytes(&doc, &SaveOptions::default()).unwrap();
+    let hostile = rebuild(&bytes, |name, data| {
+        if name != "manifest.json" {
+            return Some(data);
+        }
+        let mut m: serde_json::Value = serde_json::from_slice(&data).unwrap();
+        let tiles = m["document"]["layers"][0]["content"]["surface"]["tiles"].as_array_mut().unwrap();
+        let hash = tiles[0]["hash"].clone();
+        *tiles = (0..256 * 256).map(|i| serde_json::json!({ "tx": i % 256, "ty": i / 256, "hash": hash })).collect();
+        Some(serde_json::to_vec(&m).unwrap())
+    });
+    let one_tile = 256 * 256 * 4;
+    let back = load_from_bytes_with(&hostile, &LoadOptions { max_total_bytes: one_tile, ..Default::default() }).unwrap();
+    let s = back.layers[0].surface().unwrap();
+    assert_eq!(s.tile_count(), 256 * 256);
+    let first = s.tiles().next().unwrap().1;
+    assert!(s.tiles().all(|(_, t)| std::sync::Arc::ptr_eq(t, first)));
+    // The one distinct tile is still charged against the budget.
+    let opts = LoadOptions { max_total_bytes: one_tile - 1, ..Default::default() };
+    assert!(matches!(load_from_bytes_with(&hostile, &opts), Err(FormatError::LimitExceeded(_))));
+}
+
 #[test]
 fn directory_bundle_resave_repairs_tampered_objects() {
     let doc = rich_doc(ColorMode::Rgb, SampleType::U8);
@@ -386,6 +417,40 @@ fn tile_coordinates_outside_the_i32_pixel_range_are_rejected() {
         assert!(s.tiles().any(|(c, _)| (i64::from(c.tx), i64::from(c.ty)) == (tx, ty)), "({tx}, {ty})");
         assert!(!s.content_bounds().is_empty());
     }
+}
+
+#[test]
+fn an_unlimited_blob_budget_still_loads_blobs() {
+    // `max_blob_bytes + 1` overflowed (debug panic; release read zero bytes, failing every blob).
+    let doc = rich_doc(ColorMode::Rgb, SampleType::U8);
+    let bytes = save_to_bytes(&doc, &SaveOptions::default()).unwrap();
+    let opts = LoadOptions { max_blob_bytes: usize::MAX, ..LoadOptions::default() };
+    assert_eq!(load_from_bytes_with(&bytes, &opts).unwrap(), doc);
+}
+
+/// Rewrites the first pattern's declared size (its tiles stay as saved).
+fn with_pattern_size(w: u64, h: u64) -> Vec<u8> {
+    rebuild(sample_cached(), |n, d| {
+        if n != "manifest.json" {
+            return Some(d);
+        }
+        let mut v: serde_json::Value = serde_json::from_slice(&d).unwrap();
+        let p = &mut v["document"]["patterns"][0];
+        assert!(p.is_object(), "the sample has a pattern");
+        p["width"] = w.into();
+        p["height"] = h.into();
+        Some(serde_json::to_vec(&v).unwrap())
+    })
+}
+
+#[test]
+fn pattern_sizes_from_the_file_are_checked() {
+    // A pattern can claim any size without tiles; painting it allocated per pixel (abort).
+    let huge = load_from_bytes(&with_pattern_size(65_535, 65_535));
+    assert!(matches!(huge, Err(FormatError::LimitExceeded(_))), "{huge:?}");
+    let empty = load_from_bytes(&with_pattern_size(0, 24));
+    assert!(matches!(empty, Err(FormatError::Corrupt(_))), "{empty:?}");
+    assert!(load_from_bytes(&with_pattern_size(32, 24)).is_ok());
 }
 
 /// A canvas is a few bytes of manifest JSON; one past the budget is refused before any work (#2935).

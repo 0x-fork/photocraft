@@ -129,7 +129,7 @@ pub struct Sensor {
     /// Data width and height in pixels.
     pub width: usize,
     pub height: usize,
-    /// Samples per pixel: 1 for CFA data, 3 for LinearRaw.
+    /// Samples per pixel: 1 for CFA data, 3 for LinearRaw (1 for monochrome LinearRaw).
     pub samples: usize,
     /// Row-major interleaved samples, `width * height * samples`.
     pub data: Vec<u16>,
@@ -157,7 +157,19 @@ pub struct Sensor {
     /// output]` pairs in linear ProPhoto, applied per channel after the colour conversion and
     /// exposure. Below the first point the curve is a line through 0; empty: no curve.
     pub tone_curve: Vec<[f32; 2]>,
+    /// Camera Raw's adaptive black point, for profiles that copy its default rendering: this
+    /// factor times the 0.1th percentile of the image's linear luminance is subtracted before the
+    /// tone curve (see `tone.rs`). 0: no black point.
+    pub black_point: f32,
     pub warnings: Vec<String>,
+}
+
+impl Sensor {
+    /// `true` for monochrome data (one-sample LinearRaw: monochrome cameras, scanner DNGs), which
+    /// develops to neutral grey with no white balance or colour calibration.
+    pub fn is_monochrome(&self) -> bool {
+        self.samples == 1 && self.cfa.is_none()
+    }
 }
 
 /// Raw samples read from one IFD.

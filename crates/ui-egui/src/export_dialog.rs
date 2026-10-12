@@ -44,6 +44,23 @@ pub fn open_layer(app: &mut PhotocraftApp, layer: photocraft_doc::LayerId) -> Re
     Ok(id)
 }
 
+/// Layer › Export As… with several layers (artboards, say) selected: the same dialog, then one
+/// file per layer with its settings (#3629). The preview shows the first layer.
+pub fn open_layers(app: &mut PhotocraftApp, layers: &[photocraft_doc::LayerId]) -> Result<u64, String> {
+    let (first, n) = match layers {
+        [] => return Err("no selected layers".into()),
+        [one] => return open_layer(app, *one),
+        [first, ..] => (*first, layers.len()),
+    };
+    let id = open_layer(app, first)?;
+    if let Some(d) = app.ui.dialogs.iter_mut().find(|d| d.id == id) {
+        d.fields.insert("__layers".into(), json!(layers.iter().map(|l| l.0).collect::<Vec<_>>()));
+        let template = "Export As: {n} layers";
+        d.fields.insert("__label".into(), json!(crate::i18n::fmt(tl!(template), &[("n", &n.to_string())])));
+    }
+    Ok(id)
+}
+
 /// Layer › Quick Export as PNG.
 pub fn quick_export_layer_png(app: &mut PhotocraftApp, layer: photocraft_doc::LayerId) -> Result<Value, String> {
     let mut f = Map::new();
@@ -96,10 +113,13 @@ fn export_name(name: &str) -> String {
     if name.is_empty() { "layer".into() } else { name.into() }
 }
 
+/// The files a multi-layer export writes: the chosen path, then numbered siblings named after
+/// each layer, in the chosen path's format.
 fn batch_paths(path: &str, docs: &[Document]) -> Vec<String> {
     let first = std::path::Path::new(path);
     let parent = first.parent().unwrap_or_else(|| std::path::Path::new(""));
     let stem = first.file_stem().and_then(|s| s.to_str()).unwrap_or("layers");
+    let ext = first.extension().and_then(|e| e.to_str()).unwrap_or("png");
     docs.iter()
         .enumerate()
         .map(|(i, doc)| {
@@ -107,7 +127,7 @@ fn batch_paths(path: &str, docs: &[Document]) -> Vec<String> {
                 return path.to_string();
             }
             let name = export_name(&doc.name);
-            let candidate = parent.join(format!("{stem}-{}-{name}.png", i + 1));
+            let candidate = parent.join(format!("{stem}-{}-{name}.{ext}", i + 1));
             // The first file's overwrite is handled by the Save dialog; never overwrite sibling
             // files silently on desktop. Downloads on the web are named by the browser.
             #[cfg(not(target_arch = "wasm32"))]
@@ -115,7 +135,7 @@ fn batch_paths(path: &str, docs: &[Document]) -> Vec<String> {
                 let mut candidate = candidate;
                 let mut suffix = 1u64;
                 while candidate.exists() {
-                    candidate = parent.join(format!("{stem}-{}-{name}-{suffix}.png", i + 1));
+                    candidate = parent.join(format!("{stem}-{}-{name}-{suffix}.{ext}", i + 1));
                     suffix = suffix.saturating_add(1);
                 }
                 candidate
@@ -335,6 +355,10 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
 
 /// Export with the dialog's settings: choose a path, render, encode, write.
 pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value, String> {
+    if let Some(layers) = f.get("__layers").and_then(Value::as_array) {
+        let ids: Vec<_> = layers.iter().filter_map(Value::as_u64).map(photocraft_doc::LayerId).collect();
+        return confirm_layers(app, f, &ids);
+    }
     let doc = source_document(app, f)?;
     let stem = doc.name.rsplit_once('.').map_or(doc.name.as_str(), |(a, _)| a).to_string();
     let ext = s_fmt(f);
@@ -353,6 +377,39 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
         let what = crate::i18n::fmt(tl!(template), &[("path", &crate::file_open::display_name(&path))]);
         crate::notices::io_warnings(app, &what, &warnings);
         Ok(json!({"path": path, "bytes": bytes.len(), "warnings": warnings}))
+    })
+}
+
+/// [`confirm`] for several layers: one destination prompt, then each layer exported with the
+/// dialog's settings and named as Quick Export names a selection's files. The layers are captured
+/// when asked, so changing the selection or document meanwhile can't change what is exported.
+fn confirm_layers(app: &mut PhotocraftApp, f: &Map<String, Value>, ids: &[photocraft_doc::LayerId]) -> Result<Value, String> {
+    let st = app.session.active().ok_or("no document")?;
+    let docs: Vec<Document> =
+        ids.iter().map(|id| photocraft_engine::layer_menu_cmds::layer_document(&st.doc, *id).map_err(|e| e.to_string())).collect::<Result<_, _>>()?;
+    if docs.is_empty() {
+        return Err("no selected layers".into());
+    }
+    let stem = st.doc.name.rsplit_once('.').map_or(st.doc.name.as_str(), |(a, _)| a);
+    let suggested = format!("{}.{}", export_name(stem), s_fmt(f));
+    let (f, settings) = (f.clone(), settings(f));
+    app.pick_save(&suggested, move |app, path| {
+        let mut exported = Vec::new();
+        for (doc, path) in docs.iter().zip(batch_paths(&path, &docs)) {
+            let out = export_document(doc, &f, None)?;
+            let export = app.services.export.as_ref().ok_or("no exporter configured")?;
+            let (bytes, warnings) = export(&out, &path, &settings)?;
+            let write = app.services.write.as_mut().ok_or("no writer configured")?;
+            write(&path, &bytes)?;
+            let template = "Exported {path}";
+            let what = crate::i18n::fmt(tl!(template), &[("path", &crate::file_open::display_name(&path))]);
+            crate::notices::io_warnings(app, &what, &warnings);
+            exported.push(json!({"path": path, "bytes": bytes.len(), "warnings": warnings}));
+        }
+        let template = "Exported {n} files";
+        app.ui.status = crate::i18n::fmt(tl!(template), &[("n", &exported.len().to_string())]);
+        app.ui.status_error = false;
+        Ok(json!({"files": exported}))
     })
 }
 

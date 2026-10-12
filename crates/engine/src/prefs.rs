@@ -160,6 +160,37 @@ impl Unit {
             Unit::Inches => 3,
         }
     }
+    /// A length as typed in Photoshop's numeric fields: a number with an optional unit suffix
+    /// ("50%", "2.5 cm", "12pt", "3pc", "1,5 in", "100"). Returns the number and its unit (`None`
+    /// when there is no suffix, so the caller picks the default), or `None` if the text is not a
+    /// finite number followed by a known unit.
+    pub fn parse_length(text: &str) -> Option<(f64, Option<Unit>)> {
+        let t = text.trim();
+        let end = t.find(|c: char| !(c.is_ascii_digit() || matches!(c, '.' | ',' | '-' | '+'))).unwrap_or(t.len());
+        let (number, suffix) = t.split_at(end);
+        let v: f64 = number.trim().replace(',', ".").parse().ok()?;
+        if !v.is_finite() {
+            return None;
+        }
+        let suffix = suffix.trim();
+        let unit = if suffix.is_empty() { None } else { Some(Unit::from_suffix(suffix)?) };
+        Some((v, unit))
+    }
+    /// The unit a typed suffix names, in any case: `px`, `in` or `"`, `cm`, `mm`, `pt`, `pc` or
+    /// `pica`, `%`, and their long forms (`pixels`, `inches`, `centimetres`…). The one table every
+    /// length field reads.
+    pub fn from_suffix(suffix: &str) -> Option<Unit> {
+        Some(match suffix.to_ascii_lowercase().as_str() {
+            "px" | "pixel" | "pixels" => Unit::Pixels,
+            "in" | "inch" | "inches" | "\"" => Unit::Inches,
+            "cm" | "centimeter" | "centimeters" | "centimetre" | "centimetres" => Unit::Centimeters,
+            "mm" | "millimeter" | "millimeters" | "millimetre" | "millimetres" => Unit::Millimeters,
+            "pt" | "point" | "points" => Unit::Points,
+            "pc" | "pica" | "picas" => Unit::Picas,
+            "%" | "percent" => Unit::Percent,
+            _ => return None,
+        })
+    }
 }
 
 impl PointSize {
@@ -310,11 +341,19 @@ impl Default for Workspace {
     }
 }
 
+impl Workspace {
+    /// Preferences ▸ Workspace ▸ Enable Narrow Options Bar: the options bar drops to its compact
+    /// height, as in Photoshop, so the document gets more room (see `panels::options_bar`).
+    pub fn narrow_options_bar(&self) -> bool {
+        self.enable_narrow_options_bar
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Tools {
     pub show_tooltips: bool,
-    /// Tool keys cycle a tool group only with ⇧ held (Photoshop's "Use Shift Key for Tool Switch").
+    /// Tool keys cycle a tool group only with ⇧ held (Photoshop's "Use Shift Key for Tool Switch", on by default there too).
     pub use_shift_key_for_tool_switch: bool,
     pub zoom_clicked_point_to_center: bool,
     pub enable_flick_panning: bool,
@@ -341,7 +380,7 @@ impl Default for Tools {
     fn default() -> Self {
         Self {
             show_tooltips: true,
-            use_shift_key_for_tool_switch: false,
+            use_shift_key_for_tool_switch: true,
             zoom_clicked_point_to_center: false,
             enable_flick_panning: true,
             vary_round_brush_hardness_on_hud: true,
@@ -838,6 +877,15 @@ impl Default for TypePrefs {
     }
 }
 
+impl TypePrefs {
+    /// Preferences ▸ Type ▸ Missing Glyph Protection: with it on (the default, as in Photoshop),
+    /// glyphs the chosen face lacks fall back through the coverage fonts (#1909). The text engine
+    /// applies this in `Session::apply_prefs`.
+    pub fn missing_glyph_protection(&self) -> bool {
+        self.missing_glyph_protection
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct EnhancedControls {
@@ -963,6 +1011,10 @@ pub struct Preferences {
     /// differ from their defaults, saved as the user changes them and restored at launch, as
     /// Photoshop remembers each tool's options between sessions. JSON owned by the shell.
     pub tool_options: Value,
+    /// View › Extras, the View › Show items (Pixel Grid, Grid, Guides, …) and the View › Snap To
+    /// targets that differ from their defaults, saved as the user toggles them and restored at
+    /// launch, as Photoshop keeps them between sessions (#3762). JSON owned by the shell.
+    pub view_extras: Value,
     /// File › Scripts › Script Events Manager: event → script bindings.
     pub script_events: crate::automate_cmds::ScriptEvents,
 }
@@ -999,10 +1051,8 @@ pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
     "general.colorPicker",
     "general.animatedZoom",
     "general.zoomResizesWindows",
-    "workspace.autoCollapseIconPanels",
     "workspace.autoShowHiddenPanels",
     "workspace.enableFloatingDocumentWindowDocking",
-    "workspace.enableNarrowOptionsBar",
     "fileHandling.saveInBackground",
     "fileHandling.maximizePsdCompatibility",
     "performance.cacheLevels",
@@ -1014,7 +1064,6 @@ pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
     "plugIns.showExtensionPanels",
     "plugIns.allowScriptsToConnect",
     "plugIns.generatorEnabled",
-    "type.missingGlyphProtection",
     "type.textEngine",
     "type.recentFonts",
     "enhancedControls.scrubbySliderAcceleration",
@@ -1388,10 +1437,12 @@ fn capitalize(s: &str) -> String {
 /// Tools › Temporary, `edit.keyboardShortcuts`) but held rather than pressed, so they are not
 /// commands; the UI reads their keys through [`Preferences::shortcut`]. While a selection or
 /// shape is being dragged, the Hand key repositions it instead of panning (Photoshop's Space).
+/// The erase key keeps the Brush or Pencil and makes its strokes erase (Photoshop's `~`).
 pub const TEMPORARY_TOOLS: &[(&str, &str, &str)] = &[
     ("tools.temporary.hand", "Hand Tool (hold)", "Space"),
     ("tools.temporary.zoomIn", "Zoom In (hold, drag to scrub)", "Cmd+Space"),
     ("tools.temporary.zoomOut", "Zoom Out (hold)", "Alt+Space"),
+    ("tools.temporary.erase", "Erase with Brush or Pencil (hold)", "`"),
 ];
 
 /// Every bindable id with its default: commands, then the temporary tools.
@@ -1447,8 +1498,8 @@ impl Session {
         r
     }
 
-    /// Push engine-relevant preferences into live state: every document's history limit and
-    /// the layer-effect cache budget.
+    /// Push engine-relevant preferences into live state: every document's history limit, the
+    /// layer-effect cache budget and the text engine's missing-glyph protection.
     pub fn apply_prefs(&mut self) {
         let n = self.prefs().performance.history_states.max(1) as usize;
         let bytes = self.prefs().performance.history_budget_bytes();
@@ -1459,6 +1510,9 @@ impl Session {
             st.history.trim(&st.doc);
         }
         photocraft_compose::set_effect_cache_budget(budget << 20);
+        if let Ok(mut engine) = photocraft_text::shared().lock() {
+            engine.fonts.set_missing_glyph_protection(self.prefs().type_.missing_glyph_protection());
+        }
         crate::plugin_cmds::sync_prefs(self);
     }
 

@@ -494,6 +494,10 @@ pub struct DocWindow {
     pub document: usize,
     pub view: View,
     pub open: bool,
+    /// Where the window opens on screen (outer top-left, in points); `None` lets the OS place it.
+    /// A tab dragged off the tab strip opens its window where it was dropped (#3733).
+    #[serde(default)]
+    pub position: Option<[f32; 2]>,
 }
 
 /// Options-bar state for tools (Photoshop keeps these per tool).
@@ -504,6 +508,11 @@ pub struct ToolOptions {
     pub contiguous: bool,
     pub anti_alias: bool,
     pub sample_all_layers: bool,
+    /// Remove tool: the fill goes to a new layer above the target (Photoshop's Create a new layer).
+    pub remove_new_layer: bool,
+    /// Remove tool: each stroke is filled when released (Photoshop's default). Off, the strokes
+    /// collect as a tint on the canvas and ↩ applies them together (Esc drops them).
+    pub remove_after_each_stroke: bool,
     pub feather: f32,
     /// linear | radial | angle | reflected | diamond
     pub gradient_style: String,
@@ -652,6 +661,13 @@ pub struct ToolOptions {
     /// Pencil › Auto Erase: a stroke that starts on the foreground colour paints the background colour.
     #[serde(default)]
     pub pencil_auto_erase: bool,
+    /// Brush › Mode: Clear, which erases with the Brush (Photoshop's painting-only mode, #3439).
+    /// Not a blend mode, so it is kept beside the brush's `mode` rather than in it.
+    #[serde(default)]
+    pub brush_clear: bool,
+    /// Pencil › Mode: Clear (see `brush_clear`).
+    #[serde(default)]
+    pub pencil_clear: bool,
     /// Eraser › Mode: `brush` (soft, anti-aliased) or `pencil` (hard, aliased pixels, through
     /// `paint.pencil`), as in Photoshop's options bar (#2662).
     #[serde(default = "default_eraser_mode")]
@@ -733,6 +749,8 @@ impl Default for ToolOptions {
             contiguous: true,
             anti_alias: true,
             sample_all_layers: false,
+            remove_new_layer: false,
+            remove_after_each_stroke: true,
             feather: 0.0,
             gradient_style: "linear".into(),
             gradient_reverse: false,
@@ -809,6 +827,8 @@ impl Default for ToolOptions {
             cr_anti_alias: true,
             zoom_scrubby: true,
             pencil_auto_erase: false,
+            brush_clear: false,
+            pencil_clear: false,
             eraser_mode: default_eraser_mode(),
             magnetic_width: 10.0,
             magnetic_contrast: 10.0,

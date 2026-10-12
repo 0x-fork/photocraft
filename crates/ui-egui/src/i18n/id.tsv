@@ -380,6 +380,7 @@
 	Select Linked Layers	Pilih Layer Tertaut
 	Merge Layers	Gabungkan Layer
 	Merge Down	Gabung ke Bawah
+	Merge Group	Gabungkan Grup
 	Merge Visible	Gabung yang Terlihat
 	Stamp Visible	Stamp yang Terlihat
 	Stamp Down	Stamp ke Bawah
@@ -2106,6 +2107,7 @@
 	Opening {name}	Membuka {name}
 	Saved {name}	Tersimpan: {name}
 	Saving {name}	Menyimpan {name}
+	Saving {percent}	Menyimpan {percent}
 	A save to {name} is still running; try again when it finishes	Penyimpanan ke {name} masih berjalan; coba lagi setelah selesai
 	{label} is writing the file and can no longer be cancelled	{label} sedang menulis berkas dan tidak dapat dibatalkan lagi
 	Opening {name}…	Membuka {name}…
@@ -2991,6 +2993,11 @@ cameraData	Lens	Lensa
 curves	Smooth	Haluskan
 	Smooth the curve values	Haluskan nilai kurva
 	Drag to draw the curve · {key}-click draws a straight line	Seret untuk menggambar kurva · {key}-klik menggambar garis lurus
+	Grid Size:	Ukuran Grid:
+	Vanishing Point: click four corners to create a plane	Vanishing Point: klik empat sudut untuk membuat bidang
+	Vanishing Point is not active	Vanishing Point tidak aktif
+	Apply Vanishing Point ({key})	Terapkan Vanishing Point ({key})
+	Fix the red plane first: its corners must form a convex quad	Perbaiki bidang merah dulu: sudut-sudutnya harus membentuk segi empat cembung
 # Select and Mask view modes (#1754)
 	Onion Skin	Kulit Bawang
 	Marching Ants	Semut Berbaris
@@ -3024,3 +3031,18 @@ curves	Smooth	Haluskan
 	Apply mask to layer before removing?	Terapkan masker ke layer sebelum dihapus?
 	The layer or its mask changed. Drag the mask onto the Trash again.	Layer atau maskernya berubah. Seret masker ke Tempat Sampah lagi.
 	Delete the vector mask?	Hapus masker vektor?
+# View › Guides › New Guide… › Color
+	Light Blue	Biru Muda
+	Light Red	Merah Terang
+	Medium Blue	Biru Sedang
+	Light Gray	Abu-abu Muda
+	Remove after each stroke	Hapus setelah setiap goresan
+	Apply the removal ({key})	Terapkan penghapusan ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Goresan untuk dihapus: {n} (Enter menerapkan, Esc membatalkan)
+# Bevel & Emboss shading controls.
+	Highlight Mode	Mode Sorotan
+	Highlight Color	Warna Sorotan
+	Highlight Opacity	Opasitas Sorotan
+	Shadow Mode	Mode Bayangan
+	Shadow Color	Warna Bayangan
+	Shadow Opacity	Opasitas Bayangan

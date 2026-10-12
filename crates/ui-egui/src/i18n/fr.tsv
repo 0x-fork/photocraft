@@ -387,6 +387,7 @@
 	Select Linked Layers	Sélectionner les calques liés
 	Merge Layers	Fusionner les calques
 	Merge Down	Fusionner avec le calque inférieur
+	Merge Group	Fusionner le groupe
 	Merge Visible	Fusionner les calques visibles
 	Stamp Visible	Tamponner les calques visibles
 	Stamp Down	Tamponner sur le calque inférieur
@@ -2113,6 +2114,7 @@
 	Opening {name}	Ouverture de {name}
 	Saved {name}	Enregistré : {name}
 	Saving {name}	Enregistrement de {name}
+	Saving {percent}	Enregistrement {percent}
 	A save to {name} is still running; try again when it finishes	Un enregistrement de {name} est encore en cours ; réessayez lorsqu’il sera terminé
 	{label} is writing the file and can no longer be cancelled	{label} écrit le fichier et ne peut plus être annulé
 	Opening {name}…	Ouverture de {name}…
@@ -3004,6 +3006,11 @@ cameraData	Lens	Objectif
 curves	Smooth	Lisser
 	Smooth the curve values	Lisser les valeurs de la courbe
 	Drag to draw the curve · {key}-click draws a straight line	Faites glisser pour dessiner la courbe · {key}-clic trace une ligne droite
+	Grid Size:	Taille de la grille :
+	Vanishing Point: click four corners to create a plane	Point de fuite : cliquez sur quatre coins pour créer un plan
+	Vanishing Point is not active	Point de fuite n’est pas actif
+	Apply Vanishing Point ({key})	Appliquer le point de fuite ({key})
+	Fix the red plane first: its corners must form a convex quad	Corrigez d’abord le plan rouge : ses coins doivent former un quadrilatère convexe
 # Select and Mask view modes (#1754)
 	Onion Skin	Pelure d'oignon
 	Marching Ants	Fourmis en marche
@@ -3037,3 +3044,18 @@ curves	Smooth	Lisser
 	Apply mask to layer before removing?	Appliquer le masque au calque avant de le supprimer ?
 	The layer or its mask changed. Drag the mask onto the Trash again.	Le calque ou son masque a changé. Faites de nouveau glisser le masque sur la corbeille.
 	Delete the vector mask?	Supprimer le masque vectoriel ?
+# View › Guides › New Guide… › Color
+	Light Blue	Bleu clair
+	Light Red	Rouge clair
+	Medium Blue	Bleu moyen
+	Light Gray	Gris clair
+	Remove after each stroke	Supprimer après chaque trait
+	Apply the removal ({key})	Appliquer la suppression ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Traits à supprimer : {n} (Entrée applique, Échap annule)
+# Bevel & Emboss shading controls.
+	Highlight Mode	Mode des tons clairs
+	Highlight Color	Couleur des tons clairs
+	Highlight Opacity	Opacité des tons clairs
+	Shadow Mode	Mode des ombres
+	Shadow Color	Couleur des ombres
+	Shadow Opacity	Opacité des ombres

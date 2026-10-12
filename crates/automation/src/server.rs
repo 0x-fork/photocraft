@@ -792,7 +792,9 @@ impl PhotocraftMcp {
         }
     }
 
-    #[tool(description = "List engine commands: id, label, menu path, shortcut, parameter doc, enabled now.")]
+    #[tool(description = "List engine commands: id, label, menu path, shortcut, parameter doc, enabled now. \
+        `disabledReason` says why a command is off (null when enabled); `needsDocument` is true when it is off because no \
+        document is open: create or open one first (doc_new, doc_open).")]
     async fn command_list(&self, Parameters(p): Parameters<ListParams>) -> Result<CallToolResult, McpError> {
         let all = if let Some(r) = self.headless_op(|h| Ok(h.command_list())).await {
             r
@@ -841,8 +843,9 @@ impl PhotocraftMcp {
         self.jobs_call("jobs.cancel", p.job.map_or_else(|| json!({}), |j| json!({"job": j})), false).await
     }
 
-    #[tool(description = "Run several engine commands in one call (fewer round trips). Returns {completed, failed, \
-        results:[{ok, result|error}]}; stops at the first error unless stop_on_error is false.")]
+    #[tool(description = "Run several engine commands in one call, in order (fewer round trips). Returns {completed, failed, \
+        results:[{ok, result|error}]}; stops at the first error unless stop_on_error is false. \
+        Not an atomic transaction: earlier successful steps stay applied (no rollback).")]
     async fn command_batch(&self, Parameters(p): Parameters<BatchParams>) -> Result<CallToolResult, McpError> {
         if p.steps.len() > MAX_BATCH_STEPS {
             return Ok(fail(format!("batch contains {} steps; maximum is {MAX_BATCH_STEPS}", p.steps.len())));

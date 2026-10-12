@@ -375,6 +375,7 @@
 	Select Linked Layers	연결된 레이어 선택
 	Merge Layers	레이어 병합
 	Merge Down	아래 레이어와 병합
+	Merge Group	그룹 병합
 	Merge Visible	보이는 레이어 병합
 	Stamp Visible	보이는 레이어의 병합 사본 만들기
 	Select Layer Above	위 레이어 선택
@@ -2105,6 +2106,7 @@
 	Opening {name}	{name} 여는 중
 	Saved {name}	{name} 저장됨
 	Saving {name}	{name} 저장 중
+	Saving {percent}	저장 중 {percent}
 	A save to {name} is still running; try again when it finishes	{name}에 저장하는 작업이 아직 진행 중입니다. 완료된 후 다시 시도하세요
 	{label} is writing the file and can no longer be cancelled	{label}: 파일을 쓰는 중이므로 더 이상 취소할 수 없습니다
 	Opening {name}…	{name} 여는 중…
@@ -3171,6 +3173,13 @@ cameraData	Lens	렌즈
 curves	Smooth	매끄럽게
 	Smooth the curve values	곡선 값을 매끄럽게 하기
 	Drag to draw the curve · {key}-click draws a straight line	드래그하여 곡선 그리기 · {key}-클릭으로 직선 그리기
+	Edit Plane	평면 편집
+	Create Plane	평면 만들기
+	Grid Size:	격자 크기:
+	Vanishing Point: click four corners to create a plane	소실점: 네 모서리를 클릭하여 평면을 만드십시오
+	Vanishing Point is not active	소실점이 활성화되어 있지 않습니다
+	Apply Vanishing Point ({key})	소실점 적용 ({key})
+	Fix the red plane first: its corners must form a convex quad	먼저 빨간색 평면을 수정하십시오: 모서리가 볼록 사각형을 이루어야 합니다
 # Select and Mask view modes (#1754)
 	Onion Skin	어니언 스킨
 	Marching Ants	점선 윤곽
@@ -3204,3 +3213,18 @@ curves	Smooth	매끄럽게
 	Apply mask to layer before removing?	제거하기 전에 마스크를 레이어에 적용하시겠습니까?
 	The layer or its mask changed. Drag the mask onto the Trash again.	레이어 또는 마스크가 변경되었습니다. 마스크를 휴지통으로 다시 드래그하세요.
 	Delete the vector mask?	벡터 마스크를 삭제하시겠습니까?
+# View › Guides › New Guide… › Color
+	Light Blue	연한 파랑
+	Light Red	연한 빨강
+	Medium Blue	중간 파랑
+	Light Gray	연한 회색
+	Remove after each stroke	획마다 제거
+	Apply the removal ({key})	제거 적용 ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	제거할 획: {n} (Enter 적용, Esc 취소)
+# Bevel & Emboss shading controls.
+	Highlight Mode	하이라이트 모드
+	Highlight Color	하이라이트 색상
+	Highlight Opacity	하이라이트 불투명도
+	Shadow Mode	그림자 모드
+	Shadow Color	그림자 색상
+	Shadow Opacity	그림자 불투명도

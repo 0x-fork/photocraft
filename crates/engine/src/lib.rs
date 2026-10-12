@@ -217,6 +217,11 @@ pub struct DocState {
     /// pixel coordinates. Per-document view state: discarded when the document closes, never saved
     /// to `.pcraft` or PSD, and not a history step.
     pub color_samplers: Vec<[f64; 2]>,
+    /// History panel snapshots, oldest first (`history.newSnapshot`, #2966). Kept for the
+    /// session only, as in Photoshop: not history states, and not saved with the document.
+    pub snapshots: Vec<history_cmds::Snapshot>,
+    /// The id the next snapshot gets; ids are never reused, so deleting one keeps the others.
+    next_snapshot: u64,
 }
 
 impl DocState {
@@ -243,6 +248,8 @@ impl DocState {
             show_only: None,
             floating: None,
             color_samplers: Vec::new(),
+            snapshots: Vec::new(),
+            next_snapshot: 1,
         }
     }
     /// The selected layers in bottom-to-top document order, always including the active layer.
@@ -578,6 +585,26 @@ impl Session {
             && params.get("layer").and_then(Value::as_u64).is_some_and(|l| self.active().is_some_and(|st| st.doc.layer(LayerId(l)).is_some()))
     }
 
+    /// The precondition of a command whose params document `"layer":id` (it acts on that layer),
+    /// when `params` name an existing layer of the active document: checked on that layer rather
+    /// than on the active one, which stays active (#466). A script, action or agent can then
+    /// Replace Contents, Rasterize or Merge Down a layer without selecting it first. `None` for
+    /// other commands, or without such a layer.
+    pub(crate) fn explicit_layer_enabled(&mut self, spec: &commands::CommandSpec, params: &Value) -> Option<std::result::Result<(), String>> {
+        if !spec.params.contains("\"layer\":id") {
+            return None;
+        }
+        let target = LayerId(params.get("layer")?.as_u64()?);
+        let d = self.active_mut()?;
+        d.doc.layer(target)?;
+        let active = d.active_layer.replace(target);
+        let r = (spec.enabled)(self);
+        if let Some(d) = self.active_mut() {
+            d.active_layer = active;
+        }
+        Some(r)
+    }
+
     /// Apply an undoable edit to the active document.
     pub fn edit<R>(&mut self, label: &str, f: impl FnOnce(&mut Document, &mut Option<LayerId>) -> Result<R>) -> Result<R> {
         let restrict = self.color_restrict;
@@ -617,11 +644,12 @@ impl Session {
             st.color_samplers.retain(|p| bounds.contains(p[0].floor() as i32, p[1].floor() as i32));
             samplers_removed = n - st.color_samplers.len();
         }
-        // An edit that changes no pixels (a selection, guides, a layer's name) leaves the canvas
-        // as it is; anything else recomposites the whole document unless the command reports
-        // its own damage after this. A new lasso selection on a large document used to cost a
-        // full recomposite (seconds on the CPU path, #1773).
-        let unchanged = layer_multi_cmds::same_pixels(&before, &st.doc);
+        // The pixels the edit can have changed, as its undo would report them: nothing for a
+        // selection, guides or a layer's name (a new lasso selection used to recomposite a large
+        // document, seconds on the CPU path, #1773), a new or deleted layer's bounds (a
+        // duplicate or a paste), and everything when that can't be bounded. A command may still
+        // report its own, tighter damage after this.
+        let damage = layer_multi_cmds::step_damage(&before, &st.doc);
         let key = self.coalesce_request.clone();
         let st = self.active_mut().ok_or(EngineError::NoDocument)?;
         let layers = st.layer_target();
@@ -634,9 +662,9 @@ impl Session {
         }
         st.coalesce = key;
         st.revision += 1;
-        st.last_damage = unchanged.then_some(photocraft_geom::Rect::EMPTY);
+        st.last_damage = damage;
         self.samplers_removed += samplers_removed;
-        if !unchanged {
+        if damage.is_none_or(|d| !d.is_empty()) {
             // Free the mask early; a stale entry would only miss (it is keyed by pixels).
             self.subject_cache = Default::default();
         }

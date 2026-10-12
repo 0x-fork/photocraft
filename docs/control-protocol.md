@@ -23,6 +23,8 @@ The first request on every TCP connection must authenticate. No other method is 
 {"id": "auth", "method": "auth", "params": {"token": "<64 hexadecimal characters>"}}
 ```
 
+Authenticate once per connection. A later `auth` frame on the same connection gets `{"ok": false, "error": "already authenticated"}` and the connection keeps serving.
+
 After the successful authentication reply, each request is one JSON line:
 
 ```json
@@ -88,7 +90,7 @@ Change the UI language without restarting with `prefs.set`:
 are documented in [UI localisation](localization.md). `prefs.get` and the existing preference
 store expose and persist the same setting; scripts keep using canonical command IDs.
 
-`engine.execute` runs any command by id. `engine.commands` (or the engine command `command.list`) lists them all, with labels, menu paths, shortcuts, a parameter description, and whether each is currently enabled. Examples:
+`engine.execute` runs any command by id. `engine.commands` (or the engine command `command.list`) lists them all, with labels, menu paths, shortcuts, a parameter description, and whether each is currently enabled. Each row carries `enabled` (bool), `disabledReason` (`null` when enabled, otherwise the precondition that failed, such as `"no document open"`, `"no selection"` or `"the clipboard is empty"`) and `needsDocument` (true when the command is off because no document is open, so the first step is to create or open one; a command may still have its own precondition after that, such as an active text layer. False when enabled or off for another reason). With no document open, nearly every document command reports `enabled: false, needsDocument: true`; plan around `needsDocument` rather than reading `enabled` alone (#3664). Examples:
 
 | Command | Params |
 |---|---|
@@ -104,12 +106,14 @@ store expose and persist the same setting; scripts keep using canonical command 
 | `layer.newAdjustmentLayer.hueSaturation` | `{"hue":30,"saturation":10}` |
 | `paint.stroke` | `{"points":[[x,y,pressure],…],"size":20,"color":"#ff0000"}` |
 | `select.rect` | `{"x":0,"y":0,"width":100,"height":50,"mode":"add","ellipse":false}` |
-| `document.inspect` | `{}`: layer tree, history, selection bounds |
+| `document.inspect` | `{}`: layer tree, history, snapshots (`[{id, name}]`, for `history.selectSnapshot`), selection bounds |
 | `document.pixel` | `{"x":10,"y":10}`: composite RGBA |
 | `document.presets.list` | `{}` → `{presets:[{name,settings}]}`: saved New Document configurations |
 | `document.presets.save` | `{"name":"Product square","settings":{"width":1600,"height":1600,"background":"transparent"}}`: save a snapshot; names are trimmed, 1–255 characters, and ASCII case-insensitive duplicates are rejected |
 | `document.presets.get` | `{"name":"Product square"}` → `{preset,params}`: fetch settings; pass `params` to `file.new` to create a document, optionally adding a document `name` |
 | `document.presets.delete` | `{"name":"Product square"}`: delete the named saved configuration |
+| `document.recent.list` | `{}` → `{recent:[settings]}`: File › New › Recent, the settings of the documents last created with the New Document dialog, newest first (at most 20) |
+| `document.recent.add` | `{"settings":{…as document.presets.save}}`: put settings first in Recent (the dialog does this after Create; equal entries collapse); not recorded into actions |
 | `type.hitTest` | `{"layer":id?,"x":px,"y":px}`: character under a document point. No `layer` picks the topmost visible type layer there. Result `{"layer","index","line","inside"}` |
 | `type.caret` | `{"layer":id?,"index":char}`: caret segment in document pixels, `{"index","line","segment":[[x,y],[x,y]]}` (rotated and vertical type included) |
 | `type.navigate` | `{"layer":id?,"index":char,"move":"wordPrev\|wordNext\|linePrev\|lineNext\|lineStart\|lineEnd\|start\|end","x":px?}`: neighbouring caret. `x` keeps the column across line moves. Result `{"index"}` |
@@ -186,7 +190,7 @@ the same commands work in the app, the CLI and headless MCP. Paths are dotted ca
 | `prefs.set` | `{"path":"cursors.painting","value":"precise"}` or `{"values":{"unitsAndRulers.rulers":"cm","guidesGridAndSlices.gridColor":"#ff8800"}}`. Values are validated (choices, ranges, `#rrggbb` colours, shortcut syntax); a batch applies all or nothing. A section path takes an object and merges it key by key |
 | `prefs.reset` | `{"path":"performance"}` (a section or key); no path resets everything. An individual `shortcuts.<id>` or `menus.colors.<id>` reset removes the override and returns `null`, including when it is already absent |
 | `edit.preferences.<section>` | the section's values; in the app (no params) it opens the Preferences dialog on that section |
-| `edit.keyboardShortcuts` | `{"set":{"edit.fill":"Cmd+Shift+F"},"reset":true\|["id",…],"removeConflicts":true,"filter":"blur","list":false,"importKys":"<.kys XML>"}`: returns overrides, matching commands and conflicts. A shortcut moved to another command is removed from its old owner unless `removeConflicts` is false. `""` removes a shortcut, `null` restores the default. The held temporary tools are bindable too: `tools.temporary.hand` (Space; also repositions a selection being drawn), `tools.temporary.zoomIn` (Cmd+Space), `tools.temporary.zoomOut` (Alt+Space; Alt added to a held Zoom In, Cmd+Alt+Space, zooms out too); they list with `"hold": true`. ⌘ (Ctrl off the Mac) held alone is the Move tool with the painting, retouching and other non-selection tools, as in Photoshop; it is a modifier, not a binding. `importKys` applies a Photoshop `.kys` set (the file's XML text, at most 4 MiB): rows are matched to commands by menu label, a key equal to the default restores it, keys also given in `set` win, tool keys are not imported, and the result gains `import` (`name`, `imported`, `set`, `unknown`, `unreadable`, `alternates`, `toolKeys`). In the app it opens Keyboard Shortcuts and Menus, whose Import Shortcuts… button loads a `.kys` set into the dialog (opening or dropping a `.kys`, or Photoshop's live `Keyboard Shortcuts.psp`, does the same). On a desktop with Photoshop installed, the first launch that has no shortcut overrides yet asks whether to import the newest install's live set (Import / Don't Import; `ui.inspect` shows it as `kysOffer`); the answer is recorded in the preferences as `dialogs.photoshopShortcuts`, so it is asked once |
+| `edit.keyboardShortcuts` | `{"set":{"edit.fill":"Cmd+Shift+F"},"reset":true\|["id",…],"removeConflicts":true,"filter":"blur","list":false,"importKys":"<.kys XML>"}`: returns overrides, matching commands and conflicts. A shortcut moved to another command is removed from its old owner unless `removeConflicts` is false. `""` removes a shortcut, `null` restores the default. The held temporary tools are bindable too: `tools.temporary.hand` (Space; also repositions a selection being drawn), `tools.temporary.zoomIn` (Cmd+Space), `tools.temporary.zoomOut` (Alt+Space; Alt added to a held Zoom In, Cmd+Alt+Space, zooms out too), `tools.temporary.erase` (`` ` ``; with the Brush or Pencil, a stroke started while it is held is in Clear mode, `paint.stroke`/`paint.pencil` `"mode": "clear"`, erasing with that tool's brush); they list with `"hold": true`. ⌘ (Ctrl off the Mac) held alone is the Move tool with the painting, retouching and other non-selection tools, as in Photoshop; it is a modifier, not a binding. `importKys` applies a Photoshop `.kys` set (the file's XML text, at most 4 MiB): rows are matched to commands by menu label, a key equal to the default restores it, keys also given in `set` win, tool keys are not imported, and the result gains `import` (`name`, `imported`, `set`, `unknown`, `unreadable`, `alternates`, `toolKeys`). In the app it opens Keyboard Shortcuts and Menus, whose Import Shortcuts… button loads a `.kys` set into the dialog (opening or dropping a `.kys`, or Photoshop's live `Keyboard Shortcuts.psp`, does the same). On a desktop with Photoshop installed, the first launch that has no shortcut overrides yet asks whether to import the newest install's live set (Import / Don't Import; `ui.inspect` shows it as `kysOffer`); the answer is recorded in the preferences as `dialogs.photoshopShortcuts`, so it is asked once |
 | `edit.menus` / `edit.toolbar` | `{"hide":["edit.fade"],"show":[…],"color":{"edit.fill":"red"},"reset":false}` / `{"hidden":["Sponge"],"order":[…]}` |
 | `edit.colorSettings` | `{"workingRgb":"display-p3","workingCmyk":"coated-cmyk","workingGray":"sgray","policyRgb":"preserve\|convert\|off",…,"askOnMismatch":true,"intent":"perceptual","bpc":true}`; honoured when opening files (`file.openAs`, the app's File › Open) and by Image › Mode and "working" profile specs. `color.profileMismatch {"action":"preserve\|convert\|discard\|assignWorking"}` answers the mismatch prompt |
 
@@ -259,7 +263,7 @@ How each MCP tool maps onto control methods in bridge mode:
 |---|---|
 | `command_run {id, params, wait?}` | `engine.execute {command: id, params, wait}` |
 | `jobs_list` / `jobs_cancel {job?}` | `jobs.list` / `jobs.cancel {job?}` |
-| `command_list {filter?, enabled_only?}` | `engine.commands` (filtered by the MCP server) |
+| `command_list {filter?, enabled_only?}` | `engine.commands` (filtered by the MCP server; rows keep `disabledReason` and `needsDocument`) |
 | `doc_new {…}` | `engine.execute {command: "file.new", params}` |
 | `doc_inspect` | `engine.execute {command: "document.inspect"}` |
 | `doc_open {path}` | `app.open {path}` |
@@ -317,7 +321,7 @@ no MCP framing, no app start-up per command. Configure its file access with the 
 |---|---|
 | `engine.execute` | `{command, params?, wait?}`: any engine command (`wait: false` starts a long one as a background job: `{job, pending}`) |
 | `jobs.list` / `jobs.cancel` | `{}` / `{job?}`: background jobs; cancel one or all. Every request (and MCP tool call) first applies the jobs that finished, so `doc.save`, `doc.inspect`, `doc.render` and `session.list` include a finished job's result without polling `jobs.list` first |
-| `engine.commands` | `{filter?}`: registry with params docs and enablement |
+| `engine.commands` | `{filter?}`: registry with params docs and enablement (`enabled`, `disabledReason`, `needsDocument`) |
 | `session.list` | open documents and the active index |
 | `doc.open` / `doc.new` | `{path}` / `file.new` params |
 | `doc.place` | `{path, scale? (percent), fit? (true), center? ([x, y]), index?}`: places a file as a Smart Object layer above the active one and returns `{layer, scale, bounds}`. `path` resolves beneath the read root, so this is the capability-scoped `file.placeEmbedded` — that command itself still refuses an ambient path |
@@ -425,8 +429,9 @@ keeps the dialog open for correction. Nothing else writes document history.
 command line) of a camera raw developed from its sensor data shows this dialog first, titled
 "Camera Raw (name)", with **Open** and **Cancel**, as Photoshop opens raws in Adobe Camera Raw.
 `ui.inspect.cameraRaw.openingRaw` is then `{name, path}`. Commit (Open) re-develops the raw when
-Temperature, Tint or Exposure changed (as-shot white-balance gains and develop exposure on the
-sensor data; without an as-shot white balance, or without the file's bytes, they stay RGB
+Temperature, Tint, Exposure, Shadows, Highlights, Clarity, Texture or Dehaze changed (as-shot
+white-balance gains, develop exposure, and the other five in linear light before the camera's
+tone curve, as Camera Raw does for raw files; without an as-shot white balance, or without the file's bytes, they stay RGB
 adjustments), applies the remaining settings as one `filter.cameraRaw` step and leaves the
 document unmodified; its result is `{document, redeveloped, filter?}`. Cancel closes the
 document. `app.open` and other automation opens never show the dialog. The preference

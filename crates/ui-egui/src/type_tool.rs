@@ -251,8 +251,9 @@ pub fn pointer_down(app: &mut PhotocraftApp, x: f64, y: f64, mods: egui::Modifie
         commit_with(app, mods);
         return true; // Photoshop: a click outside commits without starting new text
     }
-    // The Type Mask tools always start new text: existing type layers are just pixels to them.
-    if app.ui.tool.is_type_mask() {
+    // The Type Mask tools always start new text: existing type layers are just pixels to them;
+    // so does a ⇧-click with the Type tool, as in Photoshop, to start new text over old.
+    if app.ui.tool.is_type_mask() || mods.shift {
         return false;
     }
     if let Some(id) = hit_layer(app, x, y) {
@@ -1783,6 +1784,102 @@ fn toggle_cell(ui: &mut egui::Ui, w: f32, on: bool, tip: &str, paint: impl FnOnc
     resp.on_hover_text(tl!(&tip)).clicked()
 }
 
+/// The Character panel's OpenType buttons, in Photoshop's order: (feature tag, command id,
+/// tooltip). The tooltips are the Type › OpenType menu labels.
+pub(crate) const OPENTYPE_BUTTONS: [(&str, &str, &str); 8] = [
+    ("liga", "type.openType.standardLigatures", "Standard Ligatures"),
+    ("calt", "type.openType.contextualAlternates", "Contextual Alternates"),
+    ("dlig", "type.openType.discretionaryLigatures", "Discretionary Ligatures"),
+    ("swsh", "type.openType.swash", "Swash"),
+    ("salt", "type.openType.stylisticAlternates", "Stylistic Alternates"),
+    ("titl", "type.openType.titlingAlternates", "Titling Alternates"),
+    ("ordn", "type.openType.ordinals", "Ordinals"),
+    ("frac", "type.openType.fractions", "Fractions"),
+];
+
+/// Photoshop's OpenType button row: each shows pressed while its feature is on at the type
+/// target (the selection start, else the layer) and toggles it through the Type › OpenType
+/// command, on the same scope as the other Character controls.
+fn opentype_row(app: &mut PhotocraftApp, ui: &mut egui::Ui, c: &photocraft_doc::text::CharStyle, full: f32) {
+    let cw = cell_width(full, OPENTYPE_BUTTONS.len());
+    let mut clicked = None;
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        for (tag, id, tip) in OPENTYPE_BUTTONS {
+            let on = photocraft_engine::type_extra_cmds::feature_on(c, tag);
+            if toggle_cell(ui, cw, on, tip, |ui, r, col| opentype_glyph(ui.painter(), r, tag, col)) {
+                clicked = Some((id, on));
+            }
+        }
+    });
+    if let Some((id, on)) = clicked {
+        toggle_opentype(app, id, on);
+    }
+}
+
+/// Runs an OpenType toggle command on the Character panel's scope: the edited layer's selected
+/// characters (or its whole text) while typing, else every selected type layer. The new state
+/// is explicit, so it follows the button the user saw rather than the layer's first run.
+pub(crate) fn toggle_opentype(app: &mut PhotocraftApp, id: &str, shown_on: bool) {
+    let Some(mut p) = formatting_params(app) else { return };
+    p["on"] = json!(!shown_on);
+    let _ = app.run(id, p);
+}
+
+/// Small glyph labels for the OpenType buttons (drawn here, no Adobe artwork): fi, st, ct with
+/// a ligature arc, a swash A, aa, T, 1st and ½.
+fn opentype_glyph(p: &egui::Painter, r: egui::Rect, tag: &str, col: Color32) {
+    let font = egui::FontId::proportional(13.0);
+    let centred = |s: &str, font: egui::FontId| {
+        let g = p.layout_no_wrap(s.to_string(), font, col);
+        let pos = r.center() - g.size() / 2.0;
+        let gr = egui::Rect::from_min_size(pos, g.size());
+        p.galley(pos, g, col);
+        gr
+    };
+    match tag {
+        "liga" => {
+            centred("fi", font);
+        }
+        "calt" => {
+            centred("st", font);
+        }
+        "dlig" => {
+            let gr = centred("ct", font);
+            // The ligature's connecting arc from the c over to the t.
+            let a = egui::pos2(gr.left() + gr.width() * 0.3, gr.top() + gr.height() * 0.42);
+            let b = egui::pos2(gr.right() - gr.width() * 0.2, gr.top() + 4.0);
+            let mid = egui::pos2((a.x + b.x) / 2.0, gr.top() + 1.5);
+            p.line_segment([a, mid], Stroke::new(1.0, col));
+            p.line_segment([mid, b], Stroke::new(1.0, col));
+        }
+        "swsh" => {
+            let gr = centred("A", crate::theme::semibold(13.0));
+            // A swash tail sweeping out under the letter.
+            let y = gr.bottom() - 3.0;
+            p.line_segment([egui::pos2(gr.left() - 3.0, y + 1.5), egui::pos2(gr.right() + 2.0, y - 0.5)], Stroke::new(1.0, col));
+        }
+        "salt" => {
+            centred("aa", font);
+        }
+        "titl" => {
+            centred("T", crate::theme::semibold(13.0));
+        }
+        "ordn" => {
+            let one = p.layout_no_wrap("1".into(), font, col);
+            let st = p.layout_no_wrap("st".into(), egui::FontId::proportional(9.0), col);
+            let left = r.center().x - (one.size().x + st.size().x) / 2.0;
+            let top = r.center().y - one.size().y / 2.0;
+            let st_x = left + one.size().x;
+            p.galley(egui::pos2(left, top), one, col);
+            p.galley(egui::pos2(st_x, top - 1.0), st, col);
+        }
+        _ => {
+            centred("½", font);
+        }
+    }
+}
+
 /// Width of each of `n` equal cells filling `avail` with 2 pt gaps.
 fn cell_width(avail: f32, n: usize) -> f32 {
     let n = n.max(1) as f32;
@@ -1848,6 +1945,8 @@ fn type_sections(app: &mut PhotocraftApp, ui: &mut egui::Ui, character: bool, pa
         axis_sliders(app, ui, &c);
         row(ui, &mut |ui| {
             let k = shown_scale(app);
+            // Hover tips stay English until wired through `tl!` in a multi-locale change
+            // (`every_tl_literal_is_translated` requires every complete catalog).
             if let Some(v) = num_field(ui, "tT", "Font size", c.size_pt * k, 0.1..=1296.0, "pt", w) {
                 app.ui.tool_options.type_size = v;
                 apply(app, ui.ctx(), json!({"size": v, "metricsAsShown": true}));
@@ -1904,18 +2003,19 @@ fn type_sections(app: &mut PhotocraftApp, ui: &mut egui::Ui, character: bool, pa
         });
         // Faux styles: T (bold)  T (italic)  TT  Tᴛ  T̲  T̶, sharing the row evenly.
         let caps = c.caps;
+        // Tip strings are English keys; `toggle_cell` runs them through `tl!`.
         let toggles: [(&str, &str, bool, serde_json::Value); 6] = [
             ("T", "Faux Bold", c.faux_bold, json!({"fauxBold": !c.faux_bold})),
             ("T", "Faux Italic", c.faux_italic, json!({"fauxItalic": !c.faux_italic})),
             (
                 "TT",
-                tl!("All Caps"),
+                "All Caps",
                 caps == photocraft_doc::text::Caps::AllCaps,
                 json!({"caps": if caps == photocraft_doc::text::Caps::AllCaps { "normal" } else { "allCaps" }}),
             ),
             (
                 "Tᴛ",
-                tl!("Small Caps"),
+                "Small Caps",
                 caps == photocraft_doc::text::Caps::SmallCaps,
                 json!({"caps": if caps == photocraft_doc::text::Caps::SmallCaps { "normal" } else { "smallCaps" }}),
             ),
@@ -1953,6 +2053,8 @@ fn type_sections(app: &mut PhotocraftApp, ui: &mut egui::Ui, character: bool, pa
                 }
             }
         });
+        ui.add_space(ROW_GAP);
+        opentype_row(app, ui, &c, full);
         ui.add_space(ROW_GAP);
     }
     if paragraph && section(ui, "paragraph", tl!("Paragraph")) {
@@ -2117,6 +2219,22 @@ mod tests {
     fn layer_text(app: &PhotocraftApp) -> String {
         let ed = app.ui.text_edit.as_ref().unwrap();
         current_text(app, LayerId(ed.layer)).unwrap()
+    }
+
+    /// Photoshop: a click on existing type edits it; a ⇧-click there starts a new type layer.
+    #[test]
+    fn shift_click_on_existing_type_starts_new_text() {
+        let mut app = app();
+        pointer_up(&mut app, [50.0, 100.0], [50.0, 100.0]);
+        insert(&mut app, "Existing words");
+        commit(&mut app);
+        let existing = app.session.active().unwrap().doc.layers.last().unwrap().id;
+        let (x, y) = (60.0, 95.0);
+        assert_eq!(hit_layer(&mut app, x, y), Some(existing), "the click lands on the existing text");
+        assert!(!pointer_down(&mut app, x, y, egui::Modifiers::SHIFT), "⇧: not consumed, so a new type layer starts");
+        assert!(app.ui.text_edit.is_none());
+        assert!(pointer_down(&mut app, x, y, egui::Modifiers::NONE), "a plain click edits the existing text");
+        assert_eq!(app.ui.text_edit.as_ref().map(|e| e.layer), Some(existing.0));
     }
 
     #[test]

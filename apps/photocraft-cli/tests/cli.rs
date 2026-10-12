@@ -189,15 +189,61 @@ fn run_commands_and_save() {
     let lines: Vec<Value> = out.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
     assert_eq!(lines.len(), 3);
     assert_eq!(lines[2]["command"], "document.inspect");
+    assert_eq!(lines[2]["result"]["name"], "Run");
     let (info, _) = ok(bin().arg("info").arg(&out_pc));
     let v: Value = serde_json::from_str(&info).unwrap();
-    assert_eq!(v["name"], "Run");
+    // Saving a native document gives the reopened bundle its output filename.
+    assert_eq!(v["name"], "r.pcraft");
     let names: Vec<&str> = v["layers"].as_array().unwrap().iter().filter_map(|l| l["name"].as_str()).collect();
     assert_eq!(names, ["Ink", "Background"]);
     // Continue from the saved file and export PNG.
     let png = d.join("r.png");
     ok(bin().arg("run").arg(&out_pc).args(["--cmd", "layer.new.layer"]).arg("--out").arg(&png));
     assert_eq!(photocraft_codecs::decode(&std::fs::read(&png).unwrap()).unwrap().dimensions(), (40, 30));
+    std::fs::remove_dir_all(d).unwrap();
+}
+
+#[test]
+fn run_stops_after_failed_action_without_exporting() {
+    let d = tmp("run-failed-action");
+    let out = d.join("result.png");
+    let result = bin()
+        .args(["run", "--new", r#"{"width":8,"height":8}"#])
+        .args(["--cmd", "layer.new.layer"])
+        .args(["--cmd", "actions.record", "--params", r#"{"name":"Delete"}"#])
+        .args(["--cmd", "layer.delete", "--cmd", "actions.stop"])
+        // The recorded deletion succeeded with two layers; replay cannot delete the last one.
+        .args(["--cmd", "actions.play", "--params", r#"{"action":"Delete"}"#])
+        .args(["--cmd", "document.inspect", "--out"])
+        .arg(&out)
+        .output()
+        .unwrap();
+    let error = String::from_utf8_lossy(&result.stderr);
+    assert_eq!(result.status.code(), Some(1), "stdout: {}\nstderr: {error}", String::from_utf8_lossy(&result.stdout));
+    assert!(error.contains("actions.play") && error.contains("Delete") && error.contains("step 1"), "{error}");
+    let rows: Vec<Value> = String::from_utf8_lossy(&result.stdout).lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+    assert!(rows.iter().all(|row| row["command"] != "document.inspect"), "later commands must not run");
+    assert!(!out.exists(), "a failed action must not export a partial result");
+    std::fs::remove_dir_all(d).unwrap();
+}
+
+#[test]
+fn run_continues_after_successful_action_and_exports() {
+    let d = tmp("run-successful-action");
+    let out = d.join("result.png");
+    let (stdout, _) = ok(bin()
+        .args(["run", "--new", r#"{"width":8,"height":8}"#])
+        .args(["--cmd", "actions.record", "--params", r#"{"name":"Add"}"#])
+        .args(["--cmd", "layer.new.layer", "--cmd", "actions.stop"])
+        .args(["--cmd", "actions.play", "--params", r#"{"action":"Add"}"#])
+        .args(["--cmd", "document.inspect", "--out"])
+        .arg(&out));
+    let rows: Vec<Value> = stdout.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+    let playback = rows.iter().find(|row| row["command"] == "actions.play").unwrap();
+    assert_eq!(playback["result"]["ran"], 1);
+    assert!(playback["result"].get("failed").is_none());
+    assert!(rows.iter().any(|row| row["command"] == "document.inspect"));
+    assert!(out.is_file());
     std::fs::remove_dir_all(d).unwrap();
 }
 
