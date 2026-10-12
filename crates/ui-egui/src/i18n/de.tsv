@@ -868,6 +868,7 @@
 	Cancel	Abbrechen
 	Reset	Zurücksetzen
 	Cancel (Esc)	Abbrechen (Esc)
+	Manage submitted jobs in the system print queue	Übermittelte Aufträge in der Druckwarteschlange des Systems verwalten
 	Cancel any current edits (Esc)	Aktuelle Bearbeitungen abbrechen (Esc)
 	Cancel current crop operation  (Esc)	Aktuelle Freistellung abbrechen  (Esc)
 	Cancel transform (Esc)	Transformation abbrechen (Esc)

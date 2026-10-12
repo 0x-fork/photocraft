@@ -1524,6 +1524,7 @@ cameraRaw	Shadows	Vùng tối
 	Working…	Đang xử lý…
 	Reading…	Đang đọc…
 	Cancel (Esc)	Hủy (Esc)
+	Manage submitted jobs in the system print queue	Quản lý các lệnh in đã gửi trong hàng đợi in của hệ thống
 	Esc to cancel	Esc để hủy
 	Cancel opening	Hủy mở tệp
 	Cancelled opening {name}	Đã hủy mở {name}
