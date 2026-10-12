@@ -644,6 +644,9 @@ pub struct PhotocraftApp {
     pub(crate) raw_redevelop: Option<camera_raw_ui::Redevelop>,
     /// Filter › Adaptive Wide Angle dialog (wide_angle_ui).
     pub(crate) wide_angle: Option<wide_angle_ui::WideAngleDialog>,
+    /// The filter a "Rasterize?" prompt answered for, run after the dialog closes, where the
+    /// egui context is available again (rasterize_prompt).
+    pub(crate) pending_after_prompt: Option<(String, serde_json::Value)>,
     /// Signature of the image we last put on the OS clipboard (to tell ours from other apps').
     os_clip_sig: Option<u64>,
     /// The session clipboard currently holds an image imported from the OS clipboard: it has no
@@ -811,6 +814,7 @@ impl PhotocraftApp {
             pending_raw_open: None,
             raw_redevelop: None,
             wide_angle: None,
+            pending_after_prompt: None,
             tone_hist: None,
             doc_hist: None,
             hist_job: None,
@@ -1056,6 +1060,11 @@ impl PhotocraftApp {
         type_transform::cancel_stale(self);
         crate::cam_transform::cancel_stale(self);
         crate::lasso_ui::cancel_stale(self);
+        // A polygon under construction belongs to the Polygonal Lasso tool, not the next tool.
+        if self.ui.tool != Tool::PolygonLasso {
+            self.ui.polygon.clear();
+            self.ui.polygon_mode.clear();
+        }
         crate::crop_ui::cancel_stale(self);
         let ids: Vec<DocId> = self.session.documents().iter().map(|d| d.doc.id).collect();
         // Where the document of view `i` is now. Views not tracked yet keep their index.
@@ -1740,6 +1749,7 @@ impl eframe::App for PhotocraftApp {
         workspace_ui::windows(self, &ctx);
         palette::show(self, &ctx);
         dialogs::show(self, &ctx);
+        rasterize_prompt::run_pending(self, &ctx);
         jobs_ui::dialog(self, &ctx);
         discard_ui::show(self, &ctx);
         tiff_options_ui::show(self, &ctx);

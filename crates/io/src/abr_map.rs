@@ -478,9 +478,8 @@ impl Mapper<'_> {
             }
             b.pressure_size = boolean(to, "usePressureOverridesSize").unwrap_or(false);
             b.pressure_opacity = boolean(to, "usePressureOverridesOpacity").unwrap_or(false);
-            if boolean(to, "smoothing").unwrap_or(true)
-                && let Some(v) = pct(to, "smoothingValue")
-            {
+            b.smoothing.enabled = boolean(to, "smoothing").unwrap_or(true);
+            if let Some(v) = pct(to, "smoothingValue") {
                 b.smoothing.amount = v.clamp(0.0, 1.0);
             }
             if let Some(v) = boolean(to, "smoothingRadiusMode") {

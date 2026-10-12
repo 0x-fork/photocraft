@@ -335,6 +335,21 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                                 fields.insert("choice".into(), json!("apply"));
                             }
                             hit
+                        } else if crate::rasterize_prompt::is_filter(&fields) {
+                            // Photoshop: Convert to Smart Object / Rasterize / Cancel (#4303).
+                            let rasterize = DialogButton::new(ButtonRole::Default, tl!("Rasterize"), 84.0);
+                            let hit = if crate::rasterize_prompt::offers_smart_object(&fields) {
+                                let convert = DialogButton::new(ButtonRole::Alternate, tl!("Convert to Smart Object"), 160.0);
+                                dialog_buttons(ui, &[rasterize, cancel, convert])
+                            } else {
+                                dialog_buttons(ui, &[rasterize, cancel])
+                            };
+                            if hit == Some(ButtonRole::Alternate) {
+                                fields.insert("choice".into(), json!("smartObject"));
+                            } else if hit == Some(ButtonRole::Default) {
+                                fields.insert("choice".into(), json!("rasterize"));
+                            }
+                            hit
                         } else {
                             dialog_buttons(ui, &[ok, cancel])
                         };

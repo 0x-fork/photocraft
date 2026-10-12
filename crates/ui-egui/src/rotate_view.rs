@@ -71,7 +71,11 @@ pub fn pointer_deg(p: Pos2, pivot: Pos2) -> f32 {
 fn finite_number(p: &Value, key: &str) -> Result<Option<f32>, String> {
     match p.get(key) {
         None => Ok(None),
-        Some(v) => v.as_f64().filter(|n| n.is_finite()).map(|n| Some(n as f32)).ok_or_else(|| format!("{key} must be a finite number")),
+        Some(v) => v
+            .as_f64()
+            .filter(|n| n.is_finite() && n.abs() <= f64::from(f32::MAX))
+            .map(|n| Some(n as f32))
+            .ok_or_else(|| format!("{key} must be a finite number representable as f32")),
     }
 }
 
@@ -294,6 +298,10 @@ mod tests {
         assert!(apply_params(0.0, &json!({"angle": f64::NAN})).is_err());
         assert!(apply_params(0.0, &json!({"angle": f64::INFINITY})).is_err());
         assert!(apply_params(0.0, &json!({"delta": f64::INFINITY})).is_err());
+        // JSON can contain finite f64 values whose f32 conversion overflows to infinity.
+        // Silently wrapping infinity to 0 would reset a rotated view.
+        assert!(apply_params(32.0, &json!({"angle": 1.0e100})).is_err());
+        assert!(apply_params(32.0, &json!({"delta": -1.0e100})).is_err());
         assert!(apply_params(0.0, &json!({"reset": "yes"})).is_err());
         assert!(apply_params(0.0, &json!({"zoom": 1})).is_err());
         let huge = apply_params(0.0, &json!({"angle": 1.0e20})).unwrap();

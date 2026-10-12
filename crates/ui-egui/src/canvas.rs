@@ -566,15 +566,16 @@ pub(crate) fn pencil_tip_is_round(size: f32) -> bool {
 
 /// Whether a brush-tip circle draws its centre mark.
 /// Clone Stamp and Healing Brush stay an empty circle until Option is held, the source-point
-/// cursor. Other brushes follow the cursor preference, the large-tip mark, or the Background Eraser.
-fn brush_tip_centre(tool: Tool, option: bool, show_crosshair: bool, radius: f32) -> bool {
+/// cursor. Other brushes follow Preferences › Cursors › Show Crosshair in Brush Tip, as in
+/// Photoshop; the Background Eraser always shows its sampling hotspot.
+fn brush_tip_centre(tool: Tool, option: bool, show_crosshair: bool) -> bool {
     if tool == Tool::QuickSelection {
         return false;
     }
     if matches!(tool, Tool::CloneStamp | Tool::Healing) {
         return option || show_crosshair;
     }
-    show_crosshair || radius > 6.0 || tool == Tool::BackgroundEraser
+    show_crosshair || tool == Tool::BackgroundEraser
 }
 
 /// The display colour of an RGB triple (0..1 per channel) as an egui colour.
@@ -3536,11 +3537,6 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                         let painting = app.drag.is_some();
                         let brush = &app.session.tools.brush;
                         let full = (brush.size / 2.0 * xf.zoom).max(1.0);
-                        let r = if cur.painting == PaintingCursor::NormalTip {
-                            photocraft_paint::half_coverage_radius(full, brush.hardness).max(1.0)
-                        } else {
-                            full
-                        };
                         match cur.painting {
                             PaintingCursor::Standard => egui::CursorIcon::Default,
                             PaintingCursor::Precise => crate::tool_cursor::crosshair(&painter, p, 6.0, 0.0),
@@ -3573,7 +3569,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                             // A shaped tip (sampled bitmap, or a rotated/flattened round tip)
                             // traces its outline; a plain round tip keeps the circle.
                             _ => {
-                                let centre = brush_tip_centre(tool, alt || app.ui.shell.sticky_alt, cur.show_crosshair_in_brush_tip, r);
+                                let centre = brush_tip_centre(tool, alt || app.ui.shell.sticky_alt, cur.show_crosshair_in_brush_tip);
                                 crate::brush_cursor::cursor(&painter, p, brush, full, cur.painting == PaintingCursor::NormalTip, centre)
                             }
                         }
@@ -6171,20 +6167,23 @@ mod tests {
 
     #[test]
     fn clone_stamp_centre_appears_only_with_option() {
-        assert!(!brush_tip_centre(Tool::CloneStamp, false, false, 20.0));
-        assert!(brush_tip_centre(Tool::CloneStamp, true, false, 20.0));
-        assert!(brush_tip_centre(Tool::Healing, true, false, 20.0));
-        assert!(!brush_tip_centre(Tool::Healing, false, false, 20.0));
-        assert!(brush_tip_centre(Tool::CloneStamp, false, true, 20.0));
-        assert!(brush_tip_centre(Tool::PatternStamp, false, false, 20.0));
-        assert!(
-            brush_tip_centre(Tool::PatternStamp, true, false, 20.0),
-            "Pattern Stamp keeps the brush centre; Option does not switch it to a clone-source mark"
-        );
-        assert!(!brush_tip_centre(Tool::PatternStamp, false, false, 2.0));
-        assert!(brush_tip_centre(Tool::Brush, false, false, 20.0));
-        assert!(!brush_tip_centre(Tool::QuickSelection, false, false, 20.0));
-        assert!(brush_tip_centre(Tool::BackgroundEraser, false, false, 2.0));
+        assert!(!brush_tip_centre(Tool::CloneStamp, false, false));
+        assert!(brush_tip_centre(Tool::CloneStamp, true, false));
+        assert!(brush_tip_centre(Tool::Healing, true, false));
+        assert!(!brush_tip_centre(Tool::Healing, false, false));
+        assert!(brush_tip_centre(Tool::CloneStamp, false, true));
+        assert!(!brush_tip_centre(Tool::PatternStamp, true, false), "Pattern Stamp keeps the brush cursor; Option does not switch it to a clone-source mark");
+        assert!(!brush_tip_centre(Tool::QuickSelection, false, true));
+        assert!(brush_tip_centre(Tool::BackgroundEraser, false, false));
+    }
+
+    #[test]
+    fn brush_tip_centre_follows_the_crosshair_preference_at_any_size() {
+        // A large tip used to show the centre mark whatever Show Crosshair in Brush Tip said.
+        for tool in [Tool::Brush, Tool::Eraser, Tool::PatternStamp, Tool::Dodge] {
+            assert!(!brush_tip_centre(tool, false, false), "{tool:?}: off");
+            assert!(brush_tip_centre(tool, false, true), "{tool:?}: on");
+        }
     }
 
     #[test]

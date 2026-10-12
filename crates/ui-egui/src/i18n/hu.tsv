@@ -3952,10 +3952,10 @@ cameraRaw	Yellow	Sárga
 	Amount:	Mérték:
 	Apply Vanishing Point ({key})	Enyészpont alkalmazása ({key})
 	Apply the removal ({key})	Eltávolítás alkalmazása ({key})
-	Drag to draw the curve · {key}-click draws a straight line	Húzással rajzolja meg a görbét · {key}-kattintás egyenes vonalat húz
-	Draw to modify the curve	Rajzoljon a görbe módosításához
-	Edit points to modify the curve	Szerkessze a pontokat a görbe módosításához
-	Fix the red plane first: its corners must form a convex quad	Először javítsa a piros síkot: sarkainak konvex négyszöget kell alkotniuk
+	Drag to draw the curve · {key}-click draws a straight line	Húzással rajzold meg a görbét · {key}+kattintás: egyenes vonal
+	Draw to modify the curve	Rajzolj a görbe módosításához
+	Edit points to modify the curve	Szerkeszd a pontokat a görbe módosításához
+	Fix the red plane first: its corners must form a convex quad	Először javítsd a piros síkot: sarkainak konvex négyszöget kell alkotniuk
 	Grid Size:	Rácsméret:
 	Light Blue	Világoskék
 	Light Red	Világospiros
@@ -3965,13 +3965,13 @@ cameraRaw	Yellow	Sárga
 	Protect:	Védelem:
 	Remove after each stroke	Eltávolítás minden ecsetvonás után
 	Saving {percent}	Mentés: {percent}
-	Scale or rotate the moved area, then press {key}	Méretezze vagy forgassa el az áthelyezett területet, majd nyomja meg: {key}
+	Scale or rotate the moved area, then press {key}	Méretezd vagy forgasd el az áthelyezett területet, majd nyomd meg: {key}
 	Smooth the curve values	A görbeértékek simítása
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Eltávolítandó ecsetvonások: {n} (Enter: alkalmazás, Esc: mégse)
-	The layer or its mask changed. Drag the mask onto the Trash again.	A réteg vagy a maszkja megváltozott. Húzza újra a maszkot a Kukába.
+	The layer or its mask changed. Drag the mask onto the Trash again.	A réteg vagy a maszkja megváltozott. Húzd újra a maszkot a Kukába.
 	Transform On Drop	Átalakítás elengedéskor
 	Vanishing Point is not active	Az Enyészpont nem aktív
-	Vanishing Point: click four corners to create a plane	Enyészpont: sík létrehozásához kattintson a négy sarokra
+	Vanishing Point: click four corners to create a plane	Enyészpont: sík létrehozásához kattints a négy sarokra
 
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Műveletek betöltése…
@@ -3989,7 +3989,7 @@ cameraRaw	Yellow	Sárga
 	Message:	Üzenet:
 	Allow Continue	Folytatás engedélyezése
 	Show dialog during playback	Párbeszédablak megjelenítése lejátszáskor
-	Select an action first	Először válasszon ki egy műveletet
+	Select an action first	Először válassz ki egy műveletet
 	Action playback stopped	A művelet lejátszása leállt
 	Step {step} is waiting for its dialog	A(z) {step}. lépés a párbeszédablakára vár
 @plural	{n} action|{n} actions	{n} művelet

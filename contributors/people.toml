@@ -127,3 +127,6 @@ sync_github_name = true
 
 [people.aweussom]
 real_name = "Tommy Leonhardsen"
+
+[people.Furash]
+sync_github_name = true
