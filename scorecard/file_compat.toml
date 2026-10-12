@@ -192,4 +192,4 @@ id = "FILE-216-6"
 target = "30-50 end-to-end workflow acceptance tasks driven through MCP or commands"
 status = "partial"
 issue = 216
-note = "automation/tests/agent_tasks.rs: 10 MCP tasks"
+note = "automation/tests/agent_tasks.rs: 20 MCP tasks"

@@ -279,6 +279,32 @@ fn holding_space_still_pans_while_transforming() {
     assert_ne!(h.state().ui.views[0].center, center0, "the view panned instead");
 }
 
+#[test]
+fn transform_preview_stays_visible_while_panning() {
+    let mut h = harness();
+    begin(&mut h);
+    let texture = h.state().transform_preview.as_ref().unwrap().texture.pick(&h.ctx, 1.0, 1.0, false).0;
+    let has_preview = |h: &Harness<'static, PhotocraftApp>| {
+        h.output().shapes.iter().any(|clipped| matches!(&clipped.shape, egui::epaint::Shape::Mesh(mesh) if mesh.texture_id == texture))
+    };
+    assert!(has_preview(&h), "the transformed pixels are visible before panning");
+
+    let center0 = h.state().ui.views[0].center;
+    let from = screen(&h, [200.0, 160.0]);
+    let to = from + vec2(50.0, 40.0);
+    h.event(egui::Event::Key { key: Key::Space, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE });
+    h.run_steps(1);
+    h.event(egui::Event::PointerMoved(from));
+    h.run_steps(1);
+    h.event(egui::Event::PointerButton { pos: from, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+    h.run_steps(1);
+    h.event(egui::Event::PointerMoved(to));
+    h.run_steps(1);
+
+    assert_ne!(h.state().ui.views[0].center, center0, "the held Hand panned the view");
+    assert!(has_preview(&h), "the transformed layer stays visible during the pan");
+}
+
 /// A transform started by dragging a Move-tool control: that first drag is undoable too.
 #[test]
 fn the_first_drag_from_the_move_tools_controls_undoes() {

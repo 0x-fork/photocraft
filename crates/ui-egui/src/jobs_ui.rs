@@ -566,12 +566,31 @@ fn shown_fraction(j: &JobInfo) -> Option<f32> {
 
 fn percent(j: &JobInfo) -> String {
     // Nothing yet reported: the bar is indeterminate, so no number.
-    if j.progress > 0.0 { format!("{:.0}%", j.progress * 100.0) } else { String::new() }
+    if j.progress > 0.0 { whole_percent(j.progress) } else { String::new() }
 }
 
-/// The status bar's job readout: "Gaussian Blur ▬▬▬▭▭ 45 %  ×". Draws nothing when no job runs.
+/// "45%": rounded down, so a job reads 100% only once it's done.
+fn whole_percent(fraction: f32) -> String {
+    format!("{:.0}%", (fraction.clamp(0.0, 1.0) * 100.0).floor())
+}
+
+/// A save's progress as Photoshop words it in the status bar and the tab title: "Saving 45%"
+/// (#3389).
+fn saving_percent(j: &JobInfo) -> String {
+    crate::i18n::fmt(tl!("Saving {percent}"), &[("percent", &whole_percent(j.progress))])
+}
+
+/// "Saving 45%" while a save of document `doc` runs, for its tab title; `None` otherwise.
+pub fn save_progress(app: &PhotocraftApp, doc: DocId) -> Option<String> {
+    let save = app.jobs.saves.iter().find(|s| s.doc == doc && !s.ended)?;
+    app.session.job(save.job).map(|j| saving_percent(&j))
+}
+
+/// The status bar's job readout: "Gaussian Blur ▬▬▬▭▭ 45 %  ×", and for a save "Saving 45% ▬▬▬▭▭  ×"
+/// (the file name on hover). Draws nothing when no job runs.
 pub fn status_progress(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let Some(j) = job_in_view(app) else { return };
+    let saving = app.jobs.saves.iter().any(|s| s.job == j.id);
     let t = Tokens::get(ui.ctx());
     let (bar_w, bar_h) = if t.pro { (120.0, 6.0) } else { (140.0, 6.0) };
     let more = app.session.jobs().len().saturating_sub(1);
@@ -582,11 +601,17 @@ pub fn status_progress(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
     crate::icons::paint(ui, xr, "x", 11.0, if xresp.hovered() { t.text } else { t.text_dim });
     let xresp = xresp.on_hover_text(tl!("Cancel (Esc)"));
-    ui.label(RichText::new(percent(&j)).color(t.text_dim).size(11.5).monospace());
+    if !saving {
+        ui.label(RichText::new(percent(&j)).color(t.text_dim).size(11.5).monospace());
+    }
     let (br, _) = ui.allocate_exact_size(vec2(bar_w, bar_h), Sense::hover());
     bar(ui, br, shown_fraction(&j), &t);
-    let label = if more > 0 { format!("{} (+{more})", tl!(&j.label)) } else { tl!(&j.label).to_owned() };
-    ui.label(RichText::new(label).color(t.text_dim).size(12.0));
+    let name = if saving { saving_percent(&j) } else { tl!(&j.label).to_owned() };
+    let label = if more > 0 { format!("{name} (+{more})") } else { name };
+    let resp = ui.label(RichText::new(label).color(t.text_dim).size(12.0));
+    if saving {
+        resp.on_hover_text(tl!(&j.label));
+    }
     if xresp.clicked() {
         cancel(app, j.id);
     }

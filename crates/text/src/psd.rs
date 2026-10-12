@@ -24,8 +24,10 @@ pub struct TySh {
     pub transform: Affine,
     pub text: Descriptor,
     pub warp: Option<Descriptor>,
-    /// The four trailing i32 values (left, top, right, bottom).
-    pub bounds: [i32; 4],
+    /// The four trailing big-endian f32 values (left, top, right, bottom) after the warp
+    /// descriptor. Photoshop writes zeros for unwarped type and the text-space bounds (the
+    /// `bounds` descriptor's rectangle) for warped type.
+    pub bounds: [f32; 4],
 }
 
 /// Parses a `TySh` block.
@@ -42,13 +44,27 @@ pub fn parse_tysh(data: &[u8]) -> Option<TySh> {
         None => (None, 0),
     };
     let tail = rest.get(wused..).unwrap_or(&[]);
-    let mut bounds = [0i32; 4];
+    let mut bounds = [0f32; 4];
     for (i, b) in bounds.iter_mut().enumerate() {
         if let Some(x) = tail.get(i * 4..i * 4 + 4) {
-            *b = i32::from_be_bytes(x.try_into().unwrap_or([0; 4]));
+            *b = f32::from_be_bytes(x.try_into().unwrap_or([0; 4]));
         }
     }
     Some(TySh { transform: Affine { m }, text: text.descriptor, warp, bounds })
+}
+
+/// `tysh` moved by (`dx`, `dy`): only the transform's translation changes. The text, its styles,
+/// the warp and the trailing bounds (which are in text space) stay byte for byte, so a moved
+/// Photoshop type layer keeps everything Photoshop wrote. `None` when the block is too short.
+pub fn translate_tysh(tysh: &[u8], dx: f64, dy: f64) -> Option<Vec<u8>> {
+    let mut out = tysh.to_vec();
+    // Version (2 bytes), then xx, xy, yx, yy, tx, ty as big-endian f64: tx at 34, ty at 42.
+    for (at, d) in [(34, dx), (42, dy)] {
+        let b = out.get_mut(at..at + 8)?;
+        let v = f64::from_be_bytes(b.try_into().ok()?) + d;
+        b.copy_from_slice(&v.to_be_bytes());
+    }
+    Some(out)
 }
 
 /// Serializes a `TySh` block.
@@ -207,7 +223,11 @@ pub fn text_layer_from_tysh(data: &[u8], dpi: f32) -> Option<TextLayer> {
         Some("AnSt" | "antiAliasStrong") => AntiAlias::Strong,
         Some("antiAliasPlatformGray") => AntiAlias::Windows,
         Some("antiAliasPlatformLCD") => AntiAlias::WindowsLcd,
-        _ => AntiAlias::Smooth,
+        Some(_) => AntiAlias::Smooth,
+        // No `AntA`: the engine data's mode says it.
+        None => {
+            engine_data(&t.text).and_then(|e| e.path(&["EngineDict", "AntiAlias"]).and_then(E::as_f64)).and_then(engine_antialias).unwrap_or(AntiAlias::Smooth)
+        }
     };
     if let Some(w) = &t.warp {
         let style = enum_value(w, "warpStyle").unwrap_or_else(|| "warpNone".into());
@@ -729,6 +749,15 @@ fn txt2_mode_runs(layer: &TextLayer) -> Vec<(i64, usize)> {
 /// `i32::MAX`, and sizing the array by it would make every save allocate gigabytes.
 pub const MAX_TEXT_INDEX: i32 = 0xFFFF;
 
+/// Whether the document `Txt2` block is needed for `objects`: only a non-Metrics auto-kern mode
+/// (`Optical`) is exclusive to `Txt2` — EngineData's `AutoKerning` cannot distinguish Metrics from
+/// Optical — so a fresh document of ordinary Metrics text has nothing to put in the block.
+/// Writing Photoshop's empty `<< /0 << >> >>` stub anyway makes some readers (Photopea) fail
+/// (#3514); the export omits the block for such a document.
+pub fn needs_txt2(objects: &[(i32, &TextLayer)]) -> bool {
+    objects.iter().any(|(_, l)| l.char_runs().iter().any(|r| r.style.kerning == Kerning::Optical))
+}
+
 /// The document's `Txt2` block for `objects`: `(TextIndex, layer)` pairs, one text object each
 /// at the slot its `TextIndex` names (see [`set_text_index`] and [`text_index`]; unused slots are
 /// empty dictionaries), carrying the automatic kerning mode of every pair (`/11`: 0 manual,
@@ -956,12 +985,13 @@ pub fn build_engine_data(layer: &TextLayer, template: Option<E>, dpi: f32) -> E 
         "AntiAlias",
         E::Int(match layer.antialias {
             AntiAlias::None => 0,
-            AntiAlias::Sharp => 1,
-            AntiAlias::Crisp => 2,
-            AntiAlias::Strong => 3,
-            AntiAlias::Smooth => 4,
-            // EngineData has no platform modes; the `AntA` descriptor carries the exact value.
-            AntiAlias::Windows | AntiAlias::WindowsLcd => 1,
+            AntiAlias::Crisp => 1,
+            AntiAlias::Strong => 2,
+            AntiAlias::Smooth => 3,
+            AntiAlias::Sharp => 4,
+            // No Photoshop file confirms the platform modes' numbers here; the `AntA` descriptor
+            // carries the exact mode, and Smooth is the closest.
+            AntiAlias::Windows | AntiAlias::WindowsLcd => 3,
         }),
     );
     if dict.get("UseFractionalGlyphWidths").is_none() {
@@ -1036,6 +1066,19 @@ pub fn build_engine_data(layer: &TextLayer, template: Option<E>, dpi: f32) -> E 
     e
 }
 
+/// The anti-aliasing mode for EngineData's `AntiAlias` number, as Photoshop writes it: 0 None,
+/// 1 Crisp, 2 Strong, 3 Smooth, 4 Sharp. Other numbers (platform modes) are left to `AntA`.
+fn engine_antialias(n: f64) -> Option<AntiAlias> {
+    Some(match n as i64 {
+        0 => AntiAlias::None,
+        1 => AntiAlias::Crisp,
+        2 => AntiAlias::Strong,
+        3 => AntiAlias::Smooth,
+        4 => AntiAlias::Sharp,
+        _ => return None,
+    })
+}
+
 /// Builds the `TySh` block for `layer`, patching its current `psd_raw` when present.
 /// `ink` is the layer's rendered bounds in text space (for `bounds`/`boundingBox`).
 pub fn build_tysh(layer: &TextLayer, dpi: f32, ink: Option<[f32; 4]>) -> Vec<u8> {
@@ -1100,6 +1143,8 @@ pub fn build_tysh(layer: &TextLayer, dpi: f32, ink: Option<[f32; 4]>) -> Vec<u8>
         (None, Some(old)) if enum_value(&old, "warpStyle").as_deref() == Some("warpNone") => Some(old),
         _ => None,
     };
-    let bounds = [l.floor() as i32, t.floor() as i32, r.ceil() as i32, b.ceil() as i32];
+    // Photoshop's trailing bounds: zeros for unwarped type, the text-space bounds when warped.
+    let warped = warp.as_ref().is_some_and(|w| enum_value(w, "warpStyle").is_some_and(|s| s != "warpNone"));
+    let bounds = if warped { [l, t, r, b] } else { [0.0; 4] };
     write_tysh(&TySh { transform: layer.transform, text, warp, bounds })
 }

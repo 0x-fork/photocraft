@@ -121,10 +121,23 @@ pub fn check_size_tracking(p: &Value) -> std::result::Result<(), String> {
     Ok(())
 }
 
+/// The PostScript name of the installed face of `family` at exactly `weight`/`italic`. A PSD names
+/// a type layer by PostScript name, and Photoshop treats a name no font has as missing (#3556).
+/// Only an exact face is named: layout picks a named face before weight and italic, so naming a
+/// nearby face would override the requested weight (a variable font's axis, a weight between two
+/// faces) or italic. Without an exact face the style keeps no name and layout matches as before.
+fn installed_postscript(family: &str, weight: u16, italic: bool) -> Option<String> {
+    let mut shared = photocraft_text::shared().lock().unwrap_or_else(|e| e.into_inner());
+    let faces = shared.fonts.faces(family);
+    let face = faces.iter().find(|f| f.italic == italic && f.weight.round() as u16 == weight)?;
+    face.postscript_name.clone()
+}
+
 /// Applies character-style keys from JSON. Returns true if any key was present.
 pub fn apply_char_props(s: &mut CharStyle, p: &Value) -> bool {
     let mut any = false;
     let mut hit = |b: bool| any |= b;
+    let font_key = ["font", "family", "fontStyle", "weight", "italic"].iter().any(|k| p.get(k).is_some());
     if let Some(v) = p.get("font").or_else(|| p.get("family")).and_then(Value::as_str) {
         s.font_family = v.to_string();
         s.postscript_name = None;
@@ -168,6 +181,11 @@ pub fn apply_char_props(s: &mut CharStyle, p: &Value) -> bool {
     if let Some(v) = p.get("postscriptName").and_then(Value::as_str) {
         s.postscript_name = Some(v.to_string());
         hit(true);
+    }
+    // A font named by family (or a style that matched no face) has no PostScript name yet: fill in
+    // the installed face's real name, so the PSD does not invent "<Family>-Regular" (#3556).
+    if font_key && s.postscript_name.is_none() {
+        s.postscript_name = installed_postscript(&s.font_family, s.weight, s.italic);
     }
     if let Some(v) = f32p(p, "size") {
         s.size_pt = v.max(0.01);
@@ -989,12 +1007,34 @@ mod tests {
         assert_eq!(style.weight, 600);
         assert_eq!(style.postscript_name.as_deref(), Some("Inter-SemiBold"));
         apply_char_props(&mut style, &json!({"weight": 400}));
-        assert!(style.postscript_name.is_none());
+        // #3556: a style change re-resolves to the installed face instead of leaving it nameless.
+        assert_eq!(style.postscript_name.as_deref(), Some("Inter-Regular"));
         assert!(style.font_style.is_empty());
         apply_char_props(&mut style, &json!({"fontStyle": "unknown-style"}));
-        assert!(style.postscript_name.is_none());
+        assert_eq!(style.postscript_name.as_deref(), Some("Inter-Regular"));
         apply_char_props(&mut style, &json!({"fontStyle": "Regular", "postscriptName": "ExplicitFace"}));
         assert_eq!(style.postscript_name.as_deref(), Some("ExplicitFace"));
+    }
+
+    /// #3556: a font named by family stores the installed face's PostScript name, so PSD export
+    /// names a real font instead of inventing "<Family>-Regular" that Photoshop calls missing.
+    #[test]
+    fn a_family_font_gets_the_installed_postscript_name() {
+        let mut style = CharStyle { font_family: "Inter".into(), ..Default::default() };
+        apply_char_props(&mut style, &json!({"font": "Inter"}));
+        assert_eq!(style.font_family, "Inter");
+        assert_eq!(style.postscript_name.as_deref(), Some("Inter-Regular"), "resolved from the font database");
+        // A weight picks that face's name.
+        apply_char_props(&mut style, &json!({"font": "Inter", "weight": 600}));
+        assert_eq!(style.postscript_name.as_deref(), Some("Inter-SemiBold"));
+        // A weight no face has (a variable font's axis, or between two faces) names no face, so
+        // layout still matches the requested weight instead of a nearby face's.
+        apply_char_props(&mut style, &json!({"weight": 650}));
+        assert!(style.postscript_name.is_none(), "{:?}", style.postscript_name);
+        // A family PhotoCraft does not have keeps no name; the export falls back as before.
+        let mut absent = CharStyle { font_family: "No Such Family 123".into(), ..Default::default() };
+        apply_char_props(&mut absent, &json!({"font": "No Such Family 123"}));
+        assert!(absent.postscript_name.is_none());
     }
 
     /// Picking a style or weight resets the weight axis to it; other axes keep their values (#2985).

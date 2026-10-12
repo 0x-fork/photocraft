@@ -40,14 +40,13 @@ pub fn mask_button_command(layer: Option<&Layer>, has_selection: bool, alt: bool
 }
 
 /// Commands that act on the active layer only and have no sensible meaning for a selection: Blending
-/// Options (one dialog), Copy Layer Style (copy from which layer?), Export As, and the per-layer
-/// mask items. With several layers selected they would hit whichever layer is active, not the one
-/// that was right-clicked, so the menu greys them. Adding a mask, Paste/Clear Layer Style and
-/// Rasterize run on every selected layer instead.
+/// Options (one dialog), Copy Layer Style (copy from which layer?) and the per-layer mask items.
+/// With several layers selected they would hit whichever layer is active, not the one that was
+/// right-clicked, so the menu greys them. Adding a mask, Paste/Clear Layer Style, Rasterize and
+/// Export As (one file per layer, #3629) run on every selected layer instead.
 pub fn single_layer_only(id: &str) -> bool {
     let adds_mask = matches!(id, "layer.layerMask.revealAll" | "layer.layerMask.hideAll" | "layer.layerMask.revealSelection" | "layer.layerMask.hideSelection");
-    matches!(id, "layer.layerStyle.blendingOptions" | "layer.layerStyle.copyLayerStyle" | "layer.exportAs")
-        || (id.starts_with("layer.layerMask.") && !adds_mask)
+    matches!(id, "layer.layerStyle.blendingOptions" | "layer.layerStyle.copyLayerStyle") || (id.starts_with("layer.layerMask.") && !adds_mask)
 }
 
 /// The context menu entries for a layer (Photoshop 2026 order, trimmed to the layer kind).
@@ -567,11 +566,12 @@ mod tests {
     fn multi_selection_menu_greys_what_acts_on_one_layer() {
         use egui_kittest::kittest::{NodeT, Queryable};
         let (h, _) = open_multi_selection_menu();
-        for label in ["Blending Options…", "Copy Layer Style", "Export As…"] {
+        for label in ["Blending Options…", "Copy Layer Style"] {
             assert!(h.get_by_label(label).accesskit_node().is_disabled(), "{label} works on one layer only");
         }
         for label in [
             "Quick Export As PNG",
+            "Export As…",
             "Add Layer Mask",
             "Duplicate Layers…",
             "Delete Layers",
@@ -602,12 +602,12 @@ mod tests {
             "layer.layerMask.enabled",
             "layer.layerMask.apply",
             "layer.layerMask.delete",
-            "layer.exportAs",
         ] {
             assert!(single_layer_only(id), "{id}");
         }
         for id in [
             "layer.quickExportAsPng",
+            "layer.exportAs",
             "layer.duplicate",
             "layer.delete",
             "layer.rasterize.layer",

@@ -410,7 +410,7 @@ pub fn specs() -> Vec<CommandSpec> {
 /// The most recent filter command in the session journal, retargeted at the active layer: dialogs
 /// such as the Filter Gallery record the layer they ran on, and Last Filter applies to the
 /// current layer, as in Photoshop (#1270).
-fn last_filter(s: &Session) -> Option<(String, Value)> {
+pub(crate) fn last_filter(s: &Session) -> Option<(String, Value)> {
     let (id, mut params) = s.journal.iter().rev().find(|(id, _)| params_for(id, &Value::Null).is_some() && id.starts_with("filter.")).cloned()?;
     if let Value::Object(m) = &mut params {
         m.remove("layer");
@@ -650,6 +650,31 @@ mod tests {
         paint_pattern(&mut s2);
         s2.execute("filter.other.offset", json!({"horizontal": 6})).unwrap();
         assert_eq!(active_pixels(&s2), twice);
+    }
+
+    #[test]
+    fn recorded_last_filter_replays_the_filter_it_repeated() {
+        // #3089: the action holds the filter with its settings, not a "repeat whatever ran
+        // last" step that fails in a new session.
+        let mut s = session();
+        paint_pattern(&mut s);
+        s.execute("filter.other.offset", json!({"horizontal": 3})).unwrap();
+        s.execute("actions.record", json!({"name": "Again"})).unwrap();
+        s.execute("filter.lastFilter", json!({})).unwrap();
+        s.execute("actions.stop", json!({})).unwrap();
+        let steps = s.execute("actions.get", json!({"action": "Again"})).unwrap()["steps"].clone();
+        assert_eq!(steps, json!([["filter.other.offset", {"horizontal": 3}]]));
+        let action = s.actions.list[0].clone();
+
+        let mut fresh = session();
+        paint_pattern(&mut fresh);
+        fresh.actions.list.push(action);
+        let played = fresh.execute("actions.play", json!({"action": "Again"})).unwrap();
+        assert!(played.get("failed").is_none(), "{played}");
+        let mut direct = session();
+        paint_pattern(&mut direct);
+        direct.execute("filter.other.offset", json!({"horizontal": 3})).unwrap();
+        assert_eq!(active_pixels(&fresh), active_pixels(&direct));
     }
 
     #[test]

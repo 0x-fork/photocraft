@@ -474,6 +474,7 @@ fn clear_artboard_guides(s: &mut Session) -> Result<Value> {
     s.edit("Clear Selected Artboard Guides", |doc, _| {
         doc.guides.vertical.retain(|x| !inside_x(x));
         doc.guides.horizontal.retain(|y| !inside_y(y));
+        doc.guides.prune_colors();
         Ok(())
     })?;
     Ok(json!({"cleared": n}))

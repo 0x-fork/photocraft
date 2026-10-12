@@ -1,4 +1,5 @@
-//! Filter dialogs generated from engine command parameter specs, with live on-canvas preview.
+//! Filter dialogs generated from engine command parameter specs, with live on-canvas preview and an
+//! in-dialog preview window (#3769).
 //!
 //! The preview runs the *same engine command* on the downsampled proxy document (pixel-sized
 //! parameters scaled by the proxy factor), so what you preview is what you get.
@@ -281,7 +282,6 @@ pub fn has_dialog(command: &str) -> bool {
         || matches!(
             command,
             "image.trim"
-                | "view.newGuide"
                 | "select.refineEdge"
                 | "edit.assignProfile"
                 | "edit.convertToProfile"
@@ -563,7 +563,9 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                     }
                     ui.add_space(4.0);
                 } else {
-                    crate::widgets::slider_row(ui, &label(&p.key), &mut v, min..=max, unit, None);
+                    // A double-click on the slider puts it back to the filter's default.
+                    let gestures = crate::widgets::RowGestures { reset: Some(default), wheel_step: None };
+                    crate::widgets::slider_row_with(ui, &label(&p.key), &mut v, min..=max, unit, None, gestures);
                 }
                 // Small ranges (0–1 thresholds and centres) keep the two decimals their field shows.
                 let scale = if max - min <= 10.0 { 100.0 } else { 10.0 };
@@ -1092,12 +1094,12 @@ mod tests {
         assert!(!has_dialog("filter.stylize.findEdges"));
     }
 
-    #[test]
-    fn korean_covers_generated_filter_options_and_gallery_names() {
-        let ko = crate::i18n::lang_from_tag("ko-KR").unwrap();
+    /// Generated filter and adjustment labels (param names, symbolic choices) and gallery
+    /// names that `lang` has no catalog row for.
+    fn missing_generated_filter_labels(lang: crate::i18n::Lang) -> std::collections::BTreeSet<String> {
         let mut missing = std::collections::BTreeSet::new();
         let mut check = |s: String| {
-            if !matches!(s.as_str(), "X" | "Y" | "A" | "B") && !crate::i18n::has(ko, &s) {
+            if !matches!(s.as_str(), "X" | "Y" | "A" | "B") && !crate::i18n::has(lang, &s) {
                 missing.insert(s);
             }
         };
@@ -1124,7 +1126,19 @@ mod tests {
         for cat in photocraft_algo::GALLERY_CATEGORIES {
             check(cat.to_string());
         }
+        missing
+    }
+
+    #[test]
+    fn korean_covers_generated_filter_options_and_gallery_names() {
+        let missing = missing_generated_filter_labels(crate::i18n::lang_from_tag("ko-KR").unwrap());
         assert!(missing.is_empty(), "missing Korean dynamic labels: {missing:#?}");
+    }
+
+    #[test]
+    fn italian_covers_generated_filter_options_and_gallery_names() {
+        let missing = missing_generated_filter_labels(crate::i18n::lang_from_tag("it-IT").unwrap());
+        assert!(missing.is_empty(), "missing Italian dynamic labels: {missing:#?}");
     }
 
     /// The Select menu's generated dialogs (Select and Mask, Modify ▸ …) show their
