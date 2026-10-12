@@ -1,9 +1,11 @@
 //! Font database: bundled fonts (always available, also on the web), the optional craft-fonts
 //! Japanese fonts ([`crate::craft_fonts`], when built with `CRAFT_FONTS_DIR`), optional system
-//! fonts found by scanning the platform font directories (no fontconfig), user-registered font
-//! data, and PostScript-name lookup for PSD import.
+//! fonts found by scanning platform directories (plus Fontconfig's file list on Linux),
+//! user-registered font data, and PostScript-name lookup for PSD import.
 
 use std::collections::HashMap;
+#[cfg(not(target_arch = "wasm32"))]
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock};
 
@@ -55,14 +57,25 @@ fn inflate_font(deflated: &[u8]) -> Vec<u8> {
     }
 }
 
-/// Families tried (if installed) after the requested one, for missing glyphs. The Thai and CJK
-/// families ([`THAI_FAMILIES`], [`crate::cjk::families`]) go between these two lists, in the UI locale's script order.
+/// Families tried (if installed) after the requested one, for missing glyphs. The Southeast Asian
+/// and CJK families ([`THAI_FAMILIES`], [`KHMER_FAMILIES`], [`LAO_FAMILIES`], [`MYANMAR_FAMILIES`],
+/// [`crate::cjk::families`]) go between these two lists, in the UI locale's script order.
 const FALLBACK_CANDIDATES: &[&str] = &["Noto Sans", "Segoe UI", "DejaVu Sans", "Geeza Pro", "Arial Hebrew", "Noto Sans Arabic", "Noto Sans Hebrew"];
 /// Thai-capable families: Windows (Leelawadee UI since Windows 8; Tahoma and Leelawadee on
 /// older systems), macOS (Thonburi, Sukhumvit Set) and Linux (Noto). Text in a font without Thai
 /// glyphs falls back to these, as with Photoshop's missing glyph protection (#1909).
 pub const THAI_FAMILIES: &[&str] =
     &["Leelawadee UI", "Leelawadee", "Tahoma", "Thonburi", "Sukhumvit Set", "Noto Sans Thai", "Noto Sans Thai Looped", "Noto Sans Thai UI"];
+/// Khmer-capable families: macOS (Khmer Sangam MN, Khmer MN), Windows (`Khmer UI` on 8; from 8.1
+/// `Leelawadee UI` in [`THAI_FAMILIES`] covers Khmer too) and Linux (Noto). Khmer in a font without
+/// Khmer glyphs had no candidate to fall back to and drew .notdef boxes (#218).
+pub const KHMER_FAMILIES: &[&str] = &["Khmer Sangam MN", "Khmer MN", "Khmer UI", "Noto Sans Khmer"];
+/// Lao-capable families: macOS (Lao Sangam MN, Lao MN), Windows (`Lao UI` on 8; `Leelawadee UI` in
+/// [`THAI_FAMILIES`] from 8.1) and Linux (Noto, static and looped forms).
+pub const LAO_FAMILIES: &[&str] = &["Lao Sangam MN", "Lao MN", "Lao UI", "Noto Sans Lao", "Noto Sans Lao Looped"];
+/// Myanmar/Burmese-capable families: macOS (Myanmar Sangam MN, Myanmar MN), Windows (Myanmar Text)
+/// and Linux (Noto).
+pub const MYANMAR_FAMILIES: &[&str] = &["Myanmar Sangam MN", "Myanmar MN", "Myanmar Text", "Noto Sans Myanmar"];
 /// Broad-coverage and emoji fonts, tried after the CJK script fonts so shared Han characters get
 /// the locale's forms instead of Arial Unicode's.
 const FALLBACK_LAST: &[&str] = &["Arial Unicode MS", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"];
@@ -71,6 +84,9 @@ const FALLBACK_LAST: &[&str] = &["Arial Unicode MS", "Apple Color Emoji", "Segoe
 pub fn fallback_candidates(order: &[crate::cjk::CjkScript; 4]) -> Vec<&'static str> {
     let mut v = FALLBACK_CANDIDATES.to_vec();
     v.extend_from_slice(THAI_FAMILIES);
+    v.extend_from_slice(KHMER_FAMILIES);
+    v.extend_from_slice(LAO_FAMILIES);
+    v.extend_from_slice(MYANMAR_FAMILIES);
     for s in order {
         // craft-fonts' Japanese fonts (if built in) go ahead of the installed Japanese fonts, in
         // the Japanese slot of the locale order, so shared Han keeps the locale's forms.
@@ -165,8 +181,8 @@ impl FontDb {
         db
     }
 
-    /// Scans the platform font directories (once). Font files are memory-mapped lazily by
-    /// fontique when a face is first used.
+    /// Scans the platform font directories once, plus Fontconfig's file list on Linux. Font files
+    /// are memory-mapped lazily by fontique when a face is first used.
     pub fn load_system_fonts(&mut self) {
         if self.system_loaded {
             return;
@@ -179,12 +195,18 @@ impl FontDb {
             for d in system_font_dirs() {
                 collect_font_files(&d, 0, &mut files);
             }
+            #[cfg(target_os = "linux")]
+            files.extend(fontconfig_font_paths());
             // PingFang (the macOS Chinese UI font) lives outside the font folders.
             if cfg!(target_os = "macos") {
                 files.extend(crate::cjk::mac_pingfang());
             }
-            for f in files {
-                self.fcx.collection.load_fonts_from_paths([f]);
+            let mut seen = HashSet::new();
+            for path in files {
+                let key = path.canonicalize().unwrap_or_else(|_| path.clone());
+                if seen.insert(key) {
+                    self.fcx.collection.load_fonts_from_paths([path]);
+                }
             }
             self.ps_cache.clear();
             self.face_cache.clear();
@@ -543,6 +565,54 @@ pub(crate) fn collect_font_files(dir: &std::path::Path, depth: u32, out: &mut Ve
         } else if p.extension().and_then(|x| x.to_str()).is_some_and(|x| matches!(x.to_ascii_lowercase().as_str(), "ttf" | "otf" | "ttc" | "otc")) {
             out.push(p);
         }
+    }
+}
+
+/// Fontconfig knows about configured font directories that are not in our portable path list.
+/// Keep this optional and shell-free: directory scans remain the fallback when `fc-list` is not
+/// installed or Fontconfig cannot enumerate fonts.
+#[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+fn fontconfig_font_paths() -> Vec<std::path::PathBuf> {
+    let Ok(output) = std::process::Command::new("fc-list").arg("--format=%{file}\\n").output() else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+    fontconfig_paths_from_output(&output.stdout).into_iter().filter(|path| path.is_file()).collect()
+}
+
+#[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+fn fontconfig_paths_from_output(output: &[u8]) -> Vec<std::path::PathBuf> {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let mut seen = HashSet::new();
+    output
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(|line| std::path::PathBuf::from(OsString::from_vec(line.to_vec())))
+        .filter(|path| {
+            path.is_absolute()
+                && path.extension().and_then(|ext| ext.to_str()).is_some_and(|ext| matches!(ext.to_ascii_lowercase().as_str(), "ttf" | "otf" | "ttc" | "otc"))
+        })
+        .map(|path| path.canonicalize().unwrap_or(path))
+        .filter(|path| seen.insert(path.clone()))
+        .collect()
+}
+
+#[cfg(all(test, target_os = "linux", not(target_arch = "wasm32")))]
+mod fontconfig_tests {
+    use super::fontconfig_paths_from_output;
+    use std::path::PathBuf;
+
+    #[test]
+    fn parses_unique_absolute_font_paths_from_fontconfig() {
+        let paths = fontconfig_paths_from_output(
+            b"/usr/share/fonts/example.ttf\nrelative.otf\n/usr/share/fonts/README.txt\n/usr/local/fonts/collection.OTC\n/usr/share/fonts/example.ttf\n\n",
+        );
+
+        assert_eq!(paths, vec![PathBuf::from("/usr/share/fonts/example.ttf"), PathBuf::from("/usr/local/fonts/collection.OTC")]);
     }
 }
 

@@ -104,6 +104,7 @@ pub static ICONS: &[(&str, &[u8])] = &[
     ("redo-2", include_bytes!("../../../assets/icons/redo-2.svg")),
     ("rotate-cw", include_bytes!("../../../assets/icons/rotate-cw.svg")),
     ("ruler", include_bytes!("../../../assets/icons/ruler.svg")),
+    ("sampler", include_bytes!("../../../assets/icons/sampler.svg")),
     ("scaling", include_bytes!("../../../assets/icons/scaling.svg")),
     ("scan", include_bytes!("../../../assets/icons/scan.svg")),
     ("scan-line", include_bytes!("../../../assets/icons/scan-line.svg")),
