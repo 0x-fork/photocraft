@@ -606,8 +606,9 @@ mod tests {
         let before = active_surface(&s);
         s.execute("edit.transform.warp", json!({"style": "arc", "bend": 50})).unwrap();
         let after = active_surface(&s);
-        assert!(after.content_bounds().y1 > 42, "{:?}", after.content_bounds());
-        assert!(after.pixel(11, 11)[3] < 0.5, "top-left corner pulls in");
+        // As in Photoshop: the bottom edge keeps its corners, the top rises and spreads.
+        let c = after.content_bounds();
+        assert!(c.y1 <= 41 && c.y0 < 8 && c.x0 < 8 && c.x1 > 62, "{c:?}");
         s.undo();
         assert_eq!(active_surface(&s), before);
         assert!(s.execute("edit.transform.warp", json!({"style": "spiral"})).is_err());

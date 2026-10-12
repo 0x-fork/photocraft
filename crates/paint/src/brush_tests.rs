@@ -657,6 +657,25 @@ fn smoothing_modes() {
 }
 
 #[test]
+fn smoothing_string_runs_from_the_lagging_brush_to_the_pointer() {
+    // #3479: the canvas draws the line between the brush and the pointer.
+    let cfg = Smoothing { amount: 0.8, ..Default::default() };
+    let mut s = Smoother::new(&cfg, 1.0);
+    let mut out = Vec::new();
+    assert_eq!(s.string(), None, "no stroke yet");
+    s.push(StrokePoint::new(0.0, 0.0, 1.0), &mut out);
+    assert_eq!(s.string(), None, "the first point is the brush");
+    s.push(StrokePoint::new(100.0, 0.0, 1.0), &mut out);
+    let (brush, pointer) = s.string().unwrap();
+    assert!(brush[0] > 0.0 && brush[0] < 100.0, "the brush lags: {brush:?}");
+    assert_eq!(pointer, [100.0, 0.0]);
+    let mut off = Smoother::new(&Smoothing { amount: 0.0, ..cfg }, 1.0);
+    off.push(StrokePoint::new(0.0, 0.0, 1.0), &mut out);
+    off.push(StrokePoint::new(100.0, 0.0, 1.0), &mut out);
+    assert_eq!(off.string(), None, "smoothing off: no string");
+}
+
+#[test]
 fn smoothing_pulls_by_time_not_by_how_often_the_device_reports() {
     // The pointer jumps 100 px and is held there for 32 ms, reported at 1000 Hz or about 60 Hz.
     let cfg = Smoothing { amount: 0.8, catch_up: true, catch_up_on_end: false, ..Default::default() };
@@ -836,6 +855,91 @@ fn tail_preview_shows_the_stroke_as_finishing_it_would() {
     let mut r = StrokeRenderer::new(&brush(), Some(fmt), 1.0);
     r.push(&pts);
     assert!(r.tail_preview().is_none());
+}
+
+#[test]
+fn live_union_of_passes_matches_merging_the_finished_passes_after_every_chunk() {
+    // Symmetric painting previews the stroke and its mirrors with `composite_union_live`, which
+    // redraws only changed tiles; after every chunk the target must be exactly what finishing
+    // every pass and merging them with `composite_union_many` gives (the commit takes these pixels).
+    let base = BrushSettings { size: 14.0, hardness: 0.6, opacity: 0.6, ..brush() };
+    let mut brushes = vec![base.clone()];
+    brushes.push(BrushSettings { smoothing: Smoothing { amount: 0.7, ..Default::default() }, ..base.clone() });
+    let mut b = base.clone();
+    b.dual_brush.enabled = true;
+    b.dual_brush.size = 6.0;
+    b.dual_brush.scatter = 1.5;
+    brushes.push(b);
+    let mut b = base.clone();
+    b.color_dynamics.enabled = true;
+    b.color_dynamics.hue_jitter = 0.5;
+    brushes.push(b);
+    brushes.push(BrushSettings { wet_edges: true, ..base.clone() });
+    brushes.push(BrushSettings { mode: BlendMode::Dissolve, ..base.clone() });
+    brushes.push(BrushSettings { erase: true, ..base.clone() });
+    let mut b = base.clone();
+    b.texture.enabled = true;
+    b.texture.each_tip = false;
+    brushes.push(b);
+    let stroke: Vec<StrokePoint> = (0..40).map(|i| StrokePoint::new(30.0 + i as f64 * 3.7, 40.0 + 25.0 * (i as f64 / 5.0).sin(), 1.0)).collect();
+    // Mirrors about x = 100 and y = 75; the first point sits near the vertical axis so passes overlap.
+    let mirror = |fx: bool, fy: bool| -> Vec<StrokePoint> {
+        stroke.iter().map(|p| StrokePoint::new(if fx { 200.0 - p.x } else { p.x }, if fy { 150.0 - p.y } else { p.y }, p.pressure)).collect()
+    };
+    let paths = [stroke.clone(), mirror(true, false), mirror(false, true), mirror(true, true)];
+    let area = Rect::new(-20, -20, 240, 190);
+    let mut sel = Surface::new(PixelFormat::new(ColorMode::Grayscale, SampleType::F32, false));
+    let sel_rect = Rect::new(0, 0, 160, 120);
+    sel.write_region(sel_rect, &(0..160 * 120).map(|i| ((i % 160) as f32 / 120.0).min(1.0)).collect::<Vec<_>>());
+    for sample in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        let fmt = PixelFormat::new(ColorMode::Rgb, sample, true);
+        let mut pre = Surface::new(fmt);
+        let fill = Rect::new(10, 10, 190, 140);
+        let n = fmt.channels();
+        let px: Vec<f32> =
+            (0..fill.width() * fill.height()).flat_map(|i| [(i % 7) as f32 / 7.0, 0.5, (i % 13) as f32 / 13.0, 0.8].into_iter().take(n)).collect();
+        pre.write_region(fill, &px);
+        for (bi, b) in brushes.iter().enumerate() {
+            // (passes included at each chunk, selection): two passes from the start; four, of
+            // which two join part-way.
+            for (four, selection) in [(false, None), (true, None), (true, Some(&sel))] {
+                let mut renderers: Vec<StrokeRenderer> = (0..4).map(|_| StrokeRenderer::new(b, Some(fmt), 1.0)).collect();
+                let mut live = crate::render::UnionLive::default();
+                let mut target = pre.clone();
+                let (mut at, mut chunk, mut merged) = (0, 1, 0);
+                while at < stroke.len() {
+                    let end = (at + chunk).min(stroke.len());
+                    for (r, path) in renderers.iter_mut().zip(&paths) {
+                        r.push(&path[at..end]);
+                    }
+                    let count = if four && at >= 12 { 4 } else { 2 };
+                    let full = merged != count;
+                    merged = count;
+                    let mut passes: Vec<&mut StrokeRenderer> = renderers.iter_mut().take(count).collect();
+                    StrokeRenderer::composite_union_live(&mut passes, &mut live, full, &pre, &mut target, selection, false);
+                    let finished: Vec<StrokeRenderer> = renderers
+                        .iter()
+                        .take(count)
+                        .map(|r| {
+                            let mut r = r.clone();
+                            r.finish();
+                            r
+                        })
+                        .collect();
+                    let mut expected = pre.clone();
+                    finished[0].composite_union_many(&finished[1..], &pre, &mut expected, selection, false);
+                    assert!(
+                        target.read_region(area) == expected.read_region(area),
+                        "{sample:?}, brush {bi}, four {four}, selection {}, points ..{end}",
+                        selection.is_some()
+                    );
+                    assert_eq!(live.bounds(), finished.iter().fold(Rect::EMPTY, |r, f| r.union(&f.bounds())));
+                    at = end;
+                    chunk = chunk % 3 + 1;
+                }
+            }
+        }
+    }
 }
 
 // ---------- Tilt Scale, Brush Projection, speed spacing, locks, mixer transfer ----------

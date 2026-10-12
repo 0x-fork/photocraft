@@ -65,6 +65,17 @@ fn first_smoothing() -> photocraft_engine::paint::brush::Smoothing {
     photocraft_engine::paint::brush::Smoothing { amount: 0.1, ..Default::default() }
 }
 
+/// Does a stroke with `tool` starting now paint in Photoshop's Clear mode, erasing with its own
+/// brush (#3439)? Clear chosen in its Mode dropdown, or `~` held (`hold_keys::erase_held`).
+pub fn clears(app: &PhotocraftApp, tool: Tool) -> bool {
+    let chosen = match tool {
+        Tool::Brush => app.ui.tool_options.brush_clear,
+        Tool::Pencil => app.ui.tool_options.pencil_clear,
+        _ => false,
+    };
+    crate::hold_keys::erases_while_held(tool) && (chosen || app.held_erase)
+}
+
 /// Which tool events this frame's canvas response produces.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Buttons {

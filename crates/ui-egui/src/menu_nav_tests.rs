@@ -11,6 +11,52 @@ const DISPLAYS: [(f32, f32, f32); 4] = [(1280.0, 720.0, 1.0), (1024.0, 600.0, 1.
 /// The tallest menus.
 const LONGEST: [&str; 4] = ["Filter", "Layer", "Image", "Edit"];
 
+/// #3737: on Wayland egui knows the monitor's size but never where the window is (no
+/// `inner_rect`). A window taller than the monitor less its taskbar or panel runs under it, so
+/// Layer, View and Window (and every other long menu) must end above it and scroll to their last
+/// row, at 1× and 1.5×.
+#[test]
+fn reported_menus_stay_above_the_panel_when_the_window_position_is_unknown() {
+    for scale in [1.0, 1.5] {
+        for top in ["Layer", "View", "Window", "Filter", "Image", "Edit"] {
+            let mut h = harness((1366.0 * scale, 740.0 * scale, scale));
+            let v = h.input_mut().viewports.entry(egui::ViewportId::ROOT).or_default();
+            v.monitor_size = Some(egui::vec2(1366.0, 768.0));
+            v.inner_rect = None;
+            v.outer_rect = None;
+            v.maximized = Some(false);
+            h.run_steps(3);
+            let bottom = 768.0 - crate::work_area::TASKBAR;
+            let what = format!("{scale}x {top}");
+            open(&mut h, top);
+            for r in popups(&h) {
+                assert!(r.bottom() <= bottom + 0.5, "{what}: popup {r:?} runs under the panel (from {bottom})");
+            }
+            check_bar_clear(&h, &what);
+            let last = rows(&h, 0).len() - 1;
+            let in_view = |h: &Harness<'static, PhotocraftApp>| {
+                let nav = Nav::current(&h.ctx);
+                nav.views[0].expand(0.5).contains_rect(nav.rows[0][last].rect) && nav.views[0].bottom() <= bottom + 0.5
+            };
+            let view = Nav::current(&h.ctx).views[0];
+            h.hover_at(view.center());
+            for _ in 0..80 {
+                if in_view(&h) {
+                    break;
+                }
+                h.event(egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, -60.0),
+                    modifiers: egui::Modifiers::NONE,
+                    phase: egui::TouchPhase::Move,
+                });
+                h.run_steps(2);
+            }
+            assert!(in_view(&h), "{what}: the wheel reaches the last row, above the panel");
+        }
+    }
+}
+
 fn app() -> PhotocraftApp {
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
     app.run("file.new", json!({"width": 64, "height": 48})).unwrap();

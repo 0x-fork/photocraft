@@ -673,6 +673,9 @@ fn rasterize_content(s: &mut Session, id: LayerId, only: Option<&str>, key: &str
                 let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
                 l.content = LayerContent::Raster(px);
                 l.fill_cache = None;
+                // The PSD fill or placed-layer blocks no longer describe the layer: kept, they
+                // would reopen it as a fill layer or smart object and drop these pixels.
+                l.psd_blocks.retain(|(k, _)| !matches!(k, b"SoCo" | b"GdFl" | b"PtFl" | b"SoLd" | b"PlLd" | b"SoLE"));
                 Ok(())
             });
             s.coalesce_request = None;

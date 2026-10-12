@@ -765,6 +765,10 @@ pub fn restore(app: &mut PhotocraftApp) {
     }
     let saved = app.session.prefs().panel_layout.clone();
     apply(app, &saved);
+    // The floating Brush Settings window is transient, not a dock panel: remembering the
+    // workspace must not leave it open on a fresh launch, especially with no document.
+    // Explicit workspace switches still use `apply` and keep their stored panel visibility.
+    app.ui.panels.brush_settings = false;
     if let Some(ws) = saved.get("workspace").and_then(Value::as_str) {
         app.ui.workspace = ws.to_string();
     }

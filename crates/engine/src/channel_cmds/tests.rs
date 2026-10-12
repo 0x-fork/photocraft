@@ -740,3 +740,27 @@ fn clear_with_an_alpha_channel_or_quick_mask_targeted_fills_it_not_the_layer() {
     assert_eq!(q, 0.0);
     assert_eq!(px(&s, 5, 5), layer, "the layer is untouched in Quick Mask mode");
 }
+
+#[test]
+fn thumbnail_selection_shape_without_pixel_cache_uses_its_transparency() {
+    for depth in [8, 16, 32] {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width":100,"height":80,"depth":depth,"background":"transparent"})).unwrap();
+        let id = s.execute("shape.create", json!({"kind":"rect","rect":[20,10,40,30],"fill":"#cc3333"})).unwrap()["layer"].as_u64().unwrap();
+        s.edit("Drop render cache", |doc, _| {
+            let l = doc.layer_mut(photocraft_doc::LayerId(id)).unwrap();
+            if let LayerContent::Shape(shape) = &mut l.content {
+                shape.cache = None;
+            }
+            l.visible = false;
+            l.opacity = 0.25;
+            Ok(())
+        })
+        .unwrap();
+        s.execute("select.loadSelection", json!({"channel":"transparency","layer":id})).unwrap();
+        assert!(sel_at(&s, 30, 20) > 0.99);
+        assert!(sel_at(&s, 0, 0) < 0.01, "shape transparency must not select the whole canvas at depth {depth}");
+        let b = s.active().unwrap().doc.selection.as_ref().unwrap().content_bounds();
+        assert_eq!((b.x0, b.y0, b.width(), b.height()), (20, 10, 40, 30));
+    }
+}

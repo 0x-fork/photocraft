@@ -125,10 +125,10 @@ pub(crate) fn fix_view(st: &mut DocState) {
         match v.target {
             ChannelTarget::Alpha(i) if i >= n => v.target = ChannelTarget::Composite,
             ChannelTarget::Color(k) if k >= colors || colors < 2 => v.target = ChannelTarget::Composite,
-            ChannelTarget::LayerMask if !st.active_layer.and_then(|id| st.doc.layer(id)).is_some_and(|l| l.mask.is_some()) => {
+            ChannelTarget::LayerMask if st.active_layer.and_then(|id| st.doc.layer(id)).is_none_or(|l| l.mask.is_none()) => {
                 v.target = ChannelTarget::Composite;
             }
-            ChannelTarget::VectorMask if !st.active_layer.and_then(|id| st.doc.layer(id)).is_some_and(|l| l.vector_mask.is_some()) => {
+            ChannelTarget::VectorMask if st.active_layer.and_then(|id| st.doc.layer(id)).is_none_or(|l| l.vector_mask.is_none()) => {
                 v.target = ChannelTarget::Composite;
             }
             _ => {}
@@ -359,8 +359,19 @@ fn ref_planes(doc: &Document, layer: Option<LayerId>, active: Option<LayerId>, r
                     s.read_rgba_into(area, &mut px);
                     vec![px.iter().map(|p| p[3]).collect()]
                 }
-                // Adjustment and fill layers cover the whole canvas.
-                None => vec![vec![1.0; area.width() as usize * area.height() as usize]],
+                // A shape can have no pixel cache yet (for example after loading a document).
+                // Use its existing renderer rather than treating it as a canvas-wide fill.
+                None => match &l.content {
+                    LayerContent::Shape(shape) => vec![
+                        photocraft_vector::CompiledShape::new(shape, photocraft_vector::DEFAULT_TOLERANCE, area)
+                            .render_rgba(area)
+                            .into_iter()
+                            .map(|p| p[3])
+                            .collect(),
+                    ],
+                    // Adjustment and fill layers cover the whole canvas.
+                    _ => vec![vec![1.0; area.width() as usize * area.height() as usize]],
+                },
             }
         }
         ChanRef::LayerMask => {
@@ -579,6 +590,8 @@ fn edits_mask(id: &str) -> bool {
     id.strip_prefix("image.adjustments.").is_some_and(|kind| crate::adjust_params::default_for(kind, ColorMode::Rgb).is_ok())
         || crate::filters::params_for(id, &Value::Null).is_some()
         || id == "edit.fill"
+        // Copying a targeted mask (#2928).
+        || id == "edit.copy"
         || crate::fill_key_cmds::IDS.contains(&id)
 }
 
@@ -595,7 +608,8 @@ pub(crate) fn mask_target_enabled(s: &Session, id: &str, p: &Value) -> Option<st
 /// (filters, adjustments, paint and fill commands); the shell adds its mask target to these.
 pub fn follows_target(id: &str) -> bool {
     // Moving the selected pixels (⌘-drag, Move tool) moves the targeted mask's, not the layer's.
-    routed(id) || id == "select.float"
+    // Moving a layer with its unlinked mask targeted moves the mask alone (`layer.translate`).
+    routed(id) || id == "select.float" || id == "layer.translate"
 }
 
 /// Commands whose target follows the Channels panel.
@@ -605,8 +619,8 @@ fn routed(id: &str) -> bool {
         || id.starts_with("image.adjustments.")
         || matches!(id, "paint.stroke" | "paint.pencil" | "paint.bucket" | "paint.gradient" | "paint.mixerBrush" | "edit.fill" | "image.applyImage")
         || crate::fill_key_cmds::IDS.contains(&id)
-        // Pasting into a targeted mask or channel (#1035).
-        || matches!(id, "edit.paste" | "edit.pasteSpecial.pasteInPlace" | "edit.pasteSpecial.pasteInto" | "edit.pasteSpecial.pasteOutside")
+        // Pasting into a targeted mask or channel (#1035); Copy takes a targeted mask (#2928).
+        || matches!(id, "edit.copy" | "edit.paste" | "edit.pasteSpecial.pasteInPlace" | "edit.pasteSpecial.pasteInto" | "edit.pasteSpecial.pasteOutside")
         // Edit › Transform › Rotate/Flip turn a targeted mask or channel (#2835).
         || matches!(
             id,

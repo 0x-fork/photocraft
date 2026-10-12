@@ -190,6 +190,6 @@ note = "Every save path that exists is tested by saving and reading back: layere
 [[item]]
 id = "FILE-216-6"
 target = "30-50 end-to-end workflow acceptance tasks driven through MCP or commands"
-status = "partial"
+status = "done"
 issue = 216
-note = "automation/tests/agent_tasks.rs and agent_tasks_extended.rs: 20 MCP tasks"
+note = "automation/tests/{agent_tasks,agent_tasks_extended,agent_tasks_more}.rs: 36 MCP tasks"

@@ -1963,6 +1963,7 @@
 	Show only crosshair while painting	Mostrar solo la retícula al pintar
 	Show slice numbers	Mostrar los números de sector
 	Show tooltips	Mostrar las descripciones emergentes
+	Enable animations	Activar las animaciones
 	Show highlight on rollover	Mostrar resaltado al pasar el cursor
 	Show bounding box when dragging layer	Mostrar el cuadro delimitador al arrastrar la capa
 	System title bar	Barra de título del sistema
@@ -2150,6 +2151,7 @@
 	Opening {name}	Abriendo {name}
 	Saved {name}	Guardado: {name}
 	Saving {name}	Guardando {name}
+	Saving {percent}	Guardando {percent}
 	A save to {name} is still running; try again when it finishes	Todavía se está guardando {name}; inténtelo de nuevo cuando termine
 	{label} is writing the file and can no longer be cancelled	{label} está escribiendo el archivo y ya no se puede cancelar
 	Opening {name}…	Abriendo {name}…
@@ -2661,6 +2663,18 @@ cameraData	Lens	Objetivo
 	Amount:	Cantidad:
 	Protect:	Proteger:
 	Protect skin tones	Proteger tonos de piel
+	Edit points to modify the curve	Editar puntos para modificar la curva
+	Draw to modify the curve	Dibujar para modificar la curva
+curves	Smooth	Suavizar
+	Smooth the curve values	Suavizar los valores de la curva
+	Drag to draw the curve · {key}-click draws a straight line	Arrastre para dibujar la curva · {key}-clic traza una línea recta
+	Edit Plane	Editar plano
+	Create Plane	Crear plano
+	Grid Size:	Tamaño de rejilla:
+	Vanishing Point: click four corners to create a plane	Punto de fuga: haga clic en cuatro esquinas para crear un plano
+	Vanishing Point is not active	Punto de fuga no está activo
+	Apply Vanishing Point ({key})	Aplicar punto de fuga ({key})
+	Fix the red plane first: its corners must form a convex quad	Corrija primero el plano rojo: sus esquinas deben formar un cuadrilátero convexo
 # Select and Mask view modes (#1754)
 	Onion Skin	Papel cebolla
 	Marching Ants	Hormigas en marcha
@@ -2691,3 +2705,26 @@ cameraData	Lens	Objetivo
 	Fill with {mode}-neutral color (black)	Rellenar con el color neutro de {mode} (negro)
 	Fill with {mode}-neutral color (50% gray)	Rellenar con el color neutro de {mode} (gris al 50%)
 	(No neutral color exists for {mode} mode.)	(No existe un color neutro para el modo {mode}.)
+	Apply mask to layer before removing?	¿Aplicar la máscara a la capa antes de eliminarla?
+	The layer or its mask changed. Drag the mask onto the Trash again.	La capa o su máscara ha cambiado. Arrastre de nuevo la máscara a la papelera.
+	Delete the vector mask?	¿Eliminar la máscara vectorial?
+# Counted status messages and labels (#3454; adapted from PR #3821)
+@plural	Exported {n} swatch to {file}|Exported {n} swatches to {file}	Se exportó {n} muestra a {file}|Se exportaron {n} muestras a {file}
+@plural	Imported {n} brush from {group}|Imported {n} brushes from {group}	Se importó {n} pincel de {group}|Se importaron {n} pinceles de {group}
+@plural	Imported {n} swatch from {file}|Imported {n} swatches from {file}	Se importó {n} muestra de {file}|Se importaron {n} muestras de {file}
+@plural	Played {n} step|Played {n} steps	Se reprodujo {n} paso|Se reprodujeron {n} pasos
+@plural	Updated {n} linked smart object changed on disk|Updated {n} linked smart objects changed on disk	Se actualizó {n} objeto inteligente enlazado modificado en el disco|Se actualizaron {n} objetos inteligentes enlazados modificados en el disco
+@plural	Saved for Web: {n} file|Saved for Web: {n} files	Guardado para Web: {n} archivo|Guardado para Web: {n} archivos
+@plural	{n} layer recorded by this comp was deleted. Update the comp, or clear the warning.|{n} layers recorded by this comp were deleted. Update the comp, or clear the warning.	Se eliminó {n} capa registrada por esta composición. Actualice la composición o borre la advertencia.|Se eliminaron {n} capas registradas por esta composición. Actualice la composición o borre la advertencia.
+@plural	{n} plane|{n} planes	{n} plano|{n} planos
+@plural	{n} preset|{n} presets	{n} ajuste preestablecido|{n} ajustes preestablecidos
+@plural	{n} sample point removed|{n} sample points removed	Se quitó {n} punto de muestreo|Se quitaron {n} puntos de muestreo
+@plural	{n} slice|{n} slices	{n} sector|{n} sectores
+@plural	{n} step|{n} steps	{n} paso|{n} pasos
+@plural	{warning} (+{n} more brush preset warning)|{warning} (+{n} more brush preset warnings)	{warning} (+{n} advertencia más de ajustes preestablecidos de pincel)|{warning} (+{n} advertencias más de ajustes preestablecidos de pincel)
+@plural	{what} with {n} warning|{what} with {n} warnings	{what} con {n} advertencia|{what} con {n} advertencias
+# View › Guides › New Guide… › Color
+	Light Blue	Azul claro
+	Light Red	Rojo claro
+	Medium Blue	Azul medio
+	Light Gray	Gris claro

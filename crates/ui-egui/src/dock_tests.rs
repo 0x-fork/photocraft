@@ -1082,3 +1082,31 @@ fn a_tab_dragged_off_the_strip_moves_the_group_and_locking_stops_reordering() {
     drag(&mut h, paths.center(), paths.center() + vec2(0.0, 500.0));
     assert_eq!(h.state().ui.dock.order(), order);
 }
+
+#[test]
+fn brush_settings_window_is_closed_on_restart_but_can_be_reopened() {
+    let mut first = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    first.ui.panels.brush_settings = true;
+    first.ui.panels.history = true;
+    let saved = snapshot(&first);
+    first.session.prefs.edit(|p| {
+        p.workspace.remember_workspace_changes = true;
+        p.panel_layout = saved.clone();
+    });
+    let persisted = first.session.prefs_to_json();
+
+    let mut session = photocraft_engine::Session::new();
+    session.load_prefs_json(&persisted).unwrap();
+    let mut next = PhotocraftApp::new(session, crate::Services::default());
+    restore(&mut next);
+    assert!(!next.ui.panels.brush_settings, "a floating Brush Settings window should not reopen on startup");
+    assert!(next.ui.panels.history, "remembered dock panel visibility is preserved");
+
+    let ctx = egui::Context::default();
+    crate::menus::invoke(&mut next, &ctx, "window.toggle.brushSettings", json!({})).unwrap();
+    assert!(next.ui.panels.brush_settings, "Window > Brush Settings can still open it");
+
+    let mut workspace = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    apply(&mut workspace, &saved);
+    assert!(workspace.ui.panels.brush_settings, "switching workspaces still restores their saved layout");
+}

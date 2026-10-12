@@ -1371,7 +1371,16 @@ mod multi_layer_formatting {
         for i in 0..2 {
             let mut expected = before[i].clone();
             expected.font_family = "JetBrains Mono".into();
-            expected.postscript_name = None;
+            // #3556: the new family's installed face at the peer's weight and italic is named (no
+            // name without such a face), so a PSD names a real font.
+            expected.postscript_name = photocraft_text::shared()
+                .lock()
+                .unwrap()
+                .fonts
+                .faces("JetBrains Mono")
+                .into_iter()
+                .find(|f| f.italic == expected.italic && f.weight.round() as u16 == expected.weight)
+                .and_then(|f| f.postscript_name);
             assert_eq!(style(h.state(), ids[i], 0), expected, "family changes preserve each peer's face and metrics");
         }
         assert_eq!(style(h.state(), ids[2], 0), before[2]);
@@ -1453,6 +1462,51 @@ mod multi_layer_formatting {
         assert_eq!(text(&app, ids[1]).antialias, AntiAlias::Crisp);
         assert_eq!(text(&app, ids[2]).orientation, Orientation::Vertical);
         assert_eq!(text(&app, ids[0]).antialias, AntiAlias::Sharp);
+    }
+
+    /// The Character panel's OpenType buttons (TYPE-218-5, #3752): Photoshop's eight, in its
+    /// order; each shows pressed while its feature is on and toggles it on the selected type
+    /// layers, or on the selected characters while typing.
+    #[test]
+    fn character_panel_opentype_buttons_toggle_and_show_the_feature() {
+        use egui::accesskit::Toggled;
+        use egui_kittest::kittest::NodeT;
+        use photocraft_engine::type_extra_cmds::feature_on;
+        let (app, ids) = fixture();
+        let untouched = style(&app, ids[2], 0);
+        let mut h = controls(app, true);
+        let shown = |h: &Harness<'static, PhotocraftApp>, label: &str| h.get_by_label(label).accesskit_node().toggled();
+        let order: Vec<String> = h
+            .get_all_by_role(Role::Button)
+            .filter_map(|n| n.accesskit_node().label())
+            .filter(|l| super::super::OPENTYPE_BUTTONS.iter().any(|(_, _, tip)| tip == l))
+            .collect();
+        let expected: Vec<&str> = super::super::OPENTYPE_BUTTONS.iter().map(|(_, _, tip)| *tip).collect();
+        assert_eq!(order, expected, "every OpenType button, in Photoshop's order");
+        assert_eq!(shown(&h, "Standard Ligatures"), Some(Toggled::True), "ligatures are on by default");
+        assert_eq!(shown(&h, "Fractions"), Some(Toggled::False));
+        h.get_by_label("Fractions").click();
+        h.run();
+        for id in &ids[..2] {
+            assert!(feature_on(&style(h.state(), *id, 0), "frac"), "selected layers get the feature");
+        }
+        assert_eq!(style(h.state(), ids[2], 0), untouched, "an unselected layer is untouched");
+        h.run();
+        assert_eq!(shown(&h, "Fractions"), Some(Toggled::True), "the button shows the feature on");
+        h.get_by_label("Standard Ligatures").click();
+        h.run();
+        h.run();
+        assert!(!style(h.state(), ids[0], 0).ligatures && !style(h.state(), ids[1], 0).ligatures);
+        assert_eq!(shown(&h, "Standard Ligatures"), Some(Toggled::False));
+        // While typing, only the selected characters (1..3) change.
+        editing(h.state_mut(), ids[0]);
+        h.run();
+        h.get_by_label("Swash").click();
+        h.run();
+        let swash = |h: &Harness<'static, PhotocraftApp>, ci| feature_on(&style(h.state(), ids[0], ci), "swsh");
+        assert!(!swash(&h, 0) && swash(&h, 1) && swash(&h, 2) && !swash(&h, 3));
+        h.run();
+        assert_eq!(shown(&h, "Swash"), Some(Toggled::True), "shown at the selection start");
     }
 
     /// Type › Anti-Alias and Type › Orientation check the edited (else selected) layer's value.
