@@ -3531,3 +3531,9 @@ curves	Smooth	Làm mượt
 	Stroke Path…	Đi nét đường dẫn…
 	Apply mask to layer before removing?	Áp dụng mặt nạ vào lớp trước khi xóa?
 	Delete the vector mask?	Xóa mặt nạ vectơ?
+
+# History panel menu (#2966)
+	Step Forward	Tiến một bước
+	New Snapshot…	Ảnh chụp trạng thái mới…
+	Clear History	Xóa lịch sử
+	History Options…	Tùy chọn lịch sử…
