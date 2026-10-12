@@ -340,8 +340,18 @@ fn a_failed_step_inside_a_called_action_fails_scripts_and_batch() {
     images(&dir, 1, 8, 4);
     let mut s = Session::new();
     s.execute("file.new", json!({"width": 8, "height": 6})).unwrap();
-    s.actions.list.push(Action { name: "Rotate".into(), steps: vec![("image.imageRotation.90cw".into(), json!({}))], disabled: Default::default() });
-    s.actions.list.push(Action { name: "Bad".into(), steps: vec![("layer.delete".into(), json!({"layer": 999_999}))], disabled: Default::default() });
+    s.actions.list.push(Action {
+        name: "Rotate".into(),
+        steps: vec![("image.imageRotation.90cw".into(), json!({}))],
+        disabled: Default::default(),
+        ..Default::default()
+    });
+    s.actions.list.push(Action {
+        name: "Bad".into(),
+        steps: vec![("layer.delete".into(), json!({"layer": 999_999}))],
+        disabled: Default::default(),
+        ..Default::default()
+    });
     // A script stops at the failed call and reports it.
     let r = s.execute("file.scripts.browse", json!({"steps": [["actions.play", {"action": "Bad"}], ["image.imageRotation.90cw", {}]]})).unwrap();
     assert_eq!(r["ok"], false, "{r}");
@@ -358,6 +368,6 @@ fn a_failed_step_inside_a_called_action_fails_scripts_and_batch() {
     assert!(r["errors"][0]["error"].as_str().unwrap().contains("no such layer"), "{r}");
     // An action that batches itself stops as a recursive call instead of overflowing the stack.
     let inner = json!({"steps": [["actions.play", {"action": "Loop"}]], "input": dir.clone(), "output": format!("{dir}/inner"), "format": "png"});
-    s.actions.list.push(Action { name: "Loop".into(), steps: vec![("file.automate.batch".into(), inner)], disabled: Default::default() });
+    s.actions.list.push(Action { name: "Loop".into(), steps: vec![("file.automate.batch".into(), inner)], disabled: Default::default(), ..Default::default() });
     batch(&mut s, "Loop");
 }

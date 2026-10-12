@@ -543,6 +543,7 @@ fn named_action_function_key_replays_and_survives_preferences_roundtrip() {
         name: "LivePrint 2R".into(),
         steps: vec![("layer.new.layer".into(), json!({"name": "F6 overlay"}))],
         disabled: Default::default(),
+        ..Default::default()
     };
     h.state_mut().session.actions.list.push(action);
     crate::actions::assign_shortcut(h.state_mut(), "LivePrint 2R", "F6").unwrap();
@@ -568,6 +569,7 @@ fn assigning_action_function_key_moves_it_and_reports_failed_steps() {
             name: name.into(),
             steps: vec![("no.such.command".into(), json!({}))],
             disabled: Default::default(),
+            ..Default::default()
         });
     }
     crate::actions::assign_shortcut(h.state_mut(), "first", "F6").unwrap();
@@ -587,6 +589,7 @@ fn action_function_key_checks_automation_authorization() {
         name: "restricted".into(),
         steps: vec![("layer.new.layer".into(), json!({"name": "should not exist"}))],
         disabled: Default::default(),
+        ..Default::default()
     });
     crate::actions::assign_shortcut(h.state_mut(), "restricted", "F6").unwrap();
     h.state_mut().services.automation_command = Some(Box::new(|id, _| if id == "actions.play" { Err("denied action playback".into()) } else { Ok(()) }));
@@ -624,6 +627,7 @@ fn f6_while_recording_records_a_named_call_not_the_child_steps() {
         name: "LivePrint 2R".into(),
         steps: vec![("layer.new.layer".into(), json!({"name":"Nested overlay"})), ("view.fitOnScreen".into(), json!({}))],
         disabled: Default::default(),
+        ..Default::default()
     });
     crate::actions::assign_shortcut(h.state_mut(), "LivePrint 2R", "F6").unwrap();
     h.state_mut().run("actions.record", json!({"name":"Action 2"})).unwrap();

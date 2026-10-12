@@ -363,12 +363,12 @@ fn preference_uses_ambient_filesystem(path: &str) -> bool {
 
 fn command_uses_ambient_path(id: &str, params: &Value) -> bool {
     match id {
-        "brush.presets.importAbr" | "gradient.presets.importGrd" | "plugin.install" | "swatches.import" => {
+        "actions.load" | "brush.presets.importAbr" | "gradient.presets.importGrd" | "plugin.install" | "swatches.import" => {
             // `data` wins over `path` in these commands; any `path` without it reads the filesystem.
             params.get("data").is_none() && params.get("path").is_some()
         }
         // With a `path` the file is written there; without one the bytes come back as `data`.
-        "swatches.export" => params.get("path").is_some(),
+        "actions.save" | "swatches.export" => params.get("path").is_some(),
         "plugin.reload" => true,
         _ => false,
     }
@@ -765,6 +765,8 @@ mod tests {
             ("plugin.install", serde_json::json!({"path": " "})),
             ("swatches.import", serde_json::json!({"path": "/outside/set.aco"})),
             ("swatches.export", serde_json::json!({"path": "/outside/set.ase"})),
+            ("actions.load", serde_json::json!({"path": "/outside/set.atn"})),
+            ("actions.save", serde_json::json!({"path": "/outside/set.atn"})),
         ] {
             assert!(authorize_engine_command(id, &params).is_err(), "{id}: {params}");
         }
@@ -774,6 +776,8 @@ mod tests {
             ("plugin.install", serde_json::json!({"data": "QUJD"})),
             ("swatches.import", serde_json::json!({"data": "QUJD"})),
             ("swatches.export", serde_json::json!({"format": "ase"})),
+            ("actions.load", serde_json::json!({"data": "QUJD"})),
+            ("actions.save", serde_json::json!({"set": "S"})),
         ] {
             assert!(authorize_engine_command(id, &params).is_ok(), "{id}: {params}");
         }
