@@ -98,39 +98,250 @@ pub fn effect_defaults(kind: &str) -> Value {
 /// A contour preset point: input, output (both `0..=1`) and whether it is a corner.
 pub type ContourPoint = (f32, f32, bool);
 
-/// Built-in contour presets, in the order of Photoshop's default contour picker. The shapes are
-/// our own control points, drawn to match each preset's visible curve; imported PSD contours keep
-/// their own points. Points are sorted by input; a corner point bends the curve sharply.
+/// Built-in contour presets, in the order of Photoshop's default contour picker. Each is Photoshop's
+/// own curve as measured in Photoshop 27.11 (a Satin of each preset against a Linear one, 38
+/// levels per curve, read back through Satin's mirrored lookup — see
+/// `photocraft_compose::effects::satin_lut` — and thinned to within 1 %), joined by straight
+/// segments (every inner point a corner). Imported PSD contours keep their own points.
 pub const CONTOURS: &[(&str, &[ContourPoint])] = &[
     ("Linear", &[(0.0, 0.0, false), (1.0, 1.0, false)]),
-    ("Cone", &[(0.0, 0.0, false), (0.5, 1.0, true), (1.0, 0.0, false)]),
-    ("Cone - Inverted", &[(0.0, 1.0, false), (0.5, 0.0, true), (1.0, 1.0, false)]),
-    ("Cove - Deep", &[(0.0, 0.0, false), (0.3, 0.02, false), (0.6, 0.12, false), (0.85, 0.4, false), (1.0, 1.0, false)]),
-    ("Cove - Shallow", &[(0.0, 0.0, false), (0.5, 0.22, false), (1.0, 1.0, false)]),
-    ("Gaussian", &[(0.0, 0.0, false), (0.25, 0.08, false), (0.5, 0.5, false), (0.75, 0.92, false), (1.0, 1.0, false)]),
-    ("Half Round", &[(0.0, 0.0, false), (0.04, 0.28, false), (0.15, 0.53, false), (0.35, 0.8, false), (0.65, 0.95, false), (1.0, 1.0, false)]),
-    ("Ring", &[(0.0, 0.0, false), (0.25, 0.7, false), (0.5, 1.0, false), (0.75, 0.7, false), (1.0, 0.0, false)]),
-    ("Ring - Double", &[(0.0, 0.0, false), (0.25, 1.0, false), (0.5, 0.0, true), (0.75, 1.0, false), (1.0, 0.0, false)]),
-    ("Rolling Slope - Descending", &[(0.0, 1.0, false), (0.25, 0.62, false), (0.5, 0.58, false), (0.75, 0.28, false), (1.0, 0.0, false)]),
     (
-        "Rounded Steps",
+        "Cone",
         &[
             (0.0, 0.0, false),
-            (0.08, 0.01, false),
-            (0.165, 0.167, false),
-            (0.25, 0.323, false),
-            (0.333, 0.333, true),
-            (0.413, 0.343, false),
-            (0.5, 0.5, false),
-            (0.587, 0.657, false),
-            (0.667, 0.667, true),
-            (0.747, 0.677, false),
-            (0.833, 0.833, false),
-            (0.92, 0.99, false),
+            (0.172, 0.477, true),
+            (0.195, 0.555, true),
+            (0.266, 0.711, true),
+            (0.383, 0.922, true),
+            (0.43, 0.969, true),
+            (0.477, 0.992, true),
+            (0.523, 0.992, true),
+            (0.57, 0.969, true),
+            (0.664, 0.859, true),
+            (0.703, 0.789, true),
+            (0.742, 0.711, true),
+            (0.836, 0.477, true),
+            (0.859, 0.398, true),
+            (0.914, 0.266, true),
+            (0.945, 0.156, true),
+            (0.977, 0.078, true),
+            (1.0, 0.0, false),
+        ],
+    ),
+    (
+        "Cone - Inverted",
+        &[
+            (0.0, 1.0, false),
+            (0.031, 0.922, true),
+            (0.07, 0.789, true),
+            (0.172, 0.523, true),
+            (0.195, 0.445, true),
+            (0.266, 0.289, true),
+            (0.383, 0.078, true),
+            (0.43, 0.031, true),
+            (0.477, 0.008, true),
+            (0.523, 0.008, true),
+            (0.57, 0.031, true),
+            (0.664, 0.141, true),
+            (0.703, 0.211, true),
+            (0.742, 0.289, true),
+            (0.836, 0.523, true),
+            (0.859, 0.602, true),
+            (0.914, 0.734, true),
+            (0.945, 0.844, true),
+            (0.977, 0.922, true),
             (1.0, 1.0, false),
         ],
     ),
-    ("Sawtooth 1", &[(0.0, 0.0, false), (0.3, 1.0, true), (0.34, 0.0, true), (0.64, 1.0, true), (0.68, 0.0, true), (1.0, 1.0, false)]),
+    (
+        "Cove - Deep",
+        &[
+            (0.0, 0.258, false),
+            (0.344, 0.289, true),
+            (0.383, 0.297, true),
+            (0.477, 0.352, true),
+            (0.57, 0.43, true),
+            (0.617, 0.484, true),
+            (0.664, 0.57, true),
+            (0.703, 0.711, true),
+            (0.742, 0.906, true),
+            (0.773, 1.0, true),
+            (1.0, 1.0, false),
+        ],
+    ),
+    (
+        "Cove - Shallow",
+        &[
+            (0.0, 0.0, false),
+            (0.008, 0.164, true),
+            (0.016, 0.477, true),
+            (0.039, 0.508, true),
+            (0.172, 0.57, true),
+            (0.305, 0.688, true),
+            (0.344, 0.734, true),
+            (0.477, 0.945, true),
+            (0.523, 1.0, true),
+            (1.0, 1.0, false),
+        ],
+    ),
+    (
+        "Gaussian",
+        &[
+            (0.0, 0.0, false),
+            (0.117, 0.023, true),
+            (0.172, 0.055, true),
+            (0.234, 0.117, true),
+            (0.305, 0.234, true),
+            (0.383, 0.414, true),
+            (0.523, 0.688, true),
+            (0.617, 0.812, true),
+            (0.703, 0.891, true),
+            (0.805, 0.953, true),
+            (1.0, 1.0, false),
+        ],
+    ),
+    (
+        "Half Round",
+        &[
+            (0.0, 0.0, false),
+            (0.07, 0.18, true),
+            (0.195, 0.445, true),
+            (0.266, 0.555, true),
+            (0.383, 0.703, true),
+            (0.523, 0.828, true),
+            (0.617, 0.883, true),
+            (0.773, 0.945, true),
+            (1.0, 1.0, false),
+        ],
+    ),
+    (
+        "Ring",
+        &[
+            (0.0, 0.0, false),
+            (0.031, 0.078, true),
+            (0.039, 0.117, true),
+            (0.117, 0.383, true),
+            (0.172, 0.609, true),
+            (0.195, 0.734, true),
+            (0.266, 0.953, true),
+            (0.305, 1.0, true),
+            (0.344, 0.992, true),
+            (0.383, 0.922, true),
+            (0.43, 0.805, true),
+            (0.477, 0.641, true),
+            (0.57, 0.281, true),
+            (0.617, 0.141, true),
+            (0.664, 0.055, true),
+            (0.703, 0.016, true),
+            (0.742, 0.016, true),
+            (0.773, 0.062, true),
+            (0.836, 0.234, true),
+            (0.859, 0.344, true),
+            (0.891, 0.445, true),
+            (0.914, 0.547, true),
+            (0.945, 0.734, true),
+            (0.977, 0.875, true),
+            (1.0, 1.0, false),
+        ],
+    ),
+    (
+        "Ring - Double",
+        &[
+            (0.0, 0.0, false),
+            (0.055, 0.086, true),
+            (0.094, 0.172, true),
+            (0.117, 0.242, true),
+            (0.172, 0.477, true),
+            (0.195, 0.625, true),
+            (0.266, 0.891, true),
+            (0.305, 0.945, true),
+            (0.344, 0.891, true),
+            (0.383, 0.695, true),
+            (0.43, 0.367, true),
+            (0.477, 0.07, true),
+            (0.523, 0.047, true),
+            (0.57, 0.32, true),
+            (0.617, 0.648, true),
+            (0.664, 0.867, true),
+            (0.703, 0.93, true),
+            (0.742, 0.852, true),
+            (0.773, 0.641, true),
+            (0.805, 0.375, true),
+            (0.836, 0.156, true),
+            (0.859, 0.031, true),
+            (0.891, 0.023, true),
+            (0.914, 0.109, true),
+            (0.977, 0.703, true),
+            (0.984, 0.82, true),
+            (1.0, 1.0, false),
+        ],
+    ),
+    (
+        "Rolling Slope - Descending",
+        &[
+            (0.0, 1.0, false),
+            (0.008, 1.0, true),
+            (0.031, 0.93, true),
+            (0.039, 0.883, true),
+            (0.07, 0.758, true),
+            (0.141, 0.539, true),
+            (0.195, 0.406, true),
+            (0.266, 0.352, true),
+            (0.305, 0.352, true),
+            (0.523, 0.57, true),
+            (0.57, 0.602, true),
+            (0.617, 0.617, true),
+            (0.703, 0.602, true),
+            (0.742, 0.562, true),
+            (0.836, 0.391, true),
+            (0.914, 0.211, true),
+            (0.945, 0.109, true),
+            (0.977, 0.039, true),
+            (0.984, 0.008, true),
+            (1.0, 0.0, false),
+        ],
+    ),
+    (
+        "Rounded Steps",
+        &[
+            (0.0, 0.234, false),
+            (0.031, 0.305, true),
+            (0.039, 0.336, true),
+            (0.094, 0.43, true),
+            (0.141, 0.477, true),
+            (0.234, 0.492, true),
+            (0.266, 0.516, true),
+            (0.305, 0.602, true),
+            (0.344, 0.664, true),
+            (0.383, 0.711, true),
+            (0.477, 0.734, true),
+            (0.523, 0.797, true),
+            (0.57, 0.898, true),
+            (0.617, 0.953, true),
+            (0.664, 0.984, true),
+            (0.773, 0.984, true),
+            (0.836, 0.906, true),
+            (0.891, 0.891, true),
+            (0.914, 0.898, true),
+            (1.0, 1.0, false),
+        ],
+    ),
+    (
+        "Sawtooth 1",
+        &[
+            (0.0, 0.0, false),
+            (0.031, 0.047, true),
+            (0.195, 0.375, true),
+            (0.266, 0.492, true),
+            (0.477, 0.047, true),
+            (0.523, 0.055, true),
+            (0.742, 0.469, true),
+            (0.773, 0.445, true),
+            (0.914, 0.18, true),
+            (0.945, 0.102, true),
+            (1.0, 0.0, false),
+        ],
+    ),
 ];
 
 /// Names earlier versions offered, still accepted by `contour` params (scripts, saved defaults).
@@ -1119,9 +1330,28 @@ mod tests {
     }
 
     #[test]
+    fn contour_presets_match_photoshop() {
+        // Photoshop 27.11, measured through Satin: Cone and Cone − Inverted Satins are identical,
+        // and Gaussian reads 0.36 at 0.5 through Satin but 0.64 as the preset curve (glows, gloss).
+        let lut = |name: &str| {
+            let Some(Contour::Custom { points, corners, .. }) = builtin_contour(name) else { panic!("{name}") };
+            photocraft_compose::adjust::contour_curve_lut(&points, &corners)
+        };
+        let satin = |name: &str| photocraft_compose::effects::satin_lut(&builtin_contour(name).unwrap()).unwrap();
+        let at = |l: &[f32], x: f32| l[(x * (l.len() - 1) as f32).round() as usize];
+        let (cone, inverted) = (satin("Cone"), satin("Cone - Inverted"));
+        for x in [0.1, 0.25, 0.5, 0.8] {
+            assert!((at(&cone, x) - at(&inverted, x)).abs() < 0.03, "{x}: {} vs {}", at(&cone, x), at(&inverted, x));
+        }
+        assert!((at(&satin("Gaussian"), 0.5) - 0.36).abs() < 0.04, "{}", at(&satin("Gaussian"), 0.5));
+        assert!((at(&lut("Gaussian"), 0.5) - 0.64).abs() < 0.03, "{}", at(&lut("Gaussian"), 0.5));
+        assert!((at(&lut("Cove - Deep"), 0.0) - 0.26).abs() < 0.02, "Cove - Deep starts above zero");
+    }
+
+    #[test]
     fn contour_presets_and_custom_curves_apply_in_one_undo_step() {
         let mut s = session();
-        // Picking Cone: the preset's own curve, its peak a corner, in one undo step.
+        // Picking Cone: the preset's own curve, its points corners, in one undo step.
         s.execute("layer.layerStyle.dropShadow", json!({"contour": "Cone", "antiAlias": true})).unwrap();
         let Effect::DropShadow(sh) = &effects(&s)[0] else { panic!() };
         assert_eq!(sh.contour, builtin_contour("Cone").unwrap());
@@ -1129,7 +1359,9 @@ mod tests {
         let Contour::Custom { points, corners, .. } = &sh.contour else { panic!() };
         let lut = photocraft_compose::adjust::contour_curve_lut(points, corners);
         let at = |x: f32| lut[(x * (lut.len() - 1) as f32).round() as usize];
-        assert!((at(0.5) - 1.0).abs() < 1e-3 && (at(0.25) - 0.5).abs() < 0.01, "a sharp Λ, not a rounded hump");
+        // Photoshop's measured Cone: 0 at both ends, a 0.99 peak at 0.5, symmetric.
+        assert!(at(0.0).abs() < 1e-3 && at(1.0).abs() < 1e-3 && at(0.5) > 0.98, "a Λ: {} {} {}", at(0.0), at(0.5), at(1.0));
+        assert!((at(0.25) - at(0.75)).abs() < 0.03, "symmetric: {} vs {}", at(0.25), at(0.75));
         assert_eq!(contour_param(&sh.contour), json!("Cone"));
         s.execute("edit.undo", json!({})).unwrap();
         assert!(effects(&s).is_empty(), "one undo removes it");

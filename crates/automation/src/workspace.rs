@@ -252,6 +252,7 @@ pub fn authorize_engine_command(id: &str, params: &Value) -> Result<(), Automati
             | "file.fileInfo"
             | "file.automate.fitImage"
             | "file.automate.conditionalModeChange"
+            | "file.automate.cropAndStraightenPhotos"
             | "file.scripts.flattenAllLayerEffects"
             | "file.scripts.flattenAllMasks"
             | "file.scripts.deleteAllEmptyLayers"
@@ -695,6 +696,8 @@ mod tests {
             assert!(authorize_engine_command(id, &serde_json::json!({})).is_err());
         }
         assert!(authorize_engine_command("file.new", &serde_json::json!({})).is_ok());
+        assert!(authorize_engine_command("file.automate.cropAndStraightenPhotos", &serde_json::json!({})).is_ok());
+        assert!(authorize_desktop_engine_command("file.automate.cropAndStraightenPhotos", &serde_json::json!({})).is_ok());
         for id in ["layer.smartObjects.editContents", "layer.smartObjects.convertToLayers", "layer.smartObjects.saveContents"] {
             assert!(authorize_desktop_engine_command(id, &serde_json::json!({"layer": 19})).is_ok(), "{id}");
         }

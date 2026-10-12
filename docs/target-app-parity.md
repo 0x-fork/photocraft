@@ -481,7 +481,10 @@ best-patch copy and gradient-domain seam hiding. On 20 holes in public-domain ph
 original's texture (Wexler/PatchMatch completion as Content-Aware Fill uses it: 0.54). On a 24 MP
 document a 100 px ring takes 120 ms and a 1000 px ring 2.5 s (`remove_bench`). It is not
 generative: large objects over complex structure fill less convincingly than Photoshop's AI mode
-(#41).
+(#41). 2026-10-12: the options bar has Photoshop's three options: Sample All Layers, Create a new
+layer (the fill lands on a new layer above the target, `paint.remove` `newLayer`) and Remove after
+each stroke; off, the strokes collect as a tint and ↩ (or ✓) applies them together as one job and
+one undo step (`strokes`), Esc (or ⊘) drops them (#1750).
 
 2026-10-08: the tools update above is checked against the current toolbar groups in
 [`panels.rs`](../crates/ui-egui/src/panels.rs), the Pencil and tool-cycle tests in

@@ -391,6 +391,7 @@
 	Select Linked Layers	Seleccionar capas vinculadas
 	Merge Layers	Combinar capas
 	Merge Down	Combinar hacia abajo
+	Merge Group	Combinar grupo
 	Merge Visible	Combinar visibles
 	Stamp Visible	Sellar visibles
 	Select Layer Above	Seleccionar la capa de arriba
@@ -875,6 +876,7 @@
 	Camera Raw isn't open	Camera Raw no está abierto
 	Cancel	Cancelar
 	Cancel (Esc)	Cancelar (Esc)
+	Manage submitted jobs in the system print queue	Gestionar los trabajos enviados en la cola de impresión del sistema
 	Cancel any current edits (Esc)	Cancelar las ediciones actuales (Esc)
 	Cancel current crop operation  (Esc)	Cancelar la operación de recorte actual  (Esc)
 	Cancel transform (Esc)	Cancelar transformación (Esc)
@@ -2728,3 +2730,6 @@ curves	Smooth	Suavizar
 	Light Red	Rojo claro
 	Medium Blue	Azul medio
 	Light Gray	Gris claro
+	Remove after each stroke	Eliminar después de cada trazo
+	Apply the removal ({key})	Aplicar la eliminación ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Trazos por eliminar: {n} (Intro aplica, Esc cancela)

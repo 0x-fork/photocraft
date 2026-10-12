@@ -1126,11 +1126,15 @@ fn delete_channel(s: &mut Session, p: &Value) -> Result<Value> {
             _ => return Err(bad(cmd, "missing `channel`")),
         },
     };
+    // `edit` validates the view against the shorter channel list before we can remap it.
+    // Keep the original indices and eyes so a surviving final channel is not discarded.
+    let view = s.active().ok_or(EngineError::NoDocument)?.channel_view.clone();
     s.edit("Delete Channel", |doc, _| {
         doc.channels.remove(i);
         Ok(())
     })?;
     if let Some(st) = s.active_mut() {
+        st.channel_view = view;
         let v = &mut st.channel_view;
         if i < v.alpha_visible.len() {
             v.alpha_visible.remove(i);
@@ -1804,6 +1808,16 @@ pub fn specs() -> Vec<CommandSpec> {
             journal: false,
         },
         spec!("channel.target.composite", "Target Composite Channel", [], Some("Cmd+2"), "{}", has_doc, |s, _| target_slot(s, 2)),
+        // ⌘\ targets the active layer's mask, as clicking its thumbnail does.
+        spec!("channel.target.layerMask", "Target Layer Mask", [], Some("Cmd+\\"), "{}", has_layer_mask, |s, _| target_cmd(
+            s,
+            &serde_json::json!({"channel": "mask"})
+        )),
+        // ⌘⌥2 loads the image's luminosity as a selection (⌘-click on the composite channel).
+        spec!("select.loadLuminosity", "Load Luminosity", [], Some("Cmd+Alt+2"), "{}", has_doc, |s, _| load_selection(
+            s,
+            &serde_json::json!({"channel": "composite"})
+        )),
         spec!("channel.target.slot3", "Target Channel 3", [], Some("Cmd+3"), "{}", slot_ok::<3>, |s, _| target_slot(s, 3)),
         spec!("channel.target.slot4", "Target Channel 4", [], Some("Cmd+4"), "{}", slot_ok::<4>, |s, _| target_slot(s, 4)),
         spec!("channel.target.slot5", "Target Channel 5", [], Some("Cmd+5"), "{}", slot_ok::<5>, |s, _| target_slot(s, 5)),
@@ -1812,6 +1826,13 @@ pub fn specs() -> Vec<CommandSpec> {
         spec!("channel.target.slot8", "Target Channel 8", [], Some("Cmd+8"), "{}", slot_ok::<8>, |s, _| target_slot(s, 8)),
         spec!("channel.target.slot9", "Target Channel 9", [], Some("Cmd+9"), "{}", slot_ok::<9>, |s, _| target_slot(s, 9)),
     ]
+}
+
+/// Target Layer Mask: the active layer has a mask.
+fn has_layer_mask(s: &Session) -> std::result::Result<(), String> {
+    let st = s.active().ok_or("no document open")?;
+    let layer = st.active_layer.and_then(|id| st.doc.layer(id)).ok_or("no active layer")?;
+    layer.mask.as_ref().map(|_| ()).ok_or_else(|| "the active layer has no layer mask".to_string())
 }
 
 fn slot_ok<const N: usize>(s: &Session) -> std::result::Result<(), String> {

@@ -391,6 +391,7 @@
 	Select Linked Layers	リンクしたレイヤーを選択
 	Merge Layers	レイヤーを結合
 	Merge Down	下のレイヤーと結合
+	Merge Group	グループを結合
 	Merge Visible	表示レイヤーを結合
 	Stamp Visible	表示レイヤーをスタンプ
 	Select Layer Above	上のレイヤーを選択
@@ -876,6 +877,7 @@
 	Camera Raw isn't open	Camera Raw は開いていません
 	Cancel	キャンセル
 	Cancel (Esc)	キャンセル(Esc)
+	Manage submitted jobs in the system print queue	送信済みのジョブはシステムの印刷キューで管理してください
 	Cancel any current edits (Esc)	現在の編集をキャンセル(Esc)
 	Cancel current crop operation  (Esc)	現在の切り抜きをキャンセル(Esc)
 	Cancel transform (Esc)	変形をキャンセル(Esc)
@@ -3657,3 +3659,6 @@ curves	Smooth	スムーズ
 	Light Red	ライトレッド
 	Medium Blue	ミディアムブルー
 	Light Gray	ライトグレー
+	Remove after each stroke	ストロークごとに削除
+	Apply the removal ({key})	削除を適用 ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	削除するストローク: {n}（Enter で適用、Esc で取り消し）

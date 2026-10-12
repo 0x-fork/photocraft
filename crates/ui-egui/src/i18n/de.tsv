@@ -394,6 +394,7 @@
 	Select Linked Layers	Verknüpfte Ebenen auswählen
 	Merge Layers	Ebenen zusammenfügen
 	Merge Down	Nach unten zusammenfügen
+	Merge Group	Gruppe zusammenfügen
 	Merge Visible	Sichtbare zusammenfügen
 	Stamp Visible	Sichtbare Ebenen stempeln
 	Select Layer Above	Ebene darüber auswählen
@@ -867,6 +868,7 @@
 	Cancel	Abbrechen
 	Reset	Zurücksetzen
 	Cancel (Esc)	Abbrechen (Esc)
+	Manage submitted jobs in the system print queue	Übermittelte Aufträge in der Druckwarteschlange des Systems verwalten
 	Cancel any current edits (Esc)	Aktuelle Bearbeitungen abbrechen (Esc)
 	Cancel current crop operation  (Esc)	Aktuelle Freistellung abbrechen  (Esc)
 	Cancel transform (Esc)	Transformation abbrechen (Esc)
@@ -2687,3 +2689,6 @@ curves	Smooth	Glätten
 	Light Red	Hellrot
 	Medium Blue	Mittelblau
 	Light Gray	Hellgrau
+	Remove after each stroke	Nach jedem Strich entfernen
+	Apply the removal ({key})	Entfernen anwenden ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Striche zum Entfernen: {n} (Eingabe wendet an, Esc bricht ab)

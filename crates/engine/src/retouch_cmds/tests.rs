@@ -1580,3 +1580,63 @@ fn spot_healing_keeps_film_grain_through_overlapping_strokes() {
         }
     }
 }
+
+#[test]
+fn remove_several_strokes_apply_as_one_job_and_one_undo_step() {
+    let mut s = square_session(8, "rgb");
+    let bg = rgba(&s, 10, 10);
+    let past = s.active().unwrap().history.past_len();
+    // Each stroke covers half of the square; together they remove it.
+    let r = s.execute("paint.remove", json!({"strokes": [[[38, 30], [45, 30]], [[47, 30], [54, 30]]], "size": 16})).unwrap();
+    assert!(r["damage"].is_array(), "{r}");
+    for (x, y) in [(41, 30), (46, 30), (51, 30)] {
+        assert!(near(rgba(&s, x, y), bg, 0.03), "({x}, {y}): {:?} vs {bg:?}", rgba(&s, x, y));
+    }
+    assert_eq!(s.active().unwrap().history.past_len(), past + 1, "one undo step for both strokes");
+    for p in [
+        json!({"strokes": [], "size": 16}),
+        json!({"strokes": "x", "size": 16}),
+        json!({"strokes": [[]], "size": 16}),
+        json!({"strokes": [[[1, 1]], "x"], "size": 16}),
+    ] {
+        assert!(s.execute("paint.remove", p).is_err());
+    }
+}
+
+#[test]
+fn remove_to_a_new_layer_leaves_the_target_untouched() {
+    let mut s = square_session(8, "rgb");
+    let target = s.active().unwrap().active_layer.unwrap();
+    let bg = rgba(&s, 10, 10);
+    let square = rgba(&s, 46, 30);
+    let past = s.active().unwrap().history.past_len();
+    let r = s.execute("paint.remove", json!({"points": [[38, 30], [54, 30]], "size": 16, "newLayer": true})).unwrap();
+    let nid = LayerId(r["layer"].as_u64().expect("the new layer's id"));
+    let d = s.active().unwrap();
+    assert_eq!(d.active_layer, Some(nid), "the new layer is active");
+    assert_ne!(nid, target);
+    let order: Vec<LayerId> = d.doc.walk().into_iter().map(|(_, _, l)| l.id).collect();
+    assert_eq!(order, vec![target, nid], "the new layer sits above the target");
+    assert_eq!(d.doc.layer(nid).unwrap().name, "Layer 1");
+    // The target keeps its pixels; the new layer carries the fill inside the hole only.
+    let old = d.doc.layer(target).unwrap().surface().unwrap();
+    assert!(near(old.rgba(46, 30), square, 0.001));
+    let new = d.doc.layer(nid).unwrap().surface().unwrap();
+    assert!(near(new.rgba(46, 30), bg, 0.03), "{:?}", new.rgba(46, 30));
+    assert_eq!(new.rgba(10, 10)[3], 0.0, "transparent away from the hole");
+    assert_eq!(d.history.past_len(), past + 1);
+    s.execute("edit.undo", json!({})).unwrap();
+    let d = s.active().unwrap();
+    assert!(d.doc.layer(nid).is_none(), "undo removes the layer");
+    assert_eq!(d.active_layer, Some(target));
+    // On an empty layer with Sample All Layers, the composite is what gets filled, onto a new layer.
+    s.execute("layer.new.layer", json!({})).unwrap();
+    let empty = s.active().unwrap().active_layer.unwrap();
+    let r = s.execute("paint.remove", json!({"points": [[38, 30], [54, 30]], "size": 16, "sampleAllLayers": true, "newLayer": true})).unwrap();
+    let nid = LayerId(r["layer"].as_u64().unwrap());
+    let d = s.active().unwrap();
+    let order: Vec<LayerId> = d.doc.walk().into_iter().map(|(_, _, l)| l.id).collect();
+    assert_eq!(order, vec![target, empty, nid]);
+    assert!(near(d.doc.layer(nid).unwrap().surface().unwrap().rgba(46, 30), bg, 0.03));
+    assert!(near(d.doc.layer(target).unwrap().surface().unwrap().rgba(46, 30), square, 0.001));
+}

@@ -137,7 +137,11 @@ impl PsdFile {
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
         let v = self.header.version;
         let psb = v.is_psb();
+        // Reserve the pixel data up front: appending it to an empty Vec reallocates and copies
+        // repeatedly. Everything else (headers, resources, records) is small by comparison.
+        let hint = self.layer_info.as_ref().map_or(0, LayerInfo::channel_data_len).saturating_add(self.image_data.data.len());
         let mut out = Vec::new();
+        out.try_reserve(hint).map_err(|_| PsdError::LimitExceeded("not enough memory to serialize the file"))?;
         self.header.write(&mut out);
         out.put_len(self.color_mode_data.len() as u64, false)?;
         out.put(&self.color_mode_data);

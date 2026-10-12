@@ -966,6 +966,14 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
     {
         item.label = crate::layer_menu_ui::mask_toggle_label(mask.enabled).into();
     }
+    // Layer › Merge Layers reads Merge Group with just a group selected, as in Photoshop (#3832).
+    if let Some(st) = app.session.active()
+        && st.selected_layers().len() <= 1
+        && st.active_layer.and_then(|id| st.doc.layer(id)).is_some_and(|l| matches!(l.content, photocraft_doc::LayerContent::Group(_)))
+        && let Some(item) = items.iter_mut().find(|i| i.id == "layer.mergeLayers")
+    {
+        item.label = "Merge Group".into();
+    }
     // The File quick-export command uses the format selected in Export Preferences.
     // On the web it intentionally downloads PNG until the quick-export service supports
     // the other formats; the Layer quick-export command also always produces PNG.
