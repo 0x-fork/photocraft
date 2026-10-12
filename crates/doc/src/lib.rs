@@ -636,6 +636,13 @@ pub struct Layer {
 }
 
 impl Layer {
+    /// Whether the layer has the Background's own properties: an unclipped pixel layer with
+    /// transparency and position locked. Only the bottom layer of a document with them is the
+    /// Background: use [`Document::background`] / [`Document::is_background`] to identify it.
+    pub fn has_background_traits(&self) -> bool {
+        self.locks.transparency && self.locks.position && !self.clipped && matches!(self.content, LayerContent::Raster(_))
+    }
+
     pub fn new(name: impl Into<String>, content: LayerContent) -> Self {
         Layer {
             id: LayerId::fresh(),
@@ -1040,6 +1047,25 @@ impl Document {
         self.path_of(id).map_or_else(Locks::default, |p| self.locks_at(&p))
     }
 
+    /// The Background layer, identified structurally as Photoshop does, never by its name (a file
+    /// from a German or Japanese Photoshop names it "Hintergrund" or "背景"): the bottom layer of
+    /// the stack, a pixel layer that is not clipped, with transparency and position locked (a PSD
+    /// stores it without a transparency channel and transparency-protected; File › New and opaque
+    /// flat files create it the same way).
+    pub fn background(&self) -> Option<&Layer> {
+        self.layers.first().filter(|l| Layer::has_background_traits(l))
+    }
+
+    /// [`Self::background`], mutably.
+    pub fn background_mut(&mut self) -> Option<&mut Layer> {
+        self.layers.first_mut().filter(|l| Layer::has_background_traits(l))
+    }
+
+    /// Whether `id` is the document's Background layer ([`Self::background`]).
+    pub fn is_background(&self, id: LayerId) -> bool {
+        self.background().is_some_and(|b| b.id == id)
+    }
+
     pub fn layer(&self, id: LayerId) -> Option<&Layer> {
         fn rec(layers: &[Layer], id: LayerId) -> Option<&Layer> {
             layers.iter().find_map(|l| if l.id == id { Some(l) } else { l.children().and_then(|ch| rec(ch, id)) })
@@ -1203,6 +1229,30 @@ mod tests {
         assert_eq!(s.pixel(0, 0), vec![1.0, 1.0, 1.0, 1.0]);
         assert_eq!(s.pixel(99, 49), vec![1.0, 1.0, 1.0, 1.0]);
         assert_eq!(s.pixel(100, 0), vec![0.0; 4]);
+    }
+
+    /// The Background is the locked bottom pixel layer, whatever it is called.
+    #[test]
+    fn background_is_structural_not_named() {
+        let mut d = doc();
+        let id = d.layers[0].id;
+        assert!(d.is_background(id));
+        for name in ["Hintergrund", "背景", "Arrière-plan"] {
+            d.layers[0].name = name.into();
+            assert_eq!(d.background().map(|l| l.id), Some(id), "{name}");
+        }
+        // A layer called "Background" without the locks, or above the bottom, is not it.
+        let mut top = Layer::raster("Background", d.pixel_format());
+        top.locks.transparency = true;
+        top.locks.position = true;
+        let top_id = top.id;
+        d.layers.push(top);
+        assert!(!d.is_background(top_id));
+        d.layers[0].locks.position = false;
+        assert!(d.background().is_none());
+        d.layers[0].locks.position = true;
+        d.layers[0].clipped = true;
+        assert!(d.background_mut().is_none());
     }
 
     #[test]

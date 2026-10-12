@@ -2254,6 +2254,16 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 let below = Rect::from_min_max(pos2(last_rect.left(), last_rect.bottom()), pos2(last_rect.right(), ui.clip_rect().bottom()));
                 layer_drop_zone(app, &ctx, ui, below, (last, last_rect), "below", &mut actions);
             }
+            // Tab / ⇧Tab in a rename: rename the layer below / above next, as in Photoshop. The
+            // Background isn't renamed in place (double-clicking it converts it), so it ends there.
+            if let Some((from, up)) = crate::layer_row_ui::take_next_rename(ui.ctx())
+                && let Some(at) = drawn.iter().position(|(id, _)| id.0 == from)
+                && let Some(&(next, _)) = if up { at.checked_sub(1).and_then(|i| drawn.get(i)) } else { drawn.get(at + 1) }
+                && let Some(l) = doc.layer(next).filter(|l| !crate::doc_props_ui::is_background(&doc, l))
+                && let Some(done) = crate::layer_row_ui::start_rename(ui.ctx(), next.0, &l.name)
+            {
+                actions.push(done);
+            }
             // ⌥-click the line between two layers: clip / release the upper one (#967).
             crate::clip_line_ui::show(ui, &doc, &mut actions);
             // A rename whose row is gone (deleted, filtered out, inside a closed group) ends,
@@ -2689,7 +2699,7 @@ fn layer_row(
     let name_color = if l.visible { t.text } else { t.text_faint };
     let font = if selected && !t.pro { theme::medium(13.0) } else { egui::FontId::proportional(if t.pro { 12.0 } else { 13.0 }) };
     // Photoshop before 2026 set the Background layer's name in italics; 2026 sets it upright.
-    let italic = !t.pro && l.name == "Background" && l.locks.transparency;
+    let italic = !t.pro && doc.is_background(l.id);
     // Photoshop rows show only the name; the kind sub-label is a Studio-theme addition.
     let is_pixel = t.pro || matches!(l.content, LayerContent::Raster(_));
     let name_rect = crate::layer_row_ui::truncated(&painter, &l.name, font, name_color, italic, name_right - x).map(|galley| {
@@ -2753,6 +2763,11 @@ fn layer_row(
             actions.push(("ui.maskTarget".into(), json!(true)));
         } else if on_thumb || !row.primary {
             actions.push(("ui.maskTarget".into(), json!(false)));
+        }
+        // ⌥-click the layer thumbnail: fit the layer on screen, as Photoshop does.
+        let m = ui.input(|i| i.modifiers);
+        if on_thumb && m.alt && !m.shift && !m.command {
+            actions.push(("view.fitLayersOnScreen".into(), Value::Null));
         }
     }
     // Double-click: the name renames in place (over the row's full height, not just the glyphs:

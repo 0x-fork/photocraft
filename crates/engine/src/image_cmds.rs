@@ -300,7 +300,7 @@ fn crop_doc(doc: &mut Document, cmd: &str, r: Rect, delete_pixels: bool, extensi
     // A Background cannot hold transparent pixels: like an opaque Canvas Size extension, the area
     // an extending Crop adds is filled with the extension (background) colour.
     if extends
-        && let Some(bg) = doc.layers.first_mut().filter(|l| crate::extra_cmds::is_background(l))
+        && let Some(bg) = doc.background_mut()
         && let LayerContent::Raster(surf) = &mut bg.content
     {
         let old = old_canvas.translate(dx, dy);
@@ -381,16 +381,13 @@ fn canvas_size(s: &mut Session, p: &Value) -> Result<Value> {
         // A shrink or no-op resize must not silently convert the Background.
         if ext[3] == 0.0
             && (nw > ow as u32 || nh > oh as u32)
-            && let Some(bg) = doc.layers.first_mut()
-            && crate::extra_cmds::is_background(bg)
+            && let Some(bg) = doc.background_mut()
         {
             crate::extra_cmds::unlock_background(bg);
         }
         // The locked Background layer is extended with the extension colour.
         if ext[3] > 0.0
-            && let Some(bg) = doc.layers.first_mut()
-            && bg.name == "Background"
-            && bg.locks.transparency
+            && let Some(bg) = doc.background_mut()
             && let LayerContent::Raster(surf) = &mut bg.content
         {
             let fmt = surf.format();

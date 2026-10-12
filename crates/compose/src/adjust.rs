@@ -163,7 +163,8 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
                     }
                     None => (0.0, 0.0, 0.0),
                 };
-                hue_saturation(c, *hue + dh, (*saturation / 100.0 + ds).clamp(-1.0, 1.0), (*lightness / 100.0 + dl).clamp(-1.0, 1.0), *colorize)
+                let out = hue_saturation(c, *hue + dh, (*saturation / 100.0 + ds).clamp(-1.0, 1.0), (*lightness / 100.0).clamp(-1.0, 1.0), *colorize);
+                range_lightness(out, dl)
             })
         }
         Adjustment::Vibrance { vibrance, saturation } => {
@@ -188,7 +189,9 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
         Adjustment::BlackWhite { weights, tint } => map_rgb(buf, |c| {
             let g = black_white_gray(c, weights);
             match tint {
-                Some(t) => std::array::from_fn(|i| (g * t[i] * 2.0).clamp(0.0, 1.0) * 0.5 + g * 0.5),
+                // Photoshop tints like the Color blend mode: the tint's hue and saturation at the
+                // grey's luminosity (SetLum + ClipColor), measured in Photoshop 27.11.
+                Some(t) => photocraft_color::blend::set_lum(*t, g).map(|v| v.clamp(0.0, 1.0)),
                 None => [g; 3],
             }
         }),
@@ -426,21 +429,32 @@ pub fn hue_range_tables(ranges: &[HueRange; 6]) -> [Vec<f32>; 3] {
 /// Colorize sets the hue and saturation instead of shifting them; at 0% it leaves only the
 /// lightness, as in Photoshop (#2326). Ticking Colorize in the dialog starts saturation at 25%.
 pub fn hue_saturation(c: [f32; 3], hue: f32, s: f32, l: f32, colorize: bool) -> [f32; 3] {
-    let (mut hh, mut ss, ll) = rgb_to_hsl(c);
+    let lighten = |v: f32| if l > 0.0 { v + (1.0 - v) * l } else { v * (1.0 + l) };
     if colorize {
-        hh = hue.rem_euclid(360.0) / 360.0;
-        ss = s.abs().min(1.0);
-    } else {
-        hh = (hh + hue / 360.0).rem_euclid(1.0);
-        ss = (ss * (1.0 + s)).clamp(0.0, 1.0);
+        // Colorize builds the colour at the lightened (or darkened) lightness, so black with
+        // Lightness +30 becomes a 30 % lightness colour, not grey (measured in Photoshop 27.11).
+        let (_, _, ll) = rgb_to_hsl(c);
+        return hsl_to_rgb(hue.rem_euclid(360.0) / 360.0, s.abs().min(1.0), lighten(ll));
     }
-    let mut rgb = hsl_to_rgb(hh, ss, ll);
-    if l > 0.0 {
-        rgb = rgb.map(|v| v + (1.0 - v) * l);
-    } else if l < 0.0 {
-        rgb = rgb.map(|v| v * (1.0 + l));
-    }
-    rgb
+    // Photoshop applies Lightness first, then rotates the hue and scales the saturation of the
+    // result: Hue +40, Saturation +25, Lightness -10 turns (240, 160, 30) into (173, 243, 0), not
+    // (168, 230, 14) (Photoshop 27.11 corpus file adjustments/rgb8/hue-saturation).
+    let (hh, ss, ll) = rgb_to_hsl(c.map(lighten));
+    let hh = (hh + hue / 360.0).rem_euclid(1.0);
+    // Raising saturation divides by 1 - s, lowering it multiplies by 1 + s: +50 % doubles it
+    // (measured in Photoshop 27.11); +100 % saturates any colour that has some.
+    let ss = if s > 0.0 { ss / (1.0 - s).max(1.0 / 512.0) } else { ss * (1.0 + s) }.clamp(0.0, 1.0);
+    hsl_to_rgb(hh, ss, ll)
+}
+
+/// A colour range's Lightness, applied after the master edits. It moves each channel towards the
+/// pixel's brightest channel when raised and towards its darkest when lowered, not towards white
+/// or black: Blues +50 turns (0, 29, 115) into (57, 71, 115), Blues -50 turns (102, 128, 204) into
+/// (102, 115, 153) (measured in Photoshop 27.11).
+pub fn range_lightness(c: [f32; 3], l: f32) -> [f32; 3] {
+    let l = l.clamp(-1.0, 1.0);
+    let target = if l > 0.0 { c[0].max(c[1]).max(c[2]) } else { c[0].min(c[1]).min(c[2]) };
+    c.map(|v| v + (target - v) * l.abs())
 }
 
 /// Black & White grey value. Each colour is the sum of a grey part (its smallest channel), a
@@ -1283,6 +1297,51 @@ mod tone_tests {
         }
     }
 
+    /// Photoshop 27.11, measured: Hue/Saturation raising saturation, and Colorize with Lightness.
+    #[test]
+    fn hue_saturation_matches_photoshop() {
+        // (input, hue, saturation, lightness, colorize, Photoshop's output)
+        type Case = ([u8; 3], f32, f32, f32, bool, [u8; 3]);
+        let measured: [Case; 8] = [
+            ([204, 102, 102], 0.0, 50.0, 0.0, false, [254, 51, 51]),
+            ([204, 159, 102], 0.0, 50.0, 0.0, false, [254, 164, 51]),
+            ([204, 102, 102], 0.0, -50.0, 0.0, false, [178, 127, 127]),
+            ([0, 0, 0], 120.0, 100.0, 30.0, true, [0, 152, 0]),
+            ([28, 28, 28], 120.0, 100.0, 30.0, true, [0, 192, 0]),
+            ([160, 160, 160], 30.0, 25.0, -40.0, true, [120, 96, 73]),
+            ([252, 252, 252], 30.0, 25.0, -40.0, true, [177, 151, 126]),
+            ([255, 143, 0], 30.0, 25.0, -40.0, true, [95, 76, 58]),
+        ];
+        for (input, hue, saturation, lightness, colorize, want) in measured {
+            let a = Adjustment::HueSaturation { hue, saturation, lightness, colorize, ranges: HueRange::defaults() };
+            let c = input.map(|v| v as f32 / 255.0);
+            let mut b = Buffer { rect: Rect::new(0, 0, 1, 1), px: vec![[c[0], c[1], c[2], 1.0]] };
+            apply(&a, &mut b);
+            for (i, w) in want.iter().enumerate() {
+                let got = b.px[0][i] * 255.0;
+                assert!((got - *w as f32).abs() <= 2.0, "{input:?} h{hue} s{saturation} l{lightness} colorize {colorize}, channel {i}: {got} vs {w}");
+            }
+        }
+    }
+
+    /// Photoshop 27.11, measured: a range's Lightness (Blues ±50) moves towards the brightest or darkest channel.
+    #[test]
+    fn range_lightness_matches_photoshop() {
+        let measured = [
+            ([0u8, 29, 115], 0.5, [57u8, 71, 115]),
+            ([0, 64, 255], 0.5, [125, 157, 255]),
+            ([102, 128, 204], 0.5, [152, 165, 204]),
+            ([102, 128, 204], -0.5, [102, 115, 154]),
+            ([0, 18, 115], -0.5, [0, 9, 58]),
+        ];
+        for (input, l, want) in measured {
+            let got = range_lightness(input.map(|v| v as f32 / 255.0), l);
+            for i in 0..3 {
+                assert!((got[i] * 255.0 - want[i] as f32).abs() <= 2.5, "{input:?} channel {i}: {} vs {}", got[i] * 255.0, want[i]);
+            }
+        }
+    }
+
     #[test]
     fn black_white_weights() {
         let d = [40.0, 60.0, 40.0, 60.0, 20.0, 80.0];
@@ -1292,6 +1351,31 @@ mod tone_tests {
         let mut w = d;
         w[0] = 100.0;
         assert!(black_white_gray([1.0, 0.0, 0.0], &w) > black_white_gray([1.0, 0.0, 0.0], &d));
+    }
+
+    /// Photoshop 27.11, measured: Black & White (default weights) with Tint over greys. The tint
+    /// is blended like the Color blend mode: its hue and saturation at the grey's luminosity.
+    #[test]
+    fn black_white_tint_matches_photoshop() {
+        let weights = [40.0, 60.0, 40.0, 60.0, 20.0, 80.0];
+        let measured: [([u8; 3], u8, [u8; 3]); 6] = [
+            ([255, 0, 0], 24, [81, 1, 1]),
+            ([255, 0, 0], 120, [255, 64, 64]),
+            ([255, 0, 0], 240, [255, 235, 235]),
+            ([0xe1, 0xd3, 0xb3], 120, [133, 119, 87]),
+            ([0xe1, 0xd3, 0xb3], 24, [33, 24, 1]),
+            ([0x40, 0x20, 0x10], 120, [144, 112, 96]),
+        ];
+        for (tint, grey, want) in measured {
+            let tint = Some(tint.map(|v| v as f32 / 255.0));
+            let mut b = Buffer { rect: Rect::new(0, 0, 1, 1), px: vec![[grey as f32 / 255.0; 4]] };
+            b.px[0][3] = 1.0;
+            apply(&Adjustment::BlackWhite { weights, tint }, &mut b);
+            for (i, w) in want.iter().enumerate() {
+                let got = b.px[0][i] * 255.0;
+                assert!((got - *w as f32).abs() <= 2.5, "tint {tint:?} grey {grey} channel {i}: {got} vs {w}");
+            }
+        }
     }
 
     #[test]

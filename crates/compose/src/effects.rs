@@ -43,7 +43,7 @@ pub fn margin(layer: &Layer) -> i32 {
             Effect::DropShadow(s) | Effect::InnerShadow(s) => s.distance + s.size,
             Effect::OuterGlow(g) | Effect::InnerGlow(g) => g.size,
             Effect::Stroke(s) => s.size,
-            Effect::Satin(s) => s.distance + s.size,
+            Effect::Satin(s) => satin_distance(s) + s.size,
             Effect::BevelEmboss(b) => b.size + b.soften,
             _ => 0.0,
         };
@@ -1689,8 +1689,14 @@ impl FxMaps {
     }
 }
 
+/// The distance the two satin copies are offset by. Photoshop draws Distance 0 as 1 px (an
+/// edge band of 2/size, measured in Photoshop 27.11), not as two copies cancelling out.
+pub fn satin_distance(s: &photocraft_doc::effects::Satin) -> f32 {
+    s.distance.max(1.0)
+}
+
 fn satin_map(shape: &Map, s: &photocraft_doc::effects::Satin) -> Map {
-    let (dx, dy) = offset(s.angle, s.distance);
+    let (dx, dy) = offset(s.angle, satin_distance(s));
     let mut a = shape.shifted(dx, dy, 0.0);
     let mut b = shape.shifted(-dx, -dy, 0.0);
     // Two box passes of the satin size (fitted: 0.2 % mean error on psd-tools layer_effects).
@@ -3006,6 +3012,28 @@ mod tests {
             }
         }
         m
+    }
+
+    #[test]
+    fn satin_at_distance_zero_matches_photoshop() {
+        // Photoshop 27.11, Satin black 100 %, angle 90°, Linear contour, distance 0, size 5 over a
+        // #808080 square: the rows from the top edge read 82, 102, 123, 128.
+        let s = photocraft_doc::effects::Satin {
+            common: photocraft_doc::FxCommon::new(BlendMode::Normal, 1.0),
+            color: photocraft_color::Color::BLACK,
+            angle: 90.0,
+            distance: 0.0,
+            size: 5.0,
+            contour: Contour::Linear,
+            anti_alias: false,
+            invert: false,
+        };
+        let m = satin_map(&square_shape(60), &s);
+        for (row, gray) in [(5, 82.0), (7, 102.0), (9, 123.0), (11, 128.0), (30, 128.0)] {
+            let want = 1.0 - gray / 128.0;
+            let got = m.v[row * 60 + 30];
+            assert!((got - want).abs() < 0.02, "row {row}: {got} vs {want}");
+        }
     }
 
     fn shadow(noise: f32, origin: (i32, i32)) -> Map {
