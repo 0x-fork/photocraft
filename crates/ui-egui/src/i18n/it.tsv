@@ -4026,3 +4026,14 @@ navigator	Zoom	Zoom
 @plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} passaggio non ha ancora un equivalente in PhotoCraft|{n} passaggi non hanno ancora un equivalente in PhotoCraft
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	Salvata {n} azione in {file}|Salvate {n} azioni in {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Omesso {n} passaggio senza equivalente in Photoshop|Omessi {n} passaggi senza equivalente in Photoshop
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Inserisci interruzione…
+	Save Set…	Salva set…
+	Message:	Messaggio:
+	Allow Continue	Consenti di continuare
+	Show dialog during playback	Mostra la finestra di dialogo durante l’esecuzione
+	Select an action first	Seleziona prima un’azione
+	Action playback stopped	Esecuzione dell’azione interrotta
+	Step {step} is waiting for its dialog	Il passaggio {step} attende la sua finestra di dialogo
+@plural	{n} action|{n} actions	{n} azione|{n} azioni

@@ -397,6 +397,33 @@ pub(crate) fn composite_over(dst: &mut Surface, top: &Surface) {
     dst.write_region(b, &d);
 }
 
+/// The relative form (`scaleX`, `scaleY` in percent, `rotate` in degrees clockwise, `dx`, `dy`
+/// in pixels), as Photoshop records a Free Transform: scale and rotate about the frame's
+/// centre, then move. `None` when none of them is given.
+fn relative_matrix(p: &Value, rect: [f64; 4]) -> Result<Option<Homography>> {
+    let num = |k: &str| -> Result<Option<f64>> {
+        match p.get(k) {
+            None | Some(Value::Null) => Ok(None),
+            Some(v) => v.as_f64().filter(|f| f.is_finite()).map(Some).ok_or_else(|| bad(format!("`{k}` must be a finite number"))),
+        }
+    };
+    let (sx, sy, rot, dx, dy) = (num("scaleX")?, num("scaleY")?, num("rotate")?, num("dx")?, num("dy")?);
+    if sx.is_none() && sy.is_none() && rot.is_none() && dx.is_none() && dy.is_none() {
+        return Ok(None);
+    }
+    let (sx, sy) = (sx.unwrap_or(100.0) / 100.0, sy.unwrap_or(100.0) / 100.0);
+    if sx.abs() < 1e-6 || sy.abs() < 1e-6 {
+        return Err(bad("`scaleX` and `scaleY` must not be 0"));
+    }
+    let (cx, cy) = ((rect[0] + rect[2]) / 2.0, (rect[1] + rect[3]) / 2.0);
+    let (sin, cos) = rot.unwrap_or(0.0).to_radians().sin_cos();
+    // (x, y) → translate(-c) → scale → rotate → translate(c + d).
+    let (a, b, c, d) = (sx * cos, sx * sin, -sy * sin, sy * cos);
+    let e = cx + dx.unwrap_or(0.0) - a * cx - c * cy;
+    let f = cy + dy.unwrap_or(0.0) - b * cx - d * cy;
+    Ok(Some(Homography([a, c, e, b, d, f, 0.0, 0.0, 1.0])))
+}
+
 fn quad_param(p: &Value) -> Option<[[f64; 2]; 4]> {
     let a = p.get("quad")?.as_array()?;
     if a.len() != 4 {
@@ -459,8 +486,10 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
         }
         // Affine [a b c d e f] maps (x, y) → (a·x + c·y + e, b·x + d·y + f).
         Homography([v[0], v[2], v[4], v[1], v[3], v[5], 0.0, 0.0, 1.0])
+    } else if let Some(m) = relative_matrix(p, rect)? {
+        m
     } else {
-        return Err(bad("pass `quad` (where the rect's corners go) or `matrix`"));
+        return Err(bad("pass `quad` (where the rect's corners go), `matrix`, or `scaleX`/`scaleY`/`rotate`/`dx`/`dy`"));
     };
     if h.inverse().is_none() {
         return Err(bad("the transform collapses the layer"));
@@ -515,7 +544,7 @@ pub fn specs() -> Vec<CommandSpec> {
         label: "Free Transform",
         menu: &[],
         shortcut: None,
-        params: r##"{"layer":id?,"rect":[x0,y0,x1,y1]? (source frame; default = layer content ∩ selection),"quad":[[x,y]×4]? (where the frame's corners go, clockwise from top-left),"matrix":[a,b,c,d,e,f]? (affine alternative),"interpolation":"bicubic|bilinear|nearest"="bicubic","target":"pixels"|"mask"|"quickMask"|{"channel":i}=Channels panel target (an unlinked mask, an alpha channel or the Quick Mask transforms alone; a linked mask moves with its layer)}"##,
+        params: r##"{"layer":id?,"rect":[x0,y0,x1,y1]? (source frame; default = layer content ∩ selection),"quad":[[x,y]×4]? (where the frame's corners go, clockwise from top-left),"matrix":[a,b,c,d,e,f]? (affine alternative),"scaleX":%?,"scaleY":%?,"rotate":deg?,"dx":px?,"dy":px? (relative alternative: scale and rotate about the frame's centre, then move, as a Photoshop action records a Free Transform),"interpolation":"bicubic|bilinear|nearest"="bicubic","target":"pixels"|"mask"|"quickMask"|{"channel":i}=Channels panel target (an unlinked mask, an alpha channel or the Quick Mask transforms alone; a linked mask moves with its layer)}"##,
         enabled: has_layer,
         journal: true,
         run: transform,
@@ -992,5 +1021,31 @@ mod tests {
         // Locked layer still refuses transform even if identity.
         s.execute("layer.setProps", json!({"locks": {"position": true}})).unwrap();
         assert!(s.execute("edit.transform", json!({"matrix": [1, 0, 0, 1, 0, 0]})).is_err(), "locked layer refuses identity transform");
+    }
+
+    #[test]
+    fn relative_params_scale_and_rotate_about_the_frame_centre() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 100, "height": 100})).unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("select.rect", json!({"x": 20, "y": 30, "width": 40, "height": 20})).unwrap();
+        s.execute("edit.fill", json!({"contents": "black"})).unwrap();
+        s.execute("select.deselect", json!({})).unwrap();
+        // 50% about the centre (40, 40), then 10 px right: the content ends at x 40..60, y 35..45.
+        let r = s.execute("edit.transform", json!({"scaleX": 50, "scaleY": 50, "dx": 10})).unwrap();
+        let rect: Vec<f64> = serde_json::from_value(r["rect"].clone()).unwrap();
+        assert_eq!(rect, [20.0, 30.0, 60.0, 50.0], "the reported frame is the source frame");
+        let bounds = |s: &Session| {
+            let d = s.active().unwrap();
+            let b = transform_bounds(&d.doc, d.doc.layer(d.active_layer.unwrap()).unwrap());
+            (b.x0, b.y0, b.x1, b.y1)
+        };
+        assert_eq!(bounds(&s), (40, 35, 60, 45));
+        // A quarter turn about the centre (50, 40) swaps the frame's sides.
+        s.execute("edit.transform", json!({"rotate": 90})).unwrap();
+        assert_eq!(bounds(&s), (45, 30, 55, 50));
+        for bad in [json!({"scaleX": 0}), json!({"rotate": "x"}), json!({"dx": f64::NAN})] {
+            assert!(s.execute("edit.transform", bad.clone()).is_err(), "{bad}");
+        }
     }
 }

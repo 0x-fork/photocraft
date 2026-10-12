@@ -531,15 +531,13 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
             return;
         }
     }
-    // Esc with no active operation deselects (#2674), like ⌘D. The key is only taken when a
-    // selection exists, and never from a state that handles Esc later in the frame: menus,
-    // dialogs and inline type returned above, transform, pen, lasso and crop consumed it, and
-    // these own theirs: full screen (Esc returns), the palette, the canvas and layer menus, the
-    // brush picker, Rotate View, Adaptive Wide Angle, the Filter Gallery, the TIFF prompt, any
-    // open egui popup and the toolbar tool flyout. A canvas drag in progress (a marquee being
-    // drawn) keeps the selection too.
-    let esc_taken = app.ui.view.hides_chrome()
-        || app.drag.is_some()
+    // Esc with no active operation leaves a full screen mode, else deselects (#2674), like ⌘D.
+    // The key is never taken from a state that handles Esc itself: menus, dialogs, text fields
+    // and inline type returned above, transform, pen, lasso and crop consumed it, and these own
+    // theirs later in the frame: the palette, the canvas and layer menus, the brush picker,
+    // Rotate View, Adaptive Wide Angle, the Filter Gallery, the TIFF prompt, any open egui popup
+    // and the toolbar tool flyout. A canvas drag in progress (a marquee being drawn) keeps it too.
+    let esc_taken = app.drag.is_some()
         || app.ui.palette_open
         || app.ui.canvas_tool_menu.is_some()
         || app.ui.layer_menu.is_some()
@@ -550,6 +548,15 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
         || app.distort.gallery.is_some()
         || ctx.any_popup_open()
         || ctx.data(|d| d.get_temp::<(egui::Id, egui::Rect)>(egui::Id::new("tool-flyout")).is_some());
+    // Both full screen modes (with and without the menu bar) return to Standard, as in Photoshop
+    // (#4116), through the menu command so the window and the Screen Mode check follow.
+    if !esc_taken && app.ui.view.screen_mode != "standard" && pressed(Key::Escape) {
+        if let Err(e) = crate::menus::invoke(app, ctx, "view.screenMode.standard", json!({})) {
+            app.ui.status = e;
+            app.ui.status_error = true;
+        }
+        return;
+    }
     if !esc_taken && app.session.active().is_some_and(|st| st.doc.selection.is_some()) && pressed(Key::Escape) {
         if let Err(e) = app.run("select.deselect", json!({})) {
             app.ui.status = e;

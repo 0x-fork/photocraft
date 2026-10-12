@@ -35,11 +35,17 @@ pub struct PsdExportOptions {
     pub merged_matte: bool,
     /// Compression of the merged image (32-bit float documents are always written raw).
     pub merged_compression: Compression,
+    /// Write the real merged image (Preferences › File Handling › Maximize PSD and PSB File
+    /// Compatibility). `false` writes Photoshop's white placeholder instead and records
+    /// `has_real_merged_data = false` in resource 1057: a smaller file and a faster save, but
+    /// readers that only show the merged image see white. A document without layer records always
+    /// gets the real image, since its pixels live nowhere else.
+    pub maximize_compatibility: bool,
 }
 
 impl Default for PsdExportOptions {
     fn default() -> Self {
-        PsdExportOptions { force_psb: false, merged_matte: true, merged_compression: Compression::Rle }
+        PsdExportOptions { force_psb: false, merged_matte: true, merged_compression: Compression::Rle, maximize_compatibility: true }
     }
 }
 
@@ -1227,6 +1233,28 @@ fn merged_planes(doc: &Document, fmt: &PixelFormat, cmyk: bool, matte: bool, ctl
     (planes, has_alpha, translucent)
 }
 
+/// The merged image of a file saved without Maximize Compatibility: Photoshop's white placeholder
+/// in the document's colour channels, with no alpha. Encoded like [`merged_planes`], so CMYK white
+/// is no ink and Lab white is L 100 with neutral a*/b*.
+fn placeholder_planes(doc: &Document, fmt: &PixelFormat) -> Vec<u8> {
+    let cc = fmt.mode.color_channels();
+    let cmyk = cmyk_of(fmt);
+    let lab16 = fmt.mode == ColorMode::Lab && fmt.sample == SampleType::U16;
+    let space = photocraft_compose::cmyk_space(doc);
+    let white = photocraft_color::convert::with_cmyk_space(space.as_ref(), || photocraft_raster::from_rgba(fmt, [1.0, 1.0, 1.0, 1.0]));
+    let n = doc.size.area() as usize;
+    let mut planes = Vec::with_capacity(n * fmt.sample.bytes() * cc);
+    for c in 0..cc {
+        let v = white.get(c).copied().unwrap_or(1.0);
+        let x = if cmyk { 1.0 - v } else { v };
+        let x = if lab16 && (c == 1 || c == 2) { x * (crate::pixels::LAB16_CHROMA_MAX / 65535.0) } else { x };
+        let mut sample = Vec::with_capacity(4);
+        encode_be(x, fmt.sample, &mut sample);
+        planes.extend(sample.iter().copied().cycle().take(n * sample.len()));
+    }
+    planes
+}
+
 /// Converts a document to a PSD file model (see [`document_to_psd_with`]).
 pub fn document_to_psd(doc: &Document) -> PsdFile {
     document_to_psd_with(doc, &PsdExportOptions::default()).0
@@ -1470,15 +1498,24 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
     let space = photocraft_compose::cmyk_space(doc);
     photocraft_color::convert::with_cmyk_space(space.as_ref(), || ex.emit(&doc.layers, &mut tick));
 
-    // Merged composite, rendered and encoded in bands (no full-size float composite). Matting
-    // against white only changes pixels with alpha < 1; if some are slightly translucent but all
-    // round to opaque (so no alpha channel is written), encode once more without the matte.
-    let merged_end = layers_share + (1.0 - layers_share) * MERGED_RENDERED;
-    let (mut planes, has_alpha, translucent) =
-        crate::with_span(ctl, layers_share, merged_end, |ctl| merged_planes(doc, &fmt, cmyk_of(&fmt), opts.merged_matte, ctl));
-    if !has_alpha && translucent && opts.merged_matte {
-        planes = merged_planes(doc, &fmt, cmyk_of(&fmt), false, &Interrupt::cancel_only(&|| ctl.cancelled())).0;
-    }
+    // Without Maximize Compatibility the merged image is a white placeholder and the composite
+    // isn't rendered at all. A document without layer records keeps the real image: its pixels
+    // live nowhere else.
+    let real_merged = opts.maximize_compatibility || ex.records.is_empty();
+    let (mut planes, has_alpha) = if real_merged {
+        // Merged composite, rendered and encoded in bands (no full-size float composite). Matting
+        // against white only changes pixels with alpha < 1; if some are slightly translucent but
+        // all round to opaque (so no alpha channel is written), encode once more without the matte.
+        let merged_end = layers_share + (1.0 - layers_share) * MERGED_RENDERED;
+        let (mut planes, has_alpha, translucent) =
+            crate::with_span(ctl, layers_share, merged_end, |ctl| merged_planes(doc, &fmt, cmyk_of(&fmt), opts.merged_matte, ctl));
+        if !has_alpha && translucent && opts.merged_matte {
+            planes = merged_planes(doc, &fmt, cmyk_of(&fmt), false, &Interrupt::cancel_only(&|| ctl.cancelled())).0;
+        }
+        (planes, has_alpha)
+    } else {
+        (placeholder_planes(doc, &fmt), false)
+    };
     let n = doc.size.area() as usize;
     if !has_alpha {
         planes.truncate(cc * n * sample.bytes());
@@ -1623,7 +1660,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
     if let Some(Some(data)) = slices_resource {
         resources.push(ImageResource::new(crate::slices_map::SLICES, data));
     }
-    resources.push(version_info_resource(true));
+    resources.push(version_info_resource(real_merged));
 
     let has_layers = !ex.records.is_empty();
     let placement = match (has_layers, sample) {

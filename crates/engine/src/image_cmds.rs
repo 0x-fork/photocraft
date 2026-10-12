@@ -165,8 +165,14 @@ fn image_size(s: &mut Session, p: &Value) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let (ow, oh) = (d.doc.size.width, d.doc.size.height);
     let resample = parse_resample(p.get("resample").and_then(Value::as_str).unwrap_or("bicubic"));
-    let pw = p.get("width").and_then(Value::as_f64);
-    let ph = p.get("height").and_then(Value::as_f64);
+    let mut pw = p.get("width").and_then(Value::as_f64);
+    let mut ph = p.get("height").and_then(Value::as_f64);
+    // `percent` scales both sides (what a Photoshop action records as "200%"); an explicit side wins.
+    if let Some(pc) = p.get("percent") {
+        let pc = pc.as_f64().filter(|v| v.is_finite() && *v > 0.0).ok_or_else(|| bad("image.imageSize", "`percent` must be a positive number"))?;
+        pw = pw.or(Some(ow as f64 * pc / 100.0));
+        ph = ph.or(Some(oh as f64 * pc / 100.0));
+    }
     // Missing dimension keeps the aspect ratio.
     let (nw, nh) = match (pw, ph) {
         (Some(w), Some(h)) => (w, h),
@@ -713,7 +719,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "image.imageSize",
             "Image Size…",
             ["Image"],
-            r##"{"width":px,"height":px,"resolution":ppi,"resample":"automatic|preserveDetails|bicubicSmoother|bicubicSharper|bicubicAutomatic|bicubic|nearest|bilinear|lanczos|none"="bicubic"} → {width,height} (the document's size after the command; "none" changes the resolution only)"##,
+            r##"{"width":px,"height":px,"percent":%? (both sides; an explicit side wins),"resolution":ppi,"resample":"automatic|preserveDetails|bicubicSmoother|bicubicSharper|bicubicAutomatic|bicubic|nearest|bilinear|lanczos|none"="bicubic"} → {width,height} (the document's size after the command; "none" changes the resolution only)"##,
             has_doc,
             image_size
         ),

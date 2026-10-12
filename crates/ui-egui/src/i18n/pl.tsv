@@ -3659,3 +3659,14 @@ curves	Smooth	Wygładź
 @plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} krok nie ma jeszcze odpowiednika w PhotoCraft|{n} kroki nie mają jeszcze odpowiednika w PhotoCraft|{n} kroków nie ma jeszcze odpowiednika w PhotoCraft
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	Zapisano {n} operację do {file}|Zapisano {n} operacje do {file}|Zapisano {n} operacji do {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Pominięto {n} krok bez odpowiednika w Photoshopie|Pominięto {n} kroki bez odpowiednika w Photoshopie|Pominięto {n} kroków bez odpowiednika w Photoshopie
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Wstaw zatrzymanie…
+	Save Set…	Zapisz zestaw…
+	Message:	Komunikat:
+	Allow Continue	Zezwól na kontynuację
+	Show dialog during playback	Pokazuj okno dialogowe podczas odtwarzania
+	Select an action first	Najpierw wybierz operację
+	Action playback stopped	Odtwarzanie operacji zatrzymane
+	Step {step} is waiting for its dialog	Krok {step} czeka na swoje okno dialogowe
+@plural	{n} action|{n} actions	{n} operacja|{n} operacje|{n} operacji

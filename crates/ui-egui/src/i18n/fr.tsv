@@ -3063,3 +3063,14 @@ curves	Smooth	Lisser
 @plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} étape n’a pas encore d’équivalent dans PhotoCraft|{n} étapes n’ont pas encore d’équivalent dans PhotoCraft
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	{n} action enregistrée dans {file}|{n} actions enregistrées dans {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	{n} étape sans équivalent Photoshop omise|{n} étapes sans équivalent Photoshop omises
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Insérer un arrêt…
+	Save Set…	Enregistrer l’ensemble…
+	Message:	Message :
+	Allow Continue	Autoriser la poursuite
+	Show dialog during playback	Afficher la boîte de dialogue pendant l’exécution
+	Select an action first	Sélectionnez d’abord une action
+	Action playback stopped	Exécution de l’action arrêtée
+	Step {step} is waiting for its dialog	L’étape {step} attend sa boîte de dialogue
+@plural	{n} action|{n} actions	{n} action|{n} actions

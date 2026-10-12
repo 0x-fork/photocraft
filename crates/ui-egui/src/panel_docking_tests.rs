@@ -504,6 +504,17 @@ fn explicit_reveal_activates_existing_tab_and_expands_custom_group() {
     assert_eq!(app.ui.docking, before);
 }
 
+// #4028: in a custom workspace too, a new adjustment layer brings Properties to the front.
+#[test]
+fn a_new_adjustment_layer_activates_properties_in_a_custom_workspace() {
+    let mut app = app();
+    app.run("window.panel.activate", json!({"panel":"adjustments"})).unwrap();
+    assert!(panel_active(app.ui.docking.as_ref().unwrap(), "adjustments"));
+    app.run("file.new", json!({"width":64,"height":64})).unwrap();
+    app.run("layer.newAdjustmentLayer.curves", json!({})).unwrap();
+    assert!(panel_active(app.ui.docking.as_ref().unwrap(), "properties"));
+}
+
 #[test]
 fn custom_group_commands_preserve_members_and_workspace_timeline() {
     let mut app = app();

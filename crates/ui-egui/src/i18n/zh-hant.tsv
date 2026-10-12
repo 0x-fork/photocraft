@@ -2652,3 +2652,14 @@ curves	Smooth	平滑
 @plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} 個步驟在 PhotoCraft 中尚無對應功能
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	已將 {n} 個動作儲存到 {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	已略過 {n} 個沒有 Photoshop 對應功能的步驟
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	插入停止…
+	Save Set…	儲存組合…
+	Message:	訊息:
+	Allow Continue	允許繼續
+	Show dialog during playback	播放時顯示對話框
+	Select an action first	請先選取一個動作
+	Action playback stopped	動作播放已停止
+	Step {step} is waiting for its dialog	步驟 {step} 正在等待其對話框
+@plural	{n} action|{n} actions	{n} 個動作

@@ -3760,3 +3760,14 @@ curves	Smooth	Εξομάλυνση
 @plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} βήμα δεν έχει ακόμη αντίστοιχο στο PhotoCraft|{n} βήματα δεν έχουν ακόμη αντίστοιχο στο PhotoCraft
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	Αποθηκεύτηκε {n} ενέργεια στο {file}|Αποθηκεύτηκαν {n} ενέργειες στο {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Παραλείφθηκε {n} βήμα χωρίς αντίστοιχο στο Photoshop|Παραλείφθηκαν {n} βήματα χωρίς αντίστοιχο στο Photoshop
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Εισαγωγή διακοπής…
+	Save Set…	Αποθήκευση συνόλου…
+	Message:	Μήνυμα:
+	Allow Continue	Να επιτρέπεται η συνέχεια
+	Show dialog during playback	Εμφάνιση του παραθύρου διαλόγου κατά την αναπαραγωγή
+	Select an action first	Επιλέξτε πρώτα μια ενέργεια
+	Action playback stopped	Η αναπαραγωγή της ενέργειας σταμάτησε
+	Step {step} is waiting for its dialog	Το βήμα {step} περιμένει το παράθυρο διαλόγου του
+@plural	{n} action|{n} actions	{n} ενέργεια|{n} ενέργειες

@@ -3670,3 +3670,14 @@ navigator	Zoom	Zvětšení
 @plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} krok zatím nemá v PhotoCraftu obdobu|{n} kroky zatím nemají v PhotoCraftu obdobu|{n} kroků zatím nemá v PhotoCraftu obdobu
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	Uložena {n} akce do souboru {file}|Uloženy {n} akce do souboru {file}|Uloženo {n} akcí do souboru {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Vynechán {n} krok bez obdoby v Photoshopu|Vynechány {n} kroky bez obdoby v Photoshopu|Vynecháno {n} kroků bez obdoby v Photoshopu
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Vložit zastavení…
+	Save Set…	Uložit sadu…
+	Message:	Zpráva:
+	Allow Continue	Povolit pokračování
+	Show dialog during playback	Zobrazit dialog při přehrávání
+	Select an action first	Nejprve vyberte akci
+	Action playback stopped	Přehrávání akce zastaveno
+	Step {step} is waiting for its dialog	Krok {step} čeká na svůj dialog
+@plural	{n} action|{n} actions	{n} akce|{n} akce|{n} akcí

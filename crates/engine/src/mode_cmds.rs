@@ -321,8 +321,14 @@ fn color_table(s: &mut Session, p: &Value) -> Result<Value> {
     }
     match p.get("transparent") {
         Some(Value::Null) => table.transparent = None,
-        Some(v) => table.transparent = v.as_u64().filter(|&i| (i as usize) < table.colors.len()).map(|i| i as u8).or(table.transparent),
-        None => {}
+        Some(v) => {
+            let len = table.colors.len();
+            let i =
+                v.as_u64().filter(|&i| i < len as u64).ok_or_else(|| bad(CMD, format!("transparent: an index from 0 to {} or null", len.saturating_sub(1))))?;
+            table.transparent = u8::try_from(i).ok();
+        }
+        // A shrunk table can't keep a transparent entry past its end (#4186).
+        None => table.transparent = table.transparent.filter(|&i| usize::from(i) < table.colors.len()),
     }
     let report = |t: &ColorTable| json!({"colors": t.colors.iter().map(|c| hex(*c)).collect::<Vec<_>>(), "transparent": t.transparent});
     if table == cur {

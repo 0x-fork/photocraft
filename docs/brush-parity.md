@@ -1,6 +1,6 @@
 # Brush and painting parity
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** minor (`~` held with the Brush or Pencil erases with its brush; Clear painting mode) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (checkbox-only Brush Settings rows and non-destructive Smoothing switch) · **Target:** Adobe Photoshop 2026
 
 Painting is where Photoshop users notice differences first, so it gets its own checklist: the
 brush engine (`crates/paint/src/brush.rs`), the Brush Settings UI
@@ -29,6 +29,7 @@ tablets against Photoshop side by side.
 | Noise, Wet Edges, Build-up, Protect Texture | done | |
 | Smoothing: amount, Pulled String, Stroke Catch-up, Catch-up on End, Adjust for Zoom | done | `brush.rs:428-438` |
 | Section locks | done | #174 |
+| Noise, Wet Edges, Build-up, Smoothing and Protect Texture: checkbox-only rows keep the selected controls open | done | `brush_panel_tests.rs`, #4283; Smoothing enable/disable preserves its amount and options, including imported ABR tool settings |
 | Brush tip from an image file | missing | TOOL-213-12 |
 | Erodible, Airbrush and Bristle tips (Photoshop's special tips) | partial | not audited in detail; "3D-based brushes don't work" (#1660) |
 | Anti-aliasing off for brushes | missing | #1666 (Pencil is the aliased path) |
@@ -114,3 +115,4 @@ tablets against Photoshop side by side.
 |---|---|---|
 | 2026-10-10 | major | First version, from a source audit and the open issues |
 | 2026-10-11 | minor | `~` held with the Brush or Pencil erases with that tool's brush, and Clear joins their Mode menus (#3439) |
+| 2026-10-12 | minor | Five Brush Settings switch rows toggle without selecting a properties pane; Smoothing has a default-on switch and retains its settings while disabled (#4283). No brush-feel estimate changed. |

@@ -3672,3 +3672,14 @@ curves	Smooth	スムーズ
 @plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} 個のステップにはまだ PhotoCraft の対応機能がありません
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	{file} にアクション {n} 個を保存しました
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Photoshop に対応するもののない {n} 個のステップを省きました
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	ストップを挿入…
+	Save Set…	セットを保存…
+	Message:	メッセージ:
+	Allow Continue	続行を許可
+	Show dialog during playback	再生中にダイアログを表示
+	Select an action first	先にアクションを選択してください
+	Action playback stopped	アクションの再生を停止しました
+	Step {step} is waiting for its dialog	ステップ {step} はダイアログを待っています
+@plural	{n} action|{n} actions	アクション {n} 個

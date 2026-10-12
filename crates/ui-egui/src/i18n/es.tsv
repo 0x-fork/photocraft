@@ -2743,3 +2743,14 @@ curves	Smooth	Suavizar
 @plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} paso aún no tiene equivalente en PhotoCraft|{n} pasos aún no tienen equivalente en PhotoCraft
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	Se guardó {n} acción en {file}|Se guardaron {n} acciones en {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	{n} paso sin equivalente en Photoshop omitido|{n} pasos sin equivalente en Photoshop omitidos
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Insertar detención…
+	Save Set…	Guardar conjunto…
+	Message:	Mensaje:
+	Allow Continue	Permitir continuar
+	Show dialog during playback	Mostrar el cuadro de diálogo durante la reproducción
+	Select an action first	Seleccione primero una acción
+	Action playback stopped	Reproducción de la acción detenida
+	Step {step} is waiting for its dialog	El paso {step} está esperando su cuadro de diálogo
+@plural	{n} action|{n} actions	{n} acción|{n} acciones

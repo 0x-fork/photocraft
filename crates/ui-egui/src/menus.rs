@@ -167,6 +167,10 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
     if let Some(r) = crate::tool_reset::invoke(app, id, &params) {
         return r;
     }
+    // A filter on a type layer asks to rasterize it first (#4303).
+    if let Some(r) = crate::rasterize_prompt::intercept_filter(app, id, &params) {
+        return r;
+    }
     // A pending Pen anchor is gesture state; Edit › Undo must match the keyboard.
     if id == "edit.undo" && crate::vector_ui::pen_undo_last_point(app) {
         return Ok(Value::Null);
@@ -670,6 +674,10 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
     // A pending crop greys what Photoshop greys during one (#1918).
     if crate::crop_ui::blocks(app, id) {
         return false;
+    }
+    // Filters stay live on a type layer: choosing one asks to rasterize it (#4303).
+    if crate::rasterize_prompt::filter_needs(app, id).is_some() {
+        return true;
     }
     if let Some(e) = crate::workspace_ui::is_enabled(app, id) {
         return e;

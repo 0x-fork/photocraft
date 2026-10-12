@@ -3760,3 +3760,14 @@ curves	Smooth	Згладити
 @plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} крок ще не має відповідника в PhotoCraft|{n} кроки ще не мають відповідника в PhotoCraft|{n} кроків ще не мають відповідника в PhotoCraft
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	Збережено {n} операцію до {file}|Збережено {n} операції до {file}|Збережено {n} операцій до {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Пропущено {n} крок без відповідника в Photoshop|Пропущено {n} кроки без відповідника в Photoshop|Пропущено {n} кроків без відповідника в Photoshop
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Вставити зупинку…
+	Save Set…	Зберегти набір…
+	Message:	Повідомлення:
+	Allow Continue	Дозволити продовження
+	Show dialog during playback	Показувати діалог під час відтворення
+	Select an action first	Спочатку виберіть операцію
+	Action playback stopped	Відтворення операції зупинено
+	Step {step} is waiting for its dialog	Крок {step} очікує на свій діалог
+@plural	{n} action|{n} actions	{n} операція|{n} операції|{n} операцій

@@ -2702,3 +2702,14 @@ curves	Smooth	Glätten
 @plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} Schritt hat noch keine Entsprechung in PhotoCraft|{n} Schritte haben noch keine Entsprechung in PhotoCraft
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	{n} Aktion in {file} gespeichert|{n} Aktionen in {file} gespeichert
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	{n} Schritt ohne Photoshop-Entsprechung ausgelassen|{n} Schritte ohne Photoshop-Entsprechung ausgelassen
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Stopp einfügen…
+	Save Set…	Set speichern…
+	Message:	Meldung:
+	Allow Continue	Fortsetzen erlauben
+	Show dialog during playback	Dialog bei der Wiedergabe anzeigen
+	Select an action first	Wählen Sie zuerst eine Aktion aus
+	Action playback stopped	Aktionswiedergabe angehalten
+	Step {step} is waiting for its dialog	Schritt {step} wartet auf seinen Dialog
+@plural	{n} action|{n} actions	{n} Aktion|{n} Aktionen

@@ -328,9 +328,20 @@ fn native_pixels(doc: &Document, layer: Option<LayerId>) -> Result<(Vec<f32>, us
     }
 }
 
-/// `"layer"` param of a source: a layer id, or `"merged"` (default).
-fn source_layer(p: &Value) -> Option<LayerId> {
-    p.get("layer").and_then(Value::as_u64).map(LayerId)
+/// `"layer"` param of a source: a layer id, a layer name (the topmost of that name, as a loaded
+/// Photoshop action refers to it), or `"merged"` (default). An unknown name is an error.
+fn source_layer(doc: &Document, p: &Value, cmd: &str) -> Result<Option<LayerId>> {
+    match p.get("layer") {
+        Some(Value::Number(n)) => Ok(n.as_u64().map(LayerId)),
+        Some(Value::String(name)) if !name.is_empty() && name != "merged" => doc
+            .walk()
+            .into_iter()
+            .rev()
+            .find(|(_, _, l)| l.name == *name)
+            .map(|(_, _, l)| Some(l.id))
+            .ok_or_else(|| bad(cmd, format!("no source layer named \"{name}\""))),
+        _ => Ok(None),
+    }
 }
 
 /// Planes of channel `r` from document `doc` (`layer` = None: merged). A composite gives one
@@ -425,7 +436,7 @@ fn source(s: &Session, p: &Value, cmd: &str, gray: bool) -> Result<Vec<Vec<f32>>
         return Err(bad(cmd, format!("source document \"{}\" is {}×{}; it must match the target size", st.doc.name, st.doc.size.width, st.doc.size.height)));
     }
     let r = p.get("channel").map_or(Some(ChanRef::Composite), |v| parse_ref(v, &st.doc)).ok_or_else(|| bad(cmd, "unknown `channel`"))?;
-    let layer = source_layer(p);
+    let layer = source_layer(&st.doc, p, cmd)?;
     let mut planes = if gray { vec![gray_plane(&st.doc, layer, st.active_layer, r)?] } else { ref_planes(&st.doc, layer, st.active_layer, r)? };
     // Guard every caller (`.remove(0)` / `src[0]`) against an empty source.
     if planes.is_empty() {
@@ -1716,7 +1727,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Apply Image…",
             ["Image"],
             None,
-            r##"{"source":{"document":index?,"layer":id|"merged"="merged","channel":"composite"|"red|…"|index|"selection"|"transparency"|"mask"="composite","invert":bool=false},"blending":"normal|multiply|screen|overlay|softLight|hardLight|colorDodge|colorBurn|darken|lighten|difference|exclusion|linearBurn|linearDodge|add|subtract|…"="multiply","opacity":0..100=100,"scale":1..2=1,"offset":-255..255=0,"preserveTransparency":bool=false,"mask":{"document","layer","channel","invert"}?,"sourceChannel|sourceDocument|sourceLayer|sourceInvert|maskChannel|…":flat form of source/mask?}"##,
+            r##"{"source":{"document":index?,"layer":id|name|"merged"="merged","channel":"composite"|"red|…"|index|"selection"|"transparency"|"mask"="composite","invert":bool=false},"blending":"normal|multiply|screen|overlay|softLight|hardLight|colorDodge|colorBurn|darken|lighten|difference|exclusion|linearBurn|linearDodge|add|subtract|…"="multiply","opacity":0..100=100,"scale":1..2=1,"offset":-255..255=0,"preserveTransparency":bool=false,"mask":{"document","layer","channel","invert"}?,"sourceChannel|sourceDocument|sourceLayer|sourceInvert|maskChannel|…":flat form of source/mask?}"##,
             has_apply_target,
             apply_image
         ),

@@ -413,7 +413,7 @@ pub fn specs() -> Vec<CommandSpec> {
 /// The most recent filter command in the session journal, retargeted at the active layer: dialogs
 /// such as the Filter Gallery record the layer they ran on, and Last Filter applies to the
 /// current layer, as in Photoshop (#1270).
-pub(crate) fn last_filter(s: &Session) -> Option<(String, Value)> {
+pub fn last_filter(s: &Session) -> Option<(String, Value)> {
     let (id, mut params) = s.journal.iter().rev().find(|(id, _)| params_for(id, &Value::Null).is_some() && id.starts_with("filter.")).cloned()?;
     if let Value::Object(m) = &mut params {
         m.remove("layer");

@@ -465,6 +465,140 @@ fn harness(tab: usize, section: usize) -> Harness<'static, PhotocraftApp> {
     h
 }
 
+fn toggle_value(app: &PhotocraftApp, section: usize) -> bool {
+    let brush = serde_json::to_value(&app.session.tools.brush).unwrap();
+    let path = match section {
+        8 => "/noise",
+        9 => "/wetEdges",
+        10 => "/buildUp",
+        11 => "/smoothing/enabled",
+        12 => "/protectTexture",
+        _ => panic!("not a checkbox-only row"),
+    };
+    brush.pointer(path).and_then(Value::as_bool).expect("the checkbox has a boolean brush setting")
+}
+
+#[test]
+fn checkbox_only_rows_toggle_without_changing_the_selected_controls() {
+    use egui_kittest::kittest::Queryable;
+    for (section, &(name, _)) in SECTIONS.iter().enumerate().skip(8) {
+        let mut h = harness(0, 1);
+        let before = toggle_value(h.state(), section);
+        let n = h.state().session.journal.len();
+        h.get_by_label(name).click();
+        h.run_steps(3);
+        assert_eq!(h.state().ui.brush_section, 1, "{name} must leave Shape Dynamics open");
+        assert_eq!(toggle_value(h.state(), section), !before, "{name}");
+        assert_eq!(h.state().session.journal.len(), n + 1, "one command for {name}");
+        assert_eq!(last_journal(h.state()).unwrap().0, "tools.setBrush");
+        h.get_by_label(name).click();
+        h.run_steps(3);
+        assert_eq!(toggle_value(h.state(), section), before, "a second row click turns {name} back");
+        assert_eq!(h.state().ui.brush_section, 1);
+        assert_eq!(h.state().session.journal.len(), n + 2);
+    }
+}
+
+#[test]
+fn checkbox_only_box_and_lock_clicks_do_not_select_or_double_toggle() {
+    use egui_kittest::kittest::Queryable;
+    for (section, &(name, _)) in SECTIONS.iter().enumerate().skip(8) {
+        let mut h = harness(0, 1);
+        let rect = h.get_by_label(name).rect();
+        let before = toggle_value(h.state(), section);
+        let n = h.state().session.journal.len();
+        let at = egui::pos2(rect.left() + 12.0, rect.center().y);
+        h.hover_at(at);
+        h.run_steps(2);
+        h.drag_at(at);
+        h.run_steps(2);
+        h.drop_at(at);
+        h.run_steps(3);
+        assert_eq!(toggle_value(h.state(), section), !before, "checkbox click on {name}");
+        assert_eq!(h.state().ui.brush_section, 1);
+        assert_eq!(h.state().session.journal.len(), n + 1);
+        let at = egui::pos2(rect.right() - 11.0, rect.center().y);
+        h.hover_at(at);
+        h.run_steps(2);
+        h.drag_at(at);
+        h.run_steps(2);
+        h.drop_at(at);
+        h.run_steps(3);
+        assert_eq!(toggle_value(h.state(), section), !before, "lock click must not toggle {name}");
+        assert_eq!(h.state().ui.brush_section, 1);
+        assert_eq!(h.state().session.journal.len(), n + 2);
+        let mut brush = h.state().session.tools.brush.clone();
+        assert!(*section_lock(&mut brush, section).unwrap(), "{name} lock");
+    }
+}
+
+#[test]
+fn checkbox_only_rows_cannot_restore_an_empty_properties_pane() {
+    for (section, &(name, _)) in SECTIONS.iter().enumerate().skip(8) {
+        let h = harness(0, section);
+        assert_eq!(h.state().ui.brush_section, 0, "an old selection of {name} returns to Brush Tip Shape");
+    }
+}
+
+#[test]
+fn smoothing_row_preserves_its_amount_and_options_across_toggles() {
+    use egui_kittest::kittest::Queryable;
+    let mut h = harness(0, 1);
+    h.state_mut().run("tools.setBrush", json!({"brush": {"smoothing": {"amount": 0.65, "pulledString": true, "catchUpOnEnd": false}}})).unwrap();
+    let before = h.state().session.tools.brush.smoothing.clone();
+    h.run_steps(2);
+    for enabled in [false, true] {
+        h.get_by_label("Smoothing").click();
+        h.run_steps(3);
+        let mut expected = before.clone();
+        expected.enabled = enabled;
+        assert_eq!(h.state().session.tools.brush.smoothing, expected);
+        assert_eq!(h.state().ui.brush_section, 1);
+        assert_eq!(last_journal(h.state()).unwrap().1["brush"], json!({"smoothing": {"enabled": enabled}}));
+    }
+}
+
+#[test]
+fn checkbox_only_rows_are_accessible_checkboxes_and_accept_space() {
+    use egui::accesskit::Role;
+    use egui_kittest::kittest::{NodeT, Queryable};
+    let mut h = harness(0, 1);
+    for (section, &(name, _)) in SECTIONS.iter().enumerate().skip(8) {
+        let node = h.get_by_label(name);
+        assert_eq!(node.accesskit_node().role(), Role::CheckBox, "{name}");
+        node.focus();
+        h.run_steps(2);
+        let before = toggle_value(h.state(), section);
+        h.key_press(egui::Key::Space);
+        h.run_steps(3);
+        assert_eq!(toggle_value(h.state(), section), !before, "Space toggles {name}");
+        assert_eq!(h.state().ui.brush_section, 1);
+    }
+}
+
+#[test]
+fn editing_the_options_bar_amount_reenables_smoothing() {
+    use egui_kittest::kittest::Queryable;
+    let mut h = options_bar_harness(crate::state::Tool::Brush);
+    h.state_mut().run("tools.setBrush", json!({"brush": {"smoothing": {"enabled": false, "amount": 0.4}}})).unwrap();
+    h.run_steps(3);
+    let n = h.state().session.journal.len();
+    let label = h.get_by_label("Smoothing").rect();
+    let at = egui::pos2(label.right() + 25.0, label.center().y);
+    h.hover_at(at);
+    h.run_steps(2);
+    h.drag_at(at);
+    h.run_steps(2);
+    h.hover_at(at + vec2(20.0, 0.0));
+    h.run_steps(2);
+    h.drop_at(at + vec2(20.0, 0.0));
+    h.run_steps(3);
+    let smoothing = &h.state().session.tools.brush.smoothing;
+    assert!(smoothing.enabled && smoothing.amount != 0.4);
+    assert_eq!(h.state().session.journal.len(), n + 1, "one options-bar gesture");
+    assert_eq!(last_journal(h.state()).unwrap().1["brush"]["smoothing"]["enabled"], true);
+}
+
 #[test]
 fn preview_strip_re_renders_only_when_the_brush_changes() {
     let mut h = harness(0, 0);
