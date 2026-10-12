@@ -25,6 +25,7 @@ pub mod resolution;
 pub mod web;
 
 pub use crate::codecs::exr_cryptomatte::{cryptomatte_id, cryptomatte_key, cryptomatte_preview_color};
+pub use crate::codecs::gif_frames::{AnimationFrame, MAX_GIF_FRAMES};
 pub use crate::codecs::png::encode_indexed as encode_png_indexed;
 pub use crate::codecs::tiff::{PhotoshopTags as TiffPhotoshopTags, photoshop_tags as tiff_photoshop_tags, writes_little_endian as tiff_writes_little_endian};
 pub use crate::codecs::tiff_ifd::{TiffInfo, TiffPage, TiffPageKind};
@@ -106,6 +107,13 @@ pub fn tiff_info(bytes: &[u8]) -> Result<TiffInfo, CodecError> {
 pub fn decode_tiff_page(bytes: &[u8], page: usize, opts: &DecodeOptions) -> Result<Image, CodecError> {
     let img = tiff::decode_page(bytes, Some(page), &opts.limits)?;
     finish_decode(img, tiff::orientation(bytes, Some(page)), opts)
+}
+
+/// Decodes every frame of a GIF (a still GIF yields one), each a full RGBA8 picture of the
+/// logical screen with its delay. [`decode`] keeps the first frame only. See
+/// [`MAX_GIF_FRAMES`] and `opts.limits` for what is refused.
+pub fn decode_gif_frames(bytes: &[u8], opts: &DecodeOptions) -> Result<Vec<AnimationFrame>, CodecError> {
+    crate::codecs::gif_frames::decode(bytes, opts)
 }
 
 /// The Orientation (1–8) of the page [`decode`] opens from a TIFF or BigTIFF file; 1 when it is

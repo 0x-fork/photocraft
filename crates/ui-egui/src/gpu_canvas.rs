@@ -908,30 +908,55 @@ impl GpuInfo {
 
     /// Human-readable lines for Help › System Info.
     pub fn lines(&self) -> Vec<String> {
-        let or = |s: &str, d: &str| if s.is_empty() { d.to_string() } else { s.to_string() };
+        let or = |s: &str, d: &str| if s.is_empty() || (s == "auto" && d == "auto") { tl!(d).to_string() } else { s.to_string() };
         let mut v = vec![
-            format!("Graphics adapter: {}", or(&self.adapter, "unknown")),
-            format!("Backend: {} ({})", or(&self.backend, "unknown"), or(&self.device_type, "unknown type")),
-            format!("Driver: {}", or(&self.driver, "unknown")),
-            format!("GPU backend preference: {}", or(&self.preference, "auto")),
-            format!("Selected at launch: {}", or(&self.selected, "auto")),
-            format!("Image compositor: {}", if self.canvas == "gpu" { "GPU" } else { "CPU" }),
-            format!(
-                "Window renderer: {}",
-                if self.device_type == "cpu" {
+            {
+                let template = "Graphics adapter: {adapter}";
+                crate::i18n::fmt(tl!(template), &[("adapter", &or(&self.adapter, "unknown"))])
+            },
+            {
+                let template = "Backend: {backend} ({type})";
+                crate::i18n::fmt(tl!(template), &[("backend", &or(&self.backend, "unknown")), ("type", &or(&self.device_type, "unknown type"))])
+            },
+            {
+                let template = "Driver: {driver}";
+                crate::i18n::fmt(tl!(template), &[("driver", &or(&self.driver, "unknown"))])
+            },
+            {
+                let template = "GPU backend preference: {backend}";
+                crate::i18n::fmt(tl!(template), &[("backend", &or(&self.preference, "auto"))])
+            },
+            {
+                let template = "Selected at launch: {backend}";
+                crate::i18n::fmt(tl!(template), &[("backend", &or(&self.selected, "auto"))])
+            },
+            {
+                let template = "Image compositor: {processor}";
+                crate::i18n::fmt(tl!(template), &[("processor", if self.canvas == "gpu" { "GPU" } else { "CPU" })])
+            },
+            {
+                let template = "Window renderer: {renderer}";
+                let renderer = if self.device_type == "cpu" {
                     "Software adapter"
                 } else if self.adapter.is_empty() {
                     "Unknown"
                 } else {
                     "Graphics adapter"
-                }
-            ),
+                };
+                crate::i18n::fmt(tl!(template), &[("renderer", tl!(renderer))])
+            },
         ];
         if let Some(f) = &self.fallback {
-            v.push(format!("Fallback: {f}"));
+            v.push({
+                let template = "Fallback: {reason}";
+                crate::i18n::fmt(tl!(template), &[("reason", f)])
+            });
         }
         if let Some(l) = &self.lost {
-            v.push(format!("This session: {l}"));
+            v.push({
+                let template = "This session: {reason}";
+                crate::i18n::fmt(tl!(template), &[("reason", l)])
+            });
         }
         v
     }
@@ -1185,7 +1210,12 @@ fn detect_physical_memory() -> Option<u64> {
     String::from_utf8(out.stdout).ok()?.trim().parse().ok()
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "freebsd")))]
+#[cfg(windows)]
+fn detect_physical_memory() -> Option<u64> {
+    winsafe::GlobalMemoryStatusEx().map(|m| m.ullTotalPhys).ok().filter(|b| *b > 0)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "freebsd", windows)))]
 fn detect_physical_memory() -> Option<u64> {
     None
 }
@@ -2133,6 +2163,15 @@ mod tests {
         assert_eq!(memory_budget(8 * G, 10 * G, Some(48 * G)), MIN_GPU_BUDGET);
         assert_eq!(memory_budget(64 * G, 0, None), 4 * G);
         assert!(physical_memory().is_none_or(|b| b >= 256 << 20));
+    }
+
+    /// Windows used to report no RAM at all, so the budget assumed 16 GB on every machine.
+    #[cfg(windows)]
+    #[test]
+    fn windows_reports_installed_ram() {
+        let ram = detect_physical_memory().unwrap_or(0);
+        assert!(ram >= 256 << 20, "{ram} bytes");
+        assert!(ram < 1 << 50, "{ram} bytes");
     }
 
     #[test]

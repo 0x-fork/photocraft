@@ -230,6 +230,8 @@ fn main() -> eframe::Result {
     // The display server to open the window on: Xwayland for a pen on Wayland, which gives this
     // app no pen input (#639).
     #[cfg(target_os = "linux")]
+    let native_session = linux_libs::session_from_env(|name| std::env::var(name).ok());
+    #[cfg(target_os = "linux")]
     let session = tablet::display_session();
     // Preferences › Performance › Linux display server = X11: Xwayland on a Wayland session too,
     // where native file drops work (winit 0.30 has none on Wayland, #386). Only when Xwayland can
@@ -297,6 +299,9 @@ fn main() -> eframe::Result {
 
     // Read the displays' ICC profiles while the window opens (colour-managed canvas; `None`
     // where the platform has no reader).
+    #[cfg(target_os = "linux")]
+    let monitor = monitor_profile::detect_async_for_session(native_session);
+    #[cfg(not(target_os = "linux"))]
     let monitor = monitor_profile::detect_async();
     // Brush presets load in the background; the app attaches them when they arrive.
     let presets = services::presets_dir().map(photocraft_engine::preset_store::open_dir_async);
@@ -379,7 +384,14 @@ fn main() -> eframe::Result {
             // the right profile; a slower reading is applied when it arrives, and the shell reads
             // again when the displays may have changed.
             if let Some(rx) = monitor {
-                app.services.read_displays = Some(std::sync::Arc::new(monitor_profile::detect_async));
+                #[cfg(target_os = "linux")]
+                {
+                    app.services.read_displays = Some(std::sync::Arc::new(move || monitor_profile::detect_async_for_session(native_session)));
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    app.services.read_displays = Some(std::sync::Arc::new(monitor_profile::detect_async));
+                }
                 match rx.recv_timeout(std::time::Duration::from_secs(2)) {
                     Ok(r) => photocraft_ui_egui::monitor_status::apply(&mut app, r),
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => photocraft_ui_egui::monitor_status::pending(&mut app, rx),

@@ -309,7 +309,8 @@ pub fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str) {
     let command_id = if action.is_some() { "actions.play" } else { id };
     let outcome = if !crate::menus::is_enabled(app, command_id) {
         let why = disabled_reason(app, command_id);
-        app.ui.status = format!("{} is not available: {why}", label(id));
+        let template = "{label} is not available: {reason}";
+        app.ui.status = crate::i18n::fmt(tl!(template), &[("label", crate::i18n::tr_id(crate::i18n::current(), id, &label(id))), ("reason", tl!(&why))]);
         app.ui.status_error = true;
         Outcome::Disabled(why)
     } else if ctx.data(|d| d.get_temp::<bool>(dry_run_id())).unwrap_or(false) {

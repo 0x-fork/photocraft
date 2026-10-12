@@ -383,9 +383,9 @@ pub fn entry_enabled(app: &PhotocraftApp, menu: &CanvasToolMenu, command: &str) 
     if menu.pasteboard {
         return PASTEBOARD_MENU.iter().flatten().any(|(_, id)| *id == command);
     }
-    // Warp needs a layer or selection box: a lone mask, channel or path keeps the plain box.
+    // Warp needs a layer, selection or path box: a lone mask or channel keeps the plain box.
     if menu.transform && command == "edit.transform.warp" {
-        return app.ui.transform.as_ref().is_some_and(|t| t.warp.is_none() && t.target.is_none() && t.path.is_none());
+        return app.ui.transform.as_ref().is_some_and(|t| t.warp.is_none() && t.target.is_none());
     }
     if menu.anchor.is_some() && command == FILL_SCREEN {
         return app.session.active().is_some();
@@ -554,12 +554,21 @@ fn spec_dialog(app: &mut PhotocraftApp, command: &str, label: &str, spec: &str, 
     app.ui.open_dialog(crate::state::DialogKind::Command, fields);
 }
 
+/// Photoshop's Stroke Path dialog: the brush-based tool to stroke with (painting with that tool's
+/// current options) and Simulate Pressure (#2978).
+const STROKE_PATH_SPEC: &str = r##"{"tool":"brush|pencil|eraser|backgroundEraser|cloneStamp|patternStamp|healingBrush|spotHealingBrush|historyBrush|blur|sharpen|smudge|dodge|burn|sponge|colorReplacement|mixerBrush"="brush","simulatePressure":bool=false}"##;
+
+/// The Stroke Path dialog for the path `name` (Paths panel menu, Alt-click on its Stroke button).
+pub(crate) fn stroke_path_dialog(app: &mut PhotocraftApp, name: &str) {
+    pen_dialog(app, "path.stroke", "Stroke Path…", name);
+}
+
 fn pen_dialog(app: &mut PhotocraftApp, command: &str, label: &str, name: &str) {
     let spec = match command {
         "edit.defineCustomShape" => r##"{"name":text}"##,
         "path.toSelection" => r##"{"feather":0..250=0,"antiAlias":bool=true,"mode":"replace|add|subtract|intersect"="replace"}"##,
         "path.fill" => r##"{"color":text,"opacity":0..100=100,"feather":0..250=0,"antiAlias":bool=true}"##,
-        "path.stroke" => r##"{"tool":"brush|pencil|eraser"="brush","size":1..500=10,"color":text,"opacity":0..100=100}"##,
+        "path.stroke" => STROKE_PATH_SPEC,
         "path.clippingPath.set" => r##"{"flatness":0..100=0}"##,
         "path.transform" => r##"{"translateX":-30000..30000=0,"translateY":-30000..30000=0,"scaleX":0.01..100=1,"scaleY":0.01..100=1,"angle":-360..360=0}"##,
         _ => "{}",
@@ -571,7 +580,7 @@ fn pen_dialog(app: &mut PhotocraftApp, command: &str, label: &str, name: &str) {
     } else {
         fields.insert("name".into(), json!(name));
     }
-    if matches!(command, "path.fill" | "path.stroke") {
+    if command == "path.fill" {
         let fg = app.session.tools.foreground;
         let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
         fields.insert("color".into(), json!(format!("#{:02x}{:02x}{:02x}", byte(fg[0]), byte(fg[1]), byte(fg[2]))));

@@ -253,11 +253,16 @@ impl TextLayout {
 
     /// Byte offset of the caret nearest to a line-space point.
     pub fn hit_test_line(&self, x: f32, y: f32) -> usize {
-        let Some((li, line)) = self.closest_line(y) else {
+        let Some((li, _)) = self.closest_line(y) else {
             return 0;
         };
+        self.hit_test_x_on_line(li, x)
+    }
+
+    fn hit_test_x_on_line(&self, line_index: usize, x: f32) -> usize {
+        let Some(line) = self.lines.get(line_index) else { return 0 };
         let mut best = (f32::MAX, line.range.end);
-        for c in self.clusters.iter().filter(|c| c.line == li) {
+        for c in self.clusters.iter().filter(|c| c.line == line_index) {
             let mid = c.x + c.advance / 2.0;
             let (before, after) = if c.rtl { (c.range.end, c.range.start) } else { (c.range.start, c.range.end) };
             let (dist, off) = if x < mid { ((x - c.x).abs(), before) } else { ((x - c.x - c.advance).abs(), after) };
@@ -370,17 +375,18 @@ pub fn word_boundary(text: &str, idx: usize, forward: bool) -> usize {
 pub fn line_step(layout: &TextLayout, text: &str, idx: usize, x: f32, dir: i32) -> usize {
     let n = text.chars().count();
     let idx = idx.min(n);
-    let (_, top, bottom) = layout.caret(byte_index(text, idx));
-    let h = (bottom - top).max(1.0);
-    let y = if dir < 0 { top - h * 0.5 } else { bottom + h * 0.5 };
-    let Some(bounds) = layout.line_bounds() else { return idx };
-    if y < bounds[1] {
-        return 0;
+    if layout.lines.is_empty() {
+        return idx;
     }
-    if y > bounds[3] {
-        return n;
-    }
-    char_index(text, layout.hit_test_line(x, y))
+    let current_line = line_index(layout, byte_index(text, idx));
+    let target_line = if dir < 0 {
+        let Some(target) = current_line.checked_sub(1) else { return 0 };
+        target
+    } else {
+        let Some(target) = current_line.checked_add(1).filter(|target| *target < layout.lines.len()) else { return n };
+        target
+    };
+    char_index(text, layout.hit_test_x_on_line(target_line, x))
 }
 
 /// Line start (`end` false) or end for the line containing `idx`, as a character index.

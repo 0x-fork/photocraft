@@ -92,7 +92,8 @@ pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &V
             return Some(app.pick_file_bytes_filtered(SCRIPT_EXTENSIONS, |app, name, bytes| {
                 let r = app.run("file.scripts.browse", json!({"script": String::from_utf8_lossy(&bytes)}));
                 if r.is_ok() {
-                    app.ui.status = format!("Ran script {name}");
+                    let template = "Ran script {name}";
+                    app.ui.status = crate::i18n::fmt(tl!(template), &[("name", &name)]);
                 }
                 r
             }));
@@ -489,7 +490,7 @@ fn web_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
             let nslices = photocraft_doc::slices::resolve(&doc).len();
             if !doc.slices.is_empty() {
                 ui.add_space(6.0);
-                ui.label(egui::RichText::new(format!("{nslices} slices")).color(t.text_dim));
+                ui.label(egui::RichText::new(crate::i18n::trn(crate::i18n::current(), nslices as u64, "{n} slice", "{n} slices")).color(t.text_dim));
                 check(ui, f, "html", tl!("Save HTML and Images"), true);
                 dropdown_str(ui, "web-slices", f, "slices", &[("all", tl!("All Slices")), ("user", tl!("All User Slices"))], 150.0);
             }
@@ -542,7 +543,8 @@ fn save_for_web(app: &mut PhotocraftApp, p: Value) -> Result<Value, String> {
         app.ui.status_error = true;
     })?;
     app.sync_views();
-    app.ui.status = format!("Saved for Web: {} file(s)", r["files"].as_array().map_or(0, Vec::len));
+    app.ui.status =
+        crate::i18n::trn(crate::i18n::current(), r["files"].as_array().map_or(0, Vec::len) as u64, "Saved for Web: {n} file", "Saved for Web: {n} files");
     app.ui.status_error = false;
     Ok(r)
 }
@@ -839,9 +841,11 @@ fn print_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Va
 fn print_confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value, String> {
     let r = app.run("file.print", params(f))?;
     app.ui.status = if r["sent"] == json!(true) {
-        format!("Sent to the printer ({})", r["spooler"].as_str().unwrap_or(""))
+        let template = "Sent to the printer ({spooler})";
+        crate::i18n::fmt(tl!(template), &[("spooler", r["spooler"].as_str().unwrap_or(""))])
     } else {
-        format!("Printed to {}", r["pdf"].as_str().unwrap_or(""))
+        let template = "Printed to {path}";
+        crate::i18n::fmt(tl!(template), &[("path", r["pdf"].as_str().unwrap_or(""))])
     };
     Ok(r)
 }
@@ -972,6 +976,20 @@ mod tests {
         for id in ["file.automate.contactSheetII", "file.scripts.statistics", "file.scripts.scriptEventsManager", "file.package"] {
             let r = crate::menus::invoke(&mut app, &ctx, id, json!({})).unwrap();
             assert!(r["dialog"].is_u64(), "{id}");
+        }
+    }
+
+    #[test]
+    fn print_dialog_does_not_inherit_scripted_send_override() {
+        for send in [false, true] {
+            let (mut app, ctx) = app();
+            let out = std::env::temp_dir().join(format!("pc-printui-state-{}-{send}.pdf", std::process::id())).to_string_lossy().into_owned();
+            app.session.execute("file.print", json!({"output": out, "send": send, "dryRun": true})).unwrap();
+            assert!(app.session.file_menu.last_print.as_ref().unwrap().get("send").is_none());
+            let r = crate::menus::invoke(&mut app, &ctx, "file.print", json!({})).unwrap();
+            let id = r["dialog"].as_u64().unwrap();
+            assert!(app.ui.dialog_mut(id).unwrap().fields.get("send").is_none());
+            std::fs::remove_file(out).unwrap();
         }
     }
 }
