@@ -368,17 +368,30 @@ pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
         // Keep checking on a cancelled save's worker until it returns.
         ctx.request_repaint_after(std::time::Duration::from_millis(50));
     }
-    if !app.session.has_jobs() {
+    if !keep_polling(app, ctx) {
         return;
     }
-    // Animate progress and poll for results at display rate; the UI thread only draws.
-    ctx.request_repaint_after(std::time::Duration::from_millis(16));
     if let Some(job) = job_in_view(app)
         && !ctx.text_edit_focused()
         && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
     {
         cancel(app, job.id);
     }
+}
+
+/// Keep the event loop awake while a background document job exists.
+///
+/// Jobs can be started by a menu or dialog while the current frame is being drawn, after
+/// [`tick`] has already run. Calling this from the shell after drawing avoids leaving such a job
+/// unapplied on an otherwise idle event loop (notably Wayland): its document would remain locked,
+/// making Undo and Redo appear unavailable.
+pub fn keep_polling(app: &PhotocraftApp, ctx: &egui::Context) -> bool {
+    if !app.session.has_jobs() {
+        return false;
+    }
+    // Animate progress and poll for results at display rate; the UI thread only draws.
+    ctx.request_repaint_after(std::time::Duration::from_millis(16));
+    true
 }
 
 /// The job the user is looking at: the open tab in view, the active document's job, or (for

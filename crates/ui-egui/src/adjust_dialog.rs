@@ -437,6 +437,37 @@ mod tests {
         assert!(std::sync::Arc::ptr_eq(&before, &after));
         assert!(harness.state().ui.dialogs.is_empty());
     }
+
+    #[test]
+    fn gradient_map_dialog_handles_preview_without_committing_until_ok() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = Harness::builder().with_size(egui::vec2(1200.0, 900.0)).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app_with_image());
+        PhotocraftApp::setup_context(&h.ctx, Default::default());
+        let id = open(h.state_mut(), "image.adjustments.gradientMap").unwrap();
+        h.run_steps(4);
+        let doc = h.state().session.active().unwrap().doc.clone();
+        let steps = h.state().session.active().unwrap().history.past_len();
+        let strip = h.get_by_label("Gradient stops").rect();
+        let start = egui::pos2(strip.left() + 8.0, strip.top() + 36.0);
+        let to = start + egui::vec2((strip.width() - 16.0) * 0.3, 0.0);
+        h.hover_at(start);
+        h.run_steps(1);
+        h.drag_at(start);
+        h.run_steps(1);
+        h.hover_at(to);
+        h.run_steps(1);
+        h.drop_at(to);
+        h.run_steps(3);
+        let stops = h.state().ui.dialogs[0].fields["stops"].as_array().unwrap();
+        assert!((stops[0][0].as_f64().unwrap() - 0.3).abs() < 0.001);
+        assert!(std::sync::Arc::ptr_eq(&doc, &h.state().session.active().unwrap().doc), "dialog edits are previews");
+        assert_eq!(h.state().session.active().unwrap().history.past_len(), steps);
+        crate::dialogs::confirm(h.state_mut(), id).unwrap();
+        h.run_steps(2);
+        assert_eq!(h.state().session.active().unwrap().history.past_len(), steps + 1);
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        assert_eq!(*h.state().session.active().unwrap().doc, *doc);
+    }
     #[test]
     fn curves_pencil_drag_draws_the_map_and_confirm_applies_it() {
         let mut h = Harness::builder().with_size(egui::vec2(1200.0, 900.0)).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app_with_image());

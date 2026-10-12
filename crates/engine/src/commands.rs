@@ -136,6 +136,19 @@ pub fn command_specs() -> &'static [CommandSpec] {
     &registry().specs
 }
 
+/// One `command.list` / `engine.commands` row for `c`, given why it can't run now (`None` = it can).
+/// `disabledReason` is that message; `needsDocument` is true when the reason is that no document is
+/// open (#3664), so an agent can tell "open or create a document first" from a precondition that a
+/// document alone won't meet (a selection, an empty clipboard).
+pub fn list_entry(s: &Session, c: &CommandSpec, reason: Option<String>) -> Value {
+    let needs_document =
+        s.active().is_none() && reason.as_deref().is_some_and(|r| ["no document", "no active document", "no open document"].iter().any(|p| r.starts_with(p)));
+    json!({
+        "id": c.id, "label": c.label, "menu": c.menu, "shortcut": c.shortcut, "params": c.params,
+        "enabled": reason.is_none(), "disabledReason": reason, "needsDocument": needs_document,
+    })
+}
+
 pub fn find(id: &str) -> Option<&'static CommandSpec> {
     let registry = registry();
     registry.by_id.get(id).and_then(|&index| registry.specs.get(index))
@@ -1014,18 +1027,7 @@ fn build() -> Vec<CommandSpec> {
             shortcut: None,
             params: "{}",
             enabled: always,
-            run: |s, _| {
-                Ok(Value::Array(
-                    command_specs()
-                        .iter()
-                        .map(|c| {
-                            json!({
-                                "id": c.id, "label": c.label, "menu": c.menu, "shortcut": c.shortcut, "params": c.params, "enabled": (c.enabled)(s).is_ok(),
-                            })
-                        })
-                        .collect(),
-                ))
-            },
+            run: |s, _| Ok(Value::Array(command_specs().iter().map(|c| list_entry(s, c, (c.enabled)(s).err())).collect())),
             journal: false,
         },
         CommandSpec {
@@ -1416,7 +1418,7 @@ pub(crate) fn translate_layer(doc: &Document, l: &mut Layer, dx: i32, dy: i32) {
 pub(crate) fn layer_copy(doc: &Document, id: LayerId) -> Result<Layer> {
     let src = doc.layer(id).ok_or(EngineError::NoLayer(id))?;
     // A copy of the Background layer is an ordinary, unlocked layer (Photoshop).
-    let from_background = src.name == "Background" && src.locks.transparency && doc.layers.first().is_some_and(|b| b.id == id);
+    let from_background = doc.is_background(id);
     let mut dup = src.duplicate();
     dup.name = doc.copy_name(&dup.name);
     if from_background {

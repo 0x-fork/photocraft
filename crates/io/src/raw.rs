@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use photocraft_cms::{Builtin, Intent, Profile, Transform};
 use photocraft_codecs::{self as codecs, ChannelLayout, Format, Image, SampleType};
-use photocraft_raw::{CameraLook, DevelopOptions, Limits, RawError, Reference, Sensor, WhiteBalance};
+use photocraft_raw::{CameraLook, DevelopOptions, Limits, PreviewColorSpace, RawError, Reference, Sensor, WhiteBalance};
 
 use crate::flat::image_to_document;
 use crate::{ImportResult, IoError};
@@ -133,10 +133,23 @@ pub fn import_raw(name: &str, bytes: &[u8]) -> Result<ImportResult, IoError> {
 /// the fit grid is at most `PROXY_EDGE` cells and wants about two pixels per cell).
 const FIT_PREVIEW_EDGE: u32 = 2 * photocraft_raw::PROXY_EDGE as u32;
 
+/// The colour space of a raw's decoded preview when it is not sRGB: its own ICC profile, else the
+/// one the raw's EXIF states (a Sony body set to Adobe RGB writes no profile into the JPEG).
+/// `None` means sRGB.
+fn preview_profile(raw: &[u8], icc: Option<&[u8]>) -> Result<Option<Cow<'static, Profile>>, String> {
+    let src = match icc {
+        Some(icc) => Cow::Owned(Profile::parse(icc).map_err(|e| format!("the preview's ICC profile does not parse: {e}"))?),
+        None if photocraft_raw::embedded_preview_color_space(raw) == Some(PreviewColorSpace::AdobeRgb) => Cow::Borrowed(Builtin::AdobeRgbCompat.profile()),
+        None => return Ok(None),
+    };
+    Ok((!src.same_colors(Builtin::Srgb.profile())).then_some(src))
+}
+
 /// Fits the colour of a decoded raw to the camera's embedded JPEG (see
 /// [`photocraft_raw::fit_look`]): picks the smallest preview at least
 /// `FIT_PREVIEW_EDGE` pixels long (else the largest), decodes it, turns it upright and
-/// converts it to sRGB when it carries another ICC profile. `Err` says why there is no fit.
+/// converts it to sRGB when it is in another colour space ([`preview_profile`]). `Err` says
+/// why there is no fit.
 pub fn fit_preview_look(raw: &[u8], sensor: &Sensor, opts: &DevelopOptions) -> Result<CameraLook, String> {
     let previews = photocraft_raw::embedded_previews(raw);
     let long = |p: &photocraft_raw::Preview| p.width.max(p.height);
@@ -152,15 +165,11 @@ pub fn fit_preview_look(raw: &[u8], sensor: &Sensor, opts: &DevelopOptions) -> R
     }
     let (w, h) = img.dimensions();
     let mut rgb: Cow<[u8]> = Cow::Borrowed(img.data());
-    if let Some(icc) = img.icc.as_deref() {
-        let srgb = Builtin::Srgb.profile();
-        let src = Profile::parse(icc).map_err(|e| format!("the preview's ICC profile does not parse: {e}"))?;
-        if !src.same_colors(srgb) {
-            let t = Transform::new(&src, srgb, Intent::RelativeColorimetric, false).map_err(|e| e.to_string())?;
-            let mut out = vec![0u8; rgb.len()];
-            t.convert_u8(&rgb, 3, &mut out, 3, false);
-            rgb = Cow::Owned(out);
-        }
+    if let Some(src) = preview_profile(raw, img.icc.as_deref())? {
+        let t = Transform::new(&src, Builtin::Srgb.profile(), Intent::RelativeColorimetric, false).map_err(|e| e.to_string())?;
+        let mut out = vec![0u8; rgb.len()];
+        t.convert_u8(&rgb, 3, &mut out, 3, false);
+        rgb = Cow::Owned(out);
     }
     photocraft_raw::fit_look(sensor, opts, &Reference { width: w, height: h, rgb: &rgb }).map_err(|e| e.to_string())
 }
@@ -222,5 +231,30 @@ mod tests {
         assert_eq!(camera_name(Some("SONY"), Some("ILCE-7M3")), "SONY ILCE-7M3");
         assert_eq!(camera_name(None, Some("X")), "X");
         assert_eq!(camera_name(Some("Panasonic"), Some("DC-G9")), "Panasonic DC-G9");
+    }
+
+    /// A Sony body set to Adobe RGB says so only in the raw's EXIF (ColorSpace Uncalibrated, InteropIndex "R03"):
+    /// its preview, which has no ICC profile, is read as Adobe RGB for the colour fit, not as sRGB.
+    #[test]
+    fn a_preview_without_a_profile_takes_the_raws_exif_colour_space() {
+        use photocraft_raw::testgen::{TiffBuilder, Val};
+        let raw = |color_space: u16, index: &str| {
+            let mut t = TiffBuilder::default();
+            let interop = t.ifd(vec![(0x0001, Val::Ascii(index.into()))]);
+            let exif = t.ifd(vec![(0xA001, Val::Short(vec![color_space])), (0xA005, Val::Ifds(vec![interop]))]);
+            t.chain = vec![t.ifd(vec![(271, Val::Ascii("SONY".into())), (34665, Val::Ifds(vec![exif]))])];
+            t.build()
+        };
+        let adobe = raw(0xFFFF, "R03");
+        let srgb = raw(1, "R98");
+        assert!(preview_profile(&adobe, None).unwrap().unwrap().same_colors(Builtin::AdobeRgbCompat.profile()));
+        assert!(preview_profile(&srgb, None).unwrap().is_none());
+        assert!(preview_profile(b"not a raw", None).unwrap().is_none(), "unstated: sRGB");
+        // the preview's own profile wins over the raw's EXIF
+        let srgb_icc = Builtin::Srgb.profile().to_bytes().to_vec();
+        assert!(preview_profile(&adobe, Some(srgb_icc.as_slice())).unwrap().is_none());
+        let p3_icc = Builtin::DisplayP3.profile().to_bytes().to_vec();
+        assert!(preview_profile(&srgb, Some(p3_icc.as_slice())).unwrap().unwrap().same_colors(Builtin::DisplayP3.profile()));
+        assert!(preview_profile(&adobe, Some(b"not an ICC profile")).is_err());
     }
 }

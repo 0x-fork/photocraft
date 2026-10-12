@@ -44,7 +44,7 @@ pub(crate) fn mask_targets(s: &Session, p: &serde_json::Value) -> Result<Vec<Lay
         return Ok(ids);
     }
     let d = s.active().ok_or(EngineError::NoDocument)?;
-    let ids: Vec<LayerId> = ids.into_iter().filter(|id| d.doc.layer(*id).is_some_and(|l| l.mask.is_none() && !crate::extra_cmds::is_background(l))).collect();
+    let ids: Vec<LayerId> = ids.into_iter().filter(|id| d.doc.layer(*id).is_some_and(|l| l.mask.is_none() && !d.doc.is_background(l.id))).collect();
     if ids.is_empty() {
         return Err(EngineError::Other("none of the selected layers can take a layer mask".into()));
     }
@@ -163,13 +163,9 @@ pub fn select(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"selected": selected(s).iter().map(|l| l.0).collect::<Vec<_>>()}))
 }
 
-pub(crate) fn is_locked_background(l: &Layer) -> bool {
-    l.name == "Background" && l.locks.transparency && matches!(l.content, LayerContent::Raster(_))
-}
-
 fn select_all_layers(s: &mut Session) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
-    let ids: Vec<LayerId> = d.doc.walk().into_iter().filter(|(_, _, l)| !is_locked_background(l)).map(|(_, _, l)| l.id).collect();
+    let ids: Vec<LayerId> = d.doc.walk().into_iter().filter(|(_, _, l)| !d.doc.is_background(l.id)).map(|(_, _, l)| l.id).collect();
     if ids.is_empty() {
         return Err(EngineError::Other("there are no layers to select".into()));
     }

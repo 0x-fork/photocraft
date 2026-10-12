@@ -381,6 +381,41 @@ fn styles_change_pixels() {
     assert!(hrect.width() as f32 > prect.width() as f32 * 1.7);
 }
 
+/// #3705: Faux bold dilation must scale with horizontal and vertical glyph scaling.
+#[test]
+fn faux_bold_scales_with_glyph_scaling() {
+    let mut e = TextEngine::new();
+    let base = CharStyle { size_pt: 40.0, ..Default::default() };
+    let ink = |e: &mut TextEngine, s: CharStyle| {
+        let (_, r) = e.render(&TextLayer { transform: Affine::translate(5.0, 50.0), ..styled("Hi", s) }, 72.0, PixelFormat::RGBA8);
+        (alpha_sum(&r.surface, r.rect), r.rect)
+    };
+    let (_plain, prect) = ink(&mut e, base.clone());
+    let (_bold, brect) = ink(&mut e, CharStyle { faux_bold: true, ..base.clone() });
+    let unscaled_extra_w = brect.width() - prect.width();
+    let unscaled_extra_h = brect.height() - prect.height();
+
+    // With 2x horizontal scale, the horizontal dilation scales with the glyph:
+    let hscaled = CharStyle { size_pt: 40.0, horizontal_scale: 2.0, ..Default::default() };
+    let (_, phrect) = ink(&mut e, hscaled.clone());
+    let (_, bhrect) = ink(&mut e, CharStyle { faux_bold: true, ..hscaled });
+    let hscaled_extra_w = bhrect.width() - phrect.width();
+    assert!(
+        hscaled_extra_w >= unscaled_extra_w * 2 - 1 && hscaled_extra_w <= unscaled_extra_w * 2 + 1,
+        "hscaled extra width {hscaled_extra_w} vs unscaled {unscaled_extra_w}"
+    );
+
+    // With 2x vertical scale, the vertical dilation scales with the glyph:
+    let vscaled = CharStyle { size_pt: 40.0, vertical_scale: 2.0, ..Default::default() };
+    let (_, pvrect) = ink(&mut e, vscaled.clone());
+    let (_, bvrect) = ink(&mut e, CharStyle { faux_bold: true, ..vscaled });
+    let vscaled_extra_h = bvrect.height() - pvrect.height();
+    assert!(
+        vscaled_extra_h >= unscaled_extra_h * 2 - 1 && vscaled_extra_h <= unscaled_extra_h * 2 + 1,
+        "vscaled extra height {vscaled_extra_h} vs unscaled {unscaled_extra_h}"
+    );
+}
+
 #[test]
 fn multicolor_runs() {
     let mut e = TextEngine::new();
@@ -647,6 +682,11 @@ fn warp_bends_rendered_text_and_outlines() {
 /// `Txt2` as Photoshop writes it (a bare `/key value` sequence; text objects at `/1 /1`, style
 /// runs at `/0 /6 /0`, auto-kern mode at `/11`), for the layer text `text`.
 fn txt2_with_modes(text: &str, modes: &[(usize, i64)]) -> Vec<u8> {
+    txt2_with_styles(text, &modes.iter().map(|(len, m)| (*len, format!("/11 {m}"))).collect::<Vec<_>>())
+}
+
+/// [`txt2_with_modes`] with each style run's keys given as EngineData text (`"/11 1 /85 2"`).
+fn txt2_with_styles(text: &str, styles: &[(usize, String)]) -> Vec<u8> {
     let mut v = b"\n\n/98 << /0 14 >> /0 << >> /1 << /1 [ << /0 << /0 (\xfe\xff".to_vec();
     for u in format!("{text}\r").encode_utf16() {
         let b = u.to_be_bytes();
@@ -658,8 +698,8 @@ fn txt2_with_modes(text: &str, modes: &[(usize, i64)]) -> Vec<u8> {
         }
     }
     v.extend_from_slice(b") /6 << /0 [ ");
-    for (len, m) in modes {
-        v.extend_from_slice(format!("<< /0 << /0 << /0 (\u{fe}\u{ff}) /6 << /0 0 /11 {m} >> >> >> /1 {len} >> ").as_bytes());
+    for (len, keys) in styles {
+        v.extend_from_slice(format!("<< /0 << /0 << /0 (\u{fe}\u{ff}) /6 << /0 0 {keys} >> >> >> /1 {len} >> ").as_bytes());
     }
     v.extend_from_slice(b"] >> >> >> ] >>");
     v
@@ -704,6 +744,55 @@ fn txt2_carries_optical_kerning() {
     let mut l = crate::psd::text_layer_from_tysh(&tysh, 72.0).unwrap();
     crate::psd::apply_txt2(&mut l, &tysh, &txt2);
     assert!(l.char_runs().iter().all(|r| r.style.kerning == Kerning::Optical));
+}
+
+/// #3617: Photoshop keeps Stylistic Sets, Contextual Alternates, Swash and the other OpenType
+/// settings besides (discretionary) ligatures only in `Txt2`. Import reads them, so the layout
+/// our engine draws when the type is edited keeps Photoshop's glyphs instead of falling back to
+/// the default ones.
+#[test]
+fn txt2_carries_opentype_features() {
+    let feats = |l: &TextLayer| l.char_runs().iter().map(|r| r.style.features.iter().map(|f| (f.tag.clone(), f.value)).collect::<Vec<_>>()).collect::<Vec<_>>();
+    let f = |tag: &str, value: u16| (tag.to_string(), value);
+    // "Il->36" plus the engine's closing break: Stylistic Set 2 (mask 2), Contextual Alternates
+    // and Swash on "Il"; Contextual Alternates off (Photoshop's default), Stylistic Set 1 and
+    // Fractions on the rest.
+    let text = "Il->36";
+    let plain = styled(text, CharStyle { font_family: "Inter".into(), ..Default::default() });
+    let tysh = with_text_index(&crate::psd::build_tysh(&plain, 72.0, None), 0);
+    let styles = [(2, "/11 1 /18 true /19 false /20 true /25 true /85 2".to_string()), (5, "/11 1 /20 false /23 true /85 1".to_string())];
+    let txt2 = crate::psd::parse_txt2(&txt2_with_styles(text, &styles)).unwrap();
+    let mut back = crate::psd::text_layer_from_tysh(&tysh, 72.0).unwrap();
+    assert_eq!(feats(&back), vec![Vec::<(String, u16)>::new()], "EngineData alone doesn't have them");
+    crate::psd::apply_txt2(&mut back, &tysh, &txt2);
+    assert_eq!(feats(&back), vec![vec![f("calt", 1), f("swsh", 1), f("ss02", 1)], vec![f("calt", 0), f("frac", 1), f("ss01", 1)]]);
+    assert_eq!(back.char_runs().iter().map(|r| r.len).collect::<Vec<_>>(), vec![2, 4]);
+    // What editing shows (our layout) has Photoshop's glyphs: Inter's `ss02` draws another I and
+    // l, `ss01` another 3 and 6, and `->` stays two glyphs without `calt` (with it, an arrow).
+    let mut e = TextEngine::new();
+    let ids = |e: &mut TextEngine, t: &TextLayer| e.layout(t, 72.0).glyphs.iter().map(|g| g.id).collect::<Vec<_>>();
+    let with = |len: usize, tags: &[(&str, u16)]| TextRun {
+        len,
+        style: CharStyle {
+            features: tags.iter().map(|(tag, value)| FontFeature { tag: (*tag).into(), value: *value }).collect(),
+            ..back.char_runs()[0].style.clone()
+        },
+    };
+    let mut expected = back.clone();
+    expected.runs = vec![with(2, &[("ss02", 1)]), with(4, &[("calt", 0), ("ss01", 1)])];
+    let shown = ids(&mut e, &back);
+    assert_eq!(shown, ids(&mut e, &expected));
+    let defaults = ids(&mut e, &crate::psd::text_layer_from_tysh(&tysh, 72.0).unwrap());
+    assert_eq!((shown.len(), defaults.len()), (6, 5), "`->` is two glyphs, as in Photoshop, not an arrow");
+    assert!(shown.first() != defaults.first() && shown.last() != defaults.last(), "{shown:?} vs {defaults:?}");
+    // A feature the style already sets (from EngineData, read first) keeps its value; masks and
+    // flags of the wrong type, masks beyond the 20 sets and unknown keys change nothing.
+    let mut t = crate::psd::text_layer_from_tysh(&tysh, 72.0).unwrap();
+    t.runs = vec![TextRun { len: text.len(), style: CharStyle { features: vec![FontFeature { tag: "ss01".into(), value: 0 }], ..Default::default() } }];
+    let odd =
+        [(1, "/85 1".to_string()), (1, "/85 (x) /20 (x) /25 (true)".to_string()), (1, "/85 -1".to_string()), (4, "/85 99999999999 /999 true".to_string())];
+    crate::psd::apply_txt2(&mut t, &tysh, &crate::psd::parse_txt2(&txt2_with_styles(text, &odd)).unwrap());
+    assert_eq!(feats(&t), vec![vec![f("ss01", 0)]]);
 }
 
 /// A `Txt2` written by [`crate::psd::build_txt2`] (what PSD export writes for the type layers)
