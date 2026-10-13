@@ -8,29 +8,39 @@ use crate::state::Tool;
 
 /// Parse `Cmd+Shift+N` style strings. `Cmd` maps to ⌘ on macOS and Ctrl elsewhere.
 pub fn parse(s: &str) -> Option<KeyboardShortcut> {
+    // A trailing '+' names the Plus key (both "Cmd+" and "Cmd++" are accepted).
+    // Split the key off first: otherwise an unrecognised component could be ignored
+    // when a later component overwrites it with a valid key.
+    let (prefix, key_name) = if let Some(without_plus) = s.strip_suffix('+') {
+        (without_plus.strip_suffix('+').unwrap_or(without_plus), "+")
+    } else {
+        s.rsplit_once('+').unwrap_or(("", s))
+    };
     let mut mods = Modifiers::NONE;
-    let mut key = None;
-    for part in s.split('+') {
-        match part {
-            "Cmd" => mods |= Modifiers::COMMAND,
-            "Shift" => mods |= Modifiers::SHIFT,
-            "Alt" => mods |= Modifiers::ALT,
-            "Ctrl" => mods |= Modifiers::CTRL,
-            "" => key = Some(Key::Plus),
-            k => {
-                key = Key::from_name(k).or(match k {
-                    "=" => Some(Key::Equals),
-                    "-" => Some(Key::Minus),
-                    "[" => Some(Key::OpenBracket),
-                    ";" => Some(Key::Semicolon),
-                    "'" => Some(Key::Quote),
-                    "]" => Some(Key::CloseBracket),
-                    _ => None,
-                })
+    if !prefix.is_empty() {
+        for part in prefix.split('+') {
+            match part {
+                "Cmd" if !mods.command => mods |= Modifiers::COMMAND,
+                "Shift" if !mods.shift => mods |= Modifiers::SHIFT,
+                "Alt" if !mods.alt => mods |= Modifiers::ALT,
+                "Ctrl" if !mods.ctrl => mods |= Modifiers::CTRL,
+                // Unknown keys, duplicate modifiers, and extra components must not
+                // silently turn a malformed binding into a different shortcut.
+                _ => return None,
             }
         }
     }
-    Some(KeyboardShortcut::new(mods, key?))
+    let key = match key_name {
+        "+" => Some(Key::Plus),
+        "=" => Some(Key::Equals),
+        "-" => Some(Key::Minus),
+        "[" => Some(Key::OpenBracket),
+        ";" => Some(Key::Semicolon),
+        "'" => Some(Key::Quote),
+        "]" => Some(Key::CloseBracket),
+        name => Key::from_name(name),
+    }?;
+    Some(KeyboardShortcut::new(mods, key))
 }
 
 /// Human-readable form for menus, tooltips and inline hints (`Cmd+Shift+N` → `⌘⇧N` on
@@ -38,7 +48,18 @@ pub fn parse(s: &str) -> Option<KeyboardShortcut> {
 /// `pretty("Enter")` is `↩`/`Enter`.
 pub fn pretty(s: &str) -> String {
     let mac = cfg!(target_os = "macos");
-    s.split('+')
+    let mut parts: Vec<&str> = s.split('+').collect();
+    if s.ends_with('+') {
+        // A final '+' is the Plus key, not an empty component. This matters on
+        // macOS, where the modifier separator is hidden ("Cmd++" is "⌘+").
+        parts.pop();
+        if parts.last().copied() == Some("") {
+            parts.pop();
+        }
+        parts.push("+");
+    }
+    parts
+        .into_iter()
         .map(|p| match (p, mac) {
             ("Cmd", true) => "⌘".to_string(),
             ("Cmd", false) => "Ctrl".to_string(),
@@ -87,6 +108,7 @@ pub fn default_shortcut(id: &str) -> Option<String> {
         .or_else(|| crate::menu_catalog::CATALOG.iter().find(|c| c.3 == id).and_then(|c| c.2))
         .or_else(|| photocraft_engine::prefs::TEMPORARY_TOOLS.iter().find(|t| t.0 == id).map(|t| t.2))
         .map(str::to_string)
+        .or_else(|| crate::tool_shortcuts::tool(id).and_then(crate::tool_shortcuts::default))
 }
 
 /// With ⇧ held the OS reports the shifted character as the logical key (US layout): ⇧; is `:`.
@@ -276,6 +298,8 @@ pub fn clipboard_keys(ctx: &egui::Context, typing: bool, raw: &mut egui::RawInpu
 }
 
 pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    // A held tool letter released: a temporary tool gives the previous one back (#2672).
+    crate::spring_tools::tick(app, ctx);
     // However the tool was picked (toolbar, flyout, shortcut, automation), its group's key brings
     // it back later (#2608).
     app.ui.remember_group_tool();
@@ -285,8 +309,23 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if app.camera_raw.is_some() {
         return;
     }
-    // An open menu owns the keyboard (arrows, ↩, Esc), like a native menu.
-    if crate::menu_nav::is_open(ctx) {
+    // An open menu owns the keyboard (arrows, ↩, Esc), like a native menu; so does an open
+    // dropdown list, whose letters pick an option rather than a tool (#1481).
+    if crate::menu_nav::is_open(ctx) || crate::widgets::dropdown_list_open(ctx) {
+        return;
+    }
+    // ⌘Z in a filter or adjustment dialog steps the dialog's settings, not the document (#4697).
+    crate::edit_history::keys(app, ctx);
+    // Stroke Options owns plain navigation/activation keys, including while its child
+    // dropdown is open. This runs before Popup::show registers the current pass, so use
+    // the editor's explicit state; otherwise Escape deselects or commits a pending Pen path.
+    // Modified commands such as Undo still follow the ordinary dispatch below.
+    if app.ui.stroke_editor.is_some() && !ctx.input(|i| i.modifiers.command || i.modifiers.ctrl) {
+        return;
+    }
+    // So does the right-click menu of text being edited: Esc closes only it, and keys typed while
+    // it is open don't reach the text beneath.
+    if app.ui.canvas_tool_menu.as_ref().is_some_and(|m| m.text) {
         return;
     }
     let symmetry_editing = app.ui.symmetry_transform.is_some();
@@ -294,11 +333,21 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if symmetry_editing && (app.ui.symmetry_transform.is_none() || egui::Popup::is_any_open(ctx)) {
         return;
     }
+    // Before any key handler: per-layout symbol keys and the bracket fallback (#3102, #3109).
+    if !ctx.text_edit_focused() {
+        crate::layout_keys::apply(ctx);
+    }
     // Liquify is a full-window custom dialog with focusable sliders. egui can therefore claim
     // keyboard input before the distortion-mode handler below runs. Give Liquify's local
     // shortcuts first refusal (Undo, brush size, tool keys), but never steal keys from text edits.
-    if app.distort.liquify.is_some() && !ctx.text_edit_focused() {
-        crate::liquify_ui::keys(app, ctx);
+    if app.distort.liquify.is_some() {
+        // Undo and redo still apply while a numeric field (Size, Pressure, …) has focus.
+        // Other Liquify keys must not steal characters from that field (#4027).
+        if ctx.text_edit_focused() {
+            crate::liquify_ui::history_keys(app, ctx);
+        } else {
+            crate::liquify_ui::keys(app, ctx);
+        }
     }
     use crate::shortcut_dispatch::{Focus, dispatch_pressed};
     let focus = Focus::of(ctx);
@@ -332,9 +381,29 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
             return;
         }
     }
+    // Content-Aware Move's Transform On Drop box: ↩ computes the move, Esc drops it.
+    if crate::cam_transform::active(app) {
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter)) {
+            crate::cam_transform::commit(app);
+            return;
+        }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+            crate::cam_transform::cancel(app);
+            return;
+        }
+    }
+    // A Properties Levels/Curves eyedropper: Esc disarms it.
+    if crate::layer_picker::armed(app).is_some() && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+        crate::layer_picker::cancel(app);
+        return;
+    }
     // Crop tool with a pending frame: arrows nudge it (⇧ ×10) and X swaps its orientation, before
     // the selection / layer nudge and the X colour swap (#1919).
     if focus == Focus::None && crate::crop_ui::keys(app, ctx) {
+        return;
+    }
+    // Perspective Crop with a pending quad: ↵ commits, Esc cancels.
+    if focus == Focus::None && crate::perspective_crop_ui::keys(app, ctx) {
         return;
     }
     // Move tool / Free Transform: arrows nudge (⇧ ×10, ⌥ duplicates first).
@@ -398,6 +467,17 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
             return;
         }
     }
+    // Space+F (⇧Space+F backwards) cycles the pasteboard colour, as in Photoshop: F while the
+    // Hand key is held, before F's own Cycle Screen Mode.
+    if !matches!(focus, Focus::Text) && app.ui.text_edit.is_none() && crate::hold_keys::reposition_held(app, ctx) {
+        let back = ctx.input_mut(|i| i.consume_key(Modifiers::SHIFT, Key::F));
+        if back || ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F)) {
+            if let Err(e) = crate::canvas_tool_menu::cycle_canvas_color(app, back) {
+                app.ui.status = e;
+            }
+            return;
+        }
+    }
     // Inline type editing eats text and navigation keys; ⌘-shortcuts still reach the menus.
     let editing = crate::type_tool::handle_keys(app, ctx);
     // Registry, UI and menu-catalogue shortcuts (see [`crate::shortcut_dispatch::bindings`]).
@@ -423,6 +503,17 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     // brush keys [ ] ⇧[ ⇧] (`tools.decreaseBrushSize`…) are commands, dispatched above with any
     // Keyboard Shortcuts override.
     let pressed = |k: Key| ctx.input_mut(|i| i.consume_key(Modifiers::NONE, k));
+    // Remove tool with strokes waiting (Remove after each stroke off): ↩ applies them, Esc drops them.
+    if !app.remove_pending.is_empty() {
+        if pressed(Key::Enter) {
+            crate::retouch_ui::remove_pending_commit(app);
+            return;
+        }
+        if pressed(Key::Escape) {
+            crate::retouch_ui::remove_pending_cancel(app);
+            return;
+        }
+    }
     // Enter / Escape commit or cancel in-progress tool state (polygonal lasso, crop).
     if crate::lasso_ui::active(app) {
         let mods = ctx.input(|i| i.modifiers);
@@ -451,25 +542,32 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
             return;
         }
     }
-    // Esc with no active operation deselects (#2674), like ⌘D. The key is only taken when a
-    // selection exists, and never from a state that handles Esc later in the frame: menus,
-    // dialogs and inline type returned above, transform, pen, lasso and crop consumed it, and
-    // these own theirs: full screen (Esc returns), the palette, the canvas and layer menus, the
-    // brush picker, Rotate View, Adaptive Wide Angle, the Filter Gallery, the TIFF prompt, any
-    // open egui popup and the toolbar tool flyout. A canvas drag in progress (a marquee being
-    // drawn) keeps the selection too.
-    let esc_taken = app.ui.view.hides_chrome()
-        || app.drag.is_some()
+    // Esc with no active operation leaves a full screen mode, else deselects (#2674), like ⌘D.
+    // The key is never taken from a state that handles Esc itself: menus, dialogs, text fields
+    // and inline type returned above, transform, pen, lasso and crop consumed it, and these own
+    // theirs later in the frame: the palette, the canvas and layer menus, the brush picker,
+    // Rotate View, Adaptive Wide Angle, the Filter Gallery, the TIFF prompt, any open egui popup
+    // and the toolbar tool flyout. A canvas drag in progress (a marquee being drawn) keeps it too.
+    let esc_taken = app.drag.is_some()
         || app.ui.palette_open
         || app.ui.canvas_tool_menu.is_some()
         || app.ui.layer_menu.is_some()
         || app.ui.brush_picker.is_some()
         || app.ui.tool == Tool::RotateView
         || app.wide_angle.is_some()
-        || app.tiff_options.is_some()
+        || app.save_options_open()
         || app.distort.gallery.is_some()
         || ctx.any_popup_open()
         || ctx.data(|d| d.get_temp::<(egui::Id, egui::Rect)>(egui::Id::new("tool-flyout")).is_some());
+    // Both full screen modes (with and without the menu bar) return to Standard, as in Photoshop
+    // (#4116), through the menu command so the window and the Screen Mode check follow.
+    if !esc_taken && app.ui.view.screen_mode != "standard" && pressed(Key::Escape) {
+        if let Err(e) = crate::menus::invoke(app, ctx, "view.screenMode.standard", json!({})) {
+            app.ui.status = e;
+            app.ui.status_error = true;
+        }
+        return;
+    }
     if !esc_taken && app.session.active().is_some_and(|st| st.doc.selection.is_some()) && pressed(Key::Escape) {
         if let Err(e) = app.run("select.deselect", json!({})) {
             app.ui.status = e;
@@ -480,22 +578,34 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     // Tool keys; pressing the key of the current group cycles within it. With Preferences ›
     // Tools › Use Shift Key for Tool Switch, only ⇧+key cycles and the plain key keeps the
     // group's current tool. From another group, the key picks the group's last-used tool.
+    // A held tool letter is a spring-loaded tool (#2672), not a burst of presses: its key
+    // repeats are dropped rather than cycling the group.
+    ctx.input_mut(|i| i.events.retain(|e| !matches!(e, egui::Event::Key { key, pressed: true, repeat: true, .. } if crate::spring_tools::is_tool_key(*key))));
     let shift_switch = app.session.prefs().tools.use_shift_key_for_tool_switch;
     for t in Tool::ALL {
-        let Some(k) = Key::from_name(&t.key().to_string()) else { continue };
+        if !crate::tool_shortcuts::uses_default(app, t) {
+            continue;
+        }
+        let Some(k) = crate::spring_tools::key_of(t.key()) else { continue };
         let cycle_shift = shift_switch && ctx.input_mut(|i| i.consume_key(Modifiers::SHIFT, k));
         if cycle_shift || pressed(k) {
-            let group: Vec<Tool> = Tool::ALL.iter().copied().filter(|x| x.key() == t.key()).collect();
+            let before = app.ui.tool;
+            let group: Vec<Tool> = Tool::ALL.iter().copied().filter(|x| x.key() == t.key() && crate::tool_shortcuts::uses_default(app, *x)).collect();
             app.ui.tool = match group.iter().position(|x| *x == app.ui.tool) {
                 Some(i) if shift_switch && !cycle_shift => group[i],
                 Some(i) => group[(i + 1) % group.len()],
-                None => app.ui.group_tool(t.key()).unwrap_or(group[0]),
+                None => app.ui.group_tool(t.key()).filter(|last| group.contains(last)).unwrap_or(group[0]),
             };
+            // `consume_key` ignores extra ⇧ and ⌥: a ⇧/⌥ switch is never spring-loaded.
+            let (plain, now) = ctx.input(|i| (!cycle_shift && !i.modifiers.shift && !i.modifiers.alt, i.time));
+            crate::spring_tools::pressed(app, t.key(), before, plain, now);
             return;
         }
     }
     // 1–0 set opacity, ⇧1–0 flow or fill (`opacity_keys`).
     crate::opacity_keys::handle(app, ctx);
+    // ⇧+ / ⇧− step the blend mode (`blend_keys`).
+    crate::blend_keys::handle(app, ctx);
 }
 
 #[cfg(test)]
@@ -509,13 +619,19 @@ mod tests {
         let ctx = egui::Context::default();
         let press = |app: &mut PhotocraftApp, key, modifiers| {
             let raw = egui::RawInput {
-                events: vec![egui::Event::ModifiersChanged(modifiers), egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers }],
+                events: vec![
+                    egui::Event::ModifiersChanged(modifiers),
+                    egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers },
+                    egui::Event::Key { key, physical_key: None, pressed: false, repeat: false, modifiers },
+                ],
                 ..Default::default()
             };
             ctx.begin_pass(raw);
             handle(app, &ctx);
             ctx.end_pass().textures_delta.clear();
         };
+        // Plain-key cycling (the pref is on by default, as in Photoshop).
+        app.session.edit_prefs(|p| p.tools.use_shift_key_for_tool_switch = false);
         // Polygonal Lasso picked from the toolbar flyout, then the Brush (#2608).
         app.ui.tool = Tool::PolygonLasso;
         press(&mut app, Key::B, Modifiers::NONE);
@@ -534,6 +650,65 @@ mod tests {
         press(&mut app, Key::B, Modifiers::NONE);
         press(&mut app, Key::L, Modifiers::NONE);
         assert_eq!(app.ui.tool, Tool::MagneticLasso);
+    }
+
+    /// #3296: by default T keeps the current type tool and only Shift+T cycles, as in Photoshop.
+    #[test]
+    fn shift_key_tool_switch_is_the_default() {
+        use crate::state::Tool;
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        let ctx = egui::Context::default();
+        let press = |app: &mut PhotocraftApp, modifiers| {
+            let raw = egui::RawInput {
+                events: vec![
+                    egui::Event::ModifiersChanged(modifiers),
+                    egui::Event::Key { key: Key::T, physical_key: None, pressed: true, repeat: false, modifiers },
+                    egui::Event::Key { key: Key::T, physical_key: None, pressed: false, repeat: false, modifiers },
+                ],
+                ..Default::default()
+            };
+            ctx.begin_pass(raw);
+            handle(app, &ctx);
+            ctx.end_pass().textures_delta.clear();
+        };
+        app.ui.tool = Tool::Type;
+        press(&mut app, Modifiers::NONE);
+        press(&mut app, Modifiers::NONE);
+        assert_eq!(app.ui.tool, Tool::Type);
+        press(&mut app, Modifiers::SHIFT);
+        assert_ne!(app.ui.tool, Tool::Type);
+        // A stored "off" restores plain-key cycling.
+        app.session.edit_prefs(|p| p.tools.use_shift_key_for_tool_switch = false);
+        app.ui.tool = Tool::Type;
+        press(&mut app, Modifiers::NONE);
+        assert_ne!(app.ui.tool, Tool::Type);
+    }
+
+    /// #3109: on a German layout Ö / # (physical `;` / `\`) step the brush size and ⇧Ö / ⇧#
+    /// (⇧# types `'`) its hardness, as Photoshop's German shortcuts.
+    #[test]
+    fn german_o_umlaut_and_hash_are_the_brush_keys() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width": 32, "height": 32})).unwrap();
+        app.ui.tool = Tool::Brush;
+        app.session.tools.brush.hardness = 0.5;
+        let ctx = egui::Context::default();
+        let typed = |app: &mut PhotocraftApp, key, physical_key, text: &str, modifiers| {
+            let press = egui::Event::Key { key, physical_key: Some(physical_key), pressed: true, repeat: false, modifiers };
+            let raw = egui::RawInput { events: vec![egui::Event::ModifiersChanged(modifiers), press, egui::Event::Text(text.into())], ..Default::default() };
+            ctx.begin_pass(raw);
+            handle(app, &ctx);
+            ctx.end_pass().textures_delta.clear();
+        };
+        let size = app.session.tools.brush.size;
+        typed(&mut app, Key::Backslash, Key::Backslash, "#", Modifiers::NONE);
+        assert!(app.session.tools.brush.size > size, "# is ]");
+        typed(&mut app, Key::Semicolon, Key::Semicolon, "ö", Modifiers::NONE);
+        assert_eq!(app.session.tools.brush.size, size, "ö is [");
+        typed(&mut app, Key::Quote, Key::Backslash, "'", Modifiers::SHIFT);
+        assert!(app.session.tools.brush.hardness > 0.5, "⇧# is ⇧]");
+        typed(&mut app, Key::Semicolon, Key::Semicolon, "Ö", Modifiers::SHIFT);
+        assert_eq!(app.session.tools.brush.hardness, 0.5, "⇧Ö is ⇧[");
     }
 
     #[test]
@@ -609,6 +784,19 @@ mod tests {
         assert_eq!(parse("Cmd+=").unwrap().logical_key, Key::Equals);
         assert_eq!(parse("F7").unwrap().logical_key, Key::F7);
         assert!(parse("Cmd+Nonsense").is_none());
+    }
+
+    #[test]
+    fn malformed_bindings_do_not_silently_match_a_different_shortcut() {
+        for invalid in ["Cmd+Typo+Z", "Cmd+X+Z", "Cmd+Z+X", "Cmd+Z+", "Cmd+Cmd+Z", "Ctrl+Ctrl+Z", "Shift+Shift+Z", "Cmd+Shift+++"] {
+            assert!(parse(invalid).is_none(), "{invalid} must not bind a command");
+        }
+        // '+' is a key name as well as a separator; keep existing shortcut spellings.
+        for plus in ["+", "Cmd+", "Cmd++", "Cmd+Shift++"] {
+            assert_eq!(parse(plus).unwrap().logical_key, Key::Plus, "{plus}");
+        }
+        assert!(parse("Cmd+Shift+Z").is_some());
+        assert_eq!(parse("Cmd+;").unwrap().logical_key, Key::Semicolon);
     }
 
     #[test]

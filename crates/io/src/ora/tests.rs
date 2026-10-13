@@ -255,6 +255,21 @@ fn reads_other_applications_stacks() {
 }
 
 #[test]
+fn preserves_surrounding_whitespace_in_layer_and_group_names() {
+    let xml = r#"<image w="2" h="2"><stack>
+      <stack name=" Folder "><layer name=" Pixel " src="a.png"/></stack>
+      <layer name="  " src="a.png"/>
+    </stack></image>"#;
+    let bytes = archive(xml, &[("a.png", solid_png(2, 2, [255, 0, 0, 255]))]);
+    let result = crate::import("names.ora", &bytes).unwrap();
+    let layers = &result.document.layers;
+
+    let folder = layers.iter().find(|layer| layer.name == " Folder ").expect("group name is preserved");
+    assert_eq!(folder.children().unwrap()[0].name, " Pixel ");
+    assert!(layers.iter().any(|layer| layer.name == "Layer 3"), "blank names keep the fallback");
+}
+
+#[test]
 fn malformed_archives_fail_cleanly() {
     let png = solid_png(2, 2, [1, 2, 3, 4]);
     let ok = |s: &str| archive(s, &[("a.png", png.clone())]);
@@ -345,4 +360,90 @@ fn export_names_route_through_the_crate_entry_point() {
     assert!(is_ora(&out.bytes));
     let back = crate::import("picture.ora", &out.bytes).unwrap();
     assert!(!back.source_read_only);
+}
+
+#[test]
+fn normal_group_fill_opacity_survives_openraster_export() {
+    let mut d = Document::new("group.ora", Size { width: 8, height: 8 }, ColorMode::Rgb, SampleType::U8);
+    let mut surface = Surface::new(PixelFormat::RGBA8);
+    surface.write_interleaved(Rect::from_xywh(0, 0, 8, 8), &[255, 0, 0, 255].repeat(64));
+    let mut group = Layer::group("Folder", vec![Layer::new("Red", LayerContent::Raster(surface))]);
+    group.blend = BlendMode::Normal;
+    group.opacity = 1.0;
+    group.fill_opacity = 0.5;
+    d.layers.push(group);
+
+    let (back, warnings, _) = round_trip(&d);
+    assert!(warnings.iter().any(|w| w.contains("fill opacity was combined")), "{warnings:?}");
+    let imported_group = back.layers.first().unwrap();
+    assert!((imported_group.opacity - 0.5).abs() < 1e-6);
+    assert_eq!(imported_group.fill_opacity, 1.0);
+    let before = photocraft_compose::flatten(&d);
+    let after = photocraft_compose::flatten(&back);
+    for (a, b) in before.px.iter().zip(&after.px) {
+        assert!((a[3] - b[3]).abs() < 1.0 / 255.0 + 1e-6, "alpha: {a:?} vs {b:?}");
+    }
+}
+
+#[test]
+fn group_opacity_and_fill_are_combined_without_affecting_raster_opacity() {
+    let mut d = Document::new("opacity.ora", Size { width: 8, height: 8 }, ColorMode::Rgb, SampleType::U8);
+    let mut group = Layer::group("Folder", vec![block("Child", PixelFormat::RGBA8, 0, 0, 8, 8, 0)]);
+    group.blend = BlendMode::Normal;
+    group.opacity = 0.5;
+    group.fill_opacity = 0.5;
+    d.layers.push(group);
+    let (back, _, _) = round_trip(&d);
+    assert!((back.layers[0].opacity - 0.25).abs() < 1e-6);
+    assert_eq!(back.layers[0].children().unwrap()[0].opacity, 1.0);
+}
+
+/// One document per thing OpenRaster can't hold, each also checked against the exporter.
+fn lossy_documents() -> Vec<(&'static str, Document)> {
+    let fmt = PixelFormat::new(ColorMode::Rgb, SampleType::U8, true);
+    let with = |f: &dyn Fn(&mut Document)| {
+        let mut d = doc(SampleType::U8);
+        f(&mut d);
+        d
+    };
+    vec![
+        ("adjustment", with(&|d| d.layers.push(Layer::new("Curves", LayerContent::Adjustment(Adjustment::Invert))))),
+        ("fill", with(&|d| d.layers.push(Layer::new("Fill", LayerContent::Fill(Fill::Solid(Color::rgba(1.0, 0.0, 0.0, 1.0))))))),
+        ("mask", {
+            let mut l = block("Masked", fmt, 0, 0, 20, 20, 9);
+            l.mask = Some(LayerMask::reveal_all());
+            with(&move |d| d.layers.push(l.clone()))
+        }),
+        ("clipped", with(&|d| d.layers[1].clipped = true)),
+        ("fill opacity", with(&|d| d.layers[0].fill_opacity = 0.5)),
+        ("float", doc(SampleType::F32)),
+        ("profile", with(&|d| d.icc_profile = Some(photocraft_cms::Builtin::DisplayP3.profile().to_bytes()))),
+        ("metadata", with(&|d| d.metadata.xmp = Some("<x/>".into()))),
+    ]
+}
+
+/// The exporter's warnings and [`losses`] are one list, so they can't drift apart.
+#[test]
+fn losses_are_exactly_what_the_exporter_warns_about() {
+    for (what, d) in lossy_documents() {
+        let losses = losses(&d);
+        assert!(!losses.is_empty(), "{what}: OpenRaster can't hold it");
+        assert_eq!(losses, export(&d).unwrap().warnings, "{what}");
+    }
+}
+
+/// A document of plain pixel layers and groups loses nothing, so its OpenRaster file can stay its
+/// own; an sRGB profile isn't a loss, as readers assume sRGB.
+#[test]
+fn plain_documents_lose_nothing() {
+    for depth in [SampleType::U8, SampleType::U16] {
+        let mut d = doc(depth);
+        assert_eq!(losses(&d), Vec::<String>::new(), "{depth:?}");
+        d.icc_profile = Some(photocraft_cms::Builtin::Srgb.profile().to_bytes());
+        assert_eq!(losses(&d), Vec::<String>::new(), "{depth:?} tagged sRGB");
+        assert_eq!(export(&d).unwrap().warnings, Vec::<String>::new());
+    }
+    let mut cmyk = doc(SampleType::U8);
+    cmyk.mode = ColorMode::Cmyk;
+    assert_eq!(losses(&cmyk).len(), 1, "a document OpenRaster can't hold at all");
 }

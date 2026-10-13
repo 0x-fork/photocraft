@@ -38,7 +38,7 @@ fn field(ui: &mut egui::Ui, id: &str, label: &str, current: f32, width: f32, u: 
     let t = Tokens::get(ui.ctx());
     let (r, _) = ui.allocate_exact_size(vec2(LABEL_W, 22.0), Sense::hover());
     ui.painter().text(pos2(r.right() - 2.0, r.center().y), egui::Align2::RIGHT_CENTER, tl!(label), egui::FontId::proportional(12.0), t.text_dim);
-    let key = egui::Id::new(("layer-props-field", id));
+    let key = ui.make_persistent_id(("layer-props-field", id));
     let mut v = ui.data(|d| d.get_temp::<f32>(key)).unwrap_or_else(|| u.shown(f64::from(current), extent));
     let resp = widgets::value_field(ui, &mut v, -300_000.0..=300_000.0, u.unit.suffix(), width);
     if resp.dragged() || resp.has_focus() {
@@ -124,7 +124,6 @@ const LINK_W: f32 = 20.0;
 /// sections (Character/Paragraph/Type Options for type, Appearance/Shape for shapes), then Quick
 /// Actions, all with the same collapsible headers (#155).
 pub fn properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
-    let t = Tokens::get(ui.ctx());
     let mut run: Vec<(String, Value)> = Vec::new();
     if let Some(s) = layer.surface() {
         let b = app.cached_bounds(layer.id.0, s);
@@ -163,41 +162,12 @@ pub fn properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
         }
     }
     // Gradient fills: their gradient first, as in Photoshop's Properties panel.
-    if matches!(layer.content, LayerContent::Fill(photocraft_doc::Fill::Gradient { .. })) {
+    let gradient = matches!(layer.content, LayerContent::Fill(photocraft_doc::Fill::Gradient { .. }));
+    if gradient {
         crate::gradient_ui::properties(app, ui, layer);
     }
-    if section(ui, "align", tl!("Align and Distribute")) {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 2.0;
-            for (i, kind) in ["leftEdges", "horizontalCenters", "rightEdges", "topEdges", "verticalCenters", "bottomEdges"].into_iter().enumerate() {
-                if i == 3 {
-                    ui.add_space(8.0);
-                }
-                let id = format!("layer.align.{kind}");
-                let on = app.session.is_enabled(&id);
-                let label = photocraft_engine::commands::find(&id).map_or(kind, |c| c.label);
-                let (r, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), if on { Sense::click() } else { Sense::hover() });
-                if resp.hovered() && on {
-                    ui.painter().rect_filled(r, t.radius_sm, t.hover);
-                }
-                align_glyph(ui, r, kind, if on { t.icon } else { t.text_faint });
-                if resp.on_hover_text(crate::i18n::fmt(tl!("Align {what}"), &[("what", tl!(&label))])).clicked() {
-                    run.push((id, json!({})));
-                }
-            }
-        });
-        // The engine already supports equal-gap distribution in both axes. Make those
-        // existing commands discoverable here as well as through Layer > Distribute (#2349).
-        // Three or more selected layers are required; the engine remains authoritative.
-        ui.horizontal_wrapped(|ui| {
-            for (kind, text) in [("horizontally", tl!("Horizontally")), ("vertically", tl!("Vertically"))] {
-                let id = format!("layer.distribute.{kind}");
-                if ui.add_enabled(app.session.is_enabled(&id), egui::Button::new(text)).clicked() {
-                    run.push((id, json!({})));
-                }
-            }
-        });
-        ui.add_space(ROW_GAP);
+    if !gradient {
+        align_and_distribute(app, ui, &mut run);
     }
     for (id, p) in run.drain(..) {
         if let Err(e) = app.run(&id, p) {
@@ -221,9 +191,95 @@ pub fn properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
     }
 }
 
+/// The Align and Distribute section: its buttons run `layer.align.*` and `layer.distribute.*` on
+/// the selected layers (pushed onto `run`), greyed where the engine says they can't.
+fn align_and_distribute(app: &PhotocraftApp, ui: &mut egui::Ui, run: &mut Vec<(String, Value)>) {
+    let t = Tokens::get(ui.ctx());
+    if !section(ui, "align", tl!("Align and Distribute")) {
+        return;
+    }
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        for (i, kind) in ["leftEdges", "horizontalCenters", "rightEdges", "topEdges", "verticalCenters", "bottomEdges"].into_iter().enumerate() {
+            if i == 3 {
+                ui.add_space(8.0);
+            }
+            let id = format!("layer.align.{kind}");
+            let on = app.session.is_enabled(&id);
+            let label = photocraft_engine::commands::find(&id).map_or(kind, |c| c.label);
+            let (r, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), if on { Sense::click() } else { Sense::hover() });
+            if resp.hovered() && on {
+                ui.painter().rect_filled(r, t.radius_sm, t.hover);
+            }
+            align_glyph(ui, r, kind, if on { t.icon } else { t.text_faint });
+            let tip = crate::i18n::fmt(tl!("Align {what}"), &[("what", tl!(&label))]);
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, &tip));
+            if resp.on_hover_text(tip).clicked() {
+                run.push((id, json!({})));
+            }
+        }
+    });
+    // The engine already supports equal-gap distribution in both axes. Make those
+    // existing commands discoverable here as well as through Layer > Distribute (#2349).
+    // Three or more selected layers are required; the engine remains authoritative.
+    ui.horizontal_wrapped(|ui| {
+        for (kind, text) in [("horizontally", tl!("Horizontally")), ("vertically", tl!("Vertically"))] {
+            let id = format!("layer.distribute.{kind}");
+            if ui.add_enabled(app.session.is_enabled(&id), egui::Button::new(text)).clicked() {
+                run.push((id, json!({})));
+            }
+        }
+    });
+    ui.add_space(ROW_GAP);
+}
+
+/// Several layers selected with the Background active: Photoshop's Properties keeps Align and
+/// Distribute for the selection there, above the Document properties (#4608).
+pub fn selection_align(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    let mut run = Vec::new();
+    align_and_distribute(app, ui, &mut run);
+    for (id, p) in run {
+        if let Err(e) = app.run(&id, p) {
+            app.ui.status = e;
+            app.ui.status_error = true;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn switching_between_gradient_and_raster_keeps_alignment_on_raster_only() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 200, "height": 120})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(280.0, 900.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                if ui.ctx().cumulative_pass_nr() == 0 {
+                    PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::ProMedium);
+                    return;
+                }
+                let state = app.session.active().unwrap();
+                let layer = state.doc.layer(state.active_layer.unwrap()).unwrap().clone();
+                properties(app, ui, &layer);
+            },
+            app,
+        );
+        for gradient in [false, true, false] {
+            if gradient {
+                h.state_mut().run("gradient.fill.create", json!({"from": [20, 60], "to": [180, 60]})).unwrap();
+            } else {
+                h.state_mut().run("layer.new.layer", json!({})).unwrap();
+            }
+            h.run_steps(3);
+            let sections = crate::props_layout::sections_drawn(&h.ctx);
+            assert_eq!(sections.iter().any(|(title, _)| title == "Align and Distribute"), !gradient);
+            assert_eq!(sections.iter().any(|(title, _)| title == "Gradient"), gradient);
+            assert_eq!(sections.iter().any(|(title, _)| title == "Gradient Options"), gradient);
+            assert!(!sections.iter().any(|(title, _)| title == "Color stops" || title == "Opacity stops"));
+        }
+    }
 
     #[test]
     fn transform_fields_show_and_take_the_ruler_unit() {

@@ -102,7 +102,8 @@ pub fn dab_rect(d: &Dab) -> Rect {
 
 /// Rasterize one dab's coverage.
 pub fn footprint(d: &Dab, index: usize, hardness: f32) -> Footprint {
-    let rect = dab_rect(d);
+    // A soft tip paints past its nominal radius.
+    let rect = crate::render::rect_around(d, crate::tip_reach(d.radius, hardness).max(d.radius));
     let (cx, cy) = (d.center.x as f32, d.center.y as f32);
     let mut cov = Vec::with_capacity(rect.width() as usize * rect.height() as usize);
     for y in rect.y0..rect.y1 {
@@ -423,6 +424,7 @@ fn premultiply(px: &mut [f32], alpha: Option<usize>) {
 mod tests {
     use super::*;
     use crate::{BrushSettings, StrokePoint};
+    use photocraft_geom::Point;
 
     fn stroke(points: &[(f64, f64)], size: f32, hardness: f32) -> Stroke {
         Stroke {
@@ -550,5 +552,41 @@ mod tests {
         let mut d = [0.5, 0.5];
         mix_premultiplied(&mut d, &[1.0, 1.0], 7, 0.5);
         assert_eq!(d, [0.5, 0.5]);
+    }
+
+    #[test]
+    fn footprint_stays_inside_the_tips_reach() {
+        let radius = 10.5f32;
+        for hardness in [1.0, 0.5, 0.0] {
+            let dab = Dab::round(Point::new(32.0, 32.0), radius, 1.0);
+            let fp = footprint(&dab, 0, hardness);
+            let mut painted = 0usize;
+            let mut farthest = 0.0f64;
+            for y in fp.rect.y0..fp.rect.y1 {
+                for x in fp.rect.x0..fp.rect.x1 {
+                    let dist = ((x as f64 + 0.5 - dab.center.x).powi(2) + (y as f64 + 0.5 - dab.center.y).powi(2)).sqrt();
+                    if fp.at(x, y) <= 0.0 {
+                        continue;
+                    }
+                    painted += 1;
+                    farthest = farthest.max(dist);
+                    let reach = f64::from(crate::tip_reach(radius, hardness));
+                    assert!(
+                        dist < reach.max(radius as f64) + 0.5,
+                        "hardness {hardness}: pixel ({x}, {y}) at {dist} px from \
+                         the centre is painted past the Full Size ring of \
+                         {radius} px"
+                    );
+                }
+            }
+            assert!(painted > 0, "hardness {hardness}: nothing painted");
+            if hardness == 1.0 {
+                assert!(
+                    farthest > radius as f64,
+                    "a hard tip painted only {farthest} px out, so the Full \
+                     Size ring at {radius} px is never reached"
+                );
+            }
+        }
     }
 }

@@ -299,3 +299,87 @@ fn a_stroke_ends_at_the_last_pressure_the_pen_drew_with() {
         assert!(pts.iter().all(|p| (p[2] - 0.4).abs() < 1e-3), "lift {lift:?}: no full or zero pressure dab at the end: {pts:?}");
     }
 }
+
+#[test]
+fn releasing_a_stroke_commits_the_live_pixels_and_replays_identically() {
+    let mut h = harness();
+    h.state_mut().run("tools.setBrush", json!({"brush": {"size": 14, "hardness": 0.2}, "smoothing": {"amount": 0.3}})).unwrap();
+    move_to(&mut h, 20.0, 50.0);
+    button(&mut h, 20.0, 50.0, true);
+    for (x, y) in [(40.0, 30.0), (70.0, 60.0), (110.0, 40.0), (150.0, 70.0)] {
+        move_to(&mut h, x, y);
+    }
+    button(&mut h, 150.0, 70.0, false);
+    h.run_steps(2);
+    let app = h.state();
+    let st = app.session.active().unwrap();
+    let committed = app.committed_stroke.as_ref().expect("the commit took the live stroke's pixels");
+    assert_eq!((committed.doc, committed.revision), (st.doc.id, st.revision));
+    // Replaying the journaled command from scratch gives the same pixels.
+    let (_, p) = app.session.journal.iter().rev().find(|(id, _)| id == "paint.stroke").cloned().unwrap();
+    let mut fresh = photocraft_engine::Session::new();
+    fresh.execute("file.new", json!({"width": 200, "height": 100, "background": "white"})).unwrap();
+    fresh.execute("tools.setBrush", json!({"brush": {"size": 14, "hardness": 0.2}, "smoothing": {"amount": 0.3}})).unwrap();
+    fresh.execute("paint.stroke", p).unwrap();
+    let a = photocraft_compose::render(&st.doc, st.doc.bounds());
+    let b = photocraft_compose::render(&fresh.active().unwrap().doc, st.doc.bounds());
+    assert_eq!(a.px.len(), b.px.len());
+    assert!(a.px.iter().zip(&b.px).all(|(x, y)| x == y), "live commit and replay differ");
+}
+
+#[test]
+fn a_committed_stroke_refreshes_only_what_each_cache_had_not_shown() {
+    use crate::canvas::CommittedStroke;
+    let r = |x: i32| photocraft_geom::Rect::new(x, 0, x + 10, 10);
+    let c = CommittedStroke::for_test(100, vec![r(0), r(20), r(40)]);
+    assert_eq!(c.since(103), Some(photocraft_geom::Rect::EMPTY), "showed the last step: nothing");
+    assert_eq!(c.since(102), Some(r(40)), "one step behind: that step");
+    assert_eq!(c.since(0), Some(r(0).union(&r(20)).union(&r(40))), "never showed the stroke: all of it");
+    assert_eq!(c.since(99), None, "not a key of this stroke");
+}
+
+/// A Clone Stamp stroke through the canvas renders the points its commit gets (position and
+/// pressure, no tilt or times), so the commit can take the live pixels; they are what replaying
+/// the journaled command paints.
+#[test]
+fn releasing_a_clone_stamp_stroke_commits_what_a_replay_paints() {
+    let setup = |run: &mut dyn FnMut(&str, Value)| {
+        run("tools.setBrush", json!({"brush": {"size": 16, "hardness": 0.4}}));
+        run("paint.stroke", json!({"points": [[10, 20], [190, 80]], "size": 30, "hardness": 0.5, "color": "#2060c0"}));
+        run("cloneSource.set", json!({"source": [40, 30]}));
+    };
+    let mut h = harness();
+    setup(&mut |id, p| {
+        h.state_mut().run(id, p).unwrap();
+    });
+    h.state_mut().ui.tool = Tool::CloneStamp;
+    h.run_steps(1);
+    move_to(&mut h, 60.0, 50.0);
+    button(&mut h, 60.0, 50.0, true);
+    for (x, y) in [(80.0, 40.0), (110.0, 60.0), (140.0, 45.0), (170.0, 65.0)] {
+        move_to(&mut h, x, y);
+    }
+    let shown = crate::canvas::live_retouch_points(h.state()).expect("a live Clone Stamp stroke");
+    button(&mut h, 170.0, 65.0, false);
+    h.run_steps(2);
+    let app = h.state();
+    let (_, p) = app.session.journal.iter().rev().find(|(id, _)| id == "paint.cloneStamp").cloned().expect("a committed Clone Stamp stroke");
+    let committed: Vec<_> = p["points"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|q| photocraft_engine::paint::StrokePoint::new(q[0].as_f64().unwrap(), q[1].as_f64().unwrap(), q[2].as_f64().unwrap() as f32))
+        .collect();
+    assert!(shown.len() > 1 && committed.starts_with(&shown), "live {shown:?} vs committed {committed:?}");
+    let mut fresh = photocraft_engine::Session::new();
+    fresh.execute("file.new", json!({"width": 200, "height": 100, "background": "white"})).unwrap();
+    setup(&mut |id, p| {
+        fresh.execute(id, p).unwrap();
+    });
+    fresh.execute("paint.cloneStamp", p).unwrap();
+    let st = app.session.active().unwrap();
+    let a = photocraft_compose::render(&st.doc, st.doc.bounds());
+    let b = photocraft_compose::render(&fresh.active().unwrap().doc, st.doc.bounds());
+    assert_eq!(a.px.len(), b.px.len());
+    assert!(a.px.iter().zip(&b.px).all(|(x, y)| x == y), "live commit and replay differ");
+}

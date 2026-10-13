@@ -120,9 +120,9 @@ pub fn guard_window_close(app: &mut PhotocraftApp, ctx: &egui::Context) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         return;
     }
-    // A save still writing in the background finishes first (a saved copy, say, leaves nothing
-    // unsaved); `jobs_ui` repeats the close when it ends.
-    if app.saving() {
+    // A save or print worker must finish its external side effect before the process exits;
+    // `jobs_ui` repeats the close after completion and keeps errors visible.
+    if app.saving() || app.printing() {
         ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         app.jobs.close_after_saves = true;
         return;
@@ -192,7 +192,7 @@ fn save(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId) -> bool {
         return false;
     }
     match saved {
-        Ok(_) => app.tiff_options.is_none() && !app.saving(),
+        Ok(_) => !app.save_options_open() && !app.saving(),
         // Backing out of the file dialog is the user's choice, not an error.
         Err(e) if e == crate::file_dialog::CANCELLED => false,
         Err(e) => {
@@ -208,7 +208,7 @@ fn save(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId) -> bool {
 /// Copies and failed writes leave the doc dirty.
 pub(crate) fn saved_document(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId) {
     // Still the prompt that asked (quitting may have replaced it meanwhile).
-    if app.tiff_options.is_none()
+    if !app.save_options_open()
         && app.discard.as_ref().and_then(|p| p.docs.first()) == Some(&doc)
         && index_of(app, doc).is_some_and(|i| !app.session.documents()[i].is_dirty())
     {
@@ -222,9 +222,9 @@ fn couldnt_save(e: String) -> String {
 }
 
 pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
-    // Save can ask for a path and then TIFF Options, and then write in the background. Wait for
-    // all three; cancellation or a failed save brings us back.
-    if app.file_dialog_open() || app.tiff_options.is_some() || app.saving() {
+    // Save can ask for a path and then TIFF or Targa Options, and then write in the background.
+    // Wait for all three; cancellation or a failed save brings us back.
+    if app.file_dialog_open() || app.save_options_open() || app.saving() {
         return;
     }
     let Some(p) = &app.discard else { return };
@@ -249,7 +249,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     // The answers in the platform's words; `dialog_buttons` puts them in its order. Windows (and
     // Linux) ask Yes / No / Cancel with Y, N and Esc, as Photoshop does there; macOS asks
     // Don't Save / Cancel / Save. Esc always cancels (the modal closes on it).
-    let cancel = (ButtonRole::Cancel, "Cancel", mac.then_some(Key::C), 84.0, Answer::Cancel);
+    // Yes/No already show Y/N. Cancel gets C on every platform (#4582). macOS still hides the
+    // letters and keeps the shortcut.
+    let cancel = (ButtonRole::Cancel, "Cancel", Some(Key::C), 84.0, Answer::Cancel);
     let buttons = if reverts {
         vec![(ButtonRole::Default, "Revert", Some(Key::R), 84.0, Answer::Discard), cancel]
     } else if mac {
@@ -506,17 +508,13 @@ mod tests {
     fn windows_and_linux_ask_yes_no_cancel_with_the_default_first() {
         for os in [egui::os::OperatingSystem::Windows, egui::os::OperatingSystem::Nix] {
             let mut h = prompt_on(os);
-            let labels = ["(Y)es", "(N)o", "Cancel"];
+            let labels = ["(Y)es", "(N)o", "(C)ancel"];
             assert_eq!(drawn_order(&h, labels), labels, "{os:?}");
             tab_walks(&mut h, labels);
             h.key_press(Key::N);
             h.run_steps(2);
             assert_eq!(docs_left(&h), Some(1), "N answered the first document");
-            // Cancel has no letter here: C does nothing, Esc cancels.
             h.key_press(Key::C);
-            h.run_steps(2);
-            assert_eq!(docs_left(&h), Some(1));
-            h.key_press(Key::Escape);
             h.run_steps(2);
             assert!(h.state().discard.is_none());
             assert_eq!(h.state().session.documents().len(), 1, "Cancel keeps the unanswered document");
@@ -584,6 +582,7 @@ mod tests {
         assert_eq!(button_label(true, "Don't Save", Some(Key::D)), tl!("Don't Save"));
         assert_eq!(button_label(true, "Cancel", Some(Key::C)), tl!("Cancel"));
         assert_eq!(button_label(false, "Don't Save", Some(Key::D)), "(D)on't Save");
+        assert_eq!(button_label(false, "Cancel", Some(Key::C)), "(C)ancel");
     }
 
     #[test]
@@ -727,6 +726,9 @@ mod tests {
 
     #[path = "tiff_tests.rs"]
     mod tiff_tests;
+
+    #[path = "targa_tests.rs"]
+    mod targa_tests;
 
     /// One frame with the window's close button pressed; the commands the guard sent.
     fn window_close_commands(app: &mut PhotocraftApp) -> Vec<egui::ViewportCommand> {
