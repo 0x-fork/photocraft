@@ -555,6 +555,9 @@
 	Blur	Desenfocar
 	Blur Gallery	Galería de desenfoque
 	Field Blur…	Desenfoque de campo…
+# Field Blur pins (#3373)
+	No pin selected	Ningún pin seleccionado
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Haga clic en la imagen para añadir un pin; arrastre un pin para moverlo o su anillo para cambiar el desenfoque. Suprimir elimina el pin seleccionado.
 	Iris Blur…	Desenfoque de iris…
 	Tilt-Shift…	Cambio de inclinación…
 	Path Blur…	Desenfoque de trazado…
@@ -2195,6 +2198,10 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	No hay ningún trazado para crear una selección: dibuje uno con la herramienta Pluma o seleccione uno en el panel Trazados.
 	Cancel opening	Cancelar apertura
 	Cancelled opening {name}	Se canceló la apertura de {name}
+	The document “{name}” does not have an embedded {mode} profile.	El documento «{name}» no tiene un perfil {mode} incrustado.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	El documento «{name}» tiene un perfil de color incrustado que no coincide con el espacio de trabajo {mode} actual.
+	Embedded: {embedded}	Incrustado: {embedded}
+	Working: {working}	Espacio de trabajo: {working}
 	Developing {name}	Revelando {name}
 	Cancelled {label}	Se canceló {label}
 	Esc to cancel	Esc para cancelar
@@ -2810,6 +2817,8 @@ curves	Smooth	Suavizar
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	Se guardó {n} acción en {file}|Se guardaron {n} acciones en {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	{n} paso sin equivalente en Photoshop omitido|{n} pasos sin equivalente en Photoshop omitidos
 
+	File Naming	Nombres de archivo
+	Starting serial	Número de serie inicial
 # Actions panel: set folders, dialog toggle, Insert Stop
 	Insert Stop…	Insertar detención…
 	Save Set…	Guardar conjunto…

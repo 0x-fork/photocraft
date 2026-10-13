@@ -865,6 +865,10 @@ pub struct Document {
     pub layers: Vec<Layer>,
     pub channels: Vec<AlphaChannel>,
     pub guides: Guides,
+    /// The rulers' zero point in document pixels (`[x, y]`), dragged from the ruler corner. The
+    /// rulers, the Info panel and other position readouts measure from it; `[0, 0]` (the
+    /// image's top-left) is the default.
+    pub ruler_origin: [f64; 2],
     /// Active selection as a grayscale coverage surface (None = no selection).
     pub selection: Option<Surface>,
     pub metadata: Metadata,
@@ -952,6 +956,7 @@ impl Document {
             layers: Vec::new(),
             channels: Vec::new(),
             guides: Guides::default(),
+            ruler_origin: [0.0, 0.0],
             selection: None,
             metadata: Metadata::default(),
             global_light: GlobalLight::default(),

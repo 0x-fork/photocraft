@@ -459,6 +459,11 @@ pub struct Session {
     /// A finished live stroke offered to the `paint.stroke` / `paint.pencil` that commits it
     /// ([`Session::offer_live_stroke`]).
     pub(crate) live_commit: Option<brush_cmds::LiveCommit>,
+    /// Documents a background open decoded but held back until the user answers the profile
+    /// prompt ([`ColorState::open_question`](color_cmds::ColorState::open_question)): `(id,
+    /// document, source read-only)`. The shell takes them with [`Session::take_held_open`].
+    held_opens: Vec<(u64, Document, bool)>,
+    next_held_open: u64,
 }
 
 /// Move item `i` of `v` to position `to`, clamped to the end. Returns where it went; `None` when
@@ -542,6 +547,21 @@ impl Session {
         let i = self.docs.len() - 1;
         self.active = Some(i);
         i
+    }
+
+    /// Holds a decoded document back from opening (see `held_opens`); returns its id.
+    pub(crate) fn hold_open(&mut self, doc: Document, source_read_only: bool) -> u64 {
+        self.next_held_open = self.next_held_open.wrapping_add(1);
+        self.held_opens.push((self.next_held_open, doc, source_read_only));
+        self.next_held_open
+    }
+
+    /// Takes a document a background open held back for the profile prompt: the document and
+    /// whether its source is read-only. `None` when there is no such document (already taken).
+    pub fn take_held_open(&mut self, id: u64) -> Option<(Document, bool)> {
+        let i = self.held_opens.iter().position(|(h, _, _)| *h == id)?;
+        let (_, doc, read_only) = self.held_opens.remove(i);
+        Some((doc, read_only))
     }
 
     pub fn close(&mut self, index: usize) -> Option<DocState> {

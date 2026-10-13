@@ -565,6 +565,87 @@ fn select_subject_finds_centred_object() {
     assert!(v > 0.9, "IoU {v}");
 }
 
+/// Counts full-resolution reads; the working copy goes through `rgb_scaled` uncounted, so each
+/// read is one band tile of the full-resolution re-cut.
+struct TileReads<'a>(ImageSampler<'a>, std::sync::atomic::AtomicUsize);
+
+impl Sampler for TileReads<'_> {
+    fn rgba(&self, r: Rect) -> Vec<[f32; 4]> {
+        self.1.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.0.rgba(r)
+    }
+    fn rgb_scaled(&self, r: Rect, step: usize) -> RgbImage {
+        self.0.rgb_scaled(r, step)
+    }
+}
+
+#[test]
+fn finish_region_cancel_stops_inside_the_band_cut() {
+    use photocraft_raster::{Cancelled, Interrupt};
+    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+    // One 180-pixel window is one band tile, and nothing asks after the band re-cut, so a cancel
+    // seen after the tile's own check can only have been seen inside its min cut.
+    let (n, step) = (180, 3);
+    let (img, truth) = disc_scene(n, n, 90.0, 90.0, 55.0, 4);
+    let s = ImageSampler { img: &img, origin: (0, 0) };
+    let ln = n / step;
+    let low: Vec<bool> = (0..ln * ln).map(|i| truth[((i / ln) * step + 1) * n + (i % ln) * step + 1]).collect();
+    let (fs, bs): (Vec<_>, Vec<_>) = img.px.iter().zip(&truth).partition(|(_, t)| **t);
+    let fit = |v: Vec<(&[f32; 3], &bool)>| Gmm::fit(&v.iter().map(|(p, _)| **p).collect::<Vec<_>>(), 5, gmm::DEFAULT_REG).unwrap();
+    let (fg, bg) = (fit(fs), fit(bs));
+    let window = Rect::new(0, 0, n as i32, n as i32);
+    let polls = AtomicUsize::new(0);
+    let finish = |cancel_from: usize| {
+        polls.store(0, SeqCst);
+        let cancel = || polls.fetch_add(1, SeqCst) + 1 >= cancel_from;
+        finish_region_with(&s, window, step, &low, ln, ln, Some((&fg, &bg)), &Interrupt::cancel_only(&cancel))
+    };
+    let reg = finish(usize::MAX).unwrap().unwrap();
+    assert!(polls.load(SeqCst) >= 2, "the cut polls too ({} polls)", polls.load(SeqCst));
+    assert!(iou(&reg, &truth, n, n) > 0.95);
+    assert_eq!(finish_region(&s, window, step, &low, ln, ln, Some((&fg, &bg))), Some(reg));
+    // Cancelled at the cut's first poll (the second in all): no region.
+    assert_eq!(finish(2), Err(Cancelled));
+    assert_eq!(polls.load(SeqCst), 2);
+    assert_eq!(finish(1), Err(Cancelled), "cancelled before the tile");
+}
+
+#[test]
+fn select_subject_cancelled_in_the_band_recut_reads_no_more_tiles() {
+    use photocraft_raster::{Cancelled, Interrupt};
+    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+    let (w, h) = (3000, 2000);
+    let (img, truth) = disc_scene(w, h, 1500.0, 1000.0, 700.0, 6);
+    let canvas = Rect::new(0, 0, w as i32, h as i32);
+    let sampler = || TileReads(ImageSampler { img: &img, origin: (0, 0) }, AtomicUsize::new(0));
+
+    // Not cancelled: the same region as `select_subject`, and the band cuts themselves ask
+    // (more polls once tiles are read than the one check before each tile).
+    let s = sampler();
+    let band_polls = AtomicUsize::new(0);
+    let count = || {
+        if s.1.load(SeqCst) > 0 {
+            band_polls.fetch_add(1, SeqCst);
+        }
+        false
+    };
+    let reg = subject::select_subject_with(&s, canvas, &Interrupt::cancel_only(&count)).unwrap().unwrap();
+    let tiles = s.1.load(SeqCst);
+    assert!(tiles > 4, "{tiles} band tiles");
+    assert!(band_polls.load(SeqCst) > tiles, "{} polls over {tiles} tiles", band_polls.load(SeqCst));
+    assert!(iou(&reg, &truth, w, h) > 0.9);
+    assert_eq!(subject::select_subject(&sampler(), canvas), Some(reg));
+
+    // Cancelled once the first tile is read: the run stops there instead of re-cutting every
+    // tile. One thread, so no other tile is already in flight.
+    let s = sampler();
+    let cancel = || s.1.load(SeqCst) > 0;
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
+    let r = pool.install(|| subject::select_subject_with(&s, canvas, &Interrupt::cancel_only(&cancel)));
+    assert_eq!(r, Err(Cancelled));
+    assert_eq!(s.1.load(SeqCst), 1, "tiles read after the cancel");
+}
+
 #[test]
 fn saliency_highlights_the_object() {
     let (img, truth) = disc_scene(120, 90, 60.0, 45.0, 22.0, 8);

@@ -1386,20 +1386,10 @@ mod tests {
             app.open_bytes("control.dng", &dng).unwrap();
             ctx.run_ui(Default::default(), |ui| crate::camera_raw_ui::show(&mut app, ui.ctx())).textures_delta.clear();
             assert!(app.camera_raw.is_some());
-            // The raw develops in ProPhoto, so opening it also asks about the working-space
-            // mismatch. Answer that prompt through the same control path before editing.
-            assert_eq!(app.ui.dialogs.len(), 1);
-            let mismatch = app.ui.dialogs.first().unwrap();
-            assert_eq!(mismatch.fields["__prefsui"], "mismatch");
-            assert_eq!(mismatch.fields["action"], "preserve");
-            assert_eq!(mismatch.fields["applied"], "preserve");
-            let mismatch_id = mismatch.id;
-            let update = json!({"id":"filter.cameraRaw","params":{"ui":{"set":{"exposure":0.5}}}});
-            assert_eq!(call(&mut app, &ctx, "ui.menu.invoke", update.clone())["ok"], false);
-            let confirmed = call(&mut app, &ctx, "ui.dialog.confirm", json!({"dialog":mismatch_id}));
-            assert_eq!(confirmed["ok"], true, "{confirmed}");
-            assert_eq!(confirmed["result"]["action"], "preserve");
+            // A developed raw has no embedded profile to ask about (`open_prompt`), so no profile
+            // prompt stands between the open and the Camera Raw dialog.
             assert!(app.ui.dialogs.is_empty());
+            let update = json!({"id":"filter.cameraRaw","params":{"ui":{"set":{"exposure":0.5}}}});
             let original = app.session.active().unwrap().doc.clone();
             let changed = call(&mut app, &ctx, "ui.menu.invoke", update);
             assert_eq!(changed["ok"], true, "{changed}");
