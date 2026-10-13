@@ -15,6 +15,38 @@ use crate::PhotocraftApp;
 use crate::canvas::ViewXform;
 
 #[test]
+fn focused_font_search_does_not_type_into_the_canvas_layer() {
+    let mut app = new_app();
+    let id = app.run("type.create", json!({"text": "Sample", "size": 24})).unwrap()["layer"].as_u64().unwrap();
+    app.ui.text_edit = Some(crate::state::TextEdit {
+        layer: id,
+        caret: 6,
+        anchor: 6,
+        session: "s".into(),
+        created: false,
+        mask: false,
+        dragging: false,
+        resize: None,
+        preedit: None,
+    });
+    let mut h = Harness::builder().build_ui_state(
+        |ui, app: &mut PhotocraftApp| {
+            let search_id = egui::Id::new("font-search-regression");
+            let mut query = ui.data(|d| d.get_temp::<String>(search_id)).unwrap_or_default();
+            ui.add(egui::TextEdit::singleline(&mut query).id(search_id)).request_focus();
+            ui.data_mut(|d| d.insert_temp(search_id, query));
+            super::handle_keys(app, ui.ctx());
+        },
+        app,
+    );
+    h.run_steps(2);
+    h.event(egui::Event::Text("Ins".into()));
+    h.run();
+    assert_eq!(h.ctx.data(|d| d.get_temp::<String>(egui::Id::new("font-search-regression"))).as_deref(), Some("Ins"));
+    assert_eq!(super::current_text(h.state_mut(), LayerId(id)).as_deref(), Some("Sample"));
+}
+
+#[test]
 fn numeric_type_fields_have_localized_accessible_names() {
     let pt = crate::i18n::Lang::from_code("pt-br").unwrap();
     let mut h = Harness::builder().build_ui_state(

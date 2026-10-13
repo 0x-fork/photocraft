@@ -22,6 +22,22 @@ fn default_dir(app: &PhotocraftApp) -> String {
     app.session.active().and_then(|d| d.path.as_deref()).and_then(|p| p.rfind(['/', '\\']).map(|i| p[..i].to_string())).unwrap_or_else(|| ".".into())
 }
 
+/// A packaged macOS app does not start in a useful writable working directory. A saved
+/// document keeps its own folder; otherwise prefer the user's Documents folder.
+fn droplet_default_dir(app: &PhotocraftApp) -> String {
+    let dir = default_dir(app);
+    if dir != "." {
+        return dir;
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = std::path::PathBuf::from(home);
+        let documents = home.join("Documents");
+        return if documents.is_dir() { documents } else { home }.to_string_lossy().into_owned();
+    }
+    dir
+}
+
 fn doc_stem(app: &PhotocraftApp) -> String {
     app.session.active().map(|d| d.doc.name.rsplit_once('.').map_or(d.doc.name.clone(), |(a, _)| a.to_string())).unwrap_or_else(|| tl!("Untitled").into())
 }
@@ -71,6 +87,7 @@ pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &V
             json!({"units": ["inches", "cm", "pixels"], "mode": ["rgb", "gray", "cmyk", "lab"]}),
         ),
         "file.automate.createDroplet" => {
+            let dir = droplet_default_dir(app);
             let Some(action) = crate::actions::selected_action(app) else {
                 return Some(Err("record an action in the Actions panel first".into()));
             };
@@ -84,10 +101,7 @@ pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &V
                 json!({"format": ["same", "png", "jpg", "psd", "tiff"]}),
             )
         }
-        "file.scripts.statistics" => {
-            let modes: Vec<&str> = photocraft_doc::StackMode::ALL.iter().map(|m| m.id()).collect();
-            form(app, id, "Image Statistics", json!({"mode": "median", "input": dir, "align": false}), json!({"mode": modes}))
-        }
+        "file.scripts.statistics" => json!({"dialog": crate::stack_dialog::open_statistics(app)}),
         "file.scripts.browse" => {
             return Some(app.pick_file_bytes_filtered(SCRIPT_EXTENSIONS, |app, name, bytes| {
                 let r = app.run("file.scripts.browse", json!({"script": String::from_utf8_lossy(&bytes)}));
@@ -350,6 +364,27 @@ fn web_pane(app: &PhotocraftApp, ui: &mut egui::Ui, size: egui::Vec2, p: Option<
         ui.add(egui::Label::new(egui::RichText::new(l1).color(t.text).size(11.5)).truncate());
         ui.add(egui::Label::new(egui::RichText::new(l2).color(t.text_dim).size(11.0)).truncate());
     });
+}
+
+/// Print's Printer menu: the default printer (value ""), then every printer `file.printers`
+/// listed. A saved name the spooler no longer lists stays selectable rather than vanishing.
+/// CUPS queue names stand in for spaces with `_`; the labels show the spaces.
+fn printer_options(list: Option<&Value>, current: &str) -> Vec<(String, String)> {
+    let printers: Vec<(&str, bool)> = list
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(|p| Some((p.get("name")?.as_str()?, p.get("default").and_then(Value::as_bool).unwrap_or(false)))).collect())
+        .unwrap_or_default();
+    let pretty = |n: &str| n.replace('_', " ");
+    let default = match printers.iter().find(|p| p.1) {
+        Some((n, _)) => format!("{} ({})", tl!("Default printer"), pretty(n)),
+        None => tl!("Default printer").to_string(),
+    };
+    let mut opts = vec![(String::new(), default)];
+    opts.extend(printers.iter().map(|(n, _)| (n.to_string(), pretty(n))));
+    if !current.is_empty() && !printers.iter().any(|p| p.0 == current) {
+        opts.push((current.to_string(), pretty(current)));
+    }
+    opts
 }
 
 fn dropdown_str(ui: &mut egui::Ui, id: &str, f: &mut Map<String, Value>, key: &str, opts: &[(&str, &str)], w: f32) {
@@ -689,6 +724,9 @@ pub fn open_print(app: &mut PhotocraftApp) -> u64 {
     let mut f = Map::new();
     f.insert("__print".into(), json!(true));
     f.insert("__label".into(), json!("PhotoCraft Print Settings"));
+    // Asked once per opening: the Printer menu lists what the spooler knows now.
+    let printers = app.session.execute("file.printers", json!({})).unwrap_or_default();
+    f.insert("__printers".into(), printers["printers"].clone());
     if let Some(Value::Object(m)) = app.session.file_menu.last_print.clone() {
         f.extend(m);
     }
@@ -880,7 +918,9 @@ fn print_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Va
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(tl!("Printer")).color(t.text_dim));
                 let mut pr = s(f, "printer", "");
-                if ui.add(egui::TextEdit::singleline(&mut pr).hint_text(tl!("Default printer")).desired_width(180.0)).changed() {
+                let opts = printer_options(f.get("__printers"), &pr);
+                let o: Vec<(String, &str)> = opts.iter().map(|(k, l)| (k.clone(), l.as_str())).collect();
+                if crate::widgets::dropdown(ui, "print-printer", &mut pr, &o, 240.0) {
                     f.insert("printer".into(), json!(pr));
                 }
             });
@@ -1036,6 +1076,20 @@ mod tests {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.run("file.new", json!({"width": 120, "height": 80, "name": "web"})).unwrap();
         (app, egui::Context::default())
+    }
+
+    #[test]
+    fn droplet_folder_follows_the_document_or_uses_a_safe_fallback() {
+        let (mut app, _) = app();
+        let fallback = droplet_default_dir(&app);
+        #[cfg(target_os = "macos")]
+        if std::env::var_os("HOME").is_some() {
+            assert!(std::path::Path::new(&fallback).is_absolute());
+        }
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(fallback, ".");
+        app.session.active_mut().unwrap().path = Some("/tmp/photocraft/drawing.pcraft".into());
+        assert_eq!(droplet_default_dir(&app), "/tmp/photocraft");
     }
 
     #[test]
@@ -1281,6 +1335,26 @@ mod tests {
             let r = crate::menus::invoke(&mut app, &ctx, id, json!({})).unwrap();
             assert!(r["dialog"].is_u64(), "{id}");
         }
+    }
+
+    #[test]
+    fn printer_menu_lists_the_spooler_printers_after_the_default() {
+        let list = json!([{"name": "HP_OfficeJet_3830_series", "default": true}, {"name": "DNP_DP_DS620", "default": false}]);
+        let o = printer_options(Some(&list), "");
+        let keys: Vec<&str> = o.iter().map(|p| p.0.as_str()).collect();
+        assert_eq!(keys, ["", "HP_OfficeJet_3830_series", "DNP_DP_DS620"]);
+        assert!(o[0].1.ends_with("(HP OfficeJet 3830 series)"), "{}", o[0].1);
+        assert_eq!(o[2].1, "DNP DP DS620");
+        // A remembered printer that's gone stays selectable; no list still offers the default.
+        let o = printer_options(Some(&list), "Old_Queue");
+        assert_eq!(o.last().unwrap().0, "Old_Queue");
+        assert_eq!(printer_options(None, "").len(), 1);
+        // The dialog asks the engine, and the list never reaches file.print's params.
+        let (mut app, ctx) = app();
+        let id = crate::menus::invoke(&mut app, &ctx, "file.print", json!({})).unwrap()["dialog"].as_u64().unwrap();
+        let f = &app.ui.dialog_mut(id).unwrap().fields;
+        assert!(f.get("__printers").is_some_and(Value::is_array));
+        assert!(params(f).get("__printers").is_none());
     }
 
     #[test]

@@ -1466,6 +1466,9 @@ mod tests {
         choose_open(&mut app, "layer.vectorMask.fromPath");
         let st = app.session.active().unwrap();
         assert!(st.active_layer.and_then(|id| st.doc.layer(id)).is_some_and(|l| l.vector_mask.is_some()));
+        // The new vector mask's path becomes the active one (#4728); pick the Work Path again.
+        assert_eq!(app.ui.selected_path.as_deref(), Some("layer"));
+        app.ui.selected_path = Some("work".into());
         choose_open(&mut app, "edit.defineCustomShape");
         let id = app.ui.dialogs.last().map(|d| d.id).unwrap();
         let fields = &app.ui.dialogs.last().unwrap().fields;

@@ -348,6 +348,43 @@ fn image_from_files(paths: &[PathBuf]) -> Option<(u32, u32, Vec<u8>)> {
     })
 }
 
+/// Largest clipboard image payload read on Wayland (1 GiB, a 16K × 16K RGBA BMP), so no real
+/// screenshot is turned away, while a broken or hostile source can't make us allocate without end.
+#[cfg(target_os = "linux")]
+const MAX_CLIPBOARD_IMAGE_BYTES: u64 = 4 * 16384 * 16384;
+
+/// The clipboard image arboard can't read on Wayland (#2546): arboard 3.6 asks for `image/png`
+/// only, so a screenshot tool or clipboard manager that offers just `image/jpeg`, `image/bmp` or
+/// `image/webp` pasted nothing. Reads the other `image/*` types through the same data-control
+/// protocol arboard uses, and decodes them with our own codecs. `None` off Wayland.
+#[cfg(target_os = "linux")]
+fn wayland_clipboard_image() -> Option<(u32, u32, Vec<u8>)> {
+    use std::io::Read;
+    use wl_clipboard_rs::paste::{ClipboardType, MimeType, Seat, get_contents, get_mime_types_ordered};
+    let offers = get_mime_types_ordered(ClipboardType::Regular, Seat::Unspecified).ok()?;
+    image_from_offers(&offers, |mime| {
+        let (pipe, _) = get_contents(ClipboardType::Regular, Seat::Unspecified, MimeType::Specific(mime)).ok()?;
+        let mut bytes = Vec::new();
+        pipe.take(MAX_CLIPBOARD_IMAGE_BYTES + 1).read_to_end(&mut bytes).ok()?;
+        (bytes.len() as u64 <= MAX_CLIPBOARD_IMAGE_BYTES).then_some(bytes)
+    })
+}
+
+/// The first clipboard offer, in the source's order, that `fetch` returns as a decodable image,
+/// upright as RGBA8. Only `image/*` types are fetched, so text offers are never transferred.
+#[cfg(any(target_os = "linux", test))]
+fn image_from_offers(offers: &[String], mut fetch: impl FnMut(&str) -> Option<Vec<u8>>) -> Option<(u32, u32, Vec<u8>)> {
+    offers.iter().filter(|mime| mime.starts_with("image/")).find_map(|mime| {
+        let bytes = fetch(mime)?;
+        // TGA has no magic number (see `image_from_files`), so trust it only when the type says so.
+        if photocraft_codecs::detect(&bytes)? == photocraft_codecs::Format::Tga && !mime.contains("tga") {
+            return None;
+        }
+        let img = photocraft_codecs::decode(&bytes).ok()?;
+        Some((img.width(), img.height(), img.to_rgba8()))
+    })
+}
+
 /// The shell command that starts this install under XWayland, where winit delivers file drops
 /// (winit 0.30 has none on Wayland, #386). A Flatpak gets the X11 socket only without the Wayland
 /// one, an AppImage relaunches by its own path, and anything else is `photocraft` on the PATH.
@@ -448,8 +485,13 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
                 if let Some(img) = cb.get().file_list().ok().and_then(|paths| image_from_files(&paths)) {
                     return Some(img);
                 }
-                let img = cb.get_image().ok()?;
-                Some((img.width as u32, img.height as u32, img.bytes.into_owned()))
+                if let Ok(img) = cb.get_image() {
+                    return Some((img.width as u32, img.height as u32, img.bytes.into_owned()));
+                }
+                #[cfg(target_os = "linux")]
+                return wayland_clipboard_image();
+                #[cfg(not(target_os = "linux"))]
+                None
             })
         }),
         load_prefs: Some(Box::new(|| std::fs::read_to_string(prefs_file()?).ok())),
@@ -963,6 +1005,51 @@ mod tests {
         let bad = dir.join("cut.png");
         std::fs::write(&bad, &red_png(8, 8)[..20]).unwrap();
         assert!(image_from_files(&[bad]).is_none());
+    }
+
+    fn encoded(format: photocraft_codecs::Format, w: u32, h: u32) -> Vec<u8> {
+        let img = Image::from_u8(w, h, ChannelLayout::Rgba, [255u8, 0, 0, 255].repeat((w * h) as usize)).unwrap();
+        photocraft_codecs::encode(&img, format, &EncodeOptions::default()).unwrap()
+    }
+
+    #[test]
+    fn non_png_clipboard_images_paste() {
+        // #2546: a screenshot tool that offers only image/bmp or image/jpeg pasted nothing.
+        let bmp = encoded(photocraft_codecs::Format::Bmp, 3, 2);
+        let offers = vec!["text/plain".to_string(), "image/bmp".to_string()];
+        let mut asked = Vec::new();
+        let got = image_from_offers(&offers, |mime| {
+            asked.push(mime.to_string());
+            Some(bmp.clone())
+        });
+        assert_eq!(got, Some((3, 2, [255u8, 0, 0, 255].repeat(6))));
+        assert_eq!(asked, ["image/bmp"], "text offers are never fetched");
+
+        let jpeg = encoded(photocraft_codecs::Format::Jpeg, 16, 8);
+        let offers = vec!["image/jpeg".to_string()];
+        assert_eq!(image_from_offers(&offers, |_| Some(jpeg.clone())).map(|(w, h, _)| (w, h)), Some((16, 8)));
+    }
+
+    #[test]
+    fn undecodable_clipboard_offers_fall_through_to_the_next() {
+        let bmp = encoded(photocraft_codecs::Format::Bmp, 2, 2);
+        let cut = encoded(photocraft_codecs::Format::Png, 8, 8)[..20].to_vec();
+        let offers: Vec<String> = ["image/webp", "image/png", "image/x-tga", "image/bmp"].map(String::from).to_vec();
+        let got = image_from_offers(&offers, |mime| match mime {
+            "image/webp" => None,
+            "image/png" => Some(cut.clone()),
+            "image/x-tga" => Some(b"not an image".to_vec()),
+            _ => Some(bmp.clone()),
+        });
+        assert_eq!(got.map(|(w, h, _)| (w, h)), Some((2, 2)));
+        assert!(image_from_offers(&offers[..3], |_| Some(cut.clone())).is_none());
+        assert!(image_from_offers(&[], |_| Some(bmp.clone())).is_none());
+    }
+
+    #[test]
+    fn clipboard_tga_is_trusted_only_by_its_type() {
+        assert_eq!(image_from_offers(&["image/x-tga".to_string()], |_| Some(tga_1x1())), Some((1, 1, vec![255, 0, 0, 255])));
+        assert!(image_from_offers(&["image/x-unknown".to_string()], |_| Some(tga_1x1())).is_none());
     }
 
     #[test]

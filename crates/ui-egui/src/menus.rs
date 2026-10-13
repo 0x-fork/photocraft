@@ -487,6 +487,23 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             }
             Ok(json!({"dialog": crate::stroke_ui::open(app)}))
         }
+        // Channels › Channel Options… without params: the dialog on the targeted alpha/spot
+        // channel, or Quick Mask Options while in Quick Mask (with params: the engine directly).
+        crate::channel_options_ui::COMMAND if params.as_object().is_none_or(|o| o.is_empty()) => {
+            let st = app.session.active().ok_or("no document is open")?;
+            let channel = match st.channel_view.target {
+                _ if st.doc.quick_mask.is_some() => json!("quickMask"),
+                photocraft_engine::channel_cmds::ChannelTarget::Alpha(i) => json!(i),
+                _ => return Err("target an alpha or spot channel first".into()),
+            };
+            let dialog = crate::channel_options_ui::open(app, &channel).ok_or("no such channel")?;
+            Ok(json!({"dialog": dialog}))
+        }
+        // Channels › New Spot Channel… without params: its dialog (with params: the engine).
+        crate::channel_options_ui::NEW_SPOT if params.as_object().is_none_or(|o| o.is_empty()) => {
+            let dialog = crate::channel_options_ui::open_new_spot(app).ok_or("no document is open")?;
+            Ok(json!({"dialog": dialog}))
+        }
         // Photoshop's "Select and Mask…" is the engine's select.refineEdge.
         // Select › Color Range… from the menu: the dialog (with params: the engine directly).
         "select.colorRange" if params.as_object().is_none_or(|o| o.is_empty()) => Ok(json!({"dialog": crate::color_range_ui::open(app)})),
@@ -1100,6 +1117,17 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
         for it in &mut items {
             it.color = prefs.menus.colors.get(&it.id).cloned();
         }
+    }
+    // Layer › Create Clipping Mask is Photoshop's one Create / Release item: when its shortcut
+    // would release ([`crate::shortcut_dispatch::clip_key_releases`]) it reads Release Clipping
+    // Mask and runs it, keeping that shortcut. The engine's own Release item lives in that slot.
+    items.retain(|i| i.id != "layer.releaseClippingMask");
+    if crate::shortcut_dispatch::clip_key_releases(app)
+        && let Some(item) = items.iter_mut().find(|i| i.id == "layer.createClippingMask")
+    {
+        item.id = "layer.releaseClippingMask".into();
+        item.label = "Release Clipping Mask".into();
+        item.enabled = is_enabled(app, &item.id);
     }
     items
 }

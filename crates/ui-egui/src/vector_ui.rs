@@ -187,14 +187,31 @@ fn pen_to_json(pen: &PenPath, closed: bool) -> Value {
     json!({"subpaths": [{"closed": closed, "knots": pen.knots.iter().enumerate().map(|(i, k)| json!({"anchor": k[0], "in": k[1], "out": k[2], "smooth": !pen.unlinked.contains(&i) && (k[1] != k[0] || k[2] != k[0])})).collect::<Vec<_>>()}]})
 }
 
+/// Is `(x, y)` on the first anchor of a Pen path that a click there would close (two anchors or
+/// more)? `tol` is the anchors' hit radius in document pixels.
+fn on_closing_anchor(pen: &PenPath, x: f64, y: f64, tol: f64) -> bool {
+    pen.knots.len() >= 2 && pen.knots.first().is_some_and(|k| (k[0][0] - x).hypot(k[0][1] - y) < tol)
+}
+
+/// Would a click at `(x, y)` with `tool` close the path being drawn: the Pen over the first
+/// anchor, or the Curvature Pen over the first of three anchors or more? The canvas shows the
+/// close-path pointer there, as Photoshop does (#4596).
+pub fn closes_path_at(app: &PhotocraftApp, tool: Tool, x: f64, y: f64) -> bool {
+    let Some(pen) = app.ui.pen.as_ref().filter(|p| !p.dragging && p.moving.is_none()) else { return false };
+    match tool {
+        Tool::Pen => !pen.curvature && on_closing_anchor(pen, x, y, 6.0 / app.point_zoom().max(0.01) as f64),
+        Tool::CurvaturePen => pen.curvature && pen.knots.len() >= 3 && curvature_hit(app, x, y) == Some(0),
+        _ => false,
+    }
+}
+
 /// Pen press: close on the first anchor, reshape the last anchor's outgoing handle,
 /// or add a new anchor (dragging a new anchor pulls symmetrical handles).
 pub fn pen_down(app: &mut PhotocraftApp, x: f64, y: f64) {
     let tol = 6.0 / app.point_zoom().max(0.01) as f64;
     let pen = app.ui.pen.get_or_insert_with(PenPath::default);
     if let Some(first) = pen.knots.first().map(|k| k[0])
-        && pen.knots.len() >= 2
-        && (first[0] - x).hypot(first[1] - y) < tol
+        && on_closing_anchor(pen, x, y, tol)
     {
         // Pressing the first anchor closes the path on release. Until then a stand-in for it
         // takes the drag, which pulls out that anchor's handles (close-drag, #3306).
@@ -245,6 +262,13 @@ pub fn pen_undo_last_point(app: &mut PhotocraftApp) -> bool {
     let Some(pen) = app.ui.pen.as_mut() else { return false };
     if pen.knots.pop().is_none() {
         return false;
+    }
+    let n = pen.knots.len();
+    let ds = &mut app.ui.direct_selection;
+    if ds.target == Some(crate::direct_select::PathRef::Pen) {
+        // A ⌘/Ctrl selection on the path being drawn loses the removed anchor.
+        ds.anchors.retain(|a| a[1] < n);
+        ds.segment = ds.segment.filter(|s| s[1] + 1 < n);
     }
     pen.unlinked.retain(|&i| i < pen.knots.len());
     if pen.curvature {
@@ -337,9 +361,49 @@ fn fold_close(pen: &PenPath) -> Option<PenPath> {
     Some(p)
 }
 
+/// The Pen path being drawn as a document path (one open subpath), so ⌘/Ctrl (Direct Selection)
+/// can edit it in place while drawing (#4022).
+pub(crate) fn pen_path(pen: &PenPath) -> Path {
+    let pt = |q: [f64; 2]| photocraft_geom::Point::new(q[0], q[1]);
+    let knots = pen
+        .knots
+        .iter()
+        .enumerate()
+        .map(|(i, k)| photocraft_doc::Knot {
+            anchor: pt(k[0]),
+            in_ctrl: pt(k[1]),
+            out_ctrl: pt(k[2]),
+            smooth: !pen.unlinked.contains(&i) && (k[1] != k[0] || k[2] != k[0]),
+        })
+        .collect();
+    Path::new(vec![photocraft_doc::vector::Subpath { closed: false, knots, op: Default::default() }])
+}
+
+/// The Pen path being drawn becomes `path`'s first subpath, edited with ⌘/Ctrl (Direct Selection);
+/// drawing carries on from its last anchor. A Curvature Pen path keeps following its anchors.
+pub(crate) fn pen_replace(app: &mut PhotocraftApp, path: &Path) {
+    let Some(pen) = app.ui.pen.as_mut() else { return };
+    let knots = path.subpaths.first().map(|s| s.knots.as_slice()).unwrap_or_default();
+    pen.knots = knots.iter().map(knot_points).collect();
+    pen.unlinked = knots.iter().enumerate().filter(|(_, k)| !k.smooth).map(|(i, _)| i).collect();
+    pen.dragging = false;
+    pen.adjusting_last = false;
+    pen.moving = None;
+    if pen.curvature {
+        curvature_refresh(pen, false);
+    }
+    if pen.knots.is_empty() {
+        app.ui.pen = None;
+    }
+}
+
 /// Finish the pen path: a work path (Path mode) or a new shape layer (Shape mode).
 pub fn pen_commit(app: &mut PhotocraftApp, closed: bool) {
     let Some(mut pen) = app.ui.pen.take() else { return };
+    if app.ui.direct_selection.target == Some(crate::direct_select::PathRef::Pen) {
+        // Its anchors are no longer the Pen's: the committed path is another path.
+        app.ui.direct_selection = Default::default();
+    }
     if pen.curvature {
         curvature_refresh(&mut pen, closed);
     }
@@ -372,13 +436,26 @@ fn commit_path(app: &mut PhotocraftApp, pen: &PenPath, closed: bool) {
         }
         app.run("layer.vectorMask.edit", json!({"layer": id, "path": p}))
     } else {
-        // The drawn work path is selected in the Paths panel, as in Photoshop.
-        app.run("path.set", json!({"name": "work", "path": path})).inspect(|_| app.ui.selected_path = Some("work".into()))
+        // Photoshop adds the new subpath to the path selected in the Paths panel, which is the
+        // Work Path right after drawing one, so path after path builds up there (#4721). With no
+        // path selected, a new Work Path replaces the old one. The drawn path ends up selected.
+        let target = app.ui.selected_path.clone().filter(|n| app.session.active().is_some_and(|st| path_exists(&st.doc, n)));
+        let name = target.clone().unwrap_or_else(|| "work".into());
+        let mut params = json!({"name": name, "path": path});
+        if target.is_some() {
+            params["op"] = json!("combine");
+        }
+        app.run("path.set", params).inspect(|_| app.ui.selected_path = Some(name))
     };
     if let Err(e) = r {
         app.ui.status = e;
         app.ui.status_error = true;
     }
+}
+
+/// Does `doc` have the path the Paths panel calls `name`: "work", or a saved path's name?
+fn path_exists(doc: &Document, name: &str) -> bool {
+    if name == "work" { doc.work_path.is_some() } else { doc.paths.iter().any(|p| p.name == name) }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -547,6 +624,18 @@ pub fn takes_path_mask(id: &str) -> bool {
     id.starts_with("layer.newFillLayer.") || id.starts_with("layer.newAdjustmentLayer.")
 }
 
+/// The work or saved path explicitly selected in the Paths panel (not a layer's own path).
+pub fn selected_document_path(app: &PhotocraftApp) -> Option<String> {
+    let st = app.session.active()?;
+    let sel = app.ui.selected_path.as_deref()?;
+    let listed = path_rows(&st.doc, st.active_layer).iter().any(|r| match r.kind {
+        PathRow::Work => sel == "work",
+        PathRow::Saved => r.name == sel,
+        PathRow::Layer => false,
+    });
+    listed.then(|| sel.to_string())
+}
+
 /// New fill and adjustment layers take the path selected in the Paths panel as their vector mask,
 /// as in Photoshop (#1419): the command gets it as `"path"` unless the caller set one (`null`
 /// opts out). Only an explicitly selected work or saved path counts; deselect it by clicking the
@@ -555,16 +644,7 @@ pub fn with_active_path(app: &PhotocraftApp, id: &str, params: Value) -> Value {
     if !takes_path_mask(id) || params.get("path").is_some() {
         return params;
     }
-    let Some(st) = app.session.active() else { return params };
-    let Some(sel) = app.ui.selected_path.as_deref() else { return params };
-    let listed = path_rows(&st.doc, st.active_layer).iter().any(|r| match r.kind {
-        PathRow::Work => sel == "work",
-        PathRow::Saved => r.name == sel,
-        PathRow::Layer => false,
-    });
-    if !listed {
-        return params;
-    }
+    let Some(sel) = selected_document_path(app) else { return params };
     match params {
         Value::Object(mut m) => {
             m.insert("path".into(), json!(sel));
@@ -890,8 +970,10 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
         // The segment the Pen's Auto Add/Delete would add an anchor to, or the anchor it would delete.
         crate::anchor_tools::draw_pen_hover(app, painter, &to_scr, accent, painter.ctx().input(|i| i.modifiers));
     }
-    // Pen path in progress, with handles of the last knot and a rubber band to the pointer.
-    if let Some(pen) = &app.ui.pen {
+    // Pen path in progress, with handles of the last knot and a rubber band to the pointer. While
+    // ⌘/Ctrl drags it, Direct Selection draws its preview instead.
+    let edited = matches!(&app.ui.direct_selection.drag, Some(crate::direct_select::Drag::Edit { target: crate::direct_select::PathRef::Pen, .. }));
+    if let Some(pen) = app.ui.pen.as_ref().filter(|_| !edited) {
         let mut pts = Vec::new();
         // A close-drag shows the first segment bending with the handle being pulled out.
         let mut knots = pen.knots.clone();
@@ -2026,6 +2108,84 @@ mod tests {
         path_selection_finish(&mut app, [50.0, 50.0], [60.0, 55.0]);
         let wp = app.session.active().unwrap().doc.work_path.clone().unwrap();
         assert_eq!((wp.subpaths[0].knots[0].anchor.x, wp.subpaths[0].knots[0].anchor.y), (30.0, 25.0));
+    }
+
+    /// #4721: a second Pen path joins the Work Path it was drawn after (still selected), as a new
+    /// subpath, instead of replacing it; a saved path that is selected takes it instead; with no
+    /// path selected, the new path replaces the Work Path, as in Photoshop.
+    #[test]
+    fn a_new_pen_path_joins_the_selected_path() {
+        let mut app = app();
+        app.ui.tool = Tool::Pen;
+        let draw = |app: &mut PhotocraftApp, x: f64| {
+            for (dx, dy) in [(0.0, 0.0), (40.0, 0.0), (40.0, 40.0)] {
+                pen_down(app, x + dx, 20.0 + dy);
+                pen_up(app);
+            }
+            pen_down(app, x + 0.5, 20.5); // close
+            pen_up(app);
+        };
+        let work = |app: &PhotocraftApp| app.session.active().unwrap().doc.work_path.clone().unwrap();
+        draw(&mut app, 20.0);
+        assert_eq!(app.ui.selected_path.as_deref(), Some("work"));
+        draw(&mut app, 120.0);
+        let wp = work(&app);
+        assert_eq!(wp.subpaths.len(), 2, "the first path stays");
+        assert!(wp.subpaths.iter().all(|s| s.closed && s.knots.len() == 3));
+        assert_eq!(wp.subpaths[0].knots[0].anchor.x, 20.0);
+        assert_eq!(wp.subpaths[1].knots[0].anchor.x, 120.0);
+        // One History step per path.
+        app.session.undo();
+        assert_eq!(work(&app).subpaths.len(), 1, "undo takes back only the second path");
+        app.session.redo();
+        // A selected saved path takes the next one.
+        app.run("path.set", json!({"name": "Saved", "path": {"subpaths": [{"knots": [[2, 2], [12, 2], [12, 8]]}]}})).unwrap();
+        app.ui.selected_path = Some("Saved".into());
+        draw(&mut app, 220.0);
+        let saved = app.session.active().unwrap().doc.paths.iter().find(|p| p.name == "Saved").unwrap().path.clone();
+        assert_eq!(saved.subpaths.len(), 2);
+        assert_eq!(work(&app).subpaths.len(), 2, "the Work Path is left alone");
+        assert_eq!(app.ui.selected_path.as_deref(), Some("Saved"));
+        // No path selected: a new Work Path replaces the old one.
+        app.ui.selected_path = None;
+        draw(&mut app, 320.0);
+        let wp = work(&app);
+        assert_eq!(wp.subpaths.len(), 1);
+        assert_eq!(wp.subpaths[0].knots[0].anchor.x, 320.0);
+        assert_eq!(app.ui.selected_path.as_deref(), Some("work"));
+    }
+
+    /// #4596: the close-path pointer shows where a click would close the path, and only there:
+    /// over the first anchor once the Pen has two anchors (the Curvature Pen three), not while an
+    /// anchor is being dragged.
+    #[test]
+    fn close_path_pointer_shows_where_a_click_closes() {
+        let mut app = app();
+        app.ui.tool = Tool::Pen;
+        assert!(!closes_path_at(&app, Tool::Pen, 20.0, 20.0), "no path yet");
+        pen_down(&mut app, 20.0, 20.0);
+        pen_up(&mut app);
+        assert!(!closes_path_at(&app, Tool::Pen, 20.0, 20.0), "one anchor: a click there doesn't close");
+        pen_down(&mut app, 120.0, 20.0);
+        assert!(!closes_path_at(&app, Tool::Pen, 20.0, 20.0), "not while dragging the new anchor");
+        pen_up(&mut app);
+        assert!(closes_path_at(&app, Tool::Pen, 21.0, 22.0), "over the first anchor");
+        assert!(!closes_path_at(&app, Tool::Pen, 120.0, 20.0) && !closes_path_at(&app, Tool::Pen, 60.0, 60.0), "the last anchor and empty canvas");
+        assert!(!closes_path_at(&app, Tool::CurvaturePen, 20.0, 20.0), "a Pen path isn't the Curvature Pen's");
+        pen_down(&mut app, 21.0, 22.0);
+        pen_up(&mut app);
+        assert!(app.ui.pen.is_none() && !closes_path_at(&app, Tool::Pen, 20.0, 20.0), "the click closed it");
+
+        app.ui.tool = Tool::CurvaturePen;
+        for (x, y) in [(20.0, 20.0), (120.0, 20.0)] {
+            curvature_down(&mut app, x, y);
+            curvature_up(&mut app);
+        }
+        assert!(!closes_path_at(&app, Tool::CurvaturePen, 20.0, 20.0), "two anchors: the Curvature Pen moves the first");
+        curvature_down(&mut app, 120.0, 120.0);
+        curvature_up(&mut app);
+        assert!(closes_path_at(&app, Tool::CurvaturePen, 20.0, 20.0));
+        assert!(!closes_path_at(&app, Tool::CurvaturePen, 120.0, 120.0));
     }
 
     #[test]

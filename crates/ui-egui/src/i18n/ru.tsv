@@ -17,6 +17,12 @@
 # letters; the trailing "…" of dialog commands is kept; the colon of a label ("Width:") becomes
 # the Russian typographic equivalent, with the space the source carries.
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	Цвет канала
+	Color Indicates:	Цветом обозначены:
+	Solidity:	Плотность:
+	Ink Characteristics	Характеристики краски
+
 # Menus
 
 # Guide layout dialog
@@ -120,7 +126,7 @@
 	Fill…	Выполнить заливку…
 	Stroke…	Обвести…
 	Content-Aware Fill…	Заливка с учётом содержимого…
-	Delete and Fill Selection	Удалить и заполнить выделение
+	Delete and Fill Selection	Удалить и залить выделение
 	Define Brush Preset…	Определить кисть…
 	Define Pattern…	Определить паттерн…
 	Define Custom Shape…	Определить свою фигуру…
@@ -337,6 +343,9 @@
 	Oil Paint…	Масляная живопись…
 	Blur Gallery	Галерея размытия
 	Field Blur…	Размытие по полю…
+# Field Blur pins (#3373)
+	No pin selected	Булавка не выбрана
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Щелкните изображение, чтобы добавить булавку; перетащите булавку, чтобы переместить ее, или ее кольцо, чтобы изменить размытие. Delete удаляет выбранную булавку.
 	Iris Blur…	Диафрагменное размытие…
 	Tilt-Shift…	Наклон-сдвиг…
 	Path Blur…	Размытие по контуру…
@@ -904,7 +913,7 @@
 	Assign working space	Назначить рабочее пространство
 	Use the embedded profile (instead of the working space)	Использовать встроенный профиль (вместо рабочего пространства)
 	Leave as is (don't color manage)	Оставить как есть (без управления цветом)
-	Discard the embedded profile (don't color manage)	Отклонить встроенный профиль (без управления цветом)
+	Discard the embedded profile (don't color manage)	Не использовать встроенный профиль (без управления цветом)
 	Embed Color Profile	Встроить цветовой профиль
 	Assign Profile…	Назначить профиль…
 	Convert to Profile…	Преобразовать в профиль…
@@ -1397,7 +1406,6 @@
 	Choose…	Выбрать…
 	Select Folder…	Выбрать папку…
 	Override Action "Save" Commands	Переопределить команды «Сохранить» в операции
-	File Naming	Именование файлов
 	Compatibility	Совместимость
 	Windows	Windows
 	Mac OS	Mac OS
@@ -1521,6 +1529,7 @@
 	Preset Name:	Имя набора:
 	Width and Height	Ширина и высота
 	Background Contents	Содержимое фона
+	Custom background color	Свой цвет фона
 	White	Белый
 	Background Color	Цвет фона
 	Transparent	Прозрачный
@@ -1989,6 +1998,7 @@
 	Solid Color…	Однотонный цвет…
 	Square	Квадрат
 	Stack Mode	Режим стопки
+	Choose Stack Mode:	Выберите режим стопки:
 	Standard Deviation	Стандартное отклонение
 	Statistics…	Статистика…
 	Stylistic Alternates	Стилистические варианты
@@ -2464,6 +2474,10 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Нет контура для создания выделения: нарисуйте его инструментом «Перо» или выберите на панели «Контуры».
 	Cancel opening	Отменить открытие
 	Cancelled opening {name}	Открытие {name} отменено
+	The document “{name}” does not have an embedded {mode} profile.	В документе «{name}» нет встроенного профиля {mode}.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Встроенный цветовой профиль документа «{name}» не совпадает с текущим рабочим пространством {mode}.
+	Embedded: {embedded}	Встроенный: {embedded}
+	Working: {working}	Рабочее пространство: {working}
 	Developing {name}	Обработка {name}
 	Cancelled {label}	{label}: отменено
 	Esc to cancel	Esc — отмена
@@ -2689,19 +2703,20 @@ cameraRaw	Roughness	Неровность
 	Fuchsia	Фуксия
 	Violet	Фиолетовый
 	Large document: redrawing on the CPU	Большой документ: перерисовка на CPU
+	Redrawing	Перерисовка
 	This redraw took {seconds} s on the CPU.	Эта перерисовка на CPU заняла {seconds} с.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Правки, затрагивающие весь документ, например режим наложения, непрозрачность или видимость слоя, перерисовывают его целиком.
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Слои не помещаются в бюджет памяти GPU. Увеличение параметра «Память» в разделе Настройки › Производительность повышает бюджет, но не больше четверти памяти этого компьютера.
 	The GPU compositor wasn't used: {reason}	Компоновщик GPU не использовался: {reason}
 fontWeight	Thin	Тонкий
-fontWeight	ExtraLight	Особо светлый
-fontWeight	Light	Светлый
+fontWeight	ExtraLight	Сверхтонкий
+fontWeight	Light	Лёгкий
 fontWeight	Regular	Обычный
 fontWeight	Medium	Средний
 fontWeight	SemiBold	Полужирный
 fontWeight	Bold	Жирный
-fontWeight	ExtraBold	Особо жирный
-fontWeight	Black	Чёрный
+fontWeight	ExtraBold	Сверхжирный
+fontWeight	Black	Сверхжирный (Black)
 fontWeight	Italic	Курсив
 
 # Pattern Stamp tool
@@ -2997,6 +3012,7 @@ curves	Smooth	Сгладить
 	Select the crop presets to delete	Выберите наборы параметров кадрирования для удаления
 	Enter a name for the crop preset	Введите имя набора параметров кадрирования
 	There is no crop size or ratio to save	Нет размера или соотношения сторон кадрирования для сохранения
+	Presentation	Представление
 
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	Щёлкните, чтобы разместить · Alt-щелчок или перетаскивание за пределы холста для удаления
@@ -3015,16 +3031,16 @@ curves	Smooth	Сгладить
 	The layer or its mask changed. Drag the mask onto the Trash again.	Слой или его маска изменились. Перетащите маску в корзину ещё раз.
 	Delete the vector mask?	Удалить векторную маску?
 # Counted status messages and labels (#3454; adapted from PR #3821)
-@plural	Exported {n} swatch to {file}|Exported {n} swatches to {file}	Экспортирован {n} образец в {file}|Экспортировано {n} образца в {file}|Экспортировано {n} образцов в {file}
-@plural	Imported {n} brush from {group}|Imported {n} brushes from {group}	Импортирована {n} кисть из {group}|Импортировано {n} кисти из {group}|Импортировано {n} кистей из {group}
-@plural	Imported {n} swatch from {file}|Imported {n} swatches from {file}	Импортирован {n} образец из {file}|Импортировано {n} образца из {file}|Импортировано {n} образцов из {file}
-@plural	Played {n} step|Played {n} steps	Воспроизведён {n} шаг|Воспроизведено {n} шага|Воспроизведено {n} шагов
-@plural	Updated {n} linked smart object changed on disk|Updated {n} linked smart objects changed on disk	Обновлён {n} связанный смарт-объект, изменённый на диске|Обновлено {n} связанных смарт-объекта, изменённых на диске|Обновлено {n} связанных смарт-объектов, изменённых на диске
+@plural	Exported {n} swatch to {file}|Exported {n} swatches to {file}	Экспортирован {n} образец в {file}|Экспортированы {n} образца в {file}|Экспортировано {n} образцов в {file}
+@plural	Imported {n} brush from {group}|Imported {n} brushes from {group}	Импортирована {n} кисть из {group}|Импортированы {n} кисти из {group}|Импортировано {n} кистей из {group}
+@plural	Imported {n} swatch from {file}|Imported {n} swatches from {file}	Импортирован {n} образец из {file}|Импортированы {n} образца из {file}|Импортировано {n} образцов из {file}
+@plural	Played {n} step|Played {n} steps	Воспроизведён {n} шаг|Воспроизведены {n} шага|Воспроизведено {n} шагов
+@plural	Updated {n} linked smart object changed on disk|Updated {n} linked smart objects changed on disk	Обновлён {n} связанный смарт-объект, изменённый на диске|Обновлены {n} связанных смарт-объекта, изменённых на диске|Обновлено {n} связанных смарт-объектов, изменённых на диске
 @plural	Saved for Web: {n} file|Saved for Web: {n} files	Сохранено для Web: {n} файл|Сохранено для Web: {n} файла|Сохранено для Web: {n} файлов
-@plural	{n} layer recorded by this comp was deleted. Update the comp, or clear the warning.|{n} layers recorded by this comp were deleted. Update the comp, or clear the warning.	Удалён {n} слой, записанный в этом варианте. Обновите вариант или сбросьте предупреждение.|Удалено {n} слоя, записанных в этом варианте. Обновите вариант или сбросьте предупреждение.|Удалено {n} слоёв, записанных в этом варианте. Обновите вариант или сбросьте предупреждение.
+@plural	{n} layer recorded by this comp was deleted. Update the comp, or clear the warning.|{n} layers recorded by this comp were deleted. Update the comp, or clear the warning.	Удалён {n} слой, записанный в этом варианте. Обновите вариант или сбросьте предупреждение.|Удалены {n} слоя, записанных в этом варианте. Обновите вариант или сбросьте предупреждение.|Удалено {n} слоёв, записанных в этом варианте. Обновите вариант или сбросьте предупреждение.
 @plural	{n} plane|{n} planes	{n} плоскость|{n} плоскости|{n} плоскостей
 @plural	{n} preset|{n} presets	{n} набор|{n} набора|{n} наборов
-@plural	{n} sample point removed|{n} sample points removed	Удалена {n} точка замера|Удалено {n} точки замера|Удалено {n} точек замера
+@plural	{n} sample point removed|{n} sample points removed	Удалена {n} точка замера|Удалены {n} точки замера|Удалено {n} точек замера
 @plural	{n} slice|{n} slices	{n} фрагмент|{n} фрагмента|{n} фрагментов
 @plural	{n} step|{n} steps	{n} шаг|{n} шага|{n} шагов
 @plural	{warning} (+{n} more brush preset warning)|{warning} (+{n} more brush preset warnings)	{warning} (и ещё {n} предупреждение о наборах кистей)|{warning} (и ещё {n} предупреждения о наборах кистей)|{warning} (и ещё {n} предупреждений о наборах кистей)
@@ -3035,7 +3051,7 @@ curves	Smooth	Сгладить
 	Medium Blue	Средне-синий
 	Light Gray	Светло-серый
 	Object Finder	Поиск объектов
-	No object found there — drag a rectangle around it	Там не найден объект — обведите его прямоугольником
+	No object found there — drag a rectangle around it	Объект не найден — обведите его прямоугольником
 	Remove after each stroke	Удалять после каждого штриха
 	Apply the removal ({key})	Применить удаление ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Штрихов к удалению: {n} (Enter применяет, Esc отменяет)
@@ -3048,11 +3064,13 @@ curves	Smooth	Сгладить
 	Save Actions…	Сохранить операции…
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
-@plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Загружена {n} операция из {file}|Загружено {n} операции из {file}|Загружено {n} операций из {file}
+@plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Загружена {n} операция из {file}|Загружены {n} операции из {file}|Загружено {n} операций из {file}
 @plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} шаг пока не имеет эквивалента в PhotoCraft|{n} шага пока не имеют эквивалента в PhotoCraft|{n} шагов пока не имеют эквивалента в PhotoCraft
-@plural	Saved {n} action to {file}|Saved {n} actions to {file}	Сохранена {n} операция в {file}|Сохранено {n} операции в {file}|Сохранено {n} операций в {file}
-@plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Пропущен {n} шаг без эквивалента в Photoshop|Пропущено {n} шага без эквивалента в Photoshop|Пропущено {n} шагов без эквивалента в Photoshop
+@plural	Saved {n} action to {file}|Saved {n} actions to {file}	Сохранена {n} операция в {file}|Сохранены {n} операции в {file}|Сохранено {n} операций в {file}
+@plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Пропущен {n} шаг без эквивалента в Photoshop|Пропущены {n} шага без эквивалента в Photoshop|Пропущено {n} шагов без эквивалента в Photoshop
 
+	File Naming	Именование файлов
+	Starting serial	Начальный порядковый номер
 # Actions panel: set folders, dialog toggle, Insert Stop
 	Insert Stop…	Вставить остановку…
 	Save Set…	Сохранить набор…
@@ -3064,3 +3082,24 @@ curves	Smooth	Сгладить
 	Step {step} is waiting for its dialog	Шаг {step} ожидает своего диалога
 @plural	{n} action|{n} actions	{n} операция|{n} операции|{n} операций
 	Auto Add/Delete	Автодобавление/удаление
+	ICO is limited to 256 × 256 pixels	ICO ограничен размером 256 × 256 пикселей
+
+# Dynamic selection context menu and appearance favorites
+	Select Inverse	Инвертировать выделение
+	Pro (Light)	Pro (светлая)
+	Pro (Light Gray)	Pro (светло-серая)
+
+# Measurement Log column headers (analysis_cmds::COLUMNS)
+	Label	Метка
+	Date and Time	Дата и время
+	Scale Units	Единицы масштаба
+	Scale Factor	Коэффициент масштаба
+	Area	Площадь
+	Perimeter	Периметр
+	Circularity	Круглость
+	Gray Value (Minimum)	Уровень серого (минимум)
+	Gray Value (Maximum)	Уровень серого (максимум)
+	Gray Value (Mean)	Уровень серого (среднее)
+	Gray Value (Median)	Уровень серого (медиана)
+	Integrated Density	Интегральная плотность
+	Length	Длина

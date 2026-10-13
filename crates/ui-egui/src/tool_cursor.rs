@@ -10,6 +10,7 @@ use std::sync::Arc;
 use egui::{CursorIcon, CustomCursorImage, Painter, Pos2, Stroke, Vec2, vec2};
 
 mod hand;
+mod zoom;
 
 /// The largest cursor bitmap (physical pixels; points on macOS, see [`native_scale`]); a larger tip
 /// paints its outline instead, with a small OS crosshair at the hotspot, and that outline trails
@@ -20,13 +21,15 @@ mod hand;
 /// bounded for hostile brush sizes or zooms.
 const MAX_SIDE: u16 = if cfg!(any(target_os = "windows", target_os = "macos")) { 2048 } else { 255 };
 
-/// What a bitmap cursor shows. `Hand` is the Hand tool's open hand, or its fist while it drags.
-/// `Outline` is a brush tip outline: closed rings of logical-point offsets from the hotspot.
+/// What a bitmap cursor shows. `Hand` is the Hand tool's open hand, or its fist while it drags;
+/// `Zoom` is the Zoom tool's magnifier, with a minus when it zooms out. `Outline` is a brush tip
+/// outline: closed rings of logical-point offsets from the hotspot.
 #[derive(Clone, Debug, PartialEq)]
 enum Shape {
     Circle { radius: f32, centre: bool },
     Crosshair { length: f32, gap: f32 },
     Hand { closed: bool },
+    Zoom { out: bool },
     Outline { rings: Arc<[Vec<Vec2>]>, centre: bool },
 }
 
@@ -77,6 +80,16 @@ pub(crate) fn outline(painter: &Painter, at: Pos2, rings: Vec<Vec<Vec2>>, centre
     show(painter, at, Shape::Outline { rings: rings.into(), centre })
 }
 
+/// The Pen's pointer over the anchor a click would close the path on (#4596): the centre cross
+/// with a small ring below right, as Photoshop's pen shows a small circle there.
+pub(crate) fn close_path(painter: &Painter, at: Pos2) -> CursorIcon {
+    outline(painter, at, vec![close_ring()], true)
+}
+
+fn close_ring() -> Vec<Vec2> {
+    (0..16).map(|i| (i as f32 / 16.0 * std::f32::consts::TAU, vec2(9.0, 9.0))).map(|(a, c)| c + vec2(a.cos(), a.sin()) * 3.5).collect()
+}
+
 /// Can this pass show an OS cursor bitmap? eframe's immediate viewports and its web integration
 /// don't upload cursor images; every desktop root viewport does (winit custom cursors).
 fn native(ctx: &egui::Context) -> bool {
@@ -104,6 +117,21 @@ fn hand_with(ctx: &egui::Context, closed: bool, bitmap: bool) -> CursorIcon {
         return CursorIcon::None;
     }
     if closed { CursorIcon::Grabbing } else { CursorIcon::Grab }
+}
+
+/// The Zoom tool's pointer: a magnifier with a plus, or a minus when it zooms `out`. winit maps
+/// `ZoomIn` and `ZoomOut` to the plain arrow on Windows (#3735), so there it is a bitmap; macOS and
+/// the Linux themes already draw magnifiers.
+pub(crate) fn zoom(ctx: &egui::Context, out: bool) -> CursorIcon {
+    zoom_with(ctx, out, cfg!(target_os = "windows") && ctx.viewport_id() == egui::ViewportId::ROOT)
+}
+
+fn zoom_with(ctx: &egui::Context, out: bool, bitmap: bool) -> CursorIcon {
+    if bitmap && let Some(image) = cached_image(ctx, &Shape::Zoom { out }, native_scale(ctx)) {
+        ctx.set_cursor_image(Some(image));
+        return CursorIcon::None;
+    }
+    if out { CursorIcon::ZoomOut } else { CursorIcon::ZoomIn }
 }
 
 fn show(painter: &Painter, at: Pos2, shape: Shape) -> CursorIcon {
@@ -166,7 +194,7 @@ fn paint(painter: &Painter, at: Pos2, shape: &Shape) {
                 }
             }
             // Only ever a bitmap: without one the OS draws its own grab cursors.
-            Shape::Hand { .. } => {}
+            Shape::Hand { .. } | Shape::Zoom { .. } => {}
         }
     }
 }
@@ -214,6 +242,7 @@ fn extent(shape: &Shape) -> Option<f32> {
             if *centre { e.max(3.0) } else { e }
         }
         Shape::Hand { .. } => hand::HALF,
+        Shape::Zoom { .. } => zoom::HALF,
     })
 }
 
@@ -255,13 +284,23 @@ fn coverage(shape: &Shape, dx: f32, dy: f32, scale: f32) -> (f32, f32) {
         }
         Shape::Hand { closed } => {
             let (lx, ly) = (dx / scale, dy / scale);
-            let edge = hand::shape(*closed, lx, ly) * scale;
-            let inside = (0.5 - edge).clamp(0.0, 1.0);
-            let outline = (scale + 0.5 - edge).clamp(0.0, 1.0);
-            let crease = (0.45 * scale + 0.5 - hand::crease(*closed, lx, ly) * scale).clamp(0.0, 1.0);
-            (inside * (1.0 - crease), outline.max(inside * crease))
+            silhouette(hand::shape(*closed, lx, ly), hand::crease(*closed, lx, ly), 0.45, scale)
+        }
+        Shape::Zoom { out } => {
+            let (lx, ly) = (dx / scale, dy / scale);
+            silhouette(zoom::shape(lx, ly), zoom::glyph(*out, lx, ly), 0.75, scale)
         }
     }
+}
+
+/// A light filled shape with a 1 px dark outline and dark lines `half_width` logical pixels either
+/// side of its creases, from their signed distances in logical pixels.
+fn silhouette(edge: f32, crease: f32, half_width: f32, scale: f32) -> (f32, f32) {
+    let edge = edge * scale;
+    let inside = (0.5 - edge).clamp(0.0, 1.0);
+    let outline = (scale + 0.5 - edge).clamp(0.0, 1.0);
+    let crease = (half_width * scale + 0.5 - crease * scale).clamp(0.0, 1.0);
+    (inside * (1.0 - crease), outline.max(inside * crease))
 }
 
 /// A 1 px light line with a 1 px dark one on each side, `distance` physical pixels from its centre.

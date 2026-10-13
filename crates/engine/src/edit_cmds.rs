@@ -182,6 +182,11 @@ fn active_id(s: &Session) -> Result<LayerId> {
 }
 
 /// The pixels of `src` inside the selection (or all of them), as a straight-alpha surface.
+///
+/// Built tile by tile (#4516). A source tile that the copy takes whole (inside the canvas, fully
+/// selected or no selection, already in the clip's format) is shared copy-on-write, so a plain
+/// Copy or Select All, Copy costs a pointer per tile; only the other tiles are read and written,
+/// one at a time, instead of the whole area as one `f32` buffer.
 fn lift(src: &Surface, sel: Option<&Surface>, canvas: Rect) -> Result<Clip> {
     let fmt = src.format();
     let with_alpha = PixelFormat::new(fmt.mode, fmt.sample, true);
@@ -195,11 +200,35 @@ fn lift(src: &Surface, sel: Option<&Surface>, canvas: Rect) -> Result<Clip> {
     }
     // Only the selected area is read: converting the whole layer (a 24 MP Background gaining
     // alpha) cost about a second per Layer via Copy (#668).
-    let n = with_alpha.channels();
+    let mut shared = Vec::new();
+    for tc in area.tiles() {
+        let tr = tc.rect().intersect(&area);
+        if fmt.alpha
+            && tr == tc.rect()
+            && let Some(tile) = src.tile(tc)
+            && sel.is_none_or(|m| crate::fill_cmds::Mask::of(m, tc).full(tr))
+        {
+            // Reading and writing it back would give the same bytes.
+            shared.push((tc, tile.clone()));
+            continue;
+        }
+        let px = lift_region(src, sel, tr, with_alpha.channels())?;
+        out.try_write_region(tr, &px).map_err(|e| EngineError::Other(format!("not enough memory while copying pixels ({e}); the document was not changed")))?;
+    }
+    out.put_tiles(shared);
+    out.prune();
+    let bounds = out.content_bounds();
+    Ok(Clip { surface: out, bounds, layers: None, resolution: None })
+}
+
+/// [`lift`] over one rectangle: `src`'s pixels with alpha (`n` channels), the selection
+/// multiplied into it.
+fn lift_region(src: &Surface, sel: Option<&Surface>, r: Rect, n: usize) -> Result<Vec<f32>> {
+    let fmt = src.format();
     let mut px = if fmt.alpha {
-        crate::allocation::read_region(src, area, "copying pixels")?
+        crate::allocation::read_region(src, r, "copying pixels")?
     } else {
-        let opaque = crate::allocation::read_region(src, area, "copying pixels")?;
+        let opaque = crate::allocation::read_region(src, r, "copying pixels")?;
         let k = fmt.channels();
         let len = opaque
             .len()
@@ -220,16 +249,15 @@ fn lift(src: &Surface, sel: Option<&Surface>, canvas: Rect) -> Result<Clip> {
         v
     };
     if let Some(m) = sel {
-        let mask = crate::allocation::read_region(m, area, "applying the selection to copied pixels")?;
+        let mask = crate::allocation::read_region(m, r, "applying the selection to copied pixels")?;
         let mk = m.format().channels().max(1);
-        for (p, a) in px.chunks_exact_mut(n).zip(mask.chunks_exact(mk)) {
-            p[n - 1] *= a[0];
+        for (p, a) in px.chunks_exact_mut(n.max(1)).zip(mask.chunks_exact(mk)) {
+            if let Some(alpha) = p.last_mut() {
+                *alpha *= a[0];
+            }
         }
     }
-    out.try_write_region(area, &px).map_err(|e| EngineError::Other(format!("not enough memory while copying pixels ({e}); the document was not changed")))?;
-    out.prune();
-    let bounds = out.content_bounds();
-    Ok(Clip { surface: out, bounds, layers: None, resolution: None })
+    Ok(px)
 }
 
 /// Merged composite of the visible document as a surface in the document's format.
@@ -853,6 +881,32 @@ fn guide_cmd(s: &mut Session, p: &Value, op: &str) -> Result<Value> {
     Ok(Value::Null)
 }
 
+/// Farthest the ruler zero point may sit from the image, in document pixels.
+const MAX_RULER_ORIGIN: f64 = 1.0e7;
+
+/// Move the rulers' zero point (`view.setRulerOrigin`), or put it back at the image's top-left
+/// (`view.resetRulerOrigin`, `p` = None). Undoable like the guides.
+fn ruler_origin_cmd(s: &mut Session, p: Option<&Value>) -> Result<Value> {
+    let origin = match p {
+        None => [0.0, 0.0],
+        Some(p) => {
+            let axis = |k: &str| {
+                p.get(k)
+                    .and_then(Value::as_f64)
+                    .filter(|v| v.is_finite() && v.abs() <= MAX_RULER_ORIGIN)
+                    .ok_or_else(|| EngineError::Other(format!("`{k}` must be a number of pixels within ±{MAX_RULER_ORIGIN}")))
+            };
+            [axis("x")?, axis("y")?]
+        }
+    };
+    let label = if p.is_some() { "Set Ruler Origin" } else { "Reset Ruler Origin" };
+    s.edit(label, |doc, _| {
+        doc.ruler_origin = origin;
+        Ok(())
+    })?;
+    Ok(json!({"x": origin[0], "y": origin[1]}))
+}
+
 pub fn specs() -> Vec<CommandSpec> {
     macro_rules! spec {
         ($id:expr, $label:expr, $menu:expr, $sc:expr, $params:expr, $enabled:expr, $run:expr) => {
@@ -959,6 +1013,18 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         spec!("view.deleteGuide", "Delete Guide", &[], None, r##"{"orientation":"horizontal|vertical","index":n}"##, has_doc, |s, p| guide_cmd(s, p, "delete")),
         spec!("view.clearGuides", "Clear Guides", &["View"], None, "{}", has_doc, |s, p| guide_cmd(s, p, "clear")),
+        spec!(
+            "view.setRulerOrigin",
+            "Set Ruler Origin",
+            &[],
+            None,
+            r##"{"x":px,"y":px} (the rulers' zero point in document pixels; the rulers and Info panel measure from it)"##,
+            has_doc,
+            |s, p| ruler_origin_cmd(s, Some(p))
+        ),
+        spec!("view.resetRulerOrigin", "Reset Ruler Origin", &[], None, "{} (zero point back at the image's top-left)", has_doc, |s, _| ruler_origin_cmd(
+            s, None
+        )),
     ]
 }
 
@@ -1887,6 +1953,28 @@ mod tests {
         assert!(s.execute("view.moveGuide", json!({"orientation": "vertical", "index": 3, "position": 1})).is_err());
     }
 
+    /// #2955: the rulers' zero point is set and reset by command, undoable, and bad params are
+    /// refused without touching the document.
+    #[test]
+    fn ruler_origin_is_set_reset_and_undoable() {
+        let mut s = session();
+        assert_eq!(s.active().unwrap().doc.ruler_origin, [0.0, 0.0]);
+        assert_eq!(s.execute("view.setRulerOrigin", json!({"x": 40, "y": 12.5})).unwrap(), json!({"x": 40.0, "y": 12.5}));
+        assert_eq!(s.active().unwrap().doc.ruler_origin, [40.0, 12.5]);
+        s.execute("view.resetRulerOrigin", json!({})).unwrap();
+        assert_eq!(s.active().unwrap().doc.ruler_origin, [0.0, 0.0]);
+        s.undo();
+        assert_eq!(s.active().unwrap().doc.ruler_origin, [40.0, 12.5]);
+        for bad in [json!({}), json!({"x": 1}), json!({"x": "a", "y": 2}), json!({"x": 1e300, "y": 0}), json!({"x": -2e7, "y": 0}), json!(null), json!([1, 2])]
+        {
+            assert!(s.execute("view.setRulerOrigin", bad.clone()).is_err(), "{bad} is refused");
+        }
+        assert_eq!(s.active().unwrap().doc.ruler_origin, [40.0, 12.5]);
+        let mut empty = Session::new();
+        assert!(empty.execute("view.setRulerOrigin", json!({"x": 1, "y": 2})).is_err());
+        assert!(empty.execute("view.resetRulerOrigin", json!({})).is_err());
+    }
+
     /// The last guide added in `orientation` for `position`.
     fn new_guide(s: &mut Session, orientation: &str, position: Value) -> f64 {
         s.execute("view.newGuide", json!({"orientation": orientation, "position": position})).unwrap();
@@ -2023,5 +2111,90 @@ mod tests {
         let psd = photocraft_io::export(doc, "psd", &Default::default()).unwrap().bytes;
         let back = photocraft_io::import("g.psd", &psd).unwrap().document.guides;
         assert_eq!(wide(back.vertical[0]), far, "1032 stores 1/32 px");
+    }
+
+    /// `lift` as it was before #4516: the whole area through one `f32` buffer. The oracle for
+    /// the tiled version.
+    fn lift_reference(src: &Surface, sel: Option<&Surface>, canvas: Rect) -> Clip {
+        let fmt = src.format();
+        let with_alpha = PixelFormat::new(fmt.mode, fmt.sample, true);
+        let area = match sel {
+            Some(m) => m.content_bounds().intersect(&canvas),
+            None => src.content_bounds().intersect(&canvas),
+        };
+        let mut out = Surface::new(with_alpha);
+        if area.is_empty() {
+            return Clip { surface: out, bounds: Rect::EMPTY, layers: None, resolution: None };
+        }
+        let px = lift_region(src, sel, area, with_alpha.channels()).unwrap();
+        out.try_write_region(area, &px).unwrap();
+        out.prune();
+        let bounds = out.content_bounds();
+        Clip { surface: out, bounds, layers: None, resolution: None }
+    }
+
+    fn noise(fmt: PixelFormat, r: Rect, seed: u32) -> Surface {
+        let mut s = Surface::new(fmt);
+        let n = r.width() as usize * r.height() as usize * fmt.channels();
+        let data: Vec<f32> = (0..n as u32)
+            .map(|i| {
+                let mut h = seed.wrapping_mul(0x9e37_79b9) ^ i.wrapping_mul(0x85eb_ca6b);
+                h ^= h >> 13;
+                h = h.wrapping_mul(0xc2b2_ae35);
+                (h >> 16) as f32 / 65535.0
+            })
+            .collect();
+        s.write_region(r, &data);
+        s
+    }
+
+    fn assert_same_clip(a: &Clip, b: &Clip, what: &str) {
+        assert_eq!(a.bounds, b.bounds, "{what}: bounds");
+        assert_eq!(a.surface.format(), b.surface.format(), "{what}: format");
+        let r = a.bounds.union(&b.bounds);
+        if !r.is_empty() {
+            let (pa, pb) = (a.surface.read_region(r), b.surface.read_region(r));
+            assert!(pa.iter().zip(&pb).all(|(x, y)| x.to_bits() == y.to_bits()), "{what}: pixels differ");
+        }
+    }
+
+    /// The tiled `lift` gives exactly the old result (#4516): with and without alpha, at every
+    /// depth, with no selection, Select All, a partial feathered selection and a selection off
+    /// the tile grid, and for content reaching past the canvas.
+    #[test]
+    fn tiled_lift_matches_the_whole_area_lift() {
+        use photocraft_color::{ColorMode, SampleType};
+        let canvas = Rect::new(0, 0, 700, 600);
+        for sample in [SampleType::U8, SampleType::U16, SampleType::F32] {
+            for alpha in [true, false] {
+                let fmt = PixelFormat::new(ColorMode::Rgb, sample, alpha);
+                let src = noise(fmt, Rect::new(-40, -30, 760, 640), 7);
+                let mut all = Surface::new(PixelFormat::GRAY8);
+                all.fill_rect(canvas, &[1.0]);
+                let mut partial = Surface::new(PixelFormat::GRAY8);
+                partial.fill_rect(Rect::new(100, 50, 600, 550), &[1.0]);
+                partial.write_region(Rect::new(90, 40, 610, 50), &vec![0.5; 520 * 10]);
+                let off_grid = noise(PixelFormat::GRAY8, Rect::new(13, 270, 333, 290), 9);
+                for (name, sel) in [("no selection", None), ("select all", Some(&all)), ("partial", Some(&partial)), ("off grid", Some(&off_grid))] {
+                    let what = format!("{sample:?} alpha {alpha} {name}");
+                    let new = lift(&src, sel, canvas).unwrap();
+                    assert_same_clip(&new, &lift_reference(&src, sel, canvas), &what);
+                }
+            }
+        }
+    }
+
+    /// Copy shares the layer's whole tiles instead of copying them.
+    #[test]
+    fn copy_shares_whole_tiles_with_the_layer() {
+        let src = noise(PixelFormat::RGBA8, Rect::new(0, 0, 1024, 768), 3);
+        let canvas = Rect::new(0, 0, 1024, 768);
+        let mut all = Surface::new(PixelFormat::GRAY8);
+        all.fill_rect(canvas, &[1.0]);
+        for sel in [None, Some(&all)] {
+            let clip = lift(&src, sel, canvas).unwrap();
+            let shared = src.tiles().filter(|(c, t)| clip.surface.tile(**c).is_some_and(|o| std::sync::Arc::ptr_eq(o, t))).count();
+            assert_eq!(shared, src.tile_count(), "every tile is shared");
+        }
     }
 }

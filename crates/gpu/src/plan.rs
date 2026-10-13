@@ -1739,7 +1739,8 @@ fn gradient_rows(g: &Gradient) -> Vec<[f32; 4096]> {
 fn check_gradient_stops<T>(stops: &[(f32, T)]) -> Result<(), Unsupported> {
     let mut positions: Vec<f32> = stops.iter().map(|s| s.0).collect();
     positions.sort_by(f32::total_cmp);
-    if positions.windows(2).any(|w| w[0] == w[1]) {
+    // A 4096-entry LUT cannot keep two stops that fall in the same entry apart (#3053).
+    if positions.windows(2).any(|w| (w[1] - w[0]).abs() < 1.0 / 4095.0) {
         return Err(Unsupported("coincident gradient stops (composited on the CPU)".into()));
     }
     Ok(())
@@ -1790,6 +1791,12 @@ mod tests {
     use super::*;
     use photocraft_color::{Color, ColorMode, SampleType};
     use photocraft_geom::Size;
+
+    #[test]
+    fn stops_closer_than_one_lut_step_stay_on_the_cpu() {
+        assert!(check_gradient_stops(&[(0.4999_f32, ()), (0.5, ())]).is_err());
+        assert!(check_gradient_stops(&[(0.0_f32, ()), (1.0, ())]).is_ok());
+    }
 
     #[test]
     fn lab_channel_adjustments_defer_to_the_cpu_in_lab_documents() {

@@ -872,7 +872,9 @@ fn distressing_and_remove_white_shapes_import_and_play() {
     assert!(!d.is_background(l.id), "Layer From Background");
     let surf = l.surface().unwrap();
     assert!(surf.sample_channel(2, 2, 1) < 0.01, "white is cleared");
-    assert!((surf.sample_channel(20, 15, 1) - (1.0 - 32.0 / 255.0)).abs() < 0.02, "the ink keeps its darkness as opacity");
+    // #202020 is about 22 in the default (Dot Gain 20 %-compatible) working gray.
+    let ink = surf.sample_channel(20, 15, 1);
+    assert!((ink - (1.0 - 22.0 / 255.0)).abs() < 0.02, "the ink keeps its darkness as opacity: {ink}");
     // An image that opened as a normal layer has no Background: the step leaves it as it is.
     let mut s = Session::new();
     s.execute("file.new", json!({"width": 40, "height": 30, "background": "transparent"})).unwrap();

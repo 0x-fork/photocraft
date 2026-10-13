@@ -1315,15 +1315,59 @@ fn shapeless_effect_maps_cover_only_the_band_being_rendered() {
 // ---------- PSD-fidelity effect semantics (fitted on Photoshop composites) ----------
 
 #[test]
-fn stroke_corners_follow_the_5x5_chamfer_metric() {
-    // Square 10..30, outside stroke 3: pixel (9, 7) is offset (1, 3) from the corner pixel.
-    // Photoshop measures √5 + 1 = 3.236 there (exact distance 3.162): coverage 3 + 1 − 3.236.
+fn stroke_edges_use_the_chamfer_when_narrow_and_the_exact_distance_when_wide() {
+    // #3646: a narrow stroke's outer edge keeps the 5 × 5 chamfer, whose sub-pixel seeding
+    // Photoshop matches at small offsets (see `stroke_outside_exact`); only a wide one — where the
+    // chamfer's octagon facets (see `a_wide_outside_stroke_is_round_not_a_polygon`) — uses the
+    // exact Euclidean transform.
+    // Square 10..30, outside stroke 3: (9, 7) is offset (1, 3) from the corner pixel. Photoshop
+    // measures √5 + 1 = 3.236 there, so coverage is 3 + 1 − 3.236 = 0.764 (the exact distance is
+    // 3.162, coverage 0.838).
     let d = fx_doc(vec![stroke(3.0, StrokePosition::Outside)]);
     let a = 1.0 - px(&d, 9, 7)[0]; // blue stroke over white: red channel drops by coverage
     assert!((a - 0.764).abs() < 0.01, "{a}");
-    // (2, 2) stays Euclidean (two diagonal steps).
+    // (2, 2) is the same in both metrics (two diagonal steps).
     let a = 1.0 - px(&d, 8, 8)[0];
     assert!((a - 1.0).abs() < 0.01, "{a}");
+}
+
+#[test]
+fn the_stroke_metric_switches_at_the_fitted_threshold() {
+    // The widest outside stroke any Photoshop oracle matches with the chamfer is 18 px
+    // (ag-psd read-write/strokes): its octagon deviates 0.48 px from a circle there; 20 px keeps
+    // it. Wider strokes (the 60 px #3646 case) are round.
+    assert!(!crate::effects::stroke_outside_exact(18.0));
+    assert!(crate::effects::stroke_outside_exact(crate::effects::STROKE_CHAMFER_MAX));
+    assert!(crate::effects::stroke_outside_exact(60.0));
+}
+
+#[test]
+fn a_wide_outside_stroke_is_round_not_a_polygon() {
+    // A point source dilated by 60 px must stay a circle. The 5 × 5 chamfer's octagonal level set
+    // made the boundary swing ~2.5 px at this radius (~10 px at 245 px) — the "low-poly" #3646.
+    let mut d = doc_white(170, 170);
+    let mut l = solid_layer("dot", Rect::new(85, 85, 86, 86), [1.0, 0.0, 0.0, 1.0]);
+    l.effects.items = vec![stroke(60.0, StrokePosition::Outside)];
+    d.layers.push(l);
+    let buf = render(&d, Rect::new(0, 0, 170, 170));
+    let at = |x: i32, y: i32| buf.px[(y as usize) * 170 + x as usize];
+    let (mut lo, mut hi) = (f64::MAX, 0.0f64);
+    let stroke_at = |x: i32, y: i32| x >= 0 && y >= 0 && x < 170 && y < 170 && at(x, y)[2] > 0.5 && at(x, y)[0] < 0.5;
+    for k in 0..72 {
+        let th = (k as f64) * std::f64::consts::TAU / 72.0;
+        let (dx, dy) = (th.cos(), th.sin());
+        let mut r = 0.0f64;
+        let mut t = 0.0f64;
+        while t < 84.0 {
+            if stroke_at((85.0 + dx * t).round() as i32, (85.0 + dy * t).round() as i32) {
+                r = t;
+            }
+            t += 0.25;
+        }
+        lo = lo.min(r);
+        hi = hi.max(r);
+    }
+    assert!(hi - lo <= 2.0, "the 60 px stroke boundary swings {lo}..{hi} px — a polygon, not a circle (#3646)");
 }
 
 #[test]
@@ -2569,4 +2613,28 @@ fn effect_cache_follows_a_group_childs_blend_if() {
     let cold = render(&d, d.bounds());
     assert!(before.px != cold.px, "Blend If should change the group's shadow");
     assert!(warm.px == cold.px, "stale group effect maps after a child's Blend If changed");
+}
+
+#[test]
+fn shape_layer_bounds_includes_vector_bounds_clipped_to_canvas_and_preserves_effects() {
+    let canvas = Rect::new(0, 0, 100, 100);
+    let subpath = photocraft_doc::vector::Subpath::polygon(&[(-20.0, -20.0), (50.0, -20.0), (50.0, 50.0), (-20.0, 50.0)]);
+    let path = photocraft_doc::vector::Path { subpaths: vec![subpath], ..Default::default() };
+    let sh = photocraft_doc::vector::ShapeLayer {
+        path,
+        fill: Some(photocraft_doc::Fill::Solid(photocraft_doc::Color::BLACK)),
+        stroke: Some(photocraft_doc::vector::ShapeStroke { width: 4.0, opacity: 1.0, ..Default::default() }),
+        ..Default::default()
+    };
+    let mut layer = Layer::new("shape", LayerContent::Shape(sh));
+
+    // Vector bounds reach outside canvas (-24..54), but layer_bounds clips vector bounds to canvas:
+    let b = layer_bounds(&layer, canvas);
+    assert_eq!(b, Rect::new(0, 0, 54, 54), "shape vector bounds must clip to canvas and not reach past it");
+
+    // When the shape has layer effects, layer_bounds preserves effects union handling:
+    layer.effects.items = vec![Effect::DropShadow(Shadow { size: 5.0, spread: 0.0, ..shadow(5.0, 90.0) })];
+    let b_fx = layer_bounds(&layer, canvas);
+    assert!(!b_fx.is_empty());
+    assert!(b_fx.contains_rect(&b));
 }

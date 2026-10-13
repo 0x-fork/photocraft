@@ -162,6 +162,31 @@ pub fn consume(ctx: &egui::Context, sc: &KeyboardShortcut) -> bool {
 pub const NAV_COMMANDS: [&str; 4] = ["view.zoomIn", "view.zoomOut", "view.fitOnScreen", "view.actualPixels"];
 
 /// ⌘+ / ⌘- / ⌘0 / ⌘1 (or their Edit › Keyboard Shortcuts overrides). Returns true when one ran.
+/// Layer › New › Layer's shortcut with ⌥ added (⌥⇧⌘N by default) makes the layer at once, as in
+/// Photoshop: the plain shortcut asks with the New Layer dialog first, like the menu item, and
+/// the Layers panel button's click and ⌥-click are the same pair the other way round (#4794).
+/// A command bound to that key itself keeps it.
+fn new_layer_without_dialog(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
+    const NEW_LAYER: &str = crate::new_layer_ui::COMMAND;
+    let Some(mut sc) = effective_shortcut(app, NEW_LAYER, default_shortcut(NEW_LAYER).as_deref()).and_then(|s| parse(&s)) else {
+        return false;
+    };
+    if sc.modifiers.alt {
+        return false;
+    }
+    sc.modifiers.alt = true;
+    let pressed =
+        ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key, pressed: true, modifiers, .. } if key_matches(&sc, *key, *modifiers))));
+    if !pressed || crate::shortcut_dispatch::bindings(app).iter().any(|(_, b)| *b == sc) || !consume(ctx, &sc) {
+        return false;
+    }
+    if let Err(e) = app.run(NEW_LAYER, json!({})) {
+        app.ui.status = e;
+        app.ui.status_error = true;
+    }
+    true
+}
+
 fn nav_keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
     for id in NAV_COMMANDS {
         let sc = crate::menus::UI_COMMANDS.iter().find(|c| c.0 == id).and_then(|c| parse(app.session.prefs().shortcut(id, c.3)?));
@@ -314,6 +339,8 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if crate::menu_nav::is_open(ctx) || crate::widgets::dropdown_list_open(ctx) {
         return;
     }
+    // ⌘Z in a filter or adjustment dialog steps the dialog's settings, not the document (#4697).
+    crate::edit_history::keys(app, ctx);
     // Stroke Options owns plain navigation/activation keys, including while its child
     // dropdown is open. This runs before Popup::show registers the current pass, so use
     // the editor's explicit state; otherwise Escape deselects or commits a pending Pen path.
@@ -478,6 +505,10 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
     // Inline type editing eats text and navigation keys; ⌘-shortcuts still reach the menus.
     let editing = crate::type_tool::handle_keys(app, ctx);
+    // ⌥⇧⌘N: a new layer at once, without the New Layer dialog ⇧⌘N opens (#4794).
+    if new_layer_without_dialog(app, ctx) {
+        return;
+    }
     // Registry, UI and menu-catalogue shortcuts (see [`crate::shortcut_dispatch::bindings`]).
     if dispatch_pressed(app, ctx, focus, editing) {
         return;

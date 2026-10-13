@@ -65,7 +65,7 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
     let thumbs = app.channel_thumbs(&ctx);
     // The active layer's mask (Photoshop lists it, in italics, below the colour channels).
-    let masked = active_layer.and_then(|id| doc.layer(id)).filter(|l| l.mask.is_some()).cloned();
+    let masked = active_layer.and_then(|id| doc.layer(id)).filter(|l| l.mask.is_some());
     let mask_tex = masked.as_ref().and_then(|l| Some(app.mask_thumb(&ctx, &doc, l.id, l.mask.as_ref()?)));
     let mask_targeted = masked.is_some()
         && (app.ui.mask_target || view.target == ChannelTarget::LayerMask)
@@ -217,8 +217,16 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     actions.push(("channel.target".into(), json!({ "channel": target })));
                 }
             }
+            // Like Photoshop: double-clicking the thumbnail opens Channel Options (where an alpha
+            // channel becomes a spot channel, #3761), double-clicking the name renames it.
+            let on_thumb = resp.interact_pointer_pos().is_some_and(|p| p.x < cell.right() + 4.0);
+            if row == Row::QuickMask && resp.double_clicked() {
+                actions.push(("ui.channelOptions".into(), json!("quickMask")));
+            }
             if let Row::Alpha(i) = row {
-                if resp.double_clicked() {
+                if resp.double_clicked() && on_thumb {
+                    actions.push(("ui.channelOptions".into(), json!(i)));
+                } else if resp.double_clicked() {
                     ctx.data_mut(|d| d.insert_temp(rename_id, name.clone()));
                 }
                 if let Some(mut text) = ctx.data(|d| d.get_temp::<String>(rename_id)) {
@@ -250,6 +258,7 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             item(ui, a, "Duplicate Channel", "channel.duplicate", json!({ "channel": i }));
                             item(ui, a, "Delete Channel", "channel.delete", json!({ "channel": i }));
                             item(ui, a, "Rename Channel…", "ui.renameChannel", json!(i));
+                            item(ui, a, "Channel Options…", "ui.channelOptions", json!(i));
                             ui.separator();
                             if ch.spot.is_some() {
                                 item(ui, a, "Merge Spot Channel", "channel.mergeSpot", json!({ "channel": i }));
@@ -261,6 +270,7 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         }
                         Row::QuickMask => {
                             item(ui, a, "Exit Quick Mask", "select.editInQuickMaskMode", json!({ "on": false }));
+                            item(ui, a, "Quick Mask Options…", "ui.channelOptions", json!("quickMask"));
                             indicates_items(ui, a, json!("quickMask"), doc.quick_mask.as_ref().map(|q| q.indicates).unwrap_or_default());
                             overlay_colors(ui, a, json!("quickMask"));
                         }
@@ -275,7 +285,7 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     }
                     ui.separator();
                     item(ui, a, "New Channel…", "channel.new", json!({}));
-                    item(ui, a, "New Spot Channel…", "channel.newSpot", json!({}));
+                    item(ui, a, "New Spot Channel…", "ui.newSpotChannel", json!({}));
                     ui.separator();
                     item(ui, a, "Split Channels", "channel.split", json!({}));
                     item(ui, a, "Merge Channels…", "channel.merge", json!({}));
@@ -335,6 +345,14 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 let row = Row::Alpha(p.as_u64().unwrap_or(0) as usize);
                 ctx.data_mut(|d| d.insert_temp(egui::Id::new(("chan-rename", doc.id.0, format!("{:?}", row.reference()))), i.name.clone()));
             }
+            continue;
+        }
+        if id == "ui.newSpotChannel" {
+            crate::channel_options_ui::open_new_spot(app);
+            continue;
+        }
+        if id == "ui.channelOptions" {
+            crate::channel_options_ui::open(app, &p);
             continue;
         }
         let _ = app.run(&id, p);

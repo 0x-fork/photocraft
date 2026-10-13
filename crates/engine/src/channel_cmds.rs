@@ -152,6 +152,7 @@ pub(crate) fn fix_view(st: &mut DocState) {
 fn touch(st: &mut DocState) {
     let clean = st.saved_revision == st.revision;
     st.revision += 1;
+    st.view_revision += 1;
     if clean {
         st.saved_revision = st.revision;
     }
@@ -194,8 +195,8 @@ pub fn channel_format(doc: &Document) -> PixelFormat {
     PixelFormat::new(ColorMode::Grayscale, doc.depth, false)
 }
 
-/// Next free "Alpha N" name.
-fn next_alpha_name(doc: &Document, base: &str) -> String {
+/// Next free "`base` N" name (Alpha 1, Spot Color 2, …).
+pub fn next_alpha_name(doc: &Document, base: &str) -> String {
     // `channels.len() + 1` candidates always include a free one.
     (1..=doc.channels.len() + 1).map(|n| format!("{base} {n}")).find(|n| !doc.channels.iter().any(|c| &c.name == n)).unwrap_or_else(|| base.to_string())
 }
@@ -746,15 +747,16 @@ pub(crate) fn clear_color_channel(doc: &mut Document, id: LayerId, k: usize, bac
     if area.is_empty() {
         return Ok(());
     }
-    let cover = sel.map(|m| (m.read_region(area), m.format().channels().max(1)));
-    let mut px = surf.read_region(area);
+    let cover =
+        sel.as_ref().map(|m| crate::allocation::read_region(m, area, "clearing a channel selection").map(|v| (v, m.format().channels().max(1)))).transpose()?;
+    let mut px = crate::allocation::read_region(surf, area, "clearing a channel")?;
     for (i, p) in px.chunks_exact_mut(n).enumerate() {
         let w = cover.as_ref().map_or(1.0, |(m, mk)| m.get(i * mk).copied().unwrap_or(0.0));
         if let Some(c) = p.get_mut(k) {
             *c += (v - *c) * w.clamp(0.0, 1.0);
         }
     }
-    surf.write_region(area, &px);
+    surf.try_write_region(area, &px)?;
     surf.prune();
     Ok(())
 }

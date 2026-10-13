@@ -1409,6 +1409,29 @@ mod tests {
     }
 
     #[test]
+    fn grayscale_conversion_matches_photoshop() {
+        // Photoshop 27.11, default Color Settings (working gray Dot Gain 20 %): Image > Mode >
+        // Grayscale turns sRGB 64 / 128 / 192 grey and pure red into 46 / 105 / 177 / 107.
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 4, "height": 1, "background": "white"})).unwrap();
+        s.edit("paint", |doc, _| {
+            let l = doc.layers.first_mut().unwrap();
+            let surf = l.surface_mut().unwrap();
+            for (x, c) in [[64.0, 64.0, 64.0], [128.0, 128.0, 128.0], [192.0, 192.0, 192.0], [255.0, 0.0, 0.0]].iter().enumerate() {
+                surf.fill_rect(Rect::new(x as i32, 0, x as i32 + 1, 1), &[c[0] / 255.0, c[1] / 255.0, c[2] / 255.0, 1.0]);
+            }
+            Ok(())
+        })
+        .unwrap();
+        s.execute("image.mode.grayscale", json!({})).unwrap();
+        let surf = doc(&s).layers[0].surface().unwrap();
+        for (x, want) in [46.0, 105.0, 177.0, 107.0].iter().enumerate() {
+            let got = surf.pixel(x as i32, 0)[0] * 255.0;
+            assert!((got - want).abs() <= 1.5, "pixel {x}: {got} vs {want}");
+        }
+    }
+
+    #[test]
     fn mode_and_depth_conversions() {
         let mut s = session();
         s.execute("image.mode.grayscale", json!({})).unwrap();

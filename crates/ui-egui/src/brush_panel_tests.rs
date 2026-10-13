@@ -380,6 +380,26 @@ fn options_bar_edits_are_one_set_brush_per_gesture() {
 }
 
 #[test]
+fn brush_mode_dropdown_shows_outside_the_pro_themes() {
+    // #4512: only the Pro themes drew the Brush's Mode; the Pencil has it in every theme.
+    use egui_kittest::kittest::{NodeT, Queryable};
+    let mut h = options_bar_harness(crate::state::Tool::Brush);
+    let n = h.state().session.journal.len();
+    assert!(h.query_by_label("Mode").is_some(), "the Brush's Mode label");
+    h.get_all_by_role(egui::accesskit::Role::ComboBox)
+        .find(|c| c.accesskit_node().value().as_deref() == Some("Normal"))
+        .expect("the Brush's Mode dropdown")
+        .click();
+    h.run();
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(3);
+    assert_eq!(h.state().session.tools.brush.mode, photocraft_doc::BlendMode::Dissolve);
+    let j = &h.state().session.journal;
+    assert_eq!(j.len(), n + 1, "{:?}", &j[n..]);
+    assert_eq!(j[n].0, "tools.setBrush");
+}
+
+#[test]
 fn airbrush_smoothing_options_and_symmetry_buttons_work() {
     // #1177: in the default (Photoshop) theme these options-bar buttons did nothing.
     use egui_kittest::kittest::Queryable;
@@ -538,6 +558,51 @@ fn toggle_value(app: &PhotocraftApp, section: usize) -> bool {
         _ => panic!("not a checkbox-only row"),
     };
     brush.pointer(path).and_then(Value::as_bool).expect("the checkbox has a boolean brush setting")
+}
+
+#[test]
+fn hue_jitter_amount_edits_keep_percentage_units_and_command_routing() {
+    use egui::accesskit::Role;
+    use egui_kittest::kittest::{NodeT, Queryable};
+
+    let mut h = harness(0, 5);
+    h.state_mut()
+        .session
+        .execute(
+            "tools.setBrush",
+            json!({"brush": {"colorDynamics": {
+                "enabled": true, "hueJitter": 0.37, "saturationJitter": 0.23, "brightnessJitter": 0.41, "purity": -0.16
+            }}}),
+        )
+        .unwrap();
+    let before = h.state().session.tools.brush.clone();
+    h.run_steps(2);
+    let field = h.query_all_by_role(Role::SpinButton).find(|n| n.accesskit_node().numeric_value() == Some(37.0)).unwrap();
+    let center = field.rect().center();
+    field.click();
+    h.key_press(egui::Key::ArrowUp);
+    h.run_steps(2);
+    assert_eq!(h.state().session.tools.brush.color_dynamics.hue_jitter, 0.38);
+    h.key_press(egui::Key::Enter);
+    // Click near the high end of the track, then beyond its right edge while dragging.
+    let from = egui::pos2(center.x, center.y + 24.0);
+    h.event(egui::Event::PointerMoved(from));
+    h.event(egui::Event::PointerButton { pos: from, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
+    h.run_steps(1);
+    let to = from + vec2(200.0, 0.0);
+    h.event(egui::Event::PointerMoved(to));
+    h.run_steps(1);
+    h.event(egui::Event::PointerButton { pos: to, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
+    h.run_steps(2);
+    let mut expected = before;
+    expected.color_dynamics.hue_jitter = 1.0;
+    assert_eq!(h.state().session.tools.brush, expected, "the amount clamps at 100% and preserves neighboring settings");
+    assert_eq!(last_journal(h.state()).unwrap().0, "tools.setBrush");
+    let mut replay = photocraft_engine::Session::new();
+    for (id, params) in h.state().session.journal.clone() {
+        replay.execute(&id, params).unwrap();
+    }
+    assert_eq!(replay.tools.brush, expected, "the edit remains replayable through the engine");
 }
 
 #[test]
@@ -972,7 +1037,7 @@ fn app_harness_with_language(lang: crate::i18n::Lang) -> Harness<'static, Photoc
 }
 
 #[test]
-fn brush_sections_paint_simplified_chinese_labels_and_heading() {
+fn brush_sections_paint_simplified_chinese_labels() {
     fn collect_text(shape: &egui::Shape, out: &mut Vec<String>) {
         match shape {
             egui::Shape::Text(text) => out.push(text.galley.job.text.clone()),
@@ -997,8 +1062,27 @@ fn brush_sections_paint_simplified_chinese_labels_and_heading() {
         assert!(painted.iter().any(|s| s == translated), "{name} must paint as {translated}");
         assert!(!painted.iter().any(|s| s == name), "{name} must not paint in English");
     }
-    let heading = crate::i18n::tr(zh, "Brush Tip Shape");
-    assert_eq!(painted.iter().filter(|s| s.as_str() == heading).count(), 2, "both the section row and heading are translated");
+}
+
+/// #3477: the options pane has no title of its own. The selected row in the section list is the
+/// only place the section's name is painted.
+#[test]
+fn options_pane_does_not_repeat_the_selected_sections_name() {
+    fn collect_text(shape: &egui::Shape, out: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(text) => out.push(text.galley.job.text.clone()),
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| collect_text(s, out)),
+            _ => {}
+        }
+    }
+    for (section, (name, _)) in SECTIONS.iter().enumerate().take(CHECKBOX_ONLY_START) {
+        let h = harness(0, section);
+        let mut painted = Vec::new();
+        for shape in &h.output().shapes {
+            collect_text(&shape.shape, &mut painted);
+        }
+        assert_eq!(painted.iter().filter(|s| s.as_str() == *name).count(), 1, "{name} is painted once, in the section list");
+    }
 }
 
 #[test]
