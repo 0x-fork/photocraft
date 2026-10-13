@@ -157,6 +157,65 @@ fn the_hand_is_a_bitmap_only_where_the_os_has_none() {
 }
 
 #[test]
+fn zoom_bitmaps_are_outlined_magnifiers_centred_on_the_lens_at_each_dpi() {
+    for scale in [1.0, 1.25, 1.5, 2.0, 3.0] {
+        let plus = rasterize(&Shape::Zoom { out: false }, scale).unwrap();
+        let minus = rasterize(&Shape::Zoom { out: true }, scale).unwrap();
+        for image in [&plus, &minus] {
+            let [x, y] = image.hotspot;
+            assert_eq!(image.size, [2 * x + 1, 2 * y + 1]);
+            assert_eq!(image.rgba.len(), usize::from(image.size[0]).pow(2) * 4);
+            assert!(image.size[0] <= (34.0 * scale) as u16, "no bigger than a stock cursor at {scale}: {:?}", image.size);
+            assert_eq!(alpha(image, 0, 0), 0, "nothing at the corners");
+            let handle = (9.0 * scale) as u16;
+            assert!(alpha(image, x + handle, y + handle) > 230, "the handle reaches down and right");
+            assert_eq!(alpha(image, x - handle, y - handle), 0, "and only that way");
+            let pixels = image.rgba.as_chunks::<4>().0;
+            assert!(pixels.iter().any(|p| p[3] > 230 && p[0] > 230), "a white lens");
+            assert!(pixels.iter().any(|p| p[3] > 100 && p[0] < 25), "with a black outline, readable on white");
+        }
+        let side = usize::from(plus.size[0]);
+        let red = |image: &CustomCursorImage, x: u16, y: u16| image.rgba[(usize::from(y) * side + usize::from(x)) * 4];
+        let [x, y] = plus.hotspot;
+        let up = y - (2.5 * scale) as u16;
+        assert!(red(&plus, x, y) < 60 && red(&minus, x, y) < 60, "both glyphs cross the hotspot");
+        assert!(red(&plus, x, up) < 60, "the plus has a vertical arm");
+        assert!(red(&minus, x, up) > 200, "the minus does not");
+    }
+}
+
+#[test]
+fn hostile_scales_get_no_zoom_bitmap() {
+    for scale in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.0, 0.0, f32::MAX, 500.0] {
+        assert!(rasterize(&Shape::Zoom { out: false }, scale).is_none(), "{scale}");
+        assert!(rasterize(&Shape::Zoom { out: true }, scale).is_none(), "{scale}");
+    }
+}
+
+/// winit shows the plain arrow for `ZoomIn` and `ZoomOut` on Windows (#3735).
+#[test]
+fn the_magnifier_is_a_bitmap_only_where_the_os_has_none() {
+    let ctx = egui::Context::default();
+    ctx.add_plugin(CursorLifecycle);
+    for out in [false, true] {
+        let native = frame(&ctx, |ui| {
+            let icon = zoom_with(ui.ctx(), out, false);
+            ui.ctx().set_cursor_icon(icon);
+        });
+        assert_eq!(native.platform_output.cursor_icon, if out { CursorIcon::ZoomOut } else { CursorIcon::ZoomIn });
+        assert!(native.platform_output.cursor_image.is_none(), "macOS and the Linux themes draw their own magnifiers");
+
+        let bitmap = frame(&ctx, |ui| {
+            let icon = zoom_with(ui.ctx(), out, true);
+            ui.ctx().set_cursor_icon(icon);
+        });
+        let image = bitmap.platform_output.cursor_image.expect("Windows has no stock magnifier");
+        assert_eq!(image.rgba, rasterize(&Shape::Zoom { out }, 1.0).unwrap().rgba);
+        assert_eq!(bitmap.platform_output.cursor_icon, CursorIcon::Crosshair, "visible fallback if the OS rejects a bitmap");
+    }
+}
+
+#[test]
 fn unchanged_geometry_reuses_the_os_upload_and_dpi_invalidates_it() {
     let ctx = egui::Context::default();
     let shape = Shape::Circle { radius: 20.0, centre: false };
@@ -227,6 +286,9 @@ fn write_cursor_preview() {
         (Shape::Hand { closed: true }, 1.0),
         (Shape::Hand { closed: false }, 1.5),
         (Shape::Hand { closed: true }, 2.0),
+        (Shape::Zoom { out: false }, 1.0),
+        (Shape::Zoom { out: true }, 1.0),
+        (Shape::Zoom { out: false }, 2.0),
     ];
     let (width, height) = (600_usize, cases.len() * 100);
     let mut rgba = vec![255; width * height * 4];
@@ -314,6 +376,24 @@ fn brush_hover_uses_an_os_bitmap_that_survives_motion_but_not_tool_or_panel_chan
         assert!(hand.is_none(), "the OS draws the hand");
         assert_eq!(h.output().platform_output.cursor_icon, CursorIcon::Grab);
     }
+
+    // Likewise the Zoom tool's magnifier, a minus while ⌥ is held (#3735).
+    h.state_mut().ui.tool = crate::Tool::Zoom;
+    for out in [false, true] {
+        let modifiers = if out { Modifiers::ALT } else { Modifiers::NONE };
+        h.event(Event::ModifiersChanged(modifiers));
+        h.event(Event::PointerMoved(p + vec2(1.0, 0.0)));
+        h.run_steps(2);
+        let image = h.output().platform_output.cursor_image.clone();
+        if cfg!(target_os = "windows") {
+            let image = image.expect("the magnifier reaches the OS as a bitmap");
+            assert_eq!(image.rgba, rasterize(&Shape::Zoom { out }, h.ctx.pixels_per_point()).unwrap().rgba, "out: {out}");
+        } else {
+            assert!(image.is_none(), "the OS draws the magnifier");
+            assert_eq!(h.output().platform_output.cursor_icon, if out { CursorIcon::ZoomOut } else { CursorIcon::ZoomIn });
+        }
+    }
+    h.event(Event::ModifiersChanged(Modifiers::NONE));
 
     h.state_mut().ui.tool = crate::Tool::Brush;
     h.state_mut().run("prefs.set", json!({"path": "cursors.painting", "value": "standard"})).unwrap();

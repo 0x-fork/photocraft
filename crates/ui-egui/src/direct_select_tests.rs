@@ -225,3 +225,39 @@ fn the_convert_point_tool_shows_the_path_overlay() {
     assert!(!super::shows(&app, Modifiers::NONE));
     assert!(super::shows(&app, Modifiers::COMMAND));
 }
+
+/// One key press through the canvas arrow keys, as egui delivers it.
+fn press(app: &mut PhotocraftApp, key: egui::Key, mods: Modifiers) -> bool {
+    let ctx = egui::Context::default();
+    ctx.input_mut(|i| {
+        i.modifiers = mods;
+        i.events.push(egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: mods });
+    });
+    crate::move_mods::arrow_keys(app, &ctx)
+}
+
+/// #4486: the arrow keys nudge the selected anchors 1 px (⇧ 10 px), one history step per press,
+/// as in Photoshop. With no anchor selected they leave the path alone.
+#[test]
+fn arrow_keys_nudge_the_selected_anchors() {
+    let mut app = app(Tool::DirectSelection);
+    with_path(&mut app);
+    // The path stays targeted after a click on empty canvas, but no anchor is selected.
+    click(&mut app, [40.0, 120.0], Modifiers::NONE);
+    click(&mut app, [80.0, 80.0], Modifiers::NONE);
+    assert_eq!(app.ui.direct_selection.target, Some(PathRef::Work));
+    let n = steps(&app);
+    assert!(!press(&mut app, egui::Key::ArrowRight, Modifiers::NONE), "no anchor selected: not Direct Selection's key");
+    assert_eq!(steps(&app), n);
+    click(&mut app, [40.0, 120.0], Modifiers::NONE);
+    click(&mut app, [120.0, 120.0], Modifiers::SHIFT);
+    let (before, n) = (work(&app), steps(&app));
+    assert!(press(&mut app, egui::Key::ArrowRight, Modifiers::NONE));
+    assert_eq!((anchor(&app, 2), anchor(&app, 3)), (Point::new(121.0, 120.0), Point::new(41.0, 120.0)));
+    assert!(press(&mut app, egui::Key::ArrowDown, Modifiers::SHIFT));
+    assert_eq!((anchor(&app, 2), anchor(&app, 3)), (Point::new(121.0, 130.0), Point::new(41.0, 130.0)), "⇧ nudges 10 px");
+    assert_eq!(anchor(&app, 0), Point::new(40.0, 40.0), "unselected anchors stay");
+    assert_eq!(steps(&app), n + 2, "one history step per press");
+    assert!(app.session.undo() && app.session.undo());
+    assert_eq!(work(&app), before);
+}
