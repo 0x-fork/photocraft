@@ -58,11 +58,23 @@ impl Buffer {
     }
     pub fn to_rgba8(&self) -> Rgba8Image {
         let mut img = Rgba8Image::new(self.rect.width(), self.rect.height());
-        for (o, p) in img.pixels.as_chunks_mut::<4>().0.iter_mut().zip(&self.px) {
-            for (dst, v) in o.iter_mut().zip(p) {
-                *dst = (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+        let quantize = |out: &mut [[u8; 4]], src: &[[f32; 4]]| {
+            for (o, p) in out.iter_mut().zip(src) {
+                for (dst, v) in o.iter_mut().zip(p) {
+                    *dst = (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+                }
             }
+        };
+        let out = img.pixels.as_chunks_mut::<4>().0;
+        // In parallel off wasm: a 24 MP composite took 120 ms on one core (the CPU canvas,
+        // previews, thumbnails and 8-bit exports all come through here).
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use rayon::prelude::*;
+            out.par_chunks_mut(16 * 1024).zip(self.px.par_chunks(16 * 1024)).for_each(|(o, p)| quantize(o, p));
         }
+        #[cfg(target_arch = "wasm32")]
+        quantize(out, &self.px);
         img
     }
     /// Flatten over an opaque background colour.
@@ -671,6 +683,19 @@ pub fn layer_bounds(layer: &Layer, canvas: Rect) -> Rect {
         LayerContent::Fill(_) => canvas,
         _ => {
             let b = layer.surface().map_or(Rect::EMPTY, bounds::content_bounds);
+            let b = match &layer.content {
+                LayerContent::Shape(sh) => {
+                    let p = shape_bounds(sh).map(|r| r.intersect(&canvas)).unwrap_or(Rect::EMPTY);
+                    if !b.is_empty() && !p.is_empty() {
+                        b.union(&p)
+                    } else if !p.is_empty() {
+                        p
+                    } else {
+                        b
+                    }
+                }
+                _ => b,
+            };
             // Effects follow a filled shape's outline, also where its fill is transparent.
             match effect_outline(layer).and_then(|_| paint_bounds(layer)).filter(|_| effects::has_effects(layer)) {
                 Some(p) if !b.is_empty() => b.union(&p),
@@ -765,6 +790,17 @@ pub fn paint_bounds(layer: &Layer) -> Option<Rect> {
     let LayerContent::Shape(sh) = &layer.content else { return None };
     let (x0, y0, x1, y1) = sh.path.control_bounds()?;
     let r = Rect::new(x0.floor() as i32, y0.floor() as i32, x1.floor() as i32, y1.floor() as i32);
+    (!r.is_empty()).then_some(r)
+}
+
+/// The bounding box of a shape layer's vector content: its path control bounds plus stroke width.
+pub fn shape_bounds(sh: &photocraft_doc::ShapeLayer) -> Option<Rect> {
+    if sh.fill.is_none() && sh.stroke.as_ref().is_none_or(|s| s.width <= 0.0 || s.opacity <= 0.0) {
+        return None;
+    }
+    let (x0, y0, x1, y1) = sh.path.control_bounds()?;
+    let stroke_margin = sh.stroke.as_ref().filter(|s| s.opacity > 0.0).map_or(0.0, |s| s.width.ceil()) as i32;
+    let r = Rect::new(x0.floor() as i32, y0.floor() as i32, x1.ceil() as i32, y1.ceil() as i32).inflate(stroke_margin);
     (!r.is_empty()).then_some(r)
 }
 

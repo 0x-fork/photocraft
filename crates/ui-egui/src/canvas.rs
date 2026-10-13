@@ -50,11 +50,15 @@ fn draw_clone_preview(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &Vie
         (h.finish(), radius.to_bits(), at.map(f64::to_bits))
     });
     let key = format!(
-        "{:?}:{}:{:?}:{rect:?}:{map:?}:{}:{}:{}:{}:{tip_key:?}",
-        st.doc.id, st.revision, st.active_layer, app.ui.tool_options.clone_sample, display_key, overlay.invert, overlay.blend
+        "{:?}:{}:{:?}:{rect:?}:{map:?}:{}:{}:{}:{}:{}:{tip_key:?}",
+        st.doc.id, st.revision, st.active_layer, app.ui.tool_options.clone_sample, display_key, overlay.invert, overlay.blend, app.ui.view.pattern_preview
     );
     if app.clone_preview.as_ref().is_none_or(|c| c.key != key) {
-        let Ok(mut buf) = photocraft_engine::retouch_cmds::clone_preview(&app.session, rect, &map, &app.ui.tool_options.clone_sample) else { return };
+        let Ok(mut buf) =
+            photocraft_engine::retouch_cmds::clone_preview_periodic(&app.session, rect, &map, &app.ui.tool_options.clone_sample, app.ui.view.pattern_preview)
+        else {
+            return;
+        };
         if overlay.invert {
             for px in &mut buf.px {
                 for c in px.iter_mut().take(3) {
@@ -66,7 +70,9 @@ fn draw_clone_preview(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &Vie
         // composite, whatever Sample reads), so Difference turns black where they line up.
         if overlay.blend != "normal" {
             let here = Mapping { source: (0.0, 0.0), anchor: (0.0, 0.0), m: [1.0, 0.0, 0.0, 1.0] };
-            let Ok(under) = photocraft_engine::retouch_cmds::clone_preview(&app.session, rect, &here, "all") else { return };
+            let Ok(under) = photocraft_engine::retouch_cmds::clone_preview_periodic(&app.session, rect, &here, "all", app.ui.view.pattern_preview) else {
+                return;
+            };
             for (px, d) in buf.px.iter_mut().zip(&under.px) {
                 *px = overlay_blend(&overlay.blend, *px, *d);
             }
@@ -990,18 +996,51 @@ fn checker(app: &mut PhotocraftApp, ctx: &egui::Context) -> egui::TextureId {
 }
 
 fn buffer_to_image(buf: &photocraft_compose::Buffer) -> egui::ColorImage {
-    let img = buf.to_rgba8();
-    egui::ColorImage::from_rgba_unmultiplied([img.width as usize, img.height as usize], &img.pixels)
+    // `buf.to_rgba8()` then `color_image`, fused: one parallel pass, no intermediate image.
+    let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+    let mut pixels = vec![egui::Color32::TRANSPARENT; buf.px.len()];
+    let convert = |out: &mut [egui::Color32], src: &[[f32; 4]]| {
+        for (o, p) in out.iter_mut().zip(src) {
+            *o = egui::Color32::from_rgba_unmultiplied(q(p[0]), q(p[1]), q(p[2]), q(p[3]));
+        }
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use rayon::prelude::*;
+        pixels.par_chunks_mut(16 * 1024).zip(buf.px.par_chunks(16 * 1024)).for_each(|(o, s)| convert(o, s));
+    }
+    #[cfg(target_arch = "wasm32")]
+    convert(&mut pixels, &buf.px);
+    egui::ColorImage::new([buf.rect.width() as usize, buf.rect.height() as usize], pixels)
+}
+
+/// `img` as an egui image: `ColorImage::from_rgba_unmultiplied`, in parallel off wasm. egui's own
+/// conversion runs on one thread and took 37 ms of a 24 MP canvas or preview update, three times
+/// the quantize before it.
+fn color_image(img: &photocraft_raster::Rgba8Image) -> egui::ColorImage {
+    let size = [img.width as usize, img.height as usize];
+    let src = img.pixels.as_chunks::<4>().0;
+    let mut pixels = vec![egui::Color32::TRANSPARENT; src.len()];
+    let convert = |out: &mut [egui::Color32], src: &[[u8; 4]]| {
+        for (o, &[r, g, b, a]) in out.iter_mut().zip(src) {
+            *o = egui::Color32::from_rgba_unmultiplied(r, g, b, a);
+        }
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use rayon::prelude::*;
+        pixels.par_chunks_mut(16 * 1024).zip(src.par_chunks(16 * 1024)).for_each(|(o, s)| convert(o, s));
+    }
+    #[cfg(target_arch = "wasm32")]
+    convert(&mut pixels, src);
+    egui::ColorImage::new(size, pixels)
 }
 
 /// A composite as monitor pixels: document profile → monitor profile (nothing to do in the
 /// common sRGB-on-sRGB case).
 pub(crate) fn display_image(display: Option<&photocraft_engine::display_color::CanvasDisplay>, buf: &photocraft_compose::Buffer) -> egui::ColorImage {
     match display {
-        Some(d) if !d.is_identity() => {
-            let img = d.to_rgba8(buf);
-            egui::ColorImage::from_rgba_unmultiplied([img.width as usize, img.height as usize], &img.pixels)
-        }
+        Some(d) if !d.is_identity() => color_image(&d.to_rgba8(buf)),
         _ => buffer_to_image(buf),
     }
 }
@@ -1488,7 +1527,7 @@ pub(crate) fn effect_reach(layers: &[photocraft_doc::Layer]) -> i32 {
 /// GPU path: make sure document `idx` is current in the GPU canvas. Edits draw their damage;
 /// unchanged lower-stack composites can be reused by the compositor inside that region.
 /// Returns false if there is no GPU canvas.
-fn ensure_gpu(app: &mut PhotocraftApp, idx: usize, visible: DRect) -> bool {
+fn ensure_gpu(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, visible: DRect) -> bool {
     let Some(gpu) = app.gpu.clone() else { return false };
     let Some((revision, last_damage, id)) = app
         .session
@@ -1520,6 +1559,8 @@ fn ensure_gpu(app: &mut PhotocraftApp, idx: usize, visible: DRect) -> bool {
         app.navigator_gpu.remove(&id);
     }
     let size = [doc.size.width, doc.size.height];
+    // A full CPU redraw running in the background: show the blocks it has finished.
+    crate::background_redraw::poll(app, &gpu, id);
     let cache = app.canvases.entry((id, GPU_OUTPUT)).or_insert(CanvasCache {
         revision: 0,
         texture: None,
@@ -1542,22 +1583,37 @@ fn ensure_gpu(app: &mut PhotocraftApp, idx: usize, visible: DRect) -> bool {
     // Display textures for a canvas this large would not fit the GPU: the reduced CPU canvas
     // draws it (checked before the memory budget, which walks the history, every frame).
     if !gpu.fits_canvas(&doc) {
+        crate::background_redraw::cancel(app, id);
         return false;
     }
     let partial = present && damage.is_some();
     gpu_budget(app, &gpu, idx, partial, visible);
-    let r = gpu.refresh(id.0, &doc, if partial { damage } else { None }, display.as_deref());
+    let defer = crate::background_redraw::enabled(app);
+    let r = gpu.refresh_with(id.0, &doc, if partial { damage } else { None }, display.as_deref(), defer);
     if r.kind == "lost" || r.kind == crate::gpu_canvas::REFRESH_OVER_BUDGET {
         // The device is gone (`gpu_status` then drops the GPU canvas) or the canvas is over the
         // texture budget: draw this frame on the CPU path.
+        crate::background_redraw::cancel(app, id);
         return false;
+    }
+    if r.kind == crate::gpu_canvas::REFRESH_DEFERRED {
+        // Composited off the UI thread, the visible part first (#4024).
+        let region = if partial { damage.unwrap_or(doc.bounds()) } else { doc.bounds() };
+        crate::background_redraw::start(app, ctx, &gpu, doc.clone(), display.clone(), visible, region, r.fallback.clone());
+    } else if partial {
+        // The edit drew its damage; blocks of a running redraw still to come follow the edit.
+        crate::background_redraw::restart(app, ctx, &gpu, doc.clone(), display.clone(), visible);
+    } else {
+        crate::background_redraw::cancel(app, id);
     }
     if let Some(e) = &r.fallback
         && app.perf.gpu_fallback.as_deref() != Some(e.as_str())
     {
         log::info!("{e}; using the CPU compositor");
     }
-    app.perf.record(r.kind, r.px, r.composite_ms, r.upload_ms);
+    if r.kind != crate::gpu_canvas::REFRESH_DEFERRED {
+        app.perf.record(r.kind, r.px, r.composite_ms, r.upload_ms);
+    }
     if r.kind == "full" {
         crate::notices::slow_cpu_refresh(app, id.0, r.composite_ms + r.upload_ms, r.fallback.as_deref());
     }
@@ -1885,6 +1941,7 @@ pub(crate) fn retain_gpu_documents(app: &mut PhotocraftApp) {
         live.extend(crate::adjust_preview::gpu_keys(app));
         gpu.retain(&live);
     }
+    crate::background_redraw::retain(app);
     // Upload markers must not outlive the resources they describe: native reopen can reuse
     // both the document ID and revision before the next frame while a preview dialog stays open.
     let documents = app.session.documents();
@@ -2874,7 +2931,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 offset: [0.0, 0.0],
             };
             paint_gpu_view(&painter, rect, params, &pattern);
-        } else if gpu_ok && ensure_gpu(app, idx, visible_doc_rect(&xf)) {
+        } else if gpu_ok && ensure_gpu(app, &ctx, idx, visible_doc_rect(&xf)) {
             on_gpu = true;
             app.perf.gpu = true;
             // Shadow, checkerboard, document and pixel grid in one custom shader (gpu_canvas.rs).
@@ -3157,7 +3214,9 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         // Select and Mask's Refine Edge Brush paints on the image.
         let refine_brushing =
             primary && app.ui.dialogs.last().is_some_and(|d| crate::select_mask_view::owns(&d.fields) && crate::select_mask_view::brush_on(&d.fields));
-        let hand = app.ui.tool == Tool::Hand && !picking && !range_picking && !refine_brushing;
+        // Field Blur's pins are placed and dragged on the image (`blur_pins`).
+        let pinning = primary && app.ui.dialogs.last().is_some_and(|d| crate::blur_pins::owns(&d.fields));
+        let hand = app.ui.tool == Tool::Hand && !picking && !range_picking && !refine_brushing && !pinning;
         if let Some(d) = crate::dialogs::pan_delta(&ctx, rect, hand) {
             let d = xf.unmap_vec(d) / (view.zoom / ppp);
             view.center[0] -= d.x;
@@ -3181,6 +3240,12 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                     crate::color_picker_ui::sample_at(app, d[0], d[1]);
                 }
             }
+        } else if pinning
+            && !middle
+            && let Some(p) = crate::dialogs::free_pointer_over(&ctx, rect)
+        {
+            let press = crate::dialogs::free_press(&ctx, rect);
+            crate::blur_pins::canvas(app, &ctx, &xf, p, press);
         } else if refine_brushing
             && !middle
             && let Some(p) = crate::dialogs::free_pointer_over(&ctx, rect)
@@ -4388,6 +4453,7 @@ fn draw_tool_state(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform,
         crate::tool_feedback::draw_ants(painter, &pts, false);
     }
     crate::crop_straighten::draw(app, painter, |p| xf.to_screen(p[0] as f32, p[1] as f32), hover);
+    crate::blur_pins::draw(app, painter, xf);
     if let Some(c) = app.ui.crop_rect {
         let deg = crate::crop_ui::angle(app);
         let shield = crate::crop_shield::current(app, painter.ctx());
@@ -5718,6 +5784,33 @@ mod tabs_tests;
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn display_image_matches_egui_unmultiplied_conversion() {
+        // Several parallel pieces and a ragged one; translucent, out-of-range and NaN values.
+        let n: usize = 3 * 16 * 1024 + 77;
+        let px: Vec<[f32; 4]> = (0..n)
+            .map(|i| {
+                let v = match i % 9 {
+                    0 => f32::NAN,
+                    1 => -0.5,
+                    2 => 3.25,
+                    _ => (i % 1001) as f32 / 1000.0,
+                };
+                [v, (i % 257) as f32 / 256.0, 1.0 - (i % 113) as f32 / 112.0, (i % 6) as f32 / 5.0]
+            })
+            .collect();
+        let buf = photocraft_compose::Buffer { rect: photocraft_geom::Rect::new(0, 0, n as i32, 1), px };
+        let reference = |img: photocraft_raster::Rgba8Image| egui::ColorImage::from_rgba_unmultiplied([img.width as usize, img.height as usize], &img.pixels);
+        assert_eq!(super::display_image(None, &buf).pixels, reference(buf.to_rgba8()).pixels);
+        let mut doc = photocraft_doc::Document::new("t", photocraft_geom::Size::new(1, 1), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
+        doc.icc_profile = Some(photocraft_cms::Builtin::AdobeRgbCompat.profile().to_bytes());
+        let mut color = photocraft_engine::color_cmds::ColorState::default();
+        color.settings.monitor_profile = "srgb".into();
+        let d = color.canvas_display(&doc).unwrap();
+        assert!(!d.is_identity());
+        assert_eq!(super::display_image(Some(&d), &buf).pixels, reference(d.to_rgba8(&buf)).pixels);
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn every_filter_previews_off_the_ui_thread_and_a_newer_value_cancels_the_old() {
@@ -6359,6 +6452,16 @@ mod tests {
         assert!(mesh.vertices.iter().all(|v| v.pos.distance(center) <= 10.01));
         assert_eq!(app.session.active().unwrap().revision, revision);
         assert!(app.session.presets.clone.active().anchor.is_none());
+        let ordinary_key = app.clone_preview.as_ref().unwrap().key.clone();
+        app.ui.view.pattern_preview = true;
+        let mut periodic_output = ctx.run_ui(Default::default(), |ui| {
+            let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("clone-test")));
+            draw_clone_preview(&mut app, &painter, &xf, [32.0, 32.0], None);
+        });
+        assert_ne!(app.clone_preview.as_ref().unwrap().key, ordinary_key, "toggling Pattern Preview invalidates source pixels");
+        assert!(!periodic_output.textures_delta.set.is_empty(), "the overlay texture is refreshed without a document edit");
+        periodic_output.textures_delta.clear();
+        assert_eq!(app.session.active().unwrap().revision, revision);
         app.session.presets.clone.overlay.show = false;
         let mut output = ctx.run_ui(Default::default(), |ui| {
             let ctx = ui.ctx();

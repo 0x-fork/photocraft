@@ -1435,6 +1435,9 @@ mod tests {
         let ctx = egui::Context::default();
         let warnings = app.open_bytes("IMG_0001.dng", &dng).unwrap();
         assert!(warnings.iter().any(|w| w.contains(photocraft_io::raw::DEVELOPED_NOTE)), "{warnings:?}");
+        // A raw has no embedded profile (ProPhoto RGB is the space it is developed into), so Ask
+        // When Opening (on by default) has nothing to ask about.
+        assert!(app.ui.dialogs.is_empty(), "no profile prompt for a raw");
         let raw = app.pending_raw_open.take().expect("a raw open queues the dialog");
         open_raw(&mut app, &ctx, raw).unwrap();
         let d = app.camera_raw.as_ref().unwrap();
