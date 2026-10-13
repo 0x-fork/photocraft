@@ -852,6 +852,35 @@ mod tests {
         0x2157_9f86_27d6_b835,
     ];
 
+    /// [`output_bits_are_pinned`] for the reduced-height seam search of tall images (rows at
+    /// least [`PROXY_SHRINK_MIN_HEIGHT`], at least [`PROXY_SHRINK_MIN_SEAMS`] seams): widths and,
+    /// through the transposed pass, heights, with and without protection, on tie-heavy and
+    /// fine-grained noise.
+    #[test]
+    fn tall_proxy_output_bits_are_pinned() {
+        let cases: [(usize, usize, usize, u32, bool, usize, usize); 5] = [
+            (96, PROXY_SHRINK_MIN_HEIGHT, 3, 2, false, 30, PROXY_SHRINK_MIN_HEIGHT),
+            (130, 2_100, 4, 255, true, 64, 2_100),
+            (80, 2_600, 1, 65_536, false, 16, 2_600),
+            (PROXY_SHRINK_MIN_HEIGHT, 90, 3, 5, false, PROXY_SHRINK_MIN_HEIGHT, 20),
+            (2_050, 100, 4, 1000, true, 2_050, 36),
+        ];
+        let got: Vec<u64> = cases
+            .iter()
+            .enumerate()
+            .map(|(i, &(w, h, ch, levels, prot, nw, nh))| {
+                let img = noise(w * h * ch, levels, 31 + i as u32);
+                let protect = prot.then(|| noise(w * h, 3, 131 + i as u32));
+                let out = carve(w, h, ch, &img, protect.as_deref(), nw, nh);
+                assert_eq!(out.len(), nw * nh * ch);
+                fnv(&out)
+            })
+            .collect();
+        assert_eq!(got, TALL_PINNED);
+    }
+
+    const TALL_PINNED: [u64; 5] = [0x5657_83ac_cb26_56a5, 0x81a6_b5f7_e299_fdfb, 0xcdf2_9df9_9b83_def5, 0xa713_544a_4dcc_d8d8, 0x3557_de9f_ffb0_881e];
+
     #[test]
     fn one_pixel_lines_enlarge_by_repeating() {
         // Width 1 has no seam to spare: its one column is repeated. Height 1 likewise (through
