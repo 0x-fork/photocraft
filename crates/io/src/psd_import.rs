@@ -1007,10 +1007,17 @@ pub(crate) fn psd_to_document_decoded(
             let transparent = u16_of(crate::palette_map::TRANSPARENCY_INDEX).filter(|&i| usize::from(i) < count).map(|i| i as u8);
             doc.color_table = Some(photocraft_doc::ColorTable { colors, transparent });
         } else if h.color_mode == PsdMode::Duotone && !file.color_mode_data.is_empty() {
-            // The duotone ink block is undocumented: keep it raw; the image shows as its gray plate.
-            doc.duotone =
-                Some(photocraft_doc::Duotone { inks: vec![photocraft_doc::DuotoneInk::new("Black", [0.0; 3])], psd_raw: Some(file.color_mode_data.clone()) });
-            cx.warn("duotone inks are not interpreted (shown as grayscale)");
+            // The inks (`duotone_map`); the block is also kept raw, written back while they stay
+            // unedited.
+            let mut unknown = false;
+            let inks = crate::duotone_map::parse(&file.color_mode_data, &mut unknown);
+            if inks.is_none() {
+                cx.warn("duotone inks are not interpreted (shown as grayscale)");
+            } else if unknown {
+                cx.warn("a duotone ink from a colour book is shown as black");
+            }
+            let inks = inks.unwrap_or_else(|| vec![photocraft_doc::DuotoneInk::new("Black", [0.0; 3])]);
+            doc.duotone = Some(photocraft_doc::Duotone { inks, psd_raw: Some(file.color_mode_data.clone()) });
         } else if !file.color_mode_data.is_empty() {
             cx.warn("color mode data is not preserved");
         }

@@ -197,6 +197,32 @@ fn palette_and_duotone_modes_are_written_in_their_own_mode() {
 }
 
 #[test]
+fn a_duotone_made_in_photocraft_is_written_with_its_inks() {
+    use photocraft_doc::{Duotone, DuotoneInk};
+    let mut d = photocraft_doc::Document::with_background(
+        "d",
+        photocraft_doc::Size::new(4, 2),
+        photocraft_color::ColorMode::Grayscale,
+        photocraft_color::SampleType::U8,
+        photocraft_color::Color::rgba(0.5, 0.5, 0.5, 1.0),
+    );
+    d.mode = photocraft_color::ColorMode::Duotone;
+    d.duotone = Some(Duotone { inks: vec![DuotoneInk::new("Black", [0.0; 3]), DuotoneInk::new("Orange", [1.0, 0.5, 0.0])], psd_raw: None });
+    let out = export(&d, "x.psd", &ExportOptions::default()).unwrap();
+    assert!(out.warnings.iter().all(|w| !w.contains("written as")), "{:?}", out.warnings);
+    let f = PsdFile::from_bytes(&out.bytes).unwrap();
+    assert_eq!((f.header.color_mode, f.color_mode_data.len()), (ColorMode::Duotone, 524));
+    let (back, w) = psd_to_document(&f);
+    assert!(w.iter().all(|w| !w.contains("duotone")), "{w:?}");
+    let inks = &back.duotone.as_ref().unwrap().inks;
+    assert_eq!(inks.iter().map(|i| i.name.as_str()).collect::<Vec<_>>(), ["Black", "Orange"]);
+    assert!((inks[1].color[1] - 0.5).abs() < 1e-4, "{:?}", inks[1].color);
+    // Re-exported unedited, the block is the one read.
+    let again = PsdFile::from_bytes(&export(&back, "x.psd", &ExportOptions::default()).unwrap().bytes).unwrap();
+    assert_eq!(again.color_mode_data, f.color_mode_data);
+}
+
+#[test]
 fn indexed_psd_keeps_the_table_length_and_transparent_entry() {
     use photocraft_doc::ColorTable;
     let mut d = photocraft_doc::Document::with_background(
