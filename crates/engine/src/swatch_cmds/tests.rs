@@ -289,3 +289,30 @@ fn library_limits() {
     assert_eq!(total(&g), MAX_SWATCHES);
     assert_eq!(g[0].name.chars().count(), MAX_NAME);
 }
+
+/// A value beyond f32 range used to pass the finite check, become inf as f32 and wrap to a NaN
+/// hue, which the prefs file stores as `null`; the next launch then dropped every saved preset.
+#[test]
+fn values_beyond_f32_range_are_rejected_so_presets_survive_a_restart() {
+    let mut s = Session::new();
+    s.execute("swatches.add", json!({"name": "Keep me", "color": {"model": "lab", "values": [40, 12.5, -7.25]}})).unwrap();
+    let before = s.presets.swatches.clone();
+    for (model, values) in [
+        ("hsb", json!([1e39, 100, 100])),
+        ("hsb", json!([-1e39, 100, 100])),
+        ("rgb", json!([1e39, 0, 0])),
+        ("cmyk", json!([0, 0, 0, -1e300])),
+        ("lab", json!([50, 1e39, 0])),
+        ("gray", json!([1e39])),
+    ] {
+        let r = s.execute("swatches.add", json!({"name": "Bad", "color": {"model": model, "values": values}}));
+        assert!(matches!(r, Err(crate::EngineError::BadParams { .. })), "{model} {values}: {r:?}");
+    }
+    assert_eq!(s.presets.swatches, before, "a rejected colour leaves the library unchanged");
+    // The largest f32 hue is still accepted and stays finite.
+    s.execute("swatches.add", json!({"name": "Big hue", "color": {"model": "hsb", "values": [f64::from(f32::MAX), 100, 100]}})).unwrap();
+    let mut t = Session::new();
+    t.load_prefs_json(&s.prefs_to_json()).unwrap();
+    assert_eq!(t.presets.swatches, s.presets.swatches, "user swatches survive a save and reload");
+    assert!(names(&t).contains(&"Keep me".to_string()));
+}

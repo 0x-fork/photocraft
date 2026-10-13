@@ -13,6 +13,46 @@ use crate::{ExportSettings, PhotocraftApp};
 
 const FORMATS: [(&str, &str); 5] = [("png", "PNG"), ("jpg", "JPG"), ("webp", "WebP"), ("tif", "TIFF"), ("tga", "TGA")];
 
+/// Preferences ▸ remembered dialog settings: Export As writes the settings it was used with
+/// last under its command id and seeds the next dialog from them, as Fill, Liquify and the
+/// filter dialogs do.
+pub(crate) const COMMAND: &str = "file.export.exportAs";
+
+/// The dialog is seeded from the settings it was used with last (see [`COMMAND`]); a value that
+/// no longer matches a control (a hand-edited preferences file) is left at its default.
+fn seed_remembered(app: &PhotocraftApp, f: &mut Map<String, Value>) {
+    let Some(Value::Object(saved)) = app.session.prefs().dialogs.get(COMMAND) else { return };
+    if let Some(v) = saved.get("format").and_then(Value::as_str).filter(|v| FORMATS.iter().any(|(k, _)| k == v)) {
+        f.insert("format".into(), json!(v));
+    }
+    if let Some(v) = saved.get("quality").and_then(Value::as_f64).filter(|v| (1.0..=100.0).contains(v)) {
+        f.insert("quality".into(), json!(v));
+    }
+    if let Some(v) = saved.get("scale").and_then(Value::as_f64).filter(|v| (1.0..=1000.0).contains(v)) {
+        f.insert("scale".into(), json!(v));
+    }
+    for key in ["lossless", "transparency"] {
+        if let Some(v) = saved.get(key).and_then(Value::as_bool) {
+            f.insert(key.into(), json!(v));
+        }
+    }
+    if let Some(v) = saved.get("metadata").and_then(Value::as_str).filter(|v| ["none", "all"].contains(v)) {
+        f.insert("metadata".into(), json!(v));
+    }
+    if let Some(v) = saved.get("tgaBits").and_then(Value::as_str).filter(|v| ["auto", "24", "32"].contains(v)) {
+        f.insert("tgaBits".into(), json!(v));
+    }
+}
+
+/// Record the settings for the next Export As (see [`seed_remembered`]).
+fn remember(app: &mut PhotocraftApp, f: &Map<String, Value>) {
+    const KEYS: [&str; 7] = ["format", "quality", "lossless", "transparency", "scale", "metadata", "tgaBits"];
+    let saved: Map<String, Value> = KEYS.iter().filter_map(|k| f.get(*k).map(|v| ((*k).to_string(), v.clone()))).collect();
+    app.session.prefs.edit(|p| {
+        p.dialogs.insert(COMMAND.into(), Value::Object(saved));
+    });
+}
+
 pub fn open(app: &mut PhotocraftApp) -> Result<u64, String> {
     let st = app.session.active().ok_or("no document")?;
     let mut f = Map::new();
@@ -27,6 +67,7 @@ pub fn open(app: &mut PhotocraftApp) -> Result<u64, String> {
     f.insert("tgaBits".into(), json!("auto"));
     f.insert("__w".into(), json!(st.doc.size.width));
     f.insert("__h".into(), json!(st.doc.size.height));
+    seed_remembered(app, &mut f);
     Ok(app.ui.open_dialog(DialogKind::Command, f))
 }
 
@@ -355,6 +396,7 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
 
 /// Export with the dialog's settings: choose a path, render, encode, write.
 pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value, String> {
+    remember(app, f);
     if let Some(layers) = f.get("__layers").and_then(Value::as_array) {
         let ids: Vec<_> = layers.iter().filter_map(Value::as_u64).map(photocraft_doc::LayerId).collect();
         return confirm_layers(app, f, &ids);
@@ -451,6 +493,55 @@ fn quick_export(app: &mut PhotocraftApp, p: Value) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Export As reopens with the settings it was used with last (Preferences ▸ remembered
+    /// dialog settings), and a value no control accepts keeps its default.
+    #[test]
+    fn export_as_opens_with_the_settings_used_last() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 20, "height": 10})).unwrap();
+        app.session.prefs.edit(|p| {
+            p.dialogs.insert(
+                COMMAND.into(),
+                json!({"format": "jpg", "quality": 88, "scale": 37, "transparency": false, "metadata": "all", "tgaBits": "24", "lossless": true}),
+            );
+        });
+        let id = open(&mut app).unwrap();
+        let f = &app.ui.dialog_mut(id).unwrap().fields;
+        assert_eq!(f["format"], "jpg");
+        assert_eq!(f["quality"], json!(88.0));
+        assert_eq!(f["scale"], json!(37.0));
+        assert_eq!(f["transparency"], false);
+        assert_eq!(f["metadata"], "all");
+        assert_eq!(f["tgaBits"], "24");
+
+        app.session.prefs.edit(|p| {
+            p.dialogs.insert(COMMAND.into(), json!({"format": "nope", "scale": 0, "metadata": "sometimes"}));
+        });
+        let id = open(&mut app).unwrap();
+        let f = &app.ui.dialog_mut(id).unwrap().fields;
+        assert_eq!(f["format"], "png");
+        assert_eq!(f["scale"], 100);
+        assert_eq!(f["metadata"], "none");
+    }
+
+    /// Only the dialog's own settings are remembered: not the destination, the document size or
+    /// the layer the dialog was opened with.
+    #[test]
+    fn remembering_keeps_only_the_dialog_settings() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let mut f = Map::new();
+        f.insert("format".into(), json!("webp"));
+        f.insert("scale".into(), json!(50));
+        f.insert("path".into(), json!("/tmp/x.webp"));
+        f.insert("__w".into(), json!(1200));
+        f.insert("__layer".into(), json!(3));
+        remember(&mut app, &f);
+        let saved = app.session.prefs().dialogs.get(COMMAND).cloned().unwrap();
+        assert_eq!(saved["format"], "webp");
+        assert_eq!(saved["scale"], 50);
+        assert!(saved.get("path").is_none() && saved.get("__w").is_none() && saved.get("__layer").is_none());
+    }
 
     #[test]
     fn export_document_scales_height_when_rounded_width_is_unchanged() {

@@ -222,7 +222,7 @@ pub fn ensure(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize) -> Optio
     // Mask and channel views are drawn over the canvas: show the same live document,
     // otherwise an opaque grayscale mask hides the stroke until it is committed (#2078).
     // The plain-composite path above needs no preview work.
-    let (doc, preview_key) = crate::canvas::display_doc(app, idx);
+    let (doc, preview_key) = crate::canvas::filter_channel_preview(app, idx, ctx).unwrap_or_else(|| crate::canvas::display_doc(app, idx));
     // Interface ▸ Show Channels in Color tints single colour channel views on the canvas too,
     // not just the panel thumbnails (#2385). The view key carries the flag, so toggling it
     // rebuilds the texture.

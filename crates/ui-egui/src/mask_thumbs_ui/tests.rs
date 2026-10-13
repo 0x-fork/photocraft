@@ -629,12 +629,13 @@ fn command_i_inverts_the_targeted_mask() {
     let mask = &l.mask.as_ref().unwrap().surface;
     assert_eq!((mask.sample_channel(50, 50, 0), mask.sample_channel(150, 10, 0)), (1.0, 0.0), "the mask inverted");
     assert!(l.content == pixels, "the layer's pixels are untouched");
-    // An adjustment layer's mask: Invert is enabled only through the mask target.
+    // An adjustment layer's mask: with no pixels of its own, Invert edits the mask whether the
+    // panel targets the mask or the icon thumbnail (#4298).
     let app = h.state_mut();
     app.run("layer.newAdjustmentLayer.curves", json!({})).unwrap();
     app.run("layer.layerMask.revealAll", json!({})).unwrap();
     app.ui.mask_target = false;
-    assert!(!crate::menus::is_enabled(app, "image.adjustments.invert"));
+    assert!(crate::menus::is_enabled(app, "image.adjustments.invert"));
     app.ui.mask_target = true;
     assert!(crate::menus::is_enabled(app, "image.adjustments.invert"));
     app.run("image.adjustments.invert", json!({})).unwrap();

@@ -59,7 +59,7 @@ id = "TOOL-213-8"
 target = "Clone Source: W/H link, drawn overlay (opacity/blend/clip/auto-hide), Alt target cursor"
 status = "partial"
 issue = 213
-note = "Clone Source overlay drawn with opacity, inversion, circular clipping, auto-hide and the Normal/Darken/Lighten/Difference blend against the image under the brush (canvas.rs draw_clone_preview, clone_source::overlay_blend); W/H link (cloneSource.set linked, panel chain button, #3298); custom-tip clipping remains missing"
+note = "Clone Source overlay drawn with opacity, inversion, circular clipping, auto-hide and the Normal/Darken/Lighten/Difference blend against the image under the brush (canvas.rs draw_clone_preview, clone_source::overlay_blend); a shaped tip (sampled bitmap, rotation, roundness) clips the overlay to its outline (brush_cursor::tip_mask, #4372); W/H link (cloneSource.set linked, panel chain button, #3298)"
 
 [[item]]
 id = "TOOL-213-9"

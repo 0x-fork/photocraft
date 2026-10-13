@@ -36,12 +36,14 @@ mod adjust_map;
 pub mod affinity;
 pub mod annotations_map;
 pub mod blocks;
+pub mod camera_raw_xmp;
 mod channel_map;
 pub mod comps_map;
 pub mod effects_map;
 pub mod exr_parts;
 mod flat;
 mod gradient_bake;
+pub use gradient_bake::{Method as GradientMethod, bake as bake_gradient};
 mod kra;
 pub mod linked;
 mod multichannel_map;
@@ -61,6 +63,7 @@ pub mod text_styles_map;
 pub mod tiff_layers;
 pub mod vector_map;
 
+pub use photocraft_codecs::DpxBits;
 use photocraft_codecs::{CodecError, EncodeOptions};
 use photocraft_doc::Document;
 use photocraft_psd::{PsdError, PsdFile};
@@ -177,11 +180,23 @@ pub struct ExportOptions {
     /// PSD/PSB: embed the thumbnail image resource (1036), Preferences › File Handling › Image
     /// Previews. On by default, as Photoshop's Always Save.
     pub image_previews: bool,
+    /// PSD/PSB: write the real merged image, Preferences › File Handling › Maximize PSD and PSB
+    /// File Compatibility (see [`PsdExportOptions::maximize_compatibility`]). On by default, as
+    /// Photoshop's Always.
+    pub psd_maximize_compatibility: bool,
 }
 
 impl Default for ExportOptions {
     fn default() -> Self {
-        ExportOptions { encode: EncodeOptions::default(), force_psb: false, tiff_layers: false, xmp: XmpEmbed::All, tga_bits: None, image_previews: true }
+        ExportOptions {
+            encode: EncodeOptions::default(),
+            force_psb: false,
+            tiff_layers: false,
+            xmp: XmpEmbed::All,
+            tga_bits: None,
+            image_previews: true,
+            psd_maximize_compatibility: true,
+        }
     }
 }
 
@@ -382,7 +397,7 @@ fn export_stages(doc: &Document, name_or_ext: &str, opts: &ExportOptions, ctl: &
         return Ok(ExportResult { bytes: photocraft_format::save_to_bytes(doc.as_ref(), &previews)?, warnings: Vec::new() });
     }
     if ext == "psd" || ext == "psb" {
-        let o = PsdExportOptions { force_psb: opts.force_psb || ext == "psb", ..Default::default() };
+        let o = PsdExportOptions { force_psb: opts.force_psb || ext == "psb", maximize_compatibility: opts.psd_maximize_compatibility, ..Default::default() };
         let (mut file, mut warnings) = with_span(ctl, 0.0, PSD_MODEL_DONE, |ctl| psd_export::document_to_psd_interruptible(doc, &o, ctl));
         // A cancelled conversion stops early with an incomplete model: never write it.
         ctl.check().map_err(|_| IoError::Cancelled)?;

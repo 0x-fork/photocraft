@@ -1461,6 +1461,7 @@ fn layer_effects_opacity_fill_blend_and_off_canvas() {
         (0.6, 0.35, BlendMode::Multiply),
         (1.0, 0.5, BlendMode::Screen),
         (0.8, 1.0, BlendMode::Dissolve),
+        (1.0, 1.0, BlendMode::Color),
     ] {
         let mut d = fx_doc(96, 80, SampleType::U8);
         let mut l = blob("fx", d.pixel_format(), 46.0, 40.0, 22.0, [0.2, 0.6, 0.9]);

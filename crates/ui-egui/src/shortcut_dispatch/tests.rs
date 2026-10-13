@@ -524,6 +524,36 @@ fn delete_without_a_selection_deletes_every_selected_layer() {
     assert_eq!(names(&h).len(), n - 2);
 }
 
+/// #4025: with several layers selected and no selection, a targeted mask on the active one doesn't
+/// take the key: Delete removes the selected layers in one press, as it does with the layer
+/// targeted. A selection still fills the targeted mask.
+#[test]
+fn delete_with_several_layers_selected_deletes_them_even_with_the_mask_targeted() {
+    let mut h = harness();
+    put_focus(&mut h, Place::Canvas);
+    let s = &mut h.state_mut().session;
+    let first = photocraft_doc::LayerId(s.execute("layer.newAdjustmentLayer.curves", json!({})).unwrap()["layer"].as_u64().unwrap());
+    let second = photocraft_doc::LayerId(s.execute("layer.newAdjustmentLayer.invert", json!({})).unwrap()["layer"].as_u64().unwrap());
+    s.execute("layer.select", json!({"layer": first.0, "mode": "add"})).unwrap();
+    let st = s.active().unwrap();
+    assert_eq!(st.selected_layers().len(), 2);
+    assert!(st.active_layer.and_then(|l| st.doc.layer(l)).is_some_and(|l| l.mask.is_some()), "the active adjustment layer has a mask");
+    assert!(st.doc.selection.is_some(), "the harness keeps a selection");
+    h.state_mut().ui.mask_target = true;
+    h.run_steps(2);
+    let n = names(&h).len();
+    press(&mut h, "Delete");
+    assert_eq!(logged(&h), ["edit.fillBackground"], "a selection edits the mask");
+    assert_eq!(names(&h).len(), n);
+    h.state_mut().session.execute("select.deselect", json!({})).unwrap();
+    h.run_steps(2);
+    press(&mut h, "Delete");
+    assert_eq!(logged(&h), ["layer.delete"]);
+    let doc = &h.state().session.active().unwrap().doc;
+    assert!(doc.layer(first).is_none() && doc.layer(second).is_none(), "both selected layers are gone");
+    assert_eq!(names(&h).len(), n - 2);
+}
+
 /// A selection keeps Edit › Clear: the selected pixels go, the layer stays.
 #[test]
 fn delete_with_a_selection_clears_it() {

@@ -4,8 +4,9 @@
 //! drop shadows, outer glows, outer bevel, then the layer itself (content at
 //! fill opacity) with pattern/gradient/colour overlays, satin, inner glows,
 //! inner shadows, strokes and the inner bevel on top. Exterior effects blend
-//! straight into the backdrop with their own modes; the layer and its
-//! interior effects blend with the layer's mode. Emboss and pillow emboss then
+//! straight into the backdrop with their own modes; the layer blends with its
+//! mode and the interior effects paint over the result, or blend with it as a
+//! group (Blend Interior Effects as Group, [`premerges_layer`]). Emboss and pillow emboss then
 //! shade the composited result (inside and outside halves). Layer opacity
 //! applies to the whole stack; fill opacity only to the layer's own pixels.
 //!
@@ -1791,6 +1792,14 @@ fn knock_out_exterior(map: &mut Map, shape: &Map, fill_opacity: f32) {
     }
 }
 
+/// Blend Interior Effects as Group off (Photoshop's default): the layer's mode applies to its
+/// own pixels only, and the interior effects paint over the blended result. The layer is merged
+/// into the backdrop before they paint, so an Overlay colour overlay on a black Color-mode layer
+/// tints the grey beneath it (#3996). Normal-like modes give the same result either way.
+pub fn premerges_layer(layer: &Layer) -> bool {
+    !layer.advanced.blend_interior && !matches!(layer.blend, BlendMode::Normal | BlendMode::PassThrough | BlendMode::Dissolve)
+}
+
 /// Composites `content` (the layer's own pixels over `big`, alpha already
 /// masked, clipped layers applied) plus its effects into `backdrop`.
 pub fn composite_with_effects(layer: &Layer, content: &Buffer, backdrop: &mut Buffer, maps: &FxMaps, layer_bounds: Rect, patterns: &[Pattern]) {
@@ -1889,6 +1898,13 @@ pub(crate) fn composite_with_effects_prepared(
         }
     };
     let mut lay = Buffer { rect: big, px: content.px.iter().zip(&shape.v).enumerate().map(|(i, (p, a))| [p[0], p[1], p[2], lay_alpha(i, p, *a)]).collect() };
+    let gamma = crate::text_gamma(layer);
+    let premerge = premerges_layer(layer);
+    if premerge {
+        for (lp, wp) in lay.px.iter_mut().zip(&work.px) {
+            *lp = psblend::composite_gamma(layer.blend, *wp, *lp, 1.0, gamma);
+        }
+    }
     let rel = |m: Map| -> Map {
         let v = m.v.iter().zip(&shape.v).map(|(m, a)| if inside(*a) { (m / a).min(1.0) } else { 0.0 }).collect();
         Map { w: m.w, h: m.h, v }
@@ -2051,8 +2067,7 @@ pub(crate) fn composite_with_effects_prepared(
     }
 
     // Layer (with interior effects) onto the exterior result, in the layer's mode.
-    let mode = if layer.blend == BlendMode::PassThrough { BlendMode::Normal } else { layer.blend };
-    let gamma = crate::text_gamma(layer);
+    let mode = if premerge || layer.blend == BlendMode::PassThrough { BlendMode::Normal } else { layer.blend };
     for (wp, lp) in work.px.iter_mut().zip(&lay.px) {
         if lp[3] > 0.0 {
             *wp = psblend::composite_gamma(mode, *wp, *lp, 1.0, gamma);

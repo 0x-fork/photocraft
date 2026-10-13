@@ -1415,6 +1415,16 @@ fn vector_mask_edit(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "layer.vectorMask.edit";
     let id = layer_id(s, p)?;
     let path = p.get("path").map(parse_path).transpose().map_err(|e| bad(CMD, e))?;
+    // Same range as a pixel mask's feather (`layer.layerMask.edit`), checked before any edit (#4201).
+    let feather = p
+        .get("feather")
+        .map(|v| {
+            v.as_f64()
+                .filter(|n| n.is_finite() && (0.0..=1000.0).contains(n))
+                .map(|n| n as f32)
+                .ok_or_else(|| bad(CMD, "`feather` must be a finite number within 0..1000"))
+        })
+        .transpose()?;
     s.edit("Edit Vector Mask", |doc, _| {
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
         let vm = l.vector_mask.as_mut().ok_or_else(|| EngineError::Other("layer has no vector mask".into()))?;
@@ -1430,8 +1440,8 @@ fn vector_mask_edit(s: &mut Session, p: &Value) -> Result<Value> {
         if let Some(d) = f64p(p, "density") {
             vm.density = (d / 100.0).clamp(0.0, 1.0) as f32;
         }
-        if let Some(f) = f64p(p, "feather") {
-            vm.feather = f.max(0.0) as f32;
+        if let Some(f) = feather {
+            vm.feather = f;
         }
         if let Some(b) = p.get("invert").and_then(Value::as_bool)
             && b
@@ -1821,7 +1831,9 @@ pub fn specs() -> Vec<CommandSpec> {
             "layer.vectorMask.edit",
             "Edit Vector Mask",
             [],
-            leak(format!(r##"{{"layer":id?,"path":{{…}}?,"enabled":bool?,"linked":bool?,"density":0..100?,"feather":px?,"invert":true?}}. {PATH_FORM}"##)),
+            leak(format!(
+                r##"{{"layer":id?,"path":{{…}}?,"enabled":bool?,"linked":bool?,"density":0..100?,"feather":0..1000? (pixels),"invert":true?}}. {PATH_FORM}"##
+            )),
             has_layer,
             vector_mask_edit
         ),

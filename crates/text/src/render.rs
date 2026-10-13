@@ -14,8 +14,8 @@ use crate::warp::Warp;
 
 /// Faux-italic slant in degrees (Photoshop-like).
 pub const FAUX_ITALIC_DEG: f32 = 12.0;
-/// Faux-bold dilation radius as a fraction of the font size.
-pub const FAUX_BOLD_RADIUS: f32 = 0.018;
+/// Faux-bold ring radius as a fraction of the font size (tuned so stem weight stays close to the old summed-coverage look).
+pub const FAUX_BOLD_RADIUS: f32 = 0.036;
 /// Largest raster we produce (pixels), as a guard against absurd sizes.
 const MAX_PIXELS: u64 = 256 * 1024 * 1024;
 
@@ -53,6 +53,30 @@ impl<S: LineSink> LineSink for WarpSink<'_, S> {
 /// when `color` is `None`) into `sink`, through `transform` (text space → sink space), bending
 /// the outlines with `warp` first (in text space).
 fn draw(layout: &TextLayout, transform: &Xform, sink: &mut impl LineSink, only_color: Option<&Color>, warp: Option<&Warp>) {
+    draw_pass(layout, transform, sink, only_color, warp, Pass::All);
+}
+
+/// Which part of the layout [`draw_pass`] emits. Faux bold draws each glyph at several offsets;
+/// summing those into one coverage buffer saturates the antialiased edge pixels (hard, pixelated
+/// stems), so the rasteriser draws every offset into its own buffer and merges them with `max`.
+#[derive(Clone, Copy, PartialEq)]
+enum Pass {
+    /// Everything, all offsets (bounds, outlines).
+    All,
+    /// Non-bold glyphs and decorations.
+    Plain,
+    /// Bold glyphs at one offset (index into [`BOLD_OFFSETS`]).
+    Bold(usize),
+}
+
+const BOLD_OFFSETS: [(f64, f64); 8] = [(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0), (0.7, 0.7), (-0.7, -0.7), (0.7, -0.7), (-0.7, 0.7)];
+
+fn is_bold(layout: &TextLayout, g: &PlacedGlyph) -> bool {
+    let face_bold = layout.faces.get(g.face as usize).is_some_and(|f| f.embolden);
+    layout.styles.get(g.style as usize).is_some_and(|s| s.faux_bold) || face_bold
+}
+
+fn draw_pass(layout: &TextLayout, transform: &Xform, sink: &mut impl LineSink, only_color: Option<&Color>, warp: Option<&Warp>, pass: Pass) {
     for g in &layout.glyphs {
         let st = &layout.styles[g.style as usize];
         if only_color.is_some_and(|c| c != &st.color) {
@@ -69,8 +93,17 @@ fn draw(layout: &TextLayout, transform: &Xform, sink: &mut impl LineSink, only_c
         let glyph = glyph_xform(layout, g, face.skew_deg);
         let bold = st.faux_bold || face.embolden;
         let r = (face.size_px * FAUX_BOLD_RADIUS) as f64;
-        let offsets: &[(f64, f64)] =
-            if bold { &[(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0), (0.7, 0.7), (-0.7, -0.7), (0.7, -0.7), (-0.7, 0.7)] } else { &[(0.0, 0.0)] };
+        let single = [(0.0, 0.0)];
+        let offsets: &[(f64, f64)] = match (pass, bold) {
+            (Pass::Plain, true) => continue,
+            (Pass::Bold(_), false) => continue,
+            (Pass::Bold(k), true) => match BOLD_OFFSETS.get(k..=k) {
+                Some(o) => o,
+                None => continue,
+            },
+            (Pass::All, true) => &BOLD_OFFSETS,
+            (_, false) => &single,
+        };
         for &(ox, oy) in offsets {
             let local = glyph.mul(&Xform([1.0, 0.0, 0.0, 1.0, ox * r, oy * r]));
             let settings = DrawSettings::unhinted(Size::new(face.size_px), LocationRef::new(&coords));
@@ -90,6 +123,9 @@ fn draw(layout: &TextLayout, transform: &Xform, sink: &mut impl LineSink, only_c
                 }
             }
         }
+    }
+    if matches!(pass, Pass::Bold(_)) {
+        return;
     }
     for d in &layout.decorations {
         let st = &layout.styles[d.style as usize];
@@ -199,8 +235,17 @@ pub fn rasterize_warped(layout: &TextLayout, transform: &Affine, format: PixelFo
     }
     for c in &colors {
         let mut cov = Coverage::new(w, h);
-        draw(layout, &xf, &mut cov, Some(c), warp);
-        let cov = cov.finish();
+        draw_pass(layout, &xf, &mut cov, Some(c), warp, Pass::Plain);
+        let mut cov = cov.finish();
+        if layout.glyphs.iter().any(|g| is_bold(layout, g)) {
+            for k in 0..BOLD_OFFSETS.len() {
+                let mut bc = Coverage::new(w, h);
+                draw_pass(layout, &xf, &mut bc, Some(c), warp, Pass::Bold(k));
+                for (a, b) in cov.iter_mut().zip(bc.finish()) {
+                    *a = a.max(b);
+                }
+            }
+        }
         let comps = color_in(&format, c);
         let a = c.alpha.clamp(0.0, 1.0);
         for (i, &cv) in cov.iter().enumerate() {

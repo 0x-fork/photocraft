@@ -118,7 +118,7 @@ pub(crate) fn list_images(dir: &str) -> Result<Vec<String>> {
 #[cfg(not(target_arch = "wasm32"))]
 const OPENABLE: &[&str] = &[
     "pdn", "ora", "psd", "psb", "pcraft", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "exr", "hdr", "qoi", "ico", "pnm", "ppm", "pgm",
-    "fits", "fit", "fts", "heic", "heif", "hif", "dng", "cr2", "nef", "nrw", "arw", "pef", "svg", "svgz", "af", "afdesign", "afphoto", "afpub",
+    "fits", "fit", "fts", "dpx", "heic", "heif", "hif", "dng", "cr2", "nef", "nrw", "arw", "pef", "svg", "svgz", "af", "afdesign", "afphoto", "afpub",
 ];
 
 /// Whether saving `doc` as a TIFF writes Photoshop layer data (anything beyond a lone
@@ -218,8 +218,8 @@ pub(crate) fn import(name: &str, bytes: &[u8]) -> Result<Document> {
     Ok(r.document)
 }
 
-/// What a headless save writes beyond the format: JPEG quality, TIFF layers, Targa bits and PSD
-/// previews.
+/// What a headless save writes beyond the format: JPEG quality, TIFF layers, Targa bits, PSD
+/// previews and the PSD merged image.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SaveOpts {
     /// Photoshop's 0–12 JPEG scale.
@@ -229,27 +229,35 @@ pub(crate) struct SaveOpts {
     /// Targa: 24 or 32 bits per pixel (`"tgaBits"`); unset, 32 with an alpha channel or
     /// transparency, else 24.
     pub tga_bits: Option<photocraft_io::TgaBits>,
+    /// DPX: 8, 10, 12 or 16 bits per sample (`"dpxBits"`); unset, 8 for an 8-bit document, else 16.
+    pub dpx_bits: Option<photocraft_io::DpxBits>,
     /// PSD/PSB: embed the thumbnail resource (Preferences › File Handling › Image Previews).
     pub image_previews: bool,
+    /// PSD/PSB: write the real merged image (Preferences › File Handling › Maximize PSD and PSB
+    /// File Compatibility).
+    pub psd_maximize_compatibility: bool,
 }
 
 impl Default for SaveOpts {
     fn default() -> Self {
-        SaveOpts { quality: None, tiff_layers: false, tga_bits: None, image_previews: true }
+        SaveOpts { quality: None, tiff_layers: false, tga_bits: None, dpx_bits: None, image_previews: true, psd_maximize_compatibility: true }
     }
 }
 
 impl SaveOpts {
     /// `quality`, `tiffLayers` and `tgaBits` from command `cmd`'s params (a `tgaBits` other than
-    /// 24 or 32 is an error); the image previews from the session's File Handling preferences
-    /// (Ask When Saving has no dialog here, so it saves them, as Photoshop's Save As checkbox
-    /// starts on).
+    /// 24 or 32 is an error); the image previews and the PSD merged image from the session's File
+    /// Handling preferences (Ask When Saving has no dialog here, so it saves them, as Photoshop's
+    /// Save As checkbox and its Maximize Compatibility checkbox both start on).
     pub(crate) fn from_params(s: &Session, p: &Value, cmd: &str) -> Result<Self> {
+        let file_handling = &s.prefs().file_handling;
         Ok(SaveOpts {
             quality: f64_param(p, "quality"),
             tiff_layers: p.get("tiffLayers").and_then(Value::as_bool).unwrap_or(false),
             tga_bits: tga_bits_param(p, cmd)?,
-            image_previews: s.prefs().file_handling.image_previews != crate::prefs::Ask::Never,
+            dpx_bits: dpx_bits_param(p, cmd)?,
+            image_previews: file_handling.image_previews != crate::prefs::Ask::Never,
+            psd_maximize_compatibility: file_handling.maximize_psd_compatibility != crate::prefs::Ask::Never,
         })
     }
 
@@ -279,15 +287,34 @@ pub fn tga_bits_param(p: &Value, cmd: &str) -> Result<Option<photocraft_io::TgaB
     }
 }
 
+/// The DPX bits per sample in `p` (`"dpxBits": 8 | 10 | 12 | 16`; absent or null: the document's
+/// depth). Anything else is a bad parameter of command `cmd`.
+pub fn dpx_bits_param(p: &Value, cmd: &str) -> Result<Option<photocraft_io::DpxBits>> {
+    match p.get("dpxBits") {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => v
+            .as_u64()
+            .and_then(photocraft_io::DpxBits::from_bits)
+            .map(Some)
+            .ok_or_else(|| EngineError::BadParams { cmd: cmd.into(), msg: format!("`dpxBits` must be 8, 10, 12 or 16, got {v}") }),
+    }
+}
+
 /// Encodes `doc` for `path`'s extension.
 pub(crate) fn encode(doc: &Document, path: &str, save: impl Into<SaveOpts>) -> Result<(Vec<u8>, Vec<String>)> {
     crate::allocation::checkpoint("saving document")?;
     let save = save.into();
-    let mut opts =
-        photocraft_io::ExportOptions { tiff_layers: save.tiff_layers, tga_bits: save.tga_bits, image_previews: save.image_previews, ..Default::default() };
+    let mut opts = photocraft_io::ExportOptions {
+        tiff_layers: save.tiff_layers,
+        tga_bits: save.tga_bits,
+        image_previews: save.image_previews,
+        psd_maximize_compatibility: save.psd_maximize_compatibility,
+        ..Default::default()
+    };
     // No quality chosen: write the file the way it was opened (a JPEG at its own quality, a WebP
     // lossy or lossless as it was), as Photoshop's Save does.
     photocraft_io::apply_file_encoding(doc, &mut opts.encode);
+    opts.encode.dpx_bits = save.dpx_bits;
     if let Some(q) = save.quality {
         let q = (q.clamp(0.0, 12.0) / 12.0 * 99.0 + 1.0).round() as u8;
         opts.encode.jpeg_quality = q;
@@ -1395,7 +1422,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Save a Copy…",
             &["File"],
             Some("Cmd+Alt+S"),
-            r##"{"path":str (format from the extension),"quality":0..12? (JPEG),"layers":bool=true,"tiffLayers":bool=false (TIFF: keep the layers; flat by default),"tgaBits":24|32? (TGA: 32 writes the alpha channel, or else the transparency, as the alpha; unset, 32 with an alpha channel or transparency, else 24)}"##,
+            r##"{"path":str (format from the extension),"quality":0..12? (JPEG),"layers":bool=true,"tiffLayers":bool=false (TIFF: keep the layers; flat by default),"tgaBits":24|32? (TGA: 32 writes the alpha channel, or else the transparency, as the alpha; unset, 32 with an alpha channel or transparency, else 24),"dpxBits":8|10|12|16? (DPX: bits per sample; unset, 8 for an 8-bit document, else 16)}"##,
             native_doc,
             save_a_copy
         ),
@@ -1458,7 +1485,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Batch…",
             &["File", "Automate"],
             None,
-            r##"{"steps":[[commandId,params]|{"command":id,"params":{}}…] (a recorded action),"input":folder|[paths],"output":folder,"format":"same|png|jpg|psd|tiff|…"="same","quality":0..12?,"tiffLayers":bool=false,"tgaBits":24|32?,"calledActions":[{"name","steps"}…]? (the actions Play Action steps call; default: the session's)} → {files, errors} (an input whose output name was already written in the run goes to errors)"##,
+            r##"{"steps":[[commandId,params]|{"command":id,"params":{}}…] (a recorded action),"input":folder|[paths],"output":folder,"format":"same|png|jpg|psd|tiff|…"="same","quality":0..12?,"tiffLayers":bool=false,"tgaBits":24|32?,"dpxBits":8|10|12|16? (DPX: bits per sample; unset, 8 for an 8-bit document, else 16),"calledActions":[{"name","steps"}…]? (the actions Play Action steps call; default: the session's)} → {files, errors} (an input whose output name was already written in the run goes to errors)"##,
             native,
             batch
         ),
@@ -1467,7 +1494,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Image Processor…",
             &["File", "Scripts"],
             None,
-            r##"{"input":folder|[paths],"output":folder,"format":"jpg|png|psd|tiff|…"="jpg","quality":0..12=8,"tiffLayers":bool=false,"tgaBits":24|32?,"width":px?,"height":px? (fit, never enlarge),"convertToSrgb":bool=false} → {files, errors} (an input whose output name was already written in the run goes to errors)"##,
+            r##"{"input":folder|[paths],"output":folder,"format":"jpg|png|psd|tiff|…"="jpg","quality":0..12=8,"tiffLayers":bool=false,"tgaBits":24|32?,"dpxBits":8|10|12|16? (DPX: bits per sample; unset, 8 for an 8-bit document, else 16),"width":px?,"height":px? (fit, never enlarge),"convertToSrgb":bool=false} → {files, errors} (an input whose output name was already written in the run goes to errors)"##,
             native,
             image_processor
         ),
@@ -1495,7 +1522,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Layers to Files…",
             &["File", "Export"],
             None,
-            r##"{"dir":folder,"format":"png|jpg|psd|tiff|…"="png","prefix":str=document name,"visibleOnly":bool=true,"quality":0..12?,"tiffLayers":bool=false,"tgaBits":24|32?} → {files}"##,
+            r##"{"dir":folder,"format":"png|jpg|psd|tiff|…"="png","prefix":str=document name,"visibleOnly":bool=true,"quality":0..12?,"tiffLayers":bool=false,"tgaBits":24|32?,"dpxBits":8|10|12|16? (DPX: bits per sample; unset, 8 for an 8-bit document, else 16)} → {files}"##,
             native_doc,
             layers_to_files
         ),

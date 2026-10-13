@@ -136,6 +136,8 @@ fn stroke(s: &mut Session, p: &Value) -> Result<Value> {
     // Whole pixels, rounded up, as in Photoshop (0.5 px strokes 1 px).
     let width = p.get("width").and_then(Value::as_f64).filter(|w| w.is_finite()).unwrap_or(1.0).clamp(1.0, 250.0).ceil() as usize;
     let color = color_param(p, "color", s.tools.foreground);
+    // A colour picked as CMYK strokes a CMYK document with the picked inks (#4196).
+    let picked = s.tools.picked_cmyk([color[0], color[1], color[2]]);
     let mode = match p.get("mode") {
         None | Some(Value::Null) => photocraft_color::BlendMode::Normal,
         Some(Value::String(m)) => crate::commands::blend_from_str(m)
@@ -214,7 +216,7 @@ fn stroke(s: &mut Session, p: &Value) -> Result<Value> {
         let surf = crate::commands::paint_surface(doc, id, &Value::Null)?;
         let area = band.content_bounds().intersect(&canvas);
         if !area.is_empty() {
-            crate::fill_cmds::blend_color_mask(surf, area, color, &band, mode, opacity, preserve || lock)?;
+            crate::fill_cmds::blend_color_mask(surf, area, color, picked, &band, mode, opacity, preserve || lock)?;
             surf.prune();
         }
         Ok(())

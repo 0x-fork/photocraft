@@ -622,6 +622,30 @@ fn warp_on_a_distorted_smart_object_follows_the_corners() {
     assert_eq!(after.perspective, before);
 }
 
+/// A `mesh` whose points are exactly the placement leaves a sheared smart object unchanged: its
+/// knots span the contents, not the bounding frame of the warp box seen from the contents (#4113).
+#[test]
+fn identity_mesh_on_a_skewed_smart_object_changes_nothing() {
+    let mut s = session(8);
+    paint(&mut s);
+    let id = convert(&mut s);
+    let r = active_smart(&s).cache.unwrap().content_bounds();
+    let (x0, y0, x1, y1) = (f64::from(r.x0), f64::from(r.y0), f64::from(r.x1), f64::from(r.y1));
+    let quad = [[x0, y0], [x1, y0 + 10.0], [x1, y1 + 10.0], [x0, y1]];
+    s.execute("edit.transform", json!({"layer": id, "rect": [x0, y0, x1, y1], "quad": quad})).unwrap();
+    let before = flat(&s);
+    let sm = active_smart(&s);
+    let (h, b) = (placement(&sm), crate::smart_cmds::source_box(&s.active().unwrap().doc, &sm).unwrap());
+    let place = |u: f64, v: f64| {
+        let (x, y) = h.apply(b[0] + u * (b[2] - b[0]), b[1] + v * (b[3] - b[1]));
+        [x, y]
+    };
+    let mesh = photocraft_geom::warp::BezierMesh::fit(&place, vec![0.0, 1.0], vec![0.0, 0.25, 1.0]);
+    let rect = [x0, y0, x1, y1 + 10.0];
+    s.execute("layer.smartObjects.warp", json!({"layer": id, "style": "custom", "rect": rect, "mesh": mesh})).unwrap();
+    assert!(mean_diff(&before, &flat(&s)) < 0.01, "mean diff {}", mean_diff(&before, &flat(&s)));
+}
+
 fn convert_to_layers(s: &mut Session) -> Value {
     s.execute("layer.smartObjects.convertToLayers", json!({})).unwrap()
 }

@@ -286,6 +286,9 @@ impl LiquifyDialog {
     fn rebuild(&mut self) {
         self.field = LiquifyField::from_strokes(self.canvas, self.cell, &self.strokes);
         self.dirty = Some([0, 0, self.proxy.w, self.proxy.h]);
+        // Undo rebuilds the whole field. The zoomed viewport is a separate buffer; leaving it
+        // clean kept the pre-undo pixels on screen until the next zoom (#4100).
+        self.view_dirty = self.view_bounds;
         self.mask_dirty = true;
         self.render_dirty();
     }
@@ -605,7 +608,8 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) {
     }
 }
 
-pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
+/// Ctrl+Z / Ctrl+Shift+Z inside Liquify, including while a slider's text field is focused.
+pub fn history_keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let Some(d) = app.distort.liquify.as_mut() else { return };
     let cmd_shift = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
     if ctx.input_mut(|i| i.consume_key(cmd_shift, egui::Key::Z)) {
@@ -613,6 +617,11 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
     } else if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z)) {
         d.undo();
     }
+}
+
+pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    history_keys(app, ctx);
+    let Some(d) = app.distort.liquify.as_mut() else { return };
     // Ctrl+H (Hide Extras) toggles the red freeze-mask overlay; the mask itself stays active.
     if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::H)) {
         d.opts.show_mask = !d.opts.show_mask;
@@ -625,10 +634,11 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
         d.global(LiquifyTool::ThawAll, None);
     }
     if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::OpenBracket)) {
-        d.opts.size = (d.opts.size * 0.9).max(1.0);
+        // At least one pixel, or 2 px * 0.9 rounds back to 2 and `[` never reaches 1.
+        d.opts.size = (d.opts.size * 0.9).round().min(d.opts.size - 1.0).clamp(1.0, 15000.0);
     }
     if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::CloseBracket)) {
-        d.opts.size = (d.opts.size * 1.1).min(15000.0);
+        d.opts.size = (d.opts.size * 1.1).round().max(d.opts.size + 1.0).min(15000.0);
     }
     let tools = [
         (egui::Key::W, LiquifyTool::ForwardWarp),
@@ -1201,6 +1211,27 @@ mod tests {
         let mut expected = vec![[0u8; 4]; d.proxy.w * d.proxy.h];
         d.proxy.render(&d.field, [0, 0, d.proxy.w, d.proxy.h], &mut expected);
         assert_eq!(d.out, expected, "dirty upload source must match the rebuilt field");
+    }
+
+    #[test]
+    fn undo_dirties_the_zoomed_preview() {
+        let ctx = egui::Context::default();
+        let mut app = app_with_layer();
+        open(&mut app, &ctx).unwrap();
+        control(&mut app, &json!({"tool": "forwardWarp", "size": 40})).unwrap();
+        for ev in [ToolEvent::Down { x: 35.0, y: 40.0, pressure: 1.0 }, ToolEvent::Move { x: 55.0, y: 40.0, pressure: 1.0 }, ToolEvent::Up { x: 55.0, y: 40.0 }]
+        {
+            pointer(&mut app, ev, egui::Modifiers::NONE);
+        }
+        {
+            let d = app.distort.liquify.as_mut().unwrap();
+            d.zoom = 2.0;
+            d.view_bounds = Some(Rect::new(0, 0, 20, 20));
+            d.view_dirty = None;
+        }
+        control(&mut app, &json!({"undo": true})).unwrap();
+        let d = app.distort.liquify.as_ref().unwrap();
+        assert_eq!(d.view_dirty, d.view_bounds);
     }
 
     #[test]

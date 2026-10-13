@@ -166,7 +166,14 @@ impl SwatchColor {
             .and_then(Value::as_array)
             .ok_or("a colour needs `values`")?
             .iter()
-            .map(|x| x.as_f64().filter(|f| f.is_finite()).map(|f| f as f32).ok_or("colour values must be finite numbers"))
+            // Beyond f32 range a value turns into inf as f32 (an HSB hue then wraps to NaN, which
+            // the prefs file can't store), so reject it here.
+            .map(|x| {
+                x.as_f64()
+                    .filter(|f| f.is_finite() && f.abs() <= f64::from(f32::MAX))
+                    .map(|f| f as f32)
+                    .ok_or("colour values must be finite numbers within f32 range")
+            })
             .collect::<Result<_, _>>()?;
         let need = |n: usize| if vals.len() == n { Ok(()) } else { Err(format!("a {model} colour has {n} values, got {}", vals.len())) };
         let pct = |v: f32| (v / 100.0).clamp(0.0, 1.0);
@@ -403,6 +410,8 @@ mod tests {
             json!({"model": "rgb", "values": ["a", 2, 3]}),
             json!({"model": "xyz", "values": [1, 2, 3]}),
             json!({"model": "gray", "values": []}),
+            json!({"model": "hsb", "values": [1e39, 100, 100]}),
+            json!({"model": "rgb", "values": [0, -1e39, 0]}),
         ] {
             assert!(SwatchColor::from_param(&bad).is_err(), "{bad}");
         }

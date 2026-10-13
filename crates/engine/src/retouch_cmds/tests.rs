@@ -1640,3 +1640,125 @@ fn remove_to_a_new_layer_leaves_the_target_untouched() {
     assert!(near(d.doc.layer(nid).unwrap().surface().unwrap().rgba(46, 30), bg, 0.03));
     assert!(near(d.doc.layer(target).unwrap().surface().unwrap().rgba(46, 30), square, 0.001));
 }
+
+/// A Clone Stamp or History Brush stroke drawn live and offered to its commit: the commit takes
+/// the live pixels, and they are what running the command afresh paints, bit for bit, at every
+/// depth, with and without a feathered selection.
+#[test]
+fn a_live_clone_or_history_stroke_commits_its_own_pixels() {
+    let all = [[30.0, 30.0], [50.0, 34.0], [70.0, 28.0], [90.0, 40.0], [60.0, 50.0], [35.0, 44.0], [36.0, 45.0]];
+    let pts = |v: &[[f64; 2]]| v.iter().map(|q| StrokePoint::new(q[0], q[1], 1.0)).collect::<Vec<_>>();
+    for depth in DEPTHS {
+        for (cmd, extra) in [("paint.cloneStamp", json!({"source": [20, 15], "mode": "multiply"})), ("paint.historyBrush", json!({"state": 1}))] {
+            for selected in [false, true] {
+                let setup = || {
+                    let mut s = session(120, 70, depth, "rgb");
+                    paint_layer(&mut s, texture);
+                    s.execute("paint.stroke", json!({"points": [[0, 40], [120, 40]], "size": 20, "hardness": 1.0, "color": "#c03030"})).unwrap();
+                    if selected {
+                        s.execute("select.rect", json!({"x": 40, "y": 20, "width": 50, "height": 40, "ellipse": true, "feather": 3})).unwrap();
+                    }
+                    s
+                };
+                let params = |v: &[[f64; 2]]| {
+                    let mut p = json!({"points": v, "size": 14, "hardness": 40, "opacity": 70});
+                    for (k, x) in extra.as_object().unwrap() {
+                        p[k] = x.clone();
+                    }
+                    p
+                };
+                let mut s = setup();
+                let mut live = LiveRetouch::begin(&s, cmd, &params(&all[..1])).unwrap();
+                live.push(&pts(&all[1..3])).unwrap();
+                live.push(&pts(&all[3..4])).unwrap();
+                live.push(&pts(&all[4..])).unwrap();
+                s.offer_live_retouch(live).unwrap();
+                let r = s.execute(cmd, params(&all)).unwrap();
+                s.clear_live_stroke();
+                assert_eq!(r["fromLive"], true, "{cmd} {depth}-bit selected={selected}");
+                let mut fresh = setup();
+                let r = fresh.execute(cmd, params(&all)).unwrap();
+                assert!(r.get("fromLive").is_none());
+                let (a, b) = (s.active().unwrap(), fresh.active().unwrap());
+                let bounds = a.doc.bounds();
+                let got = a.doc.layer(a.active_layer.unwrap()).unwrap().surface().unwrap().read_region(bounds);
+                let want = b.doc.layer(b.active_layer.unwrap()).unwrap().surface().unwrap().read_region(bounds);
+                let diff = got.iter().zip(&want).position(|(x, y)| x.to_bits() != y.to_bits());
+                assert!(diff.is_none(), "{cmd} {depth}-bit selected={selected}: first difference at value {diff:?}");
+                assert_eq!(a.history.past_len(), b.history.past_len());
+            }
+        }
+    }
+}
+
+/// An offered live stroke is taken only by the commit it was drawn for, and only once.
+#[test]
+fn a_live_retouch_offer_is_taken_only_by_its_own_commit() {
+    let mut s = session(96, 64, 8, "rgb");
+    paint_layer(&mut s, texture);
+    let all = [[50.0, 30.0], [60.0, 34.0], [70.0, 30.0]];
+    let params = |v: &[[f64; 2]], opacity: u32| json!({"points": v, "source": [20, 20], "size": 12, "hardness": 50, "opacity": opacity});
+    let offer = |s: &mut Session| {
+        let live = LiveRetouch::begin(s, "paint.cloneStamp", &params(&all, 70)).unwrap();
+        s.offer_live_retouch(live).unwrap();
+    };
+    let from_live = |r: Value| r.get("fromLive").is_some();
+    // Other points, other params, another command: rendered afresh.
+    offer(&mut s);
+    assert!(!from_live(s.execute("paint.cloneStamp", params(&all[..2], 70)).unwrap()));
+    s.execute("edit.undo", json!({})).unwrap();
+    offer(&mut s);
+    assert!(!from_live(s.execute("paint.cloneStamp", params(&all, 60)).unwrap()));
+    s.execute("edit.undo", json!({})).unwrap();
+    offer(&mut s);
+    let mut history = params(&all, 70);
+    history.as_object_mut().unwrap().remove("source");
+    assert!(!from_live(s.execute("paint.historyBrush", history).unwrap()));
+    s.execute("edit.undo", json!({})).unwrap();
+    // The document changed after the stroke started.
+    offer(&mut s);
+    s.execute("paint.stroke", json!({"points": [[5, 5], [9, 9]], "size": 4})).unwrap();
+    assert!(!from_live(s.execute("paint.cloneStamp", params(&all, 70)).unwrap()));
+    s.execute("edit.undo", json!({})).unwrap();
+    s.execute("edit.undo", json!({})).unwrap();
+    // A withdrawn offer, and an offer used once.
+    offer(&mut s);
+    s.clear_live_stroke();
+    assert!(!from_live(s.execute("paint.cloneStamp", params(&all, 70)).unwrap()));
+    s.execute("edit.undo", json!({})).unwrap();
+    offer(&mut s);
+    assert!(from_live(s.execute("paint.cloneStamp", params(&all, 70)).unwrap()));
+    s.execute("edit.undo", json!({})).unwrap();
+    assert!(!from_live(s.execute("paint.cloneStamp", params(&all, 70)).unwrap()));
+    // The Healing Brush blends on release: it has no live pixels to offer.
+    let healing = LiveRetouch::begin(&s, "paint.healingBrush", &params(&all, 70)).unwrap();
+    assert!(s.offer_live_retouch(healing).is_err());
+    // The brush changed during the stroke (the document revision doesn't show it).
+    let live = LiveRetouch::begin(&s, "paint.cloneStamp", &params(&all, 70)).unwrap();
+    s.execute("tools.setBrush", json!({"brush": {"spacing": 0.5}})).unwrap();
+    assert!(s.offer_live_retouch(live).is_err());
+}
+
+/// The live stroke renders only the position and pressure of its points, as its commit parses
+/// them: a pen's tilt and the times don't change what it shows.
+#[test]
+fn a_live_retouch_stroke_ignores_tilt_and_times() {
+    let mut s = session(64, 48, 8, "rgb");
+    paint_layer(&mut s, texture);
+    let p = json!({"points": [[20, 20]], "source": [8, 8], "size": 10, "hardness": 50});
+    let mut plain = LiveRetouch::begin(&s, "paint.cloneStamp", &p).unwrap();
+    let mut pen = LiveRetouch::begin(&s, "paint.cloneStamp", &p).unwrap();
+    let pts = [[30.0, 24.0], [44.0, 30.0]];
+    plain.push(&pts.map(|q| StrokePoint::new(q[0], q[1], 0.8))).unwrap();
+    pen.push(&pts.map(|q| {
+        let mut sp = StrokePoint::new(q[0], q[1], 0.8);
+        (sp.tilt_x, sp.tilt_y, sp.rotation, sp.time) = (40.0, -20.0, 90.0, 120.0);
+        sp
+    }))
+    .unwrap();
+    assert_eq!(plain.points(), pen.points());
+    let id = s.active().unwrap().active_layer.unwrap();
+    let b = s.active().unwrap().doc.bounds();
+    let read = |l: &LiveRetouch| l.doc.layer(id).unwrap().surface().unwrap().read_region(b);
+    assert_eq!(read(&plain), read(&pen));
+}

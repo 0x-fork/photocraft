@@ -24,6 +24,23 @@ pub fn is_preset_file(name: &str) -> bool {
     PRESET_EXTS.contains(&ext(name).as_str())
 }
 
+/// Import from a gradient picker through the same preset command as File › Open.
+pub(crate) fn import_gradients_dialog(app: &mut PhotocraftApp) {
+    let result = app.pick_file_bytes_filtered(&["grd"], |app, name, bytes| {
+        if ext(&name) != "grd" {
+            return Err(tl!("Choose a gradient file (.grd).").into());
+        }
+        open(app, &name, &bytes).ok_or_else(|| tl!("Choose a gradient file (.grd).").to_string())??;
+        Ok(Value::Null)
+    });
+    if let Err(error) = result
+        && error != crate::file_dialog::CANCELLED
+    {
+        app.ui.status = error;
+        app.ui.status_error = true;
+    }
+}
+
 /// Command params for the file: a real path keeps the journal small; browser files arrive as bytes.
 fn source(name: &str, bytes: &[u8]) -> Value {
     #[cfg(not(target_arch = "wasm32"))]

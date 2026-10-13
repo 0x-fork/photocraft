@@ -47,6 +47,23 @@ fn estimates_preserve_last_successful_export_settings() {
     assert_eq!(s.file_menu.last_web.as_ref(), Some(&saved), "preview estimates must not replace the settings from the last successful export");
 }
 
+/// The next launch's dialog seeds from the preferences: `file_menu` is not saved, so a complete
+/// export remembers its settings in `prefs.dialogs` too, as Fill and the filter dialogs do.
+#[test]
+fn a_complete_export_remembers_its_settings_in_the_preferences() {
+    let dir = tmp("remember_settings");
+    let mut s = session(8);
+    s.execute("file.export.saveForWebLegacy", json!({"format": "jpeg", "quality": 42, "path": format!("{dir}/out.jpg")})).unwrap();
+    let saved = s.prefs().dialogs.get("file.export.saveForWebLegacy").cloned().expect("remembered");
+    assert_eq!(saved["format"], "jpeg");
+    assert_eq!(saved["quality"], 42);
+    assert!(saved.get("path").is_none(), "the destination is per export, not remembered");
+
+    // Preview estimates remember nothing, like they don't replace `file_menu`.
+    s.execute("file.export.saveForWebLegacy", json!({"format": "png24", "width": 16, "height": 12})).unwrap();
+    assert_eq!(s.prefs().dialogs.get("file.export.saveForWebLegacy").unwrap()["format"], "jpeg");
+}
+
 #[test]
 fn platform_writer_receives_resized_image_at_every_depth() {
     for depth in [8, 16, 32] {
@@ -656,3 +673,6 @@ fn overlapping_slices_keep_the_later_slice_in_html() {
     assert_eq!(area, 64 * 48);
     assert!(files.iter().any(|f| f.ends_with("images/under_01.png")), "the covered slice is cut into pieces: {files:?}");
 }
+
+#[path = "color_table_tests.rs"]
+mod color_table_tests;

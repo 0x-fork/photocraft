@@ -192,6 +192,30 @@ pub fn quad_to_rect(q: &[[f64; 2]; 4], w: f64, h: f64) -> Option<Homography> {
     Homography::rect_to_quad([0.0, 0.0, w, h], *q)?.inverse()
 }
 
+/// The destination rectangle [`warp_surface`] fills for `src_rect` under `h`: the warped corners
+/// plus a pixel for filter support, each side clamped to ±2²⁰. `None` when a corner maps to
+/// infinity (the result is then empty). Lets a caller price a warp before allocating it.
+pub fn warp_output_bounds(src_rect: Rect, h: &Homography) -> Option<Rect> {
+    if src_rect.is_empty() || h.inverse().is_none() {
+        return None;
+    }
+    let corners = [(src_rect.x0, src_rect.y0), (src_rect.x1, src_rect.y0), (src_rect.x1, src_rect.y1), (src_rect.x0, src_rect.y1)]
+        .map(|(x, y)| h.apply(x as f64, y as f64));
+    corner_bounds(&corners)
+}
+
+fn corner_bounds(corners: &[(f64, f64); 4]) -> Option<Rect> {
+    if !corners.iter().all(|c| c.0.is_finite() && c.1.is_finite()) {
+        return None;
+    }
+    let lim = (1 << 20) as f64;
+    let bx0 = corners.iter().map(|c| c.0).fold(f64::MAX, f64::min).floor().max(-lim) as i32 - 1;
+    let by0 = corners.iter().map(|c| c.1).fold(f64::MAX, f64::min).floor().max(-lim) as i32 - 1;
+    let bx1 = corners.iter().map(|c| c.0).fold(f64::MIN, f64::max).ceil().min(lim) as i32 + 1;
+    let by1 = corners.iter().map(|c| c.1).fold(f64::MIN, f64::max).ceil().min(lim) as i32 + 1;
+    Some(Rect::new(bx0, by0, bx1, by1))
+}
+
 fn warp(src: &Surface, src_rect: Rect, h: &Homography, interp: Interp, clip: Option<Rect>) -> Result<Surface, photocraft_raster::AllocationError> {
     let mut fmt = src.format();
     let converted;
@@ -234,21 +258,13 @@ fn warp(src: &Surface, src_rect: Rect, h: &Homography, interp: Interp, clip: Opt
     let fwd_w = [(sx0, sy0), (sx1, sy0), (sx1, sy1), (sx0, sy1)].map(|(x, y)| h.0[6] * x + h.0[7] * y + h.0[8]);
     let side = [1.0, -1.0].into_iter().find(|&s| fwd_w.iter().all(|&c| s * c > 0.0));
     let w_lo = 1.0 / fwd_w.iter().fold(0.0f64, |m, c| m.max(c.abs()));
-    let finite = corners.iter().all(|c| c.0.is_finite() && c.1.is_finite());
-    let lim = 1 << 20;
-    let bounds = || {
-        let bx0 = corners.iter().map(|c| c.0).fold(f64::MAX, f64::min).floor().max(-(lim as f64)) as i32 - 1;
-        let by0 = corners.iter().map(|c| c.1).fold(f64::MAX, f64::min).floor().max(-(lim as f64)) as i32 - 1;
-        let bx1 = corners.iter().map(|c| c.0).fold(f64::MIN, f64::max).ceil().min(lim as f64) as i32 + 1;
-        let by1 = corners.iter().map(|c| c.1).fold(f64::MIN, f64::max).ceil().min(lim as f64) as i32 + 1;
-        Rect::new(bx0, by0, bx1, by1)
-    };
-    let dst = match clip {
+    let bounds = corner_bounds(&corners);
+    let dst = match (clip, bounds) {
         // The warped corners only bound the result while the whole source is in front of the horizon.
-        Some(c) if finite && side.is_some() => bounds().intersect(&c),
-        Some(c) => c,
-        None if finite => bounds(),
-        None => return Ok(out),
+        (Some(c), Some(b)) if side.is_some() => b.intersect(&c),
+        (Some(c), _) => c,
+        (None, Some(b)) => b,
+        (None, None) => return Ok(out),
     };
     if dst.is_empty() {
         return Ok(out);

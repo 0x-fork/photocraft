@@ -776,3 +776,20 @@ fn a_set_of_background_opens_keeps_its_order_however_they_finish() {
     jobs_ui::finish_open_tab(&mut app, &late, &json!({"document": index})).unwrap();
     assert_eq!(doc_names(&app), ["dropped.psd", "existing.psd", "f0.psd", "f1.psd", "f2.psd", "f3.psd", "late.psd"]);
 }
+
+/// #4400: a new document saved under a name is listed in Open Recent (and on the Home screen),
+/// as opening it is; a Save a Copy isn't, since the document doesn't live there.
+#[test]
+fn saving_a_new_document_lists_it_in_recent_files() {
+    let (mut app, _written) = app_with(vec![Some(FileDialogAnswer::SaveTo("/pics/new.psd".into())), Some(FileDialogAnswer::SaveTo("/pics/copy.png".into()))]);
+    let ctx = egui::Context::default();
+    app.run("file.new", json!({"width": 4, "height": 4})).unwrap();
+    assert!(app.ui.recent_files.is_empty());
+    menus::invoke(&mut app, &ctx, "file.saveAs", json!({})).unwrap();
+    answer(&mut app);
+    assert_eq!(app.ui.recent_files, ["/pics/new.psd"]);
+    assert_eq!(app.session.prefs().file_handling.recent_files, ["/pics/new.psd"], "kept for the next launch");
+    menus::invoke(&mut app, &ctx, "file.saveACopy", json!({})).unwrap();
+    answer(&mut app);
+    assert_eq!(app.ui.recent_files, ["/pics/new.psd"], "a copy isn't the document's file");
+}

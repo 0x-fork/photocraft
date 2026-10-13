@@ -109,6 +109,16 @@ pub fn generation() -> u64 {
     GENERATION.load(Ordering::Relaxed)
 }
 
+/// Bumped only by the [`FontDb`] of [`crate::shared`], so caches of the shared engine's fonts
+/// aren't invalidated by unrelated databases (a document's own engine, a test's throwaway one).
+static SHARED_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// Changes whenever font data is registered in the shared engine's [`FontDb`] ([`crate::shared`]).
+/// Font menus key their caches on this, not [`generation`].
+pub fn shared_generation() -> u64 {
+    SHARED_GENERATION.load(Ordering::Relaxed)
+}
+
 /// One face in the database (for font menus).
 #[derive(Clone, Debug, PartialEq)]
 pub struct FaceInfo {
@@ -145,6 +155,8 @@ pub struct FontDb {
     missing_glyph_protection: bool,
     face_cache: HashMap<String, Vec<FaceInfo>>,
     face_aliases: HashMap<(String, usize), String>,
+    /// This is the shared engine's database: registrations also move [`shared_generation`].
+    shared: bool,
 }
 
 impl Default for FontDb {
@@ -165,6 +177,7 @@ impl FontDb {
             missing_glyph_protection: true,
             face_cache: HashMap::new(),
             face_aliases: HashMap::new(),
+            shared: false,
         };
         for (_, bytes) in BUNDLED {
             db.register_static_font(bytes.as_slice());
@@ -246,7 +259,17 @@ impl FontDb {
         self.face_cache.clear();
         self.refresh_generics();
         GENERATION.fetch_add(1, Ordering::Relaxed);
+        if self.shared {
+            SHARED_GENERATION.fetch_add(1, Ordering::Relaxed);
+        }
         names
+    }
+
+    /// Marks this as the shared engine's database ([`crate::shared`]) and moves
+    /// [`shared_generation`], since its fonts replace whatever caches saw before.
+    pub(crate) fn mark_shared(&mut self) {
+        self.shared = true;
+        SHARED_GENERATION.fetch_add(1, Ordering::Relaxed);
     }
 
     fn refresh_generics(&mut self) {

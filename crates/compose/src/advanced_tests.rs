@@ -247,6 +247,26 @@ fn blend_interior_effects_as_group_puts_overlays_under_fill_opacity() {
 }
 
 #[test]
+fn interior_effects_blend_over_the_layer_mode_unless_grouped() {
+    // #3996: #888888 under a black Color-mode layer with a red Overlay colour overlay. The
+    // layer's mode applies to its own pixels (grey stays grey), then the overlay blends onto
+    // that result and tints it; as a group the overlay of black is black, so grey remains.
+    let grey = 136.0 / 255.0;
+    let lift = 1.0 - 2.0 * (1.0 - grey);
+    for depth in DEPTHS {
+        let mut d = doc(depth, false);
+        d.layers.push(solid(&d, "grey", full(&d), [grey, grey, grey, 1.0]));
+        let mut l = solid(&d, "black", full(&d), [0.0, 0.0, 0.0, 1.0]);
+        l.blend = BlendMode::Color;
+        l.effects.items = vec![Effect::ColorOverlay { common: FxCommon::new(BlendMode::Overlay, 1.0), color: Color::rgb(1.0, 0.0, 0.0) }];
+        d.layers.push(l);
+        check(&d, 2, 2, [1.0, lift, lift, 1.0], "default: overlay over the Color blend");
+        d.layers[1].advanced.blend_interior = true;
+        check(&d, 2, 2, [grey, grey, grey, 1.0], "as group: overlay inside the Color blend");
+    }
+}
+
+#[test]
 fn transparency_shapes_off_spreads_effects_over_the_whole_layer() {
     for depth in DEPTHS {
         let mut d = doc(depth, true);
