@@ -20,14 +20,19 @@ pub fn import_flat(name: &str, bytes: &[u8]) -> Result<ImportResult, IoError> {
         return import_tiff_page(name, bytes, None);
     }
     let img = codecs::decode(bytes)?;
-    // A palette BMP opens in Indexed Color mode with its colour table, as in Photoshop (#3802).
-    let bmp_palette = if codecs::detect(bytes) == Some(Format::Bmp) { codecs::bmp_palette(bytes).ok().flatten() } else { None };
+    // A palette BMP or PNG opens in Indexed Color mode with its colour table, as in Photoshop
+    // (#3802, #4804).
+    let palette = match codecs::detect(bytes) {
+        Some(Format::Bmp) => codecs::bmp_palette(bytes).ok().flatten().map(|c| (c, None)),
+        Some(Format::Png) => codecs::png_palette(bytes).ok().flatten().map(|p| (p.colors, p.transparent)),
+        _ => None,
+    };
     let mut r = image_to_document(name, &img)?;
-    if let Some(colors) = bmp_palette.filter(|c| !c.is_empty())
+    if let Some((colors, transparent)) = palette.filter(|(c, _)| !c.is_empty())
         && r.document.mode == ColorMode::Rgb
     {
         r.document.mode = ColorMode::Indexed;
-        r.document.color_table = Some(photocraft_doc::ColorTable { colors, transparent: None });
+        r.document.color_table = Some(photocraft_doc::ColorTable { colors, transparent });
     }
     r.document.file_encoding = file_encoding(bytes);
     if codecs::detect(bytes) == Some(Format::Tga) && img.layout() == ChannelLayout::Rgba {
@@ -312,8 +317,10 @@ fn document_to_image_for(doc: &Document, warnings: &mut Vec<String>, cmyk_target
     let canvas = doc.bounds();
     let fmt = doc.pixel_format();
     let n = (w as usize) * (h as usize);
-    // Lab has no flat-format layout here: Lab documents always go through the composite.
-    let native = single_layer(doc).filter(|_| fmt.mode != ColorMode::Lab);
+    // Lab has no flat-format layout here: Lab documents always go through the composite, which
+    // flattens nothing when there is a single plain layer.
+    let single = single_layer(doc);
+    let native = single.filter(|_| fmt.mode != ColorMode::Lab);
     let mut icc = doc.icc_profile.as_ref().map(|i| i.to_vec());
     let img = if let Some(s) = native {
         // Native path: keep model and depth. The surface's encoded samples are the codec's raw
@@ -340,8 +347,10 @@ fn document_to_image_for(doc: &Document, warnings: &mut Vec<String>, cmyk_target
         }
         Image::from_raw(w, h, layout, csample(fmt.sample), data)?
     } else {
-        let count = doc.layer_count();
-        warnings.push(format!("{count} layer(s) flattened; layers, masks and blend modes are not kept"));
+        if single.is_none() {
+            let count = doc.layer_count();
+            warnings.push(format!("{count} layer(s) flattened; layers, masks and blend modes are not kept"));
+        }
         let cmyk = fmt.mode == ColorMode::Cmyk && cmyk_target;
         // Only a CMYK target needs the document's profile; RGB-only targets keep the compositor's
         // own handling (built-in coated CMYK when the embedded profile is unusable).

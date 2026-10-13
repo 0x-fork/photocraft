@@ -381,6 +381,7 @@
 	Update Modified Content	変更されたコンテンツを更新
 	Update All Modified Content	変更されたコンテンツをすべて更新
 	Stack Mode	スタックモード
+	Choose Stack Mode:	スタックモードを選択:
 	Entropy	エントロピー
 	Kurtosis	尖度
 	Maximum	最大値
@@ -873,6 +874,7 @@
 	Background	背景
 	Background Color	背景色
 	Background Contents	背景の内容
+	Custom background color	カスタム背景色
 	Balance	バランス
 	Baseline	ベースライン
 	Baseline shift	ベースラインシフト

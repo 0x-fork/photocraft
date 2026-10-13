@@ -168,6 +168,12 @@ impl PhotocraftApp {
             DropTarget::Tabs(slot) => Some(slot),
             DropTarget::Canvas | DropTarget::Elsewhere => None,
         };
+        // A box still open from an earlier drop (or any Free Transform) is applied first (#4833):
+        // the queue below places the next file only once no box is open, so a separate drop
+        // would otherwise wait unseen for ↩. Files dropped together still go one by one.
+        if target == DropTarget::Canvas && self.ui.transform.is_some() && files.iter().any(|f| !crate::preset_files_ui::is_preset_file(&dropped_name(f))) {
+            crate::transform_tool::commit(self);
+        }
         for f in files {
             let name = dropped_name(&f);
             if target == DropTarget::Canvas && !crate::preset_files_ui::is_preset_file(&name) {

@@ -423,13 +423,20 @@ fn shift_shown(doc: &Document, l: &mut Layer, dx: i32, dy: i32) {
         LayerContent::Shape(sh) => {
             // The rendered shape is cut at the canvas: one that reaches past it renders again.
             let canvas = doc.bounds();
-            let inside = sh.cache.as_ref().is_some_and(|c| {
+            let was_inside = sh.cache.as_ref().is_some_and(|c| {
                 let b = photocraft_compose::bounds::content_bounds(c);
                 b.is_empty() || (b.x0 > canvas.x0 && b.y0 > canvas.y0 && b.x1 < canvas.x1 && b.y1 < canvas.y1)
             });
             crate::vector_cmds::transform_shape(sh, &a);
+            let stroke_pad = sh.stroke.as_ref().filter(|s| s.opacity > 0.0).map_or(0.0, |s| f64::from(s.width.ceil()));
+            let stays_inside = sh.path.control_bounds().is_some_and(|(x0, y0, x1, y1)| {
+                (x0 - stroke_pad) > canvas.x0 as f64
+                    && (y0 - stroke_pad) > canvas.y0 as f64
+                    && (x1 + stroke_pad) < canvas.x1 as f64
+                    && (y1 + stroke_pad) < canvas.y1 as f64
+            });
             match &mut sh.cache {
-                Some(c) if inside => *c = translate_surface(c, dx, dy),
+                Some(c) if was_inside && stays_inside => *c = translate_surface(c, dx, dy),
                 _ => crate::vector_cmds::refresh_shape(doc, sh),
             }
         }
@@ -1804,6 +1811,42 @@ mod tests {
         locked.layer_mut(a).unwrap().locks.position = true;
         assert!(moved(&locked, &ids, 1, 1).is_err());
         assert!(moved(&before, &[LayerId(999_999)], 1, 1).is_err());
+    }
+
+    #[test]
+    fn move_stroked_shape_across_canvas_edge_matches_fresh_render() {
+        let mut s = session(8);
+        let id = LayerId(
+            s.execute("shape.create", json!({"kind": "rect", "rect": [10, 10, 30, 30], "stroke": {"width": 4, "color": "#ff0000"}})).unwrap()["layer"]
+                .as_u64()
+                .unwrap(),
+        );
+        let before = doc(&s).clone();
+        let ids = move_targets(&before, &[id]);
+
+        // Drag the stroked shape across the left canvas boundary:
+        let moved_doc = moved(&before, &ids, -25, 0).unwrap();
+        let moved_layer = moved_doc.layer(id).unwrap();
+        let LayerContent::Shape(sh) = &moved_layer.content else { panic!("not a shape") };
+        let cached = sh.cache.as_ref().expect("cached render");
+
+        let mut fresh_sh = sh.clone();
+        crate::vector_cmds::refresh_shape(&moved_doc, &mut fresh_sh);
+        let fresh = fresh_sh.cache.as_ref().expect("fresh render");
+
+        assert_eq!(cached, fresh, "dragged shape cached render must match fresh render across canvas edge");
+
+        // Drag it back inside the canvas:
+        let moved_back = moved(&moved_doc, &ids, 30, 0).unwrap();
+        let back_layer = moved_back.layer(id).unwrap();
+        let LayerContent::Shape(back_sh) = &back_layer.content else { panic!("not a shape") };
+        let back_cached = back_sh.cache.as_ref().expect("cached render");
+
+        let mut fresh_back = back_sh.clone();
+        crate::vector_cmds::refresh_shape(&moved_back, &mut fresh_back);
+        let fresh_back_render = fresh_back.cache.as_ref().expect("fresh render");
+
+        assert_eq!(back_cached, fresh_back_render, "cached render must match fresh render when dragged back");
     }
 
     fn select_all(s: &mut Session, ids: &[LayerId]) {

@@ -605,8 +605,9 @@ const BALANCE_LEVELS: f32 = 0.39;
 /// - Preserve Luminosity off: a slider only moves its own channel. Midtones is gamma 2^−a.
 ///   Shadows is gamma 2^(−a/2) after a black point at 0.39·|a| when lowered; highlights is
 ///   gamma 2^(−a/2) after a white point at 1 − 0.39·a when raised.
-/// - Preserve Luminosity on: midtones is gamma 2^(−a/2) on the slider's channel and 2^(a/2) on
-///   the other two. Shadows and highlights go by the differences between a tone's three sliders:
+/// - Preserve Luminosity on: midtones uses gamma 2^((max(a) + min(a))/2 − a_ch),
+///   preserving the one-slider behaviour without summing offsets when multiple sliders move.
+///   Shadows and highlights go by the differences between a tone's three sliders:
 ///   each channel gets a plain black point at 0.39·(max − its own) for shadows and a plain white
 ///   point at 1 − 0.39·(its own − min) for highlights (so one raised shadows slider darkens the
 ///   other two channels, and two raised together darken only the third).
@@ -620,28 +621,27 @@ pub fn color_balance_channel(tones: [[f32; 3]; 3], preserve_luminosity: bool, ch
     let mut v = v.clamp(0.0, 1.0);
     for (tone, sliders) in [(2, highlights), (0, shadows), (1, midtones)] {
         let a: [f32; 3] = sliders.map(|s| (s / 100.0).clamp(-1.0, 1.0));
-        if preserve_luminosity && tone != 1 {
+        if preserve_luminosity {
             let own = a.get(ch).copied().unwrap_or(0.0);
             let (lo, hi) = a.iter().fold((f32::MAX, f32::MIN), |m, x| (m.0.min(*x), m.1.max(*x)));
-            v = if tone == 0 { black(v, BALANCE_LEVELS * (hi - own)) } else { white(v, 1.0 - BALANCE_LEVELS * (own - lo)) };
+            v = match tone {
+                0 => black(v, BALANCE_LEVELS * (hi - own)),
+                1 => v.powf(2f32.powf((hi + lo) / 2.0 - own)),
+                _ => white(v, 1.0 - BALANCE_LEVELS * (own - lo)),
+            };
             continue;
         }
         for (src, slider) in sliders.iter().enumerate() {
             let a = (slider / 100.0).clamp(-1.0, 1.0);
-            let own = src == ch;
-            if a == 0.0 || (!preserve_luminosity && !own) {
+            if a == 0.0 || src != ch {
                 continue;
             }
-            v = match (tone, preserve_luminosity) {
-                (1, false) => v.powf(2f32.powf(-a)),
-                (1, true) => v.powf(2f32.powf(if own { -a } else { a } / 2.0)),
-                (0, false) if a < 0.0 => black(v, BALANCE_LEVELS * -a).powf(2f32.powf(-a / 2.0)),
-                (0, false) => v.powf(2f32.powf(-a / 2.0)),
-
-                (2, false) if a > 0.0 => white(v, 1.0 - BALANCE_LEVELS * a).powf(2f32.powf(-a / 2.0)),
-                (2, false) => v.powf(2f32.powf(-a / 2.0)),
-
-                _ => v,
+            v = match tone {
+                1 => v.powf(2f32.powf(-a)),
+                0 if a < 0.0 => black(v, BALANCE_LEVELS * -a).powf(2f32.powf(-a / 2.0)),
+                0 => v.powf(2f32.powf(-a / 2.0)),
+                2 if a > 0.0 => white(v, 1.0 - BALANCE_LEVELS * a).powf(2f32.powf(-a / 2.0)),
+                _ => v.powf(2f32.powf(-a / 2.0)),
             };
         }
     }
@@ -1251,6 +1251,26 @@ mod tone_tests {
                 assert!((r - i32::from(red[i])).abs() <= 1, "{tone} {amount} pl {preserve} at {x}: red {r} vs Photoshop {}", red[i]);
                 assert!((g - i32::from(green[i])).abs() <= 1, "{tone} {amount} pl {preserve} at {x}: green {g} vs Photoshop {}", green[i]);
             }
+        }
+    }
+
+    #[test]
+    fn color_balance_midtones_with_multiple_sliders_preserve_luminosity() {
+        // A shared offset depends on the two extremes, not the sum of moved sliders.
+        // The old per-slider product leaves red/blue unchanged for [30, 0, 30].
+        let tones = [[0.0; 3], [30.0, 0.0, 30.0], [0.0; 3]];
+        for input in [0.25_f32, 0.5, 0.75] {
+            for (ch, offset) in [-0.15_f32, 0.15, -0.15].into_iter().enumerate() {
+                let expected = input.powf(2f32.powf(offset));
+                let actual = color_balance_channel(tones, true, ch, input);
+                assert!((actual - expected).abs() < 1e-6, "channel {ch}, input {input}: {actual} vs {expected}");
+            }
+            // Preserve Luminosity off must still affect only the moved channels.
+            assert_eq!(color_balance_channel(tones, false, 1, input), input);
+            // One moved slider retains its previous half-strength compensation.
+            let single = [[0.0; 3], [30.0, 0.0, 0.0], [0.0; 3]];
+            assert!((color_balance_channel(single, true, 0, input) - input.powf(2f32.powf(-0.15))).abs() < 1e-6);
+            assert!((color_balance_channel(single, true, 1, input) - input.powf(2f32.powf(0.15))).abs() < 1e-6);
         }
     }
 

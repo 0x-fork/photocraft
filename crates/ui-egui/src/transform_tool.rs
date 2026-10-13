@@ -2033,6 +2033,15 @@ pub fn cursor(app: &PhotocraftApp, p: [f64; 2], quick_split: bool) -> Option<Cur
     })
 }
 
+/// For each vertex of the preview's `n` × `n` grid over the unit square (row by row), whether it
+/// maps to the front side of `h`'s horizon. A Distort dragged past the horizon sends the rest of
+/// the image to the far side, where its cells would wrap round infinity; the preview leaves them
+/// out, as the committed warp does (#4863).
+fn front_vertices(h: &Homography, n: usize) -> Vec<bool> {
+    let front = h.front_side([0.0, 0.0, 1.0, 1.0]);
+    (0..=n).flat_map(|j| (0..=n).map(move |i| (i as f64 / n as f64, j as f64 / n as f64))).map(|(u, v)| front * h.w(u, v) > 1e-9).collect()
+}
+
 /// Warped preview of the moving pixels plus the box, handles and reference point.
 pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform) {
     let (Some(t), Some(pv)) = (&app.ui.transform, &app.transform_preview) else { return };
@@ -2069,6 +2078,7 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
         };
         let mut mesh = egui::Mesh::with_texture(tex);
         let tint = Color32::from_white_alpha((pv.opacity.clamp(0.0, 1.0) * 255.0) as u8);
+        let ahead = front_vertices(&h, n);
         for j in 0..=n {
             for i in 0..=n {
                 let (u, v) = (i as f64 / n as f64, j as f64 / n as f64);
@@ -2079,8 +2089,12 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
         for j in 0..n {
             for i in 0..n {
                 let a = (j * (n + 1) + i) as u32;
-                mesh.add_triangle(a, a + 1, a + n as u32 + 2);
-                mesh.add_triangle(a, a + n as u32 + 2, a + n as u32 + 1);
+                for tri in [[a, a + 1, a + n as u32 + 2], [a, a + n as u32 + 2, a + n as u32 + 1]] {
+                    // A cell with a corner past the horizon would stretch across the canvas (#4863).
+                    if tri.iter().all(|&k| ahead[k as usize]) {
+                        mesh.add_triangle(tri[0], tri[1], tri[2]);
+                    }
+                }
             }
         }
         painter.add(clip_to_canvas(mesh, canvas_size(pv), |p| xf.to_screen(p.x, p.y)));
@@ -4045,6 +4059,20 @@ mod tests {
 
     /// #1767: just outside a corner is the rotate zone: the OS pointer hides for the drawn curved
     /// arrow, which bends round that corner.
+    #[test]
+    fn the_preview_leaves_out_cells_past_the_horizon() {
+        // #4863: the bottom corners pulled in and one dragged far out: a concave quad whose
+        // source straddles the horizon. Its cells there are left out; an ordinary quad keeps all.
+        let past = Homography::rect_to_quad([0.0, 0.0, 1.0, 1.0], [[0.0, 0.0], [300.0, 0.0], [60.0, 60.0], [0.0, 300.0]]).unwrap();
+        let ahead = front_vertices(&past, 24);
+        assert!(ahead.iter().any(|a| *a) && ahead.iter().any(|a| !*a), "some of the grid is past the horizon");
+        // Three corners are on one side (drawn); the top-left one is past the horizon.
+        assert!(ahead[24 * 25 + 24] && ahead[24] && ahead[24 * 25], "the three corners in front are drawn");
+        assert!(!ahead[0], "the corner past the horizon is left out");
+        let plain = Homography::rect_to_quad([0.0, 0.0, 1.0, 1.0], [[0.0, 0.0], [300.0, 0.0], [280.0, 260.0], [0.0, 300.0]]).unwrap();
+        assert!(front_vertices(&plain, 24).iter().all(|a| *a));
+    }
+
     #[test]
     fn hovering_just_outside_a_corner_asks_for_the_rotate_cursor() {
         let mut app = app_with_square(256, photocraft_geom::Rect::new(32, 32, 160, 160));

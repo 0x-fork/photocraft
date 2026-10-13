@@ -383,6 +383,7 @@
 	Update Modified Content	Actualizar contenido modificado
 	Update All Modified Content	Actualizar todo el contenido modificado
 	Stack Mode	Modo de apilamiento
+	Choose Stack Mode:	Elegir modo de apilamiento:
 	Entropy	Entropía
 	Kurtosis	Curtosis
 	Maximum	Máximo
@@ -874,6 +875,7 @@
 	Background	Fondo
 	Background Color	Color de fondo
 	Background Contents	Contenido del fondo
+	Custom background color	Color de fondo personalizado
 	Balance	Balance
 	Baseline	Línea de base
 	Baseline shift	Desplazamiento de línea de base

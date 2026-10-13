@@ -387,6 +387,7 @@
 	Update Modified Content	Aktualizovat změněný obsah
 	Update All Modified Content	Aktualizovat veškerý změněný obsah
 	Stack Mode	Režim zásobníku
+	Choose Stack Mode:	Vyberte režim zásobníku:
 	Entropy	Entropie
 	Kurtosis	Špičatost
 	Maximum	Maximum
@@ -885,6 +886,7 @@
 	Background	Pozadí
 	Background Color	Barva pozadí
 	Background Contents	Obsah pozadí
+	Custom background color	Vlastní barva pozadí
 	Balance	Vyvážení
 	Baseline	Účaří
 	Baseline shift	Posun účaří
