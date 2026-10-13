@@ -249,11 +249,18 @@ fn legacy_brightness_contrast(brightness: f32, contrast: f32) -> impl Fn(f32) ->
 }
 
 /// Applies an adjustment in a document of colour `mode`: [`apply_depth`], except that in Lab
-/// documents the adjustments Photoshop evaluates on the L, a and b channels do so (see
-/// [`lab_channel_adjustment`]).
+/// and CMYK documents the adjustments Photoshop evaluates on the document's own channels do so
+/// (see [`lab_channel_adjustment`] and [`cmyk_channel_adjustment`]).
 pub fn apply_in(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth: Option<SampleType>, mode: ColorMode) {
     if mode == ColorMode::Lab && lab_channel_adjustment(adj) {
-        apply_lab(adj, buf);
+        apply_lab(adj, buf, depth);
+    } else if mode == ColorMode::Cmyk && cmyk_channel_adjustment(adj) {
+        use photocraft_color::convert::{cmyk_to_rgb, rgb_to_cmyk};
+        map_rgb(buf, |c| {
+            let mut ink = rgb_to_cmyk(c);
+            stored_channels(adj, mode, depth, &mut ink, rgb_to_gray(c));
+            cmyk_to_rgb(ink)
+        });
     } else {
         apply_depth(adj, buf, transfer, depth);
     }
@@ -274,6 +281,51 @@ pub fn lab_channel_adjustment(adj: &Adjustment) -> bool {
     )
 }
 
+/// Whether a CMYK document evaluates `adj` on its inks rather than on the screen colour: Invert
+/// and Posterize (each ink, black included, so paper inverts to 400% ink) and Threshold (paper or
+/// 100% black ink alone). Photoshop corpus cmyk8 and cmyk16 invert, posterize-4 and threshold-128
+/// follow these rules on the files' own inks on every pixel; here the inks are the screen colour
+/// separated through the document's CMYK profile, so neutrals carry the black that profile
+/// generates rather than the file's.
+pub fn cmyk_channel_adjustment(adj: &Adjustment) -> bool {
+    stored_channel_adjustment(adj)
+}
+
+/// Whether [`stored_channels`] evaluates `adj`: Invert, Posterize and Threshold.
+pub fn stored_channel_adjustment(adj: &Adjustment) -> bool {
+    matches!(adj, Adjustment::Invert | Adjustment::Posterize { .. } | Adjustment::Threshold { .. })
+}
+
+/// Invert, Posterize or Threshold on one pixel's own channels in a Lab or CMYK document of
+/// `depth` (`None`: unknown, treated as 8-bit): `ch` holds L, a, b normalised as [`lab_norm`]
+/// gives them, or the C, M, Y, K inks (0: none); `gray` is the pixel's luma, which CMYK Threshold
+/// compares. Lab Invert turns 8-bit bytes `v` into `255 - v` (a becomes -1 - a) and mirrors a and
+/// b around neutral at 16 bits (photoshop corpus lab16 invert.psd: neutral stays neutral).
+pub fn stored_channels(adj: &Adjustment, mode: ColorMode, depth: Option<SampleType>, ch: &mut [f32], gray: f32) {
+    let lab = mode == ColorMode::Lab;
+    match adj {
+        Adjustment::Invert => {
+            let mirror = if lab && depth.is_some_and(|d| d != SampleType::U8) { 256.0 / 255.0 } else { 1.0 };
+            for (i, v) in ch.iter_mut().enumerate() {
+                *v = if i > 0 { mirror } else { 1.0 } - v.clamp(0.0, 1.0);
+            }
+        }
+        Adjustment::Posterize { levels } => ch.iter_mut().for_each(|v| *v = posterize(*v, *levels)),
+        Adjustment::Threshold { level } => {
+            // On the 8-bit grid, like the RGB threshold.
+            let t = (level * 255.0).round();
+            let out = if lab {
+                let white = ch.first().is_some_and(|l| (l.clamp(0.0, 1.0) * 255.0).round() >= t);
+                [if white { 1.0 } else { 0.0 }, 128.0 / 255.0, 128.0 / 255.0, 0.0]
+            } else {
+                [0.0, 0.0, 0.0, if (gray * 255.0).round() < t { 1.0 } else { 0.0 }]
+            };
+            ch.iter_mut().zip(out).for_each(|(v, o)| *v = o);
+        }
+        _ => {}
+    }
+}
+
 /// Encoded sRGB → Lab normalised the way Photoshop's channels hold it: L/100, (a+128)/255,
 /// (b+128)/255.
 fn lab_norm(c: [f32; 3]) -> [f32; 3] {
@@ -286,12 +338,16 @@ fn lab_denorm(n: [f32; 3]) -> [f32; 3] {
     lab_to_srgb([n[0] * 100.0, n[1] * 255.0 - 128.0, n[2] * 255.0 - 128.0])
 }
 
-/// The Lab evaluation of a [`lab_channel_adjustment`] (no-op for any other adjustment).
-fn apply_lab(adj: &Adjustment, buf: &mut Buffer) {
+/// The Lab evaluation of a [`lab_channel_adjustment`] in a document of `depth` (no-op for any
+/// other adjustment).
+fn apply_lab(adj: &Adjustment, buf: &mut Buffer, depth: Option<SampleType>) {
     match adj {
-        // n → 1 - n on every channel: L → 100 - L and a, b mirrored about neutral.
-        Adjustment::Invert => map_rgb(buf, |c| lab_denorm(lab_norm(c).map(|v| 1.0 - v.clamp(0.0, 1.0)))),
-        Adjustment::Posterize { levels } => map_rgb(buf, |c| lab_denorm(lab_norm(c).map(|v| posterize(v, *levels)))),
+        // L → 100 - L and a, b mirrored about neutral; each channel posterized (see `stored_channels`).
+        Adjustment::Invert | Adjustment::Posterize { .. } => map_rgb(buf, |c| {
+            let mut n = lab_norm(c);
+            stored_channels(adj, ColorMode::Lab, depth, &mut n, 0.0);
+            lab_denorm(n)
+        }),
         Adjustment::Threshold { level } => {
             // Split on L alone (on the 8-bit grid); the result is neutral black or white.
             let t = (level * 255.0).round();
@@ -1490,6 +1546,41 @@ mod tone_tests {
     }
 
     #[test]
+    fn sixteen_bit_lab_invert_keeps_greys_neutral() {
+        // 16-bit Lab Invert mirrors a and b around neutral (photoshop corpus lab16 invert.psd);
+        // 8-bit bytes land one step off it.
+        let mut b = Buffer::filled(crate::Rect::new(0, 0, 1, 1), [0.0, 0.0, 0.0, 1.0]);
+        let c = lab(40.0, 0.0, 0.0);
+        b.px[0] = [c[0], c[1], c[2], 1.0];
+        apply_in(&Adjustment::Invert, &mut b, Transfer::Srgb, Some(SampleType::U16), ColorMode::Lab);
+        let got = srgb_to_lab([b.px[0][0], b.px[0][1], b.px[0][2]]);
+        assert!(near(got, [60.0, 0.0, 0.0], 0.05), "{got:?}");
+        assert!(near(in_lab(&Adjustment::Invert, c), [60.0, -1.0, -1.0], 0.1));
+    }
+
+    /// `adj` applied in a CMYK document to one encoded sRGB colour.
+    fn in_cmyk(adj: &Adjustment, c: [f32; 3]) -> [f32; 3] {
+        let mut b = Buffer::filled(crate::Rect::new(0, 0, 1, 1), [c[0], c[1], c[2], 1.0]);
+        apply_in(adj, &mut b, Transfer::Srgb, Some(SampleType::U8), ColorMode::Cmyk);
+        [b.px[0][0], b.px[0][1], b.px[0][2]]
+    }
+
+    #[test]
+    fn cmyk_invert_posterize_and_threshold_work_on_the_inks() {
+        use photocraft_color::convert::{cmyk_to_rgb, rgb_to_cmyk};
+        // Paper inverts to all four inks at 100%, not to RGB black (photoshop corpus cmyk8 invert.psd).
+        assert!(near(in_cmyk(&Adjustment::Invert, [1.0; 3]), cmyk_to_rgb([1.0; 4]), 2e-3));
+        let red = [0.9, 0.2, 0.1];
+        assert!(near(in_cmyk(&Adjustment::Invert, red), cmyk_to_rgb(rgb_to_cmyk(red).map(|v| 1.0 - v)), 2e-3));
+        let two = cmyk_to_rgb(rgb_to_cmyk(red).map(|v| if v >= 0.5 { 1.0 } else { 0.0 }));
+        assert!(near(in_cmyk(&Adjustment::Posterize { levels: 2 }, red), two, 2e-3));
+        // Threshold's black is the black ink alone (threshold-128.psd), its white the paper.
+        let t = Adjustment::Threshold { level: 0.5 };
+        assert!(near(in_cmyk(&t, [0.2; 3]), cmyk_to_rgb([0.0, 0.0, 0.0, 1.0]), 2e-3));
+        assert!(near(in_cmyk(&t, [0.8; 3]), cmyk_to_rgb([0.0; 4]), 2e-3));
+    }
+
+    #[test]
     fn lab_posterize_steps_l_a_and_b() {
         let got = in_lab(&Adjustment::Posterize { levels: 2 }, lab(70.0, 20.0, -30.0));
         // Two levels: each normalised channel snaps to 0 or 1 (L 100, a and b at +127 / -128).
@@ -1547,15 +1638,18 @@ mod tone_tests {
                 let (mut a, mut b) = (Buffer::filled(crate::Rect::new(0, 0, 1, 1), c), Buffer::filled(crate::Rect::new(0, 0, 1, 1), c));
                 apply_in(adj, &mut a, Transfer::Srgb, None, mode);
                 apply_depth(adj, &mut b, Transfer::Srgb, None);
-                assert_eq!(a.px == b.px, mode != ColorMode::Lab || !lab_channel_adjustment(adj), "{adj:?} in {mode:?}");
+                let own = (mode == ColorMode::Lab && lab_channel_adjustment(adj)) || (mode == ColorMode::Cmyk && cmyk_channel_adjustment(adj));
+                assert_eq!(a.px == b.px, !own, "{adj:?} in {mode:?}");
             }
         }
         // Transparent pixels are left alone and odd values never panic.
         let mut t = Buffer::filled(crate::Rect::new(0, 0, 2, 1), [f32::NAN, 2.0, -1.0, 0.0]);
         for adj in lab_only.iter().chain([&Adjustment::GradientMap { stops: vec![], reverse: true, dither: true }]) {
-            apply_in(adj, &mut t, Transfer::Srgb, None, ColorMode::Lab);
-            let mut odd = Buffer::filled(crate::Rect::new(0, 0, 1, 1), [f32::NAN, f32::INFINITY, -3.0, 1.0]);
-            apply_in(adj, &mut odd, Transfer::Srgb, None, ColorMode::Lab);
+            for mode in [ColorMode::Lab, ColorMode::Cmyk] {
+                apply_in(adj, &mut t, Transfer::Srgb, None, mode);
+                let mut odd = Buffer::filled(crate::Rect::new(0, 0, 1, 1), [f32::NAN, f32::INFINITY, -3.0, 1.0]);
+                apply_in(adj, &mut odd, Transfer::Srgb, Some(SampleType::U16), mode);
+            }
         }
         assert!(t.px[0][1] == 2.0);
     }
