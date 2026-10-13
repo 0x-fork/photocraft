@@ -370,6 +370,7 @@
 	Update Modified Content	Perbarui Isi yang Diubah
 	Update All Modified Content	Perbarui Semua Isi yang Diubah
 	Stack Mode	Mode Stack
+	Choose Stack Mode:	Pilih Mode Stack:
 	Entropy	Entropi
 	Kurtosis	Kurtosis
 	Maximum	Maksimum
@@ -854,6 +855,7 @@
 	Background	Background
 	Background Color	Warna Background
 	Background Contents	Isi Background
+	Custom background color	Warna background kustom
 	Balance	Keseimbangan
 	Baseline	Baseline
 	Baseline shift	Geser baseline

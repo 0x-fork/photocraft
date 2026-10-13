@@ -385,6 +385,7 @@
 	Smart Objects	Đối tượng thông minh
 	Solid Color…	Màu đặc…
 	Stack Mode	Chế độ chồng
+	Choose Stack Mode:	Chọn chế độ chồng:
 	Standard Deviation	Độ lệch chuẩn
 	Subtract Front Shape	Trừ hình phía trước
 	Summation	Tổng
@@ -1731,6 +1732,7 @@ cameraRaw	Size	Kích thước
 	Resolution:	Độ phân giải:
 	Color Mode	Chế độ màu
 	Background Contents	Nội dung nền
+	Custom background color	Màu nền tùy chỉnh
 	Pixels/Inch	Pixel/inch
 	Pixels/Centimeter	Pixel/centimet
 	White	Trắng

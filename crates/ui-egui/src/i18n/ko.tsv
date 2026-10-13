@@ -368,6 +368,7 @@
 	Update Modified Content	수정된 내용 업데이트
 	Update All Modified Content	수정된 모든 내용 업데이트
 	Stack Mode	스택 모드
+	Choose Stack Mode:	스택 모드 선택:
 	Entropy	엔트로피
 	Kurtosis	첨도
 	Maximum	최대값
@@ -848,6 +849,7 @@
 	Background	배경
 	Background Color	배경색
 	Background Contents	배경 내용
+	Custom background color	사용자 정의 배경색
 	Balance	균형
 	Baseline	기준선
 	Baseline shift	기준선 이동

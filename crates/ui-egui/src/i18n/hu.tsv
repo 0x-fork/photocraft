@@ -400,6 +400,7 @@
 	Smooth…	Simítás…
 	Solid Color…	Egyszínű kitöltés…
 	Stack Mode	Halommód
+	Choose Stack Mode:	Halommód kiválasztása:
 	Standard Deviation	Szórás
 	Subject	Fő téma
 	Subtract Front Shape	Elülső alakzat kivonása
@@ -2644,6 +2645,7 @@ cameraRaw	Yellow	Sárga
 	Autosave minutes	Automatikus mentés gyakorisága (perc)
 	Background Color	Háttérszín
 	Background Contents	Háttér tartalma
+	Custom background color	Egyéni háttérszín
 	Batch	Kötegelt feldolgozás
 	Binary assets added	Hozzáadott bináris elemek
 	Binary assets removed	Eltávolított bináris elemek

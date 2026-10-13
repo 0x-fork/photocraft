@@ -360,6 +360,10 @@ fn color_range(s: &mut Session, p: &Value) -> Result<Value> {
     let invert = b(p, "invert", false);
     let selection_mode = mode(p);
     let fuzz = |d: f32| f(p, "fuzziness", d).max(0.0);
+    // Photoshop's Detect Faces needs a face detector, which there is none of yet (#4455).
+    if b(p, "detectFaces", false) {
+        return Err(bad("detectFaces: face detection isn't available yet; select without it".into()));
+    }
     let (area, mut mask) = match preset {
         "sampledColors" => {
             let (area, px) = sample_pixels(s, b(p, "sampleAllLayers", true))?;
@@ -384,6 +388,10 @@ fn color_range(s: &mut Session, p: &Value) -> Result<Value> {
             };
             let (area, px) = sample_pixels(s, b(p, "sampleAllLayers", true))?;
             (area, sel::hue_range(&px, center))
+        }
+        "skinTones" => {
+            let (area, px) = sample_pixels(s, b(p, "sampleAllLayers", true))?;
+            (area, sel::skin_tones(&px, fuzz(40.0).min(200.0)))
         }
         "highlights" | "midtones" | "shadows" => {
             // Range in levels (Highlights / Shadows: one value, Midtones: [low, high]); Fuzziness
@@ -418,7 +426,7 @@ fn color_range(s: &mut Session, p: &Value) -> Result<Value> {
         }
         other => {
             return Err(bad(format!(
-                "unknown select `{other}` (sampledColors, reds, yellows, greens, cyans, blues, magentas, highlights, midtones, shadows, outOfGamut)"
+                "unknown select `{other}` (sampledColors, reds, yellows, greens, cyans, blues, magentas, highlights, midtones, shadows, skinTones, outOfGamut)"
             )));
         }
     };
@@ -623,7 +631,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "select.colorRange",
             "Color Range…",
             ["Select"],
-            r##"{"select":"sampledColors|reds|yellows|greens|cyans|blues|magentas|highlights|midtones|shadows|outOfGamut"="sampledColors","color":"#rrggbb"=foreground,"colors":["#rrggbb",…]?,"points":[[x,y],…]? (eyedropper samples),"subtractPoints":[[x,y],…]? (minus eyedropper),"order":["+"|"-",…]? (click order of points and subtractPoints; default all points first),"fuzziness":0..200=40 (tones: 0..100 %=20),"localized":bool=false,"range":0..100=100 (% of the longer side),"tonalRange":level|[lo,hi] (shadows 65, highlights 190, midtones [105,150]),"invert":bool=false,"sampleAllLayers":bool=true,"mode":"replace|add|subtract|intersect"="replace"}"##,
+            r##"{"select":"sampledColors|reds|yellows|greens|cyans|blues|magentas|highlights|midtones|shadows|skinTones|outOfGamut"="sampledColors","color":"#rrggbb"=foreground,"colors":["#rrggbb",…]?,"points":[[x,y],…]? (eyedropper samples),"subtractPoints":[[x,y],…]? (minus eyedropper),"order":["+"|"-",…]? (click order of points and subtractPoints; default all points first),"fuzziness":0..200=40 (tones: 0..100 %=20),"detectFaces":bool=false (not available yet: refused),"localized":bool=false,"range":0..100=100 (% of the longer side),"tonalRange":level|[lo,hi] (shadows 65, highlights 190, midtones [105,150]),"invert":bool=false,"sampleAllLayers":bool=true,"mode":"replace|add|subtract|intersect"="replace"}"##,
             has_doc,
             color_range
         ),
@@ -690,6 +698,30 @@ mod tests {
         if s.active().unwrap().doc.selection.is_some() {
             s.execute("select.deselect", json!({})).unwrap();
         }
+    }
+
+    #[test]
+    fn color_range_skin_tones_selects_skin_not_cream_and_refuses_detect_faces() {
+        let mut s = session();
+        let rgb = |c: [u8; 3]| [f32::from(c[0]) / 255.0, f32::from(c[1]) / 255.0, f32::from(c[2]) / 255.0, 1.0];
+        s.edit("paint", |doc, _| {
+            let bg = doc.layers[0].surface_mut().unwrap();
+            bg.fill_rect(Rect::new(0, 0, 40, 30), &rgb([252, 253, 247]));
+            bg.fill_rect(Rect::new(5, 5, 15, 15), &rgb([183, 119, 81]));
+            bg.fill_rect(Rect::new(25, 5, 35, 15), &rgb([231, 225, 202]));
+            Ok(())
+        })
+        .unwrap();
+        s.execute("select.colorRange", json!({"select": "skinTones"})).unwrap();
+        assert!(coverage(&s, 10, 10) > 0.95, "skin");
+        assert!(coverage(&s, 30, 10) < 0.05, "cream");
+        assert!(coverage(&s, 2, 2) < 0.05, "near-white background");
+        // Subtracting skin from a selection of both squares keeps only the cream one.
+        s.execute("select.rect", json!({"x": 5, "y": 5, "width": 30, "height": 10})).unwrap();
+        s.execute("select.colorRange", json!({"select": "skinTones", "mode": "subtract"})).unwrap();
+        assert!(coverage(&s, 10, 10) < 0.05 && coverage(&s, 30, 10) > 0.95, "{} {}", coverage(&s, 10, 10), coverage(&s, 30, 10));
+        let err = s.execute("select.colorRange", json!({"select": "skinTones", "detectFaces": true})).unwrap_err();
+        assert!(err.to_string().contains("detectFaces"), "{err}");
     }
 
     #[test]
