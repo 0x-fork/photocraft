@@ -100,7 +100,7 @@ pub fn fill(s: &mut Session, p: &Value) -> Result<Value> {
     let st = s.active().ok_or(EngineError::NoDocument)?;
     let doc_bounds = st.doc.bounds();
     let sel = st.doc.selection.clone();
-    let area = sel.as_ref().map(|m| m.content_bounds()).unwrap_or(doc_bounds);
+    let area = sel.as_ref().map_or(doc_bounds, |m| m.content_bounds().intersect(&doc_bounds));
     let mut out = json!({ "contents": contents });
     let restore = contents == "history";
     let source = match contents {
@@ -148,7 +148,6 @@ pub fn fill(s: &mut Session, p: &Value) -> Result<Value> {
         }
         _ => return Err(bad(format!("unknown contents `{contents}`"))),
     };
-    let area = area.intersect(&doc_bounds);
     if area.is_empty() {
         return Ok(out);
     }
@@ -527,6 +526,24 @@ mod tests {
 
     fn close(a: [f32; 4], b: [f32; 4]) -> bool {
         a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1.5 / 255.0)
+    }
+
+    #[test]
+    fn history_fill_reads_only_the_selection_inside_the_canvas() {
+        let mut s = session();
+        s.edit("selection", |doc, _| {
+            let mut selection = Surface::new(photocraft_color::PixelFormat::GRAY8);
+            selection.write_pixel(-2_000_000_000, -2_000_000_000, &[1.0]);
+            selection.write_pixel(4, 4, &[1.0]);
+            doc.selection = Some(selection);
+            Ok(())
+        })
+        .unwrap();
+        // Reading the full sparse selection rectangle overflows the allocation size;
+        // only its intersection with this small canvas is meaningful to Fill.
+        s.execute(CMD, json!({"contents": "history"})).unwrap();
+        assert!(s.undo());
+        assert!(s.active().unwrap().doc.selection.as_ref().unwrap().sample_channel(4, 4, 0) > 0.0);
     }
 
     #[test]

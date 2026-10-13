@@ -435,6 +435,10 @@ pub fn reset_fields(app: &PhotocraftApp, fields: &mut Map<String, Value>) {
         }
     }
     apply_command_defaults(app, &command, fields);
+    // The schema has no default for the Blur Gallery's pins: start again from the opening one.
+    if command == crate::blur_pins::COMMAND {
+        crate::blur_pins::reset(fields);
+    }
 }
 
 pub fn open(app: &mut PhotocraftApp, command: &str) -> Option<u64> {
@@ -454,6 +458,9 @@ pub fn open(app: &mut PhotocraftApp, command: &str) -> Option<u64> {
     }
     restore_remembered(app, command, spec.params, &mut fields);
     apply_command_defaults(app, command, &mut fields);
+    if command == crate::blur_pins::COMMAND {
+        crate::blur_pins::init(app, &mut fields);
+    }
     if parse_spec(spec.params).iter().any(|p| p.kind == Kind::Document) {
         // The document picker lists every open document (params refer to them by index).
         let names: Vec<String> = app.session.documents().iter().map(|d| d.doc.name.clone()).collect();
@@ -545,6 +552,14 @@ pub(crate) fn label(key: &str) -> String {
 }
 
 pub(crate) fn source_label(key: &str) -> String {
+    // Photoshop's name for the localized colour matching (Replace Color, Color Range).
+    if key == "localized" {
+        return "Localized Color Clusters".into();
+    }
+    // A name that already reads as text ("iPhone 14 Pro Max", "Web 1920") is not camelCase.
+    if key.contains(' ') {
+        return key.to_string();
+    }
     // camelCase → "Camel Case"
     let mut s = String::new();
     for (i, ch) in key.chars().enumerate() {
@@ -616,6 +631,8 @@ pub(crate) fn color_eyedropper_sample(app: &mut PhotocraftApp, x: f64, y: f64) -
         && let Some(d) = app.ui.dialog_mut(id)
     {
         d.fields.insert("color".into(), json!(crate::color_picker_ui::hex(rgb)));
+        // Where it was picked: Localized Color Clusters match the colour near this point (#4457).
+        d.fields.insert("points".into(), json!([[x.floor(), y.floor()]]));
     }
     true
 }
@@ -645,6 +662,8 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                     f.insert(p.key, json!(count));
                     continue;
                 }
+                // Replace Color's Range only applies with Localized Color Clusters on, as in Photoshop.
+                let enabled = !(cmd == REPLACE_COLOR && p.key == "range") || f.get("localized").and_then(Value::as_bool) == Some(true);
                 let unit = if is_pixel_param_of(&cmd, &p.key) {
                     "px"
                 } else if p.key == "angle" {
@@ -654,28 +673,33 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                 } else {
                     ""
                 };
-                if uses_angle_dial(&cmd, &p.key) {
-                    crate::widgets::angle_dial_row(ui, &label(&p.key), &mut v, min..=max);
-                    ui.add_space(4.0);
-                } else if uses_logarithmic_slider(min, max) {
-                    // Keep one numeric field for direct entry and one log-scaled slider for
-                    // wide ranges. slider_row would add a second, linear slider (#146).
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(label(&p.key)).color(t.text_dim));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            crate::widgets::value_field(ui, &mut v, min..=max, unit, 74.0);
-                        });
-                    });
-                    let mut lv = v.clamp(min, max).ln();
-                    if crate::widgets::slider(ui, &mut lv, min.ln()..=max.ln(), None).changed() {
-                        v = lv.exp();
+                ui.scope(|ui| {
+                    if !enabled {
+                        ui.disable();
                     }
-                    ui.add_space(4.0);
-                } else {
-                    // A double-click on the slider puts it back to the filter's default.
-                    let gestures = crate::widgets::RowGestures { reset: Some(default), wheel_step: None };
-                    crate::widgets::slider_row_with(ui, &label(&p.key), &mut v, min..=max, unit, None, gestures);
-                }
+                    if uses_angle_dial(&cmd, &p.key) {
+                        crate::widgets::angle_dial_row(ui, &label(&p.key), &mut v, min..=max);
+                        ui.add_space(4.0);
+                    } else if uses_logarithmic_slider(min, max) {
+                        // Keep one numeric field for direct entry and one log-scaled slider for
+                        // wide ranges. slider_row would add a second, linear slider (#146).
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(label(&p.key)).color(t.text_dim));
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                crate::widgets::value_field(ui, &mut v, min..=max, unit, 74.0);
+                            });
+                        });
+                        let mut lv = v.clamp(min, max).ln();
+                        if crate::widgets::slider(ui, &mut lv, min.ln()..=max.ln(), None).changed() {
+                            v = lv.exp();
+                        }
+                        ui.add_space(4.0);
+                    } else {
+                        // A double-click on the slider puts it back to the filter's default.
+                        let gestures = crate::widgets::RowGestures { reset: Some(default), wheel_step: None };
+                        crate::widgets::slider_row_with(ui, &label(&p.key), &mut v, min..=max, unit, None, gestures);
+                    }
+                });
                 // Small ranges (0–1 thresholds and centres) keep the two decimals their field shows.
                 let scale = if max - min <= 10.0 { 100.0 } else { 10.0 };
                 f.insert(p.key, json!((v * scale).round() / scale));
@@ -893,6 +917,10 @@ pub(crate) fn preview_document_for_target(
             }
         }
     }
+    // Blur Gallery pins carry their blur in document pixels too.
+    if command.starts_with("filter.blurGallery.") {
+        crate::blur_pins::scale_for_proxy(&mut p, run_k);
+    }
     s.execute(command, p).ok()?;
     s.active().map(|d| crate::proxy::proxy_document(&d.doc, reduce_k))
 }
@@ -950,6 +978,15 @@ pub struct FilterPreviewKey {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Preset names such as "iPhone 14 Pro Max" (the artboard dialog's choices) are text, not
+    /// camelCase keys: they used to read "I Phone 14  Pro  Max".
+    #[test]
+    fn display_names_are_not_split_like_camel_case_keys() {
+        assert_eq!(source_label("iPhone 14 Pro Max"), "iPhone 14 Pro Max");
+        assert_eq!(source_label("Web 1920"), "Web 1920");
+        assert_eq!(source_label("centerX"), "Center X");
+    }
 
     #[test]
     fn only_direction_angles_get_the_dial() {
@@ -2169,6 +2206,8 @@ mod tests {
         assert!(color_eyedropper_armed(&app));
         assert!(color_eyedropper_sample(&mut app, 4.0, 4.0));
         assert_eq!(app.ui.dialogs.last().unwrap().fields["color"], json!("#00ff00"));
+        // #4457: where it was picked, for Localized Color Clusters.
+        assert_eq!(app.ui.dialogs.last().unwrap().fields["points"], json!([[4.0, 4.0]]));
         // Off-image: the click is consumed, nothing changes and the eyedropper stays armed.
         assert!(color_eyedropper_sample(&mut app, -1.0, 4.0));
         assert_eq!(app.ui.dialogs.last().unwrap().fields["color"], json!("#00ff00"));
@@ -2198,5 +2237,38 @@ mod tests {
         h.get_by_label("Pick Color From Image").click();
         h.run_steps(2);
         assert!(!color_eyedropper_armed(h.state()));
+    }
+
+    /// #4457: Localized Color Clusters and its Range, as in Photoshop's dialog; the sampled point
+    /// and both settings reach the command.
+    #[test]
+    fn replace_color_localized_color_clusters() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable;
+
+        // Left half red, right half red too: localized on the left point, the right half stays.
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 40, "height": 10, "background": "#ff0000"})).unwrap();
+        let mut app = PhotocraftApp::new(s, crate::Services::default());
+        let mut h = Harness::builder().with_size(egui::vec2(900.0, 800.0)).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), &mut app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        let id = open(h.state_mut(), REPLACE_COLOR).unwrap();
+        h.run_steps(3);
+        let _ = h.get_by_label("Localized Color Clusters");
+        h.state_mut().ui.dialog_mut(id).unwrap().fields.insert(COLOR_EYEDROPPER.into(), json!(true));
+        assert!(color_eyedropper_sample(h.state_mut(), 2.0, 5.0));
+        h.get_by_label("Localized Color Clusters").click();
+        h.run_steps(2);
+        let f = h.state().ui.dialogs.last().unwrap().fields.clone();
+        assert_eq!((f["localized"].clone(), f["points"].clone()), (json!(true), json!([[2.0, 5.0]])));
+        // The command with the dialog's fields, small range and a hue shift: only near (2, 5).
+        let mut p: Map<String, Value> = f.iter().filter(|(k, _)| !k.starts_with("__")).map(|(k, v)| (k.clone(), v.clone())).collect();
+        p.insert("range".into(), json!(10));
+        p.insert("hue".into(), json!(120));
+        h.state_mut().run(REPLACE_COLOR, Value::Object(p)).unwrap();
+        let doc = &h.state().session.active().unwrap().doc;
+        let px = |x: i32| doc.layers[0].surface().unwrap().read_region(photocraft_geom::Rect::new(x, 5, x + 1, 6));
+        assert!(px(2)[1] > 0.5, "near the point: shifted to green {:?}", px(2));
+        assert!(px(38)[0] > 0.9 && px(38)[1] < 0.1, "far away: still red {:?}", px(38));
     }
 }

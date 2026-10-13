@@ -157,7 +157,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         // effects, extends down and right instead of re-centring.
         let pinned: Option<egui::Vec2> = ctx.data(|m| m.get_temp(id));
         let place = place_id(&d);
-        let start = pinned.or_else(|| ctx.data_mut(|m| m.get_persisted::<egui::Vec2>(place)));
+        let start = pinned.or_else(|| ctx.data_mut(|m| m.get_persisted::<egui::Vec2>(place))).or_else(|| crate::blur_pins::first_place(&d.fields, ctx));
         let mut drag = egui::Vec2::ZERO;
         let mut sizing = false;
         let area = match start {
@@ -220,6 +220,12 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             } else if let Some(w) = crate::file_ui::dialog_width(&d.fields) {
                 ui.set_min_width(w);
                 ui.set_max_width(w);
+            }
+            // Duplicate Layer… is a fixed small grid (labels + 260 pt fields ≈ 352 pt):
+            // the generic 380 pt minimum left a dead strip on its right.
+            if crate::duplicate_layer_ui::owns(&d.fields) {
+                ui.set_min_width(360.0);
+                ui.set_max_width(360.0);
             }
             if color_picker {
                 ui.set_width(crate::color_picker_ui::CONTENT_WIDTH);
@@ -299,6 +305,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 // Image Size and Canvas Size open on Width, selected (#2329).
                 DialogKind::Command if fields.contains_key("__sizing") => first_field_focused(ui, id, |ui| crate::sizing::body(ui, &mut fields)),
                 DialogKind::Command if crate::adjust_dialog::owns(&fields) => crate::adjust_dialog::body(app, ui, &mut fields),
+                DialogKind::Command if crate::blur_pins::owns(&fields) => crate::blur_pins::body(ui, &mut fields),
                 DialogKind::Command if fields.contains_key("__filter") => {
                     // Color Settings: the monitor profile in use can change while it is open.
                     if fields.get("__command").and_then(Value::as_str) == Some("edit.colorSettings") {
@@ -622,6 +629,10 @@ pub fn cancel(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
     crate::actions::stopped(app, &closed.fields);
     if crate::guide_layout_ui::owns(&closed.fields) {
         app.ui.dialogs.retain(|child| child.fields.get("__dialog").and_then(Value::as_u64) != Some(id));
+    }
+    // Cancel on a profile prompt opens neither its file nor the ones still to come.
+    if crate::open_prompt::owns(&closed.fields) {
+        crate::open_prompt::answer(app, None)?;
     }
     app.ui.dialogs.retain(|d| !crate::layer_style::color_picker::child_of(&d.fields, id));
     app.filter_preview = None;
