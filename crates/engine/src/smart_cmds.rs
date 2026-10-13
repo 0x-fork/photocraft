@@ -862,12 +862,28 @@ pub fn contents_of(doc: &Document, id: LayerId) -> Result<(String, Arc<Vec<u8>>)
     source_bytes(&doc.metadata, &smart(doc, id)?.source).ok_or_else(|| other("the smart object's contents are unavailable"))
 }
 
+/// Writes the smart object's file as it is. To a path with another extension (a `.png` for
+/// `.psb` or `.pcraft` contents) the contents are opened and exported in that format instead.
 fn export_contents(s: &mut Session, p: &Value) -> Result<Value> {
     let path = path_param("layer.smartObjects.exportContents", p)?;
     let id = layer_param(s, p)?;
     let (name, bytes) = contents_of(&s.active().ok_or(EngineError::NoDocument)?.doc, id)?;
-    crate::file_cmds::write_file(path, &bytes)?;
-    Ok(json!({"path": path, "fileName": name, "bytes": bytes.len()}))
+    let ext = |f: &str| {
+        let e = std::path::Path::new(f).extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
+        e.map(|e| match e.as_str() {
+            "jpeg" => "jpg".to_string(),
+            "tiff" => "tif".to_string(),
+            _ => e,
+        })
+    };
+    if ext(path).is_none() || ext(path) == ext(&name) {
+        crate::file_cmds::write_file(path, &bytes)?;
+        return Ok(json!({"path": path, "fileName": name, "bytes": bytes.len(), "converted": false}));
+    }
+    let contents = decode_source(&name, &bytes)?;
+    let r = photocraft_io::export(&contents, path, &Default::default()).map_err(|e| other(format!("can't export the contents as {}: {e}", base_name(path))))?;
+    crate::file_cmds::write_file(path, &r.bytes)?;
+    Ok(json!({"path": path, "fileName": name, "bytes": r.bytes.len(), "converted": true, "warnings": r.warnings}))
 }
 
 fn edit_contents(s: &mut Session, p: &Value) -> Result<Value> {
@@ -1216,7 +1232,14 @@ pub fn specs() -> Vec<CommandSpec> {
             Ok(json!({"updated": commit_child(s, i)?}))
         }),
         spec!("layer.smartObjects.replaceContents", "Replace Contents…", SO, r##"{"layer":id?,"path":str}"##, has_smart, replace_contents),
-        spec!("layer.smartObjects.exportContents", "Export Contents…", SO, r##"{"layer":id?,"path":str}"##, has_smart, export_contents),
+        spec!(
+            "layer.smartObjects.exportContents",
+            "Export Contents…",
+            SO,
+            r##"{"layer":id?,"path":str (another extension than the contents' own exports them in that format)}"##,
+            has_smart,
+            export_contents
+        ),
         spec!("layer.smartObjects.relinkToFile", "Relink to File…", SO, r##"{"layer":id?,"path":str}"##, has_smart, |s, p| {
             let path = path_param("layer.smartObjects.relinkToFile", p)?.to_string();
             set_source(s, p, "Relink to File", false, |_, _| Ok(SmartSource::Linked { path }))

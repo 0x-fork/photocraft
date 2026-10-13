@@ -368,6 +368,7 @@
 	Update Modified Content	수정된 내용 업데이트
 	Update All Modified Content	수정된 모든 내용 업데이트
 	Stack Mode	스택 모드
+	Choose Stack Mode:	스택 모드 선택:
 	Entropy	엔트로피
 	Kurtosis	첨도
 	Maximum	최대값
@@ -539,6 +540,9 @@
 	Blur	흐림 효과
 	Blur Gallery	흐림 효과 갤러리
 	Field Blur…	필드 흐림 효과…
+# Field Blur pins (#3373)
+	No pin selected	선택한 핀 없음
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	이미지를 클릭하여 핀을 추가합니다. 핀을 드래그하여 이동하고, 링을 드래그하여 흐림 정도를 바꿉니다. Delete 키로 선택한 핀을 삭제합니다.
 	Iris Blur…	조리개 흐림 효과…
 	Tilt-Shift…	기울기-이동…
 	Path Blur…	패스 흐림 효과…
@@ -848,6 +852,7 @@
 	Background	배경
 	Background Color	배경색
 	Background Contents	배경 내용
+	Custom background color	사용자 정의 배경색
 	Balance	균형
 	Baseline	기준선
 	Baseline shift	기준선 이동
@@ -2148,6 +2153,10 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	선택 영역으로 만들 패스가 없습니다: 펜 도구로 그리거나 패스 패널에서 선택하세요.
 	Cancel opening	열기 취소
 	Cancelled opening {name}	{name} 열기를 취소했습니다
+	The document “{name}” does not have an embedded {mode} profile.	문서 “{name}”에 포함된 {mode} 프로파일이 없습니다.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	문서 “{name}”에 포함된 색상 프로파일이 현재 {mode} 작업 색상 공간과 일치하지 않습니다.
+	Embedded: {embedded}	포함됨: {embedded}
+	Working: {working}	작업 색상 공간: {working}
 	Developing {name}	{name} 현상 중
 	Cancelled {label}	{label} 작업을 취소했습니다
 	Esc to cancel	Esc 키로 취소
@@ -3006,6 +3015,7 @@ cameraRaw	Color	색상
 	Indigo	남색
 	Fuchsia	자홍색
 	Large document: redrawing on the CPU	큰 문서: CPU에서 다시 그리는 중
+	Redrawing	다시 그리는 중
 	This redraw took {seconds} s on the CPU.	이번 다시 그리기는 CPU에서 {seconds}초 걸렸습니다.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	레이어의 혼합 모드, 불투명도, 표시 여부처럼 문서 전체를 바꾸는 편집은 문서 전체를 다시 그립니다.
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	레이어가 GPU 메모리 예산에 맞지 않습니다. 환경 설정 › 성능에서 메모리 사용량을 늘리면 이 컴퓨터 메모리의 4분의 1까지 예산이 늘어납니다.
@@ -3246,6 +3256,7 @@ curves	Smooth	매끄럽게
 	Paint over hair or fur on the image; Alt paints the other mode	이미지의 머리카락이나 털 위를 칠합니다. Alt는 다른 모드로 칠합니다
 	Clear Brush Strokes	브러시 획 지우기
 	Show rulers	눈금자 표시
+	Presentation	프레젠테이션
 
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	클릭하여 배치 · Alt-클릭 또는 캔버스 밖으로 드래그하여 제거
@@ -3287,6 +3298,8 @@ curves	Smooth	매끄럽게
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	{file}에 액션 {n}개를 저장했습니다
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Photoshop에 해당하는 기능이 없는 {n}개 단계를 제외했습니다
 
+	File Naming	파일 이름 지정
+	Starting serial	시작 일련번호
 # Actions panel: set folders, dialog toggle, Insert Stop
 	Insert Stop…	정지 삽입…
 	Save Set…	세트 저장…

@@ -92,6 +92,7 @@ fn reset_session_brush(app: &mut PhotocraftApp) {
     app.session.tools.brush = crate::paint_mouse::fresh_brush(&app.session.tools.brush);
     app.session.tools.brush_gesture = None;
     app.session.tools.current_preset = None;
+    app.session.tools.brush_changed();
 }
 
 fn is_selection_tool(tool: Tool) -> bool {

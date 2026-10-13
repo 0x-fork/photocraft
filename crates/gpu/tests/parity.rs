@@ -187,6 +187,27 @@ fn check(g: &mut Gpu, doc: &Document, what: &str) {
     diff_rect(g, doc, doc.bounds(), what).unwrap_or_else(|e| panic!("{e}"));
 }
 
+/// Closing a document frees what the compositor holds for it, however its canvas entry went
+/// (#4529): `retain_docs` drops the resident pages, effect maps and lower-stack composite of
+/// documents that aren't open, and keeps the open ones.
+#[test]
+fn retain_docs_frees_closed_documents() {
+    let Some(mut g) = gpu() else { return };
+    let a = base_doc(64, 48);
+    let mut b = base_doc(32, 32);
+    b.id = photocraft_doc::DocId(a.id.0 + 1);
+    for d in [&a, &b] {
+        render_to_vec(&mut g.comp, &g.device, &g.queue, d, d.bounds()).expect("render");
+    }
+    assert_eq!(g.comp.held_docs(), vec![a.id, b.id]);
+    g.comp.retain_docs(|d| d == b.id);
+    assert_eq!(g.comp.held_docs(), vec![b.id], "only the open document is left");
+    g.comp.retain_docs(|_| false);
+    assert!(g.comp.held_docs().is_empty());
+    assert_eq!(g.comp.composite_cache_bytes(), 0);
+    check(&mut g, &a, "renders again after being forgotten");
+}
+
 #[test]
 fn first_frame_renders() {
     // Regression: the first submission after device creation is dropped on some drivers
@@ -2086,6 +2107,76 @@ fn artboards() {
             fx_check(&mut g, &d, &format!("artboard {bg:?} {blend:?}"));
         }
     }
+}
+
+/// Sparse patterns may have no stored tiles: their defaults still determine every pixel.
+#[test]
+fn pattern_cache_tracks_default_pixels() {
+    let Some(mut g) = gpu() else { return };
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        let fmt = PixelFormat::RGBA8.with_sample(depth);
+        let mut d = Document::new("pattern defaults", Size::new(8, 6), ColorMode::Rgb, depth);
+        let mut pat = Pattern::new("cache identity", photocraft_raster::Surface::with_default(fmt, &[1.0, 0.0, 0.0, 1.0]), 2, 2);
+        assert_eq!(pat.surface.tiles().count(), 0);
+        d.layers.push(Layer::new(
+            "pattern",
+            LayerContent::Fill(Fill::Pattern { name: pat.name.clone(), id: pat.id.clone(), scale: 1.0, angle: 0.0, link: true, phase: (0.0, 0.0) }),
+        ));
+        d.patterns.push(pat.clone());
+        check(&mut g, &d, &format!("red default {depth:?}"));
+        pat.surface = photocraft_raster::Surface::with_default(fmt, &[0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(pat.surface.tiles().count(), 0);
+        d.patterns[0] = pat;
+        let cpu = photocraft_compose::flatten(&d);
+        let mut fresh = Compositor::new(&g.device);
+        let out = render_to_vec(&mut fresh, &g.device, &g.queue, &d, d.bounds()).unwrap();
+        assert!(worst_diff(&cpu.px, &out).0 <= TOL, "fresh compositor matches blue default");
+        check(&mut g, &d, &format!("blue default {depth:?}"));
+    }
+}
+
+#[test]
+fn pattern_cache_tracks_source_format_and_cow_tiles() {
+    let Some(mut g) = gpu() else { return };
+    let defaults = [0.5, 0.25, 0.75, 1.0];
+    let mut pat = Pattern::new("format identity", photocraft_raster::Surface::with_default(PixelFormat::RGBA32F, &defaults), 2, 2);
+    let mut d = Document::new("pattern formats", Size::new(8, 6), ColorMode::Rgb, SampleType::F32);
+    d.layers.push(Layer::new(
+        "pattern",
+        LayerContent::Fill(Fill::Pattern { name: pat.name.clone(), id: pat.id.clone(), scale: 1.0, angle: 0.0, link: true, phase: (0.0, 0.0) }),
+    ));
+    let mut previous = None;
+    for fmt in [PixelFormat::RGBA32F, PixelFormat::new(ColorMode::Lab, SampleType::F32, true), PixelFormat::RGBA16, PixelFormat::RGBA8] {
+        pat.surface = photocraft_raster::Surface::with_default(fmt, &defaults);
+        if fmt.sample == SampleType::F32 {
+            assert_eq!(pat.surface.default_pixel(), defaults);
+        }
+        d.patterns = vec![pat.clone()];
+        let cpu = photocraft_compose::flatten(&d);
+        if fmt.mode == ColorMode::Lab {
+            let old: Vec<[f32; 4]> = previous.take().unwrap();
+            assert!(worst_diff(&old, &cpu.px).0 > 0.1, "same default bits have different source-format colours");
+        }
+        previous = Some(cpu.px.clone());
+        let mut fresh = Compositor::new(&g.device);
+        let out = render_to_vec(&mut fresh, &g.device, &g.queue, &d, d.bounds()).unwrap();
+        assert!(worst_diff(&cpu.px, &out).0 <= TOL, "fresh compositor matches {fmt:?}");
+        check(&mut g, &d, &format!("source format {fmt:?}"));
+        check(&mut g, &d, &format!("unchanged source format {fmt:?}"));
+    }
+    pat.surface.fill_rect(pat.rect(), &[1.0, 0.0, 0.0, 1.0]);
+    d.patterns = vec![pat.clone()];
+    check(&mut g, &d, "stored red tile");
+    // Keep the old tile alive: this exercises COW invalidation, not allocator address reuse.
+    let old = pat.clone();
+    pat.surface.fill_rect(Rect::new(0, 0, 1, 1), &[0.0, 0.0, 1.0, 1.0]);
+    assert!(!std::sync::Arc::ptr_eq(old.surface.tiles().next().unwrap().1, pat.surface.tiles().next().unwrap().1));
+    d.patterns = vec![pat];
+    check(&mut g, &d, "COW blue tile edit");
+    let mut fresh = Compositor::new(&g.device);
+    let out = render_to_vec(&mut fresh, &g.device, &g.queue, &d, d.bounds()).unwrap();
+    assert!(worst_diff(&photocraft_compose::flatten(&d).px, &out).0 <= TOL, "fresh compositor matches COW edit");
+    assert_eq!(old.surface.tile_count(), 1);
 }
 
 #[test]

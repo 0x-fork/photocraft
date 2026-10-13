@@ -488,6 +488,21 @@ fn layer_filters_repeat_the_canvas_edge() {
     }
 }
 
+/// Photoshop 27.11's Polar Coordinates turn counter-clockwise from 12 o'clock: just left of the
+/// top centre, Rectangular to Polar samples the source's left edge (clockwise would take its right).
+#[test]
+fn polar_coordinates_turn_counter_clockwise() {
+    let r = Rect::new(0, 0, 64, 64);
+    let mut s = flat(SampleType::U8, r, [0.0, 0.0, 1.0, 1.0]);
+    s.fill_rect(Rect::new(0, 0, 32, 64), &[1.0, 0.0, 0.0, 1.0]);
+    let p = FilterParams::PolarCoordinates { mode: PolarMode::RectangularToPolar };
+    let out = apply(&s, &p, r, r, None);
+    let left_of_top = out.rgba(28, 12);
+    assert!(left_of_top[0] > 0.9 && left_of_top[2] < 0.1, "{left_of_top:?}");
+    // The corners outside the circle repeat the source's edge instead of going transparent.
+    assert!(out.rgba(0, 0)[3] > 0.99, "{:?}", out.rgba(0, 0));
+}
+
 /// `mix_selection` before #4533, one selection lookup per pixel: the oracle for the per-tile read.
 fn mix_selection_reference(data: &mut [f32], t: Rect, sel: &Surface, orig: &crate::image::Image, alpha: bool) {
     let w = t.width() as usize;

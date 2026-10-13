@@ -383,6 +383,7 @@
 	Update Modified Content	Actualizar contenido modificado
 	Update All Modified Content	Actualizar todo el contenido modificado
 	Stack Mode	Modo de apilamiento
+	Choose Stack Mode:	Elegir modo de apilamiento:
 	Entropy	Entropía
 	Kurtosis	Curtosis
 	Maximum	Máximo
@@ -554,6 +555,9 @@
 	Blur	Desenfocar
 	Blur Gallery	Galería de desenfoque
 	Field Blur…	Desenfoque de campo…
+# Field Blur pins (#3373)
+	No pin selected	Ningún pin seleccionado
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Haga clic en la imagen para añadir un pin; arrastre un pin para moverlo o su anillo para cambiar el desenfoque. Suprimir elimina el pin seleccionado.
 	Iris Blur…	Desenfoque de iris…
 	Tilt-Shift…	Cambio de inclinación…
 	Path Blur…	Desenfoque de trazado…
@@ -874,6 +878,7 @@
 	Background	Fondo
 	Background Color	Color de fondo
 	Background Contents	Contenido del fondo
+	Custom background color	Color de fondo personalizado
 	Balance	Balance
 	Baseline	Línea de base
 	Baseline shift	Desplazamiento de línea de base
@@ -2193,6 +2198,10 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	No hay ningún trazado para crear una selección: dibuje uno con la herramienta Pluma o seleccione uno en el panel Trazados.
 	Cancel opening	Cancelar apertura
 	Cancelled opening {name}	Se canceló la apertura de {name}
+	The document “{name}” does not have an embedded {mode} profile.	El documento «{name}» no tiene un perfil {mode} incrustado.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	El documento «{name}» tiene un perfil de color incrustado que no coincide con el espacio de trabajo {mode} actual.
+	Embedded: {embedded}	Incrustado: {embedded}
+	Working: {working}	Espacio de trabajo: {working}
 	Developing {name}	Revelando {name}
 	Cancelled {label}	Se canceló {label}
 	Esc to cancel	Esc para cancelar
@@ -2495,6 +2504,7 @@ cameraRaw	Amount	Cantidad
 	Violet	Violeta
 	Reset	Restaurar
 	Large document: redrawing on the CPU	Documento grande: redibujando en la CPU
+	Redrawing	Redibujando
 	This redraw took {seconds} s on the CPU.	Este redibujado en la CPU tardó {seconds} s.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Las ediciones que cambian todo el documento, como el modo de fusión, la opacidad o la visibilidad de una capa, lo redibujan por completo.
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Las capas no caben en el presupuesto de memoria de la GPU. Aumentar Uso de memoria en Preferencias › Rendimiento amplía el presupuesto, hasta una cuarta parte de la memoria de este equipo.
@@ -2741,6 +2751,7 @@ curves	Smooth	Suavizar
 	Paint over hair or fur on the image; Alt paints the other mode	Pinte sobre el pelo o el pelaje de la imagen; Alt pinta en el otro modo
 	Clear Brush Strokes	Borrar trazos de pincel
 	Show rulers	Mostrar reglas
+	Presentation	Presentación
 
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	Clic para colocar · Alt-clic o arrastrar fuera del lienzo para quitar
@@ -2797,6 +2808,8 @@ curves	Smooth	Suavizar
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	Se guardó {n} acción en {file}|Se guardaron {n} acciones en {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	{n} paso sin equivalente en Photoshop omitido|{n} pasos sin equivalente en Photoshop omitidos
 
+	File Naming	Nombres de archivo
+	Starting serial	Número de serie inicial
 # Actions panel: set folders, dialog toggle, Insert Stop
 	Insert Stop…	Insertar detención…
 	Save Set…	Guardar conjunto…

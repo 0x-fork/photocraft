@@ -385,6 +385,7 @@
 	Smart Objects	Đối tượng thông minh
 	Solid Color…	Màu đặc…
 	Stack Mode	Chế độ chồng
+	Choose Stack Mode:	Chọn chế độ chồng:
 	Standard Deviation	Độ lệch chuẩn
 	Subtract Front Shape	Trừ hình phía trước
 	Summation	Tổng
@@ -507,6 +508,9 @@
 	Facet	Mặt cắt
 	Fibers…	Sợi…
 	Field Blur…	Làm mờ vùng…
+# Field Blur pins (#3373)
+	No pin selected	Chưa chọn ghim nào
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Bấm vào ảnh để thêm ghim; kéo ghim để di chuyển, hoặc kéo vòng của ghim để đổi độ mờ. Delete xóa ghim đã chọn.
 	Filter Gallery…	Thư viện bộ lọc…
 	Find Edges	Tìm cạnh
 	Flame…	Ngọn lửa…
@@ -1561,6 +1565,10 @@ cameraRaw	Shadows	Vùng tối
 	Esc to cancel	Esc để hủy
 	Cancel opening	Hủy mở tệp
 	Cancelled opening {name}	Đã hủy mở {name}
+	The document “{name}” does not have an embedded {mode} profile.	Tài liệu “{name}” không có hồ sơ {mode} nhúng.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Tài liệu “{name}” có hồ sơ màu nhúng không khớp với không gian làm việc {mode} hiện tại.
+	Embedded: {embedded}	Nhúng: {embedded}
+	Working: {working}	Không gian làm việc: {working}
 	Cancelled {label}	Đã hủy {label}
 	Cancel transform (Esc)	Hủy biến đổi (Esc)
 	Cancel warp (Esc)	Hủy biến dạng (Esc)
@@ -1731,6 +1739,7 @@ cameraRaw	Size	Kích thước
 	Resolution:	Độ phân giải:
 	Color Mode	Chế độ màu
 	Background Contents	Nội dung nền
+	Custom background color	Màu nền tùy chỉnh
 	Pixels/Inch	Pixel/inch
 	Pixels/Centimeter	Pixel/centimet
 	White	Trắng
@@ -2150,6 +2159,7 @@ layers	Fill:	Độ tô:
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Các lớp không vừa ngân sách bộ nhớ GPU. Tăng mức sử dụng bộ nhớ trong Tùy chọn › Hiệu năng sẽ nâng ngân sách, tối đa một phần tư bộ nhớ máy này.
 	Labels	Nhãn
 	Large document: redrawing on the CPU	Tài liệu lớn: đang vẽ lại trên CPU
+	Redrawing	Đang vẽ lại
 	Layer deleted, but confirmation preference could not be saved: {error}	Đã xóa lớp, nhưng không lưu được tùy chọn xác nhận: {error}
 	Layer From Background…	Lớp từ nền…
 	Load a keyboard shortcut set saved as .kys	Tải bộ phím tắt đã lưu dạng .kys
@@ -3596,6 +3606,8 @@ curves	Smooth	Làm mượt
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	Đã lưu {n} hành động vào {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Đã bỏ qua {n} bước không có chức năng tương ứng trong Photoshop
 
+	File Naming	Đặt tên tệp
+	Starting serial	Số thứ tự bắt đầu
 # Actions panel: set folders, dialog toggle, Insert Stop
 	Insert Stop…	Chèn điểm dừng…
 	Save Set…	Lưu bộ…
@@ -3606,6 +3618,7 @@ curves	Smooth	Làm mượt
 	Action playback stopped	Đã dừng phát hành động
 	Step {step} is waiting for its dialog	Bước {step} đang chờ hộp thoại của nó
 @plural	{n} action|{n} actions	{n} hành động
+	Presentation	Trình bày
 	Gradient Preset Options	Tùy chọn thiết lập sẵn chuyển sắc
 	Import .GRD	Nhập .GRD
 	Choose a gradient file (.grd).	Chọn tệp chuyển sắc (.grd).

@@ -370,6 +370,7 @@
 	Update Modified Content	Perbarui Isi yang Diubah
 	Update All Modified Content	Perbarui Semua Isi yang Diubah
 	Stack Mode	Mode Stack
+	Choose Stack Mode:	Pilih Mode Stack:
 	Entropy	Entropi
 	Kurtosis	Kurtosis
 	Maximum	Maksimum
@@ -535,6 +536,9 @@
 	Blur	Blur
 	Blur Gallery	Galeri Blur
 	Field Blur…	Field Blur…
+# Field Blur pins (#3373)
+	No pin selected	Tidak ada pin yang dipilih
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Klik gambar untuk menambah pin; seret pin untuk memindahkannya, atau cincinnya untuk mengubah blur. Delete menghapus pin yang dipilih.
 	Iris Blur…	Iris Blur…
 	Tilt-Shift…	Tilt-Shift…
 	Path Blur…	Path Blur…
@@ -854,6 +858,7 @@
 	Background	Background
 	Background Color	Warna Background
 	Background Contents	Isi Background
+	Custom background color	Warna background kustom
 	Balance	Keseimbangan
 	Baseline	Baseline
 	Baseline shift	Geser baseline
@@ -2146,6 +2151,10 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Tidak ada path untuk dibuat seleksi: gambar dengan alat Pen atau pilih salah satu di panel Path.
 	Cancel opening	Batalkan pembukaan
 	Cancelled opening {name}	Pembukaan {name} dibatalkan
+	The document “{name}” does not have an embedded {mode} profile.	Dokumen “{name}” tidak memiliki profil {mode} tertanam.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Dokumen “{name}” memiliki profil warna tertanam yang tidak cocok dengan working space {mode} saat ini.
+	Embedded: {embedded}	Tertanam: {embedded}
+	Working: {working}	Working space: {working}
 	Developing {name}	Mengembangkan {name}
 	Cancelled {label}	{label} dibatalkan
 	Esc to cancel	Esc untuk batal
@@ -2459,7 +2468,6 @@
 	Choose…	Pilih…
 	Select Folder…	Pilih Folder…
 	Override Action "Save" Commands	Timpa Perintah Action "Save"
-	File Naming	Penamaan Berkas
 	Compatibility	Kompatibilitas
 	Mac OS	Mac OS
 	Unix	Unix
@@ -2833,6 +2841,7 @@ cameraRaw	Blending	Pembauran
 	Fuchsia	Fuksia
 	Violet	Ungu
 	Large document: redrawing on the CPU	Dokumen besar: menggambar ulang di CPU
+	Redrawing	Menggambar ulang
 	This redraw took {seconds} s on the CPU.	Penggambaran ulang di CPU ini memakan waktu {seconds} dtk.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Suntingan yang mengubah seluruh dokumen, seperti mode campuran, opasitas, atau visibilitas layer, menggambar ulang semuanya.
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Layer tidak muat dalam anggaran memori GPU. Menaikkan Pemakaian memori di Preferensi › Performa menaikkan anggaran, hingga seperempat memori komputer ini.
@@ -3061,6 +3070,7 @@ curves	Smooth	Haluskan
 	Paint over hair or fur on the image; Alt paints the other mode	Lukis di atas rambut atau bulu pada gambar; Alt melukis dalam mode lainnya
 	Clear Brush Strokes	Hapus Goresan Kuas
 	Show rulers	Tampilkan Penggaris
+	Presentation	Presentasi
 
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	Klik untuk menempatkan · Alt-klik atau seret ke luar kanvas untuk menghapus
@@ -3102,6 +3112,8 @@ curves	Smooth	Haluskan
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	{n} tindakan disimpan ke {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	{n} langkah tanpa padanan Photoshop dilewati
 
+	File Naming	Penamaan Berkas
+	Starting serial	Nomor urut awal
 # Actions panel: set folders, dialog toggle, Insert Stop
 	Insert Stop…	Sisipkan Berhenti…
 	Save Set…	Simpan Set…
