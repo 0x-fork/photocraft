@@ -543,6 +543,9 @@
 	Blur	Vervagen
 	Blur Gallery	Vervagingsgalerie
 	Field Blur…	Veldvervaging…
+# Field Blur pins (#3373)
+	No pin selected	Geen speld geselecteerd
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Klik in de afbeelding om een speld toe te voegen; sleep een speld om hem te verplaatsen, of zijn ring om de vervaging te wijzigen. Delete verwijdert de geselecteerde speld.
 	Iris Blur…	Irisvervaging…
 	Tilt-Shift…	Tilt-shift…
 	Path Blur…	Padvervaging…
@@ -2157,6 +2160,10 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Geen pad om een selectie van te maken: teken er een met het pengereedschap of selecteer er een in het paneel Paden.
 	Cancel opening	Openen annuleren
 	Cancelled opening {name}	Openen van {name} geannuleerd
+	The document “{name}” does not have an embedded {mode} profile.	Het document “{name}” heeft geen ingesloten {mode}-profiel.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Het document “{name}” heeft een ingesloten kleurprofiel dat niet overeenkomt met de huidige {mode}-werkruimte.
+	Embedded: {embedded}	Ingesloten: {embedded}
+	Working: {working}	Werkruimte: {working}
 	Developing {name}	{name} wordt ontwikkeld
 	Cancelled {label}	{label} geannuleerd
 	Esc to cancel	Esc om te annuleren
@@ -2853,7 +2860,6 @@ cameraRaw	Color	Kleur
 	Choose…	Kiezen…
 	Select Folder…	Map selecteren…
 	Override Action "Save" Commands	Opdrachten "Opslaan" in actie negeren
-	File Naming	Bestandsnamen
 	Compatibility	Compatibiliteit
 	Include ICC Profile	ICC-profiel opnemen
 	Error File	Foutbestand
@@ -3893,6 +3899,8 @@ curves	Smooth	Vloeiend maken
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	{n} handeling opgeslagen in {file}|{n} handelingen opgeslagen in {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	{n} stap zonder Photoshop-equivalent weggelaten|{n} stappen zonder Photoshop-equivalent weggelaten
 
+	File Naming	Bestandsnamen
+	Starting serial	Beginnummer
 # Actions panel: set folders, dialog toggle, Insert Stop
 	Insert Stop…	Stop invoegen…
 	Save Set…	Set opslaan…
