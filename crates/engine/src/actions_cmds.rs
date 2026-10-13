@@ -115,10 +115,11 @@ pub fn replayable(id: &str) -> bool {
             && (shell_view_command(id) || shell_save_command(id) || crate::commands::find(id).is_some_and(|c| c.journal)))
 }
 
-/// File › Save and Save As, recorded by the desktop shell once the save has a path (#2032).
-/// The shell replays them; batch and droplets write to their destination folder instead.
+/// File › Save, Save As and Save a Copy, recorded by the desktop shell once the save has a path
+/// (#2032, #4373). The shell replays them; batch and droplets write to their destination folder
+/// instead.
 pub fn shell_save_command(id: &str) -> bool {
-    matches!(id, "file.save" | "file.saveAs")
+    matches!(id, "file.save" | "file.saveAs" | "file.saveACopy")
 }
 
 /// View-only menu commands recorded by the desktop shell. Headless playback reports

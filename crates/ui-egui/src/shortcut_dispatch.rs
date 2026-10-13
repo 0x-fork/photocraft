@@ -302,6 +302,7 @@ fn label(id: &str) -> String {
         .map(|c| c.1)
         .or_else(|| crate::menus::UI_COMMANDS.iter().find(|c| c.0 == id).map(|c| c.1))
         .or_else(|| photocraft_engine::commands::find(id).map(|c| c.label))
+        .or_else(|| crate::tool_shortcuts::tool(id).map(|tool| tool.label()))
         .unwrap_or(id)
         .trim_end_matches('…')
         .to_string()

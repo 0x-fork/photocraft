@@ -6,7 +6,8 @@
 //!
 //! Each one is `edit.fill` with the colour and Preserve Transparency fixed: one "Fill" history
 //! step, the Channels panel target (alpha channel, Quick Mask) honoured, locked layers refused.
-//! When targeting a vector shape layer, the fill keys recolor the shape's fill.
+//! When targeting a vector shape layer, the fill keys recolor the shape's fill; on a type layer
+//! they recolor the text (#4580), and the layer stays type.
 
 use photocraft_doc::{LayerContent, LayerId};
 use serde_json::{Map, Value, json};
@@ -19,7 +20,8 @@ pub const IDS: [&str; 5] = ["edit.fillForeground", "edit.fillBackground", "edit.
 
 const PARAMS: &str = r##"{"layer":id?,"target":"pixels"|"mask"|"quickMask"|{"channel":i}?}"##;
 
-fn target_shape_layer(s: &Session, p: &Value) -> Option<LayerId> {
+/// The shape or type layer the colour fill keys recolor instead of filling pixels.
+fn target_live_layer(s: &Session, p: &Value) -> Option<LayerId> {
     if let Some(t) = p.get("target")
         && (t.as_str() == Some("mask") || t.as_str() == Some("quickMask") || t.get("channel").is_some())
     {
@@ -31,12 +33,12 @@ fn target_shape_layer(s: &Session, p: &Value) -> Option<LayerId> {
     }
     let id = if let Some(v) = p.get("layer") { LayerId(v.as_u64()?) } else { st.active_layer? };
     let layer = st.doc.layer(id)?;
-    if matches!(layer.content, LayerContent::Shape(_)) { Some(id) } else { None }
+    if matches!(layer.content, LayerContent::Shape(_) | LayerContent::Text(_)) { Some(id) } else { None }
 }
 
-/// The colour fill keys also recolor a targeted shape layer's fill.
+/// The colour fill keys also recolor a targeted shape layer's fill or type layer's text.
 fn enabled(s: &Session) -> std::result::Result<(), String> {
-    if target_shape_layer(s, &Value::Null).is_some() {
+    if target_live_layer(s, &Value::Null).is_some() {
         return Ok(());
     }
     fill_enabled(s)
@@ -49,7 +51,7 @@ fn fill_enabled(s: &Session) -> std::result::Result<(), String> {
 }
 
 /// Run `edit.fill` with `color` (the foreground or background colour) and Preserve Transparency,
-/// or recolor the vector shape fill when targeting a vector shape layer.
+/// or recolor the vector shape fill or the text when targeting a shape or type layer.
 fn fill(s: &mut Session, p: &Value, cmd: &str, background: bool, preserve: bool) -> Result<Value> {
     let mut q: Map<String, Value> = match p {
         Value::Object(m) => m.clone(),
@@ -57,8 +59,14 @@ fn fill(s: &mut Session, p: &Value, cmd: &str, background: bool, preserve: bool)
         _ => return Err(EngineError::BadParams { cmd: cmd.into(), msg: "expected an object".into() }),
     };
 
-    if let Some(id) = target_shape_layer(s, p) {
+    if let Some(id) = target_live_layer(s, p) {
         let c = if background { s.tools.background } else { s.tools.foreground };
+        if s.active().and_then(|st| st.doc.layer(id)).is_some_and(|l| matches!(l.content, LayerContent::Text(_))) {
+            // type.setStyle doesn't check locks itself; refuse like the pixel fill does.
+            crate::commands::check_pixels_unlocked(&s.active().ok_or(EngineError::NoDocument)?.doc, id)?;
+            let set_style = crate::commands::find("type.setStyle").ok_or_else(|| EngineError::Other("type.setStyle is unavailable".into()))?;
+            return (set_style.run)(s, &json!({ "layer": id.0, "color": [c[0], c[1], c[2], 1.0] }));
+        }
         let q_u8 = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
         let hex = if c[3] < 1.0 {
             format!("#{:02x}{:02x}{:02x}{:02x}", q_u8(c[0]), q_u8(c[1]), q_u8(c[2]), q_u8(c[3]))
@@ -292,6 +300,35 @@ mod tests {
         }
     }
 
+    /// The inks of the active layer's pixel at (0, 0), exactly as stored.
+    fn inks(s: &Session) -> Vec<f32> {
+        let st = s.active().unwrap();
+        let surf = st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap();
+        surf.read_region(photocraft_geom::Rect::new(0, 0, 1, 1)).into_iter().take(4).collect()
+    }
+
+    /// #4196: a foreground picked as CMYK 100/0/0/0 fills a CMYK document with those inks, not with
+    /// whatever its sRGB stand-in converts back to (100/28/0/17).
+    #[test]
+    fn cmyk_pick_fills_a_cmyk_document_with_the_picked_inks() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 4, "height": 4})).unwrap();
+        s.execute("image.mode.cmyk", json!({})).unwrap();
+        let rgb = photocraft_color::convert::cmyk_to_rgb([1.0, 0.0, 0.0, 0.0]).map(|c| c.clamp(0.0, 1.0));
+        s.execute("tools.setColors", json!({"foreground": rgb, "foregroundCmyk": [1.0, 0.0, 0.0, 0.0]})).unwrap();
+        s.execute("edit.fillForeground", json!({})).unwrap();
+        let got = inks(&s);
+        assert!(got.iter().zip([1.0, 0.0, 0.0, 0.0]).all(|(a, b)| (a - b).abs() < 0.01), "{got:?}");
+    }
+
+    #[test]
+    fn malformed_cmyk_pick_is_an_error_not_a_panic() {
+        let mut s = session();
+        for bad in [json!([1.0]), json!("cyan"), json!([1.0, 0.0, 0.0, "x"]), json!({"c": 1})] {
+            assert!(s.execute("tools.setColors", json!({"foregroundCmyk": bad})).is_err());
+        }
+    }
+
     #[test]
     fn registered_with_photoshop_default_shortcuts() {
         let sc = |id| crate::commands::find(id).and_then(|c| c.shortcut);
@@ -335,5 +372,43 @@ mod tests {
             let err = s.execute(id, json!({})).unwrap_err().to_string();
             assert!(err.contains("locked"), "{id}: {err}");
         }
+    }
+
+    /// The colour of every run of the active type layer, as RGB.
+    fn type_colors(s: &Session) -> Vec<[f32; 3]> {
+        let st = s.active().unwrap();
+        let LayerContent::Text(t) = &st.doc.layer(st.active_layer.unwrap()).unwrap().content else { panic!("not a type layer any more") };
+        t.char_runs().iter().map(|r| r.style.color.to_rgb()).collect()
+    }
+
+    /// #4580: on a type layer the fill keys recolour the text, like Photoshop, instead of being
+    /// disabled; the layer stays editable type.
+    #[test]
+    fn fill_keys_recolor_type_layer() {
+        let mut s = session();
+        s.execute("type.create", json!({"x": 1, "y": 5, "text": "Hello", "size": 4, "color": "#000000"})).unwrap();
+        s.execute("type.setStyle", json!({"range": [0, 2], "color": "#00ff00"})).unwrap();
+        assert_eq!(type_colors(&s).len(), 2, "two runs before the fill");
+        for id in &IDS[..4] {
+            let e = crate::commands::find(id).unwrap().enabled;
+            assert!(e(&s).is_ok(), "{id} on a type layer: {:?}", e(&s));
+        }
+        assert!(crate::commands::find("edit.fillHistory").map(|c| (c.enabled)(&s).is_err()).unwrap());
+
+        s.execute("edit.fillForeground", json!({})).unwrap();
+        assert_eq!(type_colors(&s), [[1.0, 0.0, 0.0]], "every run takes the foreground");
+        let steps = s.active().unwrap().history.past_len();
+        s.execute("edit.fillBackgroundPreserve", json!({})).unwrap();
+        assert_eq!(type_colors(&s), [[0.0, 0.0, 1.0]]);
+        assert_eq!(s.active().unwrap().history.past_len(), steps + 1, "one undo step");
+        assert!(s.undo());
+        assert_eq!(type_colors(&s), [[1.0, 0.0, 0.0]]);
+
+        s.execute("layer.lockLayers", json!({"pixels": true})).unwrap();
+        for id in &IDS[..4] {
+            let err = s.execute(id, json!({})).unwrap_err().to_string();
+            assert!(err.contains("locked"), "{id}: {err}");
+        }
+        assert_eq!(type_colors(&s), [[1.0, 0.0, 0.0]]);
     }
 }
