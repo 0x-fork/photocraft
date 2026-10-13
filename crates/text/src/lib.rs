@@ -147,7 +147,9 @@ fn uses_system_fonts() -> bool {
 }
 
 fn new_shared() -> std::sync::Mutex<TextEngine> {
-    std::sync::Mutex::new(if uses_system_fonts() { TextEngine::with_system_fonts() } else { TextEngine::new() })
+    let mut engine = if uses_system_fonts() { TextEngine::with_system_fonts() } else { TextEngine::new() };
+    engine.fonts.mark_shared();
+    std::sync::Mutex::new(engine)
 }
 
 /// A process-wide engine for callers without their own (bundled fonts only on the web; bundled

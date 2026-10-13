@@ -282,3 +282,18 @@ fn rasterize_type_layer() {
     assert!(matches!(s.active().unwrap().doc.layer(id).unwrap().content, LayerContent::Raster(_)));
     assert!(!s.is_enabled("type.rasterizeTypeLayer"));
 }
+
+#[test]
+fn all_locked_layer_rejects_paste_lorem_ipsum_without_history() {
+    // #4188: Lock All stopped type.edit (#3132) but not Paste Lorem Ipsum into the layer.
+    let mut s = session(8);
+    let id = text_layer(&mut s, "Hi");
+    s.execute("layer.setProps", json!({"layer": id.0, "locked": true})).unwrap();
+    let history = s.active().unwrap().history.past_len();
+    for params in [json!({}), json!({"layer": id.0})] {
+        let result = s.execute("type.pasteLoremIpsum", params);
+        assert!(matches!(&result, Err(EngineError::Other(message)) if message.contains("locked")), "{result:?}");
+        assert_eq!(text(&s, id).text, "Hi");
+        assert_eq!(s.active().unwrap().history.past_len(), history);
+    }
+}

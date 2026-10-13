@@ -115,7 +115,7 @@ fn range_order(layers: &[Layer], include_collapsed: bool, out: &mut Vec<LayerId>
 
 /// `layer.select`: `{"layer": id, "mode": "replace|toggle|range|add"}`.
 pub fn select(s: &mut Session, p: &Value) -> Result<Value> {
-    let id = LayerId(p.get("layer").and_then(Value::as_u64).ok_or_else(|| bad("layer.select", "missing `layer`"))?);
+    let id = crate::commands::explicit_layer(s, p)?.ok_or_else(|| bad("layer.select", "missing `layer`"))?;
     let mode = p.get("mode").and_then(Value::as_str).unwrap_or("replace");
     let st = s.active().ok_or(EngineError::NoDocument)?;
     if st.doc.layer(id).is_none() {
@@ -261,9 +261,9 @@ pub(crate) fn with_links(doc: &Document, ids: &[LayerId]) -> Vec<LayerId> {
 }
 
 /// Move layers by whole pixels the way the Move tool does: pixels, linked masks, type and
-/// vector content (shapes, linked vector masks) all move together.
-pub(crate) fn move_layers(doc: &mut Document, moves: &[(LayerId, i32, i32)]) -> Result<()> {
-    let snapshot = doc.clone();
+/// vector content (shapes, linked vector masks) all move together. `before` is `doc` as it was
+/// before any of the moves (the edit's starting document), read when type and shapes re-render.
+pub(crate) fn move_layers(doc: &mut Document, before: &Document, moves: &[(LayerId, i32, i32)]) -> Result<()> {
     for &(id, dx, dy) in moves {
         if dx == 0 && dy == 0 {
             continue;
@@ -273,8 +273,8 @@ pub(crate) fn move_layers(doc: &mut Document, moves: &[(LayerId, i32, i32)]) -> 
         if locks.position || locks.all {
             return Err(EngineError::Other(format!("layer \"{}\" is position-locked", l.name)));
         }
-        crate::commands::translate_layer(&snapshot, l, dx, dy);
-        crate::vector_cmds::translate_vectors(&snapshot, l, dx as f64, dy as f64);
+        crate::commands::translate_layer(before, l, dx, dy);
+        crate::vector_cmds::translate_vectors(before, l, dx as f64, dy as f64);
     }
     Ok(())
 }
@@ -293,8 +293,8 @@ pub fn translate(s: &mut Session, p: &Value) -> Result<Value> {
     if dx == 0 && dy == 0 {
         return Ok(Value::Null);
     }
-    let roots = match p.get("layer").and_then(Value::as_u64) {
-        Some(id) => vec![LayerId(id)],
+    let roots = match crate::commands::explicit_layer(s, p)? {
+        Some(id) => vec![id],
         None => selected(s),
     };
     if roots.is_empty() {
@@ -309,7 +309,7 @@ pub fn translate(s: &mut Session, p: &Value) -> Result<Value> {
             return Err(EngineError::NoLayer(roots[0]));
         }
         let moves: Vec<_> = ids.iter().map(|&id| (id, dx, dy)).collect();
-        move_layers(doc, &moves)?;
+        move_layers(doc, &before, &moves)?;
         for id in alone {
             let locks = doc.effective_locks(id);
             let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
@@ -873,6 +873,7 @@ fn align(s: &mut Session, p: &Value, kind: &str) -> Result<Value> {
     let edge = Edge::parse(kind).ok_or_else(|| bad(&cmd, "unknown edge"))?;
     let sel = selected(s);
     let to = p.get("to").and_then(Value::as_str).unwrap_or("auto").to_string();
+    let before = s.active().ok_or(EngineError::NoDocument)?.doc.clone();
     let moved = s.edit("Align", |doc, _| {
         let items = bounded_selection(doc, &sel);
         if items.is_empty() {
@@ -904,7 +905,7 @@ fn align(s: &mut Session, p: &Value, kind: &str) -> Result<Value> {
             })
             .collect();
         let moves = dedup_moves(doc, moves);
-        move_layers(doc, &moves)?;
+        move_layers(doc, &before, &moves)?;
         Ok(moves.iter().filter(|m| m.1 != 0 || m.2 != 0).count())
     })?;
     Ok(json!({"moved": moved}))
@@ -927,6 +928,7 @@ fn dedup_moves(doc: &Document, moves: Vec<(LayerId, i32, i32)>) -> Vec<(LayerId,
 fn distribute(s: &mut Session, kind: &str) -> Result<Value> {
     let sel = selected(s);
     let kind = kind.to_string();
+    let before = s.active().ok_or(EngineError::NoDocument)?.doc.clone();
     let moved = s.edit("Distribute", |doc, _| {
         let mut items = bounded_selection(doc, &sel);
         if items.len() < 3 {
@@ -966,7 +968,7 @@ fn distribute(s: &mut Session, kind: &str) -> Result<Value> {
         }
         let moves: Vec<_> = moves.into_iter().flat_map(|(id, dx, dy)| with_links(doc, &[id]).into_iter().map(move |l| (l, dx, dy))).collect();
         let moves = dedup_moves(doc, moves);
-        move_layers(doc, &moves)?;
+        move_layers(doc, &before, &moves)?;
         Ok(moves.iter().filter(|m| m.1 != 0 || m.2 != 0).count())
     })?;
     Ok(json!({"moved": moved}))
@@ -1188,8 +1190,8 @@ pub(crate) fn check_group_depth(doc: &Document, what: &str) -> Result<()> {
 /// Group Layers (⌘G) / Group from Layers: the explicit layer, or every selected layer, moves
 /// into a new group placed where the top-most of them was. Bottom-to-top order is preserved.
 pub fn group_layers(s: &mut Session, p: &Value) -> Result<Value> {
-    let ids = match p.get("layer").and_then(Value::as_u64) {
-        Some(id) => vec![LayerId(id)],
+    let ids = match crate::commands::explicit_layer(s, p)? {
+        Some(id) => vec![id],
         None => selected(s),
     };
     if ids.is_empty() {

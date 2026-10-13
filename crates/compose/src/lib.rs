@@ -451,18 +451,27 @@ fn render_reduced_in_bands(doc: &Document, b: Rect, w: u32, h: u32, damage: Opti
     Buffer { rect: out, px: acc }
 }
 
+type VectorMaskSlot = std::sync::Arc<std::sync::OnceLock<photocraft_vector::CompiledVectorMask>>;
+
 #[derive(Default)]
 struct RenderVectorMasks {
-    masks: std::sync::Mutex<std::collections::HashMap<usize, std::sync::Arc<std::sync::OnceLock<photocraft_vector::CompiledVectorMask>>>>,
+    /// Compiled masks by content. Callers pass temporary clones (see `advanced.rs`), so an
+    /// address cannot identify a mask: a dropped clone's address is reused by the next one.
+    masks: std::sync::Mutex<Vec<(photocraft_doc::VectorMask, VectorMaskSlot)>>,
 }
 
 impl RenderVectorMasks {
     fn values(&self, mask: &photocraft_doc::VectorMask, rect: Rect) -> Vec<f32> {
-        // Addresses identify immutable mask instances only for this render's lifetime.
-        let key = std::ptr::from_ref(mask) as usize;
         let slot = {
             let mut masks = self.masks.lock().unwrap_or_else(|e| e.into_inner());
-            masks.entry(key).or_default().clone()
+            match masks.iter().find(|(m, _)| m == mask) {
+                Some((_, slot)) => slot.clone(),
+                None => {
+                    let slot = VectorMaskSlot::default();
+                    masks.push((mask.clone(), slot.clone()));
+                    slot
+                }
+            }
         };
         // Compilation is sequential. Rendering can enter Rayon and must happen after
         // initialization, so waiting tiles cannot re-enter a slot still being built.
@@ -1387,7 +1396,8 @@ fn split_parts(layer: &Layer, rect: Rect, cx: &Ctx) -> Option<(Buffer, Buffer, O
 // ---------------------------------------------------------------------------------------------
 // Layer-effect map cache
 
-/// Order-independent identity of a layer's pixels, masks, effects and (for groups) children.
+/// Order-independent identity of a layer's pixels, masks, effects, Advanced Blending and Blend If
+/// and (for groups) children.
 /// Pixels are identified by their copy-on-write tile pointers; cache entries pin a clone of the
 /// layer so those tiles (and their addresses) stay alive while the entry exists.
 fn layer_identity(layer: &Layer, h: &mut std::collections::hash_map::DefaultHasher) {
@@ -1445,6 +1455,10 @@ fn layer_identity(layer: &Layer, h: &mut std::collections::hash_map::DefaultHash
         format!("{vm:?}").hash(h);
     }
     format!("{:?}", layer.effects).hash(h);
+    // Transparency Shapes Layer picks the shape (content or the whole layer); a group child's
+    // Blend If and knockout change the composite a styled group's shape comes from.
+    layer.advanced.hash(h);
+    layer.blend_if.hash(h);
     h.write_u8(0xfe);
 }
 
@@ -1527,7 +1541,8 @@ fn effect_region(layer: &Layer, rect: Rect, cx: &Ctx) -> (Rect, bool) {
 fn effect_maps(layer: &Layer, rect: Rect, cx: &Ctx) -> std::sync::Arc<effects::FxMaps> {
     use std::hash::{Hash, Hasher};
     let (region, clipped) = effect_region(layer, rect, cx);
-    if std::env::var_os("PHOTOCRAFT_FX_NOCACHE").is_some() {
+    static NO_CACHE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if *NO_CACHE.get_or_init(|| std::env::var_os("PHOTOCRAFT_FX_NOCACHE").is_some()) {
         let shape = if region.is_empty() { Vec::new() } else { effect_shape(layer, region, cx) };
         return std::sync::Arc::new(effects::build_maps_prepared(layer, shape, region, &cx.light, &texture_ctx(layer, region, cx), cx.patterns));
     }

@@ -136,6 +136,8 @@
 	Search…	Rechercher…
 	Check Spelling…	Vérifier l'orthographe…
 	Find and Replace Text…	Rechercher et remplacer du texte…
+	Add to Dictionary	Ajouter au dictionnaire
+	No Spelling Suggestions	Aucune suggestion orthographique
 	Fill…	Remplir…
 	Stroke…	Contourner…
 	Content-Aware Fill…	Remplissage d'après le contenu…
@@ -834,6 +836,12 @@
 	Baseline shift	Décalage de la ligne de base
 	Basic	De base
 	Before (Y)	Avant (Y)
+	Save Settings…	Enregistrer les paramètres…
+	Load Settings…	Charger les paramètres…
+	Save these settings as a Camera Raw .xmp file	Enregistrer ces paramètres dans un fichier .xmp Camera Raw
+	Load settings from a Camera Raw .xmp file	Charger les paramètres d’un fichier .xmp Camera Raw
+	Loaded Camera Raw settings from {file}	Paramètres Camera Raw chargés depuis {file}
+	Loaded Camera Raw settings from {file} ({n} not supported)	Paramètres Camera Raw chargés depuis {file} ({n} non pris en charge)
 	Begin recording	Démarrer l'enregistrement
 	Bend:	Courbure :
 	Bicubic	Bicubique
@@ -864,6 +872,7 @@
 	Camera Raw isn't open	Camera Raw n'est pas ouvert
 	Cancel	Annuler
 	Cancel (Esc)	Annuler (Échap)
+	Manage submitted jobs in the system print queue	Gérer les tâches soumises dans la file d’impression du système
 	Cancel any current edits (Esc)	Annuler les modifications en cours (Échap)
 	Cancel current crop operation  (Esc)	Annuler le recadrage en cours  (Échap)
 	Cancel transform (Esc)	Annuler la transformation (Échap)
@@ -1129,6 +1138,9 @@
 	Ignore All	Tout ignorer
 	Image Size	Taille de l'image
 	Import Brushes…	Importer des pinceaux…
+	Gradient Preset Options	Options des paramètres prédéfinis de dégradé
+	Import .GRD	Importer .GRD
+	Choose a gradient file (.grd).	Choisissez un fichier de dégradés (.grd).
 	Import brushes (.abr)	Importer des pinceaux (.abr)
 	Import Presets	Importer des préréglages
 	Imported	Importé
@@ -2744,6 +2756,7 @@ cameraRaw	Blending	Fusion
 	Click to pick · Esc to cancel	Cliquer pour choisir · Échap pour annuler
 	Pick a screen pixel or press Esc to cancel	Choisissez un pixel à l’écran ou appuyez sur Échap pour annuler
 	Scroll to zoom	Défiler pour zoomer
+	Drag to pan · Scroll to zoom · Double-click to fit	Glisser pour déplacer · Défiler pour zoomer · Double-cliquer pour ajuster
 	Show/Hide All Panels	Afficher/masquer tous les panneaux
 	Show/Hide Panels	Afficher/masquer les panneaux
 	Could not open	Impossible d’ouvrir
@@ -3049,6 +3062,33 @@ curves	Smooth	Lisser
 	Light Red	Rouge clair
 	Medium Blue	Bleu moyen
 	Light Gray	Gris clair
+	Object Finder	Outil de recherche d’objets
+	No object found there — drag a rectangle around it	Aucun objet trouvé ici — tracez un rectangle autour
 	Remove after each stroke	Supprimer après chaque trait
 	Apply the removal ({key})	Appliquer la suppression ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Traits à supprimer : {n} (Entrée applique, Échap annule)
+	Clear Brush Controls	Effacer les commandes de pinceau
+	Reset All Locked Settings	Réinitialiser tous les paramètres verrouillés
+	Copy Texture to Other Tools	Copier la texture dans d'autres outils
+
+# Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
+	Load Actions…	Charger des actions…
+	Save Actions…	Enregistrer les actions…
+	{name} (Photoshop)	{name} (Photoshop)
+	{message} ({note})	{message} ({note})
+@plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{n} action chargée depuis {file}|{n} actions chargées depuis {file}
+@plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} étape n’a pas encore d’équivalent dans PhotoCraft|{n} étapes n’ont pas encore d’équivalent dans PhotoCraft
+@plural	Saved {n} action to {file}|Saved {n} actions to {file}	{n} action enregistrée dans {file}|{n} actions enregistrées dans {file}
+@plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	{n} étape sans équivalent Photoshop omise|{n} étapes sans équivalent Photoshop omises
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Insérer un arrêt…
+	Save Set…	Enregistrer l’ensemble…
+	Message:	Message :
+	Allow Continue	Autoriser la poursuite
+	Show dialog during playback	Afficher la boîte de dialogue pendant l’exécution
+	Select an action first	Sélectionnez d’abord une action
+	Action playback stopped	Exécution de l’action arrêtée
+	Step {step} is waiting for its dialog	L’étape {step} attend sa boîte de dialogue
+@plural	{n} action|{n} actions	{n} action|{n} actions
+	Auto Add/Delete	Ajout/suppr. auto

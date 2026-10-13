@@ -60,6 +60,7 @@ mod par;
 mod preview;
 mod raf;
 mod rw2;
+mod saturation;
 mod sensor;
 mod sony;
 mod tiff;
@@ -230,7 +231,7 @@ pub fn decode(bytes: &[u8], limits: &Limits) -> Result<Sensor, RawError> {
         _ => {
             let t = Tiff::new(bytes).ok_or(RawError::NotRaw)?;
             match format {
-                RawFormat::Dng => dng::decode(&t, limits),
+                RawFormat::Dng => dng::decode(&t, limits).map(lift_clipped),
                 RawFormat::Cr2 => cr2::decode(&t, limits),
                 RawFormat::Rw2 => rw2::decode(&t, limits),
                 RawFormat::Orf => orf::decode(&t, limits),
@@ -238,6 +239,13 @@ pub fn decode(bytes: &[u8], limits: &Limits) -> Result<Sensor, RawError> {
             }
         }
     }
+}
+
+/// DNG writers can state a white level the sensor never reaches; samples stuck at the real saturation
+/// point are raised to it so they clip together (see `saturation.rs`).
+fn lift_clipped(mut s: Sensor) -> Sensor {
+    s.lift_clipped_samples();
+    s
 }
 
 /// Decodes a lossless JPEG (T.81 process 14) stream into `(width, height,

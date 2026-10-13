@@ -25,6 +25,12 @@ fn bad(msg: impl Into<String>) -> EngineError {
 /// What a pixel of the filled area gets before blending.
 enum Source {
     Color([f32; 4]),
+    /// An opaque colour that was picked as CMYK inks: `rgba` is its sRGB stand-in (what other
+    /// colour models and blend modes use), `cmyk` the inks a CMYK target gets as they are.
+    Cmyk {
+        rgba: [f32; 4],
+        cmyk: [f32; 4],
+    },
     /// Straight RGBA per pixel of `rect` (row-major).
     Pixels(Rect, Vec<[f32; 4]>),
 }
@@ -33,6 +39,7 @@ impl Source {
     fn at(&self, x: i32, y: i32) -> [f32; 4] {
         match self {
             Source::Color(c) => *c,
+            Source::Cmyk { rgba, .. } => *rgba,
             Source::Pixels(r, px) => {
                 if !r.contains(x, y) {
                     return [0.0; 4];
@@ -97,9 +104,9 @@ pub fn fill(s: &mut Session, p: &Value) -> Result<Value> {
     let mut out = json!({ "contents": contents });
     let restore = contents == "history";
     let source = match contents {
-        "foreground" => Source::Color(s.tools.foreground),
-        "background" => Source::Color(s.tools.background),
-        "color" => Source::Color(color_param(p, "color", s.tools.foreground)),
+        "foreground" => color_source(s, s.tools.foreground),
+        "background" => color_source(s, s.tools.background),
+        "color" => color_source(s, color_param(p, "color", s.tools.foreground)),
         "black" => Source::Color([0.0, 0.0, 0.0, 1.0]),
         "gray" => Source::Color([128.0 / 255.0, 128.0 / 255.0, 128.0 / 255.0, 1.0]),
         "white" => Source::Color([1.0; 4]),
@@ -145,13 +152,42 @@ pub fn fill(s: &mut Session, p: &Value) -> Result<Value> {
     if area.is_empty() {
         return Ok(out);
     }
-    s.edit("Fill", |doc, _| {
-        let sel = doc.selection.clone();
-        let (surf, lock) = crate::channel_cmds::target_surface(doc, id, p)?;
-        blend_into(surf, area, &source, sel.as_ref(), Blend { mode, opacity, keep_alpha: preserve || lock, restore })?;
-        Ok(())
+    // The document's own CMYK profile converts the fill colour, like the compositor and brush.
+    let cmyk = crate::brush_cmds::doc_cmyk_space(s);
+    photocraft_color::convert::with_cmyk_space(cmyk.as_ref(), || {
+        s.edit("Fill", |doc, _| {
+            let sel = doc.selection.clone();
+            let (surf, lock) = crate::channel_cmds::target_surface(doc, id, p)?;
+            blend_into(surf, area, &source, sel.as_ref(), Blend { mode, opacity, keep_alpha: preserve || lock, restore })?;
+            Ok(())
+        })
     })?;
     Ok(out)
+}
+
+/// A fill colour: the inks it was picked as when it was picked as CMYK (#4196), else plain sRGB.
+fn color_source(s: &Session, c: [f32; 4]) -> Source {
+    match s.tools.picked_cmyk([c[0], c[1], c[2]]) {
+        Some(cmyk) if c[3] >= 1.0 => Source::Cmyk { rgba: c, cmyk },
+        _ => Source::Color(c),
+    }
+}
+
+/// `source`'s opaque colour as samples of `fmt` (alpha last, as in [`from_rgba_into`]), or `None`
+/// for a source that is not one colour. A CMYK pick keeps its inks in a CMYK target.
+fn encode_color(fmt: &photocraft_color::PixelFormat, source: &Source, enc: &mut [f32; 8]) -> Option<usize> {
+    let (rgba, cmyk) = match source {
+        Source::Color(c) if c[3] >= 1.0 => (*c, None),
+        Source::Cmyk { rgba, cmyk } => (*rgba, Some(*cmyk)),
+        _ => return None,
+    };
+    let n = from_rgba_into(fmt, rgba, enc);
+    if let Some(k) = cmyk
+        && fmt.mode == photocraft_color::ColorMode::Cmyk
+    {
+        enc[..4].copy_from_slice(&k);
+    }
+    Some(n)
 }
 
 fn read_rgba(src: &Surface, area: Rect, purpose: &str) -> Result<Vec<[f32; 4]>> {
@@ -179,16 +215,22 @@ pub(crate) fn fill_color(surf: &mut Surface, area: Rect, color: [f32; 4], sel: O
 /// Reuse Edit › Fill's compositing for Edit › Stroke. The stroke's rasterized band
 /// is already a grayscale coverage mask; opacity, blend modes and alpha locking
 /// must behave identically for both commands at 8/16/32-bit depth.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn blend_color_mask(
     surf: &mut Surface,
     area: Rect,
     color: [f32; 4],
+    picked: Option<[f32; 4]>,
     coverage: &Surface,
     mode: BlendMode,
     opacity: f32,
     preserve_transparency: bool,
 ) -> Result<()> {
-    blend_into(surf, area, &Source::Color(color), Some(coverage), Blend { mode, opacity, keep_alpha: preserve_transparency, restore: false })
+    let source = match picked {
+        Some(cmyk) if color[3] >= 1.0 => Source::Cmyk { rgba: color, cmyk },
+        _ => Source::Color(color),
+    };
+    blend_into(surf, area, &source, Some(coverage), Blend { mode, opacity, keep_alpha: preserve_transparency, restore: false })
 }
 
 /// The selection filled from its surroundings (`photocraft_algo::content_aware`), as straight
@@ -336,12 +378,9 @@ fn blend_into(surf: &mut Surface, area: Rect, source: &Source, sel: Option<&Surf
     let fmt = surf.format();
     // An opaque colour in Normal mode at 100 % that may replace alpha: fully covered tiles become
     // one shared solid tile (copy-on-write), which costs nothing per pixel.
-    let solid = match source {
-        Source::Color(c) if c[3] >= 1.0 && b.mode == BlendMode::Normal && b.opacity >= 1.0 && (!b.keep_alpha || !fmt.alpha) => {
-            let mut enc = [0.0f32; 8];
-            let n = from_rgba_into(&fmt, *c, &mut enc);
-            Some(surf.solid_tile(enc.get(..n).unwrap_or(&[])))
-        }
+    let mut enc = [0.0f32; 8];
+    let solid = match encode_color(&fmt, source, &mut enc) {
+        Some(n) if b.mode == BlendMode::Normal && b.opacity >= 1.0 && (!b.keep_alpha || !fmt.alpha) => Some(surf.solid_tile(enc.get(..n).unwrap_or(&[]))),
         _ => None,
     };
     let count = area.tiles().count();
@@ -409,9 +448,8 @@ fn blend_tile(bytes: &mut [u8], fmt: &photocraft_color::PixelFormat, origin: Rec
     let mut enc = [0.0f32; 8];
     // An opaque colour at full coverage in Normal mode just replaces the colour (and the alpha
     // unless it is kept): copy its encoded bytes.
-    let opaque = match source {
-        Source::Color(c) if c[3] >= 1.0 && mode == BlendMode::Normal => {
-            let m = from_rgba_into(fmt, *c, &mut enc);
+    let opaque = match encode_color(fmt, source, &mut enc) {
+        Some(m) if mode == BlendMode::Normal => {
             let mut bytes = vec![0u8; bpp];
             photocraft_raster::encode_pixel(fmt, enc.get(..m.min(n)).unwrap_or(&[]), &mut bytes);
             // Keeping alpha: copy the colour samples only (alpha is the last sample).

@@ -843,6 +843,14 @@ fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui, panel: &str) {
             crate::swatches_ui::panel_menu(app, ui);
             ui.separator();
         }
+        "brushSettings" | "brush_settings" => {
+            crate::brush_panel::panel_menu(app, ui);
+            ui.separator();
+        }
+        "actions" => {
+            crate::actions::panel_menu(app, ui);
+            ui.separator();
+        }
         _ => {}
     }
 }

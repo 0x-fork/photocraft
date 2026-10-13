@@ -155,6 +155,32 @@ fn save_a_copy_writes_the_targa_bits_asked_for() {
     }
 }
 
+/// `dpxBits` picks a DPX's bits per sample (byte 803 of the header); unset, it follows the
+/// document's depth. Anything but 8, 10, 12 or 16 is refused before anything is written.
+#[test]
+fn save_a_copy_writes_the_dpx_bits_asked_for() {
+    let dir = tmp("dpx-bits");
+    for (depth, params, bits) in
+        [(8, json!({}), 8), (16, json!({}), 16), (16, json!({"dpxBits": 10}), 10), (8, json!({"dpxBits": 12}), 12), (16, json!({"dpxBits": null}), 16)]
+    {
+        let mut s = session(12, 6, depth);
+        let out = join(&dir, "a.dpx");
+        let mut p = params.clone();
+        p["path"] = json!(out);
+        s.execute("file.saveACopy", p).unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        assert_eq!((&bytes[..4], bytes[803]), (&b"SDPX"[..], bits), "{depth}-bit {params}");
+        assert_eq!(photocraft_io::import("a.dpx", &bytes).unwrap().document.size, photocraft_geom::Size::new(12, 6));
+    }
+    let mut s = session(8, 8, 8);
+    for bad in [json!(24), json!(0), json!("10"), json!(10.5)] {
+        let out = join(&dir, "bad.dpx");
+        let r = s.execute("file.saveACopy", json!({"path": out, "dpxBits": bad}));
+        assert!(matches!(r, Err(EngineError::BadParams { .. })), "{bad}: {r:?}");
+        assert!(!std::path::Path::new(&out).exists(), "{bad}: nothing written");
+    }
+}
+
 /// A `tgaBits` other than 24 or 32 is a bad parameter, reported before anything is written.
 #[test]
 fn bad_targa_bits_are_refused_before_writing() {
@@ -189,6 +215,26 @@ fn image_previews_preference_controls_the_psd_thumbnail() {
         assert_eq!(has_thumbnail(&out), expect, "{ask:?}");
         let png = join(&dir, &format!("{ask:?}.png"));
         s.execute("file.saveACopy", json!({"path": png})).unwrap();
+    }
+}
+
+/// Preferences › File Handling › Maximize PSD and PSB File Compatibility decides whether a
+/// layered PSD keeps its real merged image: Always and Ask When Saving write it, Never writes
+/// Photoshop's placeholder and says so in resource 1057.
+#[test]
+fn maximize_compatibility_preference_controls_the_psd_merged_image() {
+    use crate::prefs::Ask;
+    let dir = tmp("maximize");
+    let mut s = session(300, 200, 16);
+    s.execute("layer.new.layer", json!({})).unwrap();
+    let real_merged = |path: &str| photocraft_psd::PsdFile::from_bytes(&std::fs::read(path).unwrap()).unwrap().has_real_merged_data();
+    for (ask, expect) in [(Ask::Always, true), (Ask::Never, false), (Ask::Ask, true)] {
+        s.edit_prefs(|p| p.file_handling.maximize_psd_compatibility = ask);
+        for ext in ["psd", "psb"] {
+            let out = join(&dir, &format!("{ask:?}.{ext}"));
+            s.execute("file.saveACopy", json!({"path": out})).unwrap();
+            assert_eq!(real_merged(&out), Some(expect), "{ask:?} {ext}");
+        }
     }
 }
 

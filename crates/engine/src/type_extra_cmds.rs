@@ -14,7 +14,9 @@ use photocraft_text::render::PathEl;
 use serde_json::{Value, json};
 
 use crate::commands::{CommandSpec, layer_param};
-use crate::type_cmds::{format_targets, has_format_target, is_auto_named, layer_name, refresh, replace_text, style_paragraphs, style_range, with_text_targets};
+use crate::type_cmds::{
+    check_text_unlocked, format_targets, has_format_target, is_auto_named, layer_name, refresh, replace_text, style_paragraphs, style_range, with_text_targets,
+};
 use crate::{EngineError, Result, Session};
 
 /// Photoshop's Paste Lorem Ipsum filler.
@@ -67,6 +69,7 @@ fn has_defaults(s: &Session) -> std::result::Result<(), String> {
 /// Edits a type layer as one history step and re-renders it.
 fn with_text<R>(s: &mut Session, p: &Value, label: &str, f: impl FnOnce(&mut TextLayer, &Document) -> Result<R>) -> Result<R> {
     let id = layer_param(s, p)?;
+    check_text_unlocked(&s.active().ok_or(EngineError::NoDocument)?.doc, id)?;
     s.edit(label, |doc, _| {
         let snapshot = doc.clone();
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;

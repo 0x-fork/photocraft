@@ -73,6 +73,8 @@
 	Fill…	Tô…
 	Filter	Bộ lọc
 	Find and Replace Text…	Tìm và thay chữ…
+	Add to Dictionary	Thêm vào từ điển
+	No Spelling Suggestions	Không có gợi ý chính tả
 	Fit Image…	Vừa khung ảnh…
 	Flatten All Layer Effects	Làm phẳng mọi hiệu ứng lớp
 	Flatten All Masks	Làm phẳng mọi mặt nạ
@@ -1272,6 +1274,12 @@
 	Aqua	Xanh ngọc
 	Balance	Cân bằng
 	Before (Y)	Trước (Y)
+	Save Settings…	Lưu cài đặt…
+	Load Settings…	Tải cài đặt…
+	Save these settings as a Camera Raw .xmp file	Lưu các cài đặt này thành tệp .xmp Camera Raw
+	Load settings from a Camera Raw .xmp file	Tải cài đặt từ tệp .xmp Camera Raw
+	Loaded Camera Raw settings from {file}	Đã tải cài đặt Camera Raw từ {file}
+	Loaded Camera Raw settings from {file} ({n} not supported)	Đã tải cài đặt Camera Raw từ {file} ({n} không được hỗ trợ)
 	Blacks	Điểm đen
 	Blending	Pha trộn
 	Blue	Xanh dương
@@ -1524,6 +1532,7 @@ cameraRaw	Shadows	Vùng tối
 	Working…	Đang xử lý…
 	Reading…	Đang đọc…
 	Cancel (Esc)	Hủy (Esc)
+	Manage submitted jobs in the system print queue	Quản lý các lệnh in đã gửi trong hàng đợi in của hệ thống
 	Esc to cancel	Esc để hủy
 	Cancel opening	Hủy mở tệp
 	Cancelled opening {name}	Đã hủy mở {name}
@@ -2024,6 +2033,7 @@ layers	Fill:	Độ tô:
 	Option-click to define a source point to clone from	Option+nhấp để chỉ định điểm nguồn nhân bản
 	Out of gamut for printing: click for the nearest printable colour	Ngoài gamut in: nhấp để lấy màu in được gần nhất
 	Pick screen color	Lấy màu màn hình
+	Pick Color From Image	Lấy màu từ hình ảnh
 	Point Sample	Mẫu điểm
 	Pupil Size	Kích thước đồng tử
 	Quick Selection found nothing there	Chọn nhanh không tìm thấy gì
@@ -2037,6 +2047,7 @@ layers	Fill:	Độ tô:
 	Sample Size:	Kích thước mẫu:
 	Save As Preset	Lưu thành thiết lập sẵn
 	Scroll to zoom	Cuộn để thu phóng
+	Drag to pan · Scroll to zoom · Double-click to fit	Kéo để xem toàn cảnh · Cuộn để thu phóng · Bấm đúp để vừa khung
 	Selection Preview:	Xem trước vùng chọn:
 	Set additional Crop options	Đặt tùy chọn Cắt bổ sung
 	Set Black Point	Đặt điểm đen
@@ -3532,6 +3543,36 @@ curves	Smooth	Làm mượt
 	Stroke Path…	Đi nét đường dẫn…
 	Apply mask to layer before removing?	Áp dụng mặt nạ vào lớp trước khi xóa?
 	Delete the vector mask?	Xóa mặt nạ vectơ?
+	Object Finder	Trình tìm đối tượng
+	No object found there — drag a rectangle around it	Không tìm thấy đối tượng ở đó — hãy kéo một hình chữ nhật quanh nó
 	Remove after each stroke	Xóa sau mỗi nét vẽ
 	Apply the removal ({key})	Áp dụng việc xóa ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Nét vẽ cần xóa: {n} (Enter áp dụng, Esc hủy)
+	Clear Brush Controls	Xóa điều khiển cọ
+	Reset All Locked Settings	Đặt lại tất cả cài đặt đã khóa
+	Copy Texture to Other Tools	Sao chép họa tiết sang các công cụ khác
+
+# Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
+	Load Actions…	Nạp hành động…
+	Save Actions…	Lưu hành động…
+	{name} (Photoshop)	{name} (Photoshop)
+	{message} ({note})	{message} ({note})
+@plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Đã nạp {n} hành động từ {file}
+@plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} bước chưa có chức năng tương ứng trong PhotoCraft
+@plural	Saved {n} action to {file}|Saved {n} actions to {file}	Đã lưu {n} hành động vào {file}
+@plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Đã bỏ qua {n} bước không có chức năng tương ứng trong Photoshop
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Chèn điểm dừng…
+	Save Set…	Lưu bộ…
+	Message:	Thông báo:
+	Allow Continue	Cho phép tiếp tục
+	Show dialog during playback	Hiện hộp thoại khi phát
+	Select an action first	Hãy chọn một hành động trước
+	Action playback stopped	Đã dừng phát hành động
+	Step {step} is waiting for its dialog	Bước {step} đang chờ hộp thoại của nó
+@plural	{n} action|{n} actions	{n} hành động
+	Gradient Preset Options	Tùy chọn thiết lập sẵn chuyển sắc
+	Import .GRD	Nhập .GRD
+	Choose a gradient file (.grd).	Chọn tệp chuyển sắc (.grd).
+	Auto Add/Delete	Tự động thêm/xóa

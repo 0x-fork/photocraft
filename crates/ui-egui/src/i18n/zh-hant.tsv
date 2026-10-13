@@ -138,6 +138,8 @@
 	Search…	搜尋…
 	Check Spelling…	拼字檢查…
 	Find and Replace Text…	尋找並取代文字…
+	Add to Dictionary	加入字典
+	No Spelling Suggestions	沒有拼字建議
 	Fill…	填滿…
 	Stroke…	筆畫…
 	Content-Aware Fill…	內容感知填滿…
@@ -851,6 +853,12 @@
 	Baseline shift	基線位移
 	Basic	基本
 	Before (Y)	之前 (Y)
+	Save Settings…	儲存設定…
+	Load Settings…	載入設定…
+	Save these settings as a Camera Raw .xmp file	將這些設定儲存為 Camera Raw .xmp 檔案
+	Load settings from a Camera Raw .xmp file	從 Camera Raw .xmp 檔案載入設定
+	Loaded Camera Raw settings from {file}	已從 {file} 載入 Camera Raw 設定
+	Loaded Camera Raw settings from {file} ({n} not supported)	已從 {file} 載入 Camera Raw 設定（{n} 項不支援）
 	Begin recording	開始記錄
 	Bend:	彎曲：
 	Bicubic	雙三次
@@ -881,6 +889,7 @@
 	Camera Raw isn't open	Camera Raw 未開啟
 	Cancel	取消
 	Cancel (Esc)	取消 (Esc)
+	Manage submitted jobs in the system print queue	在系統列印佇列中管理已提交的工作
 	Cancel any current edits (Esc)	取消目前所有編輯 (Esc)
 	Cancel current crop operation  (Esc)	取消目前的裁切作業 (Esc)
 	Cancel transform (Esc)	取消變形 (Esc)
@@ -1152,6 +1161,9 @@
 	Ignore All	全部略過
 	Image Size	影像尺寸
 	Import Brushes…	匯入筆刷…
+	Gradient Preset Options	漸層預設選項
+	Import .GRD	匯入 .GRD
+	Choose a gradient file (.grd).	請選擇漸層檔案 (.grd)。
 	Import brushes (.abr)	匯入筆刷 (.abr)
 	Import Presets	匯入預設集
 	Imported	已匯入
@@ -2299,6 +2311,7 @@ cameraRaw	Blending	混合
 	Click to pick · Esc to cancel	按一下選取 · Esc 取消
 	Pick a screen pixel or press Esc to cancel	選取螢幕像素或按 Esc 取消
 	Scroll to zoom	捲動以縮放
+	Drag to pan · Scroll to zoom · Double-click to fit	拖曳以平移 · 捲動以縮放 · 按兩下以符合視窗
 	Show/Hide All Panels	顯示/隱藏所有面板
 	Show/Hide Panels	顯示/隱藏面板
 	Could not open	無法開啟
@@ -2638,6 +2651,33 @@ curves	Smooth	平滑
 	Light Red	淺紅色
 	Medium Blue	中藍色
 	Light Gray	淺灰色
+	Object Finder	物件尋找器
+	No object found there — drag a rectangle around it	那裡找不到物件 — 請在其周圍拖曳矩形
 	Remove after each stroke	每次描邊後移除
 	Apply the removal ({key})	套用移除 ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	待移除的描邊：{n}（Enter 套用，Esc 取消）
+	Clear Brush Controls	清除筆刷控制項
+	Reset All Locked Settings	重設所有鎖定的設定
+	Copy Texture to Other Tools	複製紋理至其他工具
+
+# Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
+	Load Actions…	載入動作…
+	Save Actions…	儲存動作…
+	{name} (Photoshop)	{name}（Photoshop）
+	{message} ({note})	{message}（{note}）
+@plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	已從 {file} 載入 {n} 個動作
+@plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} 個步驟在 PhotoCraft 中尚無對應功能
+@plural	Saved {n} action to {file}|Saved {n} actions to {file}	已將 {n} 個動作儲存到 {file}
+@plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	已略過 {n} 個沒有 Photoshop 對應功能的步驟
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	插入停止…
+	Save Set…	儲存組合…
+	Message:	訊息:
+	Allow Continue	允許繼續
+	Show dialog during playback	播放時顯示對話框
+	Select an action first	請先選取一個動作
+	Action playback stopped	動作播放已停止
+	Step {step} is waiting for its dialog	步驟 {step} 正在等待其對話框
+@plural	{n} action|{n} actions	{n} 個動作
+	Auto Add/Delete	自動增加/刪除

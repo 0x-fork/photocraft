@@ -134,6 +134,8 @@
 	Search…	Suchen…
 	Check Spelling…	Rechtschreibung prüfen…
 	Find and Replace Text…	Text suchen und ersetzen…
+	Add to Dictionary	Zum Wörterbuch hinzufügen
+	No Spelling Suggestions	Keine Rechtschreibvorschläge
 	Fill…	Füllen…
 	Stroke…	Nachziehen…
 	Content-Aware Fill…	Inhaltsbasiert füllen…
@@ -837,6 +839,12 @@
 	Baseline shift	Grundlinienverschiebung
 	Basic	Grundeinstellungen
 	Before (Y)	Davor (Y)
+	Save Settings…	Einstellungen speichern…
+	Load Settings…	Einstellungen laden…
+	Save these settings as a Camera Raw .xmp file	Diese Einstellungen als Camera-Raw-.xmp-Datei speichern
+	Load settings from a Camera Raw .xmp file	Einstellungen aus einer Camera-Raw-.xmp-Datei laden
+	Loaded Camera Raw settings from {file}	Camera-Raw-Einstellungen aus {file} geladen
+	Loaded Camera Raw settings from {file} ({n} not supported)	Camera-Raw-Einstellungen aus {file} geladen ({n} nicht unterstützt)
 	Begin recording	Aufnahme starten
 	Bend:	Biegung:
 	Bicubic	Bikubisch
@@ -868,6 +876,7 @@
 	Cancel	Abbrechen
 	Reset	Zurücksetzen
 	Cancel (Esc)	Abbrechen (Esc)
+	Manage submitted jobs in the system print queue	Übermittelte Aufträge in der Druckwarteschlange des Systems verwalten
 	Cancel any current edits (Esc)	Aktuelle Bearbeitungen abbrechen (Esc)
 	Cancel current crop operation  (Esc)	Aktuelle Freistellung abbrechen  (Esc)
 	Cancel transform (Esc)	Transformation abbrechen (Esc)
@@ -1141,6 +1150,9 @@
 	Ignore All	Alle ignorieren
 	Image Size	Bildgröße
 	Import Brushes…	Pinsel importieren…
+	Gradient Preset Options	Verlaufsvorgabenoptionen
+	Import .GRD	.GRD importieren
+	Choose a gradient file (.grd).	Wählen Sie eine Verlaufsdatei (.grd).
 	Import brushes (.abr)	Pinsel (.abr) importieren
 	Import Presets	Vorgaben importieren
 	Imported	Importiert
@@ -2359,6 +2371,7 @@
 	Click to pick · Esc to cancel	Klicken zum Auswählen · Esc zum Abbrechen
 	Pick a screen pixel or press Esc to cancel	Ein Bildschirmpixel auswählen oder mit Esc abbrechen
 	Scroll to zoom	Zum Zoomen scrollen
+	Drag to pan · Scroll to zoom · Double-click to fit	Ziehen zum Verschieben · Scrollen zum Zoomen · Doppelklick zum Einpassen
 	Show/Hide All Panels	Alle Bedienfelder ein-/ausblenden
 	Show/Hide Panels	Bedienfelder ein-/ausblenden
 	Could not open	Öffnen nicht möglich
@@ -2688,6 +2701,33 @@ curves	Smooth	Glätten
 	Light Red	Hellrot
 	Medium Blue	Mittelblau
 	Light Gray	Hellgrau
+	Object Finder	Objektsucher
+	No object found there — drag a rectangle around it	Dort wurde kein Objekt gefunden — ziehen Sie ein Rechteck darum
 	Remove after each stroke	Nach jedem Strich entfernen
 	Apply the removal ({key})	Entfernen anwenden ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Striche zum Entfernen: {n} (Eingabe wendet an, Esc bricht ab)
+	Clear Brush Controls	Pinselsteuerungen löschen
+	Reset All Locked Settings	Alle gesperrten Einstellungen zurücksetzen
+	Copy Texture to Other Tools	Struktur auf andere Werkzeuge kopieren
+
+# Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
+	Load Actions…	Aktionen laden…
+	Save Actions…	Aktionen speichern…
+	{name} (Photoshop)	{name} (Photoshop)
+	{message} ({note})	{message} ({note})
+@plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{n} Aktion aus {file} geladen|{n} Aktionen aus {file} geladen
+@plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} Schritt hat noch keine Entsprechung in PhotoCraft|{n} Schritte haben noch keine Entsprechung in PhotoCraft
+@plural	Saved {n} action to {file}|Saved {n} actions to {file}	{n} Aktion in {file} gespeichert|{n} Aktionen in {file} gespeichert
+@plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	{n} Schritt ohne Photoshop-Entsprechung ausgelassen|{n} Schritte ohne Photoshop-Entsprechung ausgelassen
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Stopp einfügen…
+	Save Set…	Set speichern…
+	Message:	Meldung:
+	Allow Continue	Fortsetzen erlauben
+	Show dialog during playback	Dialog bei der Wiedergabe anzeigen
+	Select an action first	Wählen Sie zuerst eine Aktion aus
+	Action playback stopped	Aktionswiedergabe angehalten
+	Step {step} is waiting for its dialog	Schritt {step} wartet auf seinen Dialog
+@plural	{n} action|{n} actions	{n} Aktion|{n} Aktionen
+	Auto Add/Delete	Autom. hinzuf./löschen

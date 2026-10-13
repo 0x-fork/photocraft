@@ -590,4 +590,14 @@ mod tests {
             assert!(missing.is_empty(), "{code}: missing source keys: {missing:#?}");
         }
     }
+    #[test]
+    fn plural_forms_follow_count_expressions_and_dynamic_forms_are_not_literal_keys() {
+        let sources = vec![(
+            PathBuf::from("ui.rs"),
+            r#"trn(lang, r["files"].as_array().map_or(0, Vec::len) as u64, "Saved {n} file", "Saved {n} files");
+               trn(lang, count, one, other);"#
+                .into(),
+        )];
+        assert_eq!(plural_keys(&sources), BTreeSet::from([Key { context: "@plural".into(), source: "Saved {n} file|Saved {n} files".into() }]));
+    }
 }

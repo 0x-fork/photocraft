@@ -220,6 +220,25 @@ fn pro_panel(
     CardResponse::new(strip_resp, mresp, tabs_out)
 }
 
+/// The panel menu button (hamburger in Pro, ellipsis in Studio), matching the dock and cards.
+pub fn panel_menu_button(ui: &mut Ui) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let size = vec2(20.0, 20.0);
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let tint = crate::icons::button_chrome(ui, rect, false, resp.hovered());
+    if t.pro {
+        for k in 0..3 {
+            let y = rect.center().y - 3.5 + k as f32 * 3.5;
+            ui.painter().line_segment([pos2(rect.center().x - 5.0, y), pos2(rect.center().x + 5.0, y)], Stroke::new(1.0, tint));
+        }
+    } else {
+        crate::icons::paint(ui, rect, "ellipsis", 14.0, tint);
+    }
+    let tip = tl!("Panel menu");
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tip));
+    resp.on_hover_text(tip)
+}
+
 pub fn pill_tab(ui: &mut Ui, label: &str, selected: bool) -> Response {
     let t = Tokens::get(ui.ctx());
     let font = theme::medium(12.5);
@@ -974,6 +993,22 @@ pub fn slider_row_with(
     gradient: Option<&[Color32]>,
     g: RowGestures,
 ) -> Response {
+    slider_row_prec(ui, label, value, range, suffix, gradient, g, None)
+}
+
+/// [`slider_row_with`] whose field shows `decimals` places instead of the one (or two, for a
+/// small range) it picks itself: Exposure's ±20 stops show two, its Offset four (#4164).
+#[allow(clippy::too_many_arguments)]
+pub fn slider_row_prec(
+    ui: &mut Ui,
+    label: &str,
+    value: &mut f32,
+    range: std::ops::RangeInclusive<f32>,
+    suffix: &str,
+    gradient: Option<&[Color32]>,
+    g: RowGestures,
+    decimals: Option<u32>,
+) -> Response {
     let t = Tokens::get(ui.ctx());
     let mut changed_resp = None;
     ui.horizontal(|ui| {
@@ -981,7 +1016,7 @@ pub fn slider_row_with(
         let l = ui.label(egui::RichText::new(tl!(label)).color(t.text_dim));
         scrub_label_within(ui, &l, f32::INFINITY);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            changed_resp = Some(value_field(ui, value, range.clone(), suffix, 74.0));
+            changed_resp = Some(value_field_in(ui, value, range.clone(), suffix, 74.0, 0.0, FieldOpts { decimals, units: None }).0);
         });
     });
     let s = slider_with(ui, value, range, gradient, g);

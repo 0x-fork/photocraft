@@ -9,7 +9,7 @@
 
 use photocraft_color::PixelFormat;
 use photocraft_geom::Rect;
-use photocraft_raster::Surface;
+use photocraft_raster::{Interrupt, Surface};
 use serde::{Deserialize, Serialize};
 
 use crate::resample::{Resample, resize_surface};
@@ -143,14 +143,26 @@ fn catmull_rom(t: f64) -> [f64; 4] {
 /// The result has the same format as `src`, with alpha added if `src` had none; pixels outside
 /// the warped quad are transparent.
 pub fn warp_surface(src: &Surface, src_rect: Rect, h: &Homography, interp: Interp) -> Result<Surface, photocraft_raster::AllocationError> {
-    warp(src, src_rect, h, interp, None)
+    warp(src, src_rect, h, interp, None, &Interrupt::NONE)
+}
+
+/// [`warp_surface`] reporting progress per destination tile; `Ok(None)` once `ctl` is cancelled.
+pub fn warp_surface_with(
+    src: &Surface,
+    src_rect: Rect,
+    h: &Homography,
+    interp: Interp,
+    ctl: &Interrupt,
+) -> Result<Option<Surface>, photocraft_raster::AllocationError> {
+    let out = warp(src, src_rect, h, interp, None, ctl)?;
+    Ok((!ctl.cancelled()).then_some(out))
 }
 
 /// [`warp_surface`] keeping only the destination pixels inside `clip`. The work is bounded by
 /// `clip` even when part of the source lies at or beyond the map's horizon (a Perspective Crop of a
 /// layer that reaches far past the crop quad), which would make the full warped extent unbounded.
 pub fn warp_surface_clipped(src: &Surface, src_rect: Rect, h: &Homography, interp: Interp, clip: Rect) -> Result<Surface, photocraft_raster::AllocationError> {
-    warp(src, src_rect, h, interp, Some(clip))
+    warp(src, src_rect, h, interp, Some(clip), &Interrupt::NONE)
 }
 
 /// Is `q` (TL, TR, BR, BL) a usable Perspective Crop quad: finite, strictly convex with every
@@ -192,7 +204,39 @@ pub fn quad_to_rect(q: &[[f64; 2]; 4], w: f64, h: f64) -> Option<Homography> {
     Homography::rect_to_quad([0.0, 0.0, w, h], *q)?.inverse()
 }
 
-fn warp(src: &Surface, src_rect: Rect, h: &Homography, interp: Interp, clip: Option<Rect>) -> Result<Surface, photocraft_raster::AllocationError> {
+/// The destination rectangle [`warp_surface`] fills for `src_rect` under `h`: the warped corners
+/// plus a pixel for filter support, each side clamped to ±2²⁰. `None` when a corner maps to
+/// infinity (the result is then empty). Lets a caller price a warp before allocating it.
+pub fn warp_output_bounds(src_rect: Rect, h: &Homography) -> Option<Rect> {
+    if src_rect.is_empty() || h.inverse().is_none() {
+        return None;
+    }
+    let corners = [(src_rect.x0, src_rect.y0), (src_rect.x1, src_rect.y0), (src_rect.x1, src_rect.y1), (src_rect.x0, src_rect.y1)]
+        .map(|(x, y)| h.apply(x as f64, y as f64));
+    corner_bounds(&corners)
+}
+
+fn corner_bounds(corners: &[(f64, f64); 4]) -> Option<Rect> {
+    if !corners.iter().all(|c| c.0.is_finite() && c.1.is_finite()) {
+        return None;
+    }
+    let lim = (1 << 20) as f64;
+    let bx0 = corners.iter().map(|c| c.0).fold(f64::MAX, f64::min).floor().max(-lim) as i32 - 1;
+    let by0 = corners.iter().map(|c| c.1).fold(f64::MAX, f64::min).floor().max(-lim) as i32 - 1;
+    let bx1 = corners.iter().map(|c| c.0).fold(f64::MIN, f64::max).ceil().min(lim) as i32 + 1;
+    let by1 = corners.iter().map(|c| c.1).fold(f64::MIN, f64::max).ceil().min(lim) as i32 + 1;
+    Some(Rect::new(bx0, by0, bx1, by1))
+}
+
+/// A cancelled `ctl` skips the remaining tiles; the caller discards the result.
+fn warp(
+    src: &Surface,
+    src_rect: Rect,
+    h: &Homography,
+    interp: Interp,
+    clip: Option<Rect>,
+    ctl: &Interrupt,
+) -> Result<Surface, photocraft_raster::AllocationError> {
     let mut fmt = src.format();
     let converted;
     let mut src = if fmt.alpha {
@@ -234,21 +278,13 @@ fn warp(src: &Surface, src_rect: Rect, h: &Homography, interp: Interp, clip: Opt
     let fwd_w = [(sx0, sy0), (sx1, sy0), (sx1, sy1), (sx0, sy1)].map(|(x, y)| h.0[6] * x + h.0[7] * y + h.0[8]);
     let side = [1.0, -1.0].into_iter().find(|&s| fwd_w.iter().all(|&c| s * c > 0.0));
     let w_lo = 1.0 / fwd_w.iter().fold(0.0f64, |m, c| m.max(c.abs()));
-    let finite = corners.iter().all(|c| c.0.is_finite() && c.1.is_finite());
-    let lim = 1 << 20;
-    let bounds = || {
-        let bx0 = corners.iter().map(|c| c.0).fold(f64::MAX, f64::min).floor().max(-(lim as f64)) as i32 - 1;
-        let by0 = corners.iter().map(|c| c.1).fold(f64::MAX, f64::min).floor().max(-(lim as f64)) as i32 - 1;
-        let bx1 = corners.iter().map(|c| c.0).fold(f64::MIN, f64::max).ceil().min(lim as f64) as i32 + 1;
-        let by1 = corners.iter().map(|c| c.1).fold(f64::MIN, f64::max).ceil().min(lim as f64) as i32 + 1;
-        Rect::new(bx0, by0, bx1, by1)
-    };
-    let dst = match clip {
+    let bounds = corner_bounds(&corners);
+    let dst = match (clip, bounds) {
         // The warped corners only bound the result while the whole source is in front of the horizon.
-        Some(c) if finite && side.is_some() => bounds().intersect(&c),
-        Some(c) => c,
-        None if finite => bounds(),
-        None => return Ok(out),
+        (Some(c), Some(b)) if side.is_some() => b.intersect(&c),
+        (Some(c), _) => c,
+        (None, Some(b)) => b,
+        (None, None) => return Ok(out),
     };
     if dst.is_empty() {
         return Ok(out);
@@ -261,7 +297,16 @@ fn warp(src: &Surface, src_rect: Rect, h: &Homography, interp: Interp, clip: Opt
     tiles.try_reserve_exact(tile_count).map_err(|_| photocraft_raster::AllocationError::NotEnoughMemory { bytes: tile_bytes })?;
     tiles.extend(dst.tiles().map(|tc| tc.rect().intersect(&dst)).filter(|r| !r.is_empty()));
     let src_ref: &Surface = src;
+    // Tiles finished so far, for progress reported per tile (from any worker thread).
+    let finished = std::sync::atomic::AtomicUsize::new(0);
+    let total = tiles.len().max(1);
     let work = |t: &Rect| -> Result<Option<(Rect, Vec<f32>)>, photocraft_raster::AllocationError> {
+        if ctl.cancelled() {
+            return Ok(None);
+        }
+        let k = finished.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+        // The last few percent are the writes.
+        ctl.progress(0.98 * k as f32 / total as f32);
         // Source footprint of this tile (inverse-mapped corners of its sampled part), padded for the filter.
         let tc = [(t.x0, t.y0), (t.x1, t.y0), (t.x1, t.y1), (t.x0, t.y1)].map(|(x, y)| (x as f64, y as f64));
         let wc = tc.map(|(x, y)| inv.0[6] * x + inv.0[7] * y + inv.0[8]);
@@ -397,6 +442,9 @@ fn warp(src: &Surface, src_rect: Rect, h: &Homography, interp: Interp, clip: Opt
         }
     }
     let done = done.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if ctl.cancelled() {
+        return Ok(out);
+    }
     for (r, v) in done {
         out.try_write_region(r, &v)?;
     }
@@ -407,6 +455,25 @@ fn warp(src: &Surface, src_rect: Rect, h: &Homography, interp: Interp, clip: Opt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_interruptible_warp_reports_progress_and_stops_when_cancelled() {
+        let mut s = Surface::new(PixelFormat::RGBA8);
+        s.fill_rect(Rect::new(0, 0, 600, 400), &[0.2, 0.4, 0.6, 1.0]);
+        let r = s.content_bounds();
+        let h = Homography::rect_to_quad([0.0, 0.0, 600.0, 400.0], [[10.0, 0.0], [590.0, 20.0], [600.0, 400.0], [0.0, 380.0]]).unwrap();
+        let reported = std::sync::Mutex::new(0.0f32);
+        let progress = |p: f32| {
+            let mut m = reported.lock().unwrap();
+            *m = m.max(p);
+        };
+        let never = || false;
+        let out = warp_surface_with(&s, r, &h, Interp::Bicubic, &Interrupt::new(&never, &progress)).unwrap().expect("not cancelled");
+        assert_eq!(out.read_region(r), warp_surface(&s, r, &h, Interp::Bicubic).unwrap().read_region(r));
+        assert!(*reported.lock().unwrap() > 0.9);
+        let always = || true;
+        assert!(warp_surface_with(&s, r, &h, Interp::Bicubic, &Interrupt::cancel_only(&always)).unwrap().is_none());
+    }
 
     /// Perspective Crop's map lands each quad corner exactly on its rectangle corner; degenerate,
     /// self-crossing, counter-clockwise and non-finite quads have none.

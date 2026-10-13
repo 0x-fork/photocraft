@@ -121,6 +121,8 @@
 	Search…	Ara…
 	Check Spelling…	Yazımı Denetle…
 	Find and Replace Text…	Metni Bul ve Değiştir…
+	Add to Dictionary	Sözlüğe Ekle
+	No Spelling Suggestions	Yazım Önerisi Yok
 	Fill…	Doldur…
 	Stroke…	Kontur…
 	Content-Aware Fill…	İçeriğe Uygun Dolgu…
@@ -202,12 +204,12 @@
 	Lab Color	Laboratuvar Rengi
 	Multichannel	Çok kanallı
 	8 Bits/Channel	8 Bit/Kanal
-	8 bit	8 bit
+	8 bit	8 bitlik
 	Integer	Tamsayı
 	16 Bits/Channel	16 Bit/Kanal
-	16 bit	16 bit
+	16 bit	16 bitlik
 	32 Bits/Channel	32 Bit/Kanal
-	32 bit (float)	32 bit (kayan)
+	32 bit (float)	32 bitlik (kayan noktalı)
 	Floating point	Kayan nokta
 	Color Table…	Renk Tablosu…
 	Bitmap…	Bit eşlem…
@@ -852,6 +854,7 @@
 	Cancel	İptal
 	Reset	Sıfırla
 	Cancel (Esc)	İptal (Esc)
+	Manage submitted jobs in the system print queue	Gönderilen işleri sistem yazdırma kuyruğunda yönetin
 	Cancel any current edits (Esc)	Mevcut düzenlemeleri iptal et (Esc)
 	Cancel current crop operation  (Esc)	Geçerli kırpma işlemini iptal et (Esc)
 	Cancel transform (Esc)	Dönüşümü iptal et (Esc)
@@ -2313,6 +2316,7 @@
 	Color Picker (Stroke Color)	Renk Seçici (Kontur Rengi)
 	Stroke color	Kontur rengi
 	Pick screen color	Ekran rengini seç
+	Pick Color From Image	Görüntüden Renk Seç
 	Sample a pixel anywhere on the screen	Ekranın herhangi bir yerinde bir pikseli örnekleyin
 	Click to pick · Esc to cancel	Seçmek için tıklayın · İptal etmek için Esc
 	Pick a screen pixel or press Esc to cancel	Bir ekran pikseli seçin veya iptal etmek için Esc tuşuna basın
@@ -2422,6 +2426,7 @@ cameraRaw	Color	Renk
 	Remove All	Tümünü Kaldır
 	Unlock	Kilidi aç
 	Enable	Etkinleştir
+	Enable animations	Animasyonları etkinleştir
 	Disable	Devre dışı bırak
 	On	Açık
 	Selected	Seçilen
@@ -3782,3 +3787,40 @@ cameraData	Lens	Lens
 @plural	{n} step|{n} steps	{n} adım
 @plural	{warning} (+{n} more brush preset warning)|{warning} (+{n} more brush preset warnings)	{warning} (+{n} fırça ön ayarı uyarısı daha)
 @plural	{what} with {n} warning|{what} with {n} warnings	{what}, {n} uyarı ile
+	Clear Brush Controls	Fırça Denetimlerini Temizle
+	Reset All Locked Settings	Tüm Kilitli Ayarları Sıfırla
+	Copy Texture to Other Tools	Dokuyu Diğer Araçlara Kopyala
+
+# Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
+	Load Actions…	Eylemleri Yükle…
+	Save Actions…	Eylemleri Kaydet…
+	{name} (Photoshop)	{name} (Photoshop)
+	{message} ({note})	{message} ({note})
+@plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{file} dosyasından {n} eylem yüklendi
+@plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} adımın PhotoCraft’ta henüz karşılığı yok
+@plural	Saved {n} action to {file}|Saved {n} actions to {file}	{n} eylem {file} dosyasına kaydedildi
+@plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Photoshop karşılığı olmayan {n} adım atlandı
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Durdurma Ekle…
+	Save Set…	Seti Kaydet…
+	Message:	İleti:
+	Allow Continue	Devam Etmeye İzin Ver
+	Show dialog during playback	Oynatma sırasında iletişim kutusunu göster
+	Select an action first	Önce bir eylem seçin
+	Action playback stopped	Eylem oynatma durduruldu
+	Step {step} is waiting for its dialog	{step}. adım iletişim kutusunu bekliyor
+@plural	{n} action|{n} actions	{n} eylem
+	Object Finder	Nesne Bulucu
+	No object found there — drag a rectangle around it	Orada nesne bulunamadı — çevresine bir dikdörtgen sürükleyin
+	Drag to pan · Scroll to zoom · Double-click to fit	Kaydırmak için sürükleyin · Yakınlaştırmak için kaydırın · Sığdırmak için çift tıklayın
+	Gradient Preset Options	Gradyan Ön Ayarı Seçenekleri
+	Import .GRD	.GRD İçe Aktar
+	Choose a gradient file (.grd).	Bir gradyan dosyası (.grd) seçin.
+	Save Settings…	Ayarları Kaydet…
+	Load Settings…	Ayarları Yükle…
+	Save these settings as a Camera Raw .xmp file	Bu ayarları Camera Raw .xmp dosyası olarak kaydet
+	Load settings from a Camera Raw .xmp file	Ayarları bir Camera Raw .xmp dosyasından yükle
+	Loaded Camera Raw settings from {file}	Camera Raw ayarları {file} dosyasından yüklendi
+	Loaded Camera Raw settings from {file} ({n} not supported)	Camera Raw ayarları {file} dosyasından yüklendi ({n} desteklenmiyor)
+	Auto Add/Delete	Otomatik Ekle/Sil

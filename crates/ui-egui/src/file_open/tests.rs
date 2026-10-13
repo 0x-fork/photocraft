@@ -776,3 +776,44 @@ fn a_set_of_background_opens_keeps_its_order_however_they_finish() {
     jobs_ui::finish_open_tab(&mut app, &late, &json!({"document": index})).unwrap();
     assert_eq!(doc_names(&app), ["dropped.psd", "existing.psd", "f0.psd", "f1.psd", "f2.psd", "f3.psd", "late.psd"]);
 }
+
+/// #4373: Save a Copy is recorded in an action, like Save and Save As, and played back as a copy:
+/// the document keeps its own file and unsaved changes.
+#[test]
+fn save_a_copy_is_recorded_and_replayed_as_a_copy() {
+    let (mut app, written) = app_with(vec![Some(FileDialogAnswer::SaveTo("/pics/copy.png".into()))]);
+    let ctx = egui::Context::default();
+    app.open_file("/pics/work.pcraft", b"x").unwrap();
+    app.run("layer.new.layer", json!({})).unwrap();
+    app.run("actions.record", json!({})).unwrap();
+    app.run("edit.fill", json!({"color": "#ff0000"})).unwrap();
+    menus::invoke(&mut app, &ctx, "file.saveACopy", json!({})).unwrap();
+    answer(&mut app);
+    app.run("actions.stop", json!({})).unwrap();
+    assert_eq!(app.session.actions.list[0].steps.last(), Some(&("file.saveACopy".to_string(), json!({"path": "/pics/copy.png"}))));
+    assert_eq!(crate::actions::label_of("file.saveACopy"), "Save a Copy");
+    written.borrow_mut().clear();
+    let played = app.run("actions.play", json!({"action": 0})).unwrap();
+    assert!(played.get("failed").is_none(), "{played}");
+    assert_eq!(written.borrow().iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>(), ["/pics/copy.png"]);
+    let st = app.session.active().unwrap();
+    assert_eq!(st.path.as_deref(), Some("/pics/work.pcraft"), "the document keeps its file");
+    assert!(st.is_dirty(), "and its unsaved changes");
+}
+
+/// #4400: a new document saved under a name is listed in Open Recent (and on the Home screen),
+/// as opening it is; a Save a Copy isn't, since the document doesn't live there.
+#[test]
+fn saving_a_new_document_lists_it_in_recent_files() {
+    let (mut app, _written) = app_with(vec![Some(FileDialogAnswer::SaveTo("/pics/new.psd".into())), Some(FileDialogAnswer::SaveTo("/pics/copy.png".into()))]);
+    let ctx = egui::Context::default();
+    app.run("file.new", json!({"width": 4, "height": 4})).unwrap();
+    assert!(app.ui.recent_files.is_empty());
+    menus::invoke(&mut app, &ctx, "file.saveAs", json!({})).unwrap();
+    answer(&mut app);
+    assert_eq!(app.ui.recent_files, ["/pics/new.psd"]);
+    assert_eq!(app.session.prefs().file_handling.recent_files, ["/pics/new.psd"], "kept for the next launch");
+    menus::invoke(&mut app, &ctx, "file.saveACopy", json!({})).unwrap();
+    answer(&mut app);
+    assert_eq!(app.ui.recent_files, ["/pics/new.psd"], "a copy isn't the document's file");
+}

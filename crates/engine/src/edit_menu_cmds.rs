@@ -894,6 +894,7 @@ fn find_replace(s: &mut Session, p: &Value) -> Result<Value> {
                 && let Some((id, a, b)) = cursor
                 && text_of(&doc, id).is_some_and(|t| find_matches(&t, &find, case, whole).contains(&(a, b)))
             {
+                crate::type_cmds::check_text_unlocked(&doc, id)?;
                 s.edit("Replace Text", |doc, _| {
                     let snapshot = doc.clone();
                     if let Some(LayerContent::Text(t)) = doc.layer_mut(id).map(|l| &mut l.content) {
@@ -903,7 +904,10 @@ fn find_replace(s: &mut Session, p: &Value) -> Result<Value> {
                     Ok(())
                 })?;
                 let end = a + replace.len();
-                s.edit_state.find_cursor = Some((id, end, end));
+                // Collapse the cursor on the side the search moves away from, so the next search
+                // skips the replaced text even when the replacement still matches.
+                let c = if forward { end } else { a };
+                s.edit_state.find_cursor = Some((id, c, c));
                 changed = Some((id, a, end));
                 if action == "change" {
                     return Ok(json!({"changed": {"layer": id.0, "start": a, "end": end}}));

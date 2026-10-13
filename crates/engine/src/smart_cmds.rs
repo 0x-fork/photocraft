@@ -387,6 +387,20 @@ fn place(name: &str, bytes: &[u8], fmt: PixelFormat, sm: &SmartObject) -> Result
     })
 }
 
+/// The box of a smart object's source in source pixels (what its warp's `us`/`vs` span), or `None`
+/// when the source can't be read.
+pub(crate) fn source_box(doc: &Document, sm: &SmartObject) -> Option<[f64; 4]> {
+    let (name, bytes) = source_bytes(&doc.metadata, &sm.source)?;
+    let fmt = doc.pixel_format();
+    let img = match sm.stack_mode {
+        Some(mode) => stack_image(&name, &bytes, fmt, mode),
+        None => source_image(&name, &bytes, fmt),
+    }
+    .ok()?;
+    let r = img.bounds;
+    Some([f64::from(r.x0), f64::from(r.y0), f64::from(r.x1), f64::from(r.y1)])
+}
+
 /// Renders a smart object from its source. `Ok(None)` when the source is unavailable (a missing
 /// linked file, or a PSD placed layer without embedded data): callers keep the existing cache.
 pub fn render(doc: &Document, sm: &SmartObject) -> Result<Option<Surface>> {
