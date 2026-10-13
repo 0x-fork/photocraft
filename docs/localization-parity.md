@@ -85,3 +85,4 @@ engine localization or native review is complete.
 | 2026-10-12 | minor | Added Turkish (`tr`) catalog with 100% measured UI coverage |
 | 2026-10-12 | minor | Italian native-speaker review: mistranslations (Trap, HDR Toning, Display Text) and phrasing fixed |
 | 2026-10-12 | minor | Serbian (`sr`, Latin, Ekavian) catalog: every measured key plus the dynamic labels of the other catalogs |
+| 2026-10-13 | minor | Italian: the `Screen` blend mode and the `Dodge` tools had their names swapped (`Schermo`/`Scherma` → `Scherma`/`Schiarisci`); pinned by a test |
