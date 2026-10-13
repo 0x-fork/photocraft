@@ -261,11 +261,68 @@ fn every_mapped_command_exports_and_imports_back() {
         ("edit.assignProfile", json!({"profile": "srgb"})),
         ("file.close", json!({})),
         ("file.save", json!({})),
+        ("layer.layerMask.delete", json!({})),
+        ("select.lasso", json!({"points": [[1, 2], [30, 2], [15, 40]]})),
+        ("select.editInQuickMaskMode", json!({"on": true})),
+        ("select.editInQuickMaskMode", json!({"on": false})),
+        ("edit.transform", json!({"dx": 10, "dy": -5, "scaleX": 50, "scaleY": 75, "rotate": 12.5, "interpolation": "bicubic"})),
+        ("edit.transform", json!({"layer": "Shadow", "dx": 0, "dy": 0, "scaleX": 200})),
+        ("select.transformSelection", json!({"dx": 3, "dy": 4, "scaleX": 110, "scaleY": 110, "rotate": -30})),
+        (
+            "image.applyImage",
+            json!({"source": {"channel": "composite", "layer": "High-Frequency"}, "blending": "subtract", "scale": 2, "offset": 128, "preserveTransparency": true}),
+        ),
+        ("image.applyImage", json!({"source": {"channel": "red", "layer": "merged", "invert": true}, "blending": "multiply", "opacity": 50})),
+        (
+            "file.export.saveForWebLegacy",
+            json!({"path": "/tmp/out/banner.png", "format": "png24", "interlaced": false, "transparency": true, "embedIcc": false, "progressive": false, "optimized": true, "matte": "#ffffff"}),
+        ),
+        (
+            "file.export.saveForWebLegacy",
+            json!({"path": "C:\\shots\\a.jpg", "format": "jpeg", "interlaced": false, "transparency": false, "embedIcc": true, "progressive": true, "optimized": true, "quality": 80, "matte": "none"}),
+        ),
+        ("image.adjustments.gradientMap", json!({"stops": [[0, "#000000"], [0.5, "#ff8000"], [1, "#ffffff"]], "reverse": true, "dither": false})),
+        ("layer.newAdjustmentLayer.gradientMap", json!({"stops": [[0, "#102030"], [1, "#f0e0d0"]], "reverse": false, "dither": true})),
+        ("layer.smartObjects.convertToSmartObject", json!({})),
+        ("layer.smartObjects.editContents", json!({})),
+        ("layer.smartObjects.updateModifiedContent", json!({})),
+        ("paint.bucket", json!({"x": 10, "y": 20, "tolerance": 32, "antiAlias": true, "contiguous": false, "opacity": 100})),
+        ("image.imageSize", json!({"percent": 200, "resample": "bicubicAutomatic"})),
+        ("file.placeEmbedded", json!({"path": "/tmp/logo.png", "scale": 50})),
+        ("file.placeLinked", json!({"path": "/tmp/logo.png"})),
+        ("file.openAs", json!({"path": "/tmp/a.psd"})),
+        ("actions.conditional", json!({"if": "hasLayers", "then": "FS8-Layers", "else": "FS8-No-Layers", "set": "S"})),
+        ("actions.conditional", json!({"if": "landscape", "then": "Wide", "else": null, "set": "S"})),
         ("actions.play", json!({"action": "Other", "set": "S"})),
         (STOP_MESSAGE, json!({"message": "Hi", "allowContinue": false})),
+        // The TrueGrit Texture Supply sets (Debaser, Distress Press, Halftone Zine Machine).
+        ("filter.distort.ripple", json!({"amount": 50, "size": "medium"})),
+        ("filter.pixelate.crystallize", json!({"cellSize": 5})),
+        ("filter.gallery.spatter", json!({"sprayRadius": 7, "smoothness": 15})),
+        (
+            "select.refineEdge",
+            json!({"radius": 0, "smartRadius": false, "smooth": 2, "feather": 0.5, "contrast": 15, "shiftEdge": -100, "decontaminate": false, "output": "layerMask"}),
+        ),
+        ("channel.target", json!({"channel": "mask"})),
+        ("channel.target", json!({"channel": "composite"})),
+        ("edit.undo", json!({})),
+        ("edit.redo", json!({})),
+        ("layer.select", json!({"layer": "YELLOW", "mode": "remove"})),
+        ("layer.translate", json!({"dx": 0.36, "dy": -1.08, "units": "pt"})),
+        ("select.loadSelection", json!({"channel": "targeted"})),
+        ("layer.newFillLayer.pattern", json!({"pattern": "Debaser-Distressed-Dark", "scale": 50, "angle": 0, "link": true})),
+        ("layer.fill.pattern.set", json!({"pattern": "1 -R2.jpg"})),
+        ("image.mode.bitmap", json!({"method": "threshold"})),
+        ("image.imageSize", json!({"resolution": 1200, "resample": "preserveDetails", "keepPrintSize": true})),
+        ("layer.new.layerFromBackground", json!({"ifPresent": true, "select": false})),
     ];
     for (id, params) in &cases {
         let item = export_item(id, params, "S").unwrap_or_else(|| panic!("{id} does not export"));
+        if *id == "file.close" {
+            // Close exports "don't save" and imports as a plain close; the Save answer is tested below.
+            assert_eq!(item.event.id(), "Cls ");
+            continue;
+        }
         let e = event_for(&item.event).unwrap_or_else(|| panic!("{id} exported as an unknown event {}", item.event.id()));
         match (e.from)(item.descriptor.as_ref().unwrap()) {
             Mapped::Steps(steps) => {
@@ -273,7 +330,7 @@ fn every_mapped_command_exports_and_imports_back() {
                 assert_eq!(steps[0].0, *id, "{id} came back as another command");
                 let mut back = steps[0].1.clone();
                 normalise(&mut back);
-                if *id == "actions.play" {
+                if *id == "actions.play" || *id == "actions.conditional" {
                     back["set"] = json!("S");
                 }
                 assert_eq!(back, *params, "{id}");
@@ -371,17 +428,19 @@ fn every_mapped_command_exports_and_imports_back() {
 
 #[test]
 fn unsupported_shapes_become_photoshop_steps_not_errors() {
-    // Percent image size, a Paint Bucket fill, a move in points, an unknown adjustment class.
+    // Image size in two different percentages, a Paint Bucket click in percent of the canvas, a
+    // move in percent, an unknown adjustment class.
     let items = vec![
-        item("ImgS", "Image Size", Some(desc("null").with("Wdth", pct(200.0)))),
-        item("Fl  ", "Fill", Some(desc("null").with("From", D::Descriptor(desc("Pnt "))).with("Usng", enm("FlCn", "FrgC")))),
+        item("ImgS", "Image Size", Some(desc("null").with("Wdth", pct(200.0)).with("Hght", pct(150.0)))),
+        item(
+            "Fl  ",
+            "Fill",
+            Some(desc("null").with("From", D::Descriptor(desc("Pnt ").with("Hrzn", pct(0.0)).with("Vrtc", pct(0.0)))).with("Usng", enm("FlCn", "FrgC"))),
+        ),
         item(
             "move",
             "Move",
-            Some(desc("null").with("null", target_ref("Lyr ")).with(
-                "T   ",
-                D::Descriptor(desc("Ofst").with("Hrzn", D::UnitFloat { unit: *b"#Rlt", value: 3.0 }).with("Vrtc", D::UnitFloat { unit: *b"#Rlt", value: 1.0 })),
-            )),
+            Some(desc("null").with("null", target_ref("Lyr ")).with("T   ", D::Descriptor(desc("Ofst").with("Hrzn", pct(3.0)).with("Vrtc", pct(1.0))))),
         ),
         item(
             "make",
@@ -485,4 +544,398 @@ fn colours_convert_both_ways() {
     assert_eq!(color_desc("12ab9f"), None);
     assert_eq!(color_desc("#12ab9"), None);
     assert_eq!(color_desc("#ééééé"), None);
+}
+
+#[test]
+fn remaining_events_import_in_their_photoshop_shapes() {
+    // Close with the Save answer becomes Save then Close.
+    let close_yes = item("Cls ", "Close", Some(desc("null").with("Svng", enm("YsN ", "Ys  "))));
+    let close_no = item("close", "Close", Some(desc("null").with("Svng", enm("YsN ", "N   "))));
+    // A layer only moved is a translation; scaled, it is the relative Free Transform; the
+    // selection's frame goes to Transform Selection; points (not pixels) stay unsupported.
+    let moved = desc("null")
+        .with("null", target_ref("Lyr "))
+        .with("FTcs", enm("QCSt", "Qcsa"))
+        .with("Ofst", D::Descriptor(desc("Ofst").with("Hrzn", px(-57.4)).with("Vrtc", px(12.0))))
+        .with("Intr", enm("Intp", "Bcbc"));
+    let scaled = desc("null")
+        .with("null", target_ref("Lyr "))
+        .with("FTcs", enm("QCSt", "Qcsa"))
+        .with("Ofst", D::Descriptor(desc("Ofst").with("Hrzn", px(10.0)).with("Vrtc", px(0.0))))
+        .with("Wdth", pct(50.0))
+        .with("Hght", pct(50.0))
+        .with("Lnkd", D::Boolean(true))
+        .with("Intr", enm("Intp", "Bcbc"));
+    let sel = desc("null")
+        .with("null", D::Reference(vec![ReferenceItem::Property { class: class("Chnl"), key: Id::new("fsel") }]))
+        .with("FTcs", enm("QCSt", "Qcs0"))
+        .with("Ofst", D::Descriptor(desc("Ofst").with("Hrzn", px(1014.0)).with("Vrtc", px(0.0))));
+    let points = desc("null").with("null", target_ref("Lyr ")).with(
+        "Ofst",
+        D::Descriptor(desc("Ofst").with("Hrzn", D::UnitFloat { unit: *b"#Rlt", value: 3.0 }).with("Vrtc", D::UnitFloat { unit: *b"#Rlt", value: 1.0 })),
+    );
+    // Apply Image as recorded by the frequency-separation action.
+    let apply = desc("null").with(
+        "With",
+        D::Descriptor(
+            desc("null")
+                .with(
+                    "T   ",
+                    D::Reference(vec![
+                        ReferenceItem::Enumerated { class: class("Chnl"), type_id: Id::new("Chnl"), value: Id::new("RGB ") },
+                        ReferenceItem::Name { class: class("Lyr "), name: UnicodeString::new_nul("High-Frequency") },
+                    ]),
+                )
+                .with("Clcl", enm("Clcn", "Sbtr"))
+                .with("Scl ", D::Double(2.0))
+                .with("Ofst", D::Double(128.0))
+                .with("PrsT", D::Boolean(true)),
+        ),
+    );
+    // Save for Web with and without a destination.
+    let web = desc("null")
+        .with(
+            "Usng",
+            D::Descriptor(
+                desc("SaveForWeb")
+                    .with("Fmt ", enm("IRFm", "PN24"))
+                    .with("Intr", D::Boolean(false))
+                    .with("Trns", D::Boolean(true))
+                    .with("Mtt ", D::Boolean(true))
+                    .with("MttR", long(255.0))
+                    .with("MttG", long(255.0))
+                    .with("MttB", long(255.0))
+                    .with("EICC", D::Boolean(false)),
+            ),
+        )
+        .with("In  ", path_value("/Users/me/Desktop/out.png"));
+    let web_nowhere = desc("null").with("Usng", D::Descriptor(desc("SaveForWeb").with("Fmt ", enm("IRFm", "PN24"))));
+    // Quick Mask on/off, a polygon selection, the mask of the target layer deleted.
+    let qm_on = desc("null").with("null", quick_mask_ref());
+    let polygon = desc("null").with("null", D::Reference(vec![ReferenceItem::Property { class: class("Chnl"), key: Id::new("fsel") }])).with(
+        "T   ",
+        D::Descriptor(desc("Plgn").with(
+            "Pts ",
+            D::List(vec![
+                D::Descriptor(desc("Pnt ").with("Hrzn", px(1.0)).with("Vrtc", px(2.0))),
+                D::Descriptor(desc("Pnt ").with("Hrzn", px(30.0)).with("Vrtc", px(2.0))),
+                D::Descriptor(desc("Pnt ").with("Hrzn", px(15.0)).with("Vrtc", px(40.0))),
+            ]),
+        )),
+    );
+    let mask_delete = desc("null").with("null", target_ref("Chnl"));
+    let items = vec![
+        item("GsnB", "Gaussian Blur", Some(desc("null").with("Rds ", px(1.0)))),
+        close_yes,
+        close_no,
+        item("transform", "Transform", Some(moved)),
+        item("Trnf", "Transform", Some(scaled)),
+        item("transform", "Transform", Some(sel)),
+        item("transform", "Transform", Some(points)),
+        item("applyImageEvent", "Apply Image", Some(apply)),
+        item("export", "Export", Some(web)),
+        item("export", "Export", Some(web_nowhere)),
+        item("setd", "Set", Some(qm_on.clone())),
+        item("clearEvent", "Clear", Some(qm_on.clone())),
+        item("set", "Set", Some(polygon)),
+        item("delete", "Delete", Some(mask_delete)),
+        item("newPlacedLayer", "Convert to Smart Object", None),
+        item("placedLayerEditContents", "Edit Contents", None),
+        item("updatePlacedLayer", "Update Smart Objects", None),
+    ];
+    let file = AtnFile {
+        name: UnicodeString::new_nul("More"),
+        expanded: false,
+        actions: vec![AtnAction { name: UnicodeString::new_nul("A"), items, ..Default::default() }],
+        warnings: vec![],
+    };
+    let imp = import(&atn::write(&file).unwrap()).unwrap();
+    let steps = &imp.actions[0].steps;
+    let ids: Vec<&str> = steps.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(
+        ids,
+        [
+            "filter.blur.gaussianBlur",
+            "file.save",
+            "file.close",
+            "file.close",
+            "layer.translate",
+            "edit.transform",
+            "select.transformSelection",
+            PHOTOSHOP_STEP,
+            "image.applyImage",
+            "file.export.saveForWebLegacy",
+            PHOTOSHOP_STEP,
+            "select.editInQuickMaskMode",
+            "select.editInQuickMaskMode",
+            "select.lasso",
+            "layer.layerMask.delete",
+            "layer.smartObjects.convertToSmartObject",
+            "layer.smartObjects.editContents",
+            "layer.smartObjects.updateModifiedContent",
+        ]
+    );
+    assert_eq!(steps[4].1, json!({"dx": -57, "dy": 12}));
+    assert_eq!(steps[5].1, json!({"dx": 10, "dy": 0, "scaleX": 50, "scaleY": 50, "interpolation": "bicubic"}));
+    assert_eq!(steps[6].1, json!({"dx": 1014, "dy": 0}));
+    assert_eq!(
+        steps[8].1,
+        json!({"source": {"channel": "composite", "layer": "High-Frequency"}, "blending": "subtract", "scale": 2, "offset": 128, "preserveTransparency": true})
+    );
+    assert_eq!(
+        steps[9].1,
+        json!({"path": "/Users/me/Desktop/out.png", "format": "png24", "interlaced": false, "transparency": true, "embedIcc": false, "matte": "#ffffff"})
+    );
+    assert_eq!(steps[11].1, json!({"on": true}));
+    assert_eq!(steps[12].1, json!({"on": false}));
+    assert_eq!(steps[13].1, json!({"points": [[1, 2], [30, 2], [15, 40]]}));
+    assert_eq!(imp.unsupported.len(), 2);
+
+    // The frequency-separation set's own conditional, a percent Image Size, a Paint Bucket
+    // click in pixels (percent stays unsupported) and a Place.
+    let cond = desc("null")
+        .with("null", enm("Cndt", "Lyrs"))
+        .with(
+            "then",
+            D::Reference(vec![
+                ReferenceItem::Name { class: class("Actn"), name: UnicodeString::new_nul("FS8-Layers") },
+                ReferenceItem::Name { class: class("ASet"), name: UnicodeString::new_nul("FS") },
+            ]),
+        )
+        .with("else", D::Reference(vec![ReferenceItem::Name { class: class("Actn"), name: UnicodeString::new_nul("FS8-No-Layers") }]));
+    let size = desc("null")
+        .with("Wdth", pct(200.0))
+        .with("scaleStyles", D::Boolean(true))
+        .with("CnsP", D::Boolean(true))
+        .with("Intr", enm("Intp", "bicubicAutomatic"));
+    let bucket_px = desc("null")
+        .with("From", D::Descriptor(desc("Pnt ").with("Hrzn", px(0.0)).with("Vrtc", px(0.0))))
+        .with("Tlrn", long(32.0))
+        .with("Usng", enm("FlCn", "FrgC"))
+        .with("Cntg", D::Boolean(false));
+    let bucket_pct = desc("null")
+        .with("From", D::Descriptor(desc("Pnt ").with("Hrzn", pct(0.0)).with("Vrtc", pct(0.0))))
+        .with("Tlrn", long(32.0))
+        .with("Usng", enm("FlCn", "FrgC"));
+    let place = desc("null")
+        .with("null", path_value("/Users/me/logo.png"))
+        .with("FTcs", enm("QCSt", "Qcsa"))
+        .with("Wdth", pct(50.0))
+        .with("Hght", pct(50.0))
+        .with("Lnkd", D::Boolean(false));
+    let items = vec![
+        item("conditional", "If", Some(cond)),
+        item("imageSize", "Image Size", Some(size)),
+        item("fill", "Fill", Some(bucket_px)),
+        item("fill", "Fill", Some(bucket_pct)),
+        item("placeEvent", "Place", Some(place)),
+        item("Opn ", "Open", Some(desc("null").with("null", path_value("/Users/me/in.psd")))),
+    ];
+    let file = AtnFile {
+        name: UnicodeString::new_nul("Rest"),
+        expanded: false,
+        actions: vec![AtnAction { name: UnicodeString::new_nul("A"), items, ..Default::default() }],
+        warnings: vec![],
+    };
+    let rest = import(&atn::write(&file).unwrap()).unwrap();
+    let rest_steps = &rest.actions[0].steps;
+    let rest_ids: Vec<&str> = rest_steps.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(rest_ids, ["actions.conditional", "image.imageSize", "paint.bucket", PHOTOSHOP_STEP, "file.placeEmbedded", "file.openAs"]);
+    assert_eq!(rest_steps[0].1, json!({"if": "hasLayers", "then": "FS8-Layers", "else": "FS8-No-Layers"}));
+    assert_eq!(rest_steps[1].1, json!({"percent": 200, "resample": "bicubicAutomatic"}));
+    assert_eq!(rest_steps[2].1, json!({"x": 0, "y": 0, "tolerance": 32, "contiguous": false}));
+    assert_eq!(rest_steps[4].1, json!({"path": "/Users/me/logo.png", "scale": 50}));
+    assert_eq!(rest_steps[5].1, json!({"path": "/Users/me/in.psd"}));
+
+    // The Photoshop path record round-trips and rejects other shapes.
+    assert_eq!(path_text(&path_value("/a/b c.png")).as_deref(), Some("/a/b c.png"));
+    assert_eq!(path_text(&D::Path(b"txtu".to_vec())), None);
+    assert_eq!(path_text(&D::Path(vec![])), None);
+    assert_eq!(path_text(&D::Text(UnicodeString::new("x"))), None);
+    assert_eq!(path_text(&path_value("")), None);
+
+    // Apply Image by layer name runs on a document; a missing name is a clear error.
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+    s.execute("layer.new.layer", json!({"name": "High-Frequency"})).unwrap();
+    s.execute("layer.new.layer", json!({"name": "Top"})).unwrap();
+    s.execute("image.applyImage", steps[8].1.clone()).unwrap();
+    let e = s.execute("image.applyImage", json!({"source": {"layer": "Nope"}})).unwrap_err().to_string();
+    assert!(e.contains("Nope"), "{e}");
+}
+
+fn channel_ord(value: &str) -> D {
+    D::Reference(vec![ReferenceItem::Enumerated { class: class("Chnl"), type_id: Id::new("Chnl"), value: code(value) }])
+}
+
+fn fsel(t: D) -> Descriptor {
+    desc("null").with("null", D::Reference(vec![ReferenceItem::Property { class: class("Chnl"), key: Id::new("fsel") }])).with("T   ", t)
+}
+
+fn set_of(name: &str, actions: Vec<(&str, Vec<AtnItem>)>) -> String {
+    let file = AtnFile {
+        name: UnicodeString::new_nul(name),
+        expanded: false,
+        actions: actions.into_iter().map(|(n, items)| AtnAction { name: UnicodeString::new_nul(n), items, ..Default::default() }).collect(),
+        warnings: vec![],
+    };
+    b64(&atn::write(&file).unwrap())
+}
+
+/// The step shapes of the TrueGrit Texture Supply sets (Distress Press, Debaser, Transparency,
+/// Halftone Zine Machine), rebuilt here as Photoshop records them, import and play: the
+/// distressing filters land on the targeted layer mask, Remove White leaves the white
+/// transparent, nudges in points follow the resolution, and Step Backward undoes a step.
+#[test]
+fn distressing_and_remove_white_shapes_import_and_play() {
+    let ord = |cls: &str, ty: &str, v: &str| D::Reference(vec![ReferenceItem::Enumerated { class: class(cls), type_id: Id::new(ty), value: code(v) }]);
+    let black = D::Descriptor(desc("RGBC").with("Rd  ", D::Double(0.0)).with("Grn ", D::Double(0.0)).with("Bl  ", D::Double(0.0)));
+    let fill = desc("null")
+        .with("null", class_ref("contentLayer"))
+        .with("Usng", D::Descriptor(desc("contentLayer").with("Type", D::Descriptor(desc("solidColorLayer").with("Clr ", black)))));
+    let refine = desc("null")
+        .with("refineEdgeBorderRadius", px(0.0))
+        .with("refineEdgeBorderContrast", pct(100.0))
+        .with("refineEdgeSmooth", long(2.0))
+        .with("refineEdgeFeatherRadius", px(0.0))
+        .with("refineEdgeChoke", pct(0.0))
+        .with("refineEdgeAutoRadius", D::Boolean(false))
+        .with("refineEdgeDecontaminate", D::Boolean(false))
+        .with("refineEdgeOutput", enm("refineEdgeOutput", "refineEdgeOutputUserMask"));
+    let distress = vec![
+        item("setd", "Set", Some(fsel(channel_ord("Trsp")))),
+        item("Hd  ", "Hide", Some(desc("null").with("null", D::List(vec![target_ref("Lyr ")])))),
+        item("Mk  ", "Make", Some(fill)),
+        item("slct", "Select", Some(desc("null").with("null", channel_ord("Msk")).with("MkVs", D::Boolean(false)))),
+        item("refineSelectionEdge", "Select and Mask", Some(refine)),
+        item("Rple", "Ripple", Some(desc("null").with("Amnt", long(50.0)).with("RplS", enm("RplS", "Sml")))),
+        item("Crst", "Crystallize", Some(desc("null").with("ClSz", long(3.0)))),
+        item("GEfc", "Filter Gallery", Some(desc("null").with("GEfk", enm("GEft", "Spt")).with("SprR", long(7.0)).with("Smth", long(15.0)))),
+        item("slct", "Select", Some(desc("null").with("null", ord("Chnl", "Ordn", "Trgt")).with("MkVs", D::Boolean(false)))),
+        item("setd", "Set", Some(fsel(ord("Chnl", "Ordn", "Trgt")))),
+    ];
+    let bckg = D::Reference(vec![ReferenceItem::Property { class: class("Lyr "), key: Id::new("Bckg") }]);
+    let remove_white = vec![
+        item("CnvM", "Convert Mode", Some(desc("null").with("T   ", D::Class(class("Grys"))))),
+        item(
+            "setd",
+            "Set",
+            Some(desc("null").with("null", bckg).with("T   ", D::Descriptor(desc("Lyr ").with("Opct", pct(100.0)).with("Md  ", enm("BlnM", "Nrml"))))),
+        ),
+        item("setd", "Set", Some(fsel(ord("Chnl", "Ordn", "Trgt")))),
+        item("Dlt ", "Delete", None),
+        item("setd", "Set", Some(fsel(enm("Ordn", "None")))),
+    ];
+    let pt = |v: f64| D::UnitFloat { unit: PT, value: v };
+    let nudge = vec![item(
+        "move",
+        "Move",
+        Some(desc("null").with("null", target_ref("Lyr ")).with("T   ", D::Descriptor(desc("Ofst").with("Hrzn", pt(0.36)).with("Vrtc", pt(-0.36))))),
+    )];
+    let undo = vec![item("Invs", "Inverse", None), item("slct", "Select", Some(desc("null").with("null", ord("HstS", "Ordn", "Prvs"))))];
+    let data = set_of("TrueGrit", vec![("Distress", distress), ("Remove White", remove_white), ("Nudge", nudge), ("Undo", undo)]);
+
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 120, "height": 80, "resolution": 200})).unwrap();
+    s.execute("layer.new.layer", json!({"name": "Ink"})).unwrap();
+    s.execute("select.rect", json!({"x": 20, "y": 20, "width": 80, "height": 40})).unwrap();
+    s.execute("edit.fill", json!({"contents": "color", "color": "#000000"})).unwrap();
+    s.execute("select.deselect", json!({})).unwrap();
+    let r = s.execute("actions.load", json!({"data": data})).unwrap();
+    // Only the re-selection of the targeted channel stays a Photoshop step, switched off.
+    let unsupported: Vec<&str> = r["unsupported"].as_array().unwrap().iter().map(|u| u["action"].as_str().unwrap()).collect();
+    assert_eq!(unsupported, ["Distress"], "{r}");
+
+    let r = s.execute("actions.play", json!({"action": "Distress"})).unwrap();
+    assert!(r.get("failed").is_none(), "{r}");
+    let st = s.active().unwrap();
+    let fill = st.doc.layer(st.active_layer.unwrap()).unwrap();
+    let mask = &fill.mask.as_ref().expect("the fill layer is masked by the ink").surface;
+    // The rectangle's straight top edge is roughened: pixels along it differ.
+    let edge: Vec<f32> = (20..100).map(|x| mask.sample_channel(x, 20, 0)).collect();
+    assert!(edge.iter().any(|v| *v < 0.5) && edge.iter().any(|v| *v > 0.5), "{edge:?}");
+    assert!(mask.sample_channel(60, 40, 0) > 0.9 && mask.sample_channel(5, 5, 0) < 0.1);
+    assert!(st.doc.selection.is_some(), "the targeted mask loads as the selection");
+    assert_eq!(st.channel_view.target, crate::channel_cmds::ChannelTarget::LayerMask);
+
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 40, "height": 30})).unwrap();
+    s.execute("select.rect", json!({"x": 10, "y": 10, "width": 20, "height": 10})).unwrap();
+    s.execute("edit.fill", json!({"contents": "color", "color": "#202020"})).unwrap();
+    s.execute("select.deselect", json!({})).unwrap();
+    s.execute("actions.load", json!({"data": data})).unwrap();
+    let r = s.execute("actions.play", json!({"action": "Remove White"})).unwrap();
+    assert!(r.get("failed").is_none(), "{r}");
+    let d = &s.active().unwrap().doc;
+    assert_eq!(d.mode, photocraft_color::ColorMode::Grayscale);
+    let l = d.layers.last().unwrap();
+    assert!(!d.is_background(l.id), "Layer From Background");
+    let surf = l.surface().unwrap();
+    assert!(surf.sample_channel(2, 2, 1) < 0.01, "white is cleared");
+    // #202020 is about 22 in the default (Dot Gain 20 %-compatible) working gray.
+    let ink = surf.sample_channel(20, 15, 1);
+    assert!((ink - (1.0 - 22.0 / 255.0)).abs() < 0.02, "the ink keeps its darkness as opacity: {ink}");
+    // An image that opened as a normal layer has no Background: the step leaves it as it is.
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 40, "height": 30, "background": "transparent"})).unwrap();
+    s.execute("edit.fill", json!({"contents": "white"})).unwrap();
+    s.execute("actions.load", json!({"data": data})).unwrap();
+    let r = s.execute("actions.play", json!({"action": "Remove White"})).unwrap();
+    assert!(r.get("failed").is_none(), "{r}");
+    let surf = s.active().unwrap().doc.layers.last().unwrap().surface().unwrap().clone();
+    assert!(surf.sample_channel(2, 2, 1) < 0.01, "white is cleared without a Background");
+
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 40, "height": 30, "resolution": 200})).unwrap();
+    s.execute("layer.new.layer", json!({})).unwrap();
+    s.execute("select.rect", json!({"x": 10, "y": 10, "width": 5, "height": 5})).unwrap();
+    s.execute("edit.fill", json!({"contents": "color", "color": "#ff0000"})).unwrap();
+    s.execute("actions.load", json!({"data": data})).unwrap();
+    s.execute("select.deselect", json!({})).unwrap();
+    assert!(s.execute("actions.play", json!({"action": "Nudge"})).unwrap().get("failed").is_none());
+    let st = s.active().unwrap();
+    let b = st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap().content_bounds();
+    assert_eq!((b.x0, b.y0), (11, 9), "0.36 pt is 1 px at 200 ppi");
+    s.execute("select.rect", json!({"x": 0, "y": 0, "width": 5, "height": 5})).unwrap();
+    let before = s.active().unwrap().doc.selection.clone();
+    assert!(s.execute("actions.play", json!({"action": "Undo"})).unwrap().get("failed").is_none());
+    assert_eq!(s.active().unwrap().doc.selection, before, "Step Backward undid the Inverse");
+}
+
+/// Remove White on art in its own layer above a white Background: the Background becomes a
+/// normal layer, but the art layer stays targeted, so the white is cleared from the art.
+#[test]
+fn remove_white_clears_the_targeted_layer_not_the_converted_background() {
+    let ord = |cls: &str, ty: &str, v: &str| D::Reference(vec![ReferenceItem::Enumerated { class: class(cls), type_id: Id::new(ty), value: code(v) }]);
+    let bckg = D::Reference(vec![ReferenceItem::Property { class: class("Lyr "), key: Id::new("Bckg") }]);
+    let steps = vec![
+        item("CnvM", "Convert Mode", Some(desc("null").with("T   ", D::Class(class("Grys"))))),
+        item(
+            "setd",
+            "Set",
+            Some(desc("null").with("null", bckg).with("T   ", D::Descriptor(desc("Lyr ").with("Opct", pct(100.0)).with("Md  ", enm("BlnM", "Nrml"))))),
+        ),
+        item("setd", "Set", Some(fsel(ord("Chnl", "Ordn", "Trgt")))),
+        item("Dlt ", "Delete", None),
+        item("setd", "Set", Some(fsel(enm("Ordn", "None")))),
+    ];
+    let data = set_of("TrueGrit", vec![("Remove White", steps)]);
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 40, "height": 30})).unwrap();
+    let art = s.execute("layer.new.layer", json!({"name": "Art"})).unwrap()["layer"].as_u64().unwrap();
+    s.execute("edit.fill", json!({"contents": "white"})).unwrap();
+    s.execute("select.rect", json!({"x": 10, "y": 10, "width": 20, "height": 10})).unwrap();
+    s.execute("edit.fill", json!({"contents": "color", "color": "#000000"})).unwrap();
+    s.execute("select.deselect", json!({})).unwrap();
+    s.execute("actions.load", json!({"data": data})).unwrap();
+    let r = s.execute("actions.play", json!({"action": "Remove White"})).unwrap();
+    assert!(r.get("failed").is_none(), "{r}");
+    let st = s.active().unwrap();
+    assert_eq!(st.active_layer.map(|l| l.0), Some(art), "the art layer stays targeted");
+    let art = st.doc.layer(photocraft_doc::LayerId(art)).unwrap().surface().unwrap();
+    assert!(art.sample_channel(2, 2, 1) < 0.01, "the art's white is cleared");
+    assert!(art.sample_channel(20, 15, 1) > 0.99, "the black stays");
+    let bottom = st.doc.layers.first().unwrap();
+    assert!(!st.doc.is_background(bottom.id), "the Background became a normal layer");
+    assert!(bottom.surface().unwrap().sample_channel(2, 2, 1) > 0.99, "and kept its pixels");
 }

@@ -37,10 +37,12 @@ struct RenameAction {
     focused: bool,
 }
 
-fn label_of(id: &str) -> String {
+pub(crate) fn label_of(id: &str) -> String {
     photocraft_engine::commands::find(id)
         .map(|c| c.label)
         .or_else(|| crate::menus::UI_COMMANDS.iter().find(|c| c.0 == id).map(|c| c.1))
+        // Shell menu items recorded as steps, like Save a Copy (#4373).
+        .or_else(|| crate::menu_catalog::CATALOG.iter().find(|c| c.3 == id).map(|c| c.1))
         .map(|label| label.trim_end_matches('…').to_string())
         .unwrap_or_else(|| id.to_string())
 }
@@ -248,6 +250,11 @@ fn step_label(id: &str, params: &Value) -> String {
     if id == "actions.play" {
         let target = params.get("action").map(|v| v.as_str().map(str::to_owned).unwrap_or_else(|| v.to_string())).unwrap_or_default();
         format!("{}: {target}", label_of(id))
+    } else if id == "actions.conditional" {
+        // "If hasLayers: FS8-Layers / FS8-No-Layers"
+        let cond = params.get("if").and_then(Value::as_str).unwrap_or("?");
+        let branch = |k: &str| params.get(k).and_then(Value::as_str).unwrap_or("–").to_string();
+        format!("{}: {cond} → {} / {}", label_of(id), branch("then"), branch("else"))
     } else if id == photocraft_engine::atn_cmds::STOP_MESSAGE {
         format!("{}: {}", label_of(id), params.get("message").and_then(Value::as_str).unwrap_or_default())
     } else if id == photocraft_engine::atn_cmds::PHOTOSHOP_STEP {

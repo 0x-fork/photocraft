@@ -60,6 +60,34 @@ fn show_snap_extras_and_screen_modes_are_state() {
 }
 
 #[test]
+fn full_screen_and_maximized_never_overlap_on_windows() {
+    use egui::ViewportCommand::{Fullscreen, Maximized};
+    // Maximized → full screen: un-maximize first, and remember it.
+    let (cmds, remember) = screen_mode_commands(true, false, true, false, "fullScreenWithMenuBar");
+    assert_eq!(cmds, vec![Maximized(false), Fullscreen(true)]);
+    assert!(remember);
+    // Full screen → the other full-screen mode: nothing about maximized changes.
+    let (cmds, remember) = screen_mode_commands(true, true, false, true, "fullScreen");
+    assert_eq!(cmds, vec![Fullscreen(true)]);
+    assert!(remember);
+    // Full screen → Standard: maximize again after leaving, then forget.
+    let (cmds, remember) = screen_mode_commands(true, true, false, true, "standard");
+    assert_eq!(cmds, vec![Fullscreen(false), Maximized(true)]);
+    assert!(!remember);
+    // A window that was not maximized goes in and out untouched.
+    let (cmds, remember) = screen_mode_commands(true, false, false, false, "fullScreen");
+    assert_eq!((cmds, remember), (vec![Fullscreen(true)], false));
+    let (cmds, remember) = screen_mode_commands(true, true, false, false, "standard");
+    assert_eq!((cmds, remember), (vec![Fullscreen(false)], false));
+    // Standard while already standard never maximizes.
+    let (cmds, _) = screen_mode_commands(true, false, false, true, "standard");
+    assert_eq!(cmds, vec![Fullscreen(false)]);
+    // Elsewhere the commands are as before.
+    let (cmds, remember) = screen_mode_commands(false, false, true, false, "fullScreen");
+    assert_eq!((cmds, remember), (vec![Fullscreen(true)], false));
+}
+
+#[test]
 fn zoom_presets_and_fit_layers() {
     let (mut app, ctx) = app_with(1);
     menu(&mut app, &ctx, "view.twoHundredPercent", json!({})).unwrap();
@@ -225,6 +253,45 @@ fn apply_image_and_calculations_open_dialogs_without_editing() {
         assert_eq!(fields["__command"], id, "{id} opened the wrong dialog");
         assert_eq!(app.session.active().unwrap().revision, revision, "{id} edited before confirmation");
     }
+}
+
+#[test]
+fn apply_image_dialog_offers_source_layer_scale_and_offset() {
+    let (mut app, ctx) = app_with(0);
+    app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+    app.run("edit.fill", json!({"color": "#c08040"})).unwrap();
+    app.run("layer.new.layer", json!({"name": "Skin High"})).unwrap();
+    app.run("edit.fill", json!({"color": "#406080"})).unwrap();
+    app.sync_views();
+    let background = app.session.active().unwrap().doc.walk()[0].2.name.clone();
+    let open = |app: &mut PhotocraftApp| menu(app, &ctx, "image.applyImage", json!({})).unwrap()["dialog"].as_u64().unwrap();
+    let d = open(&mut app);
+    let fields = &app.ui.dialog_mut(d).unwrap().fields;
+    assert_eq!(fields["sourceLayer"], "merged");
+    assert_eq!(fields["scale"], 1.0);
+    assert_eq!(fields["offset"], 0);
+    // Merged first, then the layers top to bottom, shown by their own names.
+    assert_eq!(fields["__choices"]["sourceLayer"], json!(["merged", "Skin High", background]));
+    assert_eq!(fields["__labels"]["Skin High"], "Skin High");
+    // The frequency separation recipe: a layer subtracted from itself at Scale 2, Offset 128 is mid grey.
+    for (k, v) in [("sourceLayer", json!("Skin High")), ("blending", json!("subtract")), ("scale", json!(2.0)), ("offset", json!(128))] {
+        app.ui.dialog_mut(d).unwrap().fields.insert(k.into(), v);
+    }
+    crate::dialogs::confirm(&mut app, d).unwrap();
+    let st = app.session.active().unwrap();
+    let p = st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap().pixel(3, 3);
+    assert!(p[..3].iter().all(|v| (v - 128.0 / 255.0).abs() < 0.003), "{p:?}");
+    app.run("edit.undo", json!({})).unwrap();
+    // The chosen layer is the source, not the merged image.
+    let d = open(&mut app);
+    for (k, v) in [("sourceLayer", json!(background)), ("blending", json!("subtract")), ("scale", json!(2.0)), ("offset", json!(128))] {
+        app.ui.dialog_mut(d).unwrap().fields.insert(k.into(), v);
+    }
+    crate::dialogs::confirm(&mut app, d).unwrap();
+    let st = app.session.active().unwrap();
+    let p = st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap().pixel(3, 3);
+    let want = (64.0 - 192.0) / 255.0 / 2.0 + 128.0 / 255.0;
+    assert!((p[0] - want).abs() < 0.003, "{p:?} vs {want}");
 }
 
 #[test]
