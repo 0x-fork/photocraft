@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use photocraft_color::{BlendMode, ColorMode, PixelFormat, SampleType};
 use photocraft_doc::{
-    AlphaChannel, Document, Effects, FillCache, Group, Layer, LayerContent, LayerMask, ShapeLayer, SmartContentsId, SmartObject, SmartSource, TextLayer,
+    AlphaChannel, Document, Effects, FillCache, Group, Layer, LayerContent, LayerMask, ShapeLayer, SmartContentsId, SmartObject, SmartSource,
 };
 use photocraft_geom::{Rect, Size, TILE_SIZE};
 use photocraft_psd::layer::{CHANNEL_REAL_USER_MASK, CHANNEL_TRANSPARENCY, CHANNEL_USER_MASK};
@@ -341,28 +341,26 @@ impl Ctx<'_> {
                 ));
             }
             LayerContent::Adjustment(adj)
-        } else if rec.block(b"TySh").is_some() {
-            // Typed model from TySh/EngineData (photocraft-text); Photoshop's pixels stay the cache.
-            let data = rec.block(b"TySh").map(|b| b.data.clone()).unwrap_or_default();
-            let mut t = photocraft_text::psd::text_layer_from_tysh(&data, self.dpi).unwrap_or_else(|| {
-                let (text, transform) = blocks::parse_tysh(&data).unwrap_or_default();
-                TextLayer { text, transform, ..Default::default() }
-            });
-            if let Some(txt2) = &self.txt2 {
-                photocraft_text::psd::apply_txt2(&mut t, &data, txt2);
-                photocraft_text::psd::apply_txt2_frame(&mut t, &data, txt2);
+        } else if let Some(block) = rec.block(b"TySh") {
+            // Only canonical, safely decoded type data can become editable text. A retained
+            // foreign-order block must never be handed to the big-endian reader (#4758).
+            let parsed = (!block.is_foreign_order()).then(|| photocraft_text::psd::text_layer_from_tysh(&block.data, self.dpi)).flatten();
+            if let Some(mut t) = parsed {
+                if let Some(txt2) = &self.txt2 {
+                    photocraft_text::psd::apply_txt2(&mut t, &block.data, txt2);
+                    photocraft_text::psd::apply_txt2_frame(&mut t, &block.data, txt2);
+                }
+                // Photoshop's pixels stay until edited. Writers without type pixels are
+                // rendered by text_import::prepare instead of retaining an empty cache.
+                let cache = self.record_surface(rec, &name);
+                let drawn = !cache.content_bounds().is_empty() || photocraft_text::psd::engine_text_is_blank(&block.data);
+                t.cache = drawn.then_some(cache);
+                t.psd_raw = principal(b"TySh");
+                LayerContent::Text(t)
+            } else {
+                self.warn(format!("layer \"{name}\": unreadable or unsafe type geometry; kept as pixels with its original type data"));
+                LayerContent::Raster(self.record_surface(rec, &name))
             }
-            // Photoshop's pixels are the cache only when the file has some: ag-psd, GIMP and
-            // other writers leave type layers without image data (Photoshop re-renders them on
-            // open), and an empty cache would show nothing until the layer is edited; the import
-            // renders such a layer from its model instead (`text_import::prepare`). When the
-            // engine text itself is blank, Photoshop draws nothing either: keep the empty pixels
-            // (corpus: text/path-wave-open.psd).
-            let cache = self.record_surface(rec, &name);
-            let drawn = !cache.content_bounds().is_empty() || photocraft_text::psd::engine_text_is_blank(&data);
-            t.cache = drawn.then_some(cache);
-            t.psd_raw = principal(b"TySh");
-            LayerContent::Text(t)
         } else if let Some(k) = smart_key {
             let Placement { id, transform, perspective, warp } = match rec.block(k) {
                 Some(b) if k == b"PlLd" => self.plld_placement(&b.data, &name),
