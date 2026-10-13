@@ -379,6 +379,7 @@
 	Update Modified Content	Aktualizuj zmodyfikowaną zawartość
 	Update All Modified Content	Aktualizuj całą zmodyfikowaną zawartość
 	Stack Mode	Tryb stosu
+	Choose Stack Mode:	Wybierz tryb stosu:
 	Entropy	Entropia
 	Kurtosis	Kurtoza
 	Maximum	Maksimum
@@ -871,6 +872,7 @@
 	Background	Tło
 	Background Color	Kolor tła
 	Background Contents	Zawartość tła
+	Custom background color	Niestandardowy kolor tła
 	Balance	Balans
 	Baseline	Linia bazowa
 	Baseline shift	Przesunięcie linii bazowej

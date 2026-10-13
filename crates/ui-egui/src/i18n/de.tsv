@@ -386,6 +386,7 @@
 	Update Modified Content	Geänderten Inhalt aktualisieren
 	Update All Modified Content	Alle geänderten Inhalte aktualisieren
 	Stack Mode	Stapelmodus
+	Choose Stack Mode:	Stapelmodus auswählen:
 	Entropy	Entropie
 	Kurtosis	Kurtosis
 	Maximum	Maximum
@@ -865,6 +866,7 @@
 	Background	Hintergrund
 	Background Color	Hintergrundfarbe
 	Background Contents	Hintergrundinhalte
+	Custom background color	Benutzerdefinierte Hintergrundfarbe
 	Balance	Balance
 	Baseline	Grundlinie
 	Baseline shift	Grundlinienverschiebung

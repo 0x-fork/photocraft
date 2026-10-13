@@ -1847,6 +1847,7 @@
 	Update Modified Content	Ενημέρωση τροποποιημένου περιεχομένου
 	Update All Modified Content	Ενημέρωση όλων των τροποποιημένων περιεχομένων
 	Stack Mode	Λειτουργία στοίβας
+	Choose Stack Mode:	Επιλογή λειτουργίας στοίβας:
 	Entropy	Εντροπία
 	Kurtosis	Κύρτωση
 	Maximum	Μέγιστο
@@ -2085,6 +2086,7 @@
 	Avoid Widows/Orphans	Αποφυγή μονών γραμμών στην αρχή ή στο τέλος σελίδας
 	BLANK DOCUMENT PRESETS ({n})	ΠΡΟΕΠΙΛΟΓΕΣ ΚΕΝΟΥ ΕΓΓΡΑΦΟΥ ({n})
 	Background Contents	Περιεχόμενα φόντου
+	Custom background color	Προσαρμοσμένο χρώμα φόντου
 	Background from Layer	Φόντο από επίπεδο
 	Baseline	Γραμμή βάσης
 	Baseline shift	Μετατόπιση γραμμής βάσης

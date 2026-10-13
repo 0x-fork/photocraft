@@ -146,7 +146,10 @@ fn dragging_on_the_first_anchor_closes_with_its_handles_in_one_step() {
     click(&mut h, [120.0, 20.0]);
     click(&mut h, [120.0, 100.0]);
     click(&mut h, [20.0, 20.0]);
-    let sp = h.state().session.active().unwrap().doc.work_path.clone().unwrap().subpaths.remove(0);
+    // The second path joins the Work Path as its last subpath (#4721).
+    let subs = h.state().session.active().unwrap().doc.work_path.clone().unwrap().subpaths;
+    assert_eq!(subs.len(), 2, "the first path stays");
+    let sp = subs.last().unwrap();
     let k = &sp.knots[0];
     assert!(sp.closed && sp.knots.len() == 3);
     assert!(near([k.in_ctrl.x, k.in_ctrl.y], [0.0, 20.0]) && near([k.out_ctrl.x, k.out_ctrl.y], [40.0, 20.0]), "{k:?}");

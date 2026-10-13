@@ -429,7 +429,12 @@ impl Mapper<'_> {
             }
             dual.mode = mask_mode(enum_value(db, "BlnM")).unwrap_or(MaskMode::Multiply);
             dual.flip = boolean(db, "Flip").unwrap_or(false);
-            if let Some(v) = pct(db, "Spcn") {
+            // The dual tip's own spacing (`Brsh › Spcn`) is what Photoshop's Dual Brush panel
+            // shows. The `Spcn` beside it on the `dualBrush` object reads 100 % in Photoshop CC
+            // presets whatever the panel says (#4809), so it only stands in for a tip without one.
+            if obj(db, "Brsh").and_then(|t| pct(t, "Spcn")).is_none()
+                && let Some(v) = pct(db, "Spcn")
+            {
                 dual.spacing = v.clamp(0.01, 10.0);
             }
             dual.scatter = self.dynamic(obj(db, "scatterDynamics")).jitter;

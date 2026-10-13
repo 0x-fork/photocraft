@@ -274,6 +274,11 @@ fn purge(s: &mut Session, what: &str) -> Result<Value> {
             freed = freed.saturating_add(stages);
             items.push("smart filter cache");
         }
+        let strokes = photocraft_compose::shape_split::purge_cache();
+        if strokes > 0 {
+            freed = freed.saturating_add(strokes);
+            items.push("shape stroke cache");
+        }
     }
     s.edit_state.fade = None;
     let msg = if items.is_empty() { "nothing to purge".to_string() } else { format!("purged {}", items.join(", ")) };

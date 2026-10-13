@@ -386,6 +386,7 @@
 	Update Modified Content	更新已修改的内容
 	Update All Modified Content	更新所有已修改的内容
 	Stack Mode	堆栈模式
+	Choose Stack Mode:	选择堆栈模式：
 	Entropy	熵
 	Kurtosis	峰度
 	Maximum	最大值
@@ -877,6 +878,7 @@
 	Background	背景
 	Background Color	背景颜色
 	Background Contents	背景内容
+	Custom background color	自定背景颜色
 	Balance	平衡
 	Baseline	基线
 	Baseline shift	基线偏移
