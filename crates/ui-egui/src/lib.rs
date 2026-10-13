@@ -24,8 +24,10 @@ pub mod analysis_ui;
 pub mod anchor_tools;
 pub mod artboard_tool;
 pub mod artboard_ui;
+pub(crate) mod background_redraw;
 mod blend_keys;
 pub(crate) mod blend_preview;
+pub mod blur_pins;
 mod brand;
 pub(crate) mod brush_cursor;
 pub mod brush_panel;
@@ -106,6 +108,7 @@ pub mod icons;
 pub mod jobs_ui;
 pub mod kys_import;
 pub mod lasso_ui;
+pub(crate) mod last_brush;
 pub mod layer_menu_ui;
 pub mod layer_pick_ui;
 pub mod layer_picker;
@@ -139,6 +142,7 @@ pub mod notices;
 mod numeric_expression;
 pub mod object_finder;
 mod opacity_keys;
+pub mod open_prompt;
 pub mod outline;
 pub mod paint_mouse;
 pub mod palette;
@@ -633,6 +637,8 @@ pub struct PhotocraftApp {
     pub(crate) filter_preview: Option<filter_dialog::FilterPreview>,
     #[cfg(not(target_arch = "wasm32"))]
     filter_preview_worker: filter_preview_worker::Worker,
+    /// Full CPU canvas redraws running in the background, by document (#4024).
+    pub(crate) redraws: std::collections::HashMap<photocraft_doc::DocId, background_redraw::Redraw>,
     /// Select › Color Range dialog preview (proxy document + mask / image textures).
     pub(crate) color_range: Option<color_range_ui::Preview>,
     /// Image › Adjustments dialog preview through a temporary clipped adjustment layer.
@@ -738,6 +744,9 @@ pub struct PhotocraftApp {
     pub(crate) save_dirs: HashMap<photocraft_doc::DocId, std::path::PathBuf>,
     /// A save to an RGB Targa parked behind the Targa Options prompt (see `targa_options_ui`).
     pub(crate) targa_options: Option<targa_options_ui::Prompt>,
+    /// Files read but not opened yet: the first waits on its profile prompt, the rest behind it
+    /// (see `open_prompt`).
+    pub(crate) held_opens: std::collections::VecDeque<open_prompt::Held>,
     /// Set once the user has agreed to quit, so the resulting close request goes through.
     pub(crate) allow_close: bool,
     /// Pen pressure/tilt from the platform (see `stylus`).
@@ -823,6 +832,7 @@ impl PhotocraftApp {
             filter_preview: None,
             #[cfg(not(target_arch = "wasm32"))]
             filter_preview_worker: Default::default(),
+            redraws: Default::default(),
             color_range: None,
             adjust_preview: None,
             synthetic: Vec::new(),
@@ -872,6 +882,7 @@ impl PhotocraftApp {
             tiff_options: None,
             save_dirs: HashMap::new(),
             targa_options: None,
+            held_opens: Default::default(),
             allow_close: false,
             stylus: Default::default(),
             background_jobs: false,
@@ -1211,6 +1222,12 @@ impl PhotocraftApp {
     /// shown to the user). Files from disk go through [`open_file`](Self::open_file), which also
     /// remembers the path. Brush and gradient files go to the preset libraries instead.
     pub fn open_bytes(&mut self, name: &str, bytes: &[u8]) -> Result<Vec<String>, String> {
+        self.open_bytes_from(name, bytes, None)
+    }
+
+    /// [`Self::open_bytes`] for a file read from `path` (File › Save writes back there; it goes
+    /// to Open Recent), when known.
+    pub(crate) fn open_bytes_from(&mut self, name: &str, bytes: &[u8], path: Option<&str>) -> Result<Vec<String>, String> {
         if let Some(r) = preset_files_ui::open(self, name, bytes) {
             return r.map(|()| Vec::new());
         }
@@ -1218,35 +1235,34 @@ impl PhotocraftApp {
         // Decoded on a worker: a tab with progress appears now, the document when it's ready
         // (warnings are shown then).
         if self.background_jobs {
-            jobs_ui::start_open(self, name, None, jobs_ui::bytes(bytes))?;
+            jobs_ui::start_open(self, name, path.map(str::to_string), jobs_ui::bytes(bytes))?;
             return Ok(Vec::new());
         }
         let import = self.services.import.as_ref().ok_or("no importer configured")?;
         let max_svg_group_depth = self.session.prefs().file_handling.rasterize_svg_groups_deeper_than as usize;
         let (doc, warnings) = import(name, bytes, max_svg_group_depth)?;
-        // Edit › Color Settings policies apply on open; mismatches can ask what to do.
-        // No path yet: a bare name isn't a location to save back to (`open_file` sets the path).
-        let (_, color) = self.session.open_document(doc, None);
-        if let Some(st) = self.session.active_mut() {
-            st.source_read_only = photocraft_io::affinity::is_affinity(bytes);
-        }
-        self.sync_views();
-        let warnings = file_open::with_missing_fonts(self, warnings);
-        self.ui.status = crate::i18n::fmt(tl!("Opened {name}"), &[("name", name)]);
-        self.ui.status_error = false;
-        if camera_raw_ui::wants_open_dialog(self, &warnings) {
-            camera_raw_ui::queue_open_dialog(self, name, None, Some(bytes));
-            notices::io_warnings(self, &crate::i18n::fmt(tl!("Opened {name}"), &[("name", name)]), &camera_raw_ui::without_develop_note(&warnings));
-        } else {
-            notices::io_warnings(self, &crate::i18n::fmt(tl!("Opened {name}"), &[("name", name)]), &warnings);
-        }
-        // Script events bound to "Open Document".
-        photocraft_engine::automate_cmds::document_opened(&mut self.session);
-        self.sync_views();
-        let ask = color.get("ask").and_then(Value::as_bool) == Some(true);
-        if ask && (color.get("mismatch").and_then(Value::as_bool) == Some(true) || color.get("missing").is_some()) {
-            prefs_ui::open_mismatch(self, &color);
-        }
+        // Edit › Color Settings policies apply on open; Ask When Opening holds the file back
+        // until its prompt is answered, and later files wait behind it (`open_prompt`).
+        // Missing fonts are read from the document itself: it may not be open yet (#4559).
+        let warnings = file_open::with_missing_fonts_of(&doc, warnings);
+        // A developed raw has no embedded profile to ask about.
+        let developed = warnings.iter().any(|w| w.contains(photocraft_io::raw::DEVELOPED_NOTE));
+        let question = self.session.color.open_question(&doc).filter(|_| !developed);
+        let wants_raw = camera_raw_ui::wants_open_dialog(self, &warnings);
+        open_prompt::arrive(
+            self,
+            open_prompt::Held {
+                doc,
+                read_only: photocraft_io::affinity::is_affinity(bytes),
+                name: name.to_string(),
+                path: path.map(str::to_string),
+                warnings: warnings.clone(),
+                bytes: (wants_raw && path.is_none()).then(|| std::sync::Arc::new(bytes.to_vec())),
+                slot: None,
+                question,
+                policy_applied: false,
+            },
+        );
         Ok(warnings)
     }
 
@@ -1862,6 +1878,10 @@ impl eframe::App for PhotocraftApp {
         // remembered once the pointer is up. Here, after every panel, rather than in the
         // picker's own code: the control channel can set it while the picker is closed.
         brush_picker::persist(self, &ctx);
+        // The tool's brush (settings and tip references) is remembered the same way. Like the
+        // picker's view, in the frame loop, so the control channel can set it with the panels
+        // closed; the engine's revision counter keeps an unchanged brush free.
+        last_brush::persist(self, &ctx);
         // Tool options are remembered between launches the same way (#2814).
         tool_memory::persist(self, &ctx);
         // So are View › Extras, Show and Snap To (#3762).
@@ -2452,6 +2472,9 @@ mod navigator_gpu_tests;
 mod color_swatch_tests;
 
 #[cfg(test)]
+mod profile_open_tests;
+
+#[cfg(test)]
 mod profile_prompt_tests;
 
 #[cfg(test)]
@@ -2498,6 +2521,9 @@ mod new_layer_button_tests;
 
 #[cfg(test)]
 mod smart_filter_rows_tests;
+
+#[cfg(test)]
+mod blur_pins_tests;
 
 #[cfg(test)]
 mod move_outline_tests;

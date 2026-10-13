@@ -739,7 +739,7 @@ fn export_as_with_several_artboards_selected_writes_one_file_each() {
     assert!(!app.ui.status_error, "{}", app.ui.status);
     assert_eq!(written.borrow().len(), 2);
     assert_eq!(written.borrow()[0], "/out/boards.jpg");
-    // The sibling path is joined with the platform separator (`/out\boards-2-…` on Windows).
+    // The sibling path is built with `Path::join`, so Windows turns the separator into `\`.
     let second = written.borrow()[1].replace('\\', "/");
     assert!(second.starts_with("/out/boards-2-") && second.ends_with(".jpg"), "{:?}", written.borrow());
     let mut got = sizes.borrow().iter().map(|(_, w, h)| (*w, *h)).collect::<Vec<_>>();

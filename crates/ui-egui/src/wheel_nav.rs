@@ -381,8 +381,7 @@ mod tests {
         assert!(matches!(legacy.events[0], Event::Zoom(_)));
 
         // Native magnification takes over before the synthetic gesture times out.
-        let mut native =
-            RawInput { time: Some(1.1), events: vec![Event::Zoom(1.1), wheel(Vec2::new(0.0, 0.25), CTRL)], ..Default::default() };
+        let mut native = RawInput { time: Some(1.1), events: vec![Event::Zoom(1.1), wheel(Vec2::new(0.0, 0.25), CTRL)], ..Default::default() };
         fold_legacy_pinch(&ctx, &mut native);
         assert!(matches!(native.events[0], Event::Zoom(f) if (f - 1.1).abs() < 1e-5));
         assert!(matches!(native.events[1], Event::MouseWheel { .. }));

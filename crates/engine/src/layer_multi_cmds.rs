@@ -639,6 +639,7 @@ fn doc_pixels_equal(a: &Document, b: &Document) -> bool {
         layers: _,
         channels,
         guides: _,
+        ruler_origin: _,
         selection: _,
         metadata: _,
         global_light,
@@ -1168,13 +1169,7 @@ fn lock_layers(s: &mut Session, p: &Value) -> Result<Value> {
         for id in &sel {
             let l = doc.layer_mut(*id).ok_or(EngineError::NoLayer(*id))?;
             for (k, v) in &given {
-                match *k {
-                    "transparency" => l.locks.transparency = *v,
-                    "pixels" => l.locks.pixels = *v,
-                    "position" => l.locks.position = *v,
-                    "artboard" => l.locks.artboard = *v,
-                    _ => l.locks.all = *v,
-                }
+                l.locks.set(k, *v);
             }
         }
         Ok(())
@@ -2604,6 +2599,31 @@ mod tests {
         s.execute("layer.arrange.reverse", json!({})).unwrap();
         assert_eq!(doc(&s).layers.iter().skip(1).map(|l| l.id).collect::<Vec<_>>(), vec![c, b, a]);
         assert_eq!(s.active().unwrap().history.entries().last().map(|e| e.as_str()), Some("Reverse"));
+    }
+
+    /// #4892: Lock Image Pixels includes Lock Transparent Pixels, so the two are never both on:
+    /// locking the pixels clears the transparency lock, which stays off while they are locked,
+    /// through both `layer.setProps` and `layer.lockLayers`.
+    #[test]
+    fn locking_pixels_clears_and_holds_off_the_transparency_lock() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+        let id = LayerId(s.execute("layer.new.layer", json!({})).unwrap()["layer"].as_u64().unwrap());
+        let locks = |s: &Session| doc(s).layer(id).unwrap().locks;
+        s.execute("layer.setProps", json!({"locks": {"transparency": true}})).unwrap();
+        assert!(locks(&s).transparency);
+        s.execute("layer.setProps", json!({"locks": {"pixels": true}})).unwrap();
+        assert!(locks(&s).pixels && !locks(&s).transparency, "locking the pixels clears the transparency lock");
+        s.execute("layer.setProps", json!({"locks": {"transparency": true}})).unwrap();
+        assert!(!locks(&s).transparency, "and it stays off while the pixels are locked");
+        s.execute("layer.setProps", json!({"locks": {"transparency": true, "pixels": true}})).unwrap();
+        assert!(locks(&s).pixels && !locks(&s).transparency, "both at once: the pixel lock wins");
+        s.execute("layer.lockLayers", json!({"pixels": false})).unwrap();
+        s.execute("layer.lockLayers", json!({"transparency": true})).unwrap();
+        assert!(locks(&s).transparency && !locks(&s).pixels, "with the pixels unlocked it can be set again");
+        s.execute("layer.lockLayers", json!({"pixels": true})).unwrap();
+        assert!(locks(&s).pixels && !locks(&s).transparency);
+        assert!(s.execute("layer.setProps", json!({"locks": {"nope": true}})).is_err());
     }
 
     #[test]
