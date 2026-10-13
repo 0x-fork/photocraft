@@ -99,7 +99,9 @@ pub(crate) fn reidentify_copied_layers(doc: &mut Document) {
     }
 }
 
-pub(crate) fn scale_effects(fx: &mut Effects, k: f32) {
+/// Scale every size and distance of a style by `k` (Image Size's Scale Styles, Layer Style ›
+/// Scale Effects, and previews that draw a style at a reduced resolution).
+pub fn scale_effects(fx: &mut Effects, k: f32) {
     for e in &mut fx.items {
         match e {
             Effect::DropShadow(s) | Effect::InnerShadow(s) => {
@@ -163,8 +165,26 @@ fn image_size(s: &mut Session, p: &Value) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let (ow, oh) = (d.doc.size.width, d.doc.size.height);
     let resample = parse_resample(p.get("resample").and_then(Value::as_str).unwrap_or("bicubic"));
-    let pw = p.get("width").and_then(Value::as_f64);
-    let ph = p.get("height").and_then(Value::as_f64);
+    let mut pw = p.get("width").and_then(Value::as_f64);
+    let mut ph = p.get("height").and_then(Value::as_f64);
+    // `percent` scales both sides (what a Photoshop action records as "200%"); an explicit side wins.
+    if let Some(pc) = p.get("percent") {
+        let pc = pc.as_f64().filter(|v| v.is_finite() && *v > 0.0).ok_or_else(|| bad("image.imageSize", "`percent` must be a positive number"))?;
+        pw = pw.or(Some(ow as f64 * pc / 100.0));
+        ph = ph.or(Some(oh as f64 * pc / 100.0));
+    }
+    // `keepPrintSize`: only the resolution given, the pixels follow it (Photoshop's Image Size
+    // with Resample on, as an action records it).
+    if p.get("keepPrintSize").and_then(Value::as_bool) == Some(true)
+        && pw.is_none()
+        && ph.is_none()
+        && let Some(r) = p.get("resolution").and_then(Value::as_f64)
+    {
+        let r = r.clamp(1.0, 10_000.0);
+        let old = f64::from(d.doc.resolution_dpi).max(1.0);
+        pw = Some(ow as f64 * r / old);
+        ph = Some(oh as f64 * r / old);
+    }
     // Missing dimension keeps the aspect ratio.
     let (nw, nh) = match (pw, ph) {
         (Some(w), Some(h)) => (w, h),
@@ -298,7 +318,7 @@ fn crop_doc(doc: &mut Document, cmd: &str, r: Rect, delete_pixels: bool, extensi
     // A Background cannot hold transparent pixels: like an opaque Canvas Size extension, the area
     // an extending Crop adds is filled with the extension (background) colour.
     if extends
-        && let Some(bg) = doc.layers.first_mut().filter(|l| crate::extra_cmds::is_background(l))
+        && let Some(bg) = doc.background_mut()
         && let LayerContent::Raster(surf) = &mut bg.content
     {
         let old = old_canvas.translate(dx, dy);
@@ -315,22 +335,28 @@ fn crop_doc(doc: &mut Document, cmd: &str, r: Rect, delete_pixels: bool, extensi
     Ok(())
 }
 
-fn anchor_factors(a: &str) -> (f64, f64) {
-    let x = if a.contains("Left") || a == "left" {
-        0.0
-    } else if a.contains("Right") || a == "right" {
-        1.0
-    } else {
-        0.5
-    };
-    let y = if a.starts_with("top") {
-        0.0
-    } else if a.starts_with("bottom") {
-        1.0
-    } else {
-        0.5
-    };
-    (x, y)
+/// The nine documented canvas-size anchors, in the order the command lists them, each mapped to
+/// its (x, y) factor (0.0 = top/left edge, 0.5 = centre, 1.0 = bottom/right edge).
+const ANCHORS: [(&str, (f64, f64)); 9] = [
+    ("topLeft", (0.0, 0.0)),
+    ("top", (0.5, 0.0)),
+    ("topRight", (1.0, 0.0)),
+    ("left", (0.0, 0.5)),
+    ("center", (0.5, 0.5)),
+    ("right", (1.0, 0.5)),
+    ("bottomLeft", (0.0, 1.0)),
+    ("bottom", (0.5, 1.0)),
+    ("bottomRight", (1.0, 1.0)),
+];
+
+/// Resolves an anchor name to its (x, y) factors, matching the nine documented values exactly.
+/// Anything else is an error naming `anchor` and listing them, rather than resolving the two axes
+/// independently (which let a misspelling like `"topleft"` land between two valid anchors, #2946).
+fn anchor_factors(cmd: &str, a: &str) -> Result<(f64, f64)> {
+    ANCHORS.iter().find(|(name, _)| *name == a).map(|&(_, f)| f).ok_or_else(|| {
+        let names = ANCHORS.iter().map(|&(n, _)| n).collect::<Vec<_>>().join("|");
+        bad(cmd, format!("`anchor` must be one of {names}"))
+    })
 }
 
 fn extension_color(s: &Session, p: &Value) -> [f32; 4] {
@@ -357,7 +383,7 @@ fn canvas_size(s: &mut Session, p: &Value) -> Result<Value> {
     let h = p.get("height").and_then(Value::as_f64).unwrap_or(if relative { 0.0 } else { oh });
     let (nw, nh) = if relative { (ow + w, oh + h) } else { (w, h) };
     let (nw, nh) = (nw.round().clamp(1.0, 300_000.0) as u32, nh.round().clamp(1.0, 300_000.0) as u32);
-    let (ax, ay) = anchor_factors(p.get("anchor").and_then(Value::as_str).unwrap_or("center"));
+    let (ax, ay) = anchor_factors("image.canvasSize", p.get("anchor").and_then(Value::as_str).unwrap_or("center"))?;
     let dx = ((nw as f64 - ow) * ax).round() as i32;
     let dy = ((nh as f64 - oh) * ay).round() as i32;
     let ext = extension_color(s, p);
@@ -373,16 +399,13 @@ fn canvas_size(s: &mut Session, p: &Value) -> Result<Value> {
         // A shrink or no-op resize must not silently convert the Background.
         if ext[3] == 0.0
             && (nw > ow as u32 || nh > oh as u32)
-            && let Some(bg) = doc.layers.first_mut()
-            && crate::extra_cmds::is_background(bg)
+            && let Some(bg) = doc.background_mut()
         {
             crate::extra_cmds::unlock_background(bg);
         }
         // The locked Background layer is extended with the extension colour.
         if ext[3] > 0.0
-            && let Some(bg) = doc.layers.first_mut()
-            && bg.name == "Background"
-            && bg.locks.transparency
+            && let Some(bg) = doc.background_mut()
             && let LayerContent::Raster(surf) = &mut bg.content
         {
             let fmt = surf.format();
@@ -645,7 +668,20 @@ fn convert_depth(s: &mut Session, depth: SampleType) -> Result<Value> {
         return Ok(Value::Null);
     }
     s.edit("Bit Depth", |doc, _| {
+        // 32-bit documents hold linear light (as Photoshop's do: grey 128 becomes 0.2159, measured
+        // in Photoshop 27.11), so the colour samples cross the document's tone curve when the
+        // depth crosses 32 bits: decoded after widening, encoded before narrowing (so no linear
+        // value is quantised to 8 or 16 bits). Masks, alpha and channels are not colour.
+        let crosses = (current == SampleType::F32) != (depth == SampleType::F32) && matches!(doc.mode, ColorMode::Rgb | ColorMode::Grayscale);
+        let to_linear = depth == SampleType::F32;
+        let transfer = photocraft_compose::adjust::Transfer::for_document(doc.mode, if to_linear { current } else { depth });
+        if crosses && !to_linear {
+            for_each_surface(&mut doc.layers, false, &mut |surf, _| surf.map_color(|v| transfer.encode(v).clamp(0.0, 1.0)));
+        }
         convert_layers_depth(&mut doc.layers, depth);
+        if crosses && to_linear {
+            for_each_surface(&mut doc.layers, false, &mut |surf, _| surf.map_color(|v| transfer.decode(v)));
+        }
         for ch in doc.channels.iter_mut().chain(doc.quick_mask.as_mut()) {
             let f = ch.surface.format().with_sample(depth);
             ch.surface = ch.surface.convert(f);
@@ -695,7 +731,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "image.imageSize",
             "Image Size…",
             ["Image"],
-            r##"{"width":px,"height":px,"resolution":ppi,"resample":"automatic|preserveDetails|bicubicSmoother|bicubicSharper|bicubicAutomatic|bicubic|nearest|bilinear|lanczos|none"="bicubic"} → {width,height} (the document's size after the command; "none" changes the resolution only)"##,
+            r##"{"width":px,"height":px,"percent":%? (both sides; an explicit side wins),"resolution":ppi,"keepPrintSize":bool=false (with only a resolution: resample the pixels to keep the print size),"resample":"automatic|preserveDetails|bicubicSmoother|bicubicSharper|bicubicAutomatic|bicubic|nearest|bilinear|lanczos|none"="bicubic"} → {width,height} (the document's size after the command; "none" changes the resolution only)"##,
             has_doc,
             image_size
         ),
@@ -838,6 +874,21 @@ mod tests {
         &s.active().unwrap().doc
     }
 
+    /// Resample on with only a new resolution keeps the print size, as Photoshop's Image Size
+    /// does (an action's `imageSize` with `Rslt` alone); without `keepPrintSize` only the
+    /// resolution changes.
+    #[test]
+    fn image_size_keep_print_size_resamples_to_the_resolution() {
+        let mut s = session();
+        s.execute("image.imageSize", json!({"resolution": 144, "resample": "bicubic"})).unwrap();
+        assert_eq!((doc(&s).size, doc(&s).resolution_dpi), (Size::new(40, 20), 144.0));
+        s.execute("image.imageSize", json!({"resolution": 288, "resample": "bicubic", "keepPrintSize": true})).unwrap();
+        assert_eq!((doc(&s).size, doc(&s).resolution_dpi), (Size::new(80, 40), 288.0));
+        // An explicit side still wins.
+        s.execute("image.imageSize", json!({"width": 20, "resolution": 72, "resample": "bicubic", "keepPrintSize": true})).unwrap();
+        assert_eq!(doc(&s).size, Size::new(20, 10));
+    }
+
     #[test]
     fn image_size_scales_everything() {
         for resample in ["bicubic", "bicubicSmoother", "bicubicSharper", "bicubicAutomatic", "automatic", "bilinear", "nearest", "lanczos", "preserveDetails"] {
@@ -978,6 +1029,42 @@ mod tests {
         let mut s = session();
         s.execute("image.canvasSize", json!({"width": 20, "height": 10, "relative": true, "anchor": "center"})).unwrap();
         assert_eq!(doc(&s).layers[1].surface().unwrap().content_bounds(), Rect::new(20, 10, 30, 20));
+    }
+
+    #[test]
+    fn canvas_size_anchor_offsets_and_rejects_unlisted() {
+        // 64x48 -> 100x80: dx spans 36 and dy spans 32, so each anchor factor lands on a known
+        // offset. All nine documented values must anchor exactly where they do today (#2946).
+        let expected = [
+            ("topLeft", [0, 0]),
+            ("top", [18, 0]),
+            ("topRight", [36, 0]),
+            ("left", [0, 16]),
+            ("center", [18, 16]),
+            ("right", [36, 16]),
+            ("bottomLeft", [0, 32]),
+            ("bottom", [18, 32]),
+            ("bottomRight", [36, 32]),
+        ];
+        for (anchor, off) in expected {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": 64, "height": 48, "background": "white"})).unwrap();
+            let r = s.execute("image.canvasSize", json!({"width": 100, "height": 80, "anchor": anchor})).unwrap();
+            assert_eq!(r["offset"], json!(off), "anchor {anchor}");
+        }
+        // An omitted anchor still defaults to center.
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 64, "height": 48, "background": "white"})).unwrap();
+        assert_eq!(s.execute("image.canvasSize", json!({"width": 100, "height": 80})).unwrap()["offset"], json!([18, 16]));
+        // A misspelling or unknown value is a BadParams error naming `anchor`, never an anchor
+        // between two of the nine (the old independent-axis matching produced top-centre etc.).
+        for anchor in ["topleft", "TopLeft", "TOPLEFT", "bottomleft", "bottomright", "middle", "", "NOPE"] {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": 64, "height": 48, "background": "white"})).unwrap();
+            let err = s.execute("image.canvasSize", json!({"width": 100, "height": 80, "anchor": anchor})).unwrap_err();
+            assert!(matches!(err, EngineError::BadParams { .. }), "anchor {anchor:?} must be rejected, got {err:?}");
+            assert!(err.to_string().contains("anchor"), "the error for {anchor:?} must name `anchor`: {err}");
+        }
     }
 
     #[test]
@@ -1294,6 +1381,54 @@ mod tests {
         .unwrap();
         s.execute("image.trim", json!({"basedOn": "topLeft"})).unwrap();
         assert_eq!(doc(&s).size, Size::new(10, 10));
+    }
+
+    #[test]
+    fn thirty_two_bit_holds_linear_light() {
+        // Photoshop 27.11: an 8-bit sRGB grey 128 becomes 0.2159 in 32 bits (and 32 → 0.0144),
+        // and comes back unchanged; alpha keeps its value.
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 4, "height": 1, "background": "white"})).unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.edit("paint", |doc, active| {
+            let l = doc.layer_mut(active.unwrap()).unwrap();
+            l.surface_mut().unwrap().fill_rect(Rect::new(0, 0, 2, 1), &[128.0 / 255.0, 32.0 / 255.0, 1.0, 0.5]);
+            Ok(())
+        })
+        .unwrap();
+        s.execute("image.mode.bits32", json!({})).unwrap();
+        let px = doc(&s).layers[1].surface().unwrap().pixel(0, 0);
+        for (got, want) in px.iter().zip([0.2159, 0.0144, 1.0, 128.0 / 255.0]) {
+            assert!((got - want).abs() < 2e-4, "{px:?}");
+        }
+        s.execute("image.mode.bits8", json!({})).unwrap();
+        let px = doc(&s).layers[1].surface().unwrap().pixel(0, 0);
+        for (got, want) in px.iter().zip([128.0 / 255.0, 32.0 / 255.0, 1.0, 128.0 / 255.0]) {
+            assert!((got - want).abs() < 0.6 / 255.0, "{px:?}");
+        }
+    }
+
+    #[test]
+    fn grayscale_conversion_matches_photoshop() {
+        // Photoshop 27.11, default Color Settings (working gray Dot Gain 20 %): Image > Mode >
+        // Grayscale turns sRGB 64 / 128 / 192 grey and pure red into 46 / 105 / 177 / 107.
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 4, "height": 1, "background": "white"})).unwrap();
+        s.edit("paint", |doc, _| {
+            let l = doc.layers.first_mut().unwrap();
+            let surf = l.surface_mut().unwrap();
+            for (x, c) in [[64.0, 64.0, 64.0], [128.0, 128.0, 128.0], [192.0, 192.0, 192.0], [255.0, 0.0, 0.0]].iter().enumerate() {
+                surf.fill_rect(Rect::new(x as i32, 0, x as i32 + 1, 1), &[c[0] / 255.0, c[1] / 255.0, c[2] / 255.0, 1.0]);
+            }
+            Ok(())
+        })
+        .unwrap();
+        s.execute("image.mode.grayscale", json!({})).unwrap();
+        let surf = doc(&s).layers[0].surface().unwrap();
+        for (x, want) in [46.0, 105.0, 177.0, 107.0].iter().enumerate() {
+            let got = surf.pixel(x as i32, 0)[0] * 255.0;
+            assert!((got - want).abs() <= 1.5, "pixel {x}: {got} vs {want}");
+        }
     }
 
     #[test]

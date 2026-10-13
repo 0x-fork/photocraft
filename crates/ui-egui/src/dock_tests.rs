@@ -350,6 +350,43 @@ fn a_single_tab_click_expands_a_collapsed_panel() {
     }
 }
 
+/// Auto-Collapse Iconic Panels: a group expanded by clicking a tab on its collapsed strip
+/// closes again when the next click lands outside it; with the preference off it stays open.
+#[test]
+fn auto_collapse_icon_panels_closes_a_peeked_panel_on_an_outside_click() {
+    for auto in [true, false] {
+        let (mut app, _, _) = app_with_layers();
+        app.session.prefs.edit(|p| p.workspace.auto_collapse_icon_panels = auto);
+        app.ui.dock.set_collapsed(Group::Color, true);
+        let mut h = harness(app, vec2(1200.0, 800.0), ThemeKind::ProMedium);
+        let collapsed_height = rect_of(&h, Group::Color).height();
+        let tab = last_strips(&h.ctx).iter().find(|s| s.group == Group::Color).unwrap().tabs[0].1.center();
+        h.event(egui::Event::PointerMoved(tab));
+        h.run_steps(1);
+        h.event(egui::Event::PointerButton { pos: tab, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+        h.step();
+        h.event(egui::Event::PointerButton { pos: tab, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+        h.run_steps(3);
+        assert!(!h.state().ui.dock.is_collapsed(Group::Color), "auto={auto}: the tab click expands the panel");
+        let rect = rect_of(&h, Group::Color);
+        // A click inside the panel leaves it open; one outside (the canvas) closes it again.
+        for p in [rect.center(), Pos2::new(rect.left() / 2.0, rect.center().y)] {
+            h.event(egui::Event::PointerMoved(p));
+            h.run_steps(1);
+            h.event(egui::Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+            h.step();
+            h.event(egui::Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+            h.run_steps(3);
+        }
+        assert_eq!(h.state().ui.dock.is_collapsed(Group::Color), auto, "auto={auto}: outside closes it when enabled");
+        if auto {
+            assert_eq!(rect_of(&h, Group::Color).height(), collapsed_height);
+        } else {
+            assert!(rect_of(&h, Group::Color).height() > collapsed_height);
+        }
+    }
+}
+
 #[test]
 fn double_clicking_a_tab_collapses_and_dragging_a_strip_reorders() {
     let (app, _, _) = app_with_layers();
@@ -1081,4 +1118,32 @@ fn a_tab_dragged_off_the_strip_moves_the_group_and_locking_stops_reordering() {
     let paths = tab_rect(&h, Group::Layers, 2);
     drag(&mut h, paths.center(), paths.center() + vec2(0.0, 500.0));
     assert_eq!(h.state().ui.dock.order(), order);
+}
+
+#[test]
+fn brush_settings_window_is_closed_on_restart_but_can_be_reopened() {
+    let mut first = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    first.ui.panels.brush_settings = true;
+    first.ui.panels.history = true;
+    let saved = snapshot(&first);
+    first.session.prefs.edit(|p| {
+        p.workspace.remember_workspace_changes = true;
+        p.panel_layout = saved.clone();
+    });
+    let persisted = first.session.prefs_to_json();
+
+    let mut session = photocraft_engine::Session::new();
+    session.load_prefs_json(&persisted).unwrap();
+    let mut next = PhotocraftApp::new(session, crate::Services::default());
+    restore(&mut next);
+    assert!(!next.ui.panels.brush_settings, "a floating Brush Settings window should not reopen on startup");
+    assert!(next.ui.panels.history, "remembered dock panel visibility is preserved");
+
+    let ctx = egui::Context::default();
+    crate::menus::invoke(&mut next, &ctx, "window.toggle.brushSettings", json!({})).unwrap();
+    assert!(next.ui.panels.brush_settings, "Window > Brush Settings can still open it");
+
+    let mut workspace = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    apply(&mut workspace, &saved);
+    assert!(workspace.ui.panels.brush_settings, "switching workspaces still restores their saved layout");
 }
