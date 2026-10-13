@@ -1244,18 +1244,20 @@ mod tests {
         }
     }
 
-    /// The Italian catalog names the Dodge *tools* and the `Screen` *blend mode* the way Adobe
-    /// does: `Schiarisci` is the tool (`Lighten` already was), `Scherma` is the blend mode. They
-    /// were swapped — `Screen` read as `Schermo`, "the display" — which is the kind of mistake
-    /// only a speaker of the language catches, so the wording is pinned here.
+    /// The Italian catalog names the Dodge/Burn/Sponge *tools* and the blend modes the way Adobe
+    /// does. `Scherma` is the Dodge tool (with `Brucia` and `Spugna`) **and** the `Screen` blend
+    /// mode — Adobe's own collision, not ours — while `Schiarisci` is the `Lighten` blend mode and
+    /// must not be used for the tool. `Screen` used to read `Schermo`, "the display".
     #[test]
     fn italian_names_the_dodge_tools_and_the_screen_blend_mode_as_photoshop_does() {
         let it = LANGUAGES.iter().find(|l| l.code == "it").expect("the Italian catalog is registered");
-        for (source, translation) in [("Dodge", "Schiarisci"), ("Dodge Tool", "Strumento Schiarisci"), ("Screen", "Scherma")] {
+        for (source, translation) in [("Dodge", "Scherma"), ("Dodge Tool", "Strumento Scherma"), ("Dodge/Burn", "Scherma/Brucia"), ("Screen", "Scherma")] {
             assert_eq!(it.catalog().plain(source), Some(translation), "it: {source:?}");
         }
-        // The qualified blend modes keep Adobe's "Scherma…" family: they are not the tool.
-        for (source, translation) in [("Color Dodge", "Colore scherma"), ("Linear Dodge", "Scherma lineare")] {
+        // The tool family stays together, and the blend modes keep Adobe's wording.
+        for (source, translation) in
+            [("Burn", "Brucia"), ("Sponge", "Spugna"), ("Lighten", "Schiarisci"), ("Color Dodge", "Colore scherma"), ("Linear Dodge", "Scherma lineare")]
+        {
             assert_eq!(it.catalog().plain(source), Some(translation), "it: {source:?}");
         }
     }
