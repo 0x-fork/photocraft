@@ -1,6 +1,6 @@
 # PhotoCraft vs Adobe Photoshop: target-app parity
 
-> **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-12 · **Change:** minor (`.atn` import maps 112 events; Free Transform H/V skew fields; stale rows corrected against `main` and the scorecard, estimates unchanged; Photoshop Actions `.atn` load and save; 2026-10-10: Tilt-Shift measurements added; earlier the same day: major, full re-measure against Photoshop 2026 27.11.0; merged `parity-estimate.md` and the roadmap's honest assessment) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-13 · **Change:** minor (Content-Aware Scale measurements added; 2026-10-12: `.atn` import maps 112 events; Free Transform H/V skew fields; stale rows corrected against `main` and the scorecard, estimates unchanged; Photoshop Actions `.atn` load and save; 2026-10-10: Tilt-Shift measurements added; earlier the same day: major, full re-measure against Photoshop 2026 27.11.0; merged `parity-estimate.md` and the roadmap's honest assessment) · **Target:** Adobe Photoshop 2026
 
 The authoritative answer to "how close is PhotoCraft to Photoshop, and how much work is left". The
 one-page summary is [`ROADMAP.md`](../ROADMAP.md); the ranked work list is [`gaps.md`](gaps.md);
@@ -367,6 +367,15 @@ The transform also corrects f32 envelope errors past coordinate 4096, including 
 distances at selected pixels. The parallel path needs an additional four bytes per pixel;
 see [measurements, correctness and limits](selection-distance-performance.md).
 
+2026-10-13: Content-Aware Scale keeps its seam search's path costs across seams (recomputing
+only the removed seam's basin) and no longer moves pixels. On a 4-core cloud VM (CPU, release,
+interleaved runs) the carve of P28's 24 MP photo to 90 % width takes 2013 → 556 ms (3.6×), the
+same image's height 2639 → 993 ms, and full-resolution searches 1.65–2.3× less time. The P28
+row with its document plumbing takes 3.28 → 1.64 s, within its 3 s budget. Output bits are
+unchanged wherever the energy stays a number (pinned hashes, reference comparison, a 37 000-case
+differential review); NaN and infinities are now deterministic. The committed baseline (954 s,
+older code) is unchanged until the reference machine reruns it; see [method and limits](content-aware-scale-performance.md).
+
 **Bottom line.** Two days after 0.2.0 we had merged ~96 PRs and closed ~48 issues, but **real
 Photoshop parity is still well below 50%**. The biggest gaps are AI, missing tools, professional
 workflow depth and the plug-in ecosystem. Most fixes since 0.2.0 have passed our tests but have
@@ -563,6 +572,7 @@ See [method, raw measurements and reproduction](five-algorithm-performance.md).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | Added measured Content-Aware Scale gains (P28 under its budget on a 4-core VM, not yet in the baseline); percentages and budgets unchanged |
 | 2026-10-12 | minor | Free Transform options bar H/V skew fields; percentages unchanged |
 | 2026-10-12 | minor | `.atn` import: 112 events mapped (TrueGrit Texture Supply sets play end to end); percentages unchanged |
 | 2026-10-12 | minor | Photoshop Actions `.atn` load and save (90 events mapped both ways); percentages unchanged |

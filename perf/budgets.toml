@@ -342,7 +342,7 @@ issue = 211
 bench = "perf_scenarios"
 row = "Content-Aware Scale 24 MP to 90 % width"
 budget_ms = 3000
-enforce = false  # over budget in the 2026-10-05 baseline
+enforce = false  # 2026-10-13: met on a 4-core VM (CPU), row 3.3 s -> 1.6 s (docs/content-aware-scale-performance.md); enforce once the baseline is refreshed
 
 [[scenario]]
 id = "P29"

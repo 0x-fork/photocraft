@@ -1,6 +1,6 @@
 # Where PhotoCraft falls short of Photoshop
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (G4: minimum field interaction, #3825 partial; G1: CMYK Invert, Posterize and Threshold on the inks, 16-bit Lab Invert; Photoshop-oracle floor 145/258; G11: `.atn` import maps 112 events: Select and Mask, Filter Gallery Spatter, Ripple, Crystallize, Pattern Fill layers, mask targeting, Step Backward, nudges in points, Bitmap mode; G5: Free Transform H/V skew fields; G9: toolbar tool shortcut editing; refreshed against main: G2, G5, G7, G9, G10, G13, G14, G17 items that landed; G10: DPX read and write, #1049; G4: checkbox-only Brush Settings rows; G11: Load/Save Actions `.atn` landed, AUTO-219-2 partial; G5: hold-a-key spring-loaded tools landed, #2672; G1: #2465 fixed) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (G2: Content-Aware Scale seam carving 1.65–3.6× faster with unchanged output, P28 row 3.3 → 1.6 s on a 4-core VM; G4: minimum field interaction, #3825 partial; G1: CMYK Invert, Posterize and Threshold on the inks, 16-bit Lab Invert; Photoshop-oracle floor 145/258; G11: `.atn` import maps 112 events: Select and Mask, Filter Gallery Spatter, Ripple, Crystallize, Pattern Fill layers, mask targeting, Step Backward, nudges in points, Bitmap mode; G5: Free Transform H/V skew fields; G9: toolbar tool shortcut editing; refreshed against main: G2, G5, G7, G9, G10, G13, G14, G17 items that landed; G10: DPX read and write, #1049; G4: checkbox-only Brush Settings rows; G11: Load/Save Actions `.atn` landed, AUTO-219-2 partial; G5: hold-a-key spring-loaded tools landed, #2672; G1: #2465 fixed) · **Target:** Adobe Photoshop 2026
 
 Every known shortfall against Photoshop 2026 (27.11.0), one entry each, ranked by user impact
 on the way to beta. This is the work list agents pick from: take the highest-ranked entry that
@@ -200,10 +200,19 @@ what an agent can't finish alone.
   default small blur and the 36 MP saturated-field gain are inconclusive.
   [Method and full ranges](tilt-shift-performance.md). Native GUI latency remains
   unmeasured; no scorecard budget or parity percentage is changed by this work.
+- **Measured progress (2026-10-13):** Content-Aware Scale (P28) keeps its seam search across
+  seams and moves no pixels. On a 4-core cloud VM (CPU, interleaved runs), the carve of P28's
+  24 MP photo to 90 % width takes 556 ms instead of 2013 ms (3.6×), and the whole P28 row takes
+  1.64 s instead of 3.28 s, within its 3 s budget. Smaller images on the full-resolution search
+  are 1.65–2.3× faster. Output is bit-identical wherever the energy stays a number (pinned
+  hashes); NaN and infinities are now deterministic. The scorecard keeps the 2026-10-05
+  baseline's 954 s, which predates the per-seam energy updates and the reduced-height search,
+  until the reference machine reruns it. Most of the row is now `read_region`/`write_region`
+  plumbing. [Method and ranges](content-aware-scale-performance.md).
 - **Missing:** 22 of 25 budgeted scenarios are over budget (baseline 2026-10-05, a heavily
   loaded machine): layer move with styles 321 ms p50 against 25 ms, opacity change 276 ms
   against 20 ms, paste 12 MP 1.2 s against 100 ms, layer move on 15000×10000 16-bit 2.7 s,
-  Content-Aware Scale 24 MP 954 s against 3 s, Select Subject 559 ms against 100 ms; the
+  Content-Aware Scale 24 MP 954 s against 3 s (older code; now met, see above), Select Subject 559 ms against 100 ms; the
   150-layer nudge crashes the GPU compositor (P12); menus slow with thousands of layers (#2460); old machines lag (#2687).
 - **Estimate:** 200–350 h. Serial in places (compositor architecture).
 
@@ -255,6 +264,7 @@ what an agent can't finish alone.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | G2: Content-Aware Scale (P28) measured: carve 2013 → 556 ms, row 3.28 → 1.64 s on a 4-core VM, output unchanged; baseline, budgets and estimate unchanged |
 | 2026-10-13 | minor | G4: minimum inputs in Shape Dynamics and Transfer follow their Control (#3825, partial); no readiness percentage or estimate changed |
 | 2026-10-12 | minor | G5: Free Transform options bar H/V skew fields done |
 | 2026-10-12 | minor | G11: `.atn` import maps 112 events (Select and Mask, Spatter, Ripple, Crystallize, Pattern Fill, mask targeting, Step Backward, points, Bitmap) |
