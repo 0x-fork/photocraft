@@ -6078,6 +6078,7 @@ mod properties_target_regressions {
 #[cfg(test)]
 mod navigator_animated_zoom_tests {
     use super::*;
+    use egui_kittest::kittest::Queryable;
 
     #[test]
     fn animated_zoom_off_navigator_buttons_jump_without_a_transition() {
@@ -6085,6 +6086,7 @@ mod navigator_animated_zoom_tests {
         app.run("file.new", json!({"width": 200, "height": 100})).unwrap();
         app.run("prefs.set", json!({"values": {"general.animatedZoom": false}})).unwrap();
         app.sync_views();
+        app.ui.views[0].zoom = 1.0;
         app.ui.views[0].fit_pending = false;
         let mut h = egui_kittest::Harness::builder().with_size(vec2(430.0, 460.0)).build_ui_state(
             |ui, app: &mut PhotocraftApp| {
@@ -6096,32 +6098,17 @@ mod navigator_animated_zoom_tests {
         );
         PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
         h.run_steps(4);
-        let width = |label: &str| h.ctx.fonts_mut(|f| f.layout_no_wrap(label.into(), crate::theme::medium(12.5), Color32::WHITE).size().x + 20.0);
-        let spacing = h.ctx.style_of(h.ctx.theme()).spacing.item_spacing.x;
-        let widths = [width("200%"), width("100%"), width("Fit")];
-        let controls = last_navigator_controls(&h.ctx).unwrap();
-        let mut right = controls.right();
-        for (index, zoom) in [2.0, 1.0].into_iter().enumerate() {
-            let pointer = pos2(right - widths[index] / 2.0, controls.top() + 16.0);
-            h.hover_at(pointer);
-            for pressed in [true, false] {
-                h.event(egui::Event::PointerButton { pos: pointer, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
-                h.step();
-            }
-            right -= widths[index] + spacing;
+        for (label, direction) in [("Zoom In", 1), ("Zoom Out", -1), ("Zoom Out", -1)] {
+            let before = &h.state().ui.views[0];
+            let zoom = crate::zoom_levels::step(before.zoom, direction, before.doc_size);
+            h.get_by_label(label).click();
+            h.run_steps(2);
             let view = &h.state().ui.views[0];
-            assert_eq!(view.zoom, zoom);
-            assert_eq!(view.display_camera, Some((view.zoom, view.center)));
-            assert!(!view.zoom_animating && view.zoom_anchor.is_none() && view.zoom_transition.is_none());
+            assert_eq!(view.zoom, zoom, "{label}");
+            assert_eq!(view.display_camera, Some((view.zoom, view.center)), "{label}");
+            assert!(!view.zoom_animating && view.zoom_anchor.is_none() && view.zoom_transition.is_none(), "{label}");
+            assert!(!view.fit_pending, "{label}");
         }
-        let pointer = pos2(right - widths[2] / 2.0, controls.top() + 16.0);
-        h.hover_at(pointer);
-        for pressed in [true, false] {
-            h.event(egui::Event::PointerButton { pos: pointer, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
-            h.step();
-        }
-        assert!(h.state().ui.views[0].fit_pending);
-        assert!(!h.state().ui.views[0].zoom_animating);
     }
 }
 
