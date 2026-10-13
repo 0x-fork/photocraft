@@ -7,6 +7,7 @@
 //!   canvas to marquee-select anchors, click empty canvas to deselect.
 //! * Drag selected anchors to move them, a direction handle to turn it (a smooth point keeps its
 //!   handles collinear; ⌥ breaks them apart), or a segment to bend it (straight segments move).
+//!   The arrow keys nudge the selected anchors 1 px (⇧ 10 px), one history step per press.
 //! * Convert Point (the tool, or Pen + ⌥): click an anchor to make it a corner, drag from it to
 //!   pull out smooth handles, drag a handle to move it alone. The tool selects the anchor it
 //!   converts, so its handles show; a press on empty canvas or a segment does nothing, and ⌘/Ctrl
@@ -134,12 +135,17 @@ pub fn shows(app: &PhotocraftApp, mods: Modifiers) -> bool {
         || matches!(app.ui.tool, Tool::AddAnchorPoint | Tool::DeleteAnchorPoint | Tool::ConvertPoint)
 }
 
-/// The paths Direct Selection edits, front first: the targeted vector mask or the active shape
-/// layer's path, then the work path.
-pub(crate) fn candidates(app: &PhotocraftApp) -> Vec<(PathRef, Path)> {
+/// The active paths, front first: the targeted vector mask or the active shape layer's path, then
+/// the work path. The Pen's Auto Add/Delete edits these (`anchor_tools::pen_auto`).
+pub(crate) fn active_paths(app: &PhotocraftApp) -> Vec<(PathRef, Path)> {
     let layer = crate::vector_ui::targeted_vector_mask(app).or_else(|| crate::vector_ui::active_shape_path(app));
     let work = app.session.active().and_then(|st| st.doc.work_path.clone());
-    let mut out: Vec<_> = layer.map(|(id, p)| (PathRef::Layer(id), p)).into_iter().chain(work.map(|p| (PathRef::Work, p))).collect();
+    layer.map(|(id, p)| (PathRef::Layer(id), p)).into_iter().chain(work.map(|p| (PathRef::Work, p))).collect()
+}
+
+/// The paths Direct Selection edits, front first: the active paths, then every visible shape layer.
+pub(crate) fn candidates(app: &PhotocraftApp) -> Vec<(PathRef, Path)> {
+    let mut out = active_paths(app);
     if let Some(st) = app.session.active() {
         for (path, _, l) in st.doc.walk().iter().rev() {
             if !l.visible || !(1..=path.len()).all(|n| st.doc.layer_at(&path[..n]).is_some_and(|a| a.visible)) {
@@ -339,6 +345,37 @@ fn marquee(app: &mut PhotocraftApp, start: [f64; 2], end: [f64; 2], add: bool) {
             ds.segment = None;
         }
     }
+}
+
+/// Arrow keys with Direct Selection and selected anchors (#4486), as in Photoshop: nudge them
+/// 1 px (⇧ 10 px) through `path.moveAnchors`, one history step per press. Not while a drag is
+/// in progress. Returns true when a key was used.
+pub fn arrow_keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
+    let ds = &app.ui.direct_selection;
+    let Some(target) = ds.target.filter(|_| app.ui.tool == Tool::DirectSelection && !ds.anchors.is_empty() && ds.drag.is_none()) else {
+        return false;
+    };
+    let anchors = ds.anchors.clone();
+    use egui::Key;
+    let keys = [(Key::ArrowLeft, -1.0, 0.0), (Key::ArrowRight, 1.0, 0.0), (Key::ArrowUp, 0.0, -1.0), (Key::ArrowDown, 0.0, 1.0)];
+    for (key, ux, uy) in keys {
+        // ⇧ first: `consume_key` ignores an extra ⇧.
+        for mods in [Modifiers::SHIFT, Modifiers::NONE] {
+            if ctx.input_mut(|i| i.consume_key(mods, key)) {
+                let k = if mods.shift { 10.0 } else { 1.0 };
+                let mut params = json!({"anchors": anchors, "move": [ux * k, uy * k]});
+                if let (Some(p), Some(t)) = (params.as_object_mut(), target.params().as_object()) {
+                    p.extend(t.clone());
+                }
+                if let Err(e) = app.run("path.moveAnchors", params) {
+                    app.ui.status = e;
+                    app.ui.status_error = true;
+                }
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Paths with their anchors (selected ones filled), the shown handles, the drag's preview in
