@@ -1253,10 +1253,10 @@ fn local_model_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, obj: &mut Map<St
     let available = status["available"].as_bool().unwrap_or(false);
     ui.add_space(10.0);
     ui.label(RichText::new(tl!("Local selection models")).font(crate::theme::semibold(12.5)).color(t.text));
-    ui.label(RichText::new(tl!("Models run on this device. Images stay on this device.")).color(t.text_dim));
-    ui.label(RichText::new(tl!("Download a model before choosing it. Downloads do not change the current method.")).color(t.text_dim));
+    ui.add(egui::Label::new(RichText::new(tl!("Models run on this device. Images stay on this device.")).color(t.text_dim)).wrap());
+    ui.add(egui::Label::new(RichText::new(tl!("Download a model before choosing it. Downloads do not change the current method.")).color(t.text_dim)).wrap());
     if !available {
-        ui.label(RichText::new(tl!("Local models aren't available in this build or session.")).color(t.text_faint));
+        ui.add(egui::Label::new(RichText::new(tl!("Local models aren't available in this build or session.")).color(t.text_faint)).wrap());
     }
     ui.add_space(6.0);
     for model in status["models"].as_array().into_iter().flatten() {
@@ -1279,7 +1279,7 @@ fn local_model_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, obj: &mut Map<St
                     .color(t.text_faint),
                 );
             });
-            ui.label(RichText::new(tl!(model["purpose"].as_str().unwrap_or_default())).color(t.text_dim));
+            ui.add(egui::Label::new(RichText::new(tl!(model["purpose"].as_str().unwrap_or_default())).color(t.text_dim)).wrap());
             ui.horizontal(|ui| {
                 let button = if installed { tl!("Remove download").to_string() } else { format!("{} ({mib} MiB)", tl!("Download")) };
                 let clicked = ui.add_enabled_ui(available && !busy, |ui| crate::widgets::secondary_button(ui, &button, 190.0).clicked()).inner;
@@ -1296,7 +1296,12 @@ fn local_model_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, obj: &mut Map<St
             ui.add_space(8.0);
         });
     }
-    ui.label(RichText::new(tl!("Large models can take time and use several GB of memory. Progress and Cancel appear in the status bar.")).color(t.text_faint));
+    ui.add(
+        egui::Label::new(
+            RichText::new(tl!("Large models can take time and use several GB of memory. Progress and Cancel appear in the status bar.")).color(t.text_faint),
+        )
+        .wrap(),
+    );
 }
 
 /// Preferences › Performance: what the app renders with now, and a reset of the GPU backend
