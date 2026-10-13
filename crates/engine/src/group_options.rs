@@ -135,7 +135,7 @@ mod tests {
         let g = id(s.execute("layer.new.group", json!({"name": "  ", "mode": "Linear Dodge (Add)", "opacity": 250})).unwrap());
         let l = layer(&s, g);
         assert_eq!((l.name.as_str(), l.blend, l.opacity), ("Group 2", BlendMode::LinearDodge, 1.0));
-        let g = id(s.execute("layer.new.group", json!({"opacity": -5, "name": null, "color": null, "mode": null, "below": null})).unwrap());
+        let g = id(s.execute("layer.new.group", json!({"opacity": -5, "name": null, "color": null, "mode": null, "position": null})).unwrap());
         assert_eq!(layer(&s, g).opacity, 0.0);
     }
 
@@ -175,22 +175,22 @@ mod tests {
     fn below_puts_the_new_group_under_the_active_layer() {
         let (mut s, a, b) = session();
         let bg = top(&s)[0];
-        let g = id(s.execute("layer.new.group", json!({"below": true})).unwrap());
+        let g = id(s.execute("layer.new.group", json!({"position": "below"})).unwrap());
         assert_eq!(top(&s), vec![bg, a, g, b]);
         // Inside a group it stays inside, under the active layer.
         s.execute("layer.select", json!({"layer": b.0})).unwrap();
         let outer = id(s.execute("layer.groupLayers", json!({})).unwrap());
         s.execute("layer.select", json!({"layer": b.0})).unwrap();
-        let inner = id(s.execute("layer.new.group", json!({"below": true})).unwrap());
+        let inner = id(s.execute("layer.new.group", json!({"position": "below"})).unwrap());
         let children: Vec<LayerId> = layer(&s, outer).children().unwrap().iter().map(|l| l.id).collect();
         assert_eq!(children, vec![inner, b]);
         // Nothing goes under the Background: the group goes above it instead.
         s.execute("layer.select", json!({"layer": bg.0})).unwrap();
-        let g2 = id(s.execute("layer.new.group", json!({"below": true})).unwrap());
+        let g2 = id(s.execute("layer.new.group", json!({"position": "below"})).unwrap());
         assert_eq!(top(&s)[..2], [bg, g2]);
         // With no active layer it goes to the top, like a plain New Group.
         s.execute("select.deselectLayers", json!({})).unwrap();
-        let g3 = id(s.execute("layer.new.group", json!({"below": true})).unwrap());
+        let g3 = id(s.execute("layer.new.group", json!({"position": "below"})).unwrap());
         assert_eq!(top(&s).last(), Some(&g3));
     }
 
@@ -202,7 +202,7 @@ mod tests {
         let (mut s, a, b) = session();
         s.execute("layer.setProps", json!({"layer": b.0, "clipped": true})).unwrap();
         s.execute("layer.select", json!({"layer": b.0})).unwrap();
-        let g = id(s.execute("layer.new.group", json!({"below": true})).unwrap());
+        let g = id(s.execute("layer.new.group", json!({"position": "below"})).unwrap());
         assert_eq!(top(&s)[1..], [a, g, b]);
         assert!(layer(&s, g).clipped, "under a clipped layer the group is clipped too");
         assert_eq!(s.active().unwrap().last_damage, Some(photocraft_geom::Rect::EMPTY), "B still clips to A");
@@ -236,7 +236,7 @@ mod tests {
                 json!({"opacity": [50]}),
             ];
             if cmd == "layer.new.group" {
-                bad.push(json!({"below": "yes"}));
+                bad.push(json!({"position": "yes"}));
             }
             for p in bad {
                 let before = (doc(&s).clone(), s.active().unwrap().revision, steps(&s));

@@ -92,18 +92,18 @@ fn artboards_take_new_layers_and_locked_groups_do_not() {
 fn below_puts_the_new_layer_under_the_active_layer() {
     let (mut s, a, b) = session();
     let bg = top(&s)[0];
-    let l = id(s.execute("layer.new.layer", json!({"below": true})).unwrap());
+    let l = id(s.execute("layer.new.layer", json!({"position": "below"})).unwrap());
     assert_eq!(top(&s), vec![bg, a, l, b]);
     // Never under the Background, and never inside an open group.
     select(&mut s, bg);
-    let l2 = id(s.execute("layer.new.layer", json!({"below": true})).unwrap());
+    let l2 = id(s.execute("layer.new.layer", json!({"position": "below"})).unwrap());
     assert_eq!(top(&s)[..2], [bg, l2]);
     let g = id(s.execute("layer.new.group", json!({})).unwrap());
-    let l3 = id(s.execute("layer.new.layer", json!({"below": true})).unwrap());
+    let l3 = id(s.execute("layer.new.layer", json!({"position": "below"})).unwrap());
     assert!(children(&s, g).is_empty());
     let root = top(&s);
     assert_eq!(root.iter().position(|x| *x == l3).unwrap() + 1, root.iter().position(|x| *x == g).unwrap());
-    assert!(s.execute("layer.new.layer", json!({"below": "yes"})).is_err());
+    assert!(s.execute("layer.new.layer", json!({"position": "yes"})).is_err());
 }
 
 /// The clipping rule Photoshop follows on every insert (#2203): a new layer is clipped exactly
@@ -130,10 +130,10 @@ fn a_new_layer_joins_the_clipping_mask_it_lands_in() {
     assert!(!clipped(&s, above));
     // ⌘-click New Layer under a clipped layer joins it too; under the base it does not.
     select(&mut s, c2);
-    let l = id(s.execute("layer.new.layer", json!({"below": true})).unwrap());
+    let l = id(s.execute("layer.new.layer", json!({"position": "below"})).unwrap());
     assert!(clipped(&s, l));
     select(&mut s, base);
-    let l = id(s.execute("layer.new.layer", json!({"below": true})).unwrap());
+    let l = id(s.execute("layer.new.layer", json!({"position": "below"})).unwrap());
     assert!(!clipped(&s, l));
     // A group joins as well (Photoshop clips groups too), and so do the other new layers.
     select(&mut s, base);
