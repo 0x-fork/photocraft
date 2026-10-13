@@ -66,9 +66,16 @@ fn slow_job(app: &mut PhotocraftApp, gate: &Arc<AtomicBool>) -> JobId {
 
 /// Step frames for `ms` of wall time; returns (frames, slowest frame in ms).
 fn frames_for(h: &mut Harness<'_, PhotocraftApp>, ms: u64) -> (u64, f64) {
+    frames_for_at_least(h, ms, 0)
+}
+
+/// Prove the frame loop advances while a gated worker stays blocked, without assuming a
+/// minimum frame rate on software-rendered CI machines. Also wait for the progress modal.
+fn frames_for_at_least(h: &mut Harness<'_, PhotocraftApp>, ms: u64, min_frames: u64) -> (u64, f64) {
     let t = Instant::now();
     let (mut n, mut worst) = (0, 0.0f64);
-    while t.elapsed() < Duration::from_millis(ms) {
+    while t.elapsed() < Duration::from_millis(ms) || n < min_frames {
+        assert!(t.elapsed() < Duration::from_secs(30), "frame observation timed out after {n} frames");
         let f = Instant::now();
         h.step();
         worst = worst.max(f.elapsed().as_secs_f64() * 1000.0);
@@ -84,7 +91,7 @@ fn the_frame_loop_keeps_running_during_a_slow_job_and_esc_cancels_it() {
     let doc_before = h.state().session.active().unwrap().doc.clone();
     let job = slow_job(h.state_mut(), &gate);
     let frame0 = h.state().frame;
-    let (n, worst) = frames_for(&mut h, 400);
+    let (n, worst) = frames_for_at_least(&mut h, 400, 10);
     assert!(h.state().frame - frame0 >= 10, "the UI kept rendering ({n} frames)");
     eprintln!("{n} frames during the job, slowest {worst:.1} ms");
     // The status bar shows the job, and after the delay the modal progress dialog.
@@ -102,6 +109,27 @@ fn the_frame_loop_keeps_running_during_a_slow_job_and_esc_cancels_it() {
     assert!(Arc::ptr_eq(&h.state().session.active().unwrap().doc, &doc_before));
     assert!(h.state().ui.status.contains("Cancelled"), "{}", h.state().ui.status);
     assert!(h.query_by_label("Esc to cancel").is_none(), "the dialog closed");
+}
+
+#[test]
+fn a_job_started_while_drawing_requests_the_follow_up_poll() {
+    let mut h = app_harness();
+    let gate = Arc::new(AtomicBool::new(false));
+    let job = slow_job(h.state_mut(), &gate);
+    let repaints = Arc::new(AtomicUsize::new(0));
+    let seen = repaints.clone();
+    h.ctx.set_request_repaint_callback(move |_| {
+        seen.fetch_add(1, Ordering::Relaxed);
+    });
+
+    // A job may start from a menu or dialog after the frame's initial `jobs_ui::tick`.
+    // The UI must still schedule a poll, or an idle Wayland event loop leaves the document
+    // locked after the worker finishes and blocks Edit > Undo / Redo.
+    assert!(crate::jobs_ui::keep_polling(h.state(), &h.ctx));
+    assert_eq!(repaints.load(Ordering::Relaxed), 1);
+
+    crate::jobs_ui::cancel(h.state_mut(), job);
+    h.run_steps(2);
 }
 
 #[test]
@@ -298,7 +326,7 @@ fn the_opening_card_keeps_a_long_name_and_cancel_inside() {
     let long = "a7rv-test_2024_02_17_shot_30_3705_with_an_even_longer_suffix_that_never_ends.psb";
     for name in ["short.psd", long] {
         h.state_mut().jobs.opens.clear();
-        h.state_mut().jobs.opens.push(crate::jobs_ui::OpenTab { job, name: name.to_string(), path: None, slot: None });
+        h.state_mut().jobs.opens.push(crate::jobs_ui::OpenTab { job, name: name.to_string(), path: None, slot: None, order: None });
         h.state_mut().jobs.focus = Some(job);
         h.run_steps(4);
         let r = crate::jobs_ui::open_card_rects(&h.ctx).expect("the opening card was drawn");
@@ -397,14 +425,16 @@ fn saves_run_in_the_background_and_are_recorded_when_they_end() {
     assert!(h.state().saving());
 
     // The window keeps drawing; the document stays unsaved and can't be edited meanwhile.
-    let (frames, _) = frames_for(&mut h, 400);
+    let (frames, _) = frames_for_at_least(&mut h, 400, 4);
     assert!(frames >= 4, "only {frames} frames while saving");
     let st = h.state().session.active().unwrap();
     assert!(st.is_dirty() && st.path.is_none());
     assert!(h.state_mut().run("layer.new.layer", json!({})).is_err(), "the saving document is locked");
-    // The progress dialog and the status bar name the save; the dialog shows its stage.
-    assert_eq!(h.query_all_by_label("Saving big.psd").count(), 2);
+    // The progress dialog names the save and shows its stage; the status bar reads "Saving 0%"
+    // until the encoder reports progress (#3389).
+    assert_eq!(h.query_all_by_label("Saving big.psd").count(), 1);
     h.get_by_label("Encoding");
+    h.get_by_label("Saving 0%");
 
     gates.encode.store(true, Ordering::Relaxed);
     step_until(&mut h, |a| !a.saving());
@@ -467,6 +497,41 @@ fn a_save_that_has_started_writing_cannot_be_cancelled() {
     step_until(&mut h, |a| !a.saving());
     assert_eq!(gates.written(), ["/tmp/photocraft-test/w.psd"]);
     assert!(!h.state().session.active().unwrap().is_dirty(), "the written save is recorded");
+}
+
+/// #3389: like Photoshop, a running save reads "Saving 45%" in the status bar and appends
+/// " - Saving 45%" to its document's tab title, in both tab strips; both go when it ends.
+#[test]
+fn a_running_save_shows_its_percentage_in_the_status_bar_and_tab_title() {
+    for theme in crate::theme::ThemeKind::ALL {
+        let mut h = app_harness();
+        h.state_mut().run("prefs.set", json!({"values": {"interface.theme": theme.id()}})).unwrap();
+        h.run_steps(2);
+        let gate = Arc::new(AtomicBool::new(false));
+        let g = gate.clone();
+        let save: crate::SaveFileFn = Arc::new(move |_, _, _, ctl| {
+            ctl.progress(0.4567, "Encoding");
+            while !g.load(Ordering::Relaxed) {
+                ctl.check()?;
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            ctl.commit()?;
+            ctl.progress(1.0, "Writing");
+            Ok(Vec::new())
+        });
+        h.state_mut().services.save_file = Some(save);
+        h.state_mut().save_as(Some("/tmp/photocraft-test/pct.psd".into())).unwrap();
+        let t = Instant::now();
+        while h.query_by_label("Saving 45%").is_none() && t.elapsed() < Duration::from_secs(30) {
+            h.step();
+        }
+        assert!(h.query_by_label("Saving 45%").is_some(), "{theme:?}: the status bar reads Saving 45%");
+        assert!(h.query_by_label_contains(" - Saving 45%").is_some(), "{theme:?}: the tab title carries the save's progress");
+        gate.store(true, Ordering::Relaxed);
+        step_until(&mut h, |a| !a.saving());
+        assert!(h.query_by_label_contains("Saving").is_none(), "{theme:?}: the readout and the tab suffix are gone once saved");
+        assert_eq!(h.state().session.active().unwrap().path.as_deref(), Some("/tmp/photocraft-test/pct.psd"));
+    }
 }
 
 /// One frame with the window's close button pressed; whether the guard cancelled the close.
@@ -576,4 +641,66 @@ fn a_finished_job_beeps_when_the_preference_is_on() {
     let _ = slow_job(h.state_mut(), &gate);
     frames_for(&mut h, 800);
     assert_eq!(BEEPS.load(Ordering::Relaxed), 1, "one beep for the finished job");
+}
+
+#[test]
+fn printing_keeps_drawing_and_reports_only_the_final_spooler_result() {
+    for success in [true, false] {
+        let mut h = app_harness();
+        let gate = Arc::new(AtomicBool::new(false));
+        let worker_gate = gate.clone();
+        let Started::Job(id) = h
+            .state_mut()
+            .session
+            .start_job(
+                "file.print",
+                json!({}),
+                "Print",
+                false,
+                move |_| {
+                    while !worker_gate.load(Ordering::Relaxed) {
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                    if success {
+                        Ok(json!({"sent": true, "spooler": "request id is Office-42", "pdf": null}))
+                    } else {
+                        Err(photocraft_engine::EngineError::Other("queue refused".into()))
+                    }
+                },
+                |_, result| Ok(result),
+            )
+            .unwrap()
+        else {
+            panic!("must run on a worker")
+        };
+        let frame = h.state().frame;
+        h.run_steps(4);
+        assert!(h.state().frame > frame);
+        assert!(!h.state().ui.status.contains("Sent to the printer"));
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        assert!(h.state().session.job(id).is_some(), "Esc cannot retract a submitted job");
+        let (request, _) = crate::control::ControlRequest::new("jobs.cancel", json!({"job": id.0}));
+        let ctx = h.ctx.clone();
+        let crate::control::Outcome::Done(reply) = crate::control::handle(h.state_mut(), &ctx, &request) else { panic!("cancel replies immediately") };
+        assert_eq!(reply["result"]["cancelled"], 0, "control must not falsely report cancellation: {reply}");
+        let st = h.state_mut().session.active_mut().unwrap();
+        st.saved_revision = st.revision;
+        assert!(press_window_close(h.state_mut()), "quit waits for print submission");
+        assert!(h.state().jobs.close_after_saves);
+        gate.store(true, Ordering::Relaxed);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while h.state().session.has_jobs() && Instant::now() < deadline {
+            h.step();
+        }
+        assert!(!h.state().session.has_jobs());
+        assert!(!h.state().jobs.close_after_saves, "close repeats on success or is cleared for a visible error");
+        if success {
+            assert!(h.state().ui.status.contains("Office-42"), "{}", h.state().ui.status);
+            assert!(!h.state().ui.status_error);
+        } else {
+            assert!(h.state().ui.status.contains("queue refused"), "{}", h.state().ui.status);
+            assert!(h.state().ui.status_error);
+        }
+    }
 }

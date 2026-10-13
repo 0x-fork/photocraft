@@ -3,7 +3,7 @@
 
 use egui::{Modifiers, PointerButton, Pos2, Rect, pos2, vec2};
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use photocraft_doc::{Effect, LayerContent};
 use serde_json::json;
 
@@ -535,4 +535,49 @@ fn press_drag_release_on_the_fx_button_opens_that_style() {
     assert_eq!(open.len(), 1, "releasing on Drop Shadow… opened Layer Style");
     let effects = open[0].fields["effects"].as_array().unwrap();
     assert!(effects.iter().any(|e| e["kind"] == json!("dropShadow")), "on Drop Shadow: {effects:?}");
+}
+
+/// One layer per lock, each with only that lock set (#4158).
+fn one_lock_each() -> (photocraft_engine::Session, Vec<(&'static str, u64)>) {
+    let mut s = photocraft_engine::Session::new();
+    s.execute("file.new", json!({"width": 64, "height": 48})).unwrap();
+    let mut ids = Vec::new();
+    for key in ["transparency", "pixels", "position", "artboard", "all"] {
+        let id = s.execute("layer.new.layer", json!({"name": key})).unwrap()["layer"].as_u64().unwrap();
+        s.execute("layer.setProps", json!({"layer": id, "locks": {key: true}})).unwrap();
+        ids.push((key, id));
+    }
+    (s, ids)
+}
+
+#[test]
+fn every_lock_shows_the_lock_icon_on_the_row() {
+    // #4158: "Lock image pixels" and the artboard lock left the row without its lock icon.
+    // Photoshop shows it whenever any lock is set.
+    let (s, ids) = one_lock_each();
+    let doc = &s.active().unwrap().doc;
+    for &(key, id) in &ids {
+        let l = doc.layers.iter().find(|l| l.id.0 == id).unwrap();
+        assert_eq!(super::reserved_width(l), super::RIGHT_PAD + super::ICON_W + super::GAP, "{key}: room for the lock icon");
+    }
+    let h = harness(s, 1.0, "promedium", 290.0);
+    let rows = recorded(&h.ctx);
+    for &(key, id) in &ids {
+        let r = rows.iter().find(|r| r.layer == id).unwrap_or_else(|| panic!("{key}: row drawn"));
+        assert!(r.indicators.iter().any(|(k, _)| *k == Indicator::Lock), "{key}: lock icon drawn ({:?})", r.indicators);
+    }
+}
+
+#[test]
+fn the_studio_lock_button_shows_every_lock() {
+    // #4158: the simple themes' lock button drew "unlocked" for a pixels or artboard lock, though
+    // clicking it then unlocked the layer.
+    for key in ["transparency", "pixels", "position", "artboard", "all"] {
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 64, "height": 48})).unwrap();
+        s.execute("layer.new.layer", json!({"name": key})).unwrap();
+        s.execute("layer.setProps", json!({"locks": {key: true}})).unwrap();
+        let h = harness(s, 1.0, "studio", 290.0);
+        assert_eq!(h.get_by_label("Lock layer").accesskit_node().toggled(), Some(egui::accesskit::Toggled::True), "{key}");
+    }
 }

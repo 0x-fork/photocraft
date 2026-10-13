@@ -1,6 +1,6 @@
 # Brush and painting parity
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-10 · **Change:** major (first version: brush engine, dynamics, pressure, smoothing, cursors, retouch tools and feel audited from source and open issues) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (checkbox-only Brush Settings rows and non-destructive Smoothing switch; shaped-tip cursor follows the view) · **Target:** Adobe Photoshop 2026
 
 Painting is where Photoshop users notice differences first, so it gets its own checklist: the
 brush engine (`crates/paint/src/brush.rs`), the Brush Settings UI
@@ -29,6 +29,7 @@ tablets against Photoshop side by side.
 | Noise, Wet Edges, Build-up, Protect Texture | done | |
 | Smoothing: amount, Pulled String, Stroke Catch-up, Catch-up on End, Adjust for Zoom | done | `brush.rs:428-438` |
 | Section locks | done | #174 |
+| Noise, Wet Edges, Build-up, Smoothing and Protect Texture: checkbox-only rows keep the selected controls open | done | `brush_panel_tests.rs`, #4283; Smoothing enable/disable preserves its amount and options, including imported ABR tool settings |
 | Brush tip from an image file | missing | TOOL-213-12 |
 | Erodible, Airbrush and Bristle tips (Photoshop's special tips) | partial | not audited in detail; "3D-based brushes don't work" (#1660) |
 | Anti-aliasing off for brushes | missing | #1666 (Pencil is the aliased path) |
@@ -54,7 +55,7 @@ tablets against Photoshop side by side.
 | Interpolation and smoothing match Photoshop | partial | #2138, #2057 |
 | Soft-edge falloff matches Photoshop's curve | partial | #2149, #1619 |
 | Brush preview and cursor crisp, not pixelated | partial | #1433 |
-| Cursor outline equals the painted footprint at every zoom | partial | #1761, #2364 |
+| Cursor outline equals the painted footprint at every zoom | partial | #1761, #2364; shaped tips trace their outline (#3467), turned and flipped with a rotated or flipped view |
 | Latency: dab to screen within a frame | partial | budgets P13/P16/P33 over (scorecard); big-brush lag #2619, #1994; cursor lag #2566, #1343 |
 | No hitch at mouse-up on a long stroke | not measurable | P32 needs a frame harness |
 | Live stroke for Brush and Eraser | done | |
@@ -69,6 +70,8 @@ tablets against Photoshop side by side.
 | `[` `]` size, `⇧[` `⇧]` hardness, number keys opacity, ⇧+numbers flow | done | 2026-10-07 |
 | ⌥-click samples a colour with painting tools; Eyedropper comparison ring | done | TOOL-213-9 |
 | ⇧-click draws a straight line from the last point | done | |
+| Hold `~` with the Brush or Pencil to erase with its brush: Clear mode while held (rebindable under Tools › Temporary) | done | `hold_keys.rs`, #3439 |
+| Clear painting mode in the Brush and Pencil Mode menus | done | `paint_mode_dropdown` in `panels.rs`, `"mode": "clear"`, #3439 |
 | Right-click opens the Brush Preset picker | done | [`context-menu-parity.md`](context-menu-parity.md); XP-Pen right-click not (#1980), macOS issue #2360 |
 | Precise / normal / full-size tip cursors, crosshair in the tip | partial | Caps Lock precise cursor not audited; round Pencil cursor requested (#2662, #1057) |
 | Brush choice kept per tool (Brush, Eraser, Blur each their own) | partial | #2542 |
@@ -111,3 +114,6 @@ tablets against Photoshop side by side.
 | Date | Change | Summary |
 |---|---|---|
 | 2026-10-10 | major | First version, from a source audit and the open issues |
+| 2026-10-11 | minor | `~` held with the Brush or Pencil erases with that tool's brush, and Clear joins their Mode menus (#3439) |
+| 2026-10-12 | minor | Five Brush Settings switch rows toggle without selecting a properties pane; Smoothing has a default-on switch and retains its settings while disabled (#4283). No brush-feel estimate changed. |
+| 2026-10-12 | minor | A shaped tip's cursor outline turns and flips with a rotated or flipped view, and follows pixel aspect correction |

@@ -29,16 +29,20 @@ pub fn moves_whole(layer: &Layer) -> bool {
 /// content within the selection, or all of it for a layer that [`moves_whole`] (#2630).
 /// Content scans are cached per tile: snapping asks for every layer's bounds per Move drag.
 pub fn transform_bounds(doc: &Document, layer: &Layer) -> Rect {
-    let content = match &layer.content {
-        LayerContent::Group(g) => g.children.iter().map(|l| transform_bounds(doc, l)).fold(Rect::EMPTY, |a, b| a.union(&b)),
-        _ => layer.surface().map_or(Rect::EMPTY, photocraft_compose::bounds::content_bounds),
-    };
-    let content =
-        if content.is_empty() { layer.mask.as_ref().map_or(Rect::EMPTY, |m| photocraft_compose::bounds::content_bounds(&m.surface)) } else { content };
+    let content = whole_layer_bounds(layer);
     match &doc.selection {
         Some(sel) if !moves_whole(layer) => content.intersect(&sel.content_bounds()),
         _ => content,
     }
+}
+
+/// A group moves all its descendants, so its frame must not clip raster children to the selection.
+fn whole_layer_bounds(layer: &Layer) -> Rect {
+    let content = match &layer.content {
+        LayerContent::Group(g) => g.children.iter().map(whole_layer_bounds).fold(Rect::EMPTY, |a, b| a.union(&b)),
+        _ => layer.surface().map_or(Rect::EMPTY, photocraft_compose::bounds::content_bounds),
+    };
+    if content.is_empty() { layer.mask.as_ref().map_or(Rect::EMPTY, |m| photocraft_compose::bounds::content_bounds(&m.surface)) } else { content }
 }
 
 /// Warp a surface whose pixels outside the content read as `default` (masks, selections):
@@ -123,12 +127,23 @@ pub fn split_gray_selected(s: &Surface, sel: &Surface) -> Result<Option<(Surface
 /// [`warp_gray`] limited to a selection: only the selected values move (the vacated area reads as
 /// the default), as the selected pixels of the layer do.
 pub(crate) fn warp_gray_selected(s: &Surface, sel: &Surface, h: &Homography, interp: Interp) -> Result<Surface> {
-    let Some((lifted, mut out)) = split_gray_selected(s, sel)? else { return warp_gray(s, h, interp) };
+    move_gray_selected(s, sel, &|lifted, src| Ok(warp_surface(lifted, src, h, interp)?), &|s| warp_gray(s, h, interp))
+}
+
+/// [`warp_gray_selected`] with any geometric warp: `warp` moves the lifted grey + alpha values
+/// (given their bounds), `whole` moves `s` when it isn't a single grey channel.
+pub(crate) fn move_gray_selected(
+    s: &Surface,
+    sel: &Surface,
+    warp: &dyn Fn(&Surface, Rect) -> Result<Surface>,
+    whole: &dyn Fn(&Surface) -> Result<Surface>,
+) -> Result<Surface> {
+    let Some((lifted, mut out)) = split_gray_selected(s, sel)? else { return whole(s) };
     let src = lifted.content_bounds();
     if src.is_empty() {
         return Ok(out);
     }
-    let w = warp_surface(&lifted, src, h, interp)?;
+    let w = warp(&lifted, src)?;
     let b = w.content_bounds();
     if !b.is_empty() {
         let moved = crate::allocation::read_region(&w, b, "compositing transformed mask pixels")?;
@@ -190,10 +205,10 @@ pub(crate) fn group_locks(doc: &Document, id: LayerId) -> Locks {
 }
 
 /// The locks a transform of `l` meets: its own and `group`'s (those it inherits). The Background's
-/// position lock doesn't count: Photoshop turns it into a normal layer first ([`transform_layer`]).
-fn transform_locks(l: &Layer, group: Locks) -> Locks {
+/// position lock doesn't count: Photoshop turns it into a normal layer first.
+fn transform_locks(l: &Layer, group: Locks, background: bool) -> Locks {
     let mut own = l.locks;
-    if own.position && l.name == "Background" {
+    if background {
         own.position = false;
         own.transparency = false;
     }
@@ -206,31 +221,34 @@ fn transform_locks(l: &Layer, group: Locks) -> Locks {
 pub fn locked_for_transform(doc: &Document, id: LayerId) -> bool {
     let Some(l) = doc.layer(id) else { return false };
     // An explicit stack rather than recursion: documents can nest deeply.
-    let mut stack = vec![(l, group_locks(doc, id))];
-    while let Some((l, group)) = stack.pop() {
-        let locks = transform_locks(l, group);
+    let mut stack = vec![(l, group_locks(doc, id), doc.is_background(id))];
+    while let Some((l, group, background)) = stack.pop() {
+        let locks = transform_locks(l, group, background);
         if locks.position || locks.all {
             return true;
         }
         if let LayerContent::Group(g) = &l.content {
-            stack.extend(g.children.iter().map(|c| (c, locks)));
+            stack.extend(g.children.iter().map(|c| (c, locks, false)));
         }
     }
     false
 }
 
-/// `group` holds the locks `l` inherits from the groups around it ([`group_locks`]).
+/// `group` holds the locks `l` inherits from the groups around it ([`group_locks`]). A Background
+/// is turned into a normal layer by the caller first ([`crate::extra_cmds::background_to_layer`]).
 pub(crate) fn transform_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut Layer, h: &Homography, affine: Option<Affine>, interp: Interp) -> Result<()> {
     crate::allocation::checkpoint("transforming pixels")?;
-    let locks = transform_locks(l, group);
-    // Photoshop turns the Background into a normal layer before transforming it.
-    if l.locks.position && l.name == "Background" {
-        l.locks.position = false;
-        l.locks.transparency = false;
-        l.name = "Layer 0".into();
-    }
+    let locks = transform_locks(l, group, false);
     if locks.position || locks.all {
         return Err(EngineError::Other(format!("layer \"{}\" is locked", l.name)));
+    }
+    if h.is_identity() {
+        if let LayerContent::Group(g) = &mut l.content {
+            for c in g.children.iter_mut() {
+                transform_layer(None, locks, c, h, affine, interp)?;
+            }
+        }
+        return Ok(());
     }
     // With a selection only the selected pixels move, and so only the same region of a linked
     // mask (#205). Groups, type, shapes and smart objects move whole.
@@ -247,12 +265,11 @@ pub(crate) fn transform_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut L
             };
             t.transform = a.mul(&t.transform);
         }
-        LayerContent::Shape(sh) => {
-            let Some(a) = affine else {
-                return Err(EngineError::Other("Distort and Perspective need a rasterized shape (Layer › Rasterize › Shape)".into()));
-            };
-            crate::vector_cmds::transform_shape(sh, &a);
-        }
+        LayerContent::Shape(sh) => match affine {
+            Some(a) => crate::vector_cmds::transform_shape(sh, &a),
+            // Distort and Perspective map the path and keep the shape (#3009).
+            None => crate::vector_cmds::map_shape(sh, Some(h), None)?,
+        },
         LayerContent::Smart(sm) => {
             // Smart objects keep the transform and re-render from their source afterwards
             // (`refresh_text`), so repeated transforms don't degrade the pixels. Distort and
@@ -297,9 +314,11 @@ pub(crate) fn transform_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut L
     }
     if let Some(vm) = l.vector_mask.as_mut()
         && vm.linked
-        && let Some(a) = affine
     {
-        vm.path = vm.path.transform(&a);
+        vm.path = match affine {
+            Some(a) => vm.path.transform(&a),
+            None => crate::vector_cmds::map_path(&vm.path, Some(h), None)?,
+        };
     }
     Ok(())
 }
@@ -378,6 +397,33 @@ pub(crate) fn composite_over(dst: &mut Surface, top: &Surface) {
     dst.write_region(b, &d);
 }
 
+/// The relative form (`scaleX`, `scaleY` in percent, `rotate` in degrees clockwise, `dx`, `dy`
+/// in pixels), as Photoshop records a Free Transform: scale and rotate about the frame's
+/// centre, then move. `None` when none of them is given.
+fn relative_matrix(p: &Value, rect: [f64; 4]) -> Result<Option<Homography>> {
+    let num = |k: &str| -> Result<Option<f64>> {
+        match p.get(k) {
+            None | Some(Value::Null) => Ok(None),
+            Some(v) => v.as_f64().filter(|f| f.is_finite()).map(Some).ok_or_else(|| bad(format!("`{k}` must be a finite number"))),
+        }
+    };
+    let (sx, sy, rot, dx, dy) = (num("scaleX")?, num("scaleY")?, num("rotate")?, num("dx")?, num("dy")?);
+    if sx.is_none() && sy.is_none() && rot.is_none() && dx.is_none() && dy.is_none() {
+        return Ok(None);
+    }
+    let (sx, sy) = (sx.unwrap_or(100.0) / 100.0, sy.unwrap_or(100.0) / 100.0);
+    if sx.abs() < 1e-6 || sy.abs() < 1e-6 {
+        return Err(bad("`scaleX` and `scaleY` must not be 0"));
+    }
+    let (cx, cy) = ((rect[0] + rect[2]) / 2.0, (rect[1] + rect[3]) / 2.0);
+    let (sin, cos) = rot.unwrap_or(0.0).to_radians().sin_cos();
+    // (x, y) → translate(-c) → scale → rotate → translate(c + d).
+    let (a, b, c, d) = (sx * cos, sx * sin, -sy * sin, sy * cos);
+    let e = cx + dx.unwrap_or(0.0) - a * cx - c * cy;
+    let f = cy + dy.unwrap_or(0.0) - b * cx - d * cy;
+    Ok(Some(Homography([a, c, e, b, d, f, 0.0, 0.0, 1.0])))
+}
+
 fn quad_param(p: &Value) -> Option<[[f64; 2]; 4]> {
     let a = p.get("quad")?.as_array()?;
     if a.len() != 4 {
@@ -391,12 +437,23 @@ fn quad_param(p: &Value) -> Option<[[f64; 2]; 4]> {
     Some(q)
 }
 
+/// `p`, with the Channels panel's targeted alpha channel or Quick Mask as its `"target"` when it
+/// names neither a target nor a layer (#2835).
+fn with_panel_target(s: &Session, p: &Value) -> Value {
+    let mut p = if p.is_object() { p.clone() } else { json!({}) };
+    if p.get("target").is_none()
+        && p.get("layer").is_none()
+        && let (Some(m), Some(Value::Object(t))) = (p.as_object_mut(), crate::channel_cmds::targeted_channel(s))
+    {
+        m.extend(t);
+    }
+    p
+}
+
 fn transform(s: &mut Session, p: &Value) -> Result<Value> {
+    let p = &with_panel_target(s, p);
     let st = s.active().ok_or(EngineError::NoDocument)?;
-    let id = match p.get("layer").and_then(Value::as_u64) {
-        Some(v) => Some(LayerId(v)),
-        None => st.active_layer,
-    };
+    let id = crate::commands::explicit_layer(s, p)?.or(st.active_layer);
     let lone = lone_target(&st.doc, id, p)?;
     let id = match (id, lone.is_some() && crate::channel_cmds::is_channel_target(p)) {
         (_, true) => None,
@@ -429,8 +486,10 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
         }
         // Affine [a b c d e f] maps (x, y) → (a·x + c·y + e, b·x + d·y + f).
         Homography([v[0], v[2], v[4], v[1], v[3], v[5], 0.0, 0.0, 1.0])
+    } else if let Some(m) = relative_matrix(p, rect)? {
+        m
     } else {
-        return Err(bad("pass `quad` (where the rect's corners go) or `matrix`"));
+        return Err(bad("pass `quad` (where the rect's corners go), `matrix`, or `scaleX`/`scaleY`/`rotate`/`dx`/`dy`"));
     };
     if h.inverse().is_none() {
         return Err(bad("the transform collapses the layer"));
@@ -444,29 +503,35 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
         let sel = doc.selection.clone();
         if lone {
             // A targeted unlinked mask, alpha channel or Quick Mask transforms by itself.
-            let (surf, _) = crate::channel_cmds::target_surface(doc, id, p)?;
-            *surf = match &sel {
-                Some(sel) => warp_gray_selected(surf, sel, &h, interp)?,
-                None => warp_gray(surf, &h, interp)?,
-            };
-            if let Some(sel) = &doc.selection {
-                doc.selection = Some(warp_gray(sel, &h, Interp::Bilinear)?).filter(|s| !s.content_bounds().is_empty());
+            if !h.is_identity() {
+                let (surf, _) = crate::channel_cmds::target_surface(doc, id, p)?;
+                *surf = match &sel {
+                    Some(sel) => warp_gray_selected(surf, sel, &h, interp)?,
+                    None => warp_gray(surf, &h, interp)?,
+                };
+                if let Some(sel) = &doc.selection {
+                    doc.selection = Some(warp_gray(sel, &h, Interp::Bilinear)?).filter(|s| !s.content_bounds().is_empty());
+                }
             }
             return Ok(());
         }
         let id = id.ok_or_else(|| EngineError::Other("no active layer".into()))?;
         let is_group = doc.layer(id).is_some_and(Layer::is_group);
         let group = group_locks(doc, id);
+        // Photoshop turns the Background into a normal layer before transforming it.
+        crate::extra_cmds::background_to_layer(doc, id);
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
         transform_layer(if is_group { None } else { sel.as_ref() }, group, l, &h, affine, interp)?;
-        // Type layers re-render from their new transform.
-        let snapshot = doc.clone();
-        if let Some(l) = doc.layer_mut(id) {
-            refresh_text(&snapshot, l);
-        }
-        // The selection outline moves with the pixels.
-        if let Some(sel) = &doc.selection {
-            doc.selection = Some(warp_gray(sel, &h, Interp::Bilinear)?).filter(|s| !s.content_bounds().is_empty());
+        if !h.is_identity() {
+            // Type layers re-render from their new transform.
+            let snapshot = doc.clone();
+            if let Some(l) = doc.layer_mut(id) {
+                refresh_text(&snapshot, l);
+            }
+            // The selection outline moves with the pixels.
+            if let Some(sel) = &doc.selection {
+                doc.selection = Some(warp_gray(sel, &h, Interp::Bilinear)?).filter(|s| !s.content_bounds().is_empty());
+            }
         }
         Ok(())
     })?;
@@ -479,7 +544,7 @@ pub fn specs() -> Vec<CommandSpec> {
         label: "Free Transform",
         menu: &[],
         shortcut: None,
-        params: r##"{"layer":id?,"rect":[x0,y0,x1,y1]? (source frame; default = layer content ∩ selection),"quad":[[x,y]×4]? (where the frame's corners go, clockwise from top-left),"matrix":[a,b,c,d,e,f]? (affine alternative),"interpolation":"bicubic|bilinear|nearest"="bicubic","target":"pixels"|"mask"|"quickMask"|{"channel":i}=Channels panel target (an unlinked mask, an alpha channel or the Quick Mask transforms alone; a linked mask moves with its layer)}"##,
+        params: r##"{"layer":id?,"rect":[x0,y0,x1,y1]? (source frame; default = layer content ∩ selection),"quad":[[x,y]×4]? (where the frame's corners go, clockwise from top-left),"matrix":[a,b,c,d,e,f]? (affine alternative),"scaleX":%?,"scaleY":%?,"rotate":deg?,"dx":px?,"dy":px? (relative alternative: scale and rotate about the frame's centre, then move, as a Photoshop action records a Free Transform),"interpolation":"bicubic|bilinear|nearest"="bicubic","target":"pixels"|"mask"|"quickMask"|{"channel":i}=Channels panel target (an unlinked mask, an alpha channel or the Quick Mask transforms alone; a linked mask moves with its layer)}"##,
         enabled: has_layer,
         journal: true,
         run: transform,
@@ -491,8 +556,12 @@ mod tests {
     use super::*;
 
     fn session() -> Session {
+        session_depth(8)
+    }
+
+    fn session_depth(depth: u32) -> Session {
         let mut s = Session::new();
-        s.execute("file.new", json!({"width": 100, "height": 100})).unwrap();
+        s.execute("file.new", json!({"width": 100, "height": 100, "depth": depth})).unwrap();
         s.execute("layer.new.layer", json!({})).unwrap();
         s.edit("paint", |doc, active| {
             let l = doc.layer_mut(active.unwrap()).unwrap();
@@ -620,7 +689,24 @@ mod tests {
         assert_eq!(active_bounds(&s), Rect::new(40, 15, 80, 35));
         s.execute("edit.transform", json!({"matrix": [2, 0, 0, 2, -40, -15]})).unwrap();
         assert_eq!(active_bounds(&s), Rect::new(40, 15, 120, 55));
-        assert!(s.execute("edit.transform", json!({"quad": [[40, 15], [120, 15], [130, 55], [30, 55]]})).is_err());
+        // Distort maps the path and keeps a live shape (#3009): the rectangle's corners go to the quad.
+        let quad = [[40.0, 15.0], [120.0, 15.0], [130.0, 55.0], [30.0, 55.0]];
+        s.execute("edit.transform", json!({ "quad": quad })).unwrap();
+        let st = s.active().unwrap();
+        let LayerContent::Shape(sh) = &st.doc.layer(st.active_layer.unwrap()).unwrap().content else { panic!("still a shape layer") };
+        let mut anchors: Vec<[f64; 2]> = sh.path.subpaths[0].knots.iter().map(|k| [k.anchor.x, k.anchor.y]).collect();
+        let mut want = quad.to_vec();
+        anchors.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        want.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert!(anchors.iter().zip(&want).all(|(a, b)| (a[0] - b[0]).abs() < 1e-6 && (a[1] - b[1]).abs() < 1e-6), "{anchors:?}");
+        assert!(sh.live.is_none(), "the live rectangle is now a path");
+        assert_eq!(active_bounds(&s), Rect::new(30, 15, 130, 55));
+        // Warp bends the path too: the arc adds anchors along the curved edges.
+        s.execute("edit.transform.warp", json!({"style": "arc", "bend": 50})).unwrap();
+        let st = s.active().unwrap();
+        let LayerContent::Shape(sh) = &st.doc.layer(st.active_layer.unwrap()).unwrap().content else { panic!("still a shape layer") };
+        assert!(sh.path.subpaths[0].knots.len() > 4, "{}", sh.path.subpaths[0].knots.len());
+        assert!(!active_bounds(&s).is_empty());
     }
 
     #[test]
@@ -637,7 +723,11 @@ mod tests {
 
     /// `session()` plus a reveal-all mask with `hide` painted black (linked unless `linked` is false).
     fn masked(hide: &[Rect], linked: bool) -> Session {
-        let mut s = session();
+        masked_depth(hide, linked, 8)
+    }
+
+    fn masked_depth(hide: &[Rect], linked: bool, depth: u32) -> Session {
+        let mut s = session_depth(depth);
         s.execute("layer.layerMask.revealAll", json!({})).unwrap();
         s.edit("mask", |doc, active| {
             let m = doc.layer_mut(active.unwrap()).unwrap().mask.as_mut().unwrap();
@@ -752,6 +842,36 @@ mod tests {
         assert_eq!(active_bounds(&s), Rect::new(10, 10, 30, 20), "layer untouched");
     }
 
+    /// The Channels panel targets an alpha channel: Edit › Transform › Flip Horizontal and a
+    /// 50% `edit.transform` (no `target` param) work on the channel, not the layer (BUG-207-4).
+    #[test]
+    fn transforms_follow_the_targeted_alpha_channel() {
+        let mut s = session();
+        s.execute("channel.new", json!({})).unwrap();
+        s.edit("paint channel", |doc, _| {
+            let ch = &mut doc.channels[0].surface;
+            ch.fill_rect(Rect::new(10, 10, 20, 20), &[1.0]);
+            ch.fill_rect(Rect::new(10, 10, 12, 20), &[0.5]);
+            Ok(())
+        })
+        .unwrap();
+        s.execute("channel.target", json!({"channel": 0})).unwrap();
+        let layer = |s: &Session| crate::active_layer_of(s).unwrap().surface().unwrap().read_region(Rect::new(0, 0, 100, 100));
+        let (pixels, past) = (layer(&s), s.active().unwrap().history.past_len());
+        s.execute("edit.transform.flipHorizontal", json!({})).unwrap();
+        // 8-bit channel: 0.5 is stored as 128/255.
+        let ch = |s: &Session, x, y| (s.active().unwrap().doc.channels[0].surface.sample_channel(x, y, 0) * 10.0).round() / 10.0;
+        assert_eq!((ch(&s, 19, 15), ch(&s, 10, 15)), (0.5, 1.0), "the channel flips within its frame");
+        assert!(layer(&s) == pixels, "the layer is untouched");
+        assert_eq!(s.active().unwrap().history.past_len(), past + 1, "one undo step");
+        s.execute("edit.transform", json!({"matrix": [0.5, 0, 0, 0.5, 0, 0], "interpolation": "nearest"})).unwrap();
+        assert_eq!((ch(&s, 7, 7), ch(&s, 15, 15)), (1.0, 0.0), "the channel scales to 50%");
+        assert!(layer(&s) == pixels, "the layer is untouched");
+        s.undo();
+        s.undo();
+        assert_eq!((ch(&s, 10, 15), ch(&s, 19, 15)), (0.5, 1.0));
+    }
+
     #[test]
     fn transform_targets_fail_gracefully() {
         let mut s = session();
@@ -803,5 +923,129 @@ mod tests {
         s.execute("select.rect", json!({"x": 10, "y": 10, "width": 5, "height": 10})).unwrap();
         let st = s.active().unwrap();
         assert_eq!(transform_bounds(&st.doc, st.doc.layer(st.active_layer.unwrap()).unwrap()), Rect::new(10, 10, 15, 20));
+    }
+
+    #[test]
+    fn group_transform_ignores_selections_inside_its_children() {
+        group_transform_with_selection(Rect::new(10, 10, 15, 15));
+    }
+
+    #[test]
+    fn group_transform_ignores_selections_outside_its_children() {
+        group_transform_with_selection(Rect::new(70, 70, 80, 80));
+    }
+
+    #[test]
+    fn group_transform_presets_rotate_about_the_whole_group() {
+        for depth in [8, 16, 32] {
+            for x in [10, 70] {
+                let mut s = masked_depth(&[Rect::new(10, 10, 15, 20)], true, depth);
+                let child = s.active().unwrap().active_layer.unwrap();
+                s.execute("layer.groupLayers", json!({})).unwrap();
+                s.execute("select.rect", json!({"x": x, "y": 10, "width": 5, "height": 5})).unwrap();
+                s.execute("edit.transform.rotate180", json!({})).unwrap();
+                let layer = s.active().unwrap().doc.layer(child).unwrap();
+                assert_eq!(layer.surface().unwrap().content_bounds(), Rect::new(10, 10, 30, 20), "rotate about the group's centre, not the selection's");
+                let mask = &layer.mask.as_ref().unwrap().surface;
+                assert_eq!(mask.sample_channel(27, 15, 0), 0.0);
+                assert_eq!(mask.sample_channel(12, 15, 0), 1.0);
+            }
+        }
+    }
+
+    fn group_transform_with_selection(selection: Rect) {
+        for depth in [8, 16, 32] {
+            for nested in [false, true] {
+                let mut s = masked_depth(&[Rect::new(10, 10, 15, 20)], true, depth);
+                let child = s.active().unwrap().active_layer.unwrap();
+                s.execute("layer.groupLayers", json!({})).unwrap();
+                if nested {
+                    s.execute("layer.groupLayers", json!({})).unwrap();
+                }
+                s.execute("select.rect", json!({"x": selection.x0, "y": selection.y0, "width": selection.width(), "height": selection.height()})).unwrap();
+                let steps = s.active().unwrap().history.entries().len();
+                let result = s.execute("edit.transform", json!({"quad": [[10, 10], [50, 10], [50, 30], [10, 30]], "interpolation": "nearest"})).unwrap();
+                assert_eq!(result["rect"], json!([10.0, 10.0, 30.0, 20.0]), "frame must include the whole group (nested={nested})");
+                let st = s.active().unwrap();
+                let layer = st.doc.layer(child).unwrap();
+                assert_eq!(layer.surface().unwrap().content_bounds(), Rect::new(10, 10, 50, 30));
+                let mask = &layer.mask.as_ref().unwrap().surface;
+                assert_eq!(mask.sample_channel(19, 20, 0), 0.0, "the linked mask scales with its complete layer");
+                assert_eq!(mask.sample_channel(21, 20, 0), 1.0);
+                assert_eq!(st.history.entries().len(), steps + 1);
+                assert!(s.undo());
+                let st = s.active().unwrap();
+                let layer = st.doc.layer(child).unwrap();
+                assert_eq!(layer.surface().unwrap().content_bounds(), Rect::new(10, 10, 30, 20));
+                assert_eq!(layer.mask.as_ref().unwrap().surface.sample_channel(19, 15, 0), 1.0);
+                assert_eq!(st.doc.selection.as_ref().unwrap().content_bounds(), selection);
+                assert!(s.redo());
+                assert_eq!(s.active().unwrap().doc.layer(child).unwrap().surface().unwrap().content_bounds(), Rect::new(10, 10, 50, 30));
+            }
+        }
+    }
+
+    #[test]
+    fn feathered_selection_identity_transform_preserves_pixels() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 16, "height": 16, "background": "transparent"})).unwrap();
+        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        s.execute("select.rect", json!({"x": 4, "y": 4, "width": 8, "height": 8})).unwrap();
+        s.execute("select.modify.feather", json!({"radius": 1})).unwrap();
+
+        let mut before_px = Vec::new();
+        for y in 0..16 {
+            for x in 0..16 {
+                before_px.push(s.execute("document.pixel", json!({"x": x, "y": y})).unwrap());
+            }
+        }
+
+        s.execute("edit.transform", json!({"matrix": [1, 0, 0, 1, 0, 0], "interpolation": "nearest"})).unwrap();
+
+        let mut after_px = Vec::new();
+        for y in 0..16 {
+            for x in 0..16 {
+                after_px.push(s.execute("document.pixel", json!({"x": x, "y": y})).unwrap());
+            }
+        }
+
+        assert_eq!(before_px, after_px, "feathered selection identity transform must preserve all pixels");
+        let p4_8 = s.execute("document.pixel", json!({"x": 4, "y": 8})).unwrap();
+        assert_eq!(p4_8, json!([1.0, 0.0, 0.0, 1.0]), "(4,8) must remain opaque red");
+
+        // Undo restores original document.
+        s.execute("edit.undo", json!({})).unwrap();
+        let undo_p4_8 = s.execute("document.pixel", json!({"x": 4, "y": 8})).unwrap();
+        assert_eq!(undo_p4_8, json!([1.0, 0.0, 0.0, 1.0]));
+
+        // Locked layer still refuses transform even if identity.
+        s.execute("layer.setProps", json!({"locks": {"position": true}})).unwrap();
+        assert!(s.execute("edit.transform", json!({"matrix": [1, 0, 0, 1, 0, 0]})).is_err(), "locked layer refuses identity transform");
+    }
+
+    #[test]
+    fn relative_params_scale_and_rotate_about_the_frame_centre() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 100, "height": 100})).unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("select.rect", json!({"x": 20, "y": 30, "width": 40, "height": 20})).unwrap();
+        s.execute("edit.fill", json!({"contents": "black"})).unwrap();
+        s.execute("select.deselect", json!({})).unwrap();
+        // 50% about the centre (40, 40), then 10 px right: the content ends at x 40..60, y 35..45.
+        let r = s.execute("edit.transform", json!({"scaleX": 50, "scaleY": 50, "dx": 10})).unwrap();
+        let rect: Vec<f64> = serde_json::from_value(r["rect"].clone()).unwrap();
+        assert_eq!(rect, [20.0, 30.0, 60.0, 50.0], "the reported frame is the source frame");
+        let bounds = |s: &Session| {
+            let d = s.active().unwrap();
+            let b = transform_bounds(&d.doc, d.doc.layer(d.active_layer.unwrap()).unwrap());
+            (b.x0, b.y0, b.x1, b.y1)
+        };
+        assert_eq!(bounds(&s), (40, 35, 60, 45));
+        // A quarter turn about the centre (50, 40) swaps the frame's sides.
+        s.execute("edit.transform", json!({"rotate": 90})).unwrap();
+        assert_eq!(bounds(&s), (45, 30, 55, 50));
+        for bad in [json!({"scaleX": 0}), json!({"rotate": "x"}), json!({"dx": f64::NAN})] {
+            assert!(s.execute("edit.transform", bad.clone()).is_err(), "{bad}");
+        }
     }
 }

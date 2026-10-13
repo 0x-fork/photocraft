@@ -159,6 +159,60 @@ fn color_replacement_modes() {
     assert!(s.execute("paint.colorReplacement", json!({"points": [[1, 1]], "mode": "bogus"})).is_err());
 }
 
+/// The live Color Replacement stroke shows what `paint.colorReplacement` commits, at 8 and 16
+/// bits: red-left/blue-right halves, a stroke from red into blue in each sampling mode. The live
+/// working copy is stored at the layer's depth between dabs, so 8 bits may round a level apart.
+#[test]
+fn live_color_replacement_matches_the_commit() {
+    for depth in [8, 16] {
+        for sampling in ["continuous", "once", "backgroundSwatch"] {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": 80, "height": 40, "background": "#ff0000", "depth": depth})).unwrap();
+            s.execute("select.rect", json!({"x": 40, "y": 0, "width": 40, "height": 40})).unwrap();
+            s.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+            s.execute("select.deselect", json!({})).unwrap();
+            s.execute("tools.setColors", json!({"foreground": "#00ff00", "background": "#0000ff"})).unwrap();
+            let all = [[10.0, 20.0], [30.0, 20.0], [50.0, 20.0], [70.0, 22.0]];
+            let pts = |v: &[[f64; 2]]| v.iter().map(|q| StrokePoint::new(q[0], q[1], 1.0)).collect::<Vec<_>>();
+            let opts = |p: &[[f64; 2]]| json!({"points": p, "size": 12, "hardness": 50, "sampling": sampling, "tolerance": 30, "target": "pixels"});
+            let mut live = live_color_replacement(&s, &opts(&all[..1])).unwrap();
+            live.push(&pts(&all[1..3])).unwrap();
+            live.push(&pts(&all[3..])).unwrap();
+            let shown = live.doc.clone();
+            s.execute("paint.colorReplacement", opts(&all)).unwrap();
+            let id = s.active().unwrap().active_layer.unwrap();
+            let (a, b) = (shown.layer(id).unwrap().surface().unwrap(), s.active().unwrap().doc.layer(id).unwrap().surface().unwrap());
+            let mut worst = 0.0f32;
+            // Everywhere, the stroke's finishing dab included (the live stroke previews it).
+            for y in 0..40 {
+                for x in 0..80 {
+                    let (got, want) = (a.rgba(x, y), b.rgba(x, y));
+                    worst = (0..4).map(|c| (got[c] - want[c]).abs()).fold(worst, f32::max);
+                }
+            }
+            assert!(b.rgba(10, 20)[1] > 0.5 || sampling == "backgroundSwatch", "{depth}-bit {sampling}: recoloured");
+            assert!(worst <= 2.0 / 255.0, "{depth}-bit {sampling}: live and commit differ by {worst}");
+        }
+    }
+}
+
+/// Color Replacement recolours layer pixels only: a mask, channel or Quick Mask target is
+/// refused (it would otherwise recolour the layer behind the user's back).
+#[test]
+fn color_replacement_refuses_non_pixel_targets() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 20, "height": 20, "background": "#ff0000"})).unwrap();
+    let steps = s.active().unwrap().history.entries().len();
+    for t in [json!("mask"), json!("quickMask"), json!({"channel": 0}), json!(3)] {
+        let p = json!({"points": [[10, 10]], "size": 6, "target": t});
+        assert!(s.execute("paint.colorReplacement", p.clone()).is_err(), "{t}");
+        assert!(live_color_replacement(&s, &p).is_err(), "{t}");
+    }
+    assert_eq!(s.active().unwrap().history.entries().len(), steps);
+    s.execute("paint.colorReplacement", json!({"points": [[10, 10]], "size": 6, "target": "pixels"})).unwrap();
+    assert_eq!(s.active().unwrap().history.entries().len(), steps + 1);
+}
+
 #[test]
 fn presets_save_load_delete_round_trip() {
     let mut s = session(10, 10);
@@ -814,4 +868,36 @@ fn an_offer_that_does_not_match_the_commit_is_ignored() {
     other["points"] = json!([[5.0, 5.0, 1.0], [40.0, 5.0, 1.0]]);
     let r = s.execute("paint.stroke", other).unwrap();
     assert!(r.get("fromLive").is_none());
+}
+
+/// Photoshop's Clear painting mode (#3439): a Brush or Pencil stroke in `"mode": "clear"` erases
+/// with that brush, and History still names the tool rather than the Eraser.
+#[test]
+fn clear_mode_erases_with_the_brush_or_pencil() {
+    for (cmd, label) in [("paint.stroke", "Brush Tool"), ("paint.pencil", "Pencil")] {
+        let mut s = session(40, 20);
+        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        s.execute(cmd, json!({"points": [[2, 10], [38, 10]], "size": 6, "mode": "clear", "brush": {"hardness": 1.0}})).unwrap();
+        assert_eq!(rgba(&s, 20, 10)[3], 0.0, "{cmd}: cleared to transparency");
+        assert_eq!(rgba(&s, 20, 2), [1.0, 0.0, 0.0, 1.0], "{cmd}: untouched pixels stay");
+        assert_eq!(s.active().unwrap().history.undo_label(), Some(label), "{cmd}");
+    }
+}
+
+/// #4344: a foreground picked as CMYK 100/0/0/0 is painted into a CMYK document as those inks by
+/// the Brush and the Pencil, not as whatever its sRGB stand-in converts back to (100/28/0/17).
+#[test]
+fn brush_and_pencil_paint_a_cmyk_pick_with_the_picked_inks() {
+    let cyan = [1.0f32, 0.0, 0.0, 0.0];
+    for cmd in ["paint.stroke", "paint.pencil"] {
+        let mut s = session(16, 16);
+        s.execute("image.mode.cmyk", json!({})).unwrap();
+        let rgb = photocraft_color::convert::cmyk_to_rgb(cyan).map(|c| c.clamp(0.0, 1.0));
+        s.execute("tools.setColors", json!({"foreground": rgb, "foregroundCmyk": cyan})).unwrap();
+        s.execute(cmd, json!({"points": [[8.0, 8.0]], "size": 6.0, "hardness": 1.0})).unwrap();
+        let st = s.active().unwrap();
+        let surf = st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap();
+        let got: Vec<f32> = surf.read_region(Rect::new(8, 8, 9, 9)).into_iter().take(4).collect();
+        assert!(got.iter().zip(cyan).all(|(a, b)| (a - b).abs() < 0.02), "{cmd}: {got:?}");
+    }
 }
