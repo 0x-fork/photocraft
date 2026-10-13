@@ -230,6 +230,7 @@ pub(crate) fn doc_m(d: &Document, sink: &mut dyn Sink) -> DocM {
         layers: d.layers.iter().map(|l| layer_m(l, sink)).collect(),
         channels: d.channels.iter().map(|c| channel_m(c, sink)).collect(),
         guides: d.guides.clone(),
+        ruler_origin: d.ruler_origin,
         selection: d.selection.as_ref().map(|s| surface_m(s, sink)),
         metadata: MetadataM {
             xmp: d.metadata.xmp.clone(),
@@ -628,6 +629,7 @@ impl Loader<'_> {
             layers,
             channels,
             guides: m.guides.clone(),
+            ruler_origin: m.ruler_origin,
             selection: self.opt_surface(&m.selection)?,
             metadata: md,
             global_light: m.global_light,

@@ -80,7 +80,7 @@ pub fn open_layer(app: &mut PhotocraftApp, layer: photocraft_doc::LayerId) -> Re
     let id = open(app)?;
     if let Some(d) = app.ui.dialogs.iter_mut().find(|d| d.id == id) {
         d.fields.insert("__layer".into(), json!(layer.0));
-        d.fields.insert("__label".into(), json!(format!("Export As: {}", ldoc.name)));
+        d.fields.insert("__label".into(), json!(crate::i18n::fmt(crate::i18n::t("Export As: {name}"), &[("name", &ldoc.name)])));
         d.fields.insert("__w".into(), json!(ldoc.size.width));
         d.fields.insert("__h".into(), json!(ldoc.size.height));
     }
