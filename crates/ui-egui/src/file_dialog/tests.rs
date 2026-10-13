@@ -290,6 +290,26 @@ fn save_paths_get_a_lowercase_extension_when_the_preference_is_on() {
     assert_eq!(*written.borrow(), ["/pics/CAT.PSD"], "off keeps the user's spelling");
 }
 
+/// #5039: a name typed without an extension (where file extensions are hidden) gets the
+/// suggested file's extension, so the save picks its format instead of failing.
+#[test]
+fn save_paths_without_an_extension_get_the_suggested_one() {
+    let (mut app, open, written) = app();
+    let ctx = egui::Context::default();
+    menus::invoke(&mut app, &ctx, "file.saveAs", json!({})).unwrap();
+    app.poll_file_dialog(&ctx, None);
+    answer(&open, Some(FileDialogAnswer::SaveTo("/pics/cat".into())));
+    app.poll_file_dialog(&ctx, None);
+    assert_eq!(*written.borrow(), ["/pics/cat.psd"]);
+    assert_eq!(app.session.active().unwrap().path.as_deref(), Some("/pics/cat.psd"));
+    // A name that already has an extension is left alone.
+    menus::invoke(&mut app, &ctx, "file.saveAs", json!({})).unwrap();
+    app.poll_file_dialog(&ctx, None);
+    answer(&open, Some(FileDialogAnswer::SaveTo("/pics/dog.png".into())));
+    app.poll_file_dialog(&ctx, None);
+    assert_eq!(*written.borrow(), ["/pics/cat.psd", "/pics/dog.png"]);
+}
+
 #[test]
 fn save_and_export_dialogs_start_beside_the_document() {
     let (mut app, open, _) = app();
@@ -719,7 +739,7 @@ fn export_as_with_several_artboards_selected_writes_one_file_each() {
     assert!(!app.ui.status_error, "{}", app.ui.status);
     assert_eq!(written.borrow().len(), 2);
     assert_eq!(written.borrow()[0], "/out/boards.jpg");
-    // The sibling path is joined with the platform separator (`/out\boards-2-…` on Windows).
+    // The sibling path is built with `Path::join`, so Windows turns the separator into `\`.
     let second = written.borrow()[1].replace('\\', "/");
     assert!(second.starts_with("/out/boards-2-") && second.ends_with(".jpg"), "{:?}", written.borrow());
     let mut got = sizes.borrow().iter().map(|(_, w, h)| (*w, *h)).collect::<Vec<_>>();

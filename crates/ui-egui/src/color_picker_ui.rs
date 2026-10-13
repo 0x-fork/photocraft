@@ -686,7 +686,7 @@ fn fields(ui: &mut egui::Ui, f: &mut Map<String, Value>, mode: &str, now: &Compo
                     ui.memory_mut(|m| m.request_focus(id));
                 }
                 let typing = if ui.memory(|m| m.has_focus(id)) { ui.data(|d| d.get_temp::<String>(id)) } else { None };
-                let mut h = typing.unwrap_or_else(|| hex(rgb).trim_start_matches('#').to_string());
+                let mut h = typing.unwrap_or_else(|| hex(rgb).trim_start_matches('#').to_ascii_uppercase());
                 let r = crate::widgets::text_field_ex(ui, id, &mut h, "", 64.0, true, Some(6));
                 if r.gained_focus() {
                     crate::field_tab::select_all(ui.ctx(), id, &h);
@@ -857,6 +857,13 @@ mod tests {
 
     fn color(h: &Harness<'static, Map<String, Value>>) -> String {
         h.state().get("color").and_then(Value::as_str).unwrap().to_string()
+    }
+
+    #[test]
+    fn hex_field_shows_uppercase_without_rewriting_the_selected_color() {
+        let h = picker("#12abef");
+        assert_eq!(h.get_by_role(Role::TextInput).value().as_deref(), Some("12ABEF"));
+        assert_eq!(color(&h), "#12abef", "casing is presentation only");
     }
 
     #[test]

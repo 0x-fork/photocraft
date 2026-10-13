@@ -856,7 +856,7 @@ fn wheel_notches(ui: &Ui, resp: &Response) -> f32 {
 }
 
 /// [`wheel_notches`] of widget `id` while `hovered`, a notch with Shift counting `shift_notches`.
-fn wheel_notches_of(ui: &Ui, id: egui::Id, hovered: bool, shift_notches: f32) -> f32 {
+pub(crate) fn wheel_notches_of(ui: &Ui, id: egui::Id, hovered: bool, shift_notches: f32) -> f32 {
     if !hovered {
         return 0.0;
     }

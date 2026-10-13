@@ -241,7 +241,7 @@ pub fn dispatch_pressed(app: &mut PhotocraftApp, ctx: &egui::Context, focus: Foc
             // panels instead, #1313): the shortcut took it, so cancel that move.
             ctx.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
         }
-        let id = delete_key_command(app, id);
+        let id = clip_key_command(app, delete_key_command(app, id));
         let owner = key_owner(app, ctx);
         dispatch(app, ctx, &id);
         ran = true;
@@ -282,6 +282,26 @@ fn delete_key_command(app: &PhotocraftApp, id: String) -> String {
         return id;
     }
     "layer.delete".into()
+}
+
+/// Create Clipping Mask's key (⌥⌘G) releases when there is nothing left to clip, as in Photoshop,
+/// whose Layer menu has one item that reads Create or Release Clipping Mask with the same
+/// shortcut: pressing it again takes the clip off. That is when the layers Create Clipping Mask
+/// would clip are all clipped already: the selected layer, or with several selected, every one
+/// above the lowest.
+pub(crate) fn clip_key_releases(app: &PhotocraftApp) -> bool {
+    let Some(st) = app.session.active() else { return false };
+    let selected = st.selected_layers();
+    let clips = match selected.as_slice() {
+        [] => return false,
+        [one] => std::slice::from_ref(one),
+        [_lowest, above @ ..] => above,
+    };
+    clips.iter().all(|id| st.doc.layer(*id).is_some_and(|l| l.clipped))
+}
+
+fn clip_key_command(app: &PhotocraftApp, id: String) -> String {
+    if id == "layer.createClippingMask" && clip_key_releases(app) { "layer.releaseClippingMask".into() } else { id }
 }
 
 /// Why `id` can't run now (the engine's reason when it has one).

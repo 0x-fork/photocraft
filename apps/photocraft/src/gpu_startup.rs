@@ -177,6 +177,12 @@ pub fn plan_with_mode(pref: GpuBackend, mode: RenderingMode, crashed: Option<&Ma
     plan(backend, crashed, env, safe_gpu, os)
 }
 
+/// Persist successful hardware fallbacks, but never silently pin CPU mode.
+/// The recovery dialog explicitly stores CPU mode when the user chooses it.
+pub fn backend_to_remember(plan: &Plan) -> Option<GpuBackend> {
+    (plan.remember && plan.backend != GpuBackend::Cpu).then_some(plan.backend)
+}
+
 /// Instance backends for `plan` (`None`: egui's default, which honours `WGPU_BACKEND`).
 pub fn backends(plan: &Plan, os: Os) -> Option<wgpu::Backends> {
     if plan.env.is_some() {
@@ -539,6 +545,27 @@ mod tests {
         assert_eq!(plan(Auto, None, Some("  "), false, Os::Windows).env, None);
         // --safe-gpu with the override: CPU canvas, the override's backends.
         assert_eq!(plan(Auto, None, Some("dx12"), true, Os::Windows).backend, Cpu);
+    }
+
+    /// #3483: A temporary CPU recovery must not change the next launch.
+    #[test]
+    fn cpu_recovery_requires_explicit_confirmation_to_persist() {
+        let gl_crash = crashed("gl", "gl");
+        let cpu = plan_with_mode(Auto, RenderingMode::Auto, Some(&gl_crash), None, false, Os::Other);
+        assert_eq!((cpu.backend, cpu.remember), (Cpu, true));
+        assert_eq!(backend_to_remember(&cpu), None);
+
+        let safe = plan_with_mode(Auto, RenderingMode::Auto, None, None, true, Os::Other);
+        assert_eq!(safe.backend, Cpu);
+        assert_eq!(backend_to_remember(&safe), None);
+        // An unconfirmed fallback leaves the original automatic selection intact.
+        assert_eq!(plan_with_mode(Auto, RenderingMode::Auto, None, None, false, Os::Other).backend, Auto);
+        // A working hardware fallback can still be remembered.
+        let vk_crash = crashed("auto", "vulkan");
+        let gl = plan_with_mode(Auto, RenderingMode::Auto, Some(&vk_crash), None, false, Os::Other);
+        assert_eq!(backend_to_remember(&gl), Some(Gl));
+        // CPU explicitly selected in preferences still works.
+        assert_eq!(plan_with_mode(Auto, RenderingMode::Cpu, None, None, false, Os::Other).backend, Cpu);
     }
 
     #[test]
