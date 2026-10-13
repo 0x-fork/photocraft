@@ -367,6 +367,7 @@
 	Update Modified Content	Ažuriraj izmenjeni sadržaj
 	Update All Modified Content	Ažuriraj sav izmenjeni sadržaj
 	Stack Mode	Režim steka
+	Choose Stack Mode:	Izaberite režim steka:
 	Entropy	Entropija
 	Kurtosis	Kurtozis
 	Maximum	Maksimum
@@ -850,6 +851,7 @@
 	Background	Pozadina
 	Background Color	Boja pozadine
 	Background Contents	Sadržaj pozadine
+	Custom background color	Prilagođena boja pozadine
 	Balance	Balans
 	Baseline	Osnovna linija
 	Baseline shift	Pomak osnovne linije

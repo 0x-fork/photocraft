@@ -503,6 +503,14 @@ pub fn initial_fields(layer: &Layer, select: Option<&str>, light: f32) -> Map<St
 }
 
 pub fn open(app: &mut PhotocraftApp, select: Option<&str>) -> Option<u64> {
+    // An open Free Transform box is applied first, as in Photoshop (#4821): the canvas shows the
+    // box's preview while it is open, so the dialog's preview would not show until Enter.
+    if app.ui.transform.is_some() {
+        crate::transform_tool::commit(app);
+        if app.ui.transform.is_some() && crate::transform_tool::committing(app).is_none() {
+            return None; // refused: the box stays open, with the reason in the status bar
+        }
+    }
     let st = app.session.active()?;
     let layer = st.doc.layer(st.active_layer?)?.clone();
     let light = st.doc.global_light.angle;

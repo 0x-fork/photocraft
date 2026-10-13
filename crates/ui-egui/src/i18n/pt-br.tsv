@@ -372,6 +372,7 @@
 	Update Modified Content	Atualizar conteúdo modificado
 	Update All Modified Content	Atualizar todo o conteúdo modificado
 	Stack Mode	Modo de pilha
+	Choose Stack Mode:	Escolher modo de pilha:
 	Entropy	Entropia
 	Kurtosis	Curtose
 	Maximum	Máximo
@@ -854,6 +855,7 @@
 	Background	Plano de fundo
 	Background Color	Cor de fundo
 	Background Contents	Conteúdo do plano de fundo
+	Custom background color	Cor de fundo personalizada
 	Balance	Equilíbrio
 	Baseline	Linha de base
 	Baseline shift	Deslocamento da linha de base

@@ -372,6 +372,7 @@
 	Update Modified Content	Gewijzigde inhoud bijwerken
 	Update All Modified Content	Alle gewijzigde inhoud bijwerken
 	Stack Mode	Stapelmodus
+	Choose Stack Mode:	Stapelmodus kiezen:
 	Entropy	Entropie
 	Kurtosis	Kurtosis
 	Maximum	Maximum
@@ -852,6 +853,7 @@
 	Background	Achtergrond
 	Background Color	Achtergrondkleur
 	Background Contents	Achtergrondinhoud
+	Custom background color	Aangepaste achtergrondkleur
 	Balance	Balans
 	Baseline	Basislijn
 	Baseline shift	Basislijnverschuiving

@@ -377,6 +377,7 @@
 	Update Modified Content	Mettre à jour le contenu modifié
 	Update All Modified Content	Mettre à jour tout le contenu modifié
 	Stack Mode	Mode de pile
+	Choose Stack Mode:	Choisir le mode de pile :
 	Entropy	Entropie
 	Kurtosis	Kurtosis
 	Maximum	Maximum
@@ -860,6 +861,7 @@
 	Background	Arrière-plan
 	Background Color	Couleur d'arrière-plan
 	Background Contents	Contenu de l'arrière-plan
+	Custom background color	Couleur d'arrière-plan personnalisée
 	Balance	Balance
 	Baseline	Ligne de base
 	Baseline shift	Décalage de la ligne de base
