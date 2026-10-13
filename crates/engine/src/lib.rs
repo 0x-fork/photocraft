@@ -76,6 +76,7 @@ pub mod multichannel_cmds;
 pub mod new_layer;
 pub mod notes_cmds;
 pub mod paint_cmds;
+mod param_check;
 mod path_edit_cmds;
 pub mod pattern_cmds;
 pub mod pattern_fill_cmds;
@@ -432,6 +433,9 @@ pub struct Session {
     pub link_scan: Option<link_watch::LinkScan>,
     /// Select Subject's last result, reused while the pixels are unchanged (#2865).
     subject_cache: smartselect_cmds::SubjectCache,
+    /// Object Selection's Object Finder results (#4087), shared by the hover preview and the
+    /// click that commits it; valid while the pixels are unchanged.
+    pub object_finder: smartselect_cmds::ObjectFinderCache,
     /// A finished live stroke offered to the `paint.stroke` / `paint.pencil` that commits it
     /// ([`Session::offer_live_stroke`]).
     pub(crate) live_commit: Option<brush_cmds::LiveCommit>,
@@ -528,6 +532,7 @@ impl Session {
         if let Some(id) = self.docs.get(index).map(|d| d.doc.id) {
             self.cancel_jobs_on(id);
             self.subject_cache.forget_doc(id);
+            self.object_finder.forget_doc(id);
         }
         let d = self.docs.remove(index);
         self.active = if self.docs.is_empty() {
@@ -567,6 +572,15 @@ impl Session {
         Ok(())
     }
 
+    /// [`Self::offer_live_stroke`] for a live Clone Stamp or History Brush stroke, taken by the
+    /// `paint.cloneStamp` / `paint.historyBrush` it was drawn for. Refused for the Healing Brush
+    /// (it blends on release) and when the brush, layer or clone source changed during the stroke.
+    pub fn offer_live_retouch(&mut self, live: retouch_cmds::LiveRetouch) -> Result<()> {
+        let commit = live.into_commit(self)?;
+        self.live_commit = Some(commit);
+        Ok(())
+    }
+
     /// Withdraw an offer the command didn't take.
     pub fn clear_live_stroke(&mut self) {
         self.live_commit = None;
@@ -599,6 +613,10 @@ impl Session {
     fn precondition(&self, spec: &commands::CommandSpec, params: &Value) -> std::result::Result<(), String> {
         if self.names_existing_layer(spec.id, params) {
             return Ok(());
+        }
+        // `ifPresent`: with no Background there is nothing to do, which isn't an error.
+        if spec.id == "layer.new.layerFromBackground" && params.get("ifPresent").and_then(Value::as_bool) == Some(true) {
+            return self.active().map(|_| ()).ok_or_else(|| "no document open".into());
         }
         channel_cmds::mask_target_enabled(self, spec.id, params).unwrap_or_else(|| (spec.enabled)(self))
     }
@@ -692,6 +710,7 @@ impl Session {
         if damage.is_none_or(|d| !d.is_empty()) {
             // Free the mask early; a stale entry would only miss (it is keyed by pixels).
             self.subject_cache = Default::default();
+            self.object_finder = Default::default();
         }
         Ok(r)
     }

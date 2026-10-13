@@ -12,7 +12,17 @@
 # Product and technology names (PhotoCraft, ArtCraft, OpenType, CMYK, Lab ...) stay in Latin
 # letters; the trailing … of dialog commands is kept.
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	Colore canale
+	Color Indicates:	Il colore indica:
+	Solidity:	Solidità:
+	Ink Characteristics	Caratteristiche inchiostro
+
 # Guide layout dialog
+
+# Custom print paper (#3820)
+	Paper Width	Larghezza della carta
+	Paper Height	Altezza della carta
 	Columns	Colonne
 	Rows	Righe
 	Number	Numero
@@ -70,6 +80,8 @@
 	Save	Salva
 	Save As…	Salva con nome…
 	Save a Copy…	Salva una copia…
+	{name} can't keep everything in this document	{name} non può conservare tutto il contenuto di questo documento
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	Scegli un formato che conservi tutto, come Photoshop (PSD), oppure salva una copia.
 	Revert	Ripristina
 	Export	Esporta
 	Quick Export as PNG	Esportazione rapida come PNG
@@ -107,6 +119,13 @@
 	Script Events Manager…	Gestore eventi script…
 	Import	Importa
 	Browse…	Sfoglia…
+	Source Files	File di origine
+	Use:	Usa:
+	Files	File
+	Add Open Files	Aggiungi file aperti
+	Sort By Name	Ordina per nome
+	Attempt to Automatically Align Source Images	Prova ad allineare automaticamente le immagini di origine
+	Create Smart Object after Loading Layers	Crea oggetto avanzato dopo il caricamento dei livelli
 	Reveal in Finder	Mostra nel Finder
 	Show in Explorer	Mostra in Esplora file
 	Show in Folder	Mostra nella cartella
@@ -131,6 +150,8 @@
 	Search…	Cerca…
 	Check Spelling…	Controlla ortografia…
 	Find and Replace Text…	Trova e sostituisci testo…
+	Add to Dictionary	Aggiungi al dizionario
+	No Spelling Suggestions	Nessun suggerimento ortografico
 	Fill…	Riempi…
 	Stroke…	Traccia…
 	Content-Aware Fill…	Riempimento in base al contenuto…
@@ -145,6 +166,8 @@
 	Transform Again on a Copy	Trasforma di nuovo su una copia
 	Scale	Scala
 	Rotate	Ruota
+	Set horizontal skew	Imposta inclinazione orizzontale
+	Set vertical skew	Imposta inclinazione verticale
 	Skew	Inclina
 	Distort	Distorci
 	Perspective	Prospettiva
@@ -724,6 +747,10 @@
 	Breeze Dark Theme	Tema Breeze scuro
 	Breeze light	Breeze chiaro
 	Breeze Light Theme	Tema Breeze chiaro
+	Soft dark	Morbido scuro
+	Soft light	Morbido chiaro
+	Soft Dark Theme	Tema morbido scuro
+	Soft Light Theme	Tema morbido chiaro
 	Next Theme	Tema successivo
 	Actions	Azioni
 	Brush Settings	Impostazioni pennello
@@ -824,6 +851,9 @@
 	Appearance	Aspetto
 	Appearance (Layer Style)	Aspetto (stile livello)
 	Apply Layer Mask	Applica maschera di livello
+	Add Mask to Selection	Aggiungi maschera alla selezione
+	Subtract Mask from Selection	Sottrai maschera dalla selezione
+	Intersect Mask with Selection	Interseca maschera con la selezione
 	Apply Per Tip	Applica per punta
 	Apply next selected layer comp	Applica composizione livelli successiva selezionata
 	Apply previous selected layer comp	Applica composizione livelli precedente selezionata
@@ -844,6 +874,12 @@
 	Baseline shift	Scostamento linea base
 	Basic	Base
 	Before (Y)	Prima (Y)
+	Save Settings…	Salva impostazioni…
+	Load Settings…	Carica impostazioni…
+	Save these settings as a Camera Raw .xmp file	Salva queste impostazioni come file .xmp di Camera Raw
+	Load settings from a Camera Raw .xmp file	Carica le impostazioni da un file .xmp di Camera Raw
+	Loaded Camera Raw settings from {file}	Impostazioni Camera Raw caricate da {file}
+	Loaded Camera Raw settings from {file} ({n} not supported)	Impostazioni Camera Raw caricate da {file} ({n} non supportate)
 	Begin recording	Inizia registrazione
 	Bend:	Curvatura:
 	Bicubic	Bicubica
@@ -1147,6 +1183,9 @@
 	Ignore All	Ignora tutto
 	Image Size	Dimensione immagine
 	Import Brushes…	Importa pennelli…
+	Gradient Preset Options	Opzioni predefiniti sfumatura
+	Import .GRD	Importa .GRD
+	Choose a gradient file (.grd).	Scegli un file di sfumature (.grd).
 	Import brushes (.abr)	Importa pennelli (.abr)
 	Import Presets	Importa predefiniti
 	Imported	Importato
@@ -2084,6 +2123,11 @@
 	Rename Brush…	Rinomina pennello…
 	Delete Brush	Elimina pennello
 	New Brush Preset…	Nuovo predefinito pennello…
+	Capture Brush Size in Preset	Acquisisci dimensione pennello nel predefinito
+	Include Tool Settings	Includi impostazioni strumento
+	Include Color	Includi colore
+	Enter a name for the brush preset	Immetti un nome per il predefinito pennello
+	A brush preset with this name already exists	Esiste già un predefinito pennello con questo nome
 	Brush Preset Options	Opzioni predefiniti pennello
 	Group name	Nome gruppo
 	Brush name	Nome pennello
@@ -2395,6 +2439,7 @@ cameraRaw	Amount	Quantità
 	Click to pick · Esc to cancel	Clic per scegliere · Esc per annullare
 	Pick a screen pixel or press Esc to cancel	Scegli un pixel dello schermo o premi Esc per annullare
 	Scroll to zoom	Scorri per ingrandire
+	Drag to pan · Scroll to zoom · Double-click to fit	Trascina per spostare · Scorri per ingrandire · Doppio clic per adattare
 	Show/Hide All Panels	Mostra/nascondi tutti i pannelli
 	Show/Hide Panels	Mostra/nascondi pannelli
 	Could not open	Impossibile aprire
@@ -4002,6 +4047,7 @@ layerLabel	No Color	Nessun colore
 	gradients	sfumature
 @plural	Imported {n} brush from {file}|Imported {n} brushes from {file}	{n} pennello importato da {file}|{n} pennelli importati da {file}
 @plural	Imported {n} gradient from {file}|Imported {n} gradients from {file}	{n} sfumatura importata da {file}|{n} sfumature importate da {file}
+@plural	Imported {n} pattern from {file}|Imported {n} patterns from {file}	{n} pattern importato da {file}|{n} pattern importati da {file}
 	Data Set: {name}  ({index}/{total})	Set di dati: {name}  ({index}/{total})
 	(none)	(nessuno)
 navigator	Zoom	Zoom
@@ -4013,9 +4059,14 @@ navigator	Zoom	Zoom
 	{index} of {total}	{index} di {total}
 	{shortcut} assigned.	{shortcut} assegnata.
 	{shortcut} is already in use by {commands} and will be removed from it when you click OK.	{shortcut} è già usata da {commands} e verrà rimossa quando fai clic su OK.
+	Object Finder	Ricerca oggetti
+	No object found there — drag a rectangle around it	Nessun oggetto trovato lì: trascina un rettangolo intorno
 	Remove after each stroke	Rimuovi dopo ogni tratto
 	Apply the removal ({key})	Applica la rimozione ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Tratti da rimuovere: {n} (Invio applica, Esc annulla)
+	Clear Brush Controls	Cancella controlli pennello
+	Reset All Locked Settings	Ripristina tutte le impostazioni bloccate
+	Copy Texture to Other Tools	Copia texture su altri strumenti
 
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Carica azioni…
@@ -4037,3 +4088,5 @@ navigator	Zoom	Zoom
 	Action playback stopped	Esecuzione dell’azione interrotta
 	Step {step} is waiting for its dialog	Il passaggio {step} attende la sua finestra di dialogo
 @plural	{n} action|{n} actions	{n} azione|{n} azioni
+	Auto Add/Delete	Aggiungi/elimina automaticamente
+	ICO is limited to 256 × 256 pixels	ICO è limitato a 256 × 256 pixel

@@ -53,6 +53,9 @@ codec_rt!(tiff_gray8, "tiff", ColorMode::Grayscale, SampleType::U8, false, 0.0);
 codec_rt!(fits_rgb8, "fits", ColorMode::Rgb, SampleType::U8, false, 0.0);
 codec_rt!(fits_gray16, "fit", ColorMode::Grayscale, SampleType::U16, false, 0.0);
 codec_rt!(fits_rgb32, "fits", ColorMode::Rgb, SampleType::F32, false, 0.0);
+codec_rt!(dpx_gray8, "dpx", ColorMode::Grayscale, SampleType::U8, false, 0.0);
+codec_rt!(dpx_rgb16, "dpx", ColorMode::Rgb, SampleType::U16, false, 0.0);
+codec_rt!(dpx_rgba16, "dpx", ColorMode::Rgb, SampleType::U16, true, 0.0);
 
 fn indexed_bmp_8() -> Vec<u8> {
     const FILE_HEADER_SIZE: usize = 14;
@@ -109,6 +112,25 @@ fn fits_header_cards_round_trip_as_text() {
     for kv in &d.metadata.text {
         assert!(back.metadata.text.contains(kv), "{kv:?}: {:?}", back.metadata.text);
     }
+}
+
+/// DPX header fields travel as the document's text metadata and come back on a DPX export at the
+/// chosen bit depth; the transfer characteristic is reported when the frame is opened (#1049).
+#[test]
+fn dpx_header_fields_and_encoding_notes_round_trip_through_the_document() {
+    let mut d = single(ColorMode::Rgb, SampleType::U16, false);
+    d.metadata.text = vec![("DPX:Project".into(), "Reel 7".into()), ("DPX:Transfer".into(), "3".into()), ("DPX:TimeCode".into(), "01:00:00:12".into())];
+    let mut opts = ExportOptions::default();
+    opts.encode.dpx_bits = Some(DpxBits::Bits10);
+    let r = export(&d, "a.dpx", &opts).unwrap();
+    assert!(r.bytes.starts_with(b"SDPX"));
+    assert_eq!(r.bytes[803], 10, "bits per sample");
+    let back = import("a.dpx", &r.bytes).unwrap();
+    for kv in &d.metadata.text {
+        assert!(back.document.metadata.text.contains(kv), "{kv:?}: {:?}", back.document.metadata.text);
+    }
+    assert!(back.warnings.iter().any(|w| w.contains("transfer characteristic: logarithmic (3)")), "{:?}", back.warnings);
+    assert_eq!(back.document.depth, SampleType::U16);
 }
 
 /// EXR stores linear light: a linear document round-trips exactly; an sRGB (untagged) one is

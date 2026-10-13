@@ -292,6 +292,38 @@ fn bitmap_methods_need_grayscale() {
 }
 
 #[test]
+fn bitmap_halftone_rejects_bad_angles_and_frequencies_without_editing_the_document() {
+    // Photoshop's Halftone Screen takes an angle in -180..180 degrees (#4214): 1e39 used to become
+    // inf, then NaN in the screen rotation, and an almost white bitmap landed in history.
+    let mut s = session(16, 16, 8, "grayscale");
+    let before = s.active().unwrap().history.past_len();
+    let bad = [
+        ("angle", json!(1e39)),
+        ("angle", json!(500)),
+        ("angle", json!(-181)),
+        ("angle", json!(180.01)),
+        ("angle", json!("x")),
+        ("frequency", json!("x")),
+        ("frequency", json!(true)),
+    ];
+    for (key, value) in bad {
+        let mut p = json!({"method": "halftone"});
+        p[key] = value.clone();
+        assert!(s.execute("image.mode.bitmap", p).is_err(), "{key}: {value}");
+        assert_eq!(s.active().unwrap().history.past_len(), before, "{key}: {value}");
+        assert_eq!(doc(&s).mode, ColorMode::Grayscale, "{key}: {value}");
+    }
+    for angle in [-180.0, 30.0, 180.0] {
+        s.execute("image.mode.bitmap", json!({"method": "halftone", "angle": angle})).unwrap();
+        assert_eq!(doc(&s).mode, ColorMode::Bitmap, "{angle}");
+        s.execute("edit.undo", json!({})).unwrap();
+    }
+    // Frequency stays clamped to the documented 1..999 lines/inch.
+    s.execute("image.mode.bitmap", json!({"method": "halftone", "frequency": 1e39})).unwrap();
+    assert_eq!(doc(&s).mode, ColorMode::Bitmap);
+}
+
+#[test]
 fn duotone_inks_and_display() {
     let mut s = session(16, 8, 8, "gray");
     paint(&mut s, |x, _| [x as f32 / 15.0; 4].map(|v| v.min(1.0)));
