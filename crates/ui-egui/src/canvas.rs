@@ -1189,6 +1189,54 @@ fn navigator_waits_for_drag(app: &PhotocraftApp, idx: usize) -> bool {
 /// The Navigator panel's image of document `idx`. With the CPU canvas that is the canvas texture
 /// itself; with the GPU canvas a thumbnail cached per revision, so an edit to a huge document
 /// doesn't also pay a full-resolution CPU composite for the navigator.
+/// The Navigator's preview from the GPU canvas (#4518): the main canvas's texture of the
+/// document, drawn at `rect` with its own mip chain, so an edit costs no CPU composite. `None`
+/// while the canvas isn't showing the plain document on the GPU (the CPU thumbnail then).
+pub fn navigator_gpu_view(app: &PhotocraftApp, idx: usize, rect: Rect, ctx: &egui::Context) -> Option<crate::gpu_canvas::ViewParams> {
+    app.gpu.as_ref()?;
+    let st = app.session.documents().get(idx)?;
+    let params = *app.navigator_gpu.get(&st.doc.id)?;
+    let [w, h] = params.doc_size;
+    if w == 0 || h == 0 || !rect.is_positive() || [st.doc.size.width, st.doc.size.height] != params.doc_size {
+        return None;
+    }
+    Some(crate::gpu_canvas::ViewParams {
+        zoom: rect.width() / w as f32,
+        center: [w as f32 / 2.0, h as f32 / 2.0],
+        rotation: 0.0,
+        shadow: false,
+        pixel_grid: false,
+        view_key: egui::Id::new(("pc-navigator", ctx.viewport_id(), idx)).value(),
+        offset: [0.0, 0.0],
+        ..params
+    })
+}
+
+/// Frames the Navigator waits for the GPU canvas to draw a document it hasn't drawn yet, rather
+/// than build a CPU thumbnail it would only use once (a full composite on a large document).
+const NAVIGATOR_WAIT_FRAMES: u32 = 3;
+
+/// Whether the Navigator should wait a frame for the GPU canvas (#4518): the GPU canvas is on but
+/// hasn't drawn document `idx` yet (the Navigator can draw before the canvas in a frame). After
+/// [`NAVIGATOR_WAIT_FRAMES`] it stops waiting, so it never stays empty.
+pub fn navigator_waits_for_gpu(app: &PhotocraftApp, idx: usize, ctx: &egui::Context) -> bool {
+    if app.gpu.is_none() {
+        return false;
+    }
+    let Some(id) = app.session.documents().get(idx).map(|st| st.doc.id) else { return false };
+    if app.canvases.keys().any(|(d, _)| *d == id) {
+        return false;
+    }
+    let key = egui::Id::new(("navigator-waits", id.0));
+    let waited = ctx.data(|d| d.get_temp::<u32>(key)).unwrap_or(0);
+    if waited >= NAVIGATOR_WAIT_FRAMES {
+        return false;
+    }
+    ctx.data_mut(|d| d.insert_temp(key, waited + 1));
+    ctx.request_repaint();
+    true
+}
+
 pub fn navigator_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize) -> Option<egui::TextureId> {
     if app.gpu.is_none() {
         return ensure_texture(app, ctx, idx, app.session.color.main_display).map(|(t, _)| t);
@@ -1463,6 +1511,14 @@ fn ensure_gpu(app: &mut PhotocraftApp, idx: usize, visible: DRect) -> bool {
         damage = Some(crate::adjust_preview::switch_damage(app, raw_key, r, visible));
     }
     let preview_key = raw_key ^ display_key;
+    // The Navigator may draw this texture only while it holds the plain document (no live
+    // preview, which can be composited only where the view is).
+    if raw_key == 0 {
+        app.navigator_plain.insert(id);
+    } else {
+        app.navigator_plain.remove(&id);
+        app.navigator_gpu.remove(&id);
+    }
     let size = [doc.size.width, doc.size.height];
     let cache = app.canvases.entry((id, GPU_OUTPUT)).or_insert(CanvasCache {
         revision: 0,
@@ -1599,16 +1655,24 @@ pub(crate) fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize, ctx: &e
         let fresh = app.filter_preview.as_ref().is_some_and(|p| p.key == request);
         if !fresh && !app.filter_preview_worker.busy() {
             let doc = app.session.documents().get(idx)?.doc.clone();
+            let documents: Vec<_> = app.session.documents().iter().map(|d| d.doc.clone()).collect();
             let task = request.clone();
             if let Err(error) = app.filter_preview_worker.start(request.clone(), ctx.clone(), move |cancel| {
                 let t0 = crate::gpu_canvas::now_ms();
-                let result =
-                    crate::filter_dialog::preview_document_for_target(&doc, task.active, &task.command, &task.params, task.k, Some(cancel), task.target).map(
-                        |doc| {
-                            let buffer = photocraft_compose::flatten(&doc);
-                            (std::sync::Arc::new(doc), buffer)
-                        },
-                    );
+                let result = crate::filter_dialog::preview_document_for_target(
+                    &doc,
+                    task.active,
+                    &task.command,
+                    &task.params,
+                    task.k,
+                    Some(cancel),
+                    task.target,
+                    &documents,
+                )
+                .map(|doc| {
+                    let buffer = photocraft_compose::flatten(&doc);
+                    (std::sync::Arc::new(doc), buffer)
+                });
                 crate::filter_preview_worker::Computed { result, ms: crate::gpu_canvas::now_ms() - t0 }
             }) {
                 app.filter_preview = Some(crate::filter_dialog::FilterPreview { key: request.clone(), result: None, committing: false });
@@ -1639,10 +1703,19 @@ pub(crate) fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize, ctx: &e
     let _ = ctx;
     if app.filter_preview.as_ref().is_none_or(|p| p.key != request) {
         let doc = app.session.documents().get(idx)?.doc.clone();
+        let documents: Vec<_> = app.session.documents().iter().map(|d| d.doc.clone()).collect();
         let t0 = crate::gpu_canvas::now_ms();
-        let result =
-            crate::filter_dialog::preview_document_for_target(&doc, request.active, &request.command, &request.params, request.k, None, request.target)
-                .map(std::sync::Arc::new);
+        let result = crate::filter_dialog::preview_document_for_target(
+            &doc,
+            request.active,
+            &request.command,
+            &request.params,
+            request.k,
+            None,
+            request.target,
+            &documents,
+        )
+        .map(std::sync::Arc::new);
         if let Some(r) = &result {
             let buf = photocraft_compose::flatten(r);
             let t1 = crate::gpu_canvas::now_ms();
@@ -2777,6 +2850,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 ensure_adjust_proxy(app, idx, view.zoom).or_else(|| ensure_filter_preview(app, idx, &ctx)).or_else(|| ensure_proxy_preview(app, idx))
         {
             on_gpu = true;
+            app.navigator_gpu.remove(&doc.id);
             let original_size = [doc.size.width.div_ceil(k), doc.size.height.div_ceil(k)];
             let params = crate::gpu_canvas::ViewParams {
                 doc: key,
@@ -2821,8 +2895,14 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 hdr: hdr_preview(app, &doc),
                 offset: [0.0, 0.0],
             };
+            if app.navigator_plain.contains(&doc.id) {
+                app.navigator_gpu.insert(doc.id, params);
+            } else {
+                app.navigator_gpu.remove(&doc.id);
+            }
             paint_gpu_view(&painter, rect, params, &pattern);
         } else {
+            app.navigator_gpu.remove(&doc.id);
             if !crate::theme::Tokens::get(&ctx).bevel && drop_shadow {
                 painter.add(egui::Shadow { offset: [0, 8], blur: 28, spread: 0, color: Color32::from_black_alpha(150) }.as_shape(img_rect, 0));
             }
@@ -3563,6 +3643,8 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 let toward = xf.to_screen((d[0] + k[0] * 16.0) as f32, (d[1] + k[1] * 16.0) as f32) - p;
                 crate::crop_ui::draw_turn_cursor(&ctx, p, toward);
             }
+        } else if let Some(c) = response.hover_pos().and_then(|p| crate::symmetry_ui::cursor(app, &xf, xf.to_doc(p))) {
+            ui.ctx().set_cursor_icon(c);
         } else if let Some(c) = response.hover_pos().and_then(|p| crate::cam_transform::cursor(app, &ctx, &xf, p)) {
             ui.ctx().set_cursor_icon(c);
         } else if let Some((r, p, c)) =
@@ -3740,13 +3822,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 // Dragging is handled with the pan itself, above.
                 Tool::Hand => crate::tool_cursor::hand(ui.ctx(), false),
                 Tool::RotateView => crate::rotate_view::cursor(response.dragged()),
-                Tool::Zoom => {
-                    if zoom_out(alt) {
-                        egui::CursorIcon::ZoomOut
-                    } else {
-                        egui::CursorIcon::ZoomIn
-                    }
-                }
+                Tool::Zoom => crate::tool_cursor::zoom(ui.ctx(), zoom_out(alt)),
                 Tool::Type | Tool::VerticalType | Tool::HorizontalTypeMask | Tool::VerticalTypeMask => egui::CursorIcon::Text,
                 Tool::MagneticLasso => crate::magnetic_lasso_ui::cursor(app, &painter, p, xf.zoom),
                 Tool::RedEye => {
@@ -5511,6 +5587,7 @@ fn polygon_click(app: &mut PhotocraftApp, x: f64, y: f64, mods: egui::Modifiers)
         return;
     }
     if app.ui.polygon.is_empty() {
+        app.ui.polygon_doc = app.session.active().map(|st| st.doc.id);
         // ⌥ with nothing selected draws freehand; there is nothing to subtract from.
         let nothing_selected = app.session.active().is_none_or(|st| st.doc.selection.is_none());
         let intent = if nothing_selected { egui::Modifiers { alt: false, ..mods } } else { mods };
@@ -5532,6 +5609,22 @@ pub fn polygon_retract(app: &mut PhotocraftApp) -> bool {
         app.ui.polygon_mode.clear();
     }
     true
+}
+
+/// The polygon in progress belongs to the document it was started on (`UiState::polygon_doc`):
+/// once another document becomes active it is dropped, so its outline doesn't show on (or get
+/// committed to) the other document, and the selection it would have replaced is shown again.
+/// Switching tools is handled in `PhotocraftApp::sync_views`. Like the Lasso's
+/// ([`crate::lasso_ui::cancel_stale`]) and the Magnetic Lasso's ([`crate::magnetic_lasso_ui::frame`]).
+pub fn polygon_cancel_stale(app: &mut PhotocraftApp) {
+    let active = app.session.active().map(|st| st.doc.id);
+    if app.ui.polygon.is_empty() {
+        app.ui.polygon_doc = None;
+    } else if app.ui.polygon_doc.is_some_and(|d| Some(d) != active) {
+        app.ui.polygon.clear();
+        app.ui.polygon_mode.clear();
+        app.ui.polygon_doc = None;
+    }
 }
 
 /// A new-selection polygonal (or magnetic) lasso is being drawn, so the selection it will replace

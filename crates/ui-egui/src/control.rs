@@ -872,6 +872,23 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
             wrap(crate::workspace_ui::confirm(app, ctx))
         }
         "ui.dialog.apply" if s("dialog") == Some(SHELL_DIALOG) => err("`ui.dialog.apply` is for Preferences; use `ui.dialog.confirm`"),
+        // The unsaved-changes prompt (closing, Revert, quitting), listed by ui.inspect with the
+        // id "discard" (#4920): confirm takes a `choice` (save, dontSave, cancel; default save).
+        "ui.dialog.confirm" if s("dialog") == Some(crate::discard_ui::CONTROL_ID) => {
+            let choice = s("choice").unwrap_or("save");
+            if choice != "cancel"
+                && let Some((command, params)) = crate::discard_ui::pending_command(app)
+                && let Some(authorize) = app.services.automation_command.as_ref()
+                && let Err(error) = authorize(&command, &params)
+            {
+                return err(error);
+            }
+            wrap(crate::discard_ui::answer_control(app, ctx, choice))
+        }
+        "ui.dialog.cancel" if s("dialog") == Some(crate::discard_ui::CONTROL_ID) => wrap(crate::discard_ui::answer_control(app, ctx, "cancel")),
+        "ui.dialog.set" | "ui.dialog.apply" if s("dialog") == Some(crate::discard_ui::CONTROL_ID) => {
+            err("the unsaved-changes prompt has no fields; use `ui.dialog.confirm` with a `choice`")
+        }
         "ui.dialog.cancel" if s("dialog") == Some(SHELL_DIALOG) => match app.ui.shell.dialog.take() {
             Some(_) => ok(Value::Null),
             None => err("no such dialog"),
@@ -1242,6 +1259,7 @@ pub fn inspect(app: &PhotocraftApp, ctx: &egui::Context) -> Value {
     if let Some((kind, fields)) = &app.ui.shell.dialog {
         dialogs.push(json!({"id": SHELL_DIALOG, "kind": kind, "title": crate::workspace_ui::title(kind), "fields": fields}));
     }
+    dialogs.extend(crate::discard_ui::inspect(app));
     json!({
         "window": {"width": screen.width(), "height": screen.height(), "pixelsPerPoint": ctx.pixels_per_point()},
         "tool": app.ui.tool,
@@ -1552,6 +1570,47 @@ mod tests {
         assert_eq!(call(&mut app, &ctx, "ui.set", json!({"shapeStroke":{"colour":"#ff0000"}}))["ok"], false);
         assert_eq!(call(&mut app, &ctx, "ui.set", json!({"shapeStroke":null}))["ok"], true);
         assert_eq!(app.ui.tool_options.stroke_width, 0.0);
+    }
+
+    #[test]
+    fn the_unsaved_changes_prompt_is_listed_and_answered_through_ui_dialog() {
+        // #4920: the prompt shown on quit or close with unsaved changes wasn't in ui.inspect, and a
+        // control client couldn't answer it.
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        for _ in 0..2 {
+            app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+            app.run("layer.new.layer", json!({})).unwrap();
+        }
+        let prompt = |app: &mut PhotocraftApp| {
+            let v = call(app, &ctx, "ui.inspect", json!({}));
+            v["result"]["dialogs"].as_array().unwrap().iter().find(|d| d["id"] == "discard").cloned()
+        };
+        assert!(prompt(&mut app).is_none());
+        // Closing a dirty document: listed with its choices; a bad choice and Cancel keep the document.
+        crate::menus::invoke(&mut app, &ctx, "file.close", json!({})).unwrap();
+        let d = prompt(&mut app).expect("the prompt is listed");
+        assert_eq!(d["fields"]["command"], "file.close");
+        assert_eq!(d["fields"]["choices"], json!(["save", "dontSave", "cancel"]));
+        assert_eq!(call(&mut app, &ctx, "ui.dialog.confirm", json!({"dialog": "discard", "choice": "maybe"}))["ok"], false);
+        assert_eq!(call(&mut app, &ctx, "ui.dialog.set", json!({"dialog": "discard", "field": "x", "value": 1}))["ok"], false);
+        assert_eq!(call(&mut app, &ctx, "ui.dialog.cancel", json!({"dialog": "discard"}))["ok"], true);
+        assert!(prompt(&mut app).is_none() && app.session.documents().len() == 2);
+        assert_eq!(call(&mut app, &ctx, "ui.dialog.cancel", json!({"dialog": "discard"}))["ok"], false, "nothing left to answer");
+        // Don't Save closes it.
+        crate::menus::invoke(&mut app, &ctx, "file.close", json!({})).unwrap();
+        assert_eq!(call(&mut app, &ctx, "ui.dialog.confirm", json!({"dialog": "discard", "choice": "dontSave"}))["ok"], true);
+        assert_eq!(app.session.documents().len(), 1);
+        // Quitting asks about each dirty document, then lets the window close.
+        app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        app.run("layer.new.layer", json!({})).unwrap();
+        assert!(crate::discard_ui::intercept(&mut app, "file.exit", &Value::Null));
+        let d = prompt(&mut app).expect("the quit prompt is listed");
+        assert_eq!((d["fields"]["command"].as_str(), d["fields"]["remaining"].as_u64()), (Some("file.exit"), Some(2)));
+        assert_eq!(call(&mut app, &ctx, "ui.dialog.confirm", json!({"dialog": "discard", "choice": "dontSave"}))["result"]["open"], true);
+        assert_eq!(prompt(&mut app).unwrap()["fields"]["remaining"], 1);
+        assert_eq!(call(&mut app, &ctx, "ui.dialog.confirm", json!({"dialog": "discard", "choice": "dontSave"}))["result"]["open"], false);
+        assert!(app.allow_close && app.session.documents().is_empty());
     }
 
     #[test]

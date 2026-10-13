@@ -502,6 +502,11 @@ pub struct PhotocraftApp {
     /// `canvas::display_doc`'s live-adjust and Duotone documents per document: (snapshot,
     /// preview key, the document shown).
     display_memo: HashMap<DocId, (std::sync::Weak<Document>, u64, std::sync::Arc<Document>)>,
+    /// The main canvas's last GPU view of each document while it shows the plain document on
+    /// the GPU canvas: the Navigator draws the same texture at its own size (#4518).
+    navigator_gpu: HashMap<DocId, crate::gpu_canvas::ViewParams>,
+    /// Documents whose GPU canvas texture holds the plain document (`canvas::ensure_gpu`).
+    navigator_plain: std::collections::HashSet<DocId>,
     /// Display profile readings (#569).
     monitors: monitor_status::State,
     checker: Option<egui::TextureHandle>,
@@ -755,6 +760,8 @@ impl PhotocraftApp {
             canvases: HashMap::new(),
             navigator_textures: HashMap::new(),
             display_memo: HashMap::new(),
+            navigator_gpu: HashMap::new(),
+            navigator_plain: std::collections::HashSet::new(),
             monitors: Default::default(),
             checker: None,
             drag: None,
@@ -1116,6 +1123,8 @@ impl PhotocraftApp {
             self.ui.polygon.clear();
             self.ui.polygon_mode.clear();
         }
+        // ... and to the document it was started on.
+        crate::canvas::polygon_cancel_stale(self);
         crate::crop_ui::cancel_stale(self);
         let ids: Vec<DocId> = self.session.documents().iter().map(|d| d.doc.id).collect();
         // Where the document of view `i` is now. Views not tracked yet keep their index.
@@ -2434,6 +2443,9 @@ impl PhotocraftApp {
         true
     }
 }
+
+#[cfg(test)]
+mod navigator_gpu_tests;
 
 #[cfg(test)]
 mod color_swatch_tests;

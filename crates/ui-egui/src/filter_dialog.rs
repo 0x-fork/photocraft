@@ -837,10 +837,13 @@ pub fn preview_document_with(
     k: u32,
     cancel: Option<&photocraft_engine::jobs::JobCtx>,
 ) -> Option<Document> {
-    preview_document_for_target(doc, active, command, params, k, cancel, photocraft_engine::channel_cmds::ChannelTarget::Composite)
+    preview_document_for_target(doc, active, command, params, k, cancel, photocraft_engine::channel_cmds::ChannelTarget::Composite, &[])
 }
 
 /// Run the preview with the same pixel target as the final command, including individual channels.
+/// `documents` are the open documents in session order: document params (Match Color's Source,
+/// Displace's map) index into them.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn preview_document_for_target(
     doc: &Document,
     active: Option<photocraft_doc::LayerId>,
@@ -849,6 +852,7 @@ pub(crate) fn preview_document_for_target(
     k: u32,
     cancel: Option<&photocraft_engine::jobs::JobCtx>,
     target: photocraft_engine::channel_cmds::ChannelTarget,
+    documents: &[Arc<Document>],
 ) -> Option<Document> {
     if command == crate::select_mask_view::COMMAND {
         return crate::select_mask_view::preview_document(doc, active, params, k, cancel);
@@ -859,12 +863,14 @@ pub(crate) fn preview_document_for_target(
     let proxy = crate::proxy::proxy_document(doc, run_k);
     let mut s = photocraft_engine::Session::new();
     s.set_inline_job_ctx(cancel.cloned());
+    let doc_id = proxy.id;
     s.add_document(proxy, None);
+    let mut p = params.clone();
+    add_source_documents(&mut s, doc_id, command, &mut p, documents, run_k);
     if let Some(id) = active {
         s.select_layer(id).ok()?;
     }
     s.active_mut()?.channel_view.target = target;
-    let mut p = params.clone();
     if run_k > 1
         && let Some(o) = p.as_object_mut()
     {
@@ -889,6 +895,34 @@ pub(crate) fn preview_document_for_target(
     }
     s.execute(command, p).ok()?;
     s.active().map(|d| crate::proxy::proxy_document(&d.doc, reduce_k))
+}
+
+/// The preview session holds only the proxy of the edited document (index 0), so a document param
+/// pointing at another open document found nothing there: Match Color's preview with a Source
+/// document failed, or matched the image to itself (#4851). Add each referenced document (as a
+/// proxy at the same factor) and point the param at its index in the preview session.
+fn add_source_documents(s: &mut photocraft_engine::Session, doc_id: photocraft_doc::DocId, command: &str, p: &mut Value, documents: &[Arc<Document>], k: u32) {
+    let Some(spec) = photocraft_engine::commands::find(command) else { return };
+    let Some(o) = p.as_object_mut() else { return };
+    let mut added: Vec<(usize, usize)> = Vec::new();
+    for param in parse_spec(spec.params).into_iter().filter(|p| p.kind == Kind::Document) {
+        let Some(v) = o.get_mut(&param.key) else { continue };
+        let Some(i) = v.as_u64().and_then(|i| usize::try_from(i).ok()) else { continue };
+        // An index past the open documents stays as given, so the preview fails like OK would.
+        let Some(src) = documents.get(i) else { continue };
+        let at = if src.id == doc_id {
+            0
+        } else if let Some(&(_, at)) = added.iter().find(|(j, _)| *j == i) {
+            at
+        } else {
+            let at = s.add_document(crate::proxy::proxy_document(src, k), None);
+            added.push((i, at));
+            at
+        };
+        *v = json!(at);
+    }
+    // Adding a document makes it active: the command still runs on the edited one.
+    s.set_active(0);
 }
 
 /// Cached preview state on the app.
@@ -1353,6 +1387,62 @@ mod tests {
         let p = out.layers[0].surface().unwrap().pixel(32, 32);
         assert!(p[0] > 0.2 && p[0] < 0.8, "edge blurred: {p:?}");
         assert_eq!(label("wavelengthMin"), "Wavelength Min");
+    }
+
+    /// Match Color's preview reads the Source document from the open documents, as OK does: the
+    /// preview session held only the edited document, so a Source showed no change (#4851).
+    #[test]
+    fn match_color_preview_uses_the_source_document() {
+        use photocraft_doc::{Color, ColorMode, SampleType, Size};
+        let solid = |name: &str, c: [f32; 4]| {
+            let mut d = Document::with_background(name, Size::new(32, 32), ColorMode::Rgb, SampleType::U8, Color::WHITE);
+            d.layers[0].surface_mut().unwrap().fill_rect(photocraft_geom::Rect::new(0, 0, 32, 32), &c);
+            d.layers[0].surface_mut().unwrap().fill_rect(photocraft_geom::Rect::new(0, 0, 16, 32), &[c[0] * 0.5, c[1] * 0.5, c[2] * 0.5, 1.0]);
+            d
+        };
+        // The source document is open before the edited one, so indices differ between sessions.
+        let mut s = photocraft_engine::Session::new();
+        s.add_document(solid("reference", [0.1, 0.3, 0.9, 1.0]), None);
+        s.add_document(solid("texture", [0.9, 0.5, 0.2, 1.0]), None);
+        let doc = s.active().unwrap().doc.clone();
+        let layer = doc.layers[0].id;
+        let documents: Vec<_> = s.documents().iter().map(|d| d.doc.clone()).collect();
+        for (source, label) in [(0, "another document"), (1, "the edited document itself")] {
+            let p = json!({"source": source});
+            let mut applied = photocraft_engine::Session::new();
+            for d in &documents {
+                applied.add_document((**d).clone(), None);
+            }
+            applied.execute("image.adjustments.matchColor", p.clone()).unwrap();
+            let want = applied.active().unwrap().doc.layers[0].surface().unwrap().pixel(24, 16);
+            let preview = preview_document_for_target(
+                &doc,
+                Some(layer),
+                "image.adjustments.matchColor",
+                &p,
+                1,
+                None,
+                photocraft_engine::channel_cmds::ChannelTarget::Composite,
+                &documents,
+            )
+            .unwrap_or_else(|| panic!("{label}: no preview"));
+            let got = preview.layers[0].surface().unwrap().pixel(24, 16);
+            assert!((0..3).all(|c| (got[c] - want[c]).abs() < 1.0 / 255.0 + 1e-4), "{label}: preview {got:?}, OK gives {want:?}");
+        }
+        // The preview is of the matched image: the orange texture took the reference's blue.
+        let preview = preview_document_for_target(
+            &doc,
+            Some(layer),
+            "image.adjustments.matchColor",
+            &json!({"source": 0}),
+            2,
+            None,
+            photocraft_engine::channel_cmds::ChannelTarget::Composite,
+            &documents,
+        )
+        .unwrap();
+        let px = preview.layers[0].surface().unwrap().pixel(12, 8);
+        assert!(px[2] > px[0], "proxy preview matched to the reference: {px:?}");
     }
 
     #[test]

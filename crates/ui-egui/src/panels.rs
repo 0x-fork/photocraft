@@ -964,7 +964,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     crate::transform_tool::options_bar(app, ui);
                     return;
                 }
-                if crate::distort_ui::options_bar(app, ui) {
+                if crate::symmetry_ui::options_bar(app, ui) || crate::distort_ui::options_bar(app, ui) {
                     return;
                 }
                 let tool = app.ui.tool;
@@ -1879,7 +1879,6 @@ fn navigator(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         return;
     };
     let ctx = ui.ctx().clone();
-    let Some(tex) = crate::canvas::navigator_texture(app, &ctx, idx) else { return };
     let size = app.session.documents()[idx].doc.size;
     let avail = ui.available_width();
     // The preview fills the group's height above the zoom controls (their height as measured
@@ -1891,8 +1890,16 @@ fn navigator(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     ui.painter().rect_filled(frame, t.radius_sm, t.canvas);
     let rect = navigator_fit(frame, size.width, size.height);
     ui.data_mut(|d| d.insert_temp(navigator_preview_id(), rect));
-    widgets::checker(ui.painter(), rect, 6.0);
-    ui.painter().image(tex, rect, Rect::from_min_max(egui::Pos2::ZERO, pos2(1.0, 1.0)), Color32::WHITE);
+    // On the GPU canvas, its own texture at this size (#4518); otherwise the CPU thumbnail.
+    if let Some(params) = crate::canvas::navigator_gpu_view(app, idx, rect, &ctx) {
+        crate::gpu_canvas::GpuCanvas::paint(ui.painter(), rect, params);
+    } else if crate::canvas::navigator_waits_for_gpu(app, idx, &ctx) {
+        widgets::checker(ui.painter(), rect, 6.0);
+    } else {
+        let Some(tex) = crate::canvas::navigator_texture(app, &ctx, idx) else { return };
+        widgets::checker(ui.painter(), rect, 6.0);
+        ui.painter().image(tex, rect, Rect::from_min_max(egui::Pos2::ZERO, pos2(1.0, 1.0)), Color32::WHITE);
+    }
     let s = rect.width() / size.width.max(1) as f32;
     if (resp.clicked() || resp.dragged())
         && let Some(pp) = resp.interact_pointer_pos()

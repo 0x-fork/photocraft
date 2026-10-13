@@ -1,6 +1,7 @@
 //! Layers-panel pieces for smart objects: the thumbnail badge and the Smart Filters sub-rows
 //! (eye toggles; double-click a filter to re-open its dialog with the recorded parameters; click
-//! to select one; drag onto another smart object to move it there, ⌥-drag to copy it, #4271).
+//! to select one; drag onto another smart object to move it there, ⌥-drag to copy it, #4271;
+//! drag it up or down its own stack to reorder it).
 
 use egui::{Align2, Color32, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
 use photocraft_doc::{Document, Layer, LayerContent, LayerId, SmartObject};
@@ -86,6 +87,14 @@ pub fn filter_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, l: &Layer, depth:
         let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click_and_drag());
         if resp.drag_started() {
             ui.ctx().data_mut(|d| d.insert_temp::<FilterDrag>(drag_key(), (l.id.0, index)));
+        }
+        if let Some((to, action)) = reorder_drop(ui, l, sm.smart_filters.len(), index, rect) {
+            // The moved filter ends up selected, with its smart object active, as after a click.
+            ui.ctx().data_mut(|d| d.insert_temp::<FilterDrag>(selected_key(doc), (l.id.0, Some(to))));
+            actions.push(action);
+            if !active {
+                actions.push(("layer.select".into(), json!({"layer": l.id.0})));
+            }
         }
         // Selected as in Photoshop: the row stays highlighted while its smart object is active.
         let selected = active && picked == Some((l.id.0, index));
@@ -210,6 +219,53 @@ pub(crate) fn drop_on_row(ctx: &egui::Context, ui: &egui::Ui, l: &Layer, rect: R
     }
 }
 
+/// Where `layer.smartFilter.move` puts filter `src` (stack index, 0 = bottom) dropped on the row
+/// of filter `row` (`None`: the Smart Filters row, i.e. on top of the stack), `above` or below
+/// it, in a stack of `n`. `None` when the filter would stay where it is.
+fn reorder_target(src: usize, row: Option<usize>, above: bool, n: usize) -> Option<usize> {
+    let to = match row {
+        None => n.checked_sub(1)?,
+        Some(i) if i == src => return None,
+        // Above a row is just over it in the stack, below a row just under it. `move` removes
+        // the filter first, so the filters over `src` shift down by one.
+        Some(i) if above => {
+            if src < i {
+                i
+            } else {
+                i + 1
+            }
+        }
+        Some(i) => {
+            if src < i {
+                i - 1
+            } else {
+                i
+            }
+        }
+    };
+    (to < n && to != src).then_some(to)
+}
+
+/// A filter dragged up or down its own smart object's stack (Photoshop): over another row of the
+/// stack a line marks where it lands, above or below that row (the Smart Filters row: on top),
+/// and the release moves it there. The bottom filter is applied first, so the order changes the
+/// result (Unsharp Mask over a blur sharpens the blurred image; under it, the sharpening is
+/// blurred). Returns the filter's new index and the command.
+fn reorder_drop(ui: &egui::Ui, l: &Layer, n: usize, row: Option<usize>, rect: Rect) -> Option<(usize, (String, Value))> {
+    let ctx = ui.ctx();
+    let (from, src) = ctx.data(|d| d.get_temp::<FilterDrag>(drag_key()))?;
+    let (src, p) = (src?, ctx.input(|i| i.pointer.interact_pos())?);
+    if from != l.id.0 || !rect.contains(p) {
+        return None;
+    }
+    let above = p.y < rect.center().y;
+    let to = reorder_target(src, row, above, n)?;
+    let t = Tokens::get(ctx);
+    let y = if above && row.is_some() { rect.top() } else { rect.bottom() };
+    ui.painter().line_segment([pos2(rect.left() + 30.0, y), pos2(rect.right(), y)], Stroke::new(2.0, t.accent));
+    ctx.input(|i| i.pointer.any_released()).then(|| (to, ("layer.smartFilter.move".into(), json!({"layer": l.id.0, "index": src, "to": to}))))
+}
+
 /// Smart filters dropped on the footer's Delete button: a filter's row deletes that filter, the
 /// Smart Filters row clears them all.
 pub(crate) fn trash_action((layer, filter): FilterDrag) -> (String, Value) {
@@ -273,6 +329,25 @@ mod tests {
         let pixel = s.execute("layer.new.layer", json!({})).unwrap()["layer"].as_u64().unwrap();
         let doc = &s.active().unwrap().doc;
         [pixel, shape, smart].map(|id| doc.layer(photocraft_doc::LayerId(id)).unwrap().clone())
+    }
+
+    /// Stack [A, B, C] (A at the bottom, drawn last): where a dragged filter lands.
+    #[test]
+    fn a_filter_dropped_above_or_below_a_row_lands_next_to_it() {
+        // A over C: [B, C, A]. A under C: [B, A, C].
+        assert_eq!(reorder_target(0, Some(2), true, 3), Some(2));
+        assert_eq!(reorder_target(0, Some(2), false, 3), Some(1));
+        // C under A: [C, A, B]. C over A: [A, C, B].
+        assert_eq!(reorder_target(2, Some(0), false, 3), Some(0));
+        assert_eq!(reorder_target(2, Some(0), true, 3), Some(1));
+        // The Smart Filters row: on top.
+        assert_eq!(reorder_target(0, None, false, 3), Some(2));
+        // Next to where it already is, or on itself: nothing to do.
+        assert_eq!(reorder_target(1, Some(2), false, 3), None);
+        assert_eq!(reorder_target(1, Some(0), true, 3), None);
+        assert_eq!(reorder_target(1, Some(1), true, 3), None);
+        assert_eq!(reorder_target(2, None, true, 3), None);
+        assert_eq!(reorder_target(0, None, true, 0), None);
     }
 
     #[test]
