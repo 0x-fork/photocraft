@@ -343,6 +343,9 @@
 	Oil Paint…	Масляная живопись…
 	Blur Gallery	Галерея размытия
 	Field Blur…	Размытие по полю…
+# Field Blur pins (#3373)
+	No pin selected	Булавка не выбрана
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Щелкните изображение, чтобы добавить булавку; перетащите булавку, чтобы переместить ее, или ее кольцо, чтобы изменить размытие. Delete удаляет выбранную булавку.
 	Iris Blur…	Диафрагменное размытие…
 	Tilt-Shift…	Наклон-сдвиг…
 	Path Blur…	Размытие по контуру…
@@ -1403,7 +1406,6 @@
 	Choose…	Выбрать…
 	Select Folder…	Выбрать папку…
 	Override Action "Save" Commands	Переопределить команды «Сохранить» в операции
-	File Naming	Именование файлов
 	Compatibility	Совместимость
 	Windows	Windows
 	Mac OS	Mac OS
@@ -2472,6 +2474,10 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Нет контура для создания выделения: нарисуйте его инструментом «Перо» или выберите на панели «Контуры».
 	Cancel opening	Отменить открытие
 	Cancelled opening {name}	Открытие {name} отменено
+	The document “{name}” does not have an embedded {mode} profile.	В документе «{name}» нет встроенного профиля {mode}.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Встроенный цветовой профиль документа «{name}» не совпадает с текущим рабочим пространством {mode}.
+	Embedded: {embedded}	Встроенный: {embedded}
+	Working: {working}	Рабочее пространство: {working}
 	Developing {name}	Обработка {name}
 	Cancelled {label}	{label}: отменено
 	Esc to cancel	Esc — отмена
@@ -2697,6 +2703,7 @@ cameraRaw	Roughness	Неровность
 	Fuchsia	Фуксия
 	Violet	Фиолетовый
 	Large document: redrawing on the CPU	Большой документ: перерисовка на CPU
+	Redrawing	Перерисовка
 	This redraw took {seconds} s on the CPU.	Эта перерисовка на CPU заняла {seconds} с.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Правки, затрагивающие весь документ, например режим наложения, непрозрачность или видимость слоя, перерисовывают его целиком.
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Слои не помещаются в бюджет памяти GPU. Увеличение параметра «Память» в разделе Настройки › Производительность повышает бюджет, но не больше четверти памяти этого компьютера.
@@ -3005,6 +3012,7 @@ curves	Smooth	Сгладить
 	Select the crop presets to delete	Выберите наборы параметров кадрирования для удаления
 	Enter a name for the crop preset	Введите имя набора параметров кадрирования
 	There is no crop size or ratio to save	Нет размера или соотношения сторон кадрирования для сохранения
+	Presentation	Представление
 
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	Щёлкните, чтобы разместить · Alt-щелчок или перетаскивание за пределы холста для удаления
@@ -3061,6 +3069,8 @@ curves	Smooth	Сгладить
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	Сохранена {n} операция в {file}|Сохранены {n} операции в {file}|Сохранено {n} операций в {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Пропущен {n} шаг без эквивалента в Photoshop|Пропущены {n} шага без эквивалента в Photoshop|Пропущено {n} шагов без эквивалента в Photoshop
 
+	File Naming	Именование файлов
+	Starting serial	Начальный порядковый номер
 # Actions panel: set folders, dialog toggle, Insert Stop
 	Insert Stop…	Вставить остановку…
 	Save Set…	Сохранить набор…

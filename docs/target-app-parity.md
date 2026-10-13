@@ -184,6 +184,8 @@ parity for the area and are already contained in the dimension rows above.
 | Workspace, panels, preferences | 40% | 150–250 | 46 of 149 prefs do nothing; no floating/OS-window panel groups; Libraries, Comments, Contextual Task Bar missing |
 | AI / generative | 10% | 300–600 | See the dimension row |
 
+Batch supports [output naming templates](batch-naming.md); AUTO-219-5 remains partial.
+
 ## Remaining effort and calibration
 
 **Calibration.** The repository's history from the first commit (2026-09-30) to 2026-10-10: 1,152

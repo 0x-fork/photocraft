@@ -533,6 +533,8 @@
 	Blur	Zamućenje
 	Blur Gallery	Galerija zamućenja
 	Field Blur…	Zamućenje polja…
+	No pin selected	Nijedna čioda nije izabrana
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Kliknite na sliku da dodate čiodu; prevucite čiodu da je pomerite ili njen prsten da promenite zamućenje. Delete uklanja izabranu čiodu.
 	Iris Blur…	Iris zamućenje…
 	Tilt-Shift…	Tilt-shift…
 	Path Blur…	Zamućenje duž putanje…
@@ -2135,6 +2137,10 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Nema putanje od koje bi se napravila selekcija: nacrtajte je alatkom pero ili je izaberite u panelu Putanje.
 	Cancel opening	Otkaži otvaranje
 	Cancelled opening {name}	Otkazano otvaranje: {name}
+	The document “{name}” does not have an embedded {mode} profile.	Dokument „{name}“ nema ugrađeni {mode} profil.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Dokument „{name}“ ima ugrađeni profil boja koji se ne slaže sa trenutnim {mode} radnim prostorom.
+	Embedded: {embedded}	Ugrađeni: {embedded}
+	Working: {working}	Radni prostor: {working}
 	Developing {name}	Razvijanje: {name}
 	Cancelled {label}	Otkazano: {label}
 	Esc to cancel	Esc za otkazivanje
@@ -2892,6 +2898,7 @@ fontWeight	Italic	Kurziv
 	Auto Hide Notifications	Automatski sakrij obaveštenja
 	Notification Duration (seconds)	Trajanje obaveštenja (sekunde)
 	Appearance Mode	Režim izgleda
+	Presentation	Prikaz
 	Dark Theme	Tamna tema
 	Light Theme	Svetla tema
 	Pro Medium	Pro srednja
@@ -4203,3 +4210,4 @@ shape	Appearance	Izgled
 	Color Indicates:	Boja označava:
 	Ink Characteristics	Karakteristike mastila
 	Solidity:	Punoća:
+	Redrawing	Ponovno iscrtavanje

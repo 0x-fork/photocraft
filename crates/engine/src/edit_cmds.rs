@@ -881,6 +881,32 @@ fn guide_cmd(s: &mut Session, p: &Value, op: &str) -> Result<Value> {
     Ok(Value::Null)
 }
 
+/// Farthest the ruler zero point may sit from the image, in document pixels.
+const MAX_RULER_ORIGIN: f64 = 1.0e7;
+
+/// Move the rulers' zero point (`view.setRulerOrigin`), or put it back at the image's top-left
+/// (`view.resetRulerOrigin`, `p` = None). Undoable like the guides.
+fn ruler_origin_cmd(s: &mut Session, p: Option<&Value>) -> Result<Value> {
+    let origin = match p {
+        None => [0.0, 0.0],
+        Some(p) => {
+            let axis = |k: &str| {
+                p.get(k)
+                    .and_then(Value::as_f64)
+                    .filter(|v| v.is_finite() && v.abs() <= MAX_RULER_ORIGIN)
+                    .ok_or_else(|| EngineError::Other(format!("`{k}` must be a number of pixels within ±{MAX_RULER_ORIGIN}")))
+            };
+            [axis("x")?, axis("y")?]
+        }
+    };
+    let label = if p.is_some() { "Set Ruler Origin" } else { "Reset Ruler Origin" };
+    s.edit(label, |doc, _| {
+        doc.ruler_origin = origin;
+        Ok(())
+    })?;
+    Ok(json!({"x": origin[0], "y": origin[1]}))
+}
+
 pub fn specs() -> Vec<CommandSpec> {
     macro_rules! spec {
         ($id:expr, $label:expr, $menu:expr, $sc:expr, $params:expr, $enabled:expr, $run:expr) => {
@@ -987,6 +1013,18 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         spec!("view.deleteGuide", "Delete Guide", &[], None, r##"{"orientation":"horizontal|vertical","index":n}"##, has_doc, |s, p| guide_cmd(s, p, "delete")),
         spec!("view.clearGuides", "Clear Guides", &["View"], None, "{}", has_doc, |s, p| guide_cmd(s, p, "clear")),
+        spec!(
+            "view.setRulerOrigin",
+            "Set Ruler Origin",
+            &[],
+            None,
+            r##"{"x":px,"y":px} (the rulers' zero point in document pixels; the rulers and Info panel measure from it)"##,
+            has_doc,
+            |s, p| ruler_origin_cmd(s, Some(p))
+        ),
+        spec!("view.resetRulerOrigin", "Reset Ruler Origin", &[], None, "{} (zero point back at the image's top-left)", has_doc, |s, _| ruler_origin_cmd(
+            s, None
+        )),
     ]
 }
 
@@ -1913,6 +1951,28 @@ mod tests {
         s.execute("view.clearGuides", json!({})).unwrap();
         assert!(s.active().unwrap().doc.guides.vertical.is_empty());
         assert!(s.execute("view.moveGuide", json!({"orientation": "vertical", "index": 3, "position": 1})).is_err());
+    }
+
+    /// #2955: the rulers' zero point is set and reset by command, undoable, and bad params are
+    /// refused without touching the document.
+    #[test]
+    fn ruler_origin_is_set_reset_and_undoable() {
+        let mut s = session();
+        assert_eq!(s.active().unwrap().doc.ruler_origin, [0.0, 0.0]);
+        assert_eq!(s.execute("view.setRulerOrigin", json!({"x": 40, "y": 12.5})).unwrap(), json!({"x": 40.0, "y": 12.5}));
+        assert_eq!(s.active().unwrap().doc.ruler_origin, [40.0, 12.5]);
+        s.execute("view.resetRulerOrigin", json!({})).unwrap();
+        assert_eq!(s.active().unwrap().doc.ruler_origin, [0.0, 0.0]);
+        s.undo();
+        assert_eq!(s.active().unwrap().doc.ruler_origin, [40.0, 12.5]);
+        for bad in [json!({}), json!({"x": 1}), json!({"x": "a", "y": 2}), json!({"x": 1e300, "y": 0}), json!({"x": -2e7, "y": 0}), json!(null), json!([1, 2])]
+        {
+            assert!(s.execute("view.setRulerOrigin", bad.clone()).is_err(), "{bad} is refused");
+        }
+        assert_eq!(s.active().unwrap().doc.ruler_origin, [40.0, 12.5]);
+        let mut empty = Session::new();
+        assert!(empty.execute("view.setRulerOrigin", json!({"x": 1, "y": 2})).is_err());
+        assert!(empty.execute("view.resetRulerOrigin", json!({})).is_err());
     }
 
     /// The last guide added in `orientation` for `position`.

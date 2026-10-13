@@ -322,10 +322,7 @@ mod tests {
         let ctx = egui::Context::default();
         let mut enabled = None;
         let mut disabled = None;
-        let raw = egui::RawInput {
-            events: vec![Event::Rotate(std::f32::consts::FRAC_PI_6)],
-            ..Default::default()
-        };
+        let raw = egui::RawInput { events: vec![Event::Rotate(std::f32::consts::FRAC_PI_6)], ..Default::default() };
         let mut output = ctx.run_ui(raw, |ui| {
             enabled = trackpad_delta(ui.ctx(), true);
             disabled = trackpad_delta(ui.ctx(), false);
