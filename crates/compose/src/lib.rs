@@ -58,11 +58,23 @@ impl Buffer {
     }
     pub fn to_rgba8(&self) -> Rgba8Image {
         let mut img = Rgba8Image::new(self.rect.width(), self.rect.height());
-        for (o, p) in img.pixels.as_chunks_mut::<4>().0.iter_mut().zip(&self.px) {
-            for (dst, v) in o.iter_mut().zip(p) {
-                *dst = (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+        let quantize = |out: &mut [[u8; 4]], src: &[[f32; 4]]| {
+            for (o, p) in out.iter_mut().zip(src) {
+                for (dst, v) in o.iter_mut().zip(p) {
+                    *dst = (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+                }
             }
+        };
+        let out = img.pixels.as_chunks_mut::<4>().0;
+        // In parallel off wasm: a 24 MP composite took 120 ms on one core (the CPU canvas,
+        // previews, thumbnails and 8-bit exports all come through here).
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use rayon::prelude::*;
+            out.par_chunks_mut(16 * 1024).zip(self.px.par_chunks(16 * 1024)).for_each(|(o, p)| quantize(o, p));
         }
+        #[cfg(target_arch = "wasm32")]
+        quantize(out, &self.px);
         img
     }
     /// Flatten over an opaque background colour.

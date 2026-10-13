@@ -3008,6 +3008,7 @@ cameraRaw	Color	색상
 	Indigo	남색
 	Fuchsia	자홍색
 	Large document: redrawing on the CPU	큰 문서: CPU에서 다시 그리는 중
+	Redrawing	다시 그리는 중
 	This redraw took {seconds} s on the CPU.	이번 다시 그리기는 CPU에서 {seconds}초 걸렸습니다.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	레이어의 혼합 모드, 불투명도, 표시 여부처럼 문서 전체를 바꾸는 편집은 문서 전체를 다시 그립니다.
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	레이어가 GPU 메모리 예산에 맞지 않습니다. 환경 설정 › 성능에서 메모리 사용량을 늘리면 이 컴퓨터 메모리의 4분의 1까지 예산이 늘어납니다.
