@@ -8,10 +8,54 @@ use crate::{PhotocraftApp, theme::Tokens, widgets};
 
 const COMMAND: &str = "view.newGuideLayout";
 const MARK: &str = "__guideLayout";
-const COLORS: [(&str, &str); 5] = [("#4affff", "Cyan"), ("#ff00ff", "Magenta"), ("#378ef0", "Blue"), ("#00a86b", "Green"), ("#ffcc00", "Yellow")];
+
+/// A `"#rrggbb"` colour as drawn.
+fn rgb(hex: &str) -> Option<Color32> {
+    photocraft_engine::prefs::parse_hex(hex).map(|[r, g, b]| Color32::from_rgb(r, g, b))
+}
+
+/// The Color list: New Guide's colours (`GUIDE_COLORS`) by their `"#rrggbb"`, then `current` as
+/// Custom when it's none of them.
+fn color_options(current: &str) -> Vec<(String, &'static str)> {
+    let mut colors: Vec<(String, &'static str)> = photocraft_engine::edit_cmds::GUIDE_COLORS
+        .iter()
+        .map(|(name, [r, g, b])| (format!("#{r:02x}{g:02x}{b:02x}"), crate::new_guide_ui::color_label(name)))
+        .collect();
+    if !colors.iter().any(|(v, _)| v == current) {
+        colors.push((current.to_string(), "Custom"));
+    }
+    colors
+}
 
 pub fn owns(f: &Map<String, Value>) -> bool {
     f.contains_key(MARK)
+}
+
+/// Alt+Cancel (Reset): factory New Guide Layout values, not the last-used remembered layout.
+pub fn reset(app: &PhotocraftApp, f: &mut Map<String, Value>) {
+    if !owns(f) {
+        return;
+    }
+    let Value::Object(defaults) = crate::view_cmds::default_guide_layout() else { return };
+    // Drop layout params and interactive toggles; keep dialog chrome (`__command`, …).
+    f.retain(|k, _| {
+        k.starts_with("__")
+            && !matches!(
+                k.as_str(),
+                "__preset" | "__columnsEnabled" | "__rowsEnabled" | "__marginEnabled" | "__previewGuides" | "__previewParams" | "__previewSource"
+            )
+    });
+    f.extend(defaults);
+    f.insert("color".into(), json!(app.session.prefs().guides_grid_and_slices.guide_color));
+    f.insert("target".into(), json!("document"));
+    f.insert("__preset".into(), json!("custom"));
+    f.insert("width".into(), Value::Null);
+    f.insert("height".into(), Value::Null);
+    let margin = f.get("margin").cloned().unwrap_or(json!(0));
+    if !margin.is_array() {
+        f.insert("margin".into(), json!([margin.clone(), margin.clone(), margin.clone(), margin]));
+    }
+    f.insert("__preview".into(), json!(true));
 }
 
 fn on(f: &Map<String, Value>, key: &str, fallback: bool) -> bool {
@@ -102,7 +146,7 @@ fn calculate(app: &PhotocraftApp, f: &Map<String, Value>) -> Result<Guides, Stri
 
 pub fn validate(app: &PhotocraftApp, f: &Map<String, Value>) -> Result<(), String> {
     let color = f.get("color").and_then(Value::as_str).unwrap_or("#4affff");
-    crate::rulers::parse_guide_color(color).ok_or("invalid guide color")?;
+    rgb(color).ok_or("invalid guide color")?;
     calculate(app, f).map(|_| ())
 }
 
@@ -110,7 +154,7 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
     validate(app, f)?;
     let color = f.get("color").and_then(Value::as_str).unwrap_or("#4affff");
     // Colour is the existing global guide display preference, not document data.
-    let color = crate::rulers::parse_guide_color(color).ok_or("invalid guide color")?;
+    let color = rgb(color).ok_or("invalid guide color")?;
     let hex = format!("#{:02x}{:02x}{:02x}", color.r(), color.g(), color.b());
     let result = app.run(COMMAND, params(f))?;
     app.session.prefs.edit(|prefs| prefs.guides_grid_and_slices.guide_color = hex);
@@ -130,7 +174,7 @@ pub fn preview(app: &PhotocraftApp, doc: &Document) -> Option<(Guides, Color32)>
         return None;
     }
     let guides = calculate(app, f).ok().or_else(|| f.get("__previewGuides").and_then(|v| serde_json::from_value(v.clone()).ok()))?;
-    let color = f.get("color").and_then(Value::as_str).and_then(crate::rulers::parse_guide_color).unwrap_or(Color32::from_rgb(74, 255, 255));
+    let color = f.get("color").and_then(Value::as_str).and_then(rgb).unwrap_or(Color32::from_rgb(74, 255, 255));
     Some((guides, color))
 }
 
@@ -261,14 +305,11 @@ fn main_fields(app: &PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value
         ui.horizontal(|ui| {
             ui.label(tl!("Color:"));
             let mut color = f.get("color").and_then(Value::as_str).unwrap_or("#4affff").to_string();
-            let mut colors: Vec<(String, &str)> = COLORS.iter().map(|(v, l)| (v.to_string(), *l)).collect();
-            if !COLORS.iter().any(|(v, _)| *v == color) {
-                colors.push((color.clone(), "Custom"));
-            }
+            let colors = color_options(&color);
             if widgets::dropdown(ui, "guide-color", &mut color, &colors, 174.0) {
                 f.insert("color".into(), json!(color));
             }
-            let shown = crate::rulers::parse_guide_color(&color).unwrap_or(Tokens::get(ui.ctx()).accent);
+            let shown = rgb(&color).unwrap_or(Tokens::get(ui.ctx()).accent);
             if widgets::color_swatch_button(ui, shown, tl!("Guide color")).clicked() {
                 crate::color_picker_ui::request(f, tl!("Guide color"));
             }

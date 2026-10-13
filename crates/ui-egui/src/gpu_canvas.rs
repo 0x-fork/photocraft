@@ -1210,7 +1210,12 @@ fn detect_physical_memory() -> Option<u64> {
     String::from_utf8(out.stdout).ok()?.trim().parse().ok()
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "freebsd")))]
+#[cfg(windows)]
+fn detect_physical_memory() -> Option<u64> {
+    winsafe::GlobalMemoryStatusEx().map(|m| m.ullTotalPhys).ok().filter(|b| *b > 0)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "freebsd", windows)))]
 fn detect_physical_memory() -> Option<u64> {
     None
 }
@@ -2158,6 +2163,15 @@ mod tests {
         assert_eq!(memory_budget(8 * G, 10 * G, Some(48 * G)), MIN_GPU_BUDGET);
         assert_eq!(memory_budget(64 * G, 0, None), 4 * G);
         assert!(physical_memory().is_none_or(|b| b >= 256 << 20));
+    }
+
+    /// Windows used to report no RAM at all, so the budget assumed 16 GB on every machine.
+    #[cfg(windows)]
+    #[test]
+    fn windows_reports_installed_ram() {
+        let ram = detect_physical_memory().unwrap_or(0);
+        assert!(ram >= 256 << 20, "{ram} bytes");
+        assert!(ram < 1 << 50, "{ram} bytes");
     }
 
     #[test]

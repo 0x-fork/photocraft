@@ -162,6 +162,9 @@ pub fn calculate(s: &Session, p: &Value) -> Result<Layout> {
         } else {
             guides = Guides::default();
         }
+        // Cleared guides take their colours along, so a new guide at the same place doesn't
+        // inherit one.
+        guides.prune_colors();
     }
     for x in &added.vertical {
         push_unique(&mut guides.vertical, *x)?;

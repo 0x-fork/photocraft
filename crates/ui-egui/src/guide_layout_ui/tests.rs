@@ -53,6 +53,16 @@ fn tab_skips_disabled_rows_and_margins() {
     assert_eq!(f["gutter"], 4.0);
 }
 
+/// New Guide Layout offers New Guide's colours, by value, and keeps another one as Custom.
+#[test]
+fn color_list_is_new_guides() {
+    let hexes: Vec<String> = color_options("#4affff").into_iter().map(|(hex, _)| hex).collect();
+    assert_eq!(hexes, ["#3366ff", "#ff3333", "#33ff33", "#3333ff", "#ffcc00", "#ff00ff", "#4affff", "#e7e7e7", "#000000"]);
+    assert_eq!(color_options("#4affff")[6].1, "Cyan", "the default guide colour reads as Cyan");
+    let custom = color_options("#123456");
+    assert_eq!((custom.len(), custom[9].0.as_str(), custom[9].1), (10, "#123456", "Custom"));
+}
+
 fn harness(app: PhotocraftApp) -> egui_kittest::Harness<'static, PhotocraftApp> {
     let mut initialized = false;
     egui_kittest::Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_ui_state(
@@ -72,6 +82,23 @@ fn app() -> PhotocraftApp {
     let mut session = photocraft_engine::Session::new();
     session.execute("file.new", json!({"width":1200,"height":800})).unwrap();
     PhotocraftApp::new(session, crate::Services::default())
+}
+
+#[test]
+fn alt_reset_restores_factory_layout() {
+    let mut app = app();
+    let id = open(&mut app);
+    let mut fields = app.ui.dialog_mut(id).unwrap().fields.clone();
+    fields.insert("columns".into(), json!(3));
+    fields.insert("gutter".into(), json!(99));
+    fields.insert("__preset".into(), json!("twoColumn"));
+    reset(&app, &mut fields);
+    app.ui.dialog_mut(id).unwrap().fields = fields;
+    let f = &app.ui.dialog_mut(id).unwrap().fields;
+    assert_eq!(f["columns"], json!(8));
+    assert_eq!(f["gutter"], json!(20));
+    assert_eq!(f["__preset"], json!("custom"));
+    assert!(app.ui.dialogs.iter().any(|d| d.id == id));
 }
 
 fn draw(app: &mut PhotocraftApp, id: u64) {

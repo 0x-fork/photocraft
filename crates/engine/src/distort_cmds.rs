@@ -213,19 +213,10 @@ fn smart_layer(s: &Session) -> std::result::Result<(), String> {
     }
 }
 
-/// Unlocks a Background layer for an operation that exposes transparency (as Photoshop does).
-fn float_background(l: &mut Layer) {
-    if l.locks.position && l.name == "Background" {
-        l.locks.position = false;
-        l.locks.transparency = false;
-        l.name = "Layer 0".into();
-    }
-}
-
 fn check_locks(l: &Layer, group: Locks, position: bool) -> Result<()> {
     let locks = l.locks.union(group);
     if locks.all || locks.pixels || (position && locks.position) {
-        return Err(EngineError::Other(format!("layer \"{}\" is locked", l.name)));
+        return Err(EngineError::Other(format!("Could not complete your request because the layer \"{}\" is locked", l.name)));
     }
     Ok(())
 }
@@ -247,13 +238,17 @@ fn run_on_layer(s: &mut Session, cmd: &str, label: &str, p: &Value, moves: bool,
         let canvas = doc.bounds();
         let selection = doc.selection.clone();
         let group = crate::transform_cmds::group_locks(doc, id);
+        // A Background gains transparency when the distortion moves pixels (as in Photoshop).
+        if moves {
+            crate::extra_cmds::background_to_layer(doc, id);
+        }
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
         if let LayerContent::Smart(_) = l.content {
+            // As filters do: a pixel or full lock refuses the smart filter (the position lock
+            // doesn't, since the smart object itself stays put).
+            check_locks(l, group, false)?;
             let sf = SmartFilter { command: cmd.to_string(), params: params.clone(), blend: photocraft_color::BlendMode::Normal, opacity: 1.0, visible: true };
             return crate::smart_cmds::add_smart_filter(doc, id, sf, selection.as_ref());
-        }
-        if moves {
-            float_background(l);
         }
         check_locks(l, group, moves)?;
         let LayerContent::Raster(surf) = &mut l.content else {

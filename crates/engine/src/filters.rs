@@ -185,7 +185,10 @@ pub fn apply_filter_to_surface(
     if id == crate::plugin_cmds::RUN {
         return crate::plugin_cmds::apply_to_surface(id, params, surf, selection, canvas);
     }
-    let fp = params_for(id, params)?;
+    let mut fp = params_for(id, params)?;
+    // A map that can no longer be read (moved or deleted since) leaves the pixels alone, like an
+    // unknown filter; the command itself already refused an unreadable map when it was added.
+    crate::filters_ext::resolve_map_path(&mut fp, params).ok()?;
     let sel_bounds = selection.map(photocraft_raster::Surface::content_bounds);
     let content = surf.content_bounds();
     let area = algo::output_area(&fp, content, bounds, sel_bounds);
@@ -410,7 +413,7 @@ pub fn specs() -> Vec<CommandSpec> {
 /// The most recent filter command in the session journal, retargeted at the active layer: dialogs
 /// such as the Filter Gallery record the layer they ran on, and Last Filter applies to the
 /// current layer, as in Photoshop (#1270).
-pub(crate) fn last_filter(s: &Session) -> Option<(String, Value)> {
+pub fn last_filter(s: &Session) -> Option<(String, Value)> {
     let (id, mut params) = s.journal.iter().rev().find(|(id, _)| params_for(id, &Value::Null).is_some() && id.starts_with("filter.")).cloned()?;
     if let Value::Object(m) = &mut params {
         m.remove("layer");

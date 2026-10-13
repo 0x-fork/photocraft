@@ -55,10 +55,10 @@ choice!(TypeUnit { Points = "points", Pixels = "pixels", Millimeters = "mm" } de
 choice!(PointSize { PostScript = "postScript", Traditional = "traditional" } default PostScript);
 choice!(Interpolation { BicubicAutomatic = "bicubicAutomatic", Nearest = "nearestNeighbor", Bilinear = "bilinear", Bicubic = "bicubic", BicubicSmoother = "bicubicSmoother", BicubicSharper = "bicubicSharper", PreserveDetails = "preserveDetails" } default BicubicAutomatic);
 choice!(ColorPicker { Adobe = "adobe", System = "system" } default Adobe);
-choice!(Theme { Pro = "pro", ProMedium = "proMedium", ProLightGray = "proLightGray", ProLight = "proLight", Studio = "studio", StudioLight = "studioLight", Classic = "classic", SolarizedDark = "solarizedDark", Adwaita = "adwaita", AdwaitaDark = "adwaitaDark", BreezeLight = "breezeLight", BreezeDark = "breezeDark" } default ProMedium);
+choice!(Theme { Pro = "pro", ProMedium = "proMedium", ProLightGray = "proLightGray", ProLight = "proLight", Studio = "studio", StudioLight = "studioLight", Classic = "classic", SolarizedDark = "solarizedDark", Adwaita = "adwaita", AdwaitaDark = "adwaitaDark", BreezeLight = "breezeLight", BreezeDark = "breezeDark", SoftDark = "softDark", SoftLight = "softLight" } default ProMedium);
 choice!(AppearanceMode { Auto = "auto", Dark = "dark", Light = "light" } default Dark);
-choice!(DarkTheme { Pro = "pro", ProMedium = "proMedium", Studio = "studio", SolarizedDark = "solarizedDark", AdwaitaDark = "adwaitaDark", BreezeDark = "breezeDark" } default ProMedium);
-choice!(LightTheme { StudioLight = "studioLight", ProLightGray = "proLightGray", ProLight = "proLight", Classic = "classic", Adwaita = "adwaita", BreezeLight = "breezeLight" } default StudioLight);
+choice!(DarkTheme { Pro = "pro", ProMedium = "proMedium", Studio = "studio", SolarizedDark = "solarizedDark", AdwaitaDark = "adwaitaDark", BreezeDark = "breezeDark", SoftDark = "softDark" } default ProMedium);
+choice!(LightTheme { StudioLight = "studioLight", ProLightGray = "proLightGray", ProLight = "proLight", Classic = "classic", Adwaita = "adwaita", BreezeLight = "breezeLight", SoftLight = "softLight" } default StudioLight);
 choice!(CanvasColor { Default = "default", Black = "black", DarkGray = "darkGray", MediumGray = "mediumGray", LightGray = "lightGray", Custom = "custom" } default Default);
 choice!(CanvasBorder { DropShadow = "dropShadow", Line = "line", None = "none" } default DropShadow);
 choice!(UiScale { Auto = "auto", P75 = "75", P80 = "80", P85 = "85", P90 = "90", P95 = "95", P100 = "100", P125 = "125", P150 = "150", P175 = "175", P200 = "200", P250 = "250", P300 = "300" } default Auto);
@@ -159,6 +159,37 @@ impl Unit {
             Unit::Millimeters | Unit::Centimeters | Unit::Picas => 2,
             Unit::Inches => 3,
         }
+    }
+    /// A length as typed in Photoshop's numeric fields: a number with an optional unit suffix
+    /// ("50%", "2.5 cm", "12pt", "3pc", "1,5 in", "100"). Returns the number and its unit (`None`
+    /// when there is no suffix, so the caller picks the default), or `None` if the text is not a
+    /// finite number followed by a known unit.
+    pub fn parse_length(text: &str) -> Option<(f64, Option<Unit>)> {
+        let t = text.trim();
+        let end = t.find(|c: char| !(c.is_ascii_digit() || matches!(c, '.' | ',' | '-' | '+'))).unwrap_or(t.len());
+        let (number, suffix) = t.split_at(end);
+        let v: f64 = number.trim().replace(',', ".").parse().ok()?;
+        if !v.is_finite() {
+            return None;
+        }
+        let suffix = suffix.trim();
+        let unit = if suffix.is_empty() { None } else { Some(Unit::from_suffix(suffix)?) };
+        Some((v, unit))
+    }
+    /// The unit a typed suffix names, in any case: `px`, `in` or `"`, `cm`, `mm`, `pt`, `pc` or
+    /// `pica`, `%`, and their long forms (`pixels`, `inches`, `centimetres`…). The one table every
+    /// length field reads.
+    pub fn from_suffix(suffix: &str) -> Option<Unit> {
+        Some(match suffix.to_ascii_lowercase().as_str() {
+            "px" | "pixel" | "pixels" => Unit::Pixels,
+            "in" | "inch" | "inches" | "\"" => Unit::Inches,
+            "cm" | "centimeter" | "centimeters" | "centimetre" | "centimetres" => Unit::Centimeters,
+            "mm" | "millimeter" | "millimeters" | "millimetre" | "millimetres" => Unit::Millimeters,
+            "pt" | "point" | "points" => Unit::Points,
+            "pc" | "pica" | "picas" => Unit::Picas,
+            "%" | "percent" => Unit::Percent,
+            _ => return None,
+        })
     }
 }
 
@@ -310,11 +341,19 @@ impl Default for Workspace {
     }
 }
 
+impl Workspace {
+    /// Preferences ▸ Workspace ▸ Enable Narrow Options Bar: the options bar drops to its compact
+    /// height, as in Photoshop, so the document gets more room (see `panels::options_bar`).
+    pub fn narrow_options_bar(&self) -> bool {
+        self.enable_narrow_options_bar
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Tools {
     pub show_tooltips: bool,
-    /// Tool keys cycle a tool group only with ⇧ held (Photoshop's "Use Shift Key for Tool Switch").
+    /// Tool keys cycle a tool group only with ⇧ held (Photoshop's "Use Shift Key for Tool Switch", on by default there too).
     pub use_shift_key_for_tool_switch: bool,
     pub zoom_clicked_point_to_center: bool,
     pub enable_flick_panning: bool,
@@ -341,7 +380,7 @@ impl Default for Tools {
     fn default() -> Self {
         Self {
             show_tooltips: true,
-            use_shift_key_for_tool_switch: false,
+            use_shift_key_for_tool_switch: true,
             zoom_clicked_point_to_center: false,
             enable_flick_panning: true,
             vary_round_brush_hardness_on_hud: true,
@@ -838,6 +877,15 @@ impl Default for TypePrefs {
     }
 }
 
+impl TypePrefs {
+    /// Preferences ▸ Type ▸ Missing Glyph Protection: with it on (the default, as in Photoshop),
+    /// glyphs the chosen face lacks fall back through the coverage fonts (#1909). The text engine
+    /// applies this in `Session::apply_prefs`.
+    pub fn missing_glyph_protection(&self) -> bool {
+        self.missing_glyph_protection
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct EnhancedControls {
@@ -963,6 +1011,10 @@ pub struct Preferences {
     /// differ from their defaults, saved as the user changes them and restored at launch, as
     /// Photoshop remembers each tool's options between sessions. JSON owned by the shell.
     pub tool_options: Value,
+    /// View › Extras, the View › Show items (Pixel Grid, Grid, Guides, …) and the View › Snap To
+    /// targets that differ from their defaults, saved as the user toggles them and restored at
+    /// launch, as Photoshop keeps them between sessions (#3762). JSON owned by the shell.
+    pub view_extras: Value,
     /// File › Scripts › Script Events Manager: event → script bindings.
     pub script_events: crate::automate_cmds::ScriptEvents,
 }
@@ -999,12 +1051,9 @@ pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
     "general.colorPicker",
     "general.animatedZoom",
     "general.zoomResizesWindows",
-    "workspace.autoCollapseIconPanels",
     "workspace.autoShowHiddenPanels",
     "workspace.enableFloatingDocumentWindowDocking",
-    "workspace.enableNarrowOptionsBar",
     "fileHandling.saveInBackground",
-    "fileHandling.maximizePsdCompatibility",
     "performance.cacheLevels",
     "performance.effectCacheMb",
     "performance.legacyCompositing",
@@ -1014,7 +1063,6 @@ pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
     "plugIns.showExtensionPanels",
     "plugIns.allowScriptsToConnect",
     "plugIns.generatorEnabled",
-    "type.missingGlyphProtection",
     "type.textEngine",
     "type.recentFonts",
     "enhancedControls.scrubbySliderAcceleration",
@@ -1449,8 +1497,8 @@ impl Session {
         r
     }
 
-    /// Push engine-relevant preferences into live state: every document's history limit and
-    /// the layer-effect cache budget.
+    /// Push engine-relevant preferences into live state: every document's history limit, the
+    /// layer-effect cache budget and the text engine's missing-glyph protection.
     pub fn apply_prefs(&mut self) {
         let n = self.prefs().performance.history_states.max(1) as usize;
         let bytes = self.prefs().performance.history_budget_bytes();
@@ -1461,6 +1509,8 @@ impl Session {
             st.history.trim(&st.doc);
         }
         photocraft_compose::set_effect_cache_budget(budget << 20);
+        // Without waiting for the system font scan: this runs on the UI thread at launch.
+        photocraft_text::set_shared_missing_glyph_protection(self.prefs().type_.missing_glyph_protection());
         crate::plugin_cmds::sync_prefs(self);
     }
 
@@ -1491,8 +1541,12 @@ impl Session {
             && let Some(theme) = interface.get("theme").and_then(Value::as_str).and_then(Theme::parse)
         {
             let (mode, slot) = match theme {
-                Theme::Pro | Theme::ProMedium | Theme::Studio | Theme::SolarizedDark | Theme::AdwaitaDark | Theme::BreezeDark => ("dark", "darkTheme"),
-                Theme::StudioLight | Theme::ProLightGray | Theme::ProLight | Theme::Classic | Theme::Adwaita | Theme::BreezeLight => ("light", "lightTheme"),
+                Theme::Pro | Theme::ProMedium | Theme::Studio | Theme::SolarizedDark | Theme::AdwaitaDark | Theme::BreezeDark | Theme::SoftDark => {
+                    ("dark", "darkTheme")
+                }
+                Theme::StudioLight | Theme::ProLightGray | Theme::ProLight | Theme::Classic | Theme::Adwaita | Theme::BreezeLight | Theme::SoftLight => {
+                    ("light", "lightTheme")
+                }
             };
             interface.insert("appearanceMode".into(), json!(mode));
             interface.insert(slot.into(), json!(theme.name()));
@@ -1522,7 +1576,9 @@ impl Session {
     }
 
     /// Set one dotted path, routing `colorSettings.*` to the colour state.
-    fn set_pref(&mut self, path: &str, value: Value) -> std::result::Result<(), String> {
+    /// Batches defer colour validation until their complete candidate is staged. Returns
+    /// whether colour settings were touched, including whole-section/root-object updates.
+    fn set_pref(&mut self, path: &str, value: Value, validate_color: bool) -> std::result::Result<bool, String> {
         if let Some(rest) = path.strip_prefix("colorSettings") {
             let mut cur = serde_json::to_value(&self.color.settings).map_err(|e| e.to_string())?;
             let rest = rest.trim_start_matches('.');
@@ -1531,19 +1587,23 @@ impl Session {
             } else {
                 set_path(&mut cur, rest, value)?;
             }
-            self.color.settings = serde_json::from_value(cur).map_err(|e| format!("invalid value for `{path}`: {e}"))?;
-            crate::color_cmds::validate_settings(&self.color.settings)?;
+            let next = serde_json::from_value(cur).map_err(|e| format!("invalid value for `{path}`: {e}"))?;
+            if validate_color {
+                crate::color_cmds::validate_settings(&next)?;
+            }
+            self.color.settings = next;
             self.prefs.edit(|_| ());
-            return Ok(());
+            return Ok(true);
         }
         let mut next = self.prefs().clone();
+        let mut color_changed = false;
         if path.is_empty() || SECTIONS.iter().any(|(id, _)| *id == path) || matches!(path, "shortcuts" | "menus" | "toolbar") {
             // Whole section (or everything): merge the object key by key so each value is checked.
             let obj = value.as_object().ok_or_else(|| format!("`{path}` needs an object"))?;
             for (k, v) in obj {
                 let p = if path.is_empty() { k.clone() } else { format!("{path}.{k}") };
                 if path.is_empty() && k == "colorSettings" {
-                    self.set_pref("colorSettings", v.clone())?;
+                    color_changed |= self.set_pref("colorSettings", v.clone(), validate_color)?;
                     continue;
                 }
                 if v.is_object() && !p.starts_with("shortcuts") && !p.ends_with(".colors") && next.get(&p).is_some_and(|c| c.is_object()) {
@@ -1609,10 +1669,18 @@ impl Session {
                     next.interface.light_theme = LightTheme::BreezeLight;
                     next.interface.appearance_mode = AppearanceMode::Light;
                 }
+                Theme::SoftDark => {
+                    next.interface.dark_theme = DarkTheme::SoftDark;
+                    next.interface.appearance_mode = AppearanceMode::Dark;
+                }
+                Theme::SoftLight => {
+                    next.interface.light_theme = LightTheme::SoftLight;
+                    next.interface.appearance_mode = AppearanceMode::Light;
+                }
             }
         }
         self.prefs.edit(|p| *p = next);
-        Ok(())
+        Ok(color_changed)
     }
 }
 
@@ -1646,12 +1714,21 @@ fn prefs_set(s: &mut Session, p: &Value) -> Result<Value> {
     }
     // All or nothing: validate against a scratch copy first.
     let (saved_prefs, saved_color) = (s.prefs().clone(), s.color.settings.clone());
+    let mut color_changed = false;
     for (path, v) in &changes {
-        if let Err(e) = s.set_pref(path, v.clone()) {
-            s.prefs.edit(|p| *p = saved_prefs);
-            s.color.settings = saved_color;
-            return Err(bad(cmd, e));
+        match s.set_pref(path, v.clone(), false) {
+            Ok(touched) => color_changed |= touched,
+            Err(e) => {
+                s.prefs.edit(|p| *p = saved_prefs);
+                s.color.settings = saved_color;
+                return Err(bad(cmd, e));
+            }
         }
+    }
+    if color_changed && let Err(e) = crate::color_cmds::validate_settings(&s.color.settings) {
+        s.prefs.edit(|p| *p = saved_prefs);
+        s.color.settings = saved_color;
+        return Err(bad(cmd, e));
     }
     // `colorSettings.blendTextGamma` lives in the compositor too, as `edit.colorSettings` sets it.
     photocraft_compose::psblend::set_text_gamma(s.color.settings.blend_text_gamma);
@@ -1671,7 +1748,7 @@ fn prefs_reset(s: &mut Session, p: &Value) -> Result<Value> {
             let defaults = serde_json::to_value(crate::color_cmds::ColorSettings::default()).map_err(|e| bad("prefs.reset", e.to_string()))?;
             let key = path.strip_prefix("colorSettings.").unwrap_or(path);
             let def = get_path(&defaults, key).cloned().ok_or_else(|| bad("prefs.reset", format!("unknown preference `{path}`")))?;
-            s.set_pref(path, def).map_err(|e| bad("prefs.reset", e))?;
+            s.set_pref(path, def, true).map_err(|e| bad("prefs.reset", e))?;
         }
         None => {
             s.color.settings = Default::default();

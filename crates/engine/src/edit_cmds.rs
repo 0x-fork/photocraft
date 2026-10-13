@@ -28,6 +28,9 @@ pub struct Clip {
     /// than rasterize (see [`whole_layer`]): a scratch document in the source's colour holding it.
     /// `surface` still holds its pixels, for Paste Into, masks, channels and other apps.
     pub layers: Option<Box<Document>>,
+    /// The source document's resolution (ppi): File › New from the clipboard takes it, as
+    /// Photoshop's Clipboard preset does. None for an image from another app.
+    pub resolution: Option<f32>,
 }
 
 /// Photoshop's layer-based copy (CC 2018 on): with no selection, Copy takes the active layer
@@ -50,6 +53,46 @@ fn scratch_doc(doc: &Document) -> Document {
     copies.resolution_dpi = doc.resolution_dpi;
     copies.patterns = doc.patterns.clone();
     copies
+}
+
+/// Scope linked records to the copied layer tree: a PSD block can also hold files belonging
+/// to unselected or hidden layers, which must not follow this copy into a native save.
+fn copy_linked_sources(source: &Document, copies: &mut Document) -> Result<()> {
+    fn collect<'a>(layers: &'a [Layer], depth: usize, paths: &mut std::collections::HashSet<&'a str>) -> Result<()> {
+        if depth > photocraft_doc::MAX_GROUP_DEPTH {
+            return Err(EngineError::Other("can't copy linked smart objects from layers nested too deeply".into()));
+        }
+        for layer in layers {
+            if let LayerContent::Smart(sm) = &layer.content
+                && let photocraft_doc::SmartSource::Linked { path } = &sm.source
+            {
+                paths.try_reserve(1).map_err(|_| EngineError::Other("not enough memory to copy smart-object source IDs".into()))?;
+                paths.insert(path);
+            }
+            if let Some(children) = layer.children().filter(|children| !children.is_empty()) {
+                collect(children, depth + 1, paths)?;
+            }
+        }
+        Ok(())
+    }
+    let mut paths = std::collections::HashSet::new();
+    collect(&copies.layers, 0, &mut paths)?;
+    if paths.is_empty() {
+        return Ok(());
+    }
+    for (signature, key, data) in &source.metadata.psd_global_blocks {
+        if !matches!(key, b"lnk2" | b"lnk3" | b"lnkD" | b"lnkE") {
+            continue;
+        }
+        let selected = photocraft_io::linked::select_items(data, &|uuid, _| paths.contains(uuid))
+            .map_err(|e| EngineError::Other(format!("Could not copy smart-object contents: {e}; the clipboard was not changed")))?;
+        let selected = selected.map(std::sync::Arc::new).unwrap_or_else(|| data.clone());
+        if !selected.is_empty() {
+            copies.metadata.psd_global_blocks.try_reserve(1).map_err(|_| EngineError::Other("not enough memory to copy smart-object source records".into()))?;
+            copies.metadata.psd_global_blocks.push((*signature, *key, selected));
+        }
+    }
+    Ok(())
 }
 
 /// The layer Copy takes whole ([`takes_whole`]): a scratch document in the source's colour
@@ -82,7 +125,7 @@ fn whole_layers(d: &crate::DocState, ids: &[LayerId]) -> Option<Box<Document>> {
     let mut copies = scratch_doc(&d.doc);
     for id in ids {
         let mut l = d.doc.layer(*id)?.clone();
-        if crate::extra_cmds::is_background(&l) {
+        if d.doc.is_background(*id) {
             l.name = "Layer 0".into();
             l.locks = Default::default();
         }
@@ -148,7 +191,7 @@ fn lift(src: &Surface, sel: Option<&Surface>, canvas: Rect) -> Result<Clip> {
     };
     let mut out = Surface::new(with_alpha);
     if area.is_empty() {
-        return Ok(Clip { surface: out, bounds: Rect::EMPTY, layers: None });
+        return Ok(Clip { surface: out, bounds: Rect::EMPTY, layers: None, resolution: None });
     }
     // Only the selected area is read: converting the whole layer (a 24 MP Background gaining
     // alpha) cost about a second per Layer via Copy (#668).
@@ -186,7 +229,7 @@ fn lift(src: &Surface, sel: Option<&Surface>, canvas: Rect) -> Result<Clip> {
     out.try_write_region(area, &px).map_err(|e| EngineError::Other(format!("not enough memory while copying pixels ({e}); the document was not changed")))?;
     out.prune();
     let bounds = out.content_bounds();
-    Ok(Clip { surface: out, bounds, layers: None })
+    Ok(Clip { surface: out, bounds, layers: None, resolution: None })
 }
 
 /// Merged composite of the visible document as a surface in the document's format.
@@ -203,7 +246,10 @@ fn copy(s: &mut Session, merged: bool) -> Result<Value> {
     } else {
         let id = d.active_layer.ok_or(EngineError::Other("no active layer".into()))?;
         let several = multi_copy_ids(d);
-        let layers = if several.is_empty() { whole_layer(d, id) } else { whole_layers(d, &several) };
+        let mut layers = if several.is_empty() { whole_layer(d, id) } else { whole_layers(d, &several) };
+        if let Some(copies) = &mut layers {
+            copy_linked_sources(&d.doc, copies)?;
+        }
         match (d.doc.layer(id).and_then(Layer::surface).filter(|_| several.is_empty()), &layers) {
             (Some(surf), _) => Clip { layers, ..lift(surf, d.doc.selection.as_ref(), canvas)? },
             // A group has no pixels of its own: the clipboard pixels are what it shows.
@@ -221,6 +267,7 @@ fn copy(s: &mut Session, merged: bool) -> Result<Value> {
         return Err(EngineError::Other("Could not copy: the selected area is empty".into()));
     }
     let b = clip.bounds;
+    let clip = Clip { resolution: Some(d.doc.resolution_dpi), ..clip };
     s.clipboard = Some(clip);
     Ok(json!({"bounds": [b.x0, b.y0, b.width(), b.height()]}))
 }
@@ -263,7 +310,8 @@ fn copy_mask(s: &mut Session) -> Result<Value> {
         return Err(EngineError::Other("Could not copy: the selected area is empty".into()));
     }
     let b = bounds;
-    s.clipboard = Some(Clip { surface, bounds: b, layers: None });
+    let resolution = Some(d.doc.resolution_dpi);
+    s.clipboard = Some(Clip { surface, bounds: b, layers: None, resolution });
     Ok(json!({"bounds": [b.x0, b.y0, b.width(), b.height()], "target": "mask"}))
 }
 
@@ -277,7 +325,8 @@ fn clear_selected(doc: &mut Document, id: LayerId, background: [f32; 4]) -> Resu
 /// Cut / Clear on a layer: makes the selected pixels transparent. The Background can't hold
 /// transparency, so there the area is filled with the background colour instead (Photoshop).
 pub(crate) fn clear_area(doc: &mut Document, id: LayerId, area: Rect, sel: Option<&Surface>, background: [f32; 4]) -> Result<()> {
-    let bg = crate::extra_cmds::is_background(doc.layer(id).ok_or(EngineError::NoLayer(id))?);
+    doc.layer(id).ok_or(EngineError::NoLayer(id))?;
+    let bg = doc.is_background(id);
     let surf = crate::commands::paint_surface(doc, id, &Value::Null)?;
     if bg {
         crate::pixels::try_fill_surface(surf, area, background, sel, true)?;
@@ -339,8 +388,27 @@ fn paste_layers(s: &mut Session, layers: &Document, dx: i32, dy: i32) -> Result<
     crate::layer_copy_cmds::adapt_copies(s, &mut copies, &d.doc)?;
     crate::layer_copy_cmds::translate_copies(&mut copies, dx, dy);
     let patterns: Vec<_> = copies.patterns.iter().filter(|pat| !d.doc.patterns.iter().any(|q| q.id == pat.id)).cloned().collect();
+    // A copied smart object may name a PSD-embedded linked file; land its `lnk` block too (#3584).
+    let mut linked = Vec::new();
+    for (signature, key, data) in copies.metadata.psd_global_blocks.iter().filter(|(_, k, _)| matches!(k, b"lnk2" | b"lnk3" | b"lnkD" | b"lnkE")) {
+        if d.doc.metadata.psd_global_blocks.iter().any(|(_, dk, dd)| dk == key && std::sync::Arc::ptr_eq(dd, data)) {
+            continue;
+        }
+        // The clipboard may contain a subset of a destination block. Compare complete records,
+        // so copying one layer in the same document does not duplicate large embedded files.
+        let missing = photocraft_io::linked::select_items(data, &|_, raw| {
+            !d.doc.metadata.psd_global_blocks.iter().any(|(_, dk, dd)| dk == key && photocraft_io::linked::contains_item(dd, raw))
+        })
+        .map_err(|e| EngineError::Other(format!("Could not paste smart-object contents: {e}; the document was not changed")))?;
+        let missing = missing.map(std::sync::Arc::new).unwrap_or_else(|| data.clone());
+        if !missing.is_empty() {
+            linked.try_reserve(1).map_err(|_| EngineError::Other("not enough memory to paste smart-object source records".into()))?;
+            linked.push((*signature, *key, missing));
+        }
+    }
     let id = s.edit("Paste", |doc, active| {
         doc.patterns.extend(patterns);
+        doc.metadata.psd_global_blocks.extend(linked);
         for l in copies.layers {
             *active = Some(doc.insert_above(*active, l));
         }
@@ -403,10 +471,17 @@ fn new_from_clipboard(s: &mut Session) -> Result<Value> {
     let target = PixelFormat::new(fmt.mode, fmt.sample, true);
     let moved = if b.x0 == 0 && b.y0 == 0 { clip.surface } else { photocraft_algo::resample::translate_surface(&clip.surface, -b.x0, -b.y0) };
     let mut doc = Document::new("Untitled", photocraft_geom::Size::new(w, h), fmt.mode, fmt.sample);
+    if let Some(r) = clip.resolution.filter(|r| r.is_finite() && *r > 0.0) {
+        doc.resolution_dpi = r;
+    }
     let mut l = Layer::raster(doc.next_layer_name("Layer"), target);
     *crate::pixels_mut(&mut l)? = if moved.format() == target { moved } else { moved.convert(target) };
     doc.layers.push(l);
     let i = s.add_document(doc, None);
+    // Clipboard content has never been saved; closing this tab must ask before discarding it.
+    if let Some(st) = s.active_mut() {
+        st.saved_revision = 0;
+    }
     Ok(json!({"document": i, "width": w, "height": h}))
 }
 
@@ -461,7 +536,7 @@ fn merge_visible(s: &mut Session) -> Result<Value> {
         }
         let lowest = visible[0];
         let base = doc.layers[lowest].clone();
-        let is_background = base.name == "Background" && base.locks.transparency;
+        let is_background = lowest == 0 && doc.is_background(base.id);
         // Composite of visible layers only (hidden ones stay where they are).
         let mut solo = doc.clone();
         solo.layers.retain(|l| l.visible);
@@ -675,10 +750,65 @@ fn transform_again_params(s: &Session) -> Result<Value> {
     Ok(p)
 }
 
+/// Guides further than this from the canvas origin are refused: far past any document (300000 px)
+/// yet well within f32 precision.
+const MAX_GUIDE_PX: f64 = 1_000_000.0;
+
+/// A guide `position` in document pixels: a number of pixels, or text with a unit as in Photoshop's
+/// New Guide dialog ("50%", "2.5 cm", "12 pt"). Percent is of the document's width for a vertical
+/// guide and its height for a horizontal one; points and picas follow Units & Rulers › Point Size.
+/// `None` when there is no `position`.
+fn guide_position(s: &Session, p: &Value, vertical: bool) -> Result<Option<f64>> {
+    let Some(v) = p.get("position") else { return Ok(None) };
+    let px = match (v.as_f64(), v.as_str()) {
+        (Some(n), _) => n,
+        (None, Some(text)) => {
+            let (n, unit) = crate::prefs::Unit::parse_length(text).ok_or_else(|| {
+                EngineError::Other(format!("`position` {text:?} is not a length: give a number of pixels, or a number with px, in, cm, mm, pt, pc or %"))
+            })?;
+            let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
+            let extent = if vertical { doc.size.width } else { doc.size.height };
+            unit.unwrap_or(crate::prefs::Unit::Pixels).to_px(n, doc.resolution_dpi as f64, extent as f64, s.prefs().units_and_rulers.point_size.per_inch())
+        }
+        _ => return Err(EngineError::Other("`position` must be a number of pixels or text with a unit".into())),
+    };
+    if !px.is_finite() || px.abs() > MAX_GUIDE_PX {
+        return Err(EngineError::Other(format!("`position` is out of range (at most {MAX_GUIDE_PX} px from the canvas origin)")));
+    }
+    Ok(Some(px))
+}
+
+/// Photoshop's guide colours, in its order, by the names `view.newGuide` takes: New Guide's and
+/// New Guide Layout's Color lists. Cyan (the default guide colour in Preferences, so a guide
+/// dragged from a ruler reads as Cyan), Magenta and Yellow are the values New Guide Layout first
+/// shipped with; the rest approximate Photoshop's on screen, rounded to web-safe steps.
+pub const GUIDE_COLORS: [(&str, [u8; 3]); 9] = [
+    ("lightBlue", [0x33, 0x66, 0xff]),
+    ("lightRed", [0xff, 0x33, 0x33]),
+    ("green", [0x33, 0xff, 0x33]),
+    ("mediumBlue", [0x33, 0x33, 0xff]),
+    ("yellow", [0xff, 0xcc, 0x00]),
+    ("magenta", [0xff, 0x00, 0xff]),
+    ("cyan", [0x4a, 0xff, 0xff]),
+    ("lightGray", [0xe7, 0xe7, 0xe7]),
+    ("black", [0x00, 0x00, 0x00]),
+];
+
+/// A guide `color`: one of [`GUIDE_COLORS`]' names or `"#rrggbb"`. `None` when there is no `color`
+/// (the guide uses Preferences › Guides, Grid & Slices › Guide colour).
+fn guide_color(p: &Value) -> Result<Option<[u8; 3]>> {
+    let Some(v) = p.get("color") else { return Ok(None) };
+    let text = v.as_str().ok_or(EngineError::Other("`color` must be a colour name or \"#rrggbb\"".into()))?;
+    GUIDE_COLORS.iter().find(|(name, ..)| name.eq_ignore_ascii_case(text)).map(|(.., rgb)| *rgb).or_else(|| crate::prefs::parse_hex(text)).map(Some).ok_or_else(
+        || EngineError::Other(format!("`color` {text:?} is not a guide colour: use \"#rrggbb\" or one of {}", GUIDE_COLORS.map(|c| c.0).join(", "))),
+    )
+}
+
 /// View › New Guide / guide moves (undoable, like Photoshop's "New Guide"/"Move Guide" states).
 fn guide_cmd(s: &mut Session, p: &Value, op: &str) -> Result<Value> {
     let vertical = p.get("orientation").and_then(Value::as_str).unwrap_or("horizontal") == "vertical";
-    let pos = p.get("position").and_then(Value::as_f64);
+    let pos = guide_position(s, p, vertical)?;
+    let color = if op == "new" { guide_color(p)? } else { None };
     let index = p.get("index").and_then(Value::as_u64).map(|v| v as usize);
     let label = match op {
         "new" => "New Guide",
@@ -687,20 +817,35 @@ fn guide_cmd(s: &mut Session, p: &Value, op: &str) -> Result<Value> {
         _ => "Clear Guides",
     };
     s.edit(label, |doc, _| {
-        let g = if vertical { &mut doc.guides.vertical } else { &mut doc.guides.horizontal };
+        let guides = &mut doc.guides;
+        let g = if vertical { &mut guides.vertical } else { &mut guides.horizontal };
         match op {
-            "new" => g.push(pos.ok_or(EngineError::Other("missing `position`".into()))?),
+            "new" => {
+                let at = pos.ok_or(EngineError::Other("missing `position`".into()))?;
+                g.push(at);
+                if color.is_some() {
+                    guides.set_color(vertical, at, color);
+                }
+            }
             "move" => {
                 let i = index.filter(|i| *i < g.len()).ok_or(EngineError::Other("no such guide".into()))?;
-                g[i] = pos.ok_or(EngineError::Other("missing `position`".into()))?;
+                let to = pos.ok_or(EngineError::Other("missing `position`".into()))?;
+                let from = std::mem::replace(&mut g[i], to);
+                // The guide takes its colour along; another guide left at the old position keeps it.
+                if let Some(rgb) = guides.color(vertical, from) {
+                    guides.set_color(vertical, to, Some(rgb));
+                }
+                guides.prune_colors();
             }
             "delete" => {
                 let i = index.filter(|i| *i < g.len()).ok_or(EngineError::Other("no such guide".into()))?;
                 g.remove(i);
+                guides.prune_colors();
             }
             _ => {
-                doc.guides.horizontal.clear();
-                doc.guides.vertical.clear();
+                guides.horizontal.clear();
+                guides.vertical.clear();
+                guides.colors.clear();
             }
         }
         Ok(())
@@ -794,12 +939,24 @@ pub fn specs() -> Vec<CommandSpec> {
             has_doc,
             |s, _| transform_again_copy(s)
         ),
-        spec!("view.newGuide", "New Guide…", &["View"], None, r##"{"orientation":"horizontal|vertical","position":px}"##, has_doc, |s, p| guide_cmd(
-            s, p, "new"
-        )),
-        spec!("view.moveGuide", "Move Guide", &[], None, r##"{"orientation":"horizontal|vertical","index":n,"position":px}"##, has_doc, |s, p| guide_cmd(
-            s, p, "move"
-        )),
+        spec!(
+            "view.newGuide",
+            "New Guide…",
+            &["View"],
+            None,
+            r##"{"orientation":"horizontal|vertical","position":px or "<number><unit>","color":"lightBlue|lightRed|green|mediumBlue|yellow|magenta|cyan|lightGray|black" or "#rrggbb"?} (units px, in, cm, mm, pt, pc or %; % is of the width for a vertical guide, the height for a horizontal one; without a color the guide uses the guide colour in Preferences)"##,
+            has_doc,
+            |s, p| guide_cmd(s, p, "new")
+        ),
+        spec!(
+            "view.moveGuide",
+            "Move Guide",
+            &[],
+            None,
+            r##"{"orientation":"horizontal|vertical","index":n,"position":px or "<number><unit>"} (units as for view.newGuide)"##,
+            has_doc,
+            |s, p| guide_cmd(s, p, "move")
+        ),
         spec!("view.deleteGuide", "Delete Guide", &[], None, r##"{"orientation":"horizontal|vertical","index":n}"##, has_doc, |s, p| guide_cmd(s, p, "delete")),
         spec!("view.clearGuides", "Clear Guides", &["View"], None, "{}", has_doc, |s, p| guide_cmd(s, p, "clear")),
     ]
@@ -924,6 +1081,18 @@ mod tests {
         st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap().content_bounds()
     }
 
+    /// New from Clipboard takes the copied document's resolution (Photoshop's Clipboard preset),
+    /// so a later Image Size by resolution scales from the right size.
+    #[test]
+    fn new_from_clipboard_keeps_the_source_resolution() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 60, "height": 40, "resolution": 300})).unwrap();
+        s.execute("select.all", json!({})).unwrap();
+        s.execute("edit.copy", json!({})).unwrap();
+        s.execute("file.newFromClipboard", json!({})).unwrap();
+        assert_eq!(s.active().unwrap().doc.resolution_dpi, 300.0);
+    }
+
     /// #368: the clipboard as a document of its own, from New from Clipboard or a Paste with
     /// nothing open, at every depth.
     #[test]
@@ -933,6 +1102,7 @@ mod tests {
             assert!(!s.is_enabled("file.newFromClipboard") && !s.is_enabled("edit.paste"), "nothing copied yet");
             assert!(s.execute("file.newFromClipboard", json!({})).is_err());
             s.execute("file.new", json!({"width": 100, "height": 100, "depth": depth})).unwrap();
+            assert!(!s.active().unwrap().is_dirty(), "an untouched blank document is clean");
             s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
             s.execute("select.rect", json!({"x": 10, "y": 20, "width": 30, "height": 15})).unwrap();
             s.execute("edit.copy", json!({})).unwrap();
@@ -940,6 +1110,7 @@ mod tests {
             let r = s.execute("file.newFromClipboard", json!({})).unwrap();
             assert_eq!((r["width"].as_u64(), r["height"].as_u64()), (Some(30), Some(15)), "{r}");
             assert_eq!(s.documents().len(), 2);
+            assert!(s.active().unwrap().is_dirty(), "a document made from clipboard pixels needs saving (#4665)");
             let d = &s.active().unwrap().doc;
             assert_eq!((d.size.width, d.size.height, d.layers.len()), (30, 15, 1));
             assert_eq!(d.pixel_format().sample, s.documents()[0].doc.pixel_format().sample, "{depth}-bit kept");
@@ -953,6 +1124,7 @@ mod tests {
             assert!(s.is_enabled("edit.paste") && !s.is_enabled("edit.pasteSpecial.pasteInPlace"));
             s.execute("edit.paste", json!({})).unwrap();
             assert_eq!(s.documents().len(), 1);
+            assert!(s.active().unwrap().is_dirty(), "Paste with no tab also needs a save prompt");
             assert_eq!(active_bounds(&s), Rect::new(0, 0, 30, 15));
             assert!(s.execute("edit.pasteSpecial.pasteInPlace", json!({})).is_ok(), "into the new document");
         }
@@ -1281,7 +1453,7 @@ mod tests {
             let mut s = fresh();
             s.execute(cmd, json!({})).unwrap();
             let d = &s.active().unwrap().doc;
-            assert!(crate::extra_cmds::is_background(&d.layers[0]), "{cmd}: still the Background");
+            assert!(d.is_background(d.layers[0].id), "{cmd}: still the Background");
             assert_eq!(px(&s, 0, 8, 8), vec![1.0, 0.0, 0.0, 1.0], "{cmd}: cut area is the background colour");
             assert_eq!(px(&s, 0, 30, 20), vec![1.0, 1.0, 1.0, 1.0], "{cmd}: outside untouched");
         }
@@ -1527,9 +1699,9 @@ mod tests {
         let st = s.active().unwrap();
         assert_eq!(st.doc.layers.len(), 4);
         let pasted = &st.doc.layers[st.doc.layers.len() - 2];
-        assert!(!crate::extra_cmds::is_background(pasted));
+        assert!(!st.doc.is_background(pasted.id));
         assert_eq!(pasted.locks, Default::default());
-        assert!(crate::extra_cmds::is_background(&st.doc.layers[0]), "the real Background is untouched");
+        assert!(st.doc.is_background(st.doc.layers[0].id), "the real Background is untouched");
     }
 
     /// #2428: a smart object copied in one document pastes into another as a smart object, in
@@ -1544,6 +1716,34 @@ mod tests {
         let LayerContent::Smart(sm) = active_content(&s) else { panic!("the paste is a smart object") };
         assert_eq!(sm.cache.map(|c| c.format().sample), Some(s.active().unwrap().doc.depth), "converted to 16 bits");
         assert_eq!(active_bounds(&s), Rect::new(10, 10, 50, 30), "on the canvas: in place");
+    }
+
+    /// #3584: a PSD-embedded linked smart object (its bytes in the document's `lnk2` block, its
+    /// source a uuid) can still be opened after Copy + Paste into another document.
+    #[test]
+    fn paste_keeps_a_psd_embedded_smart_object_openable() {
+        use std::sync::Arc;
+        let mut s = session();
+        s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        let outer = s.active().unwrap().active_layer.unwrap();
+        s.edit("embedded linked source", |doc, _| {
+            let LayerContent::Smart(sm) = &mut doc.layer_mut(outer).ok_or(EngineError::NoDocument)?.content else {
+                return Err(EngineError::Other("not a smart object".into()));
+            };
+            sm.source = photocraft_doc::SmartSource::Linked { path: "uuid-1".into() };
+            let linked = photocraft_io::linked::LinkedFile { uuid: "uuid-1".into(), file_name: "in.png".into(), bytes: vec![1, 2, 3, 4] };
+            doc.metadata.psd_global_blocks.push((*b"8BIM", *b"lnk2", Arc::new(photocraft_io::linked::encode_linked_file(&linked))));
+            Ok(())
+        })
+        .unwrap();
+        s.execute("edit.copy", json!({})).unwrap();
+        s.execute("file.new", json!({"width": 40, "height": 30})).unwrap();
+        s.execute("edit.paste", json!({})).unwrap();
+        let LayerContent::Smart(sm) = active_content(&s) else { panic!("the paste is a smart object") };
+        assert!(
+            crate::smart_cmds::source_bytes(&s.active().unwrap().doc.metadata, &sm.source).is_some(),
+            "the pasted PSD-embedded linked source must resolve (#3584)"
+        );
     }
 
     /// Type and shape layers copy their rendered pixels too; groups and adjustments have none.
@@ -1685,6 +1885,123 @@ mod tests {
         s.execute("view.clearGuides", json!({})).unwrap();
         assert!(s.active().unwrap().doc.guides.vertical.is_empty());
         assert!(s.execute("view.moveGuide", json!({"orientation": "vertical", "index": 3, "position": 1})).is_err());
+    }
+
+    /// The last guide added in `orientation` for `position`.
+    fn new_guide(s: &mut Session, orientation: &str, position: Value) -> f64 {
+        s.execute("view.newGuide", json!({"orientation": orientation, "position": position})).unwrap();
+        let g = &s.active().unwrap().doc.guides;
+        *if orientation == "vertical" { &g.vertical } else { &g.horizontal }.last().unwrap()
+    }
+
+    #[test]
+    fn guide_positions_take_photoshop_units() {
+        let mut s = Session::new();
+        // 4 × 2 inches at 100 ppi.
+        s.execute("file.new", json!({"width": 400, "height": 200, "resolution": 100})).unwrap();
+        // Percent follows the guide's own axis: the width for a vertical guide, the height for a horizontal one.
+        assert_eq!(new_guide(&mut s, "vertical", json!("50%")), 200.0);
+        assert_eq!(new_guide(&mut s, "horizontal", json!("50%")), 100.0);
+        for one_inch in ["1in", "1 in", "2.54cm", "25.4 mm", "72pt", "6pc", "100px", "100", "1,0 inch"] {
+            assert!((new_guide(&mut s, "vertical", json!(one_inch)) - 100.0).abs() < 1e-3, "{one_inch}");
+        }
+        // Fractional and negative positions are kept; a plain number is pixels, as before.
+        assert_eq!(new_guide(&mut s, "horizontal", json!("12.5px")), 12.5);
+        assert_eq!(new_guide(&mut s, "vertical", json!("-10px")), -10.0);
+        assert_eq!(new_guide(&mut s, "vertical", json!(40)), 40.0);
+        // Points and picas follow Units & Rulers › Point Size.
+        s.execute("prefs.set", json!({"path": "unitsAndRulers.pointSize", "value": "traditional"})).unwrap();
+        assert!((new_guide(&mut s, "vertical", json!("72.27pt")) - 100.0).abs() < 1e-3);
+        // A guide moved with a unit lands where a new one would.
+        s.execute("view.moveGuide", json!({"orientation": "horizontal", "index": 0, "position": "25%"})).unwrap();
+        assert_eq!(s.active().unwrap().doc.guides.horizontal[0], 50.0);
+    }
+
+    #[test]
+    fn new_guides_keep_their_own_colour_through_moves_deletes_and_undo() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 400, "height": 200})).unwrap();
+        let color = |s: &Session, vertical: bool, p: f64| s.active().unwrap().doc.guides.color(vertical, p);
+        // Without a colour a guide uses the preference colour, as ruler-drag guides always did.
+        s.execute("view.newGuide", json!({"orientation": "vertical", "position": 10})).unwrap();
+        assert_eq!(color(&s, true, 10.0), None);
+        assert!(s.active().unwrap().doc.guides.colors.is_empty());
+        s.execute("view.newGuide", json!({"orientation": "vertical", "position": 20, "color": "magenta"})).unwrap();
+        s.execute("view.newGuide", json!({"orientation": "horizontal", "position": 20, "color": "#123456"})).unwrap();
+        s.execute("view.newGuide", json!({"orientation": "vertical", "position": 30, "color": "LightBlue"})).unwrap();
+        assert_eq!(color(&s, true, 20.0), Some([0xff, 0x00, 0xff]));
+        assert_eq!(color(&s, false, 20.0), Some([0x12, 0x34, 0x56]), "the same position across is a different guide");
+        assert_eq!(color(&s, true, 30.0), Some([0x33, 0x66, 0xff]), "names are case-insensitive");
+        // Moving takes the colour along.
+        s.execute("view.moveGuide", json!({"orientation": "vertical", "index": 1, "position": 25})).unwrap();
+        assert_eq!((color(&s, true, 20.0), color(&s, true, 25.0)), (None, Some([0xff, 0x00, 0xff])));
+        // Undo restores it where it was.
+        s.undo();
+        assert_eq!((color(&s, true, 20.0), color(&s, true, 25.0)), (Some([0xff, 0x00, 0xff]), None));
+        // Deleting drops it; clearing drops them all.
+        s.execute("view.deleteGuide", json!({"orientation": "vertical", "index": 2})).unwrap();
+        assert_eq!(color(&s, true, 30.0), None);
+        assert_eq!(s.active().unwrap().doc.guides.colors.len(), 2);
+        s.execute("view.clearGuides", json!({})).unwrap();
+        assert!(s.active().unwrap().doc.guides.colors.is_empty());
+    }
+
+    #[test]
+    fn moving_one_of_two_coloured_guides_at_one_position_leaves_the_other_its_colour() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 400, "height": 200})).unwrap();
+        for _ in 0..2 {
+            s.execute("view.newGuide", json!({"orientation": "vertical", "position": 50, "color": "green"})).unwrap();
+        }
+        s.execute("view.moveGuide", json!({"orientation": "vertical", "index": 0, "position": 60})).unwrap();
+        let g = &s.active().unwrap().doc.guides;
+        assert_eq!((g.color(true, 50.0), g.color(true, 60.0)), (Some([0x33, 0xff, 0x33]), Some([0x33, 0xff, 0x33])));
+    }
+
+    #[test]
+    fn cyan_is_the_default_guide_colour_so_ruler_guides_read_as_cyan() {
+        let default = crate::prefs::Preferences::default().guides_grid_and_slices.guide_color;
+        let cyan = GUIDE_COLORS.iter().find(|(name, ..)| *name == "cyan").map(|(.., rgb)| *rgb);
+        assert_eq!(cyan, crate::prefs::parse_hex(&default));
+    }
+
+    #[test]
+    fn bad_guide_colours_are_refused_without_a_guide() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 400, "height": 200})).unwrap();
+        let undo_before = s.active().unwrap().history.can_undo();
+        for bad in [json!("puce"), json!("#12345"), json!("#gggggg"), json!(""), json!(7), json!(null), json!(["cyan"])] {
+            assert!(s.execute("view.newGuide", json!({"orientation": "vertical", "position": 10, "color": bad.clone()})).is_err(), "{bad}");
+        }
+        let g = &s.active().unwrap().doc.guides;
+        assert!(g.vertical.is_empty() && g.colors.is_empty());
+        assert_eq!(s.active().unwrap().history.can_undo(), undo_before);
+    }
+
+    #[test]
+    fn bad_guide_positions_are_refused_without_a_guide() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 400, "height": 200, "resolution": 100})).unwrap();
+        let undo_before = s.active().unwrap().history.can_undo();
+        for bad in [
+            json!("abc"),
+            json!("50 furlongs"),
+            json!(""),
+            json!("%"),
+            json!("NaN"),
+            json!("inf"),
+            json!("1e400"),
+            json!("2000000px"),
+            json!(1e300),
+            json!(true),
+            json!([1]),
+        ] {
+            assert!(s.execute("view.newGuide", json!({"orientation": "vertical", "position": bad.clone()})).is_err(), "{bad}");
+        }
+        assert!(s.execute("view.newGuide", json!({"orientation": "vertical"})).is_err(), "no position");
+        let g = &s.active().unwrap().doc.guides;
+        assert!(g.vertical.is_empty() && g.horizontal.is_empty());
+        assert_eq!(s.active().unwrap().history.can_undo(), undo_before, "a refused guide records no history step");
     }
 
     /// Guides keep their exact place (#2918): 1 cm at 300 ppi through New Guide and .pcraft, and

@@ -172,12 +172,17 @@ impl ColorSettings {
     }
 }
 
-/// Check that each working space resolves to a profile of the right colour space.
+/// Check that each working space resolves to the right colour space and RGB can be both a
+/// source and editing destination for the configured rendering intent.
 pub fn validate_settings(c: &ColorSettings) -> std::result::Result<(), String> {
     for (space, spec) in [(ColorSpace::Rgb, &c.working_rgb), (ColorSpace::Cmyk, &c.working_cmyk), (ColorSpace::Gray, &c.working_gray)] {
         let p = resolve_profile(spec, None, space_mode(space)).map_err(|e| e.to_string())?;
         if p.color_space != space {
             return Err(format!("working space `{spec}` is {:?}, not {space:?}", p.color_space));
+        }
+        if space == ColorSpace::Rgb {
+            p.pcs_to_device(c.intent()).map_err(|e| format!("working RGB space `{spec}` cannot be a destination for {}: {e}", c.intent().id()))?;
+            p.device_to_pcs(c.intent()).map_err(|e| format!("working RGB space `{spec}` cannot be a source for {}: {e}", c.intent().id()))?;
         }
     }
     let m = c.monitor_profile.as_str();
@@ -215,13 +220,16 @@ pub struct ColorState {
 
 impl ColorState {
     /// The working profile of a mode from Color Settings (the built-in default when the
-    /// setting does not resolve).
+    /// setting does not resolve or cannot be both an RGB source and editing destination).
     pub fn working(&self, mode: ColorMode) -> Arc<Profile> {
         let space = mode_space(mode);
         self.settings
             .working_spec(space)
             .and_then(|spec| resolve_profile(spec, None, Some(mode)).ok())
-            .filter(|p| p.color_space == space)
+            .filter(|p| {
+                p.color_space == space
+                    && (space != ColorSpace::Rgb || (p.pcs_to_device(self.settings.intent()).is_ok() && p.device_to_pcs(self.settings.intent()).is_ok()))
+            })
             .unwrap_or_else(|| working_profile(mode))
     }
 
@@ -276,18 +284,22 @@ impl ColorState {
                 if !mismatch || linear_hdr {
                     return merge(base, json!({"action": "kept"}));
                 }
+                // An input-only profile can't be the document's space: nothing could be
+                // composited into it (#3876). Preserve converts it to the working space instead.
+                let input_only = !emb.can_be_destination();
                 let action = match policy {
-                    Policy::Preserve => "kept",
+                    Policy::Preserve if !input_only => "kept",
                     Policy::Off => {
                         doc.icc_profile = None;
                         "discarded"
                     }
-                    Policy::Convert => match convert_document(doc, &working, self.settings.intent(), self.settings.bpc) {
+                    Policy::Preserve | Policy::Convert => match convert_document(doc, &working, self.settings.intent(), self.settings.bpc) {
                         Ok(()) => "converted",
                         Err(_) => "kept",
                     },
                 };
-                merge(base, json!({"action": action, "ask": self.settings.ask_on_mismatch}))
+                let report = merge(base, json!({"action": action, "ask": self.settings.ask_on_mismatch}));
+                if input_only { merge(report, json!({"inputOnly": true})) } else { report }
             }
             None => {
                 // Untagged files are assumed to be in the working space; tag them when it is not
@@ -1395,6 +1407,58 @@ mod settings_tests {
         let (_, r) = s.open_document(d, None);
         assert_eq!(r["action"], "assigned");
         assert_eq!(desc(&s.active().unwrap().doc).as_deref(), Some("Display P3"));
+    }
+
+    /// Display P3 as an input profile with only an AToB table, like Apple's Wide Color Sharing
+    /// Profile embedded in iPhone photos.
+    fn input_only_p3() -> Profile {
+        let p3 = Builtin::DisplayP3.profile();
+        let t = Transform::new(p3, Builtin::LabD50.profile(), Intent::RelativeColorimetric, false).unwrap();
+        let clut = photocraft_cms::Clut::sample(vec![9; 3], 3, |inp, out| t.eval(inp, out));
+        let ident = || photocraft_cms::pipeline::Stage::Curves(vec![photocraft_cms::Curve::Identity; 3]);
+        let lut = photocraft_cms::profile::Lut {
+            kind: photocraft_cms::profile::LutKind::Ab,
+            inputs: 3,
+            outputs: 3,
+            stages: vec![ident(), photocraft_cms::pipeline::Stage::Clut(clut), ident()],
+        };
+        let mut p = p3.clone();
+        p.class = photocraft_cms::ProfileClass::Input;
+        p.pcs = photocraft_cms::Pcs::Lab;
+        p.description = "Input-only P3".into();
+        (p.matrix, p.trc) = (None, None);
+        p.a2b = [Some(lut), None, None];
+        p.b2a = [None, None, None];
+        p.with_encoded_bytes()
+    }
+
+    #[test]
+    fn input_only_profiles_are_converted_on_open() {
+        // #3876: an iPhone photo's input-only profile was kept as the document's space, so
+        // compositing anything into it failed with "RGB profile without matrix/TRC or BToA tags".
+        let input = input_only_p3();
+        assert!(Builtin::DisplayP3.profile().can_be_destination());
+        assert!(!input.can_be_destination());
+        let mut s = Session::new();
+        let mut d = tagged("srgb");
+        d.icc_profile = Some(input.to_bytes());
+        let (photo, r) = s.open_document(d, None);
+        assert_eq!((r["action"].as_str(), r["inputOnly"].as_bool(), r["ask"].as_bool()), (Some("converted"), Some(true), Some(true)));
+        let doc = &s.active().unwrap().doc;
+        assert!(desc(doc).unwrap().starts_with("sRGB"));
+        // Converted from P3, not reinterpreted as sRGB.
+        assert!((doc.layers[0].surface().unwrap().pixel(1, 1)[0] - 0.2).abs() > 0.01);
+        let (other, _) = s.open_document(tagged("srgb"), None);
+        s.execute("layer.copyToDocument", json!({"document": photo, "source": other})).unwrap();
+        // Off still discards the profile, and profiles that can be a destination are still kept.
+        s.execute("edit.colorSettings", json!({"policyRgb": "off"})).unwrap();
+        let mut d = tagged("srgb");
+        d.icc_profile = Some(input.to_bytes());
+        let (_, r) = s.open_document(d, None);
+        assert_eq!((r["action"].as_str(), r["inputOnly"].as_bool()), (Some("discarded"), Some(true)));
+        s.execute("edit.colorSettings", json!({"policyRgb": "preserve"})).unwrap();
+        let (_, r) = s.open_document(tagged("display-p3"), None);
+        assert_eq!((r["action"].as_str(), r.get("inputOnly")), (Some("kept"), None));
     }
 
     /// A little-endian EXIF block whose Exif IFD holds ColorSpace = `space`.

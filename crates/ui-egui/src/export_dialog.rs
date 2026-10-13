@@ -13,6 +13,46 @@ use crate::{ExportSettings, PhotocraftApp};
 
 const FORMATS: [(&str, &str); 5] = [("png", "PNG"), ("jpg", "JPG"), ("webp", "WebP"), ("tif", "TIFF"), ("tga", "TGA")];
 
+/// Preferences ▸ remembered dialog settings: Export As writes the settings it was used with
+/// last under its command id and seeds the next dialog from them, as Fill, Liquify and the
+/// filter dialogs do.
+pub(crate) const COMMAND: &str = "file.export.exportAs";
+
+/// The dialog is seeded from the settings it was used with last (see [`COMMAND`]); a value that
+/// no longer matches a control (a hand-edited preferences file) is left at its default.
+fn seed_remembered(app: &PhotocraftApp, f: &mut Map<String, Value>) {
+    let Some(Value::Object(saved)) = app.session.prefs().dialogs.get(COMMAND) else { return };
+    if let Some(v) = saved.get("format").and_then(Value::as_str).filter(|v| FORMATS.iter().any(|(k, _)| k == v)) {
+        f.insert("format".into(), json!(v));
+    }
+    if let Some(v) = saved.get("quality").and_then(Value::as_f64).filter(|v| (1.0..=100.0).contains(v)) {
+        f.insert("quality".into(), json!(v));
+    }
+    if let Some(v) = saved.get("scale").and_then(Value::as_f64).filter(|v| (1.0..=1000.0).contains(v)) {
+        f.insert("scale".into(), json!(v));
+    }
+    for key in ["lossless", "transparency"] {
+        if let Some(v) = saved.get(key).and_then(Value::as_bool) {
+            f.insert(key.into(), json!(v));
+        }
+    }
+    if let Some(v) = saved.get("metadata").and_then(Value::as_str).filter(|v| ["none", "all"].contains(v)) {
+        f.insert("metadata".into(), json!(v));
+    }
+    if let Some(v) = saved.get("tgaBits").and_then(Value::as_str).filter(|v| ["auto", "24", "32"].contains(v)) {
+        f.insert("tgaBits".into(), json!(v));
+    }
+}
+
+/// Record the settings for the next Export As (see [`seed_remembered`]).
+fn remember(app: &mut PhotocraftApp, f: &Map<String, Value>) {
+    const KEYS: [&str; 7] = ["format", "quality", "lossless", "transparency", "scale", "metadata", "tgaBits"];
+    let saved: Map<String, Value> = KEYS.iter().filter_map(|k| f.get(*k).map(|v| ((*k).to_string(), v.clone()))).collect();
+    app.session.prefs.edit(|p| {
+        p.dialogs.insert(COMMAND.into(), Value::Object(saved));
+    });
+}
+
 pub fn open(app: &mut PhotocraftApp) -> Result<u64, String> {
     let st = app.session.active().ok_or("no document")?;
     let mut f = Map::new();
@@ -27,6 +67,7 @@ pub fn open(app: &mut PhotocraftApp) -> Result<u64, String> {
     f.insert("tgaBits".into(), json!("auto"));
     f.insert("__w".into(), json!(st.doc.size.width));
     f.insert("__h".into(), json!(st.doc.size.height));
+    seed_remembered(app, &mut f);
     Ok(app.ui.open_dialog(DialogKind::Command, f))
 }
 
@@ -40,6 +81,23 @@ pub fn open_layer(app: &mut PhotocraftApp, layer: photocraft_doc::LayerId) -> Re
         d.fields.insert("__label".into(), json!(format!("Export As: {}", ldoc.name)));
         d.fields.insert("__w".into(), json!(ldoc.size.width));
         d.fields.insert("__h".into(), json!(ldoc.size.height));
+    }
+    Ok(id)
+}
+
+/// Layer › Export As… with several layers (artboards, say) selected: the same dialog, then one
+/// file per layer with its settings (#3629). The preview shows the first layer.
+pub fn open_layers(app: &mut PhotocraftApp, layers: &[photocraft_doc::LayerId]) -> Result<u64, String> {
+    let (first, n) = match layers {
+        [] => return Err("no selected layers".into()),
+        [one] => return open_layer(app, *one),
+        [first, ..] => (*first, layers.len()),
+    };
+    let id = open_layer(app, first)?;
+    if let Some(d) = app.ui.dialogs.iter_mut().find(|d| d.id == id) {
+        d.fields.insert("__layers".into(), json!(layers.iter().map(|l| l.0).collect::<Vec<_>>()));
+        let template = "Export As: {n} layers";
+        d.fields.insert("__label".into(), json!(crate::i18n::fmt(tl!(template), &[("n", &n.to_string())])));
     }
     Ok(id)
 }
@@ -96,10 +154,13 @@ fn export_name(name: &str) -> String {
     if name.is_empty() { "layer".into() } else { name.into() }
 }
 
+/// The files a multi-layer export writes: the chosen path, then numbered siblings named after
+/// each layer, in the chosen path's format.
 fn batch_paths(path: &str, docs: &[Document]) -> Vec<String> {
     let first = std::path::Path::new(path);
     let parent = first.parent().unwrap_or_else(|| std::path::Path::new(""));
     let stem = first.file_stem().and_then(|s| s.to_str()).unwrap_or("layers");
+    let ext = first.extension().and_then(|e| e.to_str()).unwrap_or("png");
     docs.iter()
         .enumerate()
         .map(|(i, doc)| {
@@ -107,7 +168,7 @@ fn batch_paths(path: &str, docs: &[Document]) -> Vec<String> {
                 return path.to_string();
             }
             let name = export_name(&doc.name);
-            let candidate = parent.join(format!("{stem}-{}-{name}.png", i + 1));
+            let candidate = parent.join(format!("{stem}-{}-{name}.{ext}", i + 1));
             // The first file's overwrite is handled by the Save dialog; never overwrite sibling
             // files silently on desktop. Downloads on the web are named by the browser.
             #[cfg(not(target_arch = "wasm32"))]
@@ -115,7 +176,7 @@ fn batch_paths(path: &str, docs: &[Document]) -> Vec<String> {
                 let mut candidate = candidate;
                 let mut suffix = 1u64;
                 while candidate.exists() {
-                    candidate = parent.join(format!("{stem}-{}-{name}-{suffix}.png", i + 1));
+                    candidate = parent.join(format!("{stem}-{}-{name}-{suffix}.{ext}", i + 1));
                     suffix = suffix.saturating_add(1);
                 }
                 candidate
@@ -335,6 +396,11 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
 
 /// Export with the dialog's settings: choose a path, render, encode, write.
 pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value, String> {
+    remember(app, f);
+    if let Some(layers) = f.get("__layers").and_then(Value::as_array) {
+        let ids: Vec<_> = layers.iter().filter_map(Value::as_u64).map(photocraft_doc::LayerId).collect();
+        return confirm_layers(app, f, &ids);
+    }
     let doc = source_document(app, f)?;
     let stem = doc.name.rsplit_once('.').map_or(doc.name.as_str(), |(a, _)| a).to_string();
     let ext = s_fmt(f);
@@ -353,6 +419,39 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
         let what = crate::i18n::fmt(tl!(template), &[("path", &crate::file_open::display_name(&path))]);
         crate::notices::io_warnings(app, &what, &warnings);
         Ok(json!({"path": path, "bytes": bytes.len(), "warnings": warnings}))
+    })
+}
+
+/// [`confirm`] for several layers: one destination prompt, then each layer exported with the
+/// dialog's settings and named as Quick Export names a selection's files. The layers are captured
+/// when asked, so changing the selection or document meanwhile can't change what is exported.
+fn confirm_layers(app: &mut PhotocraftApp, f: &Map<String, Value>, ids: &[photocraft_doc::LayerId]) -> Result<Value, String> {
+    let st = app.session.active().ok_or("no document")?;
+    let docs: Vec<Document> =
+        ids.iter().map(|id| photocraft_engine::layer_menu_cmds::layer_document(&st.doc, *id).map_err(|e| e.to_string())).collect::<Result<_, _>>()?;
+    if docs.is_empty() {
+        return Err("no selected layers".into());
+    }
+    let stem = st.doc.name.rsplit_once('.').map_or(st.doc.name.as_str(), |(a, _)| a);
+    let suggested = format!("{}.{}", export_name(stem), s_fmt(f));
+    let (f, settings) = (f.clone(), settings(f));
+    app.pick_save(&suggested, move |app, path| {
+        let mut exported = Vec::new();
+        for (doc, path) in docs.iter().zip(batch_paths(&path, &docs)) {
+            let out = export_document(doc, &f, None)?;
+            let export = app.services.export.as_ref().ok_or("no exporter configured")?;
+            let (bytes, warnings) = export(&out, &path, &settings)?;
+            let write = app.services.write.as_mut().ok_or("no writer configured")?;
+            write(&path, &bytes)?;
+            let template = "Exported {path}";
+            let what = crate::i18n::fmt(tl!(template), &[("path", &crate::file_open::display_name(&path))]);
+            crate::notices::io_warnings(app, &what, &warnings);
+            exported.push(json!({"path": path, "bytes": bytes.len(), "warnings": warnings}));
+        }
+        let template = "Exported {n} files";
+        app.ui.status = crate::i18n::fmt(tl!(template), &[("n", &exported.len().to_string())]);
+        app.ui.status_error = false;
+        Ok(json!({"files": exported}))
     })
 }
 
@@ -394,6 +493,55 @@ fn quick_export(app: &mut PhotocraftApp, p: Value) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Export As reopens with the settings it was used with last (Preferences ▸ remembered
+    /// dialog settings), and a value no control accepts keeps its default.
+    #[test]
+    fn export_as_opens_with_the_settings_used_last() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 20, "height": 10})).unwrap();
+        app.session.prefs.edit(|p| {
+            p.dialogs.insert(
+                COMMAND.into(),
+                json!({"format": "jpg", "quality": 88, "scale": 37, "transparency": false, "metadata": "all", "tgaBits": "24", "lossless": true}),
+            );
+        });
+        let id = open(&mut app).unwrap();
+        let f = &app.ui.dialog_mut(id).unwrap().fields;
+        assert_eq!(f["format"], "jpg");
+        assert_eq!(f["quality"], json!(88.0));
+        assert_eq!(f["scale"], json!(37.0));
+        assert_eq!(f["transparency"], false);
+        assert_eq!(f["metadata"], "all");
+        assert_eq!(f["tgaBits"], "24");
+
+        app.session.prefs.edit(|p| {
+            p.dialogs.insert(COMMAND.into(), json!({"format": "nope", "scale": 0, "metadata": "sometimes"}));
+        });
+        let id = open(&mut app).unwrap();
+        let f = &app.ui.dialog_mut(id).unwrap().fields;
+        assert_eq!(f["format"], "png");
+        assert_eq!(f["scale"], 100);
+        assert_eq!(f["metadata"], "none");
+    }
+
+    /// Only the dialog's own settings are remembered: not the destination, the document size or
+    /// the layer the dialog was opened with.
+    #[test]
+    fn remembering_keeps_only_the_dialog_settings() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let mut f = Map::new();
+        f.insert("format".into(), json!("webp"));
+        f.insert("scale".into(), json!(50));
+        f.insert("path".into(), json!("/tmp/x.webp"));
+        f.insert("__w".into(), json!(1200));
+        f.insert("__layer".into(), json!(3));
+        remember(&mut app, &f);
+        let saved = app.session.prefs().dialogs.get(COMMAND).cloned().unwrap();
+        assert_eq!(saved["format"], "webp");
+        assert_eq!(saved["scale"], 50);
+        assert!(saved.get("path").is_none() && saved.get("__w").is_none() && saved.get("__layer").is_none());
+    }
 
     #[test]
     fn export_document_scales_height_when_rounded_width_is_unchanged() {

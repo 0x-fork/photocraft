@@ -1,6 +1,6 @@
 //! Capability-based filesystem policy for untrusted automation paths.
 
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
@@ -51,8 +51,7 @@ impl AuthorizedWorkspace {
         if !metadata.is_file() {
             return Err(AutomationError::BadRequest(format!("automation read path is not a regular file: `{path}`")));
         }
-        // Bounded reads, and a clear error for a file larger than memory (#375).
-        photocraft_format::read::read_all(&mut file, metadata.len()).map_err(|e| file_error("read", path, e))
+        read_to_observed_length(&mut file, metadata.len())
     }
 
     /// Load one `.pcraft` document in directory form — the native on-disk layout — below the
@@ -105,6 +104,34 @@ impl AuthorizedWorkspace {
             }
         }
         Ok(())
+    }
+}
+
+fn read_to_observed_length(reader: &mut impl Read, observed_length: u64) -> Result<Vec<u8>, AutomationError> {
+    // Do not reserve from a potentially stale or attacker-controlled metadata length. Read in
+    // chunks, and reject growth beyond the length observed on the opened file before appending.
+    let mut bytes = Vec::new();
+    let mut chunk = [0u8; 64 << 10];
+    loop {
+        let remaining = observed_length.saturating_sub(bytes.len() as u64);
+        let ask = chunk.len().min(usize::try_from(remaining.saturating_add(1)).unwrap_or(chunk.len()));
+        let n = match reader.read(&mut chunk[..ask]) {
+            Ok(n) => n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(AutomationError::Io(format!("automation read failed: {e}"))),
+        };
+        if n == 0 {
+            return Ok(bytes);
+        }
+        if n as u64 > remaining {
+            return Err(AutomationError::BadRequest(format!("automation file grew beyond its observed length of {observed_length} bytes")));
+        }
+        let needed = bytes.len().checked_add(n).ok_or_else(|| AutomationError::BadRequest("automation file is too large to read".into()))?;
+        if needed > bytes.capacity() {
+            let target = bytes.capacity().saturating_add(bytes.capacity() / 2).max(needed).min(usize::try_from(observed_length).unwrap_or(usize::MAX));
+            bytes.try_reserve_exact(target - bytes.len()).map_err(|e| AutomationError::Io(format!("automation read allocation failed: {e}")))?;
+        }
+        bytes.extend_from_slice(&chunk[..n]);
     }
 }
 
@@ -225,6 +252,7 @@ pub fn authorize_engine_command(id: &str, params: &Value) -> Result<(), Automati
             | "file.fileInfo"
             | "file.automate.fitImage"
             | "file.automate.conditionalModeChange"
+            | "file.automate.cropAndStraightenPhotos"
             | "file.scripts.flattenAllLayerEffects"
             | "file.scripts.flattenAllMasks"
             | "file.scripts.deleteAllEmptyLayers"
@@ -335,12 +363,12 @@ fn preference_uses_ambient_filesystem(path: &str) -> bool {
 
 fn command_uses_ambient_path(id: &str, params: &Value) -> bool {
     match id {
-        "brush.presets.importAbr" | "gradient.presets.importGrd" | "plugin.install" | "swatches.import" => {
+        "actions.load" | "brush.presets.importAbr" | "gradient.presets.importGrd" | "plugin.install" | "swatches.import" => {
             // `data` wins over `path` in these commands; any `path` without it reads the filesystem.
             params.get("data").is_none() && params.get("path").is_some()
         }
         // With a `path` the file is written there; without one the bytes come back as `data`.
-        "swatches.export" => params.get("path").is_some(),
+        "actions.save" | "swatches.export" => params.get("path").is_some(),
         "plugin.reload" => true,
         _ => false,
     }
@@ -463,6 +491,23 @@ mod tests {
         assert_eq!(workspace.read("read.txt").unwrap(), b"canary");
         workspace.write("new-output.txt", b"created").unwrap();
         assert_eq!(std::fs::read(inside.join("new-output.txt")).unwrap(), b"created");
+    }
+
+    #[test]
+    fn large_observed_length_does_not_trigger_a_fixed_limit_or_upfront_reservation() {
+        let mut shortened = std::io::Cursor::new(b"psb");
+        assert_eq!(read_to_observed_length(&mut shortened, (1 << 30) + 1).unwrap(), b"psb");
+    }
+
+    #[test]
+    fn read_growth_is_rejected_at_the_observed_length() {
+        let mut growing = std::io::repeat(b'x').take(65);
+        let error = read_to_observed_length(&mut growing, 64).unwrap_err().to_string();
+        assert!(error.contains("grew beyond its observed length of 64 bytes"), "{error}");
+        let mut allowed = std::io::repeat(b'x').take(64);
+        assert_eq!(read_to_observed_length(&mut allowed, 64).unwrap().len(), 64);
+        let mut empty = std::io::Cursor::new(b"x");
+        assert!(read_to_observed_length(&mut empty, 0).is_err());
     }
 
     #[test]
@@ -651,6 +696,8 @@ mod tests {
             assert!(authorize_engine_command(id, &serde_json::json!({})).is_err());
         }
         assert!(authorize_engine_command("file.new", &serde_json::json!({})).is_ok());
+        assert!(authorize_engine_command("file.automate.cropAndStraightenPhotos", &serde_json::json!({})).is_ok());
+        assert!(authorize_desktop_engine_command("file.automate.cropAndStraightenPhotos", &serde_json::json!({})).is_ok());
         for id in ["layer.smartObjects.editContents", "layer.smartObjects.convertToLayers", "layer.smartObjects.saveContents"] {
             assert!(authorize_desktop_engine_command(id, &serde_json::json!({"layer": 19})).is_ok(), "{id}");
         }
@@ -718,6 +765,8 @@ mod tests {
             ("plugin.install", serde_json::json!({"path": " "})),
             ("swatches.import", serde_json::json!({"path": "/outside/set.aco"})),
             ("swatches.export", serde_json::json!({"path": "/outside/set.ase"})),
+            ("actions.load", serde_json::json!({"path": "/outside/set.atn"})),
+            ("actions.save", serde_json::json!({"path": "/outside/set.atn"})),
         ] {
             assert!(authorize_engine_command(id, &params).is_err(), "{id}: {params}");
         }
@@ -727,6 +776,8 @@ mod tests {
             ("plugin.install", serde_json::json!({"data": "QUJD"})),
             ("swatches.import", serde_json::json!({"data": "QUJD"})),
             ("swatches.export", serde_json::json!({"format": "ase"})),
+            ("actions.load", serde_json::json!({"data": "QUJD"})),
+            ("actions.save", serde_json::json!({"set": "S"})),
         ] {
             assert!(authorize_engine_command(id, &params).is_ok(), "{id}: {params}");
         }
@@ -807,6 +858,8 @@ mod tests {
                 | "path.clippingPath.set"
                 | "path.rename"
                 | "path.stroke"
+                | "type.attachToPath"
+                | "type.detachFromPath"
                 | "select.toWorkPath"
                 | "layer.vectorMask.add"
                 | "layer.vectorMask.edit"

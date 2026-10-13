@@ -390,7 +390,9 @@ fn radio(ui: &mut egui::Ui, on: bool, label: &str) -> egui::Response {
         if on {
             ui.painter().circle_filled(r.center(), 3.0, t.accent);
         }
-        let l = ui.add(egui::Label::new(egui::RichText::new(tl!(&label)).color(t.text_dim)).sense(Sense::click()));
+        let l = ui
+            .add(egui::Label::new(egui::RichText::new(tl!(&label)).color(t.text_dim)).selectable(false).sense(Sense::click()))
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
         resp.union(l)
     })
     .inner
@@ -540,7 +542,8 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
             });
             ui.add_space(8.0);
             let mut inv = flag(f, "invert");
-            if widgets::checkbox(ui, &mut inv, tl!("Invert")).changed() {
+            // Selection invert (≠ Image › Adjustments › Invert → Đảo màu).
+            if widgets::checkbox(ui, &mut inv, crate::i18n::tr_ctx(crate::i18n::current(), "colorRange", "Invert")).changed() {
                 f.insert("invert".into(), json!(inv));
             }
         });

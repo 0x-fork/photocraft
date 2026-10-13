@@ -16,13 +16,13 @@ use std::sync::Arc;
 #[cfg(test)]
 mod recovery_tests;
 
-/// Everything File › Open reads: PhotoCraft, Photoshop, OpenRaster and Affinity documents, flat images, and
+/// Everything File › Open reads: PhotoCraft, Photoshop, OpenRaster, Krita and Affinity documents, flat images, and
 /// Photoshop brushes (.abr), gradients (.grd), swatches (.aco, .ase) and keyboard shortcut sets
 /// (.kys), which go to the preset libraries and Edit › Keyboard Shortcuts.
 const OPEN_EXTS: &[&str] = &[
-    "pcraft", "pdn", "ora", "psd", "psb", "psdt", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "ico", "qoi", "exr", "hdr", "pbm", "pgm",
-    "ppm", "pam", "pfm", "fits", "fit", "fts", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf", "abr", "grd",
-    "svg", "svgz", "aco", "ase", "kys", "af", "afdesign", "afphoto", "afpub",
+    "pcraft", "pdn", "ora", "kra", "krz", "psd", "psb", "psdt", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "ico", "qoi", "exr", "hdr",
+    "pbm", "pgm", "ppm", "pam", "pfm", "pcx", "dds", "xpm", "fits", "fit", "fts", "dpx", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw", "arw",
+    "pef", "orf", "rw2", "raf", "abr", "grd", "svg", "svgz", "aco", "ase", "kys", "af", "afdesign", "afphoto", "afpub",
 ];
 const SVG_EXTS: &[&str] = &["svg", "svgz"];
 
@@ -43,6 +43,7 @@ fn open_filters() -> Vec<(&'static str, Vec<String>)> {
         ("All Formats", open_filter_extensions(OPEN_EXTS)),
         ("PhotoCraft", open_filter_extensions(&["pcraft"])),
         ("OpenRaster", open_filter_extensions(&["ora"])),
+        ("Krita", open_filter_extensions(&["kra", "krz"])),
         ("SVG", open_filter_extensions(SVG_EXTS)),
     ]
 }
@@ -59,8 +60,13 @@ const SAVE_FILTERS: &[(&str, &[&str])] = &[
     ("WebP", &["webp"]),
     ("TIFF", &["tif"]),
     ("Targa", &["tga"]),
+    // Also in Photoshop's Save As list; ICO is PhotoCraft's own (#4357): up to 256×256, with alpha.
+    ("BMP", &["bmp"]),
+    ("GIF", &["gif"]),
+    ("ICO", &["ico"]),
     ("OpenEXR", &["exr"]),
     ("FITS", &["fits", "fit"]),
+    ("DPX", &["dpx"]),
 ];
 
 /// Non-document files the shell saves (Swatches panel exports): offered alone, so the dialog
@@ -76,13 +82,31 @@ fn save_filters(suggested: &str) -> Vec<(String, Vec<String>)> {
     let mut v: Vec<(String, Vec<String>)> = SAVE_FILTERS.iter().map(|(name, exts)| (name.to_string(), exts.iter().map(|e| e.to_string()).collect())).collect();
     match v.iter().position(|(_, exts)| exts.contains(&ext)) {
         Some(i) => {
-            let f = v.remove(i);
-            v.insert(0, f);
+            let (name, mut exts) = v.remove(i);
+            // Windows adds the first type's first extension to a bare name: `.psb`, not `.psd`.
+            exts.retain(|e| *e != ext);
+            exts.insert(0, ext);
+            v.insert(0, (name, exts));
         }
         None if !ext.is_empty() => v.insert(0, (ext.to_ascii_uppercase(), vec![ext])),
         None => {}
     }
     v
+}
+
+/// The name the save dialog starts with. On Windows a visible extension stays put when the user
+/// picks another type (with File name extensions shown, `image.psd` saved as PhotoCraft stayed
+/// `image.psd`, #4394), while a bare name gets the chosen type's extension, so there the dialog
+/// gets the stem and the suggested type (listed first by [`save_filters`]) supplies `.psd`. A
+/// stem that still has a dot (`scan.jpg.psd`: Windows could keep `scan.jpg`) or an upper-case
+/// extension (the user's spelling) keeps the whole name. Elsewhere the whole name is kept: the
+/// macOS panel has no type list, and on Linux rfd doesn't report which type was picked.
+fn dialog_file_name(suggested: &str, windows: bool) -> Option<String> {
+    let path = Path::new(suggested);
+    let name = path.file_name()?.to_string_lossy().into_owned();
+    let (Some(stem), Some(ext)) = (path.file_stem(), path.extension().and_then(|e| e.to_str())) else { return Some(name) };
+    let bare = windows && Path::new(stem).extension().is_none() && !ext.is_empty() && ext == ext.to_ascii_lowercase();
+    Some(if bare { stem.to_string_lossy().into_owned() } else { name })
 }
 
 /// Shows an Open or Save dialog without blocking the event loop (#673, #574): rfd's async dialog
@@ -115,12 +139,19 @@ fn show_file_dialog(request: FileDialogRequest, parent: Option<&eframe::Frame>, 
                 Box::pin(async move { picked.await.map(|file| FileDialogAnswer::Paths(vec![path_of(&file)])) })
             }
         }
+        FileDialogRequest::Folder { initial_dir } => {
+            if let Some(dir) = initial_dir {
+                dialog = dialog.set_directory(dir);
+            }
+            let picked = dialog.pick_folder();
+            Box::pin(async move { picked.await.map(|folder| FileDialogAnswer::FolderTo(path_of(&folder))) })
+        }
         FileDialogRequest::Save { suggested } => {
             for (name, exts) in save_filters(&suggested) {
                 dialog = dialog.add_filter(name, &exts);
             }
-            if let Some(name) = Path::new(&suggested).file_name() {
-                dialog = dialog.set_file_name(name.to_string_lossy());
+            if let Some(name) = dialog_file_name(&suggested, cfg!(windows)) {
+                dialog = dialog.set_file_name(name);
             }
             if let Some(dir) = Path::new(&suggested).parent().filter(|p| !p.as_os_str().is_empty()) {
                 dialog = dialog.set_directory(dir);
@@ -209,6 +240,7 @@ fn export_options(settings: &photocraft_ui_egui::ExportSettings) -> photocraft_i
     opts.xmp = if settings.xmp_all { photocraft_io::XmpEmbed::All } else { photocraft_io::XmpEmbed::None };
     opts.tga_bits = settings.tga_bits;
     opts.image_previews = settings.image_previews;
+    opts.psd_maximize_compatibility = settings.psd_maximize_compatibility;
     opts
 }
 
@@ -655,9 +687,64 @@ mod tests {
         .join(" ");
         assert_eq!(exts, want.split(' ').collect::<Vec<_>>());
         for (name, ext) in asked.iter().zip(exts) {
-            assert!(save_filters(name)[0].1.iter().any(|e| e == ext), "{name}: {:?}", save_filters(name)[0]);
+            // The first type's first extension is the one Windows adds to the bare name.
+            assert_eq!(save_filters(name)[0].1.first().map(String::as_str), Some(ext), "{name}: {:?}", save_filters(name)[0]);
         }
         assert_eq!(save_filters("Untitled")[0].0, "PSD Document", "no extension keeps the default");
+    }
+
+    /// Every flat format Save As offers is one PhotoCraft writes, and ICO is among them (#4357).
+    #[test]
+    fn save_as_offers_only_writable_formats_including_ico() {
+        let layered = ["psd", "psb", "pcraft", "ora"];
+        for (name, exts) in SAVE_FILTERS {
+            for ext in exts.iter().filter(|e| !layered.contains(e)) {
+                let format = photocraft_codecs::from_extension(ext).unwrap_or_else(|| panic!("{name}: .{ext} is no known format"));
+                assert!(format.caps().write, "{name}: .{ext} can't be written");
+            }
+        }
+        for ext in ["ico", "gif", "bmp"] {
+            assert!(save_filters("Untitled-1.psd").iter().any(|(_, exts)| exts.iter().any(|e| e == ext)), ".{ext} is offered");
+        }
+        assert_eq!(save_filters("icon.ico")[0].0, "ICO", "an .ico name leads with its own type");
+        // What Save As writes there: an icon up to 256×256, and a clear error past that.
+        let doc = |side: u32| {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": side, "height": side})).unwrap();
+            s.active().unwrap().doc.clone()
+        };
+        let opts = export_options(&photocraft_ui_egui::ExportSettings::default());
+        let icon = photocraft_io::export(&doc(256), "icon.ico", &opts).unwrap();
+        assert_eq!(icon.bytes[..4], [0, 0, 1, 0], "an ICO header");
+        let err = photocraft_io::export(&doc(300), "icon.ico", &opts).map(|_| ()).unwrap_err().to_string();
+        assert!(err.contains("256"), "{err}");
+    }
+
+    /// #4394: with File name extensions shown, Windows kept `image.psd` when the type was changed to
+    /// PhotoCraft. Given the bare `image`, it adds the extension of whichever type is picked
+    /// (checked by hand with rfd 0.17.2 on Windows 11), defaulting to the first type's.
+    #[test]
+    fn the_windows_save_dialog_gets_a_bare_name_so_the_type_picks_the_extension() {
+        for (suggested, name, first) in [
+            ("/pics/image.psd", "image", "psd"),
+            ("/pics/image.psb", "image", "psb"),
+            ("/pics/image.pcraft", "image", "pcraft"),
+            ("/pics/sky.fit", "sky", "fit"),
+            ("cat.jpeg", "cat", "jpeg"),
+            ("swatches.aco", "swatches", "aco"),
+        ] {
+            assert_eq!(dialog_file_name(suggested, true).as_deref(), Some(name), "{suggested}");
+            assert_eq!(save_filters(suggested)[0].1[0], first, "{suggested}");
+            // Elsewhere the dialogs keep the whole name (see `dialog_file_name`).
+            let whole = Path::new(suggested).file_name().unwrap().to_string_lossy().into_owned();
+            assert_eq!(dialog_file_name(suggested, false), Some(whole), "{suggested}");
+        }
+        // Kept whole: a second dot (Windows could keep `scan.jpg`), the user's upper case, no
+        // extension, and a dotfile.
+        for name in ["scan.jpg.psd", "my.photo.psd", "transparent.PNG", "Untitled", ".psd"] {
+            assert_eq!(dialog_file_name(name, true).as_deref(), Some(name));
+        }
+        assert_eq!(dialog_file_name("", true), None);
     }
 
     #[test]

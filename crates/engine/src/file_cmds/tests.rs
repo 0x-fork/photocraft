@@ -155,6 +155,32 @@ fn save_a_copy_writes_the_targa_bits_asked_for() {
     }
 }
 
+/// `dpxBits` picks a DPX's bits per sample (byte 803 of the header); unset, it follows the
+/// document's depth. Anything but 8, 10, 12 or 16 is refused before anything is written.
+#[test]
+fn save_a_copy_writes_the_dpx_bits_asked_for() {
+    let dir = tmp("dpx-bits");
+    for (depth, params, bits) in
+        [(8, json!({}), 8), (16, json!({}), 16), (16, json!({"dpxBits": 10}), 10), (8, json!({"dpxBits": 12}), 12), (16, json!({"dpxBits": null}), 16)]
+    {
+        let mut s = session(12, 6, depth);
+        let out = join(&dir, "a.dpx");
+        let mut p = params.clone();
+        p["path"] = json!(out);
+        s.execute("file.saveACopy", p).unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        assert_eq!((&bytes[..4], bytes[803]), (&b"SDPX"[..], bits), "{depth}-bit {params}");
+        assert_eq!(photocraft_io::import("a.dpx", &bytes).unwrap().document.size, photocraft_geom::Size::new(12, 6));
+    }
+    let mut s = session(8, 8, 8);
+    for bad in [json!(24), json!(0), json!("10"), json!(10.5)] {
+        let out = join(&dir, "bad.dpx");
+        let r = s.execute("file.saveACopy", json!({"path": out, "dpxBits": bad}));
+        assert!(matches!(r, Err(EngineError::BadParams { .. })), "{bad}: {r:?}");
+        assert!(!std::path::Path::new(&out).exists(), "{bad}: nothing written");
+    }
+}
+
 /// A `tgaBits` other than 24 or 32 is a bad parameter, reported before anything is written.
 #[test]
 fn bad_targa_bits_are_refused_before_writing() {
@@ -189,6 +215,26 @@ fn image_previews_preference_controls_the_psd_thumbnail() {
         assert_eq!(has_thumbnail(&out), expect, "{ask:?}");
         let png = join(&dir, &format!("{ask:?}.png"));
         s.execute("file.saveACopy", json!({"path": png})).unwrap();
+    }
+}
+
+/// Preferences › File Handling › Maximize PSD and PSB File Compatibility decides whether a
+/// layered PSD keeps its real merged image: Always and Ask When Saving write it, Never writes
+/// Photoshop's placeholder and says so in resource 1057.
+#[test]
+fn maximize_compatibility_preference_controls_the_psd_merged_image() {
+    use crate::prefs::Ask;
+    let dir = tmp("maximize");
+    let mut s = session(300, 200, 16);
+    s.execute("layer.new.layer", json!({})).unwrap();
+    let real_merged = |path: &str| photocraft_psd::PsdFile::from_bytes(&std::fs::read(path).unwrap()).unwrap().has_real_merged_data();
+    for (ask, expect) in [(Ask::Always, true), (Ask::Never, false), (Ask::Ask, true)] {
+        s.edit_prefs(|p| p.file_handling.maximize_psd_compatibility = ask);
+        for ext in ["psd", "psb"] {
+            let out = join(&dir, &format!("{ask:?}.{ext}"));
+            s.execute("file.saveACopy", json!({"path": out})).unwrap();
+            assert_eq!(real_merged(&out), Some(expect), "{ask:?} {ext}");
+        }
     }
 }
 
@@ -554,6 +600,118 @@ fn flatten_all_layer_effects_and_masks() {
     }
 }
 
+/// Flatten All Layer Effects must bake the effect visuals without destroying the layer's masks:
+/// an enabled raster mask and a vector mask on one layer, a disabled raster mask on another
+/// (#3804). The command is a visual no-op; the masks (pixels and state) survive, including a
+/// `.pcraft` round trip.
+#[test]
+fn flatten_all_layer_effects_keeps_masks() {
+    for depth in [8, 16, 32] {
+        let mut s = session(40, 40, depth);
+        // Layer 1: a red square with a green colour overlay, an enabled raster mask revealing
+        // x < 20 and a vector mask revealing x 15..30.
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("select.rect", json!({"x": 10, "y": 10, "width": 20, "height": 20})).unwrap();
+        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        s.execute("select.deselect", json!({})).unwrap();
+        let id1 = s.active().unwrap().active_layer.unwrap();
+        s.edit("fx", |doc, _| {
+            let l = doc.layer_mut(id1).unwrap();
+            l.effects.enabled = true;
+            l.effects.items.push(photocraft_doc::Effect::ColorOverlay {
+                common: photocraft_doc::effects::FxCommon::new(photocraft_color::BlendMode::Normal, 1.0),
+                color: photocraft_color::Color::rgb(0.0, 1.0, 0.0),
+            });
+            l.vector_mask = Some(photocraft_doc::VectorMask::new(photocraft_doc::Path::new(vec![photocraft_doc::Subpath::polygon(&[
+                (15.0, 15.0),
+                (30.0, 15.0),
+                (30.0, 30.0),
+                (15.0, 30.0),
+            ])])));
+            Ok(())
+        })
+        .unwrap();
+        s.execute("select.rect", json!({"x": 0, "y": 0, "width": 20, "height": 40})).unwrap();
+        s.execute("layer.layerMask.revealSelection", json!({})).unwrap();
+        s.execute("select.deselect", json!({})).unwrap();
+        // Layer 2: a red square at the bottom-right with the same overlay and a *disabled* mask.
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("select.rect", json!({"x": 30, "y": 30, "width": 8, "height": 8})).unwrap();
+        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        s.execute("select.deselect", json!({})).unwrap();
+        let id2 = s.active().unwrap().active_layer.unwrap();
+        s.edit("fx", |doc, _| {
+            let l = doc.layer_mut(id2).unwrap();
+            l.effects.enabled = true;
+            l.effects.items.push(photocraft_doc::Effect::ColorOverlay {
+                common: photocraft_doc::effects::FxCommon::new(photocraft_color::BlendMode::Normal, 1.0),
+                color: photocraft_color::Color::rgb(0.0, 1.0, 0.0),
+            });
+            Ok(())
+        })
+        .unwrap();
+        s.execute("select.rect", json!({"x": 34, "y": 34, "width": 2, "height": 2})).unwrap();
+        s.execute("layer.layerMask.revealSelection", json!({})).unwrap();
+        s.execute("select.deselect", json!({})).unwrap();
+        s.edit("disable", |doc, _| {
+            if let Some(m) = doc.layer_mut(id2).and_then(|l| l.mask.as_mut()) {
+                m.enabled = false;
+            }
+            Ok(())
+        })
+        .unwrap();
+        let m1 = doc(&s).layer(id1).unwrap().mask.clone();
+        let v1 = doc(&s).layer(id1).unwrap().vector_mask.clone();
+        let m2 = doc(&s).layer(id2).unwrap().mask.clone();
+        assert_eq!(m1.as_ref().map(|m| m.enabled), Some(true), "layer 1 raster mask is enabled");
+        assert!(v1.as_ref().is_some_and(|v| v.enabled), "layer 1 vector mask is enabled");
+        assert_eq!(m2.as_ref().map(|m| m.enabled), Some(false), "layer 2 raster mask is disabled");
+        let before = [
+            composite(&s, 17, 15), // layer 1: inside both masks
+            composite(&s, 22, 15), // layer 1: raster mask hides
+            composite(&s, 12, 15), // layer 1: vector mask hides
+            composite(&s, 34, 34), // layer 2: the disabled mask does not hide
+        ];
+        assert!(before[0][1] > 0.99 && before[0][0] < 0.01, "overlay renders green: {:?}", before[0]);
+        // The white background shows where a mask hides the layer.
+        assert!(before[1][0] > 0.99 && before[1][1] > 0.99, "the raster mask hides: {:?}", before[1]);
+        assert!(before[2][0] > 0.99 && before[2][1] > 0.99, "the vector mask hides: {:?}", before[2]);
+        assert!(before[3][1] > 0.99, "the disabled mask does not hide");
+        let r = s.execute("file.scripts.flattenAllLayerEffects", json!({})).unwrap();
+        assert_eq!(r["flattened"], 2);
+        {
+            let d = doc(&s);
+            assert_eq!(d.layer(id1).unwrap().mask, m1, "layer 1 raster mask survives");
+            assert_eq!(d.layer(id1).unwrap().vector_mask, v1, "layer 1 vector mask survives");
+            assert_eq!(d.layer(id2).unwrap().mask, m2, "the disabled mask survives");
+        }
+        let after = [composite(&s, 17, 15), composite(&s, 22, 15), composite(&s, 12, 15), composite(&s, 34, 34)];
+        for (a, b) in after.iter().zip(&before) {
+            for k in 0..4 {
+                assert!((a[k] - b[k]).abs() < 0.01, "flattening is a visual no-op: {after:?} vs {before:?}");
+            }
+        }
+        // One history step: undo restores the effects, redo re-flattens, and the masks stay.
+        assert!(s.undo());
+        assert!(!doc(&s).layer(id1).unwrap().effects.items.is_empty());
+        assert_eq!(doc(&s).layer(id1).unwrap().mask, m1);
+        assert!(s.redo());
+        assert_eq!(doc(&s).layer(id1).unwrap().mask, m1);
+        assert_eq!(doc(&s).layer(id1).unwrap().vector_mask, v1);
+        assert_eq!(doc(&s).layer(id2).unwrap().mask, m2);
+        // The masks survive a `.pcraft` save and reopen.
+        let dir = tmp("flatten-effects-masks");
+        let path = join(&dir, "masks.pcraft");
+        save_doc(doc(&s), &path, None).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        let mut s2 = Session::new();
+        open_bytes_as(&mut s2, "masks.pcraft", &bytes, None, None).unwrap();
+        let layers: Vec<_> = doc(&s2).walk().into_iter().map(|(_, _, l)| l).collect();
+        assert!(layers.iter().any(|l| l.mask == m1 && l.vector_mask == v1), "the raster and vector masks survive .pcraft");
+        assert!(layers.iter().any(|l| l.mask == m2), "the disabled mask survives .pcraft");
+    }
+}
+
 #[test]
 fn layers_to_files_writes_each_visible_layer() {
     let dir = tmp("layers");
@@ -741,6 +899,26 @@ fn only_layered_files_save_in_place() {
     }
     assert_eq!(extension("dir/Photo.JPEG").as_deref(), Some("jpeg"));
     assert_eq!(extension("my.dir/name"), None);
+}
+
+/// #3806: a layered format holds a document only if it keeps everything in it.
+#[test]
+fn openraster_holds_a_document_only_when_it_drops_nothing() {
+    let mut s = session(16, 16, 8);
+    s.execute("layer.new.layer", json!({})).unwrap();
+    let plain = doc(&s).clone();
+    for p in ["a.psd", "a.psb", "a.pcraft", "a.ora", "A.ORA"] {
+        assert!(holds_at(&plain, p), "{p}");
+    }
+    for p in ["a.png", "a.tif", "a", ""] {
+        assert!(!holds_at(&plain, p), "{p}");
+    }
+    assert!(losses_at(&plain, "a.ora").is_empty());
+    s.execute("layer.newAdjustmentLayer.invert", json!({})).unwrap();
+    let adjusted = doc(&s).clone();
+    assert!(holds_at(&adjusted, "a.psd") && !holds_at(&adjusted, "a.ora"));
+    assert!(losses_at(&adjusted, "a.ora").iter().any(|l| l.contains("adjustment layers")), "{:?}", losses_at(&adjusted, "a.ora"));
+    assert!(losses_at(&adjusted, "a.psd").is_empty());
 }
 
 #[test]
