@@ -1,8 +1,8 @@
 //! Timing of Content-Aware Scale's seam carving alone (no document plumbing), on a synthetic
 //! photo-like RGBA image: perf scenario P28's 24 MP width change (#211), the same image's height
 //! (the transposed pass) and two images short enough for the exact full-resolution seam search.
-//! Prints an FNV-1a hash of each output's bits, so a speed-up can be checked to choose exactly the
-//! same seams.
+//! Prints an FNV-style hash of each output's bits (over 32-bit words), so a speed-up can be checked
+//! to choose exactly the same seams.
 //! `cargo run --release -p photocraft-algo --example bench_seam [reps] [case filter]`
 use std::time::Instant;
 

@@ -9,9 +9,10 @@
 //!
 //! A protect map (`0..=1`, e.g. an alpha channel or detected skin tones) adds a large energy so
 //! seams avoid protected pixels. Buffers are interleaved `w × h × ch` normalised floats of any
-//! colour model and depth (alpha is carried like any other channel). Deterministic: a NaN sample
-//! gives its pixels the highest energy and NaN protection protects nothing, so no NaN (whose
-//! payload arithmetic does not keep consistently across builds) ever reaches the seam search.
+//! colour model and depth (alpha is carried like any other channel). Deterministic on every
+//! platform: an energy that isn't a number (from NaN samples, or infinite ones next to each other
+//! or at the border) is the highest energy, and NaN protection protects nothing, so no NaN (whose
+//! sign and payload arithmetic does not keep consistently across builds) reaches the seam search.
 
 use photocraft_raster::{Cancelled, Interrupt};
 
@@ -24,9 +25,10 @@ fn protection(p: f32) -> f32 {
     if p.is_nan() { 0.0 } else { p.clamp(0.0, 1.0) * PROTECT_ENERGY }
 }
 
-/// Keep full horizontal detail while reducing the height used to find vertical seams. At a
-/// 24 MP working size this cuts the dynamic-programming work by about four times without
-/// quantising the output pixels or changing the requested output dimensions.
+/// Keep full horizontal detail while reducing the height used to find vertical seams. On a
+/// 6000×4000 image this cuts the dynamic-programming work eight times for a width change (4000
+/// rows to 500) and twelve times for a height change, without quantising the output pixels or
+/// changing the requested output dimensions.
 const SEAM_SEARCH_MAX_HEIGHT: usize = 512;
 const PROXY_SHRINK_MIN_HEIGHT: usize = 2_048;
 const PROXY_SHRINK_MIN_SEAMS: usize = 64;
@@ -56,7 +58,8 @@ pub fn energy(w: usize, h: usize, ch: usize, img: &[f32]) -> Vec<f32> {
 
 /// [`energy`] of pixel `x` of row `y` of a `cw`-wide, `h`-tall image whose pixel `xx` of row `yy`
 /// is column `col(xx, yy)` of `img` (`w` pixels per row). Shared by the full map and the carver's
-/// per-seam updates, so both give bit-identical values. NaN samples give the highest energy.
+/// per-seam updates, so both give bit-identical values. An energy that isn't a number is the
+/// highest energy (`+inf`).
 #[allow(clippy::too_many_arguments)]
 #[inline]
 fn energy_at(img: &[f32], w: usize, cw: usize, h: usize, ch: usize, x: usize, y: usize, col: impl Fn(usize, usize) -> usize) -> f32 {
@@ -122,9 +125,9 @@ struct Dp {
 /// its path cost and where that path came from (0 = up-left, 1 = up, 2 = up-right). Ties go to
 /// the pixel straight up, then up-left, then up-right. The cost doesn't depend on the tie-break
 /// and the direction doesn't depend on `e`, so the seam can be traced back from the costs alone.
-/// The full pass's edges, [`Dp::update`] and [`Dp::seam`] use it, and the full pass's interior
-/// repeats it exactly, so every way of filling the map gives the same bits (costs are never NaN:
-/// see [`energy_at`] and [`protection`]).
+/// [`row_costs`] uses it at the ends of a row and repeats its selection in between, and
+/// [`Dp::seam`] traces seams with it, so every way of filling the map gives the same bits (costs
+/// are never NaN: see [`energy_at`] and [`protection`]).
 #[inline]
 fn cell(up: &[f32], cw: usize, x: usize, e: f32) -> (f32, u8) {
     let (b, d) = if x == 0 {
@@ -193,8 +196,8 @@ impl Dp {
     /// `seam[y-1..=y+1]` to the rightmost, which covers those pixels too. Every other pixel needs
     /// recomputing only if a parent's cost changed, so the work follows the changed costs down
     /// the map and narrows wherever they settle, instead of covering the whole map. Recomputed
-    /// pixels go through [`cell`], so the map matches a [`Dp::full`] pass over the same energy
-    /// bit for bit.
+    /// pixels go through [`row_costs`], like a [`Dp::full`] pass's, so the map matches one over
+    /// the same energy bit for bit.
     fn update(&mut self, rows: Rows, energy: &[f32], seam: &[usize]) {
         let (cw, h) = (rows.cw, rows.h());
         if cw == 0 || h == 0 || seam.len() < h {
@@ -293,7 +296,10 @@ impl<'a> Carver<'a> {
                 *e += protection(p);
             }
         }
-        let idx = (0..h).flat_map(|_| (0..w).map(|x| u32::try_from(x).unwrap_or(u32::MAX))).collect();
+        let mut idx = Vec::with_capacity(w * h);
+        for _ in 0..h {
+            idx.extend((0..w).map(|x| u32::try_from(x).unwrap_or(u32::MAX)));
+        }
         let off = vec![0; h];
         let mut dp = Dp::default();
         dp.full(Rows { stride: w, cw: w, off: &off }, &e);
@@ -483,7 +489,12 @@ pub fn carve_width(w: usize, h: usize, ch: usize, img: &[f32], protect: Option<&
 pub fn carve_width_with(w: usize, h: usize, ch: usize, img: &[f32], protect: Option<&[f32]>, new_w: usize, ctl: &Interrupt) -> Result<Vec<f32>, Cancelled> {
     let new_w = new_w.max(1);
     // Nothing to carve: no pixels or channels, or fewer values than the size says.
-    if new_w == w || unusable(w, h, ch, img) {
+    if unusable(w, h, ch, img) {
+        return Ok(img.to_vec());
+    }
+    // Values past the size are not part of the image.
+    let img = img.get(..w * h * ch).unwrap_or(img);
+    if new_w == w {
         return Ok(img.to_vec());
     }
     // A protection map that doesn't cover the image protects nothing.
@@ -648,6 +659,7 @@ pub fn carve_with(
     if unusable(w, h, ch, img) {
         return Ok(img.to_vec());
     }
+    let img = img.get(..w * h * ch).unwrap_or(img);
     let protect = protect.filter(|p| p.len() >= w * h);
     // Split progress between the passes by their seam counts.
     let (sw, sh) = (new_w.abs_diff(w) as f32, new_h.abs_diff(h) as f32);
@@ -658,12 +670,28 @@ pub fn carve_with(
     if new_h == h {
         return Ok(wide);
     }
-    // Protection follows the width change by plain resampling (it only steers seams).
-    let prot_t = protect.map(|p| transpose(new_w, h, 1, &resize_bilinear(w, h, 1, p, new_w, h)));
+    let prot_t = protect.map(|p| transpose(new_w, h, 1, &resample_protection(w, h, p, new_w)));
     let t = transpose(new_w, h, ch, &wide);
     let second = |f: f32| ctl.progress(split + f * (1.0 - split));
     let tall = carve_width_with(h, new_w, ch, &t, prot_t.as_deref(), new_h, &Interrupt::new(&cancel, &second))?;
     Ok(transpose(new_h, new_w, ch, &tall))
+}
+
+/// The protection map `p` (`w × h`) for the height pass, after the width changed to `new_w`:
+/// plainly resampled (it only steers seams). Where values out of `0..=1` resample to NaN
+/// (infinities, or neighbours whose difference overflows), the map clamped to `0..=1` (NaN to 0)
+/// resampled instead, so an infinite protection still protects.
+fn resample_protection(w: usize, h: usize, p: &[f32], new_w: usize) -> Vec<f32> {
+    let mut out = resize_bilinear(w, h, 1, p, new_w, h);
+    if out.iter().any(|v| v.is_nan()) {
+        let clamped: Vec<f32> = p.iter().map(|&v| if v.is_nan() { 0.0 } else { v.clamp(0.0, 1.0) }).collect();
+        for (v, c) in out.iter_mut().zip(resize_bilinear(w, h, 1, &clamped, new_w, h)) {
+            if v.is_nan() {
+                *v = c;
+            }
+        }
+    }
+    out
 }
 
 /// Plain bilinear resize (the non-content-aware part of the Amount blend).
@@ -726,7 +754,7 @@ mod tests {
     /// The straightforward implementation the per-seam carver replaced (full energy map, fresh
     /// seam search and a new buffer per seam), kept as the oracle for `carver_matches_reference`.
     mod reference {
-        use super::super::{protection, resize_bilinear, transpose};
+        use super::super::{protection, resample_protection, transpose};
 
         pub(super) fn energy(w: usize, h: usize, ch: usize, img: &[f32]) -> Vec<f32> {
             let mut e = vec![0.0f32; w * h];
@@ -879,7 +907,7 @@ mod tests {
             if new_h == h {
                 return wide;
             }
-            let prot_t = protect.map(|p| transpose(new_w, h, 1, &resize_bilinear(w, h, 1, p, new_w, h)));
+            let prot_t = protect.map(|p| transpose(new_w, h, 1, &resample_protection(w, h, p, new_w)));
             let t = transpose(new_w, h, ch, &wide);
             let tall = carve_width(h, new_w, ch, &t, prot_t.as_deref(), new_h);
             transpose(new_h, new_w, ch, &tall)
@@ -1002,6 +1030,41 @@ mod tests {
         assert_eq!(carve(10, 5, 1, &img, Some(&[0.0; 3]), 4, 3), carve(10, 5, 1, &img, None, 4, 3));
         assert_eq!(carve(10, 5, 3, &[0.5; 20], None, 4, 5), vec![0.5; 20]);
         assert_eq!(carve_width(usize::MAX, 2, 4, &[0.5; 8], None, 1), vec![0.5; 8]);
+        // Values past the size are ignored, through both passes.
+        let long = noise(20, 7, 4);
+        assert_eq!(carve(5, 3, 1, &long, None, 3, 3), carve(5, 3, 1, &long[..15], None, 3, 3));
+        assert_eq!(carve(5, 3, 1, &long, None, 5, 2), carve(5, 3, 1, &long[..15], None, 5, 2));
+    }
+
+    /// Infinite samples, and finite ones whose differences overflow, give energies that aren't
+    /// numbers; those are the highest energy (pinned deliberately: the code before NaN-free costs
+    /// fed NaN to the seam search and chose differently).
+    #[test]
+    fn infinite_samples_carve_deterministically() {
+        let inf = f32::INFINITY;
+        assert_eq!(carve(2, 1, 1, &[inf, 0.5], None, 1, 1), [0.5]);
+        assert_eq!(carve(2, 1, 1, &[f32::MAX, f32::MAX], None, 6, 1), [f32::MAX, inf, inf, inf, inf, f32::MAX]);
+        let mut img = noise(30 * 20 * 3, 255, 41);
+        img.iter_mut().step_by(11).for_each(|v| *v = inf);
+        img.iter_mut().skip(4).step_by(23).for_each(|v| *v = -inf);
+        let out = carve(30, 20, 3, &img, None, 21, 14);
+        assert_eq!(out.len(), 21 * 14 * 3);
+        assert_eq!(out, carve(30, 20, 3, &img, None, 21, 14));
+    }
+
+    /// Infinite protection protects like full protection in the height pass too, where the map
+    /// is resampled (and an infinity alone would resample to NaN).
+    #[test]
+    fn infinite_protection_protects_in_both_passes() {
+        let (w, h) = (6, 6);
+        let img: Vec<f32> = (0..w * h).map(|i| (i * 7 % 5) as f32 / 4.0).collect();
+        let row = |v: f32| (0..w * h).map(|i| if i / w == 2 { v } else { 0.0 }).collect::<Vec<f32>>();
+        let (full, inf) = (row(1.0), row(f32::INFINITY));
+        for (nw, nh) in [(6, 3), (4, 3), (3, 6)] {
+            assert_eq!(carve(w, h, 1, &img, Some(&inf), nw, nh), carve(w, h, 1, &img, Some(&full), nw, nh), "{nw}x{nh}");
+        }
+        let kept = carve(w, h, 1, &img, Some(&inf), 6, 3);
+        assert!(kept.chunks(6).any(|r| r == &img[12..18]), "the protected row survives");
     }
 
     /// A cancel that arrives after the seam search, during the tall-image rebuild, still stops
