@@ -140,7 +140,7 @@ fn layer_m(l: &Layer, sink: &mut dyn Sink) -> LayerM {
             psd_raw: opt_blob(&t.psd_raw, sink),
             runs: t.runs.clone(),
             paragraphs: t.paragraphs.clone(),
-            shape: t.shape,
+            shape: t.shape.clone(),
             orientation: t.orientation,
             antialias: t.antialias,
             warp: t.warp.clone(),
@@ -459,7 +459,7 @@ impl Loader<'_> {
                     psd_raw: self.opt_blob(psd_raw)?,
                     runs: runs.clone(),
                     paragraphs: paragraphs.clone(),
-                    shape: *shape,
+                    shape: shape.clone(),
                     orientation: *orientation,
                     antialias: *antialias,
                     warp: warp.clone(),
@@ -592,6 +592,15 @@ impl Loader<'_> {
         }
         let mut patterns = Vec::with_capacity(m.patterns.len());
         for p in &m.patterns {
+            // Sizes come from the file: a pattern with no tiles can claim any size, and renderers
+            // allocate per pixel.
+            let max = photocraft_doc::pattern::MAX_EDGE;
+            if p.width == 0 || p.height == 0 {
+                return Err(FormatError::corrupt(format!("pattern `{}` is {}×{} px", p.name, p.width, p.height)));
+            }
+            if p.width > max || p.height > max {
+                return Err(FormatError::LimitExceeded(format!("pattern `{}` is {}×{} px (max {max} per side)", p.name, p.width, p.height)));
+            }
             patterns.push(Pattern { id: p.id.clone(), name: p.name.clone(), width: p.width, height: p.height, surface: self.surface(&p.surface)? });
         }
         let layer_comps = m.layer_comps.iter().map(|c| self.comp(c)).collect::<Result<Vec<_>>>()?;
