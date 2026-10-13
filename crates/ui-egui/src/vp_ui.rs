@@ -27,6 +27,7 @@ use serde_json::{Value, json};
 
 use crate::PhotocraftApp;
 use crate::canvas::{ToolEvent, ViewXform};
+use crate::edit_history::{EditHistory, Step};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -148,6 +149,20 @@ pub struct VpSession {
     base: Arc<Document>,
     doc_revision: u64,
     preview: Option<StampPreview>,
+    history: EditHistory<VpEdit>,
+}
+
+/// What ⌘Z steps through: the planes (and how they were torn off), where the paste sits on
+/// them, and the clone source and strokes.
+#[derive(Clone, PartialEq)]
+struct VpEdit {
+    planes: Vec<VpPlane>,
+    torn: Vec<Option<Torn>>,
+    paste_at: [f64; 2],
+    paste_width: f64,
+    source: Option<[f64; 2]>,
+    strokes: Vec<CloneSpec>,
+    aligned_ref: Option<([f64; 2], [f64; 2])>,
 }
 
 /// Most planes a session holds (the control channel can't make it allocate without bound).
@@ -311,6 +326,37 @@ impl VpSession {
             self.push_plane(VpPlane { corners }.normalized(), None);
             // Photoshop hands over to Edit Plane once a plane is closed.
             self.tool = VpTool::EditPlane;
+        }
+    }
+
+    fn edit(&self) -> VpEdit {
+        VpEdit {
+            planes: self.planes.clone(),
+            torn: self.torn.clone(),
+            paste_at: self.paste_at,
+            paste_width: self.paste_width,
+            source: self.source,
+            strokes: self.strokes.clone(),
+            aligned_ref: self.aligned_ref,
+        }
+    }
+
+    fn settle(&mut self, busy: bool) {
+        let now = self.edit();
+        self.history.settle(&now, busy || self.drag.is_some());
+    }
+
+    pub(crate) fn step(&mut self, step: Step) {
+        let mut now = self.edit();
+        if self.history.step(&mut now, step) {
+            let VpEdit { planes, torn, paste_at, paste_width, source, strokes, aligned_ref } = now;
+            (self.planes, self.torn, self.paste_at, self.paste_width) = (planes, torn, paste_at, paste_width);
+            (self.source, self.strokes, self.aligned_ref) = (source, strokes, aligned_ref);
+            self.drag = None;
+            self.pending.clear();
+            self.selected = self.selected.filter(|i| *i < self.planes.len());
+            // The stamp preview repaints from scratch.
+            self.rev += 1;
         }
     }
 
@@ -679,6 +725,15 @@ pub fn begin(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String>
         base,
         doc_revision,
         preview: None,
+        history: EditHistory::new(&VpEdit {
+            planes: Vec::new(),
+            torn: Vec::new(),
+            paste_at: [0.25, 0.25],
+            paste_width: 0.5,
+            source: None,
+            strokes: Vec::new(),
+            aligned_ref: None,
+        }),
     });
     app.ui.status = tl!("Vanishing Point: click four corners to create a plane").into();
     Ok(())
@@ -768,6 +823,7 @@ pub fn control(app: &mut PhotocraftApp, ui: &Value) -> Result<Value, String> {
     if let Some(b) = ui.get("newLayer").and_then(Value::as_bool) {
         s.new_layer = b;
     }
+    s.settle(false);
     sync_preview(app);
     Ok(app.distort.vanishing.as_ref().map(VpSession::describe).unwrap_or(Value::Null))
 }
@@ -857,6 +913,7 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) {
             s.drag = None;
         }
     }
+    s.settle(false);
     sync_preview(app);
 }
 
@@ -878,10 +935,7 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
         s.pending.clear();
     } else if key(Key::Delete) || key(Key::Backspace) {
         s.delete_selected();
-    } else if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Z)) && s.strokes.pop().is_some() {
-        // Undo inside the window: the last clone stroke.
-        s.drag = None;
-        s.rev += 1;
+        s.settle(false);
     }
     sync_preview(app);
 }
@@ -1102,6 +1156,9 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             app.distort.vanishing = None;
         }
     });
+    if let Some(s) = app.distort.vanishing.as_mut() {
+        s.settle(ui.input(|i| i.pointer.any_down()));
+    }
 }
 
 #[cfg(test)]
@@ -1224,5 +1281,45 @@ mod tests {
         let st = app.session.active().unwrap();
         assert_eq!(st.history.past_len(), before + 1, "one history step for the whole session");
         assert!(green(&st.doc) > 0.8, "{}", green(&st.doc));
+    }
+
+    #[test]
+    fn undo_steps_back_through_clone_strokes_and_tear_offs() {
+        let (ctx, mut app) = app_with_layer();
+        crate::distort_ui::menu(&mut app, &ctx, VP, &json!({})).unwrap().unwrap();
+        control(&mut app, &json!({"planes": [{"corners": [[70, 60], [170, 60], [220, 150], [20, 150]]}]})).unwrap();
+        let drag = |app: &mut PhotocraftApp, a: [f64; 2], b: [f64; 2], m: egui::Modifiers| {
+            crate::distort_ui::pointer(app, ToolEvent::Down { x: a[0], y: a[1], pressure: 1.0 }, m);
+            crate::distort_ui::pointer(app, ToolEvent::Move { x: b[0], y: b[1], pressure: 1.0 }, m);
+            crate::distort_ui::pointer(app, ToolEvent::Up { x: b[0], y: b[1] }, m);
+        };
+        let step = |app: &mut PhotocraftApp, st: Step| {
+            app.distort.vanishing.as_mut().unwrap().step(st);
+            sync_preview(app);
+        };
+        let top = app.distort.vanishing.as_ref().unwrap().edge_nodes(0).unwrap()[0];
+        drag(&mut app, top, [top[0], top[1] - 35.0], egui::Modifiers::COMMAND);
+        control(&mut app, &json!({"tool": "stamp", "source": [120, 139]})).unwrap();
+        drag(&mut app, [118.0, 100.0], [126.0, 100.0], egui::Modifiers::NONE);
+        assert_eq!(app.distort.vanishing.as_ref().unwrap().strokes.len(), 1);
+        assert!(crate::distort_ui::display_doc(&app, 0).is_some());
+
+        // ⌘Z takes the stroke back (and its preview), then the source, then the torn-off wall.
+        step(&mut app, Step::Undo);
+        assert!(app.distort.vanishing.as_ref().unwrap().strokes.is_empty());
+        assert!(crate::distort_ui::display_doc(&app, 0).is_none(), "no stamp preview left");
+        step(&mut app, Step::Undo);
+        assert_eq!(app.distort.vanishing.as_ref().unwrap().source, None);
+        step(&mut app, Step::Undo);
+        let s = app.distort.vanishing.as_ref().unwrap();
+        assert_eq!((s.planes.len(), s.torn.len()), (1, 1));
+        // ⇧⌘Z brings them back.
+        for _ in 0..3 {
+            step(&mut app, Step::Redo);
+        }
+        let s = app.distort.vanishing.as_ref().unwrap();
+        assert_eq!((s.planes.len(), s.strokes.len()), (2, 1));
+        assert!(s.torn[1].is_some());
+        assert!(crate::distort_ui::display_doc(&app, 0).is_some(), "the stroke shows again");
     }
 }
