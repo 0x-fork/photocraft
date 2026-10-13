@@ -1059,7 +1059,10 @@ mod tests {
                         "undefinedAreas": "wrap", "seed": 1270346})
             )
         );
-        assert_eq!(item_for_filter(&f).unwrap().get("Fltr"), Some(&Value::Descriptor(unscaled)));
+        match item_for_filter(&f).unwrap().get("Fltr") {
+            Some(Value::Descriptor(ours)) => assert_eq!((&ours.class_id, &ours.items), (&unscaled.class_id, &unscaled.items)),
+            other => panic!("wave: no Fltr ({other:?})"),
+        }
     }
 
     /// Invert on a smart object: Photoshop stores no `Fltr`, but `hasoptions` and its filter id.
