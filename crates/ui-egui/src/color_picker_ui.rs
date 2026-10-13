@@ -171,7 +171,12 @@ pub fn open(app: &mut PhotocraftApp, target: &str) -> u64 {
     let c = if target == "background" { app.session.tools.background } else { app.session.tools.foreground };
     let rgb = [c[0], c[1], c[2]];
     let label = if target == "background" { "Color Picker (Background Color)" } else { "Color Picker (Foreground Color)" };
-    app.ui.open_dialog(DialogKind::Command, initial_fields(target, label, rgb))
+    let mut fields = initial_fields(target, label, rgb);
+    // A colour that was picked as CMYK shows the inks it was picked as, not what its sRGB stand-in converts to (#4196).
+    if let Some(cmyk) = app.session.tools.picked_cmyk(rgb) {
+        fields.insert("__cmyk".into(), json!(cmyk));
+    }
+    app.ui.open_dialog(DialogKind::Command, fields)
 }
 
 /// Shared initial state for every target; the picker layout is independent of its destination.
@@ -787,7 +792,12 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
         // The pasteboard menu's Select Custom Color…: the custom colour, and use it.
         return app.run("prefs.set", json!({"values": {"interface.canvasColor": "custom", "interface.canvasCustomColor": color}}));
     }
-    let r = app.run("tools.setColors", json!({ target: color }))?;
+    let mut params = json!({ target: color });
+    // The CMYK values the person entered stay the colour's inks: a CMYK document is filled with them (#4196).
+    if let Some(cmyk) = parse_hex(color).and_then(|rgb| kept::<4>(f, "__cmyk", rgb, photocraft_color::convert::cmyk_to_rgb)) {
+        params[format!("{target}Cmyk")] = json!(cmyk);
+    }
+    let r = app.run("tools.setColors", params)?;
     if target == "foreground" {
         crate::type_tool::foreground_changed(app);
     }
@@ -1107,6 +1117,24 @@ mod tests {
         let fields = d.fields.clone();
         confirm(&mut app, &fields).unwrap();
         assert_eq!(hex([app.session.tools.background[0], app.session.tools.background[1], app.session.tools.background[2]]), "#3366cc");
+    }
+
+    /// #4196: CMYK values typed into the picker survive OK, so the colour fills a CMYK document with those inks and
+    /// reopening the picker shows them again.
+    #[test]
+    fn cmyk_values_survive_ok_and_a_reopen() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        let cyan = [1.0, 0.0, 0.0, 0.0];
+        let id = open(&mut app, "foreground");
+        let d = app.ui.dialog_mut(id).unwrap();
+        set_rgb(&mut d.fields, photocraft_color::convert::cmyk_to_rgb(cyan).map(|c| c.clamp(0.0, 1.0)), Keep::Cmyk(cyan));
+        let fields = d.fields.clone();
+        confirm(&mut app, &fields).unwrap();
+        let fg = app.session.tools.foreground;
+        assert_eq!(app.session.tools.picked_cmyk([fg[0], fg[1], fg[2]]), Some(cyan));
+        let id = open(&mut app, "foreground");
+        let again = current(&app.ui.dialogs.iter().find(|d| d.id == id).unwrap().fields);
+        assert_eq!(again.cmyk, cyan);
     }
 
     fn dialog_color(app: &PhotocraftApp, id: u64) -> &str {

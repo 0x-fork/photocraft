@@ -20,12 +20,15 @@ pub fn downsample(s: &Surface, k: u32) -> Surface {
     let bpp = s.format().bytes_per_pixel();
     let (x0, x1) = (b.x0.div_euclid(k), b.x1.div_euclid(k) + i32::from(b.x1.rem_euclid(k) != 0));
     let (y0, y1) = (b.y0.div_euclid(k), b.y1.div_euclid(k) + i32::from(b.y1.rem_euclid(k) != 0));
-    let w = (x1 - x0).max(0) as usize;
+    let w = x1.saturating_sub(x0).max(0) as usize;
     let mut row = vec![0u8; w * bpp];
     for oy in y0..y1 {
-        let src = s.to_interleaved(Rect::new(x0 * k, oy * k, x1 * k, oy * k + 1));
+        let src = s.to_interleaved(Rect::new(x0.saturating_mul(k), oy.saturating_mul(k), x1.saturating_mul(k), oy.saturating_mul(k).saturating_add(1)));
         for (i, px) in row.chunks_exact_mut(bpp).enumerate() {
-            px.copy_from_slice(&src[i * k as usize * bpp..(i * k as usize + 1) * bpp]);
+            // Saturated edges (a surface at the i32 limits) can make `src` shorter than expected.
+            if let Some(from) = (i * k as usize * bpp).checked_add(bpp).and_then(|end| src.get(i * k as usize * bpp..end)) {
+                px.copy_from_slice(from);
+            }
         }
         out.write_interleaved(Rect::new(x0, oy, x1, oy + 1), &row);
     }

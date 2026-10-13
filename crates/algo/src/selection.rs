@@ -166,7 +166,8 @@ fn close(a: [f32; 4], b: [f32; 4], tol: f32) -> bool {
 /// around the seed. `px` covers `area`.
 pub fn magic_wand(px: &[[f32; 4]], area: Rect, seed: (i32, i32), tolerance: f32, contiguous: bool, anti_alias: bool) -> Vec<f32> {
     let (w, h) = (area.width() as usize, area.height() as usize);
-    let mut m = vec![0.0f32; w * h];
+    let Some(n) = w.checked_mul(h).filter(|&n| n <= px.len()) else { return Vec::new() };
+    let mut m = vec![0.0f32; n];
     if !area.contains(seed.0, seed.1) {
         return m;
     }
@@ -245,7 +246,9 @@ impl Region {
         if !self.bbox.contains(x, y) {
             return 0.0;
         }
-        self.mask[(y - self.bbox.y0) as usize * self.bbox.width() as usize + (x - self.bbox.x0) as usize] as f32 / 255.0
+        let row = (y.abs_diff(self.bbox.y0) as usize).checked_mul(self.bbox.width() as usize);
+        let value = row.and_then(|i| i.checked_add(x.abs_diff(self.bbox.x0) as usize)).and_then(|i| self.mask.get(i)).copied().unwrap_or(0);
+        f32::from(value) / 255.0
     }
 }
 
@@ -257,6 +260,9 @@ pub fn wand_region(img: &[[u8; 4]], area: Rect, seed: (i32, i32), tolerance: f32
         return None;
     }
     let (w, h) = (area.width() as usize, area.height() as usize);
+    if w.checked_mul(h).is_none_or(|n| n > img.len()) {
+        return None;
+    }
     let target = img[(seed.1 - area.y0) as usize * w + (seed.0 - area.x0) as usize];
     let tol = (tolerance + 1e-3).floor().max(0.0) as i32;
     // Copying a selection can leave RGB under zero alpha. Those invisible colours must not
@@ -1398,6 +1404,37 @@ mod tests {
                 [v, v / 2, 255 - v, if x % 11 == 0 { 128 } else { 255 }]
             })
             .collect()
+    }
+
+    #[test]
+    fn magic_wand_rejects_incomplete_and_overflowing_pixel_inputs() {
+        let area = Rect::new(0, 0, 4, 4);
+        let short = vec![[255u8, 0, 0, 255]; 4];
+        let floats: Vec<[f32; 4]> = short.iter().map(|p| p.map(|v| f32::from(v) / 255.0)).collect();
+        assert_eq!(magic_wand(&floats, area, (1, 1), 0.0, true, false), Vec::<f32>::new());
+        assert_eq!(wand_region(&short, area, (1, 1), 0.0, true, false), None);
+
+        let huge = Rect::new(i32::MIN, i32::MIN, i32::MAX, i32::MAX);
+        assert!(magic_wand(&floats, huge, (0, 0), 0.0, false, false).is_empty());
+        assert_eq!(wand_region(&short, huge, (0, 0), 0.0, false, false), None);
+
+        let valid = Rect::new(0, 0, 2, 2);
+        assert_eq!(magic_wand(&floats, valid, (0, 0), 0.0, false, false), vec![1.0; 4]);
+        assert!(wand_region(&short, valid, (0, 0), 0.0, false, false).is_some());
+    }
+
+    #[test]
+    fn region_coverage_outside_a_short_mask_is_zero() {
+        let region = Region { bbox: Rect::new(-2, -3, 1, -1), mask: vec![255, 128] };
+        assert_eq!(region.at(-2, -3), 1.0);
+        assert!((region.at(-1, -3) - 128.0 / 255.0).abs() < 1e-6);
+        assert_eq!(region.at(0, -3), 0.0);
+        assert_eq!(region.at(-2, -2), 0.0);
+        assert_eq!(region.at(-3, -3), 0.0);
+
+        let extreme = Region { bbox: Rect::new(i32::MIN, i32::MIN, i32::MAX, i32::MAX), mask: vec![] };
+        assert_eq!(extreme.at(i32::MAX - 1, i32::MAX - 1), 0.0);
+        assert_eq!(extreme.at(i32::MIN, i32::MIN), 0.0);
     }
 
     #[test]

@@ -37,10 +37,12 @@ struct RenameAction {
     focused: bool,
 }
 
-fn label_of(id: &str) -> String {
+pub(crate) fn label_of(id: &str) -> String {
     photocraft_engine::commands::find(id)
         .map(|c| c.label)
         .or_else(|| crate::menus::UI_COMMANDS.iter().find(|c| c.0 == id).map(|c| c.1))
+        // Shell menu items recorded as steps, like Save a Copy (#4373).
+        .or_else(|| crate::menu_catalog::CATALOG.iter().find(|c| c.3 == id).map(|c| c.1))
         .map(|label| label.trim_end_matches('…').to_string())
         .unwrap_or_else(|| id.to_string())
 }
