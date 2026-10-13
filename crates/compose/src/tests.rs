@@ -316,6 +316,65 @@ fn clipping_mask_restricts_to_base_alpha() {
     assert!(close4(px(&d, 6, 1), [1.0; 4]), "outside base: clipped layer hidden");
 }
 
+/// #3052 / #4921: clipped Dissolve must apply layer Opacity × Fill as binary coverage,
+/// restricted to the clipping base's shape.
+#[test]
+fn clipped_dissolve_opacity_fill_is_binary_and_preserves_base_shape() {
+    let mut d = doc_white(40, 12);
+    d.layers.push(solid_layer("base", Rect::new(0, 0, 20, 12), [0.0, 0.0, 1.0, 1.0]));
+    let mut clip = solid_layer("clip", d.bounds(), [1.0, 0.0, 0.0, 1.0]);
+    clip.clipped = true;
+    clip.blend = BlendMode::Dissolve;
+    clip.opacity = 0.6;
+    clip.fill_opacity = 0.5;
+    d.layers.push(clip);
+    let mut red = 0;
+    let mut blue = 0;
+    for y in 0..12 {
+        for x in 0..20 {
+            let p = px(&d, x, y);
+            if close4(p, [1.0, 0.0, 0.0, 1.0]) {
+                red += 1;
+            } else {
+                assert!(close4(p, [0.0, 0.0, 1.0, 1.0]), "Dissolve must not interpolate: {p:?} at ({x},{y})");
+                blue += 1;
+            }
+        }
+        assert!(close4(px(&d, 30, y), [1.0; 4]), "outside the base the clip is invisible");
+    }
+    assert!(red > 0 && blue > 0, "Dissolve must expose both source and base: {red}/{blue}");
+    assert!((red as f32 / (red + blue) as f32 - 0.3).abs() < 0.1, "coverage should follow 60% opacity × 50% fill: {red}/{blue}");
+}
+
+/// Dissolve noise uses document coordinates, not the region origin; checked across
+/// negative coordinates, tile boundaries, and all supported RGB sample depths.
+#[test]
+fn clipped_dissolve_matches_whole_render_at_offset_regions_and_depths() {
+    for fmt in [PixelFormat::RGBA8, PixelFormat::RGBA16, PixelFormat::RGBA32F] {
+        let mut d = Document::new("coverage", Size::new(32, 18), ColorMode::Rgb, fmt.sample);
+        let bounds = Rect::new(-3, -2, 32, 18);
+        let mut base = Layer::raster("base", fmt);
+        base.surface_mut().unwrap().fill_rect(bounds, &[0.0, 0.0, 1.0, 0.5]);
+        d.layers.push(base);
+        let mut clip = Layer::raster("clip", fmt);
+        clip.surface_mut().unwrap().fill_rect(bounds, &[1.0, 0.0, 0.0, 0.75]);
+        clip.clipped = true;
+        clip.blend = BlendMode::Dissolve;
+        clip.opacity = 0.6;
+        clip.fill_opacity = 0.5;
+        d.layers.push(clip);
+        let whole = render(&d, bounds);
+        for region in [Rect::new(-3, -2, 5, 4), Rect::new(5, 4, 17, 11), Rect::new(17, 11, 32, 18)] {
+            let part = render(&d, region);
+            for y in region.y0..region.y1 {
+                for x in region.x0..region.x1 {
+                    assert!(close4(part.get(x, y), whole.get(x, y)), "{fmt:?}: region mismatch at ({x},{y})");
+                }
+            }
+        }
+    }
+}
+
 #[test]
 fn hidden_base_hides_clipping_group() {
     let mut d = doc_white(4, 4);
