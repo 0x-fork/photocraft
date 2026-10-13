@@ -4221,3 +4221,6 @@ shape	Appearance	Izgled
 	Show layer mask badges	Prikaži oznake maske sloja
 	Thumbnail Contents	Sadržaj sličice
 	Thumbnail Size	Veličina sličice
+
+# Fill layers
+	Use Default Masks on Fill Layers	Koristi podrazumevane maske na slojevima popune
