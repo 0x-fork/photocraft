@@ -996,6 +996,10 @@ pub fn reset_form(f: &mut Map<String, Value>) {
 }
 
 fn label_of(key: &str) -> String {
+    // A name that already reads as text ("iPhone 14 Pro Max", "Web 1920") is not camelCase.
+    if key.contains(' ') {
+        return tl!(key).to_owned();
+    }
     let mut out = String::new();
     for (i, c) in key.chars().enumerate() {
         if i == 0 {
@@ -1026,6 +1030,7 @@ mod label_tests {
         crate::i18n::with_language(crate::i18n::Lang::EN, || {
             assert_eq!(label_of("useAntialias"), "Use antialias");
             assert_eq!(label_of("radius"), "Radius");
+            assert_eq!(label_of("iPhone 14 Pro Max"), "iPhone 14 Pro Max");
         });
     }
 }

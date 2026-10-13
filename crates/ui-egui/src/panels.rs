@@ -1784,7 +1784,7 @@ fn info_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         empty(ui, tl!("No document"));
         return;
     };
-    let (rev, size) = (st.revision, st.doc.size);
+    let (rev, size, origin) = (st.revision, st.doc.size, st.doc.ruler_origin);
     // Positions and sizes in the ruler unit (Preferences › Units & Rulers).
     let units = app.session.prefs().units_and_rulers.clone();
     let dpi = st.doc.resolution_dpi as f64;
@@ -1833,8 +1833,9 @@ fn info_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     widgets::hairline(ui);
     ui.columns(2, |cols| {
         let dash = || "—".to_string();
-        row(&mut cols[0], "X:", pos.map_or_else(dash, |p| fx(p.0 as f64)));
-        row(&mut cols[0], "Y:", pos.map_or_else(dash, |p| fy(p.1 as f64)));
+        // Measured from the rulers' zero point (#2955).
+        row(&mut cols[0], "X:", pos.map_or_else(dash, |p| fx(p.0 as f64 - origin[0])));
+        row(&mut cols[0], "Y:", pos.map_or_else(dash, |p| fy(p.1 as f64 - origin[1])));
         row(&mut cols[1], "W:", sel.map_or_else(dash, |r| fx(r.width() as f64)));
         row(&mut cols[1], "H:", sel.map_or_else(dash, |r| fy(r.height() as f64)));
     });
