@@ -177,6 +177,12 @@ pub fn button(ui: &mut egui::Ui, name: &str, box_size: f32, selected: bool, tool
 
 /// Square icon button with an explicit glyph size, independent of its hit area.
 pub fn button_with_icon_size(ui: &mut egui::Ui, name: &str, box_size: f32, icon_size: f32, selected: bool, tooltip: &str) -> Response {
+    button_with_icon_size_tip(ui, name, box_size, icon_size, selected, tooltip, true)
+}
+
+/// [`button_with_icon_size`] whose tooltip shows only when `show_tip`; the tooltip text still
+/// names the button (for screen readers and tests) when it is hidden.
+pub fn button_with_icon_size_tip(ui: &mut egui::Ui, name: &str, box_size: f32, icon_size: f32, selected: bool, tooltip: &str, show_tip: bool) -> Response {
     let t = Tokens::get(ui.ctx());
     let style = IconButtonStyle {
         normal: ButtonVisuals { fill: Color32::TRANSPARENT, stroke: egui::Stroke::NONE, icon: t.icon },
@@ -190,7 +196,7 @@ pub fn button_with_icon_size(ui: &mut egui::Ui, name: &str, box_size: f32, icon_
     let resp = IconButton::new(label, Vec2::splat(box_size), &style).selected(selected).show(ui, |ui, rect, tint| {
         paint(ui, rect, name, icon_size, tint);
     });
-    if tooltip.is_empty() { resp } else { resp.on_hover_text(label) }
+    if tooltip.is_empty() || !show_tip { resp } else { resp.on_hover_text(label) }
 }
 
 /// Rail toggle: "on" gets a quiet filled background and full-strength icon (no accent).

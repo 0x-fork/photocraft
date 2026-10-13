@@ -1,10 +1,10 @@
 //! Edit › Free Transform / Transform: projective transforms of layers (and the selection).
 
-use photocraft_algo::transform::{Homography, Interp, warp_output_bounds, warp_surface};
+use photocraft_algo::transform::{Homography, Interp, warp_output_bounds, warp_surface, warp_surface_with};
 use photocraft_color::PixelFormat;
 use photocraft_doc::{Document, Layer, LayerContent, LayerId, Locks};
 use photocraft_geom::{Affine, Rect};
-use photocraft_raster::Surface;
+use photocraft_raster::{Interrupt, Surface};
 use serde_json::{Value, json};
 
 use crate::commands::CommandSpec;
@@ -304,11 +304,33 @@ fn check_layer_budget(doc_sel: Option<&Surface>, l: &Layer, h: &Homography) -> R
 /// is turned into a normal layer by the caller first ([`crate::extra_cmds::background_to_layer`]).
 /// Refused, with `l` untouched, when a result would exceed [`MAX_TRANSFORM_PIXELS`].
 pub(crate) fn transform_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut Layer, h: &Homography, affine: Option<Affine>, interp: Interp) -> Result<()> {
-    check_layer_budget(doc_sel, l, h)?;
-    apply_transform(doc_sel, group, l, h, affine, interp)
+    transform_layer_with(doc_sel, group, l, h, affine, interp, &Interrupt::NONE)
 }
 
-fn apply_transform(doc_sel: Option<&Surface>, group: Locks, l: &mut Layer, h: &Homography, affine: Option<Affine>, interp: Interp) -> Result<()> {
+/// [`transform_layer`] with progress and cancellation for the pixel warp (the slow part on a
+/// large layer, #1015).
+fn transform_layer_with(
+    doc_sel: Option<&Surface>,
+    group: Locks,
+    l: &mut Layer,
+    h: &Homography,
+    affine: Option<Affine>,
+    interp: Interp,
+    ctl: &Interrupt,
+) -> Result<()> {
+    check_layer_budget(doc_sel, l, h)?;
+    apply_transform(doc_sel, group, l, h, affine, interp, ctl)
+}
+
+fn apply_transform(
+    doc_sel: Option<&Surface>,
+    group: Locks,
+    l: &mut Layer,
+    h: &Homography,
+    affine: Option<Affine>,
+    interp: Interp,
+    ctl: &Interrupt,
+) -> Result<()> {
     crate::allocation::checkpoint("transforming pixels")?;
     let locks = transform_locks(l, group, false);
     if locks.position || locks.all {
@@ -317,7 +339,7 @@ fn apply_transform(doc_sel: Option<&Surface>, group: Locks, l: &mut Layer, h: &H
     if h.is_identity() {
         if let LayerContent::Group(g) = &mut l.content {
             for c in g.children.iter_mut() {
-                apply_transform(None, locks, c, h, affine, interp)?;
+                apply_transform(None, locks, c, h, affine, interp, ctl)?;
             }
         }
         return Ok(());
@@ -328,7 +350,7 @@ fn apply_transform(doc_sel: Option<&Surface>, group: Locks, l: &mut Layer, h: &H
     match &mut l.content {
         LayerContent::Group(g) => {
             for c in g.children.iter_mut() {
-                apply_transform(None, locks, c, h, affine, interp)?;
+                apply_transform(None, locks, c, h, affine, interp, ctl)?;
             }
         }
         LayerContent::Text(t) => {
@@ -366,12 +388,12 @@ fn apply_transform(doc_sel: Option<&Surface>, group: Locks, l: &mut Layer, h: &H
                     // Only the selected pixels move: lift them, clear them, warp and paste back.
                     Some(sel) => {
                         let (lifted, mut rest) = split_selected(surf, sel)?;
-                        let moved = warp_surface(&lifted, src, h, interp)?;
+                        let moved = warp_surface_with(&lifted, src, h, interp, ctl)?.ok_or(EngineError::Cancelled)?;
                         composite_over(&mut rest, &moved);
                         rest.prune();
                         rest
                     }
-                    None => warp_surface(surf, src, h, interp)?,
+                    None => warp_surface_with(surf, src, h, interp, ctl)?.ok_or(EngineError::Cancelled)?,
                 };
             }
         }
@@ -571,49 +593,69 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
         (m[6].abs() < 1e-12 && m[7].abs() < 1e-12).then(|| Affine { m: [m[0] / m[8], m[3] / m[8], m[1] / m[8], m[4] / m[8], m[2] / m[8], m[5] / m[8]] });
     let interp = Interp::parse(p.get("interpolation").and_then(Value::as_str).unwrap_or("bicubic"));
     let lone = lone.is_some();
-    s.edit("Free Transform", |doc, _| {
-        let sel = doc.selection.clone();
-        // The selection outline moves too: price it before anything is built.
-        if let Some(sel) = sel.as_ref().filter(|_| !h.is_identity()) {
-            check_budget(sel.content_bounds(), &h, "selection")?;
-        }
-        if lone {
-            // A targeted unlinked mask, alpha channel or Quick Mask transforms by itself.
-            if !h.is_identity() {
-                let (surf, _) = crate::channel_cmds::target_surface(doc, id, p)?;
-                let src = sel.as_ref().map_or_else(|| surf.content_bounds(), Surface::content_bounds);
-                check_budget(src, &h, "mask or channel")?;
-                *surf = match &sel {
-                    Some(sel) => warp_gray_selected(surf, sel, &h, interp)?,
-                    None => warp_gray(surf, &h, interp)?,
-                };
-                if let Some(sel) = &doc.selection {
-                    doc.selection = Some(warp_gray(sel, &h, Interp::Bilinear)?).filter(|s| !s.content_bounds().is_empty());
-                }
-            }
-            return Ok(());
-        }
-        let id = id.ok_or_else(|| EngineError::Other("no active layer".into()))?;
-        let is_group = doc.layer(id).is_some_and(Layer::is_group);
-        let group = group_locks(doc, id);
-        // Photoshop turns the Background into a normal layer before transforming it.
-        crate::extra_cmds::background_to_layer(doc, id);
-        let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
-        transform_layer(if is_group { None } else { sel.as_ref() }, group, l, &h, affine, interp)?;
+    let p = p.clone();
+    // A background job when started with `Session::start` (#1015): the warp of a large layer runs
+    // on a worker with progress, and can be cancelled.
+    crate::jobs::edit_job(
+        s,
+        "Free Transform",
+        move |doc, _, ctx| ctx.stage(0.0, 1.0, "Transforming", |ctl| transform_doc(doc, id, &p, lone, &h, affine, interp, ctl)),
+        move |()| json!({"rect": rect}),
+    )
+}
+
+/// The edit of [`transform`]: the layer (or a lone mask or channel) and the selection outline.
+#[allow(clippy::too_many_arguments)]
+fn transform_doc(
+    doc: &mut Document,
+    id: Option<LayerId>,
+    p: &Value,
+    lone: bool,
+    h: &Homography,
+    affine: Option<Affine>,
+    interp: Interp,
+    ctl: &Interrupt,
+) -> Result<()> {
+    let sel = doc.selection.clone();
+    // The selection outline moves too: price it before anything is built.
+    if let Some(sel) = sel.as_ref().filter(|_| !h.is_identity()) {
+        check_budget(sel.content_bounds(), h, "selection")?;
+    }
+    if lone {
+        // A targeted unlinked mask, alpha channel or Quick Mask transforms by itself.
         if !h.is_identity() {
-            // Type layers re-render from their new transform.
-            let snapshot = doc.clone();
-            if let Some(l) = doc.layer_mut(id) {
-                refresh_text(&snapshot, l);
-            }
-            // The selection outline moves with the pixels.
+            let (surf, _) = crate::channel_cmds::target_surface(doc, id, p)?;
+            let src = sel.as_ref().map_or_else(|| surf.content_bounds(), Surface::content_bounds);
+            check_budget(src, h, "mask or channel")?;
+            *surf = match &sel {
+                Some(sel) => warp_gray_selected(surf, sel, h, interp)?,
+                None => warp_gray(surf, h, interp)?,
+            };
             if let Some(sel) = &doc.selection {
-                doc.selection = Some(warp_gray(sel, &h, Interp::Bilinear)?).filter(|s| !s.content_bounds().is_empty());
+                doc.selection = Some(warp_gray(sel, h, Interp::Bilinear)?).filter(|s| !s.content_bounds().is_empty());
             }
         }
-        Ok(())
-    })?;
-    Ok(json!({"rect": rect}))
+        return Ok(());
+    }
+    let id = id.ok_or_else(|| EngineError::Other("no active layer".into()))?;
+    let is_group = doc.layer(id).is_some_and(Layer::is_group);
+    let group = group_locks(doc, id);
+    // Photoshop turns the Background into a normal layer before transforming it.
+    crate::extra_cmds::background_to_layer(doc, id);
+    let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
+    transform_layer_with(if is_group { None } else { sel.as_ref() }, group, l, h, affine, interp, ctl)?;
+    if !h.is_identity() {
+        // Type layers re-render from their new transform.
+        let snapshot = doc.clone();
+        if let Some(l) = doc.layer_mut(id) {
+            refresh_text(&snapshot, l);
+        }
+        // The selection outline moves with the pixels.
+        if let Some(sel) = &doc.selection {
+            doc.selection = Some(warp_gray(sel, h, Interp::Bilinear)?).filter(|s| !s.content_bounds().is_empty());
+        }
+    }
+    Ok(())
 }
 
 pub fn specs() -> Vec<CommandSpec> {

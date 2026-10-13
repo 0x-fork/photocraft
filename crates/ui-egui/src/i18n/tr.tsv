@@ -2316,6 +2316,7 @@
 	Color Picker (Stroke Color)	Renk Seçici (Kontur Rengi)
 	Stroke color	Kontur rengi
 	Pick screen color	Ekran rengini seç
+	Pick Color From Image	Görüntüden Renk Seç
 	Sample a pixel anywhere on the screen	Ekranın herhangi bir yerinde bir pikseli örnekleyin
 	Click to pick · Esc to cancel	Seçmek için tıklayın · İptal etmek için Esc
 	Pick a screen pixel or press Esc to cancel	Bir ekran pikseli seçin veya iptal etmek için Esc tuşuna basın

@@ -27,6 +27,7 @@ mod content_aware_move;
 mod patch;
 mod pattern_stamp;
 mod remove;
+pub use content_aware_move::{ContentAwarePreview, preview as content_aware_move_preview};
 pub use patch::preview as patch_preview;
 
 fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {

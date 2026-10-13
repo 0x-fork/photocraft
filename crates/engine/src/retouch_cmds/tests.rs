@@ -918,6 +918,31 @@ fn content_aware_move_moves_the_object_and_fills_its_place_at_all_depths() {
 }
 
 #[test]
+fn content_aware_move_preview_shows_the_result_without_touching_the_session() {
+    use crate::jobs::JobCtx;
+    let mut s = session(128, 64, 8, "rgb");
+    paint_layer(&mut s, with_object(20, 26));
+    s.execute("select.rect", json!({"x": 16, "y": 22, "width": 20, "height": 20})).unwrap();
+    let before = s.active().unwrap().revision;
+    let p = json!({"offset": [70, 0]});
+    let (doc, damage) = content_aware_move_preview(&s, &p).unwrap().run(&JobCtx::new()).unwrap();
+    let px = |d: &Document, x, y| d.layers[0].surface().unwrap().rgba(x, y);
+    assert!(is_object(px(&doc, 95, 31)) && !is_object(px(&doc, 25, 31)), "the preview shows the move");
+    assert!(damage.contains(95, 31) && damage.contains(25, 31), "{damage:?}");
+    // The session is untouched.
+    assert!(is_object(rgba(&s, 25, 31)) && !is_object(rgba(&s, 95, 31)));
+    assert_eq!(s.active().unwrap().revision, before);
+    // A cancelled preview stops; a selection past the preview's size and bad params are errors.
+    let ctx = JobCtx::new();
+    ctx.cancel();
+    assert!(matches!(content_aware_move_preview(&s, &p).unwrap().run(&ctx), Err(EngineError::Cancelled)));
+    assert!(content_aware_move_preview(&s, &json!({"offset": [0, 0]})).is_err());
+    assert!(content_aware_move_preview(&s, &json!({"offset": [70, 0], "rotate": "x"})).is_err());
+    s.execute("select.rect", json!({"x": 0, "y": 0, "width": 300, "height": 300})).unwrap();
+    assert!(content_aware_move_preview(&s, &json!({"offset": [1, 0]})).is_err());
+}
+
+#[test]
 fn content_aware_move_transform_on_drop_scales_and_rotates_the_content() {
     // A horizontal 16×6 bar in a 36×36 selection, dropped 80 px right and turned 90° with 125%
     // width: it lands upright, 20 px tall, and the blend works around the turned content.

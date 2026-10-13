@@ -34,6 +34,7 @@ pub mod brush_preview;
 pub mod brush_resize;
 pub mod brush_sections;
 pub mod brushes_tab;
+pub(crate) mod cam_preview;
 mod cam_transform;
 mod camera_raw_detail_ui;
 mod camera_raw_preview_ui;
@@ -200,6 +201,7 @@ mod tool_cursor;
 pub mod tool_feedback;
 pub(crate) mod tool_memory;
 mod tool_reset;
+mod tool_shortcuts;
 pub mod transform_fx;
 pub mod transform_tex;
 pub mod transform_tool;
@@ -520,6 +522,8 @@ pub struct PhotocraftApp {
     pub(crate) blend_preview: Option<blend_preview::BlendPreview>,
     /// Patch Tool drag: the healed document at the pointer (`patch_preview`).
     pub(crate) patch_preview: Option<patch_preview::PatchPreview>,
+    /// Content-Aware Move drag or box shown with its result (`cam_preview`).
+    pub(crate) cam_preview: Option<cam_preview::CamPreview>,
     /// The pixels a Magnetic Lasso border follows (`magnetic_lasso_ui`).
     pub(crate) magnetic: magnetic_lasso_ui::Runtime,
     /// The next tool `Down` is a right-button drag that erases (see `paint_mouse`).
@@ -747,6 +751,7 @@ impl PhotocraftApp {
             object_finder: None,
             blend_preview: None,
             patch_preview: None,
+            cam_preview: None,
             magnetic: Default::default(),
             secondary_erase: false,
             held_erase: false,
@@ -1284,7 +1289,7 @@ impl PhotocraftApp {
         // which records the step once answered.
         if tga_bits.is_none() && targa_options_ui::wants_prompt(self, &path) {
             let copy = self.saves_copy(&path, None)?;
-            targa_options_ui::park(self, path.clone(), copy, true)?;
+            targa_options_ui::park(self, path.clone(), copy, "file.saveAs")?;
             return Ok(serde_json::json!({"path": path, "warnings": []}));
         }
         // A layered TIFF asks about its layers first (Preferences › File Handling); the save
@@ -1321,7 +1326,7 @@ impl PhotocraftApp {
         Ok(r)
     }
 
-    /// Replays a recorded `file.save` / `file.saveAs` step: no dialog or prompt, and the
+    /// Replays a recorded `file.save` / `file.saveAs` / `file.saveACopy` step: no dialog or prompt, and the
     /// recorded TIFF or Targa answer (if any) stands in for the TIFF or Targa Options prompt.
     pub(crate) fn replay_save(&mut self, id: &str, params: &Value) -> Result<Value, String> {
         if self.save_options_open() {
@@ -1340,6 +1345,11 @@ impl PhotocraftApp {
         }
         let path = params.get("path").and_then(Value::as_str).filter(|p| !p.is_empty()).ok_or("Save As needs a `path`")?;
         let tga_bits = targa_options_ui::bits_param(params, id)?;
+        if id == "file.saveACopy" {
+            // A copy: the document keeps its own file and unsaved state, as when recorded (#4373).
+            let doc = self.session.active().ok_or("no document")?.doc.clone();
+            return crate::view_cmds::write_copy(self, &doc, path, tga_bits);
+        }
         self.save_as_step(path.to_string(), params.get("tiffLayers").and_then(Value::as_bool), tga_bits)
     }
 

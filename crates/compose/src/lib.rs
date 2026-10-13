@@ -451,18 +451,27 @@ fn render_reduced_in_bands(doc: &Document, b: Rect, w: u32, h: u32, damage: Opti
     Buffer { rect: out, px: acc }
 }
 
+type VectorMaskSlot = std::sync::Arc<std::sync::OnceLock<photocraft_vector::CompiledVectorMask>>;
+
 #[derive(Default)]
 struct RenderVectorMasks {
-    masks: std::sync::Mutex<std::collections::HashMap<usize, std::sync::Arc<std::sync::OnceLock<photocraft_vector::CompiledVectorMask>>>>,
+    /// Compiled masks by content. Callers pass temporary clones (see `advanced.rs`), so an
+    /// address cannot identify a mask: a dropped clone's address is reused by the next one.
+    masks: std::sync::Mutex<Vec<(photocraft_doc::VectorMask, VectorMaskSlot)>>,
 }
 
 impl RenderVectorMasks {
     fn values(&self, mask: &photocraft_doc::VectorMask, rect: Rect) -> Vec<f32> {
-        // Addresses identify immutable mask instances only for this render's lifetime.
-        let key = std::ptr::from_ref(mask) as usize;
         let slot = {
             let mut masks = self.masks.lock().unwrap_or_else(|e| e.into_inner());
-            masks.entry(key).or_default().clone()
+            match masks.iter().find(|(m, _)| m == mask) {
+                Some((_, slot)) => slot.clone(),
+                None => {
+                    let slot = VectorMaskSlot::default();
+                    masks.push((mask.clone(), slot.clone()));
+                    slot
+                }
+            }
         };
         // Compilation is sequential. Rendering can enter Rayon and must happen after
         // initialization, so waiting tiles cannot re-enter a slot still being built.

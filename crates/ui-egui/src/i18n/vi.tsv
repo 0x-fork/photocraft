@@ -2037,6 +2037,7 @@ layers	Fill:	Độ tô:
 	Option-click to define a source point to clone from	Option+nhấp để chỉ định điểm nguồn nhân bản
 	Out of gamut for printing: click for the nearest printable colour	Ngoài gamut in: nhấp để lấy màu in được gần nhất
 	Pick screen color	Lấy màu màn hình
+	Pick Color From Image	Lấy màu từ hình ảnh
 	Point Sample	Mẫu điểm
 	Pupil Size	Kích thước đồng tử
 	Quick Selection found nothing there	Chọn nhanh không tìm thấy gì

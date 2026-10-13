@@ -1387,7 +1387,8 @@ fn front(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<Val
 }
 
 /// File › Save a Copy: pick a name, encode with the export service, write; the document's path
-/// and saved state are untouched.
+/// and saved state are untouched. An action being recorded keeps it as a `file.saveACopy` step
+/// with its path (#4373).
 fn save_a_copy(app: &mut PhotocraftApp) -> Result<Value, String> {
     let doc = app.session.active().ok_or("no document")?.doc.clone();
     let stem = doc.name.rsplit_once('.').map_or(doc.name.as_str(), |(a, _)| a);
@@ -1398,25 +1399,38 @@ fn save_a_copy(app: &mut PhotocraftApp) -> Result<Value, String> {
         let parked = app.with_document(doc.id, |app| {
             let ask = crate::targa_options_ui::wants_prompt(app, &path);
             if ask {
-                crate::targa_options_ui::park(app, path.clone(), true, false)?;
+                crate::targa_options_ui::park(app, path.clone(), true, "file.saveACopy")?;
             }
             Ok(ask)
         })?;
         if parked {
             return Ok(json!({"path": path, "warnings": []}));
         }
-        let settings = app.save_settings();
-        let export = app.services.export.as_ref().ok_or("no exporter configured")?;
-        let (bytes, warnings) = export(&doc, &path, &settings)?;
-        let write = app.services.write.as_mut().ok_or("no writer configured")?;
-        write(&path, &bytes)?;
-        let template = "Saved a copy as {path}";
-        app.ui.status = crate::i18n::fmt(tl!(template), &[("path", &path)]);
-        app.ui.status_error = false;
-        let what = crate::i18n::fmt(tl!(template), &[("path", &crate::file_open::display_name(&path))]);
-        crate::notices::io_warnings(app, &what, &warnings);
-        Ok(json!({"path": path, "warnings": warnings}))
+        let r = write_copy(app, &doc, &path, None)?;
+        app.session.journal.push(("file.saveACopy".into(), json!({"path": path})));
+        Ok(r)
     })
+}
+
+/// Writes `doc` to `path` as a copy (Save a Copy, and its replayed action step): the document's
+/// path and saved state are untouched. `tga_bits` is the Targa answer, when there is one.
+pub(crate) fn write_copy(
+    app: &mut PhotocraftApp,
+    doc: &photocraft_doc::Document,
+    path: &str,
+    tga_bits: Option<photocraft_io::TgaBits>,
+) -> Result<Value, String> {
+    let settings = crate::ExportSettings { tga_bits, ..app.save_settings() };
+    let export = app.services.export.as_ref().ok_or("no exporter configured")?;
+    let (bytes, warnings) = export(doc, path, &settings)?;
+    let write = app.services.write.as_mut().ok_or("no writer configured")?;
+    write(path, &bytes)?;
+    let template = "Saved a copy as {path}";
+    app.ui.status = crate::i18n::fmt(tl!(template), &[("path", path)]);
+    app.ui.status_error = false;
+    let what = crate::i18n::fmt(tl!(template), &[("path", &crate::file_open::display_name(path))]);
+    crate::notices::io_warnings(app, &what, &warnings);
+    Ok(json!({"path": path, "warnings": warnings}))
 }
 
 /// Layer › Smart Objects › Export Contents: saves the contents file under its own name by default.

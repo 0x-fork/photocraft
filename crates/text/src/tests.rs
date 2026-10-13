@@ -13,6 +13,44 @@ fn styled(text: &str, style: CharStyle) -> TextLayer {
     TextLayer { text: text.into(), runs: vec![TextRun { len: text.len(), style }], ..Default::default() }
 }
 
+#[test]
+fn raster_preserves_hdr_and_signed_float_text_colors() {
+    let mut e = TextEngine::new();
+    for alpha in [1.0, 0.4] {
+        let color = Color::rgba(2.5, -0.25, 0.5, alpha);
+        let style = CharStyle { size_pt: 48.0, color, ..Default::default() };
+        let (_, rendered) = e.render(&styled("HDR", style), 72.0, PixelFormat::RGBA32F);
+        let pixels = rendered.surface.read_region(rendered.rect);
+        let mut covered = 0;
+        for pixel in pixels.as_chunks::<4>().0.iter().filter(|p| p[3] > 0.01) {
+            covered += 1;
+            for channel in 0..3 {
+                assert!((pixel[channel] - color.c[channel]).abs() < 1e-5, "alpha={alpha}, pixel={pixel:?}");
+            }
+            assert!(pixel[3] <= alpha + 1e-6);
+        }
+        assert!(covered > 100);
+    }
+}
+
+#[test]
+fn raster_integer_text_colors_stay_bounded() {
+    let mut e = TextEngine::new();
+    for format in [PixelFormat::RGBA8, PixelFormat::RGBA16] {
+        let style = CharStyle { size_pt: 48.0, color: Color::rgba(2.5, -0.25, 0.5, 0.4), ..Default::default() };
+        let (_, rendered) = e.render(&styled("HDR", style), 72.0, format);
+        let pixels = rendered.surface.read_region(rendered.rect);
+        let mut covered = 0;
+        for pixel in pixels.as_chunks::<4>().0.iter().filter(|p| p[3] > 0.01) {
+            covered += 1;
+            assert_eq!(&pixel[..2], &[1.0, 0.0]);
+            assert!((pixel[2] - 0.5).abs() < 1.0 / 255.0);
+            assert!(pixel[3] <= 0.4 + 1.0 / 255.0);
+        }
+        assert!(covered > 100);
+    }
+}
+
 fn with_para(mut t: TextLayer, p: ParagraphStyle) -> TextLayer {
     t.paragraphs = vec![ParagraphRun { len: t.text.len(), style: p }];
     t
@@ -1613,6 +1651,59 @@ fn southeast_asian_fallback_candidates_cover_every_platform() {
         ] {
             let i = fb.iter().position(|f| *f == fam).unwrap_or_else(|| panic!("{fam} missing from {fb:?}"));
             assert!(i < last, "{fam} after the last-resort fonts");
+        }
+    }
+}
+
+/// The Indic scripts of document text, with conjuncts, matras and viramas (#218).
+const INDIC: &[(&str, &str, &[&str])] = &[
+    ("Devanagari", "हिन्दी भाषा क्षत्रिय श्री", fonts::DEVANAGARI_FAMILIES),
+    ("Bengali", "বাংলা ভাষা ক্ষত্রিয় শ্রী", fonts::BENGALI_FAMILIES),
+    ("Gurmukhi", "ਪੰਜਾਬੀ ਭਾਸ਼ਾ ਸਤਿ ਸ੍ਰੀ", fonts::GURMUKHI_FAMILIES),
+    ("Gujarati", "ગુજરાતી ભાષા ક્ષત્રિય શ્રી", fonts::GUJARATI_FAMILIES),
+    ("Tamil", "தமிழ் மொழி ஸ்ரீ கொடை", fonts::TAMIL_FAMILIES),
+    ("Telugu", "తెలుగు భాష క్షత్రియ శ్రీ", fonts::TELUGU_FAMILIES),
+    ("Kannada", "ಕನ್ನಡ ಭಾಷೆ ಕ್ಷತ್ರಿಯ ಶ್ರೀ", fonts::KANNADA_FAMILIES),
+    ("Malayalam", "മലയാളം ഭാഷ ക്ഷത്രിയ ശ്രീ", fonts::MALAYALAM_FAMILIES),
+    ("Sinhala", "සිංහල භාෂාව ක්‍ෂත්‍රිය ශ්‍රී", fonts::SINHALA_FAMILIES),
+];
+
+#[test]
+fn indic_scripts_fall_back_to_installed_fonts() {
+    for (name, sample, families) in INDIC {
+        let mut e = TextEngine::with_system_fonts();
+        let Some(hit) = families.iter().find(|f| e.fonts.has_family(f)) else {
+            eprintln!("skipped: no {name}-capable font installed");
+            continue;
+        };
+        let direct = TextLayer { text: (*sample).into(), font_family: hit.to_string(), size_pt: 24.0, ..Default::default() };
+        let l = e.layout(&direct, 72.0);
+        assert!(!l.glyphs.is_empty() && l.glyphs.iter().all(|g| g.id != 0), "{hit} is installed but shapes .notdef for {name}");
+        let mixed = format!("Latin {sample}");
+        let l = e.layout(&point(&mixed, 24.0), 72.0);
+        assert!(l.glyphs.iter().all(|g| g.id != 0), "{name} in a Latin font drawn with .notdef although {hit} is installed");
+        let latin = l.glyphs.first().map(|g| g.face);
+        assert!(l.glyphs.iter().any(|g| Some(g.face) != latin), "Latin and {name} drawn with the same face");
+    }
+}
+
+#[test]
+fn indic_fallback_candidates_cover_every_platform() {
+    // Logic-level half (runs without these fonts): every script has a Windows, macOS and Linux
+    // family in the candidates, ahead of the broad last-resort fonts; the shared Nirmala UI is
+    // probed once.
+    for order in [crate::cjk::script_order(None), crate::cjk::script_order(Some("ja"))] {
+        let fb = fonts::fallback_candidates(&order);
+        let last = fb.iter().position(|f| *f == "Arial Unicode MS").unwrap();
+        assert_eq!(fb.iter().filter(|f| **f == "Nirmala UI").count(), 1, "{fb:?}");
+        for (name, _, families) in INDIC {
+            assert!(families.contains(&"Nirmala UI"), "{name}");
+            assert!(families.iter().any(|f| f.ends_with("Sangam MN") || f.starts_with("Kohinoor")), "{name}: no macOS family");
+            assert!(families.iter().any(|f| f.starts_with("Noto Sans ")), "{name}: no Linux family");
+            for fam in *families {
+                let i = fb.iter().position(|f| f == fam).unwrap_or_else(|| panic!("{fam} missing from {fb:?}"));
+                assert!(i < last, "{fam} after the last-resort fonts");
+            }
         }
     }
 }

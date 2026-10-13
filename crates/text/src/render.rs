@@ -1,6 +1,6 @@
 //! Rasterizes a [`TextLayout`] into a document-space [`Surface`] of any pixel format.
 
-use photocraft_color::{Color, PixelFormat};
+use photocraft_color::{Color, PixelFormat, SampleType};
 use photocraft_doc::text::AntiAlias;
 use photocraft_geom::{Affine, Rect};
 use photocraft_raster::Surface;
@@ -267,7 +267,10 @@ pub fn rasterize_warped(layout: &TextLayout, transform: &Affine, format: PixelFo
         let a = px[n];
         if a > 0.0 {
             for v in &mut px[..n] {
-                *v = (*v / a).clamp(0.0, 1.0);
+                let straight = *v / a;
+                // Float text can carry HDR and signed colours. Keep integer output bounded
+                // and retain the old handling of non-finite intermediate values.
+                *v = if format.sample == SampleType::F32 && straight.is_finite() { straight } else { straight.clamp(0.0, 1.0) };
             }
         }
     }

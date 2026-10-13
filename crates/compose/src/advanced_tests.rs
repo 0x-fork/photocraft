@@ -426,6 +426,26 @@ fn vector_mask_hides_effects() {
     }
 }
 
+/// The per-render vector-mask cache must key masks by content: `hiding_mask` and
+/// `effects_source` hand it temporary clones whose addresses get reused (#4426).
+#[test]
+fn vector_mask_cache_does_not_mix_up_layers() {
+    use photocraft_doc::{Path, Subpath, VectorMask};
+    for depth in DEPTHS {
+        let mut d = doc(depth, true);
+        for (name, color, x0, x1) in [("a", BLUE, -4.0, 6.0), ("b", GREEN, 6.0, 16.0)] {
+            let mut l = solid(&d, name, full(&d), color);
+            l.effects.items = vec![inside_stroke()];
+            l.advanced.vector_mask_hides_effects = true;
+            let path = Path::new(vec![Subpath::polygon(&[(x0, -4.0), (x1, -4.0), (x1, 12.0), (x0, 12.0)])]);
+            l.vector_mask = Some(VectorMask::new(path));
+            d.layers.push(l);
+        }
+        check(&d, 2, 4, BLUE, "layer A inside its own mask");
+        check(&d, 9, 4, GREEN, "layer B inside its own mask");
+    }
+}
+
 #[test]
 fn defaults_take_the_plain_paths() {
     let d = doc(SampleType::U8, true);

@@ -59,7 +59,7 @@ fn inflate_font(deflated: &[u8]) -> Vec<u8> {
 
 /// Families tried (if installed) after the requested one, for missing glyphs. The Southeast Asian
 /// and CJK families ([`THAI_FAMILIES`], [`KHMER_FAMILIES`], [`LAO_FAMILIES`], [`MYANMAR_FAMILIES`],
-/// [`crate::cjk::families`]) go between these two lists, in the UI locale's script order.
+/// [`INDIC_FAMILIES`], [`crate::cjk::families`]) go between these two lists, in the UI locale's script order.
 const FALLBACK_CANDIDATES: &[&str] = &["Noto Sans", "Segoe UI", "DejaVu Sans", "Geeza Pro", "Arial Hebrew", "Noto Sans Arabic", "Noto Sans Hebrew"];
 /// Thai-capable families: Windows (Leelawadee UI since Windows 8; Tahoma and Leelawadee on
 /// older systems), macOS (Thonburi, Sukhumvit Set) and Linux (Noto). Text in a font without Thai
@@ -76,6 +76,38 @@ pub const LAO_FAMILIES: &[&str] = &["Lao Sangam MN", "Lao MN", "Lao UI", "Noto S
 /// Myanmar/Burmese-capable families: macOS (Myanmar Sangam MN, Myanmar MN), Windows (Myanmar Text)
 /// and Linux (Noto).
 pub const MYANMAR_FAMILIES: &[&str] = &["Myanmar Sangam MN", "Myanmar MN", "Myanmar Text", "Noto Sans Myanmar"];
+/// Indic-script families for document text. Windows has `Nirmala UI` for all nine scripts (from
+/// Windows 8); macOS has the Kohinoor and Sangam MN families; Linux has Noto Sans. Indic text in a
+/// font without these glyphs had no candidate to fall back to and drew .notdef boxes (#218).
+pub const DEVANAGARI_FAMILIES: &[&str] = &["Nirmala UI", "Kohinoor Devanagari", "Devanagari Sangam MN", "Noto Sans Devanagari", "Noto Sans Devanagari UI"];
+/// Bengali-capable families (see [`DEVANAGARI_FAMILIES`]).
+pub const BENGALI_FAMILIES: &[&str] = &["Nirmala UI", "Kohinoor Bangla", "Bangla Sangam MN", "Noto Sans Bengali", "Noto Sans Bengali UI"];
+/// Gurmukhi-capable families (see [`DEVANAGARI_FAMILIES`]).
+pub const GURMUKHI_FAMILIES: &[&str] = &["Nirmala UI", "Gurmukhi Sangam MN", "Noto Sans Gurmukhi", "Noto Sans Gurmukhi UI"];
+/// Gujarati-capable families (see [`DEVANAGARI_FAMILIES`]).
+pub const GUJARATI_FAMILIES: &[&str] = &["Nirmala UI", "Kohinoor Gujarati", "Gujarati Sangam MN", "Noto Sans Gujarati", "Noto Sans Gujarati UI"];
+/// Tamil-capable families (see [`DEVANAGARI_FAMILIES`]).
+pub const TAMIL_FAMILIES: &[&str] = &["Nirmala UI", "Tamil Sangam MN", "Noto Sans Tamil", "Noto Sans Tamil UI"];
+/// Telugu-capable families (see [`DEVANAGARI_FAMILIES`]).
+pub const TELUGU_FAMILIES: &[&str] = &["Nirmala UI", "Kohinoor Telugu", "Telugu Sangam MN", "Noto Sans Telugu", "Noto Sans Telugu UI"];
+/// Kannada-capable families (see [`DEVANAGARI_FAMILIES`]).
+pub const KANNADA_FAMILIES: &[&str] = &["Nirmala UI", "Kannada Sangam MN", "Noto Sans Kannada", "Noto Sans Kannada UI"];
+/// Malayalam-capable families (see [`DEVANAGARI_FAMILIES`]).
+pub const MALAYALAM_FAMILIES: &[&str] = &["Nirmala UI", "Malayalam Sangam MN", "Noto Sans Malayalam", "Noto Sans Malayalam UI"];
+/// Sinhala-capable families (see [`DEVANAGARI_FAMILIES`]).
+pub const SINHALA_FAMILIES: &[&str] = &["Nirmala UI", "Sinhala Sangam MN", "Noto Sans Sinhala", "Noto Sans Sinhala UI"];
+/// All Indic-script families, in the order they join the fallback candidates.
+pub const INDIC_FAMILIES: &[&[&str]] = &[
+    DEVANAGARI_FAMILIES,
+    BENGALI_FAMILIES,
+    GURMUKHI_FAMILIES,
+    GUJARATI_FAMILIES,
+    TAMIL_FAMILIES,
+    TELUGU_FAMILIES,
+    KANNADA_FAMILIES,
+    MALAYALAM_FAMILIES,
+    SINHALA_FAMILIES,
+];
 /// Broad-coverage and emoji fonts, tried after the CJK script fonts so shared Han characters get
 /// the locale's forms instead of Arial Unicode's.
 const FALLBACK_LAST: &[&str] = &["Arial Unicode MS", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"];
@@ -87,6 +119,14 @@ pub fn fallback_candidates(order: &[crate::cjk::CjkScript; 4]) -> Vec<&'static s
     v.extend_from_slice(KHMER_FAMILIES);
     v.extend_from_slice(LAO_FAMILIES);
     v.extend_from_slice(MYANMAR_FAMILIES);
+    for fams in INDIC_FAMILIES {
+        for f in *fams {
+            // Nirmala UI covers all nine scripts and is listed by each; probe it once.
+            if !v.contains(f) {
+                v.push(f);
+            }
+        }
+    }
     for s in order {
         // craft-fonts' Japanese fonts (if built in) go ahead of the installed Japanese fonts, in
         // the Japanese slot of the locale order, so shared Han keeps the locale's forms.
