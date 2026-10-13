@@ -290,6 +290,26 @@ fn save_paths_get_a_lowercase_extension_when_the_preference_is_on() {
     assert_eq!(*written.borrow(), ["/pics/CAT.PSD"], "off keeps the user's spelling");
 }
 
+/// #5039: a name typed without an extension (where file extensions are hidden) gets the
+/// suggested file's extension, so the save picks its format instead of failing.
+#[test]
+fn save_paths_without_an_extension_get_the_suggested_one() {
+    let (mut app, open, written) = app();
+    let ctx = egui::Context::default();
+    menus::invoke(&mut app, &ctx, "file.saveAs", json!({})).unwrap();
+    app.poll_file_dialog(&ctx, None);
+    answer(&open, Some(FileDialogAnswer::SaveTo("/pics/cat".into())));
+    app.poll_file_dialog(&ctx, None);
+    assert_eq!(*written.borrow(), ["/pics/cat.psd"]);
+    assert_eq!(app.session.active().unwrap().path.as_deref(), Some("/pics/cat.psd"));
+    // A name that already has an extension is left alone.
+    menus::invoke(&mut app, &ctx, "file.saveAs", json!({})).unwrap();
+    app.poll_file_dialog(&ctx, None);
+    answer(&open, Some(FileDialogAnswer::SaveTo("/pics/dog.png".into())));
+    app.poll_file_dialog(&ctx, None);
+    assert_eq!(*written.borrow(), ["/pics/cat.psd", "/pics/dog.png"]);
+}
+
 #[test]
 fn save_and_export_dialogs_start_beside_the_document() {
     let (mut app, open, _) = app();

@@ -1840,6 +1840,9 @@ impl eframe::App for PhotocraftApp {
         notices::show(self, &ctx);
         gpu_status::show_fallback(self, &ctx);
         kys_import::show_offer(self, &ctx);
+        if chrome && self.ui.panels.menu_bar && self.custom_titlebar && !self.ui.dialogs.is_empty() {
+            titlebar::modal_drag_overlay(&ctx);
+        }
         if self.custom_titlebar {
             titlebar::resize_zones(ui);
         }

@@ -151,6 +151,26 @@ fn selected_key(doc: photocraft_doc::DocId) -> egui::Id {
     egui::Id::new(("smart-filter-selected", doc))
 }
 
+/// The selected smart filter row, while its smart object is active and the filter still exists.
+pub(crate) fn selected(ctx: &egui::Context, doc: &Document, active: Option<LayerId>) -> Option<FilterDrag> {
+    let (layer, filter) = ctx.data(|d| d.get_temp::<FilterDrag>(selected_key(doc.id)))?;
+    if active != Some(LayerId(layer)) {
+        return None;
+    }
+    let LayerContent::Smart(sm) = &doc.layer(LayerId(layer))?.content else { return None };
+    let exists = match filter {
+        Some(i) => i < sm.smart_filters.len(),
+        None => !sm.smart_filters.is_empty(),
+    };
+    exists.then_some((layer, filter))
+}
+
+/// Forgets the selected smart filter row: its smart object's own row was clicked, or the filter
+/// was deleted (its index would now name the next one).
+pub(crate) fn deselect(ctx: &egui::Context, doc: photocraft_doc::DocId) {
+    ctx.data_mut(|d| d.remove::<FilterDrag>(selected_key(doc)));
+}
+
 /// While smart filters are dragged: their name by the pointer, and the copy cursor while ⌥ is held.
 pub(crate) fn drag_feedback(ctx: &egui::Context, doc: &Document) {
     let Some((from, filter)) = ctx.data(|d| d.get_temp::<FilterDrag>(drag_key())) else { return };

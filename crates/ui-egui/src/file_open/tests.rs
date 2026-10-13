@@ -464,6 +464,29 @@ fn files_dropped_onto_the_canvas_are_placed_in_free_transform_one_by_one() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// #4833: a file dropped on the canvas on its own while the previous one is still in Free
+/// Transform applies that box and is placed at once, instead of waiting unseen for ↩.
+#[test]
+fn a_separate_drop_applies_the_open_transform_and_places_at_once() {
+    let ctx = egui::Context::default();
+    let mut app = app_with_canvas();
+    let (layers, steps) = (layer_count(&app), history_steps(&app));
+    let at = Some(egui::pos2(400.0, 300.0));
+    app.open_dropped(&ctx, vec![dropped("first.png", Ok(png_bytes(4, 4)))], at);
+    app.place_next_dropped(&ctx);
+    assert!(app.ui.transform.is_some(), "the first file is in Free Transform");
+    app.open_dropped(&ctx, vec![dropped("second.png", Ok(png_bytes(2, 2)))], at);
+    app.place_next_dropped(&ctx);
+    let st = app.session.active().unwrap();
+    assert_eq!(st.doc.layer(st.active_layer.unwrap()).unwrap().name, "second", "placed without waiting for ↩");
+    assert_eq!(app.ui.transform.as_ref().and_then(|t| t.made), Some(crate::state::MadeLayer::Place));
+    // The first place was applied, not taken back: both layers, one Place Embedded step each.
+    assert_eq!(layer_count(&app), layers + 2);
+    assert!(app.drop_places.is_empty());
+    crate::transform_tool::commit(&mut app);
+    assert_eq!(history_steps(&app), steps + 2);
+}
+
 /// #1099: switching tabs after an actual canvas drop cancels the place in its source document.
 #[test]
 fn switching_documents_after_a_canvas_drop_undoes_only_the_place() {

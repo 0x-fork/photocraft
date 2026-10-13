@@ -399,3 +399,32 @@ fn low_depth_height_texture_brush_paints() {
         assert_eq!(covered, 36, "{mode}: the stroke painted {covered} of 36 pixels");
     }
 }
+
+/// #4809: Photoshop CC presets store the dual tip's spacing in `dualBrush › Brsh › Spcn` and a
+/// `Spcn` of 100 % on the `dualBrush` object beside it; the tip's value is the panel's. A tip
+/// without one still takes the outer value.
+#[test]
+fn dual_brush_spacing_comes_from_its_tip() {
+    let dual = |tip: Descriptor| {
+        Descriptor::new("brushPreset")
+            .with("Nm  ", t("SPACING 10%"))
+            .with("Brsh", Value::Descriptor(Descriptor::new("computedBrush").with("Dmtr", u(b"#Pxl", 30.0))))
+            .with(
+                "dualBrush",
+                Value::Descriptor(
+                    Descriptor::new("dualBrush")
+                        .with("useDualBrush", Value::Boolean(true))
+                        .with("Brsh", Value::Descriptor(tip))
+                        .with("BlnM", en("BlnM", "Ovrl"))
+                        .with("Spcn", prc(100.0)),
+                ),
+            )
+    };
+    let spacing = |preset: Descriptor| {
+        let bytes = write_v6(2, &[], &[], &[preset], false).unwrap();
+        read_abr(&bytes, "Test").unwrap().presets[0].brush.dual_brush.spacing
+    };
+    let tip = Descriptor::new("computedBrush").with("Dmtr", u(b"#Pxl", 40.0));
+    assert!((spacing(dual(tip.clone().with("Spcn", prc(10.0)))) - 0.10).abs() < 1e-6, "the tip's 10 %, not the outer 100 %");
+    assert!((spacing(dual(tip)) - 1.0).abs() < 1e-6, "no tip spacing: the outer value");
+}

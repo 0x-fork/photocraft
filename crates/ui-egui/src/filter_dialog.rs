@@ -385,6 +385,36 @@ fn apply_command_defaults(app: &PhotocraftApp, command: &str, fields: &mut Map<S
     if command == "view.proofSetup" {
         proof_setup_defaults(app, fields);
     }
+    if command == "edit.assignProfile" {
+        assign_profile_defaults(app, fields);
+    }
+}
+
+/// Assign Profile offers only the profiles the document's colour mode can take (#4951): the
+/// command refuses one of another colour space. `__profiles` lists them for the `profile` menu,
+/// and a remembered choice that doesn't fit this document falls back to the working space.
+fn assign_profile_defaults(app: &PhotocraftApp, fields: &mut Map<String, Value>) {
+    let Some(st) = app.session.active() else { return };
+    let Some(spec) = photocraft_engine::commands::find("edit.assignProfile") else { return };
+    let space = photocraft_engine::color_cmds::mode_space(st.doc.mode);
+    let fits = |name: &str| name == "none" || app.session.color.resolve(name, Some(&st.doc), None).is_ok_and(|p| p.color_space == space);
+    let builtin: Vec<String> = parse_spec(spec.params)
+        .into_iter()
+        .filter(|p| p.key == "profile")
+        .flat_map(|p| match p.kind {
+            Kind::Choice { options, .. } => options,
+            _ => Vec::new(),
+        })
+        .collect();
+    let installed: Vec<_> = photocraft_engine::installed_profiles::installed().into_iter().filter(|i| i.is_destination()).collect();
+    let allowed: Vec<String> =
+        builtin.iter().filter(|name| fits(name)).cloned().chain(installed.iter().filter(|i| i.color_space == space).map(|i| i.path.clone())).collect();
+    // A path nobody lists (typed by an agent) is left alone: the command decides about it.
+    let listed = |cur: &str| builtin.iter().any(|name| name == cur) || installed.iter().any(|i| i.path == cur);
+    if fields.get("profile").and_then(Value::as_str).is_some_and(|cur| listed(cur) && !allowed.iter().any(|name| name == cur)) {
+        fields.insert("profile".into(), json!("working"));
+    }
+    fields.insert("__profiles".into(), json!(allowed));
 }
 
 /// Alt+Cancel (Reset): schema defaults + command hooks, without last-used remembered prefs.
@@ -665,6 +695,12 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                         Vec::new()
                     };
                     opts.extend(installed.iter().map(|i| (i.path.clone(), i.description.as_str())));
+                    // Assign Profile: only what the document's colour mode can take (#4951).
+                    if p.key == "profile"
+                        && let Some(allowed) = f.get("__profiles").and_then(Value::as_array)
+                    {
+                        opts.retain(|(v, _)| allowed.iter().any(|a| a.as_str() == Some(v.as_str())));
+                    }
                     // A profile given by path that isn't listed (typed by an agent, or spelled with
                     // different case) still shows, by its file name, instead of a blank menu.
                     let stem = std::path::Path::new(&cur).file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -1929,6 +1965,61 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The profiles Assign Profile offers for a new document converted with `mode` (if any),
+    /// and which of the command's built-in profiles the command itself accepts for it.
+    fn assign_profile_offers(mode: Option<&str>) -> (Vec<String>, Vec<String>) {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        if let Some(mode) = mode {
+            app.run(mode, json!({})).unwrap();
+        }
+        open(&mut app, "edit.assignProfile").unwrap();
+        let offered: Vec<String> =
+            app.ui.dialogs.last().unwrap().fields["__profiles"].as_array().unwrap().iter().filter_map(|v| v.as_str().map(str::to_owned)).collect();
+        let spec = photocraft_engine::commands::find("edit.assignProfile").unwrap();
+        let builtin = parse_spec(spec.params).into_iter().find(|p| p.key == "profile").unwrap();
+        let Kind::Choice { options, .. } = builtin.kind else { panic!("profile is a menu") };
+        let accepted = options.into_iter().filter(|name| app.session.execute("edit.assignProfile", json!({"profile": name})).is_ok()).collect();
+        (offered, accepted)
+    }
+
+    /// #4951: Assign Profile lists the profiles the command accepts for the document's colour
+    /// mode, and none of the others.
+    #[test]
+    fn assign_profile_offers_only_profiles_of_the_documents_colour_mode() {
+        for mode in [None, Some("image.mode.cmyk"), Some("image.mode.grayscale")] {
+            let (offered, accepted) = assign_profile_offers(mode);
+            for name in &accepted {
+                assert!(offered.contains(name), "{mode:?}: {name} can be assigned, so it is offered");
+            }
+            for name in ["srgb", "coated-cmyk", "sgray"] {
+                assert_eq!(offered.iter().any(|o| o == name), accepted.iter().any(|a| a == name), "{mode:?}: {name}");
+            }
+            assert!(offered.iter().any(|o| o == "working") && offered.iter().any(|o| o == "none"), "{mode:?}: working space and none always fit");
+        }
+        let (rgb, _) = assign_profile_offers(None);
+        assert!(rgb.iter().any(|o| o == "srgb") && !rgb.iter().any(|o| o == "coated-cmyk"), "an RGB document gets RGB profiles");
+        let (cmyk, _) = assign_profile_offers(Some("image.mode.cmyk"));
+        assert!(cmyk.iter().any(|o| o == "coated-cmyk") && !cmyk.iter().any(|o| o == "srgb"), "a CMYK document gets CMYK profiles");
+    }
+
+    /// #4951: a profile remembered from a document of another colour mode isn't preselected.
+    #[test]
+    fn assign_profile_drops_a_remembered_profile_that_does_not_fit() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        app.session.prefs.edit(|prefs| {
+            prefs.dialogs.insert("edit.assignProfile".into(), json!({"profile": "coated-cmyk"}));
+        });
+        open(&mut app, "edit.assignProfile").unwrap();
+        assert_eq!(app.ui.dialogs.last().unwrap().fields["profile"], json!("working"));
+        app.session.prefs.edit(|prefs| {
+            prefs.dialogs.insert("edit.assignProfile".into(), json!({"profile": "display-p3"}));
+        });
+        open(&mut app, "edit.assignProfile").unwrap();
+        assert_eq!(app.ui.dialogs.last().unwrap().fields["profile"], json!("display-p3"), "one that fits is kept");
     }
 
     #[test]

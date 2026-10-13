@@ -187,6 +187,27 @@ fn check(g: &mut Gpu, doc: &Document, what: &str) {
     diff_rect(g, doc, doc.bounds(), what).unwrap_or_else(|e| panic!("{e}"));
 }
 
+/// Closing a document frees what the compositor holds for it, however its canvas entry went
+/// (#4529): `retain_docs` drops the resident pages, effect maps and lower-stack composite of
+/// documents that aren't open, and keeps the open ones.
+#[test]
+fn retain_docs_frees_closed_documents() {
+    let Some(mut g) = gpu() else { return };
+    let a = base_doc(64, 48);
+    let mut b = base_doc(32, 32);
+    b.id = photocraft_doc::DocId(a.id.0 + 1);
+    for d in [&a, &b] {
+        render_to_vec(&mut g.comp, &g.device, &g.queue, d, d.bounds()).expect("render");
+    }
+    assert_eq!(g.comp.held_docs(), vec![a.id, b.id]);
+    g.comp.retain_docs(|d| d == b.id);
+    assert_eq!(g.comp.held_docs(), vec![b.id], "only the open document is left");
+    g.comp.retain_docs(|_| false);
+    assert!(g.comp.held_docs().is_empty());
+    assert_eq!(g.comp.composite_cache_bytes(), 0);
+    check(&mut g, &a, "renders again after being forgotten");
+}
+
 #[test]
 fn first_frame_renders() {
     // Regression: the first submission after device creation is dropped on some drivers

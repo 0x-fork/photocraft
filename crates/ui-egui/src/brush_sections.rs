@@ -512,10 +512,7 @@ fn color_dynamics(ui: &mut egui::Ui, b: &mut BrushSettings) {
     widgets::checkbox(ui, &mut c.per_tip, tl!("Apply Per Tip"));
     ui.add_space(6.0);
     dynamic(ui, "brush-fgbg-ctl", tl!("Foreground/Background Jitter"), &mut c.fg_bg, 1.0, None, false);
-    let mut h = (c.hue_jitter * 100.0).round();
-    if widgets::slider_row(ui, tl!("Hue Jitter"), &mut h, 0.0..=100.0, "%", Some(&widgets::hue_stops())).changed() {
-        c.hue_jitter = (h.round() / 100.0).clamp(0.0, 1.0);
-    }
+    pct(ui, tl!("Hue Jitter"), &mut c.hue_jitter, 1.0);
     pct(ui, tl!("Saturation Jitter"), &mut c.saturation_jitter, 1.0);
     pct(ui, tl!("Brightness Jitter"), &mut c.brightness_jitter, 1.0);
     signed_pct(ui, tl!("Purity"), &mut c.purity, -1.0, 1.0);
@@ -646,6 +643,29 @@ mod tests {
         );
         h.run_steps(3);
         h
+    }
+
+    /// #3825: jitter is an amount, not a hue selector; it uses the themed amount track.
+    #[test]
+    fn hue_jitter_paints_an_amount_track_in_every_theme() {
+        for kind in theme::ThemeKind::ALL {
+            let mut b = BrushSettings::default();
+            b.color_dynamics.hue_jitter = 0.37;
+            let mut h = section_harness(5, b.clone());
+            crate::PhotocraftApp::setup_context(&h.ctx, kind);
+            h.run_steps(3);
+            let label = h.get_by_label("Hue Jitter").rect();
+            let t = Tokens::get(&h.ctx);
+            assert!(
+                h.output().shapes.iter().any(|c| matches!(&c.shape, egui::Shape::Rect(r)
+                    if r.rect.width() > 150.0 && (r.rect.height() - 3.0).abs() < 0.1
+                    && r.rect.top() > label.bottom() && r.rect.bottom() < label.bottom() + 30.0
+                    && r.fill == t.field_border)),
+                "{kind:?}: Hue Jitter paints the same neutral track as other percentage amounts"
+            );
+            assert!(h.query_all_by_role(Role::SpinButton).any(|n| n.accesskit_node().numeric_value() == Some(37.0)));
+            assert_eq!(h.state(), &b, "rendering does not change saved brush settings");
+        }
     }
 
     fn set_controls(b: &mut BrushSettings, control: Control) {

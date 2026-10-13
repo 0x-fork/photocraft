@@ -162,3 +162,42 @@ fn a_camera_raw_filter_copies_and_its_copy_opens_on_the_target() {
     let dialog = h.state().camera_raw.as_ref().expect("Camera Raw opened");
     assert_eq!(dialog.layer, LayerId(b));
 }
+
+fn click_at(h: &mut egui_kittest::Harness<'static, PhotocraftApp>, p: Pos2) {
+    h.hover_at(p);
+    h.run_steps(1);
+    h.drag_at(p);
+    h.run_steps(1);
+    h.drop_at(p);
+    h.run_steps(4);
+}
+
+/// #4751: with a filter's row selected, clicking Delete removes that filter, not the smart object.
+#[test]
+fn clicking_delete_removes_the_selected_filter() {
+    let (mut h, a, _, _) = panel();
+    let blur = at(&h, "Gaussian Blur");
+    click_at(&mut h, blur);
+    let trash = at(&h, "Delete layer");
+    click_at(&mut h, trash);
+    assert_eq!(filters(&h, a), ["filter.other.offset"]);
+    assert_eq!(h.state().session.active().unwrap().doc.layers.len(), 4, "no layer was deleted");
+    // The deleted row's selection doesn't carry over to Offset, now at its index.
+    click_at(&mut h, trash);
+    assert_eq!(filters(&h, a), ["filter.other.offset"]);
+}
+
+/// Clicking the smart object's own row leaves its filters: Delete then deletes the layer as usual.
+#[test]
+fn clicking_the_smart_object_row_deselects_its_filter() {
+    let (mut h, a, _, _) = panel();
+    let offset = at(&h, "Offset");
+    click_at(&mut h, offset);
+    let row = at(&h, "Smart A");
+    click_at(&mut h, row);
+    assert_eq!(h.state().session.active().unwrap().active_layer, Some(LayerId(a)));
+    assert!(!selected(&h, "Offset"));
+    let trash = at(&h, "Delete layer");
+    click_at(&mut h, trash);
+    assert_eq!(filters(&h, a).len(), 2, "the filters stay");
+}
