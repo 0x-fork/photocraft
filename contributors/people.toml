@@ -154,3 +154,8 @@ sync_github_name = true
 [people.VanTan666]
 display_name = "VanTan"
 sync_github_name = false
+
+[people.LorenzoFasolino]
+real_name = "Lorenzo Fasolino"
+display_name = "Lorenzo Fasolino"
+sync_github_name = false
