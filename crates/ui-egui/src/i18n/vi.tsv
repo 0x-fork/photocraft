@@ -385,6 +385,7 @@
 	Smart Objects	Đối tượng thông minh
 	Solid Color…	Màu đặc…
 	Stack Mode	Chế độ chồng
+	Choose Stack Mode:	Chọn chế độ chồng:
 	Standard Deviation	Độ lệch chuẩn
 	Subtract Front Shape	Trừ hình phía trước
 	Summation	Tổng
@@ -2151,6 +2152,7 @@ layers	Fill:	Độ tô:
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Các lớp không vừa ngân sách bộ nhớ GPU. Tăng mức sử dụng bộ nhớ trong Tùy chọn › Hiệu năng sẽ nâng ngân sách, tối đa một phần tư bộ nhớ máy này.
 	Labels	Nhãn
 	Large document: redrawing on the CPU	Tài liệu lớn: đang vẽ lại trên CPU
+	Redrawing	Đang vẽ lại
 	Layer deleted, but confirmation preference could not be saved: {error}	Đã xóa lớp, nhưng không lưu được tùy chọn xác nhận: {error}
 	Layer From Background…	Lớp từ nền…
 	Load a keyboard shortcut set saved as .kys	Tải bộ phím tắt đã lưu dạng .kys
@@ -3607,6 +3609,7 @@ curves	Smooth	Làm mượt
 	Action playback stopped	Đã dừng phát hành động
 	Step {step} is waiting for its dialog	Bước {step} đang chờ hộp thoại của nó
 @plural	{n} action|{n} actions	{n} hành động
+	Presentation	Trình bày
 	Gradient Preset Options	Tùy chọn thiết lập sẵn chuyển sắc
 	Import .GRD	Nhập .GRD
 	Choose a gradient file (.grd).	Chọn tệp chuyển sắc (.grd).

@@ -370,6 +370,7 @@
 	Update Modified Content	Perbarui Isi yang Diubah
 	Update All Modified Content	Perbarui Semua Isi yang Diubah
 	Stack Mode	Mode Stack
+	Choose Stack Mode:	Pilih Mode Stack:
 	Entropy	Entropi
 	Kurtosis	Kurtosis
 	Maximum	Maksimum
@@ -2834,6 +2835,7 @@ cameraRaw	Blending	Pembauran
 	Fuchsia	Fuksia
 	Violet	Ungu
 	Large document: redrawing on the CPU	Dokumen besar: menggambar ulang di CPU
+	Redrawing	Menggambar ulang
 	This redraw took {seconds} s on the CPU.	Penggambaran ulang di CPU ini memakan waktu {seconds} dtk.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Suntingan yang mengubah seluruh dokumen, seperti mode campuran, opasitas, atau visibilitas layer, menggambar ulang semuanya.
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Layer tidak muat dalam anggaran memori GPU. Menaikkan Pemakaian memori di Preferensi › Performa menaikkan anggaran, hingga seperempat memori komputer ini.
@@ -3071,6 +3073,7 @@ curves	Smooth	Haluskan
 	Paint over hair or fur on the image; Alt paints the other mode	Lukis di atas rambut atau bulu pada gambar; Alt melukis dalam mode lainnya
 	Clear Brush Strokes	Hapus Goresan Kuas
 	Show rulers	Tampilkan Penggaris
+	Presentation	Presentasi
 
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	Klik untuk menempatkan · Alt-klik atau seret ke luar kanvas untuk menghapus

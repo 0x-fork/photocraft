@@ -387,6 +387,7 @@
 	Update Modified Content	Aktualizovat změněný obsah
 	Update All Modified Content	Aktualizovat veškerý změněný obsah
 	Stack Mode	Režim zásobníku
+	Choose Stack Mode:	Vyberte režim zásobníku:
 	Entropy	Entropie
 	Kurtosis	Špičatost
 	Maximum	Maximum
@@ -2427,6 +2428,7 @@ cameraRaw	Color	Barvy
 	Violet	Fialová
 	Reset	Obnovit
 	Large document: redrawing on the CPU	Velký dokument: překreslování na CPU
+	Redrawing	Překreslování
 	This redraw took {seconds} s on the CPU.	Toto překreslení na CPU trvalo {seconds} s.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Úpravy, které mění celý dokument, například režim prolnutí, krytí nebo viditelnost vrstvy, jej překreslí celý.
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Vrstvy se nevejdou do rozpočtu paměti GPU. Zvýšením hodnoty Využití paměti v Předvolbách › Výkon se rozpočet zvětší, nejvýše na čtvrtinu paměti tohoto počítače.
@@ -3517,6 +3519,7 @@ curves	Smooth	Vyhladit
 	Paint over hair or fur on the image; Alt paints the other mode	Malujte přes vlasy nebo srst v obraze; Alt maluje v opačném režimu
 	Clear Brush Strokes	Vymazat tahy štětce
 	Show rulers	Zobrazit pravítka
+	Presentation	Prezentace
 
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	Kliknutím umístíte · Alt-kliknutím nebo přetažením mimo plátno odeberete

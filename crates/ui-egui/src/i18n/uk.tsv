@@ -1975,6 +1975,7 @@
 	Solid Color…	Суцільний колір…
 	Square	Квадрат
 	Stack Mode	Режим стосу
+	Choose Stack Mode:	Виберіть режим стосу:
 	Standard Deviation	Стандартне відхилення
 	Statistics…	Статистика…
 	Stylistic Alternates	Стилістичні альтернативи
@@ -2666,6 +2667,7 @@ cameraRaw	Roughness	Шорсткість
 	Fuchsia	Фуксія
 	Violet	Фіалковий
 	Large document: redrawing on the CPU	Великий документ: перемальовування на CPU
+	Redrawing	Перемальовування
 	This redraw took {seconds} s on the CPU.	Це перемальовування на CPU тривало {seconds} с.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Зміни, що впливають на весь документ, як-от режим накладання, непрозорість чи видимість шару, перемальовують його повністю.
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Його шари не вміщуються в бюджет пам'яті GPU. Збільшення використання пам'яті в Налаштування › Продуктивність підвищує бюджет до чверті пам'яті цього комп'ютера.
@@ -3766,6 +3768,7 @@ curves	Smooth	Згладити
 	There is no crop size or ratio to save	Немає розміру чи співвідношення сторін кадрування для збереження
 	Scale:	Масштаб:
 	Snap to Origin	Прив'язати до початку координат
+	Presentation	Представлення
 
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	Клацніть, щоб розмістити · Alt-клацання або перетягування за межі полотна для видалення

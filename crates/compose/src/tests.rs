@@ -2570,3 +2570,27 @@ fn effect_cache_follows_a_group_childs_blend_if() {
     assert!(before.px != cold.px, "Blend If should change the group's shadow");
     assert!(warm.px == cold.px, "stale group effect maps after a child's Blend If changed");
 }
+
+#[test]
+fn shape_layer_bounds_includes_vector_bounds_clipped_to_canvas_and_preserves_effects() {
+    let canvas = Rect::new(0, 0, 100, 100);
+    let subpath = photocraft_doc::vector::Subpath::polygon(&[(-20.0, -20.0), (50.0, -20.0), (50.0, 50.0), (-20.0, 50.0)]);
+    let path = photocraft_doc::vector::Path { subpaths: vec![subpath], ..Default::default() };
+    let sh = photocraft_doc::vector::ShapeLayer {
+        path,
+        fill: Some(photocraft_doc::Fill::Solid(photocraft_doc::Color::BLACK)),
+        stroke: Some(photocraft_doc::vector::ShapeStroke { width: 4.0, opacity: 1.0, ..Default::default() }),
+        ..Default::default()
+    };
+    let mut layer = Layer::new("shape", LayerContent::Shape(sh));
+
+    // Vector bounds reach outside canvas (-24..54), but layer_bounds clips vector bounds to canvas:
+    let b = layer_bounds(&layer, canvas);
+    assert_eq!(b, Rect::new(0, 0, 54, 54), "shape vector bounds must clip to canvas and not reach past it");
+
+    // When the shape has layer effects, layer_bounds preserves effects union handling:
+    layer.effects.items = vec![Effect::DropShadow(Shadow { size: 5.0, spread: 0.0, ..shadow(5.0, 90.0) })];
+    let b_fx = layer_bounds(&layer, canvas);
+    assert!(!b_fx.is_empty());
+    assert!(b_fx.contains_rect(&b));
+}

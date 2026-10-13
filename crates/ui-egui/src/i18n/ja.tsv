@@ -381,6 +381,7 @@
 	Update Modified Content	変更されたコンテンツを更新
 	Update All Modified Content	変更されたコンテンツをすべて更新
 	Stack Mode	スタックモード
+	Choose Stack Mode:	スタックモードを選択:
 	Entropy	エントロピー
 	Kurtosis	尖度
 	Maximum	最大値
@@ -2397,6 +2398,7 @@ cameraRaw	Color	カラー
 	Violet	紫
 	Reset	初期化
 	Large document: redrawing on the CPU	大きなドキュメント: CPU で再描画しています
+	Redrawing	再描画中
 	This redraw took {seconds} s on the CPU.	この再描画は CPU で {seconds} 秒かかりました。
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	レイヤーの描画モード、不透明度、表示/非表示など、ドキュメント全体に関わる編集では全体が再描画されます。
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	レイヤーが GPU メモリの予算に収まりません。環境設定 › パフォーマンスのメモリ使用量を増やすと、このコンピューターのメモリの4分の1まで予算が増えます。
@@ -3677,6 +3679,7 @@ curves	Smooth	スムーズ
 	Paint over hair or fur on the image; Alt paints the other mode	画像の髪や毛の上をペイントします。Alt で反対のモードでペイント
 	Clear Brush Strokes	ブラシストロークを消去
 	Show rulers	定規を表示
+	Presentation	プレゼンテーション
 
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	クリックで配置 · Alt キーを押しながらクリック、またはカンバス外へドラッグで削除

@@ -305,7 +305,12 @@ impl eframe::App for WebShell {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
-        if let Some(error) = self.presets.error() {
+        // Only while a preset change is unsaved. Storage the browser denies from the start (a
+        // sandboxed iframe, blocked site data) loses nothing until the first change, and that
+        // change brings the banner with the reason.
+        if self.presets.unsaved()
+            && let Some(error) = self.presets.error()
+        {
             egui::Panel::top("browser_preset_storage").show(ui, |ui| {
                 let tokens = photocraft_ui_egui::theme::Tokens::for_kind(self.app.ui.theme);
                 // Put retry first so floating brush windows cannot cover the control.

@@ -372,6 +372,7 @@
 	Update Modified Content	Gewijzigde inhoud bijwerken
 	Update All Modified Content	Alle gewijzigde inhoud bijwerken
 	Stack Mode	Stapelmodus
+	Choose Stack Mode:	Stapelmodus kiezen:
 	Entropy	Entropie
 	Kurtosis	Kurtosis
 	Maximum	Maximum
@@ -2426,6 +2427,7 @@ layerLabel	No Color	Geen kleur
 	Fuchsia	Fuchsia
 	Violet	Violet
 	Large document: redrawing on the CPU	Groot document: opnieuw tekenen op de CPU
+	Redrawing	Opnieuw tekenen
 	This redraw took {seconds} s on the CPU.	Opnieuw tekenen duurde {seconds} s op de CPU.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Bewerkingen die het hele document veranderen, zoals de overvloeimodus, dekking of zichtbaarheid van een laag, tekenen alles opnieuw.
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	De lagen passen niet binnen het GPU-geheugenbudget. Door Geheugengebruik te verhogen in Voorkeuren › Prestaties wordt het budget groter, tot een kwart van het geheugen van deze computer.
@@ -3828,6 +3830,7 @@ curves	Smooth	Vloeiend maken
 	Include in playback	Opnemen in afspelen
 	Scale:	Schaal:
 	Snap to Origin	Uitlijnen op oorsprong
+	Presentation	Presentatie
 
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	Klik om te plaatsen · Alt-klik of sleep buiten het canvas om te verwijderen

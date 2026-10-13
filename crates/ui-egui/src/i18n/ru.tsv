@@ -1996,6 +1996,7 @@
 	Solid Color…	Однотонный цвет…
 	Square	Квадрат
 	Stack Mode	Режим стопки
+	Choose Stack Mode:	Выберите режим стопки:
 	Standard Deviation	Стандартное отклонение
 	Statistics…	Статистика…
 	Stylistic Alternates	Стилистические варианты
@@ -2696,6 +2697,7 @@ cameraRaw	Roughness	Неровность
 	Fuchsia	Фуксия
 	Violet	Фиолетовый
 	Large document: redrawing on the CPU	Большой документ: перерисовка на CPU
+	Redrawing	Перерисовка
 	This redraw took {seconds} s on the CPU.	Эта перерисовка на CPU заняла {seconds} с.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Правки, затрагивающие весь документ, например режим наложения, непрозрачность или видимость слоя, перерисовывают его целиком.
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Слои не помещаются в бюджет памяти GPU. Увеличение параметра «Память» в разделе Настройки › Производительность повышает бюджет, но не больше четверти памяти этого компьютера.
@@ -3013,6 +3015,7 @@ curves	Smooth	Сгладить
 	Select the crop presets to delete	Выберите наборы параметров кадрирования для удаления
 	Enter a name for the crop preset	Введите имя набора параметров кадрирования
 	There is no crop size or ratio to save	Нет размера или соотношения сторон кадрирования для сохранения
+	Presentation	Представление
 
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	Щёлкните, чтобы разместить · Alt-щелчок или перетаскивание за пределы холста для удаления

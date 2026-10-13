@@ -101,10 +101,7 @@ pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &V
                 json!({"format": ["same", "png", "jpg", "psd", "tiff"]}),
             )
         }
-        "file.scripts.statistics" => {
-            let modes: Vec<&str> = photocraft_doc::StackMode::ALL.iter().map(|m| m.id()).collect();
-            form(app, id, "Image Statistics", json!({"mode": "median", "input": dir, "align": false}), json!({"mode": modes}))
-        }
+        "file.scripts.statistics" => json!({"dialog": crate::stack_dialog::open_statistics(app)}),
         "file.scripts.browse" => {
             return Some(app.pick_file_bytes_filtered(SCRIPT_EXTENSIONS, |app, name, bytes| {
                 let r = app.run("file.scripts.browse", json!({"script": String::from_utf8_lossy(&bytes)}));

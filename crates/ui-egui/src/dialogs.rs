@@ -221,6 +221,12 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 ui.set_min_width(w);
                 ui.set_max_width(w);
             }
+            // Duplicate Layer… is a fixed small grid (labels + 260 pt fields ≈ 352 pt):
+            // the generic 380 pt minimum left a dead strip on its right.
+            if crate::duplicate_layer_ui::owns(&d.fields) {
+                ui.set_min_width(360.0);
+                ui.set_max_width(360.0);
+            }
             if color_picker {
                 ui.set_width(crate::color_picker_ui::CONTENT_WIDTH);
             }

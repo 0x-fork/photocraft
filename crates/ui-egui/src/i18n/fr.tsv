@@ -377,6 +377,7 @@
 	Update Modified Content	Mettre à jour le contenu modifié
 	Update All Modified Content	Mettre à jour tout le contenu modifié
 	Stack Mode	Mode de pile
+	Choose Stack Mode:	Choisir le mode de pile :
 	Entropy	Entropie
 	Kurtosis	Kurtosis
 	Maximum	Maximum
@@ -2847,6 +2848,7 @@ cameraRaw	Blending	Fusion
 	Fuchsia	Fuchsia
 	Violet	Violet
 	Large document: redrawing on the CPU	Document volumineux : redessin sur le CPU
+	Redrawing	Redessin
 	This redraw took {seconds} s on the CPU.	Ce redessin sur le CPU a pris {seconds} s.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Les modifications qui touchent tout le document, comme le mode de fusion, l'opacité ou la visibilité d'un calque, le redessinent entièrement.
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Les calques dépassent le budget de mémoire GPU. Augmenter Utilisation de la mémoire dans Préférences › Performances relève ce budget, jusqu'au quart de la mémoire de cet ordinateur.
@@ -3084,6 +3086,7 @@ curves	Smooth	Lisser
 	Paint over hair or fur on the image; Alt paints the other mode	Peignez sur les cheveux ou la fourrure dans l'image ; Alt peint dans l'autre mode
 	Clear Brush Strokes	Effacer les traits de pinceau
 	Show rulers	Afficher les règles
+	Presentation	Présentation
 
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	Cliquez pour placer · Alt-clic ou glisser hors du canevas pour supprimer

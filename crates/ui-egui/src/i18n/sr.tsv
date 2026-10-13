@@ -367,6 +367,7 @@
 	Update Modified Content	Ažuriraj izmenjeni sadržaj
 	Update All Modified Content	Ažuriraj sav izmenjeni sadržaj
 	Stack Mode	Režim steka
+	Choose Stack Mode:	Izaberite režim steka:
 	Entropy	Entropija
 	Kurtosis	Kurtozis
 	Maximum	Maksimum
@@ -2891,6 +2892,7 @@ fontWeight	Italic	Kurziv
 	Auto Hide Notifications	Automatski sakrij obaveštenja
 	Notification Duration (seconds)	Trajanje obaveštenja (sekunde)
 	Appearance Mode	Režim izgleda
+	Presentation	Prikaz
 	Dark Theme	Tamna tema
 	Light Theme	Svetla tema
 	Pro Medium	Pro srednja
@@ -4202,6 +4204,7 @@ shape	Appearance	Izgled
 	Color Indicates:	Boja označava:
 	Ink Characteristics	Karakteristike mastila
 	Solidity:	Punoća:
+	Redrawing	Ponovno iscrtavanje
 
 # Smart Filter editors
 	Blending Options ({filter})	Opcije stapanja ({filter})
