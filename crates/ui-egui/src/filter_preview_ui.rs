@@ -101,10 +101,7 @@ pub(crate) fn window(app: &PhotocraftApp, dialog: u64, ui: &mut egui::Ui, f: &mu
     let width = ui.available_width().max(140.0);
     let (rect, response) = ui.allocate_exact_size(vec2(width, PREVIEW_H), Sense::click_and_drag());
     let (x0, y0, sw, sh) = source_rect(cx, cy, zoom, rect.size(), doc);
-    let uv = Rect::from_min_max(
-        pos2((x0 / doc.x).clamp(0.0, 1.0), (y0 / doc.y).clamp(0.0, 1.0)),
-        pos2(((x0 + sw) / doc.x).clamp(0.0, 1.0), ((y0 + sh) / doc.y).clamp(0.0, 1.0)),
-    );
+    let (dest, uv) = placement(rect, (x0, y0, sw, sh), zoom, doc);
 
     // Press-and-hold shows the unfiltered image, as Photoshop's preview does.
     let holding = response.is_pointer_button_down_on();
@@ -112,8 +109,8 @@ pub(crate) fn window(app: &PhotocraftApp, dialog: u64, ui: &mut egui::Ui, f: &mu
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, t.radius_sm, t.canvas);
     if let Some((tex, _)) = shown {
-        crate::widgets::checker(&painter, rect, 8.0);
-        painter.image(tex.id(), rect, uv, Color32::WHITE);
+        crate::widgets::checker(&painter, dest, 8.0);
+        painter.image(tex.id(), dest, uv, Color32::WHITE);
     }
     painter.rect_stroke(rect, t.radius_sm, Stroke::new(1.0, t.field_border), egui::StrokeKind::Inside);
 
@@ -188,6 +185,21 @@ fn source_rect(cx: f32, cy: f32, zoom: f32, region: Vec2, doc: Vec2) -> (f32, f3
 
 fn origin(centre: f32, size: f32, total: f32) -> f32 {
     if size >= total { (total - size) / 2.0 } else { (centre - size / 2.0).clamp(0.0, total - size) }
+}
+
+/// Where the image is drawn in `rect` and which part of the texture fills it, for the `source`
+/// rectangle `(x0, y0, width, height)` in document pixels shown at `zoom`. Only the part of the
+/// source that lies on the image is drawn, at its own place in the region: stretching the clamped
+/// texture over the whole region made the pixels non-square whenever the region overhung the image
+/// on one axis (#4640).
+fn placement(rect: Rect, source: (f32, f32, f32, f32), zoom: f32, doc: Vec2) -> (Rect, Rect) {
+    let zoom = if zoom.is_finite() && zoom > 0.0 { zoom } else { DEFAULT_ZOOM };
+    let (x0, y0, sw, sh) = source;
+    let (vx0, vy0) = (x0.max(0.0), y0.max(0.0));
+    let (vx1, vy1) = ((x0 + sw).min(doc.x).max(vx0), (y0 + sh).min(doc.y).max(vy0));
+    let at = |x: f32, y: f32| rect.min + vec2((x - x0) * zoom, (y - y0) * zoom);
+    let uv = Rect::from_min_max(pos2(vx0 / doc.x, vy0 / doc.y), pos2(vx1 / doc.x, vy1 / doc.y));
+    (Rect::from_min_max(at(vx0, vy0), at(vx1, vy1)), uv)
 }
 
 /// The document pixel under a pointer at `local` (relative to the region's top-left) in a view whose
@@ -423,6 +435,24 @@ mod tests {
         // it, so the UV clamps to 0..1 rather than reading outside the texture.
         assert_eq!((x0, y0, sw, sh), (-150.0, -75.0, 400.0, 200.0));
         assert!(x0 / doc.x < 0.0 && (x0 + sw) / doc.x > 1.0);
+    }
+
+    #[test]
+    fn the_image_keeps_square_pixels_when_the_region_overhangs_it() {
+        // #4640: a 370×240 document in a 650×150 region at 100% is wider than the image but shorter
+        // than it, and at 50% it fits inside on both axes. Either way one document pixel must cover
+        // the same number of points across and down, and the image is centred, not stretched.
+        let rect = Rect::from_min_size(pos2(10.0, 20.0), vec2(650.0, 150.0));
+        let doc = vec2(370.0, 240.0);
+        for zoom in [1.0, 0.5] {
+            let (dest, uv) = placement(rect, source_rect(185.0, 120.0, zoom, rect.size(), doc), zoom, doc);
+            let across = dest.width() / (uv.width() * doc.x);
+            let down = dest.height() / (uv.height() * doc.y);
+            assert!((across - zoom).abs() < 1e-4 && (down - zoom).abs() < 1e-4, "zoom {zoom}: {across} × {down} points per pixel");
+            assert!((dest.center().x - rect.center().x).abs() < 1e-3, "zoom {zoom}: centred across");
+            assert!(rect.contains_rect(dest), "zoom {zoom}: drawn inside the region");
+            assert!(Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)).contains_rect(uv), "zoom {zoom}: {uv:?} stays on the texture");
+        }
     }
 
     #[test]

@@ -27,7 +27,9 @@ fn flag(p: &Value, k: &str, d: bool) -> bool {
 }
 
 /// A finite number param clamped to `range`, `default` when absent; non-numbers are an error.
-fn number(p: &Value, cmd: &str, k: &str, default: f64, range: std::ops::RangeInclusive<f64>) -> Result<f64> {
+/// A numeric param clamped to `range`; missing or null gives `default`, anything else not a
+/// finite number is BadParams. Shared with the Paint Bucket and Gradient opacity.
+pub(crate) fn number(p: &Value, cmd: &str, k: &str, default: f64, range: std::ops::RangeInclusive<f64>) -> Result<f64> {
     match p.get(k) {
         None | Some(Value::Null) => Ok(default),
         Some(v) => {
@@ -168,7 +170,7 @@ pub fn live_background_eraser(s: &Session, p: &Value) -> Result<crate::retouch_c
     doc.layer(id).ok_or(EngineError::NoLayer(id))?;
     crate::extra_cmds::background_to_layer(&mut doc, id);
     let stroke = background_eraser_stroke(&stroke);
-    crate::retouch_cmds::LiveDab::with_effect_on(doc, CMD, &json!({}), stroke, Some(id), 0, true, |pre| match background_eraser_effect(pre.format(), &bs) {
+    crate::retouch_cmds::LiveDab::with_effect_on(doc, CMD, &json!({}), stroke, Some(id), 0, true, |pre| match background_eraser_effect(pre, &bs) {
         Some(effect) => Box::new(effect),
         // No alpha: the commit erases nothing either.
         None => Box::new(|_: &mut photocraft_paint::retouch::Region, _: &photocraft_paint::retouch::Footprint| {}),

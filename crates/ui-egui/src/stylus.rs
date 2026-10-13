@@ -137,6 +137,8 @@ pub struct Stylus {
     current: Option<PenSample>,
     /// The highest pen pressure (before the curve) since the drag began, for a tap's one dab.
     peak: f32,
+    /// The pen's touch contacts in the raw input, so a held pen is no press-and-hold right click.
+    pub(crate) pen_contacts: PenContacts,
     /// The egui frame [`Self::update_for_frame`] last ran in.
     updated_frame: Option<u64>,
     /// Tilt X, tilt Y, rotation of each point of the current drag (parallel to its points).
@@ -166,6 +168,7 @@ impl Default for Stylus {
             prev: None,
             current: None,
             peak: 0.0,
+            pen_contacts: PenContacts::default(),
             updated_frame: None,
             stroke: Vec::new(),
             times: Vec::new(),
@@ -416,9 +419,142 @@ impl Stylus {
     }
 }
 
+/// The touch contacts a pen makes, read from the raw input. egui takes every touch contact held
+/// still past `max_click_duration` (0.8 s) for a touch screen's press-and-hold: a secondary click
+/// (a context menu) that also drops the drag. On Windows a pen arrives as touch events, so a pen
+/// held still opened a context menu. A pen held still is just a pen, as in Photoshop.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct PenContacts {
+    /// Touch ids that moved without touching: only a pen hovers.
+    hovering: Vec<egui::TouchId>,
+    /// The contacts down, and whether each is a pen.
+    down: Vec<(egui::TouchId, bool)>,
+}
+
+/// Most touch ids [`PenContacts`] remembers (the oldest go first).
+const CONTACTS: usize = 16;
+
+impl PenContacts {
+    /// Follow a frame's touch events. True when a pen contact was down at any point of the frame.
+    pub(crate) fn observe(&mut self, events: &[egui::Event]) -> bool {
+        let pressed = |f: &Option<f32>| f.is_some_and(|f| f > 0.0);
+        let mut pen = self.down.iter().any(|(_, p)| *p);
+        for e in events {
+            let egui::Event::Touch { id, phase, force, .. } = e else { continue };
+            match phase {
+                egui::TouchPhase::Start => {
+                    let is_pen = self.hovering.contains(id) || pressed(force);
+                    self.down.retain(|(c, _)| c != id);
+                    if self.down.len() >= CONTACTS {
+                        self.down.remove(0);
+                    }
+                    self.down.push((*id, is_pen));
+                    pen |= is_pen;
+                }
+                egui::TouchPhase::Move => match self.down.iter_mut().find(|(c, _)| c == id) {
+                    Some(c) if pressed(force) => {
+                        c.1 = true;
+                        pen = true;
+                    }
+                    Some(_) => {}
+                    None if !self.hovering.contains(id) => {
+                        if self.hovering.len() >= CONTACTS {
+                            self.hovering.remove(0);
+                        }
+                        self.hovering.push(*id);
+                    }
+                    None => {}
+                },
+                egui::TouchPhase::End | egui::TouchPhase::Cancel => self.down.retain(|(c, _)| c != id),
+            }
+        }
+        pen
+    }
+}
+
+/// Turn egui's touch press-and-hold off while a pen contact is down (and through the frame it
+/// lifts in, so the release is the click a quick tap would be), back on otherwise for fingers.
+pub(crate) fn pen_hold_is_no_right_click(ctx: &egui::Context, pen_down: bool) {
+    let want = if pen_down { f64::INFINITY } else { egui::InputOptions::default().max_click_duration };
+    if ctx.options(|o| o.input_options.max_click_duration) != want {
+        ctx.options_mut(|o| o.input_options.max_click_duration = want);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Hold a touch contact still for 1.2 s over a click-sensing area, with the press-and-hold
+    /// handling the app does in `raw_input_hook`. Did the area see a secondary click?
+    fn held_contact_right_clicks(hover_first: bool, force: Option<f32>) -> bool {
+        let ctx = egui::Context::default();
+        let mut contacts = PenContacts::default();
+        let mut right_clicked = false;
+        let ev = |phase, force| egui::Event::Touch { device_id: egui::TouchDeviceId(1), id: egui::TouchId(3), phase, pos: egui::pos2(50.0, 50.0), force };
+        // A first frame lays the area out, so the press hits it.
+        let mut frames = vec![(0.0, vec![])];
+        if hover_first {
+            frames.push((0.05, vec![ev(egui::TouchPhase::Move, None), egui::Event::PointerMoved(egui::pos2(50.0, 50.0))]));
+        }
+        frames.push((
+            0.1,
+            vec![
+                ev(egui::TouchPhase::Start, force),
+                egui::Event::PointerMoved(egui::pos2(50.0, 50.0)),
+                egui::Event::PointerButton {
+                    pos: egui::pos2(50.0, 50.0),
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        ));
+        for t in [0.4, 0.7, 1.0, 1.3] {
+            frames.push((t, vec![]));
+        }
+        for (time, mut events) in frames {
+            // egui-winit emits the touch and its emulated pointer events together.
+            let mut raw = egui::RawInput {
+                time: Some(time),
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, 200.0))),
+                ..Default::default()
+            };
+            raw.events.append(&mut events);
+            let pen = contacts.observe(&raw.events);
+            pen_hold_is_no_right_click(&ctx, pen);
+            let mut out = ctx.run_ui(raw, |ui| {
+                let r = ui.allocate_rect(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, 200.0)), egui::Sense::click_and_drag());
+                right_clicked |= r.secondary_clicked();
+            });
+            out.textures_delta.clear();
+        }
+        right_clicked
+    }
+
+    #[test]
+    fn a_held_pen_is_not_a_right_click_but_a_held_finger_still_is() {
+        assert!(held_contact_right_clicks(false, None), "a finger's press-and-hold is egui's context menu");
+        assert!(!held_contact_right_clicks(true, None), "a pen that hovered first");
+        assert!(!held_contact_right_clicks(false, Some(0.4)), "a contact that reports pressure");
+    }
+
+    #[test]
+    fn pen_contacts_follow_hover_force_and_lift() {
+        use egui::TouchPhase::{Cancel, End, Move, Start};
+        let t = |id, phase, force| egui::Event::Touch { device_id: egui::TouchDeviceId(1), id: egui::TouchId(id), phase, pos: egui::pos2(1.0, 1.0), force };
+        let mut c = PenContacts::default();
+        assert!(!c.observe(&[t(1, Move, None)]), "hovering is no contact");
+        assert!(c.observe(&[t(1, Start, None)]));
+        assert!(c.observe(&[]), "still down");
+        assert!(c.observe(&[t(1, End, None)]), "the lift frame still counts");
+        assert!(!c.observe(&[]));
+        // A finger, until it reports a force.
+        assert!(!c.observe(&[t(9, Start, None), t(9, Move, None)]));
+        assert!(c.observe(&[t(9, Move, Some(0.5))]));
+        assert!(c.observe(&[t(9, Cancel, None)]));
+        assert!(!c.observe(&[]));
+    }
 
     fn touch(phase: egui::TouchPhase, force: Option<f32>) -> egui::Event {
         egui::Event::Touch { device_id: egui::TouchDeviceId(1), id: egui::TouchId(0), phase, pos: egui::pos2(1.0, 1.0), force }
