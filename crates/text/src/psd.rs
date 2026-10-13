@@ -584,7 +584,7 @@ pub(crate) fn char_style(base: Option<&E>, d: &E, fonts: &[String], k: f32) -> C
     let num = |key: &str| g(key).and_then(E::as_f64);
     let flag = |key: &str| g(key).and_then(E::as_bool);
     let mut s = CharStyle::default();
-    if let Some(ps) = g("Font").and_then(E::as_i64).and_then(|i| fonts.get(i as usize)) {
+    if let Some(ps) = g("Font").and_then(E::as_i64).and_then(|i| usize::try_from(i).ok()).and_then(|i| fonts.get(i)) {
         let r = guess_from_postscript(ps);
         s.font_family = r.family;
         s.weight = r.weight;

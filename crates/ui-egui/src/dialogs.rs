@@ -179,7 +179,12 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         let modal = show_modal(modal, ctx, id, web, interactive, |ui| {
             sizing = ui.is_sizing_pass();
             let available = ui.available_size();
-            ui.set_min_width(380.0);
+            // A dialog of a few short fields (`__compact`, Fit Image) is narrower (#4673): the title
+            // rule and the button row fill the width they are given, so it needs its own maximum too.
+            let compact = d.fields.contains_key("__compact");
+            if !compact {
+                ui.set_min_width(380.0);
+            }
             let wide = crate::prefs_ui::width(&d.fields, (ctx.content_rect().width() - 48.0).max(380.0));
             if let Some(w) = wide {
                 ui.set_min_width(w.min(460.0));
@@ -198,6 +203,8 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 700.0
             } else if d.kind == DialogKind::LayerStyle || d.fields.contains_key("__export") || crate::color_picker_ui::owns(&d.fields) {
                 600.0
+            } else if compact {
+                260.0
             } else {
                 440.0
             }));
@@ -267,6 +274,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 DialogKind::Command if crate::mask_trash_prompt::owns(&fields) => crate::mask_trash_prompt::body(ui, &fields),
                 DialogKind::Command if crate::rasterize_prompt::owns(&fields) => crate::rasterize_prompt::body(ui, &fields),
                 DialogKind::Command if crate::duplicate_layer_ui::owns(&fields) => crate::duplicate_layer_ui::body(app, ui, &mut fields),
+                DialogKind::Command if crate::stack_dialog::owns(&fields) => crate::stack_dialog::body(app, ui, &mut fields, d.id),
                 DialogKind::Command if crate::tool_reset::owns(&fields) => crate::tool_reset::body(ui),
                 DialogKind::Command if crate::crop_presets::owns(&fields) => crate::crop_presets::body(app, ui, &mut fields),
                 DialogKind::Command if crate::variables_ui::owns(&fields) => crate::variables_ui::body(app, ui, &mut fields),
@@ -339,7 +347,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                             crate::file_ui::ok_label(&d.fields).unwrap_or(tl!("OK"))
                         };
                         // Dialogs that need an input first (a preset name, a selection) grey OK out.
-                        let can_ok = crate::crop_presets::can_confirm(app, &fields);
+                        let can_ok = crate::crop_presets::can_confirm(app, &fields) && crate::stack_dialog::can_confirm(&fields);
                         let ok = DialogButton::new(ButtonRole::Default, ok_label, 84.0).enabled(can_ok);
                         // Photoshop: holding Alt turns Cancel into Reset (the dialog stays open).
                         // Dialogs opt in via `dialog_alt_reset::supported` (per marker).
@@ -547,6 +555,7 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
         DialogKind::Command if crate::mask_trash_prompt::owns(&d.fields) => crate::mask_trash_prompt::confirm(app, &d.fields),
         DialogKind::Command if crate::rasterize_prompt::owns(&d.fields) => crate::rasterize_prompt::confirm(app, &d.fields),
         DialogKind::Command if crate::duplicate_layer_ui::owns(&d.fields) => crate::duplicate_layer_ui::confirm(app, &d.fields),
+        DialogKind::Command if crate::stack_dialog::owns(&d.fields) => crate::stack_dialog::confirm(app, &d.fields),
         DialogKind::Command if crate::tool_reset::owns(&d.fields) => crate::tool_reset::confirm(app),
         DialogKind::Command if crate::crop_presets::owns(&d.fields) => crate::crop_presets::confirm(app, &d.fields),
         DialogKind::Command if crate::variables_ui::owns(&d.fields) => crate::variables_ui::confirm(app, &d.fields),
@@ -912,5 +921,24 @@ mod tests {
         crate::filter_dialog::open(h.state_mut(), BLUR).unwrap();
         h.run_steps(2);
         assert_eq!(radius(&h), Some(5.0), "a cancelled 9 is not remembered");
+    }
+
+    /// #4673: File › Automate › Fit Image holds two numbers and a check box, so its window is as
+    /// wide as that content and its buttons, not the 380-point floor of the larger dialogs.
+    #[test]
+    fn fit_image_is_as_narrow_as_its_content() {
+        use egui_kittest::kittest::Queryable;
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 64, "height": 64})).unwrap();
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1280.0, 800.0)).build_ui_state(|ui, app| show(app, ui.ctx()), app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        let ctx = h.ctx.clone();
+        let d = crate::menus::invoke(h.state_mut(), &ctx, "file.automate.fitImage", json!({})).unwrap()["dialog"].as_u64().unwrap();
+        h.run_steps(4);
+        let window = h.ctx.memory(|m| m.area_rect(egui::Id::new(("dialog", d)))).expect("the Fit Image window");
+        assert!(window.width() < 300.0, "Fit Image is {} points wide", window.width());
+        for label in ["Fit Image", "Width", "Height", "OK", "Cancel"] {
+            assert!(window.contains_rect(h.get_by_label(label).rect()), "{label} inside the window");
+        }
     }
 }

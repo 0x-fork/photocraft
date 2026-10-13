@@ -110,6 +110,14 @@
 	Script Events Manager…	Skriptereignis-Manager…
 	Import	Importieren
 	Browse…	Durchsuchen…
+	Source Files	Quelldateien
+	Use:	Verwenden:
+	Files	Dateien
+	Folder	Ordner
+	Add Open Files	Geöffnete Dateien hinzufügen
+	Sort By Name	Nach Namen sortieren
+	Attempt to Automatically Align Source Images	Quellbilder nach Möglichkeit automatisch ausrichten
+	Create Smart Object after Loading Layers	Nach dem Laden der Ebenen Smart-Objekt erstellen
 	Reveal in Finder	Im Finder anzeigen
 	Show in Explorer	Im Explorer anzeigen
 	Show in Folder	Im Ordner anzeigen
@@ -150,6 +158,8 @@
 	Transform Again on a Copy	Erneut auf Kopie transformieren
 	Scale	Skalieren
 	Rotate	Drehen
+	Set horizontal skew	Horizontale Neigung festlegen
+	Set vertical skew	Vertikale Neigung festlegen
 	Skew	Neigen
 	Distort	Verzerren
 	Perspective	Perspektive

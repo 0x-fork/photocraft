@@ -108,6 +108,13 @@
 	Script Events Manager…	Gerenciador de eventos de scripts…
 	Import	Importar
 	Browse…	Procurar…
+	Source Files	Arquivos de origem
+	Use:	Usar:
+	Files	Arquivos
+	Add Open Files	Adicionar arquivos abertos
+	Sort By Name	Classificar por nome
+	Attempt to Automatically Align Source Images	Tentar alinhar automaticamente as imagens de origem
+	Create Smart Object after Loading Layers	Criar objeto inteligente após carregar as camadas
 	Reveal in Finder	Mostrar no Finder
 	Show in Explorer	Mostrar no Explorador
 	Show in Folder	Mostrar na pasta
@@ -146,6 +153,8 @@
 	Again	Novamente
 	Scale	Escala
 	Rotate	Girar
+	Set horizontal skew	Definir inclinação horizontal
+	Set vertical skew	Definir inclinação vertical
 	Skew	Inclinar
 	Distort	Distorcer
 	Perspective	Perspectiva

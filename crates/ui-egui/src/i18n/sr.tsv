@@ -115,6 +115,13 @@
 	Script Events Manager…	Upravljač događajima skripti…
 	Import	Uvoz
 	Browse…	Pregledaj…
+	Source Files	Izvorne datoteke
+	Use:	Koristi:
+	Files	Datoteke
+	Add Open Files	Dodaj otvorene datoteke
+	Sort By Name	Poređaj po imenu
+	Attempt to Automatically Align Source Images	Pokušaj automatski poravnati izvorne slike
+	Create Smart Object after Loading Layers	Napravi pametni objekat posle učitavanja slojeva
 	Reveal in Finder	Prikaži u Finderu
 	Show in Explorer	Prikaži u Exploreru
 	Show in Folder	Prikaži u fascikli
@@ -152,6 +159,8 @@
 	Scale	Skaliranje
 	Rotate	Rotacija
 	Skew	Iskošenje
+	Set horizontal skew	Podesi horizontalno iskošenje
+	Set vertical skew	Podesi vertikalno iskošenje
 	Distort	Izobličenje
 	Perspective	Perspektiva
 	Warp	Krivljenje
@@ -719,6 +728,10 @@
 	Breeze Dark Theme	Breeze tamna tema
 	Breeze light	Breeze svetla
 	Breeze Light Theme	Breeze svetla tema
+	Soft dark	Meka tamna
+	Soft Dark Theme	Meka tamna tema
+	Soft light	Meka svetla
+	Soft Light Theme	Meka svetla tema
 	Next Theme	Sledeća tema
 	Actions	Radnje
 	Brush Settings	Podešavanja četkice

@@ -75,6 +75,13 @@
 	Black & White…	Fekete-fehér…
 	Brightness/Contrast…	Fényerő/kontraszt…
 	Browse…	Tallózás…
+	Source Files	Forrásfájlok
+	Use:	Használat:
+	Files	Fájlok
+	Add Open Files	Megnyitott fájlok hozzáadása
+	Sort By Name	Rendezés név szerint
+	Attempt to Automatically Align Source Images	Forrásképek automatikus igazításának megkísérlése
+	Create Smart Object after Loading Layers	Intelligens objektum létrehozása a rétegek betöltése után
 	Calculations…	Számítások…
 	Canvas Size…	Vászonméret…
 	Channel Mixer…	Csatornakeverő…
@@ -199,6 +206,8 @@
 	Reveal All	Minden megjelenítése
 	Revert	Visszaállítás
 	Rotate	Forgatás
+	Set horizontal skew	Vízszintes döntés beállítása
+	Set vertical skew	Függőleges döntés beállítása
 	Rotate 180°	Forgatás 180°-kal
 	Rotate 90° Clockwise	Forgatás 90°-kal az óramutató járása szerint
 	Rotate 90° Counter Clockwise	Forgatás 90°-kal az óramutató járásával szemben

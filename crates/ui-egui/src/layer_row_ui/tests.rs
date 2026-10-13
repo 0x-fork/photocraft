@@ -171,7 +171,7 @@ fn the_eyes_on_the_effects_rows_hide_and_show_effects() {
     let steps = |h: &Harness<'_, PhotocraftApp>| h.state().session.active().unwrap().history.past_len();
     let eye = |h: &Harness<'_, PhotocraftApp>, row: &str| {
         let r = h.get_by_label(row).rect();
-        pos2(r.left() + 15.0, r.center().y)
+        pos2(r.left() + 45.0, r.center().y)
     };
     let (settings, n) = (h.state().session.active().unwrap().doc.layer(photocraft_doc::LayerId(id)).unwrap().effects.items.clone(), steps(&h));
     assert_eq!(fx(&h), (true, vec![true, true]));

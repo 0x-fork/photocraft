@@ -301,8 +301,8 @@ pub fn available(app: &PhotocraftApp, menu: &CanvasToolMenu, command: &str) -> b
 }
 
 /// Is `command` the transform box's current mode (checked in the transform menu)?
-/// Scale and Rotate are Free Transform's mode, so only Free Transform shows it checked. Warp is
-/// not a box mode (it is its own session), and `for_command` would read it as Free.
+/// Scale stays Free Transform's mode (only Free Transform is checked). Rotate is its own mode.
+/// Warp is not a box mode (it is its own session), and `for_command` would read it as Free.
 pub(crate) fn mode_checked(app: &PhotocraftApp, menu: &CanvasToolMenu, command: &str) -> bool {
     if menu.pasteboard {
         return pasteboard_choice(command) == Some(app.session.prefs().interface.canvas_color);
@@ -311,7 +311,7 @@ pub(crate) fn mode_checked(app: &PhotocraftApp, menu: &CanvasToolMenu, command: 
         return type_checked(app, command);
     }
     menu.transform
-        && matches!(command, "edit.freeTransform" | "edit.transform.skew" | "edit.transform.distort" | "edit.transform.perspective")
+        && matches!(command, "edit.freeTransform" | "edit.transform.rotate" | "edit.transform.skew" | "edit.transform.distort" | "edit.transform.perspective")
         && app.ui.transform.as_ref().is_some_and(|t| t.mode == crate::state::TransformMode::for_command(command))
 }
 

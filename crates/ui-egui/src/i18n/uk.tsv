@@ -1165,6 +1165,8 @@
 	Offset	Зсув
 	Reset Transform	Скинути трансформацію
 	Rotate	Повернути
+	Set horizontal skew	Задати горизонтальний скіс
+	Set vertical skew	Задати вертикальний скіс
 	Flip Horizontal	Віддзеркалити горизонтально
 	Flip Vertical	Віддзеркалити вертикально
 	Frame Sync	Синхронізація кадрів
@@ -1825,6 +1827,14 @@
 	Border…	Межа…
 	Bottom Edges	Нижні краї
 	Browse…	Огляд…
+	Source Files	Вихідні файли
+	Use:	Використовувати:
+	Files	Файли
+	Folder	Папка
+	Add Open Files	Додати відкриті файли
+	Sort By Name	Сортувати за назвою
+	Attempt to Automatically Align Source Images	Спробувати автоматично вирівняти вихідні зображення
+	Create Smart Object after Loading Layers	Створити смартоб'єкт після завантаження шарів
 	Canvas Guides	Напрямні полотна
 	Character Styles Panel	Панель стилів символів
 	Clear Canvas Guides	Очистити напрямні полотна

@@ -1187,6 +1187,8 @@
 	Offset	Смещение
 	Reset Transform	Сбросить трансформацию
 	Rotate	Повернуть
+	Set horizontal skew	Задать наклон по горизонтали
+	Set vertical skew	Задать наклон по вертикали
 	Flip Horizontal	Отразить по горизонтали
 	Flip Vertical	Отразить по вертикали
 	Frame Sync	Синхронизация кадров
@@ -1846,6 +1848,14 @@
 	Border…	Граница…
 	Bottom Edges	Нижние края
 	Browse…	Обзор…
+	Source Files	Исходные файлы
+	Use:	Использовать:
+	Files	Файлы
+	Folder	Папка
+	Add Open Files	Добавить открытые файлы
+	Sort By Name	Сортировать по имени
+	Attempt to Automatically Align Source Images	Попытаться автоматически выровнять исходные изображения
+	Create Smart Object after Loading Layers	Создать смарт-объект после загрузки слоёв
 	Canvas Guides	Направляющие холста
 	Character Styles Panel	Панель «Стили символов»
 	Clear Canvas Guides	Удалить направляющие холста

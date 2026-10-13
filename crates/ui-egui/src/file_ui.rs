@@ -260,7 +260,7 @@ type WebProxy = (Arc<Vec<[f32; 4]>>, u32, u32, f64, egui::Vec2);
 type WebCache = (String, Arc<egui::TextureHandle>, Option<(usize, Option<usize>, &'static str)>);
 
 /// Renders one preview pane: the original (`None`) or an optimised variant.
-fn web_pane(app: &PhotocraftApp, ui: &mut egui::Ui, size: egui::Vec2, p: Option<&Value>, f: &mut Map<String, Value>) {
+fn web_pane(app: &PhotocraftApp, ui: &mut egui::Ui, size: egui::Vec2, p: Option<&Value>, f: &mut Map<String, Value>, pane: usize, frame: Option<usize>) {
     let t = Tokens::get(ui.ctx());
     let Some(st) = app.session.active() else { return };
     let doc = st.doc.clone();
@@ -268,8 +268,8 @@ fn web_pane(app: &PhotocraftApp, ui: &mut egui::Ui, size: egui::Vec2, p: Option<
     // A bounded proxy; navigation never recomposites or re-encodes it.
     let base = p.cloned().unwrap_or_else(|| json!({}));
     let size_sig = format!("{}|{}|{}|{}", base["percent"], base["width"], base["height"], base["convertToSrgb"]);
-    let wkey = egui::Id::new(("web-proxy", doc.id.0, p.is_some()));
-    let proxy_sig = format!("{rev}|{size_sig}");
+    let wkey = egui::Id::new(("web-proxy", doc.id.0, pane));
+    let proxy_sig = format!("{rev}|{frame:?}|{size_sig}");
     let cached_proxy: Option<(String, WebProxy)> = ui.data(|d| d.get_temp(wkey));
     let proxy = cached_proxy.filter(|(sig, _)| sig == &proxy_sig).map(|(_, proxy)| proxy);
     let (px, w, h, ratio, source_size) = match proxy {
@@ -284,6 +284,7 @@ fn web_pane(app: &PhotocraftApp, ui: &mut egui::Ui, size: egui::Vec2, p: Option<
             };
             let k = (2048.0 / fw.max(fh)).min(1.0);
             let st = WebSettings::from_params(&base, "preview").unwrap_or_default();
+            let Ok(doc) = web_frame_document(&doc, frame) else { return };
             let Ok((wd, _, _)) =
                 web_cmds::web_document(&doc, &json!({"width": (fw * k).round().max(1.0), "height": (fh * k).round().max(1.0), "resample": "bilinear"}), &st)
             else {
@@ -301,15 +302,15 @@ fn web_pane(app: &PhotocraftApp, ui: &mut egui::Ui, size: egui::Vec2, p: Option<
             v
         }
     };
-    let sig = format!("{}|{rev}|{size_sig}|{}", doc.id.0, p.map(|v| v.to_string()).unwrap_or_else(|| "original".into()));
-    let key = ui.next_auto_id().with("web-pane");
+    let sig = format!("{}|{rev}|{frame:?}|{size_sig}|{}", doc.id.0, p.map(|v| v.to_string()).unwrap_or_else(|| "original".into()));
+    let key = egui::Id::new(("web-pane", doc.id.0, pane));
     let cached: Option<WebCache> = ui.data(|d| d.get_temp(key));
     let (tex, info) = match cached.filter(|c| c.0 == sig) {
         Some((_, tex, info)) => (tex, info),
         None => {
             let (rgba, info) = match p {
                 None => (px.iter().flat_map(|q| q.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)).collect::<Vec<u8>>(), None),
-                Some(p) => match web_preview::optimized(ui, key, &format!("{}|{rev}|{size_sig}", doc.id.0), p, &px, w, h) {
+                Some(p) => match web_preview::optimized(ui, key, &format!("{}|{rev}|{frame:?}|{size_sig}", doc.id.0), p, &px, w, h) {
                     Ok((preview, bytes, colors, ext)) => (preview, Some(((bytes as f64 * ratio) as usize, colors, ext))),
                     Err(error) => {
                         ui.label(error);
@@ -375,6 +376,70 @@ fn number(ui: &mut egui::Ui, f: &mut Map<String, Value>, key: &str, label: &str,
     });
 }
 
+/// Advance a preview clock by whole elapsed frames, retaining fractional time.
+/// The caller resets `last` on Play so paused wall time never advances the preview.
+fn advance_preview(frame: usize, duration: usize, fps: f32, last: f64, now: f64) -> (usize, f64) {
+    let duration = duration.max(1);
+    let frame = frame.min(duration - 1);
+    if !now.is_finite() {
+        return (frame, last);
+    }
+    if !last.is_finite() || now < last {
+        return (frame, now);
+    }
+    let fps = if fps.is_finite() && fps > 0.0 { f64::from(fps) } else { 30.0 };
+    let elapsed_frames = (now - last) * fps;
+    if !elapsed_frames.is_finite() {
+        return (frame, now);
+    }
+    let steps = elapsed_frames.floor();
+    if steps < 1.0 {
+        return (frame, last);
+    }
+    let delta = (steps % duration as f64) as usize % duration;
+    let remaining = duration - frame;
+    let next = if delta >= remaining { delta - remaining } else { frame + delta };
+    (next, now - (elapsed_frames - steps) / fps)
+}
+
+fn web_playback(ui: &mut egui::Ui, f: &mut Map<String, Value>, doc: &photocraft_doc::Document) -> Option<usize> {
+    let mut timeline = doc.timeline.clone()?;
+    timeline.clamp();
+    if timeline.duration < 2 {
+        return None;
+    }
+    let now = ui.input(|i| i.time);
+    let mut frame = f.get("__web_frame").and_then(Value::as_u64).and_then(|v| usize::try_from(v).ok()).unwrap_or(timeline.current).min(timeline.duration - 1);
+    let mut last = n(f, "__web_time", now);
+    let mut playing = b(f, "__web_playing", false);
+    if playing {
+        (frame, last) = advance_preview(frame, timeline.duration, timeline.fps, last, now);
+    }
+    ui.horizontal(|ui| {
+        if crate::icons::button(ui, if playing { "pause" } else { "play" }, 22.0, playing, if playing { tl!("Pause") } else { tl!("Play") }).clicked() {
+            playing = !playing;
+            last = now;
+        }
+        ui.label(format!("{} / {}", frame + 1, timeline.duration));
+    });
+    f.insert("__web_frame".into(), json!(frame));
+    f.insert("__web_time".into(), json!(last));
+    f.insert("__web_playing".into(), json!(playing));
+    if playing {
+        let remaining = (1.0 / f64::from(timeline.fps) - (now - last)).clamp(0.0, 1.0);
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(remaining));
+    }
+    Some(frame)
+}
+
+/// Seek a preview copy, preserving any edits to the source's currently displayed frame.
+fn web_frame_document(doc: &photocraft_doc::Document, frame: Option<usize>) -> Result<photocraft_doc::Document, photocraft_engine::EngineError> {
+    let Some(frame) = frame else { return Ok(doc.clone()) };
+    let mut preview = photocraft_engine::Session::new();
+    preview.add_document(doc.clone(), None);
+    preview.execute("timeline.setFrame", json!({"frame": frame}))?;
+    Ok((*preview.active().ok_or(photocraft_engine::EngineError::NoDocument)?.doc).clone())
+}
 fn web_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     let t = Tokens::get(ui.ctx());
     let Some(doc) = app.session.active().map(|d| d.doc.clone()) else { return };
@@ -388,6 +453,7 @@ fn web_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
         f.insert("__view".into(), json!(view));
     });
     ui.add_space(4.0);
+    let frame = web_playback(ui, f, &doc);
     web_preview::controls(ui, f);
     if let Err(error) = web_preview::prepare_table(app, f) {
         ui.colored_label(t.text_dim, error);
@@ -400,24 +466,24 @@ fn web_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
         ui.vertical(|ui| {
             ui.set_width(area.x);
             match s(f, "__view", "2up").as_str() {
-                "original" => web_pane(app, ui, area, None, f),
-                "optimized" => web_pane(app, ui, area, Some(&p), f),
+                "original" => web_pane(app, ui, area, None, f, 0, frame),
+                "optimized" => web_pane(app, ui, area, Some(&p), f, 1, frame),
                 "2up" => {
                     ui.horizontal(|ui| {
-                        web_pane(app, ui, egui::vec2(area.x / 2.0 - 4.0, area.y), None, f);
-                        web_pane(app, ui, egui::vec2(area.x / 2.0 - 4.0, area.y), Some(&p), f);
+                        web_pane(app, ui, egui::vec2(area.x / 2.0 - 4.0, area.y), None, f, 0, frame);
+                        web_pane(app, ui, egui::vec2(area.x / 2.0 - 4.0, area.y), Some(&p), f, 1, frame);
                     });
                 }
                 _ => {
                     let v = variants(&p);
                     let cell = egui::vec2(area.x / 2.0 - 4.0, area.y / 2.0 - 4.0);
                     ui.horizontal(|ui| {
-                        web_pane(app, ui, cell, None, f);
-                        web_pane(app, ui, cell, Some(&v[0]), f);
+                        web_pane(app, ui, cell, None, f, 0, frame);
+                        web_pane(app, ui, cell, Some(&v[0]), f, 1, frame);
                     });
                     ui.horizontal(|ui| {
-                        web_pane(app, ui, cell, Some(&v[1]), f);
-                        web_pane(app, ui, cell, Some(&v[2]), f);
+                        web_pane(app, ui, cell, Some(&v[1]), f, 2, frame);
+                        web_pane(app, ui, cell, Some(&v[2]), f, 3, frame);
                     });
                 }
             }
@@ -1182,5 +1248,234 @@ mod tests {
             assert!(app.ui.dialog_mut(id).unwrap().fields.get("send").is_none());
             std::fs::remove_file(out).unwrap();
         }
+    }
+}
+
+#[cfg(test)]
+mod web_playback_tests {
+    use super::*;
+    use egui_kittest::{Harness, kittest::Queryable};
+
+    fn animated_app(depth: u32) -> PhotocraftApp {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 32, "height": 24, "depth": depth})).unwrap();
+        app.run("timeline.create", json!({"duration": 3, "fps": 2})).unwrap();
+        app.run("layer.videoLayers.newBlankVideoLayer", json!({})).unwrap();
+        for (frame, color) in ["#ff0000", "#00ff00", "#0000ff"].iter().enumerate() {
+            app.run("timeline.setFrame", json!({"frame":frame})).unwrap();
+            app.run("edit.fill", json!({"color":color})).unwrap();
+        }
+        app.run("timeline.setFrame", json!({"frame":0})).unwrap();
+        app
+    }
+
+    fn harness(app: PhotocraftApp, fields: Map<String, Value>) -> Harness<'static, (PhotocraftApp, Map<String, Value>)> {
+        let mut h = Harness::builder().with_size(egui::vec2(1000.0, 800.0)).with_step_dt(0.1).build_ui_state(
+            |ui, state: &mut (PhotocraftApp, Map<String, Value>)| {
+                if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                    return;
+                }
+                web_body(&mut state.0, ui, &mut state.1);
+            },
+            (app, fields),
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        h.run_steps(3);
+        h
+    }
+
+    #[test]
+    fn animated_save_for_web_offers_playback() {
+        let mut app = animated_app(8);
+        let id = open_web(&mut app);
+        let mut fields = app.ui.dialog_mut(id).unwrap().fields.clone();
+        fields.insert("__view".into(), json!("original"));
+        fields.insert("format".into(), json!("gif"));
+        let mut h = harness(app, fields);
+        assert!(h.query_by_label("Play").is_some(), "an animated document needs a preview playback control");
+        let original = h.state().0.session.active().unwrap().doc.clone();
+        let revision = h.state().0.session.active().unwrap().revision;
+        let history = h.state().0.session.active().unwrap().history.past_len();
+        h.get_by_label("Play").click();
+        h.run_steps(2);
+        assert_eq!(h.state().1["__web_playing"], true);
+        h.run_steps(6);
+        assert_ne!(h.state().1["__web_frame"], 0);
+        h.get_by_label("Pause").click();
+        h.run_steps(2);
+        assert_eq!(h.state().1["__web_playing"], false);
+        let paused = h.state().1["__web_frame"].clone();
+        h.run_steps(20);
+        assert_eq!(h.state().1["__web_frame"], paused);
+        h.get_by_label("Play").click();
+        h.run_steps(2);
+        assert_eq!(h.state().1["__web_playing"], true);
+        assert_eq!(h.state().1["__web_frame"], paused, "resuming must not count time spent paused");
+        h.run_steps(6);
+        assert_ne!(h.state().1["__web_frame"], paused, "resuming must advance the preview again");
+        let st = h.state().0.session.active().unwrap();
+        assert!(Arc::ptr_eq(&st.doc, &original));
+        assert_eq!(st.revision, revision);
+        assert_eq!(st.history.past_len(), history);
+        assert!(params(&h.state().1).as_object().unwrap().keys().all(|k| !k.starts_with("__")));
+        crate::dialogs::cancel(&mut h.state_mut().0, id).unwrap();
+        let next = open_web(&mut h.state_mut().0);
+        let fields = &h.state_mut().0.ui.dialog_mut(next).unwrap().fields;
+        assert!(!fields.contains_key("__web_playing"));
+        assert!(!fields.contains_key("__web_frame"));
+    }
+
+    #[test]
+    fn frame_previews_preserve_source_and_match_colors_across_depths() {
+        for depth in [8, 16, 32] {
+            let app = animated_app(depth);
+            let source = app.session.active().unwrap().doc.clone();
+            for (frame, expected) in [[1.0, 0.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0]].iter().enumerate() {
+                let preview = web_frame_document(&source, Some(frame)).unwrap();
+                let (proxy, _, _) = web_cmds::web_document(&preview, &json!({"width":16,"height":12}), &WebSettings::default()).unwrap();
+                let pixels = photocraft_compose::flatten(&proxy);
+                for (actual, expected) in pixels.px[0].iter().zip(expected) {
+                    assert!((actual - expected).abs() < 0.002, "depth={depth} frame={frame}");
+                }
+            }
+            assert_eq!(source.timeline.as_ref().unwrap().current, 0);
+            assert_eq!(photocraft_compose::flatten(&source).px[0], [1.0, 0.0, 0.0, 1.0]);
+        }
+    }
+
+    #[test]
+    fn four_up_caches_follow_the_local_frame() {
+        let mut app = animated_app(8);
+        let doc_id = app.session.active().unwrap().doc.id.0;
+        let id = open_web(&mut app);
+        let mut fields = app.ui.dialog_mut(id).unwrap().fields.clone();
+        fields.insert("__view".into(), json!("4up"));
+        fields.insert("format".into(), json!("gif"));
+        let mut h = harness(app, fields);
+        for frame in [1, 2, 0] {
+            h.state_mut().1.insert("__web_frame".into(), json!(frame));
+            h.run_steps(2);
+            for pane in 0usize..4 {
+                let proxy: (String, WebProxy) = h.ctx.data(|d| d.get_temp(egui::Id::new(("web-proxy", doc_id, pane)))).unwrap();
+                assert!(proxy.1.0[0][frame] > 0.99, "pane {pane} must show frame {frame}");
+                let cache: WebCache = h.ctx.data(|d| d.get_temp(egui::Id::new(("web-pane", doc_id, pane)))).unwrap();
+                assert!(cache.0.contains(&format!("Some({frame})")));
+            }
+        }
+    }
+    #[test]
+    fn playback_refreshes_indexed_frames_without_resetting_palette_or_navigation() {
+        let mut app = animated_app(8);
+        let doc_id = app.session.active().unwrap().doc.id.0;
+        let id = open_web(&mut app);
+        let mut fields = app.ui.dialog_mut(id).unwrap().fields.clone();
+        fields.insert("__view".into(), json!("optimized"));
+        fields.insert("format".into(), json!("gif"));
+        fields.insert("__zoom".into(), json!(2.0));
+        let mut h = harness(app, fields);
+        // Set the custom palette after the dialog has initialized its format defaults.
+        let expected_palette = json!(["#ff0000", "#00ff00", "#0000ff"]);
+        h.state_mut().1.insert("colorTable".into(), expected_palette.clone());
+        h.run_steps(2);
+        assert_eq!(h.state().1["colorTable"], expected_palette);
+        let key = egui::Id::new(("web-pane", doc_id, 1usize)).with("indexed-source");
+        let encoded = |ctx: &egui::Context| ctx.data(|d| d.get_temp::<(String, Arc<Optimized>)>(key)).unwrap().1;
+        let first = encoded(&h.ctx);
+        h.state_mut().1.insert("colorTableEdits".into(), json!({"0":"#ffff00"}));
+        h.run_steps(2);
+        assert!(Arc::ptr_eq(&first, &encoded(&h.ctx)), "palette edits reuse the current frame's indices");
+        let palette = h.state().1["colorTable"].clone();
+        let center = h.state().1["__center"].clone();
+        let mut previous = first;
+        for (frame, rgba) in [(1, [0, 255, 0, 255]), (2, [0, 0, 255, 255]), (0, [255, 0, 0, 255])] {
+            h.state_mut().1.insert("__web_frame".into(), json!(frame));
+            h.run_steps(2);
+            let next = encoded(&h.ctx);
+            assert!(!Arc::ptr_eq(&previous, &next), "a changed frame needs fresh indexed pixels");
+            assert_eq!(&next.preview[..4], &rgba);
+            assert_eq!(h.state().1["colorTable"], palette);
+            assert_eq!(h.state().1["colorTableEdits"], json!({"0":"#ffff00"}));
+            assert_eq!(h.state().1["__zoom"], 2.0);
+            assert_eq!(h.state().1["__center"], center);
+            assert_eq!(h.state().0.session.active().unwrap().doc.timeline.as_ref().unwrap().current, 0);
+            previous = next;
+        }
+    }
+
+    #[test]
+    fn still_documents_have_no_playback_controls() {
+        for duration in [None, Some(1)] {
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+            app.run("file.new", json!({"width":32,"height":24})).unwrap();
+            if let Some(duration) = duration {
+                app.run("timeline.create", json!({"duration":duration,"fps":2})).unwrap();
+            }
+            let id = open_web(&mut app);
+            let fields = app.ui.dialog_mut(id).unwrap().fields.clone();
+            let h = harness(app, fields);
+            assert!(h.query_by_label("Play").is_none());
+            assert!(!h.state().1.contains_key("__web_playing"));
+        }
+    }
+
+    #[test]
+    fn preview_keeps_current_frame_edits_without_storing_into_source() {
+        let mut app = animated_app(8);
+        app.run("edit.fill", json!({"color":"#ffff00"})).unwrap();
+        let source = app.session.active().unwrap().doc.clone();
+        let edited = web_frame_document(&source, Some(0)).unwrap();
+        let other = web_frame_document(&source, Some(1)).unwrap();
+        assert_eq!(photocraft_compose::flatten(&edited).px[0], [1.0, 1.0, 0.0, 1.0]);
+        assert_eq!(photocraft_compose::flatten(&other).px[0], [0.0, 1.0, 0.0, 1.0]);
+        assert!(Arc::ptr_eq(&source, &app.session.active().unwrap().doc));
+        assert_eq!(source.timeline.as_ref().unwrap().current, 0);
+    }
+
+    #[test]
+    fn optimized_gif_preview_matches_each_frame_at_every_depth() {
+        let settings = WebSettings::from_params(&json!({"format":"gif","colors":16}), "preview").unwrap();
+        for depth in [8, 16, 32] {
+            let app = animated_app(depth);
+            for (frame, expected) in [[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255]].iter().enumerate() {
+                let doc = web_frame_document(&app.session.active().unwrap().doc, Some(frame)).unwrap();
+                let (proxy, _, _) = web_cmds::web_document(&doc, &json!({"width":16,"height":12}), &settings).unwrap();
+                let pixels = photocraft_compose::flatten(&proxy);
+                let optimized = web_cmds::optimize(&pixels.px, 16, photocraft_geom::Rect::new(0, 0, 16, 12), &settings, None, None, 72.0, true).unwrap();
+                assert_eq!(&optimized.preview[..4], expected, "depth={depth} frame={frame}");
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod web_clock_tests {
+    use super::*;
+    #[test]
+    fn frames_follow_elapsed_time_and_keep_fraction() {
+        assert_eq!(advance_preview(0, 3, 2.0, 0.0, 0.49), (0, 0.0));
+        assert_eq!(advance_preview(0, 3, 2.0, 0.0, 0.75), (1, 0.5));
+        assert_eq!(advance_preview(1, 3, 2.0, 0.5, 1.0), (2, 1.0));
+    }
+    #[test]
+    fn slow_frames_catch_up_and_loop() {
+        assert_eq!(advance_preview(2, 3, 2.0, 0.0, 1.0), (1, 1.0));
+        let (frame, last) = advance_preview(0, 3, 2.0, 0.0, 6.2);
+        assert_eq!(frame, 0);
+        assert!((last - 6.0).abs() < 1e-10);
+    }
+    #[test]
+    fn resumed_clock_excludes_pause_time() {
+        assert_eq!(advance_preview(1, 3, 2.0, 20.0, 20.25), (1, 20.0));
+        assert_eq!(advance_preview(1, 3, 2.0, 20.0, 20.5), (2, 20.5));
+    }
+    #[test]
+    fn fractional_frame_rates_work() {
+        assert_eq!(advance_preview(0, 3, 0.5, 0.0, 2.0), (1, 2.0));
+    }
+    #[test]
+    fn malformed_or_changed_timeline_is_bounded() {
+        assert_eq!(advance_preview(usize::MAX, 0, f32::NAN, 0.0, 1.0), (0, 1.0));
+        assert_eq!(advance_preview(usize::MAX - 2, usize::MAX, 2.0, 0.0, 1.0), (0, 1.0));
+        assert_eq!(advance_preview(2, 3, 2.0, 10.0, 9.0), (2, 9.0));
     }
 }

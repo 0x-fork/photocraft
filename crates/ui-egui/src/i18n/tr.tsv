@@ -97,6 +97,13 @@
 	Script Events Manager…	Komut Dosyası Olay Yöneticisi…
 	Import	İthalat
 	Browse…	Göz at…
+	Source Files	Kaynak Dosyalar
+	Use:	Kullan:
+	Files	Dosyalar
+	Add Open Files	Açık Dosyaları Ekle
+	Sort By Name	Ada Göre Sırala
+	Attempt to Automatically Align Source Images	Kaynak Görüntüleri Otomatik Hizalamayı Dene
+	Create Smart Object after Loading Layers	Katmanları Yükledikten Sonra Akıllı Nesne Oluştur
 	Reveal in Finder	Finder'da Göster
 	Show in Explorer	Explorer'da Göster
 	Show in Folder	Klasörde Göster
@@ -137,6 +144,8 @@
 	Transform Again on a Copy	Bir Kopyada Yeniden Dönüştür
 	Scale	Ölçekle
 	Rotate	Döndür
+	Set horizontal skew	Yatay eğmeyi ayarla
+	Set vertical skew	Dikey eğmeyi ayarla
 	Skew	Eğ
 	Distort	Çarpıt
 	Perspective	Perspektif
@@ -798,7 +807,7 @@
 	Alt	Alternatif
 	Always use pressure for opacity	Opaklık için her zaman baskıyı kullanın
 	Always use pressure for size	Her zaman boyuta göre baskı kullanın
-	Amount	Tutar
+	Amount	Miktar
 	Anchor:	Çapa:
 	Angle	Açı
 	Angle Gradient	Açı Gradyanı
@@ -2681,7 +2690,7 @@ cameraRaw	Color	Renk
 	Alternative	Alternatif
 	Extra Light	Ekstra Işık
 	Extra Bold	Ekstra Kalın
-	Sharpen Amount	Keskinleştirme Tutarı
+	Sharpen Amount	Keskinleştirme Miktarı
 	Sharpen Radius	Yarıçapı Keskinleştir
 	Sharpen Detail	Detayı Keskinleştir
 	Sharpen Masking	Maskelemeyi Keskinleştir
@@ -2702,7 +2711,7 @@ cameraRaw	Color	Renk
 	Shadow Amount	Gölge Miktarı
 	Shadow Tone	Gölge Tonu
 	Shadow Radius	Gölge Yarıçapı
-	Highlight Amount	Tutarı Vurgula
+	Highlight Amount	Vurgu Miktarı
 	Highlight Tone	Vurgu Tonu
 	Highlight Radius	Yarıçapı Vurgula
 	Midtone	Orta ton
@@ -2732,7 +2741,7 @@ cameraRaw	Color	Renk
 	Leaf Color	Yaprak Rengi
 	Base Tree Type	Temel Ağaç Türü
 	Light Direction	Işık Yönü
-	Leaves Amount	Yaprak Tutarı
+	Leaves Amount	Yaprak Miktarı
 	Leaves Size	Yaprak Boyutu
 	Branches Height	Dal Yüksekliği
 	Branches Thickness	Dal Kalınlığı
@@ -3107,7 +3116,7 @@ cameraRaw	Color	Renk
 	Stroke Direction	Strok Yönü
 	Graininess	Taneciklilik
 	Glow Amount	Işıma Miktarı
-	Clear Amount	Tutarı Temizle
+	Clear Amount	Temizleme Miktarı
 	Distortion	Bozulma
 	Ripple Size	Dalgalanma Boyutu
 	Ripple Magnitude	Dalgalanma Büyüklüğü
@@ -3136,7 +3145,7 @@ cameraRaw	Color	Renk
 	Auto Scale	Otomatik Ölçeklendirme
 	Red Cyan	Kırmızı Camgöbeği
 	Blue Yellow	Mavi Sarı
-	Vignette Amount	Vinyet Tutarı
+	Vignette Amount	Vinyet Miktarı
 	Vignette Midpoint	Vinyet Orta Noktası
 	Constraints	Kısıtlamalar
 	Curve Highlights	Eğrinin Öne Çıkan Noktaları

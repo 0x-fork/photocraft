@@ -114,6 +114,14 @@
 	Script Events Manager…	指令碼事件管理員…
 	Import	匯入
 	Browse…	瀏覽…
+	Source Files	來源檔案
+	Use:	使用:
+	Files	檔案
+	Folder	資料夾
+	Add Open Files	增加開啟的檔案
+	Sort By Name	依名稱排序
+	Attempt to Automatically Align Source Images	嘗試自動對齊來源影像
+	Create Smart Object after Loading Layers	載入圖層後建立智慧型物件
 	Reveal in Finder	在 Finder 中顯示
 	Show in Explorer	在檔案總管中顯示
 	Show in Folder	在資料夾中顯示
@@ -154,6 +162,8 @@
 	Transform Again on a Copy	複製並再次變形
 	Scale	縮放
 	Rotate	旋轉
+	Set horizontal skew	設定水平傾斜
+	Set vertical skew	設定垂直傾斜
 	Skew	傾斜
 	Distort	扭曲
 	Perspective	透視

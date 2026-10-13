@@ -126,6 +126,7 @@ pub(crate) fn frame(app: &mut PhotocraftApp) -> Option<TransformSession> {
         made: None,
         mode: Default::default(),
         content_aware: None,
+        skew_v: 0.0,
     })
 }
 

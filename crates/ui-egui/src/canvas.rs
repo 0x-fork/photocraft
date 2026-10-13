@@ -3523,10 +3523,15 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             }
         } else if let Some(c) = response.hover_pos().and_then(|p| crate::cam_transform::cursor(app, &ctx, &xf, p)) {
             ui.ctx().set_cursor_icon(c);
-        } else if let Some(c) = response.hover_pos().and_then(|p| transform_controls_rect(app, &xf).and_then(|r| transform_controls_cursor(r, p))) {
+        } else if let Some((r, p, c)) =
+            response.hover_pos().and_then(|p| transform_controls_rect(app, &xf).and_then(|r| transform_controls_cursor(r, p).map(|c| (r, p, c))))
+        {
             // The Move tool draws handles without opening a Free Transform session.
             // Give them their resize/rotate cursors before the first pointer press (#2871).
             ui.ctx().set_cursor_icon(c);
+            if let Some(toward) = transform_controls_turn(r, p) {
+                crate::crop_ui::draw_turn_cursor(&ctx, p, toward);
+            }
         } else if let Some(c) = response.hover_pos().filter(|_| tool.is_type()).and_then(|p| {
             let mods = crate::workspace_ui::sticky_mods(app, ui.input(|i| i.modifiers));
             crate::type_transform::cursor(app, &ctx, &xf, p, mods)
@@ -4319,7 +4324,28 @@ fn transform_controls_cursor(r: Rect, p: Pos2) -> Option<egui::CursorIcon> {
             });
         }
     }
-    (r.expand(18.0).contains(p) && !r.expand(5.0).contains(p)).then_some(egui::CursorIcon::Alias)
+    // The rotation band: the pointer gives way to the curved rotate arrow (`transform_controls_turn`).
+    in_rotation_band(r, p).then_some(egui::CursorIcon::None)
+}
+
+fn in_rotation_band(r: Rect, p: Pos2) -> bool {
+    r.expand(18.0).contains(p) && !r.expand(5.0).contains(p)
+}
+
+/// In the rotation band just outside the Move tool's transform controls, the screen direction the
+/// curved rotate arrow bends round: into the box along the nearest corner's bisector, as Free
+/// Transform draws it (#4658). Before, the band showed a plain alias pointer, so nothing said a
+/// drag there rotates.
+fn transform_controls_turn(r: Rect, p: Pos2) -> Option<Vec2> {
+    if !in_rotation_band(r, p)
+        || [r.left_top(), r.center_top(), r.right_top(), r.right_center(), r.right_bottom(), r.center_bottom(), r.left_bottom(), r.left_center()]
+            .into_iter()
+            .any(|h| h.distance(p) <= crate::transform_tool::HANDLE_PX as f32)
+    {
+        return None;
+    }
+    let corner = pos2(if p.x < r.center().x { r.left() } else { r.right() }, if p.y < r.center().y { r.top() } else { r.bottom() });
+    Some(vec2((r.center().x - corner.x).signum(), (r.center().y - corner.y).signum()).normalized() * 16.0)
 }
 
 /// A visible handle starts scaling; the narrow band just outside the box starts rotation.
@@ -7324,14 +7350,23 @@ mod transform_controls_tests {
             (r.center_bottom(), egui::CursorIcon::ResizeVertical),
             (r.right_center(), egui::CursorIcon::ResizeHorizontal),
             (r.left_center(), egui::CursorIcon::ResizeHorizontal),
-            // Between handles: the rotation band (a point above the top-centre handle is that handle).
-            (pos2(r.left() + r.width() * 0.25, r.top() - 12.0), egui::CursorIcon::Alias),
+            // Between handles: the rotation band (a point above the top-centre handle is that handle),
+            // where the curved rotate arrow replaces the pointer (#4658).
+            (pos2(r.left() + r.width() * 0.25, r.top() - 12.0), egui::CursorIcon::None),
         ] {
             assert_eq!(transform_controls_cursor(r, p), Some(expected), "hover at {p:?}");
             assert!(transform_controls_hit(r, p), "same region must start a transform");
         }
         assert_eq!(transform_controls_cursor(r, r.center()), None, "interior stays Move");
         assert_eq!(transform_controls_cursor(r, pos2(r.center().x, r.top() - 30.0)), None);
+        // The rotate arrow bends round the nearest corner, pointing into the box; handles and the
+        // interior have none.
+        let into = |p: Pos2| transform_controls_turn(r, p).map(|v| (v.x.signum(), v.y.signum()));
+        assert_eq!(into(pos2(r.left() + r.width() * 0.25, r.top() - 12.0)), Some((1.0, 1.0)), "top left");
+        assert_eq!(into(pos2(r.right() + 12.0, r.bottom() - r.height() * 0.25)), Some((-1.0, -1.0)), "bottom right");
+        assert_eq!(into(pos2(r.left() - 12.0, r.bottom() + 12.0)), Some((1.0, -1.0)), "beyond the bottom-left corner");
+        assert_eq!(into(r.left_top()), None);
+        assert_eq!(into(r.center()), None);
 
         // Changing the active shape changes the hover bounds without requiring a drag first.
         app.session.execute("shape.create", json!({"kind": "rect", "rect": [120, 100, 40, 50], "fill": "#00ff00"})).unwrap();

@@ -534,6 +534,18 @@ fn apply_image_hand_computed() {
 }
 
 #[test]
+fn apply_image_subtract_layer_from_itself_is_mid_grey() {
+    // Frequency separation: Subtract, Scale 2, Offset 128, in the flat form the dialog sends.
+    let mut s = session();
+    s.execute("edit.fill", json!({"color": "#c08040"})).unwrap();
+    s.execute("layer.new.layer", json!({"name": "High"})).unwrap();
+    s.execute("edit.fill", json!({"color": "#406080"})).unwrap();
+    s.execute("image.applyImage", json!({"sourceLayer": "High", "blending": "subtract", "scale": 2.0, "offset": 128})).unwrap();
+    let p = px(&s, 3, 3);
+    assert!(p[..3].iter().all(|v| (v - 128.0 / 255.0).abs() < 0.003), "{p:?}");
+}
+
+#[test]
 fn apply_image_onto_transparent_layer() {
     for depth in [8, 16, 32] {
         let mut s = session_depth(depth);

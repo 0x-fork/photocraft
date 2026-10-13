@@ -98,7 +98,7 @@ pub(crate) fn write_file(path: &str, _bytes: &[u8]) -> Result<()> {
 
 /// Files of a folder that look like images we can open, sorted by name.
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn list_images(dir: &str) -> Result<Vec<String>> {
+pub fn list_images(dir: &str) -> Result<Vec<String>> {
     let rd = std::fs::read_dir(dir).map_err(|e| EngineError::Other(format!("{dir}: {e}")))?;
     let mut out: Vec<String> = rd
         .filter_map(|e| e.ok())
@@ -110,7 +110,7 @@ pub(crate) fn list_images(dir: &str) -> Result<Vec<String>> {
     Ok(out)
 }
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn list_images(dir: &str) -> Result<Vec<String>> {
+pub fn list_images(dir: &str) -> Result<Vec<String>> {
     Err(EngineError::Other(format!("cannot list {dir}: no file system on the web")))
 }
 
@@ -1045,7 +1045,11 @@ fn load_files_into_stack(s: &mut Session, p: &Value) -> Result<Value> {
         stack.layers.push(Layer::new(name.clone(), LayerContent::Raster(flattened(d, fmt))));
     }
     let n = stack.layers.len();
-    if p.get("createSmartObject").and_then(Value::as_bool).unwrap_or(false) {
+    let smart = p.get("createSmartObject").and_then(Value::as_bool).unwrap_or(false);
+    // "Attempt to Automatically Align Source Images": Auto-Align Layers on the loaded layers, before
+    // they go into the smart object.
+    let align = p.get("align").and_then(Value::as_bool).unwrap_or(false) && n > 1;
+    if smart && !align {
         // "Create Smart Object after Loading Layers": the layers go inside one smart object, ready
         // for Layer › Smart Objects › Stack Mode. Like Photoshop, they sit at the top level of the
         // contents, with no wrapper group.
@@ -1054,6 +1058,23 @@ fn load_files_into_stack(s: &mut Session, p: &Value) -> Result<Value> {
         stack.layers = vec![smart];
     }
     let i = s.add_document(stack, None);
+    if align {
+        s.execute("select.allLayers", json!({}))?;
+        s.execute("edit.autoAlignLayers", json!({"projection": "auto"}))?;
+        if smart {
+            let name = s.active().map(|d| d.doc.name.clone()).unwrap_or_default();
+            s.edit("Convert to Smart Object", |doc, active| {
+                let layers = std::mem::take(&mut doc.layers);
+                let smart = crate::smart_cmds::layers_to_smart(doc, &name, layers)?;
+                *active = Some(smart.id);
+                doc.layers = vec![smart];
+                Ok(())
+            })?;
+            if let Some(st) = s.active_mut() {
+                st.selected_layers = st.active_layer.into_iter().collect();
+            }
+        }
+    }
     Ok(json!({"document": i, "layers": n}))
 }
 
@@ -1504,7 +1525,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Load Files into Stack…",
             &["File", "Scripts"],
             None,
-            r##"{"paths":[str]|folder,"createSmartObject":bool=false} → new document with one layer per file (inside one smart object with createSmartObject)"##,
+            r##"{"paths":[str]|folder,"align":bool=false (Auto-Align Layers on them first),"createSmartObject":bool=false} → new document with one layer per file (inside one smart object with createSmartObject)"##,
             native,
             load_files_into_stack
         ),

@@ -107,6 +107,14 @@
 	Script Events Manager…	Administrador de eventos de secuencias de comandos…
 	Import	Importar
 	Browse…	Examinar…
+	Source Files	Archivos de origen
+	Use:	Usar:
+	Files	Archivos
+	Folder	Carpeta
+	Add Open Files	Añadir archivos abiertos
+	Sort By Name	Ordenar por nombre
+	Attempt to Automatically Align Source Images	Intentar alinear automáticamente las imágenes de origen
+	Create Smart Object after Loading Layers	Crear objeto inteligente tras cargar las capas
 	Reveal in Finder	Mostrar en Finder
 	Show in Explorer	Mostrar en el Explorador
 	Show in Folder	Mostrar en la carpeta
@@ -147,6 +155,8 @@
 	Transform Again on a Copy	Transformar de nuevo una copia
 	Scale	Escalar
 	Rotate	Rotar
+	Set horizontal skew	Definir sesgado horizontal
+	Set vertical skew	Definir sesgado vertical
 	Skew	Sesgar
 	Distort	Distorsionar
 	Perspective	Perspectiva

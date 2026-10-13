@@ -106,6 +106,14 @@
 	Script Events Manager…	脚本事件管理器…
 	Import	导入
 	Browse…	浏览…
+	Source Files	源文件
+	Use:	使用:
+	Files	文件
+	Folder	文件夹
+	Add Open Files	添加打开的文件
+	Sort By Name	按名称排序
+	Attempt to Automatically Align Source Images	尝试自动对齐源图像
+	Create Smart Object after Loading Layers	载入图层后创建智能对象
 	Reveal in Finder	在 Finder 中显示
 	Show in Explorer	在文件资源管理器中显示
 	Show in Folder	在文件夹中显示
@@ -146,6 +154,8 @@
 	Transform Again on a Copy	复制并再次变换
 	Scale	缩放
 	Rotate	旋转
+	Set horizontal skew	设置水平斜切
+	Set vertical skew	设置垂直斜切
 	Skew	斜切
 	Distort	扭曲
 	Perspective	透视

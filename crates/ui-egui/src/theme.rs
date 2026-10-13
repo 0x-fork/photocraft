@@ -1038,7 +1038,15 @@ pub fn apply(ctx: &egui::Context, kind: ThemeKind) {
         s.visuals.indent_has_left_vline = false;
         s.interaction.tooltip_delay = TOOLTIP_DELAY;
         // Thin overlay scrollbars that appear on hover (Photoshop/macOS style).
-        s.spacing.scroll = if t.bevel { egui::style::ScrollStyle::solid() } else { egui::style::ScrollStyle::thin() };
+        // Thin bars stay visible, including while the pointer is on them. The stock thin
+        // style fades the handle to the same opacity as the track, so the thumb disappears (#4611).
+        let mut scroll = if t.bevel { egui::style::ScrollStyle::solid() } else { egui::style::ScrollStyle::thin() };
+        if scroll.floating {
+            scroll.interact_handle_opacity = 1.0;
+            scroll.interact_background_opacity = 0.4;
+            scroll.floating_width = 4.0;
+        }
+        s.spacing.scroll = scroll;
         s.spacing.tooltip_width = 280.0;
     });
     // egui selects its style branch using OS appearance, independently of PhotoCraft's fixed

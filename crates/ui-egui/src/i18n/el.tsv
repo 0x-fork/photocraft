@@ -91,6 +91,13 @@
 	Script Events Manager…	Διαχείριση συμβάντων δεσμών ενεργειών…
 	Import	Εισαγωγή
 	Browse…	Περιήγηση…
+	Source Files	Αρχεία προέλευσης
+	Use:	Χρήση:
+	Files	Αρχεία
+	Add Open Files	Προσθήκη ανοιχτών αρχείων
+	Sort By Name	Ταξινόμηση κατά όνομα
+	Attempt to Automatically Align Source Images	Απόπειρα αυτόματης στοίχισης εικόνων προέλευσης
+	Create Smart Object after Loading Layers	Δημιουργία έξυπνου αντικειμένου μετά τη φόρτωση επιπέδων
 	Reveal in Finder	Εμφάνιση στο Finder
 	Show in Explorer	Εμφάνιση στην Εξερεύνηση αρχείων
 	Show in Folder	Εμφάνιση στον φάκελο
@@ -166,6 +173,8 @@
 	Transform	Μετασχηματισμός
 	Free Transform	Ελεύθερος μετασχηματισμός
 	Rotate	Περιστροφή
+	Set horizontal skew	Ορισμός οριζόντιας λοξής παραμόρφωσης
+	Set vertical skew	Ορισμός κατακόρυφης λοξής παραμόρφωσης
 	Flip Horizontal	Οριζόντια αναστροφή
 	Flip Vertical	Κατακόρυφη αναστροφή
 	Crop	Περικοπή

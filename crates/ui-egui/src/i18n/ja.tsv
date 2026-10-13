@@ -108,6 +108,14 @@
 	Script Events Manager…	スクリプトイベント管理…
 	Import	読み込み
 	Browse…	参照…
+	Source Files	ソースファイル
+	Use:	使用:
+	Files	ファイル
+	Folder	フォルダー
+	Add Open Files	開いているファイルを追加
+	Sort By Name	名前順に並べ替え
+	Attempt to Automatically Align Source Images	ソース画像の自動整列を試す
+	Create Smart Object after Loading Layers	レイヤーの読み込み後にスマートオブジェクトを作成
 	Reveal in Finder	Finder で表示
 	Show in Explorer	エクスプローラーで表示
 	Show in Folder	フォルダーで表示
@@ -148,6 +156,8 @@
 	Transform Again on a Copy	複製してもう一度変形
 	Scale	拡大・縮小
 	Rotate	回転
+	Set horizontal skew	水平方向の斜体を設定
+	Set vertical skew	垂直方向の斜体を設定
 	Skew	斜体
 	Distort	ゆがみ
 	Perspective	遠近法

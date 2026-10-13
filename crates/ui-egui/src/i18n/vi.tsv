@@ -32,6 +32,14 @@
 	Automate	Tự động hóa
 	Batch…	Hàng loạt…
 	Browse…	Duyệt…
+	Source Files	Tệp nguồn
+	Use:	Dùng:
+	Files	Tệp
+	Folder	Thư mục
+	Add Open Files	Thêm các tệp đang mở
+	Sort By Name	Sắp xếp theo tên
+	Attempt to Automatically Align Source Images	Thử tự căn các ảnh nguồn
+	Create Smart Object after Loading Layers	Tạo đối tượng thông minh sau khi tải lớp
 	Check Spelling…	Kiểm tra chính tả…
 	Clear	Xóa
 	Clear Recent Files	Xóa tệp gần đây
@@ -137,6 +145,8 @@
 	Restore	Khôi phục
 	Revert	Hoàn nguyên
 	Rotate	Xoay
+	Set horizontal skew	Đặt độ nghiêng ngang
+	Set vertical skew	Đặt độ nghiêng dọc
 	Rotate 180°	Xoay 180°
 	Rotate 90° Clockwise	Xoay 90° theo chiều kim đồng hồ
 	Rotate 90° Counter Clockwise	Xoay 90° ngược chiều kim đồng hồ

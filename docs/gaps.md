@@ -1,6 +1,6 @@
 # Where PhotoCraft falls short of Photoshop
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (G9: toolbar tool shortcut editing; refreshed against main: G2, G5, G7, G9, G10, G13, G14, G17 items that landed; G10: DPX read and write, #1049; G4: checkbox-only Brush Settings rows; G11: Load/Save Actions `.atn` landed, AUTO-219-2 partial; G5: hold-a-key spring-loaded tools landed, #2672; G1: #2465 fixed) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (G5: Free Transform H/V skew fields; G9: toolbar tool shortcut editing; refreshed against main: G2, G5, G7, G9, G10, G13, G14, G17 items that landed; G10: DPX read and write, #1049; G4: checkbox-only Brush Settings rows; G11: Load/Save Actions `.atn` landed, AUTO-219-2 partial; G5: hold-a-key spring-loaded tools landed, #2672; G1: #2465 fixed) · **Target:** Adobe Photoshop 2026
 
 Every known shortfall against Photoshop 2026 (27.11.0), one entry each, ranked by user impact
 on the way to beta. This is the work list agents pick from: take the highest-ranked entry that
@@ -154,7 +154,7 @@ what an agent can't finish alone.
 - **Estimate:** 100–180 h. **Human:** checking feel on real tablets.
 
 ### G5. Transform, handles and modifiers
-- **Missing:** H/V skew fields and the full interpolation list; blend mode/opacity edits during
+- **Missing:** the full interpolation list; blend mode/opacity edits during
   a transform (#1384); path-point nudge; autoscroll at the edge while selecting (#2231);
   wheel and pinch behaviour (#2485, #2463, #1989);
   toolbar press-and-hold flyouts (#2301).
@@ -165,7 +165,7 @@ what an agent can't finish alone.
   snapping (#2681, #2684); Auto-Select box follows the picked layer (#2666, #2675); ⌘-arrow
   layer nudge (#2474, #2556); polygonal lasso Shift angles (#2352, #2396); double-click Zoom tool
   to 100% (#2508, #2527); tool-key memory in a group (#2608, #2625); hold-a-key spring-loaded
-  tools (#2672).
+  tools (#2672); H/V skew fields in the Free Transform options bar.
 - **Detail:** [`ui-parity.md`](ui-parity.md).
 - **Estimate:** 60–110 h.
 
@@ -242,6 +242,7 @@ what an agent can't finish alone.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-12 | minor | G5: Free Transform options bar H/V skew fields done |
 | 2026-10-12 | minor | G9: toolbar tool shortcut editing (#4086); the remaining workspace gaps stay open |
 | 2026-10-12 | minor | G1: #2465 (CS2 `PlLd`-only smart objects) marked fixed |
 | 2026-10-12 | minor | G5: spring-loaded tool letters done (#2672) |

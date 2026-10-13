@@ -114,6 +114,13 @@
 	Script Events Manager…	Správce událostí skriptů…
 	Import	Import
 	Browse…	Procházet…
+	Source Files	Zdrojové soubory
+	Use:	Použít:
+	Files	Soubory
+	Add Open Files	Přidat otevřené soubory
+	Sort By Name	Seřadit podle názvu
+	Attempt to Automatically Align Source Images	Pokusit se automaticky zarovnat zdrojové obrazy
+	Create Smart Object after Loading Layers	Po načtení vrstev vytvořit chytrý objekt
 	Reveal in Finder	Zobrazit ve Finderu
 	Show in Explorer	Zobrazit v Průzkumníkovi
 	Show in Folder	Zobrazit ve složce
@@ -154,6 +161,8 @@
 	Transform Again on a Copy	Duplikovat a opakovat transformaci
 	Scale	Měřítko
 	Rotate	Otočit
+	Set horizontal skew	Nastavit vodorovné zkosení
+	Set vertical skew	Nastavit svislé zkosení
 	Skew	Zkosit
 	Distort	Zkreslit
 	Perspective	Perspektiva

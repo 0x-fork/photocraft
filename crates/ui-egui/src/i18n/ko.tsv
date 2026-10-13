@@ -97,6 +97,14 @@
 	Script Events Manager…	스크립트 이벤트 관리자…
 	Import	가져오기
 	Browse…	찾아보기…
+	Source Files	소스 파일
+	Use:	사용:
+	Files	파일
+	Folder	폴더
+	Add Open Files	열린 파일 추가
+	Sort By Name	이름순 정렬
+	Attempt to Automatically Align Source Images	소스 이미지 자동 정렬 시도
+	Create Smart Object after Loading Layers	레이어를 불러온 후 스마트 오브젝트 만들기
 	Reveal in Finder	Finder에서 보기
 	Show in Explorer	파일 탐색기에서 보기
 	Show in Folder	폴더에서 보기
@@ -137,6 +145,8 @@
 	Transform Again on a Copy	사본에 변형 다시 적용
 	Scale	크기 조절
 	Rotate	회전
+	Set horizontal skew	가로 기울이기 설정
+	Set vertical skew	세로 기울이기 설정
 	Skew	기울이기
 	Distort	왜곡
 	Perspective	원근
