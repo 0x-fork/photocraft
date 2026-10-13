@@ -10,7 +10,10 @@ use photocraft_doc::LayerContent;
 use photocraft_geom::Rect;
 use photocraft_paint::mixer::{MixerSettings, apply_mixer_stroke};
 use photocraft_paint::replace::{Limits, ReplaceMode, ReplaceSettings, Sampling, apply_color_replacement, color_replacement_effect};
-use photocraft_paint::{BrushPreset, BrushSettings, GrayTile, PresetCaptures, Stroke, StrokePoint, StrokeRenderer, TipShape, render_stroke};
+use photocraft_paint::tile::PREVIEW_SIDE;
+use photocraft_paint::{
+    BrushPreset, BrushSettings, GrayTile, Pattern, PresetCaptures, StoredTile, Stroke, StrokePoint, StrokeRenderer, TipShape, render_stroke,
+};
 use photocraft_raster::Surface;
 use serde_json::{Value, json};
 
@@ -773,6 +776,7 @@ fn presets_save(s: &mut Session, p: &Value) -> Result<Value> {
     upsert(s, BrushPreset { name: name.clone(), brush, builtin: false, group: String::new(), folder: Vec::new(), captures });
     // The saved brush is the current brush now (Photoshop selects the brush it just saved).
     s.tools.current_preset = Some(name.clone());
+    s.tools.brush_changed();
     Ok(json!({ "name": name, "count": s.tools.presets.len() }))
 }
 
@@ -786,6 +790,8 @@ fn presets_delete(s: &mut Session, p: &Value) -> Result<Value> {
     }
     if s.tools.current_preset.as_ref().is_some_and(|c| c.eq_ignore_ascii_case(&name)) {
         s.tools.current_preset = None;
+        // The remembered brush names the preset it was picked from: the name went away.
+        s.tools.brush_changed();
     }
     s.brush_presets_changed();
     Ok(json!({ "count": s.tools.presets.len() }))
@@ -823,6 +829,7 @@ fn presets_set_current(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(bad(cmd, format!("no brush preset named `{name}`")));
     }
     s.tools.current_preset = Some(name.clone());
+    s.tools.brush_changed();
     Ok(json!({ "name": name }))
 }
 
@@ -889,6 +896,7 @@ fn define_from_selection(s: &mut Session, p: &Value) -> Result<Value> {
     upsert(s, BrushPreset { name: name.clone(), brush: brush.clone(), builtin: false, group: String::new(), folder: Vec::new(), captures: Default::default() });
     s.tools.brush = brush;
     s.tools.current_preset = Some(name.clone());
+    s.tools.brush_changed();
     Ok(json!({ "name": name, "width": tw, "height": th }))
 }
 
@@ -948,7 +956,68 @@ pub(crate) fn set_brush(s: &mut Session, p: &Value) -> Result<Value> {
         Some(k) => s.tools.brush_gesture = Some((k.to_string(), before)),
         None => s.tools.brush_gesture = None,
     }
+    // The one accepted brush change everyone (UI sliders, control channel, presets) lands here.
+    s.tools.brush_changed();
     Ok(brush_json(&s.tools.brush))
+}
+
+/// Remember the current brush in `Preferences::last_brush` (see [`remembered_brush`]). Called
+/// every frame while the pointer is up, so it is change-driven: `ToolState::brush_rev` is compared
+/// with the revision already saved and an unchanged brush clones and serialises nothing.
+pub fn remember_brush(s: &mut Session) {
+    if s.tools.brush_rev == s.tools.brush_saved_rev {
+        return;
+    }
+    let Some(now) = remembered_brush(s) else { return };
+    if s.prefs().last_brush != now {
+        s.prefs.edit(|p| p.last_brush = now);
+    }
+    s.tools.brush_saved_rev = s.tools.brush_rev;
+}
+
+/// The current brush as JSON for `Preferences::last_brush`: settings plus tip references, no full
+/// bitmap. `None` while a sampled bitmap too big to embed is current (only before the store
+/// externalizes it; see [`ref_tip`]), so the previous remembered brush stands.
+fn remembered_brush(s: &Session) -> Option<Value> {
+    let b = &s.tools.brush;
+    let (tip, dual, pattern) = (ref_tip(&b.tip)?, ref_tip(&b.dual_brush.tip)?, ref_pattern(&b.texture.pattern)?);
+    let mut c = b.clone();
+    (c.tip, c.dual_brush.tip, c.texture.pattern) = (tip, dual, pattern);
+    Some(json!({ "preset": s.tools.current_preset.clone(), "brush": serde_json::to_value(&c).ok()? }))
+}
+
+/// Restore `Preferences::last_brush` into the session at launch (a missing or malformed value
+/// keeps the default brush). Stored tips load when the preset store attaches.
+pub fn restore_brush(s: &mut Session) {
+    let v = s.prefs().last_brush.clone();
+    let Some(patch) = v.get("brush").filter(|b| b.is_object()) else { return };
+    let Ok(mut b) = merge_brush(&BrushSettings::default(), patch, "brush.restore") else { return };
+    if validate_brush(&b, "brush.restore").is_err() {
+        return;
+    }
+    let _ = s.load_brush_tips(&mut b);
+    s.tools.brush = b;
+    s.tools.current_preset = v.get("preset").and_then(Value::as_str).map(str::to_string);
+    // What was just restored is exactly what the preferences hold: nothing new to write.
+    s.tools.brush_saved_rev = s.tools.brush_rev;
+}
+
+/// A tip for remembering: a loaded stored tip drops its full bitmap (it serialises as a reference
+/// then); a sampled bitmap bigger than a preview would enter the prefs document whole.
+fn ref_tip(t: &TipShape) -> Option<TipShape> {
+    match t {
+        TipShape::Stored(r) if r.full.is_some() => Some(TipShape::Stored(StoredTile { full: None, ..r.clone() })),
+        TipShape::Sampled(g) if g.width > PREVIEW_SIDE || g.height > PREVIEW_SIDE => None,
+        t => Some(t.clone()),
+    }
+}
+
+fn ref_pattern(p: &Pattern) -> Option<Pattern> {
+    match p {
+        Pattern::Stored(r) if r.full.is_some() => Some(Pattern::Stored(StoredTile { full: None, ..r.clone() })),
+        Pattern::Tile(g) if g.width > PREVIEW_SIDE || g.height > PREVIEW_SIDE => None,
+        p => Some(p.clone()),
+    }
 }
 
 /// The brush as JSON with the bitmaps (sampled tips, pattern tiles) that `skip` names replaced by

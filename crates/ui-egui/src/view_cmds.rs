@@ -1060,6 +1060,16 @@ pub fn form_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     egui::Grid::new("form-dialog").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         for k in keys {
             let v = f.get(&k).cloned().unwrap_or(Value::Null);
+            if k == "naming" && f.get("__command").and_then(Value::as_str) == Some("file.automate.batch") {
+                let label = ui.label(tl!("File Naming"));
+                let mut naming = v.as_str().unwrap_or_default().to_owned();
+                ui.add(egui::TextEdit::singleline(&mut naming).desired_width(260.0).hint_text("{name}"))
+                    .labelled_by(label.id)
+                    .on_hover_text("{name} · {serial} · {date} (UTC)");
+                f.insert(k, json!(naming));
+                ui.end_row();
+                continue;
+            }
             if k == "quality" && f.get("__command").and_then(Value::as_str) == Some("file.automate.batch") {
                 ui.label(label(&k));
                 let mut custom = v.as_f64().is_some();
@@ -1309,7 +1319,7 @@ fn front(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<Val
             let name = action.name.clone();
             dialog(
                 app,
-                json!({"action": name, "steps": steps, "input": dir, "output": format!("{dir}/batch"), "format": "same", "quality": null, "__batchQuality": 8}),
+                json!({"action": name, "steps": steps, "input": dir, "output": format!("{dir}/batch"), "format": "same", "quality": null, "__batchQuality": 8, "naming": "", "startingSerial": 1}),
                 json!({"format": ["same", "png", "jpg", "psd", "tiff", "webp"]}),
             )
         }

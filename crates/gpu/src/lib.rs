@@ -178,6 +178,13 @@ type ResKey = (LayerId, Role, Cell);
 /// larger than the texture limit.
 type FxKey = (LayerId, Option<Cell>);
 
+struct CachedPattern {
+    fingerprint: u64,
+    format: PixelFormat,
+    default_bits: Vec<u32>,
+    texture: Tex,
+}
+
 struct Resident {
     texture: wgpu::Texture,
     view: wgpu::TextureView,
@@ -412,7 +419,7 @@ pub struct Compositor {
     prefix: prefix::Prefix,
     /// Effect temporaries (R32F, region sized) and the frame they were last used.
     temps: Vec<(Tex, u64)>,
-    patterns: HashMap<String, (u64, Tex)>,
+    patterns: HashMap<String, CachedPattern>,
     /// The colour mode of the document being encoded: patterns paint in it
     /// (`photocraft_compose::pattern::pattern_rgba`).
     pattern_mode: photocraft_color::ColorMode,
@@ -843,6 +850,26 @@ impl Compositor {
         self.residents.retain(|_, r| r.doc != doc);
         self.fx.retain(|_, e| e.doc != doc);
         self.prefix.forget(doc);
+    }
+
+    /// [`Self::forget_doc`] for every document `keep` rejects: what the compositor holds for
+    /// documents that were closed, however their canvas entry went (#4529).
+    pub fn retain_docs(&mut self, keep: impl Fn(DocId) -> bool) {
+        let mut gone: Vec<DocId> =
+            self.residents.values().map(|r| r.doc).chain(self.fx.values().map(|e| e.doc)).chain(self.prefix.doc()).filter(|d| !keep(*d)).collect();
+        gone.sort_by_key(|d| d.0);
+        gone.dedup();
+        for d in gone {
+            self.forget_doc(d);
+        }
+    }
+
+    /// Documents the compositor holds pages, effect maps or a lower-stack composite for.
+    pub fn held_docs(&self) -> Vec<DocId> {
+        let mut docs: Vec<DocId> = self.residents.values().map(|r| r.doc).chain(self.fx.values().map(|e| e.doc)).chain(self.prefix.doc()).collect();
+        docs.sort_by_key(|d| d.0);
+        docs.dedup();
+        docs
     }
 
     /// GPU memory held by cached effect maps (bytes).
@@ -1518,10 +1545,15 @@ impl Compositor {
         });
         let mode = self.pattern_mode;
         let key = format!("{}\u{0}{}\u{0}{mode:?}", pat.id, pat.name);
-        if let Some((f, t)) = self.patterns.get(&key)
-            && *f == fp
+        let format = pat.surface.format();
+        // Unstored tiles read the default pixel, interpreted in the source format.
+        let default_bits: Vec<u32> = pat.surface.default_pixel().iter().map(|v| v.to_bits()).collect();
+        if let Some(cached) = self.patterns.get(&key)
+            && cached.fingerprint == fp
+            && cached.format == format
+            && cached.default_bits == default_bits
         {
-            return t.view.clone();
+            return cached.texture.view.clone();
         }
         let (w, h) = (pat.width, pat.height);
         let px = photocraft_compose::pattern::pattern_rgba(pat, mode);
@@ -1534,7 +1566,7 @@ impl Compositor {
             wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
         );
         let v = t.view.clone();
-        self.patterns.insert(key, (fp, t));
+        self.patterns.insert(key, CachedPattern { fingerprint: fp, format, default_bits, texture: t });
         v
     }
 

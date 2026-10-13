@@ -1118,6 +1118,17 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
             it.color = prefs.menus.colors.get(&it.id).cloned();
         }
     }
+    // Layer › Create Clipping Mask is Photoshop's one Create / Release item: when its shortcut
+    // would release ([`crate::shortcut_dispatch::clip_key_releases`]) it reads Release Clipping
+    // Mask and runs it, keeping that shortcut. The engine's own Release item lives in that slot.
+    items.retain(|i| i.id != "layer.releaseClippingMask");
+    if crate::shortcut_dispatch::clip_key_releases(app)
+        && let Some(item) = items.iter_mut().find(|i| i.id == "layer.createClippingMask")
+    {
+        item.id = "layer.releaseClippingMask".into();
+        item.label = "Release Clipping Mask".into();
+        item.enabled = is_enabled(app, &item.id);
+    }
     items
 }
 
