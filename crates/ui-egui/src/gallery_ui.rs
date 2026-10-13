@@ -21,6 +21,7 @@ use photocraft_raster::{Interrupt, Surface};
 use serde_json::{Map, Value, json};
 
 use crate::PhotocraftApp;
+use crate::edit_history::{EditHistory, Step};
 use crate::filter_dialog::{Kind, parse_spec};
 use crate::theme::Tokens;
 use crate::widgets;
@@ -52,7 +53,10 @@ fn default_params(f: GalleryFilter) -> Map<String, Value> {
     for p in parse_spec(f.params_doc()) {
         let v = match p.kind {
             Kind::Range { default, .. } => json!(default),
-            Kind::Choice(c) => json!(c[0]),
+            Kind::Choice { options, default } => {
+                let initial = default.as_deref().or_else(|| options.first().map(String::as_str)).unwrap_or("");
+                json!(initial)
+            }
             Kind::Bool(b) => json!(b),
             _ => continue,
         };
@@ -88,6 +92,7 @@ pub struct GalleryDialog {
     thumb_src: Surface,
     thumbs: Vec<Option<TextureHandle>>,
     pub preview_ms: f64,
+    history: EditHistory<Vec<EffectLayer>>,
 }
 
 impl GalleryDialog {
@@ -139,6 +144,12 @@ impl GalleryDialog {
         if self.effects.len() > 1 {
             self.effects.remove(self.selected.min(self.effects.len() - 1));
             self.selected = self.selected.saturating_sub(1).min(self.effects.len() - 1);
+        }
+    }
+
+    pub(crate) fn step(&mut self, step: Step) {
+        if self.history.step(&mut self.effects, step) {
+            self.selected = self.selected.min(self.effects.len().saturating_sub(1));
         }
     }
 
@@ -292,6 +303,7 @@ pub fn open(app: &mut PhotocraftApp) -> Result<(), String> {
     let thumb_src = sample(&src, Rect::new(cx - tw / 2, cy - th / 2, cx - tw / 2 + tw, cy - th / 2 + th), k);
     let sel = effects.len() - 1;
     let open_cats = std::array::from_fn(|i| effects[sel].filter.category() == GALLERY_CATEGORIES[i]);
+    let history = EditHistory::new(&effects);
     app.distort.gallery = Some(GalleryDialog {
         layer,
         layer_name,
@@ -313,6 +325,7 @@ pub fn open(app: &mut PhotocraftApp) -> Result<(), String> {
         thumb_src,
         thumbs: vec![None; GalleryFilter::ALL.len()],
         preview_ms: 0.0,
+        history,
     });
     Ok(())
 }
@@ -367,6 +380,7 @@ pub fn control(app: &mut PhotocraftApp, ui: &Value) -> Result<Value, String> {
     if let Some(Value::Object(m)) = ui.get("params") {
         d.cur().params.extend(m.clone());
     }
+    d.history.settle(&d.effects, false);
     match ui.get("zoom") {
         Some(Value::String(s)) if s == "fit" => d.zoom = 0.0,
         // The gallery's own preview zoom, not the canvas (`zoom_levels` doesn't apply): its − / +
@@ -542,6 +556,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let background = app.background_jobs;
     egui::Area::new(egui::Id::new("gallery-dialog")).order(egui::Order::Foreground).fixed_pos(screen.min).show(ctx, |ui| {
         let Some(d) = app.distort.gallery.as_mut() else { return };
+        d.history.settle(&d.effects, ctx.input(|i| i.pointer.any_down()));
         let (full, _) = ui.allocate_exact_size(screen.size(), Sense::hover());
         let painter = ui.painter().clone();
         painter.rect_filled(full, 0.0, t.chrome);
@@ -606,7 +621,8 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 let r = ui.horizontal(|ui| {
                     let (ir, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
                     crate::icons::paint(ui, ir, icon, 14.0, t.icon);
-                    ui.add(egui::Label::new(egui::RichText::new(tl!(*cat)).color(t.text)).sense(Sense::click()))
+                    ui.add(egui::Label::new(egui::RichText::new(tl!(*cat)).color(t.text)).selectable(false).sense(Sense::click()))
+                        .on_hover_cursor(egui::CursorIcon::PointingHand)
                 });
                 if r.inner.clicked() {
                     d.open[ci] = !d.open[ci];
@@ -685,8 +701,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         widgets::slider_row(ui, &label, &mut v, min..=max, "", None);
                         e.params.insert(p.key, json!(v.round()));
                     }
-                    Kind::Choice(options) => {
-                        let mut c = e.params.get(&p.key).and_then(Value::as_str).unwrap_or(&options[0]).to_string();
+                    Kind::Choice { options, default } => {
+                        let initial = default.as_deref().or_else(|| options.first().map(String::as_str)).unwrap_or("");
+                        let mut c = e.params.get(&p.key).and_then(Value::as_str).unwrap_or(initial).to_string();
                         let labels: Vec<String> = options.iter().map(|o| crate::filter_dialog::label(o)).collect();
                         let opts: Vec<(String, &str)> = options.iter().cloned().zip(labels.iter().map(String::as_str)).collect();
                         ui.horizontal(|ui| {

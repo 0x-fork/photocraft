@@ -301,6 +301,16 @@ fn a_disabled_shortcut_says_why() {
     assert!(!h.state().ui.status.is_empty() && h.state().ui.status_error, "the status bar says why");
 }
 
+#[test]
+fn a_disabled_shortcut_uses_the_command_id_translation() {
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+    crate::i18n::with_language(crate::i18n::Lang::from_code("cs").unwrap(), || {
+        super::dispatch(&mut app, &egui::Context::default(), "select.all");
+        assert!(app.ui.status.starts_with("Vybrat vše není k dispozici:"), "{}", app.ui.status);
+        assert!(app.ui.status_error);
+    });
+}
+
 /// #352: ⌥[ ⌥] ⌥, ⌥. and ⇧⌥[ walk the Layers panel's rows from the keyboard.
 #[test]
 fn alt_brackets_walk_the_layers_panel() {
@@ -514,6 +524,36 @@ fn delete_without_a_selection_deletes_every_selected_layer() {
     assert_eq!(names(&h).len(), n - 2);
 }
 
+/// #4025: with several layers selected and no selection, a targeted mask on the active one doesn't
+/// take the key: Delete removes the selected layers in one press, as it does with the layer
+/// targeted. A selection still fills the targeted mask.
+#[test]
+fn delete_with_several_layers_selected_deletes_them_even_with_the_mask_targeted() {
+    let mut h = harness();
+    put_focus(&mut h, Place::Canvas);
+    let s = &mut h.state_mut().session;
+    let first = photocraft_doc::LayerId(s.execute("layer.newAdjustmentLayer.curves", json!({})).unwrap()["layer"].as_u64().unwrap());
+    let second = photocraft_doc::LayerId(s.execute("layer.newAdjustmentLayer.invert", json!({})).unwrap()["layer"].as_u64().unwrap());
+    s.execute("layer.select", json!({"layer": first.0, "mode": "add"})).unwrap();
+    let st = s.active().unwrap();
+    assert_eq!(st.selected_layers().len(), 2);
+    assert!(st.active_layer.and_then(|l| st.doc.layer(l)).is_some_and(|l| l.mask.is_some()), "the active adjustment layer has a mask");
+    assert!(st.doc.selection.is_some(), "the harness keeps a selection");
+    h.state_mut().ui.mask_target = true;
+    h.run_steps(2);
+    let n = names(&h).len();
+    press(&mut h, "Delete");
+    assert_eq!(logged(&h), ["edit.fillBackground"], "a selection edits the mask");
+    assert_eq!(names(&h).len(), n);
+    h.state_mut().session.execute("select.deselect", json!({})).unwrap();
+    h.run_steps(2);
+    press(&mut h, "Delete");
+    assert_eq!(logged(&h), ["layer.delete"]);
+    let doc = &h.state().session.active().unwrap().doc;
+    assert!(doc.layer(first).is_none() && doc.layer(second).is_none(), "both selected layers are gone");
+    assert_eq!(names(&h).len(), n - 2);
+}
+
 /// A selection keeps Edit › Clear: the selected pixels go, the layer stays.
 #[test]
 fn delete_with_a_selection_clears_it() {
@@ -529,8 +569,12 @@ fn delete_with_a_selection_clears_it() {
 #[test]
 fn named_action_function_key_replays_and_survives_preferences_roundtrip() {
     let mut h = harness();
-    let action =
-        photocraft_engine::actions_cmds::Action { name: "LivePrint 2R".into(), steps: vec![("layer.new.layer".into(), json!({"name": "F6 overlay"}))] };
+    let action = photocraft_engine::actions_cmds::Action {
+        name: "LivePrint 2R".into(),
+        steps: vec![("layer.new.layer".into(), json!({"name": "F6 overlay"}))],
+        disabled: Default::default(),
+        ..Default::default()
+    };
     h.state_mut().session.actions.list.push(action);
     crate::actions::assign_shortcut(h.state_mut(), "LivePrint 2R", "F6").unwrap();
     let saved = serde_json::to_value(h.state().session.prefs()).unwrap();
@@ -539,7 +583,7 @@ fn named_action_function_key_replays_and_survives_preferences_roundtrip() {
     h.state_mut().ui.actions.selected = None;
     press(&mut h, "F6");
     assert_eq!(active_name(&h), "F6 overlay");
-    assert_eq!(h.state().ui.status, "Played 1 steps");
+    assert_eq!(h.state().ui.status, "Played 1 step");
     assert!(!h.state().ui.status_error);
     assert_eq!(take_log(&h.ctx), vec![(crate::actions::shortcut_id("LivePrint 2R"), Outcome::Ran)]);
     h.state_mut().run("actions.delete", json!({"action": "LivePrint 2R"})).unwrap();
@@ -551,11 +595,12 @@ fn named_action_function_key_replays_and_survives_preferences_roundtrip() {
 fn assigning_action_function_key_moves_it_and_reports_failed_steps() {
     let mut h = harness();
     for name in ["first", "second"] {
-        h.state_mut()
-            .session
-            .actions
-            .list
-            .push(photocraft_engine::actions_cmds::Action { name: name.into(), steps: vec![("no.such.command".into(), json!({}))] });
+        h.state_mut().session.actions.list.push(photocraft_engine::actions_cmds::Action {
+            name: name.into(),
+            steps: vec![("no.such.command".into(), json!({}))],
+            disabled: Default::default(),
+            ..Default::default()
+        });
     }
     crate::actions::assign_shortcut(h.state_mut(), "first", "F6").unwrap();
     crate::actions::assign_shortcut(h.state_mut(), "second", "F6").unwrap();
@@ -573,6 +618,8 @@ fn action_function_key_checks_automation_authorization() {
     h.state_mut().session.actions.list.push(photocraft_engine::actions_cmds::Action {
         name: "restricted".into(),
         steps: vec![("layer.new.layer".into(), json!({"name": "should not exist"}))],
+        disabled: Default::default(),
+        ..Default::default()
     });
     crate::actions::assign_shortcut(h.state_mut(), "restricted", "F6").unwrap();
     h.state_mut().services.automation_command = Some(Box::new(|id, _| if id == "actions.play" { Err("denied action playback".into()) } else { Ok(()) }));
@@ -609,6 +656,8 @@ fn f6_while_recording_records_a_named_call_not_the_child_steps() {
     h.state_mut().session.actions.list.push(photocraft_engine::actions_cmds::Action {
         name: "LivePrint 2R".into(),
         steps: vec![("layer.new.layer".into(), json!({"name":"Nested overlay"})), ("view.fitOnScreen".into(), json!({}))],
+        disabled: Default::default(),
+        ..Default::default()
     });
     crate::actions::assign_shortcut(h.state_mut(), "LivePrint 2R", "F6").unwrap();
     h.state_mut().run("actions.record", json!({"name":"Action 2"})).unwrap();

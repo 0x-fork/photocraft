@@ -124,7 +124,8 @@ pub fn reset_options(o: &mut ToolOptions, tool: Tool) {
         Tool::Lasso | Tool::PolygonLasso => reset!(feather, anti_alias),
         Tool::MagneticLasso => reset!(feather, anti_alias, magnetic_width, magnetic_contrast, magnetic_frequency, magnetic_pressure),
         Tool::MagicWand => reset!(tolerance, anti_alias, contiguous, sample_all_layers),
-        Tool::QuickSelection | Tool::ObjectSelection => reset!(sample_all_layers, enhance_edge),
+        Tool::QuickSelection => reset!(sample_all_layers, enhance_edge),
+        Tool::ObjectSelection => reset!(sample_all_layers, enhance_edge, object_finder),
         Tool::Crop => reset!(
             crop_ratio,
             crop_delete,
@@ -139,6 +140,7 @@ pub fn reset_options(o: &mut ToolOptions, tool: Tool) {
             crop_custom_ratio_width,
             crop_custom_ratio_height,
         ),
+        Tool::PerspectiveCrop => reset!(crop_width, crop_height, crop_resolution, crop_resolution_unit, perspective_crop_grid),
         Tool::Eyedropper => reset!(eyedropper_size, eyedropper_sample, eyedropper_ring),
         Tool::Pencil => reset!(pencil_auto_erase),
         Tool::BackgroundEraser => reset!(bg_sampling, bg_limits, bg_tolerance, bg_protect_fg),
@@ -146,7 +148,7 @@ pub fn reset_options(o: &mut ToolOptions, tool: Tool) {
         Tool::MagicEraser => reset!(tolerance, anti_alias, contiguous, sample_all_layers, magic_eraser_opacity),
         Tool::Gradient => reset!(gradient_style, gradient_reverse, gradient_dither, gradient_classic, gradient_blend_mode, fill_opacity),
         Tool::PaintBucket => reset!(bucket_fill_pattern, fill_opacity, tolerance, anti_alias, contiguous, sample_all_layers),
-        Tool::Type | Tool::VerticalType => reset!(type_font, type_style, type_size, type_aa, type_align),
+        Tool::Type | Tool::VerticalType | Tool::HorizontalTypeMask | Tool::VerticalTypeMask => reset!(type_font, type_style, type_size, type_aa, type_align),
         Tool::Zoom => reset!(zoom_scrubby),
         Tool::SpotHealing => reset!(spot_type, sample_all_layers),
         Tool::Healing => reset!(clone_aligned, clone_sample),
@@ -159,11 +161,14 @@ pub fn reset_options(o: &mut ToolOptions, tool: Tool) {
         Tool::Smudge => reset!(strength, sample_all_layers, finger_painting),
         Tool::Dodge | Tool::Burn => reset!(tone_range, exposure, protect_tones),
         Tool::Sponge => reset!(sponge_mode, vibrance),
-        Tool::Pen => reset!(vector_mode),
+        Tool::Pen => reset!(vector_mode, pen_auto_add_delete),
+        Tool::CurvaturePen => reset!(vector_mode),
+        Tool::FreeformPen => reset!(vector_mode, curve_fit),
         Tool::Rectangle | Tool::EllipseShape | Tool::Triangle | Tool::Polygon | Tool::Line | Tool::CustomShape => {
             reset!(vector_mode, shape_fill, stroke_width, shape_stroke, corner_radius, polygon_sides, line_weight)
         }
-        Tool::Ruler
+        Tool::ColorSampler
+        | Tool::Ruler
         | Tool::Note
         | Tool::Count
         | Tool::Brush
@@ -178,7 +183,10 @@ pub fn reset_options(o: &mut ToolOptions, tool: Tool) {
         | Tool::Slice
         | Tool::SliceSelect
         | Tool::AddAnchorPoint
-        | Tool::DeleteAnchorPoint => {}
+        | Tool::DeleteAnchorPoint
+        | Tool::ConvertPoint
+        | Tool::Artboard
+        | Tool::Frame => {}
     }
 }
 

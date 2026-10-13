@@ -41,6 +41,9 @@ pub(crate) fn object_model(s: &Session, p: &Value) -> Result<Option<ModelId>> {
 pub(crate) fn inject_model(s: &Session, command: &str, mut params: Value) -> Value {
     let model = match command {
         "select.subject" | "layer.removeBackground" => s.prefs().integrations.subject_model.name(),
+        // Point clicks commit the built-in Object Finder's hover result. SAM supports boxes,
+        // so record Classical for this route even when the saved box preference is SAM.
+        "select.object" if params.get("rect").is_none() && params.get("point").is_some() => "classical",
         "select.object" => s.prefs().integrations.object_model.name(),
         _ => return params,
     };
@@ -431,6 +434,22 @@ mod tests {
     }
 
     #[test]
+    fn learned_subject_runs_independently_of_the_classical_result_cache() {
+        let (mut s, fake) = session("rgb", 16);
+        s.execute("select.subject", json!({"model":"classical"})).unwrap();
+        s.edit_prefs(|p| p.integrations.subject_model = crate::prefs::SubjectModel::BiRefNet);
+        for expected_calls in 1..=2 {
+            let result = s.execute("select.subject", json!({})).unwrap();
+            assert_eq!(result["model"], "birefnet-hr-matting");
+            assert_eq!(fake.calls.lock().unwrap().len(), expected_calls);
+            assert_eq!(cov(&s, 0), 0.0);
+            assert_eq!(cov(&s, 7), 1.0);
+        }
+        s.execute("select.subject", json!({"model":"classical"})).unwrap();
+        assert_eq!(fake.calls.lock().unwrap().len(), 2);
+    }
+
+    #[test]
     fn recorded_actions_keep_the_selected_method_when_preferences_change() {
         let (mut s, fake) = session("rgb", 8);
         s.edit_prefs(|p| {
@@ -476,7 +495,7 @@ mod tests {
         assert_eq!(fake.calls.lock().unwrap().len(), 1);
         // Current upstream supports called actions in batch. Keep that action list alongside
         // the host-granted backend and method preference; losing either breaks this call.
-        s.actions.list.push(crate::actions_cmds::Action { name: "Models".into(), steps: vec![("select.subject".into(), json!({}))] });
+        s.actions.list.push(crate::actions_cmds::Action::new("Models", vec![("select.subject".into(), json!({}))]));
         let called_action = json!({"steps":[["actions.play",{"action":"Models"}]],"input":[input],"output":output});
         let result = s.execute("file.automate.batch", called_action.clone()).unwrap();
         assert_eq!(result["errors"], json!([]), "{result}");

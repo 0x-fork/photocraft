@@ -184,7 +184,9 @@ pub fn add_anchor(path: &mut Path, knot: [usize; 2], t: f64) -> Result<[usize; 2
     let a = *knot_mut(path, knot)?;
     let b = *knot_mut(path, end)?;
     let new = if retracted(&a, Handle::Out) && retracted(&b, Handle::In) {
-        let p = lerp(a.anchor, b.anchor, t);
+        // Hit testing and hover feedback use the cubic parameter, which is not linear even
+        // when both handles are retracted. Keep the inserted corner at that same point.
+        let p = eval(&[a.anchor, a.out_ctrl, b.in_ctrl, b.anchor], t);
         Knot::corner(p.x, p.y)
     } else {
         let (p01, p12, p23) = (lerp(a.anchor, a.out_ctrl, t), lerp(a.out_ctrl, b.in_ctrl, t), lerp(b.in_ctrl, b.anchor, t));
@@ -237,6 +239,53 @@ pub fn anchors_in(path: &Path, [x0, y0, x1, y1]: [f64; 4]) -> Vec<[usize; 2]> {
         }
     }
     out
+}
+
+/// The Curvature Pen's knots, `[anchor, in, out]`, through `anchors`: a smooth curve that passes
+/// through every anchor, Catmull-Rom style. An inner anchor's handles lie on the line parallel
+/// to its neighbours' chord (so they are collinear), each a third of the distance to the
+/// neighbour on its side long (the chordal scaling that keeps uneven spacing from overshooting).
+/// The ends of an open path aim at their neighbour's nearer handle. `corners[i]` retracts anchor
+/// `i`'s handles (a corner point); a missing entry is smooth. Coincident points give retracted
+/// handles, never NaN.
+pub fn curvature_knots(anchors: &[[f64; 2]], corners: &[bool], closed: bool) -> Vec<[[f64; 2]; 3]> {
+    let n = anchors.len();
+    let mut knots: Vec<[[f64; 2]; 3]> = anchors.iter().map(|&a| [a; 3]).collect();
+    let dist = |a: [f64; 2], b: [f64; 2]| (b[0] - a[0]).hypot(b[1] - a[1]);
+    let unit = |a: [f64; 2], b: [f64; 2]| {
+        let l = dist(a, b);
+        (l > 1e-9).then(|| [(b[0] - a[0]) / l, (b[1] - a[1]) / l])
+    };
+    let corner = |i: usize| corners.get(i).copied().unwrap_or(false);
+    let inner = |i: usize| closed || (i > 0 && i + 1 < n);
+    for (i, &p) in anchors.iter().enumerate() {
+        if n < 3 || corner(i) || !inner(i) {
+            continue;
+        }
+        let prev = anchors[(i + n - 1) % n];
+        let next = anchors[(i + 1) % n];
+        let Some(d) = unit(prev, next).or_else(|| unit(p, next)) else { continue };
+        let (li, lo) = (dist(prev, p) / 3.0, dist(p, next) / 3.0);
+        knots[i] = [p, [p[0] - d[0] * li, p[1] - d[1] * li], [p[0] + d[0] * lo, p[1] + d[1] * lo]];
+    }
+    if !closed && n >= 3 {
+        for (end, nb, take_in) in [(0, 1, true), (n - 1, n - 2, false)] {
+            if corner(end) {
+                continue;
+            }
+            let p = anchors[end];
+            let aim = if take_in { knots[nb][1] } else { knots[nb][2] };
+            let Some(d) = unit(p, aim) else { continue };
+            let l = dist(p, anchors[nb]) / 3.0;
+            let h = [p[0] + d[0] * l, p[1] + d[1] * l];
+            if take_in {
+                knots[end][2] = h;
+            } else {
+                knots[end][1] = h;
+            }
+        }
+    }
+    knots
 }
 
 /// The point at parameter `t` of the cubic segment `[anchor, out, in, anchor]`.
@@ -407,13 +456,35 @@ mod tests {
     }
 
     #[test]
+    fn adding_to_a_straight_segment_uses_the_hit_position() {
+        for (points, closed) in [
+            (vec![(0.0, 0.0), (100.0, 0.0)], false),
+            (vec![(0.0, 0.0), (0.0, 100.0)], false),
+            (vec![(0.0, 0.0), (100.0, 100.0)], false),
+            (vec![(0.0, 0.0), (100.0, 0.0), (100.0, 100.0)], true),
+        ] {
+            for t in [0.25, 0.75] {
+                let sp = if closed { Subpath::polygon(&points) } else { Subpath::polyline(&points) };
+                let mut p = Path::new(vec![sp]);
+                let segment = if closed { 2 } else { 0 };
+                let clicked = eval(&p.subpaths[0].segments()[segment], t);
+                let Some(Hit::Segment(knot, hit_t)) = hit(&p, clicked, 1.0, &[]) else { panic!("expected a segment hit at {clicked:?}") };
+                let added = add_anchor(&mut p, knot, hit_t).unwrap();
+                let inserted = at(&p, added[0], added[1]);
+                assert!(dist(inserted.anchor, clicked) < 1e-9, "t={t}: inserted {:?}, clicked {clicked:?}", inserted.anchor);
+                assert_eq!(inserted, Knot::corner(clicked.x, clicked.y), "straight segments retain retracted handles");
+            }
+        }
+    }
+
+    #[test]
     fn adding_to_a_straight_segment_makes_a_corner_on_the_line() {
         let mut p = tri();
         // The closing segment (2 → 0) wraps: the new anchor goes last.
         assert_eq!(add_anchor(&mut p, [0, 2], 0.5).unwrap(), [0, 3]);
         assert_eq!(at(&p, 0, 3), Knot::corner(25.0, 40.0));
         assert_eq!(add_anchor(&mut p, [0, 0], 0.25).unwrap(), [0, 1]);
-        assert_eq!(at(&p, 0, 1), Knot::corner(25.0, 0.0));
+        assert_eq!(at(&p, 0, 1), Knot::corner(15.625, 0.0));
         assert_eq!(p.subpaths[0].knots.len(), 5);
         assert!(p.subpaths[0].closed);
     }

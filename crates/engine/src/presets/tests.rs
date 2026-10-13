@@ -61,6 +61,32 @@ fn gradient_builtins_and_listing() {
 }
 
 #[test]
+fn rainbow_gradient_presets() {
+    let mut s = session(8);
+    let v = s.execute("gradient.presets.list", json!({})).unwrap();
+    let group = v["groups"].as_array().unwrap().iter().find(|g| g["name"] == "Rainbows").unwrap();
+    let presets = group["presets"].as_array().unwrap();
+    let names: Vec<&str> = presets.iter().map(|p| p["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["Rainbow", "Pastel Rainbow", "Neon Rainbow", "Oil Slick", "Rainbow Fade"]);
+    // The three hue ramps share the same 13 evenly spaced hues: smooth, not the 7 coarse ROYGBIV points.
+    for p in [&presets[0], &presets[1], &presets[2]] {
+        let stops = p["stops"].as_array().unwrap();
+        assert_eq!(stops.len(), 13, "{}", p["name"]);
+        assert_eq!(stops[0][0], json!(0.0));
+        assert_eq!(stops[12][0], json!(1.0));
+    }
+    assert_eq!(presets[3]["stops"].as_array().unwrap().len(), 11, "oil slick");
+    assert_eq!(presets[4]["transparency"], json!([[0.0, 0.0], [0.125, 100.0], [0.875, 100.0], [1.0, 0.0]]));
+    // Rainbow Fade paints opaque across the middle and transparent at both ends.
+    s.execute("gradient.presets.select", json!({"preset": "Rainbow Fade"})).unwrap();
+    s.execute("layer.new.layer", json!({})).unwrap();
+    s.execute("paint.gradient", json!({"from": [0, 0], "to": [63, 0]})).unwrap();
+    assert!(layer_px(&s, 0, 5)[3] < 0.1, "left edge transparent: {:?}", layer_px(&s, 0, 5));
+    assert!(layer_px(&s, 63, 5)[3] < 0.1, "right edge transparent: {:?}", layer_px(&s, 63, 5));
+    assert!(layer_px(&s, 32, 5)[3] > 0.95, "middle opaque: {:?}", layer_px(&s, 32, 5));
+}
+
+#[test]
 fn gradient_tool_uses_selected_preset_at_every_depth() {
     for depth in [8, 16, 32] {
         let mut s = session(depth);
@@ -357,6 +383,43 @@ fn pattern_groups_select_apply_and_sync() {
     // Deleting a group deletes its patterns from the library.
     s.execute("pattern.presets.edit", json!({"action": "deleteGroup", "group": "Textures"})).unwrap();
     assert!(crate::pattern_cmds::resolve(&s, "Weave").is_none());
+}
+
+#[test]
+fn pattern_batch_delete_keeps_the_library_when_one_name_is_missing() {
+    let mut s = session(8);
+    let before = s.execute("pattern.presets.list", json!({})).unwrap();
+    let err = s.execute("pattern.presets.edit", json!({"action": "delete", "preset": ["Bricks", "missing"]})).unwrap_err();
+    assert!(err.to_string().contains("missing"), "{err}");
+    assert_eq!(s.execute("pattern.presets.list", json!({})).unwrap(), before);
+    assert!(crate::pattern_cmds::resolve(&s, "Bricks").is_some());
+}
+
+#[test]
+fn pattern_batch_delete_rejects_non_string_members_without_deleting() {
+    for invalid in [json!(null), json!(7), json!({})] {
+        let mut s = session(8);
+        let before = s.execute("pattern.presets.list", json!({})).unwrap();
+        assert!(s.execute("pattern.presets.edit", json!({"action": "delete", "preset": ["Bricks", invalid]})).is_err());
+        assert_eq!(s.execute("pattern.presets.list", json!({})).unwrap(), before);
+    }
+}
+
+#[test]
+fn pattern_batch_delete_refuses_a_document_only_pattern_up_front() {
+    let mut s = session(8);
+    let added = s.execute("edit.definePattern", json!({"name": "Document Only"})).unwrap();
+    let id = added["pattern"].as_str().unwrap().to_string();
+    let pattern = s.patterns.items.iter().find(|p| p.id == id).unwrap().clone();
+    s.edit("Embed pattern fixture", |doc, _| {
+        doc.patterns.push(pattern.clone());
+        Ok(())
+    })
+    .unwrap();
+    s.execute("pattern.delete", json!({"pattern": id})).unwrap();
+    let before = s.patterns.items.clone();
+    assert!(s.execute("pattern.presets.edit", json!({"action": "delete", "preset": ["Bricks", id]})).is_err());
+    assert_eq!(s.patterns.items, before, "nothing is deleted when one entry is not in the library");
 }
 
 // ------------------------------------------------------------------ styles

@@ -39,6 +39,11 @@ option affects the classical method only: applying classical refinement to BiRef
 would change the matte. Existing layer/parent locks still apply. Selection commands retain
 replace/add/subtract/intersect and active-layer/composite sampling.
 
+Object Finder hover previews and point clicks use the built-in classical method, including
+when SAM is selected for boxes. Recorded point actions store Classical. An explicit SAM
+request with a point is rejected: this model export supports rectangle prompts only.
+The classical Select Subject result cache remains available independently of model inference.
+
 Missing or corrupt weights produce an actionable error; inference never downloads or silently
 changes methods. **Remove download** removes only the selected model and returns its preference
 to Classical. A cancelled job never applies its document result. Cancellation during model
@@ -65,7 +70,7 @@ from the native CPU build matrix.
 | `models.download` | `{"id":"birefnet-hr-matting"}` or `{"id":"sam2.1-large"}` |
 | `models.remove` | Same ids; no document required |
 | `select.subject`, `layer.removeBackground` | `"model":"classical"` or `"birefnet-hr-matting"`; omitted uses Preferences |
-| `select.object` | `"rect":[x,y,width,height]`, plus `"model":"classical"` or `"sam2.1-large"` |
+| `select.object` | `"rect":[x,y,width,height]`, plus `"model":"classical"` or `"sam2.1-large"`; `"point":[x,y]` uses Classical Object Finder |
 
 Downloads/removals do not enter recorded actions or document history. Commands accept catalogue
 ids, never arbitrary URLs or model paths. Recorded selection/removal actions store the chosen

@@ -14,6 +14,8 @@
 | Solarized Dark | Ethan Schoonover's Solarized palette: base03 canvas, base02 panels, base0 text, Solarized blue accent |
 | Breeze Light | An adaptation of KDE Plasma's Breeze Light on the Studio layout: cool light blue-grey surfaces a few levels from Breeze's so the app blends into a Plasma desktop, Breeze-style blue accent, 5 px radii, red close button on hover; text and status colours are darker than Breeze's for contrast |
 | Breeze Dark | The same for Breeze Dark: cool dark blue-grey surfaces (darkest canvas, then dock, cards, chrome and controls) near Breeze's, blue accent, 5 px radii; secondary text and status colours are lighter than Breeze's for contrast |
+| Soft Dark | Low-contrast dark on the Studio layout: muted violet-grey surfaces (never near-black), softened off-white text, periwinkle accent, generous 7/10/14 px radii; text still holds 4.5:1 on every surface (`theme.rs` tests) |
+| Soft Light | The light counterpart: pale violet-grey surfaces, softened dark-violet text instead of black, periwinkle accent, the same radii |
 
 Both Breeze themes are our own values close to Plasma's (not a copy of its colour schemes) and put text readability first: every text colour holds 4.5:1 on every surface and on hovered, pressed and selected states (`theme.rs` tests), so their secondary text, accent and status colours are darker (Light) or lighter (Dark) than Breeze's own, and the primary button is a deeper blue with white text.
 
@@ -21,12 +23,13 @@ Edit → Preferences → Interface shows an Appearance Mode selector (Sync with 
 
 Window → Theme and macOS PhotoCraft → Appearance also offer Sync with system. Its checkmark follows the saved Auto mode rather than the displayed palette; choosing a manual theme selects its fixed appearance mode.
 
-The toolbar's foreground and background colour chips follow the `Tokens::round_chips` flag. Pro and Classic leave it off and draw Photoshop's overlapping squares with Default Colors and Switch Colors above them. Studio, Studio Light, Solarized Dark, Adwaita, Adwaita Dark, Breeze Light and Breeze Dark (the Studio-layout themes) turn it on and draw large round chips with a curved Switch Colors arrow centred right under them, its heads touching the chips: stacked vertically in one tool column, with Default Colors at their top-right, and side by side in two tool columns, with Default Colors at the toolbar's left edge. Another non-Pro theme can opt in by setting the flag.
+The toolbar's foreground and background colour chips follow the `Tokens::round_chips` flag. Pro and Classic leave it off and draw Photoshop's overlapping squares with Default Colors and Switch Colors above them. Studio, Studio Light, Solarized Dark, Adwaita, Adwaita Dark, Breeze Light, Breeze Dark, Soft Dark and Soft Light (the Studio-layout themes) turn it on and draw large round chips with a curved Switch Colors arrow centred right under them, its heads touching the chips: stacked vertically in one tool column, with Default Colors at their top-right, and side by side in two tool columns, with Default Colors at the toolbar's left edge. Another non-Pro theme can opt in by setting the flag.
 
 ## Rules
 
 - **Colours and radii come from tokens.** Read them with `Tokens::get(ctx)`; never hard-code a colour in a widget.
-- **Shared widgets live in `widgets.rs`:** `card` (panel group; Pro renders a Photoshop tab strip), `value_field`, `slider`/`slider_row`, `toggle`/`checkbox`, `primary_button`/`secondary_button`, `dropdown` (with a chevron icon), `hairline`/`vline`.
+- **Shared widgets live in `widgets.rs`:** `card` (panel group; Pro renders a Photoshop tab strip), `value_field`, `slider`/`slider_row`, `toggle`/`checkbox`, `primary_button`/`secondary_button`, `dropdown` (with a chevron icon), `hairline`/`vline`, `elided_label`.
+- **A label never overflows its row.** Wrap by default. Beside a fixed-width control, or anywhere the row cannot reflow, use `widgets::elided_label(ui, text, max_w)`: a longer translation shrinks with `…` and shows the full string on hover instead of running over its neighbours (#3580). A *redundant* caption may be dropped on a narrow dock where its control already carries the meaning (e.g. the Layers lock icons); an *essential* one elides. This mirrors Photoshop: a fixed layout with elision and tooltips, not per-locale reflow.
 - **Icons:** Lucide SVGs in `assets/icons` (ISC licence), embedded via `icon_data.rs`. Regenerate that file when you add icons.
 - **Fonts:** Inter (UI) and JetBrains Mono (numbers), both OFL. Named families `medium` and `semibold` are available via `theme::medium()` and `theme::semibold()`.
 - **Photoshop layout grammar (Pro):**
@@ -55,7 +58,19 @@ curl -sfL -o assets/icons/<name>.svg https://raw.githubusercontent.com/lucide-ic
 | Quick layer pick | `quick_pick.rs` | macOS: ⌘⌥⌃-click with any tool selects the topmost visible layer with pixels under the pointer (`layer.pickAt`) without switching tools; the drag and release are swallowed. Windows/Linux have no third modifier distinct from the ⌃⌥ brush resize, so the gesture is a no-op there (use the Move tool's Auto-Select). A failed pick is a status-bar error. |
 | Layers rows | `panels.rs` | Double-click: on the name renames in place; on the Background makes it a normal layer; on an adjustment or fill thumbnail opens its Properties; on a Smart Object thumbnail opens its contents (Edit Contents); anywhere else on the row opens Layer Style. |
 | Layer masks | `panels.rs` | Clicking the mask thumbnail targets the mask (corner-bracket frame; the tab reads "Layer, Layer Mask/8"). Brush, eraser (paints background colour), gradient, bucket and moving the selected pixels (⌘-drag, `select.float`; the hole takes the background colour) then send `"target": "mask"`. Adjustment and fill layers target their mask automatically. |
+| Path thumbnails | `vector_ui.rs` | Ctrl/Cmd-click the thumbnail of a Work Path, saved path or layer path to load it as a selection; Shift adds, Alt subtracts, Shift+Alt intersects. Clicking the row name only selects the path. |
 | Levels / Curves | `tone.rs` | Histogram of the image *below* the adjustment. Curves: click to add a point, drag out to delete. Every change is a coalesced `layer.setAdjustment`, so one drag = one undo step and the canvas updates at full resolution on the GPU. |
+| Shape Stroke Options | `shape_stroke_ui.rs`, `vector_ui.rs` | Direct editing: valid changes apply immediately, with one numeric drag per undo step in Properties. Escape/outside click closes the popup and retains changes; a child dropdown keeps the parent open. The options bar sets new-shape defaults; Properties edits the selected shape. |
+
+Shape Stroke Options (updated 2026-10-11) sizes to its content and scrolls only when necessary.
+It has no Apply/Cancel footer. Solid, Dashed and Dotted are full clickable rows with line
+samples and visible selection; opening the editor alone never changes a shape. Invalid pending
+numeric input leaves the last valid style in effect. Fill and Stroke use clickable swatches
+and the existing compact colour picker, preserving alpha and offering No Color. The style
+button remains available when no stroke is set; deliberately choosing a stroke colour or
+style enables a 3 px stroke. Colours, borders and selection treatments come from theme tokens.
+These tool defaults are serde state, but are not restored across app restarts. See
+[`shape-strokes.md`](shape-strokes.md) for geometry, colour-management and persistence limits.
 
 While editing type, hold Ctrl (Windows/Linux) or Command (macOS) for an oriented transform
 frame. Drag inside to move, a corner to scale (Shift keeps proportions; Alt/Option scales about
@@ -153,11 +168,9 @@ change the current window's decorations; the next launch reads the saved choice.
 
 Edit → Preferences → Interface → UI Scale applies immediately. Auto follows the operating
 system's display scale, including fractional scales such as 125%, 150% and 175% (on Linux,
-Wayland's fractional scale or X11's `Xft.dpi`). Only when the system reports no scaling (100%) on
-a 4K or larger monitor does Auto use 200%, so text and controls remain readable. Detection uses the current monitor,
-including portrait displays, and updates when the window moves between monitors. If monitor
-size is unavailable, Auto follows system DPI. The fixed choices (75% to 300%) set an absolute UI
-scale, allowing large 4K displays to use smaller controls when desired. Canvas zoom shortcuts
+Wayland's fractional scale or X11's `Xft.dpi`), and updates when the window moves between
+monitors. A 4K display the system runs at 100% stays at 100% (#1278). The fixed choices (75% to
+300%) set an absolute UI scale, for example 200% on an unscaled 4K display. Canvas zoom shortcuts
 continue to control the document independently of UI scaling.
 
 Interface → UI Font Size changes interface text independently of UI Scale and canvas zoom.
@@ -212,7 +225,7 @@ themselves). A test fails when a `tl!` literal, a menu string, a blend mode name
 preference label has no entry in a language marked `complete_menus`. Not translated: status-bar
 messages and errors (they stay English, also for agents), names that are user data (layers, styles,
 documents), strings assembled with `format!` that were not converted to `fmt`/`trn`. Not done yet:
-right-to-left layout,
+right-to-left layout inside panels and dialogs (the shell mirrors, `direction.rs`),
 locale-aware number and date formats, automatic language detection on the web build (native
 builds read `LANG`/`LC_*`, the macOS preferred languages and the Windows user locale).
 
