@@ -1248,6 +1248,16 @@ fn prefs_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Va
 /// The catalogue and lifecycle come from the engine. Downloads/removals are immediate jobs;
 /// model choices are preferences, committed by the dialog's existing Apply/OK controls.
 fn local_model_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, obj: &mut Map<String, Value>) {
+    // The Preferences grid can leave a wider layout than its visible scroll area. Bound this
+    // child to the clip rectangle so long translations wrap inside the actual dialog.
+    let width = ui.available_width().min((ui.clip_rect().right() - ui.next_widget_position().x - 8.0).max(1.0));
+    ui.scope(|ui| {
+        ui.set_max_width(width);
+        local_model_rows_inner(app, ui, obj);
+    });
+}
+
+fn local_model_rows_inner(app: &mut PhotocraftApp, ui: &mut egui::Ui, obj: &mut Map<String, Value>) {
     let t = Tokens::get(ui.ctx());
     let status = app.session.local_model_status();
     let available = status["available"].as_bool().unwrap_or(false);
