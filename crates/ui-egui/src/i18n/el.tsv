@@ -3823,3 +3823,13 @@ curves	Smooth	Εξομάλυνση
 @plural	{n} action|{n} actions	{n} ενέργεια|{n} ενέργειες
 	Auto Add/Delete	Αυτόματη προσθήκη/διαγραφή
 	ICO is limited to 256 × 256 pixels	Το ICO περιορίζεται σε 256 × 256 εικονοστοιχεία
+	Calibration	Βαθμονόμηση
+	Red Primary	Κόκκινο πρωτεύον
+	Green Primary	Πράσινο πρωτεύον
+	Blue Primary	Μπλε πρωτεύον
+	Write xmp sidecars	Εγγραφή συνοδευτικών αρχείων XMP
+	Set the tone sliders from the image	Ορισμός των ρυθμιστικών τόνων από την εικόνα
+	Settings from {name}	Ρυθμίσεις από {name}
+	Settings from {name}; {count} not supported: {names}	Ρυθμίσεις από {name}· {count} δεν υποστηρίζονται: {names}
+	Could not write {name}: {error}	Αδυναμία εγγραφής του {name}: {error}
+	Shadow Tint	Χροιά σκιών

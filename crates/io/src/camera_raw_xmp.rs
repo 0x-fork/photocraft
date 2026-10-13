@@ -3,8 +3,9 @@
 //! `x:xmpmeta/rdf:RDF/rdf:Description`, as attributes or as child elements.
 //!
 //! Loading applies only the settings the file holds, over the current ones, as Camera Raw's
-//! Load Settings does; settings PhotoCraft has no control for (lens corrections, calibration,
-//! geometry, defringe, …) are ignored and named in the report. Saving writes every supported
+//! Load Settings does; settings PhotoCraft has no control for (lens corrections, geometry,
+//! defringe, …) are ignored and named in the report. The same reader fills the dialog from a
+//! raw file's sidecar (`IMG_0001.xmp` beside `IMG_0001.CR2`), and the writer keeps it. Saving writes every supported
 //! control, so loading the file in Photoshop reproduces the dialog.
 //!
 //! White balance: a Camera Raw Filter on a rendered image uses the relative
@@ -100,6 +101,14 @@ const SCALARS: &[(&str, Field, f32, f32)] = &[
     ("PostCropVignetteRoundness", |p| &mut p.vignette_roundness, -100.0, 100.0),
     ("PostCropVignetteFeather", |p| &mut p.vignette_feather, 0.0, 100.0),
     ("PostCropVignetteHighlightContrast", |p| &mut p.vignette_highlights, 0.0, 100.0),
+    // Calibration
+    ("ShadowTint", |p| &mut p.shadow_tint, -100.0, 100.0),
+    ("RedHue", |p| &mut p.calibration_hue[0], -100.0, 100.0),
+    ("RedSaturation", |p| &mut p.calibration_sat[0], -100.0, 100.0),
+    ("GreenHue", |p| &mut p.calibration_hue[1], -100.0, 100.0),
+    ("GreenSaturation", |p| &mut p.calibration_sat[1], -100.0, 100.0),
+    ("BlueHue", |p| &mut p.calibration_hue[2], -100.0, 100.0),
+    ("BlueSaturation", |p| &mut p.calibration_sat[2], -100.0, 100.0),
 ];
 
 type Curve = fn(&mut CameraRaw) -> &mut Vec<[f32; 2]>;
@@ -357,7 +366,8 @@ mod tests {
         assert_eq!(p.point_curve_red, vec![[0.0, 0.0], [128.0, 140.0], [255.0, 255.0]]);
         assert_eq!(p.dehaze, 12.0);
         // Lens vignetting, calibration and geometry have no counterpart.
-        assert_eq!(r.ignored, vec!["VignetteAmount".to_string(), "RedHue".to_string()]);
+        assert_eq!(r.ignored, vec!["VignetteAmount".to_string()], "the Calibration panel's keys load now");
+        assert_eq!(p.calibration_hue[0], -5.0);
     }
 
     #[test]

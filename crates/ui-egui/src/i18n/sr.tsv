@@ -4201,3 +4201,13 @@ shape	Appearance	Izgled
 	Color Indicates:	Boja označava:
 	Ink Characteristics	Karakteristike mastila
 	Solidity:	Punoća:
+	Calibration	Kalibracija
+	Red Primary	Crvena primarna
+	Green Primary	Zelena primarna
+	Blue Primary	Plava primarna
+	Write xmp sidecars	Upisuj prateće XMP datoteke
+	Set the tone sliders from the image	Postavi klizače tona prema slici
+	Settings from {name}	Podešavanja iz {name}
+	Settings from {name}; {count} not supported: {names}	Podešavanja iz {name}; {count} nije podržano: {names}
+	Could not write {name}: {error}	Nije moguće upisati {name}: {error}
+	Shadow Tint	Nijansa senki

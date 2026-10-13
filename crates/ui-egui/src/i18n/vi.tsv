@@ -3611,3 +3611,13 @@ curves	Smooth	Làm mượt
 	Choose a gradient file (.grd).	Chọn tệp chuyển sắc (.grd).
 	Auto Add/Delete	Tự động thêm/xóa
 	ICO is limited to 256 × 256 pixels	ICO giới hạn ở 256 × 256 pixel
+	Calibration	Hiệu chuẩn
+	Red Primary	Màu đỏ cơ bản
+	Green Primary	Màu lục cơ bản
+	Blue Primary	Màu lam cơ bản
+	Write xmp sidecars	Ghi tệp phụ XMP
+	Set the tone sliders from the image	Đặt các thanh trượt tông từ ảnh
+	Settings from {name}	Thiết lập từ {name}
+	Settings from {name}; {count} not supported: {names}	Thiết lập từ {name}; {count} không được hỗ trợ: {names}
+	Could not write {name}: {error}	Không thể ghi {name}: {error}
+	Shadow Tint	Sắc độ bóng tối

@@ -2734,3 +2734,13 @@ curves	Smooth	平滑
 @plural	{n} action|{n} actions	{n} 个动作
 	Auto Add/Delete	自动添加/删除
 	ICO is limited to 256 × 256 pixels	ICO 最大为 256 × 256 像素
+	Calibration	校准
+	Red Primary	红原色
+	Green Primary	绿原色
+	Blue Primary	蓝原色
+	Write xmp sidecars	写入 XMP 附属文件
+	Set the tone sliders from the image	根据图像设置色调滑块
+	Settings from {name}	来自 {name} 的设置
+	Settings from {name}; {count} not supported: {names}	来自 {name} 的设置；{count} 项不支持：{names}
+	Could not write {name}: {error}	无法写入 {name}：{error}
+	Shadow Tint	阴影色调

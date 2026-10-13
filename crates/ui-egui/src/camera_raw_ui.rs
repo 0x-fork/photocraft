@@ -231,7 +231,32 @@ fn open_raw(app: &mut PhotocraftApp, ctx: &egui::Context, raw: RawOpen) -> Resul
     let index = document_index(app, raw.document).ok_or("the raw document was closed")?;
     app.session.set_active(index);
     let (layer, surf, _) = crate::distort_ui::active_pixels(app)?;
-    open_pixels(app, ctx, layer, surf, CameraRaw::default(), Coverage::None, Target::OpenRaw)?;
+    // The file's sidecar (`IMG_0001.xmp` beside it) fills the dialog, as Camera Raw's does; the
+    // status bar names what it could not apply.
+    let mut params = CameraRaw::default();
+    let mut from_sidecar = false;
+    if let Some((loaded, report, file)) = raw.path.as_deref().and_then(read_sidecar) {
+        params = loaded;
+        from_sidecar = true;
+        app.ui.status = if report.ignored.is_empty() {
+            crate::i18n::fmt(tl!("Settings from {name}"), &[("name", &file)])
+        } else {
+            crate::i18n::fmt(
+                tl!("Settings from {name}; {count} not supported: {names}"),
+                &[("name", &file), ("count", &report.ignored.len().to_string()), ("names", &report.ignored.join(", "))],
+            )
+        };
+        app.ui.status_error = false;
+    }
+    open_pixels(app, ctx, layer, surf, params, Coverage::None, Target::OpenRaw)?;
+    // Camera Raw Defaults › Apply auto tone: a file without its own settings opens with Auto.
+    if !from_sidecar
+        && app.session.prefs().raw_defaults.apply_auto_tone
+        && let Some(d) = app.camera_raw.as_mut()
+    {
+        photocraft_algo::camera_raw::auto_tone(&d.proxy, &mut d.params);
+        d.dirty = true;
+    }
     let curve = match (&raw.bytes, &raw.path) {
         (Some(b), _) => Some(photocraft_io::raw::tone_curve(b)),
         #[cfg(not(target_arch = "wasm32"))]
@@ -292,6 +317,7 @@ fn raw_stage(p: &CameraRaw) -> photocraft_io::raw::Tone {
 /// (tests, the web) it runs inline.
 fn commit_open_raw(app: &mut PhotocraftApp, params: &CameraRaw, raw: &RawOpen) -> Result<Value, String> {
     let index = document_index(app, raw.document).ok_or("the raw document was closed")?;
+    write_sidecar(app, raw, params);
     let tuning = photocraft_io::raw::RawTuning {
         temperature: params.temperature,
         tint: params.tint,
@@ -398,10 +424,14 @@ fn finish_redevelop(app: &mut PhotocraftApp, params: &CameraRaw, raw: &RawOpen, 
 /// The other settings as one Camera Raw step on document `index`, then the document is marked
 /// unmodified (developing is part of opening). The step runs like any filter (in the
 /// background in the desktop app); the document is marked unmodified when it lands.
-fn finish_open_raw(app: &mut PhotocraftApp, index: usize, rest: CameraRaw, redeveloped: Option<bool>, raw: Option<&RawOpen>) -> Result<Value, String> {
+fn finish_open_raw(app: &mut PhotocraftApp, index: usize, mut rest: CameraRaw, redeveloped: Option<bool>, raw: Option<&RawOpen>) -> Result<Value, String> {
     app.session.set_active(index);
     app.sync_views();
     let mut result = json!({"document": index, "redeveloped": redeveloped.unwrap_or(false)});
+    let defaults = apply_raw_defaults(app, index, &mut rest)?;
+    if !defaults.is_empty() {
+        result["defaults"] = json!(defaults);
+    }
     if !rest.is_identity() {
         let layer = app.session.active().and_then(|st| st.active_layer).ok_or("no layer to develop")?;
         let mut p = non_defaults(&rest);
@@ -416,6 +446,151 @@ fn finish_open_raw(app: &mut PhotocraftApp, index: usize, rest: CameraRaw, redev
     }
     mark_unmodified(app, index);
     Ok(result)
+}
+
+/// The sidecar beside a raw file: `IMG_0001.xmp` for `IMG_0001.CR2`, as Camera Raw names it.
+pub fn sidecar_path(path: &str) -> String {
+    match path.rsplit_once('.') {
+        Some((stem, ext)) if !ext.contains(['/', '\\']) => format!("{stem}.xmp"),
+        _ => format!("{path}.xmp"),
+    }
+}
+
+/// A DNG carries its settings inside the file in Camera Raw; a sidecar is read for one too,
+/// but never written beside it.
+fn is_dng(path: &str) -> bool {
+    path.rsplit_once('.').is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("dng"))
+}
+
+/// The settings of the sidecar beside `path`, when there is one that parses: the settings, what
+/// the loader skipped, and the sidecar's file name. A sidecar that doesn't parse is ignored (the
+/// raw still opens) and reported in the log.
+#[cfg(not(target_arch = "wasm32"))]
+fn read_sidecar(path: &str) -> Option<(CameraRaw, photocraft_io::camera_raw_xmp::LoadReport, String)> {
+    let sidecar = sidecar_path(path);
+    let bytes = std::fs::read(&sidecar).ok()?;
+    if bytes.len() > photocraft_io::camera_raw_xmp::MAX_XMP_BYTES {
+        log::warn!("{sidecar}: sidecar larger than {} bytes, ignored", photocraft_io::camera_raw_xmp::MAX_XMP_BYTES);
+        return None;
+    }
+    let mut params = CameraRaw::default();
+    match photocraft_io::camera_raw_xmp::load(&mut params, &bytes) {
+        Ok(report) => Some((params, report, crate::file_open::display_name(&sidecar))),
+        Err(e) => {
+            log::warn!("{sidecar}: sidecar ignored: {e}");
+            None
+        }
+    }
+}
+#[cfg(target_arch = "wasm32")]
+fn read_sidecar(_: &str) -> Option<(CameraRaw, photocraft_io::camera_raw_xmp::LoadReport, String)> {
+    None
+}
+
+/// Keep the develop settings beside the raw file (Camera Raw Defaults › Write xmp sidecars):
+/// written when the settings aren't the defaults or a sidecar already exists, so a file reopens
+/// as it was developed. Not for DNGs, and never fatal: a folder that can't be written to is
+/// reported in the status bar.
+fn write_sidecar(app: &mut PhotocraftApp, raw: &RawOpen, params: &CameraRaw) {
+    if !app.session.prefs().raw_defaults.write_xmp_sidecars {
+        return;
+    }
+    let Some(path) = raw.path.as_deref().filter(|p| !is_dng(p)) else { return };
+    let sidecar = sidecar_path(path);
+    #[cfg(not(target_arch = "wasm32"))]
+    let exists = std::path::Path::new(&sidecar).exists();
+    #[cfg(target_arch = "wasm32")]
+    let exists = false;
+    if params.is_identity() && !exists {
+        return;
+    }
+    let bytes = photocraft_io::camera_raw_xmp::save(params).into_bytes();
+    let Some(write) = app.services.write.as_mut() else { return };
+    if let Err(e) = write(&sidecar, &bytes) {
+        app.ui.status = crate::i18n::fmt(tl!("Could not write {name}: {error}"), &[("name", &crate::file_open::display_name(&sidecar)), ("error", &e)]);
+        app.ui.status_error = true;
+    }
+}
+
+/// Camera Raw Defaults (Preferences): the colour space, bit depth and resolution the developed
+/// document opens in, output sharpening (folded into the Camera Raw step `rest`, as the
+/// workflow's Sharpen For is), and Open as Smart Object. Returns what it applied.
+fn apply_raw_defaults(app: &mut PhotocraftApp, index: usize, rest: &mut CameraRaw) -> Result<Vec<&'static str>, String> {
+    use photocraft_engine::prefs::{RawColorSpace, RawDepth};
+    let d = app.session.prefs().raw_defaults.clone();
+    app.session.set_active(index);
+    let mut applied = Vec::new();
+    let profile = d.color_space.profile_id();
+    // Raws develop into ProPhoto-compatible RGB (`photocraft_io::raw`); the other spaces are a
+    // conversion.
+    if profile != RawColorSpace::ProPhoto.profile_id() {
+        app.session.execute("edit.convertToProfile", json!({"profile": profile, "intent": "relative"})).map_err(|e| e.to_string())?;
+        applied.push("colorSpace");
+    }
+    if d.bit_depth == RawDepth::Eight {
+        app.session.execute("image.mode.bits8", json!({})).map_err(|e| e.to_string())?;
+        applied.push("bitDepth");
+    }
+    let dpi = app.session.active().map(|st| st.doc.resolution_dpi).unwrap_or(72.0);
+    if d.resolution.is_finite() && d.resolution > 0.0 && (f64::from(dpi) - d.resolution).abs() > 1e-6 {
+        app.session.execute("image.imageSize", json!({"resolution": d.resolution})).map_err(|e| e.to_string())?;
+        applied.push("resolution");
+    }
+    if let Some((amount, radius)) = d.sharpen_for.preset()
+        && rest.sharpen_amount == 0.0
+    {
+        rest.sharpen_amount = amount;
+        rest.sharpen_radius = radius;
+        applied.push("sharpenFor");
+    }
+    if d.open_as_smart_object {
+        app.session.execute("layer.smartObjects.convertToSmartObject", json!({})).map_err(|e| e.to_string())?;
+        applied.push("openAsSmartObject");
+    }
+    Ok(applied)
+}
+
+/// A raw that opened without the dialog (Camera Raw Defaults › Open in Camera Raw off): its
+/// sidecar's settings develop it as the dialog's Open would, and the Camera Raw Defaults apply.
+/// `warnings` are the import's; only a developed raw qualifies.
+pub fn opened_without_dialog(app: &mut PhotocraftApp, index: usize, name: &str, path: Option<&str>, warnings: &[String]) {
+    if !warnings.iter().any(|w| w.contains(photocraft_io::raw::DEVELOPED_NOTE)) {
+        return;
+    }
+    let Some(document) = app.session.documents().get(index).map(|st| st.doc.id) else { return };
+    let raw = RawOpen { document, name: name.to_string(), path: path.map(str::to_string), bytes: None };
+    let mut params = CameraRaw::default();
+    if let Some((loaded, _, _)) = path.and_then(read_sidecar) {
+        params = loaded;
+    } else if app.session.prefs().raw_defaults.apply_auto_tone
+        && let Some(px) = app.session.active().and_then(|st| st.doc.layer(st.active_layer?)).and_then(|l| l.surface()).map(|s| sample_pixels(s, 512))
+    {
+        photocraft_algo::camera_raw::auto_tone(&px, &mut params);
+    }
+    let r = if params.is_identity() { finish_open_raw(app, index, params, None, Some(&raw)) } else { commit_open_raw(app, &params, &raw) };
+    if let Err(e) = r {
+        app.ui.status = e;
+        app.ui.status_error = true;
+    }
+}
+
+/// Every k-th pixel of a surface's content, k chosen so the longer side has about `max_side`
+/// samples: enough for a histogram (Auto tone) without reading a whole raw.
+fn sample_pixels(surf: &photocraft_raster::Surface, max_side: usize) -> Vec<[f32; 4]> {
+    let area = surf.content_bounds();
+    let (w, h) = (area.x1.saturating_sub(area.x0).max(0) as usize, area.y1.saturating_sub(area.y0).max(0) as usize);
+    if w == 0 || h == 0 {
+        return Vec::new();
+    }
+    let k = w.max(h).div_ceil(max_side.max(1)).max(1);
+    let mut out = Vec::with_capacity(w.div_ceil(k) * h.div_ceil(k));
+    let mut row = vec![[0.0f32; 4]; w];
+    for y in (0..h).step_by(k) {
+        let yy = area.y0.saturating_add(y as i32);
+        surf.read_rgba_into(Rect::new(area.x0, yy, area.x1, yy.saturating_add(1)), &mut row);
+        out.extend(row.iter().step_by(k).copied());
+    }
+    out
 }
 
 fn mark_unmodified(app: &mut PhotocraftApp, index: usize) {
@@ -676,8 +851,8 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Val
     for (key, value) in fields {
         match key.as_str() {
             "set" | "scope" | "view" => {}
-            "before" | "commit" | "cancel" | "saveSettings" | "loadSettings" if value.is_boolean() => {}
-            "before" | "commit" | "cancel" | "saveSettings" | "loadSettings" => return Some(Err(format!("Camera Raw {key} must be a boolean"))),
+            "before" | "commit" | "cancel" | "saveSettings" | "loadSettings" | "auto" if value.is_boolean() => {}
+            "before" | "commit" | "cancel" | "saveSettings" | "loadSettings" | "auto" => return Some(Err(format!("Camera Raw {key} must be a boolean"))),
             _ => return Some(Err(format!("unknown Camera Raw ui property {key}"))),
         }
     }
@@ -712,6 +887,10 @@ fn menu_update(app: &mut PhotocraftApp, ctx: &egui::Context, ui: &Value) -> Opti
     // occurs until every part of the request has passed validation.
     let d = app.camera_raw.as_ref()?;
     let mut next_params = d.params.clone();
+    // Auto (the Light panel's button): the tone sliders from the image's histogram.
+    if ui.get("auto").and_then(Value::as_bool) == Some(true) {
+        photocraft_algo::camera_raw::auto_tone(&d.proxy, &mut next_params);
+    }
     if let Some(set) = ui.get("set") {
         if !set.is_object() {
             return Some(Err("bad Camera Raw settings: expected an object".into()));
@@ -1073,9 +1252,16 @@ fn draw(app: &mut PhotocraftApp, ctx: &egui::Context, own_window: bool) {
         egui::ScrollArea::vertical().id_salt("camera-raw-props").show(&mut props, |ui| {
             ui.spacing_mut().item_spacing.y = 4.0;
             let p = &mut d.params;
+            let proxy = &d.proxy;
             let alt = &mut d.scope.alt_tone;
             let (ts, tn) = (temp_stops(), tint_stops());
             section(ui, "Light", true, |ui| {
+                // Auto: Camera Raw's one-click tone from the histogram; the sliders show what it
+                // chose, so each can be adjusted afterwards.
+                if ui.button(tl!("Auto")).on_hover_text(tl!("Set the tone sliders from the image")).clicked() {
+                    photocraft_algo::camera_raw::auto_tone(proxy, p);
+                    dirty = true;
+                }
                 tone_row(ui, &mut dirty, alt, ToneZone::Exposure, &mut p.exposure);
                 row(ui, &mut dirty, "Contrast", &mut p.contrast, -100.0..=100.0, None);
                 tone_row(ui, &mut dirty, alt, ToneZone::Highlights, &mut p.highlights);
@@ -1169,6 +1355,19 @@ fn draw(app: &mut PhotocraftApp, ctx: &egui::Context, own_window: bool) {
                 row(ui, &mut dirty, "Luminance Detail", &mut p.noise_luminance_detail, 0.0..=100.0, None);
                 row(ui, &mut dirty, "Color", &mut p.noise_color, 0.0..=100.0, None);
                 row(ui, &mut dirty, "Color Detail", &mut p.noise_color_detail, 0.0..=100.0, None);
+            });
+            // Camera Raw's Calibration panel: a tint for the shadows and each primary's hue and
+            // saturation (Process Version is implied: 2012 and later).
+            section(ui, "Calibration", false, |ui| {
+                widgets::section_label(ui, tl!("Shadows"));
+                row(ui, &mut dirty, "Tint", &mut p.shadow_tint, -100.0..=100.0, Some(&tn));
+                for (i, name) in ["Red Primary", "Green Primary", "Blue Primary"].iter().enumerate() {
+                    widgets::section_label(ui, crate::i18n::tr_ctx(crate::i18n::current(), "cameraRaw", name));
+                    ui.push_id(name, |ui| {
+                        row(ui, &mut dirty, "Hue", &mut p.calibration_hue[i], -100.0..=100.0, None);
+                        row(ui, &mut dirty, "Saturation", &mut p.calibration_sat[i], -100.0..=100.0, None);
+                    });
+                }
             });
         });
         super::camera_raw_scope_ui::floating(ctx, d, scope, right);
@@ -1420,7 +1619,11 @@ mod tests {
         let (w, h) = (48, 32);
         let mut spec = DngSpec::cfa(w, h, mosaic(&scene(w, h), w, [0, 1, 1, 2], 0, 30000));
         spec.as_shot_neutral = Some([0.5, 1.0, 0.7]);
-        (PhotocraftApp::new(photocraft_engine::Session::new(), services), spec.build())
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), services);
+        // The pixel comparisons below read the developed ProPhoto values: no conversion on open
+        // (Camera Raw Defaults › Color space is Adobe RGB otherwise).
+        app.run("prefs.set", json!({"path": "rawDefaults.colorSpace", "value": "proPhoto"})).unwrap();
+        (app, spec.build())
     }
 
     fn mean_red(app: &PhotocraftApp) -> f32 {
@@ -1547,13 +1750,159 @@ mod tests {
         let raw = app.pending_raw_open.take().unwrap();
         open_raw(&mut app, &ctx, raw).unwrap();
         let r = menu(&mut app, &ctx, "filter.cameraRaw", &json!({"ui": {"commit": true}})).unwrap().unwrap();
-        assert_eq!(r, json!({"document": 0, "redeveloped": false}));
+        assert_eq!((r["document"].as_u64(), r["redeveloped"].as_bool(), r.get("filter")), (Some(0), Some(false), None), "{r}");
+        assert_eq!(r["defaults"], json!(["resolution"]), "Camera Raw Defaults: 300 ppi, from the develop's 72: {r}");
         // Preference off: raws open straight away.
         app.run("prefs.set", json!({"path": "rawDefaults.openInCameraRaw", "value": false})).unwrap();
         app.open_bytes("c.dng", &dng).unwrap();
         assert!(app.pending_raw_open.is_none());
         // A non-raw never queues the dialog; a closed document is an error, not a panic.
         assert!(open_raw(&mut app, &ctx, RawOpen { document: photocraft_doc::DocId(u64::MAX), name: "x".into(), path: None, bytes: None }).is_err());
+    }
+
+    #[test]
+    fn calibration_changes_the_preview_and_round_trips_through_xmp() {
+        let (mut app, dng) = raw_app();
+        let ctx = egui::Context::default();
+        app.open_bytes("IMG_0005.dng", &dng).unwrap();
+        let raw = app.pending_raw_open.take().unwrap();
+        open_raw(&mut app, &ctx, raw).unwrap();
+        let before = app.camera_raw.as_ref().unwrap().processed.clone();
+        menu(&mut app, &ctx, "filter.cameraRaw", &json!({"ui": {"set": {"shadowTint": 100, "calibrationHue": [100, 0, 0], "calibrationSat": [0, 0, -100]}}}))
+            .unwrap()
+            .unwrap();
+        let d = app.camera_raw.as_mut().unwrap();
+        d.render(&ctx);
+        assert!(
+            d.processed.iter().zip(&before).any(|(a, b)| (a[0] - b[0]).abs() > 0.01 || (a[1] - b[1]).abs() > 0.01),
+            "the Calibration panel changes the preview"
+        );
+        let xmp = photocraft_io::camera_raw_xmp::save(&d.params);
+        assert!(xmp.contains("crs:ShadowTint=\"+100\"") && xmp.contains("crs:RedHue=\"+100\"") && xmp.contains("crs:BlueSaturation=\"-100\""), "{xmp}");
+        let mut back = CameraRaw::default();
+        photocraft_io::camera_raw_xmp::load(&mut back, xmp.as_bytes()).unwrap();
+        assert_eq!((back.shadow_tint, back.calibration_hue, back.calibration_sat), (100.0, [100.0, 0.0, 0.0], [0.0, 0.0, -100.0]));
+        assert!(menu(&mut app, &ctx, "filter.cameraRaw", &json!({"ui": {"auto": "yes"}})).unwrap().is_err(), "auto must be a boolean");
+    }
+
+    #[test]
+    fn auto_sets_the_light_sliders_from_the_image() {
+        let (mut app, dng) = raw_app();
+        let ctx = egui::Context::default();
+        app.open_bytes("IMG_0006.dng", &dng).unwrap();
+        let raw = app.pending_raw_open.take().unwrap();
+        open_raw(&mut app, &ctx, raw).unwrap();
+        assert!(app.camera_raw.as_ref().unwrap().params.is_identity());
+        menu(&mut app, &ctx, "filter.cameraRaw", &json!({"ui": {"auto": true}})).unwrap().unwrap();
+        let p = app.camera_raw.as_ref().unwrap().params.clone();
+        assert!(!p.is_identity(), "Auto chose something: {p:?}");
+        assert!(p.saturation == 0.0 && p.hsl_hue == [0.0; 8], "only the Light panel: {p:?}");
+        // The preference does the same when a raw opens without a sidecar.
+        app.run("prefs.set", json!({"path": "rawDefaults.applyAutoTone", "value": true})).unwrap();
+        app.open_bytes("IMG_0007.dng", &dng).unwrap();
+        let raw = app.pending_raw_open.take().unwrap();
+        open_raw(&mut app, &ctx, raw).unwrap();
+        assert_eq!(app.camera_raw.as_ref().unwrap().params, p, "Apply auto tone opens the dialog with Auto's settings");
+    }
+
+    #[test]
+    fn a_sidecar_fills_the_dialog_and_open_writes_it_back() {
+        use std::sync::{Arc, Mutex};
+        let (mut app, dng) = raw_app();
+        let dir = std::env::temp_dir().join(format!("photocraft-sidecar-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let raw_path = dir.join("IMG_0008.cr2").to_string_lossy().into_owned();
+        std::fs::write(&raw_path, &dng).unwrap();
+        assert_eq!(sidecar_path(&raw_path), dir.join("IMG_0008.xmp").to_string_lossy());
+        assert_eq!(sidecar_path("/a/b.c/noext"), "/a/b.c/noext.xmp");
+        std::fs::write(
+            sidecar_path(&raw_path),
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\" crs:Exposure2012=\"+1.50\" crs:ShadowTint=\"20\" crs:Temperature=\"5500\"/></rdf:RDF></x:xmpmeta>",
+        )
+        .unwrap();
+        type Written = Arc<Mutex<Vec<(String, Vec<u8>)>>>;
+        let written: Written = Arc::default();
+        let sink = written.clone();
+        app.services.write = Some(Box::new(move |p: &str, b: &[u8]| {
+            sink.lock().unwrap().push((p.to_string(), b.to_vec()));
+            Ok(())
+        }));
+        let ctx = egui::Context::default();
+        app.open_bytes("IMG_0008.cr2", &dng).unwrap();
+        let mut raw = app.pending_raw_open.take().unwrap();
+        raw.path = Some(raw_path.clone());
+        open_raw(&mut app, &ctx, raw).unwrap();
+        let d = app.camera_raw.as_ref().unwrap();
+        assert_eq!((d.params.exposure, d.params.shadow_tint), (1.5, 20.0), "the sidecar fills the dialog");
+        assert!(
+            app.ui.status.contains("IMG_0008.xmp") && app.ui.status.contains("Temperature"),
+            "the absolute white balance is reported as not supported: {}",
+            app.ui.status
+        );
+        menu(&mut app, &ctx, "filter.cameraRaw", &json!({"ui": {"set": {"contrast": 15}}})).unwrap().unwrap();
+        menu(&mut app, &ctx, "filter.cameraRaw", &json!({"ui": {"commit": true}})).unwrap().unwrap();
+        let w = written.lock().unwrap().clone();
+        assert_eq!(w.len(), 1, "Open writes the sidecar once: {:?}", w.iter().map(|(p, _)| p).collect::<Vec<_>>());
+        assert_eq!(w[0].0, sidecar_path(&raw_path));
+        let text = String::from_utf8(w[0].1.clone()).unwrap();
+        assert!(text.contains("crs:Exposure2012=\"+1.50\"") && text.contains("crs:Contrast2012=\"+15\"") && text.contains("crs:ShadowTint=\"+20\""), "{text}");
+        // A DNG keeps its settings inside: no sidecar beside it. And the preference turns writing off.
+        written.lock().unwrap().clear();
+        let dng_path = dir.join("IMG_0009.dng").to_string_lossy().into_owned();
+        std::fs::write(&dng_path, &dng).unwrap();
+        app.open_bytes("IMG_0009.dng", &dng).unwrap();
+        let mut raw = app.pending_raw_open.take().unwrap();
+        raw.path = Some(dng_path);
+        open_raw(&mut app, &ctx, raw).unwrap();
+        menu(&mut app, &ctx, "filter.cameraRaw", &json!({"ui": {"set": {"contrast": 15}, "commit": true}})).unwrap().unwrap();
+        assert!(written.lock().unwrap().is_empty(), "no sidecar for a DNG");
+        app.run("prefs.set", json!({"path": "rawDefaults.writeXmpSidecars", "value": false})).unwrap();
+        app.open_bytes("IMG_0008.cr2", &dng).unwrap();
+        let mut raw = app.pending_raw_open.take().unwrap();
+        raw.path = Some(raw_path.clone());
+        open_raw(&mut app, &ctx, raw).unwrap();
+        menu(&mut app, &ctx, "filter.cameraRaw", &json!({"ui": {"set": {"contrast": 30}, "commit": true}})).unwrap().unwrap();
+        assert!(written.lock().unwrap().is_empty(), "the preference stops the write");
+        // Without the dialog, the sidecar still develops the file.
+        app.run("prefs.set", json!({"path": "rawDefaults.openInCameraRaw", "value": false})).unwrap();
+        let before = app.session.documents().len();
+        app.open_file(&raw_path, &dng).unwrap();
+        assert!(app.pending_raw_open.is_none());
+        assert_eq!(app.session.documents().len(), before + 1);
+        let st = app.session.active().unwrap();
+        assert_eq!(st.saved_revision, st.revision, "opening with a sidecar leaves the document unmodified");
+        assert!(mean_red(&app) > 0.0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn camera_raw_defaults_apply_when_a_raw_opens() {
+        let (mut app, dng) = raw_app();
+        app.run("prefs.set", json!({"values": {"rawDefaults.openInCameraRaw": false, "rawDefaults.colorSpace": "srgb", "rawDefaults.bitDepth": "8", "rawDefaults.resolution": 240.0, "rawDefaults.sharpenFor": "screen", "rawDefaults.openAsSmartObject": true}})).unwrap();
+        app.open_bytes("IMG_0010.dng", &dng).unwrap();
+        assert!(app.pending_raw_open.is_none());
+        let st = app.session.active().unwrap();
+        assert_eq!(st.doc.depth, photocraft_color::SampleType::U8, "Bit depth 8");
+        assert_eq!(st.doc.resolution_dpi, 240.0, "Resolution");
+        let profile = st.doc.icc_profile.as_deref().and_then(|p| photocraft_cms::Profile::parse(p).ok()).map(|p| p.description).unwrap_or_default();
+        assert!(profile.to_lowercase().contains("srgb"), "Color space: {profile}");
+        let layer = st.doc.layer(st.active_layer.unwrap()).unwrap();
+        assert!(matches!(layer.content, photocraft_doc::LayerContent::Smart(_)), "Open as Smart Object");
+        assert_eq!(st.saved_revision, st.revision, "the defaults are part of opening: unmodified");
+        // The dialog's Open applies them too, and reports what it applied.
+        app.run("prefs.set", json!({"values": {"rawDefaults.openInCameraRaw": true, "rawDefaults.openAsSmartObject": false, "rawDefaults.bitDepth": "16"}}))
+            .unwrap();
+        let ctx = egui::Context::default();
+        app.open_bytes("IMG_0011.dng", &dng).unwrap();
+        let raw = app.pending_raw_open.take().unwrap();
+        open_raw(&mut app, &ctx, raw).unwrap();
+        let r = menu(&mut app, &ctx, "filter.cameraRaw", &json!({"ui": {"commit": true}})).unwrap().unwrap();
+        assert_eq!(r["defaults"], json!(["colorSpace", "resolution", "sharpenFor"]), "{r}");
+        assert!(r.get("filter").is_some(), "Sharpen For is a Camera Raw step: {r}");
+        let st = app.session.active().unwrap();
+        assert_eq!(st.doc.depth, photocraft_color::SampleType::U16);
+        assert_eq!(st.saved_revision, st.revision);
     }
 
     #[test]
@@ -1564,7 +1913,7 @@ mod tests {
         let written: Written = Arc::default();
         let w = written.clone();
         let foreign = br#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
-            <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Clarity2012="+25" crs:RedHue="-5"/>
+            <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/" crs:Clarity2012="+25" crs:LensProfileEnable="1"/>
             </rdf:RDF></x:xmpmeta>"#;
         let answers = vec![
             Some(FileDialogAnswer::SaveTo("/out/Look.xmp".into())),

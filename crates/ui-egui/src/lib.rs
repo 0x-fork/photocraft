@@ -1229,6 +1229,9 @@ impl PhotocraftApp {
             notices::io_warnings(self, &crate::i18n::fmt(tl!("Opened {name}"), &[("name", name)]), &camera_raw_ui::without_develop_note(&warnings));
         } else {
             notices::io_warnings(self, &crate::i18n::fmt(tl!("Opened {name}"), &[("name", name)]), &warnings);
+            if let Some(index) = self.session.active_index() {
+                camera_raw_ui::opened_without_dialog(self, index, name, None, &warnings);
+            }
         }
         // Script events bound to "Open Document".
         photocraft_engine::automate_cmds::document_opened(&mut self.session);

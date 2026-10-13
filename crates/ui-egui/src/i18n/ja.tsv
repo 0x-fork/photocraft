@@ -3803,3 +3803,13 @@ curves	Smooth	スムーズ
 	Reset All Locked Settings	ロックされた設定をすべて初期化
 	Copy Texture to Other Tools	テクスチャを他のツールにコピー
 	ICO is limited to 256 × 256 pixels	ICO は 256 × 256 ピクセルまでです
+	Calibration	キャリブレーション
+	Red Primary	レッド原色
+	Green Primary	グリーン原色
+	Blue Primary	ブルー原色
+	Write xmp sidecars	XMP サイドカーファイルを書き込む
+	Set the tone sliders from the image	画像からトーンスライダーを設定
+	Settings from {name}	{name} の設定
+	Settings from {name}; {count} not supported: {names}	{name} の設定; {count} 件は未対応: {names}
+	Could not write {name}: {error}	{name} を書き込めません: {error}
+	Shadow Tint	シャドウの色かぶり補正

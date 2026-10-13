@@ -2761,10 +2761,11 @@ mod tests {
         assert!(has_visible_fields(&values, "enhancedControls"));
         assert!(!prefs::is_hidden("enhancedControls.rotateViewWithTrackpad"));
         assert!(!prefs::is_hidden("enhancedControls.zoomWithTrackpadPinch"));
-        // Camera Raw Defaults shows only "Open in Camera Raw" so far.
+        // Camera Raw Defaults are all live: the dialog's Open applies them (camera_raw_ui).
         assert!(has_visible_fields(&values, "rawDefaults"));
-        assert!(!prefs::is_hidden("rawDefaults.openInCameraRaw"));
-        assert!(prefs::is_hidden("rawDefaults.applyAutoTone"));
+        for k in ["openInCameraRaw", "applyAutoTone", "colorSpace", "bitDepth", "resolution", "sharpenFor", "openAsSmartObject", "writeXmpSidecars"] {
+            assert!(!prefs::is_hidden(&format!("rawDefaults.{k}")), "{k}");
+        }
         assert!(!prefs::is_hidden("general.autoShowHomeScreen"));
         assert!(!prefs::is_hidden("interface.uiScale"));
         assert!(!prefs::is_hidden("interface.uiFontSize"));

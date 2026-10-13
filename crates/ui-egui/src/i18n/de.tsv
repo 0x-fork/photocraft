@@ -2768,3 +2768,13 @@ curves	Smooth	Glätten
 @plural	{n} action|{n} actions	{n} Aktion|{n} Aktionen
 	Auto Add/Delete	Autom. hinzuf./löschen
 	ICO is limited to 256 × 256 pixels	ICO ist auf 256 × 256 Pixel begrenzt
+	Calibration	Kalibrierung
+	Red Primary	Rot-Primärfarbe
+	Green Primary	Grün-Primärfarbe
+	Blue Primary	Blau-Primärfarbe
+	Write xmp sidecars	XMP-Filialdateien schreiben
+	Set the tone sliders from the image	Tonwert-Regler aus dem Bild setzen
+	Settings from {name}	Einstellungen aus {name}
+	Settings from {name}; {count} not supported: {names}	Einstellungen aus {name}; {count} nicht unterstützt: {names}
+	Could not write {name}: {error}	{name} konnte nicht geschrieben werden: {error}
+	Shadow Tint	Schattentönung

@@ -3299,3 +3299,13 @@ curves	Smooth	매끄럽게
 @plural	{n} action|{n} actions	액션 {n}개
 	Auto Add/Delete	자동 추가/삭제
 	ICO is limited to 256 × 256 pixels	ICO는 256 × 256픽셀로 제한됩니다
+	Calibration	보정
+	Red Primary	빨강 원색
+	Green Primary	녹색 원색
+	Blue Primary	파랑 원색
+	Write xmp sidecars	XMP 사이드카 파일 쓰기
+	Set the tone sliders from the image	이미지에서 톤 슬라이더 설정
+	Settings from {name}	{name}의 설정
+	Settings from {name}; {count} not supported: {names}	{name}의 설정; {count}개 미지원: {names}
+	Could not write {name}: {error}	{name}을(를) 쓸 수 없음: {error}
+	Shadow Tint	그림자 색조

@@ -3127,3 +3127,13 @@ curves	Smooth	Lisser
 @plural	{n} action|{n} actions	{n} action|{n} actions
 	Auto Add/Delete	Ajout/suppr. auto
 	ICO is limited to 256 × 256 pixels	Le format ICO est limité à 256 × 256 pixels
+	Calibration	Étalonnage
+	Red Primary	Primaire rouge
+	Green Primary	Primaire verte
+	Blue Primary	Primaire bleue
+	Write xmp sidecars	Écrire les fichiers annexes XMP
+	Set the tone sliders from the image	Régler les curseurs de tonalité d’après l’image
+	Settings from {name}	Réglages de {name}
+	Settings from {name}; {count} not supported: {names}	Réglages de {name} ; {count} non pris en charge : {names}
+	Could not write {name}: {error}	Impossible d’écrire {name} : {error}
+	Shadow Tint	Teinte des ombres

@@ -3071,3 +3071,13 @@ curves	Smooth	Сгладить
 @plural	{n} action|{n} actions	{n} операция|{n} операции|{n} операций
 	Auto Add/Delete	Автодобавление/удаление
 	ICO is limited to 256 × 256 pixels	ICO ограничен размером 256 × 256 пикселей
+	Calibration	Калибровка
+	Red Primary	Красный основной
+	Green Primary	Зелёный основной
+	Blue Primary	Синий основной
+	Write xmp sidecars	Записывать сопутствующие файлы XMP
+	Set the tone sliders from the image	Установить ползунки тона по изображению
+	Settings from {name}	Настройки из {name}
+	Settings from {name}; {count} not supported: {names}	Настройки из {name}; не поддерживается: {count}: {names}
+	Could not write {name}: {error}	Не удалось записать {name}: {error}
+	Shadow Tint	Оттенок теней

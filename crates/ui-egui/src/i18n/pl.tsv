@@ -3723,3 +3723,13 @@ curves	Smooth	Wygładź
 @plural	{n} action|{n} actions	{n} operacja|{n} operacje|{n} operacji
 	Auto Add/Delete	Automatyczne dodawanie/usuwanie
 	ICO is limited to 256 × 256 pixels	ICO jest ograniczony do 256 × 256 pikseli
+	Calibration	Kalibracja
+	Red Primary	Czerwień podstawowa
+	Green Primary	Zieleń podstawowa
+	Blue Primary	Niebieski podstawowy
+	Write xmp sidecars	Zapisuj pliki poboczne XMP
+	Set the tone sliders from the image	Ustaw suwaki tonów na podstawie obrazu
+	Settings from {name}	Ustawienia z {name}
+	Settings from {name}; {count} not supported: {names}	Ustawienia z {name}; nieobsługiwane: {count}: {names}
+	Could not write {name}: {error}	Nie można zapisać {name}: {error}
+	Shadow Tint	Tinta cieni

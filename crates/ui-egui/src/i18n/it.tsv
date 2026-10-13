@@ -4090,3 +4090,13 @@ navigator	Zoom	Zoom
 @plural	{n} action|{n} actions	{n} azione|{n} azioni
 	Auto Add/Delete	Aggiungi/elimina automaticamente
 	ICO is limited to 256 × 256 pixels	ICO è limitato a 256 × 256 pixel
+	Calibration	Calibrazione
+	Red Primary	Primario rosso
+	Green Primary	Primario verde
+	Blue Primary	Primario blu
+	Write xmp sidecars	Scrivi file sidecar XMP
+	Set the tone sliders from the image	Imposta i cursori dei toni dall’immagine
+	Settings from {name}	Impostazioni da {name}
+	Settings from {name}; {count} not supported: {names}	Impostazioni da {name}; {count} non supportate: {names}
+	Could not write {name}: {error}	Impossibile scrivere {name}: {error}
+	Shadow Tint	Tinta ombre
