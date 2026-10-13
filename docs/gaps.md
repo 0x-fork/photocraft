@@ -1,6 +1,6 @@
 # Where PhotoCraft falls short of Photoshop
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (G9: toolbar tool shortcut editing; refreshed against main: G2, G5, G7, G9, G10, G13, G14, G17 items that landed; G10: DPX read and write, #1049; G4: checkbox-only Brush Settings rows; G11: Load/Save Actions `.atn` landed, AUTO-219-2 partial; G5: hold-a-key spring-loaded tools landed, #2672; G1: #2465 fixed) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (G4: minimum field interaction, #3825 partial; G1: CMYK Invert, Posterize and Threshold on the inks, 16-bit Lab Invert; Photoshop-oracle floor 145/258; G11: `.atn` import maps 112 events: Select and Mask, Filter Gallery Spatter, Ripple, Crystallize, Pattern Fill layers, mask targeting, Step Backward, nudges in points, Bitmap mode; G5: Free Transform H/V skew fields; G9: toolbar tool shortcut editing; refreshed against main: G2, G5, G7, G9, G10, G13, G14, G17 items that landed; G10: DPX read and write, #1049; G4: checkbox-only Brush Settings rows; G11: Load/Save Actions `.atn` landed, AUTO-219-2 partial; G5: hold-a-key spring-loaded tools landed, #2672; G1: #2465 fixed) · **Target:** Adobe Photoshop 2026
 
 Every known shortfall against Photoshop 2026 (27.11.0), one entry each, ranked by user impact
 on the way to beta. This is the work list agents pick from: take the highest-ranked entry that
@@ -43,7 +43,7 @@ what an agent can't finish alone.
 - **Missing:** PSDs we write are not always accepted by Photoshop, and Photoshop-authored files
   don't always render as Photoshop renders them.
 - **Evidence:** corpus floors (`crates/io/tests/corpus.rs`, scorecard): Photoshop-authored
-  oracles 133/256 (52%), io corpus 146/170 (86%), psd-tools 236/309 (76%); round trips ~100%
+  oracles 145/258 (56%; CMYK Invert, Posterize and Threshold on the inks 2026-10-12), io corpus 146/170 (86%), psd-tools 236/309 (76%); round trips ~100%
   within the corpus. Smart-filter re-render matches 5/30. User reports: a PSD with text layers
   re-saved unmodified would not reopen (#2374, closed 2026-10-10), Photoshop 26.6 cannot reopen our files (#1281), "PSD not
   opening in Photoshop" (#2469), a CS2-era smart object unavailable (#2465, fixed 2026-10-12), PSB smart object
@@ -90,14 +90,24 @@ what an agent can't finish alone.
 ### G11. Actions and scripting
 - **Missing:** document-independent action recording (AUTO-219-1), Batch recursion and naming
   (AUTO-219-5), ExtendScript/UXP compatibility. `.atn` steps outside the
-  mapped events (paths, scripts, Generative Fill, offsets in points…) load as kept Photoshop
-  steps that fail at playback by name.
+  mapped events (paths, scripts, Generative Fill, Filter Gallery effects other than Spatter,
+  Duplicate Layers into a new document, Bitmap halftone screens…) load as kept Photoshop steps
+  that fail at playback by name.
 - **Done 2026-10-12:** Load/Save Actions `.atn` in the panel menu, `batch --actions set.atn`
-  and `actions.load`/`actions.save`; 108 Photoshop events map to commands both ways (Transform,
+  and `actions.load`/`actions.save`; 112 Photoshop events map to commands both ways (Transform,
   Apply Image, Save for Web, smart-object edits, Gradient Map, Quick Mask, polygon selections,
   Place, Open, Image Size in percent, the Paint Bucket and Insert Conditional since the third
-  and fourth PRs), Play, Stop and conditional steps included; layer steps replay by layer name in any
-  document. The panel groups actions
+  and fourth PRs; Select and Mask, Filter Gallery Spatter, Ripple, Crystallize, Pattern Fill
+  layers, targeting the layer mask or composite channel, loading the targeted channel, Step
+  Backward/Forward, removing a layer from the selection, nudges in points, Layer From Background,
+  Grayscale and Bitmap mode objects and Image Size with Resample keeping the print size since the
+  fifth), Play, Stop and conditional steps included; layer steps replay by layer name in any
+  document. Four TrueGrit Texture Supply sets (Debaser, Distress Press, Halftone Zine Machine,
+  Transparency) import with 3 of 533 steps unmapped and play end to end. Filter Gallery Spatter's Smoothness
+  now smooths the spray's displacement, so high values tear an edge without detaching specks, as
+  Photoshop's does (calibrated by eye on the Distress Press guide's screenshots). Crystallize
+  fills each cell with the colour at its point instead of the cell's average, so a black-and-white
+  mask keeps hard edges (not yet checked against a Photoshop render). The panel groups actions
   in set folders, has the dialog toggle column (playback pauses on the step's dialog and resumes
   on OK) and Insert Stop…; `actions.insert`, `actions.dialog`, `actions.assignSet` for agents
   (AUTO-219-2 done).
@@ -141,6 +151,9 @@ what an agent can't finish alone.
 - **Estimate:** 250–400 h (many overlap with other gaps; count each fix once).
 
 ### G4. Brush feel
+- **Progress (2026-10-13, #3825 partial):** Shape Dynamics' Minimum Diameter / Minimum
+  Roundness and Transfer's four Minimum rows disable editing when their Control is Off,
+  retaining the configured values. The other layout and control gaps in #3825 remain open.
 - **Progress (2026-10-12, #4283):** the five checkbox-only Brush Settings rows keep the open
   controls selected; Smoothing can be disabled without discarding its amount or mode. This
   closes that panel interaction gap, not the stroke-quality or performance gaps below.
@@ -154,7 +167,7 @@ what an agent can't finish alone.
 - **Estimate:** 100–180 h. **Human:** checking feel on real tablets.
 
 ### G5. Transform, handles and modifiers
-- **Missing:** H/V skew fields and the full interpolation list; blend mode/opacity edits during
+- **Missing:** the full interpolation list; blend mode/opacity edits during
   a transform (#1384); path-point nudge; autoscroll at the edge while selecting (#2231);
   wheel and pinch behaviour (#2485, #2463, #1989);
   toolbar press-and-hold flyouts (#2301).
@@ -165,7 +178,7 @@ what an agent can't finish alone.
   snapping (#2681, #2684); Auto-Select box follows the picked layer (#2666, #2675); ⌘-arrow
   layer nudge (#2474, #2556); polygonal lasso Shift angles (#2352, #2396); double-click Zoom tool
   to 100% (#2508, #2527); tool-key memory in a group (#2608, #2625); hold-a-key spring-loaded
-  tools (#2672).
+  tools (#2672); H/V skew fields in the Free Transform options bar.
 - **Detail:** [`ui-parity.md`](ui-parity.md).
 - **Estimate:** 60–110 h.
 
@@ -242,8 +255,12 @@ what an agent can't finish alone.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | G4: minimum inputs in Shape Dynamics and Transfer follow their Control (#3825, partial); no readiness percentage or estimate changed |
+| 2026-10-12 | minor | G5: Free Transform options bar H/V skew fields done |
+| 2026-10-12 | minor | G11: `.atn` import maps 112 events (Select and Mask, Spatter, Ripple, Crystallize, Pattern Fill, mask targeting, Step Backward, points, Bitmap) |
 | 2026-10-12 | minor | G9: toolbar tool shortcut editing (#4086); the remaining workspace gaps stay open |
 | 2026-10-12 | minor | G1: #2465 (CS2 `PlLd`-only smart objects) marked fixed |
+| 2026-10-12 | minor | G1: CMYK Invert, Posterize and Threshold work on the inks, 16-bit Lab Invert keeps greys neutral; Photoshop-oracle floor 133 → 145 of 258 (145 already passed on main) |
 | 2026-10-12 | minor | G5: spring-loaded tool letters done (#2672) |
 | 2026-10-12 | minor | G10: DPX read and write (#1049); Cineon remains open |
 | 2026-10-12 | minor | G4: checkbox-only Brush Settings rows preserve the open controls and Smoothing settings (#4283); no readiness percentage or estimate changed |

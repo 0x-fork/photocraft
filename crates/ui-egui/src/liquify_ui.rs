@@ -151,6 +151,8 @@ pub struct LiquifyDialog {
     zoom: f32,
     center: [f64; 2],
     hover: Option<[f64; 2]>,
+    /// Alt+right-drag (or Control+Alt-drag) resizing the brush: screen anchor, starting size, starting density.
+    brush_resize: Option<(Pos2, f32, f32)>,
     last_dab: f64,
     /// Last dab + proxy update time (ms), shown in the footer.
     pub dab_ms: f64,
@@ -482,6 +484,7 @@ pub fn open(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String> 
         zoom: 0.0,
         center,
         hover: None,
+        brush_resize: None,
         last_dab: 0.0,
         dab_ms: 0.0,
         preview_ms: 0.0,
@@ -567,6 +570,21 @@ fn alt_tool(t: LiquifyTool) -> LiquifyTool {
         LiquifyTool::Bloat => LiquifyTool::Pucker,
         t => t,
     }
+}
+
+/// Alt+right-drag, and Control+Alt-drag, change the Liquify brush instead of painting (#4702).
+fn brush_resize_gesture(mods: egui::Modifiers, secondary: bool) -> bool {
+    (secondary && mods.alt) || (mods.ctrl && mods.alt && !secondary)
+}
+
+/// Horizontal motion sets the diameter (the circle's edge follows the pointer). Vertical motion
+/// sets density, Liquify's edge falloff, over the same 200 px travel the canvas uses for hardness.
+fn resized_brush(start_size: f32, start_density: f32, dx: f32, dy: f32) -> (f32, f32) {
+    let dx = if dx.is_finite() { dx } else { 0.0 };
+    let dy = if dy.is_finite() { dy } else { 0.0 };
+    let size = (start_size + dx).round().clamp(1.0, 15000.0);
+    let density = (start_density + dy * 100.0 / crate::brush_resize::HARDNESS_TRAVEL).clamp(0.0, 100.0);
+    (size, (density * 10.0).round() / 10.0)
 }
 
 /// Pointer in document coordinates (from the preview or the control channel). Alt at
@@ -912,9 +930,26 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             d.hover = Some(to_doc(d, area, hp));
         }
         clip.rect_stroke(img, 0.0, Stroke::new(1.0, t.separator), egui::StrokeKind::Outside);
-        // Mouse → strokes (Space or middle button pans).
-        let pan = ui.input(|i| i.key_down(egui::Key::Space) || i.pointer.middle_down());
-        if pan && resp.dragged() {
+        // Mouse → strokes (Space or middle button pans). Alt+right-drag resizes the brush (#4702).
+        let (pan, secondary, mods_now) =
+            ui.input(|i| (i.key_down(egui::Key::Space) || i.pointer.middle_down(), i.pointer.button_down(egui::PointerButton::Secondary), i.modifiers));
+        let resize = d.brush_resize.is_some() || (resp.drag_started() && brush_resize_gesture(mods_now, secondary));
+        if resize {
+            if d.brush_resize.is_none()
+                && let Some(p) = resp.interact_pointer_pos()
+            {
+                d.brush_resize = Some((p, d.opts.size, d.opts.density));
+            }
+            if let (Some((anchor, size0, dens0)), Some(p)) = (d.brush_resize, resp.interact_pointer_pos()) {
+                let delta = p - anchor;
+                let (size, density) = resized_brush(size0, dens0, delta.x, delta.y);
+                d.opts.size = size;
+                d.opts.density = density;
+            }
+            if resp.drag_stopped() || !ui.input(|i| i.pointer.any_down()) {
+                d.brush_resize = None;
+            }
+        } else if pan && resp.dragged() {
             let dl = resp.drag_delta();
             d.center = [d.center[0] - f64::from(dl.x / d.zoom), d.center[1] - f64::from(dl.y / d.zoom)];
         } else if let Some(pp) = resp.interact_pointer_pos() {
@@ -1019,6 +1054,18 @@ fn draw_mesh(d: &LiquifyDialog, painter: &egui::Painter, area: ERect) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn alt_right_drag_resizes_the_liquify_brush_and_does_not_paint() {
+        assert!(brush_resize_gesture(egui::Modifiers::ALT, true));
+        assert!(brush_resize_gesture(egui::Modifiers::CTRL | egui::Modifiers::ALT, false));
+        assert!(!brush_resize_gesture(egui::Modifiers::ALT, false), "Alt+left stays the tool's opposite");
+        assert!(!brush_resize_gesture(egui::Modifiers::NONE, true));
+        let (size, density) = resized_brush(40.0, 50.0, 25.0, crate::brush_resize::HARDNESS_TRAVEL);
+        assert_eq!((size, density), (65.0, 100.0));
+        let (size, density) = resized_brush(40.0, 50.0, -100.0, 0.0);
+        assert_eq!((size, density), (1.0, 50.0));
+    }
 
     fn app_with_layer() -> PhotocraftApp {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());

@@ -344,6 +344,20 @@ fn painting_preference_and_zoom_change_the_native_cursor_without_changing_pointe
     assert!(h.output().platform_output.cursor_image.as_ref().unwrap().size[0] > cross_size);
 }
 
+/// #4596: the close-path pointer is the centre cross with a ring below right.
+#[test]
+fn close_path_bitmap_has_the_centre_cross_and_a_ring_beside_it() {
+    for scale in [1.0, 2.0] {
+        let image = rasterize(&Shape::Outline { rings: vec![close_ring()].into(), centre: true }, scale).unwrap();
+        let [x, y] = image.hotspot;
+        let at = |dx: f32, dy: f32| alpha(&image, x + (dx * scale) as u16, y + (dy * scale) as u16);
+        assert!(at(0.0, 0.0) > 230 && at(2.0, 0.0) > 0, "the centre cross");
+        assert!(at(12.5, 9.0) > 0 && at(9.0, 12.5) > 0, "the ring around (9, 9)");
+        assert_eq!(at(9.0, 9.0), 0, "open in the middle");
+        assert_eq!(at(0.0, 9.0), 0, "and apart from the cross");
+    }
+}
+
 /// A big tip's outline is a thin ring in a large square: only the ring (and the centre mark) is
 /// evaluated, and the bitmap is exactly what evaluating every pixel gives.
 #[test]

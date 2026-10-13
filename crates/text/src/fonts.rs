@@ -586,9 +586,37 @@ pub fn face_count(bytes: &[u8]) -> usize {
 
 /// Heuristic PostScript-name split: `MyriadPro-BoldIt` → ("Myriad Pro", 700, italic).
 pub fn guess_from_postscript(ps: &str) -> ResolvedFont {
-    let (fam, style) = ps.split_once('-').unwrap_or((ps, ""));
-    let fam = fam.trim_end_matches("MT").trim_end_matches("PS").trim_end_matches("Std").trim_end_matches("Pro");
-    let pro = ps.split_once('-').map_or(ps, |p| p.0);
+    // A vendor or family name may contain hyphens; start with the final face suffix.
+    let (mut pro, mut style) = ps.rsplit_once('-').unwrap_or((ps, ""));
+    // Keep compound style suffixes the old heuristic understood, such as Bold-It.
+    // Regular alone must not consume a family component named Bold or Black.
+    if matches!(style.to_ascii_lowercase().as_str(), "it" | "italic" | "oblique")
+        && let Some((family, weight)) = pro.rsplit_once('-')
+        && matches!(
+            weight.to_ascii_lowercase().as_str(),
+            "thin"
+                | "hairline"
+                | "extralight"
+                | "ultralight"
+                | "light"
+                | "regular"
+                | "roman"
+                | "book"
+                | "medium"
+                | "semibold"
+                | "demibold"
+                | "demi"
+                | "bold"
+                | "extrabold"
+                | "ultrabold"
+                | "heavy"
+                | "black"
+        )
+    {
+        pro = family;
+        style = ps.strip_prefix(family).and_then(|s| s.strip_prefix('-')).unwrap_or(style);
+    }
+    let fam = pro.trim_end_matches("MT").trim_end_matches("PS").trim_end_matches("Std").trim_end_matches("Pro");
     let suffix = if pro.ends_with("Pro") {
         " Pro"
     } else if pro.ends_with("Std") {

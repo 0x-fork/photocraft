@@ -259,6 +259,7 @@ pub fn begin(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String>
         made: None,
         mode: Default::default(),
         content_aware: None,
+        skew_v: 0.0,
     });
     start_steps(app);
     Ok(())
@@ -359,6 +360,7 @@ pub(crate) fn begin_content_aware(
         made: None,
         mode: Default::default(),
         content_aware: Some(Default::default()),
+        skew_v: 0.0,
     });
     start_steps(app);
     Ok(())
@@ -479,6 +481,7 @@ fn begin_lone(
         made: None,
         mode: Default::default(),
         content_aware: None,
+        skew_v: 0.0,
     });
     start_steps(app);
     Ok(())
@@ -531,6 +534,7 @@ fn begin_path(app: &mut PhotocraftApp, ctx: &egui::Context, params: serde_json::
         made: None,
         mode: Default::default(),
         content_aware: None,
+        skew_v: 0.0,
     });
     start_steps(app);
     Ok(())
@@ -615,6 +619,7 @@ pub fn begin_selection(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(
         made: None,
         mode: Default::default(),
         content_aware: None,
+        skew_v: 0.0,
     });
     start_steps(app);
     Ok(())
@@ -801,7 +806,7 @@ fn preview_mask(l: &photocraft_doc::Layer, b: photocraft_geom::Rect) -> Option<c
     let vector = l.vector_mask.as_ref().filter(|v| v.enabled);
     let linked_pixel = pixel.filter(|m| m.linked);
     if pixel.is_none_or(|m| m.linked)
-        && vector.is_some_and(|v| v.linked)
+        && vector.is_none_or(|v| v.linked)
         && let Some(surface) = photocraft_compose::masks::combined_mask(l, b)
     {
         return Some(PreviewMask { surface, density: 1.0 });
@@ -1501,6 +1506,13 @@ pub(crate) fn apply_mode_drag(s: &mut TransformSession, g: Gesture, p: [f64; 2],
             s.quad = keep_convex(q0, q);
             s.pivot = carry_pivot(q0, s.quad, g.pivot0);
         }
+        // Rotate (#3941): a corner or edge turns about the reference point, the same drag as the
+        // zone just outside the box. Free Transform still scales from those handles.
+        (TransformMode::Rotate, Hit::Corner(_) | Hit::Edge(_)) => {
+            let mut g = g;
+            g.hit = Hit::Outside;
+            apply_drag(s, g, p, mods);
+        }
         // Skew: an edge slides only along itself (⌘⇧ in Free Transform).
         (TransformMode::Skew, Hit::Edge(_)) => {
             mods.command = true;
@@ -1935,7 +1947,10 @@ pub fn split(app: &mut PhotocraftApp, id: &str, at: Option<[f64; 2]>) -> Result<
 fn near_rotate_corner(t: &TransformSession, p: [f64; 2], tol: f64) -> bool {
     t.warp.is_none()
         && t.mode != TransformMode::Distort
-        && hit(t, p, tol) == Hit::Outside
+        && {
+            let h = hit(t, p, tol);
+            h == Hit::Outside || (t.mode == TransformMode::Rotate && matches!(h, Hit::Corner(_) | Hit::Edge(_)))
+        }
         && t.quad.iter().any(|q| (p[0] - q[0]).hypot(p[1] - q[1]) <= tol * 3.0)
 }
 
@@ -2404,14 +2419,102 @@ fn quad_scale(t: &TransformSession) -> f32 {
     if s.is_finite() { s as f32 } else { 1.0 }
 }
 
-/// Scale (%), angle (°) and translation implied by the current quad (affine readout).
+/// W and H (%), the angle (°) and the horizontal skew (°) the options bar shows for the box.
 fn readout(t: &TransformSession) -> (f64, f64, f64, f64) {
-    let (w0, h0) = (t.rect[2] - t.rect[0], t.rect[3] - t.rect[1]);
-    let e = [t.quad[1][0] - t.quad[0][0], t.quad[1][1] - t.quad[0][1]];
-    let f = [t.quad[3][0] - t.quad[0][0], t.quad[3][1] - t.quad[0][1]];
-    let sx = (e[0].hypot(e[1]) / w0.max(1e-9)) * 100.0;
-    let sy = (f[0].hypot(f[1]) / h0.max(1e-9)) * 100.0;
-    (sx, sy, e[1].atan2(e[0]).to_degrees(), 0.0)
+    let p = Parts::of(t);
+    (p.sx * 100.0, p.sy.abs() * 100.0, p.angle.to_degrees(), p.skew_h.to_degrees())
+}
+
+/// The box's affine part read as Photoshop's options bar does: the frame scaled (W, H), skewed
+/// (H, V) and then rotated about the reference point. Angles are radians; positive turns
+/// clockwise on screen, so a positive H skew leans the box's sides like the angle field would
+/// turn them, and a positive V skew its top and bottom.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Parts {
+    sx: f64,
+    /// Negative when the box is flipped vertically relative to its rotation.
+    sy: f64,
+    angle: f64,
+    skew_h: f64,
+    skew_v: f64,
+}
+
+/// The skew fields' reach: a skew of ±90° would flatten the box.
+const SKEW_LIMIT_DEG: f32 = 89.0;
+
+impl Parts {
+    /// The box's columns: where the frame's unit X and Y edges went (from the top-left corner).
+    fn columns(t: &TransformSession) -> Option<[[f64; 2]; 2]> {
+        let (w0, h0) = (t.rect[2] - t.rect[0], t.rect[3] - t.rect[1]);
+        if w0.abs() < 1e-9 || h0.abs() < 1e-9 {
+            return None;
+        }
+        let q = &t.quad;
+        let m = [[(q[1][0] - q[0][0]) / w0, (q[1][1] - q[0][1]) / w0], [(q[3][0] - q[0][0]) / h0, (q[3][1] - q[0][1]) / h0]];
+        m.iter().flatten().all(|v| v.is_finite()).then_some(m)
+    }
+
+    /// The box as scale, skew and rotation, keeping the session's typed V skew (any box can be
+    /// written with any V skew short of ±90°).
+    fn of(t: &TransformSession) -> Parts {
+        let skew_v = t.skew_v.to_radians();
+        let none = Parts { sx: 1.0, sy: 1.0, angle: 0.0, skew_h: 0.0, skew_v };
+        Parts::columns(t).map_or(none, |m| Parts::from_columns(m, skew_v))
+    }
+
+    fn from_columns([c0, c1]: [[f64; 2]; 2], skew_v: f64) -> Parts {
+        // X edge = sx · R(angle) · (1, tan v): its direction is the angle plus v.
+        let angle = c0[1].atan2(c0[0]) - skew_v;
+        let sx = c0[0].hypot(c0[1]) * skew_v.cos();
+        // Y edge = sy · R(angle) · (−tan h, 1).
+        let (gx, gy) = unturn(c1, angle);
+        let skew_h = if gy.abs() < 1e-12 { 0.0 } else { (-gx / gy).atan() };
+        Parts { sx, sy: gy, angle, skew_h, skew_v }
+    }
+
+    fn columns_of(self) -> [[f64; 2]; 2] {
+        let (sn, cs) = self.angle.sin_cos();
+        let rot = |x: f64, y: f64| [x * cs - y * sn, x * sn + y * cs];
+        let c0 = rot(self.sx, self.sx * self.skew_v.tan());
+        let c1 = rot(-self.sy * self.skew_h.tan(), self.sy);
+        [c0, c1]
+    }
+}
+
+/// `c` turned back by `angle` (radians).
+fn unturn(c: [f64; 2], angle: f64) -> (f64, f64) {
+    let (sn, cs) = angle.sin_cos();
+    (c[0] * cs + c[1] * sn, -c[0] * sn + c[1] * cs)
+}
+
+/// Sets the box's H and V skew (degrees), keeping its scale, angle and reference point: the
+/// options bar's skew fields.
+fn skew_about_pivot(app: &mut PhotocraftApp, skew_h: f64, skew_v: f64) {
+    let Some(s) = app.ui.transform.as_mut() else { return };
+    let Some(m) = Parts::columns(s) else { return };
+    let limit = f64::from(SKEW_LIMIT_DEG);
+    let (skew_h, skew_v) = (skew_h.clamp(-limit, limit), skew_v.clamp(-limit, limit));
+    let from = Parts::from_columns(m, s.skew_v.to_radians());
+    let to = Parts { skew_h: skew_h.to_radians(), skew_v: skew_v.to_radians(), ..from }.columns_of();
+    // The map from the old box to the new one: to · m⁻¹.
+    let det = m[0][0] * m[1][1] - m[1][0] * m[0][1];
+    if det.abs() < 1e-12 {
+        return;
+    }
+    let inv = [[m[1][1] / det, -m[0][1] / det], [-m[1][0] / det, m[0][0] / det]];
+    let l = |x: f64, y: f64| {
+        let (u, v) = (inv[0][0] * x + inv[1][0] * y, inv[0][1] * x + inv[1][1] * y);
+        [to[0][0] * u + to[1][0] * v, to[0][1] * u + to[1][1] * v]
+    };
+    let c = s.pivot;
+    let quad = s.quad.map(|q| {
+        let d = l(q[0] - c[0], q[1] - c[1]);
+        [c[0] + d[0], c[1] + d[1]]
+    });
+    if quad.iter().flatten().all(|v| v.is_finite()) {
+        s.quad = quad;
+        s.skew_v = skew_v;
+    }
 }
 
 /// Width of the mode, cancel and commit cluster kept on the right of the options bar.
@@ -2497,7 +2600,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 
 fn transform_fields(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &TransformSession) {
     let tk = crate::theme::Tokens::get(ui.ctx());
-    let (_, _, angle, _) = readout(t);
+    let (_, _, angle, skew_h) = readout(t);
     let lbl = |ui: &mut egui::Ui, s: &str| {
         ui.label(egui::RichText::new(s).color(tk.text_dim).size(12.0));
     };
@@ -2509,6 +2612,16 @@ fn transform_fields(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &TransformSes
     resp.on_hover_text(tl!("Rotate"));
     if crate::widgets::value_field(ui, &mut a, -180.0..=180.0, "°", 60.0).changed() {
         rotate_about_pivot(app, (a as f64 - angle).to_radians());
+    }
+    // Photoshop's H and V skew fields: the box's sides lean by H, its top and bottom by V.
+    let (mut h, mut v) = (skew_h as f32, t.skew_v as f32);
+    let lim = -SKEW_LIMIT_DEG..=SKEW_LIMIT_DEG;
+    lbl(ui, "H:");
+    let rh = crate::widgets::value_field(ui, &mut h, lim.clone(), "°", 56.0).on_hover_text(tl!("Set horizontal skew"));
+    lbl(ui, "V:");
+    let rv = crate::widgets::value_field(ui, &mut v, lim, "°", 56.0).on_hover_text(tl!("Set vertical skew"));
+    if rh.changed() || rv.changed() {
+        skew_about_pivot(app, f64::from(h), f64::from(v));
     }
     crate::widgets::vline(ui, 22.0);
     lbl(ui, tl!("Interpolation:"));
@@ -2840,6 +2953,7 @@ mod tests {
             made: None,
             mode: Default::default(),
             content_aware: None,
+            skew_v: 0.0,
         }
     }
 
@@ -3003,6 +3117,58 @@ mod tests {
         h.get_by_label("Reset warp").click();
         h.run_steps(2);
         assert!(h.state().ui.transform.as_ref().unwrap().warp.as_ref().unwrap().is_identity());
+    }
+
+    fn eq6(a: f64, b: f64) -> bool {
+        (a - b).abs() < 1e-6
+    }
+
+    /// Scale, skew and rotation read back exactly from the box they make, flips included.
+    #[test]
+    fn parts_round_trip() {
+        for (sx, sy, angle, h, v) in [(1.0, 1.0, 0.0, 0.0, 0.0), (1.5, 0.5, 30.0, 20.0, 0.0), (0.8, -1.2, -120.0, -35.0, 15.0), (2.0, 1.0, 179.0, 0.0, -60.0)] {
+            let p = Parts { sx, sy, angle: f64::to_radians(angle), skew_h: f64::to_radians(h), skew_v: f64::to_radians(v) };
+            let back = Parts::from_columns(p.columns_of(), p.skew_v);
+            for (a, b) in [(back.sx, p.sx), (back.sy, p.sy), (back.angle, p.angle), (back.skew_h, p.skew_h)] {
+                assert!(eq6(a, b), "{p:?} read back as {back:?}");
+            }
+        }
+    }
+
+    /// A box sheared sideways keeps W, H and the angle; only H skew moves (it used to read as a
+    /// taller box).
+    #[test]
+    fn a_sheared_box_reads_as_horizontal_skew() {
+        let mut t = session();
+        // The 100×50 frame with its bottom slid 50·tan 20° to the left: a positive H skew.
+        let d = 50.0 * 20f64.to_radians().tan();
+        t.quad = [[0.0, 0.0], [100.0, 0.0], [100.0 - d, 50.0], [-d, 50.0]];
+        let (w, h, angle, skew) = readout(&t);
+        assert!(eq6(w, 100.0) && eq6(h, 100.0) && eq6(angle, 0.0), "{w} {h} {angle}");
+        assert!(eq6(skew, 20.0), "{skew}");
+    }
+
+    /// Typing H and V skews leans the box about the reference point; the angle, W and H fields keep
+    /// their values, and V stays as typed.
+    #[test]
+    fn skew_fields_lean_the_box_about_the_reference_point() {
+        let t = type_into_bar_field(5, "20");
+        let (w, h, angle, skew) = readout(&t);
+        assert!(eq6(skew, 20.0) && eq6(angle, 0.0) && eq6(w, 100.0) && eq6(h, 100.0), "{w} {h} {angle} {skew}");
+        // The pivot (50, 25) stays put: the top edge slid right, the bottom left, by the same amount.
+        let d = 25.0 * 20f64.to_radians().tan();
+        assert!(eq6(t.quad[0][0], d) && eq6(t.quad[0][1], 0.0) && eq6(t.quad[3][0], -d) && eq6(t.quad[3][1], 50.0), "{:?}", t.quad);
+
+        let t = type_into_bar_field(6, "-10");
+        assert!(eq6(t.skew_v, -10.0));
+        let (w, h, angle, skew) = readout(&t);
+        assert!(eq6(skew, 0.0) && eq6(angle, 0.0) && eq6(w, 100.0) && eq6(h, 100.0), "{w} {h} {angle} {skew}");
+        // The right side rose: tan(−10°) per pixel across, about the pivot.
+        let d = 50.0 * (-10f64).to_radians().tan();
+        assert!(eq6(t.quad[1][1], d) && eq6(t.quad[0][1], -d), "{:?}", t.quad);
+        // A skew past ±90° would flatten the box: the field stops at the limit.
+        let t = type_into_bar_field(5, "120");
+        assert!(eq6(readout(&t).3, f64::from(SKEW_LIMIT_DEG)), "{}", readout(&t).3);
     }
 
     /// Types `text` + Enter into the `n`th numeric field of the transform bar (X, Y, W, H, angle…).
@@ -3854,6 +4020,25 @@ mod tests {
         assert_eq!(app.ui.transform.as_ref().unwrap().mode, TransformMode::Free);
     }
 
+    /// #3941: Edit › Transform › Rotate must rotate from a corner handle, not scale.
+    #[test]
+    fn rotate_mode_turns_the_box_from_a_corner_handle() {
+        let mut app = app_with_square(64, photocraft_geom::Rect::new(8, 8, 24, 24));
+        app.ui.extras.snap = false;
+        let ctx = egui::Context::default();
+        crate::menus::invoke(&mut app, &ctx, "edit.transform.rotate", json!({})).unwrap();
+        assert_eq!(app.ui.transform.as_ref().unwrap().mode, TransformMode::Rotate);
+        let q0 = app.ui.transform.as_ref().unwrap().quad;
+        press_drag(&mut app, q0[1], [q0[1][0], q0[1][1] + 16.0], egui::Modifiers::NONE);
+        let q = app.ui.transform.as_ref().unwrap().quad;
+        let w0 = (q0[1][0] - q0[0][0]).hypot(q0[1][1] - q0[0][1]);
+        let w = (q[1][0] - q[0][0]).hypot(q[1][1] - q[0][1]);
+        assert!((w - w0).abs() < 1e-6, "side length stays {w0}, got {w}: {q:?}");
+        assert!((q[0][1] - q[1][1]).abs() > 1.0, "the box rotated, not scaled: {q:?}");
+        crate::menus::invoke(&mut app, &ctx, "edit.transform.scale", json!({})).unwrap();
+        assert_eq!(app.ui.transform.as_ref().unwrap().mode, TransformMode::Free);
+    }
+
     fn near2(a: Option<[f64; 2]>, b: [f64; 2]) -> bool {
         a.is_some_and(|a| (a[0] - b[0]).abs() < 1e-9 && (a[1] - b[1]).abs() < 1e-9)
     }
@@ -4550,6 +4735,32 @@ mod tests {
         let (img, _) = preview_image(&st.doc, id, Some(&lifted), b, 4096, false);
         assert_eq!(texel_alpha(&img, 2, 4), 0, "masked");
         assert_eq!(texel_alpha(&img, 10, 4), 255, "revealed");
+    }
+
+    #[test]
+    fn preview_feathers_the_linked_mask() {
+        // A feathered pixel mask without a vector mask: the compositor softens the edge at x 16,
+        // so the moving texels must be soft there too, not hard until the commit (#4560).
+        let mut app = masked_app(true);
+        app.session
+            .edit("feather", |doc, a| {
+                doc.layer_mut(a.unwrap()).unwrap().mask.as_mut().unwrap().feather = 4.0;
+                Ok(())
+            })
+            .unwrap();
+        let st = app.session.active().unwrap();
+        let id = st.active_layer.unwrap();
+        let b = photocraft_geom::Rect::new(8, 8, 24, 24);
+        let (img, _) = preview_image(&st.doc, id, None, b, 4096, false);
+        // Texel x 7 = doc x 15, just inside the hidden half; texel x 8 = doc x 16, just revealed.
+        assert!(texel_alpha(&img, 7, 4) > 0, "the feather reaches into the hidden side");
+        assert!(texel_alpha(&img, 8, 4) < 255, "the feather reaches into the revealed side");
+        // The same values the compositor masks the committed layer with.
+        let m = photocraft_compose::masks::combined_mask(st.doc.layer(id).unwrap(), b).unwrap();
+        for x in [6usize, 7, 8, 9, 15] {
+            let want = (m.sample_channel(8 + x as i32, 12, 0) * 255.0).round() as i32;
+            assert!((i32::from(texel_alpha(&img, x, 4)) - want).abs() <= 1, "texel {x}");
+        }
     }
 
     #[test]

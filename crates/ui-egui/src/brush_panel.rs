@@ -295,15 +295,12 @@ fn section_list(app: &mut PhotocraftApp, ui: &mut egui::Ui, b: &mut BrushSetting
                     });
                     resp
                 });
-                if *flag {
-                    ui.painter().rect_filled(br, 2.0, t.accent);
-                    let (a, m, c) = (br.left_center() + vec2(3.0, 0.5), br.center_bottom() + vec2(-1.0, -3.5), br.right_top() + vec2(-3.0, 3.5));
-                    ui.painter().line_segment([a, m], Stroke::new(1.6, Color32::WHITE));
-                    ui.painter().line_segment([m, c], Stroke::new(1.6, Color32::WHITE));
-                } else {
-                    ui.painter().rect_stroke(br, 2.0, Stroke::new(1.2, t.text_faint), egui::StrokeKind::Inside);
-                }
                 let on_lock = resp.interact_pointer_pos().is_some_and(|p| p.x > r.right() - 22.0);
+                // A press on the row (but not its lock) presses the box too: a release there
+                // turns the section on, or toggles a checkbox-only row (#4476).
+                let pressed = box_resp.as_ref().is_some_and(|b| b.is_pointer_button_down_on()) || (resp.is_pointer_button_down_on() && !on_lock);
+                let hovered = box_resp.as_ref().is_some_and(|b| b.hovered()) || (toggle_only && resp.hovered());
+                widgets::check_box(ui.painter(), br, *flag, hovered, pressed, &t);
                 if box_resp.is_some_and(|resp| resp.clicked()) || (toggle_only && resp.clicked() && !on_lock) {
                     *flag = !*flag;
                 } else if !toggle_only && resp.clicked() && !on_lock {
@@ -388,9 +385,9 @@ fn settings_tab(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let tex = brush_preview::stroke_texture(ui.ctx(), "settings-strip", &b, STRIP.0, STRIP.1, t.text);
         ui.painter().image(tex.id(), r, full_uv(), Color32::WHITE);
         ui.vertical(|ui| {
-            if icons::button(ui, "square-plus", 24.0, false, tl!("Create new brush from these settings")).clicked() {
-                let name = new_preset_name(&app.session.tools.presets);
-                run_or_status(app, "brush.presets.save", json!({ "name": name, "brush": serde_json::to_value(&b).unwrap_or(Value::Null) }));
+            let new = icons::button(ui, "square-plus", 24.0, false, tl!("Create new brush from these settings"));
+            if crate::brush_picker::named(new, "Create new brush from these settings").clicked() {
+                crate::brush_preset_dialog::open(app, Some(&b));
             }
             if icons::button(ui, "undo-2", 24.0, false, tl!("Reset the brush to the defaults")).clicked() {
                 b = BrushSettings { color: b.color, background: b.background, smoothing: b.smoothing.clone(), locks: b.locks.clone(), ..Default::default() };

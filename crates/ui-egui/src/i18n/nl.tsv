@@ -8,7 +8,17 @@
 # stay as they are; the trailing "…" of dialog commands is kept. UI text addresses the user
 # informally ("je") and uses sentence case.
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	Kanaalkleur
+	Color Indicates:	Kleur geeft aan:
+	Solidity:	Soliditeit:
+	Ink Characteristics	Inktkenmerken
+
 # Guide layout dialog
+
+# Custom print paper (#3820)
+	Paper Width	Papierbreedte
+	Paper Height	Papierhoogte
 	Rows	Rijen
 	Number	Aantal
 	Top:	Boven:
@@ -63,6 +73,8 @@
 	Save	Opslaan
 	Save As…	Opslaan als…
 	Save a Copy…	Kopie opslaan…
+	{name} can't keep everything in this document	{name} kan niet alles in dit document bewaren
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	Kies een indeling die alles bewaart, zoals Photoshop (PSD), of sla een kopie op.
 	Revert	Terugzetten
 	Export	Exporteren
 	Quick Export as PNG	Snel exporteren als PNG
@@ -100,6 +112,13 @@
 	Script Events Manager…	Beheer scriptgebeurtenissen…
 	Import	Importeren
 	Browse…	Bladeren…
+	Source Files	Bronbestanden
+	Use:	Gebruiken:
+	Files	Bestanden
+	Add Open Files	Geopende bestanden toevoegen
+	Sort By Name	Sorteren op naam
+	Attempt to Automatically Align Source Images	Proberen bronafbeeldingen automatisch uit te lijnen
+	Create Smart Object after Loading Layers	Slim object maken na laden van lagen
 	Reveal in Finder	Weergeven in Finder
 	Show in Explorer	Weergeven in Verkenner
 	Show in Folder	Weergeven in map
@@ -140,6 +159,8 @@
 	Transform Again on a Copy	Opnieuw transformeren op een kopie
 	Scale	Schalen
 	Rotate	Roteren
+	Set horizontal skew	Horizontale schuinte instellen
+	Set vertical skew	Verticale schuinte instellen
 	Skew	Schuintrekken
 	Distort	Vervormen
 	Perspective	Perspectief
@@ -707,6 +728,10 @@
 	Breeze Dark Theme	Breeze-thema donker
 	Breeze light	Breeze licht
 	Breeze Light Theme	Breeze-thema licht
+	Soft dark	Zacht donker
+	Soft light	Zacht licht
+	Soft Dark Theme	Zacht donker thema
+	Soft Light Theme	Zacht licht thema
 	Adwaita Light Theme	Adwaita-thema licht
 	Adwaita Dark Theme	Adwaita-thema donker
 	Adwaita	Adwaita
@@ -809,6 +834,9 @@
 	Appearance	Weergave
 	Appearance (Layer Style)	Weergave (laagstijl)
 	Apply Layer Mask	Laagmasker toepassen
+	Add Mask to Selection	Masker aan selectie toevoegen
+	Subtract Mask from Selection	Masker van selectie aftrekken
+	Intersect Mask with Selection	Masker met selectie laten snijden
 	Apply Per Tip	Per punt toepassen
 	Apply next selected layer comp	Volgende geselecteerde laagcompositie toepassen
 	Apply previous selected layer comp	Vorige geselecteerde laagcompositie toepassen
@@ -2063,6 +2091,11 @@
 	Rename Brush…	Penseel hernoemen…
 	Delete Brush	Penseel verwijderen
 	New Brush Preset…	Nieuwe penseelvoorinstelling…
+	Capture Brush Size in Preset	Penseelgrootte vastleggen in voorinstelling
+	Include Tool Settings	Gereedschapsinstellingen opnemen
+	Include Color	Kleur opnemen
+	Enter a name for the brush preset	Voer een naam in voor de penseelvoorinstelling
+	A brush preset with this name already exists	Er bestaat al een penseelvoorinstelling met deze naam
 	Brush Preset Options	Opties penseelvoorinstelling
 	Group name	Groepsnaam
 	Brush name	Penseelnaam
@@ -3851,3 +3884,4 @@ curves	Smooth	Vloeiend maken
 	Step {step} is waiting for its dialog	Stap {step} wacht op zijn dialoogvenster
 @plural	{n} action|{n} actions	{n} handeling|{n} handelingen
 	Auto Add/Delete	Automatisch toevoegen/verwijderen
+	ICO is limited to 256 × 256 pixels	ICO is beperkt tot 256 × 256 pixels

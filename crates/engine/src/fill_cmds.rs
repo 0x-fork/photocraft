@@ -399,6 +399,12 @@ fn blend_into(surf: &mut Surface, area: Rect, source: &Source, sel: Option<&Surf
             done.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((tc, s.clone()));
             return Ok(());
         }
+        // Nothing selected in this tile (or no opacity): `blend_tile` would leave every pixel as
+        // it is, so keep the tile itself rather than a copy the history would hold again (#4517).
+        if b.opacity <= 0.0 || mask.as_ref().is_some_and(|m| m.empty(tr)) {
+            done.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((tc, tile));
+            return Ok(());
+        }
         let mut tile = match std::sync::Arc::try_unwrap(tile) {
             Ok(tile) => tile,
             Err(tile) => tile
@@ -435,6 +441,10 @@ impl<'a> Mask<'a> {
     /// Fully selected over `r`?
     pub(crate) fn full(&self, r: Rect) -> bool {
         (r.y0..r.y1).all(|y| (r.x0..r.x1).all(|x| self.at(x, y) >= 1.0))
+    }
+    /// Whether nothing in `r` is selected.
+    pub(crate) fn empty(&self, r: Rect) -> bool {
+        (r.y0..r.y1).all(|y| (r.x0..r.x1).all(|x| self.at(x, y) <= 0.0))
     }
 }
 
@@ -745,5 +755,43 @@ mod tests {
         s.execute(CMD, json!({"contents": "white"})).unwrap();
         s.execute(CMD, json!({"contents": "contentAware", "colorAdaptation": false})).unwrap();
         assert!(close(px(&s, 17, 12), [0x33 as f32 / 255.0, 0x66 as f32 / 255.0, 0x99 as f32 / 255.0, 1.0]), "{:?}", px(&s, 17, 12));
+    }
+
+    /// A Stroke, Fill or Clear inside a selection keeps the tiles the selection doesn't reach as
+    /// they were (shared with the history), instead of storing a copy of each (#4517).
+    #[test]
+    fn unselected_tiles_stay_shared() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 1024, "height": 1024, "background": "white"})).unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("edit.fill", json!({"color": "#336699"})).unwrap();
+        let id = s.active().unwrap().active_layer.unwrap();
+        let surf = |s: &Session| s.active().unwrap().doc.layer(id).unwrap().surface().unwrap().clone();
+        for (cmd, params) in [
+            ("edit.fill", json!({"color": "#ff0000"})),
+            ("edit.stroke", json!({"width": 4, "color": "#00ff00", "location": "inside"})),
+            ("edit.clear", json!({})),
+        ] {
+            // Two small selections in opposite corners (256 px tiles): the selection's bounds
+            // span every tile, but only the two corner tiles have anything selected.
+            s.execute("select.rect", json!({"x": 20, "y": 20, "width": 100, "height": 100})).unwrap();
+            s.execute("select.rect", json!({"x": 900, "y": 900, "width": 100, "height": 100, "mode": "add"})).unwrap();
+            let before = surf(&s);
+            s.execute(cmd, params).unwrap();
+            let after = surf(&s);
+            let corners = [photocraft_geom::Rect::new(0, 0, 256, 256), photocraft_geom::Rect::new(768, 768, 1024, 1024)];
+            let mut kept = 0;
+            for (c, t) in before.tiles() {
+                if corners.iter().all(|r| c.rect().intersect(r).is_empty()) {
+                    assert!(after.tile(*c).is_some_and(|a| std::sync::Arc::ptr_eq(a, t)), "{cmd}: unselected tile {c:?} was copied");
+                    kept += 1;
+                }
+            }
+            assert_eq!(kept, 14, "{cmd}: the 14 tiles between the corners");
+            for r in corners {
+                assert_ne!(before.read_region(r), after.read_region(r), "{cmd} changed the selected corner {r:?}");
+            }
+            s.execute("select.deselect", json!({})).unwrap();
+        }
     }
 }

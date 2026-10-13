@@ -817,3 +817,46 @@ fn saving_a_new_document_lists_it_in_recent_files() {
     answer(&mut app);
     assert_eq!(app.ui.recent_files, ["/pics/new.psd"], "a copy isn't the document's file");
 }
+
+/// #4559: a file whose type uses a font that isn't installed opens with a notice naming it, as
+/// Photoshop warns on open (the CLI and automation already did); the file still opens. Type in
+/// an installed face adds nothing, and a font the importer already warned about isn't repeated.
+#[test]
+fn opening_type_in_a_missing_font_warns() {
+    fn doc_with_type(font: Option<&str>) -> Document {
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 40, "height": 20})).unwrap();
+        let mut p = json!({"text": "Hi", "x": 2, "y": 12, "size": 10});
+        if let Some(f) = font {
+            p["font"] = json!(f);
+        }
+        s.execute("type.create", p).unwrap();
+        (*s.active().unwrap().doc).clone()
+    }
+    const MISSING: &str = "NoSuchFamily4559";
+    let warning = format!("font '{MISSING}' is not installed; text may render using a fallback face");
+    let (with_missing, installed) = (doc_with_type(Some(MISSING)), doc_with_type(None));
+    let already = warning.clone();
+    let services = Services {
+        import: Some(Box::new(move |name: &str, _bytes: &[u8], _depth: usize| {
+            Ok(match name {
+                "installed.psd" => (installed.clone(), Vec::new()),
+                "warned.psd" => (with_missing.clone(), vec![already.clone()]),
+                _ => (with_missing.clone(), Vec::new()),
+            })
+        })),
+        ..Default::default()
+    };
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), services);
+    let warnings = app.open_bytes("poster.psd", b"x").unwrap();
+    assert_eq!(warnings, vec![warning.clone()]);
+    assert!(app.ui.status.contains(MISSING), "{}", app.ui.status);
+    assert_eq!(app.ui.notices.len(), 1);
+    assert_eq!(app.ui.notices[0].lines, vec![warning.clone()]);
+    assert_eq!(app.session.documents().len(), 1, "the file still opens");
+    // Type in an installed face: no notice.
+    assert!(app.open_bytes("installed.psd", b"x").unwrap().is_empty());
+    assert_eq!(app.ui.notices.len(), 1);
+    // The importer's own warning for the same font isn't doubled.
+    assert_eq!(app.open_bytes("warned.psd", b"x").unwrap(), vec![warning]);
+}

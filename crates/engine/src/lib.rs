@@ -614,6 +614,10 @@ impl Session {
         if self.names_existing_layer(spec.id, params) {
             return Ok(());
         }
+        // `ifPresent`: with no Background there is nothing to do, which isn't an error.
+        if spec.id == "layer.new.layerFromBackground" && params.get("ifPresent").and_then(Value::as_bool) == Some(true) {
+            return self.active().map(|_| ()).ok_or_else(|| "no document open".into());
+        }
         channel_cmds::mask_target_enabled(self, spec.id, params).unwrap_or_else(|| (spec.enabled)(self))
     }
 

@@ -7,9 +7,9 @@ order = 5
 [[item]]
 id = "TYPE-218-1"
 target = "Type on a path: path shape, glyphs along the curve, caret follows, PSD round trip"
-status = "missing"
+status = "partial"
 issue = 218
-note = "doc text.rs:209 TextShape has Point and Box only"
+note = "TextShape::Path (doc text.rs) with glyphs placed rigidly along the curve by arc length (text warp.rs PathFrame), type.attachToPath and type.detachFromPath (#4365), .pcraft round trip. Missing: clicking a path with the Type tool, the caret and selection following the curve, and PSD path text (it saves as point text)"
 
 [[item]]
 id = "TYPE-218-2"

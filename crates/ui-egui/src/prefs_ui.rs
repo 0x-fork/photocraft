@@ -97,6 +97,7 @@ fn selected_theme(interface: &prefs::Interface, system: Option<egui::Theme>) -> 
             LightTheme::Classic => ThemeKind::Classic,
             LightTheme::Adwaita => ThemeKind::Adwaita,
             LightTheme::BreezeLight => ThemeKind::BreezeLight,
+            LightTheme::SoftLight => ThemeKind::SoftLight,
         }
     } else {
         match interface.dark_theme {
@@ -106,6 +107,7 @@ fn selected_theme(interface: &prefs::Interface, system: Option<egui::Theme>) -> 
             DarkTheme::SolarizedDark => ThemeKind::SolarizedDark,
             DarkTheme::AdwaitaDark => ThemeKind::AdwaitaDark,
             DarkTheme::BreezeDark => ThemeKind::BreezeDark,
+            DarkTheme::SoftDark => ThemeKind::SoftDark,
         }
     }
 }
@@ -133,6 +135,7 @@ const LIGHT_THEME_OPTIONS: &[(&str, ThemeKind)] = &[
     ("classic", ThemeKind::Classic),
     ("adwaita", ThemeKind::Adwaita),
     ("breezeLight", ThemeKind::BreezeLight),
+    ("softLight", ThemeKind::SoftLight),
 ];
 const DARK_THEME_OPTIONS: &[(&str, ThemeKind)] = &[
     ("proMedium", ThemeKind::ProMedium),
@@ -141,6 +144,7 @@ const DARK_THEME_OPTIONS: &[(&str, ThemeKind)] = &[
     ("solarizedDark", ThemeKind::SolarizedDark),
     ("adwaitaDark", ThemeKind::AdwaitaDark),
     ("breezeDark", ThemeKind::BreezeDark),
+    ("softDark", ThemeKind::SoftDark),
 ];
 
 fn favorite_theme_groups(favorites: &[SavedTheme]) -> (Vec<ThemeKind>, Vec<ThemeKind>) {
@@ -2089,7 +2093,12 @@ mod tests {
     fn breeze_themes_are_chosen_by_preference_and_fix_the_matching_mode() {
         let ctx = egui::Context::default();
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
-        for (id, kind, mode) in [("breezeLight", ThemeKind::BreezeLight, AppearanceMode::Light), ("breezeDark", ThemeKind::BreezeDark, AppearanceMode::Dark)] {
+        for (id, kind, mode) in [
+            ("breezeLight", ThemeKind::BreezeLight, AppearanceMode::Light),
+            ("breezeDark", ThemeKind::BreezeDark, AppearanceMode::Dark),
+            ("softLight", ThemeKind::SoftLight, AppearanceMode::Light),
+            ("softDark", ThemeKind::SoftDark, AppearanceMode::Dark),
+        ] {
             app.run("prefs.set", json!({"path": "interface.theme", "value": id})).unwrap();
             tick(&mut app, &ctx);
             let interface = app.session.prefs().interface.clone();
@@ -2098,8 +2107,8 @@ mod tests {
             assert_eq!(app.ui.theme, kind, "{id}");
         }
         // The two slots are independent: choosing the dark one left the light choice alone.
-        assert_eq!(app.session.prefs().interface.light_theme, LightTheme::BreezeLight);
-        assert_eq!(app.session.prefs().interface.dark_theme, DarkTheme::BreezeDark);
+        assert_eq!(app.session.prefs().interface.light_theme, LightTheme::SoftLight);
+        assert_eq!(app.session.prefs().interface.dark_theme, DarkTheme::SoftDark);
     }
 
     #[test]

@@ -487,3 +487,72 @@ fn layer_filters_repeat_the_canvas_edge() {
         assert!(faded.pixel(0, 0)[3] < 0.9, "{depth:?}: unclamped path should read transparency");
     }
 }
+
+/// `mix_selection` before #4533, one selection lookup per pixel: the oracle for the per-tile read.
+fn mix_selection_reference(data: &mut [f32], t: Rect, sel: &Surface, orig: &crate::image::Image, alpha: bool) {
+    let w = t.width() as usize;
+    for (i, px) in data.chunks_exact_mut(orig.ch.max(1)).enumerate() {
+        let (x, y) = (t.x0 + (i % w) as i32, t.y0 + (i / w) as i32);
+        let k = sel.pixel(x, y)[0].clamp(0.0, 1.0);
+        if k >= 1.0 {
+            continue;
+        }
+        if k <= 0.0 {
+            for (c, v) in px.iter_mut().enumerate() {
+                *v = orig.get(x, y, c);
+            }
+            continue;
+        }
+        if alpha {
+            let a = px.len() - 1;
+            let original_alpha = orig.get(x, y, a);
+            let filtered_alpha = px[a];
+            if original_alpha != filtered_alpha {
+                let mixed_alpha = original_alpha + (filtered_alpha - original_alpha) * k;
+                let original_weight = original_alpha * (1.0 - k);
+                let filtered_weight = filtered_alpha * k;
+                for (c, v) in px[..a].iter_mut().enumerate() {
+                    *v = if mixed_alpha > 0.0 { (orig.get(x, y, c) * original_weight + *v * filtered_weight) / mixed_alpha } else { 0.0 };
+                }
+                px[a] = mixed_alpha;
+                continue;
+            }
+        }
+        for (c, v) in px.iter_mut().enumerate() {
+            let o = orig.get(x, y, c);
+            *v = o + (*v - o) * k;
+        }
+    }
+}
+
+/// Reading the selection once per tile gives exactly the per-pixel result (#4533): a soft
+/// selection with fully selected, unselected and partial pixels, with and without alpha, on a
+/// tile that crosses the selection's tile boundaries.
+#[test]
+fn mix_selection_reads_the_selection_once_per_tile() {
+    let noise = |seed: u32, n: usize| -> Vec<f32> {
+        (0..n as u32)
+            .map(|i| {
+                let mut h = seed.wrapping_mul(0x9e37_79b9) ^ i.wrapping_mul(0x85eb_ca6b);
+                h ^= h >> 13;
+                h = h.wrapping_mul(0xc2b2_ae35);
+                (h >> 16) as f32 / 65535.0
+            })
+            .collect()
+    };
+    let t = Rect::new(200, 180, 330, 300);
+    let n = (t.width() * t.height()) as usize;
+    let mut sel = Surface::new(PixelFormat::GRAY8);
+    sel.fill_rect(Rect::new(150, 150, 260, 250), &[1.0]);
+    let soft = Rect::new(260, 150, 330, 250);
+    sel.write_region(soft, &noise(5, (soft.width() * soft.height()) as usize));
+    for (alpha, fmt) in [(true, PixelFormat::RGBA8), (false, PixelFormat { alpha: false, ..PixelFormat::RGBA8 })] {
+        let ch = fmt.channels();
+        let orig = crate::image::Image { rect: t, ch, data: noise(1, n * ch) };
+        let filtered = noise(2, n * ch);
+        let (mut a, mut b) = (filtered.clone(), filtered);
+        mix_selection(&mut a, t, &sel, &orig, alpha);
+        mix_selection_reference(&mut b, t, &sel, &orig, alpha);
+        assert!(a.iter().zip(&b).all(|(x, y)| x.to_bits() == y.to_bits()), "alpha {alpha}: results differ");
+    }
+}

@@ -78,9 +78,9 @@ note = "interface.enableAnimations (prefs_ui.rs sync_animations, #3273) zeroes e
 [[item]]
 id = "UI-217-11"
 target = "Soft dark and soft light themes with picker previews; outlined knobs in light themes"
-status = "missing"
+status = "partial"
 issue = 217
-note = "theme.rs ThemeKind has twelve themes (the four Pro brightness levels, Studio and Studio Light, Classic, Adwaita and Adwaita Dark, Solarized Dark, Breeze Light and Breeze Dark); no Soft dark or Soft light, and no outlined knobs in the light themes"
+note = "theme.rs ThemeKind has fourteen themes: the twelve earlier ones plus Soft Dark and Soft Light (low-contrast Studio-layout palettes, text at 4.5:1, selectable in Preferences with the existing theme-card previews, ui.set {theme}, Window > Theme); outlined knobs in the light themes are still missing"
 
 [[item]]
 id = "UI-217-12"

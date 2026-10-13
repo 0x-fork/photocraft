@@ -10,7 +10,7 @@ use photocraft_doc::LayerContent;
 use photocraft_geom::Rect;
 use photocraft_paint::mixer::{MixerSettings, apply_mixer_stroke};
 use photocraft_paint::replace::{Limits, ReplaceMode, ReplaceSettings, Sampling, apply_color_replacement, color_replacement_effect};
-use photocraft_paint::{BrushPreset, BrushSettings, GrayTile, Stroke, StrokePoint, StrokeRenderer, TipShape, render_stroke};
+use photocraft_paint::{BrushPreset, BrushSettings, GrayTile, PresetCaptures, Stroke, StrokePoint, StrokeRenderer, TipShape, render_stroke};
 use photocraft_raster::Surface;
 use serde_json::{Value, json};
 
@@ -177,7 +177,7 @@ fn find_preset<'a>(s: &'a Session, name: &str, cmd: &str) -> Result<&'a BrushPre
 pub fn resolve_brush(s: &Session, p: &Value, cmd: &str) -> Result<BrushSettings> {
     let mut b = s.tools.brush.clone();
     if let Some(name) = p.get("preset").and_then(Value::as_str) {
-        b = find_preset(s, name, cmd)?.brush.clone().picked_over(&s.tools.brush);
+        b = find_preset(s, name, cmd)?.picked_over(&s.tools.brush);
     }
     if let Some(patch) = p.get("brush").filter(|v| v.is_object()) {
         b = merge_brush(&b, patch, cmd)?;
@@ -761,11 +761,16 @@ fn upsert(s: &mut Session, preset: BrushPreset) {
 fn presets_save(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "brush.presets.save";
     let name = name_param(p, cmd)?;
-    let brush = match p.get("brush").filter(|v| v.is_object()) {
+    let mut brush = match p.get("brush").filter(|v| v.is_object()) {
         Some(patch) => merge_brush(&s.tools.brush, patch, cmd)?,
         None => s.tools.brush.clone(),
     };
-    upsert(s, BrushPreset { name: name.clone(), brush, builtin: false, group: String::new(), folder: Vec::new() });
+    // The New Brush Preset dialog's boxes; without them the preset captures what it always did.
+    let captures = PresetCaptures { size: flag(p, "captureSize", true), tool_settings: flag(p, "toolSettings", true), color: flag(p, "color", false) };
+    if captures.color {
+        brush.color = s.tools.foreground;
+    }
+    upsert(s, BrushPreset { name: name.clone(), brush, builtin: false, group: String::new(), folder: Vec::new(), captures });
     // The saved brush is the current brush now (Photoshop selects the brush it just saved).
     s.tools.current_preset = Some(name.clone());
     Ok(json!({ "name": name, "count": s.tools.presets.len() }))
@@ -881,7 +886,7 @@ fn define_from_selection(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let tip = GrayTile::from_f32(tw, th, &data);
     let brush = BrushSettings { tip: TipShape::Sampled(tip), size: tw.max(th) as f32, spacing: 0.25, pressure_size: false, ..BrushSettings::default() };
-    upsert(s, BrushPreset { name: name.clone(), brush: brush.clone(), builtin: false, group: String::new(), folder: Vec::new() });
+    upsert(s, BrushPreset { name: name.clone(), brush: brush.clone(), builtin: false, group: String::new(), folder: Vec::new(), captures: Default::default() });
     s.tools.brush = brush;
     s.tools.current_preset = Some(name.clone());
     Ok(json!({ "name": name, "width": tw, "height": th }))
@@ -891,8 +896,11 @@ pub(crate) fn set_brush(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "tools.setBrush";
     let mut b = s.tools.brush.clone();
     let mut picked = None;
+    let mut picked_color = None;
     if let Some(name) = p.get("preset").and_then(Value::as_str) {
-        b = find_preset(s, name, cmd)?.brush.clone().picked_over(&s.tools.brush);
+        let preset = find_preset(s, name, cmd)?;
+        b = preset.picked_over(&s.tools.brush);
+        picked_color = preset.captures.color.then_some(preset.brush.color);
         picked = Some(name.to_string());
     }
     let reset = flag(p, "reset", false);
@@ -921,6 +929,10 @@ pub(crate) fn set_brush(s: &mut Session, p: &Value) -> Result<Value> {
         s.tools.current_preset = None;
     } else if let Some(name) = picked {
         s.tools.current_preset = Some(name);
+        // A preset saved with Include Color brings its colour as the foreground (Photoshop).
+        if let Some(c) = picked_color {
+            s.tools.foreground = c;
+        }
     }
     // The tool's brush always paints with full tips: load a library preset's from the store.
     s.load_brush_tips(&mut b).map_err(|e| bad(cmd, e))?;
@@ -1041,7 +1053,14 @@ pub fn specs() -> Vec<CommandSpec> {
             true
         ),
         spec!("brush.presets.list", "List Brush Presets", r##"{"full":bool=false}"##, always, presets_list, false),
-        spec!("brush.presets.save", "Save Brush Preset", r##"{"name":string,"brush":{…BrushSettings}?=current brush}"##, always, presets_save, true),
+        spec!(
+            "brush.presets.save",
+            "Save Brush Preset",
+            r##"{"name":string,"brush":{…BrushSettings}?=current brush,"captureSize":bool=true (false: picking it keeps the tool's size),"toolSettings":bool=true (false: picking it keeps the tool's mode, opacity, flow and pressure buttons),"color":bool=false (picking it sets the foreground to the current foreground)}"##,
+            always,
+            presets_save,
+            true
+        ),
         spec!(
             "brush.presets.update",
             "Update Brush Preset",

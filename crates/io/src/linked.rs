@@ -275,6 +275,85 @@ pub fn block_uuids(data: &[u8]) -> Vec<String> {
     split_items(data).into_iter().filter_map(|(u, _)| u).collect()
 }
 
+/// Copies only records accepted by `keep` (UUID and complete raw record including padding).
+/// Unlike [`rebuild_block`], unidentified records and malformed tails are discarded: clipboard
+/// copies must not carry unrelated embedded files. Empty UUIDs cannot identify source bytes.
+/// Selected identity must be provable without lossy UTF-8 decoding; an ambiguous or truncated
+/// selected ID is an error instead. No payload decoding or filesystem access is performed.
+/// `None` means the block already contains only selected complete records and can be shared.
+pub fn select_items(data: &[u8], keep: &dyn Fn(&str, &[u8]) -> bool) -> Result<Option<Vec<u8>>, crate::IoError> {
+    let error = || crate::IoError::Unsupported("can't copy a truncated selected PSD linked-layer record".into());
+    let mut selected = None;
+    let mut at = 0usize;
+    while let Some(rest) = data.get(at..).filter(|r| !r.is_empty()) {
+        let Some((item, raw)) = framed_item(rest) else {
+            if let Some(item) = rest.get(8..)
+                && selection_uuid(item, rest, keep)?.is_some_and(|uuid| keep(uuid, rest))
+            {
+                return Err(error());
+            }
+            if selected.is_none() {
+                let mut prefix = Vec::new();
+                append_selected(&mut prefix, data.get(..at).ok_or_else(error)?)?;
+                selected = Some(prefix);
+            }
+            break;
+        };
+        if selection_uuid(item, raw, keep)?.is_some_and(|uuid| keep(uuid, raw)) {
+            if let Some(out) = &mut selected {
+                append_selected(out, raw)?;
+            }
+        } else if selected.is_none() {
+            let mut prefix = Vec::new();
+            append_selected(&mut prefix, data.get(..at).ok_or_else(error)?)?;
+            selected = Some(prefix);
+        }
+        at = at.checked_add(raw.len()).ok_or_else(error)?;
+    }
+    Ok(selected)
+}
+
+// Legacy PSD readers retain lossy IDs for file fidelity. Selection needs exact identity;
+// a lossy label is used only to refuse an ambiguous transfer, never to retain a record.
+fn selection_uuid<'a>(item: &'a [u8], raw: &[u8], keep: &dyn Fn(&str, &[u8]) -> bool) -> Result<Option<&'a str>, crate::IoError> {
+    let Some(n) = item.get(8).map(|n| usize::from(*n)) else { return Ok(None) };
+    let Some(bytes) = 9usize.checked_add(n).and_then(|end| item.get(9..end)).filter(|bytes| !bytes.is_empty()) else { return Ok(None) };
+    match std::str::from_utf8(bytes) {
+        Ok(uuid) => Ok(Some(uuid)),
+        Err(_) if keep(&String::from_utf8_lossy(bytes), raw) => {
+            Err(crate::IoError::Unsupported("can't verify a PSD linked-layer source ID with invalid UTF-8".into()))
+        }
+        Err(_) => Ok(None),
+    }
+}
+
+/// Whether a complete raw record already occurs in a block, without decoding its file bytes.
+pub fn contains_item(data: &[u8], record: &[u8]) -> bool {
+    let mut remaining = data;
+    while let Some((_, raw)) = framed_item(remaining) {
+        if raw == record {
+            return true;
+        }
+        let Some(next) = remaining.get(raw.len()..) else { return false };
+        remaining = next;
+    }
+    false
+}
+
+fn framed_item(data: &[u8]) -> Option<(&[u8], &[u8])> {
+    let len = usize::try_from(u64::from_be_bytes(data.get(..8)?.try_into().ok()?)).ok()?;
+    let end = len.checked_add(8)?;
+    let item = data.get(8..end)?;
+    let padded = end.checked_add(3).map(|n| n & !3)?.min(data.len());
+    Some((item, data.get(..padded)?))
+}
+
+fn append_selected(out: &mut Vec<u8>, bytes: &[u8]) -> Result<(), crate::IoError> {
+    out.try_reserve(bytes.len()).map_err(|_| crate::IoError::Unsupported("not enough memory to copy PSD linked-layer records".into()))?;
+    out.extend_from_slice(bytes);
+    Ok(())
+}
+
 /// Copies one linked item under a new UUID, preserving its embedded, external or alias payload.
 pub(crate) fn copy_item(data: &[u8], uuid: &str, new_uuid: &str) -> Option<Vec<u8>> {
     let (_, raw) = split_items(data).into_iter().find(|(u, _)| u.as_deref() == Some(uuid))?;
@@ -391,5 +470,80 @@ mod tests {
         assert_eq!(&copy[8..16], &raw[8..16]);
         assert_eq!(&copy[17 + "independent-copy".len()..8 + copied_len], &raw[20..8 + original_len]);
         assert!(copy_item(&raw, "missing", "new").is_none());
+    }
+    #[test]
+    fn selected_records_exclude_other_files_and_unidentified_pieces() {
+        let a = encode_linked_file(&LinkedFile { uuid: "a".into(), file_name: "a.psb".into(), bytes: vec![1; 3] });
+        let b = encode_linked_file(&LinkedFile { uuid: "b".into(), file_name: "b.psb".into(), bytes: vec![2; 4] });
+        assert!(select_items(&a, &|uuid, _| uuid == "a").unwrap().is_none(), "an exclusive block can keep its original Arc");
+        let mut data = a.clone();
+        data.extend(&b);
+        data.extend([0, 0, 0, 0, 0, 0, 1, 0, 9]);
+        assert_eq!(select_items(&data, &|uuid, _| uuid == "a").unwrap(), Some(a.clone()));
+        assert_eq!(select_items(&data, &|uuid, _| uuid == "b").unwrap(), Some(b));
+        assert_eq!(select_items(&data, &|_, _| false).unwrap(), Some(Vec::new()));
+        // A complete but unidentified item can be skipped without losing a later selected item.
+        let mut unreadable = 1u64.to_be_bytes().to_vec();
+        unreadable.extend([7, 0, 0, 0]);
+        unreadable.extend(&a);
+        assert_eq!(select_items(&unreadable, &|uuid, _| uuid == "a").unwrap(), Some(a));
+    }
+
+    #[test]
+    fn selected_external_and_alias_records_keep_unknown_payloads_verbatim() {
+        for kind in [*b"liFE", *b"liFA", *b"next"] {
+            let mut raw = encode_linked_file(&LinkedFile { uuid: "selected".into(), file_name: "missing.psb".into(), bytes: vec![7; 5] });
+            raw[8..12].copy_from_slice(&kind);
+            raw[12..16].copy_from_slice(&42u32.to_be_bytes()); // an unknown future version
+            let mut data = encode_linked_file(&LinkedFile { uuid: "unselected".into(), file_name: "other.psb".into(), bytes: vec![9; 3] });
+            data.extend(&raw);
+            assert_eq!(select_items(&data, &|uuid, _| uuid == "selected").unwrap(), Some(raw));
+        }
+    }
+
+    #[test]
+    fn truncated_selected_records_fail_instead_of_becoming_unavailable() {
+        let mut raw = encode_linked_file(&LinkedFile { uuid: "selected".into(), file_name: "missing.psb".into(), bytes: vec![7; 5] });
+        raw[..8].copy_from_slice(&u64::MAX.to_be_bytes());
+        assert!(select_items(&raw, &|uuid, _| uuid == "selected").unwrap_err().to_string().contains("truncated selected"));
+        assert_eq!(select_items(&raw, &|uuid, _| uuid == "other").unwrap(), Some(Vec::new()));
+    }
+    #[test]
+    fn existing_records_are_matched_individually_without_matching_other_payloads() {
+        let a = encode_linked_file(&LinkedFile { uuid: "a".into(), file_name: "a.psb".into(), bytes: vec![1; 3] });
+        let b = encode_linked_file(&LinkedFile { uuid: "b".into(), file_name: "b.psb".into(), bytes: vec![2; 4] });
+        let different = encode_linked_file(&LinkedFile { uuid: "a".into(), file_name: "a.psb".into(), bytes: vec![9; 3] });
+        let mut combined = a.clone();
+        combined.extend(&b);
+        assert!(contains_item(&combined, &a));
+        assert!(contains_item(&combined, &b));
+        assert!(!contains_item(&combined, &different));
+        assert_eq!(select_items(&a, &|_, raw| !contains_item(&combined, raw)).unwrap(), Some(Vec::new()));
+        assert!(select_items(&different, &|_, raw| !contains_item(&combined, raw)).unwrap().is_none());
+    }
+    #[test]
+    fn empty_uuids_are_unidentified_even_when_requested() {
+        let raw = encode_linked_file(&LinkedFile { uuid: String::new(), file_name: "unidentified.psb".into(), bytes: vec![7; 5] });
+        assert_eq!(select_items(&raw, &|_, _| true).unwrap(), Some(Vec::new()));
+        let mut truncated = raw;
+        truncated[..8].copy_from_slice(&u64::MAX.to_be_bytes());
+        assert_eq!(select_items(&truncated, &|_, _| true).unwrap(), Some(Vec::new()));
+    }
+    #[test]
+    fn selection_never_uses_lossy_uuid_aliases_as_record_identity() {
+        let mut a = encode_linked_file(&LinkedFile { uuid: "x".into(), file_name: "a.psb".into(), bytes: vec![1; 3] });
+        let mut b = encode_linked_file(&LinkedFile { uuid: "x".into(), file_name: "b.psb".into(), bytes: vec![2; 4] });
+        a[17] = 0xff;
+        b[17] = 0xfe;
+        let mut data = a;
+        data.extend(b);
+        assert_eq!(block_uuids(&data), vec!["\u{fffd}", "\u{fffd}"], "legacy lossy parsing remains unchanged");
+        assert!(select_items(&data, &|uuid, _| uuid == "\u{fffd}").unwrap_err().to_string().contains("invalid UTF-8"));
+        let valid = encode_linked_file(&LinkedFile { uuid: "valid".into(), file_name: "valid.psb".into(), bytes: vec![3; 5] });
+        data.extend(&valid);
+        assert_eq!(select_items(&data, &|uuid, _| uuid == "valid").unwrap(), Some(valid));
+        // A literal replacement character can itself be a valid UTF-8 identity.
+        let valid_unicode = encode_linked_file(&LinkedFile { uuid: "\u{fffd}".into(), file_name: "unicode.psb".into(), bytes: vec![4; 2] });
+        assert!(select_items(&valid_unicode, &|uuid, _| uuid == "\u{fffd}").unwrap().is_none());
     }
 }

@@ -88,6 +88,11 @@ pub fn render(doc: &Document, rect: Rect) -> Buffer {
     render_tiled(doc, rect, RENDER_TILE)
 }
 
+/// Most pixels one [`render`] call will produce (2^30, a 16 GiB buffer; 32768² px). Larger rects
+/// (a hostile canvas size is up to 300000 px a side) return an empty buffer instead of aborting
+/// on allocation; callers wanting more render in pieces.
+pub const MAX_RENDER_PIXELS: u64 = 1 << 30;
+
 /// [`render`] with an explicit tile size (tests check tile independence).
 pub fn render_tiled(doc: &Document, rect: Rect, tile: i32) -> Buffer {
     let patterns = pattern::PreparedPatterns::new(&doc.patterns, pattern::PREPARED_PATTERN_BYTES).in_mode(doc.pixel_format().mode);
@@ -107,8 +112,12 @@ fn render_tiled_with(doc: &Document, rect: Rect, tile: i32, cx: &Ctx) -> Buffer 
     if rect.is_empty() {
         return Buffer::transparent(rect);
     }
+    // Refuse rects too large to hold: an empty buffer, not an allocation failure.
+    if u64::from(rect.width()) * u64::from(rect.height()) > MAX_RENDER_PIXELS {
+        return Buffer::transparent(Rect::EMPTY);
+    }
     cx.set_fx_clip(rect);
-    if rect.width() as i32 <= tile && rect.height() as i32 <= tile {
+    if i64::from(rect.width()) <= i64::from(tile) && i64::from(rect.height()) <= i64::from(tile) {
         return photocraft_color::convert::with_cmyk_space(cmyk, || {
             let mut buf = multichannel::backdrop(doc, rect);
             in_blend_space(lab, hdr, || composite_stack_at(&doc.layers, &mut buf, cx, advanced::Scope::ROOT));
@@ -1112,7 +1121,7 @@ fn blend_if_weight(layer: &Layer, mode: photocraft_color::ColorMode, this: Optio
     let mut k = 1.0;
     for (side, px) in [this, under].into_iter().enumerate() {
         let Some(p) = px else { continue };
-        let v = |c: usize| p[c].clamp(0.0, 1.0) * 255.0;
+        let v = |c: usize| blend_if_level(p[c]);
         match mode {
             // Gray is the colour channels' luma (Rec. 601 weights), then R, G, B.
             M::Rgb => {
@@ -1131,6 +1140,17 @@ fn blend_if_weight(layer: &Layer, mode: photocraft_color::ColorMode, this: Optio
         }
     }
     k
+}
+
+/// A channel value on Blend If's 0..=255 scale. Compositing can leave an 8- or 16-bit level a few
+/// millionths off (a level-20 backdrop composited at partial alpha reads 19.999998), which would
+/// put it on the wrong side of a hard point at that level: a value that close to a level is that
+/// level. Values of those depths that aren't on a level are at least 1/257 away from one. The GPU
+/// compositor (`compose.wgsl` `blend_if_weight`) snaps alike.
+fn blend_if_level(x: f32) -> f32 {
+    let v = x.clamp(0.0, 1.0) * 255.0;
+    let r = v.round();
+    if (v - r).abs() < 1e-4 { r } else { v }
 }
 
 /// Apply `layer`'s Blend If to a finished composite: `out` (the backdrop with the layer drawn)

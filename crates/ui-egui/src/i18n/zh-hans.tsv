@@ -11,7 +11,20 @@
 # Licensed MIT OR Apache-2.0, as the code.
 # Product and technology names retain their spelling. See docs/localization-zh-hans.md.
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	通道颜色
+	Color Indicates:	色彩指示：
+	Solidity:	密度：
+	Masked Areas	被蒙版区域
+	Selected Areas	所选区域
+	Spot Color	专色
+	Ink Characteristics	油墨特性
+
 # Guide layout dialog
+
+# Custom print paper (#3820)
+	Paper Width	纸张宽度
+	Paper Height	纸张高度
 	Columns	列
 	Rows	行
 	Number	数量
@@ -69,6 +82,8 @@
 	Save	保存
 	Save As…	另存为…
 	Save a Copy…	保存副本…
+	{name} can't keep everything in this document	{name} 无法保留此文档中的所有内容
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	请选择能保留全部内容的格式，例如 Photoshop (PSD)，或存储副本。
 	Revert	恢复
 	Export	导出
 	Quick Export as PNG	快速导出为 PNG
@@ -106,6 +121,14 @@
 	Script Events Manager…	脚本事件管理器…
 	Import	导入
 	Browse…	浏览…
+	Source Files	源文件
+	Use:	使用:
+	Files	文件
+	Folder	文件夹
+	Add Open Files	添加打开的文件
+	Sort By Name	按名称排序
+	Attempt to Automatically Align Source Images	尝试自动对齐源图像
+	Create Smart Object after Loading Layers	载入图层后创建智能对象
 	Reveal in Finder	在 Finder 中显示
 	Show in Explorer	在文件资源管理器中显示
 	Show in Folder	在文件夹中显示
@@ -146,6 +169,8 @@
 	Transform Again on a Copy	复制并再次变换
 	Scale	缩放
 	Rotate	旋转
+	Set horizontal skew	设置水平斜切
+	Set vertical skew	设置垂直斜切
 	Skew	斜切
 	Distort	扭曲
 	Perspective	透视
@@ -730,6 +755,10 @@
 	Breeze Dark Theme	Breeze 深色主题
 	Breeze light	Breeze 浅色
 	Breeze Light Theme	Breeze 浅色主题
+	Soft dark	柔和深色
+	Soft light	柔和浅色
+	Soft Dark Theme	柔和深色主题
+	Soft Light Theme	柔和浅色主题
 	Next Theme	下一代主题
 	Actions	动作
 	Brush Settings	画笔设置
@@ -830,6 +859,9 @@
 	Appearance	外观
 	Appearance (Layer Style)	外观（图层样式）
 	Apply Layer Mask	应用图层蒙版
+	Add Mask to Selection	添加蒙版到选区
+	Subtract Mask from Selection	从选区中减去蒙版
+	Intersect Mask with Selection	蒙版与选区交叉
 	Apply Per Tip	应用于每个笔尖
 	Apply next selected layer comp	应用下一个选中的图层复合
 	Apply previous selected layer comp	应用上一个选中的图层复合
@@ -2159,6 +2191,11 @@ cameraRaw	Blending	混合
 	Rename Brush…	重命名画笔…
 	Delete Brush	删除画笔
 	New Brush Preset…	新建画笔预设…
+	Capture Brush Size in Preset	在预设中存储画笔大小
+	Include Tool Settings	包含工具设置
+	Include Color	包含颜色
+	Enter a name for the brush preset	请输入画笔预设的名称
+	A brush preset with this name already exists	已存在同名的画笔预设
 	Brush Preset Options	画笔预设选项
 	Group name	组名称
 	Brush name	画笔名称
@@ -2696,3 +2733,4 @@ curves	Smooth	平滑
 	Step {step} is waiting for its dialog	步骤 {step} 正在等待其对话框
 @plural	{n} action|{n} actions	{n} 个动作
 	Auto Add/Delete	自动添加/删除
+	ICO is limited to 256 × 256 pixels	ICO 最大为 256 × 256 像素

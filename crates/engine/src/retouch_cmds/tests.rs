@@ -1422,14 +1422,18 @@ fn live_dodge_matches_the_commit_across_cells() {
         for x in 0..200 {
             let (got, want) = (a.rgba(x, y), b.rgba(x, y));
             changed |= (want[0] - texture(x, y)[0]).abs() > 0.02;
-            // The commit also lays the stroke's last dab, which the live stroke shows on release.
-            if (x - 150).pow(2) + (y - 70).pow(2) > 25 * 25 {
+            // The commit also lays the stroke's last dab, which the live stroke shows on release
+            // (a soft tip reaches past its 20 px radius).
+            let reach = photocraft_paint::tip_reach(20.0, 0.3).ceil() as i32 + 2;
+            if (x - 150).pow(2) + (y - 70).pow(2) > reach * reach {
                 worst = (0..4).map(|c| (got[c] - want[c]).abs()).fold(worst, f32::max);
             }
         }
     }
     assert!(changed);
-    assert!(worst <= 1e-4, "live and commit differ by {worst}");
+    // A soft tip's footprint spans more live cells, so sums land in a different order: within
+    // 2e-4 (a twentieth of an 8-bit level).
+    assert!(worst <= 2e-4, "live and commit differ by {worst}");
 }
 
 #[test]

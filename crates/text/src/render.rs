@@ -10,7 +10,7 @@ use skrifa::{GlyphId, MetadataProvider};
 
 use crate::layout::{GlyphOrient, PlacedGlyph, TextLayout};
 use crate::raster::{Bounds, Coverage, LineSink, Pen, Xform, rect_to};
-use crate::warp::Warp;
+use crate::warp::{Placement, Warp};
 
 /// Faux-italic slant in degrees (Photoshop-like).
 pub const FAUX_ITALIC_DEG: f32 = 12.0;
@@ -90,7 +90,19 @@ fn draw_pass(layout: &TextLayout, transform: &Xform, sink: &mut impl LineSink, o
             continue;
         };
         let coords: Vec<NormalizedCoord> = face.coords.iter().map(|&c| NormalizedCoord::from_bits(c)).collect();
-        let glyph = glyph_xform(layout, g, face.skew_deg);
+        let mut glyph = glyph_xform(layout, g, face.skew_deg);
+        // Type on a path moves each glyph rigidly: turned to the curve at its centre.
+        let mut bend = warp;
+        if let Some(w) = warp {
+            match w.place_glyph(glyph_center(layout, g, &font, face.size_px, &coords)) {
+                Placement::Bend => {}
+                Placement::Hidden => continue,
+                Placement::Frame(m) => {
+                    glyph = Xform(m).mul(&glyph);
+                    bend = None;
+                }
+            }
+        }
         let bold = st.faux_bold || face.embolden;
         let r = (face.size_px * FAUX_BOLD_RADIUS) as f64;
         let single = [(0.0, 0.0)];
@@ -107,7 +119,7 @@ fn draw_pass(layout: &TextLayout, transform: &Xform, sink: &mut impl LineSink, o
         for &(ox, oy) in offsets {
             let local = glyph.mul(&Xform([1.0, 0.0, 0.0, 1.0, ox * r, oy * r]));
             let settings = DrawSettings::unhinted(Size::new(face.size_px), LocationRef::new(&coords));
-            match warp {
+            match bend {
                 Some(w) => {
                     let mut ws = WarpSink { inner: &mut *sink, warp: w, post: *transform };
                     let mut pen = Pen::new(&mut ws, local);
@@ -159,6 +171,22 @@ fn glyph_xform(layout: &TextLayout, g: &PlacedGlyph, face_skew_deg: f32) -> Xfor
         // 90° clockwise: the glyph's up direction (and its baseline shift) points right.
         GlyphOrient::Rotated => Xform([0.0, 1.0, -1.0, 0.0, x, y]).mul(&Xform([hs, 0.0, skew, -vs, 0.0, -shift])),
     }
+}
+
+/// The horizontal centre (text space) of a placed glyph: the pen position plus half its advance.
+fn glyph_center(layout: &TextLayout, g: &PlacedGlyph, font: &skrifa::FontRef, size_px: f32, coords: &[NormalizedCoord]) -> f64 {
+    let hs = layout.styles.get(g.style as usize).map_or(1.0, |st| if st.horizontal_scale > 0.0 { st.horizontal_scale } else { 1.0 });
+    let advance = match g.orient {
+        GlyphOrient::Horizontal => font.glyph_metrics(Size::new(size_px), LocationRef::new(coords)).advance_width(GlyphId::new(g.id)).unwrap_or(0.0),
+        _ => 0.0,
+    };
+    f64::from(g.x) + f64::from(advance * hs) / 2.0
+}
+
+/// The deformation of a type layer: the path it runs along, or its Warp Text settings (None
+/// when neither applies).
+pub fn layout_deform(layout: &TextLayout, layer: &photocraft_doc::TextLayer) -> Option<Warp> {
+    Warp::on_path(&layer.shape).or_else(|| layout_warp(layout, layer.warp.as_ref()))
 }
 
 /// The warp to apply to `layout` (None when `warp` is absent, `warpNone` or flat).
@@ -347,8 +375,19 @@ pub fn outlines(layout: &TextLayout, transform: &Affine, warp: Option<&Warp>) ->
             continue;
         };
         let coords: Vec<NormalizedCoord> = face.coords.iter().map(|&c| NormalizedCoord::from_bits(c)).collect();
-        let glyph = glyph_xform(layout, g, face.skew_deg);
-        let mut rec = Recorder { glyph, post: Xform(transform.m), warp, out: Vec::new() };
+        let mut glyph = glyph_xform(layout, g, face.skew_deg);
+        let mut bend = warp;
+        if let Some(w) = warp {
+            match w.place_glyph(glyph_center(layout, g, &font, face.size_px, &coords)) {
+                Placement::Bend => {}
+                Placement::Hidden => continue,
+                Placement::Frame(m) => {
+                    glyph = Xform(m).mul(&glyph);
+                    bend = None;
+                }
+            }
+        }
+        let mut rec = Recorder { glyph, post: Xform(transform.m), warp: bend, out: Vec::new() };
         let settings = DrawSettings::unhinted(Size::new(face.size_px), LocationRef::new(&coords));
         if outline.draw(settings, &mut rec).is_ok() && !rec.out.is_empty() {
             glyphs.push(rec.out);

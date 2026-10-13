@@ -314,6 +314,8 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if crate::menu_nav::is_open(ctx) || crate::widgets::dropdown_list_open(ctx) {
         return;
     }
+    // ⌘Z in a filter or adjustment dialog steps the dialog's settings, not the document (#4697).
+    crate::edit_history::keys(app, ctx);
     // Stroke Options owns plain navigation/activation keys, including while its child
     // dropdown is open. This runs before Popup::show registers the current pass, so use
     // the editor's explicit state; otherwise Escape deselects or commits a pending Pen path.

@@ -910,6 +910,35 @@ fn esc_ends_a_pen_path_and_keeps_it() {
     assert_eq!(h.state().ui.selected_path.as_deref(), Some("work"));
 }
 
+/// Over the first anchor of a Pen path the canvas shows the close-path pointer (#4596), a bitmap
+/// of its own; anywhere else the Pen keeps its crosshair.
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
+fn pen_shows_the_close_path_pointer_over_the_first_anchor() {
+    let mut h = harness();
+    h.state_mut().ui.tool = crate::state::Tool::Pen;
+    h.state_mut().ui.pen = Some(crate::vector_ui::PenPath { knots: vec![[[50.0, 50.0]; 3], [[150.0, 50.0]; 3]], ..Default::default() });
+    let screen = |h: &Harness<'static, PhotocraftApp>, x: f32, y: f32| {
+        let v = &h.state().ui.views[0];
+        let c = h.state().last_canvas_rect.center();
+        pos2(c.x + (x - v.center[0]) * v.zoom, c.y + (y - v.center[1]) * v.zoom)
+    };
+    let pointer = |h: &mut Harness<'static, PhotocraftApp>, x: f32, y: f32| {
+        let p = screen(h, x, y);
+        h.hover_at(p);
+        h.run_steps(2);
+        let out = &h.output().platform_output;
+        (out.cursor_icon, out.cursor_image.as_ref().map(|i| i.rgba.clone()))
+    };
+    let close = pointer(&mut h, 50.0, 50.0);
+    assert_eq!(close.0, egui::CursorIcon::Crosshair, "the fallback under the bitmap");
+    assert!(close.1.is_some(), "a bitmap");
+    let elsewhere = pointer(&mut h, 200.0, 200.0);
+    assert_ne!(elsewhere.1, close.1, "empty canvas: the plain Pen pointer");
+    assert_ne!(pointer(&mut h, 150.0, 50.0).1, close.1, "the last anchor doesn't close");
+    assert_eq!(pointer(&mut h, 50.0, 50.0), close, "back on the first anchor");
+}
+
 /// Esc with no active operation deselects (#2674), like ⌘D.
 #[test]
 fn escape_deselects_when_nothing_else_needs_cancelling() {
@@ -1022,4 +1051,39 @@ fn wheel_zoom_over_the_image_still_anchors_on_the_pointer() {
     h.run_steps(20);
     let d1 = doc_at(&h, p);
     assert!((d1[0] - d0[0]).abs() < 0.1 && (d1[1] - d0[1]).abs() < 0.1, "{d0:?} -> {d1:?}");
+}
+
+/// #4658: with the Move tool's Show Transform Controls, the band just outside the box shows the
+/// curved rotate arrow, not a plain pointer, and one drag from there rotates the layer.
+#[test]
+fn move_tool_controls_rotate_from_just_outside_the_box() {
+    let mut h = harness();
+    h.state_mut().run("shape.create", json!({"kind": "rect", "rect": [150, 100, 100, 100], "fill": "#ff0000"})).unwrap();
+    h.state_mut().ui.tool = crate::state::Tool::Move;
+    h.state_mut().ui.tool_options.move_show_transform = true;
+    h.run_steps(3);
+    let screen = |h: &Harness<'static, PhotocraftApp>, x: f32, y: f32| {
+        let v = &h.state().ui.views[0];
+        let c = h.state().last_canvas_rect.center();
+        pos2(c.x + (x - v.center[0]) * v.zoom, c.y + (y - v.center[1]) * v.zoom)
+    };
+    let zoom = h.state().ui.views[0].zoom;
+    // Just outside the top edge, a quarter of the way along: the rotation band.
+    let at = screen(&h, 175.0, 100.0) - vec2(0.0, 12.0);
+    h.hover_at(at);
+    h.run_steps(2);
+    assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::None, "the drawn rotate arrow replaces the pointer");
+    press(&mut h, at, true);
+    let centre = screen(&h, 200.0, 150.0);
+    // A quarter turn around the box's centre.
+    for k in 1..=10 {
+        let a = std::f32::consts::FRAC_PI_2 * k as f32 / 10.0;
+        let (dx, dy) = (at.x - centre.x, at.y - centre.y);
+        let q = centre + vec2(dx * a.cos() - dy * a.sin(), dx * a.sin() + dy * a.cos());
+        h.hover_at(q);
+        h.run_steps(1);
+    }
+    let end = h.state().ui.transform.as_ref().map(|t| t.quad).expect("the drag opened Free Transform");
+    let tilt = (end[1][1] - end[0][1]).atan2(end[1][0] - end[0][0]).to_degrees();
+    assert!((tilt - 90.0).abs() < 8.0 || (tilt + 270.0).abs() < 8.0, "rotated about a quarter turn, got {tilt}° (zoom {zoom})");
 }

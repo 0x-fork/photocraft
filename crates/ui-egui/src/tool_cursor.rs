@@ -77,6 +77,16 @@ pub(crate) fn outline(painter: &Painter, at: Pos2, rings: Vec<Vec<Vec2>>, centre
     show(painter, at, Shape::Outline { rings: rings.into(), centre })
 }
 
+/// The Pen's pointer over the anchor a click would close the path on (#4596): the centre cross
+/// with a small ring below right, as Photoshop's pen shows a small circle there.
+pub(crate) fn close_path(painter: &Painter, at: Pos2) -> CursorIcon {
+    outline(painter, at, vec![close_ring()], true)
+}
+
+fn close_ring() -> Vec<Vec2> {
+    (0..16).map(|i| (i as f32 / 16.0 * std::f32::consts::TAU, vec2(9.0, 9.0))).map(|(a, c)| c + vec2(a.cos(), a.sin()) * 3.5).collect()
+}
+
 /// Can this pass show an OS cursor bitmap? eframe's immediate viewports and its web integration
 /// don't upload cursor images; every desktop root viewport does (winit custom cursors).
 fn native(ctx: &egui::Context) -> bool {

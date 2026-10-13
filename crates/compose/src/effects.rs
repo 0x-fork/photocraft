@@ -95,6 +95,10 @@ impl Map {
     /// Shifted copy (bilinear), outside reads `outside`.
     fn shifted(&self, dx: f32, dy: f32, outside: f32) -> Map {
         let mut out = Map::new(self.w, self.h, 0.0);
+        // A hostile distance (±1e30, inf, NaN) would overflow the i64 offsets below; no shift beyond
+        // 2^30 px can land inside a map, so clamp (non-finite shifts read as none).
+        let reach = |d: f32| if d.is_finite() { d.clamp(-1.0e9, 1.0e9) } else { 0.0 };
+        let (dx, dy) = (reach(dx), reach(dy));
         let (fx, fy) = (dx.floor(), dy.floor());
         let (ax, ay) = (dx - fx, dy - fy);
         let s = |x: i64, y: i64| if x < 0 || y < 0 || x >= self.w as i64 || y >= self.h as i64 { outside } else { self.v[y as usize * self.w + x as usize] };
@@ -3121,5 +3125,14 @@ mod tests {
         let noisy = glow_map(&square_shape(40), &g(0.6), false, (0, 0));
         let diff: f32 = plain.v.iter().zip(&noisy.v).map(|(a, b)| (a - b).abs()).sum();
         assert!(diff > 5.0, "glow noise changes the coverage: {diff}");
+    }
+
+    #[test]
+    fn shifting_by_hostile_distances_does_not_overflow() {
+        let m = square_shape(12);
+        for d in [1.0e30, -1.0e30, f32::INFINITY, f32::NAN] {
+            let s = m.shifted(d, d, 0.0);
+            assert_eq!(s.v.len(), 144);
+        }
     }
 }

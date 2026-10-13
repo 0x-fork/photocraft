@@ -391,6 +391,13 @@ fn content_aware_fill_as(s: &mut Session, p: &Value, cmd: &'static str, label: &
     }
     let surf = doc.layer(id).and_then(|l| l.surface()).ok_or(EngineError::NoLayer(id))?;
     let fmt = surf.format();
+    // Photoshop's Sample All Layers checkbox is off unless the caller asks. When the active
+    // layer has no pixels in the window there is nothing to sample, so that case uses the
+    // visible composite (#4026). An explicit false still reads only this layer.
+    let sample_all = match p.get("sampleAllLayers").and_then(Value::as_bool) {
+        Some(v) => v,
+        None => surf.content_bounds().intersect(&window).is_empty(),
+    };
     let n = fmt.channels();
     // Refuse a window too large to read before allocating for it, whatever the sampling (#963).
     let (w, h) = crate::fill_cmds::window_size(window)?;
@@ -407,7 +414,18 @@ fn content_aware_fill_as(s: &mut Session, p: &Value, cmd: &'static str, label: &
             ctx.progress(0.0, label);
             let cancel = || ctx.cancelled();
             let surf = doc.layer(id).and_then(|l| l.surface()).ok_or(EngineError::NoLayer(id))?;
-            let img = read_window(surf, window, &cancel).ok_or(EngineError::Cancelled)?;
+            let img = if sample_all {
+                if cancel() {
+                    return Err(EngineError::Cancelled);
+                }
+                let region = crate::retouch_cmds::composite_region(&doc, None, crate::retouch_cmds::SampleLayers::All, window, fmt);
+                if cancel() {
+                    return Err(EngineError::Cancelled);
+                }
+                region.data
+            } else {
+                read_window(surf, window, &cancel).ok_or(EngineError::Cancelled)?
+            };
             let hole = read_window_cover(&sel, window, &cancel).ok_or(EngineError::Cancelled)?;
             let mut source = match (sampling.as_str(), custom_rect, custom_mask.as_ref()) {
                 ("custom", Some(r), _) => (0..w * h).into_par_iter().map(|i| r.contains(window.x0 + (i % w) as i32, window.y0 + (i / w) as i32)).collect(),
@@ -1139,7 +1157,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Content-Aware Fill…",
             ["Edit"],
             None,
-            r##"{"sampling":"auto|rectangular|custom","margin":px?,"area":[x,y,w,h]?,"channel":index|name?,"colorAdaptation":"default|none|high|veryHigh","rotationAdaptation":"none|low|medium|high|full","scale":bool=false,"mirror":bool=false,"output":"current|new|duplicate","seed":u64=1}"##,
+            r##"{"sampling":"auto|rectangular|custom","margin":px?,"area":[x,y,w,h]?,"channel":index|name?,"colorAdaptation":"default|none|high|veryHigh","rotationAdaptation":"none|low|medium|high|full","scale":bool=false,"mirror":bool=false,"sampleAllLayers":bool=false,"output":"current|new|duplicate","seed":u64=1}"##,
             can_caf,
             content_aware_fill
         ),

@@ -230,6 +230,44 @@ fn gif_and_png8_keep_transparency_and_palette() {
     assert_eq!(&img.data()[..4], &[0, 255, 0, 255]);
 }
 
+/// #4115: Photoshop's scripted Save for Web has no matte unless one is asked for, so a soft black
+/// shadow exported to PNG-8 stays black (alpha only 0 or 255) instead of turning grey. A preset
+/// keeps its white matte, and a matte asked for still applies.
+#[test]
+fn png8_has_no_matte_by_default() {
+    let dir = tmp("matte");
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 256, "height": 8, "background": "transparent"})).unwrap();
+    s.edit("paint", |doc, active| {
+        let fmt = doc.pixel_format();
+        let mut l = Layer::raster("Shadow", fmt);
+        let surf = l.surface_mut().unwrap();
+        for x in 0..256 {
+            surf.fill_rect(Rect::new(x, 0, x + 1, 8), &photocraft_raster::from_rgba(&fmt, [0.0, 0.0, 0.0, 1.0 - x as f32 / 255.0]));
+        }
+        *active = Some(doc.insert_above(None, l));
+        Ok(())
+    })
+    .unwrap();
+    let export = |s: &mut Session, extra: Value| {
+        let path = format!("{dir}/{}.png", s.journal.len());
+        let mut p = json!({"format": "png8", "path": path});
+        p.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        s.execute("file.export.saveForWebLegacy", p).unwrap();
+        let img = decode(&path).convert(photocraft_codecs::ChannelLayout::Rgba, photocraft_codecs::SampleType::U8);
+        (0..256).map(|x| img.data()[x * 4..x * 4 + 4].to_vec()).collect::<Vec<_>>()
+    };
+    let plain = export(&mut s, json!({}));
+    assert!(plain.iter().all(|p| p == &[0, 0, 0, 255] || p[3] == 0), "black or transparent: {:?}", &plain[60..70]);
+    assert_eq!(plain[64], [0, 0, 0, 255], "alpha 191 stays black");
+    assert_eq!(plain[200][3], 0);
+    // A matte asked for, or a preset's, lightens the soft pixels as before.
+    let white = export(&mut s, json!({"matte": "#ffffff"}));
+    assert!(white[64][0] > 40 && white[64][3] == 255, "{:?}", white[64]);
+    let preset = WebSettings::from_params(&json!({"preset": "PNG-8 128 Dithered"}), "x").unwrap();
+    assert_eq!(preset.matte, Some([1.0, 1.0, 1.0]));
+}
+
 #[test]
 fn jpeg_quality_progressive_and_metadata() {
     let dir = tmp("jpeg");

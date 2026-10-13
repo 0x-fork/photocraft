@@ -19,7 +19,17 @@
 # (PhotoCraft, ArtCraft, OpenType, CMYK, Lab ...) stay in Latin letters; the trailing "…" of
 # dialog commands is kept.
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	Barva kanálu
+	Color Indicates:	Barva označuje:
+	Solidity:	Plnost:
+	Ink Characteristics	Vlastnosti inkoustu
+
 # Guide layout dialog
+
+# Custom print paper (#3820)
+	Paper Width	Šířka papíru
+	Paper Height	Výška papíru
 	Columns	Sloupce
 	Rows	Řádky
 	Number	Počet
@@ -77,6 +87,8 @@
 	Save	Uložit
 	Save As…	Uložit jako…
 	Save a Copy…	Uložit kopii…
+	{name} can't keep everything in this document	{name} nedokáže uchovat vše z tohoto dokumentu
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	Zvolte formát, který vše zachová, například Photoshop (PSD), nebo uložte kopii.
 	Revert	Vrátit k uložené verzi
 	Export	Export
 	Quick Export as PNG	Rychlý export do PNG
@@ -114,6 +126,13 @@
 	Script Events Manager…	Správce událostí skriptů…
 	Import	Import
 	Browse…	Procházet…
+	Source Files	Zdrojové soubory
+	Use:	Použít:
+	Files	Soubory
+	Add Open Files	Přidat otevřené soubory
+	Sort By Name	Seřadit podle názvu
+	Attempt to Automatically Align Source Images	Pokusit se automaticky zarovnat zdrojové obrazy
+	Create Smart Object after Loading Layers	Po načtení vrstev vytvořit chytrý objekt
 	Reveal in Finder	Zobrazit ve Finderu
 	Show in Explorer	Zobrazit v Průzkumníkovi
 	Show in Folder	Zobrazit ve složce
@@ -154,6 +173,8 @@
 	Transform Again on a Copy	Duplikovat a opakovat transformaci
 	Scale	Měřítko
 	Rotate	Otočit
+	Set horizontal skew	Nastavit vodorovné zkosení
+	Set vertical skew	Nastavit svislé zkosení
 	Skew	Zkosit
 	Distort	Zkreslit
 	Perspective	Perspektiva
@@ -735,6 +756,10 @@
 	Breeze Dark Theme	Tmavý motiv Breeze
 	Breeze light	Breeze světlý
 	Breeze Light Theme	Světlý motiv Breeze
+	Soft dark	Jemný tmavý
+	Soft light	Jemný světlý
+	Soft Dark Theme	Jemné tmavé téma
+	Soft Light Theme	Jemné světlé téma
 	Next Theme	Další motiv
 	Actions	Akce
 	Brush Settings	Nastavení štětce
@@ -842,6 +867,9 @@
 	Appearance	Vzhled
 	Appearance (Layer Style)	Vzhled (styl vrstvy)
 	Apply Layer Mask	Použít masku vrstvy
+	Add Mask to Selection	Přidat masku do výběru
+	Subtract Mask from Selection	Odečíst masku od výběru
+	Intersect Mask with Selection	Průnik masky s výběrem
 	Apply Per Tip	Použít pro každý hrot
 	Apply next selected layer comp	Použít další vybranou kompozici vrstev
 	Apply previous selected layer comp	Použít předchozí vybranou kompozici vrstev
@@ -2113,6 +2141,11 @@
 	Rename Brush…	Přejmenovat štětec…
 	Delete Brush	Odstranit štětec
 	New Brush Preset…	Nová předvolba štětce…
+	Capture Brush Size in Preset	Zachytit velikost štětce v předvolbě
+	Include Tool Settings	Zahrnout nastavení nástroje
+	Include Color	Zahrnout barvu
+	Enter a name for the brush preset	Zadejte název předvolby štětce
+	A brush preset with this name already exists	Předvolba štětce s tímto názvem již existuje
 	Brush Preset Options	Možnosti přednastavení štětců
 	Group name	Název skupiny
 	Brush name	Název štětce
@@ -3637,6 +3670,7 @@ curves	Smooth	Vyhladit
 	gradients	přechody
 @plural	Imported {n} brush from {file}|Imported {n} brushes from {file}	Importován {n} štětec ze souboru {file}|Importovány {n} štětce ze souboru {file}|Importováno {n} štětců ze souboru {file}
 @plural	Imported {n} gradient from {file}|Imported {n} gradients from {file}	Importován {n} přechod ze souboru {file}|Importovány {n} přechody ze souboru {file}|Importováno {n} přechodů ze souboru {file}
+@plural	Imported {n} pattern from {file}|Imported {n} patterns from {file}	Importován {n} vzorek ze souboru {file}|Importovány {n} vzorky ze souboru {file}|Importováno {n} vzorků ze souboru {file}
 	Data Set: {name}  ({index}/{total})	Datová sada: {name}  ({index}/{total})
 	(none)	(žádná)
 navigator	Zoom	Zvětšení
@@ -3699,3 +3733,4 @@ navigator	Zoom	Zvětšení
 	Step {step} is waiting for its dialog	Krok {step} čeká na svůj dialog
 @plural	{n} action|{n} actions	{n} akce|{n} akce|{n} akcí
 	Auto Add/Delete	Automaticky přidat/odstranit
+	ICO is limited to 256 × 256 pixels	ICO je omezen na 256 × 256 pixelů

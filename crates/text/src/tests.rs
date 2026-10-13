@@ -152,7 +152,7 @@ fn tabs_advance_to_the_next_default_tab_stop() {
 #[test]
 fn psd_round_trips_tabs() {
     for shape in [TextShape::Point, TextShape::Box { x: 0.0, y: 0.0, width: 300.0, height: 100.0 }] {
-        let t = TextLayer { shape, ..point("Name\tValue\n\tIndented", 20.0) };
+        let t = TextLayer { shape: shape.clone(), ..point("Name\tValue\n\tIndented", 20.0) };
         let back = crate::psd::text_layer_from_tysh(&crate::psd::build_tysh(&t, 72.0, None), 72.0).unwrap();
         assert_eq!(back.text, t.text, "{shape:?}");
     }
@@ -625,6 +625,28 @@ fn forced_line_break_starts_a_line_in_the_same_paragraph() {
         assert!(alpha_sum(&r.surface, row(0)) > 1.0 && alpha_sum(&r.surface, row(1)) > 1.0, "{fmt:?}");
         let one_end = l.lines[0].x1.ceil() as i32 + 2;
         assert!(alpha_sum(&r.surface, photocraft_geom::Rect::new(one_end, row(0).y0, 200, row(0).y1)) < 1e-3, "{fmt:?}: ink after the first line's text");
+    }
+}
+
+#[test]
+fn hyphenated_postscript_names_preserve_family_prefixes() {
+    for (ps, family, weight, italic) in
+        [("FOT-NewRodinPro-Regular", "FOT-New Rodin Pro", 400, false), ("Vendor-FamilyPro-BoldIt", "Vendor-Family Pro", 700, true)]
+    {
+        let guessed = fonts::guess_from_postscript(ps);
+        assert_eq!((guessed.family.as_str(), guessed.weight, guessed.italic), (family, weight, italic));
+    }
+}
+
+#[test]
+fn hyphenated_postscript_style_suffix_keeps_weight_and_slant() {
+    for (ps, family, weight, italic) in [
+        ("MyriadPro-Bold-It", "Myriad Pro", 700, true),
+        ("FOT-NewRodinPro-Bold-It", "FOT-New Rodin Pro", 700, true),
+        ("Vendor-Bold-Regular", "Vendor-Bold", 400, false),
+    ] {
+        let guessed = fonts::guess_from_postscript(ps);
+        assert_eq!((guessed.family.as_str(), guessed.weight, guessed.italic), (family, weight, italic));
     }
 }
 
@@ -1838,6 +1860,21 @@ fn missing_glyph_protection_can_turn_the_fallback_stack_off() {
     assert!(db.fallback_stack().any(|f| f == "Cairo"), "turning it back on restores the coverage fonts");
 }
 
+/// The shared engine's missing-glyph protection follows the setting without waiting for the
+/// system font scan (#4519). Under test the shared engine has no scan, so it applies at once;
+/// the newest setting wins.
+#[test]
+fn shared_missing_glyph_protection_follows_the_setting() {
+    let read = || crate::shared().lock().unwrap_or_else(std::sync::PoisonError::into_inner).fonts.missing_glyph_protection();
+    crate::set_shared_missing_glyph_protection(false);
+    assert!(!read());
+    crate::set_shared_missing_glyph_protection(true);
+    crate::set_shared_missing_glyph_protection(false);
+    assert!(!read(), "the newest setting wins");
+    crate::set_shared_missing_glyph_protection(true);
+    assert!(read());
+}
+
 #[test]
 fn translate_tysh_moves_only_the_translation() {
     let mut t = point("Hello!", 26.0);
@@ -1891,4 +1928,66 @@ fn engine_data_antialias_numbers_match_photoshop() {
         let back = crate::psd::text_layer_from_tysh(&crate::psd::write_tysh(&tysh), 72.0).unwrap();
         assert_eq!(back.antialias, mode, "{n}");
     }
+}
+
+/// Type on a path (#218): along a vertical line the type runs top to bottom with its glyphs
+/// turned, along a curve it follows the curve, and glyphs beyond the end are not drawn.
+#[test]
+fn type_on_a_path_follows_the_curve() {
+    use photocraft_doc::vector::{Knot, Subpath};
+    let fmt = PixelFormat::RGBA8;
+    let mut eng = TextEngine::new();
+    let ink = |eng: &mut TextEngine, t: &TextLayer| {
+        let (_, r) = eng.render(t, 72.0, fmt);
+        r.rect
+    };
+    let straight = point("Path text", 24.0);
+    let flat = ink(&mut eng, &straight);
+    assert!(flat.width() > flat.height() * 3, "{flat:?}");
+
+    let mut down = straight.clone();
+    down.shape = TextShape::Path { path: Subpath::polyline(&[(0.0, 0.0), (0.0, 400.0)]), start: 0.0, flip: false };
+    let r = ink(&mut eng, &down);
+    assert!(r.height() > r.width() * 3, "vertical path gives tall ink: {r:?}");
+    assert!(r.height() >= flat.width() - 8, "arc length is preserved: {r:?} vs {flat:?}");
+
+    // A half circle bends the text through a larger area than the straight line.
+    let k = 0.5523 * 60.0;
+    let arc = Subpath {
+        closed: false,
+        knots: vec![
+            Knot {
+                anchor: photocraft_geom::Point::new(-60.0, 0.0),
+                in_ctrl: photocraft_geom::Point::new(-60.0, 0.0),
+                out_ctrl: photocraft_geom::Point::new(-60.0, -k),
+                smooth: true,
+            },
+            Knot {
+                anchor: photocraft_geom::Point::new(0.0, -60.0),
+                in_ctrl: photocraft_geom::Point::new(-k, -60.0),
+                out_ctrl: photocraft_geom::Point::new(k, -60.0),
+                smooth: true,
+            },
+            Knot {
+                anchor: photocraft_geom::Point::new(60.0, 0.0),
+                in_ctrl: photocraft_geom::Point::new(60.0, -k),
+                out_ctrl: photocraft_geom::Point::new(60.0, 0.0),
+                smooth: true,
+            },
+        ],
+        ..Default::default()
+    };
+    let mut curved = straight.clone();
+    curved.shape = TextShape::Path { path: arc.clone(), start: 0.0, flip: false };
+    let c = ink(&mut eng, &curved);
+    assert!(c.height() > flat.height() * 2, "curved ink is taller: {c:?} vs {flat:?}");
+
+    // A path too short for the text hides the glyphs past its end.
+    let mut short = straight.clone();
+    short.shape = TextShape::Path { path: Subpath::polyline(&[(0.0, 0.0), (30.0, 0.0)]), start: 0.0, flip: false };
+    assert!(ink(&mut eng, &short).width() < flat.width() / 2);
+    // A degenerate path falls back to straight point text instead of failing.
+    let mut dot = straight.clone();
+    dot.shape = TextShape::Path { path: Subpath::polyline(&[(5.0, 5.0), (5.0, 5.0)]), start: 0.0, flip: false };
+    assert_eq!(ink(&mut eng, &dot), flat);
 }
