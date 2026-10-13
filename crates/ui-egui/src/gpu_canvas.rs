@@ -638,13 +638,13 @@ impl GpuCanvas {
         let mut renderer = self.rs.renderer.write();
         let Some(res) = renderer.callback_resources.get_mut::<Resources>() else { return };
         if res.docs.keys().any(|k| !live.contains(k)) {
-            let gone: Vec<u64> = res.docs.keys().filter(|k| !live.contains(k)).copied().collect();
-            if let Some(c) = res.compositor.as_mut() {
-                for k in &gone {
-                    c.forget_doc(photocraft_doc::DocId(*k));
-                }
-            }
             res.docs.retain(|k, _| live.contains(k));
+        }
+        // Everything the compositor holds for documents that aren't open, also when their
+        // texture entry was dropped earlier (over budget, a failed render), which used to leave
+        // their pages and effect maps resident after closing (#4529).
+        if let Some(c) = res.compositor.as_mut() {
+            c.retain_docs(|d| live.contains(&d.0));
         }
         // LUTs and identity-transform signatures can outlive document textures. Prune both,
         // or a preserved-ID reopen can skip rebuilding a missing LUT.
