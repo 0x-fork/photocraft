@@ -23,6 +23,8 @@ const MAX_COMPOSITE_CACHE_PIXELS: usize = 8 * 1024 * 1024;
 
 struct SampledComposite {
     revision: u64,
+    /// `revision` minus the view-only part: what the pixels depend on.
+    content: u64,
     preview_key: u64,
     factor: u32,
     pixels: Vec<[f32; 4]>,
@@ -251,6 +253,7 @@ pub fn ensure(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize) -> Optio
     let view = st.channel_view.clone();
     let active = st.active_layer;
     let (revision, last_damage) = (st.revision, st.last_damage);
+    let content = revision.wrapping_sub(st.view_revision);
     let id = st.doc.id.0;
     if view.is_plain(&st.doc) {
         if let Some(c) = app.channel_views.get_mut(&id) {
@@ -270,12 +273,14 @@ pub fn ensure(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize) -> Optio
     // Never exceed what the GPU accepts (egui panics on oversized textures).
     let max_side = (ctx.input(|i| i.max_texture_side) as u32).clamp(256, MAX_SIDE);
     let factor = doc.size.width.max(doc.size.height).div_ceil(max_side).max(1);
-    // A live preview can mutate the same Arc in place. Revision and preview_key, not
+    // A live preview can mutate the same Arc in place. Content revision and preview_key, not
     // pointer identity, determine whether these flattened pixels are still current.
-    if let Some(c) = app.channel_views.get_mut(&id)
-        && c.source.as_ref().is_some_and(|s| s.factor != factor || s.revision != revision || s.preview_key != preview_key)
-    {
-        c.source = None;
+    if let Some(c) = app.channel_views.get_mut(&id) {
+        if let Some(s) = c.source.as_mut().filter(|s| s.factor == factor && s.content == content && s.preview_key == preview_key) {
+            s.revision = revision;
+        } else {
+            c.source = None;
+        }
     }
     if let Some(c) = app.channel_views.get(&id)
         && c.key == key
@@ -325,12 +330,12 @@ pub fn ensure(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize) -> Optio
             c.factor = factor;
             c.valid = true;
             if let Some(pixels) = fresh.take() {
-                c.source = Some(SampledComposite { revision, preview_key, factor, pixels });
+                c.source = Some(SampledComposite { revision, content, preview_key, factor, pixels });
             }
         }
         _ => {
             let tex = ctx.load_texture(format!("channel-view-{id}"), img, TextureOptions::LINEAR);
-            let source = fresh.map(|pixels| SampledComposite { revision, preview_key, factor, pixels });
+            let source = fresh.map(|pixels| SampledComposite { revision, content, preview_key, factor, pixels });
             app.channel_views.insert(id, Cache { revision, key, preview_key, factor, valid: true, tex, source });
         }
     }
@@ -391,14 +396,15 @@ mod tests {
         app.run("channel.setVisible", json!({"channel": "red", "visible": false})).unwrap();
         assert!(ensure(&mut app, &ctx, 0).is_some());
         let id = app.session.active().unwrap().doc.id.0;
-        let first = app.channel_views.get(&id).unwrap().source.as_ref().unwrap();
+        let first = app.channel_views.get_mut(&id).unwrap().source.as_mut().unwrap();
         let original_sample = first.pixels[0];
-        let ptr = first.pixels.as_ptr();
+        // Mark the cache: a recomposite overwrites it, while a freed buffer's address can come back.
+        first.pixels[0] = [0.0, 1.0, 0.0, 1.0];
 
         app.run("channel.setVisible", json!({"channel": "green", "visible": false})).unwrap();
         assert!(ensure(&mut app, &ctx, 0).is_some());
         let reused = app.channel_views.get(&id).unwrap().source.as_ref().unwrap();
-        assert_eq!(ptr, reused.pixels.as_ptr(), "visibility does not recompose the pixels");
+        assert_eq!(reused.pixels[0], [0.0, 1.0, 0.0, 1.0], "visibility does not recompose the pixels");
 
         app.run("edit.fill", json!({"color": "#e02010"})).unwrap();
         assert!(ensure(&mut app, &ctx, 0).is_some());

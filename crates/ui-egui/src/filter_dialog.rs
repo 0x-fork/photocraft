@@ -435,6 +435,10 @@ pub fn reset_fields(app: &PhotocraftApp, fields: &mut Map<String, Value>) {
         }
     }
     apply_command_defaults(app, &command, fields);
+    // The schema has no default for the Blur Gallery's pins: start again from the opening one.
+    if command == crate::blur_pins::COMMAND {
+        crate::blur_pins::reset(fields);
+    }
 }
 
 pub fn open(app: &mut PhotocraftApp, command: &str) -> Option<u64> {
@@ -454,6 +458,9 @@ pub fn open(app: &mut PhotocraftApp, command: &str) -> Option<u64> {
     }
     restore_remembered(app, command, spec.params, &mut fields);
     apply_command_defaults(app, command, &mut fields);
+    if command == crate::blur_pins::COMMAND {
+        crate::blur_pins::init(app, &mut fields);
+    }
     if parse_spec(spec.params).iter().any(|p| p.kind == Kind::Document) {
         // The document picker lists every open document (params refer to them by index).
         let names: Vec<String> = app.session.documents().iter().map(|d| d.doc.name.clone()).collect();
@@ -545,6 +552,10 @@ pub(crate) fn label(key: &str) -> String {
 }
 
 pub(crate) fn source_label(key: &str) -> String {
+    // Photoshop's name for the localized colour matching (Replace Color, Color Range).
+    if key == "localized" {
+        return "Localized Color Clusters".into();
+    }
     // camelCase → "Camel Case"
     let mut s = String::new();
     for (i, ch) in key.chars().enumerate() {
@@ -616,6 +627,8 @@ pub(crate) fn color_eyedropper_sample(app: &mut PhotocraftApp, x: f64, y: f64) -
         && let Some(d) = app.ui.dialog_mut(id)
     {
         d.fields.insert("color".into(), json!(crate::color_picker_ui::hex(rgb)));
+        // Where it was picked: Localized Color Clusters match the colour near this point (#4457).
+        d.fields.insert("points".into(), json!([[x.floor(), y.floor()]]));
     }
     true
 }
@@ -645,6 +658,8 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                     f.insert(p.key, json!(count));
                     continue;
                 }
+                // Replace Color's Range only applies with Localized Color Clusters on, as in Photoshop.
+                let enabled = !(cmd == REPLACE_COLOR && p.key == "range") || f.get("localized").and_then(Value::as_bool) == Some(true);
                 let unit = if is_pixel_param_of(&cmd, &p.key) {
                     "px"
                 } else if p.key == "angle" {
@@ -654,28 +669,33 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                 } else {
                     ""
                 };
-                if uses_angle_dial(&cmd, &p.key) {
-                    crate::widgets::angle_dial_row(ui, &label(&p.key), &mut v, min..=max);
-                    ui.add_space(4.0);
-                } else if uses_logarithmic_slider(min, max) {
-                    // Keep one numeric field for direct entry and one log-scaled slider for
-                    // wide ranges. slider_row would add a second, linear slider (#146).
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(label(&p.key)).color(t.text_dim));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            crate::widgets::value_field(ui, &mut v, min..=max, unit, 74.0);
-                        });
-                    });
-                    let mut lv = v.clamp(min, max).ln();
-                    if crate::widgets::slider(ui, &mut lv, min.ln()..=max.ln(), None).changed() {
-                        v = lv.exp();
+                ui.scope(|ui| {
+                    if !enabled {
+                        ui.disable();
                     }
-                    ui.add_space(4.0);
-                } else {
-                    // A double-click on the slider puts it back to the filter's default.
-                    let gestures = crate::widgets::RowGestures { reset: Some(default), wheel_step: None };
-                    crate::widgets::slider_row_with(ui, &label(&p.key), &mut v, min..=max, unit, None, gestures);
-                }
+                    if uses_angle_dial(&cmd, &p.key) {
+                        crate::widgets::angle_dial_row(ui, &label(&p.key), &mut v, min..=max);
+                        ui.add_space(4.0);
+                    } else if uses_logarithmic_slider(min, max) {
+                        // Keep one numeric field for direct entry and one log-scaled slider for
+                        // wide ranges. slider_row would add a second, linear slider (#146).
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(label(&p.key)).color(t.text_dim));
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                crate::widgets::value_field(ui, &mut v, min..=max, unit, 74.0);
+                            });
+                        });
+                        let mut lv = v.clamp(min, max).ln();
+                        if crate::widgets::slider(ui, &mut lv, min.ln()..=max.ln(), None).changed() {
+                            v = lv.exp();
+                        }
+                        ui.add_space(4.0);
+                    } else {
+                        // A double-click on the slider puts it back to the filter's default.
+                        let gestures = crate::widgets::RowGestures { reset: Some(default), wheel_step: None };
+                        crate::widgets::slider_row_with(ui, &label(&p.key), &mut v, min..=max, unit, None, gestures);
+                    }
+                });
                 // Small ranges (0–1 thresholds and centres) keep the two decimals their field shows.
                 let scale = if max - min <= 10.0 { 100.0 } else { 10.0 };
                 f.insert(p.key, json!((v * scale).round() / scale));
@@ -837,10 +857,13 @@ pub fn preview_document_with(
     k: u32,
     cancel: Option<&photocraft_engine::jobs::JobCtx>,
 ) -> Option<Document> {
-    preview_document_for_target(doc, active, command, params, k, cancel, photocraft_engine::channel_cmds::ChannelTarget::Composite)
+    preview_document_for_target(doc, active, command, params, k, cancel, photocraft_engine::channel_cmds::ChannelTarget::Composite, &[])
 }
 
 /// Run the preview with the same pixel target as the final command, including individual channels.
+/// `documents` are the open documents in session order: document params (Match Color's Source,
+/// Displace's map) index into them.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn preview_document_for_target(
     doc: &Document,
     active: Option<photocraft_doc::LayerId>,
@@ -849,6 +872,7 @@ pub(crate) fn preview_document_for_target(
     k: u32,
     cancel: Option<&photocraft_engine::jobs::JobCtx>,
     target: photocraft_engine::channel_cmds::ChannelTarget,
+    documents: &[Arc<Document>],
 ) -> Option<Document> {
     if command == crate::select_mask_view::COMMAND {
         return crate::select_mask_view::preview_document(doc, active, params, k, cancel);
@@ -859,12 +883,14 @@ pub(crate) fn preview_document_for_target(
     let proxy = crate::proxy::proxy_document(doc, run_k);
     let mut s = photocraft_engine::Session::new();
     s.set_inline_job_ctx(cancel.cloned());
+    let doc_id = proxy.id;
     s.add_document(proxy, None);
+    let mut p = params.clone();
+    add_source_documents(&mut s, doc_id, command, &mut p, documents, run_k);
     if let Some(id) = active {
         s.select_layer(id).ok()?;
     }
     s.active_mut()?.channel_view.target = target;
-    let mut p = params.clone();
     if run_k > 1
         && let Some(o) = p.as_object_mut()
     {
@@ -887,8 +913,40 @@ pub(crate) fn preview_document_for_target(
             }
         }
     }
+    // Blur Gallery pins carry their blur in document pixels too.
+    if command.starts_with("filter.blurGallery.") {
+        crate::blur_pins::scale_for_proxy(&mut p, run_k);
+    }
     s.execute(command, p).ok()?;
     s.active().map(|d| crate::proxy::proxy_document(&d.doc, reduce_k))
+}
+
+/// The preview session holds only the proxy of the edited document (index 0), so a document param
+/// pointing at another open document found nothing there: Match Color's preview with a Source
+/// document failed, or matched the image to itself (#4851). Add each referenced document (as a
+/// proxy at the same factor) and point the param at its index in the preview session.
+fn add_source_documents(s: &mut photocraft_engine::Session, doc_id: photocraft_doc::DocId, command: &str, p: &mut Value, documents: &[Arc<Document>], k: u32) {
+    let Some(spec) = photocraft_engine::commands::find(command) else { return };
+    let Some(o) = p.as_object_mut() else { return };
+    let mut added: Vec<(usize, usize)> = Vec::new();
+    for param in parse_spec(spec.params).into_iter().filter(|p| p.kind == Kind::Document) {
+        let Some(v) = o.get_mut(&param.key) else { continue };
+        let Some(i) = v.as_u64().and_then(|i| usize::try_from(i).ok()) else { continue };
+        // An index past the open documents stays as given, so the preview fails like OK would.
+        let Some(src) = documents.get(i) else { continue };
+        let at = if src.id == doc_id {
+            0
+        } else if let Some(&(_, at)) = added.iter().find(|(j, _)| *j == i) {
+            at
+        } else {
+            let at = s.add_document(crate::proxy::proxy_document(src, k), None);
+            added.push((i, at));
+            at
+        };
+        *v = json!(at);
+    }
+    // Adding a document makes it active: the command still runs on the edited one.
+    s.set_active(0);
 }
 
 /// Cached preview state on the app.
@@ -1353,6 +1411,62 @@ mod tests {
         let p = out.layers[0].surface().unwrap().pixel(32, 32);
         assert!(p[0] > 0.2 && p[0] < 0.8, "edge blurred: {p:?}");
         assert_eq!(label("wavelengthMin"), "Wavelength Min");
+    }
+
+    /// Match Color's preview reads the Source document from the open documents, as OK does: the
+    /// preview session held only the edited document, so a Source showed no change (#4851).
+    #[test]
+    fn match_color_preview_uses_the_source_document() {
+        use photocraft_doc::{Color, ColorMode, SampleType, Size};
+        let solid = |name: &str, c: [f32; 4]| {
+            let mut d = Document::with_background(name, Size::new(32, 32), ColorMode::Rgb, SampleType::U8, Color::WHITE);
+            d.layers[0].surface_mut().unwrap().fill_rect(photocraft_geom::Rect::new(0, 0, 32, 32), &c);
+            d.layers[0].surface_mut().unwrap().fill_rect(photocraft_geom::Rect::new(0, 0, 16, 32), &[c[0] * 0.5, c[1] * 0.5, c[2] * 0.5, 1.0]);
+            d
+        };
+        // The source document is open before the edited one, so indices differ between sessions.
+        let mut s = photocraft_engine::Session::new();
+        s.add_document(solid("reference", [0.1, 0.3, 0.9, 1.0]), None);
+        s.add_document(solid("texture", [0.9, 0.5, 0.2, 1.0]), None);
+        let doc = s.active().unwrap().doc.clone();
+        let layer = doc.layers[0].id;
+        let documents: Vec<_> = s.documents().iter().map(|d| d.doc.clone()).collect();
+        for (source, label) in [(0, "another document"), (1, "the edited document itself")] {
+            let p = json!({"source": source});
+            let mut applied = photocraft_engine::Session::new();
+            for d in &documents {
+                applied.add_document((**d).clone(), None);
+            }
+            applied.execute("image.adjustments.matchColor", p.clone()).unwrap();
+            let want = applied.active().unwrap().doc.layers[0].surface().unwrap().pixel(24, 16);
+            let preview = preview_document_for_target(
+                &doc,
+                Some(layer),
+                "image.adjustments.matchColor",
+                &p,
+                1,
+                None,
+                photocraft_engine::channel_cmds::ChannelTarget::Composite,
+                &documents,
+            )
+            .unwrap_or_else(|| panic!("{label}: no preview"));
+            let got = preview.layers[0].surface().unwrap().pixel(24, 16);
+            assert!((0..3).all(|c| (got[c] - want[c]).abs() < 1.0 / 255.0 + 1e-4), "{label}: preview {got:?}, OK gives {want:?}");
+        }
+        // The preview is of the matched image: the orange texture took the reference's blue.
+        let preview = preview_document_for_target(
+            &doc,
+            Some(layer),
+            "image.adjustments.matchColor",
+            &json!({"source": 0}),
+            2,
+            None,
+            photocraft_engine::channel_cmds::ChannelTarget::Composite,
+            &documents,
+        )
+        .unwrap();
+        let px = preview.layers[0].surface().unwrap().pixel(12, 8);
+        assert!(px[2] > px[0], "proxy preview matched to the reference: {px:?}");
     }
 
     #[test]
@@ -2079,6 +2193,8 @@ mod tests {
         assert!(color_eyedropper_armed(&app));
         assert!(color_eyedropper_sample(&mut app, 4.0, 4.0));
         assert_eq!(app.ui.dialogs.last().unwrap().fields["color"], json!("#00ff00"));
+        // #4457: where it was picked, for Localized Color Clusters.
+        assert_eq!(app.ui.dialogs.last().unwrap().fields["points"], json!([[4.0, 4.0]]));
         // Off-image: the click is consumed, nothing changes and the eyedropper stays armed.
         assert!(color_eyedropper_sample(&mut app, -1.0, 4.0));
         assert_eq!(app.ui.dialogs.last().unwrap().fields["color"], json!("#00ff00"));
@@ -2108,5 +2224,38 @@ mod tests {
         h.get_by_label("Pick Color From Image").click();
         h.run_steps(2);
         assert!(!color_eyedropper_armed(h.state()));
+    }
+
+    /// #4457: Localized Color Clusters and its Range, as in Photoshop's dialog; the sampled point
+    /// and both settings reach the command.
+    #[test]
+    fn replace_color_localized_color_clusters() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable;
+
+        // Left half red, right half red too: localized on the left point, the right half stays.
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 40, "height": 10, "background": "#ff0000"})).unwrap();
+        let mut app = PhotocraftApp::new(s, crate::Services::default());
+        let mut h = Harness::builder().with_size(egui::vec2(900.0, 800.0)).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), &mut app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        let id = open(h.state_mut(), REPLACE_COLOR).unwrap();
+        h.run_steps(3);
+        let _ = h.get_by_label("Localized Color Clusters");
+        h.state_mut().ui.dialog_mut(id).unwrap().fields.insert(COLOR_EYEDROPPER.into(), json!(true));
+        assert!(color_eyedropper_sample(h.state_mut(), 2.0, 5.0));
+        h.get_by_label("Localized Color Clusters").click();
+        h.run_steps(2);
+        let f = h.state().ui.dialogs.last().unwrap().fields.clone();
+        assert_eq!((f["localized"].clone(), f["points"].clone()), (json!(true), json!([[2.0, 5.0]])));
+        // The command with the dialog's fields, small range and a hue shift: only near (2, 5).
+        let mut p: Map<String, Value> = f.iter().filter(|(k, _)| !k.starts_with("__")).map(|(k, v)| (k.clone(), v.clone())).collect();
+        p.insert("range".into(), json!(10));
+        p.insert("hue".into(), json!(120));
+        h.state_mut().run(REPLACE_COLOR, Value::Object(p)).unwrap();
+        let doc = &h.state().session.active().unwrap().doc;
+        let px = |x: i32| doc.layers[0].surface().unwrap().read_region(photocraft_geom::Rect::new(x, 5, x + 1, 6));
+        assert!(px(2)[1] > 0.5, "near the point: shifted to green {:?}", px(2));
+        assert!(px(38)[0] > 0.9 && px(38)[1] < 0.1, "far away: still red {:?}", px(38));
     }
 }
