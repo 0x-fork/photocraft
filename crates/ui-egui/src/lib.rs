@@ -24,6 +24,7 @@ pub mod analysis_ui;
 pub mod anchor_tools;
 pub mod artboard_tool;
 pub mod artboard_ui;
+pub(crate) mod background_redraw;
 mod blend_keys;
 pub(crate) mod blend_preview;
 mod brand;
@@ -105,6 +106,7 @@ pub mod icons;
 pub mod jobs_ui;
 pub mod kys_import;
 pub mod lasso_ui;
+pub(crate) mod last_brush;
 pub mod layer_menu_ui;
 pub mod layer_pick_ui;
 pub mod layer_picker;
@@ -637,6 +639,8 @@ pub struct PhotocraftApp {
     pub(crate) filter_preview: Option<filter_dialog::FilterPreview>,
     #[cfg(not(target_arch = "wasm32"))]
     filter_preview_worker: filter_preview_worker::Worker,
+    /// Full CPU canvas redraws running in the background, by document (#4024).
+    pub(crate) redraws: std::collections::HashMap<photocraft_doc::DocId, background_redraw::Redraw>,
     /// Select › Color Range dialog preview (proxy document + mask / image textures).
     pub(crate) color_range: Option<color_range_ui::Preview>,
     /// Image › Adjustments dialog preview through a temporary clipped adjustment layer.
@@ -829,6 +833,7 @@ impl PhotocraftApp {
             filter_preview: None,
             #[cfg(not(target_arch = "wasm32"))]
             filter_preview_worker: Default::default(),
+            redraws: Default::default(),
             color_range: None,
             adjust_preview: None,
             synthetic: Vec::new(),
@@ -1870,6 +1875,10 @@ impl eframe::App for PhotocraftApp {
         // remembered once the pointer is up. Here, after every panel, rather than in the
         // picker's own code: the control channel can set it while the picker is closed.
         brush_picker::persist(self, &ctx);
+        // The tool's brush (settings and tip references) is remembered the same way. Like the
+        // picker's view, in the frame loop, so the control channel can set it with the panels
+        // closed; the engine's revision counter keeps an unchanged brush free.
+        last_brush::persist(self, &ctx);
         // Tool options are remembered between launches the same way (#2814).
         tool_memory::persist(self, &ctx);
         // So are View › Extras, Show and Snap To (#3762).

@@ -3458,6 +3458,7 @@ cameraRaw	Roughness	Chropowatość
 	Indigo	Indygo
 	Fuchsia	Fuksja
 	Large document: redrawing on the CPU	Duży dokument: odświeżanie na CPU
+	Redrawing	Odświeżanie
 	This redraw took {seconds} s on the CPU.	To odświeżenie na CPU trwało {seconds} s.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Zmiany obejmujące cały dokument, takie jak tryb mieszania, krycie lub widoczność warstwy, odświeżają go w całości.
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Warstwy nie mieszczą się w budżecie pamięci GPU. Zwiększenie wartości Użycie pamięci w Preferencje › Wydajność zwiększa budżet, maksymalnie do jednej czwartej pamięci tego komputera.

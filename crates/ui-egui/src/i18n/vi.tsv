@@ -2152,6 +2152,7 @@ layers	Fill:	Độ tô:
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Các lớp không vừa ngân sách bộ nhớ GPU. Tăng mức sử dụng bộ nhớ trong Tùy chọn › Hiệu năng sẽ nâng ngân sách, tối đa một phần tư bộ nhớ máy này.
 	Labels	Nhãn
 	Large document: redrawing on the CPU	Tài liệu lớn: đang vẽ lại trên CPU
+	Redrawing	Đang vẽ lại
 	Layer deleted, but confirmation preference could not be saved: {error}	Đã xóa lớp, nhưng không lưu được tùy chọn xác nhận: {error}
 	Layer From Background…	Lớp từ nền…
 	Load a keyboard shortcut set saved as .kys	Tải bộ phím tắt đã lưu dạng .kys

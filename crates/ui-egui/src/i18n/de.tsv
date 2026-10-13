@@ -2467,6 +2467,7 @@ layerLabel	No Color	Keine Farbe
 	Fuchsia	Fuchsia
 	Violet	Violett
 	Large document: redrawing on the CPU	Großes Dokument: Neuzeichnen auf der CPU
+	Redrawing	Neuzeichnen
 	This redraw took {seconds} s on the CPU.	Dieses Neuzeichnen auf der CPU dauerte {seconds} s.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Änderungen, die das ganze Dokument betreffen, etwa Füllmethode, Deckkraft oder Sichtbarkeit einer Ebene, zeichnen es vollständig neu.
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Die Ebenen passen nicht in das GPU-Speicherbudget. Eine höhere Speichernutzung unter Voreinstellungen › Leistung erhöht das Budget, bis zu einem Viertel des Arbeitsspeichers dieses Computers.

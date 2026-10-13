@@ -50,6 +50,14 @@ impl<'a> Rd<'a> {
 
 /// Parses one item; `None` for malformed data or non-`liFD` items.
 fn parse_item(item: &[u8]) -> Option<LinkedFile> {
+    let (uuid, file_name, start, len) = item_header(item)?;
+    let bytes = item.get(start..start.checked_add(len)?)?.to_vec();
+    Some(LinkedFile { uuid, file_name, bytes })
+}
+
+/// The uuid and file name of an embedded (`liFD`) item, and where its file bytes start and how
+/// many there are; `None` for malformed data or other items.
+fn item_header(item: &[u8]) -> Option<(String, String, usize, usize)> {
     let mut r = Rd { d: item, p: 0 };
     let kind = r.take(4)?;
     let _version = r.u32()?;
@@ -65,8 +73,26 @@ fn parse_item(item: &[u8]) -> Option<LinkedFile> {
     if kind != b"liFD" {
         return None;
     }
-    let bytes = r.take(len)?.to_vec();
-    Some(LinkedFile { uuid, file_name, bytes })
+    Some((uuid, file_name, r.p, len))
+}
+
+/// The file name of the embedded file for smart-object `uuid` among the document's preserved PSD
+/// global blocks, without copying its bytes: whether a placed layer's source is embedded.
+pub fn embedded_file_name(meta: &Metadata, uuid: &str) -> Option<String> {
+    if uuid.is_empty() {
+        return None;
+    }
+    meta.psd_global_blocks.iter().filter(|(_, k, _)| matches!(k, b"lnk2" | b"lnk3" | b"lnkD")).find_map(|(_, _, d)| {
+        let mut r = Rd { d, p: 0 };
+        while let Some(len) = r.u64() {
+            let item = r.take(usize::try_from(len).ok()?)?;
+            if let Some((_, name, ..)) = item_header(item).filter(|h| h.0 == uuid) {
+                return Some(name);
+            }
+            r.p = r.p.next_multiple_of(4);
+        }
+        None
+    })
 }
 
 /// Every embedded (`liFD`) file in one linked-layer block's data.

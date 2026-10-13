@@ -2852,6 +2852,7 @@ cameraRaw	Whites	Brancos
 	Fuchsia	Fúcsia
 	Violet	Violeta
 	Large document: redrawing on the CPU	Documento grande: redesenhando na CPU
+	Redrawing	Redesenhando
 	This redraw took {seconds} s on the CPU.	Este redesenho na CPU levou {seconds} s.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Edições que mudam o documento inteiro, como modo de mesclagem, opacidade ou visibilidade de uma camada, redesenham tudo.
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	As camadas não cabem no orçamento de memória da GPU. Aumentar Uso de memória em Preferências › Desempenho eleva o orçamento, até um quarto da memória deste computador.
