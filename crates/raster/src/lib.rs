@@ -747,7 +747,8 @@ impl Surface {
     /// The surface moved by whole pixels: its encoded samples copied tile to tile (no float
     /// round trip, no intermediate buffer); moves by whole tiles share the tiles themselves, and
     /// a target tile read entirely from tiles of one single pixel value shares one such tile (the
-    /// inside of a solid fill stays one copy-on-write tile however often it moves).
+    /// inside of a solid fill stays one copy-on-write tile however often it moves). A tile it
+    /// copies that ends up holding only the default pixel isn't stored.
     /// `content` must hold every pixel that isn't the default one (`content_bounds`, say): only
     /// tiles it reaches are kept.
     pub fn translated(&self, dx: i32, dy: i32, content: Rect) -> Surface {
@@ -763,6 +764,8 @@ impl Surface {
         let targets: std::collections::BTreeSet<TileCoord> = sources().flat_map(|(c, _)| c.rect().translate(dx, dy).intersect(&moved).tiles()).collect();
         let mut uniform = UniformTiles::default();
         let zero = vec![0u8; bpp];
+        // One tile row of the default pixel, to compare a finished tile with a row at a time.
+        let default_row = self.default_pixel.repeat(TILE_SIZE.unsigned_abs() as usize);
         for dc in targets {
             let dr = dc.rect();
             let sr = dr.translate(dx.saturating_neg(), dy.saturating_neg());
@@ -774,7 +777,10 @@ impl Surface {
                 && content.contains_rect(&sr)
                 && sr.tiles().all(|sc| self.tiles.contains_key(&sc));
             if covered && let Some(shared) = uniform.window(self, sr) {
-                out.tiles.insert(dc, shared);
+                // A tile of only the default pixel is left out, as `prune` would.
+                if shared.data.get(..bpp) != Some(&*self.default_pixel) {
+                    out.tiles.insert(dc, shared);
+                }
                 continue;
             }
             // A covered target is overwritten whole, so skip filling it with the default pixel.
@@ -795,7 +801,11 @@ impl Surface {
                     }
                 }
             }
-            out.tiles.insert(dc, Arc::new(tile));
+            // A target that got only default pixels isn't stored, as `prune` would drop it. Checked
+            // after the copy, a row at a time: a tile with content stops at its first such row.
+            if tile.data.chunks(default_row.len()).any(|row| row != default_row) {
+                out.tiles.insert(dc, Arc::new(tile));
+            }
         }
         out
     }
@@ -1425,6 +1435,43 @@ mod tests {
         let all = Rect::new(i32::MIN, i32::MIN, i32::MAX, i32::MAX);
         let _ = s.translated(i32::MAX, i32::MIN, all);
         let _ = s.translated(i32::MIN + 1, 3, all);
+    }
+
+    #[test]
+    fn translated_stores_no_tiles_of_only_the_default_pixel() {
+        let only_default = |t: &Surface| {
+            let dp = t.default_pixel();
+            t.tiles().filter(|(c, _)| t.read_region(c.rect()).chunks_exact(dp.len()).all(|p| p == dp.as_slice())).count()
+        };
+        // Two blocks a few tiles apart, moved off the tile grid and back: the default-pixel edges
+        // of their tiles land on tiles of their own, which aren't stored.
+        for fmt in [PixelFormat::RGBA8, PixelFormat::RGBA16, PixelFormat::RGBA32F, PixelFormat::GRAY8] {
+            for default in [0.0, 0.25] {
+                let mut s = Surface::with_default(fmt, &vec![default; fmt.channels()]);
+                s.fill_rect(Rect::new(0, 0, 300, 300), &vec![1.0; fmt.channels()]);
+                s.fill_rect(Rect::new(2000, 1000, 2300, 1300), &vec![0.5; fmt.channels()]);
+                let all = Rect::new(-600, -600, 3000, 2000);
+                let mut t = s.clone();
+                for (dx, dy) in [(100, 56), (-100, -56), (10, 7), (-3, 40), (130, -90), (-137, 43)] {
+                    let moved = t.translated(dx, dy, t.content_bounds());
+                    assert_eq!(moved.read_region(all), t.read_region(all.translate(-dx, -dy)), "{fmt:?} over {default} by ({dx}, {dy})");
+                    assert_eq!(only_default(&moved), 0, "{fmt:?} over {default} by ({dx}, {dy})");
+                    t = moved;
+                }
+                assert_eq!(t.read_region(all), s.read_region(all), "{fmt:?} over {default}: back where it started");
+                assert_eq!(t.tile_count(), s.tile_count(), "{fmt:?} over {default}: back where it started");
+            }
+        }
+        // Stored tiles of the default pixel inside `content`: the targets that would share one of
+        // them (#4414's uniform windows) are left out too.
+        let mut s = Surface::with_default(PixelFormat::GRAY8, &[0.25]);
+        s.fill_rect(Rect::new(0, 0, 1024, 1024), &[0.25]);
+        s.write_pixel(600, 600, &[1.0]);
+        let content = Rect::new(0, 0, 1024, 1024);
+        let t = s.translated(10, 7, content);
+        assert_eq!(only_default(&t), 0);
+        assert_eq!(t.tile_count(), 1);
+        assert_eq!(t.read_region(Rect::new(-20, -20, 1100, 1100)), s.read_region(Rect::new(-30, -27, 1090, 1093)));
     }
 
     proptest! {

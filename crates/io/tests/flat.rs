@@ -963,3 +963,20 @@ fn tga_default_bits_follow_the_alpha_channels() {
     assert_eq!(tga_default_bits(&with_alpha_channel(d, "Alpha 1")), TgaBits::Bits32);
     assert_eq!((TgaBits::from_bits(24), TgaBits::from_bits(32), TgaBits::from_bits(16)), (Some(TgaBits::Bits24), Some(TgaBits::Bits32), None));
 }
+
+#[test]
+fn a_lab_document_with_one_layer_is_not_reported_as_flattened() {
+    // Lab always goes through the sRGB composite, but a lone layer loses nothing to it.
+    let d = single(ColorMode::Lab, SampleType::U8, false);
+    for ext in ["tif", "png", "jpg"] {
+        let r = export(&d, ext, &ExportOptions::default()).unwrap();
+        assert!(r.warnings.iter().all(|w| !w.contains("flattened")), "{ext}: {:?}", r.warnings);
+        assert!(r.warnings.iter().any(|w| w.contains("Lab composite written as sRGB")), "{ext}: {:?}", r.warnings);
+    }
+    // Two layers are flattened, and say so.
+    let mut two = single(ColorMode::Lab, SampleType::U8, false);
+    let fmt = two.pixel_format();
+    two.layers.push(raster("Top", fmt, two.bounds(), 5, true));
+    let r = export(&two, "tif", &ExportOptions::default()).unwrap();
+    assert!(r.warnings.iter().any(|w| w.contains("2 layer(s) flattened")), "{:?}", r.warnings);
+}

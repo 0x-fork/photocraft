@@ -389,13 +389,26 @@ fn commit_path(app: &mut PhotocraftApp, pen: &PenPath, closed: bool) {
         }
         app.run("layer.vectorMask.edit", json!({"layer": id, "path": p}))
     } else {
-        // The drawn work path is selected in the Paths panel, as in Photoshop.
-        app.run("path.set", json!({"name": "work", "path": path})).inspect(|_| app.ui.selected_path = Some("work".into()))
+        // Photoshop adds the new subpath to the path selected in the Paths panel, which is the
+        // Work Path right after drawing one, so path after path builds up there (#4721). With no
+        // path selected, a new Work Path replaces the old one. The drawn path ends up selected.
+        let target = app.ui.selected_path.clone().filter(|n| app.session.active().is_some_and(|st| path_exists(&st.doc, n)));
+        let name = target.clone().unwrap_or_else(|| "work".into());
+        let mut params = json!({"name": name, "path": path});
+        if target.is_some() {
+            params["op"] = json!("combine");
+        }
+        app.run("path.set", params).inspect(|_| app.ui.selected_path = Some(name))
     };
     if let Err(e) = r {
         app.ui.status = e;
         app.ui.status_error = true;
     }
+}
+
+/// Does `doc` have the path the Paths panel calls `name`: "work", or a saved path's name?
+fn path_exists(doc: &Document, name: &str) -> bool {
+    if name == "work" { doc.work_path.is_some() } else { doc.paths.iter().any(|p| p.name == name) }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2046,6 +2059,51 @@ mod tests {
         path_selection_finish(&mut app, [50.0, 50.0], [60.0, 55.0]);
         let wp = app.session.active().unwrap().doc.work_path.clone().unwrap();
         assert_eq!((wp.subpaths[0].knots[0].anchor.x, wp.subpaths[0].knots[0].anchor.y), (30.0, 25.0));
+    }
+
+    /// #4721: a second Pen path joins the Work Path it was drawn after (still selected), as a new
+    /// subpath, instead of replacing it; a saved path that is selected takes it instead; with no
+    /// path selected, the new path replaces the Work Path, as in Photoshop.
+    #[test]
+    fn a_new_pen_path_joins_the_selected_path() {
+        let mut app = app();
+        app.ui.tool = Tool::Pen;
+        let draw = |app: &mut PhotocraftApp, x: f64| {
+            for (dx, dy) in [(0.0, 0.0), (40.0, 0.0), (40.0, 40.0)] {
+                pen_down(app, x + dx, 20.0 + dy);
+                pen_up(app);
+            }
+            pen_down(app, x + 0.5, 20.5); // close
+            pen_up(app);
+        };
+        let work = |app: &PhotocraftApp| app.session.active().unwrap().doc.work_path.clone().unwrap();
+        draw(&mut app, 20.0);
+        assert_eq!(app.ui.selected_path.as_deref(), Some("work"));
+        draw(&mut app, 120.0);
+        let wp = work(&app);
+        assert_eq!(wp.subpaths.len(), 2, "the first path stays");
+        assert!(wp.subpaths.iter().all(|s| s.closed && s.knots.len() == 3));
+        assert_eq!(wp.subpaths[0].knots[0].anchor.x, 20.0);
+        assert_eq!(wp.subpaths[1].knots[0].anchor.x, 120.0);
+        // One History step per path.
+        app.session.undo();
+        assert_eq!(work(&app).subpaths.len(), 1, "undo takes back only the second path");
+        app.session.redo();
+        // A selected saved path takes the next one.
+        app.run("path.set", json!({"name": "Saved", "path": {"subpaths": [{"knots": [[2, 2], [12, 2], [12, 8]]}]}})).unwrap();
+        app.ui.selected_path = Some("Saved".into());
+        draw(&mut app, 220.0);
+        let saved = app.session.active().unwrap().doc.paths.iter().find(|p| p.name == "Saved").unwrap().path.clone();
+        assert_eq!(saved.subpaths.len(), 2);
+        assert_eq!(work(&app).subpaths.len(), 2, "the Work Path is left alone");
+        assert_eq!(app.ui.selected_path.as_deref(), Some("Saved"));
+        // No path selected: a new Work Path replaces the old one.
+        app.ui.selected_path = None;
+        draw(&mut app, 320.0);
+        let wp = work(&app);
+        assert_eq!(wp.subpaths.len(), 1);
+        assert_eq!(wp.subpaths[0].knots[0].anchor.x, 320.0);
+        assert_eq!(app.ui.selected_path.as_deref(), Some("work"));
     }
 
     /// #4596: the close-path pointer shows where a click would close the path, and only there:

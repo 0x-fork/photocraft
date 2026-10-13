@@ -60,6 +60,8 @@ struct Ex {
     cmyk: bool,
     version: Version,
     next_id: u32,
+    /// Reserved imported layer and generated divider IDs.
+    used_ids: std::collections::HashSet<u32>,
     /// PSD ids assigned to document layers (kept from `psd_id` when unique).
     layer_ids: std::collections::HashMap<photocraft_doc::LayerId, u32>,
     /// The generated `Txt2` object number of each type layer (a preserved `TySh` keeps its own
@@ -363,10 +365,14 @@ impl Ex {
         (MaskData::Mask(pm), Some(self.encode(-2, &plane, w, h)))
     }
 
-    /// Ids for section dividers: above every layer id.
+    /// Prefer numbers above imported layer IDs, wrapping safely at u32::MAX.
     fn fresh_id(&mut self) -> u32 {
-        self.next_id += 1;
-        self.next_id
+        loop {
+            self.next_id = self.next_id.wrapping_add(1).max(1);
+            if self.used_ids.insert(self.next_id) {
+                return self.next_id;
+            }
+        }
     }
 
     fn layer_id(&mut self, l: &Layer) -> u32 {
@@ -1444,6 +1450,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
         cmyk: fmt.mode == ColorMode::Cmyk,
         version,
         next_id: 0,
+        used_ids: Default::default(),
         layer_ids: Default::default(),
         canvas: doc.bounds(),
         records: Vec::new(),
@@ -1484,6 +1491,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
             }
         }
         ex.next_id = used.iter().copied().max().unwrap_or(0);
+        ex.used_ids = used;
         // Text objects' number in the generated `Txt2` (#1348): a preserved `TySh` keeps the
         // number it already names — its `Txt2` object must sit at that slot for `apply_txt2` —
         // and new layers get the next free number.
@@ -1741,6 +1749,27 @@ mod tests {
 
     fn document(width: u32, height: u32) -> Document {
         Document::new("size estimate", photocraft_geom::Size::new(width, height), ColorMode::Rgb, SampleType::U8)
+    }
+
+    #[test]
+    fn group_divider_id_wraps_without_colliding_with_imported_layer_ids() {
+        let mut doc = document(8, 8);
+        let mut group = Layer::group("Imported group", vec![Layer::raster("Child", doc.pixel_format())]);
+        group.psd_id = Some(u32::MAX);
+        doc.layers.push(group);
+
+        let file = document_to_psd(&doc);
+        let ids: Vec<u32> = file.layers().iter().filter_map(|layer| layer.layer_id()).collect();
+        let unique: std::collections::HashSet<u32> = ids.iter().copied().collect();
+        assert_eq!(ids.len(), 3, "group, child and closing divider");
+        assert_eq!(unique.len(), ids.len(), "no generated ID may collide");
+        assert!(unique.contains(&u32::MAX), "preserve the imported group ID");
+        assert!(unique.contains(&1), "reuse the first unused positive ID on wrap");
+
+        let encoded = file.to_bytes().unwrap();
+        let parsed = PsdFile::from_bytes(&encoded).unwrap();
+        let reloaded_ids: std::collections::HashSet<u32> = parsed.layers().iter().filter_map(|layer| layer.layer_id()).collect();
+        assert_eq!(unique, reloaded_ids);
     }
 
     #[test]
