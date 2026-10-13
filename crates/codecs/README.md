@@ -47,6 +47,7 @@ let out = encode(&img, Format::Tiff, &EncodeOptions::default())?;
 | Radiance HDR | yes | yes | F32 | RGB | no | no | no | no | no | no | yes (RGBE) | `image` |
 | FITS | yes | yes | U8, U16, F32 | Gray, RGB | no | no | no | no | no | yes (header cards) | no | built in |
 | DPX | yes | yes | U8, U16 (10/12-bit code values read and written exactly through U16) | Gray, RGB, RGBA | yes | no | no | no | no | DPX header fields only (creator, project, copyright, creation time, transfer, colorimetric, frame position, frame rate, time code) | no | built in |
+| Amiga IFF (ILBM/PBM) | yes | **no** | U8 | RGB | no | no | no | no | no | no | n/a | built in |
 | AVIF | **no** | only with feature `avif` | U8 | RGB, RGBA | yes | no | no | no | no | no | yes | `image` + `ravif` |
 | HEIF/HEIC | with feature `heif` | **no** | U8, U16 (10/12-bit decodes to U16) | RGB, RGBA | yes (auxiliary alpha) | yes (`colr` prof) | yes | yes | no | no | n/a | `heic-rs` |
 
@@ -94,6 +95,12 @@ embedded table (and a PNG's transparent entry) so `photocraft-io` can open them 
   U8 and 16 otherwise), packing 1 for 10 and 12 bits; gray with alpha is written as luma.
   Other descriptors, signed or run-length-encoded data and other bit depths return
   `CodecError::Unsupported` naming the field. Cineon (`.cin`) is not supported.
+
+* **Amiga IFF (read-only).** `FORM ... ILBM` (interleaved) and `FORM ... PBM ` (planar) bitmaps
+  from the published IFF/ILBM layout: 1–8 bitplanes decoded through the `CMAP` palette (a grey
+  ramp when there is none), masking 0/1/2, and both stored (0) and ByteRun1/PackBits (1)
+  compression. Other bit-plane counts or compressions return `CodecError::Unsupported`; a
+  malformed chunk length or run errors rather than panicking. There is no IFF writer; save as PNG.
 
 * **Camera raw files** (DNG, CR2, NEF, ARW… which are TIFF-structured) are recognised and refused
   with `CodecError::Unsupported`: they are sensor data, not flat images. `photocraft-raw` decodes

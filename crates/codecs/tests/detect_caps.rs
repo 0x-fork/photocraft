@@ -187,6 +187,19 @@ fn detect_magic_hdr() {
     assert_eq!(detect(b"#?RGBE\n"), Some(Format::Hdr));
 }
 #[test]
+fn detect_magic_iff() {
+    // FORM + a four-byte length + the bitmap type.
+    assert_eq!(detect(b"FORM\0\0\0\x14ILBM"), Some(Format::Iff));
+    assert_eq!(detect(b"FORM\0\0\0\x14PBM "), Some(Format::Iff));
+    assert_eq!(from_extension("art.LBM"), Some(Format::Iff));
+    assert_eq!(from_extension("art.ilbm"), Some(Format::Iff));
+    assert!(caps(Format::Iff).read && !caps(Format::Iff).write, "IFF is read-only");
+    assert!(ASYMMETRIC_EXCEPTIONS.iter().any(|(f, _)| *f == Format::Iff));
+    // A bare FORM without a bitmap type is not IFF.
+    assert_eq!(detect(b"FORM\0\0\0\x14AIFF"), None);
+    assert!(decode_as(Format::Iff, b"FORM\0\0\0\x14ILBM").is_err());
+}
+#[test]
 fn detect_magic_avif() {
     assert_eq!(detect(b"\0\0\0\x1cftypavif\0\0\0\0avifmif1miaf"), Some(Format::Avif));
     assert_eq!(detect(b"\0\0\0\x1cftypavis\0\0\0\0avismsf1miaf"), Some(Format::Avif));
