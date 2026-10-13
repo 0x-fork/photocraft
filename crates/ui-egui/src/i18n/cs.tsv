@@ -2428,6 +2428,7 @@ cameraRaw	Color	Barvy
 	Violet	Fialová
 	Reset	Obnovit
 	Large document: redrawing on the CPU	Velký dokument: překreslování na CPU
+	Redrawing	Překreslování
 	This redraw took {seconds} s on the CPU.	Toto překreslení na CPU trvalo {seconds} s.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Úpravy, které mění celý dokument, například režim prolnutí, krytí nebo viditelnost vrstvy, jej překreslí celý.
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Vrstvy se nevejdou do rozpočtu paměti GPU. Zvýšením hodnoty Využití paměti v Předvolbách › Výkon se rozpočet zvětší, nejvýše na čtvrtinu paměti tohoto počítače.

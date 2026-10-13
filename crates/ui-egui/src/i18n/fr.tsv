@@ -2848,6 +2848,7 @@ cameraRaw	Blending	Fusion
 	Fuchsia	Fuchsia
 	Violet	Violet
 	Large document: redrawing on the CPU	Document volumineux : redessin sur le CPU
+	Redrawing	Redessin
 	This redraw took {seconds} s on the CPU.	Ce redessin sur le CPU a pris {seconds} s.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Les modifications qui touchent tout le document, comme le mode de fusion, l'opacité ou la visibilité d'un calque, le redessinent entièrement.
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Les calques dépassent le budget de mémoire GPU. Augmenter Utilisation de la mémoire dans Préférences › Performances relève ce budget, jusqu'au quart de la mémoire de cet ordinateur.

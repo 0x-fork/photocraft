@@ -2497,6 +2497,7 @@ cameraRaw	Amount	Cantidad
 	Violet	Violeta
 	Reset	Restaurar
 	Large document: redrawing on the CPU	Documento grande: redibujando en la CPU
+	Redrawing	Redibujando
 	This redraw took {seconds} s on the CPU.	Este redibujado en la CPU tardó {seconds} s.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Las ediciones que cambian todo el documento, como el modo de fusión, la opacidad o la visibilidad de una capa, lo redibujan por completo.
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Las capas no caben en el presupuesto de memoria de la GPU. Aumentar Uso de memoria en Preferencias › Rendimiento amplía el presupuesto, hasta una cuarta parte de la memoria de este equipo.

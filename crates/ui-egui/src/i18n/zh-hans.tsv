@@ -2439,6 +2439,7 @@ cameraRaw	Blending	混合
 	Violet	紫罗兰色
 	Reset	复位
 	Large document: redrawing on the CPU	大型文档：正在用 CPU 重绘
+	Redrawing	正在重绘
 	This redraw took {seconds} s on the CPU.	此次 CPU 重绘耗时 {seconds} 秒。
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	更改整个文档的编辑（如图层的混合模式、不透明度或可见性）会重绘整个文档。
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	图层超出 GPU 内存预算。在 首选项 › 性能 中提高内存使用量可增加预算，最多为本机内存的四分之一。

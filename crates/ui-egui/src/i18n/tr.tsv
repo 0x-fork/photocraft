@@ -3861,6 +3861,7 @@ cameraData	Lens	Lens
 	Color Indicates:	Rengin Gösterdiği:
 	Ink Characteristics	Mürekkep Özellikleri
 	Solidity:	Doluluk:
+	Redrawing	Yeniden çiziliyor
 
 # Layers panel options and Smart Filter editors
 	Add “copy” to Copied Layers and Groups	Kopyalanan Katman ve Gruplara “kopya” Ekle
