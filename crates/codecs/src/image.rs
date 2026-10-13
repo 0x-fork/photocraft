@@ -150,6 +150,8 @@ pub enum DecodeWarning {
     MorePages { total: Option<u32> },
     /// Only one part of a multi-part file was decoded; `total` counts every part when known.
     MoreParts { total: Option<u32> },
+    /// The image opened on the full `display_window` stage; the data region sits at `origin`.
+    DisplayWindowStage { stage: (u32, u32), origin: (i32, i32) },
     /// The image data ends early (truncated or damaged file); the decoder filled in the rest
     /// (a baseline JPEG's missing rows come out grey).
     Truncated { format: Format },
@@ -193,6 +195,9 @@ impl fmt::Display for DecodeWarning {
             DecodeWarning::MorePages { total: None } => write!(f, "only the first page of the file was imported"),
             DecodeWarning::MoreParts { total: Some(n) } => write!(f, "only one of {n} EXR parts was imported"),
             DecodeWarning::MoreParts { total: None } => write!(f, "only one EXR part of the file was imported"),
+            DecodeWarning::DisplayWindowStage { stage, origin } => {
+                write!(f, "opened on the full display window stage ({}x{}); the data sits at ({}, {})", stage.0, stage.1, origin.0, origin.1)
+            }
             DecodeWarning::Truncated { format } => {
                 write!(f, "{} data ends early (the file is truncated or damaged); part of the image is missing", format.name())
             }
@@ -232,6 +237,13 @@ pub struct DeepChannel {
 pub struct DeepImage {
     pub width: u32,
     pub height: u32,
+    /// The full stage the image opens on: the EXR `display_window` size, when the file declares
+    /// one the data region fits into and the limits allow. `None` when absent, absurd or not
+    /// containing the data region — then the image opens on the data window alone, as before.
+    pub stage: Option<(u32, u32)>,
+    /// Where this image's (0, 0) sits on the stage: `data_window.position - display_window.position`.
+    /// `(0, 0)` when [`Self::stage`] is `None`.
+    pub origin: (i32, i32),
     /// The sample channels in file order.
     pub channels: Vec<DeepChannel>,
     /// Cumulative sample counts, `len == width as usize * height as usize + 1`: pixel `i`

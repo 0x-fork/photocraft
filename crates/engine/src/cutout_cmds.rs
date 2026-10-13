@@ -45,8 +45,12 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
         s,
         "Remove Background",
         move |doc, _, ctx| {
-            ctx.progress(0.1, "Finding subject");
-            let found = with_doc_sampler(doc, Some(id), sample_all, |smp, d| subject::select_subject(smp, d.bounds()));
+            // Cancel reaches the min cuts inside Select Subject, so Esc doesn't wait for them.
+            let found = ctx
+                .stage(0.1, 0.6, "Finding subject", |ctl| {
+                    with_doc_sampler(doc, Some(id), sample_all, |smp, d| subject::select_subject_with(smp, d.bounds(), ctl))
+                })
+                .map_err(|_| EngineError::Cancelled)?;
             let mut region = found.ok_or_else(|| EngineError::Other("no subject found".into()))?;
             if ctx.cancelled() {
                 return Err(EngineError::Cancelled);
@@ -198,6 +202,24 @@ mod tests {
         assert_eq!(l.name, "Layer 0");
         assert!(!l.locks.transparency && !l.locks.position);
         assert!(l.mask.is_some());
+    }
+
+    #[test]
+    fn remove_background_cancelled_while_finding_the_subject_changes_nothing() {
+        let (mut s, _) = disc(8);
+        let id = active_id(&s);
+        let before = s.active().unwrap().revision;
+        // The job's cancel reaches Select Subject, which stops at its first check.
+        let ctx = crate::jobs::JobCtx::new();
+        ctx.cancel();
+        s.set_inline_job_ctx(Some(ctx.clone()));
+        assert!(matches!(s.execute(CMD, json!({})), Err(EngineError::Cancelled)));
+        assert_eq!(ctx.message(), "Finding subject");
+        assert_eq!(s.active().unwrap().revision, before);
+        assert!(layer(&s, id).mask.is_none());
+        s.set_inline_job_ctx(None);
+        s.execute(CMD, json!({})).unwrap();
+        assert!(layer(&s, id).mask.is_some());
     }
 
     #[test]

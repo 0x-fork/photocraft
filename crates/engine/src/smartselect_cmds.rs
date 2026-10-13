@@ -397,7 +397,8 @@ fn refine_edge(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let region = with_sampler(s, b(p, "sampleAllLayers", false), |smp, doc| {
         let mask_surf = active.and_then(|id| doc.layer(id)).and_then(|l| l.mask.as_ref()).map(|m| &m.surface);
-        let sel = doc.selection.as_ref().or(mask_surf)?;
+        let target_mask = p.get("target").and_then(Value::as_str) == Some("mask");
+        let sel = if target_mask { mask_surf.or(doc.selection.as_ref()) } else { doc.selection.as_ref().or(mask_surf) }?;
         let brush = matting::EdgeBrush::new(&strokes, doc.bounds());
         matting::refine_mask_brushed(smp, &matting::surface_reader(sel), sel.content_bounds(), doc.bounds(), &params, brush.as_ref())
     })?;
@@ -416,7 +417,8 @@ fn refine_edge(s: &mut Session, p: &Value) -> Result<Value> {
             s.edit("Select and Mask", |doc, _| {
                 let surface =
                     region.as_ref().map(matting::region_surface).unwrap_or_else(|| photocraft_raster::Surface::new(photocraft_color::PixelFormat::GRAY8));
-                doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?.mask = Some(LayerMask { surface, ..LayerMask::reveal_all() });
+                let existing = doc.layer(id).and_then(|l| l.mask.as_ref()).cloned().unwrap_or_else(LayerMask::reveal_all);
+                doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?.mask = Some(LayerMask { surface, ..existing });
                 doc.selection = None;
                 Ok(())
             })?;
@@ -820,6 +822,31 @@ mod tests {
         s.execute("edit.undo", json!({})).unwrap();
         assert!(s.active().unwrap().doc.layers[0].mask.is_none());
         assert!(s.active().unwrap().doc.selection.is_some());
+
+        // Existing mask settings (density, feather, linked) are preserved
+        s.edit("set mask", |doc, _| {
+            doc.layers[0].mask = Some(photocraft_doc::LayerMask {
+                surface: photocraft_raster::Surface::new(photocraft_color::PixelFormat::GRAY8),
+                density: 0.75,
+                feather: 3.5,
+                linked: false,
+                enabled: true,
+            });
+            Ok(())
+        })
+        .unwrap();
+        let r = s.execute("select.refineEdge", json!({"radius": 8, "output": "layerMask"})).unwrap();
+        let l = s.active().unwrap().doc.layer(photocraft_doc::LayerId(r["layer"].as_u64().unwrap())).unwrap();
+        let m = l.mask.as_ref().unwrap();
+        assert_eq!(m.density, 0.75);
+        assert_eq!(m.feather, 3.5);
+        assert!(!m.linked);
+        s.execute("edit.undo", json!({})).unwrap();
+        s.edit("clear mask", |doc, _| {
+            doc.layers[0].mask = None;
+            Ok(())
+        })
+        .unwrap();
 
         // New layer: pixels with the refined alpha; the source is hidden.
         let r = s.execute("select.refineEdge", json!({"radius": 8, "feather": 1, "output": "newLayer"})).unwrap();

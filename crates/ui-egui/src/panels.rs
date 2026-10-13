@@ -1611,7 +1611,10 @@ pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 if t.pro {
                     crate::chrome_ui::status_bar_pro(app, ui);
                     // Background job progress with Cancel, at the far end (#210).
-                    ui.with_layout(crate::direction::trailing(), |ui| crate::jobs_ui::status_progress(app, ui));
+                    ui.with_layout(crate::direction::trailing(), |ui| {
+                        crate::jobs_ui::status_progress(app, ui);
+                        crate::background_redraw::status(app, ui);
+                    });
                     return;
                 }
                 if let (Some(st), Some(i)) = (app.session.active(), app.session.active_index()) {
@@ -1650,6 +1653,7 @@ pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         ui.add_space(6.0);
                         crate::jobs_ui::status_progress(app, ui);
                     }
+                    crate::background_redraw::status(app, ui);
                 });
             });
         });
@@ -1780,7 +1784,7 @@ fn info_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         empty(ui, tl!("No document"));
         return;
     };
-    let (rev, size) = (st.revision, st.doc.size);
+    let (rev, size, origin) = (st.revision, st.doc.size, st.doc.ruler_origin);
     // Positions and sizes in the ruler unit (Preferences › Units & Rulers).
     let units = app.session.prefs().units_and_rulers.clone();
     let dpi = st.doc.resolution_dpi as f64;
@@ -1829,8 +1833,9 @@ fn info_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     widgets::hairline(ui);
     ui.columns(2, |cols| {
         let dash = || "—".to_string();
-        row(&mut cols[0], "X:", pos.map_or_else(dash, |p| fx(p.0 as f64)));
-        row(&mut cols[0], "Y:", pos.map_or_else(dash, |p| fy(p.1 as f64)));
+        // Measured from the rulers' zero point (#2955).
+        row(&mut cols[0], "X:", pos.map_or_else(dash, |p| fx(p.0 as f64 - origin[0])));
+        row(&mut cols[0], "Y:", pos.map_or_else(dash, |p| fy(p.1 as f64 - origin[1])));
         row(&mut cols[1], "W:", sel.map_or_else(dash, |r| fx(r.width() as f64)));
         row(&mut cols[1], "H:", sel.map_or_else(dash, |r| fy(r.height() as f64)));
     });
@@ -2285,7 +2290,9 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         ("artboard", "scan", tl!("Prevent auto-nesting in and out of Artboards and Frames"), lk.artboard),
                         ("all", "lock", tl!("Lock all"), lk.all),
                     ] {
-                        if icons::button(ui, icon, 20.0, on, tip).clicked() {
+                        // Lock Image Pixels includes Lock Transparent Pixels, which waits for it (#4892).
+                        let enabled = key != "transparency" || !lk.pixels;
+                        if ui.add_enabled_ui(enabled, |ui| icons::button(ui, icon, 20.0, on, tip)).inner.clicked() {
                             actions.push(("layer.setProps".into(), json!({"layer": l.id.0, "locks": { key: !on }})));
                         }
                     }
@@ -2478,9 +2485,17 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         trash.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!(label)));
         let new_layer = icons::button(ui, "square-plus", 26.0, false, &crate::shortcuts::tip_label(app, "Create a new layer", "layer.new.layer"));
         if new_layer.clicked() {
-            // A click makes the layer; ⌥-click asks first (the New Layer dialog), as in Photoshop.
-            let alt = ui.input(|i| i.modifiers.alt);
-            actions.push(("layer.new.layer".into(), if alt { Value::Null } else { json!({}) }));
+            // A click makes the layer above the selection; ⌥-click asks first (the New Layer
+            // dialog) and ⌘/Ctrl-click adds it below, as in Photoshop.
+            let (alt, below) = ui.input(|i| (i.modifiers.alt, i.modifiers.command));
+            let params = if alt {
+                Value::Null
+            } else if below {
+                json!({"position": "below"})
+            } else {
+                json!({})
+            };
+            actions.push(("layer.new.layer".into(), params));
         }
         actions.extend(footer_drop(ui, &new_layer, footer_drag, "layer.duplicate"));
         let group = icons::button(ui, "folder", 26.0, false, tl!("Create a new group"));
@@ -3092,7 +3107,7 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui.painter().line_segment([rect.left_bottom(), rect.right_bottom()], Stroke::new(1.0, t.separator));
     }
     let mut snap_cmd = None;
-    let mut target: Option<isize> = None;
+    let mut target: Option<usize> = None;
     let all = entries.iter().map(|e| (e.clone(), false)).chain(redo.iter().map(|e| (e.clone(), true)));
     // The dock gives History a fixed height: the rows scroll above the footer.
     let footer = if t.pro { widgets::footer_height(ui) + ui.spacing().item_spacing.y } else { 0.0 };
@@ -3103,6 +3118,7 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         snap_cmd = snapshot_rows(app, ui);
         for (i, (e, is_redo)) in all.enumerate() {
             let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
+            resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, i == current, &e));
             if i == current {
                 ui.painter().rect_filled(rect, if t.pro { 0.0 } else { t.radius_sm }, if t.pro { t.row_selected } else { t.accent_soft });
             } else if resp.hovered() {
@@ -3125,8 +3141,8 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 if is_redo { t.text_faint } else { t.icon },
             );
             ui.painter().text(pos2(rect.left() + 58.0, rect.center().y), Align2::LEFT_CENTER, &e, egui::FontId::proportional(12.0), color);
-            if resp.clicked() {
-                target = Some(i as isize - current as isize);
+            if resp.clicked() && i != current {
+                target = Some(i);
             }
         }
     });
@@ -3157,13 +3173,13 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         app.ui.status = e;
         app.ui.status_error = true;
     }
-    if let Some(delta) = target.filter(|_| app.ui.transform.is_none()) {
-        let (cmd, n) = if delta < 0 { ("edit.undo", -delta) } else { ("edit.redo", delta) };
-        for _ in 0..n {
-            if app.run(cmd, json!({})).is_err() {
-                break;
-            }
-        }
+    // One command per click (#2966): stepping with Undo/Redo once per state made the canvas
+    // recomposite the whole document.
+    if let Some(state) = target.filter(|_| app.ui.transform.is_none())
+        && let Err(e) = app.run("history.selectState", json!({ "state": state }))
+    {
+        app.ui.status = e;
+        app.ui.status_error = true;
     }
 }
 
@@ -4622,8 +4638,9 @@ mod snapshot_row_tests {
         assert_eq!(st.history.entries().len(), steps + 1);
         assert_eq!(st.history.entries().last().map(String::as_str), Some("Snapshot 1"));
         assert_eq!(top_pixel(&h), [1.0, 0.0, 0.0, 1.0], "back to red");
-        // Right-click › Rename…: type a name, Enter.
-        h.get_by_label("Snapshot 1").click_secondary();
+        // Right-click › Rename…: type a name, Enter. The new "Snapshot 1" state is listed under the
+        // snapshot rows, so the first match is the snapshot's row.
+        h.get_all_by_label("Snapshot 1").next().unwrap().click_secondary();
         h.run_steps(2);
         h.get_by_label("Rename…").click();
         h.run_steps(2);
@@ -4649,8 +4666,8 @@ mod snapshot_row_tests {
         h.run_steps(2);
         assert_eq!(snapshot_names(&h), ["Lesson start"], "Escape cancels");
         assert_eq!(h.state().session.active().unwrap().history.entries().len(), steps_now + 1, "the click selected it once");
-        // Right-click › Delete.
-        h.get_by_label("Lesson start").click_secondary();
+        // Right-click › Delete (the snapshot's row, above the state the click made).
+        h.get_all_by_label("Lesson start").next().unwrap().click_secondary();
         h.run_steps(2);
         h.get_by_label("Delete").click();
         h.run_steps(2);
@@ -6035,3 +6052,7 @@ mod properties_target_regressions {
         assert_eq!(after, before, "pending width belongs to the old document/layer");
     }
 }
+
+#[cfg(test)]
+#[path = "history_panel_select_tests.rs"]
+mod history_panel_select_tests;
