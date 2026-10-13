@@ -931,7 +931,8 @@ pub(crate) fn draw_handle(painter: &egui::Painter, anchor: Pos2, handle: Pos2, a
 /// Work path / active shape path outlines, anchors, and the pen path in progress.
 pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform, doc: &Document) {
     let tool = app.ui.tool;
-    let vector_tool = matches!(tool, Tool::Pen | Tool::FreeformPen | Tool::CurvaturePen | Tool::PathSelection) || is_shape_tool(tool);
+    // The Type tool shows the paths too: a click on one starts type on it (Photoshop).
+    let vector_tool = matches!(tool, Tool::Pen | Tool::FreeformPen | Tool::CurvaturePen | Tool::PathSelection | Tool::Type) || is_shape_tool(tool);
     let accent = Tokens::get(painter.ctx()).accent;
     let to_scr = |q: [f64; 2]| xf.to_screen(q[0] as f32, q[1] as f32);
     let draw_path = |p: &Path, anchors: bool| {

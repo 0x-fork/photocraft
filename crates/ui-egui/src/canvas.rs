@@ -3884,6 +3884,15 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                     egui::CursorIcon::Crosshair
                 }
                 Tool::Move => egui::CursorIcon::Move,
+                // Over a path it can follow, the Type tool's path-type pointer (Photoshop).
+                Tool::Type
+                    if app.drag.is_none() && {
+                        let [x, y] = xf.to_doc(p);
+                        crate::type_tool::path_at(app, x, y).is_some()
+                    } =>
+                {
+                    crate::type_tool::path_cursor(&painter, p)
+                }
                 // Dragging is handled with the pan itself, above.
                 Tool::Hand => crate::tool_cursor::hand(ui.ctx(), false),
                 Tool::RotateView => crate::rotate_view::cursor(response.dragged()),

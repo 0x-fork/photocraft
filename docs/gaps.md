@@ -1,6 +1,6 @@
 # Where PhotoCraft falls short of Photoshop
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (G7: Field Blur's on-canvas pins, #3373; G4: Hue Jitter amount track, #3825 partial; G4: minimum field interaction, #3825 partial; G1: CMYK Invert, Posterize and Threshold on the inks, 16-bit Lab Invert; Photoshop-oracle floor 145/258; G11: `.atn` import maps 112 events: Select and Mask, Filter Gallery Spatter, Ripple, Crystallize, Pattern Fill layers, mask targeting, Step Backward, nudges in points, Bitmap mode; G5: Free Transform H/V skew fields; G9: toolbar tool shortcut editing; refreshed against main: G2, G5, G7, G9, G10, G13, G14, G17 items that landed; G10: DPX read and write, #1049; G4: checkbox-only Brush Settings rows; G11: Load/Save Actions `.atn` landed, AUTO-219-2 partial; G5: hold-a-key spring-loaded tools landed, #2672; G1: #2465 fixed) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (G8: a Type tool click on a path starts path type, TYPE-218-1 partial; G7: Field Blur's on-canvas pins, #3373; G4: Hue Jitter amount track, #3825 partial; G4: minimum field interaction, #3825 partial; G1: CMYK Invert, Posterize and Threshold on the inks, 16-bit Lab Invert; Photoshop-oracle floor 145/258; G11: `.atn` import maps 112 events: Select and Mask, Filter Gallery Spatter, Ripple, Crystallize, Pattern Fill layers, mask targeting, Step Backward, nudges in points, Bitmap mode; G5: Free Transform H/V skew fields; G9: toolbar tool shortcut editing; refreshed against main: G2, G5, G7, G9, G10, G13, G14, G17 items that landed; G10: DPX read and write, #1049; G4: checkbox-only Brush Settings rows; G11: Load/Save Actions `.atn` landed, AUTO-219-2 partial; G5: hold-a-key spring-loaded tools landed, #2672; G1: #2465 fixed) · **Target:** Adobe Photoshop 2026
 
 Every known shortfall against Photoshop 2026 (27.11.0), one entry each, ranked by user impact
 on the way to beta. This is the work list agents pick from: take the highest-ranked entry that
@@ -78,7 +78,9 @@ what an agent can't finish alone.
 - **Estimate:** 80–140 h.
 
 ### G8. Type depth
-- **Missing:** type on a path (TYPE-218-1), paragraph direction UI (TYPE-218-2), complex-script
+- **Missing:** the rest of type on a path (TYPE-218-1: glyphs along the curve, `type.attachToPath` and
+  the Type tool's click on a shown path landed; the caret on the curve, dragging the start, vertical
+  path type and PSD path text remain), paragraph direction UI (TYPE-218-2), complex-script
   fallback fonts and golden tests (TYPE-218-3), OpenType Numerals and Stylistic Sets submenus
   (TYPE-218-5; the Character panel buttons landed 2026-10-11, #3752), live Warp Text preview
   (TYPE-218-7, #2689), "rasterize and continue" for distort/perspective on type
@@ -263,6 +265,7 @@ what an agent can't finish alone.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | G8: a Type tool click on the work path or the active shape layer's path starts type on it at the point clicked (TYPE-218-1, partial); no readiness percentage or estimate changed |
 | 2026-10-13 | minor | G4: Hue Jitter amount-track appearance (#3825, partial); no readiness percentage or estimate changed |
 | 2026-10-13 | minor | G4: minimum inputs in Shape Dynamics and Transfer follow their Control (#3825, partial); no readiness percentage or estimate changed |
 | 2026-10-12 | minor | G5: Free Transform options bar H/V skew fields done |
