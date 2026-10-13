@@ -125,7 +125,7 @@ impl TextEngine {
     /// Lays out and rasterizes a text layer into document space.
     pub fn render(&mut self, layer: &TextLayer, dpi: f32, format: PixelFormat) -> (TextLayout, Rendered) {
         let l = self.layout(layer, dpi);
-        let warp = render::layout_warp(&l, layer.warp.as_ref());
+        let warp = render::layout_deform(&l, layer);
         let r = render::rasterize_warped(&l, &layer.transform, format, layer.antialias, warp.as_ref());
         (l, r)
     }
@@ -147,7 +147,9 @@ fn uses_system_fonts() -> bool {
 }
 
 fn new_shared() -> std::sync::Mutex<TextEngine> {
-    std::sync::Mutex::new(if uses_system_fonts() { TextEngine::with_system_fonts() } else { TextEngine::new() })
+    let mut engine = if uses_system_fonts() { TextEngine::with_system_fonts() } else { TextEngine::new() };
+    engine.fonts.mark_shared();
+    std::sync::Mutex::new(engine)
 }
 
 /// A process-wide engine for callers without their own (bundled fonts only on the web; bundled

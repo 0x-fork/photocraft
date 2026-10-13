@@ -1,9 +1,10 @@
 //! DICOM (medical imaging) reader, uncompressed transfer syntaxes only.
 //!
-//! Supports what a viewer needs from a single-frame image: MONOCHROME1/2 (gray) and RGB,
-//! 8- and 16-bit samples, interleaved or planar, both byte orders and explicit/implicit VR.
-//! Compressed transfer syntaxes, sequences, overlays and multi-frame pixel data are refused
-//! with a clear error. Read-only in this crate.
+//! Supports what a viewer needs from a single-frame image: MONOCHROME1/2 (gray) and RGB or
+//! YBR_FULL, 8- and 16-bit samples, interleaved or planar, both byte orders and explicit or
+//! implicit VR. Undefined-length sequences outside the pixel data are skipped (clinical files
+//! contain them); compressed transfer syntaxes, encapsulated pixel data and other photometric
+//! interpretations are refused with a clear error. Read-only in this crate.
 
 use std::collections::HashMap;
 
@@ -14,6 +15,7 @@ use crate::options::Limits;
 
 const F: Format = Format::Dicom;
 const PREAMBLE: usize = 132; // 128 zero bytes + "DICM"
+const UNDEFINED: u32 = 0xFFFF_FFFF;
 
 fn bad(msg: impl std::fmt::Display) -> CodecError {
     CodecError::malformed(F, msg)
@@ -29,7 +31,8 @@ struct Endian {
     big: bool,
 }
 
-/// The transfer syntax's byte order and whether value representations are explicit.
+/// The transfer syntax: byte order and whether value representations are explicit.
+#[derive(Clone, Copy)]
 struct Syntax {
     endian: Endian,
     explicit: bool,
@@ -40,7 +43,7 @@ fn long_vr(vr: &[u8]) -> bool {
     matches!(vr, b"OB" | b"OW" | b"OF" | b"SQ" | b"UT" | b"UN" | b"OD" | b"OL" | b"OV" | b"UC" | b"UR")
 }
 
-/// A cursor over the data set.
+/// A cursor over the byte stream.
 struct Cur<'a> {
     b: &'a [u8],
     pos: usize,
@@ -61,6 +64,83 @@ impl<'a> Cur<'a> {
         let c = self.take(4)?;
         Some(if self.big { u32::from_be_bytes([c[0], c[1], c[2], c[3]]) } else { u32::from_le_bytes([c[0], c[1], c[2], c[3]]) })
     }
+    /// Skip `len` bytes, refusing to run past the buffer.
+    fn skip(&mut self, len: usize) -> Result<(), CodecError> {
+        self.pos = self.pos.checked_add(len).filter(|p| *p <= self.b.len()).ok_or_else(|| bad("a value runs past the end of the file"))?;
+        Ok(())
+    }
+}
+
+/// Read one element's tag and value length, leaving the cursor at the value. Item and delimiter
+/// tags (group `FFFE`) carry a `u32` length with no VR even under explicit VR.
+fn read_header(c: &mut Cur, syn: &Syntax) -> Result<(u16, u16, [u8; 2], u32), CodecError> {
+    let group = c.u16().ok_or_else(|| bad("truncated element tag"))?;
+    let elem = c.u16().ok_or_else(|| bad("truncated element tag"))?;
+    let (vr, len) = if group == 0xFFFE {
+        ([0, 0], c.u32().ok_or_else(|| bad("truncated item length"))?)
+    } else if syn.explicit {
+        let vr = c.take(2).ok_or_else(|| bad("truncated VR"))?;
+        let v = [vr[0], vr[1]];
+        let len = if long_vr(&v) {
+            c.take(2).ok_or_else(|| bad("truncated VR"))?; // reserved
+            c.u32().ok_or_else(|| bad("truncated length"))?
+        } else {
+            u32::from(c.u16().ok_or_else(|| bad("truncated length"))?)
+        };
+        (v, len)
+    } else {
+        ([0, 0], c.u32().ok_or_else(|| bad("truncated length"))?)
+    };
+    Ok((group, elem, vr, len))
+}
+
+/// Skip an undefined-length sequence, ending just after its `FFFE,E0DD` delimiter. Nesting is
+/// tracked through undefined-length items and nested sequences; everything else is skipped by
+/// its length. Returns the position after the delimiter.
+fn skip_undefined(c: &mut Cur, syn: &Syntax) -> Result<(), CodecError> {
+    let mut depth = 1u32;
+    while depth > 0 {
+        let (group, elem, _, len) = read_header(c, syn)?;
+        // Item (E00D) and sequence (E0DD) delimiters close one undefined length; they carry no
+        // content of their own.
+        if group == 0xFFFE && matches!(elem, 0xE00D | 0xE0DD) {
+            depth -= 1;
+            continue;
+        }
+        if len == UNDEFINED {
+            depth += 1;
+        } else {
+            c.skip(len as usize)?;
+        }
+    }
+    Ok(())
+}
+
+/// Walk the elements from `start`, calling `f` with each `(group, element, value)`. An
+/// undefined-length sequence outside the pixel data is skipped; encapsulated (undefined-length)
+/// pixel data is refused. Returns the number of bytes walked.
+fn elements(b: &[u8], start: usize, syn: &Syntax, mut f: impl FnMut(u16, u16, &Elem) -> Result<(), CodecError>) -> Result<usize, CodecError> {
+    let mut c = Cur { b, pos: start, big: syn.endian.big };
+    loop {
+        if c.pos >= b.len() {
+            return Ok(c.pos - start);
+        }
+        let (group, elem, vr, len) = read_header(&mut c, syn)?;
+        if len == UNDEFINED {
+            if (group, elem) == (0x7FE0, 0x0010) {
+                return Err(CodecError::unsupported(F, "encapsulated (compressed) pixel data"));
+            }
+            skip_undefined(&mut c, syn)?;
+            continue;
+        }
+        let len = len as usize;
+        let start = c.pos;
+        if b.len() < start.saturating_add(len) {
+            return Err(bad("an element value runs past the end of the file"));
+        }
+        f(group, elem, &Elem { vr, start, len })?;
+        c.pos = start + len;
+    }
 }
 
 /// A parsed element: its VR and the byte range of its value.
@@ -70,81 +150,39 @@ struct Elem {
     len: usize,
 }
 
-/// Walk the elements from `start`, calling `f` with each `(group, element, value)`. Undefined
-/// lengths (sequences) are refused, keeping the decoder single-frame and bounded.
-fn elements(b: &[u8], start: usize, syn: &Syntax, mut f: impl FnMut(u16, u16, &Elem) -> Result<(), CodecError>) -> Result<usize, CodecError> {
-    let mut c = Cur { b, pos: start, big: syn.endian.big };
-    loop {
-        let Some(group) = c.u16() else { return Ok(c.pos - start) };
-        let elem = c.u16().ok_or_else(|| bad("truncated element tag"))?;
-        let (vr, len) = if syn.explicit {
-            let vr = c.take(2).ok_or_else(|| bad("truncated VR"))?;
-            let vr2 = [vr[0], vr[1]];
-            let len = if long_vr(&vr2) {
-                c.take(2).ok_or_else(|| bad("truncated VR"))?; // reserved
-                c.u32().ok_or_else(|| bad("truncated length"))?
-            } else {
-                u32::from(c.u16().ok_or_else(|| bad("truncated length"))?)
-            };
-            (vr2, len)
-        } else {
-            ([0, 0], c.u32().ok_or_else(|| bad("truncated length"))?)
-        };
-        if len == 0xFFFF_FFFF {
-            return Err(CodecError::unsupported(F, "undefined-length (sequence) elements"));
-        }
-        let len = len as usize;
-        let start = c.pos;
-        if b.len() < start.saturating_add(len) {
-            return Err(bad("element value runs past the end of the file"));
-        }
-        f(group, elem, &Elem { vr, start, len })?;
-        c.pos = start + len;
-    }
-}
-
 fn u16_val(b: &[u8], e: &Elem, big: bool) -> Option<u16> {
-    let c = b.get(e.start..e.start + 2)?;
+    let c = b.get(e.start..e.start.checked_add(2)?)?;
     Some(if big { u16::from_be_bytes([c[0], c[1]]) } else { u16::from_le_bytes([c[0], c[1]]) })
 }
 
-/// The transfer syntax (byte order and explicit/implicit VR). The file meta group is always
-/// explicit VR little-endian; the data set follows its `(0002,0010)` TransferSyntaxUID.
+/// The transfer syntax (byte order and explicit/implicit VR) and the data-set start. The file
+/// meta group is always explicit VR little-endian; the data set follows its `(0002,0010)`
+/// TransferSyntaxUID.
 fn transfer_syntax(b: &[u8]) -> Result<(Syntax, usize), CodecError> {
     let meta = Syntax { endian: Endian { big: false }, explicit: true };
     let mut ts: Option<String> = None;
     let mut data_start = b.len();
     let mut c = Cur { b, pos: PREAMBLE, big: false };
-    loop {
+    while c.pos + 8 <= b.len() {
         let save = c.pos;
-        let Some(group) = c.u16() else { break };
-        let _ = c.u16().ok_or_else(|| bad("truncated element tag"))?;
+        let (group, elem, _, len) = read_header(&mut c, &meta)?;
         if group != 0x0002 {
             // A non-meta group begins the data set.
             data_start = save;
             break;
         }
-        let vr = c.take(2).ok_or_else(|| bad("truncated VR"))?;
-        let vr2 = [vr[0], vr[1]];
-        let len = if long_vr(&vr2) {
-            c.take(2).ok_or_else(|| bad("truncated VR"))?;
-            c.u32().ok_or_else(|| bad("truncated length"))?
-        } else {
-            u32::from(c.u16().ok_or_else(|| bad("truncated length"))?)
-        };
-        if len == 0xFFFF_FFFF {
+        if len == UNDEFINED {
             return Err(CodecError::unsupported(F, "undefined-length meta element"));
         }
         let start = c.pos;
         if b.len() < start.saturating_add(len as usize) {
-            return Err(bad("meta element runs past the end of the file"));
+            return Err(bad("a meta element runs past the end of the file"));
         }
-        if (group, 0x0010) == (0x0002, 0x0010) {
+        if elem == 0x0010 {
             ts = Some(String::from_utf8_lossy(&b[start..start + len as usize]).trim_end_matches(['\0', ' ']).to_string());
         }
         c.pos = start + len as usize;
     }
-    let _ = elements(b, PREAMBLE, &meta, |_, _, _| Ok(()))?; // validate the meta group parses
     let syn = match ts.as_deref() {
         Some("1.2.840.10008.1.2") => Syntax { endian: Endian { big: false }, explicit: false },
         Some("1.2.840.10008.1.2.1") => Syntax { endian: Endian { big: false }, explicit: true },
@@ -169,9 +207,9 @@ pub(crate) fn decode(b: &[u8], limits: &Limits) -> Result<Image, CodecError> {
     })?;
     let big = syn.endian.big;
     let get_u16 = |tag: (u16, u16)| tags.get(&tag).and_then(|e| u16_val(b, e, big));
-    let rows = get_u16((0x0028, 0x0010)).ok_or_else(|| bad("missing Rows (0028,0010)"))?;
-    let cols = get_u16((0x0028, 0x0011)).ok_or_else(|| bad("missing Columns (0028,0011)"))?;
-    let samples = get_u16((0x0028, 0x0002)).unwrap_or(1);
+    let rows = u32::from(get_u16((0x0028, 0x0010)).ok_or_else(|| bad("missing Rows (0028,0010)"))?);
+    let cols = u32::from(get_u16((0x0028, 0x0011)).ok_or_else(|| bad("missing Columns (0028,0011)"))?);
+    let samples = u32::from(get_u16((0x0028, 0x0002)).unwrap_or(1));
     let bits = get_u16((0x0028, 0x0100)).ok_or_else(|| bad("missing BitsAllocated (0028,0100)"))?;
     let bits_stored = get_u16((0x0028, 0x0101)).unwrap_or(bits);
     let high_bit = get_u16((0x0028, 0x0102)).unwrap_or(bits_stored.saturating_sub(1));
@@ -179,45 +217,52 @@ pub(crate) fn decode(b: &[u8], limits: &Limits) -> Result<Image, CodecError> {
     let planar = get_u16((0x0028, 0x0006)).unwrap_or(0);
     let photometric = tags
         .get(&(0x0028, 0x0004))
-        .and_then(|e| b.get(e.start..e.start + e.len))
+        .and_then(|e| b.get(e.start..e.start.checked_add(e.len)?))
         .map(|v| String::from_utf8_lossy(v).trim_end_matches(['\0', ' ']).to_string())
         .ok_or_else(|| bad("missing PhotometricInterpretation (0028,0004)"))?;
-    let pixel = tags.get(&(0x7FE0, 0x0010)).ok_or_else(|| CodecError::unsupported(F, "no pixel data (0028,0004/7FE0,0010)"))?;
+    let pixel = tags.get(&(0x7FE0, 0x0010)).ok_or_else(|| CodecError::unsupported(F, "no pixel data (7FE0,0010)"))?;
     if !matches!(bits, 8 | 16) || !matches!(bits_stored, 1..=16) {
         return Err(CodecError::unsupported(F, format!("{bits}-bit allocated / {bits_stored}-bit stored samples")));
     }
     let mono = matches!(photometric.as_str(), "MONOCHROME1" | "MONOCHROME2");
     let rgb = photometric == "RGB";
-    let ybr = photometric == "YBR_FULL" || photometric == "YBR_FULL_422";
+    let ybr = photometric == "YBR_FULL";
     if !(mono || rgb || ybr) {
         return Err(CodecError::unsupported(F, format!("photometric interpretation {photometric}")));
     }
-    if mono && samples != 1 {
+    // Mono stores one sample; RGB and YBR_FULL store three. Any other count would index past the
+    // pixel data, so it is refused rather than misread.
+    let want_samples = if mono { 1 } else { 3 };
+    if samples != want_samples {
         return Err(CodecError::unsupported(F, format!("{samples} samples per pixel with {photometric}")));
     }
-    if ybr && (bits != 8 || samples != 3) {
-        return Err(CodecError::unsupported(F, format!("{bits}-bit {photometric} ({samples} samples)")));
+    if ybr && bits != 8 {
+        return Err(CodecError::unsupported(F, format!("{bits}-bit {photometric} (8-bit only)")));
     }
     let layout = if mono { ChannelLayout::Gray } else { ChannelLayout::Rgb };
     let out_sample = if bits == 8 { SampleType::U8 } else { SampleType::U16 };
-    limits.check(u32::from(cols), u32::from(rows), layout, out_sample)?;
-    let n = usize::from(cols) * usize::from(rows) * usize::from(samples);
-    let bytes_per = if bits == 16 { 2 } else { 1 };
-    let need = n.checked_mul(bytes_per).ok_or_else(|| bad("pixel size overflow"))?;
-    let data = b.get(pixel.start..pixel.start + need).ok_or_else(|| bad("pixel data is truncated"))?;
+    limits.check(cols, rows, layout, out_sample)?;
+
+    let pixels = (cols as usize).checked_mul(rows as usize).ok_or_else(|| CodecError::LimitExceeded("image too large".into()))?;
+    let n = pixels.checked_mul(samples as usize).ok_or_else(|| CodecError::LimitExceeded("image too large".into()))?;
+    let bytes_per = if bits == 16 { 2usize } else { 1 };
+    let need = n.checked_mul(bytes_per).ok_or_else(|| CodecError::LimitExceeded("pixel data too large".into()))?;
+    let data = b
+        .get(pixel.start..pixel.start.checked_add(need).ok_or_else(|| CodecError::LimitExceeded("pixel data too large".into()))?)
+        .ok_or_else(|| bad("pixel data is truncated"))?;
     let out_channels = layout.channels();
+    let out_len = pixels.checked_mul(out_channels).and_then(|k| k.checked_mul(bytes_per)).ok_or_else(|| CodecError::LimitExceeded("image too large".into()))?;
     let mut out = Vec::new();
-    out.try_reserve_exact(usize::from(cols) * usize::from(rows) * out_channels * bytes_per)
-        .map_err(|_| CodecError::LimitExceeded("cannot allocate the image".into()))?;
-    // Sample `i` of `samples` channels at pixel `p`, honouring the planar configuration.
-    let sample_at = |p: usize, ch: usize, s: usize| -> u32 {
-        let idx = if planar == 1 { ch * usize::from(cols) * usize::from(rows) + p } else { s + p * usize::from(samples) + ch };
+    out.try_reserve_exact(out_len).map_err(|_| CodecError::LimitExceeded("cannot allocate the image".into()))?;
+    // Raw sample of channel `ch` at pixel `p`, honouring the planar configuration.
+    let sample_at = |p: usize, ch: usize| -> Option<u32> {
+        let idx = if planar == 1 { ch.checked_mul(pixels)?.checked_add(p)? } else { p.checked_mul(samples as usize)?.checked_add(ch)? };
+        let off = idx.checked_mul(bytes_per)?;
         if bits == 16 {
-            let off = idx * 2;
-            let c = [data[off], data[off + 1]];
-            u32::from(if big { u16::from_be_bytes(c) } else { u16::from_le_bytes(c) })
+            let c = data.get(off..off.checked_add(2)?)?;
+            Some(if big { u16::from_be_bytes([c[0], c[1]]) } else { u16::from_le_bytes([c[0], c[1]]) }.into())
         } else {
-            u32::from(data[idx])
+            Some(u32::from(*data.get(off)?))
         }
     };
     let stored_max = f64::from((1u32 << bits_stored) - 1);
@@ -240,20 +285,20 @@ pub(crate) fn decode(b: &[u8], limits: &Limits) -> Result<Image, CodecError> {
             out.extend_from_slice(&q(x).to_ne_bytes());
         }
     };
-    let px = usize::from(cols) * usize::from(rows);
-    for p in 0..px {
+    for p in 0..pixels {
+        let s = |ch: usize| sample_at(p, ch).ok_or_else(|| bad("pixel data is shorter than the image"));
         if mono {
-            let x = norm(sample_at(p, 0, 0));
+            let x = norm(s(0)?);
             push(&mut out, if photometric == "MONOCHROME1" { 1.0 - x } else { x });
         } else if rgb {
             for ch in 0..3 {
-                push(&mut out, norm(sample_at(p, ch, ch)));
+                push(&mut out, norm(s(ch)?));
             }
         } else {
             // YBR_FULL (8-bit): BT.601 full-range to RGB.
-            let y = sample_at(p, 0, 0) as f64;
-            let cb = sample_at(p, 1, 1) as f64 - 128.0;
-            let cr = sample_at(p, 2, 2) as f64 - 128.0;
+            let y = f64::from(s(0)?);
+            let cb = f64::from(s(1)?) - 128.0;
+            let cr = f64::from(s(2)?) - 128.0;
             let r = (y + 1.402 * cr).clamp(0.0, 255.0);
             let g = (y - 0.344_136 * cb - 0.714_136 * cr).clamp(0.0, 255.0);
             let bl = (y + 1.772 * cb).clamp(0.0, 255.0);
@@ -262,56 +307,85 @@ pub(crate) fn decode(b: &[u8], limits: &Limits) -> Result<Image, CodecError> {
             }
         }
     }
-    Image::from_raw(u32::from(cols), u32::from(rows), layout, out_sample, out)
+    Image::from_raw(cols, rows, layout, out_sample, out)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A little-endian explicit-VR DICOM with meta group and one frame.
-    fn synth(rows: u16, cols: u16, samples: u16, bits: u16, photometric: &str, pixels: &[u8]) -> Vec<u8> {
-        fn us(b: &mut Vec<u8>, g: u16, e: u16, v: u16) {
-            b.extend_from_slice(&g.to_le_bytes());
-            b.extend_from_slice(&e.to_le_bytes());
-            b.extend_from_slice(b"US");
-            b.extend_from_slice(&2u16.to_le_bytes());
-            b.extend_from_slice(&v.to_le_bytes());
-        }
-        fn cs(b: &mut Vec<u8>, g: u16, e: u16, v: &str) {
+    /// Build the file meta group (explicit VR little-endian), including the given extra
+    /// `(element, ascii)` pairs before the TransferSyntaxUID.
+    fn meta(b: &mut Vec<u8>, ts: &str, extra: &[(u16, &str)]) {
+        let ui = |e: u16, v: &str, b: &mut Vec<u8>| {
             let mut s = v.as_bytes().to_vec();
             if s.len() % 2 == 1 {
                 s.push(0);
             }
-            b.extend_from_slice(&g.to_le_bytes());
+            b.extend_from_slice(&0x0002u16.to_le_bytes());
             b.extend_from_slice(&e.to_le_bytes());
-            b.extend_from_slice(b"CS");
+            b.extend_from_slice(b"UI");
             b.extend_from_slice(&(s.len() as u16).to_le_bytes());
             b.extend_from_slice(&s);
+        };
+        for (e, v) in extra {
+            ui(*e, v, b);
         }
+        ui(0x0010, ts, b);
+    }
+
+    fn us(b: &mut Vec<u8>, g: u16, e: u16, v: u16, explicit: bool) {
+        b.extend_from_slice(&g.to_le_bytes());
+        b.extend_from_slice(&e.to_le_bytes());
+        if explicit {
+            b.extend_from_slice(b"US");
+            b.extend_from_slice(&2u16.to_le_bytes());
+        } else {
+            b.extend_from_slice(&2u32.to_le_bytes());
+        }
+        b.extend_from_slice(&v.to_le_bytes());
+    }
+
+    fn cs(b: &mut Vec<u8>, g: u16, e: u16, v: &str, explicit: bool) {
+        let mut s = v.as_bytes().to_vec();
+        if s.len() % 2 == 1 {
+            s.push(0);
+        }
+        b.extend_from_slice(&g.to_le_bytes());
+        b.extend_from_slice(&e.to_le_bytes());
+        if explicit {
+            b.extend_from_slice(b"CS");
+            b.extend_from_slice(&(s.len() as u16).to_le_bytes());
+        } else {
+            b.extend_from_slice(&(s.len() as u32).to_le_bytes());
+        }
+        b.extend_from_slice(&s);
+    }
+
+    /// A DICOM with the given transfer syntax UID and data-set encoding.
+    #[allow(clippy::too_many_arguments)]
+    fn synth(ts: &str, explicit: bool, big: bool, planar: u16, rows: u16, cols: u16, samples: u16, bits: u16, photometric: &str, pixels: &[u8]) -> Vec<u8> {
         let mut b = vec![0u8; 128];
         b.extend_from_slice(b"DICM");
-        // File meta group: TransferSyntaxUID explicit VR LE => explicit VR little endian.
-        let ts = b"1.2.840.10008.1.2.1\0";
-        b.extend_from_slice(&0x0002u16.to_le_bytes());
-        b.extend_from_slice(&0x0010u16.to_le_bytes());
-        b.extend_from_slice(b"UI");
-        b.extend_from_slice(&(ts.len() as u16).to_le_bytes());
-        b.extend_from_slice(ts);
-        // Data set.
-        us(&mut b, 0x0028, 0x0010, rows);
-        us(&mut b, 0x0028, 0x0011, cols);
-        us(&mut b, 0x0028, 0x0002, samples);
-        cs(&mut b, 0x0028, 0x0004, photometric);
-        us(&mut b, 0x0028, 0x0100, bits);
-        us(&mut b, 0x0028, 0x0101, bits);
-        us(&mut b, 0x0028, 0x0102, bits - 1);
-        us(&mut b, 0x0028, 0x0103, 0);
-        // Pixel data (OB, long form).
+        // One extra meta element before the syntax, so a reader that only looks at the last
+        // group-0002 element takes the wrong one.
+        meta(&mut b, ts, &[(0x0002, "1.2.840.10008.5.1.4.1.1.7")]);
+        let _ = big;
+        us(&mut b, 0x0028, 0x0010, rows, explicit);
+        us(&mut b, 0x0028, 0x0011, cols, explicit);
+        us(&mut b, 0x0028, 0x0002, samples, explicit);
+        us(&mut b, 0x0028, 0x0006, planar, explicit);
+        cs(&mut b, 0x0028, 0x0004, photometric, explicit);
+        us(&mut b, 0x0028, 0x0100, bits, explicit);
+        us(&mut b, 0x0028, 0x0101, bits, explicit);
+        us(&mut b, 0x0028, 0x0102, bits - 1, explicit);
+        us(&mut b, 0x0028, 0x0103, 0, explicit);
         b.extend_from_slice(&0x7FE0u16.to_le_bytes());
         b.extend_from_slice(&0x0010u16.to_le_bytes());
-        b.extend_from_slice(b"OB");
-        b.extend_from_slice(&0u16.to_le_bytes());
+        if explicit {
+            b.extend_from_slice(b"OB");
+            b.extend_from_slice(&0u16.to_le_bytes());
+        }
         b.extend_from_slice(&(pixels.len() as u32).to_le_bytes());
         b.extend_from_slice(pixels);
         b
@@ -319,7 +393,7 @@ mod tests {
 
     #[test]
     fn decodes_8bit_monochrome() {
-        let b = synth(2, 2, 1, 8, "MONOCHROME2", &[0, 51, 102, 255]);
+        let b = synth("1.2.840.10008.1.2.1", true, false, 0, 2, 2, 1, 8, "MONOCHROME2", &[0, 51, 102, 255]);
         let img = decode(&b, &Limits::default()).unwrap();
         assert_eq!((img.width(), img.height(), img.layout(), img.sample_type()), (2, 2, ChannelLayout::Gray, SampleType::U8));
         assert_eq!(img.data(), &[0, 51, 102, 255]);
@@ -328,7 +402,7 @@ mod tests {
     #[test]
     fn decodes_16bit_monochrome_and_scales() {
         let px: Vec<u8> = [0u16, 32768, 65535].iter().flat_map(|v| v.to_le_bytes()).collect();
-        let b = synth(3, 1, 1, 16, "MONOCHROME2", &px);
+        let b = synth("1.2.840.10008.1.2.1", true, false, 0, 3, 1, 1, 16, "MONOCHROME2", &px);
         let img = decode(&b, &Limits::default()).unwrap();
         let v = img.to_u16_samples().unwrap();
         assert_eq!(v[0], 0);
@@ -338,14 +412,81 @@ mod tests {
 
     #[test]
     fn monochrome1_is_inverted() {
-        let b = synth(2, 1, 1, 8, "MONOCHROME1", &[0, 255]);
+        let b = synth("1.2.840.10008.1.2.1", true, false, 0, 2, 1, 1, 8, "MONOCHROME1", &[0, 255]);
         let img = decode(&b, &Limits::default()).unwrap();
         assert_eq!(img.data(), &[255, 0]);
     }
 
     #[test]
+    fn decodes_rgb_interleaved_and_planar() {
+        // 2 pixels: (10,20,30) and (40,50,60).
+        let interleaved = synth("1.2.840.10008.1.2.1", true, false, 0, 1, 2, 3, 8, "RGB", &[10, 20, 30, 40, 50, 60]);
+        let img = decode(&interleaved, &Limits::default()).unwrap();
+        assert_eq!((img.layout(), img.data()), (ChannelLayout::Rgb, &[10u8, 20, 30, 40, 50, 60][..]));
+        // Planar 0: R plane, then G, then B.
+        let planar = synth("1.2.840.10008.1.2.1", true, false, 1, 1, 2, 3, 8, "RGB", &[10, 40, 20, 50, 30, 60]);
+        let img = decode(&planar, &Limits::default()).unwrap();
+        assert_eq!(img.data(), &[10, 20, 30, 40, 50, 60]);
+    }
+
+    #[test]
+    fn decodes_ybr_full_to_rgb() {
+        // White (Y=128, Cb=Cr=128) stays neutral grey.
+        let b = synth("1.2.840.10008.1.2.1", true, false, 0, 1, 1, 3, 8, "YBR_FULL", &[128, 128, 128]);
+        let img = decode(&b, &Limits::default()).unwrap();
+        assert_eq!(img.layout(), ChannelLayout::Rgb);
+        let d = img.data();
+        assert!(d[0].abs_diff(d[1]) <= 1 && d[1].abs_diff(d[2]) <= 1, "{d:?}");
+    }
+
+    #[test]
+    fn decodes_implicit_vr() {
+        let b = synth("1.2.840.10008.1.2", false, false, 0, 2, 2, 1, 8, "MONOCHROME2", &[0, 51, 102, 255]);
+        let img = decode(&b, &Limits::default()).unwrap();
+        assert_eq!(img.layout(), ChannelLayout::Gray);
+        assert_eq!(img.data(), &[0, 51, 102, 255]);
+    }
+
+    #[test]
+    fn skips_an_undefined_length_sequence_outside_the_pixel_data() {
+        // Insert an undefined-length SQ (0008,2218) with one item, then a defined-length one,
+        // before the pixel data: the reader must skip both and still decode the image.
+        let mut b = vec![0u8; 128];
+        b.extend_from_slice(b"DICM");
+        meta(&mut b, "1.2.840.10008.1.2.1", &[]);
+        for (g, e, v) in [
+            (0x0028, 0x0010, 1u16),
+            (0x0028, 0x0011, 1),
+            (0x0028, 0x0002, 1),
+            (0x0028, 0x0100, 8),
+            (0x0028, 0x0101, 8),
+            (0x0028, 0x0102, 7),
+            (0x0028, 0x0103, 0),
+        ] {
+            us(&mut b, g, e, v, true);
+        }
+        cs(&mut b, 0x0028, 0x0004, "MONOCHROME2", true);
+        // Undefined-length sequence (0008,2211), one undefined-length item containing a nested
+        // defined-length sequence, then the delimiters.
+        b.extend_from_slice(&[0x08, 0x00, 0x11, 0x22, b'S', b'Q', 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF]);
+        b.extend_from_slice(&[0xFE, 0xFF, 0x00, 0xE0, 0xFF, 0xFF, 0xFF, 0xFF]); // item, undefined
+        b.extend_from_slice(&[0x08, 0x00, 0x55, 0x22, b'S', b'Q', 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 1, 2, 3, 4]); // nested, defined
+        b.extend_from_slice(&[0xFE, 0xFF, 0x0D, 0xE0, 0x00, 0x00, 0x00, 0x00]); // item delimitation
+        b.extend_from_slice(&[0xFE, 0xFF, 0xDD, 0xE0, 0x00, 0x00, 0x00, 0x00]); // sequence delimitation
+        // Pixel data (defined length).
+        b.extend_from_slice(&0x7FE0u16.to_le_bytes());
+        b.extend_from_slice(&0x0010u16.to_le_bytes());
+        b.extend_from_slice(b"OB");
+        b.extend_from_slice(&0u16.to_le_bytes());
+        b.extend_from_slice(&1u32.to_le_bytes());
+        b.push(200);
+        let img = decode(&b, &Limits::default()).unwrap();
+        assert_eq!(img.data(), &[200]);
+    }
+
+    #[test]
     fn truncated_and_bad_is_error_not_panic() {
-        let b = synth(2, 2, 1, 8, "MONOCHROME2", &[0, 1, 2, 3]);
+        let b = synth("1.2.840.10008.1.2.1", true, false, 0, 2, 2, 1, 8, "MONOCHROME2", &[0, 1, 2, 3]);
         for cut in [0, 4, 128, 132, 140, b.len() - 1] {
             assert!(decode(&b[..cut.min(b.len())], &Limits::default()).is_err(), "cut {cut}");
         }
@@ -354,7 +495,7 @@ mod tests {
 
     #[test]
     fn rejects_compressed_transfer_syntax() {
-        let mut b = synth(1, 1, 1, 8, "MONOCHROME2", &[0]);
+        let mut b = synth("1.2.840.10008.1.2.1", true, false, 0, 1, 1, 1, 8, "MONOCHROME2", &[0]);
         let uncompressed = b"1.2.840.10008.1.2.1\0";
         let compressed = b"1.2.840.10008.1.2.4\0"; // same length, a compressed family
         let at = b.windows(uncompressed.len()).position(|w| w == uncompressed).expect("transfer syntax in the fixture");

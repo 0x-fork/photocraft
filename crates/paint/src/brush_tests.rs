@@ -757,6 +757,39 @@ fn smoothing_modes() {
 }
 
 #[test]
+fn disabled_smoothing_keeps_its_settings_and_paints_unsmoothed_at_every_depth() {
+    let pts = vec![StrokePoint::new(10.0, 20.0, 1.0), StrokePoint::new(30.0, 8.0, 0.5), StrokePoint::new(50.0, 20.0, 0.8)];
+    for pulled_string in [false, true] {
+        let smoothing = Smoothing { enabled: false, amount: 0.8, pulled_string, ..Default::default() };
+        let got = smooth_points(&smoothing, 1.0, &pts);
+        assert_eq!(got.len(), pts.len());
+        for (a, b) in got.iter().zip(&pts) {
+            assert_eq!((a.x, a.y, a.pressure), (b.x, b.y, b.pressure));
+        }
+        let b = BrushSettings { size: 9.0, smoothing: smoothing.clone(), ..brush() };
+        let zero = BrushSettings { smoothing: Smoothing { amount: 0.0, ..smoothing.clone() }, ..b.clone() };
+        for fmt in [PixelFormat::RGBA8, PixelFormat::RGBA16, PixelFormat::RGBA32F] {
+            let (mut off, mut reference) = (Surface::new(fmt), Surface::new(fmt));
+            render_stroke(&mut off, &b, &pts, None, false, 1.0);
+            render_stroke(&mut reference, &zero, &pts, None, false, 1.0);
+            for y in 0..40 {
+                for x in 0..64 {
+                    assert_eq!(off.pixel(x, y), reference.pixel(x, y), "{fmt:?} at {x},{y}");
+                }
+            }
+        }
+        // Disabling is not an amount=0 rewrite: saving and re-enabling recover the same mode.
+        let mut back: Smoothing = serde_json::from_value(serde_json::to_value(&smoothing).unwrap()).unwrap();
+        assert_eq!(back, smoothing);
+        back.enabled = true;
+        assert!(smooth_points(&back, 1.0, &pts).iter().zip(&pts).any(|(a, b)| a.x != b.x || a.y != b.y));
+    }
+    // Existing brush JSON has no switch and must retain its old smoothing behavior.
+    let legacy: Smoothing = serde_json::from_str(r#"{"amount":0.8,"pulledString":true}"#).unwrap();
+    assert!(legacy.enabled && legacy.amount == 0.8 && legacy.pulled_string);
+}
+
+#[test]
 fn smoothing_string_runs_from_the_lagging_brush_to_the_pointer() {
     // #3479: the canvas draws the line between the brush and the pointer.
     let cfg = Smoothing { amount: 0.8, ..Default::default() };
@@ -1399,4 +1432,19 @@ fn dithering_never_moves_an_exact_colour_or_an_untouched_pixel() {
         assert_eq!((q(p[0]), q(p[1]), q(p[2])), (q(0.2), q(0.4), q(0.6)), "solid paint at x {x}: {p:?}");
     }
     assert_eq!(s.rgba(50, 5), [1.0, 1.0, 1.0, 1.0], "far from the stroke: untouched");
+}
+
+#[test]
+fn an_aliased_stroke_at_partial_opacity_is_one_flat_colour() {
+    // 30% of red 219/41/61 over white lands between 8-bit levels (244.2, 190.7, 196.8); dithering
+    // used to scatter the Pencil's line over several neighbouring levels.
+    let mut s = Surface::with_default(PixelFormat::RGBA8, &[1.0, 1.0, 1.0, 1.0]);
+    let color = [219.0 / 255.0, 41.0 / 255.0, 61.0 / 255.0, 1.0];
+    let b = BrushSettings { size: 1.0, aliased: true, opacity: 0.3, color, pressure_size: false, ..Default::default() };
+    render_stroke(&mut s, &b, &line(2.0, 60.0, 5.0), None, false, 1.0);
+    let first = s.rgba(3, 5);
+    assert_ne!(first, [1.0, 1.0, 1.0, 1.0], "the line was painted");
+    for x in 3..60 {
+        assert_eq!(s.rgba(x, 5), first, "pixel {x} of the Pencil line");
+    }
 }

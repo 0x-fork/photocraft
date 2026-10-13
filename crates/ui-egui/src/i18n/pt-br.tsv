@@ -108,6 +108,13 @@
 	Script Events Manager…	Gerenciador de eventos de scripts…
 	Import	Importar
 	Browse…	Procurar…
+	Source Files	Arquivos de origem
+	Use:	Usar:
+	Files	Arquivos
+	Add Open Files	Adicionar arquivos abertos
+	Sort By Name	Classificar por nome
+	Attempt to Automatically Align Source Images	Tentar alinhar automaticamente as imagens de origem
+	Create Smart Object after Loading Layers	Criar objeto inteligente após carregar as camadas
 	Reveal in Finder	Mostrar no Finder
 	Show in Explorer	Mostrar no Explorador
 	Show in Folder	Mostrar na pasta
@@ -132,6 +139,8 @@
 	Search…	Pesquisar…
 	Check Spelling…	Verificar ortografia…
 	Find and Replace Text…	Localizar e substituir texto…
+	Add to Dictionary	Adicionar ao dicionário
+	No Spelling Suggestions	Sem sugestões de ortografia
 	Fill…	Preencher…
 	Stroke…	Traçado…
 	Content-Aware Fill…	Preenchimento sensível ao conteúdo…
@@ -144,6 +153,8 @@
 	Again	Novamente
 	Scale	Escala
 	Rotate	Girar
+	Set horizontal skew	Definir inclinação horizontal
+	Set vertical skew	Definir inclinação vertical
 	Skew	Inclinar
 	Distort	Distorcer
 	Perspective	Perspectiva
@@ -711,6 +722,10 @@
 	Breeze Dark Theme	Tema Breeze Escuro
 	Breeze light	Breeze claro
 	Breeze Light Theme	Tema Breeze Claro
+	Soft dark	Suave escuro
+	Soft light	Suave claro
+	Soft Dark Theme	Tema suave escuro
+	Soft Light Theme	Tema suave claro
 	Next Theme	Próximo tema
 	Actions	Ações
 	Brush Settings	Configurações do pincel
@@ -829,6 +844,12 @@
 	Baseline shift	Deslocamento da linha de base
 	Basic	Básico
 	Before (Y)	Antes (Y)
+	Save Settings…	Salvar configurações…
+	Load Settings…	Carregar configurações…
+	Save these settings as a Camera Raw .xmp file	Salvar estas configurações como arquivo .xmp do Camera Raw
+	Load settings from a Camera Raw .xmp file	Carregar configurações de um arquivo .xmp do Camera Raw
+	Loaded Camera Raw settings from {file}	Configurações do Camera Raw carregadas de {file}
+	Loaded Camera Raw settings from {file} ({n} not supported)	Configurações do Camera Raw carregadas de {file} ({n} sem suporte)
 	Begin recording	Iniciar gravação
 	Bend:	Curvatura:
 	Bicubic	Bicúbica
@@ -859,6 +880,7 @@
 	Camera Raw isn't open	Camera Raw não está aberto
 	Cancel	Cancelar
 	Cancel (Esc)	Cancelar (Esc)
+	Manage submitted jobs in the system print queue	Gerencie os trabalhos enviados na fila de impressão do sistema
 	Cancel any current edits (Esc)	Cancelar as edições atuais (Esc)
 	Cancel current crop operation  (Esc)	Cancelar a operação de corte atual  (Esc)
 	Cancel transform (Esc)	Cancelar transformação (Esc)
@@ -1126,6 +1148,9 @@
 	Ignore All	Ignorar tudo
 	Image Size	Tamanho da imagem
 	Import Brushes…	Importar pincéis…
+	Gradient Preset Options	Opções de predefinições de degradê
+	Import .GRD	Importar .GRD
+	Choose a gradient file (.grd).	Escolha um arquivo de degradês (.grd).
 	Import brushes (.abr)	Importar pincéis (.abr)
 	Import Presets	Importar predefinições
 	Imported	Importado
@@ -2749,6 +2774,7 @@ cameraRaw	Whites	Brancos
 	Click to pick · Esc to cancel	Clique para escolher · Esc para cancelar
 	Pick a screen pixel or press Esc to cancel	Escolha um pixel da tela ou pressione Esc para cancelar
 	Scroll to zoom	Role para ampliar
+	Drag to pan · Scroll to zoom · Double-click to fit	Arraste para mover · Role para ampliar · Clique duas vezes para ajustar
 	Show/Hide All Panels	Mostrar/ocultar todos os painéis
 	Show/Hide Panels	Mostrar/ocultar painéis
 	Could not open	Não foi possível abrir
@@ -3838,6 +3864,33 @@ layerLabel	No Color	Sem cor
 	Light Red	Vermelho-claro
 	Medium Blue	Azul médio
 	Light Gray	Cinza-claro
+	Object Finder	Localizador de objetos
+	No object found there — drag a rectangle around it	Nenhum objeto encontrado ali — arraste um retângulo ao redor dele
 	Remove after each stroke	Remover após cada traço
 	Apply the removal ({key})	Aplicar a remoção ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Traços a remover: {n} (Enter aplica, Esc cancela)
+	Clear Brush Controls	Limpar controles de pincel
+	Reset All Locked Settings	Redefinir todas as configurações bloqueadas
+	Copy Texture to Other Tools	Copiar textura para outras ferramentas
+
+# Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
+	Load Actions…	Carregar ações…
+	Save Actions…	Salvar ações…
+	{name} (Photoshop)	{name} (Photoshop)
+	{message} ({note})	{message} ({note})
+@plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{n} ação carregada de {file}|{n} ações carregadas de {file}
+@plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} etapa ainda não tem equivalente no PhotoCraft|{n} etapas ainda não têm equivalente no PhotoCraft
+@plural	Saved {n} action to {file}|Saved {n} actions to {file}	{n} ação salva em {file}|{n} ações salvas em {file}
+@plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	{n} etapa sem equivalente no Photoshop foi omitida|{n} etapas sem equivalente no Photoshop foram omitidas
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Inserir parada…
+	Save Set…	Salvar conjunto…
+	Message:	Mensagem:
+	Allow Continue	Permitir continuar
+	Show dialog during playback	Mostrar a caixa de diálogo durante a reprodução
+	Select an action first	Selecione uma ação primeiro
+	Action playback stopped	Reprodução da ação interrompida
+	Step {step} is waiting for its dialog	A etapa {step} está aguardando sua caixa de diálogo
+@plural	{n} action|{n} actions	{n} ação|{n} ações
+	Auto Add/Delete	Adicionar/excluir automaticamente

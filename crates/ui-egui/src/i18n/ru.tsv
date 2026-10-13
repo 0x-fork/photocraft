@@ -270,6 +270,8 @@
 	Check Spelling	Проверка орфографии
 	Language Options	Языковые параметры
 	Find and Replace Text…	Найти и заменить текст…
+	Add to Dictionary	Добавить в словарь
+	No Spelling Suggestions	Нет вариантов написания
 	Paste Lorem Ipsum	Вставить условный текст
 	Glyphs Panel	Панель «Глифы»
 	Type Styles	Стили текста
@@ -579,6 +581,7 @@
 	OK	OK
 	Cancel	Отмена
 	Cancel (Esc)	Отмена (Esc)
+	Manage submitted jobs in the system print queue	Управляйте отправленными заданиями в системной очереди печати
 	Done	Готово
 	Apply	Применить
 	Reset	Сброс
@@ -1017,6 +1020,9 @@
 	Rename Brush…	Переименовать кисть…
 	Delete Brush	Удалить кисть
 	Import Brushes…	Импортировать кисти…
+	Gradient Preset Options	Параметры наборов градиентов
+	Import .GRD	Импортировать .GRD
+	Choose a gradient file (.grd).	Выберите файл градиентов (.grd).
 	Brush Name	Имя кисти
 	Brush Stroke	Мазок кисти
 	New Brush Preset…	Новый набор параметров кисти…
@@ -1181,6 +1187,8 @@
 	Offset	Смещение
 	Reset Transform	Сбросить трансформацию
 	Rotate	Повернуть
+	Set horizontal skew	Задать наклон по горизонтали
+	Set vertical skew	Задать наклон по вертикали
 	Flip Horizontal	Отразить по горизонтали
 	Flip Vertical	Отразить по вертикали
 	Frame Sync	Синхронизация кадров
@@ -1427,6 +1435,10 @@
 	Breeze Dark Theme	Тёмная тема Breeze
 	Breeze light	Breeze светлая
 	Breeze Light Theme	Светлая тема Breeze
+	Soft dark	Мягкая тёмная
+	Soft light	Мягкая светлая
+	Soft Dark Theme	Мягкая тёмная тема
+	Soft Light Theme	Мягкая светлая тема
 	Studio Theme	Тема Studio
 	Studio Light Theme	Светлая тема Studio
 	Adwaita Light Theme	Светлая тема Adwaita
@@ -1677,6 +1689,12 @@
 	Show in Explorer	Показать в Проводнике
 	Show in Folder	Показать в папке
 	Before (Y)	До (Y)
+	Save Settings…	Сохранить настройки…
+	Load Settings…	Загрузить настройки…
+	Save these settings as a Camera Raw .xmp file	Сохранить эти настройки в файл Camera Raw .xmp
+	Load settings from a Camera Raw .xmp file	Загрузить настройки из файла Camera Raw .xmp
+	Loaded Camera Raw settings from {file}	Настройки Camera Raw загружены из {file}
+	Loaded Camera Raw settings from {file} ({n} not supported)	Настройки Camera Raw загружены из {file} (не поддерживается: {n})
 	After (X)	После (X)
 	Original	Оригинал
 	Current	Текущий
@@ -1830,6 +1848,14 @@
 	Border…	Граница…
 	Bottom Edges	Нижние края
 	Browse…	Обзор…
+	Source Files	Исходные файлы
+	Use:	Использовать:
+	Files	Файлы
+	Folder	Папка
+	Add Open Files	Добавить открытые файлы
+	Sort By Name	Сортировать по имени
+	Attempt to Automatically Align Source Images	Попытаться автоматически выровнять исходные изображения
+	Create Smart Object after Loading Layers	Создать смарт-объект после загрузки слоёв
 	Canvas Guides	Направляющие холста
 	Character Styles Panel	Панель «Стили символов»
 	Clear Canvas Guides	Удалить направляющие холста
@@ -2591,6 +2617,7 @@ cameraRaw	Roughness	Неровность
 	Click to pick · Esc to cancel	Щелчок — выбрать · Esc — отменить
 	Pick a screen pixel or press Esc to cancel	Выберите пиксель на экране или нажмите Esc для отмены
 	Scroll to zoom	Колесо — изменить масштаб
+	Drag to pan · Scroll to zoom · Double-click to fit	Перетаскивание — перемещение · Колесо — масштаб · Двойной щелчок — вписать
 	Show/Hide All Panels	Показать/скрыть все панели
 	Show/Hide Panels	Показать/скрыть панели
 	Could not open	Не удалось открыть
@@ -2993,6 +3020,33 @@ curves	Smooth	Сгладить
 	Light Red	Светло-красный
 	Medium Blue	Средне-синий
 	Light Gray	Светло-серый
+	Object Finder	Поиск объектов
+	No object found there — drag a rectangle around it	Там не найден объект — обведите его прямоугольником
 	Remove after each stroke	Удалять после каждого штриха
 	Apply the removal ({key})	Применить удаление ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Штрихов к удалению: {n} (Enter применяет, Esc отменяет)
+	Clear Brush Controls	Очистить параметры кисти
+	Reset All Locked Settings	Сбросить все заблокированные параметры
+	Copy Texture to Other Tools	Скопировать текстуру в другие инструменты
+
+# Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
+	Load Actions…	Загрузить операции…
+	Save Actions…	Сохранить операции…
+	{name} (Photoshop)	{name} (Photoshop)
+	{message} ({note})	{message} ({note})
+@plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Загружена {n} операция из {file}|Загружено {n} операции из {file}|Загружено {n} операций из {file}
+@plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} шаг пока не имеет эквивалента в PhotoCraft|{n} шага пока не имеют эквивалента в PhotoCraft|{n} шагов пока не имеют эквивалента в PhotoCraft
+@plural	Saved {n} action to {file}|Saved {n} actions to {file}	Сохранена {n} операция в {file}|Сохранено {n} операции в {file}|Сохранено {n} операций в {file}
+@plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Пропущен {n} шаг без эквивалента в Photoshop|Пропущено {n} шага без эквивалента в Photoshop|Пропущено {n} шагов без эквивалента в Photoshop
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Вставить остановку…
+	Save Set…	Сохранить набор…
+	Message:	Сообщение:
+	Allow Continue	Разрешить продолжение
+	Show dialog during playback	Показывать диалог при воспроизведении
+	Select an action first	Сначала выберите операцию
+	Action playback stopped	Воспроизведение операции остановлено
+	Step {step} is waiting for its dialog	Шаг {step} ожидает своего диалога
+@plural	{n} action|{n} actions	{n} операция|{n} операции|{n} операций
+	Auto Add/Delete	Автодобавление/удаление

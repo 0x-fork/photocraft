@@ -2487,3 +2487,54 @@ fn lab_documents_gradient_map_follows_lightness() {
     adjust::apply_in(&adj, &mut grey_buf, adjust::Transfer::Srgb, None, ColorMode::Rgb);
     assert!((buf.px[0][0] - grey_buf.px[0][0]).abs() > 0.05, "{:?} {:?}", buf.px[0], grey_buf.px[0]);
 }
+
+#[test]
+fn render_refuses_rects_beyond_the_pixel_cap() {
+    let doc = Document::new("c", Size::new(4, 4), ColorMode::Rgb, SampleType::U8);
+    // 2^32 - 1 px wide: the width wraps negative as an i32, which once took the single-tile path.
+    for tile in [crate::RENDER_TILE, 1 << 20] {
+        let b = crate::render_tiled(&doc, Rect::new(i32::MIN, 0, i32::MAX, 1), tile);
+        assert!(b.px.is_empty() && b.rect.is_empty());
+    }
+}
+
+// The effect-map cache key covers Transparency Shapes Layer and Blend If: both change the shape
+// the maps are built from (a layer's own, or a styled group's children composite) without
+// touching pixels, masks or effects, and stale maps kept stroking a hole the layer no longer
+// had. Each case renders with the cache warm, edits, renders again and compares with a cold
+// render. (A purge by a concurrent test only makes the warm render cold, never a false failure.)
+#[test]
+fn effect_cache_follows_transparency_shapes_layer() {
+    let mut d = doc_white(32, 32);
+    let mut l = solid_layer("holed", Rect::new(0, 0, 32, 32), [0.9, 0.2, 0.2, 1.0]);
+    l.surface_mut().unwrap().fill_rect(Rect::new(12, 12, 20, 20), &[0.0, 0.0, 0.0, 0.0]);
+    l.effects.items = vec![stroke(2.0, StrokePosition::Outside)];
+    assert!(l.advanced.transparency_shapes);
+    d.layers.push(l);
+    let on = render(&d, d.bounds());
+    d.layers[1].advanced.transparency_shapes = false;
+    let warm = render(&d, d.bounds());
+    purge_effect_cache();
+    let cold = render(&d, d.bounds());
+    assert!(on.px != cold.px, "the stroke should stop rimming the hole");
+    assert!(warm.px == cold.px, "stale effect maps after turning Transparency Shapes Layer off");
+}
+
+#[test]
+fn effect_cache_follows_a_group_childs_blend_if() {
+    let mut d = doc_white(32, 32);
+    let mut child = solid_layer("bw", Rect::new(4, 4, 16, 28), [0.0, 0.0, 0.0, 1.0]);
+    child.surface_mut().unwrap().fill_rect(Rect::new(16, 4, 28, 28), &[1.0, 1.0, 1.0, 1.0]);
+    let mut g = Layer::group("g", vec![child]);
+    g.effects.items = vec![Effect::DropShadow(Shadow { size: 2.0, spread: 0.0, ..shadow(3.0, 90.0) })];
+    d.layers.push(g);
+    let before = render(&d, d.bounds());
+    let LayerContent::Group(grp) = &mut d.layers[1].content else { panic!("not a group") };
+    // Gray › This Layer: black point at 128 hides the black half.
+    grp.children[0].blend_if.set(0, [range([128, 128], [255, 255]), FULL]);
+    let warm = render(&d, d.bounds());
+    purge_effect_cache();
+    let cold = render(&d, d.bounds());
+    assert!(before.px != cold.px, "Blend If should change the group's shadow");
+    assert!(warm.px == cold.px, "stale group effect maps after a child's Blend If changed");
+}

@@ -609,7 +609,8 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 let r = ui.horizontal(|ui| {
                     let (ir, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
                     crate::icons::paint(ui, ir, icon, 14.0, t.icon);
-                    ui.add(egui::Label::new(egui::RichText::new(tl!(*cat)).color(t.text)).sense(Sense::click()))
+                    ui.add(egui::Label::new(egui::RichText::new(tl!(*cat)).color(t.text)).selectable(false).sense(Sense::click()))
+                        .on_hover_cursor(egui::CursorIcon::PointingHand)
                 });
                 if r.inner.clicked() {
                     d.open[ci] = !d.open[ci];

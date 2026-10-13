@@ -740,7 +740,7 @@ pub fn kernel(params: &FilterParams, src: &Image, out: Rect, ctx: &Ctx) -> Vec<f
         FilterParams::Mosaic { cell_size } => stylize::mosaic(src, out, ctx, *cell_size),
         FilterParams::Emboss { angle, height, amount } => stylize::emboss(src, out, ctx, *angle, *height, *amount),
         FilterParams::FindEdges => stylize::find_edges(src, out, ctx),
-        FilterParams::Solarize => stylize::per_pixel(src, out, ctx, |v| if v > 0.5 { 1.0 - v } else { v }),
+        FilterParams::Solarize => stylize::solarize(src, out, ctx),
         FilterParams::Invert => stylize::per_pixel(src, out, ctx, |v| 1.0 - v),
         FilterParams::Desaturate => stylize::desaturate(src, out, ctx),
         FilterParams::Twirl { angle } => distort::twirl(src, out, ctx, *angle),

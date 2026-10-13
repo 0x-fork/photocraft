@@ -17,6 +17,10 @@ pub enum Format {
     Pnm,
     /// ZSoft Paintbrush: 1/2/4-bit planar palettes, 8-bit indexed and 24-bit RGB.
     Pcx,
+    /// X PixMap icons (XPM2 plain text and XPM3 C-string arrays).
+    Xpm,
+    /// DirectDraw Surface: the top mip level of a 2D texture, uncompressed or BC1–BC3.
+    Dds,
     Qoi,
     OpenExr,
     /// Radiance RGBE.
@@ -27,6 +31,8 @@ pub enum Format {
     Heif,
     /// FITS (Flexible Image Transport System), the astronomy format: gray or RGB image data.
     Fits,
+    /// DPX (SMPTE 268M Digital Picture Exchange): luma, RGB or RGBA film and video frames.
+    Dpx,
     /// DICOM single-frame images (uncompressed): read-only.
     Dicom,
 }
@@ -60,9 +66,18 @@ pub struct FormatCaps {
 /// Formats that are enabled but intentionally not symmetric, with the reason.
 /// The test-suite asserts that every other enabled format is read+write.
 pub const ASYMMETRIC_EXCEPTIONS: &[(Format, &str)] = &[
+    (Format::Xpm, "XPM is a legacy Unix icon interchange format. Reading existing XPM icons is supported; writing modern image assets should use PNG instead."),
+    (
+        Format::Dicom,
+        "DICOM single-frame images are imported for medical review; this crate has no DICOM writer, so save an imported frame as TIFF or PNG instead.",
+    ),
     (
         Format::Pcx,
         "PCX is supported for opening legacy paint and clipart assets. New files should use PNG; writing obsolete indexed and planar variants is intentionally not provided.",
+    ),
+    (
+        Format::Dds,
+        "DDS is supported for opening game and 3D textures. Writing one well means choosing a block compression and generating mip levels, which belongs in a texture export, not Save As.",
     ),
     (
         Format::Avif,
@@ -76,10 +91,6 @@ pub const ASYMMETRIC_EXCEPTIONS: &[(Format, &str)] = &[
          writing needs an HEVC encoder, and the mature ones (x265, libheif) are C, so write stays \
          unsupported. Without the feature HEIF is detected but neither read nor written.",
     ),
-    (
-        Format::Dicom,
-        "DICOM single-frame images are imported for medical review; this crate has no DICOM writer, so save an imported frame as TIFF or PNG instead.",
-    ),
 ];
 
 use ChannelLayout as L;
@@ -90,7 +101,7 @@ const ALL_LAYOUTS: &[ChannelLayout] = &[L::Gray, L::GrayA, L::Rgb, L::Rgba, L::C
 
 impl Format {
     /// Every format known to the crate (enabled or not).
-    pub const ALL: [Format; 17] = [
+    pub const ALL: [Format; 20] = [
         Format::Png,
         Format::Jpeg,
         Format::Tiff,
@@ -101,12 +112,15 @@ impl Format {
         Format::Ico,
         Format::Pnm,
         Format::Pcx,
+        Format::Xpm,
+        Format::Dds,
         Format::Qoi,
         Format::OpenExr,
         Format::Hdr,
         Format::Avif,
         Format::Heif,
         Format::Fits,
+        Format::Dpx,
         Format::Dicom,
     ];
 
@@ -132,12 +146,15 @@ impl Format {
             Format::Ico => "ICO",
             Format::Pnm => "Netpbm",
             Format::Pcx => "PCX",
+            Format::Xpm => "XPM",
+            Format::Dds => "DDS",
             Format::Qoi => "QOI",
             Format::OpenExr => "OpenEXR",
             Format::Hdr => "Radiance HDR",
             Format::Avif => "AVIF",
             Format::Heif => "HEIF",
             Format::Fits => "FITS",
+            Format::Dpx => "DPX",
             Format::Dicom => "DICOM",
         }
     }
@@ -156,12 +173,15 @@ impl Format {
             Format::Ico => &["ico"],
             Format::Pnm => &["pnm", "pbm", "pgm", "ppm", "pam", "pfm"],
             Format::Pcx => &["pcx"],
+            Format::Xpm => &["xpm"],
+            Format::Dds => &["dds"],
             Format::Qoi => &["qoi"],
             Format::OpenExr => &["exr"],
             Format::Hdr => &["hdr"],
             Format::Avif => &["avif"],
             Format::Heif => &["heic", "heif", "hif"],
             Format::Fits => &["fits", "fit", "fts"],
+            Format::Dpx => &["dpx"],
             Format::Dicom => &["dcm", "dicom", "dc3"],
         }
     }
@@ -178,12 +198,15 @@ impl Format {
             Format::Ico => "image/x-icon",
             Format::Pnm => "image/x-portable-anymap",
             Format::Pcx => "image/x-pcx",
+            Format::Xpm => "image/x-xpixmap",
+            Format::Dds => "image/vnd-ms.dds",
             Format::Qoi => "image/qoi",
             Format::OpenExr => "image/x-exr",
             Format::Hdr => "image/vnd.radiance",
             Format::Avif => "image/avif",
             Format::Heif => "image/heif",
             Format::Fits => "image/fits",
+            Format::Dpx => "image/x-dpx",
             Format::Dicom => "application/dicom",
         }
     }
@@ -228,6 +251,8 @@ pub fn caps(format: Format) -> FormatCaps {
         Format::Ico => FormatCaps { layouts: &[L::Rgba], ..base },
         Format::Pnm => FormatCaps { depths: &[S::U8, S::U16, S::F32], layouts: ALL_LAYOUTS, ..base },
         Format::Pcx => FormatCaps { read: true, write: false, layouts: &[L::Rgb], alpha: false, ..base },
+        Format::Xpm => FormatCaps { read: true, write: false, layouts: &[L::Rgba], ..base },
+        Format::Dds => FormatCaps { read: true, write: false, layouts: RGB_GRAY, ..base },
         Format::Qoi => base,
         Format::OpenExr => FormatCaps { depths: &[S::F16, S::F32], layouts: RGB_GRAY, ..base },
         Format::Hdr => FormatCaps { depths: &[S::F32], layouts: &[L::Rgb], alpha: false, lossy: true, ..base },
@@ -236,6 +261,8 @@ pub fn caps(format: Format) -> FormatCaps {
             FormatCaps { read: cfg!(feature = "heif"), write: false, depths: &[S::U8, S::U16], icc: true, exif: true, xmp: true, lossy: true, ..base }
         }
         Format::Fits => FormatCaps { depths: &[S::U8, S::U16, S::F32], layouts: &[L::Gray, L::Rgb], alpha: false, text: true, ..base },
+        // `text`: the DPX header fields only (see `fidelity_warnings_with`).
+        Format::Dpx => FormatCaps { depths: &[S::U8, S::U16], layouts: &[L::Gray, L::Rgb, L::Rgba], text: true, ..base },
         Format::Dicom => FormatCaps { read: true, write: false, depths: &[S::U8, S::U16], layouts: &[L::Gray, L::Rgb], alpha: false, ..base },
     }
 }
@@ -262,6 +289,9 @@ pub fn detect(bytes: &[u8]) -> Option<Format> {
     if b.starts_with(b"qoif") {
         return Some(Format::Qoi);
     }
+    if b.starts_with(b"DDS ") {
+        return Some(Format::Dds);
+    }
     if b.starts_with(&[0x76, 0x2F, 0x31, 0x01]) {
         return Some(Format::OpenExr);
     }
@@ -285,11 +315,17 @@ pub fn detect(bytes: &[u8]) -> Option<Format> {
     if b.len() >= 3 && b[0] == b'P' && matches!(b[1], b'1'..=b'7' | b'F' | b'f') && b[2].is_ascii_whitespace() {
         return Some(Format::Pnm);
     }
-    if b.starts_with(b"SIMPLE  =") {
-        return Some(Format::Fits);
+    if b.starts_with(b"SDPX") || b.starts_with(b"XPDS") {
+        return Some(Format::Dpx);
     }
     if crate::codecs::dicom::is_dicom(b) {
         return Some(Format::Dicom);
+    }
+    if b.starts_with(b"SIMPLE  =") {
+        return Some(Format::Fits);
+    }
+    if b.starts_with(b"/* XPM */") || b.starts_with(b"! XPM2\n") || b.starts_with(b"! XPM2\r\n") {
+        return Some(Format::Xpm);
     }
     if crate::codecs::pcx::looks_like_pcx(b) {
         return Some(Format::Pcx);

@@ -108,6 +108,14 @@
 	Script Events Manager…	スクリプトイベント管理…
 	Import	読み込み
 	Browse…	参照…
+	Source Files	ソースファイル
+	Use:	使用:
+	Files	ファイル
+	Folder	フォルダー
+	Add Open Files	開いているファイルを追加
+	Sort By Name	名前順に並べ替え
+	Attempt to Automatically Align Source Images	ソース画像の自動整列を試す
+	Create Smart Object after Loading Layers	レイヤーの読み込み後にスマートオブジェクトを作成
 	Reveal in Finder	Finder で表示
 	Show in Explorer	エクスプローラーで表示
 	Show in Folder	フォルダーで表示
@@ -132,6 +140,8 @@
 	Search…	検索…
 	Check Spelling…	スペルチェック…
 	Find and Replace Text…	テキストを検索して置換…
+	Add to Dictionary	辞書に追加
+	No Spelling Suggestions	スペルの候補はありません
 	Fill…	塗りつぶし…
 	Stroke…	境界線を描く…
 	Content-Aware Fill…	コンテンツに応じた塗りつぶし…
@@ -146,6 +156,8 @@
 	Transform Again on a Copy	複製してもう一度変形
 	Scale	拡大・縮小
 	Rotate	回転
+	Set horizontal skew	水平方向の斜体を設定
+	Set vertical skew	垂直方向の斜体を設定
 	Skew	斜体
 	Distort	ゆがみ
 	Perspective	遠近法
@@ -726,6 +738,10 @@
 	Breeze Dark Theme	Breeze ダークテーマ
 	Breeze light	Breeze ライト
 	Breeze Light Theme	Breeze ライトテーマ
+	Soft dark	ソフトダーク
+	Soft light	ソフトライト
+	Soft Dark Theme	ソフトダークテーマ
+	Soft Light Theme	ソフトライトテーマ
 	Next Theme	次のテーマ
 	Actions	アクション
 	Brush Settings	ブラシ設定
@@ -847,6 +863,12 @@
 	Baseline shift	ベースラインシフト
 	Basic	基本
 	Before (Y)	補正前(Y)
+	Save Settings…	設定を保存…
+	Load Settings…	設定を読み込み…
+	Save these settings as a Camera Raw .xmp file	この設定を Camera Raw の .xmp ファイルとして保存
+	Load settings from a Camera Raw .xmp file	Camera Raw の .xmp ファイルから設定を読み込む
+	Loaded Camera Raw settings from {file}	{file} から Camera Raw の設定を読み込みました
+	Loaded Camera Raw settings from {file} ({n} not supported)	{file} から Camera Raw の設定を読み込みました（未対応: {n}）
 	Begin recording	記録を開始
 	Bend:	曲げ:
 	Bicubic	バイキュービック
@@ -877,6 +899,7 @@
 	Camera Raw isn't open	Camera Raw は開いていません
 	Cancel	キャンセル
 	Cancel (Esc)	キャンセル(Esc)
+	Manage submitted jobs in the system print queue	送信済みのジョブはシステムの印刷キューで管理してください
 	Cancel any current edits (Esc)	現在の編集をキャンセル(Esc)
 	Cancel current crop operation  (Esc)	現在の切り抜きをキャンセル(Esc)
 	Cancel transform (Esc)	変形をキャンセル(Esc)
@@ -1148,6 +1171,9 @@
 	Ignore All	すべて無視
 	Image Size	画像サイズ
 	Import Brushes…	ブラシを読み込み…
+	Gradient Preset Options	グラデーションプリセットのオプション
+	Import .GRD	.GRD を読み込み
+	Choose a gradient file (.grd).	グラデーションファイル (.grd) を選択してください。
 	Import brushes (.abr)	ブラシ (.abr) を読み込み
 	Import Presets	プリセットを読み込み
 	Imported	読み込み済み
@@ -2294,6 +2320,7 @@ cameraRaw	Color	カラー
 	Click to pick · Esc to cancel	クリックで選択 · Escでキャンセル
 	Pick a screen pixel or press Esc to cancel	画面のピクセルを選択するか、Escでキャンセル
 	Scroll to zoom	スクロールしてズーム
+	Drag to pan · Scroll to zoom · Double-click to fit	ドラッグで移動 · スクロールでズーム · ダブルクリックで全体表示
 	Show/Hide All Panels	すべてのパネルを表示/非表示
 	Show/Hide Panels	パネルを表示/非表示
 	Could not open	開けませんでした
@@ -3658,6 +3685,33 @@ curves	Smooth	スムーズ
 	Light Red	ライトレッド
 	Medium Blue	ミディアムブルー
 	Light Gray	ライトグレー
+	Object Finder	オブジェクトファインダー
+	No object found there — drag a rectangle around it	そこにオブジェクトが見つかりません — 周囲に矩形をドラッグしてください
 	Remove after each stroke	ストロークごとに削除
 	Apply the removal ({key})	削除を適用 ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	削除するストローク: {n}（Enter で適用、Esc で取り消し）
+	Clear Brush Controls	ブラシのコントロールを消去
+	Reset All Locked Settings	ロックされた設定をすべて初期化
+	Copy Texture to Other Tools	テクスチャを他のツールにコピー
+
+# Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
+	Load Actions…	アクションを読み込み…
+	Save Actions…	アクションを保存…
+	{name} (Photoshop)	{name}（Photoshop）
+	{message} ({note})	{message}（{note}）
+@plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{file} からアクション {n} 個を読み込みました
+@plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} 個のステップにはまだ PhotoCraft の対応機能がありません
+@plural	Saved {n} action to {file}|Saved {n} actions to {file}	{file} にアクション {n} 個を保存しました
+@plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Photoshop に対応するもののない {n} 個のステップを省きました
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	ストップを挿入…
+	Save Set…	セットを保存…
+	Message:	メッセージ:
+	Allow Continue	続行を許可
+	Show dialog during playback	再生中にダイアログを表示
+	Select an action first	先にアクションを選択してください
+	Action playback stopped	アクションの再生を停止しました
+	Step {step} is waiting for its dialog	ステップ {step} はダイアログを待っています
+@plural	{n} action|{n} actions	アクション {n} 個
+	Auto Add/Delete	自動追加・削除

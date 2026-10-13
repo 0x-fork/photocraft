@@ -259,3 +259,40 @@ fn invert_in_a_lab_document_mirrors_l_a_and_b() {
         assert!(got.iter().zip([70.0, -13.0, 17.0]).all(|(g, w)| (g - w).abs() < 1.0), "{depth:?}: {got:?}");
     }
 }
+
+#[test]
+fn mixing_through_a_selection_matches_sampling_it_per_pixel() {
+    // A rectangle across tile edges (negative x included), a selection with fractional
+    // coverage, untouched tiles (default coverage) and a 16-bit as well as an 8-bit layer.
+    let r = Rect::new(-300, 200, 330, 290);
+    let gray32 = PixelFormat { mode: ColorMode::Grayscale, sample: SampleType::F32, alpha: false };
+    for sel_fmt in [PixelFormat::GRAY8, PixelFormat::GRAYA8, gray32] {
+        let mut sel = Surface::new(sel_fmt);
+        sel.fill_rect(Rect::new(-260, 210, 40, 280), &vec![0.6; sel_fmt.channels()]);
+        for x in 0..120 {
+            sel.write_pixel(x * 2, 230 + x % 40, &vec![x as f32 / 119.0; sel_fmt.channels()]);
+        }
+        for fmt in [PixelFormat::RGBA8, PixelFormat::RGBA16] {
+            let n = (r.width() * r.height()) as usize;
+            let orig: Vec<[f32; 4]> = (0..n).map(|i| [(i % 7) as f32 / 7.0, 0.5, (i % 13) as f32 / 13.0, 0.25 + (i % 3) as f32 / 4.0]).collect();
+            let edited: Vec<[f32; 4]> = orig.iter().map(|p| [1.0 - p[0], p[1] * 0.5, p[2], 1.0]).collect();
+            let w = r.width() as usize;
+            let mut expected = Vec::new();
+            for (i, (a, o)) in edited.iter().zip(&orig).enumerate() {
+                let k = sel.sample_channel(r.x0 + (i % w) as i32, r.y0 + (i / w) as i32, 0);
+                let mixed: [f32; 4] = std::array::from_fn(|c| o[c] + (a[c] - o[c]) * k);
+                let mut enc = [0.0f32; 8];
+                let m = photocraft_raster::from_rgba_into(&fmt, mixed, &mut enc);
+                expected.extend_from_slice(&enc[..m]);
+            }
+            assert_eq!(mix_through_selection(&fmt, r, &orig, &edited, Some(&sel)), expected, "{sel_fmt:?} over {fmt:?}");
+        }
+    }
+    // Without a selection the edit is taken whole; an empty rectangle mixes nothing.
+    let px = [[0.1, 0.2, 0.3, 1.0]];
+    let fmt = PixelFormat::RGBA8;
+    let mut enc = [0.0f32; 8];
+    let m = photocraft_raster::from_rgba_into(&fmt, px[0], &mut enc);
+    assert_eq!(mix_through_selection(&fmt, Rect::new(0, 0, 1, 1), &[[0.0; 4]], &px, None), enc[..m].to_vec());
+    assert!(mix_through_selection(&fmt, Rect::EMPTY, &[], &[], None).is_empty());
+}

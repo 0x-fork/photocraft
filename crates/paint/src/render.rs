@@ -10,7 +10,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use photocraft_color::{BlendMode, PixelFormat, SampleType};
+use photocraft_color::{BlendMode, ColorMode, PixelFormat, SampleType};
 use photocraft_geom::Rect;
 use photocraft_raster::{Surface, from_rgba_into, to_rgba};
 
@@ -966,12 +966,21 @@ impl StrokeRenderer {
         let opacity = b.opacity.clamp(0.0, 1.0);
         let mut src = [0.0f32; 8];
         from_rgba_into(&fmt, b.color, &mut src);
+        // A colour picked as CMYK paints its inks as they are in a CMYK target (#4344).
+        if let (ColorMode::Cmyk, Some((rgb, inks))) = (fmt.mode, b.color_cmyk)
+            && rgb == [b.color[0], b.color[1], b.color[2]]
+        {
+            src[..4].copy_from_slice(&inks);
+        }
         if let Some(a) = a_idx {
             src[a] = b.color[3];
         }
         // 8-bit targets: the pixels the stroke changes are dithered as they are quantised, so
-        // soft, low-flow strokes don't band (see `dither8`).
-        let dither = fmt.sample == SampleType::U8;
+        // soft, low-flow strokes don't band (see `dither8`). Aliased strokes (the Pencil, the
+        // Eraser's Pencil and Block modes) paint every pixel by the same amount, so they have no
+        // gradient to band and are not dithered: a Pencil line at partial opacity is one flat
+        // colour, as in Photoshop, not grain that a tolerance-0 Magic Wand or Paint Bucket trips on.
+        let dither = fmt.sample == SampleType::U8 && !b.aliased;
         let mut dmg = Rect::EMPTY;
         let mut region = Vec::new();
         for (tx, ty) in keys {

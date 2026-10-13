@@ -57,13 +57,12 @@ Real-file checks use Krita-authored oracles from
 KRITA_TEST_DIR=/path/to/photocraft-corpus/krita cargo test -p photocraft-io --test krita_corpus -- --ignored --nocapture
 ```
 
-2026-10-09, Krita 5.2.9: 30 of 34 `.ora` files render within 3/255 of Krita's merged image; the
-other four differ for known reasons listed in `crates/io/tests/krita_corpus.rs` (Krita's
-tie-break in Darker and Lighter Color, Hard Mix at a channel sum of exactly 1, and a
-linear-light 16-bit document that Krita blends in linear light). In the other direction,
-Krita opened every PhotoCraft re-export of those files and rendered 33 of them identically to
-its original; the exception is Photoshop's Soft Light, which is written as `svg:soft-light`.
-MyPaint and GIMP files have not been checked yet.
+2026-10-09, Krita 5.2.9: 32 of 35 `.ora` files render within 3/255 of Krita's merged image; the
+other three differ for known reasons listed in `crates/io/tests/krita_corpus.rs` (Krita's
+tie-break in Darker and Lighter Color, and Hard Mix at a channel sum of exactly 1). In the other
+direction, Krita opened every PhotoCraft re-export of the first 34 of those files and rendered 33
+of them identically to its original; the exception is Photoshop's Soft Light, which is written
+as `svg:soft-light`. MyPaint and GIMP files have not been checked yet.
 
 Format reference: the [OpenRaster specification](https://www.openraster.org/). The reader and
 writer are written from the specification and from files Krita writes; no application code

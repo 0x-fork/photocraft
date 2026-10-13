@@ -304,6 +304,12 @@ pub fn pen_grab_handle(app: &mut PhotocraftApp, x: f64, y: f64) -> bool {
     true
 }
 
+/// Would a press at `at` close the Pen path: is the pointer on the first anchor of a path that
+/// already has a segment, and no drag is under way? The canvas then shows the close cue (#4193).
+pub(crate) fn over_first_anchor(pen: &PenPath, at: [f64; 2], tol: f64) -> bool {
+    !pen.dragging && pen.moving.is_none() && pen.knots.len() >= 2 && pen.knots.first().is_some_and(|k| (k[0][0] - at[0]).hypot(k[0][1] - at[1]) < tol)
+}
+
 /// Is a close-drag in progress: does the path end in the stand-in for its first anchor?
 fn closing(pen: &PenPath) -> bool {
     pen.knots.len() >= 3 && pen.knots.first().map(|k| k[0]) == pen.knots.last().map(|k| k[0])
@@ -757,6 +763,45 @@ fn bezier(p0: [f64; 2], c0: [f64; 2], c1: [f64; 2], p1: [f64; 2], t: f64) -> [f6
     [f(p0[0], c0[0], c1[0], p1[0]), f(p0[1], c0[1], c1[1], p1[1])]
 }
 
+/// `q` lies on the chord from `a` to `d` (within a thousandth of a pixel).
+fn on_chord(a: [f64; 2], q: [f64; 2], d: [f64; 2]) -> bool {
+    let (dx, dy, vx, vy) = (d[0] - a[0], d[1] - a[1], q[0] - a[0], q[1] - a[1]);
+    let len = dx.hypot(dy);
+    if len < 1e-9 {
+        return vx.hypot(vy) < 1e-3;
+    }
+    let t = (vx * dx + vy * dy) / (len * len);
+    (vx * dy - vy * dx).abs() / len < 1e-3 && (-1e-9..=1.0 + 1e-9).contains(&t)
+}
+
+/// How far (in screen pixels) a drawn chord may stray from the true curve.
+const CURVE_TOLERANCE: f64 = 0.3;
+/// Pieces per segment at most: 0.3 px holds for curves bending up to about 1.4 million px on screen.
+const MAX_CURVE_PIECES: usize = 1024;
+
+/// Screen points along one cubic segment (both ends included). The control points are mapped to
+/// the screen first (`xf` is affine, so the curve maps exactly), and the number of chords follows
+/// how much the curve bends there: a straight segment is one chord, and a curve zoomed in stays
+/// smooth instead of showing a fixed 16 chords (#4084). Uses the bound
+/// `max|B''| / 8n² <= tol` with `max|B''| <= 6·max(|p0−2c0+c1|, |c0−2c1+p1|)`.
+pub(crate) fn curve_points(p0: [f64; 2], c0: [f64; 2], c1: [f64; 2], p1: [f64; 2], xf: &dyn Fn([f64; 2]) -> Pos2) -> Vec<Pos2> {
+    let [a, b, c, d] = [p0, c0, c1, p1].map(|q| {
+        let s = xf(q);
+        [f64::from(s.x), f64::from(s.y)]
+    });
+    let second = |p: [f64; 2], q: [f64; 2], r: [f64; 2]| (p[0] - 2.0 * q[0] + r[0]).hypot(p[1] - 2.0 * q[1] + r[1]);
+    let n = (0.75 * second(a, b, c).max(second(b, c, d)) / CURVE_TOLERANCE).sqrt().ceil();
+    // A straight segment (controls on the chord, like the Pen's retracted handles) is one chord;
+    // NaN (a non-finite point) falls back to one too.
+    let n = if n.is_finite() && !(on_chord(a, b, d) && on_chord(a, c, d)) { (n as usize).clamp(1, MAX_CURVE_PIECES) } else { 1 };
+    (0..=n)
+        .map(|k| {
+            let q = bezier(a, b, c, d, k as f64 / n as f64);
+            pos2(q[0] as f32, q[1] as f32)
+        })
+        .collect()
+}
+
 /// Screen polylines for a path (one per subpath).
 pub(crate) fn path_lines(path: &Path, xf: &dyn Fn([f64; 2]) -> Pos2) -> Vec<(Vec<Pos2>, bool)> {
     path.subpaths
@@ -767,11 +812,7 @@ pub(crate) fn path_lines(path: &Path, xf: &dyn Fn([f64; 2]) -> Pos2) -> Vec<(Vec
             let segs = if s.closed { n } else { n.saturating_sub(1) };
             for i in 0..segs {
                 let (a, b) = (&s.knots[i], &s.knots[(i + 1) % n]);
-                for k in 0..=16 {
-                    let q =
-                        bezier([a.anchor.x, a.anchor.y], [a.out_ctrl.x, a.out_ctrl.y], [b.in_ctrl.x, b.in_ctrl.y], [b.anchor.x, b.anchor.y], k as f64 / 16.0);
-                    pts.push(xf(q));
-                }
+                pts.extend(curve_points([a.anchor.x, a.anchor.y], [a.out_ctrl.x, a.out_ctrl.y], [b.in_ctrl.x, b.in_ctrl.y], [b.anchor.x, b.anchor.y], xf));
             }
             if pts.is_empty()
                 && let Some(k) = s.knots.first()
@@ -846,6 +887,8 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
         if let Some((_, p)) = targeted_vector_mask(app) {
             draw_path(&p, tool == Tool::PathSelection);
         }
+        // The segment the Pen's Auto Add/Delete would add an anchor to, or the anchor it would delete.
+        crate::anchor_tools::draw_pen_hover(app, painter, &to_scr, accent, painter.ctx().input(|i| i.modifiers));
     }
     // Pen path in progress, with handles of the last knot and a rubber band to the pointer.
     if let Some(pen) = &app.ui.pen {
@@ -860,9 +903,7 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
             first[2] = out;
         }
         for w in knots.windows(2) {
-            for k in 0..=16 {
-                pts.push(to_scr(bezier(w[0][0], w[0][2], w[1][1], w[1][0], k as f64 / 16.0)));
-            }
+            pts.extend(curve_points(w[0][0], w[0][2], w[1][1], w[1][0], &to_scr));
         }
         painter.add(egui::Shape::line(pts, Stroke::new(1.5, accent)));
         if let (Some(last), Some(h)) = (pen.knots.last(), app.hover_doc)
@@ -875,7 +916,7 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
                 next.knots.push([h; 3]);
                 curvature_refresh(&mut next, false);
                 if let [.., a, b] = next.knots.as_slice() {
-                    let pts: Vec<Pos2> = (0..=24).map(|k| to_scr(bezier(a[0], a[2], b[1], b[0], k as f64 / 24.0))).collect();
+                    let pts = curve_points(a[0], a[2], b[1], b[0], &to_scr);
                     painter.add(egui::Shape::dashed_line(&pts, Stroke::new(1.0, accent), 4.0, 3.0));
                 }
             } else {
@@ -891,6 +932,16 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
                 }
             }
             draw_anchor(painter, c, last, accent);
+        }
+        // Hovering the first anchor: Photoshop's close cue, a small ring beside the pointer.
+        let tol = 6.0 / f64::from(app.point_zoom().max(0.01));
+        if let Some(h) = app.hover_doc
+            && over_first_anchor(pen, h, tol)
+            && let Some(first) = pen.knots.first()
+        {
+            let c = to_scr(first[0]);
+            painter.rect_filled(Rect::from_center_size(c, vec2(8.0, 8.0)), 0.0, accent);
+            painter.circle_stroke(c + vec2(11.0, 11.0), 3.5, Stroke::new(1.5, accent));
         }
     }
 }
@@ -950,6 +1001,10 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
                 o.shape_stroke = change.options;
                 o.stroke_width = enabled_stroke_width(o.stroke_width);
             }
+        }
+        if tool == Tool::Pen {
+            crate::widgets::vline(ui, 22.0);
+            crate::widgets::checkbox(ui, &mut o.pen_auto_add_delete, tl!("Auto Add/Delete"));
         }
         let enter = crate::shortcuts::pretty("Enter");
         match tool {
@@ -1691,6 +1746,60 @@ pub fn paths_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 mod tests {
     use super::*;
 
+    /// #4084: zoomed in, a curve's chords stay within a fraction of a pixel of the true curve
+    /// (16 fixed chords showed corners), and a straight segment stays one chord.
+    #[test]
+    fn path_curves_stay_smooth_at_any_zoom() {
+        let (p0, c0, c1, p1) = ([0.0, 100.0], [20.0, -60.0], [80.0, -60.0], [100.0, 100.0]);
+        for zoom in [0.25, 1.0, 8.0, 64.0, 320.0] {
+            let xf = move |q: [f64; 2]| pos2((q[0] * zoom) as f32 + 10.0, (q[1] * zoom) as f32 - 5.0);
+            let pts = curve_points(p0, c0, c1, p1, &xf);
+            let n = pts.len() - 1;
+            assert_eq!((pts[0], pts[n]), (xf(p0), xf(p1)), "the ends are the anchors");
+            for (k, w) in pts.windows(2).enumerate() {
+                let curve = xf(bezier(p0, c0, c1, p1, (k as f64 + 0.5) / n as f64));
+                let chord = w[0] + (w[1] - w[0]) * 0.5;
+                assert!((chord - curve).length() <= 0.35, "zoom {zoom}: chord {k} of {n} is {} px off", (chord - curve).length());
+            }
+            // Zoomed out it stays cheap.
+            if zoom <= 1.0 {
+                assert!(n <= 32, "zoom {zoom}: {n} chords");
+            }
+        }
+        let xf = |q: [f64; 2]| pos2((q[0] * 320.0) as f32, (q[1] * 320.0) as f32);
+        // Retracted handles, and handles along the line: one chord.
+        assert_eq!(curve_points([0.0, 0.0], [0.0, 0.0], [50.0, 50.0], [50.0, 50.0], &xf).len(), 2);
+        assert_eq!(curve_points([0.0, 0.0], [10.0, 10.0], [40.0, 40.0], [50.0, 50.0], &xf).len(), 2);
+        // A handle past the end is a curve that doubles back, not a line.
+        assert!(curve_points([0.0, 0.0], [0.0, 0.0], [80.0, 80.0], [50.0, 50.0], &xf).len() > 2);
+        // Hostile coordinates: no panic, a bounded number of points.
+        for bad in [f64::NAN, f64::INFINITY, 1e300] {
+            assert!(curve_points([0.0, 0.0], [bad, 0.0], [0.0, bad], [1.0, 1.0], &xf).len() <= MAX_CURVE_PIECES + 1);
+        }
+        // Through path_lines too: a closed subpath of two curved segments.
+        let mut path = Path::default();
+        path.subpaths.push(photocraft_doc::vector::Subpath {
+            knots: vec![
+                photocraft_doc::vector::Knot {
+                    anchor: photocraft_geom::Point::new(0.0, 0.0),
+                    in_ctrl: photocraft_geom::Point::new(0.0, 40.0),
+                    out_ctrl: photocraft_geom::Point::new(0.0, -40.0),
+                    smooth: true,
+                },
+                photocraft_doc::vector::Knot {
+                    anchor: photocraft_geom::Point::new(60.0, 0.0),
+                    in_ctrl: photocraft_geom::Point::new(60.0, -40.0),
+                    out_ctrl: photocraft_geom::Point::new(60.0, 40.0),
+                    smooth: true,
+                },
+            ],
+            closed: true,
+            ..Default::default()
+        });
+        let lines = path_lines(&path, &xf);
+        assert!(lines[0].1 && lines[0].0.len() > 2 * 17, "zoomed in, more than the old 16 chords per segment: {}", lines[0].0.len());
+    }
+
     #[test]
     fn all_shape_tools_and_open_pen_use_the_complete_stroke_defaults() {
         for tool in [Tool::Rectangle, Tool::EllipseShape, Tool::Triangle, Tool::Polygon, Tool::Line, Tool::CustomShape] {
@@ -1879,6 +1988,21 @@ mod tests {
         assert!(preview(&app, Tool::Rectangle, [10.2, 40.0]).is_none(), "too thin to draw");
         assert!(photocraft_engine::vector_cmds::shape_path(&json!({"kind": "nope", "rect": [0, 0, 5, 5]})).is_err());
         assert!(photocraft_engine::vector_cmds::shape_path(&json!({"kind": "rect"})).is_err());
+    }
+
+    #[test]
+    fn pen_shows_the_close_cue_only_over_the_first_anchor_of_a_real_segment() {
+        let mut app = app();
+        app.ui.tool = Tool::Pen;
+        pen_down(&mut app, 20.0, 20.0);
+        pen_up(&mut app);
+        let one = app.ui.pen.clone().unwrap();
+        assert!(!over_first_anchor(&one, [20.0, 20.0], 6.0), "a single anchor has nothing to close");
+        pen_down(&mut app, 120.0, 20.0);
+        pen_up(&mut app);
+        let two = app.ui.pen.clone().unwrap();
+        assert!(over_first_anchor(&two, [22.0, 21.0], 6.0));
+        assert!(!over_first_anchor(&two, [60.0, 60.0], 6.0));
     }
 
     #[test]

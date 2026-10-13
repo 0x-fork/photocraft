@@ -89,6 +89,8 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("window.theme.adwaitaDark", "Adwaita Dark Theme", &["Window", "Theme"], None),
     ("window.theme.breezeLight", "Breeze Light Theme", &["Window", "Theme"], None),
     ("window.theme.breezeDark", "Breeze Dark Theme", &["Window", "Theme"], None),
+    ("window.theme.softLight", "Soft Light Theme", &["Window", "Theme"], None),
+    ("window.theme.softDark", "Soft Dark Theme", &["Window", "Theme"], None),
     ("window.theme.system", "Sync with system", &["Window", "Theme"], None),
     ("edit.search", "Search…", &["Edit"], Some("Cmd+F")),
     ("help.discord", "Join the ArtCraft Discord…", &["Help"], None),
@@ -161,10 +163,18 @@ pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Va
 
 /// [`invoke`] without the unsaved-changes prompt, for once the user has already answered it.
 pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Value) -> Result<Value, String> {
+    if let Some(tool) = crate::tool_shortcuts::tool(id) {
+        app.ui.tool = tool;
+        return Ok(json!({"tool": tool}));
+    }
     if id == "ui.symmetryTransform" {
         return crate::symmetry_ui::begin(app).map(|_| Value::Null);
     }
     if let Some(r) = crate::tool_reset::invoke(app, id, &params) {
+        return r;
+    }
+    // A filter on a type layer asks to rasterize it first (#4303).
+    if let Some(r) = crate::rasterize_prompt::intercept_filter(app, id, &params) {
         return r;
     }
     // A pending Pen anchor is gesture state; Edit › Undo must match the keyboard.
@@ -366,7 +376,9 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
         | "window.theme.adwaita"
         | "window.theme.adwaitaDark"
         | "window.theme.breezeLight"
-        | "window.theme.breezeDark" => {
+        | "window.theme.breezeDark"
+        | "window.theme.softLight"
+        | "window.theme.softDark" => {
             let k = crate::theme::ThemeKind::from_name(&id["window.theme.".len()..]).unwrap_or_default();
             app.set_theme(ctx, k);
             Ok(Value::Null)
@@ -656,6 +668,9 @@ fn open_path(app: &mut PhotocraftApp, path: &str) -> Result<Value, String> {
 }
 
 pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
+    if crate::tool_shortcuts::tool(id).is_some() {
+        return true;
+    }
     if id == "ui.symmetryTransform" {
         return crate::symmetry_ui::can_transform(app);
     }
@@ -670,6 +685,10 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
     // A pending crop greys what Photoshop greys during one (#1918).
     if crate::crop_ui::blocks(app, id) {
         return false;
+    }
+    // Filters stay live on a type layer: choosing one asks to rasterize it (#4303).
+    if crate::rasterize_prompt::filter_needs(app, id).is_some() {
+        return true;
     }
     if let Some(e) = crate::workspace_ui::is_enabled(app, id) {
         return e;
@@ -882,6 +901,7 @@ pub struct MenuItem {
 pub fn is_live(id: &str) -> bool {
     static UI_IDS: std::sync::OnceLock<std::collections::HashSet<&'static str>> = std::sync::OnceLock::new();
     photocraft_engine::commands::find(id).is_some()
+        || crate::tool_shortcuts::tool(id).is_some()
         || UI_IDS.get_or_init(|| UI_COMMANDS.iter().map(|c| c.0).collect()).contains(id)
         || panel_alias(id).is_some()
         || workspace_name(id).is_some()
