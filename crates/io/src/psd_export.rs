@@ -244,17 +244,6 @@ impl SmartOut {
     }
 }
 
-/// Size and resolution of a smart-object source file (PSD/PSB header, `.pcraft`, or any image).
-fn source_geometry(name: &str, bytes: &[u8]) -> Result<((f64, f64), f64), String> {
-    if crate::is_psd(bytes) {
-        let rd = |at: usize| bytes.get(at..at + 4).map(|b| f64::from(u32::from_be_bytes([b[0], b[1], b[2], b[3]])));
-        let (h, w) = rd(14).zip(rd(18)).ok_or("truncated PSD header")?;
-        return Ok(((w, h), 72.0));
-    }
-    let doc = crate::import(name, bytes).map_err(|e| e.to_string())?.document;
-    Ok(((f64::from(doc.size.width), f64::from(doc.size.height)), f64::from(doc.resolution_dpi)))
-}
-
 /// The source size of a smart object whose file we can't decode: its rendered bounds taken back
 /// through the inverse transform (the source's top-left is the origin).
 fn size_from_layer(sm: &photocraft_doc::SmartObject) -> (f64, f64) {
@@ -593,11 +582,14 @@ impl Ex {
             }
             LayerContent::Smart(sm) => {
                 let parsed = sm.psd_raw.as_deref().and_then(|d| crate::smart_map::parse_sold(d));
-                if sm.psd_raw.is_some() && parsed.is_none() {
-                    // Placed-layer data we don't parse (`PlLd` only): kept verbatim.
+                if sm.psd_raw.is_some() && parsed.is_none() && !self.plld_edited(sm) {
+                    // Placed-layer data that isn't `SoLd` (a CS2 `PlLd` record, or one we can't
+                    // read) and still says what the layer is: kept verbatim.
                     self.smart.prune_ok = false;
                     set_principal(&mut raw, smart_keys(sm.psd_raw.as_deref().map(Vec::as_slice)), sm.psd_raw.as_ref());
                 } else {
+                    // An edited CS2 `PlLd`-only layer is written like any other smart object
+                    // (`SoLd` and a regenerated `PlLd`), with its current placement (#2465).
                     self.smart_blocks(l, sm, parsed, &mut raw);
                 }
             }
@@ -608,7 +600,7 @@ impl Ex {
             // pixel layers, so it stays. A vector mask (`vmsk`/`vsms`, `vogk`) stays.
             LayerContent::Raster(_) => {
                 let masked = l.vector_mask.is_some();
-                raw.retain(|(k, _)| !RASTER_STALE_KEYS.contains(&k) && !adjust_map::ADJUSTMENT_KEYS.contains(&k) && k != b"CgEd" && !(k == b"vstk" && masked));
+                raw.retain(|(k, _)| !(RASTER_STALE_KEYS.contains(&k) || adjust_map::ADJUSTMENT_KEYS.contains(&k) || k == b"CgEd" || (k == b"vstk" && masked)));
             }
             LayerContent::Group(_) => {}
         }
@@ -767,6 +759,36 @@ impl Ex {
         self.warnings.extend(warnings.into_iter().map(|w| if w.starts_with("layer ") { w } else { format!("layer \"{}\": {w}", l.name) }));
     }
 
+    /// Whether a CS2 placed layer (`PlLd` with no `SoLd`, #2465) no longer matches its record:
+    /// moved, transformed, warped, filtered or given other contents. `false` for a record that
+    /// can't be read (or whose warp can't), or whose file isn't embedded: its contents were never
+    /// available, so it is kept.
+    fn plld_edited(&self, sm: &photocraft_doc::SmartObject) -> bool {
+        let Some(data) = sm.psd_raw.as_deref() else { return false };
+        let Some((id, corners)) = blocks::parse_plld(data) else { return false };
+        // Without its embedded file the contents were never available: keep the record as it
+        // is, rather than resolve the id (bytes from the file) as a path on disk.
+        if !self.smart.known.contains(&id) {
+            return false;
+        }
+        let warp = match blocks::parse_plld_warp(data) {
+            blocks::PlldWarp::Unreadable => return false,
+            blocks::PlldWarp::None => None,
+            blocks::PlldWarp::Warp(w) => Some(w),
+        };
+        if sm.source != (photocraft_doc::SmartSource::Linked { path: id.clone() })
+            || sm.warp != warp
+            || !sm.smart_filters.is_empty()
+            || sm.filter_mask.is_some()
+        {
+            return true;
+        }
+        // Placed as the importer places it (the same source size, from the same file, and the
+        // same frame: a custom warp's control-point box, #3677).
+        let size = crate::linked::source_size_in_blocks(self.smart.globals.iter().map(|(_, k, d)| (k, d.as_slice())), &id, &photocraft_raster::Interrupt::NONE);
+        blocks::plld_transform(&corners, size, warp.as_ref()) != (sm.transform, sm.perspective)
+    }
+
     /// Whether an imported placed layer still says what the smart object is: transform, warp,
     /// filter stack and filter mask as stored.
     fn placed_unchanged(&self, t: &crate::smart_map::Placed, data: &[u8], sm: &photocraft_doc::SmartObject, stack: &crate::smart_map::FilterStack) -> bool {
@@ -798,7 +820,7 @@ impl Ex {
                 let geometry = stored.map(|size| (size, f64::from(self.dpi))).or_else(|| {
                     let meta = photocraft_doc::Metadata { psd_global_blocks: self.smart.globals.clone(), ..Default::default() };
                     let f = crate::linked::find_linked_file(&meta, path)?;
-                    source_geometry(&f.file_name, &f.bytes).ok()
+                    crate::linked::source_geometry(&f.file_name, &f.bytes, &photocraft_raster::Interrupt::NONE).ok()
                 });
                 let (size, dpi) = geometry.unwrap_or((size_from_layer(sm), f64::from(self.dpi)));
                 let original = self.smart.linked_contents.entry(path.clone()).or_insert(sm.contents_id);
@@ -908,7 +930,8 @@ impl Ex {
             (format!("{stem}.psb"), data, size, f64::from(doc.resolution_dpi), Some(doc))
         } else {
             // Formats we can't decode (vector PDF/AI…) are still embedded; their size comes from the layer.
-            let (size, dpi) = source_geometry(file_name, bytes).unwrap_or(((0.0, 0.0), f64::from(self.dpi)));
+            let (size, dpi) =
+                crate::linked::source_geometry(file_name, bytes, &photocraft_raster::Interrupt::NONE).unwrap_or(((0.0, 0.0), f64::from(self.dpi)));
             (file_name.to_string(), bytes.to_vec(), size, dpi, None)
         };
         let uuid = contents_uuid(contents_id, &data);
@@ -1673,7 +1696,11 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
     if let Some(info) = &mut layer_info {
         // Photoshop pads the layer info to 4 bytes (an even pad misaligns readers after a global
         // `Lr16`/`Lr32` block, #200). A length that cannot be computed keeps the even default.
-        if info.pad_to(version, 4).is_err() {
+        // A global block's length is the exact data length and its padding to 4 follows the block:
+        // readers that check that length exactly (Unity's PSD Importer) reject it otherwise (#4654).
+        if matches!(placement, LayerInfoPlacement::GlobalBlock { .. }) {
+            info.padding = Some(Vec::new());
+        } else if info.pad_to(version, 4).is_err() {
             info.padding = None;
         }
     }

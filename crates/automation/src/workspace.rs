@@ -858,6 +858,8 @@ mod tests {
                 | "path.clippingPath.set"
                 | "path.rename"
                 | "path.stroke"
+                | "type.attachToPath"
+                | "type.detachFromPath"
                 | "select.toWorkPath"
                 | "layer.vectorMask.add"
                 | "layer.vectorMask.edit"
