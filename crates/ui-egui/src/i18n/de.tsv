@@ -15,7 +15,19 @@
 # way. Product and technology names (PhotoCraft, ArtCraft, OpenType, CMYK, Lab ...) stay in Latin
 # letters; the trailing "…" of dialog commands is kept. Plural rule: one|other (n != 1 -> other).
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	Kanalfarbe
+	Color Indicates:	Farbe kennzeichnet:
+	Solidity:	Solidität:
+	Masked Areas	Maskierte Bereiche
+	Selected Areas	Ausgewählte Bereiche
+	Ink Characteristics	Farbeigenschaften
+
 # Guide layout dialog
+
+# Custom print paper (#3820)
+	Paper Width	Papierbreite
+	Paper Height	Papierhöhe
 	Columns	Spalten
 	Rows	Zeilen
 	Number	Anzahl
@@ -73,6 +85,8 @@
 	Save	Speichern
 	Save As…	Speichern unter…
 	Save a Copy…	Kopie speichern…
+	{name} can't keep everything in this document	{name} kann nicht alles in diesem Dokument erhalten
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	Wählen Sie ein Format, das alles erhält, etwa Photoshop (PSD), oder speichern Sie eine Kopie.
 	Revert	Zurücksetzen
 	Export	Exportieren
 	Quick Export as PNG	Schnellexport als PNG
@@ -833,6 +847,9 @@
 	Appearance	Erscheinungsbild
 	Appearance (Layer Style)	Erscheinungsbild (Ebenenstil)
 	Apply Layer Mask	Ebenenmaske anwenden
+	Add Mask to Selection	Maske zur Auswahl hinzufügen
+	Subtract Mask from Selection	Maske von Auswahl subtrahieren
+	Intersect Mask with Selection	Schnittmenge von Maske und Auswahl
 	Apply Per Tip	Pro Pinselspitze anwenden
 	Apply next selected layer comp	Nächste ausgewählte Ebenenkomposition anwenden
 	Apply previous selected layer comp	Vorherige ausgewählte Ebenenkomposition anwenden
@@ -2098,6 +2115,11 @@
 	Rename Brush…	Pinsel umbenennen…
 	Delete Brush	Pinsel löschen
 	New Brush Preset…	Neue Pinselvorgabe…
+	Capture Brush Size in Preset	Pinselgröße in Vorgabe erfassen
+	Include Tool Settings	Werkzeugeinstellungen einschließen
+	Include Color	Farbe einschließen
+	Enter a name for the brush preset	Geben Sie einen Namen für die Pinselvorgabe ein
+	A brush preset with this name already exists	Eine Pinselvorgabe mit diesem Namen ist bereits vorhanden
 	Brush Preset Options	Pinselvorgaben-Optionen
 	Group name	Gruppenname
 	Brush name	Pinselname
@@ -2749,3 +2771,4 @@ curves	Smooth	Glätten
 	Step {step} is waiting for its dialog	Schritt {step} wartet auf seinen Dialog
 @plural	{n} action|{n} actions	{n} Aktion|{n} Aktionen
 	Auto Add/Delete	Autom. hinzuf./löschen
+	ICO is limited to 256 × 256 pixels	ICO ist auf 256 × 256 Pixel begrenzt

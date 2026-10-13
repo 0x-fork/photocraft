@@ -7,6 +7,10 @@
 # entries the same way. Product and technology names (PhotoCraft, ArtCraft, OpenType, CMYK, Lab ...)
 # stay as they are; the trailing "…" of dialog commands is kept.
 #
+# Custom paper dimensions in Print Settings.
+	Paper Width	Kağıt Genişliği
+	Paper Height	Kağıt Yüksekliği
+
 	Rows	Satırlar
 	Number	Sayı
 	Top:	Üst:
@@ -60,6 +64,8 @@
 	Save	Kaydet
 	Save As…	Farklı Kaydet…
 	Save a Copy…	Bir Kopyasını Kaydet…
+	{name} can't keep everything in this document	{name} bu belgedeki her şeyi koruyamaz
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	Photoshop (PSD) gibi her şeyi koruyan bir biçim seçin ya da bir kopyasını kaydedin.
 	Revert	Geri Döndür
 	Export	Dışa Aktar
 	Quick Export as PNG	PNG Olarak Hızlı Dışa Aktarma
@@ -817,6 +823,9 @@
 	Appearance	Görünüm
 	Appearance (Layer Style)	Görünüm (Katman Stili)
 	Apply Layer Mask	Katman Maskesini Uygula
+	Add Mask to Selection	Maskeyi Seçime Ekle
+	Subtract Mask from Selection	Maskeyi Seçimden Çıkar
+	Intersect Mask with Selection	Maskeyi Seçimle Kesiştir
 	Apply Per Tip	İpucu Başına Uygula
 	Apply next selected layer comp	Sonraki seçilen katman kompozisyonunu uygula
 	Apply previous selected layer comp	Önceki seçilen katman kompozisyonunu uygula
@@ -2058,6 +2067,11 @@
 	Rename Brush…	Fırçayı Yeniden Adlandır…
 	Delete Brush	Fırçayı Sil
 	New Brush Preset…	Yeni Fırça Ön Ayarı…
+	Capture Brush Size in Preset	Fırça Boyutunu Ön Ayara Kaydet
+	Include Tool Settings	Araç Ayarlarını Dahil Et
+	Include Color	Rengi Dahil Et
+	Enter a name for the brush preset	Fırça ön ayarı için bir ad girin
+	A brush preset with this name already exists	Bu adda bir fırça ön ayarı zaten var
 	Brush Preset Options	Fırça Ön Ayarı Seçenekleri
 	Group name	Grup adı
 	Brush name	Fırça adı
@@ -3840,3 +3854,10 @@ cameraData	Lens	Lens
 	Loaded Camera Raw settings from {file}	Camera Raw ayarları {file} dosyasından yüklendi
 	Loaded Camera Raw settings from {file} ({n} not supported)	Camera Raw ayarları {file} dosyasından yüklendi ({n} desteklenmiyor)
 	Auto Add/Delete	Otomatik Ekle/Sil
+	ICO is limited to 256 × 256 pixels	ICO 256 × 256 piksel ile sınırlıdır
+
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	Kanal Rengi
+	Color Indicates:	Rengin Gösterdiği:
+	Ink Characteristics	Mürekkep Özellikleri
+	Solidity:	Doluluk:

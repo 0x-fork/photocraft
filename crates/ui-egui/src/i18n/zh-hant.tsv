@@ -19,7 +19,20 @@
 # kept. Full-width punctuation (，。：) inside sentences; half-width parentheses and the " · "
 # separators as in the English.
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	色版顏色
+	Color Indicates:	色彩指示：
+	Solidity:	硬度：
+	Masked Areas	遮色片區域
+	Selected Areas	選取區域
+	Spot Color	特別色
+	Ink Characteristics	油墨特性
+
 # Guide layout dialog
+
+# Custom print paper (#3820)
+	Paper Width	紙張寬度
+	Paper Height	紙張高度
 	Columns	欄
 	Rows	列
 	Number	數量
@@ -77,6 +90,8 @@
 	Save	儲存
 	Save As…	另存新檔…
 	Save a Copy…	儲存拷貝…
+	{name} can't keep everything in this document	{name} 無法保留此文件中的所有內容
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	請選擇能保留全部內容的格式，例如 Photoshop (PSD)，或儲存拷貝。
 	Revert	回復
 	Export	匯出
 	Quick Export as PNG	快速匯出為 PNG
@@ -847,6 +862,9 @@
 	Appearance	外觀
 	Appearance (Layer Style)	外觀 (圖層樣式)
 	Apply Layer Mask	套用圖層遮色片
+	Add Mask to Selection	增加遮色片至選取範圍
+	Subtract Mask from Selection	從選取範圍中減去遮色片
+	Intersect Mask with Selection	遮色片與選取範圍相交
 	Apply Per Tip	依筆尖套用
 	Apply next selected layer comp	套用下一個選取的圖層構圖
 	Apply previous selected layer comp	套用上一個選取的圖層構圖
@@ -2113,6 +2131,11 @@
 	Rename Brush…	重新命名筆刷…
 	Delete Brush	刪除筆刷
 	New Brush Preset…	新增筆刷預設集…
+	Capture Brush Size in Preset	在預設集中擷取筆刷尺寸
+	Include Tool Settings	包含工具設定
+	Include Color	包含顏色
+	Enter a name for the brush preset	請輸入筆刷預設集的名稱
+	A brush preset with this name already exists	已有相同名稱的筆刷預設集
 	Brush Preset Options	筆刷預設集選項
 	Group name	群組名稱
 	Brush name	筆刷名稱
@@ -2699,3 +2722,4 @@ curves	Smooth	平滑
 	Step {step} is waiting for its dialog	步驟 {step} 正在等待其對話框
 @plural	{n} action|{n} actions	{n} 個動作
 	Auto Add/Delete	自動增加/刪除
+	ICO is limited to 256 × 256 pixels	ICO 最大為 256 × 256 像素

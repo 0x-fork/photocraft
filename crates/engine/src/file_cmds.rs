@@ -151,8 +151,9 @@ pub fn extension(path: &str) -> Option<String> {
     file_name(path).rsplit_once('.').filter(|(base, ext)| !base.is_empty() && !ext.is_empty()).map(|(_, ext)| ext.to_ascii_lowercase())
 }
 
-/// Whether a save without a new path may write back to `path`: only layered files (PSD, PSB,
-/// .pcraft). A flat file goes through Save As instead, so it is never flattened over the original.
+/// Whether a save without a new path may write back to `path` as far as its format goes: only
+/// layered files (PSD, PSB, OpenRaster, .pcraft). A flat file goes through Save As instead, so it
+/// is never flattened over the original. Whether this document fits is [`holds_at`].
 pub fn saves_in_place(path: &str) -> bool {
     extension(path).is_some_and(|ext| layered_extension(&ext))
 }
@@ -162,6 +163,33 @@ pub fn saves_in_place(path: &str) -> bool {
 /// saves, desktop and headless alike (#1547, #2579).
 pub fn layered_extension(ext: &str) -> bool {
     matches!(ext, "psd" | "psb" | "pcraft" | "ora")
+}
+
+/// Whether a file in format `ext` (lower-case) holds the whole of `doc`, so it can be the
+/// document's own file: PSD, PSB and .pcraft always; OpenRaster only when it drops nothing (no
+/// adjustment layers, styles, masks…, [`photocraft_io::ora_losses`]). A save to a format that
+/// doesn't hold the document is a copy, and File › Save goes through Save As, so an editable
+/// original is never overwritten with less than it had (#3806).
+pub fn holds(doc: &photocraft_doc::Document, ext: &str) -> bool {
+    match ext {
+        "psd" | "psb" | "pcraft" => true,
+        "ora" => photocraft_io::ora_losses(doc).is_empty(),
+        _ => false,
+    }
+}
+
+/// [`holds`] for the file at `path`.
+pub fn holds_at(doc: &photocraft_doc::Document, path: &str) -> bool {
+    extension(path).is_some_and(|ext| holds(doc, &ext))
+}
+
+/// What a save of `doc` to `path` would leave out when its format can't hold it: OpenRaster's
+/// [`photocraft_io::ora_losses`]; empty for other formats.
+pub fn losses_at(doc: &photocraft_doc::Document, path: &str) -> Vec<String> {
+    match extension(path).as_deref() {
+        Some("ora") => photocraft_io::ora_losses(doc),
+        _ => Vec::new(),
+    }
 }
 
 /// Whether `path` names a document template (.psdt). A template opens as a new untitled document
@@ -960,7 +988,7 @@ fn batch(s: &mut Session, p: &Value) -> Result<Value> {
     // Each result goes to the destination folder, which overrides the action's recorded Save /
     // Save As steps (Photoshop's "Override Action 'Save As' Commands"). Recorded view steps
     // (zoom, fit) don't change the output, so they are skipped (#2752).
-    steps.retain(|(id, _)| !crate::actions_cmds::shell_save_command(id) && !crate::actions_cmds::shell_view_command(id));
+    steps.retain(|(id, _)| !crate::actions_cmds::shell_save_command(id) && !crate::actions_cmds::shell_view_command(id) && id != "file.export.quickExport");
     if let Some((id, _)) = steps.iter().find(|(id, _)| crate::commands::find(id).is_none()) {
         return Err(EngineError::BadParams { cmd: cmd.into(), msg: format!("unknown command `{id}` in the action") });
     }

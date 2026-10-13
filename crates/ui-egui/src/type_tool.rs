@@ -766,6 +766,10 @@ pub fn handle_keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
         crate::type_transform::cancel_drag(app);
     }
     let Some(ed) = app.ui.text_edit.clone() else { return false };
+    // The font picker (and other focused fields) owns keyboard input while it is open.
+    if ctx.text_edit_focused() || ctx.egui_wants_keyboard_input() {
+        return true;
+    }
     let id = LayerId(ed.layer);
     let Some(text) = current_text(app, id) else {
         app.ui.text_edit = None;

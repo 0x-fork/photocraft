@@ -187,14 +187,31 @@ fn pen_to_json(pen: &PenPath, closed: bool) -> Value {
     json!({"subpaths": [{"closed": closed, "knots": pen.knots.iter().enumerate().map(|(i, k)| json!({"anchor": k[0], "in": k[1], "out": k[2], "smooth": !pen.unlinked.contains(&i) && (k[1] != k[0] || k[2] != k[0])})).collect::<Vec<_>>()}]})
 }
 
+/// Is `(x, y)` on the first anchor of a Pen path that a click there would close (two anchors or
+/// more)? `tol` is the anchors' hit radius in document pixels.
+fn on_closing_anchor(pen: &PenPath, x: f64, y: f64, tol: f64) -> bool {
+    pen.knots.len() >= 2 && pen.knots.first().is_some_and(|k| (k[0][0] - x).hypot(k[0][1] - y) < tol)
+}
+
+/// Would a click at `(x, y)` with `tool` close the path being drawn: the Pen over the first
+/// anchor, or the Curvature Pen over the first of three anchors or more? The canvas shows the
+/// close-path pointer there, as Photoshop does (#4596).
+pub fn closes_path_at(app: &PhotocraftApp, tool: Tool, x: f64, y: f64) -> bool {
+    let Some(pen) = app.ui.pen.as_ref().filter(|p| !p.dragging && p.moving.is_none()) else { return false };
+    match tool {
+        Tool::Pen => !pen.curvature && on_closing_anchor(pen, x, y, 6.0 / app.point_zoom().max(0.01) as f64),
+        Tool::CurvaturePen => pen.curvature && pen.knots.len() >= 3 && curvature_hit(app, x, y) == Some(0),
+        _ => false,
+    }
+}
+
 /// Pen press: close on the first anchor, reshape the last anchor's outgoing handle,
 /// or add a new anchor (dragging a new anchor pulls symmetrical handles).
 pub fn pen_down(app: &mut PhotocraftApp, x: f64, y: f64) {
     let tol = 6.0 / app.point_zoom().max(0.01) as f64;
     let pen = app.ui.pen.get_or_insert_with(PenPath::default);
     if let Some(first) = pen.knots.first().map(|k| k[0])
-        && pen.knots.len() >= 2
-        && (first[0] - x).hypot(first[1] - y) < tol
+        && on_closing_anchor(pen, x, y, tol)
     {
         // Pressing the first anchor closes the path on release. Until then a stand-in for it
         // takes the drag, which pulls out that anchor's handles (close-drag, #3306).
@@ -547,6 +564,18 @@ pub fn takes_path_mask(id: &str) -> bool {
     id.starts_with("layer.newFillLayer.") || id.starts_with("layer.newAdjustmentLayer.")
 }
 
+/// The work or saved path explicitly selected in the Paths panel (not a layer's own path).
+pub fn selected_document_path(app: &PhotocraftApp) -> Option<String> {
+    let st = app.session.active()?;
+    let sel = app.ui.selected_path.as_deref()?;
+    let listed = path_rows(&st.doc, st.active_layer).iter().any(|r| match r.kind {
+        PathRow::Work => sel == "work",
+        PathRow::Saved => r.name == sel,
+        PathRow::Layer => false,
+    });
+    listed.then(|| sel.to_string())
+}
+
 /// New fill and adjustment layers take the path selected in the Paths panel as their vector mask,
 /// as in Photoshop (#1419): the command gets it as `"path"` unless the caller set one (`null`
 /// opts out). Only an explicitly selected work or saved path counts; deselect it by clicking the
@@ -555,16 +584,7 @@ pub fn with_active_path(app: &PhotocraftApp, id: &str, params: Value) -> Value {
     if !takes_path_mask(id) || params.get("path").is_some() {
         return params;
     }
-    let Some(st) = app.session.active() else { return params };
-    let Some(sel) = app.ui.selected_path.as_deref() else { return params };
-    let listed = path_rows(&st.doc, st.active_layer).iter().any(|r| match r.kind {
-        PathRow::Work => sel == "work",
-        PathRow::Saved => r.name == sel,
-        PathRow::Layer => false,
-    });
-    if !listed {
-        return params;
-    }
+    let Some(sel) = selected_document_path(app) else { return params };
     match params {
         Value::Object(mut m) => {
             m.insert("path".into(), json!(sel));
@@ -2026,6 +2046,39 @@ mod tests {
         path_selection_finish(&mut app, [50.0, 50.0], [60.0, 55.0]);
         let wp = app.session.active().unwrap().doc.work_path.clone().unwrap();
         assert_eq!((wp.subpaths[0].knots[0].anchor.x, wp.subpaths[0].knots[0].anchor.y), (30.0, 25.0));
+    }
+
+    /// #4596: the close-path pointer shows where a click would close the path, and only there:
+    /// over the first anchor once the Pen has two anchors (the Curvature Pen three), not while an
+    /// anchor is being dragged.
+    #[test]
+    fn close_path_pointer_shows_where_a_click_closes() {
+        let mut app = app();
+        app.ui.tool = Tool::Pen;
+        assert!(!closes_path_at(&app, Tool::Pen, 20.0, 20.0), "no path yet");
+        pen_down(&mut app, 20.0, 20.0);
+        pen_up(&mut app);
+        assert!(!closes_path_at(&app, Tool::Pen, 20.0, 20.0), "one anchor: a click there doesn't close");
+        pen_down(&mut app, 120.0, 20.0);
+        assert!(!closes_path_at(&app, Tool::Pen, 20.0, 20.0), "not while dragging the new anchor");
+        pen_up(&mut app);
+        assert!(closes_path_at(&app, Tool::Pen, 21.0, 22.0), "over the first anchor");
+        assert!(!closes_path_at(&app, Tool::Pen, 120.0, 20.0) && !closes_path_at(&app, Tool::Pen, 60.0, 60.0), "the last anchor and empty canvas");
+        assert!(!closes_path_at(&app, Tool::CurvaturePen, 20.0, 20.0), "a Pen path isn't the Curvature Pen's");
+        pen_down(&mut app, 21.0, 22.0);
+        pen_up(&mut app);
+        assert!(app.ui.pen.is_none() && !closes_path_at(&app, Tool::Pen, 20.0, 20.0), "the click closed it");
+
+        app.ui.tool = Tool::CurvaturePen;
+        for (x, y) in [(20.0, 20.0), (120.0, 20.0)] {
+            curvature_down(&mut app, x, y);
+            curvature_up(&mut app);
+        }
+        assert!(!closes_path_at(&app, Tool::CurvaturePen, 20.0, 20.0), "two anchors: the Curvature Pen moves the first");
+        curvature_down(&mut app, 120.0, 120.0);
+        curvature_up(&mut app);
+        assert!(closes_path_at(&app, Tool::CurvaturePen, 20.0, 20.0));
+        assert!(!closes_path_at(&app, Tool::CurvaturePen, 120.0, 120.0));
     }
 
     #[test]

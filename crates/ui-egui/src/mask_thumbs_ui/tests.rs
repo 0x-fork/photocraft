@@ -169,6 +169,29 @@ fn a_new_mask_is_targeted_so_the_next_footer_trash_keeps_its_layer() {
     assert!(h.state().session.active().unwrap().doc.layer(photocraft_doc::LayerId(shape)).is_some());
 }
 
+/// #4728: with a path selected in the Paths panel, the footer's "Add vector mask" makes the vector
+/// mask from that path (Layer › Vector Mask › Current Path) and targets it, so Properties shows
+/// its Density and Feather.
+#[test]
+fn add_vector_mask_uses_the_selected_path_and_targets_the_new_mask() {
+    let (s, _, _) = session();
+    let mut h = harness(s, 0, 1.0, 290.0);
+    h.state_mut().run("layer.new.layer", json!({"name": "Spock"})).unwrap();
+    h.state_mut().run("layer.layerMask.revealAll", json!({})).unwrap();
+    let id = h.state().session.active().unwrap().active_layer.unwrap();
+    let path = json!({"subpaths": [{"closed": true, "knots": [[30, 20], [90, 20], [90, 80], [30, 80]]}]});
+    h.state_mut().run("path.set", json!({"name": "work", "path": path})).unwrap();
+    h.state_mut().ui.selected_path = Some("work".into());
+    let work = h.state().session.active().unwrap().doc.work_path.clone().unwrap();
+    h.run_steps(3);
+    let at = h.get_by_label("Add vector mask").rect().center();
+    click_with(&mut h, at, Modifiers::NONE);
+    let l = h.state().session.active().unwrap().doc.layer(id).unwrap().clone();
+    assert_eq!(l.vector_mask.map(|v| v.path), Some(work), "the vector mask is the selected path, not Reveal All");
+    assert!(h.state().ui.vector_mask_target && !h.state().ui.mask_target, "the new vector mask is targeted");
+    assert_eq!(h.state().ui.selected_path.as_deref(), Some("layer"), "the mask's path becomes the active path");
+}
+
 #[test]
 fn dragging_a_layer_row_to_trash_still_deletes_the_layer_with_a_mask_targeted() {
     let (s, masked, _) = session();

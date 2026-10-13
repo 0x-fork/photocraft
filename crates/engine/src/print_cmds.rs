@@ -450,6 +450,15 @@ pub fn printing_disabled() -> bool {
     PRINTING_DISABLED.load(std::sync::atomic::Ordering::Relaxed) || std::env::var_os("PHOTOCRAFT_NO_PRINT").is_some_and(|v| !v.is_empty() && v != "0")
 }
 
+/// The printers the system spooler knows (Print's Printer menu): CUPS queues and driverless
+/// destinations on macOS and Linux, `Win32_Printer` on Windows, none in the browser.
+fn printers(_: &mut Session, _: &Value) -> Result<Value> {
+    let list = craft_print::printers();
+    let default = list.iter().find(|p| p.default).map(|p| p.name.clone());
+    let printers: Vec<Value> = list.into_iter().map(|p| json!({"name": p.name, "default": p.default})).collect();
+    Ok(json!({"printers": printers, "default": default}))
+}
+
 fn print(s: &mut Session, p: &Value) -> Result<Value> {
     do_print(s, p, "file.print")
 }
@@ -621,6 +630,16 @@ pub fn specs() -> Vec<CommandSpec> {
     const PRINT_PARAMS: &str = r##"{"printer":name? (default printer),"copies":1..999=1,"paper":"letter|legal|tabloid|a3|a4|a5|4x6|5x7"|[w,h] pt="letter","orientation":"portrait|landscape"="portrait","center":bool=true,"top":in?,"left":in?,"scale":%=100,"scaleToFit":bool=false,"colorHandling":"printerManages|photocraftManages|noColorManagement"="printerManages","printerProfile":profile? (photocraftManages),"intent":"perceptual|relative|saturation|absolute"="relative","bpc":bool=true,"cornerCropMarks":bool,"centerCropMarks":bool,"registrationMarks":bool,"description":bool,"labels":bool,"emulsionDown":bool=false (mirror the page left to right, for sublimation and other transfer printing),"output":pdf path? (print to PDF; then "send" defaults to false),"send":bool?,"dryRun":bool=false (render the PDF, report the backend command, don't spool; write a PDF only at an explicit output path)} → {pdf:path|null (null without explicit output), imageRect, command:diagnostic array|null, sent}"##;
     vec![
         spec!("file.print", "Print…", &["File"], Some("Cmd+P"), PRINT_PARAMS, native_doc, print),
+        CommandSpec {
+            id: "file.printers",
+            label: "Printers",
+            menu: &[],
+            shortcut: None,
+            params: r##"{} → {printers:[{name, default}], default:name|null} (the system spooler's printers; a name is Print's "printer")"##,
+            enabled: crate::commands::always,
+            journal: false,
+            run: printers,
+        },
         spec!(
             "file.printOneCopy",
             "Print One Copy",

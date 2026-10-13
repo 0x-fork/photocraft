@@ -3,7 +3,17 @@
 # Original translations based on general Greek graphics/computing terminology.
 # Covers every source label the i18n coverage check lists.
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	Χρώμα καναλιού
+	Color Indicates:	Το χρώμα υποδεικνύει:
+	Solidity:	Συμπαγότητα:
+	Ink Characteristics	Χαρακτηριστικά μελανιού
+
 # Guide layout dialog
+
+# Custom print paper (#3820)
+	Paper Width	Πλάτος χαρτιού
+	Paper Height	Ύψος χαρτιού
 	Rows	Γραμμές
 	Number	Πλήθος
 	Top:	Επάνω:
@@ -54,6 +64,8 @@
 	Save	Αποθήκευση
 	Save As…	Αποθήκευση ως…
 	Save a Copy…	Αποθήκευση αντιγράφου…
+	{name} can't keep everything in this document	Το {name} δεν μπορεί να κρατήσει όλο το περιεχόμενο αυτού του εγγράφου
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	Επιλέξτε μια μορφή που τα κρατά όλα, όπως Photoshop (PSD), ή αποθηκεύστε ένα αντίγραφο.
 	Revert	Επαναφορά αποθηκευμένης έκδοσης
 	Export	Εξαγωγή
 	Quick Export as PNG	Γρήγορη εξαγωγή σε PNG
@@ -258,6 +270,9 @@
 	Add Layer Mask	Προσθήκη μάσκας επιπέδου
 	Always use pressure for opacity	Πάντα χρήση πίεσης για την αδιαφάνεια
 	Apply Layer Mask	Εφαρμογή μάσκας επιπέδου
+	Add Mask to Selection	Προσθήκη μάσκας στην επιλογή
+	Subtract Mask from Selection	Αφαίρεση μάσκας από την επιλογή
+	Intersect Mask with Selection	Τομή μάσκας με την επιλογή
 	Brush Preset picker	Επιλογή προεπιλογής πινέλου
 	Brush Reconstruct Options	Επιλογές πινέλου επαναφοράς
 	Brush Tool Options	Επιλογές πινέλου (Brush Tool)
@@ -1479,6 +1494,11 @@
 	Developing {name}	Επεξεργασία του {name}
 	Camera Raw ({name})	Επεξεργασία RAW ({name})
 	New Brush Preset…	Νέα προεπιλογή πινέλου…
+	Capture Brush Size in Preset	Αποθήκευση μεγέθους πινέλου στην προεπιλογή
+	Include Tool Settings	Συμπερίληψη ρυθμίσεων εργαλείου
+	Include Color	Συμπερίληψη χρώματος
+	Enter a name for the brush preset	Εισαγάγετε όνομα για την προεπιλογή πινέλου
+	A brush preset with this name already exists	Υπάρχει ήδη προεπιλογή πινέλου με αυτό το όνομα
 	Brush Preset Options	Επιλογές προεπιλογής πινέλου
 	Show font names in english	Εμφάνιση ονομάτων γραμματοσειρών στα αγγλικά
 	Show menu colors	Εμφάνιση χρωμάτων μενού
@@ -3805,3 +3825,4 @@ curves	Smooth	Εξομάλυνση
 	Step {step} is waiting for its dialog	Το βήμα {step} περιμένει το παράθυρο διαλόγου του
 @plural	{n} action|{n} actions	{n} ενέργεια|{n} ενέργειες
 	Auto Add/Delete	Αυτόματη προσθήκη/διαγραφή
+	ICO is limited to 256 × 256 pixels	Το ICO περιορίζεται σε 256 × 256 εικονοστοιχεία

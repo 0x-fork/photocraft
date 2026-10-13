@@ -129,6 +129,7 @@ fn show_modal<T>(
 pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     crate::layer_style::color_picker::prune(app);
     crate::type_panels_ui::color_picker::prune(app);
+    crate::edit_history::track_dialogs(app, ctx);
     let dialogs = app.ui.dialogs.clone();
     let top = dialogs.last().map(|d| d.id);
     let mut shown = Vec::new();
@@ -263,10 +264,15 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     about_tab_body(app, ui, chosen);
                 }
                 DialogKind::Command if crate::guide_layout_ui::owns(&fields) => outcome = crate::guide_layout_ui::body(app, ui, &mut fields, interactive),
+                DialogKind::Command if crate::brush_preset_dialog::owns(&fields) => {
+                    outcome = crate::brush_preset_dialog::body(app, ui, &mut fields, interactive)
+                }
                 DialogKind::Command if crate::fill_ui::owns(&fields) => crate::fill_ui::body(app, ui, &mut fields),
                 DialogKind::Command if crate::pattern_fill_ui::owns(&fields) => crate::pattern_fill_ui::body(app, ui, &mut fields),
                 DialogKind::Command if crate::stroke_ui::owns(&fields) => crate::stroke_ui::body(ui, &mut fields),
                 DialogKind::Command if crate::snapshot_dialog::owns(&fields) => crate::snapshot_dialog::body(ui, &mut fields),
+                DialogKind::Command if crate::channel_options_ui::owns(&fields) => crate::channel_options_ui::body(ui, &mut fields),
+                DialogKind::Command if crate::channel_options_ui::owns_new_spot(&fields) => crate::channel_options_ui::new_spot_body(ui, &mut fields),
                 DialogKind::Command if crate::shape_dialog::owns(&fields) => crate::shape_dialog::body(app, ui, &mut fields),
                 DialogKind::Command if crate::delete_layer_prompt::owns(&fields) => crate::delete_layer_prompt::body(ui, &mut fields),
                 DialogKind::Command if crate::actions::owns_insert_stop(&fields) => crate::actions::insert_stop_body(ui, &mut fields),
@@ -320,8 +326,8 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 }
             }
             crate::field_tab::end(ui.ctx(), tab);
-            if crate::guide_layout_ui::owns(&fields) {
-                // This dialog owns its right-side actions and validates Enter itself.
+            if crate::guide_layout_ui::owns(&fields) || crate::brush_preset_dialog::owns(&fields) {
+                // These dialogs own their right-side actions and validate Enter themselves.
             } else if crate::color_picker_ui::owns(&fields) {
                 if interactive && outcome.is_none() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     outcome = Some(true);
@@ -544,10 +550,13 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
             r
         }
         DialogKind::Command if crate::guide_layout_ui::owns(&d.fields) => crate::guide_layout_ui::confirm(app, &d.fields),
+        DialogKind::Command if crate::brush_preset_dialog::owns(&d.fields) => crate::brush_preset_dialog::confirm(app, &d.fields),
         DialogKind::Command if crate::fill_ui::owns(&d.fields) => crate::fill_ui::confirm(app, &d.fields),
         DialogKind::Command if crate::pattern_fill_ui::owns(&d.fields) => crate::pattern_fill_ui::confirm(app, &d.fields),
         DialogKind::Command if crate::stroke_ui::owns(&d.fields) => crate::stroke_ui::confirm(app, &d.fields),
         DialogKind::Command if crate::snapshot_dialog::owns(&d.fields) => crate::snapshot_dialog::confirm(app, &d.fields),
+        DialogKind::Command if crate::channel_options_ui::owns(&d.fields) => crate::channel_options_ui::confirm(app, &d.fields),
+        DialogKind::Command if crate::channel_options_ui::owns_new_spot(&d.fields) => crate::channel_options_ui::confirm_new_spot(app, &d.fields),
         DialogKind::Command if crate::shape_dialog::owns(&d.fields) => crate::shape_dialog::confirm(app, &d.fields),
         DialogKind::Command if crate::delete_layer_prompt::owns(&d.fields) => crate::delete_layer_prompt::confirm(app, &d.fields),
         DialogKind::Command if crate::actions::owns_insert_stop(&d.fields) => crate::actions::insert_stop_confirm(app, &d.fields),

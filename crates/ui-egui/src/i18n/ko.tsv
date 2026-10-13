@@ -7,7 +7,20 @@
 # Licensed MIT OR Apache-2.0. See LICENSE-translations.txt and ATTRIBUTION.md.
 # Product names and technology names retain their spelling.
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	채널 색상
+	Color Indicates:	색상 표시 내용:
+	Solidity:	견고도:
+	Masked Areas	마스크 영역
+	Selected Areas	선택 영역
+	Spot Color	별색
+	Ink Characteristics	잉크 특성
+
 # Guide layout dialog
+
+# Custom print paper (#3820)
+	Paper Width	용지 너비
+	Paper Height	용지 높이
 	Columns	열
 	Rows	행
 	Number	개수
@@ -60,6 +73,8 @@
 	Save	저장
 	Save As…	다른 이름으로 저장…
 	Save a Copy…	사본 저장…
+	{name} can't keep everything in this document	{name}에는 이 문서의 모든 내용을 저장할 수 없습니다
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	Photoshop(PSD)처럼 모든 내용을 유지하는 형식을 선택하거나 사본을 저장하세요.
 	Revert	되돌리기
 	Export	내보내기
 	Quick Export as PNG	PNG로 빠르게 내보내기
@@ -815,6 +830,9 @@
 	Appearance	모양새
 	Appearance (Layer Style)	모양새(레이어 스타일)
 	Apply Layer Mask	레이어 마스크 적용
+	Add Mask to Selection	선택 영역에 마스크 추가
+	Subtract Mask from Selection	선택 영역에서 마스크 빼기
+	Intersect Mask with Selection	마스크와 선택 영역 교차
 	Apply Per Tip	끝당 적용
 	Apply next selected layer comp	선택한 다음 레이어 구성 요소 적용
 	Apply previous selected layer comp	선택한 이전 레이어 구성 요소 적용
@@ -2071,6 +2089,11 @@
 	Rename Brush…	브러시 이름 바꾸기…
 	Delete Brush	브러시 삭제
 	New Brush Preset…	새 브러시 사전 설정…
+	Capture Brush Size in Preset	사전 설정에 브러시 크기 캡처
+	Include Tool Settings	도구 설정 포함
+	Include Color	색상 포함
+	Enter a name for the brush preset	브러시 사전 설정의 이름을 입력하십시오
+	A brush preset with this name already exists	이 이름의 브러시 사전 설정이 이미 있습니다
 	Brush Preset Options	브러시 사전 설정 옵션
 	Group name	그룹 이름
 	Brush name	브러시 이름
@@ -3279,3 +3302,4 @@ curves	Smooth	매끄럽게
 	Step {step} is waiting for its dialog	{step}단계가 대화 상자를 기다리고 있습니다
 @plural	{n} action|{n} actions	액션 {n}개
 	Auto Add/Delete	자동 추가/삭제
+	ICO is limited to 256 × 256 pixels	ICO는 256 × 256픽셀로 제한됩니다

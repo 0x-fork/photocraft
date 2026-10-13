@@ -11,7 +11,7 @@ use crate::state::DialogKind;
 use crate::theme::Tokens;
 use crate::{ExportSettings, PhotocraftApp};
 
-const FORMATS: [(&str, &str); 5] = [("png", "PNG"), ("jpg", "JPG"), ("webp", "WebP"), ("tif", "TIFF"), ("tga", "TGA")];
+const FORMATS: [(&str, &str); 6] = [("png", "PNG"), ("jpg", "JPG"), ("webp", "WebP"), ("tif", "TIFF"), ("tga", "TGA"), ("ico", "ICO")];
 
 /// Preferences ▸ remembered dialog settings: Export As writes the settings it was used with
 /// last under its command id and seeds the next dialog from them, as Fill, Liquify and the
@@ -217,6 +217,9 @@ fn export_document(doc: &Document, f: &Map<String, Value>, max_side: Option<u32>
     // Both dimensions are sent: a scale can leave a 1 px width unchanged while halving the
     // height, and the engine would otherwise keep the aspect ratio from the width alone.
     let (w, h) = scaled_size(doc.size.width as f64, doc.size.height as f64, scale);
+    if s_fmt(f) == "ico" && (w > 256.0 || h > 256.0) && max_side.is_none() {
+        return Err("ICO export is limited to 256 × 256 pixels; reduce the export scale".into());
+    }
     if (w - doc.size.width as f64).abs() >= 1.0 || (h - doc.size.height as f64).abs() >= 1.0 {
         s.execute("image.imageSize", json!({"width": w, "height": h, "resample": if max_side.is_some() { "bilinear" } else { "bicubic" }}))
             .map_err(|e| e.to_string())?;
@@ -281,7 +284,8 @@ fn settings(f: &Map<String, Value>) -> ExportSettings {
 /// Estimated size (bytes) from a ≤512 px proxy encode, scaled by pixel count.
 fn estimate(app: &PhotocraftApp, doc: &Document, f: &Map<String, Value>) -> Option<u64> {
     let export = app.services.export.as_ref()?;
-    let proxy = export_document(doc, f, Some(512)).ok()?;
+    let max = if s_fmt(f) == "ico" { 256 } else { 512 };
+    let proxy = export_document(doc, f, Some(max)).ok()?;
     let (bytes, _) = export(&proxy, &format!("estimate.{}", s_fmt(f)), &settings(f)).ok()?;
     let scale = n(f, "scale", 100.0) / 100.0;
     let full = doc.size.width as f64 * scale * doc.size.height as f64 * scale;
@@ -351,6 +355,9 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
             let (bw, bh) = (n(f, "__w", f64::from(doc.size.width)), n(f, "__h", f64::from(doc.size.height)));
             let (w, h) = scaled_size(bw, bh, f64::from(sc) / 100.0);
             ui.label(egui::RichText::new(format!("{w} × {h} px")).color(t.text_dim).size(11.5));
+            if fmt == "ico" && (w > 256.0 || h > 256.0) {
+                ui.label(egui::RichText::new(tl!("ICO is limited to 256 × 256 pixels")).color(t.warning));
+            }
         });
         ui.add_space(12.0);
         // Right: preview + estimated size.
@@ -492,6 +499,20 @@ fn quick_export(app: &mut PhotocraftApp, p: Value) -> Result<Value, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ico_export_is_available_and_rejects_oversize_output() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 300, "height": 200})).unwrap();
+        let mut f = Map::new();
+        f.insert("format".into(), json!("ico"));
+        f.insert("scale".into(), json!(100));
+        assert!(FORMATS.iter().any(|(ext, _)| *ext == "ico"));
+        assert!(export_document(&app.session.active().unwrap().doc, &f, None).err().is_some_and(|e| e.contains("256")));
+        f.insert("scale".into(), json!(50));
+        let resized = export_document(&app.session.active().unwrap().doc, &f, None).unwrap();
+        assert_eq!((resized.size.width, resized.size.height), (150, 100));
+    }
+
     use super::*;
 
     /// Export As reopens with the settings it was used with last (Preferences ▸ remembered

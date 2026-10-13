@@ -592,6 +592,20 @@ fn render_is_tile_independent() {
     }
 }
 
+/// A Lab Invert layer in a 16-bit document keeps a grey neutral (the compositor passes the
+/// document's depth to `adjust::apply_in`).
+#[test]
+fn a_16_bit_lab_invert_layer_keeps_greys_neutral() {
+    let mut d = Document::new("lab", Size::new(2, 2), ColorMode::Lab, SampleType::U16);
+    let mut bg = Layer::raster("bg", d.pixel_format());
+    bg.surface_mut().unwrap().fill_rect(Rect::new(0, 0, 2, 2), &[0.25, 128.0 / 255.0, 128.0 / 255.0, 1.0]);
+    d.layers.push(bg);
+    d.layers.push(Layer::new("inv", LayerContent::Adjustment(Adjustment::Invert)));
+    let p = px(&d, 1, 1);
+    let lab = photocraft_color::convert::srgb_to_lab([p[0], p[1], p[2]]);
+    assert!((lab[0] - 75.0).abs() < 0.1 && lab[1].abs() < 0.05 && lab[2].abs() < 0.05, "{lab:?}");
+}
+
 #[test]
 fn cmyk_document_renders_via_rgb() {
     let mut d = Document::new("c", Size::new(2, 2), ColorMode::Cmyk, SampleType::U8);
@@ -1499,6 +1513,22 @@ fn blend_if_underlying_layer_hides_by_the_backdrop_value() {
     assert!(close4(px(&d, 6, 1), [1.0, 1.0, 1.0, 1.0]));
 }
 
+/// An 8-bit backdrop at level `k` counts as `k` for a hard Underlying black point at `k`, also
+/// over a semi-transparent backdrop, where compositing leaves the value a few millionths off the
+/// level (19.999998 for 20 before #4395); the GPU compositor agrees.
+#[test]
+fn blend_if_hard_point_includes_its_own_level() {
+    for k in 0..=255u8 {
+        let v = f32::from(k) / 255.0;
+        let mut d = Document::new("t", Size::new(2, 1), ColorMode::Rgb, SampleType::U8);
+        d.layers.push(solid_layer("under", Rect::new(0, 0, 2, 1), [v, v, v, 184.0 / 255.0]));
+        let mut l = solid_layer("top", Rect::new(0, 0, 2, 1), [1.0, 0.0, 0.0, 1.0]);
+        l.blend_if.set(1, [FULL, range([k, k], [255, 255])]);
+        d.layers.push(l);
+        assert!(close4(px(&d, 0, 0), [1.0, 0.0, 0.0, 1.0]), "level {k} is hidden by a black point at {k}");
+    }
+}
+
 #[test]
 fn blend_if_split_point_fades_like_opacity() {
     // A split black point (Alt-drag) at 50/150 shows a value-100 layer at half strength, which
@@ -2388,7 +2418,9 @@ fn lab_documents_evaluate_invert_threshold_and_gradient_map_on_lab() {
         };
         let near = |got: [f32; 3], want: [f32; 3], tol: f32| got.iter().zip(want).all(|(g, w)| (g - w).abs() <= tol);
         let inv = render(Adjustment::Invert);
-        assert!(near(inv, [70.0, -13.0, 17.0], 1.0), "{depth:?}: {inv:?}");
+        // 8-bit bytes become 255 - v (a, b one step past the mirror); 16 bits mirror them exactly.
+        let want = if depth == SampleType::U8 { [70.0, -13.0, 17.0] } else { [70.0, -12.0, 18.0] };
+        assert!(near(inv, want, 0.5), "{depth:?}: {inv:?}");
         let th = render(Adjustment::Threshold { level: 0.25 });
         assert!(near(th, [100.0, 0.0, 0.0], 0.5), "{depth:?}: L 30 is above level 64: {th:?}");
         let gm = render(Adjustment::GradientMap { stops: vec![(0.0, [0.0; 3]), (1.0, [1.0; 3])], reverse: false, dither: false });
@@ -2416,10 +2448,10 @@ const MUTED: [f32; 3] = [0.40, 0.42, 0.60];
 fn lab_documents_invert_and_posterize_l_a_and_b() {
     let lab = photocraft_color::convert::srgb_to_lab(MUTED);
     for depth in SampleType::ALL {
-        // Invert: every normalised channel n -> 1 - n, so L -> 100 - L and a, b -> their opposites
-        // (-a - 1 on the 0..255 grid).
+        // Invert: L -> 100 - L and a, b -> their opposites (-a - 1 on the 8-bit 0..255 grid).
         let inv = lab_doc_adjusted(MUTED, Adjustment::Invert, depth);
-        near3(inv, [100.0 - lab[0], -lab[1] - 1.0, -lab[2] - 1.0], 1.0, &format!("{depth:?} invert"));
+        let step = if depth == SampleType::U8 { 1.0 } else { 0.0 };
+        near3(inv, [100.0 - lab[0], -lab[1] - step, -lab[2] - step], 1.0, &format!("{depth:?} invert"));
         // An RGB invert would land elsewhere: lightness 100 - L is the Lab rule.
         let rgb_inv = photocraft_color::convert::srgb_to_lab(MUTED.map(|v| 1.0 - v));
         assert!((rgb_inv[0] - inv[0]).abs() > 2.0, "{depth:?}: {rgb_inv:?} vs {inv:?}");

@@ -49,6 +49,7 @@ mod kra;
 pub mod linked;
 mod multichannel_map;
 mod ora;
+pub use ora::losses as ora_losses;
 pub mod pattern_map;
 mod pdn;
 pub mod pixels;

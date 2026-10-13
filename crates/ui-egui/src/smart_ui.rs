@@ -9,16 +9,52 @@ use serde_json::{Value, json};
 use crate::theme::Tokens;
 use crate::{PhotocraftApp, icons};
 
-/// Smart-object badge in the bottom-right corner of a layer thumbnail.
-pub fn thumb_badge(ui: &egui::Ui, l: &Layer, thumb: Rect) {
-    if !matches!(l.content, LayerContent::Smart(_)) {
-        return;
+/// What the badge on a layer thumbnail marks the layer as.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ThumbBadge {
+    Smart,
+    Shape,
+}
+
+/// The badge `l`'s thumbnail carries. Smart objects and shape layers (#4584) show their pixels
+/// like any other layer, so only the badge tells them apart.
+fn thumb_badge_kind(l: &Layer) -> Option<ThumbBadge> {
+    match l.content {
+        LayerContent::Smart(_) => Some(ThumbBadge::Smart),
+        LayerContent::Shape(_) => Some(ThumbBadge::Shape),
+        _ => None,
     }
+}
+
+/// Where the badge sits: over the bottom-right corner of the thumbnail.
+fn thumb_badge_rect(thumb: Rect) -> Rect {
+    Rect::from_min_size(pos2(thumb.right() - 9.0, thumb.bottom() - 9.0), vec2(11.0, 11.0))
+}
+
+/// The shape badge's path, inset from the badge so its corner anchors stay inside the frame.
+const SHAPE_PATH_INSET: f32 = 3.0;
+/// Side of an anchor point on the shape badge's path.
+const SHAPE_ANCHOR: f32 = 3.0;
+
+/// Smart-object or shape-layer badge in the bottom-right corner of a layer thumbnail.
+pub fn thumb_badge(ui: &egui::Ui, l: &Layer, thumb: Rect) {
+    let Some(kind) = thumb_badge_kind(l) else { return };
     let t = Tokens::get(ui.ctx());
-    let r = Rect::from_min_size(pos2(thumb.right() - 9.0, thumb.bottom() - 9.0), vec2(11.0, 11.0));
+    let r = thumb_badge_rect(thumb);
     ui.painter().rect_filled(r, 2.0, t.field);
     ui.painter().rect_stroke(r, 2.0, Stroke::new(1.0, t.field_border), egui::StrokeKind::Inside);
-    icons::paint(ui, r, "app-window", 9.0, t.icon);
+    match kind {
+        ThumbBadge::Smart => icons::paint(ui, r, "app-window", 9.0, t.icon),
+        // Photoshop's shape mark: a path with an anchor point on each corner. Painted rather
+        // than an icon, so the anchors stay solid squares at this size.
+        ThumbBadge::Shape => {
+            let path = r.shrink(SHAPE_PATH_INSET);
+            ui.painter().rect_stroke(path, 0.0, Stroke::new(1.0, t.icon), egui::StrokeKind::Middle);
+            for anchor in [path.left_top(), path.right_top(), path.right_bottom(), path.left_bottom()] {
+                ui.painter().rect_filled(Rect::from_center_size(anchor, vec2(SHAPE_ANCHOR, SHAPE_ANCHOR)), 0.0, t.icon);
+            }
+        }
+    }
 }
 
 /// The display name of a smart filter (its command's label without the ellipsis). A Photoshop
@@ -198,5 +234,72 @@ pub fn confirm_command(fields: &serde_json::Map<String, Value>, command: String,
     match fields.get("__smartFilter") {
         Some(sf) => ("layer.smartFilter.setParams".into(), json!({"layer": sf["layer"], "index": sf["index"], "params": params})),
         None => (command, params),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A pixel layer, a shape layer and a smart object, in that order.
+    fn layers() -> [Layer; 3] {
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 64, "height": 48})).unwrap();
+        // An empty layer can't become a smart object: fill it first.
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("edit.fill", json!({"contents": "color", "color": "#336699"})).unwrap();
+        let smart = s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap()["layer"].as_u64().unwrap();
+        let shape = s.execute("shape.create", json!({"kind": "rect", "rect": [8, 8, 40, 24], "fill": "#cc3333"})).unwrap()["layer"].as_u64().unwrap();
+        let pixel = s.execute("layer.new.layer", json!({})).unwrap()["layer"].as_u64().unwrap();
+        let doc = &s.active().unwrap().doc;
+        [pixel, shape, smart].map(|id| doc.layer(photocraft_doc::LayerId(id)).unwrap().clone())
+    }
+
+    #[test]
+    fn shape_layers_and_smart_objects_carry_a_thumbnail_badge() {
+        let [pixel, shape, smart] = layers();
+        assert_eq!(thumb_badge_kind(&pixel), None);
+        assert_eq!(thumb_badge_kind(&shape), Some(ThumbBadge::Shape), "#4584");
+        assert_eq!(thumb_badge_kind(&smart), Some(ThumbBadge::Smart));
+    }
+
+    /// The rects `thumb_badge` fills for `l` over `thumb`, with their colours.
+    fn filled(l: &Layer, thumb: Rect) -> Vec<(Rect, Color32)> {
+        let l = l.clone();
+        let mut h = egui_kittest::Harness::new_ui(move |ui| thumb_badge(ui, &l, thumb));
+        h.run();
+        let badge = thumb_badge_rect(thumb).expand(0.5);
+        let rects = h.output().shapes.iter().filter_map(|s| match &s.shape {
+            egui::Shape::Rect(r) if badge.contains_rect(r.rect) && r.fill != Color32::TRANSPARENT => Some((r.rect, r.fill)),
+            _ => None,
+        });
+        rects.collect()
+    }
+
+    /// #4584: a shape layer's thumbnail shows a path with four anchor points in its corner.
+    #[test]
+    fn shape_badge_paints_a_path_with_an_anchor_on_each_corner() {
+        let [pixel, shape, smart] = layers();
+        let thumb = Rect::from_min_size(pos2(20.0, 20.0), vec2(34.0, 34.0));
+        let t = Tokens::get(&egui::Context::default());
+        let frame = thumb_badge_rect(thumb);
+        assert!(frame.right() > thumb.right() && frame.bottom() > thumb.bottom(), "over the bottom-right corner");
+        assert!(filled(&pixel, thumb).is_empty(), "a pixel layer has no badge");
+
+        let drawn = filled(&shape, thumb);
+        assert!(drawn.contains(&(frame, t.field)), "the badge's frame");
+        let anchors: Vec<Rect> = drawn.iter().filter(|(_, c)| *c == t.icon).map(|(r, _)| *r).collect();
+        let path = frame.shrink(SHAPE_PATH_INSET);
+        let corners = [path.left_top(), path.right_top(), path.right_bottom(), path.left_bottom()];
+        assert_eq!(anchors.iter().map(Rect::center).collect::<Vec<_>>(), corners);
+        for a in &anchors {
+            assert_eq!(a.size(), vec2(SHAPE_ANCHOR, SHAPE_ANCHOR));
+            assert!(frame.shrink(1.0).contains_rect(*a), "inside the frame's border");
+        }
+
+        // The smart-object badge keeps its frame and draws no anchors.
+        let drawn = filled(&smart, thumb);
+        assert!(drawn.contains(&(frame, t.field)));
+        assert!(drawn.iter().all(|(_, c)| *c != t.icon));
     }
 }

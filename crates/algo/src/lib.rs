@@ -1206,9 +1206,12 @@ fn apply_box_blur(
 /// otherwise hidden colours leak into feathered edges and alpha-removing filters darken them.
 fn mix_selection(data: &mut [f32], t: Rect, sel: &Surface, orig: &Image, alpha: bool) {
     let w = t.width() as usize;
+    // The selection over `t` read once, not a lookup and an allocation per pixel (#4533).
+    let mask = sel.read_region(t);
+    let sc = sel.channels().max(1);
     for (i, px) in data.chunks_exact_mut(orig.ch.max(1)).enumerate() {
         let (x, y) = (t.x0 + (i % w) as i32, t.y0 + (i / w) as i32);
-        let k = sel.pixel(x, y)[0].clamp(0.0, 1.0);
+        let k = mask.get(i * sc).copied().unwrap_or(0.0).clamp(0.0, 1.0);
         if k >= 1.0 {
             continue;
         }

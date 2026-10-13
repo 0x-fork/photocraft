@@ -1121,7 +1121,7 @@ fn blend_if_weight(layer: &Layer, mode: photocraft_color::ColorMode, this: Optio
     let mut k = 1.0;
     for (side, px) in [this, under].into_iter().enumerate() {
         let Some(p) = px else { continue };
-        let v = |c: usize| p[c].clamp(0.0, 1.0) * 255.0;
+        let v = |c: usize| blend_if_level(p[c]);
         match mode {
             // Gray is the colour channels' luma (Rec. 601 weights), then R, G, B.
             M::Rgb => {
@@ -1140,6 +1140,17 @@ fn blend_if_weight(layer: &Layer, mode: photocraft_color::ColorMode, this: Optio
         }
     }
     k
+}
+
+/// A channel value on Blend If's 0..=255 scale. Compositing can leave an 8- or 16-bit level a few
+/// millionths off (a level-20 backdrop composited at partial alpha reads 19.999998), which would
+/// put it on the wrong side of a hard point at that level: a value that close to a level is that
+/// level. Values of those depths that aren't on a level are at least 1/257 away from one. The GPU
+/// compositor (`compose.wgsl` `blend_if_weight`) snaps alike.
+fn blend_if_level(x: f32) -> f32 {
+    let v = x.clamp(0.0, 1.0) * 255.0;
+    let r = v.round();
+    if (v - r).abs() < 1e-4 { r } else { v }
 }
 
 /// Apply `layer`'s Blend If to a finished composite: `out` (the backdrop with the layer drawn)

@@ -813,7 +813,16 @@ impl Surface {
         encode_pixel(&format, &dp, &mut self.default_pixel);
         let coords: Vec<TileCoord> = self.tiles.keys().copied().collect();
         let px_count = (TILE_SIZE * TILE_SIZE) as usize;
+        // A tile shared by several coordinates (a filled background) is mapped once and stays
+        // shared (#4531). Keys are the original tiles, all alive until their coordinates are
+        // reached, so a freed address can't be mistaken for another original.
+        let mut done: std::collections::HashMap<*const Tile, Arc<Tile>> = std::collections::HashMap::new();
         for c in coords {
+            let Some(key) = self.tiles.get(&c).map(Arc::as_ptr) else { continue };
+            if let Some(mapped) = done.get(&key) {
+                self.tiles.insert(c, mapped.clone());
+                continue;
+            }
             let tile = self.tile_mut(c);
             for i in 0..px_count {
                 for k in 0..color {
@@ -821,6 +830,9 @@ impl Surface {
                     let v = read_sample(&tile.data, format.sample, at);
                     write_sample(&mut tile.data, format.sample, at, f(v));
                 }
+            }
+            if let Some(mapped) = self.tiles.get(&c) {
+                done.insert(key, mapped.clone());
             }
         }
     }
@@ -830,7 +842,13 @@ impl Surface {
         let mut out = Surface::with_default(to, &convert_pixel(&self.format, &to, &self.default_pixel()));
         let from_n = self.channels();
         let mut src = vec![0.0f32; from_n];
+        // Each distinct tile converts once; coordinates sharing it share the result (#4531).
+        let mut done: std::collections::HashMap<*const Tile, Arc<Tile>> = std::collections::HashMap::new();
         for (c, t) in &self.tiles {
+            if let Some(converted) = done.get(&Arc::as_ptr(t)) {
+                out.tiles.insert(*c, converted.clone());
+                continue;
+            }
             let dst = out.tile_mut(*c);
             let px_count = (TILE_SIZE * TILE_SIZE) as usize;
             for i in 0..px_count {
@@ -841,6 +859,9 @@ impl Surface {
                 for (k, v) in px.iter().enumerate() {
                     write_sample(&mut dst.data, to.sample, i * to.channels() + k, *v);
                 }
+            }
+            if let Some(converted) = out.tiles.get(c) {
+                done.insert(Arc::as_ptr(t), converted.clone());
             }
         }
         out
@@ -853,7 +874,12 @@ impl Surface {
         let mut src = Vec::new();
         src.try_reserve_exact(from_n).map_err(|_| AllocationError::NotEnoughMemory { bytes: from_n * std::mem::size_of::<f32>() })?;
         src.resize(from_n, 0.0f32);
+        let mut done: std::collections::HashMap<*const Tile, Arc<Tile>> = std::collections::HashMap::new();
         for (c, t) in &self.tiles {
+            if let Some(converted) = done.get(&Arc::as_ptr(t)) {
+                out.tiles.insert(*c, converted.clone());
+                continue;
+            }
             let dst = out.try_tile_mut(*c)?;
             let px_count = (TILE_SIZE * TILE_SIZE) as usize;
             for i in 0..px_count {
@@ -864,6 +890,9 @@ impl Surface {
                 for (k, v) in px.iter().enumerate() {
                     write_sample(&mut dst.data, to.sample, i * to.channels() + k, *v);
                 }
+            }
+            if let Some(converted) = out.tiles.get(c) {
+                done.insert(Arc::as_ptr(t), converted.clone());
             }
         }
         Ok(out)
@@ -984,6 +1013,43 @@ pub fn is_hdr(sample: SampleType) -> bool {
 
 #[cfg(test)]
 mod tests {
+    /// Distinct tile allocations in `s`.
+    fn distinct_tiles(s: &Surface) -> usize {
+        let mut seen: Vec<*const Tile> = s.tiles().map(|(_, t)| Arc::as_ptr(t)).collect();
+        seen.sort();
+        seen.dedup();
+        seen.len()
+    }
+
+    /// Converting or tone-mapping a surface keeps a shared tile shared (#4531) and gives the
+    /// same pixels as converting each pixel: a filled background is one tile across the grid,
+    /// plus some distinct tiles.
+    #[test]
+    fn conversion_keeps_shared_tiles_shared() {
+        let mut s = Surface::new(PixelFormat::RGBA8);
+        s.fill_rect(Rect::new(0, 0, 2048, 1024), &[0.9, 0.5, 0.2, 1.0]);
+        s.fill_rect(Rect::new(10, 10, 20, 20), &[0.1, 0.2, 0.3, 0.5]);
+        let shared_before = distinct_tiles(&s);
+        assert!(shared_before <= 2 && s.tile_count() == 32, "{shared_before} distinct of {}", s.tile_count());
+        let r = Rect::new(0, 0, 2048, 1024);
+        for to in [PixelFormat::RGBA16, PixelFormat::RGBA32F] {
+            for out in [s.convert(to), s.try_convert(to).expect("memory")] {
+                assert_eq!(distinct_tiles(&out), shared_before, "{to:?}: still shared");
+                assert_eq!(out.tile_count(), 32);
+                let (a, b) = (out.read_region(r), s.read_region(r));
+                for (pa, pb) in a.as_chunks::<4>().0.iter().zip(b.as_chunks::<4>().0) {
+                    let want = convert_pixel(&s.format(), &to, pb);
+                    assert!(pa.iter().zip(&want).all(|(x, y)| (x - y).abs() < 1e-6), "{to:?}: {pa:?} vs {want:?}");
+                }
+            }
+        }
+        let mut m = s.clone();
+        m.map_color(|v| v * 0.5);
+        assert_eq!(distinct_tiles(&m), shared_before, "map_color keeps it shared");
+        assert!((m.pixel(1000, 500)[0] - s.pixel(1000, 500)[0] * 0.5).abs() < 1.0 / 255.0);
+        assert_eq!(s.pixel(1000, 500), vec![s.pixel(1000, 500)[0], s.pixel(1000, 500)[1], s.pixel(1000, 500)[2], 1.0], "the source is untouched");
+    }
+
     use super::*;
     use photocraft_color::PixelFormat;
     use proptest::prelude::*;

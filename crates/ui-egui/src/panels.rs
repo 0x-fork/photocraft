@@ -198,6 +198,8 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                         });
                                     }
                                     if slot.len() > 1 && long_press {
+                                        // Holding a tool button selects the tool it shows, as a click would (#4453).
+                                        app.ui.tool = tool;
                                         ui.ctx().request_repaint();
                                     }
                                     if let Some((open_key, anchor)) = ui.data(|d| d.get_temp::<(egui::Id, Rect)>(flyout_id))
@@ -1060,6 +1062,10 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         widgets::vline(ui, 22.0);
                         if app.ui.tool == Tool::Eraser {
                             crate::eraser_ui::mode_dropdown(ui, &mut app.ui.tool_options.eraser_mode);
+                        } else {
+                            opt_label(ui, tl!("Mode"));
+                            let held = app.held_erase;
+                            paint_mode_dropdown(ui, "brush-mode", b, &mut app.ui.tool_options.brush_clear, held);
                         }
                         // A Pencil-mode Eraser is always hard and at full flow (Photoshop).
                         let fixed = block || crate::eraser_ui::pencil_mode(app, app.ui.tool);
@@ -2446,7 +2452,12 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         if mask_btn.clicked()
             && let Some(cmd) = mask_cmd
         {
-            actions.push((cmd.into(), json!({})));
+            // A path selected in the Paths panel becomes the vector mask, as in Photoshop (#4728);
+            // Alt still inverts it.
+            match crate::vector_ui::selected_document_path(app).filter(|_| cmd.starts_with("layer.vectorMask.")) {
+                Some(name) => actions.push(("layer.vectorMask.currentPath".into(), json!({"name": name, "hide": alt}))),
+                None => actions.push((cmd.into(), json!({}))),
+            }
         }
         let fx = fx_button(ui, 26.0, tl!("Add a layer style"));
         crate::press_menu::show(&fx, |ui, menu| {
@@ -2681,17 +2692,23 @@ fn layer_row(
         return rect;
     }
     let painter = ui.painter_at(rect.expand(1.0));
+    let is_hovered = resp.hovered() || app.canvas_hover_layer == Some(l.id);
+    if resp.hovered() {
+        app.hover_layer = Some(l.id);
+    }
     if t.pro {
         if selected {
             painter.rect_filled(rect, 0.0, t.row_selected);
-        } else if resp.hovered() {
+        } else if is_hovered {
             painter.rect_filled(rect, 0.0, t.hover.gamma_multiply(0.5));
+            painter.rect_filled(rect, 0.0, t.accent.gamma_multiply(0.12));
         }
     } else if selected {
         painter.rect_filled(rect, t.radius, t.hover);
         painter.rect_stroke(rect, t.radius, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
-    } else if resp.hovered() {
+    } else if is_hovered {
         painter.rect_filled(rect, t.radius, t.hover.gamma_multiply(0.5));
+        painter.rect_filled(rect, t.radius, t.accent.gamma_multiply(0.12));
     }
     let eye_cell = Rect::from_min_max(rect.left_top(), pos2((rect.left() + 30.0).min(rect.right()), rect.bottom()));
     if let Some((_, background)) = t.layer_label_colors(l.label) {
@@ -2770,6 +2787,13 @@ fn layer_row(
         && ui.interact(badge, ui.id().with(("fx-badge", l.id.0)), Sense::drag()).drag_started()
     {
         start_fx_drag(ctx, l.id, None);
+    }
+    // Clicking the lock icon unlocks the layer, and makes the Background a normal one (Photoshop,
+    // #4723). It takes the click from the row, so the row isn't selected.
+    if let Some(&(_, lock)) = indicators.iter().find(|(k, _)| *k == crate::layer_row_ui::Indicator::Lock)
+        && ui.interact(lock, ui.id().with(("row-lock", l.id.0)), Sense::click()).clicked()
+    {
+        actions.push(simple_lock_toggle(doc.is_background(l.id), l));
     }
     let name_color = if l.visible { t.text } else { t.text_faint };
     let font = if selected && !t.pro { theme::medium(13.0) } else { egui::FontId::proportional(if t.pro { 12.0 } else { 13.0 }) };
@@ -2890,10 +2914,20 @@ fn layer_row(
     if let Some(done) = crate::layer_row_ui::rename_field(ui, l.id.0, edit_rect) {
         actions.push(done);
     }
-    // The visibility icon has its own color menu; elsewhere use the full layer menu.
+    // The visibility icon has its own color menu, and the layer-mask thumbnail its mask menu
+    // (#4575); elsewhere use the full layer menu.
+    let on_mask_id = ui.id().with(("mask-menu", l.id.0));
+    if resp.secondary_clicked() {
+        let on_mask = resp.interact_pointer_pos().and_then(|p| masks.hit(p)) == Some(crate::mask_thumbs_ui::MaskKind::Pixel);
+        ctx.data_mut(|d| d.insert_temp(on_mask_id, on_mask));
+    }
     if !eye_resp.secondary_clicked() && !eye_resp.context_menu_opened() {
         resp.context_menu(|ui| {
             crate::widgets::style_spectrum_popup_menu(ui);
+            if ui.ctx().data(|d| d.get_temp::<bool>(on_mask_id)).unwrap_or(false) {
+                crate::layer_menu_ui::show_mask(app, ui, l, actions);
+                return;
+            }
             // Right-clicking inside a multi-selection keeps it and acts on every selected layer.
             let on_set = row.multi && selected;
             if crate::layer_menu_ui::show(app, ui, l, on_set, actions)
@@ -3193,14 +3227,14 @@ pub fn properties_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
 fn adjustment_controls(app: &mut PhotocraftApp, ui: &mut egui::Ui, id: LayerId, adj: &photocraft_doc::Adjustment) {
     crate::adjust_editors::layer_editor(app, ui, id, adj);
     ui.add_space(6.0);
-    let layer = app.session.active().and_then(|s| s.doc.layer(id).cloned());
-    if let Some(l) = layer {
+    let layer = app.session.active().and_then(|s| s.doc.layer(id).map(|l| (l.visible, l.clipped)));
+    if let Some((visible, clipped)) = layer {
         ui.horizontal(|ui| {
-            let mut vis = l.visible;
+            let mut vis = visible;
             if widgets::toggle(ui, &mut vis, tl!("Adjustment visible")).changed() {
                 let _ = app.run("layer.setProps", json!({"layer": id.0, "visible": vis}));
             }
-            let mut clip = l.clipped;
+            let mut clip = clipped;
             if widgets::toggle(ui, &mut clip, tl!("Clip to layer below")).changed() {
                 let _ = app.run("layer.setProps", json!({"layer": id.0, "clipped": clip}));
             }
@@ -3269,8 +3303,12 @@ fn properties_body_inner(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         crate::mask_props_ui::vector_properties(app, ui, layer);
         return;
     }
-    // Photoshop shows the Document properties when nothing or the Background layer is selected.
+    // Photoshop shows the Document properties when nothing or the Background layer is selected,
+    // with Align and Distribute above them when the Background is one of several (#4608).
     if crate::doc_props_ui::shows_document(&st.doc, st.active_layer) {
+        if t.pro && st.selected_layers().len() > 1 {
+            crate::layer_props_ui::selection_align(app, ui);
+        }
         crate::doc_props_ui::properties(app, ui);
         return;
     }
@@ -4764,9 +4802,9 @@ mod type_flyout_tests {
     }
 
     #[test]
-    fn long_press_type_button_selects_vertical_without_selecting_on_release() {
+    fn long_press_type_button_selects_type_then_vertical_from_the_flyout() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
-        let initial = app.ui.tool;
+        assert_ne!(app.ui.tool, Tool::Type);
         let ctx = egui::Context::default();
         PhotocraftApp::setup_context(&ctx, crate::theme::ThemeKind::ALL[0]);
         frame(&mut app, &ctx, 0.0, vec![]);
@@ -4790,7 +4828,8 @@ mod type_flyout_tests {
         assert_eq!(ctx.data(|d| d.get_temp::<(egui::Id, Rect)>(egui::Id::new("tool-flyout"))).map(|(id, _)| id), Some(egui::Id::new(("tool-slot", index))));
         frame(&mut app, &ctx, 1.4, vec![pointer(at, false)]);
         frame(&mut app, &ctx, 1.45, vec![]);
-        assert_eq!(app.ui.tool, initial);
+        // The held button's tool is selected, as Photoshop does (#4453).
+        assert_eq!(app.ui.tool, Tool::Type);
         let key = egui::Id::new(("tool-slot", index));
         let menu = ctx.memory(|m| m.area_rect(key.with("flyout"))).unwrap();
         let row = egui::pos2(menu.left() + 65.0, menu.top() + 39.0 + 8.0);
@@ -5885,7 +5924,9 @@ mod compact_visual_regressions {
                             egui::RawInput {
                                 time: Some(f64::from(frame) * 0.1),
                                 events: vec![
-                                    egui::Event::PointerMoved(pos2(width * 0.5, 20.0)),
+                                    // Studio: above the controls, clear of the Brush's Mode dropdown, which takes the wheel
+                                    // to step through blend modes (#4512).
+                                    egui::Event::PointerMoved(if Tokens::get(&ctx).pro { pos2(width * 0.5, 20.0) } else { pos2(width * 0.5, 2.0) }),
                                     egui::Event::MouseWheel {
                                         unit: egui::MouseWheelUnit::Point,
                                         delta: vec2(-1500.0, 0.0),

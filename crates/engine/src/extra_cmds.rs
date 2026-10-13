@@ -437,11 +437,20 @@ pub fn reveal_all_bounds(doc: &Document) -> Rect {
 
 // ---------- layers ----------
 
-fn layer_from_background(s: &mut Session) -> Result<Value> {
+fn layer_from_background(s: &mut Session, p: &Value) -> Result<Value> {
+    let d = s.active().ok_or(EngineError::NoDocument)?;
+    if d.doc.background().is_none() && p.get("ifPresent").and_then(Value::as_bool) == Some(true) {
+        return Ok(json!({"layer": null}));
+    }
+    // `select: false`: the targeted layer stays targeted, as when a Photoshop action's `set`
+    // names the Background while another layer is selected.
+    let select = p.get("select").and_then(Value::as_bool).unwrap_or(true);
     let id = s.edit("Layer From Background", |doc, active| {
         let l = doc.background_mut().ok_or(EngineError::Other("the document has no Background layer".into()))?;
         unlock_background(l);
-        *active = Some(l.id);
+        if select || active.is_none() {
+            *active = Some(l.id);
+        }
         Ok(l.id)
     })?;
     Ok(json!({"layer": id.0}))
@@ -858,7 +867,15 @@ pub fn specs() -> Vec<CommandSpec> {
             s.execute("image.crop", json!({"x": all.x0, "y": all.y0, "width": all.width(), "height": all.height(), "deleteCroppedPixels": false}))?;
             Ok(json!({"changed": true}))
         }),
-        spec!("layer.new.layerFromBackground", "Layer From Background…", &["Layer", "New"], None, "{}", has_background, |s, _| layer_from_background(s)),
+        spec!(
+            "layer.new.layerFromBackground",
+            "Layer From Background…",
+            &["Layer", "New"],
+            None,
+            r##"{"ifPresent":bool=false (true: a document without a Background is left as it is, as a Photoshop action's step needs on an image that opened as a normal layer),"select":bool=true (false: the targeted layer stays targeted)}"##,
+            has_background,
+            layer_from_background
+        ),
         spec!("layer.layerStyle.copyLayerStyle", "Copy Layer Style", &["Layer", "Layer Style"], None, r##"{"layer":id?}"##, has_layer, |s, p| {
             let id = layer_param(s, p)?;
             let l = s.active().and_then(|d| d.doc.layer(id)).ok_or(EngineError::NoLayer(id))?;

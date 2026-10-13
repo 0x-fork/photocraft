@@ -627,6 +627,94 @@ mod tests {
     }
 
     #[test]
+    fn russian_status_messages_agree_with_counts() {
+        let ru = Lang::from_code("ru").expect("ru registered");
+        let cases = [
+            (
+                "Exported {n} swatch to {file}",
+                "Exported {n} swatches to {file}",
+                ["Экспортирован {n} образец в {file}", "Экспортированы {n} образца в {file}", "Экспортировано {n} образцов в {file}"],
+            ),
+            (
+                "Imported {n} brush from {group}",
+                "Imported {n} brushes from {group}",
+                ["Импортирована {n} кисть из {group}", "Импортированы {n} кисти из {group}", "Импортировано {n} кистей из {group}"],
+            ),
+            (
+                "Imported {n} swatch from {file}",
+                "Imported {n} swatches from {file}",
+                ["Импортирован {n} образец из {file}", "Импортированы {n} образца из {file}", "Импортировано {n} образцов из {file}"],
+            ),
+            ("Played {n} step", "Played {n} steps", ["Воспроизведён {n} шаг", "Воспроизведены {n} шага", "Воспроизведено {n} шагов"]),
+            (
+                "Updated {n} linked smart object changed on disk",
+                "Updated {n} linked smart objects changed on disk",
+                [
+                    "Обновлён {n} связанный смарт-объект, изменённый на диске",
+                    "Обновлены {n} связанных смарт-объекта, изменённых на диске",
+                    "Обновлено {n} связанных смарт-объектов, изменённых на диске",
+                ],
+            ),
+            (
+                "{n} layer recorded by this comp was deleted. Update the comp, or clear the warning.",
+                "{n} layers recorded by this comp were deleted. Update the comp, or clear the warning.",
+                [
+                    "Удалён {n} слой, записанный в этом варианте. Обновите вариант или сбросьте предупреждение.",
+                    "Удалены {n} слоя, записанных в этом варианте. Обновите вариант или сбросьте предупреждение.",
+                    "Удалено {n} слоёв, записанных в этом варианте. Обновите вариант или сбросьте предупреждение.",
+                ],
+            ),
+            ("{n} sample point removed", "{n} sample points removed", ["Удалена {n} точка замера", "Удалены {n} точки замера", "Удалено {n} точек замера"]),
+            (
+                "Loaded {n} action from {file}",
+                "Loaded {n} actions from {file}",
+                ["Загружена {n} операция из {file}", "Загружены {n} операции из {file}", "Загружено {n} операций из {file}"],
+            ),
+            (
+                "Saved {n} action to {file}",
+                "Saved {n} actions to {file}",
+                ["Сохранена {n} операция в {file}", "Сохранены {n} операции в {file}", "Сохранено {n} операций в {file}"],
+            ),
+            (
+                "{n} step with no Photoshop equivalent left out",
+                "{n} steps with no Photoshop equivalent left out",
+                [
+                    "Пропущен {n} шаг без эквивалента в Photoshop",
+                    "Пропущены {n} шага без эквивалента в Photoshop",
+                    "Пропущено {n} шагов без эквивалента в Photoshop",
+                ],
+            ),
+        ];
+        // Include zero, teens, and compound counts as well as each basic form.
+        for (n, form) in [(0, 2), (1, 0), (2, 1), (3, 1), (4, 1), (5, 2), (11, 2), (12, 2), (14, 2), (21, 0), (22, 1), (25, 2), (101, 0), (112, 2)] {
+            for (one, other, forms) in cases {
+                let expected = forms[form].replace("{n}", &n.to_string());
+                assert_eq!(trn(ru, n, one, other), expected, "{one}, n={n}");
+            }
+        }
+        assert_eq!(
+            fmt(&trn(ru, 2, "Imported {n} brush from {group}", "Imported {n} brushes from {group}"), &[("group", "Кисти")]),
+            "Импортированы 2 кисти из Кисти"
+        );
+        assert_eq!(
+            fmt(&trn(ru, 22, "Loaded {n} action from {file}", "Loaded {n} actions from {file}"), &[("file", "actions.atn")]),
+            "Загружены 22 операции из actions.atn"
+        );
+    }
+
+    #[test]
+    fn russian_font_weights_and_reviewed_labels() {
+        let ru = Lang::from_code("ru").expect("ru registered");
+        assert_eq!(tr_ctx(ru, "fontWeight", "ExtraLight"), "Сверхтонкий");
+        assert_eq!(tr_ctx(ru, "fontWeight", "Light"), "Лёгкий");
+        assert_eq!(tr_ctx(ru, "fontWeight", "ExtraBold"), "Сверхжирный");
+        assert_eq!(tr_ctx(ru, "fontWeight", "Black"), "Сверхжирный (Black)");
+        assert_eq!(tr(ru, "Delete and Fill Selection"), "Удалить и залить выделение");
+        assert_eq!(tr(ru, "Discard the embedded profile (don't color manage)"), "Не использовать встроенный профиль (без управления цветом)");
+        assert_eq!(tr(ru, "No object found there — drag a rectangle around it"), "Объект не найден — обведите его прямоугольником");
+    }
+
+    #[test]
     fn ukrainian_resolves_locales_and_preferences() {
         let uk = Lang::from_code("uk").expect("uk registered");
         assert_eq!(uk.name(), "Українська");

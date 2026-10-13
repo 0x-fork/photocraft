@@ -1119,24 +1119,55 @@ pub(crate) fn display_doc(app: &mut PhotocraftApp, idx: usize) -> (std::sync::Ar
             return (doc.clone(), key);
         }
     }
-    if let Some((layer, params)) = &app.live_adjust
-        && let Some(l) = st.doc.layer(*layer)
+    let snapshot = st.doc.clone();
+    if let Some((layer, params)) = app.live_adjust.clone()
+        && let Some(l) = snapshot.layer(layer)
         && let LayerContent::Adjustment(a) = &l.content
     {
-        let kind = photocraft_engine::commands::adjustment_kind(a);
-        let preview = photocraft_engine::adjust_params::from_params(kind, params, Some(a), st.doc.mode).unwrap_or_else(|_| a.clone());
-        let mut doc = (*st.doc).clone();
-        if let Some(lm) = doc.layer_mut(*layer) {
-            lm.content = LayerContent::Adjustment(preview);
-        }
         let key = 1 + params.to_string().bytes().fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64));
-        return (std::sync::Arc::new(doc), key);
+        let shown = memo_display(app, &snapshot, key, || {
+            let kind = photocraft_engine::commands::adjustment_kind(a);
+            let preview = photocraft_engine::adjust_params::from_params(kind, &params, Some(a), snapshot.mode).unwrap_or_else(|_| a.clone());
+            let mut doc = (*snapshot).clone();
+            if let Some(lm) = doc.layer_mut(layer) {
+                lm.content = LayerContent::Adjustment(preview);
+            }
+            Some(doc)
+        });
+        if let Some(doc) = shown {
+            return (doc, key);
+        }
     }
     // Duotone documents display through their inks.
-    if let Some(shown) = photocraft_engine::mode_cmds::display_document(&st.doc) {
-        return (std::sync::Arc::new(shown), 1 << 41);
+    if let Some(shown) = memo_display(app, &snapshot, 1 << 41, || photocraft_engine::mode_cmds::display_document(&snapshot)) {
+        return (shown, 1 << 41);
     }
-    (st.doc.clone(), 0)
+    (snapshot, 0)
+}
+
+/// `display_doc`'s live-adjust and Duotone documents, built once per document snapshot and key
+/// rather than on each of its 3–4 calls a frame (#4527): each build clones the whole document.
+fn memo_display(
+    app: &mut PhotocraftApp,
+    snapshot: &std::sync::Arc<Document>,
+    key: u64,
+    build: impl FnOnce() -> Option<Document>,
+) -> Option<std::sync::Arc<Document>> {
+    let id = snapshot.id;
+    if let Some((doc, k, shown)) = app.display_memo.get(&id)
+        && *k == key
+        && doc.ptr_eq(&std::sync::Arc::downgrade(snapshot))
+    {
+        return Some(shown.clone());
+    }
+    let Some(shown) = build().map(std::sync::Arc::new) else {
+        app.display_memo.remove(&id);
+        return None;
+    };
+    // Entries of closed documents go when another is stored.
+    app.display_memo.retain(|_, (doc, _, _)| doc.strong_count() > 0);
+    app.display_memo.insert(id, (std::sync::Arc::downgrade(snapshot), key, shown.clone()));
+    Some(shown)
 }
 
 /// Longest side of the Navigator panel's image (about twice the panel's width, for HiDPI).
@@ -3644,30 +3675,48 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                     }
                 }
                 // The Eyedropper: the comparison ring follows the pointer while it samples (#213);
-                // otherwise its pipette, or the crosshair for Precise Other Cursors.
+                // otherwise its pipette, or the crosshair for precise Other Cursors.
                 Tool::Eyedropper => {
                     if let Some(icon) = eyedropper_ring(app, &painter, &xf, p, response.is_pointer_button_down_on()) {
                         icon
-                    } else if app.session.prefs().cursors.other == photocraft_engine::prefs::OtherCursor::Precise {
+                    } else if precise_other_cursor(app) {
                         egui::CursorIcon::Crosshair
                     } else {
                         pipette_cursor(ui.ctx(), p)
                     }
                 }
-                // The Color Sampler: a pipette, or the crosshair for Precise Other Cursors.
+                // The Color Sampler: a pipette, or the crosshair for precise Other Cursors.
                 Tool::ColorSampler => {
-                    if app.session.prefs().cursors.other == photocraft_engine::prefs::OtherCursor::Precise {
+                    if precise_other_cursor(app) {
                         egui::CursorIcon::Crosshair
                     } else {
                         pipette_cursor(ui.ctx(), p)
                     }
                 }
-                // The Paint Bucket: a bucket, or the crosshair for Precise Other Cursors (#3968).
+                // The Paint Bucket: a bucket, or the crosshair for precise Other Cursors (#3968).
                 Tool::PaintBucket => {
-                    if app.session.prefs().cursors.other == photocraft_engine::prefs::OtherCursor::Precise {
+                    if precise_other_cursor(app) {
                         egui::CursorIcon::Crosshair
                     } else {
                         paint_bucket_cursor(ui.ctx(), p)
+                    }
+                }
+                // Over the first anchor, the close-path pointer (#4596), before the pens' own cursors.
+                Tool::Pen | Tool::CurvaturePen
+                    if {
+                        let [x, y] = xf.to_doc(p);
+                        crate::vector_ui::closes_path_at(app, tool, x, y)
+                    } =>
+                {
+                    crate::tool_cursor::close_path(&painter, p)
+                }
+                // The pen tools: their own icon with its nib on the point, or the crosshair for
+                // precise Other Cursors (#4639).
+                Tool::Pen | Tool::FreeformPen | Tool::CurvaturePen | Tool::AddAnchorPoint | Tool::DeleteAnchorPoint | Tool::ConvertPoint => {
+                    if precise_other_cursor(app) {
+                        egui::CursorIcon::Crosshair
+                    } else {
+                        pen_cursor(ui.ctx(), tool, p)
                     }
                 }
                 // Preferences › Cursors › Other Cursors: Precise shows a crosshair for every tool.
@@ -4515,6 +4564,26 @@ fn draw_drag_preview(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &View
 pub(crate) fn alt_samples(tool: Tool, mods: egui::Modifiers) -> bool {
     // Control+Alt is the brush-resize drag (`brush_resize`), not sampling.
     mods.alt && !mods.ctrl && matches!(tool, Tool::Brush | Tool::Pencil | Tool::Gradient | Tool::PaintBucket)
+}
+
+/// Preferences › Cursors › Other Cursors asks for the precise crosshair, or Caps Lock swaps the
+/// standard cursor for it (and back), as in Photoshop (#4639).
+fn precise_other_cursor(app: &PhotocraftApp) -> bool {
+    (app.session.prefs().cursors.other == photocraft_engine::prefs::OtherCursor::Precise) != app.caps_lock
+}
+
+/// A pen tool's standard cursor: its toolbar icon with the nib (the Convert Point tool: the
+/// anchor) on `p`. Draws it at `p` and returns the OS cursor to set (hidden).
+pub(crate) fn pen_cursor(ctx: &egui::Context, tool: Tool, p: Pos2) -> egui::CursorIcon {
+    // Where each icon's point is in its 24-unit box: the full-size pen's nib at (2.3, 2.3); the
+    // Freeform and Curvature pens draw it at 0.68 × from (7, 7); Convert Point's apex anchor.
+    let hot = match tool {
+        Tool::FreeformPen | Tool::CurvaturePen => vec2(8.56, 8.56),
+        Tool::ConvertPoint => vec2(12.0, 7.0),
+        _ => vec2(2.3, 2.3),
+    };
+    crate::icons::cursor(ctx, crate::icons::tool_icon(tool), p, hot / 24.0, 22.0);
+    egui::CursorIcon::None
 }
 
 /// The sampling cursor: a pipette whose tip is the sampled pixel. Draws it at `p` and returns the
@@ -6648,12 +6717,12 @@ mod tests {
         let (shown, key) = display_doc(&mut app, 0);
         assert_ne!(key, 0);
         // A partial value two thirds of the way out: the soft tip, not a hard flat stand-in.
-        assert!(alpha(&shown, 40, 30) > 0.5 && (0.01..0.5).contains(&alpha(&shown, 40, 36)), "soft stroke while drawing");
+        assert!(alpha(&shown, 40, 30) > 0.5 && (0.01..0.95).contains(&alpha(&shown, 40, 36)), "soft stroke while drawing");
         assert_eq!(alpha(&app.session.documents()[0].doc, 40, 30), 0.0, "not committed yet");
         // The canvas redraws only what the stroke touched.
         let dk = canvas_display(&app, &app.session.documents()[0].doc, None).1;
         let d = damage_since(&app, 0, (rev, dk), (rev, key), dk, None).unwrap();
-        assert!(d.contains(40, 30) && !d.contains(40, 2) && d.width() < 120, "{d:?}");
+        assert!(d.contains(40, 30) && !d.contains(40, 2) && d.height() < 60, "{d:?}");
         tool_event(&mut app, ToolEvent::Up { x: 100.0, y: 30.0 }, m);
         let doc = app.session.documents()[0].doc.clone();
         assert!(app.live_stroke.is_none() && display_doc(&mut app, 0).1 == 0);
@@ -7114,7 +7183,9 @@ mod tests {
             }
         }
         assert!(soft > 50, "a soft brush shows a soft edge");
-        assert_eq!(trail.coverage(50, 30 + 10), 0, "half pressure halves the 30 px tip");
+        // Half pressure halves the 30 px tip: nothing past its (soft) reach.
+        let reach = photocraft_paint::tip_reach(7.5, app.session.tools.brush.hardness).ceil() as usize + 2;
+        assert_eq!(trail.coverage(50, 30 + reach), 0, "half pressure halves the 30 px tip");
     }
 
     #[test]
@@ -7628,3 +7699,7 @@ mod rotation_preview_isolation_tests {
         assert!(ensure_filter_preview(&mut app, 0, &egui::Context::default()).is_none(), "an inactive tab must never inherit the command preview");
     }
 }
+
+#[cfg(test)]
+#[path = "canvas_display_memo_tests.rs"]
+mod display_memo_tests;

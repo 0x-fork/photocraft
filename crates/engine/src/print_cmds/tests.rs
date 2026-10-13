@@ -368,3 +368,15 @@ fn disabled_printing_never_spools() {
     assert_eq!(r["sent"], false);
     assert!(r["command"].is_array(), "{r}");
 }
+
+#[test]
+fn printers_lists_the_spooler_destinations_without_a_document() {
+    let mut s = Session::new();
+    let r = s.execute("file.printers", json!({})).unwrap();
+    let list = r["printers"].as_array().unwrap();
+    assert!(list.iter().all(|p| p["name"].is_string() && p["default"].is_boolean()));
+    match r["default"].as_str() {
+        Some(d) => assert!(list.iter().any(|p| p["name"] == d && p["default"] == true)),
+        None => assert!(list.iter().all(|p| p["default"] == false)),
+    }
+}

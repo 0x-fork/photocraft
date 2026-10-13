@@ -1,6 +1,6 @@
 # Context-menu parity contract
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-10 · **Change:** trivial (status line and revision history added; linked from ui-parity.md) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (layer-mask thumbnail menu, #4575) · **Target:** Adobe Photoshop 2026
 
 Status: implementation contract, updated 2026-10-09. Scope: canvas, document tabs, and panels. “Right-click” means a secondary pointer click; macOS Control-click should also open the same menu where the platform sends a context-menu gesture. Photoshop changes a context menu with the active tool, selection, and panel item. Adobe documents that principle but does not publish a complete current menu catalog. **Documented** means an Adobe source explicitly names the gesture or action. **Inferred** means a PhotoCraft design target or an item known from a main menu whose presence in a Photoshop context menu still needs a current-product capture. Do not present inferred rows as exact Photoshop menus. [Adobe: panels and menus](https://helpx.adobe.com/photoshop/using/panels-menus.html), [Adobe: shortcuts and context menus](https://helpx.adobe.com/sa_en/photoshop/using/customizing-keyboard-shortcuts.html).
 
@@ -77,7 +77,7 @@ Photoshop's Generative Fill and Delete and Fill Selection rows are left out: Pho
 | Surface / target | Desired options and state | PhotoCraft now | Source and confidence |
 |---|---|---|---|
 | Layers panel row | Blending Options, Duplicate/Delete, Group, export, convert/rasterize, mask, clipping, link, style copy/paste/clear, merge/flatten, Rename; filter by layer kind and selection | Implemented in layer_menu_ui.rs; item enablement uses menu commands | PhotoCraft inventory. Adobe documents layer rename/delete, color tagging, rasterization, and flattening [here](https://helpx.adobe.com/photoshop/using/layers.html); exact combined ordering **inferred** without a live capture |
-| Layers panel color label / thumbnail / mask thumbnail / effect row | Color label; context actions specific to hit icon | Generic row on some targets; inspect before extending | Adobe explicitly documents right-click on layer/group to assign a color ([layers](https://helpx.adobe.com/photoshop/using/layers.html)); other icon menus need capture |
+| Layers panel color label / thumbnail / mask thumbnail / effect row | Color label; context actions specific to hit icon | Layer-mask thumbnail: Disable/Delete/Apply Layer Mask, Add/Subtract/Intersect Mask with Selection, Select and Mask… (layer_menu_ui.rs `show_mask`, #4575; Mask Options… missing). Generic row on the other targets; inspect before extending | Adobe explicitly documents right-click on layer/group to assign a color ([layers](https://helpx.adobe.com/photoshop/using/layers.html)); other icon menus need capture |
 | Channels panel row | Duplicate/Delete/Rename, channel display and overlay color, spot conversion; new/split/merge | Implemented in channels_panel.rs | PhotoCraft inventory; exact Photoshop order **inferred** |
 | Brushes and preset panels | Rename/Delete brush or group, export selected brushes, view/reset preset choices | Rename/Delete, and preset group/item menus exist | Adobe explicitly documents Export Selected Brushes from brush/group right-click ([brushes](https://helpx.adobe.com/photoshop/desktop/apply-painting-techniques/brushes-presets/create-brush-set-painting-options.html)); Photoshop pop-up-panel rename/delete/reset/view options are [documented](https://helpx.adobe.com/photoshop/using/panels-menus.html), though some are panel-button menus |
 | Paths, History, Actions, Swatches, Gradients, Patterns, Styles, Libraries, Properties | Target-specific duplicate/delete/rename and panel operations where a panel exists | Paths row menu added in this PR; other panels need audit | **Inferred** catalog; record a Photoshop capture before claiming parity |
@@ -100,6 +100,7 @@ Each slice needs pure model tests (including every item dispatching a known comm
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | Layer-mask thumbnail menu (#4575) |
 | 2026-10-10 | trivial | Status line, revision history |
 | 2026-10-09 | minor | Selection canvas reference and tool matrix updates |
 | 2026-10-07 | minor | Pen canvas reference capture |

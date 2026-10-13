@@ -1696,7 +1696,11 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
     if let Some(info) = &mut layer_info {
         // Photoshop pads the layer info to 4 bytes (an even pad misaligns readers after a global
         // `Lr16`/`Lr32` block, #200). A length that cannot be computed keeps the even default.
-        if info.pad_to(version, 4).is_err() {
+        // A global block's length is the exact data length and its padding to 4 follows the block:
+        // readers that check that length exactly (Unity's PSD Importer) reject it otherwise (#4654).
+        if matches!(placement, LayerInfoPlacement::GlobalBlock { .. }) {
+            info.padding = Some(Vec::new());
+        } else if info.pad_to(version, 4).is_err() {
             info.padding = None;
         }
     }

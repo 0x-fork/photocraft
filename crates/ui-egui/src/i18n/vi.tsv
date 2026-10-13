@@ -20,7 +20,17 @@
 # (`plural_none` in i18n/mod.rs).
 
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	Màu kênh
+	Color Indicates:	Màu biểu thị:
+	Solidity:	Độ đặc:
+	Ink Characteristics	Đặc tính mực
+
 # Phase 3.1 — top-level menus, File menu, Edit menu
+# Custom paper dimensions in Print Settings.
+	Paper Width	Chiều rộng giấy
+	Paper Height	Chiều cao giấy
+
 	Again	Lặp lại
 	AI Integrations…	Tích hợp AI…
 	All	Tất cả
@@ -152,6 +162,8 @@
 	Rotate 90° Counter Clockwise	Xoay 90° ngược chiều kim đồng hồ
 	Save	Lưu
 	Save a Copy…	Lưu bản sao…
+	{name} can't keep everything in this document	{name} không thể giữ mọi thứ trong tài liệu này
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	Hãy chọn một định dạng giữ được mọi thứ, như Photoshop (PSD), hoặc lưu bản sao.
 	Save As…	Lưu thành…
 	Save for Web (Legacy)…	Lưu cho Web (cũ)…
 	Scale	Tỷ lệ
@@ -944,6 +956,9 @@
 	Duplicate Layers…	Nhân bản các lớp…
 	Add Layer Mask	Thêm mặt nạ lớp
 	Apply Layer Mask	Áp dụng mặt nạ lớp
+	Add Mask to Selection	Thêm mặt nạ vào vùng chọn
+	Subtract Mask from Selection	Trừ mặt nạ khỏi vùng chọn
+	Intersect Mask with Selection	Giao mặt nạ với vùng chọn
 	Delete Layer Mask	Xóa mặt nạ lớp
 	Disable Layer Mask	Tắt mặt nạ lớp
 	Release Clipping Mask	Nhả mặt nạ cắt
@@ -2030,6 +2045,11 @@ layers	Fill:	Độ tô:
 	Move effect layer down	Di chuyển lớp hiệu ứng xuống
 	Move effect layer up	Di chuyển lớp hiệu ứng lên
 	New Brush Preset…	Thiết lập sẵn cọ mới…
+	Capture Brush Size in Preset	Lưu kích thước cọ vào thiết lập sẵn
+	Include Tool Settings	Bao gồm thiết lập công cụ
+	Include Color	Bao gồm màu
+	Enter a name for the brush preset	Nhập tên cho thiết lập sẵn cọ
+	A brush preset with this name already exists	Đã có thiết lập sẵn cọ với tên này
 	New effect layer	Lớp hiệu ứng mới
 	New Swatch Group…	Nhóm mẫu màu mới…
 	New Swatch…	Mẫu màu mới…
@@ -3594,3 +3614,4 @@ curves	Smooth	Làm mượt
 	Import .GRD	Nhập .GRD
 	Choose a gradient file (.grd).	Chọn tệp chuyển sắc (.grd).
 	Auto Add/Delete	Tự động thêm/xóa
+	ICO is limited to 256 × 256 pixels	ICO giới hạn ở 256 × 256 pixel

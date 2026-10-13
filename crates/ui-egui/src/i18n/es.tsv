@@ -12,7 +12,19 @@
 # Product and technology names (PhotoCraft, ArtCraft, OpenType, CMYK, Lab ...) stay in Latin
 # letters; the trailing "…" of dialog commands is kept.
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	Color del canal
+	Color Indicates:	El color indica:
+	Solidity:	Solidez:
+	Masked Areas	Áreas enmascaradas
+	Selected Areas	Áreas seleccionadas
+	Ink Characteristics	Características de la tinta
+
 # Guide layout dialog
+
+# Custom print paper (#3820)
+	Paper Width	Ancho del papel
+	Paper Height	Altura del papel
 	Columns	Columnas
 	Rows	Filas
 	Number	Número
@@ -70,6 +82,8 @@
 	Save	Guardar
 	Save As…	Guardar como…
 	Save a Copy…	Guardar una copia…
+	{name} can't keep everything in this document	{name} no puede conservar todo lo que tiene este documento
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	Elija un formato que lo conserve todo, como Photoshop (PSD), o guarde una copia.
 	Revert	Volver
 	Export	Exportar
 	Quick Export as PNG	Exportación rápida como PNG
@@ -842,6 +856,9 @@
 	Appearance	Apariencia
 	Appearance (Layer Style)	Apariencia (estilo de capa)
 	Apply Layer Mask	Aplicar máscara de capa
+	Add Mask to Selection	Añadir máscara a la selección
+	Subtract Mask from Selection	Restar máscara de la selección
+	Intersect Mask with Selection	Intersecar máscara con la selección
 	Apply Per Tip	Aplicar por punta
 	Apply next selected layer comp	Aplicar la composición de capa seleccionada siguiente
 	Apply previous selected layer comp	Aplicar la composición de capa seleccionada anterior
@@ -2115,6 +2132,11 @@
 	Rename Brush…	Cambiar el nombre del pincel…
 	Delete Brush	Eliminar pincel
 	New Brush Preset…	Nuevo ajuste preestablecido de pincel…
+	Capture Brush Size in Preset	Capturar tamaño del pincel en el ajuste preestablecido
+	Include Tool Settings	Incluir ajustes de herramienta
+	Include Color	Incluir color
+	Enter a name for the brush preset	Escriba un nombre para el ajuste preestablecido de pincel
+	A brush preset with this name already exists	Ya existe un ajuste preestablecido de pincel con este nombre
 	Brush Preset Options	Opciones de ajustes preestablecidos de pincel
 	Group name	Nombre del grupo
 	Brush name	Nombre del pincel
@@ -2790,3 +2812,4 @@ curves	Smooth	Suavizar
 	Step {step} is waiting for its dialog	El paso {step} está esperando su cuadro de diálogo
 @plural	{n} action|{n} actions	{n} acción|{n} acciones
 	Auto Add/Delete	Añadir/eliminar automáticamente
+	ICO is limited to 256 × 256 pixels	ICO está limitado a 256 × 256 píxeles

@@ -219,6 +219,20 @@ fn deleting_a_channel_remaps_all_surviving_eyes_and_targets() {
 }
 
 #[test]
+fn targeting_the_composite_hides_the_alpha_overlay() {
+    for (cmd, params) in [("channel.target", json!({"channel": "composite"})), ("channel.target.composite", json!({}))] {
+        let mut s = session();
+        s.execute("channel.new", json!({})).unwrap();
+        assert!(s.active().unwrap().channel_view.alpha_shown(0));
+        s.execute(cmd, params).unwrap();
+        let st = s.active().unwrap();
+        assert_eq!(st.channel_view.visible_colors(3), 3, "{cmd}");
+        assert!(!st.channel_view.alpha_shown(0), "{cmd}: the alpha eye turns off");
+        assert!(st.channel_view.is_plain(&st.doc), "{cmd}: no overlay left on the image (#4538)");
+    }
+}
+
+#[test]
 fn every_colour_channel_can_hide_while_alpha_stays() {
     let mut s = session();
     s.execute("channel.new", json!({"fill": "white", "name": "Alpha"})).unwrap();
