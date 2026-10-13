@@ -698,6 +698,40 @@ pub fn hue_range(px: &[[f32; 4]], center: f32) -> Vec<f32> {
         .collect()
 }
 
+/// Color Range › Select: Skin Tones. Skin of every complexion falls in a compact region of the
+/// YCbCr chroma plane (Chai & Ngan, "Face segmentation using skin-color map", 1999: Cb about
+/// 77..127, Cr about 133..173, Rec. 601 on 0..255) that runs from pale (higher Cb, lower Cr) to
+/// saturated (lower Cb, higher Cr). Pixels inside an ellipse along that run are fully selected;
+/// outside, selection falls off linearly over `fuzziness` (0..200, as the dialog's Fuzziness: 100
+/// is one ellipse radius). Pale neutrals such as cream or beige sit just off its pale end, so they
+/// stay out. Near-black and near-white pixels, whose chroma is noise, are faded out.
+pub fn skin_tones(px: &[[f32; 4]], fuzziness: f32) -> Vec<f32> {
+    const CB: f32 = 104.0;
+    const CR: f32 = 158.0;
+    /// Radii along the run and across it, and the run's angle from the Cb axis.
+    const ALONG: f32 = 22.0;
+    const ACROSS: f32 = 14.0;
+    const ANGLE: f32 = -40.0;
+    let (sin, cos) = ANGLE.to_radians().sin_cos();
+    let ramp = (fuzziness / 100.0).max(1e-3);
+    px.iter()
+        .map(|&[r, g, b, a]| {
+            if a <= 0.0 {
+                return 0.0;
+            }
+            let [r, g, b] = [r, g, b].map(|v| v.clamp(0.0, 1.0) * 255.0);
+            let y = 0.299 * r + 0.587 * g + 0.114 * b;
+            let cb = 128.0 - 0.168_736 * r - 0.331_264 * g + 0.5 * b - CB;
+            let cr = 128.0 + 0.5 * r - 0.418_688 * g - 0.081_312 * b - CR;
+            let d = ((cos * cb + sin * cr) / ALONG).hypot((cos * cr - sin * cb) / ACROSS);
+            let chroma = (1.0 - (d - 1.0) / ramp).clamp(0.0, 1.0);
+            let dark = ((y - 25.0) / 30.0).clamp(0.0, 1.0);
+            let bright = ((250.0 - y) / 20.0).clamp(0.0, 1.0);
+            chroma * dark * bright
+        })
+        .collect()
+}
+
 /// Color Range › Select: Highlights, Midtones or Shadows. Pixels whose luminance (Rec. 601
 /// weights, 0..255) lies in `lo..=hi` are fully selected; outside, selection falls off linearly
 /// to 0 over `falloff` levels (the dialog's Fuzziness).
@@ -906,6 +940,28 @@ mod tests {
         for contiguous in [false, true] {
             assert_eq!(wand_region(&pixels, area, (0, 0), 0.0, contiguous, true), wand_region(&plain, area, (0, 0), 0.0, contiguous, true));
         }
+    }
+
+    #[test]
+    fn skin_tones_selects_skin_and_not_cream_or_white() {
+        let px = |rgb: [u8; 3]| [rgb[0], rgb[1], rgb[2]].map(|v| f32::from(v) / 255.0);
+        let rgba = |rgb: [u8; 3]| {
+            let [r, g, b] = px(rgb);
+            [r, g, b, 1.0]
+        };
+        // Skin in light and shadow, then a cream shirt, a near-white wall, blue denim and black.
+        let skin =
+            [[183, 119, 81], [177, 132, 93], [180, 121, 84], [120, 76, 52], [173, 107, 75], [255, 219, 172], [194, 140, 104], [141, 85, 36], [92, 51, 23]]
+                .map(rgba);
+        let m = skin_tones(&skin, 40.0);
+        assert!(m.iter().all(|&v| v > 0.95), "skin {m:?}");
+        let other = [[231, 225, 202], [252, 253, 247], [40, 60, 110], [5, 5, 5], [128, 128, 128], [220, 40, 40], [200, 160, 40]].map(rgba);
+        let m = skin_tones(&other, 40.0);
+        assert!(m.iter().all(|&v| v < 0.05), "not skin {m:?}");
+        // Fuzziness widens the region; transparent pixels are never selected.
+        let pale = [rgba([230, 215, 200])];
+        assert!(skin_tones(&pale, 200.0)[0] > skin_tones(&pale, 0.0)[0]);
+        assert_eq!(skin_tones(&[[0.7, 0.45, 0.3, 0.0]], 40.0), vec![0.0]);
     }
 
     #[test]

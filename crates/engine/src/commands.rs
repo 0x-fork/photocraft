@@ -573,7 +573,7 @@ fn build() -> Vec<CommandSpec> {
             "Layer…",
             ["Layer", "New"],
             Some("Cmd+Shift+N"),
-            r##"{"name":str?,"clipToPrevious":bool=false (Use Previous Layer to Create Clipping Mask; inside a clip group the layer joins it anyway),"color":"none|red|orange|yellow|green|seafoam|blue|indigo|magenta|fuchsia|violet|gray"="none","mode":"Normal|Multiply|…"="Normal","opacity":0..1=1,"fillNeutral":bool=false (fill with the mode's neutral color: modes without one are an error)}"##,
+            r##"{"name":str?,"clipToPrevious":bool=false (Use Previous Layer to Create Clipping Mask; inside a clip group the layer joins it anyway),"color":"none|red|orange|yellow|green|seafoam|blue|indigo|magenta|fuchsia|violet|gray"="none","mode":"Normal|Multiply|…"="Normal","opacity":0..1=1,"fillNeutral":bool=false (fill with the mode's neutral color: modes without one are an error),"position":"above|below"="above" (below: the Layers panel's Cmd/Ctrl-click; never under the Background)}"##,
             has_doc,
             crate::new_layer::run
         ),
@@ -601,9 +601,25 @@ fn build() -> Vec<CommandSpec> {
             "Duplicate Layer…",
             ["Layer"],
             None,
-            r##"{"layer":id?,"inPlace":bool=false (artboards: keep the copy on the original instead of beside it),"name":str? (one layer: the copy's name)} (no layer: every selected layer)"##,
+            r##"{"layer":id?,"inPlace":bool=false (artboards: keep the copy on the original instead of beside it),"name":str? (one layer: the copy's name),"document":index|"new"=same document (Photoshop's Destination: "new" makes a new document the size of this canvas holding just the copies),"documentName":str? (the new document's name)} (no layer: every selected layer)"##,
             has_layer,
             |s, p| {
+                if let Some(d) = p.get("document") {
+                    if d.as_str() == Some("new") {
+                        return crate::layer_copy_cmds::duplicate_to_new_document(s, p);
+                    }
+                    let same = d.as_u64().is_some_and(|i| s.active_index().is_some_and(|a| i == a as u64));
+                    if !same {
+                        return Err(EngineError::BadParams {
+                            cmd: "layer.duplicate".into(),
+                            msg: if d.as_u64().is_some() {
+                                "the destination is another open document (use layer.copyToDocument)".into()
+                            } else {
+                                "`document` must be a document index or \"new\"".into()
+                            },
+                        });
+                    }
+                }
                 let in_place = p.get("inPlace").and_then(Value::as_bool).unwrap_or(false);
                 let name = p.get("name").and_then(Value::as_str).filter(|n| !n.is_empty()).map(str::to_string);
                 if crate::layer_multi_cmds::multi(s, p) {
@@ -701,13 +717,8 @@ fn build() -> Vec<CommandSpec> {
                     if let Some(Value::Object(m)) = p.get("locks") {
                         for (k, v) in m {
                             let v = v.as_bool().unwrap_or(false);
-                            match k.as_str() {
-                                "transparency" => l.locks.transparency = v,
-                                "pixels" => l.locks.pixels = v,
-                                "position" => l.locks.position = v,
-                                "artboard" => l.locks.artboard = v,
-                                "all" => l.locks.all = v,
-                                other => return Err(bad("layer.setProps", format!("unknown lock `{other}`"))),
+                            if !l.locks.set(k, v) {
+                                return Err(bad("layer.setProps", format!("unknown lock `{k}`")));
                             }
                         }
                     }
@@ -1299,6 +1310,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::analysis_cmds::specs());
     v.extend(crate::notes_cmds::specs());
     v.extend(crate::history_cmds::specs());
+    v.extend(crate::history_select_cmds::specs());
     v.extend(crate::proof_sim::specs());
     v.extend(crate::presets::specs());
     v.extend(crate::document_preset_cmds::specs());

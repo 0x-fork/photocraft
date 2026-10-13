@@ -20,6 +20,8 @@ use serde_json::{Value, json};
 use crate::commands::{CommandSpec, layer_param};
 use crate::{EngineError, Result, Session};
 
+mod batch_naming;
+
 // ---------- predicates ----------
 
 fn has_doc(s: &Session) -> std::result::Result<(), String> {
@@ -931,19 +933,25 @@ pub(crate) fn batch_inputs(p: &Value, cmd: &str) -> Result<Vec<String>> {
 /// Opens each input in a scratch session, runs `f` on it and saves it to `output` as `format`
 /// (`"same"` keeps the input's extension). Errors per file are collected, not fatal.
 pub(crate) fn process_files(inputs: &[String], output: &str, format: &str, save: SaveOpts, suffix: &str, f: &dyn Fn(&mut Session) -> Result<()>) -> Value {
+    let outputs = inputs.iter().map(|path| {
+        let ext =
+            if format == "same" { path.rsplit('.').next().unwrap_or("png").to_ascii_lowercase() } else { format.trim_start_matches('.').to_ascii_lowercase() };
+        (path.as_str(), join(output, &format!("{}{suffix}.{ext}", stem(path))))
+    });
+    process_outputs(outputs, save, f)
+}
+
+fn process_outputs<'a>(outputs: impl IntoIterator<Item = (&'a str, String)>, save: SaveOpts, f: &dyn Fn(&mut Session) -> Result<()>) -> Value {
     let mut files = Vec::new();
     let mut errors = Vec::new();
     let mut written = OutputClaims::default();
-    for path in inputs {
-        let ext =
-            if format == "same" { path.rsplit('.').next().unwrap_or("png").to_ascii_lowercase() } else { format.trim_start_matches('.').to_ascii_lowercase() };
-        let out = join(output, &format!("{}{suffix}.{ext}", stem(path)));
+    for (path, out) in outputs {
         let r = (|| -> Result<()> {
             written.check(&out).map_err(EngineError::Other)?;
             let bytes = read_file(path)?;
             let mut scratch = Session::new();
             let doc = import(&file_name(path), &bytes)?;
-            scratch.add_document(doc, Some(path.clone()));
+            scratch.add_document(doc, Some(path.to_string()));
             f(&mut scratch)?;
             let d = scratch.active().ok_or(EngineError::NoDocument)?;
             save_doc(&d.doc, &out, save)?;
@@ -1010,7 +1018,9 @@ fn batch(s: &mut Session, p: &Value) -> Result<Value> {
         }
     };
     let actions = crate::actions_cmds::ActionState { list, playing: s.actions.playing, playback_stack: s.actions.playback_stack.clone(), ..Default::default() };
-    let r = process_files(&inputs, &output, &format, SaveOpts::from_params(s, p, cmd)?, "", &|scratch| {
+    let names = batch_naming::plan(&inputs, &output, &format, p)?;
+    let save = SaveOpts::from_params(s, p, cmd)?;
+    let run = |scratch: &mut Session| {
         scratch.actions = actions.clone();
         for (id, params) in &steps {
             let r = scratch.execute(id, params.clone())?;
@@ -1020,7 +1030,11 @@ fn batch(s: &mut Session, p: &Value) -> Result<Value> {
             }
         }
         Ok(())
-    });
+    };
+    let r = match names {
+        Some(names) => process_outputs(inputs.iter().map(String::as_str).zip(names), save, &run),
+        None => process_files(&inputs, &output, &format, save, "", &run),
+    };
     Ok(r)
 }
 
@@ -1535,7 +1549,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Batch…",
             &["File", "Automate"],
             None,
-            r##"{"steps":[[commandId,params]|{"command":id,"params":{}}…] (a recorded action),"input":folder|[paths],"output":folder,"format":"same|png|jpg|psd|tiff|…"="same","quality":0..12?,"tiffLayers":bool=false,"tgaBits":24|32?,"dpxBits":8|10|12|16? (DPX: bits per sample; unset, 8 for an 8-bit document, else 16),"calledActions":[{"name","steps"}…]? (the actions Play Action steps call; default: the session's)} → {files, errors} (an input whose output name was already written in the run goes to errors)"##,
+            r##"{"steps":[[commandId,params]|{"command":id,"params":{}}…] (a recorded action),"input":folder|[paths],"output":folder,"format":"same|png|jpg|psd|tiff|…"="same","quality":0..12?,"naming":string? (blank keeps source names; {name}, {serial} padded to 3 digits, {date} as YYYY-MM-DD UTC; extension added automatically),"startingSerial":1..4294967295=1 (input position, including failed inputs),"tiffLayers":bool=false,"tgaBits":24|32?,"dpxBits":8|10|12|16? (DPX: bits per sample; unset, 8 for an 8-bit document, else 16),"calledActions":[{"name","steps"}…]? (the actions Play Action steps call; default: the session's)} → {files, errors} (an input whose output name was already written in the run goes to errors)"##,
             native,
             batch
         ),
