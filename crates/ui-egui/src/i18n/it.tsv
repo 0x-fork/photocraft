@@ -551,6 +551,9 @@
 	Blur	Sfocatura
 	Blur Gallery	Galleria sfocatura
 	Field Blur…	Sfocatura campo…
+# Field Blur pins (#3373)
+	No pin selected	Nessuna puntina selezionata
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Fai clic sull’immagine per aggiungere una puntina; trascina una puntina per spostarla o il suo anello per cambiare la sfocatura. Canc rimuove la puntina selezionata.
 	Iris Blur…	Sfocatura diaframma…
 	Tilt-Shift…	Miniatura…
 	Path Blur…	Sfocatura tracciato…
@@ -2191,6 +2194,10 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Nessun tracciato da cui creare selezione: disegnane uno con Penna o selezionane uno nel pannello Tracciati.
 	Cancel opening	Annulla apertura
 	Cancelled opening {name}	Apertura {name} annullata
+	The document “{name}” does not have an embedded {mode} profile.	Il documento “{name}” non ha un profilo {mode} incorporato.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Il documento “{name}” ha un profilo colore incorporato che non corrisponde allo spazio di lavoro {mode} corrente.
+	Embedded: {embedded}	Incorporato: {embedded}
+	Working: {working}	Di lavoro: {working}
 	Developing {name}	Sviluppo di {name}
 	Cancelled {label}	{label} annullato
 	Esc to cancel	Esc per annullare
@@ -3031,7 +3038,6 @@ curves	Smooth	Leviga
 	Choose…	Scegli…
 	Select Folder…	Seleziona cartella…
 	Override Action "Save" Commands	Sostituisci i comandi "Salva" dell'azione
-	File Naming	Denominazione file
 	Compatibility	Compatibilità
 	Mac OS	Mac OS
 	Unix	Unix
@@ -4061,8 +4067,6 @@ layerLabel	No Color	Nessun colore
 	Monitor profile on {display}: {profile}	Profilo monitor su {display}: {profile}
 	manual	manuale
 	fallback	ripiego
-	The document does not have an embedded colour profile. Working space: {working}.	Il documento non ha un profilo colore incorporato. Spazio di lavoro: {working}.
-	The document has an embedded colour profile that does not match the working space.\nEmbedded: {embedded}\nWorking: {working}	Il documento ha un profilo colore incorporato che non corrisponde allo spazio di lavoro.\nIncorporato: {embedded}\nDi lavoro: {working}
 	Importing {what} from {file}…	Importazione di {what} da {file}…
 	brushes	pennelli
 	gradients	sfumature
@@ -4099,6 +4103,8 @@ navigator	Zoom	Zoom
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	Salvata {n} azione in {file}|Salvate {n} azioni in {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Omesso {n} passaggio senza equivalente in Photoshop|Omessi {n} passaggi senza equivalente in Photoshop
 
+	File Naming	Denominazione file
+	Starting serial	Numero di serie iniziale
 # Actions panel: set folders, dialog toggle, Insert Stop
 	Insert Stop…	Inserisci interruzione…
 	Save Set…	Salva set…

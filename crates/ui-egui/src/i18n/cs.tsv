@@ -559,6 +559,9 @@
 	Blur	Rozostření
 	Blur Gallery	Galerie rozostření
 	Field Blur…	Rozostření pole…
+# Field Blur pins (#3373)
+	No pin selected	Není vybrán žádný špendlík
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Kliknutím do obrazu přidáte špendlík; tažením špendlík přesunete, tažením jeho prstence změníte rozostření. Delete odstraní vybraný špendlík.
 	Iris Blur…	Rozostření clonou…
 	Tilt-Shift…	Tilt-shift…
 	Path Blur…	Rozostření podél cesty…
@@ -2209,6 +2212,10 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Není k dispozici žádná cesta, ze které by šlo vytvořit výběr: nakreslete ji nástrojem Pero nebo ji vyberte na panelu Cesty.
 	Cancel opening	Zrušit otevírání
 	Cancelled opening {name}	Otevírání {name} zrušeno
+	The document “{name}” does not have an embedded {mode} profile.	Dokument „{name}“ nemá vložený profil {mode}.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Dokument „{name}“ má vložený barevný profil, který neodpovídá aktuálnímu pracovnímu prostoru barev {mode}.
+	Embedded: {embedded}	Vložený: {embedded}
+	Working: {working}	Pracovní: {working}
 	Developing {name}	Vyvolávání {name}
 	Cancelled {label}	Zrušeno: {label}
 	Esc to cancel	Esc pro zrušení
@@ -3685,8 +3692,6 @@ curves	Smooth	Vyhladit
 	fallback	náhradní
 
 # Composed labels and Navigator zoom context
-	The document does not have an embedded colour profile. Working space: {working}.	Dokument nemá vložený barevný profil. Pracovní prostor barev: {working}.
-	The document has an embedded colour profile that does not match the working space.\nEmbedded: {embedded}\nWorking: {working}	Dokument má vložený barevný profil, který neodpovídá pracovnímu prostoru barev.\nVložený: {embedded}\nPracovní: {working}
 	Importing {what} from {file}…	Importují se {what} ze souboru {file}…
 	brushes	štětce
 	gradients	přechody
@@ -3744,6 +3749,8 @@ navigator	Zoom	Zvětšení
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	Uložena {n} akce do souboru {file}|Uloženy {n} akce do souboru {file}|Uloženo {n} akcí do souboru {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Vynechán {n} krok bez obdoby v Photoshopu|Vynechány {n} kroky bez obdoby v Photoshopu|Vynecháno {n} kroků bez obdoby v Photoshopu
 
+	File Naming	Pojmenování souborů
+	Starting serial	Počáteční pořadové číslo
 # Actions panel: set folders, dialog toggle, Insert Stop
 	Insert Stop…	Vložit zastavení…
 	Save Set…	Uložit sadu…

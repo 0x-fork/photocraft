@@ -36,12 +36,19 @@ pub enum DropTarget {
 /// `warnings` from an import, plus one for each font family the active document's type uses that
 /// isn't installed (#4559): Photoshop warns about missing fonts as a file opens, and the CLI and
 /// automation already report them; the type would otherwise silently render in a fallback face.
-pub(crate) fn with_missing_fonts(app: &PhotocraftApp, mut warnings: Vec<String>) -> Vec<String> {
-    if let Some(st) = app.session.active() {
-        for w in photocraft_engine::type_extra_cmds::missing_font_warnings(&st.doc) {
-            if !warnings.contains(&w) {
-                warnings.push(w);
-            }
+pub(crate) fn with_missing_fonts(app: &PhotocraftApp, warnings: Vec<String>) -> Vec<String> {
+    match app.session.active() {
+        Some(st) => with_missing_fonts_of(&st.doc, warnings),
+        None => warnings,
+    }
+}
+
+/// [`with_missing_fonts`] for `doc` itself: a file held back for its profile prompt
+/// (`open_prompt`) isn't the active document yet.
+pub(crate) fn with_missing_fonts_of(doc: &photocraft_doc::Document, mut warnings: Vec<String>) -> Vec<String> {
+    for w in photocraft_engine::type_extra_cmds::missing_font_warnings(doc) {
+        if !warnings.contains(&w) {
+            warnings.push(w);
         }
     }
     warnings
@@ -71,9 +78,7 @@ impl PhotocraftApp {
             crate::jobs_ui::start_open(self, &display_name(path), Some(path.to_string()), crate::jobs_ui::bytes(bytes))?;
             return Ok(Vec::new());
         }
-        let warnings = self.open_bytes(&display_name(path), bytes)?;
-        self.opened_from(path);
-        Ok(warnings)
+        self.open_bytes_from(&display_name(path), bytes, Some(path))
     }
 
     /// Record that the active document was just opened from `path`: File › Save writes back to it

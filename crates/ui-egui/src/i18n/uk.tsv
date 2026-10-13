@@ -321,6 +321,9 @@
 	Oil Paint…	Олійний живопис…
 	Blur Gallery	Галерея розмиття
 	Field Blur…	Розмиття поля…
+# Field Blur pins (#3373)
+	No pin selected	Шпильку не вибрано
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Клацніть зображення, щоб додати шпильку; перетягніть шпильку, щоб перемістити її, або її кільце, щоб змінити розмиття. Delete видаляє вибрану шпильку.
 	Iris Blur…	Розмиття діафрагми…
 	Tilt-Shift…	Нахил і зсув…
 	Path Blur…	Розмиття вздовж контуру…
@@ -1382,7 +1385,6 @@
 	Choose…	Вибрати…
 	Select Folder…	Вибрати теку…
 	Override Action "Save" Commands	Перевизначити команди «Зберегти» в дії
-	File Naming	Іменування файлів
 	Compatibility	Сумісність
 	Windows	Windows
 	Mac OS	Mac OS
@@ -2445,6 +2447,10 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Немає контуру для створення виділення: намалюйте його пером або виберіть на панелі контурів.
 	Cancel opening	Скасувати відкриття
 	Cancelled opening {name}	Відкриття {name} скасовано
+	The document “{name}” does not have an embedded {mode} profile.	Документ «{name}» не має вбудованого профілю {mode}.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Вбудований колірний профіль документа «{name}» не відповідає поточному робочому простору {mode}.
+	Embedded: {embedded}	Вбудований: {embedded}
+	Working: {working}	Робочий простір: {working}
 	Developing {name}	Обробка {name}
 	Cancelled {label}	Скасовано: {label}
 	Esc to cancel	Esc для скасування
@@ -3833,6 +3839,8 @@ curves	Smooth	Згладити
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	Збережено {n} операцію до {file}|Збережено {n} операції до {file}|Збережено {n} операцій до {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Пропущено {n} крок без відповідника в Photoshop|Пропущено {n} кроки без відповідника в Photoshop|Пропущено {n} кроків без відповідника в Photoshop
 
+	File Naming	Іменування файлів
+	Starting serial	Початковий порядковий номер
 # Actions panel: set folders, dialog toggle, Insert Stop
 	Insert Stop…	Вставити зупинку…
 	Save Set…	Зберегти набір…

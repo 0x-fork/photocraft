@@ -435,6 +435,10 @@ pub fn reset_fields(app: &PhotocraftApp, fields: &mut Map<String, Value>) {
         }
     }
     apply_command_defaults(app, &command, fields);
+    // The schema has no default for the Blur Gallery's pins: start again from the opening one.
+    if command == crate::blur_pins::COMMAND {
+        crate::blur_pins::reset(fields);
+    }
 }
 
 pub fn open(app: &mut PhotocraftApp, command: &str) -> Option<u64> {
@@ -454,6 +458,9 @@ pub fn open(app: &mut PhotocraftApp, command: &str) -> Option<u64> {
     }
     restore_remembered(app, command, spec.params, &mut fields);
     apply_command_defaults(app, command, &mut fields);
+    if command == crate::blur_pins::COMMAND {
+        crate::blur_pins::init(app, &mut fields);
+    }
     if parse_spec(spec.params).iter().any(|p| p.kind == Kind::Document) {
         // The document picker lists every open document (params refer to them by index).
         let names: Vec<String> = app.session.documents().iter().map(|d| d.doc.name.clone()).collect();
@@ -548,6 +555,10 @@ pub(crate) fn source_label(key: &str) -> String {
     // Photoshop's name for the localized colour matching (Replace Color, Color Range).
     if key == "localized" {
         return "Localized Color Clusters".into();
+    }
+    // A name that already reads as text ("iPhone 14 Pro Max", "Web 1920") is not camelCase.
+    if key.contains(' ') {
+        return key.to_string();
     }
     // camelCase → "Camel Case"
     let mut s = String::new();
@@ -906,6 +917,10 @@ pub(crate) fn preview_document_for_target(
             }
         }
     }
+    // Blur Gallery pins carry their blur in document pixels too.
+    if command.starts_with("filter.blurGallery.") {
+        crate::blur_pins::scale_for_proxy(&mut p, run_k);
+    }
     s.execute(command, p).ok()?;
     s.active().map(|d| crate::proxy::proxy_document(&d.doc, reduce_k))
 }
@@ -963,6 +978,15 @@ pub struct FilterPreviewKey {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Preset names such as "iPhone 14 Pro Max" (the artboard dialog's choices) are text, not
+    /// camelCase keys: they used to read "I Phone 14  Pro  Max".
+    #[test]
+    fn display_names_are_not_split_like_camel_case_keys() {
+        assert_eq!(source_label("iPhone 14 Pro Max"), "iPhone 14 Pro Max");
+        assert_eq!(source_label("Web 1920"), "Web 1920");
+        assert_eq!(source_label("centerX"), "Center X");
+    }
 
     #[test]
     fn only_direction_angles_get_the_dial() {
