@@ -184,7 +184,7 @@ fn handle_sides(i: u8) -> (bool, bool, bool, bool) {
 }
 
 pub(crate) fn box_shape(app: &PhotocraftApp, id: LayerId) -> Option<(f32, f32, f32, f32)> {
-    match app.session.active().and_then(|s| text_layer(&s.doc, id).map(|t| t.shape))? {
+    match app.session.active().and_then(|s| text_layer(&s.doc, id).map(|t| t.shape.clone()))? {
         photocraft_doc::text::TextShape::Box { x, y, width, height } => Some((x, y, width, height)),
         _ => None,
     }
@@ -1013,7 +1013,7 @@ pub fn draw_overlay(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewX
     if crate::type_transform::draw(app, painter, xf, mods) {
         return;
     }
-    let shape = app.session.active().and_then(|s| text_layer(&s.doc, id).map(|t| t.shape));
+    let shape = app.session.active().and_then(|s| text_layer(&s.doc, id).map(|t| t.shape.clone()));
     let frame = Stroke::new(1.0, t.accent);
     match shape {
         Some(photocraft_doc::text::TextShape::Box { x, y, width, height }) => {

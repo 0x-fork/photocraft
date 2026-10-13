@@ -6,7 +6,7 @@ const PORTAL_NAMESPACE: &str = "org.freedesktop.appearance";
 const PORTAL_KEY: &str = "color-scheme";
 
 #[cfg(target_os = "linux")]
-fn portal_proxy() -> Option<zbus::blocking::Proxy<'static>> {
+pub(crate) fn portal_proxy() -> Option<zbus::blocking::Proxy<'static>> {
     let conn = zbus::blocking::connection::Builder::session().ok()?.method_timeout(std::time::Duration::from_secs(2)).build().ok()?;
     zbus::blocking::Proxy::new(&conn, "org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop", "org.freedesktop.portal.Settings").ok()
 }

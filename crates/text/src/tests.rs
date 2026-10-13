@@ -152,7 +152,7 @@ fn tabs_advance_to_the_next_default_tab_stop() {
 #[test]
 fn psd_round_trips_tabs() {
     for shape in [TextShape::Point, TextShape::Box { x: 0.0, y: 0.0, width: 300.0, height: 100.0 }] {
-        let t = TextLayer { shape, ..point("Name\tValue\n\tIndented", 20.0) };
+        let t = TextLayer { shape: shape.clone(), ..point("Name\tValue\n\tIndented", 20.0) };
         let back = crate::psd::text_layer_from_tysh(&crate::psd::build_tysh(&t, 72.0, None), 72.0).unwrap();
         assert_eq!(back.text, t.text, "{shape:?}");
     }
@@ -1891,4 +1891,66 @@ fn engine_data_antialias_numbers_match_photoshop() {
         let back = crate::psd::text_layer_from_tysh(&crate::psd::write_tysh(&tysh), 72.0).unwrap();
         assert_eq!(back.antialias, mode, "{n}");
     }
+}
+
+/// Type on a path (#218): along a vertical line the type runs top to bottom with its glyphs
+/// turned, along a curve it follows the curve, and glyphs beyond the end are not drawn.
+#[test]
+fn type_on_a_path_follows_the_curve() {
+    use photocraft_doc::vector::{Knot, Subpath};
+    let fmt = PixelFormat::RGBA8;
+    let mut eng = TextEngine::new();
+    let ink = |eng: &mut TextEngine, t: &TextLayer| {
+        let (_, r) = eng.render(t, 72.0, fmt);
+        r.rect
+    };
+    let straight = point("Path text", 24.0);
+    let flat = ink(&mut eng, &straight);
+    assert!(flat.width() > flat.height() * 3, "{flat:?}");
+
+    let mut down = straight.clone();
+    down.shape = TextShape::Path { path: Subpath::polyline(&[(0.0, 0.0), (0.0, 400.0)]), start: 0.0, flip: false };
+    let r = ink(&mut eng, &down);
+    assert!(r.height() > r.width() * 3, "vertical path gives tall ink: {r:?}");
+    assert!(r.height() >= flat.width() - 8, "arc length is preserved: {r:?} vs {flat:?}");
+
+    // A half circle bends the text through a larger area than the straight line.
+    let k = 0.5523 * 60.0;
+    let arc = Subpath {
+        closed: false,
+        knots: vec![
+            Knot {
+                anchor: photocraft_geom::Point::new(-60.0, 0.0),
+                in_ctrl: photocraft_geom::Point::new(-60.0, 0.0),
+                out_ctrl: photocraft_geom::Point::new(-60.0, -k),
+                smooth: true,
+            },
+            Knot {
+                anchor: photocraft_geom::Point::new(0.0, -60.0),
+                in_ctrl: photocraft_geom::Point::new(-k, -60.0),
+                out_ctrl: photocraft_geom::Point::new(k, -60.0),
+                smooth: true,
+            },
+            Knot {
+                anchor: photocraft_geom::Point::new(60.0, 0.0),
+                in_ctrl: photocraft_geom::Point::new(60.0, -k),
+                out_ctrl: photocraft_geom::Point::new(60.0, 0.0),
+                smooth: true,
+            },
+        ],
+        ..Default::default()
+    };
+    let mut curved = straight.clone();
+    curved.shape = TextShape::Path { path: arc.clone(), start: 0.0, flip: false };
+    let c = ink(&mut eng, &curved);
+    assert!(c.height() > flat.height() * 2, "curved ink is taller: {c:?} vs {flat:?}");
+
+    // A path too short for the text hides the glyphs past its end.
+    let mut short = straight.clone();
+    short.shape = TextShape::Path { path: Subpath::polyline(&[(0.0, 0.0), (30.0, 0.0)]), start: 0.0, flip: false };
+    assert!(ink(&mut eng, &short).width() < flat.width() / 2);
+    // A degenerate path falls back to straight point text instead of failing.
+    let mut dot = straight.clone();
+    dot.shape = TextShape::Path { path: Subpath::polyline(&[(5.0, 5.0), (5.0, 5.0)]), start: 0.0, flip: false };
+    assert_eq!(ink(&mut eng, &dot), flat);
 }

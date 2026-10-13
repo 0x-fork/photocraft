@@ -409,6 +409,13 @@ fn render_and_spool(doc: &Document, p: &Value, cmd: &str) -> Result<Value> {
     let mut sent = false;
     let mut spool = Value::Null;
     if send && !dry {
+        // The last line of defence: a test or fuzz run must never print a page (`dryRun` still
+        // renders and reports the command).
+        if printing_disabled() {
+            return Err(other(
+                "printing is disabled in this process (photocraft_engine::print_cmds::disable_printing or PHOTOCRAFT_NO_PRINT); use dryRun: true",
+            ));
+        }
         spool = json!(craft_print::submit(&pdf, &job).map_err(other)?);
         sent = true;
     }
@@ -427,6 +434,20 @@ fn remember_print(s: &mut Session, p: &Value) {
         o.remove("send");
     }
     s.file_menu.last_print = Some(remembered);
+}
+
+/// Set once by test harnesses (the panic hunt) so no command in the process can reach a printer.
+static PRINTING_DISABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Refuse to spool anything from this process from now on (tests, fuzzing). The
+/// `PHOTOCRAFT_NO_PRINT` environment variable does the same for a whole shell (CI).
+pub fn disable_printing() {
+    PRINTING_DISABLED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether spooling is blocked by [`disable_printing`] or `PHOTOCRAFT_NO_PRINT`.
+pub fn printing_disabled() -> bool {
+    PRINTING_DISABLED.load(std::sync::atomic::Ordering::Relaxed) || std::env::var_os("PHOTOCRAFT_NO_PRINT").is_some_and(|v| !v.is_empty() && v != "0")
 }
 
 fn print(s: &mut Session, p: &Value) -> Result<Value> {

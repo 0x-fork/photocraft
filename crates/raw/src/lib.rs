@@ -46,6 +46,7 @@
 mod cameras;
 mod color;
 mod cr2;
+mod cr3;
 mod demosaic;
 mod develop;
 mod dng;
@@ -84,6 +85,17 @@ use crate::tiff::{Tiff, tag};
 
 /// Name of the output colour space of [`develop`].
 pub const OUTPUT_SPACE: &str = "ProPhoto RGB (ROMM primaries, D50, gamma 1.8)";
+
+/// The raw container's orientation, when recorded (CR3 metadata or TIFF IFD0).
+/// Useful for camera JPEGs that carry no orientation of their own.
+pub fn orientation(bytes: &[u8]) -> Option<u16> {
+    if bytes.get(4..12) == Some(b"ftypcrx ") {
+        return cr3::orientation(bytes);
+    }
+    let tiff = Tiff::new(bytes)?;
+    let ifd = tiff.ifd_at(tiff.first_ifd, 0)?;
+    tiff.tag_uint(&ifd, tag::ORIENTATION).filter(|o| (1..=8).contains(o)).map(|o| o as u16)
+}
 
 /// Camera raw container families.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
