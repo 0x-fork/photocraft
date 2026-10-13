@@ -1383,7 +1383,7 @@ pub(crate) fn psd_version(doc: &Document, force_psb: bool) -> Version {
 /// re-encodes nothing (only the RLE row-count tables widen, see [`PsdFile::promote_to_psb`]).
 /// Returns a warning when the version changed or could not be changed.
 pub(crate) fn fit_psd_size(file: &mut PsdFile, limit: u64) -> Option<String> {
-    if file.header.version.is_psb() {
+    if file.written_version().is_psb() {
         return None;
     }
     // A length that cannot be computed (it overflows) cannot fit either.
@@ -1393,10 +1393,11 @@ pub(crate) fn fit_psd_size(file: &mut PsdFile, limit: u64) -> Option<String> {
     match file.promote_to_psb() {
         Ok(()) => {
             // Photoshop pads the layer info to 4 bytes; the padding depends on the version.
+            let padded = file.layer_info.as_ref().is_some_and(|info| info.padding.is_some());
             if matches!(file.layer_info_placement, LayerInfoPlacement::Section)
+                && padded
+                && file.pad_layer_info_to(4).is_err()
                 && let Some(info) = &mut file.layer_info
-                && info.padding.is_some()
-                && info.pad_to(Version::Psb, 4).is_err()
             {
                 info.padding = None;
             }
@@ -1706,9 +1707,10 @@ fn document_to_psd_sized(doc: &Document, opts: &PsdExportOptions, depth: u32, ct
         global_blocks,
         layer_mask_trailing: Vec::new(),
         image_data,
+        write_as_psb: false,
     };
     ex.warnings.extend(fit_psd_size(&mut file, size_limit));
-    let version = file.header.version;
+    let version = file.written_version();
     for block in &mut file.global_blocks {
         block.signature = block_signature(block.signature, version);
     }
@@ -1925,7 +1927,7 @@ mod tests {
     fn a_file_that_fits_after_compression_stays_psd() {
         let doc = sized_document(false, SampleType::U8);
         let (file, warnings) = export_sized(&doc, SIZED_LIMIT);
-        assert_eq!(file.header.version, Version::Psd);
+        assert_eq!(file.written_version(), Version::Psd);
         assert!(warnings.iter().all(|w| !w.contains("PSB")), "{warnings:?}");
         let bytes = file.to_bytes().unwrap();
         assert!(bytes.len() as u64 + PSD_SAVE_HEADROOM <= SIZED_LIMIT, "{} bytes", bytes.len());
@@ -1941,12 +1943,17 @@ mod tests {
         for depth in [SampleType::U8, SampleType::U16] {
             let doc = sized_document(true, depth);
             let (file, warnings) = export_sized(&doc, SIZED_LIMIT);
-            assert_eq!(file.header.version, Version::Psb, "{depth:?}");
+            assert_eq!(file.written_version(), Version::Psb, "{depth:?}");
             assert!(warnings.iter().any(|w| w == "encoded size exceeds 2 GB; written as PSB"), "{warnings:?}");
             let bytes = file.to_bytes().unwrap();
             assert!(bytes.len() as u64 > SIZED_LIMIT);
             let forced = document_to_psd_with(&doc, &PsdExportOptions { force_psb: true, ..Default::default() }).0;
-            assert!(bytes == forced.to_bytes().unwrap(), "{depth:?}: the promoted PSB differs from a PSB written directly");
+            let forced = forced.to_bytes().unwrap();
+            assert!(bytes == forced, "{depth:?}: the promoted PSB differs from a PSB written directly");
+            assert_eq!(PsdFile::from_bytes(&bytes).unwrap(), PsdFile::from_bytes(&forced).unwrap(), "{depth:?}");
+            // The promoted model itself stays a consistent PSD for every reader.
+            assert_eq!(file.header.version, Version::Psd);
+            assert_eq!(crate::psd_to_document(&file).0.layers[0].surface().unwrap().pixel(511, 777), doc.layers[0].surface().unwrap().pixel(511, 777));
             let (back, _) = crate::psd_to_document(&PsdFile::from_bytes(&bytes).unwrap());
             for (x, y) in [(0, 0), (1023, 0), (511, 777), (1023, 1023)] {
                 assert_eq!(back.layers[0].surface().unwrap().pixel(x, y), doc.layers[0].surface().unwrap().pixel(x, y), "{depth:?} ({x}, {y})");
@@ -1959,12 +1966,12 @@ mod tests {
     fn the_size_limit_is_the_exact_encoded_length() {
         let doc = sized_document(false, SampleType::U8);
         let len = export_sized(&doc, u64::MAX).0.to_bytes().unwrap().len() as u64;
-        assert_eq!(export_sized(&doc, len + PSD_SAVE_HEADROOM).0.header.version, Version::Psd);
-        assert_eq!(export_sized(&doc, len + PSD_SAVE_HEADROOM - 1).0.header.version, Version::Psb);
+        assert_eq!(export_sized(&doc, len + PSD_SAVE_HEADROOM).0.written_version(), Version::Psd);
+        assert_eq!(export_sized(&doc, len + PSD_SAVE_HEADROOM - 1).0.written_version(), Version::Psb);
         // The real limit: a small document stays PSD, a forced one is PSB.
         let small = document(1, 1);
-        assert_eq!(document_to_psd(&small).header.version, Version::Psd);
-        assert_eq!(document_to_psd_with(&small, &PsdExportOptions { force_psb: true, ..Default::default() }).0.header.version, Version::Psb);
+        assert_eq!(document_to_psd(&small).written_version(), Version::Psd);
+        assert_eq!(document_to_psd_with(&small, &PsdExportOptions { force_psb: true, ..Default::default() }).0.written_version(), Version::Psb);
         assert_eq!(psd_version(&document(30_001, 1), false), Version::Psb);
     }
 
@@ -1975,10 +1982,10 @@ mod tests {
         doc.mode = ColorMode::Multichannel;
         doc.channels.push(photocraft_doc::AlphaChannel::new("Cyan", photocraft_raster::Surface::new(PixelFormat::GRAY8)));
         let (file, _) = export_sized(&doc, u64::MAX);
-        assert_eq!(file.header.version, Version::Psd);
+        assert_eq!(file.written_version(), Version::Psd);
         let len = file.to_bytes().unwrap().len() as u64;
         let (file, warnings) = export_sized(&doc, len + PSD_SAVE_HEADROOM - 1);
-        assert_eq!(file.header.version, Version::Psb);
+        assert_eq!(file.written_version(), Version::Psb);
         assert!(warnings.iter().any(|w| w.contains("written as PSB")), "{warnings:?}");
         let back = PsdFile::from_bytes(&file.to_bytes().unwrap()).unwrap();
         assert_eq!(back.header.version, Version::Psb);

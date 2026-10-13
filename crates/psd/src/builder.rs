@@ -457,6 +457,7 @@ impl PsdBuilder {
             global_blocks: Vec::new(),
             layer_mask_trailing: Vec::new(),
             image_data,
+            write_as_psb: false,
         })
     }
 

@@ -163,6 +163,7 @@ pub(crate) fn document_to_psd(doc: &Document, force_psb: bool, size_limit: u64) 
         global_blocks,
         layer_mask_trailing: Vec::new(),
         image_data,
+        write_as_psb: false,
     };
     warnings.extend(crate::psd_export::fit_psd_size(&mut file, size_limit));
     (file, warnings)
