@@ -22,6 +22,7 @@ const MAX_SIDE: u32 = 4096;
 const MAX_COMPOSITE_CACHE_PIXELS: usize = 8 * 1024 * 1024;
 
 struct SampledComposite {
+    doc: std::sync::Weak<Document>,
     revision: u64,
     preview_key: u64,
     factor: u32,
@@ -273,9 +274,20 @@ pub fn ensure(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize) -> Optio
     // A live preview can mutate the same Arc in place. Revision and preview_key, not
     // pointer identity, determine whether these flattened pixels are still current.
     if let Some(c) = app.channel_views.get_mut(&id)
-        && c.source.as_ref().is_some_and(|s| s.factor != factor || s.revision != revision || s.preview_key != preview_key)
+        && let Some(source) = c.source.as_mut()
     {
-        c.source = None;
+        // Channel visibility bumps the view revision without replacing the committed document.
+        // Keep its sampled pixels. Pixel edits replace the COW snapshot; live previews also
+        // require an unchanged revision/key because they can mutate a snapshot in place.
+        let same = source.factor == factor
+            && source.preview_key == preview_key
+            && source.doc.ptr_eq(&std::sync::Arc::downgrade(&doc))
+            && (preview_key == 0 || source.revision == revision);
+        if same {
+            source.revision = revision;
+        } else {
+            c.source = None;
+        }
     }
     if let Some(c) = app.channel_views.get(&id)
         && c.key == key
@@ -325,12 +337,12 @@ pub fn ensure(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize) -> Optio
             c.factor = factor;
             c.valid = true;
             if let Some(pixels) = fresh.take() {
-                c.source = Some(SampledComposite { revision, preview_key, factor, pixels });
+                c.source = Some(SampledComposite { doc: std::sync::Arc::downgrade(&doc), revision, preview_key, factor, pixels });
             }
         }
         _ => {
             let tex = ctx.load_texture(format!("channel-view-{id}"), img, TextureOptions::LINEAR);
-            let source = fresh.map(|pixels| SampledComposite { revision, preview_key, factor, pixels });
+            let source = fresh.map(|pixels| SampledComposite { doc: std::sync::Arc::downgrade(&doc), revision, preview_key, factor, pixels });
             app.channel_views.insert(id, Cache { revision, key, preview_key, factor, valid: true, tex, source });
         }
     }
@@ -391,6 +403,11 @@ mod tests {
         app.run("channel.setVisible", json!({"channel": "red", "visible": false})).unwrap();
         assert!(ensure(&mut app, &ctx, 0).is_some());
         let id = app.session.active().unwrap().doc.id.0;
+        // Give the existing allocation spare capacity. Recomputing could accidentally reuse
+        // its freed address, but a fresh composite cannot retain this capacity.
+        let first = app.channel_views.get_mut(&id).unwrap().source.as_mut().unwrap();
+        first.pixels.reserve_exact(1);
+        let capacity = first.pixels.capacity();
         let first = app.channel_views.get(&id).unwrap().source.as_ref().unwrap();
         let original_sample = first.pixels[0];
         let ptr = first.pixels.as_ptr();
@@ -398,6 +415,7 @@ mod tests {
         app.run("channel.setVisible", json!({"channel": "green", "visible": false})).unwrap();
         assert!(ensure(&mut app, &ctx, 0).is_some());
         let reused = app.channel_views.get(&id).unwrap().source.as_ref().unwrap();
+        assert_eq!(capacity, reused.pixels.capacity(), "visibility must retain the composite allocation");
         assert_eq!(ptr, reused.pixels.as_ptr(), "visibility does not recompose the pixels");
 
         app.run("edit.fill", json!({"color": "#e02010"})).unwrap();
