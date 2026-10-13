@@ -247,6 +247,69 @@ fn smart_filter_commands_check_an_explicit_layer_target() {
     assert_eq!(active(&s), curves);
 }
 
+/// #4271: dragging smart filters onto another smart object moves them, ⌥-dragging copies them;
+/// one filter or all of them (with the filter mask), each in one undo step.
+#[test]
+fn smart_filters_move_or_copy_to_another_smart_object() {
+    let mut s = session(8);
+    paint(&mut s);
+    let a = convert(&mut s);
+    s.execute("select.rect", json!({"x": 0, "y": 0, "width": 16, "height": 48})).unwrap();
+    s.execute("filter.other.offset", json!({"horizontal": 5, "undefinedAreas": "transparent"})).unwrap();
+    s.execute("select.deselect", json!({})).unwrap();
+    s.execute("filter.blur.gaussianBlur", json!({"radius": 3})).unwrap();
+    s.execute("layer.new.layer", json!({})).unwrap();
+    paint(&mut s);
+    let b = convert(&mut s);
+    let pixel = s.execute("layer.new.layer", json!({})).unwrap()["layer"].as_u64().unwrap();
+    let so = |s: &Session, id: u64| match &s.active().unwrap().doc.layer(LayerId(id)).unwrap().content {
+        LayerContent::Smart(sm) => sm.clone(),
+        other => panic!("not smart: {}", other.kind_name()),
+    };
+    let commands = |sm: &SmartObject| sm.smart_filters.iter().map(|f| f.command.clone()).collect::<Vec<_>>();
+    let (offset, blur) = ("filter.other.offset", "filter.blur.gaussianBlur");
+    assert_eq!(commands(&so(&s, a)), [offset, blur]);
+    assert!(so(&s, a).filter_mask.is_some());
+    let before = flat(&s);
+
+    // ⌥-drag the blur: B gets a copy (re-rendered), A keeps it.
+    s.execute("layer.smartFilter.transfer", json!({"from": a, "to": b, "filter": 1, "copy": true})).unwrap();
+    assert_eq!(commands(&so(&s, b)), [blur]);
+    assert_eq!(commands(&so(&s, a)), [offset, blur]);
+    assert!(so(&s, b).filter_mask.is_none(), "one filter comes without the mask");
+    assert!(max_diff(&flat(&s), &before) > 1e-3, "B is blurred");
+    s.undo();
+    assert!(so(&s, b).smart_filters.is_empty());
+    assert_eq!(flat(&s), before);
+
+    // Drag the offset: it moves to the top of B's filters.
+    s.redo();
+    s.execute("layer.smartFilter.transfer", json!({"from": a, "to": b, "filter": 0})).unwrap();
+    assert_eq!(commands(&so(&s, a)), [blur]);
+    assert_eq!(commands(&so(&s, b)), [blur, offset]);
+
+    // Drag the Smart Filters row: all of A's filters and its filter mask move to B.
+    let mask = so(&s, a).filter_mask;
+    s.execute("layer.smartFilter.transfer", json!({"from": a, "to": b})).unwrap();
+    assert!(so(&s, a).smart_filters.is_empty() && so(&s, a).filter_mask.is_none());
+    assert_eq!(commands(&so(&s, b)), [blur, offset, blur]);
+    assert_eq!(so(&s, b).filter_mask, mask);
+    s.undo();
+    assert_eq!(so(&s, a).smart_filters.len(), 1);
+    assert_eq!(so(&s, b).smart_filters.len(), 2);
+
+    // Refused: onto itself, onto a layer that isn't a smart object, a bad index, no filters.
+    let transfer = |s: &mut Session, p: Value| s.execute("layer.smartFilter.transfer", p);
+    assert!(transfer(&mut s, json!({"from": a, "to": a})).is_err());
+    assert!(transfer(&mut s, json!({"from": a, "to": pixel})).is_err());
+    assert!(transfer(&mut s, json!({"from": a, "to": b, "filter": 5})).is_err());
+    assert!(transfer(&mut s, json!({"from": a, "to": b, "index": 0})).is_err(), "`index` isn't taken for `filter`");
+    assert!(transfer(&mut s, json!({"from": pixel, "to": b})).is_err());
+    s.execute("layer.smartFilter.clearSmartFilters", json!({"layer": a})).unwrap();
+    assert!(transfer(&mut s, json!({"from": a, "to": b})).is_err());
+    assert_eq!(so(&s, b).smart_filters.len(), 2, "nothing changed");
+}
+
 #[test]
 fn selection_becomes_the_filter_mask() {
     let mut s = session(8);

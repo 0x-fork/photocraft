@@ -1260,7 +1260,8 @@ impl PhotocraftApp {
             return self.save_to(path, tga_bits);
         }
         let st = self.session.active().ok_or("no document")?;
-        // PDN imports default to our native format, which preserves Paint.NET's blend modes.
+        // PDN imports default to our native format, which preserves Paint.NET's blend modes;
+        // Krita imports to OpenRaster, which Krita opens with its layers.
         // Other files keep their format only when it can retain their layers. A plain raster
         // (including an unlocked transparent PNG) can keep its flat format; editable contents,
         // masks and layer appearance settings need a layered format even with just one layer.
@@ -1274,7 +1275,11 @@ impl PhotocraftApp {
             Some(p) if writable => p.clone(),
             p => {
                 let source = p.as_deref().unwrap_or(&st.doc.name);
-                let ext = if photocraft_engine::file_cmds::extension(source).as_deref() == Some("pdn") { "pcraft" } else { "psd" };
+                let ext = match photocraft_engine::file_cmds::extension(source).as_deref() {
+                    Some("pdn") => "pcraft",
+                    Some("kra" | "krz") => "ora",
+                    _ => "psd",
+                };
                 std::path::Path::new(source).with_extension(ext).to_string_lossy().into_owned()
             }
         };
@@ -2390,6 +2395,9 @@ mod color_tab_theme_tests;
 
 #[cfg(test)]
 mod new_layer_button_tests;
+
+#[cfg(test)]
+mod smart_filter_rows_tests;
 
 #[cfg(test)]
 mod move_outline_tests;

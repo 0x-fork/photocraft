@@ -16,13 +16,13 @@ use std::sync::Arc;
 #[cfg(test)]
 mod recovery_tests;
 
-/// Everything File › Open reads: PhotoCraft, Photoshop, OpenRaster and Affinity documents, flat images, and
+/// Everything File › Open reads: PhotoCraft, Photoshop, OpenRaster, Krita and Affinity documents, flat images, and
 /// Photoshop brushes (.abr), gradients (.grd), swatches (.aco, .ase) and keyboard shortcut sets
 /// (.kys), which go to the preset libraries and Edit › Keyboard Shortcuts.
 const OPEN_EXTS: &[&str] = &[
-    "pcraft", "pdn", "ora", "kra", "psd", "psb", "psdt", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "ico", "qoi", "exr", "hdr", "pbm",
-    "pgm", "ppm", "pam", "pfm", "pcx", "dds", "xpm", "fits", "fit", "fts", "dpx", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw", "arw", "pef",
-    "orf", "rw2", "raf", "abr", "grd", "svg", "svgz", "aco", "ase", "kys", "af", "afdesign", "afphoto", "afpub",
+    "pcraft", "pdn", "ora", "kra", "krz", "psd", "psb", "psdt", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "ico", "qoi", "exr", "hdr",
+    "pbm", "pgm", "ppm", "pam", "pfm", "pcx", "dds", "xpm", "fits", "fit", "fts", "dpx", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw", "arw",
+    "pef", "orf", "rw2", "raf", "abr", "grd", "svg", "svgz", "aco", "ase", "kys", "af", "afdesign", "afphoto", "afpub",
 ];
 const SVG_EXTS: &[&str] = &["svg", "svgz"];
 
@@ -43,7 +43,7 @@ fn open_filters() -> Vec<(&'static str, Vec<String>)> {
         ("All Formats", open_filter_extensions(OPEN_EXTS)),
         ("PhotoCraft", open_filter_extensions(&["pcraft"])),
         ("OpenRaster", open_filter_extensions(&["ora"])),
-        ("Krita", open_filter_extensions(&["kra"])),
+        ("Krita", open_filter_extensions(&["kra", "krz"])),
         ("SVG", open_filter_extensions(SVG_EXTS)),
     ]
 }

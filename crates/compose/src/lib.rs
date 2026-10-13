@@ -88,6 +88,11 @@ pub fn render(doc: &Document, rect: Rect) -> Buffer {
     render_tiled(doc, rect, RENDER_TILE)
 }
 
+/// Most pixels one [`render`] call will produce (2^30, a 16 GiB buffer; 32768² px). Larger rects
+/// (a hostile canvas size is up to 300000 px a side) return an empty buffer instead of aborting
+/// on allocation; callers wanting more render in pieces.
+pub const MAX_RENDER_PIXELS: u64 = 1 << 30;
+
 /// [`render`] with an explicit tile size (tests check tile independence).
 pub fn render_tiled(doc: &Document, rect: Rect, tile: i32) -> Buffer {
     let patterns = pattern::PreparedPatterns::new(&doc.patterns, pattern::PREPARED_PATTERN_BYTES).in_mode(doc.pixel_format().mode);
@@ -107,8 +112,12 @@ fn render_tiled_with(doc: &Document, rect: Rect, tile: i32, cx: &Ctx) -> Buffer 
     if rect.is_empty() {
         return Buffer::transparent(rect);
     }
+    // Refuse rects too large to hold: an empty buffer, not an allocation failure.
+    if u64::from(rect.width()) * u64::from(rect.height()) > MAX_RENDER_PIXELS {
+        return Buffer::transparent(Rect::EMPTY);
+    }
     cx.set_fx_clip(rect);
-    if rect.width() as i32 <= tile && rect.height() as i32 <= tile {
+    if i64::from(rect.width()) <= i64::from(tile) && i64::from(rect.height()) <= i64::from(tile) {
         return photocraft_color::convert::with_cmyk_space(cmyk, || {
             let mut buf = multichannel::backdrop(doc, rect);
             in_blend_space(lab, hdr, || composite_stack_at(&doc.layers, &mut buf, cx, advanced::Scope::ROOT));

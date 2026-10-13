@@ -2488,6 +2488,16 @@ fn lab_documents_gradient_map_follows_lightness() {
     assert!((buf.px[0][0] - grey_buf.px[0][0]).abs() > 0.05, "{:?} {:?}", buf.px[0], grey_buf.px[0]);
 }
 
+#[test]
+fn render_refuses_rects_beyond_the_pixel_cap() {
+    let doc = Document::new("c", Size::new(4, 4), ColorMode::Rgb, SampleType::U8);
+    // 2^32 - 1 px wide: the width wraps negative as an i32, which once took the single-tile path.
+    for tile in [crate::RENDER_TILE, 1 << 20] {
+        let b = crate::render_tiled(&doc, Rect::new(i32::MIN, 0, i32::MAX, 1), tile);
+        assert!(b.px.is_empty() && b.rect.is_empty());
+    }
+}
+
 // The effect-map cache key covers Transparency Shapes Layer and Blend If: both change the shape
 // the maps are built from (a layer's own, or a styled group's children composite) without
 // touching pixels, masks or effects, and stale maps kept stroking a hole the layer no longer

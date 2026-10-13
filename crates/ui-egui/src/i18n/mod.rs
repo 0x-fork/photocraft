@@ -187,7 +187,7 @@ fn expand(packed: &str, keys: &[&str]) -> Result<String, String> {
 }
 
 /// The registry. English first: it is the fallback and the source language.
-pub static LANGUAGES: [LangInfo; 20] = [
+pub static LANGUAGES: [LangInfo; 21] = [
     LangInfo { code: "en", name: "English", source: b"", plural: plural_one_other, complete_menus: false, catalog: OnceLock::new() },
     LangInfo { code: "ja", name: "日本語", source: catalog!("ja"), plural: plural_none, complete_menus: true, catalog: OnceLock::new() },
     LangInfo { code: "zh-hans", name: "简体中文", source: catalog!("zh-hans"), plural: plural_none, complete_menus: true, catalog: OnceLock::new() },
@@ -198,6 +198,10 @@ pub static LANGUAGES: [LangInfo; 20] = [
     LangInfo { code: "ru", name: "Русский", source: catalog!("ru"), plural: plural_russian, complete_menus: true, catalog: OnceLock::new() },
     // Ukrainian has the same one/few/many rule for integer counts.
     LangInfo { code: "uk", name: "Українська", source: catalog!("uk"), plural: plural_russian, complete_menus: true, catalog: OnceLock::new() },
+    // Serbian (Latin script, Ekavian) has the same one/few/many rule for integer counts. `sr-RS`,
+    // `sr-Latn-*` and `sr_RS@latin` resolve here; so do Cyrillic `sr` locales, which read Latin
+    // rather than English.
+    LangInfo { code: "sr", name: "Srpski", source: catalog!("sr"), plural: plural_russian, complete_menus: true, catalog: OnceLock::new() },
     LangInfo { code: "cs", name: "Čeština", source: catalog!("cs"), plural: plural_cs, complete_menus: true, catalog: OnceLock::new() },
     LangInfo { code: "fr", name: "Français", source: catalog!("fr"), plural: plural_fr, complete_menus: true, catalog: OnceLock::new() },
     LangInfo { code: "id", name: "Bahasa Indonesia", source: catalog!("id"), plural: plural_none, complete_menus: true, catalog: OnceLock::new() },
@@ -677,6 +681,66 @@ mod tests {
             assert_eq!(trn(uk, n, "{n} item", "{n} items"), format!("{n} {item}"));
             assert_eq!(trn(uk, n, "{n} layer", "{n} layers"), format!("{n} {layer}"));
             assert_eq!(trn(uk, n, "Group · {n} layer", "Group · {n} layers"), format!("Група · {n} {layer}"));
+        }
+    }
+
+    #[test]
+    fn serbian_resolves_locales_and_preferences() {
+        let sr = Lang::from_code("sr").expect("sr registered");
+        assert_eq!(sr.name(), "Srpski");
+        assert!(sr.complete_menus());
+        for tag in ["sr", "SR", "sr-RS", "sr_RS", "sr_RS.UTF-8", "sr_RS@latin", "sr-Latn", "sr-Latn-RS", "sr-Cyrl-RS", "sr-ME"] {
+            assert_eq!(lang_from_tag(tag), Some(sr), "{tag}");
+            assert_eq!(Lang::from_pref(tag), sr, "{tag}");
+        }
+        assert_eq!(tr(sr, "File"), "Datoteka");
+        assert_eq!(tr(sr, "Layer"), "Sloj");
+        assert_eq!(tr(sr, "New document…"), "Novi dokument…");
+        assert_eq!(tr_id(sr, "select.all", "All"), "Izaberi sve", "an id override wins over the plain label");
+        assert_eq!(tr(sr, "All"), "Sve");
+        assert_eq!(tr_ctx(sr, "cameraRaw", "Light"), "Svetlo");
+        assert_eq!(tr_ctx(sr, "fontWeight", "Light"), "Lagano");
+        assert_eq!(fmt(tr(sr, "Camera Raw Filter ({layer})"), &[("layer", "Background")]), "Camera Raw filter (Background)");
+        for key in ["Alt", "⌥"] {
+            assert_eq!(
+                fmt(tr(sr, "Add a mask  (from the selection; {key} inverts)"), &[("key", key)]),
+                format!("Dodaj masku  (iz selekcije; {key} invertuje)")
+            );
+        }
+    }
+
+    #[test]
+    fn serbian_plural_messages_handle_teens_and_compound_counts() {
+        let sr = Lang::from_code("sr").expect("sr registered");
+        for (n, item, layer) in [
+            (0, "stavki", "slojeva"),
+            (1, "stavka", "sloj"),
+            (2, "stavke", "sloja"),
+            (4, "stavke", "sloja"),
+            (5, "stavki", "slojeva"),
+            (11, "stavki", "slojeva"),
+            (12, "stavki", "slojeva"),
+            (14, "stavki", "slojeva"),
+            (21, "stavka", "sloj"),
+            (22, "stavke", "sloja"),
+            (25, "stavki", "slojeva"),
+            (101, "stavka", "sloj"),
+            (111, "stavki", "slojeva"),
+            (112, "stavki", "slojeva"),
+            (122, "stavke", "sloja"),
+        ] {
+            assert_eq!(trn(sr, n, "{n} item", "{n} items"), format!("{n} {item}"));
+            assert_eq!(trn(sr, n, "{n} layer", "{n} layers"), format!("{n} {layer}"));
+            assert_eq!(trn(sr, n, "Group · {n} layer", "Group · {n} layers"), format!("Grupa · {n} {layer}"));
+        }
+        for (n, expected) in [
+            (1, "Uklonjena je 1 tačka uzorkovanja"),
+            (3, "Uklonjene su 3 tačke uzorkovanja"),
+            (5, "Uklonjeno je 5 tačaka uzorkovanja"),
+            (13, "Uklonjeno je 13 tačaka uzorkovanja"),
+            (21, "Uklonjena je 21 tačka uzorkovanja"),
+        ] {
+            assert_eq!(trn(sr, n, "{n} sample point removed", "{n} sample points removed"), expected);
         }
     }
 

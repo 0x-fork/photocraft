@@ -2247,8 +2247,13 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             if !ctx.input(|i| i.pointer.primary_down() || i.pointer.any_released()) {
                 ctx.data_mut(|d| d.remove::<FxDrag>(fx_drag_key()));
                 ctx.data_mut(|d| d.remove::<MaskDrag>(mask_drag_key()));
+                ctx.data_mut(|d| d.remove::<crate::smart_ui::FilterDrag>(crate::smart_ui::drag_key()));
             }
-            let held = ctx.data(|d| d.get_temp::<u64>(egui::Id::new("layer-drag")).is_some() || d.get_temp::<FxDrag>(fx_drag_key()).is_some());
+            let held = ctx.data(|d| {
+                d.get_temp::<u64>(egui::Id::new("layer-drag")).is_some()
+                    || d.get_temp::<FxDrag>(fx_drag_key()).is_some()
+                    || d.get_temp::<crate::smart_ui::FilterDrag>(crate::smart_ui::drag_key()).is_some()
+            });
             let dragging = held && ctx.input(|i| i.pointer.primary_down());
             let pointer = ctx.input(|i| i.pointer.interact_pos());
             let delta = layer_drag_edge_scroll(pointer, ui.clip_rect(), dragging, ctx.input(|i| i.stable_dt));
@@ -2332,6 +2337,9 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // An effect row can be dropped on Delete too (#3102), and a mask's thumbnail (#3113, #3119).
     let fx_footer_drag = ctx.data(|d| d.get_temp::<FxDrag>(fx_drag_key()));
     fx_drag_feedback(&ctx, &doc);
+    // And a smart filter's row (#4271).
+    let filter_footer_drag = ctx.data(|d| d.get_temp::<crate::smart_ui::FilterDrag>(crate::smart_ui::drag_key()));
+    crate::smart_ui::drag_feedback(&ctx, &doc);
     let mask_footer_drag = ctx.data(|d| d.get_temp::<MaskDrag>(mask_drag_key()));
     if let Some((_, kind)) = mask_footer_drag
         && let Some(p) = ctx.input(|i| i.pointer.interact_pos())
@@ -2344,6 +2352,7 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ctx.data_mut(|d| d.remove::<u64>(egui::Id::new("layer-drag")));
         ctx.data_mut(|d| d.remove::<FxDrag>(fx_drag_key()));
         ctx.data_mut(|d| d.remove::<MaskDrag>(mask_drag_key()));
+        ctx.data_mut(|d| d.remove::<crate::smart_ui::FilterDrag>(crate::smart_ui::drag_key()));
     }
     widgets::panel_footer(ui, |ui| {
         let active_layer = active.and_then(|id| doc.layer(id));
@@ -2363,6 +2372,11 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         }
         actions.extend(footer_drop(ui, &trash, footer_drag, "layer.delete"));
         actions.extend(fx_trash_drop(ui, &trash, fx_footer_drag));
+        if let Some(drag) = filter_footer_drag
+            && dropped_on(ui, &trash)
+        {
+            actions.push(crate::smart_ui::trash_action(drag));
+        }
         // Photoshop asks "Apply mask to layer before removing?" or "Delete the vector mask?"
         // (`mask_trash_prompt`).
         if let Some((layer, kind)) = mask_footer_drag
@@ -2642,6 +2656,7 @@ fn layer_row(
     let mask_drag = mask_drag.is_some();
     layer_drag_and_drop(app, ctx, ui, l, rect, &resp, actions);
     fx_drop(ctx, ui, l, rect, actions);
+    crate::smart_ui::drop_on_row(ctx, ui, l, rect, actions);
     if resp.drag_started() && !mask_drag {
         crate::layer_transfer::begin_from_panel(app, ctx, l.id);
     }

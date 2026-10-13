@@ -493,6 +493,10 @@ pub fn bayer4(x: i32, y: i32) -> f32 {
 
 /// Samples a 3D LUT (`n`³ RGB triplets, red fastest) at `c`, trilinear or tetrahedral.
 pub fn lut3d_sample(lut: &[f32], n: usize, c: [f32; 3], tetrahedral: bool) -> [f32; 3] {
+    // A degenerate or short table can't be sampled: leave the colour alone.
+    if n < 2 || n.checked_pow(3).and_then(|c| c.checked_mul(3)).is_none_or(|len| lut.len() < len) {
+        return c;
+    }
     let m = (n - 1) as f32;
     let pos = c.map(|v| v.clamp(0.0, 1.0) * m);
     let i0 = pos.map(|p| (p.floor() as usize).min(n - 2));
@@ -1528,3 +1532,19 @@ mod tone_tests {
 /// Legacy Brightness/Contrast scales contrast around 128 of 255 (contrast 80 keeps 128 at 128,
 /// measured on Photoshop 27.11; a 0.5 pivot moved it to 130).
 pub const LEGACY_PIVOT: f32 = 128.0 / 255.0;
+
+#[cfg(test)]
+mod lut3d_guard_tests {
+    use super::lut3d_sample;
+
+    #[test]
+    fn degenerate_or_short_tables_leave_the_colour_alone() {
+        let c = [0.2, 0.4, 0.6];
+        for tetra in [false, true] {
+            assert_eq!(lut3d_sample(&[], 0, c, tetra), c);
+            assert_eq!(lut3d_sample(&[0.0; 3], 1, c, tetra), c);
+            assert_eq!(lut3d_sample(&[0.0; 3], 2, c, tetra), c);
+            assert_eq!(lut3d_sample(&[0.0; 24], usize::MAX, c, tetra), c);
+        }
+    }
+}
