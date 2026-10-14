@@ -146,7 +146,7 @@ fn rgb_only_formats_still_get_rgb_through_the_profile() {
     let r = export(&layered(SampleType::U8), "a.png", &ExportOptions::default()).unwrap_or_else(|e| panic!("{e}"));
     let img = decode(&r.bytes);
     assert!(matches!(img.layout(), ChannelLayout::Rgb | ChannelLayout::Rgba), "{:?}", img.layout());
-    assert!(r.warnings.iter().any(|w| w.contains("CMYK converted to sRGB")), "{:?}", r.warnings);
+    assert!(r.warnings.iter().any(|w| w.contains("Cmyk composite written as sRGB RGB")), "{:?}", r.warnings);
 }
 
 #[test]

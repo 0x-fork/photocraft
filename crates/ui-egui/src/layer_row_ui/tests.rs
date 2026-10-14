@@ -171,7 +171,7 @@ fn the_eyes_on_the_effects_rows_hide_and_show_effects() {
     let steps = |h: &Harness<'_, PhotocraftApp>| h.state().session.active().unwrap().history.past_len();
     let eye = |h: &Harness<'_, PhotocraftApp>, row: &str| {
         let r = h.get_by_label(row).rect();
-        pos2(r.left() + 15.0, r.center().y)
+        pos2(r.left() + 45.0, r.center().y)
     };
     let (settings, n) = (h.state().session.active().unwrap().doc.layer(photocraft_doc::LayerId(id)).unwrap().effects.items.clone(), steps(&h));
     assert_eq!(fx(&h), (true, vec![true, true]));
@@ -580,4 +580,30 @@ fn the_studio_lock_button_shows_every_lock() {
         let h = harness(s, 1.0, "studio", 290.0);
         assert_eq!(h.get_by_label("Lock layer").accesskit_node().toggled(), Some(egui::accesskit::Toggled::True), "{key}");
     }
+}
+
+#[test]
+fn clicking_the_lock_icon_on_a_row_unlocks_the_layer() {
+    // #4723: the row's lock icon was only painted. In Photoshop a click on it clears every lock,
+    // and on the Background makes it a normal layer.
+    let (s, ids) = one_lock_each();
+    let bg = s.active().unwrap().doc.background().unwrap().id;
+    let mut h = harness(s, 1.0, "promedium", 290.0);
+    let active = h.state().session.active().unwrap().active_layer;
+    let lock_icon = |h: &Harness<'_, PhotocraftApp>, id: u64| {
+        let row = recorded(&h.ctx).into_iter().find(|r| r.layer == id).unwrap();
+        row.indicators.into_iter().find(|(k, _)| *k == Indicator::Lock).unwrap_or_else(|| panic!("lock icon on {id}")).1.center()
+    };
+    for &(key, id) in &ids {
+        let p = lock_icon(&h, id);
+        click(&mut h, p);
+        let d = h.state().session.active().unwrap();
+        assert!(!d.doc.layer(photocraft_doc::LayerId(id)).unwrap().locks.any(), "{key}: unlocked");
+        assert_eq!(d.active_layer, active, "{key}: the lock icon doesn't select");
+    }
+    let p = lock_icon(&h, bg.0);
+    click(&mut h, p);
+    let doc = &h.state().session.active().unwrap().doc;
+    assert!(doc.background().is_none(), "the Background became a normal layer");
+    assert!(!doc.layer(bg).unwrap().locks.any());
 }

@@ -92,9 +92,9 @@ fn pick(s: &mut Session, p: &Value) -> Result<Value> {
     let x = p.get("x").and_then(Value::as_f64).ok_or_else(|| EngineError::BadParams { cmd: "layer.pickAt".into(), msg: "missing `x`".into() })?.floor() as i32;
     let y = p.get("y").and_then(Value::as_f64).ok_or_else(|| EngineError::BadParams { cmd: "layer.pickAt".into(), msg: "missing `y`".into() })?.floor() as i32;
     let doc = s.active().ok_or(EngineError::NoDocument)?.doc.clone();
-    // The right-click list names the layers with pixels under the pointer.
+    // The right-click list includes type layers between glyphs, like Auto-Select.
     if p.get("list").and_then(Value::as_bool).unwrap_or(false) {
-        let hits = layers_hit(&doc, x, y, false);
+        let hits = layers_hit(&doc, x, y, true);
         let names: Vec<Value> = hits.iter().filter_map(|id| doc.layer(*id)).map(|l| json!({"layer": l.id.0, "name": l.name})).collect();
         return Ok(json!({ "layers": names }));
     }
@@ -190,7 +190,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Auto-Select Layer",
             menu: &[],
             shortcut: None,
-            params: r##"{"x":px,"y":px,"target":"layer|group"="layer","select":bool=true,"mode":"replace|toggle|add"="replace","list":bool=false (return every layer with pixels there, topmost first)} → {layer} | {layers}"##,
+            params: r##"{"x":px,"y":px,"target":"layer|group"="layer","select":bool=true,"mode":"replace|toggle|add"="replace","list":bool=false (return visible layers at the point, including text bounds, topmost first)} → {layer} | {layers}"##,
             enabled: has_doc,
             journal: false,
             run: pick,
@@ -372,9 +372,10 @@ mod tests {
         assert_eq!(pick(&mut s, 12, 15), t.0, "on a glyph");
         assert_eq!(pick(&mut s, 17, 15), t.0, "between the glyphs: the type layer, not the one under it");
         assert_eq!(pick(&mut s, 17, 20), bg.0, "below the text bounds");
-        // The right-click list still names only the layers with pixels under the pointer.
+        // The context menu also reaches this type layer between the glyphs (#4259).
         let list = s.execute("layer.pickAt", json!({"x": 17, "y": 15, "list": true})).unwrap();
-        assert_eq!(list["layers"].as_array().unwrap().len(), 1);
+        assert_eq!(list["layers"][0]["layer"], t.0);
+        assert_eq!(list["layers"][1]["layer"], bg.0);
     }
 
     #[test]
@@ -398,6 +399,9 @@ mod tests {
         let Some(x) = gap else { return };
         assert_eq!(layers_at(&doc, x, y), vec![bg], "no type pixels at the gap");
         assert_eq!(s.execute("layer.pickAt", json!({"x": x, "y": y, "select": false})).unwrap()["layer"], t);
+        let menu = s.execute("layer.pickAt", json!({"x": x, "y": y, "list": true})).unwrap();
+        assert_eq!(menu["layers"][0]["layer"], t, "type layer stays above its background in the menu");
+        assert_eq!(menu["layers"][1]["layer"], bg.0);
     }
 
     #[test]

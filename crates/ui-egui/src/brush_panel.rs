@@ -14,7 +14,7 @@
 //! The lock beside a section name keeps that section's settings when another preset is picked
 //! (`locks` in the brush, applied by the engine). The Brushes tab lives in [`crate::brushes_tab`].
 
-use egui::{Color32, CornerRadius, RichText, Sense, Stroke, vec2};
+use egui::{Color32, CornerRadius, Sense, Stroke, vec2};
 use photocraft_engine::BrushSettings;
 use photocraft_engine::paint;
 use serde::{Deserialize, Serialize};
@@ -248,6 +248,21 @@ fn section_list(app: &mut PhotocraftApp, ui: &mut egui::Ui, b: &mut BrushSetting
     ui.vertical(|ui| {
         ui.set_width(150.0);
         ui.spacing_mut().item_spacing.y = 1.0;
+        let (br_rect, br_resp) = ui.allocate_exact_size(vec2(150.0, 23.0), Sense::click());
+        br_resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Brushes")));
+        if br_resp.hovered() {
+            ui.painter().rect_filled(br_rect, t.radius_sm, t.hover);
+        }
+        let icon_rect = egui::Rect::from_center_size(egui::pos2(br_rect.left() + 12.0, br_rect.center().y), vec2(13.0, 13.0));
+        icons::paint(ui, icon_rect, "brush", 12.0, if br_resp.hovered() { t.text } else { t.icon });
+        let galley = ui.painter().layout_no_wrap(tl!("Brushes").to_string(), theme::semibold(12.0), if br_resp.hovered() { t.text } else { t.text_dim });
+        ui.painter().galley(egui::pos2(br_rect.left() + 26.0, br_rect.center().y - galley.size().y / 2.0), galley, t.text);
+        if br_resp.clicked() {
+            let _ = crate::menus::invoke(app, ui.ctx(), "window.panel.brushes", json!({}));
+        }
+        ui.add_space(3.0);
+        widgets::hairline(ui);
+        ui.add_space(3.0);
         for (i, (name, has_box)) in SECTIONS.iter().enumerate() {
             let toggle_only = checkbox_only(i);
             // Group the switches with whitespace, not separators between individual rows.
@@ -280,22 +295,21 @@ fn section_list(app: &mut PhotocraftApp, ui: &mut egui::Ui, b: &mut BrushSetting
                     });
                     resp
                 });
-                if *flag {
-                    ui.painter().rect_filled(br, 2.0, t.accent);
-                    let (a, m, c) = (br.left_center() + vec2(3.0, 0.5), br.center_bottom() + vec2(-1.0, -3.5), br.right_top() + vec2(-3.0, 3.5));
-                    ui.painter().line_segment([a, m], Stroke::new(1.6, Color32::WHITE));
-                    ui.painter().line_segment([m, c], Stroke::new(1.6, Color32::WHITE));
-                } else {
-                    ui.painter().rect_stroke(br, 2.0, Stroke::new(1.2, t.text_faint), egui::StrokeKind::Inside);
-                }
                 let on_lock = resp.interact_pointer_pos().is_some_and(|p| p.x > r.right() - 22.0);
+                // A press on the row (but not its lock) presses the box too: a release there
+                // turns the section on, or toggles a checkbox-only row (#4476).
+                let pressed = box_resp.as_ref().is_some_and(|b| b.is_pointer_button_down_on()) || (resp.is_pointer_button_down_on() && !on_lock);
+                let hovered = box_resp.as_ref().is_some_and(|b| b.hovered()) || (toggle_only && resp.hovered());
+                widgets::check_box(ui.painter(), br, *flag, hovered, pressed, &t);
                 if box_resp.is_some_and(|resp| resp.clicked()) || (toggle_only && resp.clicked() && !on_lock) {
                     *flag = !*flag;
                 } else if !toggle_only && resp.clicked() && !on_lock {
                     *flag = true;
                 }
                 x += 20.0;
-            } else if i > 0 {
+            } else {
+                // No box (Brush Tip Shape): the name still starts in the names' column,
+                // as in Photoshop (#4282).
                 x += 20.0;
             }
             let color = if sel { t.text } else { t.text_dim };
@@ -310,11 +324,9 @@ fn section_list(app: &mut PhotocraftApp, ui: &mut egui::Ui, b: &mut BrushSetting
             if let Some(lock) = section_lock(b, i) {
                 let lr = egui::Rect::from_center_size(egui::pos2(r.right() - 11.0, r.center().y), vec2(18.0, 18.0));
                 let lresp = ui.interact(lr, ui.id().with(("brush-sec-lock", i)), Sense::click());
-                // Like Photoshop: the lock shows only when set or hovered.
-                if *lock || resp.hovered() || lresp.hovered() {
-                    let tint = if *lock { t.text } else { t.text_faint };
-                    icons::paint(ui, lr, if *lock { "lock" } else { "lock-open" }, 12.0, tint);
-                }
+                // Like Photoshop: lock icons stay visible on every lockable section row.
+                let tint = if *lock { t.text } else { t.text_faint };
+                icons::paint(ui, lr, if *lock { "lock" } else { "lock-open" }, 12.0, tint);
                 let tip =
                     if *lock { tl!("Unlock: picking a preset replaces these settings") } else { tl!("Lock: keep these settings when picking another preset") };
                 if lresp.on_hover_text(tip).clicked() {
@@ -347,9 +359,8 @@ fn settings_tab(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         widgets::vline(ui, 482.0);
         ui.vertical(|ui| {
             ui.set_width(WIDTH - 190.0);
-            let name = SECTIONS.get(section).map_or("Brush Tip Shape", |entry| entry.0);
-            ui.label(RichText::new(tl!(name)).font(theme::semibold(12.5)).color(t.text));
-            ui.add_space(6.0);
+            // No title above the options (#3477): the selected row in the list names them, as
+            // in Photoshop, and the line is better spent on the options.
             let on = section_flag(&mut b, section).is_none_or(|f| *f);
             egui::ScrollArea::vertical().id_salt(("brush-section", section)).max_height(450.0).auto_shrink([false, false]).show(ui, |ui| {
                 ui.set_width(WIDTH - 204.0);
@@ -373,9 +384,9 @@ fn settings_tab(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let tex = brush_preview::stroke_texture(ui.ctx(), "settings-strip", &b, STRIP.0, STRIP.1, t.text);
         ui.painter().image(tex.id(), r, full_uv(), Color32::WHITE);
         ui.vertical(|ui| {
-            if icons::button(ui, "square-plus", 24.0, false, tl!("Create new brush from these settings")).clicked() {
-                let name = new_preset_name(&app.session.tools.presets);
-                run_or_status(app, "brush.presets.save", json!({ "name": name, "brush": serde_json::to_value(&b).unwrap_or(Value::Null) }));
+            let new = icons::button(ui, "square-plus", 24.0, false, tl!("Create new brush from these settings"));
+            if crate::brush_picker::named(new, "Create new brush from these settings").clicked() {
+                crate::brush_preset_dialog::open(app, Some(&b));
             }
             if icons::button(ui, "undo-2", 24.0, false, tl!("Reset the brush to the defaults")).clicked() {
                 b = BrushSettings { color: b.color, background: b.background, smoothing: b.smoothing.clone(), locks: b.locks.clone(), ..Default::default() };
@@ -392,6 +403,92 @@ fn settings_tab(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         });
     });
     commit_gesture(app, ui.ctx(), &before, &b);
+}
+
+/// Clear brush controls: turns off every section except Smoothing and resets their options
+/// to the defaults (Photoshop), keeping locked sections intact.
+pub fn clear_brush_controls(current: &BrushSettings) -> BrushSettings {
+    let mut b = current.clone();
+    let d = BrushSettings::default();
+    let l = &current.locks;
+    if !l.shape_dynamics {
+        b.shape_dynamics = d.shape_dynamics;
+    }
+    if !l.scattering {
+        b.scattering = d.scattering;
+    }
+    if !l.texture {
+        b.texture = d.texture;
+    }
+    if !l.dual_brush {
+        b.dual_brush = d.dual_brush;
+    }
+    if !l.color_dynamics {
+        b.color_dynamics = d.color_dynamics;
+    }
+    if !l.transfer {
+        b.transfer = d.transfer;
+    }
+    if !l.pose {
+        b.pose = d.pose;
+    }
+    if !l.noise {
+        b.noise = d.noise;
+    }
+    if !l.wet_edges {
+        b.wet_edges = d.wet_edges;
+    }
+    if !l.build_up {
+        b.build_up = d.build_up;
+        b.build_up_rate = d.build_up_rate;
+    }
+    if !l.protect_texture {
+        b.protect_texture = d.protect_texture;
+    }
+    b
+}
+
+/// Copy the current brush's Texture settings to other painting tools that have Texture enabled.
+pub fn copy_texture_to_other_tools(app: &mut PhotocraftApp) {
+    let texture = app.session.tools.brush.texture.clone();
+    for (_, brush) in &mut app.ui.tool_brushes {
+        if brush.texture.enabled {
+            brush.texture = texture.clone();
+        }
+    }
+}
+
+/// The Brush Settings panel menu actions (hamburger menu).
+pub fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    if ui.button(tl!("New Brush Preset…")).clicked() {
+        let name = new_preset_name(&app.session.tools.presets);
+        run_or_status(app, "brush.presets.save", json!({ "name": name }));
+        if app.session.tools.presets.iter().any(|p| p.name == name) {
+            app.ui.brushes_panel.renaming = Some(Renaming { group: false, name: name.clone(), folder: Vec::new(), text: String::new() });
+            app.ui.brush_picker_list.renaming = Some(Renaming { group: false, name, folder: Vec::new(), text: String::new() });
+        }
+        ui.close();
+    }
+    ui.separator();
+    if ui.button(tl!("Clear Brush Controls")).clicked() {
+        let before = app.session.tools.brush.clone();
+        let cleared = clear_brush_controls(&before);
+        commit(app, &before, &cleared);
+        ui.close();
+    }
+    let has_locks = app.session.tools.brush.locks != photocraft_paint::brush::SectionLocks::default();
+    if ui.add_enabled(has_locks, egui::Button::new(tl!("Reset All Locked Settings"))).clicked() {
+        let before = app.session.tools.brush.clone();
+        let mut after = before.clone();
+        after.locks = photocraft_paint::brush::SectionLocks::default();
+        commit(app, &before, &after);
+        ui.close();
+    }
+    let has_texture = app.session.tools.brush.texture.enabled;
+    if ui.add_enabled(has_texture, egui::Button::new(tl!("Copy Texture to Other Tools"))).clicked() {
+        copy_texture_to_other_tools(app);
+        ui.close();
+    }
 }
 
 pub fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
@@ -427,6 +524,21 @@ pub fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     if icons::button(ui, "x", 20.0, false, tl!("Close")).clicked() {
                         open = false;
                     }
+                    let menu_btn = widgets::panel_menu_button(ui);
+                    egui::Popup::menu(&menu_btn).show(|ui| {
+                        widgets::style_spectrum_popup_menu(ui);
+                        ui.set_min_width(180.0);
+                        panel_menu(app, ui);
+                        ui.separator();
+                        if ui.button(tl!("Close")).clicked() {
+                            open = false;
+                            ui.close();
+                        }
+                        if ui.button(tl!("Close Tab Group")).clicked() {
+                            open = false;
+                            ui.close();
+                        }
+                    });
                 });
             });
             ui.add_space(6.0);

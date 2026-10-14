@@ -59,11 +59,23 @@ impl Buffer {
     }
     pub fn to_rgba8(&self) -> Rgba8Image {
         let mut img = Rgba8Image::new(self.rect.width(), self.rect.height());
-        for (o, p) in img.pixels.as_chunks_mut::<4>().0.iter_mut().zip(&self.px) {
-            for (dst, v) in o.iter_mut().zip(p) {
-                *dst = (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+        let quantize = |out: &mut [[u8; 4]], src: &[[f32; 4]]| {
+            for (o, p) in out.iter_mut().zip(src) {
+                for (dst, v) in o.iter_mut().zip(p) {
+                    *dst = (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+                }
             }
+        };
+        let out = img.pixels.as_chunks_mut::<4>().0;
+        // In parallel off wasm: a 24 MP composite took 120 ms on one core (the CPU canvas,
+        // previews, thumbnails and 8-bit exports all come through here).
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use rayon::prelude::*;
+            out.par_chunks_mut(16 * 1024).zip(self.px.par_chunks(16 * 1024)).for_each(|(o, p)| quantize(o, p));
         }
+        #[cfg(target_arch = "wasm32")]
+        quantize(out, &self.px);
         img
     }
     /// Flatten over an opaque background colour.
@@ -89,6 +101,11 @@ pub fn render(doc: &Document, rect: Rect) -> Buffer {
     render_tiled(doc, rect, RENDER_TILE)
 }
 
+/// Most pixels one [`render`] call will produce (2^30, a 16 GiB buffer; 32768² px). Larger rects
+/// (a hostile canvas size is up to 300000 px a side) return an empty buffer instead of aborting
+/// on allocation; callers wanting more render in pieces.
+pub const MAX_RENDER_PIXELS: u64 = 1 << 30;
+
 /// [`render`] with an explicit tile size (tests check tile independence).
 pub fn render_tiled(doc: &Document, rect: Rect, tile: i32) -> Buffer {
     let patterns = pattern::PreparedPatterns::new(&doc.patterns, pattern::PREPARED_PATTERN_BYTES).in_mode(doc.pixel_format().mode);
@@ -108,8 +125,12 @@ fn render_tiled_with(doc: &Document, rect: Rect, tile: i32, cx: &Ctx) -> Buffer 
     if rect.is_empty() {
         return Buffer::transparent(rect);
     }
+    // Refuse rects too large to hold: an empty buffer, not an allocation failure.
+    if u64::from(rect.width()) * u64::from(rect.height()) > MAX_RENDER_PIXELS {
+        return Buffer::transparent(Rect::EMPTY);
+    }
     cx.set_fx_clip(rect);
-    if rect.width() as i32 <= tile && rect.height() as i32 <= tile {
+    if i64::from(rect.width()) <= i64::from(tile) && i64::from(rect.height()) <= i64::from(tile) {
         return photocraft_color::convert::with_cmyk_space(cmyk, || {
             let mut buf = multichannel::backdrop(doc, rect);
             in_blend_space(lab, hdr, || composite_stack_at(&doc.layers, &mut buf, cx, advanced::Scope::ROOT));
@@ -485,18 +506,27 @@ fn render_reduced_in_bands(doc: &Document, b: Rect, w: u32, h: u32, damage: Opti
     Buffer { rect: out, px: acc }
 }
 
+type VectorMaskSlot = std::sync::Arc<std::sync::OnceLock<photocraft_vector::CompiledVectorMask>>;
+
 #[derive(Default)]
 struct RenderVectorMasks {
-    masks: std::sync::Mutex<std::collections::HashMap<usize, std::sync::Arc<std::sync::OnceLock<photocraft_vector::CompiledVectorMask>>>>,
+    /// Compiled masks by content. Callers pass temporary clones (see `advanced.rs`), so an
+    /// address cannot identify a mask: a dropped clone's address is reused by the next one.
+    masks: std::sync::Mutex<Vec<(photocraft_doc::VectorMask, VectorMaskSlot)>>,
 }
 
 impl RenderVectorMasks {
     fn values(&self, mask: &photocraft_doc::VectorMask, rect: Rect) -> Vec<f32> {
-        // Addresses identify immutable mask instances only for this render's lifetime.
-        let key = std::ptr::from_ref(mask) as usize;
         let slot = {
             let mut masks = self.masks.lock().unwrap_or_else(|e| e.into_inner());
-            masks.entry(key).or_default().clone()
+            match masks.iter().find(|(m, _)| m == mask) {
+                Some((_, slot)) => slot.clone(),
+                None => {
+                    let slot = VectorMaskSlot::default();
+                    masks.push((mask.clone(), slot.clone()));
+                    slot
+                }
+            }
         };
         // Compilation is sequential. Rendering can enter Rayon and must happen after
         // initialization, so waiting tiles cannot re-enter a slot still being built.
@@ -687,6 +717,19 @@ pub fn layer_bounds(layer: &Layer, canvas: Rect) -> Rect {
         LayerContent::Fill(_) => canvas,
         _ => {
             let b = layer.surface().map_or(Rect::EMPTY, bounds::content_bounds);
+            let b = match &layer.content {
+                LayerContent::Shape(sh) => {
+                    let p = shape_bounds(sh).map(|r| r.intersect(&canvas)).unwrap_or(Rect::EMPTY);
+                    if !b.is_empty() && !p.is_empty() {
+                        b.union(&p)
+                    } else if !p.is_empty() {
+                        p
+                    } else {
+                        b
+                    }
+                }
+                _ => b,
+            };
             // Effects follow a filled shape's outline, also where its fill is transparent.
             match effect_outline(layer).and_then(|_| paint_bounds(layer)).filter(|_| effects::has_effects(layer)) {
                 Some(p) if !b.is_empty() => b.union(&p),
@@ -781,6 +824,17 @@ pub fn paint_bounds(layer: &Layer) -> Option<Rect> {
     let LayerContent::Shape(sh) = &layer.content else { return None };
     let (x0, y0, x1, y1) = sh.path.control_bounds()?;
     let r = Rect::new(x0.floor() as i32, y0.floor() as i32, x1.floor() as i32, y1.floor() as i32);
+    (!r.is_empty()).then_some(r)
+}
+
+/// The bounding box of a shape layer's vector content: its path control bounds plus stroke width.
+pub fn shape_bounds(sh: &photocraft_doc::ShapeLayer) -> Option<Rect> {
+    if sh.fill.is_none() && sh.stroke.as_ref().is_none_or(|s| s.width <= 0.0 || s.opacity <= 0.0) {
+        return None;
+    }
+    let (x0, y0, x1, y1) = sh.path.control_bounds()?;
+    let stroke_margin = sh.stroke.as_ref().filter(|s| s.opacity > 0.0).map_or(0.0, |s| s.width.ceil()) as i32;
+    let r = Rect::new(x0.floor() as i32, y0.floor() as i32, x1.ceil() as i32, y1.ceil() as i32).inflate(stroke_margin);
     (!r.is_empty()).then_some(r)
 }
 
@@ -1137,7 +1191,7 @@ fn blend_if_weight(layer: &Layer, mode: photocraft_color::ColorMode, this: Optio
     let mut k = 1.0;
     for (side, px) in [this, under].into_iter().enumerate() {
         let Some(p) = px else { continue };
-        let v = |c: usize| p[c].clamp(0.0, 1.0) * 255.0;
+        let v = |c: usize| blend_if_level(p[c]);
         match mode {
             // Gray is the colour channels' luma (Rec. 601 weights), then R, G, B.
             M::Rgb => {
@@ -1156,6 +1210,17 @@ fn blend_if_weight(layer: &Layer, mode: photocraft_color::ColorMode, this: Optio
         }
     }
     k
+}
+
+/// A channel value on Blend If's 0..=255 scale. Compositing can leave an 8- or 16-bit level a few
+/// millionths off (a level-20 backdrop composited at partial alpha reads 19.999998), which would
+/// put it on the wrong side of a hard point at that level: a value that close to a level is that
+/// level. Values of those depths that aren't on a level are at least 1/257 away from one. The GPU
+/// compositor (`compose.wgsl` `blend_if_weight`) snaps alike.
+fn blend_if_level(x: f32) -> f32 {
+    let v = x.clamp(0.0, 1.0) * 255.0;
+    let r = v.round();
+    if (v - r).abs() < 1e-4 { r } else { v }
 }
 
 /// Apply `layer`'s Blend If to a finished composite: `out` (the backdrop with the layer drawn)

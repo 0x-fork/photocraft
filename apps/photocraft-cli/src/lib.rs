@@ -298,13 +298,14 @@ fn command_list(a: &Args) -> Result<Vec<(String, Value)>, String> {
 fn run_cmds(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> R {
     let opts = export_opts(a)?;
     let mut h = Headless::trusted_local();
-    // Each missing-font warning is printed once, wherever it is first detected (open, a command or
-    // the save).
+    // Opening, running commands and exporting can all notice the same missing font:
+    // one `run` invocation reports each warning line at most once.
     let mut reported_fonts = std::collections::HashSet::<String>::new();
     match (a.positional.as_slice(), a.get("--new")) {
         ([file], None) => {
             let o = h.open(Path::new(file)).map_err(|e| e.to_string())?;
             let ws: Vec<String> = serde_json::from_value(o["warnings"].clone()).unwrap_or_default();
+            reported_fonts.extend(ws.iter().cloned());
             warn_all(err, &ws);
             reported_fonts.extend(ws);
         }
@@ -350,9 +351,8 @@ fn run_cmds(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> R {
     warn_all(err, &remaining);
     if let Some(o) = a.get("--out") {
         let r = h.save(None, Some(Path::new(o)), a.get("--format"), &opts).map_err(|e| e.to_string())?;
-        // The save repeats the document's missing-font warnings; each was already reported above.
-        let ws: Vec<String> =
-            serde_json::from_value::<Vec<String>>(r["warnings"].clone()).unwrap_or_default().into_iter().filter(|w| !reported_fonts.contains(w)).collect();
+        let ws: Vec<String> = serde_json::from_value(r["warnings"].clone()).unwrap_or_default();
+        let ws: Vec<String> = ws.into_iter().filter(|w| reported_fonts.insert(w.clone())).collect();
         warn_all(err, &ws);
     }
     Ok(())
@@ -438,7 +438,7 @@ fn same_dir(a: &Path, b: &Path) -> bool {
 
 fn is_input(p: &Path) -> bool {
     let known = |e: &str| {
-        matches!(e, "pcraft" | "psd" | "psb" | "pdn" | "ora" | "af" | "afdesign" | "afphoto" | "afpub")
+        matches!(e, "pcraft" | "psd" | "psb" | "pdn" | "ora" | "kra" | "krz" | "af" | "afdesign" | "afphoto" | "afpub")
             || photocraft_codecs::from_extension(e).is_some_and(|f| photocraft_codecs::caps(f).read)
     };
     p.is_file() && p.extension().is_some_and(|e| known(&e.to_string_lossy().to_ascii_lowercase()))
@@ -674,6 +674,11 @@ mod missing_font_warning_tests {
         let (code, _, stderr) = invoke(&["convert", &ora, &png]);
         assert_eq!(code, 0, "{stderr}");
         assert!(is_input(std::path::Path::new(&ora)));
+        // Krita documents are batch inputs too (import-only).
+        for name in ["sketch.kra", "old.KRZ"] {
+            std::fs::write(folder.join(name), b"").unwrap();
+            assert!(is_input(&folder.join(name)), "{name}");
+        }
         let _ = std::fs::remove_dir_all(&folder);
     }
 

@@ -56,18 +56,21 @@ pub struct Edit {
     pub changed: bool,
     /// A gesture ended or a discrete control changed (commit them).
     pub commit: bool,
+    /// Open the host's gradient-file dialog without changing adjustment parameters.
+    pub import_gradients: bool,
 }
 
 impl Edit {
     fn add(&mut self, o: Edit) {
         self.changed |= o.changed;
         self.commit |= o.commit;
+        self.import_gradients |= o.import_gradients;
     }
     fn discrete(changed: bool) -> Self {
-        Edit { changed, commit: changed }
+        Edit { changed, commit: changed, ..Default::default() }
     }
     fn of(r: &egui::Response) -> Self {
-        Edit { changed: r.changed(), commit: r.drag_stopped() || (r.changed() && !r.dragged()) }
+        Edit { changed: r.changed(), commit: r.drag_stopped() || (r.changed() && !r.dragged()), ..Default::default() }
     }
 }
 
@@ -1388,6 +1391,14 @@ fn gradient_map(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
             .icon(widgets::chevron_icon)
             .close_behavior(close)
             .show_ui(ui, |ui| {
+                let gear = crate::icons::button(ui, "settings", 24.0, false, tl!("Gradient Preset Options"));
+                egui::containers::menu::SubMenu::new().show(ui, &gear, |ui| {
+                    if ui.button(tl!("Import .GRD")).clicked() {
+                        e.import_gradients = true;
+                        ui.close();
+                    }
+                });
+                ui.separator();
                 for g in &cx.gradients {
                     ui.label(RichText::new(&g.name).color(t.text_faint));
                     for p in &g.items {
@@ -1617,6 +1628,9 @@ pub fn layer_editor(app: &mut PhotocraftApp, ui: &mut egui::Ui, id: LayerId, adj
         crate::layer_picker::controls(app, ui, id);
     }
     let e = editor(ui, kind, &mut values, &cx);
+    if e.import_gradients {
+        crate::preset_files_ui::import_gradients_dialog(app);
+    }
     if e.changed {
         app.live_adjust = Some((id, values.clone()));
     }

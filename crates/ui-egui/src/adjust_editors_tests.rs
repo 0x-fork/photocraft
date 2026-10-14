@@ -592,6 +592,7 @@ fn gradient_map_picker_offers_the_gradient_library() {
     let mut h = app_harness("gradientMap", "rgb", 8);
     // A short library so every row fits the popup: Basics, Blues and a user-saved group.
     let mut lib: Vec<_> = gradients::builtin().into_iter().take(2).collect();
+    lib[1].items.truncate(3);
     lib.push(Group::new("Mine", vec![gradients::GradientPreset::new("My Teal", &["#008080", "#ffee00"])]));
     h.state_mut().session.presets.gradients = lib;
     h.run_steps(2);
@@ -609,6 +610,101 @@ fn gradient_map_picker_offers_the_gradient_library() {
         assert_eq!(map_stops(&layer(&h).1), want, "{name}");
         assert_eq!(steps(&h), before + 1, "{name}: one history step");
     }
+}
+
+fn import_gradients_from_picker(h: &mut Harness<'_, PhotocraftApp>) {
+    let preset = label_rect(h, "Preset:").unwrap();
+    click(h, Pos2::new(preset.right() + 60.0, preset.center().y));
+    h.get_by_label("Gradient Preset Options").click();
+    h.run_steps(2);
+    h.get_by_label("Import .GRD").click();
+    h.run_steps(3);
+}
+
+#[test]
+fn gradient_map_picker_imports_grd_without_editing_the_map() {
+    use photocraft_psd::grd::{GrdColor, GrdGradient, GrdStop};
+    let mut h = app_harness("gradientMap", "rgb", 16);
+    h.state_mut().session.presets.gradients.truncate(1);
+    let before = layer(&h);
+    let history = h.state().session.active().unwrap().history.past_len();
+    let tool = h.state().session.presets.gradient.clone();
+    let bytes = photocraft_psd::grd::write(&[GrdGradient {
+        name: "Imported Teal".into(),
+        stops: vec![
+            GrdStop { location: 0.0, midpoint: 0.5, color: GrdColor::Rgb([0.0, 0.5, 0.5]) },
+            GrdStop { location: 1.0, midpoint: 0.5, color: GrdColor::Rgb([1.0, 1.0, 0.0]) },
+        ],
+        ..Default::default()
+    }]);
+    h.state_mut().services.file_dialog = Some(Box::new(move |request, _, reply| {
+        assert!(matches!(request, crate::FileDialogRequest::Open { multiple: false, extensions: Some(ref exts), .. } if exts == &["grd"]));
+        reply.send(Some(crate::FileDialogAnswer::Contents("My Gradients.GRD".into(), bytes.clone())));
+    }));
+    import_gradients_from_picker(&mut h);
+    assert_eq!(layer(&h), before, "import does not edit the adjustment");
+    assert_eq!(h.state().session.active().unwrap().history.past_len(), history);
+    assert_eq!(h.state().session.presets.gradient, tool);
+    assert!(!h.state().ui.status_error);
+    assert!(h.state().ui.status.contains("Imported 1 gradient"));
+    let preset = label_rect(&h, "Preset:").unwrap();
+    click(&mut h, Pos2::new(preset.right() + 60.0, preset.center().y));
+    h.get_by_label("My Gradients");
+    h.get_by_label("Imported Teal").click();
+    h.run_steps(3);
+    assert_eq!(map_stops(&layer(&h).1), vec![(0.0, [0, 128, 128]), (1.0, [255, 255, 0])]);
+    assert_eq!(h.state().session.active().unwrap().history.past_len(), history + 1);
+    h.state_mut().run("edit.undo", json!({})).unwrap();
+    assert_eq!(layer(&h), before);
+}
+
+#[test]
+fn gradient_map_picker_import_cancel_and_errors_preserve_state() {
+    use crate::FileDialogAnswer;
+    for answer in [
+        None,
+        Some(FileDialogAnswer::Contents("broken.grd".into(), b"invalid".to_vec())),
+        Some(FileDialogAnswer::Contents("old.grd".into(), b"8BGR\0\x03".to_vec())),
+        Some(FileDialogAnswer::Contents(
+            "noise.grd".into(),
+            photocraft_psd::grd::write(&[photocraft_psd::grd::GrdGradient { noise: true, ..Default::default() }]),
+        )),
+        Some(FileDialogAnswer::Contents("wrong.abr".into(), Vec::new())),
+        Some(FileDialogAnswer::Paths(vec!["/nonexistent/photocraft-gradients.grd".into()])),
+        Some(FileDialogAnswer::Unavailable("dialog unavailable".into())),
+    ] {
+        let mut h = app_harness("gradientMap", "rgb", 8);
+        h.state_mut().session.presets.gradients.truncate(1);
+        let before = layer(&h);
+        let presets = h.state().session.presets.gradients.clone();
+        let history = h.state().session.active().unwrap().history.past_len();
+        let error = answer.is_some();
+        h.state_mut().services.file_dialog = Some(Box::new(move |_, _, reply| reply.send(answer.clone())));
+        import_gradients_from_picker(&mut h);
+        assert_eq!(layer(&h), before);
+        assert_eq!(h.state().session.presets.gradients, presets);
+        assert_eq!(h.state().session.active().unwrap().history.past_len(), history);
+        assert_eq!(h.state().ui.status_error, error);
+        if error {
+            assert!(!h.state().ui.status.is_empty());
+        }
+    }
+}
+
+#[test]
+fn gradient_map_dialog_import_preserves_pending_settings() {
+    let mut h = app_harness("gradientMap", "rgb", 8);
+    let id = crate::adjust_dialog::open(h.state_mut(), "image.adjustments.gradientMap").unwrap();
+    let fields = h.state_mut().ui.dialog_mut(id).unwrap().fields.clone();
+    h.state_mut().services.file_dialog = Some(Box::new(|request, _, reply| {
+        assert!(matches!(request, crate::FileDialogRequest::Open { extensions: Some(ref exts), .. } if exts == &["grd"]));
+        reply.send(None);
+    }));
+    h.run_steps(3);
+    import_gradients_from_picker(&mut h);
+    assert_eq!(h.state_mut().ui.dialog_mut(id).unwrap().fields, fields);
+    assert!(!h.state().file_dialog_open());
+    assert!(!h.state().ui.status_error);
 }
 
 /// Document point (x, y) on screen in the app's first view.

@@ -40,6 +40,7 @@ let out = encode(&img, Format::Tiff, &EncodeOptions::default())?;
 | BMP | yes | yes | U8 | RGB, RGBA | yes | no | no | no | no | no | no | `image` |
 | TGA | yes | yes | U8 | Gray, GrayA, RGB, RGBA | yes | no | no | no | no | no | no | `image` |
 | ICO | yes | yes | U8 | RGBA (at most 256×256) | yes | no | no | no | no | no | no | `image` |
+| DDS | yes | **no** | U8 | Gray, GrayA, RGB, RGBA | yes | no | no | no | no | no | n/a | built in |
 | Netpbm (PBM/PGM/PPM/PAM/PFM) | yes | yes | U8, U16, F32 (float: PFM gray/RGB only) | all six (PAM `CMYK`/`CMYK_ALPHA`) | yes (PAM) | no | no | no | no | no | no | built in |
 | QOI | yes | yes | U8 | RGB, RGBA | yes | no | no | no | no | no | no | `image` |
 | OpenEXR | yes | yes | F16, F32 | Y, YA, RGB, RGBA | yes | no | no | no | no | no | no | `exr` |
@@ -62,10 +63,16 @@ the encode plan, and `fidelity_warnings` reports the conversion when it loses in
 `Image::convert` applies the same ICC rule: it keeps the profile only when the colour model stays
 the same.
 
-Palette BMP pixels decode as RGB in `Image`; `bmp_palette` exposes the embedded table so
-`photocraft-io` can open them in Indexed Color mode.
+Palette BMP and PNG pixels decode as RGB(A) in `Image`; `bmp_palette` and `png_palette` expose the
+embedded table (and a PNG's transparent entry) so `photocraft-io` can open them in Indexed Color mode.
 
 ## Documented asymmetries and limitations
+
+* **DDS.** The top mip level of a 2D texture: uncompressed pixels described by channel masks
+  (8, 16, 24 or 32 bits, RGB or luminance, with or without alpha) or BC1/BC2/BC3 (DXT1/DXT3/DXT5),
+  with the legacy header or the DX10 one. Everything opens as U8; the other mip levels are
+  ignored. Cubemaps, texture arrays, volume textures, premultiplied DXT2/DXT4 and other formats
+  (BC4–BC7, float) are refused with `CodecError::Unsupported`. Writing is not provided.
 
 * **FITS.** The image in the primary HDU, or the first `IMAGE` extension, is read; `NAXIS3 = 3`
   opens as RGB and any other plane count opens the first plane with `DecodeWarning::MorePages`.

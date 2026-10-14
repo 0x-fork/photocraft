@@ -412,7 +412,10 @@ impl Session {
     /// Open a file in the background: read (for a path) and decode on a worker, with progress
     /// (per layer for PSD/PSB) and cancellation, then add the document like
     /// [`Session::open_document`] (Color Settings policies apply). `name` names the document.
-    /// The job's result is `{document, name, warnings, color}`; on wasm it runs inline.
+    /// The job's result is `{document, name, warnings, color}`; on wasm it runs inline. When
+    /// Color Settings ask about the file's profile, the document is held back instead and the
+    /// result is `{held, name, warnings, color}` (`color` the question): take it with
+    /// [`Session::take_held_open`] once answered.
     pub fn start_open(&mut self, name: &str, source: OpenSource) -> Result<Started> {
         let label = format!("Opening {name}");
         let name_w = name.to_string();
@@ -438,6 +441,13 @@ impl Session {
                     })
             },
             move |s, r: photocraft_io::ImportResult| {
+                // Ask When Opening: held back until the prompt is answered (`take_held_open`). A
+                // developed raw has no embedded profile to ask about.
+                let raw = r.warnings.iter().any(|w| w.contains(photocraft_io::raw::DEVELOPED_NOTE));
+                if let Some(question) = s.color.open_question(&r.document).filter(|_| !raw) {
+                    let held = s.hold_open(r.document, r.source_read_only);
+                    return Ok(json!({"held": held, "name": name_a, "warnings": r.warnings, "color": question}));
+                }
                 let (index, color) = s.open_document(r.document, None);
                 if let Some(st) = s.active_mut() {
                     st.source_read_only = r.source_read_only;
@@ -632,6 +642,7 @@ impl Session {
         if id == "file.new" {
             crate::document_preset_cmds::validate_new_params(self, &params)?;
         }
+        crate::param_check::check(spec, &params)?;
         crate::filters::validate_params(id, &params)?;
         // A floating selection drops before any other command (Undo puts it back instead).
         if let Some(v) = crate::float_cmds::before_command(self, id)? {

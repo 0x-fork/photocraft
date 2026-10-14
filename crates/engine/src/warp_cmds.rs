@@ -112,7 +112,7 @@ pub fn warp_from_params(cmd: &str, p: &Value, rect: [f64; 4]) -> Result<Warp> {
 
 /// A Background is turned into a normal layer by the caller first
 /// ([`crate::extra_cmds::background_to_layer`]).
-fn warp_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut Layer, w: &Warp, rect: Rect, interp: Interp) -> Result<()> {
+fn warp_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut Layer, w: &Warp, rect: Rect, interp: Interp, frames: Option<&Frames>) -> Result<()> {
     let locks = l.locks.union(group);
     if locks.position || locks.all {
         return Err(EngineError::Other(format!("layer \"{}\" is locked", l.name)));
@@ -124,7 +124,7 @@ fn warp_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut Layer, w: &Warp, 
     match &mut l.content {
         LayerContent::Group(g) => {
             for c in g.children.iter_mut() {
-                warp_layer(None, locks, c, w, rect, interp)?;
+                warp_layer(None, locks, c, w, rect, interp, frames)?;
             }
         }
         LayerContent::Text(_) => return Err(EngineError::Other("Warp needs rasterized type (or use Type › Warp Text)".into())),
@@ -138,7 +138,14 @@ fn warp_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut Layer, w: &Warp, 
             let sb = corners.iter().fold([f64::MAX, f64::MAX, f64::MIN, f64::MIN], |b, p| [b[0].min(p[0]), b[1].min(p[1]), b[2].max(p[0]), b[3].max(p[1])]);
             let src_warp = match w.style {
                 WarpStyle::None => None,
-                WarpStyle::Custom => Some(Warp::custom(w.to_mesh(1, 1).map_points(|p| hom_apply(&inv, p)), sb)),
+                WarpStyle::Custom => {
+                    let mesh = w.to_mesh(1, 1).map_points(|p| hom_apply(&inv, p));
+                    // A `mesh` parameter's knots span the contents, not the warp box's image (#4113).
+                    match frames.and_then(|f| f.get(&l.id)).and_then(|&c| content_frame_warp(&mesh, c, sb)) {
+                        Some(cw) => Some(cw),
+                        None => Some(Warp::custom(mesh, sb)),
+                    }
+                }
                 _ => Some(Warp { bounds: sb, mesh: None, ..w.clone() }),
             };
             sm.warp = src_warp.filter(|w| !w.is_identity());
@@ -189,6 +196,75 @@ fn warp_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut Layer, w: &Warp, 
         vm.path = crate::vector_cmds::map_path(&vm.path, None, Some(w))?;
     }
     Ok(())
+}
+
+/// Source boxes of the smart objects under a warped layer, by layer id.
+type Frames = std::collections::HashMap<LayerId, [f64; 4]>;
+
+fn source_frames(doc: &Document, l: &Layer, out: &mut Frames) {
+    match &l.content {
+        LayerContent::Group(g) => g.children.iter().for_each(|c| source_frames(doc, c, out)),
+        LayerContent::Smart(sm) => {
+            if let Some(b) = crate::smart_cmds::source_box(doc, sm) {
+                out.insert(l.id, b);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Rescales `knots` (spanning the box starting at `c0`, `cs` long) to span the frame `t0`, `ts`
+/// (which contains it). Returns the knots and whether the frame extends past the box at the start / end.
+fn reframe_knots(knots: &[f64], c0: f64, cs: f64, t0: f64, ts: f64) -> (Vec<f64>, bool, bool) {
+    let pre = (c0 - t0) / ts > 1e-9;
+    let post = (t0 + ts - (c0 + cs)) / ts > 1e-9;
+    let mut out: Vec<f64> = Vec::with_capacity(knots.len() + 2);
+    if pre {
+        out.push(0.0);
+    }
+    out.extend(knots.iter().map(|k| (c0 + k * cs - t0) / ts));
+    if post {
+        out.push(1.0);
+    }
+    // Keep the ends exactly 0 and 1.
+    if let Some(f) = out.first_mut() {
+        *f = 0.0;
+    }
+    if let Some(l) = out.last_mut() {
+        *l = 1.0;
+    }
+    (out, pre, post)
+}
+
+/// `items` with three more copies of the first / last one at the front (`pre`) / back (`post`).
+fn pad<T: Clone>(items: &[T], pre: bool, post: bool) -> Option<Vec<T>> {
+    let mut out = Vec::with_capacity(items.len() + 6);
+    if pre {
+        out.extend(std::iter::repeat_n(items.first()?.clone(), 3));
+    }
+    out.extend_from_slice(items);
+    if post {
+        out.extend(std::iter::repeat_n(items.last()?.clone(), 3));
+    }
+    Some(out)
+}
+
+/// A stored smart-object warp from `mesh` (points in source space) whose knots span the source
+/// box `c`: the knots are re-expressed over the frame `hull(c, b)` (`b` = the warp box's image in
+/// source space), with a degenerate patch padding every side where the frame extends past `c`.
+/// The surface over `c` is exactly the mesh's (#4113).
+fn content_frame_warp(mesh: &BezierMesh, c: [f64; 4], b: [f64; 4]) -> Option<Warp> {
+    let t = [c[0].min(b[0]), c[1].min(b[1]), c[2].max(b[2]), c[3].max(b[3])];
+    let (cw, ch) = (c[2] - c[0], c[3] - c[1]);
+    if !(cw > 0.0 && ch > 0.0 && t.iter().all(|v| v.is_finite())) {
+        return None;
+    }
+    let (us, left, right) = reframe_knots(&mesh.us, c[0], cw, t[0], t[2] - t[0]);
+    let (vs, top, bottom) = reframe_knots(&mesh.vs, c[1], ch, t[1], t[3] - t[1]);
+    let rows: Vec<Vec<[f64; 2]>> = mesh.points.chunks(mesh.nx()).map(|r| pad(r, left, right)).collect::<Option<_>>()?;
+    let rows = pad(&rows, top, bottom)?;
+    let m = BezierMesh { us, vs, points: rows.into_iter().flatten().collect() };
+    m.is_valid().then(|| Warp::custom(m, t))
 }
 
 /// Largest warp frame side: far above any real layer, far below what would exhaust memory.
@@ -270,13 +346,21 @@ fn apply(s: &mut Session, p: &Value, cmd: &str) -> Result<Value> {
         return Ok(json!({"layer": id.0, "changed": false}));
     }
     let interp = Interp::parse(p.get("interpolation").and_then(Value::as_str).unwrap_or("bicubic"));
+    let content_knots = p.get("mesh").is_some() && p.get("warp").is_none();
     s.edit("Warp", |doc, _| {
         let sel = doc.selection.clone();
+        let frames = content_knots.then(|| {
+            let mut f = Frames::new();
+            if let Some(l) = doc.layer(id) {
+                source_frames(doc, l, &mut f);
+            }
+            f
+        });
         let is_group = doc.layer(id).is_some_and(Layer::is_group);
         let group = crate::transform_cmds::group_locks(doc, id);
         crate::extra_cmds::background_to_layer(doc, id);
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
-        warp_layer(if is_group { None } else { sel.as_ref() }, group, l, &w, rect, interp)?;
+        warp_layer(if is_group { None } else { sel.as_ref() }, group, l, &w, rect, interp, frames.as_ref())?;
         let snapshot = doc.clone();
         if let Some(l) = doc.layer_mut(id) {
             crate::transform_cmds::refresh_text(&snapshot, l);
@@ -462,7 +546,7 @@ fn grid(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 pub fn specs() -> Vec<CommandSpec> {
-    const P: &str = r##"{"layer":id?,"rect":[x0,y0,x1,y1]? (warp box; default = layer content ∩ selection),"style":"custom|none|arc|arcLower|arcUpper|arch|bulge|shellLower|shellUpper|flag|wave|fish|rise|fisheye|inflate|squeeze|twist","bend":%=50,"hDistort":%,"vDistort":%,"vertical":bool,"mesh":{"us":[0,…,1],"vs":[0,…,1],"points":[[x,y]…]} ((3c+1)×(3r+1) control points, row-major, document px),"grid":[cols,rows]?,"warp":{full warp object}?,"interpolation":"bicubic|bilinear|nearest"} — on a type layer a style (or none) sets its Warp Text and the type stays editable"##;
+    const P: &str = r##"{"layer":id?,"rect":[x0,y0,x1,y1]? (warp box; default = layer content ∩ selection),"style":"custom|none|arc|arcLower|arcUpper|arch|bulge|shellLower|shellUpper|flag|wave|fish|rise|fisheye|inflate|squeeze|twist","bend":%=50,"hDistort":%,"vDistort":%,"vertical":bool,"mesh":{"us":[0,…,1],"vs":[0,…,1],"points":[[x,y]…]} ((3c+1)×(3r+1) control points, row-major, document px; on a smart object `us`/`vs` span the source contents, so points equal to the placement are an identity warp even when it is skewed),"grid":[cols,rows]?,"warp":{full warp object}?,"interpolation":"bicubic|bilinear|nearest"} — on a type layer a style (or none) sets its Warp Text and the type stays editable"##;
     const S: &str = r##"{"warp":{…}? (the warp being edited; returned split),"rect":[x0,y0,x1,y1]?,"at":[x,y]? (document point; default = middle of the patch)} — without `warp`, edits the active smart object's warp. A 1×1 custom mesh is divided at the thirds first (the guides drawn on the default grid), so splitWarpCrosswise on an identity custom warp returns a 4×4 mesh (knots at 0, 1/3, 1/2, 2/3 and 1), not a 2×2. A preset is fitted as one patch and split without that step."##;
     const G: &str = r##"{"warp":{…}? (the warp being edited; returned with the new mesh),"rect":[x0,y0,x1,y1]?,"size":n|"default"|"3"|"4"|"5" (square patches, 1..=64; 1 and "default" are the single-patch grid)} — without `warp`/`style`/`mesh`, edits the active smart object's warp. The surface is kept and the new lines are real splits at i/n."##;
     vec![
