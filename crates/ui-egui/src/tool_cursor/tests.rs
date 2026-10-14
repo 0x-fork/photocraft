@@ -458,3 +458,26 @@ fn circle_bitmaps_evaluate_only_the_ring_and_match_every_pixel() {
         }
     }
 }
+
+/// The arrow is the handle's direction as the view shows it: turned with a rotated view and
+/// mirrored with a flipped one.
+#[test]
+fn resize_follows_the_view() {
+    use CursorIcon::{ResizeHorizontal as H, ResizeNeSw as NeSw, ResizeNwSe as NwSe, ResizeVertical as V};
+    let view = |rotation: f32, flip: bool| ViewXform {
+        rect: egui::Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0)),
+        zoom: 1.0,
+        center: [0.0, 0.0],
+        flip,
+        rotation,
+        aspect: 1.0,
+    };
+    // Right, down-right, down and down-left in the document.
+    let directions = [[1.0, 0.0], [1.0, 1.0], [0.0, 1.0], [-1.0, 1.0]];
+    for (rotation, flip, want) in
+        [(0.0, false, [H, NwSe, V, NeSw]), (90.0, false, [V, NeSw, H, NwSe]), (45.0, false, [NwSe, V, NeSw, H]), (0.0, true, [H, NeSw, V, NwSe])]
+    {
+        let got = directions.map(|d| resize(d, &view(rotation, flip)));
+        assert_eq!(got, want, "view turned {rotation}°, flip {flip}");
+    }
+}
