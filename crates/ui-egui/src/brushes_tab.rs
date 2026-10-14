@@ -475,6 +475,22 @@ fn darker(c: Color32, f: f32) -> Color32 {
     Color32::from_rgba_unmultiplied((r as f32 * f).round() as u8, (g as f32 * f).round() as u8, (b as f32 * f).round() as u8, a)
 }
 
+/// Where a card's tip thumbnail goes in its `cell`. `number_h` is the height of the size number
+/// under it, `None` on compact cards (no number: the tip takes the cell whole). Otherwise the
+/// number keeps a band at the bottom of the cell and the tip is centred in what's left above it,
+/// at [`CARD_TIP_BASE`] × `scale` or that room's side, whichever is smaller, times the preset's
+/// [`crate::brush_sections::thumb_scale`]: big brushes still read bigger than small ones, and
+/// none of them reaches down over the number.
+fn card_tip_rect(cell: egui::Rect, number_h: Option<f32>, size: f32, scale: f32) -> egui::Rect {
+    let Some(number_h) = number_h else {
+        return egui::Rect::from_center_size(cell.center(), egui::Vec2::splat((cell.width().min(cell.height()) - 2.0).max(1.0)));
+    };
+    // The number sits 1 pt off the cell's bottom, with a 1 pt gap above it.
+    let room = egui::Rect::from_min_max(cell.min, pos2(cell.right(), (cell.bottom() - number_h - 2.0).max(cell.top())));
+    let side = (CARD_TIP_BASE * scale).min(room.width().min(room.height())).max(0.0) * crate::brush_sections::thumb_scale(size);
+    egui::Rect::from_center_size(room.center(), egui::Vec2::splat(if side.is_finite() { side.max(1.0) } else { 1.0 }))
+}
+
 /// One preset in the Brush Preset picker: a 2 × 2 grid whose bottom row (the name) spans both
 /// columns — tip at the top left, stroke preview at the top right. A part that's off loses its
 /// cell (the other takes the room): with only the tip and the name on, the name moves into the
@@ -545,18 +561,13 @@ fn preset_card(
         let tip_w = if tip_only { top.width() } else { (CARD_TIP_W * scale).min(top.width() * 0.5) };
         let cell = egui::Rect::from_min_size(top.left_top(), vec2(tip_w, top_h));
         let tip = brush_preview::tip_texture(ui.ctx(), &format!("brushes-tip:{}", p.name), &pb.tip, (pb.hardness, pb.angle, pb.roundness), 36, t.text);
-        let side = if compact { (cell.width().min(cell.height()) - 2.0).max(1.0) } else { CARD_TIP_BASE * scale * crate::brush_sections::thumb_scale(pb.size) };
-        let center = if compact { cell.center() } else { pos2(cell.center().x, cell.center().y - 2.0 * scale_h) };
-        let tr = egui::Rect::from_center_size(center, vec2(side, side));
+        let number =
+            (!compact).then(|| ui.painter().layout_no_wrap(format!("{}", pb.size.round() as i64), egui::FontId::proportional(CARD_NUM_FONT), t.text_faint));
+        let tr = card_tip_rect(cell, number.as_ref().map(|g| g.size().y), pb.size, scale);
         ui.painter().image(tip.id(), tr, full_uv(), Color32::WHITE);
-        if !compact {
-            ui.painter().text(
-                pos2(cell.center().x, cell.bottom() - 1.0),
-                egui::Align2::CENTER_BOTTOM,
-                format!("{}", pb.size.round() as i64),
-                egui::FontId::proportional(CARD_NUM_FONT),
-                t.text_faint,
-            );
+        if let Some(g) = number {
+            let at = pos2(cell.center().x - g.size().x / 2.0, cell.bottom() - 1.0 - g.size().y);
+            ui.painter().galley(at, g, t.text_faint);
         }
         x = cell.right();
     }

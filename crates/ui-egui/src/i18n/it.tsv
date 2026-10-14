@@ -379,6 +379,7 @@
 	Update Modified Content	Aggiorna contenuto modificato
 	Update All Modified Content	Aggiorna tutto il contenuto modificato
 	Stack Mode	Modalità pila
+	Choose Stack Mode:	Scegli modalità pila:
 	Entropy	Entropia
 	Kurtosis	Curtosi
 	Maximum	Massimo
@@ -550,6 +551,9 @@
 	Blur	Sfocatura
 	Blur Gallery	Galleria sfocatura
 	Field Blur…	Sfocatura campo…
+# Field Blur pins (#3373)
+	No pin selected	Nessuna puntina selezionata
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Fai clic sull’immagine per aggiungere una puntina; trascina una puntina per spostarla o il suo anello per cambiare la sfocatura. Canc rimuove la puntina selezionata.
 	Iris Blur…	Sfocatura diaframma…
 	Tilt-Shift…	Miniatura…
 	Path Blur…	Sfocatura tracciato…
@@ -869,6 +873,7 @@
 	Background	Sfondo
 	Background Color	Colore sfondo
 	Background Contents	Contenuto sfondo
+	Custom background color	Colore sfondo personalizzato
 	Balance	Bilanciamento
 	Baseline	Linea base
 	Baseline shift	Scostamento linea base
@@ -2189,6 +2194,10 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Nessun tracciato da cui creare selezione: disegnane uno con Penna o selezionane uno nel pannello Tracciati.
 	Cancel opening	Annulla apertura
 	Cancelled opening {name}	Apertura {name} annullata
+	The document “{name}” does not have an embedded {mode} profile.	Il documento “{name}” non ha un profilo {mode} incorporato.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Il documento “{name}” ha un profilo colore incorporato che non corrisponde allo spazio di lavoro {mode} corrente.
+	Embedded: {embedded}	Incorporato: {embedded}
+	Working: {working}	Di lavoro: {working}
 	Developing {name}	Sviluppo di {name}
 	Cancelled {label}	{label} annullato
 	Esc to cancel	Esc per annullare
@@ -2495,6 +2504,7 @@ cameraRaw	Amount	Quantità
 	Fuchsia	Fucsia
 	Violet	Viola
 	Large document: redrawing on the CPU	Documento grande: ridisegno sulla CPU
+	Redrawing	Ridisegno
 	This redraw took {seconds} s on the CPU.	Questo ridisegno sulla CPU ha richiesto {seconds} s.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Le modifiche che cambiano tutto il documento, come metodo di fusione, opacità o visibilità di un livello, lo ridisegnano per intero.
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	I livelli non rientrano nel budget di memoria della GPU. Aumentare Uso memoria in Preferenze › Prestazioni alza il budget, fino a un quarto della memoria di questo computer.
@@ -2729,6 +2739,7 @@ curves	Smooth	Leviga
 	Paint over hair or fur on the image; Alt paints the other mode	Dipingi su capelli o pelo nell'immagine; Alt dipinge nell'altra modalità
 	Clear Brush Strokes	Cancella tracce del pennello
 	Show rulers	Mostra righelli
+	Presentation	Presentazione
 
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	Fai clic per posizionare · Alt-clic o trascina fuori dal quadro per rimuovere
@@ -3010,7 +3021,6 @@ curves	Smooth	Leviga
 	Choose…	Scegli…
 	Select Folder…	Seleziona cartella…
 	Override Action "Save" Commands	Sostituisci i comandi "Salva" dell'azione
-	File Naming	Denominazione file
 	Compatibility	Compatibilità
 	Mac OS	Mac OS
 	Unix	Unix
@@ -4040,8 +4050,6 @@ layerLabel	No Color	Nessun colore
 	Monitor profile on {display}: {profile}	Profilo monitor su {display}: {profile}
 	manual	manuale
 	fallback	ripiego
-	The document does not have an embedded colour profile. Working space: {working}.	Il documento non ha un profilo colore incorporato. Spazio di lavoro: {working}.
-	The document has an embedded colour profile that does not match the working space.\nEmbedded: {embedded}\nWorking: {working}	Il documento ha un profilo colore incorporato che non corrisponde allo spazio di lavoro.\nIncorporato: {embedded}\nDi lavoro: {working}
 	Importing {what} from {file}…	Importazione di {what} da {file}…
 	brushes	pennelli
 	gradients	sfumature
@@ -4078,6 +4086,8 @@ navigator	Zoom	Zoom
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	Salvata {n} azione in {file}|Salvate {n} azioni in {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Omesso {n} passaggio senza equivalente in Photoshop|Omessi {n} passaggi senza equivalente in Photoshop
 
+	File Naming	Denominazione file
+	Starting serial	Numero di serie iniziale
 # Actions panel: set folders, dialog toggle, Insert Stop
 	Insert Stop…	Inserisci interruzione…
 	Save Set…	Salva set…
@@ -4089,4 +4099,11 @@ navigator	Zoom	Zoom
 	Step {step} is waiting for its dialog	Il passaggio {step} attende la sua finestra di dialogo
 @plural	{n} action|{n} actions	{n} azione|{n} azioni
 	Auto Add/Delete	Aggiungi/elimina automaticamente
+
+# Native Windows printing qualification
+	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	Non attivare anche Immagine speculare nelle impostazioni di stampa: le due inversioni si annullano.
+	Print Settings…	Impostazioni di stampa…
+	Remember to turn off the printer's own colour management in Print Settings…	Ricorda di disattivare la gestione del colore della stampante nelle impostazioni di stampa…
+	Sent to {printer}	Inviato a {printer}
+	set in Print Settings…	impostato nelle impostazioni di stampa…
 	ICO is limited to 256 × 256 pixels	ICO è limitato a 256 × 256 pixel

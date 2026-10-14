@@ -126,6 +126,14 @@ fn pinch_id() -> Id {
 
 /// [`legacy_pinch_to_zoom`] for one frame's raw input (`raw_input_hook`, Windows and Linux).
 pub fn fold_legacy_pinch(ctx: &Context, raw: &mut RawInput) {
+    // Native gesture events already carry their own magnification. Some backends
+    // also emit a Ctrl-wheel event in the same frame: folding that wheel event
+    // would apply the same pinch twice. End any legacy continuation as well,
+    // so a later real Ctrl+wheel notch isn't treated as part of that pinch.
+    if raw.events.iter().any(|event| matches!(event, Event::Zoom(_))) {
+        ctx.data_mut(|d| d.remove::<f64>(pinch_id()));
+        return;
+    }
     let (notch, speed) = ctx.options(|o| (o.input_options.line_scroll_speed, o.input_options.scroll_zoom_speed));
     let now = raw.time.unwrap_or_else(|| ctx.input(|i| i.time));
     let last = ctx.data(|d| d.get_temp::<f64>(pinch_id()));
@@ -357,6 +365,31 @@ mod tests {
         let mut wheel_only = [wheel(Vec2::new(0.0, 1.0), CTRL)];
         assert_eq!(legacy_pinch_to_zoom(&mut wheel_only, 2.0, Some(1.0), 40.0, 0.005), Some(1.0));
         assert!(matches!(wheel_only[0], Event::MouseWheel { .. }), "whole mouse notch is not a pinch");
+    }
+
+    #[test]
+    fn native_pinch_is_not_zoomed_twice_when_ctrl_wheel_arrives_in_the_same_frame() {
+        let (_, zoom) = gesture(vec![vec![Event::Zoom(1.2), wheel(Vec2::new(0.0, 0.25), CTRL)]], false, true);
+        assert!((zoom - 1.2).abs() < 1e-4, "native zoom must win over fallback: {zoom}");
+    }
+
+    #[test]
+    fn native_pinch_resets_legacy_gesture_continuation() {
+        let ctx = Context::default();
+        let mut legacy = RawInput { time: Some(1.0), events: vec![wheel(Vec2::new(0.0, 0.25), CTRL)], ..Default::default() };
+        fold_legacy_pinch(&ctx, &mut legacy);
+        assert!(matches!(legacy.events[0], Event::Zoom(_)));
+
+        // Native magnification takes over before the synthetic gesture times out.
+        let mut native = RawInput { time: Some(1.1), events: vec![Event::Zoom(1.1), wheel(Vec2::new(0.0, 0.25), CTRL)], ..Default::default() };
+        fold_legacy_pinch(&ctx, &mut native);
+        assert!(matches!(native.events[0], Event::Zoom(f) if (f - 1.1).abs() < 1e-5));
+        assert!(matches!(native.events[1], Event::MouseWheel { .. }));
+
+        // A notched mouse scroll must no longer inherit the previous pinch.
+        let mut notch = RawInput { time: Some(1.12), events: vec![wheel(Vec2::new(0.0, 1.0), CTRL)], ..Default::default() };
+        fold_legacy_pinch(&ctx, &mut notch);
+        assert!(matches!(notch.events[0], Event::MouseWheel { .. }));
     }
 
     #[test]

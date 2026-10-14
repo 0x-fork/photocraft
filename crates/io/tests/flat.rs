@@ -100,6 +100,24 @@ fn indexed_bmp_opens_with_its_color_table() {
     assert!((px[2] - 50.0 / 255.0).abs() < 1e-6);
 }
 
+/// A palette PNG opens in Indexed Color mode with its whole colour table and its transparent
+/// entry, as in Photoshop (#4804).
+#[test]
+fn indexed_png_opens_with_its_color_table() {
+    let pal = [[10, 20, 30], [200, 100, 50], [7, 8, 9], [0, 255, 0]];
+    let png = photocraft_codecs::encode_png_indexed(2, 2, &[1, 0, 2, 1], &pal, Some(2), None).unwrap();
+    let doc = import("indexed.png", &png).unwrap().document;
+    assert_eq!(doc.mode, ColorMode::Indexed);
+    assert_eq!(doc.depth, SampleType::U8);
+    let table = doc.color_table.as_ref().unwrap();
+    assert_eq!(table.colors, pal, "every entry, used or not");
+    assert_eq!(table.transparent, Some(2));
+    let s = doc.layers[0].surface().unwrap();
+    let px = s.rgba(0, 0);
+    assert!((px[0] - 200.0 / 255.0).abs() < 1e-6 && (px[3] - 1.0).abs() < 1e-6);
+    assert_eq!(s.rgba(0, 1)[3], 0.0, "the tRNS entry is transparent");
+}
+
 /// FITS header cards travel as the document's text metadata, so an astro frame keeps its
 /// OBJECT, EXPTIME and the rest through an edit.
 #[test]

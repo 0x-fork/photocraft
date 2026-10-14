@@ -377,6 +377,7 @@
 	Update Modified Content	Mettre à jour le contenu modifié
 	Update All Modified Content	Mettre à jour tout le contenu modifié
 	Stack Mode	Mode de pile
+	Choose Stack Mode:	Choisir le mode de pile :
 	Entropy	Entropie
 	Kurtosis	Kurtosis
 	Maximum	Maximum
@@ -542,6 +543,9 @@
 	Blur	Flou
 	Blur Gallery	Galerie de flous
 	Field Blur…	Flou de champ…
+# Field Blur pins (#3373)
+	No pin selected	Aucune épingle sélectionnée
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Cliquez dans l’image pour ajouter une épingle ; faites glisser une épingle pour la déplacer, ou son anneau pour modifier le flou. Suppr supprime l’épingle sélectionnée.
 	Iris Blur…	Flou d'iris…
 	Tilt-Shift…	Inclinaison-décalage…
 	Path Blur…	Flou de tracé…
@@ -860,6 +864,7 @@
 	Background	Arrière-plan
 	Background Color	Couleur d'arrière-plan
 	Background Contents	Contenu de l'arrière-plan
+	Custom background color	Couleur d'arrière-plan personnalisée
 	Balance	Balance
 	Baseline	Ligne de base
 	Baseline shift	Décalage de la ligne de base
@@ -2153,6 +2158,10 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Aucun tracé à partir duquel créer une sélection : dessinez-en un avec l'outil Plume ou sélectionnez-en un dans le panneau Tracés.
 	Cancel opening	Annuler l'ouverture
 	Cancelled opening {name}	Ouverture de {name} annulée
+	The document “{name}” does not have an embedded {mode} profile.	Le document « {name} » n'a pas de profil {mode} incorporé.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Le document « {name} » a un profil colorimétrique incorporé qui ne correspond pas à l'espace de travail {mode} actuel.
+	Embedded: {embedded}	Incorporé : {embedded}
+	Working: {working}	Espace de travail : {working}
 	Developing {name}	Développement de {name}
 	Cancelled {label}	{label} : annulé
 	Esc to cancel	Échap pour annuler
@@ -2468,7 +2477,6 @@
 	Choose…	Choisir…
 	Select Folder…	Sélectionner un dossier…
 	Override Action "Save" Commands	Ignorer les commandes « Enregistrer » de l'action
-	File Naming	Dénomination des fichiers
 	Compatibility	Compatibilité
 	Mac OS	Mac OS
 	Unix	Unix
@@ -2846,6 +2854,7 @@ cameraRaw	Blending	Fusion
 	Fuchsia	Fuchsia
 	Violet	Violet
 	Large document: redrawing on the CPU	Document volumineux : redessin sur le CPU
+	Redrawing	Redessin
 	This redraw took {seconds} s on the CPU.	Ce redessin sur le CPU a pris {seconds} s.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Les modifications qui touchent tout le document, comme le mode de fusion, l'opacité ou la visibilité d'un calque, le redessinent entièrement.
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Les calques dépassent le budget de mémoire GPU. Augmenter Utilisation de la mémoire dans Préférences › Performances relève ce budget, jusqu'au quart de la mémoire de cet ordinateur.
@@ -3074,6 +3083,7 @@ curves	Smooth	Lisser
 	Paint over hair or fur on the image; Alt paints the other mode	Peignez sur les cheveux ou la fourrure dans l'image ; Alt peint dans l'autre mode
 	Clear Brush Strokes	Effacer les traits de pinceau
 	Show rulers	Afficher les règles
+	Presentation	Présentation
 
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	Cliquez pour placer · Alt-clic ou glisser hors du canevas pour supprimer
@@ -3115,6 +3125,8 @@ curves	Smooth	Lisser
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	{n} action enregistrée dans {file}|{n} actions enregistrées dans {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	{n} étape sans équivalent Photoshop omise|{n} étapes sans équivalent Photoshop omises
 
+	File Naming	Dénomination des fichiers
+	Starting serial	Numéro de série initial
 # Actions panel: set folders, dialog toggle, Insert Stop
 	Insert Stop…	Insérer un arrêt…
 	Save Set…	Enregistrer l’ensemble…
@@ -3126,4 +3138,11 @@ curves	Smooth	Lisser
 	Step {step} is waiting for its dialog	L’étape {step} attend sa boîte de dialogue
 @plural	{n} action|{n} actions	{n} action|{n} actions
 	Auto Add/Delete	Ajout/suppr. auto
+
+# Native Windows printing qualification
+	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	Ne cochez pas aussi Image miroir dans les paramètres d’impression : les deux inversions s’annulent.
+	Print Settings…	Paramètres d’impression…
+	Remember to turn off the printer's own colour management in Print Settings…	Pensez à désactiver la gestion des couleurs de l’imprimante dans les paramètres d’impression…
+	Sent to {printer}	Envoyé à {printer}
+	set in Print Settings…	défini dans les paramètres d’impression…
 	ICO is limited to 256 × 256 pixels	Le format ICO est limité à 256 × 256 pixels
