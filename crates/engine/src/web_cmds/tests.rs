@@ -512,9 +512,34 @@ fn generator_naming_grammar() {
 }
 
 #[test]
+fn image_assets_needs_the_generator_preference() {
+    let dir = tmp("generator_pref");
+    let mut s = session(8);
+    let id = s.active().unwrap().active_layer.unwrap();
+    s.execute("layer.renameLayer", json!({"layer": id.0, "name": "logo.png"})).unwrap();
+    assert!(!s.prefs().plug_ins.generator_enabled, "off by default, as in Photoshop");
+    assert!(!s.is_enabled("file.generate.imageAssets"), "unavailable until it is enabled");
+    assert!(s.execute("file.generate.imageAssets", json!({"dir": dir})).is_err());
+
+    s.execute("prefs.set", json!({"path": "plugIns.generatorEnabled", "value": true})).unwrap();
+    assert!(s.is_enabled("file.generate.imageAssets"));
+    assert_eq!(s.execute("file.generate.imageAssets", json!({"dir": dir})).unwrap()["enabled"], true);
+    s.active_mut().unwrap().path = Some(format!("{dir}/doc.psd"));
+    assert!(crate::automate_cmds::document_saved(&mut s, 0).is_some(), "assets are written on save");
+
+    // Turning it off again takes the menu item away and stops the export, even for a document
+    // left switched on.
+    s.execute("prefs.set", json!({"path": "plugIns.generatorEnabled", "value": false})).unwrap();
+    assert!(!s.is_enabled("file.generate.imageAssets"));
+    assert!(crate::automate_cmds::document_saved(&mut s, 0).is_none(), "no assets while Generator is off");
+}
+
+#[test]
 fn image_assets_are_generated_now_and_on_save() {
     let dir = tmp("assets");
     let mut s = session(8);
+    // Preferences ▸ Plug-ins ▸ Generator enabled: the feature is opt-in.
+    s.execute("prefs.set", json!({"path": "plugIns.generatorEnabled", "value": true})).unwrap();
     let id = s.active().unwrap().active_layer.unwrap();
     s.execute("layer.renameLayer", json!({"layer": id.0, "name": "logo.png, 50% small/logo.gif, logo.jpg80%"})).unwrap();
     let r = s.execute("file.generate.imageAssets", json!({"dir": dir})).unwrap();
