@@ -1,9 +1,9 @@
 use super::*;
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 use egui::{Event, Modifiers, PointerButton, pos2};
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 use egui_kittest::Harness;
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 use serde_json::json;
 
 fn alpha(image: &CustomCursorImage, x: u16, y: u16) -> u8 {
@@ -21,7 +21,7 @@ fn frame(ctx: &egui::Context, draw: impl FnMut(&mut egui::Ui)) -> egui::FullOutp
 fn bitmap_has_a_transparent_hotspot_and_the_correct_radius_at_each_dpi() {
     for scale in [1.0, 1.25, 1.5, 2.0, 3.0] {
         let radius = 20.0;
-        let image = rasterize(Shape::Circle { radius, centre: false }, scale).unwrap();
+        let image = rasterize(&Shape::Circle { radius, centre: false }, scale).unwrap();
         let [x, y] = image.hotspot;
         assert_eq!(image.size, [2 * x + 1, 2 * y + 1]);
         assert_eq!(image.rgba.len(), usize::from(image.size[0]).pow(2) * 4);
@@ -38,34 +38,47 @@ fn bitmap_has_a_transparent_hotspot_and_the_correct_radius_at_each_dpi() {
 
 #[test]
 fn precise_and_tip_centre_crosshairs_have_distinct_hotspots() {
-    let ring = rasterize(Shape::Circle { radius: 20.0, centre: true }, 1.0).unwrap();
+    let ring = rasterize(&Shape::Circle { radius: 20.0, centre: true }, 1.0).unwrap();
     assert!(alpha(&ring, ring.hotspot[0], ring.hotspot[1]) > 230);
-    let precise = rasterize(Shape::Crosshair { length: 8.0, gap: 2.0 }, 1.0).unwrap();
+    let precise = rasterize(&Shape::Crosshair { length: 8.0, gap: 2.0 }, 1.0).unwrap();
     let [x, y] = precise.hotspot;
     assert_eq!(alpha(&precise, x, y), 0);
     assert!(alpha(&precise, x + 5, y) > 230);
-    let solid = rasterize(Shape::Crosshair { length: 6.0, gap: 0.0 }, 1.0).unwrap();
+    let solid = rasterize(&Shape::Crosshair { length: 6.0, gap: 0.0 }, 1.0).unwrap();
     assert!(alpha(&solid, solid.hotspot[0], solid.hotspot[1]) > 230);
+}
+
+/// On Linux a tip stays within what X servers and hardware cursor planes take (256 px); a larger
+/// one falls back to the painted outline. Windows and macOS take far larger cursors.
+#[test]
+fn cursor_bitmaps_stay_within_the_platform_limit() {
+    let fits = |radius: f32| rasterize(&Shape::Circle { radius, centre: false }, 1.0).map(|i| i.size[0]);
+    let large = cfg!(any(target_os = "windows", target_os = "macos"));
+    assert!(fits(100.0).is_some_and(|side| side <= 255));
+    assert_eq!(fits(200.0).is_some(), large);
+    assert_eq!(fits(1000.0).is_some(), large, "a 2000 px brush at 100 % still has a native outline");
+    assert!(fits(200.0).is_none_or(|side| side <= 2048));
+    assert!(fits(1100.0).is_none(), "nothing past 2048 px");
 }
 
 #[test]
 fn hostile_sizes_are_rejected_before_allocating() {
     for radius in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.0, 0.0, f32::MAX, 2048.0] {
-        assert!(rasterize(Shape::Circle { radius, centre: false }, 1.0).is_none());
+        assert!(rasterize(&Shape::Circle { radius, centre: false }, 1.0).is_none());
     }
     for scale in [f32::NAN, f32::INFINITY, -1.0, 0.0, f32::MAX] {
-        assert!(rasterize(Shape::Circle { radius: 20.0, centre: false }, scale).is_none());
+        assert!(rasterize(&Shape::Circle { radius: 20.0, centre: false }, scale).is_none());
     }
     for (length, gap) in [(1.0, 2.0), (8.0, -1.0), (f32::NAN, 0.0), (8.0, f32::NAN)] {
-        assert!(rasterize(Shape::Crosshair { length, gap }, 1.0).is_none());
+        assert!(rasterize(&Shape::Crosshair { length, gap }, 1.0).is_none());
     }
 }
 
 #[test]
 fn hand_bitmaps_are_outlined_hands_around_a_centred_hotspot_at_each_dpi() {
     for scale in [1.0, 1.25, 1.5, 2.0, 3.0] {
-        let open = rasterize(Shape::Hand { closed: false }, scale).unwrap();
-        let fist = rasterize(Shape::Hand { closed: true }, scale).unwrap();
+        let open = rasterize(&Shape::Hand { closed: false }, scale).unwrap();
+        let fist = rasterize(&Shape::Hand { closed: true }, scale).unwrap();
         for image in [&open, &fist] {
             let [x, y] = image.hotspot;
             assert_eq!(image.size, [2 * x + 1, 2 * y + 1]);
@@ -83,7 +96,7 @@ fn hand_bitmaps_are_outlined_hands_around_a_centred_hotspot_at_each_dpi() {
 
 #[test]
 fn hand_bitmap_is_a_straight_rgba_silhouette_outlined_outside_the_hand() {
-    let image = rasterize(Shape::Hand { closed: false }, 1.0).unwrap();
+    let image = rasterize(&Shape::Hand { closed: false }, 1.0).unwrap();
     let side = usize::from(image.size[0]);
     let px = |x: usize, y: usize| <[u8; 4]>::try_from(&image.rgba[(y * side + x) * 4..][..4]).unwrap();
     let mid = side / 2;
@@ -113,8 +126,8 @@ fn hand_bitmap_is_a_straight_rgba_silhouette_outlined_outside_the_hand() {
 #[test]
 fn hostile_scales_get_no_hand_bitmap() {
     for scale in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.0, 0.0, f32::MAX, 500.0] {
-        assert!(rasterize(Shape::Hand { closed: false }, scale).is_none(), "{scale}");
-        assert!(rasterize(Shape::Hand { closed: true }, scale).is_none(), "{scale}");
+        assert!(rasterize(&Shape::Hand { closed: false }, scale).is_none(), "{scale}");
+        assert!(rasterize(&Shape::Hand { closed: true }, scale).is_none(), "{scale}");
     }
 }
 
@@ -135,7 +148,7 @@ fn the_hand_is_a_bitmap_only_where_the_os_has_none() {
             ui.ctx().set_cursor_icon(icon);
         });
         let image = bitmap.platform_output.cursor_image.expect("Windows has no stock hand");
-        assert_eq!(image.rgba, rasterize(Shape::Hand { closed }, 1.0).unwrap().rgba);
+        assert_eq!(image.rgba, rasterize(&Shape::Hand { closed }, 1.0).unwrap().rgba);
         assert_eq!(bitmap.platform_output.cursor_icon, CursorIcon::Crosshair, "visible fallback if the OS rejects a bitmap");
     }
     let open = hand_with(&ctx, false, true);
@@ -144,16 +157,75 @@ fn the_hand_is_a_bitmap_only_where_the_os_has_none() {
 }
 
 #[test]
+fn zoom_bitmaps_are_outlined_magnifiers_centred_on_the_lens_at_each_dpi() {
+    for scale in [1.0, 1.25, 1.5, 2.0, 3.0] {
+        let plus = rasterize(&Shape::Zoom { out: false }, scale).unwrap();
+        let minus = rasterize(&Shape::Zoom { out: true }, scale).unwrap();
+        for image in [&plus, &minus] {
+            let [x, y] = image.hotspot;
+            assert_eq!(image.size, [2 * x + 1, 2 * y + 1]);
+            assert_eq!(image.rgba.len(), usize::from(image.size[0]).pow(2) * 4);
+            assert!(image.size[0] <= (34.0 * scale) as u16, "no bigger than a stock cursor at {scale}: {:?}", image.size);
+            assert_eq!(alpha(image, 0, 0), 0, "nothing at the corners");
+            let handle = (9.0 * scale) as u16;
+            assert!(alpha(image, x + handle, y + handle) > 230, "the handle reaches down and right");
+            assert_eq!(alpha(image, x - handle, y - handle), 0, "and only that way");
+            let pixels = image.rgba.as_chunks::<4>().0;
+            assert!(pixels.iter().any(|p| p[3] > 230 && p[0] > 230), "a white lens");
+            assert!(pixels.iter().any(|p| p[3] > 100 && p[0] < 25), "with a black outline, readable on white");
+        }
+        let side = usize::from(plus.size[0]);
+        let red = |image: &CustomCursorImage, x: u16, y: u16| image.rgba[(usize::from(y) * side + usize::from(x)) * 4];
+        let [x, y] = plus.hotspot;
+        let up = y - (2.5 * scale) as u16;
+        assert!(red(&plus, x, y) < 60 && red(&minus, x, y) < 60, "both glyphs cross the hotspot");
+        assert!(red(&plus, x, up) < 60, "the plus has a vertical arm");
+        assert!(red(&minus, x, up) > 200, "the minus does not");
+    }
+}
+
+#[test]
+fn hostile_scales_get_no_zoom_bitmap() {
+    for scale in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.0, 0.0, f32::MAX, 500.0] {
+        assert!(rasterize(&Shape::Zoom { out: false }, scale).is_none(), "{scale}");
+        assert!(rasterize(&Shape::Zoom { out: true }, scale).is_none(), "{scale}");
+    }
+}
+
+/// winit shows the plain arrow for `ZoomIn` and `ZoomOut` on Windows (#3735).
+#[test]
+fn the_magnifier_is_a_bitmap_only_where_the_os_has_none() {
+    let ctx = egui::Context::default();
+    ctx.add_plugin(CursorLifecycle);
+    for out in [false, true] {
+        let native = frame(&ctx, |ui| {
+            let icon = zoom_with(ui.ctx(), out, false);
+            ui.ctx().set_cursor_icon(icon);
+        });
+        assert_eq!(native.platform_output.cursor_icon, if out { CursorIcon::ZoomOut } else { CursorIcon::ZoomIn });
+        assert!(native.platform_output.cursor_image.is_none(), "macOS and the Linux themes draw their own magnifiers");
+
+        let bitmap = frame(&ctx, |ui| {
+            let icon = zoom_with(ui.ctx(), out, true);
+            ui.ctx().set_cursor_icon(icon);
+        });
+        let image = bitmap.platform_output.cursor_image.expect("Windows has no stock magnifier");
+        assert_eq!(image.rgba, rasterize(&Shape::Zoom { out }, 1.0).unwrap().rgba);
+        assert_eq!(bitmap.platform_output.cursor_icon, CursorIcon::Crosshair, "visible fallback if the OS rejects a bitmap");
+    }
+}
+
+#[test]
 fn unchanged_geometry_reuses_the_os_upload_and_dpi_invalidates_it() {
     let ctx = egui::Context::default();
     let shape = Shape::Circle { radius: 20.0, centre: false };
-    let a = cached_image(&ctx, shape, 1.0).unwrap();
-    let b = cached_image(&ctx, shape, 1.0).unwrap();
+    let a = cached_image(&ctx, &shape, 1.0).unwrap();
+    let b = cached_image(&ctx, &shape, 1.0).unwrap();
     assert!(Arc::ptr_eq(&a.rgba, &b.rgba));
-    let scaled = cached_image(&ctx, shape, 2.0).unwrap();
+    let scaled = cached_image(&ctx, &shape, 2.0).unwrap();
     assert!(!Arc::ptr_eq(&a.rgba, &scaled.rgba));
     assert!(scaled.size[0] > a.size[0]);
-    let larger = cached_image(&ctx, Shape::Circle { radius: 40.0, centre: false }, 2.0).unwrap();
+    let larger = cached_image(&ctx, &Shape::Circle { radius: 40.0, centre: false }, 2.0).unwrap();
     assert!(larger.size[0] > scaled.size[0]);
 }
 
@@ -161,7 +233,7 @@ fn unchanged_geometry_reuses_the_os_upload_and_dpi_invalidates_it() {
 fn lifecycle_clears_sticky_images_and_respects_later_widgets() {
     let ctx = egui::Context::default();
     ctx.add_plugin(CursorLifecycle);
-    let image = rasterize(Shape::Circle { radius: 20.0, centre: false }, 1.0).unwrap();
+    let image = rasterize(&Shape::Circle { radius: 20.0, centre: false }, 1.0).unwrap();
     let output = frame(&ctx, |ui| {
         ui.ctx().set_cursor_image(Some(image.clone()));
         ui.ctx().set_cursor_icon(CursorIcon::None);
@@ -180,7 +252,7 @@ fn lifecycle_clears_sticky_images_and_respects_later_widgets() {
 }
 
 #[test]
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 fn ordinary_brush_cursor_is_not_part_of_the_canvas_draw_list() {
     let ctx = egui::Context::default();
     ctx.add_plugin(CursorLifecycle);
@@ -214,6 +286,9 @@ fn write_cursor_preview() {
         (Shape::Hand { closed: true }, 1.0),
         (Shape::Hand { closed: false }, 1.5),
         (Shape::Hand { closed: true }, 2.0),
+        (Shape::Zoom { out: false }, 1.0),
+        (Shape::Zoom { out: true }, 1.0),
+        (Shape::Zoom { out: false }, 2.0),
     ];
     let (width, height) = (600_usize, cases.len() * 100);
     let mut rgba = vec![255; width * height * 4];
@@ -223,8 +298,8 @@ fn write_cursor_preview() {
                 rgba[(y * width + x) * 4..(y * width + x) * 4 + 3].fill(background);
             }
         }
-        for (row, &(shape, scale)) in cases.iter().enumerate() {
-            let image = rasterize(shape, scale).unwrap();
+        for (row, (shape, scale)) in cases.iter().enumerate() {
+            let image = rasterize(shape, *scale).unwrap();
             let side = usize::from(image.size[0]);
             let x0 = col * 200 + 100 - usize::from(image.hotspot[0]);
             let y0 = row * 100 + 50 - usize::from(image.hotspot[1]);
@@ -243,7 +318,7 @@ fn write_cursor_preview() {
     std::fs::write(path, png).unwrap();
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 fn harness() -> Harness<'static, crate::PhotocraftApp> {
     let mut app = crate::PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
     app.run("file.new", json!({"width": 200, "height": 200})).unwrap();
@@ -272,7 +347,7 @@ fn harness() -> Harness<'static, crate::PhotocraftApp> {
 }
 
 #[test]
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 fn brush_hover_uses_an_os_bitmap_that_survives_motion_but_not_tool_or_panel_changes() {
     let mut h = harness();
     let initial = h.output().platform_output.cursor_image.clone().expect("brush hover must reach the OS, not the painter");
@@ -290,11 +365,35 @@ fn brush_hover_uses_an_os_bitmap_that_survives_motion_but_not_tool_or_panel_chan
     assert!(h.output().platform_output.cursor_image.is_some());
 
     // Windows has no stock hand (winit maps `Grab` to the move cursor), so the Hand gets the open
-    // hand as a bitmap too (#2196).
+    // hand as a bitmap too (#2196); macOS and the Linux themes draw their own.
     h.state_mut().ui.tool = crate::Tool::Hand;
     h.run_steps(2);
-    let hand = h.output().platform_output.cursor_image.clone().expect("the Hand's open hand reaches the OS as a bitmap");
-    assert_eq!(hand.rgba, rasterize(Shape::Hand { closed: false }, h.ctx.pixels_per_point()).unwrap().rgba);
+    let hand = h.output().platform_output.cursor_image.clone();
+    if cfg!(target_os = "windows") {
+        let hand = hand.expect("the Hand's open hand reaches the OS as a bitmap");
+        assert_eq!(hand.rgba, rasterize(&Shape::Hand { closed: false }, h.ctx.pixels_per_point()).unwrap().rgba);
+    } else {
+        assert!(hand.is_none(), "the OS draws the hand");
+        assert_eq!(h.output().platform_output.cursor_icon, CursorIcon::Grab);
+    }
+
+    // Likewise the Zoom tool's magnifier, a minus while ⌥ is held (#3735).
+    h.state_mut().ui.tool = crate::Tool::Zoom;
+    for out in [false, true] {
+        let modifiers = if out { Modifiers::ALT } else { Modifiers::NONE };
+        h.event(Event::ModifiersChanged(modifiers));
+        h.event(Event::PointerMoved(p + vec2(1.0, 0.0)));
+        h.run_steps(2);
+        let image = h.output().platform_output.cursor_image.clone();
+        if cfg!(target_os = "windows") {
+            let image = image.expect("the magnifier reaches the OS as a bitmap");
+            assert_eq!(image.rgba, rasterize(&Shape::Zoom { out }, h.ctx.pixels_per_point()).unwrap().rgba, "out: {out}");
+        } else {
+            assert!(image.is_none(), "the OS draws the magnifier");
+            assert_eq!(h.output().platform_output.cursor_icon, if out { CursorIcon::ZoomOut } else { CursorIcon::ZoomIn });
+        }
+    }
+    h.event(Event::ModifiersChanged(Modifiers::NONE));
 
     h.state_mut().ui.tool = crate::Tool::Brush;
     h.state_mut().run("prefs.set", json!({"path": "cursors.painting", "value": "standard"})).unwrap();
@@ -304,7 +403,7 @@ fn brush_hover_uses_an_os_bitmap_that_survives_motion_but_not_tool_or_panel_chan
 }
 
 #[test]
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 fn painting_preference_and_zoom_change_the_native_cursor_without_changing_pointer_input() {
     let mut h = harness();
     let image = h.output().platform_output.cursor_image.clone().unwrap();
@@ -323,4 +422,39 @@ fn painting_preference_and_zoom_change_the_native_cursor_without_changing_pointe
     h.event(Event::PointerButton { pos: pos + vec2(20.0, 0.0), button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
     h.run_steps(2);
     assert!(h.output().platform_output.cursor_image.as_ref().unwrap().size[0] > cross_size);
+}
+
+/// #4596: the close-path pointer is the centre cross with a ring below right.
+#[test]
+fn close_path_bitmap_has_the_centre_cross_and_a_ring_beside_it() {
+    for scale in [1.0, 2.0] {
+        let image = rasterize(&Shape::Outline { rings: vec![close_ring()].into(), centre: true }, scale).unwrap();
+        let [x, y] = image.hotspot;
+        let at = |dx: f32, dy: f32| alpha(&image, x + (dx * scale) as u16, y + (dy * scale) as u16);
+        assert!(at(0.0, 0.0) > 230 && at(2.0, 0.0) > 0, "the centre cross");
+        assert!(at(12.5, 9.0) > 0 && at(9.0, 12.5) > 0, "the ring around (9, 9)");
+        assert_eq!(at(9.0, 9.0), 0, "open in the middle");
+        assert_eq!(at(0.0, 9.0), 0, "and apart from the cross");
+    }
+}
+
+/// A big tip's outline is a thin ring in a large square: only the ring (and the centre mark) is
+/// evaluated, and the bitmap is exactly what evaluating every pixel gives.
+#[test]
+fn circle_bitmaps_evaluate_only_the_ring_and_match_every_pixel() {
+    let [dark, light] = crate::theme::Tokens::cursor_outline();
+    for (radius, scale, centre) in [(0.4, 1.0, true), (3.0, 1.0, false), (20.0, 1.25, true), (57.3, 2.0, false), (90.0, 1.0, true)] {
+        let shape = Shape::Circle { radius, centre };
+        let image = rasterize(&shape, scale).unwrap();
+        let [hot, _] = image.hotspot;
+        let side = usize::from(image.size[0]);
+        for row in 0..side {
+            for col in 0..side {
+                let (dx, dy) = (col as f32 - f32::from(hot), row as f32 - f32::from(hot));
+                let want = stroke_pixel(coverage(&shape, dx, dy, scale), dark, light);
+                let i = (row * side + col) * 4;
+                assert_eq!(image.rgba[i..i + 4], want, "radius {radius} at {scale}×, pixel ({col}, {row})");
+            }
+        }
+    }
 }

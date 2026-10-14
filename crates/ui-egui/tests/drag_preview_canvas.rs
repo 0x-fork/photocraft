@@ -185,6 +185,7 @@ fn edges(h: &Harness, a: [f32; 2], b: [f32; 2]) -> [(Pos2, Pos2); 4] {
 
 #[test]
 fn marquee_previews_show_while_dragging_on_white_and_black_at_1x_and_2x() {
+    let _gpu = photocraft_testkit::gpu_lock();
     for ppp in [1.0, 2.0] {
         let Some(mut h) = harness(ppp) else { return };
         h.run_steps(4);
@@ -240,6 +241,7 @@ fn marquee_previews_show_while_dragging_on_white_and_black_at_1x_and_2x() {
 
 #[test]
 fn lasso_and_crop_previews_show_while_dragging() {
+    let _gpu = photocraft_testkit::gpu_lock();
     for ppp in [1.0, 2.0] {
         let Some(mut h) = harness(ppp) else { return };
         h.run_steps(4);
@@ -272,6 +274,7 @@ fn lasso_and_crop_previews_show_while_dragging() {
 
 #[test]
 fn a_held_marquee_drag_keeps_requesting_frames() {
+    let _gpu = photocraft_testkit::gpu_lock();
     let Some(mut h) = harness(1.0) else { return };
     h.run_steps(4);
     setup(&mut h, "white", "rectMarquee");

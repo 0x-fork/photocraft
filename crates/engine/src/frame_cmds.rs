@@ -41,6 +41,7 @@ fn frame_from_layers(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(name) = p.get("name") {
         gp.insert("name".into(), name.clone());
     }
+    let journal = s.journal.len();
     let grouped = s.execute("layer.new.groupFromLayers", Value::Object(gp))?;
     match frame_group(s, &grouped) {
         Ok(r) => {
@@ -51,8 +52,10 @@ fn frame_from_layers(s: &mut Session, p: &Value) -> Result<Value> {
             Ok(r)
         }
         Err(e) => {
-            // The group couldn't be framed: take the grouping back, leaving nothing to redo.
+            // The group couldn't be framed: take the grouping back, leaving nothing to redo and
+            // no grouping step to record.
             s.undo();
+            s.journal.truncate(journal);
             if let Some(st) = s.active_mut() {
                 st.history.clear_redo();
             }
@@ -134,7 +137,7 @@ fn new_frame(s: &mut Session, p: &Value) -> Result<Value> {
         let gid = match content {
             Some(id) => {
                 let l = doc.layer(id).ok_or(EngineError::NoLayer(id))?;
-                if !matches!(l.content, LayerContent::Raster(_)) || crate::extra_cmds::is_background(l) {
+                if !matches!(l.content, LayerContent::Raster(_)) || doc.is_background(id) {
                     return Err(bad("only a pixel layer (not the Background) can go in a frame".into()));
                 }
                 let gid = doc.insert_above(Some(id), Layer::group(name, vec![]));

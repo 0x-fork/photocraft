@@ -1,5 +1,5 @@
-//! Canvas context menus for the selection tools, the Pen, an active Free Transform box, text being
-//! edited with a Type tool and the pasteboard (outside the image).
+//! Canvas context menus for the selection tools, the Pen, the Zoom and Hand tools, an active Free
+//! Transform box, text being edited with a Type tool and the pasteboard (outside the image).
 
 use egui::Context;
 use photocraft_doc::LayerContent;
@@ -24,10 +24,36 @@ pub struct CanvasToolMenu {
     /// Opened outside the image: the pasteboard colour instead of the tool's actions.
     #[serde(default)]
     pub pasteboard: bool,
+    /// The Zoom and Hand tools' view menu: the document point right-clicked, which Zoom In and
+    /// Zoom Out keep under the pointer.
+    #[serde(default)]
+    pub anchor: Option<[f64; 2]>,
     /// Opened while a Type tool edits text: the text and type rows instead of the tool's actions.
     #[serde(default)]
     pub text: bool,
+    /// The misspelled word under the pointer when the type edit menu opened: its suggestions head
+    /// the menu.
+    #[serde(default)]
+    pub spelling: Option<Spelling>,
 }
+
+/// A misspelled word in the type layer being edited (`edit.checkSpelling`'s `list` entry).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Spelling {
+    pub layer: u64,
+    /// The word's characters `start..end` in the layer's text.
+    pub start: usize,
+    pub end: usize,
+    pub word: String,
+    pub suggestions: Vec<String>,
+}
+
+/// Most suggestions the type edit menu lists.
+const MAX_SUGGESTIONS: usize = 3;
+/// The spelling rows' ids: `spelling.replace.<n>` picks the n-th suggestion.
+const SPELLING_REPLACE: &str = "spelling.replace.";
+const SPELLING_NONE: &str = "spelling.none";
+const SPELLING_ADD: &str = "spelling.add";
 
 /// One menu row: label and command id. `None` is a separator.
 pub type Row = Option<(&'static str, &'static str)>;
@@ -118,6 +144,38 @@ const ENDS_TYPE_EDIT: [&str; 5] =
 
 /// The pasteboard menu's Select Custom Color… row.
 pub const PASTEBOARD_PICK: &str = "pasteboard.selectCustomColor";
+
+/// The pasteboard colours in the menu's order, which Space+F steps through.
+const CANVAS_COLORS: [CanvasColor; 6] =
+    [CanvasColor::Default, CanvasColor::Black, CanvasColor::DarkGray, CanvasColor::MediumGray, CanvasColor::LightGray, CanvasColor::Custom];
+
+/// Photoshop's Space+F (⇧Space+F backwards): the next pasteboard colour, round and round. Saved
+/// like a choice in the pasteboard menu (`interface.canvasColor`).
+pub fn cycle_canvas_color(app: &mut PhotocraftApp, backward: bool) -> Result<(), String> {
+    let n = CANVAS_COLORS.len();
+    let at = CANVAS_COLORS.iter().position(|c| *c == app.session.prefs().interface.canvas_color).unwrap_or(0);
+    let next = if backward { (at + n - 1) % n } else { (at + 1) % n };
+    let name = CANVAS_COLORS.get(next).map_or("default", |c| c.name());
+    app.run("prefs.set", json!({"values": {"interface.canvasColor": name}})).map(|_| ())
+}
+
+/// The Zoom and Hand tools' context menu: the zoom steps and fixed zooms of the View menu, plus
+/// the Hand tool's Fill Screen.
+pub const VIEW_MENU: &[Row] = &[
+    Some(("Zoom In", "view.zoomIn")),
+    Some(("Zoom Out", "view.zoomOut")),
+    None,
+    Some(("Fit on Screen", "view.fitOnScreen")),
+    Some(("Fill Screen", FILL_SCREEN)),
+    None,
+    Some(("100%", "view.actualPixels")),
+    Some(("200%", "view.twoHundredPercent")),
+    Some(("Print Size", "view.printSize")),
+];
+
+/// The view menu's Fill Screen row. Photoshop has no View menu command for it, so the menu sets
+/// the view itself.
+pub const FILL_SCREEN: &str = "view.fillScreen";
 
 /// Photoshop's selection-tool context menu with an active selection, in its order. Its Generative
 /// Fill row has no PhotoCraft command and is left out. Rows stay visible and grey out exactly like
@@ -210,6 +268,11 @@ pub fn applies(tool: Tool) -> bool {
     )
 }
 
+/// Tools whose plain canvas right-click offers the view menu.
+pub fn is_view_tool(tool: Tool) -> bool {
+    matches!(tool, Tool::Zoom | Tool::Hand)
+}
+
 /// The selection tools' rows, with or without an active selection.
 pub fn selection_rows(has_selection: bool) -> &'static [Row] {
     if has_selection { SELECTION_MENU } else { NO_SELECTION_MENU }
@@ -221,6 +284,8 @@ pub fn rows(menu: &CanvasToolMenu) -> &'static [Row] {
         PASTEBOARD_MENU
     } else if menu.transform {
         TRANSFORM_MENU
+    } else if menu.anchor.is_some() {
+        VIEW_MENU
     } else if menu.text {
         TYPE_EDIT_MENU
     } else if menu.tool == Tool::Pen {
@@ -232,12 +297,12 @@ pub fn rows(menu: &CanvasToolMenu) -> &'static [Row] {
 
 /// Is `command` one of the open menu's rows, and enabled?
 pub fn available(app: &PhotocraftApp, menu: &CanvasToolMenu, command: &str) -> bool {
-    rows(menu).iter().flatten().any(|(_, id)| *id == command) && entry_enabled(app, menu, command)
+    (rows(menu).iter().flatten().any(|(_, id)| *id == command) || is_spelling(menu, command)) && entry_enabled(app, menu, command)
 }
 
 /// Is `command` the transform box's current mode (checked in the transform menu)?
-/// Scale and Rotate are Free Transform's mode, so only Free Transform shows it checked. Warp is
-/// not a box mode (it is its own session), and `for_command` would read it as Free.
+/// Scale stays Free Transform's mode (only Free Transform is checked). Rotate is its own mode.
+/// Warp is not a box mode (it is its own session), and `for_command` would read it as Free.
 pub(crate) fn mode_checked(app: &PhotocraftApp, menu: &CanvasToolMenu, command: &str) -> bool {
     if menu.pasteboard {
         return pasteboard_choice(command) == Some(app.session.prefs().interface.canvas_color);
@@ -246,7 +311,7 @@ pub(crate) fn mode_checked(app: &PhotocraftApp, menu: &CanvasToolMenu, command: 
         return type_checked(app, command);
     }
     menu.transform
-        && matches!(command, "edit.freeTransform" | "edit.transform.skew" | "edit.transform.distort" | "edit.transform.perspective")
+        && matches!(command, "edit.freeTransform" | "edit.transform.rotate" | "edit.transform.skew" | "edit.transform.distort" | "edit.transform.perspective")
         && app.ui.transform.as_ref().is_some_and(|t| t.mode == crate::state::TransformMode::for_command(command))
 }
 
@@ -268,6 +333,49 @@ pub fn editing_text(app: &PhotocraftApp, tool: Tool) -> bool {
     tool.is_type() && app.ui.text_edit.is_some()
 }
 
+/// The misspelled word of the edited text under document point `doc`, with its suggestions.
+fn spelling_at(app: &mut PhotocraftApp, doc: [f64; 2]) -> Option<Spelling> {
+    let layer = app.ui.text_edit.as_ref()?.layer;
+    if !doc.iter().all(|v| v.is_finite()) {
+        return None;
+    }
+    let at = crate::type_tool::offset_at(app, photocraft_doc::LayerId(layer), doc[0], doc[1]);
+    let found = app.session.execute("edit.checkSpelling", json!({"action": "list", "layer": layer, "suggestions": MAX_SUGGESTIONS})).ok()?;
+    let hit = found["misspellings"].as_array()?.iter().find(|m| {
+        let (a, b) = (m["start"].as_u64().unwrap_or(u64::MAX) as usize, m["end"].as_u64().unwrap_or(0) as usize);
+        a <= at && at <= b
+    })?;
+    Some(Spelling {
+        layer,
+        start: hit["start"].as_u64()? as usize,
+        end: hit["end"].as_u64()? as usize,
+        word: hit["word"].as_str()?.to_string(),
+        suggestions: hit["suggestions"].as_array()?.iter().filter_map(|s| s.as_str().map(str::to_string)).take(MAX_SUGGESTIONS).collect(),
+    })
+}
+
+/// The spelling rows heading the type edit menu (label, id): the suggestions, or a greyed note
+/// when there are none, then Add to Dictionary. Empty away from a misspelled word.
+pub fn spelling_rows(menu: &CanvasToolMenu) -> Vec<(String, String)> {
+    let Some(sp) = menu.spelling.as_ref().filter(|_| menu.text) else { return Vec::new() };
+    let mut rows: Vec<(String, String)> = sp.suggestions.iter().enumerate().map(|(i, s)| (s.clone(), format!("{SPELLING_REPLACE}{i}"))).collect();
+    if rows.is_empty() {
+        rows.push(("No Spelling Suggestions".into(), SPELLING_NONE.into()));
+    }
+    rows.push(("Add to Dictionary".into(), SPELLING_ADD.into()));
+    rows
+}
+
+/// Is `command` one of the menu's spelling rows?
+fn is_spelling(menu: &CanvasToolMenu, command: &str) -> bool {
+    spelling_rows(menu).iter().any(|(_, id)| id == command)
+}
+
+/// Does a spelling row's label come from the UI (translated) rather than from the dictionary?
+pub fn spelling_label_is_ui(id: &str) -> bool {
+    matches!(id, SPELLING_NONE | SPELLING_ADD)
+}
+
 /// Right-click over a Free Transform box: its modes.
 pub fn open_transform(app: &mut PhotocraftApp, ctx: &Context, pos: [f32; 2]) -> bool {
     if !pos.iter().all(|v| v.is_finite()) {
@@ -283,7 +391,9 @@ pub fn open_transform(app: &mut PhotocraftApp, ctx: &Context, pos: [f32; 2]) -> 
         path_name: None,
         transform: true,
         pasteboard: false,
+        anchor: None,
         text: false,
+        spelling: None,
     });
     crate::canvas_popup::mark_open(ctx, menu_id());
     true
@@ -302,7 +412,21 @@ pub fn engine_call(menu: &CanvasToolMenu, command: &str) -> (String, Value) {
         Some(c) if menu.pasteboard => ("prefs.set".into(), json!({"values": {"interface.canvasColor": c.name()}})),
         _ if menu.pasteboard => ("prefs.set".into(), json!({})),
         _ if menu.text && matches!(command, FAUX_BOLD | FAUX_ITALIC) => ("type.setStyle".into(), json!({})),
+        _ if is_spelling(menu, command) => spelling_call(menu, command),
         _ => (command.into(), json!({})),
+    }
+}
+
+/// The `edit.checkSpelling` call a spelling row makes: replace the word with a suggestion, or add
+/// it to the user dictionary.
+fn spelling_call(menu: &CanvasToolMenu, command: &str) -> (String, Value) {
+    let Some(sp) = menu.spelling.as_ref() else { return ("edit.checkSpelling".into(), json!({})) };
+    let replace = command.strip_prefix(SPELLING_REPLACE).and_then(|n| n.parse::<usize>().ok()).and_then(|n| sp.suggestions.get(n));
+    match replace {
+        Some(to) => {
+            ("edit.checkSpelling".into(), json!({"action": "change", "layer": sp.layer, "start": sp.start, "end": sp.end, "word": sp.word, "replace": to}))
+        }
+        None => ("edit.checkSpelling".into(), json!({"action": "addToDictionary", "word": sp.word})),
     }
 }
 
@@ -323,8 +447,18 @@ pub fn open_pasteboard(app: &mut PhotocraftApp, ctx: &Context, tool: Tool, pos: 
     }
     app.ui.brush_picker = None;
     app.ui.layer_menu = None;
-    app.ui.canvas_tool_menu =
-        Some(CanvasToolMenu { pos, tool, has_selection: false, has_path: false, path_name: None, transform: false, pasteboard: true, text: false });
+    app.ui.canvas_tool_menu = Some(CanvasToolMenu {
+        pos,
+        tool,
+        has_selection: false,
+        has_path: false,
+        path_name: None,
+        transform: false,
+        pasteboard: true,
+        anchor: None,
+        text: false,
+        spelling: None,
+    });
     crate::canvas_popup::mark_open(ctx, menu_id());
     true
 }
@@ -344,12 +478,17 @@ pub fn entry_enabled(app: &PhotocraftApp, menu: &CanvasToolMenu, command: &str) 
     if menu.pasteboard {
         return PASTEBOARD_MENU.iter().flatten().any(|(_, id)| *id == command);
     }
-    // Warp needs a layer or selection box: a lone mask, channel or path keeps the plain box.
+    // Warp needs a layer, selection or path box: a lone mask or channel keeps the plain box.
     if menu.transform && command == "edit.transform.warp" {
-        return app.ui.transform.as_ref().is_some_and(|t| t.warp.is_none() && t.target.is_none() && t.path.is_none());
+        return app.ui.transform.as_ref().is_some_and(|t| t.warp.is_none() && t.target.is_none());
+    }
+    if menu.anchor.is_some() && command == FILL_SCREEN {
+        return app.session.active().is_some();
     }
     if menu.text {
         return match command {
+            SPELLING_NONE => false,
+            c if is_spelling(menu, c) => app.ui.text_edit.is_some(),
             FAUX_BOLD | FAUX_ITALIC => app.ui.text_edit.is_some(),
             c => TYPE_EDIT_MENU.iter().flatten().any(|(_, id)| *id == c) && crate::menus::is_enabled(app, c),
         };
@@ -393,6 +532,12 @@ pub fn entry_enabled(app: &PhotocraftApp, menu: &CanvasToolMenu, command: &str) 
 }
 
 pub fn open(app: &mut PhotocraftApp, ctx: &Context, tool: Tool, pos: [f32; 2]) -> bool {
+    open_at(app, ctx, tool, pos, None)
+}
+
+/// [`open`] for a right-click at document point `doc`: over a misspelled word of the text being
+/// edited, the menu starts with its spelling suggestions.
+pub fn open_at(app: &mut PhotocraftApp, ctx: &Context, tool: Tool, pos: [f32; 2], doc: Option<[f64; 2]>) -> bool {
     let text = editing_text(app, tool);
     if !(applies(tool) || text) || !pos.iter().all(|v| v.is_finite()) {
         return false;
@@ -402,9 +547,61 @@ pub fn open(app: &mut PhotocraftApp, ctx: &Context, tool: Tool, pos: [f32; 2]) -
     let has_selection = app.session.active().is_some_and(|s| s.doc.selection.is_some());
     let has_path = crate::vector_ui::active_path_name(app).is_some() || app.ui.pen.as_ref().is_some_and(|p| p.knots.len() >= 2);
     let path_name = crate::vector_ui::active_path_name(app);
-    app.ui.canvas_tool_menu = Some(CanvasToolMenu { pos, tool, has_selection, has_path, path_name, transform: false, pasteboard: false, text });
+    let spelling = if text { doc.and_then(|d| spelling_at(app, d)) } else { None };
+    app.ui.canvas_tool_menu =
+        Some(CanvasToolMenu { pos, tool, has_selection, has_path, path_name, transform: false, pasteboard: false, anchor: None, text, spelling });
     crate::canvas_popup::mark_open(ctx, menu_id());
     true
+}
+
+/// Right-click with the Zoom or Hand tool at screen point `pos`, over document point `doc`: the
+/// view menu.
+pub fn open_view(app: &mut PhotocraftApp, ctx: &Context, tool: Tool, pos: [f32; 2], doc: [f64; 2]) -> bool {
+    if !is_view_tool(tool) || !pos.iter().all(|v| v.is_finite()) || !doc.iter().all(|v| v.is_finite()) {
+        return false;
+    }
+    app.ui.brush_picker = None;
+    app.ui.layer_menu = None;
+    app.ui.canvas_tool_menu = Some(CanvasToolMenu {
+        pos,
+        tool,
+        has_selection: false,
+        has_path: false,
+        path_name: None,
+        transform: false,
+        pasteboard: false,
+        anchor: Some(doc),
+        text: false,
+        spelling: None,
+    });
+    crate::canvas_popup::mark_open(ctx, menu_id());
+    true
+}
+
+/// A view menu row. Zoom In and Zoom Out step about the right-clicked point, as a Zoom tool click
+/// does; the other rows run their View menu command.
+fn choose_view(app: &mut PhotocraftApp, ctx: &Context, menu: &CanvasToolMenu, command: &str) -> Result<(), String> {
+    let i = app.session.active_index().ok_or("no document")?;
+    if command == FILL_SCREEN {
+        let v = app.ui.views.get_mut(i).ok_or("no document view")?;
+        v.fit_pending = false;
+        v.fill_pending = true;
+        return Ok(());
+    }
+    let before = app.ui.views.get(i).map(|v| (v.zoom, v.center));
+    crate::menus::invoke(app, ctx, command, json!({}))?;
+    if !matches!(command, "view.zoomIn" | "view.zoomOut") {
+        return Ok(());
+    }
+    let (Some((zoom0, c)), Some(d)) = (before, menu.anchor) else { return Ok(()) };
+    let center_on_point = app.session.prefs().tools.zoom_clicked_point_to_center;
+    let Some(v) = app.ui.views.get_mut(i) else { return Ok(()) };
+    let d = [d[0] as f32, d[1] as f32];
+    // The view scales about the centre, so the point keeps its screen position when its offset
+    // from the centre shrinks (or grows) by the zoom ratio, whatever the rotation or flip.
+    let ratio = zoom0 / v.zoom;
+    v.center = if center_on_point || !ratio.is_finite() { d } else { [d[0] - (d[0] - c[0]) * ratio, d[1] - (d[1] - c[1]) * ratio] };
+    Ok(())
 }
 
 pub fn choose(app: &mut PhotocraftApp, ctx: &Context, command: &str) {
@@ -414,6 +611,10 @@ pub fn choose(app: &mut PhotocraftApp, ctx: &Context, command: &str) {
     }
     let result = if menu.pasteboard {
         choose_pasteboard(app, &menu, command)
+    } else if menu.anchor.is_some() {
+        choose_view(app, ctx, &menu, command)
+    } else if menu.text && is_spelling(&menu, command) {
+        choose_spelling(app, &menu, command)
     } else if menu.text {
         choose_type(app, ctx, command)
     } else if menu.tool == Tool::Pen && !menu.transform {
@@ -429,6 +630,19 @@ pub fn choose(app: &mut PhotocraftApp, ctx: &Context, command: &str) {
         app.ui.status = e;
         app.ui.status_error = true;
     }
+}
+
+/// A spelling row: replace the word under the pointer (the caret lands after the replacement), or
+/// add it to the user dictionary.
+fn choose_spelling(app: &mut PhotocraftApp, menu: &CanvasToolMenu, command: &str) -> Result<(), String> {
+    let (id, params) = engine_call(menu, command);
+    let result = app.run(&id, params)?;
+    if let Some(end) = result["end"].as_u64().map(|e| e as usize)
+        && let Some(e) = app.ui.text_edit.as_mut()
+    {
+        (e.caret, e.anchor) = (end, end);
+    }
+    Ok(())
 }
 
 /// A type edit row. Undo, Cut, Copy, Paste and Select All run as their Edit and Select menu items,
@@ -461,12 +675,21 @@ fn spec_dialog(app: &mut PhotocraftApp, command: &str, label: &str, spec: &str, 
     app.ui.open_dialog(crate::state::DialogKind::Command, fields);
 }
 
+/// Photoshop's Stroke Path dialog: the brush-based tool to stroke with (painting with that tool's
+/// current options) and Simulate Pressure (#2978).
+const STROKE_PATH_SPEC: &str = r##"{"tool":"brush|pencil|eraser|backgroundEraser|cloneStamp|patternStamp|healingBrush|spotHealingBrush|historyBrush|blur|sharpen|smudge|dodge|burn|sponge|colorReplacement|mixerBrush"="brush","simulatePressure":bool=false}"##;
+
+/// The Stroke Path dialog for the path `name` (Paths panel menu, Alt-click on its Stroke button).
+pub(crate) fn stroke_path_dialog(app: &mut PhotocraftApp, name: &str) {
+    pen_dialog(app, "path.stroke", "Stroke Path…", name);
+}
+
 fn pen_dialog(app: &mut PhotocraftApp, command: &str, label: &str, name: &str) {
     let spec = match command {
         "edit.defineCustomShape" => r##"{"name":text}"##,
         "path.toSelection" => r##"{"feather":0..250=0,"antiAlias":bool=true,"mode":"replace|add|subtract|intersect"="replace"}"##,
         "path.fill" => r##"{"color":text,"opacity":0..100=100,"feather":0..250=0,"antiAlias":bool=true}"##,
-        "path.stroke" => r##"{"tool":"brush|pencil|eraser"="brush","size":1..500=10,"color":text,"opacity":0..100=100}"##,
+        "path.stroke" => STROKE_PATH_SPEC,
         "path.clippingPath.set" => r##"{"flatness":0..100=0}"##,
         "path.transform" => r##"{"translateX":-30000..30000=0,"translateY":-30000..30000=0,"scaleX":0.01..100=1,"scaleY":0.01..100=1,"angle":-360..360=0}"##,
         _ => "{}",
@@ -478,7 +701,7 @@ fn pen_dialog(app: &mut PhotocraftApp, command: &str, label: &str, name: &str) {
     } else {
         fields.insert("name".into(), json!(name));
     }
-    if matches!(command, "path.fill" | "path.stroke") {
+    if command == "path.fill" {
         let fg = app.session.tools.foreground;
         let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
         fields.insert("color".into(), json!(format!("#{:02x}{:02x}{:02x}", byte(fg[0]), byte(fg[1]), byte(fg[2]))));
@@ -552,6 +775,17 @@ pub fn show(app: &mut PhotocraftApp, ctx: &Context) {
             ui.spacing_mut().item_spacing.y = 0.0;
             ui.set_width(200.0);
             crate::widgets::menu_scroll(ui, |ui| {
+                let spelling = spelling_rows(&menu);
+                for (label, command) in &spelling {
+                    let text = if spelling_label_is_ui(command) { tl!(label).to_string() } else { label.clone() };
+                    let item = egui::Button::new(text).min_size(egui::vec2(200.0, 20.0));
+                    if ui.add_enabled(entry_enabled(app, &menu, command), item).clicked() {
+                        selected = Some(command.clone());
+                    }
+                }
+                if !spelling.is_empty() {
+                    ui.separator();
+                }
                 for row in rows(&menu) {
                     let Some((label, command)) = *row else {
                         ui.separator();
@@ -559,14 +793,14 @@ pub fn show(app: &mut PhotocraftApp, ctx: &Context) {
                     };
                     let item = egui::Button::selectable(mode_checked(app, &menu, command), tl!(label)).min_size(egui::vec2(200.0, 20.0));
                     if ui.add_enabled(entry_enabled(app, &menu, command), item).clicked() {
-                        selected = Some(command);
+                        selected = Some((*command).to_string());
                     }
                 }
             });
         });
     });
     if let Some(command) = selected {
-        choose(app, ctx, command);
+        choose(app, ctx, &command);
     } else if crate::canvas_popup::outside_pressed(ctx, id, area.response.rect) {
         app.ui.canvas_tool_menu = None;
     }
@@ -576,7 +810,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &Context) {
 mod tests {
     use super::*;
     use egui::{Modifiers, PointerButton, Pos2, vec2};
-    use egui_kittest::Harness;
+    use egui_kittest::{Harness, kittest::Queryable};
 
     fn app() -> PhotocraftApp {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
@@ -731,6 +965,37 @@ mod tests {
         reopen(&mut app);
         choose(&mut app, &ctx, "type.rasterizeTypeLayer");
         assert!(app.ui.text_edit.is_none() && text_of(&app, id).is_none(), "the type layer is pixels now");
+    }
+
+    #[test]
+    fn type_edit_menu_lists_spelling_suggestions_for_the_word_under_the_pointer() {
+        let mut app = app();
+        app.ui.tool = Tool::Type;
+        let id = app.run("type.create", json!({"text": "Teh cat", "size": 12, "x": 4, "y": 20})).unwrap()["layer"].as_u64().unwrap();
+        let ctx = Context::default();
+        crate::menus::invoke(&mut app, &ctx, "type.editText", json!({})).unwrap();
+        // Away from the misspelling (past the end of the line): no spelling rows.
+        assert!(open_at(&mut app, &ctx, Tool::Type, [10.0, 10.0], Some([600.0, 15.0])));
+        assert!(spelling_rows(app.ui.canvas_tool_menu.as_ref().unwrap()).is_empty());
+        // Over "Teh": its suggestions head the menu, then Add to Dictionary.
+        assert!(open_at(&mut app, &ctx, Tool::Type, [10.0, 10.0], Some([5.0, 15.0])));
+        let menu = app.ui.canvas_tool_menu.clone().unwrap();
+        let rows = spelling_rows(&menu);
+        assert!(rows.iter().any(|(l, _)| l == "The"), "{rows:?}");
+        assert_eq!(rows.last().map(|(_, id)| id.as_str()), Some(SPELLING_ADD));
+        assert!(rows.len() <= MAX_SUGGESTIONS + 1, "at most {MAX_SUGGESTIONS} suggestions and Add to Dictionary: {rows:?}");
+        assert!(available(&app, &menu, &rows[0].1));
+        let pick = rows.iter().find(|(l, _)| l == "The").unwrap().1.clone();
+        choose(&mut app, &ctx, &pick);
+        assert_eq!(text_of(&app, id).unwrap().text, "The cat");
+        assert_eq!(app.ui.text_edit.as_ref().map(|e| (e.caret, e.anchor)), Some((3, 3)), "the caret lands after the replacement");
+        // Add to Dictionary stops flagging a word.
+        app.run("type.insertText", json!({"layer": id, "text": " Zqx"})).unwrap();
+        assert!(open_at(&mut app, &ctx, Tool::Type, [10.0, 10.0], Some([600.0, 15.0])));
+        let menu = app.ui.canvas_tool_menu.clone().unwrap();
+        assert!(menu.spelling.as_ref().is_some_and(|s| s.word == "Zqx"));
+        choose(&mut app, &ctx, SPELLING_ADD);
+        assert!(app.session.prefs().user_dictionary.iter().any(|w| w == "Zqx"));
     }
 
     #[test]
@@ -961,6 +1226,138 @@ mod tests {
     }
 
     #[test]
+    fn view_menu_follows_photoshop_order() {
+        assert_eq!(
+            labels(VIEW_MENU),
+            vec![Some("Zoom In"), Some("Zoom Out"), None, Some("Fit on Screen"), Some("Fill Screen"), None, Some("100%"), Some("200%"), Some("Print Size")]
+        );
+        // Every row but Fill Screen (the Hand tool's options-bar button) is a View menu command.
+        let app = app();
+        let items = crate::menus::menu_items(&app);
+        for (label, id) in VIEW_MENU.iter().flatten().filter(|(_, id)| *id != FILL_SCREEN) {
+            assert!(items.iter().any(|i| i.id == *id), "{label}: unknown command {id}");
+        }
+    }
+
+    fn zoom_app(w: u32, h: u32) -> PhotocraftApp {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": w, "height": h})).unwrap();
+        app
+    }
+
+    fn screen_of(app: &PhotocraftApp, doc: [f32; 2]) -> Pos2 {
+        crate::canvas::ViewXform::active(app).unwrap().to_screen(doc[0], doc[1])
+    }
+
+    #[test]
+    fn zoom_and_hand_right_click_opens_the_view_menu() {
+        for tool in [Tool::Zoom, Tool::Hand] {
+            let mut app = zoom_app(400, 300);
+            app.ui.tool = tool;
+            let mut h = harness(app);
+            let zoom = h.state().ui.views[0].zoom;
+            let inside = screen_of(h.state(), [300.0, 100.0]);
+            right_click(&mut h, inside, Modifiers::NONE);
+            let menu = h.state().ui.canvas_tool_menu.clone().unwrap_or_else(|| panic!("{tool:?}: right-click opens no menu"));
+            assert!(rows(&menu) == VIEW_MENU, "{tool:?}: the view menu");
+            assert_eq!(h.state().ui.views[0].zoom, zoom, "{tool:?}: the right-click alone does not zoom");
+            assert!(entry_enabled(h.state(), &menu, FILL_SCREEN) && entry_enabled(h.state(), &menu, "view.printSize"));
+            // Outside the image the pasteboard colour menu wins, as for the other tools.
+            h.state_mut().ui.canvas_tool_menu = None;
+            let outside = h.state().last_canvas_rect.min + vec2(5.0, 5.0);
+            right_click(&mut h, outside, Modifiers::NONE);
+            assert!(h.state().ui.canvas_tool_menu.as_ref().is_some_and(|m| m.pasteboard), "{tool:?}: pasteboard menu outside");
+        }
+    }
+
+    #[test]
+    fn view_menu_zoom_in_keeps_the_clicked_point_under_the_pointer() {
+        let mut app = zoom_app(400, 300);
+        app.ui.tool = Tool::Zoom;
+        let mut h = harness(app);
+        let zoom = h.state().ui.views[0].zoom;
+        let doc = [300.0, 100.0];
+        let p = screen_of(h.state(), doc);
+        right_click(&mut h, p, Modifiers::NONE);
+        // Chosen in the menu itself: the canvas frame that draws the menu must keep the new view.
+        h.get_by_label("Zoom In").click();
+        h.run_steps(3);
+        assert!(h.state().ui.canvas_tool_menu.is_none());
+        let after = h.state().ui.views[0].zoom;
+        assert_eq!(after, crate::zoom_levels::step(zoom, 1, [400, 300]), "one Zoom In step");
+        let s = screen_of(h.state(), doc);
+        assert!((s - p).length() < 1.0, "the right-clicked point stays put: {s:?} vs {p:?}");
+        assert_eq!(h.state().session.journal.last().map(|(id, _)| id.as_str()), Some("view.zoomIn"));
+        // Zoom Out returns to where it was.
+        right_click(&mut h, p, Modifiers::NONE);
+        h.get_by_label("Zoom Out").click();
+        h.run_steps(3);
+        assert_eq!(h.state().ui.views[0].zoom, zoom);
+        assert!((screen_of(h.state(), doc) - p).length() < 1.0);
+    }
+
+    #[test]
+    fn view_menu_zoom_in_centres_the_clicked_point_with_the_preference() {
+        let mut app = zoom_app(400, 300);
+        app.ui.tool = Tool::Hand;
+        app.run("prefs.set", json!({"path": "tools.zoomClickedPointToCenter", "value": true})).unwrap();
+        let mut h = harness(app);
+        let doc = [300.0, 100.0];
+        let p = screen_of(h.state(), doc);
+        right_click(&mut h, p, Modifiers::NONE);
+        h.get_by_label("Zoom In").click();
+        h.run_steps(3);
+        assert_eq!(h.state().ui.views[0].center, doc);
+    }
+
+    #[test]
+    fn view_menu_fits_fills_and_sets_fixed_zooms() {
+        let mut app = zoom_app(400, 300);
+        app.ui.tool = Tool::Zoom;
+        let mut h = harness(app);
+        let p = screen_of(h.state(), [200.0, 150.0]);
+        let area = crate::rulers::content_rect(h.state(), h.state().last_canvas_rect).size();
+        let ppp = h.state().canvas_ppp();
+        let pick = |h: &mut Harness<'static, PhotocraftApp>, label: &str| {
+            right_click(h, p, Modifiers::NONE);
+            h.get_by_label(label).click();
+            h.run_steps(3);
+            h.state().ui.views[0].zoom
+        };
+        assert_eq!(pick(&mut h, "200%"), 2.0);
+        // Fill Screen: the image covers the whole canvas (one axis can overflow).
+        let fill = pick(&mut h, "Fill Screen") / ppp;
+        assert!(400.0 * fill >= area.x - 1.0 && 300.0 * fill >= area.y - 1.0, "fill {fill} for {area:?}");
+        assert!(400.0 * fill <= area.x + 1.0 || 300.0 * fill <= area.y + 1.0, "fill {fill} for {area:?}");
+        assert_eq!(h.state().ui.views[0].center, [200.0, 150.0]);
+        // Fit on Screen: back to the whole image (capped at 100%, as on open).
+        let fit = pick(&mut h, "Fit on Screen") / ppp;
+        assert!(400.0 * fit <= area.x && 300.0 * fit <= area.y && fit < fill, "fit {fit} fill {fill}");
+    }
+
+    #[test]
+    fn view_menu_needs_finite_points_and_a_view_tool() {
+        let mut app = app();
+        assert!(!open_view(&mut app, &Context::default(), Tool::Brush, [1.0, 1.0], [1.0, 1.0]));
+        assert!(!open_view(&mut app, &Context::default(), Tool::Zoom, [f32::NAN, 1.0], [1.0, 1.0]));
+        assert!(!open_view(&mut app, &Context::default(), Tool::Zoom, [1.0, 1.0], [f64::INFINITY, 1.0]));
+        assert!(app.ui.canvas_tool_menu.is_none());
+        assert!(open_view(&mut app, &Context::default(), Tool::Zoom, [1.0, 1.0], [1.0, 1.0]));
+        let before = app.session.journal.len();
+        choose(&mut app, &Context::default(), "select.all");
+        assert_eq!(app.session.journal.len(), before, "the view menu cannot run another menu's row");
+        // With no document every row is greyed out and choosing one does nothing.
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        assert!(open_view(&mut app, &Context::default(), Tool::Hand, [1.0, 1.0], [1.0, 1.0]));
+        let menu = app.ui.canvas_tool_menu.clone().unwrap();
+        for (_, id) in VIEW_MENU.iter().flatten() {
+            assert!(!entry_enabled(&app, &menu, id), "{id} is greyed out with no document");
+        }
+        choose(&mut app, &Context::default(), FILL_SCREEN);
+        choose(&mut app, &Context::default(), "view.zoomIn");
+    }
+
+    #[test]
     fn unsupported_tools_and_nonfinite_positions_do_not_open_menu() {
         let mut app = app();
         assert!(!open(&mut app, &Context::default(), Tool::Brush, [1.0, 1.0]));
@@ -1069,6 +1466,9 @@ mod tests {
         choose_open(&mut app, "layer.vectorMask.fromPath");
         let st = app.session.active().unwrap();
         assert!(st.active_layer.and_then(|id| st.doc.layer(id)).is_some_and(|l| l.vector_mask.is_some()));
+        // The new vector mask's path becomes the active one (#4728); pick the Work Path again.
+        assert_eq!(app.ui.selected_path.as_deref(), Some("layer"));
+        app.ui.selected_path = Some("work".into());
         choose_open(&mut app, "edit.defineCustomShape");
         let id = app.ui.dialogs.last().map(|d| d.id).unwrap();
         let fields = &app.ui.dialogs.last().unwrap().fields;

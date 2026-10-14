@@ -65,6 +65,7 @@ pub fn no_embedded(_: CjkScript) -> Vec<&'static CraftFont> {
 impl Sources {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn system() -> Self {
+        cjk::start_fontconfig_cjk_scan();
         Self {
             locale: || match crate::i18n::current().code() {
                 code @ ("ja" | "ko" | "zh-hans" | "zh-hant") => Some(code.to_string()),
@@ -88,6 +89,18 @@ impl Sources {
             embedded: craft_embedded,
         }
     }
+}
+
+/// Headless test frame pumps do not wait for `request_repaint_after`, so let the optional
+/// Fontconfig worker finish before asserting on installed system fonts.
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) fn wait_for_fontconfig_cjk_scan() {
+    cjk::start_fontconfig_cjk_scan();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while cjk::fontconfig_cjk_scan_pending() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(!cjk::fontconfig_cjk_scan_pending(), "Fontconfig CJK lookup did not finish within 10 seconds");
 }
 
 /// The lazy loader's state: which scripts were tried and which files were read.
@@ -139,14 +152,20 @@ impl CjkFallback {
             if self.tried.contains(&s) {
                 continue;
             }
-            self.tried.push(s);
             if let Some(f) = self.load_embedded(s) {
+                self.tried.push(s);
                 return Some(f);
             }
+            let fontconfig_pending = cjk::fontconfig_cjk_scan_pending();
             let files = (self.sources.files)(s);
             if let Some(f) = self.load_first(&files) {
+                self.tried.push(s);
                 return Some(f);
             }
+            if fontconfig_pending {
+                return None;
+            }
+            self.tried.push(s);
         }
         if !self.last_resort_tried {
             self.last_resort_tried = true;
@@ -211,7 +230,7 @@ impl CjkFallback {
                 continue;
             }
             let Some(bytes) = read_font(&f.path) else { continue };
-            let index = cjk::face_index_for_family(&bytes, f.family);
+            let index = cjk::face_index_for_family(&bytes, &f.family);
             self.loaded.push(f.path.clone());
             let name = format!("{FONT_PREFIX}-{}", self.registered.len());
             log::info!("UI font fallback: registered {} (face {index}) as {name}", f.path.display());
@@ -266,35 +285,58 @@ fn missing_char(ctx: &egui::Context, shapes: &[egui::epaint::ClippedShape], fall
     ctx.fonts_mut(|f| chars.into_iter().find(|c| !f.has_glyph(&font, *c)))
 }
 
-/// (ascent, descent, line gap) of a face in em, from its `hhea` table; `descent` is negative.
-fn vertical_metrics(font: &[u8], index: u32) -> Option<(f32, f32, f32)> {
-    let u16_at = |o: usize| font.get(o..o.checked_add(2)?).map(|b| u16::from_be_bytes([b[0], b[1]]));
-    let u32_at = |o: usize| font.get(o..o.checked_add(4)?).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
-    let i16_at = |o: usize| u16_at(o).map(|v| v as i16 as f32);
+/// Big-endian readers over a font's bytes; `None` past the end.
+fn be_u16(font: &[u8], o: usize) -> Option<u16> {
+    font.get(o..o.checked_add(2)?).map(|b| u16::from_be_bytes([b[0], b[1]]))
+}
+
+fn be_u32(font: &[u8], o: usize) -> Option<u32> {
+    font.get(o..o.checked_add(4)?).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
+}
+
+/// The offset of table `tag` in face `index` of `font` (a collection or a single face).
+fn table_offset(font: &[u8], index: u32, tag: &[u8; 4]) -> Option<usize> {
     let dir = if font.get(..4)? == b"ttcf" {
         // Collection: the offset table of face `index` follows a 12-byte header.
-        u32_at(12usize.checked_add((index as usize).checked_mul(4)?)?)? as usize
+        be_u32(font, 12usize.checked_add((index as usize).checked_mul(4)?)?)? as usize
     } else {
         0
     };
-    let tables = u16_at(dir.checked_add(4)?)? as usize;
-    let (mut hhea, mut head) = (None, None);
-    for i in 0..tables {
+    let tables = be_u16(font, dir.checked_add(4)?)? as usize;
+    (0..tables).find_map(|i| {
         let rec = dir.checked_add(12)?.checked_add(i.checked_mul(16)?)?;
-        let tag = font.get(rec..rec.checked_add(4)?)?;
-        let off = u32_at(rec.checked_add(8)?)? as usize;
-        match tag {
-            b"hhea" => hhea = Some(off),
-            b"head" => head = Some(off),
-            _ => {}
-        }
-    }
-    let (hhea, head) = (hhea?, head?);
-    let upm = u16_at(head.checked_add(18)?)? as f32;
+        (font.get(rec..rec.checked_add(4)?)? == tag).then_some(())?;
+        Some(be_u32(font, rec.checked_add(8)?)? as usize)
+    })
+}
+
+/// (ascent, descent, line gap) of a face in em, from its `hhea` table; `descent` is negative.
+fn vertical_metrics(font: &[u8], index: u32) -> Option<(f32, f32, f32)> {
+    let i16_at = |o: usize| be_u16(font, o).map(|v| v as i16 as f32);
+    let (hhea, head) = (table_offset(font, index, b"hhea")?, table_offset(font, index, b"head")?);
+    let upm = be_u16(font, head.checked_add(18)?)? as f32;
     if upm <= 0.0 {
         return None;
     }
     Some((i16_at(hhea.checked_add(4)?)? / upm, i16_at(hhea.checked_add(6)?)? / upm, i16_at(hhea.checked_add(8)?)? / upm))
+}
+
+/// The weight a variable face should be drawn at: Regular (400) within its `wght` axis, or
+/// `None` when it has no weight axis or already defaults to Regular. Noto Sans CJK's variable
+/// collection defaults to Thin (100), so the UI's CJK text came out hairline (#4820).
+fn regular_weight(font: &[u8], index: u32) -> Option<f32> {
+    let fvar = table_offset(font, index, b"fvar")?;
+    let axes = fvar.checked_add(be_u16(font, fvar.checked_add(4)?)? as usize)?;
+    let count = be_u16(font, fvar.checked_add(8)?)? as usize;
+    let size = be_u16(font, fvar.checked_add(10)?)? as usize;
+    let fixed = |o: usize| be_u32(font, o).map(|v| v as i32 as f32 / 65536.0);
+    (0..count.min(64)).find_map(|i| {
+        let rec = axes.checked_add(i.checked_mul(size)?)?;
+        (font.get(rec..rec.checked_add(4)?)? == b"wght").then_some(())?;
+        let (min, default, max) = (fixed(rec.checked_add(4)?)?, fixed(rec.checked_add(8)?)?, fixed(rec.checked_add(12)?)?);
+        let regular = 400f32.clamp(min.min(max), max.max(min));
+        (regular.is_finite() && (regular - default).abs() > 0.5).then_some(regular)
+    })
 }
 
 /// `y_offset_factor` that puts `face`'s baseline where `primary`'s would be. egui centres a
@@ -312,6 +354,9 @@ fn add_to_all_families(ctx: &egui::Context, name: String, mut data: FontData) {
     let primary = ctx.fonts(|f| f.definitions().font_data.get("Inter").and_then(|p| vertical_metrics(&p.font, p.index)));
     if let (Some(face), Some(primary)) = (vertical_metrics(&data.font, data.index), primary) {
         data.tweak.y_offset_factor = baseline_offset(face, primary);
+    }
+    if let Some(weight) = regular_weight(&data.font, data.index) {
+        data.tweak.coords = egui::epaint::text::VariationCoords::new([(b"wght", weight)]);
     }
     let mut families: Vec<FontFamily> = ctx.fonts(|f| f.definitions().families.keys().cloned().collect());
     for f in [FontFamily::Proportional, FontFamily::Monospace] {
@@ -348,6 +393,8 @@ impl egui::Plugin for CjkFontPlugin {
         if let Some((name, data)) = font {
             add_to_all_families(ctx, name, data);
             ctx.request_repaint();
+        } else if cjk::classify(c).is_some() && cjk::fontconfig_cjk_scan_pending() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
         } else if !self.0.exhausted() || !self.0.scripts_exhausted() {
             // Nothing readable for this script; try the next one on the next frame.
             ctx.request_repaint();
@@ -375,7 +422,6 @@ pub fn install_with(ctx: &egui::Context, sources: Sources) {
         ctx.add_plugin(CjkFontPlugin(fallback));
     }
 }
-
 #[cfg(test)]
 #[cfg(not(target_arch = "wasm32"))]
 mod tests {
@@ -405,6 +451,68 @@ mod tests {
                 assert_eq!(stack.last(), Some(&name), "fallback stays at the lowest priority");
             }
         }
+    }
+
+    /// A font holding only an `fvar` table with the given axes (tag, min, default, max), as a
+    /// single face or as face 1 of a two-face collection.
+    fn fvar_font(axes: &[(&[u8; 4], f32, f32, f32)], collection: bool) -> Vec<u8> {
+        let fixed = |v: f32| ((v * 65536.0) as i32).to_be_bytes();
+        let mut fvar = Vec::new();
+        for x in [1u16, 0, 16, 2, axes.len() as u16, 20, 0, 0] {
+            fvar.extend(x.to_be_bytes());
+        }
+        for (tag, min, def, max) in axes {
+            fvar.extend(*tag);
+            for v in [*min, *def, *max] {
+                fvar.extend(fixed(v));
+            }
+            fvar.extend([0, 0, 1, 0]);
+        }
+        let face = |at: u32| {
+            let mut d = vec![0, 1, 0, 0, 0, 1, 0, 16, 0, 0, 0, 0];
+            d.extend(b"fvar");
+            d.extend([0; 4]);
+            d.extend(at.to_be_bytes());
+            d.extend((fvar.len() as u32).to_be_bytes());
+            d
+        };
+        if !collection {
+            let mut f = face(28);
+            f.extend(&fvar);
+            return f;
+        }
+        // ttcf header (12 + 2×4), two 28-byte directories, then the shared table.
+        let mut f = b"ttcf".to_vec();
+        f.extend([0, 1, 0, 0, 0, 0, 0, 2]);
+        f.extend(20u32.to_be_bytes());
+        f.extend(48u32.to_be_bytes());
+        f.extend(face(76));
+        f.extend(face(76));
+        f.extend(&fvar);
+        f
+    }
+
+    /// #4820: Noto Sans CJK's variable collection defaults to Thin; the fallback asks for Regular.
+    #[test]
+    fn variable_fallbacks_are_drawn_at_regular_weight() {
+        let thin = fvar_font(&[(b"wght", 100.0, 100.0, 900.0)], true);
+        assert_eq!(regular_weight(&thin, 1), Some(400.0), "Noto Sans CJK VF, face 1 of a collection");
+        assert_eq!(regular_weight(&fvar_font(&[(b"wdth", 75.0, 100.0, 100.0), (b"wght", 100.0, 100.0, 900.0)], false), 0), Some(400.0));
+        assert_eq!(regular_weight(&fvar_font(&[(b"wght", 500.0, 600.0, 900.0)], false), 0), Some(500.0), "Regular clamped into the axis");
+        assert_eq!(regular_weight(&fvar_font(&[(b"wght", 100.0, 400.0, 900.0)], false), 0), None, "already Regular");
+        assert_eq!(regular_weight(&fvar_font(&[(b"wdth", 75.0, 100.0, 100.0)], false), 0), None, "no weight axis");
+        assert_eq!(regular_weight(photocraft_text::fonts::INTER_REGULAR.as_slice(), 0), None, "static font");
+        for bad in [&thin[..thin.len() - 9], &thin[..30], &b"ttcf"[..], &[][..]] {
+            assert_eq!(regular_weight(bad, 1), None);
+        }
+        // Registered as a fallback, a static face keeps the default (no variation) coordinates.
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        add_to_all_families(&ctx, "test-static".into(), FontData::from_static(photocraft_text::fonts::INTER_REGULAR.as_slice()));
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        let fonts = ctx.fonts(|f| f.definitions().clone());
+        assert_eq!(fonts.font_data.get("test-static").map(|d| d.tweak.coords.clone()), Some(Default::default()));
     }
 
     static DIR: Mutex<Option<PathBuf>> = Mutex::new(None);
@@ -447,7 +555,7 @@ mod tests {
     }
 
     fn fake(name: &str) -> FontFile {
-        FontFile { path: fake_dir().join(name), family: "" }
+        FontFile { path: fake_dir().join(name), family: String::new() }
     }
 
     fn fake_sources(locale: fn() -> Option<String>) -> Sources {
@@ -805,6 +913,8 @@ mod tests {
     /// machine has no font for it, e.g. CI Linux without Noto CJK).
     #[test]
     fn system_fonts_cover_cjk_samples() {
+        #[cfg(target_os = "linux")]
+        wait_for_fontconfig_cjk_scan();
         let available = |s: CjkScript| cjk::font_files(s).iter().any(|f| f.path.is_file());
         let samples = [
             ("图层", CjkScript::SimplifiedChinese),

@@ -26,10 +26,14 @@ mod appearance;
 #[cfg(target_os = "macos")]
 mod apple_events;
 mod caps_lock;
+mod caption_style;
 mod control_server;
 mod crash_guard;
 mod cursor;
+mod file_dialog_probe;
 mod gpu_startup;
+#[cfg(target_os = "linux")]
+mod icon_theme;
 #[cfg(target_os = "macos")]
 mod mac_menu;
 #[cfg(target_os = "macos")]
@@ -71,7 +75,8 @@ fn custom_titlebar(prefs_file: Option<&std::path::Path>) -> bool {
 /// The main window: 1440 × 900 (shrunk to fit the monitor, and maximized on the first frame
 /// when it still doesn't fit, `work_area::fit_window`), centred on the main monitor. Without
 /// `centered`, Windows cascades each new window from the top-left corner, so it opened at a
-/// different offset every launch (#419). Wayland compositors place windows themselves.
+/// different offset every launch (#419). A later launch restores the saved position instead
+/// (`main` turns `centered` off, #4826). Wayland compositors place windows themselves.
 fn native_options(custom_titlebar: bool) -> eframe::NativeOptions {
     eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -89,8 +94,33 @@ fn native_options(custom_titlebar: bool) -> eframe::NativeOptions {
         // eframe saves native window geometry and egui panel/window sizes on exit.
         // Keep that state beside preferences, including config overrides and portable mode.
         persistence_path: services::config_dir().map(|dir| dir.join("ui.ron")),
+        window_builder: Some(Box::new(restored_window)),
         ..Default::default()
     }
+}
+
+/// The window eframe restores from `ui.ron`, corrected before it is created: at least the
+/// minimum size, and never full screen. PhotoCraft always starts in Standard Screen Mode, but
+/// eframe also saves and restores full screen, and a window closed in a full-screen mode is
+/// saved full screen and maximized at once: the overlap `view_cmds::screen_mode_commands` keeps
+/// apart at run time. [OBSERVED 2026-10-12, Windows 11] Restored that way, View › Screen Mode ›
+/// Full Screen did nothing until `F` had cycled through Standard.
+fn restored_window(builder: egui::ViewportBuilder) -> egui::ViewportBuilder {
+    at_least_min_size(builder).with_fullscreen(false)
+}
+
+/// Grow a restored window that is smaller than the minimum size, keeping its centre. On
+/// Windows, eframe saves a minimized window's size (160 pt wide, 64 pt tall once eframe has
+/// clamped it), and the minimum size isn't applied to a restored one: PhotoCraft then reopened
+/// as a 160 × 64 strip on every launch.
+fn at_least_min_size(mut builder: egui::ViewportBuilder) -> egui::ViewportBuilder {
+    let (Some(size), Some(min)) = (builder.inner_size, builder.min_inner_size) else { return builder };
+    let grown = size.max(min);
+    if grown != size {
+        builder.position = builder.position.map(|pos| pos - (grown - size) / 2.0);
+        builder.inner_size = Some(grown);
+    }
+    builder
 }
 
 /// Parse a `--control` / `PHOTOCRAFT_CONTROL_PORT` value. An unparseable port is an error that
@@ -139,6 +169,8 @@ fn main() -> eframe::Result {
     // First, so the panic hook and every start-up warning are recorded (`logging`).
     let logger = logging::install();
     crash_guard::install_hook();
+    // The system font scan can take seconds (minutes on some Macs): run it off the UI thread.
+    photocraft_ui_egui::type_tool::warm_fonts();
     let mut control_port: Option<u16> = None;
     let mut control_arg_errors: Vec<String> = Vec::new();
     if let Some(value) = std::env::var("PHOTOCRAFT_CONTROL_PORT").ok().filter(|v| !v.trim().is_empty()) {
@@ -212,6 +244,8 @@ fn main() -> eframe::Result {
     // The display server to open the window on: Xwayland for a pen on Wayland, which gives this
     // app no pen input (#639).
     #[cfg(target_os = "linux")]
+    let native_session = linux_libs::session_from_env(|name| std::env::var(name).ok());
+    #[cfg(target_os = "linux")]
     let session = tablet::display_session();
     // Preferences › Performance › Linux display server = X11: Xwayland on a Wayland session too,
     // where native file drops work (winit 0.30 has none on Wayland, #386). Only when Xwayland can
@@ -279,6 +313,9 @@ fn main() -> eframe::Result {
 
     // Read the displays' ICC profiles while the window opens (colour-managed canvas; `None`
     // where the platform has no reader).
+    #[cfg(target_os = "linux")]
+    let monitor = monitor_profile::detect_async_for_session(native_session);
+    #[cfg(not(target_os = "linux"))]
     let monitor = monitor_profile::detect_async();
     // Brush presets load in the background; the app attaches them when they arrive.
     let presets = services::presets_dir().map(photocraft_engine::preset_store::open_dir_async);
@@ -294,6 +331,9 @@ fn main() -> eframe::Result {
     }
     // eframe restores the saved window layout before our code runs; drop values that would crash it.
     ui_state::sanitize(options.persistence_path.as_deref());
+    // Centre only the first window: eframe centres after restoring the saved position, so a
+    // window closed on another monitor reopened in the middle of the main one (#4826).
+    options.centered = !ui_state::has_saved_position(options.persistence_path.as_deref());
     // Crash-safe GPU startup (#4): pick the backend (a marker left by a start that died in the
     // driver moves to a safer one), and lock this start's marker until the first frames render.
     let t_sentinel = std::time::Instant::now();
@@ -342,6 +382,7 @@ fn main() -> eframe::Result {
             #[cfg(target_os = "linux")]
             {
                 services.is_wayland = display == Some(tablet::DisplayKind::Wayland);
+                file_dialog_probe::start();
                 if services.is_wayland {
                     let var = |name| std::env::var(name).ok();
                     services.xwayland_command =
@@ -360,7 +401,14 @@ fn main() -> eframe::Result {
             // the right profile; a slower reading is applied when it arrives, and the shell reads
             // again when the displays may have changed.
             if let Some(rx) = monitor {
-                app.services.read_displays = Some(std::sync::Arc::new(monitor_profile::detect_async));
+                #[cfg(target_os = "linux")]
+                {
+                    app.services.read_displays = Some(std::sync::Arc::new(move || monitor_profile::detect_async_for_session(native_session)));
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    app.services.read_displays = Some(std::sync::Arc::new(monitor_profile::detect_async));
+                }
                 match rx.recv_timeout(std::time::Duration::from_secs(2)) {
                     Ok(r) => photocraft_ui_egui::monitor_status::apply(&mut app, r),
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => photocraft_ui_egui::monitor_status::pending(&mut app, rx),
@@ -405,23 +453,12 @@ fn main() -> eframe::Result {
                 photocraft_ui_egui::gpu_status::queue_fallback_notice(&mut app, &reason);
             }
             app.perf.span("gpuSentinel", sentinel_ms);
-            // Once the first frames rendered: clear the marker, and keep a crash fallback.
-            let remember_cpu =
-                std::env::var_os("PHOTOCRAFT_GPU_STARTUP_FAILURE").is_some() || (plan.remember && plan.backend == photocraft_engine::prefs::GpuBackend::Cpu);
-            let remember = plan.remember.then_some(plan.backend);
+            // CPU rendering after a failed GPU start is temporary. Only the
+            // recovery-dialog choice may persist it (#3483).
+            let remember = gpu_startup::backend_to_remember(&plan);
             app.on_started(move |app| {
                 if let Some(s) = started_sentinel.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
                     s.finish();
-                }
-                if remember_cpu
-                    && let Err(error) = app.run(
-                        "prefs.set",
-                        serde_json::json!({"values": {
-                            "performance.renderingMode": "cpu", "performance.useGpu": false
-                        }}),
-                    )
-                {
-                    log::warn!("couldn't remember CPU recovery: {error}");
                 }
                 if let Some(b) = remember
                     && app.session.prefs().performance.gpu_backend != b
@@ -451,6 +488,10 @@ fn main() -> eframe::Result {
             // The custom title bar's undecorated window must stay borderless, or its caption and
             // border offset the content and the pointer on some Windows systems (#2246).
             app.services.window_frame = window_frame::service(cc, custom_titlebar);
+            // Linux: the desktop's caption buttons (GNOME's, KDE's) on the sides its layout puts them.
+            if custom_titlebar {
+                app.services.caption_style = caption_style::service();
+            }
             // Caps Lock state (X11/Windows/macOS; `None` on native Wayland): the canvas shows the
             // precise crosshair for painting tools while it is toggled on (#1758).
             app.services.caps_lock = caps_lock::service(cc);
@@ -572,6 +613,44 @@ mod tests {
     }
 
     #[test]
+    fn a_window_saved_while_minimized_reopens_at_the_minimum_size() {
+        let hook = super::native_options(super::CUSTOM_TITLEBAR).window_builder.expect("a window builder hook");
+        // Saved minimized on Windows, then centred on a 1920 × 1080 monitor by eframe.
+        let saved = super::native_options(super::CUSTOM_TITLEBAR).viewport.with_inner_size([160.0, 64.0]).with_position([880.0, 508.0]);
+        let opened = hook(saved);
+        assert_eq!(opened.inner_size, Some(egui::vec2(760.0, 480.0)));
+        assert_eq!(opened.position, Some(egui::pos2(580.0, 300.0)), "still centred");
+        // Too narrow only: only the width grows.
+        let opened = super::at_least_min_size(super::native_options(false).viewport.with_inner_size([500.0, 900.0]));
+        assert_eq!(opened.inner_size, Some(egui::vec2(760.0, 900.0)));
+        // A window at or above the minimum, or with no size, is left alone.
+        for size in [[760.0, 480.0], [1100.0, 760.0]] {
+            let builder = super::native_options(false).viewport.with_inner_size(size).with_position([10.0, 20.0]);
+            let opened = super::at_least_min_size(builder);
+            assert_eq!((opened.inner_size, opened.position), (Some(egui::Vec2::from(size)), Some(egui::pos2(10.0, 20.0))));
+        }
+        let mut builder = super::native_options(false).viewport;
+        builder.inner_size = None;
+        assert_eq!(super::at_least_min_size(builder).inner_size, None);
+    }
+
+    #[test]
+    fn a_window_saved_in_full_screen_reopens_maximized_not_full_screen() {
+        let hook = super::native_options(super::CUSTOM_TITLEBAR).window_builder.expect("a window builder hook");
+        // What eframe restores from a ui.ron saved in a full-screen mode on Windows.
+        let saved = super::native_options(super::CUSTOM_TITLEBAR)
+            .viewport
+            .with_inner_size([2560.0, 1392.0])
+            .with_position([0.0, 0.0])
+            .with_fullscreen(true)
+            .with_maximized(true);
+        let opened = hook(saved);
+        assert_eq!(opened.fullscreen, Some(false), "Standard Screen Mode is where PhotoCraft starts");
+        assert_eq!(opened.maximized, Some(true), "the rest of the saved geometry is kept");
+        assert_eq!(opened.inner_size, Some(egui::vec2(2560.0, 1392.0)));
+    }
+
+    #[test]
     fn the_system_title_bar_preference_keeps_the_window_decorations() {
         // #1271, #1316: Preferences › Interface › System Title Bar gives the window back its
         // system decorations on Windows and Linux; macOS always has them.
@@ -590,5 +669,14 @@ mod tests {
             assert_eq!(super::native_options(true).viewport.decorations, Some(false));
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// X11 startup notification and docks match a window to its launcher by `StartupWMClass`,
+    /// so it has to be the class the window carries: the app id, on Wayland and X11 alike.
+    #[test]
+    fn the_desktop_entry_names_the_window_class() {
+        let entry = include_str!("../../../packaging/linux/ai.storyteller.photocraft.desktop");
+        let class = entry.lines().find_map(|line| line.strip_prefix("StartupWMClass="));
+        assert_eq!(class, Some(super::APP_ID));
     }
 }

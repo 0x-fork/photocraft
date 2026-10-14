@@ -14,7 +14,7 @@
 //!   the page-only `blendIfChannel`; `channelNames`: the document's colour channels.
 
 use egui::{Color32, RichText, Sense, Stroke, StrokeKind, vec2};
-use photocraft_doc::effects::{FxPaint, StrokePosition};
+use photocraft_doc::effects::{FxPaint, GlowSource, StrokePosition};
 use photocraft_doc::{Effect, Layer};
 use serde_json::{Map, Value, json};
 
@@ -247,6 +247,9 @@ fn values_of(e: &Effect, light: f32) -> Value {
             set(&mut v, "contour", photocraft_engine::layer_style::contour_param(&g.contour));
             set(&mut v, "antiAlias", json!(g.anti_alias));
             set(&mut v, "noise", json!((g.noise * 100.0).round()));
+            if matches!(e, Effect::InnerGlow(_)) {
+                set(&mut v, "source", json!(if g.source == GlowSource::Center { "center" } else { "edge" }));
+            }
         }
         Effect::Stroke(s) => {
             set(&mut v, "blend", json!(s.common.blend.label()));
@@ -500,6 +503,14 @@ pub fn initial_fields(layer: &Layer, select: Option<&str>, light: f32) -> Map<St
 }
 
 pub fn open(app: &mut PhotocraftApp, select: Option<&str>) -> Option<u64> {
+    // An open Free Transform box is applied first, as in Photoshop (#4821): the canvas shows the
+    // box's preview while it is open, so the dialog's preview would not show until Enter.
+    if app.ui.transform.is_some() {
+        crate::transform_tool::commit(app);
+        if app.ui.transform.is_some() && crate::transform_tool::committing(app).is_none() {
+            return None; // refused: the box stays open, with the reason in the status bar
+        }
+    }
     let st = app.session.active()?;
     let layer = st.doc.layer(st.active_layer?)?.clone();
     let light = st.doc.global_light.angle;
@@ -510,6 +521,16 @@ pub fn open(app: &mut PhotocraftApp, select: Option<&str>) -> Option<u64> {
     f.insert("__document".into(), json!(st.doc.id));
     f.insert("patternList".into(), pattern_list(app));
     Some(app.ui.open_dialog(crate::state::DialogKind::LayerStyle, f))
+}
+
+/// Double-click on an effect row of the Layers panel: open Layer Style for that row's layer. A
+/// row of another layer selects it first, as its right-click menu does (Photoshop does the same).
+pub fn open_for_layer(app: &mut PhotocraftApp, layer: photocraft_doc::LayerId, select: Option<&str>) -> Option<u64> {
+    let active = app.session.active().is_some_and(|s| s.active_layer == Some(layer));
+    if !active {
+        app.run("layer.select", json!({"layer": layer.0})).ok()?;
+    }
+    open(app, select)
 }
 
 /// `[[id, name], …]` of the patterns a style can use (document's, then the library's).
@@ -913,7 +934,7 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
                 match kind_p {
                     P::Angle => {
                         let mut v = disp.get(key).and_then(Value::as_f64).unwrap_or(0.0) as f32;
-                        if angle_row(ui, label, &mut v).changed() {
+                        if widgets::angle_dial_row(ui, label, &mut v, -180.0..=180.0).changed() {
                             let value = json!(v);
                             disp[key] = value.clone();
                             set_param(f, &selected, key, value);
@@ -1300,50 +1321,6 @@ fn blend_if_bar(ui: &mut egui::Ui, id: egui::Id, q: &mut [u8; 4]) -> bool {
     changed
 }
 
-/// Light direction uses document angles: counter-clockwise from three o'clock.
-pub(crate) fn angle_row(ui: &mut egui::Ui, label: &str, angle: &mut f32) -> egui::Response {
-    let t = Tokens::get(ui.ctx());
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(tl!(label)).color(t.text_dim));
-        let (rect, mut dial) = ui.allocate_exact_size(vec2(42.0, 42.0), Sense::click_and_drag());
-        dial.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Slider, ui.is_enabled(), tl!(label)));
-        if (dial.clicked() || dial.dragged())
-            && let Some(pos) = dial.interact_pointer_pos()
-        {
-            let delta = pos - rect.center();
-            if delta.length_sq() > 1.0 {
-                *angle = (-delta.y).atan2(delta.x).to_degrees().round();
-                dial.mark_changed();
-            }
-        }
-        let painter = ui.painter();
-        let radius = rect.width() / 2.0 - 2.0;
-        painter.circle(rect.center(), radius, t.field, Stroke::new(1.0, t.field_border));
-        let radians = angle.to_radians();
-        let tip = rect.center() + vec2(radians.cos(), -radians.sin()) * (radius - 4.0);
-        painter.line_segment([rect.center(), tip], Stroke::new(2.0, t.accent));
-        painter.circle_filled(rect.center(), 2.0, t.text_dim);
-        if dial.has_focus() {
-            painter.circle_stroke(rect.center(), radius + 2.0, Stroke::new(1.0, t.accent));
-            let step = ui.input(|i| {
-                i.num_presses(egui::Key::ArrowRight) as f32 + i.num_presses(egui::Key::ArrowUp) as f32
-                    - i.num_presses(egui::Key::ArrowLeft) as f32
-                    - i.num_presses(egui::Key::ArrowDown) as f32
-            });
-            if step != 0.0 {
-                *angle = (*angle + step + 180.0).rem_euclid(360.0) - 180.0;
-                dial.mark_changed();
-            }
-        }
-        let field = ui.add(egui::DragValue::new(angle).custom_parser(crate::widgets::parse_num).range(-180.0..=180.0).speed(1.0).suffix("°"));
-        if field.changed() {
-            dial.mark_changed();
-        }
-        dial | field
-    })
-    .inner
-}
-
 fn parse_hex(s: &str) -> Color32 {
     let s = s.trim_start_matches('#');
     let b = |i: usize| u8::from_str_radix(s.get(i..i + 2).unwrap_or("00"), 16).unwrap_or(0);
@@ -1422,6 +1399,30 @@ mod tests {
         let column = boxes.iter().map(|r| r.min.x).fold(f32::INFINITY, f32::min);
         let rows = boxes.iter().filter(|r| (r.min.x - column).abs() < 0.5).count();
         assert_eq!(rows, KINDS.len(), "one empty checkbox per effect row");
+    }
+
+    /// Double-clicking an effect row of a layer that isn't active selects that layer first, so
+    /// the dialog holds its effects (and OK edits it), not the active layer's.
+    #[test]
+    fn effect_row_of_another_layer_opens_that_layers_style() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 32, "height": 32})).unwrap();
+        app.run("layer.new.layer", json!({})).unwrap();
+        let with_fx = app.session.active().unwrap().active_layer.unwrap();
+        app.run("layer.layerStyle.replace", json!({"layer": with_fx.0, "effects": [{"kind": "dropShadow", "params": defaults("dropShadow")}]})).unwrap();
+        app.run("layer.new.layer", json!({})).unwrap();
+        let plain = app.session.active().unwrap().active_layer.unwrap();
+        assert_ne!(plain, with_fx);
+        assert!(app.session.active().unwrap().doc.layer(plain).unwrap().effects.items.is_empty());
+
+        let id = open_for_layer(&mut app, with_fx, Some("dropShadow")).unwrap();
+        assert_eq!(app.session.active().unwrap().active_layer, Some(with_fx), "the row's layer becomes active");
+        let d = app.ui.dialogs.iter().find(|d| d.id == id).unwrap();
+        assert_eq!(d.fields["layer"], json!(with_fx.0));
+        let fx = effects_of(&d.fields);
+        assert_eq!(fx.len(), 1);
+        assert_eq!(fx[0]["kind"], json!("dropShadow"));
+        assert!(fx[0]["fx"].is_object(), "the existing drop shadow, not a new instance");
     }
 
     #[test]
@@ -1737,17 +1738,19 @@ mod tests {
         apply(&f, |cmd, p| s.execute(cmd, p).map_err(|e| e.to_string())).unwrap();
         assert_eq!(shadow(&s), photocraft_engine::layer_style::builtin_contour("Cone").unwrap());
 
-        // The Contour Editor: drag the peak to 40 % / 80 %, make the first point a corner.
+        // The Contour Editor: drag the second point to 10 % / 30 % (between its neighbours on
+        // the measured Cone), make the first point a corner.
         contour::open_editor(&mut f, "fx1", "contour");
-        assert!(contour::set_point(&mut f, 1, 40.0, 80.0));
+        assert!(contour::set_point(&mut f, 1, 10.0, 30.0));
         assert!(contour::set_corner(&mut f, 0, true));
-        assert!(!contour::set_point(&mut f, 9, 10.0, 10.0), "no such point");
+        assert!(!contour::set_point(&mut f, 99, 10.0, 10.0), "no such point");
         contour::close_editor(&mut f, true);
         apply(&f, |cmd, p| s.execute(cmd, p).map_err(|e| e.to_string())).unwrap();
         let photocraft_doc::Contour::Custom { name, points, corners } = shadow(&s) else { panic!() };
         assert_eq!(name, "Custom", "an edited preset is no longer called Cone");
-        assert!((points[1].input - 102.0 / 255.0).abs() < 1e-6 && (points[1].output - 204.0 / 255.0).abs() < 1e-6, "{points:?}");
-        assert_eq!(corners, vec![true, true, false]);
+        assert!((points[1].input - 0.1).abs() < 3e-3 && (points[1].output - 0.3).abs() < 3e-3, "{points:?}");
+        assert_eq!(corners.len(), points.len());
+        assert!(corners[0] && corners[1] && !corners[corners.len() - 1], "{corners:?}");
 
         // Cancel restores the curve the editor opened with.
         let before = f.clone();
@@ -1770,6 +1773,30 @@ mod tests {
         assert_eq!(fx[0]["params"]["spread"], json!(6.0));
         assert_eq!(fx[0]["params"]["range"], json!(40.0));
         assert_eq!(fx[1]["params"]["spread"], json!(12.0));
+    }
+
+    /// OK with no edits used to turn a Center-source Inner Glow into an Edge one: the dialog never
+    /// loaded the source, so it showed the default and applied it.
+    #[test]
+    fn inner_glow_center_source_survives_ok() {
+        let mut s = session();
+        s.execute("layer.layerStyle.innerGlow", json!({"source": "center"})).unwrap();
+        let source = |s: &photocraft_engine::Session| {
+            let d = s.active().unwrap();
+            let id = d.active_layer.unwrap();
+            d.doc.layer(id).unwrap().effects.items.iter().find_map(|e| match e {
+                Effect::InnerGlow(g) => Some(g.source),
+                _ => None,
+            })
+        };
+        assert_eq!(source(&s), Some(GlowSource::Center));
+        let st = s.active().unwrap();
+        let id = st.active_layer.unwrap();
+        let f = initial_fields(st.doc.layer(id).unwrap(), None, st.doc.global_light.angle);
+        let glow = effects_of(&f).iter().find(|e| e["kind"] == json!("innerGlow")).unwrap();
+        assert_eq!(glow["params"]["source"], json!("center"), "the dialog shows the effect's source");
+        apply(&f, |cmd, p| s.execute(cmd, p).map_err(|e| e.to_string())).unwrap();
+        assert_eq!(source(&s), Some(GlowSource::Center), "OK keeps the source");
     }
 
     #[test]
@@ -1915,7 +1942,7 @@ mod tests {
         use egui_kittest::kittest::Queryable;
         let mut h = egui_kittest::Harness::builder().with_size(vec2(300.0, 100.0)).build_ui_state(
             |ui, angle| {
-                angle_row(ui, "Angle", angle);
+                widgets::angle_dial_row(ui, "Angle", angle, -180.0..=180.0);
             },
             120.0_f32,
         );
