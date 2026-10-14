@@ -2884,6 +2884,32 @@ fn lab_adjustments_work_on_the_stored_values() {
     near3([p[0], p[1], p[2]], lab_display([l, byte(218), byte(38)]), 1e-3, "levels on L at half opacity");
 }
 
+// An adjustment's result in a Lab document is whole samples, as Photoshop stores it: Curves
+// taking L 100 to 120 of 255 shows L 120 exactly (the photoshop corpus's lab8 curves.psd is exact
+// so, where the unrounded result left saturated colours a level off on screen), at 8 bits; 16 bits
+// round to 1/32768.
+#[test]
+fn lab_adjustment_results_are_whole_samples() {
+    let pts = |v: &[(f32, f32)]| v.iter().map(|&(input, output)| CurvePoint { input, output }).collect::<Vec<_>>();
+    let curves = |l: &[(f32, f32)]| Adjustment::Curves {
+        master: Vec::new(),
+        per_channel: [pts(l), Vec::new(), Vec::new()],
+        space: ToneSpace::Lab,
+        black: Vec::new(),
+        pencil: false,
+    };
+    // A straight line from (0, 0) through (100, 120.4): L 100 lands between two bytes.
+    let adj = curves(&[(0.0, 0.0), (100.0 / 255.0, 120.4 / 255.0), (1.0, 1.0)]);
+    for (depth, q) in [(SampleType::U8, 255.0f32), (SampleType::U16, 32768.0)] {
+        let doc = lab_stack([100.0 / 255.0, 0.5, 0.5], depth, vec![adj.clone()]);
+        let p = px(&doc, 1, 1);
+        let stack = native_lab::LabStack::new(&doc);
+        assert!(stack.is_some_and(|s| s.adjusts()), "{depth:?}: the native path");
+        let l = photocraft_color::convert::srgb_to_lab([p[0], p[1], p[2]])[0] / 100.0;
+        assert!((l * q - (l * q).round()).abs() < 0.02, "{depth:?}: L {} is between two samples", l * q);
+    }
+}
+
 // Flattening a Lab document keeps its stored values, out-of-gamut colours included (the RGB
 // compositor clipped them on the way through display RGB).
 #[test]
