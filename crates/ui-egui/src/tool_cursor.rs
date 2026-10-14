@@ -9,6 +9,8 @@ use std::sync::Arc;
 
 use egui::{CursorIcon, CustomCursorImage, Painter, Pos2, Stroke, Vec2, vec2};
 
+use crate::canvas::ViewXform;
+
 mod hand;
 mod zoom;
 
@@ -102,6 +104,21 @@ fn native(ctx: &egui::Context) -> bool {
 /// sizing is from @jerrykimo's #968.)
 pub(crate) fn native_scale(ctx: &egui::Context) -> f32 {
     if cfg!(target_os = "macos") { ctx.zoom_factor() } else { ctx.pixels_per_point() }
+}
+
+/// The resize arrow for a handle that resizes along document direction `d`, as the view shows it
+/// (its rotation, flip and pixel aspect): the nearest of the four arrows. Free Transform (handles
+/// and Warp splits), the type box, Content-Aware Move's box, the Artboard tool and guides pick
+/// their arrows here.
+pub(crate) fn resize(d: [f64; 2], xf: &ViewXform) -> CursorIcon {
+    let s = xf.map_vec(vec2(d[0] as f32, d[1] as f32));
+    let angle = f64::from(s.y).atan2(f64::from(s.x)).rem_euclid(std::f64::consts::PI);
+    match (angle / std::f64::consts::FRAC_PI_4).round() as u8 % 4 {
+        0 => CursorIcon::ResizeHorizontal,
+        1 => CursorIcon::ResizeNwSe,
+        2 => CursorIcon::ResizeVertical,
+        _ => CursorIcon::ResizeNeSw,
+    }
 }
 
 /// The Hand tool's pointer: an open hand, a fist while it drags (`closed`). winit maps `Grab` and

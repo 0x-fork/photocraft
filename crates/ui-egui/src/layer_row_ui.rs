@@ -240,7 +240,9 @@ pub fn panel_menu(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui) {
         ui.menu_button(tl!("Animation Options"), |_ui| {});
     });
     if ui.button(tl!("Panel Options…")).clicked() {
-        app.ui.layers_panel_dialog = Some(LayersPanelDialog::PanelOptions(app.ui.layers_panel_options.clone()));
+        let mut options = app.ui.layers_panel_options.clone();
+        options.thumbnail_contents = crate::layers_panel_ui::thumbnail_contents(app);
+        app.ui.layers_panel_dialog = Some(LayersPanelDialog::PanelOptions(options));
         ui.close();
     }
     ui.separator();
@@ -248,6 +250,16 @@ pub fn panel_menu(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui) {
     let can_collapse = app.session.is_enabled("layer.setExpanded");
     if ui.add_enabled(can_collapse, egui::Button::new(tl!("Collapse All Groups"))).clicked() {
         if let Err(e) = app.run("layer.setExpanded", json!({"all": true, "expanded": false})) {
+            app.ui.status = e;
+            app.ui.status_error = true;
+        }
+        ui.close();
+    }
+    ui.separator();
+    // Photoshop's Clip Thumbnails to Layer Bounds: frame each layer's pixels, not the canvas (#4281).
+    let mut clip = app.session.prefs().interface.clip_thumbnails_to_layer_bounds;
+    if crate::widgets::checkbox(ui, &mut clip, tl!("Clip Thumbnails to Layer Bounds")).changed() {
+        if let Err(e) = app.run("prefs.set", json!({"path": "interface.clipThumbnailsToLayerBounds", "value": clip})) {
             app.ui.status = e;
             app.ui.status_error = true;
         }
