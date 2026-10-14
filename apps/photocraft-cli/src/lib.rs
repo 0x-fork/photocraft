@@ -541,9 +541,7 @@ fn commands(a: &Args, out: &mut dyn Write) -> R {
         .map(|v| v.iter().collect::<Vec<_>>())
         .unwrap_or_default()
         .into_iter()
-        .filter(|c| {
-            needle.as_ref().is_none_or(|n| format!("{} {}", c["id"].as_str().unwrap_or(""), c["label"].as_str().unwrap_or("")).to_lowercase().contains(n))
-        })
+        .filter(|c| needle.as_ref().is_none_or(|n| photocraft_engine::commands::list_entry_matches(c, n)))
         .collect();
     if a.has("--json") {
         return print_json(out, &Value::Array(items.into_iter().cloned().collect()), false);
