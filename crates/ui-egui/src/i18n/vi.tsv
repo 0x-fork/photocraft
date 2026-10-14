@@ -511,6 +511,9 @@
 # Field Blur pins (#3373)
 	No pin selected	Chưa chọn ghim nào
 	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Bấm vào ảnh để thêm ghim; kéo ghim để di chuyển, hoặc kéo vòng của ghim để đổi độ mờ. Delete xóa ghim đã chọn.
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	Kéo các tay nắm trên đường viền để đổi kích thước và xoay, kéo ô vuông để bo tròn góc, và kéo các chấm bên trong để đặt nơi bắt đầu làm mờ.
+	Drag the pin to move the band, or its ring to change its blur. Drag the solid lines to widen the sharp band, the dashed lines to set the transition, and the dots to turn it.	Kéo ghim để di chuyển dải, hoặc kéo vòng của ghim để đổi độ mờ. Kéo các đường liền để nới rộng dải sắc nét, các đường nét đứt để đặt vùng chuyển tiếp, và các chấm để xoay dải.
+	Drag the handles on the outline to resize and turn it; the ring sets the blur angle.	Kéo các tay nắm trên đường viền để đổi kích thước và xoay; vòng tròn đặt góc làm mờ.
 	Filter Gallery…	Thư viện bộ lọc…
 	Find Edges	Tìm cạnh
 	Flame…	Ngọn lửa…
@@ -2803,6 +2806,8 @@ fontWeight	Italic	Nghiêng
 	Never Show Overlay	Không bao giờ hiện lớp phủ
 	Auto Hide Notifications	Tự động ẩn thông báo
 	Notification Duration (seconds)	Thời lượng thông báo (giây)
+	Bundle Arrow-Key Nudges	Gộp dịch chuyển bằng phím mũi tên
+	Nudge Bundle Pause (ms)	Thời gian chờ gộp dịch chuyển (ms)
 	Dark Theme	Giao diện tối
 	Light Theme	Giao diện sáng
 	Pro Medium	Pro trung bình
@@ -3586,6 +3591,7 @@ curves	Smooth	Làm mượt
 	Stroke Path…	Đi nét đường dẫn…
 	Apply mask to layer before removing?	Áp dụng mặt nạ vào lớp trước khi xóa?
 	Delete the vector mask?	Xóa mặt nạ vectơ?
+	Add Shortcut	Thêm phím tắt
 	Response curve	Đường cong phản hồi
 	Object Finder	Trình tìm đối tượng
 	No object found there — drag a rectangle around it	Không tìm thấy đối tượng ở đó — hãy kéo một hình chữ nhật quanh nó
@@ -3619,6 +3625,7 @@ curves	Smooth	Làm mượt
 	Action playback stopped	Đã dừng phát hành động
 	Step {step} is waiting for its dialog	Bước {step} đang chờ hộp thoại của nó
 @plural	{n} action|{n} actions	{n} hành động
+	Background (Default)	Nền (mặc định)
 	Presentation	Trình bày
 # Batch / Image Processor
 	Include All Subfolders	Bao gồm tất cả thư mục con
@@ -3650,3 +3657,7 @@ curves	Smooth	Làm mượt
 	Chisel Hard	Đục cứng
 	Chisel Soft	Đục mềm
 	Open color-less EXR as ACEScg	Mở EXR không khai báo màu sắc dưới dạng ACEScg
+
+# View › Guides › right-click a guide
+	Edit Selected Guides	Sửa đường căn đã chọn
+	Clear Selected Guides	Xóa đường căn đã chọn

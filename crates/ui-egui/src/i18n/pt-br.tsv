@@ -540,6 +540,9 @@
 # Field Blur pins (#3373)
 	No pin selected	Nenhum alfinete selecionado
 	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Clique na imagem para adicionar um alfinete; arraste um alfinete para movê-lo ou o anel dele para alterar o desfoque. Delete remove o alfinete selecionado.
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	Arraste as alças do contorno para redimensionar e girar, o quadrado para arredondar os cantos e os pontos internos para definir onde o desfoque começa.
+	Drag the pin to move the band, or its ring to change its blur. Drag the solid lines to widen the sharp band, the dashed lines to set the transition, and the dots to turn it.	Arraste o alfinete para mover a faixa ou o anel para alterar o desfoque. Arraste as linhas contínuas para alargar a faixa nítida, as tracejadas para definir a transição e os pontos para girá-la.
+	Drag the handles on the outline to resize and turn it; the ring sets the blur angle.	Arraste as alças do contorno para redimensionar e girar; o anel define o ângulo de desfoque.
 	Iris Blur…	Desfoque de íris…
 	Tilt-Shift…	Tilt-shift…
 	Path Blur…	Desfoque de demarcador…
@@ -1022,6 +1025,7 @@
 	Delete Group	Excluir grupo
 	Delete Layer Mask	Excluir máscara de camada
 	Delete Layers	Excluir camadas
+	Add Shortcut	Adicionar atalho
 	Delete Shortcut	Excluir atalho
 	Delete Timeline	Excluir linha do tempo
 	Delete Tool Preset	Excluir predefinição de ferramenta
@@ -2925,6 +2929,8 @@ fontWeight	Italic	Itálico
 	Color Picker (Layer Style Color)	Seletor de cores (cor do estilo de camada)
 	Auto Hide Notifications	Ocultar notificações automaticamente
 	Notification Duration (seconds)	Duração da notificação (segundos)
+	Bundle Arrow-Key Nudges	Agrupar deslocamentos com as setas
+	Nudge Bundle Pause (ms)	Pausa para agrupar deslocamentos (ms)
 	Appearance Mode	Modo de aparência
 	Dark Theme	Tema escuro
 	Light Theme	Tema claro
@@ -3927,6 +3933,7 @@ layerLabel	No Color	Sem cor
 	Action playback stopped	Reprodução da ação interrompida
 	Step {step} is waiting for its dialog	A etapa {step} está aguardando sua caixa de diálogo
 @plural	{n} action|{n} actions	{n} ação|{n} ações
+	Background (Default)	Plano de fundo (padrão)
 # Batch / Image Processor
 	Include All Subfolders	Incluir todas as subpastas
 	Auto Add/Delete	Adicionar/excluir automaticamente
@@ -3954,3 +3961,7 @@ layerLabel	No Color	Sem cor
 	Chisel Hard	Cinzel duro
 	Chisel Soft	Cinzel suave
 	Open color-less EXR as ACEScg	Abrir EXR sem espaço de cor como ACEScg
+
+# View › Guides › right-click a guide
+	Edit Selected Guides	Editar guias selecionadas
+	Clear Selected Guides	Limpar guias selecionadas

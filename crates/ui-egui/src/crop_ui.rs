@@ -1276,6 +1276,29 @@ mod tests {
         }
     }
 
+    /// Fill › Content-Aware Fill (#3823): ↵ on an extending frame fills the added canvas from the
+    /// image instead of the background colour; Background (Default) keeps the colour.
+    #[test]
+    fn commit_passes_the_fill_choice() {
+        for content_aware in [false, true] {
+            let mut app = app(SampleType::U16);
+            app.run("tools.setColors", json!({"foreground": "#808080", "background": "#000000"})).unwrap();
+            app.run("edit.fill", json!({"contents": "foreground"})).unwrap();
+            app.ui.tool_options.crop_content_aware = content_aware;
+            app.ui.crop_rect = Some([-10.0, -10.0, 210.0, 110.0]);
+            app.crop.default_frame = false;
+            crate::canvas::commit_crop(&mut app);
+            let st = app.session.active().unwrap();
+            assert_eq!((st.doc.size.width, st.doc.size.height), (220, 120));
+            let corner = st.doc.layers[0].surface().unwrap().rgba(0, 0);
+            if content_aware {
+                assert!((corner[0] - 0.5).abs() < 0.05, "filled from the grey image: {corner:?}");
+            } else {
+                assert!(corner[0] < 0.05, "the background colour: {corner:?}");
+            }
+        }
+    }
+
     #[test]
     fn moving_the_frame_snaps_its_edges() {
         let mut app = app(SampleType::U8);

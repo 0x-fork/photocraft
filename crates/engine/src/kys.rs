@@ -9,10 +9,11 @@
 //! Where one label sits in several menus (Levels… under Image › Adjustments and Layer › New
 //! Adjustment Layer; All under Select, Edit › Purge, View › Show), the command whose default is
 //! one of the imported keys wins, then the one that has a default at all, then the first
-//! candidate (the app lists them in Photoshop's menu order). Ours are one per command, so a
-//! row's first shortcut is the one kept, unless one of its keys is already the command's
-//! default (Zoom In lists `Cmd++` before `Cmd+=`). Tool keys are not imported: the tool
-//! letters are fixed here.
+//! candidate (the app lists them in Photoshop's menu order). A row's first shortcut becomes the
+//! command's main key, unless one of its keys is already the command's default (Zoom In lists
+//! `Cmd++` before `Cmd+=`); its other keys become the command's alternates (#3665: Copy is
+//! `Cmd+C` and `F3`, and importing it must not leave `Cmd+C` unbound). Tool keys are not
+//! imported: the tool letters are fixed here.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -81,8 +82,12 @@ pub struct Plan {
     pub unknown: Vec<String>,
     /// Rows whose shortcut could not be read (`unknown` does not list them).
     pub unreadable: Vec<String>,
-    /// Second and later shortcuts of a row, which have no place here.
+    /// Second and later shortcuts of the matched rows (counted; kept in `alternate_keys`).
     pub alternates: usize,
+    /// Command id → the matched row's other keys (normalised, without the main key in `set`),
+    /// for every matched row: a set lists each command's whole binding, so an empty list
+    /// means the command has no alternates in it.
+    pub alternate_keys: BTreeMap<String, Vec<String>>,
 }
 
 /// One command a row may match: its id, its label and its default shortcut.
@@ -141,6 +146,13 @@ pub fn plan(candidates: impl IntoIterator<Item = Candidate>, set: &KysSet) -> Pl
             // (Zoom In is "Cmd++" then "Cmd+=" in Photoshop; ours is Cmd+=).
             let default = default.as_deref().and_then(normalize_shortcut);
             let sc = default.filter(|d| imported.contains(d)).unwrap_or(sc);
+            let mut rest: Vec<String> = Vec::new();
+            for k in imported {
+                if k != sc && !rest.contains(&k) && rest.len() < crate::prefs::MAX_ALTERNATES {
+                    rest.push(k);
+                }
+            }
+            plan.alternate_keys.insert(id.clone(), rest);
             plan.set.insert(id.clone(), sc);
         }
     }
@@ -179,6 +191,18 @@ mod tests {
         assert_eq!(p.unknown, ["Hide Photoshop"]);
         assert_eq!(p.unreadable, ["Odd"]);
         assert_eq!(p.alternates, 1);
+        // #3665: the row's second key is kept as the command's alternate, not dropped.
+        assert_eq!(p.alternate_keys.get("edit.undo"), Some(&vec!["F1".to_string()]));
+        assert_eq!(p.alternate_keys.get("image.levels"), Some(&Vec::new()));
+    }
+
+    #[test]
+    fn a_row_with_the_default_and_a_function_key_keeps_both() {
+        let xml =
+            "<photoshop-keyboard-shortcuts><command name=\"Copy\"><shortcut>F3</shortcut><shortcut>Cmd+C</shortcut></command></photoshop-keyboard-shortcuts>";
+        let p = plan([c("edit.copy", "Copy", Some("Cmd+C"))], &parse(xml).unwrap());
+        assert_eq!(p.set.get("edit.copy").map(String::as_str), Some("Cmd+C"));
+        assert_eq!(p.alternate_keys.get("edit.copy"), Some(&vec!["F3".to_string()]));
     }
 
     #[test]
