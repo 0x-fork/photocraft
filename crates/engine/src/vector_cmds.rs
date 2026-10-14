@@ -412,13 +412,19 @@ fn live_from_params(cmd: &str, kind: &str, p: &Value, prev: Option<&LiveShape>) 
         }
         "ellipse" => LiveShape::Ellipse { rect: rect()? },
         "polygon" | "star" => {
-            let (ps, pr) = match prev {
-                Some(LiveShape::Polygon { sides, star_ratio, .. }) => (*sides, *star_ratio),
-                _ => (5, if kind == "star" { 0.5 } else { 1.0 }),
+            let (ps, pr, pc) = match prev {
+                Some(LiveShape::Polygon { sides, star_ratio, corner_radius, .. }) => (*sides, *star_ratio, *corner_radius),
+                _ => (5, if kind == "star" { 0.5 } else { 1.0 }, 0.0),
             };
+            let corner_radius = f64p(p, "cornerRadius").map_or(pc, |v| if v.is_finite() { v.clamp(0.0, 1.0e6) } else { pc });
             let sides = f64p(p, "sides").map_or(ps, |v| v.round().clamp(3.0, 100.0) as u32);
             let ratio = f64p(p, "starRatio").map_or(if kind == "star" && pr >= 1.0 { 0.5 } else { pr }, |v| v.clamp(0.01, 1.0));
-            LiveShape::Polygon { rect: rect()?, sides, star_ratio: if kind == "polygon" && f64p(p, "starRatio").is_none() { 1.0 } else { ratio } }
+            LiveShape::Polygon {
+                rect: rect()?,
+                sides,
+                star_ratio: if kind == "polygon" && f64p(p, "starRatio").is_none() { 1.0 } else { ratio },
+                corner_radius,
+            }
         }
         "line" => {
             let (pf, pto, pw) = match prev {
@@ -510,7 +516,9 @@ pub fn transform_shape(sh: &mut ShapeLayer, a: &Affine) {
                     LiveShape::Rect { rect: r(rect), radii: radii.map(|v| v * k) }
                 }
                 LiveShape::Ellipse { rect } => LiveShape::Ellipse { rect: r(rect) },
-                LiveShape::Polygon { rect, sides, star_ratio } => LiveShape::Polygon { rect: r(rect), sides, star_ratio },
+                LiveShape::Polygon { rect, sides, star_ratio, corner_radius } => {
+                    LiveShape::Polygon { rect: r(rect), sides, star_ratio, corner_radius: corner_radius * m0.min(m3) }
+                }
                 LiveShape::Line { from, to, weight } => {
                     // Live-shape edits regenerate the line's filled bar from its parameters.
                     // Keep the weight in sync with a positive scale of the path, or an
@@ -704,7 +712,7 @@ fn shape_edit(s: &mut Session, p: &Value) -> Result<Value> {
             sh.live = None;
             sh.psd_raw = None;
         }
-        let geom_keys = ["kind", "rect", "radii", "radius", "sides", "starRatio", "from", "to", "weight"];
+        let geom_keys = ["kind", "rect", "radii", "radius", "sides", "starRatio", "cornerRadius", "from", "to", "weight"];
         if geom_keys.iter().any(|k| p.get(*k).is_some()) {
             let kind = p.get("kind").and_then(Value::as_str).map(str::to_string).or_else(|| sh.live.as_ref().map(|l| live_kind(l).to_string()));
             let kind = kind.ok_or_else(|| bad(CMD, "this shape has no live-shape parameters; pass `kind` or `path`"))?;
@@ -1683,7 +1691,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "New Shape Layer",
             ["Layer", "New"],
             leak(format!(
-                r##"{{"kind":"rect|roundedRect|ellipse|polygon|star|line|path"="rect","rect":[x,y,w,h] (rect/roundedRect/ellipse/polygon/star),"radii":[tl,tr,br,bl]|r (roundedRect=10),"sides":3..100=5,"starRatio":0..1 (star=0.5),"from":[x,y],"to":[x,y],"weight":px=1 (line),"path":{{…}} (kind path),{fill}=foreground,{stroke}=none,"name":str?,"addTo":layerId? + "op":"combine|subtract|intersect|exclude" (append to an existing shape layer)}} → shape.info. {PATH_FORM}"##
+                r##"{{"kind":"rect|roundedRect|ellipse|polygon|star|line|path"="rect","rect":[x,y,w,h] (rect/roundedRect/ellipse/polygon/star),"radii":[tl,tr,br,bl]|r (roundedRect=10),"sides":3..100=5,"starRatio":0..1 (star=0.5),"cornerRadius":px=0 (polygon/star: rounds every vertex; the Triangle tool is a 3-sided polygon),"from":[x,y],"to":[x,y],"weight":px=1 (line),"path":{{…}} (kind path),{fill}=foreground,{stroke}=none,"name":str?,"addTo":layerId? + "op":"combine|subtract|intersect|exclude" (append to an existing shape layer)}} → shape.info. {PATH_FORM}"##
             )),
             has_doc,
             shape_create
@@ -1693,7 +1701,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Edit Shape",
             [],
             leak(format!(
-                r##"{{"layer":id?,"path":{{…}}? (replaces; drops live shape),"kind":str?,"rect":[x,y,w,h]?,"radii":[tl,tr,br,bl]|r?,"sides":n?,"starRatio":r?,"from":[x,y]?,"to":[x,y]?,"weight":px? (live-shape params regenerate the path),"move":[dx,dy]?,"transform":[a,b,c,d,e,f]?,"op":"combine|…"? + "subpath":index? (default all but the first),"fillRule":"nonzero|evenodd"?,{fill}?,{stroke}? (merged into the current stroke),"name":str?}} → shape.info"##
+                r##"{{"layer":id?,"path":{{…}}? (replaces; drops live shape),"kind":str?,"rect":[x,y,w,h]?,"radii":[tl,tr,br,bl]|r?,"sides":n?,"starRatio":r?,"cornerRadius":px?,"from":[x,y]?,"to":[x,y]?,"weight":px? (live-shape params regenerate the path),"move":[dx,dy]?,"transform":[a,b,c,d,e,f]?,"op":"combine|…"? + "subpath":index? (default all but the first),"fillRule":"nonzero|evenodd"?,{fill}?,{stroke}? (merged into the current stroke),"name":str?}} → shape.info"##
             )),
             has_layer,
             shape_edit

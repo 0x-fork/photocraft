@@ -948,3 +948,35 @@ fn combine_shapes_fails_gracefully() {
     assert!(s.execute("layer.combineShapes.unite", json!({})).is_err());
     assert_eq!(*doc(&s), before);
 }
+
+#[test]
+fn triangles_and_polygons_take_a_corner_radius_kept_through_edits_and_scaling() {
+    let mut s = session(200, 200, 8);
+    let r = s.execute("shape.create", json!({"kind": "polygon", "rect": [20, 20, 120, 120], "sides": 3, "cornerRadius": 12})).unwrap();
+    let id = r["layer"].as_u64().unwrap();
+    let live = |s: &Session| match &s.active().unwrap().doc.layer(LayerId(id)).unwrap().content {
+        LayerContent::Shape(sh) => sh.live.clone(),
+        _ => None,
+    };
+    let path_len = |s: &Session| match &s.active().unwrap().doc.layer(LayerId(id)).unwrap().content {
+        LayerContent::Shape(sh) => sh.path.subpaths[0].knots.len(),
+        _ => 0,
+    };
+    assert!(matches!(live(&s), Some(LiveShape::Polygon { sides: 3, corner_radius, .. }) if corner_radius == 12.0));
+    assert_eq!(path_len(&s), 6, "every vertex rounded");
+    // Other edits keep the radius; a radius edit regenerates the path; 0 makes it sharp again.
+    s.execute("shape.edit", json!({"layer": id, "sides": 6})).unwrap();
+    assert!(matches!(live(&s), Some(LiveShape::Polygon { sides: 6, corner_radius, .. }) if corner_radius == 12.0));
+    assert_eq!(path_len(&s), 12);
+    s.execute("shape.edit", json!({"layer": id, "cornerRadius": 0})).unwrap();
+    assert_eq!(path_len(&s), 6);
+    // Hostile values never panic: negative and non-finite radii are clamped or ignored.
+    for bad in [json!(-5), json!(1e300), json!("x")] {
+        let _ = s.execute("shape.edit", json!({"layer": id, "cornerRadius": bad}));
+    }
+    assert!(matches!(live(&s), Some(LiveShape::Polygon { corner_radius, .. }) if corner_radius.is_finite() && corner_radius >= 0.0));
+    // Scaling the layer by half halves the radius, as for a rectangle's radii.
+    s.execute("shape.edit", json!({"layer": id, "cornerRadius": 10})).unwrap();
+    s.execute("shape.edit", json!({"layer": id, "transform": [0.5, 0, 0, 0.5, 0, 0]})).unwrap();
+    assert!(matches!(live(&s), Some(LiveShape::Polygon { corner_radius, .. }) if (corner_radius - 5.0).abs() < 1e-9));
+}
