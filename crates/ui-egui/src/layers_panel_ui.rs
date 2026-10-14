@@ -1,8 +1,7 @@
 //! Layers panel flyout and display preferences, observed from Photoshop's panel menu.
 //! UI options do not edit document pixels or add history steps.
 use egui::{self, Context, Ui};
-use photocraft_doc::{Document, Layer};
-use photocraft_geom::Rect;
+use photocraft_doc::Document;
 use serde_json::json;
 
 use crate::PhotocraftApp;
@@ -40,18 +39,22 @@ pub fn run_menu_command(app: &mut PhotocraftApp, ui: &mut Ui, label: &str, id: &
     }
 }
 
-/// Layer Bounds excludes fully transparent pixels and retains the layer's aspect ratio;
-/// fully blank/non-raster layers fall back to document space.
-pub fn thumbnail_region(app: &mut PhotocraftApp, doc: &Document, layer: &Layer, mode: LayerThumbnailContents) -> Rect {
-    if mode == LayerThumbnailContents::LayerBounds
-        && let Some(surface) = layer.surface()
-    {
-        let bounds = app.cached_bounds(layer.id.0, surface).intersect(&doc.bounds());
-        if !bounds.is_empty() {
-            return bounds;
-        }
+/// Thumbnail Contents as the shared preference has it: Layer Bounds is Clip Thumbnails to Layer
+/// Bounds (#4281), which frames each layer's pixels instead of the canvas.
+pub fn thumbnail_contents(app: &PhotocraftApp) -> LayerThumbnailContents {
+    if app.session.prefs().interface.clip_thumbnails_to_layer_bounds { LayerThumbnailContents::LayerBounds } else { LayerThumbnailContents::EntireDocument }
+}
+
+/// Panel Options › OK: the panel's own options, and Thumbnail Contents into the shared preference.
+fn apply_options(app: &mut PhotocraftApp, options: LayersPanelOptions) -> Result<(), String> {
+    let contents = options.thumbnail_contents;
+    app.ui.layers_panel_options = options;
+    persist_options(app);
+    if contents == thumbnail_contents(app) {
+        return Ok(());
     }
-    doc.bounds()
+    let clip = contents == LayerThumbnailContents::LayerBounds;
+    app.run("prefs.set", json!({"path": "interface.clipThumbnailsToLayerBounds", "value": clip})).map(|_| ())
 }
 
 /// Preview cache recomputes only when hovering a new target, not each pointer frame.
@@ -308,11 +311,7 @@ pub fn show_dialog(app: &mut PhotocraftApp, ctx: &Context) {
     });
     if confirmed && !cancelled {
         let r = match dialog {
-            LayersPanelDialog::PanelOptions(options) => {
-                app.ui.layers_panel_options = options;
-                persist_options(app);
-                Ok(())
-            }
+            LayersPanelDialog::PanelOptions(options) => apply_options(app, options),
             LayersPanelDialog::NewLayer(name) => {
                 app.run("layer.new.layer", if name.trim().is_empty() { json!({}) } else { json!({"name": name.trim()}) }).map(|_| ())
             }
@@ -348,30 +347,29 @@ mod tests {
         assert!(!options.show_layer_mask_badges);
     }
 
+    /// Thumbnail Contents is the same setting as the panel menu's Clip Thumbnails to Layer Bounds
+    /// (#4281): the dialog shows it and OK sets it, so the two never disagree.
     #[test]
-    fn thumbnail_contents_crop_to_pixels_and_fall_back_for_blank_layers() {
+    fn thumbnail_contents_is_clip_thumbnails_to_layer_bounds() {
         let mut session = photocraft_engine::Session::new();
-        session.execute("file.new", json!({"width": 100, "height": 60})).unwrap();
-        let id = session.execute("layer.new.layer", json!({"name": "mark"})).unwrap()["layer"].as_u64().unwrap();
+        session.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
         let mut app = PhotocraftApp::new(session, crate::Services::default());
-        let doc = app.session.active().unwrap().doc.clone();
-        let layer = doc.layer(photocraft_doc::LayerId(id)).unwrap();
-        let original = thumbnail_region(&mut app, &doc, layer, LayerThumbnailContents::LayerBounds);
-        assert_eq!(original, doc.bounds(), "empty raster layers use document dimensions");
-        app.run("select.rect", json!({"x": 70, "y": 10, "width": 5, "height": 12})).unwrap();
-        app.run("edit.fill", json!({"contents": "color", "color": "#ff0000"})).unwrap();
-        let updated = app.session.active().unwrap().doc.clone();
-        let layer = updated.layer(photocraft_doc::LayerId(id)).unwrap();
-        let cropped = thumbnail_region(&mut app, &updated, layer, LayerThumbnailContents::LayerBounds);
-        assert_eq!(cropped, Rect::new(70, 10, 75, 22));
-        assert_eq!(thumbnail_region(&mut app, &updated, layer, LayerThumbnailContents::EntireDocument), updated.bounds());
+        assert_eq!(thumbnail_contents(&app), LayerThumbnailContents::EntireDocument);
+        let mut options = app.ui.layers_panel_options.clone();
+        options.thumbnail_contents = LayerThumbnailContents::LayerBounds;
+        apply_options(&mut app, options.clone()).unwrap();
+        assert!(app.session.prefs().interface.clip_thumbnails_to_layer_bounds);
+        assert_eq!(thumbnail_contents(&app), LayerThumbnailContents::LayerBounds);
+        assert!(app.session.prefs().dialogs[OPTIONS_PREF].get("thumbnailContents").is_none(), "saved once, in the shared preference");
+        options.thumbnail_contents = LayerThumbnailContents::EntireDocument;
+        apply_options(&mut app, options).unwrap();
+        assert!(!app.session.prefs().interface.clip_thumbnails_to_layer_bounds);
     }
 
     #[test]
     fn options_round_trip_without_a_pending_dialog() {
         let mut ui = crate::state::UiState::default();
         ui.layers_panel_options.thumbnail_size = LayerThumbnailSize::Large;
-        ui.layers_panel_options.thumbnail_contents = LayerThumbnailContents::LayerBounds;
         ui.layers_panel_options.show_filters = false;
         ui.layers_panel_dialog = Some(LayersPanelDialog::NewGroup("test".into()));
         let json = serde_json::to_value(&ui).unwrap();
@@ -388,7 +386,7 @@ mod tests {
         let mut app = PhotocraftApp::new(session, crate::Services::default());
         let saved = LayersPanelOptions {
             thumbnail_size: LayerThumbnailSize::Large,
-            thumbnail_contents: LayerThumbnailContents::LayerBounds,
+            thumbnail_contents: LayerThumbnailContents::EntireDocument,
             show_filters: false,
             expand_new_effects: false,
             add_copy_to_copied_layers_and_groups: false,
