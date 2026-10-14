@@ -2790,3 +2790,6 @@ curves	Smooth	平滑
 # View › Guides › right-click a guide
 	Edit Selected Guides	编辑所选参考线
 	Clear Selected Guides	清除所选参考线
+	Bicubic Automatic	双三次（自动）
+	Bicubic Smoother	双三次（较平滑）
+	Bicubic Sharper	双三次（较锐利）

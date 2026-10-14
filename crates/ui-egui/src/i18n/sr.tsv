@@ -4248,3 +4248,6 @@ shape	Appearance	Izgled
 # View › Guides › right-click a guide
 	Edit Selected Guides	Uredi izabrane vodilje
 	Clear Selected Guides	Ukloni izabrane vodilje
+	Bicubic Automatic	Bikubično automatski
+	Bicubic Smoother	Bikubično glađe
+	Bicubic Sharper	Bikubično oštrije

@@ -3179,3 +3179,6 @@ curves	Smooth	Lisser
 # View › Guides › right-click a guide
 	Edit Selected Guides	Modifier les repères sélectionnés
 	Clear Selected Guides	Effacer les repères sélectionnés
+	Bicubic Automatic	Bicubique automatique
+	Bicubic Smoother	Bicubique plus lisse
+	Bicubic Sharper	Bicubique plus net

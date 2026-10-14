@@ -4094,3 +4094,6 @@ cameraRaw	Yellow	Sárga
 # View › Guides › right-click a guide
 	Edit Selected Guides	Kijelölt segédvonalak szerkesztése
 	Clear Selected Guides	Kijelölt segédvonalak törlése
+	Bicubic Automatic	Automatikus bikubikus
+	Bicubic Smoother	Simább bikubikus
+	Bicubic Sharper	Élesebb bikubikus
