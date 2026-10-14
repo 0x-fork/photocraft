@@ -3142,3 +3142,16 @@ curves	Smooth	Glätten
 	Sent to {printer}	An {printer} gesendet
 	set in Print Settings…	in den Druckeinstellungen festlegen…
 	ICO is limited to 256 × 256 pixels	ICO ist auf 256 × 256 Pixel begrenzt
+# PhotoCraft release checks.
+	Check for Updates…	Nach Updates suchen…
+	PhotoCraft Updates	PhotoCraft-Updates
+	Checking for updates…	Suche nach Updates…
+	Open the release page to choose an installer for your system.	Öffnen Sie die Versionsseite und wählen Sie ein Installationspaket für Ihr System.
+	Open Download Page	Downloadseite öffnen
+	PhotoCraft is up to date.	PhotoCraft ist auf dem neuesten Stand.
+	Could not check for updates.	Updates konnten nicht geprüft werden.
+	Updates have not been checked yet.	Es wurde noch nicht nach Updates gesucht.
+	Check Again	Erneut prüfen
+	Automatically Check for Updates	Automatisch nach Updates suchen
+	Installed version: {version}	Installierte Version: {version}
+	PhotoCraft {version} is available.	PhotoCraft {version} ist verfügbar.

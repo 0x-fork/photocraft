@@ -42,10 +42,10 @@ note = "release.yml:242-283 (freebsd job) + packaging/freebsd/package.sh; layout
 
 [[item]]
 id = "DIST-220-1"
-target = "Help > Check for Updates plus an opt-out periodic release-feed check on all desktops"
-status = "missing"
+target = "Help > Check for Updates plus an opt-out startup release-feed check on all desktops"
+status = "done"
 issue = 220
-note = "No update check in crates"
+note = "2026-10-12: updates_cmds + native HTTPS service; one check per launch, persisted opt-out, non-modal manual status/download page; version, timeout, malformed response and startup tests"
 
 [[item]]
 id = "DIST-220-2"

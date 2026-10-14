@@ -2829,3 +2829,16 @@ curves	Smooth	Suavizar
 	Sent to {printer}	Enviado a {printer}
 	set in Print Settings…	se establece en Ajustes de impresión…
 	ICO is limited to 256 × 256 pixels	ICO está limitado a 256 × 256 píxeles
+# PhotoCraft release checks.
+	Check for Updates…	Buscar actualizaciones…
+	PhotoCraft Updates	Actualizaciones de PhotoCraft
+	Checking for updates…	Buscando actualizaciones…
+	Open the release page to choose an installer for your system.	Abra la página de la versión para elegir un instalador para su sistema.
+	Open Download Page	Abrir página de descarga
+	PhotoCraft is up to date.	PhotoCraft está actualizado.
+	Could not check for updates.	No se pudieron buscar actualizaciones.
+	Updates have not been checked yet.	Aún no se han buscado actualizaciones.
+	Check Again	Comprobar de nuevo
+	Automatically Check for Updates	Buscar actualizaciones automáticamente
+	Installed version: {version}	Versión instalada: {version}
+	PhotoCraft {version} is available.	PhotoCraft {version} está disponible.

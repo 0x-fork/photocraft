@@ -3110,3 +3110,16 @@ curves	Smooth	Сгладить
 	Gray Value (Median)	Уровень серого (медиана)
 	Integrated Density	Интегральная плотность
 	Length	Длина
+# PhotoCraft release checks.
+	Check for Updates…	Проверить обновления…
+	PhotoCraft Updates	Обновления PhotoCraft
+	Checking for updates…	Проверка обновлений…
+	Open the release page to choose an installer for your system.	Откройте страницу выпуска и выберите установщик для своей системы.
+	Open Download Page	Открыть страницу загрузки
+	PhotoCraft is up to date.	Установлена последняя версия PhotoCraft.
+	Could not check for updates.	Не удалось проверить обновления.
+	Updates have not been checked yet.	Обновления ещё не проверялись.
+	Check Again	Проверить снова
+	Automatically Check for Updates	Автоматически проверять обновления
+	Installed version: {version}	Установленная версия: {version}
+	PhotoCraft {version} is available.	Доступна версия PhotoCraft {version}.

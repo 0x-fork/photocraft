@@ -1,6 +1,6 @@
 # PhotoCraft vs Adobe Photoshop: target-app parity
 
-> **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-13 · **Change:** minor (`.atn` import maps 112 events; Free Transform H/V skew fields; stale rows corrected against `main` and the scorecard, estimates unchanged; Photoshop Actions `.atn` load and save; 2026-10-10: Tilt-Shift measurements added; earlier the same day: major, full re-measure against Photoshop 2026 27.11.0; merged `parity-estimate.md` and the roadmap's honest assessment; stale missing-tool rows corrected: Color Replacement and Red Eye are live toolbar tools, Frame landed; percentages unchanged) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-14 · **Change:** minor (native startup/manual release checks; `.atn` import maps 112 events; Free Transform H/V skew fields; stale rows corrected against `main` and the scorecard, estimates unchanged; Photoshop Actions `.atn` load and save; 2026-10-10: Tilt-Shift measurements added; earlier the same day: major, full re-measure against Photoshop 2026 27.11.0; merged `parity-estimate.md` and the roadmap's honest assessment; stale missing-tool rows corrected: Color Replacement and Red Eye are live toolbar tools, Frame landed; percentages unchanged) · **Target:** Adobe Photoshop 2026
 
 The authoritative answer to "how close is PhotoCraft to Photoshop, and how much work is left". The
 one-page summary is [`ROADMAP.md`](../ROADMAP.md); the ranked work list is [`gaps.md`](gaps.md);
@@ -82,7 +82,7 @@ Weights reflect what a working Photoshop user depends on (photographers, retouch
 | Stability | 10% | 45% | 150–250 | Never-crash lints on 28/28 crates, `panic_hunt` in the gate, atomic saves; but field reports of freezes (#2518 Type tool 60 s on macOS), GPU panics (#2020, #1215), no-GPU start failures (#2519, #2412) | [gaps.md](gaps.md) |
 | Hardware | 5% | 50% | 80–150 | GPU compositor (wgpu), pen pressure on all desktops but tilt/rotation not on Windows, Wayland pen broken (#2622), no HDR/EDR output, monitor profile auto-detected on macOS only | [hardware-parity.md](hardware-parity.md) |
 | Localization | 5% | 55% | 80–140 | 7 of the 12 key languages at 100% of measured UI keys; Hindi and Arabic absent, Vietnamese catalog added 2026-10-12 (#2636, coverage not re-measured); no RTL UI; engine messages English | [localization-parity.md](localization-parity.md) |
-| Platforms | 5% | 80% | 30–60 | macOS (notarized), Windows (unsigned), Linux (AppImage/deb/rpm/Flatpak), web, FreeBSD partial; Windows ARM64 is packaged and install-checked by `.github/workflows/windows-arm64.yml` (DIST-220-2); no in-app updates | [scorecard.md](scorecard.md#distribution) |
+| Platforms | 5% | 80% | 30–60 | macOS (notarized), Windows (unsigned), Linux (AppImage/deb/rpm/Flatpak), web, FreeBSD partial; Windows ARM64 is packaged and install-checked by `.github/workflows/windows-arm64.yml` (DIST-220-2); native release checks with opt-out (2026-10-14); no automatic installer | [scorecard.md](scorecard.md#distribution) |
 | Ecosystem (plug-ins, scripting, presets, libraries) | 5% | 15% | 250–450 | No .8BF hosting (#2647), no UXP/ExtendScript; .atn load/save (2026-10-12, 112 events, the rest kept verbatim), .abr/.grd/.pat/.aco/.ase/.cube supported | [gaps.md](gaps.md) |
 | AI features | 5% | 10% | 300–600 | No ML runtime at all (scorecard AUTO-219-7); classical substitutes only. Needs an owner decision and openly licensed models (#41) | [gaps.md](gaps.md) |
 | **Weighted** | 100% | **~46%** | **2,340–4,100** | | |
@@ -565,6 +565,7 @@ See [method, raw measurements and reproduction](five-algorithm-performance.md).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-14 | minor | Implemented native background/manual stable release checks with opt-out and download-page link (DIST-220-1); headline estimates unchanged |
 | 2026-10-13 | minor | Stale "missing tool" rows corrected against main: Color Replacement (`paint.colorReplacement`), Red Eye (`paint.redEye`) and Add/Delete Anchor Point (the Pen flyout) are live toolbar tools and Frame landed, so Art History Brush is the only tool still missing; percentages unchanged |
 | 2026-10-12 | minor | Free Transform options bar H/V skew fields; percentages unchanged |
 | 2026-10-12 | minor | `.atn` import: 112 events mapped (TrueGrit Texture Supply sets play end to end); percentages unchanged |

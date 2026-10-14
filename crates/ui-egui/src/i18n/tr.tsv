@@ -3876,3 +3876,15 @@ cameraData	Lens	Lens
 	Ink Characteristics	Mürekkep Özellikleri
 	Solidity:	Doluluk:
 	Redrawing	Yeniden çiziliyor
+	Check for Updates…	Güncellemeleri Denetle…
+	PhotoCraft Updates	PhotoCraft Güncellemeleri
+	Checking for updates…	Güncellemeler denetleniyor…
+	Open the release page to choose an installer for your system.	Sisteminize uygun yükleyiciyi seçmek için sürüm sayfasını açın.
+	Open Download Page	İndirme Sayfasını Aç
+	PhotoCraft is up to date.	PhotoCraft güncel.
+	Could not check for updates.	Güncellemeler denetlenemedi.
+	Updates have not been checked yet.	Güncellemeler henüz denetlenmedi.
+	Check Again	Yeniden Denetle
+	Automatically Check for Updates	Güncellemeleri Otomatik Denetle
+	Installed version: {version}	Yüklü sürüm: {version}
+	PhotoCraft {version} is available.	PhotoCraft {version} kullanılabilir.

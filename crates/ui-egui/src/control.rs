@@ -131,7 +131,8 @@ pub enum Outcome {
 /// field's value is validated before the first one is applied, so a typo, an unknown field, a
 /// bad value or a bad nested key can't reply with success while nothing — or only half of it —
 /// changed (#412).
-pub const UI_SET_FIELDS: [&str; 35] = [
+pub const UI_SET_FIELDS: [&str; 36] = [
+    "updatesOpen",
     "tool",
     "panels",
     "dock",
@@ -539,6 +540,7 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                 }
                 let panels = merged_object(&app.ui.panels, p.get("panels"), "panels")?;
                 let mask_target = bool_field(p, "maskTarget")?;
+                let updates_open = bool_field(p, "updatesOpen")?;
                 let vector_mask_target = bool_field(p, "vectorMaskTarget")?;
                 let selection_mode = uint_field(p, "selectionMode")?;
                 let dock_tabs = merged_object(&app.ui.dock_tabs, p.get("dockTabs"), "dockTabs")?;
@@ -692,6 +694,9 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                     app.ui.properties_layer = None;
                     app.ui.vector_mask_target &= !m;
                     app.sync_mask_targets();
+                }
+                if let Some(open) = updates_open {
+                    app.ui.updates_open = open;
                 }
                 if let Some(m) = vector_mask_target {
                     app.ui.vector_mask_target = m;
@@ -1310,6 +1315,8 @@ pub fn inspect(app: &PhotocraftApp, ctx: &egui::Context) -> Value {
         "status": app.ui.status,
         "statusError": app.ui.status_error,
         "notices": app.ui.notices,
+        "updatesOpen": app.ui.updates_open,
+        "updates": {"supported": app.session.updates.check.is_some(), "currentVersion": photocraft_engine::build_info::VERSION, "result": app.session.updates.status},
         "gpuFallbackNotice": app.ui.gpu_fallback_notice,
         "kysOffer": app.ui.kys_offer,
         "frame": app.frame,

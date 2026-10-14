@@ -1026,6 +1026,7 @@ fn humanize(key: &str) -> String {
         "appearanceMode" => return "Appearance Mode".into(),
         "darkTheme" => return "Dark Theme".into(),
         "lightTheme" => return "Light Theme".into(),
+        "automaticallyCheckUpdates" => return "Automatically Check for Updates".into(),
         _ => {}
     }
     // These controls appear only for WebP, so reuse the existing translated labels.

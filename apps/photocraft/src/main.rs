@@ -50,6 +50,7 @@ mod services;
 #[cfg(any(target_os = "macos", target_os = "linux", test))]
 mod tablet;
 mod ui_state;
+mod updates;
 mod window_frame;
 
 use photocraft_engine::Session;
