@@ -5,7 +5,8 @@
 //! As in Photoshop, clicking a swatch sets the foreground colour (and recolours selected type);
 //! Alt- or Ctrl/Cmd-clicking sets the background colour; double-clicking renames it. The
 //! panel menu (the group's "…" button) adds New Swatch, New Group, Import/Replace (`.aco`,
-//! `.ase`), Export (`.aco`) and Export for Exchange (`.ase`) and Reset. Every action is a
+//! `.act`, `.ase`), Export (`.aco`), Export as Color Table (`.act`) and Export for Exchange
+//! (`.ase`) and Reset. Every action is a
 //! `swatches.*` engine command; this module only draws and dispatches. Colours are shown in the
 //! RGB working space through `photocraft-cms` (cached per library revision and colour settings).
 
@@ -149,7 +150,7 @@ fn source(name: &str, bytes: &[u8]) -> Value {
     json!({"data": photocraft_engine::paint::tile::b64_encode(bytes)})
 }
 
-/// Import an `.aco`/`.ase` file's bytes (File › Open, drag and drop, the panel menu).
+/// Import an `.aco`/`.act`/`.ase` file's bytes (File › Open, drag and drop, the panel menu).
 pub fn import_bytes(app: &mut PhotocraftApp, name: &str, bytes: &[u8], replace: bool) -> Result<Value, String> {
     let stem = std::path::Path::new(name).file_stem().map(|s| s.to_string_lossy().to_string()).filter(|s| !s.trim().is_empty());
     let mut p = source(name, bytes);
@@ -220,6 +221,9 @@ pub fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     if ui.add_enabled(!empty, egui::Button::new(tl!("Export Swatches for Exchange…"))).clicked() {
         act = Some("ase");
     }
+    if ui.add_enabled(!empty, egui::Button::new(tl!("Export Swatches as Color Table…"))).clicked() {
+        act = Some("act");
+    }
     ui.separator();
     if ui.button(tl!("Reset Swatches")).clicked() {
         act = Some("reset");
@@ -237,7 +241,7 @@ pub fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         }
         "import" => import_dialog(app, false),
         "replace" => import_dialog(app, true),
-        "aco" | "ase" => export_dialog(app, a),
+        "aco" | "ase" | "act" => export_dialog(app, a),
         _ => app.run("swatches.reset", json!({})),
     };
     if let Err(e) = r

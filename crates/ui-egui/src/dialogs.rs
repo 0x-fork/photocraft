@@ -344,6 +344,10 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     outcome = Some(true);
                 }
             } else {
+                // The Color Table dialog loads and saves `.act` files, as in Photoshop.
+                if matches!(d.kind, DialogKind::Command) && crate::color_table_ui::owns(&fields) {
+                    crate::color_table_ui::buttons(app, ui, d.id, &fields);
+                }
                 ui.add_space(8.0);
                 // Align::Min, not Center: a centred row fills the height left over from last frame's
                 // (larger) size, so a dialog whose body gets shorter would never shrink back.
