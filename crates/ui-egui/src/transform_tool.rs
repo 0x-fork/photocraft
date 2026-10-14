@@ -1828,11 +1828,11 @@ fn rotation_degrees(quad: [[f64; 2]; 4]) -> f64 {
 /// Where the rotate cursor's arc bends at document point `p`, or `None` outside the rotate zone:
 /// just outside a corner, or anywhere while a rotate drag is on. It points into the box along the
 /// bisector of the nearest corner, so each corner gets its own arrow and they turn with the box.
-pub(crate) fn rotate_cursor_dir(app: &PhotocraftApp, p: [f64; 2]) -> Option<[f64; 2]> {
-    rotate_dir(app.ui.transform.as_ref()?, app.transform_preview.as_ref(), p, handle_tolerance(app))
+pub(crate) fn rotate_cursor_dir(app: &PhotocraftApp, p: [f64; 2], mods: egui::Modifiers) -> Option<[f64; 2]> {
+    rotate_dir(app.ui.transform.as_ref()?, app.transform_preview.as_ref(), p, handle_tolerance(app), mods)
 }
 
-fn rotate_dir(t: &TransformSession, pv: Option<&TransformPreview>, p: [f64; 2], tol: f64) -> Option<[f64; 2]> {
+fn rotate_dir(t: &TransformSession, pv: Option<&TransformPreview>, p: [f64; 2], tol: f64, mods: egui::Modifiers) -> Option<[f64; 2]> {
     // Content-Aware Scale's box only scales, and Skew doesn't rotate: no rotate arrow.
     if !(p[0].is_finite() && p[1].is_finite())
         || t.warp.is_some()
@@ -1842,6 +1842,9 @@ fn rotate_dir(t: &TransformSession, pv: Option<&TransformPreview>, p: [f64; 2], 
         return None;
     }
     let rotating = pv.is_some_and(|pv| pv.gesture.is_some_and(|g| g.hit == Hit::Outside));
+    if !rotating && mods.command {
+        return None;
+    }
     if !rotating && !near_rotate_corner(t, p, tol) {
         return None;
     }
@@ -1858,9 +1861,9 @@ fn rotate_dir(t: &TransformSession, pv: Option<&TransformPreview>, p: [f64; 2], 
     (l.is_finite() && l > 1e-9).then(|| [s[0] / l, s[1] / l])
 }
 
-/// Cursor for hovering a document point while transforming. `quick_split` is Ctrl or Option,
-/// which arms a quick split while a warp is active.
-pub fn cursor(app: &PhotocraftApp, p: [f64; 2], quick_split: bool) -> Option<CursorIcon> {
+/// Cursor for hovering a document point while transforming. `mods` provides modifier keys
+/// (Command for Distort on corners / Skew on edges; Alt/Command for quick split in warp).
+pub fn cursor(app: &PhotocraftApp, p: [f64; 2], mods: egui::Modifiers) -> Option<CursorIcon> {
     let t = app.ui.transform.as_ref()?;
     let tol = handle_tolerance(app);
     if let Some(w) = &t.warp {
@@ -1870,7 +1873,7 @@ pub fn cursor(app: &PhotocraftApp, p: [f64; 2], quick_split: bool) -> Option<Cur
         if let Some(tool) = app.transform_preview.as_ref().and_then(|pv| pv.split_tool) {
             return Some(split_cursor(tool));
         }
-        if quick_split {
+        if mods.alt || mods.command {
             return Some(split_cursor(quick_split_kind(&w.to_mesh(1, 1), w.bounds, p)));
         }
         if w.style != WarpStyle::Custom || warp_hit(w, p, tol).is_some() {
@@ -1878,23 +1881,79 @@ pub fn cursor(app: &PhotocraftApp, p: [f64; 2], quick_split: bool) -> Option<Cur
         }
         return Some(if w.mesh.as_ref().and_then(|m| surface_at(m, p)).is_some() { CursorIcon::Grab } else { CursorIcon::Default });
     }
-    let h = hit(t, p, tol);
+    let active_hit = app.transform_preview.as_ref().and_then(|pv| pv.gesture.map(|g| g.hit));
+    let h = active_hit.unwrap_or_else(|| hit(t, p, tol));
     if !mode_allows(t.mode, h) || (t.content_aware.is_some() && h == Hit::Outside) {
         return Some(CursorIcon::Default);
     }
-    if rotate_cursor_dir(app, p).is_some() {
+    if rotate_cursor_dir(app, p, mods).is_some() {
         // The overlay draws the curved rotate arrow (`rotate_cursor_dir`), also during the drag.
         return Some(CursorIcon::None);
     }
+    let distort_armed = (mods.command || t.mode == TransformMode::Distort) && !distort_refused(app, t) && t.content_aware.is_none();
+    let skew_armed = (mods.command || t.mode == TransformMode::Skew) && t.content_aware.is_none();
+
     Some(match h {
+        Hit::Corner(_) if distort_armed => CursorIcon::None,
         Hit::Corner(0 | 2) => CursorIcon::ResizeNwSe,
         Hit::Corner(_) => CursorIcon::ResizeNeSw,
+        Hit::Edge(_) if skew_armed => CursorIcon::None,
         Hit::Edge(0 | 2) => CursorIcon::ResizeVertical,
         Hit::Edge(_) => CursorIcon::ResizeHorizontal,
         Hit::Pivot => CursorIcon::Crosshair,
         Hit::Inside => CursorIcon::Move,
         Hit::Outside => CursorIcon::Alias,
     })
+}
+
+/// Draws the Free Distort cursor at `at`: a high-contrast vector pointer pointing toward
+/// or outward through the corner, with shadow outline for contrast on any canvas background.
+pub fn draw_distort_cursor(ctx: &egui::Context, at: Pos2, toward: egui::Vec2) {
+    let len = toward.length();
+    let u = if len.is_finite() && len > 1e-6 { toward / len } else { vec2(-1.0, -1.0).normalized() };
+    let perp = vec2(-u.y, u.x);
+    let tokens = crate::theme::Tokens::get(ctx);
+    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("transform-distort-cursor")));
+
+    // An arrowhead dart pointing along `u` with tip at `at`.
+    let tip = at;
+    const LENGTH: f32 = 16.0;
+    const HALF_WIDTH: f32 = 7.0;
+    let base = tip - u * LENGTH;
+    let left = base + perp * HALF_WIDTH;
+    let right = base - perp * HALF_WIDTH;
+    let notch = tip - u * (LENGTH * 0.65);
+
+    // Convex decomposition: two triangles meeting along [tip, notch].
+    painter.add(egui::Shape::convex_polygon(vec![tip, left, notch], tokens.accent_text, Stroke::NONE));
+    painter.add(egui::Shape::convex_polygon(vec![tip, notch, right], tokens.accent_text, Stroke::NONE));
+    painter.add(egui::Shape::closed_line(vec![tip, left, notch, right], Stroke::new(1.5, tokens.shadow)));
+}
+
+/// Draws the Skew cursor at `at`: opposing parallel arrows aligned with the edge tangent `tangent`.
+pub fn draw_skew_cursor(ctx: &egui::Context, at: Pos2, tangent: egui::Vec2) {
+    let len = tangent.length();
+    let u = if len.is_finite() && len > 1e-6 { tangent / len } else { vec2(1.0, 0.0) };
+    let perp = vec2(-u.y, u.x);
+    let tokens = crate::theme::Tokens::get(ctx);
+    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("transform-skew-cursor")));
+
+    for (offset, dir) in [(4.0f32, 1.0f32), (-4.0f32, -1.0f32)] {
+        let center = at + perp * offset;
+        let p_start = center - u * (dir * 9.0);
+        let p_end = center + u * (dir * 9.0);
+        painter.line_segment([p_start, p_end], Stroke::new(3.5, tokens.shadow));
+        painter.line_segment([p_start, p_end], Stroke::new(1.5, tokens.accent_text));
+
+        let tip = p_end + u * (dir * 3.5);
+        let wing1 = p_end - u * (dir * 2.5) + perp * 3.5;
+        let wing2 = p_end - u * (dir * 2.5) - perp * 3.5;
+        painter.add(egui::Shape::convex_polygon(
+            vec![tip, wing1, wing2],
+            tokens.accent_text,
+            Stroke::new(1.0, tokens.shadow),
+        ));
+    }
 }
 
 /// Warped preview of the moving pixels plus the box, handles and reference point.
@@ -1968,10 +2027,30 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
     painter.circle_stroke(c, 5.0, Stroke::new(0.5, Color32::BLACK));
     painter.line_segment([c - vec2(8.0, 0.0), c + vec2(8.0, 0.0)], Stroke::new(1.0, Color32::WHITE));
     painter.line_segment([c - vec2(0.0, 8.0), c + vec2(0.0, 8.0)], Stroke::new(1.0, Color32::WHITE));
-    if let Some(at) = painter.ctx().pointer_hover_pos().filter(|p| xf.rect.contains(*p)) {
+    if let Some(at) = painter.ctx().input(|i| i.pointer.interact_pos().or(i.pointer.hover_pos())).filter(|p| xf.rect.contains(*p)) {
         let p = xf.to_doc(at);
         let tol = HANDLE_PX / f64::from(xf.zoom.max(0.01));
-        if let Some(k) = rotate_dir(t, Some(pv), p, tol) {
+        let mods = crate::workspace_ui::sticky_mods(app, painter.ctx().input(|i| i.modifiers));
+        let active_hit = pv.gesture.map(|g| g.hit);
+        let h = active_hit.unwrap_or_else(|| hit(t, p, tol));
+        let distort_armed = (mods.command || t.mode == TransformMode::Distort) && !distort_refused(app, t) && t.content_aware.is_none();
+        let skew_armed = (mods.command || t.mode == TransformMode::Skew) && t.content_aware.is_none();
+
+        if let Hit::Corner(i) = h
+            && distort_armed
+        {
+            let corner_scr = scr(t.quad[i]);
+            let pivot_scr = scr(t.pivot);
+            let toward = corner_scr - pivot_scr;
+            draw_distort_cursor(painter.ctx(), at, toward);
+        } else if let Hit::Edge(i) = h
+            && skew_armed
+        {
+            let a_scr = scr(t.quad[i]);
+            let b_scr = scr(t.quad[(i + 1) % 4]);
+            let tangent = b_scr - a_scr;
+            draw_skew_cursor(painter.ctx(), at, tangent);
+        } else if let Some(k) = rotate_dir(t, Some(pv), p, tol, mods) {
             // Through the view, so the arc bends round the corner as it shows under a turned or
             // flipped view.
             let toward = xf.to_screen((p[0] + k[0] * 16.0) as f32, (p[1] + k[1] * 16.0) as f32) - at;
@@ -3688,13 +3767,13 @@ mod tests {
         let tol = handle_tolerance(&app);
         let h = std::f64::consts::FRAC_1_SQRT_2;
         let (tl, br) = ([32.0 - tol * 1.5, 32.0 - tol * 1.5], [160.0 + tol * 1.5, 160.0 + tol * 1.5]);
-        assert_eq!(cursor(&app, tl, false), Some(CursorIcon::None), "the arrow is drawn instead");
-        assert!(near2(rotate_cursor_dir(&app, tl), [h, h]), "{:?}", rotate_cursor_dir(&app, tl));
-        assert!(near2(rotate_cursor_dir(&app, br), [-h, -h]), "bends round the bottom-right corner");
-        assert_eq!(cursor(&app, [60.0, 60.0], false), Some(CursorIcon::Move));
-        assert_eq!(rotate_cursor_dir(&app, [60.0, 60.0]), None, "inside moves");
-        assert_eq!(rotate_cursor_dir(&app, [32.0, 32.0]), None, "the corner handle scales");
-        assert_eq!(rotate_cursor_dir(&app, [f64::NAN, 32.0]), None);
+        assert_eq!(cursor(&app, tl, egui::Modifiers::NONE), Some(CursorIcon::None), "the arrow is drawn instead");
+        assert!(near2(rotate_cursor_dir(&app, tl, egui::Modifiers::NONE), [h, h]), "{:?}", rotate_cursor_dir(&app, tl, egui::Modifiers::NONE));
+        assert!(near2(rotate_cursor_dir(&app, br, egui::Modifiers::NONE), [-h, -h]), "bends round the bottom-right corner");
+        assert_eq!(cursor(&app, [60.0, 60.0], egui::Modifiers::NONE), Some(CursorIcon::Move));
+        assert_eq!(rotate_cursor_dir(&app, [60.0, 60.0], egui::Modifiers::NONE), None, "inside moves");
+        assert_eq!(rotate_cursor_dir(&app, [32.0, 32.0], egui::Modifiers::NONE), None, "the corner handle scales");
+        assert_eq!(rotate_cursor_dir(&app, [f64::NAN, 32.0], egui::Modifiers::NONE), None);
     }
 
     /// #1767: the readout beside the pointer during a drag (Photoshop's transformation values):
@@ -4475,5 +4554,84 @@ mod tests {
         let st = app.session.active().unwrap();
         assert!(matches!(&st.doc.layer(st.active_layer.unwrap()).unwrap().content, LayerContent::Text(t) if t.warp.is_none()));
         assert_eq!(past(&app), before + 2);
+    }
+
+    #[test]
+    fn hovering_corner_with_ctrl_shows_distort_cursor() {
+        let mut app = app_with_square(256, photocraft_geom::Rect::new(32, 32, 160, 160));
+        crate::menus::invoke(&mut app, &egui::Context::default(), "edit.freeTransform", json!({})).unwrap();
+        let tol = handle_tolerance(&app);
+        let corner = [32.0, 32.0];
+        let mut command = egui::Modifiers::NONE;
+        command.command = true;
+
+        // Without Ctrl: corner handle gives standard diagonal scale cursor.
+        assert_eq!(cursor(&app, corner, egui::Modifiers::NONE), Some(CursorIcon::ResizeNwSe));
+
+        // With Ctrl: corner handle arms free distort, hiding OS cursor so custom pointer is drawn.
+        assert_eq!(cursor(&app, corner, command), Some(CursorIcon::None));
+
+        // Holding Ctrl suppresses rotation around corners.
+        let near_corner = [32.0 - tol * 1.5, 32.0 - tol * 1.5];
+        assert_eq!(rotate_cursor_dir(&app, near_corner, command), None);
+        assert!(rotate_cursor_dir(&app, near_corner, egui::Modifiers::NONE).is_some());
+    }
+
+    #[test]
+    fn hovering_edge_with_ctrl_shows_skew_cursor() {
+        let mut app = app_with_square(256, photocraft_geom::Rect::new(32, 32, 160, 160));
+        crate::menus::invoke(&mut app, &egui::Context::default(), "edit.freeTransform", json!({})).unwrap();
+        let edge = [96.0, 32.0]; // top edge midpoint
+        let mut command = egui::Modifiers::NONE;
+        command.command = true;
+
+        // Without Ctrl: edge handle gives axis resize cursor.
+        assert_eq!(cursor(&app, edge, egui::Modifiers::NONE), Some(CursorIcon::ResizeVertical));
+
+        // With Ctrl: edge handle arms skew, hiding OS cursor so custom skew indicator is drawn.
+        assert_eq!(cursor(&app, edge, command), Some(CursorIcon::None));
+    }
+
+    #[test]
+    fn hovering_corner_on_text_layer_with_ctrl_retains_resize_cursor() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.execute("file.new", json!({"width": 200, "height": 100})).unwrap();
+        app.sync_views();
+        app.run("type.create", json!({"x": 10, "y": 60, "text": "Hello"})).unwrap();
+        let ctx = egui::Context::default();
+        crate::menus::invoke(&mut app, &ctx, "edit.freeTransform", json!({})).unwrap();
+
+        let t = app.ui.transform.as_ref().unwrap();
+        let corner = t.quad[0];
+        let mut command = egui::Modifiers::NONE;
+        command.command = true;
+
+        // Editable type refuses distort, so holding Ctrl retains standard resize cursor on corners.
+        let c = cursor(&app, corner, command);
+        assert!(
+            matches!(c, Some(CursorIcon::ResizeNwSe | CursorIcon::ResizeNeSw)),
+            "text layer must retain resize cursor, got: {:?}",
+            c
+        );
+    }
+
+    #[test]
+    fn cursor_during_drag_stays_stable() {
+        let mut app = app_with_square(256, photocraft_geom::Rect::new(32, 32, 160, 160));
+        app.ui.extras.snap = false;
+        crate::menus::invoke(&mut app, &egui::Context::default(), "edit.freeTransform", json!({})).unwrap();
+        let mut command = egui::Modifiers::NONE;
+        command.command = true;
+
+        // Start dragging corner [32.0, 32.0] with Command held.
+        crate::canvas::tool_event(&mut app, ToolEvent::Down { x: 32.0, y: 32.0, pressure: 1.0 }, command);
+        crate::canvas::tool_event(&mut app, ToolEvent::Move { x: 50.0, y: 60.0, pressure: 1.0 }, command);
+
+        // While dragging, cursor anywhere stays CursorIcon::None (distort custom cursor).
+        assert_eq!(cursor(&app, [50.0, 60.0], command), Some(CursorIcon::None));
+        assert_eq!(cursor(&app, [200.0, 200.0], command), Some(CursorIcon::None));
+
+        // Release drag
+        crate::canvas::tool_event(&mut app, ToolEvent::Up { x: 50.0, y: 60.0 }, command);
     }
 }
