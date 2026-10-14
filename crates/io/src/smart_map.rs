@@ -1046,7 +1046,7 @@ mod tests {
         // Unscaled, it opens as PhotoCraft's Wave (Triangle, the other settings as stored).
         let mut unscaled = match item.get("Fltr") {
             Some(Value::Descriptor(d)) => d.clone(),
-            _ => unreachable!(),
+            other => panic!("wave: no Fltr ({other:?})"),
         };
         set(&mut unscaled, "SclV", Value::Integer(100));
         let f = filter_from_item(&photoshop_item(unscaled.clone()));
