@@ -1191,6 +1191,8 @@ impl PhotocraftApp {
         // ... and to the document it was started on.
         crate::canvas::polygon_cancel_stale(self);
         crate::crop_ui::cancel_stale(self);
+        // A pen path under construction belongs to the document it was started on too.
+        vector_ui::cancel_stale(self);
         let ids: Vec<DocId> = self.session.documents().iter().map(|d| d.doc.id).collect();
         // Where the document of view `i` is now. Views not tracked yet keep their index.
         let now = |i: usize| match self.view_docs.get(i) {

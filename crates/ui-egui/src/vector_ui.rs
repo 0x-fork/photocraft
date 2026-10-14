@@ -223,6 +223,9 @@ pub fn closes_path_at(app: &PhotocraftApp, tool: Tool, x: f64, y: f64) -> bool {
 /// lands on the nearest 45° ray from the previous one, at the pointer's projection onto it.
 pub fn pen_down(app: &mut PhotocraftApp, x: f64, y: f64, shift: bool) {
     let tol = 6.0 / app.point_zoom().max(0.01) as f64;
+    if app.ui.pen.is_none() {
+        app.ui.pen_doc = app.session.active().map(|st| st.doc.id);
+    }
     let pen = app.ui.pen.get_or_insert_with(PenPath::default);
     if let Some(first) = pen.knots.first().map(|k| k[0])
         && on_closing_anchor(pen, x, y, tol)
@@ -423,8 +426,26 @@ pub(crate) fn pen_replace(app: &mut PhotocraftApp, path: &Path) {
     }
 }
 
+/// The path in progress belongs to the document it was started on (`UiState::pen_doc`): once
+/// another document becomes active it is dropped, so it doesn't show on (or get committed to) the
+/// other document. Switching tools is handled in `PhotocraftApp::logic`, which commits the path
+/// to its own document. Like the Polygonal Lasso's ([`crate::canvas::polygon_cancel_stale`]) and
+/// the Crop tool's ([`crate::crop_ui::cancel_stale`]).
+pub fn cancel_stale(app: &mut PhotocraftApp) {
+    let active = app.session.active().map(|st| st.doc.id);
+    if app.ui.pen.is_none() {
+        app.ui.pen_doc = None;
+    } else if app.ui.pen_doc.is_some_and(|d| Some(d) != active) {
+        app.ui.pen = None;
+        app.ui.pen_doc = None;
+    }
+}
+
 /// Finish the pen path: a work path (Path mode) or a new shape layer (Shape mode).
 pub fn pen_commit(app: &mut PhotocraftApp, closed: bool) {
+    // The control channel is drained after `sync_views`, so a document switch in this frame has
+    // not been seen yet: never commit the path into the document it was not drawn on.
+    cancel_stale(app);
     let Some(mut pen) = app.ui.pen.take() else { return };
     if app.ui.direct_selection.target == Some(crate::direct_select::PathRef::Pen) {
         // Its anchors are no longer the Pen's: the committed path is another path.
@@ -599,6 +620,9 @@ pub fn curvature_down(app: &mut PhotocraftApp, x: f64, y: f64) {
     if hit == Some(0) && app.ui.pen.as_ref().is_some_and(|p| p.knots.len() >= 3) {
         pen_commit(app, true);
         return;
+    }
+    if app.ui.pen.is_none() {
+        app.ui.pen_doc = app.session.active().map(|st| st.doc.id);
     }
     let pen = app.ui.pen.get_or_insert_with(|| PenPath { curvature: true, ..Default::default() });
     if hit.is_none() {
@@ -2236,6 +2260,39 @@ mod tests {
         let k = app.ui.pen.as_ref().unwrap().knots[2];
         assert!(k.iter().all(|p| *p == [200.0, 100.0]), "{k:?}");
         pen_up(&mut app);
+
+    /// #5373: an unclosed path belongs to the document it was drawn on. File › New opened a blank
+    /// document that showed the first document's path; a document switch between `sync_views` and
+    /// the commit also committed it into the wrong document. Like the Polygonal Lasso's #5015.
+    #[test]
+    fn an_unclosed_path_stays_with_its_document() {
+        let open_path = |app: &mut PhotocraftApp| {
+            app.ui.tool = Tool::Pen;
+            for (x, y) in [(20.0, 20.0), (120.0, 60.0)] {
+                pen_down(app, x, y, false);
+                pen_up(app);
+            }
+        };
+        let work = |app: &PhotocraftApp, i: usize| app.session.documents()[i].doc.work_path.clone();
+        // File › New drops the first document's path instead of carrying it over.
+        let mut app = app();
+        open_path(&mut app);
+        assert!(app.ui.pen.is_some() && app.ui.pen_doc.is_some(), "the path is claimed by its document");
+        app.run("file.new", json!({"width": 300, "height": 150})).unwrap();
+        assert!(app.ui.pen.is_none() && app.ui.pen_doc.is_none(), "the first document's path is gone");
+        assert_eq!(work(&app, 1), None, "the new document is blank");
+        // The control channel is drained after `sync_views`, so a switch in the same frame reaches
+        // the commit unseen: it must not write the path into the other document.
+        open_path(&mut app);
+        assert!(app.session.set_active(0));
+        pen_commit(&mut app, false);
+        assert!(app.ui.pen.is_none());
+        assert_eq!((work(&app, 0), work(&app, 1)), (None, None), "neither document took it");
+        // Staying on its own document, the path still commits there.
+        open_path(&mut app);
+        pen_commit(&mut app, false);
+        assert!(work(&app, 0).is_some(), "it commits to the document it was drawn on");
+        assert_eq!(work(&app, 1), None);
     }
 
     /// #4721: a second Pen path joins the Work Path it was drawn after (still selected), as a new
