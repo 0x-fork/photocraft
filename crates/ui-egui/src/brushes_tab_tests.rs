@@ -8,6 +8,50 @@ use egui_kittest::kittest::{NodeT, Queryable};
 use super::*;
 
 #[test]
+fn dragging_a_brush_shows_its_tip_preview() {
+    for theme in crate::theme::ThemeKind::ALL {
+        for mode in 0..3 {
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+            app.run("prefs.set", json!({"path": "interface.theme", "value": theme.id()})).unwrap();
+            app.ui.panels.brush_settings = mode != 2;
+            app.ui.brush_tab = 1;
+            app.ui.brushes_panel.view = if mode == 1 { BrushesView::Grid } else { BrushesView::List };
+            if mode == 2 {
+                app.ui.brush_picker = Some([300.0, 120.0]);
+            }
+            let name = app.session.tools.presets[0].name.clone();
+            let brush = app.session.tools.brush.clone();
+            let presets = app.session.tools.presets.clone();
+            let mut h = Harness::builder().with_size(vec2(1200.0, 900.0)).build_eframe(move |cc| {
+                PhotocraftApp::setup_context(&cc.egui_ctx, theme);
+                app
+            });
+            h.run_steps(4);
+            let start = h.get_by_role_and_label(Role::Button, &name).rect().center();
+            h.hover_at(start);
+            h.run_steps(1);
+            h.event(egui::Event::PointerButton { pos: start, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
+            h.run_steps(1);
+            let end = start + vec2(50.0, 10.0);
+            h.event(egui::Event::PointerMoved(end));
+            h.run_steps(4);
+            assert!(matches!(egui::DragAndDrop::payload::<BrushDrag>(&h.ctx).as_deref(), Some(BrushDrag::Preset(n)) if n == &name));
+            assert!(h.query_by_role_and_label(Role::Image, &name).is_some(), "dragged brush needs a real tip thumbnail, not only its name");
+            let renders = brush_preview::render_count(&h.ctx);
+            h.run_steps(2);
+            assert_eq!(brush_preview::render_count(&h.ctx), renders, "unchanged drag preview stays cached");
+            h.event(egui::Event::PointerMoved(start));
+            h.run_steps(1);
+            h.event(egui::Event::PointerButton { pos: start, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
+            h.run_steps(4);
+            assert!(h.query_by_role_and_label(Role::Image, &name).is_none(), "preview disappears on release");
+            assert_eq!(h.state().session.tools.brush, brush, "preview does not change brush settings");
+            assert_eq!(h.state().session.tools.presets, presets, "dropping on the source preserves the library");
+        }
+    }
+}
+
+#[test]
 fn grid_columns_centre_whole_columns_past_the_indent() {
     // 6 × 44 + 5 × 3 = 279 of the 290 past a 4 pt indent: 5 spare on each side (rounded down).
     assert_eq!(grid_columns(294.0, 44.0, 4.0, GRID_GAP), (9.0, 6));
