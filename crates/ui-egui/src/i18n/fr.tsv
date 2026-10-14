@@ -1863,6 +1863,8 @@
 	Camera Raw Defaults	Valeurs par défaut de Camera Raw
 	Canvas border	Bordure du canevas
 	Show canvas dots	Afficher les points du canevas
+	Clip thumbnails to layer bounds	Rogner les vignettes aux limites du calque
+	Clip Thumbnails to Layer Bounds	Rogner les vignettes aux limites du calque
 	Canvas color	Couleur du canevas
 	Canvas custom color	Couleur personnalisée du canevas
 	Color picker	Sélecteur de couleurs
@@ -2049,7 +2051,8 @@
 	Expand group  ({key}-click: all groups)	Développer le groupe  ({key}-clic : tous les groupes)
 	Fade steps	Étapes d'estompage
 	Hide the layer's effects  ({key}-click: all layers)	Masquer les effets du calque  ({key}-clic : tous les calques)
-	Import Brushes… (.abr)	Importer des pinceaux… (.abr)
+	Import Brushes… (.abr or image)	Importer des pinceaux… (.abr ou image)
+	Import Brush from Image…	Importer un pinceau depuis une image…
 	Move Group Down	Descendre le groupe
 	Move Group Up	Monter le groupe
 	Reset the brush to the defaults	Réinitialiser le pinceau aux valeurs par défaut
@@ -3043,6 +3046,7 @@ cameraData	Lens	Objectif
 	Search settings…	Rechercher des réglages…
 	No matching settings	Aucun réglage correspondant
 	Loading fonts…	Chargement des polices…
+	Response curve	Courbe de réponse
 	Tool	Outil
 	Simulate Pressure	Simuler la pression
 	Stroke Path…	Contourner le tracé…
@@ -3135,6 +3139,8 @@ curves	Smooth	Lisser
 	Action playback stopped	Exécution de l’action arrêtée
 	Step {step} is waiting for its dialog	L’étape {step} attend sa boîte de dialogue
 @plural	{n} action|{n} actions	{n} action|{n} actions
+# Batch / Image Processor
+	Include All Subfolders	Inclure tous les sous-dossiers
 	Auto Add/Delete	Ajout/suppr. auto
 
 # Native Windows printing qualification

@@ -1894,6 +1894,8 @@
 	Camera Raw Defaults	Valores predeterminados de Camera Raw
 	Canvas border	Borde del lienzo
 	Show canvas dots	Mostrar puntos del lienzo
+	Clip thumbnails to layer bounds	Recortar miniaturas a los límites de la capa
+	Clip Thumbnails to Layer Bounds	Recortar miniaturas a los límites de la capa
 	Canvas color	Color del lienzo
 	Canvas custom color	Color personalizado del lienzo
 	Color picker	Selector de color
@@ -2084,7 +2086,8 @@
 	Expand group  ({key}-click: all groups)	Expandir grupo  ({key}-clic: todos los grupos)
 	Fade steps	Pasos de desvanecimiento
 	Hide the layer's effects  ({key}-click: all layers)	Ocultar los efectos de la capa  ({key}-clic: todas las capas)
-	Import Brushes… (.abr)	Importar pinceles… (.abr)
+	Import Brushes… (.abr or image)	Importar pinceles… (.abr o imagen)
+	Import Brush from Image…	Importar pincel desde imagen…
 	Move Group Down	Mover grupo abajo
 	Move Group Up	Mover grupo arriba
 	Reset the brush to the defaults	Restablecer el pincel a los valores predeterminados
@@ -2709,6 +2712,7 @@ cameraData	Lens	Objetivo
 	Search settings…	Buscar ajustes…
 	No matching settings	No hay ajustes que coincidan
 	Loading fonts…	Cargando fuentes…
+	Response curve	Curva de respuesta
 	Tool	Herramienta
 	Simulate Pressure	Simular presión
 	Stroke Path…	Contornear trazado…
@@ -2818,6 +2822,8 @@ curves	Smooth	Suavizar
 	Action playback stopped	Reproducción de la acción detenida
 	Step {step} is waiting for its dialog	El paso {step} está esperando su cuadro de diálogo
 @plural	{n} action|{n} actions	{n} acción|{n} acciones
+# Batch / Image Processor
+	Include All Subfolders	Incluir todas las subcarpetas
 	Auto Add/Delete	Añadir/eliminar automáticamente
 
 # Native Windows printing qualification

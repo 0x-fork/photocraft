@@ -1424,7 +1424,7 @@ mod tests {
         let mut app = app();
         app.ui.tool = Tool::Pen;
         for (x, y) in [(2.0, 2.0), (20.0, 2.0), (20.0, 20.0)] {
-            crate::vector_ui::pen_down(&mut app, x, y);
+            crate::vector_ui::pen_down(&mut app, x, y, false);
             crate::vector_ui::pen_up(&mut app);
         }
         crate::vector_ui::pen_commit(&mut app, true);
@@ -1446,7 +1446,7 @@ mod tests {
         let mut app = app();
         app.ui.tool = Tool::Pen;
         for (x, y) in [(2.0, 2.0), (20.0, 2.0), (20.0, 20.0)] {
-            crate::vector_ui::pen_down(&mut app, x, y);
+            crate::vector_ui::pen_down(&mut app, x, y, false);
             crate::vector_ui::pen_up(&mut app);
         }
         assert!(app.session.active().unwrap().doc.work_path.is_none());
@@ -1586,7 +1586,7 @@ mod tests {
         app.ui.tool = Tool::Pen;
         app.ui.tool_options.vector_mode = "shape".into();
         for (x, y) in [(2.0, 2.0), (20.0, 2.0), (20.0, 20.0)] {
-            crate::vector_ui::pen_down(&mut app, x, y);
+            crate::vector_ui::pen_down(&mut app, x, y, false);
             crate::vector_ui::pen_up(&mut app);
         }
         assert!(open(&mut app, &Context::default(), Tool::Pen, [10.0, 10.0]));

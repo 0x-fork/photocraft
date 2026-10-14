@@ -1857,6 +1857,8 @@
 	Camera Raw Defaults	Default Camera Raw
 	Canvas border	Border kanvas
 	Show canvas dots	Tampilkan titik kanvas
+	Clip thumbnails to layer bounds	Pangkas thumbnail ke batas layer
+	Clip Thumbnails to Layer Bounds	Pangkas Thumbnail ke Batas Layer
 	Canvas color	Warna kanvas
 	Canvas custom color	Warna kustom kanvas
 	Color picker	Pemilih warna
@@ -2043,7 +2045,8 @@
 	Expand group  ({key}-click: all groups)	Bentangkan grup  ({key}-klik: semua grup)
 	Fade steps	Langkah pudar
 	Hide the layer's effects  ({key}-click: all layers)	Sembunyikan efek layer  ({key}-klik: semua layer)
-	Import Brushes… (.abr)	Impor Kuas… (.abr)
+	Import Brushes… (.abr or image)	Impor Kuas… (.abr atau gambar)
+	Import Brush from Image…	Impor Kuas dari Gambar…
 	Move Group Down	Pindah Grup ke Bawah
 	Move Group Up	Pindah Grup ke Atas
 	Reset the brush to the defaults	Reset kuas ke default
@@ -3030,6 +3033,7 @@ cameraData	Lens	Lensa
 	Search settings…	Cari pengaturan…
 	No matching settings	Tidak ada pengaturan yang cocok
 	Loading fonts…	Memuat font…
+	Response curve	Kurva respons
 	Tool	Alat
 	Simulate Pressure	Simulasikan Tekanan
 	Stroke Path…	Stroke Path…
@@ -3122,6 +3126,8 @@ curves	Smooth	Haluskan
 	Action playback stopped	Pemutaran tindakan dihentikan
 	Step {step} is waiting for its dialog	Langkah {step} menunggu dialognya
 @plural	{n} action|{n} actions	{n} tindakan
+# Batch / Image Processor
+	Include All Subfolders	Sertakan semua subfolder
 	Auto Add/Delete	Tambah/Hapus Otomatis
 
 # Native Windows printing qualification

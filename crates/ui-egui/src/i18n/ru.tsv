@@ -1036,6 +1036,8 @@
 	Rename Brush…	Переименовать кисть…
 	Delete Brush	Удалить кисть
 	Import Brushes…	Импортировать кисти…
+	Import Brushes… (.abr or image)	Импортировать кисти… (.abr или изображение)
+	Import Brush from Image…	Импортировать кисть из изображения…
 	Gradient Preset Options	Параметры наборов градиентов
 	Import .GRD	Импортировать .GRD
 	Choose a gradient file (.grd).	Выберите файл градиентов (.grd).
@@ -2302,6 +2304,8 @@
 	Camera Raw Defaults	Значения Camera Raw по умолчанию
 	Canvas border	Рамка холста
 	Show canvas dots	Показывать точки холста
+	Clip thumbnails to layer bounds	Обрезать миниатюры по границам слоя
+	Clip Thumbnails to Layer Bounds	Обрезать миниатюры по границам слоя
 	Canvas color	Цвет холста
 	Canvas custom color	Свой цвет холста
 	Classic	Классическая
@@ -2966,6 +2970,7 @@ cameraData	Lens	Объектив
 	Search settings…	Поиск настроек…
 	No matching settings	Нет подходящих настроек
 	Loading fonts…	Загрузка шрифтов…
+	Response curve	Кривая отклика
 	Tool	Инструмент
 	Simulate Pressure	Имитировать нажим
 	Stroke Path…	Обвести контур…
@@ -3079,6 +3084,8 @@ curves	Smooth	Сгладить
 	Action playback stopped	Воспроизведение операции остановлено
 	Step {step} is waiting for its dialog	Шаг {step} ожидает своего диалога
 @plural	{n} action|{n} actions	{n} операция|{n} операции|{n} операций
+# Batch / Image Processor
+	Include All Subfolders	Включить все вложенные папки
 	Auto Add/Delete	Автодобавление/удаление
 
 # Native Windows printing qualification

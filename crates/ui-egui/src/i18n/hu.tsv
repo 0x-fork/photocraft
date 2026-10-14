@@ -606,6 +606,7 @@
 	HSB/HSL	HSB/HSL
 	Huge	Óriási
 	Image Processor	Képfeldolgozó
+	Include All Subfolders	Az összes almappa belefoglalása
 	Indexed Color…	Indexelt szín…
 	Info	Információ
 	Install Plug-in	Bővítmény telepítése
@@ -3533,6 +3534,8 @@ cameraRaw	Yellow	Sárga
 	shortcut	billentyűparancs
 	Shortcut	Billentyűparancs
 	Show canvas dots	Vászonpontok megjelenítése
+	Clip thumbnails to layer bounds	Bélyegképek levágása a réteg határaira
+	Clip Thumbnails to Layer Bounds	Bélyegképek levágása a réteg határaira
 	Show channels in color	Csatornák megjelenítése színesen
 	Show crosshair in brush tip	Szálkereszt az ecsethegyben
 	Show extension panels	Bővítménypanelek megjelenítése
@@ -4009,6 +4012,7 @@ cameraRaw	Yellow	Sárga
 	Transform On Drop	Átalakítás elengedéskor
 	Vanishing Point is not active	Az Enyészpont nem aktív
 	Vanishing Point: click four corners to create a plane	Enyészpont: sík létrehozásához kattintson a négy sarokra
+	Response curve	Válaszgörbe
 	Show home recent files	Legutóbbi fájlok megjelenítése a kezdőképernyőn
 	Clear Brush Controls	Ecsetvezérlők törlése
 	Reset All Locked Settings	Összes zárolt beállítás visszaállítása

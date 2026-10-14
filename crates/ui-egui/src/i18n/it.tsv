@@ -1889,6 +1889,8 @@
 	Camera Raw Defaults	Predefiniti Camera Raw
 	Canvas border	Bordo quadro
 	Show canvas dots	Mostra punti del quadro
+	Clip thumbnails to layer bounds	Ritaglia le miniature ai limiti del livello
+	Clip Thumbnails to Layer Bounds	Ritaglia le miniature ai limiti del livello
 	Canvas color	Colore quadro
 	Canvas custom color	Colore personalizzato quadro
 	Color picker	Selettore colore
@@ -2080,6 +2082,8 @@
 	Fade steps	Passi dissolvenza
 	Hide the layer's effects  ({key}-click: all layers)	Nascondi effetti livello ({key}-clic: tutti i livelli)
 	Import Brushes… (.abr)	Importa pennelli… (.abr)
+	Import Brushes… (.abr or image)	Importa pennelli… (.abr o immagine)
+	Import Brush from Image…	Importa pennello da immagine…
 	Move Group Down	Sposta gruppo giù
 	Move Group Up	Sposta gruppo su
 	Reset the brush to the defaults	Reimposta pennello ai predefiniti
@@ -2697,6 +2701,7 @@ cameraData	Lens	Obiettivo
 	Search settings…	Cerca impostazioni…
 	No matching settings	Nessuna impostazione corrispondente
 	Loading fonts…	Caricamento font…
+	Response curve	Curva di risposta
 	Tool	Strumento
 	Simulate Pressure	Simula pressione
 	Stroke Path…	Traccia tracciato…
@@ -4096,6 +4101,8 @@ navigator	Zoom	Zoom
 	Action playback stopped	Esecuzione dell’azione interrotta
 	Step {step} is waiting for its dialog	Il passaggio {step} attende la sua finestra di dialogo
 @plural	{n} action|{n} actions	{n} azione|{n} azioni
+# Batch / Image Processor
+	Include All Subfolders	Includi tutte le sottocartelle
 	Auto Add/Delete	Aggiungi/elimina automaticamente
 
 # Native Windows printing qualification

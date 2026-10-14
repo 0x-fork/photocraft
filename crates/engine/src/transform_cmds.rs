@@ -36,6 +36,23 @@ pub fn transform_bounds(doc: &Document, layer: &Layer) -> Rect {
     }
 }
 
+/// The box Free Transform opens on `layer`, and the Move tool's transform controls show (#5297).
+/// With a selection that limits the transform it is the selection's own bounds, as in Photoshop:
+/// the box and the marching ants are one rectangle, however little of the selection the layer
+/// fills. Empty, like [`transform_bounds`], when the selection holds none of the layer.
+pub fn transform_frame(doc: &Document, layer: &Layer) -> Rect {
+    let b = transform_bounds(doc, layer);
+    if moves_whole(layer) { b } else { framed_by_selection(doc, b) }
+}
+
+/// `bounds` (what a selection left of a transform's content), or the selection's own bounds.
+fn framed_by_selection(doc: &Document, bounds: Rect) -> Rect {
+    match &doc.selection {
+        Some(sel) if !bounds.is_empty() => sel.content_bounds(),
+        _ => bounds,
+    }
+}
+
 /// A group moves all its descendants, so its frame must not clip raster children to the selection.
 fn whole_layer_bounds(layer: &Layer) -> Rect {
     let content = match &layer.content {
@@ -197,6 +214,12 @@ pub fn target_bounds(doc: &Document, surf: &Surface) -> Rect {
         Some(sel) => content.intersect(&sel.content_bounds()),
         None => content,
     }
+}
+
+/// The box Free Transform opens on a lone target: like [`transform_frame`], the selection's own
+/// bounds when there is one (#5297).
+pub fn target_frame(doc: &Document, surf: &Surface) -> Rect {
+    framed_by_selection(doc, target_bounds(doc, surf))
 }
 
 /// The locks `id` inherits from the groups around it.
@@ -1162,6 +1185,32 @@ mod tests {
         s.execute("select.rect", json!({"x": 10, "y": 10, "width": 5, "height": 10})).unwrap();
         let st = s.active().unwrap();
         assert_eq!(transform_bounds(&st.doc, st.doc.layer(st.active_layer.unwrap()).unwrap()), Rect::new(10, 10, 15, 20));
+    }
+
+    /// #5297: the box Free Transform opens with a selection is the selection's own rectangle,
+    /// not the part of it the layer fills; type still moves whole, and a selection that holds none
+    /// of the layer leaves nothing to transform.
+    #[test]
+    fn the_frame_is_the_selections_own_bounds() {
+        let mut s = session();
+        let frame = |s: &Session| {
+            let st = s.active().unwrap();
+            let l = st.doc.layer(st.active_layer.unwrap()).unwrap();
+            (transform_frame(&st.doc, l), transform_bounds(&st.doc, l))
+        };
+        let content = Rect::new(10, 10, 30, 20);
+        assert_eq!(frame(&s), (content, content), "no selection: the content");
+        s.execute("select.rect", json!({"x": 5, "y": 5, "width": 15, "height": 40})).unwrap();
+        assert_eq!(frame(&s), (Rect::new(5, 5, 20, 45), Rect::new(10, 10, 20, 20)));
+        s.execute("select.rect", json!({"x": 60, "y": 60, "width": 10, "height": 10})).unwrap();
+        assert!(frame(&s).0.is_empty(), "nothing of the layer is selected");
+
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 200, "height": 120})).unwrap();
+        s.execute("type.create", json!({"x": 20, "y": 60, "text": "Hello", "size": 36})).unwrap();
+        let whole = active_bounds(&s);
+        s.execute("select.rect", json!({"x": whole.x0, "y": whole.y0, "width": whole.width() / 2, "height": whole.height()})).unwrap();
+        assert_eq!(frame(&s), (whole, whole), "type moves whole");
     }
 
     #[test]

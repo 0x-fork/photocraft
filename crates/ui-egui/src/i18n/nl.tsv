@@ -1863,6 +1863,8 @@
 	Camera Raw Defaults	Standaardwaarden Camera Raw
 	Canvas border	Canvasrand
 	Show canvas dots	Canvasstippen tonen
+	Clip thumbnails to layer bounds	Miniaturen bijsnijden tot laaggrenzen
+	Clip Thumbnails to Layer Bounds	Miniaturen bijsnijden tot laaggrenzen
 	Canvas color	Canvaskleur
 	Canvas custom color	Aangepaste canvaskleur
 	Color picker	Kleurkiezer
@@ -2049,7 +2051,8 @@
 	Expand group  ({key}-click: all groups)	Groep uitvouwen  ({key}-klik: alle groepen)
 	Fade steps	Afzwakstappen
 	Hide the layer's effects  ({key}-click: all layers)	De effecten van de laag verbergen  ({key}-klik: alle lagen)
-	Import Brushes… (.abr)	Penselen importeren… (.abr)
+	Import Brushes… (.abr or image)	Penselen importeren… (.abr of afbeelding)
+	Import Brush from Image…	Penseel uit afbeelding importeren…
 	Move Group Down	Groep omlaag
 	Move Group Up	Groep omhoog
 	Reset the brush to the defaults	Het penseel terugzetten naar de standaardwaarden
@@ -3783,6 +3786,7 @@ cameraData	Lens	Lens
 	No matching settings	Geen overeenkomende instellingen
 	PhotoCraft — Screen Color Picker	PhotoCraft — Schermkleurkiezer
 	Loading fonts…	Lettertypen laden…
+	Response curve	Responscurve
 	Simulate Pressure	Druk simuleren
 	Stroke Path…	Pad omlijnen…
 	Background Eraser	Achtergrondgum
@@ -3893,6 +3897,8 @@ curves	Smooth	Vloeiend maken
 	Action playback stopped	Afspelen van de handeling gestopt
 	Step {step} is waiting for its dialog	Stap {step} wacht op zijn dialoogvenster
 @plural	{n} action|{n} actions	{n} handeling|{n} handelingen
+# Batch / Image Processor
+	Include All Subfolders	Alle submappen opnemen
 	Auto Add/Delete	Automatisch toevoegen/verwijderen
 
 # Native Windows printing qualification

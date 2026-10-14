@@ -272,6 +272,9 @@ pub struct Interface {
     pub dynamic_color_sliders: bool,
     /// Draw menu item colours set with Edit › Menus.
     pub show_menu_colors: bool,
+    /// Layers panel thumbnails frame the layer's own pixels instead of the whole canvas, so small
+    /// objects in a large document stay visible (Photoshop's Clip Thumbnails to Layer Bounds; #4281).
+    pub clip_thumbnails_to_layer_bounds: bool,
     pub show_tooltips: bool,
     /// Menus, popups and collapsing sections fade and slide, and scroll areas glide to a new
     /// position. Off, everything changes at once (a reduced-motion mode; #1218, #3273).
@@ -309,6 +312,7 @@ impl Default for Interface {
             show_channels_in_color: false,
             dynamic_color_sliders: true,
             show_menu_colors: true,
+            clip_thumbnails_to_layer_bounds: false,
             show_tooltips: true,
             enable_animations: true,
             show_bounding_box_when_dragging_layer: false,
@@ -400,100 +404,10 @@ impl Default for Tools {
     }
 }
 
-/// Preferences › Tools › Pressure Curve, ready to evaluate: a monotone cubic (Fritsch–Carlson)
-/// through the control points, so a firmer press never gives less pressure. The points are
-/// sanitised here, not trusted: a whole-section update or a hand-edited preferences file can store
-/// anything. Non-finite points are dropped, the rest clamped to 0..1, sorted by input (one point
-/// per input), capped at [`Self::MAX_POINTS`], and their outputs made non-decreasing; before the
-/// first point and after the last the curve stays flat. Fewer than two usable points is linear.
-#[derive(Clone, Debug, PartialEq)]
-pub struct PressureCurve {
-    xs: Vec<f32>,
-    ys: Vec<f32>,
-    /// Tangents at the points.
-    ms: Vec<f32>,
-}
-
-impl PressureCurve {
-    pub const MAX_POINTS: usize = 16;
-
-    pub fn new(points: &[[f32; 2]]) -> Self {
-        let mut pts: Vec<[f32; 2]> =
-            points.iter().filter(|p| p[0].is_finite() && p[1].is_finite()).map(|p| [p[0].clamp(0.0, 1.0), p[1].clamp(0.0, 1.0)]).collect();
-        pts.sort_by(|a, b| a[0].total_cmp(&b[0]));
-        pts.dedup_by(|b, a| {
-            // Same input: keep the later point's output.
-            let same = (a[0] - b[0]).abs() < 1e-6;
-            if same {
-                a[1] = b[1];
-            }
-            same
-        });
-        pts.truncate(Self::MAX_POINTS);
-        if pts.len() < 2 {
-            pts = vec![[0.0, 0.0], [1.0, 1.0]];
-        }
-        let xs: Vec<f32> = pts.iter().map(|p| p[0]).collect();
-        let mut ys: Vec<f32> = pts.iter().map(|p| p[1]).collect();
-        for i in 1..ys.len() {
-            ys[i] = ys[i].max(ys[i - 1]);
-        }
-        // Fritsch–Carlson tangents: secant averages, zero at flat steps, limited so the cubic
-        // never overshoots (which keeps it monotone).
-        let n = xs.len();
-        let d: Vec<f32> = (0..n - 1).map(|k| (ys[k + 1] - ys[k]) / (xs[k + 1] - xs[k])).collect();
-        let mut ms = vec![0.0f32; n];
-        ms[0] = d[0];
-        ms[n - 1] = d[n - 2];
-        for k in 1..n - 1 {
-            ms[k] = if d[k - 1] * d[k] <= 0.0 { 0.0 } else { (d[k - 1] + d[k]) / 2.0 };
-        }
-        for k in 0..n - 1 {
-            if d[k] == 0.0 {
-                ms[k] = 0.0;
-                ms[k + 1] = 0.0;
-                continue;
-            }
-            let (a, b) = (ms[k] / d[k], ms[k + 1] / d[k]);
-            let s = a * a + b * b;
-            if s > 9.0 {
-                let t = 3.0 / s.sqrt();
-                ms[k] = t * a * d[k];
-                ms[k + 1] = t * b * d[k];
-            }
-        }
-        Self { xs, ys, ms }
-    }
-
-    /// The curve's output for pen pressure `x` (0..1; anything else is clamped, NaN reads as 0).
-    pub fn eval(&self, x: f32) -> f32 {
-        let x = if x.is_nan() { 0.0 } else { x.clamp(0.0, 1.0) };
-        let n = self.xs.len();
-        let (Some(&x0), Some(&xn)) = (self.xs.first(), self.xs.last()) else { return x };
-        if x <= x0 {
-            return self.ys.first().copied().unwrap_or(x);
-        }
-        if x >= xn {
-            return self.ys.last().copied().unwrap_or(x);
-        }
-        let k = self.xs.partition_point(|&v| v <= x).saturating_sub(1).min(n.saturating_sub(2));
-        let (Some(&xa), Some(&xb), Some(&ya), Some(&yb), Some(&ma), Some(&mb)) =
-            (self.xs.get(k), self.xs.get(k + 1), self.ys.get(k), self.ys.get(k + 1), self.ms.get(k), self.ms.get(k + 1))
-        else {
-            return x;
-        };
-        let h = xb - xa;
-        let t = (x - xa) / h;
-        let (t2, t3) = (t * t, t * t * t);
-        let y = (2.0 * t3 - 3.0 * t2 + 1.0) * ya + (t3 - 2.0 * t2 + t) * h * ma + (-2.0 * t3 + 3.0 * t2) * yb + (t3 - t2) * h * mb;
-        y.clamp(ya.min(yb), ya.max(yb))
-    }
-
-    /// The identity (the default curve): pressure passes through unchanged.
-    pub fn is_linear(&self) -> bool {
-        self.xs == [0.0, 1.0] && self.ys == [0.0, 1.0]
-    }
-}
+/// Preferences › Tools › Pressure Curve, ready to evaluate: the same monotone cubic every brush
+/// dynamic uses for its own control ([`photocraft_paint::ResponseCurve`]), sanitised the same way,
+/// since a whole-section update or a hand-edited preferences file can store anything.
+pub use photocraft_paint::ResponseCurve as PressureCurve;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -1037,6 +951,9 @@ pub struct Preferences {
     /// differ from their defaults, saved as the user changes them and restored at launch, as
     /// Photoshop remembers each tool's options between sessions. JSON owned by the shell.
     pub tool_options: Value,
+    /// Last selected tool, restored at launch. A tool-name string owned and validated by the
+    /// shell; null in older files. Kept separate from tool options so neither overwrites the other.
+    pub selected_tool: Value,
     /// View › Extras, the View › Show items (Pixel Grid, Grid, Guides, …) and the View › Snap To
     /// targets that differ from their defaults, saved as the user toggles them and restored at
     /// launch, as Photoshop keeps them between sessions (#3762). JSON owned by the shell.

@@ -1885,6 +1885,8 @@
 	Camera Raw Defaults	Domyślne ustawienia Camera Raw
 	Canvas border	Obramowanie płótna
 	Show canvas dots	Pokaż kropki płótna
+	Clip thumbnails to layer bounds	Przycinaj miniatury do granic warstwy
+	Clip Thumbnails to Layer Bounds	Przycinaj miniatury do granic warstwy
 	Canvas color	Kolor płótna
 	Canvas custom color	Własny kolor płótna
 	Color picker	Próbnik kolorów
@@ -2073,7 +2075,8 @@
 	Expand group  ({key}-click: all groups)	Rozwiń grupę  (kliknięcie z {key}: wszystkie grupy)
 	Fade steps	Kroki zanikania
 	Hide the layer's effects  ({key}-click: all layers)	Ukryj efekty warstwy  (kliknięcie z {key}: wszystkie warstwy)
-	Import Brushes… (.abr)	Importuj pędzle… (.abr)
+	Import Brushes… (.abr or image)	Importuj pędzle… (.abr lub obraz)
+	Import Brush from Image…	Importuj pędzel z obrazu…
 	Move Group Down	Przesuń grupę w dół
 	Move Group Up	Przesuń grupę w górę
 	Reset the brush to the defaults	Przywróć domyślne ustawienia pędzla
@@ -3641,6 +3644,7 @@ cameraData	Lens	Obiektyw
 	Search settings…	Szukaj ustawień…
 	No matching settings	Brak pasujących ustawień
 	Loading fonts…	Wczytywanie czcionek…
+	Response curve	Krzywa odpowiedzi
 	Simulate Pressure	Symuluj nacisk
 	Stroke Path…	Obrysuj ścieżkę…
 	Background Eraser	Gumka tła
@@ -3731,6 +3735,8 @@ curves	Smooth	Wygładź
 	Action playback stopped	Odtwarzanie operacji zatrzymane
 	Step {step} is waiting for its dialog	Krok {step} czeka na swoje okno dialogowe
 @plural	{n} action|{n} actions	{n} operacja|{n} operacje|{n} operacji
+# Batch / Image Processor
+	Include All Subfolders	Uwzględnij wszystkie podfoldery
 	Auto Add/Delete	Automatyczne dodawanie/usuwanie
 
 # Native Windows printing qualification

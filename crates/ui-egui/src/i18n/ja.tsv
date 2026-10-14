@@ -1891,6 +1891,8 @@
 	Camera Raw Defaults	Camera Raw の既定値
 	Canvas border	カンバスの境界
 	Show canvas dots	カンバスのドットを表示
+	Clip thumbnails to layer bounds	サムネールをレイヤーの境界でクリップ
+	Clip Thumbnails to Layer Bounds	サムネールをレイヤーの境界でクリップ
 	Canvas color	カンバスの色
 	Canvas custom color	カンバスのカスタム色
 	Color picker	カラーピッカー
@@ -2082,6 +2084,8 @@
 	Fade steps	フェードのステップ数
 	Hide the layer's effects  ({key}-click: all layers)	レイヤーの効果を隠す ({key}+クリック: すべてのレイヤー)
 	Import Brushes… (.abr)	ブラシを読み込み…(.abr)
+	Import Brushes… (.abr or image)	ブラシを読み込み…(.abr または画像)
+	Import Brush from Image…	画像からブラシを読み込み…
 	Move Group Down	グループを下へ移動
 	Move Group Up	グループを上へ移動
 	Reset the brush to the defaults	ブラシを既定に戻す
@@ -3638,6 +3642,7 @@ cameraData	Lens	レンズ
 	Search settings…	設定を検索…
 	No matching settings	一致する設定はありません
 	Loading fonts…	フォントを読み込み中…
+	Response curve	応答カーブ
 	Simulate Pressure	筆圧をシミュレート
 	Stroke Path…	パスのストローク…
 	Background Eraser	背景消しゴム
@@ -3740,6 +3745,8 @@ curves	Smooth	スムーズ
 	Action playback stopped	アクションの再生を停止しました
 	Step {step} is waiting for its dialog	ステップ {step} はダイアログを待っています
 @plural	{n} action|{n} actions	アクション {n} 個
+# Batch / Image Processor
+	Include All Subfolders	すべてのサブフォルダーを含める
 
 # Liquify tool names (shown via tl!(tool.label()) in the UI, so they are not found by the static scan)
 	Forward Warp	前方ワープ

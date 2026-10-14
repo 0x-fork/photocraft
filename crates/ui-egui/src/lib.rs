@@ -108,6 +108,7 @@ pub mod jobs_ui;
 pub mod kys_import;
 pub mod lasso_ui;
 pub(crate) mod last_brush;
+pub mod layer_filter_ui;
 pub mod layer_menu_ui;
 pub mod layer_pick_ui;
 pub mod layer_picker;
@@ -623,6 +624,9 @@ pub struct PhotocraftApp {
     pub fps: f32,
     last_frame_time: f64,
     thumbs: HashMap<(photocraft_doc::LayerId, u8), (u64, egui::TextureHandle)>,
+    /// The document area each layer thumbnail in `thumbs` frames (the canvas, or the layer's
+    /// bounds with Clip Thumbnails to Layer Bounds; #4281).
+    thumb_frames: HashMap<photocraft_doc::LayerId, photocraft_geom::Rect>,
     /// History snapshot thumbnails by (document, snapshot id): a snapshot never changes, so each
     /// is made once (`snapshot_thumb`, #2966).
     snapshot_thumbs: HashMap<(DocId, u64), egui::TextureHandle>,
@@ -828,6 +832,7 @@ impl PhotocraftApp {
             fps: 0.0,
             last_frame_time: 0.0,
             thumbs: HashMap::new(),
+            thumb_frames: HashMap::new(),
             snapshot_thumbs: HashMap::new(),
             thumb_documents: Vec::new(),
             bounds_cache: HashMap::new(),
@@ -1713,6 +1718,12 @@ impl PhotocraftApp {
 }
 
 impl eframe::App for PhotocraftApp {
+    fn on_exit(&mut self) {
+        if let Err(err) = tool_memory::save_on_exit(self) {
+            log::warn!("Preferences: could not save the final tool selection: {err}");
+        }
+    }
+
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         i18n::set_current(i18n::Lang::from_pref(&self.session.prefs().interface.language));
         // Caps Lock state read from the OS once per frame (see `Services::caps_lock`): the canvas
@@ -2077,6 +2088,7 @@ impl PhotocraftApp {
             // Native files can restore IDs: retain the union across all open documents, rather
             // than deleting an ID just because one document containing it was closed.
             self.thumbs.retain(|key, _| live.contains(key));
+            self.thumb_frames.retain(|id, _| live.contains(&(*id, mask_thumbs_ui::THUMB_LAYER)));
         }
         self.thumb_documents = documents.iter().map(|st| (st.doc.id, std::sync::Arc::downgrade(&st.doc))).collect();
     }
@@ -2102,25 +2114,31 @@ impl PhotocraftApp {
         self.checker = None;
     }
 
-    /// Cached 64px thumbnail of a pixel-ish layer, laid out in document space.
-    pub fn layer_thumb(&mut self, ctx: &egui::Context, doc: &Document, layer: &photocraft_doc::Layer) -> egui::TextureId {
+    /// Cached 64px thumbnail of a pixel-ish layer, letterboxed in a square, and the document
+    /// area it frames: the canvas, or with Clip Thumbnails to Layer Bounds the layer's pixels.
+    pub fn layer_thumb(&mut self, ctx: &egui::Context, doc: &Document, layer: &photocraft_doc::Layer) -> (egui::TextureId, photocraft_geom::Rect) {
+        let clip = self.session.prefs().interface.clip_thumbnails_to_layer_bounds;
         // Key by content, not document revision: COW tiles change pointer only when their pixels
         // change, so unrelated edits (e.g. painting another layer) don't rebuild this thumbnail.
-        let rev = layer.surface().map_or(0, surface_fingerprint) ^ (doc.size.width as u64) << 40;
+        let rev = layer.surface().map_or(0, surface_fingerprint) ^ (doc.size.width as u64) << 40 ^ u64::from(clip) << 63;
         let key = (layer.id, mask_thumbs_ui::THUMB_LAYER);
         if let Some((r, tex)) = self.thumbs.get(&key)
             && *r == rev
+            && let Some(frame) = self.thumb_frames.get(&layer.id)
         {
-            return tex.id();
+            return (tex.id(), *frame);
         }
+        let canvas = doc.bounds();
+        let frame = layer_thumb_frame(layer, canvas, clip);
         let mut px = [0.0f32; 8];
-        let img = thumb_image(doc, 64, |x, y| {
+        let img = thumb_image(frame, 64, |x, y| {
             let Some(s) = layer.surface() else { return [0.0; 4] };
             let n = s.channels();
             s.read_pixel(x, y, &mut px[..n]);
             photocraft_raster::to_rgba(&s.format(), &px[..n])
         });
-        self.store_thumb(ctx, key, rev, img)
+        self.thumb_frames.insert(layer.id, frame);
+        (self.store_thumb(ctx, key, rev, img), frame)
     }
 
     /// The History panel thumbnail of snapshot `snap` of document `doc` (#2966): its composite,
@@ -2155,7 +2173,7 @@ impl PhotocraftApp {
             return tex.id();
         }
         let mut v = [0.0f32; 1];
-        let img = thumb_image(doc, 64, |x, y| {
+        let img = thumb_image(doc.bounds(), 64, |x, y| {
             mask.surface.read_pixel(x, y, &mut v);
             [v[0], v[0], v[0], 1.0]
         });
@@ -2194,9 +2212,20 @@ pub fn surface_fingerprint(s: &photocraft_raster::Surface) -> u64 {
     h
 }
 
-/// Square thumbnail of the canvas area, letterboxed, sampling `f(x, y)` in document space.
-fn thumb_image(doc: &Document, side: usize, mut f: impl FnMut(i32, i32) -> [f32; 4]) -> egui::ColorImage {
-    let (w, h) = (doc.size.width.max(1) as f32, doc.size.height.max(1) as f32);
+/// The document area a layer thumbnail frames: the canvas, or with `clip` the layer's pixels on
+/// it (the canvas again when it has none there, so an empty layer still shows the page shape).
+fn layer_thumb_frame(layer: &photocraft_doc::Layer, canvas: photocraft_geom::Rect, clip: bool) -> photocraft_geom::Rect {
+    if !clip {
+        return canvas;
+    }
+    let bounds = layer.surface().map_or(photocraft_geom::Rect::EMPTY, photocraft_compose::bounds::content_bounds).intersect(&canvas);
+    if bounds.is_empty() { canvas } else { bounds }
+}
+
+/// Square thumbnail of the document area `frame`, letterboxed, sampling `f(x, y)` in document
+/// space.
+fn thumb_image(frame: photocraft_geom::Rect, side: usize, mut f: impl FnMut(i32, i32) -> [f32; 4]) -> egui::ColorImage {
+    let (w, h) = (frame.width().max(1) as f32, frame.height().max(1) as f32);
     let scale = w.max(h) / side as f32;
     let (ox, oy) = ((side as f32 - w / scale) / 2.0, (side as f32 - h / scale) / 2.0);
     let mut px = vec![egui::Color32::TRANSPARENT; side * side];
@@ -2207,7 +2236,7 @@ fn thumb_image(doc: &Document, side: usize, mut f: impl FnMut(i32, i32) -> [f32;
             if dx < 0.0 || dy < 0.0 || dx >= w || dy >= h {
                 continue;
             }
-            let c = f(dx as i32, dy as i32);
+            let c = f(frame.x0.saturating_add(dx as i32), frame.y0.saturating_add(dy as i32));
             let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
             px[ty * side + tx] = egui::Color32::from_rgba_unmultiplied(q(c[0]), q(c[1]), q(c[2]), q(c[3]));
         }
@@ -2582,6 +2611,8 @@ mod blur_pins_tests;
 #[cfg(test)]
 mod move_outline_tests;
 
+#[cfg(test)]
+mod layer_thumb_bounds_tests;
 #[cfg(test)]
 mod mask_thumb_refresh_tests;
 

@@ -59,6 +59,14 @@ fn hdr_adjustments_preserve_range_and_cpu_parity() {
             black: Vec::new(),
             pencil: false,
         },
+        // 32-bit Photoshop rules: unclipped, legacy pivot 127, the mixer's 1/1024 steps and halved constant.
+        Adjustment::BrightnessContrast { brightness: 25.0, contrast: 30.0, legacy: true },
+        Adjustment::BrightnessContrast { brightness: -20.0, contrast: -30.0, legacy: true },
+        Adjustment::ChannelMixer { matrix: [[0.8, 0.3, -0.1, 0.0], [0.1, 0.9, 0.0, 0.05], [0.0, 0.2, 0.7, 0.0]], monochrome: false },
+        Adjustment::ChannelMixer { matrix: [[0.4, 0.4, 0.2, 0.1], [0.0; 4], [0.0; 4]], monochrome: true },
+        Adjustment::PhotoFilter { color: [0.97, 0.76, 0.0], density: 0.4, preserve_luminosity: true },
+        Adjustment::PhotoFilter { color: [0.2, 0.6, 0.9], density: 0.3, preserve_luminosity: false },
+        Adjustment::BlackWhite { weights: [70.0, 20.0, 50.0, 10.0, 90.0, 30.0], tint: Some([0.9, 0.7, 0.5]) },
     ] {
         let mut d = Document::new("HDR adjustments", Size::new(3, 1), ColorMode::Rgb, SampleType::F32);
         let mut layer = Layer::raster("pixels", PixelFormat::RGBA32F);
@@ -663,6 +671,9 @@ fn adjustment_layers() {
         let pf = Adjustment::PhotoFilter { color: [0.93, 0.54, 0.0], density: 0.6, preserve_luminosity: true };
         d.layers.push(Layer::new("pf", LayerContent::Adjustment(pf)));
         check(&mut g, &d, &format!("photo filter {depth:?}"));
+        // Threshold: whole 16-bit samples against the level in 16 bits, or the float luminosity.
+        d.layers.push(Layer::new("th", LayerContent::Adjustment(Adjustment::Threshold { level: 0.5 })));
+        check(&mut g, &d, &format!("threshold {depth:?}"));
     }
     for adj in adjustments() {
         for (mode, opacity, masked) in [(BlendMode::Normal, 1.0, false), (BlendMode::Multiply, 0.7, true)] {
@@ -2587,4 +2598,23 @@ fn the_focused_view_stays_resident_after_a_full_refresh() {
         let cpu = photocraft_compose::render(&d, view);
         assert!(worst_diff(&cpu.px, &out).0 <= TOL);
     }
+}
+
+// A pass-through group holding an adjustment renders isolated when layers clip to it, on the GPU
+// as on the CPU (psd-tools passthrough_clipping_mask_adjustment).
+#[test]
+fn pass_through_clipping_base_with_an_adjustment() {
+    let Some(mut g) = gpu() else { return };
+    let mut d = base_doc(32, 24);
+    d.layers.push(noise_layer("mid", PixelFormat::RGBA8, Rect::new(0, 0, 32, 24), 41, 1.0));
+    let mut grp = Layer::group(
+        "g",
+        vec![noise_layer("in", PixelFormat::RGBA8, Rect::new(4, 4, 20, 20), 42, 0.5), Layer::new("inv", LayerContent::Adjustment(Adjustment::Invert))],
+    );
+    grp.blend = BlendMode::PassThrough;
+    d.layers.push(grp);
+    let mut clip = noise_layer("clip", PixelFormat::RGBA8, Rect::new(8, 0, 28, 16), 43, 0.3);
+    clip.clipped = true;
+    d.layers.push(clip);
+    check(&mut g, &d, "pass-through clipping base with an adjustment");
 }
