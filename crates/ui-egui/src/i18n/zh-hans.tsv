@@ -1904,6 +1904,8 @@
 	Camera Raw Defaults	Camera Raw 默认设置
 	Canvas border	画布边框
 	Show canvas dots	显示画布圆点
+	Clip thumbnails to layer bounds	将缩略图裁剪到图层边界
+	Clip Thumbnails to Layer Bounds	将缩略图裁剪到图层边界
 	Canvas color	画布颜色
 	Canvas custom color	画布自定颜色
 	Color picker	拾色器
@@ -2092,7 +2094,8 @@
 	Expand group  (⌥-click: all groups)	展开组  (⌥-单击：所有组)
 	Fade steps	渐隐步数
 	Hide the layer's effects  (⌥-click: all layers)	隐藏图层效果  (⌥-单击：所有图层)
-	Import Brushes… (.abr)	导入画笔… (.abr)
+	Import Brushes… (.abr or image)	导入画笔… (.abr 或图像)
+	Import Brush from Image…	从图像导入画笔…
 	Move Group Down	向下移动组
 	Move Group Up	向上移动组
 	Reset the brush to the defaults	将画笔重置为默认值
@@ -2639,6 +2642,7 @@ cameraData	Lens	镜头
 	Search settings…	搜索设置…
 	No matching settings	没有匹配的设置
 	Loading fonts…	正在加载字体…
+	Response curve	响应曲线
 	Tool	工具
 	Simulate Pressure	模拟压力
 	Stroke Path…	描边路径…
@@ -2743,6 +2747,8 @@ curves	Smooth	平滑
 	Action playback stopped	动作播放已停止
 	Step {step} is waiting for its dialog	步骤 {step} 正在等待其对话框
 @plural	{n} action|{n} actions	{n} 个动作
+# Batch / Image Processor
+	Include All Subfolders	包含所有子文件夹
 	Auto Add/Delete	自动添加/删除
 
 # Native Windows printing qualification

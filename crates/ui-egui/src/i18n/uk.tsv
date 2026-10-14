@@ -2277,6 +2277,8 @@
 	Camera Raw Defaults	Типові параметри Camera Raw
 	Canvas border	Межа полотна
 	Show canvas dots	Показувати крапки полотна
+	Clip thumbnails to layer bounds	Обрізати мініатюри до меж шару
+	Clip Thumbnails to Layer Bounds	Обрізати мініатюри до меж шару
 	Canvas color	Колір полотна
 	Canvas custom color	Довільний колір полотна
 	Classic	Класична
@@ -2900,7 +2902,8 @@ fontWeight	Italic	Курсивний
 	Frame {current} / {total}	Кадр {current} / {total}
 	Create new brush from the current settings	Створити новий пензель із поточних параметрів
 	Delete brush	Видалити пензель
-	Import Brushes… (.abr)	Імпортувати пензлі… (.abr)
+	Import Brushes… (.abr or image)	Імпортувати пензлі… (.abr або зображення)
+	Import Brush from Image…	Імпортувати пензель із зображення…
 	System Info	Інформація про систему
 	Click to sample the foreground colour  ·  {key}-click for background	Клацання бере зразок переднього плану  ·  {key}+клацання для фону
 	Create Warped Text	Створити деформований текст
@@ -3715,6 +3718,7 @@ cameraData	Lens	Об'єктив
 	No matching settings	Немає відповідних налаштувань
 	PhotoCraft — Screen Color Picker	PhotoCraft — Піпетка кольору екрана
 	Loading fonts…	Завантаження шрифтів…
+	Response curve	Крива відгуку
 	Simulate Pressure	Імітувати натиск
 	Stroke Path…	Обвести контур…
 	Background Eraser	Фонова гумка
@@ -3832,6 +3836,8 @@ curves	Smooth	Згладити
 	Action playback stopped	Відтворення операції зупинено
 	Step {step} is waiting for its dialog	Крок {step} очікує на свій діалог
 @plural	{n} action|{n} actions	{n} операція|{n} операції|{n} операцій
+# Batch / Image Processor
+	Include All Subfolders	Включити всі вкладені папки
 	Auto Add/Delete	Автододавання/видалення
 
 # Native Windows printing qualification

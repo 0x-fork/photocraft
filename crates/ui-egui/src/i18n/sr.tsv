@@ -1842,6 +1842,8 @@
 	Camera Raw Defaults	Podrazumevana Camera Raw podešavanja
 	Canvas border	Ivica platna
 	Show canvas dots	Prikaži tačke na platnu
+	Clip thumbnails to layer bounds	Iseci sličice prema granicama sloja
+	Clip Thumbnails to Layer Bounds	Iseci sličice prema granicama sloja
 	Canvas color	Boja platna
 	Canvas custom color	Prilagođena boja platna
 	Color picker	Birač boja
@@ -2997,6 +2999,7 @@ cameraData	Lens	Objektiv
 	Create a new rectangular frame	Napravi novi pravougaoni okvir
 	Create a new elliptical frame	Napravi novi eliptični okvir
 	Include in playback	Uključi u reprodukciju
+	Include All Subfolders	Uključi sve podfascikle
 	Perspective Crop Tool	Alatka za perspektivno opsecanje
 	Show Grid	Prikaži mrežu
 	Drag a box or click four corners · drag the corners onto the edges of a skewed shape · {commit} commits · Esc cancels	Prevucite okvir ili kliknite četiri ugla · prevucite uglove na ivice iskošenog oblika · {commit} potvrđuje · Esc otkazuje
@@ -4216,6 +4219,7 @@ shape	Appearance	Izgled
 	Ink Characteristics	Karakteristike mastila
 	Solidity:	Punoća:
 	Redrawing	Ponovno iscrtavanje
+	Response curve	Kriva odziva
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	Koristi ugrađeni profil ({profile})
 	Convert to the working space ({profile})	Pretvori u radni prostor ({profile})

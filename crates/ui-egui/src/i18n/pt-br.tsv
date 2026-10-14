@@ -1858,6 +1858,8 @@
 	Camera Raw Defaults	Padrões do Camera Raw
 	Canvas border	Borda da tela de pintura
 	Show canvas dots	Mostrar pontos da tela de pintura
+	Clip thumbnails to layer bounds	Recortar miniaturas aos limites da camada
+	Clip Thumbnails to Layer Bounds	Recortar miniaturas aos limites da camada
 	Canvas color	Cor da tela de pintura
 	Canvas custom color	Cor personalizada da tela de pintura
 	Color picker	Seletor de cores
@@ -2044,7 +2046,8 @@
 	Expand group  ({key}-click: all groups)	Expandir grupo  ({key}-clique: todos os grupos)
 	Fade steps	Etapas de atenuação
 	Hide the layer's effects  ({key}-click: all layers)	Ocultar os efeitos da camada  ({key}-clique: todas as camadas)
-	Import Brushes… (.abr)	Importar pincéis… (.abr)
+	Import Brushes… (.abr or image)	Importar pincéis… (.abr ou imagem)
+	Import Brush from Image…	Importar pincel de imagem…
 	Move Group Down	Mover grupo para baixo
 	Move Group Up	Mover grupo para cima
 	Reset the brush to the defaults	Redefinir o pincel para os padrões
@@ -3047,6 +3050,7 @@ cameraData	Lens	Lente
 	Search settings…	Pesquisar configurações…
 	No matching settings	Nenhuma configuração encontrada
 	Loading fonts…	Carregando fontes…
+	Response curve	Curva de resposta
 	Tool	Ferramenta
 	Simulate Pressure	Simular pressão
 	Stroke Path…	Traçar demarcador…
@@ -3923,6 +3927,8 @@ layerLabel	No Color	Sem cor
 	Action playback stopped	Reprodução da ação interrompida
 	Step {step} is waiting for its dialog	A etapa {step} está aguardando sua caixa de diálogo
 @plural	{n} action|{n} actions	{n} ação|{n} ações
+# Batch / Image Processor
+	Include All Subfolders	Incluir todas as subpastas
 	Auto Add/Delete	Adicionar/excluir automaticamente
 
 # Native Windows printing qualification

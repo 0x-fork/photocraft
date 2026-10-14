@@ -131,7 +131,7 @@ pub enum Outcome {
 /// field's value is validated before the first one is applied, so a typo, an unknown field, a
 /// bad value or a bad nested key can't reply with success while nothing — or only half of it —
 /// changed (#412).
-pub const UI_SET_FIELDS: [&str; 35] = [
+pub const UI_SET_FIELDS: [&str; 36] = [
     "tool",
     "panels",
     "dock",
@@ -167,6 +167,7 @@ pub const UI_SET_FIELDS: [&str; 35] = [
     "shapeStroke",
     "camTransformOnDrop",
     "tileGrid",
+    "layerFilter",
 ];
 
 /// Most clicks one `ui.click` may queue (#982). Each click is a press and a release that the app
@@ -511,6 +512,7 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                 let cam_transform_on_drop = bool_field(p, "camTransformOnDrop")?;
                 // Developer overlay of the active layer's storage tiles (tile_overlay.rs).
                 let tile_grid = bool_field(p, "tileGrid")?;
+                let layer_filter = p.get("layerFilter").map(|v| crate::layer_filter_ui::patched(&app.ui, v)).transpose()?;
                 // The Crop tool's overlay menu (#1919).
                 let crop_overlay = match p.get("cropOverlay") {
                     Some(v) => Some(v.as_str().and_then(crate::crop_overlay::CropOverlay::from_id).ok_or_else(|| {
@@ -642,7 +644,7 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                     }
                 }
                 if let Some(t) = tool {
-                    app.ui.tool = t;
+                    crate::tool_memory::select(app, t);
                     // Each tool keeps its own brush (#218), so switch it in before `brushSize`
                     // below sets the new tool's size.
                     crate::paint_mouse::sync_tool_brush(app);
@@ -671,6 +673,9 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                 }
                 if let Some(on) = tile_grid {
                     app.ui.view.tile_grid = on;
+                }
+                if let Some(f) = layer_filter {
+                    crate::layer_filter_ui::apply(&mut app.ui, f);
                 }
                 if let Some(k) = crop_overlay {
                     app.ui.tool_options.crop_overlay = k;
@@ -985,7 +990,7 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
             let secondary = matches!(button.as_str(), "secondary" | "right");
             let mods = modifiers_from(&m);
             if let Some(t) = tool {
-                app.ui.tool = t;
+                crate::tool_memory::select(app, t);
             }
             // Space held: the Crop tool moves the frame being drawn, a marquee, lasso or shape
             // being drawn moves instead of growing (hold_keys.rs). Like a modifier flag, it may be
@@ -1928,6 +1933,36 @@ mod tests {
         let bad = call(&mut app, &ctx, "ui.set", json!({"gradientBlendMode": "nonsense", "gradientClassic": false}));
         assert_eq!(bad["ok"], false, "{bad}");
         assert!(app.ui.tool_options.gradient_classic, "invalid mode must not change options");
+    }
+
+    /// #5048: the Layers panel filter is drivable; a bad field changes nothing.
+    #[test]
+    fn ui_set_drives_the_layers_panel_filter() {
+        use crate::layer_filter_ui::FilterBy;
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        let ok = call(&mut app, &ctx, "ui.set", json!({"layerFilter": {"by": "name", "name": "ink"}}));
+        assert_eq!(ok["ok"], true, "{ok}");
+        assert_eq!((app.ui.layer_filter_by, app.ui.layer_filter_name.as_str()), (FilterBy::Name, "ink"));
+        let ok = call(&mut app, &ctx, "ui.set", json!({"layerFilter": {"by": "mode", "mode": "Pass Through", "kinds": ["type", "pixel", "type"]}}));
+        assert_eq!(ok["ok"], true, "{ok}");
+        assert_eq!((app.ui.layer_filter_by, app.ui.layer_filter_mode), (FilterBy::Mode, photocraft_color::BlendMode::PassThrough));
+        assert_eq!(app.ui.layer_filter, ["type", "pixel"], "kinds are kept once each");
+        assert_eq!(app.ui.layer_filter_name, "ink", "fields left out keep their value");
+        for bad in [
+            json!({"layerFilter": "name"}),
+            json!({"layerFilter": {"by": "colour"}}),
+            json!({"layerFilter": {"kinds": ["pixels"]}}),
+            json!({"layerFilter": {"kinds": "pixel"}}),
+            json!({"layerFilter": {"name": 3}}),
+            json!({"layerFilter": {"mode": "Nonsense"}}),
+            json!({"layerFilter": {"by": "kind", "extra": true}}),
+            json!({"layerFilter": {"by": "kind"}, "tileGrid": "yes"}),
+        ] {
+            let r = call(&mut app, &ctx, "ui.set", bad.clone());
+            assert_eq!(r["ok"], false, "{bad} → {r}");
+            assert_eq!(app.ui.layer_filter_by, FilterBy::Mode, "{bad} changed nothing");
+        }
     }
 
     #[test]

@@ -389,6 +389,9 @@ pub struct Panels {
     /// Window › Brush Settings (F5): floating, like Photoshop's.
     #[serde(default)]
     pub brush_settings: bool,
+    /// Window › Brushes: dockable panel, like Photoshop's.
+    #[serde(default)]
+    pub brushes: bool,
     /// Window › Character / Paragraph: the Character | Paragraph dock group (#150).
     #[serde(default)]
     pub character: bool,
@@ -427,6 +430,7 @@ impl Default for Panels {
             options_bar: true,
             status_bar: true,
             brush_settings: false,
+            brushes: false,
             character: false,
             toolbar_double: false,
             dock: true,
@@ -741,6 +745,10 @@ fn default_brush_tool() -> Tool {
     Tool::Brush
 }
 
+fn default_layer_filter_mode() -> photocraft_color::BlendMode {
+    photocraft_color::BlendMode::Normal
+}
+
 fn one_u32() -> u32 {
     1
 }
@@ -1031,6 +1039,8 @@ pub struct DockTabs {
     pub history: usize,
     /// Character | Paragraph.
     pub character: usize,
+    /// Brushes presets.
+    pub brushes: usize,
 }
 
 /// Color panel state.
@@ -1140,6 +1150,15 @@ pub struct UiState {
     /// Layers panel kind filter ("pixel", "adjustment", "type", "shape", "smart"); empty = all.
     #[serde(default)]
     pub layer_filter: Vec<String>,
+    /// Layers panel filter type (#5048): kind (above), name or blend mode.
+    #[serde(default)]
+    pub layer_filter_by: crate::layer_filter_ui::FilterBy,
+    /// Layers panel name filter: part of a layer name, ignoring case; empty = all.
+    #[serde(default)]
+    pub layer_filter_name: String,
+    /// Layers panel blend-mode filter.
+    #[serde(default = "default_layer_filter_mode")]
+    pub layer_filter_mode: photocraft_color::BlendMode,
     /// Actions panel: which row is selected and which are expanded. The list lives on the session.
     #[serde(default)]
     pub actions: crate::actions::ActionsUi,
@@ -1307,6 +1326,9 @@ impl Default for UiState {
             artboard_tool: Default::default(),
             shell: Default::default(),
             layer_filter: Vec::new(),
+            layer_filter_by: Default::default(),
+            layer_filter_name: String::new(),
+            layer_filter_mode: default_layer_filter_mode(),
             pen: None,
             stroke_editor: None,
             direct_selection: Default::default(),

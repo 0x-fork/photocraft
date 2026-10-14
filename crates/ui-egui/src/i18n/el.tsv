@@ -1655,6 +1655,8 @@
 	Camera Raw Defaults	Προεπιλογές Camera Raw
 	Canvas border	Περίγραμμα καμβά
 	Show canvas dots	Εμφάνιση κουκκίδων καμβά
+	Clip thumbnails to layer bounds	Περικοπή μικρογραφιών στα όρια του επιπέδου
+	Clip Thumbnails to Layer Bounds	Περικοπή μικρογραφιών στα όρια του επιπέδου
 	Canvas color	Χρώμα καμβά
 	Canvas custom color	Προσαρμοσμένο χρώμα καμβά
 	Color picker	Επιλογέας χρώματος
@@ -2529,7 +2531,8 @@
 	Image Size:	Μέγεθος εικόνας:
 	Image interpolation	Παρεμβολή εικόνας
 	Image previews	Προεπισκοπήσεις εικόνων
-	Import Brushes… (.abr)	Εισαγωγή πινέλων… (.abr)
+	Import Brushes… (.abr or image)	Εισαγωγή πινέλων… (.abr ή εικόνα)
+	Import Brush from Image…	Εισαγωγή πινέλου από εικόνα…
 	Import Presets	Εισαγωγή προεπιλογών
 	Imported	Εισήχθη
 	In	Είσοδος
@@ -3724,6 +3727,7 @@ cameraData	Lens	Φακός
 	Search settings…	Αναζήτηση ρυθμίσεων…
 	No matching settings	Δεν βρέθηκαν ρυθμίσεις
 	Loading fonts…	Φόρτωση γραμματοσειρών…
+	Response curve	Καμπύλη απόκρισης
 	Simulate Pressure	Προσομοίωση πίεσης
 	Stroke Path…	Περίγραμμα διαδρομής…
 	Background Eraser	Γόμα φόντου
@@ -3831,6 +3835,8 @@ curves	Smooth	Εξομάλυνση
 	Action playback stopped	Η αναπαραγωγή της ενέργειας σταμάτησε
 	Step {step} is waiting for its dialog	Το βήμα {step} περιμένει το παράθυρο διαλόγου του
 @plural	{n} action|{n} actions	{n} ενέργεια|{n} ενέργειες
+# Batch / Image Processor
+	Include All Subfolders	Συμπερίληψη όλων των υποφακέλων
 	Auto Add/Delete	Αυτόματη προσθήκη/διαγραφή
 
 # Native Windows printing qualification

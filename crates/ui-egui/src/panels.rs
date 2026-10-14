@@ -167,16 +167,16 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                         paint_toolbar_flyout_indicator(ui, &t, &resp);
                                     }
                                     if resp.clicked() && ui.data(|d| d.get_temp::<egui::Id>(held_id)) != Some(key) {
-                                        app.ui.tool = tool;
+                                        crate::tool_memory::select(app, tool);
                                     }
                                     // Double-clicking the Hand tool fits the image on screen (Photoshop).
                                     if resp.double_clicked() && tool == Tool::Hand {
-                                        app.ui.tool = tool;
+                                        crate::tool_memory::select(app, tool);
                                         // With no document open there is nothing to fit.
                                         let _ = app.run("view.fitOnScreen", json!({}));
                                     }
                                     if resp.double_clicked() && tool == Tool::Zoom {
-                                        app.ui.tool = tool;
+                                        crate::tool_memory::select(app, tool);
                                         let _ = app.run("view.actualPixels", json!({}));
                                     }
                                     // Right-click or long-press opens the flyout (Photoshop).
@@ -206,7 +206,7 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                     }
                                     if slot.len() > 1 && long_press {
                                         // Holding a tool button selects the tool it shows, as a click would (#4453).
-                                        app.ui.tool = tool;
+                                        crate::tool_memory::select(app, tool);
                                         ui.ctx().request_repaint();
                                     }
                                     if let Some((open_key, anchor)) = ui.data(|d| d.get_temp::<(egui::Id, Rect)>(flyout_id))
@@ -268,7 +268,7 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                                             );
                                                         }
                                                         if ir.clicked() {
-                                                            app.ui.tool = item;
+                                                            crate::tool_memory::select(app, item);
                                                             ui.data_mut(|d| d.remove::<(egui::Id, Rect)>(flyout_id));
                                                         }
                                                     }
@@ -1662,12 +1662,13 @@ pub fn right_dock(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 ui.painter().line_segment([pos2(x, r.top() - 8.0), pos2(x, r.bottom() + 8.0)], Stroke::new(1.0, t.separator));
                 ui.spacing_mut().item_spacing.y = 4.0;
                 use crate::dock::Group;
-                let entries: [(&str, &str, Group); 5] = [
+                let entries: [(&str, &str, Group); 6] = [
                     ("sliders-horizontal", tl!("Properties"), Group::Properties),
                     ("navigation", tl!("Navigator"), Group::Navigator),
                     ("palette", tl!("Color & Swatches"), Group::Color),
                     ("layers", tl!("Layers"), Group::Layers),
                     ("clock", tl!("History"), Group::History),
+                    ("brush", tl!("Brushes"), Group::Brushes),
                 ];
                 for (icon, name, g) in entries {
                     // Studio floats Properties outside the dock.
@@ -1712,6 +1713,7 @@ fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &crate::state::Pan
         (Group::Navigator, p.navigator),
         (Group::History, p.history),
         (Group::Layers, p.layers),
+        (Group::Brushes, p.brushes),
     ]
     .into_iter()
     .filter_map(|(g, on)| on.then_some(g))
@@ -1753,6 +1755,7 @@ pub(crate) fn dock_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, group: crate
         (Group::Layers, 0) => layers(app, ui),
         (Group::Layers, 1) => channels(app, ui),
         (Group::Layers, _) => crate::vector_ui::paths_panel(app, ui),
+        (Group::Brushes, _) => crate::brushes_tab::show(app, ui),
     }
 }
 
@@ -2198,31 +2201,7 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 
     let t = Tokens::get(ui.ctx());
     if t.pro {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 2.0;
-            let (r, _) = ui.allocate_exact_size(vec2(64.0, 22.0), Sense::hover());
-            ui.painter().rect_filled(r, t.radius_sm, t.field);
-            ui.painter().rect_stroke(r, t.radius_sm, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
-            icons::paint(ui, Rect::from_center_size(r.left_center() + vec2(11.0, 0.0), vec2(14.0, 14.0)), "search", 11.0, t.text_faint);
-            ui.painter().text(r.left_center() + vec2(22.0, 0.0), Align2::LEFT_CENTER, tl!("Kind"), egui::FontId::proportional(11.5), t.text_dim);
-            ui.add_space(4.0);
-            for (kind, icon, tip) in [
-                ("pixel", "image", tl!("Filter for pixel layers")),
-                ("adjustment", "adjustment-layer", tl!("Filter for adjustment layers")),
-                ("type", "type", tl!("Filter for type layers")),
-                ("shape", "square", tl!("Filter for shape layers")),
-                ("smart", "app-window", tl!("Filter for smart objects")),
-            ] {
-                let on = app.ui.layer_filter.iter().any(|k| k == kind);
-                if icons::button(ui, icon, 22.0, on, tip).clicked() {
-                    if on {
-                        app.ui.layer_filter.retain(|k| k != kind);
-                    } else {
-                        app.ui.layer_filter.push(kind.to_string());
-                    }
-                }
-            }
-        });
+        crate::layer_filter_ui::bar(app, ui);
         ui.add_space(4.0);
     }
     if let Some(l) = active_layer {
@@ -2347,7 +2326,7 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 ui.scroll_with_delta(vec2(0.0, delta));
                 ctx.request_repaint();
             }
-            let filter = app.ui.layer_filter.clone();
+            let filter = crate::layer_filter_ui::Filter::of(&app.ui);
             let fx_collapsed = app.session.active().map(|d| d.fx_collapsed.clone()).unwrap_or_default();
             crate::layer_row_ui::begin(ui.ctx());
             // The drawn rows, top to bottom (#1721): the space between them and below the last
@@ -2358,18 +2337,8 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 if !photocraft_engine::select_extra_cmds::isolation_shows(&doc, &isolated, l.id) {
                     continue;
                 }
-                if !filter.is_empty() {
-                    let kind = match &l.content {
-                        LayerContent::Raster(_) => "pixel",
-                        LayerContent::Adjustment(_) | LayerContent::Fill(_) => "adjustment",
-                        LayerContent::Text(_) => "type",
-                        LayerContent::Shape(_) => "shape",
-                        LayerContent::Smart(_) => "smart",
-                        LayerContent::Group(_) => "",
-                    };
-                    if !filter.iter().any(|k| k == kind) {
-                        continue;
-                    }
+                if !filter.shows(l) {
+                    continue;
                 }
                 let row = RowSel { selected: selection.contains(&l.id), primary: active == Some(l.id), multi: selection.len() > 1 };
                 let top = ui.cursor().top();
@@ -3056,10 +3025,11 @@ fn draw_layer_thumb(app: &mut PhotocraftApp, ctx: &egui::Context, ui: &egui::Ui,
         _ => {
             // Keep row layout and outside thumbnail decorations when the image is clipped.
             if ui.is_rect_visible(rect) {
-                // The texture is a letterboxed square: draw only the part the document fills.
-                let (fitted, uv) = layer_thumb_fit(rect, doc.size.width, doc.size.height);
+                // The texture is a letterboxed square: draw only the part its frame (the document,
+                // or the layer's bounds) fills.
+                let (tex, frame) = app.layer_thumb(ctx, doc, l);
+                let (fitted, uv) = layer_thumb_fit(rect, frame.width(), frame.height());
                 widgets::checker(p, fitted, 5.0);
-                let tex = app.layer_thumb(ctx, doc, l);
                 p.image(tex, fitted, uv, Color32::WHITE);
             }
         }
@@ -3103,7 +3073,7 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         if let Some(layer) = doc.layers.first() {
             widgets::checker(ui.painter(), thumb, 4.0);
-            let tex = app.layer_thumb(&ctx, &doc, layer);
+            let (tex, _) = app.layer_thumb(&ctx, &doc, layer);
             ui.painter().image(tex, thumb, Rect::from_min_max(egui::Pos2::ZERO, pos2(1.0, 1.0)), Color32::WHITE);
         }
         ui.painter().rect_stroke(thumb, 0.0, Stroke::new(1.0, t.separator), StrokeKind::Outside);
