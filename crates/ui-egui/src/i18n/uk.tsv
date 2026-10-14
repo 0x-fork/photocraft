@@ -887,9 +887,7 @@
 	Newspaper	Газета
 	Working Spaces	Робочі простори
 	Color Management Policies	Політики керування кольором
-	Convert document's colors to the working space	Перетворити кольори документа в робочий простір
 	Assign working space	Призначити робочий простір
-	Use the embedded profile (instead of the working space)	Використати вбудований профіль (замість робочого простору)
 	Leave as is (don't color manage)	Залишити як є (без керування кольором)
 	Discard the embedded profile (don't color manage)	Відкинути вбудований профіль (без керування кольором)
 	Embed Color Profile	Вбудувати колірний профіль
@@ -2449,7 +2447,6 @@
 	Cancelled opening {name}	Відкриття {name} скасовано
 	The document “{name}” does not have an embedded {mode} profile.	Документ «{name}» не має вбудованого профілю {mode}.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Вбудований колірний профіль документа «{name}» не відповідає поточному робочому простору {mode}.
-	Embedded: {embedded}	Вбудований: {embedded}
 	Working: {working}	Робочий простір: {working}
 	Developing {name}	Обробка {name}
 	Cancelled {label}	Скасовано: {label}
@@ -3808,6 +3805,7 @@ curves	Smooth	Згладити
 	Remove after each stroke	Видаляти після кожного штриха
 	Apply the removal ({key})	Застосувати видалення ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Штрихів для видалення: {n} (Enter застосовує, Esc скасовує)
+	Show home recent files	Показувати нещодавні файли на головному екрані
 	Clear Brush Controls	Очистити параметри пензля
 	Reset All Locked Settings	Скинути всі заблоковані параметри
 	Copy Texture to Other Tools	Скопіювати текстуру в інші інструменти
@@ -3843,3 +3841,19 @@ curves	Smooth	Згладити
 	Sent to {printer}	Надіслано на {printer}
 	set in Print Settings…	задається в параметрах друку…
 	ICO is limited to 256 × 256 pixels	ICO обмежено розміром 256 × 256 пікселів
+# Embedded Profile Mismatch: profile names beside the choices, Remember this choice
+	Use the embedded profile ({profile})	Використати вбудований профіль ({profile})
+	Convert to the working space ({profile})	Перетворити в робочий простір ({profile})
+	Remember this choice for future images	Запам’ятати цей вибір для наступних зображень
+	Turn the prompt back on with Ask On Mismatch in Edit › Color Settings.	Знову ввімкнути запитання можна параметром Ask On Mismatch у Редагування › Налаштування кольору.
+	Button Mode	Режим кнопок
+	Button Mode On	Режим кнопок увімкнено
+
+# Darken / Lighten Interface (⇧⌘F1 / ⇧⌘F2)
+	Darken Interface	Зробити інтерфейс темнішим
+	Lighten Interface	Зробити інтерфейс світлішим
+# Bevel & Emboss Technique.
+	Technique	Метод
+	Chisel Hard	Жорстке різьблення
+	Chisel Soft	М'яке різьблення
+	Open color-less EXR as ACEScg	Відкривати EXR без колірного профілю як ACEScg

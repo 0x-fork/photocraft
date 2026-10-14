@@ -451,6 +451,30 @@ mod tests {
         }
     }
 
+    /// #5113: the dialog should fit its curve graph instead of reserving a blank right column.
+    #[test]
+    fn curves_dialog_fits_its_graph_and_controls() {
+        for language in ["en", "ru"] {
+            let _language = crate::i18n::language_scope(crate::i18n::Lang::from_code(language).unwrap());
+            for theme in crate::theme::ThemeKind::ALL {
+                for size in [egui::vec2(1280.0, 900.0), egui::vec2(900.0, 720.0)] {
+                    let mut h = Harness::builder().with_size(size).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app_with_image());
+                    PhotocraftApp::setup_context(&h.ctx, theme);
+                    let id = open(h.state_mut(), "image.adjustments.curves").unwrap();
+                    h.run_steps(4);
+                    let window = h.ctx.memory(|m| m.area_rect(egui::Id::new(("dialog", id)))).unwrap();
+                    let graph = h.ctx.data(|d| d.get_temp::<egui::Rect>(dialog_mem("curves").with("curves-graph"))).unwrap();
+                    assert!(window.right() - graph.right() < 40.0, "blank right column: window {window:?}, graph {graph:?}");
+                    assert!(graph.width() > 270.0, "keep the graph usable: {graph:?}");
+                    assert!(window.contains_rect(graph));
+                    for label in ["Channel:", "Input:", "Output:", "Preview", "OK", "Cancel"] {
+                        assert!(window.contains_rect(h.get_by_label(crate::i18n::t(label)).rect()), "{label} inside the window");
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn cancel_leaves_the_document_untouched() {
         let mut harness =

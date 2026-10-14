@@ -2488,7 +2488,6 @@ navigator	Zoom	Nagyítás mértéke
 	Cancelled opening {name}	Megnyitás megszakítva: {name}
 	The document “{name}” does not have an embedded {mode} profile.	A(z) „{name}” dokumentumnak nincs beágyazott {mode}-profilja.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	A(z) „{name}” dokumentum beágyazott színprofilja nem egyezik az aktuális {mode}-munkaszíntérrel.
-	Embedded: {embedded}	Beágyazott: {embedded}
 	Working: {working}	Munkaszíntér: {working}
 	Cancelled {label}	Megszakítva: {label}
 	Clarity	Tisztaság
@@ -2702,7 +2701,6 @@ cameraRaw	Yellow	Sárga
 	Contents:	Tartalom:
 	Contributors	Közreműködők
 	Contributors: {contributors} · Commits: {commits}	Közreműködők: {contributors} · Commitok: {commits}
-	Convert document's colors to the working space	A dokumentum színeinek átalakítása a munkaszíntérbe
 	Convert to sRGB	Átalakítás sRGB-re
 	Cool	Hideg
 	Copies	Példányszám
@@ -3001,7 +2999,6 @@ cameraRaw	Yellow	Sárga
 	URLs	URL-ek
 	Use Default	Alapértelmezés használata
 	Use shift key for tool switch	Eszközváltás a Shift billentyűvel
-	Use the embedded profile (instead of the working space)	A beágyazott profil használata (a munkaszíntér helyett)
 	Username	Felhasználónév
 	Version {version}	Verzió: {version}
 	Vulkan	Vulkan
@@ -4011,7 +4008,8 @@ cameraRaw	Yellow	Sárga
 	The layer or its mask changed. Drag the mask onto the Trash again.	A réteg vagy a maszkja megváltozott. Húzd újra a maszkot a Kukába.
 	Transform On Drop	Átalakítás elengedéskor
 	Vanishing Point is not active	Az Enyészpont nem aktív
-	Vanishing Point: click four corners to create a plane	Enyészpont: sík létrehozásához kattints a négy sarokra
+	Vanishing Point: click four corners to create a plane	Enyészpont: sík létrehozásához kattintson a négy sarokra
+	Show home recent files	Legutóbbi fájlok megjelenítése a kezdőképernyőn
 	Clear Brush Controls	Ecsetvezérlők törlése
 	Reset All Locked Settings	Összes zárolt beállítás visszaállítása
 	Copy Texture to Other Tools	Textúra másolása más eszközökre
@@ -4065,3 +4063,19 @@ cameraRaw	Yellow	Sárga
 	Ink Characteristics	Festék jellemzői
 	Solidity:	Fedőképesség:
 	Redrawing	Újrarajzolás
+# Embedded Profile Mismatch: profile names beside the choices, Remember this choice
+	Use the embedded profile ({profile})	A beágyazott profil használata ({profile})
+	Convert to the working space ({profile})	Átalakítás a munkaszíntérbe ({profile})
+	Remember this choice for future images	A választás megjegyzése a későbbi képekhez
+	Turn the prompt back on with Ask On Mismatch in Edit › Color Settings.	A kérdés a Szerkesztés › Színbeállítások Ask On Mismatch beállításával kapcsolható vissza.
+	Button Mode	Gomb mód
+	Button Mode On	Gomb mód be
+
+# Darken / Lighten Interface (⇧⌘F1 / ⇧⌘F2)
+	Darken Interface	Felület sötétítése
+	Lighten Interface	Felület világosítása
+# Bevel & Emboss Technique.
+	Technique	Technika
+	Chisel Hard	Kemény vésés
+	Chisel Soft	Lágy vésés
+	Open color-less EXR as ACEScg	Színinformáció nélküli EXR megnyitása ACEScg-ként

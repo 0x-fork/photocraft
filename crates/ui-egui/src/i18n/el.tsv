@@ -1612,7 +1612,6 @@
 	Cancelled opening {name}	Ακυρώθηκε το άνοιγμα του {name}
 	The document “{name}” does not have an embedded {mode} profile.	Το έγγραφο «{name}» δεν έχει ενσωματωμένο προφίλ {mode}.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Το έγγραφο «{name}» έχει ενσωματωμένο χρωματικό προφίλ που δεν ταιριάζει με τον τρέχοντα χώρο εργασίας {mode}.
-	Embedded: {embedded}	Ενσωματωμένο: {embedded}
 	Working: {working}	Χώρος εργασίας: {working}
 	Cancelled {label}	Ακυρώθηκε: {label}
 	Esc to cancel	Esc για ακύρωση
@@ -2239,7 +2238,6 @@
 	Control:	Χειριστήριο:
 	Conté Crayon	Μολύβι κοντέ
 	Convert Frames > Video Layers	Μετατροπή καρέ > Επίπεδα βίντεο
-	Convert document's colors to the working space	Μετατροπή των χρωμάτων του εγγράφου στον χώρο εργασίας
 	Convert to Linked	Μετατροπή σε συνδεδεμένο
 	Convert to Paragraph Text	Μετατροπή σε κείμενο παραγράφου
 	Convert to Point Text	Μετατροπή σε κείμενο σημείου
@@ -3219,7 +3217,6 @@
 	Use File › Open to open an image.	Χρησιμοποιήστε Αρχείο › Άνοιγμα για να ανοίξετε μια εικόνα.
 	Use Legacy	Χρήση παλαιάς λειτουργίας
 	Use Measurement Scale	Χρήση κλίμακας μέτρησης
-	Use the embedded profile (instead of the working space)	Χρήση ενσωματωμένου προφίλ (αντί του χώρου εργασίας)
 	Uses the foreground and background colours.	Χρησιμοποιεί τα χρώματα προσκηνίου και φόντου.
 	Vanishing Point	Σημείο φυγής
 	Vanishing Point…	Σημείο φυγής…
@@ -3807,6 +3804,7 @@ curves	Smooth	Εξομάλυνση
 	Remove after each stroke	Αφαίρεση μετά από κάθε πινελιά
 	Apply the removal ({key})	Εφαρμογή της αφαίρεσης ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Πινελιές προς αφαίρεση: {n} (Enter εφαρμόζει, Esc ακυρώνει)
+	Show home recent files	Εμφάνιση πρόσφατων αρχείων στην αρχική οθόνη
 	Clear Brush Controls	Απαλοιφή στοιχείων ελέγχου πινέλου
 	Reset All Locked Settings	Επαναφορά όλων των κλειδωμένων ρυθμίσεων
 	Copy Texture to Other Tools	Αντιγραφή υφής σε άλλα εργαλεία
@@ -3842,3 +3840,19 @@ curves	Smooth	Εξομάλυνση
 	Sent to {printer}	Στάλθηκε στον {printer}
 	set in Print Settings…	ορίζεται στις ρυθμίσεις εκτύπωσης…
 	ICO is limited to 256 × 256 pixels	Το ICO περιορίζεται σε 256 × 256 εικονοστοιχεία
+# Embedded Profile Mismatch: profile names beside the choices, Remember this choice
+	Use the embedded profile ({profile})	Χρήση ενσωματωμένου προφίλ ({profile})
+	Convert to the working space ({profile})	Μετατροπή στον χώρο εργασίας ({profile})
+	Remember this choice for future images	Απομνημόνευση αυτής της επιλογής για μελλοντικές εικόνες
+	Turn the prompt back on with Ask On Mismatch in Edit › Color Settings.	Ενεργοποιήστε ξανά την ερώτηση με το Ask On Mismatch στο Επεξεργασία › Ρυθμίσεις χρωμάτων.
+	Button Mode	Λειτουργία κουμπιών
+	Button Mode On	Λειτουργία κουμπιών ενεργή
+
+# Darken / Lighten Interface (⇧⌘F1 / ⇧⌘F2)
+	Darken Interface	Σκουρότερο περιβάλλον
+	Lighten Interface	Φωτεινότερο περιβάλλον
+# Bevel & Emboss Technique.
+	Technique	Τεχνική
+	Chisel Hard	Σκληρή σμίλευση
+	Chisel Soft	Μαλακή σμίλευση
+	Open color-less EXR as ACEScg	Άνοιγμα EXR χωρίς χρωματική δήλωση ως ACEScg

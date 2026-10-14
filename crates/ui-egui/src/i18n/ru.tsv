@@ -909,9 +909,7 @@
 	Newspaper	Газетная бумага
 	Working Spaces	Рабочие пространства
 	Color Management Policies	Правила управления цветом
-	Convert document's colors to the working space	Преобразовать цвета документа в рабочее пространство
 	Assign working space	Назначить рабочее пространство
-	Use the embedded profile (instead of the working space)	Использовать встроенный профиль (вместо рабочего пространства)
 	Leave as is (don't color manage)	Оставить как есть (без управления цветом)
 	Discard the embedded profile (don't color manage)	Не использовать встроенный профиль (без управления цветом)
 	Embed Color Profile	Встроить цветовой профиль
@@ -2476,7 +2474,6 @@
 	Cancelled opening {name}	Открытие {name} отменено
 	The document “{name}” does not have an embedded {mode} profile.	В документе «{name}» нет встроенного профиля {mode}.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Встроенный цветовой профиль документа «{name}» не совпадает с текущим рабочим пространством {mode}.
-	Embedded: {embedded}	Встроенный: {embedded}
 	Working: {working}	Рабочее пространство: {working}
 	Developing {name}	Обработка {name}
 	Cancelled {label}	{label}: отменено
@@ -3055,6 +3052,7 @@ curves	Smooth	Сгладить
 	Remove after each stroke	Удалять после каждого штриха
 	Apply the removal ({key})	Применить удаление ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Штрихов к удалению: {n} (Enter применяет, Esc отменяет)
+	Show home recent files	Показывать недавние файлы на домашнем экране
 	Clear Brush Controls	Очистить параметры кисти
 	Reset All Locked Settings	Сбросить все заблокированные параметры
 	Copy Texture to Other Tools	Скопировать текстуру в другие инструменты
@@ -3110,3 +3108,19 @@ curves	Smooth	Сгладить
 	Gray Value (Median)	Уровень серого (медиана)
 	Integrated Density	Интегральная плотность
 	Length	Длина
+# Embedded Profile Mismatch: profile names beside the choices, Remember this choice
+	Use the embedded profile ({profile})	Использовать встроенный профиль ({profile})
+	Convert to the working space ({profile})	Преобразовать в рабочее пространство ({profile})
+	Remember this choice for future images	Запомнить этот выбор для следующих изображений
+	Turn the prompt back on with Ask On Mismatch in Edit › Color Settings.	Снова включить вопрос можно параметром Ask On Mismatch в Редактирование › Настройки цвета.
+	Button Mode	Режим кнопок
+	Button Mode On	Режим кнопок включён
+
+# Darken / Lighten Interface (⇧⌘F1 / ⇧⌘F2)
+	Darken Interface	Сделать интерфейс темнее
+	Lighten Interface	Сделать интерфейс светлее
+# Bevel & Emboss Technique.
+	Technique	Метод
+	Chisel Hard	Жесткая огранка
+	Chisel Soft	Мягкая огранка
+	Open color-less EXR as ACEScg	Открывать EXR без цветового профиля как ACEScg

@@ -457,6 +457,20 @@ fn save_a_copy(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 /// Open a file's bytes, decoding them as the format `as_ext` (Open As) when given.
+/// EXR/HDR rarely states its colour space, so io tags it with the linear-sRGB default.
+/// With File Handling's ACEScg option on, such an EXR opens as ACEScg instead (AP1,
+/// linear) — the working space ACES render pipelines write. Only the io default is
+/// replaced; an embedded or EXIF-declared profile is kept untouched.
+fn tag_exr_colorspace(s: &Session, name: &str, doc: &mut Document) {
+    if !name.to_ascii_lowercase().ends_with(".exr") || !s.prefs.get().file_handling.exr_aces_cg {
+        return;
+    }
+    let linear = photocraft_cms::Builtin::LinearSrgb.profile().to_bytes();
+    if doc.icc_profile.as_ref().map(|v| v.as_slice()) == Some(linear.as_slice()) {
+        doc.icc_profile = Some(photocraft_cms::Builtin::AcesCg.profile().to_bytes());
+    }
+}
+
 pub fn open_bytes_as(s: &mut Session, name: &str, bytes: &[u8], as_ext: Option<&str>, path: Option<String>) -> Result<Value> {
     crate::allocation::checkpoint("importing document")?;
     let decode_name = match as_ext {
@@ -465,6 +479,7 @@ pub fn open_bytes_as(s: &mut Session, name: &str, bytes: &[u8], as_ext: Option<&
     };
     let r = photocraft_io::import(&decode_name, bytes).map_err(|e| EngineError::Other(format!("{decode_name}: {e}")))?;
     let mut doc = r.document;
+    tag_exr_colorspace(s, &decode_name, &mut doc);
     let path = match template_name(s, name) {
         Some(untitled) => {
             doc.name = untitled;
@@ -1616,3 +1631,41 @@ pub fn specs() -> Vec<CommandSpec> {
 #[cfg(test)]
 #[path = "file_cmds/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod aces_exr_tests {
+    use super::*;
+
+    /// File Handling › "Open color-less EXR as ACEScg": off, an EXR opens on io's linear-sRGB
+    /// default; on, it opens as ACEScg — the working space ACES render pipelines write.
+    #[test]
+    fn exr_aces_cg_preference_retags_the_opened_document() {
+        let image = photocraft_codecs::Image::from_f32(
+            4,
+            4,
+            photocraft_codecs::ChannelLayout::Rgb,
+            &[
+                0.25, 0.5, 0.75, 1.0, 0.25, 0.5, 0.75, 1.0, 0.25, 0.5, 0.75, 1.0, 0.25, 0.5, 0.75, 1.0, 0.25, 0.5, 0.75, 1.0, 0.25, 0.5, 0.75, 1.0, 0.25, 0.5,
+                0.75, 1.0, 0.25, 0.5, 0.75, 1.0, 0.25, 0.5, 0.75, 1.0, 0.25, 0.5, 0.75, 1.0, 0.25, 0.5, 0.75, 1.0, 0.25, 0.5, 0.75, 1.0,
+            ],
+        )
+        .unwrap();
+        let bytes = photocraft_codecs::encode(&image, photocraft_codecs::Format::OpenExr, &photocraft_codecs::EncodeOptions::default()).unwrap();
+
+        let linear = photocraft_cms::Builtin::LinearSrgb.profile().to_bytes();
+        let aces = photocraft_cms::Builtin::AcesCg.profile().to_bytes();
+
+        // Off (the default): io's linear-sRGB tagging stays.
+        let mut s = Session::new();
+        open_bytes_as(&mut s, "shot.exr", &bytes, None, None).unwrap();
+        let d = &s.active().unwrap().doc;
+        assert_eq!(d.icc_profile.as_deref().map(|v| v.as_slice()), Some(linear.as_slice()));
+
+        // On: the same file opens as ACEScg.
+        let mut s = Session::new();
+        s.prefs.edit(|p| p.file_handling.exr_aces_cg = true);
+        open_bytes_as(&mut s, "shot.exr", &bytes, None, None).unwrap();
+        let d = &s.active().unwrap().doc;
+        assert_eq!(d.icc_profile.as_deref().map(|v| v.as_slice()), Some(aces.as_slice()));
+    }
+}
