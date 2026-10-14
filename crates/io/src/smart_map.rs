@@ -516,10 +516,9 @@ fn fltr_for(k: &Known, p: &J) -> Result<Option<Descriptor>, String> {
         "Rple" => d.with("Amnt", pi(p, "amount", 100.0)).with("RplS", enum_value(p, "size", "medium", "RplS", &RIPPLE_SIZE)?),
         "Sphr" => d.with("Amnt", pi(p, "amount", 100.0)).with("SphM", enum_value(p, "mode", "normal", "SphM", &SPHERIZE_MODE)?),
         "Plr " => d.with("Cnvr", enum_value(p, "mode", "rectangularToPolar", "Cnvr", &POLAR_MODE)?),
-        "ZgZg" => d
-            .with("Amnt", pi(p, "amount", 10.0))
-            .with("NmbR", pi(p, "ridges", 5.0))
-            .with("ZZTy", enum_value(p, "style", "pondRipples", "ZZTy", &ZIGZAG_STYLE)?),
+        "ZgZg" => {
+            d.with("Amnt", pi(p, "amount", 10.0)).with("NmbR", pi(p, "ridges", 5.0)).with("ZZTy", enum_value(p, "style", "pondRipples", "ZZTy", &ZIGZAG_STYLE)?)
+        }
         "Wave" => {
             let seed = p.get("seed").and_then(J::as_u64).and_then(|s| u32::try_from(s).ok()).unwrap_or(0);
             d.with("Wvtp", enum_value(p, "type", "sine", "Wvtp", &WAVE_TYPE)?)
