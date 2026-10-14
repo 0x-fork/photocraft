@@ -219,9 +219,9 @@ note = "canvas.rs marquee_readout draws the readout; marquee_tests.rs asserts di
 [[item]]
 id = "BUG-208-4"
 target = "Add/subtract/intersect from modifiers pressed before the drag, kept by a test"
-status = "partial"
+status = "done"
 issue = 208
-note = "Mods captured at press. Marquee: Shift at the press adds and Alt subtracts, with no square or centring (marquee_tests.rs modifiers_held_before_the_drag_pick_the_mode_not_the_shape). Lasso: Alt, Shift and Shift+Alt at the start subtract, add and intersect (lasso_ui/tests.rs initial_alt_still_subtracts_and_initial_shift_still_adds). Polygonal Lasso: Shift/Alt at the first click keep the selection and combine (polygon_lasso_tests.rs modifiers_at_the_first_click_keep_and_combine_the_selection). Missing: a test that Shift+Alt held before a marquee drag intersects"
+note = "Mods captured at press. Marquee: Shift at the press adds and Alt subtracts, with no square or centring (marquee_tests.rs modifiers_held_before_the_drag_pick_the_mode_not_the_shape). Lasso: Alt, Shift and Shift+Alt at the start subtract, add and intersect (lasso_ui/tests.rs initial_alt_still_subtracts_and_initial_shift_still_adds). Polygonal Lasso: Shift/Alt at the first click keep the selection and combine (polygon_lasso_tests.rs modifiers_at_the_first_click_keep_and_combine_the_selection). Marquee Shift+Alt held at the press intersects (marquee_tests.rs shift_alt_before_the_drag_intersects_the_selection)"
 
 [[item]]
 id = "BUG-208-5"

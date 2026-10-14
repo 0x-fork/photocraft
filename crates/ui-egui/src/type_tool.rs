@@ -1553,7 +1553,9 @@ pub(crate) fn family_picker_in(
         let hover_id = egui::Id::new("type-font-hover");
         if let Some(f) = hovered_font {
             ui.ctx().data_mut(|d| d.insert_temp(hover_id, f));
-        } else {
+        } else if egui::ComboBox::is_open(ui.ctx(), response.response.id) {
+            // Only the open menu clears it: the options bar and the Character section both draw
+            // this picker, and the closed one must not wipe the other's hover (#5152).
             ui.ctx().data_mut(|d| d.remove::<String>(hover_id));
         }
     }
