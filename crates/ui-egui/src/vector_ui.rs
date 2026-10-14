@@ -438,6 +438,10 @@ pub fn cancel_stale(app: &mut PhotocraftApp) {
     } else if app.ui.pen_doc.is_some_and(|d| Some(d) != active) {
         app.ui.pen = None;
         app.ui.pen_doc = None;
+        if app.ui.direct_selection.target == Some(crate::direct_select::PathRef::Pen) {
+            // Its anchors went with it, as on commit.
+            app.ui.direct_selection = Default::default();
+        }
     }
 }
 
@@ -2266,21 +2270,33 @@ mod tests {
     /// the commit also committed it into the wrong document. Like the Polygonal Lasso's #5015.
     #[test]
     fn an_unclosed_path_stays_with_its_document() {
+        // Both pens claim the document at their first anchor.
         let open_path = |app: &mut PhotocraftApp| {
-            app.ui.tool = Tool::Pen;
             for (x, y) in [(20.0, 20.0), (120.0, 60.0)] {
-                pen_down(app, x, y, false);
-                pen_up(app);
+                if app.ui.tool == Tool::CurvaturePen {
+                    curvature_down(app, x, y);
+                    curvature_up(app);
+                } else {
+                    pen_down(app, x, y, false);
+                    pen_up(app);
+                }
             }
         };
         let work = |app: &PhotocraftApp, i: usize| app.session.documents()[i].doc.work_path.clone();
         // File › New drops the first document's path instead of carrying it over.
+        for tool in [Tool::Pen, Tool::CurvaturePen] {
+            let mut app = app();
+            app.ui.tool = tool;
+            open_path(&mut app);
+            assert!(app.ui.pen.is_some() && app.ui.pen_doc.is_some(), "{tool:?}: claimed by its document");
+            app.run("file.new", json!({"width": 300, "height": 150})).unwrap();
+            assert!(app.ui.pen.is_none() && app.ui.pen_doc.is_none(), "{tool:?}: the first document's path is gone");
+            assert_eq!(work(&app, 1), None, "{tool:?}: the new document is blank");
+        }
+        // Two documents; the path below is drawn on the second (active) one.
         let mut app = app();
-        open_path(&mut app);
-        assert!(app.ui.pen.is_some() && app.ui.pen_doc.is_some(), "the path is claimed by its document");
+        app.ui.tool = Tool::Pen;
         app.run("file.new", json!({"width": 300, "height": 150})).unwrap();
-        assert!(app.ui.pen.is_none() && app.ui.pen_doc.is_none(), "the first document's path is gone");
-        assert_eq!(work(&app, 1), None, "the new document is blank");
         // The control channel is drained after `sync_views`, so a switch in the same frame reaches
         // the commit unseen: it must not write the path into the other document.
         open_path(&mut app);
@@ -2293,6 +2309,12 @@ mod tests {
         pen_commit(&mut app, false);
         assert!(work(&app, 0).is_some(), "it commits to the document it was drawn on");
         assert_eq!(work(&app, 1), None);
+        // A Direct Selection on the path goes with it, as on commit: no target left dangling.
+        open_path(&mut app);
+        app.ui.direct_selection.target = Some(crate::direct_select::PathRef::Pen);
+        app.ui.direct_selection.anchors = vec![[0, 1]];
+        app.run("file.new", json!({"width": 120, "height": 90})).unwrap();
+        assert_eq!(app.ui.direct_selection, Default::default(), "the anchors went with the path");
     }
 
     /// #4721: a second Pen path joins the Work Path it was drawn after (still selected), as a new
