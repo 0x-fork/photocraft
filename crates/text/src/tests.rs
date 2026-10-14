@@ -629,6 +629,28 @@ fn forced_line_break_starts_a_line_in_the_same_paragraph() {
 }
 
 #[test]
+fn hyphenated_postscript_names_preserve_family_prefixes() {
+    for (ps, family, weight, italic) in
+        [("FOT-NewRodinPro-Regular", "FOT-New Rodin Pro", 400, false), ("Vendor-FamilyPro-BoldIt", "Vendor-Family Pro", 700, true)]
+    {
+        let guessed = fonts::guess_from_postscript(ps);
+        assert_eq!((guessed.family.as_str(), guessed.weight, guessed.italic), (family, weight, italic));
+    }
+}
+
+#[test]
+fn hyphenated_postscript_style_suffix_keeps_weight_and_slant() {
+    for (ps, family, weight, italic) in [
+        ("MyriadPro-Bold-It", "Myriad Pro", 700, true),
+        ("FOT-NewRodinPro-Bold-It", "FOT-New Rodin Pro", 700, true),
+        ("Vendor-Bold-Regular", "Vendor-Bold", 400, false),
+    ] {
+        let guessed = fonts::guess_from_postscript(ps);
+        assert_eq!((guessed.family.as_str(), guessed.weight, guessed.italic), (family, weight, italic));
+    }
+}
+
+#[test]
 fn postscript_names() {
     let g = fonts::guess_from_postscript("MyriadPro-BoldIt");
     assert_eq!((g.family.as_str(), g.weight, g.italic), ("Myriad Pro", 700, true));
@@ -1838,6 +1860,21 @@ fn missing_glyph_protection_can_turn_the_fallback_stack_off() {
     assert!(db.fallback_stack().any(|f| f == "Cairo"), "turning it back on restores the coverage fonts");
 }
 
+/// The shared engine's missing-glyph protection follows the setting without waiting for the
+/// system font scan (#4519). Under test the shared engine has no scan, so it applies at once;
+/// the newest setting wins.
+#[test]
+fn shared_missing_glyph_protection_follows_the_setting() {
+    let read = || crate::shared().lock().unwrap_or_else(std::sync::PoisonError::into_inner).fonts.missing_glyph_protection();
+    crate::set_shared_missing_glyph_protection(false);
+    assert!(!read());
+    crate::set_shared_missing_glyph_protection(true);
+    crate::set_shared_missing_glyph_protection(false);
+    assert!(!read(), "the newest setting wins");
+    crate::set_shared_missing_glyph_protection(true);
+    assert!(read());
+}
+
 #[test]
 fn translate_tysh_moves_only_the_translation() {
     let mut t = point("Hello!", 26.0);
@@ -1953,4 +1990,21 @@ fn type_on_a_path_follows_the_curve() {
     let mut dot = straight.clone();
     dot.shape = TextShape::Path { path: Subpath::polyline(&[(5.0, 5.0), (5.0, 5.0)]), start: 0.0, flip: false };
     assert_eq!(ink(&mut eng, &dot), flat);
+}
+
+#[test]
+fn hyphenless_postscript_names_split_trailing_styles() {
+    for (ps, family, weight, italic) in [
+        ("GmarketSansBold", "Gmarket Sans", 700, false),
+        ("NanumGothicBold", "Nanum Gothic", 700, false),
+        ("GmarketSansTTFBold", "Gmarket Sans TTF", 700, false),
+        ("ExampleSansSemiBoldItalic", "Example Sans", 600, true),
+        ("ExampleSansExtraLight", "Example Sans", 200, false),
+        // A style word after a vendor tag belongs to a legacy family name; lowercase is no style.
+        ("ArialRoundedMTBold", "Arial Rounded MT Bold", 400, false),
+        ("Daylight", "Daylight", 400, false),
+    ] {
+        let r = fonts::guess_from_postscript(ps);
+        assert_eq!((r.family.as_str(), r.weight, r.italic), (family, weight, italic), "{ps}");
+    }
 }

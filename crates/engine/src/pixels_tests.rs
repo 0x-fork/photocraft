@@ -242,7 +242,8 @@ fn benchmark_clear_large_selection() {
     }
 }
 
-/// Image › Adjustments › Invert in a Lab document mirrors L, a and b, at every depth.
+/// Image › Adjustments › Invert in a Lab document mirrors L, a and b, at every depth: 8-bit bytes
+/// become 255 - v (a lands one step past the mirror), 16 bits mirror a and b around neutral.
 #[test]
 fn invert_in_a_lab_document_mirrors_l_a_and_b() {
     use photocraft_color::convert::{lab_to_srgb, srgb_to_lab};
@@ -256,7 +257,8 @@ fn invert_in_a_lab_document_mirrors_l_a_and_b() {
         let px = s.read_region(Rect::new(1, 1, 2, 2));
         let rgba = photocraft_raster::to_rgba(&fmt, &px);
         let got = srgb_to_lab([rgba[0], rgba[1], rgba[2]]);
-        assert!(got.iter().zip([70.0, -13.0, 17.0]).all(|(g, w)| (g - w).abs() < 1.0), "{depth:?}: {got:?}");
+        let want = if depth == SampleType::U8 { [70.0, -13.0, 17.0] } else { [70.0, -12.0, 18.0] };
+        assert!(got.iter().zip(want).all(|(g, w)| (g - w).abs() < 0.5), "{depth:?}: {got:?}");
     }
 }
 
@@ -295,4 +297,55 @@ fn mixing_through_a_selection_matches_sampling_it_per_pixel() {
     let m = photocraft_raster::from_rgba_into(&fmt, px[0], &mut enc);
     assert_eq!(mix_through_selection(&fmt, Rect::new(0, 0, 1, 1), &[[0.0; 4]], &px, None), enc[..m].to_vec());
     assert!(mix_through_selection(&fmt, Rect::EMPTY, &[], &[], None).is_empty());
+}
+
+/// One `fmt` pixel holding `ch`, after `adj` through an optional `k`-strength selection.
+fn adjusted_pixel(fmt: PixelFormat, ch: &[f32], adj: &Adjustment, k: Option<f32>) -> Vec<f32> {
+    let unit = Rect::new(0, 0, 1, 1);
+    let mut s = Surface::new(fmt);
+    s.write_region(unit, ch);
+    let mut sel = Surface::new(PixelFormat::GRAY8);
+    if let Some(k) = k {
+        sel.write_region(unit, &[k]);
+    }
+    adjust_surface(&mut s, adj, k.map(|_| &sel), fmt.mode);
+    s.read_region(unit)
+}
+
+fn assert_levels(got: &[f32], want_255: &[f32], what: &str) {
+    let want: Vec<f32> = want_255.iter().map(|v| v / 255.0).collect();
+    assert!(got.iter().zip(&want).all(|(g, w)| (g - w).abs() < 1e-4), "{what}: got {:?}, want {want_255:?}", got.iter().map(|v| v * 255.0).collect::<Vec<_>>());
+}
+
+/// Image › Adjustments › Invert, Posterize and Threshold change a Lab or CMYK layer's stored
+/// channels exactly as Photoshop's do (photoshop corpus lab8, lab16, cmyk8 and cmyk16 invert,
+/// posterize-4 and threshold-128 follow these rules on every pixel), with no trip through RGB.
+#[test]
+fn invert_posterize_and_threshold_change_lab_and_cmyk_channels_as_stored() {
+    let f = |v: [f32; 4]| v.map(|x| x / 255.0);
+    let cmyk = PixelFormat::new(ColorMode::Cmyk, SampleType::U8, true);
+    let ink = [51.0, 102.0, 153.0, 26.0, 255.0].map(|x| x / 255.0);
+    assert_levels(&adjusted_pixel(cmyk, &ink, &Adjustment::Invert, None), &[204.0, 153.0, 102.0, 229.0, 255.0], "CMYK invert");
+    assert_levels(&adjusted_pixel(cmyk, &ink, &Adjustment::Posterize { levels: 4 }, None), &[0.0, 85.0, 170.0, 0.0, 255.0], "CMYK posterize");
+    // Threshold: the black ink alone, or paper.
+    let dark = [200.0, 180.0, 180.0, 200.0, 255.0].map(|x| x / 255.0);
+    assert_levels(&adjusted_pixel(cmyk, &dark, &Adjustment::Threshold { level: 0.5 }, None), &[0.0, 0.0, 0.0, 255.0, 255.0], "CMYK threshold dark");
+    let paper = [0.0, 0.0, 0.0, 0.0, 1.0];
+    assert_levels(&adjusted_pixel(cmyk, &paper, &Adjustment::Threshold { level: 0.5 }, None), &[0.0, 0.0, 0.0, 0.0, 255.0], "CMYK threshold paper");
+    // A half-strength selection mixes the stored inks.
+    let half = adjusted_pixel(cmyk, &paper, &Adjustment::Invert, Some(0.5));
+    assert!(half.iter().take(4).all(|v| (v - 0.5).abs() < 0.01) && half[4] == 1.0, "{half:?}");
+
+    let lab8 = PixelFormat::new(ColorMode::Lab, SampleType::U8, true);
+    let lab16 = PixelFormat::new(ColorMode::Lab, SampleType::U16, true);
+    let px = f([77.0, 128.0, 200.0, 255.0]);
+    assert_levels(&adjusted_pixel(lab8, &px, &Adjustment::Invert, None), &[178.0, 127.0, 55.0, 255.0], "Lab 8-bit invert");
+    assert_levels(&adjusted_pixel(lab16, &px, &Adjustment::Invert, None), &[178.0, 128.0, 56.0, 255.0], "Lab 16-bit invert");
+    // A neutral grey posterizes warm: a and b step to +42.
+    let grey = f([128.0, 128.0, 128.0, 255.0]);
+    assert_levels(&adjusted_pixel(lab8, &grey, &Adjustment::Posterize { levels: 4 }, None), &[170.0, 170.0, 170.0, 255.0], "Lab posterize");
+    // Threshold compares L alone and keeps black and white neutral.
+    let level = Adjustment::Threshold { level: 128.0 / 255.0 };
+    assert_levels(&adjusted_pixel(lab8, &f([128.0, 30.0, 220.0, 255.0]), &level, None), &[255.0, 128.0, 128.0, 255.0], "Lab threshold light");
+    assert_levels(&adjusted_pixel(lab16, &f([127.0, 30.0, 220.0, 255.0]), &level, None), &[0.0, 128.0, 128.0, 255.0], "Lab threshold dark");
 }

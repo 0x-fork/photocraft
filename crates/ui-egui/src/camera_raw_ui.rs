@@ -124,9 +124,14 @@ impl CameraRawDialog {
     }
 
     fn image(px: &[[f32; 4]], w: usize, h: usize, display: &photocraft_engine::display_color::CanvasDisplay) -> egui::ColorImage {
-        let buf = photocraft_compose::Buffer { rect: Rect::new(0, 0, w as i32, h as i32), px: px.to_vec() };
-        let img = display.to_rgba8(&buf);
-        egui::ColorImage::from_rgba_unmultiplied([img.width as usize, img.height as usize], &img.pixels)
+        // Bands copied straight from `px`, converted in parallel (#4682), not a whole copy of the
+        // proxy converted on one thread.
+        super::camera_raw_detail_ui::display_image(Rect::new(0, 0, w as i32, h as i32), display, |r, out| {
+            let start = (r.y0.max(0) as usize).saturating_mul(w);
+            if let Some(src) = px.get(start..start.saturating_add(out.len())) {
+                out.copy_from_slice(src);
+            }
+        })
     }
 
     pub(crate) fn render(&mut self, ctx: &egui::Context) {
@@ -1430,6 +1435,9 @@ mod tests {
         let ctx = egui::Context::default();
         let warnings = app.open_bytes("IMG_0001.dng", &dng).unwrap();
         assert!(warnings.iter().any(|w| w.contains(photocraft_io::raw::DEVELOPED_NOTE)), "{warnings:?}");
+        // A raw has no embedded profile (ProPhoto RGB is the space it is developed into), so Ask
+        // When Opening (on by default) has nothing to ask about.
+        assert!(app.ui.dialogs.is_empty(), "no profile prompt for a raw");
         let raw = app.pending_raw_open.take().expect("a raw open queues the dialog");
         open_raw(&mut app, &ctx, raw).unwrap();
         let d = app.camera_raw.as_ref().unwrap();

@@ -8,9 +8,19 @@
 # No proprietary translation resources were used.
 # Licensed MIT OR Apache-2.0. See LICENSE-translations.txt and ATTRIBUTION.md.
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	Колір каналу
+	Color Indicates:	Кольором позначено:
+	Solidity:	Щільність:
+	Ink Characteristics	Характеристики фарби
+
 # Menus
 
 # Guide layout dialog
+
+# Custom print paper (#3820)
+	Paper Width	Ширина паперу
+	Paper Height	Висота паперу
 	Rows	Рядки
 	Number	Кількість
 	Top:	Зверху:
@@ -69,6 +79,8 @@
 	Save	Зберегти
 	Save As…	Зберегти як…
 	Save a Copy…	Зберегти копію…
+	{name} can't keep everything in this document	{name} не може зберегти весь вміст цього документа
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	Виберіть формат, який збереже все, наприклад Photoshop (PSD), або збережіть копію.
 	Save…	Зберегти…
 	Revert	Повернути до збереженого
 	Import	Імпорт
@@ -189,6 +201,9 @@
 	Enable Layer Mask	Увімкнути маску шару
 	Disable Layer Mask	Вимкнути маску шару
 	Apply Layer Mask	Застосувати маску шару
+	Add Mask to Selection	Додати маску до виділення
+	Subtract Mask from Selection	Відняти маску від виділення
+	Intersect Mask with Selection	Перетнути маску з виділенням
 	Link Layer Mask	Зв'язати маску шару
 	Unlink Layer Mask	Відв'язати маску шару
 	Vector Mask	Векторна маска
@@ -306,6 +321,9 @@
 	Oil Paint…	Олійний живопис…
 	Blur Gallery	Галерея розмиття
 	Field Blur…	Розмиття поля…
+# Field Blur pins (#3373)
+	No pin selected	Шпильку не вибрано
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Клацніть зображення, щоб додати шпильку; перетягніть шпильку, щоб перемістити її, або її кільце, щоб змінити розмиття. Delete видаляє вибрану шпильку.
 	Iris Blur…	Розмиття діафрагми…
 	Tilt-Shift…	Нахил і зсув…
 	Path Blur…	Розмиття вздовж контуру…
@@ -1004,6 +1022,11 @@
 	Brush Name	Назва пензля
 	Brush Stroke	Мазок пензля
 	New Brush Preset…	Новий набір пензля…
+	Capture Brush Size in Preset	Зберегти розмір пензля в наборі
+	Include Tool Settings	Включити налаштування інструмента
+	Include Color	Включити колір
+	Enter a name for the brush preset	Введіть назву набору пензля
+	A brush preset with this name already exists	Набір пензля з такою назвою вже існує
 	Brush Preset Options	Параметри набору пензля
 	New Brush	Новий пензель
 	Create new brush from these settings	Створити новий пензель із цими параметрами
@@ -1362,7 +1385,6 @@
 	Choose…	Вибрати…
 	Select Folder…	Вибрати теку…
 	Override Action "Save" Commands	Перевизначити команди «Зберегти» в дії
-	File Naming	Іменування файлів
 	Compatibility	Сумісність
 	Windows	Windows
 	Mac OS	Mac OS
@@ -1488,6 +1510,7 @@
 	Preset Name:	Назва набору:
 	Width and Height	Ширина та висота
 	Background Contents	Вміст фону
+	Custom background color	Довільний колір фону
 	White	Білий
 	Background Color	Колір фону
 	Transparent	Прозорий
@@ -1954,6 +1977,7 @@
 	Solid Color…	Суцільний колір…
 	Square	Квадрат
 	Stack Mode	Режим стосу
+	Choose Stack Mode:	Виберіть режим стосу:
 	Standard Deviation	Стандартне відхилення
 	Statistics…	Статистика…
 	Stylistic Alternates	Стилістичні альтернативи
@@ -2423,6 +2447,10 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Немає контуру для створення виділення: намалюйте його пером або виберіть на панелі контурів.
 	Cancel opening	Скасувати відкриття
 	Cancelled opening {name}	Відкриття {name} скасовано
+	The document “{name}” does not have an embedded {mode} profile.	Документ «{name}» не має вбудованого профілю {mode}.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Вбудований колірний профіль документа «{name}» не відповідає поточному робочому простору {mode}.
+	Embedded: {embedded}	Вбудований: {embedded}
+	Working: {working}	Робочий простір: {working}
 	Developing {name}	Обробка {name}
 	Cancelled {label}	Скасовано: {label}
 	Esc to cancel	Esc для скасування
@@ -2646,6 +2674,7 @@ cameraRaw	Roughness	Шорсткість
 	Fuchsia	Фуксія
 	Violet	Фіалковий
 	Large document: redrawing on the CPU	Великий документ: перемальовування на CPU
+	Redrawing	Перемальовування
 	This redraw took {seconds} s on the CPU.	Це перемальовування на CPU тривало {seconds} с.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Зміни, що впливають на весь документ, як-от режим накладання, непрозорість чи видимість шару, перемальовують його повністю.
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Його шари не вміщуються в бюджет пам'яті GPU. Збільшення використання пам'яті в Налаштування › Продуктивність підвищує бюджет до чверті пам'яті цього комп'ютера.
@@ -3737,6 +3766,7 @@ curves	Smooth	Згладити
 	There is no crop size or ratio to save	Немає розміру чи співвідношення сторін кадрування для збереження
 	Scale:	Масштаб:
 	Snap to Origin	Прив'язати до початку координат
+	Presentation	Представлення
 
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	Клацніть, щоб розмістити · Alt-клацання або перетягування за межі полотна для видалення
@@ -3793,6 +3823,8 @@ curves	Smooth	Згладити
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	Збережено {n} операцію до {file}|Збережено {n} операції до {file}|Збережено {n} операцій до {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Пропущено {n} крок без відповідника в Photoshop|Пропущено {n} кроки без відповідника в Photoshop|Пропущено {n} кроків без відповідника в Photoshop
 
+	File Naming	Іменування файлів
+	Starting serial	Початковий порядковий номер
 # Actions panel: set folders, dialog toggle, Insert Stop
 	Insert Stop…	Вставити зупинку…
 	Save Set…	Зберегти набір…
@@ -3804,3 +3836,11 @@ curves	Smooth	Згладити
 	Step {step} is waiting for its dialog	Крок {step} очікує на свій діалог
 @plural	{n} action|{n} actions	{n} операція|{n} операції|{n} операцій
 	Auto Add/Delete	Автододавання/видалення
+
+# Native Windows printing qualification
+	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	Не вмикайте також дзеркальне відображення в параметрах друку: два відображення скасовують одне одного.
+	Print Settings…	Параметри друку…
+	Remember to turn off the printer's own colour management in Print Settings…	Не забудьте вимкнути керування кольором самого принтера в параметрах друку…
+	Sent to {printer}	Надіслано на {printer}
+	set in Print Settings…	задається в параметрах друку…
+	ICO is limited to 256 × 256 pixels	ICO обмежено розміром 256 × 256 пікселів

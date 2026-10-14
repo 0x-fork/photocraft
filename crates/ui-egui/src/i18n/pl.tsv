@@ -18,7 +18,17 @@
 # Conventions: menus are nouns (Plik, Edycja, Obraz ...), commands are infinitives (Otwórz…,
 # Zapisz jako…), sentence case as in the English source. Quotes: „…”.
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	Kolor kanału
+	Color Indicates:	Kolor oznacza:
+	Solidity:	Gęstość:
+	Ink Characteristics	Właściwości farby
+
 # Guide layout dialog
+
+# Custom print paper (#3820)
+	Paper Width	Szerokość papieru
+	Paper Height	Wysokość papieru
 	Rows	Wiersze
 	Number	Liczba
 	Top:	Góra:
@@ -70,6 +80,8 @@
 	Save	Zapisz
 	Save As…	Zapisz jako…
 	Save a Copy…	Zapisz kopię…
+	{name} can't keep everything in this document	{name} nie może zachować wszystkiego z tego dokumentu
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	Wybierz format, który zachowa wszystko, na przykład Photoshop (PSD), lub zapisz kopię.
 	Revert	Przywróć ostatnio zapisany
 	Export	Eksportuj
 	Quick Export as PNG	Szybki eksport jako PNG
@@ -367,6 +379,7 @@
 	Update Modified Content	Aktualizuj zmodyfikowaną zawartość
 	Update All Modified Content	Aktualizuj całą zmodyfikowaną zawartość
 	Stack Mode	Tryb stosu
+	Choose Stack Mode:	Wybierz tryb stosu:
 	Entropy	Entropia
 	Kurtosis	Kurtoza
 	Maximum	Maksimum
@@ -539,6 +552,9 @@
 	Blur	Rozmycie
 	Blur Gallery	Galeria rozmyć
 	Field Blur…	Rozmycie pola…
+# Field Blur pins (#3373)
+	No pin selected	Nie zaznaczono pinezki
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Kliknij obraz, aby dodać pinezkę; przeciągnij pinezkę, aby ją przesunąć, lub jej pierścień, aby zmienić rozmycie. Delete usuwa zaznaczoną pinezkę.
 	Iris Blur…	Rozmycie irysowe…
 	Tilt-Shift…	Tilt-shift…
 	Path Blur…	Rozmycie ścieżki…
@@ -841,6 +857,9 @@
 	Appearance	Wygląd
 	Appearance (Layer Style)	Wygląd (styl warstwy)
 	Apply Layer Mask	Zastosuj maskę warstwy
+	Add Mask to Selection	Dodaj maskę do zaznaczenia
+	Subtract Mask from Selection	Odejmij maskę od zaznaczenia
+	Intersect Mask with Selection	Część wspólna maski i zaznaczenia
 	Apply Per Tip	Zastosuj dla każdego odcisku
 	Apply next selected layer comp	Zastosuj następną zaznaczoną kompozycję warstw
 	Apply previous selected layer comp	Zastosuj poprzednią zaznaczoną kompozycję warstw
@@ -856,6 +875,7 @@
 	Background	Tło
 	Background Color	Kolor tła
 	Background Contents	Zawartość tła
+	Custom background color	Niestandardowy kolor tła
 	Balance	Balans
 	Baseline	Linia bazowa
 	Baseline shift	Przesunięcie linii bazowej
@@ -2159,6 +2179,10 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Brak ścieżki, z której można utworzyć zaznaczenie: narysuj ją narzędziem Pióro lub wybierz w panelu Ścieżki.
 	Cancel opening	Anuluj otwieranie
 	Cancelled opening {name}	Anulowano otwieranie {name}
+	The document “{name}” does not have an embedded {mode} profile.	Dokument „{name}” nie ma osadzonego profilu {mode}.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Dokument „{name}” ma osadzony profil kolorów, który nie pasuje do bieżącej przestrzeni roboczej {mode}.
+	Embedded: {embedded}	Osadzony: {embedded}
+	Working: {working}	Przestrzeń robocza: {working}
 	Cancelled {label}	Anulowano: {label}
 	Esc to cancel	Esc, aby anulować
 	Opened {name}	Otworzono: {name}
@@ -2477,7 +2501,6 @@
 	Choose…	Wybierz…
 	Select Folder…	Wybierz folder…
 	Override Action "Save" Commands	Zastąp polecenia „Zapisz” w akcji
-	File Naming	Nazewnictwo plików
 	Compatibility	Zgodność
 	Mac OS	Mac OS
 	Unix	Unix
@@ -3391,6 +3414,11 @@ cameraRaw	Roughness	Chropowatość
 	Channels:	Kanały:
 	Knockout	Wycięcie
 	New Brush Preset…	Nowe ustawienie wstępne pędzla…
+	Capture Brush Size in Preset	Zapisz rozmiar pędzla w ustawieniu wstępnym
+	Include Tool Settings	Uwzględnij ustawienia narzędzia
+	Include Color	Uwzględnij kolor
+	Enter a name for the brush preset	Wpisz nazwę ustawienia wstępnego pędzla
+	A brush preset with this name already exists	Ustawienie wstępne pędzla o tej nazwie już istnieje
 	Brush Preset Options	Opcje ustawień wstępnych pędzla
 
 # Fill dialog, layer style contours and Image Size
@@ -3437,6 +3465,7 @@ cameraRaw	Roughness	Chropowatość
 	Indigo	Indygo
 	Fuchsia	Fuksja
 	Large document: redrawing on the CPU	Duży dokument: odświeżanie na CPU
+	Redrawing	Odświeżanie
 	This redraw took {seconds} s on the CPU.	To odświeżenie na CPU trwało {seconds} s.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Zmiany obejmujące cały dokument, takie jak tryb mieszania, krycie lub widoczność warstwy, odświeżają go w całości.
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Warstwy nie mieszczą się w budżecie pamięci GPU. Zwiększenie wartości Użycie pamięci w Preferencje › Wydajność zwiększa budżet, maksymalnie do jednej czwartej pamięci tego komputera.
@@ -3651,6 +3680,7 @@ curves	Smooth	Wygładź
 	Paint over hair or fur on the image; Alt paints the other mode	Maluj po włosach lub sierści na obrazie; Alt maluje w drugim trybie
 	Clear Brush Strokes	Wyczyść pociągnięcia pędzla
 	Show rulers	Pokaż linijki
+	Presentation	Prezentacja
 
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	Kliknij, aby umieścić · Alt-kliknij lub przeciągnij poza obszar roboczy, aby usunąć
@@ -3692,6 +3722,8 @@ curves	Smooth	Wygładź
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	Zapisano {n} operację do {file}|Zapisano {n} operacje do {file}|Zapisano {n} operacji do {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Pominięto {n} krok bez odpowiednika w Photoshopie|Pominięto {n} kroki bez odpowiednika w Photoshopie|Pominięto {n} kroków bez odpowiednika w Photoshopie
 
+	File Naming	Nazewnictwo plików
+	Starting serial	Początkowy numer seryjny
 # Actions panel: set folders, dialog toggle, Insert Stop
 	Insert Stop…	Wstaw zatrzymanie…
 	Save Set…	Zapisz zestaw…
@@ -3703,3 +3735,11 @@ curves	Smooth	Wygładź
 	Step {step} is waiting for its dialog	Krok {step} czeka na swoje okno dialogowe
 @plural	{n} action|{n} actions	{n} operacja|{n} operacje|{n} operacji
 	Auto Add/Delete	Automatyczne dodawanie/usuwanie
+
+# Native Windows printing qualification
+	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	Nie włączaj też odbicia lustrzanego w ustawieniach druku: oba odbicia wzajemnie się znoszą.
+	Print Settings…	Ustawienia druku…
+	Remember to turn off the printer's own colour management in Print Settings…	Pamiętaj o wyłączeniu zarządzania kolorami drukarki w ustawieniach druku…
+	Sent to {printer}	Wysłano do {printer}
+	set in Print Settings…	ustawiane w ustawieniach druku…
+	ICO is limited to 256 × 256 pixels	ICO jest ograniczony do 256 × 256 pikseli

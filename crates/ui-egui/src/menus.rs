@@ -306,14 +306,28 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             app.ask_folder(|app, path| app.run("file.import.videoFramesToLayers", json!({"path": path})).map_err(|e| e.to_string()))
         }
         "file.save" => {
-            // Writes back only to a layered file; a flat one goes through Save As.
+            // Writes back only to a layered file that holds the whole document; anything else
+            // goes through Save As, so the original is never overwritten with less (#3806).
             let tga_bits = crate::targa_options_ui::bits_param(&params, id)?;
             match params.get("path").and_then(Value::as_str) {
                 Some(path) => app.save_as_with(Some(path.to_string()), tga_bits),
-                None => match app.session.active().and_then(|d| d.path.clone()).filter(|p| photocraft_engine::file_cmds::saves_in_place(p)) {
-                    Some(path) => app.save_in_place(path),
-                    None => app.save_as_with(None, tga_bits),
-                },
+                None => {
+                    let own = app.session.active().and_then(|d| d.path.clone().map(|p| (photocraft_engine::file_cmds::holds_at(&d.doc, &p), p, d)));
+                    match own {
+                        Some((true, path, _)) => app.save_in_place(path),
+                        Some((false, path, d)) if photocraft_engine::file_cmds::saves_in_place(&path) => {
+                            // Its own file is layered but can't hold what the document has now.
+                            let losses = photocraft_engine::file_cmds::losses_at(&d.doc, &path);
+                            let name = crate::file_open::display_name(&path);
+                            let title = crate::i18n::fmt(tl!("{name} can't keep everything in this document"), &[("name", name.as_str())]);
+                            let mut lines = losses;
+                            lines.push(tl!("Choose a format that keeps it, such as Photoshop (PSD), or save a copy.").to_string());
+                            crate::notices::post(app, title, lines, false, None);
+                            app.save_as_with(None, tga_bits)
+                        }
+                        _ => app.save_as_with(None, tga_bits),
+                    }
+                }
             }
         }
         "file.exit" => {
@@ -472,6 +486,23 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
                 return Err(why);
             }
             Ok(json!({"dialog": crate::stroke_ui::open(app)}))
+        }
+        // Channels › Channel Options… without params: the dialog on the targeted alpha/spot
+        // channel, or Quick Mask Options while in Quick Mask (with params: the engine directly).
+        crate::channel_options_ui::COMMAND if params.as_object().is_none_or(|o| o.is_empty()) => {
+            let st = app.session.active().ok_or("no document is open")?;
+            let channel = match st.channel_view.target {
+                _ if st.doc.quick_mask.is_some() => json!("quickMask"),
+                photocraft_engine::channel_cmds::ChannelTarget::Alpha(i) => json!(i),
+                _ => return Err("target an alpha or spot channel first".into()),
+            };
+            let dialog = crate::channel_options_ui::open(app, &channel).ok_or("no such channel")?;
+            Ok(json!({"dialog": dialog}))
+        }
+        // Channels › New Spot Channel… without params: its dialog (with params: the engine).
+        crate::channel_options_ui::NEW_SPOT if params.as_object().is_none_or(|o| o.is_empty()) => {
+            let dialog = crate::channel_options_ui::open_new_spot(app).ok_or("no document is open")?;
+            Ok(json!({"dialog": dialog}))
         }
         // Photoshop's "Select and Mask…" is the engine's select.refineEdge.
         // Select › Color Range… from the menu: the dialog (with params: the engine directly).
@@ -1086,6 +1117,17 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
         for it in &mut items {
             it.color = prefs.menus.colors.get(&it.id).cloned();
         }
+    }
+    // Layer › Create Clipping Mask is Photoshop's one Create / Release item: when its shortcut
+    // would release ([`crate::shortcut_dispatch::clip_key_releases`]) it reads Release Clipping
+    // Mask and runs it, keeping that shortcut. The engine's own Release item lives in that slot.
+    items.retain(|i| i.id != "layer.releaseClippingMask");
+    if crate::shortcut_dispatch::clip_key_releases(app)
+        && let Some(item) = items.iter_mut().find(|i| i.id == "layer.createClippingMask")
+    {
+        item.id = "layer.releaseClippingMask".into();
+        item.label = "Release Clipping Mask".into();
+        item.enabled = is_enabled(app, &item.id);
     }
     items
 }

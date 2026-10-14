@@ -1,6 +1,7 @@
 //! Layers-panel pieces for smart objects: the thumbnail badge and the Smart Filters sub-rows
 //! (eye toggles; double-click a filter to re-open its dialog with the recorded parameters; click
-//! to select one; drag onto another smart object to move it there, ⌥-drag to copy it, #4271).
+//! to select one; drag onto another smart object to move it there, ⌥-drag to copy it, #4271;
+//! drag it up or down its own stack to reorder it).
 
 use egui::{Align2, Color32, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
 use photocraft_doc::{Document, Layer, LayerContent, LayerId, SmartObject};
@@ -9,16 +10,52 @@ use serde_json::{Value, json};
 use crate::theme::Tokens;
 use crate::{PhotocraftApp, icons};
 
-/// Smart-object badge in the bottom-right corner of a layer thumbnail.
-pub fn thumb_badge(ui: &egui::Ui, l: &Layer, thumb: Rect) {
-    if !matches!(l.content, LayerContent::Smart(_)) {
-        return;
+/// What the badge on a layer thumbnail marks the layer as.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ThumbBadge {
+    Smart,
+    Shape,
+}
+
+/// The badge `l`'s thumbnail carries. Smart objects and shape layers (#4584) show their pixels
+/// like any other layer, so only the badge tells them apart.
+fn thumb_badge_kind(l: &Layer) -> Option<ThumbBadge> {
+    match l.content {
+        LayerContent::Smart(_) => Some(ThumbBadge::Smart),
+        LayerContent::Shape(_) => Some(ThumbBadge::Shape),
+        _ => None,
     }
+}
+
+/// Where the badge sits: over the bottom-right corner of the thumbnail.
+fn thumb_badge_rect(thumb: Rect) -> Rect {
+    Rect::from_min_size(pos2(thumb.right() - 9.0, thumb.bottom() - 9.0), vec2(11.0, 11.0))
+}
+
+/// The shape badge's path, inset from the badge so its corner anchors stay inside the frame.
+const SHAPE_PATH_INSET: f32 = 3.0;
+/// Side of an anchor point on the shape badge's path.
+const SHAPE_ANCHOR: f32 = 3.0;
+
+/// Smart-object or shape-layer badge in the bottom-right corner of a layer thumbnail.
+pub fn thumb_badge(ui: &egui::Ui, l: &Layer, thumb: Rect) {
+    let Some(kind) = thumb_badge_kind(l) else { return };
     let t = Tokens::get(ui.ctx());
-    let r = Rect::from_min_size(pos2(thumb.right() - 9.0, thumb.bottom() - 9.0), vec2(11.0, 11.0));
+    let r = thumb_badge_rect(thumb);
     ui.painter().rect_filled(r, 2.0, t.field);
     ui.painter().rect_stroke(r, 2.0, Stroke::new(1.0, t.field_border), egui::StrokeKind::Inside);
-    icons::paint(ui, r, "app-window", 9.0, t.icon);
+    match kind {
+        ThumbBadge::Smart => icons::paint(ui, r, "app-window", 9.0, t.icon),
+        // Photoshop's shape mark: a path with an anchor point on each corner. Painted rather
+        // than an icon, so the anchors stay solid squares at this size.
+        ThumbBadge::Shape => {
+            let path = r.shrink(SHAPE_PATH_INSET);
+            ui.painter().rect_stroke(path, 0.0, Stroke::new(1.0, t.icon), egui::StrokeKind::Middle);
+            for anchor in [path.left_top(), path.right_top(), path.right_bottom(), path.left_bottom()] {
+                ui.painter().rect_filled(Rect::from_center_size(anchor, vec2(SHAPE_ANCHOR, SHAPE_ANCHOR)), 0.0, t.icon);
+            }
+        }
+    }
 }
 
 /// The display name of a smart filter (its command's label without the ellipsis). A Photoshop
@@ -50,6 +87,14 @@ pub fn filter_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, l: &Layer, depth:
         let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click_and_drag());
         if resp.drag_started() {
             ui.ctx().data_mut(|d| d.insert_temp::<FilterDrag>(drag_key(), (l.id.0, index)));
+        }
+        if let Some((to, action)) = reorder_drop(ui, l, sm.smart_filters.len(), index, rect) {
+            // The moved filter ends up selected, with its smart object active, as after a click.
+            ui.ctx().data_mut(|d| d.insert_temp::<FilterDrag>(selected_key(doc), (l.id.0, Some(to))));
+            actions.push(action);
+            if !active {
+                actions.push(("layer.select".into(), json!({"layer": l.id.0})));
+            }
         }
         // Selected as in Photoshop: the row stays highlighted while its smart object is active.
         let selected = active && picked == Some((l.id.0, index));
@@ -115,6 +160,26 @@ fn selected_key(doc: photocraft_doc::DocId) -> egui::Id {
     egui::Id::new(("smart-filter-selected", doc))
 }
 
+/// The selected smart filter row, while its smart object is active and the filter still exists.
+pub(crate) fn selected(ctx: &egui::Context, doc: &Document, active: Option<LayerId>) -> Option<FilterDrag> {
+    let (layer, filter) = ctx.data(|d| d.get_temp::<FilterDrag>(selected_key(doc.id)))?;
+    if active != Some(LayerId(layer)) {
+        return None;
+    }
+    let LayerContent::Smart(sm) = &doc.layer(LayerId(layer))?.content else { return None };
+    let exists = match filter {
+        Some(i) => i < sm.smart_filters.len(),
+        None => !sm.smart_filters.is_empty(),
+    };
+    exists.then_some((layer, filter))
+}
+
+/// Forgets the selected smart filter row: its smart object's own row was clicked, or the filter
+/// was deleted (its index would now name the next one).
+pub(crate) fn deselect(ctx: &egui::Context, doc: photocraft_doc::DocId) {
+    ctx.data_mut(|d| d.remove::<FilterDrag>(selected_key(doc)));
+}
+
 /// While smart filters are dragged: their name by the pointer, and the copy cursor while ⌥ is held.
 pub(crate) fn drag_feedback(ctx: &egui::Context, doc: &Document) {
     let Some((from, filter)) = ctx.data(|d| d.get_temp::<FilterDrag>(drag_key())) else { return };
@@ -152,6 +217,53 @@ pub(crate) fn drop_on_row(ctx: &egui::Context, ui: &egui::Ui, l: &Layer, rect: R
     if ctx.input(|i| i.pointer.any_released()) {
         actions.push(drop_action(from, filter, l.id, ctx.input(|i| i.modifiers.alt)));
     }
+}
+
+/// Where `layer.smartFilter.move` puts filter `src` (stack index, 0 = bottom) dropped on the row
+/// of filter `row` (`None`: the Smart Filters row, i.e. on top of the stack), `above` or below
+/// it, in a stack of `n`. `None` when the filter would stay where it is.
+fn reorder_target(src: usize, row: Option<usize>, above: bool, n: usize) -> Option<usize> {
+    let to = match row {
+        None => n.checked_sub(1)?,
+        Some(i) if i == src => return None,
+        // Above a row is just over it in the stack, below a row just under it. `move` removes
+        // the filter first, so the filters over `src` shift down by one.
+        Some(i) if above => {
+            if src < i {
+                i
+            } else {
+                i + 1
+            }
+        }
+        Some(i) => {
+            if src < i {
+                i - 1
+            } else {
+                i
+            }
+        }
+    };
+    (to < n && to != src).then_some(to)
+}
+
+/// A filter dragged up or down its own smart object's stack (Photoshop): over another row of the
+/// stack a line marks where it lands, above or below that row (the Smart Filters row: on top),
+/// and the release moves it there. The bottom filter is applied first, so the order changes the
+/// result (Unsharp Mask over a blur sharpens the blurred image; under it, the sharpening is
+/// blurred). Returns the filter's new index and the command.
+fn reorder_drop(ui: &egui::Ui, l: &Layer, n: usize, row: Option<usize>, rect: Rect) -> Option<(usize, (String, Value))> {
+    let ctx = ui.ctx();
+    let (from, src) = ctx.data(|d| d.get_temp::<FilterDrag>(drag_key()))?;
+    let (src, p) = (src?, ctx.input(|i| i.pointer.interact_pos())?);
+    if from != l.id.0 || !rect.contains(p) {
+        return None;
+    }
+    let above = p.y < rect.center().y;
+    let to = reorder_target(src, row, above, n)?;
+    let t = Tokens::get(ctx);
+    let y = if above && row.is_some() { rect.top() } else { rect.bottom() };
+    ui.painter().line_segment([pos2(rect.left() + 30.0, y), pos2(rect.right(), y)], Stroke::new(2.0, t.accent));
+    ctx.input(|i| i.pointer.any_released()).then(|| (to, ("layer.smartFilter.move".into(), json!({"layer": l.id.0, "index": src, "to": to}))))
 }
 
 /// Smart filters dropped on the footer's Delete button: a filter's row deletes that filter, the
@@ -198,5 +310,91 @@ pub fn confirm_command(fields: &serde_json::Map<String, Value>, command: String,
     match fields.get("__smartFilter") {
         Some(sf) => ("layer.smartFilter.setParams".into(), json!({"layer": sf["layer"], "index": sf["index"], "params": params})),
         None => (command, params),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A pixel layer, a shape layer and a smart object, in that order.
+    fn layers() -> [Layer; 3] {
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 64, "height": 48})).unwrap();
+        // An empty layer can't become a smart object: fill it first.
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("edit.fill", json!({"contents": "color", "color": "#336699"})).unwrap();
+        let smart = s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap()["layer"].as_u64().unwrap();
+        let shape = s.execute("shape.create", json!({"kind": "rect", "rect": [8, 8, 40, 24], "fill": "#cc3333"})).unwrap()["layer"].as_u64().unwrap();
+        let pixel = s.execute("layer.new.layer", json!({})).unwrap()["layer"].as_u64().unwrap();
+        let doc = &s.active().unwrap().doc;
+        [pixel, shape, smart].map(|id| doc.layer(photocraft_doc::LayerId(id)).unwrap().clone())
+    }
+
+    /// Stack [A, B, C] (A at the bottom, drawn last): where a dragged filter lands.
+    #[test]
+    fn a_filter_dropped_above_or_below_a_row_lands_next_to_it() {
+        // A over C: [B, C, A]. A under C: [B, A, C].
+        assert_eq!(reorder_target(0, Some(2), true, 3), Some(2));
+        assert_eq!(reorder_target(0, Some(2), false, 3), Some(1));
+        // C under A: [C, A, B]. C over A: [A, C, B].
+        assert_eq!(reorder_target(2, Some(0), false, 3), Some(0));
+        assert_eq!(reorder_target(2, Some(0), true, 3), Some(1));
+        // The Smart Filters row: on top.
+        assert_eq!(reorder_target(0, None, false, 3), Some(2));
+        // Next to where it already is, or on itself: nothing to do.
+        assert_eq!(reorder_target(1, Some(2), false, 3), None);
+        assert_eq!(reorder_target(1, Some(0), true, 3), None);
+        assert_eq!(reorder_target(1, Some(1), true, 3), None);
+        assert_eq!(reorder_target(2, None, true, 3), None);
+        assert_eq!(reorder_target(0, None, true, 0), None);
+    }
+
+    #[test]
+    fn shape_layers_and_smart_objects_carry_a_thumbnail_badge() {
+        let [pixel, shape, smart] = layers();
+        assert_eq!(thumb_badge_kind(&pixel), None);
+        assert_eq!(thumb_badge_kind(&shape), Some(ThumbBadge::Shape), "#4584");
+        assert_eq!(thumb_badge_kind(&smart), Some(ThumbBadge::Smart));
+    }
+
+    /// The rects `thumb_badge` fills for `l` over `thumb`, with their colours.
+    fn filled(l: &Layer, thumb: Rect) -> Vec<(Rect, Color32)> {
+        let l = l.clone();
+        let mut h = egui_kittest::Harness::new_ui(move |ui| thumb_badge(ui, &l, thumb));
+        h.run();
+        let badge = thumb_badge_rect(thumb).expand(0.5);
+        let rects = h.output().shapes.iter().filter_map(|s| match &s.shape {
+            egui::Shape::Rect(r) if badge.contains_rect(r.rect) && r.fill != Color32::TRANSPARENT => Some((r.rect, r.fill)),
+            _ => None,
+        });
+        rects.collect()
+    }
+
+    /// #4584: a shape layer's thumbnail shows a path with four anchor points in its corner.
+    #[test]
+    fn shape_badge_paints_a_path_with_an_anchor_on_each_corner() {
+        let [pixel, shape, smart] = layers();
+        let thumb = Rect::from_min_size(pos2(20.0, 20.0), vec2(34.0, 34.0));
+        let t = Tokens::get(&egui::Context::default());
+        let frame = thumb_badge_rect(thumb);
+        assert!(frame.right() > thumb.right() && frame.bottom() > thumb.bottom(), "over the bottom-right corner");
+        assert!(filled(&pixel, thumb).is_empty(), "a pixel layer has no badge");
+
+        let drawn = filled(&shape, thumb);
+        assert!(drawn.contains(&(frame, t.field)), "the badge's frame");
+        let anchors: Vec<Rect> = drawn.iter().filter(|(_, c)| *c == t.icon).map(|(r, _)| *r).collect();
+        let path = frame.shrink(SHAPE_PATH_INSET);
+        let corners = [path.left_top(), path.right_top(), path.right_bottom(), path.left_bottom()];
+        assert_eq!(anchors.iter().map(Rect::center).collect::<Vec<_>>(), corners);
+        for a in &anchors {
+            assert_eq!(a.size(), vec2(SHAPE_ANCHOR, SHAPE_ANCHOR));
+            assert!(frame.shrink(1.0).contains_rect(*a), "inside the frame's border");
+        }
+
+        // The smart-object badge keeps its frame and draws no anchors.
+        let drawn = filled(&smart, thumb);
+        assert!(drawn.contains(&(frame, t.field)));
+        assert!(drawn.iter().all(|(_, c)| *c != t.icon));
     }
 }

@@ -17,6 +17,10 @@
 # singular noun in Hungarian, so every @plural entry has a single form.
 
 # Plural messages and command id overrides
+# Custom paper dimensions in Print Settings.
+	Paper Width	Papír szélessége
+	Paper Height	Papír magassága
+
 @id	edit.purge.undo	Visszavonási adatok
 @id	edit.stroke	Körvonalazás…
 @id	edit.transform.scale	Méretezés
@@ -27,6 +31,7 @@
 @plural	Imported {n} brush from {file}|Imported {n} brushes from {file}	{n} ecset importálva. Forrás: {file}
 @plural	Imported {n} brush from {group}|Imported {n} brushes from {group}	{n} ecset importálva. Csoport: {group}
 @plural	Imported {n} gradient from {file}|Imported {n} gradients from {file}	{n} színátmenet importálva. Forrás: {file}
+@plural	Imported {n} pattern from {file}|Imported {n} patterns from {file}	{n} mintázat importálva. Forrás: {file}
 @plural	Imported {n} swatch from {file}|Imported {n} swatches from {file}	{n} színminta importálva. Forrás: {file}
 @plural	Played {n} step|Played {n} steps	{n} lépés lejátszva
 @plural	Saved for Web: {n} file|Saved for Web: {n} files	Mentés webre: {n} fájl
@@ -213,6 +218,8 @@
 	Rotate 90° Counter Clockwise	Forgatás 90°-kal az óramutató járásával szemben
 	Save	Mentés
 	Save a Copy…	Másolat mentése…
+	{name} can't keep everything in this document	Nem őrizhető meg minden a dokumentumból ebben a formátumban: {name}
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	Válassz olyan formátumot, amely mindent megőriz, például Photoshop (PSD), vagy ments másolatot.
 	Save As…	Mentés másként…
 	Save for Web (Legacy)…	Mentés webre (régi)…
 	Scale	Méretarány
@@ -393,6 +400,7 @@
 	Smooth…	Simítás…
 	Solid Color…	Egyszínű kitöltés…
 	Stack Mode	Halommód
+	Choose Stack Mode:	Halommód kiválasztása:
 	Standard Deviation	Szórás
 	Subject	Fő téma
 	Subtract Front Shape	Elülső alakzat kivonása
@@ -439,6 +447,9 @@
 	Appearance	Megjelenés
 	Apply Data Set	Adatkészlet alkalmazása
 	Apply Layer Mask	Rétegmaszk alkalmazása
+	Add Mask to Selection	Maszk hozzáadása a kijelöléshez
+	Subtract Mask from Selection	Maszk kivonása a kijelölésből
+	Intersect Mask with Selection	Maszk metszése a kijelöléssel
 	Artboard Guides	Rajztábla-segédvonalak
 	Artboards to Files	Rajztáblák fájlokba
 	Artboards to PDF	Rajztáblák PDF-be
@@ -550,6 +561,8 @@
 	Facet	Lapolás
 	Fibers…	Szálak…
 	Field Blur…	Mezőelmosás…
+	No pin selected	Nincs kijelölt tű
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Kattints a képre tű hozzáadásához; húzd a tűt az áthelyezéséhez, vagy a gyűrűjét az elmosás módosításához. A Delete törli a kijelölt tűt.
 	Fill Path…	Útvonal kitöltése…
 	Fill Screen	Képernyő kitöltése
 	Filter	Szűrő
@@ -1174,6 +1187,11 @@
 	New Brush	Új ecset
 	New Brush Preset	Új ecset-előbeállítás
 	New Brush Preset…	Új ecset-előbeállítás…
+	Capture Brush Size in Preset	Ecsetméret rögzítése az előbeállításban
+	Include Tool Settings	Eszközbeállítások belefoglalása
+	Include Color	Szín belefoglalása
+	Enter a name for the brush preset	Adjon nevet az ecset-előbeállításnak
+	A brush preset with this name already exists	Már van ilyen nevű ecset-előbeállítás
 	New Crop Preset…	Új körbevágási előbeállítás…
 	New Tool Preset	Új eszköz-előbeállítás
 	No brush presets	Nincs ecset-előbeállítás
@@ -1699,6 +1717,7 @@ layerLabel	Magenta	Bíbor
 	Always use pressure for opacity	Mindig nyomásfüggő átlátszatlanság
 	Always use pressure for size	Mindig nyomásfüggő méret
 	Appearance Mode	Megjelenési mód
+	Presentation	Megjelenítés
 	Auto Erase	Automatikus radírozás
 	Auto Hide	Automatikus elrejtés
 	Auto-Select:	Automatikus kijelölés:
@@ -2467,6 +2486,10 @@ navigator	Zoom	Nagyítás mértéke
 	Camera Raw Filter ({layer})	Camera Raw szűrő ({layer})
 	Camera Raw isn't open	A Camera Raw nincs megnyitva
 	Cancelled opening {name}	Megnyitás megszakítva: {name}
+	The document “{name}” does not have an embedded {mode} profile.	A(z) „{name}” dokumentumnak nincs beágyazott {mode}-profilja.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	A(z) „{name}” dokumentum beágyazott színprofilja nem egyezik az aktuális {mode}-munkaszíntérrel.
+	Embedded: {embedded}	Beágyazott: {embedded}
+	Working: {working}	Munkaszíntér: {working}
 	Cancelled {label}	Megszakítva: {label}
 	Clarity	Tisztaság
 	Color Detail	Színrészletesség
@@ -2629,6 +2652,7 @@ cameraRaw	Yellow	Sárga
 	Autosave minutes	Automatikus mentés gyakorisága (perc)
 	Background Color	Háttérszín
 	Background Contents	Háttér tartalma
+	Custom background color	Egyéni háttérszín
 	Batch	Kötegelt feldolgozás
 	Binary assets added	Hozzáadott bináris elemek
 	Binary assets removed	Eltávolított bináris elemek
@@ -4003,6 +4027,7 @@ cameraRaw	Yellow	Sárga
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	{n} művelet mentve. Cél: {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	{n} Photoshop-megfelelő nélküli lépés kihagyva
 
+	Starting serial	Kezdő sorszám
 # Actions panel: set folders, dialog toggle, Insert Stop
 	Insert Stop…	Leállítás beszúrása…
 	Save Set…	Készlet mentése…
@@ -4026,3 +4051,18 @@ cameraRaw	Yellow	Sárga
 	Loaded Camera Raw settings from {file}	Camera Raw-beállítások betöltve innen: {file}
 	Loaded Camera Raw settings from {file} ({n} not supported)	Camera Raw-beállítások betöltve innen: {file} ({n} nem támogatott)
 	Auto Add/Delete	Automatikus hozzáadás/törlés
+
+# Native Windows printing qualification
+	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	A nyomtatási beállításokban ne jelöld be a tükrözést is: a két tükrözés kioltja egymást.
+	Print Settings…	Nyomtatási beállítások…
+	Remember to turn off the printer's own colour management in Print Settings…	Ne felejtsd el kikapcsolni a nyomtató saját színkezelését a nyomtatási beállításokban…
+	Sent to {printer}	Elküldve ide: {printer}
+	set in Print Settings…	a nyomtatási beállításokban adható meg…
+	ICO is limited to 256 × 256 pixels	Az ICO legfeljebb 256 × 256 képpont lehet
+
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	Csatorna színe
+	Color Indicates:	A szín jelzése:
+	Ink Characteristics	Festék jellemzői
+	Solidity:	Fedőképesség:
+	Redrawing	Újrarajzolás

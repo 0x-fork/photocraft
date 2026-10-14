@@ -20,7 +20,17 @@
 # (`plural_none` in i18n/mod.rs).
 
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	Màu kênh
+	Color Indicates:	Màu biểu thị:
+	Solidity:	Độ đặc:
+	Ink Characteristics	Đặc tính mực
+
 # Phase 3.1 — top-level menus, File menu, Edit menu
+# Custom paper dimensions in Print Settings.
+	Paper Width	Chiều rộng giấy
+	Paper Height	Chiều cao giấy
+
 	Again	Lặp lại
 	AI Integrations…	Tích hợp AI…
 	All	Tất cả
@@ -152,6 +162,8 @@
 	Rotate 90° Counter Clockwise	Xoay 90° ngược chiều kim đồng hồ
 	Save	Lưu
 	Save a Copy…	Lưu bản sao…
+	{name} can't keep everything in this document	{name} không thể giữ mọi thứ trong tài liệu này
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	Hãy chọn một định dạng giữ được mọi thứ, như Photoshop (PSD), hoặc lưu bản sao.
 	Save As…	Lưu thành…
 	Save for Web (Legacy)…	Lưu cho Web (cũ)…
 	Scale	Tỷ lệ
@@ -373,6 +385,7 @@
 	Smart Objects	Đối tượng thông minh
 	Solid Color…	Màu đặc…
 	Stack Mode	Chế độ chồng
+	Choose Stack Mode:	Chọn chế độ chồng:
 	Standard Deviation	Độ lệch chuẩn
 	Subtract Front Shape	Trừ hình phía trước
 	Summation	Tổng
@@ -495,6 +508,9 @@
 	Facet	Mặt cắt
 	Fibers…	Sợi…
 	Field Blur…	Làm mờ vùng…
+# Field Blur pins (#3373)
+	No pin selected	Chưa chọn ghim nào
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Bấm vào ảnh để thêm ghim; kéo ghim để di chuyển, hoặc kéo vòng của ghim để đổi độ mờ. Delete xóa ghim đã chọn.
 	Filter Gallery…	Thư viện bộ lọc…
 	Find Edges	Tìm cạnh
 	Flame…	Ngọn lửa…
@@ -944,6 +960,9 @@
 	Duplicate Layers…	Nhân bản các lớp…
 	Add Layer Mask	Thêm mặt nạ lớp
 	Apply Layer Mask	Áp dụng mặt nạ lớp
+	Add Mask to Selection	Thêm mặt nạ vào vùng chọn
+	Subtract Mask from Selection	Trừ mặt nạ khỏi vùng chọn
+	Intersect Mask with Selection	Giao mặt nạ với vùng chọn
 	Delete Layer Mask	Xóa mặt nạ lớp
 	Disable Layer Mask	Tắt mặt nạ lớp
 	Release Clipping Mask	Nhả mặt nạ cắt
@@ -1546,6 +1565,10 @@ cameraRaw	Shadows	Vùng tối
 	Esc to cancel	Esc để hủy
 	Cancel opening	Hủy mở tệp
 	Cancelled opening {name}	Đã hủy mở {name}
+	The document “{name}” does not have an embedded {mode} profile.	Tài liệu “{name}” không có hồ sơ {mode} nhúng.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Tài liệu “{name}” có hồ sơ màu nhúng không khớp với không gian làm việc {mode} hiện tại.
+	Embedded: {embedded}	Nhúng: {embedded}
+	Working: {working}	Không gian làm việc: {working}
 	Cancelled {label}	Đã hủy {label}
 	Cancel transform (Esc)	Hủy biến đổi (Esc)
 	Cancel warp (Esc)	Hủy biến dạng (Esc)
@@ -1716,6 +1739,7 @@ cameraRaw	Size	Kích thước
 	Resolution:	Độ phân giải:
 	Color Mode	Chế độ màu
 	Background Contents	Nội dung nền
+	Custom background color	Màu nền tùy chỉnh
 	Pixels/Inch	Pixel/inch
 	Pixels/Centimeter	Pixel/centimet
 	White	Trắng
@@ -2026,6 +2050,11 @@ layers	Fill:	Độ tô:
 	Move effect layer down	Di chuyển lớp hiệu ứng xuống
 	Move effect layer up	Di chuyển lớp hiệu ứng lên
 	New Brush Preset…	Thiết lập sẵn cọ mới…
+	Capture Brush Size in Preset	Lưu kích thước cọ vào thiết lập sẵn
+	Include Tool Settings	Bao gồm thiết lập công cụ
+	Include Color	Bao gồm màu
+	Enter a name for the brush preset	Nhập tên cho thiết lập sẵn cọ
+	A brush preset with this name already exists	Đã có thiết lập sẵn cọ với tên này
 	New effect layer	Lớp hiệu ứng mới
 	New Swatch Group…	Nhóm mẫu màu mới…
 	New Swatch…	Mẫu màu mới…
@@ -2130,6 +2159,7 @@ layers	Fill:	Độ tô:
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Các lớp không vừa ngân sách bộ nhớ GPU. Tăng mức sử dụng bộ nhớ trong Tùy chọn › Hiệu năng sẽ nâng ngân sách, tối đa một phần tư bộ nhớ máy này.
 	Labels	Nhãn
 	Large document: redrawing on the CPU	Tài liệu lớn: đang vẽ lại trên CPU
+	Redrawing	Đang vẽ lại
 	Layer deleted, but confirmation preference could not be saved: {error}	Đã xóa lớp, nhưng không lưu được tùy chọn xác nhận: {error}
 	Layer From Background…	Lớp từ nền…
 	Load a keyboard shortcut set saved as .kys	Tải bộ phím tắt đã lưu dạng .kys
@@ -3577,6 +3607,8 @@ curves	Smooth	Làm mượt
 @plural	Saved {n} action to {file}|Saved {n} actions to {file}	Đã lưu {n} hành động vào {file}
 @plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Đã bỏ qua {n} bước không có chức năng tương ứng trong Photoshop
 
+	File Naming	Đặt tên tệp
+	Starting serial	Số thứ tự bắt đầu
 # Actions panel: set folders, dialog toggle, Insert Stop
 	Insert Stop…	Chèn điểm dừng…
 	Save Set…	Lưu bộ…
@@ -3587,7 +3619,16 @@ curves	Smooth	Làm mượt
 	Action playback stopped	Đã dừng phát hành động
 	Step {step} is waiting for its dialog	Bước {step} đang chờ hộp thoại của nó
 @plural	{n} action|{n} actions	{n} hành động
+	Presentation	Trình bày
 	Gradient Preset Options	Tùy chọn thiết lập sẵn chuyển sắc
 	Import .GRD	Nhập .GRD
 	Choose a gradient file (.grd).	Chọn tệp chuyển sắc (.grd).
 	Auto Add/Delete	Tự động thêm/xóa
+
+# Native Windows printing qualification
+	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	Đừng bật thêm Ảnh phản chiếu trong thiết lập in: hai lần lật sẽ triệt tiêu nhau.
+	Print Settings…	Thiết lập in…
+	Remember to turn off the printer's own colour management in Print Settings…	Nhớ tắt quản lý màu riêng của máy in trong thiết lập in…
+	Sent to {printer}	Đã gửi tới {printer}
+	set in Print Settings…	đặt trong thiết lập in…
+	ICO is limited to 256 × 256 pixels	ICO giới hạn ở 256 × 256 pixel
