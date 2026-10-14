@@ -553,8 +553,8 @@ fn field_reaches(progs: &[fx::MapProgram]) -> HashMap<FieldKind, i32> {
 }
 
 /// Runs `f` inside GPU error scopes and returns the first error raised.
-/// Native wgpu reports errors synchronously; where they only arrive asynchronously (WebGPU) none
-/// is reported.
+/// Native wgpu reports validation/internal/OOM errors synchronously; where they only arrive
+/// asynchronously (WebGPU) none is reported.
 fn first_error<T>(device: &wgpu::Device, f: impl FnOnce() -> T) -> (T, Option<wgpu::Error>) {
     let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let internal = device.push_error_scope(wgpu::ErrorFilter::Internal);
@@ -571,12 +571,13 @@ fn first_error<T>(device: &wgpu::Device, f: impl FnOnce() -> T) -> (T, Option<wg
     (out, error)
 }
 
-/// Unwatched native callers need GPU errors to become `Unsupported` instead of reaching wgpu's
-/// default panic handler. Watched callers keep their fault callbacks, which stop work promptly
-/// and update the health flag shared with the canvas.
+/// Run `f` with error scopes to catch synchronous validation/internal/OOM errors as `Unsupported`.
+/// Device loss and async errors are handled by the health callbacks (if watched).
+/// On WebGPU, errors arrive asynchronously so scopes don't catch them; health callbacks handle those.
 fn scoped_work<T>(device: &wgpu::Device, watched: bool, f: impl FnOnce() -> Result<T, Unsupported>) -> Result<T, Unsupported> {
-    // WebGPU errors arrive asynchronously; its callers still use the health callbacks.
-    if watched || cfg!(target_arch = "wasm32") {
+    // Always use error scopes on native to catch synchronous validation errors (e.g. invalid buffer
+    // in queue.write_buffer). On WebGPU, errors are async so scopes don't help; rely on health.
+    if cfg!(target_arch = "wasm32") {
         return f();
     }
     let (result, error) = first_error(device, f);
