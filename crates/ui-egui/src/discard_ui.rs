@@ -192,7 +192,8 @@ fn save(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId) -> bool {
         return false;
     }
     match saved {
-        Ok(_) => !app.save_options_open() && !app.saving(),
+        // A Save Document script may have edited the document after it was written: still dirty.
+        Ok(_) => !app.save_options_open() && !app.saving() && index_of(app, doc).is_some_and(|i| !app.session.documents()[i].is_dirty()),
         // Backing out of the file dialog is the user's choice, not an error.
         Err(e) if e == crate::file_dialog::CANCELLED => false,
         Err(e) => {
@@ -393,6 +394,32 @@ mod tests {
 
     fn doc_id(app: &PhotocraftApp, i: usize) -> DocId {
         app.session.documents()[i].doc.id
+    }
+
+    #[test]
+    fn a_save_document_script_that_edits_the_document_keeps_the_prompt_up() {
+        use photocraft_engine::automate_cmds::ScriptBinding;
+        let mut app = app_with_docs(1);
+        let ctx = egui::Context::default();
+        make_dirty(&mut app, 0);
+        app.session.active_mut().unwrap().path = Some("/pics/kept.psd".into());
+        app.services.export = Some(Box::new(|_: &photocraft_doc::Document, _: &str, _: &crate::ExportSettings| Ok((b"out".to_vec(), Vec::new()))));
+        app.services.write = Some(Box::new(|_: &str, _: &[u8]| Ok(())));
+        app.session.edit_prefs(|prefs| {
+            prefs.script_events.enabled = true;
+            prefs.script_events.bindings = vec![ScriptBinding {
+                event: "saveDocument".into(),
+                script: None,
+                steps: Some(json!([["layer.new.layer", {"name": "From the script"}]])),
+                name: "Binding".into(),
+            }];
+        });
+        let doc = doc_id(&app, 0);
+        assert!(!save(&mut app, &ctx, doc), "the script's layer was never written");
+        assert!(app.session.documents()[0].is_dirty());
+        // Without the script the same save releases the prompt.
+        app.session.edit_prefs(|prefs| prefs.script_events.enabled = false);
+        assert!(save(&mut app, &ctx, doc));
     }
 
     #[test]

@@ -233,9 +233,10 @@ pub struct Candidate {
 /// Rank of an adapter (lower is better): high-performance device types first (egui's power
 /// preference) or software adapters first for `cpu`; then backends, with DX12 before Vulkan for
 /// Intel on Windows. For `cpu`, any GL adapter comes before Vulkan, which is only the fallback
-/// for presenting the window (see [`backends`]).
+/// for presenting the window (see [`backends`]). On Windows GL comes after every other adapter,
+/// WARP included: GL there (VMware's SVGA3D, GL-only old GPUs) drew a black window (#5191, #1788).
 fn rank(a: &Candidate, backend: GpuBackend, os: Os) -> (u8, u8, u8) {
-    let fallback = u8::from(backend == GpuBackend::Cpu && a.backend == wgpu::Backend::Vulkan);
+    let fallback = u8::from((backend == GpuBackend::Cpu && a.backend == wgpu::Backend::Vulkan) || (os == Os::Windows && a.backend == wgpu::Backend::Gl));
     let ty = match a.device_type {
         wgpu::DeviceType::DiscreteGpu => 0,
         wgpu::DeviceType::IntegratedGpu => 1,
@@ -633,6 +634,20 @@ mod tests {
         assert_eq!(pick(&[gl, nvidia_vk], Cpu, Os::Other), Some(1));
         // Other backends rank as before.
         assert_eq!(pick(&[nvidia_gl, nvidia_vk], Auto, Os::Other), Some(1));
+    }
+
+    /// #5191, #1788: a Windows VM offers VMware's SVGA3D over GL (`Other`) and WARP (`Cpu`, DX12).
+    /// GL drew a black window; WARP works. GL stays the last resort.
+    #[test]
+    fn windows_auto_prefers_warp_over_gl() {
+        use wgpu::{Backend as B, DeviceType as T};
+        let svga_gl = cand(0x15ad, T::Other, B::Gl);
+        let warp = cand(0x1414, T::Cpu, B::Dx12);
+        assert_eq!(pick(&[svga_gl, warp], Auto, Os::Windows), Some(1));
+        assert_eq!(pick(&[cand(INTEL, T::IntegratedGpu, B::Gl), warp], Auto, Os::Windows), Some(1));
+        assert_eq!(pick(&[svga_gl], Auto, Os::Windows), Some(0));
+        // Elsewhere GL keeps its rank.
+        assert_eq!(pick(&[svga_gl, warp], Auto, Os::Other), Some(0));
     }
 
     #[test]

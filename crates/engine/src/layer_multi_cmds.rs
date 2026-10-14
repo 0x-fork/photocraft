@@ -100,6 +100,48 @@ pub(crate) fn reselect(s: &mut Session, ids: Vec<LayerId>, active: Option<LayerI
     }
 }
 
+/// Capture a selection target while its name is still known. Later renames/deletions must not
+/// change an earlier recorded selection. Direct, non-recording calls retain their numeric IDs.
+pub(crate) fn recorded_selection(s: &Session, mut p: Value) -> Value {
+    let Some(id) = p.get("layer").and_then(Value::as_u64).map(LayerId) else { return p };
+    let Some(st) = s.active() else { return p };
+    let Some(layer) = st.doc.layer(id) else { return p };
+    let matches: Vec<_> = st.doc.walk().into_iter().filter(|(_, _, l)| l.name == layer.name).map(|(_, _, l)| l.id).collect();
+    let Some(occurrence) = matches.iter().position(|candidate| *candidate == id) else { return p };
+    if let Some(fields) = p.as_object_mut() {
+        fields.remove("layer");
+        fields.insert("name".into(), json!(layer.name));
+        if matches.len() > 1 {
+            fields.insert("occurrence".into(), json!(occurrence));
+        }
+    }
+    p
+}
+
+fn selection_target(s: &Session, p: &Value) -> Result<LayerId> {
+    let Some(name) = p.get("name") else {
+        if p.get("occurrence").is_some() {
+            return Err(bad("layer.select", "`occurrence` requires `name`"));
+        }
+        return crate::commands::explicit_layer(s, p)?.ok_or_else(|| bad("layer.select", "needs `layer` or `name`"));
+    };
+    if p.get("layer").is_some() {
+        return Err(bad("layer.select", "use either `layer` or `name`, not both"));
+    }
+    let name = name.as_str().ok_or_else(|| bad("layer.select", "`name` must be a string"))?;
+    let occurrence = p
+        .get("occurrence")
+        .map(|v| v.as_u64().and_then(|n| usize::try_from(n).ok()).ok_or_else(|| bad("layer.select", "`occurrence` must be a non-negative integer")))
+        .transpose()?;
+    let st = s.active().ok_or(EngineError::NoDocument)?;
+    let matches: Vec<_> = st.doc.walk().into_iter().filter(|(_, _, l)| l.name == name).map(|(_, _, l)| l.id).collect();
+    if matches.len() > 1 && occurrence.is_none() {
+        return Err(bad("layer.select", format!("multiple layers named `{name}`; specify `occurrence`")));
+    }
+    let index = occurrence.unwrap_or(0);
+    matches.get(index).copied().ok_or_else(|| bad("layer.select", format!("no layer named `{name}` at occurrence {index}")))
+}
+
 /// Layer rows follow the Layers panel's visual order, not Document::walk's storage order.
 /// Closed groups hide their children unless both endpoints were selected programmatically.
 fn range_order(layers: &[Layer], include_collapsed: bool, out: &mut Vec<LayerId>) {
@@ -115,7 +157,7 @@ fn range_order(layers: &[Layer], include_collapsed: bool, out: &mut Vec<LayerId>
 
 /// `layer.select`: `{"layer": id, "mode": "replace|toggle|range|add|remove"}`.
 pub fn select(s: &mut Session, p: &Value) -> Result<Value> {
-    let id = crate::commands::explicit_layer(s, p)?.ok_or_else(|| bad("layer.select", "missing `layer`"))?;
+    let id = selection_target(s, p)?;
     let mode = p.get("mode").and_then(Value::as_str).unwrap_or("replace");
     let st = s.active().ok_or(EngineError::NoDocument)?;
     if st.doc.layer(id).is_none() {
@@ -1270,7 +1312,7 @@ fn merge_layers(s: &mut Session) -> Result<Value> {
         let fmt = PixelFormat::new(fmt.mode, fmt.sample, true);
         let mut merged = Layer::raster(top.name.clone(), fmt);
         merged.locks = top.locks;
-        *crate::pixels_mut(&mut merged)? = crate::pixels::composite_layers(&solo, fmt, None);
+        *crate::pixels_mut(&mut merged)? = crate::pixels::composite_layers_uncropped(&solo, fmt);
         let mid = merged.id;
         // Hidden selected layers are discarded, as in Photoshop.
         for id in &ids[..ids.len() - 1] {
@@ -1625,8 +1667,8 @@ mod tests {
         let all = doc(&s).bounds();
         assert!(damage(&s).is_none_or(|r| r.contains_rect(&all)), "{:?}", damage(&s));
         // Bad params still fail cleanly.
-        assert!(s.execute("layer.setProps", json!({"layer": 999_999, "visible": true})).is_err());
-        assert!(s.execute("layer.translate", json!({"layer": 999_999, "dx": 1})).is_err());
+        assert!(s.execute("layer.setProps", json!({"layer": u64::MAX, "visible": true})).is_err());
+        assert!(s.execute("layer.translate", json!({"layer": u64::MAX, "dx": 1})).is_err());
     }
 
     /// #1771: a new empty layer or group changes no pixels, so it (and undoing or redoing it)
@@ -1805,7 +1847,7 @@ mod tests {
         let mut locked = (*before).clone();
         locked.layer_mut(a).unwrap().locks.position = true;
         assert!(moved(&locked, &ids, 1, 1).is_err());
-        assert!(moved(&before, &[LayerId(999_999)], 1, 1).is_err());
+        assert!(moved(&before, &[LayerId(u64::MAX)], 1, 1).is_err());
     }
 
     #[test]
@@ -1894,7 +1936,7 @@ mod tests {
         assert_eq!(s.active().unwrap().doc.layer(a).unwrap().name, "x");
         s.execute("layer.showLayers", json!({"layer": a.0})).unwrap();
         assert!(s.active().unwrap().doc.layer(a).unwrap().visible);
-        assert!(s.execute("layer.hideLayers", json!({"layer": 999_999})).is_err());
+        assert!(s.execute("layer.hideLayers", json!({"layer": u64::MAX})).is_err());
         assert!(s.execute("layer.hideLayers", json!({})).is_err());
         assert!(!s.is_enabled("layer.align.topEdges"));
     }
@@ -2049,6 +2091,37 @@ mod tests {
         // Two layers can't be distributed.
         select_all(&mut s, &[a, b]);
         assert!(!s.is_enabled("layer.distribute.leftEdges"));
+    }
+
+    #[test]
+    fn merge_keeps_pixels_outside_the_canvas() {
+        // #5067: the merged layer was cropped to the 100x80 canvas.
+        let mut s = session(8);
+        let a = rect_layer(&mut s, Rect::new(-30, -20, 10, 10));
+        let b = rect_layer(&mut s, Rect::new(90, 70, 140, 120));
+        select_all(&mut s, &[a, b]);
+        let m = LayerId(s.execute("layer.mergeLayers", json!({})).unwrap()["layer"].as_u64().unwrap());
+        let ml = doc(&s).layer(m).unwrap();
+        assert_eq!(layer_bounds(ml).unwrap(), Rect::new(-30, -20, 140, 120));
+        assert_eq!(ml.surface().unwrap().pixel(-10, -5)[3], 1.0);
+        assert_eq!(ml.surface().unwrap().pixel(130, 110)[3], 1.0);
+    }
+
+    #[test]
+    fn merge_down_and_merge_group_keep_pixels_outside_the_canvas() {
+        let mut s = session(8);
+        let a = rect_layer(&mut s, Rect::new(-30, -20, 10, 10));
+        let b = rect_layer(&mut s, Rect::new(90, 70, 140, 120));
+        s.execute("layer.mergeDown", json!({"layer": b.0})).unwrap();
+        assert_eq!(layer_bounds(doc(&s).layer(a).unwrap()).unwrap(), Rect::new(-30, -20, 140, 120));
+
+        let mut s = session(8);
+        let a = rect_layer(&mut s, Rect::new(-30, -20, 10, 10));
+        let b = rect_layer(&mut s, Rect::new(90, 70, 140, 120));
+        select_all(&mut s, &[a, b]);
+        let g = LayerId(s.execute("layer.groupLayers", json!({})).unwrap()["layer"].as_u64().unwrap());
+        s.execute("layer.mergeGroup", json!({"layer": g.0})).unwrap();
+        assert_eq!(layer_bounds(doc(&s).layer(g).unwrap()).unwrap(), Rect::new(-30, -20, 140, 120));
     }
 
     #[test]
