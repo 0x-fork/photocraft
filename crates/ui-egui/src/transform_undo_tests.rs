@@ -12,7 +12,7 @@ use crate::state::Tool;
 
 /// A 400 × 300 document with a 100 × 60 red rectangle on its own layer at (100, 100), the Move
 /// tool active, at 100 %.
-fn harness() -> Harness<'static, PhotocraftApp> {
+pub(crate) fn harness() -> Harness<'static, PhotocraftApp> {
     harness_tool(Tool::Move)
 }
 
@@ -63,7 +63,7 @@ fn screen(h: &Harness<'static, PhotocraftApp>, p: [f64; 2]) -> Pos2 {
 }
 
 /// Press at document point `from`, drag to `to` in a few steps and release.
-fn drag(h: &mut Harness<'static, PhotocraftApp>, from: [f64; 2], to: [f64; 2]) {
+pub(crate) fn drag(h: &mut Harness<'static, PhotocraftApp>, from: [f64; 2], to: [f64; 2]) {
     let (a, b) = (screen(h, from), screen(h, to));
     h.event(egui::Event::PointerMoved(a));
     h.run_steps(1);
@@ -77,7 +77,7 @@ fn drag(h: &mut Harness<'static, PhotocraftApp>, from: [f64; 2], to: [f64; 2]) {
     h.run_steps(3);
 }
 
-fn begin(h: &mut Harness<'static, PhotocraftApp>) {
+pub(crate) fn begin(h: &mut Harness<'static, PhotocraftApp>) {
     let ctx = h.ctx.clone();
     crate::menus::invoke(h.state_mut(), &ctx, "edit.freeTransform", json!({})).unwrap();
     h.run_steps(2);
@@ -236,6 +236,33 @@ fn the_hand_tool_does_not_steal_a_free_transform_drag() {
     let q1 = quad(&h);
     assert!(!close(q1, q0), "the drag scaled the box, not the view: {q1:?}");
     assert_eq!(h.state().ui.views[0].center, center0, "the Hand did not pan");
+    key(&mut h, Modifiers::NONE, Key::Enter);
+    assert!(h.state().ui.transform.is_none(), "the transform committed");
+    assert!(width(&h) > 150, "the committed resize applied: {}", width(&h));
+}
+
+/// With the Zoom tool selected, a Free Transform drag resizes the box rather than zooming the view:
+/// the open box owns the pointer, as it does for the Hand (#4799).
+#[test]
+fn the_zoom_tool_does_not_steal_a_free_transform_drag() {
+    let mut h = harness_tool(Tool::Zoom);
+    begin(&mut h);
+    let q0 = quad(&h);
+    let (zoom0, center0) = (h.state().ui.views[0].zoom, h.state().ui.views[0].center);
+    let inside = screen(&h, [150.0, 130.0]);
+    h.event(egui::Event::PointerMoved(inside));
+    h.run_steps(1);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton { pos: inside, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE });
+        h.run_steps(1);
+    }
+    h.run_steps(2);
+    assert_eq!(h.state().ui.views[0].zoom, zoom0, "a click inside the box did not zoom");
+    drag(&mut h, q0[2], [300.0, 220.0]);
+    let q1 = quad(&h);
+    assert!(!close(q1, q0), "the drag scaled the box, not the view: {q1:?}");
+    assert_eq!(h.state().ui.views[0].zoom, zoom0, "the Zoom tool did not zoom");
+    assert_eq!(h.state().ui.views[0].center, center0, "the Zoom tool did not move the view");
     key(&mut h, Modifiers::NONE, Key::Enter);
     assert!(h.state().ui.transform.is_none(), "the transform committed");
     assert!(width(&h) > 150, "the committed resize applied: {}", width(&h));

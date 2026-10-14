@@ -51,6 +51,7 @@ const F_LAB: u32 = 65536u;      // Lab document: Normal mixes in CIELAB
 const F_HDR: u32 = 262144u;     // 32-bit float document: HDR blends and Exposure retain values above 1
 const F_QUANT: u32 = 32768u;    // lerp: A rounded to p0.x steps (adjustment results, integer docs)
 const F_ADD_DIFF: u32 = 16384u;  // lerp: A + (B - C) premultiplied (clips on pass-through groups)
+const F_BLEND_IF: u32 = 524288u; // lerp: B back towards A by the Blend If ranges in p0..p3
 const F_TEXT_GAMMA: u32 = 8192u; // blend / atop / fx merge: type layer, mix coverage at gamma p4.w
 
 @group(0) @binding(0) var<uniform> chunk: Chunk;
@@ -527,7 +528,12 @@ fn color_lookup(c: vec3<f32>, n: i32, tetra: bool) -> vec3<f32> {
 fn selective_row(r: i32, w: f32, c: vec3<f32>, relative: bool) -> vec3<f32> {
     let k = lut_at(r * 4 + 3) / 100.0;
     var d = vec3(lut_at(r * 4), lut_at(r * 4 + 1), lut_at(r * 4 + 2)) / 100.0 + k;
-    if (relative) { d = d * (1.0 - c); }
+    if (relative) {
+        d = d * (1.0 - c);
+    } else {
+        // Absolute: scaled by the room the ink has (adding: 2 × (1 − ink), removing: 2 × ink, capped at 1).
+        d = d * select(min(2.0 * (1.0 - c), vec3(1.0)), min(2.0 * c, vec3(1.0)), d > vec3(0.0));
+    }
     return select(vec3(0.0), d * w, w > 0.0);
 }
 
@@ -622,30 +628,41 @@ fn adjust(c: vec3<f32>) -> vec3<f32> {
             let hsl = rgb_to_hsl(c);
             var hh: f32;
             var ss: f32;
-            // Range edits (LUT rows indexed by the original hue, faded out towards grey).
+            // Range edits (LUT rows indexed by the original hue), in full however dull the colour.
             var dh = 0.0;
             var ds = 0.0;
             var dl = 0.0;
             if (p1.x > 0.5) {
-                let chroma = min((max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b))) * 4.0, 1.0);
-                dh = lut(0, hsl.x) * chroma;
-                ds = lut(1, hsl.x) * chroma;
-                dl = lut(2, hsl.x) * chroma;
+                dh = lut(0, hsl.x);
+                ds = lut(1, hsl.x);
+                dl = lut(2, hsl.x);
             }
             let sat = clamp(p0.y + ds, -1.0, 1.0);
-            let light = clamp(p0.z + dl, -1.0, 1.0);
+            let light = clamp(p0.z, -1.0, 1.0);
             if (p0.w > 0.5) {
-                hh = rem_euclid(p0.x, 360.0) / 360.0;
-                ss = min(abs(sat), 1.0);
-            } else {
-                hh = rem_euclid(hsl.x + (p0.x + dh) / 360.0, 1.0);
-                ss = clamp(hsl.y * (1.0 + sat), 0.0, 1.0);
+                // compose::adjust::hue_saturation: Colorize at the lightened / darkened lightness.
+                var ll = hsl.z * (1.0 + light);
+                if (light > 0.0) { ll = hsl.z + (1.0 - hsl.z) * light; }
+                return hsl_to_rgb(rem_euclid(p0.x, 360.0) / 360.0, min(abs(sat), 1.0), ll);
             }
-            var rgb = hsl_to_rgb(hh, ss, hsl.z);
-            if (light > 0.0) {
-                rgb = rgb + (1.0 - rgb) * light;
-            } else if (light < 0.0) {
-                rgb = rgb * (1.0 + light);
+            // Lightness first, then hue and saturation of the result.
+            var lc = c * (1.0 + light);
+            if (light > 0.0) { lc = c + (1.0 - c) * light; }
+            let lh = rgb_to_hsl(lc);
+            hh = rem_euclid(lh.x + (p0.x + dh) / 360.0, 1.0);
+            // Raising saturation divides by 1 - s; lowering it multiplies by 1 + s.
+            if (sat > 0.0) {
+                ss = clamp(lh.y / max(1.0 - sat, 1.0 / 512.0), 0.0, 1.0);
+            } else {
+                ss = clamp(lh.y * (1.0 + sat), 0.0, 1.0);
+            }
+            var rgb = hsl_to_rgb(hh, ss, lh.z);
+            // compose::adjust::range_lightness: towards the brightest channel when raised, the darkest when lowered.
+            let rl = clamp(dl, -1.0, 1.0);
+            if (rl > 0.0) {
+                rgb = rgb + (vec3(max(rgb.r, max(rgb.g, rgb.b))) - rgb) * rl;
+            } else if (rl < 0.0) {
+                rgb = rgb + (vec3(min(rgb.r, min(rgb.g, rgb.b))) - rgb) * -rl;
             }
             return rgb;
         }
@@ -686,7 +703,7 @@ fn adjust(c: vec3<f32>) -> vec3<f32> {
             if (c.b <= c.r && c.b <= c.g) { secondary = 1; } else if (c.r <= c.g) { secondary = 3; }
             let g = clamp(mn + (mid - mn) * w[secondary] / 100.0 + (mx - mid) * w[primary] / 100.0, 0.0, 1.0);
             if (p1.z > 0.5) {
-                return clamp(g * p2.rgb * 2.0, vec3(0.0), vec3(1.0)) * 0.5 + g * 0.5;
+                return clamp(set_lum(p2.rgb, g, 1.0), vec3(0.0), vec3(1.0));   // Color blend of the tint
             }
             return vec3(g);
         }
@@ -858,12 +875,78 @@ fn fs_lerp(in: VOut) -> @location(0) vec4<f32> {
         if (al <= 0.0) { return vec4(0.0); }
         return vec4(clamp(pm.rgb / al, vec3(0.0), vec3(1.0)), al);
     }
+    if ((op.flags & F_BLEND_IF) != 0u) {
+        // compose::apply_blend_if: "This Layer" is C (the layer's own content with its masks),
+        // or B itself for an adjustment layer; "Underlying Layer" is A.
+        var this_px = b;
+        if (op.p4.y < 0.5) {
+            this_px = textureLoad(tex_c, p, 0);
+        }
+        let k = blend_if_weight(this_px, a);
+        if (k >= 1.0) {
+            return b;
+        }
+        let alpha = a.a + (b.a - a.a) * k;
+        if (alpha <= 0.0) { return vec4(0.0); }
+        return vec4(clamp((a.rgb * a.a + (b.rgb * b.a - a.rgb * a.a) * k) / alpha, vec3(0.0), vec3(1.0)), alpha);
+    }
     let k = op.opacity * mask_value(doc_px(p));
     let wa = a.a * (1.0 - k);
     let wb = b.a * k;
     let alpha = wa + wb;
     if (alpha <= 0.0) { return vec4(0.0); }
     return vec4((a.rgb * wa + b.rgb * wb) / alpha, alpha);
+}
+
+// ---- Blend If (photocraft_doc::BlendRange, compose::blend_if_weight) ---------------------------
+
+// 0 at or below `lo`, 1 at or above `hi`; a hard step at `lo` when unsplit.
+fn bi_ramp(lo: f32, hi: f32, x: f32) -> f32 {
+    if (hi <= lo) {
+        return select(0.0, 1.0, x >= lo);
+    }
+    return clamp((x - lo) / (hi - lo), 0.0, 1.0);
+}
+
+// How much of value `v` (0..255) shows through range `e` (0 = Gray, then the channels) on side
+// `s` (0 = this layer, 1 = underlying). The ranges are packed by `plan::blend_if_params`.
+fn bi_weight(e: u32, s: u32, v: f32) -> f32 {
+    var f = array<vec4<f32>, 4>(op.p0, op.p1, op.p2, op.p3);
+    let i = (e * 2u + s) * 2u;
+    let black = f[i / 4u][i % 4u];
+    let white = f[(i + 1u) / 4u][(i + 1u) % 4u];
+    let b_lo = floor(black / 256.0);
+    let b_hi = black - b_lo * 256.0;
+    let w_lo = floor(white / 256.0);
+    let w_hi = white - w_lo * 256.0;
+    return bi_ramp(b_lo, b_hi, v) * bi_ramp(255.0 - w_hi, 255.0 - w_lo, 255.0 - v);
+}
+
+// The product of every range over the layer's own colour and the colour beneath it (a side
+// without content, alpha 0, doesn't count). `p4.x` marks a one-channel document.
+fn blend_if_weight(this_px: vec4<f32>, under: vec4<f32>) -> f32 {
+    var k = 1.0;
+    for (var s = 0u; s < 2u; s = s + 1u) {
+        let px = select(this_px, under, s == 1u);
+        if (px.a <= 0.0) {
+            continue;
+        }
+        // The CPU gets 8- and 16-bit levels exactly (k / 255 × 255 = k), but GPU arithmetic can
+        // land a few millionths below, which flips a hard threshold at that level: values that
+        // close to a level are that level. Real 8/16-bit values off a level are ≥ 1/257 away.
+        let raw = clamp(px.rgb, vec3(0.0), vec3(1.0)) * 255.0;
+        let v = select(raw, round(raw), abs(raw - round(raw)) < vec3(1e-4));
+        if (op.p4.x > 0.5) {
+            k = k * bi_weight(0u, s, v.r) * bi_weight(1u, s, v.r);
+        } else {
+            let gray = 0.299 * v.r + 0.587 * v.g + 0.114 * v.b;
+            k = k * bi_weight(0u, s, gray) * bi_weight(1u, s, v.r) * bi_weight(2u, s, v.g) * bi_weight(3u, s, v.b);
+        }
+        if (k <= 0.0) {
+            return 0.0;
+        }
+    }
+    return k;
 }
 
 // ---- layer effects (compose::effects::composite_with_effects) -------------------------------
