@@ -21,6 +21,8 @@ fn realistic() -> photocraft_engine::Session {
     s.execute("file.new", json!({"width": 240, "height": 160})).unwrap();
     s.execute("layer.new.layer", json!({"name": "in-group"})).unwrap();
     s.execute("layer.groupLayers", json!({"name": "group"})).unwrap();
+    // Group Layers creates collapsed groups (#5571); the walk below expects it open.
+    s.execute("layer.setExpanded", json!({"all": true, "expanded": true})).unwrap();
     s.execute("type.create", json!({"x": 20, "y": 60, "text": "Hello"})).unwrap();
     let paint = s.execute("layer.new.layer", json!({"name": "paint"})).unwrap()["layer"].as_u64().unwrap();
     s.execute("select.rect", json!({"x": 20, "y": 20, "width": 80, "height": 60})).unwrap();
