@@ -985,6 +985,11 @@ fn form(app: &mut PhotocraftApp, command: &str, label: &str, fields: Value, choi
     app.ui.open_dialog(DialogKind::Command, f)
 }
 
+/// The Batch and Image Processor dialogs' "Include All Subfolders" checkbox reads as Photoshop's.
+fn subfolders_label() -> Value {
+    json!({"includeSubfolders": tl!("Include All Subfolders")})
+}
+
 /// Alt+Cancel (Reset): restore the `__form` params captured at open.
 pub fn reset_form(f: &mut Map<String, Value>) {
     if !f.contains_key("__form") {
@@ -1322,7 +1327,7 @@ fn front(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Value)
         ),
         "file.scripts.imageProcessor" => dialog(
             app,
-            json!({"input": dir, "output": format!("{dir}/processed"), "format": "jpg", "quality": 8, "width": 0, "height": 0, "convertToSrgb": true}),
+            json!({"input": dir, "includeSubfolders": false, "__labels": subfolders_label(), "output": format!("{dir}/processed"), "format": "jpg", "quality": 8, "width": 0, "height": 0, "convertToSrgb": true}),
             json!({"format": ["jpg", "png", "psd", "tiff", "webp"]}),
         ),
         "file.automate.batch" => {
@@ -1333,7 +1338,7 @@ fn front(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Value)
             let name = action.name.clone();
             dialog(
                 app,
-                json!({"action": name, "steps": steps, "input": dir, "output": format!("{dir}/batch"), "format": "same", "quality": null, "__batchQuality": 8, "naming": "", "startingSerial": 1}),
+                json!({"action": name, "steps": steps, "input": dir, "includeSubfolders": false, "__labels": subfolders_label(), "output": format!("{dir}/batch"), "format": "same", "quality": null, "__batchQuality": 8, "naming": "", "startingSerial": 1}),
                 json!({"format": ["same", "png", "jpg", "psd", "tiff", "webp"]}),
             )
         }

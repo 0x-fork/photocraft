@@ -3740,6 +3740,8 @@ curves	Smooth	スムーズ
 	Action playback stopped	アクションの再生を停止しました
 	Step {step} is waiting for its dialog	ステップ {step} はダイアログを待っています
 @plural	{n} action|{n} actions	アクション {n} 個
+# Batch / Image Processor
+	Include All Subfolders	すべてのサブフォルダーを含める
 
 # Liquify tool names (shown via tl!(tool.label()) in the UI, so they are not found by the static scan)
 	Forward Warp	前方ワープ

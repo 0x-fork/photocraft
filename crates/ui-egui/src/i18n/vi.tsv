@@ -3617,6 +3617,8 @@ curves	Smooth	Làm mượt
 	Step {step} is waiting for its dialog	Bước {step} đang chờ hộp thoại của nó
 @plural	{n} action|{n} actions	{n} hành động
 	Presentation	Trình bày
+# Batch / Image Processor
+	Include All Subfolders	Bao gồm tất cả thư mục con
 	Gradient Preset Options	Tùy chọn thiết lập sẵn chuyển sắc
 	Import .GRD	Nhập .GRD
 	Choose a gradient file (.grd).	Chọn tệp chuyển sắc (.grd).

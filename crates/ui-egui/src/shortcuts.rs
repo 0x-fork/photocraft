@@ -628,6 +628,10 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
             // `consume_key` ignores extra ⇧ and ⌥: a ⇧/⌥ switch is never spring-loaded.
             let (plain, now) = ctx.input(|i| (!cycle_shift && !i.modifiers.shift && !i.modifiers.alt, i.time));
             crate::spring_tools::pressed(app, t.key(), before, plain, now);
+            if app.ui.spring.is_none() {
+                // Permanent key choices own the tool; held-key switches keep the pen marker.
+                app.stylus.tool_before_eraser = None;
+            }
             return;
         }
     }

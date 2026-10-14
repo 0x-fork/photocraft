@@ -2997,6 +2997,7 @@ cameraData	Lens	Objektiv
 	Create a new rectangular frame	Napravi novi pravougaoni okvir
 	Create a new elliptical frame	Napravi novi eliptični okvir
 	Include in playback	Uključi u reprodukciju
+	Include All Subfolders	Uključi sve podfascikle
 	Perspective Crop Tool	Alatka za perspektivno opsecanje
 	Show Grid	Prikaži mrežu
 	Drag a box or click four corners · drag the corners onto the edges of a skewed shape · {commit} commits · Esc cancels	Prevucite okvir ili kliknite četiri ugla · prevucite uglove na ivice iskošenog oblika · {commit} potvrđuje · Esc otkazuje
