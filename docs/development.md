@@ -82,7 +82,7 @@ CRAFT_FONTS_DIR="$PWD/../craft-fonts" cargo test --workspace     # runs the Japa
 
 ## Graphics startup and device loss
 
-`--safe-gpu` starts with the CPU renderer for one launch (no GPU canvas; a software adapter for the window where the platform has one: WARP on Windows, llvmpipe over GL on Linux). Before creating the wgpu device the app writes and locks `gpu-starting.json` in the config directory; it clears it once the first frames have rendered. A launch that finds an unlocked marker knows the previous start died inside the graphics driver (#4) and uses the next safer backend (Windows: Vulkan → DX12 → CPU; Linux: Vulkan → GL → CPU; macOS: Metal → CPU), remembering it in `performance.gpuBackend` (Preferences › Performance › GPU Backend, with **Reset GPU Backend**). With `auto`, Intel adapters on Windows use DX12. Help › System Info shows the adapter, backend, driver and fallback state.
+`--safe-gpu` starts with the CPU renderer for one launch (no GPU canvas; a software adapter for the window where the platform has one: WARP on Windows, llvmpipe over GL on Linux). Before creating the wgpu device the app writes and locks `gpu-starting.json` in the config directory; it clears it once the first frames have rendered. A launch that finds an unlocked marker knows the previous start died inside the graphics driver (#4) and uses the next safer backend (Windows: Vulkan → DX12 → CPU; Linux: Vulkan → GL → CPU; macOS: Metal → CPU), remembering a working hardware backend in `performance.gpuBackend` (Preferences › Performance › GPU Backend, with **Reset GPU Backend**). CPU recovery is temporary until **Keep Using CPU** is chosen in the recovery dialog; dismissing the dialog or quitting without a choice preserves the previous GPU preference (#3483). With `auto`, Intel adapters on Windows use DX12. Help › System Info shows the adapter, backend, driver and fallback state.
 
 On DX12 the shader compiler is FXC (`d3dcompiler_47.dll`, part of Windows), or a `dxcompiler.dll` placed beside `photocraft.exe`, loaded by its full path. wgpu's default looks `dxcompiler.dll` up by name, which reaches the current directory and `PATH` and loaded other programs' incompatible builds (#712).
 
@@ -119,6 +119,7 @@ By default PhotoCraft's own crates log at `info` and everything else at `warn`. 
 | `PHOTOCRAFT_CPU_COMPOSE=1` | Keep the wgpu canvas but composite on the CPU (compare GPU vs CPU renders, e.g. with the snapshot example) |
 | `PHOTOCRAFT_LOCALE` | Override Auto's native UI language for this launch; unsupported tags use English. See [system language detection](localization.md#first-launch-and-system-language). |
 | `PHOTOCRAFT_FX_TRACE=1` | Print the CPU time spent on GPU effect shapes and distance fields per rebuild |
+| `PHOTOCRAFT_STROKE_TRACE=1` (or `=<file.csv>`) | Time every frame of each brush stroke; print a summary per stroke, and with a path also append each frame to that CSV (see [Stroke latency trace](#stroke-latency-trace)) |
 | `PHOTOCRAFT_THEME_FILE=tokens.json` | **Debug builds only:** live design-token overrides, re-read on change |
 
 ### Live design tokens
@@ -128,6 +129,26 @@ By default PhotoCraft's own crates log at `info` and everything else at `warn`. 
 ```
 
 Keys are the field names of `theme::Tokens` (`crates/ui-egui/src/theme.rs`). Edit and save the file while the app runs to see changes immediately, with no recompile. This is compiled out of release builds.
+
+### Stroke latency trace
+
+To find where a stroke's input-to-pixel time goes on a given machine (#1343), launch with `PHOTOCRAFT_STROKE_TRACE=1` (a summary per stroke on standard error) or `PHOTOCRAFT_STROKE_TRACE=strokes.csv` (also every frame, appended to that file). Paint a few strokes with the mouse or pen. Each summary gives p50/p95 in ms:
+
+```text
+stroke trace: 62 frames on vulkan NVIDIA GeForce RTX 5090 (p50/p95 ms): interval 8.33/8.53 moves/frame 1.00/2.00 stroke 0.80/1.53 canvas 0.40/0.75 ui 0.91/1.41 cpu 2.20/2.84 wait 6.04/6.64
+```
+
+| Column | What it is |
+|---|---|
+| `interval` | Time between frame starts while drawing (the display's refresh period when the app keeps up) |
+| `moves/frame` | Pointer moves the OS delivered per frame (control-channel `ui.pointer` input bypasses raw input and counts 0) |
+| `stroke` | Rendering the stroke's new points (the live stroke; on the last frame, the commit) |
+| `canvas` | Canvas refresh: composite and upload |
+| `ui` | Building the UI, the two above included |
+| `cpu` | eframe's CPU time per frame: UI, tessellation and GPU submission, without the vsync wait |
+| `wait` | `interval − cpu`: waiting on vsync or the swap chain, or idle |
+
+What the app can't time is the rest of input-to-photon: the OS input queue before a frame starts (up to one `interval`), frames queued for the display (the surface keeps up to two; the GL backend ignores that setting), and the compositor. So the first line names the backend. The last summary is also in the control channel's `perf.strokeTrace` (`ui.inspect`). The code is `crates/ui-egui/src/stroke_trace.rs`.
 
 ## Driving the app programmatically
 
@@ -243,7 +264,7 @@ A typical agent loop (place inputs under the configured read root and outputs un
 
 `crates/cms` is our own pure-Rust ICC engine (v2/v4 parsing, matrix/TRC and LUT profiles, all four
 intents, black point compensation). It ships CC0 built-in profiles, including a synthetic
-"Photocraft Coated CMYK", because Adobe's CMYK profiles are proprietary (see `crates/cms/README.md`).
+"PhotoCraft Coated CMYK", because Adobe's CMYK profiles are proprietary (see `crates/cms/README.md`).
 
 - Documents carry an optional embedded ICC profile (`Document::icc_profile`); `edit.assignProfile`
   and `edit.convertToProfile` change it. Mode changes (`image.mode.*`) convert through cms.

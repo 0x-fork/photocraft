@@ -288,12 +288,68 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if answer.is_none() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter)) {
         answer = buttons.iter().find(|b| b.0 == ButtonRole::Default).map(|b| b.4);
     }
-    match answer {
-        Some(Answer::Cancel) => app.discard = None,
-        Some(Answer::Discard) => advance(app, ctx),
-        Some(Answer::Save) if save(app, ctx, doc) => advance(app, ctx),
-        _ => {}
+    if let Some(answer) = answer {
+        apply(app, ctx, doc, answer);
     }
+}
+
+/// Acts on the answer about `doc`, the document the prompt is asking about.
+fn apply(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId, answer: Answer) {
+    match answer {
+        Answer::Cancel => app.discard = None,
+        Answer::Discard => advance(app, ctx),
+        Answer::Save if save(app, ctx, doc) => advance(app, ctx),
+        Answer::Save => {}
+    }
+}
+
+/// The id `ui.inspect` lists the prompt under; `ui.dialog.confirm` and `ui.dialog.cancel` answer
+/// it by this id, so a control client can see and answer it like the window's buttons (#4920).
+pub const CONTROL_ID: &str = "discard";
+
+/// The prompt as `ui.inspect` lists it among the dialogs: the command waiting on it, the document
+/// it asks about, how many are still to answer, and the choices `ui.dialog.confirm` takes.
+pub fn inspect(app: &PhotocraftApp) -> Option<Value> {
+    let p = app.discard.as_ref()?;
+    let doc = *p.docs.first()?;
+    let name = index_of(app, doc).and_then(|i| app.session.documents().get(i)).map(|d| d.doc.name.clone())?;
+    let reverts = p.id == "file.revert";
+    let (choices, default): (&[&str], _) = if reverts { (&["dontSave", "cancel"], "dontSave") } else { (&["save", "dontSave", "cancel"], "save") };
+    Some(json!({
+        "id": CONTROL_ID,
+        "kind": "unsavedChanges",
+        "title": if reverts { "Revert" } else { "Unsaved changes" },
+        "fields": {"command": p.id, "document": name, "remaining": p.docs.len(), "choices": choices, "default": default},
+    }))
+}
+
+/// The command the prompt holds back and its params, for the automation policy to see before a
+/// control client answers it.
+pub fn pending_command(app: &PhotocraftApp) -> Option<(String, Value)> {
+    app.discard.as_ref().map(|p| (p.id.clone(), p.params.clone()))
+}
+
+/// Answers the prompt for a control client: `save`, `dontSave` or `cancel` (Revert takes
+/// `dontSave` or `cancel`). Like the buttons, Save may first ask for a path in the save dialog.
+pub fn answer_control(app: &mut PhotocraftApp, ctx: &egui::Context, choice: &str) -> Result<Value, String> {
+    let Some(doc) = app.discard.as_ref().and_then(|p| p.docs.first().copied()) else {
+        return Err("no unsaved-changes prompt is open".into());
+    };
+    if app.file_dialog_open() || app.save_options_open() || app.saving() {
+        return Err("the unsaved-changes prompt is waiting for a save to finish".into());
+    }
+    let reverts = app.discard.as_ref().is_some_and(|p| p.id == "file.revert");
+    let answer = match choice {
+        "save" if !reverts => Answer::Save,
+        "dontSave" => Answer::Discard,
+        "cancel" => Answer::Cancel,
+        other => {
+            let choices = if reverts { "dontSave or cancel" } else { "save, dontSave or cancel" };
+            return Err(format!("unknown choice `{other}`: {choices}"));
+        }
+    };
+    apply(app, ctx, doc, answer);
+    Ok(json!({"open": app.discard.is_some(), "fileDialog": app.file_dialog_open()}))
 }
 
 #[derive(Clone, Copy)]
