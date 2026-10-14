@@ -158,7 +158,8 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
                     }
                     None => (0.0, 0.0, 0.0),
                 };
-                let out = hue_saturation(c, *hue + dh, (*saturation / 100.0 + ds).clamp(-1.0, 1.0), (*lightness / 100.0).clamp(-1.0, 1.0), *colorize);
+                let sat = colorize_saturation((*saturation / 100.0 + ds).clamp(-1.0, 1.0), *lightness / 100.0, *colorize, depth);
+                let out = hue_saturation(c, *hue + dh, sat, (*lightness / 100.0).clamp(-1.0, 1.0), *colorize);
                 range_lightness(out, dl)
             })
         }
@@ -655,6 +656,16 @@ pub fn hue_range_tables(ranges: &[HueRange; 6]) -> [Vec<f32>; 3] {
     };
     let rows: Vec<[f32; 3]> = (0..LUT_SIZE).map(at).collect();
     std::array::from_fn(|i| rows.iter().map(|r| r[i]).collect())
+}
+
+/// Hue/Saturation's saturation `s` (-1..1) as [`hue_saturation`] takes it in a document of
+/// `depth`. A 32-bit Colorize builds its colour with the saturation times `1 - |lightness|`:
+/// the photoshop corpus's rgb32 hue-saturation-colorize.psd (Saturation 40, Lightness +5) has 0.95
+/// of the chroma at every lightness, and is exact so, where 8 and 16 bits keep the full saturation
+/// (their oracles are exact without it). Only a raised Lightness is measured; a lowered one is
+/// taken to scale the same way.
+pub fn colorize_saturation(s: f32, lightness: f32, colorize: bool, depth: Option<SampleType>) -> f32 {
+    if colorize && depth == Some(SampleType::F32) { s * (1.0 - lightness.abs().min(1.0)) } else { s }
 }
 
 /// One Hue/Saturation evaluation: hue shift in degrees, saturation and lightness in -1..=1.
@@ -1494,6 +1505,20 @@ mod tone_tests {
     /// Photoshop's own 32-bit results (photoshop corpus rgb32): nothing clips, legacy contrast
     /// pivots at 127, the mixer cuts its percentages to 1/1024 and counts 255/512 of the
     /// constant, and the Black & White tint keeps values above 1.
+    /// Photoshop's 32-bit Colorize (photoshop corpus rgb32 hue-saturation-colorize.psd: hue -160,
+    /// saturation 40, lightness +5): red becomes (0.3445, 0.5852, 0.7055), 0.95 of the chroma an
+    /// 8-bit Colorize gives at the same lightness, (0.335, 0.5883, 0.715).
+    #[test]
+    fn thirty_two_bit_colorize_scales_the_saturation() {
+        let adj = Adjustment::HueSaturation { hue: -160.0, saturation: 40.0, lightness: 5.0, colorize: true, ranges: HueRange::defaults() };
+        let near = |got: [f32; 3], want: [f32; 3]| got.iter().zip(want).all(|(g, w)| (g - w).abs() < 2e-3);
+        let red = hdr(&adj, [1.0, 0.0, 0.0]);
+        assert!(near(red, [0.3445, 0.5852, 0.7055]), "{red:?}");
+        let mut b = Buffer::filled(crate::Rect::new(0, 0, 1, 1), [1.0, 0.0, 0.0, 1.0]);
+        apply_depth(&adj, &mut b, Transfer::Srgb, Some(SampleType::U16));
+        assert!(near([b.px[0][0], b.px[0][1], b.px[0][2]], [0.335, 0.5883, 0.715]), "16-bit keeps the full saturation: {:?}", b.px[0]);
+    }
+
     #[test]
     fn thirty_two_bit_adjustments_match_photoshop_unclipped() {
         let near = |got: [f32; 3], want: [f32; 3], tol: f32| got.iter().zip(want).all(|(g, w)| (g - w).abs() <= tol);
