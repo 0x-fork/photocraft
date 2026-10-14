@@ -3105,6 +3105,9 @@ curves	Smooth	Haluskan
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Muat Tindakan…
 	Save Actions…	Simpan Tindakan…
+	New Action…	Tindakan Baru…
+	Start Recording	Mulai Rekaman
+	Stop Recording	Hentikan Rekaman
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{n} tindakan dimuat dari {file}

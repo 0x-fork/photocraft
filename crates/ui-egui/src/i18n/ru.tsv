@@ -3062,6 +3062,9 @@ curves	Smooth	Сгладить
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Загрузить операции…
 	Save Actions…	Сохранить операции…
+	New Action…	Новая операция…
+	Start Recording	Начать запись
+	Stop Recording	Остановить запись
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Загружена {n} операция из {file}|Загружены {n} операции из {file}|Загружено {n} операций из {file}

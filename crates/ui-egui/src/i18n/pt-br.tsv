@@ -3906,6 +3906,9 @@ layerLabel	No Color	Sem cor
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Carregar ações…
 	Save Actions…	Salvar ações…
+	New Action…	Nova ação…
+	Start Recording	Iniciar gravação
+	Stop Recording	Parar gravação
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{n} ação carregada de {file}|{n} ações carregadas de {file}

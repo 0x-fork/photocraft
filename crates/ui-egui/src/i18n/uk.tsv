@@ -3815,6 +3815,9 @@ curves	Smooth	Згладити
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Завантажити операції…
 	Save Actions…	Зберегти операції…
+	New Action…	Нова операція…
+	Start Recording	Почати запис
+	Stop Recording	Зупинити запис
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Завантажено {n} операцію з {file}|Завантажено {n} операції з {file}|Завантажено {n} операцій з {file}

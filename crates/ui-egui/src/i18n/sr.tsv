@@ -4180,6 +4180,9 @@ shape	Appearance	Izgled
 	Copy Texture to Other Tools	Kopiraj teksturu u druge alatke
 	Load Actions…	Učitaj radnje…
 	Save Actions…	Sačuvaj radnje…
+	New Action…	Nova radnja…
+	Start Recording	Započni snimanje
+	Stop Recording	Zaustavi snimanje
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Učitana je {n} radnja iz {file}|Učitane su {n} radnje iz {file}|Učitano je {n} radnji iz {file}

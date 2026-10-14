@@ -3291,6 +3291,9 @@ curves	Smooth	매끄럽게
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	액션 불러오기…
 	Save Actions…	액션 저장…
+	New Action…	새 액션…
+	Start Recording	기록 시작
+	Stop Recording	기록 중지
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{file}에서 액션 {n}개를 불러왔습니다

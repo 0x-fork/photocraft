@@ -4019,6 +4019,9 @@ cameraRaw	Yellow	Sárga
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Műveletek betöltése…
 	Save Actions…	Műveletek mentése…
+	New Action…	Új művelet…
+	Start Recording	Felvétel indítása
+	Stop Recording	Felvétel leállítása
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{n} művelet betöltve. Forrás: {file}

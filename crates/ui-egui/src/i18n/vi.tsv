@@ -3599,6 +3599,9 @@ curves	Smooth	Làm mượt
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Nạp hành động…
 	Save Actions…	Lưu hành động…
+	New Action…	Hành động mới…
+	Start Recording	Bắt đầu ghi
+	Stop Recording	Dừng ghi
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Đã nạp {n} hành động từ {file}

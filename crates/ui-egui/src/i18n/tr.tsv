@@ -3830,6 +3830,9 @@ cameraData	Lens	Lens
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Eylemleri Yükle…
 	Save Actions…	Eylemleri Kaydet…
+	New Action…	Yeni Eylem…
+	Start Recording	Kaydı Başlat
+	Stop Recording	Kaydı Durdur
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{file} dosyasından {n} eylem yüklendi

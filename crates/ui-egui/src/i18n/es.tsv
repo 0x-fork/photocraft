@@ -2801,6 +2801,9 @@ curves	Smooth	Suavizar
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Cargar acciones…
 	Save Actions…	Guardar acciones…
+	New Action…	Nueva acción…
+	Start Recording	Iniciar grabación
+	Stop Recording	Detener grabación
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Se cargó {n} acción de {file}|Se cargaron {n} acciones de {file}

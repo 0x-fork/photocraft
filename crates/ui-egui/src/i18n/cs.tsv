@@ -3724,6 +3724,9 @@ navigator	Zoom	Zvětšení
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Načíst akce…
 	Save Actions…	Uložit akce…
+	New Action…	Nová akce…
+	Start Recording	Zahájit nahrávání
+	Stop Recording	Zastavit nahrávání
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Načtena {n} akce ze souboru {file}|Načteny {n} akce ze souboru {file}|Načteno {n} akcí ze souboru {file}

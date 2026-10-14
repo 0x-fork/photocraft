@@ -3876,6 +3876,9 @@ curves	Smooth	Vloeiend maken
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Handelingen laden…
 	Save Actions…	Handelingen opslaan…
+	New Action…	Nieuwe handeling…
+	Start Recording	Opname starten
+	Stop Recording	Opname stoppen
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{n} handeling geladen uit {file}|{n} handelingen geladen uit {file}

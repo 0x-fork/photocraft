@@ -3118,6 +3118,9 @@ curves	Smooth	Lisser
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Charger des actions…
 	Save Actions…	Enregistrer les actions…
+	New Action…	Nouvelle action…
+	Start Recording	Démarrer l'enregistrement
+	Stop Recording	Arrêter l'enregistrement
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{n} action chargée depuis {file}|{n} actions chargées depuis {file}

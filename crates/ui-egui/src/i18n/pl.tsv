@@ -3714,6 +3714,9 @@ curves	Smooth	Wygładź
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Wczytaj operacje…
 	Save Actions…	Zapisz operacje…
+	New Action…	Nowa operacja…
+	Start Recording	Rozpocznij nagrywanie
+	Stop Recording	Zatrzymaj nagrywanie
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Wczytano {n} operację z {file}|Wczytano {n} operacje z {file}|Wczytano {n} operacji z {file}

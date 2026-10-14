@@ -3723,6 +3723,9 @@ curves	Smooth	スムーズ
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	アクションを読み込み…
 	Save Actions…	アクションを保存…
+	New Action…	新規アクション…
+	Start Recording	記録を開始
+	Stop Recording	記録を停止
 	{name} (Photoshop)	{name}（Photoshop）
 	{message} ({note})	{message}（{note}）
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{file} からアクション {n} 個を読み込みました

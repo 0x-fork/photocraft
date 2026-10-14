@@ -3814,6 +3814,9 @@ curves	Smooth	Εξομάλυνση
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Φόρτωση ενεργειών…
 	Save Actions…	Αποθήκευση ενεργειών…
+	New Action…	Νέα ενέργεια…
+	Start Recording	Έναρξη εγγραφής
+	Stop Recording	Διακοπή εγγραφής
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Φορτώθηκε {n} ενέργεια από το {file}|Φορτώθηκαν {n} ενέργειες από το {file}

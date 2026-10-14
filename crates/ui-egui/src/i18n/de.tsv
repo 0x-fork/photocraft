@@ -3114,6 +3114,9 @@ curves	Smooth	Glätten
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Aktionen laden…
 	Save Actions…	Aktionen speichern…
+	New Action…	Neue Aktion…
+	Start Recording	Aufnahme starten
+	Stop Recording	Aufnahme stoppen
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{n} Aktion aus {file} geladen|{n} Aktionen aus {file} geladen

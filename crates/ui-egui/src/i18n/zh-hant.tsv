@@ -2711,6 +2711,9 @@ curves	Smooth	平滑
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	載入動作…
 	Save Actions…	儲存動作…
+	New Action…	新增動作…
+	Start Recording	開始錄製
+	Stop Recording	停止錄製
 	{name} (Photoshop)	{name}（Photoshop）
 	{message} ({note})	{message}（{note}）
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	已從 {file} 載入 {n} 個動作
