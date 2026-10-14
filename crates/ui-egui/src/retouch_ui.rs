@@ -27,7 +27,8 @@ pub(crate) fn alt_flipped(tool: Tool, alt: bool) -> Tool {
 /// point is set yet.
 pub(crate) fn clone_params(app: &PhotocraftApp) -> Option<Value> {
     let o = &app.ui.tool_options;
-    let mut p = json!({"aligned": o.clone_aligned, "sampleLayer": o.clone_sample});
+    // The options bar's Mode is the tool's own brush's.
+    let mut p = json!({"aligned": o.clone_aligned, "sampleLayer": o.clone_sample, "mode": app.session.tools.brush.mode.label()});
     if app.ui.tool == Tool::CloneStamp {
         p["wrap"] = json!(app.ui.view.pattern_preview);
         p["opacity"] = json!(app.session.tools.brush.opacity * 100.0);
@@ -43,6 +44,12 @@ pub(crate) fn clone_params(app: &PhotocraftApp) -> Option<Value> {
         (None, None) => return None,
     }
     Some(p)
+}
+
+/// History Brush params for the live preview and the commit (without `points` and `target`): the
+/// options bar's Mode, which is the tool's own brush's.
+pub(crate) fn history_brush_params(app: &PhotocraftApp) -> Value {
+    json!({"mode": app.session.tools.brush.mode.label()})
 }
 
 /// The command and options-bar params (without `points` and `target`) of a sequential-dab tool:
@@ -100,6 +107,7 @@ pub fn finish_stroke(app: &mut PhotocraftApp, tool: Tool, points: &[[f64; 3]], m
                 "impressionist": o.pattern_stamp_impressionist,
                 "scale": o.pattern_stamp_scale,
                 "angle": o.pattern_stamp_angle,
+                "mode": app.session.tools.brush.mode.label(),
             });
             if o.pattern_stamp_aligned
                 && let Some(ph) = app.ui.pattern_stamp_phase
@@ -125,7 +133,7 @@ pub fn finish_stroke(app: &mut PhotocraftApp, tool: Tool, points: &[[f64; 3]], m
             };
             (if tool == Tool::Healing { "paint.healingBrush" } else { "paint.cloneStamp" }, p)
         }
-        Tool::HistoryBrush => ("paint.historyBrush", json!({})),
+        Tool::HistoryBrush => ("paint.historyBrush", history_brush_params(app)),
         Tool::Blur | Tool::Sharpen | Tool::Smudge | Tool::Dodge | Tool::Burn | Tool::Sponge => match dab_params(app, tool) {
             Some(cp) => cp,
             None => return false,
@@ -779,6 +787,51 @@ mod tests {
         assert_eq!(id, "paint.cloneStamp");
         assert_eq!(params["opacity"], 50.0);
         assert_eq!(params["flow"], 50.0);
+    }
+
+    /// The options bar's Mode (each tool's own brush's) reaches the stamps', the History Brush's
+    /// and the Healing Brush's strokes, live and committed.
+    #[test]
+    fn retouch_mode_reaches_the_command() {
+        for (tool, cmd, mode) in [
+            (Tool::CloneStamp, "paint.cloneStamp", "Multiply"),
+            (Tool::Healing, "paint.healingBrush", "Luminosity"),
+            (Tool::HistoryBrush, "paint.historyBrush", "Screen"),
+            (Tool::PatternStamp, "paint.patternStamp", "Overlay"),
+        ] {
+            let mut app = app();
+            app.ui.tool = tool;
+            crate::paint_mouse::sync_tool_brush(&mut app);
+            app.run("tools.setBrush", json!({"brush": {"mode": mode}})).unwrap();
+            app.ui.clone_source = Some([10.0, 10.0]);
+            drag(&mut app, tool);
+            let (id, params) = app.session.journal.last().unwrap();
+            assert_eq!((id.as_str(), params["mode"].as_str()), (cmd, Some(mode)), "{tool:?}");
+        }
+    }
+
+    /// The Paint Bucket's Mode reaches the fill: Multiply darkens, Clear erases.
+    #[test]
+    fn paint_bucket_mode_reaches_the_fill() {
+        let mut app = app();
+        app.run("layer.new.layer", json!({})).unwrap();
+        app.ui.tool = Tool::PaintBucket;
+        app.session.tools.foreground = [0.5, 0.5, 0.5, 1.0];
+        let click = |app: &mut PhotocraftApp| {
+            let m = egui::Modifiers::NONE;
+            tool_event(app, ToolEvent::Down { x: 20.0, y: 20.0, pressure: 1.0 }, m);
+            tool_event(app, ToolEvent::Up { x: 20.0, y: 20.0 }, m);
+        };
+        click(&mut app);
+        app.session.tools.foreground = [1.0, 0.0, 0.0, 1.0];
+        app.ui.tool_options.bucket_blend_mode = photocraft_color::BlendMode::Multiply;
+        click(&mut app);
+        let px = active(&app).surface().unwrap().rgba(20, 20);
+        assert!((px[0] - 0.5).abs() < 0.02 && px[1] < 0.02, "multiplied: {px:?}");
+        app.ui.tool_options.bucket_clear = true;
+        click(&mut app);
+        assert_eq!(app.session.journal.last().unwrap().1["mode"], "clear");
+        assert!(active(&app).surface().unwrap().rgba(20, 20)[3] < 0.01, "cleared");
     }
 
     #[test]
