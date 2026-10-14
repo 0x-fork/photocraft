@@ -230,9 +230,18 @@ impl TgaBits {
     }
 }
 
+/// Photoshop document extensions File › Open routes to the PSD reader.
+const PSD_EXTS: &[&str] = &["psd", "psb", "psdt"];
+
 /// `true` if `bytes` start with the PSD/PSB signature.
 pub fn is_psd(bytes: &[u8]) -> bool {
     bytes.starts_with(b"8BPS")
+}
+
+/// PSD/PSB/PSDT by magic or by a declared Photoshop extension so File › Open does not
+/// send `.psd` through the generic image codecs (`codec: unrecognized image format`, #5258).
+fn is_psd_input(name: &str, bytes: &[u8]) -> bool {
+    is_psd(bytes) || PSD_EXTS.iter().any(|e| has_extension(name, e))
 }
 
 /// Imports a file. PSD/PSB, Affinity containers and camera raws are detected by magic; everything
@@ -272,7 +281,7 @@ fn import_stages(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt, m
     if has_extension(name, photocraft_format::EXTENSION) || photocraft_format::is_pcraft(bytes) {
         return Ok(ImportResult { document: photocraft_format::load_from_bytes(bytes)?, warnings: Vec::new(), source_read_only: false, preview_only: false });
     }
-    if is_psd(bytes) {
+    if is_psd_input(name, bytes) {
         let file = PsdFile::from_bytes(bytes)?;
         // Nesting past the document model's cap could never be saved; reject the file with the
         // actionable limit.
@@ -516,7 +525,7 @@ pub fn merged_composite(file: &PsdFile) -> Result<Vec<[f32; 4]>, IoError> {
 
 #[cfg(test)]
 mod tests {
-    use super::is_svg_input;
+    use super::{import, is_psd_input, is_svg_input};
 
     #[test]
     fn svg_extension_does_not_override_another_format_signature() {
@@ -525,5 +534,19 @@ mod tests {
         assert!(is_svg_input("drawing.svg", b"<?xml version=\"1.0\"?><svg/>"));
         assert!(is_svg_input("drawing.svgz", &[0x1f, 0x8b, 0, 0]));
         assert!(!is_svg_input("drawing.svgz", webp_header));
+    }
+
+    #[test]
+    fn photoshop_extension_reaches_the_psd_loader() {
+        // A declared .psd/.PSB/.psdt must not fall through to codecs (#5258).
+        for name in ["photo.psd", "dir/Photo.PSD", r"C:\w\a.PSB", "card.psdt"] {
+            assert!(is_psd_input(name, b"not a signature"), "{name}");
+        }
+        assert!(!is_psd_input("photo.png", b"not a signature"));
+        assert!(is_psd_input("renamed.png", b"8BPS"));
+        let err = import("photo.psd", b"not a photoshop file").expect_err("named .psd is a PSD parse, not a codec miss");
+        let msg = err.to_string();
+        assert!(msg.starts_with("PSD:"), "{msg}");
+        assert!(!msg.contains("unrecognized image format"), "{msg}");
     }
 }
