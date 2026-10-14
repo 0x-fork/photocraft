@@ -992,7 +992,6 @@
 	Contiguous	連續的
 	Contrast	對比
 	Control:	控制：
-	Convert document's colors to the working space	將文件顏色轉換為工作空間
 	Convert to sRGB	轉換為 sRGB
 	Copies	份數
 	Copper	銅色
@@ -1575,7 +1574,6 @@
 	Use Default	使用預設值
 	Use Legacy	使用舊版
 	Use Measurement Scale	使用測量比例
-	Use the embedded profile (instead of the working space)	使用內嵌描述檔 (而非工作空間)
 	Variables bind a layer's visibility, text or pixels to a named data slot.	變數可將圖層的可見度、文字或像素繫結至具名的資料欄位。
 	Vertical scale	垂直縮放
 	Vibrance	自然飽和度
@@ -2200,7 +2198,6 @@
 	Cancelled opening {name}	已取消開啟 {name}
 	The document “{name}” does not have an embedded {mode} profile.	文件「{name}」沒有嵌入的 {mode} 描述檔。
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	文件「{name}」嵌入的色彩描述檔與目前的 {mode} 工作空間不符。
-	Embedded: {embedded}	嵌入：{embedded}
 	Working: {working}	工作空間：{working}
 	Developing {name}	正在處理 {name}
 	Cancelled {label}	已取消 {label}
@@ -2704,6 +2701,7 @@ curves	Smooth	平滑
 	Remove after each stroke	每次描邊後移除
 	Apply the removal ({key})	套用移除 ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	待移除的描邊：{n}（Enter 套用，Esc 取消）
+	Show home recent files	在主畫面上顯示最近的檔案
 	Clear Brush Controls	清除筆刷控制項
 	Reset All Locked Settings	重設所有鎖定的設定
 	Copy Texture to Other Tools	複製紋理至其他工具
@@ -2739,3 +2737,19 @@ curves	Smooth	平滑
 	Sent to {printer}	已傳送至 {printer}
 	set in Print Settings…	在列印設定中設定…
 	ICO is limited to 256 × 256 pixels	ICO 最大為 256 × 256 像素
+# Embedded Profile Mismatch: profile names beside the choices, Remember this choice
+	Use the embedded profile ({profile})	使用內嵌描述檔 ({profile})
+	Convert to the working space ({profile})	轉換為工作空間 ({profile})
+	Remember this choice for future images	之後開啟的影像都使用此選擇
+	Turn the prompt back on with Ask On Mismatch in Edit › Color Settings.	可在 編輯 › 色彩設定 中開啟 Ask On Mismatch，重新顯示此提示。
+	Button Mode	按鈕模式
+	Button Mode On	按鈕模式 開
+
+# Darken / Lighten Interface (⇧⌘F1 / ⇧⌘F2)
+	Darken Interface	介面變暗
+	Lighten Interface	介面變亮
+# Bevel & Emboss Technique.
+	Technique	方法
+	Chisel Hard	雕刻清晰
+	Chisel Soft	雕刻柔和
+	Open color-less EXR as ACEScg	將無色彩空間資訊的 EXR 以 ACEScg 開啟

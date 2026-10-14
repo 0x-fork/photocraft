@@ -1346,11 +1346,17 @@ fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer
 
     // Pass-through groups composite their children straight into the backdrop. Below 100% fill
     // Photoshop renders the group isolated, like Normal (psd-tools passthrough_fill_*: an
-    // adjustment inside no longer reaches the layers beneath).
+    // adjustment inside no longer reaches the layers beneath), and so it does for a group that
+    // is the base of a clipping group and holds an adjustment layer (psd-tools
+    // passthrough_clipping_mask_adjustment: an Exposure inside leaves the layers beneath alone),
+    // while such a group's blend modes still reach the backdrop (passthrough_clipping_mask_blendmode).
+    let clip_base_adjusts = clipped.iter().any(|c| c.visible)
+        && matches!(&layer.content, LayerContent::Group(g) if g.children.iter().any(|c| c.visible && matches!(c.content, LayerContent::Adjustment(_))));
     if let LayerContent::Group(g) = &layer.content
         && layer.blend == BlendMode::PassThrough
         && layer.fill_opacity >= 1.0
         && !effects::has_effects(layer)
+        && !clip_base_adjusts
     {
         let needs_mix = opacity < 1.0 || layer.mask.is_some() || layer.vector_mask.is_some();
         let has_clipped = clipped.iter().any(|c| c.visible);

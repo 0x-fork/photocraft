@@ -966,7 +966,6 @@
 	Contiguous	Contíguo
 	Contrast	Contraste
 	Control:	Controle:
-	Convert document's colors to the working space	Converter as cores do documento para o espaço de trabalho
 	Convert to sRGB	Converter para sRGB
 	Copies	Cópias
 	Copper	Cobre
@@ -1543,7 +1542,6 @@
 	Use Default	Usar padrão
 	Use Legacy	Usar legado
 	Use Measurement Scale	Usar escala de medida
-	Use the embedded profile (instead of the working space)	Usar o perfil incorporado (em vez do espaço de trabalho)
 	Variables bind a layer's visibility, text or pixels to a named data slot.	As variáveis vinculam a visibilidade, o texto ou os pixels de uma camada a um campo de dados nomeado.
 	Vertical scale	Escala vertical
 	Vibrance	Vibração
@@ -2156,7 +2154,6 @@
 	Cancelled opening {name}	Abertura de {name} cancelada
 	The document “{name}” does not have an embedded {mode} profile.	O documento “{name}” não tem um perfil {mode} incorporado.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	O documento “{name}” tem um perfil de cores incorporado que não corresponde ao espaço de trabalho {mode} atual.
-	Embedded: {embedded}	Incorporado: {embedded}
 	Working: {working}	Espaço de trabalho: {working}
 	Developing {name}	Revelando {name}
 	Cancelled {label}	{label} cancelado
@@ -3899,6 +3896,7 @@ layerLabel	No Color	Sem cor
 	Remove after each stroke	Remover após cada traço
 	Apply the removal ({key})	Aplicar a remoção ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Traços a remover: {n} (Enter aplica, Esc cancela)
+	Show home recent files	Mostrar arquivos recentes na tela inicial
 	Clear Brush Controls	Limpar controles de pincel
 	Reset All Locked Settings	Redefinir todas as configurações bloqueadas
 	Copy Texture to Other Tools	Copiar textura para outras ferramentas
@@ -3934,3 +3932,19 @@ layerLabel	No Color	Sem cor
 	Sent to {printer}	Enviado para {printer}
 	set in Print Settings…	definido nas configurações de impressão…
 	ICO is limited to 256 × 256 pixels	ICO é limitado a 256 × 256 pixels
+# Embedded Profile Mismatch: profile names beside the choices, Remember this choice
+	Use the embedded profile ({profile})	Usar o perfil incorporado ({profile})
+	Convert to the working space ({profile})	Converter para o espaço de trabalho ({profile})
+	Remember this choice for future images	Lembrar esta escolha para as próximas imagens
+	Turn the prompt back on with Ask On Mismatch in Edit › Color Settings.	Reative a pergunta com Ask On Mismatch em Editar › Configurações de cores.
+	Button Mode	Modo de botão
+	Button Mode On	Modo de botão ativado
+
+# Darken / Lighten Interface (⇧⌘F1 / ⇧⌘F2)
+	Darken Interface	Escurecer interface
+	Lighten Interface	Clarear interface
+# Bevel & Emboss Technique.
+	Technique	Técnica
+	Chisel Hard	Cinzel duro
+	Chisel Soft	Cinzel suave
+	Open color-less EXR as ACEScg	Abrir EXR sem espaço de cor como ACEScg

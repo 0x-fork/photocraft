@@ -512,6 +512,8 @@ pub struct PhotocraftApp {
     navigator_gpu: HashMap<DocId, crate::gpu_canvas::ViewParams>,
     /// Documents whose GPU canvas texture holds the plain document (`canvas::ensure_gpu`).
     navigator_plain: std::collections::HashSet<DocId>,
+    /// The Info panel's Color Sampler readouts for (document, revision) (`panels::sampler_readouts`).
+    info_samplers: Option<panels::SamplerReadouts>,
     /// Display profile readings (#569).
     monitors: monitor_status::State,
     checker: Option<egui::TextureHandle>,
@@ -774,6 +776,7 @@ impl PhotocraftApp {
             display_memo: HashMap::new(),
             navigator_gpu: HashMap::new(),
             navigator_plain: std::collections::HashSet::new(),
+            info_samplers: None,
             monitors: Default::default(),
             checker: None,
             drag: None,
@@ -1316,6 +1319,13 @@ impl PhotocraftApp {
     /// [`Self::save_as`], writing a Targa with `tga_bits` per pixel when given (no Targa Options
     /// prompt): `file.save` and `file.saveAs` with `tgaBits`.
     pub fn save_as_with(&mut self, path: Option<String>, tga_bits: Option<photocraft_io::TgaBits>) -> Result<Value, String> {
+        self.save_dialog_flow(path, tga_bits, false)
+    }
+
+    /// [`Self::save_as_with`]. `plain_save` marks File › Save that had to ask for a file name
+    /// (a flat file): confirming the document's own file is recorded as a `file.save` step,
+    /// which writes whichever file the action is played on, not as a Save As to a fixed path.
+    pub(crate) fn save_dialog_flow(&mut self, path: Option<String>, tga_bits: Option<photocraft_io::TgaBits>, plain_save: bool) -> Result<Value, String> {
         if self.save_options_open() {
             return Err("Answer TIFF or Targa Options before starting another save".into());
         }
@@ -1355,7 +1365,16 @@ impl PhotocraftApp {
             }
         };
         let doc = st.doc.id;
-        self.pick_save(&suggested, move |app, path| app.with_document(doc, |app| app.save_to(path, tga_bits)))
+        self.pick_save(&suggested, move |app, path| {
+            app.with_document(doc, |app| {
+                let own = app.session.active().and_then(|st| st.path.clone());
+                let r = app.save_to(path.clone(), tga_bits)?;
+                if plain_save && own.as_deref() == Some(path.as_str()) {
+                    app.journal_as_plain_save(&path);
+                }
+                Ok(r)
+            })
+        })
     }
 
     /// [`Self::save_as_with`] once the path is known.
@@ -1402,6 +1421,17 @@ impl PhotocraftApp {
         Ok(r)
     }
 
+    /// Re-label the Save As just journaled for `path` as File › Save (see [`Self::save_dialog_flow`]).
+    fn journal_as_plain_save(&mut self, path: &str) {
+        if let Some(last) = self.session.journal.last_mut()
+            && last.0 == "file.saveAs"
+            && last.1.get("path").and_then(Value::as_str) == Some(path)
+            && last.1.as_object().is_some_and(|o| o.len() == 1)
+        {
+            *last = ("file.save".into(), Value::Object(Default::default()));
+        }
+    }
+
     /// Replays a recorded `file.save` / `file.saveAs` / `file.saveACopy` step: no dialog or prompt, and the
     /// recorded TIFF or Targa answer (if any) stands in for the TIFF or Targa Options prompt.
     pub(crate) fn replay_save(&mut self, id: &str, params: &Value) -> Result<Value, String> {
@@ -1409,11 +1439,18 @@ impl PhotocraftApp {
             return Err("Answer TIFF or Targa Options before starting another save".into());
         }
         if id == "file.save" {
+            // The file the action is played on: one that holds the whole document, or a flat
+            // file a recorded Save confirmed in the dialog while the document is still a plain
+            // raster, so it is never flattened over (#3531, #3806).
             let st = self.session.active().ok_or("no document")?;
-            let path =
-                st.path.clone().filter(|p| photocraft_engine::file_cmds::holds_at(&st.doc, p)).ok_or(
-                    "Save writes back only to the document's own PSD, PSB, .pcraft or OpenRaster file, and to OpenRaster only when it holds everything",
-                )?;
+            let flat_own = |p: &str| {
+                !photocraft_engine::file_cmds::saves_in_place(p)
+                    && plain_raster(&st.doc).is_some()
+                    && photocraft_engine::file_cmds::extension(p).is_some_and(|e| photocraft_codecs::from_extension(&e).is_some_and(|f| f.caps().write))
+            };
+            let path = st.path.clone().filter(|p| photocraft_engine::file_cmds::holds_at(&st.doc, p) || flat_own(p)).ok_or(
+                "Save writes back only to the document's own PSD, PSB, .pcraft or OpenRaster file (OpenRaster only when it holds everything), or to its own flat file while the document is a single plain layer",
+            )?;
             return self.save_in_place(path);
         }
         let path = params.get("path").and_then(Value::as_str).filter(|p| !p.is_empty()).ok_or("Save As needs a `path`")?;

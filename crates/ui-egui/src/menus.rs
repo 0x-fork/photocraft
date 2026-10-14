@@ -53,6 +53,9 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("view.extras", "Extras", &["View"], Some("Cmd+H")),
     ("view.show.targetPath", "Target Path", &["View", "Show"], Some("Cmd+Shift+H")),
     ("view.screenMode.cycle", "Cycle Screen Mode", &[], Some("F")),
+    // Photoshop's interface brightness shortcuts: step through the four Pro themes.
+    ("view.darkenInterface", "Darken Interface", &[], Some("Cmd+Shift+F1")),
+    ("view.lightenInterface", "Lighten Interface", &[], Some("Cmd+Shift+F2")),
     ("edit.freeTransformCopy", "Free Transform a Copy", &[], Some("Cmd+Alt+T")),
     ("type.editText", "Edit Type", &[], None),
     ("view.zoomIn", "Zoom In", &["View"], Some("Cmd+=")),
@@ -325,7 +328,9 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
                             crate::notices::post(app, title, lines, false, None);
                             app.save_as_with(None, tga_bits)
                         }
-                        _ => app.save_as_with(None, tga_bits),
+                        // A flat file asks for its name; confirming its own file records a
+                        // plain Save that writes the file an action is played on (#3531).
+                        _ => app.save_dialog_flow(None, tga_bits, true),
                     }
                 }
             }
@@ -373,6 +378,10 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
         "window.theme.toggle" => {
             crate::prefs_ui::cycle_appearance(app, ctx);
             Ok(Value::Null)
+        }
+        "view.darkenInterface" | "view.lightenInterface" => {
+            crate::prefs_ui::step_brightness(app, ctx, id == "view.lightenInterface")?;
+            Ok(json!({"theme": app.ui.theme.id()}))
         }
         "window.theme.system" => {
             app.run("prefs.set", json!({"path": "interface.appearanceMode", "value": "auto"}))?;
@@ -750,6 +759,8 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
         i if i.starts_with(DOCUMENT_ITEM) => true,
         i if crate::links::url_for(i).is_some() => true,
         i if i.starts_with("window.theme.") => true,
+        // Interface brightness works with or without a document, as in Photoshop.
+        "view.darkenInterface" | "view.lightenInterface" => true,
         "file.save" | "file.saveAs" | "file.export.exportAs" | "file.export.quickExportAsPng" => {
             app.session.active().is_some() && app.services.export.is_some()
         }
@@ -1111,7 +1122,7 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<MenuItem> {
         }
     }
     if !prefs.menus.hidden.is_empty() {
-        items.retain(|i| !prefs.menus.hidden.contains(&i.id));
+        items.retain(|i| !prefs.menus.is_hidden(&i.id));
     }
     if prefs.interface.show_menu_colors {
         for it in &mut items {

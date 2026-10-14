@@ -652,11 +652,15 @@ impl<'a> Planner<'a> {
         let opacity = layer.opacity * layer.fill_opacity;
         let visible_clipped: Vec<&'a Layer> = clipped.iter().filter(|c| c.visible).collect();
 
-        // Below 100% fill a pass-through group renders isolated (as the CPU compositor does).
+        // Below 100% fill a pass-through group renders isolated (as the CPU compositor does), and
+        // so does one that is the base of a clipping group and holds an adjustment layer.
+        let clip_base_adjusts = !visible_clipped.is_empty()
+            && matches!(&layer.content, LayerContent::Group(g) if g.children.iter().any(|c| c.visible && matches!(c.content, LayerContent::Adjustment(_))));
         if let LayerContent::Group(g) = &layer.content
             && layer.blend == BlendMode::PassThrough
             && layer.fill_opacity >= 1.0
             && !has_effects(layer)
+            && !clip_base_adjusts
         {
             let before = self.retain(backdrop);
             let mut after = self.stack(&g.children, backdrop)?;
@@ -1593,11 +1597,19 @@ pub fn adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photocraf
     match adj {
         Adjustment::Invert => (1, p, None),
         Adjustment::Threshold { level } => {
-            p[0][0] = (level * 255.0).round();
+            // The level, the depth's split (compose::adjust::threshold_white) and the level in 16 bits.
+            let t = (level * 255.0).round();
+            p[0] = match depth {
+                photocraft_color::SampleType::U8 => [t, 1.0, 0.0, 0.0],
+                photocraft_color::SampleType::U16 => [t, 2.0, (t * 32768.0 / 255.0).round(), 0.0],
+                photocraft_color::SampleType::F32 => [t, 0.0, 0.0, 0.0],
+            };
             (2, p, None)
         }
         Adjustment::Posterize { levels } => {
+            // The levels, and the 16-bit rule (compose::adjust::posterize_in).
             p[0][0] = (*levels).clamp(2, 255) as f32;
+            p[0][1] = if depth == photocraft_color::SampleType::U16 { 1.0 } else { 0.0 };
             (3, p, None)
         }
         Adjustment::BrightnessContrast { brightness, contrast, legacy: true } => {
@@ -1605,7 +1617,9 @@ pub fn adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photocraf
             let k = if c >= 0.0 { 1.0 / (1.0 - c / 100.0) } else { 1.0 + c / 100.0 };
             // Brightness before contrast when it is raised, after it when lowered (compose::adjust).
             let (pre, post) = if c >= 0.0 { (brightness / 255.0, 0.0) } else { (0.0, brightness / 255.0) };
-            p[0] = [pre, k, photocraft_compose::adjust::LEGACY_PIVOT, post];
+            // 32-bit documents pivot at 127 of 255 and don't clip (the shader checks F_HDR).
+            let pivot = if depth == photocraft_color::SampleType::F32 { 127.0 / 255.0 } else { photocraft_compose::adjust::LEGACY_PIVOT };
+            p[0] = [pre, k, pivot, post];
             (4, p, None)
         }
         Adjustment::BrightnessContrast { brightness, contrast, .. } => {
@@ -1655,9 +1669,14 @@ pub fn adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photocraf
             (9, p, None)
         }
         Adjustment::ChannelMixer { matrix, monochrome } => {
-            p[0] = matrix[0];
-            p[1] = matrix[1];
-            p[2] = matrix[2];
+            // compose::adjust: 32-bit documents cut each percentage to 1/1024, count 255/512 of
+            // the constant and don't clip (the shader checks F_HDR).
+            let hdr = depth == photocraft_color::SampleType::F32;
+            let cut = |v: f32| if hdr { (v * 1024.0).trunc() / 1024.0 } else { v };
+            let rows = matrix.map(|r| [cut(r[0]), cut(r[1]), cut(r[2]), if hdr { r[3] * 255.0 / 512.0 } else { r[3] }]);
+            p[0] = rows[0];
+            p[1] = rows[1];
+            p[2] = rows[2];
             p[3][0] = if *monochrome { 1.0 } else { 0.0 };
             (10, p, None)
         }

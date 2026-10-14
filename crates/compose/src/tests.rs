@@ -2324,9 +2324,10 @@ fn photo_filter_matches_photoshop() {
         }
     }
     // The 32-bit file picks the same numbers as linear values (Lab 81.5, 9.41, 82.19). Its fit is
-    // looser (mean 0.9/255 over the file, 6.9/255 with a plain RGB multiply).
+    // looser (mean 0.9/255 over the file, 6.9/255 with a plain RGB multiply), and Photoshop's
+    // results there are unclipped: above 1 and below 0.
     let warming32 = [0.966_445_6, 0.761_806_3, 0.0];
-    for (v, ps) in [([0.2159, 0.2159, 0.2159], [66.0, 53.0, 40.0]), ([1.0, 1.0, 0.0], [255.0, 251.0, 0.0]), ([1.0, 0.0, 0.0], [255.0, 0.0, 0.0])] {
+    for (v, ps) in [([0.2159, 0.2159, 0.2159], [65.7, 53.4, 39.5]), ([1.0, 1.0, 0.0], [271.7, 250.9, -9.0]), ([1.0, 0.0, 0.0], [262.2, -2.0, -1.2])] {
         let got = filter(warming32, SampleType::F32, v);
         assert!(got.iter().zip(ps).all(|(g, p)| (g - p).abs() <= 2.5), "F32 {v:?}: got {got:?} want {ps:?}");
     }
@@ -2530,9 +2531,9 @@ fn lab_documents_invert_and_posterize_l_a_and_b() {
         let rgb_inv = photocraft_color::convert::srgb_to_lab(MUTED.map(|v| 1.0 - v));
         assert!((rgb_inv[0] - inv[0]).abs() > 2.0, "{depth:?}: {rgb_inv:?} vs {inv:?}");
         // Posterize, three levels: the same steps on L, a and b (here all land on the middle
-        // step: L ≈ 50 and a, b ≈ -1, a neutral grey).
+        // step: L ≈ 50 and a, b ≈ -1 (0 at 16 bits, whose middle level is 128), a neutral grey).
         let post = lab_doc_adjusted(MUTED, Adjustment::Posterize { levels: 3 }, depth);
-        let n = [lab[0] / 100.0, (lab[1] + 128.0) / 255.0, (lab[2] + 128.0) / 255.0].map(|v| adjust::posterize(v, 3));
+        let n = [lab[0] / 100.0, (lab[1] + 128.0) / 255.0, (lab[2] + 128.0) / 255.0].map(|v| adjust::posterize_in(v, 3, Some(depth)));
         let want = [n[0] * 100.0, n[1] * 255.0 - 128.0, n[2] * 255.0 - 128.0];
         assert!(want[0] > 45.0 && want[1].abs() < 2.0 && want[2].abs() < 2.0, "{want:?}");
         near3(post, want, 1.0, &format!("{depth:?} posterize"));
@@ -2736,4 +2737,25 @@ fn shape_layer_bounds_includes_vector_bounds_clipped_to_canvas_and_preserves_eff
     let b_fx = layer_bounds(&layer, canvas);
     assert!(!b_fx.is_empty());
     assert!(b_fx.contains_rect(&b));
+}
+
+// A pass-through group with an adjustment layer reaches the layers beneath, unless the group is
+// the base of a clipping group: then Photoshop renders it isolated, and an adjustment with no
+// content of its own in the group changes nothing (psd-tools passthrough_clipping_mask_adjustment).
+#[test]
+fn a_pass_through_clipping_base_keeps_its_adjustments_inside() {
+    let base = || {
+        let mut d = doc_white(4, 4);
+        let group = Layer::group("group", vec![Layer::new("invert", LayerContent::Adjustment(Adjustment::Invert))]);
+        d.layers.push(group);
+        d
+    };
+    // Unclipped: the invert reaches the white background.
+    assert!(close4(px(&base(), 1, 1), [0.0, 0.0, 0.0, 1.0]), "{:?}", px(&base(), 1, 1));
+    // With a layer clipped to the group: the background stays white.
+    let mut d = base();
+    let mut clip = Layer::raster("clipped", PixelFormat::RGBA8);
+    clip.clipped = true;
+    d.layers.push(clip);
+    assert!(close4(px(&d, 1, 1), [1.0, 1.0, 1.0, 1.0]), "{:?}", px(&d, 1, 1));
 }

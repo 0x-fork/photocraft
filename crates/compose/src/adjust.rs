@@ -79,23 +79,21 @@ pub fn apply_with(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer) {
 pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth: Option<SampleType>) {
     match adj {
         Adjustment::Invert => map_rgb(buf, |c| [1.0 - c[0], 1.0 - c[1], 1.0 - c[2]]),
-        Adjustment::Threshold { level } => {
-            // Compared on the 8-bit grid like Photoshop (avoids float ties).
-            let t = (level * 255.0).round();
-            map_rgb(buf, |c| {
-                let v = if (rgb_to_gray(c) * 255.0).round() >= t { 1.0 } else { 0.0 };
-                [v; 3]
-            })
-        }
-        Adjustment::Posterize { levels } => map_rgb(buf, |c| c.map(|v| posterize(v, *levels))),
+        Adjustment::Threshold { level } => map_rgb(buf, |c| [if threshold_white(c, *level, depth) { 1.0 } else { 0.0 }; 3]),
+        Adjustment::Posterize { levels } => map_rgb(buf, |c| c.map(|v| posterize_in(v, *levels, depth))),
         Adjustment::BrightnessContrast { brightness, contrast, legacy: true } => {
             // Legacy: contrast scales around 128/255, with brightness added before it when
             // contrast is raised and after it when contrast is lowered. Measured on Photoshop
             // 27.11, brightness +40 with contrast +30 maps 128 to 185 (brightness first), while
             // the corpus's brightness -23 with contrast -26 (psd-tools) needs contrast first;
             // contrast 80 keeps 128 at 128 (a 0.5 pivot moved it to 130).
-            let f = legacy_brightness_contrast(*brightness, *contrast);
-            map_rgb(buf, |px| px.map(&f))
+            if depth == Some(SampleType::F32) {
+                let f = legacy_brightness_contrast_hdr(*brightness, *contrast);
+                map_rgb(buf, |px| px.map(&f));
+            } else {
+                let f = legacy_brightness_contrast(*brightness, *contrast);
+                map_rgb(buf, |px| px.map(&f))
+            }
         }
         Adjustment::BrightnessContrast { brightness, contrast, .. } => {
             // Modern (CS3+) Brightness/Contrast, reverse-engineered from Photoshop ground truth
@@ -175,6 +173,17 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
             let hi = if depth == Some(SampleType::F32) { f32::INFINITY } else { 1.0 };
             map_rgb(buf, |c| vibrance_px(c, v, s, transfer, hi))
         }
+        Adjustment::ChannelMixer { matrix, monochrome } if depth == Some(SampleType::F32) => {
+            // 32-bit: each source percentage is cut to 1/1024 (toward zero), the constant counts
+            // 255/512 of its value, and nothing clips (photoshop corpus rgb32 channel-mixer.psd:
+            // pure red, green, blue, black and white all exact).
+            let cut = |v: f32| (v * 1024.0).trunc() / 1024.0;
+            let m = matrix.map(|row| [cut(row[0]), cut(row[1]), cut(row[2]), row[3] * 255.0 / 512.0]);
+            map_rgb(buf, |c| {
+                let mix = |row: &[f32; 4]| row[0] * c[0] + row[1] * c[1] + row[2] * c[2] + row[3];
+                if *monochrome { [mix(&m[0]); 3] } else { [mix(&m[0]), mix(&m[1]), mix(&m[2])] }
+            })
+        }
         Adjustment::ChannelMixer { matrix, monochrome } => map_rgb(buf, |c| {
             let mix = |row: &[f32; 4]| (row[0] * c[0] + row[1] * c[1] + row[2] * c[2] + row[3]).clamp(0.0, 1.0);
             if *monochrome { [mix(&matrix[0]); 3] } else { [mix(&matrix[0]), mix(&matrix[1]), mix(&matrix[2])] }
@@ -184,20 +193,29 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
             let m = photo_filter_matrix(*color, *density, *preserve_luminosity && linear_doc);
             let set_lum = *preserve_luminosity && !linear_doc;
             map_rgb(buf, |c| {
-                let f = mat3_mul(&m, c.map(|v| transfer.decode(v))).map(|v| transfer.encode(v));
+                // 32-bit samples are linear already, and may go negative.
+                let f = if linear_doc { mat3_mul(&m, c) } else { mat3_mul(&m, c.map(|v| transfer.decode(v))).map(|v| transfer.encode(v)) };
                 let f = if set_lum { photocraft_color::blend::set_lum(f, photocraft_color::blend::lum(c)) } else { f };
-                f.map(|v| v.clamp(0.0, 1.0))
+                // 32-bit results aren't clipped (photoshop corpus rgb32 photo-filter.psd: white
+                // filters to 1.19 red).
+                if linear_doc { f } else { f.map(|v| v.clamp(0.0, 1.0)) }
             })
         }
-        Adjustment::BlackWhite { weights, tint } => map_rgb(buf, |c| {
-            let g = black_white_gray(c, weights);
-            match tint {
-                // Photoshop tints like the Color blend mode: the tint's hue and saturation at the
-                // grey's luminosity (SetLum + ClipColor), measured in Photoshop 27.11.
-                Some(t) => photocraft_color::blend::set_lum(*t, g).map(|v| v.clamp(0.0, 1.0)),
-                None => [g; 3],
-            }
-        }),
+        Adjustment::BlackWhite { weights, tint } => {
+            let hdr = depth == Some(SampleType::F32);
+            map_rgb(buf, |c| {
+                let g = black_white_gray(c, weights);
+                match tint {
+                    // Photoshop tints like the Color blend mode: the tint's hue and saturation at
+                    // the grey's luminosity (SetLum + ClipColor), measured in Photoshop 27.11. In
+                    // 32-bit documents nothing clips at 1, as with the blend mode there (photoshop
+                    // corpus rgb32 black-white-tint.psd: white tints to 1.05, 1.00, 0.87).
+                    Some(t) if hdr => photocraft_color::blend::blend_rgb_within(photocraft_color::blend::BlendMode::Color, [g; 3], *t, f32::MAX),
+                    Some(t) => photocraft_color::blend::set_lum(*t, g).map(|v| v.clamp(0.0, 1.0)),
+                    None => [g; 3],
+                }
+            })
+        }
         Adjustment::GradientMap { stops, reverse, dither } => {
             let (w, x0, y0) = (buf.rect.width().max(1) as usize, buf.rect.x0, buf.rect.y0);
             for (i, p) in buf.px.iter_mut().enumerate() {
@@ -242,6 +260,19 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
     }
 }
 
+/// Legacy Brightness/Contrast on a 32-bit document's samples: unclipped, with contrast pivoting at
+/// 127 of 255 (photoshop corpus rgb32 and gray32 brightness-contrast-legacy.psd: every pixel
+/// exact, negative and over-white values included; the 8/16-bit pivot, 128, is 0.43 of a level
+/// off there).
+fn legacy_brightness_contrast_hdr(brightness: f32, contrast: f32) -> impl Fn(f32) -> f32 {
+    const PIVOT: f32 = 127.0 / 255.0;
+    let b = brightness / 255.0;
+    let c = contrast.clamp(-100.0, 99.0);
+    let k = if c >= 0.0 { 1.0 / (1.0 - c / 100.0) } else { 1.0 + c / 100.0 };
+    let (pre, post) = if c >= 0.0 { (b, 0.0) } else { (0.0, b) };
+    move |v: f32| (v + pre - PIVOT) * k + PIVOT + post
+}
+
 /// Legacy Brightness/Contrast as one channel's tone curve (see [`apply_depth`]).
 fn legacy_brightness_contrast(brightness: f32, contrast: f32) -> impl Fn(f32) -> f32 {
     let b = brightness / 255.0;
@@ -249,6 +280,30 @@ fn legacy_brightness_contrast(brightness: f32, contrast: f32) -> impl Fn(f32) ->
     let k = if c >= 0.0 { 1.0 / (1.0 - c / 100.0) } else { 1.0 + c / 100.0 };
     let (pre, post) = if c >= 0.0 { (b, 0.0) } else { (0.0, b) };
     move |v: f32| ((v + pre - LEGACY_PIVOT) * k + LEGACY_PIVOT + post).clamp(0.0, 1.0)
+}
+
+/// Whether Threshold at `level` turns colour `c` white in a document of `depth` (`None`: unknown,
+/// treated as 8-bit). Photoshop splits on the luminosity 0.30 R + 0.59 G + 0.11 B (the blend
+/// modes' `lum`), not the Rec. 601 grey, of the document's whole sample values:
+/// - 8 bits: white when that luminosity, rounded to a level with halves down, reaches the level;
+/// - 16 bits: white when it reaches the level converted to 16 bits (128 → 16448);
+/// - 32 bits: white when it reaches the level.
+///
+/// Exact on every pixel of psd-tools threshold_rgb.psd, threshold_16bits_rgb.psd and
+/// threshold_16bits_grayscale.psd and of the photoshop corpus's rgb16 threshold-128.psd, where the
+/// Rec. 601 grey split 28 and 100 pixels of the first two the other way. The sums of
+/// `30 R + 59 G + 11 B` over whole samples are exact in f32 (at most 3 276 800).
+pub fn threshold_white(c: [f32; 3], level: f32, depth: Option<SampleType>) -> bool {
+    let t = (level * 255.0).round();
+    let sum = |q: f32| {
+        let [r, g, b] = c.map(|v| (v.clamp(0.0, 1.0) * q).round());
+        30.0 * r + 59.0 * g + 11.0 * b
+    };
+    match depth {
+        None | Some(SampleType::U8) => sum(255.0) > 100.0 * t - 50.0,
+        Some(SampleType::U16) => sum(32768.0) >= 100.0 * (t * 32768.0 / 255.0).round(),
+        Some(SampleType::F32) => (0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]) * 255.0 >= t,
+    }
 }
 
 /// Applies an adjustment in a document of colour `mode`: [`apply_depth`], except that in Lab
@@ -313,7 +368,7 @@ pub fn stored_channels(adj: &Adjustment, mode: ColorMode, depth: Option<SampleTy
                 *v = if i > 0 { mirror } else { 1.0 } - v.clamp(0.0, 1.0);
             }
         }
-        Adjustment::Posterize { levels } => ch.iter_mut().for_each(|v| *v = posterize(*v, *levels)),
+        Adjustment::Posterize { levels } => ch.iter_mut().for_each(|v| *v = posterize_in(*v, *levels, depth)),
         Adjustment::Threshold { level } => {
             // On the 8-bit grid, like the RGB threshold.
             let t = (level * 255.0).round();
@@ -866,6 +921,23 @@ pub fn posterize(v: f32, levels: u32) -> f32 {
     (bin * 255.0 / (n - 1.0)).floor() / 255.0
 }
 
+/// [`posterize`] in a document of `depth` (`None`: unknown, treated as 8-bit). At 16 bits
+/// Photoshop bins the 16-bit sample (`⌊v · n / 32768⌋`) and lands on 8-bit levels through a
+/// 16-bit step: `⌊b · 32768 / (n - 1)⌋`, converted with `⌊(o · 255 + 16384) / 32768⌋`, so
+/// 127.5 comes out as 128 but 42.5 as 42 (8 bits floor them all). Exact on every sample of
+/// psd-tools posterize_16bits_rgb.psd and posterize_16bits_grayscale.psd (levels 2 to 21),
+/// which the 8-bit rule missed by up to half the range.
+pub fn posterize_in(v: f32, levels: u32, depth: Option<SampleType>) -> f32 {
+    if depth != Some(SampleType::U16) {
+        return posterize(v, levels);
+    }
+    let n = f64::from(levels.clamp(2, 255));
+    let x = (f64::from(v.clamp(0.0, 1.0)) * 32768.0).round();
+    let bin = (x * n / 32768.0).floor().min(n - 1.0);
+    let step = (bin * 32768.0 / (n - 1.0)).floor();
+    (((step * 255.0 + 16384.0) / 32768.0).floor() / 255.0) as f32
+}
+
 pub fn levels(ch: &LevelsChannel, v: f32) -> f32 {
     levels_q(ch, v, None)
 }
@@ -1183,6 +1255,41 @@ mod tone_tests {
 
     /// Photoshop 27.11, measured: Brightness/Contrast with Use Legacy on, over a gray ramp
     /// (x = 0, 16, …, 240, 255), one row per (brightness, contrast).
+    /// One pixel through `adj` in a 32-bit document.
+    fn hdr(adj: &Adjustment, c: [f32; 3]) -> [f32; 3] {
+        let mut b = Buffer::filled(crate::Rect::new(0, 0, 1, 1), [c[0], c[1], c[2], 1.0]);
+        apply_depth(adj, &mut b, Transfer::Gamma(1.0), Some(SampleType::F32));
+        [b.px[0][0], b.px[0][1], b.px[0][2]]
+    }
+
+    /// Photoshop's own 32-bit results (photoshop corpus rgb32): nothing clips, legacy contrast
+    /// pivots at 127, the mixer cuts its percentages to 1/1024 and counts 255/512 of the
+    /// constant, and the Black & White tint keeps values above 1.
+    #[test]
+    fn thirty_two_bit_adjustments_match_photoshop_unclipped() {
+        let near = |got: [f32; 3], want: [f32; 3], tol: f32| got.iter().zip(want).all(|(g, w)| (g - w).abs() <= tol);
+        let bc = Adjustment::BrightnessContrast { brightness: 25.0, contrast: 30.0, legacy: true };
+        // brightness-contrast-legacy.psd
+        assert!(near(hdr(&bc, [0.4910, 0.0009, 0.9301]), [0.6280, -0.0721, 1.2553], 2e-4), "{:?}", hdr(&bc, [0.4910, 0.0009, 0.9301]));
+        // channel-mixer.psd: pure red, green, blue and black, exactly.
+        let mixer = Adjustment::ChannelMixer { matrix: [[0.8, 0.3, -0.1, 0.0], [0.1, 0.9, 0.0, 0.05], [0.0, 0.2, 0.7, 0.0]], monochrome: false };
+        for (c, want) in [
+            ([1.0, 0.0, 0.0], [0.7998047, 0.1245117, 0.0]),
+            ([0.0, 1.0, 0.0], [0.2998047, 0.9243164, 0.1992188]),
+            ([0.0, 0.0, 1.0], [-0.0996094, 0.0249023, 0.6992188]),
+            ([0.0, 0.0, 0.0], [0.0, 0.0249023, 0.0]),
+        ] {
+            assert!(near(hdr(&mixer, c), want, 1e-6), "{c:?}: {:?}", hdr(&mixer, c));
+        }
+        // black-white-tint.psd: white tints past 1.
+        let bw = Adjustment::BlackWhite { weights: [40.0, 60.0, 40.0, 60.0, 20.0, 80.0], tint: Some([0.88235295, 0.827451, 0.7019608]) };
+        assert!(near(hdr(&bw, [1.0; 3]), [1.0522, 0.9973, 0.8718], 2e-4), "{:?}", hdr(&bw, [1.0; 3]));
+        // 8/16-bit documents still clip.
+        let mut b = Buffer::filled(crate::Rect::new(0, 0, 1, 1), [1.0, 1.0, 1.0, 1.0]);
+        apply_depth(&bw, &mut b, Transfer::Srgb, None);
+        assert!(b.px[0].iter().all(|v| *v <= 1.0));
+    }
+
     #[test]
     fn legacy_brightness_contrast_matches_photoshop() {
         const X: [u8; 17] = [0, 16, 32, 48, 64, 80, 96, 112, 128, 144, 160, 176, 192, 208, 224, 240, 255];
@@ -1205,6 +1312,48 @@ mod tone_tests {
                 assert!((got - i32::from(w)).abs() <= 1, "b {brightness} c {contrast} at {}: {got} vs Photoshop {w}", X[i]);
             }
         }
+    }
+
+    /// Pixel → Photoshop's split. 8-bit from psd-tools threshold_rgb.psd: the first three are
+    /// white though their Rec. 601 grey rounds below 60, and (131, 109, 99) sits exactly on 114.5
+    /// at level 115 (halves round down). 16-bit from threshold_16bits_rgb.psd and the photoshop
+    /// corpus's rgb16 threshold-128.psd, whose mid grey 16448 is level 128 in 16 bits.
+    #[test]
+    fn threshold_splits_on_the_luminosity_like_photoshop() {
+        let c8 = |r: u8, g: u8, b: u8| [r, g, b].map(|v| f32::from(v) / 255.0);
+        for (c, level, white) in
+            [(c8(87, 51, 31), 60u8, true), (c8(90, 49, 33), 60, true), (c8(68, 57, 50), 60, true), (c8(48, 63, 72), 60, false), (c8(131, 109, 99), 115, false)]
+        {
+            assert_eq!(threshold_white(c, f32::from(level) / 255.0, Some(SampleType::U8)), white, "8-bit {c:?} at {level}");
+        }
+        let c16 = |r: u16, g: u16, b: u16| [r, g, b].map(|v| f32::from(v) / 32768.0);
+        for (c, level, white) in [
+            (c16(8995, 7196, 6425), 60u8, false),
+            (c16(11180, 6554, 3984), 60, false),
+            (c16(16448, 16448, 16448), 128, true),
+            (c16(16447, 16447, 16447), 128, false),
+        ] {
+            assert_eq!(threshold_white(c, f32::from(level) / 255.0, Some(SampleType::U16)), white, "16-bit {c:?} at {level}");
+        }
+        // Through the adjustment: neutral black or white.
+        let mut b = Buffer::filled(Rect::new(0, 0, 1, 1), [87.0 / 255.0, 51.0 / 255.0, 31.0 / 255.0, 1.0]);
+        apply_depth(&Adjustment::Threshold { level: 60.0 / 255.0 }, &mut b, Transfer::Srgb, Some(SampleType::U8));
+        assert_eq!(b.px[0], [1.0, 1.0, 1.0, 1.0]);
+    }
+
+    /// 16-bit sample → Photoshop's 8-bit level, from psd-tools posterize_16bits_rgb.psd: bins
+    /// split on the 16-bit sample (10794 and 10923 straddle a third of 32768), and the middle of 3
+    /// levels is 128 where 8 bits give 127, while 21 levels keep 25 for 25.5.
+    #[test]
+    fn sixteen_bit_posterize_matches_photoshop() {
+        let points: [(u32, u16, u8); 9] =
+            [(3, 10794, 0), (3, 10923, 128), (3, 21845, 128), (3, 21974, 255), (13, 2504, 0), (13, 2542, 21), (13, 7453, 42), (13, 7582, 64), (21, 3341, 25)];
+        for (levels, x, want) in points {
+            let got = posterize_in(f32::from(x) / 32768.0, levels, Some(SampleType::U16));
+            assert!((got * 255.0 - f32::from(want)).abs() < 1e-3, "{levels} levels at {x}: {} vs Photoshop {want}", got * 255.0);
+        }
+        // 8 bits keep their rule.
+        assert_eq!(posterize_in(128.0 / 255.0, 3, Some(SampleType::U8)), posterize(128.0 / 255.0, 3));
     }
 
     #[test]

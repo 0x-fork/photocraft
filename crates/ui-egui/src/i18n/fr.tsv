@@ -972,7 +972,6 @@
 	Contiguous	Contigu
 	Contrast	Contraste
 	Control:	Contrôle :
-	Convert document's colors to the working space	Convertir les couleurs du document vers l'espace de travail
 	Convert to sRGB	Convertir en sRVB
 	Copies	Exemplaires
 	Copper	Cuivre
@@ -1547,7 +1546,6 @@
 	Use Default	Utiliser la valeur par défaut
 	Use Legacy	Utiliser l'ancienne version
 	Use Measurement Scale	Utiliser l'échelle de mesure
-	Use the embedded profile (instead of the working space)	Utiliser le profil incorporé (au lieu de l'espace de travail)
 	Variables bind a layer's visibility, text or pixels to a named data slot.	Les variables lient la visibilité, le texte ou les pixels d'un calque à un emplacement de données nommé.
 	Vertical scale	Échelle verticale
 	Vibrance	Vibrance
@@ -2160,7 +2158,6 @@
 	Cancelled opening {name}	Ouverture de {name} annulée
 	The document “{name}” does not have an embedded {mode} profile.	Le document « {name} » n'a pas de profil {mode} incorporé.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Le document « {name} » a un profil colorimétrique incorporé qui ne correspond pas à l'espace de travail {mode} actuel.
-	Embedded: {embedded}	Incorporé : {embedded}
 	Working: {working}	Espace de travail : {working}
 	Developing {name}	Développement de {name}
 	Cancelled {label}	{label} : annulé
@@ -3111,6 +3108,7 @@ curves	Smooth	Lisser
 	Remove after each stroke	Supprimer après chaque trait
 	Apply the removal ({key})	Appliquer la suppression ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Traits à supprimer : {n} (Entrée applique, Échap annule)
+	Show home recent files	Afficher les fichiers récents sur l'écran d'accueil
 	Clear Brush Controls	Effacer les commandes de pinceau
 	Reset All Locked Settings	Réinitialiser tous les paramètres verrouillés
 	Copy Texture to Other Tools	Copier la texture dans d'autres outils
@@ -3146,3 +3144,19 @@ curves	Smooth	Lisser
 	Sent to {printer}	Envoyé à {printer}
 	set in Print Settings…	défini dans les paramètres d’impression…
 	ICO is limited to 256 × 256 pixels	Le format ICO est limité à 256 × 256 pixels
+# Embedded Profile Mismatch: profile names beside the choices, Remember this choice
+	Use the embedded profile ({profile})	Utiliser le profil incorporé ({profile})
+	Convert to the working space ({profile})	Convertir vers l'espace de travail ({profile})
+	Remember this choice for future images	Mémoriser ce choix pour les prochaines images
+	Turn the prompt back on with Ask On Mismatch in Edit › Color Settings.	Réactivez la question avec Ask On Mismatch dans Édition › Paramètres de couleur.
+	Button Mode	Mode bouton
+	Button Mode On	Mode bouton activé
+
+# Darken / Lighten Interface (⇧⌘F1 / ⇧⌘F2)
+	Darken Interface	Assombrir l'interface
+	Lighten Interface	Éclaircir l'interface
+# Bevel & Emboss Technique.
+	Technique	Technique
+	Chisel Hard	Ciselage dur
+	Chisel Soft	Ciselage doux
+	Open color-less EXR as ACEScg	Ouvrir les EXR sans espace colorimétrique en ACEScg
