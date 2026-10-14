@@ -112,6 +112,21 @@ pub struct GpuCanvas {
     health: photocraft_gpu::DeviceHealth,
 }
 
+/// Whether `regenerate_mips` builds each level in a scratch texture and copies it back: on
+/// Intel adapters under DX12 only, where some drivers corrupt reduced previews when a pass
+/// samples one mip level and renders into another of the same texture (#892, Intel UHD 620).
+/// Everywhere else it renders straight into the level: on an NVIDIA DX12 adapter the scratch
+/// textures, created per level on every refresh, cost about 1 ms of CPU time per brush dab
+/// (#4515). `PHOTOCRAFT_SEPARATE_MIPS` (`setting`) forces it on (`1`) or off (`0`).
+pub fn separate_mip_targets(backend: wgpu::Backend, vendor: u32, setting: Option<&str>) -> bool {
+    const INTEL: u32 = 0x8086;
+    match setting.map(str::trim) {
+        Some("1") => true,
+        Some("0") => false,
+        _ => backend == wgpu::Backend::Dx12 && vendor == INTEL,
+    }
+}
+
 /// Can `adapter` use `Rgba16Float` as a sampled, filtered, render-target and copy texture?
 /// (Core WebGPU guarantees it; WebGL2 needs `EXT_color_buffer_float`, and some drivers lack it.)
 pub fn supports_f16_canvas(adapter: &wgpu::Adapter) -> bool {
@@ -141,7 +156,8 @@ impl GpuCanvas {
         let health = photocraft_gpu::DeviceHealth::watch(&rs.device);
         let mut res = Resources::new(&rs.device, &rs.queue, rs.target_format, high != HighPolicy::Off);
         res.health = health.clone();
-        res.separate_mip_targets = rs.adapter.get_info().backend == wgpu::Backend::Dx12;
+        let info = rs.adapter.get_info();
+        res.separate_mip_targets = separate_mip_targets(info.backend, info.vendor, std::env::var("PHOTOCRAFT_SEPARATE_MIPS").ok().as_deref());
         rs.renderer.write().callback_resources.insert(res);
         log::info!("gpu canvas: target {:?}, max texture {max}, tile {tile}, 16F canvas {high:?}", rs.target_format);
         Self { rs: rs.clone(), tile, high, health }
@@ -432,8 +448,10 @@ impl GpuCanvas {
         }
         // A full refresh whose layer pages don't fit the memory budget would re-upload the
         // evicted ones every time (no faster than the CPU, and more memory): the banded CPU
-        // compositor does it, and edits in the view (damage rects) stay on the GPU.
-        if region == doc.bounds() && !comp.fits_budget(doc, region) {
+        // compositor does it (in the background on desktop). So does a large damage rect, such
+        // as hiding a big layer (#4024); small edits in the view stay on the GPU.
+        let large = region.width() as u64 * region.height() as u64 >= DEFER_PX;
+        if (region == doc.bounds() || large) && !comp.fits_budget(doc, region) {
             res.compositor = Some(comp);
             return Err(photocraft_gpu::Unsupported(OVER_BUDGET.into()));
         }
@@ -1283,7 +1301,7 @@ struct Resources {
     views: HashMap<u64, ViewGpu>,
     out_linear: bool,
     /// Build each mip level in a scratch texture and copy it back instead of rendering into
-    /// the level directly (DX12 only: works around reduced-preview corruption on Intel drivers).
+    /// the level directly (see [`separate_mip_targets`]).
     separate_mip_targets: bool,
     /// The wgpu layer compositor (created on first use).
     compositor: Option<photocraft_gpu::Compositor>,
@@ -1692,8 +1710,8 @@ impl DocTextures {
                         wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&res.mip_sampler) },
                     ],
                 });
-                // Keep the sampled source and render attachment in separate resources on DX12
-                // (`Resources::separate_mip_targets`): some Intel DX12 drivers corrupt reduced
+                // Keep the sampled source and render attachment in separate resources on Intel
+                // DX12 adapters ([`separate_mip_targets`]): some of their drivers corrupt reduced
                 // previews when both are mip levels of the same texture, even though the
                 // subresources do not overlap. Elsewhere render straight into the level, which
                 // spares a scratch texture and a copy per level on every edit.
@@ -2198,6 +2216,23 @@ mod mip_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The scratch-texture workaround is for Intel's DX12 drivers (#892); other DX12 adapters
+    /// render straight into the level like every other backend (#4515).
+    #[test]
+    fn separate_mip_targets_only_for_intel_on_dx12() {
+        use wgpu::Backend::{Dx12, Metal, Vulkan};
+        let (intel, nvidia, amd) = (0x8086, 0x10de, 0x1002);
+        assert!(separate_mip_targets(Dx12, intel, None));
+        assert!(!separate_mip_targets(Dx12, nvidia, None));
+        assert!(!separate_mip_targets(Dx12, amd, None));
+        assert!(!separate_mip_targets(Vulkan, intel, None));
+        assert!(!separate_mip_targets(Metal, 0, None));
+        // PHOTOCRAFT_SEPARATE_MIPS forces either way; anything else leaves the default.
+        assert!(separate_mip_targets(Dx12, nvidia, Some("1")));
+        assert!(!separate_mip_targets(Dx12, intel, Some(" 0 ")));
+        assert!(separate_mip_targets(Dx12, intel, Some("yes")));
+    }
 
     #[test]
     fn gpu_budget_follows_memory_usage_and_ram() {
