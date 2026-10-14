@@ -128,7 +128,10 @@ embedded table (and a PNG's transparent entry) so `photocraft-io` can open them 
   with `decode_tiff_page` (and `photocraft_io::import_tiff_page`). Every frame of a GIF comes
   from `decode_gif_frames`: each frame composited onto the logical screen with the disposal
   methods applied, as RGBA8 with its delay in milliseconds, within `Limits` and
-  `MAX_GIF_FRAMES`. The video-layer commands use it (`photocraft_io::import_gif_frames`).
+  `MAX_GIF_FRAMES`. Every frame of an animated WebP comes from `decode_webp_frames` the same
+  way, composited onto its canvas, with its duration in milliseconds and the file's ICC profile.
+  The video-layer commands use both (`photocraft_io::import_gif_frames`,
+  `photocraft_io::import_webp_frames`).
 * **EXIF in TIFF** is stored as a sub-IFD rather than a blob, so it is not preserved yet.
   `caps.exif = false` for TIFF, and a warning is raised.
 * **Orientation** (EXIF tag 274 in JPEG, PNG `eXIf` and WebP; the decoded page's tag in TIFF and

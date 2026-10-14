@@ -149,6 +149,23 @@ pub fn decode_gif_frames(bytes: &[u8], opts: &DecodeOptions) -> Result<Vec<Anima
     crate::codecs::gif_frames::decode(bytes, opts)
 }
 
+/// Decodes every frame of a WebP (a still one yields one frame with a 0 delay, as [`decode`]
+/// reads it), each a full picture of the canvas with its duration and the file's ICC profile.
+/// [`decode`] keeps the first frame only. See [`MAX_GIF_FRAMES`] and `opts.limits` for what is
+/// refused.
+pub fn decode_webp_frames(bytes: &[u8], opts: &DecodeOptions) -> Result<Vec<AnimationFrame>, CodecError> {
+    match crate::codecs::webp::decode_frames(bytes, &opts.limits)? {
+        Some(frames) => Ok(frames),
+        None => Ok(vec![AnimationFrame { image: decode_as_with(Format::WebP, bytes, opts)?, delay_ms: 0 }]),
+    }
+}
+
+/// Whether `bytes` is an animated WebP of more than one frame (which [`decode`] opens as its
+/// first frame, with a warning, and [`decode_webp_frames`] reads whole).
+pub fn webp_is_animated(bytes: &[u8]) -> bool {
+    crate::codecs::webp::is_animated(bytes)
+}
+
 /// The Orientation (1–8) of the page [`decode`] opens from a TIFF or BigTIFF file; 1 when it is
 /// absent, malformed or out of range.
 pub fn tiff_orientation(bytes: &[u8]) -> u16 {
