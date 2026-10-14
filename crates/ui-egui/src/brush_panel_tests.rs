@@ -344,6 +344,53 @@ fn section_lock_buttons_accept_keyboard_without_selecting_or_enabling_sections()
     }
 }
 
+#[test]
+fn section_lock_buttons_show_focus_and_track_keyboard_navigation() {
+    use egui::accesskit::Role;
+    use egui_kittest::kittest::Queryable;
+
+    fn has_ring(shape: &egui::Shape, target: egui::Rect, color: egui::Color32) -> bool {
+        match shape {
+            egui::Shape::Rect(r) => r.rect == target && r.stroke == Stroke::new(1.0, color) && r.stroke_kind == egui::StrokeKind::Inside,
+            egui::Shape::Vec(v) => v.iter().any(|s| has_ring(s, target, color)),
+            _ => false,
+        }
+    }
+    for (index, theme) in crate::theme::ThemeKind::ALL.into_iter().enumerate() {
+        let mut h = harness(0, 0);
+        PhotocraftApp::setup_context(&h.ctx, theme);
+        h.state_mut().session.tools.brush.locks.scattering = index % 2 == 0;
+        h.state_mut().session.tools.brush.locks.texture = index % 2 != 0;
+        h.run_steps(2);
+        let before = h.state().session.tools.brush.clone();
+        let presets = h.state().session.tools.presets.clone();
+        let journal = h.state().session.journal.len();
+        let first = h.get_by_role_and_label(Role::Button, "Lock: Scattering").rect();
+        let second = h.get_by_role_and_label(Role::Button, "Lock: Texture").rect();
+        let accent = Tokens::get(&h.ctx).accent;
+        let ring = |h: &Harness<'_, PhotocraftApp>, rect| h.output().shapes.iter().any(|s| s.clip_rect.contains_rect(rect) && has_ring(&s.shape, rect, accent));
+        assert!(!ring(&h, first) && !ring(&h, second), "{theme:?}: unfocused locks have no focus ring");
+        h.get_by_role_and_label(Role::Button, "Lock: Scattering").focus();
+        h.run_steps(2);
+        assert!(h.get_by_role_and_label(Role::Button, "Lock: Scattering").is_focused());
+        assert!(ring(&h, first) && !ring(&h, second), "{theme:?}: the focused lock needs a visible indicator");
+        h.key_press(egui::Key::Tab);
+        h.run_steps(2);
+        assert!(!h.get_by_role_and_label(Role::Button, "Lock: Scattering").is_focused());
+        assert!(!ring(&h, first), "Tab removes the old lock's indicator");
+        h.get_by_role_and_label(Role::Button, "Lock: Texture").focus();
+        h.run_steps(2);
+        assert!(!ring(&h, first) && ring(&h, second), "the ring follows focus");
+        h.get_by_label("Brush Tip Shape").focus();
+        h.run_steps(2);
+        assert!(!ring(&h, first) && !ring(&h, second));
+        assert_eq!(h.state().session.tools.brush, before, "focus must not edit settings");
+        assert_eq!(h.state().session.tools.presets, presets);
+        assert_eq!(h.state().session.journal.len(), journal);
+        assert_eq!(h.state().ui.brush_section, 0);
+    }
+}
+
 /// A harness that shows the options bar with `tool` in the Studio (non-pro) theme.
 fn options_bar_harness(tool: crate::state::Tool) -> Harness<'static, PhotocraftApp> {
     let mut app = app();
