@@ -103,6 +103,27 @@ pub fn decode_as_with(format: Format, bytes: &[u8], opts: &DecodeOptions) -> Res
     finish_decode(img, o, opts)
 }
 
+/// The upright pixel size [`decode`] would return, read from the file's header without decoding
+/// pixels, for WebP, OpenEXR (flat) and the GIF/BMP/TGA/ICO/QOI/HDR family. It runs the same
+/// header reads and size checks as the decoder (default [`Limits`]) and swaps the size for an
+/// EXIF orientation of 5–8, so wherever [`decode`] succeeds the two agree. Other formats (and
+/// deep EXR or AVIF) return [`CodecError::Unsupported`]: decode those to learn their size.
+pub fn probe_size(bytes: &[u8]) -> Result<(u32, u32), CodecError> {
+    let format = detect(bytes).ok_or(CodecError::UnknownFormat)?;
+    if !caps(format).read {
+        return Err(CodecError::unsupported(format, "decoding is not available for this format"));
+    }
+    let l = &Limits::default();
+    let (w, h, exif) = match format {
+        Format::WebP => webp::probe(bytes, l)?,
+        Format::OpenExr => exr::probe(bytes, l).map(|(w, h)| (w, h, None))?,
+        Format::Gif | Format::Bmp | Format::Tga | Format::Ico | Format::Qoi | Format::Hdr | Format::Avif => via_image::probe(format, bytes, l)?,
+        _ => return Err(CodecError::unsupported(format, "no header-only size probe")),
+    };
+    let o = exif.as_deref().map_or(1, exif_orientation);
+    Ok(if (5..=8).contains(&o) { (h, w) } else { (w, h) })
+}
+
 /// Returns the embedded colour table for an indexed BMP, if it has one.
 pub fn bmp_palette(bytes: &[u8]) -> Result<Option<Vec<[u8; 3]>>, CodecError> {
     via_image::bmp_palette(bytes)

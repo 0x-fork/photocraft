@@ -195,7 +195,8 @@ pub fn fidelity_warnings_with(image: &Image, format: Format, opts: &EncodeOption
     if lossy_depth {
         w.push(W::DepthReduced { from: ss, to: p.sample });
     }
-    if ss.is_float() && !p.sample.is_float() && image.has_out_of_range() {
+    // FITS stores floats as 0..1 (see `codecs::fits`), so out-of-range values are clipped too.
+    if ss.is_float() && (!p.sample.is_float() || format == Format::Fits) && image.has_out_of_range() {
         w.push(W::RangeClipped);
     }
 

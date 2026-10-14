@@ -382,6 +382,24 @@ pub fn edit_job<R: Send + 'static>(
     )
 }
 
+/// Scan every layer surface's content bounds into the shared tile bounds cache, so the first
+/// draw of a document opened in the background doesn't do it on the UI thread: GPU planning
+/// asks each layer for its bounds, a multi-second scan on a multi-gigabyte PSB (#4024).
+/// `check` runs between layers (cancellation).
+pub fn warm_layer_bounds(doc: &Document, mut check: impl FnMut() -> Result<()>) -> Result<()> {
+    let mut pending: Vec<&photocraft_doc::Layer> = doc.layers.iter().collect();
+    while let Some(layer) = pending.pop() {
+        check()?;
+        if let Some(children) = layer.children() {
+            pending.extend(children);
+        }
+        if let Some(surface) = layer.surface() {
+            photocraft_compose::bounds::content_bounds(surface);
+        }
+    }
+    Ok(())
+}
+
 /// Where a background open reads its file from.
 #[derive(Clone, Debug)]
 pub enum OpenSource {
@@ -434,11 +452,15 @@ impl Session {
                 };
                 ctx.check()?;
                 ctx.progress(0.02, "Decoding");
-                ctx.stage(0.02, 1.0, "Decoding", |ctl| photocraft_io::import_with_svg_group_depth_and_interrupt(&name_w, &bytes, max_svg_group_depth, ctl))
+                let imported = ctx
+                    .stage(0.02, 0.95, "Decoding", |ctl| photocraft_io::import_with_svg_group_depth_and_interrupt(&name_w, &bytes, max_svg_group_depth, ctl))
                     .map_err(|e| match e {
                         photocraft_io::IoError::Cancelled => EngineError::Cancelled,
                         e => EngineError::Other(e.to_string()),
-                    })
+                    })?;
+                ctx.progress(0.95, "Preparing layers");
+                warm_layer_bounds(&imported.document, || ctx.check())?;
+                Ok(imported)
             },
             move |s, r: photocraft_io::ImportResult| {
                 // Ask When Opening: held back until the prompt is answered (`take_held_open`). A
@@ -724,6 +746,8 @@ impl Session {
             self.journal.truncate(from);
         }
         if !crate::brush_cmds::coalesce_journal(self, id, &params) {
+            let params =
+                if id == "layer.select" && self.actions.recording.is_some() { crate::layer_multi_cmds::recorded_selection(self, params) } else { params };
             self.journal.push((id.to_string(), params));
         }
     }
