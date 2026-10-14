@@ -190,6 +190,7 @@ pub mod spring_tools;
 pub mod stack_dialog;
 pub mod state;
 pub mod stroke_constraint;
+pub mod stroke_trace;
 pub mod stroke_trail;
 pub mod stroke_ui;
 pub mod stylus;
@@ -730,6 +731,8 @@ pub struct PhotocraftApp {
     started: Option<gpu_status::StartedHook>,
     /// Frame and canvas-upload timings (exposed via `ui.inspect`).
     pub perf: gpu_canvas::Perf,
+    /// Per-frame stroke timings for latency reports (`PHOTOCRAFT_STROKE_TRACE`, see `stroke_trace`).
+    pub stroke_trace: stroke_trace::StrokeTrace,
     /// Preferences, autosave and snapping runtime state (see `prefs_ui`, `snap_ui`).
     pub(crate) prefs_rt: prefs_ui::Runtime,
     /// Close, Revert or Exit parked behind the unsaved-changes prompt (see `discard_ui`).
@@ -875,6 +878,7 @@ impl PhotocraftApp {
             gpu: None,
             started: None,
             perf: Default::default(),
+            stroke_trace: stroke_trace::StrokeTrace::from_env(),
             prefs_rt: Default::default(),
             discard: None,
             file_dialog: None,
@@ -1756,6 +1760,7 @@ impl eframe::App for PhotocraftApp {
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        let frame_start = gpu_canvas::now_ms();
         // An undecorated window gets its caption back when the toolkit changes its flags
         // (maximize, restore, …): take it off again before the frame is laid out (#2246).
         if let Some(window_frame) = self.services.window_frame.as_mut() {
@@ -1779,6 +1784,11 @@ impl eframe::App for PhotocraftApp {
         if self.custom_titlebar {
             titlebar::release_after_os_resize(ctx, raw_input);
         }
+        if self.stroke_trace.enabled() {
+            // The OS's moves and the control channel's (injected just above).
+            let moves = raw_input.events.iter().filter(|e| matches!(e, egui::Event::PointerMoved(_))).count();
+            self.stroke_trace.begin_frame(frame_start, moves);
+        }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
@@ -1792,6 +1802,8 @@ impl eframe::App for PhotocraftApp {
             return;
         }
         let t0 = gpu_canvas::now_ms();
+        self.perf.frame_refresh_ms = 0.0;
+        self.stroke_trace.cpu_prev(frame.info().cpu_usage);
         // A text field's right-click menu, before any field is drawn (text_field_menu.rs).
         text_field_menu::show(&ctx);
         // Each painting tool keeps its own brush (#218), so switch the active tool's brush in
@@ -1893,7 +1905,13 @@ impl eframe::App for PhotocraftApp {
             egui::Modal::new(egui::Id::new("screen-color-wait")).frame(egui::Frame::NONE).backdrop_color(egui::Color32::TRANSPARENT).show(&ctx, |_| {});
             ctx.set_cursor_icon(egui::CursorIcon::Wait);
         }
-        self.perf.frame(gpu_canvas::now_ms() - t0);
+        let ui_ms = gpu_canvas::now_ms() - t0;
+        self.perf.frame(ui_ms);
+        if self.stroke_trace.enabled() {
+            self.stroke_trace.canvas(self.perf.frame_refresh_ms);
+            let info = &self.perf.gpu_info;
+            self.stroke_trace.end_frame(ui_ms, self.live_stroke.is_some(), || format!("{} {}", info.backend, info.adapter).trim().to_string());
+        }
         // Synthetic input is injected one press/release step per frame: keep frames coming until
         // the queue is empty, then release control replies waiting on it.
         if !self.synthetic.is_empty() {
