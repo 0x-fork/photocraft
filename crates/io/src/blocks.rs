@@ -527,9 +527,8 @@ pub(crate) fn with_pattern_placement(mut d: Descriptor, angle: f32, link: bool, 
 
 /// The warp of a placed layer (`SoLd`/`SoLE` `warp` descriptor): style, bend, distortions,
 /// axis, bounds and, for `warpCustom`, the 4 × 4 `customEnvelopeWarp` mesh, for `warpCylinder`
-/// its seven `warpValues`. Read-only: the raw
-/// block is what gets written back. `None` when absent or `warpNone` with no mesh. A `PlLd`
-/// record keeps its warp elsewhere: see [`parse_plld_warp`].
+/// its seven `warpValues`. Read-only: the raw block is what gets written back. `None` when absent
+/// or `warpNone` with no mesh. A `PlLd` record keeps its warp elsewhere: see [`parse_plld_warp`].
 pub fn parse_placed_warp(key: &[u8; 4], data: &[u8]) -> Option<photocraft_geom::warp::Warp> {
     if key != b"SoLd" && key != b"SoLE" {
         return None;
@@ -675,11 +674,11 @@ pub fn corners_affine(p: &[f64; 8], frame: [f64; 4]) -> Option<Affine> {
 /// for a source of `size` warped by `warp`: the inverse of [`crate::smart_map::plld_bytes`]'s
 /// quad. As for `SoLd`'s `Trnf` (#3677), affine corners frame a single-patch custom warp's
 /// control-point box (which may spill past the source), else the source rect; projective corners
-/// frame [`perspective_frame`], as `parse_smart_perspective` reads them. `PlLd` stores no source size:
-/// without the source file (`None`) the layer is taken as placed at 100 %, the edge lengths being
-/// its size (a custom warp's box needs no size); position and rotation stay right, only Replace
-/// Contents and re-renders depend on the scale. Import and export (which keeps an unedited record
-/// verbatim) both place a `PlLd` layer with this.
+/// frame [`perspective_frame`], as `parse_smart_perspective` reads them. `PlLd` stores no source
+/// size: without the source file (`None`) the layer is taken as placed at 100 %, the edge lengths
+/// being its size (a custom warp's box needs no size); position and rotation stay right, only
+/// Replace Contents and re-renders depend on the scale. Import and export (which keeps an unedited
+/// record verbatim) both place a `PlLd` layer with this.
 pub fn plld_transform(p: &[f64; 8], size: Option<(f64, f64)>, warp: Option<&photocraft_geom::warp::Warp>) -> (Affine, Option<[f64; 9]>) {
     let (w, h) = size.unwrap_or_else(|| ((p[2] - p[0]).hypot(p[3] - p[1]), (p[6] - p[0]).hypot(p[7] - p[1])));
     let perspective = corners_perspective_in([[p[0], p[1]], [p[2], p[3]], [p[4], p[5]], [p[6], p[7]]], perspective_frame(warp, w, h));

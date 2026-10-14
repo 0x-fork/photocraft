@@ -71,10 +71,14 @@ pub fn smart_warp_doc_space(layer: &Layer) -> Option<Warp> {
 }
 
 /// Parses the warp params: a full `"warp"` object, or `"style"` (+ `"bend"`, `"hDistort"`,
-/// `"vDistort"`, `"vertical"`), `"mesh"` and `"grid"` over `rect`.
+/// `"vDistort"`, `"vertical"`; `"values"` for a cylinder), `"mesh"` and `"grid"` over `rect`.
 pub fn warp_from_params(cmd: &str, p: &Value, rect: [f64; 4]) -> Result<Warp> {
     if let Some(w) = p.get("warp") {
-        let w: Warp = serde_json::from_value(w.clone()).map_err(|e| bad(cmd, format!("bad `warp`: {e}")))?;
+        let mut w: Warp = serde_json::from_value(w.clone()).map_err(|e| bad(cmd, format!("bad `warp`: {e}")))?;
+        // A cylinder is its values: the mesh is rebuilt from them, whatever was passed.
+        if w.style == WarpStyle::Cylinder {
+            w = Warp::cylinder(&w.values, w.bounds).ok_or_else(|| bad(cmd, CYLINDER_VALUES))?;
+        }
         if w.mesh.as_ref().is_some_and(|m| !m.is_valid()) {
             return Err(bad(cmd, "malformed warp mesh"));
         }
@@ -90,6 +94,13 @@ pub fn warp_from_params(cmd: &str, p: &Value, rect: [f64; 4]) -> Result<Warp> {
     w.h_distort = num("hDistort", 0.0);
     w.v_distort = num("vDistort", 0.0);
     w.vertical = p.get("vertical").and_then(Value::as_bool).unwrap_or(false);
+    if style == WarpStyle::Cylinder {
+        if w.vertical || w.h_distort != 0.0 || w.v_distort != 0.0 {
+            return Err(bad(cmd, "a cylinder is horizontal, with no hDistort or vDistort"));
+        }
+        let values: Option<Vec<f64>> = p.get("values").and_then(Value::as_array).and_then(|a| a.iter().map(Value::as_f64).collect());
+        return values.and_then(|v| Warp::cylinder(&v, rect)).ok_or_else(|| bad(cmd, CYLINDER_VALUES));
+    }
     if style == WarpStyle::Custom {
         let mesh = match p.get("mesh") {
             Some(m) => {
@@ -108,6 +119,30 @@ pub fn warp_from_params(cmd: &str, p: &Value, rect: [f64; 4]) -> Result<Warp> {
         w.mesh = Some(mesh);
     }
     Ok(w)
+}
+
+const CYLINDER_VALUES: &str =
+    "a cylinder needs `values`: seven numbers [left, bottom, right, top, top depth, bottom depth, wrap 0..1], the right silhouette right of the left one";
+
+/// A document-space cylinder `w` stored on a smart object, whose placement's inverse is `inv` and
+/// whose warp box `w.bounds` lands on `sb` in source space. A placement that only scales and
+/// moves keeps it a cylinder (written to PSD as one): the silhouettes and edges map, and the
+/// ellipses' depth, in units of the half axis, follows the change of aspect. Otherwise (rotated,
+/// skewed, flipped, in perspective) it becomes its mesh, a custom warp.
+fn cylinder_in_source(w: &Warp, inv: &Homography, sb: [f64; 4]) -> Option<Warp> {
+    let m = inv.0;
+    let axis_aligned = m[8] != 0.0 && m[1] == 0.0 && m[3] == 0.0 && m[6] == 0.0 && m[7] == 0.0;
+    let (sx, sy) = (m[0] / m[8], m[4] / m[8]);
+    if axis_aligned && sx > 0.0 && sy > 0.0 && w.values.len() == 7 {
+        let v = &w.values;
+        let (x, y) = (|v: f64| sx * v + m[2] / m[8], |v: f64| sy * v + m[5] / m[8]);
+        let k = sy / sx;
+        if let Some(c) = Warp::cylinder(&[x(v[0]), y(v[1]), x(v[2]), y(v[3]), v[4] * k, v[5] * k, v[6]], sb) {
+            return Some(c);
+        }
+    }
+    let mesh = w.to_mesh(1, 1).map_points(|p| hom_apply(inv, p));
+    Some(Warp::custom(mesh, sb))
 }
 
 /// A Background is turned into a normal layer by the caller first
@@ -146,6 +181,7 @@ fn warp_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut Layer, w: &Warp, 
                         None => Some(Warp::custom(mesh, sb)),
                     }
                 }
+                WarpStyle::Cylinder => cylinder_in_source(w, &inv, sb),
                 _ => Some(Warp { bounds: sb, mesh: None, ..w.clone() }),
             };
             sm.warp = src_warp.filter(|w| !w.is_identity());
@@ -302,6 +338,7 @@ fn type_warp(cmd: &str, w: &Warp) -> Result<Option<photocraft_doc::text::TextWar
         WarpStyle::None => Ok(None),
         WarpStyle::Custom if w.is_identity() => Ok(None),
         WarpStyle::Custom => Err(bad(cmd, "type can only take a warp style (arc, flag, …); a custom mesh needs rasterized type")),
+        WarpStyle::Cylinder => Err(bad(cmd, "type can only take a warp style (arc, flag, …); a cylinder needs rasterized type")),
         s => Ok(Some(photocraft_doc::text::TextWarp {
             style: s.psd_name().into(),
             value: clamp(w.bend),
@@ -546,7 +583,7 @@ fn grid(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 pub fn specs() -> Vec<CommandSpec> {
-    const P: &str = r##"{"layer":id?,"rect":[x0,y0,x1,y1]? (warp box; default = layer content ∩ selection),"style":"custom|none|arc|arcLower|arcUpper|arch|bulge|shellLower|shellUpper|flag|wave|fish|rise|fisheye|inflate|squeeze|twist","bend":%=50,"hDistort":%,"vDistort":%,"vertical":bool,"mesh":{"us":[0,…,1],"vs":[0,…,1],"points":[[x,y]…]} ((3c+1)×(3r+1) control points, row-major, document px; on a smart object `us`/`vs` span the source contents, so points equal to the placement are an identity warp even when it is skewed),"grid":[cols,rows]?,"warp":{full warp object}?,"interpolation":"bicubic|bilinear|nearest"} — on a type layer a style (or none) sets its Warp Text and the type stays editable"##;
+    const P: &str = r##"{"layer":id?,"rect":[x0,y0,x1,y1]? (warp box; default = layer content ∩ selection),"style":"custom|none|arc|arcLower|arcUpper|arch|bulge|shellLower|shellUpper|flag|wave|fish|rise|fisheye|inflate|squeeze|twist|cylinder","bend":%=50,"hDistort":%,"vDistort":%,"vertical":bool,"values":[left,bottom,right,top,topDepth,bottomDepth,wrap]? (cylinder: silhouettes and edges in document px, the ellipses' depths in half-axis units, wrap 0..1; horizontal only),"mesh":{"us":[0,…,1],"vs":[0,…,1],"points":[[x,y]…]} ((3c+1)×(3r+1) control points, row-major, document px; on a smart object `us`/`vs` span the source contents, so points equal to the placement are an identity warp even when it is skewed),"grid":[cols,rows]?,"warp":{full warp object}?,"interpolation":"bicubic|bilinear|nearest"} — on a type layer a style (or none) sets its Warp Text and the type stays editable"##;
     const S: &str = r##"{"warp":{…}? (the warp being edited; returned split),"rect":[x0,y0,x1,y1]?,"at":[x,y]? (document point; default = middle of the patch)} — without `warp`, edits the active smart object's warp. A 1×1 custom mesh is divided at the thirds first (the guides drawn on the default grid), so splitWarpCrosswise on an identity custom warp returns a 4×4 mesh (knots at 0, 1/3, 1/2, 2/3 and 1), not a 2×2. A preset is fitted as one patch and split without that step."##;
     const G: &str = r##"{"warp":{…}? (the warp being edited; returned with the new mesh),"rect":[x0,y0,x1,y1]?,"size":n|"default"|"3"|"4"|"5" (square patches, 1..=64; 1 and "default" are the single-patch grid)} — without `warp`/`style`/`mesh`, edits the active smart object's warp. The surface is kept and the new lines are real splits at i/n."##;
     vec![
@@ -666,6 +703,98 @@ mod tests {
         assert_eq!(st.history.past_len(), n + 1);
         let mesh = BezierMesh::identity([0.0, 0.0, 10.0, 10.0], 1, 1).map_points(|p| [p[0] * 2.0, p[1]]);
         assert!(s.execute("edit.transform.warp", json!({"warp": Warp::custom(mesh, [0.0, 0.0, 10.0, 10.0])})).is_err());
+    }
+
+    /// The seven values of a cylinder over the session's painted box (x 10..60, y 10..40).
+    const CYL: [f64; 7] = [10.0, 40.0, 60.0, 10.0, 0.3, 0.3, 0.5];
+
+    /// `style: "cylinder"` takes its seven values (#4112); anything that isn't a horizontal
+    /// cylinder is refused, never a silent no-op, and the layer is left alone.
+    #[test]
+    fn cylinder_style_needs_its_values() {
+        let mut s = session(8);
+        let before = active_surface(&s);
+        for p in [
+            json!({"style": "cylinder"}),
+            json!({"style": "cylinder", "values": [10, 40, 60, 10, 0.3, 0.3]}),
+            json!({"style": "cylinder", "values": [60, 40, 10, 10, 0.3, 0.3, 0.5]}),
+            json!({"style": "cylinder", "values": [10, 40, 60, 10, 0.3, 0.3, "x"]}),
+            json!({"style": "cylinder", "values": "seven"}),
+            json!({"style": "cylinder", "values": CYL, "vertical": true}),
+            json!({"style": "cylinder", "values": CYL, "hDistort": 10}),
+            json!({"warp": {"style": "cylinder", "bounds": [10.0, 10.0, 60.0, 40.0]}}),
+        ] {
+            let e = s.execute("edit.transform.warp", p.clone()).unwrap_err().to_string();
+            assert!(e.contains("cylinder"), "{p}: {e}");
+        }
+        assert_eq!(active_surface(&s), before);
+        // On type it is refused like a custom mesh: Warp Text has no cylinder.
+        s.execute("type.create", json!({"x": 10, "y": 50, "text": "Hi"})).unwrap();
+        assert!(s.execute("edit.transform.warp", json!({"style": "cylinder", "values": CYL})).is_err());
+    }
+
+    #[test]
+    fn cylinder_warps_pixels_at_every_depth() {
+        for depth in [8u64, 16, 32] {
+            let mut s = session(depth);
+            let r = s.execute("edit.transform.warp", json!({"style": "cylinder", "values": CYL})).unwrap();
+            assert_eq!(r["changed"], true, "{depth}");
+            let after = active_surface(&s);
+            let b = after.content_bounds();
+            // Between the silhouettes, the edges bowed down by the ellipses.
+            assert!(b.x0 >= 9 && b.x1 <= 61 && b.y0 >= 9 && b.y1 > 40, "{depth}: {b:?}");
+            // The same cylinder as a full warp object (its mesh rebuilt from the values) agrees.
+            let mut t = session(depth);
+            let w = Warp::cylinder(&CYL, [10.0, 10.0, 60.0, 40.0]).unwrap();
+            let mut garbled = w.clone();
+            garbled.mesh = None;
+            t.execute("edit.transform.warp", json!({"warp": garbled})).unwrap();
+            assert_eq!(active_surface(&t), after, "{depth}");
+        }
+    }
+
+    /// On a smart object the cylinder is stored in source space: still a cylinder (so it goes to
+    /// PSD as one) when the placement only scales and moves, its mesh when it rotates.
+    #[test]
+    fn smart_object_cylinder_is_stored_in_source_space() {
+        let stored = |s: &Session| {
+            let st = s.active().unwrap();
+            let LayerContent::Smart(sm) = &st.doc.layer(st.active_layer.unwrap()).unwrap().content else { panic!("smart") };
+            sm.warp.clone().unwrap()
+        };
+        let mut s = session(8);
+        s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        s.execute("layer.smartObjects.warp", json!({"style": "cylinder", "values": CYL, "rect": [10, 10, 60, 40]})).unwrap();
+        let w = stored(&s);
+        assert_eq!(w.style, WarpStyle::Cylinder);
+        let LayerContent::Smart(sm) = &s.active().unwrap().doc.layers[1].content else { panic!("smart") };
+        let inv = crate::smart_cmds::placement(sm).inverse().unwrap();
+        let src = |x: f64, y: f64| inv.apply(x, y);
+        let ((l, t), (r, bt)) = (src(10.0, 10.0), src(60.0, 40.0));
+        for (a, b) in w.values.iter().zip([l, bt, r, t, 0.3, 0.3, 0.5]) {
+            assert!((a - b).abs() < 1e-9, "{:?}", w.values);
+        }
+        // Twice as wide: the silhouettes double, the ellipses' depth (in half axes) halves.
+        let mut s = session(8);
+        s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        s.execute("edit.transform", json!({"scaleX": 200, "scaleY": 100})).unwrap();
+        let wide = [-15.0, 40.0, 85.0, 10.0, 0.3, 0.3, 0.5];
+        s.execute("layer.smartObjects.warp", json!({"style": "cylinder", "values": wide, "rect": [-15, 10, 85, 40]})).unwrap();
+        let w = stored(&s);
+        assert_eq!(w.style, WarpStyle::Cylinder);
+        assert!((w.values[4] - 0.6).abs() < 1e-9 && (w.values[5] - 0.6).abs() < 1e-9, "{:?}", w.values);
+        // The silhouettes land on the source's own edges (its contents span the scaled box).
+        let LayerContent::Smart(sm) = &s.active().unwrap().doc.layers[1].content else { panic!("smart") };
+        let inv = crate::smart_cmds::placement(sm).inverse().unwrap();
+        assert!((w.values[0] - inv.apply(-15.0, 10.0).0).abs() < 1e-9 && (w.values[2] - inv.apply(85.0, 10.0).0).abs() < 1e-9, "{:?}", w.values);
+        // Rotated: a custom mesh with the same shape.
+        let mut s = session(8);
+        s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        s.execute("edit.transform", json!({"rotate": 30})).unwrap();
+        s.execute("layer.smartObjects.warp", json!({"style": "cylinder", "values": CYL, "rect": [10, 10, 60, 40]})).unwrap();
+        let w = stored(&s);
+        assert_eq!(w.style, WarpStyle::Custom);
+        assert_eq!(w.mesh.as_ref().map(|m| (m.nx(), m.ny())), Some((13, 4)));
     }
 
     #[test]

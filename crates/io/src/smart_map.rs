@@ -750,7 +750,7 @@ fn warp_desc(w: Option<&Warp>, size: (f64, f64), warnings: &mut Vec<String>) -> 
     if w.style == WarpStyle::Cylinder {
         d = d.with("warpValues", Value::List(w.values.iter().copied().map(Value::Double).collect()));
     }
-    let mut d = d
+    d = d
         .with("warpPerspective", Value::Double(w.h_distort))
         .with("warpPerspectiveOther", Value::Double(w.v_distort))
         .with("warpRotate", enumv("Ornt", if w.vertical { "Vrtc" } else { "Hrzn" }))
