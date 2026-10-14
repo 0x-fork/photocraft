@@ -436,7 +436,7 @@ pub fn reset_fields(app: &PhotocraftApp, fields: &mut Map<String, Value>) {
     }
     apply_command_defaults(app, &command, fields);
     // The schema has no default for the Blur Gallery's pins: start again from the opening one.
-    if command == crate::blur_pins::COMMAND {
+    if crate::blur_pins::handles(&command) {
         crate::blur_pins::reset(fields);
     }
 }
@@ -458,7 +458,7 @@ pub fn open(app: &mut PhotocraftApp, command: &str) -> Option<u64> {
     }
     restore_remembered(app, command, spec.params, &mut fields);
     apply_command_defaults(app, command, &mut fields);
-    if command == crate::blur_pins::COMMAND {
+    if crate::blur_pins::handles(command) {
         crate::blur_pins::init(app, &mut fields);
     }
     if parse_spec(spec.params).iter().any(|p| p.kind == Kind::Document) {
@@ -1367,6 +1367,12 @@ mod tests {
         assert!(missing.is_empty(), "missing Italian dynamic labels: {missing:#?}");
     }
 
+    #[test]
+    fn spanish_covers_generated_filter_options_and_gallery_names() {
+        let missing = missing_generated_filter_labels(crate::i18n::lang_from_tag("es-ES").unwrap());
+        assert!(missing.is_empty(), "missing Spanish dynamic labels: {missing:#?}");
+    }
+
     /// The Select menu's generated dialogs (Select and Mask, Modify ▸ …) show their
     /// params, choices and title in every UI language, not just Korean.
     #[test]
@@ -1822,6 +1828,38 @@ mod tests {
         assert_eq!(shown.size, full.size);
         assert_eq!(cache(&shown).content_bounds(), cache(&full).content_bounds());
         assert_eq!(photocraft_compose::flatten(&shown).px, photocraft_compose::flatten(&full).px);
+    }
+
+    /// #5766: Curves on a smart object adds a smart filter, which re-renders the source through
+    /// the object's placement. On a reduced proxy that placement stayed in full-size document
+    /// coordinates, so the preview showed the object `k` times too large until OK.
+    #[test]
+    fn smart_object_curves_preview_keeps_its_size_on_a_reduced_proxy() {
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 64, "height": 64})).unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("select.rect", json!({"x": 16, "y": 16, "width": 16, "height": 16})).unwrap();
+        s.execute("edit.fill", json!({"contents": "black"})).unwrap();
+        s.execute("select.deselect", json!({})).unwrap();
+        s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        let st = s.active().unwrap();
+        let (doc, layer) = ((*st.doc).clone(), st.active_layer.unwrap());
+        let alpha = |d: &Document, x: i32, y: i32| match &d.layer(layer).unwrap().content {
+            photocraft_doc::LayerContent::Smart(sm) => sm.cache.as_ref().unwrap().pixel(x, y).last().copied().unwrap(),
+            _ => panic!("a smart object"),
+        };
+        let k = 4;
+        let shown = preview_document(&doc, Some(layer), "image.adjustments.curves", &json!({"points": [[0, 20], [90, 150], [255, 230]]}), k).unwrap();
+        let photocraft_doc::LayerContent::Smart(sm) = &shown.layer(layer).unwrap().content else { panic!("a smart object") };
+        assert_eq!(sm.smart_filters.len(), 1, "the preview adds the Curves smart filter");
+        assert_eq!(shown.size, crate::proxy::proxy_document(&doc, k).size);
+        // The 16 px square at (16, 16) is a 4 px square at (4, 4) on the proxy, not 16 px at (16, 16).
+        for (x, y) in [(4, 4), (5, 6), (7, 7)] {
+            assert!(alpha(&shown, x, y) > 0.99, "({x}, {y}) is inside the reduced square");
+        }
+        for (x, y) in [(2, 2), (9, 9), (12, 12), (15, 15)] {
+            assert!(alpha(&shown, x, y) < 0.01, "({x}, {y}) is outside the reduced square");
+        }
     }
 
     /// #2063: a pixel-sized parameter divided by the proxy factor was clamped to the command's
