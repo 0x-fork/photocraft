@@ -51,8 +51,9 @@ fn colors(app: &PhotocraftApp, ctx: &egui::Context) -> Arc<Vec<Vec<Color32>>> {
 pub fn use_swatch(app: &mut PhotocraftApp, name: &str, background: bool) {
     let target = if background { "background" } else { "foreground" };
     if run(app, "swatches.use", json!({"swatch": name, "target": target})).is_some() && !background {
-        // Clicking a swatch while characters are selected recolours them (#364).
-        crate::type_tool::foreground_changed(app);
+        // Clicking a swatch recolours the selected characters (#364), or the selected type or
+        // shape layers with a Type, shape or Pen tool, as in Photoshop.
+        crate::apply_color::foreground_changed(app, false);
     }
 }
 

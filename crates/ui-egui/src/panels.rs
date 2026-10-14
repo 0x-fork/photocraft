@@ -2132,7 +2132,7 @@ fn hsb_sliders(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     if changed {
         app.session.tools.foreground = hsva_srgb(hsva);
         ui.data_mut(|d| d.insert_temp(key, hsva));
-        crate::type_tool::foreground_changed(app);
+        crate::apply_color::foreground_changed(app, crate::apply_color::continuing(ui.ctx()));
     }
 }
 
@@ -3690,7 +3690,7 @@ fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 app.session.tools.background = hsva_srgb(hsva);
             } else {
                 app.session.tools.foreground = hsva_srgb(hsva);
-                crate::type_tool::foreground_changed(app);
+                crate::apply_color::foreground_changed(app, crate::apply_color::continuing(ui.ctx()));
             }
             ui.data_mut(|d| d.insert_temp(key, (hsva.h, hsva.s)));
         }
@@ -3703,7 +3703,7 @@ fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 app.session.tools.background = c;
             } else {
                 app.session.tools.foreground = c;
-                crate::type_tool::foreground_changed(app);
+                crate::apply_color::foreground_changed(app, crate::apply_color::continuing(ui.ctx()));
             }
             // Keep the hue for greys, so the field marker doesn't jump to red; the saturation with
             // it, so a later black lands on the corner it was last dragged to (#3228).

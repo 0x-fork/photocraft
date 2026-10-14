@@ -824,7 +824,7 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
     }
     let r = app.run("tools.setColors", params)?;
     if target == "foreground" {
-        crate::type_tool::foreground_changed(app);
+        crate::apply_color::foreground_changed(app, false);
     }
     Ok(r)
 }
