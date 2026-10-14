@@ -3734,4 +3734,11 @@ curves	Smooth	Wygładź
 	Step {step} is waiting for its dialog	Krok {step} czeka na swoje okno dialogowe
 @plural	{n} action|{n} actions	{n} operacja|{n} operacje|{n} operacji
 	Auto Add/Delete	Automatyczne dodawanie/usuwanie
+
+# Native Windows printing qualification
+	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	Nie włączaj też odbicia lustrzanego w ustawieniach druku: oba odbicia wzajemnie się znoszą.
+	Print Settings…	Ustawienia druku…
+	Remember to turn off the printer's own colour management in Print Settings…	Pamiętaj o wyłączeniu zarządzania kolorami drukarki w ustawieniach druku…
+	Sent to {printer}	Wysłano do {printer}
+	set in Print Settings…	ustawiane w ustawieniach druku…
 	ICO is limited to 256 × 256 pixels	ICO jest ograniczony do 256 × 256 pikseli

@@ -3861,6 +3861,13 @@ cameraData	Lens	Lens
 	Loaded Camera Raw settings from {file}	Camera Raw ayarları {file} dosyasından yüklendi
 	Loaded Camera Raw settings from {file} ({n} not supported)	Camera Raw ayarları {file} dosyasından yüklendi ({n} desteklenmiyor)
 	Auto Add/Delete	Otomatik Ekle/Sil
+
+# Native Windows printing qualification
+	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	Yazdırma Ayarlarında ayrıca Ayna Görüntüsünü açmayın: iki yansıtma birbirini iptal eder.
+	Print Settings…	Yazdırma Ayarları…
+	Remember to turn off the printer's own colour management in Print Settings…	Yazdırma Ayarlarında yazıcının kendi renk yönetimini kapatmayı unutmayın…
+	Sent to {printer}	{printer} yazıcısına gönderildi
+	set in Print Settings…	Yazdırma Ayarlarında belirlenir…
 	ICO is limited to 256 × 256 pixels	ICO 256 × 256 piksel ile sınırlıdır
 
 # Channel Options and New Spot Channel (#3761)
