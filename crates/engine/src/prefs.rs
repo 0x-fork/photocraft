@@ -1007,6 +1007,10 @@ pub struct Preferences {
     /// the footer slider's card scale, saved as the user changes them and restored at launch.
     /// JSON owned by the shell.
     pub brush_picker: Value,
+    /// The brush the tool was last using (settings and tip references, never the full bitmaps;
+    /// shaped by `brush_cmds::remembered_brush`), restored at launch so the tool starts where it
+    /// was left. Written only when `ToolState::brush_rev` moves.
+    pub last_brush: Value,
     /// The tools' options-bar settings (Move › Auto-Select, marquee Feather, tolerance, …) that
     /// differ from their defaults, saved as the user changes them and restored at launch, as
     /// Photoshop remembers each tool's options between sessions. JSON owned by the shell.
@@ -1549,7 +1553,8 @@ impl Session {
                 }
             };
             interface.insert("appearanceMode".into(), json!(mode));
-            interface.insert(slot.into(), json!(theme.name()));
+            // A partially migrated file may already contain a newer theme selection (#5139).
+            interface.entry(slot).or_insert_with(|| json!(theme.name()));
         }
         let color = v.as_object_mut().and_then(|m| m.remove("colorSettings"));
         let presets = v.as_object_mut().and_then(|m| m.remove("presets"));

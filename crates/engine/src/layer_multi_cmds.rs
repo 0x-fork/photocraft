@@ -423,13 +423,20 @@ fn shift_shown(doc: &Document, l: &mut Layer, dx: i32, dy: i32) {
         LayerContent::Shape(sh) => {
             // The rendered shape is cut at the canvas: one that reaches past it renders again.
             let canvas = doc.bounds();
-            let inside = sh.cache.as_ref().is_some_and(|c| {
+            let was_inside = sh.cache.as_ref().is_some_and(|c| {
                 let b = photocraft_compose::bounds::content_bounds(c);
                 b.is_empty() || (b.x0 > canvas.x0 && b.y0 > canvas.y0 && b.x1 < canvas.x1 && b.y1 < canvas.y1)
             });
             crate::vector_cmds::transform_shape(sh, &a);
+            let stroke_pad = sh.stroke.as_ref().filter(|s| s.opacity > 0.0).map_or(0.0, |s| f64::from(s.width.ceil()));
+            let stays_inside = sh.path.control_bounds().is_some_and(|(x0, y0, x1, y1)| {
+                (x0 - stroke_pad) > canvas.x0 as f64
+                    && (y0 - stroke_pad) > canvas.y0 as f64
+                    && (x1 + stroke_pad) < canvas.x1 as f64
+                    && (y1 + stroke_pad) < canvas.y1 as f64
+            });
             match &mut sh.cache {
-                Some(c) if inside => *c = translate_surface(c, dx, dy),
+                Some(c) if was_inside && stays_inside => *c = translate_surface(c, dx, dy),
                 _ => crate::vector_cmds::refresh_shape(doc, sh),
             }
         }
@@ -632,6 +639,7 @@ fn doc_pixels_equal(a: &Document, b: &Document) -> bool {
         layers: _,
         channels,
         guides: _,
+        ruler_origin: _,
         selection: _,
         metadata: _,
         global_light,
@@ -1161,13 +1169,7 @@ fn lock_layers(s: &mut Session, p: &Value) -> Result<Value> {
         for id in &sel {
             let l = doc.layer_mut(*id).ok_or(EngineError::NoLayer(*id))?;
             for (k, v) in &given {
-                match *k {
-                    "transparency" => l.locks.transparency = *v,
-                    "pixels" => l.locks.pixels = *v,
-                    "position" => l.locks.position = *v,
-                    "artboard" => l.locks.artboard = *v,
-                    _ => l.locks.all = *v,
-                }
+                l.locks.set(k, *v);
             }
         }
         Ok(())
@@ -1623,8 +1625,8 @@ mod tests {
         let all = doc(&s).bounds();
         assert!(damage(&s).is_none_or(|r| r.contains_rect(&all)), "{:?}", damage(&s));
         // Bad params still fail cleanly.
-        assert!(s.execute("layer.setProps", json!({"layer": 999_999, "visible": true})).is_err());
-        assert!(s.execute("layer.translate", json!({"layer": 999_999, "dx": 1})).is_err());
+        assert!(s.execute("layer.setProps", json!({"layer": u64::MAX, "visible": true})).is_err());
+        assert!(s.execute("layer.translate", json!({"layer": u64::MAX, "dx": 1})).is_err());
     }
 
     /// #1771: a new empty layer or group changes no pixels, so it (and undoing or redoing it)
@@ -1803,7 +1805,43 @@ mod tests {
         let mut locked = (*before).clone();
         locked.layer_mut(a).unwrap().locks.position = true;
         assert!(moved(&locked, &ids, 1, 1).is_err());
-        assert!(moved(&before, &[LayerId(999_999)], 1, 1).is_err());
+        assert!(moved(&before, &[LayerId(u64::MAX)], 1, 1).is_err());
+    }
+
+    #[test]
+    fn move_stroked_shape_across_canvas_edge_matches_fresh_render() {
+        let mut s = session(8);
+        let id = LayerId(
+            s.execute("shape.create", json!({"kind": "rect", "rect": [10, 10, 30, 30], "stroke": {"width": 4, "color": "#ff0000"}})).unwrap()["layer"]
+                .as_u64()
+                .unwrap(),
+        );
+        let before = doc(&s).clone();
+        let ids = move_targets(&before, &[id]);
+
+        // Drag the stroked shape across the left canvas boundary:
+        let moved_doc = moved(&before, &ids, -25, 0).unwrap();
+        let moved_layer = moved_doc.layer(id).unwrap();
+        let LayerContent::Shape(sh) = &moved_layer.content else { panic!("not a shape") };
+        let cached = sh.cache.as_ref().expect("cached render");
+
+        let mut fresh_sh = sh.clone();
+        crate::vector_cmds::refresh_shape(&moved_doc, &mut fresh_sh);
+        let fresh = fresh_sh.cache.as_ref().expect("fresh render");
+
+        assert_eq!(cached, fresh, "dragged shape cached render must match fresh render across canvas edge");
+
+        // Drag it back inside the canvas:
+        let moved_back = moved(&moved_doc, &ids, 30, 0).unwrap();
+        let back_layer = moved_back.layer(id).unwrap();
+        let LayerContent::Shape(back_sh) = &back_layer.content else { panic!("not a shape") };
+        let back_cached = back_sh.cache.as_ref().expect("cached render");
+
+        let mut fresh_back = back_sh.clone();
+        crate::vector_cmds::refresh_shape(&moved_back, &mut fresh_back);
+        let fresh_back_render = fresh_back.cache.as_ref().expect("fresh render");
+
+        assert_eq!(back_cached, fresh_back_render, "cached render must match fresh render when dragged back");
     }
 
     fn select_all(s: &mut Session, ids: &[LayerId]) {
@@ -1856,7 +1894,7 @@ mod tests {
         assert_eq!(s.active().unwrap().doc.layer(a).unwrap().name, "x");
         s.execute("layer.showLayers", json!({"layer": a.0})).unwrap();
         assert!(s.active().unwrap().doc.layer(a).unwrap().visible);
-        assert!(s.execute("layer.hideLayers", json!({"layer": 999_999})).is_err());
+        assert!(s.execute("layer.hideLayers", json!({"layer": u64::MAX})).is_err());
         assert!(s.execute("layer.hideLayers", json!({})).is_err());
         assert!(!s.is_enabled("layer.align.topEdges"));
     }
@@ -2561,6 +2599,31 @@ mod tests {
         s.execute("layer.arrange.reverse", json!({})).unwrap();
         assert_eq!(doc(&s).layers.iter().skip(1).map(|l| l.id).collect::<Vec<_>>(), vec![c, b, a]);
         assert_eq!(s.active().unwrap().history.entries().last().map(|e| e.as_str()), Some("Reverse"));
+    }
+
+    /// #4892: Lock Image Pixels includes Lock Transparent Pixels, so the two are never both on:
+    /// locking the pixels clears the transparency lock, which stays off while they are locked,
+    /// through both `layer.setProps` and `layer.lockLayers`.
+    #[test]
+    fn locking_pixels_clears_and_holds_off_the_transparency_lock() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+        let id = LayerId(s.execute("layer.new.layer", json!({})).unwrap()["layer"].as_u64().unwrap());
+        let locks = |s: &Session| doc(s).layer(id).unwrap().locks;
+        s.execute("layer.setProps", json!({"locks": {"transparency": true}})).unwrap();
+        assert!(locks(&s).transparency);
+        s.execute("layer.setProps", json!({"locks": {"pixels": true}})).unwrap();
+        assert!(locks(&s).pixels && !locks(&s).transparency, "locking the pixels clears the transparency lock");
+        s.execute("layer.setProps", json!({"locks": {"transparency": true}})).unwrap();
+        assert!(!locks(&s).transparency, "and it stays off while the pixels are locked");
+        s.execute("layer.setProps", json!({"locks": {"transparency": true, "pixels": true}})).unwrap();
+        assert!(locks(&s).pixels && !locks(&s).transparency, "both at once: the pixel lock wins");
+        s.execute("layer.lockLayers", json!({"pixels": false})).unwrap();
+        s.execute("layer.lockLayers", json!({"transparency": true})).unwrap();
+        assert!(locks(&s).transparency && !locks(&s).pixels, "with the pixels unlocked it can be set again");
+        s.execute("layer.lockLayers", json!({"pixels": true})).unwrap();
+        assert!(locks(&s).pixels && !locks(&s).transparency);
+        assert!(s.execute("layer.setProps", json!({"locks": {"nope": true}})).is_err());
     }
 
     #[test]

@@ -910,6 +910,82 @@ fn an_offer_that_does_not_match_the_commit_is_ignored() {
     assert!(r.get("fromLive").is_none());
 }
 
+#[test]
+fn last_brush_is_remembered_when_the_revision_moves_only() {
+    let mut s = session(8, 8);
+    restore_brush(&mut s);
+    // A restore is already in the preferences: nothing to write, no clone or serialise.
+    s.prefs.edit(|p| p.last_brush = json!("sentinel"));
+    remember_brush(&mut s);
+    assert_eq!(s.prefs().last_brush, json!("sentinel"), "an unchanged brush must not serialise");
+    s.execute("tools.setBrush", json!({"size": 23})).unwrap();
+    assert!(s.tools.brush_rev > s.tools.brush_saved_rev);
+    remember_brush(&mut s);
+    assert_eq!(s.prefs().last_brush["brush"]["size"].as_f64(), Some(23.0));
+    assert_eq!(s.tools.brush_saved_rev, s.tools.brush_rev, "the revision is marked saved");
+    // Revision unchanged: even a hand-written value stays (the gate is a counter compare).
+    s.prefs.edit(|p| p.last_brush = json!("sentinel"));
+    remember_brush(&mut s);
+    assert_eq!(s.prefs().last_brush, json!("sentinel"));
+}
+
+#[test]
+fn rejected_brush_changes_do_not_move_the_revision() {
+    let mut s = session(8, 8);
+    let rev = s.tools.brush_rev;
+    assert!(s.execute("tools.setBrush", json!({"size": "big"})).is_err());
+    assert_eq!(s.tools.brush_rev, rev, "a rejected brush leaves no change behind");
+    s.execute("tools.setBrush", json!({"size": 31})).unwrap();
+    assert!(s.tools.brush_rev > rev);
+}
+
+#[test]
+fn the_revision_tracks_the_picked_preset_too() {
+    let mut s = session(8, 8);
+    s.execute("tools.setBrush", json!({"preset": "Hard Round"})).unwrap();
+    let rev = s.tools.brush_rev;
+    s.execute("brush.presets.setCurrent", json!({"name": "Soft Round"})).unwrap();
+    assert!(s.tools.brush_rev > rev, "the remembered preset name follows the picked preset");
+    remember_brush(&mut s);
+    assert_eq!(s.prefs().last_brush["preset"].as_str(), Some("Soft Round"));
+}
+
+#[test]
+fn the_remembered_brush_restores_at_launch() {
+    let mut s = session(8, 8);
+    s.execute("tools.setBrush", json!({"preset": "Hard Round", "size": 44, "hardness": 0.3})).unwrap();
+    remember_brush(&mut s);
+    let stored = s.prefs().last_brush.clone();
+    assert_eq!(stored["preset"].as_str(), Some("Hard Round"));
+    let mut t = Session::new();
+    assert_ne!(t.tools.brush.size, 44.0, "a fresh session starts on the default brush");
+    t.prefs.edit(|p| p.last_brush = stored);
+    restore_brush(&mut t);
+    assert_eq!(t.tools.brush.size, 44.0);
+    assert_eq!(t.tools.brush.hardness, 0.3);
+    assert_eq!(t.tools.current_preset.as_deref(), Some("Hard Round"));
+    assert_eq!(t.tools.brush_saved_rev, t.tools.brush_rev, "the restored value is already stored");
+    // A malformed remembered brush keeps the default (never an error, never a panic).
+    let mut bad = Session::new();
+    bad.prefs.edit(|p| p.last_brush = json!({"brush": {"size": "huge"}}));
+    restore_brush(&mut bad);
+    assert_eq!(bad.tools.brush.size, Session::new().tools.brush.size);
+}
+
+#[test]
+fn remembered_brushes_never_embed_large_bitmaps() {
+    use std::sync::Arc;
+    let big = GrayTile::from_fn(PREVIEW_SIDE + 1, 8, |_, _| 1.0);
+    assert!(ref_tip(&TipShape::Sampled(big)).is_none(), "a big sampled tip cannot be embedded");
+    let small = GrayTile::from_fn(8, 8, |_, _| 1.0);
+    assert!(ref_tip(&TipShape::Sampled(small.clone())).is_some(), "small tiles embed");
+    let stored =
+        StoredTile { key: "k".into(), width: 300, height: 200, preview: Arc::new(small), full: Some(Arc::new(GrayTile::from_fn(300, 200, |_, _| 1.0))) };
+    let t = ref_tip(&TipShape::Stored(stored)).expect("stored tips are remembered as references");
+    assert!(matches!(t, TipShape::Stored(r) if r.full.is_none()), "a loaded full bitmap is dropped");
+    assert!(ref_pattern(&Pattern::Tile(GrayTile::from_fn(PREVIEW_SIDE + 1, 4, |_, _| 1.0))).is_none());
+}
+
 /// Photoshop's Clear painting mode (#3439): a Brush or Pencil stroke in `"mode": "clear"` erases
 /// with that brush, and History still names the tool rather than the Eraser.
 #[test]

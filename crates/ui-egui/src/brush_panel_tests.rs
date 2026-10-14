@@ -561,6 +561,51 @@ fn toggle_value(app: &PhotocraftApp, section: usize) -> bool {
 }
 
 #[test]
+fn hue_jitter_amount_edits_keep_percentage_units_and_command_routing() {
+    use egui::accesskit::Role;
+    use egui_kittest::kittest::{NodeT, Queryable};
+
+    let mut h = harness(0, 5);
+    h.state_mut()
+        .session
+        .execute(
+            "tools.setBrush",
+            json!({"brush": {"colorDynamics": {
+                "enabled": true, "hueJitter": 0.37, "saturationJitter": 0.23, "brightnessJitter": 0.41, "purity": -0.16
+            }}}),
+        )
+        .unwrap();
+    let before = h.state().session.tools.brush.clone();
+    h.run_steps(2);
+    let field = h.query_all_by_role(Role::SpinButton).find(|n| n.accesskit_node().numeric_value() == Some(37.0)).unwrap();
+    let center = field.rect().center();
+    field.click();
+    h.key_press(egui::Key::ArrowUp);
+    h.run_steps(2);
+    assert_eq!(h.state().session.tools.brush.color_dynamics.hue_jitter, 0.38);
+    h.key_press(egui::Key::Enter);
+    // Click near the high end of the track, then beyond its right edge while dragging.
+    let from = egui::pos2(center.x, center.y + 24.0);
+    h.event(egui::Event::PointerMoved(from));
+    h.event(egui::Event::PointerButton { pos: from, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
+    h.run_steps(1);
+    let to = from + vec2(200.0, 0.0);
+    h.event(egui::Event::PointerMoved(to));
+    h.run_steps(1);
+    h.event(egui::Event::PointerButton { pos: to, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
+    h.run_steps(2);
+    let mut expected = before;
+    expected.color_dynamics.hue_jitter = 1.0;
+    assert_eq!(h.state().session.tools.brush, expected, "the amount clamps at 100% and preserves neighboring settings");
+    assert_eq!(last_journal(h.state()).unwrap().0, "tools.setBrush");
+    let mut replay = photocraft_engine::Session::new();
+    for (id, params) in h.state().session.journal.clone() {
+        replay.execute(&id, params).unwrap();
+    }
+    assert_eq!(replay.tools.brush, expected, "the edit remains replayable through the engine");
+}
+
+#[test]
 fn checkbox_only_rows_toggle_without_changing_the_selected_controls() {
     use egui_kittest::kittest::Queryable;
     for (section, &(name, _)) in SECTIONS.iter().enumerate().skip(8) {

@@ -263,6 +263,13 @@ pub fn pen_undo_last_point(app: &mut PhotocraftApp) -> bool {
     if pen.knots.pop().is_none() {
         return false;
     }
+    let n = pen.knots.len();
+    let ds = &mut app.ui.direct_selection;
+    if ds.target == Some(crate::direct_select::PathRef::Pen) {
+        // A ⌘/Ctrl selection on the path being drawn loses the removed anchor.
+        ds.anchors.retain(|a| a[1] < n);
+        ds.segment = ds.segment.filter(|s| s[1] + 1 < n);
+    }
     pen.unlinked.retain(|&i| i < pen.knots.len());
     if pen.curvature {
         pen.moving = None;
@@ -354,9 +361,49 @@ fn fold_close(pen: &PenPath) -> Option<PenPath> {
     Some(p)
 }
 
+/// The Pen path being drawn as a document path (one open subpath), so ⌘/Ctrl (Direct Selection)
+/// can edit it in place while drawing (#4022).
+pub(crate) fn pen_path(pen: &PenPath) -> Path {
+    let pt = |q: [f64; 2]| photocraft_geom::Point::new(q[0], q[1]);
+    let knots = pen
+        .knots
+        .iter()
+        .enumerate()
+        .map(|(i, k)| photocraft_doc::Knot {
+            anchor: pt(k[0]),
+            in_ctrl: pt(k[1]),
+            out_ctrl: pt(k[2]),
+            smooth: !pen.unlinked.contains(&i) && (k[1] != k[0] || k[2] != k[0]),
+        })
+        .collect();
+    Path::new(vec![photocraft_doc::vector::Subpath { closed: false, knots, op: Default::default() }])
+}
+
+/// The Pen path being drawn becomes `path`'s first subpath, edited with ⌘/Ctrl (Direct Selection);
+/// drawing carries on from its last anchor. A Curvature Pen path keeps following its anchors.
+pub(crate) fn pen_replace(app: &mut PhotocraftApp, path: &Path) {
+    let Some(pen) = app.ui.pen.as_mut() else { return };
+    let knots = path.subpaths.first().map(|s| s.knots.as_slice()).unwrap_or_default();
+    pen.knots = knots.iter().map(knot_points).collect();
+    pen.unlinked = knots.iter().enumerate().filter(|(_, k)| !k.smooth).map(|(i, _)| i).collect();
+    pen.dragging = false;
+    pen.adjusting_last = false;
+    pen.moving = None;
+    if pen.curvature {
+        curvature_refresh(pen, false);
+    }
+    if pen.knots.is_empty() {
+        app.ui.pen = None;
+    }
+}
+
 /// Finish the pen path: a work path (Path mode) or a new shape layer (Shape mode).
 pub fn pen_commit(app: &mut PhotocraftApp, closed: bool) {
     let Some(mut pen) = app.ui.pen.take() else { return };
+    if app.ui.direct_selection.target == Some(crate::direct_select::PathRef::Pen) {
+        // Its anchors are no longer the Pen's: the committed path is another path.
+        app.ui.direct_selection = Default::default();
+    }
     if pen.curvature {
         curvature_refresh(&mut pen, closed);
     }
@@ -923,8 +970,10 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
         // The segment the Pen's Auto Add/Delete would add an anchor to, or the anchor it would delete.
         crate::anchor_tools::draw_pen_hover(app, painter, &to_scr, accent, painter.ctx().input(|i| i.modifiers));
     }
-    // Pen path in progress, with handles of the last knot and a rubber band to the pointer.
-    if let Some(pen) = &app.ui.pen {
+    // Pen path in progress, with handles of the last knot and a rubber band to the pointer. While
+    // ⌘/Ctrl drags it, Direct Selection draws its preview instead.
+    let edited = matches!(&app.ui.direct_selection.drag, Some(crate::direct_select::Drag::Edit { target: crate::direct_select::PathRef::Pen, .. }));
+    if let Some(pen) = app.ui.pen.as_ref().filter(|_| !edited) {
         let mut pts = Vec::new();
         // A close-drag shows the first segment bending with the handle being pulled out.
         let mut knots = pen.knots.clone();
