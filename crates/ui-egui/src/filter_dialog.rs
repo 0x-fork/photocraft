@@ -962,7 +962,13 @@ pub struct FilterPreview {
     pub committing: bool,
 }
 
-/// Match the full request before accepting a worker result, including a reopened dialog.
+/// Identity of one filter dialog's live preview.
+///
+/// `PartialEq` is the whole request: it says a worker result is exactly what the dialog is asking
+/// for now. [`Self::same_target`] is the looser question of whether a result belongs to this
+/// preview at all; two keys that agree on it name the same dialog, layer, document and preview
+/// resolution, and differ only in parameters — which is what a slider drag produces, since the
+/// worker computed for the value the pointer passed a moment ago.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FilterPreviewKey {
     pub doc: photocraft_doc::DocId,
@@ -973,6 +979,26 @@ pub struct FilterPreviewKey {
     pub command: String,
     pub params: Value,
     pub k: u32,
+}
+
+impl FilterPreviewKey {
+    /// Everything except the parameters: same dialog, document, revision, layer, channel target,
+    /// command and proxy factor.
+    ///
+    /// The canvas shows whatever this preview was computed for, so a result whose parameters are
+    /// a few frames old still belongs on screen while a slider is moving; matching on everything
+    /// would mean no frame of a drag is ever shown, because every completion lands after the
+    /// parameters moved on. A reopened dialog has a new id, a different command or a different
+    /// document, and a committed document a new revision, so neither survives this test.
+    pub fn same_target(&self, other: &Self) -> bool {
+        self.doc == other.doc
+            && self.revision == other.revision
+            && self.dialog == other.dialog
+            && self.active == other.active
+            && self.target == other.target
+            && self.command == other.command
+            && self.k == other.k
+    }
 }
 
 #[cfg(test)]
@@ -986,6 +1012,46 @@ mod tests {
         assert_eq!(source_label("iPhone 14 Pro Max"), "iPhone 14 Pro Max");
         assert_eq!(source_label("Web 1920"), "Web 1920");
         assert_eq!(source_label("centerX"), "Center X");
+    }
+
+    fn key() -> FilterPreviewKey {
+        FilterPreviewKey {
+            doc: photocraft_doc::DocId(7),
+            revision: 11,
+            dialog: 3,
+            active: Some(photocraft_doc::LayerId(2)),
+            target: Default::default(),
+            command: "filter.blur.gaussianBlur".into(),
+            params: json!({"radius": 4.0}),
+            k: 1,
+        }
+    }
+
+    #[test]
+    fn same_target_ignores_parameters_but_nothing_else() {
+        // A drag only changes the parameters, and that must not hide the finished frame.
+        let base = key();
+        let mut moved = base.clone();
+        moved.params = json!({"radius": 40.0});
+        assert!(base.same_target(&moved));
+        assert!(moved.same_target(&base));
+
+        // Anything else names a different preview and must not be shown.
+        for break_it in [
+            |k: &mut FilterPreviewKey| k.doc = photocraft_doc::DocId(8),
+            |k: &mut FilterPreviewKey| k.revision = 12,
+            |k: &mut FilterPreviewKey| k.dialog = 4,
+            |k: &mut FilterPreviewKey| k.active = Some(photocraft_doc::LayerId(5)),
+            |k: &mut FilterPreviewKey| k.active = None,
+            |k: &mut FilterPreviewKey| k.target = photocraft_engine::channel_cmds::ChannelTarget::LayerMask,
+            |k: &mut FilterPreviewKey| k.command = "filter.blur.motionBlur".into(),
+            |k: &mut FilterPreviewKey| k.k = 2,
+        ] {
+            let mut other = base.clone();
+            break_it(&mut other);
+            assert!(!other.same_target(&base), "{other:?} must not pass as {base:?}");
+            assert!(!base.same_target(&other));
+        }
     }
 
     #[test]
@@ -1828,6 +1894,38 @@ mod tests {
         assert_eq!(shown.size, full.size);
         assert_eq!(cache(&shown).content_bounds(), cache(&full).content_bounds());
         assert_eq!(photocraft_compose::flatten(&shown).px, photocraft_compose::flatten(&full).px);
+    }
+
+    /// #5766: Curves on a smart object adds a smart filter, which re-renders the source through
+    /// the object's placement. On a reduced proxy that placement stayed in full-size document
+    /// coordinates, so the preview showed the object `k` times too large until OK.
+    #[test]
+    fn smart_object_curves_preview_keeps_its_size_on_a_reduced_proxy() {
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 64, "height": 64})).unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("select.rect", json!({"x": 16, "y": 16, "width": 16, "height": 16})).unwrap();
+        s.execute("edit.fill", json!({"contents": "black"})).unwrap();
+        s.execute("select.deselect", json!({})).unwrap();
+        s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        let st = s.active().unwrap();
+        let (doc, layer) = ((*st.doc).clone(), st.active_layer.unwrap());
+        let alpha = |d: &Document, x: i32, y: i32| match &d.layer(layer).unwrap().content {
+            photocraft_doc::LayerContent::Smart(sm) => sm.cache.as_ref().unwrap().pixel(x, y).last().copied().unwrap(),
+            _ => panic!("a smart object"),
+        };
+        let k = 4;
+        let shown = preview_document(&doc, Some(layer), "image.adjustments.curves", &json!({"points": [[0, 20], [90, 150], [255, 230]]}), k).unwrap();
+        let photocraft_doc::LayerContent::Smart(sm) = &shown.layer(layer).unwrap().content else { panic!("a smart object") };
+        assert_eq!(sm.smart_filters.len(), 1, "the preview adds the Curves smart filter");
+        assert_eq!(shown.size, crate::proxy::proxy_document(&doc, k).size);
+        // The 16 px square at (16, 16) is a 4 px square at (4, 4) on the proxy, not 16 px at (16, 16).
+        for (x, y) in [(4, 4), (5, 6), (7, 7)] {
+            assert!(alpha(&shown, x, y) > 0.99, "({x}, {y}) is inside the reduced square");
+        }
+        for (x, y) in [(2, 2), (9, 9), (12, 12), (15, 15)] {
+            assert!(alpha(&shown, x, y) < 0.01, "({x}, {y}) is outside the reduced square");
+        }
     }
 
     /// #2063: a pixel-sized parameter divided by the proxy factor was clamped to the command's
