@@ -16,13 +16,15 @@ const BAND_BYTES: usize = 32 << 20;
 /// Decodes a flat image into a single-layer document; a TIFF with Photoshop layer data opens
 /// layered (see [`crate::tiff_layers`]).
 pub fn import_flat(name: &str, bytes: &[u8]) -> Result<ImportResult, IoError> {
-    if codecs::detect(bytes) == Some(Format::Tiff) {
+    // Detected once; every step below branches on it.
+    let format = codecs::detect(bytes);
+    if format == Some(Format::Tiff) {
         return import_tiff_page(name, bytes, None);
     }
-    let img = codecs::decode(bytes)?;
+    let img = codecs::decode_as(format.ok_or(codecs::CodecError::UnknownFormat)?, bytes)?;
     // A palette BMP or PNG opens in Indexed Color mode with its colour table, as in Photoshop
     // (#3802, #4804).
-    let palette = match codecs::detect(bytes) {
+    let palette = match format {
         Some(Format::Bmp) => codecs::bmp_palette(bytes).ok().flatten().map(|c| (c, None)),
         Some(Format::Png) => codecs::png_palette(bytes).ok().flatten().map(|p| (p.colors, p.transparent)),
         _ => None,
@@ -34,15 +36,15 @@ pub fn import_flat(name: &str, bytes: &[u8]) -> Result<ImportResult, IoError> {
         r.document.mode = ColorMode::Indexed;
         r.document.color_table = Some(photocraft_doc::ColorTable { colors, transparent });
     }
-    r.document.file_encoding = file_encoding(bytes);
-    if codecs::detect(bytes) == Some(Format::Tga) && img.layout() == ChannelLayout::Rgba {
+    r.document.file_encoding = file_encoding_as(format, bytes);
+    if format == Some(Format::Tga) && img.layout() == ChannelLayout::Rgba {
         tga_alpha_to_channel(&mut r.document)?;
     }
     // OpenEXR and Radiance HDR hold linear, scene-referred values (Rec. 709 primaries unless
     // stated otherwise, and an OpenEXR `Y` is linear luminance): tag them linear sRGB or linear
     // gray so they display and convert correctly.
     let d = &mut r.document;
-    if d.icc_profile.is_none() && matches!(codecs::detect(bytes), Some(Format::OpenExr | Format::Hdr)) {
+    if d.icc_profile.is_none() && matches!(format, Some(Format::OpenExr | Format::Hdr)) {
         d.icc_profile = match d.mode {
             ColorMode::Rgb => Some(photocraft_cms::Builtin::LinearSrgb.profile().to_bytes()),
             ColorMode::Grayscale => Some(photocraft_cms::builtin::linear_gray().to_bytes()),
@@ -68,8 +70,13 @@ pub fn import_gif_frames(name: &str, bytes: &[u8], each: &mut dyn FnMut(Document
 /// (estimated from its quantisation tables) and a WebP's lossless or lossy encoding with its
 /// quality. A lossy WebP whose quality can't be read gets [`DEFAULT_LOSSY_WEBP_QUALITY`].
 pub fn file_encoding(bytes: &[u8]) -> photocraft_doc::FileEncoding {
+    file_encoding_as(codecs::detect(bytes), bytes)
+}
+
+/// [`file_encoding`] for `bytes` already detected as `format`.
+fn file_encoding_as(format: Option<Format>, bytes: &[u8]) -> photocraft_doc::FileEncoding {
     let mut e = photocraft_doc::FileEncoding::default();
-    match codecs::detect(bytes) {
+    match format {
         Some(Format::Jpeg) => e.jpeg_quality = codecs::jpeg_quality(bytes),
         Some(Format::WebP) => match codecs::webp_encoding(bytes) {
             Some(codecs::WebpEncoding::Lossless) => e.webp_lossless = Some(true),
