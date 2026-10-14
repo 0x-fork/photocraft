@@ -697,10 +697,12 @@ fn feed_live_stroke(app: &mut PhotocraftApp) {
         return;
     }
     l.fed = d.points.len();
+    let started = crate::gpu_canvas::now_ms();
     match l.stroke.push(&pts) {
         Ok(r) => l.damage.push(r),
         Err(_) => app.live_stroke = None,
     }
+    app.stroke_trace.stroke(crate::gpu_canvas::now_ms() - started);
 }
 
 /// The points the live retouching stroke has rendered.
@@ -5460,7 +5462,9 @@ fn commit_brush_stroke(app: &mut PhotocraftApp, d: &Drag) {
     {
         app.session.clear_live_stroke();
     }
+    let started = crate::gpu_canvas::now_ms();
     let result = app.run(stroke_command(app, d.tool), p);
+    app.stroke_trace.stroke(crate::gpu_canvas::now_ms() - started);
     app.session.clear_live_stroke();
     let Ok(r) = result else { return };
     let revision = app.session.documents().iter().find(|st| st.doc.id == doc).map(|st| st.revision);
