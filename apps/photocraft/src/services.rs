@@ -228,20 +228,7 @@ fn write_atomic_progress(path: &Path, bytes: &[u8], progress: &dyn Fn(f32)) -> R
 }
 
 fn export_options(settings: &photocraft_ui_egui::ExportSettings) -> photocraft_io::ExportOptions {
-    let mut opts = photocraft_io::ExportOptions::default();
-    if let Some(q) = settings.jpeg_quality {
-        opts.encode.jpeg_quality = q;
-    }
-    opts.encode.webp_lossless = settings.webp_lossless;
-    if let Some(q) = settings.webp_quality {
-        opts.encode.webp_quality = q;
-    }
-    opts.tiff_layers = settings.tiff_layers;
-    opts.xmp = if settings.xmp_all { photocraft_io::XmpEmbed::All } else { photocraft_io::XmpEmbed::None };
-    opts.tga_bits = settings.tga_bits;
-    opts.image_previews = settings.image_previews;
-    opts.psd_maximize_compatibility = settings.psd_maximize_compatibility;
-    opts
+    settings.io_options()
 }
 
 /// The share of a save's progress bar that encoding fills; writing the file fills the rest. A
@@ -907,6 +894,7 @@ mod tests {
         let mut app = launch(&recovery);
         new_doc(&mut app, "#ff0000");
         let revision = app.session.active().unwrap().revision;
+        assert_ne!(revision, 0, "a sidecar-less bundle lists as revision 0");
         autosave(&mut app, &ctx);
 
         let mut failed = false;
@@ -927,12 +915,16 @@ mod tests {
         std::fs::remove_file(&recovery).unwrap();
         std::fs::create_dir(&recovery).unwrap();
         autosave(&mut app, &ctx);
+        // The worker commits the bundle's manifest before it publishes the sidecar, and
+        // `list_recovery` lists a committed sidecar-less bundle (revision 0) on its own, so
+        // the first non-empty listing can come from the middle of the write. Wait for the write
+        // to finish: the entry then carries the sidecar's revision.
         let mut recovered = Vec::new();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         while std::time::Instant::now() < deadline {
             prefs_ui::tick(&mut app, &ctx);
             recovered = list_recovery(&recovery);
-            if !recovered.is_empty() {
+            if recovered.iter().any(|e| e.info.revision == revision) {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
