@@ -104,6 +104,10 @@ fn older_dialog_above(ctx: &egui::Context, live: egui::LayerId, dialogs: &[Dialo
     ctx.memory(|m| m.layer_ids().skip_while(|l| *l != live).skip(1).any(|l| others.contains(&l)))
 }
 
+fn resizable_dialog(fields: &serde_json::Map<String, Value>) -> bool {
+    fields.contains_key("__web") || crate::prefs_ui::is_preferences(fields)
+}
+
 fn show_modal<T>(
     modal: egui::Modal,
     ctx: &egui::Context,
@@ -182,14 +186,16 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         // Photoshop doesn't dim the window behind dialogs: previews must be judged at true contrast.
         let web = fields.contains_key("__web");
         let web_popup_open = web && egui::Popup::is_any_open(ctx);
-        let modal = show_modal(modal, ctx, id, web, interactive, |ui| {
+        let modal = show_modal(modal, ctx, id, resizable_dialog(&fields), interactive, |ui| {
             sizing = ui.is_sizing_pass();
             let available = ui.available_size();
             // A dialog of a few short fields (`__compact`, Fit Image) is narrower (#4673): the title
             // rule and the button row fill the width they are given, so it needs its own maximum too.
             let compact = d.fields.contains_key("__compact");
+            // The curve editor caps its graph allocation at 300 points (#5113).
+            let curves = fields.get("__adjust").and_then(Value::as_str) == Some("curves");
             if !compact {
-                ui.set_min_width(380.0);
+                ui.set_min_width(if curves { 300.0 } else { 380.0 });
             }
             let wide = crate::prefs_ui::width(&d.fields, (ctx.content_rect().width() - 48.0).max(380.0));
             if let Some(w) = wide {
@@ -211,6 +217,8 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 600.0
             } else if compact {
                 260.0
+            } else if curves {
+                300.0
             } else {
                 440.0
             }));
@@ -996,5 +1004,23 @@ mod tests {
         for label in ["Fit Image", "Width", "Height", "OK", "Cancel"] {
             assert!(window.contains_rect(h.get_by_label(label).rect()), "{label} inside the window");
         }
+    }
+}
+
+#[cfg(test)]
+mod preference_resize_tests {
+    use super::*;
+
+    #[test]
+    fn preferences_can_resize_while_standard_native_dialogs_keep_their_layout() {
+        let prefs = json!({"__prefsui": "prefs"});
+        let shortcuts = json!({"__prefsui": "shortcuts"});
+        let ordinary = json!({});
+        let web = json!({"__web": true});
+
+        assert!(resizable_dialog(prefs.as_object().unwrap()));
+        assert!(!resizable_dialog(shortcuts.as_object().unwrap()));
+        assert!(!resizable_dialog(ordinary.as_object().unwrap()));
+        assert!(resizable_dialog(web.as_object().unwrap()));
     }
 }

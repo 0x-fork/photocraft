@@ -180,6 +180,31 @@ fn an_opened_kys_file_opens_the_dialog_filled() {
     assert!(bad.contains("not a keyboard shortcut set (.kys)"), "{bad}");
 }
 
+/// #3665: a row listing Copy's ⌘C and F3 keeps both; the old import kept the first key only,
+/// and a row of F3 alone left ⌘C unbound only because the set says so.
+#[test]
+fn an_imported_row_keeps_its_second_key() {
+    let mut app = app();
+    let set = "<photoshop-keyboard-shortcuts>\
+        <command name=\"Copy\"><shortcut>F3</shortcut><shortcut>Cmd+C</shortcut></command>\
+        <command name=\"Cut\"><shortcut>Cmd+X</shortcut></command>\
+        <command name=\"Undo\"><shortcut>Cmd+Z</shortcut><shortcut>F1</shortcut></command>\
+        </photoshop-keyboard-shortcuts>";
+    let r = super::import_text(&mut app, "ps.kys", set).unwrap();
+    assert_eq!(r["alternateKeys"]["edit.copy"], json!(["F3"]));
+    let id = r["dialog"].as_u64().unwrap();
+    let f = &app.ui.dialog_mut(id).unwrap().fields;
+    assert!(f["overrides"].get("edit.copy").is_none(), "Copy keeps ⌘C: {}", f["overrides"]);
+    assert!(f["alternates"].get("edit.copy").is_none(), "F3 is Copy's default alternate");
+    assert_eq!(f["alternates"]["edit.cut"], json!([]), "the set gives Cut no F2");
+    assert_eq!(f["alternates"]["edit.undo"], json!(["F1"]));
+    crate::dialogs::confirm(&mut app, id).unwrap();
+    assert_eq!(crate::shortcuts::effective_shortcut(&app, "edit.copy", Some("Cmd+C")).as_deref(), Some("Cmd+C"));
+    assert_eq!(crate::shortcuts::effective_alternates(&app, "edit.copy"), ["F3"]);
+    assert!(crate::shortcuts::effective_alternates(&app, "edit.cut").is_empty());
+    assert_eq!(crate::shortcuts::effective_alternates(&app, "edit.undo"), ["F1"]);
+}
+
 type Store = std::sync::Arc<std::sync::Mutex<Option<String>>>;
 
 /// An app beside a Photoshop whose live set is `set`; `saved_prefs` is this app's own saved
