@@ -649,12 +649,17 @@ fn adjust(c: vec3<f32>) -> vec3<f32> {
             if (light > 0.0) { lc = c + (1.0 - c) * light; }
             let lh = rgb_to_hsl(lc);
             hh = rem_euclid(lh.x + (p0.x + dh) / 360.0, 1.0);
-            // Raising saturation divides by 1 - s; lowering it multiplies by 1 + s.
-            if (sat > 0.0) {
-                ss = clamp(lh.y / max(1.0 - sat, 1.0 / 512.0), 0.0, 1.0);
+            // Raising saturation divides by 1 - s; lowering it multiplies by 1 + s. At 32 bits the
+            // slider is cut to whole 8-bit levels and the result isn't clipped
+            // (compose::adjust::hue_saturation_in).
+            var sq = sat;
+            if (hdr) { sq = sign(sat) * floor(abs(sat) * 255.0) / 255.0; }
+            if (sq > 0.0) {
+                ss = lh.y / max(1.0 - sq, 1.0 / 512.0);
             } else {
-                ss = clamp(lh.y * (1.0 + sat), 0.0, 1.0);
+                ss = lh.y * (1.0 + sq);
             }
+            if (hdr) { ss = max(ss, 0.0); } else { ss = clamp(ss, 0.0, 1.0); }
             var rgb = hsl_to_rgb(hh, ss, lh.z);
             // compose::adjust::range_lightness: towards the brightest channel when raised, the darkest when lowered.
             let rl = clamp(dl, -1.0, 1.0);
