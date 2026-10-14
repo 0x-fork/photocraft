@@ -389,6 +389,9 @@ pub struct Panels {
     /// Window › Brush Settings (F5): floating, like Photoshop's.
     #[serde(default)]
     pub brush_settings: bool,
+    /// Window › Brushes: dockable panel, like Photoshop's.
+    #[serde(default)]
+    pub brushes: bool,
     /// Window › Character / Paragraph: the Character | Paragraph dock group (#150).
     #[serde(default)]
     pub character: bool,
@@ -427,6 +430,7 @@ impl Default for Panels {
             options_bar: true,
             status_bar: true,
             brush_settings: false,
+            brushes: false,
             character: false,
             toolbar_double: false,
             dock: true,
@@ -1035,6 +1039,8 @@ pub struct DockTabs {
     pub history: usize,
     /// Character | Paragraph.
     pub character: usize,
+    /// Brushes presets.
+    pub brushes: usize,
 }
 
 /// Color panel state.

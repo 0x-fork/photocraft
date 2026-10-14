@@ -1623,10 +1623,10 @@ pub fn adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photocraf
             (4, p, None)
         }
         Adjustment::BrightnessContrast { brightness, contrast, .. } => {
-            // Modern B/C: the shader rebuilds the curves from raw slider values (see compose.wgsl
-            // `mbright`/`mcontrast`, mirroring compose::adjust::modern_brightness/modern_contrast).
-            p[0] = [*brightness, *contrast, 0.0, 0.0];
-            (5, p, None)
+            // Modern B/C: the CPU's lookup table (compose::adjust::modern_lut) on every channel,
+            // through the Levels / Curves kernel.
+            let row = to_row(&adjust::modern_lut(*brightness, *contrast));
+            (7, p, Some(vec![row; 3]))
         }
         Adjustment::Exposure { exposure, offset, gamma } => {
             p[0] = [2f32.powf(*exposure), *offset, gamma.max(0.01), transfer_exponent(transfer.for_exposure())];
@@ -1832,10 +1832,15 @@ mod tests {
             for mode in [ColorMode::Rgb, ColorMode::Grayscale] {
                 assert!(adjustment_on_gpu(adj, mode), "{adj:?} in {mode:?}");
             }
-            // CMYK documents invert, posterize and threshold their inks, on the CPU.
-            let inks = matches!(adj, Adjustment::Invert | Adjustment::Posterize { .. } | Adjustment::Threshold { .. });
+            // CMYK documents invert, posterize, threshold and brighten their inks, on the CPU.
+            let inks = !matches!(adj, Adjustment::GradientMap { .. });
             assert_eq!(adjustment_on_gpu(adj, ColorMode::Cmyk), !inks, "{adj:?} in CMYK");
         }
+        // CMYK Hue/Saturation works on the inks (on the CPU); Colorize stays on the screen colour.
+        let ranges = photocraft_doc::adjust::HueRange::defaults();
+        let hue = |colorize| Adjustment::HueSaturation { hue: 30.0, saturation: 10.0, lightness: 0.0, colorize, ranges: ranges.clone() };
+        assert!(!adjustment_on_gpu(&hue(false), ColorMode::Cmyk) && adjustment_on_gpu(&hue(true), ColorMode::Cmyk));
+        assert!(adjustment_on_gpu(&hue(false), ColorMode::Rgb));
         // Screen-colour adjustments stay on the GPU in Lab documents.
         assert!(adjustment_on_gpu(&Adjustment::Exposure { exposure: 1.0, offset: 0.0, gamma: 1.0 }, ColorMode::Lab));
     }

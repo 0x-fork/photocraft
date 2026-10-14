@@ -1839,6 +1839,8 @@
 	Camera Raw Defaults	Camera Raw Varsayılanları
 	Canvas border	Kanvas kenarlığı
 	Show canvas dots	Kanvas noktalarını göster
+	Clip thumbnails to layer bounds	Küçük resimleri katman sınırlarına kırp
+	Clip Thumbnails to Layer Bounds	Küçük resimleri katman sınırlarına kırp
 	Canvas color	Kanvas rengi
 	Canvas custom color	Kanvas özel rengi
 	Color picker	Renk seçici
@@ -3821,6 +3823,7 @@ cameraData	Lens	Lens
 @plural	{n} step|{n} steps	{n} adım
 @plural	{warning} (+{n} more brush preset warning)|{warning} (+{n} more brush preset warnings)	{warning} (+{n} fırça ön ayarı uyarısı daha)
 @plural	{what} with {n} warning|{what} with {n} warnings	{what}, {n} uyarı ile
+	Response curve	Yanıt eğrisi
 	Show home recent files	Ana ekranda son dosyaları göster
 	Clear Brush Controls	Fırça Denetimlerini Temizle
 	Reset All Locked Settings	Tüm Kilitli Ayarları Sıfırla

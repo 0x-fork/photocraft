@@ -25,6 +25,7 @@ pub mod gradient_fill;
 pub mod masks;
 pub mod multichannel;
 pub mod native;
+pub mod native_lab;
 pub mod pattern;
 pub mod proxy;
 pub mod psblend;
@@ -127,6 +128,14 @@ fn render_tiled_with(doc: &Document, rect: Rect, tile: i32, cx: &Ctx) -> Buffer 
     // Refuse rects too large to hold: an empty buffer, not an allocation failure.
     if u64::from(rect.width()) * u64::from(rect.height()) > MAX_RENDER_PIXELS {
         return Buffer::transparent(Rect::EMPTY);
+    }
+    // A CMYK stack with adjustment layers the inks carry exactly composites on its inks.
+    if let Some(buf) = native::render_cmyk(doc, rect, tile) {
+        return buf;
+    }
+    // A Lab stack with adjustment layers that work on L, a and b composites on its stored values.
+    if let Some(buf) = native_lab::render_lab(doc, rect, tile) {
+        return buf;
     }
     cx.set_fx_clip(rect);
     if i64::from(rect.width()) <= i64::from(tile) && i64::from(rect.height()) <= i64::from(tile) {
@@ -260,7 +269,8 @@ pub fn band_rows_for(width: u32, requested: i32) -> i32 {
 /// otherwise count as content: the result would span the whole canvas.
 ///
 /// A CMYK document of plain Normal layers is composited in its ink values instead
-/// ([`native::flatten_cmyk`]), so flattening doesn't round-trip its pixels through RGB (#3778).
+/// ([`native::flatten_cmyk`]), so flattening doesn't round-trip its pixels through RGB (#3778),
+/// and a Lab one in its L, a and b ([`native_lab::flatten_lab`]).
 pub fn flatten_to_surface(doc: &Document, fmt: photocraft_color::PixelFormat, background: Option<[f32; 3]>) -> Surface {
     composite_to_surface(doc, doc.bounds(), fmt, background)
 }
@@ -270,6 +280,11 @@ pub fn composite_to_surface(doc: &Document, rect: Rect, fmt: photocraft_color::P
     let paper = background.is_some_and(|bg| bg == [1.0; 3]);
     if (background.is_none() || paper)
         && let Some(s) = native::flatten_cmyk(doc, rect, fmt, paper)
+    {
+        return s;
+    }
+    if (background.is_none() || paper)
+        && let Some(s) = native_lab::flatten_lab(doc, rect, fmt, paper)
     {
         return s;
     }

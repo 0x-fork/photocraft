@@ -1806,9 +1806,8 @@ fn surface_at(mesh: &BezierMesh, p: [f64; 2]) -> Option<(f64, f64)> {
 }
 
 /// Ctrl-click (or Option-click) picks the split: crosswise in the open, and the perpendicular
-/// split when the pointer is close to an existing grid line.
-fn quick_split_kind(mesh: &BezierMesh, bounds: [f64; 4], p: [f64; 2]) -> SplitTool {
-    let (s, t) = mesh.param_at(p);
+/// split when the pointer's grid position `(s, t)` is close to an existing grid line.
+fn quick_split_kind(mesh: &BezierMesh, bounds: [f64; 4], (s, t): (f64, f64)) -> SplitTool {
     let w = (bounds[2] - bounds[0]).abs().max(1.0);
     let h = (bounds[3] - bounds[1]).abs().max(1.0);
     let su = (8.0 / w).clamp(0.02, 0.12);
@@ -1824,12 +1823,18 @@ fn quick_split_kind(mesh: &BezierMesh, bounds: [f64; 4], p: [f64; 2]) -> SplitTo
     }
 }
 
-fn split_cursor(tool: SplitTool) -> CursorIcon {
-    match tool {
-        SplitTool::Vertical => CursorIcon::ResizeHorizontal,
-        SplitTool::Horizontal => CursorIcon::ResizeVertical,
-        SplitTool::Cross => CursorIcon::Crosshair,
-    }
+/// The cursor for a split armed at grid position `(s, t)` of warp grid `m`: the arrow across the
+/// split line as it looks on screen. A vertical split line runs along the grid's columns and is
+/// placed by moving across them, in the grid's own direction there, so the arrow turns with a
+/// turned or bent grid and with the view.
+fn split_cursor(m: &BezierMesh, tool: SplitTool, (s, t): (f64, f64), xf: &ViewXform) -> CursorIcon {
+    let e = 1e-3;
+    let (a, b) = match tool {
+        SplitTool::Vertical => (m.eval((s - e).max(0.0), t), m.eval((s + e).min(1.0), t)),
+        SplitTool::Horizontal => (m.eval(s, (t - e).max(0.0)), m.eval(s, (t + e).min(1.0))),
+        SplitTool::Cross => return CursorIcon::Crosshair,
+    };
+    crate::tool_cursor::resize([b[0] - a[0], b[1] - a[1]], xf)
 }
 
 /// Armed split tool, or Option held: the guide tracks the pointer and the split lands on release.
@@ -1862,7 +1867,10 @@ fn split_gesture(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) 
             let kind = if let Some(tool) = armed {
                 Some(tool)
             } else if quick {
-                app.ui.transform.as_ref().and_then(|t| t.warp.as_ref()).map(|w| quick_split_kind(&w.to_mesh(1, 1), w.bounds, [x, y]))
+                app.ui.transform.as_ref().and_then(|t| t.warp.as_ref()).map(|w| {
+                    let m = w.to_mesh(1, 1);
+                    quick_split_kind(&m, w.bounds, m.param_at([x, y]))
+                })
             } else {
                 None
             };
@@ -2001,20 +2009,22 @@ fn rotate_dir(t: &TransformSession, pv: Option<&TransformPreview>, p: [f64; 2], 
     (l.is_finite() && l > 1e-9).then(|| [s[0] / l, s[1] / l])
 }
 
-/// Cursor for hovering a document point while transforming. `quick_split` is Ctrl or Option,
-/// which arms a quick split while a warp is active.
-pub fn cursor(app: &PhotocraftApp, p: [f64; 2], quick_split: bool) -> Option<CursorIcon> {
+/// Cursor for hovering a document point while transforming. `xf` is the canvas's view;
+/// `quick_split` is Ctrl or Option, which arms a quick split while a warp is active.
+pub fn cursor(app: &PhotocraftApp, xf: &ViewXform, p: [f64; 2], quick_split: bool) -> Option<CursorIcon> {
     let t = app.ui.transform.as_ref()?;
     let tol = handle_tolerance(app);
     if let Some(w) = &t.warp {
         if warps_type(app) {
             return Some(CursorIcon::Default);
         }
-        if let Some(tool) = app.transform_preview.as_ref().and_then(|pv| pv.split_tool) {
-            return Some(split_cursor(tool));
-        }
-        if quick_split {
-            return Some(split_cursor(quick_split_kind(&w.to_mesh(1, 1), w.bounds, p)));
+        let armed = app.transform_preview.as_ref().and_then(|pv| pv.split_tool);
+        if armed.is_some() || quick_split {
+            // One search for the grid position under the pointer, for both the kind and the arrow.
+            let m = w.to_mesh(1, 1);
+            let at = m.param_at(p);
+            let tool = armed.unwrap_or_else(|| quick_split_kind(&m, w.bounds, at));
+            return Some(split_cursor(&m, tool, at, xf));
         }
         if w.style != WarpStyle::Custom || warp_hit(w, p, tol).is_some() {
             return Some(CursorIcon::Crosshair);
@@ -2029,11 +2039,17 @@ pub fn cursor(app: &PhotocraftApp, p: [f64; 2], quick_split: bool) -> Option<Cur
         // The overlay draws the curved rotate arrow (`rotate_cursor_dir`), also during the drag.
         return Some(CursorIcon::None);
     }
+    // The box's corners run clockwise from the top-left; edge k joins corners k and k + 1.
+    let corner = |k: usize| t.quad[k % 4];
+    let edge_mid = |k: usize| {
+        let (a, b) = (corner(k), corner(k + 1));
+        [(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0]
+    };
+    // A handle resizes the box away from the opposite handle.
+    let resize = |from: [f64; 2], to: [f64; 2]| crate::tool_cursor::resize([to[0] - from[0], to[1] - from[1]], xf);
     Some(match h {
-        Hit::Corner(0 | 2) => CursorIcon::ResizeNwSe,
-        Hit::Corner(_) => CursorIcon::ResizeNeSw,
-        Hit::Edge(0 | 2) => CursorIcon::ResizeVertical,
-        Hit::Edge(_) => CursorIcon::ResizeHorizontal,
+        Hit::Corner(i) => resize(corner(i + 2), corner(i)),
+        Hit::Edge(i) => resize(edge_mid(i + 2), edge_mid(i)),
         Hit::Pivot => CursorIcon::Crosshair,
         Hit::Inside => CursorIcon::Move,
         Hit::Outside => CursorIcon::Alias,
@@ -2116,7 +2132,12 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
         let at = pv.split_pointer.or(over_canvas);
         let alt = painter.ctx().input(|i| i.modifiers.alt || i.modifiers.command);
         let guide = at.filter(|_| !warps_type(app)).and_then(|p| {
-            let tool = pv.split_tool.or_else(|| (alt || pv.split_quick).then(|| quick_split_kind(&w.to_mesh(1, 1), w.bounds, p)));
+            let tool = pv.split_tool.or_else(|| {
+                (alt || pv.split_quick).then(|| {
+                    let m = w.to_mesh(1, 1);
+                    quick_split_kind(&m, w.bounds, m.param_at(p))
+                })
+            });
             tool.map(|tool| (tool, p))
         });
         draw_warp_overlay(painter, xf, w, pv, guide);
@@ -4289,13 +4310,67 @@ mod tests {
         let tol = handle_tolerance(&app);
         let h = std::f64::consts::FRAC_1_SQRT_2;
         let (tl, br) = ([32.0 - tol * 1.5, 32.0 - tol * 1.5], [160.0 + tol * 1.5, 160.0 + tol * 1.5]);
-        assert_eq!(cursor(&app, tl, false), Some(CursorIcon::None), "the arrow is drawn instead");
+        let xf = ViewXform::active(&app).unwrap();
+        assert_eq!(cursor(&app, &xf, tl, false), Some(CursorIcon::None), "the arrow is drawn instead");
         assert!(near2(rotate_cursor_dir(&app, tl), [h, h]), "{:?}", rotate_cursor_dir(&app, tl));
         assert!(near2(rotate_cursor_dir(&app, br), [-h, -h]), "bends round the bottom-right corner");
-        assert_eq!(cursor(&app, [60.0, 60.0], false), Some(CursorIcon::Move));
+        assert_eq!(cursor(&app, &xf, [60.0, 60.0], false), Some(CursorIcon::Move));
         assert_eq!(rotate_cursor_dir(&app, [60.0, 60.0]), None, "inside moves");
         assert_eq!(rotate_cursor_dir(&app, [32.0, 32.0]), None, "the corner handle scales");
         assert_eq!(rotate_cursor_dir(&app, [f64::NAN, 32.0]), None);
+    }
+
+    /// The resize arrows follow the box's turn and the view's rotation and flip: each handle
+    /// shows the arrow it resizes along on screen, not the one it had on the upright box.
+    #[test]
+    fn resize_cursors_turn_with_the_box_and_the_view() {
+        use CursorIcon::{ResizeHorizontal as H, ResizeNeSw as NeSw, ResizeNwSe as NwSe, ResizeVertical as V};
+        // Box turned (degrees), view rotation, flip → corner 0, corner 1, edge 0, edge 1 (corner
+        // and edge i + 2 sit opposite, on the same axis).
+        let cases = [
+            (0.0, 0.0, false, [NwSe, NeSw, V, H]),
+            (90.0, 0.0, false, [NeSw, NwSe, H, V]),
+            (45.0, 0.0, false, [V, H, NeSw, NwSe]),
+            (0.0, 0.0, true, [NeSw, NwSe, V, H]),
+            (0.0, 90.0, false, [NeSw, NwSe, H, V]),
+        ];
+        for (deg, view, flip, want) in cases {
+            let mut app = app_with_square(256, photocraft_geom::Rect::new(64, 96, 192, 160));
+            crate::menus::invoke(&mut app, &egui::Context::default(), "edit.freeTransform", json!({})).unwrap();
+            let view_index = app.session.active_index().unwrap();
+            app.ui.views[view_index].rotation = view;
+            app.ui.view.flip_horizontal = flip;
+            let t = app.ui.transform.as_mut().unwrap();
+            let (s, c) = f64::to_radians(deg).sin_cos();
+            let o = [128.0, 128.0];
+            t.quad = t.quad.map(|[x, y]| [o[0] + (x - o[0]) * c - (y - o[1]) * s, o[1] + (x - o[0]) * s + (y - o[1]) * c]);
+            let t = app.ui.transform.clone().unwrap();
+            let xf = ViewXform::active(&app).unwrap();
+            let mid = |i: usize| [(t.quad[i][0] + t.quad[(i + 1) % 4][0]) / 2.0, (t.quad[i][1] + t.quad[(i + 1) % 4][1]) / 2.0];
+            let got: Vec<_> = (0..4).map(|i| cursor(&app, &xf, t.quad[i], false)).chain((0..4).map(|i| cursor(&app, &xf, mid(i), false))).collect();
+            let want = [want[0], want[1], want[0], want[1], want[2], want[3], want[2], want[3]].map(Some);
+            assert_eq!(got, want, "box {deg}°, view {view}°, flip {flip}");
+        }
+    }
+
+    /// A warp split's arrow crosses the split line as it looks on screen: it turns with a turned
+    /// grid (Warp entered on a rotated box) and with a rotated view.
+    #[test]
+    fn warp_split_cursors_turn_with_the_grid_and_the_view() {
+        use CursorIcon::{ResizeHorizontal as H, ResizeNeSw as NeSw, ResizeNwSe as NwSe, ResizeVertical as V};
+        let rect = [0.0, 0.0, 200.0, 100.0];
+        let screen = egui::Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0));
+        let level = ViewXform { rect: screen, zoom: 1.0, center: [100.0, 50.0], flip: false, rotation: 0.0, aspect: 1.0 };
+        // Grid turned (degrees, about its centre), view rotation → Split Vertically, Split Horizontally.
+        for (grid, view, want) in [(0.0, 0.0, [H, V]), (0.0, 90.0, [V, H]), (90.0, 0.0, [V, H]), (45.0, 0.0, [NwSe, NeSw])] {
+            let (s, c) = f64::to_radians(grid).sin_cos();
+            let m = BezierMesh::identity(rect, 1, 1).map_points(|[x, y]| [100.0 + (x - 100.0) * c - (y - 50.0) * s, 50.0 + (x - 100.0) * s + (y - 50.0) * c]);
+            let xf = ViewXform { rotation: view, ..level };
+            let got = [SplitTool::Vertical, SplitTool::Horizontal].map(|tool| split_cursor(&m, tool, m.param_at([100.0, 50.0]), &xf));
+            assert_eq!(got, want, "grid turned {grid}°, view {view}°");
+        }
+        let m = BezierMesh::identity(rect, 1, 1);
+        assert_eq!(split_cursor(&m, SplitTool::Cross, (0.5, 0.5), &level), CursorIcon::Crosshair);
     }
 
     /// #1767: the readout beside the pointer during a drag (Photoshop's transformation values):

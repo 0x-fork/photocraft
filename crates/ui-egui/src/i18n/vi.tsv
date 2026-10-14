@@ -2661,6 +2661,8 @@ shape	Appearance	Diện mạo
 	Brush preview color	Màu xem trước cọ
 	Cache levels	Mức bộ nhớ đệm
 	Show canvas dots	Hiện chấm vùng vẽ
+	Clip thumbnails to layer bounds	Cắt hình thu nhỏ theo biên của lớp
+	Clip Thumbnails to Layer Bounds	Cắt hình thu nhỏ theo biên của lớp
 	Color picker	Bộ chọn màu
 	Color space	Không gian màu
 	Column width	Độ rộng cột
@@ -3584,6 +3586,7 @@ curves	Smooth	Làm mượt
 	Stroke Path…	Đi nét đường dẫn…
 	Apply mask to layer before removing?	Áp dụng mặt nạ vào lớp trước khi xóa?
 	Delete the vector mask?	Xóa mặt nạ vectơ?
+	Response curve	Đường cong phản hồi
 	Object Finder	Trình tìm đối tượng
 	No object found there — drag a rectangle around it	Không tìm thấy đối tượng ở đó — hãy kéo một hình chữ nhật quanh nó
 	Remove after each stroke	Xóa sau mỗi nét vẽ

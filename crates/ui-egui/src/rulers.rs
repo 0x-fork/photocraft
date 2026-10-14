@@ -159,6 +159,12 @@ fn guide_segment(xf: &ViewXform, clip: Rect, vertical: bool, pos: f64) -> [Pos2;
     if vertical { [xf.to_screen(pos, lo), xf.to_screen(pos, hi)] } else { [xf.to_screen(lo, pos), xf.to_screen(hi, pos)] }
 }
 
+/// The cursor over a guide: the arrow across it as the view shows it. A vertical guide moves left
+/// and right in the document; a rotated view turns that, as it turns the guide (#3277).
+pub fn guide_cursor(xf: &ViewXform, vertical: bool) -> egui::CursorIcon {
+    crate::tool_cursor::resize(if vertical { [1.0, 0.0] } else { [0.0, 1.0] }, xf)
+}
+
 pub fn draw_guides(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform, doc: &Document) {
     let clip = painter.clip_rect();
     let drag = app.guide_drag;
@@ -887,6 +893,20 @@ mod tests {
                     assert!((on_line - pos).abs() < 1e-2, "rotation {rotation}: {end:?} maps to {d:?}, off the guide at {pos}");
                 }
             }
+        }
+    }
+
+    /// The cursor over a guide turns with the view as the guide does: on a view turned 90°, a
+    /// vertical guide shows as a horizontal line and moves up and down.
+    #[test]
+    fn guide_cursors_turn_with_a_rotated_view() {
+        use egui::CursorIcon::{ResizeHorizontal as H, ResizeNeSw as NeSw, ResizeNwSe as NwSe, ResizeVertical as V};
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 600.0));
+        let level = ViewXform { rect, zoom: 1.0, center: [400.0, 300.0], flip: false, rotation: 0.0, aspect: 1.0 };
+        // View rotation, flip → the cursor over a vertical guide, over a horizontal guide.
+        for (rotation, flip, want) in [(0.0, false, [H, V]), (90.0, false, [V, H]), (45.0, false, [NwSe, NeSw]), (0.0, true, [H, V])] {
+            let xf = ViewXform { rotation, flip, ..level };
+            assert_eq!([guide_cursor(&xf, true), guide_cursor(&xf, false)], want, "view turned {rotation}°, flip {flip}");
         }
     }
 
