@@ -3623,4 +3623,11 @@ curves	Smooth	Làm mượt
 	Import .GRD	Nhập .GRD
 	Choose a gradient file (.grd).	Chọn tệp chuyển sắc (.grd).
 	Auto Add/Delete	Tự động thêm/xóa
+
+# Native Windows printing qualification
+	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	Đừng bật thêm Ảnh phản chiếu trong thiết lập in: hai lần lật sẽ triệt tiêu nhau.
+	Print Settings…	Thiết lập in…
+	Remember to turn off the printer's own colour management in Print Settings…	Nhớ tắt quản lý màu riêng của máy in trong thiết lập in…
+	Sent to {printer}	Đã gửi tới {printer}
+	set in Print Settings…	đặt trong thiết lập in…
 	ICO is limited to 256 × 256 pixels	ICO giới hạn ở 256 × 256 pixel

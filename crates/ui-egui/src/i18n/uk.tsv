@@ -3835,4 +3835,11 @@ curves	Smooth	Згладити
 	Step {step} is waiting for its dialog	Крок {step} очікує на свій діалог
 @plural	{n} action|{n} actions	{n} операція|{n} операції|{n} операцій
 	Auto Add/Delete	Автододавання/видалення
+
+# Native Windows printing qualification
+	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	Не вмикайте також дзеркальне відображення в параметрах друку: два відображення скасовують одне одного.
+	Print Settings…	Параметри друку…
+	Remember to turn off the printer's own colour management in Print Settings…	Не забудьте вимкнути керування кольором самого принтера в параметрах друку…
+	Sent to {printer}	Надіслано на {printer}
+	set in Print Settings…	задається в параметрах друку…
 	ICO is limited to 256 × 256 pixels	ICO обмежено розміром 256 × 256 пікселів
