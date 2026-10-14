@@ -2895,6 +2895,8 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     }
     let full = rect;
     let rect = if primary { crate::rulers::content_rect(app, rect) } else { rect };
+    // Both wheel reads share one owner so snap-zoom input is accumulated only once per frame.
+    let wheel_owner = ui.id().with(("canvas-wheel", idx));
     // Direct navigation starts from the authoritative camera. This also means a click or drag
     // never maps through a camera that is still moving under the pointer.
     let (pointer_here, hover_here) = ctx.input(|i| {
@@ -2909,6 +2911,8 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 &ctx,
                 app.session.prefs().general.zoom_with_scroll_wheel,
                 app.session.prefs().enhanced_controls.zoom_with_trackpad_pinch,
+                wheel_owner,
+                hover_here,
             )
             .is_some());
     if direct_input {
@@ -3226,7 +3230,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         &ctx,
         app.session.prefs().general.zoom_with_scroll_wheel,
         app.session.prefs().enhanced_controls.zoom_with_trackpad_pinch,
-        response.id.with("wheel"),
+        wheel_owner,
         nav_hovered,
     );
     if nav_hovered {
