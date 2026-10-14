@@ -14,6 +14,11 @@ fn rects(ctx: &egui::Context) -> Vec<egui::Rect> {
     ctx.data(|m| m.get_temp(egui::Id::new(RECTS))).unwrap_or_default()
 }
 
+/// The window drag target must not cover a dialog which has been moved into the title bar.
+pub(crate) fn titlebar_drag_area_is_clear(ctx: &egui::Context, area: egui::Rect) -> bool {
+    rects(ctx).iter().all(|dialog| !dialog.intersects(area))
+}
+
 /// With a dialog open the rest of the window is inert (egui's modal layer), but like Photoshop the
 /// image can still be panned and zoomed under it. The pointer position when it is over `canvas`
 /// and not over a dialog or one of its popups.
@@ -152,7 +157,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         // effects, extends down and right instead of re-centring.
         let pinned: Option<egui::Vec2> = ctx.data(|m| m.get_temp(id));
         let place = place_id(&d);
-        let start = pinned.or_else(|| ctx.data_mut(|m| m.get_persisted::<egui::Vec2>(place)));
+        let start = pinned.or_else(|| ctx.data_mut(|m| m.get_persisted::<egui::Vec2>(place))).or_else(|| crate::blur_pins::first_place(&d.fields, ctx));
         let mut drag = egui::Vec2::ZERO;
         let mut sizing = false;
         let area = match start {
@@ -215,6 +220,12 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             } else if let Some(w) = crate::file_ui::dialog_width(&d.fields) {
                 ui.set_min_width(w);
                 ui.set_max_width(w);
+            }
+            // Duplicate Layer… is a fixed small grid (labels + 260 pt fields ≈ 352 pt):
+            // the generic 380 pt minimum left a dead strip on its right.
+            if crate::duplicate_layer_ui::owns(&d.fields) {
+                ui.set_min_width(360.0);
+                ui.set_max_width(360.0);
             }
             if color_picker {
                 ui.set_width(crate::color_picker_ui::CONTENT_WIDTH);
@@ -294,6 +305,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 // Image Size and Canvas Size open on Width, selected (#2329).
                 DialogKind::Command if fields.contains_key("__sizing") => first_field_focused(ui, id, |ui| crate::sizing::body(ui, &mut fields)),
                 DialogKind::Command if crate::adjust_dialog::owns(&fields) => crate::adjust_dialog::body(app, ui, &mut fields),
+                DialogKind::Command if crate::blur_pins::owns(&fields) => crate::blur_pins::body(ui, &mut fields),
                 DialogKind::Command if fields.contains_key("__filter") => {
                     // Color Settings: the monitor profile in use can change while it is open.
                     if fields.get("__command").and_then(Value::as_str) == Some("edit.colorSettings") {
@@ -338,7 +350,14 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                     ui.spacing_mut().item_spacing.x = 10.0;
                     if matches!(d.kind, DialogKind::About | DialogKind::Error) {
-                        if dialog_buttons(ui, &[DialogButton::new(ButtonRole::Default, tl!("OK"), 84.0)]).is_some() {
+                        // ↩ is OK too, as on every other dialog (#4872), from the frame after the
+                        // alert appeared: the ↩ that raised it (committing a locked layer's Free
+                        // Transform, say) must not close it again at once.
+                        let seen = id.with("alert-seen");
+                        let shown_before = ui.ctx().data(|m| m.get_temp::<bool>(seen).unwrap_or(false));
+                        ui.ctx().data_mut(|m| m.insert_temp(seen, true));
+                        let enter = interactive && shown_before && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        if dialog_buttons(ui, &[DialogButton::new(ButtonRole::Default, tl!("OK"), 84.0)]).is_some() || enter {
                             outcome = Some(false);
                         }
                     } else {
@@ -611,6 +630,10 @@ pub fn cancel(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
     if crate::guide_layout_ui::owns(&closed.fields) {
         app.ui.dialogs.retain(|child| child.fields.get("__dialog").and_then(Value::as_u64) != Some(id));
     }
+    // Cancel on a profile prompt opens neither its file nor the ones still to come.
+    if crate::open_prompt::owns(&closed.fields) {
+        crate::open_prompt::answer(app, None)?;
+    }
     app.ui.dialogs.retain(|d| !crate::layer_style::color_picker::child_of(&d.fields, id));
     app.filter_preview = None;
     app.color_range = None;
@@ -793,6 +816,32 @@ mod tests {
         let moved = harness.get_by_label("Layer Style").rect().min - before.min;
         assert!((moved - egui::vec2(-120.0, 80.0)).length() < 1.0, "dialog moved by {moved:?}");
         assert_eq!(harness.state().ui.dialogs.len(), 1, "dragging must not close the dialog");
+    }
+
+    /// #4872: an alert (Error, About) closes with ↩ as with OK, but not on the ↩ that raised it.
+    #[test]
+    fn enter_closes_an_alert_but_not_the_enter_that_opened_it() {
+        let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(900.0, 600.0)).build_ui_state(|ui, app| show(app, ui.ctx()), app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        h.run_steps(2);
+        let alert = |h: &mut egui_kittest::Harness<'static, PhotocraftApp>| {
+            h.state_mut().ui.open_dialog(DialogKind::Error, json!({"message": crate::move_lock::MESSAGE}).as_object().cloned().unwrap_or_default())
+        };
+        // Raised in the frame its own ↩ arrives: that ↩ leaves it open.
+        alert(&mut h);
+        h.key_press(egui::Key::Enter);
+        h.run_steps(2);
+        assert_eq!(h.state().ui.dialogs.len(), 1, "the ↩ that raised the alert doesn't close it");
+        h.key_press(egui::Key::Enter);
+        h.run_steps(2);
+        assert!(h.state().ui.dialogs.is_empty(), "↩ is OK");
+        // A new alert starts over, and Esc still closes it.
+        alert(&mut h);
+        h.run_steps(2);
+        h.key_press(egui::Key::Escape);
+        h.run_steps(2);
+        assert!(h.state().ui.dialogs.is_empty(), "Esc too");
     }
 
     fn dialog_harness(size: egui::Vec2, command: &str) -> egui_kittest::Harness<'static, PhotocraftApp> {
