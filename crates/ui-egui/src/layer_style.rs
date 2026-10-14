@@ -86,6 +86,7 @@ fn spec(kind: &str) -> &'static [(&'static str, &'static str, P)] {
     const POS: &[(&str, &str)] = &[("outside", "Outside"), ("inside", "Inside"), ("center", "Center")];
     const GSTYLE: &[(&str, &str)] = &[("linear", "Linear"), ("radial", "Radial"), ("angle", "Angle"), ("reflected", "Reflected"), ("diamond", "Diamond")];
     const BSTYLE: &[(&str, &str)] = &[("inner", "Inner Bevel"), ("outer", "Outer Bevel"), ("emboss", "Emboss"), ("pillow", "Pillow Emboss")];
+    const TECHNIQUE: &[(&str, &str)] = &[("smooth", "Smooth"), ("chiselHard", "Chisel Hard"), ("chiselSoft", "Chisel Soft")];
     const DIR: &[(&str, &str)] = &[("up", "Up"), ("down", "Down")];
     const SRC: &[(&str, &str)] = &[("edge", "Edge"), ("center", "Center")];
     const CONTOUR: P = P::Contour(Some("antiAlias"));
@@ -163,6 +164,7 @@ fn spec(kind: &str) -> &'static [(&'static str, &'static str, P)] {
         ],
         "bevelEmboss" => &[
             ("style", "Style", P::Choice(BSTYLE)),
+            ("technique", "Technique", P::Choice(TECHNIQUE)),
             ("depth", "Depth", P::Slider(1.0, 1000.0, "%")),
             ("direction", "Direction", P::Choice(DIR)),
             ("size", "Size", P::Slider(0.0, 250.0, "px")),
@@ -1858,6 +1860,26 @@ mod tests {
     }
 
     #[test]
+    fn bevel_technique_is_selectable_and_round_trips() {
+        let Some((_, _, P::Choice(options))) = spec("bevelEmboss").iter().find(|(k, _, _)| *k == "technique") else {
+            panic!("Bevel & Emboss has no Technique dropdown");
+        };
+        let values: Vec<&str> = options.iter().map(|(v, _)| *v).collect();
+        assert_eq!(values, ["smooth", "chiselHard", "chiselSoft"]);
+
+        let mut s = session();
+        s.execute("layer.layerStyle.bevelEmboss", json!({"technique": "chiselSoft"})).unwrap();
+        let st = s.active().unwrap();
+        let id = st.active_layer.unwrap();
+        let mut f = initial_fields(st.doc.layer(id).unwrap(), Some("bevelEmboss"), st.doc.global_light.angle);
+        assert_eq!(entry(&f, "fx1").unwrap()["params"]["technique"], json!("chiselSoft"));
+        set_param(&mut f, "fx1", "technique", json!("chiselHard"));
+        apply(&f, |cmd, p| s.execute(cmd, p).map_err(|e| e.to_string())).unwrap();
+        let Effect::BevelEmboss(b) = &s.active().unwrap().doc.layer(id).unwrap().effects.items[0] else { panic!("expected bevel") };
+        assert_eq!(b.technique, photocraft_doc::effects::BevelTechnique::ChiselHard);
+    }
+
+    #[test]
     fn unchanged_global_light_angle_is_not_applied() {
         let layer = Layer::raster("x", photocraft_doc::PixelFormat::RGBA8);
         let mut f = initial_fields(&layer, None, 47.5);
@@ -1988,6 +2010,56 @@ mod tests {
         apply(&f, |cmd, p| s.execute(cmd, p).map_err(|e| e.to_string())).unwrap();
         let d = s.active().unwrap();
         assert_eq!(color(&d.doc), photocraft_color::Color::rgb(0.0, 1.0, 0.0), "OK commits with Preview off");
+    }
+
+    /// #3648's steps in one dialog session: disable the stroke row, add a Color Overlay,
+    /// untick Preview. Preview off shows the document as saved — the stroke was never
+    /// disabled in it, so it keeps rendering until OK, exactly like Photoshop's preview
+    /// semantics; nothing disabled resurrects, and OK applies the dialog's state.
+    #[test]
+    fn issue_steps_disable_stroke_add_overlay_untick_preview() {
+        let mut s = session();
+        s.execute("edit.fill", json!({"contents": "color", "color": "#ff0000"})).unwrap();
+        // Steps 1-3: a stroke is enabled and OK'd; reopening the dialog loads it enabled.
+        s.execute("layer.layerStyle.stroke", json!({"size": 40, "position": "inside", "color": "#00ff00"})).unwrap();
+        let st = s.active().unwrap();
+        let id = st.active_layer.unwrap();
+        let mut f = initial_fields(st.doc.layer(id).unwrap(), None, st.doc.global_light.angle);
+        let rows = f["effects"].as_array().unwrap();
+        assert_eq!(rows.len(), 1, "the saved stroke is the only row");
+        assert_eq!((rows[0]["kind"].as_str(), rows[0]["on"].as_bool()), (Some("stroke"), Some(true)));
+        // Step 4: disable the stroke row — a pending edit, the document is untouched.
+        f["effects"][0]["on"] = json!(false);
+        // Step 5: add a Color Overlay (a new instance: no fx snapshot, factory defaults).
+        f["effects"].as_array_mut().unwrap().push(json!({
+            "id": "fx2",
+            "kind": "colorOverlay",
+            "on": true,
+            "params": {"color": "#0000ff"},
+        }));
+        // While Preview is on, the live preview honours the in-dialog disable: the stroke
+        // is disabled in the scratch document, the overlay renders.
+        let shown = preview_document(&st.doc, &s.patterns, &f).unwrap();
+        let mut shown_effects = shown.layer(id).unwrap().effects.items.iter();
+        assert!(!shown_effects.find(|e| kind_of(e) == "stroke").is_none_or(|e| e.enabled()), "the preview leaves the stroke off");
+        assert!(shown_effects.find(|e| kind_of(e) == "colorOverlay").is_some_and(|e| e.enabled()), "the preview shows the overlay");
+        // Step 6: untick Preview — the canvas shows the real document, whose stroke is
+        // still enabled (the disable is an unapplied edit). This is the state the issue
+        // reports; it is the saved state, not a resurrected effect.
+        f.insert("preview".into(), json!(false));
+        let green: Vec<f32> = serde_json::from_value(s.execute("document.pixel", json!({"x": 32, "y": 32})).unwrap()).unwrap();
+        assert!(green[1] > 0.9 && green[0] < 0.1, "preview off shows the saved stroke: {green:?}");
+        // OK (with Preview off) applies the dialog state: the stroke is now disabled in the
+        // document too, the overlay shows, and the dialog — which never models the list's
+        // master switch — leaves it at its default.
+        apply(&f, |cmd, p| s.execute(cmd, p).map_err(|e| e.to_string())).unwrap();
+        let d = s.active().unwrap();
+        let effects = &d.doc.layer(id).unwrap().effects;
+        assert!(!effects.items.iter().find(|e| kind_of(e) == "stroke").is_none_or(|e| e.enabled()), "OK disables the stroke");
+        assert!(effects.items.iter().find(|e| kind_of(e) == "colorOverlay").is_some_and(|e| e.enabled()), "OK keeps the overlay on");
+        assert!(effects.enabled, "the list's master switch keeps its value");
+        let blue: Vec<f32> = serde_json::from_value(s.execute("document.pixel", json!({"x": 32, "y": 32})).unwrap()).unwrap();
+        assert!(blue[2] > 0.9 && blue[1] < 0.1, "after OK only the overlay renders: {blue:?}");
     }
 
     #[test]
