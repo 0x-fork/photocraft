@@ -83,6 +83,12 @@ camera colour tables were copied.
 | CR3 | Native CRX unsupported; bounded JPEG-track/PRVW preview fallback with CMT1 orientation. I/O labels the result as an 8-bit camera preview |
 | X-Trans and other periodic non-Bayer CFAs (up to 16×16) | Demosaiced by one pattern-agnostic edge-directed method, whatever `Demosaic` is chosen |
 
+Nikon maker-note compression modes 6/10 select checked little-endian packed 12/14-bit
+rows even when TIFF Compression is 34713. The modern lossy `0x44 0x40` curve uses
+its smaller encoded domain while preserving sensor ADUs. Valid Nikon CropArea
+coordinates take precedence over model fallbacks. HE/HE* and lossy-after-split
+remain unsupported. Four pinned CC0 Z6 files cover both bit depths and both paths.
+
 ## Development pipeline
 
 1. Linearization table, per-position black level, scale to the white level.

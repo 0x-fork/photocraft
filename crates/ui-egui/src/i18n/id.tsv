@@ -539,6 +539,10 @@
 # Field Blur pins (#3373)
 	No pin selected	Tidak ada pin yang dipilih
 	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Klik gambar untuk menambah pin; seret pin untuk memindahkannya, atau cincinnya untuk mengubah blur. Delete menghapus pin yang dipilih.
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	Seret pegangan pada garis luar untuk mengubah ukuran dan memutarnya, kotak untuk membulatkan sudutnya, dan titik di dalam untuk menentukan di mana blur dimulai.
+	Drag the pin to move the band, or its ring to change its blur. Drag the solid lines to widen the sharp band, the dashed lines to set the transition, and the dots to turn it.	Seret pin untuk memindahkan pita, atau cincinnya untuk mengubah blur. Seret garis utuh untuk melebarkan pita tajam, garis putus-putus untuk mengatur transisi, dan titik untuk memutarnya.
+	Drag the handles on the outline to resize and turn it; the ring sets the blur angle.	Seret pegangan pada garis luar untuk mengubah ukuran dan memutarnya; cincin mengatur sudut blur.
+	Blur Angle	Sudut Blur
 	Iris Blur…	Iris Blur…
 	Tilt-Shift…	Tilt-Shift…
 	Path Blur…	Path Blur…
@@ -1020,6 +1024,7 @@
 	Delete Group	Hapus Grup
 	Delete Layer Mask	Hapus Mask Layer
 	Delete Layers	Hapus Layer
+	Add Shortcut	Tambah Pintasan
 	Delete Shortcut	Hapus Pintasan
 	Delete Timeline	Hapus Timeline
 	Delete Tool Preset	Hapus Preset Alat
@@ -2908,6 +2913,8 @@ fontWeight	Italic	Miring
 	Color Picker (Layer Style Color)	Pemilih Warna (Warna Gaya Lapisan)
 	Auto Hide Notifications	Sembunyikan notifikasi secara otomatis
 	Notification Duration (seconds)	Durasi notifikasi (detik)
+	Bundle Arrow-Key Nudges	Gabungkan pergeseran tombol panah
+	Nudge Bundle Pause (ms)	Jeda penggabungan pergeseran (ms)
 	Appearance Mode	Mode tampilan
 	Dark Theme	Tema gelap
 	Light Theme	Tema terang
@@ -3126,6 +3133,8 @@ curves	Smooth	Haluskan
 	Action playback stopped	Pemutaran tindakan dihentikan
 	Step {step} is waiting for its dialog	Langkah {step} menunggu dialognya
 @plural	{n} action|{n} actions	{n} tindakan
+	Background (Default)	Background (Default)
+	Content-Aware Fill	Isi Content-Aware
 # Batch / Image Processor
 	Include All Subfolders	Sertakan semua subfolder
 	Auto Add/Delete	Tambah/Hapus Otomatis
@@ -3153,3 +3162,7 @@ curves	Smooth	Haluskan
 	Chisel Hard	Pahat Keras
 	Chisel Soft	Pahat Lembut
 	Open color-less EXR as ACEScg	Buka EXR tanpa informasi warna sebagai ACEScg
+
+# View › Guides › right-click a guide
+	Edit Selected Guides	Edit Panduan Terpilih
+	Clear Selected Guides	Hapus Panduan Terpilih

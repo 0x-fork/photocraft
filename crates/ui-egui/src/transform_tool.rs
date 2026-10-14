@@ -145,12 +145,30 @@ struct Steps {
     settled: Option<Step>,
     undo: Vec<Step>,
     redo: Vec<Step>,
+    /// When the latest arrow-key nudge came (egui time) and the box it left.
+    nudged: Option<(f64, Step)>,
+    /// The nudge that moved the box since it last came to rest follows another one closely: it
+    /// joins that one's step instead of adding its own (#2259).
+    fold: bool,
 }
 
 impl Steps {
+    /// An arrow-key nudge at `now` moved the box from `before` to `after`. With `pause` (seconds,
+    /// `None`: nudges aren't bundled) it folds into the previous nudge's step when it came within
+    /// that time of it and found the box as that nudge left it, so a drag, an option edit, Undo
+    /// or Redo in between start a step of their own.
+    fn nudged(&mut self, before: &Step, after: Step, now: f64, pause: Option<f64>) {
+        self.fold = pause.is_some_and(|w| self.nudged.as_ref().is_some_and(|(at, left)| left == before && now >= *at && now - at <= w));
+        self.nudged = pause.map(|_| (now, after));
+    }
+
     /// Record a step if the box changed since it last came to rest.
     fn settle(&mut self, now: Step) {
         if self.settled.as_ref() == Some(&now) {
+            return;
+        }
+        if std::mem::take(&mut self.fold) && self.settled.is_some() {
+            self.settled = Some(now);
             return;
         }
         if let Some(prev) = self.settled.replace(now) {
@@ -1191,9 +1209,24 @@ fn start_steps(app: &mut PhotocraftApp) {
 pub fn track_steps(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let (Some(t), Some(pv)) = (&app.ui.transform, app.transform_preview.as_mut()) else { return };
     if pv.gesture.is_some() || pv.warp_drag.is_some() || ctx.input(|i| i.pointer.any_down()) || ctx.text_edit_focused() {
+        // Whatever comes to rest after this is more than the nudge.
+        pv.steps.fold = false;
         return;
     }
     pv.steps.settle(Step::of(t));
+}
+
+/// Arrow keys while Free Transform is active: move the box (and its pivot) by `(dx, dy)`.
+/// Nudges that follow each other closely are one Undo step of the session (`nudge_bundle`).
+pub(crate) fn nudge(app: &mut PhotocraftApp, dx: f64, dy: f64) {
+    let (pause, now) = (crate::nudge_bundle::pause(app), app.nudge_bundle.now);
+    let Some(t) = app.ui.transform.as_mut().filter(|t| t.warp.is_none()) else { return };
+    let before = Step::of(t);
+    t.quad = t.quad.map(|q| [q[0] + dx, q[1] + dy]);
+    t.pivot = [t.pivot[0] + dx, t.pivot[1] + dy];
+    if let Some(pv) = app.transform_preview.as_mut() {
+        pv.steps.nudged(&before, Step::of(t), now, pause);
+    }
 }
 
 /// While transforming, Undo and Redo apply to the box: `Some(enabled)` for those commands (and
@@ -1358,7 +1391,6 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) ->
         warp_pointer(app, ev, tol, mods);
         return true;
     }
-    let no_distort = distort_refused(app, &t);
     let Some(pv) = app.transform_preview.as_mut() else { return false };
     match ev {
         ToolEvent::Down { x, y, .. } => {
@@ -1389,26 +1421,45 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) ->
                 commit(app);
                 return true;
             }
-            let legacy = app.session.prefs().general.use_legacy_free_transform;
-            let unlinked = app.ui.transform_unlinked;
             let type_layer = moves_type(app, &t);
-            if let (Some(g), Some(s)) = (g, app.ui.transform.as_mut())
+            let adjusted = g.map(|g| drag_mods(app, &t, g.hit, mods));
+            if let (Some(g), Some((mode, mods)), Some(s)) = (g, adjusted, app.ui.transform.as_mut())
                 && mode_allows(t.mode, g.hit)
                 && (t.content_aware.is_none() || g.hit != Hit::Outside)
             {
-                let (mode, mods) = if no_distort { scale_not_distort(t.mode, g.hit, mods) } else { (t.mode, mods) };
                 if t.content_aware.is_some() {
-                    let mut mods = mode_mods(mode, g.hit, legacy_mods(legacy, g.hit, unlinked_mods(unlinked, legacy, g.hit, mods)));
+                    let mut mods = mode_mods(mode, g.hit, mods);
                     // Content-Aware Scale: ⌘ neither skews nor distorts.
                     mods.command = false;
                     apply_drag(s, g, [x, y], mods);
                 } else {
-                    apply_mode_drag(s, g, [x, y], mode, type_layer, legacy_mods(legacy, g.hit, unlinked_mods(unlinked, legacy, g.hit, mods)));
+                    apply_mode_drag(s, g, [x, y], mode, type_layer, mods);
                 }
             }
         }
     }
+    crate::snap_ui::retain_transform_lines(app, mods);
     true
+}
+
+/// The same effective modifiers drive the geometry and decide whether Ctrl is a distortion
+/// gesture rather than the ordinary snap override. Keep type and Content-Aware Scale refusals.
+fn drag_mods(app: &PhotocraftApp, t: &TransformSession, hit: Hit, mods: egui::Modifiers) -> (TransformMode, egui::Modifiers) {
+    let (mode, mods) = if distort_refused(app, t) { scale_not_distort(t.mode, hit, mods) } else { (t.mode, mods) };
+    let legacy = app.session.prefs().general.use_legacy_free_transform;
+    (mode, legacy_mods(legacy, hit, unlinked_mods(app.ui.transform_unlinked, legacy, hit, mods)))
+}
+
+/// Only a freely distorted corner can snap its proposed position. Perspective moves paired
+/// corners on one axis; Skew, Warp and Content-Aware Scale have their own constrained geometry.
+pub(crate) fn corner_distorts(app: &PhotocraftApp, index: usize, mods: egui::Modifiers) -> bool {
+    let Some(t) = app.ui.transform.as_ref() else { return false };
+    if t.quad.get(index).is_none() || t.warp.is_some() || t.content_aware.is_some() || t.mode == TransformMode::Skew {
+        return false;
+    }
+    let (mode, mods) = drag_mods(app, t, Hit::Corner(index), mods);
+    let mods = mode_mods(mode, Hit::Corner(index), mods);
+    mods.command && !(mods.alt && mods.shift)
 }
 
 /// Editable type can be scaled, rotated and skewed but not distorted (#2630): the rule that greys

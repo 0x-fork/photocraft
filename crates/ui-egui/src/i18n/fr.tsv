@@ -546,6 +546,10 @@
 # Field Blur pins (#3373)
 	No pin selected	Aucune épingle sélectionnée
 	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Cliquez dans l’image pour ajouter une épingle ; faites glisser une épingle pour la déplacer, ou son anneau pour modifier le flou. Suppr supprime l’épingle sélectionnée.
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	Faites glisser les poignées du contour pour le redimensionner et le faire pivoter, le carré pour arrondir ses angles et les points intérieurs pour définir où commence le flou.
+	Drag the pin to move the band, or its ring to change its blur. Drag the solid lines to widen the sharp band, the dashed lines to set the transition, and the dots to turn it.	Faites glisser l’épingle pour déplacer la bande, ou son anneau pour modifier le flou. Faites glisser les lignes pleines pour élargir la bande nette, les lignes pointillées pour régler la transition et les points pour la faire pivoter.
+	Drag the handles on the outline to resize and turn it; the ring sets the blur angle.	Faites glisser les poignées du contour pour le redimensionner et le faire pivoter ; l’anneau règle l’angle de flou.
+	Blur Angle	Angle de flou
 	Iris Blur…	Flou d'iris…
 	Tilt-Shift…	Inclinaison-décalage…
 	Path Blur…	Flou de tracé…
@@ -1026,6 +1030,7 @@
 	Delete Group	Supprimer le groupe
 	Delete Layer Mask	Supprimer le masque de calque
 	Delete Layers	Supprimer les calques
+	Add Shortcut	Ajouter un raccourci
 	Delete Shortcut	Supprimer le raccourci
 	Delete Timeline	Supprimer le montage
 	Delete Tool Preset	Supprimer le préréglage d'outil
@@ -2921,6 +2926,8 @@ fontWeight	Italic	Italique
 	Color Picker (Layer Style Color)	Sélecteur de couleurs (couleur du style de calque)
 	Auto Hide Notifications	Masquer automatiquement les notifications
 	Notification Duration (seconds)	Durée de la notification (secondes)
+	Bundle Arrow-Key Nudges	Regrouper les déplacements aux flèches
+	Nudge Bundle Pause (ms)	Pause de regroupement des déplacements (ms)
 	Appearance Mode	Mode d’apparence
 	Dark Theme	Thème sombre
 	Light Theme	Thème clair
@@ -3139,6 +3146,8 @@ curves	Smooth	Lisser
 	Action playback stopped	Exécution de l’action arrêtée
 	Step {step} is waiting for its dialog	L’étape {step} attend sa boîte de dialogue
 @plural	{n} action|{n} actions	{n} action|{n} actions
+	Background (Default)	Arrière-plan (par défaut)
+	Content-Aware Fill	Remplissage d'après le contenu
 # Batch / Image Processor
 	Include All Subfolders	Inclure tous les sous-dossiers
 	Auto Add/Delete	Ajout/suppr. auto
@@ -3166,3 +3175,7 @@ curves	Smooth	Lisser
 	Chisel Hard	Ciselage dur
 	Chisel Soft	Ciselage doux
 	Open color-less EXR as ACEScg	Ouvrir les EXR sans espace colorimétrique en ACEScg
+
+# View › Guides › right-click a guide
+	Edit Selected Guides	Modifier les repères sélectionnés
+	Clear Selected Guides	Effacer les repères sélectionnés

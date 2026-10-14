@@ -558,6 +558,11 @@ fn curvature_refresh(pen: &mut PenPath, closed: bool) {
     pen.knots = photocraft_vector::edit::curvature_knots(&anchors, &corners, closed);
 }
 
+/// The anchor of the Curvature Pen path being drawn under (x, y), for the cursor.
+pub(crate) fn curvature_anchor_at(app: &PhotocraftApp, x: f64, y: f64) -> Option<usize> {
+    curvature_hit(app, x, y)
+}
+
 /// The Curvature Pen's anchor within a few screen pixels of (x, y).
 fn curvature_hit(app: &PhotocraftApp, x: f64, y: f64) -> Option<usize> {
     let tol = 6.0 / app.point_zoom().max(0.01) as f64;
@@ -606,8 +611,14 @@ pub fn curvature_up(app: &mut PhotocraftApp) {
 }
 
 /// Curvature Pen double-click: toggle the anchor under the pointer between smooth and corner
-/// (double-clicking empty canvas therefore places a corner point, as in Photoshop).
+/// (double-clicking empty canvas therefore places a corner point, as in Photoshop). With no path
+/// being drawn, an anchor of the active path toggles the same way and its subpath reflows
+/// (`path.convertPoint` with `curvature`), so a Pen-drawn corner rounds off.
 pub fn curvature_toggle(app: &mut PhotocraftApp, x: f64, y: f64) {
+    if app.ui.pen.as_ref().is_none_or(|p| p.knots.is_empty()) {
+        crate::direct_select::curvature_toggle_active(app, [x, y]);
+        return;
+    }
     let Some(i) = curvature_hit(app, x, y) else { return };
     let Some(pen) = app.ui.pen.as_mut() else { return };
     if let Some(at) = pen.unlinked.iter().position(|&c| c == i) {
@@ -944,7 +955,6 @@ pub(crate) fn draw_handle(painter: &egui::Painter, anchor: Pos2, handle: Pos2, a
 /// Work path / active shape path outlines, anchors, and the pen path in progress.
 pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform, doc: &Document) {
     let tool = app.ui.tool;
-    let vector_tool = matches!(tool, Tool::Pen | Tool::FreeformPen | Tool::CurvaturePen | Tool::PathSelection) || is_shape_tool(tool);
     let accent = Tokens::get(painter.ctx()).accent;
     let to_scr = |q: [f64; 2]| xf.to_screen(q[0] as f32, q[1] as f32);
     let draw_path = |p: &Path, anchors: bool| {
@@ -965,16 +975,16 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
             crate::anchor_tools::draw_hover(app, painter, &to_scr, accent, painter.ctx().input(|i| i.modifiers));
         }
     } else if paths {
-        if vector_tool {
-            if let Some(wp) = &doc.work_path {
-                draw_path(wp, tool == Tool::PathSelection);
-            }
-            let st = app.session.active();
-            if let Some(l) = st.and_then(|s| s.active_layer.and_then(|id| s.doc.layer(id)))
-                && let LayerContent::Shape(sh) = &l.content
-            {
-                draw_path(&sh.path, tool == Tool::PathSelection);
-            }
+        // Paths remain visible as outlines with any tool. Path Selection adds anchor squares; Direct
+        // Selection has its own overlay above.
+        if let Some(wp) = &doc.work_path {
+            draw_path(wp, tool == Tool::PathSelection);
+        }
+        let st = app.session.active();
+        if let Some(l) = st.and_then(|s| s.active_layer.and_then(|id| s.doc.layer(id)))
+            && let LayerContent::Shape(sh) = &l.content
+        {
+            draw_path(&sh.path, tool == Tool::PathSelection);
         }
         // A targeted vector mask shows its path with any tool (#196).
         if let Some((_, p)) = targeted_vector_mask(app) {
@@ -982,6 +992,7 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
         }
         // The segment the Pen's Auto Add/Delete would add an anchor to, or the anchor it would delete.
         crate::anchor_tools::draw_pen_hover(app, painter, &to_scr, accent, painter.ctx().input(|i| i.modifiers));
+        crate::corner_radius::draw(app, painter, &to_scr, accent);
     }
     // Pen path in progress, with handles of the last knot and a rubber band to the pointer. While
     // ⌘/Ctrl drags it, Direct Selection draws its preview instead.

@@ -563,6 +563,9 @@
 	Field Blur…	Mezőelmosás…
 	No pin selected	Nincs kijelölt tű
 	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Kattints a képre tű hozzáadásához; húzd a tűt az áthelyezéséhez, vagy a gyűrűjét az elmosás módosításához. A Delete törli a kijelölt tűt.
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	Húzd a körvonal fogantyúit az átméretezéshez és az elforgatáshoz, a négyzetet a sarkok lekerekítéséhez, a belső pontokat pedig annak beállításához, hol kezdődjön az elmosás.
+	Drag the pin to move the band, or its ring to change its blur. Drag the solid lines to widen the sharp band, the dashed lines to set the transition, and the dots to turn it.	Húzd a tűt a sáv áthelyezéséhez, vagy a gyűrűjét az elmosás módosításához. Húzd a folytonos vonalakat az éles sáv szélesítéséhez, a szaggatott vonalakat az átmenet beállításához, a pontokat pedig a sáv elforgatásához.
+	Drag the handles on the outline to resize and turn it; the ring sets the blur angle.	Húzd a körvonal fogantyúit az átméretezéshez és az elforgatáshoz; a gyűrű az elmosás szögét állítja be.
 	Fill Path…	Útvonal kitöltése…
 	Fill Screen	Képernyő kitöltése
 	Filter	Szűrő
@@ -2730,6 +2733,7 @@ cameraRaw	Yellow	Sárga
 	Defaults	Alapértékek
 	Delete	Törlés
 	Delete Shortcut	Billentyűparancs törlése
+	Add Shortcut	Billentyűparancs hozzáadása
 	Description	Leírás
 	Diffusion	Diffúzió
 	DirectX 12	DirectX 12
@@ -2854,6 +2858,8 @@ cameraRaw	Yellow	Sárga
 	No saved presets yet.	Még nincs mentett előbeállítás.
 	Not a web colour: click for the nearest web colour	Nem webes szín: kattints a legközelebbi webes színért
 	Notification Duration (seconds)	Értesítés időtartama (másodperc)
+	Bundle Arrow-Key Nudges	Nyílbillentyűs mozgatások összevonása
+	Nudge Bundle Pause (ms)	Összevonási szünet (ms)
 	Number	Szám
 	OK	OK
 	Only Web Colors	Csak webes színek
@@ -3124,6 +3130,7 @@ cameraRaw	Yellow	Sárga
 	Concise	Tömör
 	Constrain proportions	Arányok megtartása
 	Constraints	Megkötések
+	Background (Default)	Háttér (alapértelmezett)
 	Content-Aware Fill	Tartalomérzékeny kitöltés
 	Content-Aware Move Tool	Tartalomérzékeny mozgatás
 	Contract	Szűkítés
@@ -4083,3 +4090,7 @@ cameraRaw	Yellow	Sárga
 	Chisel Hard	Kemény vésés
 	Chisel Soft	Lágy vésés
 	Open color-less EXR as ACEScg	Színinformáció nélküli EXR megnyitása ACEScg-ként
+
+# View › Guides › right-click a guide
+	Edit Selected Guides	Kijelölt segédvonalak szerkesztése
+	Clear Selected Guides	Kijelölt segédvonalak törlése
