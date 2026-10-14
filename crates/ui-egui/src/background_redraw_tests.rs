@@ -163,3 +163,47 @@ fn closing_the_document_stops_its_redraw() {
     g.harness.step();
     assert!(g.harness.state().redraws.is_empty());
 }
+
+#[test]
+fn hiding_a_large_layer_over_the_gpu_budget_redraws_in_the_background() {
+    let _gpu = photocraft_testkit::gpu_lock();
+    let Some(mut g) = gpu_app() else { return };
+    // A layer covering most, but not all, of the document: hiding it damages a large rect that
+    // isn't the whole canvas.
+    let app = g.harness.state_mut();
+    app.run("file.new", json!({"width": 5000, "height": 2000, "background": "#336699"})).expect("new");
+    app.run("layer.new.layer", json!({})).expect("layer");
+    app.run("select.rect", json!({"x": 0, "y": 0, "width": 4800, "height": 1800})).expect("select");
+    app.run("edit.fill", json!({"color": "#cc8844"})).expect("fill");
+    app.run("select.deselect", json!({})).expect("deselect");
+    let (doc, layer) = {
+        let st = app.session.active().expect("document");
+        (st.doc.id, st.active_layer.expect("layer"))
+    };
+    settle(&mut g);
+    assert!(g.harness.state().perf.last_refresh.starts_with("gpu"), "the document fits the GPU: {}", g.harness.state().perf.last_refresh);
+    // A budget the pages of one 2048 px page cell fit (about 33 MB here) but not those of the
+    // whole width (80 MB), as on a multi-gigabyte PSB. Damage refreshes keep it: `gpu_budget`
+    // recomputes it for full ones only. A small edit still draws on the GPU at once.
+    g.harness.state_mut().run("layer.new.layer", json!({})).expect("layer");
+    g.harness.step();
+    g.harness.state_mut().run("select.rect", json!({"x": 100, "y": 100, "width": 64, "height": 64})).expect("select");
+    g.harness.step();
+    g.observer.set_memory_budget(48 << 20);
+    g.harness.state_mut().run("edit.fill", json!({"color": "#22ee22"})).expect("fill");
+    g.harness.step();
+    assert_eq!(g.harness.state().perf.last_refresh, "gpu-rect", "{:?}", g.harness.state().perf.gpu_fallback);
+    g.harness.state_mut().run("select.deselect", json!({})).expect("deselect");
+    g.harness.step();
+    assert!(g.harness.state().redraws.is_empty());
+    g.observer.set_memory_budget(48 << 20);
+    g.harness.state_mut().run("layer.setProps", json!({"layer": layer.0, "visible": false})).expect("hide");
+    let damage = g.harness.state().session.active().expect("document").last_damage.expect("damage");
+    assert!(damage != Rect::new(0, 0, 5000, 2000) && damage.width() as u64 * damage.height() as u64 >= crate::gpu_canvas::DEFER_PX, "{damage:?}");
+    g.harness.step();
+    assert!(g.harness.state().redraws.contains_key(&doc), "not composited inline: {}", g.harness.state().perf.last_refresh);
+    settle(&mut g);
+    assert_eq!(g.harness.state().perf.last_refresh, "background");
+    assert_eq!(g.harness.state().perf.gpu_fallback.as_deref(), Some(crate::gpu_canvas::OVER_BUDGET));
+    assert_matches_synchronous(&mut g, doc);
+}
