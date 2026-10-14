@@ -304,15 +304,9 @@ pub fn pointer_up(app: &mut PhotocraftApp, start: [f64; 2], end: [f64; 2]) {
     // Preferences ▸ Type: "Fill new type layers with placeholder text" (on by default). The Type
     // Mask tools start empty, as Photoshop's do.
     let text = if !mask && app.session.prefs().type_.fill_new_type_layers_with_placeholder { PLACEHOLDER } else { "" };
-    let mut p = json!({
-        "text": text,
-        "orientation": if app.ui.tool.is_vertical_type() { "vertical" } else { "horizontal" },
-        "font": o.type_font,
-        "fontStyle": o.type_style,
-        "size": o.type_size,
-        "align": o.type_align,
-        "color": hex(app.session.tools.foreground),
-    });
+    let mut p = default_style_params(app);
+    p["text"] = json!(text);
+    p["orientation"] = json!(if app.ui.tool.is_vertical_type() { "vertical" } else { "horizontal" });
     if w >= min && h >= min {
         p["box"] = json!([start[0].min(end[0]).round(), start[1].min(end[1]).round(), w.round(), h.round()]);
     } else {
@@ -1637,9 +1631,133 @@ fn drag_key(ctx: &egui::Context) -> Option<String> {
     Some(format!("type-drag-{}-{}", id.value(), t.to_bits()))
 }
 
-/// Apply only the supplied properties to the text-edit scope or selected type layers.
+/// The styles a new Type-tool layer will receive. Use the same command parameters for the
+/// panels and creation so defaults also survive action recording/replay. The older options-bar
+/// fields remain authoritative, and text colour continues to follow the foreground colour.
+fn default_style_params(app: &PhotocraftApp) -> serde_json::Value {
+    let o = &app.ui.tool_options;
+    let mut p = json!({});
+    // Settings are editable JSON: only recognized formatting keys may reach type.create.
+    // In particular a stray `text`, `box`, or `coalesce` key must not become a create parameter.
+    let (mut c, mut para) = (photocraft_doc::text::CharStyle::default(), photocraft_doc::text::ParagraphStyle::default());
+    for (key, value) in &o.type_style_defaults {
+        // These belong to the existing options-bar fields. Apart from being redundant,
+        // parsing a saved font key here would wait for the background font scan.
+        if matches!(key.as_str(), "font" | "family" | "fontStyle" | "weight" | "italic" | "postscriptName") {
+            continue;
+        }
+        let one = json!({ (key): value });
+        if !finite_style_value(value)
+            || photocraft_engine::type_cmds::check_size_tracking(&one).is_err()
+            || photocraft_engine::type_cmds::check_kerning(&one).is_err()
+        {
+            continue;
+        }
+        if photocraft_engine::type_cmds::apply_char_props(&mut c, &one) | photocraft_engine::type_cmds::apply_para_props(&mut para, &one) {
+            p[key] = value.clone();
+        }
+    }
+    p["font"] = json!(o.type_font);
+    p["fontStyle"] = json!(o.type_style);
+    p["size"] = json!(o.type_size);
+    p["align"] = json!(o.type_align);
+    p["color"] = json!(hex(app.session.tools.foreground));
+    p
+}
+
+/// Style numbers become f32 in the engine. JSON itself permits finite f64 values too large
+/// for that conversion; a hand-edited setting must not inject infinity into a new layer.
+/// Style collections (features, axes, colour) contain only scalar values, so no recursion.
+fn finite_style_value(value: &serde_json::Value) -> bool {
+    let scalar = |v: &serde_json::Value| match v {
+        serde_json::Value::Number(n) => n.as_f64().is_some_and(|n| (n as f32).is_finite()),
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => false,
+        _ => true,
+    };
+    match value {
+        serde_json::Value::Array(v) => v.iter().all(scalar),
+        serde_json::Value::Object(v) => v.values().all(scalar),
+        v => scalar(v),
+    }
+}
+
+fn default_styles(app: &PhotocraftApp) -> (photocraft_doc::text::CharStyle, photocraft_doc::text::ParagraphStyle) {
+    let (mut c, mut para) = app.session.type_defaults.clone().unwrap_or_default();
+    let mut p = default_style_params(app);
+    // The saved panels can appear on the very first frame. Style parsing resolves the named
+    // font through shared(), which waits for the font scan; display the saved names meanwhile,
+    // and let fonts_ready/axis_sliders expose the font controls when try_shared is ready.
+    if photocraft_text::try_shared().is_none() {
+        c.font_family = app.ui.tool_options.type_font.clone();
+        c.font_style = app.ui.tool_options.type_style.clone();
+        c.postscript_name = None;
+        if let Some(p) = p.as_object_mut() {
+            p.remove("font");
+            p.remove("fontStyle");
+        }
+    }
+    photocraft_engine::type_cmds::apply_char_props(&mut c, &p);
+    photocraft_engine::type_cmds::apply_para_props(&mut para, &p);
+    (c, para)
+}
+
+/// Change tool defaults without creating a document edit. The engine owns the style schema;
+/// keep its property names rather than maintaining another style parser in the shell.
+fn apply_defaults(app: &mut PhotocraftApp, props: &serde_json::Value) {
+    let Some(props) = props.as_object() else { return };
+    let o = &mut app.ui.tool_options;
+    for (key, value) in props {
+        match key.as_str() {
+            "font" => {
+                if let Some(v) = value.as_str() {
+                    o.type_font = v.into();
+                }
+            }
+            "fontStyle" => {
+                if let Some(v) = value.as_str() {
+                    o.type_style = v.into();
+                    // A newly chosen named style replaces a weight-axis setting, as it does
+                    // in apply_char_props. Other axes retain their independently chosen values.
+                    if let Some(axes) = o.type_style_defaults.get_mut("variations").and_then(serde_json::Value::as_object_mut) {
+                        axes.remove("wght");
+                    }
+                }
+            }
+            "size" => {
+                if let Some(v) = value.as_f64() {
+                    o.type_size = v as f32;
+                }
+            }
+            "align" => {
+                if let Some(v) = value.as_str() {
+                    o.type_align = v.into();
+                }
+            }
+            "metricsAsShown" => {} // Defaults have no layer transform.
+            "features" | "variations" => {
+                if let Some(patch) = value.as_object() {
+                    let old = o.type_style_defaults.entry(key.clone()).or_insert_with(|| json!({}));
+                    if let Some(old) = old.as_object_mut() {
+                        old.extend(patch.clone());
+                    } else {
+                        *old = value.clone();
+                    }
+                }
+            }
+            _ => {
+                o.type_style_defaults.insert(key.clone(), value.clone());
+            }
+        }
+    }
+}
+
+/// Apply only the supplied properties to the text-edit scope or selected type layers; without
+/// a type target, prepare the defaults for the next layer instead.
 fn apply(app: &mut PhotocraftApp, ctx: &egui::Context, props: serde_json::Value) {
-    let Some(mut p) = formatting_params(app) else { return };
+    let Some(mut p) = formatting_params(app) else {
+        apply_defaults(app, &props);
+        return;
+    };
     if let Some(props) = props.as_object() {
         for (key, value) in props {
             p[key] = value.clone();
@@ -2026,7 +2144,17 @@ fn opentype_row(app: &mut PhotocraftApp, ui: &mut egui::Ui, c: &photocraft_doc::
 /// characters (or its whole text) while typing, else every selected type layer. The new state
 /// is explicit, so it follows the button the user saw rather than the layer's first run.
 pub(crate) fn toggle_opentype(app: &mut PhotocraftApp, id: &str, shown_on: bool) {
-    let Some(mut p) = formatting_params(app) else { return };
+    let Some(mut p) = formatting_params(app) else {
+        if let Some((tag, _, _)) = OPENTYPE_BUTTONS.iter().find(|(_, command, _)| *command == id) {
+            let props = match *tag {
+                "liga" => json!({"ligatures": !shown_on}),
+                "dlig" => json!({"discretionaryLigatures": !shown_on}),
+                _ => json!({"features": { (*tag): !shown_on }}),
+            };
+            apply_defaults(app, &props);
+        }
+        return;
+    };
     p["on"] = json!(!shown_on);
     let _ = app.run(id, p);
 }
@@ -2093,28 +2221,22 @@ fn cell_width(avail: f32, n: usize) -> f32 {
 
 /// Properties panel sections for a type layer: Character, Paragraph and Type Options (#155).
 pub fn type_properties(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    type_sections(app, ui, true, true);
+    type_sections(app, ui, true, true, false);
     type_options(app, ui);
 }
 
 /// Window › Character / Paragraph (#150): the same controls as Properties, in their own dock
-/// group. Without a type layer (or a type edit) there is nothing to show.
+/// group. Without a type target they edit the defaults for the next Type-tool layer.
 pub fn character_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui, paragraph: bool) {
-    if styles_at(app).is_none() {
-        let t = crate::theme::Tokens::get(ui.ctx());
-        ui.add_space(8.0);
-        ui.label(egui::RichText::new(tl!("Select a type layer to edit its character and paragraph settings.")).color(t.text_dim));
-        return;
-    }
-    type_sections(app, ui, !paragraph, paragraph);
+    type_sections(app, ui, !paragraph, paragraph, true);
 }
 
 /// The Character and/or Paragraph sections, with the shared collapsible headers and fields that
 /// fill the panel width (#155).
-fn type_sections(app: &mut PhotocraftApp, ui: &mut egui::Ui, character: bool, paragraph: bool) {
+fn type_sections(app: &mut PhotocraftApp, ui: &mut egui::Ui, character: bool, paragraph: bool, show_defaults: bool) {
     use crate::props_layout::{COL_GAP, LABEL_GAP, LABEL_W, field_width, section};
     use crate::theme::ROW_GAP;
-    let Some((c, para)) = styles_at(app) else { return };
+    let Some((c, para)) = styles_at(app).or_else(|| show_defaults.then(|| default_styles(app))) else { return };
     let t = crate::theme::Tokens::get(ui.ctx());
     // Row helper: `ui.horizontal` with the column gap, then the shared row gap.
     let row = |ui: &mut egui::Ui, add: &mut dyn FnMut(&mut egui::Ui)| {

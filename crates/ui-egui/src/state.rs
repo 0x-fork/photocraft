@@ -535,6 +535,11 @@ pub struct ToolOptions {
     pub type_size: f32,
     pub type_aa: String,
     pub type_align: String,
+    /// Character/Paragraph panel defaults beyond the options bar, in `type.setStyle`'s
+    /// parameter format. Kept as overrides so saved engine defaults still supply unset fields.
+    /// OpenType features and variable-font axes are merged per tag/axis.
+    #[serde(default)]
+    pub type_style_defaults: serde_json::Map<String, serde_json::Value>,
     /// Clone Stamp / Healing Brush.
     pub clone_aligned: bool,
     /// Pattern Stamp: lock the tile origin in document space across strokes.
@@ -772,6 +777,7 @@ impl Default for ToolOptions {
             type_size: 48.0,
             type_aa: "sharp".into(),
             type_align: "left".into(),
+            type_style_defaults: serde_json::Map::new(),
             clone_aligned: true,
             pattern_stamp_aligned: true,
             pattern_stamp_impressionist: false,

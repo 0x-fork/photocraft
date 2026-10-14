@@ -73,6 +73,239 @@ fn numeric_type_fields_have_localized_accessible_names() {
     assert_eq!(*h.state(), 36.0);
 }
 
+/// #5556: the dedicated panels remain usable before there is any type layer, including
+/// before opening a document. Properties still belongs to the selected layer.
+#[test]
+fn type_panels_show_default_controls_without_a_type_target() {
+    for app in [PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default()), new_app()] {
+        let mut h = Harness::builder().with_size(vec2(760.0, 800.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                    return;
+                }
+                ui.columns(2, |columns| {
+                    super::character_panel(app, &mut columns[0], false);
+                    super::character_panel(app, &mut columns[1], true);
+                });
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, Default::default());
+        h.run_steps(4);
+        h.get_by_label("Faux Bold");
+        h.get_by_label("Fractions");
+        h.get_by_label("Center text");
+        h.get_by_label("Hyphenate");
+        h.get_by_role_and_label(egui::accesskit::Role::SpinButton, "Font size");
+    }
+}
+
+mod panel_defaults {
+    use super::*;
+    use crate::state::{Tool, ToolOptions};
+    use egui::accesskit::{Role, Toggled};
+    use egui_kittest::kittest::NodeT;
+    use photocraft_doc::text::{Caps, Kerning, Orientation, TextAlign, TextShape};
+
+    fn panels(app: PhotocraftApp) -> Harness<'static, PhotocraftApp> {
+        let mut h = Harness::builder().with_size(vec2(760.0, 800.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                    ui.columns(2, |columns| {
+                        super::super::character_panel(app, &mut columns[0], false);
+                        super::super::character_panel(app, &mut columns[1], true);
+                    });
+                }
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, Default::default());
+        h.run_steps(4);
+        h
+    }
+
+    fn number(h: &mut Harness<'static, PhotocraftApp>, label: &str, value: &str) {
+        h.get_by_role_and_label(Role::SpinButton, label).click();
+        h.run();
+        h.key_press_modifiers(Modifiers::COMMAND, egui::Key::A);
+        h.event(egui::Event::Text(value.into()));
+        h.key_press(egui::Key::Enter);
+        h.run();
+    }
+
+    #[test]
+    fn panel_defaults_are_editable_and_reach_every_type_tool() {
+        let mut h = panels(new_app());
+        let revision = h.state().session.active().unwrap().revision;
+        let layers = h.state().session.active().unwrap().doc.walk().len();
+        number(&mut h, "Font size", "36");
+        number(&mut h, "Tracking (1/1000 em)", "80");
+        number(&mut h, "Leading (set to the font size × auto-leading when Auto)", "44");
+        number(&mut h, "Indent left margin", "9");
+        for label in ["Faux Bold", "Fractions", "Standard Ligatures", "Discretionary Ligatures", "Center text", "Hyphenate"] {
+            h.get_by_label(label).click();
+            h.run();
+        }
+        assert_eq!(h.get_by_label("Fractions").accesskit_node().toggled(), Some(Toggled::True));
+        assert_eq!(h.get_by_label("Standard Ligatures").accesskit_node().toggled(), Some(Toggled::False));
+        assert_eq!(h.state().session.active().unwrap().revision, revision, "pre-styling does not create document history");
+        assert_eq!(h.state().session.active().unwrap().doc.walk().len(), layers);
+        let options = h.state().ui.tool_options.clone();
+        for tool in [Tool::Type, Tool::VerticalType, Tool::HorizontalTypeMask, Tool::VerticalTypeMask] {
+            for paragraph in [false, true] {
+                let mut app = new_app();
+                app.ui.tool_options = options.clone();
+                app.ui.tool = tool;
+                app.session.tools.foreground = [0.2, 0.4, 0.6, 1.0];
+                let revision = app.session.active().unwrap().revision;
+                super::super::pointer_up(&mut app, [100.0, 100.0], if paragraph { [500.0, 400.0] } else { [100.0, 100.0] });
+                let id = LayerId(app.ui.text_edit.as_ref().unwrap().layer);
+                let t = text(&app, id);
+                let c = &t.char_runs()[0].style;
+                let p = &t.paragraph_runs()[0].style;
+                assert_eq!(c.size_pt, 36.0);
+                assert_eq!(c.tracking, 80.0);
+                assert_eq!(c.leading_pt, Some(44.0));
+                assert!(c.faux_bold && c.discretionary_ligatures && !c.ligatures);
+                assert!(photocraft_engine::type_extra_cmds::feature_on(c, "frac"));
+                assert_eq!(c.color.to_rgba8(), [51, 102, 153, 255]);
+                assert_eq!(p.align, TextAlign::Center);
+                assert_eq!(p.start_indent_pt, 9.0);
+                assert!(p.hyphenate);
+                assert_eq!(t.orientation, if tool.is_vertical_type() { Orientation::Vertical } else { Orientation::Horizontal });
+                assert_eq!(matches!(t.shape, TextShape::Box { .. }), paragraph);
+                assert_eq!(app.ui.text_edit.as_ref().unwrap().mask, tool.is_type_mask());
+                assert!(app.session.active().unwrap().revision > revision);
+                super::super::cancel(&mut app);
+                assert!(app.session.active().unwrap().doc.layer(id).is_none(), "creating and formatting is one undoable edit");
+                assert_eq!(app.ui.tool_options, options, "cancelling text does not discard the chosen defaults");
+            }
+        }
+    }
+
+    #[test]
+    fn extended_defaults_merge_serialize_and_reset_without_replacing_legacy_options() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        super::super::apply(
+            &mut app,
+            &ctx,
+            json!({
+                "fontStyle": "Bold", "size": 32, "kerning": 25, "caps": "smallCaps",
+                "baselineShift": 3, "horizontalScale": 90, "verticalScale": 110,
+                "underline": true, "strikethrough": true, "fauxItalic": true,
+                "firstLineIndent": 5, "endIndent": 7, "spaceBefore": 11, "spaceAfter": 13,
+                "features": {"swsh": 1}, "variations": {"wght": 650, "wdth": 90}
+            }),
+        );
+        super::super::apply(&mut app, &ctx, json!({"features": {"frac": 1}, "variations": {"slnt": -8}}));
+        let (c, p) = super::super::default_styles(&app);
+        assert_eq!((c.size_pt, c.kern, c.kerning, c.caps), (32.0, 25.0, Kerning::Off, Caps::SmallCaps));
+        assert_eq!((c.baseline_shift_pt, c.horizontal_scale, c.vertical_scale), (3.0, 0.9, 1.1));
+        assert!(c.underline && c.strikethrough && c.faux_italic);
+        assert_eq!((p.first_line_indent_pt, p.end_indent_pt, p.space_before_pt, p.space_after_pt), (5.0, 7.0, 11.0, 13.0));
+        assert_eq!(c.features.iter().map(|f| f.tag.as_str()).collect::<Vec<_>>(), ["frac", "swsh"]);
+        assert_eq!(c.variations.iter().map(|v| (v.axis.as_str(), v.value)).collect::<Vec<_>>(), [("slnt", -8.0), ("wdth", 90.0), ("wght", 650.0)]);
+        // A named style replaces wght; it must not come back when a later layer is created.
+        super::super::apply(&mut app, &ctx, json!({"fontStyle": "Regular"}));
+        let (c, _) = super::super::default_styles(&app);
+        assert!(!c.variations.iter().any(|v| v.axis == "wght"));
+        assert_eq!(c.variations.len(), 2);
+        let saved = serde_json::to_value(&app.ui.tool_options).unwrap();
+        let restored: ToolOptions = serde_json::from_value(saved.clone()).unwrap();
+        assert_eq!(restored, app.ui.tool_options);
+        crate::tool_memory::persist(&mut app, &ctx);
+        let remembered = app.session.prefs().tool_options.clone();
+        let mut restarted = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        restarted.session.prefs.edit(|p| p.tool_options = remembered);
+        crate::tool_memory::restore(&mut restarted);
+        assert_eq!(restarted.ui.tool_options, restored, "the real preference restore path retains panel defaults");
+        let mut legacy = saved;
+        legacy.as_object_mut().unwrap().remove("type_style_defaults");
+        let legacy: ToolOptions = serde_json::from_value(legacy).unwrap();
+        assert_eq!((legacy.type_font.as_str(), legacy.type_style.as_str(), legacy.type_size), ("Inter", "Regular", 32.0));
+        assert!(legacy.type_style_defaults.is_empty());
+        for tool in [Tool::Type, Tool::VerticalType, Tool::HorizontalTypeMask, Tool::VerticalTypeMask] {
+            let mut reset = restored.clone();
+            crate::tool_reset::reset_options(&mut reset, tool);
+            assert!(reset.type_style_defaults.is_empty());
+            assert_eq!(reset.type_size, ToolOptions::default().type_size);
+        }
+    }
+
+    #[test]
+    fn selected_text_edits_leave_panel_defaults_and_other_characters_untouched() {
+        let mut app = new_app();
+        let ctx = egui::Context::default();
+        super::super::apply(&mut app, &ctx, json!({"tracking": 80, "fauxBold": true}));
+        let defaults = app.ui.tool_options.type_style_defaults.clone();
+        let id = LayerId(app.run("type.create", json!({"text": "AéBC", "size": 24})).unwrap()["layer"].as_u64().unwrap());
+        app.ui.text_edit = Some(crate::state::TextEdit {
+            layer: id.0,
+            caret: 2,
+            anchor: 1,
+            session: "panel-default-selection".into(),
+            created: false,
+            mask: false,
+            dragging: false,
+            resize: None,
+            preedit: None,
+        });
+        super::super::apply(&mut app, &ctx, json!({"tracking": 15}));
+        super::super::toggle_opentype(&mut app, "type.openType.fractions", false);
+        let runs = text(&app, id).char_runs();
+        assert_eq!(runs.iter().map(|r| (r.len, r.style.tracking)).collect::<Vec<_>>(), [(1, 0.0), (2, 15.0), (2, 0.0)]);
+        assert!(photocraft_engine::type_extra_cmds::feature_on(&runs[1].style, "frac"));
+        assert!(!photocraft_engine::type_extra_cmds::feature_on(&runs[0].style, "frac"));
+        assert_eq!(app.ui.tool_options.type_style_defaults, defaults);
+        app.run("edit.undo", json!({})).unwrap();
+        assert_eq!(text(&app, id).char_runs().len(), 1, "selection edits keep their typing-session coalescing");
+        assert_eq!(text(&app, id).char_runs()[0].style.tracking, 0.0);
+    }
+
+    #[test]
+    fn default_text_color_uses_foreground_and_cancel_preserves_it() {
+        let mut app = new_app();
+        let before = app.session.tools.foreground;
+        let revision = app.session.active().unwrap().revision;
+        let dialog = super::super::open_color_picker(&mut app, [0.0; 3]);
+        app.ui.dialogs.last_mut().unwrap().fields.insert("color".into(), json!("#ff8800"));
+        crate::dialogs::cancel(&mut app, dialog).unwrap();
+        assert_eq!(app.session.tools.foreground, before);
+        let dialog = super::super::open_color_picker(&mut app, [0.0; 3]);
+        app.ui.dialogs.last_mut().unwrap().fields.insert("color".into(), json!("#336699"));
+        crate::dialogs::confirm(&mut app, dialog).unwrap();
+        assert_eq!(super::super::default_styles(&app).0.color.to_rgba8(), [51, 102, 153, 255]);
+        assert_eq!(app.session.active().unwrap().revision, revision);
+        super::super::pointer_up(&mut app, [100.0, 100.0], [100.0, 100.0]);
+        let id = LayerId(app.ui.text_edit.as_ref().unwrap().layer);
+        assert_eq!(text(&app, id).char_runs()[0].style.color.to_rgba8(), [51, 102, 153, 255]);
+    }
+
+    #[test]
+    fn unknown_saved_defaults_cannot_become_creation_parameters() {
+        let mut app = new_app();
+        app.ui.tool_options.type_style_defaults =
+            json!({"tracking": 20, "text": "Injected", "box": [0, 0, 2, 2], "coalesce": "unrelated"}).as_object().unwrap().clone();
+        let p = super::super::default_style_params(&app);
+        assert_eq!(p["tracking"], 20);
+        assert!(p.get("text").is_none() && p.get("box").is_none() && p.get("coalesce").is_none());
+        app.ui.tool_options.type_style_defaults = json!({
+            "tracking": 1e300, "leading": 1e300, "spaceAfter": 1e300,
+            "variations": {"wght": 1e300}, "features": {"frac": {"bad": 1}}, "fauxBold": true
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        let p = super::super::default_style_params(&app);
+        for key in ["tracking", "leading", "spaceAfter", "variations", "features"] {
+            assert!(p.get(key).is_none(), "hostile {key} is ignored");
+        }
+        let (c, para) = super::super::default_styles(&app);
+        assert!(c.faux_bold && c.leading_pt.is_none() && c.tracking == 0.0 && para.space_after_pt == 0.0);
+    }
+}
+
 fn harness(ppp: f32, app: PhotocraftApp) -> Harness<'static, PhotocraftApp> {
     make_harness(ppp, app, false)
 }
