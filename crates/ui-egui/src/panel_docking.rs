@@ -849,7 +849,7 @@ fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui, panel: &str) {
             crate::brush_panel::panel_menu(app, ui);
             ui.separator();
         }
-        "actions" => {
+        "actions" | "Actions" => {
             crate::actions::panel_menu(app, ui);
             ui.separator();
         }

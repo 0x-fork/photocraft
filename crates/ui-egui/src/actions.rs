@@ -436,21 +436,58 @@ pub fn stopped(app: &mut PhotocraftApp, fields: &serde_json::Map<String, Value>)
 /// The Actions entries of the panel group's menu ("…").
 pub fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let mut act: Option<&str> = None;
+    let recording = app.session.actions.recording.is_some();
+    let any = !app.session.actions.list.is_empty();
+    let selected = app.ui.actions.selected.is_some_and(|i| i < app.session.actions.list.len());
+    let can_delete = selected && (!recording || app.ui.actions.selected_step.is_some());
+    if ui.add_enabled(!recording, egui::Button::new(tl!("New Action…"))).clicked() {
+        act = Some("new");
+    }
+    if ui.add_enabled(any, egui::Button::new(tl!("Play"))).clicked() {
+        act = Some("play");
+    }
+    if recording {
+        if ui.button(tl!("Stop Recording")).clicked() {
+            act = Some("stopRec");
+        }
+    } else if ui.button(tl!("Start Recording")).clicked() {
+        act = Some("record");
+    }
+    if ui.add_enabled(can_delete, egui::Button::new(tl!("Delete"))).clicked() {
+        act = Some("delete");
+    }
+    ui.separator();
+    if ui.add_enabled(selected, egui::Button::new(tl!("Insert Stop…"))).clicked() {
+        act = Some("stop");
+    }
+    ui.separator();
     if ui.button(tl!("Load Actions…")).clicked() {
         act = Some("load");
     }
-    let any = !app.session.actions.list.is_empty();
     if ui.add_enabled(any, egui::Button::new(tl!("Save Actions…"))).clicked() {
         act = Some("save");
-    }
-    ui.separator();
-    let selected = app.ui.actions.selected.is_some_and(|i| i < app.session.actions.list.len());
-    if ui.add_enabled(selected, egui::Button::new(tl!("Insert Stop…"))).clicked() {
-        act = Some("stop");
     }
     let Some(a) = act else { return };
     ui.close();
     let r = match a {
+        "new" => {
+            begin_recording(app, false);
+            Ok(Value::Null)
+        }
+        "record" => {
+            begin_recording(app, true);
+            Ok(Value::Null)
+        }
+        "stopRec" => app.run("actions.stop", json!({})),
+        "play" => playback_selection(app).map_or(Ok(Value::Null), |i| {
+            let v = app.run("actions.play", json!({"action": i}))?;
+            report_play(app, &v);
+            Ok(v)
+        }),
+        "delete" => {
+            delete_selection(app);
+            Ok(Value::Null)
+        }
         "load" => load_dialog(app),
         "stop" => insert_stop_dialog(app),
         _ => save_dialog(app, None),
@@ -910,6 +947,35 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn panel_menu_lists_load_save_and_existing_action_commands() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let mut empty_app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        empty_app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        let mut empty = Harness::builder().with_size(vec2(240.0, 280.0)).build_ui_state(|ui, app| panel_menu(app, ui), empty_app);
+        empty.run_steps(2);
+        assert!(empty.query_all_by_label("Load Actions…").count() > 0);
+        assert!(empty.query_all_by_label("New Action…").count() > 0);
+        assert!(empty.query_all_by_label("Start Recording").count() > 0);
+        empty.get_by_label("New Action…").click();
+        empty.run_steps(2);
+        assert_eq!(empty.state().session.actions.list.len(), 1);
+
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        app.session.actions.list.push(Action::new("Make Layer", vec![("layer.new.layer".into(), json!({}))]));
+        app.ui.actions.selected = Some(0);
+        let mut h = Harness::builder().with_size(vec2(240.0, 320.0)).build_ui_state(|ui, app| panel_menu(app, ui), app);
+        h.run_steps(2);
+        for label in ["Load Actions…", "Save Actions…", "Insert Stop…", "Play", "Delete", "Start Recording"] {
+            assert!(h.query_all_by_label(label).count() > 0, "{label}");
+        }
+        let layers = h.state().session.active().unwrap().doc.layers.len();
+        h.get_by_label("Play").click();
+        h.run_steps(3);
+        assert_eq!(h.state().session.active().unwrap().doc.layers.len(), layers + 1);
+    }
 
     #[test]
     fn actions_list_grows_with_panel_and_keeps_footer_visible() {

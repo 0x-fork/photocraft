@@ -607,6 +607,25 @@ fn customized_panel_menus_and_rail_remain_reachable_after_float_and_restore() {
 }
 
 #[test]
+fn actions_panel_menu_includes_load_and_save_actions() {
+    let mut ready = false;
+    let mut menu = Harness::builder().build_ui_state(
+        move |ui, app: &mut PhotocraftApp| {
+            if !ready {
+                PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::ProMedium);
+                ready = true;
+            }
+            panel_menu(app, ui, "actions");
+        },
+        self::app(),
+    );
+    menu.run_steps(2);
+    assert!(menu.query_all_by_label("Load Actions…").count() > 0);
+    assert!(menu.query_all_by_label("Save Actions…").count() > 0);
+    assert!(menu.query_all_by_label("New Action…").count() > 0);
+}
+
+#[test]
 fn custom_workspace_saves_shared_layout_and_timeline_without_embedding_flags() {
     let mut app = app();
     app.run("window.panel.float", json!({"panel":"properties"})).unwrap();
