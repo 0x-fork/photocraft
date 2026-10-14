@@ -192,7 +192,7 @@ id = "TOOL-214-12"
 target = "Shapes: on-canvas corner radius handles, shape feather, selection to shape with tolerance"
 status = "partial"
 issue = 214
-note = "select.convertToShape with tolerance (vector_cmds.rs:1256); radius as a field only"
+note = "On-canvas corner radius widgets on every selected live rectangle with Path Selection, the Rectangle tool and Move + Show Transform Controls: drag rounds every corner of every selected rectangle alike, Alt that corner on each, corner radius cursor and R: readout, one history step (corner_radius.rs, 2026-10-13); select.convertToShape with tolerance (vector_cmds.rs:1256). Missing: shape feather"
 
 [[item]]
 id = "TOOL-214-13"

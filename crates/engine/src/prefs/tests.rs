@@ -656,6 +656,137 @@ fn ruler_units_round_to_their_own_decimal_places() {
     assert_eq!(r.format(100.0, 300.0, 1500.0), "0.333");
 }
 
+/// #3665: Photoshop's second default keys (F2/F3/F4, Shift+F7, Cmd++) are a command's
+/// alternates, beside the main key its menu shows.
+#[test]
+fn commands_have_photoshops_alternate_keys() {
+    let p = Preferences::default();
+    let main = |id: &str| crate::commands::find(id).and_then(|c| c.shortcut);
+    assert_eq!(main("edit.cut"), Some("Cmd+X"));
+    assert_eq!(p.alternates("edit.cut", main("edit.cut")), ["F2"]);
+    assert_eq!(p.alternates("edit.copy", main("edit.copy")), ["F3"]);
+    assert_eq!(p.alternates("edit.paste", main("edit.paste")), ["F4"]);
+    assert_eq!(main("select.inverse"), Some("Cmd+Shift+I"));
+    assert_eq!(p.alternates("select.inverse", main("select.inverse")), ["Shift+F7"]);
+    assert_eq!(p.alternates("edit.fill", main("edit.fill")), ["Shift+Backspace"]);
+    assert_eq!(p.alternates("view.zoomIn", Some("Cmd+=")), ["Cmd++"]);
+    assert!(p.alternates("edit.undo", main("edit.undo")).is_empty());
+    // No alternate is another command's main key or another command's alternate.
+    let mut seen = std::collections::HashMap::new();
+    for c in crate::command_specs() {
+        if let Some(sc) = c.shortcut.and_then(normalize_shortcut) {
+            seen.insert(sc, c.id);
+        }
+    }
+    for (id, sc) in ALTERNATE_SHORTCUTS {
+        let n = normalize_shortcut(sc).unwrap();
+        assert!(seen.insert(n, id).is_none(), "{sc} of {id} is already bound");
+    }
+    // A command's own main key is never repeated as its alternate.
+    assert!(p.alternates("edit.copy", Some("F3")).is_empty());
+}
+
+/// Settings files written before alternates existed still load, keeping their overrides and
+/// gaining the default alternates.
+#[test]
+fn old_settings_without_alternates_load() {
+    let old: Preferences = serde_json::from_str(r#"{"shortcuts": {"edit.copy": "Cmd+K", "edit.undo": ""}}"#).unwrap();
+    assert_eq!(old.shortcut("edit.copy", Some("Cmd+C")), Some("Cmd+K"));
+    assert!(old.alternate_shortcuts.is_empty());
+    // Overriding the main key keeps the alternate (Photoshop edits each row on its own).
+    assert_eq!(old.alternates("edit.copy", old.shortcut("edit.copy", Some("Cmd+C"))), ["F3"]);
+    // And a file with alternates round-trips.
+    let mut p = old.clone();
+    p.set("alternateShortcuts.edit.copy", json!(["f9", "F9"])).unwrap();
+    let back: Preferences = serde_json::from_value(p.to_json()).unwrap();
+    assert_eq!(back.alternate_shortcuts.get("edit.copy"), Some(&vec!["F9".to_string()]));
+}
+
+#[test]
+fn alternate_shortcuts_set_reset_and_reject_bad_input() {
+    let mut s = session();
+    // Through the command: a list replaces the defaults, [] removes them, null restores them.
+    s.execute("edit.keyboardShortcuts", json!({"alternates": {"edit.copy": ["F9"]}})).unwrap();
+    assert_eq!(s.prefs().alternates("edit.copy", Some("Cmd+C")), ["F9"]);
+    let r = s.execute("edit.keyboardShortcuts", json!({"filter": "edit.copy"})).unwrap();
+    let row = r["commands"].as_array().unwrap().iter().find(|c| c["id"] == "edit.copy").unwrap().clone();
+    assert_eq!(row["alternates"], json!(["F9"]));
+    assert_eq!(row["defaultAlternates"], json!(["F3"]));
+    s.execute("edit.keyboardShortcuts", json!({"alternates": {"edit.copy": []}})).unwrap();
+    assert!(s.prefs().alternates("edit.copy", Some("Cmd+C")).is_empty());
+    s.execute("edit.keyboardShortcuts", json!({"alternates": {"edit.copy": null}})).unwrap();
+    assert_eq!(s.prefs().alternates("edit.copy", Some("Cmd+C")), ["F3"]);
+    // Through prefs.set / prefs.reset by path.
+    s.execute("prefs.set", json!({"path": "alternateShortcuts.edit.cut", "value": "F10"})).unwrap();
+    assert_eq!(s.prefs().alternates("edit.cut", Some("Cmd+X")), ["F10"]);
+    s.execute("prefs.reset", json!({"path": "alternateShortcuts.edit.cut"})).unwrap();
+    assert_eq!(s.prefs().alternates("edit.cut", Some("Cmd+X")), ["F2"]);
+    // Reset all clears alternates too.
+    s.execute("edit.keyboardShortcuts", json!({"alternates": {"edit.paste": []}})).unwrap();
+    s.execute("edit.keyboardShortcuts", json!({"reset": true})).unwrap();
+    assert!(s.prefs().alternate_shortcuts.is_empty());
+    // Bad input is an error, not a panic, and changes nothing.
+    for bad in [
+        json!({"alternates": {"edit.copy": "Cmd+Shift"}}),
+        json!({"alternates": {"edit.copy": [3]}}),
+        json!({"alternates": {"edit.copy": {"a": 1}}}),
+        json!({"alternates": {"edit.copy": vec!["F1"; MAX_ALTERNATES + 1]}}),
+        json!({"alternates": {"no.such.command": ["F9"]}}),
+        json!({"alternates": "F3"}),
+    ] {
+        assert!(s.execute("edit.keyboardShortcuts", bad.clone()).is_err(), "{bad}");
+    }
+    assert!(s.prefs().alternate_shortcuts.is_empty());
+    // A bad key in the same call as a reset leaves every shortcut as it was.
+    s.execute("edit.keyboardShortcuts", json!({"set": {"edit.copy": "Cmd+K"}})).unwrap();
+    assert!(s.execute("edit.keyboardShortcuts", json!({"reset": true, "alternates": {"edit.copy": ["Cmd+Shift"]}})).is_err());
+    assert_eq!(s.prefs().shortcut("edit.copy", Some("Cmd+C")), Some("Cmd+K"));
+    assert!(s.execute("prefs.set", json!({"path": "alternateShortcuts", "value": {"edit.copy": ["Cmd+Shift"]}})).is_err());
+    assert!(s.execute("prefs.set", json!({"path": "alternateShortcuts", "value": 7})).is_err());
+}
+
+/// A key given to another command is taken from the command that held it as an alternate
+/// (Photoshop moves a shortcut rather than duplicating it), and kept duplicates are reported.
+#[test]
+fn moving_an_alternate_key_takes_it_from_its_holder() {
+    let mut s = session();
+    // F2 is Cut's alternate; Rename Layer may take it (#2405).
+    let r = s.execute("edit.keyboardShortcuts", json!({"set": {"layer.renameLayer": "F2"}, "removeConflicts": false})).unwrap();
+    assert!(r["conflicts"].as_array().unwrap().iter().any(|c| c["shortcut"] == "F2"), "{r}");
+    s.execute("edit.keyboardShortcuts", json!({"reset": true})).unwrap();
+    let r = s.execute("edit.keyboardShortcuts", json!({"set": {"layer.renameLayer": "F2"}})).unwrap();
+    assert!(r["conflicts"].as_array().unwrap().is_empty(), "{r}");
+    assert!(s.prefs().alternates("edit.cut", Some("Cmd+X")).is_empty());
+    assert_eq!(s.prefs().shortcut("edit.cut", Some("Cmd+X")), Some("Cmd+X"), "Cut keeps its main key");
+    // An alternate assigned to another command takes a main key too.
+    s.execute("edit.keyboardShortcuts", json!({"alternates": {"edit.copy": ["Cmd+Z"]}})).unwrap();
+    assert_eq!(s.prefs().shortcut("edit.undo", Some("Cmd+Z")), None);
+    // Overriding the main key keeps the alternates.
+    s.execute("edit.keyboardShortcuts", json!({"reset": true, "set": {"edit.copy": "Cmd+K"}})).unwrap();
+    assert_eq!(s.prefs().alternates("edit.copy", s.prefs().shortcut("edit.copy", Some("Cmd+C"))), ["F3"]);
+}
+
+/// #3665: a `.kys` row listing a command's default and a function key keeps both; the old
+/// import kept only the first key.
+#[test]
+fn kys_import_keeps_a_rows_second_key() {
+    let mut s = session();
+    let xml = "<photoshop-keyboard-shortcuts>\
+        <command name=\"Copy\"><shortcut>Cmd+C</shortcut><shortcut>F3</shortcut></command>\
+        <command name=\"Cut\"><shortcut>Cmd+X</shortcut></command>\
+        <command name=\"Undo\"><shortcut>Cmd+Z</shortcut><shortcut>F1</shortcut></command>\
+        </photoshop-keyboard-shortcuts>";
+    let r = s.execute("edit.keyboardShortcuts", json!({"importKys": xml})).unwrap();
+    assert_eq!(r["import"]["alternates"], 2);
+    let p = s.prefs();
+    assert_eq!(p.shortcut("edit.copy", Some("Cmd+C")), Some("Cmd+C"));
+    assert_eq!(p.alternates("edit.copy", Some("Cmd+C")), ["F3"]);
+    assert!(!p.alternate_shortcuts.contains_key("edit.copy"), "the default alternate needs no override");
+    // A row without Cut's F2 removes it; Undo gains F1.
+    assert!(p.alternates("edit.cut", Some("Cmd+X")).is_empty());
+    assert_eq!(p.alternates("edit.undo", Some("Cmd+Z")), ["F1"]);
+}
+
 /// #3296: like Photoshop, "Use Shift Key for Tool Switch" is on by default; a stored choice wins.
 #[test]
 fn shift_key_tool_switch_is_on_by_default_and_a_stored_false_is_kept() {

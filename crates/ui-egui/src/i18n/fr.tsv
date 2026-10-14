@@ -546,6 +546,7 @@
 # Field Blur pins (#3373)
 	No pin selected	Aucune épingle sélectionnée
 	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Cliquez dans l’image pour ajouter une épingle ; faites glisser une épingle pour la déplacer, ou son anneau pour modifier le flou. Suppr supprime l’épingle sélectionnée.
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	Faites glisser les poignées du contour pour le redimensionner et le faire pivoter, le carré pour arrondir ses angles et les points intérieurs pour définir où commence le flou.
 	Iris Blur…	Flou d'iris…
 	Tilt-Shift…	Inclinaison-décalage…
 	Path Blur…	Flou de tracé…
@@ -1026,6 +1027,7 @@
 	Delete Group	Supprimer le groupe
 	Delete Layer Mask	Supprimer le masque de calque
 	Delete Layers	Supprimer les calques
+	Add Shortcut	Ajouter un raccourci
 	Delete Shortcut	Supprimer le raccourci
 	Delete Timeline	Supprimer le montage
 	Delete Tool Preset	Supprimer le préréglage d'outil
@@ -3139,6 +3141,8 @@ curves	Smooth	Lisser
 	Action playback stopped	Exécution de l’action arrêtée
 	Step {step} is waiting for its dialog	L’étape {step} attend sa boîte de dialogue
 @plural	{n} action|{n} actions	{n} action|{n} actions
+	Background (Default)	Arrière-plan (par défaut)
+	Content-Aware Fill	Remplissage d'après le contenu
 # Batch / Image Processor
 	Include All Subfolders	Inclure tous les sous-dossiers
 	Auto Add/Delete	Ajout/suppr. auto
@@ -3166,6 +3170,10 @@ curves	Smooth	Lisser
 	Chisel Hard	Ciselage dur
 	Chisel Soft	Ciselage doux
 	Open color-less EXR as ACEScg	Ouvrir les EXR sans espace colorimétrique en ACEScg
+
+# View › Guides › right-click a guide
+	Edit Selected Guides	Modifier les repères sélectionnés
+	Clear Selected Guides	Effacer les repères sélectionnés
 	(none)	(aucun)
 	32-bit Preview Options	Options d'aperçu 32 bits
 	AI Integrations	Intégrations d'IA
@@ -3313,7 +3321,6 @@ curves	Smooth	Lisser
 	Conditional Mode Change	Changement de mode conditionnel
 	Confirm	Confirmer
 	Constraints	Contraintes
-	Content-Aware Fill	Remplissage d'après le contenu
 	Continue	Continuer
 	Contract	Contracter
 	Contrasty	Contrasté

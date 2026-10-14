@@ -58,6 +58,7 @@ pub mod color_picker_ui;
 pub mod color_range_ui;
 pub mod comps_ui;
 pub mod control;
+pub mod corner_radius;
 pub mod credits;
 pub mod crop_mode;
 pub mod crop_overlay;
@@ -100,6 +101,7 @@ pub mod gpu_canvas;
 pub mod gpu_status;
 pub mod gradient_ui;
 pub mod guide_layout_ui;
+pub mod guide_select;
 pub mod hold_keys;
 pub mod i18n;
 mod icon_data;
@@ -126,6 +128,7 @@ mod mask_props_ui;
 pub mod mask_thumbs_ui;
 pub mod mask_trash_prompt;
 pub mod menu_catalog;
+pub mod menu_keys;
 pub mod menu_nav;
 pub mod menus;
 pub mod monitor_status;
@@ -271,6 +274,12 @@ pub struct ExportSettings {
     /// PSD/PSB: write the real merged image (Preferences › File Handling › Maximize PSD and PSB
     /// File Compatibility; see [`PhotocraftApp::save_settings`]).
     pub psd_maximize_compatibility: bool,
+    /// Embed the document's ICC profile when the format supports it. On for Save As and, unless
+    /// Export As turns it off, for export.
+    pub embed_icc: bool,
+    /// Embed EXIF, resolution and other non-XMP metadata when the format supports it. Export As
+    /// turns this off for Metadata: None; Save As leaves it on.
+    pub embed_metadata: bool,
 }
 
 impl Default for ExportSettings {
@@ -284,7 +293,32 @@ impl Default for ExportSettings {
             tga_bits: None,
             image_previews: true,
             psd_maximize_compatibility: true,
+            embed_icc: true,
+            embed_metadata: true,
         }
+    }
+}
+
+impl ExportSettings {
+    /// The IO export options these encoder settings select. Save As and Export As share this so
+    /// a profile or metadata choice cannot be applied in one and forgotten in the other.
+    pub fn io_options(&self) -> photocraft_io::ExportOptions {
+        let mut opts = photocraft_io::ExportOptions::default();
+        if let Some(q) = self.jpeg_quality {
+            opts.encode.jpeg_quality = q;
+        }
+        opts.encode.webp_lossless = self.webp_lossless;
+        if let Some(q) = self.webp_quality {
+            opts.encode.webp_quality = q;
+        }
+        opts.encode.embed_icc = self.embed_icc;
+        opts.encode.embed_metadata = self.embed_metadata;
+        opts.tiff_layers = self.tiff_layers;
+        opts.xmp = if self.xmp_all { photocraft_io::XmpEmbed::All } else { photocraft_io::XmpEmbed::None };
+        opts.tga_bits = self.tga_bits;
+        opts.image_previews = self.image_previews;
+        opts.psd_maximize_compatibility = self.psd_maximize_compatibility;
+        opts
     }
 }
 

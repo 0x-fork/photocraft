@@ -539,6 +539,7 @@
 # Field Blur pins (#3373)
 	No pin selected	Tidak ada pin yang dipilih
 	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Klik gambar untuk menambah pin; seret pin untuk memindahkannya, atau cincinnya untuk mengubah blur. Delete menghapus pin yang dipilih.
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	Seret pegangan pada garis luar untuk mengubah ukuran dan memutarnya, kotak untuk membulatkan sudutnya, dan titik di dalam untuk menentukan di mana blur dimulai.
 	Iris Blur…	Iris Blur…
 	Tilt-Shift…	Tilt-Shift…
 	Path Blur…	Path Blur…
@@ -1020,6 +1021,7 @@
 	Delete Group	Hapus Grup
 	Delete Layer Mask	Hapus Mask Layer
 	Delete Layers	Hapus Layer
+	Add Shortcut	Tambah Pintasan
 	Delete Shortcut	Hapus Pintasan
 	Delete Timeline	Hapus Timeline
 	Delete Tool Preset	Hapus Preset Alat
@@ -3126,6 +3128,8 @@ curves	Smooth	Haluskan
 	Action playback stopped	Pemutaran tindakan dihentikan
 	Step {step} is waiting for its dialog	Langkah {step} menunggu dialognya
 @plural	{n} action|{n} actions	{n} tindakan
+	Background (Default)	Background (Default)
+	Content-Aware Fill	Isi Content-Aware
 # Batch / Image Processor
 	Include All Subfolders	Sertakan semua subfolder
 	Auto Add/Delete	Tambah/Hapus Otomatis
@@ -3153,3 +3157,7 @@ curves	Smooth	Haluskan
 	Chisel Hard	Pahat Keras
 	Chisel Soft	Pahat Lembut
 	Open color-less EXR as ACEScg	Buka EXR tanpa informasi warna sebagai ACEScg
+
+# View › Guides › right-click a guide
+	Edit Selected Guides	Edit Panduan Terpilih
+	Clear Selected Guides	Hapus Panduan Terpilih

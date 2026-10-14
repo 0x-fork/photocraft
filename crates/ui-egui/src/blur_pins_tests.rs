@@ -6,11 +6,16 @@ use egui_kittest::Harness;
 use serde_json::json;
 
 use crate::PhotocraftApp;
-use crate::blur_pins::{COMMAND, Pin, pins, selected};
+use crate::blur_pins::{COMMAND, IRIS, Iris, Pin, pins, selected};
 use crate::canvas::ViewXform;
 
 /// A 400×300 document at 400 %, so it fills the window round the dialog, with Field Blur open.
 fn harness(selection: bool) -> Harness<'static, PhotocraftApp> {
+    harness_for(COMMAND, selection)
+}
+
+/// [`harness`] with the Blur Gallery `command` open.
+fn harness_for(command: &str, selection: bool) -> Harness<'static, PhotocraftApp> {
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
     app.run("file.new", json!({"width": 400, "height": 300})).unwrap();
     if selection {
@@ -34,7 +39,7 @@ fn harness(selection: bool) -> Harness<'static, PhotocraftApp> {
     h.run_steps(4);
     let v = &mut h.state_mut().ui.views[0];
     (v.zoom, v.center, v.fit_pending) = (4.0, [200.0, 150.0], false);
-    crate::filter_dialog::open(h.state_mut(), COMMAND).unwrap();
+    crate::filter_dialog::open(h.state_mut(), command).unwrap();
     h.run_steps(4);
     h
 }
@@ -86,7 +91,7 @@ fn on_screen(h: &Harness<'static, PhotocraftApp>, p: Pin, bounds: [f64; 4]) -> P
 fn it_opens_with_one_selected_pin_in_the_middle_of_the_bounds() {
     let h = harness(false);
     let f = fields(&h);
-    assert_eq!(pins(&f), vec![Pin { x: 0.5, y: 0.5, blur: 15.0 }]);
+    assert_eq!(pins(&f), vec![Pin { x: 0.5, y: 0.5, blur: 15.0, iris: None }]);
     assert_eq!(selected(&f), Some(0));
     assert_eq!(f["__bounds"], json!([0, 0, 400, 300]));
     assert!(!f.contains_key("centerX") && !f.contains_key("centerY"), "the pins replace the single centre");
@@ -173,8 +178,107 @@ fn proxy_previews_scale_the_pins_blur() {
     assert_eq!(p["pins"][0]["blur"], json!(10.0));
 }
 
+/// Screen point of an Iris pin's local point `(u, v)` (1 = on the outline along that axis), on the
+/// 400×300 canvas (shorter side 300), as the engine places it.
+fn iris_at(h: &Harness<'static, PhotocraftApp>, p: Pin, u: f64, v: f64) -> Pos2 {
+    let s = p.iris.unwrap();
+    let (cx, cy) = (p.x * 400.0, p.y * 300.0);
+    let (x, y) = (u * s.rx * 300.0, v * s.ry * 300.0);
+    let (sin, cos) = s.angle.to_radians().sin_cos();
+    xf(h).to_screen((cx + x * cos - y * sin) as f32, (cy + x * sin + y * cos) as f32)
+}
+
+fn only_pin(h: &Harness<'static, PhotocraftApp>) -> Pin {
+    pins(&fields(h))[0]
+}
+
+#[test]
+fn iris_opens_with_its_shape_as_a_pin() {
+    let h = harness_for(IRIS, false);
+    let f = fields(&h);
+    let list = pins(&f);
+    assert_eq!(list.len(), 1);
+    let (p, s, d) = (list[0], list[0].iris.unwrap(), Iris::default());
+    assert_eq!((p.x, p.y, p.blur), (0.5, 0.5, 15.0));
+    // The dialog's defaults come from the command spec (f32), so compare loosely.
+    for (got, want) in [(s.rx, d.rx), (s.ry, d.ry), (s.angle, d.angle), (s.roundness, d.roundness), (s.feather, d.feather)] {
+        assert!((got - want).abs() < 1e-6, "{s:?}");
+    }
+    for k in ["centerX", "radiusX", "radiusY", "angle", "roundness", "feather"] {
+        assert!(!f.contains_key(k), "{k} is in the pin now");
+    }
+    assert!(f["pins"][0]["radiusX"].as_f64().is_some_and(|r| (r - 0.35).abs() < 1e-6), "the command's own keys: {}", f["pins"]);
+}
+
+/// The selected Iris pin's handles: an outline handle resizes its axis and turns the shape, the
+/// square rounds it, the inner dots set where the blur starts; a new pin copies the shape; OK
+/// applies them all.
+#[test]
+fn iris_handles_resize_turn_round_and_feather() {
+    let mut h = harness_for(IRIS, false);
+    // A small shape, so its handles sit in the free middle of the window, left of the dialog.
+    let small = json!([{"x": 0.5, "y": 0.5, "blur": 15.0, "radiusX": 0.1, "radiusY": 0.08, "angle": 0.0, "roundness": 0.0, "feather": 0.5}]);
+    h.state_mut().ui.dialogs.last_mut().unwrap().fields.insert("pins".into(), small);
+    h.run_steps(2);
+    // Drag the +u handle (30 px right of the centre) to 40 px below it: radius 40/300, a quarter turn.
+    let p = only_pin(&h);
+    let below = xf(&h).to_screen(200.0, 190.0);
+    let from = iris_at(&h, p, 1.0, 0.0);
+    drag(&mut h, &[from, from.lerp(below, 0.5), below]);
+    let s = only_pin(&h).iris.unwrap();
+    assert!((s.rx - 40.0 / 300.0).abs() < 2e-3 && (s.angle - 90.0).abs() < 0.5, "{s:?}");
+    assert_eq!(s.ry, 0.08, "the other axis keeps its radius");
+    // Drag the corner square out along the diagonal to 0.9: the exponent 6.58, roundness 76.
+    let p = only_pin(&h);
+    let t = 0.5f64.sqrt();
+    let path = [iris_at(&h, p, t, -t), iris_at(&h, p, 0.8, -0.8), iris_at(&h, p, 0.9, -0.9)];
+    drag(&mut h, &path);
+    let s = only_pin(&h).iris.unwrap();
+    let m = -std::f64::consts::LN_2 / 0.9f64.ln();
+    assert!((s.roundness - (m - 2.0) / 6.0 * 100.0).abs() < 1.0, "{s:?}");
+    // Drag a feather dot in to a fifth of the way along the diagonal.
+    let p = only_pin(&h);
+    let k = 0.5 * 0.9;
+    let path = [iris_at(&h, p, k, k), iris_at(&h, p, 0.3, 0.3), iris_at(&h, p, 0.2, 0.2)];
+    drag(&mut h, &path);
+    let s = only_pin(&h).iris.unwrap();
+    let want = 0.2 * 2f64.powf(1.0 / m);
+    assert!((s.feather - want).abs() < 0.01, "{} vs {want}", s.feather);
+    // A click away from the shape adds a pin with the same shape and blur.
+    let r = h.state().last_canvas_rect;
+    let at = pos2(r.left() + 80.0, r.bottom() - 80.0);
+    move_to(&mut h, at);
+    button(&mut h, at, true);
+    button(&mut h, at, false);
+    h.run_steps(2);
+    let list = pins(&fields(&h));
+    assert_eq!(list.len(), 2);
+    assert_eq!(list[1].iris, list[0].iris);
+    assert_eq!(selected(&fields(&h)), Some(1));
+    let id = h.state().ui.dialogs.last().unwrap().id;
+    crate::dialogs::confirm(h.state_mut(), id).unwrap();
+    let (cmd, params) = h.state().session.journal.last().cloned().unwrap();
+    assert_eq!(cmd, IRIS);
+    assert_eq!(params["pins"].as_array().map(Vec::len), Some(2));
+    assert_eq!(params["pins"][0]["angle"], json!(s.angle), "{params}");
+}
+
+/// Hostile pin values from automation are cleaned before anything uses them.
+#[test]
+fn iris_pins_are_cleaned() {
+    let mut h = harness_for(IRIS, false);
+    let bad = json!([{"x": 7, "y": -3, "blur": -1, "radiusX": 0, "radiusY": 1e9, "angle": 540.0, "roundness": 300, "feather": 2}]);
+    h.state_mut().ui.dialogs.last_mut().unwrap().fields.insert("pins".into(), bad);
+    let p = only_pin(&h);
+    assert_eq!((p.x, p.y, p.blur), (1.0, 0.0, 0.0));
+    let s = p.iris.unwrap();
+    assert_eq!((s.rx, s.ry, s.angle, s.roundness, s.feather), (0.01, 1.0, -180.0, 100.0, 0.99));
+    h.run_steps(2);
+}
+
 /// Alt+Cancel → Reset (#3871) starts the workspace again from one pin in the middle, as when it
-/// opened, instead of leaving it with no pins; the bounds captured on opening stay.
+/// opened, instead of leaving it with no pins; the bounds captured on opening stay. An Iris pin
+/// gets the command's default shape back.
 #[test]
 fn alt_reset_starts_again_from_one_pin() {
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
@@ -186,8 +290,21 @@ fn alt_reset_starts_again_from_one_pin() {
     fields.insert("__selected".into(), json!(1));
     assert!(crate::dialog_alt_reset::supported(&fields));
     crate::dialog_alt_reset::apply(&mut app, &egui::Context::default(), &mut fields);
-    assert_eq!(pins(&fields), [Pin { x: 0.5, y: 0.5, blur: 15.0 }]);
+    assert_eq!(pins(&fields), [Pin { x: 0.5, y: 0.5, blur: 15.0, iris: None }]);
     assert_eq!(selected(&fields), Some(0));
     assert_eq!(fields["__bounds"], bounds);
     assert!(!fields.contains_key("centerX") && !fields.contains_key("centerY"), "{fields:?}");
+    let id = crate::filter_dialog::open(&mut app, IRIS).unwrap();
+    let mut fields = app.ui.dialog_mut(id).unwrap().fields.clone();
+    let bent = json!([{"x": 0.2, "y": 0.2, "blur": 40.0, "radiusX": 0.1, "radiusY": 0.1, "angle": 30.0, "roundness": 50.0, "feather": 0.2}]);
+    fields.insert("pins".into(), bent);
+    crate::dialog_alt_reset::apply(&mut app, &egui::Context::default(), &mut fields);
+    let list = pins(&fields);
+    assert_eq!(list.len(), 1);
+    assert_eq!((list[0].x, list[0].y, list[0].blur), (0.5, 0.5, 15.0));
+    // The dialog's defaults come from the command spec (f32), so compare loosely.
+    let (s, d) = (list[0].iris.unwrap(), Iris::default());
+    for (got, want) in [(s.rx, d.rx), (s.ry, d.ry), (s.angle, d.angle), (s.roundness, d.roundness), (s.feather, d.feather)] {
+        assert!((got - want).abs() < 1e-6, "{s:?}");
+    }
 }

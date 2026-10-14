@@ -1187,6 +1187,13 @@ pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
     let mut clicked: Option<String> = None;
     let t = crate::theme::Tokens::get(ui.ctx());
     let mut nav = crate::menu_nav::Nav::load(ui.ctx());
+    // The keyboard on the bar (#4988): Alt / F10 focus, Alt+letter, mnemonics.
+    let mut keys = crate::menu_keys::Keys::load(ui.ctx());
+    keys.take_first_row(&mut nav);
+    nav.underline = keys.show_underlines(ui.ctx());
+    let top_labels: Vec<String> = TOP_MENUS.iter().map(|top| crate::i18n::tr(lang, top).to_string()).collect();
+    let preferred: Vec<Option<char>> = TOP_MENUS.iter().map(|top| crate::menu_keys::TOP_PREFERRED.iter().find(|(t, _)| t == top).map(|(_, c)| *c)).collect();
+    let top_mnemonics = crate::menu_keys::assign(&top_labels.iter().map(String::as_str).collect::<Vec<_>>(), &preferred);
     ui.scope(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
         let v = &mut ui.style_mut().visuals;
@@ -1201,10 +1208,21 @@ pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
             ui.spacing_mut().button_padding = egui::vec2(6.0, 3.0);
             nav.bar_bottom = Some(ui.max_rect().bottom());
             let mut buttons = Vec::with_capacity(TOP_MENUS.len());
-            for top in TOP_MENUS {
+            for (k, top) in TOP_MENUS.iter().enumerate() {
                 // egui's menu_button toggles on release; these titles open on the press (one
                 // gesture can press, drag to an item and release), so each drives its popup.
-                let title = ui.add(egui::Button::new(egui::RichText::new(crate::i18n::tr(lang, top)).color(t.text_dim)));
+                // The title the keyboard is on (Alt / F10) is lit like a hovered one.
+                let focused = keys.focus == Some(if rtl { TOP_MENUS.len() - 1 - k } else { k });
+                let label = if nav.underline {
+                    crate::menu_keys::mnemonic_text(ui, "", &top_labels[k], top_mnemonics[k], Some(t.text_dim))
+                } else {
+                    egui::RichText::new(top_labels[k].as_str()).color(t.text_dim).into()
+                };
+                let mut button = egui::Button::new(label);
+                if focused {
+                    button = button.fill(ui.visuals().widgets.hovered.weak_bg_fill);
+                }
+                let title = ui.add(button);
                 // The bar's close behaviour and style, as a menu (not bar) config so submenus inside
                 // render as submenus.
                 let bar = egui::containers::menu::MenuConfig::find(ui);
@@ -1215,7 +1233,7 @@ pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
                 let opening = title.clicked() && ui.ctx().data(|d| d.get_temp::<bool>(press_gesture_id())).unwrap_or(false);
                 let close = if opening {
                     egui::PopupCloseBehavior::IgnoreClicks
-                } else if top == "Help" {
+                } else if *top == "Help" {
                     // Menus close on any click, inside them too; a click in Help's search field
                     // must keep it open. Its items close it themselves when chosen.
                     egui::PopupCloseBehavior::CloseOnClickOutside
@@ -1237,12 +1255,12 @@ pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
                                 ItemCache { state, items }
                             })
                             .items;
-                        let mine: Vec<&MenuItem> = items.iter().filter(|i| i.path.first().map(String::as_str) == Some(top)).collect();
+                        let mine: Vec<&MenuItem> = items.iter().filter(|i| i.path.first().map(String::as_str) == Some(*top)).collect();
                         ui.set_min_width(220.0);
                         if mine.is_empty() {
                             ui.weak(crate::i18n::tr(lang, "(coming soon)"));
                         }
-                        if top == "Help" {
+                        if *top == "Help" {
                             // The search field scrolls with the rows, as part of the menu's content.
                             crate::menu_nav::level(ui, 1, &mut nav, |ui, nav| {
                                 help_search(ui, items, opening, &mut clicked, nav);
@@ -1262,8 +1280,14 @@ pub fn menu_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> f32 {
                 tops.reverse();
             }
             nav.keys(ui.ctx(), &tops, &mut clicked);
+            let mut mnemonics = top_mnemonics.clone();
+            if rtl {
+                mnemonics.reverse();
+            }
+            keys.keys(ui.ctx(), &tops, &mnemonics, &mut nav, &mut clicked);
         });
     });
+    keys.store(ui.ctx());
     nav.store(ui.ctx());
     // No menu open this frame: nothing is kept.
     app.menu_cache = built.into_inner();
@@ -1418,7 +1442,7 @@ fn help_search(ui: &mut egui::Ui, items: &[MenuItem], opening: bool, clicked: &m
             if let Some(sc) = &it.shortcut {
                 b = b.shortcut_text(crate::shortcuts::pretty(sc));
             }
-            let hit = nav.row(ui, 0, it.enabled, Some(&it.id), |ui, _| {
+            let hit = nav.row(ui, 0, it.enabled, Some(&it.id), None, |ui, _| {
                 let r = ui.add_enabled(it.enabled, b);
                 let hit = r.clicked() || released_on(ui, &r);
                 (r, hit)
@@ -1453,6 +1477,27 @@ fn render_level_rows(ui: &mut egui::Ui, items: &[&MenuItem], depth: usize, click
     crate::widgets::style_spectrum_popup_menu(ui);
     // Walk in Photoshop order: leaves and separators at this depth; a submenu appears at the position
     // of its first child.
+    // Each row's mnemonic (#4988), unique within this level, in display order: the leaves' labels
+    // and the submenus' names as shown.
+    let shown_labels: Vec<String> = {
+        let mut subs: Vec<&str> = Vec::new();
+        items
+            .iter()
+            .filter_map(|it| {
+                if it.path.len() == depth {
+                    (it.label != "---").then(|| translated_menu_label(lang, it))
+                } else {
+                    let name = it.path.get(depth).map(String::as_str)?;
+                    (!subs.contains(&name)).then(|| {
+                        subs.push(name);
+                        crate::i18n::tr(lang, name).to_string()
+                    })
+                }
+            })
+            .collect()
+    };
+    let mnemonics = crate::menu_keys::assign(&shown_labels.iter().map(String::as_str).collect::<Vec<_>>(), &[]);
+    let mut next_row = 0usize;
     let mut shown_subs: Vec<&str> = Vec::new();
     let mut last_was_sep = true;
     for (i, it) in items.iter().enumerate() {
@@ -1464,10 +1509,16 @@ fn render_level_rows(ui: &mut egui::Ui, items: &[&MenuItem], depth: usize, click
                 }
                 continue;
             }
-            let mut text = translated_menu_label(lang, it);
-            if let Some(c) = it.checked {
-                text = format!("{} {}", if c { "✔" } else { "  " }, text);
-            }
+            let label = translated_menu_label(lang, it);
+            let prefix = match it.checked {
+                Some(true) => "✔ ",
+                Some(false) => "   ",
+                None => "",
+            };
+            let mnemonic = mnemonics.get(next_row).copied().flatten();
+            next_row += 1;
+            let text: egui::WidgetText =
+                if nav.underline { crate::menu_keys::mnemonic_text(ui, prefix, &label, mnemonic, None) } else { format!("{prefix}{label}").into() };
             let mut b = egui::Button::new(text);
             if let Some(tint) = it.color.as_deref().and_then(menu_tint) {
                 b = b.fill(tint.gamma_multiply(0.55));
@@ -1475,7 +1526,7 @@ fn render_level_rows(ui: &mut egui::Ui, items: &[&MenuItem], depth: usize, click
             if let Some(sc) = &it.shortcut {
                 b = b.shortcut_text(crate::shortcuts::pretty(sc));
             }
-            let hit = nav.row(ui, depth - 1, it.enabled, Some(&it.id), |ui, _| {
+            let hit = nav.row(ui, depth - 1, it.enabled, Some(&it.id), mnemonic, |ui, _| {
                 let r = ui.add_enabled(it.enabled, b);
                 let r = match it.id.as_str() {
                     "image.mode.bits8" | "image.mode.bits16" => r.on_hover_text(crate::i18n::tr(lang, "Integer")),
@@ -1498,9 +1549,16 @@ fn render_level_rows(ui: &mut egui::Ui, items: &[&MenuItem], depth: usize, click
             shown_subs.push(name);
             let child: Vec<&MenuItem> = items.iter().copied().filter(|c| c.path.len() > depth && c.path[depth] == name).collect();
             let enabled = submenu_enabled(&child);
+            let mnemonic = mnemonics.get(next_row).copied().flatten();
+            next_row += 1;
+            let title: egui::WidgetText = if nav.underline {
+                crate::menu_keys::mnemonic_text(ui, "", crate::i18n::tr(lang, name), mnemonic, None)
+            } else {
+                crate::i18n::tr(lang, name).into()
+            };
             ui.add_enabled_ui(enabled, |ui| {
-                nav.row(ui, depth - 1, enabled, None, |ui, nav| {
-                    let r = ui.menu_button(crate::i18n::tr(lang, name), |ui| render_level(ui, &child, depth + 1, clicked, nav));
+                nav.row(ui, depth - 1, enabled, None, mnemonic, |ui, nav| {
+                    let r = ui.menu_button(title, |ui| render_level(ui, &child, depth + 1, clicked, nav));
                     if r.inner.is_some() {
                         // Where the submenu hangs from, to keep it below the menu bar (#319).
                         nav.set_anchor(depth, r.response.rect);

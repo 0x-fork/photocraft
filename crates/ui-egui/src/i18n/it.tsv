@@ -554,6 +554,7 @@
 # Field Blur pins (#3373)
 	No pin selected	Nessuna puntina selezionata
 	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Fai clic sull’immagine per aggiungere una puntina; trascina una puntina per spostarla o il suo anello per cambiare la sfocatura. Canc rimuove la puntina selezionata.
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	Trascina le maniglie sul contorno per ridimensionarlo e ruotarlo, il quadrato per arrotondarne gli angoli e i punti interni per stabilire dove inizia la sfocatura.
 	Iris Blur…	Sfocatura diaframma…
 	Tilt-Shift…	Miniatura…
 	Path Blur…	Sfocatura tracciato…
@@ -1038,6 +1039,7 @@
 	Delete Group	Elimina gruppo
 	Delete Layer Mask	Elimina maschera di livello
 	Delete Layers	Elimina livelli
+	Add Shortcut	Aggiungi scorciatoia
 	Delete Shortcut	Elimina scorciatoia
 	Delete Timeline	Elimina timeline
 	Delete Tool Preset	Elimina predefinito strumento
@@ -4101,6 +4103,7 @@ navigator	Zoom	Zoom
 	Action playback stopped	Esecuzione dell’azione interrotta
 	Step {step} is waiting for its dialog	Il passaggio {step} attende la sua finestra di dialogo
 @plural	{n} action|{n} actions	{n} azione|{n} azioni
+	Background (Default)	Sfondo (predefinito)
 # Batch / Image Processor
 	Include All Subfolders	Includi tutte le sottocartelle
 	Auto Add/Delete	Aggiungi/elimina automaticamente
@@ -4286,3 +4289,6 @@ layerLabel	Red	Rosso
 layers	Fill	Riempimento
 layers	Fill:	Riempimento:
 shape	Appearance	Aspetto
+# View › Guides › right-click a guide
+	Edit Selected Guides	Modifica guide selezionate
+	Clear Selected Guides	Cancella guide selezionate

@@ -556,6 +556,7 @@
 # Field Blur pins (#3373)
 	No pin selected	ピンが選択されていません
 	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	画像をクリックしてピンを追加します。ピンをドラッグして移動し、リングをドラッグしてぼかしを変更します。Delete キーで選択したピンを削除します。
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	輪郭上のハンドルをドラッグしてサイズ変更と回転、四角形で角の丸み、内側の点でぼかしの開始位置を設定します。
 	Iris Blur…	虹彩絞りぼかし…
 	Tilt-Shift…	チルトシフト…
 	Path Blur…	パスぼかし…
@@ -1039,6 +1040,7 @@
 	Delete Group	グループを削除
 	Delete Layer Mask	レイヤーマスクを削除
 	Delete Layers	レイヤーを削除
+	Add Shortcut	ショートカットを追加
 	Delete Shortcut	ショートカットを削除
 	Delete Timeline	タイムラインを削除
 	Delete Tool Preset	ツールプリセットを削除
@@ -3745,6 +3747,7 @@ curves	Smooth	スムーズ
 	Action playback stopped	アクションの再生を停止しました
 	Step {step} is waiting for its dialog	ステップ {step} はダイアログを待っています
 @plural	{n} action|{n} actions	アクション {n} 個
+	Background (Default)	背景（既定）
 # Batch / Image Processor
 	Include All Subfolders	すべてのサブフォルダーを含める
 
@@ -3841,3 +3844,6 @@ curves	Smooth	スムーズ
 	Chisel Hard	チゼルハード
 	Chisel Soft	チゼルソフト
 	Open color-less EXR as ACEScg	色空間のないEXRをACEScgとして開く
+# View › Guides › right-click a guide
+	Edit Selected Guides	選択したガイドを編集
+	Clear Selected Guides	選択したガイドを消去

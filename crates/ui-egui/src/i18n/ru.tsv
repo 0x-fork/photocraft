@@ -346,6 +346,7 @@
 # Field Blur pins (#3373)
 	No pin selected	Булавка не выбрана
 	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Щелкните изображение, чтобы добавить булавку; перетащите булавку, чтобы переместить ее, или ее кольцо, чтобы изменить размытие. Delete удаляет выбранную булавку.
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	Перетаскивайте маркеры на контуре, чтобы изменить размер и повернуть его, квадрат — чтобы скруглить углы, а точки внутри — чтобы задать, где начинается размытие.
 	Iris Blur…	Диафрагменное размытие…
 	Tilt-Shift…	Наклон-сдвиг…
 	Path Blur…	Размытие по контуру…
@@ -1696,6 +1697,7 @@
 	These settings aren't available in PhotoCraft yet.	Эти параметры пока недоступны в PhotoCraft.
 	Shortcut removed.	Комбинация клавиш удалена.
 	All shortcuts reset to PhotoCraft defaults.	Все комбинации клавиш сброшены к стандартным PhotoCraft.
+	Add Shortcut	Добавить комбинацию
 	Delete Shortcut	Удалить комбинацию
 	Press keys…	Нажмите клавиши…
 	shortcut	комбинация
@@ -3084,6 +3086,8 @@ curves	Smooth	Сгладить
 	Action playback stopped	Воспроизведение операции остановлено
 	Step {step} is waiting for its dialog	Шаг {step} ожидает своего диалога
 @plural	{n} action|{n} actions	{n} операция|{n} операции|{n} операций
+	Background (Default)	Фон (по умолчанию)
+	Content-Aware Fill	Заливка с учётом содержимого
 # Batch / Image Processor
 	Include All Subfolders	Включить все вложенные папки
 	Auto Add/Delete	Автодобавление/удаление
@@ -3131,3 +3135,7 @@ curves	Smooth	Сгладить
 	Chisel Hard	Жесткая огранка
 	Chisel Soft	Мягкая огранка
 	Open color-less EXR as ACEScg	Открывать EXR без цветового профиля как ACEScg
+
+# View › Guides › right-click a guide
+	Edit Selected Guides	Изменить выбранные направляющие
+	Clear Selected Guides	Удалить выбранные направляющие

@@ -1295,6 +1295,16 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         crate::crop_overlay::options_button(o, ui);
                         let pick_shield_color = crate::crop_shield::options_button(&mut o.crop_shield, ui);
                         widgets::checkbox(ui, &mut o.crop_delete, tl!("Delete Cropped Pixels"));
+                        // Fill: what a turned or extending crop puts where the image doesn't reach
+                        // (#3823). Generative Expand is not offered.
+                        ui.label(tl!("Fill:"));
+                        widgets::dropdown(
+                            ui,
+                            "crop-fill",
+                            &mut o.crop_content_aware,
+                            &[(false, tl!("Background (Default)")), (true, tl!("Content-Aware Fill"))],
+                            150.0,
+                        );
                         if crate::crop_ui::preset_ratio(app) != before_ratio {
                             crate::crop_ui::apply_ratio(app);
                         }
@@ -1919,7 +1929,7 @@ fn navigator(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // applying egui's smoothed wheel tail a second time.
     let pinch_zooms = app.session.prefs().enhanced_controls.zoom_with_trackpad_pinch;
     if resp.hovered()
-        && let Some(crate::wheel_nav::Wheel::Zoom(factor)) = crate::wheel_nav::read(&ctx, true, pinch_zooms)
+        && let Some(crate::wheel_nav::Wheel::Zoom(factor)) = crate::wheel_nav::read(&ctx, true, pinch_zooms, egui::Id::new("pc-navigator-wheel"), true)
     {
         let view = &mut app.ui.views[idx];
         let next = crate::zoom_levels::clamp(view.zoom * factor, view.doc_size);

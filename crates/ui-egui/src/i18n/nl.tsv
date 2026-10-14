@@ -546,6 +546,7 @@
 # Field Blur pins (#3373)
 	No pin selected	Geen speld geselecteerd
 	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Klik in de afbeelding om een speld toe te voegen; sleep een speld om hem te verplaatsen, of zijn ring om de vervaging te wijzigen. Delete verwijdert de geselecteerde speld.
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	Sleep de grepen op de omtrek om hem te schalen en te draaien, het vierkantje om de hoeken af te ronden en de punten binnenin om in te stellen waar de vervaging begint.
 	Iris Blur…	Irisvervaging…
 	Tilt-Shift…	Tilt-shift…
 	Path Blur…	Padvervaging…
@@ -1020,6 +1021,7 @@
 	Delete Group	Groep verwijderen
 	Delete Layer Mask	Laagmasker verwijderen
 	Delete Layers	Lagen verwijderen
+	Add Shortcut	Sneltoets toevoegen
 	Delete Shortcut	Sneltoets verwijderen
 	Delete Timeline	Tijdlijn verwijderen
 	Delete Tool Preset	Gereedschapsvoorinstelling verwijderen
@@ -3897,6 +3899,7 @@ curves	Smooth	Vloeiend maken
 	Action playback stopped	Afspelen van de handeling gestopt
 	Step {step} is waiting for its dialog	Stap {step} wacht op zijn dialoogvenster
 @plural	{n} action|{n} actions	{n} handeling|{n} handelingen
+	Background (Default)	Achtergrond (standaard)
 # Batch / Image Processor
 	Include All Subfolders	Alle submappen opnemen
 	Auto Add/Delete	Automatisch toevoegen/verwijderen
@@ -3924,3 +3927,7 @@ curves	Smooth	Vloeiend maken
 	Chisel Hard	Beitel hard
 	Chisel Soft	Beitel zacht
 	Open color-less EXR as ACEScg	EXR zonder kleurruimte als ACEScg openen
+
+# View › Guides › right-click a guide
+	Edit Selected Guides	Geselecteerde hulplijnen bewerken
+	Clear Selected Guides	Geselecteerde hulplijnen wissen

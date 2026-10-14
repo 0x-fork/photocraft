@@ -562,6 +562,7 @@
 # Field Blur pins (#3373)
 	No pin selected	Není vybrán žádný špendlík
 	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Kliknutím do obrazu přidáte špendlík; tažením špendlík přesunete, tažením jeho prstence změníte rozostření. Delete odstraní vybraný špendlík.
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	Tažením úchytů na obrysu ho změníte a otočíte, čtverečkem zaoblíte rohy a body uvnitř nastavíte, kde začíná rozostření.
 	Iris Blur…	Rozostření clonou…
 	Tilt-Shift…	Tilt-shift…
 	Path Blur…	Rozostření podél cesty…
@@ -1051,6 +1052,7 @@
 	Delete Group	Odstranit skupinu
 	Delete Layer Mask	Odstranit masku vrstvy
 	Delete Layers	Odstranit vrstvy
+	Add Shortcut	Přidat zkratku
 	Delete Shortcut	Odstranit zkratku
 	Delete Timeline	Odstranit časovou osu
 	Delete Tool Preset	Odstranit přednastavení nástroje
@@ -3745,6 +3747,7 @@ navigator	Zoom	Zvětšení
 	Action playback stopped	Přehrávání akce zastaveno
 	Step {step} is waiting for its dialog	Krok {step} čeká na svůj dialog
 @plural	{n} action|{n} actions	{n} akce|{n} akce|{n} akcí
+	Background (Default)	Pozadí (výchozí)
 # Batch / Image Processor
 	Include All Subfolders	Zahrnout všechny podsložky
 	Auto Add/Delete	Automaticky přidat/odstranit
@@ -3772,3 +3775,7 @@ navigator	Zoom	Zvětšení
 	Chisel Hard	Tvrdé tesání
 	Chisel Soft	Měkké tesání
 	Open color-less EXR as ACEScg	Otevřít EXR bez údaje o barevném prostoru jako ACEScg
+
+# View › Guides › right-click a guide
+	Edit Selected Guides	Upravit vybraná vodítka
+	Clear Selected Guides	Vymazat vybraná vodítka

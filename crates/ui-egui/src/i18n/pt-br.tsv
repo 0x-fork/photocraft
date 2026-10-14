@@ -540,6 +540,7 @@
 # Field Blur pins (#3373)
 	No pin selected	Nenhum alfinete selecionado
 	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Clique na imagem para adicionar um alfinete; arraste um alfinete para movê-lo ou o anel dele para alterar o desfoque. Delete remove o alfinete selecionado.
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	Arraste as alças do contorno para redimensionar e girar, o quadrado para arredondar os cantos e os pontos internos para definir onde o desfoque começa.
 	Iris Blur…	Desfoque de íris…
 	Tilt-Shift…	Tilt-shift…
 	Path Blur…	Desfoque de demarcador…
@@ -1022,6 +1023,7 @@
 	Delete Group	Excluir grupo
 	Delete Layer Mask	Excluir máscara de camada
 	Delete Layers	Excluir camadas
+	Add Shortcut	Adicionar atalho
 	Delete Shortcut	Excluir atalho
 	Delete Timeline	Excluir linha do tempo
 	Delete Tool Preset	Excluir predefinição de ferramenta
@@ -3927,6 +3929,7 @@ layerLabel	No Color	Sem cor
 	Action playback stopped	Reprodução da ação interrompida
 	Step {step} is waiting for its dialog	A etapa {step} está aguardando sua caixa de diálogo
 @plural	{n} action|{n} actions	{n} ação|{n} ações
+	Background (Default)	Plano de fundo (padrão)
 # Batch / Image Processor
 	Include All Subfolders	Incluir todas as subpastas
 	Auto Add/Delete	Adicionar/excluir automaticamente
@@ -3954,3 +3957,7 @@ layerLabel	No Color	Sem cor
 	Chisel Hard	Cinzel duro
 	Chisel Soft	Cinzel suave
 	Open color-less EXR as ACEScg	Abrir EXR sem espaço de cor como ACEScg
+
+# View › Guides › right-click a guide
+	Edit Selected Guides	Editar guias selecionadas
+	Clear Selected Guides	Limpar guias selecionadas

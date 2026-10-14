@@ -21,7 +21,7 @@ XL are missing (gap G10). Remaining: 300–500 h including PSD fidelity.
 
 | Format | Photoshop | PhotoCraft read | PhotoCraft write | Fidelity and tests |
 |---|---|---|---|---|
-| PSD | R/W | yes | yes | 1/8/16/32-bit; Bitmap, Gray, Indexed, RGB, CMYK, Multichannel, Lab, Duotone; layers, groups, masks, vector masks, adjustment and fill layers, effects, text, shapes, smart objects (SoLd/lnk2; CS2 PlLd/lnkD read with their warp, kept as is or re-saved as SoLd once edited), smart filters (14 mapped, rest verbatim), slices, comps, Advanced Blending. Oracle floors: Photoshop-authored 185/258, io 148/170, psd-tools 249/309; round trip ≥ 169/170, 308/309, 258/256. Known failures: #1281, #2469 (#2374, text layers, closed 2026-10-10; #2465, CS2 `PlLd`-only smart objects, fixed 2026-10-12) |
+| PSD | R/W | yes | yes | 1/8/16/32-bit; Bitmap, Gray, Indexed, RGB, CMYK, Multichannel, Lab, Duotone; layers, groups, masks, vector masks, adjustment and fill layers, effects, text, shapes, smart objects (SoLd/lnk2; CS2 PlLd/lnkD read with their warp, kept as is or re-saved as SoLd once edited), smart filters (14 mapped plus Filter Gallery with Chrome, rest verbatim), slices, comps, Advanced Blending. Oracle floors: Photoshop-authored 185/258, io 148/170, psd-tools 249/309; round trip ≥ 169/170, 308/309, 258/256. Known failures: #1281, #2469 (#2374, text layers, closed 2026-10-10; #2465, CS2 `PlLd`-only smart objects, fixed 2026-10-12) |
 | PSB | R/W | yes | yes | Auto-switches above 2 GB (REL-212-2); 4–5 GB fixtures generated (FILE-216-2); > 4 GB fails on Windows (#375) |
 | Cloud PSD (.psdc) | R/W | no | no | Out of scope (Adobe cloud) |
 | TIFF | R/W | yes | yes | 8/16/32f, Gray/RGB/CMYK, BigTIFF, every IFD, banded parallel decode; layered TIFF both byte orders (FILE-215-7: extra alpha channels not written) |
@@ -168,5 +168,6 @@ remaining gaps in #1606 stay tracked with per-sample corpus ceilings.
 | 2026-10-12 | minor | Presets table: Contours `.shc` read and write through the Contour Editor (FILE-215-15); `.csh` and `.tpl` stay missing |
 | 2026-10-12 | minor | Palette BMPs open in Indexed Color mode (#3802) |
 | 2026-10-12 | minor | Save writes a JPEG at its own estimated quality and a WebP lossy or lossless as opened (#2399) |
+| 2026-10-11 | minor | PSD smart filters: Filter Gallery (`GEfc`) maps to `filter.filterGallery` when every effect is modelled (Chrome so far), editable from the Layers panel |
 | 2026-10-11 | minor | D5100 image area and fitted-look preservation in Camera Raw tuning |
 | 2026-10-10 | major | First version: Photoshop 2026 27.11.0's formats from its bundle, against our codecs; Affinity notes moved from `roadmap.md` |

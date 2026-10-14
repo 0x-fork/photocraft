@@ -1,6 +1,6 @@
 # UI parity: tools, handles, modifiers and feel
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** minor (Clip Thumbnails to Layer Bounds; Pen ⇧ 45°; last selected tool restored at launch; Layers panel filter-type dropdown with Kind, Name and Mode, #5048; Free Transform box and marching ants follow the selection, #5297; History: the trash deletes the selected snapshot, rows drag onto the trash, #5324; smart filter reordering by drag; smart object perspective row corrected to done, #426; Free Transform H/V skew fields; toolbar tool shortcuts can be reassigned; ⇧-dragged guides land on ruler ticks; layer and selection keys; tool keys; spring-loaded tool letters; type formatting keys; Pen Auto Add/Delete, #4144; smart filter rows; stale missing-tool rows corrected: Color Replacement, Red Eye and the Add/Delete Anchor Point pair are live toolbar tools, Frame landed; no percentage changed) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** minor (guide keys and clicks; menu bar from the keyboard, #4988; Crop tool Content-Aware Fill; on-canvas corner radius widgets, TOOL-214-12; Curvature Pen edits the active path; Clip Thumbnails to Layer Bounds; Pen ⇧ 45°; last selected tool restored at launch; Layers panel filter-type dropdown with Kind, Name and Mode, #5048; Free Transform box and marching ants follow the selection, #5297; History: the trash deletes the selected snapshot, rows drag onto the trash, #5324; smart filter reordering by drag; smart object perspective row corrected to done, #426; Free Transform H/V skew fields; toolbar tool shortcuts can be reassigned; ⇧-dragged guides land on ruler ticks; layer and selection keys; tool keys; spring-loaded tool letters; type formatting keys; Pen Auto Add/Delete, #4144; smart filter rows; stale missing-tool rows corrected: Color Replacement, Red Eye and the Add/Delete Anchor Point pair are live toolbar tools, Frame landed; no percentage changed) · **Target:** Adobe Photoshop 2026
 
 How PhotoCraft's direct manipulation compares with Photoshop 2026 (27.11.0): the toolbox, the
 handles and modifier keys of each gesture, nudging, snapping, numeric precision, navigation,
@@ -121,8 +121,9 @@ Triangle and Curvature Pen (minus legacy Rounded Rectangle and Targeted Adjustme
 | Click corner, drag smooth, ⌥ breaks a handle, ⌘ direct-selects, ⇧ 45° | done | TOOL-214-10; `vector_ui.rs` (#3751) |
 | Handle on the last point, close-drag handle | partial | #1482 |
 | Pen Auto Add/Delete: click a segment of the active path to add, an anchor to delete; ⇧ suspends it | done | #4144 |
+| Curvature Pen edits the active path with no modifier: drag an anchor (the curve reflows), click a segment to add an anchor, double-click smooth ↔ corner; cursor badge + on segments, four arrows on anchors | done: `direct_select.rs` (`curvature_press`, `curvature_hover`), `path.moveAnchors`/`path.convertPoint` with `curvature`, `direct_select_tests.rs` | |
 | Path operations in the options bar (combine, subtract, intersect, exclude) | partial | `layer.combineShapes.*`; Pen options #1397 |
-| On-canvas corner-radius handles on live shapes | missing | TOOL-214-12 |
+| On-canvas corner-radius handles on live shapes | done: every selected live rectangle shows a widget at each arc centre with Path Selection, the Rectangle tool and Move with Show Transform Controls; a drag rounds every corner of every selected rectangle to the same radius, ⌥ that corner on each, with the corner radius cursor and an `R:` readout, previewed and committed as one history step (`corner_radius.rs`, `corner_radius_tests.rs`) | TOOL-214-12 |
 | Shape stroke controls (dash, caps, joins, align) | done | TOOL-1053-1, [`shape-strokes.md`](shape-strokes.md) |
 | Rotated shape selection hints correct | partial | #2512 |
 | Curved shape bounds exact | partial | one pixel too wide (#2537) |
@@ -141,13 +142,14 @@ Triangle and Curvature Pen (minus legacy Rounded Rectangle and Targeted Adjustme
 | Default mode: the image turns and moves behind an upright box; Auto Center Preview; Use Classic Mode | done | TOOL-214-23 |
 | W × H × Resolution with units, built-in size presets, Front Image | done | TOOL-214-9 (`crop_size.rs`) |
 | Saved custom crop presets | missing | TOOL-214-9 |
-| Content-Aware crop fill, Delete Cropped Pixels off | partial | |
+| Fill: Content-Aware Fill: a turned or extending crop fills the uncovered corners and strips from the image (each piece with its own sampling window), on the Background or else the active pixel layer, in the crop's one undo step; Generative Expand not offered | done | `tests/crop_content_aware.rs`, `crop_ui.rs::commit_passes_the_fill_choice` (#3823, 2026-10-12) |
+| Delete Cropped Pixels off | partial | |
 
 ## Snapping, guides, rulers, precision
 
 | Behaviour | Status | Evidence |
 |---|---|---|
-| Snap to guides, grid, layers, document bounds and centre, selection, slices; ⌘ disables while dragging | done | `engine/src/snap.rs`, `snap_ui.rs` |
+| Snap to guides, grid, layers, document bounds and centre, selection, slices; Ctrl disables other gestures, while Distort corners snap to guides and intersections | done | `engine/src/snap.rs`, `snap_ui.rs` (actual-corner grab-offset regressions, #3632) |
 | Snap vector tools and transforms to the pixel grid | done | `snap_ui.rs:196` |
 | Smart guides (magenta alignment lines) | done | |
 | Smart guide distance and spacing labels | missing | |
@@ -190,6 +192,7 @@ Triangle and Curvature Pen (minus legacy Rounded Rectangle and Targeted Adjustme
 | Layer and selection keys: ⌘, toggles visibility, ⌘\ targets the mask, / locks transparency, ⌘⌥2 loads luminosity, ⌘⌥⌫ fills from history, Tab / ⇧Tab rename the next layer, ⌥-click a thumbnail fits the layer | done (2026-10-11) | |
 | Tool keys: ← / → turn the brush tip (1°, ⇧ 15°), ⇧-click with Type starts new text over old, Space+F / ⇧Space+F cycle the pasteboard colour | done (2026-10-11) | |
 | Type formatting keys while editing text | done: ⇧⌘K, U, B, I and / toggle All Caps, Underline, Faux Bold, Faux Italic, Strikethrough (off when every selected character has it, else on); ⌥↑/↓ leading ∓2 pt, ⇧⌥↑/↓ baseline shift ±2 pt (10 with ⌘); ⌥←/→ tracking ±20 over a selection (100 with ⌘; a collapsed caret still kerns); ⌥⇧⌘H toggles Hyphenate for the touched paragraphs. One `type.setStyle` step per press (new `leadingBy`/`baselineShiftBy`/`trackingBy`; auto leading starts from its laid-out value); the global ⇧⌘K/U/B/I never fire while typing. Differs: a collapsed caret in non-empty text changes nothing, since the model can't hold a pending style for the next characters typed (empty text takes it as its typing style) (`type_tool.rs`, `input_tests.rs` `type_tool_format_keys_*`) | |
+| Guides: click selects, Delete deletes, right-click menu, ⌥-click turns a guide, double-click opens Guides, Grid & Slices | done (2026-10-12) | |
 
 ## Panels and workspace
 
@@ -206,6 +209,7 @@ Paragraph; the rest open as in-app floating windows.
 | Color panel wheel and RGB/HSB/CMYK/Lab sliders | missing | UI-217-17, #2569 |
 | Window size and dock width remembered | done | UI-217-2 |
 | Command palette with recents | done | UI-217-7 |
+| Menu bar from the keyboard: Alt / F10 focus the bar, ← → ↓ ↩ drive it, Alt+letter opens a menu, underlined mnemonics run items | done | `menu_keys.rs`, #4988; macOS uses the native bar |
 | Every preference takes effect | partial | 46 of 149 do nothing (scorecard) |
 | UI scale presets | missing | UI-217-9, #2492 |
 | History snapshots: camera button, snapshot rows (click returns and selects, rename, delete; the trash deletes the selected snapshot, and a snapshot or state dragged onto it, #5324), `history.*Snapshot` commands | partial | `history_cmds.rs`, `snapshot_rows` in `panels.rs`; New Snapshot dialog, first snapshot and History Options to come (#2966) |
@@ -221,10 +225,12 @@ Paragraph; the rest open as in-app floating windows.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | Menu bar from the keyboard: Alt / F10 focus, Alt+letter, underlined mnemonics (#4988) |
 | 2026-10-13 | minor | Layers panel filter row: Kind is a real dropdown with Kind, Name and Mode filters, drivable by `ui.set {layerFilter}` (#5048); row added as partial |
 | 2026-10-13 | minor | Stale "missing tool" rows corrected against main: Color Replacement (`paint.colorReplacement`), Red Eye (`paint.redEye`) and Add/Delete Anchor Point (the P flyout cycle) are live toolbar tools, so only Art History Brush is missing; no percentage or estimate changed |
 | 2026-10-13 | minor | Smart object perspective (non-affine) corrected to done: #426 landed four-corner placements with PSD round trip; scorecard FILE-215-6 flipped |
 | 2026-10-10 | major | First version, from a source audit against Photoshop 2026 27.11.0's shortcuts file and the open issues |
+| 2026-10-12 | minor | Closed #3632: Distort and Ctrl/Cmd corner drags snap actual corners to guides and intersections; shared guide snapping respects Extras and Canvas Guides visibility, with offset, visibility and constrained-alignment regressions |
 | 2026-10-10 | minor | Fixed Crop live resize snapping feedback and outdated-camera rendering, applied ratios immediately to centred inscribed previews, and removed two-point options-bar overflow; added pointer, rendering, dropdown/Enter, Swap/X and scrolling regressions |
 | 2026-10-11 | minor | Flick panning done: releasing a moving Hand drag (tool, Space or middle button) glides and decays, gated by Enable Flick Panning |
 | 2026-10-11 | minor | History snapshots: the camera button takes one, snapshot rows return to it as a new state, rename and delete it (#2966) |
@@ -238,8 +244,12 @@ Paragraph; the rest open as in-app floating windows.
 | 2026-10-12 | minor | Toolbar tool shortcuts can be reassigned, removed and reset in Keyboard Shortcuts (#4086); capture, restart, group cycling, conflict and text-focus regressions |
 | 2026-10-12 | minor | Smart filter rows can be selected, and dragged (⌥: copied) onto another smart object or onto Delete (#4271) |
 | 2026-10-12 | minor | Free Transform options bar: H and V skew fields; a sheared box reads as skew instead of a taller H |
+| 2026-10-12 | minor | Crop tool Fill › Content-Aware Fill done (#3823); Delete Cropped Pixels off split into its own row, still partial |
 | 2026-10-12 | minor | Layers panel: Clip Thumbnails to Layer Bounds frames each layer's pixels instead of the canvas (#4281) |
+| 2026-10-12 | minor | Guides: ⌥-click turns a guide through the click; double-click opens Preferences › Guides, Grid & Slices |
 | 2026-10-13 | minor | Smart filter rows can be dragged up or down their stack to reorder the filters |
+| 2026-10-13 | minor | On-canvas corner radius widgets on live rectangles (TOOL-214-12) |
+| 2026-10-13 | minor | Curvature Pen edits the active path: drag anchors, click a segment to add, double-click smooth/corner, cursor badges |
 | 2026-10-11 | minor | Pen ⇧ 45° done: ⇧-click puts the next anchor on the nearest 45° ray, ⇧-drag turns its handles in 45° steps (TOOL-214-10 done, #3751) |
 | 2026-10-14 | minor | Last selected tool restored across launches; temporary overrides excluded, explicit Eraser choices retained, and final selection flushed on normal exit |
 | 2026-10-13 | minor | Free Transform with a selection: the box is the selection's rectangle, and the marching ants follow it while it is transformed (#5297) |

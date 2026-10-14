@@ -558,6 +558,7 @@
 # Field Blur pins (#3373)
 	No pin selected	Ningún pin seleccionado
 	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Haga clic en la imagen para añadir un pin; arrastre un pin para moverlo o su anillo para cambiar el desenfoque. Suprimir elimina el pin seleccionado.
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	Arrastre los manejadores del contorno para cambiar su tamaño y girarlo, el cuadrado para redondear las esquinas y los puntos interiores para fijar dónde empieza el desenfoque.
 	Iris Blur…	Desenfoque de iris…
 	Tilt-Shift…	Cambio de inclinación…
 	Path Blur…	Desenfoque de trazado…
@@ -1040,6 +1041,7 @@
 	Delete Group	Eliminar grupo
 	Delete Layer Mask	Eliminar máscara de capa
 	Delete Layers	Eliminar capas
+	Add Shortcut	Añadir método abreviado
 	Delete Shortcut	Eliminar método abreviado
 	Delete Timeline	Eliminar línea de tiempo
 	Delete Tool Preset	Eliminar ajuste preestablecido de herramienta
@@ -2822,6 +2824,8 @@ curves	Smooth	Suavizar
 	Action playback stopped	Reproducción de la acción detenida
 	Step {step} is waiting for its dialog	El paso {step} está esperando su cuadro de diálogo
 @plural	{n} action|{n} actions	{n} acción|{n} acciones
+	Background (Default)	Fondo (predeterminado)
+	Content-Aware Fill	Relleno según el contenido
 # Batch / Image Processor
 	Include All Subfolders	Incluir todas las subcarpetas
 	Auto Add/Delete	Añadir/eliminar automáticamente
@@ -2849,3 +2853,10 @@ curves	Smooth	Suavizar
 	Chisel Hard	Cincelar duro
 	Chisel Soft	Cincelar suave
 	Open color-less EXR as ACEScg	Abrir EXR sin espacio de color como ACEScg
+# Export As metadata and profile options
+	Color Profile	Perfil de color
+	EXIF	EXIF
+
+# View › Guides › right-click a guide
+	Edit Selected Guides	Editar guías seleccionadas
+	Clear Selected Guides	Borrar guías seleccionadas

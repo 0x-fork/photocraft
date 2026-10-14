@@ -1358,7 +1358,6 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) ->
         warp_pointer(app, ev, tol, mods);
         return true;
     }
-    let no_distort = distort_refused(app, &t);
     let Some(pv) = app.transform_preview.as_mut() else { return false };
     match ev {
         ToolEvent::Down { x, y, .. } => {
@@ -1389,26 +1388,45 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) ->
                 commit(app);
                 return true;
             }
-            let legacy = app.session.prefs().general.use_legacy_free_transform;
-            let unlinked = app.ui.transform_unlinked;
             let type_layer = moves_type(app, &t);
-            if let (Some(g), Some(s)) = (g, app.ui.transform.as_mut())
+            let adjusted = g.map(|g| drag_mods(app, &t, g.hit, mods));
+            if let (Some(g), Some((mode, mods)), Some(s)) = (g, adjusted, app.ui.transform.as_mut())
                 && mode_allows(t.mode, g.hit)
                 && (t.content_aware.is_none() || g.hit != Hit::Outside)
             {
-                let (mode, mods) = if no_distort { scale_not_distort(t.mode, g.hit, mods) } else { (t.mode, mods) };
                 if t.content_aware.is_some() {
-                    let mut mods = mode_mods(mode, g.hit, legacy_mods(legacy, g.hit, unlinked_mods(unlinked, legacy, g.hit, mods)));
+                    let mut mods = mode_mods(mode, g.hit, mods);
                     // Content-Aware Scale: ⌘ neither skews nor distorts.
                     mods.command = false;
                     apply_drag(s, g, [x, y], mods);
                 } else {
-                    apply_mode_drag(s, g, [x, y], mode, type_layer, legacy_mods(legacy, g.hit, unlinked_mods(unlinked, legacy, g.hit, mods)));
+                    apply_mode_drag(s, g, [x, y], mode, type_layer, mods);
                 }
             }
         }
     }
+    crate::snap_ui::retain_transform_lines(app, mods);
     true
+}
+
+/// The same effective modifiers drive the geometry and decide whether Ctrl is a distortion
+/// gesture rather than the ordinary snap override. Keep type and Content-Aware Scale refusals.
+fn drag_mods(app: &PhotocraftApp, t: &TransformSession, hit: Hit, mods: egui::Modifiers) -> (TransformMode, egui::Modifiers) {
+    let (mode, mods) = if distort_refused(app, t) { scale_not_distort(t.mode, hit, mods) } else { (t.mode, mods) };
+    let legacy = app.session.prefs().general.use_legacy_free_transform;
+    (mode, legacy_mods(legacy, hit, unlinked_mods(app.ui.transform_unlinked, legacy, hit, mods)))
+}
+
+/// Only a freely distorted corner can snap its proposed position. Perspective moves paired
+/// corners on one axis; Skew, Warp and Content-Aware Scale have their own constrained geometry.
+pub(crate) fn corner_distorts(app: &PhotocraftApp, index: usize, mods: egui::Modifiers) -> bool {
+    let Some(t) = app.ui.transform.as_ref() else { return false };
+    if t.quad.get(index).is_none() || t.warp.is_some() || t.content_aware.is_some() || t.mode == TransformMode::Skew {
+        return false;
+    }
+    let (mode, mods) = drag_mods(app, t, Hit::Corner(index), mods);
+    let mods = mode_mods(mode, Hit::Corner(index), mods);
+    mods.command && !(mods.alt && mods.shift)
 }
 
 /// Editable type can be scaled, rotated and skewed but not distorted (#2630): the rule that greys

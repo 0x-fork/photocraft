@@ -98,6 +98,13 @@ pub fn effective_shortcut(app: &PhotocraftApp, id: &str, default: Option<&str>) 
     app.session.prefs().shortcut(id, default).map(str::to_string)
 }
 
+/// A command's further keys in effect besides its main one (#3665): the user's, else
+/// Photoshop's (F3 for Copy, Shift+F7 for Inverse…). Menus show only the main key.
+pub fn effective_alternates(app: &PhotocraftApp, id: &str) -> Vec<String> {
+    let main = effective_shortcut(app, id, default_shortcut(id).as_deref());
+    app.session.prefs().alternates(id, main.as_deref())
+}
+
 /// Default (unmodified) shortcut of a command id.
 pub fn default_shortcut(id: &str) -> Option<String> {
     crate::menus::UI_COMMANDS
@@ -189,10 +196,10 @@ fn new_layer_without_dialog(app: &mut PhotocraftApp, ctx: &egui::Context) -> boo
 
 fn nav_keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
     for id in NAV_COMMANDS {
-        let sc = crate::menus::UI_COMMANDS.iter().find(|c| c.0 == id).and_then(|c| parse(app.session.prefs().shortcut(id, c.3)?));
-        if let Some(sc) = sc
-            && consume(ctx, &sc)
-        {
+        let main = crate::menus::UI_COMMANDS.iter().find(|c| c.0 == id).and_then(|c| app.session.prefs().shortcut(id, c.3));
+        let keys: Vec<KeyboardShortcut> =
+            main.into_iter().map(str::to_string).chain(app.session.prefs().alternates(id, main)).filter_map(|k| parse(&k)).collect();
+        if keys.iter().any(|sc| consume(ctx, sc)) {
             if crate::menus::is_enabled(app, id) {
                 let _ = crate::menus::invoke(app, ctx, id, json!({}));
             }
@@ -334,9 +341,10 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if app.camera_raw.is_some() {
         return;
     }
-    // An open menu owns the keyboard (arrows, ↩, Esc), like a native menu; so does an open
-    // dropdown list, whose letters pick an option rather than a tool (#1481).
-    if crate::menu_nav::is_open(ctx) || crate::widgets::dropdown_list_open(ctx) {
+    // An open menu owns the keyboard (arrows, ↩, Esc), like a native menu; so does the menu bar
+    // once Alt or F10 put the keyboard on it (#4988), and an open dropdown list, whose letters
+    // pick an option rather than a tool (#1481).
+    if crate::menu_nav::is_open(ctx) || crate::menu_keys::is_focused(ctx) || crate::widgets::dropdown_list_open(ctx) {
         return;
     }
     // ⌘Z in a filter or adjustment dialog steps the dialog's settings, not the document (#4697).
@@ -491,6 +499,10 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
             crate::canvas::polygon_retract(app);
             return;
         }
+    }
+    // A selected guide: ⌫/Delete removes it (`guide_select`), never Edit › Clear's pixels.
+    if crate::guide_select::keys(app, ctx) {
+        return;
     }
     // Space+F (⇧Space+F backwards) cycles the pasteboard colour, as in Photoshop: F while the
     // Hand key is held, before F's own Cycle Screen Mode.
@@ -1081,8 +1093,11 @@ mod tests {
         let all = photocraft_engine::command_specs()
             .iter()
             .filter_map(|c| c.shortcut.map(|s| (c.id, s)))
-            .chain(crate::menus::UI_COMMANDS.iter().filter_map(|(id, _, _, s)| s.map(|s| (*id, s))));
+            .chain(crate::menus::UI_COMMANDS.iter().filter_map(|(id, _, _, s)| s.map(|s| (*id, s))))
+            // Photoshop's second keys (#3665) are taken by no other command either.
+            .chain(photocraft_engine::prefs::ALTERNATE_SHORTCUTS.iter().copied());
         for (id, s) in all {
+            assert!(parse(s).is_some(), "{id}: {s}");
             if let Some(prev) = seen.insert(s, id) {
                 panic!("shortcut {s} bound to both {prev} and {id}");
             }

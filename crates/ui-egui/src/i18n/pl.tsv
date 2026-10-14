@@ -555,6 +555,7 @@
 # Field Blur pins (#3373)
 	No pin selected	Nie zaznaczono pinezki
 	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Kliknij obraz, aby dodać pinezkę; przeciągnij pinezkę, aby ją przesunąć, lub jej pierścień, aby zmienić rozmycie. Delete usuwa zaznaczoną pinezkę.
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	Przeciągnij uchwyty na obrysie, aby zmienić rozmiar i obrócić kształt, kwadrat, aby zaokrąglić narożniki, a punkty wewnątrz, aby ustawić, gdzie zaczyna się rozmycie.
 	Iris Blur…	Rozmycie irysowe…
 	Tilt-Shift…	Tilt-shift…
 	Path Blur…	Rozmycie ścieżki…
@@ -1039,6 +1040,7 @@
 	Delete Group	Usuń grupę
 	Delete Layer Mask	Usuń maskę warstwy
 	Delete Layers	Usuń warstwy
+	Add Shortcut	Dodaj skrót
 	Delete Shortcut	Usuń skrót
 	Delete Timeline	Usuń oś czasu
 	Delete Tool Preset	Usuń ustawienie wstępne narzędzia
@@ -3735,6 +3737,7 @@ curves	Smooth	Wygładź
 	Action playback stopped	Odtwarzanie operacji zatrzymane
 	Step {step} is waiting for its dialog	Krok {step} czeka na swoje okno dialogowe
 @plural	{n} action|{n} actions	{n} operacja|{n} operacje|{n} operacji
+	Background (Default)	Tło (domyślne)
 # Batch / Image Processor
 	Include All Subfolders	Uwzględnij wszystkie podfoldery
 	Auto Add/Delete	Automatyczne dodawanie/usuwanie
@@ -3762,3 +3765,7 @@ curves	Smooth	Wygładź
 	Chisel Hard	Dłuto twarde
 	Chisel Soft	Dłuto miękkie
 	Open color-less EXR as ACEScg	Otwieraj EXR bez profilu koloru jako ACEScg
+
+# View › Guides › right-click a guide
+	Edit Selected Guides	Edytuj zaznaczone prowadnice
+	Clear Selected Guides	Usuń zaznaczone prowadnice

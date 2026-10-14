@@ -3137,12 +3137,18 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         crate::spring_tools::note_canvas_press(app);
     }
     // Navigation (wheel_nav.rs): scroll pans (⇧ or ⌘/Ctrl sideways); pinch and ⌥-scroll zoom around the pointer.
-    let wheel =
-        crate::wheel_nav::read(&ctx, app.session.prefs().general.zoom_with_scroll_wheel, app.session.prefs().enhanced_controls.zoom_with_trackpad_pinch);
     // The wheel also scrolls over the scrollbars drawn on top of the canvas (last frame's hover).
     let bars_id = egui::Id::new(("pc-canvas-bars-hover", idx));
     let over_bars = ctx.data(|d| d.get_temp::<bool>(bars_id)).unwrap_or(false);
-    if response.hovered() || free_hover || over_bars {
+    let nav_hovered = response.hovered() || free_hover || over_bars;
+    let wheel = crate::wheel_nav::read(
+        &ctx,
+        app.session.prefs().general.zoom_with_scroll_wheel,
+        app.session.prefs().enhanced_controls.zoom_with_trackpad_pinch,
+        response.id.with("wheel"),
+        nav_hovered,
+    );
+    if nav_hovered {
         let pointer = ui.input(|i| i.pointer.hover_pos());
         match (wheel, pointer) {
             (Some(crate::wheel_nav::Wheel::Zoom(f)), Some(p)) => {
@@ -3153,6 +3159,16 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                     // Over the pasteboard the anchor is the image's nearest point (#3720).
                     let at = wheel_anchor(&xf, p, view.doc_size);
                     zoom_about(&mut view, &xf, at, nz, false, ppp);
+                }
+            }
+            (Some(crate::wheel_nav::Wheel::SnapZoom(n)), Some(p)) => {
+                let dir = if n > 0 { 1 } else { -1 };
+                let mut nz = view.zoom;
+                for _ in 0..n.unsigned_abs() {
+                    nz = crate::zoom_levels::step(nz, dir, view.doc_size);
+                }
+                if nz != view.zoom {
+                    zoom_about(&mut view, &xf, p, nz, false, ppp);
                 }
             }
             (Some(crate::wheel_nav::Wheel::Pan(scroll)), _) => {
@@ -3380,10 +3396,17 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             crate::lasso_ui::canvas_input(app, &ctx, &xf, &response);
             (buttons.started, buttons.dragged, buttons.stopped, buttons.clicked) = (false, false, false, false);
         }
+        // Right-click on a guide where it could be dragged (the Move tool, or ⌘ with a selection
+        // tool): select it and open the guide menu, as Photoshop does.
+        let guide_menu = response.secondary_clicked()
+            && !lasso_retracted
+            && !transforming
+            && response.interact_pointer_pos().is_some_and(|p| crate::canvas_tool_menu::open_guide(app, &ctx, tool, mods, [p.x, p.y], xf.to_doc(p)));
         // Right-click with the Move tool, or ⌘/Ctrl+right-click: the layers under the pointer.
         if response.secondary_clicked()
             && !lasso_retracted
             && !transforming
+            && !guide_menu
             && crate::layer_pick_ui::is_gesture(tool, mods)
             && let Some(p) = response.interact_pointer_pos()
         {
@@ -3397,6 +3420,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         if response.secondary_clicked()
             && !lasso_retracted
             && !transforming
+            && !guide_menu
             && !crate::layer_pick_ui::is_gesture(tool, mods)
             && let Some(p) = response.interact_pointer_pos()
         {
@@ -3574,6 +3598,12 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 Tool::MagneticLasso if response.double_clicked() || response.triple_clicked() => crate::magnetic_lasso_ui::close(app, mods.alt),
                 // The first click placed (or grabbed) the point; the second toggles it.
                 Tool::CurvaturePen if response.double_clicked() => crate::vector_ui::curvature_toggle(app, d[0], d[1]),
+                // Double-clicking a guide opens Preferences › Guides, Grid & Slices, as in Photoshop.
+                Tool::Move if response.double_clicked() && crate::rulers::guide_at(app, d[0], d[1]).is_some() => {
+                    if let Err(e) = crate::menus::invoke(app, &ctx, "edit.preferences.guidesGridAndSlices", json!({})) {
+                        app.ui.status = e;
+                    }
+                }
                 _ => {
                     if tool == Tool::Move && app.ui.transform.is_none() {
                         begin_transform_controls_at(app, &ctx, &xf, p);
@@ -3731,6 +3761,11 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             ui.ctx().set_cursor_icon(c);
         } else if let Some(c) = response.hover_pos().and_then(|p| crate::cam_transform::cursor(app, &ctx, &xf, p)) {
             ui.ctx().set_cursor_icon(c);
+        } else if let Some(p) = response.hover_pos().filter(|p| crate::corner_radius::hovers(app, xf.to_doc(*p))) {
+            // Over a live rectangle's corner widget (or dragging one): the arrow with a rounded
+            // corner badge, as Photoshop's corner radius cursor.
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Default);
+            crate::icons::cursor_badge(&ctx, "scan", p);
         } else if let Some((r, p, c)) =
             response.hover_pos().and_then(|p| transform_controls_rect(app, &xf).and_then(|r| transform_controls_cursor(r, p).map(|c| (r, p, c))))
         {
@@ -4543,7 +4578,13 @@ pub(crate) fn layer_edges_rect(app: &PhotocraftApp, idx: usize) -> Option<photoc
 
 /// Move tool › Show Transform Controls: the box Free Transform would open on the active layer.
 fn transform_controls_rect(app: &PhotocraftApp, xf: &ViewXform) -> Option<Rect> {
-    if app.ui.tool != Tool::Move || !app.ui.tool_options.move_show_transform || app.ui.transform.is_some() || app.drag.is_some() {
+    // A corner radius drag hides the box, as in Photoshop.
+    if app.ui.tool != Tool::Move
+        || !app.ui.tool_options.move_show_transform
+        || app.ui.transform.is_some()
+        || app.drag.is_some()
+        || app.ui.corner_radius.is_some()
+    {
         return None;
     }
     let st = app.session.active()?;
@@ -4896,6 +4937,13 @@ fn tool_move(app: &mut PhotocraftApp, x: f64, y: f64, pressure: f32, mods: egui:
 
 /// Tool state machine. Shared by mouse input and automation.
 pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) {
+    // A press anywhere but on a guide deselects the selected guide (`guide_select`).
+    if let ToolEvent::Down { x, y, .. } = ev
+        && app.ui.selected_guide.is_some()
+        && crate::rulers::guide_at(app, x, y).is_none()
+    {
+        crate::guide_select::clear(app);
+    }
     if crate::symmetry_ui::pointer(app, ev, crate::workspace_ui::sticky_mods(app, mods)) {
         return;
     }
@@ -4957,6 +5005,10 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
     }
     // Move tool: ⇧ locks the axis, ⌥ duplicates (move_mods.rs).
     let ev = crate::move_mods::filter_event(app, ev, mods);
+    // A live rectangle's corner radius widgets (Path Selection, Rectangle tool).
+    if crate::corner_radius::pointer(app, ev, mods) {
+        return;
+    }
     // Direct Selection, and the Pen's ⌘ (Direct Selection) and ⌥ (Convert Point) modes (#790).
     if crate::direct_select::pointer(app, ev, mods) {
         return;
@@ -4993,7 +5045,7 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
     if let ToolEvent::Down { x, y, .. } = raw
         && let Some((vertical, i)) = command_guide_at(app, app.active_tool(), [x, y], mods)
     {
-        app.guide_drag = Some(crate::rulers::GuideDrag { vertical, index: Some(i), pos: if vertical { x } else { y } });
+        app.guide_drag = Some(crate::rulers::GuideDrag::existing(vertical, i, [x, y]));
         crate::snap_ui::begin_guide(app, [x, y]);
         return;
     }
@@ -5037,7 +5089,12 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
     match ev {
         ToolEvent::Down { x, y, pressure } if tool == Tool::Move => {
             if let Some((vertical, i)) = crate::rulers::guide_at(app, x, y) {
-                app.guide_drag = Some(crate::rulers::GuideDrag { vertical, index: Some(i), pos: if vertical { x } else { y } });
+                // ⌥-click turns the guide, through the point clicked, as in Photoshop.
+                if mods.alt && !mods.shift && !mods.command {
+                    crate::guide_select::flip(app, vertical, i, [x, y]);
+                    return;
+                }
+                app.guide_drag = Some(crate::rulers::GuideDrag::existing(vertical, i, [x, y]));
                 return;
             }
             // Auto-Select (or ⌘-click while it is off) picks the layer under the pointer first
@@ -5783,6 +5840,11 @@ pub fn commit_crop(app: &mut PhotocraftApp) {
     let (w, h) = ((r[2] - r[0]).round().max(1.0), (r[3] - r[1]).round().max(1.0));
     let delete = app.ui.tool_options.crop_delete;
     let mut p = json!({"x": x, "y": y, "width": w, "height": h, "deleteCroppedPixels": delete});
+    // Fill › Content-Aware Fill (#3823): what a turned or extending frame uncovers is filled from
+    // its surroundings instead of the background colour.
+    if app.ui.tool_options.crop_content_aware {
+        p["contentAware"] = json!(true);
+    }
     // A turned frame (#1792): the document turns with it, then is cropped to it. (The untouched
     // default frame above is never turned: turning it makes it a real frame.)
     let angle = crate::crop_ui::angle(app);
