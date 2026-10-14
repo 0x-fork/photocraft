@@ -571,18 +571,30 @@ fn first_error<T>(device: &wgpu::Device, f: impl FnOnce() -> T) -> (T, Option<wg
     (out, error)
 }
 
-/// Run `f` with error scopes to catch synchronous validation/internal/OOM errors as `Unsupported`.
-/// Device loss and async errors are handled by the health callbacks (if watched).
-/// On WebGPU, errors arrive asynchronously so scopes don't catch them; health callbacks handle those.
-fn scoped_work<T>(device: &wgpu::Device, watched: bool, f: impl FnOnce() -> Result<T, Unsupported>) -> Result<T, Unsupported> {
-    // Always use error scopes on native to catch synchronous validation errors (e.g. invalid buffer
-    // in queue.write_buffer). On WebGPU, errors are async so scopes don't help; rely on health.
+/// Runs `f` inside the error scopes of [`first_error`], turning a reported error into
+/// [`Unsupported`] instead of letting it escape to wgpu's panic handler.
+///
+/// Every native caller needs this, watched or not: a validation error (writing into a destroyed
+/// or too-small buffer, say) is raised synchronously and never reaches the health callbacks, so a
+/// watched compositor still panicked on it. WebGPU reports its errors asynchronously, long after
+/// the scope has popped, so wasm relies on the health callbacks alone.
+///
+/// A scope also swallows the error that [`DeviceHealth`]'s uncaptured-error handler would have
+/// recorded, so a reported error is handed back to `health`: a watched device must stop being
+/// used and let the caller fall back to the CPU compositor.
+fn scoped_work<T>(device: &wgpu::Device, health: Option<DeviceHealth>, f: impl FnOnce() -> Result<T, Unsupported>) -> Result<T, Unsupported> {
+    // WebGPU errors arrive asynchronously; its callers still use the health callbacks.
     if cfg!(target_arch = "wasm32") {
         return f();
     }
     let (result, error) = first_error(device, f);
     match error {
-        Some(error) => Err(Unsupported(format!("GPU work failed: {error}"))),
+        Some(error) => {
+            if let Some(health) = health.as_ref() {
+                health.caught(device, &error);
+            }
+            Err(Unsupported(format!("GPU work failed: {error}")))
+        }
         None => result,
     }
 }
@@ -919,7 +931,7 @@ impl Compositor {
         region: Rect,
         mut sink: impl FnMut(&mut wgpu::CommandEncoder, ChunkOut<'_>),
     ) -> Result<Stats, Unsupported> {
-        let result = scoped_work(device, self.health.is_some(), || {
+        let result = scoped_work(device, self.health.clone(), || {
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("pc_compose") });
             let stats = self.encode_inner(device, queue, &mut encoder, doc, region, &mut sink, true)?;
             queue.submit([encoder.finish()]);
@@ -941,7 +953,7 @@ impl Compositor {
         region: Rect,
         sink: &mut dyn FnMut(&mut wgpu::CommandEncoder, ChunkOut<'_>),
     ) -> Result<Stats, Unsupported> {
-        let result = scoped_work(device, self.health.is_some(), || self.encode_inner(device, queue, encoder, doc, region, sink, false));
+        let result = scoped_work(device, self.health.clone(), || self.encode_inner(device, queue, encoder, doc, region, sink, false));
         if result.is_err() {
             self.discard_failed_work();
         }
