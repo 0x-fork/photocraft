@@ -143,10 +143,32 @@ pub fn command_specs() -> &'static [CommandSpec] {
 pub fn list_entry(s: &Session, c: &CommandSpec, reason: Option<String>) -> Value {
     let needs_document =
         s.active().is_none() && reason.as_deref().is_some_and(|r| ["no document", "no active document", "no open document"].iter().any(|p| r.starts_with(p)));
-    json!({
+    let mut entry = json!({
         "id": c.id, "label": c.label, "menu": c.menu, "shortcut": c.shortcut, "params": c.params,
         "enabled": reason.is_none(), "disabledReason": reason, "needsDocument": needs_document,
-    })
+    });
+    if let (Some(k), Some(o)) = (search_keywords(c.id), entry.as_object_mut()) {
+        o.insert("keywords".into(), json!(k));
+    }
+    entry
+}
+
+/// Other names a command is looked for by, beyond its id and label: the Photoshop tools and
+/// options it stands for (#5060). `select.rect` is also the Elliptical and Single Row/Column
+/// Marquee, which an agent searches for as "ellipse" or "marquee".
+pub(crate) const SEARCH_KEYWORDS: &[(&str, &str)] =
+    &[("select.rect", "Rectangular Marquee, Elliptical Marquee (\"ellipse\":true), ellipse, oval, circle, Single Row/Column Marquee (\"line\")")];
+
+/// [`SEARCH_KEYWORDS`] of command `id`, if it has any.
+pub fn search_keywords(id: &str) -> Option<&'static str> {
+    SEARCH_KEYWORDS.iter().find(|(k, _)| *k == id).map(|(_, words)| *words)
+}
+
+/// Does a [`list_entry`] row match a command-list filter (`commands --filter`, `engine.commands`,
+/// MCP `command_list`)? Its id, label or keywords contain `needle`, ignoring case.
+pub fn list_entry_matches(entry: &Value, needle: &str) -> bool {
+    let needle = needle.to_lowercase();
+    ["id", "label", "keywords"].iter().any(|k| entry.get(*k).and_then(Value::as_str).is_some_and(|v| v.to_lowercase().contains(&needle)))
 }
 
 pub fn find(id: &str) -> Option<&'static CommandSpec> {
@@ -668,7 +690,7 @@ fn build() -> Vec<CommandSpec> {
             "Select Layer",
             [],
             None,
-            r##"{"layer":id,"mode":"replace|toggle|range|add|remove"="replace"} (toggle = ⌘-click, range = ⇧-click, remove = deselect it, keeping at least one)"##,
+            r##"{"layer":id|str | "name":str,"occurrence":index?,"mode":"replace|toggle|range|add|remove"="replace"} (name occurrence: zero-based document walk order; required for duplicate names; toggle = ⌘-click, range = ⇧-click, remove = deselect it, keeping at least one)"##,
             has_doc,
             crate::layer_multi_cmds::select
         ),
@@ -681,6 +703,16 @@ fn build() -> Vec<CommandSpec> {
             has_layer,
             |s, p| {
                 let id = layer_param(s, p)?;
+                // Opacity and Fill are fractions here, while the Layer Style commands take
+                // percentages: a value outside 0..1 is refused, never clamped to 100 % (#5242).
+                let unit = |key: &str| -> Result<Option<f32>> {
+                    let Some(v) = p.get(key) else { return Ok(None) };
+                    match v.as_f64() {
+                        Some(x) if (0.0..=1.0).contains(&x) => Ok(Some(x as f32)),
+                        _ => Err(bad("layer.setProps", format!("{key} must be a number in 0..1 (1 = 100 %), got {v}"))),
+                    }
+                };
+                let (opacity, fill) = (unit("opacity")?, unit("fill")?);
                 let only_visibility =
                     p.as_object().is_some_and(|o| o.contains_key("visible") && o.keys().all(|k| matches!(k.as_str(), "layer" | "visible" | "coalesce")));
                 let label = if only_visibility { "Layer Visibility" } else { "Layer Properties" };
@@ -688,6 +720,13 @@ fn build() -> Vec<CommandSpec> {
                 // Clipping and channel changes reach the layers around it: recomposite everything.
                 let local = p.get("clipped").is_none() && p.get("channels").is_none();
                 s.edit(label, |doc, _| {
+                    // The Background has no opacity, fill or blend mode: like Photoshop, setting
+                    // one that changes its look turns it into a normal layer ("Layer 0") first.
+                    let num = |k: &str| p.get(k).and_then(Value::as_f64).is_some_and(|v| v < 1.0);
+                    let blends = p.get("blend").and_then(Value::as_str).and_then(blend_from_str).is_some_and(|b| b != photocraft_color::BlendMode::Normal);
+                    if num("opacity") || num("fill") || blends {
+                        crate::extra_cmds::background_to_layer(doc, id);
+                    }
                     let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
                     if let Some(v) = p.get("name").and_then(Value::as_str) {
                         l.name = v.to_string();
@@ -695,11 +734,11 @@ fn build() -> Vec<CommandSpec> {
                     if let Some(v) = p.get("visible").and_then(Value::as_bool) {
                         l.visible = v;
                     }
-                    if let Some(v) = p.get("opacity").and_then(Value::as_f64) {
-                        l.opacity = (v as f32).clamp(0.0, 1.0);
+                    if let Some(v) = opacity {
+                        l.opacity = v;
                     }
-                    if let Some(v) = p.get("fill").and_then(Value::as_f64) {
-                        l.fill_opacity = (v as f32).clamp(0.0, 1.0);
+                    if let Some(v) = fill {
+                        l.fill_opacity = v;
                     }
                     if let Some(v) = p.get("blend").and_then(Value::as_str) {
                         l.blend = blend_from_str(v).ok_or_else(|| bad("layer.setProps", format!("unknown blend mode `{v}`")))?;
@@ -788,7 +827,10 @@ fn build() -> Vec<CommandSpec> {
             |s, p| {
                 let sel = s.active().and_then(|d| d.doc.selection.clone()).ok_or(EngineError::Other("no selection".into()))?;
                 let mask = LayerMask { surface: sel, ..LayerMask::reveal_all() };
-                set_mask(s, p, "Add Layer Mask", Some(mask))
+                // The selection becomes the mask, so Photoshop drops it (as Hide Selection does): a
+                // following Invert (⌘I) on the targeted mask then inverts all of it, not just the
+                // part inside the old selection. Same undo step as the mask.
+                set_mask_and_deselect(s, p, "Add Layer Mask", mask)
             }
         ),
         cmd!("layer.layerMask.delete", "Delete", ["Layer", "Layer Mask"], None, r##"{"layer":id?}"##, has_layer, |s, p| set_mask(
@@ -1241,6 +1283,7 @@ fn build() -> Vec<CommandSpec> {
         });
     }
     v.extend(crate::layer_style::specs());
+    v.extend(crate::layer_list_cmds::specs());
     v.extend(crate::filters::specs());
     v.extend(crate::filters_ext::specs());
     v.extend(crate::color_to_alpha_cmds::specs());
@@ -1314,6 +1357,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::proof_sim::specs());
     v.extend(crate::presets::specs());
     v.extend(crate::document_preset_cmds::specs());
+    v.extend(crate::export_preset_cmds::specs());
     v.extend(crate::render_cmds::specs());
     v.extend(crate::slice_cmds::specs());
     v.extend(crate::web_cmds::specs());
@@ -1427,6 +1471,15 @@ fn arrange(s: &mut Session, p: &Value, delta: i32) -> Result<Value> {
 /// Add (`Some`) or remove (`None`) a layer mask. Adding acts on every selected layer that can take
 /// one ([`crate::layer_multi_cmds::mask_targets`]), in one history step.
 fn set_mask(s: &mut Session, p: &Value, label: &str, mask: Option<LayerMask>) -> Result<Value> {
+    set_mask_with(s, p, label, mask, false)
+}
+
+/// [`set_mask`] that also drops the selection the mask was made from, in the same history step.
+fn set_mask_and_deselect(s: &mut Session, p: &Value, label: &str, mask: LayerMask) -> Result<Value> {
+    set_mask_with(s, p, label, Some(mask), true)
+}
+
+fn set_mask_with(s: &mut Session, p: &Value, label: &str, mask: Option<LayerMask>, deselect: bool) -> Result<Value> {
     let ids = if mask.is_some() { crate::layer_multi_cmds::mask_targets(s, p)? } else { vec![layer_param(s, p)?] };
     s.edit(label, |doc, _| {
         let mask = mask.clone().map(|mask| mask_at_depth(mask, doc.depth)).transpose()?;
@@ -1435,6 +1488,9 @@ fn set_mask(s: &mut Session, p: &Value, label: &str, mask: Option<LayerMask>) ->
                 crate::extra_cmds::background_to_layer_for_mask(doc, *id);
             }
             doc.layer_mut(*id).ok_or(EngineError::NoLayer(*id))?.mask = mask.clone();
+        }
+        if deselect {
+            doc.selection = None;
         }
         Ok(())
     })?;
@@ -1518,7 +1574,7 @@ fn merge_group(s: &mut Session, id: LayerId) -> Result<Value> {
         solo.clipped = false;
         let mut tmp = doc.clone();
         tmp.layers = vec![solo];
-        let mut merged = Layer::new(group.name.clone(), LayerContent::Raster(pixels::composite_layers(&tmp, fmt, None)));
+        let mut merged = Layer::new(group.name.clone(), LayerContent::Raster(pixels::composite_layers_uncropped(&tmp, fmt)));
         merged.id = group.id;
         merged.opacity = group.opacity;
         merged.blend = if group.blend == photocraft_doc::BlendMode::PassThrough { photocraft_doc::BlendMode::Normal } else { group.blend };
@@ -1545,5 +1601,32 @@ mod registry_tests {
         let registry = Registry::new(vec![first, second]);
         assert_eq!(registry.by_id.get(id), Some(&0));
         assert_eq!(registry.specs.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod set_props_tests {
+    use super::*;
+
+    #[test]
+    fn opacity_and_fill_outside_zero_to_one_are_refused_not_clamped() {
+        // #5242: `55` (a percentage, as the Layer Style commands take) used to become 100 %.
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("layer.setProps", json!({"opacity": 0.55, "fill": 0.4})).unwrap();
+        let layer = |s: &Session| {
+            let d = s.active().unwrap();
+            let l = d.doc.layer(d.active_layer.unwrap()).unwrap();
+            (l.opacity, l.fill_opacity)
+        };
+        assert_eq!(layer(&s), (0.55, 0.4));
+        for bad in [json!({"opacity": 55}), json!({"opacity": -0.1}), json!({"fill": 1.5}), json!({"opacity": "50%"}), json!({"opacity": 0.5, "fill": 40})] {
+            let e = s.execute("layer.setProps", bad.clone()).unwrap_err().to_string();
+            assert!(e.contains("0..1"), "{bad}: {e}");
+            assert_eq!(layer(&s), (0.55, 0.4), "{bad} left the layer alone");
+        }
+        s.execute("layer.setProps", json!({"opacity": 0, "fill": 1})).unwrap();
+        assert_eq!(layer(&s), (0.0, 1.0));
     }
 }
