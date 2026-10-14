@@ -259,6 +259,93 @@ fn stack_prefix_reuse_matches_uncached_gpu_and_cpu_at_every_depth() {
     }
 }
 
+/// Duplicating a layer high in the stack, undoing and redoing it (#5286): the render resumes
+/// from the lower cached prefix and moves the cache up to just below the copy, so the undo and
+/// the redo skip more passes. Every render matches an uncached compositor bit for bit, at every
+/// depth.
+#[test]
+fn prefix_follows_an_edit_up_the_stack_and_stays_exact() {
+    let Some(mut g) = gpu() else { return };
+    let mut uncached = Compositor::new(&g.device);
+    uncached.set_composite_cache_budget(0);
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        let mut doc = Document::new("follow", Size::new(300, 70), ColorMode::Rgb, depth);
+        for seed in 1..=6 {
+            doc.layers.push(noise_layer("layer", doc.pixel_format(), doc.bounds(), seed, 0.2));
+        }
+        let mut exact = |g: &mut Gpu, doc: &Document, what: &str| -> photocraft_gpu::Stats {
+            let stats = diff_rect(g, doc, doc.bounds(), what).unwrap_or_else(|e| panic!("{e}"));
+            let cached = render_to_vec(&mut g.comp, &g.device, &g.queue, doc, doc.bounds()).unwrap();
+            let cold = render_to_vec(&mut uncached, &g.device, &g.queue, doc, doc.bounds()).unwrap();
+            assert_eq!(cached, cold, "{depth:?} {what}: reuse preserves the GPU accumulator exactly");
+            stats
+        };
+        exact(&mut g, &doc, "populate");
+        // An edit low in the stack puts the cache there.
+        doc.layers[1].opacity = 0.6;
+        assert_eq!(exact(&mut g, &doc, "low edit").prefix_hits, 0);
+        let low = doc.clone();
+        let copy = doc.layers[4].duplicate();
+        doc.layers.insert(5, copy);
+        let first = exact(&mut g, &doc, "duplicate");
+        assert!(first.prefix_hits > 0, "{depth:?} the duplicate resumes from the low prefix");
+        let undo = exact(&mut g, &low, "undo");
+        assert!(undo.prefix_hits > 0, "{depth:?}");
+        assert!(undo.prefix_passes_skipped > first.prefix_passes_skipped, "{depth:?} the cache moved up: {first:?} {undo:?}");
+        let redo = exact(&mut g, &doc, "redo");
+        assert_eq!(redo.prefix_passes_skipped, undo.prefix_passes_skipped, "{depth:?}");
+        // An edit below the moved cache still invalidates it.
+        doc.layers[2].opacity = 0.4;
+        assert_eq!(exact(&mut g, &doc, "lower edit").prefix_hits, 0, "{depth:?}");
+    }
+}
+
+/// A small refresh above the cache moves only the chunk it renders, which then holds just that
+/// rectangle; the other chunks keep serving their lower checkpoint, and a full render afterwards
+/// resumes each chunk from its own (#5286). Every render matches an uncached compositor exactly.
+#[test]
+fn chunks_keep_their_own_checkpoint_after_a_partial_refresh() {
+    let Some(mut g) = gpu() else { return };
+    let mut uncached = Compositor::try_new_with_format(&g.device, wgpu::TextureFormat::Rgba32Float).unwrap();
+    uncached.set_texture_limit(PAGED_LIMIT);
+    uncached.set_composite_cache_budget(0);
+    let mut doc = base_doc(600, 300);
+    for seed in 2..=5 {
+        doc.layers.push(noise_layer("layer", PixelFormat::RGBA8, doc.bounds(), seed, 0.2));
+    }
+    let mut render = |g: &mut Gpu, doc: &Document, rect: Rect, what: &str| -> photocraft_gpu::Stats {
+        let (cached, stats) = photocraft_gpu::render_to_vec_stats(&mut g.paged, &g.device, &g.queue, doc, rect).unwrap();
+        let cold = render_to_vec(&mut uncached, &g.device, &g.queue, doc, rect).unwrap();
+        assert_eq!(cached, cold, "{what}: reuse preserves the GPU accumulator exactly");
+        let cpu = photocraft_compose::render(doc, rect);
+        assert!(worst_diff(&cpu.px, &cached).0 <= TOL, "{what}: GPU and CPU differ");
+        stats
+    };
+    render(&mut g, &doc, doc.bounds(), "populate");
+    doc.layers[1].opacity = 0.5;
+    let low = render(&mut g, &doc, doc.bounds(), "low edit");
+    assert_eq!(low.prefix_hits, 0);
+    // A copy near the top, refreshed in one chunk only.
+    let copy = doc.layers[3].duplicate();
+    doc.layers.insert(4, copy);
+    let small = render(&mut g, &doc, Rect::new(10, 10, 60, 60), "partial duplicate refresh");
+    assert_eq!(small.prefix_hits, 1, "{small:?}");
+    let full = render(&mut g, &doc, doc.bounds(), "full refresh after the partial one");
+    assert_eq!(full.prefix_hits, full.chunks - 1, "only the partly moved chunk misses: {full:?}");
+    let again = render(&mut g, &doc, doc.bounds(), "full refresh, all moved");
+    assert_eq!(again.prefix_hits, again.chunks);
+    assert!(again.prefix_passes_skipped > full.prefix_passes_skipped, "{full:?} {again:?}");
+    // Mixed checkpoints: a bottom-half refresh moves the chunks it covers whole further up
+    // (an edit at the top), the top half keeps the previous checkpoint and still hits.
+    doc.layers.last_mut().unwrap().opacity = 0.7;
+    let bottom = render(&mut g, &doc, Rect::new(0, 256, 600, 300), "bottom strip");
+    assert_eq!(bottom.prefix_hits, bottom.chunks);
+    let moved = render(&mut g, &doc, Rect::new(0, 0, 512, 256), "whole top chunks");
+    assert_eq!(moved.prefix_hits, moved.chunks);
+    let mixed = render(&mut g, &doc, doc.bounds(), "full refresh, mixed checkpoints");
+    assert_eq!(mixed.prefix_hits, mixed.chunks, "{mixed:?}");
+}
+
 #[test]
 fn root_checkpoints_keep_clipping_groups_and_adjustments_whole() {
     let Some(mut g) = gpu() else { return };
@@ -2133,6 +2220,71 @@ fn pattern_cache_tracks_default_pixels() {
         assert!(worst_diff(&cpu.px, &out).0 <= TOL, "fresh compositor matches blue default");
         check(&mut g, &d, &format!("blue default {depth:?}"));
     }
+}
+
+/// A document that paints one `side` x `side` pattern named `name`.
+fn pattern_fill_doc(name: &str, side: u32) -> Document {
+    let mut d = Document::new(name, Size::new(8, 6), ColorMode::Rgb, SampleType::U8);
+    let pat = Pattern::new(name, photocraft_raster::Surface::with_default(PixelFormat::RGBA8, &[1.0, 0.0, 0.0, 1.0]), side, side);
+    d.layers.push(Layer::new(
+        "pattern",
+        LayerContent::Fill(Fill::Pattern { name: pat.name.clone(), id: pat.id.clone(), scale: 1.0, angle: 0.0, link: true, phase: (0.0, 0.0) }),
+    ));
+    d.patterns.push(pat);
+    d
+}
+
+/// #4971: a pattern texture belongs to the document that last painted with it, and closing that
+/// document frees it. Before, pattern textures were kept until the device was lost.
+#[test]
+fn closed_documents_release_their_pattern_textures() {
+    let Some(mut g) = gpu() else { return };
+    let a = pattern_fill_doc("first", 4);
+    let mut b = pattern_fill_doc("second", 4);
+    b.id = photocraft_doc::DocId(a.id.0 + 1);
+    let one = 4 * 4 * 16;
+    assert_eq!(g.comp.pattern_cache_bytes(), 0);
+    render_to_vec(&mut g.comp, &g.device, &g.queue, &a, a.bounds()).expect("render a");
+    assert_eq!(g.comp.pattern_cache_bytes(), one, "one 4 x 4 RGBA32F texture");
+    render_to_vec(&mut g.comp, &g.device, &g.queue, &b, b.bounds()).expect("render b");
+    assert_eq!(g.comp.pattern_cache_bytes(), 2 * one);
+    g.comp.forget_doc(a.id);
+    assert_eq!(g.comp.pattern_cache_bytes(), one, "closing a document frees its pattern");
+    assert_eq!(g.comp.held_docs(), vec![b.id]);
+    g.comp.retain_docs(|_| false);
+    assert_eq!(g.comp.pattern_cache_bytes(), 0);
+    check(&mut g, &a, "the pattern is uploaded again after being forgotten");
+}
+
+/// #4971: pattern textures are bounded while their documents stay open, by a byte budget and
+/// by age. What the current frame paints with is never dropped.
+#[test]
+fn pattern_textures_are_evicted_over_budget_and_when_idle() {
+    let Some(mut g) = gpu() else { return };
+    let a = pattern_fill_doc("first", 4);
+    let mut b = pattern_fill_doc("second", 4);
+    b.id = photocraft_doc::DocId(a.id.0 + 1);
+    let mut plain = base_doc(8, 6);
+    plain.id = photocraft_doc::DocId(a.id.0 + 2);
+    let one = 4 * 4 * 16;
+    // Room for one pattern and a half: painting the second drops the first.
+    g.comp.set_pattern_budget(one + one / 2);
+    render_to_vec(&mut g.comp, &g.device, &g.queue, &a, a.bounds()).expect("render a");
+    render_to_vec(&mut g.comp, &g.device, &g.queue, &b, b.bounds()).expect("render b");
+    assert_eq!(g.comp.pattern_cache_bytes(), one, "the least recently painted pattern went");
+    // A budget below a single pattern still keeps the one being painted.
+    g.comp.set_pattern_budget(0);
+    render_to_vec(&mut g.comp, &g.device, &g.queue, &b, b.bounds()).expect("render b again");
+    assert_eq!(g.comp.pattern_cache_bytes(), one);
+    // Idle: frames that paint no pattern age it out.
+    g.comp.set_pattern_budget(photocraft_gpu::PATTERN_BUDGET);
+    for _ in 0..photocraft_gpu::PATTERN_IDLE_FRAMES - 1 {
+        render_to_vec(&mut g.comp, &g.device, &g.queue, &plain, plain.bounds()).expect("render plain");
+    }
+    assert_eq!(g.comp.pattern_cache_bytes(), one, "still within the idle limit");
+    render_to_vec(&mut g.comp, &g.device, &g.queue, &plain, plain.bounds()).expect("render plain");
+    assert_eq!(g.comp.pattern_cache_bytes(), 0, "dropped after {} idle frames", photocraft_gpu::PATTERN_IDLE_FRAMES);
+    check(&mut g, &b, "the pattern is uploaded again after being evicted");
 }
 
 #[test]

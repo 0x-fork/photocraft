@@ -1567,7 +1567,6 @@ cameraRaw	Shadows	Vùng tối
 	Cancelled opening {name}	Đã hủy mở {name}
 	The document “{name}” does not have an embedded {mode} profile.	Tài liệu “{name}” không có hồ sơ {mode} nhúng.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Tài liệu “{name}” có hồ sơ màu nhúng không khớp với không gian làm việc {mode} hiện tại.
-	Embedded: {embedded}	Nhúng: {embedded}
 	Working: {working}	Không gian làm việc: {working}
 	Cancelled {label}	Đã hủy {label}
 	Cancel transform (Esc)	Hủy biến đổi (Esc)
@@ -1580,8 +1579,6 @@ cameraRaw	Shadows	Vùng tối
 	Embedded Profile Mismatch	Hồ sơ nhúng không khớp
 	Assign working space	Gán không gian làm việc
 	Leave as is (don't color manage)	Giữ nguyên (không quản lý màu)
-	Use the embedded profile (instead of the working space)	Dùng hồ sơ nhúng (thay vì không gian làm việc)
-	Convert document's colors to the working space	Chuyển màu tài liệu sang không gian làm việc
 	Discard the embedded profile (don't color manage)	Bỏ hồ sơ nhúng (không quản lý màu)
 	Native file drag-and-drop is unavailable	Kéo thả tệp gốc không khả dụng
 	Native file drag-and-drop is not supported on Wayland yet. Use File › Open, or run PhotoCraft under XWayland with `WAYLAND_DISPLAY= photocraft`.	Kéo thả tệp gốc chưa được hỗ trợ trên Wayland. Dùng Tệp › Mở, hoặc chạy PhotoCraft dưới XWayland với `WAYLAND_DISPLAY= photocraft`.
@@ -3592,6 +3589,7 @@ curves	Smooth	Làm mượt
 	Remove after each stroke	Xóa sau mỗi nét vẽ
 	Apply the removal ({key})	Áp dụng việc xóa ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Nét vẽ cần xóa: {n} (Enter áp dụng, Esc hủy)
+	Show home recent files	Hiện tệp gần đây trên màn hình chính
 	Clear Brush Controls	Xóa điều khiển cọ
 	Reset All Locked Settings	Đặt lại tất cả cài đặt đã khóa
 	Copy Texture to Other Tools	Sao chép họa tiết sang các công cụ khác
@@ -3623,4 +3621,27 @@ curves	Smooth	Làm mượt
 	Import .GRD	Nhập .GRD
 	Choose a gradient file (.grd).	Chọn tệp chuyển sắc (.grd).
 	Auto Add/Delete	Tự động thêm/xóa
+
+# Native Windows printing qualification
+	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	Đừng bật thêm Ảnh phản chiếu trong thiết lập in: hai lần lật sẽ triệt tiêu nhau.
+	Print Settings…	Thiết lập in…
+	Remember to turn off the printer's own colour management in Print Settings…	Nhớ tắt quản lý màu riêng của máy in trong thiết lập in…
+	Sent to {printer}	Đã gửi tới {printer}
+	set in Print Settings…	đặt trong thiết lập in…
 	ICO is limited to 256 × 256 pixels	ICO giới hạn ở 256 × 256 pixel
+# Embedded Profile Mismatch: profile names beside the choices, Remember this choice
+	Use the embedded profile ({profile})	Dùng hồ sơ nhúng ({profile})
+	Convert to the working space ({profile})	Chuyển sang không gian làm việc ({profile})
+	Remember this choice for future images	Ghi nhớ lựa chọn này cho các ảnh sau
+	Turn the prompt back on with Ask On Mismatch in Edit › Color Settings.	Bật lại câu hỏi bằng Ask On Mismatch trong Chỉnh sửa › Cài đặt màu.
+	Button Mode	Chế độ nút
+	Button Mode On	Chế độ nút bật
+
+# Darken / Lighten Interface (⇧⌘F1 / ⇧⌘F2)
+	Darken Interface	Làm tối giao diện
+	Lighten Interface	Làm sáng giao diện
+# Bevel & Emboss Technique.
+	Technique	Kỹ thuật
+	Chisel Hard	Đục cứng
+	Chisel Soft	Đục mềm
+	Open color-less EXR as ACEScg	Mở EXR không khai báo màu sắc dưới dạng ACEScg

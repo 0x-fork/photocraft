@@ -986,7 +986,6 @@
 	Contiguous	Contiguo
 	Contrast	Contraste
 	Control:	Control:
-	Convert document's colors to the working space	Convertir los colores del documento al espacio de trabajo
 	Convert to sRGB	Convertir a sRGB
 	Copies	Ejemplares
 	Copper	Cobre
@@ -1568,7 +1567,6 @@
 	Use Default	Usar el predeterminado
 	Use Legacy	Usar la versión heredada
 	Use Measurement Scale	Usar la escala de medición
-	Use the embedded profile (instead of the working space)	Usar el perfil incrustado (en lugar del espacio de trabajo)
 	Variables bind a layer's visibility, text or pixels to a named data slot.	Las variables vinculan la visibilidad, el texto o los píxeles de una capa a un espacio de datos con nombre.
 	Vertical scale	Escala vertical
 	Vibrance	Intensidad
@@ -2200,7 +2198,6 @@
 	Cancelled opening {name}	Se canceló la apertura de {name}
 	The document “{name}” does not have an embedded {mode} profile.	El documento «{name}» no tiene un perfil {mode} incrustado.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	El documento «{name}» tiene un perfil de color incrustado que no coincide con el espacio de trabajo {mode} actual.
-	Embedded: {embedded}	Incrustado: {embedded}
 	Working: {working}	Espacio de trabajo: {working}
 	Developing {name}	Revelando {name}
 	Cancelled {label}	Se canceló {label}
@@ -2794,6 +2791,7 @@ curves	Smooth	Suavizar
 	Remove after each stroke	Eliminar después de cada trazo
 	Apply the removal ({key})	Aplicar la eliminación ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Trazos por eliminar: {n} (Intro aplica, Esc cancela)
+	Show home recent files	Mostrar archivos recientes en la pantalla de inicio
 	Clear Brush Controls	Borrar controles de pincel
 	Reset All Locked Settings	Restaurar todos los ajustes bloqueados
 	Copy Texture to Other Tools	Copiar textura en otras herramientas
@@ -2821,4 +2819,27 @@ curves	Smooth	Suavizar
 	Step {step} is waiting for its dialog	El paso {step} está esperando su cuadro de diálogo
 @plural	{n} action|{n} actions	{n} acción|{n} acciones
 	Auto Add/Delete	Añadir/eliminar automáticamente
+
+# Native Windows printing qualification
+	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	No actives también Imagen especular en Ajustes de impresión: las dos inversiones se anulan.
+	Print Settings…	Ajustes de impresión…
+	Remember to turn off the printer's own colour management in Print Settings…	Recuerda desactivar la gestión de color de la impresora en Ajustes de impresión…
+	Sent to {printer}	Enviado a {printer}
+	set in Print Settings…	se establece en Ajustes de impresión…
 	ICO is limited to 256 × 256 pixels	ICO está limitado a 256 × 256 píxeles
+# Embedded Profile Mismatch: profile names beside the choices, Remember this choice
+	Use the embedded profile ({profile})	Usar el perfil incrustado ({profile})
+	Convert to the working space ({profile})	Convertir al espacio de trabajo ({profile})
+	Remember this choice for future images	Recordar esta opción para próximas imágenes
+	Turn the prompt back on with Ask On Mismatch in Edit › Color Settings.	Vuelve a activar el aviso con Ask On Mismatch en Edición › Ajustes de color.
+	Button Mode	Modo de botón
+	Button Mode On	Modo de botón activado
+
+# Darken / Lighten Interface (⇧⌘F1 / ⇧⌘F2)
+	Darken Interface	Oscurecer interfaz
+	Lighten Interface	Aclarar interfaz
+# Bevel & Emboss Technique.
+	Technique	Técnica
+	Chisel Hard	Cincelar duro
+	Chisel Soft	Cincelar suave
+	Open color-less EXR as ACEScg	Abrir EXR sin espacio de color como ACEScg

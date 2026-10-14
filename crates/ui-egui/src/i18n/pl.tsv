@@ -983,7 +983,6 @@
 	Contiguous	Sąsiadujące
 	Contrast	Kontrast
 	Control:	Sterowanie:
-	Convert document's colors to the working space	Konwertuj kolory dokumentu na przestrzeń roboczą
 	Convert to sRGB	Konwertuj na sRGB
 	Copies	Kopie
 	Copper	Miedź
@@ -1561,7 +1560,6 @@
 	Use Default	Użyj domyślnego
 	Use Legacy	Użyj starszej wersji
 	Use Measurement Scale	Użyj skali pomiaru
-	Use the embedded profile (instead of the working space)	Użyj osadzonego profilu (zamiast przestrzeni roboczej)
 	Variables bind a layer's visibility, text or pixels to a named data slot.	Zmienne wiążą widoczność, tekst lub piksele warstwy z nazwanym polem danych.
 	Vertical scale	Skala pionowa
 	Vibrance	Jaskrawość
@@ -2181,7 +2179,6 @@
 	Cancelled opening {name}	Anulowano otwieranie {name}
 	The document “{name}” does not have an embedded {mode} profile.	Dokument „{name}” nie ma osadzonego profilu {mode}.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Dokument „{name}” ma osadzony profil kolorów, który nie pasuje do bieżącej przestrzeni roboczej {mode}.
-	Embedded: {embedded}	Osadzony: {embedded}
 	Working: {working}	Przestrzeń robocza: {working}
 	Cancelled {label}	Anulowano: {label}
 	Esc to cancel	Esc, aby anulować
@@ -3707,6 +3704,7 @@ curves	Smooth	Wygładź
 	Remove after each stroke	Usuwaj po każdym pociągnięciu
 	Apply the removal ({key})	Zastosuj usuwanie ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Pociągnięcia do usunięcia: {n} (Enter stosuje, Esc anuluje)
+	Show home recent files	Pokaż ostatnie pliki na ekranie głównym
 	Clear Brush Controls	Wyczyść elementy sterujące pędzlem
 	Reset All Locked Settings	Resetuj wszystkie zablokowane ustawienia
 	Copy Texture to Other Tools	Kopiuj teksturę do innych narzędzi
@@ -3734,4 +3732,27 @@ curves	Smooth	Wygładź
 	Step {step} is waiting for its dialog	Krok {step} czeka na swoje okno dialogowe
 @plural	{n} action|{n} actions	{n} operacja|{n} operacje|{n} operacji
 	Auto Add/Delete	Automatyczne dodawanie/usuwanie
+
+# Native Windows printing qualification
+	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	Nie włączaj też odbicia lustrzanego w ustawieniach druku: oba odbicia wzajemnie się znoszą.
+	Print Settings…	Ustawienia druku…
+	Remember to turn off the printer's own colour management in Print Settings…	Pamiętaj o wyłączeniu zarządzania kolorami drukarki w ustawieniach druku…
+	Sent to {printer}	Wysłano do {printer}
+	set in Print Settings…	ustawiane w ustawieniach druku…
 	ICO is limited to 256 × 256 pixels	ICO jest ograniczony do 256 × 256 pikseli
+# Embedded Profile Mismatch: profile names beside the choices, Remember this choice
+	Use the embedded profile ({profile})	Użyj osadzonego profilu ({profile})
+	Convert to the working space ({profile})	Konwertuj na przestrzeń roboczą ({profile})
+	Remember this choice for future images	Zapamiętaj ten wybór dla kolejnych obrazów
+	Turn the prompt back on with Ask On Mismatch in Edit › Color Settings.	Pytanie można włączyć ponownie opcją Ask On Mismatch w Edycja › Ustawienia kolorów.
+	Button Mode	Tryb przycisku
+	Button Mode On	Tryb przycisku włączony
+
+# Darken / Lighten Interface (⇧⌘F1 / ⇧⌘F2)
+	Darken Interface	Przyciemnij interfejs
+	Lighten Interface	Rozjaśnij interfejs
+# Bevel & Emboss Technique.
+	Technique	Technika
+	Chisel Hard	Dłuto twarde
+	Chisel Soft	Dłuto miękkie
+	Open color-less EXR as ACEScg	Otwieraj EXR bez profilu koloru jako ACEScg

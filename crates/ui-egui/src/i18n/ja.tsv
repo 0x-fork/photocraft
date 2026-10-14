@@ -985,7 +985,6 @@
 	Contiguous	隣接
 	Contrast	コントラスト
 	Control:	コントロール:
-	Convert document's colors to the working space	ドキュメントの色を作業用スペースに変換
 	Convert to sRGB	sRGB に変換
 	Copies	部数
 	Copper	銅
@@ -1565,7 +1564,6 @@
 	Use Default	既定を使用
 	Use Legacy	従来方式を使用
 	Use Measurement Scale	測定スケールを使用
-	Use the embedded profile (instead of the working space)	埋め込みプロファイルを使用 (作業用スペースの代わり)
 	Variables bind a layer's visibility, text or pixels to a named data slot.	変数は、レイヤーの表示状態・テキスト・ピクセルを、名前付きのデータ枠に結び付けます。
 	Vertical scale	垂直比率
 	Vibrance	自然な彩度
@@ -2194,7 +2192,6 @@
 	Cancelled opening {name}	{name} を開くのをキャンセルしました
 	The document “{name}” does not have an embedded {mode} profile.	ドキュメント「{name}」には埋め込み {mode} プロファイルがありません。
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	ドキュメント「{name}」の埋め込みカラープロファイルは、現在の {mode} 作業用スペースと一致しません。
-	Embedded: {embedded}	埋め込み: {embedded}
 	Working: {working}	作業用スペース: {working}
 	Developing {name}	{name} を現像中
 	Cancelled {label}	{label} をキャンセルしました
@@ -3718,7 +3715,8 @@ curves	Smooth	スムーズ
 	No object found there — drag a rectangle around it	そこにオブジェクトが見つかりません — 周囲に矩形をドラッグしてください
 	Remove after each stroke	ストロークごとに削除
 	Apply the removal ({key})	削除を適用 ({key})
-	Strokes to remove: {n} (Enter applies, Esc cancels)	削除するストローク: {n} (Enter で適用、Esc で取り消し)
+	Strokes to remove: {n} (Enter applies, Esc cancels)	削除するストローク: {n}（Enter で適用、Esc で取り消し）
+	Show home recent files	ホーム画面に最近使ったファイルを表示
 
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	アクションを読み込み…
@@ -3809,9 +3807,30 @@ curves	Smooth	スムーズ
 	Vector Mask Hides Effects	ベクトルマスクで効果を隠す
 	Auto Add/Delete	自動追加・削除
 
+# Native Windows printing qualification
+	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	印刷設定の「鏡像」も有効にしないでください。2回反転すると元に戻ります。
+	Print Settings…	印刷設定…
+	Remember to turn off the printer's own colour management in Print Settings…	印刷設定でプリンター独自のカラーマネジメントを無効にしてください…
+	Sent to {printer}	{printer} に送信しました
+	set in Print Settings…	印刷設定で指定…
 # Restored rows (custom print paper #3820, brush presets, Vanishing Point help, brush panel menu)
 	Drag to pan · Scroll to zoom · Double-click to fit	ドラッグで移動 · スクロールでズーム · ダブルクリックで全体表示
 	Clear Brush Controls	ブラシのコントロールを消去
 	Reset All Locked Settings	ロックされた設定をすべて初期化
 	Copy Texture to Other Tools	テクスチャを他のツールにコピー
 	ICO is limited to 256 × 256 pixels	ICO は 256 × 256 ピクセルまでです
+# Embedded Profile Mismatch: profile names beside the choices, Remember this choice
+	Use the embedded profile ({profile})	埋め込みプロファイルを使用 ({profile})
+	Convert to the working space ({profile})	作業用スペースに変換 ({profile})
+	Remember this choice for future images	今後の画像でもこの選択を使用
+	Turn the prompt back on with Ask On Mismatch in Edit › Color Settings.	確認を再び表示するには、編集 › カラー設定 の Ask On Mismatch をオンにします。
+	Button Mode	ボタンモード
+	Button Mode On	ボタンモード オン
+# Darken / Lighten Interface (⇧⌘F1 / ⇧⌘F2)
+	Darken Interface	インターフェイスを暗くする
+	Lighten Interface	インターフェイスを明るくする
+# Bevel & Emboss Technique.
+	Technique	テクニック
+	Chisel Hard	チゼルハード
+	Chisel Soft	チゼルソフト
+	Open color-less EXR as ACEScg	色空間のないEXRをACEScgとして開く

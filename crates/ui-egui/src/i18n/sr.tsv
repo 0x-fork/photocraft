@@ -954,7 +954,6 @@
 	Contiguous	Susedno
 	Contrast	Kontrast
 	Control:	Kontrola:
-	Convert document's colors to the working space	Pretvori boje dokumenta u radni prostor
 	Convert to sRGB	Pretvori u sRGB
 	Copies	Primerci
 	Copper	Bakar
@@ -1526,7 +1525,6 @@
 	Use Default	Koristi podrazumevano
 	Use Legacy	Koristi staro
 	Use Measurement Scale	Koristi razmeru merenja
-	Use the embedded profile (instead of the working space)	Koristi ugrađeni profil (umesto radnog prostora)
 	Variables bind a layer's visibility, text or pixels to a named data slot.	Promenljive vezuju vidljivost, tekst ili piksele sloja za imenovano polje podataka.
 	Vertical scale	Vertikalna razmera
 	Vibrance	Živost
@@ -2139,7 +2137,6 @@
 	Cancelled opening {name}	Otkazano otvaranje: {name}
 	The document “{name}” does not have an embedded {mode} profile.	Dokument „{name}“ nema ugrađeni {mode} profil.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Dokument „{name}“ ima ugrađeni profil boja koji se ne slaže sa trenutnim {mode} radnim prostorom.
-	Embedded: {embedded}	Ugrađeni: {embedded}
 	Working: {working}	Radni prostor: {working}
 	Developing {name}	Razvijanje: {name}
 	Cancelled {label}	Otkazano: {label}
@@ -4200,9 +4197,17 @@ shape	Appearance	Izgled
 	Choose a gradient file (.grd).	Izaberite datoteku gradijenta (.grd).
 	Auto Add/Delete	Automatsko dodavanje/brisanje
 
+# Native Windows printing qualification
+	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	Nemojte uključiti i ogledalsku sliku u podešavanjima štampanja: dva preslikavanja se poništavaju.
+	Print Settings…	Podešavanja štampanja…
+	Remember to turn off the printer's own colour management in Print Settings…	Ne zaboravite da isključite upravljanje bojama samog štampača u podešavanjima štampanja…
+	Sent to {printer}	Poslato na {printer}
+	set in Print Settings…	podešava se u podešavanjima štampanja…
 # Custom print paper (#3820)
 	Paper Width	Širina papira
 	Paper Height	Visina papira
+
+# ICO dimensions
 	ICO is limited to 256 × 256 pixels	ICO je ograničen na 256 × 256 piksela
 
 # Channel Options and New Spot Channel (#3761)
@@ -4211,3 +4216,20 @@ shape	Appearance	Izgled
 	Ink Characteristics	Karakteristike mastila
 	Solidity:	Punoća:
 	Redrawing	Ponovno iscrtavanje
+# Embedded Profile Mismatch: profile names beside the choices, Remember this choice
+	Use the embedded profile ({profile})	Koristi ugrađeni profil ({profile})
+	Convert to the working space ({profile})	Pretvori u radni prostor ({profile})
+	Remember this choice for future images	Zapamti ovaj izbor za buduće slike
+	Turn the prompt back on with Ask On Mismatch in Edit › Color Settings.	Pitanje ponovo uključite opcijom Ask On Mismatch u Uređivanje › Podešavanja boja.
+	Button Mode	Režim dugmadi
+	Button Mode On	Režim dugmadi uključen
+
+# Darken / Lighten Interface (⇧⌘F1 / ⇧⌘F2)
+	Darken Interface	Zatamni interfejs
+	Lighten Interface	Posvetli interfejs
+# Bevel & Emboss Technique.
+	Technique	Tehnika
+	Chisel Hard	Tvrdo klesanje
+	Chisel Soft	Meko klesanje
+	Open color-less EXR as ACEScg	Otvori EXR bez podatka o bojama kao ACEScg
+	Show home recent files	Prikaži nedavne datoteke na početnom ekranu

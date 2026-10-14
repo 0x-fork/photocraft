@@ -966,7 +966,6 @@
 	Contiguous	Berdekatan
 	Contrast	Kontras
 	Control:	Kontrol:
-	Convert document's colors to the working space	Konversi warna dokumen ke working space
 	Convert to sRGB	Konversi ke sRGB
 	Copies	Salinan
 	Copper	Tembaga
@@ -1541,7 +1540,6 @@
 	Use Default	Pakai Default
 	Use Legacy	Pakai Versi Lama
 	Use Measurement Scale	Pakai Skala Pengukuran
-	Use the embedded profile (instead of the working space)	Pakai profil tertanam (bukan working space)
 	Variables bind a layer's visibility, text or pixels to a named data slot.	Variabel mengikat visibilitas, teks, atau piksel sebuah layer ke slot data bernama.
 	Vertical scale	Skala vertikal
 	Vibrance	Vibrance
@@ -2153,7 +2151,6 @@
 	Cancelled opening {name}	Pembukaan {name} dibatalkan
 	The document “{name}” does not have an embedded {mode} profile.	Dokumen “{name}” tidak memiliki profil {mode} tertanam.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Dokumen “{name}” memiliki profil warna tertanam yang tidak cocok dengan working space {mode} saat ini.
-	Embedded: {embedded}	Tertanam: {embedded}
 	Working: {working}	Working space: {working}
 	Developing {name}	Mengembangkan {name}
 	Cancelled {label}	{label} dibatalkan
@@ -3098,6 +3095,7 @@ curves	Smooth	Haluskan
 	Remove after each stroke	Hapus setelah setiap goresan
 	Apply the removal ({key})	Terapkan penghapusan ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Goresan untuk dihapus: {n} (Enter menerapkan, Esc membatalkan)
+	Show home recent files	Tampilkan file terbaru di layar beranda
 	Clear Brush Controls	Hapus Kontrol Kuas
 	Reset All Locked Settings	Atur Ulang Semua Pengaturan Terkunci
 	Copy Texture to Other Tools	Salin Tekstur ke Alat Lain
@@ -3125,4 +3123,27 @@ curves	Smooth	Haluskan
 	Step {step} is waiting for its dialog	Langkah {step} menunggu dialognya
 @plural	{n} action|{n} actions	{n} tindakan
 	Auto Add/Delete	Tambah/Hapus Otomatis
+
+# Native Windows printing qualification
+	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	Jangan aktifkan juga Gambar Cermin di Pengaturan Cetak: kedua pembalikan saling meniadakan.
+	Print Settings…	Pengaturan Cetak…
+	Remember to turn off the printer's own colour management in Print Settings…	Ingat untuk menonaktifkan pengelolaan warna milik printer di Pengaturan Cetak…
+	Sent to {printer}	Dikirim ke {printer}
+	set in Print Settings…	diatur di Pengaturan Cetak…
 	ICO is limited to 256 × 256 pixels	ICO dibatasi hingga 256 × 256 piksel
+# Embedded Profile Mismatch: profile names beside the choices, Remember this choice
+	Use the embedded profile ({profile})	Pakai profil tertanam ({profile})
+	Convert to the working space ({profile})	Konversi ke working space ({profile})
+	Remember this choice for future images	Ingat pilihan ini untuk gambar berikutnya
+	Turn the prompt back on with Ask On Mismatch in Edit › Color Settings.	Aktifkan lagi pertanyaan ini lewat Ask On Mismatch di Edit › Pengaturan Warna.
+	Button Mode	Mode tombol
+	Button Mode On	Mode tombol aktif
+
+# Darken / Lighten Interface (⇧⌘F1 / ⇧⌘F2)
+	Darken Interface	Gelapkan Antarmuka
+	Lighten Interface	Cerahkan Antarmuka
+# Bevel & Emboss Technique.
+	Technique	Teknik
+	Chisel Hard	Pahat Keras
+	Chisel Soft	Pahat Lembut
+	Open color-less EXR as ACEScg	Buka EXR tanpa informasi warna sebagai ACEScg

@@ -162,6 +162,116 @@ fn answer(open: &Open, answer: Option<FileDialogAnswer>) {
 }
 
 #[test]
+fn menu_place_starts_transform_for_each_chosen_image() {
+    for command in ["file.placeEmbedded", "file.placeLinked"] {
+        let (mut app, open, _) = app();
+        app.run("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        let bytes = photocraft_io::export(&app.session.active().unwrap().doc, "source.png", &Default::default()).unwrap().bytes;
+        let ctx = egui::Context::default();
+        let initial_layers = app.session.active().unwrap().doc.layer_count();
+        let initial_history = app.session.active().unwrap().history.past_len();
+        let linked_dir = (command == "file.placeLinked").then(|| {
+            let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+            let dir = std::env::temp_dir().join(format!("photocraft-menu-place-{}-{unique}", std::process::id()));
+            std::fs::create_dir(&dir).unwrap();
+            dir
+        });
+        for index in 0..2 {
+            menus::invoke(&mut app, &ctx, command, json!({})).unwrap();
+            app.poll_file_dialog(&ctx, None);
+            let picked = if let Some(dir) = &linked_dir {
+                let path = dir.join(format!("drawing-{index}.png"));
+                std::fs::write(&path, &bytes).unwrap();
+                FileDialogAnswer::Paths(vec![path.to_string_lossy().into_owned()])
+            } else {
+                FileDialogAnswer::Contents(format!("drawing-{index}.png"), bytes.clone())
+            };
+            answer(&open, Some(picked));
+            app.poll_file_dialog(&ctx, None);
+            let st = app.session.active().unwrap();
+            assert_eq!(st.doc.layer_count(), initial_layers + index + 1);
+            assert_eq!(st.doc.layer(st.active_layer.unwrap()).unwrap().name, format!("drawing-{index}"));
+            let transform = app.ui.transform.as_ref().expect("File > Place must offer transform handles after the picker completes");
+            assert_eq!(transform.made, Some(crate::state::MadeLayer::Place));
+            if index == 0 {
+                let layer = st.active_layer.unwrap();
+                let photocraft_doc::LayerContent::Smart(smart) = &st.doc.layer(layer).unwrap().content else { panic!("placed Smart Object") };
+                let original_scale = smart.transform.m[0];
+                let transform = app.ui.transform.as_mut().unwrap();
+                let left = transform.quad[0][0];
+                for corner in &mut transform.quad {
+                    corner[0] = left + (corner[0] - left) * 2.0;
+                }
+                crate::transform_tool::commit(&mut app);
+                assert!(app.ui.transform.is_none(), "resizing the placed image must commit");
+                let st = app.session.active().unwrap();
+                let photocraft_doc::LayerContent::Smart(smart) = &st.doc.layer(layer).unwrap().content else { panic!("placed Smart Object") };
+                assert!((smart.transform.m[0] - original_scale * 2.0).abs() < 1e-8, "placement width must double");
+                assert_eq!(app.session.active().unwrap().history.past_len(), initial_history + 1);
+            } else {
+                crate::transform_tool::cancel(&mut app);
+                assert_eq!(app.session.active().unwrap().doc.layer_count(), initial_layers + 1);
+                assert_eq!(app.session.active().unwrap().history.past_len(), initial_history + 1);
+            }
+        }
+        if let Some(dir) = linked_dir {
+            for index in 0..2 {
+                std::fs::remove_file(dir.join(format!("drawing-{index}.png"))).unwrap();
+            }
+            std::fs::remove_dir(dir).unwrap();
+        }
+    }
+}
+
+#[test]
+fn cancelled_or_invalid_menu_place_does_not_start_transform() {
+    for command in ["file.placeEmbedded", "file.placeLinked"] {
+        for reply in [None, Some(FileDialogAnswer::Contents("broken.png".into(), b"not an image".to_vec()))] {
+            let (mut app, open, _) = app();
+            let ctx = egui::Context::default();
+            let before = app.session.active().unwrap().doc.clone();
+            let history = app.session.active().unwrap().history.past_len();
+            menus::invoke(&mut app, &ctx, command, json!({})).unwrap();
+            app.poll_file_dialog(&ctx, None);
+            answer(&open, reply);
+            app.poll_file_dialog(&ctx, None);
+            assert!(app.ui.transform.is_none());
+            assert_eq!(app.session.active().unwrap().doc, before);
+            assert_eq!(app.session.active().unwrap().history.past_len(), history);
+        }
+    }
+}
+
+#[test]
+fn menu_place_preserves_an_unfinished_transform() {
+    for start_before_picker in [true, false] {
+        let (mut app, open, _) = app();
+        app.run("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        app.run("layer.new.layerFromBackground", json!({})).unwrap();
+        let bytes = photocraft_io::export(&app.session.active().unwrap().doc, "source.png", &Default::default()).unwrap().bytes;
+        let ctx = egui::Context::default();
+        if !start_before_picker {
+            menus::invoke(&mut app, &ctx, "file.placeEmbedded", json!({})).unwrap();
+            app.poll_file_dialog(&ctx, None);
+        }
+        crate::transform_tool::begin(&mut app, &ctx).unwrap();
+        let transform = app.ui.transform.clone();
+        let doc = app.session.active().unwrap().doc.clone();
+        let history = app.session.active().unwrap().history.past_len();
+        if start_before_picker {
+            assert!(menus::invoke(&mut app, &ctx, "file.placeEmbedded", json!({})).is_err());
+            assert!(!app.file_dialog_open());
+        } else {
+            answer(&open, Some(FileDialogAnswer::Contents("source.png".into(), bytes)));
+            app.poll_file_dialog(&ctx, None);
+        }
+        assert_eq!(app.ui.transform, transform);
+        assert_eq!(app.session.active().unwrap().doc, doc);
+        assert_eq!(app.session.active().unwrap().history.past_len(), history);
+    }
+}
+
+#[test]
 fn open_starts_in_the_last_used_folder() {
     let (mut app, open, _) = app();
     let ctx = egui::Context::default();

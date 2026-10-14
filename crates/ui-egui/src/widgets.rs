@@ -519,12 +519,13 @@ fn value_field_box(
     // 6 pt from the right edge), so a one-character unit like `%` leaves the number room (#3040).
     let suffix_font = theme::mono(11.0);
     let suffix_w = if suffix.is_empty() { 0.0 } else { ui.painter().layout_no_wrap(suffix.to_owned(), suffix_font.clone(), t.text_faint).size().x + 3.0 };
-    // 1 pt higher than centred: digits have no descenders, so centred text looks low. The slot
-    // is at least one text row tall, so a slim box's number isn't pushed out of it (#2823).
+    // Centred: the digits' ink then sits within 0.2 pt of the box's centre, where a 1 pt lift
+    // (#1322) put it 0.9 pt high and the focus outline off-centre (#5150). The slot is at least
+    // one text row tall, so a slim box's number isn't pushed out of it (#2823).
     let font = theme::mono(12.0);
     let row_h = ui.painter().layout_no_wrap("0".into(), font.clone(), t.text).size().y;
     let slot_h = (rect.height() - 4.0).max(row_h).min(rect.height() - 2.0);
-    let cy = rect.center().y - 1.0;
+    let cy = rect.center().y;
     let field = Rect::from_min_max(pos2(rect.left() + 4.0, cy - slot_h / 2.0), pos2(rect.right() - 4.0 - suffix_w - trailing, cy + slot_h / 2.0));
     // Small ranges (gamma 0.01–9.99, 0–1 centres) need two decimals and a finer drag, like Photoshop.
     let fine = range.end() - range.start() <= 10.0;
@@ -1842,9 +1843,9 @@ mod tests {
         h
     }
 
-    /// Digits have no descenders, so the number sits 1 pt above the box's centre to look centred.
+    /// The number's slot (and its focus outline) is centred in the box (#5150).
     #[test]
-    fn value_field_digits_sit_one_point_above_centre() {
+    fn value_field_number_slot_is_centred_in_its_box() {
         let mut h = Harness::new_ui_state(
             |ui, s: &mut (f32, egui::Rect)| {
                 s.1 = super::value_field_in(ui, &mut s.0, 0.0..=100.0, "px", 80.0, 0.0, super::FieldOpts::default()).1;
@@ -1854,11 +1855,46 @@ mod tests {
         h.run();
         let number = h.get_by_role(egui::accesskit::Role::SpinButton).rect();
         let field = h.state().1;
-        assert!((field.center().y - number.center().y - 1.0).abs() < 0.01, "field {field:?}, number {number:?}");
+        assert!((field.center().y - number.center().y).abs() < 0.01, "field {field:?}, number {number:?}");
+    }
+
+    /// The digits' ink, not just their slot, is centred in the box, and starts level with the
+    /// `%`'s, so the number lines up with the box and its unit (#5150).
+    #[test]
+    fn value_field_digits_ink_is_centred_and_level_with_the_unit() {
+        let scale = 4.0;
+        for kind in [crate::theme::ThemeKind::Pro, crate::theme::ThemeKind::Studio] {
+            let mut h = Harness::builder().with_size(egui::vec2(100.0, 40.0)).with_pixels_per_point(scale).wgpu().build_ui_state(
+                |ui, s: &mut (f32, egui::Rect)| {
+                    s.1 = super::value_field_in(ui, &mut s.0, 0.0..=100.0, "%", 80.0, 0.0, super::FieldOpts::default()).1;
+                },
+                (100.0, egui::Rect::NOTHING),
+            );
+            crate::PhotocraftApp::setup_context(&h.ctx, kind);
+            h.run_steps(3);
+            let image = h.render().expect("render value field");
+            let (field, suffix_left) = (h.state().1, h.state().1.right() - 14.0);
+            let px = |v: f32| (v * scale) as u32;
+            let bg = image.get_pixel(px(field.left() + 2.0), px(field.center().y)).0;
+            let lum = |p: [u8; 4]| u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2]);
+            // Top and bottom of the ink (pt) between x0 and x1.
+            let ink = |x0: f32, x1: f32| {
+                let rows: Vec<u32> = (px(field.top() + 2.0)..px(field.bottom() - 2.0))
+                    .filter(|&y| (px(x0)..px(x1)).any(|x| lum(image.get_pixel(x, y).0) > lum(bg) + 150))
+                    .collect();
+                let (top, bottom) = (rows.first().copied().unwrap_or(0), rows.last().copied().unwrap_or(0) + 1);
+                (top as f32 / scale, bottom as f32 / scale)
+            };
+            let digits = ink(field.left() + 4.0, suffix_left - 2.0);
+            let unit = ink(suffix_left, field.right() - 2.0);
+            let what = format!("{kind:?}: field {field:?}, digits {digits:?}, unit {unit:?}");
+            assert!(((digits.0 + digits.1) / 2.0 - field.center().y).abs() <= 0.25, "{what}");
+            assert!((digits.0 - unit.0).abs() <= 0.25, "{what}");
+        }
     }
 
     /// With the app's theme (its 24 pt interact height and 4 pt button padding), in a full-size
-    /// box and a slim status-bar box alike, the number stays inside the box, 1 pt above its centre,
+    /// box and a slim status-bar box alike, the number stays inside the box, centred in it,
     /// and a long number doesn't spill out of the box's left edge (#2823).
     #[test]
     fn themed_value_field_number_sits_inside_its_box_in_every_size() {
@@ -1878,7 +1914,7 @@ mod tests {
                 let field = harness.state().1;
                 let what = format!("{kind:?} {w}x{h}: field {field:?}, number {number:?}");
                 assert!(field.contains_rect(number), "{what}");
-                assert!((field.center().y - number.center().y - 1.0).abs() < 0.51, "{what}");
+                assert!((field.center().y - number.center().y).abs() < 0.51, "{what}");
             }
         }
     }

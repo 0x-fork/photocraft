@@ -49,6 +49,24 @@ fn canvas_dot_grid_can_be_disabled_persisted_and_reset() {
     assert!(s.prefs().interface.show_canvas_dots);
 }
 
+/// UI-217-10: the Home screen's recent-files list can be switched off and the choice persists.
+#[test]
+fn home_recent_files_preference_defaults_on_persists_and_resets() {
+    let mut s = Session::new();
+    assert!(s.prefs().interface.show_home_recent_files);
+    s.execute("prefs.set", json!({"path": "interface.showHomeRecentFiles", "value": false})).unwrap();
+    assert!(!s.prefs().interface.show_home_recent_files);
+    let mut restored = Session::new();
+    restored.load_prefs_json(&s.prefs_to_json()).unwrap();
+    assert!(!restored.prefs().interface.show_home_recent_files);
+    let mut legacy = Session::new();
+    legacy.load_prefs_json(r#"{"interface": {"theme": "studio"}}"#).unwrap();
+    assert!(legacy.prefs().interface.show_home_recent_files);
+    assert!(s.execute("prefs.set", json!({"path": "interface.showHomeRecentFiles", "value": 3})).is_err());
+    s.execute("prefs.reset", json!({"path": "interface.showHomeRecentFiles"})).unwrap();
+    assert!(s.prefs().interface.show_home_recent_files);
+}
+
 #[test]
 fn appearance_defaults_and_legacy_theme_migrate() {
     let p = Preferences::default();
@@ -64,6 +82,17 @@ fn appearance_defaults_and_legacy_theme_migrate() {
         assert_eq!(s.prefs().interface.appearance_mode, mode);
         assert_eq!(s.prefs().interface.dark_theme, dark);
         assert_eq!(s.prefs().interface.light_theme, light);
+    }
+}
+
+#[test]
+fn legacy_theme_migration_preserves_saved_theme_slots() {
+    for (legacy, slot, saved) in [("proMedium", "darkTheme", "solarizedDark"), ("studioLight", "lightTheme", "adwaita")] {
+        let mut interface = json!({"theme": legacy});
+        interface[slot] = json!(saved);
+        let mut session = Session::new();
+        session.load_prefs_json(&json!({"interface": interface}).to_string()).unwrap();
+        assert_eq!(session.prefs_value()["interface"][slot], saved, "explicit {slot} survives migration");
     }
 }
 
@@ -384,6 +413,19 @@ fn menus_and_toolbar_customisation_persist() {
     s.execute("edit.toolbar", json!({"hidden": ["Sponge"]})).unwrap();
     let back: Preferences = serde_json::from_str(&s.prefs_to_json()).unwrap();
     assert_eq!(back.toolbar.hidden, vec!["Sponge".to_string()]);
+}
+
+/// #5096: Edit › Menus can't hide the way back into itself, Preferences, Save or Exit.
+#[test]
+fn menus_refuse_to_hide_essential_items() {
+    let mut s = session();
+    for id in ["edit.menus", "edit.keyboardShortcuts", "edit.preferences.general", "file.save", "file.saveAs", "file.exit"] {
+        assert!(s.execute("edit.menus", json!({"hide": ["edit.fade", id]})).is_err(), "{id}");
+        assert!(s.prefs().menus.hidden.is_empty(), "{id}: a refused call changes nothing");
+    }
+    // A preferences file that lists them anyway still shows them.
+    let menus = MenuCustomization { hidden: vec!["file.exit".into(), "edit.fade".into()], ..Default::default() };
+    assert!(!menus.is_hidden("file.exit") && menus.is_hidden("edit.fade"));
 }
 
 #[test]

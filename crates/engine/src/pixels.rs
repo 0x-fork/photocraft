@@ -28,6 +28,36 @@ pub fn composite_layers(solo: &Document, format: photocraft_color::PixelFormat, 
     photocraft_compose::composite_to_surface(solo, area, format, background)
 }
 
+/// [`composite_layers`] without cropping to the canvas: pixels of the layers that lie outside it are kept
+/// (merging layers must not lose them, #5067).
+pub fn composite_layers_uncropped(solo: &Document, format: photocraft_color::PixelFormat) -> Surface {
+    let canvas = solo.bounds();
+    // The canvas grown to every visible layer's content and effects, so no layer is clipped by `composite_bounds`.
+    let reach = solo
+        .layers
+        .iter()
+        .filter(|layer| layer.visible)
+        .map(|layer| {
+            let margin = if photocraft_compose::effects::has_effects(layer) { photocraft_compose::effects::margin(layer) } else { 0 };
+            let bounds = photocraft_compose::layer_bounds(layer, canvas);
+            if bounds.is_empty() { bounds } else { bounds.inflate(margin) }
+        })
+        .filter(|bounds| !bounds.is_empty())
+        .fold(canvas, |a, b| a.union(&b));
+    let area = solo
+        .layers
+        .iter()
+        .filter(|layer| layer.visible)
+        .map(|layer| photocraft_compose::composite_bounds(layer, reach).unwrap_or(canvas))
+        .filter(|bounds| !bounds.is_empty())
+        .reduce(|a, b| a.union(&b))
+        .unwrap_or(Rect::EMPTY);
+    if area.is_empty() {
+        return Surface::new(format);
+    }
+    photocraft_compose::composite_to_surface(solo, area, format, None)
+}
+
 /// Apply an adjustment destructively to a surface, weighted by an optional selection.
 /// Applies `adj` to a surface (any colour model and depth, via straight RGBA) through the
 /// selection; `mode` is the document's, for the tone transfer (e.g. Exposure in Grayscale).
@@ -339,7 +369,8 @@ pub fn merge_down(doc: &Document, lower: &Layer, upper: &Layer) -> Layer {
     // The pair is read (and a CMYK one separated again) through the document's own profile.
     tmp.icc_profile = doc.icc_profile.clone();
     tmp.layers = stack;
-    let s = composite_layers(&tmp, format, None);
+    // A Background stays canvas-sized; any other layer keeps the pixels outside the canvas (#5067).
+    let s = if doc.is_background(lower.id) { composite_layers(&tmp, format, None) } else { composite_layers_uncropped(&tmp, format) };
     let mut merged = Layer::new(lower.name.clone(), LayerContent::Raster(s));
     merged.id = lower.id;
     merged.blend = lower.blend;
