@@ -724,6 +724,8 @@ impl Session {
             self.journal.truncate(from);
         }
         if !crate::brush_cmds::coalesce_journal(self, id, &params) {
+            let params =
+                if id == "layer.select" && self.actions.recording.is_some() { crate::layer_multi_cmds::recorded_selection(self, params) } else { params };
             self.journal.push((id.to_string(), params));
         }
     }

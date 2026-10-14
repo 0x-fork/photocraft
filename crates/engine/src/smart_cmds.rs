@@ -827,21 +827,24 @@ fn set_source(s: &mut Session, p: &Value, label: &str, keep_psd: bool, make: imp
 
 // Keep the shared-instance transaction out of the per-command source-builder instantiations.
 fn set_shared_source(s: &mut Session, id: LayerId, label: &str, keep_psd: bool, new: SmartSource) -> Result<Value> {
-    let (parent, contents_id) = s.edit(label, |doc, _| {
+    let (parent, contents_id, changed) = s.edit(label, |doc, _| {
         let contents_id = smart(doc, id)?.contents_id;
-        for instance in instances(doc, contents_id) {
+        let changed = instances(doc, contents_id);
+        for &instance in &changed {
             smart_mut(doc, instance)?.source = new.clone();
             if !keep_psd {
                 detach_psd(doc.layer_mut(instance).ok_or(EngineError::NoLayer(instance))?);
             }
             refresh_or_fail(doc, instance)?;
         }
-        Ok((doc.id, contents_id))
+        Ok((doc.id, contents_id, changed))
     })?;
     // An old editor must not overwrite newly replaced/relinked contents on close. Keep its
     // document open, but the next Edit Contents opens the replacement source.
     s.smart_links.retain(|l| l.parent != parent || l.contents_id != contents_id);
-    Ok(json!({"layer": id.0}))
+    // Every instance changed, not only `layer`: list them, so a caller doesn't repeat the
+    // command once per copy (#4075).
+    Ok(json!({"layer": id.0, "instances": changed.iter().map(|l| l.0).collect::<Vec<_>>()}))
 }
 
 fn replace_contents(s: &mut Session, p: &Value) -> Result<Value> {

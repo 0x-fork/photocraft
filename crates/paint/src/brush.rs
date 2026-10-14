@@ -582,6 +582,15 @@ impl Default for BrushSettings {
 }
 
 impl BrushSettings {
+    /// Resize the primary tip and keep an enabled Dual Brush tip at the same relative size.
+    /// An explicit Dual Brush size edit should bypass this and retain the requested diameter.
+    pub fn resize_with_dual_brush(&mut self, new_size: f32) {
+        if self.dual_brush.enabled && self.size.is_finite() && self.size > 0.0 && new_size.is_finite() && new_size > 0.0 {
+            self.dual_brush.size = (self.dual_brush.size * (new_size / self.size)).clamp(0.5, MAX_BRUSH_SIZE);
+        }
+        self.size = new_size;
+    }
+
     /// Copy the settings with the primary and dual diameters and Scatter amounts constrained for
     /// rasterization.
     ///
@@ -714,7 +723,7 @@ impl BrushPreset {
     pub fn picked_over(&self, current: &BrushSettings) -> BrushSettings {
         let mut b = self.brush.clone().picked_over(current);
         if !self.captures.size {
-            b.size = current.size;
+            b.resize_with_dual_brush(current.size);
         }
         if !self.captures.tool_settings {
             b.mode = current.mode;

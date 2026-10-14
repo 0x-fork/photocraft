@@ -2594,6 +2594,75 @@ fn lab_documents_gradient_map_follows_lightness() {
     assert!((buf.px[0][0] - grey_buf.px[0][0]).abs() > 0.05, "{:?} {:?}", buf.px[0], grey_buf.px[0]);
 }
 
+// ---------- Effect-map identity is computed once per layer per render (#4437) ----------
+
+/// Effect layers of every kind the cache key walks: a plain layer, a styled group with a styled
+/// child, and a layer whose mask hides its effects (rendered from a temporary copy).
+fn identity_doc(depth: SampleType) -> Document {
+    let mut d = Document::with_background("t", Size::new(96, 96), ColorMode::Rgb, depth, Color::WHITE);
+    let fmt = d.pixel_format();
+    let mut sq = Layer::raster("sq", fmt);
+    sq.surface_mut().unwrap().fill_rect(Rect::new(8, 8, 40, 40), &[1.0, 0.0, 0.0, 1.0]);
+    sq.effects.items = vec![stroke(3.0, StrokePosition::Outside), Effect::DropShadow(shadow(4.0, 120.0))];
+    d.layers.push(sq);
+    let mut child = Layer::raster("child", fmt);
+    child.surface_mut().unwrap().fill_rect(Rect::new(50, 10, 86, 46), &[0.0, 0.6, 0.2, 1.0]);
+    child.effects.items = vec![stroke(2.0, StrokePosition::Outside)];
+    let mut group = Layer::group("g", vec![child]);
+    group.effects.items = vec![Effect::DropShadow(shadow(5.0, 60.0))];
+    d.layers.push(group);
+    let mut hidden = Layer::raster("hidden", fmt);
+    hidden.surface_mut().unwrap().fill_rect(Rect::new(10, 54, 46, 90), &[0.1, 0.2, 0.9, 1.0]);
+    hidden.effects.items = vec![stroke(3.0, StrokePosition::Outside)];
+    hidden.mask = Some(LayerMask::reveal_all());
+    hidden.advanced.layer_mask_hides_effects = true;
+    d.layers.push(hidden);
+    d
+}
+
+#[test]
+fn memoised_effect_identity_leaves_every_render_unchanged() {
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        let d = identity_doc(depth);
+        let b = d.bounds();
+        // One tile for the whole canvas never goes through `prepare_effects`; small tiles do.
+        purge_effect_cache();
+        let whole = render_tiled(&d, b, 4096);
+        purge_effect_cache();
+        let tiled = render_tiled(&d, b, 16);
+        let warm = render_tiled(&d, b, 24);
+        assert!(whole.px == tiled.px, "{depth:?}: tiled differs from one tile");
+        assert!(whole.px == warm.px, "{depth:?}: warm differs from cold");
+        assert!(whole.px.iter().any(|p| *p != [1.0; 4]), "{depth:?}: the effects should draw");
+        // Edits still invalidate: a changed layer must not keep its old maps.
+        let mut e = d.clone();
+        e.layers[1].effects.items = vec![Effect::DropShadow(shadow(9.0, 200.0))];
+        let edited = render_tiled(&e, b, 16);
+        purge_effect_cache();
+        assert!(edited.px == render_tiled(&e, b, 4096).px, "{depth:?}: stale maps after an edit");
+        assert!(edited.px != whole.px, "{depth:?}: the edit should show");
+    }
+}
+
+#[test]
+fn effect_identity_is_built_once_per_layer_not_per_tile() {
+    let mut d = identity_doc(SampleType::U8);
+    // Leave out the temporary-copy layer: it is rebuilt per call by design.
+    d.layers.pop();
+    let patterns = pattern::PreparedPatterns::new(&d.patterns, pattern::PREPARED_PATTERN_BYTES);
+    let cx = Ctx::for_doc(&d, &patterns);
+    let b = d.bounds();
+    let tiles = 6 * 6;
+    let first = render_tiled_with(&d, b, 16, &cx);
+    let built = cx.layer_keys.built.load(std::sync::atomic::Ordering::Relaxed);
+    // sq, the group and its child: three effect layers, however many tiles.
+    assert_eq!(built, 3, "identity built {built} times over {tiles} tiles");
+    // A second render with the same context finds all of them memoised.
+    let second = render_tiled_with(&d, b, 16, &cx);
+    assert_eq!(cx.layer_keys.built.load(std::sync::atomic::Ordering::Relaxed), 3);
+    assert!(first.px == second.px);
+}
+
 #[test]
 fn render_refuses_rects_beyond_the_pixel_cap() {
     let doc = Document::new("c", Size::new(4, 4), ColorMode::Rgb, SampleType::U8);

@@ -767,6 +767,38 @@ fn command_list_reports_enablement() {
     assert_eq!(find("layer.new.layer")["enabled"], false);
 }
 
+/// The Elliptical and Single Row/Column Marquee are `select.rect` options: a command-list filter
+/// for "ellipse" or "marquee" finds it through its keywords (#5060).
+#[test]
+fn command_list_filter_finds_the_marquees_by_keyword() {
+    let mut s = Session::new();
+    let list = s.execute("command.list", json!({})).unwrap();
+    let rows = list.as_array().unwrap();
+    let found = |needle: &str| -> Vec<String> {
+        rows.iter().filter(|c| crate::commands::list_entry_matches(c, needle)).map(|c| c["id"].as_str().unwrap().to_string()).collect()
+    };
+    for needle in ["ellipse", "Elliptical Marquee", "marquee", "single row", "SELECT.RECT"] {
+        assert!(found(needle).contains(&"select.rect".to_string()), "{needle}: {:?}", found(needle));
+    }
+    let rect = rows.iter().find(|c| c["id"] == "select.rect").unwrap();
+    assert!(rect["keywords"].as_str().is_some_and(|k| k.contains("Elliptical Marquee")), "{rect}");
+    // Commands without keywords don't get an empty field, and the filter still reads id and label.
+    assert!(rows.iter().find(|c| c["id"] == "file.new").unwrap().get("keywords").is_none());
+    assert_eq!(found("gaussian blur"), ["filter.blur.gaussianBlur"]);
+    assert!(found("no command is called this").is_empty());
+}
+
+/// Every keyword entry names a real command, so a renamed id can't leave one behind.
+#[test]
+fn search_keywords_name_real_commands() {
+    for (id, words) in crate::commands::SEARCH_KEYWORDS {
+        assert!(crate::commands::find(id).is_some(), "keywords for unknown command {id}");
+        assert!(!words.trim().is_empty(), "{id}");
+    }
+    assert!(crate::commands::search_keywords("select.rect").is_some());
+    assert!(crate::commands::search_keywords("no.such.command").is_none());
+}
+
 /// With no document open, a document command says so instead of only `enabled: false` (#3664).
 #[test]
 fn command_list_tells_no_document_from_other_preconditions() {

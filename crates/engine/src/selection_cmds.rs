@@ -50,10 +50,17 @@ fn scope_color_range(mask: &mut [f32], doc: &Document, area: Rect, m: SelectionM
 fn sample_pixels(s: &Session, all_layers: bool) -> Result<(Rect, Vec<[f32; 4]>)> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let area = d.doc.bounds();
+    // Match the decoders' raster budget before either the layer or composite path allocates.
+    let len = area.size().area();
+    let max_bytes: u64 = if cfg!(target_pointer_width = "64") { 8 << 30 } else { 2 << 30 };
+    if len > max_bytes / std::mem::size_of::<[f32; 4]>() as u64 {
+        return Err(EngineError::Other("the canvas is too large to sample for a selection".into()));
+    }
     let layer = d.active_layer.and_then(|id| d.doc.layer(id)).and_then(|l| l.surface());
     match (all_layers, layer) {
         (false, Some(surf)) => {
-            let mut px = vec![[0.0f32; 4]; area.width() as usize * area.height() as usize];
+            let len = usize::try_from(len).map_err(|_| EngineError::Other("the canvas is too large to sample for a selection".into()))?;
+            let mut px = crate::allocation::filled(len, [0.0f32; 4], "sampling pixels for a selection")?;
             surf.read_rgba_into(area, &mut px);
             Ok((area, px))
         }
@@ -768,6 +775,38 @@ mod tests {
         assert!(coverage(&s, 10, 10) < 0.05 && coverage(&s, 30, 10) > 0.95, "{} {}", coverage(&s, 10, 10), coverage(&s, 30, 10));
         let err = s.execute("select.colorRange", json!({"select": "skinTones", "detectFaces": true})).unwrap_err();
         assert!(err.to_string().contains("detectFaces"), "{err}");
+    }
+
+    #[test]
+    fn selection_sampling_refuses_oversized_canvases_before_reading_pixels() {
+        let mut s = Session::new();
+        s.add_document(
+            photocraft_doc::Document::new(
+                "large",
+                photocraft_geom::Size::new(300_000, 300_000),
+                photocraft_color::ColorMode::Rgb,
+                photocraft_color::SampleType::U8,
+            ),
+            None,
+        );
+        for all_layers in [false, true] {
+            assert!(sample_pixels(&s, all_layers).unwrap_err().to_string().contains("too large to sample"));
+        }
+        assert!(!s.active().unwrap().history.can_undo());
+    }
+
+    #[test]
+    fn selection_sampling_allocation_failure_keeps_the_selection() {
+        let mut s = session();
+        s.execute("select.rect", json!({"x": 5, "y": 5, "width": 4, "height": 4})).unwrap();
+        let before = s.active().unwrap().doc.clone();
+        let history = s.active().unwrap().history.entries();
+        crate::allocation::fail_next_for_test();
+        let result = s.execute("select.similar", json!({"sampleAllLayers": false}));
+        let _ = crate::allocation::capacity::<u8>(0, "reset failpoint");
+        assert!(result.is_err());
+        assert_eq!(*s.active().unwrap().doc, *before);
+        assert_eq!(s.active().unwrap().history.entries(), history);
     }
 
     #[test]

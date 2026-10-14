@@ -707,8 +707,8 @@ fn adjust(c: vec3<f32>) -> vec3<f32> {
             }
             return vec3(g);
         }
-        case 13: {                                                             // Gradient map
-            var t = gray(c);
+        case 13: {                                                             // Gradient map (driven by the W3C luminosity)
+            var t = lum(c);
             if (p0.x > 0.5) { t = 1.0 - t; }
             var o = vec3(lut(0, t), lut(1, t), lut(2, t));
             if (p0.y > 0.5) { o = clamp(o + bayer4(adj_px) / 255.0, vec3(0.0), vec3(1.0)); }

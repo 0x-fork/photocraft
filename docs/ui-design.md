@@ -173,6 +173,15 @@ monitors. A 4K display the system runs at 100% stays at 100% (#1278). The fixed 
 300%) set an absolute UI scale, for example 200% on an unscaled 4K display. Canvas zoom shortcuts
 continue to control the document independently of UI scaling.
 
+On a Wayland session with a fractional display scale, the interface is sharp only in a native
+Wayland window, where the window is drawn at the display's physical resolution
+(`wp_fractional_scale_v1`). Through Xwayland the compositor enlarges a lower-resolution window, so
+everything is blurred and looks larger than the chosen scale (#1072). The window opens through
+Xwayland when a pen is attached (#639), with Preferences › Performance › Linux display server =
+X11, or with `WAYLAND_DISPLAY=` cleared; those are also the ways to get file drag and drop, which
+native Wayland lacks (#386). Sharp text or drag and drop: on such a desktop it is one or the other
+until winit supports Wayland drops.
+
 Interface → UI Font Size changes interface text independently of UI Scale and canvas zoom.
 Tiny, Small (the default), Medium and Large use 10/12, 1, 14/12 and 16/12 of the theme's original
 font sizes, preserving the relative sizes of headings, captions and numeric fields. Apply or OK

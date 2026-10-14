@@ -326,6 +326,7 @@ pub fn render_layer(layer: &Layer, rect: Rect) -> Buffer {
             fx_maps: Default::default(),
             fx_clip: Default::default(),
             doc: None,
+            layer_keys: Default::default(),
         },
         advanced::Scope::ROOT,
     );
@@ -523,6 +524,60 @@ struct Ctx<'a> {
     fx_clip: std::sync::Mutex<Option<Rect>>,
     /// The document being rendered (deep knockouts reveal its Background); `None` for a lone layer.
     doc: Option<&'a Document>,
+    /// Effect-map identities of this render's document layers (see [`LayerKeys`]).
+    layer_keys: LayerKeys,
+}
+
+/// Memo of [`layer_identity`] for the layers of the document being rendered. The identity depends
+/// on the layer alone, not on the tile, so it is computed once per layer per render instead of
+/// once per tile. Only layers that sit in the document tree are memoised by address: the document
+/// is borrowed for the whole render, so no other object can live at such an address. Temporary
+/// copies (`advanced::effects_source`) are never in the tree and always take the full path.
+#[derive(Default)]
+struct LayerKeys {
+    /// Addresses of every layer in the document tree, collected on first use.
+    in_doc: std::sync::OnceLock<std::collections::HashSet<usize>>,
+    ids: std::sync::Mutex<std::collections::HashMap<usize, u64>>,
+    /// Identities computed (tests count them).
+    #[cfg(test)]
+    built: std::sync::atomic::AtomicUsize,
+}
+
+impl LayerKeys {
+    fn identity(&self, layer: &Layer, doc: Option<&Document>) -> u64 {
+        let addr = std::ptr::from_ref(layer) as usize;
+        let in_doc = doc.is_some_and(|d| self.in_doc.get_or_init(|| doc_layer_addresses(d)).contains(&addr));
+        if in_doc && let Some(id) = self.ids.lock().unwrap_or_else(|e| e.into_inner()).get(&addr) {
+            return *id;
+        }
+        let id = self.compute(layer);
+        if in_doc {
+            self.ids.lock().unwrap_or_else(|e| e.into_inner()).insert(addr, id);
+        }
+        id
+    }
+
+    fn compute(&self, layer: &Layer) -> u64 {
+        use std::hash::Hasher;
+        #[cfg(test)]
+        self.built.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        layer_identity(layer, &mut h);
+        h.finish()
+    }
+}
+
+/// Addresses of all layers of `doc` (groups' children included).
+fn doc_layer_addresses(doc: &Document) -> std::collections::HashSet<usize> {
+    let mut out = std::collections::HashSet::new();
+    let mut todo: Vec<&Layer> = doc.layers.iter().collect();
+    while let Some(l) = todo.pop() {
+        out.insert(std::ptr::from_ref(l) as usize);
+        if let LayerContent::Group(g) = &l.content {
+            todo.extend(g.children.iter());
+        }
+    }
+    out
 }
 
 impl<'a> Ctx<'a> {
@@ -538,6 +593,7 @@ impl<'a> Ctx<'a> {
             vector_masks: RenderVectorMasks::default(),
             fx_maps: Default::default(),
             fx_clip: Default::default(),
+            layer_keys: Default::default(),
         }
     }
 
@@ -1603,7 +1659,7 @@ fn effect_maps(layer: &Layer, rect: Rect, cx: &Ctx) -> std::sync::Arc<effects::F
         return std::sync::Arc::new(effects::build_maps_prepared(layer, shape, region, &cx.light, &texture_ctx(layer, region, cx), cx.patterns));
     }
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    layer_identity(layer, &mut h);
+    cx.layer_keys.identity(layer, cx.doc).hash(&mut h);
     (region.x0, region.y0, region.x1, region.y1).hash(&mut h);
     (cx.light.angle.to_bits(), cx.light.altitude.to_bits()).hash(&mut h);
     let key = h.finish();
