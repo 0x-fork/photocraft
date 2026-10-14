@@ -2821,4 +2821,11 @@ curves	Smooth	Suavizar
 	Step {step} is waiting for its dialog	El paso {step} está esperando su cuadro de diálogo
 @plural	{n} action|{n} actions	{n} acción|{n} acciones
 	Auto Add/Delete	Añadir/eliminar automáticamente
+
+# Native Windows printing qualification
+	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	No actives también Imagen especular en Ajustes de impresión: las dos inversiones se anulan.
+	Print Settings…	Ajustes de impresión…
+	Remember to turn off the printer's own colour management in Print Settings…	Recuerda desactivar la gestión de color de la impresora en Ajustes de impresión…
+	Sent to {printer}	Enviado a {printer}
+	set in Print Settings…	se establece en Ajustes de impresión…
 	ICO is limited to 256 × 256 pixels	ICO está limitado a 256 × 256 píxeles
