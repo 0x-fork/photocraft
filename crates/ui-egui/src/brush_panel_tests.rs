@@ -275,6 +275,75 @@ fn section_locks_are_always_visible_and_toggle_on_click() {
     assert_eq!(h.state().ui.brush_section, 0);
 }
 
+#[test]
+fn section_lock_buttons_report_their_section_and_state_in_every_theme() {
+    use egui::accesskit::{Role, Toggled};
+    use egui_kittest::kittest::{NodeT, Queryable};
+
+    for theme in crate::theme::ThemeKind::ALL {
+        let mut h = harness(0, 3);
+        PhotocraftApp::setup_context(&h.ctx, theme);
+        let mut brush = h.state().session.tools.brush.clone();
+        for i in 1..SECTIONS.len() {
+            *section_lock(&mut brush, i).unwrap() = i % 2 == 0;
+        }
+        h.state_mut().session.tools.brush = brush.clone();
+        let presets = h.state().session.tools.presets.clone();
+        let journal = h.state().session.journal.len();
+        h.run_steps(3);
+        for (i, &(name, _)) in SECTIONS.iter().enumerate().skip(1) {
+            let label = format!("Lock: {name}");
+            let node = h.get_by_role_and_label(Role::Button, &label);
+            assert!(!node.accesskit_node().is_disabled(), "locks remain available for disabled sections");
+            assert_eq!(h.query_all_by_label(&label).count(), 1, "{theme:?}: {name} has one distinct control");
+            assert_eq!(node.accesskit_node().toggled(), Some(if i % 2 == 0 { Toggled::True } else { Toggled::False }), "{theme:?}: {name}");
+            let row = h.get_by_label(name).rect();
+            assert!(row.contains_rect(node.rect()), "the named control is the lock's existing hit target");
+        }
+        assert_eq!(h.state().session.tools.brush, brush, "describing a lock must not edit it");
+        assert_eq!(h.state().session.tools.presets, presets);
+        assert_eq!(h.state().session.journal.len(), journal);
+        assert_eq!(h.state().ui.brush_section, 3);
+    }
+}
+
+#[test]
+fn section_lock_buttons_accept_keyboard_without_selecting_or_enabling_sections() {
+    use egui::accesskit::{Role, Toggled};
+    use egui_kittest::kittest::{NodeT, Queryable};
+
+    for (i, &(name, _)) in SECTIONS.iter().enumerate().skip(1) {
+        let mut h = harness(0, 0);
+        let before = h.state().session.tools.brush.clone();
+        let presets = h.state().session.tools.presets.clone();
+        let journal = h.state().session.journal.len();
+        let label = format!("Lock: {name}");
+        let mut replay = photocraft_engine::Session::new();
+        replay.tools.brush = before.clone();
+        h.get_by_role_and_label(Role::Button, &label).focus();
+        h.run_steps(2);
+        for locked in [true, false] {
+            h.key_press(egui::Key::Space);
+            h.run_steps(3);
+            let mut expected = before.clone();
+            *section_lock(&mut expected, i).unwrap() = locked;
+            assert_eq!(h.state().session.tools.brush, expected, "{name}: only this section's lock changes");
+            assert_eq!(h.state().ui.brush_section, 0);
+            assert_eq!(h.state().session.tools.presets, presets);
+            assert_eq!(h.get_by_role_and_label(Role::Button, &label).accesskit_node().toggled(), Some(if locked { Toggled::True } else { Toggled::False }));
+            let (id, params) = last_journal(h.state()).unwrap();
+            assert_eq!(id, "tools.setBrush");
+            assert_eq!(params["brush"].as_object().unwrap().len(), 1);
+            assert_eq!(params["brush"]["locks"].as_object().unwrap().len(), 1);
+            assert_eq!(params["brush"]["locks"].as_object().unwrap().values().next(), Some(&json!(locked)));
+            replay.execute(&id, params).unwrap();
+            assert_eq!(replay.tools.brush, expected, "command replay preserves the lock-only edit");
+        }
+        assert_eq!(h.state().session.journal.len(), journal + 2, "one command per activation");
+        assert_eq!(replay.tools.brush, before);
+    }
+}
+
 /// A harness that shows the options bar with `tool` in the Studio (non-pro) theme.
 fn options_bar_harness(tool: crate::state::Tool) -> Harness<'static, PhotocraftApp> {
     let mut app = app();
