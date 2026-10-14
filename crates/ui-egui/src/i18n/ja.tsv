@@ -3815,3 +3815,8 @@ curves	Smooth	スムーズ
 	Reset All Locked Settings	ロックされた設定をすべて初期化
 	Copy Texture to Other Tools	テクスチャを他のツールにコピー
 	ICO is limited to 256 × 256 pixels	ICO は 256 × 256 ピクセルまでです
+
+# Color Table (.act) dialog
+	Export Swatches as Color Table…	スウォッチをカラーテーブルとして書き出し…
+	There is no color table to save.	保存するカラーテーブルがありません。
+@plural	Saved {n} color to {file}|Saved {n} colors to {file}	{file} に {n} 色を保存しました

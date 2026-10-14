@@ -3836,3 +3836,8 @@ curves	Smooth	Згладити
 @plural	{n} action|{n} actions	{n} операція|{n} операції|{n} операцій
 	Auto Add/Delete	Автододавання/видалення
 	ICO is limited to 256 × 256 pixels	ICO обмежено розміром 256 × 256 пікселів
+
+# Color Table (.act) dialog
+	Export Swatches as Color Table…	Експортувати зразки як таблицю кольорів…
+	There is no color table to save.	Немає таблиці кольорів для збереження.
+@plural	Saved {n} color to {file}|Saved {n} colors to {file}	Збережено {n} колір у {file}|Збережено {n} кольори у {file}|Збережено {n} кольорів у {file}

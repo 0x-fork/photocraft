@@ -3139,3 +3139,8 @@ curves	Smooth	Lisser
 @plural	{n} action|{n} actions	{n} action|{n} actions
 	Auto Add/Delete	Ajout/suppr. auto
 	ICO is limited to 256 × 256 pixels	Le format ICO est limité à 256 × 256 pixels
+
+# Color Table (.act) dialog
+	Export Swatches as Color Table…	Exporter les nuances comme table de couleurs…
+	There is no color table to save.	Il n’y a aucune table de couleurs à enregistrer.
+@plural	Saved {n} color to {file}|Saved {n} colors to {file}	{n} couleur enregistrée dans {file}|{n} couleurs enregistrées dans {file}

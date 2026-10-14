@@ -3135,3 +3135,8 @@ curves	Smooth	Glätten
 @plural	{n} action|{n} actions	{n} Aktion|{n} Aktionen
 	Auto Add/Delete	Autom. hinzuf./löschen
 	ICO is limited to 256 × 256 pixels	ICO ist auf 256 × 256 Pixel begrenzt
+
+# Color Table (.act) dialog
+	Export Swatches as Color Table…	Farbfelder als Farbtabelle exportieren…
+	There is no color table to save.	Es gibt keine Farbtabelle zum Speichern.
+@plural	Saved {n} color to {file}|Saved {n} colors to {file}	{n} Farbe in {file} gespeichert|{n} Farben in {file} gespeichert

@@ -3624,3 +3624,8 @@ curves	Smooth	Làm mượt
 	Choose a gradient file (.grd).	Chọn tệp chuyển sắc (.grd).
 	Auto Add/Delete	Tự động thêm/xóa
 	ICO is limited to 256 × 256 pixels	ICO giới hạn ở 256 × 256 pixel
+
+# Color Table (.act) dialog
+	Export Swatches as Color Table…	Xuất mẫu màu thành Bảng màu…
+	There is no color table to save.	Không có bảng màu nào để lưu.
+@plural	Saved {n} color to {file}|Saved {n} colors to {file}	Đã lưu {n} màu vào {file}

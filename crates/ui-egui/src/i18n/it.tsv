@@ -4100,3 +4100,8 @@ navigator	Zoom	Zoom
 @plural	{n} action|{n} actions	{n} azione|{n} azioni
 	Auto Add/Delete	Aggiungi/elimina automaticamente
 	ICO is limited to 256 × 256 pixels	ICO è limitato a 256 × 256 pixel
+
+# Color Table (.act) dialog
+	Export Swatches as Color Table…	Esporta campioni come tabella colori…
+	There is no color table to save.	Non c'è alcuna tabella colori da salvare.
+@plural	Saved {n} color to {file}|Saved {n} colors to {file}	Salvato {n} colore in {file}|Salvati {n} colori in {file}

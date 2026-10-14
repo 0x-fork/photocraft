@@ -3103,3 +3103,8 @@ curves	Smooth	Сгладить
 	Gray Value (Median)	Уровень серого (медиана)
 	Integrated Density	Интегральная плотность
 	Length	Длина
+
+# Color Table (.act) dialog
+	Export Swatches as Color Table…	Экспортировать образцы как таблицу цветов…
+	There is no color table to save.	Нет таблицы цветов для сохранения.
+@plural	Saved {n} color to {file}|Saved {n} colors to {file}	Сохранён {n} цвет в {file}|Сохранены {n} цвета в {file}|Сохранено {n} цветов в {file}

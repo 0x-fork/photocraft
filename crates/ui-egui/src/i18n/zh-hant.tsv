@@ -2732,3 +2732,8 @@ curves	Smooth	平滑
 @plural	{n} action|{n} actions	{n} 個動作
 	Auto Add/Delete	自動增加/刪除
 	ICO is limited to 256 × 256 pixels	ICO 最大為 256 × 256 像素
+
+# Color Table (.act) dialog
+	Export Swatches as Color Table…	將色票匯出為色表…
+	There is no color table to save.	沒有可儲存的色表。
+@plural	Saved {n} color to {file}|Saved {n} colors to {file}	已將 {n} 種顏色儲存至 {file}

@@ -3927,3 +3927,8 @@ layerLabel	No Color	Sem cor
 @plural	{n} action|{n} actions	{n} ação|{n} ações
 	Auto Add/Delete	Adicionar/excluir automaticamente
 	ICO is limited to 256 × 256 pixels	ICO é limitado a 256 × 256 pixels
+
+# Color Table (.act) dialog
+	Export Swatches as Color Table…	Exportar amostras como tabela de cores…
+	There is no color table to save.	Não há tabela de cores para salvar.
+@plural	Saved {n} color to {file}|Saved {n} colors to {file}	{n} cor salva em {file}|{n} cores salvas em {file}
