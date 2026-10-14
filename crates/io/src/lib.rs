@@ -276,25 +276,34 @@ pub fn import_with_svg_group_depth_and_interrupt(
     Ok(r)
 }
 
+fn import_psd(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt) -> Result<ImportResult, IoError> {
+    let file = PsdFile::from_bytes(bytes)?;
+    // Nesting past the document model's cap could never be saved; reject the file with the
+    // actionable limit.
+    psd_import::check_group_depth(&file)?;
+    ctl.check().map_err(|_| IoError::Cancelled)?;
+    ctl.progress(0.05);
+    let (mut document, warnings) = psd_import::psd_to_document_with(&file, ctl).ok_or(IoError::Cancelled)?;
+    document.name = name.to_string();
+    text_import::prepare(&mut document);
+    Ok(ImportResult { document, warnings, source_read_only: false, preview_only: false })
+}
+
 fn import_stages(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt, max_group_depth: usize) -> Result<ImportResult, IoError> {
     // A declared native extension must reach its loader so malformed bundles retain format errors.
     if has_extension(name, photocraft_format::EXTENSION) || photocraft_format::is_pcraft(bytes) {
         return Ok(ImportResult { document: photocraft_format::load_from_bytes(bytes)?, warnings: Vec::new(), source_read_only: false, preview_only: false });
     }
-    if is_psd_input(name, bytes) {
-        let file = PsdFile::from_bytes(bytes)?;
-        // Nesting past the document model's cap could never be saved; reject the file with the
-        // actionable limit.
-        psd_import::check_group_depth(&file)?;
-        ctl.check().map_err(|_| IoError::Cancelled)?;
-        ctl.progress(0.05);
-        let (mut document, warnings) = psd_import::psd_to_document_with(&file, ctl).ok_or(IoError::Cancelled)?;
-        document.name = name.to_string();
-        text_import::prepare(&mut document);
-        return Ok(ImportResult { document, warnings, source_read_only: false, preview_only: false });
+    // Magic first: an Affinity file renamed .psd is still Affinity (#5258 corpus
+    // preview_never_saves_back_to_its_native_or_renamed_source).
+    if is_psd(bytes) {
+        return import_psd(name, bytes, ctl);
     }
     if affinity::is_affinity(bytes) || affinity::has_extension(name) {
         return affinity::import(name, bytes);
+    }
+    if PSD_EXTS.iter().any(|e| has_extension(name, e)) {
+        return import_psd(name, bytes, ctl);
     }
     if ora::is_ora(bytes) || has_extension(name, "ora") {
         return ora::import(name, bytes, ctl);
@@ -548,5 +557,7 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.starts_with("PSD:"), "{msg}");
         assert!(!msg.contains("unrecognized image format"), "{msg}");
+        // A renamed Affinity file keeps the Affinity loader (magic before the .psd suffix).
+        assert!(!super::is_psd(b"\0\xffKA"));
     }
 }
