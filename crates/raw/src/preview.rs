@@ -108,7 +108,7 @@ pub enum PreviewColorSpace {
 }
 
 /// Nikon maker note tag ColorSpace: 1 = sRGB, 2 = Adobe RGB (4 = BT.2100, which is not a preview colour space we
-/// read), from Nikon's public tag documentation.
+/// read), from ExifTool's public Nikon tag documentation.
 const NIKON_COLOR_SPACE: u16 = 0x001E;
 
 /// The colour space the raw states for the camera's JPEG rendering, for a preview that declares none itself:
