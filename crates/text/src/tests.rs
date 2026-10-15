@@ -2008,3 +2008,126 @@ fn hyphenless_postscript_names_split_trailing_styles() {
         assert_eq!((r.family.as_str(), r.weight, r.italic), (family, weight, italic), "{ps}");
     }
 }
+
+/// Closed polygon in text space.
+fn area_poly(pts: &[(f64, f64)]) -> photocraft_doc::vector::Path {
+    photocraft_doc::vector::Path::new(vec![photocraft_doc::vector::Subpath::polygon(pts)])
+}
+
+/// An ellipse from four kappa curves inside `[x, y, w, h]`.
+fn area_ellipse(x: f64, y: f64, w: f64, h: f64) -> photocraft_doc::vector::Path {
+    use photocraft_doc::vector::{Knot, Subpath};
+    use photocraft_geom::Point;
+    let (rx, ry, cx, cy) = (w / 2.0, h / 2.0, x + w / 2.0, y + h / 2.0);
+    let (kx, ky) = (0.552_284_75 * rx, 0.552_284_75 * ry);
+    let p = Point::new;
+    let knots = vec![
+        Knot::smooth(p(cx, y), p(cx - kx, y), p(cx + kx, y)),
+        Knot::smooth(p(x + w, cy), p(x + w, cy - ky), p(x + w, cy + ky)),
+        Knot::smooth(p(cx, y + h), p(cx + kx, y + h), p(cx - kx, y + h)),
+        Knot::smooth(p(x, cy), p(x, cy + ky), p(x, cy - ky)),
+    ];
+    photocraft_doc::vector::Path::new(vec![Subpath { closed: true, knots, op: Default::default() }])
+}
+
+const BUBBLE_TEXT: &str = "Well, that went better than expected. Now where did the cat hide the keys this time?";
+
+/// Every laid-out line sits inside a span of the shape across its band.
+fn assert_lines_inside(l: &crate::TextLayout, path: &photocraft_doc::vector::Path) {
+    let a = crate::area::AreaShape::new(path, false).unwrap();
+    for line in &l.lines {
+        let spans = a.spans(line.baseline - line.ascent, line.baseline + line.descent, 0.0);
+        assert!(spans.iter().any(|&(s0, s1)| line.x0 >= s0 - 0.5 && line.x1 <= s1 + 0.5), "{line:?} not inside {spans:?}");
+    }
+}
+
+#[test]
+fn area_text_stays_inside_an_ellipse() {
+    let mut e = TextEngine::new();
+    let mut t = point(BUBBLE_TEXT, 18.0);
+    let path = area_ellipse(0.0, 0.0, 260.0, 160.0);
+    t.shape = TextShape::Area { path: path.clone() };
+    let l = e.layout(&t, 72.0);
+    assert!(l.lines.len() >= 4, "{}", l.lines.len());
+    assert_lines_inside(&l, &path);
+    // The top of an ellipse is too narrow for a line at its very edge: the first line starts lower.
+    assert!(l.lines[0].baseline - l.lines[0].ascent > 1.0, "{:?}", l.lines[0]);
+    // Lines go down the shape in text order.
+    for w in l.lines.windows(2) {
+        assert!(w[1].baseline >= w[0].baseline && w[1].range.start >= w[0].range.end, "{w:?}");
+    }
+    // Middle lines are wider than the first (the ellipse is widest in the middle).
+    let width = |i: usize| l.lines[i].x1 - l.lines[i].x0;
+    assert!(width(l.lines.len() / 2) > width(0), "{l:?}");
+}
+
+#[test]
+fn area_overflow_is_hidden() {
+    let mut e = TextEngine::new();
+    let mut t = point(&BUBBLE_TEXT.repeat(10), 14.0);
+    let path = area_ellipse(0.0, 0.0, 200.0, 80.0);
+    t.shape = TextShape::Area { path: path.clone() };
+    let l = e.layout(&t, 72.0);
+    assert!(!l.lines.is_empty());
+    assert!(l.lines.last().unwrap().range.end < t.text.len(), "the rest is hidden");
+    assert_lines_inside(&l, &path);
+}
+
+#[test]
+fn area_lines_center_in_their_span() {
+    let mut e = TextEngine::new();
+    let mut t = point(BUBBLE_TEXT, 12.0);
+    t.paragraphs = vec![ParagraphRun { len: t.text.len(), style: ParagraphStyle { align: TextAlign::Center, ..Default::default() } }];
+    // A diamond: every row's span is centred on x = 100.
+    t.shape = TextShape::Area { path: area_poly(&[(100.0, 0.0), (200.0, 100.0), (100.0, 200.0), (0.0, 100.0)]) };
+    let l = e.layout(&t, 72.0);
+    assert!(l.lines.len() >= 3);
+    for line in &l.lines {
+        assert!(((line.x0 + line.x1) / 2.0 - 100.0).abs() < 1.5, "{line:?}");
+    }
+}
+
+#[test]
+fn area_rows_split_around_a_hole() {
+    use photocraft_doc::vector::{PathOp, Subpath};
+    let mut e = TextEngine::new();
+    let mut t = point(&BUBBLE_TEXT.repeat(6), 12.0);
+    let path = photocraft_doc::vector::Path::new(vec![
+        Subpath::polygon(&[(0.0, 0.0), (300.0, 0.0), (300.0, 300.0), (0.0, 300.0)]),
+        Subpath::polygon(&[(120.0, 100.0), (180.0, 100.0), (180.0, 200.0), (120.0, 200.0)]).with_op(PathOp::Subtract),
+    ]);
+    t.shape = TextShape::Area { path: path.clone() };
+    let l = e.layout(&t, 72.0);
+    assert_lines_inside(&l, &path);
+    // Some baseline carries two lines: one left of the hole, one right of it, left first.
+    let w = l.lines.windows(2).find(|w| (w[0].baseline - w[1].baseline).abs() < 1e-3).expect("a row split around the hole");
+    let (left, right) = (&w[0], &w[1]);
+    assert!(left.x1 <= 120.5 && right.x0 >= 179.5, "{left:?} {right:?}");
+}
+
+#[test]
+fn vertical_area_text_stays_inside() {
+    use photocraft_doc::text::Orientation;
+    let mut e = TextEngine::new();
+    let mut t = point(BUBBLE_TEXT, 12.0);
+    t.orientation = Orientation::Vertical;
+    t.shape = TextShape::Area { path: area_poly(&[(0.0, 0.0), (120.0, 0.0), (120.0, 200.0), (0.0, 200.0)]) };
+    let l = e.layout(&t, 72.0);
+    assert!(l.lines.len() >= 2, "several columns");
+    for g in &l.glyphs {
+        assert!(g.x > -1.0 && g.x < 121.0 && g.y > -1.0 && g.y < 201.0, "{g:?}");
+    }
+}
+
+#[test]
+fn area_without_room_lays_out_nothing_and_a_bad_path_lays_out_as_point_text() {
+    let mut e = TextEngine::new();
+    let mut t = point("Hello", 40.0);
+    // 10 px tall: no 40 pt line fits.
+    t.shape = TextShape::Area { path: area_poly(&[(0.0, 0.0), (300.0, 0.0), (300.0, 10.0), (0.0, 10.0)]) };
+    assert!(e.layout(&t, 72.0).lines.is_empty());
+    // An open path encloses nothing (only reachable from a hostile file): point text, no panic.
+    t.shape = TextShape::Area { path: photocraft_doc::vector::Path::new(vec![photocraft_doc::vector::Subpath::polyline(&[(0.0, 0.0), (9.0, 9.0)])]) };
+    let point_layout = e.layout(&point("Hello", 40.0), 72.0);
+    assert_eq!(e.layout(&t, 72.0).lines.len(), point_layout.lines.len());
+}

@@ -44,7 +44,7 @@ fn has_point_text(s: &Session) -> std::result::Result<(), String> {
     match active_text(s)?.shape {
         TextShape::Point => Ok(()),
         TextShape::Box { .. } => Err("the type layer is already paragraph text".into()),
-        TextShape::Path { .. } => Err("detach the type layer from its path first".into()),
+        TextShape::Path { .. } | TextShape::Area { .. } => Err("release the type layer from its path first".into()),
     }
 }
 
@@ -53,6 +53,7 @@ fn has_box_text(s: &Session) -> std::result::Result<(), String> {
         TextShape::Box { .. } => Ok(()),
         TextShape::Point => Err("the type layer is already point text".into()),
         TextShape::Path { .. } => Err("the type layer is path text".into()),
+        TextShape::Area { .. } => Err("the type layer is area type; release it from its path first".into()),
     }
 }
 

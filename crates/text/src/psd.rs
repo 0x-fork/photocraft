@@ -248,7 +248,7 @@ pub fn apply_txt2_frame(layer: &mut TextLayer, tysh: &[u8], txt2: &E) {
             let p = arr_f(frame.get("0"));
             if p.len() == 2 && p.iter().all(|v| v.is_finite()) { Affine::translate(p[0], p[1]) } else { Affine::IDENTITY }
         }
-        TextShape::Box { .. } => Affine::IDENTITY,
+        TextShape::Box { .. } | TextShape::Area { .. } => Affine::IDENTITY,
     };
     let to_text = matrix.mul(&at);
     if to_text == Affine::IDENTITY || to_text.determinant().abs() <= 1e-9 {
@@ -261,7 +261,7 @@ pub fn apply_txt2_frame(layer: &mut TextLayer, tysh: &[u8], txt2: &E) {
     // again would move it twice.
     let origin = match layer.shape {
         TextShape::Point | TextShape::Path { .. } => Point::new(0.0, 0.0),
-        TextShape::Box { .. } => {
+        TextShape::Box { .. } | TextShape::Area { .. } => {
             let b = engine_data(&t.text)
                 .map(|e| {
                     arr_f(
@@ -1188,10 +1188,16 @@ pub fn build_engine_data(layer: &TextLayer, template: Option<E>, dpi: f32) -> E 
     if dict.get("UseFractionalGlyphWidths").is_none() {
         dict.set("UseFractionalGlyphWidths", E::Bool(true));
     }
-    let (shape_type, box_bounds) = match layer.shape {
+    let (shape_type, box_bounds) = match &layer.shape {
         // PSD path type is not written yet: the layer saves as point text.
         TextShape::Point | TextShape::Path { .. } => (0, None),
-        TextShape::Box { x, y, width, height } => (1, Some([x, y, x + width, y + height])),
+        TextShape::Box { x, y, width, height } => (1, Some([*x, *y, x + width, y + height])),
+        // PSD area type is not written yet: the layer saves as paragraph text over the path's
+        // bounds, so Photoshop opens it with the same text wrapping in a rectangle.
+        TextShape::Area { path } => match path.control_bounds() {
+            Some((x0, y0, x1, y1)) => (1, Some([x0 as f32, y0 as f32, x1 as f32, y1 as f32])),
+            None => (0, None),
+        },
     };
     let mut photoshop = E::Dict(vec![("ShapeType".into(), E::Int(shape_type))]);
     match box_bounds {
@@ -1303,9 +1309,14 @@ pub fn build_tysh(layer: &TextLayer, dpi: f32, ink: Option<[f32; 4]>) -> Vec<u8>
             },
         ),
     );
-    let [l, t, r, b] = match (&layer.shape, ink) {
-        (&TextShape::Box { x, y, width, height }, _) => [x, y, x + width, y + height],
-        (_, Some(i)) => i,
+    let area = match &layer.shape {
+        TextShape::Area { path } => path.control_bounds().map(|(x0, y0, x1, y1)| [x0 as f32, y0 as f32, x1 as f32, y1 as f32]),
+        _ => None,
+    };
+    let [l, t, r, b] = match (&layer.shape, area, ink) {
+        (&TextShape::Box { x, y, width, height }, _, _) => [x, y, x + width, y + height],
+        (_, Some(a), _) => a,
+        (_, _, Some(i)) => i,
         _ => [0.0; 4],
     };
     let rect = |cls: &str| {
