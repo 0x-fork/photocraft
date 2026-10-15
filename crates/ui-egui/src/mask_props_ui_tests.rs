@@ -206,6 +206,21 @@ fn shape_properties_edit_density_and_feather() {
     }
 }
 
+/// #5846: Properties › Transform (X, Y, W, H) frames a soft shape by its path, as its transform
+/// frame does, though its Density renders it over the whole canvas.
+#[test]
+fn a_soft_shapes_transform_fields_follow_its_path() {
+    let mut session = photocraft_engine::Session::new();
+    session.execute("file.new", json!({"width": 64, "height": 64})).unwrap();
+    let id = session.execute("shape.create", json!({"kind": "rect", "rect": [16, 8, 20, 30]})).unwrap()["layer"].as_u64().unwrap();
+    session.execute("layer.vectorMask.edit", json!({"density": 60, "feather": 20})).unwrap();
+    let mut app = PhotocraftApp::new(session, crate::Services::default());
+    let layer = app.session.active().unwrap().doc.layer(photocraft_doc::LayerId(id)).unwrap().clone();
+    let surface = layer.surface().unwrap().clone();
+    assert_eq!(surface.content_bounds(), photocraft_geom::Rect::new(0, 0, 64, 64), "the soft fill covers the canvas");
+    assert_eq!(app.layer_frame_bounds(&layer, &surface), photocraft_geom::Rect::new(16, 8, 36, 38));
+}
+
 /// Document-wide row of mask coverage (or of the layer's own red channel) across the middle.
 fn row(h: &Harness<'_, PhotocraftApp>, of_mask: bool) -> Vec<f32> {
     let s = h.state().session.active().unwrap();
