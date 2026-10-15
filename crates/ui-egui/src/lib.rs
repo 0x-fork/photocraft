@@ -1771,6 +1771,7 @@ impl eframe::App for PhotocraftApp {
         // Caps Lock state read from the OS once per frame (see `Services::caps_lock`): the canvas
         // cursor block needs it before the frame renders. `None` (Wayland/web) keeps `false`.
         self.caps_lock = self.services.caps_lock.as_mut().is_some_and(|f| f());
+        tool_cursor::set_wayland(ctx, self.services.is_wayland);
         if !self.styled {
             Self::setup_context(ctx, self.ui.theme);
             self.styled = true;
