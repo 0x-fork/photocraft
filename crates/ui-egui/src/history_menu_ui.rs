@@ -12,8 +12,9 @@ pub const ITEMS: &[(&str, Option<&str>)] = &[
     ("Step Forward", Some("history.stepForward")),
     ("Step Backward", Some("history.stepBackward")),
     ("---", None),
-    // Snapshots are not implemented yet.
-    ("New Snapshot…", None),
+    // Takes a Full Document snapshot at once; switches to the New Snapshot dialog when that
+    // lands (#3567).
+    ("New Snapshot…", Some("history.newSnapshot")),
     ("Delete", Some("history.deleteState")),
     ("Clear History", Some("history.clear")),
     ("New Document", Some("history.newDocument")),
@@ -108,7 +109,8 @@ mod tests {
         let mut h = harness(app());
         assert_eq!(states(&h), (4, 0));
         assert!(is_disabled(&h, "Step Forward") && !is_disabled(&h, "Step Backward"));
-        assert!(is_disabled(&h, "New Snapshot…") && is_disabled(&h, "History Options…"), "not built yet: greyed");
+        assert!(is_disabled(&h, "History Options…"), "not built yet: greyed");
+        assert!(!is_disabled(&h, "New Snapshot…"));
         click(&mut h, "Step Backward");
         assert_eq!(states(&h), (3, 1));
         assert!(!is_disabled(&h, "Step Forward"));
@@ -146,9 +148,20 @@ mod tests {
         let ctx = h.ctx.clone();
         crate::transform_tool::begin(h.state_mut(), &ctx).unwrap();
         h.run_steps(2);
-        for label in ["Step Backward", "Delete", "Clear History", "New Document"] {
+        for label in ["Step Backward", "New Snapshot…", "Delete", "Clear History", "New Document"] {
             assert!(is_disabled(&h, label), "{label}");
         }
+    }
+
+    #[test]
+    fn new_snapshot_adds_a_snapshot_and_leaves_the_states() {
+        let mut h = harness(app());
+        let snaps = |h: &Harness<'static, PhotocraftApp>| h.state().session.active().unwrap().snapshots.len();
+        let (before, steps) = (snaps(&h), states(&h));
+        click(&mut h, "New Snapshot…");
+        assert!(!h.state().ui.status_error, "{}", h.state().ui.status);
+        assert_eq!(snaps(&h), before + 1);
+        assert_eq!(states(&h), steps, "a snapshot is no history step");
     }
 
     /// With a snapshot selected in the panel, Delete removes the snapshot and leaves the states,

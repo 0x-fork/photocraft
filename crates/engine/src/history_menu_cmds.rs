@@ -192,6 +192,43 @@ mod tests {
     }
 
     #[test]
+    fn clear_history_and_its_undo_keep_a_saved_document_clean() {
+        let mut s = session();
+        let st = s.active_mut().unwrap();
+        st.saved_revision = st.revision;
+        s.execute("history.clear", json!({})).unwrap();
+        assert!(!s.active().unwrap().is_dirty(), "Clear History is no edit");
+        let revision = s.active().unwrap().revision;
+        assert!(s.execute("edit.undo", json!({})).unwrap().as_bool().unwrap());
+        let st = s.active().unwrap();
+        assert!(!st.is_dirty(), "nor is undoing it");
+        assert!(st.revision > revision, "the panels still see the list change");
+        // A modified document stays modified.
+        s.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+        s.execute("history.clear", json!({})).unwrap();
+        s.execute("edit.undo", json!({})).unwrap();
+        assert!(s.active().unwrap().is_dirty());
+    }
+
+    #[test]
+    fn clear_history_leaves_other_documents_alone() {
+        let mut s = session();
+        let first = entries(&s);
+        s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        assert_eq!(s.active_index(), Some(1));
+        s.execute("history.clear", json!({})).unwrap();
+        assert_eq!(entries(&s).len(), 1);
+        let other = &s.documents()[0];
+        assert_eq!(other.history.entries(), first, "the other document keeps its states");
+        assert!(!other.history.is_cleared() && other.history.can_undo());
+        assert!(s.set_active(0));
+        assert!(s.is_enabled("history.clear") && s.is_enabled("history.stepBackward"));
+        s.execute("history.stepBackward", json!({})).unwrap();
+        assert_eq!(entries(&s).len(), first.len() - 1);
+    }
+
+    #[test]
     fn history_menu_commands_refuse_without_a_document_and_ignore_odd_params() {
         let mut s = Session::new();
         for id in ["history.stepForward", "history.stepBackward", "history.clear"] {

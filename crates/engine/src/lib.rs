@@ -844,6 +844,18 @@ impl Session {
         let Some(st) = self.active_mut() else { return false };
         st.coalesce = None;
         match st.history.undo(st.doc.clone()) {
+            // Undo Clear History: the list comes back, the document is the same one. Not an
+            // edit: keep a clean document clean (the revision still moves for the panels).
+            Some((d, layers)) if Arc::ptr_eq(&d, &st.doc) => {
+                restore_target(st, layers);
+                let clean = !st.is_dirty();
+                st.revision += 1;
+                if clean {
+                    st.saved_revision = st.revision;
+                }
+                st.last_damage = Some(photocraft_geom::Rect::EMPTY);
+                true
+            }
             Some((mut d, layers)) => {
                 // Save As changes file identity outside history, just like the saved path.
                 if d.name != st.doc.name {

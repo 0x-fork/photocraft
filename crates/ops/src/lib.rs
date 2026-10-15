@@ -91,10 +91,13 @@ impl History {
         if self.max_bytes == 0 {
             self.tiles = None;
         }
+        // The tile counter also counted the cleared states this step forgets: rebuild it lazily.
+        if self.cleared.take().is_some() {
+            self.tiles = None;
+        }
         if let Some(tiles) = &mut self.tiles {
             tiles.add(&before);
         }
-        self.cleared = None;
         let prev_label = std::mem::replace(&mut self.current_label, label.into());
         let prev_layers = std::mem::replace(&mut self.current_layers, layers);
         self.undo.push_back(HistoryState { label: prev_label, doc: before, layers: prev_layers });
@@ -195,6 +198,7 @@ impl History {
     pub fn purge_last(&mut self) -> bool {
         self.clear_redo();
         if self.cleared.take().is_some() {
+            self.tiles = None;
             return true;
         }
         let Some(state) = self.undo.pop_back() else { return false };
@@ -241,11 +245,26 @@ impl History {
         self.cleared.is_some()
     }
 
+    /// The undo and redo states history holds: the cleared ones while Clear History can still be
+    /// undone (the list is then empty), so memory figures and the byte budget count them.
+    fn held(&self) -> (&VecDeque<HistoryState>, &Vec<HistoryState>) {
+        match &self.cleared {
+            Some(c) => (&c.undo, &c.redo),
+            None => (&self.undo, &self.redo),
+        }
+    }
+
+    /// Every state history holds, cleared ones included (see [`Self::held`]).
+    fn held_states(&self) -> impl Iterator<Item = &HistoryState> {
+        let (undo, redo) = self.held();
+        undo.iter().chain(redo.iter())
+    }
+
     /// Approximate unique pixel bytes held by history (tiles not shared with `current`).
     pub fn unique_bytes(&self, current: &Document) -> usize {
         let mut seen = HashSet::new();
         tile_bytes(current, &mut seen);
-        self.undo.iter().chain(self.redo.iter()).map(|s| tile_bytes(&s.doc, &mut seen)).sum()
+        self.held_states().map(|s| tile_bytes(&s.doc, &mut seen)).sum()
     }
 
     /// Pixel bytes of `current` plus the tiles only history holds (what [`History::trim`]
@@ -256,7 +275,7 @@ impl History {
         }
         let mut seen = HashSet::new();
         let own = tile_bytes(current, &mut seen);
-        self.undo.iter().chain(self.redo.iter()).fold(own, |n, s| n.saturating_add(tile_bytes(&s.doc, &mut seen)))
+        self.held_states().fold(own, |n, s| n.saturating_add(tile_bytes(&s.doc, &mut seen)))
     }
 
     /// Bytes of the tiles only `extra` documents hold (History panel snapshots, #4530): not
@@ -267,7 +286,7 @@ impl History {
         }
         let mut seen = HashSet::new();
         tile_bytes(current, &mut seen);
-        for s in self.undo.iter().chain(self.redo.iter()) {
+        for s in self.held_states() {
             tile_bytes(&s.doc, &mut seen);
         }
         extra.iter().fold(0, |n, d| n.saturating_add(tile_bytes(d, &mut seen)))
@@ -281,7 +300,7 @@ impl History {
         for d in keep {
             tile_bytes(d, &mut seen);
         }
-        self.undo.iter().chain(self.redo.iter()).fold(0, |n, s| n.saturating_add(tile_bytes(&s.doc, &mut seen)))
+        self.held_states().fold(0, |n, s| n.saturating_add(tile_bytes(&s.doc, &mut seen)))
     }
 
     /// Keep pixel memory within [`History::max_bytes`]: the current document's tiles plus the
@@ -296,7 +315,13 @@ impl History {
     /// snapshots, which outlive the states) against the budget too, so they can't take memory
     /// beyond it unseen (#4530). The most recent state is still always kept.
     pub fn trim_with(&mut self, current: &Document, pinned: &[&Document]) -> usize {
-        if self.max_bytes == 0 || self.undo.len() <= 1 {
+        // While Clear History can be undone, the cleared states are what history holds: the
+        // oldest of them go first, as the list's would.
+        let (undo, redo) = match &mut self.cleared {
+            Some(c) => (&mut c.undo, &c.redo),
+            None => (&mut self.undo, &self.redo),
+        };
+        if self.max_bytes == 0 || undo.len() <= 1 {
             return 0;
         }
         // An upper bound of what only `pinned` holds (some of it may be in states too): if the
@@ -310,7 +335,7 @@ impl History {
         };
         let tiles = self.tiles.get_or_insert_with(|| {
             let mut tiles = tiles::Tiles::default();
-            for state in self.undo.iter().chain(&self.redo) {
+            for state in undo.iter().chain(redo) {
                 tiles.add(&state.doc);
             }
             tiles
@@ -323,19 +348,19 @@ impl History {
         for d in pinned {
             total = total.saturating_add(tile_bytes(d, &mut seen));
         }
-        for s in self.redo.iter().rev() {
+        for s in redo.iter().rev() {
             total = total.saturating_add(tile_bytes(&s.doc, &mut seen));
         }
         let mut keep = 0;
-        for s in self.undo.iter().rev() {
+        for s in undo.iter().rev() {
             total = total.saturating_add(tile_bytes(&s.doc, &mut seen));
             if total > self.max_bytes && keep >= 1 {
                 break;
             }
             keep += 1;
         }
-        let drop = self.undo.len() - keep;
-        for state in self.undo.drain(..drop) {
+        let drop = undo.len() - keep;
+        for state in undo.drain(..drop) {
             tiles.remove(&state.doc);
         }
         drop
@@ -659,7 +684,7 @@ mod tests {
         assert_eq!(counter.bytes_with(current), total as u128);
         assert_eq!(h.pixel_bytes(current), total);
         let mut seen = HashSet::new();
-        let retained: usize = h.undo.iter().chain(&h.redo).map(|s| tile_bytes(&s.doc, &mut seen)).sum();
+        let retained: usize = h.held_states().map(|s| tile_bytes(&s.doc, &mut seen)).sum();
         let empty = Document::new("empty", Size::new(1, 1), ColorMode::Rgb, SampleType::U8);
         assert_eq!(counter.bytes_with(&empty), retained as u128);
     }
@@ -922,6 +947,45 @@ mod tests {
         assert_eq!(h.entries(), entries);
         assert_eq!(h.redo_labels().collect::<Vec<_>>(), ["C"], "the redo state is back too");
         assert!(!h.is_cleared());
+    }
+
+    #[test]
+    fn cleared_states_still_count_in_the_memory_figures_and_the_budget() {
+        let mut h = History::new(50);
+        let mut cur = Arc::new(base());
+        let tile = 256 * 256 * 4;
+        for i in 0..5 {
+            edit(&mut h, &mut cur, &format!("paint {i}"), |d| {
+                let id = d.layers[0].id;
+                d.layer_mut(id).unwrap().surface_mut().unwrap().write_pixel(1, 1, &[i as f32 / 8.0, 0.0, 0.0, 1.0]);
+            });
+        }
+        cur = h.undo(cur).unwrap().0;
+        let (unique, pixels) = (h.unique_bytes(&cur), h.pixel_bytes(&cur));
+        assert_eq!(unique, 5 * tile, "four undo states and one redo state");
+        assert!(h.clear_states());
+        assert_eq!(h.unique_bytes(&cur), unique, "Clear History frees nothing while it can be undone");
+        assert_eq!(h.pixel_bytes(&cur), pixels);
+        assert_eq!(h.extra_bytes(&cur, &[&base()]), tile, "a snapshot's own tile, not the cleared states'");
+        assert_eq!(h.unique_bytes_besides(&cur, &[]), unique);
+        // The budget counts them too: the oldest cleared states go first.
+        h.max_bytes = 4 * tile;
+        assert_eq!(h.trim(&cur), 2);
+        assert_counter(&h, &cur);
+        assert_eq!(h.pixel_bytes(&cur), 4 * tile);
+        assert!(h.is_cleared() && h.past_len() == 0, "the list stays cleared");
+        h.undo(cur.clone()).unwrap();
+        assert_eq!(h.entries(), ["paint 1", "paint 2", "paint 3"], "undo brings back what the budget kept");
+        assert_eq!(h.redo_labels().collect::<Vec<_>>(), ["paint 4"]);
+        // A new step after Clear History forgets the cleared states, and the counter with them.
+        assert!(h.clear_states());
+        h.trim(&cur);
+        edit(&mut h, &mut cur, "paint 5", |d| {
+            let id = d.layers[0].id;
+            d.layer_mut(id).unwrap().surface_mut().unwrap().write_pixel(1, 1, &[1.0, 0.0, 0.0, 1.0]);
+        });
+        assert_eq!(h.unique_bytes(&cur), tile, "only the state before the new step");
+        assert_eq!(h.pixel_bytes(&cur), 2 * tile);
     }
 
     #[test]
