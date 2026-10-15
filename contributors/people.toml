@@ -162,3 +162,6 @@ sync_github_name = true
 [people.sidney]
 real_name = "Sidney Markowitz"
 sync_github_name = true
+
+[people.giang17]
+real_name = "Giang Nguyen"
