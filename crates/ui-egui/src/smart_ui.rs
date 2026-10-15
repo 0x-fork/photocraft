@@ -287,6 +287,14 @@ pub fn open_editor(app: &mut PhotocraftApp, ctx: &egui::Context, layer: u64, sm:
         }
         return;
     }
+    // So has the Filter Gallery.
+    if f.command == "filter.filterGallery" {
+        if let Err(e) = crate::gallery_ui::open_smart_filter(app, photocraft_doc::LayerId(layer), index) {
+            app.ui.status = e;
+            app.ui.status_error = true;
+        }
+        return;
+    }
     if !crate::filter_dialog::has_dialog(&f.command) {
         return;
     }

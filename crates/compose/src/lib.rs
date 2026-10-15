@@ -25,6 +25,7 @@ pub mod gradient_fill;
 pub mod masks;
 pub mod multichannel;
 pub mod native;
+pub mod native_lab;
 pub mod pattern;
 pub mod proxy;
 pub mod psblend;
@@ -127,6 +128,14 @@ fn render_tiled_with(doc: &Document, rect: Rect, tile: i32, cx: &Ctx) -> Buffer 
     // Refuse rects too large to hold: an empty buffer, not an allocation failure.
     if u64::from(rect.width()) * u64::from(rect.height()) > MAX_RENDER_PIXELS {
         return Buffer::transparent(Rect::EMPTY);
+    }
+    // A CMYK stack with adjustment layers the inks carry exactly composites on its inks.
+    if let Some(buf) = native::render_cmyk(doc, rect, tile) {
+        return buf;
+    }
+    // A Lab stack with adjustment layers that work on L, a and b composites on its stored values.
+    if let Some(buf) = native_lab::render_lab(doc, rect, tile) {
+        return buf;
     }
     cx.set_fx_clip(rect);
     if i64::from(rect.width()) <= i64::from(tile) && i64::from(rect.height()) <= i64::from(tile) {
@@ -260,7 +269,8 @@ pub fn band_rows_for(width: u32, requested: i32) -> i32 {
 /// otherwise count as content: the result would span the whole canvas.
 ///
 /// A CMYK document of plain Normal layers is composited in its ink values instead
-/// ([`native::flatten_cmyk`]), so flattening doesn't round-trip its pixels through RGB (#3778).
+/// ([`native::flatten_cmyk`]), so flattening doesn't round-trip its pixels through RGB (#3778),
+/// and a Lab one in its L, a and b ([`native_lab::flatten_lab`]).
 pub fn flatten_to_surface(doc: &Document, fmt: photocraft_color::PixelFormat, background: Option<[f32; 3]>) -> Surface {
     composite_to_surface(doc, doc.bounds(), fmt, background)
 }
@@ -270,6 +280,11 @@ pub fn composite_to_surface(doc: &Document, rect: Rect, fmt: photocraft_color::P
     let paper = background.is_some_and(|bg| bg == [1.0; 3]);
     if (background.is_none() || paper)
         && let Some(s) = native::flatten_cmyk(doc, rect, fmt, paper)
+    {
+        return s;
+    }
+    if (background.is_none() || paper)
+        && let Some(s) = native_lab::flatten_lab(doc, rect, fmt, paper)
     {
         return s;
     }
@@ -326,6 +341,7 @@ pub fn render_layer(layer: &Layer, rect: Rect) -> Buffer {
             fx_maps: Default::default(),
             fx_clip: Default::default(),
             doc: None,
+            layer_keys: Default::default(),
         },
         advanced::Scope::ROOT,
     );
@@ -523,6 +539,60 @@ struct Ctx<'a> {
     fx_clip: std::sync::Mutex<Option<Rect>>,
     /// The document being rendered (deep knockouts reveal its Background); `None` for a lone layer.
     doc: Option<&'a Document>,
+    /// Effect-map identities of this render's document layers (see [`LayerKeys`]).
+    layer_keys: LayerKeys,
+}
+
+/// Memo of [`layer_identity`] for the layers of the document being rendered. The identity depends
+/// on the layer alone, not on the tile, so it is computed once per layer per render instead of
+/// once per tile. Only layers that sit in the document tree are memoised by address: the document
+/// is borrowed for the whole render, so no other object can live at such an address. Temporary
+/// copies (`advanced::effects_source`) are never in the tree and always take the full path.
+#[derive(Default)]
+struct LayerKeys {
+    /// Addresses of every layer in the document tree, collected on first use.
+    in_doc: std::sync::OnceLock<std::collections::HashSet<usize>>,
+    ids: std::sync::Mutex<std::collections::HashMap<usize, u64>>,
+    /// Identities computed (tests count them).
+    #[cfg(test)]
+    built: std::sync::atomic::AtomicUsize,
+}
+
+impl LayerKeys {
+    fn identity(&self, layer: &Layer, doc: Option<&Document>) -> u64 {
+        let addr = std::ptr::from_ref(layer) as usize;
+        let in_doc = doc.is_some_and(|d| self.in_doc.get_or_init(|| doc_layer_addresses(d)).contains(&addr));
+        if in_doc && let Some(id) = self.ids.lock().unwrap_or_else(|e| e.into_inner()).get(&addr) {
+            return *id;
+        }
+        let id = self.compute(layer);
+        if in_doc {
+            self.ids.lock().unwrap_or_else(|e| e.into_inner()).insert(addr, id);
+        }
+        id
+    }
+
+    fn compute(&self, layer: &Layer) -> u64 {
+        use std::hash::Hasher;
+        #[cfg(test)]
+        self.built.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        layer_identity(layer, &mut h);
+        h.finish()
+    }
+}
+
+/// Addresses of all layers of `doc` (groups' children included).
+fn doc_layer_addresses(doc: &Document) -> std::collections::HashSet<usize> {
+    let mut out = std::collections::HashSet::new();
+    let mut todo: Vec<&Layer> = doc.layers.iter().collect();
+    while let Some(l) = todo.pop() {
+        out.insert(std::ptr::from_ref(l) as usize);
+        if let LayerContent::Group(g) = &l.content {
+            todo.extend(g.children.iter());
+        }
+    }
+    out
 }
 
 impl<'a> Ctx<'a> {
@@ -538,6 +608,7 @@ impl<'a> Ctx<'a> {
             vector_masks: RenderVectorMasks::default(),
             fx_maps: Default::default(),
             fx_clip: Default::default(),
+            layer_keys: Default::default(),
         }
     }
 
@@ -1290,11 +1361,17 @@ fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer
 
     // Pass-through groups composite their children straight into the backdrop. Below 100% fill
     // Photoshop renders the group isolated, like Normal (psd-tools passthrough_fill_*: an
-    // adjustment inside no longer reaches the layers beneath).
+    // adjustment inside no longer reaches the layers beneath), and so it does for a group that
+    // is the base of a clipping group and holds an adjustment layer (psd-tools
+    // passthrough_clipping_mask_adjustment: an Exposure inside leaves the layers beneath alone),
+    // while such a group's blend modes still reach the backdrop (passthrough_clipping_mask_blendmode).
+    let clip_base_adjusts = clipped.iter().any(|c| c.visible)
+        && matches!(&layer.content, LayerContent::Group(g) if g.children.iter().any(|c| c.visible && matches!(c.content, LayerContent::Adjustment(_))));
     if let LayerContent::Group(g) = &layer.content
         && layer.blend == BlendMode::PassThrough
         && layer.fill_opacity >= 1.0
         && !effects::has_effects(layer)
+        && !clip_base_adjusts
     {
         let needs_mix = opacity < 1.0 || layer.mask.is_some() || layer.vector_mask.is_some();
         let has_clipped = clipped.iter().any(|c| c.visible);
@@ -1603,7 +1680,7 @@ fn effect_maps(layer: &Layer, rect: Rect, cx: &Ctx) -> std::sync::Arc<effects::F
         return std::sync::Arc::new(effects::build_maps_prepared(layer, shape, region, &cx.light, &texture_ctx(layer, region, cx), cx.patterns));
     }
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    layer_identity(layer, &mut h);
+    cx.layer_keys.identity(layer, cx.doc).hash(&mut h);
     (region.x0, region.y0, region.x1, region.y1).hash(&mut h);
     (cx.light.angle.to_bits(), cx.light.altitude.to_bits()).hash(&mut h);
     let key = h.finish();
