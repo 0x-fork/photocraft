@@ -140,7 +140,9 @@ impl AreaShape {
     /// Edges of `c` that may overlap `[ya, yb]` (a superset), found by binary search.
     fn candidates(&self, c: &Component, ya: f32, yb: f32) -> &[Edge] {
         let all = self.edges.get(c.edges.clone()).unwrap_or(&[]);
-        let from = all.partition_point(|e| e.lo < ya - c.max_h);
+        // Slack covers f32 rounding of `max_h` and of the subtraction; extras are filtered exactly later.
+        let slack = (ya.abs() + c.max_h) * 1e-6 + 1e-3;
+        let from = all.partition_point(|e| e.lo < ya - c.max_h - slack);
         let to = all.partition_point(|e| e.lo <= yb);
         all.get(from..to.max(from)).unwrap_or(&[])
     }
@@ -220,7 +222,9 @@ impl AreaShape {
     /// Intervals inside the shape on every row of `[y0, y1]`, left to right, each at least
     /// `min_width` wide. A point is inside for the whole band exactly when it is inside on one
     /// row and no edge crosses its vertical segment, so: the inside intervals at the middle row,
-    /// minus everything the edges sweep across within the band.
+    /// minus everything the edges sweep across within the band. Edges that lie inside the filled
+    /// area (inner edges of overlapping Combine/Join components, or Subtract edges outside the
+    /// shape) also block width. That is conservative and never puts text over a cutout.
     pub fn spans(&self, y0: f32, y1: f32, min_width: f32) -> Vec<(f32, f32)> {
         if !(y0.is_finite() && y1.is_finite()) || y1 < y0 {
             return Vec::new();
@@ -408,6 +412,16 @@ mod tests {
         let a = AreaShape::new(&poly(&[(0.0, 0.0), (100.0, 0.0), (100.0, 50.0), (0.0, 50.0)]), false).unwrap();
         let (b, s) = a.next_row(-1000.0, 8.0, 2.0, 10.0).unwrap();
         assert!((b - 8.0).abs() < 0.6 && close(s[0], (0.0, 100.0)), "{b} {s:?}");
+    }
+
+    #[test]
+    fn tall_edge_survives_rounding_at_its_end() {
+        // The tallest edge's height and `y - height` both round; the lookup must still find it.
+        let a = AreaShape::new(&poly(&[(0.0, -1898.2166), (10.0, 212.32651), (0.0, 212.32651)]), false).unwrap();
+        let y = 212.32649_f32;
+        assert!(a.contains(5.0, y));
+        let s = a.spans(y, y, 1.0);
+        assert!(s.len() == 1 && s[0].0 < 0.01 && s[0].1 > 9.9, "{s:?}");
     }
 
     #[test]
