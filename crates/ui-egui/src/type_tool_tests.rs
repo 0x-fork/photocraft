@@ -2192,3 +2192,17 @@ fn paths_with_too_many_anchors_are_not_hover_targets() {
         Some(photocraft_doc::Path::new(vec![photocraft_doc::Subpath::polygon(&ring(5000))]));
     assert!(path_target(&app, 500.0, 400.0).is_none());
 }
+
+#[test]
+fn hidden_target_path_is_not_a_click_target() {
+    // View › Show › Target Path off hides the path, so a click there makes plain point text.
+    let mut app = new_app();
+    std::sync::Arc::make_mut(&mut app.session.active_mut().unwrap().doc).work_path =
+        Some(photocraft_doc::Path::new(vec![photocraft_doc::Subpath::polygon(&[(300.0, 300.0), (700.0, 300.0), (700.0, 500.0), (300.0, 500.0)])]));
+    assert!(matches!(path_target(&app, 500.0, 400.0), Some(PathClick::Area { shape: None })));
+    app.ui.view.show.target_path = false;
+    assert!(path_target(&app, 500.0, 400.0).is_none(), "Target Path off");
+    app.ui.view.show.target_path = true;
+    app.ui.view.extras = false;
+    assert!(path_target(&app, 500.0, 400.0).is_none(), "Extras off");
+}

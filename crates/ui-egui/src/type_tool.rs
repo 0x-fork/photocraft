@@ -326,8 +326,12 @@ fn arc_length_to(sub: &photocraft_doc::Subpath, seg: usize, t: f64) -> f64 {
 
 /// The path a Type tool click at document `(x, y)` would use: the active shape layer's path,
 /// else the work path (the path Photoshop shows), within 4 screen px of its outline or inside it.
+/// None while View › Show › Target Path (or Extras) hides the path, as the canvas then draws none.
 pub(crate) fn path_target(app: &PhotocraftApp, x: f64, y: f64) -> Option<PathClick> {
     use photocraft_vector::edit::{Hit, hit};
+    if !app.ui.view.shows(app.ui.view.show.target_path) {
+        return None;
+    }
     let (shape, path) = match crate::vector_ui::active_shape_path(app) {
         Some((id, p)) => (Some(id), p),
         None => (None, app.session.active()?.doc.work_path.clone()?),
