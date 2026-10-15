@@ -78,9 +78,11 @@ fn custom_titlebar(prefs_file: Option<&std::path::Path>) -> bool {
 /// different offset every launch (#419). A later launch restores the saved position instead
 /// (`main` turns `centered` off, #4826). Wayland compositors place windows themselves.
 fn native_options(custom_titlebar: bool) -> eframe::NativeOptions {
+    let viewport = egui::ViewportBuilder::default();
+    // Not inside a macOS app bundle: its Dock icon is the bundle's .icns (`app_icon`, #5849).
+    let viewport = if app_icon::sets_runtime_icon(std::env::current_exe().ok().as_deref()) { viewport.with_icon(app_icon::window_icon()) } else { viewport };
     eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_icon(app_icon::window_icon())
+        viewport: viewport
             .with_app_id(APP_ID)
             .with_title("PhotoCraft")
             .with_inner_size([1440.0, 900.0])
