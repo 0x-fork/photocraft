@@ -2131,3 +2131,36 @@ fn area_without_room_lays_out_nothing_and_a_bad_path_lays_out_as_point_text() {
     let point_layout = e.layout(&point("Hello", 40.0), 72.0);
     assert_eq!(e.layout(&t, 72.0).lines.len(), point_layout.lines.len());
 }
+
+#[test]
+fn area_word_wider_than_every_span_overflows_instead_of_hiding_the_text() {
+    use photocraft_doc::vector::Subpath;
+    let mut e = TextEngine::new();
+    // Two 40 px columns 120 px apart: their bounding box is 200 px wide, but no span is wider
+    // than 40 px, so no row can ever hold the long word.
+    let mut t = point("Wonderfulness is a long word", 12.0);
+    let path = photocraft_doc::vector::Path::new(vec![
+        Subpath::polygon(&[(0.0, 0.0), (40.0, 0.0), (40.0, 200.0), (0.0, 200.0)]),
+        Subpath::polygon(&[(160.0, 0.0), (200.0, 0.0), (200.0, 200.0), (160.0, 200.0)]),
+    ]);
+    t.shape = TextShape::Area { path };
+    let l = e.layout(&t, 72.0);
+    let first = l.lines.first().expect("the text is shown");
+    // The word overflows its 40 px span, as in a text box, on the first row.
+    assert!(first.x1 - first.x0 > 40.0 && first.x1 - first.x0 < 200.0, "{first:?}");
+    assert!(first.x0 >= -0.5, "{first:?}");
+    // Nothing is hidden.
+    assert_eq!(l.lines.last().map(|line| line.range.end), Some(t.text.len()), "{:?}", l.lines);
+}
+
+#[test]
+fn single_size_area_paragraph_breaks_in_one_pass() {
+    let mut e = TextEngine::new();
+    let mut t = point(BUBBLE_TEXT, 12.0);
+    t.shape = TextShape::Area { path: area_poly(&[(0.0, 0.0), (300.0, 0.0), (300.0, 300.0), (0.0, 300.0)]) };
+    crate::layout::AREA_PASSES.with(|c| c.set(0));
+    let l = e.layout(&t, 72.0);
+    assert!(l.lines.len() >= 2);
+    // Rows are planned with the paragraph's real metrics: no re-plan and no skipped spans.
+    assert_eq!(crate::layout::AREA_PASSES.with(|c| c.get()), 1);
+}

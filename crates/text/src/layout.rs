@@ -649,20 +649,16 @@ impl Layouter {
             // Box extent along the lines: width, or height for vertical type (columns).
             let (line_origin, line_len) = if vertical { (box_rect.1, box_rect.3) } else { (box_rect.0, box_rect.2) };
             let avail = if is_box { Some((line_len - indent_start - indent_end).max(1.0)) } else { None };
-            // Area type: plan rows with the first style's metrics, and the first row no higher
-            // than one leading (plus paragraph spacing) below the previous paragraph's last line.
-            let area_style = out.styles[style_at(prange.start)].clone();
-            let guess = AreaMetrics {
-                ascent: if vertical { first_px * 0.5 } else { first_px * 0.8 },
-                descent: if vertical { first_px * 0.5 } else { first_px * 0.2 },
-                leading: area_style.leading_pt.map_or(ps.auto_leading * first_px, |l| l * k),
-            };
+            // Area type: the first row goes no higher than one leading (plus paragraph spacing)
+            // below the previous paragraph's last line.
             let space_before = if prev_baseline.is_some() { ps.space_before_pt * k } else { 0.0 };
             let area_from = |m: AreaMetrics| match (&area, prev_baseline) {
                 (Some(_), Some(b)) => b + m.leading + pending_space + space_before,
                 (Some(a), None) => a.bounds[1] + m.ascent,
                 (None, _) => 0.0,
             };
+            // Line-breaking passes left for this paragraph's area type (see `break_area`).
+            let area_budget = std::cell::Cell::new(MAX_AREA_PASSES);
             let break_lines = |layout: &mut Layout<RunBrush>| -> (Vec<Slot>, bool) {
                 if first_indent != 0.0 {
                     layout.set_text_indent(first_indent, IndentOptions::default());
@@ -671,18 +667,12 @@ impl Layouter {
                     layout.break_all_lines(avail);
                     return (Vec::new(), false);
                 };
-                let mut r = break_area(layout, a, area_from(guess), guess, (indent_start, indent_end), first_px);
-                // Re-plan once with the real metrics if a line is taller than the guess.
-                let real = area_metrics(layout, &out.styles, &ps, k, &area_style, vertical);
-                if real.ascent > guess.ascent + 0.5 || real.descent > guess.descent + 0.5 || real.leading > guess.leading + 0.5 {
-                    let m = AreaMetrics {
-                        ascent: real.ascent.max(guess.ascent),
-                        descent: real.descent.max(guess.descent),
-                        leading: real.leading.max(guess.leading),
-                    };
-                    r = break_area(layout, a, area_from(m), m, (indent_start, indent_end), first_px);
-                }
-                r
+                // Plan every row with the paragraph's real line metrics (its tallest font and
+                // largest leading, measured on the unwrapped paragraph), so no wrapped line comes
+                // out taller than the row it was planned in and no second plan is needed.
+                layout.break_all_lines(None);
+                let m = area_metrics(layout, &out.styles, &ps, k, first_style, vertical);
+                break_area(layout, a, area_from(m), m, (indent_start, indent_end), first_px, &area_budget)
             };
             // Paragraph text: a tab is never wider than a space plus one tab interval, so breaking
             // lines at that width keeps the expanded tabs inside the box, but can wrap early.
@@ -1104,12 +1094,14 @@ fn next_tab_stop(pos: f32, interval: f32) -> f32 {
 }
 
 /// Where one line of area type goes: its baseline, the left edge of its span, and the width
-/// it may fill (the span less the paragraph's indents).
+/// it may fill (the span less the paragraph's indents), plus the row and span it came from.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Slot {
     baseline: f32,
     x: f32,
     width: f32,
+    row: usize,
+    span: usize,
 }
 
 /// Line metrics an area paragraph is planned with.
@@ -1120,17 +1112,79 @@ struct AreaMetrics {
     leading: f32,
 }
 
-/// Most spans one area paragraph skips because the word that would start there doesn't fit (each
-/// skip breaks the paragraph again).
-const MAX_AREA_SKIPS: usize = 64;
+/// Most line-breaking passes area type makes for one paragraph, over all its plans (each span
+/// left empty for a word that doesn't fit costs a pass). Past it, words overflow their spans.
+const MAX_AREA_PASSES: usize = 32;
+/// Most rows one area paragraph is planned on.
+const MAX_AREA_ROWS: usize = 4096;
+
+#[cfg(test)]
+thread_local! {
+    /// Area line-breaking passes made on this thread, for tests.
+    pub(crate) static AREA_PASSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The rows an area paragraph's lines go on: baselines from `next` down, one leading apart,
+/// each with its spans left to right. They don't depend on the text, so they are found once
+/// (lazily) and shared by every pass.
+struct AreaRows<'a> {
+    area: &'a crate::area::AreaShape,
+    m: AreaMetrics,
+    min_width: f32,
+    /// Where the search for the next row starts.
+    next: f32,
+    rows: Vec<(f32, Vec<(f32, f32)>)>,
+    done: bool,
+}
+
+impl AreaRows<'_> {
+    /// Row `i`: its baseline and spans; `None` past the shape.
+    fn get(&mut self, i: usize) -> Option<&(f32, Vec<(f32, f32)>)> {
+        while self.rows.len() <= i && !self.done {
+            match self.area.next_row(self.next, self.m.ascent, self.m.descent, self.min_width) {
+                Some((b, spans)) if self.rows.len() < MAX_AREA_ROWS => {
+                    self.next = b + self.m.leading;
+                    self.rows.push((b, spans));
+                }
+                _ => self.done = true,
+            }
+        }
+        self.rows.get(i)
+    }
+
+    /// The first span, from span `span` of row `row` on, that leaves at least `width` once
+    /// `inset` (the paragraph's indents) is taken off: its row and span.
+    fn first_fit(&mut self, row: usize, span: usize, width: f32, inset: f32) -> Option<(usize, usize)> {
+        let (mut r, mut first) = (row, span);
+        while let Some((_, spans)) = self.get(r) {
+            if let Some(j) = spans.iter().skip(first).position(|&(x0, x1)| x1 - x0 - inset + 0.5 >= width) {
+                return Some((r, first + j));
+            }
+            r += 1;
+            first = 0;
+        }
+        None
+    }
+}
+
+/// A line wider than the span it fell in, that a later span can hold: the line's index in the
+/// paragraph, where its text starts, and its width.
+#[derive(Clone, Copy, Debug)]
+struct Need {
+    line: usize,
+    start: usize,
+    width: f32,
+}
 
 /// Breaks one paragraph of area type a line at a time, each line as wide as the next span the
 /// shape leaves (rows from `from` down, spans left to right). Returns each line's slot and
 /// whether text was left over because the shape ran out (hidden, like box overflow).
 ///
 /// A span too narrow for the word that would start it (the narrow top of an ellipse) is left
-/// empty and the word goes to the next span, as long as the word fits across the shape's full
-/// width somewhere; a word wider than the whole shape overflows its span, as in a text box.
+/// empty and the word goes to the first later span that holds it, as Photoshop does. A word no
+/// later span holds overflows its span, as in a text box. Parley doesn't report a line's
+/// trailing whitespace while breaking, so overflowing lines are found after a pass and the
+/// paragraph broken again; `budget` (shared by the paragraph's calls) bounds the passes.
 fn break_area(
     layout: &mut Layout<RunBrush>,
     area: &crate::area::AreaShape,
@@ -1138,81 +1192,91 @@ fn break_area(
     m: AreaMetrics,
     indents: (f32, f32),
     min_width: f32,
+    budget: &std::cell::Cell<usize>,
 ) -> (Vec<Slot>, bool) {
-    let widest = area.bounds[2] - area.bounds[0] - indents.0 - indents.1;
-    // Spans left empty, by baseline and left edge (exact: every pass computes them the same way).
-    let mut skip: Vec<(f32, f32)> = Vec::new();
+    let inset = indents.0 + indents.1;
+    let mut rows = AreaRows { area, m, min_width, next: from, rows: Vec::new(), done: false };
+    let mut needs: Vec<Need> = Vec::new();
     loop {
-        let (slots, overflow) = break_area_pass(layout, area, from, m, indents, min_width, &skip);
-        // Skipping only makes progress when rows move down.
-        if m.leading < 1.0 || skip.len() >= MAX_AREA_SKIPS {
+        let (slots, overflow) = break_area_pass(layout, &mut rows, inset, &needs);
+        budget.set(budget.get().saturating_sub(1));
+        if budget.get() == 0 {
             return (slots, overflow);
         }
-        let narrow = layout.lines().zip(&slots).find_map(|(line, s)| {
-            let lm = line.metrics();
-            let content = lm.advance - lm.trailing_whitespace;
-            (content > s.width + 0.5 && content <= widest).then_some((s.baseline, s.x))
-        });
-        match narrow {
-            Some(span) => skip.push(span),
+        // Each line's text start and width without its trailing whitespace.
+        let lines: Vec<(usize, f32)> = layout
+            .lines()
+            .map(|l| {
+                let lm = l.metrics();
+                (l.text_range().start, lm.advance - lm.trailing_whitespace)
+            })
+            .collect();
+        // A line that now starts elsewhere (an earlier line changed) no longer needs its span.
+        let kept = needs.len();
+        needs.retain(|n| lines.get(n.line).is_some_and(|l| l.0 == n.start));
+        if needs.len() != kept {
+            continue;
+        }
+        let mut new = None;
+        for (li, (&(start, width), s)) in lines.iter().zip(&slots).enumerate() {
+            if width > s.width + 0.5 && !needs.iter().any(|n| n.line == li) && rows.first_fit(s.row, s.span + 1, width, inset).is_some() {
+                new = Some(Need { line: li, start, width });
+                break;
+            }
+        }
+        match new {
+            Some(n) => needs.push(n),
             None => return (slots, overflow),
         }
     }
 }
 
-/// One pass of [`break_area`], leaving the spans in `skip` empty.
-fn break_area_pass(
-    layout: &mut Layout<RunBrush>,
-    area: &crate::area::AreaShape,
-    from: f32,
-    m: AreaMetrics,
-    indents: (f32, f32),
-    min_width: f32,
-    skip: &[(f32, f32)],
-) -> (Vec<Slot>, bool) {
-    let mut slots = Vec::new();
+/// One pass of [`break_area`]: each line in the next span, skipping spans too narrow for a
+/// line in `needs` when a later span holds it.
+fn break_area_pass(layout: &mut Layout<RunBrush>, rows: &mut AreaRows<'_>, inset: f32, needs: &[Need]) -> (Vec<Slot>, bool) {
+    #[cfg(test)]
+    AREA_PASSES.with(|c| c.set(c.get() + 1));
+    let mut slots: Vec<Slot> = Vec::new();
     let mut br = layout.break_lines();
     // Per-line widths below are never wider than this, as parley requires.
     br.state_mut().set_layout_max_advance(f32::INFINITY);
-    let mut baseline = from;
-    // The current row's spans, rightmost first so `pop` takes them left to right.
-    let mut row: Vec<(f32, f32)> = Vec::new();
+    let (mut row, mut span) = (0, 0);
     let mut overflow = false;
     while !br.is_done() {
-        if row.is_empty() {
-            match area.next_row(baseline, m.ascent, m.descent, min_width) {
-                Some((b, mut spans)) => {
-                    baseline = b;
-                    spans.reverse();
-                    row = spans;
-                }
-                None => {
-                    overflow = true;
-                    break;
-                }
-            }
+        let Some((baseline, spans)) = rows.get(row) else {
+            overflow = true;
+            break;
+        };
+        let baseline = *baseline;
+        let Some(&(x0, x1)) = spans.get(span) else {
+            row += 1;
+            span = 0;
+            continue;
+        };
+        let width = (x1 - x0 - inset).max(1.0);
+        // A line known to be too wide here moves on to the first span that holds it.
+        if let Some(w) = needs.iter().find(|n| n.line == slots.len()).map(|n| n.width)
+            && w > width + 0.5
+            && let Some((r, j)) = rows.first_fit(row, span + 1, w, inset)
+        {
+            (row, span) = (r, j);
+            continue;
         }
-        let Some((x0, x1)) = row.pop() else { break };
-        if !skip.contains(&(baseline, x0)) {
-            let width = (x1 - x0 - indents.0 - indents.1).max(1.0);
-            br.state_mut().set_line_max_advance(width);
-            if br.break_next().is_none() {
-                break;
-            }
-            // Parley aligns each line within the width it was broken at.
-            br.set_prior_line_width(width);
-            slots.push(Slot { baseline, x: x0, width });
+        br.state_mut().set_line_max_advance(width);
+        if br.break_next().is_none() {
+            break;
         }
-        if row.is_empty() {
-            baseline += m.leading;
-        }
+        // Parley aligns each line within the width it was broken at.
+        br.set_prior_line_width(width);
+        slots.push(Slot { baseline, x: x0, width, row, span });
+        span += 1;
     }
     br.finish();
     (slots, overflow)
 }
 
 /// Largest ascent, descent and leading over the lines of a broken paragraph, computed the same
-/// way the line loop below does, so an area paragraph can be re-planned with its real metrics.
+/// way the line loop does, so an area paragraph's rows can be planned with its real metrics.
 fn area_metrics(layout: &Layout<RunBrush>, styles: &[CharStyle], ps: &ParagraphStyle, k: f32, fallback: &CharStyle, vertical: bool) -> AreaMetrics {
     let first_px = fallback.size_pt * k;
     let mut out = AreaMetrics { ascent: 0.0, descent: 0.0, leading: 0.0 };
