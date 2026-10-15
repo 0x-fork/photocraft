@@ -422,6 +422,24 @@ fn brush_cursor_follows_pen_orientation_6350() {
 
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
+fn round_cursor_shows_brush_projection_6350() {
+    let mut h = harness();
+    h.state_mut().session.tools.brush.shape_dynamics.enabled = true;
+    h.state_mut().session.tools.brush.shape_dynamics.brush_projection = true;
+    h.state_mut().stylus.feed.set(Some(crate::stylus::PenSample::default()));
+    h.run_steps(3);
+    let upright = h.output().platform_output.cursor_image.clone().unwrap();
+    h.state_mut().stylus.feed.set(Some(crate::stylus::PenSample { tilt_x: 60.0, ..Default::default() }));
+    h.run_steps(3);
+    let tilted = h.output().platform_output.cursor_image.clone().unwrap();
+    assert_ne!(upright.rgba, tilted.rgba, "a projected round brush must not keep a circular cursor");
+    h.state_mut().stylus.feed.set(None);
+    h.run_steps(3);
+    assert_eq!(upright.rgba, h.output().platform_output.cursor_image.clone().unwrap().rgba, "mouse restores the unprojected tip");
+}
+
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
 fn brush_hover_uses_an_os_bitmap_that_survives_motion_but_not_tool_or_panel_changes() {
     let mut h = harness();
     let initial = h.output().platform_output.cursor_image.clone().expect("brush hover must reach the OS, not the painter");
