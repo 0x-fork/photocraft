@@ -188,7 +188,7 @@ pub fn bake(stops: Vec<(f32, Color)>, midpoints: &[f32], smoothness: f32, method
 /// Exponent of Photoshop's opacity response for Perceptual and Linear gradients: the opacity
 /// stops enter the method's space as if they were sRGB grey levels (Linear: linear light;
 /// Perceptual: Oklab L), and the interpolated linear-light value `y` comes out as opacity
-/// `y^0.65`. Fitted on Photoshop 25.1 (scripted Gradient Overlays and gradient fill layers, which
+/// `y^0.65`. Fitted on Photoshop (scripted Gradient Overlays and gradient fill layers, which
 /// render identical pixels: 100 → 0 % and 100 → 20 → 90 % ramps with Smoothness 0 and 100 and
 /// midpoints 25 and 50 %, within 0.015 of every 8-bit sample; a flat 60 % renders as 47 %).
 const OPACITY_RESPONSE: f32 = 0.65;
@@ -196,7 +196,7 @@ const OPACITY_RESPONSE: f32 = 0.65;
 /// Dense linear opacity stops reproducing Photoshop's interpolation of a gradient's transparency
 /// (Smoothness, opacity midpoints and the method, see [`OPACITY_RESPONSE`]). Returns the input
 /// unchanged when it already interpolates linearly. Smooth keeps Classic's opacity curve: it was
-/// not measured (Photoshop 25.1 has no Smooth method).
+/// not measured (the Photoshop build it was fitted on has no Smooth method).
 pub fn bake_opacity(stops: Vec<(f32, f32)>, midpoints: &[f32], smoothness: f32, method: Method) -> Vec<(f32, f32)> {
     let method = if method == Method::Smooth { Method::Classic } else { method };
     let plain_mids = midpoints.iter().all(|m| (m - 0.5).abs() < 1e-3);
@@ -246,7 +246,7 @@ mod tests {
         a.1 + (b.1 - a.1) * (t - a.0) / (b.0 - a.0)
     }
 
-    /// Photoshop 25.1 Gradient Overlay samples (black, Normal, over white; a 256 px wide linear
+    /// Photoshop Gradient Overlay samples (black, Normal, over white; a 256 px wide linear
     /// gradient, pixel `x` at t = (x + 0.5) / 256): opacity stops, midpoints, Smoothness, method,
     /// and (x, opacity) pairs read from the composite.
     #[test]

@@ -813,7 +813,7 @@ mod tests {
 
     /// A Gradient Overlay `lfx2` laid out as Photoshop writes it: one black colour, opacity
     /// 100 → 0 % with the opacity midpoint `mid` (%), Smoothness `intr` (0..4096) and the method
-    /// enum `gs99` (Photoshop 25.1's key in layer effects; codes `Gcls`, `Lnr `, `Perc`).
+    /// enum `gs99` (Photoshop's key in layer effects; codes `Gcls`, `Lnr `, `Perc`).
     fn overlay_lfx2(mid: i32, intr: f64, method: &str) -> Vec<u8> {
         let black = || Descriptor::new("RGBC").with("Rd  ", Value::Double(0.0)).with("Grn ", Value::Double(0.0)).with("Bl  ", Value::Double(0.0));
         let clr = |loc: i32| {
@@ -856,7 +856,7 @@ mod tests {
     }
 
     /// #1954: the overlay's transparency follows Smoothness, the opacity midpoints and the method
-    /// like a gradient fill layer's (Photoshop 25.1 renders both identically; the values are its
+    /// like a gradient fill layer's (Photoshop renders both identically; the values are its
     /// composites at t = 0.25 and 0.5).
     #[test]
     fn gradient_overlay_opacity_follows_smoothness_midpoint_and_method() {
