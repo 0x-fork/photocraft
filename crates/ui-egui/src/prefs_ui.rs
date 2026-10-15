@@ -804,6 +804,21 @@ pub fn shortcut_items(app: &PhotocraftApp) -> Vec<(String, String, Vec<String>, 
     out
 }
 
+/// A fingerprint of the bindings a shortcut conflict describes.
+fn conflict_state(overrides: &BTreeMap<String, String>, alternates: &BTreeMap<String, Vec<String>>, selected: &str, set: Option<&Value>) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (overrides, alternates, selected, set.map(Value::to_string)).hash(&mut h);
+    h.finish()
+}
+
+/// Keys the system takes before the app sees them (switching apps, closing the window, force
+/// quit): Edit › Keyboard Shortcuts won't assign them, as Photoshop won't. `sc` is in our
+/// notation, where `Cmd` is Ctrl off the Mac.
+pub fn reserved_shortcut(sc: &str) -> bool {
+    prefs::reserved_shortcut(sc)
+}
+
 /// Text of a key press for the shortcut editor (`Cmd+Shift+K`), `None` for bare modifiers.
 pub fn shortcut_text(key: egui::Key, m: egui::Modifiers) -> Option<String> {
     if is_modifier_key(key) {
@@ -1078,6 +1093,11 @@ fn humanize(key: &str) -> String {
     }
     if key == "nudgeBundlePauseMs" {
         return "Nudge Bundle Pause (ms)".into();
+    }
+    // Performance: presentation without vsync (#1343); like the other graphics settings, it
+    // takes effect when the window next opens.
+    if key == "lowLatencyDrawing" {
+        return "Low-Latency Drawing (vsync off, applies at next launch)".into();
     }
     let mut s = String::new();
     for (i, ch) in key.chars().enumerate() {
@@ -1515,6 +1535,8 @@ fn field_visible(section: &str, obj: &Map<String, Value>, k: &str, query: &str) 
         // View › Rulers (⌘R) sets it, as in Photoshop.
         || path == "unitsAndRulers.showRulers"
         || (section == "performance" && matches!(k, "useGpu" | "gpuBackend" | "renderingMode"))
+        // The browser presents frames itself: Low-Latency Drawing does nothing there.
+        || (cfg!(target_arch = "wasm32") && path == "performance.lowLatencyDrawing")
         || (section == "export" && !export_field_visible(obj, k))
         || (section == "tools" && !tools_field_visible(obj, k));
     (query.is_empty() || preference_matches(section, k, query))
@@ -1687,6 +1709,9 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
     let alternates_ok = parsed_alts.as_ref().is_none_or(Result::is_ok);
     let mut alt_overrides = parsed_alts.and_then(Result::ok).unwrap_or_default();
     let mut capture_alt = f.get("captureAlt").and_then(Value::as_bool).unwrap_or(false);
+    // A key just assigned that another command holds: Photoshop's Accept and Go to Conflict /
+    // Undo Changes (an object: the key, the other command, and this one's keys before).
+    let mut conflict: Option<Value> = f.get("conflict").filter(|c| c.is_object()).cloned();
     let mut hidden: Vec<String> = f.get("hidden").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
     let mut colors: BTreeMap<String, String> = f.get("colors").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
     let mut selected = f.get("selected").and_then(Value::as_str).unwrap_or("").to_string();
@@ -1739,6 +1764,7 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
             });
             if key == egui::Key::Escape {
                 capture = false;
+                conflict = None;
             } else if matches!(key, egui::Key::Backspace | egui::Key::Delete) && m.is_none() {
                 if capture_alt {
                     alt_overrides.insert(selected.clone(), Vec::new());
@@ -1748,8 +1774,12 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
                 capture = false;
                 message = tl!("Shortcut removed.").into();
                 message_warning = false;
+            } else if let Some(sc) = shortcut_text(key, m).filter(|sc| reserved_shortcut(sc)) {
+                message = crate::i18n::fmt(tl!("{shortcut} is reserved by the system and can't be assigned."), &[("shortcut", &crate::shortcuts::pretty(&sc))]);
+                message_warning = true;
+                capture = false;
             } else if let Some(sc) = shortcut_text(key, m) {
-                let clash: Vec<String> = items
+                let clash_ids: Vec<&str> = items
                     .iter()
                     .filter(|(id, _, _, def)| {
                         let cur = eff(&overrides, id, def);
@@ -1757,11 +1787,30 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
                             && (cur.as_deref().and_then(prefs::normalize_shortcut) == Some(sc.clone())
                                 || eff_alts(&alt_overrides, id, cur.as_deref()).contains(&sc))
                     })
+                    .map(|(id, ..)| id.as_str())
+                    .collect();
+                let clash: Vec<String> = items
+                    .iter()
+                    .filter(|(id, ..)| clash_ids.contains(&id.as_str()))
                     .map(|(id, label, path, _)| {
                         let (path, label) = shown(id, label, path);
                         format!("{} › {}", path.join(" › "), label.trim_end_matches('…'))
                     })
                     .collect();
+                // What Undo Changes puts back: the command's main key and further keys as they were.
+                if let Some(first) = clash_ids.first() {
+                    conflict = Some(json!({
+                        "shortcut": sc,
+                        "with": first,
+                        // Every command holding the key: Accept takes it from all of them.
+                        "holders": clash_ids,
+                        "command": selected,
+                        "main": overrides.get(&selected),
+                        "alternates": alt_overrides.get(&selected),
+                    }));
+                } else {
+                    conflict = None;
+                }
                 if capture_alt {
                     let def = items.iter().find(|i| i.0 == selected).and_then(|i| i.3.clone());
                     let cur = eff(&overrides, &selected, &def);
@@ -1925,6 +1974,53 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
     if !message.is_empty() {
         ui.label(RichText::new(&message).color(if message_warning { t.warning } else { t.text_dim }));
     }
+    // The conflict describes the bindings as the capture left them: any later change (Use
+    // Default, Delete, ×, Reset All, another command or set) makes it stale, and it goes.
+    let state = conflict_state(&overrides, &alt_overrides, &selected, f.get("activeSet"));
+    if conflict.as_ref().and_then(|c| c.get("state")).is_some_and(|s| s.as_u64() != Some(state)) {
+        conflict = None;
+    }
+    if tab == 0
+        && let Some(c) = conflict.clone()
+    {
+        let (key, with, command) =
+            (c["shortcut"].as_str().unwrap_or_default(), c["with"].as_str().unwrap_or_default(), c["command"].as_str().unwrap_or_default());
+        ui.horizontal(|ui| {
+            if ui.button(tl!("Accept and Go to Conflict")).on_hover_text(tl!("Take the shortcut from the other command and select it")).clicked() {
+                let holders: Vec<String> = serde_json::from_value(c["holders"].clone()).unwrap_or_else(|_| vec![with.to_string()]);
+                for holder in &holders {
+                    let def = items.iter().find(|i| i.0 == *holder).and_then(|i| i.3.clone());
+                    let cur = eff(&overrides, holder, &def);
+                    if cur.as_deref().and_then(prefs::normalize_shortcut).as_deref() == Some(key) {
+                        overrides.insert(holder.clone(), String::new());
+                    }
+                    let keys = eff_alts(&alt_overrides, holder, eff(&overrides, holder, &def).as_deref());
+                    if keys.iter().any(|k| k == key) {
+                        alt_overrides.insert(holder.clone(), keys.into_iter().filter(|k| k != key).collect());
+                    }
+                }
+                selected = with.to_string();
+                filter.clear();
+                message = tl!("Choose a new shortcut for this command, or leave it without one.").into();
+                message_warning = false;
+                conflict = None;
+            }
+            if ui.button(tl!("Undo Changes")).on_hover_text(tl!("Put this command's shortcuts back as they were")).clicked() {
+                match c["main"].as_str() {
+                    Some(m) => overrides.insert(command.to_string(), m.to_string()),
+                    None => overrides.remove(command),
+                };
+                match serde_json::from_value::<Vec<String>>(c["alternates"].clone()) {
+                    Ok(list) => alt_overrides.insert(command.to_string(), list),
+                    Err(_) => alt_overrides.remove(command),
+                };
+                selected = command.to_string();
+                message = tl!("Changes undone.").into();
+                message_warning = false;
+                conflict = None;
+            }
+        });
+    }
     if overrides_ok {
         f.insert("overrides".into(), json!(overrides));
     }
@@ -1932,6 +2028,11 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
         f.insert("alternates".into(), json!(alt_overrides));
     }
     f.insert("captureAlt".into(), json!(capture && capture_alt));
+    // A conflict just found is stamped with the bindings it describes.
+    if let Some(c) = conflict.as_mut().filter(|c| c.get("state").is_none()) {
+        c["state"] = json!(conflict_state(&overrides, &alt_overrides, &selected, f.get("activeSet")));
+    }
+    f.insert("conflict".into(), conflict.unwrap_or(Value::Null));
     f.insert("hidden".into(), json!(hidden));
     f.insert("colors".into(), json!(colors));
     f.insert("selected".into(), json!(selected));
