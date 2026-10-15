@@ -741,7 +741,7 @@ pub fn layer_bounds(layer: &Layer, canvas: Rect) -> Rect {
     }
     match &layer.content {
         LayerContent::Group(g) if g.artboard.is_some() => g.artboard.as_ref().map_or(Rect::EMPTY, |a| a.rect),
-        LayerContent::Group(g) => g.children.iter().filter(|c| c.visible).fold(Rect::EMPTY, |acc, c| {
+        LayerContent::Group(g) => g.children.iter().filter(|c| c.visible).fold(frame_stroke_bounds(layer, canvas), |acc, c| {
             let b = layer_bounds(c, canvas);
             if b.is_empty() {
                 acc
@@ -775,6 +775,12 @@ pub fn layer_bounds(layer: &Layer, canvas: Rect) -> Rect {
             }
         }
     }
+}
+
+/// Where a Photoshop Frame's stroke ([`shape_split::frame_shape`]) draws, within `canvas`; empty
+/// for other layers.
+fn frame_stroke_bounds(layer: &Layer, canvas: Rect) -> Rect {
+    shape_split::frame_shape(layer).and_then(|sh| shape_bounds(&sh)).map_or(Rect::EMPTY, |r| r.intersect(&canvas))
 }
 
 /// Where a layer's effects take their shape from: [`layer_bounds`], except that a group's
@@ -936,6 +942,10 @@ fn render_content(layer: &Layer, rect: Rect, cx: &Ctx) -> Option<Buffer> {
         for (p, k) in buf.px.iter_mut().zip(&m) {
             p[3] *= k;
         }
+    }
+    // A Frame's stroke lies over its masked content; the frame doesn't clip it.
+    if let Some(stroke) = shape_split::frame_stroke(layer, cx.canvas, cx.depth) {
+        blend_into(&mut buf, &surface_to_buffer(&stroke, rect), BlendMode::Normal, 1.0);
     }
     Some(buf)
 }
@@ -1129,7 +1139,7 @@ pub fn composite_bounds(layer: &Layer, canvas: Rect) -> Option<Rect> {
     }
     let own = match &layer.content {
         LayerContent::Group(g) if g.artboard.is_none() => {
-            let mut acc = Rect::EMPTY;
+            let mut acc = frame_stroke_bounds(layer, canvas);
             for c in g.children.iter().filter(|c| c.visible) {
                 let b = composite_bounds(c, canvas)?;
                 if !b.is_empty() {
@@ -1395,6 +1405,10 @@ fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer
                 };
             }
         }
+        // A Frame's stroke over the frame's content, at the group's opacity.
+        if let Some(stroke) = shape_split::frame_stroke(layer, cx.canvas, cx.depth) {
+            blend_into(backdrop, &surface_to_buffer(&stroke, rect), BlendMode::Normal, opacity);
+        }
         // Layers clipped to a pass-through group sit atop the group's
         // isolated rendering; their effect (isolated result with vs. without
         // them, each placed over the original backdrop) is added to the
@@ -1565,7 +1579,7 @@ fn layer_identity(layer: &Layer, h: &mut std::collections::hash_map::DefaultHash
                 format!("{:?}", c.blend).hash(h);
                 layer_identity(c, h);
             }
-            format!("{:?}", g.artboard).hash(h);
+            format!("{:?}{:?}", g.artboard, g.frame_stroke).hash(h);
         }
         LayerContent::Fill(f) => {
             format!("{f:?}").hash(h);
