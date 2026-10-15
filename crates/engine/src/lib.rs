@@ -406,6 +406,21 @@ impl Default for ToolState {
     }
 }
 
+/// Layer › Layer Style › Copy Layer Style: the effects and the Blending Options, as Photoshop
+/// copies them (Paste Layer Style puts them all on each target).
+#[derive(Clone, Debug)]
+pub struct CopiedStyle {
+    pub effects: photocraft_doc::Effects,
+    pub blend: photocraft_color::BlendMode,
+    pub fill: f32,
+    pub advanced: photocraft_doc::AdvancedBlending,
+    pub blend_if: photocraft_doc::BlendIf,
+    pub excluded_channels: u32,
+    /// The colour mode it was copied in: Blend If's channel ranges and the channel restrictions
+    /// only carry over to a document in the same mode.
+    pub mode: photocraft_color::ColorMode,
+}
+
 #[derive(Default)]
 pub struct Session {
     docs: Vec<DocState>,
@@ -419,7 +434,7 @@ pub struct Session {
     pub clipboard: Option<edit_cmds::Clip>,
     /// Layer › Layer Style › Copy Layer Style: effects, blend mode, fill opacity and the Advanced
     /// Blending switches.
-    pub style_clipboard: Option<(photocraft_doc::Effects, photocraft_color::BlendMode, f32, photocraft_doc::AdvancedBlending)>,
+    pub style_clipboard: Option<CopiedStyle>,
     /// Shape path context menu: copied vector fill and stroke styles.
     pub path_fill_clipboard: Option<photocraft_doc::Fill>,
     pub path_stroke_clipboard: Option<photocraft_doc::ShapeStroke>,

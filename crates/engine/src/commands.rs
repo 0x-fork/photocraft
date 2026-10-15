@@ -253,7 +253,10 @@ pub(crate) fn parse_hex(s: &str) -> Option<[f32; 4]> {
 }
 /// Layer › Create / Release Clipping Mask. With a `layer` param, just that layer. Otherwise, as in
 /// Photoshop, the selection (#1248): Create clips every selected layer except the lowest, which
-/// becomes the base; Release releases every selected layer. One history step either way.
+/// becomes the base; Release releases every selected layer. Releasing a clipped layer also
+/// releases the clipped layers above it in its group, as Adobe documents ("removes the selected
+/// layer and any layers above it from the clipping mask"), so none is left clipped to a layer
+/// that is no longer clipped. One history step either way.
 fn set_clipped(s: &mut Session, p: &Value, clip: bool) -> Result<Value> {
     let label = if clip { "Create Clipping Mask" } else { "Release Clipping Mask" };
     let ids: Vec<LayerId> = if p.get("layer").is_some() {
@@ -266,6 +269,20 @@ fn set_clipped(s: &mut Session, p: &Value, clip: bool) -> Result<Value> {
             (true, [_base, rest @ ..]) => rest.to_vec(),
             (false, all) => all.to_vec(),
         }
+    };
+    let ids = if clip {
+        ids
+    } else {
+        let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
+        let mut all = ids.clone();
+        for id in ids.iter().filter(|id| doc.layer(**id).is_some_and(|l| l.clipped)) {
+            for above in crate::clip_group::clipped_above(doc, *id) {
+                if !all.contains(&above) {
+                    all.push(above);
+                }
+            }
+        }
+        all
     };
     s.edit(label, |doc, _| {
         for id in &ids {
