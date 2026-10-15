@@ -65,7 +65,7 @@ jobs:
           # The browser build (a fat-LTO wasm build) runs only when something it compiles or
           # packages changed: the web app and its packaging, crate sources and manifests (the web
           # build compiles nearly every crate), the workspace manifests and this workflow.
-          if git diff --name-only "$BASE" HEAD | grep -Eq '^(apps/photocraft-web/|packaging/web/|packaging/env\.sh$|crates/[^/]+/(src/|Cargo\.toml$|build\.rs$)|Cargo\.(toml|lock)$|rust-toolchain(\.toml)?$|\.github/workflows/ci\.yml$)'; then
+          if git diff --name-only "$BASE" HEAD | grep -Eq '^(apps/photocraft-web(-boot)?/|packaging/web/|packaging/env\.sh$|crates/[^/]+/(src/|Cargo\.toml$|build\.rs$)|Cargo\.(toml|lock)$|rust-toolchain(\.toml)?$|\.github/workflows/ci\.yml$)'; then
             echo "web=true" >> "$GITHUB_OUTPUT"
           else
             echo "web=false" >> "$GITHUB_OUTPUT"
@@ -229,8 +229,8 @@ jobs:
           curl -fsSL "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz" \
             | tar -xz -C "$HOME/.cargo/bin" trunk
           trunk --version
-      # package.sh runs Trunk's release build, validates relative URLs, checks the 24 MiB
-      # wasm limit and exercises the same packaging step used by release.yml.
+      # package.sh runs Trunk's release builds, validates relative URLs, cuts the wasm into
+      # parts, checks the 24 MiB per-file limit and exercises the packaging step release.yml uses.
       - name: Build and verify browser release
         run: packaging/web/package.sh
       - name: Report wasm size
@@ -241,12 +241,15 @@ jobs:
             echo
             echo "| File | Bytes | MiB | Limit |"
             echo "| --- | ---: | ---: | ---: |"
+            row() { echo "| $1 | $2 | $(awk -v n="$2" 'BEGIN { printf "%.2f", n / 1048576 }') | $3 |"; }
+            # The app's wasm as built; it ships gzipped in parts, so only the download grows with it.
             for wasm in dist/web/*.wasm; do
               [ -f "$wasm" ] || continue
-              bytes=$(wc -c < "$wasm" | tr -d ' ')
-              mib=$(awk -v n="$bytes" 'BEGIN { printf "%.2f", n / 1048576 }')
-              echo "| $(basename "$wasm") | $bytes | $mib | 24 MiB |"
+              row "$(basename "$wasm")" "$(wc -c < "$wasm" | tr -d ' ')" "none"
             done
+            # What a host sees: the largest file of the packaged site.
+            largest=$(find target/web-package -type f -printf '%s %f\n' | sort -n | tail -1)
+            row "largest file in the site: ${largest#* }" "${largest%% *}" "24 MiB"
           } >> "$GITHUB_STEP_SUMMARY"
 
   fuzz:
