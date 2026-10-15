@@ -122,10 +122,10 @@ pub(crate) fn dropped_on_a_ruler(app: &PhotocraftApp, full: Rect, p: Pos2) -> bo
     if !app.ui.extras.rulers {
         return false;
     }
+    // The rulers take the strips [`content_rect`] trims off the canvas rect, and nothing else: a
+    // canvas point on the boundary is canvas.
     let content = content_rect(app, full);
-    let top = Rect::from_min_max(full.min, pos2(full.max.x, content.min.y));
-    let left = Rect::from_min_max(full.min, pos2(content.min.x, full.max.y));
-    top.contains(p) || left.contains(p)
+    full.contains(p) && (p.x < content.min.x || p.y < content.min.y)
 }
 
 /// Tick step (document px) so major ticks are at least ~60 screen px apart: 1, 2, 5, 10, 20, 50…
@@ -257,7 +257,10 @@ pub fn guide_at(app: &PhotocraftApp, x: f64, y: f64) -> Option<(bool, usize)> {
 /// Photoshop; a moved one stays selected.
 pub fn finish_drag(app: &mut PhotocraftApp, d: GuideDrag) {
     let Some(size) = app.session.active().map(|s| s.doc.size) else { return };
+    // A drop on a ruler removes the guide even when the drag held its own axis, which otherwise
+    // reads as a click: dragged sideways onto the left ruler, a horizontal guide never moves in y.
     if let Some(i) = d.index
+        && !d.over_ruler
         && (d.pos - d.press).abs() * f64::from(app.point_zoom().max(0.01)) < 0.5
     {
         crate::guide_select::select(app, d.vertical, i);
@@ -1060,27 +1063,46 @@ mod tests {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.run("file.new", json!({"width": 200, "height": 100})).unwrap();
         app.sync_views();
-        app.run("view.newGuide", json!({"orientation": "horizontal", "position": 50})).unwrap();
-        finish_drag(&mut app, GuideDrag { vertical: false, index: Some(0), pos: 50.0, press: 10.0, over_ruler: true });
-        assert!(app.session.active().unwrap().doc.guides.horizontal.is_empty(), "let go on a ruler: removed");
+        let horizontal = |app: &PhotocraftApp| app.session.active().unwrap().doc.guides.horizontal.clone();
+        for drag in [
+            GuideDrag { vertical: false, index: Some(0), pos: 50.0, press: 10.0, over_ruler: true },
+            // Dragged sideways onto the left ruler, a horizontal guide holds its y, which on its own
+            // reads as a click: the ruler still removes it.
+            GuideDrag { vertical: false, index: Some(0), pos: 50.0, press: 50.0, over_ruler: true },
+        ] {
+            app.run("view.newGuide", json!({"orientation": "horizontal", "position": 50})).unwrap();
+            finish_drag(&mut app, drag);
+            assert!(horizontal(&app).is_empty(), "let go on a ruler: removed, {drag:?}");
+        }
         app.run("view.newGuide", json!({"orientation": "horizontal", "position": 50})).unwrap();
         finish_drag(&mut app, GuideDrag { vertical: false, index: Some(0), pos: 80.0, press: 10.0, over_ruler: false });
-        assert_eq!(app.session.active().unwrap().doc.guides.horizontal, vec![80.0], "let go on the canvas: moved");
+        assert_eq!(horizontal(&app), vec![80.0], "let go on the canvas: moved");
+        // Clicked where it was pressed, on the canvas: selected and kept, as before.
+        finish_drag(&mut app, GuideDrag { vertical: false, index: Some(0), pos: 80.0, press: 80.0, over_ruler: false });
+        assert_eq!(horizontal(&app), vec![80.0], "clicked on the canvas: kept");
+        assert!(app.ui.selected_guide.is_some(), "clicked on the canvas: selected");
     }
 
-    /// Only the top and left ruler bands count as a ruler, and only while the rulers are shown: with
-    /// them hidden the whole canvas rect is canvas, so a guide dropped in the corner is kept (#6286).
+    /// The ruler bands are the strips the rulers take off the canvas rect, and only while the rulers
+    /// are shown: with them hidden the whole canvas rect is canvas (#6286).
     #[test]
     fn only_the_ruler_bands_count_as_a_ruler() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         let full = Rect::from_min_size(pos2(16.0, 42.0), vec2(968.0, 642.0));
+        let content = Rect::from_min_size(pos2(32.0, 58.0), vec2(952.0, 626.0));
         app.ui.extras.rulers = true;
         assert!(dropped_on_a_ruler(&app, full, pos2(full.min.x + RULER / 2.0, 371.0)), "the left ruler");
         assert!(dropped_on_a_ruler(&app, full, pos2(508.0, full.min.y + RULER / 2.0)), "the top ruler");
+        assert!(dropped_on_a_ruler(&app, full, full.min), "the ruler corner");
         assert!(!dropped_on_a_ruler(&app, full, pos2(508.0, 371.0)), "the canvas");
+        assert!(!dropped_on_a_ruler(&app, full, content.min), "the canvas' own top-left corner");
+        assert!(!dropped_on_a_ruler(&app, full, pos2(content.min.x + 0.5, 371.0)), "the first canvas column");
+        assert!(!dropped_on_a_ruler(&app, full, pos2(508.0, content.min.y + 0.5)), "the first canvas row");
+        assert!(!dropped_on_a_ruler(&app, full, pos2(full.min.x - 1.0, 371.0)), "outside the canvas rect");
         app.ui.extras.rulers = false;
-        assert!(!dropped_on_a_ruler(&app, full, pos2(full.min.x + RULER / 2.0, 371.0)), "rulers hidden: no band");
-        assert!(!dropped_on_a_ruler(&app, full, pos2(508.0, full.min.y + RULER / 2.0)), "rulers hidden: no band");
+        for p in [pos2(full.min.x + RULER / 2.0, 371.0), pos2(508.0, full.min.y + RULER / 2.0), full.min] {
+            assert!(!dropped_on_a_ruler(&app, full, p), "rulers hidden: no band at {p:?}");
+        }
     }
 
     /// The canvas the guides live on, rulers on, at 100 %.
@@ -1114,50 +1136,55 @@ mod tests {
 
     /// #6286: an existing guide dragged onto a ruler with the Move tool is deleted, though the
     /// release is inside the document on the guide's own axis: the left ruler measures y, so a
-    /// horizontal guide let go there still reads a y inside the canvas and used to be moved.
+    /// horizontal guide let go there still reads a y inside the canvas and used to be moved. Held
+    /// level, that release reads as a click on the guide, which a ruler drop also outranks.
     #[test]
     fn a_guide_dragged_onto_a_ruler_is_deleted_through_the_canvas() {
-        let mut h = canvas_harness(crate::state::Tool::Move);
-        h.state_mut().run("view.newGuide", json!({"orientation": "horizontal", "position": 150})).unwrap();
-        h.run_steps(1);
-        let at = |h: &egui_kittest::Harness<'static, PhotocraftApp>, x: f32, y: f32| {
-            let app = h.state();
-            let v = &app.ui.views[0];
-            let xf = ViewXform {
-                rect: content_rect(app, app.last_canvas_rect),
-                zoom: v.zoom,
-                center: v.center,
-                flip: app.ui.view.flip_horizontal,
-                rotation: v.rotation,
-                aspect: app.ui.view.display_aspect(),
+        for below in [50.0f32, 0.0] {
+            let mut h = canvas_harness(crate::state::Tool::Move);
+            h.state_mut().run("view.newGuide", json!({"orientation": "horizontal", "position": 150})).unwrap();
+            h.run_steps(1);
+            let at = |h: &egui_kittest::Harness<'static, PhotocraftApp>, x: f32, y: f32| {
+                let app = h.state();
+                let v = &app.ui.views[0];
+                let xf = ViewXform {
+                    rect: content_rect(app, app.last_canvas_rect),
+                    zoom: v.zoom,
+                    center: v.center,
+                    flip: app.ui.view.flip_horizontal,
+                    rotation: v.rotation,
+                    aspect: app.ui.view.display_aspect(),
+                };
+                xf.to_screen(x, y)
             };
-            xf.to_screen(x, y)
-        };
-        let on_the_guide = at(&h, 200.0, 150.0);
-        // 50 document px below the press, in the left ruler's band: still inside the canvas on the
-        // guide's own axis, which is where the old code moved the guide instead of removing it.
-        let canvas = h.state().last_canvas_rect;
-        let onto_the_left_ruler = pos2(canvas.min.x + RULER / 2.0, on_the_guide.y + 50.0);
-        h.event(egui::Event::PointerMoved(on_the_guide));
-        h.run_steps(1);
-        h.event(egui::Event::PointerButton { pos: on_the_guide, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
-        h.run_steps(1);
-        // Past egui's click distance, so the drag starts at the press, on the guide.
-        h.event(egui::Event::PointerMoved(pos2(on_the_guide.x, on_the_guide.y + 12.0)));
-        h.run_steps(2);
-        assert!(h.state().guide_drag.is_some(), "the Move tool takes the guide");
-        h.event(egui::Event::PointerMoved(onto_the_left_ruler));
-        h.run_steps(1);
-        h.event(egui::Event::PointerButton {
-            pos: onto_the_left_ruler,
-            button: egui::PointerButton::Primary,
-            pressed: false,
-            modifiers: egui::Modifiers::NONE,
-        });
-        h.run_steps(2);
-        let g = &h.state().session.active().unwrap().doc.guides;
-        assert!(g.horizontal.is_empty(), "released on the left ruler: the guide is gone, got {:?}", g.horizontal);
-        assert!(h.state().guide_drag.is_none(), "the drag is over");
+            let on_the_guide = at(&h, 200.0, 150.0);
+            // In the left ruler's band, `below` document px under the press: inside the canvas on the
+            // guide's own axis, which is where the old code moved the guide instead of removing it.
+            let canvas = h.state().last_canvas_rect;
+            let onto_the_left_ruler = pos2(canvas.min.x + RULER / 2.0, on_the_guide.y + below);
+            // Along the guide, so a held-level release keeps its y, the way a sideways drag does.
+            let dragged = pos2(on_the_guide.x - 12.0, on_the_guide.y);
+            h.event(egui::Event::PointerMoved(on_the_guide));
+            h.run_steps(1);
+            h.event(egui::Event::PointerButton { pos: on_the_guide, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
+            h.run_steps(1);
+            // Past egui's click distance, so the drag starts at the press, on the guide.
+            h.event(egui::Event::PointerMoved(dragged));
+            h.run_steps(2);
+            assert!(h.state().guide_drag.is_some(), "the Move tool takes the guide");
+            h.event(egui::Event::PointerMoved(onto_the_left_ruler));
+            h.run_steps(1);
+            h.event(egui::Event::PointerButton {
+                pos: onto_the_left_ruler,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            });
+            h.run_steps(2);
+            let g = &h.state().session.active().unwrap().doc.guides;
+            assert!(g.horizontal.is_empty(), "{below} px below the press, released on the left ruler: got {:?}", g.horizontal);
+            assert!(h.state().guide_drag.is_none(), "the drag is over");
+        }
     }
 
     /// #3770: a guide Shift-dragged out of a ruler lands on the nearest tick the ruler draws
