@@ -81,8 +81,5 @@ fn new_history_steps_scroll_the_current_state_into_view() {
     h.run_steps(4);
     let row = h.get_all_by_label("New Layer").last().expect("the latest New Layer state").rect();
     let view = h.ctx.input(|i| i.viewport_rect());
-    assert!(
-        view.contains_rect(row),
-        "the current history row must scroll into view: row {row:?} view {view:?}",
-    );
+    assert!(view.contains_rect(row), "the current history row must scroll into view: row {row:?} view {view:?}",);
 }
