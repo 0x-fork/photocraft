@@ -91,7 +91,7 @@ fn shape_and_path_tools_recolour_every_selected_shape_fill_in_one_step() {
 
 #[test]
 fn other_tools_only_change_the_foreground() {
-    for tool in [Tool::Move, Tool::Brush, Tool::RectMarquee, Tool::Eyedropper, Tool::HorizontalTypeMask] {
+    for tool in [Tool::Brush, Tool::RectMarquee, Tool::Eyedropper, Tool::HorizontalTypeMask] {
         let (mut app, texts, shapes) = app(tool);
         let n = steps(&app);
         pick(&mut app, RED, false);
@@ -141,4 +141,44 @@ fn a_swatch_and_the_color_picker_go_through_it() {
     crate::color_picker_ui::confirm(&mut app, &f).unwrap();
     assert_eq!(app.session.tools.foreground, [0.0, 0.0, 1.0, 1.0]);
     assert!(shapes.iter().all(|id| same(&app, *id)), "the picker recoloured the shapes");
+}
+
+#[test]
+fn the_move_tool_recolours_the_selected_type_and_shapes_together_in_one_step() {
+    // Layers picked with the Move tool (a click, ⇧-click or its marquee) take the colour, type and
+    // shapes alike.
+    let (mut app, texts, shapes) = app(Tool::Move);
+    let n = steps(&app);
+    pick(&mut app, RED, false);
+    assert!(texts.iter().all(|id| red(text_rgb(&app, *id))), "the type is red");
+    assert!(shapes.iter().all(|id| fill_rgb(&app, *id).is_some_and(red)), "the shapes are red");
+    assert_eq!(steps(&app), n + 1, "one history step for all four layers");
+    assert!(app.session.undo());
+    assert!(texts.iter().all(|id| !red(text_rgb(&app, *id))) && shapes.iter().all(|id| !red(fill_rgb(&app, *id).unwrap())));
+    // Only the selected ones: with one shape selected, the rest keep their colour.
+    app.run("layer.select", json!({"layer": shapes[0].0})).unwrap();
+    pick(&mut app, RED, false);
+    assert!(fill_rgb(&app, shapes[0]).is_some_and(red));
+    assert!(!red(fill_rgb(&app, shapes[1]).unwrap()) && texts.iter().all(|id| !red(text_rgb(&app, *id))));
+}
+
+#[test]
+fn a_move_tool_marquee_selection_takes_the_colour() {
+    // The video case: shapes box-selected with the Move tool's marquee, then a swatch.
+    let (mut app, _, shapes) = app(Tool::Move);
+    app.run("layer.select", json!({"layer": shapes[0].0})).unwrap();
+    // The marquee from an empty spot across both shapes.
+    for (kind, x, y) in [("down", 140.0, 10.0), ("move", 200.0, 50.0), ("move", 290.0, 90.0), ("up", 290.0, 90.0)] {
+        let ev = match kind {
+            "down" => crate::canvas::ToolEvent::Down { x, y, pressure: 1.0 },
+            "move" => crate::canvas::ToolEvent::Move { x, y, pressure: 1.0 },
+            _ => crate::canvas::ToolEvent::Up { x, y },
+        };
+        crate::canvas::tool_event(&mut app, ev, egui::Modifiers::NONE);
+    }
+    let mut sel = app.session.active().unwrap().selected_layers();
+    sel.sort_by_key(|l| l.0);
+    assert_eq!(sel, shapes, "the marquee selected both shapes");
+    pick(&mut app, RED, false);
+    assert!(shapes.iter().all(|id| fill_rgb(&app, *id).is_some_and(red)));
 }
