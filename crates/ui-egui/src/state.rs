@@ -1150,8 +1150,7 @@ pub struct UiState {
     /// Pen path under construction.
     #[serde(default)]
     pub pen: Option<crate::vector_ui::PenPath>,
-    /// The document the pen path is drawn on (set at its first anchor): another document becoming
-    /// active drops it (`vector_ui::cancel_stale`).
+    /// The document the pen path is drawn on; switching away commits it to that Work Path.
     #[serde(default)]
     pub pen_doc: Option<photocraft_doc::DocId>,
     #[serde(default)]
