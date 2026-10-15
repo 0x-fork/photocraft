@@ -150,7 +150,7 @@ fn release_with_a_path_that_is_not_finite_is_an_error() {
 #[test]
 fn area_type_saves_to_psd_as_paragraph_text_with_a_warning() {
     let mut s = session(8);
-    let id = text_layer(&mut s, WORDS);
+    text_layer(&mut s, WORDS);
     set_work_path(&mut s, Path::new(vec![Subpath::polygon(&[(100.0, 100.0), (300.0, 100.0), (300.0, 250.0), (100.0, 250.0)])]));
     s.execute("type.fillPath", json!({})).unwrap();
     let doc = s.active().unwrap().doc.clone();
@@ -164,7 +164,6 @@ fn area_type_saves_to_psd_as_paragraph_text_with_a_warning() {
     let t = t.expect("still a type layer");
     assert_eq!(t.text, WORDS);
     assert!(matches!(t.shape, TextShape::Box { width, height, .. } if (width - 200.0).abs() < 0.5 && (height - 150.0).abs() < 0.5), "{:?}", t.shape);
-    let _ = id;
 }
 
 #[test]
