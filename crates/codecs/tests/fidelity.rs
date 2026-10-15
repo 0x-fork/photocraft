@@ -115,6 +115,12 @@ fn in_range_float_not_clipped() {
     assert!(!w.contains(&W::RangeClipped));
 }
 #[test]
+fn hdr_float_to_fits_clips() {
+    let img = Image::from_f32(2, 1, ChannelLayout::Gray, &[0.5, 3.0]).unwrap();
+    assert!(warns(&img, Format::Fits).contains(&W::RangeClipped));
+    assert!(!warns(&test_image(ChannelLayout::Gray, SampleType::F32), Format::Fits).contains(&W::RangeClipped));
+}
+#[test]
 fn float_to_exr_and_tiff_is_clean() {
     for f in [Format::OpenExr, Format::Tiff, Format::Pnm] {
         assert!(warns(&test_image(ChannelLayout::Rgb, SampleType::F32), f).is_empty(), "{f:?}");
