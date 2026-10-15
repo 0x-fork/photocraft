@@ -878,7 +878,7 @@ impl Default for Integrations {
 }
 
 /// The History panel's History Options… (not part of Edit › Preferences in Photoshop either).
-/// Photoshop's snapshot options are not here yet: snapshots are not implemented.
+/// Photoshop's snapshot options come with #3634.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct HistoryOptions {
