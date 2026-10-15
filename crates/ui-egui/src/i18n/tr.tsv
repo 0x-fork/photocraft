@@ -3930,3 +3930,10 @@ cameraData	Lens	Lens
 	Lines/Inch	Çizgi/İnç
 	Lines/Centimeter	Çizgi/Santimetre
 	Ellipse	Elips
+	Accept and Go to Conflict	Kabul Et ve Çakışmaya Git
+	Changes undone.	Değişiklikler geri alındı.
+	Choose a new shortcut for this command, or leave it without one.	Bu komut için yeni bir kısayol seçin veya kısayolsuz bırakın.
+	Put this command's shortcuts back as they were	Bu komutun kısayollarını eski haline getir
+	Take the shortcut from the other command and select it	Kısayolu diğer komuttan al ve o komutu seç
+	Undo Changes	Değişiklikleri Geri Al
+	{shortcut} is reserved by the system and can't be assigned.	{shortcut} sistem tarafından ayrılmıştır ve atanamaz.

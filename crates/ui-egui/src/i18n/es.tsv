@@ -4162,3 +4162,10 @@ navigator	Zoom	Zoom
 	Lines/Inch	Líneas/pulgada
 	Lines/Centimeter	Líneas/centímetro
 	Ellipse	Elipse
+	Accept and Go to Conflict	Aceptar e ir al conflicto
+	Changes undone.	Cambios deshechos.
+	Choose a new shortcut for this command, or leave it without one.	Elija un nuevo método abreviado para este comando o déjelo sin ninguno.
+	Put this command's shortcuts back as they were	Restaurar los métodos abreviados de este comando como estaban
+	Take the shortcut from the other command and select it	Quitar el método abreviado al otro comando y seleccionarlo
+	Undo Changes	Deshacer cambios
+	{shortcut} is reserved by the system and can't be assigned.	{shortcut} está reservado por el sistema y no se puede asignar.
