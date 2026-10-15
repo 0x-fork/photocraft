@@ -76,11 +76,14 @@ fn isolate(layers: &mut [Layer], id: LayerId) -> bool {
 
 /// Histograms of `doc` as seen by `source`, in the channels of `space`.
 pub fn compute_histograms(doc: &Document, source: HistSource, space: ToneSpace) -> Histograms {
-    let mut h = vec![[0u32; 256]; match space {
-        ToneSpace::Rgb => 4,
-        ToneSpace::Cmyk => 5,
-        ToneSpace::Lab => 3,
-    }];
+    let mut h = vec![
+        [0u32; 256];
+        match space {
+            ToneSpace::Rgb => 4,
+            ToneSpace::Cmyk => 5,
+            ToneSpace::Lab => 3,
+        }
+    ];
     match source {
         // The gray plane itself: its levels are what the curve edits, whatever the document's
         // colour mode (#5335).
@@ -443,8 +446,10 @@ mod tests {
         let m = compute_histograms(&st.doc, HistSource::Channel { layer, surface: GraySurface::LayerMask }, ToneSpace::Rgb);
         assert!(m[0][0] > 0, "the hidden mask is black");
         // Each plane keeps its own cache entry: switching targets recomputes.
-        assert_ne!(tag(HistSource::Channel { layer, surface: GraySurface::Alpha(0) }, ToneSpace::Rgb),
-            tag(HistSource::Channel { layer, surface: GraySurface::LayerMask }, ToneSpace::Rgb));
+        assert_ne!(
+            tag(HistSource::Channel { layer, surface: GraySurface::Alpha(0) }, ToneSpace::Rgb),
+            tag(HistSource::Channel { layer, surface: GraySurface::LayerMask }, ToneSpace::Rgb)
+        );
         assert_ne!(tag(HistSource::Channel { layer, surface: GraySurface::LayerMask }, ToneSpace::Rgb), tag(HistSource::Layer(layer), ToneSpace::Rgb));
     }
 }
