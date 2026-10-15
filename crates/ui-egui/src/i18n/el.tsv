@@ -3889,3 +3889,20 @@ curves	Smooth	Εξομάλυνση
 	There are too many sets: delete one first.	Υπάρχουν πάρα πολλά σύνολα: διαγράψτε πρώτα ένα.
 	set name	όνομα συνόλου
 	{set} (modified)	{set} (τροποποιημένο)
+
+# Color panel menu: modes, copy commands and colour ramps (#6000)
+	Hue Cube	Κύβος απόχρωσης
+	Brightness Cube	Κύβος φωτεινότητας
+	Color Wheel	Χρωματικός τροχός
+	RGB Sliders	Ρυθμιστικά RGB
+	HSB Sliders	Ρυθμιστικά HSB
+	CMYK Sliders	Ρυθμιστικά CMYK
+	Lab Sliders	Ρυθμιστικά Lab
+	Web Color Sliders	Ρυθμιστικά χρωμάτων ιστού
+	Copy Color as HTML	Αντιγραφή χρώματος ως HTML
+	Copy Color's Hex Code	Αντιγραφή δεκαεξαδικού κωδικού χρώματος
+	RGB Spectrum	Φάσμα RGB
+	CMYK Spectrum	Φάσμα CMYK
+	Grayscale Ramp	Διαβάθμιση του γκρι
+	Current Colors	Τρέχοντα χρώματα
+	Make Ramp Web Safe	Μόνο χρώματα ιστού στη διαβάθμιση

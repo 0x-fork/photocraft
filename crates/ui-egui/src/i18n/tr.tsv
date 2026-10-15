@@ -3919,3 +3919,20 @@ cameraData	Lens	Lens
 	There are too many sets: delete one first.	Çok fazla küme var: önce birini silin.
 	set name	küme adı
 	{set} (modified)	{set} (değiştirildi)
+
+# Color panel menu: modes, copy commands and colour ramps (#6000)
+	Hue Cube	Renk Tonu Küpü
+	Brightness Cube	Parlaklık Küpü
+	Color Wheel	Renk Çarkı
+	RGB Sliders	RGB Kaydırıcıları
+	HSB Sliders	HSB Kaydırıcıları
+	CMYK Sliders	CMYK Kaydırıcıları
+	Lab Sliders	Lab Kaydırıcıları
+	Web Color Sliders	Web Rengi Kaydırıcıları
+	Copy Color as HTML	Rengi HTML Olarak Kopyala
+	Copy Color's Hex Code	Rengin Onaltılık Kodunu Kopyala
+	RGB Spectrum	RGB Spektrumu
+	CMYK Spectrum	CMYK Spektrumu
+	Grayscale Ramp	Gri Tonlama Şeridi
+	Current Colors	Geçerli Renkler
+	Make Ramp Web Safe	Şeridi Web Renkleriyle Sınırla

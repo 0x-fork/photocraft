@@ -596,7 +596,7 @@ fn swatches(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
 }
 
 /// ⚠: a filled triangle with an exclamation mark cut out of it.
-fn warning_triangle(p: &egui::Painter, r: Rect, ink: Color32, cut: Color32) {
+pub(crate) fn warning_triangle(p: &egui::Painter, r: Rect, ink: Color32, cut: Color32) {
     let tri = vec![pos2(r.center().x, r.top()), pos2(r.right(), r.bottom()), pos2(r.left(), r.bottom())];
     p.add(egui::Shape::convex_polygon(tri, ink, Stroke::NONE));
     let x = r.center().x;
@@ -605,7 +605,7 @@ fn warning_triangle(p: &egui::Painter, r: Rect, ink: Color32, cut: Color32) {
 }
 
 /// A cube seen corner-on: a hexagon with three edges meeting in the middle.
-fn web_cube(p: &egui::Painter, r: Rect, ink: Color32) {
+pub(crate) fn web_cube(p: &egui::Painter, r: Rect, ink: Color32) {
     let (c, rad) = (r.center(), r.width() / 2.0);
     let corner = |k: f32| {
         let a = std::f32::consts::FRAC_PI_3 * k - std::f32::consts::FRAC_PI_2;

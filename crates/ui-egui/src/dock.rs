@@ -521,8 +521,8 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, shown: &[Group], mut bod
                 ui.set_min_height(inner);
                 body(app, ui, g, tab);
             } else {
-                // The pro Color field stretches to the group's height instead of a fixed 120 pt.
-                if t.pro && g == Group::Color && tab == 0 {
+                // The Color field stretches to the group's height instead of a fixed 120 pt.
+                if g == Group::Color && g.tabs(t.pro).get(tab) == Some(&"Color") {
                     ui.data_mut(|d| d.insert_temp(crate::panels::color_field_fill_id(), inner));
                 }
                 // No scroll fade: it darkens real colours, swatches and previews at the edge
@@ -606,6 +606,10 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui, shown: &[Group], mut bod
             ui.set_min_width(170.0);
             if tabs.get(sel) == Some(&"Layers") {
                 crate::layer_row_ui::panel_menu(app, ui);
+                ui.separator();
+            }
+            if tabs.get(sel) == Some(&"Color") {
+                crate::color_panel_ui::panel_menu(app, ui);
                 ui.separator();
             }
             if tabs.get(sel) == Some(&"Swatches") {

@@ -3865,3 +3865,20 @@ curves	Smooth	スムーズ
 	There are too many sets: delete one first.	セットが多すぎます。先に 1 つ削除してください。
 	set name	セット名
 	{set} (modified)	{set}（変更あり）
+
+# Color panel menu: modes, copy commands and colour ramps (#6000)
+	Hue Cube	色相キューブ
+	Brightness Cube	明るさキューブ
+	Color Wheel	カラーホイール
+	RGB Sliders	RGB スライダー
+	HSB Sliders	HSB スライダー
+	CMYK Sliders	CMYK スライダー
+	Lab Sliders	Lab スライダー
+	Web Color Sliders	Web カラースライダー
+	Copy Color as HTML	カラーを HTML としてコピー
+	Copy Color's Hex Code	カラーの 16 進コードをコピー
+	RGB Spectrum	RGB スペクトル
+	CMYK Spectrum	CMYK スペクトル
+	Grayscale Ramp	グレースケールランプ
+	Current Colors	現在のカラー
+	Make Ramp Web Safe	ランプを Web セーフにする
