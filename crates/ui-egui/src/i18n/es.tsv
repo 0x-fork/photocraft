@@ -4137,3 +4137,14 @@ navigator	Zoom	Zoom
 # View › Guides › right-click a guide
 	Edit Selected Guides	Editar guías seleccionadas
 	Clear Selected Guides	Borrar guías seleccionadas
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	Umbral 50%
+	Pattern Dither	Tramado de motivo
+	Diffusion Dither	Tramado de difusión
+	Halftone Screen	Trama de semitonos
+	Custom Pattern	Motivo personalizado
+	Frequency:	Frecuencia:
+	Lines/Inch	Líneas/pulgada
+	Lines/Centimeter	Líneas/centímetro
+	Ellipse	Elipse

@@ -3874,3 +3874,14 @@ curves	Smooth	Згладити
 # View › Guides › right-click a guide
 	Edit Selected Guides	Редагувати вибрані напрямні
 	Clear Selected Guides	Очистити вибрані напрямні
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	Поріг 50%
+	Pattern Dither	Візерунковий дизеринг
+	Diffusion Dither	Дифузійний дизеринг
+	Halftone Screen	Півтоновий растр
+	Custom Pattern	Довільний візерунок
+	Frequency:	Лініатура:
+	Lines/Inch	Ліній/дюйм
+	Lines/Centimeter	Ліній/сантиметр
+	Ellipse	Еліпс

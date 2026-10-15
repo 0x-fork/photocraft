@@ -3783,3 +3783,14 @@ navigator	Zoom	Zvětšení
 # View › Guides › right-click a guide
 	Edit Selected Guides	Upravit vybraná vodítka
 	Clear Selected Guides	Vymazat vybraná vodítka
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	50% práh
+	Pattern Dither	Rozptyl se vzorkem
+	Diffusion Dither	Difuzní rozptyl
+	Halftone Screen	Polotónový rastr
+	Custom Pattern	Vlastní vzorek
+	Frequency:	Frekvence:
+	Lines/Inch	Linky/palec
+	Lines/Centimeter	Linky/centimetr
+	Ellipse	Elipsa

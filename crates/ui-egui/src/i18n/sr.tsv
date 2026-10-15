@@ -4248,3 +4248,14 @@ shape	Appearance	Izgled
 # View › Guides › right-click a guide
 	Edit Selected Guides	Uredi izabrane vodilje
 	Clear Selected Guides	Ukloni izabrane vodilje
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	Prag 50%
+	Pattern Dither	Dither šarom
+	Diffusion Dither	Difuzni dither
+	Halftone Screen	Polutonski raster
+	Custom Pattern	Prilagođena šara
+	Frequency:	Frekvencija:
+	Lines/Inch	Linija/inč
+	Lines/Centimeter	Linija/centimetar
+	Ellipse	Elipsa

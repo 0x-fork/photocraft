@@ -3179,3 +3179,15 @@ curves	Smooth	Lisser
 # View › Guides › right-click a guide
 	Edit Selected Guides	Modifier les repères sélectionnés
 	Clear Selected Guides	Effacer les repères sélectionnés
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	Seuil 50 %
+	Pattern Dither	Simulation par motif
+	Diffusion Dither	Simulation par diffusion
+	Halftone Screen	Trame de demi-teintes
+	Custom Pattern	Motif personnalisé
+	Frequency:	Fréquence :
+	Lines/Inch	Lignes/pouce
+	Lines/Centimeter	Lignes/centimètre
+	Ellipse	Ellipse
+	Cross	Croix

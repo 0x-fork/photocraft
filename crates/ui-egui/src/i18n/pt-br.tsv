@@ -3965,3 +3965,14 @@ layerLabel	No Color	Sem cor
 # View › Guides › right-click a guide
 	Edit Selected Guides	Editar guias selecionadas
 	Clear Selected Guides	Limpar guias selecionadas
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	Limiar de 50%
+	Pattern Dither	Pontilhamento de padrão
+	Diffusion Dither	Pontilhamento de difusão
+	Halftone Screen	Retícula de meio-tom
+	Custom Pattern	Padrão personalizado
+	Frequency:	Frequência:
+	Lines/Inch	Linhas/polegada
+	Lines/Centimeter	Linhas/centímetro
+	Ellipse	Elipse

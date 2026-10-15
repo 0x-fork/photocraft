@@ -3144,3 +3144,16 @@ curves	Smooth	Сгладить
 # View › Guides › right-click a guide
 	Edit Selected Guides	Изменить выбранные направляющие
 	Clear Selected Guides	Удалить выбранные направляющие
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	Порог 50%
+	Pattern Dither	Регулярный дизеринг
+	Diffusion Dither	Диффузионный дизеринг
+	Halftone Screen	Полутоновый растр
+	Custom Pattern	Свой узор
+	Frequency:	Линиатура:
+	Lines/Inch	Линий/дюйм
+	Lines/Centimeter	Линий/см
+	Ellipse	Эллипс
+	Diamond	Ромб
+	Cross	Крест

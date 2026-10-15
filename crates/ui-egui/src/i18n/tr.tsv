@@ -3905,3 +3905,14 @@ cameraData	Lens	Lens
 # View › Guides › right-click a guide
 	Edit Selected Guides	Seçili Kılavuzları Düzenle
 	Clear Selected Guides	Seçili Kılavuzları Temizle
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	%50 Eşik
+	Pattern Dither	Desen Titreklik
+	Diffusion Dither	Difüzyon Titreklik
+	Halftone Screen	Yarım Ton Tarama
+	Custom Pattern	Özel Desen
+	Frequency:	Frekans:
+	Lines/Inch	Çizgi/İnç
+	Lines/Centimeter	Çizgi/Santimetre
+	Ellipse	Elips

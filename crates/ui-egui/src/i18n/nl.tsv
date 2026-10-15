@@ -3935,3 +3935,14 @@ curves	Smooth	Vloeiend maken
 # View › Guides › right-click a guide
 	Edit Selected Guides	Geselecteerde hulplijnen bewerken
 	Clear Selected Guides	Geselecteerde hulplijnen wissen
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	50% drempel
+	Pattern Dither	Patroondithering
+	Diffusion Dither	Diffusiedithering
+	Halftone Screen	Halftoonraster
+	Custom Pattern	Aangepast patroon
+	Frequency:	Frequentie:
+	Lines/Inch	Lijnen/inch
+	Lines/Centimeter	Lijnen/centimeter
+	Ellipse	Ellips

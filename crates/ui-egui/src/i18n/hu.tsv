@@ -4094,3 +4094,14 @@ cameraRaw	Yellow	Sárga
 # View › Guides › right-click a guide
 	Edit Selected Guides	Kijelölt segédvonalak szerkesztése
 	Clear Selected Guides	Kijelölt segédvonalak törlése
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	50%-os küszöb
+	Pattern Dither	Mintázatos keverés
+	Diffusion Dither	Diffúziós keverés
+	Halftone Screen	Féltónusrács
+	Custom Pattern	Egyéni mintázat
+	Frequency:	Gyakoriság:
+	Lines/Inch	Vonal/hüvelyk
+	Lines/Centimeter	Vonal/centiméter
+	Ellipse	Ellipszis

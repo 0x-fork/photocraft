@@ -3773,3 +3773,14 @@ curves	Smooth	Wygładź
 # View › Guides › right-click a guide
 	Edit Selected Guides	Edytuj zaznaczone prowadnice
 	Clear Selected Guides	Usuń zaznaczone prowadnice
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	Próg 50%
+	Pattern Dither	Rozpraszanie wzorkiem
+	Diffusion Dither	Rozpraszanie dyfuzyjne
+	Halftone Screen	Raster półtonowy
+	Custom Pattern	Własny wzór
+	Frequency:	Częstotliwość:
+	Lines/Inch	Linii/cal
+	Lines/Centimeter	Linii/centymetr
+	Ellipse	Elipsa

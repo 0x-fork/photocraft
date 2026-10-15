@@ -388,6 +388,9 @@ fn apply_command_defaults(app: &PhotocraftApp, command: &str, fields: &mut Map<S
     if command == "edit.assignProfile" {
         assign_profile_defaults(app, fields);
     }
+    if command == crate::bitmap_dialog::COMMAND {
+        crate::bitmap_dialog::defaults(app, fields);
+    }
 }
 
 /// Assign Profile offers only the profiles the document's colour mode can take (#4951): the
@@ -890,6 +893,13 @@ pub(crate) fn preview_document_for_target(
     let doc_id = proxy.id;
     s.add_document(proxy, None);
     let mut p = params.clone();
+    // Bitmap's Output resolution resamples the image: the preview keeps the canvas's size and
+    // resolution, so its dots and halftone screen show at their printed size (#5559).
+    if command == crate::bitmap_dialog::COMMAND
+        && let Some(o) = p.as_object_mut()
+    {
+        o.remove("resolution");
+    }
     add_source_documents(&mut s, doc_id, command, &mut p, documents, run_k);
     if let Some(id) = active {
         s.select_layer(id).ok()?;

@@ -4296,3 +4296,14 @@ shape	Appearance	Aspetto
 # View › Guides › right-click a guide
 	Edit Selected Guides	Modifica guide selezionate
 	Clear Selected Guides	Cancella guide selezionate
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	Soglia 50%
+	Pattern Dither	Dithering pattern
+	Diffusion Dither	Dithering diffusione
+	Halftone Screen	Retino mezzetinte
+	Custom Pattern	Pattern personalizzato
+	Frequency:	Frequenza:
+	Lines/Inch	Linee/Pollice
+	Lines/Centimeter	Linee/Centimetro
+	Ellipse	Ellisse

@@ -25,6 +25,7 @@ pub mod anchor_tools;
 pub mod artboard_tool;
 pub mod artboard_ui;
 pub(crate) mod background_redraw;
+pub(crate) mod bitmap_dialog;
 mod blend_keys;
 pub(crate) mod blend_preview;
 pub mod blur_pins;

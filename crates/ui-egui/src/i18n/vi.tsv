@@ -3661,3 +3661,14 @@ curves	Smooth	Làm mượt
 # View › Guides › right-click a guide
 	Edit Selected Guides	Sửa đường căn đã chọn
 	Clear Selected Guides	Xóa đường căn đã chọn
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	Ngưỡng 50%
+	Pattern Dither	Hòa sắc họa tiết
+	Diffusion Dither	Hòa sắc khuếch tán
+	Halftone Screen	Màn bán sắc
+	Custom Pattern	Họa tiết tùy chỉnh
+	Frequency:	Tần số:
+	Lines/Inch	Đường/inch
+	Lines/Centimeter	Đường/centimet
+	Ellipse	Elip

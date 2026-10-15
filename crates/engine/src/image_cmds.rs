@@ -244,7 +244,7 @@ pub(crate) fn check_resample_budget(cmd: &str, doc: &Document, nw: u32, nh: u32,
 /// Resamples the whole document (pixels, masks, channels, selection, effects, vectors, guides) to
 /// `nw` x `nh` px with `filter`: the body of Image Size, shared by the Crop tool's W x H x Resolution
 /// mode. Callers check [`check_resample_budget`] first.
-fn resample_doc(doc: &mut Document, nw: u32, nh: u32, filter: Resample) {
+pub(crate) fn resample_doc(doc: &mut Document, nw: u32, nh: u32, filter: Resample) {
     let (ow, oh) = (doc.size.width, doc.size.height);
     let (sx, sy) = (nw as f64 / ow.max(1) as f64, nh as f64 / oh.max(1) as f64);
     if (sx - 1.0).abs() < 1e-12 && (sy - 1.0).abs() < 1e-12 {

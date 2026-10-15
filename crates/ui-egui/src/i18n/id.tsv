@@ -3166,3 +3166,15 @@ curves	Smooth	Haluskan
 # View › Guides › right-click a guide
 	Edit Selected Guides	Edit Panduan Terpilih
 	Clear Selected Guides	Hapus Panduan Terpilih
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	Threshold 50%
+	Pattern Dither	Dither Pola
+	Diffusion Dither	Dither Difusi
+	Halftone Screen	Layar Halftone
+	Custom Pattern	Pola Kustom
+	Frequency:	Frekuensi:
+	Lines/Inch	Garis/Inci
+	Lines/Centimeter	Garis/Sentimeter
+	Ellipse	Elips
+	Cross	Silang

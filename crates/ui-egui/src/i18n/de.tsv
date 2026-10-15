@@ -3177,3 +3177,14 @@ curves	Smooth	Glätten
 # View › Guides › right-click a guide
 	Edit Selected Guides	Ausgewählte Hilfslinien bearbeiten
 	Clear Selected Guides	Ausgewählte Hilfslinien löschen
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	50 %-Schwellenwert
+	Pattern Dither	Musterdither
+	Diffusion Dither	Diffusionsdither
+	Halftone Screen	Rasterung
+	Custom Pattern	Eigenes Muster
+	Frequency:	Frequenz:
+	Lines/Inch	Linien/Zoll
+	Lines/Centimeter	Linien/Zentimeter
+	Ellipse	Ellipse
