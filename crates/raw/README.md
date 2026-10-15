@@ -119,7 +119,11 @@ out). One cell in three is held out: the look is used only when it shows the sam
 the matrix is plausible and the held-out mean CIE76 ΔE drops to at most 85 % of the fallback's.
 Pass it as `DevelopOptions::camera_look`; `develop` then notes "colour fitted to the camera's
 embedded JPEG (mean ΔE …)". The crate cannot decode JPEG itself: `photocraft-io` decodes the
-smallest preview at least 512 pixels long, fits and develops in one go.
+smallest preview at least 512 pixels long, fits and develops in one go. A preview without an ICC
+profile is read in the colour space the raw states (`embedded_preview_color_space`): the EXIF
+ColorSpace (a Sony body set to Adobe RGB writes Uncalibrated with Interoperability "R03"), else a
+Nikon maker note's ColorSpace (0x001E; Nikon writes no EXIF ColorSpace), sRGB when the file says
+nothing.
 Camera Raw's tuned import fits at the default exposure and as-shot white balance first,
 then applies the user's Exposure, Temperature and Tint to that same rendering.
 The D5100's measured image area is 4928 × 3264 at (8, 8) in a 4992 × 3280
