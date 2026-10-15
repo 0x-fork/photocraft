@@ -84,7 +84,7 @@ what an agent can't finish alone.
   (TYPE-218-7, #2689), "rasterize and continue" for distort/perspective on type
   (TYPE-218-9), text free transform (#2630), area type in PSD (TYPE-218-10). Done since the re-measure: manual and optical kerning
   with PSD round trip (TYPE-218-6, #206), variable-font axes (TYPE-218-4, #2985).
-- **Evidence:** scorecard Type: 3 done, 2 partial, 4 missing. 2026-10-11: 2/3/4/5 clicks select
+- **Evidence:** scorecard Type (2026-10-15): 4 done, 4 partial, 2 missing. 2026-10-11: 2/3/4/5 clicks select
   word, line, paragraph and all text, with tests (TYPE-218-8, #3493). 2026-10-15: area type, type
   inside a closed path or shape, with holes (TYPE-218-10). The Type tool froze the app for
   60 s on one macOS machine (#2518).
@@ -271,7 +271,7 @@ what an agent can't finish alone.
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-15 | minor | G8: area type: Type tool click inside a closed path or shape wraps text inside it (TYPE-218-10); Type tool click on a path's outline (TYPE-218-1) |
+| 2026-10-15 | minor | G8: area type: Type tool click inside a closed path or shape wraps text inside it (TYPE-218-10); Type tool click on a path's outline (TYPE-218-1); Type scorecard count refreshed to 4 done, 4 partial, 2 missing |
 | 2026-10-14 | minor | G1: a PSD smart object's filter mask shows when the file opens (Photoshop stores the filtered pixels unmasked); export stores them that way too; Photoshop-oracle floor 185 → 188 of 258 |
 | 2026-10-13 | minor | G14: D90 image area measured (4288 × 2848 at (10, 10)); gap remains open |
 | 2026-10-14 | minor | Corpus floors raised to the measured results of the CMYK, Lab, 32-bit, Levels, Threshold, Posterize, feather and pass-through fixes landed together: Photoshop-authored 165 → 185 of 258, io 146 → 148 of 170, psd-tools 242 → 249 of 309 |
