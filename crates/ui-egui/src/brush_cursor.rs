@@ -185,6 +185,34 @@ mod tests {
         (a - b).length() < 1e-4
     }
 
+    /// Component timing only: outline transformation and OS bitmap generation, not presentation
+    /// or tablet latency. Run explicitly in release mode on the same runner for both cases.
+    #[test]
+    #[ignore]
+    fn pen_cursor_cost_probe() {
+        let mut brush = BrushSettings { size: 60.0, roundness: 0.25, hardness: 1.0, ..Default::default() };
+        brush.shape_dynamics.enabled = true;
+        brush.shape_dynamics.angle.control = photocraft_paint::brush::Control::Rotation;
+        let xf = view(0.0, false, 1.0);
+        for dynamic in [false, true] {
+            let ctx = egui::Context::default();
+            for sample in 0..5 {
+                let start = std::time::Instant::now();
+                let _ = ctx.run_ui(Default::default(), |ui| {
+                    for i in 0..360 {
+                        let axes = if dynamic {
+                            pen_axes(&xf, &brush, Some(crate::stylus::PenSample { rotation: i as f32, ..Default::default() }))
+                        } else {
+                            tip_axes(&xf, brush.size)
+                        };
+                        std::hint::black_box(cursor(ui.painter(), pos2(100.0, 100.0), &brush, 60.0, axes, false, false));
+                    }
+                });
+                println!("PEN_CURSOR_COST dynamic={dynamic} sample={sample} us_per_update={:.3}", start.elapsed().as_secs_f64() * 1e6 / 360.0);
+            }
+        }
+    }
+
     #[test]
     fn pen_orientation_preserves_mouse_and_disabled_dynamics() {
         let mut brush = BrushSettings::default();
