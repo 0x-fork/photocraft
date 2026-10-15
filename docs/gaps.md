@@ -137,6 +137,11 @@ what an agent can't finish alone.
   tuning retains the fitted look and applies user gains afterwards. Three D5100 NEFs
   establish a guarded 4928 × 3264 image area. This is an estimated rendering, not a
   measured D5100 colour calibration; [validation](nikon-nef-development.md).
+- **Progress (2026-10-14):** a Nikon NEF's embedded preview takes its colour space from the
+  maker note's ColorSpace (0x001E: 1 sRGB, 2 Adobe RGB) when the EXIF states none, so the
+  colour fit reads an Adobe RGB preview as Adobe RGB (49 of the 291 public Nikon samples;
+  Nikon writes no EXIF ColorSpace); `crates/raw/src/preview.rs`. A raw's preview-fallback
+  document is still opened untagged.
 - **Progress (2026-10-13):** the D90's image area (4288 × 2848 at (10, 10) in a
   4352 × 2868 plane) is measured by aligning the decoded plane with the camera's own
   JPEG, so a D90 NEF opens on the camera's frame instead of the uncropped sensor plane;
@@ -297,6 +302,7 @@ what an agent can't finish alone.
 | 2026-10-16 | minor | G7: Content-Aware Move's live preview covers every selection the command takes (over 256 × 256: a coarse result solved scaled down, then the exact one); TOOL-213-4 done (#6680) |
 | 2026-10-15 | minor | G9: Save in Background off saves in the foreground under a modal progress dialog (#6207); preferences that do nothing 25 → 24 of 169 |
 | 2026-10-14 | minor | G1: a PSD smart object's filter mask shows when the file opens (Photoshop stores the filtered pixels unmasked); export stores them that way too; Photoshop-oracle floor 185 → 188 of 258 |
+| 2026-10-14 | minor | G14: a Nikon NEF's Adobe RGB preview is read as Adobe RGB (maker-note ColorSpace 0x001E); gap remains open |
 | 2026-10-13 | minor | G14: D90 image area measured (4288 × 2848 at (10, 10)); gap remains open |
 | 2026-10-14 | minor | Corpus floors raised to the measured results of the CMYK, Lab, 32-bit, Levels, Threshold, Posterize, feather and pass-through fixes landed together: Photoshop-authored 165 → 185 of 258, io 146 → 148 of 170, psd-tools 242 → 249 of 309 |
 | 2026-10-13 | minor | G1: generated large-file fixtures (20 MP, 150 layers, 2 GB PSD, 4.38 GB PSB) round-trip in io tests/large_files.rs; the 4.38 GB PSB opens on Windows through io (#375 evidence); FILE-216-2 done (#5107) |
