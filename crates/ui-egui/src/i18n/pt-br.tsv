@@ -540,6 +540,9 @@
 # Field Blur pins (#3373)
 	No pin selected	Nenhum alfinete selecionado
 	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Clique na imagem para adicionar um alfinete; arraste um alfinete para movê-lo ou o anel dele para alterar o desfoque. Delete remove o alfinete selecionado.
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	Arraste as alças do contorno para redimensionar e girar, o quadrado para arredondar os cantos e os pontos internos para definir onde o desfoque começa.
+	Drag the pin to move the band, or its ring to change its blur. Drag the solid lines to widen the sharp band, the dashed lines to set the transition, and the dots to turn it.	Arraste o alfinete para mover a faixa ou o anel para alterar o desfoque. Arraste as linhas contínuas para alargar a faixa nítida, as tracejadas para definir a transição e os pontos para girá-la.
+	Drag the handles on the outline to resize and turn it; the ring sets the blur angle.	Arraste as alças do contorno para redimensionar e girar; o anel define o ângulo de desfoque.
 	Iris Blur…	Desfoque de íris…
 	Tilt-Shift…	Tilt-shift…
 	Path Blur…	Desfoque de demarcador…
@@ -966,7 +969,6 @@
 	Contiguous	Contíguo
 	Contrast	Contraste
 	Control:	Controle:
-	Convert document's colors to the working space	Converter as cores do documento para o espaço de trabalho
 	Convert to sRGB	Converter para sRGB
 	Copies	Cópias
 	Copper	Cobre
@@ -1023,6 +1025,7 @@
 	Delete Group	Excluir grupo
 	Delete Layer Mask	Excluir máscara de camada
 	Delete Layers	Excluir camadas
+	Add Shortcut	Adicionar atalho
 	Delete Shortcut	Excluir atalho
 	Delete Timeline	Excluir linha do tempo
 	Delete Tool Preset	Excluir predefinição de ferramenta
@@ -1543,7 +1546,6 @@
 	Use Default	Usar padrão
 	Use Legacy	Usar legado
 	Use Measurement Scale	Usar escala de medida
-	Use the embedded profile (instead of the working space)	Usar o perfil incorporado (em vez do espaço de trabalho)
 	Variables bind a layer's visibility, text or pixels to a named data slot.	As variáveis vinculam a visibilidade, o texto ou os pixels de uma camada a um campo de dados nomeado.
 	Vertical scale	Escala vertical
 	Vibrance	Vibração
@@ -1860,6 +1862,8 @@
 	Camera Raw Defaults	Padrões do Camera Raw
 	Canvas border	Borda da tela de pintura
 	Show canvas dots	Mostrar pontos da tela de pintura
+	Clip thumbnails to layer bounds	Recortar miniaturas aos limites da camada
+	Clip Thumbnails to Layer Bounds	Recortar miniaturas aos limites da camada
 	Canvas color	Cor da tela de pintura
 	Canvas custom color	Cor personalizada da tela de pintura
 	Color picker	Seletor de cores
@@ -2046,7 +2050,8 @@
 	Expand group  ({key}-click: all groups)	Expandir grupo  ({key}-clique: todos os grupos)
 	Fade steps	Etapas de atenuação
 	Hide the layer's effects  ({key}-click: all layers)	Ocultar os efeitos da camada  ({key}-clique: todas as camadas)
-	Import Brushes… (.abr)	Importar pincéis… (.abr)
+	Import Brushes… (.abr or image)	Importar pincéis… (.abr ou imagem)
+	Import Brush from Image…	Importar pincel de imagem…
 	Move Group Down	Mover grupo para baixo
 	Move Group Up	Mover grupo para cima
 	Reset the brush to the defaults	Redefinir o pincel para os padrões
@@ -2156,7 +2161,6 @@
 	Cancelled opening {name}	Abertura de {name} cancelada
 	The document “{name}” does not have an embedded {mode} profile.	O documento “{name}” não tem um perfil {mode} incorporado.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	O documento “{name}” tem um perfil de cores incorporado que não corresponde ao espaço de trabalho {mode} atual.
-	Embedded: {embedded}	Incorporado: {embedded}
 	Working: {working}	Espaço de trabalho: {working}
 	Developing {name}	Revelando {name}
 	Cancelled {label}	{label} cancelado
@@ -2925,6 +2929,8 @@ fontWeight	Italic	Itálico
 	Color Picker (Layer Style Color)	Seletor de cores (cor do estilo de camada)
 	Auto Hide Notifications	Ocultar notificações automaticamente
 	Notification Duration (seconds)	Duração da notificação (segundos)
+	Bundle Arrow-Key Nudges	Agrupar deslocamentos com as setas
+	Nudge Bundle Pause (ms)	Pausa para agrupar deslocamentos (ms)
 	Appearance Mode	Modo de aparência
 	Dark Theme	Tema escuro
 	Light Theme	Tema claro
@@ -3050,6 +3056,7 @@ cameraData	Lens	Lente
 	Search settings…	Pesquisar configurações…
 	No matching settings	Nenhuma configuração encontrada
 	Loading fonts…	Carregando fontes…
+	Response curve	Curva de resposta
 	Tool	Ferramenta
 	Simulate Pressure	Simular pressão
 	Stroke Path…	Traçar demarcador…
@@ -3899,6 +3906,7 @@ layerLabel	No Color	Sem cor
 	Remove after each stroke	Remover após cada traço
 	Apply the removal ({key})	Aplicar a remoção ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Traços a remover: {n} (Enter aplica, Esc cancela)
+	Show home recent files	Mostrar arquivos recentes na tela inicial
 	Clear Brush Controls	Limpar controles de pincel
 	Reset All Locked Settings	Redefinir todas as configurações bloqueadas
 	Copy Texture to Other Tools	Copiar textura para outras ferramentas
@@ -3925,6 +3933,9 @@ layerLabel	No Color	Sem cor
 	Action playback stopped	Reprodução da ação interrompida
 	Step {step} is waiting for its dialog	A etapa {step} está aguardando sua caixa de diálogo
 @plural	{n} action|{n} actions	{n} ação|{n} ações
+	Background (Default)	Plano de fundo (padrão)
+# Batch / Image Processor
+	Include All Subfolders	Incluir todas as subpastas
 	Auto Add/Delete	Adicionar/excluir automaticamente
 
 # Native Windows printing qualification
@@ -3934,3 +3945,37 @@ layerLabel	No Color	Sem cor
 	Sent to {printer}	Enviado para {printer}
 	set in Print Settings…	definido nas configurações de impressão…
 	ICO is limited to 256 × 256 pixels	ICO é limitado a 256 × 256 pixels
+# Embedded Profile Mismatch: profile names beside the choices, Remember this choice
+	Use the embedded profile ({profile})	Usar o perfil incorporado ({profile})
+	Convert to the working space ({profile})	Converter para o espaço de trabalho ({profile})
+	Remember this choice for future images	Lembrar esta escolha para as próximas imagens
+	Turn the prompt back on with Ask On Mismatch in Edit › Color Settings.	Reative a pergunta com Ask On Mismatch em Editar › Configurações de cores.
+	Button Mode	Modo de botão
+	Button Mode On	Modo de botão ativado
+
+# Darken / Lighten Interface (⇧⌘F1 / ⇧⌘F2)
+	Darken Interface	Escurecer interface
+	Lighten Interface	Clarear interface
+# Bevel & Emboss Technique.
+	Technique	Técnica
+	Chisel Hard	Cinzel duro
+	Chisel Soft	Cinzel suave
+	Open color-less EXR as ACEScg	Abrir EXR sem espaço de cor como ACEScg
+
+# View › Guides › right-click a guide
+	Edit Selected Guides	Editar guias selecionadas
+	Clear Selected Guides	Limpar guias selecionadas
+	Delete this set	Excluir este conjunto
+	New Set…	Novo conjunto…
+	PhotoCraft Defaults	Padrões do PhotoCraft
+	Save a list of these shortcuts as a web page	Salvar uma lista destes atalhos como página da web
+	Save the changes to this set	Salvar as alterações neste conjunto
+	Save these shortcuts as a .kys file	Salvar estes atalhos como arquivo .kys
+	Save these shortcuts as a new set	Salvar estes atalhos como um novo conjunto
+	Set deleted.	Conjunto excluído.
+	Set saved.	Conjunto salvo.
+	Set:	Conjunto:
+	Summarize…	Resumir…
+	There are too many sets: delete one first.	Há conjuntos demais: exclua um primeiro.
+	set name	nome do conjunto
+	{set} (modified)	{set} (modificado)
