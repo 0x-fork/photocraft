@@ -144,7 +144,7 @@ const fn code(c: &[u8; 4]) -> i32 {
     i32::from_be_bytes(*c)
 }
 
-const KNOWN: [Known; 14] = [
+const KNOWN: [Known; 18] = [
     Known { class: "GsnB", filter_id: code(b"GsnB"), name: "Gaussian Blur...", command: "filter.blur.gaussianBlur" },
     Known { class: "boxblur", filter_id: 840, name: "Box Blur...", command: "filter.blur.boxBlur" },
     Known { class: "MtnB", filter_id: code(b"MtnB"), name: "Motion Blur...", command: "filter.blur.motionBlur" },
@@ -160,7 +160,16 @@ const KNOWN: [Known; 14] = [
     Known { class: "Crvs", filter_id: code(b"Crvs"), name: "Curves...", command: "image.adjustments.curves" },
     // Shadows/Highlights at its defaults stores no `Fltr` (`hasoptions` false).
     Known { class: "adaptCorrect", filter_id: 781, name: "Shado&ws/Highlights...", command: "image.adjustments.shadowsHighlights" },
+    Known { class: "LnsF", filter_id: code(b"LnsF"), name: "Lens Flare...", command: "filter.render.lensFlare" },
+    // These three also read the item's foreground and background colours (`coloured_params`).
+    Known { class: "Fbrs", filter_id: code(b"Fbrs"), name: "Fibers...", command: "filter.render.fibers" },
+    Known { class: "Clds", filter_id: code(b"Clds"), name: "Clouds", command: "filter.render.clouds" },
+    Known { class: "DfrC", filter_id: code(b"DfrC"), name: "Difference Clouds", command: "filter.render.differenceClouds" },
 ];
+
+/// Lens Flare's `Lns ` enum and our `lens` values. Photoshop's codes keep the old lens names:
+/// Nikon 35 mm and 105 mm primes, a Panavision movie prime.
+const LENSES: [(&[u8; 4], &str); 4] = [(b"Zm  ", "zoom"), (b"Nkn ", "prime35"), (b"Nkn1", "prime105"), (b"PnVs", "moviePrime")];
 
 fn known_by_command(command: &str) -> Option<&'static Known> {
     KNOWN.iter().find(|k| k.command == command)
@@ -282,6 +291,12 @@ fn known_params(class: &str, f: Option<&Descriptor>) -> Option<(&'static str, J)
         }
         ("Msc ", Some(f)) => json!({"cellSize": px(f, "ClSz")?}),
         ("Embs", Some(f)) => json!({"angle": int(f, "Angl")?, "height": int(f, "Hght")?, "amount": int(f, "Amnt")?}),
+        ("LnsF", Some(f)) => {
+            let centre = get_desc(f, "FlrC")?;
+            let lens = enum_of(f, "Lns ")?;
+            let lens = LENSES.iter().find(|(c, _)| lens == &c[..])?.1;
+            json!({"brightness": int(f, "Brgh")?, "centerX": px(centre, "Hrzn")?, "centerY": px(centre, "Vrtc")?, "lens": lens})
+        }
         ("Lvls", Some(f)) => levels_params(f)?,
         ("Crvs", Some(f)) => curves_params(f)?,
         _ => return None,
@@ -320,6 +335,26 @@ const GALLERY_EFFECTS: [GalleryCode; 1] = [GalleryCode { key: "chrome", code: "C
 fn rgbc_colour(d: &Descriptor) -> Option<J> {
     let c = |k: &str| px(d, k).map(|v| (v / 255.0).clamp(0.0, 1.0));
     Some(json!([c("Rd  ")?, c("Grn ")?, c("Bl  ")?, 1.0]))
+}
+
+/// Fibers, Clouds and Difference Clouds draw with the item's foreground and background colours:
+/// their params are the `Fltr` settings plus those colours.
+fn coloured_params(class: &str, item: &Descriptor, f: &Descriptor) -> Option<(&'static str, J)> {
+    let k = KNOWN.iter().find(|k| k.class == class)?;
+    let colour = |key: &str| get_desc(item, key).and_then(rgbc_colour);
+    // The seeds (`RndS`, `FlRs`) are signed longs; ours is their bit pattern.
+    let mut p = match class {
+        "Fbrs" => json!({"variance": int(f, "Vrnc")?, "strength": int(f, "Strg")?, "seed": int(f, "RndS")? as u32}),
+        _ => json!({"seed": int(f, "FlRs")? as u32}),
+    };
+    let o = p.as_object_mut()?;
+    o.insert("foreground".into(), colour("FrgC")?);
+    o.insert("background".into(), colour("BckC")?);
+    Some((k.command, p))
+}
+
+fn seed_param(p: &J) -> Value {
+    Value::Integer(p.get("seed").and_then(J::as_u64).and_then(|n| u32::try_from(n).ok()).unwrap_or(0) as i32)
 }
 
 /// `filter.filterGallery` params for a `GEfc` filter item; `None` when an effect or setting is
@@ -470,6 +505,7 @@ pub fn filter_from_item(item: &Descriptor) -> SmartFilter {
         Some(camera_raw::CLASS) => camera_raw::import_params(item).map(|p| (camera_raw::COMMAND, p)),
         Some(displace::CLASS) => displace::import_params(item).map(|p| (displace::COMMAND, p)),
         Some(GALLERY_CLASS) => fltr.and_then(|f| gallery_params(item, f)).map(|p| (GALLERY_COMMAND, p)),
+        Some(c @ ("Fbrs" | "Clds" | "DfrC")) => fltr.and_then(|f| coloured_params(c, item, f)),
         c => c.and_then(|c| known_params(c, fltr)),
     };
     let (command, params) = match known {
@@ -595,6 +631,17 @@ fn fltr_for(k: &Known, p: &J) -> Result<Option<Descriptor>, String> {
         }
         "Msc " => d.with("ClSz", unit(b"#Pxl", pf(p, "cellSize", 10.0))),
         "Embs" => d.with("Angl", pi(p, "angle", 135.0)).with("Hght", pi(p, "height", 3.0)).with("Amnt", pi(p, "amount", 100.0)),
+        "LnsF" => {
+            let lens = p.get("lens").and_then(J::as_str).unwrap_or("zoom");
+            let code = LENSES.iter().find(|(_, l)| *l == lens).ok_or_else(|| format!("lens `{lens}` has no PSD equivalent"))?.0;
+            let mut centre = Descriptor::new("Pnt ").with("Hrzn", Value::Double(pf(p, "centerX", 0.5))).with("Vrtc", Value::Double(pf(p, "centerY", 0.5)));
+            centre.name = UnicodeString::new_nul("");
+            d.with("Brgh", pi(p, "brightness", 100.0))
+                .with("FlrC", Value::Descriptor(centre))
+                .with("Lns ", Value::Enumerated { type_id: Id::new("Lns "), value: Id::Code(*code) })
+        }
+        "Fbrs" => d.with("Vrnc", pi(p, "variance", 16.0)).with("Strg", pi(p, "strength", 4.0)).with("RndS", seed_param(p)),
+        "Clds" | "DfrC" => d.with("FlRs", seed_param(p)),
         "Lvls" => d.with("Adjs", adjustments(p, false)?),
         "Crvs" => d.with("Adjs", adjustments(p, true)?),
         "adaptCorrect" => {
@@ -633,17 +680,38 @@ pub fn item_for_filter(f: &SmartFilter) -> Result<Descriptor, String> {
     }
     let k = known_by_command(&f.command).ok_or("this filter has no PSD equivalent")?;
     let fltr = fltr_for(k, &f.params)?;
+    // Fibers and the clouds draw with the colours stored on the item; the others store
+    // Photoshop's defaults.
+    let coloured = matches!(k.class, "Fbrs" | "Clds" | "DfrC");
+    let (fg, bg) =
+        if coloured { (colour_rgbc(f.params.get("foreground"), 0.0)?, colour_rgbc(f.params.get("background"), 255.0)?) } else { (rgbc(0.0), rgbc(255.0)) };
+    // The render filters are written with the descriptor names Photoshop gives them: the filter's
+    // own name on `Fltr` and empty ones on the colours.
+    let render = coloured || k.class == "LnsF";
+    let (fltr, fg, bg) = if render { (fltr.map(|f| named(f, k.name.trim_end_matches("..."))), named_value(fg), named_value(bg)) } else { (fltr, fg, bg) };
     let mut d = Descriptor::new("filterFX")
         .with("Nm  ", Value::Text(UnicodeString::new_nul(k.name)))
         .with("blendOptions", blend_options(f))
         .with("enab", Value::Boolean(f.visible))
         .with("hasoptions", Value::Boolean(fltr.is_some()))
-        .with("FrgC", rgbc(0.0))
-        .with("BckC", rgbc(255.0));
+        .with("FrgC", fg)
+        .with("BckC", bg);
     if let Some(x) = fltr {
         d = d.with("Fltr", Value::Descriptor(x));
     }
     Ok(d.with("filterID", Value::Integer(k.filter_id)))
+}
+
+fn named(mut d: Descriptor, name: &str) -> Descriptor {
+    d.name = UnicodeString::new_nul(name);
+    d
+}
+
+fn named_value(v: Value) -> Value {
+    match v {
+        Value::Descriptor(d) => Value::Descriptor(named(d, "")),
+        other => other,
+    }
 }
 
 /// Builds a `filterFX` object; filters that can't be written are left out, with a message each.
@@ -1472,5 +1540,79 @@ mod tests {
         assert_eq!(u.len(), 36);
         assert_eq!(u, uuid_from(b"x"));
         assert_ne!(u, uuid_from(b"y"));
+    }
+
+    // Render filters as Photoshop 27 saves them on a smart object (`filterFXList` items, with
+    // neutral blending): Clouds and Difference Clouds in white on black, Fibers in black on white,
+    // Lens Flare with the 50-300mm Zoom at 159%.
+    const PHOTOSHOP_CLOUDS: &str = "0000000100000000000866696c746572465800000008000000004e6d202054455854000000070043006c006f00750064007300000000000c626c656e644f7074696f6e734f626a63000000000000000c626c656e644f7074696f6e7300000002000000004f706374556e7446235072634059000000000000000000004d642020656e756d00000000426c6e4d000000066e6f726d616c00000000656e6162626f6f6c010000000a6861736f7074696f6e73626f6f6c0100000000467267434f626a630000000100000000000052474243000000030000000052642020646f7562406fe000000000000000000047726e20646f7562406fe0000000000000000000426c2020646f7562406fe000000000000000000042636b434f626a630000000100000000000052474243000000030000000052642020646f756200000000000000000000000047726e20646f7562000000000000000000000000426c2020646f7562000000000000000000000000466c74724f626a63000000070043006c006f007500640073000000000000436c64730000000100000000466c52736c6f6e67000049e40000000866696c74657249446c6f6e67436c6473";
+    const PHOTOSHOP_DIFFERENCE_CLOUDS: &str = "0000000100000000000866696c746572465800000008000000004e6d202054455854000000120044006900660066006500720065006e0063006500200043006c006f00750064007300000000000c626c656e644f7074696f6e734f626a63000000000000000c626c656e644f7074696f6e7300000002000000004f706374556e7446235072634059000000000000000000004d642020656e756d00000000426c6e4d000000066e6f726d616c00000000656e6162626f6f6c010000000a6861736f7074696f6e73626f6f6c0100000000467267434f626a630000000100000000000052474243000000030000000052642020646f7562406fe000000000000000000047726e20646f7562406fe0000000000000000000426c2020646f7562406fe000000000000000000042636b434f626a630000000100000000000052474243000000030000000052642020646f756200000000000000000000000047726e20646f7562000000000000000000000000426c2020646f7562000000000000000000000000466c74724f626a63000000120044006900660066006500720065006e0063006500200043006c006f007500640073000000000000446672430000000100000000466c52736c6f6e67000057d20000000866696c74657249446c6f6e6744667243";
+    const PHOTOSHOP_FIBERS: &str = "0000000100000000000866696c746572465800000008000000004e6d2020544558540000000a004600690062006500720073002e002e002e00000000000c626c656e644f7074696f6e734f626a63000000000000000c626c656e644f7074696f6e7300000002000000004f706374556e7446235072634059000000000000000000004d642020656e756d00000000426c6e4d000000066e6f726d616c00000000656e6162626f6f6c010000000a6861736f7074696f6e73626f6f6c0100000000467267434f626a630000000100000000000052474243000000030000000052642020646f756200000000000000000000000047726e20646f7562000000000000000000000000426c2020646f756200000000000000000000000042636b434f626a630000000100000000000052474243000000030000000052642020646f7562406fe000000000000000000047726e20646f7562406fe0000000000000000000426c2020646f7562406fe0000000000000000000466c74724f626a630000000700460069006200650072007300000000000046627273000000030000000056726e636c6f6e670000001000000000537472676c6f6e670000000400000000526e64536c6f6e67000062f10000000866696c74657249446c6f6e6746627273";
+    const PHOTOSHOP_LENS_FLARE: &str = "0000000100000000000866696c746572465800000008000000004e6d2020544558540000000e004c0065006e007300200046006c006100720065002e002e002e00000000000c626c656e644f7074696f6e734f626a63000000000000000c626c656e644f7074696f6e7300000002000000004f706374556e7446235072634059000000000000000000004d642020656e756d00000000426c6e4d000000066e6f726d616c00000000656e6162626f6f6c010000000a6861736f7074696f6e73626f6f6c0100000000467267434f626a630000000100000000000052474243000000030000000052642020646f756200000000000000000000000047726e20646f7562000000000000000000000000426c2020646f756200000000000000000000000042636b434f626a630000000100000000000052474243000000030000000052642020646f7562406fe000000000000000000047726e20646f7562406fe0000000000000000000426c2020646f7562406fe0000000000000000000466c74724f626a630000000b004c0065006e007300200046006c0061007200650000000000004c6e73460000000300000000427267686c6f6e670000009f00000000466c72434f626a6300000001000000000000506e7420000000020000000048727a6e646f75623fe86666600000000000000056727463646f75623fe60b60c0000000000000004c6e7320656e756d000000004c6e7320000000005a6d20200000000866696c74657249446c6f6e674c6e7346";
+
+    fn photoshop(hex: &str) -> Descriptor {
+        Descriptor::from_bytes(&from_hex(hex).unwrap()).unwrap()
+    }
+
+    fn set_lens(item: &mut Descriptor, code: [u8; 4]) {
+        let Some(Value::Descriptor(fltr)) = item.items.iter_mut().find(|(k, _)| k.is("Fltr")).map(|(_, v)| v) else { panic!("no Fltr") };
+        set(fltr, "Lns ", Value::Enumerated { type_id: Id::new("Lns "), value: Id::Code(code) });
+    }
+
+    #[test]
+    fn photoshop_render_filters_read_and_write_like_photoshop() {
+        let colours = |fg: f64, bg: f64| (json!([fg, fg, fg, 1.0]), json!([bg, bg, bg, 1.0]));
+        let (white, black) = colours(1.0, 0.0);
+        let cases = [
+            (PHOTOSHOP_CLOUDS, "filter.render.clouds", json!({"seed": 18916, "foreground": white, "background": black})),
+            (PHOTOSHOP_DIFFERENCE_CLOUDS, "filter.render.differenceClouds", json!({"seed": 22482, "foreground": white, "background": black})),
+            (PHOTOSHOP_FIBERS, "filter.render.fibers", json!({"variance": 16, "strength": 4, "seed": 25329, "foreground": black, "background": white})),
+            (
+                PHOTOSHOP_LENS_FLARE,
+                "filter.render.lensFlare",
+                json!({"brightness": 159, "centerX": 0.762499988079071, "centerY": 0.6888889074325562, "lens": "zoom"}),
+            ),
+        ];
+        for (hex, command, params) in cases {
+            let item = photoshop(hex);
+            let f = filter_from_item(&item);
+            assert_eq!((f.command.as_str(), &f.params), (command, &params));
+            // Written back, it is Photoshop's item again: name, colours, settings and key order.
+            assert_eq!(item_for_filter(&f).unwrap().items, item.items, "{command}");
+        }
+    }
+
+    #[test]
+    fn every_lens_flare_lens_round_trips_with_photoshops_code() {
+        for (code, lens) in LENSES {
+            let mut item = photoshop(PHOTOSHOP_LENS_FLARE);
+            set_lens(&mut item, *code);
+            let f = filter_from_item(&item);
+            assert_eq!(f.params["lens"], lens);
+            assert_eq!(item_for_filter(&f).unwrap().items, item.items, "{lens}");
+        }
+        // A lens we don't know keeps the filter verbatim.
+        let mut item = photoshop(PHOTOSHOP_LENS_FLARE);
+        set_lens(&mut item, *b"Xxxx");
+        assert_eq!(filter_from_item(&item).command, UNSUPPORTED_FILTER);
+    }
+
+    #[test]
+    fn render_filters_made_in_photocraft_are_written() {
+        // Without colours (an older document or a script), Photoshop's default black and white.
+        let back = filter_from_item(&item_for_filter(&sf("filter.render.clouds", json!({"seed": 7}))).unwrap());
+        assert_eq!(back.params, json!({"seed": 7, "foreground": [0.0, 0.0, 0.0, 1.0], "background": [1.0, 1.0, 1.0, 1.0]}));
+        // A seed above i32::MAX keeps its bit pattern, and colours may be hex.
+        let p = json!({"variance": 30, "strength": 10, "seed": 4_000_000_000u32, "foreground": "#ff0000", "background": [0.0, 0.0, 1.0, 1.0]});
+        let back = filter_from_item(&item_for_filter(&sf("filter.render.fibers", p)).unwrap());
+        assert_eq!(
+            back.params,
+            json!({"variance": 30, "strength": 10, "seed": 4_000_000_000u32, "foreground": [1.0, 0.0, 0.0, 1.0], "background": [0.0, 0.0, 1.0, 1.0]})
+        );
+        let flare = sf("filter.render.lensFlare", json!({"brightness": 120, "centerX": 0.25, "centerY": 0.75, "lens": "moviePrime"}));
+        assert_eq!(filter_from_item(&item_for_filter(&flare).unwrap()).params, flare.params);
+        // Lenses and colours we can't write are reported, not guessed.
+        assert!(item_for_filter(&sf("filter.render.lensFlare", json!({"lens": "fisheye"}))).unwrap_err().contains("fisheye"));
+        assert!(item_for_filter(&sf("filter.render.clouds", json!({"foreground": "red"}))).is_err());
     }
 }
