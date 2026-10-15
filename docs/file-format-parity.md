@@ -129,7 +129,7 @@ remaining gaps in #1606 stay tracked with per-sample corpus ceilings.
 | Patterns `.pat` | R/W | R/W | |
 | Swatches `.aco`, `.ase` | R/W | R/W | FILE-215-14 |
 | LUTs `.cube` / `.3dl` / `.look` | R/W (Export Color Lookup) | R/W / R / R | `cms/src/lutfile.rs` |
-| Keyboard shortcuts `.kys` | R/W | R | `engine/src/kys.rs` |
+| Keyboard shortcuts `.kys` | R/W | R/W | `engine/src/kys.rs` (`write`: Edit › Keyboard Shortcuts › Export…, rows carry our id; Photoshop reading our files is unverified) |
 | ICC profiles | R | R | Own CMS |
 | Actions `.atn` | R/W | R/W | `psd/src/atn.rs` (version 16 sets, exact round trip), `engine/src/atn_cmds.rs` (112 Photoshop events ↔ commands; other steps kept verbatim). Panel menu, CLI `batch --actions set.atn`, `actions.load`/`actions.save`. Photoshop 5-era version 12 files unsupported (AUTO-219-2) |
 | Styles `.asl` | R/W | no | #1693 |

@@ -3179,4 +3179,18 @@ curves	Smooth	Lisser
 # View › Guides › right-click a guide
 	Edit Selected Guides	Modifier les repères sélectionnés
 	Clear Selected Guides	Effacer les repères sélectionnés
+	Delete this set	Supprimer ce jeu
+	New Set…	Nouveau jeu…
+	PhotoCraft Defaults	Valeurs par défaut de PhotoCraft
+	Save a list of these shortcuts as a web page	Enregistrer la liste de ces raccourcis en page web
+	Save the changes to this set	Enregistrer les modifications de ce jeu
+	Save these shortcuts as a .kys file	Enregistrer ces raccourcis dans un fichier .kys
+	Save these shortcuts as a new set	Enregistrer ces raccourcis comme nouveau jeu
+	Set deleted.	Jeu supprimé.
+	Set saved.	Jeu enregistré.
+	Set:	Jeu :
+	Summarize…	Résumer…
+	There are too many sets: delete one first.	Il y a trop de jeux : supprimez-en un d’abord.
+	set name	nom du jeu
+	{set} (modified)	{set} (modifié)
 	Random	Aléatoire

@@ -19,6 +19,7 @@ pub mod exif_color;
 mod fidelity;
 mod format;
 mod image;
+mod lab;
 mod options;
 pub mod orientation;
 pub mod resolution;

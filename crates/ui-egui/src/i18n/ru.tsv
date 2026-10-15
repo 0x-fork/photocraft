@@ -3144,4 +3144,18 @@ curves	Smooth	Сгладить
 # View › Guides › right-click a guide
 	Edit Selected Guides	Изменить выбранные направляющие
 	Clear Selected Guides	Удалить выбранные направляющие
+	Delete this set	Удалить этот набор
+	New Set…	Новый набор…
+	PhotoCraft Defaults	Стандартные PhotoCraft
+	Save a list of these shortcuts as a web page	Сохранить список этих комбинаций как веб-страницу
+	Save the changes to this set	Сохранить изменения в этом наборе
+	Save these shortcuts as a .kys file	Сохранить эти комбинации как файл .kys
+	Save these shortcuts as a new set	Сохранить эти комбинации как новый набор
+	Set deleted.	Набор удалён.
+	Set saved.	Набор сохранён.
+	Set:	Набор:
+	Summarize…	Сводка…
+	There are too many sets: delete one first.	Слишком много наборов: сначала удалите один.
+	set name	имя набора
+	{set} (modified)	{set} (изменён)
 	Random	Случайно

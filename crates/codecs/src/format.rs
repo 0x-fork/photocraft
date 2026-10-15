@@ -99,6 +99,8 @@ use SampleType as S;
 
 const RGB_GRAY: &[ChannelLayout] = &[L::Gray, L::GrayA, L::Rgb, L::Rgba];
 const ALL_LAYOUTS: &[ChannelLayout] = &[L::Gray, L::GrayA, L::Rgb, L::Rgba, L::Cmyk, L::CmykA];
+/// TIFF also stores CIE L*a*b* (CIELab).
+const TIFF_LAYOUTS: &[ChannelLayout] = &[L::Gray, L::GrayA, L::Rgb, L::Rgba, L::Cmyk, L::CmykA, L::Lab, L::LabA];
 
 impl Format {
     /// Every format known to the crate (enabled or not).
@@ -244,7 +246,7 @@ pub fn caps(format: Format) -> FormatCaps {
             FormatCaps { depths: &[S::U8, S::U16], layouts: RGB_GRAY, icc: true, exif: true, xmp: true, dpi: true, text: true, animation: true, ..base }
         }
         Format::Jpeg => FormatCaps { layouts: &[L::Gray, L::Rgb, L::Cmyk], alpha: false, icc: true, exif: true, xmp: true, dpi: true, lossy: true, ..base },
-        Format::Tiff => FormatCaps { depths: &[S::U8, S::U16, S::F32], layouts: ALL_LAYOUTS, icc: true, exif: true, xmp: true, dpi: true, text: true, ..base },
+        Format::Tiff => FormatCaps { depths: &[S::U8, S::U16, S::F32], layouts: TIFF_LAYOUTS, icc: true, exif: true, xmp: true, dpi: true, text: true, ..base },
         Format::WebP => FormatCaps { icc: true, exif: true, xmp: true, animation: true, ..base },
         Format::Gif => FormatCaps { layouts: &[L::Rgba], animation: true, lossy: true, ..base },
         Format::Bmp => base,

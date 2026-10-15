@@ -2790,4 +2790,18 @@ curves	Smooth	平滑
 # View › Guides › right-click a guide
 	Edit Selected Guides	编辑所选参考线
 	Clear Selected Guides	清除所选参考线
+	Delete this set	删除此组
+	New Set…	新建组…
+	PhotoCraft Defaults	PhotoCraft 默认值
+	Save a list of these shortcuts as a web page	将这些快捷键的列表存储为网页
+	Save the changes to this set	将更改存储到此组
+	Save these shortcuts as a .kys file	将这些快捷键存储为 .kys 文件
+	Save these shortcuts as a new set	将这些快捷键存储为新组
+	Set deleted.	已删除组。
+	Set saved.	已存储组。
+	Set:	组：
+	Summarize…	摘要…
+	There are too many sets: delete one first.	组太多：请先删除一个。
+	set name	组名称
+	{set} (modified)	{set}（已修改）
 	Random	随机

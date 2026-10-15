@@ -187,6 +187,7 @@ Triangle and Curvature Pen (minus legacy Rounded Rectangle and Targeted Adjustme
 | PhotoCraft | ~199 shortcut assignments, 113 distinct modifier/F-key combos, 20 tool letters, 3 temporary-tool bindings | measured (source) |
 | Shortcut audit | 214 → 0 failures (2026-10-07) | measured then; not re-run here |
 | `.kys` import | done (`engine/src/kys.rs`) | |
+| Shortcut sets: Set menu, New Set…, Save, Delete, `.kys` Export…, Summarize… | done (`engine/src/shortcut_sets.rs`, `prefs_ui::set_row`); sets live in the preferences. Photoshop reading our exported `.kys` is unverified | `shortcut_sets` tests, `shortcut_set_tests.rs` |
 | Shortcut glyphs per platform | done (UI-217-19) | |
 | Toolbar tool shortcut editing | done (#4086): each tool has a row under Tools; assignments persist, removed tools leave the default key group, and unchanged tools keep Shift cycling. Toolbar and flyout hints follow the binding | `tool_shortcuts.rs`, `shortcut_capture_tests.rs` |
 | Brush size/hardness keys on non-US layouts | done (#3109): `[` `]` need AltGr on many layouts, so Photoshop uses other keys there (German: Ö / #, ⇧ for hardness). `layout_keys.rs` has a data table of such layouts (`LAYOUTS`, add rows to support one more) and a fallback for all others: the keys at the US `[` / `]` positions act as `[` / `]` when they don't type brackets. Off once a real bracket is typed; Edit › Keyboard Shortcuts overrides still apply | |
