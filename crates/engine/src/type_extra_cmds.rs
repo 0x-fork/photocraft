@@ -70,7 +70,7 @@ fn has_defaults(s: &Session) -> std::result::Result<(), String> {
 // ---------- helpers ----------
 
 /// Edits a type layer as one history step and re-renders it.
-fn with_text<R>(s: &mut Session, p: &Value, label: &str, f: impl FnOnce(&mut TextLayer, &Document) -> Result<R>) -> Result<R> {
+pub(crate) fn with_text<R>(s: &mut Session, p: &Value, label: &str, f: impl FnOnce(&mut TextLayer, &Document) -> Result<R>) -> Result<R> {
     let id = layer_param(s, p)?;
     check_text_unlocked(&s.active().ok_or(EngineError::NoDocument)?.doc, id)?;
     s.edit(label, |doc, _| {
