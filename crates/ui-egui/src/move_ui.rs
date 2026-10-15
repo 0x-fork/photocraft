@@ -337,11 +337,13 @@ mod tests {
         app.ui.view.show.smart_guides = false;
         let m = egui::Modifiers::NONE;
         assert_eq!(super::offset_readout(&app), None, "no drag");
-        crate::canvas::tool_event(&mut app, ToolEvent::Down { x: 32.0, y: 32.0, pressure: 1.0 }, m);
+        // Pressed on the red square (16..32): with Auto-Select (on by default) an empty spot would
+        // start the layer marquee instead of a move.
+        crate::canvas::tool_event(&mut app, ToolEvent::Down { x: 24.0, y: 24.0, pressure: 1.0 }, m);
         assert_eq!(super::offset_readout(&app), None, "pressed, not moved yet");
-        crate::canvas::tool_event(&mut app, ToolEvent::Move { x: 42.4, y: 28.8, pressure: 1.0 }, m);
+        crate::canvas::tool_event(&mut app, ToolEvent::Move { x: 34.4, y: 20.8, pressure: 1.0 }, m);
         assert_eq!(super::offset_readout(&app), Some(["10 px".to_string(), "-3 px".to_string()]));
-        crate::canvas::tool_event(&mut app, ToolEvent::Up { x: 42.4, y: 28.8 }, m);
+        crate::canvas::tool_event(&mut app, ToolEvent::Up { x: 34.4, y: 20.8 }, m);
         assert_eq!(super::offset_readout(&app), None, "released");
     }
 
