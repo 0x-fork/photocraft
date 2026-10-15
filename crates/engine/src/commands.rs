@@ -4,7 +4,7 @@ use photocraft_color::{BlendMode, Color, ColorMode, SampleType};
 use photocraft_doc::{Adjustment, Document, Fill, Layer, LayerContent, LayerId, LayerMask, Size};
 use photocraft_geom::Rect;
 use photocraft_raster::Surface;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::{EngineError, Result, Session, inspect, pixels};
 
@@ -412,6 +412,31 @@ pub fn adjustment_from_params(kind: &str, p: &Value) -> Adjustment {
 
 fn doc_mode(s: &Session) -> ColorMode {
     s.active().map_or(ColorMode::Rgb, |d| d.doc.mode)
+}
+
+/// The colour mode a destructive adjustment parses its tone space in: a targeted layer mask,
+/// saved channel or Quick Mask holds gray levels whatever the document's mode, so Curves and
+/// Levels stay in the neutral space instead of Lab (where the composite is ignored) or CMYK
+/// (where the curve runs on the inks) (#5335).
+fn adjust_mode(s: &Session, p: &Value) -> ColorMode {
+    if is_mask_target(p) || crate::channel_cmds::is_channel_target(p) { ColorMode::Grayscale } else { doc_mode(s) }
+}
+
+/// Tone params for a gray plane target: the document-space channel records are dropped, because
+/// those keys select the Lab or CMYK tone space and a plane only holds levels (#5335).
+fn gray_tone_params(p: &Value) -> Value {
+    match p {
+        Value::Object(m) => {
+            let mut o = Map::new();
+            for (k, v) in m {
+                if !matches!(k.as_str(), "cyan" | "magenta" | "yellow" | "black" | "lightness" | "a" | "b") {
+                    o.insert(k.clone(), v.clone());
+                }
+            }
+            Value::Object(o)
+        }
+        other => other.clone(),
+    }
 }
 
 // ---------- the table ----------
@@ -1269,7 +1294,16 @@ fn build() -> Vec<CommandSpec> {
                 });
                 let adj = match eyedropped {
                     Some(adj) => adj,
-                    None => crate::adjust_params::from_params(&kind, p, None, doc_mode(s))?,
+                    None => {
+                        // A gray plane target keeps the neutral tone space even over params
+                        // carrying Lab or CMYK records (#5335).
+                        let tone = if is_mask_target(p) || crate::channel_cmds::is_channel_target(p) {
+                            if matches!(kind.as_str(), "levels" | "curves") { gray_tone_params(p) } else { p.clone() }
+                        } else {
+                            p.clone()
+                        };
+                        crate::adjust_params::from_params(&kind, &tone, None, adjust_mode(s, p))?
+                    }
                 };
                 let label = adj.label().to_string();
                 // A smart object records the adjustment as a smart filter (Photoshop), which

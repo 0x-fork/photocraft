@@ -90,18 +90,16 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         .exact_size(w)
         .frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin::symmetric(m, 8)))
         .show(ui, |ui| {
-            if t.pro {
-                // Photoshop's toolbar header chevrons switch between one and two columns.
-                let (cr, resp) = ui.allocate_exact_size(vec2(bx, 14.0), Sense::click());
-                // The chevrons point the way the toolbar grows or shrinks: towards the canvas.
-                let (shrink, grow) = if crate::direction::is_rtl() { ("chevrons-right", "chevrons-left") } else { ("chevrons-left", "chevrons-right") };
-                icons::paint(ui, cr, if double { shrink } else { grow }, 11.0, if resp.hovered() { t.text } else { t.text_faint });
-                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Toolbar")));
-                if resp.clicked() {
-                    app.ui.panels.toolbar_double = !app.ui.panels.toolbar_double;
-                }
-                ui.add_space(4.0);
+            // Toolbar width is a user preference, not a Pro-only feature.
+            // Keep the same hit target in every theme (including RTL layouts).
+            let (cr, resp) = ui.allocate_exact_size(vec2(bx, 14.0), Sense::click());
+            let (shrink, grow) = if crate::direction::is_rtl() { ("chevrons-right", "chevrons-left") } else { ("chevrons-left", "chevrons-right") };
+            icons::paint(ui, cr, if double { shrink } else { grow }, 11.0, if resp.hovered() { t.text } else { t.text_faint });
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Toolbar")));
+            if resp.clicked() {
+                app.ui.panels.toolbar_double = !double;
             }
+            ui.add_space(4.0);
             // Subtle violet wash at the bottom of the toolbar.
             let full = ui.max_rect();
             if !t.bevel && !t.pro && t.dark() {
@@ -1044,7 +1042,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         let block = crate::eraser_ui::block_mode(app, app.ui.tool);
                         ui.add_enabled_ui(!block, |ui| {
                             opt_label(ui, tl!("Size"));
-                            widgets::value_field(ui, &mut b.size, 1.0..=2500.0, "px", 76.0);
+                            widgets::value_field(ui, &mut b.size, 1.0..=photocraft_engine::paint::MAX_BRUSH_SIZE, "px", 76.0);
                         });
                         widgets::vline(ui, 22.0);
                         if app.ui.tool == Tool::Eraser {
@@ -1393,6 +1391,9 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     Tool::Move => {
                         // The Studio themes keep Photoshop's Auto-Select toggle too (#1275).
                         widgets::checkbox(ui, &mut app.ui.tool_options.move_auto_select, tl!("Auto-Select:"));
+                        // And Show Transform Controls (#5740): without it the box could not be
+                        // turned on outside the Pro themes.
+                        widgets::checkbox(ui, &mut app.ui.tool_options.move_show_transform, tl!("Show Transform Controls"));
                         hint(ui, tl!("Drag to move the active layer"));
                     }
                     Tool::Eyedropper => crate::eyedropper_ui::options(app, ui),
@@ -1563,8 +1564,8 @@ fn body_text_width(ui: &egui::Ui, s: &str) -> f32 {
 fn opt_label(ui: &mut egui::Ui, s: &str) {
     let t = Tokens::get(ui.ctx());
     let text = if t.pro && !s.ends_with(':') { format!("{s}:") } else { s.to_string() };
-    let label = ui.label(RichText::new(tl!(&text)).color(t.text_dim));
-    widgets::scrub_label(ui, &label);
+    let label = ui.add(egui::Label::new(RichText::new(tl!(&text)).color(t.text_dim)).selectable(false));
+    widgets::scrub_option_label(ui, &label);
 }
 
 fn percent_field(ui: &mut egui::Ui, label: &str, value: &mut f32, range: std::ops::RangeInclusive<f32>, width: f32) {
@@ -2311,7 +2312,8 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let fill = ui.available_height() > footer + 60.0;
     let rows_h = if fill { ui.available_height() - footer } else { f32::INFINITY };
     egui::ScrollArea::vertical()
-        .id_salt("layer-rows")
+        // Keep each document's position independent, even when tab indices change (#5522).
+        .id_salt(("layer-rows", doc.id.0))
         .max_height(rows_h)
         .min_scrolled_height(if fill { rows_h } else { 0.0 })
         .auto_shrink([false, !fill])
@@ -5437,35 +5439,45 @@ mod toolbar_tests {
     use super::*;
     use egui_kittest::kittest::Queryable;
 
-    /// #1197: the header chevron switches the toolbar between one and two columns.
+    /// #1197 / #3469: every theme can toggle the toolbar without changing its selection.
     #[test]
-    fn header_chevron_toggles_two_columns() {
-        let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
-        let mut h = egui_kittest::Harness::builder().with_size(vec2(800.0, 1400.0)).build_ui_state(
-            |ui, app: &mut PhotocraftApp| {
-                if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
-                    toolbar(app, ui);
-                    let left = ui.available_rect_before_wrap().left();
-                    ui.data_mut(|d| d.insert_temp(egui::Id::new("toolbar-test-left"), left));
-                }
-            },
-            app,
-        );
-        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Pro);
-        h.run_steps(2);
-        let left = |h: &egui_kittest::Harness<'_, PhotocraftApp>| h.ctx.data(|d| d.get_temp::<f32>(egui::Id::new("toolbar-test-left"))).unwrap_or(0.0);
-        let single = left(&h);
-        assert!(!h.state().ui.panels.toolbar_double);
+    fn header_chevron_toggles_two_columns_in_every_layout() {
+        for theme in [
+            crate::theme::ThemeKind::Pro,
+            crate::theme::ThemeKind::Studio,
+            crate::theme::ThemeKind::StudioLight,
+            crate::theme::ThemeKind::Classic,
+            crate::theme::ThemeKind::AdwaitaDark,
+            crate::theme::ThemeKind::SolarizedDark,
+            crate::theme::ThemeKind::BreezeDark,
+        ] {
+            let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+            let mut h = egui_kittest::Harness::builder().with_size(vec2(800.0, 1400.0)).build_ui_state(
+                |ui, app: &mut PhotocraftApp| {
+                    if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                        toolbar(app, ui);
+                        let left = ui.available_rect_before_wrap().left();
+                        ui.data_mut(|d| d.insert_temp(egui::Id::new("toolbar-test-left"), left));
+                    }
+                },
+                app,
+            );
+            PhotocraftApp::setup_context(&h.ctx, theme);
+            h.run_steps(2);
+            let left = |h: &egui_kittest::Harness<'_, PhotocraftApp>| h.ctx.data(|d| d.get_temp::<f32>(egui::Id::new("toolbar-test-left"))).unwrap_or(0.0);
+            let single = left(&h);
+            assert!(!h.state().ui.panels.toolbar_double, "{theme:?}");
 
-        h.get_by_label("Toolbar").click();
-        h.run_steps(2);
-        assert!(h.state().ui.panels.toolbar_double);
-        assert!(left(&h) > single + 20.0, "the toolbar did not widen: {single} -> {}", left(&h));
+            h.get_by_label("Toolbar").click();
+            h.run_steps(2);
+            assert!(h.state().ui.panels.toolbar_double, "{theme:?}");
+            assert!(left(&h) > single + 20.0, "{theme:?}: the toolbar did not widen: {single} -> {}", left(&h));
 
-        h.get_by_label("Toolbar").click();
-        h.run_steps(2);
-        assert!(!h.state().ui.panels.toolbar_double);
-        assert_eq!(left(&h), single);
+            h.get_by_label("Toolbar").click();
+            h.run_steps(2);
+            assert!(!h.state().ui.panels.toolbar_double, "{theme:?}");
+            assert_eq!(left(&h), single, "{theme:?}");
+        }
     }
 
     fn click(h: &mut egui_kittest::Harness<'_, PhotocraftApp>, p: egui::Pos2) {
