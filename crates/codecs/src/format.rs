@@ -335,7 +335,6 @@ pub fn detect(bytes: &[u8]) -> Option<Format> {
     if crate::codecs::iff::looks_like_iff(b) {
         return Some(Format::Iff);
     }
-    }
     if b.starts_with(b"SIMPLE  =") {
         return Some(Format::Fits);
     }
