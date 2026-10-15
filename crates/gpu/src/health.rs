@@ -105,12 +105,18 @@ impl DeviceHealth {
     /// this a watched device would keep being handed to a GPU that has already failed. Polls
     /// first: a lost device is a [`Fault::Lost`], and its callback may not have run yet (it fires
     /// on a poll, and `Device::poll` panics on a lost device).
+    ///
+    /// The poll is a single non-blocking check, never a fence wait. This runs on the UI thread
+    /// immediately after a failed frame, so `PollType::Wait` with no timeout would stall the app
+    /// until every in-flight submission drained (or forever, if the device is wedged). A
+    /// non-blocking poll loses nothing here: wgpu still reads the fence and fires the
+    /// device-lost callback for a lost device, it just never blocks waiting for one.
     pub fn caught(&self, device: &wgpu::Device, error: &wgpu::Error) {
         if !self.is_ok() {
             return;
         }
         #[cfg(not(target_arch = "wasm32"))]
-        self.wait(device, None);
+        self.poll(device);
         #[cfg(target_arch = "wasm32")]
         let _ = device;
         if !self.is_ok() {
