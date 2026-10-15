@@ -32,17 +32,18 @@ fn byte_of(text: &str, ci: usize) -> usize {
 
 /// Layout of a type layer (cached per document revision) and its text → document transform.
 pub fn layout(app: &mut PhotocraftApp, id: LayerId) -> Option<(Arc<TextLayout>, Affine, String)> {
+    let dragged = crate::type_transform::current_transform(app, id);
+    // Borrows the document in place (no clone): the canvas hover hit-tests type every frame.
     let st = app.session.active()?;
-    let (doc, rev) = (st.doc.clone(), st.revision);
-    let t = text_layer(&doc, id)?;
-    let transform = crate::type_transform::current_transform(app, id).unwrap_or(t.transform);
-    let key = (doc.id.0, rev, id.0);
+    let t = text_layer(&st.doc, id)?;
+    let transform = dragged.unwrap_or(t.transform);
+    let key = (st.doc.id.0, st.revision, id.0);
     if let Some((k, l)) = &app.type_layout
         && *k == key
     {
         return Some((l.clone(), transform, t.text.clone()));
     }
-    let l = Arc::new(photocraft_text::shared().lock().ok()?.layout(t, doc.resolution_dpi));
+    let l = Arc::new(photocraft_text::shared().lock().ok()?.layout(t, st.doc.resolution_dpi));
     app.type_layout = Some((key, l.clone()));
     Some((l, transform, t.text.clone()))
 }
@@ -53,23 +54,25 @@ fn to_text(aff: &Affine, x: f64, y: f64) -> (f32, f32) {
 }
 
 /// Topmost shown type layer (it and every group around it visible, #4320) whose laid-out text
-/// contains the document point.
+/// contains the document point. The press and the canvas hover (`hover_path_target`) share it, so
+/// the pointer never promises a path click that the press would turn into editing this layer.
 fn hit_layer(app: &mut PhotocraftApp, x: f64, y: f64) -> Option<LayerId> {
-    let doc = app.session.active()?.doc.clone();
     let slop = 6.0 / app.point_zoom().max(0.01);
     // A Type Mask session's text is a hidden layer; it is still the text being edited.
     let editing = app.ui.text_edit.as_ref().filter(|ed| ed.mask).map(|ed| LayerId(ed.layer));
-    let mut ids: Vec<LayerId> = doc
-        .walk()
-        .into_iter()
-        .filter(|(path, _, l)| matches!(l.content, LayerContent::Text(_)) && (editing == Some(l.id) || doc.shown_at(path)))
-        .map(|(_, _, l)| l.id)
-        .collect();
+    let mut ids: Vec<LayerId> = {
+        let doc = &app.session.active()?.doc;
+        doc.walk()
+            .into_iter()
+            .filter(|(path, _, l)| matches!(l.content, LayerContent::Text(_)) && (editing == Some(l.id) || doc.shown_at(path)))
+            .map(|(_, _, l)| l.id)
+            .collect()
+    };
     ids.reverse(); // walk() is bottom-up; hit the topmost first
     ids.into_iter().find(|id| {
         // The pixels shown count too: a PSD's type keeps Photoshop's rendering until edited,
         // which can sit off our layout when fonts are substituted (#123).
-        let shown = text_layer(&doc, *id).and_then(|t| t.cache.as_ref()).map(|c| c.content_bounds()).is_some_and(|r| {
+        let shown = app.session.active().and_then(|st| text_layer(&st.doc, *id)).and_then(|t| t.cache.as_ref()).map(|c| c.content_bounds()).is_some_and(|r| {
             let s = f64::from(slop);
             !r.is_empty() && x >= f64::from(r.x0) - s && x <= f64::from(r.x1) + s && y >= f64::from(r.y0) - s && y <= f64::from(r.y1) + s
         });
@@ -329,18 +332,38 @@ pub(crate) fn path_target(app: &PhotocraftApp, x: f64, y: f64) -> Option<PathCli
         Some((id, p)) => (Some(id), p),
         None => (None, app.session.active()?.doc.work_path.clone()?),
     };
+    // The canvas hover runs this every frame and `hit` samples every segment, so a path with more
+    // anchors than this is not a click target (the click and the pointer agree: plain point
+    // text). 4096 anchors is far beyond hand-drawn paths and shapes yet keeps a frame cheap.
+    const MAX_TARGET_KNOTS: usize = 4096;
+    if path.subpaths.iter().map(|s| s.knots.len()).fold(0usize, usize::saturating_add) > MAX_TARGET_KNOTS {
+        return None;
+    }
     let tol = 4.0 / app.point_zoom().max(0.01) as f64;
     let on_path = |sp: usize, k: usize, t: f64| {
-        let sub = path.subpaths.get(sp)?;
+        // Type on a path needs a segment to run along (`type.attachToPath` rejects one anchor).
+        let sub = path.subpaths.get(sp).filter(|s| s.knots.len() >= 2)?;
         Some(PathClick::OnPath { shape, subpath: sp, start: arc_length_to(sub, k, t) })
     };
-    match hit(&path, Point::new(x, y), tol, &[]) {
-        Some(Hit::Segment([sp, k], t)) => return on_path(sp, k, t),
-        Some(Hit::Anchor([sp, k])) => return on_path(sp, k, 0.0),
-        _ => {}
+    let outline = match hit(&path, Point::new(x, y), tol, &[]) {
+        Some(Hit::Segment([sp, k], t)) => on_path(sp, k, t),
+        Some(Hit::Anchor([sp, k])) => on_path(sp, k, 0.0),
+        _ => None,
+    };
+    if outline.is_some() {
+        return outline;
     }
     let area = photocraft_text::area::AreaShape::new(&path, false)?;
     area.contains(x as f32, y as f32).then_some(PathClick::Area { shape })
+}
+
+/// What the Type tool's pointer over document `(x, y)` shows (#218): the path click a press there
+/// would make, unless the press edits the type layer under it instead (`pointer_down`: an
+/// unshifted press on shown type), where Photoshop keeps the plain I-beam. The type hit is only
+/// tested over a path, so a hover elsewhere lays out nothing.
+pub(crate) fn hover_path_target(app: &mut PhotocraftApp, x: f64, y: f64, shift: bool) -> Option<PathClick> {
+    let target = path_target(app, x, y)?;
+    (shift || hit_layer(app, x, y).is_none()).then_some(target)
 }
 
 /// Pointer up. `rect` is the dragged box (document px) when no edit session consumed the press.

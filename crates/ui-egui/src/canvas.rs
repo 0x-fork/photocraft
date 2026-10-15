@@ -3898,10 +3898,12 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 draw_clone_preview(app, &painter, &xf, xf.to_doc(p), output);
             }
             // The Type tool over a path shows Photoshop's area-type or type-on-a-path pointer (#218).
-            // Not while a type edit is open: a click then commits rather than starting new type.
+            // Not while a type edit is open (a click then commits rather than starting new type),
+            // nor over type a click would edit.
             let type_path = if matches!(tool, Tool::Type | Tool::VerticalType) && app.ui.text_edit.is_none() {
                 let [x, y] = xf.to_doc(p);
-                crate::type_tool::path_target(app, x, y)
+                let shift = crate::workspace_ui::sticky_mods(app, ui.input(|i| i.modifiers)).shift;
+                crate::type_tool::hover_path_target(app, x, y, shift)
             } else {
                 None
             };

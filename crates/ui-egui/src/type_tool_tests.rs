@@ -2102,8 +2102,10 @@ fn clicking_on_a_path_outline_starts_type_on_the_path_where_clicked() {
     let Some(PathClick::OnPath { start: right, .. }) = path_target(&app, 600.0, 350.0) else { panic!("on the outline") };
     let d = (right - start).rem_euclid(1105.0);
     assert!((d - 276.0).abs() < 15.0 || (d - 829.0).abs() < 15.0, "{start} → {right}");
+    let before = app.session.active().unwrap().history.entries().len();
     click_at(&mut app, 400.0, 500.0);
     let id = LayerId(app.ui.text_edit.as_ref().unwrap().layer);
+    assert_eq!(app.session.active().unwrap().history.entries().len(), before + 1, "create + attach is one step");
     assert!(
         matches!(text_layer(&app.session.active().unwrap().doc, id).unwrap().shape, TextShape::Path { start: s, .. } if (f64::from(s) - start).abs() < 0.01)
     );
@@ -2137,4 +2139,56 @@ fn type_mask_tools_ignore_paths() {
     click_at(&mut app, 400.0, 350.0);
     let id = LayerId(app.ui.text_edit.as_ref().unwrap().layer);
     assert_eq!(text_layer(&app.session.active().unwrap().doc, id).unwrap().shape, photocraft_doc::text::TextShape::Point);
+}
+
+#[test]
+fn a_one_anchor_work_path_is_not_a_path_target() {
+    // `type.attachToPath` needs a segment, so the pointer must not promise type on this path.
+    let mut app = new_app();
+    std::sync::Arc::make_mut(&mut app.session.active_mut().unwrap().doc).work_path =
+        Some(photocraft_doc::Path::new(vec![photocraft_doc::Subpath::polyline(&[(500.0, 400.0)])]));
+    assert!(path_target(&app, 500.0, 400.0).is_none());
+    click_at(&mut app, 500.0, 400.0);
+    let id = LayerId(app.ui.text_edit.as_ref().unwrap().layer);
+    assert_eq!(text_layer(&app.session.active().unwrap().doc, id).unwrap().shape, photocraft_doc::text::TextShape::Point);
+}
+
+#[test]
+fn over_existing_type_on_a_shape_the_pointer_is_the_plain_i_beam_and_a_click_edits_it() {
+    let mut app = new_app();
+    let text = app.run("type.create", json!({"text": "Hello", "x": 330, "y": 370, "size": 36})).unwrap()["layer"].as_u64().unwrap();
+    let shape = ellipse_layer(&mut app); // the shape layer is active, so its path is the target
+    let layers = app.session.active().unwrap().doc.walk().len();
+    let mut h = harness(1.0, app);
+    let on_text = glyph(&mut h, LayerId(text), 1, 0.5);
+    let [dx, dy] = xf(h.state()).to_doc(on_text);
+    assert!(matches!(path_target(h.state(), dx, dy), Some(PathClick::Area { shape: Some(s) }) if s == shape), "the text sits inside the shape");
+    h.hover_at(on_text);
+    h.run_steps(2);
+    assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::Text, "a click here edits the type, so the plain I-beam");
+    // Inside the shape but away from the type: the area-type pointer (drawn, not the OS I-beam).
+    let inside = xf(h.state()).to_screen(400.0, 250.0);
+    h.hover_at(inside);
+    h.run_steps(2);
+    assert_ne!(h.output().platform_output.cursor_icon, egui::CursorIcon::Text, "area-type pointer inside the shape");
+    click(&mut h, on_text);
+    let app = h.state();
+    assert_eq!(app.ui.text_edit.as_ref().expect("editing").layer, text, "the click edits the existing layer");
+    assert_eq!(app.session.active().unwrap().doc.walk().len(), layers, "no new layer");
+    assert_eq!(text_layer(&app.session.active().unwrap().doc, LayerId(text)).unwrap().shape, photocraft_doc::text::TextShape::Point);
+}
+
+#[test]
+fn paths_with_too_many_anchors_are_not_hover_targets() {
+    // The hover hit-tests every segment each frame, so huge paths are skipped (click and pointer alike).
+    let ring = |n: usize| -> Vec<(f64, f64)> {
+        (0..n).map(|i| i as f64 / n as f64 * std::f64::consts::TAU).map(|a| (500.0 + 200.0 * a.cos(), 400.0 + 200.0 * a.sin())).collect()
+    };
+    let mut app = new_app();
+    std::sync::Arc::make_mut(&mut app.session.active_mut().unwrap().doc).work_path =
+        Some(photocraft_doc::Path::new(vec![photocraft_doc::Subpath::polygon(&ring(4000))]));
+    assert!(matches!(path_target(&app, 500.0, 400.0), Some(PathClick::Area { shape: None })));
+    std::sync::Arc::make_mut(&mut app.session.active_mut().unwrap().doc).work_path =
+        Some(photocraft_doc::Path::new(vec![photocraft_doc::Subpath::polygon(&ring(5000))]));
+    assert!(path_target(&app, 500.0, 400.0).is_none());
 }
