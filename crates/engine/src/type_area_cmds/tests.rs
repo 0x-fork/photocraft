@@ -129,6 +129,25 @@ fn release_turns_area_type_into_box_text_over_the_path() {
 }
 
 #[test]
+fn release_with_a_path_that_is_not_finite_is_an_error() {
+    let mut s = session(8);
+    let id = text_layer(&mut s, WORDS);
+    // A file can carry any coordinates: one NaN or infinite point must not become a NaN text box.
+    for bad in [f64::NAN, f64::INFINITY] {
+        let path = Path::new(vec![Subpath::polygon(&[(0.0, 0.0), (100.0, bad), (100.0, 100.0)])]);
+        s.edit("area", |doc, _| {
+            if let Some(LayerContent::Text(t)) = doc.layer_mut(id).map(|l| &mut l.content) {
+                t.shape = TextShape::Area { path };
+            }
+            Ok(())
+        })
+        .unwrap();
+        assert!(s.execute("type.detachFromPath", json!({})).is_err(), "{bad}");
+        assert!(matches!(text(&s, id).shape, TextShape::Area { .. }), "unchanged");
+    }
+}
+
+#[test]
 fn area_type_saves_to_psd_as_paragraph_text_with_a_warning() {
     let mut s = session(8);
     let id = text_layer(&mut s, WORDS);

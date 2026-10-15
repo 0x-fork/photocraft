@@ -93,7 +93,7 @@ pub(crate) fn frame(app: &mut PhotocraftApp) -> Option<TransformSession> {
         return None;
     }
     let area = match &shape {
-        TextShape::Area { path } => path.control_bounds(),
+        TextShape::Area { path } => photocraft_text::area::path_bounds(path),
         _ => None,
     };
     let rect = match (shape, area) {

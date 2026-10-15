@@ -1194,7 +1194,7 @@ pub fn build_engine_data(layer: &TextLayer, template: Option<E>, dpi: f32) -> E 
         TextShape::Box { x, y, width, height } => (1, Some([*x, *y, x + width, y + height])),
         // PSD area type is not written yet: the layer saves as paragraph text over the path's
         // bounds, so Photoshop opens it with the same text wrapping in a rectangle.
-        TextShape::Area { path } => match path.control_bounds() {
+        TextShape::Area { path } => match crate::area::path_bounds(path) {
             Some((x0, y0, x1, y1)) => (1, Some([x0 as f32, y0 as f32, x1 as f32, y1 as f32])),
             None => (0, None),
         },
@@ -1310,7 +1310,7 @@ pub fn build_tysh(layer: &TextLayer, dpi: f32, ink: Option<[f32; 4]>) -> Vec<u8>
         ),
     );
     let area = match &layer.shape {
-        TextShape::Area { path } => path.control_bounds().map(|(x0, y0, x1, y1)| [x0 as f32, y0 as f32, x1 as f32, y1 as f32]),
+        TextShape::Area { path } => crate::area::path_bounds(path).map(|(x0, y0, x1, y1)| [x0 as f32, y0 as f32, x1 as f32, y1 as f32]),
         _ => None,
     };
     let [l, t, r, b] = match (&layer.shape, area, ink) {
@@ -1371,6 +1371,27 @@ mod nonfinite_tests {
         assert_eq!(para_style(None, &d, 1.0).start_indent_pt, 0.0);
         let d = parse(b"<< /FontSize 24.0 >>").unwrap();
         assert_eq!(char_style(None, &d, &[], 1.0).size_pt, 24.0);
+    }
+
+    #[test]
+    fn area_path_that_is_not_finite_saves_as_point_text() {
+        let path = photocraft_doc::vector::Path::new(vec![photocraft_doc::vector::Subpath::polygon(&[(0.0, 0.0), (f64::NAN, 0.0), (10.0, f64::INFINITY)])]);
+        let layer = TextLayer {
+            text: "x".into(),
+            runs: vec![TextRun { len: 1, style: CharStyle { size_pt: 12.0, ..Default::default() } }],
+            shape: TextShape::Area { path },
+            ..Default::default()
+        };
+        let out = String::from_utf8_lossy(&crate::engine_data::write(&build_engine_data(&layer, None, 72.0))).into_owned();
+        assert!(out.contains("/PointBase") && !out.contains("/BoxBounds"), "{out}");
+        assert!(!out.to_ascii_lowercase().contains("nan") && !out.to_ascii_lowercase().contains("inf"), "{out}");
+        let t = parse_tysh(&build_tysh(&layer, 72.0, None)).unwrap();
+        for key in ["bounds", "boundingBox"] {
+            let Some(D::Descriptor(d)) = t.text.get(key) else { panic!("no {key}") };
+            for side in ["Left", "Top ", "Rght", "Btom"] {
+                assert!(matches!(d.get(side), Some(D::UnitFloat { value, .. }) if value.is_finite()), "{key} {side}: {:?}", d.get(side));
+            }
+        }
     }
 
     #[test]

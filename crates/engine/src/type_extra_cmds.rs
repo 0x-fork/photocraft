@@ -410,7 +410,8 @@ fn detach_from_path(s: &mut Session, p: &Value) -> Result<Value> {
             }
             // Area type keeps wrapping, in a text box over the path's bounds.
             TextShape::Area { path } => {
-                let (x0, y0, x1, y1) = path.control_bounds().ok_or_else(|| EngineError::Other("the area type's path is empty".into()))?;
+                let (x0, y0, x1, y1) = photocraft_text::area::path_bounds(path)
+                    .ok_or_else(|| EngineError::Other("the area type's path is empty or has coordinates that aren't finite".into()))?;
                 t.shape = TextShape::Box { x: x0 as f32, y: y0 as f32, width: ((x1 - x0) as f32).max(1.0), height: ((y1 - y0) as f32).max(1.0) };
             }
             _ => return Err(EngineError::Other("the type layer is not on a path".into())),

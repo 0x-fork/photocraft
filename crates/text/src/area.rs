@@ -291,6 +291,18 @@ impl AreaShape {
     }
 }
 
+/// Bounds `(x0, y0, x1, y1)` of an area type path's anchors and control points, when every point
+/// is finite and within the area coordinate limit (`1e7`), the same paths [`AreaShape::new`]
+/// accepts. `None` for an empty path or one with a NaN, infinite or huge coordinate, so callers
+/// that turn the bounds into a text box or a PSD rectangle never write NaN.
+pub fn path_bounds(path: &Path) -> Option<(f64, f64, f64, f64)> {
+    let ok = |p: Point| p.x.is_finite() && p.y.is_finite() && p.x.abs() <= MAX_COORD && p.y.abs() <= MAX_COORD;
+    if !path.subpaths.iter().flat_map(|s| &s.knots).all(|k| ok(k.anchor) && ok(k.in_ctrl) && ok(k.out_ctrl)) {
+        return None;
+    }
+    path.control_bounds()
+}
+
 /// Boolean combination of two sorted, disjoint interval lists, in one linear merge.
 fn boolean(a: &[(f32, f32)], b: &[(f32, f32)], f: impl Fn(bool, bool) -> bool) -> Vec<(f32, f32)> {
     let ends = |v: &[(f32, f32)]| -> Vec<f32> { v.iter().flat_map(|&(l, r)| [l, r]).collect() };
@@ -487,6 +499,17 @@ mod tests {
         assert!(AreaShape::new(&Path::new(at_cap), false).is_some());
         let over: Vec<Subpath> = (0..=MAX_AREA_COMPONENTS).map(square).collect();
         assert!(AreaShape::new(&Path::new(over), false).is_none());
+    }
+
+    #[test]
+    fn path_bounds_need_finite_small_points() {
+        assert_eq!(path_bounds(&poly(&[(1.0, 2.0), (30.0, 2.0), (30.0, 40.0)])), Some((1.0, 2.0, 30.0, 40.0)));
+        assert_eq!(path_bounds(&Path::default()), None);
+        for bad in [f64::NAN, f64::INFINITY, -f64::INFINITY, 2e7] {
+            // Anywhere in the path, not just the first point (`f64::min` skips a NaN).
+            assert_eq!(path_bounds(&poly(&[(0.0, 0.0), (10.0, bad), (10.0, 10.0)])), None, "{bad}");
+            assert_eq!(path_bounds(&poly(&[(bad, 0.0), (10.0, 0.0), (10.0, 10.0)])), None, "{bad}");
+        }
     }
 
     #[test]
