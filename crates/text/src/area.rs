@@ -188,25 +188,23 @@ impl AreaShape {
         acc
     }
 
-    /// The x-ranges swept by edges while inside `[y0, y1]`, sorted and merged.
-    fn swept(&self, y0: f32, y1: f32) -> Vec<(f32, f32)> {
+    /// The x-ranges swept by the edges of `c` while inside `[y0, y1]`, sorted and merged.
+    fn swept(&self, c: &Component, y0: f32, y1: f32) -> Vec<(f32, f32)> {
         let mut v: Vec<(f32, f32)> = Vec::new();
-        for c in &self.comps {
-            for e in self.candidates(c, y0, y1) {
-                if e.hi < y0 || e.lo > y1 {
-                    continue;
-                }
-                if e.lo == e.hi {
-                    // A horizontal edge only matters strictly inside the band.
-                    if e.lo > y0 && e.lo < y1 {
-                        v.push((e.x0.min(e.x1), e.x0.max(e.x1)));
-                    }
-                    continue;
-                }
-                let at = |y: f32| e.x0 + (y - e.y0) / (e.y1 - e.y0) * (e.x1 - e.x0);
-                let (xa, xb) = (at(e.lo.max(y0)), at(e.hi.min(y1)));
-                v.push((xa.min(xb), xa.max(xb)));
+        for e in self.candidates(c, y0, y1) {
+            if e.hi < y0 || e.lo > y1 {
+                continue;
             }
+            if e.lo == e.hi {
+                // A horizontal edge only matters strictly inside the band.
+                if e.lo > y0 && e.lo < y1 {
+                    v.push((e.x0.min(e.x1), e.x0.max(e.x1)));
+                }
+                continue;
+            }
+            let at = |y: f32| e.x0 + (y - e.y0) / (e.y1 - e.y0) * (e.x1 - e.x0);
+            let (xa, xb) = (at(e.lo.max(y0)), at(e.hi.min(y1)));
+            v.push((xa.min(xb), xa.max(xb)));
         }
         v.sort_by(|a, b| a.0.total_cmp(&b.0));
         let mut out: Vec<(f32, f32)> = Vec::new();
@@ -220,18 +218,38 @@ impl AreaShape {
     }
 
     /// Intervals inside the shape on every row of `[y0, y1]`, left to right, each at least
-    /// `min_width` wide. A point is inside for the whole band exactly when it is inside on one
-    /// row and no edge crosses its vertical segment, so: the inside intervals at the middle row,
-    /// minus everything the edges sweep across within the band. Edges that lie inside the filled
-    /// area (inner edges of overlapping Combine/Join components, or Subtract edges outside the
-    /// shape) also block width. That is conservative and never puts text over a cutout.
+    /// `min_width` wide.
+    ///
+    /// Within one component a point is inside for the whole band exactly when it is inside on
+    /// the middle row and none of that component's edges crosses its vertical segment
+    /// (`whole`); it is inside on some row when either holds (`ever`). The components then fold
+    /// together with their ops, so an edge hidden inside another component's fill (the inner
+    /// edges of a speech bubble's tail) never cuts the row, and text never sits over a cutout:
+    /// Subtract takes away everything the cut ever covers.
     pub fn spans(&self, y0: f32, y1: f32, min_width: f32) -> Vec<(f32, f32)> {
         if !(y0.is_finite() && y1.is_finite()) || y1 < y0 {
             return Vec::new();
         }
-        let base = self.intervals_at(y0 + (y1 - y0) * 0.5);
-        let blocked = self.swept(y0, y1);
-        boolean(&base, &blocked, |a, b| a && !b).into_iter().filter(|(l, r)| r - l >= min_width).collect()
+        let mid = y0 + (y1 - y0) * 0.5;
+        let mut whole: Vec<(f32, f32)> = Vec::new();
+        let mut ever: Vec<(f32, f32)> = Vec::new();
+        for c in &self.comps {
+            let inside = self.component_intervals(c, mid);
+            let edges = self.swept(c, y0, y1);
+            let w = boolean(&inside, &edges, |a, b| a && !b);
+            let e = boolean(&inside, &edges, |a, b| a || b);
+            (whole, ever) = match c.op {
+                PathOp::Combine | PathOp::Join => (boolean(&whole, &w, |a, b| a || b), boolean(&ever, &e, |a, b| a || b)),
+                PathOp::Subtract => (boolean(&whole, &e, |a, b| a && !b), boolean(&ever, &w, |a, b| a && !b)),
+                PathOp::Intersect => (boolean(&whole, &w, |a, b| a && b), boolean(&ever, &e, |a, b| a && b)),
+                PathOp::Exclude => {
+                    let both = boolean(&whole, &w, |a, b| a && b);
+                    let x = boolean(&boolean(&whole, &e, |a, b| a && !b), &boolean(&w, &ever, |a, b| a && !b), |a, b| a || b);
+                    (x, boolean(&boolean(&ever, &e, |a, b| a || b), &both, |a, b| a && !b))
+                }
+            };
+        }
+        whole.into_iter().filter(|(l, r)| r - l >= min_width).collect()
     }
 
     /// The first baseline at or below `from` whose band `[b - ascent, b + descent]` has spans
@@ -392,6 +410,50 @@ mod tests {
         let s = a.spans(49.0, 51.0, 1.0);
         assert!(s.len() == 1 && s[0].0 < 1.0 && s[0].1 > 99.0, "{s:?}");
         assert!(a.contains(50.0, 50.0) && !a.contains(3.0, 3.0));
+    }
+
+    /// A 260×160 ellipse at the origin from four kappa curves.
+    fn ellipse() -> Subpath {
+        let (cx, cy, rx, ry) = (130.0, 80.0, 130.0, 80.0);
+        let (kx, ky) = (0.552_284_75 * rx, 0.552_284_75 * ry);
+        let p = photocraft_geom::Point::new;
+        let c = |x: f64, y: f64, ix: f64, iy: f64, ox: f64, oy: f64| Knot::smooth(p(x, y), p(ix, iy), p(ox, oy));
+        Subpath {
+            closed: true,
+            knots: vec![
+                c(cx, cy - ry, cx - kx, cy - ry, cx + kx, cy - ry),
+                c(cx + rx, cy, cx + rx, cy - ky, cx + rx, cy + ky),
+                c(cx, cy + ry, cx + kx, cy + ry, cx - kx, cy + ry),
+                c(cx - rx, cy, cx - rx, cy + ky, cx - rx, cy - ky),
+            ],
+            op: PathOp::Combine,
+        }
+    }
+
+    /// The speech bubble: the ellipse combined with a tail whose wide end sits inside it.
+    fn bubble() -> AreaShape {
+        let tail = Subpath::polygon(&[(120.0, 64.0), (180.0, 64.0), (230.0, 210.0)]).with_op(PathOp::Combine);
+        AreaShape::new(&Path::new(vec![ellipse(), tail]), false).unwrap()
+    }
+
+    #[test]
+    fn combined_overlap_hides_inner_edges() {
+        let a = bubble();
+        // Rows through the overlap: the tail's edges inside the ellipse must not cut the row.
+        for y0 in [56.0f32, 70.0, 90.0, 110.0, 120.0] {
+            let s = a.spans(y0, y0 + 18.0, 1.0);
+            assert_eq!(s.len(), 1, "band {y0}: {s:?}");
+            // The ellipse's own edge bounds the row on both sides.
+            let dy = (y0 - 80.0).abs().max((y0 + 18.0 - 80.0).abs());
+            let half = 130.0 * (1.0 - (dy / 80.0).powi(2)).sqrt();
+            assert!((s[0].0 - (130.0 - half)).abs() < 0.5 && (s[0].1 - (130.0 + half)).abs() < 0.5, "band {y0}: {s:?}");
+        }
+        // Lower down the tail pokes out on the right: still one span, out to the tail's edge.
+        let s = a.spans(130.0, 148.0, 1.0);
+        assert!(s.len() == 1 && s[0].1 > 202.0, "{s:?}");
+        // Below the ellipse only the tail is left.
+        let s = a.spans(165.0, 183.0, 1.0);
+        assert!(s.len() == 1 && s[0].0 > 190.0 && s[0].1 < 220.0, "{s:?}");
     }
 
     #[test]
