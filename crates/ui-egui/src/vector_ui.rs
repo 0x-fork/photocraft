@@ -104,6 +104,19 @@ fn shape_geometry(o: &ToolOptions, tool: Tool, start: [f64; 2], end: [f64; 2], m
     })
 }
 
+/// The box `[x0, y0, x1, y1]` a Shape-tool drag draws (a line's: its ends'), which snaps while
+/// Space repositions it (`snap_ui`). None when too small to draw.
+pub fn shape_bounds(o: &ToolOptions, tool: Tool, start: [f64; 2], end: [f64; 2], mods: egui::Modifiers) -> Option<[f64; 4]> {
+    let g = shape_geometry(o, tool, start, end, mods)?;
+    if tool == Tool::Line {
+        let a: [f64; 2] = serde_json::from_value(g["from"].clone()).ok()?;
+        let b: [f64; 2] = serde_json::from_value(g["to"].clone()).ok()?;
+        return Some([a[0].min(b[0]), a[1].min(b[1]), a[0].max(b[0]), a[1].max(b[1])]);
+    }
+    let [x, y, w, h]: [f64; 4] = serde_json::from_value(g["rect"].clone()).ok()?;
+    Some([x, y, x + w, y + h])
+}
+
 /// Finish a Shape-tool drag: ⇧ constrains proportions, ⌥ draws from the centre.
 pub fn finish_shape(app: &mut PhotocraftApp, tool: Tool, start: [f64; 2], end: [f64; 2], mods: egui::Modifiers) {
     let Some(mut p) = shape_geometry(&app.ui.tool_options, tool, start, end, mods) else { return };
@@ -723,6 +736,19 @@ pub(crate) fn active_shape_path(app: &PhotocraftApp) -> Option<(u64, Path)> {
         LayerContent::Shape(sh) => Some((l.id.0, sh.path.clone())),
         _ => None,
     }
+}
+
+/// Does ⌫ / Delete delete the work path? With the Pen, Freeform Pen or Path Selection tool, no
+/// path being drawn and the work path the one these tools show and edit (no shape layer or
+/// targeted vector mask in front of it), as in Photoshop (#5702). It was drawn whenever one of
+/// these tools was active, but the key reached Edit › Clear, so it looked impossible to delete.
+/// Direct Selection and the Curvature Pen delete selected anchors in Photoshop, not the path.
+pub(crate) fn delete_key_deletes_work_path(app: &PhotocraftApp) -> bool {
+    matches!(app.ui.tool, Tool::Pen | Tool::FreeformPen | Tool::PathSelection)
+        && app.ui.pen.is_none()
+        && app.ui.transform.is_none()
+        && app.ui.view.shows(app.ui.view.show.target_path)
+        && matches!(target_path(app), Some((PathTarget::Work, _)))
 }
 
 /// The path Path Selection edits: the targeted vector mask, the active shape layer's path, else
