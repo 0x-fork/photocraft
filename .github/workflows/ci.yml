@@ -39,6 +39,7 @@ jobs:
   # platform: the app shell, UI, text and fonts, GPU, pen input, build scripts or the lockfile.
   # macOS is tested only by release.yml.
   platforms:
+    timeout-minutes: 10
     name: select platforms
     runs-on: ubuntu-latest
     outputs:
@@ -77,6 +78,7 @@ jobs:
           fi
 
   test:
+    timeout-minutes: 100
     name: test (${{ matrix.os }})
     needs: platforms
     runs-on: ${{ matrix.os }}
@@ -158,6 +160,7 @@ jobs:
         run: cargo xtask scorecard --check
 
   corpus:
+    timeout-minutes: 30
     # Real-file corpus tests (cargo feature `corpus`), on every PR and on main. The corpora are
     # pinned in xtask/src/corpus_pins.rs and sha256-verified (xtask/*.sha256) after both a cache
     # restore and a download; a missing corpus fails the tests. The cache key changes only when a
@@ -190,6 +193,7 @@ jobs:
         run: cargo xtask test-corpus
 
   wasm:
+    timeout-minutes: 30
     name: wasm32 check
     runs-on: ubuntu-latest
     steps:
@@ -206,6 +210,7 @@ jobs:
         run: cargo xtask wasm
 
   web:
+    timeout-minutes: 60
     name: web build and wasm size gate
     # PRs run it only when web-relevant files change (see `platforms`); main always does.
     needs: platforms
@@ -253,6 +258,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   fuzz:
+    timeout-minutes: 60
     name: fuzz (${{ matrix.target.crate }}/${{ matrix.target.name }})
     # Placeholder: manual trigger only until a nightly schedule is enabled.
     if: github.event_name == 'workflow_dispatch' && inputs.fuzz
