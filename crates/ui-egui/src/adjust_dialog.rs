@@ -196,11 +196,7 @@ fn isolated(app: &PhotocraftApp) -> Option<photocraft_engine::channel_cmds::Isol
 /// and the fields carry no Lab or CMYK records (#5335).
 fn curve_mode(app: &PhotocraftApp, kind: &str) -> photocraft_doc::ColorMode {
     let mode = app.session.active().map_or(photocraft_doc::ColorMode::Rgb, |s| s.doc.mode);
-    if kind == "curves" && isolated(app).is_some_and(|c| c.gray.is_some()) {
-        photocraft_doc::ColorMode::Grayscale
-    } else {
-        mode
-    }
+    if kind == "curves" && isolated(app).is_some_and(|c| c.gray.is_some()) { photocraft_doc::ColorMode::Grayscale } else { mode }
 }
 
 /// Dialog body: the kind's editor over the fields, then the Preview checkbox.
@@ -874,8 +870,6 @@ mod tests {
 
     /// The Channel popup's selected value (its option labels are what it shows).
     fn popup_channels(h: &mut Harness<'static, PhotocraftApp>) -> Vec<String> {
-        h.query_all_by_role(egui::accesskit::Role::ComboBox)
-            .filter_map(|n| n.value().map(|s| s.to_string()))
-            .collect()
+        h.query_all_by_role(egui::accesskit::Role::ComboBox).filter_map(|n| n.value().map(|s| s.to_string())).collect()
     }
 }

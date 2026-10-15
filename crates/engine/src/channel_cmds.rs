@@ -242,14 +242,9 @@ pub fn isolated_curve_channel_for(st: &DocState, layers_panel_mask: bool) -> Opt
             translate: false,
             gray: Some(GraySurface::Alpha(i)),
         }),
-        ChannelTarget::Composite if doc.quick_mask.is_some() => Some(IsolatedCurveChannel {
-            name: "Quick Mask".into(),
-            key: "",
-            hist: 0,
-            tint: false,
-            translate: true,
-            gray: Some(GraySurface::QuickMask),
-        }),
+        ChannelTarget::Composite if doc.quick_mask.is_some() => {
+            Some(IsolatedCurveChannel { name: "Quick Mask".into(), key: "", hist: 0, tint: false, translate: true, gray: Some(GraySurface::QuickMask) })
+        }
         ChannelTarget::LayerMask => layer_mask_curve_channel(st),
         ChannelTarget::Composite if crate::mask_view_cmds::current(st).is_some() || layers_panel_mask => layer_mask_curve_channel(st),
         _ => None,
