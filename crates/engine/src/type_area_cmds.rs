@@ -56,9 +56,7 @@ fn area_source(doc: &Document, p: &Value) -> Result<Path> {
 fn fill_path(s: &mut Session, p: &Value) -> Result<Value> {
     let id = layer_param(s, p)?;
     let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
-    if doc.effective_locks(id).all {
-        return Err(EngineError::Other("the type layer is locked".into()));
-    }
+    // `with_text` refuses a locked layer.
     let source = area_source(doc, p)?;
     let n = source.subpaths.len();
     with_text(s, p, "Area Type", |t, _| {
