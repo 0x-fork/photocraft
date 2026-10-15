@@ -106,7 +106,7 @@ Triangle and Curvature Pen (minus legacy Rounded Rectangle and Targeted Adjustme
 | Behaviour | Status | Evidence |
 |---|---|---|
 | ⇧ square/circle, ⌥ from centre, live W × H readout (marquee) | done | `marquee_tests.rs` |
-| ⇧ add, ⌥ subtract, ⇧⌥ intersect from modifiers at press | partial | works; tested for the marquee (add, subtract), Lasso (all three) and Polygonal Lasso; no marquee ⇧⌥ intersect test (BUG-208-4) |
+| ⇧ add, ⌥ subtract, ⇧⌥ intersect from modifiers at press | done | tested for the marquee (add, subtract, ⇧⌥ intersect: `marquee_tests.rs`), Lasso (all three: `lasso_ui/tests.rs`) and Polygonal Lasso (`polygon_lasso_tests.rs`) (BUG-208-4) |
 | Space repositions the marquee while dragging | done | `hold_keys.rs` |
 | Polygonal Lasso ⇧ snaps to 45° | missing | #2352 |
 | Autoscroll at the window edge while selecting | missing | #2231 |
