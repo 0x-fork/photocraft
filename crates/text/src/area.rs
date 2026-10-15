@@ -14,8 +14,8 @@ use photocraft_geom::Point;
 const CURVE_PIECES: usize = 16;
 /// Largest number of edges an area keeps, so a hostile path can't make every line scan millions.
 pub const MAX_AREA_EDGES: usize = 65_536;
-/// Most rows sampled inside one band; past that, evenly spread vertex rows stand in.
-const MAX_BAND_SAMPLES: usize = 256;
+/// Largest coordinate magnitude an area accepts, so f32 math on it can't overflow.
+const MAX_COORD: f64 = 1e7;
 /// Most baselines `next_row` tries before giving up.
 const MAX_ROW_STEPS: usize = 1024;
 
@@ -25,12 +25,18 @@ struct Edge {
     y0: f32,
     x1: f32,
     y1: f32,
+    /// Lower and upper y of the edge.
+    lo: f32,
+    hi: f32,
 }
 
 #[derive(Clone, Debug)]
 struct Component {
     op: PathOp,
+    /// Range into `AreaShape::edges`, sorted by `lo`.
     edges: Range<usize>,
+    /// Tallest edge in the range, so a query only looks at edges whose `lo` is within it.
+    max_h: f32,
 }
 
 /// A closed path ready for line fitting, in area space (text space, or `(y, -x)` for vertical
@@ -54,10 +60,10 @@ fn same(a: Point, b: Point) -> bool {
     (a.x - b.x).abs() < 1e-9 && (a.y - b.y).abs() < 1e-9
 }
 
-/// f64 → f32, rejecting values that are not finite as f32.
+/// f64 → f32, rejecting values that are not finite or are beyond [`MAX_COORD`].
 fn small(v: f64) -> Option<f32> {
     let f = v as f32;
-    f.is_finite().then_some(f)
+    (v.abs() <= MAX_COORD && f.is_finite()).then_some(f)
 }
 
 impl AreaShape {
@@ -101,14 +107,18 @@ impl AreaShape {
                 }
                 for w in pts.windows(2) {
                     if let [(x0, y0), (x1, y1)] = *w {
-                        edges.push(Edge { x0, y0, x1, y1 });
+                        edges.push(Edge { x0, y0, x1, y1, lo: y0.min(y1), hi: y0.max(y1) });
                     }
                 }
                 if edges.len() > MAX_AREA_EDGES {
                     return None;
                 }
             }
-            comps.push(Component { op, edges: start..edges.len() });
+            if let Some(mine) = edges.get_mut(start..) {
+                mine.sort_by(|a, b| a.lo.total_cmp(&b.lo));
+            }
+            let max_h = edges.get(start..).unwrap_or(&[]).iter().map(|e| e.hi - e.lo).fold(0.0f32, f32::max);
+            comps.push(Component { op, edges: start..edges.len(), max_h });
         }
         let mut b = [f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY];
         for e in &edges {
@@ -127,12 +137,20 @@ impl AreaShape {
         }
     }
 
+    /// Edges of `c` that may overlap `[ya, yb]` (a superset), found by binary search.
+    fn candidates(&self, c: &Component, ya: f32, yb: f32) -> &[Edge] {
+        let all = self.edges.get(c.edges.clone()).unwrap_or(&[]);
+        let from = all.partition_point(|e| e.lo < ya - c.max_h);
+        let to = all.partition_point(|e| e.lo <= yb);
+        all.get(from..to.max(from)).unwrap_or(&[])
+    }
+
     /// Inside intervals of one component on row `y` (half-open in y, so a vertex is counted once).
     fn component_intervals(&self, c: &Component, y: f32) -> Vec<(f32, f32)> {
         let mut xs: Vec<(f32, i32)> = Vec::new();
-        for e in self.edges.get(c.edges.clone()).unwrap_or(&[]) {
-            let (lo, hi, dir) = if e.y0 < e.y1 { (e.y0, e.y1, 1) } else { (e.y1, e.y0, -1) };
-            if lo <= y && y < hi {
+        for e in self.candidates(c, y, y) {
+            if e.lo <= y && y < e.hi {
+                let dir = if e.y0 < e.y1 { 1 } else { -1 };
                 let t = (y - e.y0) / (e.y1 - e.y0);
                 xs.push((e.x0 + t * (e.x1 - e.x0), dir));
             }
@@ -168,31 +186,48 @@ impl AreaShape {
         acc
     }
 
+    /// The x-ranges swept by edges while inside `[y0, y1]`, sorted and merged.
+    fn swept(&self, y0: f32, y1: f32) -> Vec<(f32, f32)> {
+        let mut v: Vec<(f32, f32)> = Vec::new();
+        for c in &self.comps {
+            for e in self.candidates(c, y0, y1) {
+                if e.hi < y0 || e.lo > y1 {
+                    continue;
+                }
+                if e.lo == e.hi {
+                    // A horizontal edge only matters strictly inside the band.
+                    if e.lo > y0 && e.lo < y1 {
+                        v.push((e.x0.min(e.x1), e.x0.max(e.x1)));
+                    }
+                    continue;
+                }
+                let at = |y: f32| e.x0 + (y - e.y0) / (e.y1 - e.y0) * (e.x1 - e.x0);
+                let (xa, xb) = (at(e.lo.max(y0)), at(e.hi.min(y1)));
+                v.push((xa.min(xb), xa.max(xb)));
+            }
+        }
+        v.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut out: Vec<(f32, f32)> = Vec::new();
+        for (l, r) in v {
+            match out.last_mut() {
+                Some(last) if l <= last.1 => last.1 = last.1.max(r),
+                _ => out.push((l, r)),
+            }
+        }
+        out
+    }
+
     /// Intervals inside the shape on every row of `[y0, y1]`, left to right, each at least
-    /// `min_width` wide. Edges are straight, so checking the band's ends and every vertex row
-    /// between them is exact.
+    /// `min_width` wide. A point is inside for the whole band exactly when it is inside on one
+    /// row and no edge crosses its vertical segment, so: the inside intervals at the middle row,
+    /// minus everything the edges sweep across within the band.
     pub fn spans(&self, y0: f32, y1: f32, min_width: f32) -> Vec<(f32, f32)> {
         if !(y0.is_finite() && y1.is_finite()) || y1 < y0 {
             return Vec::new();
         }
-        let mut ys: Vec<f32> = self.edges.iter().flat_map(|e| [e.y0, e.y1]).filter(|&y| y > y0 && y < y1).collect();
-        ys.sort_by(f32::total_cmp);
-        ys.dedup();
-        if ys.len() > MAX_BAND_SAMPLES {
-            let step = ys.len() / MAX_BAND_SAMPLES + 1;
-            ys = ys.into_iter().step_by(step).collect();
-        }
-        ys.push(y0);
-        ys.push(y1);
-        let mut acc: Option<Vec<(f32, f32)>> = None;
-        for y in ys {
-            let v = self.intervals_at(y);
-            acc = Some(match acc {
-                None => v,
-                Some(a) => boolean(&a, &v, |p, q| p && q),
-            });
-        }
-        acc.unwrap_or_default().into_iter().filter(|(l, r)| r - l >= min_width).collect()
+        let base = self.intervals_at(y0 + (y1 - y0) * 0.5);
+        let blocked = self.swept(y0, y1);
+        boolean(&base, &blocked, |a, b| a && !b).into_iter().filter(|(l, r)| r - l >= min_width).collect()
     }
 
     /// The first baseline at or below `from` whose band `[b - ascent, b + descent]` has spans
@@ -201,6 +236,7 @@ impl AreaShape {
         if !(from.is_finite() && ascent.is_finite() && descent.is_finite()) {
             return None;
         }
+        let from = from.max(self.bounds[1] + ascent);
         let step = ((self.bounds[3] - self.bounds[1]) / 512.0).max(0.5);
         let mut b = from;
         for _ in 0..MAX_ROW_STEPS {
@@ -222,17 +258,46 @@ impl AreaShape {
     }
 }
 
-/// Boolean combination of two sorted, disjoint interval lists.
+/// Boolean combination of two sorted, disjoint interval lists, in one linear merge.
 fn boolean(a: &[(f32, f32)], b: &[(f32, f32)], f: impl Fn(bool, bool) -> bool) -> Vec<(f32, f32)> {
-    let mut xs: Vec<f32> = a.iter().chain(b).flat_map(|&(l, r)| [l, r]).collect();
-    xs.sort_by(f32::total_cmp);
-    xs.dedup();
-    let inside = |set: &[(f32, f32)], x: f32| set.iter().any(|&(l, r)| l <= x && x < r);
+    let ends = |v: &[(f32, f32)]| -> Vec<f32> { v.iter().flat_map(|&(l, r)| [l, r]).collect() };
+    let (ea, eb) = (ends(a), ends(b));
+    let mut xs: Vec<f32> = Vec::with_capacity(ea.len() + eb.len());
+    let (mut i, mut j) = (0, 0);
+    while i < ea.len() || j < eb.len() {
+        let next = match (ea.get(i), eb.get(j)) {
+            (Some(&p), Some(&q)) if q < p => {
+                j += 1;
+                q
+            }
+            (Some(&p), _) => {
+                i += 1;
+                p
+            }
+            (None, Some(&q)) => {
+                j += 1;
+                q
+            }
+            (None, None) => break,
+        };
+        if xs.last() != Some(&next) {
+            xs.push(next);
+        }
+    }
+    let (mut ia, mut ib) = (0usize, 0usize);
     let mut out: Vec<(f32, f32)> = Vec::new();
     for w in xs.windows(2) {
         let &[l, r] = w else { continue };
         let mid = (l + r) * 0.5;
-        if f(inside(a, mid), inside(b, mid)) {
+        while a.get(ia).is_some_and(|s| s.1 <= mid) {
+            ia += 1;
+        }
+        while b.get(ib).is_some_and(|s| s.1 <= mid) {
+            ib += 1;
+        }
+        let in_a = a.get(ia).is_some_and(|s| s.0 <= mid);
+        let in_b = b.get(ib).is_some_and(|s| s.0 <= mid);
+        if f(in_a, in_b) {
             match out.last_mut() {
                 Some(last) if last.1 == l => last.1 = r,
                 _ => out.push((l, r)),
@@ -339,6 +404,27 @@ mod tests {
     }
 
     #[test]
+    fn next_row_from_far_above_still_finds_rows() {
+        let a = AreaShape::new(&poly(&[(0.0, 0.0), (100.0, 0.0), (100.0, 50.0), (0.0, 50.0)]), false).unwrap();
+        let (b, s) = a.next_row(-1000.0, 8.0, 2.0, 10.0).unwrap();
+        assert!((b - 8.0).abs() < 0.6 && close(s[0], (0.0, 100.0)), "{b} {s:?}");
+    }
+
+    #[test]
+    fn slanted_hole_is_never_spanned() {
+        let outer = Subpath::polygon(&[(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)]);
+        let strip = || Subpath::polygon(&[(5.0, 0.0), (8.0, 0.0), (98.0, 100.0), (95.0, 100.0)]);
+        let sub = Path::new(vec![outer.clone(), strip().with_op(PathOp::Subtract)]);
+        let mut eo = Path::new(vec![outer, strip().with_op(PathOp::Join)]);
+        eo.fill_rule = FillRule::EvenOdd;
+        for p in [sub, eo] {
+            let s = AreaShape::new(&p, false).unwrap().spans(40.0, 60.0, 1.0);
+            assert!(!s.is_empty());
+            assert!(s.iter().all(|&(l, r)| r <= 50.0 || l >= 53.0), "{s:?}");
+        }
+    }
+
+    #[test]
     fn vertical_maps_columns_right_to_left() {
         // Text space 100 wide, 50 tall; area space is (y, -x): x in 0..50, y in -100..0.
         let a = AreaShape::new(&poly(&[(0.0, 0.0), (100.0, 0.0), (100.0, 50.0), (0.0, 50.0)]), true).unwrap();
@@ -359,6 +445,7 @@ mod tests {
         assert!(AreaShape::new(&inv, false).is_none(), "an inverted path is unbounded");
         let many: Vec<(f64, f64)> = (0..MAX_AREA_EDGES + 10).map(|i| ((i as f64).cos() * 50.0, (i as f64).sin() * 50.0)).collect();
         assert!(AreaShape::new(&poly(&many), false).is_none());
+        assert!(AreaShape::new(&poly(&[(0.0, 0.0), (1e8, 0.0), (5.0, 5.0)]), false).is_none(), "beyond 1e7");
         // Bad bands never panic.
         let a = AreaShape::new(&poly(&[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)]), false).unwrap();
         assert!(a.spans(f32::NAN, 5.0, 1.0).is_empty());
