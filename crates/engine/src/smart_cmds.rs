@@ -298,40 +298,6 @@ fn blend_surfaces(base: &Surface, top: &Surface, mode: BlendMode, opacity: f32) 
     out
 }
 
-/// Mixes `filtered` over `base` through the filter mask (premultiplied, any channel layout).
-fn mask_mix(base: &Surface, filtered: &Surface, mask: &LayerMask) -> Surface {
-    let fmt = base.format();
-    let area = base.content_bounds().union(&filtered.content_bounds());
-    let mut out = filtered.clone();
-    if area.is_empty() {
-        return out;
-    }
-    let n = fmt.channels();
-    let (b, f) = (base.read_region(area), filtered.read_region(area));
-    let mut k = Vec::new();
-    mask.values_into(area, &mut k);
-    let mut o = vec![0.0f32; b.len()];
-    for (i, ((bp, fp), op)) in b.chunks_exact(n).zip(f.chunks_exact(n)).zip(o.chunks_exact_mut(n)).enumerate() {
-        let m = k.get(i).copied().unwrap_or(1.0).clamp(0.0, 1.0);
-        if !fmt.alpha {
-            for c in 0..n {
-                op[c] = bp[c] + (fp[c] - bp[c]) * m;
-            }
-            continue;
-        }
-        let a = n - 1;
-        let oa = bp[a] + (fp[a] - bp[a]) * m;
-        op[a] = oa;
-        for c in 0..a {
-            let pm = bp[c] * bp[a] + (fp[c] * fp[a] - bp[c] * bp[a]) * m;
-            op[c] = if oa > 0.0 { (pm / oa).clamp(0.0, 1.0) } else { 0.0 };
-        }
-    }
-    out.write_region(area, &o);
-    out.prune();
-    out
-}
-
 /// Runs the smart filter stack on the placed (unfiltered) content.
 pub fn apply_smart_filters(placed: &Surface, sm: &SmartObject, canvas: Rect) -> Surface {
     if !sm.filters_enabled || !sm.smart_filters.iter().any(|f| f.visible) {
@@ -344,7 +310,7 @@ pub fn apply_smart_filters(placed: &Surface, sm: &SmartObject, canvas: Rect) -> 
         cur = apply_smart_filter(f, &cur, canvas, extent);
     }
     match sm.filter_mask.as_ref().filter(|m| m.enabled) {
-        Some(m) => mask_mix(placed, &cur, m),
+        Some(m) => photocraft_compose::filter_mask::mix(placed, &cur, m),
         None => cur,
     }
 }
@@ -449,7 +415,7 @@ fn render_in(doc: &Document, sm: &SmartObject, ctx: &JobCtx) -> Result<Option<Su
     }
     ctx.progress(1.0, "");
     Ok(Some(match sm.filter_mask.as_ref().filter(|m| m.enabled) {
-        Some(m) => mask_mix(&placed()?.surface, &cur.surface, m),
+        Some(m) => photocraft_compose::filter_mask::mix(&placed()?.surface, &cur.surface, m),
         None => cur.surface,
     }))
 }
@@ -827,21 +793,24 @@ fn set_source(s: &mut Session, p: &Value, label: &str, keep_psd: bool, make: imp
 
 // Keep the shared-instance transaction out of the per-command source-builder instantiations.
 fn set_shared_source(s: &mut Session, id: LayerId, label: &str, keep_psd: bool, new: SmartSource) -> Result<Value> {
-    let (parent, contents_id) = s.edit(label, |doc, _| {
+    let (parent, contents_id, changed) = s.edit(label, |doc, _| {
         let contents_id = smart(doc, id)?.contents_id;
-        for instance in instances(doc, contents_id) {
+        let changed = instances(doc, contents_id);
+        for &instance in &changed {
             smart_mut(doc, instance)?.source = new.clone();
             if !keep_psd {
                 detach_psd(doc.layer_mut(instance).ok_or(EngineError::NoLayer(instance))?);
             }
             refresh_or_fail(doc, instance)?;
         }
-        Ok((doc.id, contents_id))
+        Ok((doc.id, contents_id, changed))
     })?;
     // An old editor must not overwrite newly replaced/relinked contents on close. Keep its
     // document open, but the next Edit Contents opens the replacement source.
     s.smart_links.retain(|l| l.parent != parent || l.contents_id != contents_id);
-    Ok(json!({"layer": id.0}))
+    // Every instance changed, not only `layer`: list them, so a caller doesn't repeat the
+    // command once per copy (#4075).
+    Ok(json!({"layer": id.0, "instances": changed.iter().map(|l| l.0).collect::<Vec<_>>()}))
 }
 
 fn replace_contents(s: &mut Session, p: &Value) -> Result<Value> {
