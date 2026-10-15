@@ -382,6 +382,30 @@ fn harness() -> Harness<'static, crate::PhotocraftApp> {
 
 #[test]
 #[cfg(not(target_arch = "wasm32"))]
+fn brush_cursor_follows_pen_orientation_6350() {
+    for control in ["penTilt", "rotation"] {
+        let mut h = harness();
+        h.state_mut()
+            .run(
+                "tools.setBrush",
+                json!({"brush": {
+                    "size": 60, "hardness": 1.0, "roundness": 0.25,
+                    "shapeDynamics": {"enabled": true, "angle": {"control": control}}
+                }}),
+            )
+            .unwrap();
+        h.state_mut().stylus.feed.set(Some(crate::stylus::PenSample { tilt_x: 45.0, ..Default::default() }));
+        h.run_steps(3);
+        let initial = h.output().platform_output.cursor_image.clone().expect("initial brush cursor");
+        h.state_mut().stylus.feed.set(Some(crate::stylus::PenSample { tilt_y: -45.0, rotation: 90.0, ..Default::default() }));
+        h.run_steps(3);
+        let turned = h.output().platform_output.cursor_image.clone().expect("turned brush cursor");
+        assert_ne!(initial.rgba, turned.rgba, "cursor must follow pen orientation: {control}");
+    }
+}
+
+#[test]
+#[cfg(not(target_arch = "wasm32"))]
 fn brush_hover_uses_an_os_bitmap_that_survives_motion_but_not_tool_or_panel_changes() {
     let mut h = harness();
     let initial = h.output().platform_output.cursor_image.clone().expect("brush hover must reach the OS, not the painter");
