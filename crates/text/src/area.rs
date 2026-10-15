@@ -375,11 +375,9 @@ mod tests {
     fn curves_are_flattened() {
         // A circle of radius 50 centred on (50, 50) from four kappa curves.
         let k = 0.552_284_75 * 50.0;
-        let c = |x: f64, y: f64, ix: f64, iy: f64, ox: f64, oy: f64| Knot::smooth(
-            photocraft_geom::Point::new(x, y),
-            photocraft_geom::Point::new(ix, iy),
-            photocraft_geom::Point::new(ox, oy),
-        );
+        let c = |x: f64, y: f64, ix: f64, iy: f64, ox: f64, oy: f64| {
+            Knot::smooth(photocraft_geom::Point::new(x, y), photocraft_geom::Point::new(ix, iy), photocraft_geom::Point::new(ox, oy))
+        };
         let circle = Subpath {
             closed: true,
             knots: vec![
