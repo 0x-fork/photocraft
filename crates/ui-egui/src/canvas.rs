@@ -1924,14 +1924,22 @@ fn ensure_adjust_proxy(app: &mut PhotocraftApp, idx: usize, zoom: f32) -> Option
 
 /// If a live adjustment preview is active on a large document, composite it on the proxy and upload
 /// it under its own GPU key. Returns (factor, gpu key, dimensions) when the proxy should be drawn.
-fn ensure_proxy_preview(app: &mut PhotocraftApp, idx: usize) -> Option<(u32, u64, [u32; 2])> {
+/// `zoom` is the view's (physical screen pixels per document pixel).
+fn ensure_proxy_preview(app: &mut PhotocraftApp, idx: usize, zoom: f32) -> Option<(u32, u64, [u32; 2])> {
     let (layer, params) = app.live_adjust.clone()?;
     let (doc_id, revision, doc) = {
         let st = app.session.documents().get(idx)?;
         (st.doc.id, st.revision, st.doc.clone())
     };
     // Low-resolution previews off: k is 1 and the canvas shows `display_doc` (full size).
-    let k = crate::proxy::preview_factor(&doc, crate::proxy::reduced_previews(app));
+    let mut k = crate::proxy::preview_factor(&doc, crate::proxy::reduced_previews(app));
+    // Zoomed in, a proxy coarser than the screen showed the drag in k-pixel blocks (#5764): when
+    // the wgpu compositor draws the full-size document, use a proxy only as coarse as the screen
+    // (none at 50 % and closer). Otherwise the full size would be a CPU composite per change.
+    let fine = crate::proxy::view_factor(k, zoom);
+    if fine < k && app.gpu.as_ref().is_some_and(|g| g.supports(&doc)) {
+        k = fine;
+    }
     if k <= 1 {
         return None;
     }
@@ -2962,7 +2970,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         if app.gpu.is_some()
             && gpu_ok
             && let Some((k, key, preview_size)) =
-                ensure_adjust_proxy(app, idx, view.zoom).or_else(|| ensure_filter_preview(app, idx, &ctx)).or_else(|| ensure_proxy_preview(app, idx))
+                ensure_adjust_proxy(app, idx, view.zoom).or_else(|| ensure_filter_preview(app, idx, &ctx)).or_else(|| ensure_proxy_preview(app, idx, view.zoom))
         {
             on_gpu = true;
             app.navigator_gpu.remove(&doc.id);
@@ -3991,7 +3999,9 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 {
                     egui::CursorIcon::Crosshair
                 }
-                Tool::Move => egui::CursorIcon::Move,
+                // Photoshop's Move tool keeps the standard arrow pointer (#5646): the movable
+                // layer under it is marked by the hover outline, not by a different cursor.
+                Tool::Move => egui::CursorIcon::Default,
                 // Dragging is handled with the pan itself, above.
                 Tool::Hand => crate::tool_cursor::hand(ui.ctx(), false),
                 Tool::RotateView => crate::rotate_view::cursor(response.dragged()),

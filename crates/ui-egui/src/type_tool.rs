@@ -1014,20 +1014,20 @@ pub fn draw_overlay(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewX
     }
     // Frame: paragraph text shows its box with handles; point text an underline per line.
     let mods = crate::workspace_ui::sticky_mods(app, painter.ctx().input(|i| i.modifiers));
-    if crate::type_transform::draw(app, painter, xf, mods) {
-        return;
-    }
+    let has_transform = crate::type_transform::draw(app, painter, xf, mods);
     let shape = app.session.active().and_then(|s| text_layer(&s.doc, id).map(|t| t.shape.clone()));
     let frame = Stroke::new(1.0, t.accent);
     match shape {
         Some(photocraft_doc::text::TextShape::Box { x, y, width, height }) => {
-            let c = [scr_t(x, y), scr_t(x + width, y), scr_t(x + width, y + height), scr_t(x, y + height)];
-            painter.add(egui::Shape::closed_line(c.to_vec(), frame));
-            let mids = [c[0].lerp(c[1], 0.5), c[1].lerp(c[2], 0.5), c[2].lerp(c[3], 0.5), c[3].lerp(c[0], 0.5)];
-            for p in c.iter().chain(mids.iter()) {
-                let r = egui::Rect::from_center_size(*p, egui::vec2(7.0, 7.0));
-                painter.rect_filled(r, 0.0, Color32::WHITE);
-                painter.rect_stroke(r, 0.0, frame, egui::StrokeKind::Inside);
+            if !has_transform {
+                let c = [scr_t(x, y), scr_t(x + width, y), scr_t(x + width, y + height), scr_t(x, y + height)];
+                painter.add(egui::Shape::closed_line(c.to_vec(), frame));
+                let mids = [c[0].lerp(c[1], 0.5), c[1].lerp(c[2], 0.5), c[2].lerp(c[3], 0.5), c[3].lerp(c[0], 0.5)];
+                for p in c.iter().chain(mids.iter()) {
+                    let r = egui::Rect::from_center_size(*p, egui::vec2(7.0, 7.0));
+                    painter.rect_filled(r, 0.0, Color32::WHITE);
+                    painter.rect_stroke(r, 0.0, frame, egui::StrokeKind::Inside);
+                }
             }
         }
         _ => {

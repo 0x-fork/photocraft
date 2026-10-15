@@ -153,6 +153,32 @@ fn every_theme_shows_the_auto_select_toggle() {
 }
 
 #[test]
+fn every_theme_shows_the_transform_controls_toggle() {
+    // #5740: outside the Pro themes the Move tool's options bar had no Show Transform Controls, so
+    // a click on a layer never showed its box and handles there.
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+    for theme in crate::theme::ThemeKind::ALL {
+        let (app, _, _) = app();
+        let mut h = Harness::builder().with_size(egui::vec2(1400.0, 60.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                    return;
+                }
+                crate::panels::options_bar(app, ui);
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, theme);
+        h.run_steps(4);
+        let before = h.state().ui.tool_options.move_show_transform;
+        h.get_by_label("Show Transform Controls").click();
+        h.run_steps(2);
+        assert_ne!(h.state().ui.tool_options.move_show_transform, before, "{theme:?}: the toggle flips Show Transform Controls");
+    }
+}
+
+#[test]
 fn every_theme_shows_the_type_options() {
     // #1387: outside the Pro themes the Type tool's options bar was only the hint "Click to add
     // text", so there was no font, style or size control while typing.
