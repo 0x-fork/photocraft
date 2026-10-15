@@ -904,18 +904,10 @@ pub(crate) fn preview_document_for_target(
         let layer = photocraft_doc::LayerId(params.get("layer")?.as_u64()?);
         let index = usize::try_from(params.get("index")?.as_u64()?).ok()?;
         let photocraft_doc::LayerContent::Smart(sm) = &mut proxy.layer_mut(layer)?.content else { return None };
-        // Proxy_document scales the visible cache only. Editing a filter re-renders its source:
-        // scale the placement, every filter's lengths and the shared mask as well.
+        // Proxy_document scales the cache, placement and shared mask (#5766). Editing a filter
+        // re-renders its source: scale every filter's lengths and the mask's feather as well.
         if run_k > 1 {
-            let divisor = f64::from(run_k);
-            sm.transform.m = sm.transform.m.map(|v| v / divisor);
-            if let Some(h) = &mut sm.perspective {
-                for v in h.iter_mut().take(6) {
-                    *v /= divisor;
-                }
-            }
             if let Some(mask) = &mut sm.filter_mask {
-                mask.surface = crate::proxy::downsample(&mask.surface, run_k);
                 mask.feather /= run_k as f32;
             }
             for f in &mut sm.smart_filters {
