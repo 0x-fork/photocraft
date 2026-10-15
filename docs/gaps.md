@@ -141,6 +141,11 @@ what an agent can't finish alone.
   4352 × 2868 plane) is measured by aligning the decoded plane with the camera's own
   JPEG, so a D90 NEF opens on the camera's frame instead of the uncropped sensor plane;
   `crates/raw/src/cameras.rs` (`IMAGE_AREAS`).
+- **Progress (2026-10-14):** the measured Nikon D4 profile's saturation level follows the
+  sample depth (15520 at 14 bits, 3880 at 12), so a 12-bit D4 NEF opens as bright as the same
+  scene at 14 bits instead of 2.6 stops darker (#5978). Real CC0 pair, mean linear luminance
+  against the 14-bit file: 12-bit lossy +0.02, uncompressed -0.02, lossless +0.01 stop;
+  14-bit output unchanged (`cameras.rs`, `tests/nikon_d4_depth.rs`).
 - **Estimate:** 120–200 h.
 
 ### G15. AI and generative features
@@ -296,6 +301,7 @@ what an agent can't finish alone.
 | 2026-10-15 | minor | G9: Animated Zoom preference takes effect (hold the Zoom tool to zoom continuously, #6210); prefs that do nothing 25 of 166; no estimate changed |
 | 2026-10-16 | minor | G7: Content-Aware Move's live preview covers every selection the command takes (over 256 × 256: a coarse result solved scaled down, then the exact one); TOOL-213-4 done (#6680) |
 | 2026-10-15 | minor | G9: Save in Background off saves in the foreground under a modal progress dialog (#6207); preferences that do nothing 25 → 24 of 169 |
+| 2026-10-14 | minor | G14: the Nikon D4 profile's white level follows the sample depth, so 12-bit D4 NEFs no longer open 2.6 stops dark (#5978); gap remains open |
 | 2026-10-14 | minor | G1: a PSD smart object's filter mask shows when the file opens (Photoshop stores the filtered pixels unmasked); export stores them that way too; Photoshop-oracle floor 185 → 188 of 258 |
 | 2026-10-13 | minor | G14: D90 image area measured (4288 × 2848 at (10, 10)); gap remains open |
 | 2026-10-14 | minor | Corpus floors raised to the measured results of the CMYK, Lab, 32-bit, Levels, Threshold, Posterize, feather and pass-through fixes landed together: Photoshop-authored 165 → 185 of 258, io 146 → 148 of 170, psd-tools 242 → 249 of 309 |
