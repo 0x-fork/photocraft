@@ -502,6 +502,19 @@ struct FieldOpts {
     wrap_drag: bool,
 }
 
+/// Arrow-key and drag step for a value field: explicit `decimals` win over the range width
+/// (Exposure's ±20 stops still step by 0.01 when it shows two decimals, #5914).
+fn field_step(range: &std::ops::RangeInclusive<f32>, decimals: Option<u32>) -> f32 {
+    if let Some(d) = decimals {
+        return 10f32.powi(-(d.min(6) as i32));
+    }
+    if *range.end() - *range.start() <= 10.0 { 0.01 } else { 1.0 }
+}
+
+fn field_fine(range: &std::ops::RangeInclusive<f32>, decimals: Option<u32>) -> bool {
+    decimals.is_some_and(|d| d > 0) || *range.end() - *range.start() <= 10.0
+}
+
 /// A [`value_field`] that leaves `trailing` points free inside its box, right of the suffix, and
 /// returns the box with the number's response.
 fn value_field_in(
@@ -564,9 +577,10 @@ fn value_field_box(
     let cy = rect.center().y;
     let field = Rect::from_min_max(pos2(rect.left() + 4.0, cy - slot_h / 2.0), pos2(rect.right() - 4.0 - suffix_w - trailing, cy + slot_h / 2.0));
     // Small ranges (gamma 0.01–9.99, 0–1 centres) need two decimals and a finer drag, like Photoshop.
-    let fine = range.end() - range.start() <= 10.0;
+    let fine = field_fine(&range, decimals);
+    let unit = field_step(&range, decimals);
     let (lo, hi) = (*range.start(), *range.end());
-    let (step, grid) = arrow_step(ui, slot.id, if fine { 0.01 } else { 1.0 });
+    let (step, grid) = arrow_step(ui, slot.id, unit);
     // new_child (not scope_builder): a scope would move the parent cursor back to the child rect.
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(field));
     let mut resp = {
@@ -596,7 +610,6 @@ fn value_field_box(
             ui.memory_mut(|m| m.surrender_focus(resp.id));
         }
         if s.steps != 0.0 {
-            let unit = if fine { 0.01 } else { 1.0 };
             // Onto the step grid first, so a whole-number field drops its decimals (55.4 + 1 = 56).
             let v = ((*value / unit).round() + s.steps) * unit;
             let v = (v * 1e4).round() / 1e4;
@@ -2033,6 +2046,29 @@ mod tests {
         let _ = press(&mut h, Modifiers::NONE, Key::ArrowUp);
         let mut h = focused(5.0, f32::NAN..=10.0);
         let _ = press(&mut h, Modifiers::NONE, Key::ArrowDown);
+    }
+
+    /// #5914: Exposure's ±20 stops keep 0.01 arrow steps when the field shows two decimals.
+    #[test]
+    fn arrow_keys_step_fractional_stops_when_decimals_are_set() {
+        let mut h = Harness::new_ui_state(
+            |ui, v: &mut f32| {
+                super::value_field_prec(ui, v, -20.0..=20.0, "", 74.0, 2);
+            },
+            0.0,
+        );
+        h.run();
+        h.get_by_role(egui::accesskit::Role::SpinButton).click();
+        h.run();
+        h.key_press_modifiers(Modifiers::NONE, Key::ArrowUp);
+        h.run();
+        assert!((*h.state() - 0.01).abs() < 1e-6);
+        h.key_press_modifiers(Modifiers::NONE, Key::ArrowUp);
+        h.run();
+        assert!((*h.state() - 0.02).abs() < 1e-6);
+        h.key_press_modifiers(Modifiers::SHIFT, Key::ArrowUp);
+        h.run();
+        assert!((*h.state() - 0.12).abs() < 1e-6);
     }
 
     #[test]
