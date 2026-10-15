@@ -759,14 +759,20 @@ pub fn text_field_ex(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str, w
         ui.painter().rect_stroke(rect, t.radius_sm, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
     }
     let font = if mono { theme::mono(12.0) } else { egui::FontId::proportional(12.5) };
-    let mut edit = egui::TextEdit::singleline(text).id(id).hint_text(hint).frame(egui::Frame::NONE).font(font);
+    let inner = rect.shrink2(TEXT_FIELD_PAD);
+    // TextEdit draws its text at the top of its rect; fill the box and centre the line in it, so
+    // the text sits on the field's middle like a dropdown's or value field's.
+    let mut edit =
+        egui::TextEdit::singleline(text).id(id).hint_text(hint).frame(egui::Frame::NONE).font(font).min_size(inner.size()).vertical_align(egui::Align::Center);
     if let Some(limit) = char_limit {
         edit = edit.char_limit(limit);
     }
     // A child Ui keeps the field's selection colour local: `Visuals::selection` also fills selected
     // list rows and slider trails, which must keep the theme's.
     let layout = egui::Layout::centered_and_justified(egui::Direction::TopDown);
-    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(TEXT_FIELD_PAD)).layout(layout));
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(layout));
+    // The theme's 24 pt interact height would make the edit taller than the box's inside.
+    child.spacing_mut().interact_size.y = inner.height();
     child.style_mut().visuals.selection.bg_fill = t.field_selection();
     child.add(edit)
 }

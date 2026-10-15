@@ -123,6 +123,23 @@ fn alt_breaks_the_handle_being_dragged_and_grabs_the_last_outgoing_handle() {
 }
 
 #[test]
+fn opening_a_new_document_finishes_the_previous_pen_path() {
+    let mut h = harness();
+    click(&mut h, [20.0, 20.0]);
+    click(&mut h, [120.0, 20.0]);
+    assert_eq!(h.state().ui.pen.as_ref().map(|p| p.knots.len()), Some(2));
+    let original = h.state().session.active().unwrap().doc.id;
+
+    h.state_mut().run("file.new", json!({"width": 300, "height": 200})).unwrap();
+    assert!(h.state().ui.pen.is_none(), "the Pen draft must not overlay the new document");
+    let docs = h.state().session.documents();
+    assert_eq!(docs.len(), 2);
+    assert_eq!(docs[0].doc.id, original);
+    assert_eq!(docs[0].doc.work_path.as_ref().unwrap().subpaths[0].knots.len(), 2);
+    assert!(docs[1].doc.work_path.is_none(), "the new document starts with no path");
+}
+
+#[test]
 fn dragging_on_the_first_anchor_closes_with_its_handles_in_one_step() {
     let mut h = harness();
     let before = h.state().session.active().unwrap().history.past_len();
