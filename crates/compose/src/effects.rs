@@ -1331,19 +1331,19 @@ fn box_line(src: &[f64], x0: i64, dst: &mut [f64], bw: f32) {
     }
     let window = x0 - (r - 1)..=x0 + (r - 1);
     let mut inner: f64 = window.clone().map(at).sum();
-    let mut nonzero = window.map(at).filter(|v| *v != 0.0).count();
+    let mut last_covered = window.rev().find(|&x| at(x) != 0.0).unwrap_or(i64::MIN);
     for (k, d) in dst.iter_mut().enumerate() {
         let x = x0 + k as i64;
         *d = (inner + f * (at(x - r) + at(x + r))) * norm;
         let entering = at(x + r);
-        let leaving = at(x - r + 1);
-        inner += entering - leaving;
-        nonzero += usize::from(entering != 0.0);
-        nonzero -= usize::from(leaving != 0.0);
+        inner += entering - at(x - r + 1);
+        if entering != 0.0 {
+            last_covered = x + r;
+        }
         // Cancellation can leave positive residue after the last covered pixel leaves.
         // Noise amplifies even that residue into visible speckles (#5638). Reset only
         // truly empty windows, preserving arbitrarily faint real coverage.
-        if nonzero == 0 {
+        if last_covered < x - r + 2 {
             inner = 0.0;
         }
     }
