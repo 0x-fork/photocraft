@@ -1391,6 +1391,9 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     Tool::Move => {
                         // The Studio themes keep Photoshop's Auto-Select toggle too (#1275).
                         widgets::checkbox(ui, &mut app.ui.tool_options.move_auto_select, tl!("Auto-Select:"));
+                        // And Show Transform Controls (#5740): without it the box could not be
+                        // turned on outside the Pro themes.
+                        widgets::checkbox(ui, &mut app.ui.tool_options.move_show_transform, tl!("Show Transform Controls"));
                         hint(ui, tl!("Drag to move the active layer"));
                     }
                     Tool::Eyedropper => crate::eyedropper_ui::options(app, ui),
@@ -2309,7 +2312,8 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let fill = ui.available_height() > footer + 60.0;
     let rows_h = if fill { ui.available_height() - footer } else { f32::INFINITY };
     egui::ScrollArea::vertical()
-        .id_salt("layer-rows")
+        // Keep each document's position independent, even when tab indices change (#5522).
+        .id_salt(("layer-rows", doc.id.0))
         .max_height(rows_h)
         .min_scrolled_height(if fill { rows_h } else { 0.0 })
         .auto_shrink([false, !fill])

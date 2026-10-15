@@ -779,6 +779,23 @@ fn temporary_type_transform_visibility_and_cursors() {
     assert!(crate::type_transform::visible(h.state(), sticky));
 }
 
+#[test]
+fn type_selection_highlight_visible_with_command_held() {
+    let (app, _id) = transform_app(false, false, Affine::IDENTITY);
+    let mut h = harness(1.0, app);
+    if let Some(ed) = h.state_mut().ui.text_edit.as_mut() {
+        ed.anchor = 0;
+        ed.caret = 5;
+    }
+    hold(&mut h, type_command());
+    h.run();
+    let accent = crate::theme::Tokens::get(&h.ctx).accent;
+    let expected_fill = egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 110);
+    let has_selection_highlight =
+        h.output().shapes.iter().any(|clipped| if let egui::Shape::Path(path) = &clipped.shape { path.fill == expected_fill && path.closed } else { false });
+    assert!(has_selection_highlight, "selection highlight must remain visible while Ctrl/Cmd is held");
+}
+
 /// Real canvas input: layer-local scaling stays correct across orientation, zoom, HiDPI and flip.
 #[test]
 fn temporary_type_transform_scales_without_reflow_or_leaving_type() {
