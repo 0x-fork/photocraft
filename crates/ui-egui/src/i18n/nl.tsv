@@ -546,6 +546,9 @@
 # Field Blur pins (#3373)
 	No pin selected	Geen speld geselecteerd
 	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Klik in de afbeelding om een speld toe te voegen; sleep een speld om hem te verplaatsen, of zijn ring om de vervaging te wijzigen. Delete verwijdert de geselecteerde speld.
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	Sleep de grepen op de omtrek om hem te schalen en te draaien, het vierkantje om de hoeken af te ronden en de punten binnenin om in te stellen waar de vervaging begint.
+	Drag the pin to move the band, or its ring to change its blur. Drag the solid lines to widen the sharp band, the dashed lines to set the transition, and the dots to turn it.	Sleep de speld om de band te verplaatsen, of zijn ring om de vervaging te wijzigen. Sleep de doorgetrokken lijnen om de scherpe band te verbreden, de stippellijnen voor de overgang en de punten om hem te draaien.
+	Drag the handles on the outline to resize and turn it; the ring sets the blur angle.	Sleep de grepen op de omtrek om hem te schalen en te draaien; de ring stelt de vervagingshoek in.
 	Iris Blur…	Irisvervaging…
 	Tilt-Shift…	Tilt-shift…
 	Path Blur…	Padvervaging…
@@ -964,7 +967,6 @@
 	Contiguous	Aaneengesloten
 	Contrast	Contrast
 	Control:	Besturing:
-	Convert document's colors to the working space	Kleuren van document omzetten naar de werkruimte
 	Convert to sRGB	Omzetten naar sRGB
 	Copies	Exemplaren
 	Copper	Koper
@@ -1021,6 +1023,7 @@
 	Delete Group	Groep verwijderen
 	Delete Layer Mask	Laagmasker verwijderen
 	Delete Layers	Lagen verwijderen
+	Add Shortcut	Sneltoets toevoegen
 	Delete Shortcut	Sneltoets verwijderen
 	Delete Timeline	Tijdlijn verwijderen
 	Delete Tool Preset	Gereedschapsvoorinstelling verwijderen
@@ -1545,7 +1548,6 @@
 	Use Default	Standaard gebruiken
 	Use Legacy	Verouderde versie gebruiken
 	Use Measurement Scale	Meetschaal gebruiken
-	Use the embedded profile (instead of the working space)	Het ingesloten profiel gebruiken (in plaats van de werkruimte)
 	Variables bind a layer's visibility, text or pixels to a named data slot.	Variabelen koppelen de zichtbaarheid, tekst of pixels van een laag aan een benoemd gegevensveld.
 	Vertical scale	Verticale schaal
 	Vibrance	Levendigheid
@@ -1865,6 +1867,8 @@
 	Camera Raw Defaults	Standaardwaarden Camera Raw
 	Canvas border	Canvasrand
 	Show canvas dots	Canvasstippen tonen
+	Clip thumbnails to layer bounds	Miniaturen bijsnijden tot laaggrenzen
+	Clip Thumbnails to Layer Bounds	Miniaturen bijsnijden tot laaggrenzen
 	Canvas color	Canvaskleur
 	Canvas custom color	Aangepaste canvaskleur
 	Color picker	Kleurkiezer
@@ -2051,7 +2055,8 @@
 	Expand group  ({key}-click: all groups)	Groep uitvouwen  ({key}-klik: alle groepen)
 	Fade steps	Afzwakstappen
 	Hide the layer's effects  ({key}-click: all layers)	De effecten van de laag verbergen  ({key}-klik: alle lagen)
-	Import Brushes… (.abr)	Penselen importeren… (.abr)
+	Import Brushes… (.abr or image)	Penselen importeren… (.abr of afbeelding)
+	Import Brush from Image…	Penseel uit afbeelding importeren…
 	Move Group Down	Groep omlaag
 	Move Group Up	Groep omhoog
 	Reset the brush to the defaults	Het penseel terugzetten naar de standaardwaarden
@@ -2162,7 +2167,6 @@
 	Cancelled opening {name}	Openen van {name} geannuleerd
 	The document “{name}” does not have an embedded {mode} profile.	Het document “{name}” heeft geen ingesloten {mode}-profiel.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Het document “{name}” heeft een ingesloten kleurprofiel dat niet overeenkomt met de huidige {mode}-werkruimte.
-	Embedded: {embedded}	Ingesloten: {embedded}
 	Working: {working}	Werkruimte: {working}
 	Developing {name}	{name} wordt ontwikkeld
 	Cancelled {label}	{label} geannuleerd
@@ -3675,6 +3679,8 @@ cameraRaw	Whites	Witten
 	Color Picker (Layer Style Color)	Kleurkiezer (kleur van laagstijl)
 	Auto Hide Notifications	Meldingen automatisch verbergen
 	Notification Duration (seconds)	Duur van melding (seconden)
+	Bundle Arrow-Key Nudges	Pijltjestoetsverschuivingen bundelen
+	Nudge Bundle Pause (ms)	Pauze voor bundelen van verschuivingen (ms)
 	Appearance Mode	Weergavemodus
 	Next Appearance Mode	Volgende weergavemodus
 	Sync with system	Synchroniseren met systeem
@@ -3786,6 +3792,7 @@ cameraData	Lens	Lens
 	No matching settings	Geen overeenkomende instellingen
 	PhotoCraft — Screen Color Picker	PhotoCraft — Schermkleurkiezer
 	Loading fonts…	Lettertypen laden…
+	Response curve	Responscurve
 	Simulate Pressure	Druk simuleren
 	Stroke Path…	Pad omlijnen…
 	Background Eraser	Achtergrondgum
@@ -3869,6 +3876,7 @@ curves	Smooth	Vloeiend maken
 	Remove after each stroke	Verwijderen na elke streek
 	Apply the removal ({key})	Verwijdering toepassen ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Streken om te verwijderen: {n} (Enter past toe, Esc annuleert)
+	Show home recent files	Recente bestanden tonen op het startscherm
 	Clear Brush Controls	Penseelbesturing wissen
 	Reset All Locked Settings	Alle vergrendelde instellingen opnieuw instellen
 	Copy Texture to Other Tools	Structuur kopiëren naar andere gereedschappen
@@ -3895,6 +3903,9 @@ curves	Smooth	Vloeiend maken
 	Action playback stopped	Afspelen van de handeling gestopt
 	Step {step} is waiting for its dialog	Stap {step} wacht op zijn dialoogvenster
 @plural	{n} action|{n} actions	{n} handeling|{n} handelingen
+	Background (Default)	Achtergrond (standaard)
+# Batch / Image Processor
+	Include All Subfolders	Alle submappen opnemen
 	Auto Add/Delete	Automatisch toevoegen/verwijderen
 
 # Native Windows printing qualification
@@ -3904,3 +3915,37 @@ curves	Smooth	Vloeiend maken
 	Sent to {printer}	Verzonden naar {printer}
 	set in Print Settings…	instellen in de afdrukinstellingen…
 	ICO is limited to 256 × 256 pixels	ICO is beperkt tot 256 × 256 pixels
+# Embedded Profile Mismatch: profile names beside the choices, Remember this choice
+	Use the embedded profile ({profile})	Het ingesloten profiel gebruiken ({profile})
+	Convert to the working space ({profile})	Omzetten naar de werkruimte ({profile})
+	Remember this choice for future images	Deze keuze onthouden voor volgende afbeeldingen
+	Turn the prompt back on with Ask On Mismatch in Edit › Color Settings.	Zet de vraag weer aan met Ask On Mismatch in Bewerken › Kleurinstellingen.
+	Button Mode	Knopmodus
+	Button Mode On	Knopmodus aan
+
+# Darken / Lighten Interface (⇧⌘F1 / ⇧⌘F2)
+	Darken Interface	Interface donkerder maken
+	Lighten Interface	Interface lichter maken
+# Bevel & Emboss Technique.
+	Technique	Techniek
+	Chisel Hard	Beitel hard
+	Chisel Soft	Beitel zacht
+	Open color-less EXR as ACEScg	EXR zonder kleurruimte als ACEScg openen
+
+# View › Guides › right-click a guide
+	Edit Selected Guides	Geselecteerde hulplijnen bewerken
+	Clear Selected Guides	Geselecteerde hulplijnen wissen
+	Delete this set	Deze set verwijderen
+	New Set…	Nieuwe set…
+	PhotoCraft Defaults	PhotoCraft-standaard
+	Save a list of these shortcuts as a web page	Een lijst van deze sneltoetsen als webpagina opslaan
+	Save the changes to this set	De wijzigingen in deze set opslaan
+	Save these shortcuts as a .kys file	Deze sneltoetsen als .kys-bestand opslaan
+	Save these shortcuts as a new set	Deze sneltoetsen als nieuwe set opslaan
+	Set deleted.	Set verwijderd.
+	Set saved.	Set opgeslagen.
+	Set:	Set:
+	Summarize…	Samenvatten…
+	There are too many sets: delete one first.	Er zijn te veel sets: verwijder er eerst een.
+	set name	naam van de set
+	{set} (modified)	{set} (gewijzigd)
