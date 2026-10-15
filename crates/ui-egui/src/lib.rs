@@ -1061,10 +1061,10 @@ impl PhotocraftApp {
             self.session.precheck(id, &params).map_err(|e| e.to_string())?;
             transform_tool::commit(self);
             if transform_tool::committing(self).is_some() {
-                return Err("the transform is still being applied; try again when it has finished".into());
+                return Err(tl!("Free Transform is still being applied; try again when it has finished.").into());
             }
             if self.ui.transform.is_some() {
-                return Err(if self.ui.status.is_empty() { "the transform couldn't be applied".into() } else { self.ui.status.clone() });
+                return Err(if self.ui.status.is_empty() { tl!("The transform couldn't be applied.").into() } else { self.ui.status.clone() });
             }
         }
         if let Some(result) = panel_docking::command(self, id, &params) {

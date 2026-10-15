@@ -878,3 +878,40 @@ fn exports_are_written_all_or_nothing() {
     assert_eq!(leftovers(), 1, "only c.kys.photocraft-tmp itself");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A backup that can't be put back after a failed export is named in the error, and stays where
+/// it is with the user's previous text.
+#[test]
+fn a_stranded_backup_is_named_in_the_error() {
+    use super::write_files_atomically;
+    let dir = std::env::temp_dir().join(format!("photocraft-stranded-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (a, b) = (dir.join("a.kys"), dir.join("b.html"));
+    std::fs::write(&a, "old A").unwrap();
+    std::fs::write(&b, "old B").unwrap();
+    let (pa, pb) = (a.to_str().unwrap(), b.to_str().unwrap());
+    let staged = std::cell::Cell::new(0);
+    // The second staged move fails, and so does putting a.kys's backup back.
+    let rename = |from: &std::path::Path, to: &std::path::Path| {
+        let f = from.to_string_lossy();
+        if f.ends_with("photocraft-tmp") {
+            staged.set(staged.get() + 1);
+            if staged.get() == 2 {
+                return Err(std::io::Error::other("disk gone"));
+            }
+        }
+        if f.ends_with("photocraft-bak") && to == a.as_path() {
+            return Err(std::io::Error::other("locked"));
+        }
+        std::fs::rename(from, to)
+    };
+    let e = write_files_atomically(&[(pa, "new A"), (pb, "new B")], &rename).unwrap_err();
+    assert!(e.contains(&format!("the previous {} is at", a.display())), "{e}");
+    let backup: Vec<_> =
+        std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.to_string_lossy().ends_with("photocraft-bak")).collect();
+    assert_eq!(backup.len(), 1, "{backup:?}");
+    assert!(e.contains(&backup[0].display().to_string()), "{e}");
+    assert_eq!(std::fs::read_to_string(&backup[0]).unwrap(), "old A");
+    assert_eq!(std::fs::read_to_string(&b).unwrap(), "old B");
+    let _ = std::fs::remove_dir_all(&dir);
+}

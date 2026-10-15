@@ -1,4 +1,5 @@
-//! `Session::precheck` accepts exactly what `execute` accepts for the commands it covers
+//! `Session::precheck` accepts what `execute` accepts for the commands it covers (all but the
+//! group nesting limit, which only the edit checks)
 //! (`PRECHECKED`): Free Transform applies its box before them only when they will run (#5859).
 
 use photocraft_engine::{PRECHECKED, Session};
@@ -47,6 +48,9 @@ fn params() -> Vec<Value> {
         json!({"name": "ok"}),
         json!({"color": "chartreuse"}),
         json!({"layer": 999_999}),
+        json!({"layer": 1}),
+        json!({"layer": 2}),
+        json!({"layer": null}),
         json!({"layer": "Layer 1"}),
         json!({"layer": "no such layer"}),
         json!({"layer": true}),
