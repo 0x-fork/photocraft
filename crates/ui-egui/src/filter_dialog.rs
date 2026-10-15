@@ -1167,8 +1167,10 @@ mod tests {
         let ctx = egui::Context::default();
         let id = open(&mut app, "filter.distort.displace").unwrap();
         crate::dialogs::confirm(&mut app, id).unwrap();
-        assert_eq!(asked.borrow().len(), 1, "OK asks for the map");
+        assert!(app.file_dialog_open(), "OK leaves the map picker pending");
+        // The frame shows the picker (the service is asked then) and acts on its answer.
         app.poll_file_dialog(&ctx, None);
+        assert_eq!(asked.borrow().len(), 1, "OK asks for the map");
         assert_eq!(app.session.active().unwrap().history.past_len(), steps + 1, "Displace ran with the chosen map");
         // Cancelled: nothing is applied.
         let id = open(&mut app, "filter.distort.displace").unwrap();
