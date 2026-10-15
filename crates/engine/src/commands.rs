@@ -4,7 +4,7 @@ use photocraft_color::{BlendMode, Color, ColorMode, SampleType};
 use photocraft_doc::{Adjustment, Document, Fill, Layer, LayerContent, LayerId, LayerMask, Size};
 use photocraft_geom::Rect;
 use photocraft_raster::Surface;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::{EngineError, Result, Session, inspect, pixels};
 
@@ -253,7 +253,10 @@ pub(crate) fn parse_hex(s: &str) -> Option<[f32; 4]> {
 }
 /// Layer › Create / Release Clipping Mask. With a `layer` param, just that layer. Otherwise, as in
 /// Photoshop, the selection (#1248): Create clips every selected layer except the lowest, which
-/// becomes the base; Release releases every selected layer. One history step either way.
+/// becomes the base; Release releases every selected layer. Releasing a clipped layer also
+/// releases the clipped layers above it in its group, as Adobe documents ("removes the selected
+/// layer and any layers above it from the clipping mask"), so none is left clipped to a layer
+/// that is no longer clipped. One history step either way.
 fn set_clipped(s: &mut Session, p: &Value, clip: bool) -> Result<Value> {
     let label = if clip { "Create Clipping Mask" } else { "Release Clipping Mask" };
     let ids: Vec<LayerId> = if p.get("layer").is_some() {
@@ -266,6 +269,20 @@ fn set_clipped(s: &mut Session, p: &Value, clip: bool) -> Result<Value> {
             (true, [_base, rest @ ..]) => rest.to_vec(),
             (false, all) => all.to_vec(),
         }
+    };
+    let ids = if clip {
+        ids
+    } else {
+        let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
+        let mut all = ids.clone();
+        for id in ids.iter().filter(|id| doc.layer(**id).is_some_and(|l| l.clipped)) {
+            for above in crate::clip_group::clipped_above(doc, *id) {
+                if !all.contains(&above) {
+                    all.push(above);
+                }
+            }
+        }
+        all
     };
     s.edit(label, |doc, _| {
         for id in &ids {
@@ -381,12 +398,12 @@ fn destructive_adjust(s: &mut Session, label: &str, adj: Adjustment, p: &Value) 
         });
     }
     if crate::channel_cmds::is_channel_target(p) {
-        // Alpha channel / Quick Mask target: the adjustment runs on the grayscale channel.
+        // Alpha channel / Quick Mask target: the adjustment runs on the grayscale channel as on
+        // a layer mask, its unstored black included, so ⌘I in Quick Mask inverts it all (#6095).
         return s.edit(label, |doc, _| {
             let sel = doc.selection.clone();
             if let Some(surf) = crate::channel_cmds::channel_surface_for_filter(doc, None, p)? {
-                pixels::adjust_surface(surf, &adj, sel.as_ref(), ColorMode::Grayscale);
-                surf.prune();
+                pixels::adjust_mask(surf, &adj, sel.as_ref());
             }
             Ok(Value::Null)
         });
@@ -412,6 +429,31 @@ pub fn adjustment_from_params(kind: &str, p: &Value) -> Adjustment {
 
 fn doc_mode(s: &Session) -> ColorMode {
     s.active().map_or(ColorMode::Rgb, |d| d.doc.mode)
+}
+
+/// The colour mode a destructive adjustment parses its tone space in: a targeted layer mask,
+/// saved channel or Quick Mask holds gray levels whatever the document's mode, so Curves and
+/// Levels stay in the neutral space instead of Lab (where the composite is ignored) or CMYK
+/// (where the curve runs on the inks) (#5335).
+fn adjust_mode(s: &Session, p: &Value) -> ColorMode {
+    if is_mask_target(p) || crate::channel_cmds::is_channel_target(p) { ColorMode::Grayscale } else { doc_mode(s) }
+}
+
+/// Tone params for a gray plane target: the document-space channel records are dropped, because
+/// those keys select the Lab or CMYK tone space and a plane only holds levels (#5335).
+fn gray_tone_params(p: &Value) -> Value {
+    match p {
+        Value::Object(m) => {
+            let mut o = Map::new();
+            for (k, v) in m {
+                if !matches!(k.as_str(), "cyan" | "magenta" | "yellow" | "black" | "lightness" | "a" | "b") {
+                    o.insert(k.clone(), v.clone());
+                }
+            }
+            Value::Object(o)
+        }
+        other => other.clone(),
+    }
 }
 
 // ---------- the table ----------
@@ -1269,7 +1311,16 @@ fn build() -> Vec<CommandSpec> {
                 });
                 let adj = match eyedropped {
                     Some(adj) => adj,
-                    None => crate::adjust_params::from_params(&kind, p, None, doc_mode(s))?,
+                    None => {
+                        // A gray plane target keeps the neutral tone space even over params
+                        // carrying Lab or CMYK records (#5335).
+                        let tone = if is_mask_target(p) || crate::channel_cmds::is_channel_target(p) {
+                            if matches!(kind.as_str(), "levels" | "curves") { gray_tone_params(p) } else { p.clone() }
+                        } else {
+                            p.clone()
+                        };
+                        crate::adjust_params::from_params(&kind, &tone, None, adjust_mode(s, p))?
+                    }
                 };
                 let label = adj.label().to_string();
                 // A smart object records the adjustment as a smart filter (Photoshop), which
