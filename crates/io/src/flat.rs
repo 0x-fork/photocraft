@@ -798,10 +798,10 @@ fn cmyk_image_to_srgb(img: &Image) -> Result<Image, IoError> {
     Ok(Image::from_normalized(w, h, layout, sample, &out)?.with_icc(Some(dst.to_bytes().to_vec())).with_meta(img.meta.clone()))
 }
 
-/// Indexed Color → PNG-8 with its colour table; Duotone → the inks rendered as RGB.
+/// Indexed Color → PNG-8 or an 8-bit BMP with its colour table; Duotone → the inks rendered as RGB.
 fn export_mode_specific(doc: &Document, format: Format, opts: &ExportOptions) -> Result<Option<ExportResult>, IoError> {
     match doc.mode {
-        ColorMode::Indexed if format == Format::Png => {
+        ColorMode::Indexed if matches!(format, Format::Png | Format::Bmp) => {
             let Some(table) = doc.color_table.as_ref().filter(|t| !t.colors.is_empty() && t.colors.len() <= 256) else { return Ok(None) };
             let mut idx = try_buffer(doc.size.area() as usize, 1)?;
             let _ = photocraft_compose::render_bands(doc, doc.bounds(), 0, |band| -> Result<(), ()> {
@@ -811,6 +811,14 @@ fn export_mode_specific(doc: &Document, format: Format, opts: &ExportOptions) ->
                 }));
                 Ok(())
             });
+            if format == Format::Bmp {
+                let bytes = codecs::encode_bmp_indexed(doc.size.width, doc.size.height, &idx, &table.colors)?;
+                let mut warnings = vec![format!("written as an 8-bit palette BMP ({} colours)", table.colors.len())];
+                if let Some(t) = table.transparent {
+                    warnings.push(format!("BMP has no transparency; transparent pixels are written in the colour of palette entry {t}"));
+                }
+                return Ok(Some(ExportResult { bytes, warnings }));
+            }
             // Same rule as the ordinary PNG encoder: the resolution goes into `pHYs` with the metadata.
             let dpi = opts.encode.embed_metadata.then_some((doc.resolution_dpi, doc.resolution_dpi));
             let bytes = codecs::encode_png_indexed(doc.size.width, doc.size.height, &idx, &table.colors, table.transparent, dpi)?;

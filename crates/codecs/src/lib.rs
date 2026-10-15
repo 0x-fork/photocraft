@@ -128,6 +128,12 @@ pub fn bmp_palette(bytes: &[u8]) -> Result<Option<Vec<[u8; 3]>>, CodecError> {
     via_image::bmp_palette(bytes)
 }
 
+/// Encodes `indices` (row-major, one byte per pixel) as an 8-bit palette BMP with the colour
+/// table `palette` (1 to 256 entries). Used for Indexed Color documents; BMP has no transparency.
+pub fn encode_bmp_indexed(width: u32, height: u32, indices: &[u8], palette: &[[u8; 3]]) -> Result<Vec<u8>, CodecError> {
+    via_image::encode_bmp_indexed(width, height, indices, palette)
+}
+
 /// Lists the pages (image directories) of a TIFF or BigTIFF file without decoding pixels: the
 /// main IFD chain and its SubIFDs, each with its size, kind (page, reduced-resolution copy or
 /// mask) and storage. [`TiffInfo::default_page`] is the page [`decode`] opens.
