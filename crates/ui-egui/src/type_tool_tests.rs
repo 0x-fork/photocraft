@@ -10,7 +10,7 @@ use photocraft_doc::{LayerContent, LayerId, TextLayer};
 use photocraft_geom::{Affine, Point};
 use serde_json::json;
 
-use super::{layout, text_layer};
+use super::{PathClick, layout, path_target, text_layer};
 use crate::PhotocraftApp;
 use crate::canvas::ViewXform;
 
@@ -2061,4 +2061,80 @@ fn type_mask_shift_adds_and_alt_subtracts_without_a_layer_row() {
     type_and_commit(&mut app, Modifiers::ALT);
     assert!(at(&app, stem.0, stem.1) < 0.01, "⌥ subtracts the glyphs");
     assert!(at(&app, 1050, 150) > 0.99, "and keeps the rest");
+}
+
+fn ellipse_layer(app: &mut PhotocraftApp) -> u64 {
+    app.run("shape.create", json!({"kind": "ellipse", "rect": [200, 200, 400, 300], "fill": "#dddddd"})).unwrap()["layer"].as_u64().unwrap()
+}
+
+fn click_at(app: &mut PhotocraftApp, x: f64, y: f64) {
+    use crate::canvas::{ToolEvent, tool_event};
+    tool_event(app, ToolEvent::Down { x, y, pressure: 1.0 }, Modifiers::NONE);
+    tool_event(app, ToolEvent::Up { x, y }, Modifiers::NONE);
+}
+
+#[test]
+fn clicking_inside_a_shape_starts_area_type_in_one_step() {
+    use photocraft_doc::text::TextShape;
+    let mut app = new_app();
+    let shape = ellipse_layer(&mut app);
+    assert!(matches!(path_target(&app, 400.0, 350.0), Some(PathClick::Area { shape: Some(s) }) if s == shape));
+    let before = app.session.active().unwrap().history.entries().len();
+    click_at(&mut app, 400.0, 350.0);
+    let id = LayerId(app.ui.text_edit.as_ref().expect("editing").layer);
+    let st = app.session.active().unwrap();
+    assert!(matches!(text_layer(&st.doc, id).unwrap().shape, TextShape::Area { .. }));
+    assert_eq!(st.history.entries().len(), before + 1, "create + fill is one step");
+    super::commit(&mut app);
+    app.run("edit.undo", json!({})).unwrap();
+    assert!(app.session.active().unwrap().doc.layer(id).is_none());
+}
+
+#[test]
+fn clicking_on_a_path_outline_starts_type_on_the_path_where_clicked() {
+    use photocraft_doc::text::TextShape;
+    let mut app = new_app();
+    ellipse_layer(&mut app);
+    // The ellipse's bottom point (400, 500); its perimeter is about 1105 px.
+    let Some(PathClick::OnPath { start, .. }) = path_target(&app, 400.0, 500.0) else { panic!("on the outline") };
+    assert!((0.0..1110.0).contains(&start), "{start}");
+    // A point a quarter of the way further round is about 276 px further along (mod the perimeter).
+    let Some(PathClick::OnPath { start: right, .. }) = path_target(&app, 600.0, 350.0) else { panic!("on the outline") };
+    let d = (right - start).rem_euclid(1105.0);
+    assert!((d - 276.0).abs() < 15.0 || (d - 829.0).abs() < 15.0, "{start} → {right}");
+    click_at(&mut app, 400.0, 500.0);
+    let id = LayerId(app.ui.text_edit.as_ref().unwrap().layer);
+    assert!(
+        matches!(text_layer(&app.session.active().unwrap().doc, id).unwrap().shape, TextShape::Path { start: s, .. } if (f64::from(s) - start).abs() < 0.01)
+    );
+}
+
+#[test]
+fn click_outside_paths_still_makes_point_text() {
+    use photocraft_doc::text::TextShape;
+    let mut app = new_app();
+    ellipse_layer(&mut app);
+    assert!(path_target(&app, 1200.0, 700.0).is_none());
+    click_at(&mut app, 1200.0, 700.0);
+    let id = LayerId(app.ui.text_edit.as_ref().unwrap().layer);
+    assert_eq!(text_layer(&app.session.active().unwrap().doc, id).unwrap().shape, TextShape::Point);
+    // A drag inside the shape still makes a text box, as in Photoshop.
+    let mut app = new_app();
+    ellipse_layer(&mut app);
+    use crate::canvas::{ToolEvent, tool_event};
+    tool_event(&mut app, ToolEvent::Down { x: 300.0, y: 300.0, pressure: 1.0 }, Modifiers::NONE);
+    tool_event(&mut app, ToolEvent::Move { x: 450.0, y: 400.0, pressure: 1.0 }, Modifiers::NONE);
+    tool_event(&mut app, ToolEvent::Up { x: 450.0, y: 400.0 }, Modifiers::NONE);
+    let id = LayerId(app.ui.text_edit.as_ref().unwrap().layer);
+    assert!(matches!(text_layer(&app.session.active().unwrap().doc, id).unwrap().shape, TextShape::Box { .. }));
+}
+
+#[test]
+fn type_mask_tools_ignore_paths() {
+    let mut app = new_app();
+    ellipse_layer(&mut app);
+    app.ui.tool = crate::state::Tool::HorizontalTypeMask;
+    click_at(&mut app, 400.0, 350.0);
+    let id = LayerId(app.ui.text_edit.as_ref().unwrap().layer);
+    assert_eq!(text_layer(&app.session.active().unwrap().doc, id).unwrap().shape, photocraft_doc::text::TextShape::Point);
 }

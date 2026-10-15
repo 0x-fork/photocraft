@@ -296,6 +296,53 @@ pub fn pointer_move(app: &mut PhotocraftApp, x: f64, y: f64) {
     }
 }
 
+/// What a Type tool click on a path does, like Photoshop: inside a closed path, area type;
+/// on a path's outline, type on the path from that point.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum PathClick {
+    Area { shape: Option<u64> },
+    OnPath { shape: Option<u64>, subpath: usize, start: f64 },
+}
+
+/// Arc length (px) along `sub` from its first anchor to segment `seg` at curve parameter `t`.
+fn arc_length_to(sub: &photocraft_doc::Subpath, seg: usize, t: f64) -> f64 {
+    const PIECES: usize = 32;
+    let eval = photocraft_vector::edit::eval;
+    let length = |s: &[Point; 4], upto: f64| {
+        (1..=PIECES)
+            .fold((0.0, eval(s, 0.0)), |(len, prev), j| {
+                let q = eval(s, upto * j as f64 / PIECES as f64);
+                (len + (q.x - prev.x).hypot(q.y - prev.y), q)
+            })
+            .0
+    };
+    let segs = sub.segments();
+    let whole: f64 = segs.iter().take(seg).map(|s| length(s, 1.0)).sum();
+    whole + segs.get(seg).map_or(0.0, |s| length(s, t.clamp(0.0, 1.0)))
+}
+
+/// The path a Type tool click at document `(x, y)` would use: the active shape layer's path,
+/// else the work path (the path Photoshop shows), within 4 screen px of its outline or inside it.
+pub(crate) fn path_target(app: &PhotocraftApp, x: f64, y: f64) -> Option<PathClick> {
+    use photocraft_vector::edit::{Hit, hit};
+    let (shape, path) = match crate::vector_ui::active_shape_path(app) {
+        Some((id, p)) => (Some(id), p),
+        None => (None, app.session.active()?.doc.work_path.clone()?),
+    };
+    let tol = 4.0 / app.point_zoom().max(0.01) as f64;
+    let on_path = |sp: usize, k: usize, t: f64| {
+        let sub = path.subpaths.get(sp)?;
+        Some(PathClick::OnPath { shape, subpath: sp, start: arc_length_to(sub, k, t) })
+    };
+    match hit(&path, Point::new(x, y), tol, &[]) {
+        Some(Hit::Segment([sp, k], t)) => return on_path(sp, k, t),
+        Some(Hit::Anchor([sp, k])) => return on_path(sp, k, 0.0),
+        _ => {}
+    }
+    let area = photocraft_text::area::AreaShape::new(&path, false)?;
+    area.contains(x as f32, y as f32).then_some(PathClick::Area { shape })
+}
+
 /// Pointer up. `rect` is the dragged box (document px) when no edit session consumed the press.
 pub fn pointer_up(app: &mut PhotocraftApp, start: [f64; 2], end: [f64; 2]) {
     if let Some(e) = app.ui.text_edit.as_mut() {
@@ -307,6 +354,9 @@ pub fn pointer_up(app: &mut PhotocraftApp, start: [f64; 2], end: [f64; 2]) {
     let min = 4.0 / app.point_zoom().max(0.01) as f64;
     let o = app.ui.tool_options.clone();
     let mask = app.ui.tool.is_type_mask();
+    // A click (not a drag) with the Type tool on a path: area type inside a closed path, type
+    // on the path on its outline. The Type Mask tools ignore paths.
+    let target = if !mask && !(w >= min && h >= min) { path_target(app, start[0], start[1]) } else { None };
     // Preferences ▸ Type: "Fill new type layers with placeholder text" (on by default). The Type
     // Mask tools start empty, as Photoshop's do.
     let text = if !mask && app.session.prefs().type_.fill_new_type_layers_with_placeholder { PLACEHOLDER } else { "" };
@@ -330,6 +380,15 @@ pub fn pointer_up(app: &mut PhotocraftApp, start: [f64; 2], end: [f64; 2]) {
     if let Ok(v) = app.run("type.create", p)
         && let Some(id) = v.get("layer").and_then(serde_json::Value::as_u64)
     {
+        match &target {
+            Some(PathClick::Area { shape }) => {
+                let _ = app.run("type.fillPath", json!({"layer": id, "shape": shape, "coalesce": key}));
+            }
+            Some(PathClick::OnPath { shape, subpath, start }) => {
+                let _ = app.run("type.attachToPath", json!({"layer": id, "shape": shape, "subpath": subpath, "start": start, "coalesce": key}));
+            }
+            None => {}
+        }
         if o.type_aa != "sharp" {
             let _ = app.run("type.edit", json!({"layer": id, "antialias": o.type_aa, "coalesce": key}));
         }
@@ -1040,6 +1099,17 @@ pub fn draw_overlay(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewX
                     let r = egui::Rect::from_center_size(*p, egui::vec2(7.0, 7.0));
                     painter.rect_filled(r, 0.0, Color32::WHITE);
                     painter.rect_stroke(r, 0.0, frame, egui::StrokeKind::Inside);
+                }
+            }
+        }
+        // Area type: the outline of the shape it wraps inside.
+        Some(photocraft_doc::text::TextShape::Area { path }) => {
+            if !has_transform {
+                for poly in photocraft_vector::flatten::flatten_path(&path, 0.5) {
+                    let pts: Vec<Pos2> = poly.pts.iter().map(|&(x, y)| scr_t(x as f32, y as f32)).collect();
+                    if pts.len() >= 2 {
+                        painter.add(egui::Shape::closed_line(pts, frame));
+                    }
                 }
             }
         }
