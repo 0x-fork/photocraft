@@ -1329,11 +1329,23 @@ fn box_line(src: &[f64], x0: i64, dst: &mut [f64], bw: f32) {
         }
         return;
     }
-    let mut inner: f64 = (x0 - (r - 1)..=x0 + (r - 1)).map(at).sum();
+    let window = x0 - (r - 1)..=x0 + (r - 1);
+    let mut inner: f64 = window.clone().map(at).sum();
+    let mut nonzero = window.map(at).filter(|v| *v != 0.0).count();
     for (k, d) in dst.iter_mut().enumerate() {
         let x = x0 + k as i64;
         *d = (inner + f * (at(x - r) + at(x + r))) * norm;
-        inner += at(x + r) - at(x - r + 1);
+        let entering = at(x + r);
+        let leaving = at(x - r + 1);
+        inner += entering - leaving;
+        nonzero += usize::from(entering != 0.0);
+        nonzero -= usize::from(leaving != 0.0);
+        // Cancellation can leave positive residue after the last covered pixel leaves.
+        // Noise amplifies even that residue into visible speckles (#5638). Reset only
+        // truly empty windows, preserving arbitrarily faint real coverage.
+        if nonzero == 0 {
+            inner = 0.0;
+        }
     }
 }
 
@@ -3191,6 +3203,16 @@ mod tests {
         // Full noise can punch holes even in the solid part.
         let heavy = shadow(1.0, (0, 0));
         assert!(heavy.v.iter().any(|v| *v < 0.5) && heavy.v.iter().any(|v| *v > 0.5), "heavy noise spans the range",);
+    }
+
+    #[test]
+    fn box_blur_preserves_faint_coverage_and_empty_gaps() {
+        let src = [0.0, 0.3, 0.7, 0.0, 0.0, 0.0, 0.0, 1e-20, 0.0, 0.0, 0.0];
+        let mut actual = [0.0; 11];
+        box_line(&src, 0, &mut actual, 3.0);
+        assert_eq!(actual[5], 0.0, "an empty window must be exactly empty");
+        assert_eq!(actual[10], 0.0, "the second tail must also be empty");
+        assert!((actual[7] - 1e-20 / 3.0).abs() < 1e-30, "real faint coverage is not rounded away");
     }
 
     #[test]
