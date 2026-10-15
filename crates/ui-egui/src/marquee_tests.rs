@@ -147,6 +147,23 @@ fn shift_during_the_drag_draws_a_square_and_the_readout_follows() {
     assert!(h.query_by_label("W:").is_none() && h.query_by_label_contains(" px").is_none(), "the readout goes away with the drag");
 }
 
+/// #5472: a ⇧ square pressed between pixels read 101 × 102 and selected that, because each axis
+/// snapped to the pixel grid on its own. The readout and the selection are square, and the
+/// Elliptical Marquee's circle too.
+#[test]
+fn shift_square_pressed_between_pixels_has_equal_sides() {
+    for tool in [Tool::RectMarquee, Tool::EllipseMarquee] {
+        let mut h = harness(tool);
+        press_at(&mut h, 50.3, 50.7, Modifiers::NONE);
+        mods(&mut h, Modifiers::SHIFT);
+        move_to(&mut h, 150.8, 90.0);
+        assert!(readout(&h, 102, 102), "{tool:?}: the square covers every pixel it touched, on both axes");
+        release_at(&mut h, 150.8, 90.0, Modifiers::SHIFT);
+        mods(&mut h, Modifiers::NONE);
+        assert_eq!(selection(&h), Rect::new(50, 50, 152, 152), "{tool:?}");
+    }
+}
+
 /// #204: Preferences › Tools › Show Transformation Values off hides the readout, not the marquee.
 #[test]
 fn show_transformation_values_off_hides_the_readout() {
@@ -527,6 +544,15 @@ fn mouse_drag_inside_the_selection_moves_it() {
     press_at(&mut h, 150.0, 120.0, Modifiers::NONE);
     release_at(&mut h, 170.0, 130.0, Modifiers::NONE);
     assert_eq!(selection(&h), Rect::new(120, 90, 220, 170), "moved by (20, 10)");
+}
+
+/// #5646: the Move tool keeps Photoshop's arrow pointer instead of the 4-way move cursor (the
+/// hover outline still marks the layer under the pointer).
+#[test]
+fn the_move_tool_keeps_the_arrow_pointer() {
+    let mut h = harness(Tool::Move);
+    move_to(&mut h, 200.0, 150.0);
+    assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::Default);
 }
 
 /// #1428: hovering inside the ants with a marquee shows the move cursor (a press there drags the
