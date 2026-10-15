@@ -28,6 +28,15 @@ fn params(cmd: &str) -> Value {
     if cmd == "window.panel.close" { json!({"panel": "history"}) } else { json!({}) }
 }
 
+/// The command and params an item runs: with a snapshot selected in the panel, Delete removes
+/// that snapshot, as the panel's trash does (#5324); otherwise it removes the current state.
+fn resolve(cmd: &str, snapshot: Option<u64>) -> (&str, Value) {
+    match snapshot {
+        Some(id) if cmd == "history.deleteState" => ("history.deleteSnapshot", json!({"snapshot": id})),
+        _ => (cmd, params(cmd)),
+    }
+}
+
 fn enabled(app: &PhotocraftApp, cmd: &str) -> bool {
     if cmd == "window.panel.close" {
         return !app.session.prefs().workspace_locked;
@@ -38,20 +47,22 @@ fn enabled(app: &PhotocraftApp, cmd: &str) -> bool {
 
 /// Draw the History items of the panel menu and run the one clicked.
 pub fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    let snapshot = app.session.active().and_then(|st| crate::panels::selected_snapshot(ui.ctx(), st));
     let mut clicked: Option<&str> = None;
     for &(label, cmd) in ITEMS {
         if label == "---" {
             ui.separator();
             continue;
         }
-        let on = cmd.is_some_and(|c| enabled(app, c));
+        let on = cmd.is_some_and(|c| enabled(app, resolve(c, snapshot).0));
         if ui.add_enabled(on, egui::Button::new(crate::i18n::t(label))).clicked() {
             clicked = cmd;
         }
     }
     let Some(cmd) = clicked else { return };
     ui.close();
-    if let Err(e) = app.run(cmd, params(cmd)) {
+    let (cmd, params) = resolve(cmd, snapshot);
+    if let Err(e) = app.run(cmd, params) {
         app.ui.status = e;
         app.ui.status_error = true;
     }
@@ -138,6 +149,29 @@ mod tests {
         for label in ["Step Backward", "Delete", "Clear History", "New Document"] {
             assert!(is_disabled(&h, label), "{label}");
         }
+    }
+
+    /// With a snapshot selected in the panel, Delete removes the snapshot and leaves the states,
+    /// as the panel's trash does (#5324); without one it removes the current state.
+    #[test]
+    fn delete_removes_the_selected_snapshot() {
+        let mut app = app();
+        app.run("history.newSnapshot", json!({})).unwrap();
+        let mut h = harness(app);
+        let snaps = |h: &Harness<'static, PhotocraftApp>| h.state().session.active().unwrap().snapshots.len();
+        let before = snaps(&h);
+        let id = h.state().session.active().unwrap().snapshots.last().unwrap().id;
+        let ctx = h.ctx.clone();
+        crate::panels::select_snapshot(&ctx, h.state().session.active().unwrap(), id);
+        h.run_steps(2);
+        let steps = states(&h);
+        click(&mut h, "Delete");
+        assert!(!h.state().ui.status_error, "{}", h.state().ui.status);
+        assert_eq!(snaps(&h), before - 1, "Delete removed the selected snapshot");
+        assert_eq!(states(&h), steps, "and left the states alone");
+        click(&mut h, "Delete");
+        assert_eq!(snaps(&h), before - 1, "no snapshot selected now: the snapshots are kept");
+        assert_eq!(states(&h).0, steps.0 - 1, "the current state is deleted");
     }
 
     /// The labels aren't `tl!` literals, so the catalog scan can't see them: every language that
