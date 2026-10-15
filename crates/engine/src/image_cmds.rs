@@ -71,11 +71,12 @@ pub(crate) fn for_each_layer(layers: &mut [Layer], f: &mut dyn FnMut(&mut Layer)
     }
 }
 
-/// Assign new layer ids to a copied document and update every saved layer-comp reference.
+/// Assign new layer ids to a copied document and update every saved layer reference.
 ///
-/// A document copy needs fresh identities, but its comps must still target the copied
-/// layers. Deliberately leave references to already-deleted layers untouched so their
-/// missing-layer warnings remain meaningful. The same applies to Last Document State.
+/// A document copy needs fresh identities, but its comps and variable definitions must
+/// still target the copied layers. Deliberately leave references to already-deleted
+/// layers untouched so their missing-layer warnings remain meaningful. The same applies
+/// to Last Document State.
 pub(crate) fn reidentify_copied_layers(doc: &mut Document) {
     let mut ids = std::collections::HashMap::new();
     for_each_layer(&mut doc.layers, &mut |layer| {
@@ -96,6 +97,11 @@ pub(crate) fn reidentify_copied_layers(doc: &mut Document) {
     }
     if let Some(last) = &mut doc.last_document_state {
         remap(last);
+    }
+    for def in &mut doc.variables.defs {
+        if let Some(&new_id) = ids.get(&def.layer) {
+            def.layer = new_id;
+        }
     }
 }
 
@@ -735,6 +741,9 @@ fn duplicate(s: &mut Session, p: &Value) -> Result<Value> {
         doc.layer_comps.clear();
         doc.last_applied_comp = None;
         doc.last_document_state = None;
+        // Likewise, variables drove template layers that no longer exist: drop the whole
+        // binding set (defs, data sets and the active index) on the flattened copy.
+        doc.variables = photocraft_doc::Variables::default();
     }
     reidentify_copied_layers(&mut doc);
     let name = doc.name.clone();

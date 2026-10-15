@@ -3661,3 +3661,17 @@ curves	Smooth	Làm mượt
 # View › Guides › right-click a guide
 	Edit Selected Guides	Sửa đường căn đã chọn
 	Clear Selected Guides	Xóa đường căn đã chọn
+	Delete this set	Xóa bộ này
+	New Set…	Bộ mới…
+	PhotoCraft Defaults	Mặc định của PhotoCraft
+	Save a list of these shortcuts as a web page	Lưu danh sách các phím tắt này thành trang web
+	Save the changes to this set	Lưu thay đổi vào bộ này
+	Save these shortcuts as a .kys file	Lưu các phím tắt này thành tệp .kys
+	Save these shortcuts as a new set	Lưu các phím tắt này thành bộ mới
+	Set deleted.	Đã xóa bộ.
+	Set saved.	Đã lưu bộ.
+	Set:	Bộ:
+	Summarize…	Tóm tắt…
+	There are too many sets: delete one first.	Có quá nhiều bộ: hãy xóa một bộ trước.
+	set name	tên bộ
+	{set} (modified)	{set} (đã sửa đổi)
