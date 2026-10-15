@@ -19,6 +19,7 @@ pub mod exif_color;
 mod fidelity;
 mod format;
 mod image;
+mod lab;
 mod options;
 pub mod orientation;
 pub mod resolution;
@@ -79,6 +80,7 @@ pub fn decode_as_with(format: Format, bytes: &[u8], opts: &DecodeOptions) -> Res
         Format::Dds => dds::decode(bytes, l),
         Format::Fits => fits::decode(bytes, l),
         Format::Dpx => dpx::decode(bytes, l),
+        Format::Cineon => dpx::decode_cineon(bytes, l),
         Format::Iff => iff::decode(bytes, l),
         Format::OpenExr => exr::decode(bytes, l),
         Format::Heif => heif::decode(bytes, l, opts.keep_orientation),
@@ -98,6 +100,7 @@ pub fn decode_as_with(format: Format, bytes: &[u8], opts: &DecodeOptions) -> Res
         Format::Tiff => tiff::orientation(bytes, None),
         Format::Heif => 1,
         Format::Dpx => dpx::orientation(bytes),
+        Format::Cineon => dpx::cineon_orientation(bytes),
         _ => img.meta.exif.as_deref().map_or(1, exif_orientation),
     };
     finish_decode(img, o, opts)
@@ -253,6 +256,7 @@ pub fn encode(image: &Image, format: Format, opts: &EncodeOptions) -> Result<Vec
         Format::Dds => Err(CodecError::unsupported(format, "DDS is import-only; save as PNG instead")),
         Format::Fits => fits::encode(image, plan, opts),
         Format::Dpx => dpx::encode(image, plan, opts),
+        Format::Cineon => Err(CodecError::unsupported(format, "Cineon is import-only; save as DPX, TIFF or EXR instead")),
         Format::Iff => Err(CodecError::unsupported(format, "IFF/ILBM is import-only; save as PNG instead")),
         Format::OpenExr => exr::encode(image, plan, opts),
         Format::Heif => Err(CodecError::unsupported(format, "encoding is not available in this build")),
