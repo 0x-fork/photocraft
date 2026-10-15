@@ -3986,3 +3986,7 @@ layerLabel	No Color	Sem cor
 	Take the shortcut from the other command and select it	Tirar o atalho do outro comando e selecioná-lo
 	Undo Changes	Desfazer alterações
 	{shortcut} is reserved by the system and can't be assigned.	{shortcut} é reservado pelo sistema e não pode ser atribuído.
+	Low-Latency Drawing (vsync off, applies at next launch)	Desenho de baixa latência (sem sincronização vertical, aplicado na próxima inicialização)
+# Free Transform: a new layer while the box is open (#5859)
+	Free Transform is still being applied; try again when it has finished.	A Transformação livre ainda está sendo aplicada; tente novamente quando terminar.
+	The transform couldn't be applied.	Não foi possível aplicar a transformação.

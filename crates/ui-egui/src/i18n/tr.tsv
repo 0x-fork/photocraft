@@ -3926,3 +3926,7 @@ cameraData	Lens	Lens
 	Take the shortcut from the other command and select it	Kısayolu diğer komuttan al ve o komutu seç
 	Undo Changes	Değişiklikleri Geri Al
 	{shortcut} is reserved by the system and can't be assigned.	{shortcut} sistem tarafından ayrılmıştır ve atanamaz.
+	Low-Latency Drawing (vsync off, applies at next launch)	Düşük gecikmeli çizim (dikey eşitleme kapalı, sonraki açılışta geçerli)
+# Free Transform: a new layer while the box is open (#5859)
+	Free Transform is still being applied; try again when it has finished.	Serbest Dönüştürme hâlâ uygulanıyor; bittiğinde yeniden deneyin.
+	The transform couldn't be applied.	Dönüştürme uygulanamadı.

@@ -3188,3 +3188,7 @@ curves	Smooth	Haluskan
 	Take the shortcut from the other command and select it	Ambil pintasan dari perintah lain dan pilih perintah itu
 	Undo Changes	Batalkan Perubahan
 	{shortcut} is reserved by the system and can't be assigned.	{shortcut} dicadangkan oleh sistem dan tidak dapat ditetapkan.
+	Low-Latency Drawing (vsync off, applies at next launch)	Menggambar latensi rendah (tanpa vsync, berlaku saat peluncuran berikutnya)
+# Free Transform: a new layer while the box is open (#5859)
+	Free Transform is still being applied; try again when it has finished.	Transformasi Bebas masih diterapkan; coba lagi setelah selesai.
+	The transform couldn't be applied.	Transformasi tidak dapat diterapkan.
