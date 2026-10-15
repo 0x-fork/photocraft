@@ -938,6 +938,10 @@ pub struct Preferences {
     /// ([`ALTERNATE_SHORTCUTS`]); an empty list removes them. Settings files from before this
     /// map load with nothing stored, so every command keeps its defaults.
     pub alternate_shortcuts: BTreeMap<String, Vec<String>>,
+    /// Edit › Keyboard Shortcuts › Set: saved shortcut sets by name (`crate::shortcut_sets`).
+    pub shortcut_sets: BTreeMap<String, crate::shortcut_sets::ShortcutSet>,
+    /// The saved set in use ("" for the defaults).
+    pub shortcut_set: String,
     pub menus: MenuCustomization,
     pub toolbar: ToolbarCustomization,
     /// Edit › Check Spelling: words added to the dictionary ("Add").
@@ -1553,7 +1557,7 @@ impl Session {
         for st in &mut self.docs {
             st.history.max_states = n;
             st.history.max_bytes = bytes;
-            st.history.trim(&st.doc);
+            st.trim_history();
         }
         photocraft_compose::set_effect_cache_budget(budget << 20);
         // Without waiting for the system font scan: this runs on the UI thread at launch.
@@ -1837,7 +1841,8 @@ fn keyboard_shortcuts(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "edit.keyboardShortcuts";
     // Every change lands at once, after all of it validated: a bad key leaves the set as it was.
     let mut next = s.prefs().clone();
-    let mut changed = false;
+    // A set loads first, so the call's other changes apply on top of it.
+    let mut changed = crate::shortcut_sets::load(&mut next, p).map_err(|e| bad(cmd, e))?;
     if let Some(r) = p.get("reset") {
         match r {
             Value::Bool(true) => {
@@ -1887,6 +1892,7 @@ fn keyboard_shortcuts(s: &mut Session, p: &Value) -> Result<Value> {
                 "alternates": plan.alternates,
                 "alternateKeys": plan.alternate_keys,
                 "toolKeys": set.tool_keys,
+                "windows": set.windows,
             }));
             let mut with_import = p.clone();
             with_import["set"] = Value::Object(merged);
@@ -1951,6 +1957,8 @@ fn keyboard_shortcuts(s: &mut Session, p: &Value) -> Result<Value> {
             }
         }
     }
+    // Then the sets are saved, deleted or switched, from the bindings as they now stand.
+    changed |= crate::shortcut_sets::store(&mut next, p).map_err(|e| bad(cmd, e))?;
     if changed {
         s.edit_prefs(|p| *p = next);
     }
@@ -1990,6 +1998,28 @@ fn keyboard_shortcuts(s: &mut Session, p: &Value) -> Result<Value> {
     let conflicts: Vec<Value> =
         conflicts(bindings.iter().map(|(id, k)| (*id, k.as_str()))).into_iter().map(|(sc, ids)| json!({"shortcut": sc, "commands": ids})).collect();
     let mut out = json!({"overrides": prefs.shortcuts, "alternateOverrides": prefs.alternate_shortcuts, "commands": list, "conflicts": conflicts});
+    if let (Some(o), Value::Object(sets)) = (out.as_object_mut(), crate::shortcut_sets::describe(prefs)) {
+        o.extend(sets);
+    }
+    // The bindings as a `.kys` file, or Photoshop's Summarize page (the engine's commands; the
+    // app's dialog writes both with the shell's commands and tools added).
+    let set_name = if prefs.shortcut_set.is_empty() { crate::shortcut_sets::DEFAULTS_NAME } else { prefs.shortcut_set.as_str() };
+    if p.get("exportKys").and_then(Value::as_bool) == Some(true) {
+        let entries: Vec<crate::kys::Entry> =
+            crate::shortcut_sets::bound(prefs).into_iter().map(|(id, label, _, keys)| crate::kys::Entry { id, label, tool: false, keys }).collect();
+        out["kys"] = json!(crate::kys::write(set_name, &entries));
+    }
+    if let Some(v) = p.get("summarize").filter(|v| !v.is_null() && *v != &json!(false)) {
+        let mac = v.get("mac").and_then(Value::as_bool).unwrap_or(cfg!(target_os = "macos"));
+        let mut sections: Vec<crate::shortcut_sets::Section> = Vec::new();
+        for (_, label, menu, keys) in crate::shortcut_sets::bound(prefs) {
+            match sections.iter_mut().find(|(m, _)| *m == menu) {
+                Some((_, rows)) => rows.push((label, keys)),
+                None => sections.push((menu, vec![(label, keys)])),
+            }
+        }
+        out["html"] = json!(crate::shortcut_sets::summarize(set_name, &sections, mac));
+    }
     if let Some(import) = import {
         out["import"] = import;
     }
@@ -2121,7 +2151,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Keyboard Shortcuts…",
             ["Edit"],
             Some("Cmd+Alt+Shift+K"),
-            r##"{"set":{"<command id>|tools.temporary.hand|zoomIn|zoomOut":"Cmd+Shift+X"|""(remove)|null(default)}?,"alternates":{"<command id>":["F3",…]|[](none)|null(default)}?,"reset":true|["<id>",…]?,"removeConflicts":bool=true,"filter":str?,"list":bool=false,"importKys":"<.kys XML>"?}"##,
+            r##"{"set":{"<command id>|tools.temporary.hand|zoomIn|zoomOut":"Cmd+Shift+X"|""(remove)|null(default)}?,"alternates":{"<command id>":["F3",…]|[](none)|null(default)}?,"reset":true|["<id>",…]?,"removeConflicts":bool=true,"filter":str?,"list":bool=false,"importKys":"<.kys XML>"?,"useSet":"<name>"|""(defaults)?,"saveSet":"<name>"?,"deleteSet":"<name>"?,"sets":{"<name>":{"shortcuts":{…},"alternateShortcuts":{…}}}?,"activeSet":"<name>"|""?,"exportKys":bool?,"summarize":bool|{"mac":bool}?}"##,
             keyboard_shortcuts,
             true
         ),
