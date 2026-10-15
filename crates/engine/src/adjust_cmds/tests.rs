@@ -527,6 +527,106 @@ fn a_targeted_mask_enables_editing_it_on_any_layer() {
     assert_eq!(rgba(&s, 23, 3), pixels);
 }
 
+/// #5335: Curves (⌘M) edits the targeted layer mask, saved channel or Quick Mask at every depth.
+#[test]
+fn curves_apply_to_non_colour_targets_at_every_depth() {
+    let area = photocraft_geom::Rect::from_xywh(0, 0, 48, 32);
+    for depth in DEPTHS {
+        for target in ["mask", "alpha", "quickMask"] {
+            let mut s = session(depth, "rgb");
+            s.execute("edit.fill", json!({"contents": "color", "color": "#336699"})).unwrap();
+            let p = match target {
+                "mask" => {
+                    s.execute("layer.layerMask.revealAll", json!({})).unwrap();
+                    json!({"points": [[0, 0], [128, 200], [255, 255]], "target": "mask"})
+                }
+                "alpha" => {
+                    s.execute("channel.new", json!({"name": "Sky sel", "fill": "white"})).unwrap();
+                    json!({"points": [[0, 0], [128, 200], [255, 255]], "target": {"channel": 0}})
+                }
+                _ => {
+                    s.execute("select.editInQuickMaskMode", json!({"on": true})).unwrap();
+                    json!({"points": [[0, 0], [128, 200], [255, 255]], "target": "quickMask"})
+                }
+            };
+            let edit_target = p.get("target").cloned().unwrap_or(json!(null));
+            s.edit("levels", |doc, active| {
+                let (surf, _) = crate::channel_cmds::target_surface(doc, *active, &json!({ "target": edit_target })).unwrap();
+                surf.fill_rect(area, &[0.5]);
+                Ok(())
+            })
+            .unwrap();
+            let read = |s: &Session| {
+                let d = s.active().unwrap();
+                let layer = d.doc.layer(d.active_layer.unwrap()).unwrap();
+                let t = match target {
+                    "quickMask" => d.doc.quick_mask.as_ref().unwrap().surface.sample_channel(8, 8, 0),
+                    "alpha" => d.doc.channels[0].surface.sample_channel(8, 8, 0),
+                    _ => layer.mask.as_ref().unwrap().surface.sample_channel(8, 8, 0),
+                };
+                (rgba(s, 8, 8), t)
+            };
+            let ((pixels, before), past) = (read(&s), s.active().unwrap().history.past_len());
+            s.execute("image.adjustments.curves", p).unwrap();
+            let (pixels_after, after) = read(&s);
+            let case = format!("{target} at {depth}");
+            assert_eq!(pixels_after, pixels, "{case}: colour pixels stay put");
+            assert!(after > before + 0.1, "{case}: the curve lifted the midtone ({before} → {after})");
+            assert_eq!(s.active().unwrap().history.past_len(), past + 1, "{case}");
+            s.undo();
+            assert!((read(&s).1 - before).abs() < 1e-5, "{case}: undo restores the target");
+        }
+    }
+}
+
+/// #5335: a layer mask, saved channel or Quick Mask holds gray levels whatever the document's
+/// colour mode: inverting 25% grey gives 75% grey in Lab and CMYK, not an untouched plane (Lab
+/// ignores the composite) or an ink-separated result (CMYK curves the inks).
+#[test]
+fn curves_on_grey_targets_ignore_the_document_colour_mode() {
+    let area = photocraft_geom::Rect::from_xywh(0, 0, 48, 32);
+    for mode in ["lab", "cmyk"] {
+        for depth in [8u64, 16] {
+            for target in ["mask", "alpha", "quickMask"] {
+                let mut s = session(depth, mode);
+                let p = match target {
+                    "mask" => {
+                        s.execute("layer.layerMask.revealAll", json!({})).unwrap();
+                        json!("mask")
+                    }
+                    "alpha" => {
+                        s.execute("channel.new", json!({"name": "Sky sel", "fill": "white"})).unwrap();
+                        json!({"channel": 0})
+                    }
+                    _ => {
+                        s.execute("select.editInQuickMaskMode", json!({"on": true})).unwrap();
+                        json!("quickMask")
+                    }
+                };
+                s.edit("levels", |doc, active| {
+                    let (surf, _) = crate::channel_cmds::target_surface(doc, *active, &json!({ "target": p })).unwrap();
+                    surf.fill_rect(area, &[0.25]);
+                    Ok(())
+                })
+                .unwrap();
+                let read = |s: &Session| match target {
+                    "quickMask" => doc(s).quick_mask.as_ref().unwrap().surface.sample_channel(8, 8, 0),
+                    "alpha" => doc(s).channels[0].surface.sample_channel(8, 8, 0),
+                    _ => mask_at(s, 8, 8),
+                };
+                let before = read(&s);
+                let pixels = rgba(&s, 8, 8);
+                s.execute("image.adjustments.curves", json!({"points": [[0, 255], [255, 0]], "target": p})).unwrap();
+                let after = read(&s);
+                let case = format!("{mode} {depth}-bit {target}");
+                assert!((before - 0.25).abs() < 0.01, "{case}: filled with 25% grey ({before})");
+                assert!((after - 0.75).abs() < 0.02, "{case}: inverting 25% grey gives 75% grey ({after})");
+                assert_eq!(rgba(&s, 8, 8), pixels, "{case}: colour pixels stay put");
+            }
+        }
+    }
+}
+
 #[test]
 fn replace_color_localized_clusters_only_change_the_colour_near_the_sample() {
     // The same cream on the left (x < 8) and the right (x ≥ 40), grey between.
