@@ -476,4 +476,57 @@ mod tests {
         let mut none = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
         pick_mode(&mut none, Pick::Mode(BlendMode::Multiply));
     }
+
+    /// With a Free Transform box or a Puppet Warp open, ⇧⌥ letters, ⇧+ / ⇧− and the number keys
+    /// still go where the tool sends them: the Brush's mode and opacity with the Brush, the
+    /// layer's with the Move tool. They never pick a tool, so the box stays open, and Enter keeps
+    /// both the transform and the layer's new mode.
+    #[test]
+    fn keys_follow_the_tool_while_a_transform_or_warp_is_open() {
+        let ctx = egui::Context::default();
+        let mut a = app(Tool::Brush);
+        a.run("select.rect", json!({"x": 4, "y": 4, "width": 12, "height": 12})).unwrap();
+        a.run("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        a.run("select.deselect", json!({})).unwrap();
+        a.sync_views();
+        crate::transform_tool::begin(&mut a, &ctx).unwrap();
+        crate::transform_tool::nudge(&mut a, 3.0, 0.0);
+        let shift_alt = egui::Modifiers::SHIFT | egui::Modifiers::ALT;
+        let opacity = |a: &PhotocraftApp| {
+            let st = a.session.active().unwrap();
+            st.doc.layer(st.active_layer.unwrap()).unwrap().opacity
+        };
+        // The Brush: its own mode and opacity.
+        key(&mut a, &ctx, Key::M, shift_alt);
+        assert_eq!(a.session.tools.brush.mode, BlendMode::Multiply);
+        key(&mut a, &ctx, Key::Num5, egui::Modifiers::NONE);
+        assert!((a.session.tools.brush.opacity - 0.5).abs() < 1e-6);
+        assert_eq!((layer_blend(&a), opacity(&a)), (BlendMode::Normal, 1.0), "the layer is left alone");
+        assert!(a.ui.transform.is_some(), "the box stays open");
+        assert_eq!(a.ui.tool, Tool::Brush, "no tool letter");
+        // The Move tool: the layer's.
+        a.ui.tool = Tool::Move;
+        a.opacity_keys = None;
+        key(&mut a, &ctx, Key::E, shift_alt);
+        key(&mut a, &ctx, Key::Num7, egui::Modifiers::NONE);
+        assert_eq!(layer_blend(&a), BlendMode::Difference);
+        assert!((opacity(&a) - 0.7).abs() < 1e-6, "{}", opacity(&a));
+        assert!(a.ui.transform.is_some());
+        key(&mut a, &ctx, Key::Enter, egui::Modifiers::NONE);
+        assert!(a.ui.transform.is_none());
+        let st = a.session.active().unwrap();
+        let l = st.doc.layer(st.active_layer.unwrap()).unwrap();
+        assert_eq!(l.blend, BlendMode::Difference, "the commit keeps it");
+        assert_eq!(l.surface().unwrap().content_bounds().x0, 7, "and the move");
+        // Puppet Warp keeps the other keys to itself, but these still reach the tool or layer.
+        crate::distort_ui::menu(&mut a, &ctx, "edit.puppetWarp", &json!({})).unwrap().unwrap();
+        assert!(a.distort.puppet.is_some());
+        key(&mut a, &ctx, Key::S, shift_alt);
+        assert_eq!(layer_blend(&a), BlendMode::Screen);
+        a.ui.tool = Tool::Brush;
+        key(&mut a, &ctx, Key::H, shift_alt);
+        assert_eq!(a.session.tools.brush.mode, BlendMode::HardLight);
+        assert_eq!(layer_blend(&a), BlendMode::Screen);
+        assert!(a.distort.puppet.is_some(), "the warp stays open");
+    }
 }

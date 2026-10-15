@@ -160,6 +160,14 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) ->
     false
 }
 
+/// Puppet Warp and Perspective Warp keep the keys to themselves, except the blend mode keys (⇧⌥
+/// letters, ⇧+ / ⇧−) and the number keys, which go on working as with Free Transform: on the
+/// active tool's mode and opacity (the Brush's with the Brush), else on the layer's.
+fn tool_keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    crate::blend_keys::handle(app, ctx);
+    crate::opacity_keys::handle(app, ctx);
+}
+
 /// Keyboard: ↩ commits, Esc cancels (and Liquify's own shortcuts). True when the key handling
 /// of the rest of the app should be skipped.
 pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
@@ -202,6 +210,8 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
             p.redo();
         } else if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z)) {
             p.undo();
+        } else {
+            tool_keys(app, ctx);
         }
         return true;
     }
@@ -210,6 +220,8 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
             crate::perspective_ui::commit(app);
         } else if esc(ctx) {
             app.distort.perspective = None;
+        } else {
+            tool_keys(app, ctx);
         }
         return true;
     }
