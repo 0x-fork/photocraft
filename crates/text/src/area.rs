@@ -14,6 +14,9 @@ use photocraft_geom::Point;
 const CURVE_PIECES: usize = 16;
 /// Largest number of edges an area keeps, so a hostile path can't make every line scan millions.
 pub const MAX_AREA_EDGES: usize = 65_536;
+/// Most shape components an area keeps: every row folds each one in, so a path of thousands of
+/// tiny shapes can't make each line cost thousands of interval merges.
+pub const MAX_AREA_COMPONENTS: usize = 4096;
 /// Largest coordinate magnitude an area accepts, so f32 math on it can't overflow.
 const MAX_COORD: f64 = 1e7;
 /// Most baselines `next_row` tries before giving up.
@@ -69,7 +72,9 @@ fn small(v: f64) -> Option<f32> {
 impl AreaShape {
     /// `None` when the path encloses nothing: no closed subpath, no height or width, an
     /// inverted (unbounded) path, coordinates that aren't finite, or more than
-    /// [`MAX_AREA_EDGES`] edges.
+    /// [`MAX_AREA_EDGES`] edges or [`MAX_AREA_COMPONENTS`] components. A component with no
+    /// closed subpath encloses nothing and is left out, so an open path drawn with Intersect
+    /// doesn't empty the shape.
     pub fn new(path: &Path, vertical: bool) -> Option<AreaShape> {
         if path.inverted {
             return None;
@@ -113,6 +118,12 @@ impl AreaShape {
                 if edges.len() > MAX_AREA_EDGES {
                     return None;
                 }
+            }
+            if edges.len() == start {
+                continue;
+            }
+            if comps.len() >= MAX_AREA_COMPONENTS {
+                return None;
             }
             if let Some(mine) = edges.get_mut(start..) {
                 mine.sort_by(|a, b| a.lo.total_cmp(&b.lo));
@@ -454,6 +465,28 @@ mod tests {
         // Below the ellipse only the tail is left.
         let s = a.spans(165.0, 183.0, 1.0);
         assert!(s.len() == 1 && s[0].0 > 190.0 && s[0].1 < 220.0, "{s:?}");
+    }
+
+    #[test]
+    fn component_without_edges_is_left_out() {
+        let rect = Subpath::polygon(&[(0.0, 0.0), (100.0, 0.0), (100.0, 50.0), (0.0, 50.0)]);
+        let open = Subpath::polyline(&[(10.0, 10.0), (90.0, 40.0)]).with_op(PathOp::Intersect);
+        let a = AreaShape::new(&Path::new(vec![rect, open]), false).unwrap();
+        let s = a.spans(10.0, 20.0, 1.0);
+        assert!(s.len() == 1 && close(s[0], (0.0, 100.0)), "{s:?}");
+    }
+
+    #[test]
+    fn too_many_components_give_no_area() {
+        let square = |i: usize| {
+            let x = (i % 100) as f64 * 3.0;
+            let y = (i / 100) as f64 * 3.0;
+            Subpath::polygon(&[(x, y), (x + 2.0, y), (x + 2.0, y + 2.0), (x, y + 2.0)])
+        };
+        let at_cap: Vec<Subpath> = (0..MAX_AREA_COMPONENTS).map(square).collect();
+        assert!(AreaShape::new(&Path::new(at_cap), false).is_some());
+        let over: Vec<Subpath> = (0..=MAX_AREA_COMPONENTS).map(square).collect();
+        assert!(AreaShape::new(&Path::new(over), false).is_none());
     }
 
     #[test]
