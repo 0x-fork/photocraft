@@ -2164,3 +2164,79 @@ fn single_size_area_paragraph_breaks_in_one_pass() {
     // Rows are planned with the paragraph's real metrics: no re-plan and no skipped spans.
     assert_eq!(crate::layout::AREA_PASSES.with(|c| c.get()), 1);
 }
+
+#[test]
+fn area_word_skips_a_narrow_span_for_a_wider_one_on_the_same_row() {
+    let mut e = TextEngine::new();
+    let mut t = point("Wonderful things happen in speech bubbles every single day.", 12.0);
+    // A U: a 24 px left arm and a wide right arm above y = 150, joined below it.
+    let path = area_poly(&[(0.0, 0.0), (24.0, 0.0), (24.0, 150.0), (80.0, 150.0), (80.0, 0.0), (300.0, 0.0), (300.0, 200.0), (0.0, 200.0)]);
+    t.shape = TextShape::Area { path: path.clone() };
+    let l = e.layout(&t, 72.0);
+    assert_lines_inside(&l, &path);
+    let first = l.lines.first().expect("the text is shown");
+    // "Wonderful" is wider than the left arm: it starts the text in the right arm, on the first
+    // row, and nothing is put in the left arm's span on that row.
+    assert_eq!(first.range.start, 0);
+    assert!(first.x0 >= 79.5, "{first:?}");
+    assert!(first.baseline < 30.0, "first row: {first:?}");
+    assert_eq!(l.lines.iter().filter(|line| (line.baseline - first.baseline).abs() < 1e-3).count(), 1, "{:?}", l.lines);
+    assert_eq!(l.lines.last().map(|line| line.range.end), Some(t.text.len()), "nothing hidden");
+}
+
+#[test]
+fn area_stacks_paragraphs_with_leading_and_space_before() {
+    let mut e = TextEngine::new();
+    let text = "First paragraph of the bubble text.\nSecond paragraph goes right after it.";
+    let mut t = point(text, 12.0);
+    let style = ParagraphStyle { space_before_pt: 6.0, ..Default::default() };
+    let leading = style.auto_leading * 12.0;
+    t.paragraphs = vec![ParagraphRun { len: text.len(), style }];
+    let path = area_poly(&[(0.0, 0.0), (120.0, 0.0), (120.0, 300.0), (0.0, 300.0)]);
+    t.shape = TextShape::Area { path: path.clone() };
+    let l = e.layout(&t, 72.0);
+    assert_lines_inside(&l, &path);
+    let (p0, p1): (Vec<_>, Vec<_>) = l.lines.iter().partition(|line| line.paragraph == 0);
+    assert!(p0.len() >= 2 && p1.len() >= 2, "both paragraphs wrap: {:?}", l.lines);
+    assert!(p1.iter().all(|line| line.paragraph == 1));
+    // The second paragraph starts right after the break, one leading plus space before lower.
+    let second = text.find('\n').unwrap() + 1;
+    assert_eq!(p1[0].range.start, second);
+    let gap = p1[0].baseline - p0.last().unwrap().baseline;
+    assert!((gap - (leading + 6.0)).abs() < 1.0, "gap {gap}, want {}", leading + 6.0);
+    // Lines within a paragraph are one leading apart.
+    for w in p0.windows(2) {
+        assert!((w[1].baseline - w[0].baseline - leading).abs() < 1.0, "{w:?}");
+    }
+    assert_eq!(l.lines.last().map(|line| line.range.end), Some(text.len()));
+}
+
+#[test]
+fn area_justify_fills_each_span_but_the_last_line() {
+    let mut e = TextEngine::new();
+    let mut t = point(&BUBBLE_TEXT.repeat(2), 12.0);
+    t.paragraphs = vec![ParagraphRun { len: t.text.len(), style: ParagraphStyle { align: TextAlign::JustifyLeft, ..Default::default() } }];
+    let path = area_ellipse(0.0, 0.0, 260.0, 160.0);
+    t.shape = TextShape::Area { path: path.clone() };
+    let l = e.layout(&t, 72.0);
+    assert!(l.lines.len() >= 4, "{}", l.lines.len());
+    assert_lines_inside(&l, &path);
+    let a = crate::area::AreaShape::new(&path, false).unwrap();
+    let span_of = |line: &crate::LineInfo| {
+        a.spans(line.baseline - line.ascent, line.baseline + line.descent, 0.0)
+            .into_iter()
+            .find(|&(s0, s1)| line.x0 >= s0 - 0.5 && line.x1 <= s1 + 0.5)
+            .unwrap()
+    };
+    let (last, rest) = l.lines.split_last().unwrap();
+    for line in rest {
+        // Justified: the glyphs run from one edge of the line's span to the other.
+        let (s0, s1) = span_of(line);
+        let ink = l.glyphs.iter().filter(|g| (g.y - line.baseline).abs() < 1e-3).map(|g| g.x).fold(f32::MIN, f32::max);
+        assert!((line.x0 - s0).abs() < 1.0, "{line:?} in {s0}..{s1}");
+        assert!(ink > s1 - 12.0, "last glyph at {ink}, span ends {s1}: {line:?}");
+    }
+    // The last line is set flush left, not stretched.
+    let (s0, s1) = span_of(last);
+    assert!((last.x0 - s0).abs() < 1.0 && last.x1 < s1 - 12.0, "{last:?} in {s0}..{s1}");
+}
