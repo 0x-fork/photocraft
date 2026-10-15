@@ -147,6 +147,23 @@ fn shift_during_the_drag_draws_a_square_and_the_readout_follows() {
     assert!(h.query_by_label("W:").is_none() && h.query_by_label_contains(" px").is_none(), "the readout goes away with the drag");
 }
 
+/// #5472: a ⇧ square pressed between pixels read 101 × 102 and selected that, because each axis
+/// snapped to the pixel grid on its own. The readout and the selection are square, and the
+/// Elliptical Marquee's circle too.
+#[test]
+fn shift_square_pressed_between_pixels_has_equal_sides() {
+    for tool in [Tool::RectMarquee, Tool::EllipseMarquee] {
+        let mut h = harness(tool);
+        press_at(&mut h, 50.3, 50.7, Modifiers::NONE);
+        mods(&mut h, Modifiers::SHIFT);
+        move_to(&mut h, 150.8, 90.0);
+        assert!(readout(&h, 102, 102), "{tool:?}: the square covers every pixel it touched, on both axes");
+        release_at(&mut h, 150.8, 90.0, Modifiers::SHIFT);
+        mods(&mut h, Modifiers::NONE);
+        assert_eq!(selection(&h), Rect::new(50, 50, 152, 152), "{tool:?}");
+    }
+}
+
 /// #204: Preferences › Tools › Show Transformation Values off hides the readout, not the marquee.
 #[test]
 fn show_transformation_values_off_hides_the_readout() {

@@ -912,3 +912,41 @@ fn save_as_openraster_of_what_it_cannot_hold_is_a_copy() {
     assert!(err.contains("OpenRaster"), "{err}");
     assert_eq!(written.borrow().len(), 1);
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn render_video_menu_asks_for_directory_and_writes_frames_only_after_confirmation() {
+    let (mut app, open, _) = app();
+    let ctx = egui::Context::default();
+    let dir = std::env::temp_dir().join(format!(
+        "pc-render-video-ui-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let path = dir.to_string_lossy().into_owned();
+
+    let result = menus::invoke(&mut app, &ctx, "file.export.renderVideo", json!({})).unwrap();
+    assert_eq!(result["fileDialog"], "folder");
+    app.poll_file_dialog(&ctx, None);
+    assert!(matches!(open.borrow().as_slice(), [(FileDialogRequest::Folder { .. }, _)]));
+    assert!(!dir.exists(), "a menu click must not create an output directory");
+
+    answer(&open, None);
+    app.poll_file_dialog(&ctx, None);
+    assert!(!dir.exists(), "cancelling the picker must not render video");
+
+    menus::invoke(&mut app, &ctx, "file.export.renderVideo", json!({})).unwrap();
+    app.poll_file_dialog(&ctx, None);
+    answer(&open, Some(FileDialogAnswer::FolderTo(path.clone())));
+    app.poll_file_dialog(&ctx, None);
+    let rendered: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|entry| entry.unwrap().path()).collect();
+    assert_eq!(rendered.len(), 1, "a document without a timeline exports one frame");
+    assert_eq!(rendered[0].extension().and_then(|ext| ext.to_str()), Some("png"));
+    std::fs::remove_dir_all(&dir).unwrap();
+
+    // Commands that already supply a directory must not open a file picker.
+    let result = menus::invoke(&mut app, &ctx, "file.export.renderVideo", json!({"dir": path})).unwrap();
+    assert!(result["frames"].as_u64().is_some());
+    assert!(!app.file_dialog_open());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
