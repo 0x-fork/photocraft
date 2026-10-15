@@ -415,14 +415,15 @@ fn set_param(f: &mut Map<String, Value>, id: &str, key: &str, value: Value) {
 
 /// A fresh instance id: one past the highest numbered `fxN` in the list.
 fn next_id(f: &Map<String, Value>) -> String {
-    let max = effects_of(f)
+    let used: std::collections::HashSet<u64> = effects_of(f)
         .iter()
         .filter_map(|e| e.get("id").and_then(Value::as_str))
         .filter_map(|id| id.strip_prefix("fx"))
         .filter_map(|n| n.parse::<u64>().ok())
-        .max()
-        .unwrap_or(0);
-    format!("fx{}", max + 1)
+        .collect();
+    let max = used.iter().copied().max().unwrap_or(0);
+    let next = max.checked_add(1).or_else(|| (1_u64..).find(|n| !used.contains(n))).unwrap_or(1);
+    format!("fx{next}")
 }
 
 /// Adds an instance of `kind`, right after the last one of its kind (the list,
@@ -1436,6 +1437,25 @@ mod tests {
                 assert!(d.get(key).is_some(), "{kind}.{key} has no default");
             }
         }
+    }
+
+    #[test]
+    fn adding_an_effect_after_maximum_instance_id_uses_an_unused_id() {
+        // Imported and scripted effects can provide arbitrary instance IDs.
+        let layer = Layer::raster("x", photocraft_doc::PixelFormat::RGBA8);
+        let mut fields = initial_fields(&layer, None, 120.0);
+        fields.insert(
+            "effects".into(),
+            json!([
+                {"id": "fx1", "kind": "stroke", "on": true, "params": {}},
+                {"id": format!("fx{}", u64::MAX), "kind": "stroke", "on": false, "params": {}}
+            ]),
+        );
+        add_instance(&mut fields, "stroke");
+
+        let ids: Vec<&str> = effects_of(&fields).iter().filter_map(|e| e.get("id").and_then(Value::as_str)).collect();
+        assert_eq!(ids, ["fx1", "fx18446744073709551615", "fx2"]);
+        assert_eq!(fields["selected"], json!("fx2"));
     }
 
     #[test]
