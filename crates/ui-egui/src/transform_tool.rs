@@ -1967,11 +1967,11 @@ fn rotation_degrees(quad: [[f64; 2]; 4]) -> f64 {
 /// Where the rotate cursor's arc bends at document point `p`, or `None` outside the rotate zone:
 /// just outside a corner, or anywhere while a rotate drag is on. It points into the box along the
 /// bisector of the nearest corner, so each corner gets its own arrow and they turn with the box.
-pub(crate) fn rotate_cursor_dir(app: &PhotocraftApp, p: [f64; 2], mods: egui::Modifiers) -> Option<[f64; 2]> {
-    rotate_dir(app.ui.transform.as_ref()?, app.transform_preview.as_ref(), p, handle_tolerance(app), mods)
+pub(crate) fn rotate_cursor_dir(app: &PhotocraftApp, p: [f64; 2]) -> Option<[f64; 2]> {
+    rotate_dir(app.ui.transform.as_ref()?, app.transform_preview.as_ref(), p, handle_tolerance(app))
 }
 
-fn rotate_dir(t: &TransformSession, pv: Option<&TransformPreview>, p: [f64; 2], tol: f64, mods: egui::Modifiers) -> Option<[f64; 2]> {
+fn rotate_dir(t: &TransformSession, pv: Option<&TransformPreview>, p: [f64; 2], tol: f64) -> Option<[f64; 2]> {
     // Content-Aware Scale's box only scales, and Skew doesn't rotate: no rotate arrow.
     if !(p[0].is_finite() && p[1].is_finite())
         || t.warp.is_some()
@@ -1981,9 +1981,6 @@ fn rotate_dir(t: &TransformSession, pv: Option<&TransformPreview>, p: [f64; 2], 
         return None;
     }
     let rotating = pv.is_some_and(|pv| pv.gesture.is_some_and(|g| g.hit == Hit::Outside));
-    if !rotating && mods.command {
-        return None;
-    }
     if !rotating && !near_rotate_corner(t, p, tol) {
         return None;
     }
@@ -2025,7 +2022,7 @@ pub fn cursor(app: &PhotocraftApp, p: [f64; 2], mods: egui::Modifiers) -> Option
     if !mode_allows(t.mode, h) || (t.content_aware.is_some() && h == Hit::Outside) {
         return Some(CursorIcon::Default);
     }
-    if rotate_cursor_dir(app, p, mods).is_some() {
+    if !mods.command && rotate_cursor_dir(app, p).is_some() {
         // The overlay draws the curved rotate arrow (`rotate_cursor_dir`), also during the drag.
         return Some(CursorIcon::None);
     }
@@ -2093,6 +2090,15 @@ pub fn draw_skew_cursor(ctx: &egui::Context, at: Pos2, tangent: egui::Vec2) {
             Stroke::new(1.0, tokens.shadow),
         ));
     }
+}
+
+/// For each vertex of the preview's `n` × `n` grid over the unit square (row by row), whether it
+/// maps to the front side of `h`'s horizon. A Distort dragged past the horizon sends the rest of
+/// the image to the far side, where its cells would wrap round infinity; the preview leaves them
+/// out, as the committed warp does (#4863).
+fn front_vertices(h: &Homography, n: usize) -> Vec<bool> {
+    let front = h.front_side([0.0, 0.0, 1.0, 1.0]);
+    (0..=n).flat_map(|j| (0..=n).map(move |i| (i as f64 / n as f64, j as f64 / n as f64))).map(|(u, v)| front * h.w(u, v) > 1e-9).collect()
 }
 
 /// Warped preview of the moving pixels plus the box, handles and reference point.
@@ -2207,7 +2213,7 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
             let b_scr = scr(t.quad[(i + 1) % 4]);
             let tangent = b_scr - a_scr;
             draw_skew_cursor(painter.ctx(), at, tangent);
-        } else if let Some(k) = rotate_dir(t, Some(pv), p, tol, mods) {
+        } else if !mods.command && let Some(k) = rotate_dir(t, Some(pv), p, tol) {
             // Through the view, so the arc bends round the corner as it shows under a turned or
             // flipped view.
             let toward = xf.to_screen((p[0] + k[0] * 16.0) as f32, (p[1] + k[1] * 16.0) as f32) - at;
@@ -4154,12 +4160,12 @@ mod tests {
         let h = std::f64::consts::FRAC_1_SQRT_2;
         let (tl, br) = ([32.0 - tol * 1.5, 32.0 - tol * 1.5], [160.0 + tol * 1.5, 160.0 + tol * 1.5]);
         assert_eq!(cursor(&app, tl, egui::Modifiers::NONE), Some(CursorIcon::None), "the arrow is drawn instead");
-        assert!(near2(rotate_cursor_dir(&app, tl, egui::Modifiers::NONE), [h, h]), "{:?}", rotate_cursor_dir(&app, tl, egui::Modifiers::NONE));
-        assert!(near2(rotate_cursor_dir(&app, br, egui::Modifiers::NONE), [-h, -h]), "bends round the bottom-right corner");
+        assert!(near2(rotate_cursor_dir(&app, tl), [h, h]), "{:?}", rotate_cursor_dir(&app, tl));
+        assert!(near2(rotate_cursor_dir(&app, br), [-h, -h]), "bends round the bottom-right corner");
         assert_eq!(cursor(&app, [60.0, 60.0], egui::Modifiers::NONE), Some(CursorIcon::Move));
-        assert_eq!(rotate_cursor_dir(&app, [60.0, 60.0], egui::Modifiers::NONE), None, "inside moves");
-        assert_eq!(rotate_cursor_dir(&app, [32.0, 32.0], egui::Modifiers::NONE), None, "the corner handle scales");
-        assert_eq!(rotate_cursor_dir(&app, [f64::NAN, 32.0], egui::Modifiers::NONE), None);
+        assert_eq!(rotate_cursor_dir(&app, [60.0, 60.0]), None, "inside moves");
+        assert_eq!(rotate_cursor_dir(&app, [32.0, 32.0]), None, "the corner handle scales");
+        assert_eq!(rotate_cursor_dir(&app, [f64::NAN, 32.0]), None);
     }
 
     /// #1767: the readout beside the pointer during a drag (Photoshop's transformation values):
@@ -5020,8 +5026,8 @@ mod tests {
 
         // Holding Ctrl suppresses rotation around corners.
         let near_corner = [32.0 - tol * 1.5, 32.0 - tol * 1.5];
-        assert_eq!(rotate_cursor_dir(&app, near_corner, command), None);
-        assert!(rotate_cursor_dir(&app, near_corner, egui::Modifiers::NONE).is_some());
+        assert_eq!(cursor(&app, near_corner, command), Some(CursorIcon::Alias));
+        assert_eq!(cursor(&app, near_corner, egui::Modifiers::NONE), Some(CursorIcon::None));
     }
 
     #[test]

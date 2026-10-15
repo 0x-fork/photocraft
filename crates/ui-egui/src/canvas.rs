@@ -3699,15 +3699,18 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         });
         if let Some((vertical, _)) = guide_hover {
             ui.ctx().set_cursor_icon(if vertical { egui::CursorIcon::ResizeHorizontal } else { egui::CursorIcon::ResizeVertical });
-        } else if let Some(c) = response.interact_pointer_pos().or_else(|| response.hover_pos()).and_then(|p| {
-            let mods = crate::workspace_ui::sticky_mods(app, ui.input(|i| i.modifiers));
-            crate::transform_tool::cursor(app, xf.to_doc(p), mods)
-        }) {
+        } else if let Some(p) = response.interact_pointer_pos().or_else(|| response.hover_pos())
+            && let Some(c) = {
+                let mods = crate::workspace_ui::sticky_mods(app, ui.input(|i| i.modifiers));
+                crate::transform_tool::cursor(app, xf.to_doc(p), mods)
+            }
+        {
             ui.ctx().set_cursor_icon(c);
             // CursorIcon::None hides the pointer; the curved arrow has to be drawn or the
             // rotate zone looks like a plain cursor (#4050).
             let d = xf.to_doc(p);
-            if let Some(k) = crate::transform_tool::rotate_cursor_dir(app, d) {
+            let mods = crate::workspace_ui::sticky_mods(app, ui.input(|i| i.modifiers));
+            if !mods.command && let Some(k) = crate::transform_tool::rotate_cursor_dir(app, d) {
                 let toward = xf.to_screen((d[0] + k[0] * 16.0) as f32, (d[1] + k[1] * 16.0) as f32) - p;
                 crate::crop_ui::draw_turn_cursor(&ctx, p, toward);
             }
