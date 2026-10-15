@@ -474,4 +474,37 @@ mod tests {
         assert!(drawn.contains(&(frame, t.field)));
         assert!(drawn.iter().all(|(_, c)| *c != t.icon));
     }
+
+    /// #5689: an Image › Adjustments recorded on a smart object (Brightness/Contrast…) opens its
+    /// own editor from the Smart Filters row, with the recorded settings, and OK updates that
+    /// filter instead of stacking another.
+    #[test]
+    fn an_adjustment_smart_filter_opens_its_editor_and_updates_it() {
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 64, "height": 48})).unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("edit.fill", json!({"contents": "black"})).unwrap();
+        let id = s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap()["layer"].as_u64().unwrap();
+        s.execute("image.adjustments.brightnessContrast", json!({"brightness": 40, "contrast": -10})).unwrap();
+        let mut app = PhotocraftApp::new(s, crate::Services::default());
+        let sm = match &app.session.active().unwrap().doc.layer(photocraft_doc::LayerId(id)).unwrap().content {
+            LayerContent::Smart(sm) => sm.clone(),
+            other => panic!("expected a smart object, got {other:?}"),
+        };
+        assert_eq!(sm.smart_filters.len(), 1);
+        open_editor(&mut app, &egui::Context::default(), id, &sm, 0);
+        let d = app.ui.dialogs.last().expect("the adjustment editor opened");
+        assert_eq!(d.fields.get("__adjust").and_then(Value::as_str), Some("brightnessContrast"));
+        assert_eq!(d.fields.get("brightness").and_then(Value::as_f64), Some(40.0), "the recorded settings");
+        assert_eq!(d.fields.get("contrast").and_then(Value::as_f64), Some(-10.0));
+        let dialog = d.id;
+        // OK updates the recorded filter (one history step), it does not add a second filter.
+        crate::dialogs::confirm(&mut app, dialog).unwrap();
+        let LayerContent::Smart(sm) = &app.session.active().unwrap().doc.layer(photocraft_doc::LayerId(id)).unwrap().content else {
+            panic!("the layer stays a smart object");
+        };
+        assert_eq!(sm.smart_filters.len(), 1, "no filter was stacked");
+        assert_eq!(sm.smart_filters[0].params.get("brightness").and_then(Value::as_f64), Some(40.0));
+        assert_eq!(sm.smart_filters[0].params.get("contrast").and_then(Value::as_f64), Some(-10.0));
+    }
 }
