@@ -18,6 +18,38 @@ pub const FAUX_ITALIC_DEG: f32 = 12.0;
 pub const FAUX_BOLD_RADIUS: f32 = 0.036;
 /// Largest raster we produce (pixels), as a guard against absurd sizes.
 const MAX_PIXELS: u64 = 256 * 1024 * 1024;
+/// Peak working bytes one rasterization may keep live. [`MAX_PIXELS`] does not bound them: the
+/// accumulator and the output surface are both `stride` deep, and a faux-bold pass holds a second
+/// coverage buffer, so a CMYK bold render reserves several times what a plain grey one does for
+/// the same pixels.
+const MAX_RASTER_BYTES: u64 = if cfg!(target_pointer_width = "64") { 4 << 30 } else { 1 << 30 };
+
+/// Whether a `w` x `h` render's peak working bytes fit `max_bytes`: the f32 accumulator and the
+/// output surface (both `stride` deep), the finished coverage of the colour being drawn and, with
+/// faux bold, the second coverage buffer and the vector its `finish` builds beside it. `false`
+/// when the arithmetic overflows, so an absurd size is refused rather than wrapping.
+fn fits_raster_budget(w: usize, h: usize, stride: usize, sample: SampleType, bold: bool, max_bytes: u64) -> bool {
+    let f32s = size_of::<f32>() as u64;
+    let peak = (w as u64).checked_mul(h as u64).and_then(|px| {
+        let deep = px.checked_mul(stride as u64)?.checked_mul(f32s + sample.bytes() as u64)?;
+        let coverage = px.checked_mul(if bold { 3 } else { 1 })?.checked_mul(f32s)?;
+        deep.checked_add(coverage)
+    });
+    peak.is_some_and(|b| b <= max_bytes)
+}
+
+/// A zeroed buffer, or `None` when its bytes cannot be reserved.
+fn zeroed(len: usize) -> Option<Vec<f32>> {
+    let mut v = Vec::new();
+    v.try_reserve_exact(len).ok()?;
+    v.resize(len, 0.0);
+    Some(v)
+}
+
+/// What a refused or unrenderable layout returns.
+fn nothing(format: PixelFormat) -> Rendered {
+    Rendered { surface: Surface::new(format), rect: Rect::new(0, 0, 0, 0) }
+}
 
 /// Rendered text: pixels in document space plus the covered rectangle.
 pub struct Rendered {
@@ -252,8 +284,14 @@ pub fn rasterize_warped(layout: &TextLayout, transform: &Affine, format: PixelFo
     }
     let n = format.mode.color_channels();
     let stride = n + 1;
+    let bold = layout.glyphs.iter().any(|g| is_bold(layout, g));
+    if !fits_raster_budget(w, h, stride, format.sample, bold, MAX_RASTER_BYTES) {
+        return nothing(format);
+    }
     // Premultiplied accumulation.
-    let mut acc = vec![0.0f32; w * h * stride];
+    let Some(mut acc) = zeroed(w * h * stride) else {
+        return nothing(format);
+    };
     let xf = Xform([1.0, 0.0, 0.0, 1.0, -rect.x0 as f64, -rect.y0 as f64]).mul(&Xform(transform.m));
     let mut colors: Vec<Color> = Vec::new();
     for st in &layout.styles {
@@ -262,14 +300,23 @@ pub fn rasterize_warped(layout: &TextLayout, transform: &Affine, format: PixelFo
         }
     }
     for c in &colors {
-        let mut cov = Coverage::new(w, h);
+        let Some(mut cov) = Coverage::try_new(w, h) else {
+            return nothing(format);
+        };
         draw_pass(layout, &xf, &mut cov, Some(c), warp, Pass::Plain);
-        let mut cov = cov.finish();
-        if layout.glyphs.iter().any(|g| is_bold(layout, g)) {
+        let Some(mut cov) = cov.finish() else {
+            return nothing(format);
+        };
+        if bold {
             for k in 0..BOLD_OFFSETS.len() {
-                let mut bc = Coverage::new(w, h);
+                let Some(mut bc) = Coverage::try_new(w, h) else {
+                    return nothing(format);
+                };
                 draw_pass(layout, &xf, &mut bc, Some(c), warp, Pass::Bold(k));
-                for (a, b) in cov.iter_mut().zip(bc.finish()) {
+                let Some(bold_cov) = bc.finish() else {
+                    return nothing(format);
+                };
+                for (a, b) in cov.iter_mut().zip(bold_cov) {
                     *a = a.max(b);
                 }
             }
@@ -398,7 +445,8 @@ pub fn outlines(layout: &TextLayout, transform: &Affine, warp: Option<&Warp>) ->
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_PIXELS, rect_from_bounds};
+    use super::{MAX_PIXELS, fits_raster_budget, rect_from_bounds, zeroed};
+    use photocraft_color::SampleType;
     use photocraft_geom::Rect;
 
     #[test]
@@ -418,5 +466,26 @@ mod tests {
             assert_eq!(first, expected, "bounds: {bounds:?}");
             assert_eq!(rect_from_bounds(bounds), first, "bounds: {bounds:?}");
         }
+    }
+
+    /// #4979: the pixel cap says nothing about bytes, so the peak is admitted from the channel
+    /// depth of the accumulator and surface, the sample size and the faux-bold coverage buffers.
+    /// A 100 x 100 grey+alpha render at 8-bit keeps 2 x (4 + 1) + 4 = 14 bytes a pixel live.
+    #[test]
+    fn the_byte_budget_follows_channels_depth_and_faux_bold() {
+        let px = 100 * 100;
+        assert!(fits_raster_budget(100, 100, 2, SampleType::U8, false, px * 14));
+        assert!(!fits_raster_budget(100, 100, 2, SampleType::U8, false, px * 14 - 1), "the allowance is exact");
+
+        // The same pixels cost more with more channels, a wider sample, or a bold pass.
+        assert!(!fits_raster_budget(100, 100, 5, SampleType::U8, false, px * 14), "CMYK is deeper");
+        assert!(!fits_raster_budget(100, 100, 2, SampleType::F32, false, px * 14), "f32 output is wider");
+        assert!(!fits_raster_budget(100, 100, 2, SampleType::U8, true, px * 14), "bold holds two more buffers");
+        assert!(fits_raster_budget(100, 100, 2, SampleType::U8, true, px * 22), "2 x 5 + 3 x 4 bytes a pixel");
+
+        // A size whose peak overflows is refused rather than wrapping to a small number.
+        assert!(!fits_raster_budget(usize::MAX, usize::MAX, 5, SampleType::F32, true, u64::MAX));
+        // Nothing is reserved for a buffer that cannot be served.
+        assert!(zeroed(usize::MAX).is_none());
     }
 }
