@@ -39,6 +39,7 @@ jobs:
   # platform: the app shell, UI, text and fonts, GPU, pen input, build scripts or the lockfile.
   # macOS is tested only by release.yml.
   platforms:
+    timeout-minutes: 10
     name: select platforms
     runs-on: ubuntu-latest
     outputs:
@@ -77,6 +78,7 @@ jobs:
           fi
 
   test:
+    timeout-minutes: 100
     name: test (${{ matrix.os }})
     needs: platforms
     runs-on: ${{ matrix.os }}
@@ -111,39 +113,11 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-on-failure: true
 
+      # The cheap checks run first: a format, lint, layering or stale-scorecard failure is red
+      # after a few minutes instead of after the test passes (#6119). Clippy restores main's cache.
       - name: Format
         if: runner.os == 'Linux'
         run: cargo fmt --all -- --check
-
-      # `--features heif`: official builds open HEIC photos via the optional photocraft-heif crate.
-      - name: Test
-        run: cargo test --workspace --locked --features heif
-
-      # The same codecs without the optional decoder: HEIC must stay a clear "not in this build"
-      # error for distributors who leave it out.
-      - name: Test without heif
-        if: runner.os == 'Linux'
-        run: cargo test -p photocraft-heif -p photocraft-codecs -p photocraft-io --locked
-
-      # The same tests built with the optional craft-fonts input (crates/text/build.rs), so the
-      # Japanese font tests that skip without it run here. Linux only. Keep the exact `--workspace
-      # --features heif` of the Test step: any other package or feature selection resolves a
-      # different feature set, recompiles the whole dependency graph into the same target dir and
-      # runs the runner out of disk (as `-p photocraft-text -p photocraft-ui-egui` did after #800).
-      - name: Check out craft-fonts
-        if: runner.os == 'Linux'
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: storytold/craft-fonts
-          ref: abb83316d96aa59c1cf64784289e378fe9fa5695
-          path: craft-fonts
-
-      - name: Test with craft-fonts
-        if: runner.os == 'Linux'
-        env:
-          CRAFT_FONTS_DIR: ${{ github.workspace }}/craft-fonts
-          CRAFT_FONTS_REQUIRED: "1"
-        run: cargo test --workspace --locked --features heif
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked --features heif -- -D warnings
@@ -157,7 +131,53 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo xtask scorecard --check
 
+      # cargo-nextest runs the test binaries in parallel (`cargo test` runs them one at a time) and
+      # its `ci` profile (.config/nextest.toml) stops at the first failure and fails hung tests.
+      - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: cargo-nextest@0.9.146
+
+      # `--features heif`: official builds open HEIC photos via the optional photocraft-heif crate.
+      # nextest doesn't run doctests, so `cargo test --doc` does, with the same selection.
+      # Separate native commands into steps so Windows reports either command's failure.
+      - name: Test
+        run: cargo nextest run --workspace --locked --features heif --profile ci
+
+      - name: Doctests
+        run: cargo test --doc --workspace --locked --features heif
+
+      # The same codecs without the optional decoder: HEIC must stay a clear "not in this build"
+      # error for distributors who leave it out.
+      - name: Test without heif
+        if: runner.os == 'Linux'
+        run: cargo nextest run -p photocraft-heif -p photocraft-codecs -p photocraft-io --locked --profile ci
+
+      # The same tests built with the optional craft-fonts input (crates/text/build.rs), so the
+      # Japanese font tests that skip without it run here. Linux only. Keep the exact `--workspace
+      # --features heif` of the Test step: any other package or feature selection resolves a
+      # different feature set, recompiles the whole dependency graph into the same target dir and
+      # runs the runner out of disk (as `-p photocraft-text -p photocraft-ui-egui` did after #800).
+      # Only the tests of the crates that read `CRAFT_FONTS` run (the `-E` filter changes what runs,
+      # not what is built); engine and the apps only pass text on to them (#6120).
+      - name: Check out craft-fonts
+        if: runner.os == 'Linux'
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: storytold/craft-fonts
+          ref: abb83316d96aa59c1cf64784289e378fe9fa5695
+          path: craft-fonts
+
+      - name: Test with craft-fonts
+        if: runner.os == 'Linux'
+        env:
+          CRAFT_FONTS_DIR: ${{ github.workspace }}/craft-fonts
+          CRAFT_FONTS_REQUIRED: "1"
+        run: >-
+          cargo nextest run --workspace --locked --features heif --profile ci
+          -E 'package(photocraft-text) | package(photocraft-io) | package(photocraft-ui-egui)'
+
   corpus:
+    timeout-minutes: 30
     # Real-file corpus tests (cargo feature `corpus`), on every PR and on main. The corpora are
     # pinned in xtask/src/corpus_pins.rs and sha256-verified (xtask/*.sha256) after both a cache
     # restore and a download; a missing corpus fails the tests. The cache key changes only when a
@@ -190,6 +210,7 @@ jobs:
         run: cargo xtask test-corpus
 
   wasm:
+    timeout-minutes: 30
     name: wasm32 check
     runs-on: ubuntu-latest
     steps:
@@ -206,6 +227,7 @@ jobs:
         run: cargo xtask wasm
 
   web:
+    timeout-minutes: 60
     name: web build and wasm size gate
     # PRs run it only when web-relevant files change (see `platforms`); main always does.
     needs: platforms
@@ -253,6 +275,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   fuzz:
+    timeout-minutes: 60
     name: fuzz (${{ matrix.target.crate }}/${{ matrix.target.name }})
     # Placeholder: manual trigger only until a nightly schedule is enabled.
     if: github.event_name == 'workflow_dispatch' && inputs.fuzz
