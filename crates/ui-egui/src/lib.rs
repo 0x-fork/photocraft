@@ -1052,6 +1052,21 @@ impl PhotocraftApp {
         {
             authorize(id, &params)?;
         }
+        // A new layer while Free Transform is open applies the transform first, as Photoshop does
+        // (#5667): History reads the transform (or Place Embedded), then New Layer. Only for a
+        // command that can run; a transform refused or still being applied keeps the box open and
+        // the command doesn't run.
+        if photocraft_engine::PRECHECKED.contains(&id) && self.ui.transform.is_some() {
+            // Bad params or a command that can't run leave the box as it is.
+            self.session.precheck(id, &params).map_err(|e| e.to_string())?;
+            transform_tool::commit(self);
+            if transform_tool::committing(self).is_some() {
+                return Err(tl!("Free Transform is still being applied; try again when it has finished.").into());
+            }
+            if self.ui.transform.is_some() {
+                return Err(if self.ui.status.is_empty() { tl!("The transform couldn't be applied.").into() } else { self.ui.status.clone() });
+            }
+        }
         if let Some(result) = panel_docking::command(self, id, &params) {
             return result;
         }
@@ -2666,6 +2681,8 @@ mod transform_fx_tests;
 
 #[cfg(test)]
 mod layer_props_ui_tests;
+#[cfg(test)]
+mod transform_switch_tests;
 #[cfg(test)]
 mod transform_undo_tests;
 

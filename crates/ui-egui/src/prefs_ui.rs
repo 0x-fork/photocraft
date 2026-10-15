@@ -816,33 +816,7 @@ fn conflict_state(overrides: &BTreeMap<String, String>, alternates: &BTreeMap<St
 /// quit): Edit › Keyboard Shortcuts won't assign them, as Photoshop won't. `sc` is in our
 /// notation, where `Cmd` is Ctrl off the Mac.
 pub fn reserved_shortcut(sc: &str) -> bool {
-    let Some(n) = prefs::normalize_shortcut(sc) else { return false };
-    let reserved: &[&str] = if cfg!(target_os = "macos") {
-        &["Cmd+Tab", "Cmd+Shift+Tab", "Cmd+Alt+Escape", "Cmd+`"]
-    } else if cfg!(target_os = "windows") {
-        &["Alt+Tab", "Alt+Shift+Tab", "Alt+F4", "Cmd+Alt+Delete", "Cmd+Escape", "Cmd+Shift+Escape"]
-    } else {
-        // Linux and the BSDs: window switching and closing, and the virtual consoles.
-        &[
-            "Alt+Tab",
-            "Alt+Shift+Tab",
-            "Alt+F4",
-            "Cmd+Alt+Delete",
-            "Cmd+Alt+F1",
-            "Cmd+Alt+F2",
-            "Cmd+Alt+F3",
-            "Cmd+Alt+F4",
-            "Cmd+Alt+F5",
-            "Cmd+Alt+F6",
-            "Cmd+Alt+F7",
-            "Cmd+Alt+F8",
-            "Cmd+Alt+F9",
-            "Cmd+Alt+F10",
-            "Cmd+Alt+F11",
-            "Cmd+Alt+F12",
-        ]
-    };
-    reserved.iter().filter_map(|r| prefs::normalize_shortcut(r)).any(|r| r == n)
+    prefs::reserved_shortcut(sc)
 }
 
 /// Text of a key press for the shortcut editor (`Cmd+Shift+K`), `None` for bare modifiers.
