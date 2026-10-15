@@ -131,21 +131,34 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo xtask scorecard --check
 
+      # cargo-nextest runs the test binaries in parallel (`cargo test` runs them one at a time) and
+      # its `ci` profile (.config/nextest.toml) stops at the first failure and fails hung tests.
+      - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: cargo-nextest@0.9.146
+
       # `--features heif`: official builds open HEIC photos via the optional photocraft-heif crate.
+      # nextest doesn't run doctests, so `cargo test --doc` does, with the same selection.
+      # Separate native commands into steps so Windows reports either command's failure.
       - name: Test
-        run: cargo test --workspace --locked --features heif
+        run: cargo nextest run --workspace --locked --features heif --profile ci
+
+      - name: Doctests
+        run: cargo test --doc --workspace --locked --features heif
 
       # The same codecs without the optional decoder: HEIC must stay a clear "not in this build"
       # error for distributors who leave it out.
       - name: Test without heif
         if: runner.os == 'Linux'
-        run: cargo test -p photocraft-heif -p photocraft-codecs -p photocraft-io --locked
+        run: cargo nextest run -p photocraft-heif -p photocraft-codecs -p photocraft-io --locked --profile ci
 
       # The same tests built with the optional craft-fonts input (crates/text/build.rs), so the
       # Japanese font tests that skip without it run here. Linux only. Keep the exact `--workspace
       # --features heif` of the Test step: any other package or feature selection resolves a
       # different feature set, recompiles the whole dependency graph into the same target dir and
       # runs the runner out of disk (as `-p photocraft-text -p photocraft-ui-egui` did after #800).
+      # Only the tests of the crates that read `CRAFT_FONTS` run (the `-E` filter changes what runs,
+      # not what is built); engine and the apps only pass text on to them (#6120).
       - name: Check out craft-fonts
         if: runner.os == 'Linux'
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -159,7 +172,9 @@ jobs:
         env:
           CRAFT_FONTS_DIR: ${{ github.workspace }}/craft-fonts
           CRAFT_FONTS_REQUIRED: "1"
-        run: cargo test --workspace --locked --features heif
+        run: >-
+          cargo nextest run --workspace --locked --features heif --profile ci
+          -E 'package(photocraft-text) | package(photocraft-io) | package(photocraft-ui-egui)'
 
   corpus:
     timeout-minutes: 30

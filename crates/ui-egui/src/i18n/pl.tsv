@@ -3787,3 +3787,14 @@ curves	Smooth	Wygładź
 	There are too many sets: delete one first.	Zestawów jest za dużo: najpierw usuń jeden.
 	set name	nazwa zestawu
 	{set} (modified)	{set} (zmieniony)
+	Accept and Go to Conflict	Akceptuj i przejdź do konfliktu
+	Changes undone.	Zmiany cofnięte.
+	Choose a new shortcut for this command, or leave it without one.	Wybierz nowy skrót dla tego polecenia lub zostaw je bez skrótu.
+	Put this command's shortcuts back as they were	Przywróć skróty tego polecenia
+	Take the shortcut from the other command and select it	Odbierz skrót drugiemu poleceniu i zaznacz je
+	Undo Changes	Cofnij zmiany
+	{shortcut} is reserved by the system and can't be assigned.	{shortcut} jest zarezerwowany przez system i nie można go przypisać.
+	Low-Latency Drawing (vsync off, applies at next launch)	Rysowanie z małym opóźnieniem (bez synchronizacji pionowej, od następnego uruchomienia)
+# Free Transform: a new layer while the box is open (#5859)
+	Free Transform is still being applied; try again when it has finished.	Przekształcanie swobodne jest nadal stosowane; spróbuj ponownie, gdy się zakończy.
+	The transform couldn't be applied.	Nie można zastosować przekształcenia.

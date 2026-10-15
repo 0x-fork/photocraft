@@ -1288,6 +1288,9 @@ fn font_styles_keep_metadata_names_and_numeric_labels() {
 
 #[test]
 fn postscript_only_style_shows_actual_subfamily() {
+    // selected_style reads the engine only once the font scan is done (try_shared). Under nextest
+    // this test runs in a process of its own, where nothing else has started the scan, so start it.
+    let _ = photocraft_text::shared();
     let style = photocraft_doc::text::CharStyle { font_family: "Inter".into(), postscript_name: Some("Inter-SemiBold".into()), ..Default::default() };
     assert_eq!(super::selected_style(&style), "SemiBold");
 }

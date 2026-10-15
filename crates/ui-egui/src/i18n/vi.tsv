@@ -3675,3 +3675,14 @@ curves	Smooth	Làm mượt
 	There are too many sets: delete one first.	Có quá nhiều bộ: hãy xóa một bộ trước.
 	set name	tên bộ
 	{set} (modified)	{set} (đã sửa đổi)
+	Accept and Go to Conflict	Chấp nhận và đến xung đột
+	Changes undone.	Đã hoàn tác thay đổi.
+	Choose a new shortcut for this command, or leave it without one.	Chọn phím tắt mới cho lệnh này, hoặc để lệnh không có phím tắt.
+	Put this command's shortcuts back as they were	Khôi phục phím tắt của lệnh này như cũ
+	Take the shortcut from the other command and select it	Lấy phím tắt khỏi lệnh kia và chọn lệnh đó
+	Undo Changes	Hoàn tác thay đổi
+	{shortcut} is reserved by the system and can't be assigned.	{shortcut} được hệ thống dành riêng và không thể gán.
+	Low-Latency Drawing (vsync off, applies at next launch)	Vẽ độ trễ thấp (tắt vsync, áp dụng ở lần khởi động sau)
+# Free Transform: a new layer while the box is open (#5859)
+	Free Transform is still being applied; try again when it has finished.	Biến đổi tự do vẫn đang được áp dụng; hãy thử lại khi hoàn tất.
+	The transform couldn't be applied.	Không thể áp dụng phép biến đổi.
