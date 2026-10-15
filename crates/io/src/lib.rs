@@ -302,7 +302,9 @@ fn import_stages(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt, m
     if affinity::is_affinity(bytes) || affinity::has_extension(name) {
         return affinity::import(name, bytes);
     }
-    if PSD_EXTS.iter().any(|e| has_extension(name, e)) {
+    // Same predicate as above; the magic case already returned, so this routes the declared
+    // `.psd`/`.psb`/`.psdt` extensions that are not Affinity containers.
+    if is_psd_input(name, bytes) {
         return import_psd(name, bytes, ctl);
     }
     if ora::is_ora(bytes) || has_extension(name, "ora") {
