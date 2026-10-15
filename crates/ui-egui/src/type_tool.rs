@@ -76,9 +76,13 @@ fn hit_layer(app: &mut PhotocraftApp, x: f64, y: f64) -> Option<LayerId> {
             let s = f64::from(slop);
             !r.is_empty() && x >= f64::from(r.x0) - s && x <= f64::from(r.x1) + s && y >= f64::from(r.y0) - s && y <= f64::from(r.y1) + s
         });
-        let Some((l, aff, _)) = layout(app, *id) else { return shown };
+        // The hover calls this every frame: skip the layout when the pixels already answer.
+        if shown {
+            return true;
+        }
+        let Some((l, aff, _)) = layout(app, *id) else { return false };
         let (tx, ty) = to_text(&aff, x, y);
-        shown || photocraft_text::text_point_inside(&l, tx, ty, slop)
+        photocraft_text::text_point_inside(&l, tx, ty, slop)
     })
 }
 
