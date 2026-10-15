@@ -11,6 +11,10 @@ use serde_json::{Value, json};
 use crate::commands::CommandSpec;
 use crate::{EngineError, Result, Session};
 
+/// Maximum dense RGBA staging pixels in one animated GIF frame. A GIF also keeps the
+/// quantised frame and palette while rendering, so the document canvas limit is not enough.
+const MAX_GIF_FRAME_PIXELS: u64 = 64 << 20;
+
 /// Set every video layer's displayed content to its frame at the playhead.
 pub fn sync(doc: &mut Document) {
     let cur = doc.timeline.as_ref().map_or(0, |t| t.current);
@@ -72,6 +76,17 @@ fn has_doc(s: &Session) -> std::result::Result<(), String> {
     s.active().map(|_| ()).ok_or_else(|| "no document".into())
 }
 
+/// Grow the timeline to at least `frames` frames (never shrink it). Only a work area that reached
+/// the old end follows the new end; a narrowed one stays where the user put it (#4170).
+fn grow_duration(t: &mut Timeline, frames: usize) {
+    let old = t.duration;
+    t.duration = t.duration.max(frames.max(1));
+    if t.work_end >= old {
+        t.work_end = t.duration;
+    }
+    t.clamp();
+}
+
 /// Edit the active video layer's [`VideoData`] at the playhead, then re-sync the displayed frame.
 fn edit_video(s: &mut Session, label: &str, f: impl FnOnce(&mut VideoData, usize) -> Result<()>) -> Result<Value> {
     let count = s.edit(label, |doc, active| {
@@ -83,9 +98,7 @@ fn edit_video(s: &mut Session, label: &str, f: impl FnOnce(&mut VideoData, usize
         f(v, cur)?;
         let n = v.frames.len();
         if let Some(t) = &mut doc.timeline {
-            t.duration = t.duration.max(n.max(1));
-            t.work_end = t.work_end.max(t.duration);
-            t.clamp();
+            grow_duration(t, n);
         }
         sync(doc);
         Ok(n)
@@ -295,8 +308,7 @@ fn new_from_file(s: &mut Session, p: &Value) -> Result<Value> {
         if doc.timeline.is_none() {
             doc.timeline = Some(Timeline::new(n, fps));
         } else if let Some(t) = &mut doc.timeline {
-            t.duration = t.duration.max(n);
-            t.clamp();
+            grow_duration(t, n);
         }
         let name = doc.next_layer_name(std::path::Path::new(&path).file_stem().and_then(|s| s.to_str()).unwrap_or("Video"));
         let mut l = Layer::raster(name, fmt);
@@ -408,6 +420,10 @@ pub fn render_video_with(
     let mut base = (*st.doc).clone();
     store(&mut base);
     let frames = base.timeline.as_ref().map_or(1, |t| t.duration).max(1);
+    // Loaded timelines bypass the duration validation used by timeline.create/setProps.
+    if frames > crate::timeline_cmds::MAX_DURATION {
+        return Err(EngineError::Other(format!("the timeline is {frames} frames; Render Video is limited to {} frames", crate::timeline_cmds::MAX_DURATION)));
+    }
     let fps = base.timeline.as_ref().map_or(30.0, |t| t.fps).max(1.0);
     let stem = base.name.rsplit_once('.').map_or(base.name.as_str(), |(a, _)| a).to_string();
     let fmt = base.pixel_format();
@@ -421,6 +437,11 @@ pub fn render_video_with(
 
     // Animated GIF: one file, every frame quantised to its own palette.
     if format.eq_ignore_ascii_case("gif") {
+        // The whole canvas is staged as f32 RGBA for each frame; reject over-budget
+        // dimensions before an infallible allocation can abort the process.
+        if (w as u64) * (h as u64) > MAX_GIF_FRAME_PIXELS {
+            return Err(EngineError::Other(format!("{w} × {h} is too large to render as an animated GIF (limit {MAX_GIF_FRAME_PIXELS} pixels per frame)")));
+        }
         let delay = (100.0 / fps).round().clamp(1.0, 65535.0) as u16;
         let mut gframes = Vec::with_capacity(frames);
         for f in 0..frames {

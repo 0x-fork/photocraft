@@ -14,7 +14,7 @@
 //!   the page-only `blendIfChannel`; `channelNames`: the document's colour channels.
 
 use egui::{Color32, RichText, Sense, Stroke, StrokeKind, vec2};
-use photocraft_doc::effects::{FxPaint, StrokePosition};
+use photocraft_doc::effects::{FxPaint, GlowSource, StrokePosition};
 use photocraft_doc::{Effect, Layer};
 use serde_json::{Map, Value, json};
 
@@ -86,6 +86,7 @@ fn spec(kind: &str) -> &'static [(&'static str, &'static str, P)] {
     const POS: &[(&str, &str)] = &[("outside", "Outside"), ("inside", "Inside"), ("center", "Center")];
     const GSTYLE: &[(&str, &str)] = &[("linear", "Linear"), ("radial", "Radial"), ("angle", "Angle"), ("reflected", "Reflected"), ("diamond", "Diamond")];
     const BSTYLE: &[(&str, &str)] = &[("inner", "Inner Bevel"), ("outer", "Outer Bevel"), ("emboss", "Emboss"), ("pillow", "Pillow Emboss")];
+    const TECHNIQUE: &[(&str, &str)] = &[("smooth", "Smooth"), ("chiselHard", "Chisel Hard"), ("chiselSoft", "Chisel Soft")];
     const DIR: &[(&str, &str)] = &[("up", "Up"), ("down", "Down")];
     const SRC: &[(&str, &str)] = &[("edge", "Edge"), ("center", "Center")];
     const CONTOUR: P = P::Contour(Some("antiAlias"));
@@ -163,6 +164,7 @@ fn spec(kind: &str) -> &'static [(&'static str, &'static str, P)] {
         ],
         "bevelEmboss" => &[
             ("style", "Style", P::Choice(BSTYLE)),
+            ("technique", "Technique", P::Choice(TECHNIQUE)),
             ("depth", "Depth", P::Slider(1.0, 1000.0, "%")),
             ("direction", "Direction", P::Choice(DIR)),
             ("size", "Size", P::Slider(0.0, 250.0, "px")),
@@ -247,6 +249,9 @@ fn values_of(e: &Effect, light: f32) -> Value {
             set(&mut v, "contour", photocraft_engine::layer_style::contour_param(&g.contour));
             set(&mut v, "antiAlias", json!(g.anti_alias));
             set(&mut v, "noise", json!((g.noise * 100.0).round()));
+            if matches!(e, Effect::InnerGlow(_)) {
+                set(&mut v, "source", json!(if g.source == GlowSource::Center { "center" } else { "edge" }));
+            }
         }
         Effect::Stroke(s) => {
             set(&mut v, "blend", json!(s.common.blend.label()));
@@ -410,14 +415,15 @@ fn set_param(f: &mut Map<String, Value>, id: &str, key: &str, value: Value) {
 
 /// A fresh instance id: one past the highest numbered `fxN` in the list.
 fn next_id(f: &Map<String, Value>) -> String {
-    let max = effects_of(f)
+    let used: std::collections::HashSet<u64> = effects_of(f)
         .iter()
         .filter_map(|e| e.get("id").and_then(Value::as_str))
         .filter_map(|id| id.strip_prefix("fx"))
         .filter_map(|n| n.parse::<u64>().ok())
-        .max()
-        .unwrap_or(0);
-    format!("fx{}", max + 1)
+        .collect();
+    let max = used.iter().copied().max().unwrap_or(0);
+    let next = max.checked_add(1).or_else(|| (1_u64..).find(|n| !used.contains(n))).unwrap_or(1);
+    format!("fx{next}")
 }
 
 /// Adds an instance of `kind`, right after the last one of its kind (the list,
@@ -455,6 +461,39 @@ fn remove_instance(f: &mut Map<String, Value>, id: &str) {
 /// the layer's order), the blending options and the selected page. `select`
 /// names a kind to open: its first instance is selected (and enabled), or one
 /// is created. `light` is the document's global light angle.
+/// Whether the selected page is a Drop Shadow or Inner Shadow, which a drag on the image moves
+/// while the dialog is open, as in Photoshop (#5701; [`drag_shadow`]).
+pub fn drags_shadow(f: &Map<String, Value>) -> bool {
+    let selected = f.get("selected").and_then(Value::as_str).unwrap_or_default();
+    entry(f, selected).and_then(|e| e.get("kind")).and_then(Value::as_str).is_some_and(|k| matches!(k, "dropShadow" | "innerShadow"))
+}
+
+/// A drag on the image with a shadow page selected: `start` is true on the press (it records the
+/// shadow's angle and distance then), `total` the pointer's movement since in document pixels.
+/// The shadow's offset follows the pointer, kept as Photoshop's whole-degree angle and whole-pixel
+/// distance (offset = (−cos angle, sin angle) × distance, the light opposite the shadow); with
+/// Use Global Light the shared angle moves too ([`set_param`]).
+pub fn drag_shadow(f: &mut Map<String, Value>, start: bool, total: [f64; 2]) {
+    const KEY: &str = "__shadowDrag";
+    let Some(id) = f.get("selected").and_then(Value::as_str).map(str::to_string).filter(|_| drags_shadow(f)) else { return };
+    let Some(p) = entry(f, &id).and_then(|e| e.get("params")) else { return };
+    if start || f.get(KEY).is_none() {
+        let angle = p.get("angle").and_then(Value::as_f64).unwrap_or(120.0);
+        let distance = p.get("distance").and_then(Value::as_f64).unwrap_or(0.0);
+        f.insert(KEY.into(), json!([angle, distance]));
+    }
+    let Some([angle, distance]) = f.get(KEY).and_then(Value::as_array).and_then(|a| Some([a.first()?.as_f64()?, a.get(1)?.as_f64()?])) else { return };
+    let a = angle.to_radians();
+    let (ox, oy) = (-a.cos() * distance + total[0], a.sin() * distance + total[1]);
+    let d = ox.hypot(oy);
+    if !d.is_finite() {
+        return;
+    }
+    let new_angle = if d >= 0.5 { oy.atan2(-ox).to_degrees().round() } else { angle };
+    set_param(f, &id, "angle", json!(new_angle));
+    set_param(f, &id, "distance", json!(d.round().clamp(0.0, 30000.0)));
+}
+
 pub fn initial_fields(layer: &Layer, select: Option<&str>, light: f32) -> Map<String, Value> {
     let mut f = Map::new();
     f.insert("layer".into(), json!(layer.id.0));
@@ -500,6 +539,14 @@ pub fn initial_fields(layer: &Layer, select: Option<&str>, light: f32) -> Map<St
 }
 
 pub fn open(app: &mut PhotocraftApp, select: Option<&str>) -> Option<u64> {
+    // An open Free Transform box is applied first, as in Photoshop (#4821): the canvas shows the
+    // box's preview while it is open, so the dialog's preview would not show until Enter.
+    if app.ui.transform.is_some() {
+        crate::transform_tool::commit(app);
+        if app.ui.transform.is_some() && crate::transform_tool::committing(app).is_none() {
+            return None; // refused: the box stays open, with the reason in the status bar
+        }
+    }
     let st = app.session.active()?;
     let layer = st.doc.layer(st.active_layer?)?.clone();
     let light = st.doc.global_light.angle;
@@ -510,6 +557,16 @@ pub fn open(app: &mut PhotocraftApp, select: Option<&str>) -> Option<u64> {
     f.insert("__document".into(), json!(st.doc.id));
     f.insert("patternList".into(), pattern_list(app));
     Some(app.ui.open_dialog(crate::state::DialogKind::LayerStyle, f))
+}
+
+/// Double-click on an effect row of the Layers panel: open Layer Style for that row's layer. A
+/// row of another layer selects it first, as its right-click menu does (Photoshop does the same).
+pub fn open_for_layer(app: &mut PhotocraftApp, layer: photocraft_doc::LayerId, select: Option<&str>) -> Option<u64> {
+    let active = app.session.active().is_some_and(|s| s.active_layer == Some(layer));
+    if !active {
+        app.run("layer.select", json!({"layer": layer.0})).ok()?;
+    }
+    open(app, select)
 }
 
 /// `[[id, name], …]` of the patterns a style can use (document's, then the library's).
@@ -1322,6 +1379,38 @@ mod tests {
     use super::*;
     use photocraft_doc::StrokeFx;
 
+    /// #5701: with a shadow page selected, a drag on the image moves the shadow: its offset
+    /// follows the pointer, as whole degrees and pixels, the global light angle with it.
+    #[test]
+    fn dragging_on_the_image_moves_the_selected_shadow() {
+        let shadow = |id: &str, kind: &str, global: bool| json!({"id": id, "kind": kind, "on": true, "params": {"angle": 120.0, "distance": 10.0, "useGlobalLight": global}});
+        let mut f = Map::new();
+        f.insert("selected".into(), json!("fx1"));
+        f.insert("globalLight".into(), json!(120.0));
+        f.insert("effects".into(), json!([shadow("fx1", "dropShadow", true), shadow("fx2", "innerShadow", true), shadow("fx3", "dropShadow", false)]));
+        assert!(drags_shadow(&f));
+        let params = |f: &Map<String, Value>, id: &str| {
+            let p = &entry(f, id).unwrap()["params"];
+            (p["angle"].as_f64().unwrap(), p["distance"].as_f64().unwrap())
+        };
+        // The press keeps the shadow where it is: (5, 8.66) px.
+        drag_shadow(&mut f, true, [0.0, 0.0]);
+        assert_eq!(params(&f, "fx1"), (120.0, 10.0));
+        // Dragged to (15, 0): straight right of the layer, the light from the left (180°).
+        drag_shadow(&mut f, false, [10.0, -8.660_254]);
+        assert_eq!(params(&f, "fx1"), (180.0, 15.0));
+        assert_eq!(params(&f, "fx2").0, 180.0, "the global light angle is shared");
+        assert_eq!(params(&f, "fx3"), (120.0, 10.0), "an instance with its own angle is left alone");
+        // Back onto the layer: no offset, and the angle the drag started with.
+        drag_shadow(&mut f, false, [-5.0, -8.660_254]);
+        assert_eq!(params(&f, "fx1"), (120.0, 0.0));
+        // Not on a shadow page: nothing moves.
+        f.insert("selected".into(), json!(BLENDING));
+        assert!(!drags_shadow(&f));
+        drag_shadow(&mut f, true, [50.0, 50.0]);
+        assert_eq!(params(&f, "fx1"), (120.0, 0.0));
+    }
+
     fn session() -> photocraft_engine::Session {
         let mut s = photocraft_engine::Session::new();
         s.execute("file.new", json!({"width": 64, "height": 64})).unwrap();
@@ -1380,6 +1469,30 @@ mod tests {
         assert_eq!(rows, KINDS.len(), "one empty checkbox per effect row");
     }
 
+    /// Double-clicking an effect row of a layer that isn't active selects that layer first, so
+    /// the dialog holds its effects (and OK edits it), not the active layer's.
+    #[test]
+    fn effect_row_of_another_layer_opens_that_layers_style() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 32, "height": 32})).unwrap();
+        app.run("layer.new.layer", json!({})).unwrap();
+        let with_fx = app.session.active().unwrap().active_layer.unwrap();
+        app.run("layer.layerStyle.replace", json!({"layer": with_fx.0, "effects": [{"kind": "dropShadow", "params": defaults("dropShadow")}]})).unwrap();
+        app.run("layer.new.layer", json!({})).unwrap();
+        let plain = app.session.active().unwrap().active_layer.unwrap();
+        assert_ne!(plain, with_fx);
+        assert!(app.session.active().unwrap().doc.layer(plain).unwrap().effects.items.is_empty());
+
+        let id = open_for_layer(&mut app, with_fx, Some("dropShadow")).unwrap();
+        assert_eq!(app.session.active().unwrap().active_layer, Some(with_fx), "the row's layer becomes active");
+        let d = app.ui.dialogs.iter().find(|d| d.id == id).unwrap();
+        assert_eq!(d.fields["layer"], json!(with_fx.0));
+        let fx = effects_of(&d.fields);
+        assert_eq!(fx.len(), 1);
+        assert_eq!(fx[0]["kind"], json!("dropShadow"));
+        assert!(fx[0]["fx"].is_object(), "the existing drop shadow, not a new instance");
+    }
+
     #[test]
     fn every_kind_has_spec_and_defaults() {
         for &(kind, _) in KINDS {
@@ -1389,6 +1502,25 @@ mod tests {
                 assert!(d.get(key).is_some(), "{kind}.{key} has no default");
             }
         }
+    }
+
+    #[test]
+    fn adding_an_effect_after_maximum_instance_id_uses_an_unused_id() {
+        // Imported and scripted effects can provide arbitrary instance IDs.
+        let layer = Layer::raster("x", photocraft_doc::PixelFormat::RGBA8);
+        let mut fields = initial_fields(&layer, None, 120.0);
+        fields.insert(
+            "effects".into(),
+            json!([
+                {"id": "fx1", "kind": "stroke", "on": true, "params": {}},
+                {"id": format!("fx{}", u64::MAX), "kind": "stroke", "on": false, "params": {}}
+            ]),
+        );
+        add_instance(&mut fields, "stroke");
+
+        let ids: Vec<&str> = effects_of(&fields).iter().filter_map(|e| e.get("id").and_then(Value::as_str)).collect();
+        assert_eq!(ids, ["fx1", "fx18446744073709551615", "fx2"]);
+        assert_eq!(fields["selected"], json!("fx2"));
     }
 
     #[test]
@@ -1693,17 +1825,19 @@ mod tests {
         apply(&f, |cmd, p| s.execute(cmd, p).map_err(|e| e.to_string())).unwrap();
         assert_eq!(shadow(&s), photocraft_engine::layer_style::builtin_contour("Cone").unwrap());
 
-        // The Contour Editor: drag the peak to 40 % / 80 %, make the first point a corner.
+        // The Contour Editor: drag the second point to 10 % / 30 % (between its neighbours on
+        // the measured Cone), make the first point a corner.
         contour::open_editor(&mut f, "fx1", "contour");
-        assert!(contour::set_point(&mut f, 1, 40.0, 80.0));
+        assert!(contour::set_point(&mut f, 1, 10.0, 30.0));
         assert!(contour::set_corner(&mut f, 0, true));
-        assert!(!contour::set_point(&mut f, 9, 10.0, 10.0), "no such point");
+        assert!(!contour::set_point(&mut f, 99, 10.0, 10.0), "no such point");
         contour::close_editor(&mut f, true);
         apply(&f, |cmd, p| s.execute(cmd, p).map_err(|e| e.to_string())).unwrap();
         let photocraft_doc::Contour::Custom { name, points, corners } = shadow(&s) else { panic!() };
         assert_eq!(name, "Custom", "an edited preset is no longer called Cone");
-        assert!((points[1].input - 102.0 / 255.0).abs() < 1e-6 && (points[1].output - 204.0 / 255.0).abs() < 1e-6, "{points:?}");
-        assert_eq!(corners, vec![true, true, false]);
+        assert!((points[1].input - 0.1).abs() < 3e-3 && (points[1].output - 0.3).abs() < 3e-3, "{points:?}");
+        assert_eq!(corners.len(), points.len());
+        assert!(corners[0] && corners[1] && !corners[corners.len() - 1], "{corners:?}");
 
         // Cancel restores the curve the editor opened with.
         let before = f.clone();
@@ -1726,6 +1860,30 @@ mod tests {
         assert_eq!(fx[0]["params"]["spread"], json!(6.0));
         assert_eq!(fx[0]["params"]["range"], json!(40.0));
         assert_eq!(fx[1]["params"]["spread"], json!(12.0));
+    }
+
+    /// OK with no edits used to turn a Center-source Inner Glow into an Edge one: the dialog never
+    /// loaded the source, so it showed the default and applied it.
+    #[test]
+    fn inner_glow_center_source_survives_ok() {
+        let mut s = session();
+        s.execute("layer.layerStyle.innerGlow", json!({"source": "center"})).unwrap();
+        let source = |s: &photocraft_engine::Session| {
+            let d = s.active().unwrap();
+            let id = d.active_layer.unwrap();
+            d.doc.layer(id).unwrap().effects.items.iter().find_map(|e| match e {
+                Effect::InnerGlow(g) => Some(g.source),
+                _ => None,
+            })
+        };
+        assert_eq!(source(&s), Some(GlowSource::Center));
+        let st = s.active().unwrap();
+        let id = st.active_layer.unwrap();
+        let f = initial_fields(st.doc.layer(id).unwrap(), None, st.doc.global_light.angle);
+        let glow = effects_of(&f).iter().find(|e| e["kind"] == json!("innerGlow")).unwrap();
+        assert_eq!(glow["params"]["source"], json!("center"), "the dialog shows the effect's source");
+        apply(&f, |cmd, p| s.execute(cmd, p).map_err(|e| e.to_string())).unwrap();
+        assert_eq!(source(&s), Some(GlowSource::Center), "OK keeps the source");
     }
 
     #[test]
@@ -1784,6 +1942,26 @@ mod tests {
         assert_eq!(s.active().unwrap().doc.global_light.angle, 45.0);
         let d = s.active().unwrap();
         assert_eq!(d.doc.layer(id).unwrap().effects.items.len(), 2);
+    }
+
+    #[test]
+    fn bevel_technique_is_selectable_and_round_trips() {
+        let Some((_, _, P::Choice(options))) = spec("bevelEmboss").iter().find(|(k, _, _)| *k == "technique") else {
+            panic!("Bevel & Emboss has no Technique dropdown");
+        };
+        let values: Vec<&str> = options.iter().map(|(v, _)| *v).collect();
+        assert_eq!(values, ["smooth", "chiselHard", "chiselSoft"]);
+
+        let mut s = session();
+        s.execute("layer.layerStyle.bevelEmboss", json!({"technique": "chiselSoft"})).unwrap();
+        let st = s.active().unwrap();
+        let id = st.active_layer.unwrap();
+        let mut f = initial_fields(st.doc.layer(id).unwrap(), Some("bevelEmboss"), st.doc.global_light.angle);
+        assert_eq!(entry(&f, "fx1").unwrap()["params"]["technique"], json!("chiselSoft"));
+        set_param(&mut f, "fx1", "technique", json!("chiselHard"));
+        apply(&f, |cmd, p| s.execute(cmd, p).map_err(|e| e.to_string())).unwrap();
+        let Effect::BevelEmboss(b) = &s.active().unwrap().doc.layer(id).unwrap().effects.items[0] else { panic!("expected bevel") };
+        assert_eq!(b.technique, photocraft_doc::effects::BevelTechnique::ChiselHard);
     }
 
     #[test]
@@ -1917,6 +2095,56 @@ mod tests {
         apply(&f, |cmd, p| s.execute(cmd, p).map_err(|e| e.to_string())).unwrap();
         let d = s.active().unwrap();
         assert_eq!(color(&d.doc), photocraft_color::Color::rgb(0.0, 1.0, 0.0), "OK commits with Preview off");
+    }
+
+    /// #3648's steps in one dialog session: disable the stroke row, add a Color Overlay,
+    /// untick Preview. Preview off shows the document as saved — the stroke was never
+    /// disabled in it, so it keeps rendering until OK, exactly like Photoshop's preview
+    /// semantics; nothing disabled resurrects, and OK applies the dialog's state.
+    #[test]
+    fn issue_steps_disable_stroke_add_overlay_untick_preview() {
+        let mut s = session();
+        s.execute("edit.fill", json!({"contents": "color", "color": "#ff0000"})).unwrap();
+        // Steps 1-3: a stroke is enabled and OK'd; reopening the dialog loads it enabled.
+        s.execute("layer.layerStyle.stroke", json!({"size": 40, "position": "inside", "color": "#00ff00"})).unwrap();
+        let st = s.active().unwrap();
+        let id = st.active_layer.unwrap();
+        let mut f = initial_fields(st.doc.layer(id).unwrap(), None, st.doc.global_light.angle);
+        let rows = f["effects"].as_array().unwrap();
+        assert_eq!(rows.len(), 1, "the saved stroke is the only row");
+        assert_eq!((rows[0]["kind"].as_str(), rows[0]["on"].as_bool()), (Some("stroke"), Some(true)));
+        // Step 4: disable the stroke row — a pending edit, the document is untouched.
+        f["effects"][0]["on"] = json!(false);
+        // Step 5: add a Color Overlay (a new instance: no fx snapshot, factory defaults).
+        f["effects"].as_array_mut().unwrap().push(json!({
+            "id": "fx2",
+            "kind": "colorOverlay",
+            "on": true,
+            "params": {"color": "#0000ff"},
+        }));
+        // While Preview is on, the live preview honours the in-dialog disable: the stroke
+        // is disabled in the scratch document, the overlay renders.
+        let shown = preview_document(&st.doc, &s.patterns, &f).unwrap();
+        let mut shown_effects = shown.layer(id).unwrap().effects.items.iter();
+        assert!(!shown_effects.find(|e| kind_of(e) == "stroke").is_none_or(|e| e.enabled()), "the preview leaves the stroke off");
+        assert!(shown_effects.find(|e| kind_of(e) == "colorOverlay").is_some_and(|e| e.enabled()), "the preview shows the overlay");
+        // Step 6: untick Preview — the canvas shows the real document, whose stroke is
+        // still enabled (the disable is an unapplied edit). This is the state the issue
+        // reports; it is the saved state, not a resurrected effect.
+        f.insert("preview".into(), json!(false));
+        let green: Vec<f32> = serde_json::from_value(s.execute("document.pixel", json!({"x": 32, "y": 32})).unwrap()).unwrap();
+        assert!(green[1] > 0.9 && green[0] < 0.1, "preview off shows the saved stroke: {green:?}");
+        // OK (with Preview off) applies the dialog state: the stroke is now disabled in the
+        // document too, the overlay shows, and the dialog — which never models the list's
+        // master switch — leaves it at its default.
+        apply(&f, |cmd, p| s.execute(cmd, p).map_err(|e| e.to_string())).unwrap();
+        let d = s.active().unwrap();
+        let effects = &d.doc.layer(id).unwrap().effects;
+        assert!(!effects.items.iter().find(|e| kind_of(e) == "stroke").is_none_or(|e| e.enabled()), "OK disables the stroke");
+        assert!(effects.items.iter().find(|e| kind_of(e) == "colorOverlay").is_some_and(|e| e.enabled()), "OK keeps the overlay on");
+        assert!(effects.enabled, "the list's master switch keeps its value");
+        let blue: Vec<f32> = serde_json::from_value(s.execute("document.pixel", json!({"x": 32, "y": 32})).unwrap()).unwrap();
+        assert!(blue[2] > 0.9 && blue[1] < 0.1, "after OK only the overlay renders: {blue:?}");
     }
 
     #[test]

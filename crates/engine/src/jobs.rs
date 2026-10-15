@@ -382,6 +382,24 @@ pub fn edit_job<R: Send + 'static>(
     )
 }
 
+/// Scan every layer surface's content bounds into the shared tile bounds cache, so the first
+/// draw of a document opened in the background doesn't do it on the UI thread: GPU planning
+/// asks each layer for its bounds, a multi-second scan on a multi-gigabyte PSB (#4024).
+/// `check` runs between layers (cancellation).
+pub fn warm_layer_bounds(doc: &Document, mut check: impl FnMut() -> Result<()>) -> Result<()> {
+    let mut pending: Vec<&photocraft_doc::Layer> = doc.layers.iter().collect();
+    while let Some(layer) = pending.pop() {
+        check()?;
+        if let Some(children) = layer.children() {
+            pending.extend(children);
+        }
+        if let Some(surface) = layer.surface() {
+            photocraft_compose::bounds::content_bounds(surface);
+        }
+    }
+    Ok(())
+}
+
 /// Where a background open reads its file from.
 #[derive(Clone, Debug)]
 pub enum OpenSource {
@@ -412,7 +430,10 @@ impl Session {
     /// Open a file in the background: read (for a path) and decode on a worker, with progress
     /// (per layer for PSD/PSB) and cancellation, then add the document like
     /// [`Session::open_document`] (Color Settings policies apply). `name` names the document.
-    /// The job's result is `{document, name, warnings, color}`; on wasm it runs inline.
+    /// The job's result is `{document, name, warnings, color}`; on wasm it runs inline. When
+    /// Color Settings ask about the file's profile, the document is held back instead and the
+    /// result is `{held, name, warnings, color}` (`color` the question): take it with
+    /// [`Session::take_held_open`] once answered.
     pub fn start_open(&mut self, name: &str, source: OpenSource) -> Result<Started> {
         let label = format!("Opening {name}");
         let name_w = name.to_string();
@@ -431,13 +452,24 @@ impl Session {
                 };
                 ctx.check()?;
                 ctx.progress(0.02, "Decoding");
-                ctx.stage(0.02, 1.0, "Decoding", |ctl| photocraft_io::import_with_svg_group_depth_and_interrupt(&name_w, &bytes, max_svg_group_depth, ctl))
+                let imported = ctx
+                    .stage(0.02, 0.95, "Decoding", |ctl| photocraft_io::import_with_svg_group_depth_and_interrupt(&name_w, &bytes, max_svg_group_depth, ctl))
                     .map_err(|e| match e {
                         photocraft_io::IoError::Cancelled => EngineError::Cancelled,
                         e => EngineError::Other(e.to_string()),
-                    })
+                    })?;
+                ctx.progress(0.95, "Preparing layers");
+                warm_layer_bounds(&imported.document, || ctx.check())?;
+                Ok(imported)
             },
             move |s, r: photocraft_io::ImportResult| {
+                // Ask When Opening: held back until the prompt is answered (`take_held_open`). A
+                // developed raw has no embedded profile to ask about.
+                let raw = r.warnings.iter().any(|w| w.contains(photocraft_io::raw::DEVELOPED_NOTE));
+                if let Some(question) = s.color.open_question(&r.document).filter(|_| !raw) {
+                    let held = s.hold_open(r.document, r.source_read_only);
+                    return Ok(json!({"held": held, "name": name_a, "warnings": r.warnings, "color": question}));
+                }
                 let (index, color) = s.open_document(r.document, None);
                 if let Some(st) = s.active_mut() {
                     st.source_read_only = r.source_read_only;
@@ -527,6 +559,11 @@ impl Session {
     /// stays unchanged. The document is unlocked at once. False if no such job is running.
     pub fn cancel_job(&mut self, id: JobId) -> bool {
         let Some(i) = self.jobs.running.iter().position(|r| r.id == id) else { return false };
+        // A print worker can already have handed the job to the OS. Discarding its result
+        // would falsely report cancellation; removal belongs to the system print queue.
+        if matches!(self.jobs.running[i].command.as_str(), "file.print" | "file.printOneCopy") {
+            return false;
+        }
         let job = self.jobs.running.remove(i);
         job.ctx.cancel();
         self.end_job(&job, JobOutcome::Cancelled);
@@ -627,6 +664,7 @@ impl Session {
         if id == "file.new" {
             crate::document_preset_cmds::validate_new_params(self, &params)?;
         }
+        crate::param_check::check(spec, &params)?;
         crate::filters::validate_params(id, &params)?;
         // A floating selection drops before any other command (Undo puts it back instead).
         if let Some(v) = crate::float_cmds::before_command(self, id)? {
@@ -708,6 +746,8 @@ impl Session {
             self.journal.truncate(from);
         }
         if !crate::brush_cmds::coalesce_journal(self, id, &params) {
+            let params =
+                if id == "layer.select" && self.actions.recording.is_some() { crate::layer_multi_cmds::recorded_selection(self, params) } else { params };
             self.journal.push((id.to_string(), params));
         }
     }
@@ -746,18 +786,25 @@ impl Session {
         };
         self.coalesce_request = coalesce.clone();
         self.color_restrict = *color_restrict;
+        // Apply-time hooks can dispatch commands too. Keep the same single-step recording
+        // contract as synchronous dispatch without truncating work done while the worker ran.
+        let nested_from = self.journal.len();
+        let recording = if *journal && crate::actions_cmds::replayable(command) { self.actions.recording.take() } else { None };
         let r = match apply {
             Some(f) => std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self, payload)))
                 .unwrap_or_else(|_| Err(EngineError::Other(format!("`{label}` failed with an internal error (logged); the document is unchanged")))),
             None => Err(EngineError::Other("internal error: job applied twice".into())),
         };
+        if self.actions.recording.is_none() {
+            self.actions.recording = recording;
+        }
         self.coalesce_request = None;
         self.color_restrict = None;
         // Finish successful command bookkeeping on the document the job edited.
         // Restoring the viewed document first would attribute Fade and slice updates
         // to that document instead, when the user switched tabs mid-job.
         if r.is_ok() {
-            self.after_command(command, params.clone(), *journal, None);
+            self.after_command(command, params.clone(), *journal, Some(nested_from));
         }
         // Keep the user's active document unless the job opened a new one.
         // This also restores the selection when the apply step returned an error.
@@ -814,11 +861,17 @@ pub fn specs() -> Vec<crate::commands::CommandSpec> {
                 None | Some(Value::Null) => {
                     let n = s.jobs.running.len();
                     s.cancel_all_jobs();
-                    Ok(json!({"cancelled": n}))
+                    Ok(json!({"cancelled": n.saturating_sub(s.jobs.running.len())}))
                 }
                 Some(v) => {
                     let id = v.as_u64().ok_or_else(|| EngineError::BadParams { cmd: "jobs.cancel".into(), msg: "`job` must be a job id".into() })?;
-                    if s.cancel_job(JobId(id)) { Ok(json!({"cancelled": 1})) } else { Err(EngineError::Other(format!("no running job {id}"))) }
+                    if s.cancel_job(JobId(id)) {
+                        Ok(json!({"cancelled": 1}))
+                    } else if s.job(JobId(id)).is_some() {
+                        Err(EngineError::Other("printing cannot be cancelled here; use the system print queue".into()))
+                    } else {
+                        Err(EngineError::Other(format!("no running job {id}")))
+                    }
                 }
             },
             journal: false,

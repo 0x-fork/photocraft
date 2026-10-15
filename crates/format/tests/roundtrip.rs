@@ -5,7 +5,7 @@ use common::*;
 use photocraft_color::{ColorMode, SampleType};
 use photocraft_doc::text::{CharStyle, ParagraphStyle, TextRun};
 use photocraft_doc::text_styles::{CharacterStyleDef, ParagraphStyleDef};
-use photocraft_doc::{Document, Layer, LayerContent, LayerId, Slice, TextLayer};
+use photocraft_doc::{Document, Layer, LayerContent, LayerId, Slice, TextLayer, VarKind, VariableDef};
 use photocraft_format::*;
 use photocraft_raster::Rgba8Image;
 
@@ -541,6 +541,27 @@ fn text_kerning_roundtrips_and_defaults() {
     assert!(s.contains("\"kern\":0.0"), "kern defaults to 0");
 }
 
+/// Type on a path (#218): the path, start offset and flip survive .pcraft.
+#[test]
+fn path_text_shape_roundtrips() {
+    use photocraft_doc::text::TextShape;
+    use photocraft_doc::vector::Subpath;
+    let mut doc = rich_doc(ColorMode::Rgb, SampleType::U8);
+    let path = Subpath::polyline(&[(0.0, 0.0), (50.0, 20.0), (120.0, 5.5)]);
+    let ids: Vec<LayerId> = doc.walk().into_iter().filter(|(_, _, l)| matches!(l.content, LayerContent::Text(_))).map(|(_, _, l)| l.id).collect();
+    for id in ids {
+        if let Some(LayerContent::Text(t)) = doc.layer_mut(id).map(|l| &mut l.content) {
+            t.shape = TextShape::Path { path: path.clone(), start: 12.5, flip: true };
+        }
+    }
+    let back = load_from_bytes(&save_to_bytes(&doc, &SaveOptions::default()).unwrap()).unwrap();
+    let shape = back.walk().into_iter().find_map(|(_, _, l)| match &l.content {
+        LayerContent::Text(t) => Some(t.shape.clone()),
+        _ => None,
+    });
+    assert_eq!(shape, Some(TextShape::Path { path, start: 12.5, flip: true }));
+}
+
 #[test]
 fn channel_restrictions_and_bevel_elements_roundtrip() {
     use photocraft_doc::{Bevel, BevelContour, BevelTexture, Contour, Effect};
@@ -707,4 +728,26 @@ fn a_non_finite_float_is_refused_at_save_rather_than_breaking_every_later_load()
     doc.insert_above(None, Layer::new("adj", LayerContent::Adjustment(Adjustment::Exposure { exposure: 0.5, offset: 0.0, gamma: 1.0 })));
     let back = load_from_bytes(&save_to_bytes(&doc, &SaveOptions::default()).unwrap()).unwrap();
     assert_eq!(back, doc);
+}
+
+#[test]
+fn variables_follow_layer_id_remapping() {
+    let mut doc = rich_doc(ColorMode::Rgb, SampleType::U8);
+    let id_of = |d: &Document, name: &str| d.walk().into_iter().find(|(_, _, l)| l.name == name).unwrap().2.id;
+    doc.variables.defs = vec![
+        VariableDef { name: "head".into(), layer: id_of(&doc, "Paint"), kind: VarKind::TextReplacement },
+        VariableDef { name: "badge".into(), layer: id_of(&doc, "Inner"), kind: VarKind::Visibility },
+        VariableDef { name: "gone".into(), layer: LayerId(u64::MAX), kind: VarKind::Visibility },
+    ];
+    let bytes = save_to_bytes(&doc, &SaveOptions::default()).unwrap();
+    // Preserved ids keep every definition exactly as saved, dangling ones included.
+    assert_eq!(load_from_bytes(&bytes).unwrap(), doc);
+    // Remapped ids carry the definitions to the copied layers; a dangling target stays
+    // dangling and must not collide with a live layer (#4969).
+    let back = load_from_bytes_with(&bytes, &LoadOptions { preserve_ids: false, ..Default::default() }).unwrap();
+    let defs = &back.variables.defs;
+    assert_eq!(defs.iter().find(|d| d.name == "head").unwrap().layer, id_of(&back, "Paint"));
+    assert_eq!(defs.iter().find(|d| d.name == "badge").unwrap().layer, id_of(&back, "Inner"));
+    let gone = defs.iter().find(|d| d.name == "gone").unwrap().layer;
+    assert!(back.walk().into_iter().all(|(_, _, l)| l.id != gone), "dangling target must not address a live layer");
 }

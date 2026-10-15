@@ -134,19 +134,33 @@ fn dialog_mem(kind: &str) -> egui::Id {
     egui::Id::new(("adjust-dialog", kind))
 }
 
-/// Whether holding Alt turns the dialog's Cancel into Reset. Measured in Photoshop 25.4 for Color
-/// Balance; other kinds keep Cancel until checked against Photoshop.
+/// Whether holding Alt turns Cancel into Reset for this adjustment dialog (every kind).
 pub fn resets(fields: &Map<String, Value>) -> bool {
-    fields.get("__adjust").and_then(Value::as_str) == Some("colorBalance")
+    owns(fields)
 }
 
-/// Alt+Cancel (Reset): back to the defaults Photoshop's Reset restores, dialog stays open.
-pub fn reset(ctx: &egui::Context, fields: &mut Map<String, Value>) {
-    if !resets(fields) {
+/// Alt+Cancel (Reset): engine defaults for the kind; Color Balance keeps Preserve Luminosity and
+/// shows Midtones (Photoshop 25.4). Dialog stays open.
+pub fn reset(app: &PhotocraftApp, ctx: &egui::Context, fields: &mut Map<String, Value>) {
+    if !owns(fields) {
         return;
     }
+    let kind = fields.get("__adjust").and_then(Value::as_str).unwrap_or_default().to_string();
+    let mode = curve_mode(app, &kind);
+    // Color Balance: Photoshop keeps the user's Preserve Luminosity across Reset.
+    let preserve = if kind == "colorBalance" { fields.get("preserveLuminosity").cloned() } else { None };
+    let Ok(defaults) = photocraft_engine::adjust_params::default_for(&kind, mode) else { return };
+    let values = photocraft_engine::adjust_params::to_params(&defaults);
+    // Replace parameter keys; keep private `__` chrome (preview, command, …).
+    fields.retain(|k, _| k.starts_with("__"));
+    if let Value::Object(v) = values {
+        fields.extend(v);
+    }
+    if let Some(p) = preserve {
+        fields.insert("preserveLuminosity".into(), p);
+    }
     let mut values = crate::filter_dialog::params_of(fields);
-    adjust_editors::reset_color_balance(ctx, dialog_mem("colorBalance"), &mut values);
+    adjust_editors::reset_adjustment_editor(ctx, &kind, dialog_mem(&kind), &mut values);
     if let Value::Object(v) = values {
         fields.extend(v);
     }
@@ -156,7 +170,7 @@ pub fn reset(ctx: &egui::Context, fields: &mut Map<String, Value>) {
 pub fn open(app: &mut PhotocraftApp, command: &str) -> Option<u64> {
     let kind = command.strip_prefix(PREFIX).filter(|k| adjust_editors::has_editor(k))?;
     let spec = photocraft_engine::commands::find(command)?;
-    let mode = app.session.active().map_or(photocraft_doc::ColorMode::Rgb, |s| s.doc.mode);
+    let mode = curve_mode(app, kind);
     let defaults = photocraft_engine::adjust_params::default_for(kind, mode).ok()?;
     let mut fields = Map::new();
     fields.insert("__command".into(), json!(command));
@@ -170,19 +184,45 @@ pub fn open(app: &mut PhotocraftApp, command: &str) -> Option<u64> {
     Some(app.ui.open_dialog(crate::state::DialogKind::Command, fields))
 }
 
+/// The Curves dialog's single-channel target: the Channels panel's, plus the Layers panel's mask
+/// selection — both ways of selecting a mask must give the same dropdown (#5335).
+fn isolated(app: &PhotocraftApp) -> Option<photocraft_engine::channel_cmds::IsolatedCurveChannel> {
+    let mask = app.layer_mask_targeted();
+    app.session.active().and_then(|st| photocraft_engine::channel_cmds::isolated_curve_channel_for(st, mask))
+}
+
+/// The colour mode the Levels/Curves dialog seeds and parses in: a mask, saved channel or
+/// Quick Mask holds gray levels whatever the document's mode, so its curve is a neutral one
+/// and the fields carry no Lab or CMYK records (#5335).
+fn curve_mode(app: &PhotocraftApp, kind: &str) -> photocraft_doc::ColorMode {
+    let mode = app.session.active().map_or(photocraft_doc::ColorMode::Rgb, |s| s.doc.mode);
+    if kind == "curves" && isolated(app).is_some_and(|c| c.gray.is_some()) { photocraft_doc::ColorMode::Grayscale } else { mode }
+}
+
 /// Dialog body: the kind's editor over the fields, then the Preview checkbox.
 pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, fields: &mut Map<String, Value>) {
     let kind = fields.get("__adjust").and_then(Value::as_str).unwrap_or_default().to_string();
-    let mode = app.session.active().map_or(photocraft_doc::ColorMode::Rgb, |s| s.doc.mode);
+    let mode = curve_mode(app, &kind);
     if matches!(kind.as_str(), "levels" | "curves") {
         picker_controls(ui, fields, mode);
         ui.add_space(4.0);
     }
     let mut values = crate::filter_dialog::params_of(fields);
     let active = app.session.active().and_then(|s| s.active_layer);
-    let gray = app.session.active().is_some_and(|s| adjust_editors::is_gray(s.doc.mode));
+    let isolated_curve = isolated(app);
+    // Only Curves gets an isolated single-channel target here; Levels keeps its usual fields.
+    let gray_plane = (kind == "curves").then(|| isolated_curve.as_ref().and_then(|c| c.gray)).flatten();
+    let gray = gray_plane.is_some() || app.session.active().is_some_and(|s| adjust_editors::is_gray(s.doc.mode));
     let hist = match active {
-        Some(id) if adjust_editors::needs_histogram(&kind) => Some(tone::histograms(app, HistSource::Layer(id), adjust_editors::space_of(&values))),
+        Some(id) if adjust_editors::needs_histogram(&kind) => {
+            // A mask or saved channel's curve edits that plane's own levels: the histogram
+            // describes it, not the colour layers beneath (#5335).
+            let source = match gray_plane {
+                Some(surface) => HistSource::Channel { layer: id, surface },
+                None => HistSource::Layer(id),
+            };
+            Some(tone::histograms(app, source, adjust_editors::space_of(&values)))
+        }
         _ => None,
     };
     let cx = EditorCx {
@@ -193,8 +233,12 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, fields: &mut Map<String,
         gradients: adjust_editors::gradient_presets(app, &kind),
         dialog: true,
         dynamic_color_sliders: app.session.prefs().interface.dynamic_color_sliders,
+        isolated_curve,
     };
     let e = adjust_editors::editor(ui, &kind, &mut values, &cx);
+    if e.import_gradients {
+        crate::preset_files_ui::import_gradients_dialog(app);
+    }
     if e.changed
         && let Value::Object(v) = values
     {
@@ -390,16 +434,29 @@ mod tests {
         assert!(h.state().ui.dialogs.is_empty(), "Cancel closes");
     }
 
-    /// Alt+Cancel is Reset only where it was checked against Photoshop.
+    /// Every adjustment kind opts into Alt+Reset; Levels restores engine defaults and stays open.
     #[test]
-    fn other_adjustment_dialogs_keep_cancel_under_alt() {
+    fn levels_alt_reset_restores_defaults() {
         use egui_kittest::kittest::Queryable;
         let mut h = Harness::builder().with_size(egui::vec2(1200.0, 900.0)).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app_with_image());
         PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
-        open(h.state_mut(), "image.adjustments.levels").unwrap();
-        h.event(egui::Event::ModifiersChanged(egui::Modifiers::ALT));
-        h.run_steps(3);
+        let id = open(h.state_mut(), "image.adjustments.levels").unwrap();
+        h.state_mut().ui.dialog_mut(id).unwrap().fields.insert("inBlack".into(), json!(30));
+        h.state_mut().ui.dialog_mut(id).unwrap().fields.insert("gamma".into(), json!(1.3));
+        h.run_steps(2);
         assert!(h.query_by_label("Cancel").is_some() && h.query_by_label("Reset").is_none());
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::ALT));
+        h.run_steps(2);
+        let reset = h.get_by_label("Reset").rect();
+        assert!(h.query_by_label("Cancel").is_none());
+        let click =
+            |pressed| egui::Event::PointerButton { pos: reset.center(), button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::ALT };
+        input(&mut h, egui::Modifiers::ALT, &[egui::Event::PointerMoved(reset.center()), click(true), click(false)]);
+        assert!(h.state().ui.dialogs.iter().any(|d| d.id == id), "Reset keeps the dialog open");
+        let defaults =
+            photocraft_engine::adjust_params::to_params(&photocraft_engine::adjust_params::default_for("levels", photocraft_doc::ColorMode::Rgb).unwrap());
+        assert_eq!(field(&h, id, "inBlack"), defaults["inBlack"]);
+        assert_eq!(field(&h, id, "gamma"), defaults["gamma"]);
     }
 
     fn sample_params(kind: &str) -> Value {
@@ -421,6 +478,30 @@ mod tests {
         }
     }
 
+    /// #5113: the dialog should fit its curve graph instead of reserving a blank right column.
+    #[test]
+    fn curves_dialog_fits_its_graph_and_controls() {
+        for language in ["en", "ru"] {
+            let _language = crate::i18n::language_scope(crate::i18n::Lang::from_code(language).unwrap());
+            for theme in crate::theme::ThemeKind::ALL {
+                for size in [egui::vec2(1280.0, 900.0), egui::vec2(900.0, 720.0)] {
+                    let mut h = Harness::builder().with_size(size).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app_with_image());
+                    PhotocraftApp::setup_context(&h.ctx, theme);
+                    let id = open(h.state_mut(), "image.adjustments.curves").unwrap();
+                    h.run_steps(4);
+                    let window = h.ctx.memory(|m| m.area_rect(egui::Id::new(("dialog", id)))).unwrap();
+                    let graph = h.ctx.data(|d| d.get_temp::<egui::Rect>(dialog_mem("curves").with("curves-graph"))).unwrap();
+                    assert!(window.right() - graph.right() < 40.0, "blank right column: window {window:?}, graph {graph:?}");
+                    assert!(graph.width() > 270.0, "keep the graph usable: {graph:?}");
+                    assert!(window.contains_rect(graph));
+                    for label in ["Channel:", "Input:", "Output:", "Preview", "OK", "Cancel"] {
+                        assert!(window.contains_rect(h.get_by_label(crate::i18n::t(label)).rect()), "{label} inside the window");
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn cancel_leaves_the_document_untouched() {
         let mut harness =
@@ -436,6 +517,37 @@ mod tests {
         let after = harness.state().session.active().unwrap().doc.clone();
         assert!(std::sync::Arc::ptr_eq(&before, &after));
         assert!(harness.state().ui.dialogs.is_empty());
+    }
+
+    #[test]
+    fn gradient_map_dialog_handles_preview_without_committing_until_ok() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = Harness::builder().with_size(egui::vec2(1200.0, 900.0)).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app_with_image());
+        PhotocraftApp::setup_context(&h.ctx, Default::default());
+        let id = open(h.state_mut(), "image.adjustments.gradientMap").unwrap();
+        h.run_steps(4);
+        let doc = h.state().session.active().unwrap().doc.clone();
+        let steps = h.state().session.active().unwrap().history.past_len();
+        let strip = h.get_by_label("Gradient stops").rect();
+        let start = egui::pos2(strip.left() + 8.0, strip.top() + 36.0);
+        let to = start + egui::vec2((strip.width() - 16.0) * 0.3, 0.0);
+        h.hover_at(start);
+        h.run_steps(1);
+        h.drag_at(start);
+        h.run_steps(1);
+        h.hover_at(to);
+        h.run_steps(1);
+        h.drop_at(to);
+        h.run_steps(3);
+        let stops = h.state().ui.dialogs[0].fields["stops"].as_array().unwrap();
+        assert!((stops[0][0].as_f64().unwrap() - 0.3).abs() < 0.001);
+        assert!(std::sync::Arc::ptr_eq(&doc, &h.state().session.active().unwrap().doc), "dialog edits are previews");
+        assert_eq!(h.state().session.active().unwrap().history.past_len(), steps);
+        crate::dialogs::confirm(h.state_mut(), id).unwrap();
+        h.run_steps(2);
+        assert_eq!(h.state().session.active().unwrap().history.past_len(), steps + 1);
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        assert_eq!(*h.state().session.active().unwrap().doc, *doc);
     }
     #[test]
     fn curves_pencil_drag_draws_the_map_and_confirm_applies_it() {
@@ -676,5 +788,88 @@ mod tests {
         let _ = crate::control::handle(&mut app, &context, &request);
         assert_eq!(channel_points(&app, "red"), red, "pointer up does not sample again");
         assert!(picker_armed(&app));
+    }
+
+    /// #5335: a targeted mask, saved channel or colour component is the only Channel popup entry.
+    #[test]
+    fn curves_channel_popup_lists_only_the_targeted_channel() {
+        let mut app = app_with_image();
+        app.run("layer.layerMask.revealAll", json!({})).unwrap();
+        app.run("channel.target", json!({"channel": "mask"})).unwrap();
+        let mut h = curves_harness(app);
+        let names = popup_channels(&mut h);
+        assert!(names.iter().any(|n| n.contains("Mask")), "{names:?}");
+        assert!(!names.iter().any(|n| n == "RGB" || n == "Red" || n == "Green" || n == "Blue"), "{names:?}");
+    }
+
+    /// #5335: selecting the mask in the Layers panel gives the same Curves dropdown as selecting
+    /// it in the Channels panel.
+    #[test]
+    fn curves_channel_popup_lists_only_the_mask_selected_in_the_layers_panel() {
+        let mut app = app_with_image();
+        app.run("layer.layerMask.revealAll", json!({})).unwrap();
+        app.ui.mask_target = true; // clicking the mask thumbnail in the Layers panel
+        assert!(app.layer_mask_targeted(), "the Layers panel mask thumbnail is targeted");
+        let mut h = curves_harness(app);
+        let names = popup_channels(&mut h);
+        assert_eq!(names.len(), 1, "only the mask: {names:?}");
+        assert!(names[0].contains("Mask"), "{names:?}");
+    }
+
+    /// #5335: in a Lab document, Curves over a gray target keeps neutral fields: no Lab records
+    /// to overwrite the mask's own curve or pick the wrong tone space.
+    #[test]
+    fn curves_on_a_gray_target_seeds_neutral_fields_in_a_lab_document() {
+        for via_layers_panel in [false, true] {
+            let mut app = app_in_mode("lab");
+            app.run("layer.layerMask.revealAll", json!({})).unwrap();
+            if via_layers_panel {
+                app.ui.mask_target = true;
+            } else {
+                app.run("channel.target", json!({"channel": "mask"})).unwrap();
+            }
+            let id = open(&mut app, "image.adjustments.curves").expect("opens");
+            let values = crate::filter_dialog::params_of(&app.ui.dialog_mut(id).unwrap().fields.clone());
+            assert!(values.get("points").is_some(), "{values:?}");
+            for key in ["lightness", "a", "b", "cyan", "magenta", "yellow", "black"] {
+                assert!(values.get(key).is_none(), "{key} in a gray target's curves: {values:?}");
+            }
+        }
+    }
+
+    /// #5335: in Italian the built-in labels translate, but a channel the user named "Green"
+    /// stays exactly "Green".
+    #[test]
+    fn curves_channel_popup_keeps_custom_names_verbatim_in_italian() {
+        let it = crate::i18n::Lang::from_code("it").expect("it registered");
+        assert_eq!(crate::i18n::tr(it, "Green"), "Verde", "the test relies on the built-in label");
+        let _lang = crate::i18n::language_scope(it);
+        let mut app = app_with_image();
+        app.run("channel.new", json!({"name": "Green", "fill": "white"})).unwrap();
+        app.run("channel.target", json!({"channel": 0})).unwrap();
+        let mut h = curves_harness(app);
+        let names = popup_channels(&mut h);
+        assert!(names.iter().any(|n| n == "Green"), "custom names stay as entered: {names:?}");
+        assert!(!names.iter().any(|n| n == "Verde"), "not translated: {names:?}");
+        // A targeted colour component keeps its translated built-in label.
+        let mut colour = app_with_image();
+        colour.run("channel.target", json!({"channel": {"color": 1}})).unwrap();
+        let mut h = curves_harness(colour);
+        let names = popup_channels(&mut h);
+        assert!(names.iter().any(|n| n == "Verde"), "built-in labels follow the language: {names:?}");
+    }
+
+    /// Curves open in a harness over `app`.
+    fn curves_harness(app: PhotocraftApp) -> Harness<'static, PhotocraftApp> {
+        let mut h = Harness::builder().with_size(egui::vec2(1200.0, 900.0)).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app);
+        PhotocraftApp::setup_context(&h.ctx, Default::default());
+        open(h.state_mut(), "image.adjustments.curves").unwrap();
+        h.run_steps(4);
+        h
+    }
+
+    /// The Channel popup's selected value (its option labels are what it shows).
+    fn popup_channels(h: &mut Harness<'static, PhotocraftApp>) -> Vec<String> {
+        h.query_all_by_role(egui::accesskit::Role::ComboBox).filter_map(|n| n.value().map(|s| s.to_string())).collect()
     }
 }

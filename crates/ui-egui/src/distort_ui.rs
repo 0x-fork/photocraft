@@ -27,6 +27,8 @@ pub struct Distort {
     pub vanishing: Option<crate::vp_ui::VpSession>,
     /// Filter Gallery dialog (gallery_ui).
     pub gallery: Option<crate::gallery_ui::GalleryDialog>,
+    /// The document the open sessions belong to, noted by [`drop_foreign`] on the first frame they are open.
+    owner: Option<photocraft_doc::DocId>,
 }
 
 impl Distort {
@@ -172,11 +174,16 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
         }
         return true;
     }
-    if app.distort.puppet.is_some() {
+    if let Some(p) = app.distort.puppet.as_mut() {
+        let cmd_shift = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
         if enter(ctx) {
             crate::puppet_ui::commit(app);
         } else if esc(ctx) {
             app.distort.puppet = None;
+        } else if ctx.input_mut(|i| i.consume_key(cmd_shift, egui::Key::Z)) {
+            p.redo();
+        } else if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z)) {
+            p.undo();
         }
         return true;
     }
@@ -231,8 +238,27 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
     false
 }
 
+/// Drops the open sessions once the active document is not the one they were started on (closed, or another one
+/// opened or switched to). Without this, Puppet Warp's preview of the old document replaced the new document's canvas (#5092).
+pub fn drop_foreign(app: &mut PhotocraftApp) {
+    let current = app.session.active().map(|s| s.doc.id);
+    if !app.distort.active() && app.distort.gallery.is_none() {
+        app.distort.owner = None;
+    } else if app.distort.owner.is_none() {
+        app.distort.owner = current;
+    } else if app.distort.owner != current {
+        app.distort.liquify = None;
+        app.distort.puppet = None;
+        app.distort.perspective = None;
+        app.distort.vanishing = None;
+        app.distort.gallery = None;
+        app.distort.owner = None;
+    }
+}
+
 /// Full-window dialogs (Liquify, Filter Gallery).
 pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    drop_foreign(app);
     if app.distort.gallery.is_some() {
         crate::gallery_ui::show(app, ctx);
     }

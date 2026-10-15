@@ -3,7 +3,17 @@
 # Original translations based on general Greek graphics/computing terminology.
 # Covers every source label the i18n coverage check lists.
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	Χρώμα καναλιού
+	Color Indicates:	Το χρώμα υποδεικνύει:
+	Solidity:	Συμπαγότητα:
+	Ink Characteristics	Χαρακτηριστικά μελανιού
+
 # Guide layout dialog
+
+# Custom print paper (#3820)
+	Paper Width	Πλάτος χαρτιού
+	Paper Height	Ύψος χαρτιού
 	Rows	Γραμμές
 	Number	Πλήθος
 	Top:	Επάνω:
@@ -54,6 +64,8 @@
 	Save	Αποθήκευση
 	Save As…	Αποθήκευση ως…
 	Save a Copy…	Αποθήκευση αντιγράφου…
+	{name} can't keep everything in this document	Το {name} δεν μπορεί να κρατήσει όλο το περιεχόμενο αυτού του εγγράφου
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	Επιλέξτε μια μορφή που τα κρατά όλα, όπως Photoshop (PSD), ή αποθηκεύστε ένα αντίγραφο.
 	Revert	Επαναφορά αποθηκευμένης έκδοσης
 	Export	Εξαγωγή
 	Quick Export as PNG	Γρήγορη εξαγωγή σε PNG
@@ -91,6 +103,13 @@
 	Script Events Manager…	Διαχείριση συμβάντων δεσμών ενεργειών…
 	Import	Εισαγωγή
 	Browse…	Περιήγηση…
+	Source Files	Αρχεία προέλευσης
+	Use:	Χρήση:
+	Files	Αρχεία
+	Add Open Files	Προσθήκη ανοιχτών αρχείων
+	Sort By Name	Ταξινόμηση κατά όνομα
+	Attempt to Automatically Align Source Images	Απόπειρα αυτόματης στοίχισης εικόνων προέλευσης
+	Create Smart Object after Loading Layers	Δημιουργία έξυπνου αντικειμένου μετά τη φόρτωση επιπέδων
 	Reveal in Finder	Εμφάνιση στο Finder
 	Show in Explorer	Εμφάνιση στην Εξερεύνηση αρχείων
 	Show in Folder	Εμφάνιση στον φάκελο
@@ -115,6 +134,8 @@
 	Search…	Αναζήτηση…
 	Check Spelling…	Ορθογραφικός έλεγχος…
 	Find and Replace Text…	Εύρεση και αντικατάσταση κειμένου…
+	Add to Dictionary	Προσθήκη στο λεξικό
+	No Spelling Suggestions	Δεν υπάρχουν ορθογραφικές προτάσεις
 	Fill…	Γέμισμα…
 	Stroke…	Περίγραμμα…
 	Preferences…	Προτιμήσεις…
@@ -164,6 +185,8 @@
 	Transform	Μετασχηματισμός
 	Free Transform	Ελεύθερος μετασχηματισμός
 	Rotate	Περιστροφή
+	Set horizontal skew	Ορισμός οριζόντιας λοξής παραμόρφωσης
+	Set vertical skew	Ορισμός κατακόρυφης λοξής παραμόρφωσης
 	Flip Horizontal	Οριζόντια αναστροφή
 	Flip Vertical	Κατακόρυφη αναστροφή
 	Crop	Περικοπή
@@ -247,6 +270,9 @@
 	Add Layer Mask	Προσθήκη μάσκας επιπέδου
 	Always use pressure for opacity	Πάντα χρήση πίεσης για την αδιαφάνεια
 	Apply Layer Mask	Εφαρμογή μάσκας επιπέδου
+	Add Mask to Selection	Προσθήκη μάσκας στην επιλογή
+	Subtract Mask from Selection	Αφαίρεση μάσκας από την επιλογή
+	Intersect Mask with Selection	Τομή μάσκας με την επιλογή
 	Brush Preset picker	Επιλογή προεπιλογής πινέλου
 	Brush Reconstruct Options	Επιλογές πινέλου επαναφοράς
 	Brush Tool Options	Επιλογές πινέλου (Brush Tool)
@@ -273,6 +299,9 @@
 	Filter for shape layers	Φιλτράρισμα επιπέδων σχημάτων
 	Filter for type layers	Φιλτράρισμα επιπέδων κειμένου
 	Import Brushes…	Εισαγωγή πινέλων…
+	Gradient Preset Options	Επιλογές προεπιλογών ντεγκραντέ
+	Import .GRD	Εισαγωγή .GRD
+	Choose a gradient file (.grd).	Επιλέξτε αρχείο ντεγκραντέ (.grd).
 	Import brushes (.abr)	Εισαγωγή πινέλων (.abr)
 	Mask All	Απόκρυψη όλων με μάσκα
 	Mask Options	Επιλογές μάσκας
@@ -739,6 +768,7 @@
 	Default restored.	Έγινε επαναφορά των προεπιλογών.
 	Define at least one variable first.	Ορίστε πρώτα τουλάχιστον μία μεταβλητή.
 	Delete Group	Διαγραφή ομάδας
+	Add Shortcut	Προσθήκη συντόμευσης
 	Delete Shortcut	Διαγραφή συντόμευσης
 	Delete Timeline	Διαγραφή χρονογραμμής
 	Delete count group	Διαγραφή ομάδας καταμέτρησης
@@ -998,7 +1028,6 @@
 	Choose…	Επιλογή…
 	Select Folder…	Επιλογή φακέλου…
 	Override Action "Save" Commands	Παράκαμψη εντολών αποθήκευσης της ενέργειας
-	File Naming	Ονομασία αρχείων
 	Compatibility	Συμβατότητα
 	Include ICC Profile	Συμπερίληψη προφίλ ICC
 	Error File	Αρχείο σφαλμάτων
@@ -1462,6 +1491,11 @@
 	Developing {name}	Επεξεργασία του {name}
 	Camera Raw ({name})	Επεξεργασία RAW ({name})
 	New Brush Preset…	Νέα προεπιλογή πινέλου…
+	Capture Brush Size in Preset	Αποθήκευση μεγέθους πινέλου στην προεπιλογή
+	Include Tool Settings	Συμπερίληψη ρυθμίσεων εργαλείου
+	Include Color	Συμπερίληψη χρώματος
+	Enter a name for the brush preset	Εισαγάγετε όνομα για την προεπιλογή πινέλου
+	A brush preset with this name already exists	Υπάρχει ήδη προεπιλογή πινέλου με αυτό το όνομα
 	Brush Preset Options	Επιλογές προεπιλογής πινέλου
 	Show font names in english	Εμφάνιση ονομάτων γραμματοσειρών στα αγγλικά
 	Show menu colors	Εμφάνιση χρωμάτων μενού
@@ -1577,6 +1611,9 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Δεν υπάρχει διαδρομή για δημιουργία επιλογής: σχεδιάστε μία με το εργαλείο Πένα (Pen Tool) ή επιλέξτε μία στο πλαίσιο Διαδρομές.
 	Cancel opening	Ακύρωση ανοίγματος
 	Cancelled opening {name}	Ακυρώθηκε το άνοιγμα του {name}
+	The document “{name}” does not have an embedded {mode} profile.	Το έγγραφο «{name}» δεν έχει ενσωματωμένο προφίλ {mode}.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Το έγγραφο «{name}» έχει ενσωματωμένο χρωματικό προφίλ που δεν ταιριάζει με τον τρέχοντα χώρο εργασίας {mode}.
+	Working: {working}	Χώρος εργασίας: {working}
 	Cancelled {label}	Ακυρώθηκε: {label}
 	Esc to cancel	Esc για ακύρωση
 	Opened {name}	Άνοιξε το {name}
@@ -1619,6 +1656,8 @@
 	Camera Raw Defaults	Προεπιλογές Camera Raw
 	Canvas border	Περίγραμμα καμβά
 	Show canvas dots	Εμφάνιση κουκκίδων καμβά
+	Clip thumbnails to layer bounds	Περικοπή μικρογραφιών στα όρια του επιπέδου
+	Clip Thumbnails to Layer Bounds	Περικοπή μικρογραφιών στα όρια του επιπέδου
 	Canvas color	Χρώμα καμβά
 	Canvas custom color	Προσαρμοσμένο χρώμα καμβά
 	Color picker	Επιλογέας χρώματος
@@ -1813,6 +1852,7 @@
 	Update Modified Content	Ενημέρωση τροποποιημένου περιεχομένου
 	Update All Modified Content	Ενημέρωση όλων των τροποποιημένων περιεχομένων
 	Stack Mode	Λειτουργία στοίβας
+	Choose Stack Mode:	Επιλογή λειτουργίας στοίβας:
 	Entropy	Εντροπία
 	Kurtosis	Κύρτωση
 	Maximum	Μέγιστο
@@ -1838,6 +1878,7 @@
 	New Guide Layout…	Νέα διάταξη οδηγών…
 	New Guides From Shape	Νέοι οδηγοί από σχήμα
 	Merge Down	Συγχώνευση με το υποκείμενο επίπεδο
+	Merge Group	Συγχώνευση ομάδας
 	Stamp Visible	Συνένωση ορατών σε νέο επίπεδο
 	Select Layer Above	Επιλογή επάνω επιπέδου
 	Select Layer Below	Επιλογή κάτω επιπέδου
@@ -1895,6 +1936,12 @@
 	Aqua	Κυανό
 	Balance	Ισορροπία
 	Before (Y)	Πριν (Y)
+	Save Settings…	Αποθήκευση ρυθμίσεων…
+	Load Settings…	Φόρτωση ρυθμίσεων…
+	Save these settings as a Camera Raw .xmp file	Αποθήκευση αυτών των ρυθμίσεων ως αρχείο Camera Raw .xmp
+	Load settings from a Camera Raw .xmp file	Φόρτωση ρυθμίσεων από αρχείο Camera Raw .xmp
+	Loaded Camera Raw settings from {file}	Φορτώθηκαν ρυθμίσεις Camera Raw από το {file}
+	Loaded Camera Raw settings from {file} ({n} not supported)	Φορτώθηκαν ρυθμίσεις Camera Raw από το {file} ({n} δεν υποστηρίζονται)
 	Blending	Ανάμειξη
 	Camera Raw Filter ({layer})	Φίλτρο Camera Raw ({layer})
 	Camera Raw isn't open	Το Camera Raw δεν είναι ανοιχτό
@@ -2044,6 +2091,7 @@
 	Avoid Widows/Orphans	Αποφυγή μονών γραμμών στην αρχή ή στο τέλος σελίδας
 	BLANK DOCUMENT PRESETS ({n})	ΠΡΟΕΠΙΛΟΓΕΣ ΚΕΝΟΥ ΕΓΓΡΑΦΟΥ ({n})
 	Background Contents	Περιεχόμενα φόντου
+	Custom background color	Προσαρμοσμένο χρώμα φόντου
 	Background from Layer	Φόντο από επίπεδο
 	Baseline	Γραμμή βάσης
 	Baseline shift	Μετατόπιση γραμμής βάσης
@@ -2084,6 +2132,7 @@
 	Camera Raw Filter…	Φίλτρο επεξεργασίας ακατέργαστης εικόνας…
 	Camera Raw…	Επεξεργασία ακατέργαστης εικόνας…
 	Cancel (Esc)	Ακύρωση (Esc)
+	Manage submitted jobs in the system print queue	Διαχειριστείτε τις υποβληθείσες εργασίες στην ουρά εκτύπωσης του συστήματος
 	Cancel any current edits (Esc)	Ακύρωση τρεχουσών αλλαγών (Esc)
 	Cancel transform (Esc)	Ακύρωση μετασχηματισμού (Esc)
 	Cancel warp (Esc)	Ακύρωση παραμόρφωσης (Esc)
@@ -2119,6 +2168,10 @@
 	Breeze Dark Theme	Σκούρο θέμα Breeze
 	Breeze light	Breeze φωτεινό
 	Breeze Light Theme	Φωτεινό θέμα Breeze
+	Soft dark	Απαλό σκούρο
+	Soft light	Απαλό ανοιχτό
+	Soft Dark Theme	Απαλό σκούρο θέμα
+	Soft Light Theme	Απαλό ανοιχτό θέμα
 	Clear Canvas Guides	Απαλοιφή οδηγών καμβά
 	Clear Override	Απαλοιφή παράκαμψης
 	Clear Samples	Απαλοιφή δειγμάτων
@@ -2188,7 +2241,6 @@
 	Control:	Χειριστήριο:
 	Conté Crayon	Μολύβι κοντέ
 	Convert Frames > Video Layers	Μετατροπή καρέ > Επίπεδα βίντεο
-	Convert document's colors to the working space	Μετατροπή των χρωμάτων του εγγράφου στον χώρο εργασίας
 	Convert to Linked	Μετατροπή σε συνδεδεμένο
 	Convert to Paragraph Text	Μετατροπή σε κείμενο παραγράφου
 	Convert to Point Text	Μετατροπή σε κείμενο σημείου
@@ -2347,6 +2399,12 @@
 	Fibers…	Ίνες…
 	Field Blur	Θόλωση πεδίου
 	Field Blur…	Θόλωση πεδίου…
+# Field Blur pins (#3373)
+	No pin selected	Δεν έχει επιλεγεί καρφίτσα
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Κάντε κλικ στην εικόνα για να προσθέσετε καρφίτσα· σύρετε μια καρφίτσα για να τη μετακινήσετε ή τον δακτύλιό της για να αλλάξετε τη θόλωση. Το Delete αφαιρεί την επιλεγμένη καρφίτσα.
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	Σύρετε τις λαβές στο περίγραμμα για αλλαγή μεγέθους και περιστροφή, το τετράγωνο για στρογγύλεμα των γωνιών και τις κουκκίδες μέσα για να ορίσετε πού αρχίζει η θόλωση.
+	Drag the pin to move the band, or its ring to change its blur. Drag the solid lines to widen the sharp band, the dashed lines to set the transition, and the dots to turn it.	Σύρετε την καρφίτσα για να μετακινήσετε τη ζώνη ή τον δακτύλιό της για να αλλάξετε τη θόλωση. Σύρετε τις συνεχείς γραμμές για να διευρύνετε την ευκρινή ζώνη, τις διακεκομμένες για τη μετάβαση και τις κουκκίδες για περιστροφή.
+	Drag the handles on the outline to resize and turn it; the ring sets the blur angle.	Σύρετε τις λαβές στο περίγραμμα για αλλαγή μεγέθους και περιστροφή· ο δακτύλιος ορίζει τη γωνία θόλωσης.
 	File Info	Πληροφορίες αρχείου
 	File Settings	Ρυθμίσεις αρχείου
 	Fill Path	Γέμισμα διαδρομής
@@ -2477,7 +2535,8 @@
 	Image Size:	Μέγεθος εικόνας:
 	Image interpolation	Παρεμβολή εικόνας
 	Image previews	Προεπισκοπήσεις εικόνων
-	Import Brushes… (.abr)	Εισαγωγή πινέλων… (.abr)
+	Import Brushes… (.abr or image)	Εισαγωγή πινέλων… (.abr ή εικόνα)
+	Import Brush from Image…	Εισαγωγή πινέλου από εικόνα…
 	Import Presets	Εισαγωγή προεπιλογών
 	Imported	Εισήχθη
 	In	Είσοδος
@@ -3165,7 +3224,6 @@
 	Use File › Open to open an image.	Χρησιμοποιήστε Αρχείο › Άνοιγμα για να ανοίξετε μια εικόνα.
 	Use Legacy	Χρήση παλαιάς λειτουργίας
 	Use Measurement Scale	Χρήση κλίμακας μέτρησης
-	Use the embedded profile (instead of the working space)	Χρήση ενσωματωμένου προφίλ (αντί του χώρου εργασίας)
 	Uses the foreground and background colours.	Χρησιμοποιεί τα χρώματα προσκηνίου και φόντου.
 	Vanishing Point	Σημείο φυγής
 	Vanishing Point…	Σημείο φυγής…
@@ -3384,6 +3442,7 @@ cameraRaw	Yellow	Κίτρινο
 	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Τα επίπεδά του δεν χωρούν στο όριο μνήμης της GPU. Αυξάνοντας τη Χρήση μνήμης στις Προτιμήσεις › Επιδόσεις αυξάνεται το όριο, έως το ένα τέταρτο της μνήμης αυτού του υπολογιστή.
 	Knockout	Διάτρηση
 	Large document: redrawing on the CPU	Μεγάλο έγγραφο: επανασχεδίαση στη CPU
+	Redrawing	Επανασχεδίαση
 	Median…	Διάμεσος…
 	Move	Μετακίνηση
 	New Swatch Group…	Νέα ομάδα δειγμάτων χρωμάτων…
@@ -3501,6 +3560,7 @@ fontWeight	Thin	Πολύ λεπτά
 	Sample a pixel anywhere on the screen	Δειγματοληψία ενός pixel οπουδήποτε στην οθόνη
 	Click to pick · Esc to cancel	Κλικ για επιλογή · Esc για ακύρωση
 	Scroll to zoom	Κύλιση για μεγέθυνση
+	Drag to pan · Scroll to zoom · Double-click to fit	Σύρετε για μετακίνηση · Κυλήστε για μεγέθυνση · Διπλό κλικ για προσαρμογή
 
 # Saved New Document presets (#1516)
 	Preset Name	Όνομα προεπιλογής
@@ -3553,6 +3613,8 @@ fontWeight	Thin	Πολύ λεπτά
 	Color Picker ({name})	Επιλογέας χρώματος ({name})
 	Auto Hide Notifications	Αυτόματη απόκρυψη ειδοποιήσεων
 	Notification Duration (seconds)	Διάρκεια ειδοποίησης (δευτερόλεπτα)
+	Bundle Arrow-Key Nudges	Ομαδοποίηση μετατοπίσεων με βέλη
+	Nudge Bundle Pause (ms)	Παύση ομαδοποίησης μετατοπίσεων (ms)
 	Appearance Mode	Λειτουργία εμφάνισης
 	Pro Medium	Pro Medium
 	Studio Light	Studio Light
@@ -3671,6 +3733,7 @@ cameraData	Lens	Φακός
 	Search settings…	Αναζήτηση ρυθμίσεων…
 	No matching settings	Δεν βρέθηκαν ρυθμίσεις
 	Loading fonts…	Φόρτωση γραμματοσειρών…
+	Response curve	Καμπύλη απόκρισης
 	Simulate Pressure	Προσομοίωση πίεσης
 	Stroke Path…	Περίγραμμα διαδρομής…
 	Background Eraser	Γόμα φόντου
@@ -3709,6 +3772,7 @@ curves	Smooth	Εξομάλυνση
 	Paint over hair or fur on the image; Alt paints the other mode	Βάψτε πάνω σε μαλλιά ή γούνα στην εικόνα· το Alt βάφει με την άλλη λειτουργία
 	Clear Brush Strokes	Απαλοιφή πινελιών
 	Show rulers	Εμφάνιση χαράκων
+	Presentation	Παρουσίαση
 
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	Κλικ για τοποθέτηση · Alt-κλικ ή σύρσιμο εκτός καμβά για αφαίρεση
@@ -3745,3 +3809,83 @@ curves	Smooth	Εξομάλυνση
 	Light Red	Ανοιχτό κόκκινο
 	Medium Blue	Μεσαίο μπλε
 	Light Gray	Ανοιχτό γκρι
+	Object Finder	Εύρεση αντικειμένων
+	No object found there — drag a rectangle around it	Δεν βρέθηκε αντικείμενο εκεί — σύρετε ένα ορθογώνιο γύρω του
+	Remove after each stroke	Αφαίρεση μετά από κάθε πινελιά
+	Apply the removal ({key})	Εφαρμογή της αφαίρεσης ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Πινελιές προς αφαίρεση: {n} (Enter εφαρμόζει, Esc ακυρώνει)
+	Show home recent files	Εμφάνιση πρόσφατων αρχείων στην αρχική οθόνη
+	Clear Brush Controls	Απαλοιφή στοιχείων ελέγχου πινέλου
+	Reset All Locked Settings	Επαναφορά όλων των κλειδωμένων ρυθμίσεων
+	Copy Texture to Other Tools	Αντιγραφή υφής σε άλλα εργαλεία
+
+# Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
+	Load Actions…	Φόρτωση ενεργειών…
+	Save Actions…	Αποθήκευση ενεργειών…
+	{name} (Photoshop)	{name} (Photoshop)
+	{message} ({note})	{message} ({note})
+@plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Φορτώθηκε {n} ενέργεια από το {file}|Φορτώθηκαν {n} ενέργειες από το {file}
+@plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} βήμα δεν έχει ακόμη αντίστοιχο στο PhotoCraft|{n} βήματα δεν έχουν ακόμη αντίστοιχο στο PhotoCraft
+@plural	Saved {n} action to {file}|Saved {n} actions to {file}	Αποθηκεύτηκε {n} ενέργεια στο {file}|Αποθηκεύτηκαν {n} ενέργειες στο {file}
+@plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Παραλείφθηκε {n} βήμα χωρίς αντίστοιχο στο Photoshop|Παραλείφθηκαν {n} βήματα χωρίς αντίστοιχο στο Photoshop
+
+	File Naming	Ονομασία αρχείων
+	Starting serial	Αρχικός αριθμός σειράς
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Εισαγωγή διακοπής…
+	Save Set…	Αποθήκευση συνόλου…
+	Message:	Μήνυμα:
+	Allow Continue	Να επιτρέπεται η συνέχεια
+	Show dialog during playback	Εμφάνιση του παραθύρου διαλόγου κατά την αναπαραγωγή
+	Select an action first	Επιλέξτε πρώτα μια ενέργεια
+	Action playback stopped	Η αναπαραγωγή της ενέργειας σταμάτησε
+	Step {step} is waiting for its dialog	Το βήμα {step} περιμένει το παράθυρο διαλόγου του
+@plural	{n} action|{n} actions	{n} ενέργεια|{n} ενέργειες
+	Background (Default)	Φόντο (προεπιλογή)
+# Batch / Image Processor
+	Include All Subfolders	Συμπερίληψη όλων των υποφακέλων
+	Auto Add/Delete	Αυτόματη προσθήκη/διαγραφή
+
+# Native Windows printing qualification
+	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	Μην ενεργοποιείτε επίσης τον κατοπτρισμό στις ρυθμίσεις εκτύπωσης: οι δύο αναστροφές αλληλοαναιρούνται.
+	Print Settings…	Ρυθμίσεις εκτύπωσης…
+	Remember to turn off the printer's own colour management in Print Settings…	Θυμηθείτε να απενεργοποιήσετε τη διαχείριση χρωμάτων του εκτυπωτή στις ρυθμίσεις εκτύπωσης…
+	Sent to {printer}	Στάλθηκε στον {printer}
+	set in Print Settings…	ορίζεται στις ρυθμίσεις εκτύπωσης…
+	ICO is limited to 256 × 256 pixels	Το ICO περιορίζεται σε 256 × 256 εικονοστοιχεία
+# Embedded Profile Mismatch: profile names beside the choices, Remember this choice
+	Use the embedded profile ({profile})	Χρήση ενσωματωμένου προφίλ ({profile})
+	Convert to the working space ({profile})	Μετατροπή στον χώρο εργασίας ({profile})
+	Remember this choice for future images	Απομνημόνευση αυτής της επιλογής για μελλοντικές εικόνες
+	Turn the prompt back on with Ask On Mismatch in Edit › Color Settings.	Ενεργοποιήστε ξανά την ερώτηση με το Ask On Mismatch στο Επεξεργασία › Ρυθμίσεις χρωμάτων.
+	Button Mode	Λειτουργία κουμπιών
+	Button Mode On	Λειτουργία κουμπιών ενεργή
+
+# Darken / Lighten Interface (⇧⌘F1 / ⇧⌘F2)
+	Darken Interface	Σκουρότερο περιβάλλον
+	Lighten Interface	Φωτεινότερο περιβάλλον
+# Bevel & Emboss Technique.
+	Technique	Τεχνική
+	Chisel Hard	Σκληρή σμίλευση
+	Chisel Soft	Μαλακή σμίλευση
+	Open color-less EXR as ACEScg	Άνοιγμα EXR χωρίς χρωματική δήλωση ως ACEScg
+# Export As metadata and profile options
+	EXIF	EXIF
+
+# View › Guides › right-click a guide
+	Edit Selected Guides	Επεξεργασία επιλεγμένων οδηγών
+	Clear Selected Guides	Απαλοιφή επιλεγμένων οδηγών
+	Delete this set	Διαγραφή αυτού του συνόλου
+	New Set…	Νέο σύνολο…
+	PhotoCraft Defaults	Προεπιλογές PhotoCraft
+	Save a list of these shortcuts as a web page	Αποθήκευση λίστας αυτών των συντομεύσεων ως ιστοσελίδας
+	Save the changes to this set	Αποθήκευση των αλλαγών σε αυτό το σύνολο
+	Save these shortcuts as a .kys file	Αποθήκευση αυτών των συντομεύσεων ως αρχείου .kys
+	Save these shortcuts as a new set	Αποθήκευση αυτών των συντομεύσεων ως νέου συνόλου
+	Set deleted.	Το σύνολο διαγράφηκε.
+	Set saved.	Το σύνολο αποθηκεύτηκε.
+	Set:	Σύνολο:
+	Summarize…	Σύνοψη…
+	There are too many sets: delete one first.	Υπάρχουν πάρα πολλά σύνολα: διαγράψτε πρώτα ένα.
+	set name	όνομα συνόλου
+	{set} (modified)	{set} (τροποποιημένο)

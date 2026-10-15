@@ -60,6 +60,34 @@ fn show_snap_extras_and_screen_modes_are_state() {
 }
 
 #[test]
+fn full_screen_and_maximized_never_overlap_on_windows() {
+    use egui::ViewportCommand::{Fullscreen, Maximized};
+    // Maximized → full screen: un-maximize first, and remember it.
+    let (cmds, remember) = screen_mode_commands(true, false, true, false, "fullScreenWithMenuBar");
+    assert_eq!(cmds, vec![Maximized(false), Fullscreen(true)]);
+    assert!(remember);
+    // Full screen → the other full-screen mode: nothing about maximized changes.
+    let (cmds, remember) = screen_mode_commands(true, true, false, true, "fullScreen");
+    assert_eq!(cmds, vec![Fullscreen(true)]);
+    assert!(remember);
+    // Full screen → Standard: maximize again after leaving, then forget.
+    let (cmds, remember) = screen_mode_commands(true, true, false, true, "standard");
+    assert_eq!(cmds, vec![Fullscreen(false), Maximized(true)]);
+    assert!(!remember);
+    // A window that was not maximized goes in and out untouched.
+    let (cmds, remember) = screen_mode_commands(true, false, false, false, "fullScreen");
+    assert_eq!((cmds, remember), (vec![Fullscreen(true)], false));
+    let (cmds, remember) = screen_mode_commands(true, true, false, false, "standard");
+    assert_eq!((cmds, remember), (vec![Fullscreen(false)], false));
+    // Standard while already standard never maximizes.
+    let (cmds, _) = screen_mode_commands(true, false, false, true, "standard");
+    assert_eq!(cmds, vec![Fullscreen(false)]);
+    // Elsewhere the commands are as before.
+    let (cmds, remember) = screen_mode_commands(false, false, true, false, "fullScreen");
+    assert_eq!((cmds, remember), (vec![Fullscreen(true)], false));
+}
+
+#[test]
 fn zoom_presets_and_fit_layers() {
     let (mut app, ctx) = app_with(1);
     menu(&mut app, &ctx, "view.twoHundredPercent", json!({})).unwrap();
@@ -228,6 +256,45 @@ fn apply_image_and_calculations_open_dialogs_without_editing() {
 }
 
 #[test]
+fn apply_image_dialog_offers_source_layer_scale_and_offset() {
+    let (mut app, ctx) = app_with(0);
+    app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+    app.run("edit.fill", json!({"color": "#c08040"})).unwrap();
+    app.run("layer.new.layer", json!({"name": "Skin High"})).unwrap();
+    app.run("edit.fill", json!({"color": "#406080"})).unwrap();
+    app.sync_views();
+    let background = app.session.active().unwrap().doc.walk()[0].2.name.clone();
+    let open = |app: &mut PhotocraftApp| menu(app, &ctx, "image.applyImage", json!({})).unwrap()["dialog"].as_u64().unwrap();
+    let d = open(&mut app);
+    let fields = &app.ui.dialog_mut(d).unwrap().fields;
+    assert_eq!(fields["sourceLayer"], "merged");
+    assert_eq!(fields["scale"], 1.0);
+    assert_eq!(fields["offset"], 0);
+    // Merged first, then the layers top to bottom, shown by their own names.
+    assert_eq!(fields["__choices"]["sourceLayer"], json!(["merged", "Skin High", background]));
+    assert_eq!(fields["__labels"]["Skin High"], "Skin High");
+    // The frequency separation recipe: a layer subtracted from itself at Scale 2, Offset 128 is mid grey.
+    for (k, v) in [("sourceLayer", json!("Skin High")), ("blending", json!("subtract")), ("scale", json!(2.0)), ("offset", json!(128))] {
+        app.ui.dialog_mut(d).unwrap().fields.insert(k.into(), v);
+    }
+    crate::dialogs::confirm(&mut app, d).unwrap();
+    let st = app.session.active().unwrap();
+    let p = st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap().pixel(3, 3);
+    assert!(p[..3].iter().all(|v| (v - 128.0 / 255.0).abs() < 0.003), "{p:?}");
+    app.run("edit.undo", json!({})).unwrap();
+    // The chosen layer is the source, not the merged image.
+    let d = open(&mut app);
+    for (k, v) in [("sourceLayer", json!(background)), ("blending", json!("subtract")), ("scale", json!(2.0)), ("offset", json!(128))] {
+        app.ui.dialog_mut(d).unwrap().fields.insert(k.into(), v);
+    }
+    crate::dialogs::confirm(&mut app, d).unwrap();
+    let st = app.session.active().unwrap();
+    let p = st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap().pixel(3, 3);
+    let want = (64.0 - 192.0) / 255.0 / 2.0 + 128.0 / 255.0;
+    assert!((p[0] - want).abs() < 0.003, "{p:?} vs {want}");
+}
+
+#[test]
 fn new_guide_layout_remembers_successful_values_not_cancelled_edits() {
     let (mut app, ctx) = app_with(1);
     let first = menu(&mut app, &ctx, "view.newGuideLayout", json!({})).unwrap()["dialog"].as_u64().unwrap();
@@ -260,8 +327,8 @@ fn new_guide_layout_remembers_successful_values_not_cancelled_edits() {
 
 #[test]
 fn new_guide_layout_does_not_remember_a_failed_command() {
-    let (mut app, _) = app_with(0);
-    let id = front(&mut app, "view.newGuideLayout", &json!({})).unwrap().unwrap()["dialog"].as_u64().unwrap();
+    let (mut app, ctx) = app_with(0);
+    let id = front(&mut app, &ctx, "view.newGuideLayout", &json!({})).unwrap().unwrap()["dialog"].as_u64().unwrap();
     app.ui.dialog_mut(id).unwrap().fields.insert("columns".into(), json!(3));
     assert!(crate::dialogs::confirm(&mut app, id).is_err());
     assert_eq!(app.ui.view.guide_layout["columns"], 8);
@@ -269,10 +336,10 @@ fn new_guide_layout_does_not_remember_a_failed_command() {
 
 #[test]
 fn lookup_export_dialog_uses_the_current_adjustment_selection() {
-    let (mut app, _ctx) = app_with(1);
+    let (mut app, ctx) = app_with(1);
     app.run("layer.newAdjustmentLayer.invert", json!({})).unwrap();
     let current = app.session.active().unwrap().active_layer.unwrap();
-    let opened = front(&mut app, "file.export.colorLookupTables", &json!({})).unwrap().unwrap();
+    let opened = front(&mut app, &ctx, "file.export.colorLookupTables", &json!({})).unwrap().unwrap();
     let id = opened["dialog"].as_u64().unwrap();
     let dialog = &app.ui.dialogs.last().unwrap().fields;
     assert_eq!(dialog["scope"], "selected");
@@ -281,7 +348,7 @@ fn lookup_export_dialog_uses_the_current_adjustment_selection() {
     app.ui.close_dialog(id);
 
     app.run("layer.new.layer", json!({"name": "Unrelated pixels"})).unwrap();
-    let opened = front(&mut app, "file.export.colorLookupTables", &json!({})).unwrap().unwrap();
+    let opened = front(&mut app, &ctx, "file.export.colorLookupTables", &json!({})).unwrap().unwrap();
     let id = opened["dialog"].as_u64().unwrap();
     assert_eq!(app.ui.dialogs.last().unwrap().fields["scope"], "all");
     app.ui.close_dialog(id);
@@ -290,6 +357,32 @@ fn lookup_export_dialog_uses_the_current_adjustment_selection() {
     let direct = app.run("file.export.colorLookupTables", json!({"size": 3, "scope": "selected"})).unwrap();
     assert_eq!(direct["layerCount"], 1);
     assert!(direct["cube"].as_str().unwrap().contains("LUT_3D_SIZE 3"));
+}
+
+/// Batch and Image Processor carry Photoshop's "Include All Subfolders" checkbox (AUTO-219-5,
+/// #3753): off by default, and confirming it on processes a subfolder's images too.
+#[test]
+fn batch_dialogs_include_all_subfolders() {
+    let (mut app, ctx) = app_with(1);
+    let dir = std::env::temp_dir().join(format!("photocraft-ui-batch-subfolders-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("in/sub")).unwrap();
+    let input = dir.join("in").to_string_lossy().into_owned();
+    app.run("file.saveACopy", json!({"path": dir.join("in/sub/a.png").to_string_lossy()})).unwrap();
+    app.session.actions.list.push(photocraft_engine::actions_cmds::Action::new("Invert", vec![("image.adjustments.invert".into(), json!({}))]));
+    for (id, out) in [("file.automate.batch", "batch"), ("file.scripts.imageProcessor", "processed")] {
+        let d = menu(&mut app, &ctx, id, json!({})).unwrap()["dialog"].as_u64().unwrap();
+        let fields = &mut app.ui.dialog_mut(d).unwrap().fields;
+        assert_eq!(fields["includeSubfolders"], json!(false), "{id}");
+        assert_eq!(fields["__labels"]["includeSubfolders"], json!("Include All Subfolders"), "{id}");
+        fields.insert("input".into(), json!(input));
+        fields.insert("output".into(), json!(dir.join(out).to_string_lossy()));
+        fields.insert("includeSubfolders".into(), json!(true));
+        let r = crate::dialogs::confirm(&mut app, d).unwrap();
+        assert_eq!(r["files"].as_array().map(Vec::len), Some(1), "{id}: {r}");
+        assert!(dir.join(out).join("sub").is_dir(), "{id} keeps the subfolder: {r}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// Float in Window takes the document and the screen position a dragged-off tab was dropped at
@@ -368,4 +461,48 @@ fn load_selection_without_alpha_channels_offers_the_composite() {
     let dialog = menu(&mut app, &ctx, "select.loadSelection", json!({})).unwrap()["dialog"].as_u64().unwrap();
     assert_eq!(app.ui.dialog_mut(dialog).unwrap().fields["channel"], "RGB");
     crate::dialogs::confirm(&mut app, dialog).unwrap();
+}
+
+/// One frame of the shortcut handler with a plain Esc press.
+fn press_esc(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    let key = egui::Key::Escape;
+    let input = egui::RawInput {
+        focused: true,
+        events: vec![egui::Event::Key { key, physical_key: Some(key), pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }],
+        ..Default::default()
+    };
+    ctx.run_ui(input, |ui| crate::shortcuts::handle(app, ui.ctx())).textures_delta.clear();
+}
+
+#[test]
+fn esc_leaves_full_screen_modes_unless_something_else_owns_it() {
+    let (mut app, ctx) = app_with(1);
+    // Both full screen modes return to Standard, and the menu check follows (#4116).
+    for mode in ["fullScreen", "fullScreenWithMenuBar"] {
+        menu(&mut app, &ctx, &format!("view.screenMode.{mode}"), json!({})).unwrap();
+        press_esc(&mut app, &ctx);
+        assert_eq!(app.ui.view.screen_mode, "standard", "{mode}");
+        assert_eq!(checked(&app, "view.screenMode.standard"), Some(true));
+    }
+    // In Standard, Esc leaves the mode alone.
+    press_esc(&mut app, &ctx);
+    assert_eq!(app.ui.view.screen_mode, "standard");
+    // An open dialog takes Esc first.
+    menu(&mut app, &ctx, "view.screenMode.fullScreen", json!({})).unwrap();
+    menu(&mut app, &ctx, "image.canvasSize", json!({})).unwrap();
+    assert_eq!(app.ui.dialogs.len(), 1);
+    press_esc(&mut app, &ctx);
+    assert_eq!(app.ui.view.screen_mode, "fullScreen");
+    app.ui.dialogs.clear();
+    // So does Free Transform: Esc cancels it and the mode stays.
+    app.run("select.all", json!({})).unwrap();
+    crate::transform_tool::begin(&mut app, &ctx).unwrap();
+    assert!(app.ui.transform.is_some());
+    press_esc(&mut app, &ctx);
+    assert!(app.ui.transform.is_none());
+    assert_eq!(app.ui.view.screen_mode, "fullScreen");
+    // A selection stays while Esc leaves full screen; the next Esc deselects.
+    press_esc(&mut app, &ctx);
+    assert_eq!(app.ui.view.screen_mode, "standard");
+    assert!(app.session.active().unwrap().doc.selection.is_some());
 }

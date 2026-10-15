@@ -3,15 +3,16 @@
 //! Rulers & Grids toggles. Every edit dispatches an engine or view command, so the panel stays thin.
 
 use egui::{Align2, Rect, RichText, Sense, Stroke, StrokeKind, pos2, vec2};
-use photocraft_doc::{ColorMode, Document, Layer, LayerContent, LayerId, SampleType};
+use photocraft_doc::{ColorMode, Document, Layer, LayerId, SampleType};
 use serde_json::{Value, json};
 
 use crate::theme::Tokens;
 use crate::{PhotocraftApp, icons, widgets};
 
-/// Photoshop's Background layer: the locked, opaque raster layer at the bottom of the stack.
+/// Photoshop's Background layer: the locked, opaque raster layer at the bottom of the stack,
+/// whatever its (localized) name ([`Document::background`]).
 pub fn is_background(doc: &Document, l: &Layer) -> bool {
-    l.name == "Background" && l.locks.transparency && matches!(l.content, LayerContent::Raster(_)) && doc.layers.first().is_some_and(|b| b.id == l.id)
+    doc.is_background(l.id)
 }
 
 /// Does the Properties panel show the Document view? (No layer selected, or the Background layer.)
@@ -99,7 +100,7 @@ fn committed_field(ui: &mut egui::Ui, id: &str, current: f32, u: crate::layer_pr
     // Shown in the ruler unit (cm when the rulers are in centimeters); 100% is the current size.
     let extent = f64::from(current);
     let mut v = ui.data(|d| d.get_temp::<f32>(key)).unwrap_or_else(|| u.shown(extent, extent));
-    let r = widgets::value_field(ui, &mut v, 0.01..=300_000.0, u.unit.suffix(), 74.0);
+    let r = widgets::value_field(ui, &mut v, 0.0..=300_000.0, u.unit.suffix(), 74.0);
     if r.dragged() || r.has_focus() {
         ui.data_mut(|d| d.insert_temp(key, v));
         return None;
@@ -315,6 +316,30 @@ mod tests {
         assert_eq!(canvas_resize_params((2400, 1500), None, Some(3000.0), true), Some(json!({"width": 4800.0, "height": 3000.0, "anchor": "center"})));
         assert_eq!(canvas_resize_params((2400, 1500), Some(1000.0), None, false), Some(json!({"width": 1000.0, "height": 1500.0, "anchor": "center"})));
         assert_eq!(canvas_resize_params((2400, 1500), Some(2400.2), None, false), None);
+    }
+
+    /// #5661: a 1 x 1 px document at 300 ppi is 0.0033 in wide. With the rulers in inches the
+    /// Width/Height fields clamped that to 0.01 in (3 px) and resized the document unasked.
+    #[test]
+    fn tiny_document_in_inches_is_not_resized_by_showing_it() {
+        use egui_kittest::Harness;
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 1, "height": 1, "resolution": 300, "background": "white"})).unwrap();
+        app.session.prefs.edit(|p| p.units_and_rulers.rulers = photocraft_engine::prefs::Unit::Inches);
+        let undo = app.session.active().unwrap().history.entries().len();
+        let mut h = Harness::builder().with_size(vec2(320.0, 600.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                    properties(app, ui);
+                }
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        h.run_steps(3);
+        let st = h.state().session.active().unwrap();
+        assert_eq!((st.doc.size.width, st.doc.size.height), (1, 1));
+        assert_eq!(st.history.entries().len(), undo, "no history step");
     }
 
     #[test]

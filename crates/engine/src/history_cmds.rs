@@ -8,8 +8,10 @@
 //! states: `history.newSnapshot` takes one, `history.selectSnapshot` brings it back as a new,
 //! undoable state. They live on [`crate::DocState::snapshots`] for the session only, as in
 //! Photoshop, and are addressed by an id that is never reused. Their tiles are shared
-//! copy-on-write with the document and its history, and are not counted in the history's pixel
-//! budget.
+//! copy-on-write with the document and its history; the tiles only snapshots hold count against
+//! the history's pixel budget ([`crate::DocState::trim_history`]), so a Merged Layers snapshot
+//! (a full flattened copy) makes room by dropping the oldest states rather than taking memory
+//! beyond the budget unseen (#4530). Edit › Purge keeps them.
 
 use std::sync::Arc;
 
@@ -199,8 +201,39 @@ fn has_doc(s: &Session) -> std::result::Result<(), String> {
     s.active().map(|_| ()).ok_or_else(|| "no document open".into())
 }
 
+/// `history.undo` / `history.redo` enable predicates, matching `edit.undo` / `edit.redo`.
+fn can_undo(s: &Session) -> std::result::Result<(), String> {
+    s.active().filter(|d| d.history.can_undo()).map(|_| ()).ok_or_else(|| "nothing to undo".into())
+}
+
+fn can_redo(s: &Session) -> std::result::Result<(), String> {
+    s.active().filter(|d| d.history.can_redo()).map(|_| ()).ok_or_else(|| "nothing to redo".into())
+}
+
 pub fn specs() -> Vec<CommandSpec> {
     vec![
+        // `history.*` aliases of Edit › Undo / Redo, so a client reaching for the History namespace
+        // finds them (`edit.undo` / `edit.redo` remain the menu items and own the shortcuts, #3675).
+        CommandSpec {
+            id: "history.undo",
+            label: "Undo",
+            menu: &[],
+            shortcut: None,
+            params: "{} (the same action as `edit.undo`)",
+            enabled: can_undo,
+            run: |s, _| Ok(json!(s.undo())),
+            journal: false,
+        },
+        CommandSpec {
+            id: "history.redo",
+            label: "Redo",
+            menu: &[],
+            shortcut: None,
+            params: "{} (the same action as `edit.redo`)",
+            enabled: can_redo,
+            run: |s, _| Ok(json!(s.redo())),
+            journal: false,
+        },
         CommandSpec {
             id: "history.deleteState",
             label: "Delete State",
@@ -280,6 +313,16 @@ mod tests {
 
     fn entries(s: &Session) -> Vec<String> {
         s.active().unwrap().history.entries()
+    }
+
+    #[test]
+    fn history_undo_and_redo_alias_edit_undo_and_redo() {
+        let mut s = session();
+        let n = s.active().unwrap().history.past_len();
+        s.execute("history.undo", json!({})).unwrap();
+        assert_eq!(s.active().unwrap().history.past_len(), n - 1, "history.undo steps back like edit.undo");
+        s.execute("history.redo", json!({})).unwrap();
+        assert_eq!(s.active().unwrap().history.past_len(), n, "history.redo steps forward like edit.redo");
     }
 
     #[test]
@@ -408,6 +451,54 @@ mod tests {
         assert_eq!(s.active().unwrap().doc.layers.len(), 1, "only the active layer");
         s.execute("history.selectSnapshot", json!({"snapshot": 3})).unwrap();
         assert_eq!(s.active().unwrap().doc.layers.len(), 2);
+    }
+
+    fn tile_bytes(doc: &Document) -> usize {
+        doc.layers.iter().filter_map(|l| l.surface()).flat_map(|s| s.tiles().map(|(_, t)| t.bytes().len())).sum()
+    }
+
+    /// A Merged Layers snapshot is a flattened copy only it holds (#4530): it counts in the
+    /// document's memory and against the history budget, so the same edits keep one state less.
+    #[test]
+    fn merged_snapshot_counts_against_the_history_budget() {
+        let (mut with, mut without) = (session(), session());
+        let base = with.active().unwrap().memory_bytes();
+        with.execute("history.newSnapshot", json!({"from": "mergedLayers"})).unwrap();
+        let st = with.active().unwrap();
+        let flat = tile_bytes(&st.snapshots[0].doc);
+        assert!(flat > 0);
+        assert_eq!(st.memory_bytes(), base + flat);
+        // Room for the document's tiles and four fill tiles.
+        let cur = tile_bytes(&st.doc);
+        let fill = tile_bytes(&Document { layers: st.doc.layers[1..].to_vec(), ..(*st.doc).clone() });
+        assert!(flat <= fill, "the flattened tile is no bigger than a fill's");
+        let budget = cur + 4 * fill;
+        for s in [&mut with, &mut without] {
+            s.active_mut().unwrap().history.max_bytes = budget;
+            for i in 0..6 {
+                s.execute("edit.fill", json!({"color": format!("#0000{:02x}", 0x40 + i * 0x20)})).unwrap();
+            }
+        }
+        let held = |s: &Session| s.active().unwrap().history.past_len();
+        assert_eq!(held(&without), 4);
+        assert_eq!(held(&with), 3, "the snapshot's tile takes one state's room");
+        assert!(with.active().unwrap().memory_bytes() <= budget);
+    }
+
+    /// Purge › Histories keeps the snapshots, so it doesn't report the tiles they share with
+    /// the states as freed (#4530).
+    #[test]
+    fn purging_histories_frees_only_what_no_snapshot_keeps() {
+        let mut s = session();
+        s.execute("history.newSnapshot", json!({})).unwrap();
+        s.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+        let st = s.active().unwrap();
+        // The snapshot's green layer tile, now only in it and the last state.
+        let shared = tile_bytes(&Document { layers: st.snapshots[0].doc.layers[1..].to_vec(), ..(*st.doc).clone() });
+        let all = st.history.unique_bytes(&st.doc);
+        let r = s.execute("edit.purge.histories", json!({})).unwrap();
+        assert_eq!(r["bytes"], json!(all - shared), "the green tile stays with the snapshot");
+        assert_eq!(s.active().unwrap().snapshots.len(), 1);
     }
 
     #[test]

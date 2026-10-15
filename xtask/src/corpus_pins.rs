@@ -40,6 +40,10 @@ pub const ASSET_STORE_TEMPLATE_COMMIT: &str = "f671981ee89d15526285b3cc87b4393d3
 pub const AFFINITY_SAMPLES_COMMIT: &str = "96aca6bd86bbe7a677f1cf0630bd832d23943be8";
 /// PngSuite (public domain), a fixed release archive.
 pub const PNGSUITE_URL: &str = "http://www.schaik.com/pngsuite/PngSuite-2017jul19.tgz";
+/// Fixed archive, corroborated by HTTPS records in opencodecs at 6f070029 and rivet-png at
+/// 134faad8 (corpus/checksums.json and tests/pngsuite/SHA256SUMS). Check the legacy HTTP
+/// download against this committed digest before extraction.
+pub const PNGSUITE_SHA256: &str = "0294b244c95a8342c01b00010cf34abdcabc7c6a34fd0fe1bd963917537bfdc8";
 
 /// `corpus/photoshop`: 258 PSDs authored with Photoshop by the photocraft-corpus generator.
 pub const PHOTOSHOP: PinnedCorpus = PinnedCorpus {
@@ -249,6 +253,12 @@ pub const PIXLS_FILES: &[(&str, &str)] = &[
     ("Canon/PowerShot%20SX50%20HS/IMG_4059.CR2", "IMG_4059.CR2"),
     ("Canon/PowerShot%20SX50%20HS/CRW_4061.DNG", "CRW_4061.DNG"),
     ("Nikon/D3/JD1_8203.NEF", "JD1_8203.NEF"),
+    // Modern lossy NEF curve: the encoded range is two bits smaller than the sensor ADUs.
+    ("Nikon/Z%206/DSC_0751.NEF", "DSC_0751.NEF"),
+    ("Nikon/Z%206/DSC_0754.NEF", "DSC_0754.NEF"),
+    // Uncompressed packed NEF selected by maker-note mode, despite TIFF Compression 34713.
+    ("Nikon/Z%206/DSC_0750.NEF", "DSC_0750.NEF"),
+    ("Nikon/Z%206/DSC_0753.NEF", "DSC_0753.NEF"),
     ("Sony/DSC-RX0/DSC00009.ARW", "DSC00009.ARW"),
     ("Panasonic/DC-G9/P1000475.RW2", "P1000475.RW2"),
     ("Olympus/E-1/E_1__C106743_gredos.ORF", "E_1__C106743_gredos.ORF"),

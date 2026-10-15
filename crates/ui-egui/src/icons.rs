@@ -111,7 +111,7 @@ pub fn tool_icon(t: Tool) -> &'static str {
         Tool::Slice => "slice-knife",
         Tool::SliceSelect => "square-dashed-mouse-pointer",
         Tool::Frame => "frame-placeholder",
-        Tool::Gradient => "blend",
+        Tool::Gradient => "gradient",
         Tool::PaintBucket => "paint-bucket",
         Tool::Type | Tool::VerticalType => "type",
         Tool::HorizontalTypeMask => "type-mask",
@@ -133,7 +133,7 @@ pub fn tool_icon(t: Tool) -> &'static str {
         Tool::Dodge => "lollipop",
         Tool::Burn => "flame",
         Tool::Sponge => "cloud",
-        Tool::QuickSelection => "circle-dashed",
+        Tool::QuickSelection => "quick-selection",
         Tool::ObjectSelection => "square-dashed-mouse-pointer",
         Tool::Pen => "pen-tool",
         Tool::FreeformPen => "pen-freeform",
@@ -177,6 +177,12 @@ pub fn button(ui: &mut egui::Ui, name: &str, box_size: f32, selected: bool, tool
 
 /// Square icon button with an explicit glyph size, independent of its hit area.
 pub fn button_with_icon_size(ui: &mut egui::Ui, name: &str, box_size: f32, icon_size: f32, selected: bool, tooltip: &str) -> Response {
+    button_with_icon_size_tip(ui, name, box_size, icon_size, selected, tooltip, true)
+}
+
+/// [`button_with_icon_size`] whose tooltip shows only when `show_tip`; the tooltip text still
+/// names the button (for screen readers and tests) when it is hidden.
+pub fn button_with_icon_size_tip(ui: &mut egui::Ui, name: &str, box_size: f32, icon_size: f32, selected: bool, tooltip: &str, show_tip: bool) -> Response {
     let t = Tokens::get(ui.ctx());
     let style = IconButtonStyle {
         normal: ButtonVisuals { fill: Color32::TRANSPARENT, stroke: egui::Stroke::NONE, icon: t.icon },
@@ -190,7 +196,7 @@ pub fn button_with_icon_size(ui: &mut egui::Ui, name: &str, box_size: f32, icon_
     let resp = IconButton::new(label, Vec2::splat(box_size), &style).selected(selected).show(ui, |ui, rect, tint| {
         paint(ui, rect, name, icon_size, tint);
     });
-    if tooltip.is_empty() { resp } else { resp.on_hover_text(label) }
+    if tooltip.is_empty() || !show_tip { resp } else { resp.on_hover_text(label) }
 }
 
 /// Rail toggle: "on" gets a quiet filled background and full-strength icon (no accent).
@@ -217,6 +223,58 @@ mod tests {
     fn every_tool_has_an_icon() {
         for t in Tool::ALL {
             assert!(exists(tool_icon(t)), "{t:?}");
+        }
+        assert_eq!(tool_icon(Tool::Gradient), "gradient");
+        assert_ne!(tool_icon(Tool::Gradient), tool_icon(Tool::PaintBucket));
+    }
+
+    #[test]
+    fn gradient_tool_icon_rasterizes_left_to_right_ramp() {
+        let egui::ImageSource::Bytes { bytes, .. } = white_icons().source(tool_icon(Tool::Gradient)) else {
+            panic!("icon source must be embedded bytes");
+        };
+        let image = egui_extras::image::load_svg_bytes_with_size(
+            bytes.as_ref(),
+            egui::load::SizeHint::Size { width: 24, height: 24, maintain_aspect_ratio: true },
+            &Default::default(),
+        )
+        .unwrap();
+        let left_alpha = image[(6, 12)].a();
+        let mid_alpha = image[(12, 12)].a();
+        let right_alpha = image[(18, 12)].a();
+        assert!(
+            left_alpha > mid_alpha && mid_alpha > right_alpha,
+            "interior ramp should fade from left ({left_alpha}) through middle ({mid_alpha}) to right ({right_alpha})"
+        );
+    }
+
+    /// Rasterize an icon to its ink mask at `size` px.
+    fn ink(name: &str, size: u32) -> Vec<bool> {
+        let egui::ImageSource::Bytes { bytes, .. } = white_icons().source(name) else { panic!("icon must be embedded bytes") };
+        let image = egui_extras::image::load_svg_bytes_with_size(
+            bytes.as_ref(),
+            egui::load::SizeHint::Size { width: size, height: size, maintain_aspect_ratio: true },
+            &Default::default(),
+        )
+        .unwrap();
+        assert_eq!(image.size, [size as usize; 2]);
+        image.pixels.iter().map(|p| p.a() > 16).collect()
+    }
+
+    #[test]
+    fn quick_selection_icon_differs_from_ellipse_marquee() {
+        // #5116: Quick Selection used to reuse the Ellipse Marquee's dashed circle.
+        assert_ne!(tool_icon(Tool::QuickSelection), tool_icon(Tool::EllipseMarquee));
+        for size in [14_u32, 28] {
+            let (quick, ellipse) = (ink(tool_icon(Tool::QuickSelection), size), ink(tool_icon(Tool::EllipseMarquee), size));
+            let shared = quick.iter().zip(&ellipse).filter(|(a, b)| **a && **b).count();
+            let union = quick.iter().zip(&ellipse).filter(|(a, b)| **a || **b).count();
+            assert!(union > 0, "icons must have ink at {size}px");
+            let overlap = shared as f32 / union as f32;
+            assert!(overlap < 0.5, "the two glyphs must read as distinct: {overlap:.2} of their ink overlaps at {size}px");
+            // The dashed selection arc must actually rasterize: more ink than the bare brush.
+            let brush = ink(tool_icon(Tool::Brush), size);
+            assert!(quick.iter().filter(|a| **a).count() > brush.iter().filter(|a| **a).count(), "the dashed arc is missing at {size}px");
         }
     }
 
