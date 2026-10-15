@@ -164,6 +164,14 @@ struct SmartOut {
     keep_fx: std::collections::HashSet<String>,
     /// Regenerated `FEid` items.
     new_fx: Vec<photocraft_psd::filter_effects::FilterEffectsItem>,
+    /// The unfiltered pixels of each smart object whose filter mask shows: its layer record holds
+    /// the filtered pixels without the mask, as Photoshop's do (`compose::filter_mask`).
+    unfiltered: std::collections::HashMap<photocraft_doc::LayerId, Surface>,
+}
+
+/// Whether a smart object's filter mask shows: enabled over at least one visible, enabled filter.
+fn masked(sm: &photocraft_doc::SmartObject) -> bool {
+    sm.filter_mask.as_ref().is_some_and(|m| m.enabled) && sm.filters_enabled && sm.smart_filters.iter().any(|f| f.visible)
 }
 
 /// `FEid` data padded to 4 bytes inside the block length: Photoshop counts the padding in the
@@ -298,6 +306,10 @@ fn upsert(raw: &mut Vec<([u8; 4], Vec<u8>)>, key: &[u8; 4], data: Vec<u8>, befor
     }
 }
 
+fn h_of(r: photocraft_geom::Rect) -> usize {
+    r.height() as usize
+}
+
 fn psd_mode(m: ColorMode) -> PsdMode {
     match m {
         ColorMode::Grayscale => PsdMode::Grayscale,
@@ -335,18 +347,28 @@ impl Ex {
         (-1..self.cc as i16).map(|id| self.encode(id, &[], 0, 0)).collect()
     }
 
-    fn pixel_channels(&mut self, s: &Surface, name: &str) -> (PsdRect, Vec<ChannelData>) {
+    fn pixel_channels(&self, s: &Surface, name: &str) -> (PsdRect, Vec<ChannelData>, Vec<String>) {
+        let mut warnings = Vec::new();
         let s = if s.format() != self.fmt {
-            self.warnings.push(format!("layer \"{name}\": pixels converted from {:?} to {:?}", s.format(), self.fmt));
+            warnings.push(format!("layer \"{name}\": pixels converted from {:?} to {:?}", s.format(), self.fmt));
             s.convert(self.fmt)
         } else {
             s.clone()
         };
         let r = s.content_bounds();
         if r.is_empty() {
-            return (PsdRect::default(), self.empty_channels());
+            return (PsdRect::default(), self.empty_channels(), warnings);
         }
-        let mut bytes = s.to_interleaved(r);
+        // The interleaved gather is the sequential pass for full-canvas layers, so it runs
+        // in row bands on all cores and the band results concatenate in order.
+        let row_len = r.width() as usize;
+        let bands = crate::pixels::bands(h_of(r));
+        let parts =
+            crate::pixels::par_map(bands, |rows| s.to_interleaved(photocraft_geom::Rect::new(r.x0, r.y0 + rows.start as i32, r.x1, r.y0 + rows.end as i32)));
+        let mut bytes = Vec::with_capacity(row_len * h_of(r) * s.format().bytes_per_pixel());
+        for part in parts {
+            bytes.extend_from_slice(&part);
+        }
         if self.fmt.mode == ColorMode::Lab && self.fmt.sample == SampleType::U16 {
             crate::pixels::lab16_chroma(&mut bytes, self.cc + 1, false);
         }
@@ -359,7 +381,7 @@ impl Ex {
         let order: Vec<(i16, &Vec<u8>)> =
             std::iter::once((-1, &planes[self.cc])).chain(planes.iter().take(self.cc).enumerate().map(|(c, p)| (c as i16, p))).collect();
         let ch = crate::pixels::par_map(order, |(id, plane)| self.encode(id, plane, w, h));
-        (to_psd_rect(r), ch)
+        (to_psd_rect(r), ch, warnings)
     }
 
     fn mask(&self, m: &LayerMask, vector: Option<(f32, f32)>) -> (MaskData, Option<ChannelData>) {
@@ -410,10 +432,11 @@ impl Ex {
 
     fn record(&mut self, l: &Layer, extra: Vec<TaggedBlock>, pixels: Option<&Surface>) -> LayerRecord {
         let id = self.layer_id(l);
-        let (rect, mut channels) = match pixels {
+        let (rect, mut channels, warnings) = match pixels {
             Some(s) => self.pixel_channels(s, &l.name),
-            None => (PsdRect::default(), self.empty_channels()),
+            None => (PsdRect::default(), self.empty_channels(), Vec::new()),
         };
+        self.warnings.extend(warnings);
         let mut mask = MaskData::None;
         // Vector mask density/feather live in the mask parameters, with or without a user mask.
         let vector = l.vector_mask.as_ref().map(|vm| (vm.density, vm.feather));
@@ -745,6 +768,12 @@ impl Ex {
             }
             if !stack.filters.is_empty() {
                 self.smart.keep_fx.insert(t.placed.clone());
+                if masked(sm) {
+                    let fmt = self.fmt;
+                    if let Some(u) = self.smart.old_fx.iter().find(|i| i.id == t.placed).and_then(|i| crate::smart_map::unfiltered_from_item(i, fmt)) {
+                        self.smart.unfiltered.insert(l.id, u);
+                    }
+                }
             }
             return;
         }
@@ -780,7 +809,14 @@ impl Ex {
                         None => photocraft_algo::warp::place_source(&img, img_bounds, &sm.transform, sm.warp.as_ref()),
                     };
                     match unfiltered {
-                        Ok(unfiltered) => crate::smart_map::feid_item(&placed, &unfiltered, sm.filter_mask.as_ref(), bounds, self.fmt),
+                        Ok(unfiltered) => {
+                            let item = crate::smart_map::feid_item(&placed, &unfiltered, sm.filter_mask.as_ref(), bounds, self.fmt);
+                            if item.is_some() && masked(sm) {
+                                let u = if unfiltered.format() == self.fmt { unfiltered } else { unfiltered.convert(self.fmt) };
+                                self.smart.unfiltered.insert(l.id, u);
+                            }
+                            item
+                        }
                         Err(e) => {
                             warnings.push(format!("smart filter mask was not re-rendered for PSD export ({e})"));
                             None
@@ -1057,7 +1093,12 @@ impl Ex {
                     self.records.push(r);
                 }
                 LayerContent::Smart(sm) => {
-                    let r = self.record(l, extra, sm.cache.as_ref());
+                    // Photoshop's record holds the filtered pixels without the filter mask.
+                    let unmixed = match (self.smart.unfiltered.get(&l.id), sm.cache.as_ref(), sm.filter_mask.as_ref()) {
+                        (Some(u), Some(c), Some(m)) if masked(sm) => Some(photocraft_compose::filter_mask::unmix(u, c, m)),
+                        _ => None,
+                    };
+                    let r = self.record(l, extra, unmixed.as_ref().or(sm.cache.as_ref()));
                     self.records.push(r);
                 }
             }
@@ -1621,6 +1662,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
 
     // Resources.
     let mut resources = vec![
+        // hRes/vRes are always pixels per inch. The display unit written here is inches.
         ImageResource::new(ids::RESOLUTION_INFO, ResolutionInfo::from_dpi(f64::from(doc.resolution_dpi)).to_bytes()),
         ImageResource::new(ids::GLOBAL_ANGLE, (doc.global_light.angle.round() as i32).to_be_bytes().to_vec()),
         ImageResource::new(ids::GLOBAL_ALTITUDE, (doc.global_light.altitude.round() as i32).to_be_bytes().to_vec()),
@@ -1730,9 +1772,13 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
     resources.push(version_info_resource(real_merged));
 
     let has_layers = !ex.records.is_empty();
+    // Photoshop writes a merged-transparency marker (`Mtrn`, `Mt16`, `Mt32`) before the layer
+    // block, and won't open a file whose `Lr32` comes first (#5068): the layer block goes right
+    // after the last kept marker, else first.
+    let index = global_blocks.iter().rposition(|b| matches!(&b.key, b"Mtrn" | b"Mt16" | b"Mt32")).map_or(0, |i| i + 1);
     let placement = match (has_layers, sample) {
-        (true, SampleType::U16) => LayerInfoPlacement::GlobalBlock { index: 0, signature: *b"8BIM", key: *b"Lr16", padding: None },
-        (true, SampleType::F32) => LayerInfoPlacement::GlobalBlock { index: 0, signature: *b"8BIM", key: *b"Lr32", padding: None },
+        (true, SampleType::U16) => LayerInfoPlacement::GlobalBlock { index, signature: *b"8BIM", key: *b"Lr16", padding: None },
+        (true, SampleType::F32) => LayerInfoPlacement::GlobalBlock { index, signature: *b"8BIM", key: *b"Lr32", padding: None },
         _ => LayerInfoPlacement::Section,
     };
     let records = std::mem::take(&mut ex.records);
@@ -1847,6 +1893,31 @@ mod tests {
         let parsed = PsdFile::from_bytes(&encoded).unwrap();
         let reloaded_ids: std::collections::HashSet<u32> = parsed.layers().iter().filter_map(|layer| layer.layer_id()).collect();
         assert_eq!(unique, reloaded_ids);
+    }
+
+    /// #5068: Photoshop won't open a file whose `Lr32` comes before the `Mt32` marker it keeps for
+    /// a 32-bit document's merged transparency (verified in Photoshop 2026 on psd-tools'
+    /// `transparentbg.psd` re-saved both ways). The layer block follows a kept marker.
+    #[test]
+    fn layer_block_follows_a_kept_merged_transparency_marker() {
+        for (depth, key, marker) in [(SampleType::F32, *b"Lr32", *b"Mt32"), (SampleType::U16, *b"Lr16", *b"Mt16"), (SampleType::F32, *b"Lr32", *b"Mtrn")] {
+            let mut doc = Document::new("t", photocraft_geom::Size::new(8, 6), ColorMode::Rgb, depth);
+            let mut s = Surface::new(doc.pixel_format());
+            s.fill_rect(photocraft_geom::Rect::new(1, 1, 5, 4), &[0.5, 0.2, 0.9, 1.0]);
+            doc.layers.push(Layer::new("Layer 1", LayerContent::Raster(s)));
+            doc.metadata.psd_global_blocks = vec![(*b"8BIM", *b"Patt", std::sync::Arc::new(Vec::new())), (*b"8BIM", marker, std::sync::Arc::new(Vec::new()))];
+            let saved = PsdFile::from_bytes(&document_to_psd(&doc).to_bytes().unwrap()).unwrap();
+            let LayerInfoPlacement::GlobalBlock { index, key: written, .. } = saved.layer_info_placement else { panic!("{depth:?}: a global layer block") };
+            assert_eq!(written, key);
+            let at = saved.global_blocks.iter().position(|b| b.key == marker).expect("the marker is kept");
+            assert!(at < index, "{depth:?}: {marker:?} at {at}, the layer block at {index}");
+        }
+        // Without a marker the layer block stays first.
+        let mut doc = Document::new("t", photocraft_geom::Size::new(8, 6), ColorMode::Rgb, SampleType::F32);
+        doc.layers.push(Layer::new("Layer 1", LayerContent::Raster(Surface::new(doc.pixel_format()))));
+        doc.metadata.psd_global_blocks = vec![(*b"8BIM", *b"Patt", std::sync::Arc::new(Vec::new()))];
+        let saved = PsdFile::from_bytes(&document_to_psd(&doc).to_bytes().unwrap()).unwrap();
+        assert!(matches!(saved.layer_info_placement, LayerInfoPlacement::GlobalBlock { index: 0, .. }));
     }
 
     #[test]
