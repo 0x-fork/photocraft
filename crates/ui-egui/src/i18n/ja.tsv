@@ -3851,3 +3851,17 @@ curves	Smooth	スムーズ
 # View › Guides › right-click a guide
 	Edit Selected Guides	選択したガイドを編集
 	Clear Selected Guides	選択したガイドを消去
+	Delete this set	このセットを削除
+	New Set…	新規セット…
+	PhotoCraft Defaults	PhotoCraft 初期設定
+	Save a list of these shortcuts as a web page	これらのショートカットの一覧を Web ページとして保存
+	Save the changes to this set	このセットへの変更を保存
+	Save these shortcuts as a .kys file	これらのショートカットを .kys ファイルとして保存
+	Save these shortcuts as a new set	これらのショートカットを新規セットとして保存
+	Set deleted.	セットを削除しました。
+	Set saved.	セットを保存しました。
+	Set:	セット：
+	Summarize…	概要…
+	There are too many sets: delete one first.	セットが多すぎます。先に 1 つ削除してください。
+	set name	セット名
+	{set} (modified)	{set}（変更あり）
