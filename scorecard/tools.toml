@@ -136,7 +136,7 @@ id = "TOOL-214-4"
 target = "Move tool: box-select layers, Auto-Select hover outline, double-click fit, drag to a tab"
 status = "partial"
 issue = 214
-note = "Auto-Select hover outline (Preferences › Tools › Show Highlight on Rollover, #2834) and box-select layers from an empty spot (move_box.rs, layer.selectInRect, #2844) done; double-click fit and drag to a tab open"
+note = "Auto-Select hover outline (Preferences › Tools › Show Highlight on Rollover, #2834) and box-select layers from an empty spot (move_box.rs, layer.selectInRect, #2844) done; dragging layers with the Move tool (or from the Layers panel) onto another document's tab copies them there (layer_transfer.rs, layer.copyToDocument, #589/#851); double-click fit and dragging a selection's pixels to another document open"
 
 [[item]]
 id = "TOOL-214-5"
