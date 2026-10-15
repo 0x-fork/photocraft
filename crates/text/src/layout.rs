@@ -652,7 +652,7 @@ impl Layouter {
             // Area type: the first row goes no higher than one leading (plus paragraph spacing)
             // below the previous paragraph's last line.
             let space_before = if prev_baseline.is_some() { ps.space_before_pt * k } else { 0.0 };
-            let area_from = |m: AreaMetrics| match (&area, prev_baseline) {
+            let area_from = |m: LineMetrics| match (&area, prev_baseline) {
                 (Some(_), Some(b)) => b + m.leading + pending_space + space_before,
                 (Some(a), None) => a.bounds[1] + m.ascent,
                 (None, _) => 0.0,
@@ -723,39 +723,12 @@ impl Layouter {
                     break;
                 }
                 let m = *line.metrics();
-                // Largest leading among the glyph runs of the line.
-                let mut leading = 0.0f32;
-                for item in line.items() {
-                    if let PositionedLayoutItem::GlyphRun(gr) = item {
-                        let st = &out.styles[gr.style().brush.0 as usize];
-                        let px = gr.run().font_size();
-                        leading = leading.max(st.leading_pt.map_or(ps.auto_leading * px, |l| l * k));
-                    }
-                }
-                if leading == 0.0 {
-                    let st = &out.styles[style_at(prange.start)];
-                    leading = st.leading_pt.map_or(ps.auto_leading * st.size_pt * k, |l| l * k);
-                }
-                // Vertical type: half the column width (the largest em on the column).
-                let col_half = line
-                    .items()
-                    .filter_map(|it| match it {
-                        PositionedLayoutItem::GlyphRun(gr) => Some(gr.run().font_size() * 0.5),
-                        _ => None,
-                    })
-                    .fold(0.0f32, f32::max);
-                let col_half = if col_half > 0.0 { col_half } else { first_px * 0.5 };
-                let (ascent, descent) = if vertical {
-                    (col_half, col_half)
-                } else if m.ascent > 0.0 || m.descent > 0.0 {
-                    (m.ascent, m.descent)
-                } else {
-                    (first_px * 0.8, first_px * 0.2)
-                };
+                let LineMetrics { ascent, descent, leading } = line_metrics(&line, &out.styles, &ps, k, first_style, vertical);
                 let baseline = match (slot, prev_baseline) {
                     (Some(s), _) => s.baseline,
                     // The first column's right edge touches the box's right edge.
-                    (None, None) if is_box && vertical => -(box_rect.0 + box_rect.2) + col_half,
+                    // (In vertical type the ascent is half the column width.)
+                    (None, None) if is_box && vertical => -(box_rect.0 + box_rect.2) + ascent,
                     // Photoshop's "first baseline: ascent": the top of the tallest ascender
                     // (height of 'd') touches the box top, not the font's hhea ascent.
                     (None, None) if is_box => box_rect.1 + first_ascent(&line).unwrap_or(ascent),
@@ -1104,9 +1077,9 @@ struct Slot {
     span: usize,
 }
 
-/// Line metrics an area paragraph is planned with.
+/// A line's ascent, descent and leading (px); for area type, the largest over a paragraph.
 #[derive(Clone, Copy, Debug)]
-struct AreaMetrics {
+struct LineMetrics {
     ascent: f32,
     descent: f32,
     leading: f32,
@@ -1129,7 +1102,7 @@ thread_local! {
 /// (lazily) and shared by every pass.
 struct AreaRows<'a> {
     area: &'a crate::area::AreaShape,
-    m: AreaMetrics,
+    m: LineMetrics,
     min_width: f32,
     /// Where the search for the next row starts.
     next: f32,
@@ -1189,7 +1162,7 @@ fn break_area(
     layout: &mut Layout<RunBrush>,
     area: &crate::area::AreaShape,
     from: f32,
-    m: AreaMetrics,
+    m: LineMetrics,
     indents: (f32, f32),
     min_width: f32,
     budget: &std::cell::Cell<usize>,
@@ -1275,37 +1248,42 @@ fn break_area_pass(layout: &mut Layout<RunBrush>, rows: &mut AreaRows<'_>, inset
     (slots, overflow)
 }
 
-/// Largest ascent, descent and leading over the lines of a broken paragraph, computed the same
-/// way the line loop does, so an area paragraph's rows can be planned with its real metrics.
-fn area_metrics(layout: &Layout<RunBrush>, styles: &[CharStyle], ps: &ParagraphStyle, k: f32, fallback: &CharStyle, vertical: bool) -> AreaMetrics {
+/// One laid-out line's ascent, descent and leading, as the line loop stacks it. `fallback` is
+/// the paragraph's first style, used for a line with no glyph runs.
+fn line_metrics(line: &parley::Line<'_, RunBrush>, styles: &[CharStyle], ps: &ParagraphStyle, k: f32, fallback: &CharStyle, vertical: bool) -> LineMetrics {
     let first_px = fallback.size_pt * k;
-    let mut out = AreaMetrics { ascent: 0.0, descent: 0.0, leading: 0.0 };
-    for line in layout.lines() {
-        let m = *line.metrics();
-        let mut leading = 0.0f32;
-        let mut half = 0.0f32;
-        for item in line.items() {
-            if let PositionedLayoutItem::GlyphRun(gr) = item {
-                let px = gr.run().font_size();
-                half = half.max(px * 0.5);
-                let lp = styles.get(gr.style().brush.0 as usize).and_then(|st| st.leading_pt);
-                leading = leading.max(lp.map_or(ps.auto_leading * px, |l| l * k));
-            }
+    let m = line.metrics();
+    // Largest leading among the glyph runs, and half the largest em (a vertical column's half width).
+    let mut leading = 0.0f32;
+    let mut half = 0.0f32;
+    for item in line.items() {
+        if let PositionedLayoutItem::GlyphRun(gr) = item {
+            let px = gr.run().font_size();
+            half = half.max(px * 0.5);
+            let lp = styles.get(gr.style().brush.0 as usize).and_then(|st| st.leading_pt);
+            leading = leading.max(lp.map_or(ps.auto_leading * px, |l| l * k));
         }
-        if leading == 0.0 {
-            leading = fallback.leading_pt.map_or(ps.auto_leading * first_px, |l| l * k);
-        }
-        let (a, d) = if vertical {
-            let h = if half > 0.0 { half } else { first_px * 0.5 };
-            (h, h)
-        } else if m.ascent > 0.0 || m.descent > 0.0 {
-            (m.ascent, m.descent)
-        } else {
-            (first_px * 0.8, first_px * 0.2)
-        };
-        out = AreaMetrics { ascent: out.ascent.max(a), descent: out.descent.max(d), leading: out.leading.max(leading) };
     }
-    out
+    if leading == 0.0 {
+        leading = fallback.leading_pt.map_or(ps.auto_leading * first_px, |l| l * k);
+    }
+    let (ascent, descent) = if vertical {
+        let h = if half > 0.0 { half } else { first_px * 0.5 };
+        (h, h)
+    } else if m.ascent > 0.0 || m.descent > 0.0 {
+        (m.ascent, m.descent)
+    } else {
+        (first_px * 0.8, first_px * 0.2)
+    };
+    LineMetrics { ascent, descent, leading }
+}
+
+/// Largest ascent, descent and leading over the lines of a broken paragraph, by
+/// [`line_metrics`], so an area paragraph's rows are planned with the metrics it is stacked with.
+fn area_metrics(layout: &Layout<RunBrush>, styles: &[CharStyle], ps: &ParagraphStyle, k: f32, fallback: &CharStyle, vertical: bool) -> LineMetrics {
+    layout.lines().map(|line| line_metrics(&line, styles, ps, k, fallback, vertical)).fold(LineMetrics { ascent: 0.0, descent: 0.0, leading: 0.0 }, |a, b| {
+        LineMetrics { ascent: a.ascent.max(b.ascent), descent: a.descent.max(b.descent), leading: a.leading.max(b.leading) }
+    })
 }
 
 /// A tab as line breaking saw it: its shaped advance (before horizontal scale), the horizontal
