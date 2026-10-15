@@ -1545,6 +1545,26 @@ mod multi_layer_formatting {
         assert_eq!(text(h.state(), ids[1]).char_runs(), peer);
     }
 
+    /// #5717: a layer scaled so its shown size or leading is past a field's range (2400 pt, or
+    /// 0.08 pt) keeps it while the Character panel and the options bar only show it.
+    #[test]
+    fn showing_a_scaled_layer_past_the_size_range_does_not_change_it() {
+        for (layer, scale) in [(0, 200.0), (1, 0.005)] {
+            for properties in [true, false] {
+                let (mut app, ids) = fixture();
+                let id = ids[layer];
+                app.run("type.edit", json!({"layer": id.0, "transform": [scale, 0.0, 0.0, scale, 0.0, 0.0]})).unwrap();
+                selected(&mut app, &[id]);
+                let before = text(&app, id).char_runs();
+                let steps = app.session.active().unwrap().history.entries().len();
+                let mut h = controls(app, properties);
+                h.run_steps(3);
+                assert_eq!(text(h.state(), id).char_runs(), before, "scale {scale}, properties {properties}");
+                assert_eq!(h.state().session.active().unwrap().history.entries().len(), steps, "no history step");
+            }
+        }
+    }
+
     #[test]
     fn formatting_menus_isolate_the_edit_layer_and_range_but_honor_explicit_targets() {
         let (mut app, ids) = fixture();
