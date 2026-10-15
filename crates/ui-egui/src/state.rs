@@ -624,6 +624,10 @@ pub struct ToolOptions {
     pub crop_custom_ratio_height: f32,
     #[serde(default = "yes")]
     pub crop_delete: bool,
+    /// Crop options bar › Fill: false = Background (Default), true = Content-Aware Fill (the area a
+    /// rotated or extending crop uncovers is filled from its surroundings, #3823).
+    #[serde(default)]
+    pub crop_content_aware: bool,
     /// Crop W x H x Resolution (`crop_ratio` = "whr", #2443): width and height as typed lengths
     /// with their unit ("4 in", "1024 px"; empty = unset), the resolution ("" = the document's)
     /// and its unit ("px/in" or "px/cm"). See `crop_size`.
@@ -823,6 +827,7 @@ impl Default for ToolOptions {
             crop_custom_ratio_width: 0.0,
             crop_custom_ratio_height: 0.0,
             crop_delete: true,
+            crop_content_aware: false,
             crop_width: String::new(),
             crop_height: String::new(),
             crop_resolution: String::new(),
@@ -1068,6 +1073,9 @@ pub struct UiState {
     /// Inline type editing session, if any.
     #[serde(default)]
     pub text_edit: Option<TextEdit>,
+    /// Tool to restore when an inline type edit session commits or cancels (e.g. Move tool, #1132).
+    #[serde(skip)]
+    pub text_edit_return_tool: Option<Tool>,
     /// Ctrl/Cmd Type-tool gesture, exposed to automation but never restored as a held pointer.
     #[serde(default, skip_deserializing)]
     pub type_transform: Option<TypeTransform>,
@@ -1129,6 +1137,9 @@ pub struct UiState {
     /// Selection-tool context menu opened by a plain canvas right-click.
     #[serde(default)]
     pub canvas_tool_menu: Option<crate::canvas_tool_menu::CanvasToolMenu>,
+    /// The guide a Move-tool click selected (`guide_select`): drawn blue, Delete removes it.
+    #[serde(default)]
+    pub selected_guide: Option<crate::guide_select::SelectedGuide>,
     /// The brush is a per-tool option (the Brush, the Eraser and every retouching tool each keep
     /// their own size, hardness, tip and dynamics, as in Photoshop): the tool whose brush the
     /// session brush holds, and the other tools' saved brushes.
@@ -1144,6 +1155,9 @@ pub struct UiState {
     /// Direct Selection tool: selected anchors and the drag in progress (#790).
     #[serde(default)]
     pub direct_selection: crate::direct_select::DirectSelection,
+    /// A live rectangle's corner radius widget being dragged (TOOL-214-12).
+    #[serde(skip)]
+    pub corner_radius: Option<crate::corner_radius::Drag>,
     /// Selected row in the Paths panel ("work" or a saved path name).
     #[serde(default)]
     pub selected_path: Option<String>,
@@ -1293,6 +1307,7 @@ impl Default for UiState {
             spring: None,
             recent_files: Vec::new(),
             text_edit: None,
+            text_edit_return_tool: None,
             type_transform: None,
             type_transform_pivot: None,
             cam_transform: None,
@@ -1308,6 +1323,7 @@ impl Default for UiState {
             brush_picker_size: None,
             layer_menu: None,
             canvas_tool_menu: None,
+            selected_guide: None,
             brush_tool: Tool::Brush,
             tool_brushes: Vec::new(),
             clone_source: None,
@@ -1332,6 +1348,7 @@ impl Default for UiState {
             pen: None,
             stroke_editor: None,
             direct_selection: Default::default(),
+            corner_radius: None,
             selected_path: None,
             panels: Panels::default(),
             views: Vec::new(),

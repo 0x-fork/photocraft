@@ -21,8 +21,8 @@ mod recovery_tests;
 /// (.kys), which go to the preset libraries and Edit › Keyboard Shortcuts.
 const OPEN_EXTS: &[&str] = &[
     "pcraft", "pdn", "ora", "kra", "krz", "psd", "psb", "psdt", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "ico", "qoi", "exr", "hdr",
-    "pbm", "pgm", "ppm", "pam", "pfm", "pcx", "dds", "xpm", "fits", "fit", "fts", "dpx", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw", "arw",
-    "pef", "orf", "rw2", "raf", "abr", "grd", "svg", "svgz", "aco", "ase", "kys", "af", "afdesign", "afphoto", "afpub",
+    "pbm", "pgm", "ppm", "pam", "pfm", "pcx", "dds", "xpm", "fits", "fit", "fts", "dpx", "cin", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw",
+    "arw", "pef", "orf", "rw2", "raf", "abr", "grd", "svg", "svgz", "aco", "ase", "kys", "af", "afdesign", "afphoto", "afpub",
 ];
 const SVG_EXTS: &[&str] = &["svg", "svgz"];
 
@@ -228,20 +228,7 @@ fn write_atomic_progress(path: &Path, bytes: &[u8], progress: &dyn Fn(f32)) -> R
 }
 
 fn export_options(settings: &photocraft_ui_egui::ExportSettings) -> photocraft_io::ExportOptions {
-    let mut opts = photocraft_io::ExportOptions::default();
-    if let Some(q) = settings.jpeg_quality {
-        opts.encode.jpeg_quality = q;
-    }
-    opts.encode.webp_lossless = settings.webp_lossless;
-    if let Some(q) = settings.webp_quality {
-        opts.encode.webp_quality = q;
-    }
-    opts.tiff_layers = settings.tiff_layers;
-    opts.xmp = if settings.xmp_all { photocraft_io::XmpEmbed::All } else { photocraft_io::XmpEmbed::None };
-    opts.tga_bits = settings.tga_bits;
-    opts.image_previews = settings.image_previews;
-    opts.psd_maximize_compatibility = settings.psd_maximize_compatibility;
-    opts
+    settings.io_options()
 }
 
 /// The share of a save's progress bar that encoding fills; writing the file fills the rest. A

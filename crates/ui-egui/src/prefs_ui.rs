@@ -1005,6 +1005,7 @@ pub fn open_shortcuts(app: &mut PhotocraftApp, tab: u64) -> u64 {
         "tab": tab,
         "filter": "",
         "overrides": p.shortcuts,
+        "alternates": p.alternate_shortcuts,
         "hidden": p.menus.hidden,
         "colors": p.menus.colors,
         "toolbarHidden": p.toolbar.hidden,
@@ -1068,6 +1069,13 @@ fn humanize(key: &str) -> String {
     }
     if key == "notificationDurationSeconds" {
         return "Notification Duration (seconds)".into();
+    }
+    // Tools: arrow-key nudges bundle into one History state (#2259).
+    if key == "bundleNudges" {
+        return "Bundle Arrow-Key Nudges".into();
+    }
+    if key == "nudgeBundlePauseMs" {
+        return "Nudge Bundle Pause (ms)".into();
     }
     let mut s = String::new();
     for (i, ch) in key.chars().enumerate() {
@@ -1316,6 +1324,11 @@ fn export_field_visible(obj: &Map<String, Value>, key: &str) -> bool {
     }
 }
 
+/// The pause that bundles arrow-key nudges means nothing with Bundle Arrow-Key Nudges off (#2259).
+fn tools_field_visible(obj: &Map<String, Value>, key: &str) -> bool {
+    key != "nudgeBundlePauseMs" || obj.get("bundleNudges").and_then(Value::as_bool) != Some(false)
+}
+
 /// One theme as a Color Theme swatch: its panel colour under a chrome strip with an accent dot,
 /// outlined when chosen. The name is the tooltip and the accessible label. A star badge on its
 /// corner adds the theme to (or removes it from) the favourites listed by the appearance
@@ -1500,7 +1513,8 @@ fn field_visible(section: &str, obj: &Map<String, Value>, k: &str, query: &str) 
         // View › Rulers (⌘R) sets it, as in Photoshop.
         || path == "unitsAndRulers.showRulers"
         || (section == "performance" && matches!(k, "useGpu" | "gpuBackend" | "renderingMode"))
-        || (section == "export" && !export_field_visible(obj, k));
+        || (section == "export" && !export_field_visible(obj, k))
+        || (section == "tools" && !tools_field_visible(obj, k));
     (query.is_empty() || preference_matches(section, k, query))
         && !drawn_elsewhere
         && !prefs::is_hidden(&path)
@@ -1672,6 +1686,11 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
     let parsed = f.get("overrides").map(|v| serde_json::from_value::<BTreeMap<String, String>>(v.clone()));
     let overrides_ok = parsed.as_ref().is_none_or(Result::is_ok);
     let mut overrides = parsed.and_then(Result::ok).unwrap_or_default();
+    // A command's further keys (#3665): id → keys, replacing its default alternates.
+    let parsed_alts = f.get("alternates").map(|v| serde_json::from_value::<BTreeMap<String, Vec<String>>>(v.clone()));
+    let alternates_ok = parsed_alts.as_ref().is_none_or(Result::is_ok);
+    let mut alt_overrides = parsed_alts.and_then(Result::ok).unwrap_or_default();
+    let mut capture_alt = f.get("captureAlt").and_then(Value::as_bool).unwrap_or(false);
     let mut hidden: Vec<String> = f.get("hidden").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
     let mut colors: BTreeMap<String, String> = f.get("colors").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
     let mut selected = f.get("selected").and_then(Value::as_str).unwrap_or("").to_string();
@@ -1691,7 +1710,15 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
             None => def.clone(),
         }
     };
-    // Key capture for the selected command.
+    // A command's further keys as the dialog stands: its edited list, else its defaults.
+    let eff_alts = |alts: &BTreeMap<String, Vec<String>>, id: &str, main: Option<&str>| -> Vec<String> {
+        let mut p = prefs::Preferences::default();
+        if let Some(list) = alts.get(id) {
+            p.alternate_shortcuts.insert(id.to_string(), list.clone());
+        }
+        p.alternates(id, main)
+    };
+    // Key capture for the selected command: its main key, or (Add Shortcut) one more key.
     if capture && tab == 0 && !selected.is_empty() {
         let pressed = ui.input(|i| {
             i.events.iter().find_map(|e| match e {
@@ -1706,20 +1733,39 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
             if key == egui::Key::Escape {
                 capture = false;
             } else if matches!(key, egui::Key::Backspace | egui::Key::Delete) && m.is_none() {
-                overrides.insert(selected.clone(), String::new());
+                if capture_alt {
+                    alt_overrides.insert(selected.clone(), Vec::new());
+                } else {
+                    overrides.insert(selected.clone(), String::new());
+                }
                 capture = false;
                 message = tl!("Shortcut removed.").into();
                 message_warning = false;
             } else if let Some(sc) = shortcut_text(key, m) {
                 let clash: Vec<String> = items
                     .iter()
-                    .filter(|(id, _, _, def)| *id != selected && eff(&overrides, id, def).as_deref().and_then(prefs::normalize_shortcut) == Some(sc.clone()))
+                    .filter(|(id, _, _, def)| {
+                        let cur = eff(&overrides, id, def);
+                        *id != selected
+                            && (cur.as_deref().and_then(prefs::normalize_shortcut) == Some(sc.clone())
+                                || eff_alts(&alt_overrides, id, cur.as_deref()).contains(&sc))
+                    })
                     .map(|(id, label, path, _)| {
                         let (path, label) = shown(id, label, path);
                         format!("{} › {}", path.join(" › "), label.trim_end_matches('…'))
                     })
                     .collect();
-                overrides.insert(selected.clone(), sc.clone());
+                if capture_alt {
+                    let def = items.iter().find(|i| i.0 == selected).and_then(|i| i.3.clone());
+                    let cur = eff(&overrides, &selected, &def);
+                    let mut keys = eff_alts(&alt_overrides, &selected, cur.as_deref());
+                    if cur.as_deref().and_then(prefs::normalize_shortcut) != Some(sc.clone()) && !keys.contains(&sc) && keys.len() < prefs::MAX_ALTERNATES {
+                        keys.push(sc.clone());
+                    }
+                    alt_overrides.insert(selected.clone(), keys);
+                } else {
+                    overrides.insert(selected.clone(), sc.clone());
+                }
                 message_warning = !clash.is_empty();
                 message = if clash.is_empty() {
                     let template = "{shortcut} assigned.";
@@ -1741,13 +1787,16 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
                     continue;
                 }
                 let cur = eff(&overrides, id, def);
+                let alts = eff_alts(&alt_overrides, id, cur.as_deref());
                 let (shown_path, shown_label) = shown(id, label, path);
                 // Match what is shown and the English name (commands are documented in English).
-                let hay = format!("{} {} {} {} {}", shown_path.join(" "), shown_label, path.join(" "), label, cur.clone().unwrap_or_default()).to_lowercase();
+                let hay =
+                    format!("{} {} {} {} {} {}", shown_path.join(" "), shown_label, path.join(" "), label, cur.clone().unwrap_or_default(), alts.join(" "))
+                        .to_lowercase();
                 if !needle.is_empty() && !hay.contains(&needle) && !id.to_ascii_lowercase().contains(&needle) {
                     continue;
                 }
-                if tab == 0 && path.is_empty() && def.is_none() && cur.is_none() {
+                if tab == 0 && path.is_empty() && def.is_none() && cur.is_none() && alts.is_empty() {
                     continue;
                 }
                 let top = shown_path.first().cloned().unwrap_or_else(|| tl!("Other").into());
@@ -1767,18 +1816,41 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
                     selected = id.clone();
                 }
                 if tab == 0 {
-                    let text = if sel && capture { tl!("Press keys…").to_string() } else { cur.as_deref().map(crate::shortcuts::pretty).unwrap_or_default() };
-                    let changed = overrides.contains_key(id);
+                    let text = if sel && capture && !capture_alt {
+                        tl!("Press keys…").to_string()
+                    } else {
+                        cur.as_deref().map(crate::shortcuts::pretty).unwrap_or_default()
+                    };
+                    let changed = overrides.contains_key(id) || alt_overrides.contains_key(id);
                     let r = ui.add(
                         egui::Button::new(RichText::new(tl!(&text)).size(12.0).color(if changed { t.accent_text } else { t.text })).min_size(vec2(120.0, 18.0)),
                     );
                     if r.clicked() {
                         selected = id.clone();
                         capture = true;
+                        capture_alt = false;
                         message.clear();
                         message_warning = false;
                     }
-                    ui.label(if changed { RichText::new(tl!("modified")).color(t.text_faint).size(10.5) } else { RichText::new("") });
+                    // The further keys (F3 beside ⌘C), each removable on its own, as Photoshop
+                    // lists them as rows of their own (#3665).
+                    ui.horizontal(|ui| {
+                        for k in &alts {
+                            let b = egui::Button::new(RichText::new(format!("{}  ×", crate::shortcuts::pretty(k))).size(11.0).color(t.text)).small();
+                            if ui.add(b).on_hover_text(tl!("Delete Shortcut")).clicked() {
+                                alt_overrides.insert(id.clone(), alts.iter().filter(|x| *x != k).cloned().collect());
+                                selected = id.clone();
+                                message = tl!("Shortcut removed.").into();
+                                message_warning = false;
+                            }
+                        }
+                        if sel && capture && capture_alt {
+                            ui.label(RichText::new(tl!("Press keys…")).size(11.0).color(t.accent_text));
+                        }
+                        if changed {
+                            ui.label(RichText::new(tl!("modified")).color(t.text_faint).size(10.5));
+                        }
+                    });
                 } else {
                     // Edit › Menus, Keyboard Shortcuts, Preferences, Save and Exit always stay (#5096).
                     let hideable = photocraft_engine::prefs::MenuCustomization::hideable(id);
@@ -1807,8 +1879,15 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
     if tab == 0 {
         ui.horizontal(|ui| {
             let has_sel = !selected.is_empty();
+            if ui.add_enabled(has_sel, egui::Button::new(tl!("Add Shortcut"))).clicked() {
+                capture = true;
+                capture_alt = true;
+                message.clear();
+                message_warning = false;
+            }
             if ui.add_enabled(has_sel, egui::Button::new(tl!("Use Default"))).clicked() {
                 overrides.remove(&selected);
+                alt_overrides.remove(&selected);
                 message = tl!("Default restored.").into();
                 message_warning = false;
             }
@@ -1819,6 +1898,7 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
             }
             if ui.button(tl!("Reset All to Defaults")).clicked() {
                 overrides.clear();
+                alt_overrides.clear();
                 message = tl!("All shortcuts reset to PhotoCraft defaults.").into();
                 message_warning = false;
             }
@@ -1841,6 +1921,10 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
     if overrides_ok {
         f.insert("overrides".into(), json!(overrides));
     }
+    if alternates_ok {
+        f.insert("alternates".into(), json!(alt_overrides));
+    }
+    f.insert("captureAlt".into(), json!(capture && capture_alt));
     f.insert("hidden".into(), json!(hidden));
     f.insert("colors".into(), json!(colors));
     f.insert("selected".into(), json!(selected));
@@ -1987,33 +2071,67 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
             // The map replaces every stored override, so a malformed one is an error, not "none".
             let mut ov: BTreeMap<String, String> =
                 serde_json::from_value(overrides).map_err(|e| format!("overrides must map command IDs to shortcut strings: {e}"))?;
+            let alternates = f.get("alternates").cloned().unwrap_or(json!({}));
+            let mut alt: BTreeMap<String, Vec<String>> =
+                serde_json::from_value(alternates).map_err(|e| format!("alternates must map command IDs to lists of shortcuts: {e}"))?;
             let items = shortcut_items(app);
             // Newly assigned shortcuts are checked first and take theirs from any holder, custom
-            // overrides included; unchanged overrides only take theirs from defaults.
+            // overrides included; unchanged overrides only take theirs from defaults. A
+            // command's further keys (#3665) take and lose keys the same way.
             let before = &app.session.prefs().shortcuts;
-            let mut todo: Vec<(String, String, bool)> =
-                ov.iter().filter(|(_, s)| !s.is_empty()).map(|(k, s)| (k.clone(), s.clone(), before.get(k) != Some(s))).collect();
-            todo.sort_by_key(|(_, _, new)| !new);
-            for (id, sc, new) in todo {
-                if ov.get(&id).is_some_and(String::is_empty) {
-                    continue; // taken by a newer assignment
+            let before_alt = &app.session.prefs().alternate_shortcuts;
+            let mut todo: Vec<(String, String, bool, bool)> =
+                ov.iter().filter(|(_, s)| !s.is_empty()).map(|(k, s)| (k.clone(), s.clone(), before.get(k) != Some(s), false)).collect();
+            for (k, keys) in &alt {
+                let new = before_alt.get(k) != Some(keys);
+                todo.extend(keys.iter().map(|s| (k.clone(), s.clone(), new, true)));
+            }
+            todo.sort_by_key(|(_, _, new, _)| !new);
+            let main_of = |ov: &BTreeMap<String, String>, id: &str, def: Option<&str>| -> Option<String> {
+                match ov.get(id) {
+                    Some(s) if s.is_empty() => None,
+                    Some(s) => Some(s.clone()),
+                    None => def.map(str::to_string),
                 }
+            };
+            for (id, sc, new, is_alt) in todo {
                 let norm = prefs::normalize_shortcut(&sc);
+                let Some(norm) = norm else { continue };
+                // Taken by a newer assignment?
+                if (!is_alt && ov.get(&id).is_some_and(String::is_empty)) || (is_alt && alt.get(&id).is_some_and(|k| !k.contains(&norm))) {
+                    continue;
+                }
                 for (other, _, _, def) in &items {
+                    if *other == id {
+                        continue;
+                    }
                     let held = match ov.get(other) {
                         Some(s) if new => Some(s.as_str()),
                         Some(_) => None,
                         None => def.as_deref(),
                     };
-                    if *other != id && held.and_then(prefs::normalize_shortcut) == norm {
+                    if held.and_then(prefs::normalize_shortcut).as_deref() == Some(norm.as_str()) {
                         ov.insert(other.clone(), String::new());
+                    }
+                    // Its further keys: the edited list when this assignment is new, else only
+                    // the defaults.
+                    if alt.contains_key(other) && !new {
+                        continue;
+                    }
+                    let mut p = prefs::Preferences::default();
+                    if let Some(list) = alt.get(other) {
+                        p.alternate_shortcuts.insert(other.clone(), list.clone());
+                    }
+                    let keys = p.alternates(other, main_of(&ov, other, def.as_deref()).as_deref());
+                    if keys.contains(&norm) {
+                        alt.insert(other.clone(), keys.into_iter().filter(|k| *k != norm).collect());
                     }
                 }
             }
             let hidden = f.get("hidden").cloned().unwrap_or(json!([]));
             let colors = f.get("colors").cloned().unwrap_or(json!({}));
             let toolbar = f.get("toolbarHidden").cloned().unwrap_or(json!([]));
-            app.run("edit.keyboardShortcuts", json!({"reset": true, "set": ov, "allowUnknown": true, "removeConflicts": false}))?;
+            app.run("edit.keyboardShortcuts", json!({"reset": true, "set": ov, "alternates": alt, "allowUnknown": true, "removeConflicts": false}))?;
             app.run("prefs.set", json!({"values": {"menus": {"hidden": hidden, "colors": colors}, "toolbar": {"hidden": toolbar}}}))
         }
         "presets" => Ok(Value::Null),
@@ -2106,6 +2224,21 @@ mod tests {
         assert!(export_field_visible(&obj, "webpQuality"));
         assert_eq!(humanize("webpLossless"), "Lossless");
         assert_eq!(humanize("webpQuality"), "Quality");
+    }
+
+    #[test]
+    fn the_nudge_pause_is_hidden_while_nudges_are_not_bundled() {
+        let mut tools = Map::new();
+        tools.insert("bundleNudges".into(), json!(true));
+        assert!(tools_field_visible(&tools, "nudgeBundlePauseMs"));
+        assert!(tools_field_visible(&tools, "bundleNudges"));
+        tools.insert("bundleNudges".into(), json!(false));
+        assert!(!tools_field_visible(&tools, "nudgeBundlePauseMs"));
+        assert!(tools_field_visible(&tools, "bundleNudges") && tools_field_visible(&tools, "showTooltips"));
+        // A section without the flag (an older preferences object) shows the field.
+        assert!(tools_field_visible(&Map::new(), "nudgeBundlePauseMs"));
+        assert_eq!(humanize("bundleNudges"), "Bundle Arrow-Key Nudges");
+        assert_eq!(humanize("nudgeBundlePauseMs"), "Nudge Bundle Pause (ms)");
     }
 
     #[test]
@@ -3349,6 +3482,52 @@ mod tests {
         assert_eq!(effective_shortcut(&app, "layer.new.layer", None).as_deref(), Some("Cmd+O"));
         assert_eq!(effective_shortcut(&app, "layer.new.group", None), None, "taken back from the group");
         assert_eq!(effective_shortcut(&app, "file.open", Some("Cmd+O")), None, "File › Open stays cleared");
+    }
+
+    /// #3665: the dialog keeps a command's further keys: they move like main keys, an override
+    /// of the main key leaves them, and menus show only the main key.
+    #[test]
+    fn shortcut_dialog_moves_and_keeps_alternate_keys() {
+        let (mut app, _) = app_with_store();
+        let ctx = egui::Context::default();
+        let open = |app: &mut PhotocraftApp| crate::menus::invoke(app, &ctx, "edit.keyboardShortcuts", json!({})).unwrap()["dialog"].as_u64().unwrap();
+        assert_eq!(crate::shortcuts::effective_alternates(&app, "edit.copy"), ["F3"]);
+        assert_eq!(crate::shortcuts::effective_alternates(&app, "view.zoomIn"), ["Cmd++"]);
+        // F2 (Cut's alternate) given to Rename Layer is taken from Cut, which keeps ⌘X.
+        let id = open(&mut app);
+        app.ui.dialog_mut(id).unwrap().fields.insert("overrides".into(), json!({"layer.renameLayer": "F2"}));
+        crate::dialogs::confirm(&mut app, id).unwrap();
+        assert_eq!(effective_shortcut(&app, "layer.renameLayer", None).as_deref(), Some("F2"));
+        assert!(crate::shortcuts::effective_alternates(&app, "edit.cut").is_empty());
+        assert_eq!(effective_shortcut(&app, "edit.cut", Some("Cmd+X")).as_deref(), Some("Cmd+X"));
+        // Copy's main key moved to ⌘K keeps F3; the menu shows ⌘K.
+        let id = open(&mut app);
+        let mut ov = app.session.prefs().shortcuts.clone();
+        ov.insert("edit.copy".into(), "Cmd+K".into());
+        app.ui.dialog_mut(id).unwrap().fields.insert("overrides".into(), json!(ov));
+        crate::dialogs::confirm(&mut app, id).unwrap();
+        assert_eq!(crate::shortcuts::effective_alternates(&app, "edit.copy"), ["F3"]);
+        assert!(crate::menus::menu_items(&app).iter().any(|i| i.id == "edit.copy" && i.shortcut.as_deref() == Some("Cmd+K")));
+        // An added alternate takes its key from the main key that held it.
+        let id = open(&mut app);
+        app.ui.dialog_mut(id).unwrap().fields.insert("alternates".into(), json!({"edit.paste": ["F4", "Cmd+K"]}));
+        crate::dialogs::confirm(&mut app, id).unwrap();
+        assert_eq!(crate::shortcuts::effective_alternates(&app, "edit.paste"), ["F4", "Cmd+K"]);
+        assert_eq!(effective_shortcut(&app, "edit.copy", Some("Cmd+C")), None, "taken from Copy");
+        // Use Default for everything restores the defaults; a malformed list is an error.
+        let id = open(&mut app);
+        app.ui.dialog_mut(id).unwrap().fields.insert("alternates".into(), json!({"edit.paste": "F4"}));
+        assert!(crate::dialogs::confirm(&mut app, id).is_err());
+        let id = open(&mut app);
+        app.ui.dialog_mut(id).unwrap().fields.insert("alternates".into(), json!({"edit.paste": ["Cmd+Shift"]}));
+        assert!(crate::dialogs::confirm(&mut app, id).is_err());
+        assert_eq!(crate::shortcuts::effective_alternates(&app, "edit.paste"), ["F4", "Cmd+K"], "nothing changed");
+        let id = open(&mut app);
+        app.ui.dialog_mut(id).unwrap().fields.insert("alternates".into(), json!({}));
+        app.ui.dialog_mut(id).unwrap().fields.insert("overrides".into(), json!({}));
+        crate::dialogs::confirm(&mut app, id).unwrap();
+        assert!(app.session.prefs().alternate_shortcuts.is_empty() && app.session.prefs().shortcuts.is_empty());
+        assert_eq!(crate::shortcuts::effective_alternates(&app, "edit.cut"), ["F2"]);
     }
 
     #[test]

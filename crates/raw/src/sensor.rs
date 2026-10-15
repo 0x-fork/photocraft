@@ -214,6 +214,19 @@ pub(crate) enum JpegLayout {
 /// DNG 1.7 JPEG XL compression.
 const JPEG_XL: u32 = 52546;
 
+/// Inflates one zlib tile into at most `need` bytes. The stream must run to its end: a truncated
+/// stream, or one that holds more than `need` bytes, is an error rather than a silent cut-off.
+fn inflate_tile(src: &[u8], need: usize) -> Result<Vec<u8>> {
+    let mut out = vec![0u8; need];
+    let mut d = flate2::Decompress::new(true);
+    let status = d.decompress(src, &mut out, flate2::FlushDecompress::Finish).map_err(|_| RawError::malformed("deflate tile does not decompress"))?;
+    if status != flate2::Status::StreamEnd {
+        return Err(RawError::malformed("deflate tile is truncated or larger than its tile"));
+    }
+    out.truncate(usize::try_from(d.total_out()).unwrap_or(need).min(need));
+    Ok(out)
+}
+
 /// Reads the (uncompressed, lossless-JPEG or JPEG XL) image of a raw IFD.
 pub(crate) fn read_plane(t: &Tiff, ifd: &Ifd, limits: &Limits, layout: JpegLayout) -> Result<Plane> {
     let width = t.tag_uint(ifd, tag::IMAGE_WIDTH).ok_or_else(|| RawError::malformed("raw image has no width"))? as usize;
@@ -261,10 +274,7 @@ pub(crate) fn read_plane(t: &Tiff, ifd: &Ifd, limits: &Limits, layout: JpegLayou
                 let too_big = || RawError::malformed("deflate tile is too large");
                 let need =
                     s.w.checked_mul(rows).and_then(|n| n.checked_mul(samples)).and_then(|n| n.checked_mul((bits as usize).div_ceil(8))).ok_or_else(too_big)?;
-                let mut out = vec![0u8; need];
-                let mut d = flate2::Decompress::new(true);
-                d.decompress(src, &mut out, flate2::FlushDecompress::Finish).map_err(|_| RawError::malformed("deflate tile does not decompress"))?;
-                out.truncate(usize::try_from(d.total_out()).unwrap_or(need).min(need));
+                let out = inflate_tile(src, need)?;
                 let v = unpack(&out, s.w, rows, samples, bits, le)?;
                 // The TIFF predictor runs after unpacking, per row, per sample plane.
                 match t.tag_uint(ifd, tag::PREDICTOR).unwrap_or(1) {
@@ -457,6 +467,26 @@ mod tests {
         let mut c = Cfa::bayer("RGGB").unwrap();
         c.origin_x = 1;
         assert_eq!(c.phase(0, 0), [1, 0, 2, 1]); // GRBG
+    }
+
+    fn zlib(data: &[u8]) -> Vec<u8> {
+        use std::io::Write;
+        let mut e = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        e.write_all(data).unwrap();
+        e.finish().unwrap()
+    }
+
+    #[test]
+    fn inflate_tile_requires_stream_end() {
+        let data: Vec<u8> = (0..64u8).collect();
+        let z = zlib(&data);
+        assert_eq!(inflate_tile(&z, 64).unwrap(), data);
+        // Shorter than the tile, but a complete stream: still accepted.
+        assert_eq!(inflate_tile(&z, 100).unwrap(), data);
+        // Truncated stream.
+        assert!(inflate_tile(&z[..z.len() - 6], 64).is_err());
+        // More decoded output than the tile holds.
+        assert!(inflate_tile(&z, 32).is_err());
     }
 
     #[test]

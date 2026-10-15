@@ -83,6 +83,12 @@ camera colour tables were copied.
 | CR3 | Native CRX unsupported; bounded JPEG-track/PRVW preview fallback with CMT1 orientation. I/O labels the result as an 8-bit camera preview |
 | X-Trans and other periodic non-Bayer CFAs (up to 16×16) | Demosaiced by one pattern-agnostic edge-directed method, whatever `Demosaic` is chosen |
 
+Nikon maker-note compression modes 6/10 select checked little-endian packed 12/14-bit
+rows even when TIFF Compression is 34713. The modern lossy `0x44 0x40` curve uses
+its smaller encoded domain while preserving sensor ADUs. Valid Nikon CropArea
+coordinates take precedence over model fallbacks. HE/HE* and lossy-after-split
+remain unsupported. Four pinned CC0 Z6 files cover both bit depths and both paths.
+
 ## Development pipeline
 
 1. Linearization table, per-position black level, scale to the white level.
@@ -117,7 +123,8 @@ smallest preview at least 512 pixels long, fits and develops in one go.
 Camera Raw's tuned import fits at the default exposure and as-shot white balance first,
 then applies the user's Exposure, Temperature and Tint to that same rendering.
 The D5100's measured image area is 4928 × 3264 at (8, 8) in a 4992 × 3280
-sensor plane; it removes the border without changing levels, WB or calibration.
+sensor plane; the D90's is 4288 × 2848 at (10, 10) in a 4352 × 2868 plane; each
+removes the border without changing levels, WB or calibration.
 Measured image areas preserve an explicit file crop.
 
 For a slightly tighter camera JPEG, fitting can align the reference proxy using a bounded

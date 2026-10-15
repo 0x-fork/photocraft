@@ -21,7 +21,7 @@ XL are missing (gap G10). Remaining: 300–500 h including PSD fidelity.
 
 | Format | Photoshop | PhotoCraft read | PhotoCraft write | Fidelity and tests |
 |---|---|---|---|---|
-| PSD | R/W | yes | yes | 1/8/16/32-bit; Bitmap, Gray, Indexed, RGB, CMYK, Multichannel, Lab, Duotone; layers, groups, masks, vector masks, adjustment and fill layers, effects, text, shapes, smart objects (SoLd/lnk2; CS2 PlLd/lnkD read with their warp, kept as is or re-saved as SoLd once edited), smart filters (14 mapped, rest verbatim), slices, comps, Advanced Blending. Oracle floors: Photoshop-authored 185/258, io 148/170, psd-tools 249/309; round trip ≥ 169/170, 308/309, 258/256. Known failures: #1281, #2469 (#2374, text layers, closed 2026-10-10; #2465, CS2 `PlLd`-only smart objects, fixed 2026-10-12) |
+| PSD | R/W | yes | yes | 1/8/16/32-bit; Bitmap, Gray, Indexed, RGB, CMYK, Multichannel, Lab, Duotone; layers, groups, masks, vector masks, adjustment and fill layers, effects, text, shapes, smart objects (SoLd/lnk2; CS2 PlLd/lnkD read with their warp, kept as is or re-saved as SoLd once edited), smart filters (14 mapped plus Filter Gallery with Chrome, rest verbatim), slices, comps, Advanced Blending. Oracle floors: Photoshop-authored 185/258, io 148/170, psd-tools 249/309; round trip ≥ 169/170, 308/309, 258/256. Known failures: #1281, #2469 (#2374, text layers, closed 2026-10-10; #2465, CS2 `PlLd`-only smart objects, fixed 2026-10-12) |
 | PSB | R/W | yes | yes | Auto-switches above 2 GB (REL-212-2); 4–5 GB fixtures generated (FILE-216-2); > 4 GB fails on Windows (#375) |
 | Cloud PSD (.psdc) | R/W | no | no | Out of scope (Adobe cloud) |
 | TIFF | R/W | yes | yes | 8/16/32f, Gray/RGB/CMYK, BigTIFF, every IFD, banded parallel decode; layered TIFF both byte orders; one alpha channel opens and saves (an unspecified extra sample, #5301), LZW/ZIP by `tiffCompression` (FILE-215-7: alpha channels beyond the first, or with transparency, not written) |
@@ -43,7 +43,7 @@ XL are missing (gap G10). Remaining: 300–500 h including PSD fidelity.
 | Generic EPS / AI | R (rasterize) | no | no | |
 | SVG | R (rasterize) | yes, as editable shape layers or a vector smart object | no | Better than Photoshop for editing; gradients approximated (FILE-215-9) |
 | JPEG 2000 | R/W | no (#1047) | no | |
-| Cineon / DPX | R (DPX), R/W (CIN) | DPX: luma, RGB, RGBA at 8/10/12/16 bits, both byte orders (#1049); Cineon no | DPX: 8/10/12/16 bits (`dpxBits`, `--dpx-bits`); Cineon no | Writes DPX, which Photoshop only reads; header fields (creator, project, copyright, transfer, frame rate, time code…) round-trip; no Cineon, no RLE |
+| Cineon / DPX | R (DPX), R/W (CIN) | DPX: luma, RGB, RGBA at 8/10/12/16 bits, both byte orders (#1049); Cineon: 10-bit gray/RGB, read-only | DPX: 8/10/12/16 bits (`dpxBits`, `--dpx-bits`); Cineon no | Writes DPX, which Photoshop only reads; header fields (creator, project, copyright, transfer, frame rate, time code…) round-trip; Cineon read-only, no RLE |
 | DICOM | R/W | no | no | |
 | PCX | R/W | no | no | |
 | Pixar | R/W | no | no | |
@@ -66,7 +66,7 @@ supports many more, including CR3).
 | DNG (incl. LJPEG and JPEG XL tiles) | yes; lossy DNG no | FILE-215-11 |
 | Canon CR2 | yes | |
 | Canon CR3 | detected, unsupported | `crates/raw/src/lib.rs:219` |
-| Nikon NEF/NRW (lossless, lossy) | yes; "lossy after split" no | #50; D5100 image area measured on three 14-bit lossy NEFs; [validation](nikon-nef-development.md) |
+| Nikon NEF/NRW (lossless, lossy) | yes; "lossy after split" no | #50; D5100 and D90 image areas measured (14-bit NEFs); [validation](nikon-nef-development.md) |
 | Sony ARW/SR2/SRF (incl. compressed) | yes | |
 | Panasonic RW2, Pentax PEF | yes | |
 | Olympus ORF | uncompressed only | |
@@ -169,5 +169,6 @@ remaining gaps in #1606 stay tracked with per-sample corpus ceilings.
 | 2026-10-12 | minor | Presets table: Contours `.shc` read and write through the Contour Editor (FILE-215-15); `.csh` and `.tpl` stay missing |
 | 2026-10-12 | minor | Palette BMPs open in Indexed Color mode (#3802) |
 | 2026-10-12 | minor | Save writes a JPEG at its own estimated quality and a WebP lossy or lossless as opened (#2399) |
+| 2026-10-11 | minor | PSD smart filters: Filter Gallery (`GEfc`) maps to `filter.filterGallery` when every effect is modelled (Chrome so far), editable from the Layers panel |
 | 2026-10-11 | minor | D5100 image area and fitted-look preservation in Camera Raw tuning |
 | 2026-10-10 | major | First version: Photoshop 2026 27.11.0's formats from its bundle, against our codecs; Affinity notes moved from `roadmap.md` |

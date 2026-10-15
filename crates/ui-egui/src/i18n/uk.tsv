@@ -324,6 +324,9 @@
 # Field Blur pins (#3373)
 	No pin selected	Шпильку не вибрано
 	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Клацніть зображення, щоб додати шпильку; перетягніть шпильку, щоб перемістити її, або її кільце, щоб змінити розмиття. Delete видаляє вибрану шпильку.
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	Перетягуйте маркери на контурі, щоб змінити розмір і повернути його, квадрат — щоб заокруглити кути, а точки всередині — щоб задати, де починається розмиття.
+	Drag the pin to move the band, or its ring to change its blur. Drag the solid lines to widen the sharp band, the dashed lines to set the transition, and the dots to turn it.	Перетягніть шпильку, щоб зсунути смугу, або її кільце, щоб змінити розмиття. Суцільні лінії розширюють різку смугу, пунктирні задають перехід, а точки повертають її.
+	Drag the handles on the outline to resize and turn it; the ring sets the blur angle.	Перетягуйте маркери на контурі, щоб змінити розмір і повернути його; кільце задає кут розмиття.
 	Iris Blur…	Розмиття діафрагми…
 	Tilt-Shift…	Нахил і зсув…
 	Path Blur…	Розмиття вздовж контуру…
@@ -1675,6 +1678,7 @@
 	These settings aren't available in PhotoCraft yet.	Ці параметри ще недоступні у PhotoCraft.
 	Shortcut removed.	Клавіатурне скорочення вилучено.
 	All shortcuts reset to PhotoCraft defaults.	Усі клавіатурні скорочення скинуто до типових значень PhotoCraft.
+	Add Shortcut	Додати клавіатурне скорочення
 	Delete Shortcut	Видалити клавіатурне скорочення
 	Press keys…	Натисніть клавіші…
 	shortcut	клавіатурне скорочення
@@ -3605,6 +3609,8 @@ cameraRaw	Masking	Маскування
 	Color Picker (Layer Style Color)	Палітра кольорів (колір стилю шару)
 	Auto Hide Notifications	Автоматично приховувати сповіщення
 	Notification Duration (seconds)	Тривалість сповіщення (секунди)
+	Bundle Arrow-Key Nudges	Поєднувати зсуви стрілками
+	Nudge Bundle Pause (ms)	Пауза поєднання зсувів (мс)
 	Appearance Mode	Режим вигляду
 	Dark Theme	Темна тема
 	Light Theme	Світла тема
@@ -3836,6 +3842,7 @@ curves	Smooth	Згладити
 	Action playback stopped	Відтворення операції зупинено
 	Step {step} is waiting for its dialog	Крок {step} очікує на свій діалог
 @plural	{n} action|{n} actions	{n} операція|{n} операції|{n} операцій
+	Background (Default)	Фон (типовий)
 # Batch / Image Processor
 	Include All Subfolders	Включити всі вкладені папки
 	Auto Add/Delete	Автододавання/видалення
@@ -3863,3 +3870,7 @@ curves	Smooth	Згладити
 	Chisel Hard	Жорстке різьблення
 	Chisel Soft	М'яке різьблення
 	Open color-less EXR as ACEScg	Відкривати EXR без колірного профілю як ACEScg
+
+# View › Guides › right-click a guide
+	Edit Selected Guides	Редагувати вибрані напрямні
+	Clear Selected Guides	Очистити вибрані напрямні
