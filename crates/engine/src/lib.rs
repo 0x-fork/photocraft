@@ -103,6 +103,7 @@ pub mod sample_cmds;
 pub mod sampler_cmds;
 pub mod select_extra_cmds;
 pub mod selection_cmds;
+pub mod shortcut_sets;
 pub mod slice_cmds;
 pub mod smart_cmds;
 pub mod smartselect_cmds;
@@ -234,6 +235,20 @@ pub struct DocState {
 }
 
 impl DocState {
+    /// Trim the history to its budget, counting the tiles only History panel snapshots hold
+    /// against it too (#4530). Returns how many states were dropped.
+    pub fn trim_history(&mut self) -> usize {
+        let snaps: Vec<&Document> = self.snapshots.iter().map(|s| &*s.doc).collect();
+        self.history.trim_with(&self.doc, &snaps)
+    }
+
+    /// Pixel bytes of the document, the tiles only its history holds and the tiles only its
+    /// History panel snapshots hold.
+    pub fn memory_bytes(&self) -> usize {
+        let snaps: Vec<&Document> = self.snapshots.iter().map(|s| &*s.doc).collect();
+        self.history.pixel_bytes(&self.doc).saturating_add(self.history.extra_bytes(&self.doc, &snaps))
+    }
+
     pub fn new(doc: Document, path: Option<String>) -> Self {
         let active_layer = doc.top_layer();
         let mut history = History::default();
@@ -742,7 +757,7 @@ impl Session {
         if key.is_none() || st.coalesce != key || !st.history.can_undo() {
             st.history.set_current_layers(prior);
             st.history.record(label, before, layers);
-            st.history.trim(&st.doc);
+            st.trim_history();
         } else {
             st.history.set_current_layers(layers);
         }
