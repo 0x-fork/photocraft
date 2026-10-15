@@ -69,9 +69,9 @@ what an agent can't finish alone.
   (TOOL-214-15); Vanishing Point plane editor (TOOL-214-14); Content-Aware Move's live preview
   of the result (TOOL-213-4; Transform On Drop and Content-Aware Scale through the transform box,
   TOOL-214-7, are done).
-  Blur Gallery: Field Blur's pins and Iris Blur's pins with their outline, roundness and feather
-  handles are edited on the image (2026-10-11, #3373); Tilt-Shift, Spin and Path Blur are still
-  parameter dialogs.
+  Blur Gallery: Field, Iris, Tilt-Shift and Spin Blur are edited on the image with Photoshop's pins
+  and handles (2026-10-11, #3373); Tilt-Shift has one band (the engine takes one), and Path Blur
+  (#1759) is still a parameter dialog.
 - **Evidence:** scorecard rows above, all partial or missing.
 - **Impact:** these are the tools retouchers and compositors use daily; a slider dialog is not a
   substitute.
@@ -291,6 +291,7 @@ what an agent can't finish alone.
 | 2026-10-12 | minor | G4: checkbox-only Brush Settings rows preserve the open controls and Smoothing settings (#4283); no readiness percentage or estimate changed |
 | 2026-10-12 | minor | G11: Load/Save Actions `.atn` landed (AUTO-219-2 partial); remaining panel work listed |
 | 2026-10-12 | minor | Refreshed against main: G5 items fixed by #2480, #2327, #2609, #2684, #2675, #2556, #2396, #2527, #2625 and TOOL-214-5/#2442; G7 TOOL-214-7 and Transform On Drop done; G2 #2377 fixed (#2417); G9 UI scale (UI-217-9) and Stamp Visible (UI-217-22) done, prefs 27 of 156; G10 #2225 done (#2482); G13 Khmer, Lao, Myanmar fallback (#3259); G14 CR3 line; G17 Windows ARM64 done (DIST-220-2) |
+| 2026-10-11 | minor | G7: Tilt-Shift's band (lines, turn dots) and Spin Blur's pins (outline handles, blur-angle ring) on the image; Path Blur remains a dialog |
 | 2026-10-11 | minor | G7: Iris Blur's pins, outline, roundness and feather handles on the image too; Tilt-Shift, Spin and Path Blur remain dialogs |
 | 2026-10-11 | minor | G7: Field Blur pins are placed, dragged and tuned on the image (#3373); the other Blur Gallery filters remain dialogs |
 | 2026-10-11 | minor | D5100 image area and Camera Raw tuning validation; G14 remains open |

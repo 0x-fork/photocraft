@@ -142,6 +142,7 @@ pub mod new_doc_ui;
 pub mod new_guide_ui;
 pub mod new_layer_ui;
 pub mod notices;
+pub mod nudge_bundle;
 mod numeric_expression;
 pub mod object_finder;
 mod opacity_keys;
@@ -701,6 +702,8 @@ pub struct PhotocraftApp {
     pub(crate) move_mods: move_mods::MoveDrag,
     /// Cached document for a modal text Style Options color preview.
     pub(crate) text_style_preview: Option<type_panels_ui::color_picker::Preview>,
+    /// The run of arrow-key nudges that share one History state (nudge_bundle).
+    pub(crate) nudge_bundle: nudge_bundle::NudgeBundle,
     /// Live Layer Style dialog preview: (key over revision + style fields, preview or validation error).
     pub(crate) style_preview: Option<(u64, Result<std::sync::Arc<Document>, String>)>,
     pub(crate) solid_fill_preview: Option<solid_fill_ui::Preview>,
@@ -901,6 +904,7 @@ impl PhotocraftApp {
             clip_read_for_paste: false,
             transform_preview: None,
             move_mods: Default::default(),
+            nudge_bundle: Default::default(),
             style_preview: None,
             text_style_preview: None,
             solid_fill_preview: None,
@@ -1082,6 +1086,10 @@ impl PhotocraftApp {
             id,
             "layer.vectorMask.add" | "layer.vectorMask.fromPath" | "layer.vectorMask.revealAll" | "layer.vectorMask.hideAll" | "layer.vectorMask.currentPath"
         ) && on_active_layer;
+        // A draft Pen path belongs to the current document, not the one about to be created.
+        if id == "file.new" && self.ui.pen.is_some() {
+            vector_ui::pen_commit(self, false);
+        }
         let r = if id == "actions.play" {
             actions::play(self, &params)
         } else if photocraft_engine::actions_cmds::shell_view_command(id) {
@@ -1763,6 +1771,7 @@ impl eframe::App for PhotocraftApp {
         // Caps Lock state read from the OS once per frame (see `Services::caps_lock`): the canvas
         // cursor block needs it before the frame renders. `None` (Wayland/web) keeps `false`.
         self.caps_lock = self.services.caps_lock.as_mut().is_some_and(|f| f());
+        tool_cursor::set_wayland(ctx, self.services.is_wayland);
         if !self.styled {
             Self::setup_context(ctx, self.ui.theme);
             self.styled = true;
@@ -1831,6 +1840,9 @@ impl eframe::App for PhotocraftApp {
         if !dropped.is_empty() {
             let at = self.services.cursor_pos.as_mut().and_then(|f| f(ctx));
             self.open_dropped(ctx, dropped, at);
+            // Files dragged in from another app's window: PhotoCraft comes to the front and takes
+            // the keyboard, as Photoshop does, instead of staying behind the source (#5687).
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
         self.place_next_dropped(ctx);
         // The control transport wakes the UI on arrival (ctx.request_repaint); only poll while a
@@ -1959,7 +1971,7 @@ impl eframe::App for PhotocraftApp {
         notices::show(self, &ctx);
         gpu_status::show_fallback(self, &ctx);
         kys_import::show_offer(self, &ctx);
-        if chrome && self.ui.panels.menu_bar && self.custom_titlebar && !self.ui.dialogs.is_empty() {
+        if self.titlebar_modal_drag(chrome) {
             titlebar::modal_drag_overlay(&ctx);
         }
         if self.custom_titlebar {
@@ -2030,6 +2042,14 @@ fn read_dropped(_f: &dyn egui::DroppedFile) -> Result<Vec<u8>, String> {
 }
 
 impl PhotocraftApp {
+    /// Whether the title bar's free gap gets the drag overlay this frame: the app draws its title
+    /// strip (`chrome`: not hidden by the screen mode) and a dialog's modal layer covers it. Not
+    /// only with the custom title bar: on macOS the strip under the traffic lights is the window's
+    /// title bar too, and an open dialog (Embedded Profile Mismatch…) left it undraggable (#5826).
+    pub(crate) fn titlebar_modal_drag(&self, chrome: bool) -> bool {
+        chrome && self.ui.panels.menu_bar && !self.ui.dialogs.is_empty()
+    }
+
     /// `params` aimed at the active layer's mask (`"target":"mask"`) when the Layers panel targets
     /// it and command `id` edits the target (adjustments, filters, fills) without naming one:
     /// ⌘I then inverts the mask, as in Photoshop (#780). A targeted alpha channel or Quick Mask
@@ -2598,6 +2618,9 @@ mod profile_prompt_tests;
 mod input_tests;
 
 #[cfg(test)]
+mod empty_workspace_tests;
+
+#[cfg(test)]
 mod pen_variants_tests;
 
 #[cfg(test)]
@@ -2676,6 +2699,9 @@ mod marquee_tests;
 
 #[cfg(test)]
 mod canvas_menu_tests;
+
+#[cfg(test)]
+mod nudge_bundle_tests;
 
 #[cfg(test)]
 mod caps_lock_tests;
@@ -2978,3 +3004,6 @@ mod channel_tint_tests {
         assert_eq!(channel_tint(Rgb, 0, 77, false), Color32::from_gray(77));
     }
 }
+
+#[cfg(test)]
+mod options_hit_area_tests;

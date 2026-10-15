@@ -555,6 +555,8 @@
 	No pin selected	Nessuna puntina selezionata
 	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Fai clic sull’immagine per aggiungere una puntina; trascina una puntina per spostarla o il suo anello per cambiare la sfocatura. Canc rimuove la puntina selezionata.
 	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	Trascina le maniglie sul contorno per ridimensionarlo e ruotarlo, il quadrato per arrotondarne gli angoli e i punti interni per stabilire dove inizia la sfocatura.
+	Drag the pin to move the band, or its ring to change its blur. Drag the solid lines to widen the sharp band, the dashed lines to set the transition, and the dots to turn it.	Trascina la puntina per spostare la banda o il suo anello per cambiare la sfocatura. Trascina le linee continue per allargare la banda nitida, quelle tratteggiate per la transizione e i punti per ruotarla.
+	Drag the handles on the outline to resize and turn it; the ring sets the blur angle.	Trascina le maniglie sul contorno per ridimensionarlo e ruotarlo; l’anello imposta l’angolo di sfocatura.
 	Iris Blur…	Sfocatura diaframma…
 	Tilt-Shift…	Miniatura…
 	Path Blur…	Sfocatura tracciato…
@@ -2576,6 +2578,8 @@ fontWeight	Italic	Corsivo
 	Color Picker (Layer Style Color)	Selettore colore (colore dello stile livello)
 	Auto Hide Notifications	Nascondi automaticamente le notifiche
 	Notification Duration (seconds)	Durata della notifica (secondi)
+	Bundle Arrow-Key Nudges	Raggruppa gli spostamenti con le frecce
+	Nudge Bundle Pause (ms)	Pausa per raggruppare gli spostamenti (ms)
 	Appearance Mode	Modalità aspetto
 	Dark Theme	Tema scuro
 	Light Theme	Tema chiaro

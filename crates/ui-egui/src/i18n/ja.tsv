@@ -557,6 +557,8 @@
 	No pin selected	ピンが選択されていません
 	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	画像をクリックしてピンを追加します。ピンをドラッグして移動し、リングをドラッグしてぼかしを変更します。Delete キーで選択したピンを削除します。
 	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	輪郭上のハンドルをドラッグしてサイズ変更と回転、四角形で角の丸み、内側の点でぼかしの開始位置を設定します。
+	Drag the pin to move the band, or its ring to change its blur. Drag the solid lines to widen the sharp band, the dashed lines to set the transition, and the dots to turn it.	ピンをドラッグして帯を移動し、リングでぼかしを変更します。実線で鮮明な帯の幅、破線で移行範囲、点で回転を調整します。
+	Drag the handles on the outline to resize and turn it; the ring sets the blur angle.	輪郭上のハンドルをドラッグしてサイズ変更と回転を行います。リングでぼかしの角度を設定します。
 	Iris Blur…	虹彩絞りぼかし…
 	Tilt-Shift…	チルトシフト…
 	Path Blur…	パスぼかし…
@@ -3520,6 +3522,8 @@ fontWeight	Italic	斜体
 	Color Picker (Layer Style Color)	カラーピッカー (レイヤースタイルの色)
 	Auto Hide Notifications	通知を自動的に隠す
 	Notification Duration (seconds)	通知の表示時間 (秒)
+	Bundle Arrow-Key Nudges	矢印キーの移動をまとめる
+	Nudge Bundle Pause (ms)	移動をまとめる間隔（ms）
 	Appearance Mode	外観モード
 	Dark Theme	ダークテーマ
 	Light Theme	ライトテーマ
