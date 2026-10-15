@@ -1111,6 +1111,57 @@ mod tests {
         }
     }
 
+    /// Russian dynamic labels added in the fourth pass (filter parameters, Camera Raw panels,
+    /// hardware status, rasterize prompts, History/paths menus) render in Russian, not English.
+    #[test]
+    fn russian_dynamic_status_hardware_and_dialog_labels_are_translated() {
+        let ru = Lang::from_code("ru").expect("ru registered");
+        for kind in [
+            crate::rasterize_prompt::Kind::Type,
+            crate::rasterize_prompt::Kind::Shape,
+            crate::rasterize_prompt::Kind::SmartObject,
+            crate::rasterize_prompt::Kind::Fill,
+        ] {
+            assert_ne!(tr(ru, kind.message()), kind.message(), "{:?}", kind);
+        }
+        assert_eq!(fmt(tr(ru, "Driver: {driver}"), &[("driver", "Mesa 25.0")]), "Драйвер: Mesa 25.0");
+        assert_eq!(
+            fmt(tr(ru, "Monitor profile on {display}: {profile}"), &[("display", "DELL U2720Q"), ("profile", "sRGB IEC61966-2.1")]),
+            "Профиль монитора для DELL U2720Q: sRGB IEC61966-2.1"
+        );
+        assert_eq!(fmt(tr(ru, "Platform: {os} {arch}"), &[("os", "Linux"), ("arch", "x86_64")]), "Платформа: Linux x86_64");
+        assert_eq!(tr(ru, "Graphics adapter"), "Графический адаптер");
+        assert_eq!(tr(ru, "Image compositor: {processor}"), "Компоновщик изображения: {processor}");
+        // Filter / adjustment parameter names.
+        for label in [
+            "Amount",
+            "Radius",
+            "Threshold",
+            "Angle",
+            "High Pass",
+            "Smart Blur",
+            "Reduce Noise",
+            "Lens Correction",
+            "Colored Pencil",
+            "Angled Strokes",
+            "Stained Glass",
+            "Sumi-e",
+            "Film Grain",
+            "Unsharp Mask",
+            "Lens Flare",
+        ] {
+            assert!(has(ru, label), "Russian filter label missing: {label}");
+        }
+        // Dynamic composed status templates.
+        assert_eq!(fmt(tr(ru, "Step {step} ({id}) failed: {error}"), &[("step", "2"), ("id", "file.export"), ("error", "ok")]), "Шаг 2 (file.export) не выполнен: ok");
+        assert_eq!(fmt(tr(ru, "Couldn't open {name}: {error}"), &[("name", "scan.tif"), ("error", "denied")]), "Не удалось открыть scan.tif: denied");
+        assert_eq!(fmt(tr(ru, "Exported {path} ({size})"), &[("path", "/tmp/a.png"), ("size", "12 KB")]), "Экспортировано: /tmp/a.png (12 KB)");
+        assert_eq!(fmt(tr(ru, "Data Set: {name}  ({index}/{total})"), &[("name", "Set 1"), ("index", "1"), ("total", "2")]), "Набор данных: Set 1  (1/2)");
+        // Document and layer names stay verbatim.
+        let text = fmt(tr(ru, "Saved {path}; image assets: {n} in {dir}"), &[("path", "/tmp/a.pcraft"), ("n", "3"), ("dir", "/tmp/assets")]);
+        assert!(text.contains("/tmp/a.pcraft") && text.contains("/tmp/assets"), "{text}");
+    }
+
     /// Every `tl!("literal")` in the shell has an entry in each language that claims complete menus
     /// (so a new label can't ship untranslated by accident). Literals that are deliberately shown as
     /// they are (names, units) are listed in `KEEP_AS_IS`.
