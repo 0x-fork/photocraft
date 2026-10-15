@@ -233,6 +233,9 @@ pub struct DocState {
     pub snapshots: Vec<history_cmds::Snapshot>,
     /// The id the next snapshot gets; ids are never reused, so deleting one keeps the others.
     next_snapshot: u64,
+    /// The snapshot set as the History Brush's source (`history.setSource {snapshot}`); `None`:
+    /// the source is a state, kept by the history ([`photocraft_ops::History::brush_source`]).
+    pub(crate) source_snapshot: Option<u64>,
 }
 
 impl DocState {
@@ -276,6 +279,7 @@ impl DocState {
             color_samplers: Vec::new(),
             snapshots: Vec::new(),
             next_snapshot: 1,
+            source_snapshot: None,
         }
     }
     /// The selected layers in bottom-to-top document order, always including the active layer.
