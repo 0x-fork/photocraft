@@ -113,3 +113,37 @@ fn fill_path_rejects_bad_paths_without_history() {
     s.execute("layer.setProps", json!({"layer": id.0, "locked": true})).unwrap();
     assert!(s.execute("type.fillPath", json!({})).is_err());
 }
+
+#[test]
+fn release_turns_area_type_into_box_text_over_the_path() {
+    let mut s = session(8);
+    let id = text_layer(&mut s, WORDS);
+    set_work_path(&mut s, Path::new(vec![Subpath::polygon(&[(100.0, 100.0), (300.0, 100.0), (300.0, 250.0)])]));
+    s.execute("type.fillPath", json!({})).unwrap();
+    assert!(s.is_enabled("type.detachFromPath"));
+    assert!(!s.is_enabled("type.convertToPointText") && !s.is_enabled("type.convertToParagraphText"));
+    s.execute("type.detachFromPath", json!({})).unwrap();
+    assert_eq!(text(&s, id).shape, TextShape::Box { x: 0.0, y: 0.0, width: 200.0, height: 150.0 });
+    assert!(s.undo());
+    assert!(matches!(text(&s, id).shape, TextShape::Area { .. }));
+}
+
+#[test]
+fn area_type_saves_to_psd_as_paragraph_text_with_a_warning() {
+    let mut s = session(8);
+    let id = text_layer(&mut s, WORDS);
+    set_work_path(&mut s, Path::new(vec![Subpath::polygon(&[(100.0, 100.0), (300.0, 100.0), (300.0, 250.0), (100.0, 250.0)])]));
+    s.execute("type.fillPath", json!({})).unwrap();
+    let doc = s.active().unwrap().doc.clone();
+    let r = photocraft_io::export(&doc, "x.psd", &photocraft_io::ExportOptions::default()).unwrap();
+    assert!(r.warnings.iter().any(|w| w.contains("area type")), "{:?}", r.warnings);
+    let back = photocraft_io::import("x.psd", &r.bytes).unwrap().document;
+    let t = back.walk().into_iter().find_map(|(_, _, l)| match &l.content {
+        LayerContent::Text(t) => Some(t.clone()),
+        _ => None,
+    });
+    let t = t.expect("still a type layer");
+    assert_eq!(t.text, WORDS);
+    assert!(matches!(t.shape, TextShape::Box { width, height, .. } if (width - 200.0).abs() < 0.5 && (height - 150.0).abs() < 0.5), "{:?}", t.shape);
+    let _ = id;
+}

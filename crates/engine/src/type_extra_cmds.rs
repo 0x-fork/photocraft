@@ -393,7 +393,7 @@ fn attach_to_path(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn is_path_text(s: &Session) -> std::result::Result<(), String> {
     match active_text(s)?.shape {
-        TextShape::Path { .. } => Ok(()),
+        TextShape::Path { .. } | TextShape::Area { .. } => Ok(()),
         _ => Err("the type layer is not on a path".into()),
     }
 }
@@ -401,13 +401,20 @@ fn is_path_text(s: &Session) -> std::result::Result<(), String> {
 fn detach_from_path(s: &mut Session, p: &Value) -> Result<Value> {
     let id = layer_param(s, p)?;
     with_text(s, p, "Release Type from Path", |t, _| {
-        if !matches!(t.shape, TextShape::Path { .. }) {
-            return Err(EngineError::Other("the type layer is not on a path".into()));
+        match &t.shape {
+            TextShape::Path { .. } => {
+                // Point text starts where the type started on the path.
+                let origin = photocraft_text::warp::Warp::on_path(&t.shape).map_or((0.0, 0.0), |w| w.apply(0.0, 0.0));
+                t.shape = TextShape::Point;
+                t.transform = then_translate(&t.transform, origin.0, origin.1);
+            }
+            // Area type keeps wrapping, in a text box over the path's bounds.
+            TextShape::Area { path } => {
+                let (x0, y0, x1, y1) = path.control_bounds().ok_or_else(|| EngineError::Other("the area type's path is empty".into()))?;
+                t.shape = TextShape::Box { x: x0 as f32, y: y0 as f32, width: ((x1 - x0) as f32).max(1.0), height: ((y1 - y0) as f32).max(1.0) };
+            }
+            _ => return Err(EngineError::Other("the type layer is not on a path".into())),
         }
-        // Point text starts where the type started on the path.
-        let origin = photocraft_text::warp::Warp::on_path(&t.shape).map_or((0.0, 0.0), |w| w.apply(0.0, 0.0));
-        t.shape = TextShape::Point;
-        t.transform = then_translate(&t.transform, origin.0, origin.1);
         Ok(())
     })?;
     Ok(json!({"layer": id.0}))
