@@ -423,6 +423,23 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
         }
         "file.export.exportAs" => Ok(json!({"dialog": crate::export_dialog::open(app)?})),
         "file.export.quickExportAsPng" => crate::export_dialog::quick_export_png(app),
+        // Render Video exports a sequence of frames into a folder, not a named file.
+        // Keep explicit directory arguments from automation and the control channel unchanged.
+        "file.export.renderVideo" if params.get("dir").is_none() => {
+            #[cfg(target_arch = "wasm32")]
+            {
+                Err("Render Video to a local directory is unavailable on the web".into())
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let doc = app.session.active().ok_or("no document")?.doc.id;
+                let mut render_params = params.as_object().cloned().unwrap_or_default();
+                app.ask_folder(move |app, dir| {
+                    render_params.insert("dir".into(), json!(dir));
+                    app.with_document(doc, |app| app.run("file.export.renderVideo", Value::Object(render_params)))
+                })
+            }
+        }
         // Layer › Export As… / Quick Export as PNG: the export pipeline on just the active layer.
         l if matches!(l, "layer.exportAs" | "layer.quickExportAsPng") && params.as_object().is_none_or(|o| o.is_empty()) => {
             let layer = app.session.active().and_then(|d| d.active_layer).ok_or("no active layer")?;
