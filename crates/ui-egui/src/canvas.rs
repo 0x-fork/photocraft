@@ -1676,7 +1676,7 @@ fn gpu_budget(app: &mut PhotocraftApp, gpu: &crate::gpu_canvas::GpuCanvas, idx: 
         return;
     }
     let Some(st) = app.session.documents().get(idx) else { return };
-    let pixels = st.history.pixel_bytes(&st.doc) as u64;
+    let pixels = st.memory_bytes() as u64;
     let budget = crate::gpu_canvas::memory_budget(allowance, pixels, crate::gpu_canvas::physical_memory());
     gpu.set_memory_budget(budget);
     app.perf.gpu_budget_mb = budget >> 20;
