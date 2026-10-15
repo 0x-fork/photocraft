@@ -1431,6 +1431,37 @@ fn swatch(ui: &mut egui::Ui, fill: Option<&photocraft_doc::Fill>, fallback: [f32
                 out = Some(PaintChange::Color(color));
             }
         }
+        ui.horizontal(|ui| {
+            let label = ui.label(egui::RichText::new("#").color(t.text_dim));
+            let id = resp.id.with("shape-paint-hex");
+            let selected = match out {
+                Some(PaintChange::Color(color)) => color,
+                _ => original,
+            };
+            // Keep incomplete typing across frames; deriving the field from the colour each
+            // frame would discard every keystroke until all six digits were present.
+            let mut text = ui
+                .data(|d| d.get_temp::<([f32; 4], String)>(id))
+                .filter(|(previous, _)| *previous == selected)
+                .map_or_else(|| hex(selected).trim_start_matches('#').to_ascii_uppercase(), |(_, text)| text);
+            let response = crate::widgets::text_field(ui, id, &mut text, "RRGGBB", 90.0, true).labelled_by(label.id);
+            if response.changed()
+                && let Some(rgb) = crate::color_picker_ui::parse_hex(&text)
+            {
+                let color = [rgb[0], rgb[1], rgb[2], selected[3]];
+                out = Some(PaintChange::Color(color));
+                hsva = picker_color(color);
+            }
+            if response.has_focus() {
+                let color = match out {
+                    Some(PaintChange::Color(color)) => color,
+                    _ => selected,
+                };
+                ui.data_mut(|d| d.insert_temp(id, (color, text)));
+            } else {
+                ui.data_mut(|d| d.remove::<([f32; 4], String)>(id));
+            }
+        });
         if let Some(rgb) = crate::screen_picker::button(ui, screen_id) {
             out = Some(sampled(rgb));
             hsva = picker_color([rgb[0], rgb[1], rgb[2], original[3]]);
