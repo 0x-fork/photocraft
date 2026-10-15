@@ -222,6 +222,7 @@ pub fn closes_path_at(app: &PhotocraftApp, tool: Tool, x: f64, y: f64) -> bool {
 /// or add a new anchor (dragging a new anchor pulls symmetrical handles). With ⇧ a new anchor
 /// lands on the nearest 45° ray from the previous one, at the pointer's projection onto it.
 pub fn pen_down(app: &mut PhotocraftApp, x: f64, y: f64, shift: bool) {
+    cancel_stale(app);
     let tol = 6.0 / app.point_zoom().max(0.01) as f64;
     if app.ui.pen.is_none() {
         app.ui.pen_doc = app.session.active().map(|st| st.doc.id);
@@ -288,6 +289,7 @@ fn shift_45(origin: [f64; 2], p: [f64; 2], shift: bool) -> [f64; 2] {
 /// clicking the first anchor commits the path. Therefore Cmd/Ctrl+Z must consume one
 /// knot rather than undoing an unrelated, already committed document operation.
 pub fn pen_undo_last_point(app: &mut PhotocraftApp) -> bool {
+    cancel_stale(app);
     let Some(pen) = app.ui.pen.as_mut() else { return false };
     if pen.knots.pop().is_none() {
         return false;
@@ -617,6 +619,7 @@ fn curvature_hit(app: &PhotocraftApp, x: f64, y: f64) -> Option<usize> {
 /// Curvature Pen press: clicking the first anchor closes the path, pressing another anchor
 /// grabs it to move, anywhere else adds a smooth anchor (still draggable until the release).
 pub fn curvature_down(app: &mut PhotocraftApp, x: f64, y: f64) {
+    cancel_stale(app);
     if app.ui.pen.as_ref().is_some_and(|p| !p.curvature) {
         pen_commit(app, false);
     }
@@ -1049,7 +1052,9 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
     // Pen path in progress, with handles of the last knot and a rubber band to the pointer. While
     // ⌘/Ctrl drags it, Direct Selection draws its preview instead.
     let edited = matches!(&app.ui.direct_selection.drag, Some(crate::direct_select::Drag::Edit { target: crate::direct_select::PathRef::Pen, .. }));
-    if let Some(pen) = app.ui.pen.as_ref().filter(|_| !edited) {
+    // Only on the document it is drawn on: a view of another document never shows it (#5373).
+    let active = app.session.active().map(|st| st.doc.id);
+    if let Some(pen) = app.ui.pen.as_ref().filter(|_| !edited).filter(|_| app.ui.pen_doc.is_none_or(|d| Some(d) == active)) {
         let mut pts = Vec::new();
         // A close-drag shows the first segment bending with the handle being pulled out.
         let mut knots = pen.knots.clone();
@@ -2264,6 +2269,7 @@ mod tests {
         let k = app.ui.pen.as_ref().unwrap().knots[2];
         assert!(k.iter().all(|p| *p == [200.0, 100.0]), "{k:?}");
         pen_up(&mut app);
+    }
 
     /// #5373: an unclosed path belongs to the document it was drawn on. File › New opened a blank
     /// document that showed the first document's path; a document switch between `sync_views` and
@@ -2309,6 +2315,57 @@ mod tests {
         pen_commit(&mut app, false);
         assert!(work(&app, 0).is_some(), "it commits to the document it was drawn on");
         assert_eq!(work(&app, 1), None);
+        // A control batch can switch documents and act on the path in the same frame, before the
+        // next `sync_views`: no entry point extends, undoes or keeps a stale path (#5427).
+        for act in [0, 1, 2] {
+            open_path(&mut app);
+            assert!(app.session.set_active(1));
+            match act {
+                0 => pen_down(&mut app, 50.0, 50.0, false),
+                1 => curvature_down(&mut app, 50.0, 50.0),
+                _ => assert!(!pen_undo_last_point(&mut app), "nothing of this document's to undo"),
+            }
+            let knots = app.ui.pen.as_ref().map_or(0, |p| p.knots.len());
+            assert!(knots <= 1, "act {act}: a new path, not the other document's (knots {knots})");
+            // The two drawing entry points start a path of their own here; undo has none to take.
+            let expected = if act == 2 { None } else { app.session.active().map(|st| st.doc.id) };
+            assert_eq!(app.ui.pen_doc, expected, "act {act}");
+            app.ui.pen = None;
+            app.ui.pen_doc = None;
+            assert!(app.session.set_active(0));
+        }
+        // The overlay draws the path only on its own document, so a view of the other one in the
+        // same frame shows nothing (#5427).
+        open_path(&mut app);
+        let shapes = |app: &PhotocraftApp| {
+            let ctx = egui::Context::default();
+            let doc = app.session.active().unwrap().doc.clone();
+            let xf = ViewXform {
+                rect: egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(400.0, 300.0)),
+                zoom: 1.0,
+                center: [100.0, 75.0],
+                flip: false,
+                rotation: 0.0,
+                aspect: 1.0,
+            };
+            let mut out = ctx.run_ui(Default::default(), |ui| draw_overlay(app, ui.painter(), &xf, &doc));
+            out.textures_delta.clear();
+            out.shapes.len()
+        };
+        // Same view, pen present vs absent: the difference is the path itself, nothing else.
+        let drawn = |app: &mut PhotocraftApp| {
+            let with_pen = shapes(app);
+            let pen = app.ui.pen.take();
+            let without = shapes(app);
+            app.ui.pen = pen;
+            with_pen - without
+        };
+        assert!(drawn(&mut app) > 0, "its own document draws the path");
+        assert!(app.session.set_active(1));
+        assert_eq!(drawn(&mut app), 0, "the other document draws nothing of it");
+        assert!(app.session.set_active(0));
+        app.ui.pen = None;
+        app.ui.pen_doc = None;
         // A Direct Selection on the path goes with it, as on commit: no target left dangling.
         open_path(&mut app);
         app.ui.direct_selection.target = Some(crate::direct_select::PathRef::Pen);
