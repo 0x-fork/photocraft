@@ -400,7 +400,23 @@ fn brush_cursor_follows_pen_orientation_6350() {
         h.state_mut().stylus.feed.set(Some(crate::stylus::PenSample { tilt_y: -45.0, rotation: 90.0, ..Default::default() }));
         h.run_steps(3);
         let turned = h.output().platform_output.cursor_image.clone().expect("turned brush cursor");
+        let pen = h.state().stylus.sample().expect("simulated pen reaches the canvas");
+        assert_eq!((pen.tilt_y, pen.rotation), (-45.0, 90.0));
+        let point = photocraft_paint::StrokePoint { tilt_y: pen.tilt_y, rotation: pen.rotation, ..Default::default() };
+        let step = photocraft_paint::dynamics::StepInput { point, direction: 0.0, initial_direction: 0.0, step: 0 };
+        let mut dabs = Vec::new();
+        photocraft_paint::dynamics::DabBuilder::new(&h.state().session.tools.brush).build(&step, &mut dabs);
+        assert_eq!(dabs.len(), 1);
+        assert!((dabs[0].angle.to_degrees() - 90.0).abs() < 0.001, "painted dab turns: {control}");
         assert_ne!(initial.rgba, turned.rgba, "cursor must follow pen orientation: {control}");
+        // The dynamically rotated cursor must match the same tip set to that angle directly.
+        h.state_mut().session.tools.brush.shape_dynamics.enabled = false;
+        h.state_mut().session.tools.brush.angle = 90.0;
+        h.run_steps(3);
+        let reference = h.output().platform_output.cursor_image.clone().expect("static rotated reference");
+        assert_eq!(turned.size, reference.size);
+        assert_eq!(turned.hotspot, reference.hotspot);
+        assert_eq!(turned.rgba, reference.rgba, "dynamic cursor matches the dab angle: {control}");
     }
 }
 
