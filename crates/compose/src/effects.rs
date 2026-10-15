@@ -3194,6 +3194,27 @@ mod tests {
     }
 
     #[test]
+    fn effect_noise_does_not_light_up_empty_blur_tails() {
+        // A sloping antialiased shape leaves rounding residue in a running-sum blur.
+        // The direct finite-support convolution is the oracle for untouched pixels.
+        for size in [5.0, 5.5, 13.0] {
+            let mut shape = Map::new(96, 64, 0.0);
+            for y in 8..48 {
+                for x in 8..48 {
+                    shape.v[y * shape.w + x] = ((x as f32 - y as f32 * 0.7) * 0.3).clamp(0.0, 1.0);
+                }
+            }
+            let mut direct = shape.clone();
+            tent_direct(&mut direct, size);
+            let mut actual = shape;
+            blur(&mut actual, size);
+            noise(&mut actual, 0.26, 0, 0);
+            let stray = direct.v.iter().zip(&actual.v).filter(|(reference, noisy)| **reference == 0.0 && **noisy > 1e-5).count();
+            assert_eq!(stray, 0, "noise created {stray} visible pixels outside a size-{size} blur");
+        }
+    }
+
+    #[test]
     fn glow_noise_follows_the_contour_and_range() {
         let g = |noise: f32| Glow {
             common: photocraft_doc::FxCommon::new(BlendMode::Screen, 1.0),
