@@ -3506,6 +3506,7 @@ fn properties_body_inner(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         }
         if matches!(layer.content, LayerContent::Shape(_)) {
             crate::vector_ui::shape_properties(app, ui, id);
+            crate::mask_props_ui::shape_properties(app, ui, layer);
         }
     }
 }
