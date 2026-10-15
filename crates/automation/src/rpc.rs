@@ -91,17 +91,9 @@ impl Headless {
                 let all = self.command_list();
                 Ok(match str_of(&p, "filter").map(str::to_lowercase) {
                     None => all,
-                    Some(n) => Value::Array(
-                        all.as_array()
-                            .into_iter()
-                            .flatten()
-                            .filter(|c| {
-                                let hay = format!("{} {}", c["id"].as_str().unwrap_or(""), c["label"].as_str().unwrap_or(""));
-                                hay.to_lowercase().contains(&n)
-                            })
-                            .cloned()
-                            .collect(),
-                    ),
+                    Some(n) => {
+                        Value::Array(all.as_array().into_iter().flatten().filter(|c| photocraft_engine::commands::list_entry_matches(c, &n)).cloned().collect())
+                    }
                 })
             }
             "session.list" => Ok(self.session_list()),
@@ -365,7 +357,7 @@ mod tests {
 
     /// Pins the reply shape documented in docs/control-protocol.md › Command list replies
     /// (#3684): a bare JSON array (not `{"commands": [...]}`), one object per command with
-    /// exactly these keys, from `engine.commands` (filtered or not) and `command.list`.
+    /// exactly these keys (plus an optional `keywords` string), from `engine.commands` (filtered or not) and `command.list`.
     #[test]
     fn command_list_replies_are_documented_array_of_objects() {
         let h = session();
@@ -377,8 +369,10 @@ mod tests {
             let items = reply.as_array().unwrap_or_else(|| panic!("{name} must reply with a bare array, got {reply}"));
             assert!(!items.is_empty(), "{name}");
             for c in items {
-                let mut keys: Vec<&str> = c.as_object().unwrap().keys().map(String::as_str).collect();
+                // `keywords` is optional: only commands with other search names carry it (#5060).
+                let mut keys: Vec<&str> = c.as_object().unwrap().keys().map(String::as_str).filter(|k| *k != "keywords").collect();
                 keys.sort_unstable();
+                assert!(c.get("keywords").is_none_or(Value::is_string), "{name}: {c}");
                 assert_eq!(keys, ["disabledReason", "enabled", "id", "label", "menu", "needsDocument", "params", "shortcut"], "{name}: {c}");
                 assert!(c["id"].is_string() && c["label"].is_string() && c["params"].is_string() && c["enabled"].is_boolean(), "{c}");
                 assert!(c["needsDocument"].is_boolean(), "{c}");

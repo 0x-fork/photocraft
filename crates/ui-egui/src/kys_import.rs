@@ -52,6 +52,16 @@ pub fn import_text(app: &mut PhotocraftApp, file_name: &str, text: &str) -> Resu
             overrides.insert(cmd.clone(), sc.clone());
         }
     }
+    // A row's other keys are the command's further keys (#3665): Copy's F3 beside ⌘C.
+    let mut alternates: BTreeMap<String, Vec<String>> = f.get("alternates").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
+    for (cmd, keys) in &plan.alternate_keys {
+        let main = plan.set.get(cmd).map(String::as_str);
+        if photocraft_engine::prefs::Preferences::default().alternates(cmd, main) == *keys {
+            alternates.remove(cmd);
+        } else {
+            alternates.insert(cmd.clone(), keys.clone());
+        }
+    }
     let shown = std::path::Path::new(file_name).file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| file_name.to_string());
     let n = plan.set.len().to_string();
     let mut message = crate::i18n::fmt(tl!("Imported {n} shortcuts from {file}. Click OK to keep them."), &[("n", &n), ("file", &shown)]);
@@ -62,6 +72,7 @@ pub fn import_text(app: &mut PhotocraftApp, file_name: &str, text: &str) -> Resu
     }
     f.insert("tab".into(), json!(0));
     f.insert("overrides".into(), json!(overrides));
+    f.insert("alternates".into(), json!(alternates));
     f.insert("selected".into(), json!(""));
     f.insert("capture".into(), json!(false));
     f.insert("message".into(), json!(message));
@@ -74,6 +85,7 @@ pub fn import_text(app: &mut PhotocraftApp, file_name: &str, text: &str) -> Resu
         "unknown": plan.unknown,
         "unreadable": plan.unreadable,
         "alternates": plan.alternates,
+        "alternateKeys": plan.alternate_keys,
         "toolKeys": set.tool_keys,
     }))
 }
