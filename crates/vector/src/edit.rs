@@ -80,6 +80,12 @@ fn handle(k: &Knot, h: Handle) -> Point {
     }
 }
 
+/// Whether the segment from knot `a` to knot `b` is straight: both of its handles retracted.
+fn straight(a: &Knot, b: &Knot) -> bool {
+    let retracted = |k: &Knot, h: Handle| dist(handle(k, h), k.anchor) < 1e-9;
+    retracted(a, Handle::Out) && retracted(b, Handle::In)
+}
+
 fn other(h: Handle) -> Handle {
     match h {
         Handle::In => Handle::Out,
@@ -178,10 +184,9 @@ pub fn convert_point(path: &mut Path, knot: [usize; 2], out: Option<Point>) -> R
 /// the pointer exactly, with the nearer handle moving more. Smooth end knots stay smooth.
 pub fn bend_segment(path: &mut Path, knot: [usize; 2], t: f64, d: [f64; 2]) -> Result<(), String> {
     let end = segment_end(path, knot)?;
-    let retracted = |k: &Knot, h: Handle| dist(handle(k, h), k.anchor) < 1e-9;
     let a = *knot_mut(path, knot)?;
     let b = *knot_mut(path, end)?;
-    if retracted(&a, Handle::Out) && retracted(&b, Handle::In) {
+    if straight(&a, &b) {
         return move_anchors(path, &[knot, end], d);
     }
     // B(t) moves by 3(1−t)²t·Δc1 + 3(1−t)t²·Δc2. With Δc1 = (1−t)·s·d and Δc2 = t·s·d that is
@@ -213,10 +218,9 @@ pub fn add_anchor(path: &mut Path, knot: [usize; 2], t: f64) -> Result<[usize; 2
         return Err("`t` must be strictly between 0 and 1".into());
     }
     let end = segment_end(path, knot)?;
-    let retracted = |k: &Knot, h: Handle| dist(handle(k, h), k.anchor) < 1e-9;
     let a = *knot_mut(path, knot)?;
     let b = *knot_mut(path, end)?;
-    let new = if retracted(&a, Handle::Out) && retracted(&b, Handle::In) {
+    let new = if straight(&a, &b) {
         // Hit testing and hover feedback use the cubic parameter, which is not linear even
         // when both handles are retracted. Keep the inserted corner at that same point.
         let p = eval(&[a.anchor, a.out_ctrl, b.in_ctrl, b.anchor], t);
