@@ -403,12 +403,26 @@ impl Ctx<'_> {
                 Some(p) if !stack.filters.is_empty() => self.filter_mask(&p.placed, &stack, &name),
                 _ => None,
             };
+            // Photoshop stores the filtered pixels without the filter mask and mixes the unfiltered
+            // ones (`FEid`) back in through it; our smart objects hold the mixed result.
+            let stored = self.record_surface(rec, &name);
+            let shown = stack.enabled && stack.filters.iter().any(|f| f.visible);
+            let cache = match (&placed, filter_mask.as_ref().filter(|m| m.enabled && shown)) {
+                (Some(p), Some(m)) => {
+                    let unfiltered = self.filter_effects.iter().find(|i| i.id == p.placed).and_then(|i| crate::smart_map::unfiltered_from_item(i, self.fmt));
+                    match unfiltered {
+                        Some(u) => photocraft_compose::filter_mask::mix(&u, &stored, m),
+                        None => stored,
+                    }
+                }
+                _ => stored,
+            };
             LayerContent::Smart(SmartObject {
                 contents_id,
                 source: SmartSource::Linked { path: id },
                 transform,
                 smart_filters: stack.filters,
-                cache: Some(self.record_surface(rec, &name)),
+                cache: Some(cache),
                 psd_raw: principal(k),
                 filters_enabled: stack.enabled,
                 filter_mask,

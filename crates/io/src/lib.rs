@@ -51,6 +51,7 @@ mod multichannel_map;
 mod ora;
 pub use ora::losses as ora_losses;
 pub mod pattern_map;
+pub mod pdf;
 mod pdn;
 pub mod pixels;
 mod psd_export;
@@ -390,6 +391,9 @@ fn export_stages(doc: &Document, name_or_ext: &str, opts: &ExportOptions, ctl: &
     }
     if ext == "ora" {
         return ora::export(doc);
+    }
+    if ext == "pdf" {
+        return pdf::export(doc);
     }
     if ext == photocraft_format::EXTENSION {
         let doc = named_for_file(doc, name_or_ext);
