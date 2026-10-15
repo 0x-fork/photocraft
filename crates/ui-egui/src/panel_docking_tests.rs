@@ -31,6 +31,35 @@ fn panel_commands_group_split_reorder_float_and_restore_without_duplicate_owners
 }
 
 #[test]
+fn floating_panel_rail_toggle_closes_the_float_window() {
+    let mut app = app();
+    app.run("window.panel.float", json!({"panel":"properties","x":50,"y":70,"width":330,"height":410})).unwrap();
+    assert!(app.ui.docking.as_ref().unwrap().floating.iter().any(|g| g.panels.contains(&"properties".into())));
+
+    rail_click(&mut app, Group::Properties);
+
+    assert!(app.ui.docking.as_ref().unwrap().floating.iter().all(|g| !g.panels.contains(&"properties".into())));
+    assert!(app.ui.docking.as_ref().unwrap().contains(&"adjustments".into()));
+    assert!(app.ui.panels.properties, "the docked Adjustments tab keeps the group visible");
+}
+
+#[test]
+fn brushes_menu_action_uses_the_shared_docking_layout() {
+    let mut app = app();
+    let before = app.ui.docking.clone();
+    assert!(crate::menus::invoke(&mut app, &egui::Context::default(), "window.panel.brushes", json!({})).is_ok());
+    let layout = app.ui.docking.as_ref().expect("brushes panel must be registered in docking");
+    assert!(layout.contains(&"brushes".to_string()));
+    assert!(app.ui.panels.brushes);
+    assert_ne!(app.ui.docking, before);
+
+    app.run("window.panel.float", json!({"panel":"brushes"})).unwrap();
+    assert!(app.ui.docking.as_ref().unwrap().floating.iter().any(|group| group.panels.contains(&"brushes".into())));
+    app.run("window.panel.dock", json!({"panel":"brushes"})).unwrap();
+    assert!(!app.ui.docking.as_ref().unwrap().floating.iter().any(|group| group.panels.contains(&"brushes".into())));
+}
+
+#[test]
 fn invalid_panel_requests_are_atomic_and_do_not_enter_a_custom_workspace() {
     let mut app = app();
     for (id, params) in [
@@ -92,6 +121,24 @@ fn ordinary_panel_tab_drag_enters_shared_docking_and_can_redock_into_another_tab
     drag(&mut h, source, destination);
     let layout = h.state().ui.docking.as_ref().unwrap();
     assert!(!layout.floating.iter().any(|g| g.panels.contains(&"layers".into())));
+    assert!(valid(layout));
+}
+
+#[test]
+fn brushes_tab_drag_floats_and_can_redock_into_another_tab_group() {
+    let mut app = app();
+    crate::menus::invoke(&mut app, &egui::Context::default(), "window.panel.brushes", json!({})).unwrap();
+    let mut h = harness(app, vec2(1280.0, 800.0));
+    let source = h.query_all_by_label("Brushes").find(|node| node.rect().height() <= 45.0).unwrap().rect().center();
+    drag(&mut h, source, egui::pos2(160.0, 140.0));
+    let layout = h.state().ui.docking.as_ref().expect("brushes drag starts shared docking");
+    assert!(layout.floating.iter().any(|group| group.panels.contains(&"brushes".into())), "{layout:?}");
+
+    let source = h.ctx.read_response(egui::Id::new("photocraft-panel-docking").with(("tab", &"brushes".to_string()))).unwrap().rect.center();
+    let destination = h.ctx.read_response(egui::Id::new("photocraft-panel-docking").with(("tab", &"layers".to_string()))).unwrap().rect.center();
+    drag(&mut h, source, destination);
+    let layout = h.state().ui.docking.as_ref().unwrap();
+    assert!(!layout.floating.iter().any(|group| group.panels.contains(&"brushes".into())));
     assert!(valid(layout));
 }
 
@@ -160,6 +207,37 @@ fn capture_custom_panel_docking_visual_fixtures() {
             }
         }
     }
+}
+
+#[test]
+fn floating_group_titles_are_opaque_in_studio_themes() {
+    // Studio's tab strip is transparent over the dock's card; a floating group must not show the canvas (#4509).
+    let mut app = app();
+    app.run("window.panel.float", json!({"panel":"swatches","x":40,"y":60,"width":300,"height":300})).unwrap();
+    let mut ready = false;
+    let mut h = Harness::builder().with_size(vec2(1280.0, 800.0)).wgpu().build_ui_state(
+        move |ui, app: &mut PhotocraftApp| {
+            if !ready {
+                PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::Studio);
+                app.ui.theme = crate::theme::ThemeKind::Studio;
+                ready = true;
+                return;
+            }
+            crate::panels::right_dock(app, ui);
+            egui::CentralPanel::default().frame(egui::Frame::NONE.fill(egui::Color32::from_rgb(255, 0, 255))).show(ui, |_| {});
+        },
+        app,
+    );
+    h.run_steps(5);
+    let area = h.ctx.memory(|m| m.area_rect(egui::Id::new("photocraft-panel-docking").with(("floating", &"swatches".to_string())))).unwrap();
+    let image = h.render().unwrap();
+    let ppp = image.width() as f32 / 1280.0;
+    let strip = egui::Rect::from_min_size(area.min, vec2(area.width(), 40.0)).shrink(2.0);
+    let magenta = (strip.left() as u32..strip.right() as u32)
+        .flat_map(|x| (strip.top() as u32..strip.bottom() as u32).map(move |y| (x, y)))
+        .filter(|&(x, y)| image.get_pixel((x as f32 * ppp) as u32, (y as f32 * ppp) as u32).0[..3] == [255, 0, 255])
+        .count();
+    assert_eq!(magenta, 0, "canvas shows through the floating group's title strip {strip:?}");
 }
 
 #[test]

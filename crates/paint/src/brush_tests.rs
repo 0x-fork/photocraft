@@ -80,10 +80,12 @@ fn hardness_profile_is_monotonic() {
     for h in [0.0f32, 0.5, 1.0] {
         let b = BrushSettings { hardness: h, ..brush() };
         let r = raster(&b, &Dab::round(Point::new(50.0, 50.0), 20.0, 1.0));
-        let prof: Vec<f32> = (0..22).map(|i| at(&r, 50 + i, 50)).collect();
+        // A soft tip paints past its 20 px radius, as Photoshop's does, out to its reach.
+        let n = crate::tip_reach(20.0, h).ceil() as i32 + 1;
+        let prof: Vec<f32> = (0..n).map(|i| at(&r, 50 + i, 50)).collect();
         assert!(prof.windows(2).all(|w| w[1] <= w[0] + 1e-6), "h={h} {prof:?}");
         assert!(prof[0] > 0.99);
-        assert_eq!(prof[21], 0.0);
+        assert!(*prof.last().unwrap() < 0.002, "h={h} {prof:?}");
         let mid = at(&r, 60, 50);
         if h == 1.0 {
             assert!(mid > 0.99);
@@ -103,7 +105,7 @@ fn hard_edge_is_sharp() {
     let band = prof.iter().filter(|&&a| (0.01..0.99).contains(&a)).count();
     assert!(band <= 3, "hardness 1 rim is {band} px wide: {prof:?}");
     assert!(prof[17] > 0.99, "translucent inside the rim: {prof:?}");
-    assert_eq!(*prof.last().unwrap(), 0.0);
+    assert!(*prof.last().unwrap() < 0.01, "{prof:?}");
     // A soft tip spreads the same crossing over many pixels instead.
     let soft = BrushSettings { hardness: 0.0, ..brush() };
     let rs = raster(&soft, &Dab::round(Point::new(50.0, 50.0), 20.0, 1.0));
@@ -259,6 +261,28 @@ fn pressure_controls_size_with_minimum() {
     assert!((d[0].radius - 5.0).abs() < 1e-3, "min diameter 25 % of 40 → r 5, got {}", d[0].radius);
     assert!((d.last().unwrap().radius - 20.0).abs() < 0.5);
     assert!(d.windows(2).all(|w| w[1].radius >= w[0].radius - 1e-4));
+}
+
+#[test]
+fn each_dynamic_responds_through_its_own_curve() {
+    // A hard size curve (half pressure gives a fifth of the size range) and a linear opacity.
+    let curve = crate::ResponseCurve::new(&[[0.0, 0.0], [0.5, 0.2], [1.0, 1.0]]);
+    let b = BrushSettings {
+        size: 40.0,
+        shape_dynamics: ShapeDynamics { enabled: true, size: Dynamic { curve, ..Dynamic::controlled(Control::PenPressure) }, ..Default::default() },
+        transfer: Transfer { enabled: true, opacity: Dynamic::controlled(Control::PenPressure), ..Default::default() },
+        ..brush()
+    };
+    let d = dabs_of(&b, &[StrokePoint::new(0.0, 0.0, 0.5), StrokePoint::new(1.0, 0.0, 0.5)]);
+    assert!((d[0].radius - 4.0).abs() < 1e-3, "20 % of a 40 px diameter → r 4, got {}", d[0].radius);
+    assert!((d[0].opacity - 0.5).abs() < 1e-3, "opacity keeps its linear response: {}", d[0].opacity);
+    // The curve is part of the brush's JSON.
+    let json = serde_json::to_value(&b).unwrap();
+    let stored: Vec<[f32; 2]> = serde_json::from_value(json["shapeDynamics"]["size"]["curve"].clone()).unwrap();
+    assert_eq!(stored, vec![[0.0, 0.0], [0.5, 0.2], [1.0, 1.0]]);
+    assert_eq!(json["transfer"]["opacity"]["curve"], serde_json::json!([[0.0, 0.0], [1.0, 1.0]]));
+    let back: BrushSettings = serde_json::from_value(json).unwrap();
+    assert_eq!(back.shape_dynamics.size.curve, curve);
 }
 
 #[test]
@@ -1283,7 +1307,9 @@ fn huge_scatter_is_capped_and_renders_at_every_depth() {
         let ctx = BrushContext::new(&b);
         for d in &capped.0 {
             let r = ctx.dab_rect(d, false);
-            assert!(!r.is_empty() && r.width() <= 24 && r.height() <= 24, "{r:?}");
+            // A 20 px soft tip reaches about 1.6 radii (see `tip_reach`).
+            let side = 2 * (crate::tip_reach(10.0, b.hardness).ceil() as u32 + 1) + 2;
+            assert!(!r.is_empty() && r.width() <= side && r.height() <= side, "{r:?} vs {side}");
         }
         for sample in [SampleType::U8, SampleType::U16, SampleType::F32] {
             let mut s = Surface::new(PixelFormat::new(ColorMode::Rgb, sample, true));
@@ -1367,14 +1393,32 @@ fn a_tiny_dabs_coverage_does_not_depend_on_where_it_lands_in_a_pixel() {
 }
 
 #[test]
-fn the_tip_falls_off_from_the_hard_core_to_zero_at_the_edge() {
+fn the_tip_matches_photoshops_measured_dabs() {
     use crate::tip_falloff;
+    // Photoshop 27.11, single 40 px dabs (R = 20): mean alpha over rings 0.1 R wide starting at
+    // the given fraction of the radius (area-weighted, as measured).
+    let measured: [(f32, [(f32, f32); 4]); 3] = [
+        (0.0, [(0.2, 0.861), (0.5, 0.509), (0.9, 0.129), (1.2, 0.027)]),
+        (0.5, [(0.6, 0.97), (0.8, 0.561), (1.0, 0.135), (1.2, 0.012)]),
+        (1.0, [(0.8, 1.0), (0.9, 0.821), (1.2, 0.0), (1.3, 0.0)]),
+    ];
+    for (h, rings) in measured {
+        for (lo, want) in rings {
+            let (mut sum, mut area) = (0.0, 0.0);
+            for k in 0..64 {
+                let r = (lo + 0.1 * (k as f32 + 0.5) / 64.0) * 20.0;
+                sum += tip_falloff(r, 20.0, h) * r;
+                area += r;
+            }
+            let got = sum / area;
+            assert!((got - want).abs() < 0.05, "hardness {h} ring at {lo} R: {got} vs {want}");
+        }
+    }
     assert_eq!(tip_falloff(0.0, 10.0, 0.0), 1.0);
-    assert_eq!(tip_falloff(10.0, 10.0, 0.0), 0.0);
     assert_eq!(tip_falloff(4.0, 10.0, 0.5), 1.0, "inside the hard core");
-    let v: Vec<f32> = (0..=20).map(|i| tip_falloff(i as f32 * 0.5, 10.0, 0.0)).collect();
+    let v: Vec<f32> = (0..=40).map(|i| tip_falloff(i as f32 * 0.5, 10.0, 0.0)).collect();
     assert!(v.windows(2).all(|w| w[1] <= w[0]), "{v:?}");
-    assert!((tip_falloff(5.0, 10.0, 0.0) - 0.75f32.powi(4)).abs() < 1e-6);
+    assert_eq!(tip_falloff(crate::tip_reach(10.0, 0.0) * 4.0, 10.0, 0.0), 0.0, "far past the reach");
 }
 
 #[test]
@@ -1385,7 +1429,8 @@ fn half_coverage_radius_is_the_tips_50_percent_contour() {
         let d = half_coverage_radius(10.5, h);
         assert!((tip_falloff(d, 10.5, h) - 0.5).abs() < 1e-3, "hardness {h}: ring at {d}");
     }
-    assert_eq!(half_coverage_radius(10.5, 1.0), 10.5);
+    // A hard tip's ring is its edge.
+    assert!((half_coverage_radius(10.5, 1.0) - 10.5).abs() < 0.5);
     assert!(half_coverage_radius(10.5, f32::NAN).is_finite());
 }
 

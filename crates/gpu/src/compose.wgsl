@@ -51,6 +51,7 @@ const F_LAB: u32 = 65536u;      // Lab document: Normal mixes in CIELAB
 const F_HDR: u32 = 262144u;     // 32-bit float document: HDR blends and Exposure retain values above 1
 const F_QUANT: u32 = 32768u;    // lerp: A rounded to p0.x steps (adjustment results, integer docs)
 const F_ADD_DIFF: u32 = 16384u;  // lerp: A + (B - C) premultiplied (clips on pass-through groups)
+const F_BLEND_IF: u32 = 524288u; // lerp: B back towards A by the Blend If ranges in p0..p3
 const F_TEXT_GAMMA: u32 = 8192u; // blend / atop / fx merge: type layer, mix coverage at gamma p4.w
 
 @group(0) @binding(0) var<uniform> chunk: Chunk;
@@ -472,6 +473,17 @@ fn posterize(v: f32, n: f32) -> f32 {
     return floor(bin * 255.0 / (n - 1.0)) / 255.0;
 }
 
+// compose::adjust::posterize_in at 16 bits: bins of the 16-bit sample, landing on 8-bit levels
+// through a 16-bit step. Every product and sum here is a whole number below 2^24, exact in f32;
+// 16-bit layers reach the GPU as half floats, though, so a sample within their precision of a
+// bin's edge can land in the neighbouring bin (the CPU, which exports, is exact).
+fn posterize16(v: f32, n: f32) -> f32 {
+    let x = floor(clamp(v, 0.0, 1.0) * 32768.0 + 0.5);
+    let bin = min(floor(x * n / 32768.0), n - 1.0);
+    let step = floor(bin * 32768.0 / (n - 1.0));
+    return floor((step * 255.0 + 16384.0) / 32768.0) / 255.0;
+}
+
 // Document pixel being adjusted (for ordered dither).
 var<private> adj_px: vec2<i32>;
 
@@ -579,63 +591,50 @@ fn tone_channel(row: i32, v: f32, identity: f32) -> f32 {
     return lut(row, v);
 }
 
-// Modern Brightness curve: line of slope 1.375^(b/50) rolled off to (1,1) by a v^P white anchor.
-// Mirrors compose::adjust::modern_brightness.
-fn mbright(v: f32, b: f32) -> f32 {
-    if (b == 0.0) { return v; }
-    let s = pow(1.375, b / 50.0);
-    var p: f32;
-    if (b >= 0.0) { p = max(4.5 - 0.013 * b, 2.0); } else { p = 5.0 - 0.072 * b; }
-    let vv = clamp(v, 0.0, 1.0);
-    return clamp(s * vv + (1.0 - s) * pow(vv, p), 0.0, 1.0);
-}
-
-// Modern Contrast curve: symmetric cubic-Hermite S pivoting at 0.5.
-// Mirrors compose::adjust::modern_contrast.
-fn mcontrast(v: f32, ct: f32) -> f32 {
-    if (ct == 0.0) { return v; }
-    let k = ct / 128.0;
-    let e = 1.0 - k; let m = 1.0 + k;
-    let vv = clamp(v, 0.0, 1.0);
-    var t: f32;
-    if (vv <= 0.5) { t = vv / 0.5; } else { t = (1.0 - vv) / 0.5; }
-    let h = e * 0.5 * (t * t * t - 2.0 * t * t + t) + (-2.0 * t * t * t + 3.0 * t * t) * 0.5 + m * 0.5 * (t * t * t - t * t);
-    if (vv <= 0.5) { return h; }
-    return 1.0 - h;
-}
-
 fn adjust(c: vec3<f32>) -> vec3<f32> {
+    let hdr = (op.flags & F_HDR) != 0u;
     let p0 = op.p0;
     let p1 = op.p1;
     let p2 = op.p2;
     let p3 = op.p3;
     switch op.kind {
         case 1: { return 1.0 - c; }                                            // Invert
-        case 2: {                                                              // Threshold (p0.x = 8-bit level)
-            return vec3(select(0.0, 1.0, round_half_up(gray(c) * 255.0) >= p0.x));
+        case 2: {                                                              // Threshold (compose::adjust::threshold_white)
+            // p0.x = 8-bit level; p0.y = 1: 8-bit levels, 2: 16-bit samples against p0.z, 0: float.
+            // Sums of 30 R + 59 G + 11 B over whole samples are exact in f32.
+            var white = lum(c) * 255.0 >= p0.x;
+            if p0.y > 0.5 {
+                let q = select(32768.0, 255.0, p0.y < 1.5);
+                let v = floor(clamp(c, vec3(0.0), vec3(1.0)) * q + 0.5);
+                let s = 30.0 * v.r + 59.0 * v.g + 11.0 * v.b;
+                white = select(s >= 100.0 * p0.z, s > 100.0 * p0.x - 50.0, p0.y < 1.5);
+            }
+            return vec3(select(0.0, 1.0, white));
         }
-        case 3: { return vec3(posterize(c.r, p0.x), posterize(c.g, p0.x), posterize(c.b, p0.x)); }
-        case 4: { return clamp((c + p0.x - p0.z) * p0.y + p0.z + p0.w, vec3(0.0), vec3(1.0)); }   // B/C legacy: brightness before (p0.x) or after (p0.w) contrast around compose::adjust::LEGACY_PIVOT (p0.z)
-        case 5: {                                                              // B/C modern
-            let b = p0.x; let ct = p0.y;
-            return vec3(mcontrast(mbright(c.r, b), ct), mcontrast(mbright(c.g, b), ct), mcontrast(mbright(c.b, b), ct));
+        case 3: {                                                              // Posterize (p0.x levels; p0.y = 1: 16-bit)
+            if p0.y > 0.5 { return vec3(posterize16(c.r, p0.x), posterize16(c.g, p0.x), posterize16(c.b, p0.x)); }
+            return vec3(posterize(c.r, p0.x), posterize(c.g, p0.x), posterize(c.b, p0.x));
+        }
+        case 4: {                                                              // B/C legacy: brightness before (p0.x) or after (p0.w) contrast around the pivot (p0.z); 32-bit unclipped
+            let v = (c + p0.x - p0.z) * p0.y + p0.z + p0.w;
+            if (hdr) { return v; }
+            return clamp(v, vec3(0.0), vec3(1.0));
         }
         case 6: { return vec3(exposure(c.r, p0), exposure(c.g, p0), exposure(c.b, p0)); }  // Exposure
-        case 7: { return vec3(tone_channel(0, c.r, p0.x), tone_channel(1, c.g, p0.y), tone_channel(2, c.b, p0.z)); } // Levels / Curves
+        case 7: { return vec3(tone_channel(0, c.r, p0.x), tone_channel(1, c.g, p0.y), tone_channel(2, c.b, p0.z)); } // Levels / Curves / modern Brightness/Contrast (compose::adjust::modern_lut)
         case 17: { return vec3(levels_float(0, levels_float(1, c.r)), levels_float(0, levels_float(2, c.g)), levels_float(0, levels_float(3, c.b))); }
         case 8: {                                                              // Hue/Saturation
             let hsl = rgb_to_hsl(c);
             var hh: f32;
             var ss: f32;
-            // Range edits (LUT rows indexed by the original hue, faded out towards grey).
+            // Range edits (LUT rows indexed by the original hue), in full however dull the colour.
             var dh = 0.0;
             var ds = 0.0;
             var dl = 0.0;
             if (p1.x > 0.5) {
-                let chroma = min((max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b))) * 4.0, 1.0);
-                dh = lut(0, hsl.x) * chroma;
-                ds = lut(1, hsl.x) * chroma;
-                dl = lut(2, hsl.x) * chroma;
+                dh = lut(0, hsl.x);
+                ds = lut(1, hsl.x);
+                dl = lut(2, hsl.x);
             }
             let sat = clamp(p0.y + ds, -1.0, 1.0);
             let light = clamp(p0.z, -1.0, 1.0);
@@ -678,13 +677,17 @@ fn adjust(c: vec3<f32>) -> vec3<f32> {
             l = clamp(l, vec3(0.0), vec3(p0.w));
             return vec3(t_encode(l.r, p0.z), t_encode(l.g, p0.z), t_encode(l.b, p0.z));
         }
-        case 10: {                                                             // Channel mixer
-            let r = clamp(dot(p0.xyz, c) + p0.w, 0.0, 1.0);
+        case 10: {                                                             // Channel mixer (32-bit unclipped)
+            let lo = select(0.0, -F32_MAX, hdr);
+            let hi = select(1.0, F32_MAX, hdr);
+            let r = clamp(dot(p0.xyz, c) + p0.w, lo, hi);
             if (p3.x > 0.5) { return vec3(r); }
-            return vec3(r, clamp(dot(p1.xyz, c) + p1.w, 0.0, 1.0), clamp(dot(p2.xyz, c) + p2.w, 0.0, 1.0));
+            return vec3(r, clamp(dot(p1.xyz, c) + p1.w, lo, hi), clamp(dot(p2.xyz, c) + p2.w, lo, hi));
         }
         case 11: {                                                             // Photo filter
             // compose::adjust::photo_filter_matrix (rows p0..p2) in linear light, then SetLum.
+            // 32-bit samples are linear already and stay unclipped.
+            if (hdr) { return vec3(dot(p0.xyz, c), dot(p1.xyz, c), dot(p2.xyz, c)); }
             let g = p3.y;
             let lin = vec3(t_decode(c.r, g), t_decode(c.g, g), t_decode(c.b, g));
             var f = vec3(t_encode(dot(p0.xyz, lin), g), t_encode(dot(p1.xyz, lin), g), t_encode(dot(p2.xyz, lin), g));
@@ -703,12 +706,13 @@ fn adjust(c: vec3<f32>) -> vec3<f32> {
             if (c.b <= c.r && c.b <= c.g) { secondary = 1; } else if (c.r <= c.g) { secondary = 3; }
             let g = clamp(mn + (mid - mn) * w[secondary] / 100.0 + (mx - mid) * w[primary] / 100.0, 0.0, 1.0);
             if (p1.z > 0.5) {
+                if (hdr) { return set_lum(p2.rgb, g, F32_MAX); }                // 32-bit: nothing clips at 1
                 return clamp(set_lum(p2.rgb, g, 1.0), vec3(0.0), vec3(1.0));   // Color blend of the tint
             }
             return vec3(g);
         }
-        case 13: {                                                             // Gradient map
-            var t = gray(c);
+        case 13: {                                                             // Gradient map (driven by the W3C luminosity)
+            var t = lum(c);
             if (p0.x > 0.5) { t = 1.0 - t; }
             var o = vec3(lut(0, t), lut(1, t), lut(2, t));
             if (p0.y > 0.5) { o = clamp(o + bayer4(adj_px) / 255.0, vec3(0.0), vec3(1.0)); }
@@ -875,12 +879,78 @@ fn fs_lerp(in: VOut) -> @location(0) vec4<f32> {
         if (al <= 0.0) { return vec4(0.0); }
         return vec4(clamp(pm.rgb / al, vec3(0.0), vec3(1.0)), al);
     }
+    if ((op.flags & F_BLEND_IF) != 0u) {
+        // compose::apply_blend_if: "This Layer" is C (the layer's own content with its masks),
+        // or B itself for an adjustment layer; "Underlying Layer" is A.
+        var this_px = b;
+        if (op.p4.y < 0.5) {
+            this_px = textureLoad(tex_c, p, 0);
+        }
+        let k = blend_if_weight(this_px, a);
+        if (k >= 1.0) {
+            return b;
+        }
+        let alpha = a.a + (b.a - a.a) * k;
+        if (alpha <= 0.0) { return vec4(0.0); }
+        return vec4(clamp((a.rgb * a.a + (b.rgb * b.a - a.rgb * a.a) * k) / alpha, vec3(0.0), vec3(1.0)), alpha);
+    }
     let k = op.opacity * mask_value(doc_px(p));
     let wa = a.a * (1.0 - k);
     let wb = b.a * k;
     let alpha = wa + wb;
     if (alpha <= 0.0) { return vec4(0.0); }
     return vec4((a.rgb * wa + b.rgb * wb) / alpha, alpha);
+}
+
+// ---- Blend If (photocraft_doc::BlendRange, compose::blend_if_weight) ---------------------------
+
+// 0 at or below `lo`, 1 at or above `hi`; a hard step at `lo` when unsplit.
+fn bi_ramp(lo: f32, hi: f32, x: f32) -> f32 {
+    if (hi <= lo) {
+        return select(0.0, 1.0, x >= lo);
+    }
+    return clamp((x - lo) / (hi - lo), 0.0, 1.0);
+}
+
+// How much of value `v` (0..255) shows through range `e` (0 = Gray, then the channels) on side
+// `s` (0 = this layer, 1 = underlying). The ranges are packed by `plan::blend_if_params`.
+fn bi_weight(e: u32, s: u32, v: f32) -> f32 {
+    var f = array<vec4<f32>, 4>(op.p0, op.p1, op.p2, op.p3);
+    let i = (e * 2u + s) * 2u;
+    let black = f[i / 4u][i % 4u];
+    let white = f[(i + 1u) / 4u][(i + 1u) % 4u];
+    let b_lo = floor(black / 256.0);
+    let b_hi = black - b_lo * 256.0;
+    let w_lo = floor(white / 256.0);
+    let w_hi = white - w_lo * 256.0;
+    return bi_ramp(b_lo, b_hi, v) * bi_ramp(255.0 - w_hi, 255.0 - w_lo, 255.0 - v);
+}
+
+// The product of every range over the layer's own colour and the colour beneath it (a side
+// without content, alpha 0, doesn't count). `p4.x` marks a one-channel document.
+fn blend_if_weight(this_px: vec4<f32>, under: vec4<f32>) -> f32 {
+    var k = 1.0;
+    for (var s = 0u; s < 2u; s = s + 1u) {
+        let px = select(this_px, under, s == 1u);
+        if (px.a <= 0.0) {
+            continue;
+        }
+        // The CPU gets 8- and 16-bit levels exactly (k / 255 × 255 = k), but GPU arithmetic can
+        // land a few millionths below, which flips a hard threshold at that level: values that
+        // close to a level are that level. Real 8/16-bit values off a level are ≥ 1/257 away.
+        let raw = clamp(px.rgb, vec3(0.0), vec3(1.0)) * 255.0;
+        let v = select(raw, round(raw), abs(raw - round(raw)) < vec3(1e-4));
+        if (op.p4.x > 0.5) {
+            k = k * bi_weight(0u, s, v.r) * bi_weight(1u, s, v.r);
+        } else {
+            let gray = 0.299 * v.r + 0.587 * v.g + 0.114 * v.b;
+            k = k * bi_weight(0u, s, gray) * bi_weight(1u, s, v.r) * bi_weight(2u, s, v.g) * bi_weight(3u, s, v.b);
+        }
+        if (k <= 0.0) {
+            return 0.0;
+        }
+    }
+    return k;
 }
 
 // ---- layer effects (compose::effects::composite_with_effects) -------------------------------

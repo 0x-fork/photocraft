@@ -10,6 +10,7 @@
 use photocraft_color::BlendMode;
 use serde::{Deserialize, Serialize};
 
+use crate::curve::ResponseCurve;
 use crate::mixer::MixerSettings;
 use crate::tile::{GrayTile, StoredTile};
 
@@ -51,20 +52,24 @@ pub struct Dynamic {
     pub fade_steps: u32,
     /// 0..1 floor the control/jitter may reduce the value to (minimum diameter, roundness, depth…).
     pub minimum: f32,
+    /// This dynamic's own response to its control (Fade, Pen Pressure, Pen Tilt, Stylus Wheel,
+    /// Rotation), applied after the global pen curve. Linear by default. Always written to JSON, so
+    /// a `tools.setBrush` patch can set it back to linear. Angle Jitter's controls ignore it.
+    pub curve: ResponseCurve,
 }
 
 impl Default for Dynamic {
     fn default() -> Self {
-        Self { jitter: 0.0, control: Control::Off, fade_steps: 25, minimum: 0.0 }
+        Self { jitter: 0.0, control: Control::Off, fade_steps: 25, minimum: 0.0, curve: ResponseCurve::LINEAR }
     }
 }
 
 impl Dynamic {
     pub const fn controlled(control: Control) -> Self {
-        Self { jitter: 0.0, control, fade_steps: 25, minimum: 0.0 }
+        Self { jitter: 0.0, control, fade_steps: 25, minimum: 0.0, curve: ResponseCurve::LINEAR }
     }
     pub const fn jitter(jitter: f32) -> Self {
-        Self { jitter, control: Control::Off, fade_steps: 25, minimum: 0.0 }
+        Self { jitter, control: Control::Off, fade_steps: 25, minimum: 0.0, curve: ResponseCurve::LINEAR }
     }
     pub fn is_active(&self) -> bool {
         self.jitter > 0.0 || self.control != Control::Off
@@ -582,6 +587,15 @@ impl Default for BrushSettings {
 }
 
 impl BrushSettings {
+    /// Resize the primary tip and keep an enabled Dual Brush tip at the same relative size.
+    /// An explicit Dual Brush size edit should bypass this and retain the requested diameter.
+    pub fn resize_with_dual_brush(&mut self, new_size: f32) {
+        if self.dual_brush.enabled && self.size.is_finite() && self.size > 0.0 && new_size.is_finite() && new_size > 0.0 {
+            self.dual_brush.size = (self.dual_brush.size * (new_size / self.size)).clamp(0.5, MAX_BRUSH_SIZE);
+        }
+        self.size = new_size;
+    }
+
     /// Copy the settings with the primary and dual diameters and Scatter amounts constrained for
     /// rasterization.
     ///
@@ -674,4 +688,55 @@ pub struct BrushPreset {
     /// folders of Photoshop's Brushes panel; e.g. an imported `.abr` file's own folders.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub folder: Vec<String>,
+    /// What picking the preset brings besides the tip and its sections: the New Brush Preset
+    /// dialog's boxes.
+    #[serde(default, skip_serializing_if = "PresetCaptures::is_default")]
+    pub captures: PresetCaptures,
+}
+
+/// The New Brush Preset dialog's boxes, kept with the preset. The default is a preset made
+/// without the dialog (a built-in, an import, an older save): picking it brings its size and tool
+/// settings, as it always did, and leaves the foreground colour alone.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PresetCaptures {
+    /// Capture Brush Size in Preset. Off: picking the preset keeps the tool's size.
+    pub size: bool,
+    /// Include Tool Settings: the options bar's mode, opacity, flow and pressure buttons. Off:
+    /// picking the preset keeps the tool's.
+    pub tool_settings: bool,
+    /// Include Color: picking the preset sets the foreground colour to the brush's `color`.
+    pub color: bool,
+}
+
+impl Default for PresetCaptures {
+    fn default() -> Self {
+        Self { size: true, tool_settings: true, color: false }
+    }
+}
+
+impl PresetCaptures {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl BrushPreset {
+    /// The tool's brush once this preset is picked while `current` is the tool's brush: the
+    /// preset's brush ([`BrushSettings::picked_over`]), with the size and tool settings it didn't
+    /// capture left as they were.
+    pub fn picked_over(&self, current: &BrushSettings) -> BrushSettings {
+        let mut b = self.brush.clone().picked_over(current);
+        if !self.captures.size {
+            b.resize_with_dual_brush(current.size);
+        }
+        if !self.captures.tool_settings {
+            b.mode = current.mode;
+            b.opacity = current.opacity;
+            b.flow = current.flow;
+            b.pressure_size = current.pressure_size;
+            b.pressure_opacity = current.pressure_opacity;
+        }
+        b
+    }
 }

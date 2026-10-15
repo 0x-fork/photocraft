@@ -24,7 +24,7 @@ fn sections_with_boxes_have_flags() {
 
 /// What each section's controls edit, set to non-default values.
 fn edit_section(i: usize, b: &mut BrushSettings) {
-    let dynamic = |jitter: f32, control: Control, minimum: f32| paint::Dynamic { jitter, control, fade_steps: 40, minimum };
+    let dynamic = |jitter: f32, control: Control, minimum: f32| paint::Dynamic { jitter, control, fade_steps: 40, minimum, ..Default::default() };
     match i {
         0 => {
             b.size = 87.0;
@@ -380,6 +380,41 @@ fn options_bar_edits_are_one_set_brush_per_gesture() {
 }
 
 #[test]
+fn brush_mode_dropdown_shows_outside_the_pro_themes() {
+    // #4512: only the Pro themes drew the Brush's Mode; the Pencil has it in every theme.
+    use egui_kittest::kittest::{NodeT, Queryable};
+    let mut h = options_bar_harness(crate::state::Tool::Brush);
+    let n = h.state().session.journal.len();
+    assert!(h.query_by_label("Mode").is_some(), "the Brush's Mode label");
+    h.get_all_by_role(egui::accesskit::Role::ComboBox)
+        .find(|c| c.accesskit_node().value().as_deref() == Some("Normal"))
+        .expect("the Brush's Mode dropdown")
+        .click();
+    h.run();
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(3);
+    assert_eq!(h.state().session.tools.brush.mode, photocraft_doc::BlendMode::Dissolve);
+    let j = &h.state().session.journal;
+    assert_eq!(j.len(), n + 1, "{:?}", &j[n..]);
+    assert_eq!(j[n].0, "tools.setBrush");
+}
+
+#[test]
+fn brush_and_eraser_size_fields_keep_sizes_above_2500_px() {
+    // #5708: outside the Pro themes the Size field capped at 2500 px and clamped a bigger brush
+    // (set from the picker or `]`) on the next frame; Photoshop and the engine allow 5000 px.
+    for tool in [crate::state::Tool::Brush, crate::state::Tool::Eraser] {
+        let mut h = options_bar_harness(tool);
+        let n = h.state().session.journal.len();
+        h.state_mut().session.tools.brush.size = 4000.0;
+        h.run_steps(4);
+        assert_eq!(h.state().session.tools.brush.size, 4000.0, "{tool:?}");
+        let j = &h.state().session.journal;
+        assert_eq!(j.len(), n, "showing the bar issues nothing: {:?}", &j[n..]);
+    }
+}
+
+#[test]
 fn airbrush_smoothing_options_and_symmetry_buttons_work() {
     // #1177: in the default (Photoshop) theme these options-bar buttons did nothing.
     use egui_kittest::kittest::Queryable;
@@ -458,7 +493,14 @@ fn drop_targets_and_actions_reorder_presets() {
     use crate::brushes_tab::{Action, apply, drop_target, group_key};
     let mut app = app();
     for (n, g) in [("A1", "Alpha"), ("A2", "Alpha"), ("A3", "Alpha"), ("B1", "Beta")] {
-        app.session.tools.presets.push(paint::BrushPreset { name: n.into(), brush: Default::default(), builtin: false, group: g.into(), folder: Vec::new() });
+        app.session.tools.presets.push(paint::BrushPreset {
+            name: n.into(),
+            brush: Default::default(),
+            builtin: false,
+            group: g.into(),
+            folder: Vec::new(),
+            captures: Default::default(),
+        });
     }
     let p = &app.session.tools.presets;
     // Dropping A1 on A3's lower half lands after A3 (index 2 once A1 is out); on its upper half, before it.
@@ -531,6 +573,51 @@ fn toggle_value(app: &PhotocraftApp, section: usize) -> bool {
         _ => panic!("not a checkbox-only row"),
     };
     brush.pointer(path).and_then(Value::as_bool).expect("the checkbox has a boolean brush setting")
+}
+
+#[test]
+fn hue_jitter_amount_edits_keep_percentage_units_and_command_routing() {
+    use egui::accesskit::Role;
+    use egui_kittest::kittest::{NodeT, Queryable};
+
+    let mut h = harness(0, 5);
+    h.state_mut()
+        .session
+        .execute(
+            "tools.setBrush",
+            json!({"brush": {"colorDynamics": {
+                "enabled": true, "hueJitter": 0.37, "saturationJitter": 0.23, "brightnessJitter": 0.41, "purity": -0.16
+            }}}),
+        )
+        .unwrap();
+    let before = h.state().session.tools.brush.clone();
+    h.run_steps(2);
+    let field = h.query_all_by_role(Role::SpinButton).find(|n| n.accesskit_node().numeric_value() == Some(37.0)).unwrap();
+    let center = field.rect().center();
+    field.click();
+    h.key_press(egui::Key::ArrowUp);
+    h.run_steps(2);
+    assert_eq!(h.state().session.tools.brush.color_dynamics.hue_jitter, 0.38);
+    h.key_press(egui::Key::Enter);
+    // Click near the high end of the track, then beyond its right edge while dragging.
+    let from = egui::pos2(center.x, center.y + 24.0);
+    h.event(egui::Event::PointerMoved(from));
+    h.event(egui::Event::PointerButton { pos: from, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
+    h.run_steps(1);
+    let to = from + vec2(200.0, 0.0);
+    h.event(egui::Event::PointerMoved(to));
+    h.run_steps(1);
+    h.event(egui::Event::PointerButton { pos: to, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
+    h.run_steps(2);
+    let mut expected = before;
+    expected.color_dynamics.hue_jitter = 1.0;
+    assert_eq!(h.state().session.tools.brush, expected, "the amount clamps at 100% and preserves neighboring settings");
+    assert_eq!(last_journal(h.state()).unwrap().0, "tools.setBrush");
+    let mut replay = photocraft_engine::Session::new();
+    for (id, params) in h.state().session.journal.clone() {
+        replay.execute(&id, params).unwrap();
+    }
+    assert_eq!(replay.tools.brush, expected, "the edit remains replayable through the engine");
 }
 
 #[test]
@@ -752,6 +839,7 @@ fn kit(name: &str, folder: &[&str]) -> paint::BrushPreset {
         builtin: false,
         group: "Kit".into(),
         folder: folder.iter().map(|s| s.to_string()).collect(),
+        captures: Default::default(),
     }
 }
 
@@ -964,7 +1052,7 @@ fn app_harness_with_language(lang: crate::i18n::Lang) -> Harness<'static, Photoc
 }
 
 #[test]
-fn brush_sections_paint_simplified_chinese_labels_and_heading() {
+fn brush_sections_paint_simplified_chinese_labels() {
     fn collect_text(shape: &egui::Shape, out: &mut Vec<String>) {
         match shape {
             egui::Shape::Text(text) => out.push(text.galley.job.text.clone()),
@@ -989,8 +1077,27 @@ fn brush_sections_paint_simplified_chinese_labels_and_heading() {
         assert!(painted.iter().any(|s| s == translated), "{name} must paint as {translated}");
         assert!(!painted.iter().any(|s| s == name), "{name} must not paint in English");
     }
-    let heading = crate::i18n::tr(zh, "Brush Tip Shape");
-    assert_eq!(painted.iter().filter(|s| s.as_str() == heading).count(), 2, "both the section row and heading are translated");
+}
+
+/// #3477: the options pane has no title of its own. The selected row in the section list is the
+/// only place the section's name is painted.
+#[test]
+fn options_pane_does_not_repeat_the_selected_sections_name() {
+    fn collect_text(shape: &egui::Shape, out: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(text) => out.push(text.galley.job.text.clone()),
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| collect_text(s, out)),
+            _ => {}
+        }
+    }
+    for (section, (name, _)) in SECTIONS.iter().enumerate().take(CHECKBOX_ONLY_START) {
+        let h = harness(0, section);
+        let mut painted = Vec::new();
+        for shape in &h.output().shapes {
+            collect_text(&shape.shape, &mut painted);
+        }
+        assert_eq!(painted.iter().filter(|s| s.as_str() == *name).count(), 1, "{name} is painted once, in the section list");
+    }
 }
 
 #[test]
@@ -1177,6 +1284,27 @@ fn hand_tool_offers_scale_buttons_and_requests_the_right_view() {
 }
 
 #[test]
+fn a_dynamic_gets_its_own_response_curve() {
+    use egui_kittest::kittest::Queryable;
+    let mut h = harness(0, 1);
+    h.state_mut().run("tools.setBrush", json!({"shapeDynamics": {"enabled": true, "size": {"control": "penPressure"}}})).unwrap();
+    h.run_steps(3);
+    // Only Size has a control with an input to shape; its curve button shows the editor.
+    assert_eq!(h.query_all_by_label("Response curve").count(), 1);
+    h.get_by_label("Response curve").click();
+    h.run_steps(3);
+    h.get_by_label("Soft").click();
+    h.run_steps(3);
+    let (id, p) = last_journal(h.state()).unwrap();
+    assert_eq!(id, "tools.setBrush");
+    let curve: Vec<[f32; 2]> = serde_json::from_value(p["brush"]["shapeDynamics"]["size"]["curve"].clone()).unwrap();
+    assert_eq!(curve, vec![[0.0, 0.0], [0.3, 0.6], [1.0, 1.0]]);
+    let b = &h.state().session.tools.brush;
+    assert_eq!(b.shape_dynamics.size.curve.points(), curve);
+    assert!(b.shape_dynamics.roundness.curve.is_linear() && b.transfer.opacity.curve.is_linear());
+}
+
+#[test]
 fn brush_settings_hamburger_menu_actions() {
     use egui_kittest::kittest::Queryable;
 
@@ -1276,4 +1404,102 @@ fn brushes_button_at_top_of_brush_settings_opens_brushes_panel() {
     h.run_steps(3);
     assert!(h.state().ui.panels.brush_settings);
     assert_eq!(h.state().ui.brush_tab, 1);
+}
+
+/// The fill painted for the check box in `rect` in the last frame (the topmost filled rect there).
+fn box_fill(h: &Harness<'_, PhotocraftApp>, rect: egui::Rect) -> Option<Color32> {
+    h.output()
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::Shape::Rect(r) if (r.rect.min - rect.min).length() < 1.0 && (r.rect.max - rect.max).length() < 1.0 && r.fill != Color32::TRANSPARENT => {
+                Some(r.fill)
+            }
+            _ => None,
+        })
+        .next_back()
+}
+
+/// #4476: while the mouse is down on a section's row or its box, the box shows it's pressed, as
+/// in Photoshop: an unchecked box darkens, a checked one turns less opaque. The release then
+/// acts as before.
+#[test]
+fn section_boxes_show_a_pressed_state() {
+    use egui_kittest::kittest::Queryable;
+    let mut h = app_harness();
+    h.key_press(egui::Key::F5);
+    h.run_steps(3);
+    let t = Tokens::get(&h.ctx);
+    let boxr = h.get_by_label("Enable Shape Dynamics").rect();
+    let row = h.get_by_label("Shape Dynamics").rect();
+    assert!(!h.state().session.tools.brush.shape_dynamics.enabled);
+    assert_eq!(box_fill(&h, boxr), Some(widgets::check_box_fill(false, false, &t)));
+    // Held on the row's name: the unchecked box darkens; the release turns the section on.
+    let at = egui::pos2(row.center().x, row.center().y);
+    h.drag_at(at);
+    h.run_steps(2);
+    assert_eq!(box_fill(&h, boxr), Some(widgets::check_box_fill(false, true, &t)), "pressed, unchecked");
+    h.drop_at(at);
+    h.run_steps(3);
+    assert!(h.state().session.tools.brush.shape_dynamics.enabled);
+    assert_eq!(box_fill(&h, boxr), Some(widgets::check_box_fill(true, false, &t)));
+    // Held on the checked box itself: less opaque, then the release turns it off.
+    h.drag_at(boxr.center());
+    h.run_steps(2);
+    assert_eq!(box_fill(&h, boxr), Some(widgets::check_box_fill(true, true, &t)), "pressed, checked");
+    h.drop_at(boxr.center());
+    h.run_steps(3);
+    assert!(!h.state().session.tools.brush.shape_dynamics.enabled);
+    // A checkbox-only row (no settings of its own) is one checkbox across the row: a press
+    // anywhere on it presses its box, and the release toggles it.
+    let wet = h.get_by_label("Wet Edges").rect();
+    let wet_box = egui::Rect::from_center_size(egui::pos2(wet.left() + 12.0, wet.center().y), vec2(13.0, 13.0));
+    let was = h.state().session.tools.brush.wet_edges;
+    h.drag_at(wet.center());
+    h.run_steps(2);
+    assert_eq!(box_fill(&h, wet_box), Some(widgets::check_box_fill(was, true, &t)), "pressed checkbox-only row");
+    h.drop_at(wet.center());
+    h.run_steps(3);
+    assert_ne!(h.state().session.tools.brush.wet_edges, was);
+    // The four looks are distinct.
+    let looks = [(false, false), (false, true), (true, false), (true, true)].map(|(on, pressed)| widgets::check_box_fill(on, pressed, &t));
+    for (i, a) in looks.iter().enumerate() {
+        assert!(looks.iter().skip(i + 1).all(|b| b != a), "{looks:?}");
+    }
+}
+
+/// The shared check box (options bars, dialogs) does the same, and pressing its label counts.
+#[test]
+fn checkboxes_show_a_pressed_state_from_their_label() {
+    use egui_kittest::kittest::Queryable;
+    let mut h = Harness::builder().with_size(vec2(300.0, 100.0)).build_ui_state(
+        |ui, on: &mut bool| {
+            widgets::checkbox(ui, on, "Sample All Layers");
+        },
+        false,
+    );
+    h.run();
+    let t = Tokens::get(&h.ctx);
+    let label = h.get_by_label("Sample All Layers").rect();
+    let boxr = egui::Rect::from_min_size(egui::pos2(label.left() - 6.0 - 14.0, label.center().y - 7.0), vec2(14.0, 14.0));
+    let fill = |h: &Harness<'_, bool>| {
+        h.output()
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::Shape::Rect(r) if (r.rect.center() - boxr.center()).length() < 1.5 && r.rect.width() < 15.0 && r.fill != Color32::TRANSPARENT => {
+                    Some(r.fill)
+                }
+                _ => None,
+            })
+            .next_back()
+    };
+    assert_eq!(fill(&h), Some(widgets::check_box_fill(false, false, &t)));
+    h.drag_at(label.center());
+    h.run();
+    assert_eq!(fill(&h), Some(widgets::check_box_fill(false, true, &t)), "pressing the label presses the box");
+    h.drop_at(label.center());
+    h.run();
+    assert!(*h.state(), "the release checks it");
+    assert_eq!(fill(&h), Some(widgets::check_box_fill(true, false, &t)));
 }
