@@ -4269,3 +4269,4 @@ shape	Appearance	Izgled
 	Take the shortcut from the other command and select it	Uzmi prečicu drugoj komandi i izaberi je
 	Undo Changes	Poništi izmene
 	{shortcut} is reserved by the system and can't be assigned.	{shortcut} je rezervisana od strane sistema i ne može se dodeliti.
+	Low-Latency Drawing (vsync off, applies at next launch)	Crtanje sa malim kašnjenjem (bez vsync-a, primenjuje se pri sledećem pokretanju)

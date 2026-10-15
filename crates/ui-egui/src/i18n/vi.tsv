@@ -3682,3 +3682,4 @@ curves	Smooth	Làm mượt
 	Take the shortcut from the other command and select it	Lấy phím tắt khỏi lệnh kia và chọn lệnh đó
 	Undo Changes	Hoàn tác thay đổi
 	{shortcut} is reserved by the system and can't be assigned.	{shortcut} được hệ thống dành riêng và không thể gán.
+	Low-Latency Drawing (vsync off, applies at next launch)	Vẽ độ trễ thấp (tắt vsync, áp dụng ở lần khởi động sau)

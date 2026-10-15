@@ -3804,3 +3804,4 @@ navigator	Zoom	Zvětšení
 	Take the shortcut from the other command and select it	Odebrat zkratku druhému příkazu a vybrat ho
 	Undo Changes	Vrátit změny
 	{shortcut} is reserved by the system and can't be assigned.	{shortcut} je vyhrazena systémem a nelze ji přiřadit.
+	Low-Latency Drawing (vsync off, applies at next launch)	Kreslení s nízkou latencí (bez vertikální synchronizace, platí po dalším spuštění)

@@ -4317,3 +4317,4 @@ shape	Appearance	Aspetto
 	Take the shortcut from the other command and select it	Togli la scorciatoia all'altro comando e selezionalo
 	Undo Changes	Annulla modifiche
 	{shortcut} is reserved by the system and can't be assigned.	{shortcut} è riservata dal sistema e non può essere assegnata.
+	Low-Latency Drawing (vsync off, applies at next launch)	Disegno a bassa latenza (senza vsync, si applica al prossimo avvio)

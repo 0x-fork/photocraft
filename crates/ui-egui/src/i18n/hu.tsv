@@ -4115,3 +4115,4 @@ cameraRaw	Yellow	Sárga
 	Take the shortcut from the other command and select it	A billentyűparancs elvétele a másik parancstól, és annak kijelölése
 	Undo Changes	Változások visszavonása
 	{shortcut} is reserved by the system and can't be assigned.	A(z) {shortcut} a rendszer számára fenntartott, nem rendelhető hozzá.
+	Low-Latency Drawing (vsync off, applies at next launch)	Kis késleltetésű rajzolás (vsync nélkül, a következő indításkor lép életbe)

@@ -3794,3 +3794,4 @@ curves	Smooth	Wygładź
 	Take the shortcut from the other command and select it	Odbierz skrót drugiemu poleceniu i zaznacz je
 	Undo Changes	Cofnij zmiany
 	{shortcut} is reserved by the system and can't be assigned.	{shortcut} jest zarezerwowany przez system i nie można go przypisać.
+	Low-Latency Drawing (vsync off, applies at next launch)	Rysowanie z małym opóźnieniem (bez synchronizacji pionowej, od następnego uruchomienia)

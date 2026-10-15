@@ -3872,3 +3872,4 @@ curves	Smooth	スムーズ
 	Take the shortcut from the other command and select it	もう一方のコマンドからショートカットを外して選択
 	Undo Changes	変更を取り消し
 	{shortcut} is reserved by the system and can't be assigned.	{shortcut} はシステムで予約されているため割り当てられません。
+	Low-Latency Drawing (vsync off, applies at next launch)	低遅延描画（垂直同期オフ、次回起動時に適用）

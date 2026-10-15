@@ -3895,3 +3895,4 @@ curves	Smooth	Згладити
 	Take the shortcut from the other command and select it	Забрати скорочення в іншої команди й вибрати її
 	Undo Changes	Скасувати зміни
 	{shortcut} is reserved by the system and can't be assigned.	{shortcut} зарезервовано системою, його не можна призначити.
+	Low-Latency Drawing (vsync off, applies at next launch)	Малювання з малою затримкою (без вертикальної синхронізації, після перезапуску)
