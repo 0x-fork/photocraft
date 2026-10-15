@@ -400,6 +400,21 @@ fn brush_mode_dropdown_shows_outside_the_pro_themes() {
 }
 
 #[test]
+fn brush_and_eraser_size_fields_keep_sizes_above_2500_px() {
+    // #5708: outside the Pro themes the Size field capped at 2500 px and clamped a bigger brush
+    // (set from the picker or `]`) on the next frame; Photoshop and the engine allow 5000 px.
+    for tool in [crate::state::Tool::Brush, crate::state::Tool::Eraser] {
+        let mut h = options_bar_harness(tool);
+        let n = h.state().session.journal.len();
+        h.state_mut().session.tools.brush.size = 4000.0;
+        h.run_steps(4);
+        assert_eq!(h.state().session.tools.brush.size, 4000.0, "{tool:?}");
+        let j = &h.state().session.journal;
+        assert_eq!(j.len(), n, "showing the bar issues nothing: {:?}", &j[n..]);
+    }
+}
+
+#[test]
 fn airbrush_smoothing_options_and_symmetry_buttons_work() {
     // #1177: in the default (Photoshop) theme these options-bar buttons did nothing.
     use egui_kittest::kittest::Queryable;
