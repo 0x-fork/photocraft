@@ -2790,3 +2790,10 @@ curves	Smooth	平滑
 	set name	組合名稱
 	{set} (modified)	{set}（已修改）
 	Random	隨機
+	Accept and Go to Conflict	接受並前往衝突
+	Changes undone.	已還原變更。
+	Choose a new shortcut for this command, or leave it without one.	為此指令選擇新的快速鍵，或保持沒有快速鍵。
+	Put this command's shortcuts back as they were	將此指令的快速鍵恢復原狀
+	Take the shortcut from the other command and select it	從另一個指令移除該快速鍵並選取它
+	Undo Changes	還原變更
+	{shortcut} is reserved by the system and can't be assigned.	{shortcut} 由系統保留，無法指定。

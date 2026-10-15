@@ -3949,3 +3949,10 @@ curves	Smooth	Vloeiend maken
 	There are too many sets: delete one first.	Er zijn te veel sets: verwijder er eerst een.
 	set name	naam van de set
 	{set} (modified)	{set} (gewijzigd)
+	Accept and Go to Conflict	Accepteren en naar conflict
+	Changes undone.	Wijzigingen ongedaan gemaakt.
+	Choose a new shortcut for this command, or leave it without one.	Kies een nieuwe sneltoets voor deze opdracht of laat hem zonder.
+	Put this command's shortcuts back as they were	De sneltoetsen van deze opdracht herstellen
+	Take the shortcut from the other command and select it	De sneltoets van de andere opdracht afnemen en die selecteren
+	Undo Changes	Wijzigingen ongedaan maken
+	{shortcut} is reserved by the system and can't be assigned.	{shortcut} is door het systeem gereserveerd en kan niet worden toegewezen.

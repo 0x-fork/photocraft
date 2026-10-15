@@ -4310,3 +4310,10 @@ shape	Appearance	Aspetto
 	There are too many sets: delete one first.	Ci sono troppi set: eliminane prima uno.
 	set name	nome del set
 	{set} (modified)	{set} (modificato)
+	Accept and Go to Conflict	Accetta e vai al conflitto
+	Changes undone.	Modifiche annullate.
+	Choose a new shortcut for this command, or leave it without one.	Scegli una nuova scorciatoia per questo comando o lascialo senza.
+	Put this command's shortcuts back as they were	Ripristina le scorciatoie di questo comando com'erano
+	Take the shortcut from the other command and select it	Togli la scorciatoia all'altro comando e selezionalo
+	Undo Changes	Annulla modifiche
+	{shortcut} is reserved by the system and can't be assigned.	{shortcut} è riservata dal sistema e non può essere assegnata.

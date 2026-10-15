@@ -3797,3 +3797,10 @@ navigator	Zoom	Zvětšení
 	There are too many sets: delete one first.	Sad je příliš mnoho: nejprve jednu smažte.
 	set name	název sady
 	{set} (modified)	{set} (změněno)
+	Accept and Go to Conflict	Přijmout a přejít ke konfliktu
+	Changes undone.	Změny vráceny.
+	Choose a new shortcut for this command, or leave it without one.	Zvolte pro tento příkaz novou zkratku, nebo ho nechte bez ní.
+	Put this command's shortcuts back as they were	Vrátit zkratky tohoto příkazu do původního stavu
+	Take the shortcut from the other command and select it	Odebrat zkratku druhému příkazu a vybrat ho
+	Undo Changes	Vrátit změny
+	{shortcut} is reserved by the system and can't be assigned.	{shortcut} je vyhrazena systémem a nelze ji přiřadit.

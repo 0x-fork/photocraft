@@ -563,14 +563,14 @@ impl LayerKeys {
     fn identity(&self, layer: &Layer, doc: Option<&Document>) -> u64 {
         let addr = std::ptr::from_ref(layer) as usize;
         let in_doc = doc.is_some_and(|d| self.in_doc.get_or_init(|| doc_layer_addresses(d)).contains(&addr));
-        if in_doc && let Some(id) = self.ids.lock().unwrap_or_else(|e| e.into_inner()).get(&addr) {
-            return *id;
-        }
-        let id = self.compute(layer);
         if in_doc {
-            self.ids.lock().unwrap_or_else(|e| e.into_inner()).insert(addr, id);
+            let mut ids = self.ids.lock().unwrap_or_else(|e| e.into_inner());
+            // Computing an identity only hashes immutable layer data; it does not run Rayon
+            // work or re-enter this memo. Keep the miss and insertion atomic across callers.
+            *ids.entry(addr).or_insert_with(|| self.compute(layer))
+        } else {
+            self.compute(layer)
         }
-        id
     }
 
     fn compute(&self, layer: &Layer) -> u64 {

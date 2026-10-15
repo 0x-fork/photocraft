@@ -4108,3 +4108,10 @@ cameraRaw	Yellow	Sárga
 	There are too many sets: delete one first.	Túl sok készlet van: előbb töröljön egyet.
 	set name	készlet neve
 	{set} (modified)	{set} (módosítva)
+	Accept and Go to Conflict	Elfogadás és ugrás az ütközéshez
+	Changes undone.	Változások visszavonva.
+	Choose a new shortcut for this command, or leave it without one.	Válasszon új billentyűparancsot ehhez a parancshoz, vagy hagyja nélküle.
+	Put this command's shortcuts back as they were	A parancs billentyűparancsainak visszaállítása
+	Take the shortcut from the other command and select it	A billentyűparancs elvétele a másik parancstól, és annak kijelölése
+	Undo Changes	Változások visszavonása
+	{shortcut} is reserved by the system and can't be assigned.	A(z) {shortcut} a rendszer számára fenntartott, nem rendelhető hozzá.

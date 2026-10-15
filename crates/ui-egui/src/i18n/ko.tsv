@@ -3367,3 +3367,10 @@ curves	Smooth	매끄럽게
 	There are too many sets: delete one first.	세트가 너무 많습니다. 먼저 하나를 삭제하세요.
 	set name	세트 이름
 	{set} (modified)	{set}(수정됨)
+	Accept and Go to Conflict	적용 후 충돌 항목으로 이동
+	Changes undone.	변경 사항을 취소했습니다.
+	Choose a new shortcut for this command, or leave it without one.	이 명령의 새 단축키를 선택하거나 단축키 없이 두세요.
+	Put this command's shortcuts back as they were	이 명령의 단축키를 원래대로 되돌리기
+	Take the shortcut from the other command and select it	다른 명령에서 단축키를 빼고 그 명령 선택
+	Undo Changes	변경 사항 취소
+	{shortcut} is reserved by the system and can't be assigned.	{shortcut}은(는) 시스템에서 예약되어 할당할 수 없습니다.
