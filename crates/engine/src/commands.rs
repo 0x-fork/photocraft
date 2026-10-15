@@ -381,12 +381,12 @@ fn destructive_adjust(s: &mut Session, label: &str, adj: Adjustment, p: &Value) 
         });
     }
     if crate::channel_cmds::is_channel_target(p) {
-        // Alpha channel / Quick Mask target: the adjustment runs on the grayscale channel.
+        // Alpha channel / Quick Mask target: the adjustment runs on the grayscale channel as on
+        // a layer mask, its unstored black included, so ⌘I in Quick Mask inverts it all (#6095).
         return s.edit(label, |doc, _| {
             let sel = doc.selection.clone();
             if let Some(surf) = crate::channel_cmds::channel_surface_for_filter(doc, None, p)? {
-                pixels::adjust_surface(surf, &adj, sel.as_ref(), ColorMode::Grayscale);
-                surf.prune();
+                pixels::adjust_mask(surf, &adj, sel.as_ref());
             }
             Ok(Value::Null)
         });
