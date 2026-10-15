@@ -12,8 +12,13 @@ use photocraft_geom::Point;
 
 /// Pieces each curved segment is cut into (about 0.1 px off a 300 px bubble's curve).
 const CURVE_PIECES: usize = 16;
+/// Most anchors an area path can have: the most `type.fillPath` accepts and a Type tool click
+/// targets (`path_target` in ui-egui).
+pub const MAX_AREA_KNOTS: usize = 4096;
 /// Largest number of edges an area keeps, so a hostile path can't make every line scan millions.
-pub const MAX_AREA_EDGES: usize = 65_536;
+/// A closed subpath of `n` anchors gives at most `CURVE_PIECES * n + 1` edges, so every path
+/// within [`MAX_AREA_KNOTS`] fits, even with every segment curved.
+pub const MAX_AREA_EDGES: usize = MAX_AREA_KNOTS * (CURVE_PIECES + 1);
 /// Most shape components an area keeps: every row folds each one in, so a path of thousands of
 /// tiny shapes can't make each line cost thousands of interval merges.
 pub const MAX_AREA_COMPONENTS: usize = 4096;

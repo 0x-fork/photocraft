@@ -166,3 +166,34 @@ fn area_type_saves_to_psd_as_paragraph_text_with_a_warning() {
     assert!(matches!(t.shape, TextShape::Box { width, height, .. } if (width - 200.0).abs() < 0.5 && (height - 150.0).abs() < 0.5), "{:?}", t.shape);
     let _ = id;
 }
+
+#[test]
+fn too_many_anchors_is_its_own_error() {
+    // A ring of `n` smooth (curved) anchors around (200, 150).
+    let ring = |n: usize| {
+        let p = |a: f64, r: f64| photocraft_geom::Point::new(200.0 + r * a.cos(), 150.0 + r * a.sin());
+        let step = std::f64::consts::TAU / n as f64;
+        let knots = (0..n)
+            .map(|i| {
+                let a = i as f64 * step;
+                let (anchor, d) = (p(a, 100.0), 100.0 * step / 3.0);
+                let (tx, ty) = (-a.sin() * d, a.cos() * d);
+                let at = |k: f64| photocraft_geom::Point::new(anchor.x + k * tx, anchor.y + k * ty);
+                photocraft_doc::vector::Knot::smooth(anchor, at(-1.0), at(1.0))
+            })
+            .collect();
+        Path::new(vec![Subpath { closed: true, knots, op: PathOp::Combine }])
+    };
+    let mut s = session(8);
+    let id = text_layer(&mut s, WORDS);
+    // Every anchor up to the limit fits, even with every segment curved.
+    set_work_path(&mut s, ring(MAX_AREA_KNOTS));
+    s.execute("type.fillPath", json!({})).unwrap();
+    assert!(matches!(text(&s, id).shape, TextShape::Area { .. }));
+    // One more is refused for what it is, not as a path that encloses nothing.
+    let id = text_layer(&mut s, WORDS);
+    set_work_path(&mut s, ring(MAX_AREA_KNOTS + 1));
+    let e = s.execute("type.fillPath", json!({})).unwrap_err().to_string();
+    assert!(e.contains("too many anchor points"), "{e}");
+    assert_eq!(text(&s, id).shape, TextShape::Point);
+}

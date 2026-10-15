@@ -342,8 +342,9 @@ pub(crate) fn path_target(app: &PhotocraftApp, x: f64, y: f64) -> Option<PathCli
     };
     // The canvas hover runs this every frame and `hit` samples every segment, so a path with more
     // anchors than this is not a click target (the click and the pointer agree: plain point
-    // text). 4096 anchors is far beyond hand-drawn paths and shapes yet keeps a frame cheap.
-    const MAX_TARGET_KNOTS: usize = 4096;
+    // text). 4096 anchors is far beyond hand-drawn paths and shapes yet keeps a frame cheap, and
+    // it is the most `type.fillPath` accepts, so every area click target can be filled.
+    const MAX_TARGET_KNOTS: usize = photocraft_text::area::MAX_AREA_KNOTS;
     if path.subpaths.iter().map(|s| s.knots.len()).fold(0usize, usize::saturating_add) > MAX_TARGET_KNOTS {
         return None;
     }

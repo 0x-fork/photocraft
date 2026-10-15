@@ -13,8 +13,9 @@ use crate::{EngineError, Result, Session};
 
 const CMD: &str = "type.fillPath";
 
-/// Largest total anchor count of a path area type can fill (as for type on a path).
-const MAX_AREA_KNOTS: usize = 100_000;
+// Largest total anchor count of a path area type can fill. Within it every path fits the area
+// edge cap, so a big curved path gets "too many anchor points" rather than "encloses no area".
+use photocraft_text::area::MAX_AREA_KNOTS;
 
 fn bad(m: &str) -> EngineError {
     EngineError::BadParams { cmd: CMD.into(), msg: m.into() }
