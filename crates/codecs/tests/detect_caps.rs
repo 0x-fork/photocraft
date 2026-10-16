@@ -206,6 +206,8 @@ fn detect_magic_iff() {
     assert_eq!(from_extension("art.LBM"), Some(Format::Iff));
     assert_eq!(from_extension("art.ilbm"), Some(Format::Iff));
     assert!(caps(Format::Iff).read && !caps(Format::Iff).write, "IFF is read-only");
+    assert!(caps(Format::Iff).alpha);
+    assert!(caps(Format::Iff).layouts.contains(&photocraft_codecs::ChannelLayout::Rgba));
     assert!(ASYMMETRIC_EXCEPTIONS.iter().any(|(f, _)| *f == Format::Iff));
     // A bare FORM without a bitmap type is not IFF.
     assert_eq!(detect(b"FORM\0\0\0\x14AIFF"), None);

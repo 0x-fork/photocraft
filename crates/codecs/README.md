@@ -48,7 +48,7 @@ let out = encode(&img, Format::Tiff, &EncodeOptions::default())?;
 | FITS | yes | yes | U8, U16, F32 | Gray, RGB | no | no | no | no | no | yes (header cards) | no | built in |
 | DPX | yes | yes | U8, U16 (10/12-bit code values read and written exactly through U16) | Gray, RGB, RGBA | yes | no | no | no | no | DPX header fields only (creator, project, copyright, creation time, transfer, colorimetric, frame position, frame rate, time code) | no | built in |
 | Cineon | yes | **no** | U16 (10-bit code values) | Gray, RGB | no | no | no | no | no | no | n/a | built in |
-| Amiga IFF (ILBM/PBM) | yes | **no** | U8 | RGB | no | no | no | no | no | no | n/a | built in |
+| Amiga IFF (ILBM/PBM) | yes | **no** | U8 | RGB, RGBA | yes | no | no | no | no | no | n/a | built in |
 | AVIF | **no** | only with feature `avif` | U8 | RGB, RGBA | yes | no | no | no | no | no | yes | `image` + `ravif` |
 | HEIF/HEIC | with feature `heif` | **no** | U8, U16 (10/12-bit decodes to U16) | RGB, RGBA | yes (auxiliary alpha) | yes (`colr` prof) | yes | yes | no | no | n/a | `heic-rs` |
 
@@ -105,11 +105,12 @@ embedded table (and a PNG's transparent entry) so `photocraft-io` can open them 
   a channel count other than 1/3 returns `CodecError::Unsupported`; truncation errors rather than
   panicking. There is no Cineon writer (`ASYMMETRIC_EXCEPTIONS`); save as DPX, TIFF or EXR.
 
-* **Amiga IFF (read-only).** `FORM ... ILBM` (interleaved) and `FORM ... PBM ` (planar) bitmaps
-  from the published IFF/ILBM layout: 1–8 bitplanes decoded through the `CMAP` palette (a grey
-  ramp when there is none), masking 0/1/2, and both stored (0) and ByteRun1/PackBits (1)
-  compression. Other bit-plane counts or compressions return `CodecError::Unsupported`; a
-  malformed chunk length or run errors rather than panicking. There is no IFF writer; save as PNG.
+* **Amiga IFF (read-only).** `FORM ... ILBM` stores interleaved 1–8 bitplanes;
+  `FORM ... PBM ` stores 8-bit chunky palette indices with even-padded rows. Both support
+  stored and ByteRun1 compression, a `CMAP` palette (grey ramp when absent, black for missing
+  entries), and transparent-colour masking. ILBM also supports a separate mask plane. HAM/EHB
+  viewport modes, PBM mask planes, other bit depths and compressions return
+  `CodecError::Unsupported`. There is no IFF writer; save as PNG.
 
 * **Camera raw files** (DNG, CR2, NEF, ARW… which are TIFF-structured) are recognised and refused
   with `CodecError::Unsupported`: they are sensor data, not flat images. `photocraft-raw` decodes

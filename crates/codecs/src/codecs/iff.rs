@@ -1,4 +1,4 @@
-//! Amiga IFF/ILBM reader (EA "Interchange File Format", "InterLeaved BitMap" and the planar
+//! Amiga IFF/ILBM reader (EA "Interchange File Format", "InterLeaved BitMap" and the chunky
 //! "PBM " variant). Written from the published IFF/ILBM layout: a `FORM` chunk of four-byte
 //! chunks (`BMHD` bitmap header, `CMAP` palette, `CAMG` Amiga viewport mode, `BODY` pixel data).
 //! Read-only: modern saves should use PNG.
@@ -32,7 +32,7 @@ fn be16(b: &[u8], at: usize) -> Option<u16> {
     Some(u16::from_be_bytes(s))
 }
 
-/// `FORM` + a bitmap type (`ILBM` interleaved, `PBM ` planar) at offset 8.
+/// `FORM` + a bitmap type (`ILBM` interleaved, `PBM ` chunky) at offset 8.
 pub(crate) fn looks_like_iff(b: &[u8]) -> bool {
     b.get(0..4) == Some(b"FORM") && matches!(b.get(8..12), Some(b"ILBM" | b"PBM "))
 }
@@ -44,8 +44,9 @@ struct Header {
     planes: u8,
     masking: u8,
     compression: u8,
-    /// `ILBM` interleaves a row's planes; `PBM ` stores a whole plane before the next.
-    interleaved: bool,
+    transparent: u16,
+    /// `PBM ` stores one palette index per byte, padded to even row lengths.
+    chunky: bool,
 }
 
 /// One four-byte chunk's id and byte range.
@@ -73,7 +74,7 @@ fn chunks(b: &[u8]) -> impl Iterator<Item = Chunk<'_>> {
     })
 }
 
-fn parse_header(b: &[u8], interleaved: bool) -> Result<Header, CodecError> {
+fn parse_header(b: &[u8], chunky: bool) -> Result<Header, CodecError> {
     let bmhd = chunks(b).find(|c| &c.id == b"BMHD").ok_or_else(|| bad("no BMHD chunk"))?;
     let d = bmhd.data;
     if d.len() < 20 {
@@ -96,7 +97,11 @@ fn parse_header(b: &[u8], interleaved: bool) -> Result<Header, CodecError> {
     if compression > 1 {
         return Err(unsupported(format!("compression {compression} (only stored and ByteRun1)")));
     }
-    Ok(Header { width, height, planes, masking, compression, interleaved })
+    if chunky && (planes != 8 || masking == 1) {
+        return Err(unsupported("PBM requires 8-bit indices without a mask plane"));
+    }
+    let transparent = be16(d, 12).ok_or_else(|| bad("BMHD transparent colour"))?;
+    Ok(Header { width, height, planes, masking, compression, transparent, chunky })
 }
 
 /// ByteRun1 / PackBits decode of one plane row into `out`; returns the bytes consumed. A `0x80`
@@ -133,32 +138,43 @@ pub(crate) fn decode(b: &[u8], limits: &Limits) -> Result<Image, CodecError> {
     if !looks_like_iff(b) {
         return Err(bad("not an IFF/ILBM file (no FORM ... ILBM)"));
     }
-    let interleaved = b.get(8..12) == Some(b"ILBM");
-    let h = parse_header(b, interleaved)?;
-    limits.check(h.width, h.height, ChannelLayout::Rgb, SampleType::U8)?;
+    let h = parse_header(b, b.get(8..12) == Some(b"PBM "))?;
+    if let Some(camg) = chunks(b).find(|c| &c.id == b"CAMG") {
+        let mode = be32(camg.data, 0).ok_or_else(|| bad("short CAMG chunk"))?;
+        if mode & (0x80 | 0x800) != 0 {
+            return Err(unsupported("EHB and HAM viewport modes"));
+        }
+    }
+    let layout = if h.masking == 0 { ChannelLayout::Rgb } else { ChannelLayout::Rgba };
+    limits.check(h.width, h.height, layout, SampleType::U8)?;
 
     // Palette: three bytes per colour; missing entries read as black.
-    let cmap = chunks(b).find(|c| &c.id == b"CMAP").map(|c| c.data);
+    let cmap = chunks(b).find(|c| &c.id == b"CMAP").map(|c| c.data).filter(|p| !p.is_empty());
     let colors = 1usize << h.planes;
     let palette = |idx: usize| -> [u8; 3] {
-        cmap.and_then(|p| p.get(idx * 3..idx * 3 + 3)).map(|c| [c[0], c[1], c[2]]).unwrap_or({
-            // No palette: a grey ramp across the index range.
+        if let Some(p) = cmap {
+            p.get(idx * 3..idx * 3 + 3).map(|c| [c[0], c[1], c[2]]).unwrap_or([0; 3])
+        } else {
             let v = ((idx as u32 * 255) / (colors as u32 - 1).max(1)) as u8;
             [v, v, v]
-        })
+        }
     };
 
     let body = chunks(b).find(|c| &c.id == b"BODY").map(|c| c.data).ok_or_else(|| bad("no BODY chunk"))?;
     let (w, hh) = (h.width as usize, h.height as usize);
     // Each plane row is stored as a whole number of 16-bit words.
-    let plane_row = w.div_ceil(16) * 2;
+    let plane_row = if h.chunky { w.div_ceil(2) * 2 } else { w.div_ceil(16) * 2 };
     // A masking type 1 bitmap carries one extra (mask) plane per row.
-    let rows_planes: usize = if h.masking == 1 { usize::from(h.planes) + 1 } else { usize::from(h.planes) };
+    let rows_planes: usize = if h.chunky { 1 } else { usize::from(h.planes) + usize::from(h.masking == 1) };
 
     // Decode every stored plane row up front, then recombine.
     let total_rows = hh.checked_mul(rows_planes).ok_or_else(|| CodecError::LimitExceeded("bitmap too large".into()))?;
     let total_bytes = total_rows.checked_mul(plane_row).ok_or_else(|| CodecError::LimitExceeded("bitmap too large".into()))?;
-    let mut stored = vec![0u8; total_bytes];
+    if total_bytes as u64 > limits.max_alloc {
+        return Err(CodecError::LimitExceeded("bitmap storage exceeds max_alloc".into()));
+    }
+    Limits::check_plausible(total_bytes as u64, body.len(), if h.compression == 0 { 1 } else { 128 })?;
+    let mut stored = crate::options::alloc_zeroed::<u8>(total_bytes)?;
     let mut cursor = 0usize;
     for row in stored.chunks_mut(plane_row.max(1)).take(total_rows) {
         match h.compression {
@@ -176,22 +192,24 @@ pub(crate) fn decode(b: &[u8], limits: &Limits) -> Result<Image, CodecError> {
     }
 
     let mut out = Vec::new();
-    out.try_reserve_exact(w.saturating_mul(hh).saturating_mul(3)).map_err(|_| CodecError::LimitExceeded("cannot allocate the image".into()))?;
+    out.try_reserve_exact(w.saturating_mul(hh).saturating_mul(layout.channels())).map_err(|_| CodecError::LimitExceeded("cannot allocate the image".into()))?;
     let planes = usize::from(h.planes);
     for y in 0..hh {
         for x in 0..w {
-            let index = if h.interleaved {
-                // Row-major, interleaved: row y, plane p sits at (y * rows_planes + p).
-                (0..planes).filter(|&p| bit_at(&stored, (y * rows_planes + p) * plane_row, x)).fold(0usize, |acc, p| acc | (1 << p))
+            let index = if h.chunky {
+                usize::from(*stored.get(y * plane_row + x).ok_or_else(|| bad("PBM pixel outside BODY"))?)
             } else {
-                // Planar: plane p's rows come first, then the next plane.
-                (0..planes).filter(|&p| bit_at(&stored, (p * hh + y) * plane_row, x)).fold(0usize, |acc, p| acc | (1 << p))
+                (0..planes).filter(|&p| bit_at(&stored, (y * rows_planes + p) * plane_row, x)).fold(0usize, |acc, p| acc | (1 << p))
             };
             let c = palette(index);
             out.extend_from_slice(&c);
+            if h.masking != 0 {
+                let opaque = if h.masking == 1 { bit_at(&stored, (y * rows_planes + planes) * plane_row, x) } else { index != usize::from(h.transparent) };
+                out.push(if opaque { 255 } else { 0 });
+            }
         }
     }
-    Image::from_u8(h.width, h.height, ChannelLayout::Rgb, out)
+    Image::from_u8(h.width, h.height, layout, out)
 }
 
 /// The bit for pixel `x` of a stored plane row at `base` (bits run MSB-first).
@@ -227,6 +245,9 @@ mod tests {
         b.extend_from_slice(&((palette.len() * 3) as u32).to_be_bytes());
         for c in palette {
             b.extend_from_slice(c);
+        }
+        if palette.len() % 2 == 1 {
+            b.push(0);
         }
         // BODY
         b.extend_from_slice(b"BODY");
@@ -270,6 +291,52 @@ mod tests {
         let b = ilbm(2, 1, 1, &[], 0, &body);
         let img = decode(&b, &Limits::default()).unwrap();
         assert_eq!(img.data(), &[0, 0, 0, 255, 255, 255]);
+    }
+
+    #[test]
+    fn pbm_reads_chunky_indices_with_odd_width_padding() {
+        let pal = [[10, 20, 30], [40, 50, 60], [70, 80, 90]];
+        for (compression, body) in [(0, vec![2, 0, 1, 255, 1, 2, 0, 255]), (1, vec![3, 2, 0, 1, 255, 3, 1, 2, 0, 255])] {
+            let mut b = ilbm(3, 2, 8, &pal, compression, &body);
+            b[8..12].copy_from_slice(b"PBM ");
+            let img = decode(&b, &Limits::default()).unwrap();
+            assert_eq!(img.data(), &[70, 80, 90, 10, 20, 30, 40, 50, 60, 40, 50, 60, 70, 80, 90, 10, 20, 30]);
+        }
+    }
+
+    #[test]
+    fn transparency_uses_the_mask_plane_or_transparent_index() {
+        for masking in [1, 2] {
+            let mut b = ilbm(2, 1, 1, &[[10, 20, 30], [40, 50, 60]], 0, if masking == 1 { &[0x40, 0, 0x40, 0] } else { &[0x40, 0] });
+            b[29] = masking;
+            let img = decode(&b, &Limits::default()).unwrap();
+            assert_eq!(img.layout(), ChannelLayout::Rgba);
+            assert_eq!(img.data(), &[10, 20, 30, 0, 40, 50, 60, 255]);
+        }
+        let mut b = ilbm(2, 1, 8, &[[10, 20, 30], [40, 50, 60]], 0, &[0, 1]);
+        b[8..12].copy_from_slice(b"PBM ");
+        b[29] = 2;
+        b[32..34].copy_from_slice(&1u16.to_be_bytes());
+        assert_eq!(decode(&b, &Limits::default()).unwrap().data(), &[10, 20, 30, 255, 40, 50, 60, 0]);
+    }
+
+    #[test]
+    fn rejects_ham_and_ehb_instead_of_returning_wrong_colours() {
+        for mode in [0x80u32, 0x800] {
+            let mut b = ilbm(1, 1, 1, &[], 0, &[0, 0]);
+            b.extend_from_slice(b"CAMG");
+            b.extend_from_slice(&4u32.to_be_bytes());
+            b.extend_from_slice(&mode.to_be_bytes());
+            let len = (b.len() - 8) as u32;
+            b[4..8].copy_from_slice(&len.to_be_bytes());
+            assert!(matches!(decode(&b, &Limits::default()), Err(CodecError::Unsupported { .. })));
+        }
+    }
+
+    #[test]
+    fn missing_palette_entries_are_black() {
+        let b = ilbm(1, 1, 2, &[[10, 20, 30]], 0, &[0x80, 0, 0x80, 0]);
+        assert_eq!(decode(&b, &Limits::default()).unwrap().data(), &[0, 0, 0]);
     }
 
     #[test]

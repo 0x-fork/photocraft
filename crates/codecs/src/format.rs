@@ -274,7 +274,7 @@ pub fn caps(format: Format) -> FormatCaps {
         // `text`: the DPX header fields only (see `fidelity_warnings_with`).
         Format::Dpx => FormatCaps { depths: &[S::U8, S::U16], layouts: &[L::Gray, L::Rgb, L::Rgba], text: true, ..base },
         Format::Cineon => FormatCaps { read: true, write: false, depths: &[S::U16], layouts: &[L::Gray, L::Rgb], alpha: false, ..base },
-        Format::Iff => FormatCaps { read: true, write: false, depths: &[S::U8], layouts: &[L::Rgb], alpha: false, ..base },
+        Format::Iff => FormatCaps { read: true, write: false, depths: &[S::U8], layouts: &[L::Rgb, L::Rgba], alpha: true, ..base },
     }
 }
 
