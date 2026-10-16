@@ -136,11 +136,8 @@ fn merged_rgb(background: &[Vec<u8>; 3]) -> Vec<u8> {
 /// in the green channel of the upper layer; the file is otherwise well framed.
 pub fn make_psd(corrupt: bool) -> Vec<u8> {
     let background = background_rgb();
-    let background_layer = layer(
-        "SAFE blue background",
-        (0, 0, WIDTH as i32, HEIGHT as i32),
-        (0..3).map(|ch| raw_channel(ch, &background[ch as usize])).collect(),
-    );
+    let background_layer =
+        layer("SAFE blue background", (0, 0, WIDTH as i32, HEIGHT as i32), (0..3).map(|ch| raw_channel(ch, &background[ch as usize])).collect());
 
     let panel_width = PANEL.2 - PANEL.0;
     let panel_height = PANEL.3 - PANEL.1;

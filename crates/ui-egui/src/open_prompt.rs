@@ -154,7 +154,11 @@ pub fn answer_remembering(app: &mut PhotocraftApp, action: &str) -> Result<Value
         _ => "preserve",
     };
     app.run("edit.colorSettings", json!({key: policy, "askOnMismatch": false}))?;
-    let same = |h: &Held| !h.recovery_pending && policy_key(h.doc.mode) == Some(key) && h.question.as_ref().is_some_and(|q| q.get("missing").and_then(Value::as_bool) != Some(true));
+    let same = |h: &Held| {
+        !h.recovery_pending
+            && policy_key(h.doc.mode) == Some(key)
+            && h.question.as_ref().is_some_and(|q| q.get("missing").and_then(Value::as_bool) != Some(true))
+    };
     let Some(held) = app.held_opens.pop_front() else { return Err("no file is waiting to open".into()) };
     let r = open(app, held, Some(action));
     while app.held_opens.front().is_some_and(same) {
@@ -173,33 +177,39 @@ pub(crate) fn recovery_dialog(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let Some(front) = app.held_opens.front().filter(|h| h.recovery_pending) else { return };
     let (name, warnings) = (front.name.clone(), front.warnings.clone());
     let mut choice = None;
-    egui::Window::new(tl!("Damaged Photoshop document"))
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .collapsible(false)
-        .resizable(false)
-        .show(ctx, |ui| {
-            ui.set_max_width(500.0);
-            ui.label(format!("{name} contains unreadable layers or image data."));
-            ui.label("You can open the recoverable parts, but some pixels or masks may be missing.");
-            ui.strong("The original file cannot be overwritten. Save a Copy must use a new file name.");
-            for warning in warnings.iter().filter(|w| !w.starts_with("PSD/PSB RECOVERY:")).take(5) {
-                ui.label(format!("- {warning}"));
+    egui::Window::new(tl!("Damaged Photoshop document")).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).collapsible(false).resizable(false).show(ctx, |ui| {
+        ui.set_max_width(500.0);
+        ui.label(format!("{name} contains unreadable layers or image data."));
+        ui.label("You can open the recoverable parts, but some pixels or masks may be missing.");
+        ui.strong("The original file cannot be overwritten. Save a Copy must use a new file name.");
+        for warning in warnings.iter().filter(|w| !w.starts_with("PSD/PSB RECOVERY:")).take(5) {
+            ui.label(format!("- {warning}"));
+        }
+        ui.separator();
+        ui.horizontal(|ui| {
+            if ui.button(tl!("Cancel")).clicked() {
+                choice = Some(false);
             }
-            ui.separator();
-            ui.horizontal(|ui| {
-                if ui.button(tl!("Cancel")).clicked() { choice = Some(false); }
-                if ui.button(tl!("Open in Recovery Mode")).clicked() { choice = Some(true); }
-            });
+            if ui.button(tl!("Open in Recovery Mode")).clicked() {
+                choice = Some(true);
+            }
         });
-    if let Some(accept) = choice { answer_recovery(app, accept); }
+    });
+    if let Some(accept) = choice {
+        answer_recovery(app, accept);
+    }
 }
 
 /// Accept or discard the first pending damaged PSD. This is also the modal's testable
 /// transition: no document is opened before `accept` is explicitly true.
 pub(crate) fn answer_recovery(app: &mut PhotocraftApp, accept: bool) {
-    if !app.held_opens.front().is_some_and(|h| h.recovery_pending) { return; }
+    if !app.held_opens.front().is_some_and(|h| h.recovery_pending) {
+        return;
+    }
     if accept {
-        if let Some(front) = app.held_opens.front_mut() { front.recovery_pending = false; }
+        if let Some(front) = app.held_opens.front_mut() {
+            front.recovery_pending = false;
+        }
     } else {
         app.held_opens.pop_front();
     }

@@ -551,9 +551,7 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
         })),
         save_file: Some(Arc::new(save_file)),
         recovery_save_file: Some(Arc::new(recovery_save_file)),
-        recovery_write: Some(Box::new(|path: &str, bytes: &[u8]| {
-            photocraft_io::write_recovery_copy_bytes(Path::new(path), bytes).map_err(|e| e.to_string())
-        })),
+        recovery_write: Some(Box::new(|path: &str, bytes: &[u8]| photocraft_io::write_recovery_copy_bytes(Path::new(path), bytes).map_err(|e| e.to_string()))),
         file_dialog: Some(Box::new(show_file_dialog)),
         write: Some(Box::new(|path: &str, bytes: &[u8]| write_atomic(Path::new(path), bytes))),
         file_stamp: Some(Box::new(|path: &str| {

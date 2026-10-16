@@ -4,15 +4,17 @@
 //!
 //! There is deliberately no fallback to `rename`, which can replace files.
 
-use std::path::Path;
 use crate::IoError;
+use std::path::Path;
 
 #[cfg(not(target_arch = "wasm32"))]
 struct Temporary(std::path::PathBuf);
 
 #[cfg(not(target_arch = "wasm32"))]
 impl Drop for Temporary {
-    fn drop(&mut self) { let _ = std::fs::remove_file(&self.0); }
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
 }
 
 /// Atomically publish an encoded recovery copy at a **previously unused** name.
@@ -30,8 +32,7 @@ pub fn write_recovery_copy_bytes(destination: &Path, bytes: &[u8]) -> Result<(),
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let err = |e: std::io::Error| IoError::Unsupported(format!("recovery copy: {e}"));
     let parent = destination.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
-    let name = destination.file_name().filter(|n| !n.is_empty()).ok_or_else(||
-        IoError::Unsupported("recovery copy needs a valid file name".into()))?;
+    let name = destination.file_name().filter(|n| !n.is_empty()).ok_or_else(|| IoError::Unsupported("recovery copy needs a valid file name".into()))?;
     let mut temporary = None;
     for _ in 0..64 {
         let next = NEXT.fetch_add(1, Ordering::Relaxed);
@@ -49,7 +50,10 @@ pub fn write_recovery_copy_bytes(destination: &Path, bytes: &[u8]) -> Result<(),
             opts.mode(0o600);
         }
         match opts.open(&candidate) {
-            Ok(file) => { temporary = Some((Temporary(candidate), file)); break; }
+            Ok(file) => {
+                temporary = Some((Temporary(candidate), file));
+                break;
+            }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(e) => return Err(err(e)),
         }
@@ -82,7 +86,11 @@ mod tests {
 
     #[test]
     fn recovered_copy_never_replaces_an_existing_file() {
-        let dir = std::env::temp_dir().join(format!("photocraft-copy-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let dir = std::env::temp_dir().join(format!(
+            "photocraft-copy-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
         std::fs::create_dir(&dir).unwrap();
         let source = dir.join("original.psd");
         let copy = dir.join("copy.psd");
@@ -93,7 +101,8 @@ mod tests {
         assert_eq!(std::fs::read(&copy).unwrap(), b"recovered");
         assert!(write_recovery_copy_bytes(&copy, b"overwritten").is_err());
         assert_eq!(std::fs::read(&copy).unwrap(), b"recovered");
-        #[cfg(unix)] {
+        #[cfg(unix)]
+        {
             use std::os::unix::fs::symlink;
             let link = dir.join("symlink.psd");
             symlink(&source, &link).unwrap();
