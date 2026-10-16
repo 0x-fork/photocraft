@@ -112,10 +112,10 @@ note = "Curves editor (adjust_editors.rs, dialog and Properties): Edit points / 
 
 [[item]]
 id = "UI-217-16"
-target = "Hue/Saturation: Saturation and Lightness sliders get hue-following colour tracks"
+target = "Hue/Saturation: Saturation slider gets a hue-following colour track, Lightness a black-grey-white track"
 status = "done"
 issue = 217
-note = "saturation_track/lightness_track (adjust_editors.rs): grey -> the hue and black -> the hue -> white, recolouring as the Hue slider moves; saturation_and_lightness_tracks_follow_the_hue"
+note = "saturation_track/lightness_track (adjust_editors.rs): grey -> the hue, recolouring as the Hue slider moves, and a fixed black -> grey -> white (#6539); saturation_track_follows_the_hue, lightness_track_is_black_grey_white_whatever_the_hue"
 
 [[item]]
 id = "UI-217-17"
