@@ -19,6 +19,10 @@ pub struct Held {
     pub doc: Document,
     /// The source is read-only (an Affinity file): Save doesn't write back to it.
     pub read_only: bool,
+    /// True for damaged PSDs admitted only through the explicit recovery path.
+    pub recovery_mode: bool,
+    /// Consent must be obtained before the document is opened or a profile prompt appears.
+    pub recovery_pending: bool,
     pub name: String,
     pub path: Option<String>,
     pub warnings: Vec<String>,
@@ -48,6 +52,9 @@ pub fn arrive(app: &mut PhotocraftApp, held: Held) {
 /// Opens queued files in order until one needs its prompt, which is shown if it isn't yet.
 fn advance(app: &mut PhotocraftApp) {
     while let Some(front) = app.held_opens.front() {
+        if front.recovery_pending {
+            return; // The recovery consent window is drawn by recovery_dialog().
+        }
         if front.question.is_some() {
             if !app.ui.dialogs.iter().any(|d| d.fields.contains_key(FIELD)) {
                 show(app);
@@ -112,6 +119,9 @@ pub fn owns(fields: &serde_json::Map<String, Value>) -> bool {
 /// The prompt's answer: `Some(action)` (OK) opens the first queued file with it and moves on to
 /// the next; `None` (Cancel) drops every queued file and stops the reads still running.
 pub fn answer(app: &mut PhotocraftApp, action: Option<&str>) -> Result<Value, String> {
+    if app.held_opens.front().is_some_and(|h| h.recovery_pending) {
+        return Err("answer the PSD recovery confirmation first".into());
+    }
     let Some(action) = action else {
         let dropped = app.held_opens.len();
         let name = app.held_opens.front().map(|h| h.name.clone()).unwrap_or_default();
@@ -134,6 +144,9 @@ pub fn answer(app: &mut PhotocraftApp, action: Option<&str>) -> Result<Value, St
 /// already waiting with a mismatch in the same mode were asked before that and get the same
 /// answer; any other question still asks.
 pub fn answer_remembering(app: &mut PhotocraftApp, action: &str) -> Result<Value, String> {
+    if app.held_opens.front().is_some_and(|h| h.recovery_pending) {
+        return Err("answer the PSD recovery confirmation first".into());
+    }
     let Some(key) = app.held_opens.front().and_then(|h| policy_key(h.doc.mode)) else { return answer(app, Some(action)) };
     let policy = match action {
         "convert" => "convert",
@@ -141,7 +154,7 @@ pub fn answer_remembering(app: &mut PhotocraftApp, action: &str) -> Result<Value
         _ => "preserve",
     };
     app.run("edit.colorSettings", json!({key: policy, "askOnMismatch": false}))?;
-    let same = |h: &Held| policy_key(h.doc.mode) == Some(key) && h.question.as_ref().is_some_and(|q| q.get("missing").and_then(Value::as_bool) != Some(true));
+    let same = |h: &Held| !h.recovery_pending && policy_key(h.doc.mode) == Some(key) && h.question.as_ref().is_some_and(|q| q.get("missing").and_then(Value::as_bool) != Some(true));
     let Some(held) = app.held_opens.pop_front() else { return Err("no file is waiting to open".into()) };
     let r = open(app, held, Some(action));
     while app.held_opens.front().is_some_and(same) {
@@ -154,10 +167,52 @@ pub fn answer_remembering(app: &mut PhotocraftApp, action: &str) -> Result<Value
     r
 }
 
+/// Consent required before opening a damaged PSD as a partially recovered document.
+/// Its original has no Save path; all further writes use the no-overwrite writer.
+pub(crate) fn recovery_dialog(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    let Some(front) = app.held_opens.front().filter(|h| h.recovery_pending) else { return };
+    let (name, warnings) = (front.name.clone(), front.warnings.clone());
+    let mut choice = None;
+    egui::Window::new(tl!("Damaged Photoshop document"))
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .collapsible(false)
+        .resizable(false)
+        .show(ctx, |ui| {
+            ui.set_max_width(500.0);
+            ui.label(format!("{name} contains unreadable layers or image data."));
+            ui.label("You can open the recoverable parts, but some pixels or masks may be missing.");
+            ui.strong("The original file cannot be overwritten. Save a Copy must use a new file name.");
+            for warning in warnings.iter().filter(|w| !w.starts_with("PSD/PSB RECOVERY:")).take(5) {
+                ui.label(format!("- {warning}"));
+            }
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button(tl!("Cancel")).clicked() { choice = Some(false); }
+                if ui.button(tl!("Open in Recovery Mode")).clicked() { choice = Some(true); }
+            });
+        });
+    if let Some(accept) = choice { answer_recovery(app, accept); }
+}
+
+/// Accept or discard the first pending damaged PSD. This is also the modal's testable
+/// transition: no document is opened before `accept` is explicitly true.
+pub(crate) fn answer_recovery(app: &mut PhotocraftApp, accept: bool) {
+    if !app.held_opens.front().is_some_and(|h| h.recovery_pending) { return; }
+    if accept {
+        if let Some(front) = app.held_opens.front_mut() { front.recovery_pending = false; }
+    } else {
+        app.held_opens.pop_front();
+    }
+    advance(app);
+}
+
 /// Opens a queued file, applying `action` (the prompt's answer) or else the Color Settings
 /// policy, then does what any open does afterwards.
 fn open(app: &mut PhotocraftApp, held: Held, action: Option<&str>) -> Result<Value, String> {
-    let Held { mut doc, read_only, name, path, warnings, bytes, slot, question, policy_applied } = held;
+    if held.recovery_pending {
+        return Err("damaged PSD cannot be opened before recovery consent".into());
+    }
+    let Held { mut doc, read_only, recovery_mode, recovery_pending: _, name, path, warnings, bytes, slot, question, policy_applied } = held;
     let index = if question.is_some() || policy_applied {
         if let Some(action) = action
             && let Err(e) = app.session.color.resolve_open(&mut doc, action)
@@ -171,6 +226,7 @@ fn open(app: &mut PhotocraftApp, held: Held, action: Option<&str>) -> Result<Val
     };
     if let Some(st) = app.session.active_mut() {
         st.source_read_only = read_only;
+        st.recovery_mode = recovery_mode;
     }
     let index = match slot {
         Some(slot) => app

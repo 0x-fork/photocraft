@@ -1469,9 +1469,11 @@ fn front(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Value)
 /// and saved state are untouched. An action being recorded keeps it as a `file.saveACopy` step
 /// with its path (#4373).
 fn save_a_copy(app: &mut PhotocraftApp) -> Result<Value, String> {
-    let doc = app.session.active().ok_or("no document")?.doc.clone();
+    let st = app.session.active().ok_or("no document")?;
+    let recovered = st.recovery_mode;
+    let doc = st.doc.clone();
     let stem = doc.name.rsplit_once('.').map_or(doc.name.as_str(), |(a, _)| a);
-    let suggested = format!("{stem} copy.psd");
+    let suggested = if recovered { format!("{stem} recovered.psd") } else { format!("{stem} copy.psd") };
     // The copy is of the document as it was when asked.
     app.pick_save(&suggested, move |app, path| {
         // An RGB Targa asks for its bits per pixel first, and a DDS texture for its compression;
@@ -1490,7 +1492,7 @@ fn save_a_copy(app: &mut PhotocraftApp) -> Result<Value, String> {
         if parked {
             return Ok(json!({"path": path, "warnings": []}));
         }
-        let r = write_copy(app, &doc, &path, crate::FormatChoices::default())?;
+        let r = write_copy_with_mode(app, &doc, &path, crate::FormatChoices::default(), recovered)?;
         app.session.journal.push(("file.saveACopy".into(), json!({"path": path})));
         Ok(r)
     })
@@ -1499,10 +1501,25 @@ fn save_a_copy(app: &mut PhotocraftApp) -> Result<Value, String> {
 /// Writes `doc` to `path` as a copy (Save a Copy, and its replayed action step): the document's
 /// path and saved state are untouched. `choices` are the Targa and DDS answers, when there are any.
 pub(crate) fn write_copy(app: &mut PhotocraftApp, doc: &photocraft_doc::Document, path: &str, choices: crate::FormatChoices) -> Result<Value, String> {
+    let recovered = app.session.documents().iter().any(|st| st.doc.id == doc.id && st.recovery_mode);
+    write_copy_with_mode(app, doc, path, choices, recovered)
+}
+
+fn write_copy_with_mode(
+    app: &mut PhotocraftApp,
+    doc: &photocraft_doc::Document,
+    path: &str,
+    choices: crate::FormatChoices,
+    recovered: bool,
+) -> Result<Value, String> {
     let settings = choices.apply(app.save_settings());
     let export = app.services.export.as_ref().ok_or("no exporter configured")?;
     let (bytes, warnings) = export(doc, path, &settings)?;
-    let write = app.services.write.as_mut().ok_or("no writer configured")?;
+    let write = if recovered {
+        app.services.recovery_write.as_mut().ok_or("safe recovery-copy writer not available")?
+    } else {
+        app.services.write.as_mut().ok_or("no writer configured")?
+    };
     write(path, &bytes)?;
     let template = "Saved a copy as {path}";
     app.ui.status = crate::i18n::fmt(tl!(template), &[("path", path)]);
@@ -1515,11 +1532,16 @@ pub(crate) fn write_copy(app: &mut PhotocraftApp, doc: &photocraft_doc::Document
 /// Layer › Smart Objects › Export Contents: saves the contents file under its own name by default.
 fn export_contents(app: &mut PhotocraftApp) -> Result<Value, String> {
     let st = app.session.active().ok_or("no document")?;
+    let recovered = st.recovery_mode;
     let layer = st.active_layer.ok_or("no layer selected")?;
     // The contents as they were when asked, like Save a Copy.
     let (name, bytes) = photocraft_engine::smart_cmds::contents_of(&st.doc, layer).map_err(|e| e.to_string())?;
     app.pick_save(&name.clone(), move |app, path| {
-        let write = app.services.write.as_mut().ok_or("no writer configured")?;
+        let write = if recovered {
+            app.services.recovery_write.as_mut().ok_or("safe recovery-copy writer not available")?
+        } else {
+            app.services.write.as_mut().ok_or("no writer configured")?
+        };
         write(&path, &bytes)?;
         let template = "Exported contents to {path}";
         app.ui.status = crate::i18n::fmt(tl!(template), &[("path", &path)]);

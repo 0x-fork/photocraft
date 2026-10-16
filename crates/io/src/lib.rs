@@ -61,6 +61,8 @@ mod pdn;
 pub mod pixels;
 mod psd_export;
 mod psd_import;
+mod recovery;
+pub use recovery::write_recovery_copy_bytes;
 pub mod psd_thumbnail;
 pub mod raw;
 pub mod slices_map;
@@ -309,7 +311,87 @@ pub fn import_with_svg_group_depth_and_interrupt(
     Ok(r)
 }
 
+/// Import a damaged PSD/PSB for explicit recovery. Unlike [`import`], this
+/// permits partially decoded layers, but marks the result source-read-only.
+///
+/// Front ends must show `warnings`, require user consent before editing,
+/// keep a session-level recovery flag, and use [`write_recovery_copy_bytes`]
+/// for every write: it publishes only NEW file names and never replaces the
+/// damaged original (or any existing file). Do not use this API as a drop-in
+/// replacement for [`import`].
+pub fn import_psd_for_recovery(name: &str, bytes: &[u8]) -> Result<ImportResult, IoError> {
+    import_psd_for_recovery_with(name, bytes, &photocraft_raster::Interrupt::NONE)
+}
+
+/// Cancelable version of [`import_psd_for_recovery`].
+pub fn import_psd_for_recovery_with(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt) -> Result<ImportResult, IoError> {
+    if !is_psd(bytes) {
+        return Err(IoError::Unsupported("recovery import accepts only PSD/PSB files".into()));
+    }
+    ctl.check().map_err(|_| IoError::Cancelled)?;
+    let result = import_stages_with_psd_recovery(name, bytes, ctl, photocraft_doc::MAX_GROUP_DEPTH, true)?;
+    ctl.check().map_err(|_| IoError::Cancelled)?;
+    ctl.progress(1.0);
+    Ok(result)
+}
+
+/// Refuse a recovered document's copy destination if it names its source.
+/// Canonical paths catch lexical aliases, `..`, relative paths, and symlinks;
+/// on Unix, inode/device identity also catches hardlinks. The source must
+/// exist, otherwise the check fails closed.
+///
+/// This validates a destination at one instant; front ends must call it
+/// immediately before their atomic write/rename. Callers also need to prevent
+/// concurrent destination replacement (TOCTOU), or use a platform-specific
+/// no-overwrite file operation.
+pub fn validate_recovery_copy_destination(source: &std::path::Path, destination: &std::path::Path) -> Result<(), IoError> {
+    use std::io::ErrorKind;
+    use std::path::Path;
+
+    let denied = || IoError::Unsupported("recovery copy must not overwrite the original PSD/PSB file".into());
+    let source_path = std::fs::canonicalize(source).map_err(|e| IoError::Unsupported(format!("cannot verify original PSD/PSB path: {e}")))?;
+    let source_metadata = std::fs::metadata(source).map_err(|e| IoError::Unsupported(format!("cannot stat original PSD/PSB file: {e}")))?;
+
+    let (candidate, exists) = match std::fs::symlink_metadata(destination) {
+        Ok(_) => (std::fs::canonicalize(destination).map_err(|e| IoError::Unsupported(format!("cannot resolve recovery destination: {e}")))?, true),
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            let parent = destination.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+            let directory = std::fs::canonicalize(parent).map_err(|e| IoError::Unsupported(format!("cannot resolve recovery destination folder: {e}")))?;
+            let filename = destination.file_name().ok_or_else(|| IoError::Unsupported("recovery copy needs a filename".into()))?;
+            (directory.join(filename), false)
+        }
+        Err(e) => return Err(IoError::Unsupported(format!("cannot inspect recovery destination: {e}"))),
+    };
+    if candidate == source_path {
+        return Err(denied());
+    }
+
+    // A hard link has a different path but the same inode.
+    #[cfg(unix)]
+    if exists {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = std::fs::metadata(destination).map_err(|e| IoError::Unsupported(format!("cannot stat recovery destination: {e}")))?;
+        if metadata.dev() == source_metadata.dev() && metadata.ino() == source_metadata.ino() {
+            return Err(denied());
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = (source_metadata, exists);
+
+    Ok(())
+}
+
 fn import_stages(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt, max_group_depth: usize) -> Result<ImportResult, IoError> {
+    import_stages_with_psd_recovery(name, bytes, ctl, max_group_depth, false)
+}
+
+fn import_stages_with_psd_recovery(
+    name: &str,
+    bytes: &[u8],
+    ctl: &photocraft_raster::Interrupt,
+    max_group_depth: usize,
+    recovery_requested: bool,
+) -> Result<ImportResult, IoError> {
     // A declared native extension must reach its loader so malformed bundles retain format errors.
     if has_extension(name, photocraft_format::EXTENSION) || photocraft_format::is_pcraft(bytes) {
         let document = photocraft_format::load_from_bytes(bytes)?;
@@ -327,10 +409,27 @@ fn import_stages(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt, m
         psd_import::check_group_depth(&file)?;
         ctl.check().map_err(|_| IoError::Cancelled)?;
         ctl.progress(0.05);
-        let (mut document, warnings) = psd_import::psd_to_document_decoded(&file, ctl, merged).ok_or(IoError::Cancelled)?;
+        let (mut document, mut warnings, unsafe_for_editing) = psd_import::psd_to_document_decoded_integrity(&file, ctl, merged).ok_or(IoError::Cancelled)?;
+        // An imported document cannot be trusted when channels or layer blocks failed to decode:
+        // allowing a normal Save or a Save As targeting the original would destroy the raw data.
+        // The normal importer remains fail-closed. Only an explicit recovery request can open
+        // partial content, and its caller must enforce validate_recovery_copy_destination().
+        if unsafe_for_editing && !recovery_requested {
+            return Err(IoError::Unsupported(format!(
+                "PSD/PSB contains unreadable image, layer or mask data; editing was refused to protect the source file ({})",
+                warnings
+                    .iter()
+                    .find(|w| w.contains("could not be decoded") || w.contains("could not be read") || w.contains("not imported"))
+                    .map(String::as_str)
+                    .unwrap_or("incomplete import"),
+            )));
+        }
+        if unsafe_for_editing {
+            warnings.insert(0, "PSD/PSB RECOVERY: the document is incomplete. The original must never be overwritten. Use Save a Copy to a different file; some layers, masks or channels are missing.".into());
+        }
         document.name = name.to_string();
         text_import::prepare(&mut document);
-        return Ok(ImportResult { document, warnings, source_read_only: false, preview_only: false });
+        return Ok(ImportResult { document, warnings, source_read_only: unsafe_for_editing, preview_only: false });
     }
     if affinity::is_affinity(bytes) || affinity::has_extension(name) {
         return affinity::import(name, bytes);
@@ -585,7 +684,88 @@ pub fn merged_composite(file: &PsdFile) -> Result<Vec<[f32; 4]>, IoError> {
 
 #[cfg(test)]
 mod tests {
-    use super::is_svg_input;
+    use super::{IoError, import, is_svg_input};
+    use photocraft_psd::{Compression, Version, testgen};
+
+    #[test]
+    fn valid_psd_can_still_be_edited() {
+        let bytes = testgen::small(Version::Psd, Compression::Raw).to_bytes().unwrap();
+        let imported = import("valid.psd", &bytes).unwrap();
+        assert!(!imported.source_read_only);
+    }
+
+    #[test]
+    fn unreadable_psd_channel_is_rejected_before_editing() {
+        let mut file = testgen::small(Version::Psd, Compression::Raw);
+        let channel = file.layers_mut()[0].channels.iter_mut().find(|c| c.id == 0).unwrap();
+        channel.data.clear();
+        let bytes = file.to_bytes().unwrap();
+        assert!(matches!(
+            import("damaged.psd", &bytes),
+            Err(IoError::Unsupported(reason)) if reason.contains("unreadable")
+        ));
+    }
+
+    #[test]
+    fn explicit_recovery_opens_unreadable_psd_read_only() {
+        let mut file = testgen::small(Version::Psd, Compression::Raw);
+        let channel = file.layers_mut()[0].channels.iter_mut().find(|c| c.id == 0).unwrap();
+        channel.data.clear();
+        let bytes = file.to_bytes().unwrap();
+        // Existing P0 behaviour: ordinary open is refused.
+        assert!(import("damaged.psd", &bytes).is_err());
+        // Explicit recovery: a partial document, but never normal source save.
+        let recovered = super::import_psd_for_recovery("damaged.psd", &bytes).unwrap();
+        assert!(recovered.source_read_only);
+        assert!(!recovered.preview_only);
+        assert!(recovered.warnings.iter().any(|w| w.contains("RECOVERY")));
+        assert!(recovered.warnings.iter().any(|w| w.contains("could not be decoded")));
+    }
+
+    #[test]
+    fn recovery_import_of_valid_psd_remains_editable() {
+        let bytes = testgen::small(Version::Psd, Compression::Raw).to_bytes().unwrap();
+        let result = super::import_psd_for_recovery("valid.psd", &bytes).unwrap();
+        assert!(!result.source_read_only);
+    }
+
+    #[test]
+    fn recovery_import_rejects_other_formats() {
+        assert!(super::import_psd_for_recovery("image.png", b"not a PSD").is_err());
+    }
+
+    #[test]
+    fn recovery_copy_guard_rejects_original_and_aliases() {
+        use std::fs;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("photocraft-recovery-{nonce}-{}", std::process::id()));
+        fs::create_dir_all(root.join("subdir")).unwrap();
+        let source = root.join("original.psd");
+        fs::write(&source, b"original unchanged").unwrap();
+
+        assert!(super::validate_recovery_copy_destination(&source, &source).is_err());
+        assert!(super::validate_recovery_copy_destination(&source, &root.join("subdir/../original.psd")).is_err());
+        assert!(super::validate_recovery_copy_destination(&source, &root.join("recovered.psd")).is_ok());
+        assert!(super::validate_recovery_copy_destination(&source, &root.join("subdir/recovered.psd")).is_ok());
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let link = root.join("alias.psd");
+            symlink(&source, &link).unwrap();
+            assert!(super::validate_recovery_copy_destination(&source, &link).is_err());
+            let hardlink = root.join("hardlink.psd");
+            fs::hard_link(&source, &hardlink).unwrap();
+            assert!(super::validate_recovery_copy_destination(&source, &hardlink).is_err());
+            let directory_link = root.join("alias_dir");
+            symlink(&root, &directory_link).unwrap();
+            assert!(super::validate_recovery_copy_destination(&source, &directory_link.join("original.psd")).is_err());
+        }
+        assert_eq!(fs::read(&source).unwrap(), b"original unchanged");
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn svg_extension_does_not_override_another_format_signature() {

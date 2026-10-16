@@ -51,6 +51,8 @@ pub(crate) struct Ctx<'a> {
     pub cc: usize,
     pub cmyk: bool,
     pub warnings: Vec<String>,
+    /// The import lost source data that cannot be safely written back to PSD/PSB.
+    pub unsafe_for_editing: bool,
     /// Document resolution (type sizes are converted to points with it).
     pub dpi: f32,
     /// The parsed `Txt2` block (type settings EngineData lacks, e.g. optical kerning).
@@ -132,6 +134,11 @@ impl Ctx<'_> {
         self.warnings.push(s.into());
     }
 
+    fn warn_unreadable_data(&mut self, s: impl Into<String>) {
+        self.unsafe_for_editing = true;
+        self.warn(s);
+    }
+
     /// Source id, transform, (Distort/Perspective) projective placement and warp of a placed
     /// layer that has only a `PlLd` block, as Photoshop CS2 and older write it (#2465). `PlLd`
     /// stores the placed corners but not the source size, which comes from the embedded file.
@@ -167,7 +174,7 @@ impl Ctx<'_> {
         match rec.decode_channel(id, self.file.header.depth, self.file.header.version) {
             Ok(p) => Some(p),
             Err(e) => {
-                self.warn(format!("layer \"{name}\": channel {id} could not be decoded ({e}); treated as empty"));
+                self.warn_unreadable_data(format!("layer \"{name}\": channel {id} could not be decoded ({e}); treated as empty"));
                 None
             }
         }
@@ -200,7 +207,7 @@ impl Ctx<'_> {
             let mut planes: Vec<Option<Vec<u8>>> = Vec::with_capacity(decoded.len());
             for (&id, p) in ids.iter().zip(decoded) {
                 if p.is_none() && rec.channel(id).is_some() {
-                    self.warn(format!("layer \"{name}\": channel {id} could not be decoded; treated as empty"));
+                    self.warn_unreadable_data(format!("layer \"{name}\": channel {id} could not be decoded; treated as empty"));
                 }
                 planes.push(p);
             }
@@ -826,6 +833,17 @@ pub(crate) fn psd_to_document_decoded(
     ctl: &photocraft_raster::Interrupt,
     decoded: Option<photocraft_psd::Result<Vec<u8>>>,
 ) -> Option<(Document, Vec<String>)> {
+    psd_to_document_decoded_integrity(file, ctl, decoded).map(|(document, warnings, _)| (document, warnings))
+}
+
+/// Also reports whether unrecoverable channel, layer or merged-image data was discarded.
+/// Normal imports reject that result before exposing the document for editing; callers using
+/// the low-level conversion API retain its existing best-effort behaviour.
+pub(crate) fn psd_to_document_decoded_integrity(
+    file: &PsdFile,
+    ctl: &photocraft_raster::Interrupt,
+    decoded: Option<photocraft_psd::Result<Vec<u8>>>,
+) -> Option<(Document, Vec<String>, bool)> {
     let h = &file.header;
     let mut warnings = Vec::new();
     let mode = doc_mode(h.color_mode).unwrap_or_else(|| {
@@ -892,7 +910,9 @@ pub(crate) fn psd_to_document_decoded(
     // A 16/32-bit file whose layer block can't be parsed would otherwise open as a flattened
     // file without a word (#2700). The raw block is kept, but a PSD save writes the document's
     // own layers in its place (see `psd_export`).
+    let mut unsafe_for_editing = false;
     if let Some((b, e)) = file.unreadable_layer_block() {
+        unsafe_for_editing = true;
         warnings.push(format!(
             "the layers ({} block) could not be read ({e}); only the merged image was opened. Saving as PSD replaces the unreadable layer data",
             b.key_str()
@@ -917,6 +937,7 @@ pub(crate) fn psd_to_document_decoded(
         cc,
         cmyk: fmt.mode == ColorMode::Cmyk,
         warnings,
+        unsafe_for_editing,
         dpi: doc.resolution_dpi,
         txt2: file.global_blocks.iter().find(|b| &b.key == b"Txt2").and_then(|b| photocraft_text::psd::parse_txt2(&b.data)),
         filter_effects: Vec::new(),
@@ -956,9 +977,9 @@ pub(crate) fn psd_to_document_decoded(
         }
         ctl.progress(0.1);
         if let Err(e) = &m {
-            cx.warn(format!("merged image could not be decoded: {e}"));
+            cx.warn_unreadable_data(format!("merged image could not be decoded: {e}"));
             if can_recover_layers(file) {
-                cx.warn("extra alpha/spot channels in the merged image could not be recovered");
+                cx.warn_unreadable_data("extra alpha/spot channels in the merged image could not be recovered");
             }
         }
         Some(m)
@@ -1086,7 +1107,7 @@ pub(crate) fn psd_to_document_decoded(
             }
             // A merged image that failed to decode was reported above.
             Err(_) if matches!(merged, Some(Err(_))) => {}
-            Err(e) => cx.warn(format!("the image could not be read: {e}")),
+            Err(e) => cx.warn_unreadable_data(format!("the image could not be read: {e}")),
         }
     }
 
@@ -1101,7 +1122,10 @@ pub(crate) fn psd_to_document_decoded(
         let skip = usize::from(file.merged_has_alpha() && names.len() == usize::from(h.channels).saturating_sub(cc));
         let names = names.get(skip..).unwrap_or_default();
         for (k, idx) in (first..usize::from(h.channels)).enumerate() {
-            let Some(p) = merged_plane(all, idx, plane) else { break };
+            let Some(p) = merged_plane(all, idx, plane) else {
+                cx.warn_unreadable_data(format!("merged extra channel {idx} is incomplete and was not imported"));
+                break;
+            };
             let mut s = Surface::new(cx.mask_fmt);
             s.write_interleaved(canvas, &be_to_ne_plane(p, depth, n));
             s.prune();
@@ -1139,7 +1163,7 @@ pub(crate) fn psd_to_document_decoded(
         return None;
     }
     ctl.progress(1.0);
-    Some((doc, cx.warnings))
+    Some((doc, cx.warnings, cx.unsafe_for_editing))
 }
 
 #[cfg(test)]
@@ -1182,6 +1206,36 @@ mod tests {
         data.extend(u32::MAX.to_be_bytes());
         data.extend([0, b'B']);
         assert_eq!(unicode_names(&data), ["A"]);
+    }
+
+    #[test]
+    fn unreadable_layer_channel_marks_conversion_unsafe_for_editing() {
+        let mut file = testgen::small(Version::Psd, Compression::Raw);
+        let channel = file.layers_mut()[0].channels.iter_mut().find(|c| c.id == 0).unwrap();
+        channel.data.clear();
+        assert!(file.layers()[0].decode_channel(0, file.header.depth, file.header.version).is_err());
+
+        let (_, warnings, unsafe_for_editing) = psd_to_document_decoded_integrity(&file, &photocraft_raster::Interrupt::NONE, None).unwrap();
+        assert!(unsafe_for_editing);
+        assert!(warnings.iter().any(|w| w.contains("could not be decoded")));
+    }
+
+    #[test]
+    fn unreadable_mask_channel_marks_conversion_unsafe_for_editing() {
+        let mut file = testgen::small(Version::Psd, Compression::Raw);
+        let channel = file.layers_mut()[0].channels.iter_mut().find(|c| c.id == CHANNEL_USER_MASK).unwrap();
+        channel.data.clear();
+
+        let (_, warnings, unsafe_for_editing) = psd_to_document_decoded_integrity(&file, &photocraft_raster::Interrupt::NONE, None).unwrap();
+        assert!(unsafe_for_editing);
+        assert!(warnings.iter().any(|w| w.contains("could not be decoded")));
+    }
+
+    #[test]
+    fn valid_layer_channels_keep_conversion_editable() {
+        let file = testgen::small(Version::Psd, Compression::Raw);
+        let (_, warnings, unsafe_for_editing) = psd_to_document_decoded_integrity(&file, &photocraft_raster::Interrupt::NONE, None).unwrap();
+        assert!(!unsafe_for_editing, "unexpectedly marked good PSD unsafe: {warnings:?}");
     }
 
     #[test]

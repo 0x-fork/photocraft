@@ -208,6 +208,9 @@ pub struct DocState {
     pub path: Option<String>,
     /// An Affinity document (or its preview) must not acquire the native source as its Save path.
     pub source_read_only: bool,
+    /// This session came from a damaged PSD: every save is a new, no-overwrite copy.
+    /// Kept outside history so Undo and Save a Copy cannot remove the restriction.
+    pub recovery_mode: bool,
     /// Increments on every change; UIs re-render when it moves.
     pub revision: u64,
     pub saved_revision: u64,
@@ -273,6 +276,7 @@ impl DocState {
             layer_anchor: active_layer,
             path,
             source_read_only: false,
+            recovery_mode: false,
             revision: 1,
             saved_revision: 1,
             view_revision: 0,

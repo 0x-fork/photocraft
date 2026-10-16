@@ -200,7 +200,7 @@ pub fn run(app: &mut PhotocraftApp, id: &str, params: Value) -> Result<Value, St
 /// replaces it when decoded. `path` is remembered for File › Save and Open Recent.
 pub fn start_open(app: &mut PhotocraftApp, name: &str, path: Option<String>, source: OpenSource) -> Result<(), String> {
     let name = &app.open_name(name);
-    match app.session.start_open(name, source).map_err(|e| e.to_string())? {
+    match app.session.start_open_for_user(name, source).map_err(|e| e.to_string())? {
         // Inline (wasm): finish now, like a background open that ended at once.
         Started::Done(v) => finish_open(app, name, path.as_deref(), &v, None),
         Started::Job(job) => {
@@ -552,6 +552,8 @@ fn finish_open(app: &mut PhotocraftApp, name: &str, path: Option<&str>, v: &Valu
     let held = |doc, read_only, question, policy_applied| crate::open_prompt::Held {
         doc,
         read_only,
+        recovery_mode: v.get("recovery").and_then(Value::as_bool).unwrap_or(false),
+        recovery_pending: v.get("recovery").and_then(Value::as_bool).unwrap_or(false),
         name: name.to_string(),
         path: path.map(str::to_string),
         warnings: warnings.clone(),
@@ -607,8 +609,11 @@ pub(crate) fn after_open(app: &mut PhotocraftApp, name: &str, path: Option<&str>
     } else {
         notices::io_warnings(app, &opened, warnings);
     }
-    // Script events bound to "Open Document".
-    photocraft_engine::automate_cmds::document_opened(&mut app.session);
+    // Script event hooks can save a file or run other I/O commands. Do not
+    // dispatch them automatically for a recovered, partially decoded PSD.
+    if !app.session.active().is_some_and(|st| st.recovery_mode) {
+        photocraft_engine::automate_cmds::document_opened(&mut app.session);
+    }
     app.sync_views();
 }
 

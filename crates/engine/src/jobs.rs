@@ -507,6 +507,17 @@ impl Session {
     /// result is `{held, name, warnings, color}` (`color` the question): take it with
     /// [`Session::take_held_open`] once answered.
     pub fn start_open(&mut self, name: &str, source: OpenSource) -> Result<Started> {
+        self.start_open_inner(name, source, false)
+    }
+
+    /// GUI opening: PSDs are decoded with the opt-in recovery path, but a
+    /// damaged result is held back until the user accepts the recovery prompt.
+    /// Headless/automation opening keeps the strict default above.
+    pub fn start_open_for_user(&mut self, name: &str, source: OpenSource) -> Result<Started> {
+        self.start_open_inner(name, source, true)
+    }
+
+    fn start_open_inner(&mut self, name: &str, source: OpenSource, offer_recovery: bool) -> Result<Started> {
         let label = format!("Opening {name}");
         let name_w = name.to_string();
         let name_a = name.to_string();
@@ -525,7 +536,13 @@ impl Session {
                 ctx.check()?;
                 ctx.progress(0.02, "Decoding");
                 let imported = ctx
-                    .stage(0.02, 0.95, "Decoding", |ctl| photocraft_io::import_with_svg_group_depth_and_interrupt(&name_w, &bytes, max_svg_group_depth, ctl))
+                    .stage(0.02, 0.95, "Decoding", |ctl| {
+                        if offer_recovery && photocraft_io::is_psd(&bytes) {
+                            photocraft_io::import_psd_for_recovery_with(&name_w, &bytes, ctl)
+                        } else {
+                            photocraft_io::import_with_svg_group_depth_and_interrupt(&name_w, &bytes, max_svg_group_depth, ctl)
+                        }
+                    })
                     .map_err(|e| match e {
                         photocraft_io::IoError::Cancelled => EngineError::Cancelled,
                         e => EngineError::Other(e.to_string()),
@@ -540,9 +557,11 @@ impl Session {
                 // Ask When Opening: held back until the prompt is answered (`take_held_open`). A
                 // developed raw has no embedded profile to ask about.
                 let raw = r.warnings.iter().any(|w| w.contains(photocraft_io::raw::DEVELOPED_NOTE));
-                if let Some(question) = s.color.open_question(&r.document).filter(|_| !raw) {
+                let recovery = offer_recovery && r.source_read_only && r.warnings.iter().any(|w| w.starts_with("PSD/PSB RECOVERY:"));
+                let question = s.color.open_question(&r.document).filter(|_| !raw);
+                if recovery || question.is_some() {
                     let held = s.hold_open(r.document, r.source_read_only);
-                    return Ok(json!({"held": held, "name": name_a, "warnings": r.warnings, "color": question}));
+                    return Ok(json!({"held": held, "name": name_a, "warnings": r.warnings, "color": question, "recovery": recovery}));
                 }
                 let (index, color) = s.open_document(r.document, None);
                 if let Some(st) = s.active_mut() {
