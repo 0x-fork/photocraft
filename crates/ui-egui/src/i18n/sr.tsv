@@ -4281,3 +4281,8 @@ shape	Appearance	Izgled
 	This document's layers: {needed} of {budget} for layers	Slojevi ovog dokumenta: {needed} od {budget} za slojeve
 	This document's layers need {needed} but may hold {budget}: whole-document redraws use the CPU	Slojevima ovog dokumenta treba {needed}, a smeju da zauzmu {budget}: ceo dokument se ponovo iscrtava na CPU-u
 	GPU Memory (MB, 0 = Automatic)	GPU memorija (MB, 0 = Automatski)
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Automatski smer pasusa
+	Left-to-right paragraph direction	Smer pasusa sleva nadesno
+	Right-to-left paragraph direction	Smer pasusa zdesna nalevo

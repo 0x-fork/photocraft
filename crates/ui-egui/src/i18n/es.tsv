@@ -4170,3 +4170,8 @@ navigator	Zoom	Zoom
 	This document's layers: {needed} of {budget} for layers	Capas de este documento: {needed} de {budget} para capas
 	This document's layers need {needed} but may hold {budget}: whole-document redraws use the CPU	Las capas de este documento necesitan {needed} pero pueden ocupar {budget}: los redibujados de todo el documento usan la CPU
 	GPU Memory (MB, 0 = Automatic)	Memoria de GPU (MB, 0 = Automático)
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Dirección de párrafo automática
+	Left-to-right paragraph direction	Dirección de párrafo de izquierda a derecha
+	Right-to-left paragraph direction	Dirección de párrafo de derecha a izquierda

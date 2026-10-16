@@ -3816,3 +3816,8 @@ navigator	Zoom	Zvětšení
 	This document's layers: {needed} of {budget} for layers	Vrstvy tohoto dokumentu: {needed} z {budget} pro vrstvy
 	This document's layers need {needed} but may hold {budget}: whole-document redraws use the CPU	Vrstvy tohoto dokumentu potřebují {needed}, ale mohou zabrat {budget}: překreslení celého dokumentu probíhá na CPU
 	GPU Memory (MB, 0 = Automatic)	Paměť GPU (MB, 0 = Automaticky)
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Automatický směr odstavce
+	Left-to-right paragraph direction	Směr odstavce zleva doprava
+	Right-to-left paragraph direction	Směr odstavce zprava doleva

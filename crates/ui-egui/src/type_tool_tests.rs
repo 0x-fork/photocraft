@@ -1438,6 +1438,62 @@ mod multi_layer_formatting {
         });
     }
 
+    /// The Paragraph section's direction buttons set the selected layers' paragraph direction in
+    /// one undo step, show the current one, and leave unselected layers and the tool's default for
+    /// new type alone (TYPE-218-2).
+    #[test]
+    fn paragraph_direction_buttons_set_and_show_the_direction() {
+        use egui::accesskit::Toggled;
+        use egui_kittest::kittest::NodeT;
+        use photocraft_doc::text::TextDirection;
+        let (app, ids) = fixture();
+        let dir = |app: &PhotocraftApp, id: LayerId| text(app, id).paragraph_runs()[0].style.direction;
+        let shown = |h: &Harness<'static, PhotocraftApp>, label: &str| h.get_by_label(label).accesskit_node().toggled();
+        let mut h = controls(app, true);
+        assert_eq!(shown(&h, "Automatic paragraph direction"), Some(Toggled::True), "new type follows its text");
+        assert_eq!(shown(&h, "Right-to-left paragraph direction"), Some(Toggled::False));
+        let steps = h.state().session.active().unwrap().history.entries().len();
+        h.get_by_label("Right-to-left paragraph direction").click();
+        h.run();
+        for id in &ids[..2] {
+            assert_eq!(dir(h.state(), *id), TextDirection::Rtl, "selected layers get the direction");
+        }
+        assert_eq!(dir(h.state(), ids[2]), TextDirection::Auto, "an unselected layer is untouched");
+        assert_eq!(h.state().session.active().unwrap().history.entries().len(), steps + 1, "one undo step");
+        assert_eq!(h.state().ui.tool_options.type_direction, "auto", "the panel edits layers, not new type");
+        h.run();
+        assert_eq!(shown(&h, "Right-to-left paragraph direction"), Some(Toggled::True), "the button shows it");
+        assert_eq!(shown(&h, "Automatic paragraph direction"), Some(Toggled::False));
+        h.get_by_label("Left-to-right paragraph direction").click();
+        h.run();
+        assert_eq!(dir(h.state(), ids[0]), TextDirection::Ltr);
+        assert!(h.state_mut().session.undo());
+        assert!(h.state_mut().session.undo());
+        for id in &ids[..2] {
+            assert_eq!(dir(h.state(), *id), TextDirection::Auto, "undo restores it");
+        }
+    }
+
+    /// The options bar's direction buttons set the selected layers' direction and the one new
+    /// type starts with, as its alignment buttons do (TYPE-218-2).
+    #[test]
+    fn options_bar_direction_sets_selected_layers_and_new_type() {
+        use photocraft_doc::text::TextDirection;
+        let (app, ids) = fixture();
+        let mut h = controls(app, false);
+        h.get_by_label("Right-to-left paragraph direction").click();
+        h.run();
+        assert_eq!(h.state().ui.tool_options.type_direction, "rtl");
+        for id in &ids[..2] {
+            assert_eq!(text(h.state(), *id).paragraph_runs()[0].style.direction, TextDirection::Rtl);
+        }
+        assert_eq!(text(h.state(), ids[2]).paragraph_runs()[0].style.direction, TextDirection::Auto);
+        super::super::pointer_up(h.state_mut(), [40.0, 60.0], [40.0, 60.0]);
+        let id = h.state().session.active().unwrap().active_layer.unwrap();
+        assert!(!ids.contains(&id), "a new type layer");
+        assert_eq!(text(h.state(), id).paragraph_runs()[0].style.direction, TextDirection::Rtl, "new type starts right to left");
+    }
+
     #[test]
     fn options_font_family_preserves_peer_faces_and_batches_layer_flags() {
         let (app, ids) = fixture();

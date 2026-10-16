@@ -3968,3 +3968,8 @@ curves	Smooth	Vloeiend maken
 	This document's layers: {needed} of {budget} for layers	Lagen van dit document: {needed} van {budget} voor lagen
 	This document's layers need {needed} but may hold {budget}: whole-document redraws use the CPU	De lagen van dit document hebben {needed} nodig maar mogen {budget} gebruiken: het hele document wordt op de CPU opnieuw getekend
 	GPU Memory (MB, 0 = Automatic)	GPU-geheugen (MB, 0 = Automatisch)
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Automatische alinearichting
+	Left-to-right paragraph direction	Alinearichting van links naar rechts
+	Right-to-left paragraph direction	Alinearichting van rechts naar links

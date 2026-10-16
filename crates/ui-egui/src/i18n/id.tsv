@@ -3200,3 +3200,8 @@ curves	Smooth	Haluskan
 	This document's layers: {needed} of {budget} for layers	Layer dokumen ini: {needed} dari {budget} untuk layer
 	This document's layers need {needed} but may hold {budget}: whole-document redraws use the CPU	Layer dokumen ini membutuhkan {needed} tetapi boleh memakai {budget}: penggambaran ulang seluruh dokumen memakai CPU
 	GPU Memory (MB, 0 = Automatic)	Memori GPU (MB, 0 = Otomatis)
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Arah paragraf otomatis
+	Left-to-right paragraph direction	Arah paragraf kiri ke kanan
+	Right-to-left paragraph direction	Arah paragraf kanan ke kiri

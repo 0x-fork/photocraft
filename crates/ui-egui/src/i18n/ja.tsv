@@ -3884,3 +3884,8 @@ curves	Smooth	スムーズ
 	This document's layers: {needed} of {budget} for layers	このドキュメントのレイヤー: レイヤー用 {budget} のうち {needed}
 	This document's layers need {needed} but may hold {budget}: whole-document redraws use the CPU	このドキュメントのレイヤーには {needed} が必要ですが、使えるのは {budget} です: ドキュメント全体の再描画は CPU で行われます
 	GPU Memory (MB, 0 = Automatic)	GPU メモリ（MB、0 = 自動）
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	段落の方向を自動判別
+	Left-to-right paragraph direction	左から右への段落方向
+	Right-to-left paragraph direction	右から左への段落方向
