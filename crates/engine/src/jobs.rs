@@ -713,17 +713,7 @@ impl Session {
             return Ok(Started::Done(v));
         }
         // Pixel commands follow the Channels panel target unless the caller names one.
-        let run_params = crate::channel_cmds::inject_target(self, id, crate::commands::inject_kind(id, params.clone()));
-        if let Err(why) = self.explicit_layer_enabled(spec, &params).unwrap_or_else(|| self.precondition(spec, &run_params)) {
-            return Err(EngineError::Disabled(id.to_string(), why));
-        }
-        if let Some(why) = self.job_conflict(id, spec.journal) {
-            return Err(EngineError::Disabled(id.to_string(), why));
-        }
-        // Painting on or moving a hidden layer is refused, as in Photoshop (#571).
-        if let Some(why) = crate::hidden_target::refusal(self, id, &params) {
-            return Err(EngineError::Other(why.into()));
-        }
+        let run_params = self.admit(id, spec, &params)?;
         // This UI-only disclosure preference applies to both `execute` and `start`:
         // desktop UI normally calls `start`, even for synchronous Layer Style commands.
         let new_fx_target = if id.starts_with("layer.layerStyle.") {
@@ -735,7 +725,6 @@ impl Session {
             None
         };
         let expand_new_fx = crate::commands::layer_panel_option(self, "expandNewEffects", true);
-        let run_params = self.admit(id, spec, &params)?;
         self.coalesce_request = params.get("coalesce").and_then(Value::as_str).map(str::to_string);
         self.color_restrict = crate::channel_cmds::color_restriction(self, id, &run_params);
         self.jobs.spawn = background;
