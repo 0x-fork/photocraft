@@ -47,6 +47,7 @@ fn near(a: [u8; 4], b: [u8; 3]) -> bool {
 
 #[test]
 fn navigator_draws_the_gpu_canvas_texture_and_follows_edits() {
+    let _gpu = photocraft_testkit::gpu_lock();
     let Some(mut h) = harness() else { return };
     h.run_steps(8);
     if !h.state().perf.gpu {
