@@ -2846,7 +2846,14 @@ fn transform_fields(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &TransformSes
     }
 }
 
-fn anchor_grid_widget(ui: &mut egui::Ui, current_anchor: usize) -> Option<usize> {
+fn matching_anchor(quad: [[f64; 2]; 4], pivot: [f64; 2]) -> Option<usize> {
+    (0..9).find(|&i| {
+        let p = point_on_quad(quad, i);
+        (p[0] - pivot[0]).abs() <= 0.05 && (p[1] - pivot[1]).abs() <= 0.05
+    })
+}
+
+fn anchor_grid_widget(ui: &mut egui::Ui, current_anchor: Option<usize>) -> Option<usize> {
     let size = egui::vec2(16.0, 16.0);
     let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
     let tk = crate::theme::Tokens::get(ui.ctx());
@@ -2863,7 +2870,7 @@ fn anchor_grid_widget(ui: &mut egui::Ui, current_anchor: usize) -> Option<usize>
             if resp.clicked() && pointer.is_some_and(|p| (p.x - cx).abs() <= 3.0 && (p.y - cy).abs() <= 3.0) {
                 clicked = Some(idx);
             }
-            if idx == current_anchor {
+            if current_anchor == Some(idx) {
                 painter.rect_filled(pt_rect, 0.5, tk.accent);
             } else {
                 painter.rect_filled(pt_rect, 0.5, tk.text_dim);
@@ -2881,17 +2888,18 @@ pub(crate) fn position_size_fields(app: &mut PhotocraftApp, ui: &mut egui::Ui, t
     let lbl = |ui: &mut egui::Ui, s: &str| {
         ui.label(egui::RichText::new(s).color(tk.text_dim).size(12.0));
     };
-    let anchor_id = egui::Id::new("transform-anchor");
-    let current_anchor: usize = ui.data(|d| d.get_temp(anchor_id)).unwrap_or(4);
+    let current_anchor = matching_anchor(t.quad, t.pivot);
+    let mut pivot = t.pivot;
     if let Some(new_anchor) = anchor_grid_widget(ui, current_anchor) {
-        ui.data_mut(|d| d.insert_temp(anchor_id, new_anchor));
+        let new_p = point_on_quad(t.quad, new_anchor);
         if let Some(s) = app.ui.transform.as_mut() {
-            s.pivot = point_on_quad(s.quad, new_anchor);
+            s.pivot = new_p;
         }
+        pivot = new_p;
     }
     ui.add_space(4.0);
-    let mut px = t.pivot[0] as f32;
-    let mut py = t.pivot[1] as f32;
+    let mut px = pivot[0] as f32;
+    let mut py = pivot[1] as f32;
     lbl(ui, "X:");
     let rx = crate::widgets::value_field(ui, &mut px, -POSITION_LIMIT_PX..=POSITION_LIMIT_PX, "px", 72.0);
     lbl(ui, "Y:");
@@ -5433,5 +5441,11 @@ mod tests {
         assert_eq!(p_top_right, [200.0, 0.0]);
         let p_center = carry_pivot(quad, quad_scaled, [50.0, 25.0]);
         assert_eq!(p_center, [100.0, 50.0]);
+
+        for anchor in 0..9 {
+            assert_eq!(matching_anchor(quad, point_on_quad(quad, anchor)), Some(anchor));
+        }
+        assert_eq!(matching_anchor(quad, [12.3, 45.6]), None);
+        assert_eq!(matching_anchor(quad, [50.0, 30.0]), None);
     }
 }
