@@ -11,6 +11,10 @@ use serde_json::{Value, json};
 use crate::commands::CommandSpec;
 use crate::{EngineError, Result, Session};
 
+/// Maximum dense RGBA staging pixels in one animated GIF frame. A GIF also keeps the
+/// quantised frame and palette while rendering, so the document canvas limit is not enough.
+const MAX_GIF_FRAME_PIXELS: u64 = 64 << 20;
+
 /// Set every video layer's displayed content to its frame at the playhead.
 pub fn sync(doc: &mut Document) {
     let cur = doc.timeline.as_ref().map_or(0, |t| t.current);
@@ -19,7 +23,10 @@ pub fn sync(doc: &mut Document) {
 
 fn sync_layers(layers: &mut [Layer], cur: usize) {
     for l in layers.iter_mut() {
-        let frame = l.video.as_ref().and_then(|v| v.frames.get(cur.min(v.frames.len().saturating_sub(1)))).cloned();
+        let frame = l.video.as_ref().and_then(|v| {
+            let visible = if v.show_altered { &v.frames } else { v.original_frames.as_ref().unwrap_or(&v.frames) };
+            visible.get(cur.min(visible.len().saturating_sub(1))).cloned()
+        });
         if let Some(f) = frame
             && let LayerContent::Raster(s) = &mut l.content
         {
@@ -42,7 +49,11 @@ fn store_layers(layers: &mut [Layer], cur: usize) {
     for l in layers.iter_mut() {
         if let (Some(v), LayerContent::Raster(s)) = (&mut l.video, &l.content) {
             let at = cur.min(v.frames.len().saturating_sub(1));
-            if let Some(f) = v.frames.get_mut(at) {
+            // When showing the original, the layer's displayed surface is a preview,
+            // not an edit to write over the altered frame (#3060).
+            if (v.show_altered || v.original_frames.is_none())
+                && let Some(f) = v.frames.get_mut(at)
+            {
                 *f = s.clone();
             }
         }
@@ -65,6 +76,17 @@ fn has_doc(s: &Session) -> std::result::Result<(), String> {
     s.active().map(|_| ()).ok_or_else(|| "no document".into())
 }
 
+/// Grow the timeline to at least `frames` frames (never shrink it). Only a work area that reached
+/// the old end follows the new end; a narrowed one stays where the user put it (#4170).
+fn grow_duration(t: &mut Timeline, frames: usize) {
+    let old = t.duration;
+    t.duration = t.duration.max(frames.max(1));
+    if t.work_end >= old {
+        t.work_end = t.duration;
+    }
+    t.clamp();
+}
+
 /// Edit the active video layer's [`VideoData`] at the playhead, then re-sync the displayed frame.
 fn edit_video(s: &mut Session, label: &str, f: impl FnOnce(&mut VideoData, usize) -> Result<()>) -> Result<Value> {
     let count = s.edit(label, |doc, active| {
@@ -76,9 +98,7 @@ fn edit_video(s: &mut Session, label: &str, f: impl FnOnce(&mut VideoData, usize
         f(v, cur)?;
         let n = v.frames.len();
         if let Some(t) = &mut doc.timeline {
-            t.duration = t.duration.max(n.max(1));
-            t.work_end = t.work_end.max(t.duration);
-            t.clamp();
+            grow_duration(t, n);
         }
         sync(doc);
         Ok(n)
@@ -116,6 +136,10 @@ fn insert_blank(s: &mut Session, _p: &Value) -> Result<Value> {
     edit_video(s, "Insert Blank Frame", move |v, cur| {
         let at = (cur + 1).min(v.frames.len());
         v.frames.insert(at, blank_of(fmt));
+        if let Some(original) = &mut v.original_frames {
+            // The stacks stay aligned, but never index past a shorter one.
+            original.insert(at.min(original.len()), blank_of(fmt));
+        }
         Ok(())
     })
 }
@@ -123,6 +147,10 @@ fn insert_blank(s: &mut Session, _p: &Value) -> Result<Value> {
 fn duplicate_frame(s: &mut Session, _p: &Value) -> Result<Value> {
     edit_video(s, "Duplicate Frame", |v, cur| {
         if let Some(f) = v.frames.get(cur).cloned() {
+            if let Some(original) = &mut v.original_frames {
+                let orig = original.get(cur).cloned().unwrap_or_else(|| blank_of(f.format()));
+                original.insert((cur + 1).min(original.len()), orig);
+            }
             v.frames.insert(cur + 1, f);
         }
         Ok(())
@@ -133,6 +161,11 @@ fn delete_frame(s: &mut Session, _p: &Value) -> Result<Value> {
     edit_video(s, "Delete Frame", |v, cur| {
         if v.frames.len() > 1 && cur < v.frames.len() {
             v.frames.remove(cur);
+            if let Some(original) = &mut v.original_frames
+                && cur < original.len()
+            {
+                original.remove(cur);
+            }
         }
         Ok(())
     })
@@ -141,8 +174,9 @@ fn delete_frame(s: &mut Session, _p: &Value) -> Result<Value> {
 fn restore_frame(s: &mut Session, _p: &Value) -> Result<Value> {
     let fmt = s.active().ok_or(EngineError::NoDocument)?.doc.pixel_format();
     edit_video(s, "Restore Frame", move |v, cur| {
+        let original = v.original_frames.as_ref().and_then(|frames| frames.get(cur)).cloned();
         if let Some(f) = v.frames.get_mut(cur) {
-            *f = blank_of(fmt);
+            *f = original.unwrap_or_else(|| blank_of(fmt));
         }
         Ok(())
     })
@@ -151,8 +185,8 @@ fn restore_frame(s: &mut Session, _p: &Value) -> Result<Value> {
 fn restore_all(s: &mut Session, _p: &Value) -> Result<Value> {
     let fmt = s.active().ok_or(EngineError::NoDocument)?.doc.pixel_format();
     edit_video(s, "Restore All Frames", move |v, _| {
-        for f in v.frames.iter_mut() {
-            *f = blank_of(fmt);
+        for (i, f) in v.frames.iter_mut().enumerate() {
+            *f = v.original_frames.as_ref().and_then(|frames| frames.get(i)).cloned().unwrap_or_else(|| blank_of(fmt));
         }
         Ok(())
     })
@@ -179,9 +213,38 @@ fn rasterize(s: &mut Session, _p: &Value) -> Result<Value> {
 
 // ------------------------------------------------------------------ file-based footage
 
-/// Load frames from `path`: a single image (1 frame), or a directory of images (sorted = an image
-/// sequence). Each becomes a full raster frame in the document's format.
-fn load_frames(path: &str, fmt: photocraft_color::PixelFormat) -> Result<Vec<Surface>> {
+/// Frames loaded from a file or an image sequence.
+struct Footage {
+    frames: Vec<Surface>,
+    /// The frame rate the footage itself implies (a single animated GIF's delays); `None` for
+    /// stills and sequences, which carry none.
+    fps: Option<f32>,
+}
+
+/// The frame rate for a GIF's frame delays (milliseconds): that of the most common delay, the
+/// first one seen on a tie. GIF has a delay per frame but the timeline one rate. Delays under
+/// 20 ms, which includes the 0 and 10 ms many encoders write, are shown at 100 ms, as browsers
+/// do, since they would otherwise play at an unintended 50-100 fps.
+fn fps_from_delays(delays: &[u32]) -> Option<f32> {
+    let clean = |d: u32| if d < 20 { 100 } else { d };
+    let mut counts: Vec<(u32, usize)> = Vec::new();
+    for d in delays.iter().copied().map(clean) {
+        match counts.iter_mut().find(|(k, _)| *k == d) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((d, 1)),
+        }
+    }
+    let best = counts.iter().fold(None::<(u32, usize)>, |best, &(d, n)| match best {
+        Some((_, bn)) if bn >= n => best,
+        _ => Some((d, n)),
+    });
+    best.map(|(d, _)| 1000.0 / d as f32)
+}
+
+/// Load frames from `path`: a single image (1 frame, or every frame of an animated GIF), or a
+/// directory of images (sorted = an image sequence). Each becomes a full raster frame in the
+/// document's format.
+fn load_frames(path: &str, fmt: photocraft_color::PixelFormat) -> Result<Footage> {
     let p = std::path::Path::new(path);
     let is_img = |f: &std::path::Path| {
         matches!(
@@ -204,9 +267,19 @@ fn load_frames(path: &str, fmt: photocraft_color::PixelFormat) -> Result<Vec<Sur
         return Err(EngineError::Other(format!("no images in `{path}`")));
     }
     let mut frames = Vec::with_capacity(files.len());
+    let mut delays = Vec::new();
     for f in &files {
         let bytes = std::fs::read(f).map_err(|e| EngineError::Other(format!("read `{}`: {e}", f.display())))?;
         let name = f.to_string_lossy();
+        if photocraft_codecs::detect(&bytes) == Some(photocraft_codecs::Format::Gif) {
+            photocraft_io::import_gif_frames(&name, &bytes, &mut |doc, delay_ms| {
+                frames.push(crate::file_cmds::flattened(&doc, fmt));
+                delays.push(delay_ms);
+                Ok(())
+            })
+            .map_err(|e| EngineError::Other(format!("`{}`: {e}", f.display())))?;
+            continue;
+        }
         let mut doc = crate::file_cmds::import(&name, &bytes)?;
         // A Targa's alpha opens as a channel (as in Photoshop); a frame's alpha is transparency.
         if f.extension().is_some_and(|e| e.eq_ignore_ascii_case("tga")) {
@@ -214,7 +287,9 @@ fn load_frames(path: &str, fmt: photocraft_color::PixelFormat) -> Result<Vec<Sur
         }
         frames.push(crate::file_cmds::flattened(&doc, fmt));
     }
-    Ok(frames)
+    // Only a lone GIF says how fast it plays; a sequence mixing files has no single rate.
+    let fps = if files.len() == 1 { fps_from_delays(&delays) } else { None };
+    Ok(Footage { frames, fps })
 }
 
 fn new_from_file(s: &mut Session, p: &Value) -> Result<Value> {
@@ -223,21 +298,22 @@ fn new_from_file(s: &mut Session, p: &Value) -> Result<Value> {
         .and_then(Value::as_str)
         .ok_or_else(|| EngineError::BadParams { cmd: "layer.videoLayers.newVideoLayerFromFile".into(), msg: "need `path`".into() })?
         .to_string();
-    let fps = p.get("fps").and_then(Value::as_f64).unwrap_or(30.0) as f32;
     let fmt = s.active().ok_or(EngineError::NoDocument)?.doc.pixel_format();
-    let frames = load_frames(&path, fmt)?;
+    let Footage { frames, fps: footage_fps } = load_frames(&path, fmt)?;
+    // An explicit `fps` wins, then the rate the footage implies, then 30.
+    let fps = p.get("fps").and_then(Value::as_f64).map(|f| f as f32).or(footage_fps).unwrap_or(30.0);
     let n = frames.len();
     let id = s.edit("New Video Layer from File", |doc, active| {
         store(doc);
         if doc.timeline.is_none() {
             doc.timeline = Some(Timeline::new(n, fps));
         } else if let Some(t) = &mut doc.timeline {
-            t.duration = t.duration.max(n);
-            t.clamp();
+            grow_duration(t, n);
         }
         let name = doc.next_layer_name(std::path::Path::new(&path).file_stem().and_then(|s| s.to_str()).unwrap_or("Video"));
         let mut l = Layer::raster(name, fmt);
         let mut v = VideoData::new(frames, fps);
+        v.original_frames = Some(v.frames.clone());
         v.source = photocraft_doc::VideoSource::File { path: path.clone() };
         l.video = Some(v);
         let id = doc.insert_above(*active, l);
@@ -255,8 +331,9 @@ fn replace_footage(s: &mut Session, p: &Value) -> Result<Value> {
         .ok_or_else(|| EngineError::BadParams { cmd: "layer.videoLayers.replaceFootage".into(), msg: "need `path`".into() })?
         .to_string();
     let fmt = s.active().ok_or(EngineError::NoDocument)?.doc.pixel_format();
-    let frames = load_frames(&path, fmt)?;
+    let frames = load_frames(&path, fmt)?.frames;
     edit_video(s, "Replace Footage", move |v, _| {
+        v.original_frames = Some(frames.clone());
         v.frames = frames;
         v.source = photocraft_doc::VideoSource::File { path: path.clone() };
         Ok(())
@@ -288,8 +365,9 @@ fn reload_frame(s: &mut Session, _p: &Value) -> Result<Value> {
     let photocraft_doc::VideoSource::File { path } = src else {
         return Err(EngineError::BadParams { cmd: "layer.videoLayers.reloadFrame".into(), msg: "this layer has no file source to reload".into() });
     };
-    let frames = load_frames(&path, fmt)?;
+    let frames = load_frames(&path, fmt)?.frames;
     edit_video(s, "Reload Frame", move |v, _| {
+        v.original_frames = Some(frames.clone());
         v.frames = frames;
         Ok(())
     })
@@ -303,7 +381,7 @@ fn frames_to_layers(s: &mut Session, p: &Value) -> Result<Value> {
         .ok_or_else(|| EngineError::BadParams { cmd: "file.import.videoFramesToLayers".into(), msg: "need `path`".into() })?
         .to_string();
     let fmt = s.active().ok_or(EngineError::NoDocument)?.doc.pixel_format();
-    let frames = load_frames(&path, fmt)?;
+    let frames = load_frames(&path, fmt)?.frames;
     let n = frames.len();
     s.edit("Video Frames to Layers", |doc, active| {
         let mut above = *active;
@@ -342,6 +420,10 @@ pub fn render_video_with(
     let mut base = (*st.doc).clone();
     store(&mut base);
     let frames = base.timeline.as_ref().map_or(1, |t| t.duration).max(1);
+    // Loaded timelines bypass the duration validation used by timeline.create/setProps.
+    if frames > crate::timeline_cmds::MAX_DURATION {
+        return Err(EngineError::Other(format!("the timeline is {frames} frames; Render Video is limited to {} frames", crate::timeline_cmds::MAX_DURATION)));
+    }
     let fps = base.timeline.as_ref().map_or(30.0, |t| t.fps).max(1.0);
     let stem = base.name.rsplit_once('.').map_or(base.name.as_str(), |(a, _)| a).to_string();
     let fmt = base.pixel_format();
@@ -355,7 +437,11 @@ pub fn render_video_with(
 
     // Animated GIF: one file, every frame quantised to its own palette.
     if format.eq_ignore_ascii_case("gif") {
-        use photocraft_algo::quantize::{self, Dither, Forced, PaletteKind};
+        // The whole canvas is staged as f32 RGBA for each frame; reject over-budget
+        // dimensions before an infallible allocation can abort the process.
+        if (w as u64) * (h as u64) > MAX_GIF_FRAME_PIXELS {
+            return Err(EngineError::Other(format!("{w} × {h} is too large to render as an animated GIF (limit {MAX_GIF_FRAME_PIXELS} pixels per frame)")));
+        }
         let delay = (100.0 / fps).round().clamp(1.0, 65535.0) as u16;
         let mut gframes = Vec::with_capacity(frames);
         for f in 0..frames {
@@ -367,9 +453,7 @@ pub fn render_video_with(
             let surf = crate::file_cmds::flattened(&doc, fmt);
             let mut px = vec![[0.0f32; 4]; w * h];
             surf.read_rgba_into(bounds, &mut px);
-            let pal = quantize::build_palette(&px, PaletteKind::Adaptive, 256, Forced::None).map_err(EngineError::Other)?;
-            let idx = quantize::quantize(&mut px, w, &pal, Dither::None, 1.0, None);
-            gframes.push(photocraft_codecs::web::GifFrame { indices: idx, palette: pal, transparent: None, delay_cs: delay });
+            gframes.push(gif_frame(px, w, delay)?);
             // The final report follows encoding/writing, so total means the output exists.
             if !progress((f + 1).min(frames.saturating_sub(1)), frames) {
                 return Err(cancelled());
@@ -403,6 +487,25 @@ pub fn render_video_with(
         }
     }
     Ok(json!({"frames": files.len(), "dir": dir}))
+}
+
+/// One animated GIF frame from straight RGBA pixels, as Save for Web's GIF does (#3061): pixels
+/// under 50 % opacity get the frame's transparent index, the rest are drawn opaque, and the
+/// palette is built from the visible pixels with one entry kept for transparency.
+fn gif_frame(mut px: Vec<[f32; 4]>, w: usize, delay_cs: u16) -> Result<photocraft_codecs::web::GifFrame> {
+    use photocraft_algo::quantize::{self, Dither, Forced, PaletteKind};
+    let transparent = px.iter().any(|p| p[3] < 0.5);
+    let visible: Vec<[f32; 4]> = px.iter().filter(|p| p[3] >= 0.5).map(|p| [p[0], p[1], p[2], 1.0]).collect();
+    // A fully transparent frame still needs a palette.
+    let src = if visible.is_empty() { &px } else { &visible };
+    let mut pal = quantize::build_palette(src, PaletteKind::Adaptive, if transparent { 255 } else { 256 }, Forced::None).map_err(EngineError::Other)?;
+    let t = transparent.then(|| {
+        pal.truncate(255);
+        pal.push(pal.first().copied().unwrap_or([0, 0, 0]));
+        pal.len() - 1
+    });
+    let indices = quantize::quantize(&mut px, w, &pal, Dither::None, 1.0, t);
+    Ok(photocraft_codecs::web::GifFrame { indices, palette: pal, transparent: t.map(|i| i as u8), delay_cs })
 }
 
 macro_rules! spec {

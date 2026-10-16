@@ -298,62 +298,35 @@ fn blend_surfaces(base: &Surface, top: &Surface, mode: BlendMode, opacity: f32) 
     out
 }
 
-/// Mixes `filtered` over `base` through the filter mask (premultiplied, any channel layout).
-fn mask_mix(base: &Surface, filtered: &Surface, mask: &LayerMask) -> Surface {
-    let fmt = base.format();
-    let area = base.content_bounds().union(&filtered.content_bounds());
-    let mut out = filtered.clone();
-    if area.is_empty() {
-        return out;
-    }
-    let n = fmt.channels();
-    let (b, f) = (base.read_region(area), filtered.read_region(area));
-    let mut k = Vec::new();
-    mask.values_into(area, &mut k);
-    let mut o = vec![0.0f32; b.len()];
-    for (i, ((bp, fp), op)) in b.chunks_exact(n).zip(f.chunks_exact(n)).zip(o.chunks_exact_mut(n)).enumerate() {
-        let m = k.get(i).copied().unwrap_or(1.0).clamp(0.0, 1.0);
-        if !fmt.alpha {
-            for c in 0..n {
-                op[c] = bp[c] + (fp[c] - bp[c]) * m;
-            }
-            continue;
-        }
-        let a = n - 1;
-        let oa = bp[a] + (fp[a] - bp[a]) * m;
-        op[a] = oa;
-        for c in 0..a {
-            let pm = bp[c] * bp[a] + (fp[c] * fp[a] - bp[c] * bp[a]) * m;
-            op[c] = if oa > 0.0 { (pm / oa).clamp(0.0, 1.0) } else { 0.0 };
-        }
-    }
-    out.write_region(area, &o);
-    out.prune();
-    out
-}
-
-/// Runs the smart filter stack on the placed (unfiltered) content.
-pub fn apply_smart_filters(placed: &Surface, sm: &SmartObject, canvas: Rect) -> Surface {
+/// Runs the smart filter stack on the placed (unfiltered) content. A filter the session's
+/// authority denies surfaces its error (the trusted compositor path has no gate installed, so
+/// this reads ambiently only when the caller established one and it refuses).
+pub fn apply_smart_filters(placed: &Surface, sm: &SmartObject, canvas: Rect) -> Result<Surface> {
     if !sm.filters_enabled || !sm.smart_filters.iter().any(|f| f.visible) {
-        return placed.clone();
+        return Ok(placed.clone());
     }
     let mut cur = placed.clone();
     // Edge pixels repeat at the canvas ∪ placed-content edge, as for layer filters.
     let extent = canvas.union(&placed.content_bounds());
     for f in sm.smart_filters.iter().filter(|f| f.visible) {
-        cur = apply_smart_filter(f, &cur, canvas, extent);
+        cur = apply_smart_filter(f, &cur, canvas, extent)?;
     }
-    match sm.filter_mask.as_ref().filter(|m| m.enabled) {
-        Some(m) => mask_mix(placed, &cur, m),
+    Ok(match sm.filter_mask.as_ref().filter(|m| m.enabled) {
+        Some(m) => photocraft_compose::filter_mask::mix(placed, &cur, m),
         None => cur,
-    }
+    })
 }
 
-/// One visible smart filter over `cur`, blended with its blend mode and opacity.
-fn apply_smart_filter(f: &SmartFilter, cur: &Surface, canvas: Rect, extent: Rect) -> Surface {
-    // Unknown ids (e.g. Photoshop filters we don't implement) leave the pixels alone.
-    let Some(out) = crate::filters::apply_filter_to_surface(&f.command, &f.params, cur, canvas, None, extent) else { return cur.clone() };
-    if f.blend == BlendMode::Normal && f.opacity >= 1.0 { out } else { blend_surfaces(cur, &out, f.blend, f.opacity.clamp(0.0, 1.0)) }
+/// One visible smart filter over `cur`, blended with its blend mode and opacity. `Err` when the
+/// requesting session's authority denies the filter's params: callers surface the error instead of
+/// rendering (and caching) unfiltered pixels.
+fn apply_smart_filter(f: &SmartFilter, cur: &Surface, canvas: Rect, extent: Rect) -> Result<Surface> {
+    let out = match crate::filters::apply_filter_to_surface(&f.command, &f.params, cur, canvas, None, extent)? {
+        // Unknown ids (e.g. Photoshop filters we don't implement) leave the pixels alone.
+        Some(out) => out,
+        None => cur.clone(),
+    };
+    if f.blend == BlendMode::Normal && f.opacity >= 1.0 { Ok(out) } else { Ok(blend_surfaces(cur, &out, f.blend, f.opacity.clamp(0.0, 1.0))) }
 }
 
 /// The source placed in document pixels, before any smart filter.
@@ -387,6 +360,20 @@ fn place(name: &str, bytes: &[u8], fmt: PixelFormat, sm: &SmartObject) -> Result
     })
 }
 
+/// The box of a smart object's source in source pixels (what its warp's `us`/`vs` span), or `None`
+/// when the source can't be read.
+pub(crate) fn source_box(doc: &Document, sm: &SmartObject) -> Option<[f64; 4]> {
+    let (name, bytes) = source_bytes(&doc.metadata, &sm.source)?;
+    let fmt = doc.pixel_format();
+    let img = match sm.stack_mode {
+        Some(mode) => stack_image(&name, &bytes, fmt, mode),
+        None => source_image(&name, &bytes, fmt),
+    }
+    .ok()?;
+    let r = img.bounds;
+    Some([f64::from(r.x0), f64::from(r.y0), f64::from(r.x1), f64::from(r.y1)])
+}
+
 /// Renders a smart object from its source. `Ok(None)` when the source is unavailable (a missing
 /// linked file, or a PSD placed layer without embedded data): callers keep the existing cache.
 pub fn render(doc: &Document, sm: &SmartObject) -> Result<Option<Surface>> {
@@ -397,6 +384,11 @@ pub fn render(doc: &Document, sm: &SmartObject) -> Result<Option<Surface>> {
 /// is cancelled. Gives the same pixels as [`apply_smart_filters`] on the placed source, but
 /// starts from the deepest stage of the stack already rendered (see [`stack_cache`]).
 fn render_in(doc: &Document, sm: &SmartObject, ctx: &JobCtx) -> Result<Option<Surface>> {
+    // Stored filters can come from a file or another layer. Check before looking up cached
+    // stages too: a trusted UI render may have populated this process-wide cache earlier.
+    for filter in sm.smart_filters.iter().filter(|f| sm.filters_enabled && f.visible) {
+        crate::jobs::authorize_render_command(&filter.command, &filter.params)?;
+    }
     let Some((name, bytes)) = source_bytes(&doc.metadata, &sm.source) else { return Ok(None) };
     let (fmt, canvas) = (doc.pixel_format(), doc.bounds());
     let placed_key = stack_cache::placed_key(&bytes, fmt, sm, canvas);
@@ -430,12 +422,12 @@ fn render_in(doc: &Document, sm: &SmartObject, ctx: &JobCtx) -> Result<Option<Su
     for (i, (f, key)) in filters.iter().zip(&keys).enumerate().skip(done) {
         ctx.check()?;
         ctx.progress(i as f32 / n, "");
-        cur = Stage { surface: apply_smart_filter(f, &cur.surface, canvas, cur.extent), extent: cur.extent };
+        cur = Stage { surface: apply_smart_filter(f, &cur.surface, canvas, cur.extent)?, extent: cur.extent };
         stack_cache::put(*key, &cur);
     }
     ctx.progress(1.0, "");
     Ok(Some(match sm.filter_mask.as_ref().filter(|m| m.enabled) {
-        Some(m) => mask_mix(&placed()?.surface, &cur.surface, m),
+        Some(m) => photocraft_compose::filter_mask::mix(&placed()?.surface, &cur.surface, m),
         None => cur.surface,
     }))
 }
@@ -542,7 +534,7 @@ pub(crate) fn add_smart_filter(doc: &mut Document, id: LayerId, sf: photocraft_d
     }
     let bounds = selection.map(Surface::content_bounds).filter(|b| !b.is_empty()).unwrap_or(canvas);
     let cache = sm.cache.as_ref().ok_or_else(|| other("smart object has no pixels"))?;
-    let out = crate::filters::apply_filter_to_surface(&sf.command, &sf.params, cache, bounds, selection, canvas)
+    let out = crate::filters::apply_filter_to_surface(&sf.command, &sf.params, cache, bounds, selection, canvas)?
         .ok_or_else(|| other(format!("unknown filter {}", sf.command)))?;
     sm.cache = Some(out);
     sm.smart_filters.push(sf);
@@ -666,7 +658,7 @@ fn any_layer(l: &Layer, f: &dyn Fn(&Layer) -> bool) -> bool {
 /// blend mode, clipping and label stay on the smart layer. The cache is the exact composite, so
 /// the document looks the same before and after.
 pub fn layer_to_smart(doc: &Document, l: &Layer) -> Result<Layer> {
-    let background = l.name == "Background" && l.locks.position;
+    let background = doc.is_background(l.id);
     let mut inner = l.clone();
     inner.visible = true;
     inner.opacity = 1.0;
@@ -813,21 +805,24 @@ fn set_source(s: &mut Session, p: &Value, label: &str, keep_psd: bool, make: imp
 
 // Keep the shared-instance transaction out of the per-command source-builder instantiations.
 fn set_shared_source(s: &mut Session, id: LayerId, label: &str, keep_psd: bool, new: SmartSource) -> Result<Value> {
-    let (parent, contents_id) = s.edit(label, |doc, _| {
+    let (parent, contents_id, changed) = s.edit(label, |doc, _| {
         let contents_id = smart(doc, id)?.contents_id;
-        for instance in instances(doc, contents_id) {
+        let changed = instances(doc, contents_id);
+        for &instance in &changed {
             smart_mut(doc, instance)?.source = new.clone();
             if !keep_psd {
                 detach_psd(doc.layer_mut(instance).ok_or(EngineError::NoLayer(instance))?);
             }
             refresh_or_fail(doc, instance)?;
         }
-        Ok((doc.id, contents_id))
+        Ok((doc.id, contents_id, changed))
     })?;
     // An old editor must not overwrite newly replaced/relinked contents on close. Keep its
     // document open, but the next Edit Contents opens the replacement source.
     s.smart_links.retain(|l| l.parent != parent || l.contents_id != contents_id);
-    Ok(json!({"layer": id.0}))
+    // Every instance changed, not only `layer`: list them, so a caller doesn't repeat the
+    // command once per copy (#4075).
+    Ok(json!({"layer": id.0, "instances": changed.iter().map(|l| l.0).collect::<Vec<_>>()}))
 }
 
 fn replace_contents(s: &mut Session, p: &Value) -> Result<Value> {
@@ -848,12 +843,28 @@ pub fn contents_of(doc: &Document, id: LayerId) -> Result<(String, Arc<Vec<u8>>)
     source_bytes(&doc.metadata, &smart(doc, id)?.source).ok_or_else(|| other("the smart object's contents are unavailable"))
 }
 
+/// Writes the smart object's file as it is. To a path with another extension (a `.png` for
+/// `.psb` or `.pcraft` contents) the contents are opened and exported in that format instead.
 fn export_contents(s: &mut Session, p: &Value) -> Result<Value> {
     let path = path_param("layer.smartObjects.exportContents", p)?;
     let id = layer_param(s, p)?;
     let (name, bytes) = contents_of(&s.active().ok_or(EngineError::NoDocument)?.doc, id)?;
-    crate::file_cmds::write_file(path, &bytes)?;
-    Ok(json!({"path": path, "fileName": name, "bytes": bytes.len()}))
+    let ext = |f: &str| {
+        let e = std::path::Path::new(f).extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
+        e.map(|e| match e.as_str() {
+            "jpeg" => "jpg".to_string(),
+            "tiff" => "tif".to_string(),
+            _ => e,
+        })
+    };
+    if ext(path).is_none() || ext(path) == ext(&name) {
+        crate::file_cmds::write_file(path, &bytes)?;
+        return Ok(json!({"path": path, "fileName": name, "bytes": bytes.len(), "converted": false}));
+    }
+    let contents = decode_source(&name, &bytes)?;
+    let r = photocraft_io::export(&contents, path, &Default::default()).map_err(|e| other(format!("can't export the contents as {}: {e}", base_name(path))))?;
+    crate::file_cmds::write_file(path, &r.bytes)?;
+    Ok(json!({"path": path, "fileName": name, "bytes": r.bytes.len(), "converted": true, "warnings": r.warnings}))
 }
 
 fn edit_contents(s: &mut Session, p: &Value) -> Result<Value> {
@@ -1001,6 +1012,7 @@ fn set_filter_visible(s: &mut Session, p: &Value) -> Result<Value> {
 fn set_filter_params(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "layer.smartFilter.setParams";
     let new = p.get("params").cloned().ok_or_else(|| bad(CMD, "pass `params` (merged into the filter's parameters)"))?;
+    let authorize = s.authorize;
     edit_filters(s, p, "Edit Smart Filter", |sm| {
         let i = filter_index(CMD, p, sm)?;
         let f = &mut sm.smart_filters[i];
@@ -1010,6 +1022,11 @@ fn set_filter_params(s: &mut Session, p: &Value) -> Result<Value> {
         match (&mut f.params, new) {
             (Value::Object(old), Value::Object(n)) => old.extend(n),
             (slot, n) => *slot = n,
+        }
+        // Authorize the underlying command with the complete merged params, including paths
+        // already stored in the document, before committing the edit or starting a worker.
+        if let Some(gate) = authorize {
+            gate(&f.command, &f.params)?;
         }
         Ok(())
     })
@@ -1055,25 +1072,74 @@ fn move_filter(s: &mut Session, p: &Value) -> Result<Value> {
     })
 }
 
-// ---------- enablement ----------
-
-/// Whether smart-filter or contents command `spec` can run with `p`: its precondition is checked on an
-/// explicit `"layer"` of the active document (the layer it then edits) rather than on the
-/// active layer, which stays active (#466). `None` for other commands or without that target.
-pub(crate) fn target_enabled(s: &mut Session, spec: &CommandSpec, p: &Value) -> Option<std::result::Result<(), String>> {
-    if !spec.id.starts_with("layer.smartFilter.") && !matches!(spec.id, "layer.smartObjects.editContents" | "layer.smartObjects.convertToLayers") {
-        return None;
+/// Dragging smart filters onto another smart object in the Layers panel (#4271): they move there,
+/// or are copied with `copy` (⌥-drag in Photoshop). One filter (`filter`) lands on top of the
+/// target's filters; all of them (the Smart Filters row) are added on top too, with the filter
+/// mask when the target has none. Both smart objects are re-rendered in one undo step.
+fn transfer_filters(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "layer.smartFilter.transfer";
+    let id_of = |key: &str| p.get(key).and_then(Value::as_u64).map(LayerId).ok_or_else(|| bad(CMD, format!("`{key}` must be a layer id")));
+    let (from, to) = (id_of("from")?, id_of("to")?);
+    if from == to {
+        return Err(bad(CMD, "the smart filters are already on that layer"));
     }
-    let target = LayerId(p.get("layer")?.as_u64()?);
-    let d = s.active_mut()?;
-    d.doc.layer(target)?;
-    let active = d.active_layer.replace(target);
-    let r = (spec.enabled)(s);
-    if let Some(d) = s.active_mut() {
-        d.active_layer = active;
+    // The other `layer.smartFilter.*` commands name a filter `index`; here a guessed `index`
+    // would otherwise be dropped and every filter moved.
+    if p.get("index").is_some() {
+        return Err(bad(CMD, "name the filter with `filter` (no `filter`: all of them)"));
     }
-    Some(r)
+    let copy = p.get("copy").and_then(Value::as_bool).unwrap_or(false);
+    let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
+    let src = smart(doc, from)?;
+    smart(doc, to).map_err(|_| bad(CMD, "smart filters can only be dropped on a smart object"))?;
+    let n = src.smart_filters.len();
+    if n == 0 {
+        return Err(other("the smart object has no smart filters"));
+    }
+    let index = match p.get("filter") {
+        None | Some(Value::Null) => None,
+        Some(v) => Some(v.as_u64().map(|i| i as usize).filter(|i| *i < n).ok_or_else(|| bad(CMD, format!("`filter` must be 0..{n} (0 = bottom filter)")))?),
+    };
+    let (filters, mask) = match index {
+        Some(i) => (vec![src.smart_filters[i].clone()], None),
+        None => (src.smart_filters.clone(), src.filter_mask.clone()),
+    };
+    let label = match (copy, index.is_some()) {
+        (true, true) => "Copy Smart Filter",
+        (true, false) => "Copy Smart Filters",
+        (false, true) => "Move Smart Filter",
+        (false, false) => "Move Smart Filters",
+    };
+    crate::jobs::edit_job(
+        s,
+        label,
+        move |doc, _, ctx| {
+            let dst = smart_mut(doc, to)?;
+            dst.smart_filters.extend(filters);
+            if dst.filter_mask.is_none() {
+                dst.filter_mask = mask;
+            }
+            refresh_or_fail_in(doc, to, ctx)?;
+            if !copy {
+                let src = smart_mut(doc, from)?;
+                match index {
+                    Some(i) => {
+                        src.smart_filters.remove(i);
+                    }
+                    None => {
+                        src.smart_filters.clear();
+                        src.filter_mask = None;
+                    }
+                }
+                refresh_or_fail_in(doc, from, ctx)?;
+            }
+            Ok(())
+        },
+        move |()| json!({"from": from.0, "to": to.0}),
+    )
 }
+
+// ---------- enablement ----------
 
 fn active_smart(s: &Session) -> std::result::Result<&SmartObject, String> {
     let d = s.active().ok_or("no document open")?;
@@ -1091,6 +1157,9 @@ fn has_linked(s: &Session) -> std::result::Result<(), String> {
         SmartSource::Linked { .. } => Ok(()),
         _ => Err("the smart object is embedded".into()),
     }
+}
+fn has_doc(s: &Session) -> std::result::Result<(), String> {
+    s.active().map(|_| ()).ok_or_else(|| "no document open".into())
 }
 fn has_smart_filters(s: &Session) -> std::result::Result<(), String> {
     if active_smart(s)?.smart_filters.is_empty() { Err("the smart object has no smart filters".into()) } else { Ok(()) }
@@ -1150,7 +1219,14 @@ pub fn specs() -> Vec<CommandSpec> {
             Ok(json!({"updated": commit_child(s, i)?}))
         }),
         spec!("layer.smartObjects.replaceContents", "Replace Contents…", SO, r##"{"layer":id?,"path":str}"##, has_smart, replace_contents),
-        spec!("layer.smartObjects.exportContents", "Export Contents…", SO, r##"{"layer":id?,"path":str}"##, has_smart, export_contents),
+        spec!(
+            "layer.smartObjects.exportContents",
+            "Export Contents…",
+            SO,
+            r##"{"layer":id?,"path":str (another extension than the contents' own exports them in that format)}"##,
+            has_smart,
+            export_contents
+        ),
         spec!("layer.smartObjects.relinkToFile", "Relink to File…", SO, r##"{"layer":id?,"path":str}"##, has_smart, |s, p| {
             let path = path_param("layer.smartObjects.relinkToFile", p)?.to_string();
             set_source(s, p, "Relink to File", false, |_, _| Ok(SmartSource::Linked { path }))
@@ -1160,6 +1236,14 @@ pub fn specs() -> Vec<CommandSpec> {
             s.edit("Update Modified Content", |doc, _| refresh_or_fail(doc, id))?;
             Ok(json!({"layer": id.0}))
         }),
+        spec!(
+            "layer.smartObjects.updateChanged",
+            "Update Changed Linked Content",
+            &[],
+            "{} — re-render the active document's linked smart objects whose files changed on disk since they were last seen (size or modification time); the desktop app does this by itself every two seconds, as Photoshop does while a document is open. Files seen for the first time are only remembered. One Update Modified Content undo step per file → {updated: [layer ids]}",
+            |s| s.active().map(|_| ()).ok_or_else(|| "no document open".into()),
+            crate::link_watch::update_changed
+        ),
         spec!(
             "layer.smartObjects.updateAllModifiedContent",
             "Update All Modified Content",
@@ -1265,6 +1349,14 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         spec!("layer.smartFilter.delete", "Delete Smart Filter", &[], r##"{"layer":id?,"index":u32?}"##, has_smart_filters, delete_filter),
         spec!("layer.smartFilter.move", "Move Smart Filter", &[], r##"{"layer":id?,"index":u32?,"to":u32}"##, has_smart_filters, move_filter),
+        spec!(
+            "layer.smartFilter.transfer",
+            "Move or Copy Smart Filters",
+            &[],
+            r##"{"from":id,"to":id,"filter":u32? (default: all, with the filter mask),"copy":bool=false}"##,
+            has_doc,
+            transfer_filters
+        ),
     ]
 }
 

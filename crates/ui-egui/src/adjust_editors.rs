@@ -56,18 +56,21 @@ pub struct Edit {
     pub changed: bool,
     /// A gesture ended or a discrete control changed (commit them).
     pub commit: bool,
+    /// Open the host's gradient-file dialog without changing adjustment parameters.
+    pub import_gradients: bool,
 }
 
 impl Edit {
     fn add(&mut self, o: Edit) {
         self.changed |= o.changed;
         self.commit |= o.commit;
+        self.import_gradients |= o.import_gradients;
     }
     fn discrete(changed: bool) -> Self {
-        Edit { changed, commit: changed }
+        Edit { changed, commit: changed, ..Default::default() }
     }
     fn of(r: &egui::Response) -> Self {
-        Edit { changed: r.changed(), commit: r.drag_stopped() || (r.changed() && !r.dragged()) }
+        Edit { changed: r.changed(), commit: r.drag_stopped() || (r.changed() && !r.dragged()), ..Default::default() }
     }
 }
 
@@ -89,6 +92,8 @@ pub struct EditorCx {
     /// Preferences ▸ Interface ▸ Dynamic Color Sliders: colour tracks on the colour sliders
     /// (off: the plain track).
     pub dynamic_color_sliders: bool,
+    /// Image › Curves with a single Channels-panel target: that channel only (#5335).
+    pub isolated_curve: Option<photocraft_engine::channel_cmds::IsolatedCurveChannel>,
 }
 
 /// The Levels/Curves channel space the values address.
@@ -115,18 +120,18 @@ pub fn editor(ui: &mut egui::Ui, kind: &str, v: &mut Value, cx: &EditorCx) -> Ed
             ui,
             v,
             &[
-                ("exposure", tl!("Exposure"), -20.0, 20.0, 0.0, ""),
-                ("offset", tl!("Offset"), -0.5, 0.5, 0.0, ""),
-                ("gamma", tl!("Gamma Correction"), 0.01, 9.99, 1.0, ""),
+                ("exposure", tl!("Exposure"), -20.0, 20.0, 0.0, "", Some(2)),
+                ("offset", tl!("Offset"), -0.5, 0.5, 0.0, "", Some(4)),
+                ("gamma", tl!("Gamma Correction"), 0.01, 9.99, 1.0, "", None),
             ],
         ),
-        "vibrance" => sliders(ui, v, &[("vibrance", "Vibrance", -100.0, 100.0, 0.0, "%"), ("saturation", "Saturation", -100.0, 100.0, 0.0, "%")]),
+        "vibrance" => sliders(ui, v, &[("vibrance", "Vibrance", -100.0, 100.0, 0.0, "%", None), ("saturation", "Saturation", -100.0, 100.0, 0.0, "%", None)]),
         "hueSaturation" => hue_saturation(ui, v, cx),
         "colorBalance" => color_balance(ui, v, cx),
         "blackWhite" => black_white(ui, v, cx),
         "photoFilter" => photo_filter(ui, v, cx),
         "channelMixer" => channel_mixer(ui, v, cx),
-        "posterize" => sliders(ui, v, &[("levels", "Levels", 2.0, 255.0, 4.0, "")]),
+        "posterize" => sliders(ui, v, &[("levels", "Levels", 2.0, 255.0, 4.0, "", None)]),
         "threshold" => threshold(ui, v, cx),
         "gradientMap" => gradient_map(ui, v, cx),
         _ => Edit::default(),
@@ -190,13 +195,31 @@ fn label(ui: &mut egui::Ui, text: &str) {
 }
 
 /// Labelled slider rows over top-level keys: (key, label, min, max, default, unit).
-fn sliders(ui: &mut egui::Ui, v: &mut Value, rows: &[(&str, &str, f32, f32, f32, &str)]) -> Edit {
+/// A row of [`sliders`]: params key, label, range, default, unit, and its decimal places (None:
+/// two for a range of 10 or less, else whole numbers).
+type SliderRow<'a> = (&'a str, &'a str, f32, f32, f32, &'a str, Option<u32>);
+
+/// The value a [`sliders`] row stores for `x`: rounded to `decimals` places, or by its range.
+pub(crate) fn row_value(x: f32, min: f32, max: f32, decimals: Option<u32>) -> f32 {
+    match decimals {
+        Some(d) => {
+            let scale = 10f32.powi(d.min(6) as i32);
+            (x * scale).round() / scale
+        }
+        None if max - min <= 10.0 => round(x, 0.01),
+        None => x.round(),
+    }
+}
+
+fn sliders(ui: &mut egui::Ui, v: &mut Value, rows: &[SliderRow]) -> Edit {
     let mut e = Edit::default();
-    for &(key, text, min, max, default, unit) in rows {
+    for &(key, text, min, max, default, unit, decimals) in rows {
         let mut x = num(v, key, default).clamp(min, max);
-        let r = widgets::slider_row(ui, text, &mut x, min..=max, unit, None);
+        // A double-click on the slider puts it back to its default (Photoshop).
+        let gestures = widgets::RowGestures { reset: Some(default), wheel_step: None };
+        let r = widgets::slider_row_prec(ui, text, &mut x, min..=max, unit, None, gestures, decimals);
         if r.changed() {
-            v[key] = json!(if max - min <= 10.0 { round(x, 0.01) } else { x.round() });
+            v[key] = json!(row_value(x, min, max, decimals));
         }
         e.add(Edit::of(&r));
     }
@@ -220,7 +243,7 @@ fn track_stops<'a>(cx: &EditorCx, stops: &'a [Color32]) -> Option<&'a [Color32]>
 fn brightness_contrast(ui: &mut egui::Ui, v: &mut Value) -> Edit {
     let legacy = flag(v, "legacy", false);
     let lo = if legacy { -100.0 } else { -50.0 };
-    let mut e = sliders(ui, v, &[("brightness", tl!("Brightness"), -150.0, 150.0, 0.0, ""), ("contrast", tl!("Contrast"), lo, 100.0, 0.0, "")]);
+    let mut e = sliders(ui, v, &[("brightness", tl!("Brightness"), -150.0, 150.0, 0.0, "", None), ("contrast", tl!("Contrast"), lo, 100.0, 0.0, "", None)]);
     let mut l = legacy;
     if widgets::checkbox(ui, &mut l, tl!("Use Legacy")).changed() {
         v["legacy"] = json!(l);
@@ -270,14 +293,26 @@ pub fn tone_channels(space: ToneSpace, gray: bool) -> &'static [ToneChannel] {
 }
 
 fn channel_picker(ui: &mut egui::Ui, id: egui::Id, chans: &[ToneChannel], text: &str) -> usize {
+    let opts: Vec<(usize, &str)> = chans.iter().enumerate().map(|(i, c)| (i, c.label)).collect();
+    channel_picker_opts(ui, id, &opts, text, true)
+}
+
+/// The popup, with `translate` for whether the built-in labels follow the interface language;
+/// a user-typed channel name is shown exactly as entered (#5335).
+fn channel_picker_opts(ui: &mut egui::Ui, id: egui::Id, opts: &[(usize, &str)], text: &str, translate: bool) -> usize {
     let mut ch: usize = ui.data(|d| d.get_temp(id)).unwrap_or(0);
-    if ch >= chans.len() {
+    if ch >= opts.len() {
         ch = 0;
     }
     ui.horizontal(|ui| {
         label(ui, text);
-        let opts: Vec<(usize, &str)> = chans.iter().enumerate().map(|(i, c)| (i, c.label)).collect();
-        widgets::dropdown(ui, &format!("{id:?}-ch"), &mut ch, &opts, 110.0);
+        let width = if opts.len() == 1 { 160.0 } else { 110.0 };
+        let key = format!("{id:?}-ch");
+        if translate {
+            widgets::dropdown(ui, &key, &mut ch, opts, width);
+        } else {
+            widgets::dropdown_literal(ui, &key, &mut ch, opts, width);
+        }
     });
     ui.data_mut(|d| d.insert_temp(id, ch));
     ch
@@ -347,35 +382,125 @@ fn curve_key(ch: &ToneChannel) -> &'static str {
     if ch.key.is_empty() { "points" } else { ch.key }
 }
 
+/// A pencil-drawn channel: its 256 output levels (identity when absent or not a map).
+fn read_map(v: &Value, key: &str) -> Vec<f32> {
+    let map: Option<Vec<f32>> = v
+        .get(key)
+        .and_then(Value::as_array)
+        .filter(|a| a.len() == photocraft_doc::adjust::CURVE_MAP_LEN)
+        .and_then(|a| a.iter().map(|o| o.as_f64().map(|o| o as f32)).collect());
+    map.unwrap_or_else(|| (0..photocraft_doc::adjust::CURVE_MAP_LEN).map(|k| k as f32).collect())
+}
+
+fn write_map(v: &mut Value, key: &str, map: &[f32]) {
+    v[key] = json!(map.iter().map(|o| (o * 100.0).round() / 100.0).collect::<Vec<_>>());
+}
+
+/// Switches the Curves values between point editing and the pencil: the engine draws the point
+/// curves into maps, or fits points to the drawn maps (Photoshop's two curve buttons).
+fn set_pencil(v: &mut Value, pencil: bool, gray: bool) -> bool {
+    let mut p = v.clone();
+    p["pencil"] = json!(pencil);
+    let mode = if gray { photocraft_doc::ColorMode::Grayscale } else { photocraft_doc::ColorMode::Rgb };
+    let Ok(a) = adjust_params::from_params("curves", &p, None, mode) else { return false };
+    *v = adjust_params::to_params(&a);
+    // Explicit, so an update over a pencil-drawn layer leaves the pencil.
+    v["pencil"] = json!(pencil);
+    true
+}
+
+/// Mode buttons above the graph: points, pencil, and Smooth for the shown channel's drawing.
+fn curves_mode_row(ui: &mut egui::Ui, v: &mut Value, key: &str, gray: bool) -> Edit {
+    let pencil = v.get("pencil").and_then(Value::as_bool).unwrap_or(false);
+    let mut e = Edit::default();
+    ui.horizontal(|ui| {
+        if crate::icons::button(ui, "spline", 24.0, !pencil, tl!("Edit points to modify the curve")).clicked() && pencil {
+            e.add(Edit::discrete(set_pencil(v, false, gray)));
+        }
+        if crate::icons::button(ui, "pencil", 24.0, pencil, tl!("Draw to modify the curve")).clicked() && !pencil {
+            e.add(Edit::discrete(set_pencil(v, true, gray)));
+        }
+        let label = crate::i18n::tr_ctx(crate::i18n::current(), "curves", "Smooth");
+        let smooth = ui
+            .add_enabled_ui(pencil, |ui| widgets::secondary_button(ui, label, 0.0))
+            .inner
+            .on_hover_text(tl!("Smooth the curve values"))
+            .on_disabled_hover_text(tl!("Smooth the curve values"));
+        if smooth.clicked() {
+            let mut map = read_map(v, key);
+            adjust_params::smooth_curve_map(&mut map);
+            write_map(v, key, &map);
+            e.add(Edit::discrete(true));
+        }
+    });
+    e
+}
+
 fn curves(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
     let t = Tokens::get(ui.ctx());
     let space = space_of(v);
     let chans = tone_channels(space, cx.gray);
     let state_id = cx.mem.with("curves");
     let mut st: CurveUi = ui.data(|d| d.get_temp(state_id)).unwrap_or_default();
-    let ch = channel_picker(ui, cx.mem.with("curves-ch"), chans, tl!("Channel:"));
+    let isolated = cx.isolated_curve.as_ref();
+    let ch = if let Some(iso) = isolated {
+        channel_picker_opts(ui, cx.mem.with("curves-ch"), &[(0, iso.name.as_str())], tl!("Channel:"), iso.translate)
+    } else {
+        channel_picker(ui, cx.mem.with("curves-ch"), chans, tl!("Channel:"))
+    };
     if ch != st.channel {
         st = CurveUi { channel: ch, ..Default::default() };
     }
-    let chan = chans.get(ch).copied().unwrap_or(ToneChannel { key: "", label: "" });
+    let chan =
+        if let Some(iso) = isolated { ToneChannel { key: iso.key, label: "" } } else { chans.get(ch).copied().unwrap_or(ToneChannel { key: "", label: "" }) };
+    let overlay_others = isolated.is_none();
+    let tinted = isolated.is_some_and(|c| c.tint) || (isolated.is_none() && ch != 0);
+    let hist_i = isolated.map_or(ch, |c| c.hist);
     let key = curve_key(&chan);
+    let mut e = curves_mode_row(ui, v, key, cx.gray);
+    let pencil = v.get("pencil").and_then(Value::as_bool).unwrap_or(false);
     let mut pts = read_curve(v, key);
+    let mut map = read_map(v, key);
     let side = ui.available_width().clamp(120.0, 300.0);
     ui.add_space(4.0);
     let (full, resp) = ui.allocate_exact_size(vec2(side, side + 14.0), Sense::click_and_drag());
     let graph = curve_graph(full, side);
     ui.data_mut(|d| d.insert_temp(cx.mem.with("curves-graph"), graph));
     let to_scr = |q: [f32; 2]| pos2(graph.left() + q[0] / 255.0 * graph.width(), graph.bottom() - q[1] / 255.0 * graph.height());
-    let mut e = Edit::default();
-    let interaction = crate::point_curve::interact(ui, &resp, graph, &mut pts, &mut st.gesture);
-    let mut changed = interaction.changed;
-    e.commit = interaction.commit;
+    let mut changed = false;
+    let mut drawn = false;
+    if pencil {
+        // Pencil: a stroke draws while the button is down and commits on release; Shift
+        // continues from the previous stroke's end in a straight line.
+        let stroke_id = cx.mem.with("curves-pencil");
+        let (mut active, mut last): (bool, Option<[f32; 2]>) = ui.data(|d| d.get_temp(stroke_id)).unwrap_or_default();
+        if resp.is_pointer_button_down_on()
+            && let Some(pos) = resp.interact_pointer_pos()
+        {
+            let q = [
+                ((pos.x - graph.left()) / graph.width().max(1.0) * 255.0).clamp(0.0, 255.0),
+                ((graph.bottom() - pos.y) / graph.height().max(1.0) * 255.0).clamp(0.0, 255.0),
+            ];
+            let from = if active || ui.input(|i| i.modifiers.shift) { last.unwrap_or(q) } else { q };
+            drawn = curve_edit::pencil_line(&mut map, from, q);
+            active = true;
+            last = Some(q);
+        } else if active {
+            active = false;
+            e.commit = true;
+        }
+        ui.data_mut(|d| d.insert_temp(stroke_id, (active, last)));
+    } else {
+        let interaction = crate::point_curve::interact(ui, &resp, graph, &mut pts, &mut st.gesture);
+        changed = interaction.changed;
+        e.commit |= interaction.commit;
+    }
 
     // Draw: histogram, quarter grid, baseline, gradient bars, other channels, the curve, points.
     let p = ui.painter_at(full.expand(2.0));
     p.rect_filled(graph, 0.0, t.field);
     if let Some(h) = &cx.hist {
-        tone::draw_histogram(&p, graph, &h[ch], Color32::from_gray(if t.pro { 88 } else { 190 }).gamma_multiply(0.75));
+        tone::draw_histogram(&p, graph, &h[hist_i], Color32::from_gray(if t.pro { 88 } else { 190 }).gamma_multiply(0.75));
     }
     for i in 1..4 {
         let f = i as f32 / 4.0;
@@ -403,17 +528,34 @@ fn curves(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
             (0..n).step_by((n / 256).max(1)).map(|i| to_scr([i as f32 / (n - 1) as f32 * 255.0, lut.get(i).copied().unwrap_or(0.0) * 255.0])).collect();
         p.add(egui::Shape::line(line, Stroke::new(width, color)));
     };
-    if ch == 0 {
+    let draw_map = |map: &[f32], color: Color32, width: f32| {
+        let last = map.len().saturating_sub(1).max(1) as f32;
+        let line: Vec<Pos2> = map.iter().enumerate().map(|(k, o)| to_scr([k as f32 / last * 255.0, *o])).collect();
+        p.add(egui::Shape::line(line, Stroke::new(width, color)));
+    };
+    if overlay_others && ch == 0 {
         // Photoshop overlays the edited channel curves on the composite.
         for c in chans.iter().skip(1) {
+            if pencil {
+                let m = read_map(v, c.key);
+                if m.iter().enumerate().any(|(k, o)| (o - k as f32).abs() > 0.5) {
+                    draw_map(&m, bar_color(c, &t).gamma_multiply(0.8), 1.0);
+                }
+                continue;
+            }
             let cp = read_curve(v, c.key);
             if cp.len() > 2 || cp.first().is_some_and(|q| q[1] != 0.0) || cp.last().is_some_and(|q| q[1] != 255.0) {
                 draw_curve(&cp, bar_color(c, &t).gamma_multiply(0.8), 1.0);
             }
         }
     }
-    draw_curve(&pts, if ch == 0 { t.text } else { bar_color(&chan, &t) }, 1.5);
-    for (i, q) in pts.iter().enumerate() {
+    let color = if tinted { bar_color(&chan, &t) } else { t.text };
+    if pencil {
+        draw_map(&map, color, 1.5);
+    } else {
+        draw_curve(&pts, color, 1.5);
+    }
+    for (i, q) in pts.iter().enumerate().filter(|_| !pencil) {
         let r = Rect::from_center_size(to_scr(*q), vec2(CURVE_HANDLE_SIZE, CURVE_HANDLE_SIZE));
         if Some(i) == st.gesture.selected {
             p.rect_filled(r, 0.0, t.text);
@@ -427,7 +569,7 @@ fn curves(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
     // Input / Output of the selected point.
     ui.add_space(6.0);
     ui.horizontal(|ui| {
-        let i = st.gesture.selected.filter(|i| *i < pts.len());
+        let i = st.gesture.selected.filter(|i| *i < pts.len() && !pencil);
         let (mut vi, mut vo) = i.map_or((0.0, 0.0), |i| (pts[i][0], pts[i][1]));
         label(ui, tl!("Input:"));
         let ri = ui.add_enabled_ui(i.is_some(), |ui| widgets::value_field(ui, &mut vi, 0.0..=255.0, "", 52.0)).inner;
@@ -445,16 +587,23 @@ fn curves(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
         }
     });
     let t2 = Tokens::get(ui.ctx());
-    ui.label(
-        RichText::new(crate::i18n::fmt(
-            tl!("Click to add a point · drag off or {key}-click or Delete to remove"),
-            &[("key", &crate::shortcuts::pretty("Cmd"))],
-        ))
-        .color(t2.text_faint)
-        .size(11.0),
-    );
+    let hint = if pencil {
+        crate::i18n::fmt(tl!("Drag to draw the curve · {key}-click draws a straight line"), &[("key", &crate::shortcuts::pretty("Shift"))])
+    } else {
+        crate::i18n::fmt(tl!("Click to add a point · drag off or {key}-click or Delete to remove"), &[("key", &crate::shortcuts::pretty("Cmd"))])
+    };
+    ui.label(RichText::new(hint).color(t2.text_faint).size(11.0));
     ui.data_mut(|d| d.insert_temp(state_id, st));
-    if changed {
+    if drawn {
+        write_map(v, key, &map);
+        if space == ToneSpace::Lab
+            && let Some(o) = v.as_object_mut()
+        {
+            o.remove("points");
+        }
+        e.changed = true;
+    }
+    if changed && !pencil {
         v[key] = json!(pts.iter().map(|q| [q[0].round(), q[1].round()]).collect::<Vec<_>>());
         if space == ToneSpace::Lab {
             // Lab has no composite: "points" would alias lightness.
@@ -691,7 +840,7 @@ fn threshold(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
     p.line_segment([pos2(x, hr.top()), pos2(x, hr.bottom())], Stroke::new(1.0, t.accent));
     p.rect_stroke(hr, 0.0, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
     ui.add_space(4.0);
-    sliders(ui, v, &[("level", tl!("Threshold Level"), 1.0, 255.0, 128.0, "")])
+    sliders(ui, v, &[("level", tl!("Threshold Level"), 1.0, 255.0, 128.0, "", None)])
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -805,7 +954,11 @@ fn hue_saturation(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
             o["hue"] = json!(h.round());
         }
         sub.add(Edit::of(&r));
-        sub.add(sliders(ui, &mut o, &[("saturation", tl!("Saturation"), -100.0, 100.0, 0.0, "%"), ("lightness", tl!("Lightness"), -100.0, 100.0, 0.0, "%")]));
+        sub.add(sliders(
+            ui,
+            &mut o,
+            &[("saturation", tl!("Saturation"), -100.0, 100.0, 0.0, "%", None), ("lightness", tl!("Lightness"), -100.0, 100.0, 0.0, "%", None)],
+        ));
         if sub.changed {
             v[key] = o;
         }
@@ -910,6 +1063,14 @@ pub fn reset_color_balance(ctx: &egui::Context, mem: egui::Id, v: &mut Value) {
         v[key] = json!([0.0, 0.0, 0.0]);
     }
     ctx.data_mut(|d| d.insert_temp(color_balance_tone_id(mem), 1usize));
+}
+
+/// Kind-specific editor memory after Alt+Reset (or Properties Reset to defaults). Color Balance
+/// shows Midtones; other kinds have no dialog-local temp to clear yet.
+pub fn reset_adjustment_editor(ctx: &egui::Context, kind: &str, mem: egui::Id, v: &mut Value) {
+    if kind == "colorBalance" {
+        reset_color_balance(ctx, mem, v);
+    }
 }
 
 fn color_balance(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
@@ -1028,7 +1189,7 @@ fn photo_filter(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
         e.add(r);
     });
     ui.data_mut(|d| d.insert_temp(mode_id, use_color));
-    e.add(sliders(ui, v, &[("density", tl!("Density"), 0.0, 100.0, 25.0, "%")]));
+    e.add(sliders(ui, v, &[("density", tl!("Density"), 0.0, 100.0, 25.0, "%", None)]));
     let mut pl = flag(v, "preserveLuminosity", true);
     if widgets::checkbox(ui, &mut pl, tl!("Preserve Luminosity")).changed() {
         v["preserveLuminosity"] = json!(pl);
@@ -1137,19 +1298,130 @@ fn sample_stops(s: &[Stop], t: f32) -> [f32; 3] {
     sorted.last().map_or([t; 3], |l| l.1)
 }
 
+#[derive(Clone, Copy)]
+struct MapStopDrag {
+    index: usize,
+    offset: f32,
+    changed: bool,
+}
+
+/// Keep selection on the same stop when it crosses another stop (including coincident stops).
+fn move_map_stop(stops: &mut [Stop], index: usize, location: f32) -> Option<usize> {
+    let stop = stops.get_mut(index)?;
+    stop.0 = round(location.clamp(0.0, 1.0), 0.001);
+    let location = stop.0;
+    let rank = stops.iter().enumerate().filter(|(i, s)| *i != index && (s.0 < location || (s.0 == location && *i < index))).count();
+    stops.sort_by(|a, b| a.0.total_cmp(&b.0));
+    Some(rank)
+}
+
+fn gradient_map_strip(ui: &mut egui::Ui, stops: &mut Vec<Stop>, cx: &EditorCx, selected: &mut usize) -> Edit {
+    let t = Tokens::get(ui.ctx());
+    let key = cx.mem.with("gm-stop-drag");
+    let mut edit = Edit::default();
+    let w = ui.available_width().min(300.0);
+    let (outer, resp) = ui.allocate_exact_size(vec2(w, 44.0), Sense::click_and_drag());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tl!("Gradient stops")));
+    let bar = Rect::from_min_max(outer.min + vec2(8.0, 2.0), pos2(outer.right() - 8.0, outer.top() + 26.0));
+    let x_of = |loc: f32| bar.left() + loc * bar.width();
+    let loc_of = |x: f32| ((x - bar.left()) / bar.width().max(1.0)).clamp(0.0, 1.0);
+    let hit =
+        |pos: Pos2, stops: &[Stop]| stops.iter().enumerate().rev().find(|(_, s)| pos.y >= bar.bottom() && (x_of(s.0) - pos.x).abs() <= 6.0).map(|(i, _)| i);
+    if resp.drag_started()
+        && let Some(pos) = ui.input(|i| i.pointer.press_origin())
+        && let Some(index) = hit(pos, stops)
+    {
+        *selected = index;
+        let offset = stops.get(index).map_or(0.0, |s| pos.x - x_of(s.0));
+        ui.data_mut(|d| d.insert_temp(key, MapStopDrag { index, offset, changed: false }));
+    }
+    if let Some(mut drag) = ui.data(|d| d.get_temp::<MapStopDrag>(key)) {
+        if (resp.dragged() || resp.drag_stopped())
+            && let Some(pos) = resp.interact_pointer_pos()
+        {
+            let location = round(loc_of(pos.x - drag.offset), 0.001);
+            let changed = stops.get(drag.index).is_some_and(|s| s.0 != location);
+            if let Some(index) = move_map_stop(stops, drag.index, location) {
+                drag.index = index;
+                drag.changed |= changed;
+                *selected = index;
+                edit.changed |= changed;
+            }
+        }
+        if resp.drag_stopped() {
+            edit.commit = drag.changed;
+            ui.data_mut(|d| d.remove::<MapStopDrag>(key));
+        } else if ui.input(|i| i.pointer.primary_down()) {
+            ui.data_mut(|d| d.insert_temp(key, drag));
+        } else {
+            ui.data_mut(|d| d.remove::<MapStopDrag>(key));
+        }
+    }
+    if resp.clicked()
+        && let Some(pos) = resp.interact_pointer_pos()
+    {
+        resp.request_focus();
+        if let Some(index) = hit(pos, stops) {
+            *selected = index;
+        } else if stops.len() < 64 {
+            let at = round(loc_of(pos.x), 0.001);
+            let color = sample_stops(stops, at);
+            stops.push((at, color));
+            let index = stops.len() - 1;
+            *selected = move_map_stop(stops, index, at).unwrap_or(0);
+            edit.add(Edit::discrete(true));
+        }
+    }
+    if resp.hovered() && ui.input(|i| i.pointer.hover_pos()).is_some_and(|pos| hit(pos, stops).is_some()) || resp.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+    }
+    // Markers address un-reversed locations, as in the Gradient Tool; Reverse changes the image.
+    let cols: Vec<Color32> = (0..=48).map(|i| color32(sample_stops(stops, i as f32 / 48.0))).collect();
+    spectrum_bar(ui.painter(), bar, &cols);
+    ui.painter().rect_stroke(bar, 0.0, Stroke::new(1.0, t.field_border), StrokeKind::Outside);
+    for (i, (at, color)) in stops.iter().enumerate() {
+        let x = x_of(*at);
+        let border = if i == *selected { t.accent } else { t.text_dim };
+        let body = Rect::from_center_size(pos2(x, bar.bottom() + 10.0), vec2(10.0, 10.0));
+        ui.painter().add(egui::Shape::convex_polygon(
+            vec![pos2(x, bar.bottom() + 1.0), pos2(x + 5.0, body.top()), pos2(x - 5.0, body.top())],
+            border,
+            Stroke::NONE,
+        ));
+        ui.painter().rect_filled(body, 1.0, color32(*color));
+        ui.painter().rect_stroke(body, 1.0, Stroke::new(1.0, border), StrokeKind::Outside);
+    }
+    edit
+}
+
 fn gradient_map(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
     let t = Tokens::get(ui.ctx());
     let mut e = Edit::default();
     let mut stops = read_stops(v);
+    let selection = cx.mem.with("gm-stop-selection");
+    let mut selected = ui.data(|d| d.get_temp::<usize>(selection)).unwrap_or(0).min(stops.len().saturating_sub(1));
     // Photoshop's gradient picker: the same library as the Gradient tool and Gradients panel
     // (built-in groups and the user's own), Foreground/Background resolved to the current colours.
     let [fg, bg] = cx.swatches.map(|c| [c[0], c[1], c[2], 1.0]);
     ui.horizontal(|ui| {
         label(ui, tl!("Preset:"));
         let mut picked = None;
-        egui::ComboBox::from_id_salt(cx.mem.with("gm-preset")).selected_text(tl!("Custom")).width(190.0).height(420.0).icon(widgets::chevron_icon).show_ui(
-            ui,
-            |ui| {
+        let (press, close) = crate::press_menu::PressCombo::before(ui, cx.mem.with("gm-preset"));
+        let combo = egui::ComboBox::from_id_salt(cx.mem.with("gm-preset"))
+            .selected_text(tl!("Custom"))
+            .width(ui.available_width().min(190.0))
+            .height(420.0)
+            .icon(widgets::chevron_icon)
+            .close_behavior(close)
+            .show_ui(ui, |ui| {
+                let gear = crate::icons::button(ui, "settings", 24.0, false, tl!("Gradient Preset Options"));
+                egui::containers::menu::SubMenu::new().show(ui, &gear, |ui| {
+                    if ui.button(tl!("Import .GRD")).clicked() {
+                        e.import_gradients = true;
+                        ui.close();
+                    }
+                });
+                ui.separator();
                 for g in &cx.gradients {
                     ui.label(RichText::new(&g.name).color(t.text_faint));
                     for p in &g.items {
@@ -1159,57 +1431,57 @@ fn gradient_map(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
                             let (r, swatch) = ui.allocate_exact_size(vec2(48.0, 16.0), Sense::click());
                             crate::preset_panels::paint_gradient(ui, r, &rgba);
                             // Both, not short-circuited: the name is drawn either way.
-                            if swatch.clicked() | ui.selectable_label(false, &p.name).clicked() {
+                            let name = ui.selectable_label(false, &p.name);
+                            if press.chosen(ui, &swatch) | press.chosen(ui, &name) {
                                 picked = Some(rgba.iter().map(|(at, c)| (*at, [c[0], c[1], c[2]])).collect::<Vec<Stop>>());
                             }
                         });
                     }
                 }
-            },
-        );
+            });
+        press.after(&combo.response);
         if let Some(p) = picked {
             stops = p;
+            selected = 0;
+            ui.data_mut(|d| d.remove::<MapStopDrag>(cx.mem.with("gm-stop-drag")));
             write_stops(v, &stops);
             e.add(Edit::discrete(true));
         }
     });
-    // The gradient.
-    let w = ui.available_width().min(300.0);
-    let (r, _) = ui.allocate_exact_size(vec2(w, 22.0), Sense::hover());
-    let reverse = flag(v, "reverse", false);
-    let cols: Vec<Color32> = (0..=48)
-        .map(|i| {
-            let x = i as f32 / 48.0;
-            color32(sample_stops(&stops, if reverse { 1.0 - x } else { x }))
-        })
-        .collect();
-    spectrum_bar(ui.painter(), r, &cols);
-    ui.painter().rect_stroke(r, 0.0, Stroke::new(1.0, t.field_border), StrokeKind::Outside);
-    ui.add_space(4.0);
-    // Stops: colour, location, remove.
-    let mut remove = None;
-    let mut changed = false;
-    for (i, s) in stops.iter_mut().enumerate() {
+    let strip = gradient_map_strip(ui, &mut stops, cx, &mut selected);
+    let mut changed = strip.changed;
+    e.add(strip);
+    // The selected stop's colour and location, like the Gradient Tool's compact stop editor.
+    let mut location = None;
+    let mut remove = false;
+    let can_remove = stops.len() > 2;
+    if let Some(s) = stops.get_mut(selected) {
         ui.horizontal(|ui| {
+            label(ui, tl!("Color:"));
             let r = color_button(ui, &mut s.1);
             changed |= r.changed;
             e.add(r);
+            ui.add_enabled_ui(can_remove, |ui| {
+                remove = crate::icons::button(ui, "x", 20.0, false, tl!("Remove stop")).clicked();
+            });
+        });
+        ui.horizontal(|ui| {
+            label(ui, tl!("Location:"));
             let mut loc = s.0 * 100.0;
             let rl = widgets::value_field(ui, &mut loc, 0.0..=100.0, "%", 70.0);
             if rl.changed() {
-                s.0 = (loc / 100.0).clamp(0.0, 1.0);
+                location = Some(loc / 100.0);
                 changed = true;
             }
             e.add(Edit::of(&rl));
-            if crate::icons::button(ui, "x", 20.0, false, tl!("Remove stop")).clicked() {
-                remove = Some(i);
-            }
         });
     }
-    if let Some(i) = remove
-        && stops.len() > 2
-    {
-        stops.remove(i);
+    if let Some(loc) = location {
+        selected = move_map_stop(&mut stops, selected, loc).unwrap_or(0);
+    }
+    if remove && can_remove {
+        stops.remove(selected);
+        selected = selected.min(stops.len() - 1);
         changed = true;
         e.add(Edit::discrete(true));
     }
@@ -1219,6 +1491,8 @@ fn gradient_map(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
         sorted.sort_by(|a, b| a.0.total_cmp(&b.0));
         let at = sorted.windows(2).max_by(|a, b| (a[1].0 - a[0].0).total_cmp(&(b[1].0 - b[0].0))).map_or(0.5, |w| (w[0].0 + w[1].0) / 2.0);
         stops.push((at, sample_stops(&stops, at)));
+        let index = stops.len() - 1;
+        selected = move_map_stop(&mut stops, index, at).unwrap_or(0);
         changed = true;
         e.add(Edit::discrete(true));
     }
@@ -1226,6 +1500,7 @@ fn gradient_map(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
         write_stops(v, &stops);
         e.changed = true;
     }
+    ui.data_mut(|d| d.insert_temp(selection, selected));
     ui.horizontal(|ui| {
         for (key, text) in [("reverse", tl!("Reverse")), ("dither", tl!("Dither"))] {
             let mut b = flag(v, key, false);
@@ -1346,7 +1621,8 @@ pub fn layer_editor(app: &mut PhotocraftApp, ui: &mut egui::Ui, id: LayerId, adj
             return;
         }
         Adjustment::Unsupported { psd_key, .. } => {
-            ui.label(RichText::new(format!("This adjustment ({psd_key}) is kept as imported and can't be edited yet.")).color(t.text_faint));
+            let template = "This adjustment ({key}) is kept as imported and can't be edited yet.";
+            ui.label(RichText::new(crate::i18n::fmt(tl!(template), &[("key", psd_key)])).color(t.text_faint));
             return;
         }
         _ => {}
@@ -1370,8 +1646,15 @@ pub fn layer_editor(app: &mut PhotocraftApp, ui: &mut egui::Ui, id: LayerId, adj
         gradients: gradient_presets(app, kind),
         dialog: false,
         dynamic_color_sliders: app.session.prefs().interface.dynamic_color_sliders,
+        isolated_curve: None,
     };
+    if matches!(kind, "levels" | "curves") {
+        crate::layer_picker::controls(app, ui, id);
+    }
     let e = editor(ui, kind, &mut values, &cx);
+    if e.import_gradients {
+        crate::preset_files_ui::import_gradients_dialog(app);
+    }
     if e.changed {
         app.live_adjust = Some((id, values.clone()));
     }
@@ -1417,6 +1700,7 @@ mod tests {
             gradients: Vec::new(),
             dialog: false,
             dynamic_color_sliders: dynamic,
+            isolated_curve: None,
         };
         let stops = [Color32::BLACK, Color32::RED];
         assert_eq!(track_stops(&cx(true), &stops), Some(&stops[..]));

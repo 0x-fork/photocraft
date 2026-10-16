@@ -127,7 +127,7 @@ fn exif() -> Vec<u8> {
 }
 
 /// #1545: a layered TIFF carries EXIF as Photoshop resource 1058 and reads it back, so it must
-/// not report a loss it never makes. A flat TIFF really does lose the tags and still says so.
+/// not report a loss it never makes. A flat TIFF writes it as its own tags and keeps it too.
 #[test]
 fn layered_tiff_keeps_exif_without_claiming_a_loss() {
     let mut d = gen_doc(ColorMode::Rgb, SampleType::U8, Features::PIXELS);
@@ -140,9 +140,13 @@ fn layered_tiff_keeps_exif_without_claiming_a_loss() {
     let kept = back.metadata.exif.as_deref().expect("EXIF survives the layered export");
     assert!(kept.windows(ARTIST.len()).any(|w| w == ARTIST), "the Artist tag did not survive: {kept:?}");
 
-    // The control from the issue: the flat path drops it for real, and keeps reporting that.
+    // The flat path writes the EXIF block's tags as the TIFF's own (here IFD0's Artist, which
+    // reads back as the document's Artist text), so it reports no loss either.
     let flat = tiff(&d, false);
-    assert!(flat.warnings.iter().any(|w| w.contains("EXIF")), "a flat TIFF really does lose EXIF: {:?}", flat.warnings);
+    assert!(!flat.warnings.iter().any(|w| w.contains("EXIF")), "a flat TIFF keeps EXIF: {:?}", flat.warnings);
+    let back = import("x.tif", &flat.bytes).unwrap().document;
+    let artist = std::str::from_utf8(ARTIST).unwrap().trim_end_matches('\0');
+    assert!(back.metadata.text.iter().any(|(k, v)| k == "Artist" && v == artist), "{:?}", back.metadata.text);
 }
 
 #[test]
@@ -359,4 +363,32 @@ fn default_export_options_write_a_flat_tiff() {
     let r = export(&d, "x.tif", &ExportOptions::default()).unwrap();
     assert_eq!(tags(&r.bytes), (None, None));
     assert_eq!(import("x.tif", &r.bytes).unwrap().document.layers.len(), 1);
+}
+
+/// #2940: layered TIFF data whose groups nest past the document's cap is rejected with the same
+/// limit error as a PSD, instead of being converted.
+#[test]
+fn layered_tiff_nested_past_the_cap_is_rejected() {
+    use photocraft_psd::{GroupSpec, LayerSpec, PixelData, PsdBuilder, PsdFile};
+    let tiff_nested = |levels: usize| {
+        let mut b = PsdBuilder::new(4, 4);
+        for _ in 0..levels {
+            b.begin_group(GroupSpec::new("g"));
+        }
+        b.push_layer(LayerSpec::new("deep", 0, 0, 1, 1, PixelData::Rgba8(vec![1, 2, 3, 4])));
+        for _ in 0..levels {
+            b.end_group().unwrap();
+        }
+        let file = PsdFile::from_bytes(&b.to_bytes().unwrap()).unwrap();
+        let order = if photocraft_codecs::tiff_writes_little_endian() { ByteOrder::Little } else { ByteOrder::Big };
+        let layers = ImageSourceData::from_psd(&file).to_bytes(order).unwrap().0;
+        let d = gen_doc(ColorMode::Rgb, SampleType::U8, Features::PIXELS);
+        let mut img = photocraft_codecs::decode(&tiff(&d, false).bytes).unwrap();
+        img.meta.photoshop_layers = Some(layers);
+        photocraft_codecs::encode(&img, photocraft_codecs::Format::Tiff, &photocraft_codecs::EncodeOptions::default()).unwrap()
+    };
+    let err = import("deep.tif", &tiff_nested(101)).unwrap_err();
+    assert!(err.to_string().contains("nested deeper than 100"), "{err}");
+    let r = import("hundred.tif", &tiff_nested(100)).unwrap();
+    assert_eq!(r.document.max_group_depth(), 100);
 }

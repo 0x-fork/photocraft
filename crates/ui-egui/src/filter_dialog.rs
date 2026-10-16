@@ -1,4 +1,5 @@
-//! Filter dialogs generated from engine command parameter specs, with live on-canvas preview.
+//! Filter dialogs generated from engine command parameter specs, with live on-canvas preview and an
+//! in-dialog preview window (#3769).
 //!
 //! The preview runs the *same engine command* on the downsampled proxy document (pixel-sized
 //! parameters scaled by the proxy factor), so what you preview is what you get.
@@ -18,7 +19,10 @@ pub enum Kind {
         max: f32,
         default: f32,
     },
-    Choice(Vec<String>),
+    Choice {
+        options: Vec<String>,
+        default: Option<String>,
+    },
     Bool(bool),
     Int {
         default: i64,
@@ -80,8 +84,22 @@ pub fn parse_spec(spec: &str) -> Vec<Param> {
         }
         let v = v.trim();
         let kind = if let Some(choices) = v.strip_prefix('"') {
-            let body = choices.split('"').next().unwrap_or("");
-            Kind::Choice(body.split('|').map(str::to_string).collect())
+            let (body, rest) = choices.split_once('"').unwrap_or((choices, ""));
+            let options: Vec<String> = body.split('|').map(str::to_string).collect();
+            let default = if let Some((_, def_part)) = rest.split_once('=') {
+                let trimmed = def_part.trim();
+                let def = if let Some(unquoted) = trimmed.strip_prefix('"') {
+                    unquoted.split('"').next().unwrap_or("")
+                } else if let Some(unquoted) = trimmed.strip_prefix('\'') {
+                    unquoted.split('\'').next().unwrap_or("")
+                } else {
+                    trimmed.split(|c: char| c.is_whitespace() || c == '(' || c == ')' || c == ',' || c == '}').next().unwrap_or("")
+                };
+                if !def.is_empty() && options.iter().any(|opt| opt == def) { Some(def.to_string()) } else { None }
+            } else {
+                None
+            };
+            Kind::Choice { options, default }
         } else if let Some(rest) = v.strip_prefix("bool") {
             Kind::Bool(rest.trim_start_matches('=').trim() == "true")
         } else if v == "text" {
@@ -170,12 +188,18 @@ fn is_pixel_param_of(command: &str, key: &str) -> bool {
 }
 
 /// Filters whose features have a fixed size in document pixels that no dialog parameter scales:
-/// per-pixel noise and dots (Add Noise, Diffuse, Mezzotint, Fibers), pixel kernels and scan lines
+/// per-pixel noise and dots (Add Noise, Diffuse, Mezzotint, Fibers, and Dust & Scratches, whose
+/// specks a proxy averages away — so the preview would show nothing removed at all, #3265 — while
+/// its radius stays in document pixels), pixel kernels and scan lines
 /// (Custom, Reduce Noise, De-Interlace, Trace Contour's one-pixel lines), fixed lengths and
 /// widths (Ripple, Oil Paint, Wind's streaks, Extrude's depth, Flame's length, width and
 /// interval) and Tree, whose branches are built from 6 px segments. On a reduced proxy those
 /// features come out k times too large (or a different tree grows), so these preview at full
 /// resolution: what the preview shows is what OK applies, as in Photoshop (#2063).
+///
+/// Sharpen, Sharpen More, Sharpen Edges, Find Edges, Emboss and Despeckle use fixed one-pixel
+/// kernels with no size parameter, so a proxy changes their look: edges average away, making
+/// the sharpening and edge detection invisible. These must preview at full resolution (#3929).
 const FULL_RESOLUTION_PREVIEW: &[&str] = &[
     "filter.distort.ripple",
     "filter.stylize.diffuse",
@@ -184,6 +208,7 @@ const FULL_RESOLUTION_PREVIEW: &[&str] = &[
     "filter.render.fibers",
     "filter.pixelate.mezzotint",
     "filter.noise.addNoise",
+    "filter.noise.dustAndScratches",
     "filter.noise.reduceNoise",
     "filter.other.custom",
     "filter.video.deInterlace",
@@ -191,6 +216,12 @@ const FULL_RESOLUTION_PREVIEW: &[&str] = &[
     "filter.stylize.wind",
     "filter.stylize.extrude",
     "filter.render.tree",
+    "filter.sharpen.sharpen",
+    "filter.sharpen.sharpenMore",
+    "filter.sharpen.sharpenEdges",
+    "filter.stylize.findEdges",
+    "filter.stylize.emboss",
+    "filter.noise.despeckle",
 ];
 
 /// Whether `command` with `params` previews at full resolution: [`FULL_RESOLUTION_PREVIEW`], every
@@ -261,7 +292,6 @@ pub fn has_dialog(command: &str) -> bool {
         || matches!(
             command,
             "image.trim"
-                | "view.newGuide"
                 | "select.refineEdge"
                 | "edit.assignProfile"
                 | "edit.convertToProfile"
@@ -269,6 +299,7 @@ pub fn has_dialog(command: &str) -> bool {
                 | "layer.layerStyle.globalLight"
                 | "image.mode.colorTable"
                 | "edit.definePattern"
+                | "select.convertToShape"
         ))
         && photocraft_engine::commands::find(command).is_some_and(|c| !parse_spec(c.params).is_empty())
 }
@@ -278,7 +309,7 @@ pub fn has_dialog(command: &str) -> bool {
 fn rememberable(kind: &Kind, value: &Value) -> bool {
     match kind {
         Kind::Range { min, max, .. } => value.as_f64().is_some_and(|n| n.is_finite() && n >= f64::from(*min) && n <= f64::from(*max)),
-        Kind::Choice(choices) => value.as_str().is_some_and(|v| choices.iter().any(|choice| choice == v)),
+        Kind::Choice { options, .. } => value.as_str().is_some_and(|v| options.iter().any(|choice| choice == v)),
         Kind::Bool(_) => value.is_boolean(),
         Kind::Int { .. } => value.as_i64().is_some(),
         _ => false,
@@ -307,45 +338,128 @@ pub(crate) fn remember(app: &mut PhotocraftApp, command: &str, fields: &Map<Stri
     }
 }
 
+/// Schema-default values for one param of `command` (open and Alt+Reset share this).
+fn default_value(app: &PhotocraftApp, command: &str, p: &Param) -> Option<Value> {
+    Some(match &p.kind {
+        Kind::Range { default, .. } if command == "image.mode.indexedColor" && p.key == "colors" => json!(default.round().clamp(2.0, 256.0) as u32),
+        Kind::Range { default, .. } => json!(default),
+        Kind::Choice { options, default } => {
+            let initial = default.as_deref().or_else(|| options.first().map(String::as_str)).unwrap_or("");
+            json!(initial)
+        }
+        Kind::Bool(default) => json!(default),
+        Kind::Int { default } => json!(default),
+        Kind::Text => json!(""),
+        Kind::Document => json!(-1),
+        // Identity kernel: 1 in the centre.
+        Kind::Grid(n) => json!((0..*n).map(|i| i64::from(i == *n / 2)).collect::<Vec<_>>()),
+        Kind::Color(Some(rgb)) => json!(crate::color_picker_ui::hex(*rgb)),
+        // Replace Color starts from the foreground colour and can sample a new one off the canvas.
+        Kind::Color(None) if command == REPLACE_COLOR => {
+            let fg = app.session.tools.foreground;
+            json!(crate::color_picker_ui::hex([fg[0], fg[1], fg[2]]))
+        }
+        Kind::Color(None) => return None,
+        // Colour inputs come from the current swatches, so the proxy preview matches the result.
+        Kind::Json if p.key == "foreground" => json!(app.session.tools.foreground),
+        Kind::Json if p.key == "background" => json!(app.session.tools.background),
+        Kind::Json => return None,
+    })
+}
+
+/// Command-specific open defaults (ruler straighten, warp from layer, …), not remembered prefs.
+fn apply_command_defaults(app: &PhotocraftApp, command: &str, fields: &mut Map<String, Value>) {
+    if command == "image.rotation.arbitrary" {
+        straighten_defaults(app, fields);
+    }
+    if command == "type.warpText" {
+        warp_defaults(app, fields);
+    }
+    // Photoshop's Pattern Name dialog starts from the name the pattern would get anyway.
+    if command == "edit.definePattern" {
+        fields.insert("name".into(), json!(photocraft_engine::pattern_cmds::default_name(&app.session)));
+    }
+    if command == "layer.layerStyle.globalLight" {
+        global_light_defaults(app, fields);
+    }
+    if command == "view.proofSetup" {
+        proof_setup_defaults(app, fields);
+    }
+    if command == "edit.assignProfile" {
+        assign_profile_defaults(app, fields);
+    }
+}
+
+/// Assign Profile offers only the profiles the document's colour mode can take (#4951): the
+/// command refuses one of another colour space. `__profiles` lists them for the `profile` menu,
+/// and a remembered choice that doesn't fit this document falls back to the working space.
+fn assign_profile_defaults(app: &PhotocraftApp, fields: &mut Map<String, Value>) {
+    let Some(st) = app.session.active() else { return };
+    let Some(spec) = photocraft_engine::commands::find("edit.assignProfile") else { return };
+    let space = photocraft_engine::color_cmds::mode_space(st.doc.mode);
+    let fits = |name: &str| name == "none" || app.session.color.resolve(name, Some(&st.doc), None).is_ok_and(|p| p.color_space == space);
+    let builtin: Vec<String> = parse_spec(spec.params)
+        .into_iter()
+        .filter(|p| p.key == "profile")
+        .flat_map(|p| match p.kind {
+            Kind::Choice { options, .. } => options,
+            _ => Vec::new(),
+        })
+        .collect();
+    let installed: Vec<_> = photocraft_engine::installed_profiles::installed().into_iter().filter(|i| i.is_destination()).collect();
+    let allowed: Vec<String> =
+        builtin.iter().filter(|name| fits(name)).cloned().chain(installed.iter().filter(|i| i.color_space == space).map(|i| i.path.clone())).collect();
+    // A path nobody lists (typed by an agent) is left alone: the command decides about it.
+    let listed = |cur: &str| builtin.iter().any(|name| name == cur) || installed.iter().any(|i| i.path == cur);
+    if fields.get("profile").and_then(Value::as_str).is_some_and(|cur| listed(cur) && !allowed.iter().any(|name| name == cur)) {
+        fields.insert("profile".into(), json!("working"));
+    }
+    fields.insert("__profiles".into(), json!(allowed));
+}
+
+/// Alt+Cancel (Reset): schema defaults + command hooks, without last-used remembered prefs.
+pub fn reset_fields(app: &PhotocraftApp, fields: &mut Map<String, Value>) {
+    if !fields.contains_key("__filter") || fields.contains_key("__adjust") {
+        return;
+    }
+    let Some(command) = fields.get("__command").and_then(Value::as_str).map(str::to_owned) else { return };
+    let spec =
+        fields.get("__spec").and_then(Value::as_str).map(str::to_owned).or_else(|| photocraft_engine::commands::find(&command).map(|c| c.params.to_owned()));
+    let Some(spec) = spec else { return };
+    // Drop user params; keep private `__` chrome (and fixed keys outside the schema for `__spec`).
+    let schema_keys: std::collections::HashSet<String> = parse_spec(&spec).into_iter().map(|p| p.key).collect();
+    fields.retain(|k, _| k.starts_with("__") || !schema_keys.contains(k));
+    for p in parse_spec(&spec) {
+        if let Some(v) = default_value(app, &command, &p) {
+            fields.insert(p.key, v);
+        }
+    }
+    apply_command_defaults(app, &command, fields);
+    // The schema has no default for the Blur Gallery's pins: start again from the opening one.
+    if crate::blur_pins::handles(&command) {
+        crate::blur_pins::reset(fields);
+    }
+}
+
 pub fn open(app: &mut PhotocraftApp, command: &str) -> Option<u64> {
     let spec = photocraft_engine::commands::find(command)?;
     let mut fields = Map::new();
     fields.insert("__command".into(), json!(command));
     fields.insert("__label".into(), json!(spec.label));
     fields.insert("__filter".into(), json!(true));
-    if command.starts_with("filter.") || PREVIEWED.contains(&command) {
+    // Select and Mask previews in its view modes (`select_mask_view`), not as the command's result.
+    if command.starts_with("filter.") || PREVIEWED.contains(&command) || command == crate::select_mask_view::COMMAND {
         fields.insert("__preview".into(), json!(true));
     }
     for p in parse_spec(spec.params) {
-        let v = match &p.kind {
-            Kind::Range { default, .. } if command == "image.mode.indexedColor" && p.key == "colors" => json!(default.round().clamp(2.0, 256.0) as u32),
-            Kind::Range { default, .. } => json!(default),
-            Kind::Choice(c) => json!(c.first().cloned().unwrap_or_default()),
-            Kind::Bool(default) => json!(default),
-            Kind::Int { default } => json!(default),
-            Kind::Text => json!(""),
-            Kind::Document => json!(-1),
-            // Identity kernel: 1 in the centre.
-            Kind::Grid(n) => json!((0..*n).map(|i| i64::from(i == *n / 2)).collect::<Vec<_>>()),
-            Kind::Color(Some(rgb)) => json!(crate::color_picker_ui::hex(*rgb)),
-            Kind::Color(None) => continue,
-            // Colour inputs come from the current swatches, so the proxy preview matches the result.
-            Kind::Json if p.key == "foreground" => json!(app.session.tools.foreground),
-            Kind::Json if p.key == "background" => json!(app.session.tools.background),
-            Kind::Json => continue,
-        };
-        fields.insert(p.key, v);
+        if let Some(v) = default_value(app, command, &p) {
+            fields.insert(p.key, v);
+        }
     }
     restore_remembered(app, command, spec.params, &mut fields);
-    if command == "image.rotation.arbitrary" {
-        straighten_defaults(app, &mut fields);
-    }
-    if command == "type.warpText" {
-        warp_defaults(app, &mut fields);
-    }
-    // Photoshop's Pattern Name dialog starts from the name the pattern would get anyway.
-    if command == "edit.definePattern" {
-        fields.insert("name".into(), json!(photocraft_engine::pattern_cmds::default_name(&app.session)));
+    apply_command_defaults(app, command, &mut fields);
+    if crate::blur_pins::handles(command) {
+        crate::blur_pins::init(app, &mut fields);
     }
     if parse_spec(spec.params).iter().any(|p| p.kind == Kind::Document) {
         // The document picker lists every open document (params refer to them by index).
@@ -390,6 +504,23 @@ fn warp_defaults(app: &PhotocraftApp, fields: &mut Map<String, Value>) {
     fields.insert("orientation".into(), json!(if w.horizontal { "horizontal" } else { "vertical" }));
 }
 
+/// Global Light reflects the active document's current shared lighting, never remembered values.
+fn global_light_defaults(app: &PhotocraftApp, fields: &mut Map<String, Value>) {
+    let Some(st) = app.session.active() else { return };
+    fields.insert("angle".into(), json!(st.doc.global_light.angle));
+    fields.insert("altitude".into(), json!(st.doc.global_light.altitude));
+}
+
+/// Proof Setup reflects the active document's current proofing condition, never remembered values.
+fn proof_setup_defaults(app: &PhotocraftApp, fields: &mut Map<String, Value>) {
+    let Some(st) = app.session.active() else { return };
+    let pv = app.session.color.proof(st.doc.id);
+    fields.insert("profile".into(), json!(pv.setup.name));
+    fields.insert("intent".into(), json!(pv.setup.intent.id()));
+    fields.insert("bpc".into(), json!(pv.setup.bpc));
+    fields.insert("simulatePaper".into(), json!(pv.setup.simulate_paper));
+}
+
 /// A filter dialog with live preview for `command` whose parameters follow `spec` (registry
 /// notation) instead of the command's own; `fixed` params (e.g. a plug-in id) are passed through.
 pub fn open_with_spec(app: &mut PhotocraftApp, command: &str, label: &str, spec: &str, fixed: Map<String, Value>) -> u64 {
@@ -402,7 +533,10 @@ pub fn open_with_spec(app: &mut PhotocraftApp, command: &str, label: &str, spec:
     for p in parse_spec(spec) {
         let v = match &p.kind {
             Kind::Range { default, .. } => json!(default),
-            Kind::Choice(c) => json!(c.first().cloned().unwrap_or_default()),
+            Kind::Choice { options, default } => {
+                let initial = default.as_deref().or_else(|| options.first().map(String::as_str)).unwrap_or("");
+                json!(initial)
+            }
             Kind::Bool(default) => json!(default),
             Kind::Int { default } => json!(default),
             Kind::Color(Some(rgb)) => json!(crate::color_picker_ui::hex(*rgb)),
@@ -418,6 +552,14 @@ pub(crate) fn label(key: &str) -> String {
 }
 
 pub(crate) fn source_label(key: &str) -> String {
+    // Photoshop's name for the localized colour matching (Replace Color, Color Range).
+    if key == "localized" {
+        return "Localized Color Clusters".into();
+    }
+    // A name that already reads as text ("iPhone 14 Pro Max", "Web 1920") is not camelCase.
+    if key.contains(' ') {
+        return key.to_string();
+    }
     // camelCase → "Camel Case"
     let mut s = String::new();
     for (i, ch) in key.chars().enumerate() {
@@ -441,6 +583,60 @@ fn uses_logarithmic_slider(min: f32, max: f32) -> bool {
     min > 0.0 && max / min > 500.0
 }
 
+/// Schema dialogs whose `profile` menu lists the installed profiles after the built-ins.
+const PROFILE_DIALOGS: &[&str] = &["edit.assignProfile", "edit.convertToProfile", "view.proofSetup"];
+
+/// Commands whose `angle` is a direction in document angles (counter-clockwise from three
+/// o'clock): a light or a blur direction, edited on a dial as in Photoshop's Motion Blur, Emboss
+/// and Global Light (#3152). Rotation amounts (Twirl, Rotate Arbitrary, Crop, Lens Correction,
+/// the Blur Gallery shapes) and angles with another zero (Flame's points up) keep the slider.
+const ANGLE_DIAL: &[&str] = &[
+    "filter.blur.motionBlur",
+    "filter.stylize.emboss",
+    "filter.stylize.oilPaint",
+    "filter.render.lightingEffects",
+    "filter.render.relight",
+    "layer.layerStyle.globalLight",
+];
+
+fn uses_angle_dial(command: &str, key: &str) -> bool {
+    key == "angle" && ANGLE_DIAL.contains(&command)
+}
+
+/// Replace Color (#4143): the dialog's "From" colour, sampled from the image with a canvas
+/// eyedropper like Photoshop's. While armed, the next click on the image writes the merged
+/// composite colour into the `color` field (the same sampler the Color Picker uses).
+const REPLACE_COLOR: &str = "image.adjustments.replaceColor";
+const COLOR_EYEDROPPER: &str = "__colorEyedropper";
+
+fn color_eyedropper_owns(f: &Map<String, Value>) -> bool {
+    f.get("__filter").and_then(Value::as_bool) == Some(true)
+        && f.get("__command").and_then(Value::as_str) == Some(REPLACE_COLOR)
+        && f.get(COLOR_EYEDROPPER).and_then(Value::as_bool) == Some(true)
+}
+
+/// Whether the top dialog is a Replace Color with its canvas eyedropper armed.
+pub(crate) fn color_eyedropper_armed(app: &PhotocraftApp) -> bool {
+    app.ui.dialogs.last().is_some_and(|d| color_eyedropper_owns(&d.fields))
+}
+
+/// Sample the merged image at document point (x, y) into the armed dialog's "From" colour.
+/// Returns true when the click was consumed, even off-image or over transparency, where nothing
+/// changes and the eyedropper stays armed (like the Curves picker).
+pub(crate) fn color_eyedropper_sample(app: &mut PhotocraftApp, x: f64, y: f64) -> bool {
+    let Some(id) = app.ui.dialogs.last().filter(|d| color_eyedropper_owns(&d.fields)).map(|d| d.id) else {
+        return false;
+    };
+    if let Some(rgb) = crate::canvas::composite_color(app, x, y)
+        && let Some(d) = app.ui.dialog_mut(id)
+    {
+        d.fields.insert("color".into(), json!(crate::color_picker_ui::hex(rgb)));
+        // Where it was picked: Localized Color Clusters match the colour near this point (#4457).
+        d.fields.insert("points".into(), json!([[x.floor(), y.floor()]]));
+    }
+    true
+}
+
 /// Dialog body for filter commands.
 pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     let t = Tokens::get(ui.ctx());
@@ -453,6 +649,9 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
             None => return,
         },
     };
+    if crate::select_mask_view::owns(f) {
+        crate::select_mask_view::controls(ui, f);
+    }
     for p in parse_spec(&spec) {
         match p.kind {
             Kind::Range { min, max, default } => {
@@ -463,6 +662,8 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                     f.insert(p.key, json!(count));
                     continue;
                 }
+                // Replace Color's Range only applies with Localized Color Clusters on, as in Photoshop.
+                let enabled = !(cmd == REPLACE_COLOR && p.key == "range") || f.get("localized").and_then(Value::as_bool) == Some(true);
                 let unit = if is_pixel_param_of(&cmd, &p.key) {
                     "px"
                 } else if p.key == "angle" {
@@ -472,33 +673,64 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                 } else {
                     ""
                 };
-                if uses_logarithmic_slider(min, max) {
-                    // Keep one numeric field for direct entry and one log-scaled slider for
-                    // wide ranges. slider_row would add a second, linear slider (#146).
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(label(&p.key)).color(t.text_dim));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            crate::widgets::value_field(ui, &mut v, min..=max, unit, 74.0);
-                        });
-                    });
-                    let mut lv = v.clamp(min, max).ln();
-                    if crate::widgets::slider(ui, &mut lv, min.ln()..=max.ln(), None).changed() {
-                        v = lv.exp();
+                ui.scope(|ui| {
+                    if !enabled {
+                        ui.disable();
                     }
-                    ui.add_space(4.0);
-                } else {
-                    crate::widgets::slider_row(ui, &label(&p.key), &mut v, min..=max, unit, None);
-                }
+                    if uses_angle_dial(&cmd, &p.key) {
+                        crate::widgets::angle_dial_row(ui, &label(&p.key), &mut v, min..=max);
+                        ui.add_space(4.0);
+                    } else if uses_logarithmic_slider(min, max) {
+                        // Keep one numeric field for direct entry and one log-scaled slider for
+                        // wide ranges. slider_row would add a second, linear slider (#146).
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(label(&p.key)).color(t.text_dim));
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                crate::widgets::value_field(ui, &mut v, min..=max, unit, 74.0);
+                            });
+                        });
+                        let mut lv = v.clamp(min, max).ln();
+                        if crate::widgets::slider(ui, &mut lv, min.ln()..=max.ln(), None).changed() {
+                            v = lv.exp();
+                        }
+                        ui.add_space(4.0);
+                    } else {
+                        // A double-click on the slider puts it back to the filter's default.
+                        let gestures = crate::widgets::RowGestures { reset: Some(default), wheel_step: None };
+                        crate::widgets::slider_row_with(ui, &label(&p.key), &mut v, min..=max, unit, None, gestures);
+                    }
+                });
                 // Small ranges (0–1 thresholds and centres) keep the two decimals their field shows.
                 let scale = if max - min <= 10.0 { 100.0 } else { 10.0 };
                 f.insert(p.key, json!((v * scale).round() / scale));
             }
-            Kind::Choice(options) => {
+            Kind::Choice { options, default } => {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(label(&p.key)).color(t.text_dim));
-                    let mut cur = f.get(&p.key).and_then(Value::as_str).unwrap_or(&options[0]).to_string();
+                    let initial = default.as_deref().or_else(|| options.first().map(String::as_str)).unwrap_or("");
+                    let mut cur = f.get(&p.key).and_then(Value::as_str).unwrap_or(initial).to_string();
                     let labels: Vec<String> = options.iter().map(|o| choice_label(o)).collect();
-                    let opts: Vec<(String, &str)> = options.iter().cloned().zip(labels.iter().map(String::as_str)).collect();
+                    let mut opts: Vec<(String, &str)> = options.iter().cloned().zip(labels.iter().map(String::as_str)).collect();
+                    // Like Photoshop, the profile menus also list every profile installed in
+                    // the system (printer and paper profiles), by description.
+                    let installed = if p.key == "profile" && PROFILE_DIALOGS.contains(&cmd.as_str()) {
+                        photocraft_engine::installed_profiles::installed().into_iter().filter(|i| i.is_destination()).collect()
+                    } else {
+                        Vec::new()
+                    };
+                    opts.extend(installed.iter().map(|i| (i.path.clone(), i.description.as_str())));
+                    // Assign Profile: only what the document's colour mode can take (#4951).
+                    if p.key == "profile"
+                        && let Some(allowed) = f.get("__profiles").and_then(Value::as_array)
+                    {
+                        opts.retain(|(v, _)| allowed.iter().any(|a| a.as_str() == Some(v.as_str())));
+                    }
+                    // A profile given by path that isn't listed (typed by an agent, or spelled with
+                    // different case) still shows, by its file name, instead of a blank menu.
+                    let stem = std::path::Path::new(&cur).file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    if p.key == "profile" && PROFILE_DIALOGS.contains(&cmd.as_str()) && !opts.iter().any(|(v, _)| *v == cur) {
+                        opts.push((cur.clone(), stem.as_str()));
+                    }
                     crate::widgets::dropdown(ui, &format!("flt-{cmd}-{}", p.key), &mut cur, &opts, 170.0);
                     f.insert(p.key.clone(), json!(cur));
                 });
@@ -560,11 +792,18 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                 let bytes = rgb.map(q);
                 let name = label(&p.key);
                 let mut clicked = false;
+                let eyedropper = cmd == REPLACE_COLOR && p.key == "color";
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(&name).color(t.text_dim));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         // PhotoCraft's Color Picker, as everywhere else (#2144).
                         clicked = crate::widgets::color_swatch_button(ui, egui::Color32::from_rgb(bytes[0], bytes[1], bytes[2]), &name).clicked();
+                        if eyedropper {
+                            let armed = f.get(COLOR_EYEDROPPER).and_then(Value::as_bool).unwrap_or(false);
+                            if crate::icons::button(ui, "pipette", 24.0, armed, "Pick Color From Image").clicked() {
+                                f.insert(COLOR_EYEDROPPER.into(), json!(!armed));
+                            }
+                        }
                         ui.label(egui::RichText::new(crate::color_picker_ui::hex(rgb)).color(t.text_dim).monospace());
                     });
                 });
@@ -583,6 +822,11 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(label(&p.key)).color(t.text_dim));
                     crate::widgets::value_field(ui, &mut v, -30000.0..=30000.0, "", 80.0);
+                    // A seed gets a fresh random value in one click (#5710): Clouds, Add Noise,
+                    // Fibers… then render a new pattern, as each run of Photoshop's does.
+                    if p.key == "seed" && ui.button(tl!("Random")).clicked() {
+                        v = random_seed(ui.input(|i| i.time).to_bits(), v as i64) as f32;
+                    }
                 });
                 f.insert(p.key, json!(v.round() as i64));
             }
@@ -598,6 +842,15 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
         crate::widgets::checkbox(ui, &mut preview, tl!("Preview"));
         f.insert("__preview".into(), json!(preview));
     }
+}
+
+/// A new seed for a dialog's Random button: 0..=30000 (what the field takes), never `current`.
+/// `entropy` varies per click (the input time); the process's random hasher keys mix it.
+fn random_seed(entropy: u64, current: i64) -> i64 {
+    use std::hash::BuildHasher;
+    let h = std::collections::hash_map::RandomState::new().hash_one(entropy);
+    let seed = (h % 30_001) as i64;
+    if seed == current { (seed + 1) % 30_001 } else { seed }
 }
 
 /// User-facing params (strip the dialog's private `__` keys).
@@ -622,17 +875,40 @@ pub fn preview_document_with(
     k: u32,
     cancel: Option<&photocraft_engine::jobs::JobCtx>,
 ) -> Option<Document> {
+    preview_document_for_target(doc, active, command, params, k, cancel, photocraft_engine::channel_cmds::ChannelTarget::Composite, &[])
+}
+
+/// Run the preview with the same pixel target as the final command, including individual channels.
+/// `documents` are the open documents in session order: document params (Match Color's Source,
+/// Displace's map) index into them.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn preview_document_for_target(
+    doc: &Document,
+    active: Option<photocraft_doc::LayerId>,
+    command: &str,
+    params: &Value,
+    k: u32,
+    cancel: Option<&photocraft_engine::jobs::JobCtx>,
+    target: photocraft_engine::channel_cmds::ChannelTarget,
+    documents: &[Arc<Document>],
+) -> Option<Document> {
+    if command == crate::select_mask_view::COMMAND {
+        return crate::select_mask_view::preview_document(doc, active, params, k, cancel);
+    }
     // Warp Text renders the type again from the layer model (font size, position), which a
     // reduced proxy doesn't scale: it runs at full size and the result is reduced (#218).
     let (run_k, reduce_k) = if command == "type.warpText" { (1, k) } else { (k, 1) };
     let proxy = crate::proxy::proxy_document(doc, run_k);
     let mut s = photocraft_engine::Session::new();
     s.set_inline_job_ctx(cancel.cloned());
+    let doc_id = proxy.id;
     s.add_document(proxy, None);
+    let mut p = params.clone();
+    add_source_documents(&mut s, doc_id, command, &mut p, documents, run_k);
     if let Some(id) = active {
         s.select_layer(id).ok()?;
     }
-    let mut p = params.clone();
+    s.active_mut()?.channel_view.target = target;
     if run_k > 1
         && let Some(o) = p.as_object_mut()
     {
@@ -655,8 +931,40 @@ pub fn preview_document_with(
             }
         }
     }
+    // Blur Gallery pins carry their blur in document pixels too.
+    if command.starts_with("filter.blurGallery.") {
+        crate::blur_pins::scale_for_proxy(&mut p, run_k);
+    }
     s.execute(command, p).ok()?;
     s.active().map(|d| crate::proxy::proxy_document(&d.doc, reduce_k))
+}
+
+/// The preview session holds only the proxy of the edited document (index 0), so a document param
+/// pointing at another open document found nothing there: Match Color's preview with a Source
+/// document failed, or matched the image to itself (#4851). Add each referenced document (as a
+/// proxy at the same factor) and point the param at its index in the preview session.
+fn add_source_documents(s: &mut photocraft_engine::Session, doc_id: photocraft_doc::DocId, command: &str, p: &mut Value, documents: &[Arc<Document>], k: u32) {
+    let Some(spec) = photocraft_engine::commands::find(command) else { return };
+    let Some(o) = p.as_object_mut() else { return };
+    let mut added: Vec<(usize, usize)> = Vec::new();
+    for param in parse_spec(spec.params).into_iter().filter(|p| p.kind == Kind::Document) {
+        let Some(v) = o.get_mut(&param.key) else { continue };
+        let Some(i) = v.as_u64().and_then(|i| usize::try_from(i).ok()) else { continue };
+        // An index past the open documents stays as given, so the preview fails like OK would.
+        let Some(src) = documents.get(i) else { continue };
+        let at = if src.id == doc_id {
+            0
+        } else if let Some(&(_, at)) = added.iter().find(|(j, _)| *j == i) {
+            at
+        } else {
+            let at = s.add_document(crate::proxy::proxy_document(src, k), None);
+            added.push((i, at));
+            at
+        };
+        *v = json!(at);
+    }
+    // Adding a document makes it active: the command still runs on the edited one.
+    s.set_active(0);
 }
 
 /// Cached preview state on the app.
@@ -668,21 +976,139 @@ pub struct FilterPreview {
     pub committing: bool,
 }
 
-/// Match the full request before accepting a worker result, including a reopened dialog.
+/// Identity of one filter dialog's live preview.
+///
+/// `PartialEq` is the whole request: it says a worker result is exactly what the dialog is asking
+/// for now. [`Self::same_target`] is the looser question of whether a result belongs to this
+/// preview at all; two keys that agree on it name the same dialog, layer, document and preview
+/// resolution, and differ only in parameters — which is what a slider drag produces, since the
+/// worker computed for the value the pointer passed a moment ago.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FilterPreviewKey {
     pub doc: photocraft_doc::DocId,
     pub revision: u64,
     pub dialog: u64,
     pub active: Option<photocraft_doc::LayerId>,
+    pub target: photocraft_engine::channel_cmds::ChannelTarget,
     pub command: String,
     pub params: Value,
     pub k: u32,
 }
 
+impl FilterPreviewKey {
+    /// Everything except the parameters: same dialog, document, revision, layer, channel target,
+    /// command and proxy factor.
+    ///
+    /// The canvas shows whatever this preview was computed for, so a result whose parameters are
+    /// a few frames old still belongs on screen while a slider is moving; matching on everything
+    /// would mean no frame of a drag is ever shown, because every completion lands after the
+    /// parameters moved on. A reopened dialog has a new id, a different command or a different
+    /// document, and a committed document a new revision, so neither survives this test.
+    pub fn same_target(&self, other: &Self) -> bool {
+        self.doc == other.doc
+            && self.revision == other.revision
+            && self.dialog == other.dialog
+            && self.active == other.active
+            && self.target == other.target
+            && self.command == other.command
+            && self.k == other.k
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #5710: the seed field's Random button always gives a different seed the field can hold.
+    #[test]
+    fn random_seeds_stay_in_range_and_change() {
+        let mut seen = std::collections::HashSet::new();
+        for i in 0..200u64 {
+            let s = random_seed(i, 7);
+            assert!((0..=30_000).contains(&s), "{s}");
+            assert_ne!(s, 7, "a click always changes the seed");
+            seen.insert(s);
+        }
+        assert!(seen.len() > 100, "seeds spread out: {}", seen.len());
+        assert_ne!(random_seed(1, 30_000), 30_000);
+        // Every seed dialog shows the button: Clouds, Add Noise and the like carry a `seed` param.
+        let specs = photocraft_engine::command_specs();
+        assert!(
+            specs
+                .iter()
+                .filter(|c| c.id.starts_with("filter."))
+                .any(|c| parse_spec(c.params).iter().any(|p| p.key == "seed" && matches!(p.kind, Kind::Int { .. })))
+        );
+    }
+
+    /// Preset names such as "iPhone 14 Pro Max" (the artboard dialog's choices) are text, not
+    /// camelCase keys: they used to read "I Phone 14  Pro  Max".
+    #[test]
+    fn display_names_are_not_split_like_camel_case_keys() {
+        assert_eq!(source_label("iPhone 14 Pro Max"), "iPhone 14 Pro Max");
+        assert_eq!(source_label("Web 1920"), "Web 1920");
+        assert_eq!(source_label("centerX"), "Center X");
+    }
+
+    fn key() -> FilterPreviewKey {
+        FilterPreviewKey {
+            doc: photocraft_doc::DocId(7),
+            revision: 11,
+            dialog: 3,
+            active: Some(photocraft_doc::LayerId(2)),
+            target: Default::default(),
+            command: "filter.blur.gaussianBlur".into(),
+            params: json!({"radius": 4.0}),
+            k: 1,
+        }
+    }
+
+    #[test]
+    fn same_target_ignores_parameters_but_nothing_else() {
+        // A drag only changes the parameters, and that must not hide the finished frame.
+        let base = key();
+        let mut moved = base.clone();
+        moved.params = json!({"radius": 40.0});
+        assert!(base.same_target(&moved));
+        assert!(moved.same_target(&base));
+
+        // Anything else names a different preview and must not be shown.
+        for break_it in [
+            |k: &mut FilterPreviewKey| k.doc = photocraft_doc::DocId(8),
+            |k: &mut FilterPreviewKey| k.revision = 12,
+            |k: &mut FilterPreviewKey| k.dialog = 4,
+            |k: &mut FilterPreviewKey| k.active = Some(photocraft_doc::LayerId(5)),
+            |k: &mut FilterPreviewKey| k.active = None,
+            |k: &mut FilterPreviewKey| k.target = photocraft_engine::channel_cmds::ChannelTarget::LayerMask,
+            |k: &mut FilterPreviewKey| k.command = "filter.blur.motionBlur".into(),
+            |k: &mut FilterPreviewKey| k.k = 2,
+        ] {
+            let mut other = base.clone();
+            break_it(&mut other);
+            assert!(!other.same_target(&base), "{other:?} must not pass as {base:?}");
+            assert!(!base.same_target(&other));
+        }
+    }
+
+    #[test]
+    fn only_direction_angles_get_the_dial() {
+        // Every listed command still has a degree `angle` range, so the list cannot go stale.
+        for cmd in ANGLE_DIAL {
+            let spec = photocraft_engine::commands::find(cmd).unwrap_or_else(|| panic!("{cmd} is not a command")).params;
+            assert!(
+                parse_spec(spec).iter().any(|p| p.key == "angle" && matches!(p.kind, Kind::Range { min, max, .. } if min >= -360.0 && max <= 360.0)),
+                "{cmd} has no angle range"
+            );
+            assert!(uses_angle_dial(cmd, "angle"));
+            assert!(!uses_angle_dial(cmd, "distance"));
+        }
+        // Rotation amounts and angles with another zero keep their slider.
+        for cmd in
+            ["filter.distort.twirl", "image.rotation.arbitrary", "image.crop", "filter.blurGallery.tiltShift", "filter.lensCorrection", "filter.render.flame"]
+        {
+            assert!(!uses_angle_dial(cmd, "angle"), "{cmd}");
+        }
+    }
 
     #[test]
     fn restores_only_valid_previous_filter_choices() {
@@ -700,6 +1126,24 @@ mod tests {
         fields.insert("radius".into(), json!(2.0));
         restore_remembered(&app, "filter.blur.gaussianBlur", r#"{"radius":0.1..5=1}"#, &mut fields);
         assert_eq!(fields["radius"], json!(2.0));
+    }
+
+    #[test]
+    fn alt_reset_restores_schema_defaults_not_remembered() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.session.prefs.edit(|prefs| {
+            prefs.dialogs.insert("filter.blur.gaussianBlur".into(), json!({"radius": 11.0}));
+        });
+        let id = open(&mut app, "filter.blur.gaussianBlur").unwrap();
+        assert_eq!(app.ui.dialog_mut(id).unwrap().fields["radius"], json!(11.0));
+        let mut fields = app.ui.dialog_mut(id).unwrap().fields.clone();
+        reset_fields(&app, &mut fields);
+        app.ui.dialog_mut(id).unwrap().fields = fields;
+        let f = &app.ui.dialog_mut(id).unwrap().fields;
+        // Registry default for gaussian blur radius is 1.
+        assert_eq!(f["radius"], json!(1.0));
+        assert!(f.contains_key("__filter"));
+        assert!(app.ui.dialogs.iter().any(|d| d.id == id));
     }
 
     #[test]
@@ -721,11 +1165,13 @@ mod tests {
     fn parses_registry_notation() {
         let p = parse_spec(r#"{"radius":0.1..1000=1,"method":"spin|zoom","monochromatic":bool,"seed":u32=0,"horizontal":px=0}"#);
         assert_eq!(p[0], Param { key: "radius".into(), kind: Kind::Range { min: 0.1, max: 1000.0, default: 1.0 } });
-        assert_eq!(p[1].kind, Kind::Choice(vec!["spin".into(), "zoom".into()]));
+        assert_eq!(p[1].kind, Kind::Choice { options: vec!["spin".into(), "zoom".into()], default: None });
         assert_eq!(p[2].kind, Kind::Bool(false));
         assert_eq!(p[3].kind, Kind::Int { default: 0 });
         assert_eq!(p[4].kind, Kind::Int { default: 0 });
         assert!(parse_spec("{}").is_empty());
+        let p_choice = parse_spec(r#"{"quality":"draft|good|best"="good"}"#);
+        assert_eq!(p_choice[0].kind, Kind::Choice { options: vec!["draft".into(), "good".into(), "best".into()], default: Some("good".into()) });
         let p = parse_spec(r#"{"lighting":bool=true,"kernel":int[25],"pins":json,"points":[[0,0],[1,0]],"mapPath":text,"mapDocument":doc,"scale":1..9999=1}"#);
         let kinds: Vec<&Kind> = p.iter().map(|p| &p.kind).collect();
         assert_eq!(
@@ -742,6 +1188,182 @@ mod tests {
         f.insert("__command".into(), json!("edit.autoAlignLayers"));
         egui::Context::default().run_ui(Default::default(), |ui| body(ui, &mut f)).textures_delta.clear();
         assert!(!params_of(&f).as_object().unwrap().contains_key("reference"), "{f:?}");
+    }
+
+    /// Layer › Layer Style › Global Light (#3054): Global Light dialog opens with the active
+    /// document's current shared lighting, preserving it on unchanged OK, ignoring stale
+    /// remembered dialog values, tracking document switching, applying edits, and leaving the
+    /// document unchanged on Cancel.
+    #[test]
+    fn global_light_dialog_reflects_active_document_light() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        let ctx = egui::Context::default();
+        app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        let doc1_id = app.session.active().unwrap().doc.id;
+
+        // 0. Default-document control: fresh document starts at angle 120 and altitude 30.
+        let d_default = crate::menus::invoke(&mut app, &ctx, "layer.layerStyle.globalLight", Value::Null).unwrap()["dialog"].as_u64().unwrap();
+        assert_eq!(app.ui.dialog_mut(d_default).unwrap().fields["angle"], json!(120.0));
+        assert_eq!(app.ui.dialog_mut(d_default).unwrap().fields["altitude"], json!(30.0));
+        crate::dialogs::confirm(&mut app, d_default).unwrap();
+        assert_eq!(app.session.active().unwrap().doc.global_light.angle, 120.0);
+        assert_eq!(app.session.active().unwrap().doc.global_light.altitude, 30.0);
+
+        // 1. Change document's global light to 30 degrees angle and 45 degrees altitude.
+        app.run("layer.layerStyle.globalLight", json!({"angle": 30.0, "altitude": 45.0})).unwrap();
+        assert_eq!(app.session.active().unwrap().doc.global_light.angle, 30.0);
+        assert_eq!(app.session.active().unwrap().doc.global_light.altitude, 45.0);
+
+        // 2. Open Global Light dialog: opens with the active document's light (30 / 45).
+        let d_id = crate::menus::invoke(&mut app, &ctx, "layer.layerStyle.globalLight", Value::Null).unwrap()["dialog"].as_u64().unwrap();
+        let fields = &app.ui.dialog_mut(d_id).unwrap().fields;
+        assert_eq!(fields["angle"], json!(30.0));
+        assert_eq!(fields["altitude"], json!(45.0));
+
+        // 3. Unchanged OK preserves the document's light.
+        crate::dialogs::confirm(&mut app, d_id).unwrap();
+        let gl = app.session.active().unwrap().doc.global_light;
+        assert_eq!(gl.angle, 30.0);
+        assert_eq!(gl.altitude, 45.0);
+
+        // 4. Stale remembered values do not override the active document.
+        app.session.prefs.edit(|prefs| {
+            prefs.dialogs.insert(
+                "layer.layerStyle.globalLight".into(),
+                json!({
+                    "angle": 75.0,
+                    "altitude": 60.0,
+                }),
+            );
+        });
+        let d_id = open(&mut app, "layer.layerStyle.globalLight").unwrap();
+        let fields = &app.ui.dialog_mut(d_id).unwrap().fields;
+        assert_eq!(fields["angle"], json!(30.0), "reads active document, not remembered");
+        assert_eq!(fields["altitude"], json!(45.0));
+
+        // 5. Cancel preserves the document's light.
+        app.ui.close_dialog(d_id);
+        let gl = app.session.active().unwrap().doc.global_light;
+        assert_eq!(gl.angle, 30.0);
+        assert_eq!(gl.altitude, 45.0);
+
+        // 6. Multiple documents: each document initializes the dialog to its own light.
+        app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        let doc2_id = app.session.active().unwrap().doc.id;
+        assert_ne!(doc1_id, doc2_id);
+        app.run("layer.layerStyle.globalLight", json!({"angle": -45.0, "altitude": 15.0})).unwrap();
+        assert_eq!(app.session.active().unwrap().doc.global_light.angle, -45.0);
+        assert_eq!(app.session.active().unwrap().doc.global_light.altitude, 15.0);
+
+        let d_id2 = open(&mut app, "layer.layerStyle.globalLight").unwrap();
+        let fields2 = &app.ui.dialog_mut(d_id2).unwrap().fields;
+        assert_eq!(fields2["angle"], json!(-45.0));
+        assert_eq!(fields2["altitude"], json!(15.0));
+        app.ui.close_dialog(d_id2);
+
+        // Switch back to doc1: dialog still reflects doc1's light (30 / 45).
+        assert!(app.session.set_active(0));
+        let d_id1 = open(&mut app, "layer.layerStyle.globalLight").unwrap();
+        assert_eq!(app.ui.dialog_mut(d_id1).unwrap().fields["angle"], json!(30.0));
+        assert_eq!(app.ui.dialog_mut(d_id1).unwrap().fields["altitude"], json!(45.0));
+
+        // 7. Modifying the dialog updates the active document.
+        app.ui.dialog_mut(d_id1).unwrap().fields.insert("angle".into(), json!(-60.0));
+        app.ui.dialog_mut(d_id1).unwrap().fields.insert("altitude".into(), json!(20.0));
+        crate::dialogs::confirm(&mut app, d_id1).unwrap();
+        assert_eq!(app.session.active().unwrap().doc.global_light.angle, -60.0);
+        assert_eq!(app.session.active().unwrap().doc.global_light.altitude, 20.0);
+
+        // Switch to doc2: doc2 is untouched (-45 / 15).
+        assert!(app.session.set_active(1));
+        assert_eq!(app.session.active().unwrap().doc.global_light.angle, -45.0);
+        assert_eq!(app.session.active().unwrap().doc.global_light.altitude, 15.0);
+    }
+
+    /// View › Proof Setup (#3055): Custom Proof Setup opens with the active document's current
+    /// proof condition, preserving it on unchanged OK, ignoring stale remembered dialog values,
+    /// tracking document switching, applying edits, and leaving the document unchanged on Cancel.
+    #[test]
+    fn proof_setup_dialog_reflects_active_document_proof_condition() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        let ctx = egui::Context::default();
+        app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        let doc1_id = app.session.active().unwrap().doc.id;
+
+        // 0. A fresh document defaults to working-cmyk.
+        let d_fresh = crate::menus::invoke(&mut app, &ctx, "view.proofSetup.custom", Value::Null).unwrap()["dialog"].as_u64().unwrap();
+        assert_eq!(app.ui.dialog_mut(d_fresh).unwrap().fields["profile"], json!("working-cmyk"));
+        crate::dialogs::confirm(&mut app, d_fresh).unwrap();
+        assert_eq!(app.session.color.proof(doc1_id).setup.name, "working-cmyk");
+
+        // 1. Preset sets sRGB and turns Proof Colors on.
+        crate::menus::invoke(&mut app, &ctx, "view.proofSetup.internetStandardRgb", Value::Null).unwrap();
+        assert_eq!(app.session.color.proof(doc1_id).setup.name, "srgb");
+        assert!(app.session.color.proof(doc1_id).enabled);
+
+        // 2. Open Custom Proof Setup: starts with the active document's condition (sRGB).
+        let d_id = crate::menus::invoke(&mut app, &ctx, "view.proofSetup.custom", Value::Null).unwrap()["dialog"].as_u64().unwrap();
+        let fields = &app.ui.dialog_mut(d_id).unwrap().fields;
+        assert_eq!(fields["profile"], json!("srgb"));
+        assert_eq!(fields["intent"], json!("relative"));
+        assert_eq!(fields["bpc"], json!(true));
+        assert_eq!(fields["simulatePaper"], json!(false));
+
+        // 3. Unchanged OK preserves the document's condition and leaves Proof Colors enabled.
+        crate::dialogs::confirm(&mut app, d_id).unwrap();
+        let pv = app.session.color.proof(doc1_id);
+        assert_eq!(pv.setup.name, "srgb");
+        assert!(pv.enabled);
+
+        // 4. Stale remembered values do not override the active document.
+        app.session.prefs.edit(|prefs| {
+            prefs.dialogs.insert(
+                "view.proofSetup".into(),
+                json!({
+                    "profile": "display-p3",
+                    "intent": "perceptual",
+                    "bpc": false,
+                    "simulatePaper": true,
+                }),
+            );
+        });
+        let d_id = open(&mut app, "view.proofSetup").unwrap();
+        let fields = &app.ui.dialog_mut(d_id).unwrap().fields;
+        assert_eq!(fields["profile"], json!("srgb"), "reads active document, not remembered");
+        assert_eq!(fields["intent"], json!("relative"));
+        assert_eq!(fields["bpc"], json!(true));
+        assert_eq!(fields["simulatePaper"], json!(false));
+
+        // 5. Cancel preserves the document.
+        app.ui.close_dialog(d_id);
+        assert_eq!(app.session.color.proof(doc1_id).setup.name, "srgb");
+
+        // 6. Multiple documents: each document initializes the dialog to its own condition.
+        app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        let doc2_id = app.session.active().unwrap().doc.id;
+        assert_ne!(doc1_id, doc2_id);
+        app.run("view.proofSetup", json!({"profile": "display-p3", "intent": "perceptual", "bpc": false, "simulatePaper": true})).unwrap();
+        assert_eq!(app.session.color.proof(doc2_id).setup.name, "display-p3");
+
+        let d_id2 = open(&mut app, "view.proofSetup").unwrap();
+        let fields2 = &app.ui.dialog_mut(d_id2).unwrap().fields;
+        assert_eq!(fields2["profile"], json!("display-p3"));
+        assert_eq!(fields2["intent"], json!("perceptual"));
+        assert_eq!(fields2["bpc"], json!(false));
+        assert_eq!(fields2["simulatePaper"], json!(true));
+        app.ui.close_dialog(d_id2);
+
+        // Switch back to doc1: dialog still reflects doc1's sRGB.
+        assert!(app.session.set_active(0));
+        let d_id1 = open(&mut app, "view.proofSetup").unwrap();
+        assert_eq!(app.ui.dialog_mut(d_id1).unwrap().fields["profile"], json!("srgb"));
+
+        // 7. Modifying the dialog updates the active document.
+        app.ui.dialog_mut(d_id1).unwrap().fields.insert("profile".into(), json!("adobe-rgb-compat"));
+        crate::dialogs::confirm(&mut app, d_id1).unwrap();
+        assert_eq!(app.session.color.proof(doc1_id).setup.name, "adobe-rgb-compat");
+        // doc2 is untouched
+        assert_eq!(app.session.color.proof(doc2_id).setup.name, "display-p3");
     }
 
     #[test]
@@ -800,12 +1422,12 @@ mod tests {
         assert!(!has_dialog("filter.stylize.findEdges"));
     }
 
-    #[test]
-    fn korean_covers_generated_filter_options_and_gallery_names() {
-        let ko = crate::i18n::lang_from_tag("ko-KR").unwrap();
+    /// Generated filter and adjustment labels (param names, symbolic choices) and gallery
+    /// names that `lang` has no catalog row for.
+    fn missing_generated_filter_labels(lang: crate::i18n::Lang) -> std::collections::BTreeSet<String> {
         let mut missing = std::collections::BTreeSet::new();
         let mut check = |s: String| {
-            if !matches!(s.as_str(), "X" | "Y" | "A" | "B") && !crate::i18n::has(ko, &s) {
+            if !matches!(s.as_str(), "X" | "Y" | "A" | "B") && !crate::i18n::has(lang, &s) {
                 missing.insert(s);
             }
         };
@@ -815,12 +1437,12 @@ mod tests {
                     continue;
                 }
                 check(source_label(&p.key));
-                if let Kind::Choice(choices) = p.kind {
-                    for choice in choices {
+                if let Kind::Choice { options, .. } = &p.kind {
+                    for choice in options {
                         // Only symbolic options are UI choices; registry docs also contain
                         // colour syntax and array notation, which are not translatable names.
                         if choice.chars().all(|c| c.is_ascii_alphanumeric()) {
-                            check(source_label(&choice));
+                            check(source_label(choice));
                         }
                     }
                 }
@@ -832,7 +1454,67 @@ mod tests {
         for cat in photocraft_algo::GALLERY_CATEGORIES {
             check(cat.to_string());
         }
+        missing
+    }
+
+    #[test]
+    fn korean_covers_generated_filter_options_and_gallery_names() {
+        let missing = missing_generated_filter_labels(crate::i18n::lang_from_tag("ko-KR").unwrap());
         assert!(missing.is_empty(), "missing Korean dynamic labels: {missing:#?}");
+    }
+
+    #[test]
+    fn italian_covers_generated_filter_options_and_gallery_names() {
+        let missing = missing_generated_filter_labels(crate::i18n::lang_from_tag("it-IT").unwrap());
+        assert!(missing.is_empty(), "missing Italian dynamic labels: {missing:#?}");
+    }
+
+    #[test]
+    fn spanish_covers_generated_filter_options_and_gallery_names() {
+        let missing = missing_generated_filter_labels(crate::i18n::lang_from_tag("es-ES").unwrap());
+        assert!(missing.is_empty(), "missing Spanish dynamic labels: {missing:#?}");
+    }
+
+    /// The Select menu's generated dialogs (Select and Mask, Modify ▸ …) show their
+    /// params, choices and title in every UI language, not just Korean.
+    #[test]
+    fn select_dialogs_are_translated_in_every_language() {
+        let mut missing = std::collections::BTreeMap::<&str, std::collections::BTreeSet<String>>::new();
+        for lang in crate::i18n::Lang::all().filter(|l| l.code() != "en") {
+            let mut check = |s: String| {
+                if !crate::i18n::has(lang, &s) {
+                    missing.entry(lang.code()).or_default().insert(s);
+                }
+            };
+            for c in photocraft_engine::command_specs().iter().filter(|c| c.id.starts_with("select.") && has_dialog(c.id)) {
+                let title = c.label.trim_end_matches('…');
+                if !crate::i18n::has(lang, title) {
+                    check(format!("{title}…"));
+                }
+                for p in parse_spec(c.params) {
+                    check(source_label(&p.key));
+                    if let Kind::Choice { options: choices, .. } = p.kind {
+                        choices.iter().for_each(|choice| check(source_label(choice)));
+                    }
+                }
+            }
+        }
+        assert!(missing.is_empty(), "untranslated Select dialog labels: {missing:#?}");
+    }
+
+    /// Select and Mask's Output To lists all six of Photoshop's targets, each translated.
+    #[test]
+    fn select_and_mask_output_choices_are_translated() {
+        let spec = photocraft_engine::commands::find("select.refineEdge").unwrap().params;
+        let p = parse_spec(spec).into_iter().find(|p| p.key == "output").unwrap();
+        let Kind::Choice { options: choices, .. } = p.kind else { panic!("output is not a choice") };
+        let labels: Vec<String> = choices.iter().map(|c| source_label(c)).collect();
+        assert_eq!(labels, ["Selection", "Layer Mask", "New Layer", "New Layer With Mask", "New Document", "New Document With Mask"]);
+        for lang in crate::i18n::Lang::all().filter(|l| l.code() != "en") {
+            for label in &labels {
+                assert!(crate::i18n::has(lang, label), "{}: untranslated {label}", lang.code());
+            }
+        }
     }
 
     #[test]
@@ -850,6 +1532,62 @@ mod tests {
         let p = out.layers[0].surface().unwrap().pixel(32, 32);
         assert!(p[0] > 0.2 && p[0] < 0.8, "edge blurred: {p:?}");
         assert_eq!(label("wavelengthMin"), "Wavelength Min");
+    }
+
+    /// Match Color's preview reads the Source document from the open documents, as OK does: the
+    /// preview session held only the edited document, so a Source showed no change (#4851).
+    #[test]
+    fn match_color_preview_uses_the_source_document() {
+        use photocraft_doc::{Color, ColorMode, SampleType, Size};
+        let solid = |name: &str, c: [f32; 4]| {
+            let mut d = Document::with_background(name, Size::new(32, 32), ColorMode::Rgb, SampleType::U8, Color::WHITE);
+            d.layers[0].surface_mut().unwrap().fill_rect(photocraft_geom::Rect::new(0, 0, 32, 32), &c);
+            d.layers[0].surface_mut().unwrap().fill_rect(photocraft_geom::Rect::new(0, 0, 16, 32), &[c[0] * 0.5, c[1] * 0.5, c[2] * 0.5, 1.0]);
+            d
+        };
+        // The source document is open before the edited one, so indices differ between sessions.
+        let mut s = photocraft_engine::Session::new();
+        s.add_document(solid("reference", [0.1, 0.3, 0.9, 1.0]), None);
+        s.add_document(solid("texture", [0.9, 0.5, 0.2, 1.0]), None);
+        let doc = s.active().unwrap().doc.clone();
+        let layer = doc.layers[0].id;
+        let documents: Vec<_> = s.documents().iter().map(|d| d.doc.clone()).collect();
+        for (source, label) in [(0, "another document"), (1, "the edited document itself")] {
+            let p = json!({"source": source});
+            let mut applied = photocraft_engine::Session::new();
+            for d in &documents {
+                applied.add_document((**d).clone(), None);
+            }
+            applied.execute("image.adjustments.matchColor", p.clone()).unwrap();
+            let want = applied.active().unwrap().doc.layers[0].surface().unwrap().pixel(24, 16);
+            let preview = preview_document_for_target(
+                &doc,
+                Some(layer),
+                "image.adjustments.matchColor",
+                &p,
+                1,
+                None,
+                photocraft_engine::channel_cmds::ChannelTarget::Composite,
+                &documents,
+            )
+            .unwrap_or_else(|| panic!("{label}: no preview"));
+            let got = preview.layers[0].surface().unwrap().pixel(24, 16);
+            assert!((0..3).all(|c| (got[c] - want[c]).abs() < 1.0 / 255.0 + 1e-4), "{label}: preview {got:?}, OK gives {want:?}");
+        }
+        // The preview is of the matched image: the orange texture took the reference's blue.
+        let preview = preview_document_for_target(
+            &doc,
+            Some(layer),
+            "image.adjustments.matchColor",
+            &json!({"source": 0}),
+            2,
+            None,
+            photocraft_engine::channel_cmds::ChannelTarget::Composite,
+            &documents,
+        )
+        .unwrap();
+        let px = preview.layers[0].surface().unwrap().pixel(12, 8);
+        assert!(px[2] > px[0], "proxy preview matched to the reference: {px:?}");
     }
 
     #[test]
@@ -1084,7 +1822,9 @@ mod tests {
     /// #2063: these filters drew their features in proxy pixels (noise, dots, dither, strokes,
     /// kernels, scan lines, contour lines, streaks, depths, a tree's segments), so a 1/4 preview
     /// showed them 4x larger than OK applied them. Their preview now runs at full resolution and
-    /// matches the applied result.
+    /// matches the applied result. Dust & Scratches (#3265) is the mirror image of those: a proxy
+    /// averages away the very specks the filter exists to remove, so its preview showed an
+    /// untouched image at a blocky scale.
     #[test]
     fn fixed_size_filters_preview_at_the_scale_they_apply() {
         let doc = sharp(256);
@@ -1098,6 +1838,7 @@ mod tests {
             ("filter.render.fibers", json!({})),
             ("filter.pixelate.mezzotint", json!({"type": "mediumDots"})),
             ("filter.noise.addNoise", json!({"amount": 12.5})),
+            ("filter.noise.dustAndScratches", json!({"radius": 4.0, "threshold": 0.0})),
             ("filter.noise.reduceNoise", json!({})),
             ("filter.other.custom", json!({"kernel": edge})),
             ("filter.video.deInterlace", json!({})),
@@ -1105,6 +1846,12 @@ mod tests {
             ("filter.stylize.wind", json!({"method": "blast"})),
             ("filter.stylize.extrude", json!({})),
             ("filter.render.tree", json!({"baseTreeType": 1})),
+            ("filter.sharpen.sharpen", json!({})),
+            ("filter.sharpen.sharpenMore", json!({})),
+            ("filter.sharpen.sharpenEdges", json!({})),
+            ("filter.stylize.findEdges", json!({})),
+            ("filter.stylize.emboss", json!({})),
+            ("filter.noise.despeckle", json!({})),
             ("filter.gallery.graphicPen", json!({})),
             ("filter.gallery.stainedGlass", json!({"cellSize": 10})),
             ("image.mode.indexedColor", json!({"colors": 16})),
@@ -1183,6 +1930,42 @@ mod tests {
         assert_eq!(shown.size, full.size);
         assert_eq!(cache(&shown).content_bounds(), cache(&full).content_bounds());
         assert_eq!(photocraft_compose::flatten(&shown).px, photocraft_compose::flatten(&full).px);
+    }
+
+    /// #5766: Curves on a smart object adds a smart filter, which re-renders the source through
+    /// the object's placement. On a reduced proxy that placement stayed in full-size document
+    /// coordinates, so the preview showed the object `k` times too large until OK.
+    #[test]
+    fn smart_object_curves_preview_keeps_its_size_on_a_reduced_proxy() {
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 64, "height": 64})).unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("select.rect", json!({"x": 16, "y": 16, "width": 16, "height": 16})).unwrap();
+        s.execute("edit.fill", json!({"contents": "black"})).unwrap();
+        s.execute("select.deselect", json!({})).unwrap();
+        s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        let st = s.active().unwrap();
+        let (doc, layer) = ((*st.doc).clone(), st.active_layer.unwrap());
+        let alpha = |d: &Document, x: i32, y: i32| match &d.layer(layer).unwrap().content {
+            photocraft_doc::LayerContent::Smart(sm) => sm.cache.as_ref().unwrap().pixel(x, y).last().copied().unwrap(),
+            _ => panic!("a smart object"),
+        };
+        let k = 4;
+        let shown = preview_document(&doc, Some(layer), "image.adjustments.curves", &json!({"points": [[0, 20], [90, 150], [255, 230]]}), k).unwrap();
+        let photocraft_doc::LayerContent::Smart(sm) = &shown.layer(layer).unwrap().content else { panic!("a smart object") };
+        assert_eq!(sm.smart_filters.len(), 1, "the preview adds the Curves smart filter");
+        assert_eq!(shown.size, crate::proxy::proxy_document(&doc, k).size);
+        // The 16 px square at (16, 16) is a 4 px square at (4, 4) on the proxy, not 16 px at (16, 16).
+        // Its corners are partly covered by the smart object's resampling (220/255), its inside fully.
+        for (x, y) in [(5, 5), (5, 6), (6, 6)] {
+            assert!(alpha(&shown, x, y) > 0.99, "({x}, {y}) is inside the reduced square");
+        }
+        for (x, y) in [(4, 4), (7, 7)] {
+            assert!(alpha(&shown, x, y) > 0.5, "({x}, {y}) is a corner of the reduced square");
+        }
+        for (x, y) in [(2, 2), (9, 9), (12, 12), (15, 15)] {
+            assert!(alpha(&shown, x, y) < 0.01, "({x}, {y}) is outside the reduced square");
+        }
     }
 
     /// #2063: a pixel-sized parameter divided by the proxy factor was clamped to the command's
@@ -1453,5 +2236,183 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The profiles Assign Profile offers for a new document converted with `mode` (if any),
+    /// and which of the command's built-in profiles the command itself accepts for it.
+    fn assign_profile_offers(mode: Option<&str>) -> (Vec<String>, Vec<String>) {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        if let Some(mode) = mode {
+            app.run(mode, json!({})).unwrap();
+        }
+        open(&mut app, "edit.assignProfile").unwrap();
+        let offered: Vec<String> =
+            app.ui.dialogs.last().unwrap().fields["__profiles"].as_array().unwrap().iter().filter_map(|v| v.as_str().map(str::to_owned)).collect();
+        let spec = photocraft_engine::commands::find("edit.assignProfile").unwrap();
+        let builtin = parse_spec(spec.params).into_iter().find(|p| p.key == "profile").unwrap();
+        let Kind::Choice { options, .. } = builtin.kind else { panic!("profile is a menu") };
+        let accepted = options.into_iter().filter(|name| app.session.execute("edit.assignProfile", json!({"profile": name})).is_ok()).collect();
+        (offered, accepted)
+    }
+
+    /// #4951: Assign Profile lists the profiles the command accepts for the document's colour
+    /// mode, and none of the others.
+    #[test]
+    fn assign_profile_offers_only_profiles_of_the_documents_colour_mode() {
+        for mode in [None, Some("image.mode.cmyk"), Some("image.mode.grayscale")] {
+            let (offered, accepted) = assign_profile_offers(mode);
+            for name in &accepted {
+                assert!(offered.contains(name), "{mode:?}: {name} can be assigned, so it is offered");
+            }
+            for name in ["srgb", "coated-cmyk", "sgray"] {
+                assert_eq!(offered.iter().any(|o| o == name), accepted.iter().any(|a| a == name), "{mode:?}: {name}");
+            }
+            assert!(offered.iter().any(|o| o == "working") && offered.iter().any(|o| o == "none"), "{mode:?}: working space and none always fit");
+        }
+        let (rgb, _) = assign_profile_offers(None);
+        assert!(rgb.iter().any(|o| o == "srgb") && !rgb.iter().any(|o| o == "coated-cmyk"), "an RGB document gets RGB profiles");
+        let (cmyk, _) = assign_profile_offers(Some("image.mode.cmyk"));
+        assert!(cmyk.iter().any(|o| o == "coated-cmyk") && !cmyk.iter().any(|o| o == "srgb"), "a CMYK document gets CMYK profiles");
+    }
+
+    /// #4951: a profile remembered from a document of another colour mode isn't preselected.
+    #[test]
+    fn assign_profile_drops_a_remembered_profile_that_does_not_fit() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        app.session.prefs.edit(|prefs| {
+            prefs.dialogs.insert("edit.assignProfile".into(), json!({"profile": "coated-cmyk"}));
+        });
+        open(&mut app, "edit.assignProfile").unwrap();
+        assert_eq!(app.ui.dialogs.last().unwrap().fields["profile"], json!("working"));
+        app.session.prefs.edit(|prefs| {
+            prefs.dialogs.insert("edit.assignProfile".into(), json!({"profile": "display-p3"}));
+        });
+        open(&mut app, "edit.assignProfile").unwrap();
+        assert_eq!(app.ui.dialogs.last().unwrap().fields["profile"], json!("display-p3"), "one that fits is kept");
+    }
+
+    #[test]
+    fn schema_dialogs_respect_explicit_dropdown_defaults() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+
+        // 1. Radial Blur has explicit default "good", not the first option ("draft").
+        open(&mut app, "filter.blur.radialBlur").unwrap();
+        let fields = &app.ui.dialogs.last().unwrap().fields;
+        assert_eq!(fields["quality"], json!("good"), "Radial Blur must select explicit default 'good'");
+        assert_eq!(fields["method"], json!("spin"), "Radial Blur method has no explicit default, retains first option");
+        let params = params_of(fields);
+        assert_eq!(params["quality"], json!("good"));
+
+        // 2. Convert to Profile has explicit default "relative", not first option ("perceptual").
+        open(&mut app, "edit.convertToProfile").unwrap();
+        let fields = &app.ui.dialogs.last().unwrap().fields;
+        assert_eq!(fields["intent"], json!("relative"), "Convert to Profile must select explicit default 'relative'");
+        let params = params_of(fields);
+        assert_eq!(params["intent"], json!("relative"));
+
+        // 3. Proof Setup has explicit default "relative".
+        open(&mut app, "view.proofSetup").unwrap();
+        let fields = &app.ui.dialogs.last().unwrap().fields;
+        assert_eq!(fields["intent"], json!("relative"), "Proof Setup must select explicit default 'relative'");
+        let params = params_of(fields);
+        assert_eq!(params["intent"], json!("relative"));
+
+        // 4. Remembered values still override initial defaults.
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.session.prefs.edit(|prefs| {
+            prefs.dialogs.insert("filter.blur.radialBlur".into(), json!({"quality": "best"}));
+        });
+        open(&mut app, "filter.blur.radialBlur").unwrap();
+        let fields = &app.ui.dialogs.last().unwrap().fields;
+        assert_eq!(fields["quality"], json!("best"), "Remembered choice must override explicit default");
+
+        // 5. Explicit default that is the first option (e.g. "cw" in arbitrary rotation).
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        open(&mut app, "image.rotation.arbitrary").unwrap();
+        let fields = &app.ui.dialogs.last().unwrap().fields;
+        assert_eq!(fields["direction"], json!("cw"), "Explicit default matching first option is preserved");
+    }
+
+    /// #4143: Replace Color shows the From colour (defaulting to the foreground) and its canvas
+    /// eyedropper samples the merged image into the dialog.
+    #[test]
+    fn replace_color_eyedropper_samples_the_image() {
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 16, "height": 16, "background": "#00ff00"})).unwrap();
+        let mut app = PhotocraftApp::new(s, crate::Services::default());
+        app.run("tools.setColors", json!({"foreground": "#ff0000"})).unwrap();
+        let id = open(&mut app, REPLACE_COLOR).unwrap();
+        assert_eq!(app.ui.dialogs.last().unwrap().fields["color"], json!("#ff0000"), "the dialog starts from the foreground colour");
+        assert!(!color_eyedropper_armed(&app));
+        app.ui.dialog_mut(id).unwrap().fields.insert(COLOR_EYEDROPPER.into(), json!(true));
+        assert!(color_eyedropper_armed(&app));
+        assert!(color_eyedropper_sample(&mut app, 4.0, 4.0));
+        assert_eq!(app.ui.dialogs.last().unwrap().fields["color"], json!("#00ff00"));
+        // #4457: where it was picked, for Localized Color Clusters.
+        assert_eq!(app.ui.dialogs.last().unwrap().fields["points"], json!([[4.0, 4.0]]));
+        // Off-image: the click is consumed, nothing changes and the eyedropper stays armed.
+        assert!(color_eyedropper_sample(&mut app, -1.0, 4.0));
+        assert_eq!(app.ui.dialogs.last().unwrap().fields["color"], json!("#00ff00"));
+        assert!(color_eyedropper_armed(&app));
+        // Disarmed, the dialog never claims the click.
+        app.ui.dialog_mut(id).unwrap().fields.insert(COLOR_EYEDROPPER.into(), json!(false));
+        assert!(!color_eyedropper_armed(&app));
+        assert!(!color_eyedropper_sample(&mut app, 4.0, 4.0));
+    }
+
+    /// #4143: the eyedropper button arms and disarms the canvas picker.
+    #[test]
+    fn replace_color_dialog_arms_the_eyedropper_button() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable;
+
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 16, "height": 16})).unwrap();
+        let mut app = PhotocraftApp::new(s, crate::Services::default());
+        let mut h = Harness::builder().with_size(egui::vec2(900.0, 700.0)).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), &mut app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        open(h.state_mut(), REPLACE_COLOR).unwrap();
+        h.run_steps(3);
+        h.get_by_label("Pick Color From Image").click();
+        h.run_steps(2);
+        assert!(color_eyedropper_armed(h.state()));
+        h.get_by_label("Pick Color From Image").click();
+        h.run_steps(2);
+        assert!(!color_eyedropper_armed(h.state()));
+    }
+
+    /// #4457: Localized Color Clusters and its Range, as in Photoshop's dialog; the sampled point
+    /// and both settings reach the command.
+    #[test]
+    fn replace_color_localized_color_clusters() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable;
+
+        // Left half red, right half red too: localized on the left point, the right half stays.
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 40, "height": 10, "background": "#ff0000"})).unwrap();
+        let mut app = PhotocraftApp::new(s, crate::Services::default());
+        let mut h = Harness::builder().with_size(egui::vec2(900.0, 800.0)).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), &mut app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        let id = open(h.state_mut(), REPLACE_COLOR).unwrap();
+        h.run_steps(3);
+        let _ = h.get_by_label("Localized Color Clusters");
+        h.state_mut().ui.dialog_mut(id).unwrap().fields.insert(COLOR_EYEDROPPER.into(), json!(true));
+        assert!(color_eyedropper_sample(h.state_mut(), 2.0, 5.0));
+        h.get_by_label("Localized Color Clusters").click();
+        h.run_steps(2);
+        let f = h.state().ui.dialogs.last().unwrap().fields.clone();
+        assert_eq!((f["localized"].clone(), f["points"].clone()), (json!(true), json!([[2.0, 5.0]])));
+        // The command with the dialog's fields, small range and a hue shift: only near (2, 5).
+        let mut p: Map<String, Value> = f.iter().filter(|(k, _)| !k.starts_with("__")).map(|(k, v)| (k.clone(), v.clone())).collect();
+        p.insert("range".into(), json!(10));
+        p.insert("hue".into(), json!(120));
+        h.state_mut().run(REPLACE_COLOR, Value::Object(p)).unwrap();
+        let doc = &h.state().session.active().unwrap().doc;
+        let px = |x: i32| doc.layers[0].surface().unwrap().read_region(photocraft_geom::Rect::new(x, 5, x + 1, 6));
+        assert!(px(2)[1] > 0.5, "near the point: shifted to green {:?}", px(2));
+        assert!(px(38)[0] > 0.9 && px(38)[1] < 0.1, "far away: still red {:?}", px(38));
     }
 }

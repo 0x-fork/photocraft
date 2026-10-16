@@ -8,7 +8,12 @@
 //! - `engine.execute {command, params?, wait?}` / `engine.commands {filter?}`
 //! - `jobs.list` / `jobs.cancel {job?}`: background jobs (#210)
 //! - `session.list`, `doc.open {path}`, `doc.new {…file.new params}`,
-//!   `doc.save {path?, format?, quality?, index?}`, `doc.inspect {index?}`,
+//!   `doc.place {path, scale?, fit?, center?, index?}` (#2810: the read root is the scope,
+//!   the counterpart of the refused ambient `file.placeEmbedded`),
+//!   `doc.exportLayers {dir, format?, prefix?, visibleOnly?, quality?, index?}`,
+//!   `doc.exportDataSets {dir, format?, dataSets?, naming?, index?}`,
+//!   `doc.importDataSets {path, delimiter?, index?}` (#3216: the same treatment for the export
+//!   and CSV half of #2810), `doc.save {path?, format?, quality?, index?}`, `doc.inspect {index?}`,
 //!   `doc.render {index?, maxSide?, path?}` (writes a PNG to `path`, else
 //!   returns it base64-encoded), `doc.select {index}`, `doc.close {index?}`
 //! - `batch {steps: [{command, params?, wait?} | {method, params?}], stopOnError?}`
@@ -24,8 +29,8 @@ use serde_json::{Value, json};
 
 use crate::budgets::{BatchReplyBudget, write_reply};
 use crate::security::{
-    ConnectionLimiter, LineRead, MAX_BATCH_STEPS, MAX_CONNECTIONS, MAX_REQUEST_BYTES, authentication_reply, configure_stream, discard_rest_of_line,
-    read_bounded_line,
+    AUTH_DEADLINE, AuthDeadlineStream, ConnectionLimiter, LineRead, MAX_BATCH_STEPS, MAX_CONNECTIONS, MAX_REQUEST_BYTES, authentication_reply,
+    configure_stream, discard_rest_of_line, read_bounded_line, repeat_auth_reply,
 };
 use crate::{AutomationError, Headless};
 
@@ -37,8 +42,12 @@ pub const METHODS: &[&str] = &[
     "engine.commands",
     "session.list",
     "doc.open",
+    "doc.place",
     "doc.new",
     "doc.save",
+    "doc.exportLayers",
+    "doc.exportDataSets",
+    "doc.importDataSets",
     "doc.inspect",
     "doc.render",
     "doc.select",
@@ -51,8 +60,13 @@ fn bad(msg: impl Into<String>) -> AutomationError {
     AutomationError::BadRequest(msg.into())
 }
 
-fn index_of(p: &Value) -> Option<usize> {
-    p.get("index").and_then(Value::as_u64).map(|i| i as usize)
+/// The optional `index` param: missing or null means the active document; anything else must be a
+/// non-negative integer (never silently fall back to the active document, which `doc.close` would close).
+fn index_of(p: &Value) -> Result<Option<usize>, AutomationError> {
+    match p.get("index") {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => v.as_u64().and_then(|i| usize::try_from(i).ok()).map(Some).ok_or_else(|| bad("`index` must be a non-negative integer")),
+    }
 }
 
 fn str_of<'a>(p: &'a Value, k: &str) -> Option<&'a str> {
@@ -77,17 +91,9 @@ impl Headless {
                 let all = self.command_list();
                 Ok(match str_of(&p, "filter").map(str::to_lowercase) {
                     None => all,
-                    Some(n) => Value::Array(
-                        all.as_array()
-                            .into_iter()
-                            .flatten()
-                            .filter(|c| {
-                                let hay = format!("{} {}", c["id"].as_str().unwrap_or(""), c["label"].as_str().unwrap_or(""));
-                                hay.to_lowercase().contains(&n)
-                            })
-                            .cloned()
-                            .collect(),
-                    ),
+                    Some(n) => {
+                        Value::Array(all.as_array().into_iter().flatten().filter(|c| photocraft_engine::commands::list_entry_matches(c, &n)).cloned().collect())
+                    }
                 })
             }
             "session.list" => Ok(self.session_list()),
@@ -95,19 +101,43 @@ impl Headless {
                 let path = str_of(&p, "path").ok_or_else(|| bad("doc.open needs `path`"))?;
                 self.open(&PathBuf::from(path))
             }
+            "doc.place" => {
+                let path = str_of(&p, "path").ok_or_else(|| bad("doc.place needs `path`"))?;
+                let mut opts = p.as_object().cloned().unwrap_or_default();
+                opts.remove("path");
+                opts.remove("index");
+                self.place(index_of(&p)?, path, &Value::Object(opts))
+            }
             "doc.new" => self.command_run("file.new", p),
             "doc.save" => {
+                let tga_bits = photocraft_engine::file_cmds::tga_bits_param(&p, "doc.save").map_err(|e| bad(e.to_string()))?;
                 let mut opts =
-                    photocraft_io::ExportOptions { tiff_layers: p.get("tiffLayers").and_then(Value::as_bool).unwrap_or(false), ..Default::default() };
+                    photocraft_io::ExportOptions { tiff_layers: p.get("tiffLayers").and_then(Value::as_bool).unwrap_or(false), tga_bits, ..Default::default() };
+                opts.encode.dpx_bits = photocraft_engine::file_cmds::dpx_bits_param(&p, "doc.save").map_err(|e| bad(e.to_string()))?;
                 if let Some(q) = p.get("quality").and_then(Value::as_u64) {
                     opts.encode.jpeg_quality = q.clamp(1, 100) as u8;
                     opts.encode.webp_quality = q.clamp(1, 100) as u8;
                     opts.encode.webp_lossless = false;
                 }
                 let path = str_of(&p, "path").map(PathBuf::from);
-                self.save(index_of(&p), path.as_deref(), str_of(&p, "format"), &opts)
+                self.save(index_of(&p)?, path.as_deref(), str_of(&p, "format"), &opts)
             }
-            "doc.inspect" => self.inspect(index_of(&p)),
+            "doc.exportLayers" | "doc.exportDataSets" => {
+                let dir = str_of(&p, "dir").ok_or_else(|| bad(format!("{method} needs `dir`")))?;
+                let mut opts = p.as_object().cloned().unwrap_or_default();
+                opts.remove("dir");
+                opts.remove("index");
+                let opts = Value::Object(opts);
+                if method == "doc.exportLayers" { self.export_layers(index_of(&p)?, dir, &opts) } else { self.export_data_sets(index_of(&p)?, dir, &opts) }
+            }
+            "doc.importDataSets" => {
+                let path = str_of(&p, "path").ok_or_else(|| bad("doc.importDataSets needs `path`"))?;
+                let mut opts = p.as_object().cloned().unwrap_or_default();
+                opts.remove("path");
+                opts.remove("index");
+                self.import_data_sets(index_of(&p)?, path, &Value::Object(opts))
+            }
+            "doc.inspect" => self.inspect(index_of(&p)?),
             "doc.render" => {
                 let max = match p.get("maxSide") {
                     None => 1024,
@@ -115,7 +145,7 @@ impl Headless {
                         value.as_u64().and_then(|value| u32::try_from(value).ok()).ok_or_else(|| bad("maxSide must be an unsigned 32-bit integer"))?
                     }
                 };
-                let png = self.render_png(index_of(&p), max)?;
+                let png = self.render_png(index_of(&p)?, max)?;
                 match str_of(&p, "path") {
                     Some(path) => {
                         self.write_render(&PathBuf::from(path), &png)?;
@@ -128,10 +158,10 @@ impl Headless {
                 }
             }
             "doc.select" => {
-                let i = index_of(&p).ok_or_else(|| bad("doc.select needs `index`"))?;
+                let i = index_of(&p)?.ok_or_else(|| bad("doc.select needs `index`"))?;
                 self.select(i)
             }
-            "doc.close" => self.close(index_of(&p)),
+            "doc.close" => self.close(index_of(&p)?),
             "batch" => self.batch(&p),
             "methods" => Ok(json!(METHODS)),
             other => Err(bad(format!("unknown method `{other}` (try `methods`)"))),
@@ -232,10 +262,12 @@ pub fn serve_lines(h: &Mutex<Headless>, mut r: impl BufRead, mut w: impl Write) 
     }
 }
 
-fn serve_tcp_connection(h: &Mutex<Headless>, stream: std::net::TcpStream, token: &str) -> std::io::Result<()> {
+/// Serve one connection. It must complete `auth` within `auth_deadline` of connecting, however
+/// much it sends meanwhile (#4965); after that only the idle timeout applies.
+fn serve_tcp_connection(h: &Mutex<Headless>, stream: std::net::TcpStream, token: &str, auth_deadline: std::time::Duration) -> std::io::Result<()> {
     configure_stream(&stream)?;
     let read = stream.try_clone()?;
-    let mut reader = std::io::BufReader::new(read);
+    let mut reader = std::io::BufReader::new(AuthDeadlineStream::new(read, auth_deadline));
     let mut out = stream;
     let mut line = String::new();
     let mut authenticated = false;
@@ -256,10 +288,13 @@ fn serve_tcp_connection(h: &Mutex<Headless>, stream: std::net::TcpStream, token:
             LineRead::Line => {}
         }
         let reply = if authenticated {
-            respond(h, &line)
+            repeat_auth_reply(&line).unwrap_or_else(|| respond(h, &line))
         } else {
             let (reply, ok) = authentication_reply(&line, token);
             authenticated = ok;
+            if ok {
+                reader.get_mut().authenticated()?;
+            }
             reply
         };
         write_reply(&mut out, &reply)?;
@@ -292,7 +327,7 @@ pub fn serve_tcp(addr: &str, h: Arc<Mutex<Headless>>, token: String, ready: impl
         let token = Arc::clone(&token);
         std::thread::spawn(move || {
             let _permit = permit;
-            let _ = serve_tcp_connection(&h, stream, &token);
+            let _ = serve_tcp_connection(&h, stream, &token, AUTH_DEADLINE);
         });
     }
     Ok(())
@@ -323,6 +358,42 @@ mod tests {
                 assert_eq!(h.lock().unwrap().inspect(None).unwrap(), before);
             }
         }
+    }
+
+    /// Pins the reply shape documented in docs/control-protocol.md › Command list replies
+    /// (#3684): a bare JSON array (not `{"commands": [...]}`), one object per command with
+    /// exactly these keys (plus an optional `keywords` string), from `engine.commands` (filtered or not) and `command.list`.
+    #[test]
+    fn command_list_replies_are_documented_array_of_objects() {
+        let h = session();
+        let mut g = h.lock().unwrap();
+        let all = g.handle("engine.commands", json!({})).unwrap();
+        let filtered = g.handle("engine.commands", json!({"filter": "BLUR"})).unwrap();
+        let engine = g.handle("engine.execute", json!({"command": "command.list"})).unwrap();
+        for (name, reply) in [("engine.commands", &all), ("engine.commands {filter}", &filtered), ("command.list", &engine)] {
+            let items = reply.as_array().unwrap_or_else(|| panic!("{name} must reply with a bare array, got {reply}"));
+            assert!(!items.is_empty(), "{name}");
+            for c in items {
+                // `keywords` is optional: only commands with other search names carry it (#5060).
+                let mut keys: Vec<&str> = c.as_object().unwrap().keys().map(String::as_str).filter(|k| *k != "keywords").collect();
+                keys.sort_unstable();
+                assert!(c.get("keywords").is_none_or(Value::is_string), "{name}: {c}");
+                assert_eq!(keys, ["disabledReason", "enabled", "id", "label", "menu", "needsDocument", "params", "shortcut"], "{name}: {c}");
+                assert!(c["id"].is_string() && c["label"].is_string() && c["params"].is_string() && c["enabled"].is_boolean(), "{c}");
+                assert!(c["needsDocument"].is_boolean(), "{c}");
+                assert_eq!(c["disabledReason"].is_null(), c["enabled"] == true, "disabledReason is null exactly when enabled: {c}");
+                assert!(c["menu"].as_array().unwrap().iter().all(Value::is_string), "{c}");
+                assert!(c["shortcut"].is_string() || c["shortcut"].is_null(), "{c}");
+            }
+        }
+        let n_all = all.as_array().unwrap().len();
+        assert_eq!(engine.as_array().unwrap().len(), n_all);
+        let filtered = filtered.as_array().unwrap();
+        assert!(filtered.len() < n_all);
+        assert!(filtered.iter().all(|c| format!("{} {}", c["id"], c["label"]).to_lowercase().contains("blur")));
+        let new = all.as_array().unwrap().iter().find(|c| c["id"] == "file.new").unwrap();
+        assert_eq!((&new["menu"], &new["shortcut"], &new["enabled"]), (&json!(["File"]), &json!("Cmd+N"), &json!(true)), "{new}");
+        assert_eq!((&new["disabledReason"], &new["needsDocument"]), (&Value::Null, &json!(false)), "{new}");
     }
 
     #[test]
@@ -572,6 +643,120 @@ mod tests {
     }
 
     #[test]
+    fn doc_place_reads_through_the_read_root_and_never_outside_it() {
+        let base = std::env::temp_dir().join(format!("pc-doc-place-{}", std::process::id()));
+        let root = base.join("workspace");
+        let outside = base.join("outside");
+        for dir in [&root, &outside] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        let img = photocraft_codecs::Image::from_u8(8, 6, photocraft_codecs::ChannelLayout::Rgb, vec![42; 8 * 6 * 3]).unwrap();
+        let png = photocraft_codecs::encode(&img, photocraft_codecs::Format::Png, &Default::default()).unwrap();
+        std::fs::write(root.join("logo.png"), &png).unwrap();
+        std::fs::write(outside.join("logo.png"), &png).unwrap();
+        let absolute = outside.join("logo.png").to_string_lossy().into_owned();
+
+        let mut h = Headless::with_workspace(crate::AuthorizedWorkspace::new(Some(&root), Some(&root)).unwrap());
+        h.handle("doc.new", json!({"width": 40, "height": 30})).unwrap();
+        let placed = h.handle("doc.place", json!({"path": "logo.png", "scale": 50})).unwrap();
+        assert!(placed["layer"].as_u64().is_some(), "{placed}");
+        assert_eq!(placed["scale"].as_f64(), Some(50.0), "the options reach the command: {placed}");
+        let inspected = h.handle("doc.inspect", json!({})).unwrap();
+        assert_eq!(inspected["layers"].as_array().map(Vec::len), Some(2), "the placed layer is in the document: {inspected}");
+        // A path outside the read root is refused the way the ambient command is (#2810).
+        for (path, reason) in [("../outside/logo.png", "parent traversal"), (absolute.as_str(), "must be inside the automation root")] {
+            let refused = h.handle("doc.place", json!({"path": path})).unwrap_err().to_string();
+            assert!(refused.contains(reason), "{refused}");
+            let inspected = h.handle("doc.inspect", json!({})).unwrap();
+            assert_eq!(inspected["layers"].as_array().map(Vec::len), Some(2), "nothing was placed: {refused}");
+        }
+        // Trusted local keeps the ambient command: that caller may read the path itself.
+        let mut t = Headless::trusted_local();
+        t.handle("doc.new", json!({"width": 40, "height": 30})).unwrap();
+        let trusted = t.handle("doc.place", json!({"path": root.join("logo.png").to_string_lossy()})).unwrap();
+        assert!(trusted["layer"].as_u64().is_some(), "{trusted}");
+        // Release directory capabilities before cleanup on Windows.
+        drop(t);
+        drop(h);
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn doc_export_layers_writes_only_beneath_the_write_root() {
+        let base = std::env::temp_dir().join(format!("pc-doc-export-layers-{}", std::process::id()));
+        let root = base.join("workspace");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut h = Headless::with_workspace(crate::AuthorizedWorkspace::new(Some(&root), Some(&root)).unwrap());
+        h.handle("doc.new", json!({"width": 12, "height": 8, "background": "white", "name": "card"})).unwrap();
+        h.handle("engine.execute", json!({"command": "layer.new.layer", "params": {"name": "Badge"}})).unwrap();
+
+        let out = root.join("out");
+        let exported = h.handle("doc.exportLayers", json!({"dir": out.to_string_lossy(), "format": "png", "prefix": "card"})).unwrap();
+        assert_eq!(exported["count"].as_u64(), Some(2), "{exported}");
+        let mut names: Vec<String> = std::fs::read_dir(&out).unwrap().map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        names.sort();
+        assert_eq!(names.len(), 2, "{exported}");
+        for name in names {
+            assert!(name.starts_with("card_") && name.ends_with(".png"), "{name}");
+            let bytes = std::fs::read(out.join(&name)).unwrap();
+            assert_eq!(photocraft_codecs::decode(&bytes).unwrap().dimensions(), (12, 8), "{name}");
+        }
+        // Outside the write root nothing is created, not even the directory.
+        let escaped = base.join("escaped");
+        let refused = h.handle("doc.exportLayers", json!({"dir": escaped.to_string_lossy()})).unwrap_err().to_string();
+        assert!(refused.contains("must be inside the automation root"), "{refused}");
+        assert!(!escaped.exists());
+        // The ambient command keeps its refusal for the very same directory.
+        let ambient =
+            h.handle("engine.execute", json!({"command": "file.export.layersToFiles", "params": {"dir": out.to_string_lossy()}})).unwrap_err().to_string();
+        assert!(ambient.contains("ambient filesystem paths"), "{ambient}");
+        // Release directory capabilities before cleanup on Windows.
+        drop(h);
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn doc_export_data_sets_refuse_collisions_and_import_reads_the_root() {
+        let base = std::env::temp_dir().join(format!("pc-doc-data-sets-{}", std::process::id()));
+        let root = base.join("workspace");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut h = Headless::with_workspace(crate::AuthorizedWorkspace::new(Some(&root), Some(&root)).unwrap());
+        h.handle("doc.new", json!({"width": 8, "height": 8, "background": "white", "name": "card"})).unwrap();
+        let inspected = h.handle("doc.inspect", json!({})).unwrap();
+        let layer = inspected["layers"][0]["id"].as_u64().expect("the layer id");
+        h.handle("engine.execute", json!({"command": "image.variables.define", "params": {"defs": [{"name": "show", "layer": layer, "type": "visibility"}]}}))
+            .unwrap();
+        h.handle(
+            "engine.execute",
+            json!({"command": "image.variables.dataSets", "params": {"dataSets": [
+                {"name": "one", "values": [{"variable": "show", "kind": "visibility", "value": true}]},
+                {"name": "two", "values": [{"variable": "show", "kind": "visibility", "value": false}]},
+            ]}}),
+        )
+        .unwrap();
+
+        let sets = root.join("sets");
+        let exported = h.handle("doc.exportDataSets", json!({"dir": sets.to_string_lossy(), "format": "png"})).unwrap();
+        assert_eq!(exported["count"].as_u64(), Some(2), "{exported}");
+        assert_eq!(std::fs::read_dir(&sets).unwrap().count(), 2, "{exported}");
+        // Colliding names are refused as in the command, before any file is written.
+        let clash = root.join("clash");
+        let refused = h.handle("doc.exportDataSets", json!({"dir": clash.to_string_lossy(), "naming": "{document}"})).unwrap_err().to_string();
+        assert!(refused.contains("{index}"), "{refused}");
+        assert_eq!(std::fs::read_dir(&clash).unwrap().count(), 0, "no file of the refused batch");
+        // A CSV from the read root, and one outside it.
+        std::fs::write(root.join("sets.csv"), "Data Set,show\none,true\ntwo,false\n").unwrap();
+        let imported = h.handle("doc.importDataSets", json!({"path": "sets.csv"})).unwrap();
+        assert_eq!(imported["imported"].as_u64(), Some(2), "{imported}");
+        std::fs::write(base.join("outside.csv"), "Data Set,show\none,true\n").unwrap();
+        let outside = h.handle("doc.importDataSets", json!({"path": base.join("outside.csv").to_string_lossy()})).unwrap_err().to_string();
+        assert!(outside.contains("must be inside the automation root"), "{outside}");
+        // Release directory capabilities before cleanup on Windows.
+        drop(h);
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn trusted_local_render_keeps_full_size_behavior() {
         let mut h = Headless::trusted_local();
         h.handle("doc.new", json!({"width": 2049, "height": 1})).unwrap();
@@ -634,6 +819,90 @@ mod tests {
         assert!(v["result"].as_array().unwrap().iter().any(|m| m == "batch"));
     }
 
+    /// #4965: a connection that keeps sending without authenticating is closed at the deadline,
+    /// and one that authenticated in time keeps being served after it.
+    #[test]
+    fn tcp_connections_must_authenticate_before_the_deadline_whatever_they_send() {
+        use std::io::{BufReader, Write as _};
+        use std::time::{Duration, Instant};
+        const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let h = Mutex::new(Headless::new());
+            let mut results = Vec::new();
+            for _ in 0..2 {
+                let (stream, _) = listener.accept().unwrap();
+                let started = Instant::now();
+                let r = serve_tcp_connection(&h, stream, TOKEN, Duration::from_millis(300));
+                results.push((r.map_err(|e| e.kind()), started.elapsed()));
+            }
+            results
+        });
+
+        // Never a newline, a byte every 20 ms: each read succeeds long before the idle timeout.
+        let mut slow = std::net::TcpStream::connect(addr).unwrap();
+        for _ in 0..150 {
+            if slow.write_all(b" ").is_err() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        drop(slow);
+
+        // Authenticates at once, then asks again 300 ms after the deadline.
+        let mut s = std::net::TcpStream::connect(addr).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        writeln!(s, r#"{{"id":"auth","method":"auth","params":{{"token":"{TOKEN}"}}}}"#).unwrap();
+        let mut reader = BufReader::new(s.try_clone().unwrap());
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&line).unwrap()["result"]["authenticated"], true);
+        std::thread::sleep(Duration::from_millis(600));
+        writeln!(s, r#"{{"id":"a","method":"methods"}}"#).unwrap();
+        line.clear();
+        reader.read_line(&mut line).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&line).unwrap()["id"], "a");
+        drop(reader);
+        drop(s);
+
+        let results = server.join().unwrap();
+        let (slow_result, slow_time) = &results[0];
+        assert!(matches!(slow_result, Err(std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock)), "{slow_result:?}");
+        assert!(*slow_time < Duration::from_secs(3), "the trickle did not extend the deadline: {slow_time:?}");
+        assert_eq!(results[1].0, Ok(()), "the authenticated connection ended with its client");
+    }
+
+    #[test]
+    fn tcp_repeat_auth_reports_already_authenticated_and_keeps_serving() {
+        use std::io::{BufReader, Write as _};
+        const TOKEN: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let h = Arc::new(Mutex::new(Headless::new()));
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = serve_tcp("127.0.0.1:0", h, TOKEN.into(), move |a| tx.send(a).unwrap());
+        });
+        let addr = rx.recv().unwrap();
+        let mut s = std::net::TcpStream::connect(addr).unwrap();
+        let mut reader = BufReader::new(s.try_clone().unwrap());
+        let mut line = String::new();
+        for id in ["auth", "again"] {
+            writeln!(s, r#"{{"id":"{id}","method":"auth","params":{{"token":"{TOKEN}"}}}}"#).unwrap();
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+        }
+        let again: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(again["id"], "again");
+        assert_eq!(again["ok"], false);
+        assert_eq!(again["error"], "already authenticated");
+        writeln!(s, r#"{{"id":"m","method":"methods"}}"#).unwrap();
+        line.clear();
+        reader.read_line(&mut line).unwrap();
+        let v: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(v["id"], "m");
+        assert_eq!(v["ok"], true);
+    }
+
     #[test]
     fn tcp_rejects_requests_before_authentication() {
         use std::io::{BufReader, Write as _};
@@ -652,5 +921,28 @@ mod tests {
         assert_eq!(v["ok"], false);
         assert_eq!(v["error"], "authentication required");
         assert!(v.get("result").is_none());
+    }
+
+    #[test]
+    fn invalid_document_index_is_rejected_not_the_active_document() {
+        let h = session();
+        for _ in 0..2 {
+            assert_eq!(respond(&h, r#"{"method":"doc.new","params":{"width":8,"height":8}}"#)["ok"], true);
+        }
+        let count = |h: &Mutex<Headless>| h.lock().unwrap().session_list()["documents"].as_array().unwrap().len();
+        for index in [json!("0"), json!(-1), json!(0.5), json!(true)] {
+            for method in ["doc.close", "doc.inspect", "doc.select"] {
+                let reply = respond(&h, &json!({"method": method, "params": {"index": index}}).to_string());
+                assert_eq!(reply["ok"], false, "{method} {index}: {reply}");
+                assert!(reply["error"].as_str().unwrap().contains("`index` must be a non-negative integer"), "{reply}");
+            }
+            assert_eq!(count(&h), 2, "index {index} closed a document");
+        }
+        // Null means "the active document", like a missing `index`.
+        assert_eq!(respond(&h, r#"{"method":"doc.inspect","params":{"index":null}}"#)["ok"], true);
+        // A valid index still closes that document.
+        let reply = respond(&h, r#"{"method":"doc.close","params":{"index":0}}"#);
+        assert_eq!(reply["ok"], true, "{reply}");
+        assert_eq!(count(&h), 1);
     }
 }

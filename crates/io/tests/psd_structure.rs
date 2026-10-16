@@ -460,13 +460,18 @@ fn guides_and_alpha_names_roundtrip() {
 }
 
 #[test]
-fn resolution_in_cm_converted() {
+fn resolution_info_cm_display_unit_stays_pixels_per_inch() {
     let mut f = testgen::small(Version::Psd, Compression::Raw);
-    let mut ri = photocraft_psd::ResolutionInfo::from_dpi(100.0);
+    let mut ri = photocraft_psd::ResolutionInfo::from_dpi(300.0);
     ri.h_res_unit = 2;
+    ri.v_res_unit = 2;
     f.resources[0] = photocraft_psd::ImageResource::new(1005, ri.to_bytes());
     let (d, _) = psd_to_document(&f);
-    assert!((d.resolution_dpi - 254.0).abs() < 1e-3);
+    assert!((d.resolution_dpi - 300.0).abs() < 1e-3, "{}", d.resolution_dpi);
+    let out = document_to_psd(&d);
+    let written = out.resolution().unwrap();
+    assert!((written.h_res() - 300.0).abs() < 1e-3, "{}", written.h_res());
+    assert!((written.v_res() - 300.0).abs() < 1e-3, "{}", written.v_res());
 }
 
 #[test]
@@ -497,6 +502,11 @@ fn merged_composite_unmattes_photoshop_white() {
     hdr.header.channels = 4;
     hdr.image_data =
         photocraft_psd::ImageData { compression: Compression::Raw, data: [1.5_f32, 0.25, 0.5, 0.5].into_iter().flat_map(f32::to_be_bytes).collect() };
+    assert_eq!(merged_composite(&hdr).unwrap(), vec![[2.0, -0.5, 0.0, 0.5]]);
+    let mut deep = testgen::merged_only(Version::Psd, ColorMode::Rgb, 16, Compression::Raw, 1, 1);
+    deep.header.channels = 4;
+    deep.image_data.data = [65535_u16, 65535, 65535, 65500].into_iter().flat_map(u16::to_be_bytes).collect();
+    assert_eq!(merged_composite(&deep).unwrap()[0][3], 65500.0 / 65535.0);
     let imported = import("hdr.psd", &hdr.to_bytes().unwrap()).unwrap().document;
     assert_eq!(imported.depth, photocraft_color::SampleType::F32);
     assert_eq!(imported.layers[0].surface().unwrap().pixel(0, 0), vec![2.0, -0.5, 0.0, 0.5]);

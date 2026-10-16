@@ -105,8 +105,14 @@ pub fn slow_cpu_refresh(app: &mut PhotocraftApp, doc: u64, ms: f64, reason: Opti
         tl!("Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.").into(),
     ];
     if reason == Some(crate::gpu_canvas::OVER_BUDGET) {
+        if let Some(fit) = app.perf.gpu_layer_fit.filter(|f| f.doc == doc && !f.fits()) {
+            lines.push(crate::i18n::fmt(
+                tl!("Its layers need {needed} of GPU memory; the budget leaves them {budget}."),
+                &[("needed", &crate::chrome_ui::fmt_bytes(fit.needed)), ("budget", &crate::chrome_ui::fmt_bytes(fit.budget))],
+            ));
+        }
         lines.push(
-            tl!("Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.")
+            tl!("Set GPU Memory in Preferences › Performance to what your graphics card can hold, at most 3/8 of its memory. Automatic follows Memory Usage, within a quarter of this computer's memory and 3/8 of the card's, and doesn't count the document against a card whose memory is known. The status bar shows GPU Memory Full while they don't fit.")
                 .into(),
         );
     } else if let Some(r) = reason {
@@ -130,9 +136,10 @@ fn dismiss(app: &mut PhotocraftApp, id: u64) {
 pub fn io_warnings(app: &mut PhotocraftApp, what: &str, warnings: &[String]) {
     let Some(first) = warnings.first() else { return };
     let n = warnings.len();
-    app.ui.status = if n == 1 { format!("{what}: {first}") } else { format!("{what} with {n} warnings: {first} …") };
+    let title = crate::i18n::fmt(&crate::i18n::trn(crate::i18n::current(), n as u64, "{what} with {n} warning", "{what} with {n} warnings"), &[("what", what)]);
+    app.ui.status = if n == 1 { format!("{what}: {first}") } else { format!("{title}: {first} …") };
     app.ui.status_error = true;
-    post(app, format!("{what} with {n} warning{}", if n == 1 { "" } else { "s" }), warnings.to_vec(), false, None);
+    post(app, title, warnings.to_vec(), false, None);
 }
 
 /// Report a failed file operation: the status bar shows it as an error and a notice keeps it on
@@ -266,7 +273,7 @@ mod tests {
         // the current language); `tr` with an explicit language leaves the process-wide language,
         // which other tests running in parallel draw with, untouched
         let es = crate::i18n::Lang::from_code("es").unwrap();
-        assert_eq!(crate::i18n::tr(es, &notice.title), "El arrastrar y soltar archivos de forma nativa no está disponible en Wayland");
+        assert_eq!(crate::i18n::tr(es, &notice.title), "Arrastrar y soltar archivos de forma nativa no está disponible en Wayland");
         assert_ne!(crate::i18n::tr(es, &notice.lines[0]), notice.lines[0]);
         assert_eq!(crate::i18n::tr(crate::i18n::Lang::EN, &notice.title), "Native file drag-and-drop is unavailable");
     }
@@ -353,12 +360,15 @@ mod tests {
         slow_cpu_refresh(&mut app, 1, f64::NAN, Some(crate::gpu_canvas::OVER_BUDGET));
         assert!(app.ui.notices.is_empty(), "a quick refresh needs no explanation");
 
+        // The layers of document 1 need 3.6 GB and may hold 3.4 GB: the notice says so.
+        app.perf.gpu_layer_fit = Some(crate::gpu_canvas::LayerFit { doc: 1, needed: 3600 << 20, budget: 3400 << 20 });
         slow_cpu_refresh(&mut app, 1, 55_000.0, Some(crate::gpu_canvas::OVER_BUDGET));
         assert_eq!(app.ui.notices.len(), 1);
         let text = app.ui.notices[0].lines.join(" ");
         assert!(text.contains("55.0 s"), "{text}");
         assert!(text.contains("blend mode, opacity or visibility"), "{text}");
-        assert!(text.contains("Memory usage in Preferences › Performance"), "{text}");
+        assert!(text.contains("need 3.5G of GPU memory; the budget leaves them 3.3G"), "{text}");
+        assert!(text.contains("GPU Memory in Preferences › Performance"), "{text}");
         assert!(!app.ui.notices[0].error);
 
         slow_cpu_refresh(&mut app, 1, 55_000.0, Some(crate::gpu_canvas::OVER_BUDGET));
@@ -369,6 +379,25 @@ mod tests {
         let text = app.ui.notices[1].lines.join(" ");
         assert!(text.contains("Blend If on `Overlay`"), "{text}");
         assert!(!text.contains("Memory usage"), "the budget hint is only for the budget fallback: {text}");
+    }
+
+    #[test]
+    fn import_warning_punctuation_is_localized_without_changing_english() {
+        let mut app = PhotocraftApp::new(Session::new(), Services::default());
+        for (lang, expected) in [
+            (crate::i18n::Lang::EN, "Opened x.psd with 3 warnings: first warning …"),
+            (crate::i18n::Lang::from_code("cs").unwrap(), "Otevřeno: x.psd (3 upozornění): first warning …"),
+        ] {
+            crate::i18n::with_language(lang, || {
+                let what = crate::i18n::fmt(tl!("Opened {name}"), &[("name", "x.psd")]);
+                let warnings = vec!["first warning".into(), "second warning".into(), "third warning".into()];
+                io_warnings(&mut app, &what, &warnings);
+                assert_eq!(app.ui.status, expected);
+                assert_eq!(app.ui.notices.last().unwrap().lines, warnings);
+                io_warnings(&mut app, &what, &warnings[..1]);
+                assert_eq!(app.ui.status, format!("{what}: first warning"));
+            });
+        }
     }
 
     #[test]

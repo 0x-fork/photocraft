@@ -63,7 +63,7 @@ Every binary reports its version, the commit and the build date: `photocraft --v
 `cargo build` doesn't set them and reports `0.2.0 (dev build)`.
 
 Every desktop build job (macOS, Windows, Linux, FreeBSD) also checks out [craft-fonts](https://github.com/storytold/craft-fonts)
-at the commit in `CRAFT_FONTS_REF` (top of `release.yml`) and builds with `CRAFT_FONTS_DIR` and
+at the `craft-fonts-ref` commit in `.github/workflows/release.yml` and builds with `CRAFT_FONTS_DIR` and
 `CRAFT_FONTS_REQUIRED=1`, so desktop releases embed its Japanese fonts (the web build embeds none: see
 `docs/development.md` › Fonts) and fail rather than ship without them. The packages carry each font's licence as
 `OFL-<family>.txt` (`copy_font_licences` in `packaging/env.sh`; the portable zip on Windows;
@@ -183,6 +183,13 @@ Why these formats:
 - **AppImage** runs on any distribution without installing anything. The
   download-and-go option and the fallback for distros the packages don't cover. It's built
   with the maintained `AppImage/appimagetool`, whose static runtime doesn't need libfuse2.
+  The packaging script verifies pinned AppImageTool 1.9.1 and type2 runtime 20251108 binaries.
+  For an offline build, pre-seed `$CARGO_TARGET_DIR/appimagetool-1.9.1-$ARCH.AppImage` and
+  `$CARGO_TARGET_DIR/type2-runtime-20251108-$ARCH` with the matching official release assets;
+  the script checks both SHA-256 digests and makes the cached AppImageTool executable after verification;
+  the runtime is only read as data.
+  An `APPIMAGETOOL` override must point to that same verified AppImageTool binary and already be
+  executable (`chmod +x` it before packaging).
   Each AppImage embeds update information (`gh-releases-zsync|…|latest|…`, #349) and ships
   with a `.zsync` beside it, so AppImageUpdate, AppImageLauncher and similar tools can find
   the next release and download only the blocks that changed.
@@ -277,11 +284,14 @@ and lists the tarball, which checks the layout without a FreeBSD machine.
 
 ### Web
 
-`packaging/web/package.sh` runs `trunk build --release` (see `apps/photocraft-web/Trunk.toml`)
-and zips `dist/web` together with sample `_headers` and `.htaccess` files and the hosting guide.
-The site only uses relative URLs, so it works under any path and in an iframe. The wasm builds
-with the size-optimized `wasm-release` Cargo profile (set in `apps/photocraft-web/index.html`),
-and the script fails if any `.wasm` exceeds 24 MiB, below Cloudflare's 25 MiB per-file limit.
+`packaging/web/package.sh` runs `trunk build --release` for the app (`apps/photocraft-web`, into
+`dist/web`) and for the module that starts it (`apps/photocraft-web-boot`, into `dist/web-boot`).
+It gzips the app's wasm, cuts it into parts of at most 20 MiB and zips the boot module's page with
+the parts, sample `_headers` and `.htaccess` files and the hosting guide. The site only uses
+relative URLs, so it works under any path and in an iframe. The wasm builds with the
+size-optimized `wasm-release` Cargo profile (set in `apps/photocraft-web/index.html`), and the
+script fails if any file in the site exceeds 24 MiB, below Cloudflare's 25 MiB per-file limit;
+the app's wasm itself may be larger, since it ships as parts.
 [`packaging/web/README.md`](../packaging/web/README.md) covers MIME types, compression,
 caching, the iframe snippet and the `?webgl` / `?cpu` flags.
 

@@ -29,6 +29,43 @@ use serde_json::{Value, json};
 
 use crate::{EngineError, Result, Session};
 
+type Authorization = fn(&str, &Value) -> Result<()>;
+
+thread_local! {
+    // Smart-filter rendering has no Session argument. Carry the requesting session's gate
+    // through synchronous rendering and explicitly reinstall it on background workers.
+    static RENDER_AUTHORIZATION: std::cell::Cell<Option<Authorization>> = const { std::cell::Cell::new(None) };
+}
+
+pub(crate) struct AuthorizationScope(Option<Authorization>);
+
+impl AuthorizationScope {
+    fn enter(gate: Option<Authorization>) -> Self {
+        Self(RENDER_AUTHORIZATION.with(|current| current.replace(gate.or(current.get()))))
+    }
+}
+
+impl Drop for AuthorizationScope {
+    fn drop(&mut self) {
+        RENDER_AUTHORIZATION.with(|current| current.set(self.0));
+    }
+}
+
+/// [`AuthorizationScope`] entered with `gate` (or the one already installed, so trusted work on
+/// this thread keeps ambient paths usable). [`Session::edit`] and the job paths use this to carry
+/// the requesting session's authority into every smart-object re-render.
+pub(crate) fn render_authorization_scope(gate: Option<Authorization>) -> AuthorizationScope {
+    AuthorizationScope::enter(gate)
+}
+
+/// Recheck a stored filter's command and parameters before evaluating it or using its cache.
+pub(crate) fn authorize_render_command(id: &str, params: &Value) -> Result<()> {
+    match RENDER_AUTHORIZATION.with(std::cell::Cell::get) {
+        Some(gate) => gate(id, params),
+        None => Ok(()),
+    }
+}
+
 /// Identifies one background job for the session's lifetime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, serde::Deserialize)]
 pub struct JobId(pub u64);
@@ -284,6 +321,8 @@ pub fn run<T: Send + 'static>(
     work: impl FnOnce(&JobCtx) -> Result<T> + Send + 'static,
     apply: impl FnOnce(&mut Session, T) -> Result<Value> + Send + 'static,
 ) -> Result<Value> {
+    let authorization = s.authorize.or_else(|| RENDER_AUTHORIZATION.with(std::cell::Cell::get));
+    let _authorization = AuthorizationScope::enter(authorization);
     if !s.jobs.spawn || cfg!(target_arch = "wasm32") {
         let t = work(&s.jobs.inline.clone().unwrap_or_default())?;
         return apply(s, t);
@@ -299,6 +338,7 @@ pub fn run<T: Send + 'static>(
     let ctx = JobCtx::new();
     let (tx, rx) = std::sync::mpsc::channel::<Result<Payload>>();
     let erased: Apply = Box::new(move |s, any| {
+        let _authorization = AuthorizationScope::enter(authorization);
         let t = any.downcast::<T>().map_err(|_| EngineError::Other("internal error: job result type mismatch".into()))?;
         apply(s, *t)
     });
@@ -311,6 +351,7 @@ pub fn run<T: Send + 'static>(
         // The work closure is moved into the thread. If spawning fails (thread limits), there is
         // no way to get it back, so the error is reported instead.
         let spawned = std::thread::Builder::new().name(format!("photocraft-job-{}", id.0)).spawn(move || {
+            let _authorization = AuthorizationScope::enter(authorization);
             let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&wctx).map(|t| Box::new(t) as Payload)))
                 .unwrap_or_else(|_| Err(EngineError::Other(format!("`{label_w}` failed with an internal error (logged); the document is unchanged"))));
             // The receiver is gone when the job was cancelled: nothing to report.
@@ -382,6 +423,24 @@ pub fn edit_job<R: Send + 'static>(
     )
 }
 
+/// Scan every layer surface's content bounds into the shared tile bounds cache, so the first
+/// draw of a document opened in the background doesn't do it on the UI thread: GPU planning
+/// asks each layer for its bounds, a multi-second scan on a multi-gigabyte PSB (#4024).
+/// `check` runs between layers (cancellation).
+pub fn warm_layer_bounds(doc: &Document, mut check: impl FnMut() -> Result<()>) -> Result<()> {
+    let mut pending: Vec<&photocraft_doc::Layer> = doc.layers.iter().collect();
+    while let Some(layer) = pending.pop() {
+        check()?;
+        if let Some(children) = layer.children() {
+            pending.extend(children);
+        }
+        if let Some(surface) = layer.surface() {
+            photocraft_compose::bounds::content_bounds(surface);
+        }
+    }
+    Ok(())
+}
+
 /// Where a background open reads its file from.
 #[derive(Clone, Debug)]
 pub enum OpenSource {
@@ -412,7 +471,10 @@ impl Session {
     /// Open a file in the background: read (for a path) and decode on a worker, with progress
     /// (per layer for PSD/PSB) and cancellation, then add the document like
     /// [`Session::open_document`] (Color Settings policies apply). `name` names the document.
-    /// The job's result is `{document, name, warnings, color}`; on wasm it runs inline.
+    /// The job's result is `{document, name, warnings, color}`; on wasm it runs inline. When
+    /// Color Settings ask about the file's profile, the document is held back instead and the
+    /// result is `{held, name, warnings, color}` (`color` the question): take it with
+    /// [`Session::take_held_open`] once answered.
     pub fn start_open(&mut self, name: &str, source: OpenSource) -> Result<Started> {
         let label = format!("Opening {name}");
         let name_w = name.to_string();
@@ -431,13 +493,24 @@ impl Session {
                 };
                 ctx.check()?;
                 ctx.progress(0.02, "Decoding");
-                ctx.stage(0.02, 1.0, "Decoding", |ctl| photocraft_io::import_with_svg_group_depth_and_interrupt(&name_w, &bytes, max_svg_group_depth, ctl))
+                let imported = ctx
+                    .stage(0.02, 0.95, "Decoding", |ctl| photocraft_io::import_with_svg_group_depth_and_interrupt(&name_w, &bytes, max_svg_group_depth, ctl))
                     .map_err(|e| match e {
                         photocraft_io::IoError::Cancelled => EngineError::Cancelled,
                         e => EngineError::Other(e.to_string()),
-                    })
+                    })?;
+                ctx.progress(0.95, "Preparing layers");
+                warm_layer_bounds(&imported.document, || ctx.check())?;
+                Ok(imported)
             },
             move |s, r: photocraft_io::ImportResult| {
+                // Ask When Opening: held back until the prompt is answered (`take_held_open`). A
+                // developed raw has no embedded profile to ask about.
+                let raw = r.warnings.iter().any(|w| w.contains(photocraft_io::raw::DEVELOPED_NOTE));
+                if let Some(question) = s.color.open_question(&r.document).filter(|_| !raw) {
+                    let held = s.hold_open(r.document, r.source_read_only);
+                    return Ok(json!({"held": held, "name": name_a, "warnings": r.warnings, "color": question}));
+                }
                 let (index, color) = s.open_document(r.document, None);
                 if let Some(st) = s.active_mut() {
                     st.source_read_only = r.source_read_only;
@@ -527,6 +600,11 @@ impl Session {
     /// stays unchanged. The document is unlocked at once. False if no such job is running.
     pub fn cancel_job(&mut self, id: JobId) -> bool {
         let Some(i) = self.jobs.running.iter().position(|r| r.id == id) else { return false };
+        // A print worker can already have handed the job to the OS. Discarding its result
+        // would falsely report cancellation; removal belongs to the system print queue.
+        if matches!(self.jobs.running[i].command.as_str(), "file.print" | "file.printOneCopy") {
+            return false;
+        }
         let job = self.jobs.running.remove(i);
         job.ctx.cancel();
         self.end_job(&job, JobOutcome::Cancelled);
@@ -615,34 +693,44 @@ impl Session {
         if let Some(gate) = self.authorize {
             gate(id, &params)?;
         }
+        let _authorization = AuthorizationScope::enter(self.authorize);
+        // Last Filter runs as the filter it repeats: journaled, recorded in an action, faded and
+        // run as a job like that filter, so a recorded step replays the same filter anywhere
+        // (#3089), as Transform Again records its transform (#1440). With no filter yet it falls
+        // through to its own precondition.
+        if id == "filter.lastFilter"
+            && let Some((filter, p)) = crate::filters::last_filter(self).filter(|(f, _)| f != id)
+        {
+            return self.dispatch(&filter, p, background);
+        }
         if id == "file.new" {
             crate::document_preset_cmds::validate_new_params(self, &params)?;
         }
+        crate::param_check::check(spec, &params)?;
         crate::filters::validate_params(id, &params)?;
         // A floating selection drops before any other command (Undo puts it back instead).
         if let Some(v) = crate::float_cmds::before_command(self, id)? {
             return Ok(Started::Done(v));
         }
         // Pixel commands follow the Channels panel target unless the caller names one.
-        let run_params = crate::channel_cmds::inject_target(self, id, crate::commands::inject_kind(id, params.clone()));
-        if let Err(why) = crate::smart_cmds::target_enabled(self, spec, &params).unwrap_or_else(|| self.precondition(spec, &run_params)) {
-            return Err(EngineError::Disabled(id.to_string(), why));
-        }
-        if let Some(why) = self.job_conflict(id, spec.journal) {
-            return Err(EngineError::Disabled(id.to_string(), why));
-        }
-        // Painting on or moving a hidden layer is refused, as in Photoshop (#571).
-        if let Some(why) = crate::hidden_target::refusal(self, id, &params) {
-            return Err(EngineError::Other(why.into()));
-        }
+        let run_params = self.admit(id, spec, &params)?;
         self.coalesce_request = params.get("coalesce").and_then(Value::as_str).map(str::to_string);
         self.color_restrict = crate::channel_cmds::color_restriction(self, id, &run_params);
         self.jobs.spawn = background;
+        // Commands this one runs on its own behalf journal after this mark (#3067).
+        let nested_from = self.journal.len();
+        // A replayable command is recorded as one step, so recording pauses while it runs: an
+        // action it plays (a script step) must not flush the steps it ran so far into the action
+        // being recorded, nor move the recording mark past the entries it is about to replace.
+        let recording = if spec.journal && crate::actions_cmds::replayable(id) { self.actions.recording.take() } else { None };
         // Last-resort guard (AGENTS.md, Never crash): a command that panics anyway fails with an
         // error instead of taking the app down. `edit` only commits a document after its closure
         // returns, so the documents are unchanged.
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (spec.run)(self, &run_params)))
             .unwrap_or_else(|_| Err(EngineError::Other(format!("`{id}` failed with an internal error (logged); the document is unchanged"))));
+        if self.actions.recording.is_none() {
+            self.actions.recording = recording;
+        }
         self.jobs.spawn = false;
         self.coalesce_request = None;
         self.color_restrict = None;
@@ -662,14 +750,20 @@ impl Session {
                 Ok(Started::Job(jid))
             }
             (Ok(v), None) => {
-                self.after_command(id, params, spec.journal);
+                self.after_command(id, params, spec.journal, Some(nested_from));
                 Ok(Started::Done(v))
             }
         }
     }
 
     /// Bookkeeping after a command (or a job's apply) succeeded.
-    fn after_command(&mut self, id: &str, params: Value, journal: bool) {
+    ///
+    /// `nested_from` is the journal length when the command started. A replayable command stands
+    /// for the commands it ran itself (Straighten runs Image Rotation and Crop): their entries are
+    /// dropped, so a recorded action replays the command once, not its steps as well (#3067).
+    /// Edit › Transform › Again (and Again on a Copy) is not replayable and keeps the concrete
+    /// steps it ran instead.
+    fn after_command(&mut self, id: &str, params: Value, journal: bool, nested_from: Option<usize>) {
         // A layer-mask view ends when another layer becomes active (#196).
         if let Some(st) = self.active_mut() {
             crate::mask_view_cmds::fix(st);
@@ -677,7 +771,15 @@ impl Session {
         crate::edit_menu_cmds::after_command(self, id);
         crate::automate_cmds::after_command(self, id);
         self.sync_preset_store();
-        if journal && !crate::brush_cmds::coalesce_journal(self, id, &params) {
+        if !journal {
+            return;
+        }
+        if let Some(from) = nested_from.filter(|_| crate::actions_cmds::replayable(id)) {
+            self.journal.truncate(from);
+        }
+        if !crate::brush_cmds::coalesce_journal(self, id, &params) {
+            let params =
+                if id == "layer.select" && self.actions.recording.is_some() { crate::layer_multi_cmds::recorded_selection(self, params) } else { params };
             self.journal.push((id.to_string(), params));
         }
     }
@@ -716,18 +818,25 @@ impl Session {
         };
         self.coalesce_request = coalesce.clone();
         self.color_restrict = *color_restrict;
+        // Apply-time hooks can dispatch commands too. Keep the same single-step recording
+        // contract as synchronous dispatch without truncating work done while the worker ran.
+        let nested_from = self.journal.len();
+        let recording = if *journal && crate::actions_cmds::replayable(command) { self.actions.recording.take() } else { None };
         let r = match apply {
             Some(f) => std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(self, payload)))
                 .unwrap_or_else(|_| Err(EngineError::Other(format!("`{label}` failed with an internal error (logged); the document is unchanged")))),
             None => Err(EngineError::Other("internal error: job applied twice".into())),
         };
+        if self.actions.recording.is_none() {
+            self.actions.recording = recording;
+        }
         self.coalesce_request = None;
         self.color_restrict = None;
         // Finish successful command bookkeeping on the document the job edited.
         // Restoring the viewed document first would attribute Fade and slice updates
         // to that document instead, when the user switched tabs mid-job.
         if r.is_ok() {
-            self.after_command(command, params.clone(), *journal);
+            self.after_command(command, params.clone(), *journal, Some(nested_from));
         }
         // Keep the user's active document unless the job opened a new one.
         // This also restores the selection when the apply step returned an error.
@@ -784,11 +893,17 @@ pub fn specs() -> Vec<crate::commands::CommandSpec> {
                 None | Some(Value::Null) => {
                     let n = s.jobs.running.len();
                     s.cancel_all_jobs();
-                    Ok(json!({"cancelled": n}))
+                    Ok(json!({"cancelled": n.saturating_sub(s.jobs.running.len())}))
                 }
                 Some(v) => {
                     let id = v.as_u64().ok_or_else(|| EngineError::BadParams { cmd: "jobs.cancel".into(), msg: "`job` must be a job id".into() })?;
-                    if s.cancel_job(JobId(id)) { Ok(json!({"cancelled": 1})) } else { Err(EngineError::Other(format!("no running job {id}"))) }
+                    if s.cancel_job(JobId(id)) {
+                        Ok(json!({"cancelled": 1}))
+                    } else if s.job(JobId(id)).is_some() {
+                        Err(EngineError::Other("printing cannot be cancelled here; use the system print queue".into()))
+                    } else {
+                        Err(EngineError::Other(format!("no running job {id}")))
+                    }
                 }
             },
             journal: false,

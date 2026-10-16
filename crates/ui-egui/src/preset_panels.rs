@@ -37,14 +37,70 @@ pub struct PresetUi {
     pub current_tool_only: bool,
     /// Custom Shape tool: the shape it draws.
     pub custom_shape: String,
+    /// Folder/group order per panel, by name (#3658), like the dock's `tabOrder` (#2272). A panel
+    /// with no entry keeps the library's order; unknown names are ignored and groups missing from
+    /// a list follow it in library order. Saved with the UI state.
+    #[serde(rename = "groupOrder", alias = "group_order", deserialize_with = "lenient_group_order", skip_serializing_if = "BTreeMap::is_empty")]
+    pub group_order: BTreeMap<String, Vec<String>>,
     /// In-place rename: (panel, preset or "group:<name>", text).
     #[serde(skip)]
     pub renaming: Option<(String, String, String)>,
 }
 
+/// Read `groupOrder` keeping what makes sense: non-object values, non-list entries and non-string
+/// names are dropped instead of failing the whole saved UI state.
+const MAX_GROUP_ORDER: usize = 10_000;
+fn lenient_group_order<'de, D: serde::Deserializer<'de>>(d: D) -> Result<BTreeMap<String, Vec<String>>, D::Error> {
+    let v = Value::deserialize(d)?;
+    let mut out = BTreeMap::new();
+    for (panel, names) in v.as_object().into_iter().flatten() {
+        let Some(names) = names.as_array() else { continue };
+        out.insert(panel.clone(), names.iter().filter_map(Value::as_str).take(MAX_GROUP_ORDER).map(str::to_owned).collect());
+    }
+    Ok(out)
+}
+
 impl PresetUi {
     pub fn shape(&self) -> &str {
         if self.custom_shape.is_empty() { tl!("Heart") } else { &self.custom_shape }
+    }
+
+    /// Display order of the folders for `panel`, as library indices: the stored order first
+    /// (names that no longer exist are dropped), then groups missing from it in library order.
+    /// Mirrors the dock's per-group tab order (#2272, #3658).
+    pub(crate) fn display_order(&self, panel: &str, names: &[String]) -> Vec<usize> {
+        let mut out: Vec<usize> = Vec::with_capacity(names.len());
+        for name in self.group_order.get(panel).into_iter().flatten() {
+            if let Some(i) = names.iter().position(|n| n == name)
+                && !out.contains(&i)
+            {
+                out.push(i);
+            }
+        }
+        for i in 0..names.len() {
+            if !out.contains(&i) {
+                out.push(i);
+            }
+        }
+        out
+    }
+
+    /// Move folder `from` so it is drawn before `before` (`None` = last) for `panel`. The
+    /// library's own order is stored as no entry, as the dock does for its tabs.
+    pub(crate) fn move_group(&mut self, panel: &str, names: &[String], from: &str, before: Option<&str>) {
+        if before == Some(from) {
+            return;
+        }
+        let mut order: Vec<String> = self.display_order(panel, names).into_iter().filter_map(|i| names.get(i).cloned()).collect();
+        let Some(at) = order.iter().position(|n| n == from) else { return };
+        let moved = order.remove(at);
+        let to = before.and_then(|b| order.iter().position(|n| n == b)).unwrap_or(order.len());
+        order.insert(to, moved);
+        if order.as_slice() == names {
+            self.group_order.remove(panel);
+        } else {
+            self.group_order.insert(panel.to_string(), order);
+        }
     }
 }
 
@@ -273,13 +329,24 @@ fn group_open(st: &PresetUi, panel: &str, gi: usize, name: &str) -> bool {
     (gi == 0 || panel == crate::swatches_ui::PANEL) != st.toggled.contains(&format!("{panel}/{name}"))
 }
 
+/// The footer's height (gap, size slider and buttons) before it has been measured.
+const FOOTER_GUESS: f32 = 32.0;
+
 /// Draws the folders and footer; `thumb` paints item `(group, item)` into a rect.
 /// Where a browser sits: the canvas (drop target), its height cap and the New button's tooltip.
+/// `flush` lays the grid out as Photoshop's Swatches panel: the cells touch, square-cornered and
+/// without a border of their own, so no screen is spent on gaps (#5103); gradients, patterns and
+/// the other preset grids keep their [`GRID_GAP`] and card borders.
 pub(crate) struct Place<'a> {
     pub(crate) canvas: Rect,
     pub(crate) max_h: f32,
     pub(crate) new_tip: &'a str,
+    pub(crate) flush: bool,
 }
+
+/// Space between the cells of a preset grid, and the grid's inset from the panel's left edge.
+const GRID_GAP: f32 = 4.0;
+const GRID_INSET: f32 = 8.0;
 
 pub(crate) fn browser(
     ui: &mut egui::Ui,
@@ -290,7 +357,7 @@ pub(crate) fn browser(
     thumb: &mut dyn FnMut(&egui::Ui, Rect, usize, usize),
 ) -> Vec<Ev> {
     let t = Tokens::get(ui.ctx());
-    let Place { canvas, max_h, new_tip } = place;
+    let Place { canvas, max_h, new_tip, flush } = place;
     let mut ev = Vec::new();
     let size = *st.sizes.get(panel).unwrap_or(&40.0);
     let list = size <= MIN_THUMB + 0.5;
@@ -319,130 +386,185 @@ pub(crate) fn browser(
             }
         }
     }
-    let mut headers: Vec<(Rect, String)> = Vec::new();
+    let mut headers: Vec<(usize, Rect, String)> = Vec::new();
     let mut dropped: Option<(String, Pos2)> = None;
+    // Folder drag (#3658): the order the folders are drawn in, and what the pointer is doing this
+    // frame (the insertion line and the drop are resolved once every header is known).
+    let mut drag: Option<(usize, Pos2)> = None;
+    let mut released: Option<(usize, Pos2)> = None;
     let group_names: Vec<String> = groups.iter().map(|g| g.name.clone()).collect();
-    egui::ScrollArea::vertical().id_salt(("preset-scroll", panel)).max_height(max_h).auto_shrink([false, true]).show(ui, |ui| {
-        ui.spacing_mut().item_spacing = vec2(0.0, 2.0);
-        for (gi, g) in groups.iter().enumerate() {
-            let open = group_open(st, panel, gi, &g.name);
-            let (hr, hresp) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click());
-            if hresp.hovered() {
-                ui.painter().rect_filled(hr, 2.0, t.hover.gamma_multiply(0.5));
-            }
-            let tri = Rect::from_center_size(pos2(hr.left() + 9.0, hr.center().y), vec2(12.0, 12.0));
-            crate::icons::paint(ui, tri, if open { "chevron-down" } else { "chevron-right" }, 10.0, t.text_dim);
-            let fold = Rect::from_center_size(pos2(hr.left() + 25.0, hr.center().y), vec2(14.0, 14.0));
-            crate::icons::paint(ui, fold, if open { "folder-open" } else { "folder" }, 12.0, t.icon);
-            ui.painter().text(pos2(hr.left() + 37.0, hr.center().y), Align2::LEFT_CENTER, &g.name, FontId::proportional(11.5), t.text);
-            if hresp.clicked() {
-                let k = format!("{panel}/{}", g.name);
-                if !st.toggled.remove(&k) {
-                    st.toggled.insert(k);
+    let display = st.display_order(panel, &group_names);
+    // The footer stays in view: the list gets the height left after it (as measured last frame)
+    // and scrolls, rather than pushing the footer out of a short dock group (#4790).
+    let footer_id = egui::Id::new(("preset-footer", panel));
+    let footer_h = ui.data(|d| d.get_temp::<f32>(footer_id)).unwrap_or(FOOTER_GUESS);
+    let max_h = max_h.min((ui.available_height() - footer_h).max(0.0));
+    egui::ScrollArea::vertical().id_salt(("preset-scroll", panel)).max_height(max_h).min_scrolled_height(max_h.min(64.0)).auto_shrink([false, true]).show(
+        ui,
+        |ui| {
+            ui.spacing_mut().item_spacing = vec2(0.0, 2.0);
+            for &gi in &display {
+                let Some(g) = groups.get(gi) else { continue };
+                let open = group_open(st, panel, gi, &g.name);
+                let (hr, hresp) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click_and_drag());
+                if hresp.hovered() || hresp.dragged() {
+                    ui.painter().rect_filled(hr, 2.0, t.hover.gamma_multiply(0.5));
                 }
-            }
-            hresp.context_menu(|ui| {
-                if ui.button(tl!("Rename Group…")).clicked() {
-                    st.renaming = Some((panel.to_string(), format!("group:{}", g.name), g.name.clone()));
-                    ui.close();
-                }
-                if ui.button(tl!("Delete Group")).clicked() {
-                    ev.push(Ev::DeleteGroup(g.name.clone()));
-                    ui.close();
-                }
-            });
-            headers.push((hr, g.name.clone()));
-            if !open {
-                continue;
-            }
-            let w = ui.available_width();
-            let (cell, cols) = if list {
-                (vec2(w, 24.0), 1)
-            } else {
-                let cols = ((w - 8.0 + 4.0) / (size + 4.0)).floor().max(1.0) as usize;
-                (vec2(size, size), cols)
-            };
-            let rows = g.items.len().div_ceil(cols);
-            let pad = if list { 0.0 } else { 8.0 };
-            let gap = if list { 0.0 } else { 4.0 };
-            let (area, _) = ui.allocate_exact_size(vec2(w, rows as f32 * (cell.y + gap) + 2.0), Sense::hover());
-            for (ii, it) in g.items.iter().enumerate() {
-                let (cx, cy) = ((ii % cols) as f32, (ii / cols) as f32);
-                let r = Rect::from_min_size(area.min + vec2(pad + cx * (cell.x + gap), cy * (cell.y + gap)), cell);
-                let resp = ui.interact(r, ui.id().with((panel, gi, ii)), Sense::click_and_drag());
-                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &it.name));
-                let is_sel = selected.as_deref() == Some(&it.key);
-                if list {
-                    if is_sel {
-                        ui.painter().rect_filled(r, 0.0, t.row_selected);
-                    } else if resp.hovered() {
-                        ui.painter().rect_filled(r, 0.0, t.hover.gamma_multiply(0.5));
+                let tri = Rect::from_center_size(pos2(hr.left() + 9.0, hr.center().y), vec2(12.0, 12.0));
+                crate::icons::paint(ui, tri, if open { "chevron-down" } else { "chevron-right" }, 10.0, t.text_dim);
+                let fold = Rect::from_center_size(pos2(hr.left() + 25.0, hr.center().y), vec2(14.0, 14.0));
+                crate::icons::paint(ui, fold, if open { "folder-open" } else { "folder" }, 12.0, t.icon);
+                ui.painter().text(pos2(hr.left() + 37.0, hr.center().y), Align2::LEFT_CENTER, &g.name, FontId::proportional(11.5), t.text);
+                if hresp.clicked() {
+                    let k = format!("{panel}/{}", g.name);
+                    if !st.toggled.remove(&k) {
+                        st.toggled.insert(k);
                     }
-                    let tr = Rect::from_min_size(r.min + vec2(24.0, 2.0), vec2(20.0, 20.0));
-                    thumb(ui, tr, gi, ii);
-                    ui.painter().text(pos2(tr.right() + 8.0, r.center().y), Align2::LEFT_CENTER, &it.name, FontId::proportional(11.5), t.text);
-                } else {
-                    thumb(ui, r, gi, ii);
-                    let (stroke, kind) = if is_sel {
-                        (Stroke::new(2.0, t.accent), egui::StrokeKind::Outside)
-                    } else if resp.hovered() {
-                        (Stroke::new(1.0, t.text_dim), egui::StrokeKind::Outside)
-                    } else {
-                        (Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside)
-                    };
-                    ui.painter().rect_stroke(r, CornerRadius::same(2), stroke, kind);
                 }
-                let resp = if list { resp } else { resp.on_hover_text(&it.name) };
-                if resp.double_clicked() {
-                    ev.push(Ev::Activate(it.key.clone()));
-                } else if resp.clicked() {
-                    ev.push(Ev::Select(it.key.clone()));
-                }
-                if resp.dragged()
-                    && let Some(pp) = ui.ctx().pointer_interact_pos()
-                {
-                    // A ghost of the swatch follows the pointer.
-                    let lp = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("preset-drag")));
-                    let gr = Rect::from_center_size(pp, vec2(28.0, 28.0));
-                    lp.rect_filled(gr, 3.0, t.card.gamma_multiply(0.8));
-                    lp.rect_stroke(gr, 3.0, Stroke::new(1.0, t.accent), egui::StrokeKind::Outside);
-                    lp.text(gr.center(), Align2::CENTER_CENTER, "+", FontId::proportional(16.0), t.accent);
-                }
-                if resp.drag_stopped()
-                    && let Some(pp) = ui.ctx().pointer_interact_pos()
-                    && !r.contains(pp)
-                {
-                    dropped = Some((it.key.clone(), pp));
-                }
-                resp.context_menu(|ui| {
-                    if ui.button(tl!("Rename…")).clicked() {
-                        st.renaming = Some((panel.to_string(), it.key.clone(), it.name.clone()));
+                hresp.context_menu(|ui| {
+                    if ui.button(tl!("Rename Group…")).clicked() {
+                        st.renaming = Some((panel.to_string(), format!("group:{}", g.name), g.name.clone()));
                         ui.close();
                     }
-                    if ui.button(tl!("Delete")).clicked() {
-                        ev.push(Ev::Delete(it.key.clone()));
+                    if ui.button(tl!("Delete Group")).clicked() {
+                        ev.push(Ev::DeleteGroup(g.name.clone()));
                         ui.close();
                     }
-                    ui.menu_button(tl!("Move to"), |ui| {
-                        for gname in group_names.iter().filter(|n| **n != g.name) {
-                            if ui.button(gname).clicked() {
-                                ev.push(Ev::Move(it.key.clone(), gname.clone()));
-                                ui.close();
-                            }
-                        }
-                    });
                 });
+                if hresp.dragged()
+                    && let Some(p) = ui.ctx().pointer_interact_pos()
+                {
+                    drag = Some((gi, p));
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                }
+                if hresp.drag_stopped()
+                    && let Some(p) = ui.ctx().pointer_interact_pos()
+                {
+                    released = Some((gi, p));
+                }
+                headers.push((gi, hr, g.name.clone()));
+                if !open {
+                    continue;
+                }
+                let w = ui.available_width();
+                let pad = if list { 0.0 } else { GRID_INSET };
+                let gap = if list || flush { 0.0 } else { GRID_GAP };
+                let (cell, cols) = if list {
+                    (vec2(w, 24.0), 1)
+                } else {
+                    let cols = ((w - pad + gap) / (size + gap)).floor().max(1.0) as usize;
+                    (vec2(size, size), cols)
+                };
+                let rows = g.items.len().div_ceil(cols);
+                let (area, _) = ui.allocate_exact_size(vec2(w, rows as f32 * (cell.y + gap) + 2.0), Sense::hover());
+                for (ii, it) in g.items.iter().enumerate() {
+                    let (cx, cy) = ((ii % cols) as f32, (ii / cols) as f32);
+                    let r = Rect::from_min_size(area.min + vec2(pad + cx * (cell.x + gap), cy * (cell.y + gap)), cell);
+                    let resp = ui.interact(r, ui.id().with((panel, gi, ii)), Sense::click_and_drag());
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &it.name));
+                    let is_sel = selected.as_deref() == Some(&it.key);
+                    if list {
+                        if is_sel {
+                            ui.painter().rect_filled(r, 0.0, t.row_selected);
+                        } else if resp.hovered() {
+                            ui.painter().rect_filled(r, 0.0, t.hover.gamma_multiply(0.5));
+                        }
+                        let tr = Rect::from_min_size(r.min + vec2(24.0, 2.0), vec2(20.0, 20.0));
+                        thumb(ui, tr, gi, ii);
+                        ui.painter().text(pos2(tr.right() + 8.0, r.center().y), Align2::LEFT_CENTER, &it.name, FontId::proportional(11.5), t.text);
+                    } else {
+                        thumb(ui, r, gi, ii);
+                        // Touching cells draw no border of their own: only the selected and the
+                        // hovered one are outlined, over their neighbours, as in Photoshop.
+                        let stroke = if is_sel {
+                            Some((Stroke::new(2.0, t.accent), egui::StrokeKind::Outside))
+                        } else if resp.hovered() {
+                            Some((Stroke::new(1.0, t.text_dim), egui::StrokeKind::Outside))
+                        } else if flush {
+                            None
+                        } else {
+                            Some((Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside))
+                        };
+                        if let Some((stroke, kind)) = stroke {
+                            ui.painter().rect_stroke(r, CornerRadius::same(if flush { 0 } else { 2 }), stroke, kind);
+                        }
+                    }
+                    let resp = if list { resp } else { resp.on_hover_text(&it.name) };
+                    if resp.double_clicked() {
+                        ev.push(Ev::Activate(it.key.clone()));
+                    } else if resp.clicked() {
+                        ev.push(Ev::Select(it.key.clone()));
+                    }
+                    if resp.dragged()
+                        && let Some(pp) = ui.ctx().pointer_interact_pos()
+                    {
+                        // A ghost of the swatch follows the pointer.
+                        let lp = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("preset-drag")));
+                        let gr = Rect::from_center_size(pp, vec2(28.0, 28.0));
+                        lp.rect_filled(gr, 3.0, t.card.gamma_multiply(0.8));
+                        lp.rect_stroke(gr, 3.0, Stroke::new(1.0, t.accent), egui::StrokeKind::Outside);
+                        lp.text(gr.center(), Align2::CENTER_CENTER, "+", FontId::proportional(16.0), t.accent);
+                    }
+                    if resp.drag_stopped()
+                        && let Some(pp) = ui.ctx().pointer_interact_pos()
+                        && !r.contains(pp)
+                    {
+                        dropped = Some((it.key.clone(), pp));
+                    }
+                    resp.context_menu(|ui| {
+                        if ui.button(tl!("Rename…")).clicked() {
+                            st.renaming = Some((panel.to_string(), it.key.clone(), it.name.clone()));
+                            ui.close();
+                        }
+                        if ui.button(tl!("Delete")).clicked() {
+                            ev.push(Ev::Delete(it.key.clone()));
+                            ui.close();
+                        }
+                        ui.menu_button(tl!("Move to"), |ui| {
+                            for gname in group_names.iter().filter(|n| **n != g.name) {
+                                if ui.button(gname).clicked() {
+                                    ev.push(Ev::Move(it.key.clone(), gname.clone()));
+                                    ui.close();
+                                }
+                            }
+                        });
+                    });
+                }
             }
+            // Insertion line while a folder is dragged by its header.
+            if let Some((from, p)) = drag {
+                let before = group_drop_before(&headers, from, p.y);
+                let anchor = match before {
+                    Some(i) => headers.iter().find(|(x, _, _)| *x == i).map(|(_, r, _)| *r),
+                    None => headers.last().map(|(_, r, _)| *r),
+                };
+                if let Some(r) = anchor {
+                    let y = if before.is_some() { r.top() - 1.0 } else { r.bottom() + 1.0 };
+                    ui.painter().line_segment([pos2(r.left(), y), pos2(r.right(), y)], Stroke::new(2.0, t.accent));
+                }
+            }
+        },
+    );
+    // Apply the drop now every header rect is known; the next frame draws the new order.
+    if let Some((from, p)) = released {
+        let before = group_drop_before(&headers, from, p.y);
+        let from_name = groups.get(from).map(|g| g.name.clone());
+        let before_name = before.and_then(|i| groups.get(i).map(|g| g.name.clone()));
+        if let Some(from_name) = from_name {
+            st.move_group(panel, &group_names, &from_name, before_name.as_deref());
         }
-    });
+    }
+    let recorded: Vec<(String, Rect)> = headers.iter().map(|(_, r, n)| (n.clone(), *r)).collect();
+    ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(("preset-group-headers", panel)), recorded));
     if let Some((key, pos)) = dropped {
-        if let Some((_, g)) = headers.iter().find(|(r, _)| r.contains(pos)) {
+        if let Some((_, _, g)) = headers.iter().find(|(_, r, _)| r.contains(pos)) {
             ev.push(Ev::Move(key, g.clone()));
         } else if canvas.contains(pos) {
             ev.push(Ev::Drop(key, pos));
         }
     }
     // Footer: thumbnail size | New Group, New, Delete.
+    let footer_top = ui.min_rect().bottom();
     ui.add_space(4.0);
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 2.0;
@@ -465,7 +587,31 @@ pub(crate) fn browser(
             }
         });
     });
+    let measured = ui.min_rect().bottom() - footer_top;
+    if measured.is_finite() && (measured - footer_h).abs() > 0.5 {
+        ui.data_mut(|d| d.insert_temp(footer_id, measured));
+        ui.ctx().request_repaint();
+    }
     ev
+}
+
+/// The folder (by library index) a header dragged to `y` lands before (`None` = last). `headers`
+/// is in display order; mirrors `dock::drop_before`.
+fn group_drop_before(headers: &[(usize, Rect, String)], from: usize, y: f32) -> Option<usize> {
+    let hit = headers.iter().find(|(_, r, _)| y < r.center().y).map(|(i, _, _)| *i);
+    match hit {
+        Some(i) if i == from => Some(from),
+        Some(i) => {
+            let after_self = headers.iter().position(|(x, _, _)| *x == from).zip(headers.iter().position(|(x, _, _)| *x == i)).is_some_and(|(a, b)| b == a + 1);
+            if after_self { Some(from) } else { Some(i) }
+        }
+        None => None,
+    }
+}
+
+/// Folder header rects drawn last frame (name → rect), in display order; for tests and automation.
+pub fn last_group_headers(ctx: &egui::Context, panel: &str) -> Vec<(String, Rect)> {
+    ctx.data(|d| d.get_temp(egui::Id::new(("preset-group-headers", panel)))).unwrap_or_default()
 }
 
 /// Shared handling of the generic events through `<prefix>.edit` / `.new`.
@@ -535,10 +681,11 @@ pub fn gradients_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let canvas = canvas_drop_rect(app);
     let mut st = std::mem::take(&mut app.ui.presets_ui);
     let max_h = (ui.available_height() - 40.0).clamp(90.0, 260.0);
-    let events = browser(ui, &mut st, "gradients", &groups, Place { canvas, max_h, new_tip: tl!("Create new gradient") }, &mut |ui, r, gi, ii| {
-        let stops = groups_src[gi].items[ii].resolve(fg, bg);
-        paint_gradient(ui, r, &stops);
-    });
+    let events =
+        browser(ui, &mut st, "gradients", &groups, Place { canvas, max_h, new_tip: tl!("Create new gradient"), flush: false }, &mut |ui, r, gi, ii| {
+            let stops = groups_src[gi].items[ii].resolve(fg, bg);
+            paint_gradient(ui, r, &stops);
+        });
     app.ui.presets_ui = st;
     for e in events {
         match &e {
@@ -583,11 +730,17 @@ pub fn patterns_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let mut st = std::mem::take(&mut app.ui.presets_ui);
     let max_h = (ui.available_height() - 40.0).clamp(90.0, 280.0);
     let ctx = ui.ctx().clone();
-    let events =
-        browser(ui, &mut st, "patterns", &groups, Place { canvas, max_h, new_tip: tl!("Create new pattern from the selection") }, &mut |ui, r, gi, ii| {
+    let events = browser(
+        ui,
+        &mut st,
+        "patterns",
+        &groups,
+        Place { canvas, max_h, new_tip: tl!("Create new pattern from the selection"), flush: false },
+        &mut |ui, r, gi, ii| {
             let tex = pattern_texture(&ctx, &pats[gi][ii]);
             ui.painter().image(tex.id(), r, Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)), Color32::WHITE);
-        });
+        },
+    );
     app.ui.presets_ui = st;
     for e in events {
         match &e {
@@ -688,7 +841,7 @@ pub fn styles_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         &mut st,
         "styles",
         &groups,
-        Place { canvas, max_h: 300.0, new_tip: tl!("Create new style from the selected layer") },
+        Place { canvas, max_h: 300.0, new_tip: tl!("Create new style from the selected layer"), flush: false },
         &mut |ui, r, gi, ii| {
             ui.painter().rect_filled(r, 2.0, t.field);
             ui.painter().image(texes[gi][ii].id(), r, Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)), Color32::WHITE);
@@ -732,7 +885,7 @@ pub fn shapes_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         &mut st,
         "shapes",
         &groups,
-        Place { canvas, max_h: 300.0, new_tip: tl!("Create new shape from the current path") },
+        Place { canvas, max_h: 300.0, new_tip: tl!("Create new shape from the current path"), flush: false },
         &mut |ui, r, gi, ii| {
             let tex = shape_texture(&ctx, &src[gi].items[ii]);
             ui.painter().image(tex.id(), r.shrink(2.0), Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)), t.text);
@@ -834,7 +987,8 @@ pub fn finish_custom_shape(app: &mut PhotocraftApp, rect: [f64; 4], keep: bool, 
     let name = app.ui.presets_ui.shape().to_string();
     let r = run(app, "shape.presets.place", json!({"preset": name, "rect": rect, "keepAspect": keep, "fill": fill, "stroke": stroke}));
     if r.is_none() && !photocraft_engine::presets::shapes::all_groups(&app.session).iter().any(|g| g.items.iter().any(|s| s.name == name)) {
-        app.ui.status = format!("No custom shape \"{name}\": pick one in the options bar or Window › Shapes");
+        let template = "No custom shape \"{name}\": pick one in the options bar or Window › Shapes";
+        app.ui.status = crate::i18n::fmt(tl!(template), &[("name", &name)]);
     }
 }
 
@@ -850,7 +1004,7 @@ fn tool_id(t: Tool) -> String {
 pub fn select_tool_preset(app: &mut PhotocraftApp, name: &str) {
     let Some(r) = run(app, "tool.presets.select", json!({"preset": name})) else { return };
     if let Some(tool) = r["tool"].as_str().and_then(Tool::from_name) {
-        app.ui.tool = tool;
+        crate::tool_memory::select(app, tool);
         // Each tool keeps its own brush (#218), so switch it in before the preset's brush lands
         // on it, and re-apply the brush the command just set for the old tool.
         crate::paint_mouse::sync_tool_brush(app);
@@ -1006,7 +1160,7 @@ pub fn clone_source_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let (mut ox, mut oy) = (off[0] as f32, off[1] as f32);
     let (mut w, mut h) = (slot.scale[0] as f32, slot.scale[1] as f32);
     let mut rot = slot.rotation as f32;
-    egui::Grid::new("clone-src-grid").num_columns(4).spacing(vec2(6.0, 4.0)).show(ui, |ui| {
+    egui::Grid::new("clone-src-grid").num_columns(5).spacing(vec2(6.0, 4.0)).show(ui, |ui| {
         lbl(ui, "X:");
         if crate::widgets::value_field(ui, &mut ox, -30000.0..=30000.0, "px", 72.0).changed() && slot.source.is_some() {
             action = Some(json!({"offset": [ox, oy]}));
@@ -1014,6 +1168,11 @@ pub fn clone_source_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         lbl(ui, "W:");
         if crate::widgets::value_field(ui, &mut w, -1000.0..=1000.0, "%", 64.0).changed() {
             action = Some(json!({"width": w}));
+        }
+        // The W/H chain: with it on, a new W or H scales the other by the same factor.
+        let icon = if slot.linked { "link" } else { "unlink" };
+        if crate::icons::button(ui, icon, 22.0, slot.linked, tl!("Maintain aspect ratio")).clicked() {
+            action = Some(json!({"linked": !slot.linked}));
         }
         ui.end_row();
         lbl(ui, "Y:");
@@ -1161,6 +1320,50 @@ mod tests {
         let l = d.doc.layer(d.active_layer.unwrap()).unwrap();
         assert_eq!(l.name, "Star");
         assert!(matches!(l.content, photocraft_doc::LayerContent::Shape(_)));
+    }
+
+    /// #3658: a group/folder drag reorders by name, stores only a real reorder, and falls back to
+    /// the library's order when the saved order matches it or names a group that's gone.
+    #[test]
+    fn moving_a_folder_reorders_like_the_dock_tabs() {
+        let names: Vec<String> = ["Grays", "Pastel", "Pure", "Dark"].iter().map(|s| s.to_string()).collect();
+        let mut st = PresetUi::default();
+        assert_eq!(st.display_order("swatches", &names), vec![0, 1, 2, 3]);
+        st.move_group("swatches", &names, "Pastel", None);
+        assert_eq!(st.group_order.get("swatches").unwrap(), &["Grays", "Pure", "Dark", "Pastel"]);
+        st.move_group("swatches", &names, "Pastel", Some("Grays"));
+        assert_eq!(st.group_order.get("swatches").unwrap(), &["Pastel", "Grays", "Pure", "Dark"]);
+        assert_eq!(st.display_order("swatches", &names), vec![1, 0, 2, 3]);
+        // Back to the library's own order: no entry, as the dock stores its default tab order.
+        st.move_group("swatches", &names, "Pastel", Some("Pure"));
+        assert!(!st.group_order.contains_key("swatches"), "a no-op order is not stored");
+        // Out-of-range names, moves onto themselves and unknown `before` names change nothing bad.
+        for (from, before) in [("Nope", None), ("Grays", Some("Grays"))] {
+            let mut m = PresetUi::default();
+            m.move_group("swatches", &names, from, before);
+            assert!(m.group_order.is_empty(), "{from} {before:?}");
+            assert_eq!(m.display_order("swatches", &names), vec![0, 1, 2, 3]);
+        }
+        // A missing group in a saved order follows the rest in library order.
+        let mut m = PresetUi::default();
+        m.group_order.insert("swatches".into(), vec!["Dark".into(), "Grays".into()]);
+        assert_eq!(m.display_order("swatches", &names), vec![3, 0, 1, 2]);
+    }
+
+    /// #3658: the folder order persists with the UI state and reads leniently (an old state has no
+    /// field, and garbage in one never fails the whole state).
+    #[test]
+    fn folder_order_persists_and_reads_leniently() {
+        let old: PresetUi = serde_json::from_value(json!({"sizes": {"swatches": 22.0}})).unwrap();
+        assert!(old.group_order.is_empty(), "an older state without the field still loads");
+        let mut st = PresetUi::default();
+        st.group_order.insert("swatches".into(), vec!["Dark".into(), "Grays".into()]);
+        let back: PresetUi = serde_json::from_value(serde_json::to_value(&st).unwrap()).unwrap();
+        assert_eq!(back.group_order.get("swatches").unwrap(), &["Dark", "Grays"]);
+        for bad in [json!("x"), json!(7), json!({"swatches": "paths"}), json!({"swatches": [1, null, {"a": 1}]})] {
+            let back: PresetUi = serde_json::from_value(json!({"groupOrder": bad})).unwrap();
+            assert!(back.group_order.get("swatches").is_none_or(Vec::is_empty), "{bad}");
+        }
     }
 
     /// Regression: preset drops mapped the pointer through the raw widget rect, ignoring the

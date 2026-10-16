@@ -170,6 +170,7 @@ pub fn gen_doc(mode: ColorMode, depth: SampleType, f: Features) -> Document {
                 ],
                 space: tone_space(mode),
                 black: Vec::new(),
+                pencil: false,
             },
             Adjustment::Unsupported { psd_key: "selc".into(), raw: vec![0, 1, 0, 0] },
         ];
@@ -363,12 +364,17 @@ pub fn strict_block_errors(bytes: &[u8]) -> Vec<String> {
     if let Some(li) = &file.layer_info {
         let body = li.unpadded_len(v).unwrap_or(1);
         let pad = li.padding.as_ref().map_or(body % 2, |p| p.len() as u64);
-        if (body + pad) % 4 != 0 {
+        // In a global `Lr16`/`Lr32` block the padding to 4 follows the block, outside its length.
+        let after = match &file.layer_info_placement {
+            photocraft_psd::LayerInfoPlacement::GlobalBlock { padding, .. } => padding.as_ref().map_or((4 - (body + pad) % 4) % 4, |p| p.len() as u64),
+            photocraft_psd::LayerInfoPlacement::Section => 0,
+        };
+        if (body + pad + after) % 4 != 0 {
             errs.push(format!("layer info: {body} bytes + {pad} padding is not a multiple of 4"));
         }
     }
     for b in &file.global_blocks {
-        let pad = b.padding.as_ref().map_or(b.data.len() % 2, Vec::len);
+        let pad = b.padding.as_ref().map_or((4 - b.data.len() % 4) % 4, Vec::len);
         if (b.data.len() + pad) % 4 != 0 {
             errs.push(format!("global {}: {} data bytes + {pad} padding is not a multiple of 4", b.key_str(), b.data.len()));
         }

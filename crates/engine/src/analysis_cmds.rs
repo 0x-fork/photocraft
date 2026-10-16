@@ -171,29 +171,59 @@ fn set_quiet(s: &mut Session, f: impl FnOnce(&mut Document)) -> Result<()> {
     Ok(())
 }
 
-/// Run several commands as one history step labelled `label`.
+/// Run several commands as one history step labelled `label`. On failure the document goes back
+/// as it was and the journal forgets the commands `f` ran, so an action being recorded does not
+/// replay an edit that was taken back.
 pub(crate) fn compound<R>(s: &mut Session, label: &str, f: impl FnOnce(&mut Session) -> Result<R>) -> Result<R> {
     let st = s.active().ok_or(EngineError::NoDocument)?;
     let (before, history, prior) = (st.doc.clone(), st.history.clone(), st.layer_target());
+    // An inner command may select a layer that disappears when the compound rolls back.
+    // Selection, channel targeting and coalescing must roll back with the document (#4975).
+    let anchor = st.layer_anchor;
+    let channel_view = st.channel_view.clone();
+    let coalesce = st.coalesce.clone();
+    let was_clean = !st.is_dirty();
+    let journal = s.journal.len();
+    // Color Sampler points are view state a step may move (crop, rotation): roll them back too, so
+    // a failed second step can't leave them pinned to pixels the restored document no longer has.
+    let samplers = st.color_samplers.clone();
     let r = f(s);
+    if r.is_err() {
+        s.journal.truncate(journal);
+    }
     let st = s.active_mut().ok_or(EngineError::NoDocument)?;
     st.history = history;
-    match r {
+    let result = match r {
         Ok(v) => {
             // As in `Session::edit`: undo targets what was selected just before the step (#1356).
             st.history.set_current_layers(prior);
             st.history.record(label, before, st.layer_target());
-            st.history.trim(&st.doc);
+            st.trim_history();
             st.coalesce = None;
             Ok(v)
         }
         Err(e) => {
             st.doc = before;
+            st.active_layer = prior.active;
+            st.selected_layers = prior.selected;
+            st.layer_anchor = anchor;
+            st.channel_view = channel_view;
+            st.coalesce = coalesce;
+            st.color_samplers = samplers;
             st.revision += 1;
+            // A failed compound does not make an otherwise untouched document dirty.
+            if was_clean {
+                st.saved_revision = st.revision;
+            }
             st.last_damage = None;
             Err(e)
         }
+    };
+    if result.is_err() {
+        // The app-wide tool colours/mask mode follow the restored channel target.
+        s.sync_tools_mask_target();
     }
+    result
 }
 
 /// Current time as ISO 8601 UTC (`2026-10-01T12:34:56Z`); empty on the web (no clock).
@@ -660,7 +690,7 @@ fn straighten(s: &mut Session, p: &Value) -> Result<Value> {
         return Ok(json!({"angle": 0.0}));
     }
     let st = s.active().ok_or(EngineError::NoDocument)?;
-    let active_bg = st.active_layer.and_then(|id| d.layer(id)).is_some_and(|l| l.name == "Background" && l.locks.position);
+    let active_bg = st.active_layer.and_then(|id| d.layer(id)).is_some_and(|l| d.is_background(l.id));
     let crop = p.get("crop").and_then(Value::as_bool).unwrap_or(active_bg || st.active_layer.is_none());
     let (w0, h0) = (f64::from(d.size.width), f64::from(d.size.height));
     compound(s, "Straighten", |s| {
@@ -832,6 +862,23 @@ fn count_delete_group(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(count_json(doc(s)?.as_ref()))
 }
 
+/// A size parameter (`markerSize`, `labelSize`) clamped to `lo..=hi`: `None` when absent or null.
+/// Whole numbers sent as JSON floats (`8.0`, as UIs and recorded actions do) count; fractions,
+/// negatives and non-numbers are bad params rather than silently ignored. Clamping happens in
+/// `u64`/`f64`, so a huge value can't wrap through `as u32`.
+fn whole_size(cmd: &str, p: &Value, key: &str, lo: u32, hi: u32) -> Result<Option<u32>> {
+    let v = match p.get(key) {
+        None | Some(Value::Null) => return Ok(None),
+        Some(v) => v,
+    };
+    let n = match (v.as_u64(), v.as_f64()) {
+        (Some(n), _) => n.clamp(u64::from(lo), u64::from(hi)),
+        (None, Some(f)) if f.is_finite() && f >= 0.0 && f.fract() == 0.0 => f.clamp(f64::from(lo), f64::from(hi)) as u64,
+        _ => return Err(bad(cmd, format!("`{key}` = {v} must be a whole number ({lo}..={hi})"))),
+    };
+    Ok(Some(u32::try_from(n).unwrap_or(hi)))
+}
+
 fn count_set_group(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "count.setGroup";
     let d = doc(s)?;
@@ -843,11 +890,11 @@ fn count_set_group(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(c) = color_of(p, "color") {
         grp.color = c;
     }
-    if let Some(v) = p.get("markerSize").and_then(Value::as_u64) {
-        grp.marker_size = (v as u32).clamp(1, 10);
+    if let Some(v) = whole_size(CMD, p, "markerSize", 1, 10)? {
+        grp.marker_size = v;
     }
-    if let Some(v) = p.get("labelSize").and_then(Value::as_u64) {
-        grp.label_size = (v as u32).clamp(8, 72);
+    if let Some(v) = whole_size(CMD, p, "labelSize", 8, 72)? {
+        grp.label_size = v;
     }
     if let Some(v) = p.get("visible").and_then(Value::as_bool) {
         grp.visible = v;

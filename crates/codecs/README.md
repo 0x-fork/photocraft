@@ -4,7 +4,7 @@ Codecs for flat raster image formats, written in pure Rust. The crate is standal
 workspace crate and defines its own `Image` type. It also builds for `wasm32-unknown-unknown` and
 does no I/O: decoders take `&[u8]` and encoders return `Vec<u8>`.
 
-It follows the "avoid GIMP's hole" rules in `plan/architecture.md` §1.1:
+It follows the "Avoiding GIMP's hole" rules in `docs/architecture.md` §1.1:
 
 * **Symmetric.** Every format we write, we can also read. The only exceptions are listed in
   `ASYMMETRIC_EXCEPTIONS`, each with a reason. The test suite checks this.
@@ -40,10 +40,14 @@ let out = encode(&img, Format::Tiff, &EncodeOptions::default())?;
 | BMP | yes | yes | U8 | RGB, RGBA | yes | no | no | no | no | no | no | `image` |
 | TGA | yes | yes | U8 | Gray, GrayA, RGB, RGBA | yes | no | no | no | no | no | no | `image` |
 | ICO | yes | yes | U8 | RGBA (at most 256×256) | yes | no | no | no | no | no | no | `image` |
+| DDS | yes | **no** | U8 | Gray, GrayA, RGB, RGBA | yes | no | no | no | no | no | n/a | built in |
 | Netpbm (PBM/PGM/PPM/PAM/PFM) | yes | yes | U8, U16, F32 (float: PFM gray/RGB only) | all six (PAM `CMYK`/`CMYK_ALPHA`) | yes (PAM) | no | no | no | no | no | no | built in |
 | QOI | yes | yes | U8 | RGB, RGBA | yes | no | no | no | no | no | no | `image` |
 | OpenEXR | yes | yes | F16, F32 | Y, YA, RGB, RGBA | yes | no | no | no | no | no | no | `exr` |
 | Radiance HDR | yes | yes | F32 | RGB | no | no | no | no | no | no | yes (RGBE) | `image` |
+| FITS | yes | yes | U8, U16, F32 | Gray, RGB | no | no | no | no | no | yes (header cards) | no | built in |
+| DPX | yes | yes | U8, U16 (10/12-bit code values read and written exactly through U16) | Gray, RGB, RGBA | yes | no | no | no | no | DPX header fields only (creator, project, copyright, creation time, transfer, colorimetric, frame position, frame rate, time code) | no | built in |
+| Cineon | yes | **no** | U16 (10-bit code values) | Gray, RGB | no | no | no | no | no | no | n/a | built in |
 | AVIF | **no** | only with feature `avif` | U8 | RGB, RGBA | yes | no | no | no | no | no | yes | `image` + `ravif` |
 | HEIF/HEIC | with feature `heif` | **no** | U8, U16 (10/12-bit decodes to U16) | RGB, RGBA | yes (auxiliary alpha) | yes (`colr` prof) | yes | yes | no | no | n/a | `heic-rs` |
 
@@ -60,7 +64,45 @@ the encode plan, and `fidelity_warnings` reports the conversion when it loses in
 `Image::convert` applies the same ICC rule: it keeps the profile only when the colour model stays
 the same.
 
+Palette BMP and PNG pixels decode as RGB(A) in `Image`; `bmp_palette` and `png_palette` expose the
+embedded table (and a PNG's transparent entry) so `photocraft-io` can open them in Indexed Color mode.
+
 ## Documented asymmetries and limitations
+
+* **DDS.** The top mip level of a 2D texture: uncompressed pixels described by channel masks
+  (8, 16, 24 or 32 bits, RGB or luminance, with or without alpha) or BC1/BC2/BC3 (DXT1/DXT3/DXT5),
+  with the legacy header or the DX10 one. Everything opens as U8; the other mip levels are
+  ignored. Cubemaps, texture arrays, volume textures, premultiplied DXT2/DXT4 and other formats
+  (BC4–BC7, float) are refused with `CodecError::Unsupported`. Writing is not provided.
+
+* **FITS.** The image in the primary HDU, or the first `IMAGE` extension, is read; `NAXIS3 = 3`
+  opens as RGB and any other plane count opens the first plane with `DecodeWarning::MorePages`.
+  Rows follow `ROWORDER` (bottom-up by default, as Siril and DS9 do). Physical values that fit
+  stay exact as U8/U16 (a camera's `BITPIX = 16`, `BZERO = 32768`); the rest become F32, taken as
+  normalised when at most 2 and scaled by 65535 (or the maximum) otherwise. Header cards are
+  kept as text (`HIERARCH` for long names). Tile-compressed (fpack) files are refused with
+  `CodecError::Unsupported`; Bayer mosaics open undebayered.
+
+* **DPX.** SMPTE 268M frames in either byte order (`SDPX`, `XPDS`): the first image element,
+  descriptor 6 (luma), 50 (RGB) or 51 (RGBA), unsigned and unencoded, at 8, 10, 12 or 16 bits.
+  10-bit data may be packed (0) or filled three to a word (1, method A; 2, method B), 12-bit data
+  packed (0) or one to a 16-bit word (1, method A). 10- and 12-bit code values open as U16
+  `round(c × 65535 / (2^b − 1))`, so a frame written back at its depth keeps them exactly. No
+  colour transform is applied: `DecodeWarning::DpxEncoding` names the transfer characteristic and
+  colorimetric specification, so a log frame is reported as log. More elements than the first
+  give `DecodeWarning::MoreElements`; the image orientation is applied on import. Writing is
+  big-endian, one unencoded element, at `EncodeOptions::dpx_bits` (8/10/12/16; by default 8 for
+  U8 and 16 otherwise), packing 1 for 10 and 12 bits; gray with alpha is written as luma.
+  Other descriptors, signed or run-length-encoded data and other bit depths return
+  `CodecError::Unsupported` naming the field.
+
+* **Cineon (read-only).** Kodak's 10-bit logarithmic film-scan format (the one DPX grew from),
+  read from the same Kodak header family: the generic 1024-byte header, big-endian, one (Gray)
+  or three (RGB) channels, three 10-bit samples packed into each 32-bit word, lines on a word
+  boundary. The 10-bit code values open as U16 `round(c × 65535 / 1023)`; the file's black/white
+  reference points are a log-conversion choice and are not applied. A depth other than 10 bits or
+  a channel count other than 1/3 returns `CodecError::Unsupported`; truncation errors rather than
+  panicking. There is no Cineon writer (`ASYMMETRIC_EXCEPTIONS`); save as DPX, TIFF or EXR.
 
 * **Camera raw files** (DNG, CR2, NEF, ARW… which are TIFF-structured) are recognised and refused
   with `CodecError::Unsupported`: they are sensor data, not flat images. `photocraft-raw` decodes
@@ -92,7 +134,10 @@ the same.
   `DecodeWarning::MoreFrames` / `MorePages` in `Image::warnings`, with the total when the file
   states it (frames and TIFF directories are counted without decoding them; reduced-resolution
   TIFF directories and transparency masks are not pages). Any TIFF page can still be opened
-  with `decode_tiff_page` (and `photocraft_io::import_tiff_page`).
+  with `decode_tiff_page` (and `photocraft_io::import_tiff_page`). Every frame of a GIF comes
+  from `decode_gif_frames`: each frame composited onto the logical screen with the disposal
+  methods applied, as RGBA8 with its delay in milliseconds, within `Limits` and
+  `MAX_GIF_FRAMES`. The video-layer commands use it (`photocraft_io::import_gif_frames`).
 * **EXIF in TIFF** is stored as a sub-IFD rather than a blob, so it is not preserved yet.
   `caps.exif = false` for TIFF, and a warning is raised.
 * **Orientation** (EXIF tag 274 in JPEG, PNG `eXIf` and WebP; the decoded page's tag in TIFF and

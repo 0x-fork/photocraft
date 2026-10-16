@@ -5,23 +5,29 @@ use egui::accesskit::Role;
 use egui::{Key, Modifiers, Rect, vec2};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
+use photocraft_engine::prefs::FontPreview;
 
 struct State {
     current: String,
     families: Vec<String>,
     popup: egui::Id,
+    preview: FontPreview,
 }
 
 fn harness() -> Harness<'static, State> {
+    harness_with(FontPreview::Medium)
+}
+
+fn harness_with(preview: FontPreview) -> Harness<'static, State> {
     // Enough families that the unfiltered menu hits its maximum height and scrolls.
     let mut families: Vec<String> = (0..60).map(|i| format!("Family {i:02}")).collect();
     families.push("Zeta Sans".into());
-    let state = State { current: "Family 00".into(), families, popup: egui::Id::NULL };
+    let state = State { current: "Family 00".into(), families, popup: egui::Id::NULL, preview };
     let mut h = Harness::builder().with_size(vec2(600.0, 900.0)).build_ui_state(
         |ui, s: &mut State| {
             s.popup = ui.make_persistent_id(egui::IdSalt::new("type-font")).with("popup");
             let fams = s.families.clone();
-            font_picker_in(ui, &mut s.current, 170.0, &fams);
+            font_picker_in(ui, &mut s.current, 170.0, &fams, s.preview);
         },
         state,
     );
@@ -359,6 +365,7 @@ fn hovering_a_font_previews_only_the_selected_characters() {
         anchor: 3,
         session: "font-preview-test".into(),
         created: false,
+        mask: false,
         dragging: false,
         resize: None,
         preedit: None,
@@ -375,4 +382,151 @@ fn hovering_a_font_previews_only_the_selected_characters() {
 
     assert_eq!(fonts(&preview), ["JetBrains Mono", "JetBrains Mono", "Inter", "Inter", "Inter", "Inter"]);
     assert_eq!(fonts(&app.session.active().unwrap().doc), ["JetBrains Mono", "JetBrains Mono", "Inter", "Inter", "Inter", "Inter"]);
+}
+
+/// Preferences ▸ Type ▸ Font Preview Size: Extra Large grows the sample rows, Off drops the
+/// samples (rows shrink to the plain height).
+#[test]
+fn the_preview_size_preference_resizes_or_removes_the_samples() {
+    let mut h = harness_with(FontPreview::Medium);
+    open(&mut h);
+    let medium = h.get_by_label("Family 00").rect().height();
+    assert!((medium - 28.0).abs() < 0.5, "medium rows hold the 24 px sample: {medium}");
+    let mut h = harness_with(FontPreview::ExtraLarge);
+    open(&mut h);
+    let extra = h.get_by_label("Family 00").rect().height();
+    assert!(extra > medium, "extra large rows are taller: {extra} vs {medium}");
+    let mut h = harness_with(FontPreview::Off);
+    open(&mut h);
+    let off = h.get_by_label("Family 00").rect().height();
+    assert!((off - 28.0).abs() < 0.5, "off keeps the plain row height: {off}");
+}
+
+/// Preferences ▸ Type ▸ Show Font Names in English off: the menu lists a family by its localized
+/// name, finds it by either name, and picking it still applies the English family.
+#[test]
+fn localized_font_names_label_the_menu_but_pick_the_family() {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    let state = State {
+        current: "Arial".into(),
+        families: vec!["Arial".into(), "MS Gothic".into(), "Zeta Sans".into()],
+        popup: egui::Id::NULL,
+        preview: FontPreview::Medium,
+    };
+    let mut h = Harness::builder().with_size(vec2(600.0, 900.0)).build_ui_state(
+        |ui, s: &mut State| {
+            s.popup = ui.make_persistent_id(egui::IdSalt::new("type-font")).with("popup");
+            let fams = s.families.clone();
+            font_picker_in(ui, &mut s.current, 170.0, &fams, s.preview);
+        },
+        state,
+    );
+    // Show Font Names in English on: no localized labels.
+    crate::type_tool::sync_font_names(&h.ctx, true);
+    let labels: HashMap<String, String> = [("MS Gothic".to_string(), "ＭＳ ゴシック".to_string())].into();
+    h.ctx.data_mut(|d| d.insert_temp(super::font_labels_id(), Arc::new(labels.clone())));
+    h.run();
+    open(&mut h);
+    assert!(h.query_by_label("ＭＳ ゴシック").is_some(), "the localized name labels the family");
+    assert!(h.query_by_label("MS Gothic").is_none());
+    assert!(h.query_by_label("Arial").is_some(), "fonts without a localized name keep theirs");
+    h.get_by_role(Role::TextInput).type_text("gothic");
+    h.run();
+    assert!(h.query_by_label("ＭＳ ゴシック").is_some(), "the English name still finds it");
+    assert!(h.query_by_label("Arial").is_none());
+    h.get_by_label("ＭＳ ゴシック").click();
+    h.run();
+    assert_eq!(h.state().current, "MS Gothic", "the document keeps the English family");
+    // Turning the preference back on drops the labels.
+    crate::type_tool::sync_font_names(&h.ctx, true);
+    h.run();
+    open(&mut h);
+    assert!(h.query_by_label("MS Gothic").is_some());
+    assert!(h.query_by_label("ＭＳ ゴシック").is_none());
+}
+
+#[test]
+fn font_menu_rows_search_both_names_and_sort_by_label() {
+    use std::collections::HashMap;
+    let families: Vec<String> = ["Arial", "Microsoft YaHei", "MS Gothic"].iter().map(|s| s.to_string()).collect();
+    let labels: HashMap<String, String> =
+        [("MS Gothic", "ＭＳ ゴシック"), ("Microsoft YaHei", "微软雅黑")].iter().map(|(a, b)| (a.to_string(), b.to_string())).collect();
+    let rows = |labels: Option<&HashMap<String, String>>, q: &str| -> Vec<(String, String)> {
+        super::font_menu_rows(&families, labels, q).into_iter().map(|(f, l)| (f.clone(), l.to_string())).collect()
+    };
+    let english = rows(None, "");
+    assert!(english.iter().all(|(f, l)| f == l));
+    let local = rows(Some(&labels), "");
+    assert_eq!(local.iter().map(|(_, l)| l.as_str()).collect::<Vec<_>>(), ["Arial", "微软雅黑", "ＭＳ ゴシック"]);
+    assert_eq!(rows(Some(&labels), "yahei"), [("Microsoft YaHei".to_string(), "微软雅黑".to_string())]);
+    assert_eq!(rows(Some(&labels), "雅黑"), [("Microsoft YaHei".to_string(), "微软雅黑".to_string())]);
+    assert!(rows(Some(&labels), "nothing").is_empty());
+}
+
+#[test]
+fn wheel_over_the_closed_font_button_steps_through_the_families() {
+    let mut h = harness();
+    let button = h.query_all_by_role(Role::ComboBox).next().unwrap().rect().center();
+    h.hover_at(button);
+    h.run();
+    let wheel = |h: &mut Harness<'static, State>, y: f32| {
+        h.event(egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: vec2(0.0, y), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE });
+        h.run();
+    };
+    wheel(&mut h, -2.0);
+    assert_eq!(h.state().current, "Family 02", "two notches down pick the second next family");
+    assert!(popup_rect(&h).is_none(), "the list stays closed");
+    wheel(&mut h, 1.0);
+    assert_eq!(h.state().current, "Family 01");
+    wheel(&mut h, 5.0);
+    assert_eq!(h.state().current, "Family 00", "stops at the first family");
+}
+
+#[test]
+fn wheel_family_index_clamps_to_the_ends() {
+    assert_eq!(super::wheel_family_index(0, 3, -5.0), Some(2));
+    assert_eq!(super::wheel_family_index(1, 3, 1.0), Some(0));
+    assert_eq!(super::wheel_family_index(1, 3, 0.0), None);
+    assert_eq!(super::wheel_family_index(0, 0, -1.0), None);
+}
+
+/// #5152: in the full app the Properties panel's Character section draws a second font picker
+/// after the options bar; hovering a font in the options bar still previews it on the canvas.
+#[test]
+fn options_bar_hover_previews_with_the_character_picker_also_shown() {
+    use crate::{PhotocraftApp, Services};
+    use photocraft_doc::LayerContent;
+    use serde_json::json;
+
+    let theme = crate::theme::ThemeKind::Pro;
+    let mut h = Harness::builder().with_size(vec2(1600.0, 1000.0)).with_max_steps(64).build_eframe(move |cc| {
+        PhotocraftApp::setup_context(&cc.egui_ctx, theme);
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Services::default());
+        app.ui.theme = theme;
+        app.run("file.new", json!({"width": 200, "height": 100})).unwrap();
+        app.run("type.create", json!({"text": "Sample", "font": "Inter", "size": 18})).unwrap();
+        app.ui.tool = crate::state::Tool::Type;
+        app.sync_views();
+        app
+    });
+    h.run_steps(8);
+    let layer = h.state().session.active().unwrap().active_layer.unwrap();
+    let font = |h: &mut Harness<'static, PhotocraftApp>| {
+        let (shown, _) = crate::canvas::display_doc(h.state_mut(), 0);
+        let LayerContent::Text(t) = &shown.layer(layer).unwrap().content else { panic!("type layer") };
+        t.char_runs()[0].style.font_family.clone()
+    };
+    let pickers: Vec<_> = h.query_all_by_role(Role::ComboBox).filter(|n| n.value().as_deref() == Some("Inter")).collect();
+    assert_eq!(pickers.len(), 2, "options bar and Character section both show the font picker");
+    pickers[0].click();
+    h.run();
+    h.query_all_by_role(Role::TextInput).find(|n| n.is_focused()).expect("search field focused").type_text("JetBrains Mono");
+    h.run();
+    h.get_by_label("JetBrains Mono").hover();
+    h.run();
+    assert_eq!(font(&mut h), "JetBrains Mono");
+    h.query_all_by_role(Role::TextInput).find(|n| n.is_focused()).expect("search field focused").hover();
+    h.run();
+    assert_eq!(font(&mut h), "Inter", "leaving the row restores the committed font");
 }

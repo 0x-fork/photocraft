@@ -415,6 +415,12 @@ fn marquee_steps_are_named_after_their_tool() {
     assert_eq!(last(&s).as_deref(), Some("Elliptical Marquee"));
     s.execute("select.rect", json!({"x": 0, "y": 0, "width": 20, "height": 10})).unwrap();
     assert_eq!(last(&s).as_deref(), Some("Rectangular Marquee"));
+    // #3031: the Single Row / Single Column Marquee name theirs; an unknown `line` is an error.
+    s.execute("select.rect", json!({"x": 0, "y": 3, "width": 64, "height": 1, "line": "row"})).unwrap();
+    assert_eq!(last(&s).as_deref(), Some("Single Row Marquee"));
+    s.execute("select.rect", json!({"x": 3, "y": 0, "width": 1, "height": 48, "line": "column"})).unwrap();
+    assert_eq!(last(&s).as_deref(), Some("Single Column Marquee"));
+    assert!(s.execute("select.rect", json!({"x": 0, "y": 0, "width": 1, "height": 1, "line": "diagonal"})).is_err());
 }
 
 #[test]
@@ -547,7 +553,7 @@ fn clipping_masks_apply_to_every_selected_layer() {
     // A `layer` param still acts on that layer alone.
     s.execute("layer.releaseClippingMask", json!({"layer": ids[2]})).unwrap();
     assert_eq!(clipped(&s), [false, true, false]);
-    assert!(s.execute("layer.createClippingMask", json!({"layer": 999_999})).is_err());
+    assert!(s.execute("layer.createClippingMask", json!({"layer": u64::MAX})).is_err());
 }
 
 #[test]
@@ -761,6 +767,65 @@ fn command_list_reports_enablement() {
     assert_eq!(find("layer.new.layer")["enabled"], false);
 }
 
+/// The Elliptical and Single Row/Column Marquee are `select.rect` options: a command-list filter
+/// for "ellipse" or "marquee" finds it through its keywords (#5060).
+#[test]
+fn command_list_filter_finds_the_marquees_by_keyword() {
+    let mut s = Session::new();
+    let list = s.execute("command.list", json!({})).unwrap();
+    let rows = list.as_array().unwrap();
+    let found = |needle: &str| -> Vec<String> {
+        rows.iter().filter(|c| crate::commands::list_entry_matches(c, needle)).map(|c| c["id"].as_str().unwrap().to_string()).collect()
+    };
+    for needle in ["ellipse", "Elliptical Marquee", "marquee", "single row", "SELECT.RECT"] {
+        assert!(found(needle).contains(&"select.rect".to_string()), "{needle}: {:?}", found(needle));
+    }
+    let rect = rows.iter().find(|c| c["id"] == "select.rect").unwrap();
+    assert!(rect["keywords"].as_str().is_some_and(|k| k.contains("Elliptical Marquee")), "{rect}");
+    // Commands without keywords don't get an empty field, and the filter still reads id and label.
+    assert!(rows.iter().find(|c| c["id"] == "file.new").unwrap().get("keywords").is_none());
+    assert_eq!(found("gaussian blur"), ["filter.blur.gaussianBlur"]);
+    assert!(found("no command is called this").is_empty());
+}
+
+/// Every keyword entry names a real command, so a renamed id can't leave one behind.
+#[test]
+fn search_keywords_name_real_commands() {
+    for (id, words) in crate::commands::SEARCH_KEYWORDS {
+        assert!(crate::commands::find(id).is_some(), "keywords for unknown command {id}");
+        assert!(!words.trim().is_empty(), "{id}");
+    }
+    assert!(crate::commands::search_keywords("select.rect").is_some());
+    assert!(crate::commands::search_keywords("no.such.command").is_none());
+}
+
+/// With no document open, a document command says so instead of only `enabled: false` (#3664).
+#[test]
+fn command_list_tells_no_document_from_other_preconditions() {
+    let mut s = Session::new();
+    let list = s.execute("command.list", json!({})).unwrap();
+    let find = |list: &Value, id: &str| list.as_array().unwrap().iter().find(|c| c["id"] == id).unwrap().clone();
+    for id in ["paint.stroke", "layer.new.layer", "filter.blur.gaussianBlur"] {
+        let c = find(&list, id);
+        assert_eq!((c["enabled"].clone(), c["needsDocument"].clone()), (json!(false), json!(true)), "{id}: {c}");
+        assert!(c["disabledReason"].as_str().is_some_and(|r| r.starts_with("no document")), "{id}: {c}");
+    }
+    let new = find(&list, "file.new");
+    assert_eq!((new["enabled"].clone(), new["needsDocument"].clone(), new["disabledReason"].clone()), (json!(true), json!(false), Value::Null));
+    // A precondition that isn't the missing document keeps its own reason.
+    let paste = find(&list, "file.newFromClipboard");
+    assert_eq!((paste["enabled"].clone(), paste["needsDocument"].clone()), (json!(false), json!(false)));
+    assert_eq!(paste["disabledReason"], "the clipboard is empty");
+    // With a document, the same commands run; a missing selection is not a missing document.
+    let mut s = session_with_doc();
+    let list = s.execute("command.list", json!({})).unwrap();
+    assert_eq!(find(&list, "paint.stroke")["needsDocument"], false);
+    assert_eq!(find(&list, "paint.stroke")["disabledReason"], Value::Null);
+    let deselect = find(&list, "select.deselect");
+    assert_eq!((deselect["enabled"].clone(), deselect["needsDocument"].clone()), (json!(false), json!(false)));
+    assert_eq!(deselect["disabledReason"], "no selection");
+}
+
 #[test]
 fn translate_moves_pixels_and_respects_locks() {
     let mut s = session_with_doc();
@@ -959,8 +1024,8 @@ fn move_to_copy_rejects_bad_params() {
     for p in [
         json!({"layer": a, "copy": true}),
         json!({"layer": a, "target": "x", "copy": true}),
-        json!({"layer": a, "target": 9_999_999, "copy": true}),
-        json!({"layer": 9_999_999, "target": a, "copy": true}),
+        json!({"layer": a, "target": u64::MAX, "copy": true}),
+        json!({"layer": u64::MAX, "target": a, "copy": true}),
         json!({"layer": a, "target": a, "position": "into", "copy": true}),
     ] {
         assert!(s.execute("layer.moveTo", p.clone()).is_err(), "{p}");
@@ -1090,6 +1155,47 @@ fn coalesced_edits_share_one_history_step() {
     assert!((l - 1.0).abs() < 1e-6, "{l}");
 }
 
+/// #2259: the commands behind the arrow-key nudges take the `coalesce` key, so a run of them is
+/// one step an agent can drive too, and one Undo takes the whole run back.
+#[test]
+fn translate_and_transform_selection_coalesce_into_one_step() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 60, "height": 60})).unwrap();
+    s.execute("layer.new.layer", json!({})).unwrap();
+    s.execute("select.rect", json!({"x": 10, "y": 10, "width": 10, "height": 10})).unwrap();
+    s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+    let steps = |s: &Session| s.active().unwrap().history.past_len();
+    let left = |s: &Session| {
+        let st = s.active().unwrap();
+        st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap().content_bounds().x0
+    };
+    let sel = |s: &Session| s.active().unwrap().doc.selection.as_ref().unwrap().content_bounds().x0;
+
+    let base = steps(&s);
+    for _ in 0..5 {
+        s.execute("layer.translate", json!({"dx": 1, "dy": 0, "coalesce": "nudge:1"})).unwrap();
+    }
+    assert_eq!((steps(&s), left(&s)), (base + 1, 15), "five nudges, one step");
+    s.execute("layer.translate", json!({"dx": 1, "dy": 0, "coalesce": "nudge:2"})).unwrap();
+    s.execute("layer.translate", json!({"dx": 1, "dy": 0})).unwrap();
+    s.execute("layer.translate", json!({"dx": 1, "dy": 0, "coalesce": "nudge:2"})).unwrap();
+    assert_eq!(steps(&s), base + 4, "another key, an uncoalesced move and a repeated key each start a step");
+    for _ in 0..3 {
+        assert!(s.undo());
+    }
+    assert_eq!(left(&s), 15);
+    assert!(s.undo());
+    assert_eq!(left(&s), 10, "Undo takes the run of five back at once");
+
+    let base = steps(&s);
+    for _ in 0..4 {
+        s.execute("select.transformSelection", json!({"dx": 1, "dy": 0, "coalesce": "nudge:3"})).unwrap();
+    }
+    assert_eq!((steps(&s), sel(&s)), (base + 1, 14));
+    assert!(s.undo());
+    assert_eq!(sel(&s), 10);
+}
+
 #[test]
 fn type_edit_rerenders_cache_to_new_text() {
     let mut s = Session::new();
@@ -1160,6 +1266,35 @@ fn layer_locks_are_set_and_enforced() {
     let st = s.active().unwrap();
     let l = st.doc.layer(st.active_layer.unwrap()).unwrap();
     assert!(l.locks.position && !l.locks.pixels);
+}
+
+#[test]
+fn all_lock_blocks_painting_a_mask_but_pixels_lock_does_not() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 20, "height": 20})).unwrap();
+    s.execute("layer.new.layer", json!({})).unwrap();
+    let id = s.active().unwrap().active_layer.unwrap();
+    s.edit("mask", |doc, _| {
+        doc.layer_mut(id).unwrap().mask = Some(photocraft_doc::LayerMask::reveal_all());
+        Ok(())
+    })
+    .unwrap();
+
+    s.execute("layer.setProps", json!({"locks": {"all": true}})).unwrap();
+    let history_steps = s.active().unwrap().history.entries().len();
+    let err = s.execute("paint.stroke", json!({"points": [[5, 5]], "size": 4, "hardness": 1.0, "color": "#000000", "target": "mask"})).unwrap_err();
+    assert_eq!(err.to_string(), "Could not complete your request because the layer \"Layer 1\" is locked");
+    let state = s.active().unwrap();
+    let mask = &state.doc.layer(id).unwrap().mask.as_ref().unwrap().surface;
+    assert!(mask.pixel(5, 5)[0] > 0.99, "rejected stroke leaves the mask reveal-all");
+    assert_eq!(state.history.entries().len(), history_steps, "rejected stroke adds no Brush Tool history step");
+
+    s.execute("layer.setProps", json!({"locks": {"all": false, "pixels": true}})).unwrap();
+    s.execute("paint.stroke", json!({"points": [[5, 5]], "size": 4, "hardness": 1.0, "color": "#000000", "target": "mask"})).unwrap();
+    let mask_value = |s: &Session| s.active().unwrap().doc.layer(id).unwrap().mask.as_ref().unwrap().surface.pixel(5, 5)[0];
+    assert!(mask_value(&s) < 0.01, "pixels-only lock permits mask painting");
+    s.execute("edit.undo", json!({})).unwrap();
+    assert!(mask_value(&s) > 0.99, "undo restores the mask");
 }
 
 #[test]
@@ -1406,4 +1541,42 @@ fn delete_layer_preserves_an_unaffected_active_layer_and_last_layer_guard() {
     assert_eq!(s.active().unwrap().doc.layer_count(), 1);
     assert_eq!(s.active().unwrap().active_layer, Some(other));
     assert_eq!(s.active().unwrap().history.past_len(), before);
+}
+
+#[test]
+fn merge_down_on_a_group_merges_the_group() {
+    // #3832: with a group selected, Merge Down is Photoshop's Merge Group (⌘E): the group's
+    // contents become one layer in its place, named after it, and the layer below is untouched.
+    let mut s = session_with_doc();
+    let below = s.execute("layer.new.layer", json!({"name": "Below"})).unwrap()["layer"].as_u64().unwrap();
+    s.execute("edit.fill", json!({"color": "#00ff00"})).unwrap();
+    let a = s.execute("layer.new.layer", json!({"name": "A"})).unwrap()["layer"].as_u64().unwrap();
+    s.execute("select.rect", json!({"x": 0, "y": 0, "width": 10, "height": 48})).unwrap();
+    s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+    s.execute("select.deselect", json!({})).unwrap();
+    let b = s.execute("layer.new.layer", json!({"name": "B"})).unwrap()["layer"].as_u64().unwrap();
+    s.execute("select.rect", json!({"x": 20, "y": 0, "width": 10, "height": 48})).unwrap();
+    s.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+    s.execute("select.deselect", json!({})).unwrap();
+    s.execute("layer.select", json!({"layer": b})).unwrap();
+    s.execute("layer.select", json!({"layer": a, "mode": "add"})).unwrap();
+    let group = s.execute("layer.groupLayers", json!({"name": "Badge"})).unwrap()["layer"].as_u64().unwrap();
+    s.execute("layer.setProps", json!({"layer": group, "opacity": 0.5})).ok();
+    let before = [px(&mut s, 5, 5), px(&mut s, 25, 5), px(&mut s, 50, 5)];
+    let layers = s.active().unwrap().doc.layer_count();
+    s.execute("layer.select", json!({"layer": group})).unwrap();
+    s.execute("layer.mergeLayers", json!({})).unwrap();
+    let st = s.active().unwrap();
+    let merged = st.doc.layer(st.active_layer.unwrap()).unwrap().clone();
+    assert_eq!(merged.name, "Badge");
+    assert!(matches!(merged.content, photocraft_doc::LayerContent::Raster(_)), "one pixel layer");
+    assert!(st.doc.layer(photocraft_doc::LayerId(below)).is_some(), "the layer below stays");
+    assert_eq!(st.doc.layer_count(), layers - 2, "group and its two layers became one");
+    let after = [px(&mut s, 5, 5), px(&mut s, 25, 5), px(&mut s, 50, 5)];
+    for (a, b) in before.iter().zip(&after) {
+        assert!(a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1.0 / 255.0), "{before:?} -> {after:?}");
+    }
+    // Undo brings the group back.
+    s.execute("edit.undo", json!({})).unwrap();
+    assert!(s.active().unwrap().doc.layer(photocraft_doc::LayerId(group)).is_some());
 }
