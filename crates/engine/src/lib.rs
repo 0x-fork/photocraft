@@ -779,6 +779,9 @@ impl Session {
 
     /// Apply an undoable edit to the active document.
     pub fn edit<R>(&mut self, label: &str, f: impl FnOnce(&mut Document, &mut Option<LayerId>) -> Result<R>) -> Result<R> {
+        // Every mutation path (linked-file refresh, transform, place) re-renders smart objects
+        // through this entry; the requesting session's authority must reach those renders.
+        let _authorization = crate::jobs::render_authorization_scope(self.authorize);
         let restrict = self.color_restrict;
         let sampler_map = self.sampler_map.take();
         let st = self.active_mut().ok_or(EngineError::NoDocument)?;
