@@ -1405,7 +1405,8 @@ fn vector_mask_add(s: &mut Session, p: &Value, from_path: bool) -> Result<Value>
         if locked {
             return Err(EngineError::Other(format!("layer \"{}\" is locked", l.name)));
         }
-        l.vector_mask = Some(VectorMask::new(path));
+        crate::extra_cmds::background_to_layer(doc, id);
+        doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?.vector_mask = Some(VectorMask::new(path));
         Ok(())
     })?;
     vector_mask_info(s, id)
