@@ -422,10 +422,7 @@ pub fn render_video_with(
     let frames = base.timeline.as_ref().map_or(1, |t| t.duration).max(1);
     // Loaded timelines bypass the duration validation used by timeline.create/setProps.
     if frames > crate::timeline_cmds::MAX_DURATION {
-        return Err(EngineError::Other(format!(
-            "the timeline is {frames} frames; Render Video is limited to {} frames",
-            crate::timeline_cmds::MAX_DURATION
-        )));
+        return Err(EngineError::Other(format!("the timeline is {frames} frames; Render Video is limited to {} frames", crate::timeline_cmds::MAX_DURATION)));
     }
     let fps = base.timeline.as_ref().map_or(30.0, |t| t.fps).max(1.0);
     let stem = base.name.rsplit_once('.').map_or(base.name.as_str(), |(a, _)| a).to_string();
@@ -443,9 +440,7 @@ pub fn render_video_with(
         // The whole canvas is staged as f32 RGBA for each frame; reject over-budget
         // dimensions before an infallible allocation can abort the process.
         if (w as u64) * (h as u64) > MAX_GIF_FRAME_PIXELS {
-            return Err(EngineError::Other(format!(
-                "{w} × {h} is too large to render as an animated GIF (limit {MAX_GIF_FRAME_PIXELS} pixels per frame)"
-            )));
+            return Err(EngineError::Other(format!("{w} × {h} is too large to render as an animated GIF (limit {MAX_GIF_FRAME_PIXELS} pixels per frame)")));
         }
         let delay = (100.0 / fps).round().clamp(1.0, 65535.0) as u16;
         let mut gframes = Vec::with_capacity(frames);
