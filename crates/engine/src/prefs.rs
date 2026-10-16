@@ -859,7 +859,14 @@ pub struct TypePrefs {
     pub text_engine: TextEngine,
     pub font_preview: FontPreview,
     pub fill_new_type_layers_with_placeholder: bool,
+    /// Number of Recent Fonts to Display: how many recently used families the font menu lists
+    /// at its top (at most `font_library_cmds::MAX_RECENT_FONTS`; 0 shows none).
     pub recent_fonts: u32,
+    /// Recently used font families, most recent first (`type.font.noteRecent`).
+    pub recent_font_list: Vec<String>,
+    /// Favourite font families, starred in the font menu (`type.font.favorite`), in the order
+    /// they were added.
+    pub favorite_fonts: Vec<String>,
 }
 
 impl Default for TypePrefs {
@@ -872,7 +879,9 @@ impl Default for TypePrefs {
             text_engine: TextEngine::WorldReady,
             font_preview: FontPreview::Medium,
             fill_new_type_layers_with_placeholder: true,
-            recent_fonts: 10,
+            recent_fonts: crate::font_library_cmds::MAX_RECENT_FONTS,
+            recent_font_list: Vec::new(),
+            favorite_fonts: Vec::new(),
         }
     }
 }
@@ -1068,7 +1077,6 @@ pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
     "plugIns.allowScriptsToConnect",
     "plugIns.generatorEnabled",
     "type.textEngine",
-    "type.recentFonts",
     "enhancedControls.scrubbySliderAcceleration",
     "enhancedControls.touchGestures",
     "rawDefaults.colorSpace",
@@ -1150,7 +1158,7 @@ pub fn range(path: &str) -> Option<(f64, f64)> {
         "unitsAndRulers.printResolution" | "unitsAndRulers.screenResolution" | "rawDefaults.resolution" => (1.0, 10_000.0),
         "guidesGridAndSlices.gridlineEvery" => (0.001, 10_000.0),
         "guidesGridAndSlices.subdivisions" => (1.0, 100.0),
-        "type.recentFonts" => (0.0, 50.0),
+        "type.recentFonts" => (0.0, crate::font_library_cmds::MAX_RECENT_FONTS as f64),
         "integrations.controlPort" => (0.0, 65535.0),
         _ => return None,
     })
@@ -1557,7 +1565,10 @@ impl Session {
         }
         let color = v.as_object_mut().and_then(|m| m.remove("colorSettings"));
         let presets = v.as_object_mut().and_then(|m| m.remove("presets"));
-        let prefs: Preferences = serde_json::from_value(v).map_err(|e| format!("preferences: {e}"))?;
+        let mut prefs: Preferences = serde_json::from_value(v).map_err(|e| format!("preferences: {e}"))?;
+        // Recent Fonts was 0..50 (default 10) before the font menu listed at most five: a value
+        // saved then would fail `prefs.set`'s range check when the dialog saves.
+        prefs.type_.recent_fonts = prefs.type_.recent_fonts.min(crate::font_library_cmds::MAX_RECENT_FONTS);
         if let Some(c) = color {
             self.color.settings = serde_json::from_value(c).unwrap_or_default();
             photocraft_compose::psblend::set_text_gamma(self.color.settings.blend_text_gamma);

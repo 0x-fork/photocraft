@@ -93,6 +93,7 @@ mod filter_preview_ui;
 #[cfg(not(target_arch = "wasm32"))]
 mod filter_preview_worker;
 pub mod flick_pan;
+mod font_filters;
 mod font_preview;
 pub mod frame_tool;
 pub mod gallery_ui;

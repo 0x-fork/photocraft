@@ -373,6 +373,8 @@ fn options_editor(app: &mut PhotocraftApp, ui: &mut egui::Ui, paragraph: bool, s
     let defined = |attrs: &Value, k: &str| attrs.get(k).is_some();
     // Preferences ▸ Type ▸ Font Preview Size sizes the family picker's samples.
     let preview = app.session.prefs().type_.font_preview;
+    // The font picker's favourites and recent fonts; a star clicked in it is applied below.
+    let mut library = crate::type_tool::FontLibrary::of(app);
     // Preferences ▸ Units & Rulers ▸ Type: the model stores points; the fields may show pixels
     // (by the document's resolution) or millimetres.
     let (type_unit, unit_label) = crate::type_tool::type_unit(app);
@@ -399,7 +401,7 @@ fn options_editor(app: &mut PhotocraftApp, ui: &mut egui::Ui, paragraph: bool, s
             ui.add_enabled_ui(on, |ui| match kind {
                 "font" => {
                     let mut f = v.as_str().unwrap_or("").to_string();
-                    if family_picker(ui, &format!("style-font-{paragraph}-{id}"), &mut f, preview) {
+                    if family_picker(ui, &format!("style-font-{paragraph}-{id}"), &mut f, preview, &mut library) {
                         set = Some(json!({ panel: f }));
                     }
                 }
@@ -495,6 +497,7 @@ fn options_editor(app: &mut PhotocraftApp, ui: &mut egui::Ui, paragraph: bool, s
             }
         }
     });
+    library.finish(app);
     if let Some(attrs) = set {
         let _ = run(app, &format!("{prefix}.set"), json!({ "id": id, "attrs": attrs }));
     }
@@ -517,13 +520,19 @@ fn options_editor(app: &mut PhotocraftApp, ui: &mut egui::Ui, paragraph: bool, s
     }
 }
 
-/// Searchable family combo box.
-fn family_picker(ui: &mut egui::Ui, salt: &str, current: &mut String, preview: photocraft_engine::prefs::FontPreview) -> bool {
+/// Searchable family combo box, starring and listing first the fonts of `library`.
+fn family_picker(
+    ui: &mut egui::Ui,
+    salt: &str,
+    current: &mut String,
+    preview: photocraft_engine::prefs::FontPreview,
+    library: &mut crate::type_tool::FontLibrary,
+) -> bool {
     if !crate::type_tool::fonts_ready(ui, 140.0) {
         return false;
     }
     let mut shown = if current.is_empty() { photocraft_text::fonts::DEFAULT_FAMILY.to_string() } else { current.clone() };
-    let changed = crate::type_tool::family_picker_in(ui, salt, &mut shown, 140.0, &crate::type_tool::families(), preview);
+    let changed = crate::type_tool::family_picker_in(ui, salt, &mut shown, 140.0, &crate::type_tool::families(), preview, library);
     if changed {
         *current = shown;
     }
@@ -617,7 +626,10 @@ pub fn glyphs_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // Font family + style.
     ui.horizontal(|ui| {
         let mut f = family.clone();
-        if family_picker(ui, "glyph-family", &mut f, app.session.prefs().type_.font_preview) {
+        let mut library = crate::type_tool::FontLibrary::of(app);
+        let picked = family_picker(ui, "glyph-family", &mut f, app.session.prefs().type_.font_preview, &mut library);
+        library.finish(app);
+        if picked {
             app.ui.type_panels.glyph_family = f;
             app.ui.type_panels.glyph_style = tl!("Regular").into();
         }
