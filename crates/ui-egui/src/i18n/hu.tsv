@@ -4124,8 +4124,6 @@ cameraRaw	Yellow	Sárga
 	Show layer mask badges	Rétegmaszk-jelvények megjelenítése
 	Thumbnail Contents	Bélyegkép tartalma
 	Thumbnail Size	Bélyegképméret
-
-# Layers panel options and Smart Filter editors
 	Use Default Masks on Fill Layers	Alapértelmezett maszkok kitöltőrétegeken
 	Accept and Go to Conflict	Elfogadás és ugrás az ütközéshez
 	Changes undone.	Változások visszavonva.
