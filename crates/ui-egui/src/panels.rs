@@ -2152,6 +2152,7 @@ fn hsb_sliders(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         app.session.tools.foreground = hsva_srgb(hsva);
         ui.data_mut(|d| d.insert_temp(key, hsva));
         crate::type_tool::foreground_changed(app);
+        crate::shape_fill_ui::foreground_changed(app, crate::shape_fill_ui::gesture(ui));
     }
 }
 
@@ -3739,6 +3740,7 @@ fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             } else {
                 app.session.tools.foreground = hsva_srgb(hsva);
                 crate::type_tool::foreground_changed(app);
+                crate::shape_fill_ui::foreground_changed(app, crate::shape_fill_ui::gesture(ui));
             }
             ui.data_mut(|d| d.insert_temp(key, (hsva.h, hsva.s)));
         }
@@ -3752,6 +3754,7 @@ fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             } else {
                 app.session.tools.foreground = c;
                 crate::type_tool::foreground_changed(app);
+                crate::shape_fill_ui::foreground_changed(app, crate::shape_fill_ui::gesture(ui));
             }
             // Keep the hue for greys, so the field marker doesn't jump to red; the saturation with
             // it, so a later black lands on the corner it was last dragged to (#3228).
@@ -4586,6 +4589,33 @@ mod color_tests {
             let [d] = h.state().ui.dialogs.as_slice() else { panic!("one Color Picker") };
             assert_eq!(d.fields.get("__colorPicker").and_then(Value::as_str), Some(target));
         }
+    }
+
+    /// #5568: with a shape layer selected, the Color panel recolours its fill (keeping the fill's
+    /// opacity): a click is one undo step and a whole drag across the field is one more.
+    #[test]
+    fn color_panel_recolours_the_selected_shape_fill() {
+        use photocraft_doc::{Fill, LayerContent, LayerId};
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.execute("file.new", json!({"width": 64, "height": 48})).unwrap();
+        let id = LayerId(app.run("shape.create", json!({"rect": [8, 8, 40, 30], "fill": [0.2, 0.4, 0.6, 0.5]})).unwrap()["layer"].as_u64().unwrap());
+        let mut h = field_harness(app);
+        let fill = |app: &PhotocraftApp| match &app.session.active().unwrap().doc.layer(id).unwrap().content {
+            LayerContent::Shape(sh) => sh.fill.clone(),
+            _ => panic!("not a shape layer"),
+        };
+        let steps = |app: &PhotocraftApp| app.session.active().unwrap().history.entries().len();
+        let before = steps(h.state());
+        let min = h.ctx.input(|i| i.viewport_rect()).min;
+        // The field's top-left: no saturation, full brightness.
+        click(&mut h, min + vec2(60.0, 10.0));
+        let fg = h.state().session.tools.foreground;
+        assert_eq!(fill(h.state()), Some(Fill::Solid(photocraft_doc::Color::rgba(fg[0], fg[1], fg[2], 0.5))));
+        assert_eq!(steps(h.state()), before + 1);
+        drag(&mut h, min + vec2(120.0, 40.0), min + vec2(250.0, 120.0));
+        let fg = h.state().session.tools.foreground;
+        assert_eq!(fill(h.state()), Some(Fill::Solid(photocraft_doc::Color::rgba(fg[0], fg[1], fg[2], 0.5))));
+        assert_eq!(steps(h.state()), before + 2, "the whole drag is one undo step");
     }
 
     /// Press at `from`, move to `to` in six steps and release, as egui sees a drag.

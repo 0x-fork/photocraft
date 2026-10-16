@@ -2,7 +2,8 @@
 //! preset browser: groups with disclosure triangles, a colour grid with name tooltips, a context
 //! menu (Rename, Delete, Move to), and the footer (size · New Group · New Swatch · Delete).
 //!
-//! As in Photoshop, clicking a swatch sets the foreground colour (and recolours selected type);
+//! As in Photoshop, clicking a swatch sets the foreground colour (and recolours selected type or
+//! fills the selected shape layer);
 //! Alt- or Ctrl/Cmd-clicking sets the background colour; double-clicking renames it. The
 //! panel menu (the group's "…" button) adds New Swatch, New Group, Import/Replace (`.aco`,
 //! `.ase`), Export (`.aco`) and Export for Exchange (`.ase`) and Reset. Every action is a
@@ -51,8 +52,10 @@ fn colors(app: &PhotocraftApp, ctx: &egui::Context) -> Arc<Vec<Vec<Color32>>> {
 pub fn use_swatch(app: &mut PhotocraftApp, name: &str, background: bool) {
     let target = if background { "background" } else { "foreground" };
     if run(app, "swatches.use", json!({"swatch": name, "target": target})).is_some() && !background {
-        // Clicking a swatch while characters are selected recolours them (#364).
+        // Clicking a swatch while characters are selected recolours them (#364), and with a
+        // shape layer selected fills the shape (#5568).
         crate::type_tool::foreground_changed(app);
+        crate::shape_fill_ui::foreground_changed(app, None);
     }
 }
 
@@ -272,6 +275,31 @@ mod tests {
     use crate::state::Tool;
     use egui::{Modifiers, vec2};
     use egui_kittest::Harness;
+
+    /// #5568: clicking a swatch with a shape layer selected fills the shape with it, one undo
+    /// step each, a gradient fill included.
+    #[test]
+    fn swatch_click_fills_the_selected_shape() {
+        use photocraft_doc::{Fill, LayerContent, LayerId};
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.execute("file.new", json!({"width": 64, "height": 48})).unwrap();
+        let id = LayerId(app.run("shape.create", json!({"rect": [8, 8, 40, 30], "fill": {"gradient": {}}})).unwrap()["layer"].as_u64().unwrap());
+        let fill = |app: &PhotocraftApp| match &app.session.active().unwrap().doc.layer(id).unwrap().content {
+            LayerContent::Shape(sh) => sh.fill.clone(),
+            _ => panic!("not a shape layer"),
+        };
+        let steps = |app: &PhotocraftApp| app.session.active().unwrap().history.entries().len();
+        let before = steps(&app);
+        let names: Vec<String> = app.session.presets.swatches[0].items.iter().take(2).map(|s| s.name.clone()).collect();
+        use_swatch(&mut app, &names[0], false);
+        let fg = app.session.tools.foreground;
+        assert_eq!(fill(&app), Some(Fill::Solid(photocraft_doc::Color::rgba(fg[0], fg[1], fg[2], 1.0))), "{} filled the shape", names[0]);
+        assert_eq!(steps(&app), before + 1);
+        use_swatch(&mut app, &names[1], false);
+        let fg = app.session.tools.foreground;
+        assert_eq!(fill(&app), Some(Fill::Solid(photocraft_doc::Color::rgba(fg[0], fg[1], fg[2], 1.0))), "{} filled the shape", names[1]);
+        assert_eq!(steps(&app), before + 2, "each swatch click is its own undo step");
+    }
 
     fn click(h: &mut Harness<'_, PhotocraftApp>, p: egui::Pos2, modifiers: Modifiers) {
         h.hover_at(p);
