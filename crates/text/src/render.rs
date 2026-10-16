@@ -51,32 +51,9 @@ impl<S: LineSink> LineSink for WarpSink<'_, S> {
 
 /// Draws every glyph and decoration of `layout` whose style colour is `color` (or all of them
 /// when `color` is `None`) into `sink`, through `transform` (text space → sink space), bending
-/// the outlines with `warp` first (in text space).
+/// the outlines with `warp` first (in text space). Faux bold glyphs are drawn from their outline
+/// thickened by [`FAUX_BOLD_RADIUS`] ([`crate::embolden`]).
 fn draw(layout: &TextLayout, transform: &Xform, sink: &mut impl LineSink, only_color: Option<&Color>, warp: Option<&Warp>) {
-    draw_pass(layout, transform, sink, only_color, warp, Pass::All);
-}
-
-/// Which part of the layout [`draw_pass`] emits. Faux bold draws each glyph at several offsets;
-/// summing those into one coverage buffer saturates the antialiased edge pixels (hard, pixelated
-/// stems), so the rasteriser draws every offset into its own buffer and merges them with `max`.
-#[derive(Clone, Copy, PartialEq)]
-enum Pass {
-    /// Everything, all offsets (bounds, outlines).
-    All,
-    /// Non-bold glyphs and decorations.
-    Plain,
-    /// Bold glyphs at one offset (index into [`BOLD_OFFSETS`]).
-    Bold(usize),
-}
-
-const BOLD_OFFSETS: [(f64, f64); 8] = [(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0), (0.7, 0.7), (-0.7, -0.7), (0.7, -0.7), (-0.7, 0.7)];
-
-fn is_bold(layout: &TextLayout, g: &PlacedGlyph) -> bool {
-    let face_bold = layout.faces.get(g.face as usize).is_some_and(|f| f.embolden);
-    layout.styles.get(g.style as usize).is_some_and(|s| s.faux_bold) || face_bold
-}
-
-fn draw_pass(layout: &TextLayout, transform: &Xform, sink: &mut impl LineSink, only_color: Option<&Color>, warp: Option<&Warp>, pass: Pass) {
     for g in &layout.glyphs {
         let st = &layout.styles[g.style as usize];
         if only_color.is_some_and(|c| c != &st.color) {
@@ -103,41 +80,27 @@ fn draw_pass(layout: &TextLayout, transform: &Xform, sink: &mut impl LineSink, o
                 }
             }
         }
-        let bold = st.faux_bold || face.embolden;
-        let r = (face.size_px * FAUX_BOLD_RADIUS) as f64;
-        let single = [(0.0, 0.0)];
-        let offsets: &[(f64, f64)] = match (pass, bold) {
-            (Pass::Plain, true) => continue,
-            (Pass::Bold(_), false) => continue,
-            (Pass::Bold(k), true) => match BOLD_OFFSETS.get(k..=k) {
-                Some(o) => o,
-                None => continue,
-            },
-            (Pass::All, true) => &BOLD_OFFSETS,
-            (_, false) => &single,
-        };
-        for &(ox, oy) in offsets {
-            let local = glyph.mul(&Xform([1.0, 0.0, 0.0, 1.0, ox * r, oy * r]));
-            let settings = DrawSettings::unhinted(Size::new(face.size_px), LocationRef::new(&coords));
-            match bend {
-                Some(w) => {
-                    let mut ws = WarpSink { inner: &mut *sink, warp: w, post: *transform };
-                    let mut pen = Pen::new(&mut ws, local);
-                    if outline.draw(settings, &mut pen).is_ok() {
-                        skrifa::outline::OutlinePen::close(&mut pen);
-                    }
-                }
-                None => {
-                    let mut pen = Pen::new(&mut *sink, transform.mul(&local));
-                    if outline.draw(settings, &mut pen).is_ok() {
-                        skrifa::outline::OutlinePen::close(&mut pen);
-                    }
-                }
+        let settings = || DrawSettings::unhinted(Size::new(face.size_px), LocationRef::new(&coords));
+        // Faux bold thickens the outline in font units, before faux italic and scaling, so the
+        // slant and proportions apply to the bold shape as they do to a real bold face. Other
+        // glyphs draw straight into the pen.
+        let mut bold = None;
+        if st.faux_bold || face.embolden {
+            let mut shape = crate::embolden::Outline::default();
+            if outline.draw(settings(), &mut shape).is_err() {
+                continue;
             }
+            shape.embolden(f64::from(face.size_px * FAUX_BOLD_RADIUS));
+            bold = Some(shape);
         }
-    }
-    if matches!(pass, Pass::Bold(_)) {
-        return;
+        let settings = settings();
+        match bend {
+            Some(w) => {
+                let mut ws = WarpSink { inner: &mut *sink, warp: w, post: *transform };
+                draw_glyph(&outline, settings, bold.as_ref(), &mut Pen::new(&mut ws, glyph));
+            }
+            None => draw_glyph(&outline, settings, bold.as_ref(), &mut Pen::new(&mut *sink, transform.mul(&glyph))),
+        }
     }
     for d in &layout.decorations {
         let st = &layout.styles[d.style as usize];
@@ -150,6 +113,23 @@ fn draw_pass(layout: &TextLayout, transform: &Xform, sink: &mut impl LineSink, o
                 rect_to(&mut ws, &Xform::IDENTITY, d.x0 as f64, d.y0 as f64, d.x1 as f64, d.y1 as f64);
             }
             None => rect_to(sink, transform, d.x0 as f64, d.y0 as f64, d.x1 as f64, d.y1 as f64),
+        }
+    }
+}
+
+/// One glyph into `pen`: its thickened `bold` outline when there is one, else the font's own.
+fn draw_glyph(
+    outline: &skrifa::outline::OutlineGlyph,
+    settings: DrawSettings,
+    bold: Option<&crate::embolden::Outline>,
+    pen: &mut impl skrifa::outline::OutlinePen,
+) {
+    match bold {
+        Some(shape) => shape.replay(pen),
+        None => {
+            if outline.draw(settings, &mut *pen).is_ok() {
+                pen.close();
+            }
         }
     }
 }
@@ -263,17 +243,8 @@ pub fn rasterize_warped(layout: &TextLayout, transform: &Affine, format: PixelFo
     }
     for c in &colors {
         let mut cov = Coverage::new(w, h);
-        draw_pass(layout, &xf, &mut cov, Some(c), warp, Pass::Plain);
-        let mut cov = cov.finish();
-        if layout.glyphs.iter().any(|g| is_bold(layout, g)) {
-            for k in 0..BOLD_OFFSETS.len() {
-                let mut bc = Coverage::new(w, h);
-                draw_pass(layout, &xf, &mut bc, Some(c), warp, Pass::Bold(k));
-                for (a, b) in cov.iter_mut().zip(bc.finish()) {
-                    *a = a.max(b);
-                }
-            }
-        }
+        draw(layout, &xf, &mut cov, Some(c), warp);
+        let cov = cov.finish();
         let comps = color_in(&format, c);
         let a = c.alpha.clamp(0.0, 1.0);
         for (i, &cv) in cov.iter().enumerate() {

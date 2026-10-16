@@ -18,6 +18,7 @@
 
 pub mod cjk;
 pub mod craft_fonts;
+mod embolden;
 pub mod engine_data;
 pub mod font_class;
 pub mod fonts;
