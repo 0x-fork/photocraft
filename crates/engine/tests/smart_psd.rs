@@ -670,3 +670,46 @@ fn a_soft_filter_mask_is_stored_the_way_photoshop_stores_it() {
     let d = max_diff(&photocraft_compose::flatten(&back).px, &photocraft_compose::flatten(&doc).px);
     assert!(d <= 2.0 / 255.0, "re-opened differs by {d}");
 }
+
+/// Image › Adjustments › Hue/Saturation on a smart object is a smart filter that Photoshop saves
+/// as an `HStr` filter (#6267): it is written in that layout, opens as the same command and
+/// params, and re-renders adjusted instead of passing the source through.
+#[test]
+fn hue_saturation_smart_filter_survives_psd_and_re_renders() {
+    for depth in [8, 16, 32] {
+        let mut s = session(depth);
+        s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        let plain = smart(&s.active().unwrap().doc).1.cache.unwrap();
+        let params = json!({"hue": 40, "saturation": -30, "lightness": 10, "colorize": false,
+                            "greens": {"hue": -20, "saturation": 15, "lightness": -5, "range": [75, 105, 135, 165]}});
+        s.execute("image.adjustments.hueSaturation", params.clone()).unwrap();
+        let doc = s.active().unwrap().doc.clone();
+        let (_, before) = smart(&doc);
+        assert_eq!(before.smart_filters.len(), 1);
+        assert_eq!(before.smart_filters[0].command, "image.adjustments.hueSaturation");
+        let adjusted = before.cache.clone().unwrap();
+        assert!(plain.pixel(20, 20) != adjusted.pixel(20, 20), "depth {depth}: the filter changes pixels");
+
+        let out = photocraft_io::export(&doc, "psd", &Default::default()).unwrap();
+        assert!(out.warnings.is_empty(), "{:?}", out.warnings);
+        assert_eq!(structure_errors(&out.bytes), Vec::<String>::new());
+        keep(&format!("hue-sat-{depth}.psd"), &out.bytes);
+        let back = photocraft_io::import("hue-sat.psd", &out.bytes).unwrap().document;
+        let (bid, after) = smart(&back);
+        assert_eq!(after.smart_filters.len(), 1);
+        let f = &after.smart_filters[0];
+        assert_eq!(f.command, "image.adjustments.hueSaturation", "depth {depth}: {}", f.params);
+        for (k, v) in params.as_object().unwrap() {
+            assert_eq!(&f.params[k], v, "depth {depth}: {k}");
+        }
+        // Re-rendered from the source (as replaceContents / relink do), the filter still applies.
+        let mut l = back.layer(photocraft_doc::LayerId(bid)).unwrap().clone();
+        assert!(refresh_layer(&back, &mut l).unwrap());
+        let LayerContent::Smart(sm) = &l.content else { panic!("smart") };
+        let cache = sm.cache.as_ref().unwrap();
+        for (x, y) in [(20, 20), (40, 30), (70, 50)] {
+            let (a, b) = (cache.pixel(x, y), adjusted.pixel(x, y));
+            assert!((0..4).all(|c| (a[c] - b[c]).abs() <= 1.0 / 255.0 + 1e-6), "depth {depth} at {x},{y}: {a:?} vs {b:?}");
+        }
+    }
+}
