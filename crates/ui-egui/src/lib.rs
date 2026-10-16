@@ -58,6 +58,7 @@ pub mod color_picker_ui;
 pub mod color_range_ui;
 pub mod comps_ui;
 pub mod control;
+pub mod corner_radius;
 pub mod credits;
 pub mod crop_mode;
 pub mod crop_overlay;
@@ -100,6 +101,7 @@ pub mod gpu_canvas;
 pub mod gpu_status;
 pub mod gradient_ui;
 pub mod guide_layout_ui;
+pub mod guide_select;
 pub mod hold_keys;
 pub mod i18n;
 mod icon_data;
@@ -108,6 +110,7 @@ pub mod jobs_ui;
 pub mod kys_import;
 pub mod lasso_ui;
 pub(crate) mod last_brush;
+pub mod layer_filter_ui;
 pub mod layer_menu_ui;
 pub mod layer_pick_ui;
 pub mod layer_picker;
@@ -125,6 +128,7 @@ mod mask_props_ui;
 pub mod mask_thumbs_ui;
 pub mod mask_trash_prompt;
 pub mod menu_catalog;
+pub mod menu_keys;
 pub mod menu_nav;
 pub mod menus;
 pub mod monitor_status;
@@ -138,6 +142,7 @@ pub mod new_doc_ui;
 pub mod new_guide_ui;
 pub mod new_layer_ui;
 pub mod notices;
+pub mod nudge_bundle;
 mod numeric_expression;
 pub mod object_finder;
 mod opacity_keys;
@@ -270,6 +275,12 @@ pub struct ExportSettings {
     /// PSD/PSB: write the real merged image (Preferences › File Handling › Maximize PSD and PSB
     /// File Compatibility; see [`PhotocraftApp::save_settings`]).
     pub psd_maximize_compatibility: bool,
+    /// Embed the document's ICC profile when the format supports it. On for Save As and, unless
+    /// Export As turns it off, for export.
+    pub embed_icc: bool,
+    /// Embed EXIF, resolution and other non-XMP metadata when the format supports it. Export As
+    /// turns this off for Metadata: None; Save As leaves it on.
+    pub embed_metadata: bool,
 }
 
 impl Default for ExportSettings {
@@ -283,7 +294,32 @@ impl Default for ExportSettings {
             tga_bits: None,
             image_previews: true,
             psd_maximize_compatibility: true,
+            embed_icc: true,
+            embed_metadata: true,
         }
+    }
+}
+
+impl ExportSettings {
+    /// The IO export options these encoder settings select. Save As and Export As share this so
+    /// a profile or metadata choice cannot be applied in one and forgotten in the other.
+    pub fn io_options(&self) -> photocraft_io::ExportOptions {
+        let mut opts = photocraft_io::ExportOptions::default();
+        if let Some(q) = self.jpeg_quality {
+            opts.encode.jpeg_quality = q;
+        }
+        opts.encode.webp_lossless = self.webp_lossless;
+        if let Some(q) = self.webp_quality {
+            opts.encode.webp_quality = q;
+        }
+        opts.encode.embed_icc = self.embed_icc;
+        opts.encode.embed_metadata = self.embed_metadata;
+        opts.tiff_layers = self.tiff_layers;
+        opts.xmp = if self.xmp_all { photocraft_io::XmpEmbed::All } else { photocraft_io::XmpEmbed::None };
+        opts.tga_bits = self.tga_bits;
+        opts.image_previews = self.image_previews;
+        opts.psd_maximize_compatibility = self.psd_maximize_compatibility;
+        opts
     }
 }
 
@@ -512,6 +548,8 @@ pub struct PhotocraftApp {
     navigator_gpu: HashMap<DocId, crate::gpu_canvas::ViewParams>,
     /// Documents whose GPU canvas texture holds the plain document (`canvas::ensure_gpu`).
     navigator_plain: std::collections::HashSet<DocId>,
+    /// The Info panel's Color Sampler readouts for (document, revision) (`panels::sampler_readouts`).
+    info_samplers: Option<panels::SamplerReadouts>,
     /// Display profile readings (#569).
     monitors: monitor_status::State,
     checker: Option<egui::TextureHandle>,
@@ -621,6 +659,9 @@ pub struct PhotocraftApp {
     pub fps: f32,
     last_frame_time: f64,
     thumbs: HashMap<(photocraft_doc::LayerId, u8), (u64, egui::TextureHandle)>,
+    /// The document area each layer thumbnail in `thumbs` frames (the canvas, or the layer's
+    /// bounds with Clip Thumbnails to Layer Bounds; #4281).
+    thumb_frames: HashMap<photocraft_doc::LayerId, photocraft_geom::Rect>,
     /// History snapshot thumbnails by (document, snapshot id): a snapshot never changes, so each
     /// is made once (`snapshot_thumb`, #2966).
     snapshot_thumbs: HashMap<(DocId, u64), egui::TextureHandle>,
@@ -661,6 +702,8 @@ pub struct PhotocraftApp {
     pub(crate) move_mods: move_mods::MoveDrag,
     /// Cached document for a modal text Style Options color preview.
     pub(crate) text_style_preview: Option<type_panels_ui::color_picker::Preview>,
+    /// The run of arrow-key nudges that share one History state (nudge_bundle).
+    pub(crate) nudge_bundle: nudge_bundle::NudgeBundle,
     /// Live Layer Style dialog preview: (key over revision + style fields, preview or validation error).
     pub(crate) style_preview: Option<(u64, Result<std::sync::Arc<Document>, String>)>,
     pub(crate) solid_fill_preview: Option<solid_fill_ui::Preview>,
@@ -757,6 +800,12 @@ pub struct PhotocraftApp {
     /// `jobs_ui`). The desktop app turns it on; off (the default), everything runs inline as
     /// before, which tests and scripts rely on.
     pub background_jobs: bool,
+    /// Shortest time between frames (ms), or `None` for no cap. A present mode that doesn't wait
+    /// for the display (Low-Latency Drawing) would otherwise redraw as fast as it can while
+    /// anything keeps requesting repaints (a drag hovering, autoscroll, Liquify held still).
+    /// After #4472 (astigmata).
+    pub min_frame_ms: Option<f64>,
+    last_frame_start_ms: f64,
     /// Background job bookkeeping: opening tabs, control replies waiting on a job.
     pub jobs: jobs_ui::JobsUi,
     #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
@@ -774,6 +823,7 @@ impl PhotocraftApp {
             display_memo: HashMap::new(),
             navigator_gpu: HashMap::new(),
             navigator_plain: std::collections::HashSet::new(),
+            info_samplers: None,
             monitors: Default::default(),
             checker: None,
             drag: None,
@@ -825,6 +875,7 @@ impl PhotocraftApp {
             fps: 0.0,
             last_frame_time: 0.0,
             thumbs: HashMap::new(),
+            thumb_frames: HashMap::new(),
             snapshot_thumbs: HashMap::new(),
             thumb_documents: Vec::new(),
             bounds_cache: HashMap::new(),
@@ -859,6 +910,7 @@ impl PhotocraftApp {
             clip_read_for_paste: false,
             transform_preview: None,
             move_mods: Default::default(),
+            nudge_bundle: Default::default(),
             style_preview: None,
             text_style_preview: None,
             solid_fill_preview: None,
@@ -889,6 +941,8 @@ impl PhotocraftApp {
             allow_close: false,
             stylus: Default::default(),
             background_jobs: false,
+            min_frame_ms: None,
+            last_frame_start_ms: 0.0,
             jobs: Default::default(),
             #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
             live_tokens: theme::live::LiveTokens::from_env(),
@@ -998,6 +1052,21 @@ impl PhotocraftApp {
         {
             authorize(id, &params)?;
         }
+        // A new layer while Free Transform is open applies the transform first, as Photoshop does
+        // (#5667): History reads the transform (or Place Embedded), then New Layer. Only for a
+        // command that can run; a transform refused or still being applied keeps the box open and
+        // the command doesn't run.
+        if photocraft_engine::PRECHECKED.contains(&id) && self.ui.transform.is_some() {
+            // Bad params or a command that can't run leave the box as it is.
+            self.session.precheck(id, &params).map_err(|e| e.to_string())?;
+            transform_tool::commit(self);
+            if transform_tool::committing(self).is_some() {
+                return Err(tl!("Free Transform is still being applied; try again when it has finished.").into());
+            }
+            if self.ui.transform.is_some() {
+                return Err(if self.ui.status.is_empty() { tl!("The transform couldn't be applied.").into() } else { self.ui.status.clone() });
+            }
+        }
         if let Some(result) = panel_docking::command(self, id, &params) {
             return result;
         }
@@ -1040,6 +1109,10 @@ impl PhotocraftApp {
             id,
             "layer.vectorMask.add" | "layer.vectorMask.fromPath" | "layer.vectorMask.revealAll" | "layer.vectorMask.hideAll" | "layer.vectorMask.currentPath"
         ) && on_active_layer;
+        // A draft Pen path belongs to the current document, not the one about to be created.
+        if id == "file.new" && self.ui.pen.is_some() {
+            vector_ui::pen_commit(self, false);
+        }
         let r = if id == "actions.play" {
             actions::play(self, &params)
         } else if photocraft_engine::actions_cmds::shell_view_command(id) {
@@ -1316,6 +1389,13 @@ impl PhotocraftApp {
     /// [`Self::save_as`], writing a Targa with `tga_bits` per pixel when given (no Targa Options
     /// prompt): `file.save` and `file.saveAs` with `tgaBits`.
     pub fn save_as_with(&mut self, path: Option<String>, tga_bits: Option<photocraft_io::TgaBits>) -> Result<Value, String> {
+        self.save_dialog_flow(path, tga_bits, false)
+    }
+
+    /// [`Self::save_as_with`]. `plain_save` marks File › Save that had to ask for a file name
+    /// (a flat file): confirming the document's own file is recorded as a `file.save` step,
+    /// which writes whichever file the action is played on, not as a Save As to a fixed path.
+    pub(crate) fn save_dialog_flow(&mut self, path: Option<String>, tga_bits: Option<photocraft_io::TgaBits>, plain_save: bool) -> Result<Value, String> {
         if self.save_options_open() {
             return Err("Answer TIFF or Targa Options before starting another save".into());
         }
@@ -1355,7 +1435,16 @@ impl PhotocraftApp {
             }
         };
         let doc = st.doc.id;
-        self.pick_save(&suggested, move |app, path| app.with_document(doc, |app| app.save_to(path, tga_bits)))
+        self.pick_save(&suggested, move |app, path| {
+            app.with_document(doc, |app| {
+                let own = app.session.active().and_then(|st| st.path.clone());
+                let r = app.save_to(path.clone(), tga_bits)?;
+                if plain_save && own.as_deref() == Some(path.as_str()) {
+                    app.journal_as_plain_save(&path);
+                }
+                Ok(r)
+            })
+        })
     }
 
     /// [`Self::save_as_with`] once the path is known.
@@ -1402,6 +1491,17 @@ impl PhotocraftApp {
         Ok(r)
     }
 
+    /// Re-label the Save As just journaled for `path` as File › Save (see [`Self::save_dialog_flow`]).
+    fn journal_as_plain_save(&mut self, path: &str) {
+        if let Some(last) = self.session.journal.last_mut()
+            && last.0 == "file.saveAs"
+            && last.1.get("path").and_then(Value::as_str) == Some(path)
+            && last.1.as_object().is_some_and(|o| o.len() == 1)
+        {
+            *last = ("file.save".into(), Value::Object(Default::default()));
+        }
+    }
+
     /// Replays a recorded `file.save` / `file.saveAs` / `file.saveACopy` step: no dialog or prompt, and the
     /// recorded TIFF or Targa answer (if any) stands in for the TIFF or Targa Options prompt.
     pub(crate) fn replay_save(&mut self, id: &str, params: &Value) -> Result<Value, String> {
@@ -1409,11 +1509,18 @@ impl PhotocraftApp {
             return Err("Answer TIFF or Targa Options before starting another save".into());
         }
         if id == "file.save" {
+            // The file the action is played on: one that holds the whole document, or a flat
+            // file a recorded Save confirmed in the dialog while the document is still a plain
+            // raster, so it is never flattened over (#3531, #3806).
             let st = self.session.active().ok_or("no document")?;
-            let path =
-                st.path.clone().filter(|p| photocraft_engine::file_cmds::holds_at(&st.doc, p)).ok_or(
-                    "Save writes back only to the document's own PSD, PSB, .pcraft or OpenRaster file, and to OpenRaster only when it holds everything",
-                )?;
+            let flat_own = |p: &str| {
+                !photocraft_engine::file_cmds::saves_in_place(p)
+                    && plain_raster(&st.doc).is_some()
+                    && photocraft_engine::file_cmds::extension(p).is_some_and(|e| photocraft_codecs::from_extension(&e).is_some_and(|f| f.caps().write))
+            };
+            let path = st.path.clone().filter(|p| photocraft_engine::file_cmds::holds_at(&st.doc, p) || flat_own(p)).ok_or(
+                "Save writes back only to the document's own PSD, PSB, .pcraft or OpenRaster file (OpenRaster only when it holds everything), or to its own flat file while the document is a single plain layer",
+            )?;
             return self.save_in_place(path);
         }
         let path = params.get("path").and_then(Value::as_str).filter(|p| !p.is_empty()).ok_or("Save As needs a `path`")?;
@@ -1675,12 +1782,34 @@ impl PhotocraftApp {
     }
 }
 
+impl PhotocraftApp {
+    /// Wait out the rest of [`Self::min_frame_ms`] since the last frame started.
+    fn cap_frame_rate(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(min) = self.min_frame_ms.filter(|m| m.is_finite() && *m > 0.0) {
+            let wait = min.min(100.0) - (gpu_canvas::now_ms() - self.last_frame_start_ms);
+            if wait > 0.0 {
+                std::thread::sleep(std::time::Duration::from_secs_f64(wait / 1000.0));
+            }
+        }
+        self.last_frame_start_ms = gpu_canvas::now_ms();
+    }
+}
+
 impl eframe::App for PhotocraftApp {
+    fn on_exit(&mut self) {
+        if let Err(err) = tool_memory::save_on_exit(self) {
+            log::warn!("Preferences: could not save the final tool selection: {err}");
+        }
+    }
+
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        self.cap_frame_rate();
         i18n::set_current(i18n::Lang::from_pref(&self.session.prefs().interface.language));
         // Caps Lock state read from the OS once per frame (see `Services::caps_lock`): the canvas
         // cursor block needs it before the frame renders. `None` (Wayland/web) keeps `false`.
         self.caps_lock = self.services.caps_lock.as_mut().is_some_and(|f| f());
+        tool_cursor::set_wayland(ctx, self.services.is_wayland);
         if !self.styled {
             Self::setup_context(ctx, self.ui.theme);
             self.styled = true;
@@ -1749,6 +1878,9 @@ impl eframe::App for PhotocraftApp {
         if !dropped.is_empty() {
             let at = self.services.cursor_pos.as_mut().and_then(|f| f(ctx));
             self.open_dropped(ctx, dropped, at);
+            // Files dragged in from another app's window: PhotoCraft comes to the front and takes
+            // the keyboard, as Photoshop does, instead of staying behind the source (#5687).
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
         self.place_next_dropped(ctx);
         // The control transport wakes the UI on arrival (ctx.request_repaint); only poll while a
@@ -1877,7 +2009,7 @@ impl eframe::App for PhotocraftApp {
         notices::show(self, &ctx);
         gpu_status::show_fallback(self, &ctx);
         kys_import::show_offer(self, &ctx);
-        if chrome && self.ui.panels.menu_bar && self.custom_titlebar && !self.ui.dialogs.is_empty() {
+        if self.titlebar_modal_drag(chrome) {
             titlebar::modal_drag_overlay(&ctx);
         }
         if self.custom_titlebar {
@@ -1910,7 +2042,10 @@ impl eframe::App for PhotocraftApp {
         if self.stroke_trace.enabled() {
             self.stroke_trace.canvas(self.perf.frame_refresh_ms);
             let info = &self.perf.gpu_info;
-            self.stroke_trace.end_frame(ui_ms, self.live_stroke.is_some(), || format!("{} {}", info.backend, info.adapter).trim().to_string());
+            self.stroke_trace.end_frame(ui_ms, self.live_stroke.is_some(), || {
+                let gpu = format!("{} {}", info.backend, info.adapter).trim().to_string();
+                if info.present.is_empty() { gpu } else { format!("{gpu}, {}", info.present) }
+            });
         }
         // Synthetic input is injected one press/release step per frame: keep frames coming until
         // the queue is empty, then release control replies waiting on it.
@@ -1948,6 +2083,14 @@ fn read_dropped(_f: &dyn egui::DroppedFile) -> Result<Vec<u8>, String> {
 }
 
 impl PhotocraftApp {
+    /// Whether the title bar's free gap gets the drag overlay this frame: the app draws its title
+    /// strip (`chrome`: not hidden by the screen mode) and a dialog's modal layer covers it. Not
+    /// only with the custom title bar: on macOS the strip under the traffic lights is the window's
+    /// title bar too, and an open dialog (Embedded Profile Mismatch…) left it undraggable (#5826).
+    pub(crate) fn titlebar_modal_drag(&self, chrome: bool) -> bool {
+        chrome && self.ui.panels.menu_bar && !self.ui.dialogs.is_empty()
+    }
+
     /// `params` aimed at the active layer's mask (`"target":"mask"`) when the Layers panel targets
     /// it and command `id` edits the target (adjustments, filters, fills) without naming one:
     /// ⌘I then inverts the mask, as in Photoshop (#780). A targeted alpha channel or Quick Mask
@@ -2040,6 +2183,7 @@ impl PhotocraftApp {
             // Native files can restore IDs: retain the union across all open documents, rather
             // than deleting an ID just because one document containing it was closed.
             self.thumbs.retain(|key, _| live.contains(key));
+            self.thumb_frames.retain(|id, _| live.contains(&(*id, mask_thumbs_ui::THUMB_LAYER)));
         }
         self.thumb_documents = documents.iter().map(|st| (st.doc.id, std::sync::Arc::downgrade(&st.doc))).collect();
     }
@@ -2065,25 +2209,31 @@ impl PhotocraftApp {
         self.checker = None;
     }
 
-    /// Cached 64px thumbnail of a pixel-ish layer, laid out in document space.
-    pub fn layer_thumb(&mut self, ctx: &egui::Context, doc: &Document, layer: &photocraft_doc::Layer) -> egui::TextureId {
+    /// Cached 64px thumbnail of a pixel-ish layer, letterboxed in a square, and the document
+    /// area it frames: the canvas, or with Clip Thumbnails to Layer Bounds the layer's pixels.
+    pub fn layer_thumb(&mut self, ctx: &egui::Context, doc: &Document, layer: &photocraft_doc::Layer) -> (egui::TextureId, photocraft_geom::Rect) {
+        let clip = self.session.prefs().interface.clip_thumbnails_to_layer_bounds;
         // Key by content, not document revision: COW tiles change pointer only when their pixels
         // change, so unrelated edits (e.g. painting another layer) don't rebuild this thumbnail.
-        let rev = layer.surface().map_or(0, surface_fingerprint) ^ (doc.size.width as u64) << 40;
+        let rev = layer.surface().map_or(0, surface_fingerprint) ^ (doc.size.width as u64) << 40 ^ u64::from(clip) << 63;
         let key = (layer.id, mask_thumbs_ui::THUMB_LAYER);
         if let Some((r, tex)) = self.thumbs.get(&key)
             && *r == rev
+            && let Some(frame) = self.thumb_frames.get(&layer.id)
         {
-            return tex.id();
+            return (tex.id(), *frame);
         }
+        let canvas = doc.bounds();
+        let frame = layer_thumb_frame(layer, canvas, clip);
         let mut px = [0.0f32; 8];
-        let img = thumb_image(doc, 64, |x, y| {
+        let img = thumb_image(frame, 64, |x, y| {
             let Some(s) = layer.surface() else { return [0.0; 4] };
             let n = s.channels();
             s.read_pixel(x, y, &mut px[..n]);
             photocraft_raster::to_rgba(&s.format(), &px[..n])
         });
-        self.store_thumb(ctx, key, rev, img)
+        self.thumb_frames.insert(layer.id, frame);
+        (self.store_thumb(ctx, key, rev, img), frame)
     }
 
     /// The History panel thumbnail of snapshot `snap` of document `doc` (#2966): its composite,
@@ -2118,7 +2268,7 @@ impl PhotocraftApp {
             return tex.id();
         }
         let mut v = [0.0f32; 1];
-        let img = thumb_image(doc, 64, |x, y| {
+        let img = thumb_image(doc.bounds(), 64, |x, y| {
             mask.surface.read_pixel(x, y, &mut v);
             [v[0], v[0], v[0], 1.0]
         });
@@ -2157,9 +2307,20 @@ pub fn surface_fingerprint(s: &photocraft_raster::Surface) -> u64 {
     h
 }
 
-/// Square thumbnail of the canvas area, letterboxed, sampling `f(x, y)` in document space.
-fn thumb_image(doc: &Document, side: usize, mut f: impl FnMut(i32, i32) -> [f32; 4]) -> egui::ColorImage {
-    let (w, h) = (doc.size.width.max(1) as f32, doc.size.height.max(1) as f32);
+/// The document area a layer thumbnail frames: the canvas, or with `clip` the layer's pixels on
+/// it (the canvas again when it has none there, so an empty layer still shows the page shape).
+fn layer_thumb_frame(layer: &photocraft_doc::Layer, canvas: photocraft_geom::Rect, clip: bool) -> photocraft_geom::Rect {
+    if !clip {
+        return canvas;
+    }
+    let bounds = layer.surface().map_or(photocraft_geom::Rect::EMPTY, photocraft_compose::bounds::content_bounds).intersect(&canvas);
+    if bounds.is_empty() { canvas } else { bounds }
+}
+
+/// Square thumbnail of the document area `frame`, letterboxed, sampling `f(x, y)` in document
+/// space.
+fn thumb_image(frame: photocraft_geom::Rect, side: usize, mut f: impl FnMut(i32, i32) -> [f32; 4]) -> egui::ColorImage {
+    let (w, h) = (frame.width().max(1) as f32, frame.height().max(1) as f32);
     let scale = w.max(h) / side as f32;
     let (ox, oy) = ((side as f32 - w / scale) / 2.0, (side as f32 - h / scale) / 2.0);
     let mut px = vec![egui::Color32::TRANSPARENT; side * side];
@@ -2170,7 +2331,7 @@ fn thumb_image(doc: &Document, side: usize, mut f: impl FnMut(i32, i32) -> [f32;
             if dx < 0.0 || dy < 0.0 || dx >= w || dy >= h {
                 continue;
             }
-            let c = f(dx as i32, dy as i32);
+            let c = f(frame.x0.saturating_add(dx as i32), frame.y0.saturating_add(dy as i32));
             let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
             px[ty * side + tx] = egui::Color32::from_rgba_unmultiplied(q(c[0]), q(c[1]), q(c[2]), q(c[3]));
         }
@@ -2498,6 +2659,9 @@ mod profile_prompt_tests;
 mod input_tests;
 
 #[cfg(test)]
+mod empty_workspace_tests;
+
+#[cfg(test)]
 mod pen_variants_tests;
 
 #[cfg(test)]
@@ -2515,6 +2679,10 @@ mod pixel_aspect_tests;
 #[cfg(test)]
 mod transform_fx_tests;
 
+#[cfg(test)]
+mod layer_props_ui_tests;
+#[cfg(test)]
+mod transform_switch_tests;
 #[cfg(test)]
 mod transform_undo_tests;
 
@@ -2546,6 +2714,8 @@ mod blur_pins_tests;
 mod move_outline_tests;
 
 #[cfg(test)]
+mod layer_thumb_bounds_tests;
+#[cfg(test)]
 mod mask_thumb_refresh_tests;
 
 #[cfg(test)]
@@ -2574,6 +2744,9 @@ mod marquee_tests;
 
 #[cfg(test)]
 mod canvas_menu_tests;
+
+#[cfg(test)]
+mod nudge_bundle_tests;
 
 #[cfg(test)]
 mod caps_lock_tests;
@@ -2876,3 +3049,6 @@ mod channel_tint_tests {
         assert_eq!(channel_tint(Rgb, 0, 77, false), Color32::from_gray(77));
     }
 }
+
+#[cfg(test)]
+mod options_hit_area_tests;

@@ -317,6 +317,28 @@ fn os_open_events_open_files_with_paths() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The viewport commands an `Open` event sends: focus, or an attention request on native Wayland
+/// where winit can't focus (#3708).
+fn raise_commands(is_wayland: bool) -> Vec<egui::ViewportCommand> {
+    let (mut app, _) = app_with(Vec::new());
+    app.services.is_wayland = is_wayland;
+    let mut queue = vec![OsEvent::Open(Vec::new())];
+    app.services.os_events = Some(Box::new(move || std::mem::take(&mut queue)));
+    let mut out = egui::Context::default().run_ui(egui::RawInput::default(), |ui| app.drain_os_events(ui.ctx()));
+    out.textures_delta.clear();
+    out.viewport_output.get(&egui::ViewportId::ROOT).map(|v| v.commands.clone()).unwrap_or_default()
+}
+
+#[test]
+fn an_os_open_brings_the_window_forward_or_asks_for_attention_on_wayland() {
+    use egui::{UserAttentionType, ViewportCommand};
+    let attention = ViewportCommand::RequestUserAttention(UserAttentionType::Informational);
+    let x11 = raise_commands(false);
+    assert!(x11.contains(&ViewportCommand::Focus) && !x11.contains(&attention), "{x11:?}");
+    let wayland = raise_commands(true);
+    assert!(wayland.contains(&attention) && !wayland.contains(&ViewportCommand::Focus), "{wayland:?}");
+}
+
 #[test]
 fn os_quit_and_empty_events_do_not_panic() {
     let (mut app, _) = app_with(Vec::new());
@@ -570,6 +592,29 @@ fn a_drop_slot_counts_documents_not_the_tabs_shown() {
     assert_eq!(strip.slot(130.0), 5);
     assert_eq!(strip.slot(500.0), 7, "past the last shown tab: after it");
     assert_eq!(crate::canvas::TabStrip { rect: strip.rect, tabs: vec![] }.slot(10.0), 0);
+}
+
+/// #5687: files dropped from another app's window bring PhotoCraft to the front (a focus request
+/// in the frame that takes the drop), so the source window ends up behind it.
+#[test]
+fn a_drop_brings_the_window_to_the_front() {
+    let dir = std::env::temp_dir().join(format!("photocraft-drop-focus-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("photo.png");
+    std::fs::write(&file, png_bytes(8, 8)).unwrap();
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(800.0, 600.0)).with_max_steps(8).build_eframe(|cc| {
+        PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+        PhotocraftApp::new(photocraft_engine::Session::new(), Services::default())
+    });
+    h.run_steps(2);
+    let focus = |h: &egui_kittest::Harness<'_, PhotocraftApp>| {
+        h.output().viewport_output.get(&egui::ViewportId::ROOT).is_some_and(|v| v.commands.contains(&egui::ViewportCommand::Focus))
+    };
+    assert!(!focus(&h), "no focus request without a drop");
+    h.input_mut().dropped_files.push(dropped(file, Err("read from the path".into())));
+    h.step();
+    assert!(focus(&h), "the drop brings the window forward");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// The whole app (eframe harness, real layout): over the tab strip, the pointer read from the OS
