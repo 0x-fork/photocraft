@@ -1940,12 +1940,7 @@ fn antialias_modes_change_edge_fringe() {
         let layer = TextLayer { antialias: mode, ..point("O", 48.0) };
         let (_, r) = e.render(&layer, 72.0, PixelFormat::RGBA8);
         let n = r.surface.channels();
-        r.surface
-            .read_region(r.rect)
-            .chunks_exact(n)
-            .map(|p| f64::from(p[n - 1]))
-            .filter(|&a| a > 0.02 && a < 0.98)
-            .sum::<f64>()
+        r.surface.read_region(r.rect).chunks_exact(n).map(|p| f64::from(p[n - 1])).filter(|&a| a > 0.02 && a < 0.98).sum::<f64>()
     };
 
     let none = fringe_mass(AntiAlias::None);
