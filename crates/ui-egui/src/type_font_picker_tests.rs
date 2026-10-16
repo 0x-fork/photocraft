@@ -499,6 +499,7 @@ struct LibState {
     current: String,
     families: Vec<String>,
     library: super::FontLibrary,
+    popup: egui::Id,
 }
 
 fn library_harness(recent: &[&str], favorites: &[&str]) -> Harness<'static, LibState> {
@@ -520,10 +521,11 @@ fn library_harness_with(
         styles: styles.map(std::sync::Arc::new),
         ..Default::default()
     };
-    let state = LibState { current: "Family 00".into(), families, library };
+    let state = LibState { current: "Family 00".into(), families, library, popup: egui::Id::NULL };
     let mut h = Harness::builder().with_size(vec2(600.0, 900.0)).build_ui_state(
         |ui, s: &mut LibState| {
             let fams = s.families.clone();
+            s.popup = ui.make_persistent_id(egui::IdSalt::new("type-font")).with("popup");
             super::family_picker_in(ui, "type-font", &mut s.current, 170.0, &fams, FontPreview::Medium, &mut s.library);
         },
         state,
@@ -745,4 +747,53 @@ fn the_preview_sets_the_type_layers_text_or_the_selection_being_typed() {
         ed.caret = 400;
     }
     assert_eq!(super::preview_text(&app), None, "an out-of-range selection is blank, not a panic");
+}
+
+/// Minimizing the window (a zero-size screen for a few frames) and restoring it must not leave
+/// the menu wider than its lists: an empty strip appeared beside the list after a minimize.
+#[test]
+fn minimizing_and_restoring_the_window_keeps_the_menu_as_wide_as_its_lists() {
+    let mut h = library_harness(&[], &[]);
+    h.set_size(vec2(1286.0, 900.0));
+    h.run_steps(3);
+    let width = |h: &Harness<'static, LibState>| h.ctx.memory(|m| m.area_rect(h.state().popup)).map(|r| r.width());
+    let before = width(&h).expect("menu open");
+    for size in [vec2(1.0, 1.0), vec2(0.0, 0.0), vec2(1286.0, 900.0)] {
+        h.set_size(size);
+        h.run_steps(3);
+    }
+    let after = width(&h).expect("menu still open");
+    assert!((after - before).abs() < 1.0, "menu width {after} after a minimize, {before} before");
+}
+
+/// The same with the font button near the right edge, as in the Character panel, where the
+/// popup is pushed left against the window's edge.
+#[test]
+fn a_menu_opened_from_the_right_edge_stays_narrow_after_a_minimize() {
+    let mut families: Vec<String> = (0..20).map(|i| format!("Family {i:02}")).collect();
+    families.push("Zeta Sans".into());
+    let state = LibState { current: "Family 00".into(), families, library: Default::default(), popup: egui::Id::NULL };
+    let mut h = Harness::builder().with_size(vec2(1286.0, 900.0)).build_ui_state(
+        |ui, s: &mut LibState| {
+            ui.horizontal(|ui| {
+                ui.add_space(940.0);
+                s.popup = ui.make_persistent_id(egui::IdSalt::new("type-font")).with("popup");
+                let fams = s.families.clone();
+                super::family_picker_in(ui, "type-font", &mut s.current, 300.0, &fams, FontPreview::Medium, &mut s.library);
+            });
+        },
+        state,
+    );
+    h.run();
+    h.query_all_by_role(Role::ComboBox).next().unwrap().click();
+    h.run_steps(4);
+    let width = |h: &Harness<'static, LibState>| h.ctx.memory(|m| m.area_rect(h.state().popup)).map(|r| r.width());
+    let before = width(&h).expect("menu open");
+    for size in [vec2(0.0, 0.0), vec2(300.0, 200.0), vec2(1286.0, 900.0)] {
+        h.set_size(size);
+        h.run_steps(4);
+    }
+    h.run_steps(4);
+    let after = width(&h).expect("menu open again");
+    assert!(after <= before + 1.0, "menu width {after} after a minimize, {before} before");
 }

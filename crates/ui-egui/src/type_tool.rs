@@ -1487,6 +1487,8 @@ const FONT_LIST_WIDTH: f32 = 420.0;
 /// Room the search row keeps for Clear All, and for the filter buttons when they follow the field.
 const FONT_CLEAR_WIDTH: f32 = 84.0;
 const FONT_BUTTONS_WIDTH: f32 = 112.0;
+/// Room right of the font list's viewport for its scroll bar.
+const FONT_SCROLL_BAR_WIDTH: f32 = 14.0;
 /// Room for the format badge (O, TT, VAR) left of the sample.
 const FONT_BADGE_WIDTH: f32 = 28.0;
 
@@ -1524,6 +1526,10 @@ pub(crate) fn family_picker_in(
         .close_behavior(if matches!(close, egui::PopupCloseBehavior::IgnoreClicks) { close } else { egui::PopupCloseBehavior::CloseOnClickOutside });
 
     let response = combo.show_ui(ui, |ui| {
+        // Positions kept between frames are relative to the menu's left edge: the menu moves
+        // (the window's edge pushes it after a resize), and screen positions from an earlier
+        // frame would pad the search row out and widen the menu, an empty strip beside the list.
+        let origin = ui.cursor().min.x;
         let (pass_id, focus_id) = (search_id.with("pass"), search_id.with("focus"));
         let pass = ui.ctx().cumulative_pass_nr();
         let last_pass: Option<u64> = ui.data(|d| d.get_temp(pass_id));
@@ -1561,8 +1567,8 @@ pub(crate) fn family_picker_in(
         crate::font_filters::preview_banner(ui, &previewed, &previewed_label, library.preview_text.as_deref(), menu_width);
         // The filter buttons over the class list, and the search field over the fonts, starting
         // where the list does.
-        let list_left: Option<f32> = ui.data(|d| d.get_temp(list_left_id));
-        let menu_right = body.map(|b| b.right());
+        let list_left: Option<f32> = ui.data(|d| d.get_temp::<f32>(list_left_id)).map(|x| origin + x);
+        let menu_right = body.map(|b| origin + b.right());
         let r = ui
             .horizontal(|ui| {
                 if !filters.hide_classes {
@@ -1762,13 +1768,17 @@ pub(crate) fn family_picker_in(
                     }
                 })
             });
-            ui.data_mut(|d| d.insert_temp(list_left_id, shown.inner_rect.left()));
+            ui.data_mut(|d| d.insert_temp(list_left_id, shown.inner_rect.left() - origin));
+            shown.inner_rect.right()
         });
-        let body = body.response.rect;
+        // The lists' own extent, from the class list to the font list's scroll bar: the row
+        // itself stretches with the popup, so it can't tell when the popup is too wide.
+        let list_right = body.inner + FONT_SCROLL_BAR_WIDTH;
+        let body = egui::Rect::from_min_max(body.response.rect.min, egui::pos2(list_right.min(body.response.rect.right()), body.response.rect.bottom()));
         ui.data_mut(|d| {
             d.insert_temp(filters_id, filters);
             d.insert_temp(expanded_id, expanded);
-            d.insert_temp(body_id, body);
+            d.insert_temp(body_id, body.translate(egui::vec2(-origin, 0.0)));
             if let Some(f) = &hovered {
                 d.insert_temp(preview_id, f.clone());
             }
