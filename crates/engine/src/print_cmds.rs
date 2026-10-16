@@ -76,16 +76,51 @@ pub struct PrintPage {
     pub emulsion_down: bool,
 }
 
+// ISO 32000-1, Annex D.2: the standard Helvetica font below uses WinAnsiEncoding,
+// not UTF-8. Escape non-ASCII bytes as three octal digits so the content stays ASCII
+// and a following digit cannot become part of the escape. Other scripts still need
+// an embedded font; retain the existing '?' fallback for unsupported characters.
 fn pdf_string(s: &str) -> String {
     let mut o = String::from("(");
     for c in s.chars() {
-        match c {
-            '(' | ')' | '\\' => {
+        let byte = match c {
+            '\u{20}'..='\u{7e}' | '\u{a0}'..='\u{ff}' => c as u8,
+            '€' => 0x80,
+            '‚' => 0x82,
+            'ƒ' => 0x83,
+            '„' => 0x84,
+            '…' => 0x85,
+            '†' => 0x86,
+            '‡' => 0x87,
+            'ˆ' => 0x88,
+            '‰' => 0x89,
+            'Š' => 0x8a,
+            '‹' => 0x8b,
+            'Œ' => 0x8c,
+            'Ž' => 0x8e,
+            '‘' => 0x91,
+            '’' => 0x92,
+            '“' => 0x93,
+            '”' => 0x94,
+            '•' => 0x95,
+            '–' => 0x96,
+            '—' => 0x97,
+            '˜' => 0x98,
+            '™' => 0x99,
+            'š' => 0x9a,
+            '›' => 0x9b,
+            'œ' => 0x9c,
+            'ž' => 0x9e,
+            'Ÿ' => 0x9f,
+            _ => b'?',
+        };
+        match byte {
+            b'(' | b')' | b'\\' => {
                 o.push('\\');
-                o.push(c);
+                o.push(char::from(byte));
             }
-            c if c.is_ascii() && !c.is_ascii_control() => o.push(c),
-            _ => o.push('?'),
+            0x80..=0xff => o.push_str(&format!("\\{byte:03o}")),
+            _ => o.push(char::from(byte)),
         }
     }
     o.push(')');
