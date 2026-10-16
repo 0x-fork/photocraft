@@ -155,3 +155,31 @@ fn tool_shortcuts_work_after_another_layer_is_selected() {
     assert_eq!(h.state().ui.tool, crate::state::Tool::Move, "V picks the Move tool");
     assert_eq!(text_of(h.state(), 0, text).as_deref(), Some("Hello"), "and types nothing");
 }
+
+/// Ending an empty Type Mask undoes its session, and undo restores the layer selection from
+/// before it: the layer just selected (or Deselect Layers) must stand. So must it when a Type
+/// Mask with text becomes the selection and its working layer goes.
+#[test]
+fn ending_a_type_mask_keeps_the_new_layer_selection() {
+    for (deselect, text) in [(false, ""), (true, ""), (false, "Mask"), (true, "Mask")] {
+        let mut app = new_app();
+        let first = LayerId(app.run("layer.new.layer", json!({"name": "First"})).unwrap()["layer"].as_u64().unwrap());
+        let second = LayerId(app.run("layer.new.layer", json!({"name": "Second"})).unwrap()["layer"].as_u64().unwrap());
+        app.run("layer.select", json!({"layer": first.0})).unwrap();
+        app.ui.tool = crate::state::Tool::HorizontalTypeMask;
+        let mask = type_new(&mut app, text);
+        if deselect {
+            app.run("select.deselectLayers", json!({})).unwrap();
+        } else {
+            app.run("layer.select", json!({"layer": second.0})).unwrap();
+        }
+        super::end_if_left(&mut app);
+        assert!(app.ui.text_edit.is_none());
+        let st = app.session.active().unwrap();
+        assert!(st.doc.layer(mask).is_none(), "{text:?}: the mask's working layer is gone");
+        assert_eq!(st.doc.selection.is_some(), !text.is_empty(), "{text:?}: text becomes the selection");
+        let want = if deselect { None } else { Some(second) };
+        assert_eq!(st.active_layer, want, "{text:?}, deselect={deselect}: the new selection stands");
+        assert_eq!(st.selected_layers(), want.into_iter().collect::<Vec<_>>(), "{text:?}, deselect={deselect}");
+    }
+}

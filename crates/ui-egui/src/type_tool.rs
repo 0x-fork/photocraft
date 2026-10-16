@@ -1083,9 +1083,21 @@ fn commit_here(app: &mut PhotocraftApp, mods: egui::Modifiers) {
 /// shortcuts as typing and typed into whichever document was active.
 pub fn end_if_left(app: &mut PhotocraftApp) {
     let Some(ed) = app.ui.text_edit.as_ref() else { return };
-    let here = edit_home(app, ed).is_some_and(|h| Some(h) == app.session.active_index());
-    if !here || app.session.active().is_some_and(|st| st.active_layer != Some(LayerId(ed.layer))) {
-        commit(app);
+    let layer = LayerId(ed.layer);
+    if edit_home(app, ed).is_none_or(|h| Some(h) != app.session.active_index()) {
+        return commit(app);
+    }
+    let Some(st) = app.session.active() else { return };
+    if st.active_layer == Some(layer) {
+        return;
+    }
+    // The selection just made stands: ending an empty Type Mask undoes its session, and undo
+    // restores the selection from before it.
+    let chosen = (st.active_layer, st.selected_layers.clone(), st.layer_anchor);
+    commit(app);
+    let moved = app.session.active().is_some_and(|st| (st.active_layer, &st.selected_layers, st.layer_anchor) != (chosen.0, &chosen.1, chosen.2));
+    if moved {
+        let _ = app.session.restore_layer_selection(chosen.0, &chosen.1, chosen.2);
     }
 }
 

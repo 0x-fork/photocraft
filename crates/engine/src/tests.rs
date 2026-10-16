@@ -1580,3 +1580,25 @@ fn merge_down_on_a_group_merges_the_group() {
     s.execute("edit.undo", json!({})).unwrap();
     assert!(s.active().unwrap().doc.layer(photocraft_doc::LayerId(group)).is_some());
 }
+
+/// `restore_layer_selection` puts a multi-layer selection back, drops gone layers, keeps a clean
+/// document clean, and refuses a gone active layer without changing anything.
+#[test]
+fn restore_layer_selection_puts_back_what_still_exists() {
+    let mut s = session_with_doc();
+    let id = |v: Value| LayerId(v["layer"].as_u64().unwrap());
+    let a = id(s.execute("layer.new.layer", json!({})).unwrap());
+    let b = id(s.execute("layer.new.layer", json!({})).unwrap());
+    let gone = LayerId(u64::MAX);
+    s.active_mut().unwrap().saved_revision = s.active().unwrap().revision;
+    s.restore_layer_selection(Some(b), &[a, gone, b], Some(a)).unwrap();
+    let st = s.active().unwrap();
+    assert_eq!((st.active_layer, st.selected_layers(), st.layer_anchor), (Some(b), vec![a, b], Some(a)));
+    assert_eq!(st.saved_revision, st.revision, "selection is not an edit");
+    assert!(matches!(s.restore_layer_selection(Some(gone), &[gone], None), Err(EngineError::NoLayer(_))));
+    assert_eq!(s.active().unwrap().active_layer, Some(b), "an error changes nothing");
+    s.restore_layer_selection(None, &[a], Some(a)).unwrap();
+    let st = s.active().unwrap();
+    assert_eq!((st.active_layer, st.selected_layers(), st.layer_anchor), (None, vec![], None), "no layer selected");
+    assert!(Session::new().restore_layer_selection(None, &[], None).is_err(), "no document");
+}
