@@ -13,10 +13,13 @@ described in [development.md](development.md). UI tools require a running deskto
 ## Tools and resources
 
 - `command_list`: discover engine ids, parameter docs and current enabled state; accepts
-  `filter` and `enabled_only`.
+  `filter` and `enabled_only`. Returns a bare JSON array of
+  `{id, label, menu, shortcut, params, enabled, disabledReason, needsDocument}` objects (see
+  [Command list replies](control-protocol.md#command-list-replies)).
 - `command_run`: `id`, optional `params` and `wait`. Command parameters remain engine-defined.
-- `command_batch`: ordered `steps`, optional `stop_on_error`; one history step per command,
-  not an atomic transaction. Existing per-step results and reply budgets are preserved.
+- `command_batch`: ordered `steps`, optional `stop_on_error` (default true); stops at the first
+  error unless false. Not an atomic transaction: earlier successful steps stay applied, with
+  no rollback. Existing per-step results and reply budgets are preserved.
 - `doc_inspect`: layer tree, history and selection; an empty session returns `document:null`.
   Every layer (including groups and nested children) reports raster-only `hasMask`,
   `hasVectorMask` for vector mask presence, and `vectorMaskEnabled` (`true`/`false` when
@@ -28,6 +31,18 @@ Existing document/session/job/UI tools remain listed, including the documented
 `doc_render_preview` spelling. There are no hidden legacy aliases. Every tool has a title
 and all four annotation hints. Generic command/control tools conservatively advertise writes;
 file saves may replace existing targets. Hints do not grant permission.
+
+After a failed batch, `completed` and per-step `results` report successful steps, not a
+rolled-back transaction. Inspect the document and its history with `doc_inspect`; commands
+do not necessarily add one history entry each. For undoable edits, use `command_run` with
+`{"id":"edit.undo","params":{}}` once per undoable history entry added, inspecting history
+as you recover. Undo does not roll back files written to disk. If a reply-budget error says
+the current step may have completed, inspect its effects before retrying or undoing it.
+
+Before experiments, use `command_run` with `image.duplicate` and `{}` params, or
+`history.newDocument` and `{}` params (copies the current state by default). Both create a
+new active document, leaving the source unchanged; run experimental edits on that copy.
+The optional `state` parameter of `history.newDocument` selects a retained historical state.
 
 Unknown tool arguments return JSON-RPC `-32602`, naming the key, before execution. Batch
 step envelopes are strict too. Nested engine `params` retain their command-specific handling.

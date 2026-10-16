@@ -10,9 +10,18 @@ fn lang(code: &str) -> Lang {
 
 #[test]
 fn requested_languages_resolve_regional_preferences() {
-    for (tag, code) in
-        [("en-US", "en"), ("zh-CN", "zh-hans"), ("ja-JP", "ja"), ("ko-KR", "ko"), ("ru-RU", "ru"), ("uk-UA", "uk"), ("fr-CA", "fr"), ("id-ID", "id")]
-    {
+    for (tag, code) in [
+        ("en-US", "en"),
+        ("zh-CN", "zh-hans"),
+        ("ja-JP", "ja"),
+        ("ko-KR", "ko"),
+        ("ru-RU", "ru"),
+        ("uk-UA", "uk"),
+        ("fr-CA", "fr"),
+        ("id-ID", "id"),
+        ("vi-VN", "vi"),
+        ("sr-RS", "sr"),
+    ] {
         assert_eq!(Lang::from_pref(tag), lang(code), "{tag}");
     }
     assert_eq!(lang_from_tag("ko_KR.UTF-8"), Some(lang("ko")));
@@ -84,7 +93,8 @@ fn dynamic_brush_sections_have_translations_and_draw_in_the_selected_language() 
         h.state_mut().ui.panels.brush_settings = true;
         h.run_steps(4);
         let text = drawn_text(&h);
-        assert!(text.iter().filter(|text| text.as_str() == "画笔笔尖形状").count() >= 2, "both the section row and heading must be translated");
+        // The section row is the only place the name is drawn: the options pane has no heading (#3477).
+        assert_eq!(text.iter().filter(|text| text.as_str() == "画笔笔尖形状").count(), 1, "the section row must be translated");
         assert!(!text.iter().any(|text| text == "Brush Tip Shape"));
     });
 }
@@ -166,6 +176,8 @@ fn cjk_font_order_follows_the_selected_language() {
 #[test]
 fn korean_glyphs_remain_available_after_repeated_language_switches() {
     use photocraft_text::cjk::{self, CjkChar, CjkScript};
+    #[cfg(target_os = "linux")]
+    crate::cjk_fonts::wait_for_fontconfig_cjk_scan();
     if !cjk::font_files(CjkScript::Korean).iter().any(|font| font.path.is_file()) {
         eprintln!("skipping: no installed Korean font");
         return;
@@ -377,7 +389,8 @@ fn czech_status_notices_and_navigator_draw_translated_text() {
         });
         h.run_steps(4);
         let text = drawn_text(&h);
-        for want in ["Zvětšení", "Soubor English file.psd se nepodařilo otevřít: disk full", "Předvolby nelze uložit"] {
+        // The Navigator's own text is its tab title now: its zoom row has no label (#4840).
+        for want in ["Navigátor", "Soubor English file.psd se nepodařilo otevřít: disk full", "Předvolby nelze uložit"] {
             assert!(text.iter().any(|text| text == want), "missing {want}: {text:?}");
         }
         // Czech text must be drawable by the bundled fonts, including the new notices.

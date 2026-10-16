@@ -308,7 +308,7 @@ pub fn new_layer(s: &Session, doc: &Document, p: &Value) -> Result<Layer> {
     let mut l = Layer::new(doc.next_layer_name("Gradient Fill"), LayerContent::Fill(fill));
     l.opacity = opacity;
     l.blend = blend;
-    l.mask = crate::commands::selection_mask(doc);
+    l.mask = crate::commands::selection_mask(doc)?;
     Ok(l)
 }
 

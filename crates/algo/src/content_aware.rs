@@ -30,7 +30,12 @@
 
 use photocraft_geom::Rect;
 
-use crate::inpaint::{Adapt, CompleteParams, Px, complete_masked};
+use std::borrow::Cow;
+
+use photocraft_raster::{Cancelled, Interrupt};
+
+use crate::inpaint::{Adapt, CompleteParams, Px, complete_masked, complete_masked_owned};
+use crate::par;
 use crate::poisson::membrane_fill_with;
 
 /// Options for [`fill`].
@@ -143,7 +148,8 @@ fn sample(src: Src, x: f32, y: f32, out: &mut [f32]) -> bool {
 }
 
 /// Transformed copy of the source: rotation (degrees) and scale about the centre, optional mirror.
-fn variant(src: Src, deg: f32, scale: f32, mirror: bool) -> Variant {
+/// `Err` when cancelled.
+fn variant(src: Src, deg: f32, scale: f32, mirror: bool, ctl: &Interrupt) -> Result<Variant, Cancelled> {
     let Src { w, h, ch, .. } = src;
     let (s, c) = (-deg.to_radians()).sin_cos();
     // Output size: the rotated, scaled bounding box.
@@ -153,8 +159,12 @@ fn variant(src: Src, deg: f32, scale: f32, mirror: bool) -> Variant {
     let (icx, icy) = ((w as f32 - 1.0) / 2.0, (h as f32 - 1.0) / 2.0);
     let (ocx, ocy) = ((ow as f32 - 1.0) / 2.0, (oh as f32 - 1.0) / 2.0);
     let mut out = Variant { w: ow, h: oh, img: vec![0.0; ow * oh * ch], ok: vec![false; ow * oh] };
-    let mut px = vec![0.0f32; ch];
-    for y in 0..oh {
+    // Every pixel is sampled on its own, so the rows can be done in any order.
+    let row = |y: usize, irow: &mut [f32], orow: &mut [bool]| {
+        if ctl.cancelled() {
+            return;
+        }
+        let mut px = vec![0.0f32; ch];
         for x in 0..ow {
             let (dx, dy) = ((x as f32 - ocx) / scale, (y as f32 - ocy) / scale);
             let mut sx = icx + dx * c - dy * s;
@@ -163,13 +173,14 @@ fn variant(src: Src, deg: f32, scale: f32, mirror: bool) -> Variant {
                 sx = (w as f32 - 1.0) - sx;
             }
             if sample(src, sx, sy, &mut px) {
-                let i = y * ow + x;
-                out.ok[i] = true;
-                out.img[i * ch..(i + 1) * ch].copy_from_slice(&px);
+                orow[x] = true;
+                irow[x * ch..(x + 1) * ch].copy_from_slice(&px);
             }
         }
-    }
-    out
+    };
+    par::chunks2_mut(&mut out.img, ow * ch, &mut out.ok, ow, true, row);
+    ctl.check()?;
+    Ok(out)
 }
 
 /// Fill `hole` in `img`, copying only from pixels where `source` is true (and not in the hole).
@@ -192,80 +203,135 @@ pub fn fill_with(
     opts: &FillOptions,
     ctl: &photocraft_raster::Interrupt,
 ) -> Result<Vec<f32>, photocraft_raster::Cancelled> {
+    fill_cow(w, h, ch, Cow::Borrowed(img), hole, source, opts, ctl)
+}
+
+/// [`fill_with`] that fills `img` itself rather than a copy of it (a big window need not be held
+/// twice). The result differs from `img` only in the hole.
+#[allow(clippy::too_many_arguments)]
+pub fn fill_owned(
+    w: usize,
+    h: usize,
+    ch: usize,
+    img: Vec<f32>,
+    hole: &[bool],
+    source: &[bool],
+    opts: &FillOptions,
+    ctl: &photocraft_raster::Interrupt,
+) -> Result<Vec<f32>, photocraft_raster::Cancelled> {
+    fill_cow(w, h, ch, Cow::Owned(img), hole, source, opts, ctl)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn fill_cow(
+    w: usize,
+    h: usize,
+    ch: usize,
+    img: Cow<[f32]>,
+    hole: &[bool],
+    source: &[bool],
+    opts: &FillOptions,
+    ctl: &photocraft_raster::Interrupt,
+) -> Result<Vec<f32>, photocraft_raster::Cancelled> {
     assert_eq!(img.len(), w * h * ch);
     assert_eq!(hole.len(), w * h);
     assert_eq!(source.len(), w * h);
     if !hole.iter().any(|h| *h) {
-        return Ok(img.to_vec());
+        return Ok(img.into_owned());
     }
     let params = CompleteParams { seed: opts.seed, adapt: opts.color_adaptation, ..Default::default() };
     let gap = 2 * params.patch_radius + 2;
-    let ok: Vec<bool> = hole.iter().zip(source).map(|(h, s)| !h && *s).collect();
-    let src = Src { w, h, ch, img, ok: &ok };
+    let ok: Vec<bool> = par::map(w * h, true, |i| !hole[i] && source[i]);
+    let src = Src { w, h, ch, img: &img, ok: &ok };
     // Variants: the identity (which holds the hole) first, then the adaptations.
     let mut extra: Vec<Variant> = Vec::new();
     if opts.mirror {
-        extra.push(variant(src, 0.0, 1.0, true));
+        extra.push(variant(src, 0.0, 1.0, true, ctl)?);
     }
     for &deg in &opts.rotations {
-        extra.push(variant(src, deg, 1.0, false));
+        extra.push(variant(src, deg, 1.0, false, ctl)?);
     }
     if opts.scale {
-        extra.push(variant(src, 0.0, 0.8, false));
-        extra.push(variant(src, 0.0, 1.25, false));
+        extra.push(variant(src, 0.0, 0.8, false, ctl)?);
+        extra.push(variant(src, 0.0, 1.25, false, ctl)?);
     }
-    // Mosaic: identity at the left, variants in a column to its right, gaps that are no image.
-    let col_w = extra.iter().map(|v| v.w).max().unwrap_or(0);
-    let col_h: usize = extra.iter().map(|v| v.h + gap).sum();
-    let mw = if extra.is_empty() { w } else { w + gap + col_w };
-    let mh = h.max(col_h);
-    let mut mimg = vec![0.0f32; mw * mh * ch];
-    let mut roles = vec![Px::Void; mw * mh];
-    for y in 0..h {
-        for x in 0..w {
-            let (s, d) = (y * w + x, y * mw + x);
-            mimg[d * ch..(d + 1) * ch].copy_from_slice(&img[s * ch..(s + 1) * ch]);
-            roles[d] = if hole[s] {
-                Px::Hole
-            } else if ok[s] {
-                Px::Source
-            } else {
-                Px::Known
-            };
+    let role = |s: usize| {
+        if hole[s] {
+            Px::Hole
+        } else if ok[s] {
+            Px::Source
+        } else {
+            Px::Known
         }
-    }
-    let mut oy = 0;
-    for v in &extra {
-        for y in 0..v.h {
-            for x in 0..v.w {
-                let (s, d) = (y * v.w + x, (oy + y) * mw + w + gap + x);
-                mimg[d * ch..(d + 1) * ch].copy_from_slice(&v.img[s * ch..(s + 1) * ch]);
-                if v.ok[s] {
-                    roles[d] = Px::Source;
-                }
+    };
+    // Mosaic: identity at the left, variants in a column to its right, gaps that are no image.
+    // Without variants it is the image itself.
+    let (mw, mh, mosaic, roles): (usize, usize, Option<Vec<f32>>, Vec<Px>) = if extra.is_empty() {
+        (w, h, None, par::map(w * h, true, role))
+    } else {
+        let col_w = extra.iter().map(|v| v.w).max().unwrap_or(0);
+        let col_h: usize = extra.iter().map(|v| v.h + gap).sum();
+        let mw = w + gap + col_w;
+        let mh = h.max(col_h);
+        let mut mimg = vec![0.0f32; mw * mh * ch];
+        let mut roles = vec![Px::Void; mw * mh];
+        for y in 0..h {
+            for x in 0..w {
+                let (s, d) = (y * w + x, y * mw + x);
+                mimg[d * ch..(d + 1) * ch].copy_from_slice(&img[s * ch..(s + 1) * ch]);
+                roles[d] = role(s);
             }
         }
-        oy += v.h + gap;
-    }
+        let mut oy = 0;
+        for v in &extra {
+            ctl.check()?;
+            for y in 0..v.h {
+                for x in 0..v.w {
+                    let (s, d) = (y * v.w + x, (oy + y) * mw + w + gap + x);
+                    mimg[d * ch..(d + 1) * ch].copy_from_slice(&v.img[s * ch..(s + 1) * ch]);
+                    if v.ok[s] {
+                        roles[d] = Px::Source;
+                    }
+                }
+            }
+            oy += v.h + gap;
+        }
+        (mw, mh, Some(mimg), roles)
+    };
+    drop((extra, ok));
     ctl.check()?;
     // The completion is nearly all the work.
     let cancel = || ctl.cancelled();
     let progress = |f: f32| ctl.progress(f * 0.99);
-    let filled = complete_masked(mw, mh, ch, &mimg, &roles, &params, &photocraft_raster::Interrupt::new(&cancel, &progress))?;
-    let mut out = img.to_vec();
-    match filled {
-        Some(f) => {
-            for y in 0..h {
-                for x in 0..w {
-                    if hole[y * w + x] {
-                        let (s, d) = ((y * mw + x) * ch, (y * w + x) * ch);
-                        out[d..d + ch].copy_from_slice(&f[s..s + ch]);
-                    }
-                }
+    let inner = photocraft_raster::Interrupt::new(&cancel, &progress);
+    let out = match mosaic {
+        // Without variants the image itself is completed (it changes only in the hole).
+        None => {
+            let filled: Result<Vec<f32>, Cow<[f32]>> = match img {
+                Cow::Owned(v) => complete_masked_owned(w, h, ch, v, &roles, &params, &inner)?.map_err(Cow::Owned),
+                Cow::Borrowed(b) => complete_masked(w, h, ch, b, &roles, &params, &inner)?.ok_or(Cow::Borrowed(b)),
+            };
+            match filled {
+                Ok(f) => f,
+                Err(img) => membrane_fill_with(w, h, ch, &img, hole, ctl)?,
             }
         }
-        None => out = membrane_fill_with(w, h, ch, img, hole, ctl)?,
-    }
+        Some(mimg) => match complete_masked(mw, mh, ch, &mimg, &roles, &params, &inner)? {
+            Some(f) => {
+                let mut out = img.into_owned();
+                for y in 0..h {
+                    for x in 0..w {
+                        if hole[y * w + x] {
+                            let (s, d) = ((y * mw + x) * ch, (y * w + x) * ch);
+                            out[d..d + ch].copy_from_slice(&f[s..s + ch]);
+                        }
+                    }
+                }
+                out
+            }
+            None => membrane_fill_with(w, h, ch, &img, hole, ctl)?,
+        },
+    };
     ctl.check()?;
     ctl.progress(1.0);
     Ok(out)
@@ -305,36 +371,50 @@ const AUTO_SIDE: usize = 384;
 /// pixels that may be copied from (never the hole). Falls back to everything outside the hole
 /// when the area would be too small to copy from.
 pub fn auto_sampling(w: usize, h: usize, ch: usize, img: &[f32], hole: &[bool]) -> Vec<bool> {
-    use crate::segment::{FREE, HARD_FG, RgbImage, grid_cut_with};
+    // Never cancelled; the fallback (everything outside the hole) is unreachable.
+    auto_sampling_with(w, h, ch, img, hole, &Interrupt::NONE).unwrap_or_else(|_| hole.iter().map(|h| !h).collect())
+}
+
+/// [`auto_sampling`] that can be cancelled. `Err(Cancelled)` when `ctl` was cancelled.
+pub fn auto_sampling_with(w: usize, h: usize, ch: usize, img: &[f32], hole: &[bool], ctl: &Interrupt) -> Result<Vec<bool>, Cancelled> {
+    use crate::segment::{FREE, HARD_FG, RgbImage, grid_cut_cancellable};
     assert_eq!(img.len(), w * h * ch);
     assert_eq!(hole.len(), w * h);
-    let everything: Vec<bool> = hole.iter().map(|h| !h).collect();
+    let everything = || -> Vec<bool> { par::map(hole.len(), true, |i| !hole[i]) };
     if w == 0 || h == 0 || ch == 0 || !hole.iter().any(|h| *h) {
-        return everything;
+        return Ok(everything());
     }
     // Work at a reduced scale for big windows (the area is smooth at this scale).
     let k = w.max(h).div_ceil(AUTO_SIDE).max(1);
     let (sw, sh) = (w.div_ceil(k), h.div_ceil(k));
     let nc = ch.min(3);
-    let mut planes = vec![vec![0.0f32; sw * sh]; nc];
-    let mut shole = vec![false; sw * sh];
-    let mut cnt = vec![0.0f32; sw * sh];
-    for y in 0..h {
-        for x in 0..w {
-            let i = (y / k) * sw + x / k;
-            let p = y * w + x;
-            if hole[p] {
-                shole[i] = true;
-            }
-            for (c, pl) in planes.iter_mut().enumerate() {
-                pl[i] += img[p * ch + c];
-            }
-            cnt[i] += 1.0;
+    // Each cell sums its k × k pixels, a row of cells at a time (in the same order as one pass
+    // over the image would).
+    // Per cell: the sums of its colour planes, its pixel count and whether it holds the hole.
+    let mut sums = vec![0.0f32; sw * sh * (nc + 2)];
+    par::chunks_mut(&mut sums, sw * (nc + 2), true, |sy, row| {
+        if ctl.cancelled() {
+            return;
         }
-    }
-    for pl in &mut planes {
-        pl.iter_mut().zip(&cnt).for_each(|(v, n)| *v /= n.max(1.0));
-    }
+        for y in sy * k..((sy + 1) * k).min(h) {
+            for x in 0..w {
+                let cell = &mut row[(x / k) * (nc + 2)..(x / k + 1) * (nc + 2)];
+                let p = y * w + x;
+                if hole[p] {
+                    cell[nc + 1] = 1.0;
+                }
+                for c in 0..nc {
+                    cell[c] += img[p * ch + c];
+                }
+                cell[nc] += 1.0;
+            }
+        }
+    });
+    ctl.check()?;
+    let cell = |i: usize| &sums[i * (nc + 2)..(i + 1) * (nc + 2)];
+    let planes: Vec<Vec<f32>> = (0..nc).map(|c| (0..sw * sh).map(|i| cell(i)[c] / cell(i)[nc].max(1.0)).collect()).collect();
+    let shole: Vec<bool> = (0..sw * sh).map(|i| cell(i)[nc + 1] > 0.0).collect();
+    drop(sums);
     // Features: local means and local contrast (of the luma-ish average of the colour planes).
     let r = 3;
     let means: Vec<Vec<f32>> = planes.iter().map(|p| box_mean(sw, sh, p, r)).collect();
@@ -354,8 +434,9 @@ pub fn auto_sampling(w: usize, h: usize, ch: usize, img: &[f32], hole: &[bool]) 
     let ring_w = 6.0f32 / k as f32 + 1.0;
     let ring: Vec<usize> = (0..sw * sh).filter(|&i| !shole[i] && dist[i] <= ring_w).collect();
     if ring.is_empty() {
-        return everything;
+        return Ok(everything());
     }
+    ctl.check()?;
     // A few cluster centres of the ring's features (k-means, deterministic start).
     let kc = 6.min(ring.len());
     let mut f = vec![0.0f32; nf];
@@ -393,8 +474,10 @@ pub fn auto_sampling(w: usize, h: usize, ch: usize, img: &[f32], hole: &[bool]) 
     let mut cost_fg = vec![0.0f32; sw * sh];
     let mut cost_bg = vec![0.0f32; sw * sh];
     let mut fixed = vec![FREE; sw * sh];
+    // Always the hole's own edge, and around a thin selection each part's surroundings.
+    let keep = thin_band(sw, sh, &shole);
     for i in 0..sw * sh {
-        if shole[i] || dist[i] <= 1.5 {
+        if shole[i] || dist[i] <= keep {
             fixed[i] = HARD_FG;
             continue;
         }
@@ -410,20 +493,37 @@ pub fn auto_sampling(w: usize, h: usize, ch: usize, img: &[f32], hole: &[bool]) 
     // Contrast-sensitive smoothness (the weight of a squared colour difference). The scale of
     // "similar" and this weight were fitted to Photoshop's Auto overlays (mean IoU 0.92 on ten
     // synthetic and public-domain cases).
-    let area = grid_cut_with(&rgb, &cost_fg, &cost_bg, &fixed, |d2| 8.0 * (-d2 / (2.0 * 0.05 * 0.05)).exp() + 0.05);
+    ctl.check()?;
+    let area =
+        grid_cut_cancellable(&rgb, &cost_fg, &cost_bg, &fixed, |d2| 8.0 * (-d2 / (2.0 * 0.05 * 0.05)).exp() + 0.05, &|| ctl.cancelled()).ok_or(Cancelled)?;
     let mut out = vec![false; w * h];
-    for y in 0..h {
-        for x in 0..w {
-            let i = y * w + x;
-            out[i] = !hole[i] && area[(y / k) * sw + x / k];
+    par::chunks_mut(&mut out, w, true, |y, row| {
+        for (x, o) in row.iter_mut().enumerate() {
+            *o = !hole[y * w + x] && area[(y / k) * sw + x / k];
         }
-    }
+    });
     // Too little to copy from (fewer source pixels than twice the hole): sample everything.
-    let n_hole = hole.iter().filter(|h| **h).count();
-    if out.iter().filter(|o| **o).count() < 2 * n_hole.max(64) {
-        return everything;
+    let n_hole = par::count(hole.len(), |i| hole[i]);
+    if par::count(out.len(), |i| out[i]) < 2 * n_hole.max(64) {
+        return Ok(everything());
     }
-    out
+    Ok(out)
+}
+
+/// How far around a thin selection (strings, wires, and any small parts selected with them, all
+/// at most a quarter as thick as the selection is long) the Auto area always reaches, in cells of
+/// a `w × h` grid: as far as the selection is thick, so that each part, however far from the
+/// rest, keeps its own surroundings to copy from. 1.5 cells for any other selection.
+fn thin_band(w: usize, h: usize, hole: &[bool]) -> f32 {
+    let inside = crate::selection::edt(&hole.iter().map(|h| !h).collect::<Vec<_>>(), w, h);
+    let thickness = 2.0 * inside.iter().zip(hole).filter(|(_, h)| **h).map(|(d, _)| *d).fold(0.0f32, f32::max);
+    let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0, 0);
+    for (i, _) in hole.iter().enumerate().filter(|(_, h)| **h) {
+        let (x, y) = (i % w, i / w);
+        (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x + 1), y1.max(y + 1));
+    }
+    let extent = x1.saturating_sub(x0).max(y1.saturating_sub(y0)) as f32;
+    if 4.0 * thickness <= extent { thickness.max(1.5) } else { 1.5 }
 }
 
 /// The Patch Tool's and the Content-Aware Move Tool's Color option (0–10) as the colour adaptation
@@ -498,6 +598,36 @@ mod tests {
     }
 
     #[test]
+    fn filling_in_place_is_filling_a_copy() {
+        let (w, h) = (90, 70);
+        let rgb: Vec<f32> = noise(w, h, 4).iter().enumerate().map(|(i, v)| v * 0.5 + 0.3 * ((i / 3 % w) % 11 < 5) as u8 as f32).collect();
+        let hole: Vec<bool> = (0..w * h).map(|i| (30..52).contains(&(i % w)) && (25..44).contains(&(i / w))).collect();
+        let source: Vec<bool> = (0..w * h).map(|i| i % w < 75).collect();
+        let none = Interrupt::NONE;
+        for opts in [FillOptions::default(), FillOptions { color_adaptation: Adapt::NONE, mirror: true, ..Default::default() }] {
+            let copy = fill_with(w, h, 3, &rgb, &hole, &source, &opts, &none).unwrap();
+            let owned = fill_owned(w, h, 3, rgb.clone(), &hole, &source, &opts, &none).unwrap();
+            assert_eq!(copy.iter().map(|v| v.to_bits()).collect::<Vec<_>>(), owned.iter().map(|v| v.to_bits()).collect::<Vec<_>>());
+            // Only the hole changes.
+            assert!((0..w * h).all(|i| hole[i] || (0..3).all(|c| owned[i * 3 + c].to_bits() == rgb[i * 3 + c].to_bits())));
+        }
+        // Nothing to copy from: the membrane, either way.
+        let nowhere = vec![false; w * h];
+        let copy = fill_with(w, h, 3, &rgb, &hole, &nowhere, &FillOptions::default(), &none).unwrap();
+        assert_eq!(copy, fill_owned(w, h, 3, rgb.clone(), &hole, &nowhere, &FillOptions::default(), &none).unwrap());
+    }
+
+    #[test]
+    fn auto_sampling_can_be_cancelled() {
+        let (w, h) = (200, 160);
+        let img: Vec<f32> = noise(w, h, 5).iter().enumerate().map(|(i, v)| v * 0.1 + if (i / 3) % w < 120 { 0.3 } else { 0.6 }).collect();
+        let hole: Vec<bool> = (0..w * h).map(|i| (80..110).contains(&(i % w)) && (60..90).contains(&(i / w))).collect();
+        let yes = || true;
+        assert!(auto_sampling_with(w, h, 3, &img, &hole, &Interrupt::cancel_only(&yes)).is_err());
+        assert_eq!(auto_sampling_with(w, h, 3, &img, &hole, &Interrupt::NONE).unwrap(), auto_sampling(w, h, 3, &img, &hole));
+    }
+
+    #[test]
     fn fills_only_the_hole_with_known_texture() {
         let (w, h) = (48, 32);
         let (img, hole) = stripes(w, h);
@@ -548,6 +678,26 @@ mod tests {
         let out = fill(w, h, 1, &img, &hole, &src, &FillOptions { color_adaptation: color_level("veryHigh"), ..Default::default() });
         let err: f32 = (0..w * h).filter(|i| hole[*i]).map(|i| (out[i] - img[i]).abs()).sum::<f32>() / 120.0;
         assert!(err < 0.12, "mean error {err}");
+    }
+
+    /// A vertical sky gradient (each row one colour) filled at every adaptation level stays the
+    /// gradient: no tinted blotch where the copied rows' colours were shifted per channel.
+    #[test]
+    fn color_adaptation_leaves_a_smooth_gradient_untinted() {
+        let (w, h) = (120, 60);
+        let row = |y: usize| {
+            let t = y as f32 / (h - 1) as f32;
+            [0.27 + 0.45 * t, 0.53 + 0.32 * t, 0.86 + 0.1 * t]
+        };
+        let img: Vec<f32> = (0..w * h).flat_map(|i| row(i / w)).collect();
+        let hole: Vec<bool> = (0..w * h).map(|i| (50..70).contains(&(i % w)) && (20..40).contains(&(i / w))).collect();
+        let src = vec![true; w * h];
+        for level in ["none", "default", "high", "veryHigh"] {
+            let out = fill(w, h, 3, &img, &hole, &src, &FillOptions { color_adaptation: color_level(level), ..Default::default() });
+            let (out, img) = (&out, &img);
+            let worst = (0..w * h).filter(|i| hole[*i]).flat_map(|i| (0..3).map(move |c| (out[i * 3 + c] - img[i * 3 + c]).abs())).fold(0.0f32, f32::max);
+            assert!(worst < 3.0 / 255.0, "{level}: off by {}", worst * 255.0);
+        }
     }
 
     /// I.i.d. noise: every value occurs once, so a filled pixel equal to an image pixel was copied.
@@ -620,6 +770,31 @@ mod tests {
     }
 
     #[test]
+    fn auto_sampling_keeps_the_surroundings_of_every_part_of_a_thin_selection() {
+        // A long thin selection across a grey ramp, and a small knob selected with it in a red
+        // corner. Each part keeps its own surroundings; a compact selection is unchanged.
+        let (w, h) = (900, 600);
+        let tex = noise(w, h, 4);
+        let img: Vec<f32> = (0..w * h * 3)
+            .map(|i| {
+                let (x, y, c) = ((i / 3) % w, (i / 3) / w, i % 3);
+                let base = if x > 690 && y > 420 { [0.7, 0.25, 0.2][c] } else { 0.2 + 0.5 * x as f32 / w as f32 };
+                base + (tex[i] - 0.5) * 0.04
+            })
+            .collect();
+        let line = |i: usize| (30..870).contains(&(i % w)) && (180..192).contains(&(i / w));
+        let knob = |i: usize| ((i % w) as f32 - 795.0).hypot((i / w) as f32 - 510.0) < 10.0;
+        let hole: Vec<bool> = (0..w * h).map(|i| line(i) || knob(i)).collect();
+        let area = auto_sampling(w, h, 3, &img, &hole);
+        let around_knob = (0..w * h).filter(|&i| !hole[i] && ((i % w) as f32 - 795.0).hypot((i / w) as f32 - 510.0) < 24.0);
+        let (n, kept) = around_knob.fold((0, 0), |(n, k), i| (n + 1, k + usize::from(area[i])));
+        assert!(kept as f32 > 0.9 * n as f32, "{kept} of {n} pixels around the knob");
+        assert!(thin_band(w, h, &hole) >= 20.0, "{}", thin_band(w, h, &hole));
+        let disc: Vec<bool> = (0..w * h).map(|i| ((i % w) as f32 - 450.0).hypot((i / w) as f32 - 300.0) < 90.0).collect();
+        assert_eq!(thin_band(w, h, &disc), 1.5);
+    }
+
+    #[test]
     fn without_colour_adaptation_the_fill_copies_pixels_exactly() {
         // A smooth texture with fine noise, so that every value is unique: a filled pixel equal to
         // an image pixel was copied from it. Photoshop's fill (colour adaptation None) is such
@@ -666,14 +841,124 @@ mod tests {
         assert!((shift(10) - 0.4).abs() < 0.01, "{}", shift(10));
     }
 
+    /// A soft background (gradients, broad out-of-focus blobs of colour, fine noise) with thin, long bright
+    /// objects over it: three coiled strings 3 to 7 px wide and two straighter ones, each with an
+    /// anti-aliased edge and a faint halo. Returns the image; what removing the coils should give
+    /// (the background and the straighter strings, which stay); and the selection a user would draw
+    /// around the coils, `margin` px wide.
+    fn strings_scene(w: usize, h: usize, margin: f32) -> (Vec<f32>, Vec<f32>, Vec<bool>) {
+        let fine = noise(w, h, 11);
+        // Out-of-focus colour: broad blobs over two gradients.
+        let blob = noise(3, 3, 5);
+        let bg: Vec<f32> = (0..w * h * 3)
+            .map(|i| {
+                let (x, y, c) = (((i / 3) % w) as f32 / w as f32, ((i / 3) / w) as f32 / h as f32, i % 3);
+                let mut v = [0.18 + 0.25 * x, 0.22 + 0.1 * y, 0.3 - 0.1 * x][c];
+                for b in blob.as_chunks::<3>().0 {
+                    let (bx, by, s) = (b[0] * 1.6 - 0.3, b[1] * 1.6 - 0.3, 0.1 + 0.25 * b[2]);
+                    v += (b[(c + 1) % 3] - 0.2) * 0.5 * (-((x - bx).powi(2) + (y - by).powi(2) * 0.56) / (2.0 * s * s)).exp();
+                }
+                v + (fine[i] - 0.5) * 0.03
+            })
+            .collect();
+        // Signed distance to each object's surface, stamped from points along it.
+        let stamp = |sd: &mut [f32], pts: &mut dyn Iterator<Item = (f32, f32)>, half: f32| {
+            for (px, py) in pts {
+                let reach = (half + 4.0) as i32 + 1;
+                for dy in -reach..=reach {
+                    for dx in -reach..=reach {
+                        let (x, y) = (px as i32 + dx, py as i32 + dy);
+                        if x >= 0 && y >= 0 && (x as usize) < w && (y as usize) < h {
+                            let i = y as usize * w + x as usize;
+                            sd[i] = sd[i].min((x as f32 - px).hypot(y as f32 - py) - half);
+                        }
+                    }
+                }
+            }
+        };
+        let mut coils = vec![f32::INFINITY; w * h];
+        for (k, half) in [1.5f32, 2.5, 3.5].into_iter().enumerate() {
+            let (y0, r) = ((0.22 + 0.28 * k as f32) * h as f32, 10.0 + 2.0 * k as f32);
+            let mut pts = (0..4000).map(|j| {
+                let t = j as f32 / 4000.0;
+                let a = 8.0 * std::f32::consts::TAU * t;
+                (18.0 + t * (w as f32 - 60.0) + r * a.cos(), y0 + 6.0 * (6.0 * t).sin() + 0.7 * r * a.sin())
+            });
+            stamp(&mut coils, &mut pts, half);
+        }
+        let mut straight = vec![f32::INFINITY; w * h];
+        for y in [0.07, 0.93] {
+            stamp(&mut straight, &mut (0..2000).map(|j| (j as f32 / 2000.0 * w as f32, y * h as f32 + 3.0 * (j as f32 / 300.0).sin())), 2.0);
+        }
+        let draw = |base: &[f32], sd: &[f32]| -> Vec<f32> {
+            let mut img = base.to_vec();
+            for i in 0..w * h {
+                let cover = (0.5 - sd[i]).clamp(0.0, 1.0);
+                let halo = if sd[i] > 0.0 { 0.08 * (-sd[i] * sd[i] / 2.9).exp() } else { 0.0 };
+                for (c, metal) in [0.9f32, 0.85, 0.7].into_iter().enumerate() {
+                    let v = &mut img[i * 3 + c];
+                    *v = *v * (1.0 - cover) + metal * cover + halo * (1.0 - cover);
+                }
+            }
+            img
+        };
+        let clean = draw(&bg, &straight);
+        let both: Vec<f32> = coils.iter().zip(&straight).map(|(a, b)| a.min(*b)).collect();
+        let img = draw(&bg, &both);
+        let hole = coils.iter().map(|d| *d <= margin).collect();
+        (img, clean, hole)
+    }
+
+    /// RMS over the hole of the error averaged over 7 × 7 pixels (in levels of 255): the noise
+    /// cancels out, a ghost of the removed outline or a blotch of another shade does not.
+    fn blotch_error(w: usize, h: usize, out: &[f32], clean: &[f32], hole: &[bool]) -> f32 {
+        let (mut sum, mut n) = (0.0f64, 0usize);
+        for y in 3..h - 3 {
+            for x in 3..w - 3 {
+                if !hole[y * w + x] {
+                    continue;
+                }
+                let mut e = [0.0f32; 3];
+                for j in (y - 3..=y + 3).flat_map(|yy| (x - 3..=x + 3).map(move |xx| yy * w + xx)) {
+                    for (c, ec) in e.iter_mut().enumerate() {
+                        *ec += out[j * 3 + c] - clean[j * 3 + c];
+                    }
+                }
+                sum += f64::from(e.iter().map(|v| (v / 49.0).powi(2)).sum::<f32>() / 3.0);
+                n += 1;
+            }
+        }
+        ((sum / n.max(1) as f64).sqrt() * 255.0) as f32
+    }
+
+    /// Removing thin, long objects (guitar strings, wires) from a soft background (#1366): the
+    /// fill is the background, with no ghost of their outline and nothing of their colour copied
+    /// back in. Their selection is long but only a few pixels thick, so the fill is worked out at
+    /// a scale where it is still a few pixels thick rather than one where the strings' surroundings
+    /// have merged into a blur.
+    #[test]
+    fn thin_objects_leave_no_ghost_and_none_of_their_colour() {
+        let (w, h) = (360, 270);
+        let (img, clean, hole) = strings_scene(w, h, 2.0);
+        let source = auto_sampling(w, h, 3, &img, &hole);
+        let out = fill(w, h, 3, &img, &hole, &source, &FillOptions::default());
+        let blotch = blotch_error(w, h, &out, &clean, &hole);
+        let luma = |v: &[f32], i: usize| (v[i * 3] + v[i * 3 + 1] + v[i * 3 + 2]) / 3.0;
+        let bright = (0..w * h).filter(|&i| hole[i] && luma(&out, i) > luma(&clean, i) + 0.06).count();
+        // Before #1366 the outlines stayed as darker and lighter blotches (13 levels of 255) and
+        // 1121 pixels took the strings' colour.
+        assert!(blotch < 2.5, "ghosts and blotches: {blotch:.2} levels of 255");
+        assert_eq!(bright, 0, "filled pixels with the strings' colour");
+    }
+
     #[test]
     fn variant_geometry() {
         let img = vec![0.5f32; 10 * 6];
         let ok = vec![true; 60];
         let src = Src { w: 10, h: 6, ch: 1, img: &img, ok: &ok };
-        let v = variant(src, 90.0, 1.0, false);
+        let v = variant(src, 90.0, 1.0, false, &Interrupt::NONE).unwrap();
         assert_eq!((v.w, v.h), (6, 10));
-        let v = variant(src, 0.0, 0.8, true);
+        let v = variant(src, 0.0, 0.8, true, &Interrupt::NONE).unwrap();
         assert_eq!((v.w, v.h), (8, 5));
         assert!(v.ok.iter().filter(|o| **o).count() > 20);
     }

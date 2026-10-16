@@ -120,9 +120,9 @@ pub fn guard_window_close(app: &mut PhotocraftApp, ctx: &egui::Context) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         return;
     }
-    // A save still writing in the background finishes first (a saved copy, say, leaves nothing
-    // unsaved); `jobs_ui` repeats the close when it ends.
-    if app.saving() {
+    // A save or print worker must finish its external side effect before the process exits;
+    // `jobs_ui` repeats the close after completion and keeps errors visible.
+    if app.saving() || app.printing() {
         ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         app.jobs.close_after_saves = true;
         return;
@@ -192,7 +192,8 @@ fn save(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId) -> bool {
         return false;
     }
     match saved {
-        Ok(_) => !app.save_options_open() && !app.saving(),
+        // A Save Document script may have edited the document after it was written: still dirty.
+        Ok(_) => !app.save_options_open() && !app.saving() && index_of(app, doc).is_some_and(|i| !app.session.documents()[i].is_dirty()),
         // Backing out of the file dialog is the user's choice, not an error.
         Err(e) if e == crate::file_dialog::CANCELLED => false,
         Err(e) => {
@@ -249,7 +250,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     // The answers in the platform's words; `dialog_buttons` puts them in its order. Windows (and
     // Linux) ask Yes / No / Cancel with Y, N and Esc, as Photoshop does there; macOS asks
     // Don't Save / Cancel / Save. Esc always cancels (the modal closes on it).
-    let cancel = (ButtonRole::Cancel, "Cancel", mac.then_some(Key::C), 84.0, Answer::Cancel);
+    // Yes/No already show Y/N. Cancel gets C on every platform (#4582). macOS still hides the
+    // letters and keeps the shortcut.
+    let cancel = (ButtonRole::Cancel, "Cancel", Some(Key::C), 84.0, Answer::Cancel);
     let buttons = if reverts {
         vec![(ButtonRole::Default, "Revert", Some(Key::R), 84.0, Answer::Discard), cancel]
     } else if mac {
@@ -262,7 +265,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         vec![(ButtonRole::Default, "Yes", Some(Key::Y), 84.0, Answer::Save), (ButtonRole::Alternate, "No", Some(Key::N), 84.0, Answer::Discard), cancel]
     };
     let mut answer = ctx.input_mut(|i| buttons.iter().find(|b| b.2.is_some_and(|k| i.consume_key(egui::Modifiers::NONE, k))).map(|b| b.4));
-    let labels: Vec<String> = buttons.iter().map(|b| button_label(mac, b.1, b.2)).collect();
+    let labels = button_labels(mac, &buttons.iter().map(|b| (b.1, b.2)).collect::<Vec<_>>());
     let row: Vec<DialogButton> = buttons.iter().zip(&labels).map(|(b, label)| DialogButton::new(b.0, label, b.3)).collect();
     let modal = egui::Modal::new(egui::Id::new("discard-prompt")).show(ctx, |ui| {
         ui.set_max_width(420.0);
@@ -286,12 +289,68 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if answer.is_none() && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter)) {
         answer = buttons.iter().find(|b| b.0 == ButtonRole::Default).map(|b| b.4);
     }
-    match answer {
-        Some(Answer::Cancel) => app.discard = None,
-        Some(Answer::Discard) => advance(app, ctx),
-        Some(Answer::Save) if save(app, ctx, doc) => advance(app, ctx),
-        _ => {}
+    if let Some(answer) = answer {
+        apply(app, ctx, doc, answer);
     }
+}
+
+/// Acts on the answer about `doc`, the document the prompt is asking about.
+fn apply(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId, answer: Answer) {
+    match answer {
+        Answer::Cancel => app.discard = None,
+        Answer::Discard => advance(app, ctx),
+        Answer::Save if save(app, ctx, doc) => advance(app, ctx),
+        Answer::Save => {}
+    }
+}
+
+/// The id `ui.inspect` lists the prompt under; `ui.dialog.confirm` and `ui.dialog.cancel` answer
+/// it by this id, so a control client can see and answer it like the window's buttons (#4920).
+pub const CONTROL_ID: &str = "discard";
+
+/// The prompt as `ui.inspect` lists it among the dialogs: the command waiting on it, the document
+/// it asks about, how many are still to answer, and the choices `ui.dialog.confirm` takes.
+pub fn inspect(app: &PhotocraftApp) -> Option<Value> {
+    let p = app.discard.as_ref()?;
+    let doc = *p.docs.first()?;
+    let name = index_of(app, doc).and_then(|i| app.session.documents().get(i)).map(|d| d.doc.name.clone())?;
+    let reverts = p.id == "file.revert";
+    let (choices, default): (&[&str], _) = if reverts { (&["dontSave", "cancel"], "dontSave") } else { (&["save", "dontSave", "cancel"], "save") };
+    Some(json!({
+        "id": CONTROL_ID,
+        "kind": "unsavedChanges",
+        "title": if reverts { "Revert" } else { "Unsaved changes" },
+        "fields": {"command": p.id, "document": name, "remaining": p.docs.len(), "choices": choices, "default": default},
+    }))
+}
+
+/// The command the prompt holds back and its params, for the automation policy to see before a
+/// control client answers it.
+pub fn pending_command(app: &PhotocraftApp) -> Option<(String, Value)> {
+    app.discard.as_ref().map(|p| (p.id.clone(), p.params.clone()))
+}
+
+/// Answers the prompt for a control client: `save`, `dontSave` or `cancel` (Revert takes
+/// `dontSave` or `cancel`). Like the buttons, Save may first ask for a path in the save dialog.
+pub fn answer_control(app: &mut PhotocraftApp, ctx: &egui::Context, choice: &str) -> Result<Value, String> {
+    let Some(doc) = app.discard.as_ref().and_then(|p| p.docs.first().copied()) else {
+        return Err("no unsaved-changes prompt is open".into());
+    };
+    if app.file_dialog_open() || app.save_options_open() || app.saving() {
+        return Err("the unsaved-changes prompt is waiting for a save to finish".into());
+    }
+    let reverts = app.discard.as_ref().is_some_and(|p| p.id == "file.revert");
+    let answer = match choice {
+        "save" if !reverts => Answer::Save,
+        "dontSave" => Answer::Discard,
+        "cancel" => Answer::Cancel,
+        other => {
+            let choices = if reverts { "dontSave or cancel" } else { "save, dontSave or cancel" };
+            return Err(format!("unknown choice `{other}`: {choices}"));
+        }
+    };
+    apply(app, ctx, doc, answer);
+    Ok(json!({"open": app.discard.is_some(), "fileDialog": app.file_dialog_open()}))
 }
 
 #[derive(Clone, Copy)]
@@ -302,17 +361,30 @@ enum Answer {
 }
 
 /// macOS keeps the plain button wording even though the keyboard shortcuts still work.
+#[cfg(test)]
 fn button_label(mac: bool, label: &str, key: Option<Key>) -> String {
-    if mac { tl!(label).to_string() } else { key.map_or_else(|| tl!(label).to_string(), |k| mnemonic(label, k)) }
+    button_labels(mac, &[(label, key)]).into_iter().next().unwrap_or_default()
 }
 
-/// "(S)ave": the key in parentheses, or appended ("Guardar (S)") when the translation doesn't start with it.
-fn mnemonic(label: &str, key: Key) -> String {
-    let (label, k) = (tl!(label), key.name());
-    match label.split_at_checked(1) {
-        Some((first, rest)) if first.eq_ignore_ascii_case(k) => format!("({first}){rest}"),
-        _ => format!("{label} ({k})"),
-    }
+/// The labels of one dialog's buttons, each with its key in the same style: "(Y)es" when every
+/// translation starts with its key, otherwise appended to all ("Ja (Y)", "Nein (N)") (#5564).
+fn button_labels(mac: bool, buttons: &[(&str, Option<Key>)]) -> Vec<String> {
+    let starts_with_key = |label: &str, k: Key| label.split_at_checked(1).is_some_and(|(first, _)| first.eq_ignore_ascii_case(k.name()));
+    let inline = buttons.iter().all(|&(label, key)| key.is_none_or(|k| starts_with_key(tl!(label), k)));
+    buttons
+        .iter()
+        .map(|&(label, key)| {
+            let text = tl!(label);
+            match key {
+                None => text.to_string(),
+                Some(_) if mac => text.to_string(),
+                Some(k) => match text.split_at_checked(1) {
+                    Some((first, rest)) if inline => format!("({first}){rest}"),
+                    _ => format!("{text} ({})", k.name()),
+                },
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -335,6 +407,32 @@ mod tests {
 
     fn doc_id(app: &PhotocraftApp, i: usize) -> DocId {
         app.session.documents()[i].doc.id
+    }
+
+    #[test]
+    fn a_save_document_script_that_edits_the_document_keeps_the_prompt_up() {
+        use photocraft_engine::automate_cmds::ScriptBinding;
+        let mut app = app_with_docs(1);
+        let ctx = egui::Context::default();
+        make_dirty(&mut app, 0);
+        app.session.active_mut().unwrap().path = Some("/pics/kept.psd".into());
+        app.services.export = Some(Box::new(|_: &photocraft_doc::Document, _: &str, _: &crate::ExportSettings| Ok((b"out".to_vec(), Vec::new()))));
+        app.services.write = Some(Box::new(|_: &str, _: &[u8]| Ok(())));
+        app.session.edit_prefs(|prefs| {
+            prefs.script_events.enabled = true;
+            prefs.script_events.bindings = vec![ScriptBinding {
+                event: "saveDocument".into(),
+                script: None,
+                steps: Some(json!([["layer.new.layer", {"name": "From the script"}]])),
+                name: "Binding".into(),
+            }];
+        });
+        let doc = doc_id(&app, 0);
+        assert!(!save(&mut app, &ctx, doc), "the script's layer was never written");
+        assert!(app.session.documents()[0].is_dirty());
+        // Without the script the same save releases the prompt.
+        app.session.edit_prefs(|prefs| prefs.script_events.enabled = false);
+        assert!(save(&mut app, &ctx, doc));
     }
 
     #[test]
@@ -444,9 +542,9 @@ mod tests {
 
     #[test]
     fn mnemonic_labels_bracket_the_key() {
-        assert_eq!(mnemonic("Don't Save", Key::D), "(D)on't Save");
-        assert_eq!(mnemonic("Guardar", Key::S), "Guardar (S)");
-        assert_eq!(mnemonic("保存", Key::S), "保存 (S)");
+        assert_eq!(button_label(false, "Don't Save", Some(Key::D)), "(D)on't Save");
+        assert_eq!(button_label(false, "Guardar", Some(Key::S)), "Guardar (S)");
+        assert_eq!(button_label(false, "保存", Some(Key::S)), "保存 (S)");
     }
 
     type Prompted = egui_kittest::Harness<'static, PhotocraftApp>;
@@ -506,17 +604,13 @@ mod tests {
     fn windows_and_linux_ask_yes_no_cancel_with_the_default_first() {
         for os in [egui::os::OperatingSystem::Windows, egui::os::OperatingSystem::Nix] {
             let mut h = prompt_on(os);
-            let labels = ["(Y)es", "(N)o", "Cancel"];
+            let labels = ["(Y)es", "(N)o", "(C)ancel"];
             assert_eq!(drawn_order(&h, labels), labels, "{os:?}");
             tab_walks(&mut h, labels);
             h.key_press(Key::N);
             h.run_steps(2);
             assert_eq!(docs_left(&h), Some(1), "N answered the first document");
-            // Cancel has no letter here: C does nothing, Esc cancels.
             h.key_press(Key::C);
-            h.run_steps(2);
-            assert_eq!(docs_left(&h), Some(1));
-            h.key_press(Key::Escape);
             h.run_steps(2);
             assert!(h.state().discard.is_none());
             assert_eq!(h.state().session.documents().len(), 1, "Cancel keeps the unanswered document");
@@ -584,6 +678,20 @@ mod tests {
         assert_eq!(button_label(true, "Don't Save", Some(Key::D)), tl!("Don't Save"));
         assert_eq!(button_label(true, "Cancel", Some(Key::C)), tl!("Cancel"));
         assert_eq!(button_label(false, "Don't Save", Some(Key::D)), "(D)on't Save");
+        assert_eq!(button_label(false, "Cancel", Some(Key::C)), "(C)ancel");
+    }
+
+    /// German "Ja" doesn't start with Y, so every button appends its key rather than mixing
+    /// "Ja (Y)" with "(N)ein" (#5564).
+    #[test]
+    fn one_dialog_shows_every_key_in_the_same_style() {
+        let buttons = [("Yes", Some(Key::Y)), ("No", Some(Key::N)), ("Cancel", Some(Key::C))];
+        assert_eq!(button_labels(false, &buttons), ["(Y)es", "(N)o", "(C)ancel"]);
+        let german = crate::i18n::Lang::from_code("de").unwrap();
+        crate::i18n::with_language(german, || {
+            assert_eq!(button_labels(false, &buttons), ["Ja (Y)", "Nein (N)", "Abbrechen (C)"]);
+            assert_eq!(button_labels(true, &buttons), ["Ja", "Nein", "Abbrechen"]);
+        });
     }
 
     #[test]

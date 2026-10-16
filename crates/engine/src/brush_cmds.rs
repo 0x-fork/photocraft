@@ -10,7 +10,10 @@ use photocraft_doc::LayerContent;
 use photocraft_geom::Rect;
 use photocraft_paint::mixer::{MixerSettings, apply_mixer_stroke};
 use photocraft_paint::replace::{Limits, ReplaceMode, ReplaceSettings, Sampling, apply_color_replacement, color_replacement_effect};
-use photocraft_paint::{BrushPreset, BrushSettings, GrayTile, Stroke, StrokePoint, StrokeRenderer, TipShape, render_stroke};
+use photocraft_paint::tile::PREVIEW_SIDE;
+use photocraft_paint::{
+    BrushPreset, BrushSettings, GrayTile, Pattern, PresetCaptures, StoredTile, Stroke, StrokePoint, StrokeRenderer, TipShape, render_stroke,
+};
 use photocraft_raster::Surface;
 use serde_json::{Value, json};
 
@@ -140,6 +143,11 @@ pub fn merge_brush(base: &BrushSettings, patch: &Value, cmd: &str) -> Result<Bru
     if let Some(p) = pattern {
         out.texture.pattern = p;
     }
+    if patch.get("size").is_some() && !touches(&["dualBrush", "size"]) {
+        let new_size = out.size;
+        out.size = base.size;
+        out.resize_with_dual_brush(new_size);
+    }
     Ok(out)
 }
 
@@ -177,7 +185,7 @@ fn find_preset<'a>(s: &'a Session, name: &str, cmd: &str) -> Result<&'a BrushPre
 pub fn resolve_brush(s: &Session, p: &Value, cmd: &str) -> Result<BrushSettings> {
     let mut b = s.tools.brush.clone();
     if let Some(name) = p.get("preset").and_then(Value::as_str) {
-        b = find_preset(s, name, cmd)?.brush.clone().picked_over(&s.tools.brush);
+        b = find_preset(s, name, cmd)?.picked_over(&s.tools.brush);
     }
     if let Some(patch) = p.get("brush").filter(|v| v.is_object()) {
         b = merge_brush(&b, patch, cmd)?;
@@ -185,7 +193,7 @@ pub fn resolve_brush(s: &Session, p: &Value, cmd: &str) -> Result<BrushSettings>
     // A library preset's tips stay on disk until a stroke uses them (#1843).
     s.load_brush_tips(&mut b).map_err(|e| bad(cmd, e))?;
     if let Some(v) = num(p, "size") {
-        b.size = v.max(0.5);
+        b.resize_with_dual_brush(v.max(0.5));
     }
     if let Some(v) = num(p, "hardness") {
         b.hardness = v.clamp(0.0, 1.0);
@@ -200,9 +208,11 @@ pub fn resolve_brush(s: &Session, p: &Value, cmd: &str) -> Result<BrushSettings>
         b.spacing = v.clamp(0.01, 10.0);
     }
     if let Some(v) = num(p, "smoothing") {
+        b.smoothing.enabled = true;
         b.smoothing.amount = v.clamp(0.0, 1.0);
     }
     b.color = color(p.get("color"), s.tools.foreground);
+    b.color_cmyk = s.tools.picked_cmyk([b.color[0], b.color[1], b.color[2]]).map(|k| ([b.color[0], b.color[1], b.color[2]], k));
     b.background = s.tools.background;
     b.erase = flag(p, "erase", false);
     b.seed = match p.get("seed").and_then(Value::as_u64) {
@@ -248,7 +258,7 @@ fn erase_locked(brush: &mut BrushSettings, lock: bool, bg: [f32; 4]) {
 /// The document's own CMYK profile (absent, built-in or not a CMYK document: `None`, the
 /// default conversions), which the stroke's colour conversions must honour — the compositors
 /// and composite exports enter the same scope.
-fn doc_cmyk_space(s: &Session) -> Option<std::sync::Arc<photocraft_color::convert::CmykSpace>> {
+pub(crate) fn doc_cmyk_space(s: &Session) -> Option<std::sync::Arc<photocraft_color::convert::CmykSpace>> {
     photocraft_color::convert::CmykSpace::for_profile(s.active().and_then(|d| d.doc.icc_profile.as_ref()))
 }
 
@@ -366,6 +376,7 @@ fn block_brush(b: BrushSettings, p: &Value) -> Result<BrushSettings> {
         pressure_opacity: false,
         spacing: 0.25,
         color: b.color,
+        color_cmyk: b.color_cmyk,
         background: b.background,
         erase: b.erase,
         smoothing: b.smoothing,
@@ -374,9 +385,18 @@ fn block_brush(b: BrushSettings, p: &Value) -> Result<BrushSettings> {
     })
 }
 
+/// Is the stroke in Photoshop's Clear painting mode (`"mode": "clear"`, #3439)? It erases with the
+/// Brush's or Pencil's own brush; unlike a blend mode it is not a layer mode, so it is not a
+/// [`photocraft_color::BlendMode`].
+fn clear_mode(p: &Value) -> bool {
+    p.get("mode").and_then(Value::as_str).is_some_and(|m| m.eq_ignore_ascii_case("clear"))
+}
+
 /// Applies the options-bar blend `mode` to a brush. `"mode"` accepts any blend-mode name
-/// (normal|multiply|screen|…). The Eraser has no blend mode in Photoshop, so it is forced to Normal.
+/// (normal|multiply|screen|…), or `clear` to erase with the brush. The Eraser has no blend mode in
+/// Photoshop, so it is forced to Normal.
 fn with_blend_mode(mut b: BrushSettings, p: &Value) -> BrushSettings {
+    b.erase |= clear_mode(p);
     if b.erase {
         b.mode = photocraft_color::BlendMode::Normal;
     } else if let Some(m) = p.get("mode").and_then(Value::as_str).and_then(crate::commands::blend_from_str) {
@@ -389,7 +409,7 @@ fn with_blend_mode(mut b: BrushSettings, p: &Value) -> BrushSettings {
 pub fn paint_stroke(s: &mut Session, p: &Value) -> Result<Value> {
     let pts = parse_points(p, "paint.stroke")?;
     let brush = with_blend_mode(resolve_brush(s, p, "paint.stroke")?, p);
-    let label = if brush.erase { "Eraser" } else { "Brush Tool" };
+    let label = if brush.erase && !clear_mode(p) { "Eraser" } else { "Brush Tool" };
     stroke_with(s, "paint.stroke", p, label, brush, pts, false)
 }
 
@@ -406,8 +426,9 @@ pub struct LiveStroke {
     symmetry: Option<crate::symmetry_cmds::PaintingSymmetry>,
     mirrors: Vec<StrokeRenderer>,
     mirror_distinct: Vec<bool>,
-    /// Restore passes separately; their union may span an otherwise untouched document.
-    symmetry_regions: Vec<Rect>,
+    /// What the symmetric preview drew last, once a mirror differs from the stroke, and how many
+    /// passes it merged (a mirror joining redraws every tile).
+    union_live: Option<(photocraft_paint::UnionLive, usize)>,
     pre: Surface,
     sel: Option<Surface>,
     lock: bool,
@@ -424,17 +445,19 @@ pub struct LiveStroke {
     base: (photocraft_doc::DocId, u64),
 }
 
-/// A finished live stroke offered to its own commit ([`Session::offer_live_stroke`]): when the
-/// committing `paint.stroke` / `paint.pencil` matches it (same command, document revision, params,
-/// seed and points), the command takes these pixels instead of rendering the stroke again.
+/// A finished live stroke offered to its own commit ([`Session::offer_live_stroke`],
+/// [`Session::offer_live_retouch`]): when the committing command matches it (same command,
+/// document revision, params, seed and points), it takes these pixels instead of rendering the
+/// stroke again.
 pub struct LiveCommit {
-    cmd: String,
-    base: (photocraft_doc::DocId, u64),
-    params: Value,
-    seed: u64,
-    points: Vec<StrokePoint>,
-    surface: Surface,
-    bounds: Rect,
+    pub(crate) cmd: String,
+    pub(crate) base: (photocraft_doc::DocId, u64),
+    pub(crate) params: Value,
+    /// The Brush's and Pencil's seed; the retouching tools have none.
+    pub(crate) seed: Option<u64>,
+    pub(crate) points: Vec<StrokePoint>,
+    pub(crate) surface: Surface,
+    pub(crate) bounds: Rect,
 }
 
 impl LiveCommit {
@@ -448,11 +471,11 @@ impl LiveCommit {
         p
     }
 
-    fn matches(&self, s: &Session, cmd: &str, p: &Value, pts: &[StrokePoint]) -> bool {
+    pub(crate) fn matches(&self, s: &Session, cmd: &str, p: &Value, pts: &[StrokePoint]) -> bool {
         let base = s.active().map(|st| (st.doc.id, st.revision));
         self.cmd == cmd
             && base == Some(self.base)
-            && p.get("seed").and_then(Value::as_u64) == Some(self.seed)
+            && p.get("seed").and_then(Value::as_u64) == self.seed
             && self.points == pts
             && Self::settings(p) == Self::settings(&self.params)
     }
@@ -499,7 +522,7 @@ impl LiveStroke {
             symmetry,
             mirrors,
             mirror_distinct,
-            symmetry_regions: Vec::new(),
+            union_live: None,
             pre,
             sel,
             lock,
@@ -518,13 +541,19 @@ impl LiveStroke {
     pub fn into_commit(mut self) -> Result<LiveCommit> {
         let bounds = self.bounds();
         let (surf, _) = crate::channel_cmds::target_surface(std::sync::Arc::make_mut(&mut self.doc), self.layer, &self.params)?;
-        Ok(LiveCommit { cmd: self.cmd, base: self.base, params: self.params, seed: self.seed, points: self.points, surface: surf.clone(), bounds })
+        Ok(LiveCommit { cmd: self.cmd, base: self.base, params: self.params, seed: Some(self.seed), points: self.points, surface: surf.clone(), bounds })
     }
 
     /// Everything the stroke has touched so far.
     pub fn bounds(&self) -> Rect {
         let bounds = self.renderer.bounds().union(&self.tail);
         self.mirrors.iter().zip(&self.mirror_distinct).filter(|(_, distinct)| **distinct).fold(bounds, |b, (r, _)| b.union(&r.bounds()))
+    }
+
+    /// `(brush, pointer)` document positions while smoothing holds the brush back from the
+    /// pointer: the canvas draws a line between them.
+    pub fn smoothing_string(&self) -> Option<([f64; 2], [f64; 2])> {
+        self.renderer.smoothing_string()
     }
 
     /// Does the stroke change with time while the pointer is held still (airbrush Build-up, or
@@ -552,33 +581,27 @@ impl LiveStroke {
             }
             let (surf, _) = crate::channel_cmds::target_surface(std::sync::Arc::make_mut(&mut self.doc), self.layer, &self.params)?;
             if self.mirror_distinct.iter().any(|d| *d) {
-                // Merge every finished pass once, both here and on commit, including shared axes.
+                // The stroke and its distinct mirrors composite as one stroke, as the commit
+                // merges them; only the tiles that changed are redrawn.
                 let old = self.tail;
-                let mut original_preview = self.renderer.clone();
-                original_preview.finish();
-                let copies: Vec<_> = self
-                    .mirrors
-                    .iter()
-                    .zip(&self.mirror_distinct)
-                    .filter(|(_, d)| **d)
-                    .map(|(r, _)| {
-                        let mut r = r.clone();
-                        r.finish();
-                        r
-                    })
+                let passes = 1 + self.mirror_distinct.iter().filter(|d| **d).count();
+                let (mut live, full, mut dmg) = match self.union_live.take() {
+                    Some((live, merged)) => (live, merged != passes, Rect::EMPTY),
+                    None => {
+                        // Leaving the single-pass preview: take its smoothing tail back first.
+                        if !old.is_empty() {
+                            surf.write_region(old, &self.pre.read_region(old));
+                        }
+                        (photocraft_paint::UnionLive::default(), true, old)
+                    }
+                };
+                let mut renderers: Vec<&mut StrokeRenderer> = std::iter::once(&mut self.renderer)
+                    .chain(self.mirrors.iter_mut().zip(&self.mirror_distinct).filter(|(_, d)| **d).map(|(r, _)| r))
                     .collect();
-                let bounds = copies.iter().fold(original_preview.bounds().union(&old), |b, r| b.union(&r.bounds()));
-                if self.symmetry_regions.is_empty() && !old.is_empty() {
-                    surf.write_region(old, &self.pre.read_region(old));
-                }
-                for region in &self.symmetry_regions {
-                    surf.write_region(*region, &self.pre.read_region(*region));
-                }
-                self.symmetry_regions =
-                    std::iter::once(original_preview.bounds()).chain(copies.iter().map(StrokeRenderer::bounds)).filter(|r| !r.is_empty()).collect();
-                let damage = original_preview.composite_union_many(&copies, &self.pre, surf, self.sel.as_ref(), self.lock);
-                self.tail = bounds;
-                return Ok(damage.union(&bounds));
+                dmg = dmg.union(&StrokeRenderer::composite_union_live(&mut renderers, &mut live, full, &self.pre, surf, self.sel.as_ref(), self.lock));
+                self.tail = old.union(&live.bounds());
+                self.union_live = Some((live, passes));
+                return Ok(dmg);
             }
             let mut dmg = Rect::EMPTY;
             let old = std::mem::replace(&mut self.tail, Rect::EMPTY);
@@ -601,7 +624,7 @@ impl LiveStroke {
 fn pencil(s: &mut Session, p: &Value) -> Result<Value> {
     let pts = parse_points(p, "paint.pencil")?;
     let brush = pencil_brush(s, p)?;
-    let label = if brush.erase { "Eraser" } else { "Pencil" };
+    let label = if brush.erase && !clear_mode(p) { "Eraser" } else { "Pencil" };
     stroke_with(s, "paint.pencil", p, label, brush, pts, flag(p, "autoErase", false))
 }
 
@@ -746,13 +769,19 @@ fn upsert(s: &mut Session, preset: BrushPreset) {
 fn presets_save(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "brush.presets.save";
     let name = name_param(p, cmd)?;
-    let brush = match p.get("brush").filter(|v| v.is_object()) {
+    let mut brush = match p.get("brush").filter(|v| v.is_object()) {
         Some(patch) => merge_brush(&s.tools.brush, patch, cmd)?,
         None => s.tools.brush.clone(),
     };
-    upsert(s, BrushPreset { name: name.clone(), brush, builtin: false, group: String::new(), folder: Vec::new() });
+    // The New Brush Preset dialog's boxes; without them the preset captures what it always did.
+    let captures = PresetCaptures { size: flag(p, "captureSize", true), tool_settings: flag(p, "toolSettings", true), color: flag(p, "color", false) };
+    if captures.color {
+        brush.color = s.tools.foreground;
+    }
+    upsert(s, BrushPreset { name: name.clone(), brush, builtin: false, group: String::new(), folder: Vec::new(), captures });
     // The saved brush is the current brush now (Photoshop selects the brush it just saved).
     s.tools.current_preset = Some(name.clone());
+    s.tools.brush_changed();
     Ok(json!({ "name": name, "count": s.tools.presets.len() }))
 }
 
@@ -766,6 +795,8 @@ fn presets_delete(s: &mut Session, p: &Value) -> Result<Value> {
     }
     if s.tools.current_preset.as_ref().is_some_and(|c| c.eq_ignore_ascii_case(&name)) {
         s.tools.current_preset = None;
+        // The remembered brush names the preset it was picked from: the name went away.
+        s.tools.brush_changed();
     }
     s.brush_presets_changed();
     Ok(json!({ "count": s.tools.presets.len() }))
@@ -803,6 +834,7 @@ fn presets_set_current(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(bad(cmd, format!("no brush preset named `{name}`")));
     }
     s.tools.current_preset = Some(name.clone());
+    s.tools.brush_changed();
     Ok(json!({ "name": name }))
 }
 
@@ -841,11 +873,24 @@ fn define_from_selection(s: &mut Session, p: &Value) -> Result<Value> {
             v[y * w + x] = ((1.0 - l) * c[3] * sv[(y * w + x) * sc]).clamp(0.0, 1.0);
         }
     }
+    let (brush, tw, th) = sampled_brush(cmd, &v, w, h)?;
+    upsert(s, BrushPreset { name: name.clone(), brush: brush.clone(), builtin: false, group: String::new(), folder: Vec::new(), captures: Default::default() });
+    s.tools.brush = brush;
+    s.tools.current_preset = Some(name.clone());
+    s.tools.brush_changed();
+    Ok(json!({ "name": name, "width": tw, "height": th }))
+}
+
+/// A sampled-tip brush from a paint-amount map (`w`×`h`, row-major, 0 = no paint, 1 = full):
+/// cropped to the painted extent, at most [`MAX_TIP`] px a side. Shared by Define Brush Preset
+/// and importing an image file as a brush (`brush.presets.importImage`).
+pub(crate) fn sampled_brush(cmd: &str, v: &[f32], w: usize, h: usize) -> Result<(BrushSettings, u32, u32)> {
+    let at = |x: usize, y: usize| v.get(y * w + x).copied().unwrap_or(0.0);
     // Crop to the painted extent.
     let (mut x0, mut y0, mut x1, mut y1) = (w, h, 0, 0);
     for y in 0..h {
         for x in 0..w {
-            if v[y * w + x] > 1e-4 {
+            if at(x, y) > 1e-4 {
                 x0 = x0.min(x);
                 y0 = y0.min(y);
                 x1 = x1.max(x + 1);
@@ -854,30 +899,30 @@ fn define_from_selection(s: &mut Session, p: &Value) -> Result<Value> {
         }
     }
     if x1 <= x0 || y1 <= y0 {
-        return Err(bad(cmd, "the selected pixels contain no paint (all white or transparent)"));
+        return Err(bad(cmd, "the pixels contain no paint (all white or transparent)"));
     }
     let (tw, th) = ((x1 - x0) as u32, (y1 - y0) as u32);
     if tw.max(th) > MAX_TIP {
-        return Err(bad(cmd, format!("selection too large for a brush tip ({tw}×{th}; max {MAX_TIP} px)")));
+        return Err(bad(cmd, format!("too large for a brush tip ({tw}×{th}; max {MAX_TIP} px)")));
     }
     let mut data = Vec::with_capacity((tw * th) as usize);
     for y in y0..y1 {
-        data.extend_from_slice(&v[y * w + x0..y * w + x1]);
+        data.extend((x0..x1).map(|x| at(x, y)));
     }
     let tip = GrayTile::from_f32(tw, th, &data);
     let brush = BrushSettings { tip: TipShape::Sampled(tip), size: tw.max(th) as f32, spacing: 0.25, pressure_size: false, ..BrushSettings::default() };
-    upsert(s, BrushPreset { name: name.clone(), brush: brush.clone(), builtin: false, group: String::new(), folder: Vec::new() });
-    s.tools.brush = brush;
-    s.tools.current_preset = Some(name.clone());
-    Ok(json!({ "name": name, "width": tw, "height": th }))
+    Ok((brush, tw, th))
 }
 
 pub(crate) fn set_brush(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "tools.setBrush";
     let mut b = s.tools.brush.clone();
     let mut picked = None;
+    let mut picked_color = None;
     if let Some(name) = p.get("preset").and_then(Value::as_str) {
-        b = find_preset(s, name, cmd)?.brush.clone().picked_over(&s.tools.brush);
+        let preset = find_preset(s, name, cmd)?;
+        b = preset.picked_over(&s.tools.brush);
+        picked_color = preset.captures.color.then_some(preset.brush.color);
         picked = Some(name.to_string());
     }
     let reset = flag(p, "reset", false);
@@ -906,6 +951,10 @@ pub(crate) fn set_brush(s: &mut Session, p: &Value) -> Result<Value> {
         s.tools.current_preset = None;
     } else if let Some(name) = picked {
         s.tools.current_preset = Some(name);
+        // A preset saved with Include Color brings its colour as the foreground (Photoshop).
+        if let Some(c) = picked_color {
+            s.tools.foreground = c;
+        }
     }
     // The tool's brush always paints with full tips: load a library preset's from the store.
     s.load_brush_tips(&mut b).map_err(|e| bad(cmd, e))?;
@@ -921,7 +970,68 @@ pub(crate) fn set_brush(s: &mut Session, p: &Value) -> Result<Value> {
         Some(k) => s.tools.brush_gesture = Some((k.to_string(), before)),
         None => s.tools.brush_gesture = None,
     }
+    // The one accepted brush change everyone (UI sliders, control channel, presets) lands here.
+    s.tools.brush_changed();
     Ok(brush_json(&s.tools.brush))
+}
+
+/// Remember the current brush in `Preferences::last_brush` (see [`remembered_brush`]). Called
+/// every frame while the pointer is up, so it is change-driven: `ToolState::brush_rev` is compared
+/// with the revision already saved and an unchanged brush clones and serialises nothing.
+pub fn remember_brush(s: &mut Session) {
+    if s.tools.brush_rev == s.tools.brush_saved_rev {
+        return;
+    }
+    let Some(now) = remembered_brush(s) else { return };
+    if s.prefs().last_brush != now {
+        s.prefs.edit(|p| p.last_brush = now);
+    }
+    s.tools.brush_saved_rev = s.tools.brush_rev;
+}
+
+/// The current brush as JSON for `Preferences::last_brush`: settings plus tip references, no full
+/// bitmap. `None` while a sampled bitmap too big to embed is current (only before the store
+/// externalizes it; see [`ref_tip`]), so the previous remembered brush stands.
+fn remembered_brush(s: &Session) -> Option<Value> {
+    let b = &s.tools.brush;
+    let (tip, dual, pattern) = (ref_tip(&b.tip)?, ref_tip(&b.dual_brush.tip)?, ref_pattern(&b.texture.pattern)?);
+    let mut c = b.clone();
+    (c.tip, c.dual_brush.tip, c.texture.pattern) = (tip, dual, pattern);
+    Some(json!({ "preset": s.tools.current_preset.clone(), "brush": serde_json::to_value(&c).ok()? }))
+}
+
+/// Restore `Preferences::last_brush` into the session at launch (a missing or malformed value
+/// keeps the default brush). Stored tips load when the preset store attaches.
+pub fn restore_brush(s: &mut Session) {
+    let v = s.prefs().last_brush.clone();
+    let Some(patch) = v.get("brush").filter(|b| b.is_object()) else { return };
+    let Ok(mut b) = merge_brush(&BrushSettings::default(), patch, "brush.restore") else { return };
+    if validate_brush(&b, "brush.restore").is_err() {
+        return;
+    }
+    let _ = s.load_brush_tips(&mut b);
+    s.tools.brush = b;
+    s.tools.current_preset = v.get("preset").and_then(Value::as_str).map(str::to_string);
+    // What was just restored is exactly what the preferences hold: nothing new to write.
+    s.tools.brush_saved_rev = s.tools.brush_rev;
+}
+
+/// A tip for remembering: a loaded stored tip drops its full bitmap (it serialises as a reference
+/// then); a sampled bitmap bigger than a preview would enter the prefs document whole.
+fn ref_tip(t: &TipShape) -> Option<TipShape> {
+    match t {
+        TipShape::Stored(r) if r.full.is_some() => Some(TipShape::Stored(StoredTile { full: None, ..r.clone() })),
+        TipShape::Sampled(g) if g.width > PREVIEW_SIDE || g.height > PREVIEW_SIDE => None,
+        t => Some(t.clone()),
+    }
+}
+
+fn ref_pattern(p: &Pattern) -> Option<Pattern> {
+    match p {
+        Pattern::Stored(r) if r.full.is_some() => Some(Pattern::Stored(StoredTile { full: None, ..r.clone() })),
+        Pattern::Tile(g) if g.width > PREVIEW_SIDE || g.height > PREVIEW_SIDE => None,
+        p => Some(p.clone()),
+    }
 }
 
 /// The brush as JSON with the bitmaps (sampled tips, pattern tiles) that `skip` names replaced by
@@ -1004,7 +1114,7 @@ pub fn specs() -> Vec<CommandSpec> {
         spec!(
             "paint.pencil",
             "Pencil",
-            r##"{"points":[[x,y,pressure?,tiltX?,tiltY?,rotation?,timeMs?,wheel?],…],"brush":{…}?,"preset":name?,"size":0.5..5000 px?,"opacity":0..1?,"color":"#rrggbb"?=foreground,"mode":"normal|multiply|screen|…"="normal","erase":bool?,"block":bool=false (a hard 16×16 screen-px square, 16/zoom doc px; size, opacity, flow, hardness and dynamics ignored: the Eraser's Block mode),"zoom":view zoom=1,"autoErase":bool=false,"seed":u64?,"target":"pixels"|"mask"|"quickMask"|{"channel":i}=Channels panel target}"##,
+            r##"{"points":[[x,y,pressure?,tiltX?,tiltY?,rotation?,timeMs?,wheel?],…],"brush":{…}?,"preset":name?,"size":0.5..5000 px?,"opacity":0..1?,"color":"#rrggbb"?=foreground,"mode":"normal|multiply|screen|…|clear (erases with this brush)"="normal","erase":bool?,"block":bool=false (a hard 16×16 screen-px square, 16/zoom doc px; size, opacity, flow, hardness and dynamics ignored: the Eraser's Block mode),"zoom":view zoom=1,"autoErase":bool=false,"seed":u64?,"target":"pixels"|"mask"|"quickMask"|{"channel":i}=Channels panel target}"##,
             has_paintable,
             pencil,
             true
@@ -1026,7 +1136,14 @@ pub fn specs() -> Vec<CommandSpec> {
             true
         ),
         spec!("brush.presets.list", "List Brush Presets", r##"{"full":bool=false}"##, always, presets_list, false),
-        spec!("brush.presets.save", "Save Brush Preset", r##"{"name":string,"brush":{…BrushSettings}?=current brush}"##, always, presets_save, true),
+        spec!(
+            "brush.presets.save",
+            "Save Brush Preset",
+            r##"{"name":string,"brush":{…BrushSettings}?=current brush,"captureSize":bool=true (false: picking it keeps the tool's size),"toolSettings":bool=true (false: picking it keeps the tool's mode, opacity, flow and pressure buttons),"color":bool=false (picking it sets the foreground to the current foreground)}"##,
+            always,
+            presets_save,
+            true
+        ),
         spec!(
             "brush.presets.update",
             "Update Brush Preset",

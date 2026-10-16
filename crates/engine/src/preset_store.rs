@@ -44,7 +44,7 @@ use std::io::Read;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use photocraft_paint::tile::PREVIEW_SIDE;
-use photocraft_paint::{BrushPreset, BrushSettings, GrayTile, Pattern, StoredTile, TipShape};
+use photocraft_paint::{BrushPreset, BrushSettings, GrayTile, Pattern, PresetCaptures, StoredTile, TipShape};
 use serde::{Deserialize, Serialize};
 
 use crate::Session;
@@ -299,7 +299,7 @@ fn decode_tip_max(bytes: &[u8], max_side: u32) -> Result<GrayTile, String> {
     }
     let data: Vec<u16> =
         if bits == 8 { raw.iter().map(|&v| u16::from(v) * 257).collect() } else { raw.as_chunks::<2>().0.iter().map(|c| u16::from_le_bytes(*c)).collect() };
-    Ok(GrayTile { width: w, height: h, data })
+    Ok(GrayTile { width: w, height: h, data: data.into() })
 }
 
 // ------------------------------------------------------------------ group files
@@ -333,6 +333,9 @@ struct StoredPreset {
     /// before #1851, which load with every preset directly in its group.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     folder: Vec<String>,
+    /// [`BrushPreset::captures`]; missing for presets saved without the New Brush Preset dialog.
+    #[serde(default, skip_serializing_if = "PresetCaptures::is_default")]
+    captures: PresetCaptures,
 }
 
 /// What a group file records about each tip it references, so loading needs only the preview.
@@ -538,11 +541,15 @@ pub struct PresetStore {
     synced_rev: Option<u64>,
     /// Group file name → its last written content.
     groups: HashMap<String, Synced>,
+    /// Group files that failed to load: left on disk untouched, so a sync never writes them.
+    skipped: HashSet<String>,
     /// Tip hash → file size, for every tip file the store owns.
     tips: HashMap<String, u64>,
     index: Option<IndexFile>,
     /// [`crate::actions_cmds::ActionState::rev`] last written (or loaded).
     actions_rev: u64,
+    /// `actions.json` exists but failed to load: left on disk untouched, so it is never written.
+    actions_skipped: bool,
     warnings: Vec<String>,
     /// Full tips loaded for brushes in use (behind a lock so `&Session` paths can load).
     cache: Mutex<TipCache>,
@@ -597,6 +604,7 @@ pub fn open(backend: Box<dyn PresetBackend>) -> Opened {
 
     // Parse the group files.
     let mut parsed: Vec<(String, u64, GroupFile)> = Vec::new();
+    let mut skipped = HashSet::new();
     let mut failed = false;
     for (name, size) in group_files {
         let r = backend.read(&name, MAX_GROUP_BYTES).and_then(|b| serde_json::from_slice::<GroupFile>(&b).map_err(|e| e.to_string())).and_then(|g| {
@@ -615,6 +623,7 @@ pub fn open(backend: Box<dyn PresetBackend>) -> Opened {
             Err(e) => {
                 failed = true;
                 warnings.push(format!("brush presets: {name} skipped: {e}"));
+                skipped.insert(name);
             }
         }
     }
@@ -632,14 +641,18 @@ pub fn open(backend: Box<dyn PresetBackend>) -> Opened {
     }
     let (tiles, regenerated) = load_tiles(backend.as_ref(), &wanted, &tip_sizes, &info, &mut warnings);
 
-    let actions = load_actions(backend.as_ref(), &mut warnings);
+    let loaded_actions = load_actions(backend.as_ref(), &mut warnings);
+    let actions_skipped = loaded_actions.is_none();
+    let actions = loaded_actions.unwrap_or_default();
     let mut store = PresetStore {
         backend,
         synced_rev: None,
         groups: HashMap::new(),
+        skipped: HashSet::new(),
         tips: HashMap::new(),
         index: None,
         actions_rev: 0,
+        actions_skipped,
         warnings: Vec::new(),
         cache: Mutex::new(TipCache { limit: TIP_CACHE_BYTES, ..Default::default() }),
     };
@@ -659,7 +672,14 @@ pub fn open(backend: Box<dyn PresetBackend>) -> Opened {
                             hashes.push(i.preview.clone());
                         }
                     }
-                    items.push(BrushPreset { name: sp.name, brush, builtin: false, group: g.group.clone(), folder: sanitize_folder(sp.folder) });
+                    items.push(BrushPreset {
+                        name: sp.name,
+                        brush,
+                        builtin: false,
+                        group: g.group.clone(),
+                        folder: sanitize_folder(sp.folder),
+                        captures: sp.captures,
+                    });
                 }
                 None => missing += 1,
             }
@@ -668,6 +688,7 @@ pub fn open(backend: Box<dyn PresetBackend>) -> Opened {
             // Left on disk untouched (a sync never deletes a file it did not load).
             failed = true;
             warnings.push(format!("brush presets: {file} skipped: {missing} preset(s) have missing or unreadable tips"));
+            skipped.insert(file);
             continue;
         }
         for h in &hashes {
@@ -678,6 +699,7 @@ pub fn open(backend: Box<dyn PresetBackend>) -> Opened {
         presets.extend(items.iter().cloned());
         store.groups.insert(file, Synced { presets: items, tips: hashes, bytes: size, stale });
     }
+    store.skipped = skipped;
     // Tip files nothing references are garbage (e.g. left by a crash), unless a group failed to
     // load: its tips must survive so a fixed file still works.
     if !failed {
@@ -692,24 +714,25 @@ pub fn open(backend: Box<dyn PresetBackend>) -> Opened {
 }
 
 /// `actions.json`: a missing file is an empty list. Anything else unreadable is a warning.
-fn load_actions(backend: &dyn PresetBackend, warnings: &mut Vec<String>) -> Vec<crate::actions_cmds::Action> {
+/// The saved actions; `None` when `actions.json` exists but could not be loaded.
+fn load_actions(backend: &dyn PresetBackend, warnings: &mut Vec<String>) -> Option<Vec<crate::actions_cmds::Action>> {
     let bytes = match backend.read(ACTIONS_FILE, MAX_ACTIONS_BYTES) {
         Ok(b) => b,
-        Err(e) if missing_file(&e) => return Vec::new(),
+        Err(e) if missing_file(&e) => return Some(Vec::new()),
         Err(e) => {
             warnings.push(format!("actions: {ACTIONS_FILE} skipped: {e}"));
-            return Vec::new();
+            return None;
         }
     };
     match serde_json::from_slice::<crate::actions_cmds::ActionsFile>(&bytes) {
-        Ok(file) if file.version == 1 => file.actions,
+        Ok(file) if file.version == 1 => Some(file.actions),
         Ok(file) => {
             warnings.push(format!("actions: {ACTIONS_FILE} skipped: unsupported version {}", file.version));
-            Vec::new()
+            None
         }
         Err(e) => {
             warnings.push(format!("actions: {ACTIONS_FILE} skipped: {e}"));
-            Vec::new()
+            None
         }
     }
 }
@@ -873,6 +896,13 @@ impl PresetStore {
             if unchanged {
                 continue;
             }
+            if self.skipped.contains(&file) {
+                self.warnings.push(format!(
+                    "Couldn't save brush presets `{}`: {file} could not be read, so it was left unchanged",
+                    if group.is_empty() { "(ungrouped)" } else { group }
+                ));
+                continue;
+            }
             let mut items: Vec<&mut BrushPreset> = presets.iter_mut().filter(|p| !p.builtin && p.group == *group).collect();
             if let Err(e) = self.write_group(&file, group, &mut items) {
                 self.warnings.push(format!("Couldn't save brush presets `{}`: {e}", if group.is_empty() { "(ungrouped)" } else { group }));
@@ -986,7 +1016,13 @@ impl PresetStore {
             }
             let key = |r: &Option<StoredTile>| r.as_ref().map(|t| t.key.clone());
             let tips = TipRefs { tip: key(&refs[0]), dual_tip: key(&refs[1]), texture: key(&refs[2]) };
-            stored.push(StoredPreset { name: p.name.clone(), brush: settings_only(&mut p.brush), tips, folder: p.folder.clone() });
+            stored.push(StoredPreset {
+                name: p.name.clone(),
+                brush: settings_only(&mut p.brush),
+                tips,
+                folder: p.folder.clone(),
+                captures: p.captures.clone(),
+            });
             tiles.push(refs);
         }
         let gf = GroupFile { format: GROUP_FORMAT.into(), version: 1, group: group.to_string(), presets: stored, tips: infos };
@@ -1011,6 +1047,11 @@ impl PresetStore {
     /// on the next command.
     pub fn sync_actions(&mut self, list: &[crate::actions_cmds::Action], rev: u64) {
         if self.actions_rev == rev {
+            return;
+        }
+        if self.actions_skipped {
+            self.warnings.push(format!("Couldn't save actions: {ACTIONS_FILE} could not be read, so it was left unchanged"));
+            self.actions_rev = rev;
             return;
         }
         let file = crate::actions_cmds::ActionsFile { version: 1, actions: list.to_vec() };
@@ -1084,6 +1125,11 @@ impl Session {
         }
         self.brush_presets_changed();
         self.sync_preset_store();
+        // A brush remembered from the previous run (or picked before the store loaded) may be
+        // painting with previews; load the full tips now (a missing one keeps its preview).
+        let mut brush = std::mem::take(&mut self.tools.brush);
+        let _ = self.load_brush_tips(&mut brush);
+        self.tools.brush = brush;
         if let Some(st) = self.preset_store.as_mut() {
             warnings.extend(st.take_warnings());
         }
@@ -1098,7 +1144,11 @@ impl Session {
             if st.synced_rev != Some(rev) {
                 st.sync(&mut self.tools.presets);
                 st.synced_rev = Some(rev);
-                link_stored_tips(st, &mut self.tools.brush);
+                if link_stored_tips(st, &mut self.tools.brush) {
+                    // An embedded tip became a store reference: what the last-brush
+                    // persistence would write changed without a command touching the brush.
+                    self.tools.brush_changed();
+                }
             }
             st.sync_actions(&self.actions.list, actions_rev);
         }
@@ -1131,7 +1181,7 @@ impl Session {
 /// After a sync, an embedded bitmap of the tool's brush that the store now holds (the brush was
 /// just saved as a preset) becomes the stored tile, keeping its bitmap: the brush then matches its
 /// preset (Brushes panel highlight) like a preset picked from the library.
-fn link_stored_tips(st: &PresetStore, b: &mut BrushSettings) {
+fn link_stored_tips(st: &PresetStore, b: &mut BrushSettings) -> bool {
     let link = |g: &GrayTile| -> Option<StoredTile> {
         if !g.is_valid() {
             return None;
@@ -1139,24 +1189,29 @@ fn link_stored_tips(st: &PresetStore, b: &mut BrushSettings) {
         let h = tip_hash(g);
         st.tips.contains_key(&h).then(|| StoredTile { key: h, width: g.width, height: g.height, preview: Arc::new(g.preview(PREVIEW_SIDE)), full: None })
     };
+    let mut linked = false;
     if let TipShape::Sampled(g) = &b.tip
         && let Some(r) = link(g)
         && let TipShape::Sampled(g) = std::mem::take(&mut b.tip)
     {
         b.tip = TipShape::Stored(StoredTile { full: Some(Arc::new(g)), ..r });
+        linked = true;
     }
     if let TipShape::Sampled(g) = &b.dual_brush.tip
         && let Some(r) = link(g)
         && let TipShape::Sampled(g) = std::mem::take(&mut b.dual_brush.tip)
     {
         b.dual_brush.tip = TipShape::Stored(StoredTile { full: Some(Arc::new(g)), ..r });
+        linked = true;
     }
     if let Pattern::Tile(g) = &b.texture.pattern
         && let Some(r) = link(g)
         && let Pattern::Tile(g) = std::mem::take(&mut b.texture.pattern)
     {
         b.texture.pattern = Pattern::Stored(StoredTile { full: Some(Arc::new(g)), ..r });
+        linked = true;
     }
+    linked
 }
 
 #[cfg(test)]

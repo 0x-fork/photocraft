@@ -19,7 +19,17 @@
 # ArtCraft, OpenType, Lab ...) stay as they are; RGB/CMYK read RVB/CMJN; the trailing "…" of
 # dialog commands is kept.
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	Couleur de la couche
+	Color Indicates:	La couleur indique :
+	Solidity:	Solidité :
+	Ink Characteristics	Caractéristiques de l’encre
+
 # Guide layout dialog
+
+# Custom print paper (#3820)
+	Paper Width	Largeur du papier
+	Paper Height	Hauteur du papier
 	Rows	Lignes
 	Number	Nombre
 	Margin	Marge
@@ -75,6 +85,8 @@
 	Save	Enregistrer
 	Save As…	Enregistrer sous…
 	Save a Copy…	Enregistrer une copie…
+	{name} can't keep everything in this document	{name} ne peut pas conserver tout le contenu de ce document
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	Choisissez un format qui conserve tout, comme Photoshop (PSD), ou enregistrez une copie.
 	Revert	Revenir à la version enregistrée
 	Export	Exporter
 	Quick Export as PNG	Exportation rapide au format PNG
@@ -112,6 +124,14 @@
 	Script Events Manager…	Gestionnaire d'événements de script…
 	Import	Importer
 	Browse…	Parcourir…
+	Source Files	Fichiers source
+	Use:	Utiliser :
+	Files	Fichiers
+	Folder	Dossier
+	Add Open Files	Ajouter les fichiers ouverts
+	Sort By Name	Trier par nom
+	Attempt to Automatically Align Source Images	Tenter d'aligner automatiquement les images source
+	Create Smart Object after Loading Layers	Créer un objet intelligent après le chargement des calques
 	Reveal in Finder	Afficher dans le Finder
 	Show in Explorer	Afficher dans l'Explorateur
 	Show in Folder	Afficher dans le dossier
@@ -136,6 +156,8 @@
 	Search…	Rechercher…
 	Check Spelling…	Vérifier l'orthographe…
 	Find and Replace Text…	Rechercher et remplacer du texte…
+	Add to Dictionary	Ajouter au dictionnaire
+	No Spelling Suggestions	Aucune suggestion orthographique
 	Fill…	Remplir…
 	Stroke…	Contourner…
 	Content-Aware Fill…	Remplissage d'après le contenu…
@@ -148,6 +170,8 @@
 	Again	Répéter
 	Scale	Mise à l'échelle
 	Rotate	Rotation
+	Set horizontal skew	Définir l'inclinaison horizontale
+	Set vertical skew	Définir l'inclinaison verticale
 	Skew	Inclinaison
 	Distort	Déformation
 	Perspective	Perspective
@@ -353,6 +377,7 @@
 	Update Modified Content	Mettre à jour le contenu modifié
 	Update All Modified Content	Mettre à jour tout le contenu modifié
 	Stack Mode	Mode de pile
+	Choose Stack Mode:	Choisir le mode de pile :
 	Entropy	Entropie
 	Kurtosis	Kurtosis
 	Maximum	Maximum
@@ -387,6 +412,7 @@
 	Select Linked Layers	Sélectionner les calques liés
 	Merge Layers	Fusionner les calques
 	Merge Down	Fusionner avec le calque inférieur
+	Merge Group	Fusionner le groupe
 	Merge Visible	Fusionner les calques visibles
 	Stamp Visible	Tamponner les calques visibles
 	Stamp Down	Tamponner sur le calque inférieur
@@ -517,6 +543,13 @@
 	Blur	Flou
 	Blur Gallery	Galerie de flous
 	Field Blur…	Flou de champ…
+# Field Blur pins (#3373)
+	No pin selected	Aucune épingle sélectionnée
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Cliquez dans l’image pour ajouter une épingle ; faites glisser une épingle pour la déplacer, ou son anneau pour modifier le flou. Suppr supprime l’épingle sélectionnée.
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	Faites glisser les poignées du contour pour le redimensionner et le faire pivoter, le carré pour arrondir ses angles et les points intérieurs pour définir où commence le flou.
+	Drag the pin to move the band, or its ring to change its blur. Drag the solid lines to widen the sharp band, the dashed lines to set the transition, and the dots to turn it.	Faites glisser l’épingle pour déplacer la bande, ou son anneau pour modifier le flou. Faites glisser les lignes pleines pour élargir la bande nette, les lignes pointillées pour régler la transition et les points pour la faire pivoter.
+	Drag the handles on the outline to resize and turn it; the ring sets the blur angle.	Faites glisser les poignées du contour pour le redimensionner et le faire pivoter ; l’anneau règle l’angle de flou.
+	Blur Angle	Angle de flou
 	Iris Blur…	Flou d'iris…
 	Tilt-Shift…	Inclinaison-décalage…
 	Path Blur…	Flou de tracé…
@@ -715,6 +748,10 @@
 	Breeze Dark Theme	Thème Breeze sombre
 	Breeze light	Breeze clair
 	Breeze Light Theme	Thème Breeze clair
+	Soft dark	Doux sombre
+	Soft light	Doux clair
+	Soft Dark Theme	Thème doux sombre
+	Soft Light Theme	Thème doux clair
 	Next Theme	Thème suivant
 	Actions	Actions
 	Brush Settings	Paramètres du pinceau
@@ -813,6 +850,9 @@
 	Appearance	Apparence
 	Appearance (Layer Style)	Apparence (style de calque)
 	Apply Layer Mask	Appliquer le masque de calque
+	Add Mask to Selection	Ajouter le masque à la sélection
+	Subtract Mask from Selection	Soustraire le masque de la sélection
+	Intersect Mask with Selection	Intersection du masque et de la sélection
 	Apply Per Tip	Appliquer par pointe
 	Apply next selected layer comp	Appliquer la composition de calques sélectionnée suivante
 	Apply previous selected layer comp	Appliquer la composition de calques sélectionnée précédente
@@ -828,11 +868,18 @@
 	Background	Arrière-plan
 	Background Color	Couleur d'arrière-plan
 	Background Contents	Contenu de l'arrière-plan
+	Custom background color	Couleur d'arrière-plan personnalisée
 	Balance	Balance
 	Baseline	Ligne de base
 	Baseline shift	Décalage de la ligne de base
 	Basic	De base
 	Before (Y)	Avant (Y)
+	Save Settings…	Enregistrer les paramètres…
+	Load Settings…	Charger les paramètres…
+	Save these settings as a Camera Raw .xmp file	Enregistrer ces paramètres dans un fichier .xmp Camera Raw
+	Load settings from a Camera Raw .xmp file	Charger les paramètres d’un fichier .xmp Camera Raw
+	Loaded Camera Raw settings from {file}	Paramètres Camera Raw chargés depuis {file}
+	Loaded Camera Raw settings from {file} ({n} not supported)	Paramètres Camera Raw chargés depuis {file} ({n} non pris en charge)
 	Begin recording	Démarrer l'enregistrement
 	Bend:	Courbure :
 	Bicubic	Bicubique
@@ -863,6 +910,7 @@
 	Camera Raw isn't open	Camera Raw n'est pas ouvert
 	Cancel	Annuler
 	Cancel (Esc)	Annuler (Échap)
+	Manage submitted jobs in the system print queue	Gérer les tâches soumises dans la file d’impression du système
 	Cancel any current edits (Esc)	Annuler les modifications en cours (Échap)
 	Cancel current crop operation  (Esc)	Annuler le recadrage en cours  (Échap)
 	Cancel transform (Esc)	Annuler la transformation (Échap)
@@ -928,7 +976,6 @@
 	Contiguous	Contigu
 	Contrast	Contraste
 	Control:	Contrôle :
-	Convert document's colors to the working space	Convertir les couleurs du document vers l'espace de travail
 	Convert to sRGB	Convertir en sRVB
 	Copies	Exemplaires
 	Copper	Cuivre
@@ -983,6 +1030,7 @@
 	Delete Group	Supprimer le groupe
 	Delete Layer Mask	Supprimer le masque de calque
 	Delete Layers	Supprimer les calques
+	Add Shortcut	Ajouter un raccourci
 	Delete Shortcut	Supprimer le raccourci
 	Delete Timeline	Supprimer le montage
 	Delete Tool Preset	Supprimer le préréglage d'outil
@@ -1128,6 +1176,9 @@
 	Ignore All	Tout ignorer
 	Image Size	Taille de l'image
 	Import Brushes…	Importer des pinceaux…
+	Gradient Preset Options	Options des paramètres prédéfinis de dégradé
+	Import .GRD	Importer .GRD
+	Choose a gradient file (.grd).	Choisissez un fichier de dégradés (.grd).
 	Import brushes (.abr)	Importer des pinceaux (.abr)
 	Import Presets	Importer des préréglages
 	Imported	Importé
@@ -1500,7 +1551,6 @@
 	Use Default	Utiliser la valeur par défaut
 	Use Legacy	Utiliser l'ancienne version
 	Use Measurement Scale	Utiliser l'échelle de mesure
-	Use the embedded profile (instead of the working space)	Utiliser le profil incorporé (au lieu de l'espace de travail)
 	Variables bind a layer's visibility, text or pixels to a named data slot.	Les variables lient la visibilité, le texte ou les pixels d'un calque à un emplacement de données nommé.
 	Vertical scale	Échelle verticale
 	Vibrance	Vibrance
@@ -1818,6 +1868,8 @@
 	Camera Raw Defaults	Valeurs par défaut de Camera Raw
 	Canvas border	Bordure du canevas
 	Show canvas dots	Afficher les points du canevas
+	Clip thumbnails to layer bounds	Rogner les vignettes aux limites du calque
+	Clip Thumbnails to Layer Bounds	Rogner les vignettes aux limites du calque
 	Canvas color	Couleur du canevas
 	Canvas custom color	Couleur personnalisée du canevas
 	Color picker	Sélecteur de couleurs
@@ -2004,7 +2056,8 @@
 	Expand group  ({key}-click: all groups)	Développer le groupe  ({key}-clic : tous les groupes)
 	Fade steps	Étapes d'estompage
 	Hide the layer's effects  ({key}-click: all layers)	Masquer les effets du calque  ({key}-clic : tous les calques)
-	Import Brushes… (.abr)	Importer des pinceaux… (.abr)
+	Import Brushes… (.abr or image)	Importer des pinceaux… (.abr ou image)
+	Import Brush from Image…	Importer un pinceau depuis une image…
 	Move Group Down	Descendre le groupe
 	Move Group Up	Monter le groupe
 	Reset the brush to the defaults	Réinitialiser le pinceau aux valeurs par défaut
@@ -2049,6 +2102,11 @@
 	Rename Brush…	Renommer le pinceau…
 	Delete Brush	Supprimer le pinceau
 	New Brush Preset…	Nouveau préréglage de pinceau…
+	Capture Brush Size in Preset	Capturer la taille du pinceau dans le préréglage
+	Include Tool Settings	Inclure les paramètres de l'outil
+	Include Color	Inclure la couleur
+	Enter a name for the brush preset	Saisissez un nom pour le préréglage de pinceau
+	A brush preset with this name already exists	Un préréglage de pinceau porte déjà ce nom
 	Brush Preset Options	Options des préréglages de pinceau
 	Group name	Nom du groupe
 	Brush name	Nom du pinceau
@@ -2106,6 +2164,9 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Aucun tracé à partir duquel créer une sélection : dessinez-en un avec l'outil Plume ou sélectionnez-en un dans le panneau Tracés.
 	Cancel opening	Annuler l'ouverture
 	Cancelled opening {name}	Ouverture de {name} annulée
+	The document “{name}” does not have an embedded {mode} profile.	Le document « {name} » n'a pas de profil {mode} incorporé.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Le document « {name} » a un profil colorimétrique incorporé qui ne correspond pas à l'espace de travail {mode} actuel.
+	Working: {working}	Espace de travail : {working}
 	Developing {name}	Développement de {name}
 	Cancelled {label}	{label} : annulé
 	Esc to cancel	Échap pour annuler
@@ -2113,6 +2174,7 @@
 	Opening {name}	Ouverture de {name}
 	Saved {name}	Enregistré : {name}
 	Saving {name}	Enregistrement de {name}
+	Saving {percent}	Enregistrement {percent}
 	A save to {name} is still running; try again when it finishes	Un enregistrement de {name} est encore en cours ; réessayez lorsqu’il sera terminé
 	{label} is writing the file and can no longer be cancelled	{label} écrit le fichier et ne peut plus être annulé
 	Opening {name}…	Ouverture de {name}…
@@ -2420,7 +2482,6 @@
 	Choose…	Choisir…
 	Select Folder…	Sélectionner un dossier…
 	Override Action "Save" Commands	Ignorer les commandes « Enregistrer » de l'action
-	File Naming	Dénomination des fichiers
 	Compatibility	Compatibilité
 	Mac OS	Mac OS
 	Unix	Unix
@@ -2742,6 +2803,7 @@ cameraRaw	Blending	Fusion
 	Click to pick · Esc to cancel	Cliquer pour choisir · Échap pour annuler
 	Pick a screen pixel or press Esc to cancel	Choisissez un pixel à l’écran ou appuyez sur Échap pour annuler
 	Scroll to zoom	Défiler pour zoomer
+	Drag to pan · Scroll to zoom · Double-click to fit	Glisser pour déplacer · Défiler pour zoomer · Double-cliquer pour ajuster
 	Show/Hide All Panels	Afficher/masquer tous les panneaux
 	Show/Hide Panels	Afficher/masquer les panneaux
 	Could not open	Impossible d’ouvrir
@@ -2797,9 +2859,9 @@ cameraRaw	Blending	Fusion
 	Fuchsia	Fuchsia
 	Violet	Violet
 	Large document: redrawing on the CPU	Document volumineux : redessin sur le CPU
+	Redrawing	Redessin
 	This redraw took {seconds} s on the CPU.	Ce redessin sur le CPU a pris {seconds} s.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Les modifications qui touchent tout le document, comme le mode de fusion, l'opacité ou la visibilité d'un calque, le redessinent entièrement.
-	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Les calques dépassent le budget de mémoire GPU. Augmenter Utilisation de la mémoire dans Préférences › Performances relève ce budget, jusqu'au quart de la mémoire de cet ordinateur.
 	The GPU compositor wasn't used: {reason}	Le compositeur GPU n'a pas été utilisé : {reason}
 fontWeight	Thin	Ultrafin
 fontWeight	ExtraLight	Extrafin
@@ -2863,6 +2925,8 @@ fontWeight	Italic	Italique
 	Color Picker (Layer Style Color)	Sélecteur de couleurs (couleur du style de calque)
 	Auto Hide Notifications	Masquer automatiquement les notifications
 	Notification Duration (seconds)	Durée de la notification (secondes)
+	Bundle Arrow-Key Nudges	Regrouper les déplacements aux flèches
+	Nudge Bundle Pause (ms)	Pause de regroupement des déplacements (ms)
 	Appearance Mode	Mode d’apparence
 	Dark Theme	Thème sombre
 	Light Theme	Thème clair
@@ -2988,6 +3052,7 @@ cameraData	Lens	Objectif
 	Search settings…	Rechercher des réglages…
 	No matching settings	Aucun réglage correspondant
 	Loading fonts…	Chargement des polices…
+	Response curve	Courbe de réponse
 	Tool	Outil
 	Simulate Pressure	Simuler la pression
 	Stroke Path…	Contourner le tracé…
@@ -2999,6 +3064,16 @@ cameraData	Lens	Objectif
 	Amount:	Quantité :
 	Protect:	Protéger :
 	Protect skin tones	Protéger les tons chair
+	Edit points to modify the curve	Modifier les points pour changer la courbe
+	Draw to modify the curve	Dessiner pour changer la courbe
+curves	Smooth	Lisser
+	Smooth the curve values	Lisser les valeurs de la courbe
+	Drag to draw the curve · {key}-click draws a straight line	Faites glisser pour dessiner la courbe · {key}-clic trace une ligne droite
+	Grid Size:	Taille de la grille :
+	Vanishing Point: click four corners to create a plane	Point de fuite : cliquez sur quatre coins pour créer un plan
+	Vanishing Point is not active	Point de fuite n’est pas actif
+	Apply Vanishing Point ({key})	Appliquer le point de fuite ({key})
+	Fix the red plane first: its corners must form a convex quad	Corrigez d’abord le plan rouge : ses coins doivent former un quadrilatère convexe
 # Select and Mask view modes (#1754)
 	Onion Skin	Pelure d'oignon
 	Marching Ants	Fourmis en marche
@@ -3015,6 +3090,7 @@ cameraData	Lens	Objectif
 	Paint over hair or fur on the image; Alt paints the other mode	Peignez sur les cheveux ou la fourrure dans l'image ; Alt peint dans l'autre mode
 	Clear Brush Strokes	Effacer les traits de pinceau
 	Show rulers	Afficher les règles
+	Presentation	Présentation
 
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	Cliquez pour placer · Alt-clic ou glisser hors du canevas pour supprimer
@@ -3032,3 +3108,108 @@ cameraData	Lens	Objectif
 	Apply mask to layer before removing?	Appliquer le masque au calque avant de le supprimer ?
 	The layer or its mask changed. Drag the mask onto the Trash again.	Le calque ou son masque a changé. Faites de nouveau glisser le masque sur la corbeille.
 	Delete the vector mask?	Supprimer le masque vectoriel ?
+# View › Guides › New Guide… › Color
+	Light Blue	Bleu clair
+	Light Red	Rouge clair
+	Medium Blue	Bleu moyen
+	Light Gray	Gris clair
+	Object Finder	Outil de recherche d’objets
+	No object found there — drag a rectangle around it	Aucun objet trouvé ici — tracez un rectangle autour
+	Remove after each stroke	Supprimer après chaque trait
+	Apply the removal ({key})	Appliquer la suppression ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Traits à supprimer : {n} (Entrée applique, Échap annule)
+	Show home recent files	Afficher les fichiers récents sur l'écran d'accueil
+	Clear Brush Controls	Effacer les commandes de pinceau
+	Reset All Locked Settings	Réinitialiser tous les paramètres verrouillés
+	Copy Texture to Other Tools	Copier la texture dans d'autres outils
+
+# Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
+	Load Actions…	Charger des actions…
+	Save Actions…	Enregistrer les actions…
+	{name} (Photoshop)	{name} (Photoshop)
+	{message} ({note})	{message} ({note})
+@plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{n} action chargée depuis {file}|{n} actions chargées depuis {file}
+@plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} étape n’a pas encore d’équivalent dans PhotoCraft|{n} étapes n’ont pas encore d’équivalent dans PhotoCraft
+@plural	Saved {n} action to {file}|Saved {n} actions to {file}	{n} action enregistrée dans {file}|{n} actions enregistrées dans {file}
+@plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	{n} étape sans équivalent Photoshop omise|{n} étapes sans équivalent Photoshop omises
+
+	File Naming	Dénomination des fichiers
+	Starting serial	Numéro de série initial
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Insérer un arrêt…
+	Save Set…	Enregistrer l’ensemble…
+	Message:	Message :
+	Allow Continue	Autoriser la poursuite
+	Show dialog during playback	Afficher la boîte de dialogue pendant l’exécution
+	Select an action first	Sélectionnez d’abord une action
+	Action playback stopped	Exécution de l’action arrêtée
+	Step {step} is waiting for its dialog	L’étape {step} attend sa boîte de dialogue
+@plural	{n} action|{n} actions	{n} action|{n} actions
+	Background (Default)	Arrière-plan (par défaut)
+	Content-Aware Fill	Remplissage d'après le contenu
+# Batch / Image Processor
+	Include All Subfolders	Inclure tous les sous-dossiers
+	Auto Add/Delete	Ajout/suppr. auto
+
+# Native Windows printing qualification
+	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	Ne cochez pas aussi Image miroir dans les paramètres d’impression : les deux inversions s’annulent.
+	Print Settings…	Paramètres d’impression…
+	Remember to turn off the printer's own colour management in Print Settings…	Pensez à désactiver la gestion des couleurs de l’imprimante dans les paramètres d’impression…
+	Sent to {printer}	Envoyé à {printer}
+	set in Print Settings…	défini dans les paramètres d’impression…
+	ICO is limited to 256 × 256 pixels	Le format ICO est limité à 256 × 256 pixels
+# Embedded Profile Mismatch: profile names beside the choices, Remember this choice
+	Use the embedded profile ({profile})	Utiliser le profil incorporé ({profile})
+	Convert to the working space ({profile})	Convertir vers l'espace de travail ({profile})
+	Remember this choice for future images	Mémoriser ce choix pour les prochaines images
+	Turn the prompt back on with Ask On Mismatch in Edit › Color Settings.	Réactivez la question avec Ask On Mismatch dans Édition › Paramètres de couleur.
+	Button Mode	Mode bouton
+	Button Mode On	Mode bouton activé
+
+# Darken / Lighten Interface (⇧⌘F1 / ⇧⌘F2)
+	Darken Interface	Assombrir l'interface
+	Lighten Interface	Éclaircir l'interface
+# Bevel & Emboss Technique.
+	Technique	Technique
+	Chisel Hard	Ciselage dur
+	Chisel Soft	Ciselage doux
+	Open color-less EXR as ACEScg	Ouvrir les EXR sans espace colorimétrique en ACEScg
+
+# View › Guides › right-click a guide
+	Edit Selected Guides	Modifier les repères sélectionnés
+	Clear Selected Guides	Effacer les repères sélectionnés
+	Delete this set	Supprimer ce jeu
+	New Set…	Nouveau jeu…
+	PhotoCraft Defaults	Valeurs par défaut de PhotoCraft
+	Save a list of these shortcuts as a web page	Enregistrer la liste de ces raccourcis en page web
+	Save the changes to this set	Enregistrer les modifications de ce jeu
+	Save these shortcuts as a .kys file	Enregistrer ces raccourcis dans un fichier .kys
+	Save these shortcuts as a new set	Enregistrer ces raccourcis comme nouveau jeu
+	Set deleted.	Jeu supprimé.
+	Set saved.	Jeu enregistré.
+	Set:	Jeu :
+	Summarize…	Résumer…
+	There are too many sets: delete one first.	Il y a trop de jeux : supprimez-en un d’abord.
+	set name	nom du jeu
+	{set} (modified)	{set} (modifié)
+	Random	Aléatoire
+	Accept and Go to Conflict	Accepter et aller au conflit
+	Changes undone.	Modifications annulées.
+	Choose a new shortcut for this command, or leave it without one.	Choisissez un nouveau raccourci pour cette commande ou laissez-la sans raccourci.
+	Put this command's shortcuts back as they were	Rétablir les raccourcis de cette commande
+	Take the shortcut from the other command and select it	Retirer le raccourci de l’autre commande et la sélectionner
+	Undo Changes	Annuler les modifications
+	{shortcut} is reserved by the system and can't be assigned.	{shortcut} est réservé par le système et ne peut pas être attribué.
+	Low-Latency Drawing (vsync off, applies at next launch)	Dessin à faible latence (sans synchronisation verticale, au prochain lancement)
+# Free Transform: a new layer while the box is open (#5859)
+	Free Transform is still being applied; try again when it has finished.	La transformation manuelle est encore en cours d'application ; réessayez quand elle sera terminée.
+	The transform couldn't be applied.	Impossible d'appliquer la transformation.
+# Preferences › Performance › GPU Memory; the status bar and slow-redraw notice
+	Its layers need {needed} of GPU memory; the budget leaves them {budget}.	Ses calques ont besoin de {needed} de mémoire GPU ; le budget leur laisse {budget}.
+	Set GPU Memory in Preferences › Performance to what your graphics card can hold, at most 3/8 of its memory. Automatic follows Memory Usage, within a quarter of this computer's memory and 3/8 of the card's, and doesn't count the document against a card whose memory is known. The status bar shows GPU Memory Full while they don't fit.	Réglez Mémoire GPU dans Préférences › Performances sur ce que votre carte graphique peut contenir, au plus 3/8 de sa mémoire. Automatique suit Utilisation de la mémoire, dans la limite du quart de la mémoire de cet ordinateur et des 3/8 de celle de la carte, et ne compte pas le document sur une carte dont la mémoire est connue. Tant qu'ils ne tiennent pas, la barre d'état affiche Mémoire GPU pleine.
+	GPU Memory Full	Mémoire GPU pleine
+	The layers need {needed} of GPU memory and may hold {budget}, so edits that redraw the whole document do it on the CPU. Click to set GPU Memory.	Les calques ont besoin de {needed} de mémoire GPU et peuvent en occuper {budget} : les modifications qui redessinent tout le document le font sur le CPU. Cliquez pour régler Mémoire GPU.
+	GPU memory budget: {budget}	Budget de mémoire GPU : {budget}
+	This document's layers: {needed} of {budget} for layers	Calques de ce document : {needed} sur {budget} pour les calques
+	This document's layers need {needed} but may hold {budget}: whole-document redraws use the CPU	Les calques de ce document ont besoin de {needed} mais peuvent occuper {budget} : le document entier se redessine sur le CPU
+	GPU Memory (MB, 0 = Automatic)	Mémoire GPU (Mo, 0 = Automatique)

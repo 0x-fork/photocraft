@@ -59,7 +59,7 @@ id = "UI-217-8"
 target = "Tool-specific canvas right-click menu; right-click spelling suggestions in text fields"
 status = "partial"
 issue = 217
-note = "paint_mouse.rs brush picker and canvas_tool_menu.rs selection actions; text_field_menu.rs gives every text field its right-click Undo/Cut/Copy/Paste/Delete/Select All menu (#2921); other tools missing; spelling suggestions (edit.checkSpelling suggest) not in the text-field menu yet"
+note = "paint_mouse.rs brush picker and canvas_tool_menu.rs selection actions; text_field_menu.rs gives every text field its right-click Undo/Cut/Copy/Paste/Delete/Select All menu (#2921); other tools missing; the Type tool's edit menu starts with spelling suggestions and Add to Dictionary over a misspelled word (#4370); Ignore / Ignore All, suggestions in the non-editing type menu and in generic text fields are not there yet"
 
 [[item]]
 id = "UI-217-9"
@@ -73,21 +73,21 @@ id = "UI-217-10"
 target = "Appearance: animation toggle, canvas pattern toggle per theme, start-screen recents"
 status = "partial"
 issue = 217
-note = "interface.enableAnimations (prefs_ui.rs sync_animations, #3273) zeroes egui animation_time and scroll animation in both styles; the Home screen lists recent files (canvas.rs home_recent, #2691); no canvas pattern toggle yet (#2264) and no option to hide the Home screen recents"
+note = "interface.enableAnimations (prefs_ui.rs sync_animations, #3273) zeroes egui animation_time and scroll animation in both styles; the Home screen lists recent files (canvas.rs home_recent, #2691); the canvas dot pattern toggle is interface.showCanvasDots (#2264, global rather than per theme); interface.showHomeRecentFiles hides the Home screen recents (#4382)"
 
 [[item]]
 id = "UI-217-11"
 target = "Soft dark and soft light themes with picker previews; outlined knobs in light themes"
-status = "missing"
+status = "partial"
 issue = 217
-note = "theme.rs ThemeKind has twelve themes (the four Pro brightness levels, Studio and Studio Light, Classic, Adwaita and Adwaita Dark, Solarized Dark, Breeze Light and Breeze Dark); no Soft dark or Soft light, and no outlined knobs in the light themes"
+note = "theme.rs ThemeKind has fourteen themes: the twelve earlier ones plus Soft Dark and Soft Light (low-contrast Studio-layout palettes, text at 4.5:1, selectable in Preferences with the existing theme-card previews, ui.set {theme}, Window > Theme); outlined knobs in the light themes are still missing"
 
 [[item]]
 id = "UI-217-12"
 target = "Save custom New Document presets; a real Recent category"
-status = "partial"
+status = "done"
 issue = 217
-note = "document_preset_cmds.rs and new_doc_ui.rs: named presets save/select/delete through preferences; Recent remains a static list plus Clipboard"
+note = "document_preset_cmds.rs and new_doc_ui.rs: named presets save/select/delete through preferences; Recent lists Clipboard, the last 20 documents created in the dialog (document.recent.*, persisted with the presets, newest first, deduplicated) and the uncovered defaults (#3131); created_documents_fill_the_recent_category"
 
 [[item]]
 id = "UI-217-13"
@@ -106,9 +106,9 @@ note = "panels.rs: the wheel steps the blend-mode dropdown (widgets::dropdown_wh
 [[item]]
 id = "UI-217-15"
 target = "Curves: smoothing / pencil mode, black/grey/white eyedroppers, tooltips"
-status = "partial"
+status = "done"
 issue = 217
-note = "adjust_dialog.rs adds black/gray/white eyedroppers; smoothing and pencil modes remain missing"
+note = "Curves editor (adjust_editors.rs, dialog and Properties): Edit points / Draw (pencil) buttons and Smooth, all with tooltips; pencil curves are 256-level maps (Adjustment::Curves pencil, params pencil/smooth, PSD curv map form and smart-filter Mpng; #3088). Set Black/Neutral Gray/White Point eyedroppers in the Image > Adjustments > Curves dialog (adjust_dialog.rs, #873) and in a Curves adjustment layer's Properties panel (layer_picker.rs: a click on the image is one layer.setAdjustment with the eyedropper param, sampling below the layer; Esc or another tool disarms; #3110)"
 
 [[item]]
 id = "UI-217-16"

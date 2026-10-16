@@ -8,7 +8,17 @@
 # stay as they are; the trailing "…" of dialog commands is kept. UI text addresses the user
 # informally ("je") and uses sentence case.
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	Kanaalkleur
+	Color Indicates:	Kleur geeft aan:
+	Solidity:	Soliditeit:
+	Ink Characteristics	Inktkenmerken
+
 # Guide layout dialog
+
+# Custom print paper (#3820)
+	Paper Width	Papierbreedte
+	Paper Height	Papierhoogte
 	Rows	Rijen
 	Number	Aantal
 	Top:	Boven:
@@ -63,6 +73,8 @@
 	Save	Opslaan
 	Save As…	Opslaan als…
 	Save a Copy…	Kopie opslaan…
+	{name} can't keep everything in this document	{name} kan niet alles in dit document bewaren
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	Kies een indeling die alles bewaart, zoals Photoshop (PSD), of sla een kopie op.
 	Revert	Terugzetten
 	Export	Exporteren
 	Quick Export as PNG	Snel exporteren als PNG
@@ -100,6 +112,13 @@
 	Script Events Manager…	Beheer scriptgebeurtenissen…
 	Import	Importeren
 	Browse…	Bladeren…
+	Source Files	Bronbestanden
+	Use:	Gebruiken:
+	Files	Bestanden
+	Add Open Files	Geopende bestanden toevoegen
+	Sort By Name	Sorteren op naam
+	Attempt to Automatically Align Source Images	Proberen bronafbeeldingen automatisch uit te lijnen
+	Create Smart Object after Loading Layers	Slim object maken na laden van lagen
 	Reveal in Finder	Weergeven in Finder
 	Show in Explorer	Weergeven in Verkenner
 	Show in Folder	Weergeven in map
@@ -124,6 +143,8 @@
 	Search…	Zoeken…
 	Check Spelling…	Spelling controleren…
 	Find and Replace Text…	Tekst zoeken en vervangen…
+	Add to Dictionary	Aan woordenboek toevoegen
+	No Spelling Suggestions	Geen spellingsuggesties
 	Fill…	Vullen…
 	Stroke…	Omlijnen…
 	Content-Aware Fill…	Inhoudsbewust vullen…
@@ -138,6 +159,8 @@
 	Transform Again on a Copy	Opnieuw transformeren op een kopie
 	Scale	Schalen
 	Rotate	Roteren
+	Set horizontal skew	Horizontale schuinte instellen
+	Set vertical skew	Verticale schuinte instellen
 	Skew	Schuintrekken
 	Distort	Vervormen
 	Perspective	Perspectief
@@ -349,6 +372,7 @@
 	Update Modified Content	Gewijzigde inhoud bijwerken
 	Update All Modified Content	Alle gewijzigde inhoud bijwerken
 	Stack Mode	Stapelmodus
+	Choose Stack Mode:	Stapelmodus kiezen:
 	Entropy	Entropie
 	Kurtosis	Kurtosis
 	Maximum	Maximum
@@ -383,6 +407,7 @@
 	Select Linked Layers	Gekoppelde lagen selecteren
 	Merge Layers	Lagen samenvoegen
 	Merge Down	Omlaag samenvoegen
+	Merge Group	Groep samenvoegen
 	Merge Visible	Zichtbare samenvoegen
 	Stamp Visible	Zichtbare stempelen
 	Select Layer Above	Laag erboven selecteren
@@ -518,6 +543,12 @@
 	Blur	Vervagen
 	Blur Gallery	Vervagingsgalerie
 	Field Blur…	Veldvervaging…
+# Field Blur pins (#3373)
+	No pin selected	Geen speld geselecteerd
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Klik in de afbeelding om een speld toe te voegen; sleep een speld om hem te verplaatsen, of zijn ring om de vervaging te wijzigen. Delete verwijdert de geselecteerde speld.
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	Sleep de grepen op de omtrek om hem te schalen en te draaien, het vierkantje om de hoeken af te ronden en de punten binnenin om in te stellen waar de vervaging begint.
+	Drag the pin to move the band, or its ring to change its blur. Drag the solid lines to widen the sharp band, the dashed lines to set the transition, and the dots to turn it.	Sleep de speld om de band te verplaatsen, of zijn ring om de vervaging te wijzigen. Sleep de doorgetrokken lijnen om de scherpe band te verbreden, de stippellijnen voor de overgang en de punten om hem te draaien.
+	Drag the handles on the outline to resize and turn it; the ring sets the blur angle.	Sleep de grepen op de omtrek om hem te schalen en te draaien; de ring stelt de vervagingshoek in.
 	Iris Blur…	Irisvervaging…
 	Tilt-Shift…	Tilt-shift…
 	Path Blur…	Padvervaging…
@@ -704,6 +735,10 @@
 	Breeze Dark Theme	Breeze-thema donker
 	Breeze light	Breeze licht
 	Breeze Light Theme	Breeze-thema licht
+	Soft dark	Zacht donker
+	Soft light	Zacht licht
+	Soft Dark Theme	Zacht donker thema
+	Soft Light Theme	Zacht licht thema
 	Adwaita Light Theme	Adwaita-thema licht
 	Adwaita Dark Theme	Adwaita-thema donker
 	Adwaita	Adwaita
@@ -806,6 +841,9 @@
 	Appearance	Weergave
 	Appearance (Layer Style)	Weergave (laagstijl)
 	Apply Layer Mask	Laagmasker toepassen
+	Add Mask to Selection	Masker aan selectie toevoegen
+	Subtract Mask from Selection	Masker van selectie aftrekken
+	Intersect Mask with Selection	Masker met selectie laten snijden
 	Apply Per Tip	Per punt toepassen
 	Apply next selected layer comp	Volgende geselecteerde laagcompositie toepassen
 	Apply previous selected layer comp	Vorige geselecteerde laagcompositie toepassen
@@ -821,11 +859,18 @@
 	Background	Achtergrond
 	Background Color	Achtergrondkleur
 	Background Contents	Achtergrondinhoud
+	Custom background color	Aangepaste achtergrondkleur
 	Balance	Balans
 	Baseline	Basislijn
 	Baseline shift	Basislijnverschuiving
 	Basic	Basis
 	Before (Y)	Voor (Y)
+	Save Settings…	Instellingen opslaan…
+	Load Settings…	Instellingen laden…
+	Save these settings as a Camera Raw .xmp file	Deze instellingen opslaan als Camera Raw-.xmp-bestand
+	Load settings from a Camera Raw .xmp file	Instellingen laden uit een Camera Raw-.xmp-bestand
+	Loaded Camera Raw settings from {file}	Camera Raw-instellingen geladen uit {file}
+	Loaded Camera Raw settings from {file} ({n} not supported)	Camera Raw-instellingen geladen uit {file} ({n} niet ondersteund)
 	Begin recording	Opname starten
 	Bend:	Buiging:
 	Bicubic	Bicubisch
@@ -856,6 +901,7 @@
 	Cancel	Annuleren
 	Reset	Herstellen
 	Cancel (Esc)	Annuleren (Esc)
+	Manage submitted jobs in the system print queue	Beheer verzonden taken in de afdrukwachtrij van het systeem
 	Cancel any current edits (Esc)	Huidige bewerkingen annuleren (Esc)
 	Cancel current crop operation  (Esc)	Huidige bijsnijbewerking annuleren  (Esc)
 	Cancel transform (Esc)	Transformatie annuleren (Esc)
@@ -921,7 +967,6 @@
 	Contiguous	Aaneengesloten
 	Contrast	Contrast
 	Control:	Besturing:
-	Convert document's colors to the working space	Kleuren van document omzetten naar de werkruimte
 	Convert to sRGB	Omzetten naar sRGB
 	Copies	Exemplaren
 	Copper	Koper
@@ -978,6 +1023,7 @@
 	Delete Group	Groep verwijderen
 	Delete Layer Mask	Laagmasker verwijderen
 	Delete Layers	Lagen verwijderen
+	Add Shortcut	Sneltoets toevoegen
 	Delete Shortcut	Sneltoets verwijderen
 	Delete Timeline	Tijdlijn verwijderen
 	Delete Tool Preset	Gereedschapsvoorinstelling verwijderen
@@ -1129,6 +1175,9 @@
 	Ignore All	Alles negeren
 	Image Size	Afbeeldingsgrootte
 	Import Brushes…	Penselen importeren…
+	Gradient Preset Options	Opties voor verloopvoorinstellingen
+	Import .GRD	.GRD importeren
+	Choose a gradient file (.grd).	Kies een verloopbestand (.grd).
 	Import brushes (.abr)	Penselen (.abr) importeren
 	Import Presets	Voorinstellingen importeren
 	Imported	Geïmporteerd
@@ -1499,7 +1548,6 @@
 	Use Default	Standaard gebruiken
 	Use Legacy	Verouderde versie gebruiken
 	Use Measurement Scale	Meetschaal gebruiken
-	Use the embedded profile (instead of the working space)	Het ingesloten profiel gebruiken (in plaats van de werkruimte)
 	Variables bind a layer's visibility, text or pixels to a named data slot.	Variabelen koppelen de zichtbaarheid, tekst of pixels van een laag aan een benoemd gegevensveld.
 	Vertical scale	Verticale schaal
 	Vibrance	Levendigheid
@@ -1819,6 +1867,8 @@
 	Camera Raw Defaults	Standaardwaarden Camera Raw
 	Canvas border	Canvasrand
 	Show canvas dots	Canvasstippen tonen
+	Clip thumbnails to layer bounds	Miniaturen bijsnijden tot laaggrenzen
+	Clip Thumbnails to Layer Bounds	Miniaturen bijsnijden tot laaggrenzen
 	Canvas color	Canvaskleur
 	Canvas custom color	Aangepaste canvaskleur
 	Color picker	Kleurkiezer
@@ -2005,7 +2055,8 @@
 	Expand group  ({key}-click: all groups)	Groep uitvouwen  ({key}-klik: alle groepen)
 	Fade steps	Afzwakstappen
 	Hide the layer's effects  ({key}-click: all layers)	De effecten van de laag verbergen  ({key}-klik: alle lagen)
-	Import Brushes… (.abr)	Penselen importeren… (.abr)
+	Import Brushes… (.abr or image)	Penselen importeren… (.abr of afbeelding)
+	Import Brush from Image…	Penseel uit afbeelding importeren…
 	Move Group Down	Groep omlaag
 	Move Group Up	Groep omhoog
 	Reset the brush to the defaults	Het penseel terugzetten naar de standaardwaarden
@@ -2050,6 +2101,11 @@
 	Rename Brush…	Penseel hernoemen…
 	Delete Brush	Penseel verwijderen
 	New Brush Preset…	Nieuwe penseelvoorinstelling…
+	Capture Brush Size in Preset	Penseelgrootte vastleggen in voorinstelling
+	Include Tool Settings	Gereedschapsinstellingen opnemen
+	Include Color	Kleur opnemen
+	Enter a name for the brush preset	Voer een naam in voor de penseelvoorinstelling
+	A brush preset with this name already exists	Er bestaat al een penseelvoorinstelling met deze naam
 	Brush Preset Options	Opties penseelvoorinstelling
 	Group name	Groepsnaam
 	Brush name	Penseelnaam
@@ -2109,6 +2165,9 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Geen pad om een selectie van te maken: teken er een met het pengereedschap of selecteer er een in het paneel Paden.
 	Cancel opening	Openen annuleren
 	Cancelled opening {name}	Openen van {name} geannuleerd
+	The document “{name}” does not have an embedded {mode} profile.	Het document “{name}” heeft geen ingesloten {mode}-profiel.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Het document “{name}” heeft een ingesloten kleurprofiel dat niet overeenkomt met de huidige {mode}-werkruimte.
+	Working: {working}	Werkruimte: {working}
 	Developing {name}	{name} wordt ontwikkeld
 	Cancelled {label}	{label} geannuleerd
 	Esc to cancel	Esc om te annuleren
@@ -2116,6 +2175,7 @@
 	Opening {name}	{name} openen
 	Saved {name}	{name} opgeslagen
 	Saving {name}	{name} opslaan
+	Saving {percent}	Opslaan {percent}
 	A save to {name} is still running; try again when it finishes	Er wordt nog opgeslagen naar {name}; probeer het opnieuw zodra dat klaar is
 	{label} is writing the file and can no longer be cancelled	{label} schrijft het bestand en kan niet meer worden geannuleerd
 	Opening {name}…	{name} openen…
@@ -2328,6 +2388,7 @@
 	Click to pick · Esc to cancel	Klik om te kiezen · Esc om te annuleren
 	Pick a screen pixel or press Esc to cancel	Kies een schermpixel of druk op Esc om te annuleren
 	Scroll to zoom	Scrollen om te zoomen
+	Drag to pan · Scroll to zoom · Double-click to fit	Sleep om te pannen · Scroll om te zoomen · Dubbelklik om passend te maken
 	Show/Hide All Panels	Alle panelen tonen/verbergen
 	Show/Hide Panels	Panelen tonen/verbergen
 	Could not open	Kan niet openen
@@ -2377,9 +2438,9 @@ layerLabel	No Color	Geen kleur
 	Fuchsia	Fuchsia
 	Violet	Violet
 	Large document: redrawing on the CPU	Groot document: opnieuw tekenen op de CPU
+	Redrawing	Opnieuw tekenen
 	This redraw took {seconds} s on the CPU.	Opnieuw tekenen duurde {seconds} s op de CPU.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Bewerkingen die het hele document veranderen, zoals de overvloeimodus, dekking of zichtbaarheid van een laag, tekenen alles opnieuw.
-	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	De lagen passen niet binnen het GPU-geheugenbudget. Door Geheugengebruik te verhogen in Voorkeuren › Prestaties wordt het budget groter, tot een kwart van het geheugen van deze computer.
 	The GPU compositor wasn't used: {reason}	De GPU-compositor is niet gebruikt: {reason}
 cameraRaw	Light	Licht
 fontWeight	Thin	Dun
@@ -2802,7 +2863,6 @@ cameraRaw	Color	Kleur
 	Choose…	Kiezen…
 	Select Folder…	Map selecteren…
 	Override Action "Save" Commands	Opdrachten "Opslaan" in actie negeren
-	File Naming	Bestandsnamen
 	Compatibility	Compatibiliteit
 	Include ICC Profile	ICC-profiel opnemen
 	Error File	Foutbestand
@@ -3618,6 +3678,8 @@ cameraRaw	Whites	Witten
 	Color Picker (Layer Style Color)	Kleurkiezer (kleur van laagstijl)
 	Auto Hide Notifications	Meldingen automatisch verbergen
 	Notification Duration (seconds)	Duur van melding (seconden)
+	Bundle Arrow-Key Nudges	Pijltjestoetsverschuivingen bundelen
+	Nudge Bundle Pause (ms)	Pauze voor bundelen van verschuivingen (ms)
 	Appearance Mode	Weergavemodus
 	Next Appearance Mode	Volgende weergavemodus
 	Sync with system	Synchroniseren met systeem
@@ -3729,6 +3791,7 @@ cameraData	Lens	Lens
 	No matching settings	Geen overeenkomende instellingen
 	PhotoCraft — Screen Color Picker	PhotoCraft — Schermkleurkiezer
 	Loading fonts…	Lettertypen laden…
+	Response curve	Responscurve
 	Simulate Pressure	Druk simuleren
 	Stroke Path…	Pad omlijnen…
 	Background Eraser	Achtergrondgum
@@ -3738,6 +3801,16 @@ cameraData	Lens	Lens
 	Amount:	Hoeveelheid:
 	Protect:	Beschermen:
 	Protect skin tones	Huidtinten beschermen
+	Edit points to modify the curve	Punten bewerken om de curve te wijzigen
+	Draw to modify the curve	Tekenen om de curve te wijzigen
+curves	Smooth	Vloeiend maken
+	Smooth the curve values	Curvewaarden vloeiend maken
+	Drag to draw the curve · {key}-click draws a straight line	Sleep om de curve te tekenen · {key}-klik tekent een rechte lijn
+	Grid Size:	Rastergrootte:
+	Vanishing Point: click four corners to create a plane	Verdwijnpunt: klik op vier hoeken om een vlak te maken
+	Vanishing Point is not active	Verdwijnpunt is niet actief
+	Apply Vanishing Point ({key})	Verdwijnpunt toepassen ({key})
+	Fix the red plane first: its corners must form a convex quad	Herstel eerst het rode vlak: de hoeken moeten een convexe vierhoek vormen
 # Select and Mask view modes (#1754)
 	Onion Skin	Uienschil
 	Marching Ants	Mierenmars
@@ -3760,6 +3833,7 @@ cameraData	Lens	Lens
 	Include in playback	Opnemen in afspelen
 	Scale:	Schaal:
 	Snap to Origin	Uitlijnen op oorsprong
+	Presentation	Presentatie
 
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	Klik om te plaatsen · Alt-klik of sleep buiten het canvas om te verwijderen
@@ -3776,3 +3850,121 @@ cameraData	Lens	Lens
 	Apply mask to layer before removing?	Masker toepassen op laag voordat het wordt verwijderd?
 	The layer or its mask changed. Drag the mask onto the Trash again.	De laag of het masker is gewijzigd. Sleep het masker opnieuw naar de prullenbak.
 	Delete the vector mask?	Het vectormasker verwijderen?
+# Counted status messages and labels (#3454; adapted from PR #3821)
+@plural	Exported {n} swatch to {file}|Exported {n} swatches to {file}	{n} staal geëxporteerd naar {file}|{n} stalen geëxporteerd naar {file}
+@plural	Imported {n} brush from {group}|Imported {n} brushes from {group}	{n} penseel geïmporteerd uit {group}|{n} penselen geïmporteerd uit {group}
+@plural	Imported {n} swatch from {file}|Imported {n} swatches from {file}	{n} staal geïmporteerd uit {file}|{n} stalen geïmporteerd uit {file}
+@plural	Played {n} step|Played {n} steps	{n} stap afgespeeld|{n} stappen afgespeeld
+@plural	Updated {n} linked smart object changed on disk|Updated {n} linked smart objects changed on disk	{n} gekoppeld slim object bijgewerkt dat op schijf is gewijzigd|{n} gekoppelde slimme objecten bijgewerkt die op schijf zijn gewijzigd
+@plural	Saved for Web: {n} file|Saved for Web: {n} files	Opgeslagen voor web: {n} bestand|Opgeslagen voor web: {n} bestanden
+@plural	{n} layer recorded by this comp was deleted. Update the comp, or clear the warning.|{n} layers recorded by this comp were deleted. Update the comp, or clear the warning.	{n} laag die deze compositie vastlegt, is verwijderd. Werk de compositie bij of wis de waarschuwing.|{n} lagen die deze compositie vastlegt, zijn verwijderd. Werk de compositie bij of wis de waarschuwing.
+@plural	{n} plane|{n} planes	{n} vlak|{n} vlakken
+@plural	{n} preset|{n} presets	{n} voorinstelling|{n} voorinstellingen
+@plural	{n} sample point removed|{n} sample points removed	{n} steekproefpunt verwijderd|{n} steekproefpunten verwijderd
+@plural	{n} slice|{n} slices	{n} segment|{n} segmenten
+@plural	{n} step|{n} steps	{n} stap|{n} stappen
+@plural	{warning} (+{n} more brush preset warning)|{warning} (+{n} more brush preset warnings)	{warning} (+{n} andere waarschuwing over penseelvoorinstellingen)|{warning} (+{n} andere waarschuwingen over penseelvoorinstellingen)
+@plural	{what} with {n} warning|{what} with {n} warnings	{what} met {n} waarschuwing|{what} met {n} waarschuwingen
+# View › Guides › New Guide… › Color
+	Light Blue	Lichtblauw
+	Light Red	Lichtrood
+	Medium Blue	Middelblauw
+	Light Gray	Lichtgrijs
+	Object Finder	Objectzoeker
+	No object found there — drag a rectangle around it	Daar is geen object gevonden — sleep er een rechthoek omheen
+	Remove after each stroke	Verwijderen na elke streek
+	Apply the removal ({key})	Verwijdering toepassen ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Streken om te verwijderen: {n} (Enter past toe, Esc annuleert)
+	Show home recent files	Recente bestanden tonen op het startscherm
+	Clear Brush Controls	Penseelbesturing wissen
+	Reset All Locked Settings	Alle vergrendelde instellingen opnieuw instellen
+	Copy Texture to Other Tools	Structuur kopiëren naar andere gereedschappen
+
+# Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
+	Load Actions…	Handelingen laden…
+	Save Actions…	Handelingen opslaan…
+	{name} (Photoshop)	{name} (Photoshop)
+	{message} ({note})	{message} ({note})
+@plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{n} handeling geladen uit {file}|{n} handelingen geladen uit {file}
+@plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} stap heeft nog geen equivalent in PhotoCraft|{n} stappen hebben nog geen equivalent in PhotoCraft
+@plural	Saved {n} action to {file}|Saved {n} actions to {file}	{n} handeling opgeslagen in {file}|{n} handelingen opgeslagen in {file}
+@plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	{n} stap zonder Photoshop-equivalent weggelaten|{n} stappen zonder Photoshop-equivalent weggelaten
+
+	File Naming	Bestandsnamen
+	Starting serial	Beginnummer
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Stop invoegen…
+	Save Set…	Set opslaan…
+	Message:	Bericht:
+	Allow Continue	Doorgaan toestaan
+	Show dialog during playback	Dialoogvenster tonen tijdens afspelen
+	Select an action first	Selecteer eerst een handeling
+	Action playback stopped	Afspelen van de handeling gestopt
+	Step {step} is waiting for its dialog	Stap {step} wacht op zijn dialoogvenster
+@plural	{n} action|{n} actions	{n} handeling|{n} handelingen
+	Background (Default)	Achtergrond (standaard)
+# Batch / Image Processor
+	Include All Subfolders	Alle submappen opnemen
+	Auto Add/Delete	Automatisch toevoegen/verwijderen
+
+# Native Windows printing qualification
+	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	Schakel niet ook Spiegelbeeld in bij de afdrukinstellingen: de twee spiegelingen heffen elkaar op.
+	Print Settings…	Afdrukinstellingen…
+	Remember to turn off the printer's own colour management in Print Settings…	Vergeet niet het eigen kleurbeheer van de printer uit te schakelen in de afdrukinstellingen…
+	Sent to {printer}	Verzonden naar {printer}
+	set in Print Settings…	instellen in de afdrukinstellingen…
+	ICO is limited to 256 × 256 pixels	ICO is beperkt tot 256 × 256 pixels
+# Embedded Profile Mismatch: profile names beside the choices, Remember this choice
+	Use the embedded profile ({profile})	Het ingesloten profiel gebruiken ({profile})
+	Convert to the working space ({profile})	Omzetten naar de werkruimte ({profile})
+	Remember this choice for future images	Deze keuze onthouden voor volgende afbeeldingen
+	Turn the prompt back on with Ask On Mismatch in Edit › Color Settings.	Zet de vraag weer aan met Ask On Mismatch in Bewerken › Kleurinstellingen.
+	Button Mode	Knopmodus
+	Button Mode On	Knopmodus aan
+
+# Darken / Lighten Interface (⇧⌘F1 / ⇧⌘F2)
+	Darken Interface	Interface donkerder maken
+	Lighten Interface	Interface lichter maken
+# Bevel & Emboss Technique.
+	Technique	Techniek
+	Chisel Hard	Beitel hard
+	Chisel Soft	Beitel zacht
+	Open color-less EXR as ACEScg	EXR zonder kleurruimte als ACEScg openen
+
+# View › Guides › right-click a guide
+	Edit Selected Guides	Geselecteerde hulplijnen bewerken
+	Clear Selected Guides	Geselecteerde hulplijnen wissen
+	Delete this set	Deze set verwijderen
+	New Set…	Nieuwe set…
+	PhotoCraft Defaults	PhotoCraft-standaard
+	Save a list of these shortcuts as a web page	Een lijst van deze sneltoetsen als webpagina opslaan
+	Save the changes to this set	De wijzigingen in deze set opslaan
+	Save these shortcuts as a .kys file	Deze sneltoetsen als .kys-bestand opslaan
+	Save these shortcuts as a new set	Deze sneltoetsen als nieuwe set opslaan
+	Set deleted.	Set verwijderd.
+	Set saved.	Set opgeslagen.
+	Set:	Set:
+	Summarize…	Samenvatten…
+	There are too many sets: delete one first.	Er zijn te veel sets: verwijder er eerst een.
+	set name	naam van de set
+	{set} (modified)	{set} (gewijzigd)
+	Accept and Go to Conflict	Accepteren en naar conflict
+	Changes undone.	Wijzigingen ongedaan gemaakt.
+	Choose a new shortcut for this command, or leave it without one.	Kies een nieuwe sneltoets voor deze opdracht of laat hem zonder.
+	Put this command's shortcuts back as they were	De sneltoetsen van deze opdracht herstellen
+	Take the shortcut from the other command and select it	De sneltoets van de andere opdracht afnemen en die selecteren
+	Undo Changes	Wijzigingen ongedaan maken
+	{shortcut} is reserved by the system and can't be assigned.	{shortcut} is door het systeem gereserveerd en kan niet worden toegewezen.
+	Low-Latency Drawing (vsync off, applies at next launch)	Tekenen met lage latentie (zonder vsync, na de volgende start)
+# Free Transform: a new layer while the box is open (#5859)
+	Free Transform is still being applied; try again when it has finished.	Vrije transformatie wordt nog toegepast; probeer het opnieuw als die klaar is.
+	The transform couldn't be applied.	De transformatie kon niet worden toegepast.
+# Preferences › Performance › GPU Memory; the status bar and slow-redraw notice
+	Its layers need {needed} of GPU memory; the budget leaves them {budget}.	De lagen hebben {needed} GPU-geheugen nodig; het budget laat ze {budget}.
+	Set GPU Memory in Preferences › Performance to what your graphics card can hold, at most 3/8 of its memory. Automatic follows Memory Usage, within a quarter of this computer's memory and 3/8 of the card's, and doesn't count the document against a card whose memory is known. The status bar shows GPU Memory Full while they don't fit.	Stel GPU-geheugen in bij Voorkeuren › Prestaties op wat uw videokaart aankan, hooguit 3/8 van haar geheugen. Automatisch volgt Geheugengebruik, binnen een kwart van het geheugen van deze computer en 3/8 van dat van de kaart, en rekent het document niet af van een kaart waarvan het geheugen bekend is. Zolang ze niet passen, toont de statusbalk GPU-geheugen vol.
+	GPU Memory Full	GPU-geheugen vol
+	The layers need {needed} of GPU memory and may hold {budget}, so edits that redraw the whole document do it on the CPU. Click to set GPU Memory.	De lagen hebben {needed} GPU-geheugen nodig en mogen {budget} gebruiken, dus bewerkingen die het hele document opnieuw tekenen doen dat op de CPU. Klik om GPU-geheugen in te stellen.
+	GPU memory budget: {budget}	GPU-geheugenbudget: {budget}
+	This document's layers: {needed} of {budget} for layers	Lagen van dit document: {needed} van {budget} voor lagen
+	This document's layers need {needed} but may hold {budget}: whole-document redraws use the CPU	De lagen van dit document hebben {needed} nodig maar mogen {budget} gebruiken: het hele document wordt op de CPU opnieuw getekend
+	GPU Memory (MB, 0 = Automatic)	GPU-geheugen (MB, 0 = Automatisch)

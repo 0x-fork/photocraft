@@ -48,7 +48,7 @@ fn short_columns_squeeze_groups_down_to_their_minimum_and_never_go_negative() {
 #[test]
 fn bad_stored_values_are_sanitised() {
     let mut l = DockLayout { order: vec![Group::Layers, Group::Layers, Group::Color], ..Default::default() };
-    assert_eq!(l.order(), vec![Group::Layers, Group::Color, Group::Properties, Group::Character, Group::Navigator, Group::History]);
+    assert_eq!(l.order(), vec![Group::Layers, Group::Brushes, Group::Color, Group::Properties, Group::Character, Group::Navigator, Group::History]);
     for bad in [f32::NAN, -10.0, f32::INFINITY, 1e12] {
         l.heights.insert(Group::Color, bad);
         let h = l.height(Group::Color);
@@ -56,7 +56,7 @@ fn bad_stored_values_are_sanitised() {
     }
     // Unknown fields, wrong types and old UI state all load.
     let back: DockLayout = serde_json::from_value(json!({"order": ["layers"], "bogus": 1})).unwrap();
-    assert_eq!(back.order(), vec![Group::Layers, Group::Color, Group::Properties, Group::Character, Group::Navigator, Group::History]);
+    assert_eq!(back.order(), vec![Group::Layers, Group::Brushes, Group::Color, Group::Properties, Group::Character, Group::Navigator, Group::History]);
     let mut ui = serde_json::to_value(crate::state::UiState::default()).unwrap();
     ui.as_object_mut().unwrap().remove("dock");
     let ui: crate::state::UiState = serde_json::from_value(ui).unwrap();
@@ -308,12 +308,13 @@ fn reset_workspace_restores_the_default_layout_and_new_workspaces_keep_theirs() 
     let (app, _, _) = app_with_layers();
     let mut h = harness(app, vec2(1200.0, 800.0), ThemeKind::ProMedium);
     let ctx = h.ctx.clone();
-    let default = last_rects(&h.ctx);
     h.state_mut().ui.dock.heights.insert(Group::Properties, 120.0);
     h.state_mut().ui.dock.set_collapsed(Group::Color, true);
     crate::menus::invoke(h.state_mut(), &ctx, "window.workspace.newWorkspace", json!({"name": "Tall Layers"})).unwrap();
     let mine = h.state().ui.dock.clone();
     crate::menus::invoke(h.state_mut(), &ctx, "window.workspace.essentials", json!({})).unwrap();
+    h.run_steps(3);
+    let default = last_rects(&h.ctx);
     assert_eq!(h.state().ui.dock, DockLayout::default());
     h.state_mut().ui.dock.heights.insert(Group::Color, 300.0);
     crate::menus::invoke(h.state_mut(), &ctx, "window.workspace.resetWorkspace", json!({})).unwrap();
@@ -345,6 +346,43 @@ fn a_single_tab_click_expands_a_collapsed_panel() {
             h.run_steps(3);
             assert!(!h.state().ui.dock.is_collapsed(Group::Color), "{theme:?}: tab {tab_index}");
             assert_eq!(h.state().ui.dock_tabs.color, tab_index);
+            assert!(rect_of(&h, Group::Color).height() > collapsed_height);
+        }
+    }
+}
+
+/// Auto-Collapse Iconic Panels: a group expanded by clicking a tab on its collapsed strip
+/// closes again when the next click lands outside it; with the preference off it stays open.
+#[test]
+fn auto_collapse_icon_panels_closes_a_peeked_panel_on_an_outside_click() {
+    for auto in [true, false] {
+        let (mut app, _, _) = app_with_layers();
+        app.session.prefs.edit(|p| p.workspace.auto_collapse_icon_panels = auto);
+        app.ui.dock.set_collapsed(Group::Color, true);
+        let mut h = harness(app, vec2(1200.0, 800.0), ThemeKind::ProMedium);
+        let collapsed_height = rect_of(&h, Group::Color).height();
+        let tab = last_strips(&h.ctx).iter().find(|s| s.group == Group::Color).unwrap().tabs[0].1.center();
+        h.event(egui::Event::PointerMoved(tab));
+        h.run_steps(1);
+        h.event(egui::Event::PointerButton { pos: tab, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+        h.step();
+        h.event(egui::Event::PointerButton { pos: tab, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+        h.run_steps(3);
+        assert!(!h.state().ui.dock.is_collapsed(Group::Color), "auto={auto}: the tab click expands the panel");
+        let rect = rect_of(&h, Group::Color);
+        // A click inside the panel leaves it open; one outside (the canvas) closes it again.
+        for p in [rect.center(), Pos2::new(rect.left() / 2.0, rect.center().y)] {
+            h.event(egui::Event::PointerMoved(p));
+            h.run_steps(1);
+            h.event(egui::Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+            h.step();
+            h.event(egui::Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+            h.run_steps(3);
+        }
+        assert_eq!(h.state().ui.dock.is_collapsed(Group::Color), auto, "auto={auto}: outside closes it when enabled");
+        if auto {
+            assert_eq!(rect_of(&h, Group::Color).height(), collapsed_height);
+        } else {
             assert!(rect_of(&h, Group::Color).height() > collapsed_height);
         }
     }
@@ -765,7 +803,7 @@ fn window_character_opens_its_own_group_and_keeps_properties() {
     let old = DockLayout { order: vec![Group::Color, Group::Properties, Group::Navigator, Group::History, Group::Layers], ..Default::default() };
     assert_eq!(old.order(), Group::ALL.to_vec());
     let moved = DockLayout { order: vec![Group::Layers, Group::Color], ..Default::default() };
-    assert_eq!(moved.order(), vec![Group::Layers, Group::Color, Group::Properties, Group::Character, Group::Navigator, Group::History]);
+    assert_eq!(moved.order(), vec![Group::Layers, Group::Brushes, Group::Color, Group::Properties, Group::Character, Group::Navigator, Group::History]);
 }
 
 type StripProbe = Option<(Vec<(usize, Rect)>, Rect, Option<Rect>, Rect)>;
@@ -1081,4 +1119,32 @@ fn a_tab_dragged_off_the_strip_moves_the_group_and_locking_stops_reordering() {
     let paths = tab_rect(&h, Group::Layers, 2);
     drag(&mut h, paths.center(), paths.center() + vec2(0.0, 500.0));
     assert_eq!(h.state().ui.dock.order(), order);
+}
+
+#[test]
+fn brush_settings_window_is_closed_on_restart_but_can_be_reopened() {
+    let mut first = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    first.ui.panels.brush_settings = true;
+    first.ui.panels.history = true;
+    let saved = snapshot(&first);
+    first.session.prefs.edit(|p| {
+        p.workspace.remember_workspace_changes = true;
+        p.panel_layout = saved.clone();
+    });
+    let persisted = first.session.prefs_to_json();
+
+    let mut session = photocraft_engine::Session::new();
+    session.load_prefs_json(&persisted).unwrap();
+    let mut next = PhotocraftApp::new(session, crate::Services::default());
+    restore(&mut next);
+    assert!(!next.ui.panels.brush_settings, "a floating Brush Settings window should not reopen on startup");
+    assert!(next.ui.panels.history, "remembered dock panel visibility is preserved");
+
+    let ctx = egui::Context::default();
+    crate::menus::invoke(&mut next, &ctx, "window.toggle.brushSettings", json!({})).unwrap();
+    assert!(next.ui.panels.brush_settings, "Window > Brush Settings can still open it");
+
+    let mut workspace = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    apply(&mut workspace, &saved);
+    assert!(workspace.ui.panels.brush_settings, "switching workspaces still restores their saved layout");
 }

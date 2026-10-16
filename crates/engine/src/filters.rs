@@ -52,7 +52,22 @@ fn preserve(p: &Value) -> Preserve {
 fn preset(id: &str) -> Option<(&'static str, FilterParams)> {
     Some(match id {
         "filter.blur.blur" => ("Blur", FilterParams::GaussianBlur { radius: 0.6 }),
-        "filter.blur.blurMore" => ("Blur More", FilterParams::GaussianBlur { radius: 1.4 }),
+        // Photoshop 27.11's Blur More is the 3×3 kernel [1 2 1; 2 2 2; 1 2 1] / 14 (its response
+        // to a single white pixel, exactly).
+        "filter.blur.blurMore" => (
+            "Blur More",
+            FilterParams::Custom {
+                kernel: vec![
+                    0.0, 0.0, 0.0, 0.0, 0.0, //
+                    0.0, 1.0, 2.0, 1.0, 0.0, //
+                    0.0, 2.0, 2.0, 2.0, 0.0, //
+                    0.0, 1.0, 2.0, 1.0, 0.0, //
+                    0.0, 0.0, 0.0, 0.0, 0.0,
+                ],
+                scale: 14.0,
+                offset: 0.0,
+            },
+        ),
         "filter.sharpen.sharpen" => ("Sharpen", FilterParams::UnsharpMask { amount: 60.0, radius: 0.5, threshold: 0.0 }),
         "filter.sharpen.sharpenMore" => ("Sharpen More", FilterParams::UnsharpMask { amount: 150.0, radius: 0.6, threshold: 0.0 }),
         "filter.sharpen.sharpenEdges" => ("Sharpen Edges", FilterParams::UnsharpMask { amount: 100.0, radius: 0.8, threshold: 6.0 }),
@@ -159,8 +174,9 @@ pub fn params_for(id: &str, p: &Value) -> Option<FilterParams> {
 /// Runs filter command `id` with JSON `params` on `surf` (the pixel function behind every
 /// `filter.*` command; smart filters re-run it on re-render). `bounds` frames distortions;
 /// `selection` limits the result. Like layer filters, neighbourhood filters repeat the edge pixels
-/// of `canvas` ∪ the surface's content instead of fading in transparency, and the output is
-/// clipped to it. `None` for ids that aren't pixel filters.
+/// `None` for ids that aren't pixel filters. `Err` when the requesting session's authority denies
+/// the filter's params (an ambient path the session may not read): the caller must surface the
+/// error rather than render unfiltered pixels.
 pub fn apply_filter_to_surface(
     id: &str,
     params: &Value,
@@ -168,28 +184,36 @@ pub fn apply_filter_to_surface(
     bounds: photocraft_geom::Rect,
     selection: Option<&photocraft_raster::Surface>,
     canvas: photocraft_geom::Rect,
-) -> Option<photocraft_raster::Surface> {
+) -> Result<Option<photocraft_raster::Surface>> {
+    // Replays bypass command dispatch; nested paths must still obey the requesting session's
+    // authority, including adjustment LUTs and plug-ins, before any resolver can read them.
+    crate::jobs::authorize_render_command(id, params)?;
     // Liquify / Puppet Warp / Perspective Warp smart filters (distort_cmds).
     if let Some(out) = crate::distort_cmds::apply_to_surface(id, params, surf, canvas) {
-        return Some(out);
+        return Ok(Some(out));
     }
     // Lens Correction / Adaptive Wide Angle / Camera Raw smart filters (lens_cmds).
     if let Some(out) = crate::lens_cmds::apply_to_surface(id, params, surf, canvas) {
-        return Some(out);
+        return Ok(Some(out));
     }
     // Image › Adjustments recorded as smart filters (Levels, Curves, Shadows/Highlights… from PSD).
     if let Some(kind) = id.strip_prefix("image.adjustments.") {
-        return crate::adjust_cmds::adjust_as_filter(kind, params, surf);
+        return Ok(crate::adjust_cmds::adjust_as_filter(kind, params, surf));
     }
     // WebAssembly plug-in smart filters (plugin_cmds).
     if id == crate::plugin_cmds::RUN {
-        return crate::plugin_cmds::apply_to_surface(id, params, surf, selection, canvas);
+        return Ok(crate::plugin_cmds::apply_to_surface(id, params, surf, selection, canvas));
     }
-    let fp = params_for(id, params)?;
+    let Some(mut fp) = params_for(id, params) else { return Ok(None) };
+    // A map that can no longer be read (moved or deleted since) leaves the pixels alone, like an
+    // unknown filter; the command itself already refused an unreadable map when it was added.
+    if crate::filters_ext::resolve_map_path(&mut fp, params).is_err() {
+        return Ok(None);
+    }
     let sel_bounds = selection.map(photocraft_raster::Surface::content_bounds);
     let content = surf.content_bounds();
     let area = algo::output_area(&fp, content, bounds, sel_bounds);
-    Some(algo::apply_in(surf, &fp, area, bounds, selection, canvas.union(&content)))
+    Ok(Some(algo::apply_in(surf, &fp, area, bounds, selection, canvas.union(&content))))
 }
 
 pub(crate) fn has_filterable_layer(s: &Session) -> std::result::Result<(), String> {
@@ -410,7 +434,7 @@ pub fn specs() -> Vec<CommandSpec> {
 /// The most recent filter command in the session journal, retargeted at the active layer: dialogs
 /// such as the Filter Gallery record the layer they ran on, and Last Filter applies to the
 /// current layer, as in Photoshop (#1270).
-pub(crate) fn last_filter(s: &Session) -> Option<(String, Value)> {
+pub fn last_filter(s: &Session) -> Option<(String, Value)> {
     let (id, mut params) = s.journal.iter().rev().find(|(id, _)| params_for(id, &Value::Null).is_some() && id.starts_with("filter.")).cloned()?;
     if let Value::Object(m) = &mut params {
         m.remove("layer");
@@ -442,7 +466,6 @@ mod tests {
         if reveal_selection {
             s.execute("select.all", json!({})).unwrap();
             s.execute("layer.layerMask.revealSelection", json!({})).unwrap();
-            s.execute("select.deselect", json!({})).unwrap();
         } else {
             s.execute("layer.layerMask.revealAll", json!({})).unwrap();
         }
@@ -624,6 +647,30 @@ mod tests {
         }
     }
 
+    #[test]
+    fn minimum_signed_offset_matches_its_wrapped_distance() {
+        for depth in [8, 16, 32] {
+            let make_session = || {
+                let mut s = Session::new();
+                s.execute("file.new", json!({"width": 48, "height": 32, "depth": depth})).unwrap();
+                s.execute("layer.new.layer", json!({})).unwrap();
+                paint_pattern(&mut s);
+                s
+            };
+            let mut actual = make_session();
+            let before = active_pixels(&actual);
+            actual.execute("filter.other.offset", json!({"horizontal": i32::MIN, "vertical": i32::MIN})).unwrap();
+            let mut expected = make_session();
+            expected.execute("filter.other.offset", json!({"horizontal": i32::MIN.rem_euclid(48), "vertical": i32::MIN.rem_euclid(32)})).unwrap();
+            let after = active_pixels(&actual);
+            assert_eq!(after, active_pixels(&expected), "depth {depth}");
+            assert_ne!(after, before);
+            actual.execute("edit.undo", json!({})).unwrap();
+            assert_eq!(active_pixels(&actual), before);
+            actual.execute("edit.redo", json!({})).unwrap();
+            assert_eq!(active_pixels(&actual), after);
+        }
+    }
     #[test]
     fn huge_offsets_clamp_instead_of_wrapping() {
         // 3e9 wrapped to a negative offset through `as i32`; it saturates now, so it

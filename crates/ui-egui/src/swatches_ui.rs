@@ -68,11 +68,10 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let mut st = std::mem::take(&mut app.ui.presets_ui);
     st.sizes.entry(PANEL.to_string()).or_insert(DEFAULT_SIZE);
     let max_h = (ui.available_height() - 30.0).max(60.0);
-    let card_border = crate::theme::Tokens::get(ui.ctx()).card_border;
-    let events = browser(ui, &mut st, PANEL, &groups, Place { canvas, max_h, new_tip: tl!("Create new swatch") }, &mut |ui, r: Rect, gi, ii| {
+    // Flat, touching squares, as in Photoshop's Swatches panel (#5103).
+    let events = browser(ui, &mut st, PANEL, &groups, Place { canvas, max_h, new_tip: tl!("Create new swatch"), flush: true }, &mut |ui, r: Rect, gi, ii| {
         let c = table.get(gi).and_then(|g| g.get(ii)).copied().unwrap_or(Color32::GRAY);
-        ui.painter().rect_filled(r, CornerRadius::same(2), c);
-        ui.painter().rect_stroke(r, CornerRadius::same(2), egui::Stroke::new(1.0, card_border), egui::StrokeKind::Inside);
+        ui.painter().rect_filled(r, CornerRadius::ZERO, c);
     });
     app.ui.presets_ui = st;
     let mods = ui.input(|i| i.modifiers);
@@ -286,9 +285,37 @@ mod tests {
         h.run_steps(1);
     }
 
+    /// Drag from `from` to `to` in steps, as when a user drags a group header.
+    fn drag(h: &mut Harness<'_, PhotocraftApp>, from: egui::Pos2, to: egui::Pos2) {
+        h.event(egui::Event::PointerMoved(from));
+        h.run_steps(1);
+        h.event(egui::Event::PointerButton { pos: from, button: egui::PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+        h.run_steps(1);
+        for i in 1..=6 {
+            h.event(egui::Event::PointerMoved(from + (to - from) * (i as f32 / 6.0)));
+            h.run_steps(1);
+        }
+        h.event(egui::Event::PointerButton { pos: to, button: egui::PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+        h.run_steps(3);
+    }
+
     /// The first swatch: below the first group header (22 px), after the 8 px grid inset.
     fn first_cell(h: &Harness<'_, PhotocraftApp>) -> egui::Pos2 {
         h.ctx.input(|i| i.viewport_rect()).min + vec2(8.0 + 12.0 + 8.0, 22.0 + 2.0 + 12.0 + 8.0)
+    }
+
+    /// #5103: the swatches touch, as in Photoshop's panel. A click just past the first cell's
+    /// right edge lands on the second swatch; with the preset grids' 4 px gap it hit nothing.
+    #[test]
+    fn swatches_touch_without_a_gap() {
+        let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let second = app.session.presets.swatches.first().and_then(|g| g.items.get(1)).map(|s| s.name.clone()).unwrap();
+        let mut h = Harness::builder().with_size(vec2(300.0, 300.0)).build_ui_state(|ui, app: &mut PhotocraftApp| panel(app, ui), app);
+        h.run_steps(2);
+        assert_eq!(h.state().ui.presets_ui.selected.get(PANEL), None);
+        let p = first_cell(&h);
+        click(&mut h, p + vec2(DEFAULT_SIZE / 2.0 + 1.0, 0.0), Modifiers::NONE);
+        assert_eq!(h.state().ui.presets_ui.selected.get(PANEL), Some(&second), "the second swatch, not a gap");
     }
 
     /// Clicking a swatch while characters are selected recolours them, not just the foreground.
@@ -323,6 +350,23 @@ mod tests {
         assert_eq!(runs[0].len, 5, "the selection is its own run");
         assert_eq!(runs[0].style.color.to_rgba8(), [230, 40, 40, 255]);
         assert_eq!(runs[1].style.color.to_rgba8(), [255, 255, 255, 255]);
+    }
+
+    /// #4790: the footer (size slider, New Group, New, Delete) stays inside the panel however short
+    /// the dock makes it: the list scrolls instead of pushing the footer out of view.
+    #[test]
+    fn the_footer_fits_below_a_full_list() {
+        use egui_kittest::kittest::Queryable;
+        for h_px in [80.0, 100.0, 120.0, 160.0, 300.0] {
+            let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+            let mut h = Harness::builder().with_size(vec2(260.0, h_px)).build_ui_state(|ui, app: &mut PhotocraftApp| panel(app, ui), app);
+            PhotocraftApp::setup_context(&h.ctx, Default::default());
+            h.run_steps(3);
+            let bottom = h.ctx.input(|i| i.viewport_rect()).max.y;
+            let slider = h.get_by_role(egui::accesskit::Role::Slider).rect().max.y;
+            let delete = h.get_by_label("Delete").rect().max.y;
+            assert!(slider <= bottom + 0.5 && delete <= bottom + 0.5, "{h_px} px panel: slider ends at {slider}, Delete at {delete}, panel at {bottom}");
+        }
     }
 
     #[test]
@@ -396,5 +440,27 @@ mod tests {
         let out = written.lock().unwrap();
         assert_eq!(out[0].0, "out/Swatches.ase");
         assert!(out[0].1.starts_with(b"ASEF"));
+    }
+
+    /// #3658: dragging a group header reorders the folders, and the new order sticks in the UI
+    /// state (UI state is serde, so it saves and reloads with the rest of the panel state).
+    #[test]
+    fn dragging_a_group_header_reorders_and_persists() {
+        let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let mut h = Harness::builder().with_size(vec2(300.0, 4000.0)).build_ui_state(|ui, app: &mut PhotocraftApp| panel(app, ui), app);
+        h.run_steps(2);
+        let headers = crate::preset_panels::last_group_headers(&h.ctx, PANEL);
+        assert!(headers.len() >= 2, "the default library has folders: {headers:?}");
+        let names: Vec<String> = headers.iter().map(|(n, _)| n.clone()).collect();
+        let (first, first_r) = &headers[0];
+        let (last, last_r) = headers.last().unwrap();
+        // Drag the last folder's header above the first; the insertion lands before it.
+        drag(&mut h, last_r.center(), egui::pos2(first_r.center().x, first_r.top() + 1.0));
+        let order = h.state().ui.presets_ui.display_order(PANEL, &names);
+        assert_eq!(order.len(), names.len());
+        assert_eq!(names.get(order[0]).map(String::as_str), Some(last.as_str()), "the dragged folder moved to the front: {order:?}");
+        assert_eq!(names.get(order[1]).map(String::as_str), Some(first.as_str()));
+        // The reorder is remembered by name (not by the positions it happened to have).
+        assert_eq!(h.state().ui.presets_ui.group_order.get(PANEL).and_then(|o| o.first()), Some(last));
     }
 }

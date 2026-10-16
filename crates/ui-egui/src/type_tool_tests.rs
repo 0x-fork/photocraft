@@ -14,6 +14,65 @@ use super::{layout, text_layer};
 use crate::PhotocraftApp;
 use crate::canvas::ViewXform;
 
+#[test]
+fn focused_font_search_does_not_type_into_the_canvas_layer() {
+    let mut app = new_app();
+    let id = app.run("type.create", json!({"text": "Sample", "size": 24})).unwrap()["layer"].as_u64().unwrap();
+    app.ui.text_edit = Some(crate::state::TextEdit {
+        layer: id,
+        caret: 6,
+        anchor: 6,
+        session: "s".into(),
+        created: false,
+        mask: false,
+        dragging: false,
+        resize: None,
+        preedit: None,
+    });
+    let mut h = Harness::builder().build_ui_state(
+        |ui, app: &mut PhotocraftApp| {
+            let search_id = egui::Id::new("font-search-regression");
+            let mut query = ui.data(|d| d.get_temp::<String>(search_id)).unwrap_or_default();
+            ui.add(egui::TextEdit::singleline(&mut query).id(search_id)).request_focus();
+            ui.data_mut(|d| d.insert_temp(search_id, query));
+            super::handle_keys(app, ui.ctx());
+        },
+        app,
+    );
+    h.run_steps(2);
+    h.event(egui::Event::Text("Ins".into()));
+    h.run();
+    assert_eq!(h.ctx.data(|d| d.get_temp::<String>(egui::Id::new("font-search-regression"))).as_deref(), Some("Ins"));
+    assert_eq!(super::current_text(h.state_mut(), LayerId(id)).as_deref(), Some("Sample"));
+}
+
+#[test]
+fn numeric_type_fields_have_localized_accessible_names() {
+    let pt = crate::i18n::Lang::from_code("pt-br").unwrap();
+    let mut h = Harness::builder().build_ui_state(
+        move |ui, value: &mut f32| {
+            if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                return;
+            }
+            crate::i18n::with_language(pt, || {
+                if let Some(next) = super::num_field(ui, "tT", "Font size", *value, 1.0..=999.0, "pt", 80.0) {
+                    *value = next;
+                }
+            });
+        },
+        24.0,
+    );
+    PhotocraftApp::setup_context(&h.ctx, Default::default());
+    h.run_steps(4);
+    h.get_by_role_and_label(egui::accesskit::Role::SpinButton, "Tamanho da fonte").click();
+    h.run();
+    h.key_press_modifiers(Modifiers::COMMAND, egui::Key::A);
+    h.event(egui::Event::Text("36".into()));
+    h.key_press(egui::Key::Enter);
+    h.run();
+    assert_eq!(*h.state(), 36.0);
+}
+
 fn harness(ppp: f32, app: PhotocraftApp) -> Harness<'static, PhotocraftApp> {
     make_harness(ppp, app, false)
 }
@@ -720,6 +779,23 @@ fn temporary_type_transform_visibility_and_cursors() {
     assert!(crate::type_transform::visible(h.state(), sticky));
 }
 
+#[test]
+fn type_selection_highlight_visible_with_command_held() {
+    let (app, _id) = transform_app(false, false, Affine::IDENTITY);
+    let mut h = harness(1.0, app);
+    if let Some(ed) = h.state_mut().ui.text_edit.as_mut() {
+        ed.anchor = 0;
+        ed.caret = 5;
+    }
+    hold(&mut h, type_command());
+    h.run();
+    let accent = crate::theme::Tokens::get(&h.ctx).accent;
+    let expected_fill = egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 110);
+    let has_selection_highlight =
+        h.output().shapes.iter().any(|clipped| if let egui::Shape::Path(path) = &clipped.shape { path.fill == expected_fill && path.closed } else { false });
+    assert!(has_selection_highlight, "selection highlight must remain visible while Ctrl/Cmd is held");
+}
+
 /// Real canvas input: layer-local scaling stays correct across orientation, zoom, HiDPI and flip.
 #[test]
 fn temporary_type_transform_scales_without_reflow_or_leaving_type() {
@@ -1054,6 +1130,7 @@ fn temporary_type_transform_captures_press_and_rejects_collapsed_geometry() {
 #[test]
 #[ignore = "writes visual evidence to target/issue-1091; run explicitly for visual QA"]
 fn temporary_type_transform_visual_evidence() {
+    let _gpu = photocraft_testkit::gpu_lock();
     let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/issue-1091");
     std::fs::create_dir_all(&out).unwrap();
     for (index, theme) in crate::theme::ThemeKind::ALL.into_iter().enumerate() {
@@ -1212,6 +1289,9 @@ fn font_styles_keep_metadata_names_and_numeric_labels() {
 
 #[test]
 fn postscript_only_style_shows_actual_subfamily() {
+    // selected_style reads the engine only once the font scan is done (try_shared). Under nextest
+    // this test runs in a process of its own, where nothing else has started the scan, so start it.
+    let _ = photocraft_text::shared();
     let style = photocraft_doc::text::CharStyle { font_family: "Inter".into(), postscript_name: Some("Inter-SemiBold".into()), ..Default::default() };
     assert_eq!(super::selected_style(&style), "SemiBold");
 }
@@ -1333,8 +1413,10 @@ mod multi_layer_formatting {
         h
     }
 
-    fn number(h: &mut Harness<'static, PhotocraftApp>, index: usize, value: &str) {
-        h.get_all_by_role(Role::SpinButton).nth(index).expect("numeric field").click();
+    fn number(h: &mut Harness<'static, PhotocraftApp>, label: &str, value: &str) {
+        // Variable-font axes add numeric fields before size/leading. Select the setting by
+        // its accessible name, so a font scan cannot shift this action onto another control.
+        h.get_by_role_and_label(Role::SpinButton, label).click();
         h.run();
         h.key_press_modifiers(Modifiers::COMMAND, egui::Key::A);
         h.event(egui::Event::Text(value.into()));
@@ -1371,7 +1453,16 @@ mod multi_layer_formatting {
         for i in 0..2 {
             let mut expected = before[i].clone();
             expected.font_family = "JetBrains Mono".into();
-            expected.postscript_name = None;
+            // #3556: the new family's installed face at the peer's weight and italic is named (no
+            // name without such a face), so a PSD names a real font.
+            expected.postscript_name = photocraft_text::shared()
+                .lock()
+                .unwrap()
+                .fonts
+                .faces("JetBrains Mono")
+                .into_iter()
+                .find(|f| f.italic == expected.italic && f.weight.round() as u16 == expected.weight)
+                .and_then(|f| f.postscript_name);
             assert_eq!(style(h.state(), ids[i], 0), expected, "family changes preserve each peer's face and metrics");
         }
         assert_eq!(style(h.state(), ids[2], 0), before[2]);
@@ -1390,6 +1481,33 @@ mod multi_layer_formatting {
         assert_ne!(text(h.state(), ids[2]).antialias, AntiAlias::Sharp);
     }
 
+    /// Other engines registering fonts and the served catalog growing (tests running in parallel)
+    /// used to move the key of the font menu's preview cache, so its samples re-rendered and asked
+    /// for a repaint every pass and `Harness::run` never settled (a flaky `exceeded max_steps`).
+    /// Here both happen on every pass.
+    #[test]
+    fn the_font_menu_settles_while_other_engines_register_fonts() {
+        let (app, _) = fixture();
+        let mut pass = 0u32;
+        let mut h = Harness::builder().with_size(vec2(1100.0, 800.0)).build_ui_state(
+            move |ui, app| {
+                photocraft_text::TextEngine::new();
+                // The served catalog is process-wide: names that sort last.
+                photocraft_text::served::add_families([format!("zz Churn Test {pass:03}")]);
+                pass = pass.saturating_add(1);
+                if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                    ui.horizontal(|ui| super::super::options_bar(app, ui));
+                }
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, Default::default());
+        h.run_steps(4);
+        h.get_all_by_role(Role::ComboBox).next().unwrap().click();
+        h.run();
+        h.run();
+    }
+
     #[test]
     fn properties_edit_shown_metrics_and_paragraphs_with_a_non_type_primary() {
         let (mut app, ids) = fixture();
@@ -1400,16 +1518,16 @@ mod multi_layer_formatting {
         let raster = LayerId(app.run("layer.new.layer", json!({"name": "Selected raster"})).unwrap()["layer"].as_u64().unwrap());
         selected(&mut app, &[ids[0], ids[1], raster]);
         let mut h = controls(app, true);
-        number(&mut h, 0, "60");
+        number(&mut h, "Font size", "60");
         // Differ from the automatic 72 pt leading so this is an actual property change.
-        number(&mut h, 1, "84");
+        number(&mut h, "Leading (set to the font size × auto-leading when Auto)", "84");
         h.get_by_label("Faux Bold").click();
         h.run();
         h.get_by_label("Center text").click();
         h.run();
         h.get_by_label("Hyphenate").click();
         h.run();
-        number(&mut h, 6, "9");
+        number(&mut h, "Indent left margin", "9");
         for (id, scale) in [(ids[0], 2.0), (ids[1], 4.0)] {
             let c = style(h.state(), id, 0);
             assert_eq!(c.size_pt * scale, 60.0);
@@ -1426,9 +1544,29 @@ mod multi_layer_formatting {
         let peer = text(h.state(), ids[1]).char_runs();
         editing(h.state_mut(), ids[0]);
         h.run();
-        number(&mut h, 0, "40");
+        number(&mut h, "Font size", "40");
         assert_eq!((size_at(h.state(), ids[0], 0), size_at(h.state(), ids[0], 1), size_at(h.state(), ids[0], 3)), (30.0, 20.0, 30.0));
         assert_eq!(text(h.state(), ids[1]).char_runs(), peer);
+    }
+
+    /// #5717: a layer scaled so its shown size or leading is past a field's range (2400 pt, or
+    /// 0.08 pt) keeps it while the Character panel and the options bar only show it.
+    #[test]
+    fn showing_a_scaled_layer_past_the_size_range_does_not_change_it() {
+        for (layer, scale) in [(0, 200.0), (1, 0.005)] {
+            for properties in [true, false] {
+                let (mut app, ids) = fixture();
+                let id = ids[layer];
+                app.run("type.edit", json!({"layer": id.0, "transform": [scale, 0.0, 0.0, scale, 0.0, 0.0]})).unwrap();
+                selected(&mut app, &[id]);
+                let before = text(&app, id).char_runs();
+                let steps = app.session.active().unwrap().history.entries().len();
+                let mut h = controls(app, properties);
+                h.run_steps(3);
+                assert_eq!(text(h.state(), id).char_runs(), before, "scale {scale}, properties {properties}");
+                assert_eq!(h.state().session.active().unwrap().history.entries().len(), steps, "no history step");
+            }
+        }
     }
 
     #[test]
@@ -1453,6 +1591,51 @@ mod multi_layer_formatting {
         assert_eq!(text(&app, ids[1]).antialias, AntiAlias::Crisp);
         assert_eq!(text(&app, ids[2]).orientation, Orientation::Vertical);
         assert_eq!(text(&app, ids[0]).antialias, AntiAlias::Sharp);
+    }
+
+    /// The Character panel's OpenType buttons (TYPE-218-5, #3752): Photoshop's eight, in its
+    /// order; each shows pressed while its feature is on and toggles it on the selected type
+    /// layers, or on the selected characters while typing.
+    #[test]
+    fn character_panel_opentype_buttons_toggle_and_show_the_feature() {
+        use egui::accesskit::Toggled;
+        use egui_kittest::kittest::NodeT;
+        use photocraft_engine::type_extra_cmds::feature_on;
+        let (app, ids) = fixture();
+        let untouched = style(&app, ids[2], 0);
+        let mut h = controls(app, true);
+        let shown = |h: &Harness<'static, PhotocraftApp>, label: &str| h.get_by_label(label).accesskit_node().toggled();
+        let order: Vec<String> = h
+            .get_all_by_role(Role::Button)
+            .filter_map(|n| n.accesskit_node().label())
+            .filter(|l| super::super::OPENTYPE_BUTTONS.iter().any(|(_, _, tip)| tip == l))
+            .collect();
+        let expected: Vec<&str> = super::super::OPENTYPE_BUTTONS.iter().map(|(_, _, tip)| *tip).collect();
+        assert_eq!(order, expected, "every OpenType button, in Photoshop's order");
+        assert_eq!(shown(&h, "Standard Ligatures"), Some(Toggled::True), "ligatures are on by default");
+        assert_eq!(shown(&h, "Fractions"), Some(Toggled::False));
+        h.get_by_label("Fractions").click();
+        h.run();
+        for id in &ids[..2] {
+            assert!(feature_on(&style(h.state(), *id, 0), "frac"), "selected layers get the feature");
+        }
+        assert_eq!(style(h.state(), ids[2], 0), untouched, "an unselected layer is untouched");
+        h.run();
+        assert_eq!(shown(&h, "Fractions"), Some(Toggled::True), "the button shows the feature on");
+        h.get_by_label("Standard Ligatures").click();
+        h.run();
+        h.run();
+        assert!(!style(h.state(), ids[0], 0).ligatures && !style(h.state(), ids[1], 0).ligatures);
+        assert_eq!(shown(&h, "Standard Ligatures"), Some(Toggled::False));
+        // While typing, only the selected characters (1..3) change.
+        editing(h.state_mut(), ids[0]);
+        h.run();
+        h.get_by_label("Swash").click();
+        h.run();
+        let swash = |h: &Harness<'static, PhotocraftApp>, ci| feature_on(&style(h.state(), ids[0], ci), "swsh");
+        assert!(!swash(&h, 0) && swash(&h, 1) && swash(&h, 2) && !swash(&h, 3));
+        h.run();
+        assert_eq!(shown(&h, "Swash"), Some(Toggled::True), "shown at the selection start");
     }
 
     /// Type › Anti-Alias and Type › Orientation check the edited (else selected) layer's value.

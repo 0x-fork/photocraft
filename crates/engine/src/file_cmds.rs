@@ -20,6 +20,8 @@ use serde_json::{Value, json};
 use crate::commands::{CommandSpec, layer_param};
 use crate::{EngineError, Result, Session};
 
+mod batch_naming;
+
 // ---------- predicates ----------
 
 fn has_doc(s: &Session) -> std::result::Result<(), String> {
@@ -98,7 +100,7 @@ pub(crate) fn write_file(path: &str, _bytes: &[u8]) -> Result<()> {
 
 /// Files of a folder that look like images we can open, sorted by name.
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn list_images(dir: &str) -> Result<Vec<String>> {
+pub fn list_images(dir: &str) -> Result<Vec<String>> {
     let rd = std::fs::read_dir(dir).map_err(|e| EngineError::Other(format!("{dir}: {e}")))?;
     let mut out: Vec<String> = rd
         .filter_map(|e| e.ok())
@@ -110,15 +112,16 @@ pub(crate) fn list_images(dir: &str) -> Result<Vec<String>> {
     Ok(out)
 }
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn list_images(dir: &str) -> Result<Vec<String>> {
+pub fn list_images(dir: &str) -> Result<Vec<String>> {
     Err(EngineError::Other(format!("cannot list {dir}: no file system on the web")))
 }
 
 /// Extensions the batch commands pick up from a folder.
 #[cfg(not(target_arch = "wasm32"))]
 const OPENABLE: &[&str] = &[
-    "pdn", "ora", "psd", "psb", "pcraft", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "exr", "hdr", "qoi", "ico", "pnm", "ppm", "pgm",
-    "fits", "fit", "fts", "heic", "heif", "hif", "dng", "cr2", "nef", "nrw", "arw", "pef", "svg", "svgz", "af", "afdesign", "afphoto", "afpub",
+    "pdn", "ora", "kra", "krz", "psd", "psb", "pcraft", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "exr", "hdr", "qoi", "ico", "pnm",
+    "ppm", "pgm", "fits", "fit", "fts", "dpx", "heic", "heif", "hif", "dng", "cr2", "nef", "nrw", "arw", "pef", "svg", "svgz", "af", "afdesign", "afphoto",
+    "afpub",
 ];
 
 /// Whether saving `doc` as a TIFF writes Photoshop layer data (anything beyond a lone
@@ -150,8 +153,9 @@ pub fn extension(path: &str) -> Option<String> {
     file_name(path).rsplit_once('.').filter(|(base, ext)| !base.is_empty() && !ext.is_empty()).map(|(_, ext)| ext.to_ascii_lowercase())
 }
 
-/// Whether a save without a new path may write back to `path`: only layered files (PSD, PSB,
-/// .pcraft). A flat file goes through Save As instead, so it is never flattened over the original.
+/// Whether a save without a new path may write back to `path` as far as its format goes: only
+/// layered files (PSD, PSB, OpenRaster, .pcraft). A flat file goes through Save As instead, so it
+/// is never flattened over the original. Whether this document fits is [`holds_at`].
 pub fn saves_in_place(path: &str) -> bool {
     extension(path).is_some_and(|ext| layered_extension(&ext))
 }
@@ -161,6 +165,33 @@ pub fn saves_in_place(path: &str) -> bool {
 /// saves, desktop and headless alike (#1547, #2579).
 pub fn layered_extension(ext: &str) -> bool {
     matches!(ext, "psd" | "psb" | "pcraft" | "ora")
+}
+
+/// Whether a file in format `ext` (lower-case) holds the whole of `doc`, so it can be the
+/// document's own file: PSD, PSB and .pcraft always; OpenRaster only when it drops nothing (no
+/// adjustment layers, styles, masks…, [`photocraft_io::ora_losses`]). A save to a format that
+/// doesn't hold the document is a copy, and File › Save goes through Save As, so an editable
+/// original is never overwritten with less than it had (#3806).
+pub fn holds(doc: &photocraft_doc::Document, ext: &str) -> bool {
+    match ext {
+        "psd" | "psb" | "pcraft" => true,
+        "ora" => photocraft_io::ora_losses(doc).is_empty(),
+        _ => false,
+    }
+}
+
+/// [`holds`] for the file at `path`.
+pub fn holds_at(doc: &photocraft_doc::Document, path: &str) -> bool {
+    extension(path).is_some_and(|ext| holds(doc, &ext))
+}
+
+/// What a save of `doc` to `path` would leave out when its format can't hold it: OpenRaster's
+/// [`photocraft_io::ora_losses`]; empty for other formats.
+pub fn losses_at(doc: &photocraft_doc::Document, path: &str) -> Vec<String> {
+    match extension(path).as_deref() {
+        Some("ora") => photocraft_io::ora_losses(doc),
+        _ => Vec::new(),
+    }
 }
 
 /// Whether `path` names a document template (.psdt). A template opens as a new untitled document
@@ -218,8 +249,8 @@ pub(crate) fn import(name: &str, bytes: &[u8]) -> Result<Document> {
     Ok(r.document)
 }
 
-/// What a headless save writes beyond the format: JPEG quality, TIFF layers, Targa bits and PSD
-/// previews.
+/// What a headless save writes beyond the format: JPEG quality, TIFF layers, Targa bits, PSD
+/// previews and the PSD merged image.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SaveOpts {
     /// Photoshop's 0–12 JPEG scale.
@@ -229,27 +260,35 @@ pub(crate) struct SaveOpts {
     /// Targa: 24 or 32 bits per pixel (`"tgaBits"`); unset, 32 with an alpha channel or
     /// transparency, else 24.
     pub tga_bits: Option<photocraft_io::TgaBits>,
+    /// DPX: 8, 10, 12 or 16 bits per sample (`"dpxBits"`); unset, 8 for an 8-bit document, else 16.
+    pub dpx_bits: Option<photocraft_io::DpxBits>,
     /// PSD/PSB: embed the thumbnail resource (Preferences › File Handling › Image Previews).
     pub image_previews: bool,
+    /// PSD/PSB: write the real merged image (Preferences › File Handling › Maximize PSD and PSB
+    /// File Compatibility).
+    pub psd_maximize_compatibility: bool,
 }
 
 impl Default for SaveOpts {
     fn default() -> Self {
-        SaveOpts { quality: None, tiff_layers: false, tga_bits: None, image_previews: true }
+        SaveOpts { quality: None, tiff_layers: false, tga_bits: None, dpx_bits: None, image_previews: true, psd_maximize_compatibility: true }
     }
 }
 
 impl SaveOpts {
     /// `quality`, `tiffLayers` and `tgaBits` from command `cmd`'s params (a `tgaBits` other than
-    /// 24 or 32 is an error); the image previews from the session's File Handling preferences
-    /// (Ask When Saving has no dialog here, so it saves them, as Photoshop's Save As checkbox
-    /// starts on).
+    /// 24 or 32 is an error); the image previews and the PSD merged image from the session's File
+    /// Handling preferences (Ask When Saving has no dialog here, so it saves them, as Photoshop's
+    /// Save As checkbox and its Maximize Compatibility checkbox both start on).
     pub(crate) fn from_params(s: &Session, p: &Value, cmd: &str) -> Result<Self> {
+        let file_handling = &s.prefs().file_handling;
         Ok(SaveOpts {
             quality: f64_param(p, "quality"),
             tiff_layers: p.get("tiffLayers").and_then(Value::as_bool).unwrap_or(false),
             tga_bits: tga_bits_param(p, cmd)?,
-            image_previews: s.prefs().file_handling.image_previews != crate::prefs::Ask::Never,
+            dpx_bits: dpx_bits_param(p, cmd)?,
+            image_previews: file_handling.image_previews != crate::prefs::Ask::Never,
+            psd_maximize_compatibility: file_handling.maximize_psd_compatibility != crate::prefs::Ask::Never,
         })
     }
 
@@ -279,12 +318,34 @@ pub fn tga_bits_param(p: &Value, cmd: &str) -> Result<Option<photocraft_io::TgaB
     }
 }
 
+/// The DPX bits per sample in `p` (`"dpxBits": 8 | 10 | 12 | 16`; absent or null: the document's
+/// depth). Anything else is a bad parameter of command `cmd`.
+pub fn dpx_bits_param(p: &Value, cmd: &str) -> Result<Option<photocraft_io::DpxBits>> {
+    match p.get("dpxBits") {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => v
+            .as_u64()
+            .and_then(photocraft_io::DpxBits::from_bits)
+            .map(Some)
+            .ok_or_else(|| EngineError::BadParams { cmd: cmd.into(), msg: format!("`dpxBits` must be 8, 10, 12 or 16, got {v}") }),
+    }
+}
+
 /// Encodes `doc` for `path`'s extension.
 pub(crate) fn encode(doc: &Document, path: &str, save: impl Into<SaveOpts>) -> Result<(Vec<u8>, Vec<String>)> {
     crate::allocation::checkpoint("saving document")?;
     let save = save.into();
-    let mut opts =
-        photocraft_io::ExportOptions { tiff_layers: save.tiff_layers, tga_bits: save.tga_bits, image_previews: save.image_previews, ..Default::default() };
+    let mut opts = photocraft_io::ExportOptions {
+        tiff_layers: save.tiff_layers,
+        tga_bits: save.tga_bits,
+        image_previews: save.image_previews,
+        psd_maximize_compatibility: save.psd_maximize_compatibility,
+        ..Default::default()
+    };
+    // No quality chosen: write the file the way it was opened (a JPEG at its own quality, a WebP
+    // lossy or lossless as it was), as Photoshop's Save does.
+    photocraft_io::apply_file_encoding(doc, &mut opts.encode);
+    opts.encode.dpx_bits = save.dpx_bits;
     if let Some(q) = save.quality {
         let q = (q.clamp(0.0, 12.0) / 12.0 * 99.0 + 1.0).round() as u8;
         opts.encode.jpeg_quality = q;
@@ -396,6 +457,20 @@ fn save_a_copy(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 /// Open a file's bytes, decoding them as the format `as_ext` (Open As) when given.
+/// EXR/HDR rarely states its colour space, so io tags it with the linear-sRGB default.
+/// With File Handling's ACEScg option on, such an EXR opens as ACEScg instead (AP1,
+/// linear) — the working space ACES render pipelines write. Only the io default is
+/// replaced; an embedded or EXIF-declared profile is kept untouched.
+fn tag_exr_colorspace(s: &Session, name: &str, doc: &mut Document) {
+    if !name.to_ascii_lowercase().ends_with(".exr") || !s.prefs.get().file_handling.exr_aces_cg {
+        return;
+    }
+    let linear = photocraft_cms::Builtin::LinearSrgb.profile().to_bytes();
+    if doc.icc_profile.as_ref().map(|v| v.as_slice()) == Some(linear.as_slice()) {
+        doc.icc_profile = Some(photocraft_cms::Builtin::AcesCg.profile().to_bytes());
+    }
+}
+
 pub fn open_bytes_as(s: &mut Session, name: &str, bytes: &[u8], as_ext: Option<&str>, path: Option<String>) -> Result<Value> {
     crate::allocation::checkpoint("importing document")?;
     let decode_name = match as_ext {
@@ -404,6 +479,7 @@ pub fn open_bytes_as(s: &mut Session, name: &str, bytes: &[u8], as_ext: Option<&
     };
     let r = photocraft_io::import(&decode_name, bytes).map_err(|e| EngineError::Other(format!("{decode_name}: {e}")))?;
     let mut doc = r.document;
+    tag_exr_colorspace(s, &decode_name, &mut doc);
     let path = match template_name(s, name) {
         Some(untitled) => {
             doc.name = untitled;
@@ -869,22 +945,121 @@ pub(crate) fn batch_inputs(p: &Value, cmd: &str) -> Result<Vec<String>> {
     }
 }
 
+/// One input of a batch run: the file, and the folder it sits in relative to the input folder
+/// (`""` at the top level, `"a/b"` two levels down), which its result keeps under `output`.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct BatchInput {
+    pub path: String,
+    pub rel_dir: String,
+}
+
+/// Subfolders below a batch input folder are walked at most this deep ("Include All Subfolders").
+pub(crate) const MAX_SUBFOLDER_DEPTH: usize = 32;
+/// A batch over subfolders lists at most this many files; a larger tree is an error, not a run
+/// that silently stops partway.
+pub(crate) const MAX_SUBFOLDER_FILES: usize = 100_000;
+
+/// [`batch_inputs`] for the commands whose Photoshop dialog has "Include All Subfolders" (Batch,
+/// Image Processor): with `"includeSubfolders": true` a folder input also yields the images in its
+/// subfolders, each tagged with its relative folder. `output` (when inside the input folder, as
+/// the dialog's default `<input>/batch` is) is not walked, so a rerun doesn't process its results.
+pub(crate) fn batch_inputs_tree(p: &Value, cmd: &str, output: &str) -> Result<Vec<BatchInput>> {
+    let recurse = match p.get("includeSubfolders") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err(EngineError::BadParams { cmd: cmd.into(), msg: "\"includeSubfolders\" must be true or false".into() }),
+    };
+    match p.get("input").or_else(|| p.get("files")) {
+        Some(Value::String(dir)) if recurse => list_images_tree(dir, output, cmd),
+        _ => Ok(batch_inputs(p, cmd)?.into_iter().map(|path| BatchInput { path, rel_dir: String::new() }).collect()),
+    }
+}
+
+/// The images under `dir` and its subfolders: each folder's files sorted by name, then its
+/// subfolders in name order (depth first). Bounded by [`MAX_SUBFOLDER_DEPTH`] and
+/// [`MAX_SUBFOLDER_FILES`]; a folder reached twice (a symlink loop) is walked once, and `skip`
+/// (the output folder) is left out.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn list_images_tree(dir: &str, skip: &str, cmd: &str) -> Result<Vec<BatchInput>> {
+    use std::path::{Path, PathBuf};
+    let canon = |p: &Path| std::fs::canonicalize(p).ok();
+    let root = Path::new(dir);
+    let root_canon = canon(root).ok_or_else(|| EngineError::Other(format!("{dir}: cannot open the folder")))?;
+    let skip = if skip.is_empty() { None } else { canon(Path::new(skip)) };
+    let mut seen = std::collections::HashSet::new();
+    seen.insert(root_canon);
+    let mut out = Vec::new();
+    // Depth first with an explicit stack (no recursion): (folder, relative folder, depth).
+    let mut stack: Vec<(PathBuf, String, usize)> = vec![(root.to_path_buf(), String::new(), 0)];
+    while let Some((folder, rel, depth)) = stack.pop() {
+        let shown = folder.to_string_lossy().into_owned();
+        // The top folder must be readable; a subfolder that isn't is skipped.
+        let files = match list_images(&shown) {
+            Ok(f) => f,
+            Err(e) if depth == 0 => return Err(e),
+            Err(_) => continue,
+        };
+        if out.len().saturating_add(files.len()) > MAX_SUBFOLDER_FILES {
+            return Err(EngineError::BadParams { cmd: cmd.into(), msg: format!("{dir} holds more than {MAX_SUBFOLDER_FILES} images with its subfolders") });
+        }
+        out.extend(files.into_iter().map(|path| BatchInput { path, rel_dir: rel.clone() }));
+        if depth >= MAX_SUBFOLDER_DEPTH {
+            continue;
+        }
+        let Ok(rd) = std::fs::read_dir(&folder) else { continue };
+        let mut subs: Vec<(String, PathBuf)> = rd
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .filter_map(|p| Some((p.file_name()?.to_string_lossy().into_owned(), p)))
+            .collect();
+        subs.sort();
+        // Pushed in reverse so the stack pops them in name order.
+        for (name, sub) in subs.into_iter().rev() {
+            let Some(c) = canon(&sub) else { continue };
+            if skip.as_ref() == Some(&c) || !seen.insert(c) {
+                continue;
+            }
+            let rel = if rel.is_empty() { name } else { format!("{rel}/{name}") };
+            stack.push((sub, rel, depth + 1));
+        }
+    }
+    Ok(out)
+}
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn list_images_tree(dir: &str, _skip: &str, _cmd: &str) -> Result<Vec<BatchInput>> {
+    Err(EngineError::Other(format!("cannot list {dir}: no file system on the web")))
+}
+
 /// Opens each input in a scratch session, runs `f` on it and saves it to `output` as `format`
 /// (`"same"` keeps the input's extension). Errors per file are collected, not fatal.
 pub(crate) fn process_files(inputs: &[String], output: &str, format: &str, save: SaveOpts, suffix: &str, f: &dyn Fn(&mut Session) -> Result<()>) -> Value {
+    let inputs: Vec<BatchInput> = inputs.iter().map(|path| BatchInput { path: path.clone(), rel_dir: String::new() }).collect();
+    process_tree(&inputs, output, format, save, suffix, f)
+}
+
+/// [`process_files`] for inputs from subfolders: each result goes to its input's relative folder
+/// under `output` (created as needed), so `a/x.png` and `b/x.png` don't collide.
+pub(crate) fn process_tree(inputs: &[BatchInput], output: &str, format: &str, save: SaveOpts, suffix: &str, f: &dyn Fn(&mut Session) -> Result<()>) -> Value {
+    let outputs = inputs.iter().map(|BatchInput { path, rel_dir }| {
+        let ext =
+            if format == "same" { path.rsplit('.').next().unwrap_or("png").to_ascii_lowercase() } else { format.trim_start_matches('.').to_ascii_lowercase() };
+        (path.as_str(), join(&join(output, rel_dir), &format!("{}{suffix}.{ext}", stem(path))))
+    });
+    process_outputs(outputs, save, f)
+}
+
+fn process_outputs<'a>(outputs: impl IntoIterator<Item = (&'a str, String)>, save: SaveOpts, f: &dyn Fn(&mut Session) -> Result<()>) -> Value {
     let mut files = Vec::new();
     let mut errors = Vec::new();
     let mut written = OutputClaims::default();
-    for path in inputs {
-        let ext =
-            if format == "same" { path.rsplit('.').next().unwrap_or("png").to_ascii_lowercase() } else { format.trim_start_matches('.').to_ascii_lowercase() };
-        let out = join(output, &format!("{}{suffix}.{ext}", stem(path)));
+    for (path, out) in outputs {
         let r = (|| -> Result<()> {
             written.check(&out).map_err(EngineError::Other)?;
             let bytes = read_file(path)?;
             let mut scratch = Session::new();
             let doc = import(&file_name(path), &bytes)?;
-            scratch.add_document(doc, Some(path.clone()));
+            scratch.add_document(doc, Some(path.to_string()));
             f(&mut scratch)?;
             let d = scratch.active().ok_or(EngineError::NoDocument)?;
             save_doc(&d.doc, &out, save)?;
@@ -929,12 +1104,12 @@ fn batch(s: &mut Session, p: &Value) -> Result<Value> {
     // Each result goes to the destination folder, which overrides the action's recorded Save /
     // Save As steps (Photoshop's "Override Action 'Save As' Commands"). Recorded view steps
     // (zoom, fit) don't change the output, so they are skipped (#2752).
-    steps.retain(|(id, _)| !crate::actions_cmds::shell_save_command(id) && !crate::actions_cmds::shell_view_command(id));
+    steps.retain(|(id, _)| !crate::actions_cmds::shell_save_command(id) && !crate::actions_cmds::shell_view_command(id) && id != "file.export.quickExport");
     if let Some((id, _)) = steps.iter().find(|(id, _)| crate::commands::find(id).is_none()) {
         return Err(EngineError::BadParams { cmd: cmd.into(), msg: format!("unknown command `{id}` in the action") });
     }
-    let inputs = batch_inputs(p, cmd)?;
     let output = str_param(p, "output", cmd)?.to_string();
+    let inputs = batch_inputs_tree(p, cmd, &output)?;
     let format = p.get("format").and_then(Value::as_str).unwrap_or("same").to_string();
     // Steps that call another action play it from the caller's actions; the playback stack comes
     // along so an action that batches itself is caught as a recursive call.
@@ -951,7 +1126,9 @@ fn batch(s: &mut Session, p: &Value) -> Result<Value> {
         }
     };
     let actions = crate::actions_cmds::ActionState { list, playing: s.actions.playing, playback_stack: s.actions.playback_stack.clone(), ..Default::default() };
-    let r = process_files(&inputs, &output, &format, SaveOpts::from_params(s, p, cmd)?, "", &|scratch| {
+    let names = batch_naming::plan(&inputs, &output, &format, p)?;
+    let save = SaveOpts::from_params(s, p, cmd)?;
+    let run = |scratch: &mut Session| {
         scratch.actions = actions.clone();
         for (id, params) in &steps {
             let r = scratch.execute(id, params.clone())?;
@@ -961,21 +1138,25 @@ fn batch(s: &mut Session, p: &Value) -> Result<Value> {
             }
         }
         Ok(())
-    });
+    };
+    let r = match names {
+        Some(names) => process_outputs(inputs.iter().map(|i| i.path.as_str()).zip(names), save, &run),
+        None => process_tree(&inputs, &output, &format, save, "", &run),
+    };
     Ok(r)
 }
 
 fn image_processor(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.scripts.imageProcessor";
-    let inputs = batch_inputs(p, cmd)?;
     let output = str_param(p, "output", cmd)?.to_string();
+    let inputs = batch_inputs_tree(p, cmd, &output)?;
     let format = p.get("format").and_then(Value::as_str).unwrap_or("jpg").to_string();
     let fit = match (size_param(p, "width"), size_param(p, "height")) {
         (None, None) => None,
         (w, h) => Some(json!({"width": w.unwrap_or(1e9), "height": h.unwrap_or(1e9), "dontEnlarge": true})),
     };
     let to_srgb = p.get("convertToSrgb").and_then(Value::as_bool).unwrap_or(false);
-    let r = process_files(&inputs, &output, &format, SaveOpts::from_params(s, p, cmd)?.or_quality(8.0), "", &|scratch| {
+    let r = process_tree(&inputs, &output, &format, SaveOpts::from_params(s, p, cmd)?.or_quality(8.0), "", &|scratch| {
         if to_srgb && scratch.active().is_some_and(|d| d.doc.mode != ColorMode::Rgb) {
             scratch.execute("image.mode.rgb", json!({}))?;
         }
@@ -1014,7 +1195,11 @@ fn load_files_into_stack(s: &mut Session, p: &Value) -> Result<Value> {
         stack.layers.push(Layer::new(name.clone(), LayerContent::Raster(flattened(d, fmt))));
     }
     let n = stack.layers.len();
-    if p.get("createSmartObject").and_then(Value::as_bool).unwrap_or(false) {
+    let smart = p.get("createSmartObject").and_then(Value::as_bool).unwrap_or(false);
+    // "Attempt to Automatically Align Source Images": Auto-Align Layers on the loaded layers, before
+    // they go into the smart object.
+    let align = p.get("align").and_then(Value::as_bool).unwrap_or(false) && n > 1;
+    if smart && !align {
         // "Create Smart Object after Loading Layers": the layers go inside one smart object, ready
         // for Layer › Smart Objects › Stack Mode. Like Photoshop, they sit at the top level of the
         // contents, with no wrapper group.
@@ -1023,6 +1208,23 @@ fn load_files_into_stack(s: &mut Session, p: &Value) -> Result<Value> {
         stack.layers = vec![smart];
     }
     let i = s.add_document(stack, None);
+    if align {
+        s.execute("select.allLayers", json!({}))?;
+        s.execute("edit.autoAlignLayers", json!({"projection": "auto"}))?;
+        if smart {
+            let name = s.active().map(|d| d.doc.name.clone()).unwrap_or_default();
+            s.edit("Convert to Smart Object", |doc, active| {
+                let layers = std::mem::take(&mut doc.layers);
+                let smart = crate::smart_cmds::layers_to_smart(doc, &name, layers)?;
+                *active = Some(smart.id);
+                doc.layers = vec![smart];
+                Ok(())
+            })?;
+            if let Some(st) = s.active_mut() {
+                st.selected_layers = st.active_layer.into_iter().collect();
+            }
+        }
+    }
     Ok(json!({"document": i, "layers": n}))
 }
 
@@ -1032,8 +1234,10 @@ fn has_live_effects(l: &Layer) -> bool {
     l.effects.enabled && l.effects.items.iter().any(|e| e.enabled())
 }
 
-/// The layer rendered alone (keeping what `keep` says), as a surface in `fmt`.
-fn bake(l: &Layer, canvas: Rect, fmt: PixelFormat, keep_effects: bool) -> Surface {
+/// The layer rendered alone (keeping what `keep` says), as a surface in `fmt`. With `apply_mask`
+/// off the layer's pixel and vector masks are left out of the render, so a caller that keeps them
+/// live on the baked raster does not mask the pixels twice.
+fn bake(l: &Layer, canvas: Rect, fmt: PixelFormat, keep_effects: bool, apply_mask: bool) -> Surface {
     let mut tmp = l.clone();
     tmp.opacity = 1.0;
     tmp.blend = photocraft_color::BlendMode::Normal;
@@ -1042,6 +1246,10 @@ fn bake(l: &Layer, canvas: Rect, fmt: PixelFormat, keep_effects: bool) -> Surfac
     if !keep_effects {
         tmp.effects.items.clear();
         tmp.fill_opacity = 1.0;
+    }
+    if !apply_mask {
+        tmp.mask = None;
+        tmp.vector_mask = None;
     }
     // Render over the union of the canvas and the content so off-canvas pixels survive.
     let area = l.surface().map_or(canvas, |s| s.content_bounds().union(&canvas));
@@ -1063,12 +1271,12 @@ fn flatten_all_effects(s: &mut Session) -> Result<Value> {
             if !has_live_effects(l) || matches!(l.content, LayerContent::Group(_) | LayerContent::Adjustment(_)) {
                 continue;
             }
-            let px = bake(l, canvas, fmt, true);
+            // The pixel and vector masks stay on the layer (baking must not destroy them), so the
+            // pixels are baked without them and each mask then applies once to the baked raster.
+            let px = bake(l, canvas, fmt, true, false);
             let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
             l.content = LayerContent::Raster(px);
             l.effects = Default::default();
-            l.mask = None;
-            l.vector_mask = None;
             l.fill_opacity = 1.0;
             l.fill_cache = None;
             l.psd_blocks.retain(|(k, _)| !matches!(k, b"TySh" | b"SoLd" | b"PlLd" | b"SoLE" | b"vmsk" | b"vsms" | b"vogk" | b"vscg" | b"vstk"));
@@ -1096,7 +1304,7 @@ fn flatten_all_masks(s: &mut Session) -> Result<Value> {
                 skipped += 1;
                 continue;
             }
-            let px = bake(l, canvas, fmt, false);
+            let px = bake(l, canvas, fmt, false, true);
             let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
             l.content = LayerContent::Raster(px);
             l.mask = None;
@@ -1338,6 +1546,7 @@ fn clear_canvas_guides(s: &mut Session) -> Result<Value> {
     s.edit("Clear Canvas Guides", |doc, _| {
         doc.guides.vertical.retain(|x| in_x(*x));
         doc.guides.horizontal.retain(|y| in_y(*y));
+        doc.guides.prune_colors();
         Ok(())
     })?;
     Ok(json!({"cleared": n}))
@@ -1385,7 +1594,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Save a Copy…",
             &["File"],
             Some("Cmd+Alt+S"),
-            r##"{"path":str (format from the extension),"quality":0..12? (JPEG),"layers":bool=true,"tiffLayers":bool=false (TIFF: keep the layers; flat by default),"tgaBits":24|32? (TGA: 32 writes the alpha channel, or else the transparency, as the alpha; unset, 32 with an alpha channel or transparency, else 24)}"##,
+            r##"{"path":str (format from the extension),"quality":0..12? (JPEG),"layers":bool=true,"tiffLayers":bool=false (TIFF: keep the layers; flat by default),"tgaBits":24|32? (TGA: 32 writes the alpha channel, or else the transparency, as the alpha; unset, 32 with an alpha channel or transparency, else 24),"dpxBits":8|10|12|16? (DPX: bits per sample; unset, 8 for an 8-bit document, else 16)}"##,
             native_doc,
             save_a_copy
         ),
@@ -1448,7 +1657,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Batch…",
             &["File", "Automate"],
             None,
-            r##"{"steps":[[commandId,params]|{"command":id,"params":{}}…] (a recorded action),"input":folder|[paths],"output":folder,"format":"same|png|jpg|psd|tiff|…"="same","quality":0..12?,"tiffLayers":bool=false,"tgaBits":24|32?,"calledActions":[{"name","steps"}…]? (the actions Play Action steps call; default: the session's)} → {files, errors} (an input whose output name was already written in the run goes to errors)"##,
+            r##"{"steps":[[commandId,params]|{"command":id,"params":{}}…] (a recorded action),"input":folder|[paths],"includeSubfolders":bool=false (a folder input also takes the images in its subfolders, up to 32 levels and 100000 files; each result keeps its subfolder under output),"output":folder,"format":"same|png|jpg|psd|tiff|…"="same","quality":0..12?,"naming":string? (blank keeps source names; {name}, {serial} padded to 3 digits, {date} as YYYY-MM-DD UTC; extension added automatically),"startingSerial":1..4294967295=1 (input position, including failed inputs),"tiffLayers":bool=false,"tgaBits":24|32?,"dpxBits":8|10|12|16? (DPX: bits per sample; unset, 8 for an 8-bit document, else 16),"calledActions":[{"name","steps"}…]? (the actions Play Action steps call; default: the session's)} → {files, errors} (an input whose output name was already written in the run goes to errors)"##,
             native,
             batch
         ),
@@ -1457,7 +1666,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Image Processor…",
             &["File", "Scripts"],
             None,
-            r##"{"input":folder|[paths],"output":folder,"format":"jpg|png|psd|tiff|…"="jpg","quality":0..12=8,"tiffLayers":bool=false,"tgaBits":24|32?,"width":px?,"height":px? (fit, never enlarge),"convertToSrgb":bool=false} → {files, errors} (an input whose output name was already written in the run goes to errors)"##,
+            r##"{"input":folder|[paths],"includeSubfolders":bool=false (a folder input also takes the images in its subfolders, up to 32 levels and 100000 files; each result keeps its subfolder under output),"output":folder,"format":"jpg|png|psd|tiff|…"="jpg","quality":0..12=8,"tiffLayers":bool=false,"tgaBits":24|32?,"dpxBits":8|10|12|16? (DPX: bits per sample; unset, 8 for an 8-bit document, else 16),"width":px?,"height":px? (fit, never enlarge),"convertToSrgb":bool=false} → {files, errors} (an input whose output name was already written in the run goes to errors)"##,
             native,
             image_processor
         ),
@@ -1466,7 +1675,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Load Files into Stack…",
             &["File", "Scripts"],
             None,
-            r##"{"paths":[str]|folder,"createSmartObject":bool=false} → new document with one layer per file (inside one smart object with createSmartObject)"##,
+            r##"{"paths":[str]|folder,"align":bool=false (Auto-Align Layers on them first),"createSmartObject":bool=false} → new document with one layer per file (inside one smart object with createSmartObject)"##,
             native,
             load_files_into_stack
         ),
@@ -1485,7 +1694,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Layers to Files…",
             &["File", "Export"],
             None,
-            r##"{"dir":folder,"format":"png|jpg|psd|tiff|…"="png","prefix":str=document name,"visibleOnly":bool=true,"quality":0..12?,"tiffLayers":bool=false,"tgaBits":24|32?} → {files}"##,
+            r##"{"dir":folder,"format":"png|jpg|psd|tiff|…"="png","prefix":str=document name,"visibleOnly":bool=true,"quality":0..12?,"tiffLayers":bool=false,"tgaBits":24|32?,"dpxBits":8|10|12|16? (DPX: bits per sample; unset, 8 for an 8-bit document, else 16)} → {files}"##,
             native_doc,
             layers_to_files
         ),
@@ -1515,3 +1724,41 @@ pub fn specs() -> Vec<CommandSpec> {
 #[cfg(test)]
 #[path = "file_cmds/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod aces_exr_tests {
+    use super::*;
+
+    /// File Handling › "Open color-less EXR as ACEScg": off, an EXR opens on io's linear-sRGB
+    /// default; on, it opens as ACEScg — the working space ACES render pipelines write.
+    #[test]
+    fn exr_aces_cg_preference_retags_the_opened_document() {
+        let image = photocraft_codecs::Image::from_f32(
+            4,
+            4,
+            photocraft_codecs::ChannelLayout::Rgb,
+            &[
+                0.25, 0.5, 0.75, 1.0, 0.25, 0.5, 0.75, 1.0, 0.25, 0.5, 0.75, 1.0, 0.25, 0.5, 0.75, 1.0, 0.25, 0.5, 0.75, 1.0, 0.25, 0.5, 0.75, 1.0, 0.25, 0.5,
+                0.75, 1.0, 0.25, 0.5, 0.75, 1.0, 0.25, 0.5, 0.75, 1.0, 0.25, 0.5, 0.75, 1.0, 0.25, 0.5, 0.75, 1.0, 0.25, 0.5, 0.75, 1.0,
+            ],
+        )
+        .unwrap();
+        let bytes = photocraft_codecs::encode(&image, photocraft_codecs::Format::OpenExr, &photocraft_codecs::EncodeOptions::default()).unwrap();
+
+        let linear = photocraft_cms::Builtin::LinearSrgb.profile().to_bytes();
+        let aces = photocraft_cms::Builtin::AcesCg.profile().to_bytes();
+
+        // Off (the default): io's linear-sRGB tagging stays.
+        let mut s = Session::new();
+        open_bytes_as(&mut s, "shot.exr", &bytes, None, None).unwrap();
+        let d = &s.active().unwrap().doc;
+        assert_eq!(d.icc_profile.as_deref().map(|v| v.as_slice()), Some(linear.as_slice()));
+
+        // On: the same file opens as ACEScg.
+        let mut s = Session::new();
+        s.prefs.edit(|p| p.file_handling.exr_aces_cg = true);
+        open_bytes_as(&mut s, "shot.exr", &bytes, None, None).unwrap();
+        let d = &s.active().unwrap().doc;
+        assert_eq!(d.icc_profile.as_deref().map(|v| v.as_slice()), Some(aces.as_slice()));
+    }
+}

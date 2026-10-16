@@ -147,6 +147,23 @@ fn shift_during_the_drag_draws_a_square_and_the_readout_follows() {
     assert!(h.query_by_label("W:").is_none() && h.query_by_label_contains(" px").is_none(), "the readout goes away with the drag");
 }
 
+/// #5472: a ⇧ square pressed between pixels read 101 × 102 and selected that, because each axis
+/// snapped to the pixel grid on its own. The readout and the selection are square, and the
+/// Elliptical Marquee's circle too.
+#[test]
+fn shift_square_pressed_between_pixels_has_equal_sides() {
+    for tool in [Tool::RectMarquee, Tool::EllipseMarquee] {
+        let mut h = harness(tool);
+        press_at(&mut h, 50.3, 50.7, Modifiers::NONE);
+        mods(&mut h, Modifiers::SHIFT);
+        move_to(&mut h, 150.8, 90.0);
+        assert!(readout(&h, 102, 102), "{tool:?}: the square covers every pixel it touched, on both axes");
+        release_at(&mut h, 150.8, 90.0, Modifiers::SHIFT);
+        mods(&mut h, Modifiers::NONE);
+        assert_eq!(selection(&h), Rect::new(50, 50, 152, 152), "{tool:?}");
+    }
+}
+
 /// #204: Preferences › Tools › Show Transformation Values off hides the readout, not the marquee.
 #[test]
 fn show_transformation_values_off_hides_the_readout() {
@@ -383,6 +400,32 @@ fn modifiers_held_before_the_drag_pick_the_mode_not_the_shape() {
     assert!(sel.sample_channel(120, 110, 0) < 0.01 && sel.sample_channel(90, 110, 0) > 0.99, "subtracted, not centred");
 }
 
+/// #208: `⇧⌥` held at the press intersects, the third selection mode after add (`⇧`) and subtract
+/// (`⌥`). Like those, the modifier at the press picks the mode; here the keys are released once the
+/// press has fixed the mode, so the drag stays a plain rectangle and only the overlap of the
+/// existing selection and the dragged rectangle survives. The three sample points below are each in
+/// exactly one of {overlap, first-only, drag-only}, so they pass only for intersect, not for
+/// replace, add or subtract.
+#[test]
+fn shift_alt_before_the_drag_intersects_the_selection() {
+    let mut h = harness(Tool::RectMarquee);
+    // A: the existing selection, 50..200 on both axes.
+    h.state_mut().run("select.rect", json!({"x": 50, "y": 50, "width": 150, "height": 150})).unwrap();
+    let both = Modifiers::SHIFT | Modifiers::ALT;
+    mods(&mut h, both);
+    press_at(&mut h, 120.0, 120.0, both);
+    // Mode is fixed at the press; releasing the keys keeps intersect mode but leaves the drag a
+    // plain rectangle (no square/centre constraint), so B is roughly 120..300 on both axes.
+    mods(&mut h, Modifiers::NONE);
+    move_to(&mut h, 300.0, 300.0);
+    release_at(&mut h, 300.0, 300.0, Modifiers::NONE);
+    let st = h.state().session.active().unwrap();
+    let sel = st.doc.selection.as_ref().expect("a selection survives the intersect");
+    assert!(sel.sample_channel(160, 160, 0) > 0.99, "the overlap of the two rectangles stays selected");
+    assert!(sel.sample_channel(60, 60, 0) < 0.01, "a point only in the existing selection is dropped (not add)");
+    assert!(sel.sample_channel(260, 260, 0) < 0.01, "a point only in the dragged rectangle is dropped (not replace)");
+}
+
 /// `cargo test --release -p photocraft-ui-egui marquee_drag_bench -- --ignored --nocapture`
 #[test]
 #[ignore]
@@ -503,6 +546,15 @@ fn mouse_drag_inside_the_selection_moves_it() {
     assert_eq!(selection(&h), Rect::new(120, 90, 220, 170), "moved by (20, 10)");
 }
 
+/// #5646: the Move tool keeps Photoshop's arrow pointer instead of the 4-way move cursor (the
+/// hover outline still marks the layer under the pointer).
+#[test]
+fn the_move_tool_keeps_the_arrow_pointer() {
+    let mut h = harness(Tool::Move);
+    move_to(&mut h, 200.0, 150.0);
+    assert_eq!(h.output().platform_output.cursor_icon, egui::CursorIcon::Default);
+}
+
 /// #1428: hovering inside the ants with a marquee shows the move cursor (a press there drags the
 /// outline); outside it is the marquee's own cursor.
 #[test]
@@ -519,12 +571,14 @@ fn hovering_inside_the_selection_shows_the_move_cursor() {
 }
 
 /// #1428: with a marquee, the arrow keys nudge the selection outline 1 px, ⇧ 10 px (Photoshop);
-/// each press is one undoable step.
+/// each press is one undoable step with Bundle Arrow-Key Nudges off, a run of them one step with
+/// it on (#2259, the default).
 #[test]
 fn arrow_keys_nudge_the_selection_outline() {
     use egui::Key;
-    for tool in [Tool::RectMarquee, Tool::EllipseMarquee] {
+    for (tool, bundle) in [(Tool::RectMarquee, false), (Tool::EllipseMarquee, false), (Tool::RectMarquee, true), (Tool::EllipseMarquee, true)] {
         let mut h = harness(tool);
+        h.state_mut().session.edit_prefs(|p| p.tools.bundle_nudges = bundle);
         press_at(&mut h, 100.0, 80.0, Modifiers::NONE);
         release_at(&mut h, 200.0, 160.0, Modifiers::NONE);
         let drawn = selection(&h);
@@ -543,9 +597,15 @@ fn arrow_keys_nudge_the_selection_outline() {
         h.key_press_modifiers(Modifiers::SHIFT, Key::ArrowLeft);
         h.run_steps(1);
         assert_eq!(selection(&h), shifted(-9, 9), "{tool:?} shift-left 10 px");
-        assert_eq!(h.state().session.active().unwrap().history.past_len(), steps + 4, "one step per press");
+        let nudges = h.state().session.active().unwrap().history.past_len() - steps;
         h.state_mut().session.undo();
-        assert_eq!(selection(&h), shifted(1, 9), "{tool:?} undo takes back one nudge");
+        if bundle {
+            assert_eq!(nudges, 1, "{tool:?} four quick presses, one step");
+            assert_eq!(selection(&h), drawn, "{tool:?} undo takes back the run");
+        } else {
+            assert_eq!(nudges, 4, "{tool:?} one step per press");
+            assert_eq!(selection(&h), shifted(1, 9), "{tool:?} undo takes back one nudge");
+        }
     }
 }
 
@@ -766,7 +826,10 @@ fn m_cycles_only_the_rectangular_and_elliptical_marquee() {
     let mut seen = Vec::new();
     for _ in 0..4 {
         let raw = egui::RawInput {
-            events: vec![egui::Event::Key { key: egui::Key::M, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE }],
+            events: vec![
+                egui::Event::Key { key: egui::Key::M, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::SHIFT },
+                egui::Event::Key { key: egui::Key::M, physical_key: None, pressed: false, repeat: false, modifiers: Modifiers::SHIFT },
+            ],
             ..Default::default()
         };
         ctx.begin_pass(raw);

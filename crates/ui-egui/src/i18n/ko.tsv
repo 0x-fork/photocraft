@@ -7,7 +7,20 @@
 # Licensed MIT OR Apache-2.0. See LICENSE-translations.txt and ATTRIBUTION.md.
 # Product names and technology names retain their spelling.
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	채널 색상
+	Color Indicates:	색상 표시 내용:
+	Solidity:	견고도:
+	Masked Areas	마스크 영역
+	Selected Areas	선택 영역
+	Spot Color	별색
+	Ink Characteristics	잉크 특성
+
 # Guide layout dialog
+
+# Custom print paper (#3820)
+	Paper Width	용지 너비
+	Paper Height	용지 높이
 	Columns	열
 	Rows	행
 	Number	개수
@@ -60,6 +73,8 @@
 	Save	저장
 	Save As…	다른 이름으로 저장…
 	Save a Copy…	사본 저장…
+	{name} can't keep everything in this document	{name}에는 이 문서의 모든 내용을 저장할 수 없습니다
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	Photoshop(PSD)처럼 모든 내용을 유지하는 형식을 선택하거나 사본을 저장하세요.
 	Revert	되돌리기
 	Export	내보내기
 	Quick Export as PNG	PNG로 빠르게 내보내기
@@ -97,6 +112,14 @@
 	Script Events Manager…	스크립트 이벤트 관리자…
 	Import	가져오기
 	Browse…	찾아보기…
+	Source Files	소스 파일
+	Use:	사용:
+	Files	파일
+	Folder	폴더
+	Add Open Files	열린 파일 추가
+	Sort By Name	이름순 정렬
+	Attempt to Automatically Align Source Images	소스 이미지 자동 정렬 시도
+	Create Smart Object after Loading Layers	레이어를 불러온 후 스마트 오브젝트 만들기
 	Reveal in Finder	Finder에서 보기
 	Show in Explorer	파일 탐색기에서 보기
 	Show in Folder	폴더에서 보기
@@ -121,6 +144,8 @@
 	Search…	검색…
 	Check Spelling…	맞춤법 검사…
 	Find and Replace Text…	텍스트 찾기 및 바꾸기…
+	Add to Dictionary	사전에 추가
+	No Spelling Suggestions	맞춤법 제안 없음
 	Fill…	채우기…
 	Stroke…	획…
 	Content-Aware Fill…	내용 인식 채우기…
@@ -135,6 +160,8 @@
 	Transform Again on a Copy	사본에 변형 다시 적용
 	Scale	크기 조절
 	Rotate	회전
+	Set horizontal skew	가로 기울이기 설정
+	Set vertical skew	세로 기울이기 설정
 	Skew	기울이기
 	Distort	왜곡
 	Perspective	원근
@@ -341,6 +368,7 @@
 	Update Modified Content	수정된 내용 업데이트
 	Update All Modified Content	수정된 모든 내용 업데이트
 	Stack Mode	스택 모드
+	Choose Stack Mode:	스택 모드 선택:
 	Entropy	엔트로피
 	Kurtosis	첨도
 	Maximum	최대값
@@ -375,6 +403,7 @@
 	Select Linked Layers	연결된 레이어 선택
 	Merge Layers	레이어 병합
 	Merge Down	아래 레이어와 병합
+	Merge Group	그룹 병합
 	Merge Visible	보이는 레이어 병합
 	Stamp Visible	보이는 레이어의 병합 사본 만들기
 	Select Layer Above	위 레이어 선택
@@ -511,6 +540,12 @@
 	Blur	흐림 효과
 	Blur Gallery	흐림 효과 갤러리
 	Field Blur…	필드 흐림 효과…
+# Field Blur pins (#3373)
+	No pin selected	선택한 핀 없음
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	이미지를 클릭하여 핀을 추가합니다. 핀을 드래그하여 이동하고, 링을 드래그하여 흐림 정도를 바꿉니다. Delete 키로 선택한 핀을 삭제합니다.
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	윤곽선의 핸들을 드래그하여 크기를 바꾸고 회전하고, 사각형으로 모서리를 둥글게 하며, 안쪽 점으로 흐림이 시작되는 위치를 설정합니다.
+	Drag the pin to move the band, or its ring to change its blur. Drag the solid lines to widen the sharp band, the dashed lines to set the transition, and the dots to turn it.	핀을 드래그하여 띠를 이동하고 링을 드래그하여 흐림 정도를 바꿉니다. 실선으로 선명한 띠를 넓히고, 점선으로 전환 범위를, 점으로 회전을 조정합니다.
+	Drag the handles on the outline to resize and turn it; the ring sets the blur angle.	윤곽선의 핸들을 드래그하여 크기를 바꾸고 회전합니다. 링으로 흐림 각도를 설정합니다.
 	Iris Blur…	조리개 흐림 효과…
 	Tilt-Shift…	기울기-이동…
 	Path Blur…	패스 흐림 효과…
@@ -699,6 +734,10 @@
 	Breeze Dark Theme	Breeze 어두운 테마
 	Breeze light	Breeze 밝게
 	Breeze Light Theme	Breeze 밝은 테마
+	Soft dark	소프트 다크
+	Soft light	소프트 라이트
+	Soft Dark Theme	소프트 다크 테마
+	Soft Light Theme	소프트 라이트 테마
 	Next Theme	다음 테마
 	Actions	액션
 	Brush Settings	브러시 설정
@@ -798,6 +837,9 @@
 	Appearance	모양새
 	Appearance (Layer Style)	모양새(레이어 스타일)
 	Apply Layer Mask	레이어 마스크 적용
+	Add Mask to Selection	선택 영역에 마스크 추가
+	Subtract Mask from Selection	선택 영역에서 마스크 빼기
+	Intersect Mask with Selection	마스크와 선택 영역 교차
 	Apply Per Tip	끝당 적용
 	Apply next selected layer comp	선택한 다음 레이어 구성 요소 적용
 	Apply previous selected layer comp	선택한 이전 레이어 구성 요소 적용
@@ -813,11 +855,18 @@
 	Background	배경
 	Background Color	배경색
 	Background Contents	배경 내용
+	Custom background color	사용자 정의 배경색
 	Balance	균형
 	Baseline	기준선
 	Baseline shift	기준선 이동
 	Basic	기본
 	Before (Y)	이전 (Y)
+	Save Settings…	설정 저장…
+	Load Settings…	설정 불러오기…
+	Save these settings as a Camera Raw .xmp file	이 설정을 Camera Raw .xmp 파일로 저장
+	Load settings from a Camera Raw .xmp file	Camera Raw .xmp 파일에서 설정 불러오기
+	Loaded Camera Raw settings from {file}	{file}에서 Camera Raw 설정을 불러왔습니다
+	Loaded Camera Raw settings from {file} ({n} not supported)	{file}에서 Camera Raw 설정을 불러왔습니다 (미지원 {n}개)
 	Begin recording	기록 시작
 	Bend:	구부림:
 	Bicubic	쌍입방
@@ -849,6 +898,7 @@
 	Cancel	취소
 	Reset	재설정
 	Cancel (Esc)	취소 (Esc)
+	Manage submitted jobs in the system print queue	제출된 작업은 시스템 인쇄 대기열에서 관리하세요
 	Cancel any current edits (Esc)	현재 편집 취소 (Esc)
 	Cancel current crop operation  (Esc)	현재 자르기 작업 취소  (Esc)
 	Cancel transform (Esc)	변형 취소 (Esc)
@@ -914,7 +964,6 @@
 	Contiguous	인접
 	Contrast	대비
 	Control:	제어:
-	Convert document's colors to the working space	문서 색상을 작업 색상 공간으로 변환
 	Convert to sRGB	sRGB로 변환
 	Copies	부수
 	Copper	구리
@@ -971,6 +1020,7 @@
 	Delete Group	그룹 삭제
 	Delete Layer Mask	레이어 마스크 삭제
 	Delete Layers	레이어 삭제
+	Add Shortcut	단축키 추가
 	Delete Shortcut	단축키 삭제
 	Delete Timeline	타임라인 삭제
 	Delete Tool Preset	도구 사전 설정 삭제
@@ -1116,6 +1166,9 @@
 	Ignore All	모두 무시
 	Image Size	이미지 크기
 	Import Brushes…	브러시 가져오기…
+	Gradient Preset Options	그레이디언트 사전 설정 옵션
+	Import .GRD	.GRD 가져오기
+	Choose a gradient file (.grd).	그레이디언트 파일 (.grd)을 선택하세요.
 	Import brushes (.abr)	브러시 가져오기(.abr)
 	Import Presets	사전 설정 가져오기
 	Imported	가져옴
@@ -1489,7 +1542,6 @@
 	Use Default	기본값 사용
 	Use Legacy	기존 방식 사용
 	Use Measurement Scale	측정 비율 사용
-	Use the embedded profile (instead of the working space)	포함된 프로파일 사용(작업 색상 공간 대신)
 	Variables bind a layer's visibility, text or pixels to a named data slot.	변수는 레이어의 표시 여부, 텍스트 또는 픽셀을 이름이 지정된 데이터 슬롯에 연결합니다.
 	Vertical scale	세로 비율
 	Vibrance	활기
@@ -1809,6 +1861,8 @@
 	Camera Raw Defaults	Camera Raw 기본값
 	Canvas border	캔버스 테두리
 	Show canvas dots	캔버스 점 표시
+	Clip thumbnails to layer bounds	썸네일을 레이어 경계로 자르기
+	Clip Thumbnails to Layer Bounds	썸네일을 레이어 경계로 자르기
 	Canvas color	캔버스 색상
 	Canvas custom color	캔버스 사용자 정의 색상
 	Color picker	색상 피커
@@ -1995,7 +2049,8 @@
 	Expand group  ({key}-click: all groups)	그룹 펼치기  ({key} 키를 누른 채 클릭: 모든 그룹)
 	Fade steps	약화 단계
 	Hide the layer's effects  ({key}-click: all layers)	레이어 효과 숨기기  ({key} 키를 누른 채 클릭: 모든 레이어)
-	Import Brushes… (.abr)	브러시 가져오기… (.abr)
+	Import Brushes… (.abr or image)	브러시 가져오기… (.abr 또는 이미지)
+	Import Brush from Image…	이미지에서 브러시 가져오기…
 	Move Group Down	그룹 아래로 이동
 	Move Group Up	그룹 위로 이동
 	Reset the brush to the defaults	브러시를 기본값으로 초기화
@@ -2040,6 +2095,11 @@
 	Rename Brush…	브러시 이름 바꾸기…
 	Delete Brush	브러시 삭제
 	New Brush Preset…	새 브러시 사전 설정…
+	Capture Brush Size in Preset	사전 설정에 브러시 크기 캡처
+	Include Tool Settings	도구 설정 포함
+	Include Color	색상 포함
+	Enter a name for the brush preset	브러시 사전 설정의 이름을 입력하십시오
+	A brush preset with this name already exists	이 이름의 브러시 사전 설정이 이미 있습니다
 	Brush Preset Options	브러시 사전 설정 옵션
 	Group name	그룹 이름
 	Brush name	브러시 이름
@@ -2098,6 +2158,9 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	선택 영역으로 만들 패스가 없습니다: 펜 도구로 그리거나 패스 패널에서 선택하세요.
 	Cancel opening	열기 취소
 	Cancelled opening {name}	{name} 열기를 취소했습니다
+	The document “{name}” does not have an embedded {mode} profile.	문서 “{name}”에 포함된 {mode} 프로파일이 없습니다.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	문서 “{name}”에 포함된 색상 프로파일이 현재 {mode} 작업 색상 공간과 일치하지 않습니다.
+	Working: {working}	작업 색상 공간: {working}
 	Developing {name}	{name} 현상 중
 	Cancelled {label}	{label} 작업을 취소했습니다
 	Esc to cancel	Esc 키로 취소
@@ -2105,6 +2168,7 @@
 	Opening {name}	{name} 여는 중
 	Saved {name}	{name} 저장됨
 	Saving {name}	{name} 저장 중
+	Saving {percent}	저장 중 {percent}
 	A save to {name} is still running; try again when it finishes	{name}에 저장하는 작업이 아직 진행 중입니다. 완료된 후 다시 시도하세요
 	{label} is writing the file and can no longer be cancelled	{label}: 파일을 쓰는 중이므로 더 이상 취소할 수 없습니다
 	Opening {name}…	{name} 여는 중…
@@ -2905,6 +2969,7 @@ cameraRaw	Color	색상
 	Click to pick · Esc to cancel	클릭하여 선택 · Esc로 취소
 	Pick a screen pixel or press Esc to cancel	화면 픽셀을 선택하거나 Esc를 눌러 취소
 	Scroll to zoom	스크롤하여 확대/축소
+	Drag to pan · Scroll to zoom · Double-click to fit	드래그하여 이동 · 스크롤하여 확대/축소 · 두 번 클릭하여 맞추기
 	Show/Hide All Panels	모든 패널 표시/숨기기
 	Show/Hide Panels	패널 표시/숨기기
 	Could not open	열 수 없음
@@ -2954,9 +3019,9 @@ cameraRaw	Color	색상
 	Indigo	남색
 	Fuchsia	자홍색
 	Large document: redrawing on the CPU	큰 문서: CPU에서 다시 그리는 중
+	Redrawing	다시 그리는 중
 	This redraw took {seconds} s on the CPU.	이번 다시 그리기는 CPU에서 {seconds}초 걸렸습니다.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	레이어의 혼합 모드, 불투명도, 표시 여부처럼 문서 전체를 바꾸는 편집은 문서 전체를 다시 그립니다.
-	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	레이어가 GPU 메모리 예산에 맞지 않습니다. 환경 설정 › 성능에서 메모리 사용량을 늘리면 이 컴퓨터 메모리의 4분의 1까지 예산이 늘어납니다.
 	The GPU compositor wasn't used: {reason}	GPU 합성기를 사용하지 않았습니다: {reason}
 fontWeight	Thin	아주 가늘게
 fontWeight	ExtraLight	더 가늘게
@@ -3021,6 +3086,8 @@ fontWeight	Italic	기울임
 	Color Picker (Layer Style Color)	색상 피커 (레이어 스타일 색상)
 	Auto Hide Notifications	알림 자동 숨기기
 	Notification Duration (seconds)	알림 지속 시간(초)
+	Bundle Arrow-Key Nudges	방향키 이동을 하나로 묶기
+	Nudge Bundle Pause (ms)	이동 묶음 대기 시간(ms)
 	Appearance Mode	화면 모드
 	Dark Theme	어두운 테마
 	Light Theme	밝은 테마
@@ -3153,6 +3220,7 @@ cameraData	Lens	렌즈
 	Search settings…	설정 검색…
 	No matching settings	일치하는 설정 없음
 	Loading fonts…	글꼴 불러오는 중…
+	Response curve	응답 곡선
 	Simulate Pressure	압력 시뮬레이션
 	Stroke Path…	패스 획…
 	Background Eraser	배경 지우개
@@ -3166,6 +3234,18 @@ cameraData	Lens	렌즈
 	Amount:	양:
 	Protect:	보호:
 	Protect skin tones	피부톤 보호
+	Edit points to modify the curve	점을 편집하여 곡선 수정
+	Draw to modify the curve	그려서 곡선 수정
+curves	Smooth	매끄럽게
+	Smooth the curve values	곡선 값을 매끄럽게 하기
+	Drag to draw the curve · {key}-click draws a straight line	드래그하여 곡선 그리기 · {key}-클릭으로 직선 그리기
+	Edit Plane	평면 편집
+	Create Plane	평면 만들기
+	Grid Size:	격자 크기:
+	Vanishing Point: click four corners to create a plane	소실점: 네 모서리를 클릭하여 평면을 만드십시오
+	Vanishing Point is not active	소실점이 활성화되어 있지 않습니다
+	Apply Vanishing Point ({key})	소실점 적용 ({key})
+	Fix the red plane first: its corners must form a convex quad	먼저 빨간색 평면을 수정하십시오: 모서리가 볼록 사각형을 이루어야 합니다
 # Select and Mask view modes (#1754)
 	Onion Skin	어니언 스킨
 	Marching Ants	점선 윤곽
@@ -3182,6 +3262,7 @@ cameraData	Lens	렌즈
 	Paint over hair or fur on the image; Alt paints the other mode	이미지의 머리카락이나 털 위를 칠합니다. Alt는 다른 모드로 칠합니다
 	Clear Brush Strokes	브러시 획 지우기
 	Show rulers	눈금자 표시
+	Presentation	프레젠테이션
 
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	클릭하여 배치 · Alt-클릭 또는 캔버스 밖으로 드래그하여 제거
@@ -3199,3 +3280,109 @@ cameraData	Lens	렌즈
 	Apply mask to layer before removing?	제거하기 전에 마스크를 레이어에 적용하시겠습니까?
 	The layer or its mask changed. Drag the mask onto the Trash again.	레이어 또는 마스크가 변경되었습니다. 마스크를 휴지통으로 다시 드래그하세요.
 	Delete the vector mask?	벡터 마스크를 삭제하시겠습니까?
+# View › Guides › New Guide… › Color
+	Light Blue	연한 파랑
+	Light Red	연한 빨강
+	Medium Blue	중간 파랑
+	Light Gray	연한 회색
+	Object Finder	개체 찾기
+	No object found there — drag a rectangle around it	그곳에서 개체를 찾지 못했습니다 — 주위에 사각형을 드래그하세요
+	Remove after each stroke	획마다 제거
+	Apply the removal ({key})	제거 적용 ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	제거할 획: {n} (Enter 적용, Esc 취소)
+	Show home recent files	홈 화면에 최근 파일 표시
+	Clear Brush Controls	브러시 제어 지우기
+	Reset All Locked Settings	모든 잠긴 설정 재설정
+	Copy Texture to Other Tools	다른 도구로 텍스처 복사
+
+# Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
+	Load Actions…	액션 불러오기…
+	Save Actions…	액션 저장…
+	{name} (Photoshop)	{name} (Photoshop)
+	{message} ({note})	{message} ({note})
+@plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{file}에서 액션 {n}개를 불러왔습니다
+@plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n}개 단계에는 아직 PhotoCraft에 해당하는 기능이 없습니다
+@plural	Saved {n} action to {file}|Saved {n} actions to {file}	{file}에 액션 {n}개를 저장했습니다
+@plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Photoshop에 해당하는 기능이 없는 {n}개 단계를 제외했습니다
+
+	File Naming	파일 이름 지정
+	Starting serial	시작 일련번호
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	정지 삽입…
+	Save Set…	세트 저장…
+	Message:	메시지:
+	Allow Continue	계속 허용
+	Show dialog during playback	재생 중 대화 상자 표시
+	Select an action first	먼저 액션을 선택하세요
+	Action playback stopped	액션 재생이 중지되었습니다
+	Step {step} is waiting for its dialog	{step}단계가 대화 상자를 기다리고 있습니다
+@plural	{n} action|{n} actions	액션 {n}개
+	Background (Default)	배경(기본값)
+# Batch / Image Processor
+	Include All Subfolders	모든 하위 폴더 포함
+	Auto Add/Delete	자동 추가/삭제
+
+# Native Windows printing qualification
+	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	인쇄 설정에서도 이미지 반전을 켜지 마세요. 두 번 반전하면 원래대로 돌아갑니다.
+	Print Settings…	인쇄 설정…
+	Remember to turn off the printer's own colour management in Print Settings…	인쇄 설정에서 프린터 자체의 색상 관리를 끄세요…
+	Sent to {printer}	{printer}(으)로 전송됨
+	set in Print Settings…	인쇄 설정에서 지정…
+	ICO is limited to 256 × 256 pixels	ICO는 256 × 256픽셀로 제한됩니다
+# Embedded Profile Mismatch: profile names beside the choices, Remember this choice
+	Use the embedded profile ({profile})	포함된 프로파일 사용({profile})
+	Convert to the working space ({profile})	작업 색상 공간으로 변환({profile})
+	Remember this choice for future images	이후 이미지에도 이 선택 기억
+	Turn the prompt back on with Ask On Mismatch in Edit › Color Settings.	편집 › 색상 설정의 Ask On Mismatch로 이 확인을 다시 켤 수 있습니다.
+	Button Mode	단추 모드
+	Button Mode On	단추 모드 켜짐
+
+# Darken / Lighten Interface (⇧⌘F1 / ⇧⌘F2)
+	Darken Interface	인터페이스 어둡게
+	Lighten Interface	인터페이스 밝게
+# Bevel & Emboss Technique.
+	Technique	기법
+	Chisel Hard	단단하게 조각
+	Chisel Soft	부드럽게 조각
+	Open color-less EXR as ACEScg	색 공간 정보 없는 EXR을 ACEScg로 열기
+# Export As metadata and profile options
+	Color Profile	색상 프로필
+	EXIF	EXIF
+
+# View › Guides › right-click a guide
+	Edit Selected Guides	선택한 안내선 편집
+	Clear Selected Guides	선택한 안내선 지우기
+	Delete this set	이 세트 삭제
+	New Set…	새 세트…
+	PhotoCraft Defaults	PhotoCraft 기본값
+	Save a list of these shortcuts as a web page	이 단축키 목록을 웹 페이지로 저장
+	Save the changes to this set	이 세트에 변경 사항 저장
+	Save these shortcuts as a .kys file	이 단축키를 .kys 파일로 저장
+	Save these shortcuts as a new set	이 단축키를 새 세트로 저장
+	Set deleted.	세트를 삭제했습니다.
+	Set saved.	세트를 저장했습니다.
+	Set:	세트:
+	Summarize…	요약…
+	There are too many sets: delete one first.	세트가 너무 많습니다. 먼저 하나를 삭제하세요.
+	set name	세트 이름
+	{set} (modified)	{set}(수정됨)
+	Accept and Go to Conflict	적용 후 충돌 항목으로 이동
+	Changes undone.	변경 사항을 취소했습니다.
+	Choose a new shortcut for this command, or leave it without one.	이 명령의 새 단축키를 선택하거나 단축키 없이 두세요.
+	Put this command's shortcuts back as they were	이 명령의 단축키를 원래대로 되돌리기
+	Take the shortcut from the other command and select it	다른 명령에서 단축키를 빼고 그 명령 선택
+	Undo Changes	변경 사항 취소
+	{shortcut} is reserved by the system and can't be assigned.	{shortcut}은(는) 시스템에서 예약되어 할당할 수 없습니다.
+	Low-Latency Drawing (vsync off, applies at next launch)	저지연 그리기(수직 동기화 끔, 다음 실행 시 적용)
+# Free Transform: a new layer while the box is open (#5859)
+	Free Transform is still being applied; try again when it has finished.	자유 변형을 아직 적용하는 중입니다. 완료된 후 다시 시도하세요.
+	The transform couldn't be applied.	변형을 적용할 수 없습니다.
+# Preferences › Performance › GPU Memory; the status bar and slow-redraw notice
+	Its layers need {needed} of GPU memory; the budget leaves them {budget}.	레이어에 GPU 메모리 {needed}가 필요하지만 예산은 {budget}만 남겨 둡니다.
+	Set GPU Memory in Preferences › Performance to what your graphics card can hold, at most 3/8 of its memory. Automatic follows Memory Usage, within a quarter of this computer's memory and 3/8 of the card's, and doesn't count the document against a card whose memory is known. The status bar shows GPU Memory Full while they don't fit.	환경 설정 › 성능에서 GPU 메모리를 그래픽 카드가 감당할 수 있는 양으로 설정하세요(최대 카드 메모리의 3/8). 자동은 메모리 사용량을 따르며, 이 컴퓨터 메모리의 4분의 1과 카드 메모리의 3/8 이내이고, 메모리를 알 수 있는 카드에서는 문서를 차감하지 않습니다. 맞지 않는 동안 상태 표시줄에 GPU 메모리 부족이 표시됩니다.
+	GPU Memory Full	GPU 메모리 부족
+	The layers need {needed} of GPU memory and may hold {budget}, so edits that redraw the whole document do it on the CPU. Click to set GPU Memory.	레이어에 GPU 메모리 {needed}가 필요하지만 {budget}만 사용할 수 있어 문서 전체를 다시 그리는 편집은 CPU에서 처리됩니다. 클릭하여 GPU 메모리를 설정합니다.
+	GPU memory budget: {budget}	GPU 메모리 예산: {budget}
+	This document's layers: {needed} of {budget} for layers	이 문서의 레이어: 레이어용 {budget} 중 {needed}
+	This document's layers need {needed} but may hold {budget}: whole-document redraws use the CPU	이 문서의 레이어에 {needed}가 필요하지만 {budget}만 사용할 수 있습니다: 문서 전체 다시 그리기는 CPU를 사용합니다
+	GPU Memory (MB, 0 = Automatic)	GPU 메모리(MB, 0 = 자동)

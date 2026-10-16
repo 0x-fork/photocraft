@@ -169,6 +169,70 @@ fn channel_management_and_view_state() {
 }
 
 #[test]
+fn deleting_an_earlier_channel_keeps_the_last_channel_targeted() {
+    for depth in [8, 16, 32] {
+        let mut s = session_depth(depth);
+        s.execute("channel.new", json!({"name": "Remove", "fill": "black"})).unwrap();
+        s.execute("channel.new", json!({"name": "Keep", "fill": "white"})).unwrap();
+        let layer_before = px(&s, 5, 5);
+        s.execute("channel.delete", json!({"channel": "Remove"})).unwrap();
+        assert_eq!(doc(&s).channels[0].name, "Keep");
+        let view = &s.active().unwrap().channel_view;
+        assert_eq!(view.target, ChannelTarget::Alpha(0), "the surviving target follows its new index");
+        assert!(view.alpha_shown(0));
+        assert_eq!(view.visible_colors(3), 0, "keep the channel-only view");
+
+        s.execute("image.adjustments.invert", json!({})).unwrap();
+        assert_eq!(chan(&s, 0, 5, 5), 0.0, "implicit pixel edits still target Keep");
+        assert_eq!(px(&s, 5, 5), layer_before, "the layer must not be edited instead");
+        assert!(s.undo());
+        assert_eq!(chan(&s, 0, 5, 5), 1.0);
+        assert_eq!(px(&s, 5, 5), layer_before);
+        assert!(s.redo());
+        assert_eq!(chan(&s, 0, 5, 5), 0.0);
+        assert_eq!(px(&s, 5, 5), layer_before);
+    }
+}
+
+#[test]
+fn deleting_a_channel_remaps_all_surviving_eyes_and_targets() {
+    for target_index in 0..3 {
+        let mut s = session();
+        for name in ["First", "Middle", "Last"] {
+            s.execute("channel.new", json!({"name": name})).unwrap();
+        }
+        s.execute("channel.target", json!({"channel": target_index})).unwrap();
+        for (channel, visible) in [false, false, true].into_iter().enumerate() {
+            s.execute("channel.setVisible", json!({"channel": channel, "visible": visible})).unwrap();
+        }
+        s.execute("channel.delete", json!({"channel": "Middle"})).unwrap();
+        let view = &s.active().unwrap().channel_view;
+        let expected = match target_index {
+            0 => ChannelTarget::Alpha(0),
+            1 => ChannelTarget::Composite,
+            _ => ChannelTarget::Alpha(1),
+        };
+        assert_eq!(view.target, expected, "old target {target_index}");
+        assert!(!view.alpha_shown(0));
+        assert!(view.alpha_shown(1), "Last keeps its eye when Middle is removed");
+    }
+}
+
+#[test]
+fn targeting_the_composite_hides_the_alpha_overlay() {
+    for (cmd, params) in [("channel.target", json!({"channel": "composite"})), ("channel.target.composite", json!({}))] {
+        let mut s = session();
+        s.execute("channel.new", json!({})).unwrap();
+        assert!(s.active().unwrap().channel_view.alpha_shown(0));
+        s.execute(cmd, params).unwrap();
+        let st = s.active().unwrap();
+        assert_eq!(st.channel_view.visible_colors(3), 3, "{cmd}");
+        assert!(!st.channel_view.alpha_shown(0), "{cmd}: the alpha eye turns off");
+        assert!(st.channel_view.is_plain(&st.doc), "{cmd}: no overlay left on the image (#4538)");
+    }
+}
+
+#[test]
 fn every_colour_channel_can_hide_while_alpha_stays() {
     let mut s = session();
     s.execute("channel.new", json!({"fill": "white", "name": "Alpha"})).unwrap();
@@ -484,6 +548,18 @@ fn apply_image_hand_computed() {
 }
 
 #[test]
+fn apply_image_subtract_layer_from_itself_is_mid_grey() {
+    // Frequency separation: Subtract, Scale 2, Offset 128, in the flat form the dialog sends.
+    let mut s = session();
+    s.execute("edit.fill", json!({"color": "#c08040"})).unwrap();
+    s.execute("layer.new.layer", json!({"name": "High"})).unwrap();
+    s.execute("edit.fill", json!({"color": "#406080"})).unwrap();
+    s.execute("image.applyImage", json!({"sourceLayer": "High", "blending": "subtract", "scale": 2.0, "offset": 128})).unwrap();
+    let p = px(&s, 3, 3);
+    assert!(p[..3].iter().all(|v| (v - 128.0 / 255.0).abs() < 0.003), "{p:?}");
+}
+
+#[test]
 fn apply_image_onto_transparent_layer() {
     for depth in [8, 16, 32] {
         let mut s = session_depth(depth);
@@ -739,4 +815,103 @@ fn clear_with_an_alpha_channel_or_quick_mask_targeted_fills_it_not_the_layer() {
     let q = doc(&s).quick_mask.as_ref().unwrap().surface.sample_channel(5, 5, 0);
     assert_eq!(q, 0.0);
     assert_eq!(px(&s, 5, 5), layer, "the layer is untouched in Quick Mask mode");
+}
+
+#[test]
+fn command_backslash_targets_the_layer_mask_and_command_2_the_composite() {
+    let mut s = session();
+    s.execute("layer.new.layer", json!({})).unwrap();
+    assert!(!s.is_enabled("channel.target.layerMask"), "no mask yet");
+    assert!(s.execute("channel.target.layerMask", json!({})).is_err());
+    s.execute("layer.layerMask.revealAll", json!({})).unwrap();
+    s.execute("channel.target.composite", json!({})).unwrap();
+    assert_eq!(crate::commands::find("channel.target.layerMask").and_then(|c| c.shortcut), Some("Cmd+\\"));
+    s.execute("channel.target.layerMask", json!({})).unwrap();
+    assert_eq!(s.active().unwrap().channel_view.target, ChannelTarget::LayerMask);
+    s.execute("channel.target.composite", json!({})).unwrap();
+    assert_eq!(s.active().unwrap().channel_view.target, ChannelTarget::Composite);
+}
+
+#[test]
+fn command_alt_2_loads_the_images_luminosity() {
+    let mut s = session();
+    rect(&mut s, 0, 0, 20, 20, "replace");
+    s.execute("edit.fill", json!({"contents": "black"})).unwrap();
+    s.execute("select.deselect", json!({})).unwrap();
+    assert_eq!(crate::commands::find("select.loadLuminosity").and_then(|c| c.shortcut), Some("Cmd+Alt+2"));
+    s.execute("select.loadLuminosity", json!({})).unwrap();
+    assert!(sel_at(&s, 5, 5) < 0.01, "black: unselected");
+    assert!(sel_at(&s, 30, 5) > 0.99, "white: selected");
+}
+
+#[test]
+fn thumbnail_selection_shape_without_pixel_cache_uses_its_transparency() {
+    for depth in [8, 16, 32] {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width":100,"height":80,"depth":depth,"background":"transparent"})).unwrap();
+        let id = s.execute("shape.create", json!({"kind":"rect","rect":[20,10,40,30],"fill":"#cc3333"})).unwrap()["layer"].as_u64().unwrap();
+        s.edit("Drop render cache", |doc, _| {
+            let l = doc.layer_mut(photocraft_doc::LayerId(id)).unwrap();
+            if let LayerContent::Shape(shape) = &mut l.content {
+                shape.cache = None;
+            }
+            l.visible = false;
+            l.opacity = 0.25;
+            Ok(())
+        })
+        .unwrap();
+        s.execute("select.loadSelection", json!({"channel":"transparency","layer":id})).unwrap();
+        assert!(sel_at(&s, 30, 20) > 0.99);
+        assert!(sel_at(&s, 0, 0) < 0.01, "shape transparency must not select the whole canvas at depth {depth}");
+        let b = s.active().unwrap().doc.selection.as_ref().unwrap().content_bounds();
+        assert_eq!((b.x0, b.y0, b.width(), b.height()), (20, 10, 40, 30));
+    }
+}
+
+/// #5335: a single targeted channel is the only Curves popup entry, named as in the Channels panel.
+#[test]
+fn isolated_curve_channel_matches_the_channels_panel() {
+    let mut s = session();
+    assert!(isolated_curve_channel(s.active().unwrap()).is_none(), "composite lists every colour channel");
+    s.execute("channel.target", json!({"channel": {"color": 1}})).unwrap();
+    let green = isolated_curve_channel(s.active().unwrap()).expect("green");
+    assert_eq!((green.name.as_str(), green.key, green.tint), ("Green", "green", true));
+    assert!(green.translate && green.gray.is_none(), "built-in colour labels follow the language");
+
+    s.execute("layer.layerMask.revealAll", json!({})).unwrap();
+    s.execute("channel.target", json!({"channel": "mask"})).unwrap();
+    let mask = isolated_curve_channel(s.active().unwrap()).expect("mask");
+    assert_eq!(mask.key, "");
+    assert!(!mask.tint);
+    assert_eq!(mask.name, format!("{} Mask", doc(&s).layer(s.active().unwrap().active_layer.unwrap()).unwrap().name));
+
+    s.execute("channel.new", json!({"name": "Green", "fill": "white"})).unwrap();
+    s.execute("channel.target", json!({"channel": 0})).unwrap();
+    let alpha = isolated_curve_channel(s.active().unwrap()).expect("alpha");
+    assert_eq!((alpha.name.as_str(), alpha.key, alpha.tint), ("Green", "", false));
+    assert!(!alpha.translate, "a custom channel name stays exactly as entered");
+    assert_eq!(alpha.gray, Some(GraySurface::Alpha(0)));
+
+    let mut qm = session();
+    qm.execute("select.editInQuickMaskMode", json!({"on": true})).unwrap();
+    let row = isolated_curve_channel(qm.active().unwrap()).expect("quick mask");
+    assert_eq!((row.name.as_str(), row.tint), ("Quick Mask", false));
+    assert_eq!(row.gray, Some(GraySurface::QuickMask));
+}
+
+/// #5335: selecting the mask in the Layers panel gives the same isolated Curves channel as
+/// selecting it in the Channels panel; the Quick Mask keeps priority.
+#[test]
+fn layers_panel_mask_target_isolates_the_curve_channel() {
+    let mut s = session();
+    assert!(isolated_curve_channel_for(s.active().unwrap(), true).is_none(), "a layer without a mask is not targeted");
+    s.execute("layer.layerMask.revealAll", json!({})).unwrap();
+    s.execute("channel.target", json!({"channel": "mask"})).unwrap();
+    let by_panel = isolated_curve_channel(s.active().unwrap()).expect("mask targeted from the Channels panel");
+    s.execute("channel.target", json!({"channel": "composite"})).unwrap();
+    let by_layers = isolated_curve_channel_for(s.active().unwrap(), true).expect("mask targeted from the Layers panel");
+    assert_eq!(by_panel, by_layers, "both ways of selecting the mask give the same dropdown");
+    s.execute("select.editInQuickMaskMode", json!({"on": true})).unwrap();
+    let row = isolated_curve_channel_for(s.active().unwrap(), true).expect("quick mask wins");
+    assert_eq!((row.name.as_str(), row.gray), ("Quick Mask", Some(GraySurface::QuickMask)));
 }

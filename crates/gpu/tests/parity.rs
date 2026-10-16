@@ -45,13 +45,28 @@ fn hdr_adjustments_preserve_range_and_cpu_parity() {
             space: Default::default(),
             black: Default::default(),
         },
-        Adjustment::Curves { master: identity.clone(), per_channel: std::array::from_fn(|_| identity.clone()), space: Default::default(), black: Vec::new() },
+        Adjustment::Curves {
+            master: identity.clone(),
+            per_channel: std::array::from_fn(|_| identity.clone()),
+            space: Default::default(),
+            black: Vec::new(),
+            pencil: false,
+        },
         Adjustment::Curves {
             master: Vec::new(),
             per_channel: [Vec::new(), identity.clone(), vec![CurvePoint { input: 0.0, output: 0.0 }, CurvePoint { input: 1.0, output: 0.5 }]],
             space: Default::default(),
             black: Vec::new(),
+            pencil: false,
         },
+        // 32-bit Photoshop rules: unclipped, legacy pivot 127, the mixer's 1/1024 steps and halved constant.
+        Adjustment::BrightnessContrast { brightness: 25.0, contrast: 30.0, legacy: true },
+        Adjustment::BrightnessContrast { brightness: -20.0, contrast: -30.0, legacy: true },
+        Adjustment::ChannelMixer { matrix: [[0.8, 0.3, -0.1, 0.0], [0.1, 0.9, 0.0, 0.05], [0.0, 0.2, 0.7, 0.0]], monochrome: false },
+        Adjustment::ChannelMixer { matrix: [[0.4, 0.4, 0.2, 0.1], [0.0; 4], [0.0; 4]], monochrome: true },
+        Adjustment::PhotoFilter { color: [0.97, 0.76, 0.0], density: 0.4, preserve_luminosity: true },
+        Adjustment::PhotoFilter { color: [0.2, 0.6, 0.9], density: 0.3, preserve_luminosity: false },
+        Adjustment::BlackWhite { weights: [70.0, 20.0, 50.0, 10.0, 90.0, 30.0], tint: Some([0.9, 0.7, 0.5]) },
     ] {
         let mut d = Document::new("HDR adjustments", Size::new(3, 1), ColorMode::Rgb, SampleType::F32);
         let mut layer = Layer::raster("pixels", PixelFormat::RGBA32F);
@@ -180,6 +195,27 @@ fn check(g: &mut Gpu, doc: &Document, what: &str) {
     diff_rect(g, doc, doc.bounds(), what).unwrap_or_else(|e| panic!("{e}"));
 }
 
+/// Closing a document frees what the compositor holds for it, however its canvas entry went
+/// (#4529): `retain_docs` drops the resident pages, effect maps and lower-stack composite of
+/// documents that aren't open, and keeps the open ones.
+#[test]
+fn retain_docs_frees_closed_documents() {
+    let Some(mut g) = gpu() else { return };
+    let a = base_doc(64, 48);
+    let mut b = base_doc(32, 32);
+    b.id = photocraft_doc::DocId(a.id.0 + 1);
+    for d in [&a, &b] {
+        render_to_vec(&mut g.comp, &g.device, &g.queue, d, d.bounds()).expect("render");
+    }
+    assert_eq!(g.comp.held_docs(), vec![a.id, b.id]);
+    g.comp.retain_docs(|d| d == b.id);
+    assert_eq!(g.comp.held_docs(), vec![b.id], "only the open document is left");
+    g.comp.retain_docs(|_| false);
+    assert!(g.comp.held_docs().is_empty());
+    assert_eq!(g.comp.composite_cache_bytes(), 0);
+    check(&mut g, &a, "renders again after being forgotten");
+}
+
 #[test]
 fn first_frame_renders() {
     // Regression: the first submission after device creation is dropped on some drivers
@@ -229,6 +265,93 @@ fn stack_prefix_reuse_matches_uncached_gpu_and_cpu_at_every_depth() {
             assert_eq!(diff_rect(&mut g, &doc, doc.bounds(), "bottom edit").unwrap().prefix_hits, 0);
         }
     }
+}
+
+/// Duplicating a layer high in the stack, undoing and redoing it (#5286): the render resumes
+/// from the lower cached prefix and moves the cache up to just below the copy, so the undo and
+/// the redo skip more passes. Every render matches an uncached compositor bit for bit, at every
+/// depth.
+#[test]
+fn prefix_follows_an_edit_up_the_stack_and_stays_exact() {
+    let Some(mut g) = gpu() else { return };
+    let mut uncached = Compositor::new(&g.device);
+    uncached.set_composite_cache_budget(0);
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        let mut doc = Document::new("follow", Size::new(300, 70), ColorMode::Rgb, depth);
+        for seed in 1..=6 {
+            doc.layers.push(noise_layer("layer", doc.pixel_format(), doc.bounds(), seed, 0.2));
+        }
+        let mut exact = |g: &mut Gpu, doc: &Document, what: &str| -> photocraft_gpu::Stats {
+            let stats = diff_rect(g, doc, doc.bounds(), what).unwrap_or_else(|e| panic!("{e}"));
+            let cached = render_to_vec(&mut g.comp, &g.device, &g.queue, doc, doc.bounds()).unwrap();
+            let cold = render_to_vec(&mut uncached, &g.device, &g.queue, doc, doc.bounds()).unwrap();
+            assert_eq!(cached, cold, "{depth:?} {what}: reuse preserves the GPU accumulator exactly");
+            stats
+        };
+        exact(&mut g, &doc, "populate");
+        // An edit low in the stack puts the cache there.
+        doc.layers[1].opacity = 0.6;
+        assert_eq!(exact(&mut g, &doc, "low edit").prefix_hits, 0);
+        let low = doc.clone();
+        let copy = doc.layers[4].duplicate();
+        doc.layers.insert(5, copy);
+        let first = exact(&mut g, &doc, "duplicate");
+        assert!(first.prefix_hits > 0, "{depth:?} the duplicate resumes from the low prefix");
+        let undo = exact(&mut g, &low, "undo");
+        assert!(undo.prefix_hits > 0, "{depth:?}");
+        assert!(undo.prefix_passes_skipped > first.prefix_passes_skipped, "{depth:?} the cache moved up: {first:?} {undo:?}");
+        let redo = exact(&mut g, &doc, "redo");
+        assert_eq!(redo.prefix_passes_skipped, undo.prefix_passes_skipped, "{depth:?}");
+        // An edit below the moved cache still invalidates it.
+        doc.layers[2].opacity = 0.4;
+        assert_eq!(exact(&mut g, &doc, "lower edit").prefix_hits, 0, "{depth:?}");
+    }
+}
+
+/// A small refresh above the cache moves only the chunk it renders, which then holds just that
+/// rectangle; the other chunks keep serving their lower checkpoint, and a full render afterwards
+/// resumes each chunk from its own (#5286). Every render matches an uncached compositor exactly.
+#[test]
+fn chunks_keep_their_own_checkpoint_after_a_partial_refresh() {
+    let Some(mut g) = gpu() else { return };
+    let mut uncached = Compositor::try_new_with_format(&g.device, wgpu::TextureFormat::Rgba32Float).unwrap();
+    uncached.set_texture_limit(PAGED_LIMIT);
+    uncached.set_composite_cache_budget(0);
+    let mut doc = base_doc(600, 300);
+    for seed in 2..=5 {
+        doc.layers.push(noise_layer("layer", PixelFormat::RGBA8, doc.bounds(), seed, 0.2));
+    }
+    let mut render = |g: &mut Gpu, doc: &Document, rect: Rect, what: &str| -> photocraft_gpu::Stats {
+        let (cached, stats) = photocraft_gpu::render_to_vec_stats(&mut g.paged, &g.device, &g.queue, doc, rect).unwrap();
+        let cold = render_to_vec(&mut uncached, &g.device, &g.queue, doc, rect).unwrap();
+        assert_eq!(cached, cold, "{what}: reuse preserves the GPU accumulator exactly");
+        let cpu = photocraft_compose::render(doc, rect);
+        assert!(worst_diff(&cpu.px, &cached).0 <= TOL, "{what}: GPU and CPU differ");
+        stats
+    };
+    render(&mut g, &doc, doc.bounds(), "populate");
+    doc.layers[1].opacity = 0.5;
+    let low = render(&mut g, &doc, doc.bounds(), "low edit");
+    assert_eq!(low.prefix_hits, 0);
+    // A copy near the top, refreshed in one chunk only.
+    let copy = doc.layers[3].duplicate();
+    doc.layers.insert(4, copy);
+    let small = render(&mut g, &doc, Rect::new(10, 10, 60, 60), "partial duplicate refresh");
+    assert_eq!(small.prefix_hits, 1, "{small:?}");
+    let full = render(&mut g, &doc, doc.bounds(), "full refresh after the partial one");
+    assert_eq!(full.prefix_hits, full.chunks - 1, "only the partly moved chunk misses: {full:?}");
+    let again = render(&mut g, &doc, doc.bounds(), "full refresh, all moved");
+    assert_eq!(again.prefix_hits, again.chunks);
+    assert!(again.prefix_passes_skipped > full.prefix_passes_skipped, "{full:?} {again:?}");
+    // Mixed checkpoints: a bottom-half refresh moves the chunks it covers whole further up
+    // (an edit at the top), the top half keeps the previous checkpoint and still hits.
+    doc.layers.last_mut().unwrap().opacity = 0.7;
+    let bottom = render(&mut g, &doc, Rect::new(0, 256, 600, 300), "bottom strip");
+    assert_eq!(bottom.prefix_hits, bottom.chunks);
+    let moved = render(&mut g, &doc, Rect::new(0, 0, 512, 256), "whole top chunks");
+    assert_eq!(moved.prefix_hits, moved.chunks);
+    let mixed = render(&mut g, &doc, doc.bounds(), "full refresh, mixed checkpoints");
+    assert_eq!(mixed.prefix_hits, mixed.chunks, "{mixed:?}");
 }
 
 #[test]
@@ -363,7 +486,7 @@ fn prefix_partial_damage_context_occlusion_and_budget_are_conservative() {
     check(&mut g, &doc, "bounded admission");
     assert!(g.comp.composite_cache_bytes() <= 1 << 20);
     assert!(diff_rect(&mut g, &doc, doc.bounds(), "bounded cache keeps its hits").unwrap().prefix_hits > 0);
-    doc.layers[0].blend_if.set(0, [photocraft_doc::BlendRange { black: [40, 40], white: [255, 255] }, photocraft_doc::BlendRange::FULL]);
+    doc.layers[0].advanced.knockout = photocraft_doc::Knockout::Deep;
     assert!(render_to_vec(&mut g.comp, &g.device, &g.queue, &doc, doc.bounds()).is_err());
     assert_eq!(g.comp.composite_cache_bytes(), 0);
 }
@@ -484,6 +607,7 @@ fn adjustments() -> Vec<Adjustment> {
             per_channel: [pts(&[(0.0, 0.0), (0.5, 0.3), (1.0, 1.0)]), pts(&[(0.0, 0.0), (1.0, 1.0)]), pts(&[(0.0, 0.2), (1.0, 1.0)])],
             space: Default::default(),
             black: Vec::new(),
+            pencil: false,
         },
         Adjustment::HueSaturation { hue: 40.0, saturation: 30.0, lightness: -10.0, colorize: false, ranges: HueRange::defaults() },
         Adjustment::HueSaturation { hue: 200.0, saturation: 50.0, lightness: 20.0, colorize: true, ranges: HueRange::defaults() },
@@ -547,6 +671,9 @@ fn adjustment_layers() {
         let pf = Adjustment::PhotoFilter { color: [0.93, 0.54, 0.0], density: 0.6, preserve_luminosity: true };
         d.layers.push(Layer::new("pf", LayerContent::Adjustment(pf)));
         check(&mut g, &d, &format!("photo filter {depth:?}"));
+        // Threshold: whole 16-bit samples against the level in 16 bits, or the float luminosity.
+        d.layers.push(Layer::new("th", LayerContent::Adjustment(Adjustment::Threshold { level: 0.5 })));
+        check(&mut g, &d, &format!("threshold {depth:?}"));
     }
     for adj in adjustments() {
         for (mode, opacity, masked) in [(BlendMode::Normal, 1.0, false), (BlendMode::Multiply, 0.7, true)] {
@@ -892,6 +1019,42 @@ fn incremental_updates_follow_the_document() {
     check(&mut g, &d, "opacity");
 }
 
+/// A duplicate shares its source's tiles: its texture is a GPU copy of the source's, not an
+/// upload. Tiles written afterwards, to the copy or to the source in the same refresh, must not be
+/// lost to the copy or leak through it (queued writes land before the encoder's copy).
+#[test]
+fn duplicates_copy_their_source_texture() {
+    let Some(mut g) = gpu() else { return };
+    let mut d = base_doc(600, 300);
+    let mut src = noise_layer("src", PixelFormat::RGBA8, Rect::new(0, 0, 600, 300), 71, 0.0);
+    src.opacity = 0.7;
+    d.layers.push(src);
+    check(&mut g, &d, "source");
+    // A duplicate with no other change: nothing uploads.
+    let mut dup = d.layers[1].duplicate();
+    dup.blend = BlendMode::Difference;
+    d.layers.push(dup);
+    let stats = diff_rect(&mut g, &d, d.bounds(), "duplicate").unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(stats.tiles_uploaded, 0, "{stats:?}");
+    assert!(stats.tiles_shared > 0, "{stats:?}");
+    // Another duplicate, then one tile painted on it and one on its source, in the same refresh.
+    let mut dup2 = d.layers[1].duplicate();
+    dup2.blend = BlendMode::Screen;
+    dup2.surface_mut().unwrap().fill_rect(Rect::new(10, 10, 20, 20), &[1.0, 0.0, 0.0, 1.0]);
+    d.layers.push(dup2);
+    d.layers[1].surface_mut().unwrap().fill_rect(Rect::new(300, 100, 310, 110), &[0.0, 0.0, 1.0, 1.0]);
+    check(&mut g, &d, "duplicate and source painted");
+    // And a tile removed from a duplicate: it reads as transparent again.
+    let mut dup3 = d.layers[1].duplicate();
+    *dup3.surface_mut().unwrap() = {
+        let mut s = photocraft_raster::Surface::new(PixelFormat::RGBA8);
+        s.put_tiles(d.layers[1].surface().unwrap().tiles().skip(1).map(|(c, t)| (*c, t.clone())));
+        s
+    };
+    d.layers.push(dup3);
+    check(&mut g, &d, "duplicate missing a tile");
+}
+
 /// #2422: a mask whose default pixel changes without touching its tiles (Invert on a sparse mask)
 /// must re-upload the absent tiles between its stored ones, not keep the old default on the GPU.
 #[test]
@@ -1051,6 +1214,25 @@ fn small_layers_composite_over_their_bounds() {
         big.layers.push(small(400 + i as u32, 1010 + (i % 4) * 5, 1010 + (i / 4) * 5, mode));
     }
     check(&mut g, &big, "small layers across chunks");
+}
+
+#[test]
+fn many_layers_submit_inside_one_chunk() {
+    // P12: a refresh recorded every pass of a page cell into one command buffer, and with a few
+    // hundred layers Metal ran out of command buffers (device lost, "pc_compose_uniforms is
+    // invalid"). 700 layers need well over 1000 passes in the document's only chunk.
+    let Some(mut g) = gpu() else { return };
+    let mut d = base_doc(64, 48);
+    let modes: Vec<BlendMode> = BlendMode::layer_modes().collect();
+    for (i, mode) in modes.iter().copied().cycle().take(700).enumerate() {
+        let mut l = noise_layer("l", PixelFormat::RGBA8, Rect::from_xywh(0, 0, 64, 48), 500 + i as u32, 0.0);
+        l.blend = mode;
+        l.opacity = 0.9;
+        d.layers.push(l);
+    }
+    let stats = diff_rect(&mut g, &d, d.bounds(), "700 layers").unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(stats.chunks, 1);
+    assert!(stats.flushes > 0, "{stats:?}");
 }
 
 fn blob(name: &str, fmt: PixelFormat, cx: f32, cy: f32, r: f32, color: [f32; 3]) -> Layer {
@@ -1398,6 +1580,7 @@ fn layer_effects_opacity_fill_blend_and_off_canvas() {
         (0.6, 0.35, BlendMode::Multiply),
         (1.0, 0.5, BlendMode::Screen),
         (0.8, 1.0, BlendMode::Dissolve),
+        (1.0, 1.0, BlendMode::Color),
     ] {
         let mut d = fx_doc(96, 80, SampleType::U8);
         let mut l = blob("fx", d.pixel_format(), 46.0, 40.0, 22.0, [0.2, 0.6, 0.9]);
@@ -1458,6 +1641,14 @@ fn layer_effects_on_groups_clipping_and_fills() {
         d.layers.push(grp);
         fx_check(&mut g, &d, &format!("group {blend:?}"));
     }
+    // A child's stroke reaching past the group's own effect reach (#3274).
+    let mut d = fx_doc(100, 80, SampleType::U8);
+    let mut a = blob("a", d.pixel_format(), 45.0, 40.0, 16.0, [0.6, 0.6, 0.6]);
+    a.effects.items = vec![Effect::Stroke(stroke(8.0, StrokePosition::Outside, FxPaint::Color(Color::rgb(0.0, 0.0, 0.0))))];
+    let mut grp = Layer::group("g", vec![a]);
+    grp.effects.items = vec![Effect::DropShadow(shadow(BlendMode::Multiply, 0.8, 120.0, 3.0, 2.0, 0.0))];
+    d.layers.push(grp);
+    fx_check(&mut g, &d, "group effects around a child's stroke");
     // An effect layer as a clipping base, and a clipped layer with effects.
     let mut d = fx_doc(100, 80, SampleType::U8);
     let mut base = blob("base", d.pixel_format(), 45.0, 40.0, 24.0, [0.3, 0.8, 0.4]);
@@ -1625,6 +1816,78 @@ fn stroke_effects_on_filled_and_stroked_shapes() {
             fx_check(&mut g, &d, &format!("{depth:?} fill {fill_kind} vector stroke {vector_stroke} masked {masked}"));
         }
     }
+}
+
+/// Blend If on the GPU matches `compose::apply_blend_if` (#4395): this-layer and underlying
+/// ranges, hard and split points, per channel, on raster, masked, adjustment and clipped layers,
+/// with channel restrictions, and in grayscale. Hard points are compared on 8-bit documents only:
+/// 16/32-bit layers reach the GPU as RGBA16F, so a value within about a tenth of a level of a
+/// hard point can land on its other side (as with the GPU Threshold adjustment, also compared at
+/// 8 bits); split points are compared at every depth.
+#[test]
+fn blend_if() {
+    use photocraft_doc::BlendRange;
+    let Some(mut g) = gpu() else { return };
+    let r = |b0: u8, b1: u8, w0: u8, w1: u8| BlendRange { black: [b0, b1], white: [w0, w1] };
+    // (name, entry, [this layer, underlying], has a hard point)
+    let cases: [(&str, usize, [BlendRange; 2], bool); 7] = [
+        ("gray this hard", 0, [r(90, 90, 255, 255), BlendRange::FULL], true),
+        ("gray under split", 0, [BlendRange::FULL, r(30, 140, 150, 230)], false),
+        ("red both", 1, [r(0, 60, 200, 200), r(20, 20, 180, 250)], true),
+        ("red both split", 1, [r(0, 60, 190, 230), r(10, 50, 180, 250)], false),
+        ("green white split", 2, [r(0, 0, 100, 220), BlendRange::FULL], false),
+        ("blue under hard", 3, [BlendRange::FULL, r(128, 128, 255, 255)], true),
+        ("everything hidden", 0, [r(255, 255, 0, 0), BlendRange::FULL], true),
+    ];
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        let fmt = PixelFormat { sample: depth, ..PixelFormat::RGBA8 };
+        for (name, e, pair, hard) in cases {
+            if hard && depth != SampleType::U8 {
+                continue;
+            }
+            let mut d = Document::new("bi", Size::new(64, 48), ColorMode::Rgb, depth);
+            d.layers.push(noise_layer("bg", fmt, Rect::new(0, 0, 64, 48), 1, 0.3));
+            let mut l = noise_layer("top", fmt, Rect::new(4, 3, 60, 45), 2, 0.0);
+            l.blend = BlendMode::Multiply;
+            l.opacity = 0.8;
+            l.blend_if.set(e, pair);
+            d.layers.push(l.clone());
+            check(&mut g, &d, &format!("{depth:?} {name}"));
+            // Edits above it reuse the lower stack, Blend If included (prefix checkpoints).
+            let mut above = d.clone();
+            above.layers.push(noise_layer("above", fmt, Rect::new(20, 0, 40, 48), 4, 0.5));
+            check(&mut g, &above, &format!("{depth:?} {name} under another layer"));
+            above.layers[2].opacity = 0.4;
+            let hits = diff_rect(&mut g, &above, above.bounds(), &format!("{depth:?} {name} edit above")).unwrap_or_else(|e| panic!("{e}"));
+            assert!(hits.prefix_hits > 0, "{depth:?} {name}: the edit above reuses the lower stack");
+
+            // Masked, with channel restrictions.
+            let mut m = l.clone();
+            m.mask = Some(mask(Rect::new(0, 0, 64, 48), 5, 1.0));
+            m.excluded_channels = 0b010;
+            d.layers[1] = m;
+            check(&mut g, &d, &format!("{depth:?} {name} masked, channels"));
+
+            // An adjustment judged by its result, and a clipped layer.
+            let mut adj = Layer::new("inv", LayerContent::Adjustment(Adjustment::Invert));
+            adj.blend_if.set(e, pair);
+            d.layers[1] = l.clone();
+            d.layers[1].blend_if = Default::default();
+            d.layers.push(adj);
+            let mut c = noise_layer("clip", fmt, Rect::new(10, 10, 50, 40), 3, 0.2);
+            c.clipped = true;
+            c.blend_if.set(e, pair);
+            d.layers.push(c);
+            check(&mut g, &d, &format!("{depth:?} {name} adjustment, clipped"));
+        }
+    }
+    // Grayscale: the one channel's entries.
+    let mut d = Document::new("g", Size::new(32, 32), ColorMode::Grayscale, SampleType::U8);
+    d.layers.push(noise_layer("bg", PixelFormat::GRAYA8, Rect::new(0, 0, 32, 32), 9, 1.0));
+    let mut l = noise_layer("top", PixelFormat::GRAYA8, Rect::new(0, 0, 32, 32), 10, 1.0);
+    l.blend_if.set(1, [r(60, 120, 255, 255), r(0, 0, 140, 200)]);
+    d.layers.push(l);
+    check(&mut g, &d, "gray blend if");
 }
 
 #[test]
@@ -1944,6 +2207,141 @@ fn artboards() {
     }
 }
 
+/// Sparse patterns may have no stored tiles: their defaults still determine every pixel.
+#[test]
+fn pattern_cache_tracks_default_pixels() {
+    let Some(mut g) = gpu() else { return };
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        let fmt = PixelFormat::RGBA8.with_sample(depth);
+        let mut d = Document::new("pattern defaults", Size::new(8, 6), ColorMode::Rgb, depth);
+        let mut pat = Pattern::new("cache identity", photocraft_raster::Surface::with_default(fmt, &[1.0, 0.0, 0.0, 1.0]), 2, 2);
+        assert_eq!(pat.surface.tiles().count(), 0);
+        d.layers.push(Layer::new(
+            "pattern",
+            LayerContent::Fill(Fill::Pattern { name: pat.name.clone(), id: pat.id.clone(), scale: 1.0, angle: 0.0, link: true, phase: (0.0, 0.0) }),
+        ));
+        d.patterns.push(pat.clone());
+        check(&mut g, &d, &format!("red default {depth:?}"));
+        pat.surface = photocraft_raster::Surface::with_default(fmt, &[0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(pat.surface.tiles().count(), 0);
+        d.patterns[0] = pat;
+        let cpu = photocraft_compose::flatten(&d);
+        let mut fresh = Compositor::new(&g.device);
+        let out = render_to_vec(&mut fresh, &g.device, &g.queue, &d, d.bounds()).unwrap();
+        assert!(worst_diff(&cpu.px, &out).0 <= TOL, "fresh compositor matches blue default");
+        check(&mut g, &d, &format!("blue default {depth:?}"));
+    }
+}
+
+/// A document that paints one `side` x `side` pattern named `name`.
+fn pattern_fill_doc(name: &str, side: u32) -> Document {
+    let mut d = Document::new(name, Size::new(8, 6), ColorMode::Rgb, SampleType::U8);
+    let pat = Pattern::new(name, photocraft_raster::Surface::with_default(PixelFormat::RGBA8, &[1.0, 0.0, 0.0, 1.0]), side, side);
+    d.layers.push(Layer::new(
+        "pattern",
+        LayerContent::Fill(Fill::Pattern { name: pat.name.clone(), id: pat.id.clone(), scale: 1.0, angle: 0.0, link: true, phase: (0.0, 0.0) }),
+    ));
+    d.patterns.push(pat);
+    d
+}
+
+/// #4971: a pattern texture belongs to the document that last painted with it, and closing that
+/// document frees it. Before, pattern textures were kept until the device was lost.
+#[test]
+fn closed_documents_release_their_pattern_textures() {
+    let Some(mut g) = gpu() else { return };
+    let a = pattern_fill_doc("first", 4);
+    let mut b = pattern_fill_doc("second", 4);
+    b.id = photocraft_doc::DocId(a.id.0 + 1);
+    let one = 4 * 4 * 16;
+    assert_eq!(g.comp.pattern_cache_bytes(), 0);
+    render_to_vec(&mut g.comp, &g.device, &g.queue, &a, a.bounds()).expect("render a");
+    assert_eq!(g.comp.pattern_cache_bytes(), one, "one 4 x 4 RGBA32F texture");
+    render_to_vec(&mut g.comp, &g.device, &g.queue, &b, b.bounds()).expect("render b");
+    assert_eq!(g.comp.pattern_cache_bytes(), 2 * one);
+    g.comp.forget_doc(a.id);
+    assert_eq!(g.comp.pattern_cache_bytes(), one, "closing a document frees its pattern");
+    assert_eq!(g.comp.held_docs(), vec![b.id]);
+    g.comp.retain_docs(|_| false);
+    assert_eq!(g.comp.pattern_cache_bytes(), 0);
+    check(&mut g, &a, "the pattern is uploaded again after being forgotten");
+}
+
+/// #4971: pattern textures are bounded while their documents stay open, by a byte budget and
+/// by age. What the current frame paints with is never dropped.
+#[test]
+fn pattern_textures_are_evicted_over_budget_and_when_idle() {
+    let Some(mut g) = gpu() else { return };
+    let a = pattern_fill_doc("first", 4);
+    let mut b = pattern_fill_doc("second", 4);
+    b.id = photocraft_doc::DocId(a.id.0 + 1);
+    let mut plain = base_doc(8, 6);
+    plain.id = photocraft_doc::DocId(a.id.0 + 2);
+    let one = 4 * 4 * 16;
+    // Room for one pattern and a half: painting the second drops the first.
+    g.comp.set_pattern_budget(one + one / 2);
+    render_to_vec(&mut g.comp, &g.device, &g.queue, &a, a.bounds()).expect("render a");
+    render_to_vec(&mut g.comp, &g.device, &g.queue, &b, b.bounds()).expect("render b");
+    assert_eq!(g.comp.pattern_cache_bytes(), one, "the least recently painted pattern went");
+    // A budget below a single pattern still keeps the one being painted.
+    g.comp.set_pattern_budget(0);
+    render_to_vec(&mut g.comp, &g.device, &g.queue, &b, b.bounds()).expect("render b again");
+    assert_eq!(g.comp.pattern_cache_bytes(), one);
+    // Idle: frames that paint no pattern age it out.
+    g.comp.set_pattern_budget(photocraft_gpu::PATTERN_BUDGET);
+    for _ in 0..photocraft_gpu::PATTERN_IDLE_FRAMES - 1 {
+        render_to_vec(&mut g.comp, &g.device, &g.queue, &plain, plain.bounds()).expect("render plain");
+    }
+    assert_eq!(g.comp.pattern_cache_bytes(), one, "still within the idle limit");
+    render_to_vec(&mut g.comp, &g.device, &g.queue, &plain, plain.bounds()).expect("render plain");
+    assert_eq!(g.comp.pattern_cache_bytes(), 0, "dropped after {} idle frames", photocraft_gpu::PATTERN_IDLE_FRAMES);
+    check(&mut g, &b, "the pattern is uploaded again after being evicted");
+}
+
+#[test]
+fn pattern_cache_tracks_source_format_and_cow_tiles() {
+    let Some(mut g) = gpu() else { return };
+    let defaults = [0.5, 0.25, 0.75, 1.0];
+    let mut pat = Pattern::new("format identity", photocraft_raster::Surface::with_default(PixelFormat::RGBA32F, &defaults), 2, 2);
+    let mut d = Document::new("pattern formats", Size::new(8, 6), ColorMode::Rgb, SampleType::F32);
+    d.layers.push(Layer::new(
+        "pattern",
+        LayerContent::Fill(Fill::Pattern { name: pat.name.clone(), id: pat.id.clone(), scale: 1.0, angle: 0.0, link: true, phase: (0.0, 0.0) }),
+    ));
+    let mut previous = None;
+    for fmt in [PixelFormat::RGBA32F, PixelFormat::new(ColorMode::Lab, SampleType::F32, true), PixelFormat::RGBA16, PixelFormat::RGBA8] {
+        pat.surface = photocraft_raster::Surface::with_default(fmt, &defaults);
+        if fmt.sample == SampleType::F32 {
+            assert_eq!(pat.surface.default_pixel(), defaults);
+        }
+        d.patterns = vec![pat.clone()];
+        let cpu = photocraft_compose::flatten(&d);
+        if fmt.mode == ColorMode::Lab {
+            let old: Vec<[f32; 4]> = previous.take().unwrap();
+            assert!(worst_diff(&old, &cpu.px).0 > 0.1, "same default bits have different source-format colours");
+        }
+        previous = Some(cpu.px.clone());
+        let mut fresh = Compositor::new(&g.device);
+        let out = render_to_vec(&mut fresh, &g.device, &g.queue, &d, d.bounds()).unwrap();
+        assert!(worst_diff(&cpu.px, &out).0 <= TOL, "fresh compositor matches {fmt:?}");
+        check(&mut g, &d, &format!("source format {fmt:?}"));
+        check(&mut g, &d, &format!("unchanged source format {fmt:?}"));
+    }
+    pat.surface.fill_rect(pat.rect(), &[1.0, 0.0, 0.0, 1.0]);
+    d.patterns = vec![pat.clone()];
+    check(&mut g, &d, "stored red tile");
+    // Keep the old tile alive: this exercises COW invalidation, not allocator address reuse.
+    let old = pat.clone();
+    pat.surface.fill_rect(Rect::new(0, 0, 1, 1), &[0.0, 0.0, 1.0, 1.0]);
+    assert!(!std::sync::Arc::ptr_eq(old.surface.tiles().next().unwrap().1, pat.surface.tiles().next().unwrap().1));
+    d.patterns = vec![pat];
+    check(&mut g, &d, "COW blue tile edit");
+    let mut fresh = Compositor::new(&g.device);
+    let out = render_to_vec(&mut fresh, &g.device, &g.queue, &d, d.bounds()).unwrap();
+    assert!(worst_diff(&photocraft_compose::flatten(&d).px, &out).0 <= TOL, "fresh compositor matches COW edit");
+    assert_eq!(old.surface.tile_count(), 1);
+}
+
 #[test]
 fn pattern_fill_layers() {
     let Some(mut g) = gpu() else { return };
@@ -2200,4 +2598,23 @@ fn the_focused_view_stays_resident_after_a_full_refresh() {
         let cpu = photocraft_compose::render(&d, view);
         assert!(worst_diff(&cpu.px, &out).0 <= TOL);
     }
+}
+
+// A pass-through group holding an adjustment renders isolated when layers clip to it, on the GPU
+// as on the CPU (psd-tools passthrough_clipping_mask_adjustment).
+#[test]
+fn pass_through_clipping_base_with_an_adjustment() {
+    let Some(mut g) = gpu() else { return };
+    let mut d = base_doc(32, 24);
+    d.layers.push(noise_layer("mid", PixelFormat::RGBA8, Rect::new(0, 0, 32, 24), 41, 1.0));
+    let mut grp = Layer::group(
+        "g",
+        vec![noise_layer("in", PixelFormat::RGBA8, Rect::new(4, 4, 20, 20), 42, 0.5), Layer::new("inv", LayerContent::Adjustment(Adjustment::Invert))],
+    );
+    grp.blend = BlendMode::PassThrough;
+    d.layers.push(grp);
+    let mut clip = noise_layer("clip", PixelFormat::RGBA8, Rect::new(8, 0, 28, 16), 43, 0.3);
+    clip.clipped = true;
+    d.layers.push(clip);
+    check(&mut g, &d, "pass-through clipping base with an adjustment");
 }

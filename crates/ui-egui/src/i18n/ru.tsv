@@ -17,9 +17,19 @@
 # letters; the trailing "…" of dialog commands is kept; the colon of a label ("Width:") becomes
 # the Russian typographic equivalent, with the space the source carries.
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	Цвет канала
+	Color Indicates:	Цветом обозначены:
+	Solidity:	Плотность:
+	Ink Characteristics	Характеристики краски
+
 # Menus
 
 # Guide layout dialog
+
+# Custom print paper (#3820)
+	Paper Width	Ширина бумаги
+	Paper Height	Высота бумаги
 	Rows	Строки
 	Number	Количество
 	Margin	Поля
@@ -79,6 +89,8 @@
 	Save	Сохранить
 	Save As…	Сохранить как…
 	Save a Copy…	Сохранить копию…
+	{name} can't keep everything in this document	{name} не может сохранить все содержимое этого документа
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	Выберите формат, который сохранит все, например Photoshop (PSD), или сохраните копию.
 	Save…	Сохранить…
 	Revert	Восстановить
 	Import	Импорт
@@ -114,7 +126,7 @@
 	Fill…	Выполнить заливку…
 	Stroke…	Обвести…
 	Content-Aware Fill…	Заливка с учётом содержимого…
-	Delete and Fill Selection	Удалить и заполнить выделение
+	Delete and Fill Selection	Удалить и залить выделение
 	Define Brush Preset…	Определить кисть…
 	Define Pattern…	Определить паттерн…
 	Define Custom Shape…	Определить свою фигуру…
@@ -202,6 +214,9 @@
 	Enable Layer Mask	Включить маску слоя
 	Disable Layer Mask	Отключить маску слоя
 	Apply Layer Mask	Применить маску слоя
+	Add Mask to Selection	Добавить маску к выделению
+	Subtract Mask from Selection	Вычесть маску из выделения
+	Intersect Mask with Selection	Пересечь маску с выделением
 	Link Layer Mask	Связать маску слоя
 	Unlink Layer Mask	Отвязать маску слоя
 	Vector Mask	Векторная маска
@@ -270,6 +285,8 @@
 	Check Spelling	Проверка орфографии
 	Language Options	Языковые параметры
 	Find and Replace Text…	Найти и заменить текст…
+	Add to Dictionary	Добавить в словарь
+	No Spelling Suggestions	Нет вариантов написания
 	Paste Lorem Ipsum	Вставить условный текст
 	Glyphs Panel	Панель «Глифы»
 	Type Styles	Стили текста
@@ -326,6 +343,13 @@
 	Oil Paint…	Масляная живопись…
 	Blur Gallery	Галерея размытия
 	Field Blur…	Размытие по полю…
+# Field Blur pins (#3373)
+	No pin selected	Булавка не выбрана
+	Click the image to add a pin; drag a pin to move it, or its ring to change its blur. Delete removes the selected pin.	Щелкните изображение, чтобы добавить булавку; перетащите булавку, чтобы переместить ее, или ее кольцо, чтобы изменить размытие. Delete удаляет выбранную булавку.
+	Drag the handles on the outline to resize and turn it, the square to round its corners, and the dots inside to set where the blur starts.	Перетаскивайте маркеры на контуре, чтобы изменить размер и повернуть его, квадрат — чтобы скруглить углы, а точки внутри — чтобы задать, где начинается размытие.
+	Drag the pin to move the band, or its ring to change its blur. Drag the solid lines to widen the sharp band, the dashed lines to set the transition, and the dots to turn it.	Перетащите булавку, чтобы сдвинуть полосу, или ее кольцо, чтобы изменить размытие. Сплошные линии расширяют резкую полосу, пунктирные задают переход, а точки поворачивают ее.
+	Drag the handles on the outline to resize and turn it; the ring sets the blur angle.	Перетаскивайте маркеры на контуре, чтобы изменить размер и повернуть его; кольцо задает угол размытия.
+	Blur Angle	Угол размытия
 	Iris Blur…	Диафрагменное размытие…
 	Tilt-Shift…	Наклон-сдвиг…
 	Path Blur…	Размытие по контуру…
@@ -579,6 +603,7 @@
 	OK	OK
 	Cancel	Отмена
 	Cancel (Esc)	Отмена (Esc)
+	Manage submitted jobs in the system print queue	Управляйте отправленными заданиями в системной очереди печати
 	Done	Готово
 	Apply	Применить
 	Reset	Сброс
@@ -888,11 +913,9 @@
 	Newspaper	Газетная бумага
 	Working Spaces	Рабочие пространства
 	Color Management Policies	Правила управления цветом
-	Convert document's colors to the working space	Преобразовать цвета документа в рабочее пространство
 	Assign working space	Назначить рабочее пространство
-	Use the embedded profile (instead of the working space)	Использовать встроенный профиль (вместо рабочего пространства)
 	Leave as is (don't color manage)	Оставить как есть (без управления цветом)
-	Discard the embedded profile (don't color manage)	Отклонить встроенный профиль (без управления цветом)
+	Discard the embedded profile (don't color manage)	Не использовать встроенный профиль (без управления цветом)
 	Embed Color Profile	Встроить цветовой профиль
 	Assign Profile…	Назначить профиль…
 	Convert to Profile…	Преобразовать в профиль…
@@ -1017,9 +1040,19 @@
 	Rename Brush…	Переименовать кисть…
 	Delete Brush	Удалить кисть
 	Import Brushes…	Импортировать кисти…
+	Import Brushes… (.abr or image)	Импортировать кисти… (.abr или изображение)
+	Import Brush from Image…	Импортировать кисть из изображения…
+	Gradient Preset Options	Параметры наборов градиентов
+	Import .GRD	Импортировать .GRD
+	Choose a gradient file (.grd).	Выберите файл градиентов (.grd).
 	Brush Name	Имя кисти
 	Brush Stroke	Мазок кисти
 	New Brush Preset…	Новый набор параметров кисти…
+	Capture Brush Size in Preset	Сохранить размер кисти в наборе
+	Include Tool Settings	Включить настройки инструмента
+	Include Color	Включить цвет
+	Enter a name for the brush preset	Введите имя набора параметров кисти
+	A brush preset with this name already exists	Набор параметров кисти с таким именем уже существует
 	Brush Preset Options	Параметры наборов кистей
 	New Brush	Новая кисть
 	Create new brush from these settings	Создать новую кисть из этих параметров
@@ -1181,6 +1214,8 @@
 	Offset	Смещение
 	Reset Transform	Сбросить трансформацию
 	Rotate	Повернуть
+	Set horizontal skew	Задать наклон по горизонтали
+	Set vertical skew	Задать наклон по вертикали
 	Flip Horizontal	Отразить по горизонтали
 	Flip Vertical	Отразить по вертикали
 	Frame Sync	Синхронизация кадров
@@ -1375,7 +1410,6 @@
 	Choose…	Выбрать…
 	Select Folder…	Выбрать папку…
 	Override Action "Save" Commands	Переопределить команды «Сохранить» в операции
-	File Naming	Именование файлов
 	Compatibility	Совместимость
 	Windows	Windows
 	Mac OS	Mac OS
@@ -1427,6 +1461,10 @@
 	Breeze Dark Theme	Тёмная тема Breeze
 	Breeze light	Breeze светлая
 	Breeze Light Theme	Светлая тема Breeze
+	Soft dark	Мягкая тёмная
+	Soft light	Мягкая светлая
+	Soft Dark Theme	Мягкая тёмная тема
+	Soft Light Theme	Мягкая светлая тема
 	Studio Theme	Тема Studio
 	Studio Light Theme	Светлая тема Studio
 	Adwaita Light Theme	Светлая тема Adwaita
@@ -1495,6 +1533,7 @@
 	Preset Name:	Имя набора:
 	Width and Height	Ширина и высота
 	Background Contents	Содержимое фона
+	Custom background color	Свой цвет фона
 	White	Белый
 	Background Color	Цвет фона
 	Transparent	Прозрачный
@@ -1661,6 +1700,7 @@
 	These settings aren't available in PhotoCraft yet.	Эти параметры пока недоступны в PhotoCraft.
 	Shortcut removed.	Комбинация клавиш удалена.
 	All shortcuts reset to PhotoCraft defaults.	Все комбинации клавиш сброшены к стандартным PhotoCraft.
+	Add Shortcut	Добавить комбинацию
 	Delete Shortcut	Удалить комбинацию
 	Press keys…	Нажмите клавиши…
 	shortcut	комбинация
@@ -1677,6 +1717,12 @@
 	Show in Explorer	Показать в Проводнике
 	Show in Folder	Показать в папке
 	Before (Y)	До (Y)
+	Save Settings…	Сохранить настройки…
+	Load Settings…	Загрузить настройки…
+	Save these settings as a Camera Raw .xmp file	Сохранить эти настройки в файл Camera Raw .xmp
+	Load settings from a Camera Raw .xmp file	Загрузить настройки из файла Camera Raw .xmp
+	Loaded Camera Raw settings from {file}	Настройки Camera Raw загружены из {file}
+	Loaded Camera Raw settings from {file} ({n} not supported)	Настройки Camera Raw загружены из {file} (не поддерживается: {n})
 	After (X)	После (X)
 	Original	Оригинал
 	Current	Текущий
@@ -1830,6 +1876,14 @@
 	Border…	Граница…
 	Bottom Edges	Нижние края
 	Browse…	Обзор…
+	Source Files	Исходные файлы
+	Use:	Использовать:
+	Files	Файлы
+	Folder	Папка
+	Add Open Files	Добавить открытые файлы
+	Sort By Name	Сортировать по имени
+	Attempt to Automatically Align Source Images	Попытаться автоматически выровнять исходные изображения
+	Create Smart Object after Loading Layers	Создать смарт-объект после загрузки слоёв
 	Canvas Guides	Направляющие холста
 	Character Styles Panel	Панель «Стили символов»
 	Clear Canvas Guides	Удалить направляющие холста
@@ -1897,6 +1951,7 @@
 	Lock Layers…	Заблокировать слои…
 	Mean	Среднее
 	Merge Down	Выполнить сведение
+	Merge Group	Объединить группу
 	Merge Layers	Объединить слои
 	Merge Shape Components	Объединить компоненты фигуры
 	Merge Visible	Свести видимые
@@ -1948,6 +2003,7 @@
 	Solid Color…	Однотонный цвет…
 	Square	Квадрат
 	Stack Mode	Режим стопки
+	Choose Stack Mode:	Выберите режим стопки:
 	Standard Deviation	Стандартное отклонение
 	Statistics…	Статистика…
 	Stylistic Alternates	Стилистические варианты
@@ -2253,6 +2309,8 @@
 	Camera Raw Defaults	Значения Camera Raw по умолчанию
 	Canvas border	Рамка холста
 	Show canvas dots	Показывать точки холста
+	Clip thumbnails to layer bounds	Обрезать миниатюры по границам слоя
+	Clip Thumbnails to Layer Bounds	Обрезать миниатюры по границам слоя
 	Canvas color	Цвет холста
 	Canvas custom color	Свой цвет холста
 	Classic	Классическая
@@ -2423,6 +2481,9 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Нет контура для создания выделения: нарисуйте его инструментом «Перо» или выберите на панели «Контуры».
 	Cancel opening	Отменить открытие
 	Cancelled opening {name}	Открытие {name} отменено
+	The document “{name}” does not have an embedded {mode} profile.	В документе «{name}» нет встроенного профиля {mode}.
+	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Встроенный цветовой профиль документа «{name}» не совпадает с текущим рабочим пространством {mode}.
+	Working: {working}	Рабочее пространство: {working}
 	Developing {name}	Обработка {name}
 	Cancelled {label}	{label}: отменено
 	Esc to cancel	Esc — отмена
@@ -2430,6 +2491,7 @@
 	Opening {name}	Открытие {name}
 	Saved {name}	Сохранено: {name}
 	Saving {name}	Сохранение {name}
+	Saving {percent}	Сохранение {percent}
 	A save to {name} is still running; try again when it finishes	Сохранение в {name} ещё выполняется; повторите попытку после его завершения
 	{label} is writing the file and can no longer be cancelled	{label}: идёт запись файла, отменить уже нельзя
 	Opening {name}…	Открытие {name}…
@@ -2589,6 +2651,7 @@ cameraRaw	Roughness	Неровность
 	Click to pick · Esc to cancel	Щелчок — выбрать · Esc — отменить
 	Pick a screen pixel or press Esc to cancel	Выберите пиксель на экране или нажмите Esc для отмены
 	Scroll to zoom	Колесо — изменить масштаб
+	Drag to pan · Scroll to zoom · Double-click to fit	Перетаскивание — перемещение · Колесо — масштаб · Двойной щелчок — вписать
 	Show/Hide All Panels	Показать/скрыть все панели
 	Show/Hide Panels	Показать/скрыть панели
 	Could not open	Не удалось открыть
@@ -2646,19 +2709,19 @@ cameraRaw	Roughness	Неровность
 	Fuchsia	Фуксия
 	Violet	Фиолетовый
 	Large document: redrawing on the CPU	Большой документ: перерисовка на CPU
+	Redrawing	Перерисовка
 	This redraw took {seconds} s on the CPU.	Эта перерисовка на CPU заняла {seconds} с.
 	Edits that change the whole document, such as a layer's blend mode, opacity or visibility, redraw all of it.	Правки, затрагивающие весь документ, например режим наложения, непрозрачность или видимость слоя, перерисовывают его целиком.
-	Its layers don't fit the GPU memory budget. Raising Memory usage in Preferences › Performance raises the budget, up to a quarter of this computer's memory.	Слои не помещаются в бюджет памяти GPU. Увеличение параметра «Память» в разделе Настройки › Производительность повышает бюджет, но не больше четверти памяти этого компьютера.
 	The GPU compositor wasn't used: {reason}	Компоновщик GPU не использовался: {reason}
 fontWeight	Thin	Тонкий
-fontWeight	ExtraLight	Особо светлый
-fontWeight	Light	Светлый
+fontWeight	ExtraLight	Сверхтонкий
+fontWeight	Light	Лёгкий
 fontWeight	Regular	Обычный
 fontWeight	Medium	Средний
 fontWeight	SemiBold	Полужирный
 fontWeight	Bold	Жирный
-fontWeight	ExtraBold	Особо жирный
-fontWeight	Black	Чёрный
+fontWeight	ExtraBold	Сверхжирный
+fontWeight	Black	Сверхжирный (Black)
 fontWeight	Italic	Курсив
 
 # Pattern Stamp tool
@@ -2714,6 +2777,8 @@ fontWeight	Italic	Курсив
 	Color Picker (Layer Style Color)	Палитра цветов (цвет стиля слоя)
 	Auto Hide Notifications	Автоскрытие уведомлений
 	Notification Duration (seconds)	Длительность уведомления (секунды)
+	Bundle Arrow-Key Nudges	Объединять сдвиги стрелками
+	Nudge Bundle Pause (ms)	Пауза объединения сдвигов (мс)
 	Appearance Mode	Режим оформления
 	Dark Theme	Тёмная тема
 	Light Theme	Светлая тема
@@ -2911,6 +2976,7 @@ cameraData	Lens	Объектив
 	Search settings…	Поиск настроек…
 	No matching settings	Нет подходящих настроек
 	Loading fonts…	Загрузка шрифтов…
+	Response curve	Кривая отклика
 	Tool	Инструмент
 	Simulate Pressure	Имитировать нажим
 	Stroke Path…	Обвести контур…
@@ -2922,6 +2988,16 @@ cameraData	Lens	Объектив
 	Amount:	Эффект:
 	Protect:	Защитить:
 	Protect skin tones	Защищать тона кожи
+	Edit points to modify the curve	Изменять кривую по точкам
+	Draw to modify the curve	Рисовать кривую
+curves	Smooth	Сгладить
+	Smooth the curve values	Сгладить значения кривой
+	Drag to draw the curve · {key}-click draws a straight line	Перетащите, чтобы нарисовать кривую · {key}-щелчок рисует прямую линию
+	Grid Size:	Размер сетки:
+	Vanishing Point: click four corners to create a plane	Точка схода: щелкните четыре угла, чтобы создать плоскость
+	Vanishing Point is not active	Точка схода не активна
+	Apply Vanishing Point ({key})	Применить точку схода ({key})
+	Fix the red plane first: its corners must form a convex quad	Сначала исправьте красную плоскость: ее углы должны образовывать выпуклый четырехугольник
 # Select and Mask view modes (#1754)
 	Onion Skin	Калька
 	Marching Ants	Бегущие муравьи
@@ -2944,6 +3020,7 @@ cameraData	Lens	Объектив
 	Select the crop presets to delete	Выберите наборы параметров кадрирования для удаления
 	Enter a name for the crop preset	Введите имя набора параметров кадрирования
 	There is no crop size or ratio to save	Нет размера или соотношения сторон кадрирования для сохранения
+	Presentation	Представление
 
 # Color Sampler (added with the i18n coverage repair)
 	Click to place · Alt-click or drag off-canvas to remove	Щёлкните, чтобы разместить · Alt-щелчок или перетаскивание за пределы холста для удаления
@@ -2961,3 +3038,143 @@ cameraData	Lens	Объектив
 	Apply mask to layer before removing?	Применить маску к слою перед удалением?
 	The layer or its mask changed. Drag the mask onto the Trash again.	Слой или его маска изменились. Перетащите маску в корзину ещё раз.
 	Delete the vector mask?	Удалить векторную маску?
+# Counted status messages and labels (#3454; adapted from PR #3821)
+@plural	Exported {n} swatch to {file}|Exported {n} swatches to {file}	Экспортирован {n} образец в {file}|Экспортированы {n} образца в {file}|Экспортировано {n} образцов в {file}
+@plural	Imported {n} brush from {group}|Imported {n} brushes from {group}	Импортирована {n} кисть из {group}|Импортированы {n} кисти из {group}|Импортировано {n} кистей из {group}
+@plural	Imported {n} swatch from {file}|Imported {n} swatches from {file}	Импортирован {n} образец из {file}|Импортированы {n} образца из {file}|Импортировано {n} образцов из {file}
+@plural	Played {n} step|Played {n} steps	Воспроизведён {n} шаг|Воспроизведены {n} шага|Воспроизведено {n} шагов
+@plural	Updated {n} linked smart object changed on disk|Updated {n} linked smart objects changed on disk	Обновлён {n} связанный смарт-объект, изменённый на диске|Обновлены {n} связанных смарт-объекта, изменённых на диске|Обновлено {n} связанных смарт-объектов, изменённых на диске
+@plural	Saved for Web: {n} file|Saved for Web: {n} files	Сохранено для Web: {n} файл|Сохранено для Web: {n} файла|Сохранено для Web: {n} файлов
+@plural	{n} layer recorded by this comp was deleted. Update the comp, or clear the warning.|{n} layers recorded by this comp were deleted. Update the comp, or clear the warning.	Удалён {n} слой, записанный в этом варианте. Обновите вариант или сбросьте предупреждение.|Удалены {n} слоя, записанных в этом варианте. Обновите вариант или сбросьте предупреждение.|Удалено {n} слоёв, записанных в этом варианте. Обновите вариант или сбросьте предупреждение.
+@plural	{n} plane|{n} planes	{n} плоскость|{n} плоскости|{n} плоскостей
+@plural	{n} preset|{n} presets	{n} набор|{n} набора|{n} наборов
+@plural	{n} sample point removed|{n} sample points removed	Удалена {n} точка замера|Удалены {n} точки замера|Удалено {n} точек замера
+@plural	{n} slice|{n} slices	{n} фрагмент|{n} фрагмента|{n} фрагментов
+@plural	{n} step|{n} steps	{n} шаг|{n} шага|{n} шагов
+@plural	{warning} (+{n} more brush preset warning)|{warning} (+{n} more brush preset warnings)	{warning} (и ещё {n} предупреждение о наборах кистей)|{warning} (и ещё {n} предупреждения о наборах кистей)|{warning} (и ещё {n} предупреждений о наборах кистей)
+@plural	{what} with {n} warning|{what} with {n} warnings	{what}: {n} предупреждение|{what}: {n} предупреждения|{what}: {n} предупреждений
+# View › Guides › New Guide… › Color
+	Light Blue	Светло-синий
+	Light Red	Светло-красный
+	Medium Blue	Средне-синий
+	Light Gray	Светло-серый
+	Object Finder	Поиск объектов
+	No object found there — drag a rectangle around it	Объект не найден — обведите его прямоугольником
+	Remove after each stroke	Удалять после каждого штриха
+	Apply the removal ({key})	Применить удаление ({key})
+	Strokes to remove: {n} (Enter applies, Esc cancels)	Штрихов к удалению: {n} (Enter применяет, Esc отменяет)
+	Show home recent files	Показывать недавние файлы на домашнем экране
+	Clear Brush Controls	Очистить параметры кисти
+	Reset All Locked Settings	Сбросить все заблокированные параметры
+	Copy Texture to Other Tools	Скопировать текстуру в другие инструменты
+
+# Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
+	Load Actions…	Загрузить операции…
+	Save Actions…	Сохранить операции…
+	{name} (Photoshop)	{name} (Photoshop)
+	{message} ({note})	{message} ({note})
+@plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Загружена {n} операция из {file}|Загружены {n} операции из {file}|Загружено {n} операций из {file}
+@plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} шаг пока не имеет эквивалента в PhotoCraft|{n} шага пока не имеют эквивалента в PhotoCraft|{n} шагов пока не имеют эквивалента в PhotoCraft
+@plural	Saved {n} action to {file}|Saved {n} actions to {file}	Сохранена {n} операция в {file}|Сохранены {n} операции в {file}|Сохранено {n} операций в {file}
+@plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Пропущен {n} шаг без эквивалента в Photoshop|Пропущены {n} шага без эквивалента в Photoshop|Пропущено {n} шагов без эквивалента в Photoshop
+
+	File Naming	Именование файлов
+	Starting serial	Начальный порядковый номер
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Вставить остановку…
+	Save Set…	Сохранить набор…
+	Message:	Сообщение:
+	Allow Continue	Разрешить продолжение
+	Show dialog during playback	Показывать диалог при воспроизведении
+	Select an action first	Сначала выберите операцию
+	Action playback stopped	Воспроизведение операции остановлено
+	Step {step} is waiting for its dialog	Шаг {step} ожидает своего диалога
+@plural	{n} action|{n} actions	{n} операция|{n} операции|{n} операций
+	Background (Default)	Фон (по умолчанию)
+	Content-Aware Fill	Заливка с учётом содержимого
+# Batch / Image Processor
+	Include All Subfolders	Включить все вложенные папки
+	Auto Add/Delete	Автодобавление/удаление
+
+# Native Windows printing qualification
+	Don't also tick Mirror Image in Print Settings…: the two flips cancel out.	Не включайте также зеркальное отражение в параметрах печати: два отражения отменяют друг друга.
+	Print Settings…	Параметры печати…
+	Remember to turn off the printer's own colour management in Print Settings…	Не забудьте отключить управление цветом самого принтера в параметрах печати…
+	Sent to {printer}	Отправлено на {printer}
+	set in Print Settings…	задаётся в параметрах печати…
+	ICO is limited to 256 × 256 pixels	ICO ограничен размером 256 × 256 пикселей
+
+# Dynamic selection context menu and appearance favorites
+	Select Inverse	Инвертировать выделение
+	Pro (Light)	Pro (светлая)
+	Pro (Light Gray)	Pro (светло-серая)
+
+# Measurement Log column headers (analysis_cmds::COLUMNS)
+	Label	Метка
+	Date and Time	Дата и время
+	Scale Units	Единицы масштаба
+	Scale Factor	Коэффициент масштаба
+	Area	Площадь
+	Perimeter	Периметр
+	Circularity	Круглость
+	Gray Value (Minimum)	Уровень серого (минимум)
+	Gray Value (Maximum)	Уровень серого (максимум)
+	Gray Value (Mean)	Уровень серого (среднее)
+	Gray Value (Median)	Уровень серого (медиана)
+	Integrated Density	Интегральная плотность
+	Length	Длина
+# Embedded Profile Mismatch: profile names beside the choices, Remember this choice
+	Use the embedded profile ({profile})	Использовать встроенный профиль ({profile})
+	Convert to the working space ({profile})	Преобразовать в рабочее пространство ({profile})
+	Remember this choice for future images	Запомнить этот выбор для следующих изображений
+	Turn the prompt back on with Ask On Mismatch in Edit › Color Settings.	Снова включить вопрос можно параметром Ask On Mismatch в Редактирование › Настройки цвета.
+	Button Mode	Режим кнопок
+	Button Mode On	Режим кнопок включён
+
+# Darken / Lighten Interface (⇧⌘F1 / ⇧⌘F2)
+	Darken Interface	Сделать интерфейс темнее
+	Lighten Interface	Сделать интерфейс светлее
+# Bevel & Emboss Technique.
+	Technique	Метод
+	Chisel Hard	Жесткая огранка
+	Chisel Soft	Мягкая огранка
+	Open color-less EXR as ACEScg	Открывать EXR без цветового профиля как ACEScg
+
+# View › Guides › right-click a guide
+	Edit Selected Guides	Изменить выбранные направляющие
+	Clear Selected Guides	Удалить выбранные направляющие
+	Delete this set	Удалить этот набор
+	New Set…	Новый набор…
+	PhotoCraft Defaults	Стандартные PhotoCraft
+	Save a list of these shortcuts as a web page	Сохранить список этих комбинаций как веб-страницу
+	Save the changes to this set	Сохранить изменения в этом наборе
+	Save these shortcuts as a .kys file	Сохранить эти комбинации как файл .kys
+	Save these shortcuts as a new set	Сохранить эти комбинации как новый набор
+	Set deleted.	Набор удалён.
+	Set saved.	Набор сохранён.
+	Set:	Набор:
+	Summarize…	Сводка…
+	There are too many sets: delete one first.	Слишком много наборов: сначала удалите один.
+	set name	имя набора
+	{set} (modified)	{set} (изменён)
+	Random	Случайно
+	Accept and Go to Conflict	Принять и перейти к конфликту
+	Changes undone.	Изменения отменены.
+	Choose a new shortcut for this command, or leave it without one.	Выберите новую комбинацию для этой команды или оставьте её без комбинации.
+	Put this command's shortcuts back as they were	Вернуть комбинации этой команды
+	Take the shortcut from the other command and select it	Снять комбинацию с другой команды и выбрать её
+	Undo Changes	Отменить изменения
+	{shortcut} is reserved by the system and can't be assigned.	Комбинация {shortcut} зарезервирована системой и не может быть назначена.
+	Low-Latency Drawing (vsync off, applies at next launch)	Рисование с малой задержкой (без вертикальной синхронизации, после перезапуска)
+# Free Transform: a new layer while the box is open (#5859)
+	Free Transform is still being applied; try again when it has finished.	Свободное трансформирование ещё применяется; повторите попытку, когда оно завершится.
+	The transform couldn't be applied.	Не удалось применить трансформирование.
+# Preferences › Performance › GPU Memory; the status bar and slow-redraw notice
+	Its layers need {needed} of GPU memory; the budget leaves them {budget}.	Слоям нужно {needed} памяти GPU; бюджет оставляет им {budget}.
+	Set GPU Memory in Preferences › Performance to what your graphics card can hold, at most 3/8 of its memory. Automatic follows Memory Usage, within a quarter of this computer's memory and 3/8 of the card's, and doesn't count the document against a card whose memory is known. The status bar shows GPU Memory Full while they don't fit.	Задайте «Память GPU» в разделе Настройки › Производительность по объёму, который вмещает ваша видеокарта, не больше 3/8 её памяти. «Автоматически» следует параметру «Память», в пределах четверти памяти этого компьютера и 3/8 памяти видеокарты, и не учитывает документ на видеокарте с известным объёмом памяти. Пока слои не помещаются, в строке состояния показано «Память GPU заполнена».
+	GPU Memory Full	Память GPU заполнена
+	The layers need {needed} of GPU memory and may hold {budget}, so edits that redraw the whole document do it on the CPU. Click to set GPU Memory.	Слоям нужно {needed} памяти GPU, а занимать они могут {budget}, поэтому правки, перерисовывающие весь документ, выполняются на CPU. Нажмите, чтобы задать «Память GPU».
+	GPU memory budget: {budget}	Бюджет памяти GPU: {budget}
+	This document's layers: {needed} of {budget} for layers	Слои этого документа: {needed} из {budget} для слоёв
+	This document's layers need {needed} but may hold {budget}: whole-document redraws use the CPU	Слоям этого документа нужно {needed}, но занимать они могут {budget}: весь документ перерисовывается на CPU
+	GPU Memory (MB, 0 = Automatic)	Память GPU (МБ, 0 = автоматически)

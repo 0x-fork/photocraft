@@ -10,6 +10,7 @@
 use photocraft_color::BlendMode;
 use serde::{Deserialize, Serialize};
 
+use crate::curve::ResponseCurve;
 use crate::mixer::MixerSettings;
 use crate::tile::{GrayTile, StoredTile};
 
@@ -51,20 +52,24 @@ pub struct Dynamic {
     pub fade_steps: u32,
     /// 0..1 floor the control/jitter may reduce the value to (minimum diameter, roundness, depth…).
     pub minimum: f32,
+    /// This dynamic's own response to its control (Fade, Pen Pressure, Pen Tilt, Stylus Wheel,
+    /// Rotation), applied after the global pen curve. Linear by default. Always written to JSON, so
+    /// a `tools.setBrush` patch can set it back to linear. Angle Jitter's controls ignore it.
+    pub curve: ResponseCurve,
 }
 
 impl Default for Dynamic {
     fn default() -> Self {
-        Self { jitter: 0.0, control: Control::Off, fade_steps: 25, minimum: 0.0 }
+        Self { jitter: 0.0, control: Control::Off, fade_steps: 25, minimum: 0.0, curve: ResponseCurve::LINEAR }
     }
 }
 
 impl Dynamic {
     pub const fn controlled(control: Control) -> Self {
-        Self { jitter: 0.0, control, fade_steps: 25, minimum: 0.0 }
+        Self { jitter: 0.0, control, fade_steps: 25, minimum: 0.0, curve: ResponseCurve::LINEAR }
     }
     pub const fn jitter(jitter: f32) -> Self {
-        Self { jitter, control: Control::Off, fade_steps: 25, minimum: 0.0 }
+        Self { jitter, control: Control::Off, fade_steps: 25, minimum: 0.0, curve: ResponseCurve::LINEAR }
     }
     pub fn is_active(&self) -> bool {
         self.jitter > 0.0 || self.control != Control::Off
@@ -270,7 +275,7 @@ pub struct Texture {
     pub scale: f32,
     /// -1..1 (Photoshop's -150..150 mapped to ±1).
     pub brightness: f32,
-    /// -1..1.
+    /// -1..1: Photoshop's -50..0 mapped to -1..0 and its 0..100 to 0..1.
     pub contrast: f32,
     /// Apply the texture to every dab (enables depth jitter) instead of once to the stroke.
     pub each_tip: bool,
@@ -279,6 +284,21 @@ pub struct Texture {
     pub depth: f32,
     /// Depth jitter / control (per tip only); `minimum` is Minimum Depth.
     pub depth_jitter: Dynamic,
+}
+
+impl Texture {
+    /// A pattern value (0..1) after Brightness, Contrast and Invert: the value the mode combines
+    /// with the brush. Measured against Photoshop (#3340): Brightness shifts the pattern by
+    /// `brightness / 255` (±150 moves it 150 levels of 255, not all the way to white or black);
+    /// positive Contrast steepens it around mid-grey by `1 / (1 − c/100)` after the shift (100 is
+    /// a threshold), negative Contrast flattens it by `1 + c/100` before the shift; Invert is last.
+    pub fn level(&self, v: f32) -> f32 {
+        let b = if self.brightness.is_finite() { self.brightness.clamp(-1.0, 1.0) * (150.0 / 255.0) } else { 0.0 };
+        let c = if self.contrast.is_finite() { self.contrast.clamp(-1.0, 1.0) } else { 0.0 };
+        let x = if c >= 0.0 { (v + b - 0.5) / (1.0 - c).max(1e-4) + 0.5 } else { (v - 0.5) * (1.0 + c / 2.0) + 0.5 + b };
+        let x = if x.is_finite() { x.clamp(0.0, 1.0) } else { 0.5 };
+        if self.invert { 1.0 - x } else { x }
+    }
 }
 
 impl Default for Texture {
@@ -426,6 +446,8 @@ impl Default for Pose {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Smoothing {
+    /// Switch smoothing off without discarding its amount or mode. Old presets remain enabled.
+    pub enabled: bool,
     /// 0..1.
     pub amount: f32,
     /// Lazy-mouse: paint only when the pointer pulls a string of `amount × 100 px` taut.
@@ -440,7 +462,7 @@ pub struct Smoothing {
 
 impl Default for Smoothing {
     fn default() -> Self {
-        Self { amount: 0.0, pulled_string: false, catch_up: true, catch_up_on_end: true, adjust_for_zoom: true }
+        Self { enabled: true, amount: 0.0, pulled_string: false, catch_up: true, catch_up_on_end: true, adjust_for_zoom: true }
     }
 }
 
@@ -469,6 +491,11 @@ pub struct BrushSettings {
     pub pressure_opacity: bool,
     /// Straight RGBA colour (display RGB). Commands fill it from the foreground colour.
     pub color: [f32; 4],
+    /// The inks `color` was picked as (its sRGB colour, the CMYK values), for a CMYK target: the
+    /// stroke paints exactly these, since an sRGB round trip does not give them back (#4344).
+    /// Only valid while `color` is that sRGB colour; ignored with Color Dynamics.
+    #[serde(skip)]
+    pub color_cmyk: Option<([f32; 3], [f32; 4])>,
     /// Background colour for Color Dynamics' foreground/background jitter.
     pub background: [f32; 4],
     /// Erase instead of paint.
@@ -528,6 +555,7 @@ impl Default for BrushSettings {
             pressure_size: true,
             pressure_opacity: false,
             color: [0.0, 0.0, 0.0, 1.0],
+            color_cmyk: None,
             background: [1.0, 1.0, 1.0, 1.0],
             erase: false,
             mode: BlendMode::Normal,
@@ -559,6 +587,15 @@ impl Default for BrushSettings {
 }
 
 impl BrushSettings {
+    /// Resize the primary tip and keep an enabled Dual Brush tip at the same relative size.
+    /// An explicit Dual Brush size edit should bypass this and retain the requested diameter.
+    pub fn resize_with_dual_brush(&mut self, new_size: f32) {
+        if self.dual_brush.enabled && self.size.is_finite() && self.size > 0.0 && new_size.is_finite() && new_size > 0.0 {
+            self.dual_brush.size = (self.dual_brush.size * (new_size / self.size)).clamp(0.5, MAX_BRUSH_SIZE);
+        }
+        self.size = new_size;
+    }
+
     /// Copy the settings with the primary and dual diameters and Scatter amounts constrained for
     /// rasterization.
     ///
@@ -651,4 +688,55 @@ pub struct BrushPreset {
     /// folders of Photoshop's Brushes panel; e.g. an imported `.abr` file's own folders.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub folder: Vec<String>,
+    /// What picking the preset brings besides the tip and its sections: the New Brush Preset
+    /// dialog's boxes.
+    #[serde(default, skip_serializing_if = "PresetCaptures::is_default")]
+    pub captures: PresetCaptures,
+}
+
+/// The New Brush Preset dialog's boxes, kept with the preset. The default is a preset made
+/// without the dialog (a built-in, an import, an older save): picking it brings its size and tool
+/// settings, as it always did, and leaves the foreground colour alone.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PresetCaptures {
+    /// Capture Brush Size in Preset. Off: picking the preset keeps the tool's size.
+    pub size: bool,
+    /// Include Tool Settings: the options bar's mode, opacity, flow and pressure buttons. Off:
+    /// picking the preset keeps the tool's.
+    pub tool_settings: bool,
+    /// Include Color: picking the preset sets the foreground colour to the brush's `color`.
+    pub color: bool,
+}
+
+impl Default for PresetCaptures {
+    fn default() -> Self {
+        Self { size: true, tool_settings: true, color: false }
+    }
+}
+
+impl PresetCaptures {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl BrushPreset {
+    /// The tool's brush once this preset is picked while `current` is the tool's brush: the
+    /// preset's brush ([`BrushSettings::picked_over`]), with the size and tool settings it didn't
+    /// capture left as they were.
+    pub fn picked_over(&self, current: &BrushSettings) -> BrushSettings {
+        let mut b = self.brush.clone().picked_over(current);
+        if !self.captures.size {
+            b.resize_with_dual_brush(current.size);
+        }
+        if !self.captures.tool_settings {
+            b.mode = current.mode;
+            b.opacity = current.opacity;
+            b.flow = current.flow;
+            b.pressure_size = current.pressure_size;
+            b.pressure_opacity = current.pressure_opacity;
+        }
+        b
+    }
 }
