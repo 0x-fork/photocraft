@@ -830,10 +830,12 @@ mod tests {
             InstalledProfile { path: "press.icc".into(), description: "Press".into(), class: ProfileClass::Output, color_space: ColorSpace::Cmyk },
             InstalledProfile { path: "panel.icc".into(), description: "Panel".into(), class: ProfileClass::Display, color_space: ColorSpace::Rgb },
         ];
-        let values = |mode: &str| profile_options(color_mode_of(mode).map(photocraft_engine::color_cmds::mode_space), "sRGB", &installed)
-            .into_iter()
-            .map(|(v, _)| v)
-            .collect::<Vec<_>>();
+        let values = |mode: &str| {
+            profile_options(color_mode_of(mode).map(photocraft_engine::color_cmds::mode_space), "sRGB", &installed)
+                .into_iter()
+                .map(|(v, _)| v)
+                .collect::<Vec<_>>()
+        };
         let rgb = values("rgb");
         assert_eq!(rgb[0], "working");
         assert!(rgb.contains(&Builtin::AdobeRgbCompat.id().to_string()) && rgb.contains(&"panel.icc".to_string()));
