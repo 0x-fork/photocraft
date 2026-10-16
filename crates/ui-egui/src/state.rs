@@ -971,6 +971,10 @@ pub enum MadeLayer {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TextEdit {
     pub layer: u64,
+    /// Id of the document being edited (layer ids can repeat across documents, e.g. one .pcraft
+    /// opened twice). `None`: the active document.
+    #[serde(default)]
+    pub document: Option<u64>,
     pub caret: usize,
     pub anchor: usize,
     /// History coalescing key: the whole editing session is one "Edit Type Layer" step.

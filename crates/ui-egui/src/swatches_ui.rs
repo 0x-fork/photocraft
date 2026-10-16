@@ -327,6 +327,7 @@ mod tests {
         app.ui.tool = Tool::Type;
         app.ui.text_edit = Some(crate::state::TextEdit {
             layer: id,
+            document: None,
             caret: 0,
             anchor: 5,
             session: "s".into(),

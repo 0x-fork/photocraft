@@ -20,6 +20,7 @@ fn focused_font_search_does_not_type_into_the_canvas_layer() {
     let id = app.run("type.create", json!({"text": "Sample", "size": 24})).unwrap()["layer"].as_u64().unwrap();
     app.ui.text_edit = Some(crate::state::TextEdit {
         layer: id,
+        document: None,
         caret: 6,
         anchor: 6,
         session: "s".into(),
@@ -357,6 +358,7 @@ fn size_applies_at_layer_and_selection_scope() {
         // Selection scope: "world" only.
         app.ui.text_edit = Some(crate::state::TextEdit {
             layer: id.0,
+            document: None,
             caret: 11,
             anchor: 6,
             session: "s".into(),
@@ -504,6 +506,7 @@ fn foreground_colour_recolours_only_selected_type() {
     assert_eq!(rgb_at(&app, id, 0), [0, 0, 0, 255], "not editing: unchanged");
     let edit = |caret, anchor| crate::state::TextEdit {
         layer: id.0,
+        document: None,
         caret,
         anchor,
         session: "s".into(),
@@ -593,6 +596,7 @@ fn text_color_dialog_edits_only_the_selected_range_and_cancel_is_inert() {
     app.run("layer.select", json!({"layer": id.0, "mode": "add"})).unwrap();
     app.ui.text_edit = Some(crate::state::TextEdit {
         layer: id.0,
+        document: None,
         caret: 11,
         anchor: 6,
         session: "text-color-dialog-test".into(),
@@ -650,6 +654,7 @@ fn empty_ime_events_never_delete_the_selection() {
     let id = LayerId(app.run("type.create", json!({"text": "Hello", "size": 40, "x": 300, "y": 420})).unwrap()["layer"].as_u64().unwrap());
     app.ui.text_edit = Some(crate::state::TextEdit {
         layer: id.0,
+        document: None,
         caret: 5,
         anchor: 0,
         session: "s".into(),
@@ -1427,6 +1432,7 @@ mod multi_layer_formatting {
     fn editing(app: &mut PhotocraftApp, id: LayerId) {
         app.ui.text_edit = Some(crate::state::TextEdit {
             layer: id.0,
+            document: None,
             caret: 3,
             anchor: 1,
             session: "batch-type-edit".into(),
@@ -2014,6 +2020,7 @@ fn multi_click_without_a_session_does_nothing() {
     assert!(app.ui.text_edit.is_none() && app.type_clicks.is_none());
     app.ui.text_edit = Some(crate::state::TextEdit {
         layer: 999_999,
+        document: None,
         caret: 5,
         anchor: 5,
         session: "stale".into(),

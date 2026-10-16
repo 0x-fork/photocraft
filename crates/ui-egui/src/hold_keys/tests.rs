@@ -186,6 +186,7 @@ fn space_while_editing_type_is_not_the_hand_tool() {
     let id = h.state_mut().run("type.create", json!({"text": "ئا", "size": 20, "x": 100, "y": 100})).unwrap()["layer"].as_u64().unwrap();
     h.state_mut().ui.text_edit = Some(crate::state::TextEdit {
         layer: id,
+        document: None,
         caret: 2,
         anchor: 2,
         session: "t".into(),

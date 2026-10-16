@@ -361,6 +361,7 @@ fn hovering_a_font_previews_only_the_selected_characters() {
     app.run("type.setStyle", json!({"layer": layer.0, "range": [0, 2], "font": "JetBrains Mono"})).unwrap();
     app.ui.text_edit = Some(crate::state::TextEdit {
         layer: layer.0,
+        document: None,
         caret: 5,
         anchor: 3,
         session: "font-preview-test".into(),
