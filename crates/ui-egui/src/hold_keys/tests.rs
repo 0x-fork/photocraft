@@ -215,7 +215,15 @@ fn the_pen_path_being_drawn_stays_visible_while_space_pans() {
         painted_paths(&h).iter().any(|pts| pts.first().is_some_and(|p| near(p, a)) && pts.last().is_some_and(|p| near(p, b))),
         "the Pen path from {a:?} to {b:?} is drawn while panning"
     );
-    assert_eq!(h.output().platform_output.cursor_icon, crate::tool_cursor::hand(&h.ctx, true), "the fist while panning (#2196)");
+    // The fist (#2196): the OS's own on macOS and Linux; on Windows our bitmap, over the
+    // `Crosshair` fallback `CursorLifecycle` leaves under it.
+    let out = &h.output().platform_output;
+    let fist = if cfg!(target_os = "windows") {
+        (egui::CursorIcon::Crosshair, crate::tool_cursor::hand_bitmap(&h.ctx, true).map(|i| i.rgba))
+    } else {
+        (egui::CursorIcon::Grabbing, None)
+    };
+    assert_eq!((out.cursor_icon, out.cursor_image.as_ref().map(|i| i.rgba.clone())), fist, "the fist while panning (#2196)");
     release(&mut h, 190.0, 230.0, Modifiers::NONE);
     key(&mut h, Key::Space, false, Modifiers::NONE);
     h.run_steps(2);
