@@ -584,6 +584,7 @@ fn wraps(id: &str) -> bool {
             | "file.placeLinked"
             | "layer.smartObjects.replaceContents"
             | "layer.smartObjects.exportContents"
+            | "layer.smartObjects.relinkToFile"
             | "layer.smartObjects.convertToLinked"
             | "file.closeAll"
             | "file.closeOthers"
@@ -1237,6 +1238,18 @@ fn front(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Value)
             }))
         }
         "layer.smartObjects.exportContents" => Some(export_contents(app)),
+        "layer.smartObjects.relinkToFile" => {
+            let st = app.session.active()?;
+            let (doc, layer) = (st.doc.id, st.active_layer?);
+            // A link needs a file on disk: the desktop picker answers its full path, the web
+            // picker only a name and the bytes, which can't be linked to.
+            Some(app.pick_file_bytes(move |app, path, _| {
+                if !std::path::Path::new(&path).is_absolute() {
+                    return Err(format!("{path}: Relink to File needs a file on disk"));
+                }
+                app.with_document(doc, |app| app.run("layer.smartObjects.relinkToFile", json!({"layer": layer.0, "path": path})))
+            }))
+        }
         "layer.smartObjects.convertToLinked" => {
             let st = app.session.active()?;
             let (doc, layer) = (st.doc.id, st.active_layer?);

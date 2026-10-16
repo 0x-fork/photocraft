@@ -765,6 +765,45 @@ fn replace_contents_picks_a_file_for_every_instance() {
     assert!(matches!(smart_source(&app, ids[1]), photocraft_doc::SmartSource::Embedded { ref file_name, .. } if file_name == "art.png"));
 }
 
+/// Layer › Smart Objects › Relink to File… (and the layer context menu item) asks for a file and
+/// links every instance to its path; it ran without a path before, so it always failed.
+#[test]
+fn relink_to_file_picks_a_file_for_every_instance() {
+    let (mut app, open, _, ids) = smart_app();
+    let ctx = egui::Context::default();
+    let before = ids.map(|id| smart_source(&app, id));
+    // Cancelling changes nothing.
+    menus::invoke(&mut app, &ctx, "layer.smartObjects.relinkToFile", json!({})).unwrap();
+    app.poll_file_dialog(&ctx, None);
+    assert!(matches!(open.borrow().as_slice(), [(FileDialogRequest::Open { multiple: false, .. }, _)]));
+    answer(&open, None);
+    app.poll_file_dialog(&ctx, None);
+    assert_eq!(ids.map(|id| smart_source(&app, id)), before);
+    // The web picker answers only a name and bytes: nothing to link to, so the contents stay.
+    let png = photocraft_io::export(&app.session.active().unwrap().doc, "png", &Default::default()).unwrap().bytes;
+    menus::invoke(&mut app, &ctx, "layer.smartObjects.relinkToFile", json!({})).unwrap();
+    app.poll_file_dialog(&ctx, None);
+    answer(&open, Some(FileDialogAnswer::Contents("art.png".into(), png.clone())));
+    app.poll_file_dialog(&ctx, None);
+    assert!(app.ui.status_error);
+    assert_eq!(ids.map(|id| smart_source(&app, id)), before);
+    // A file picked on disk links both instances to its path.
+    let dir = std::env::temp_dir().join(format!("pcraft-relink-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("art.png");
+    std::fs::write(&path, &png).unwrap();
+    let path = path.to_string_lossy().into_owned();
+    menus::invoke(&mut app, &ctx, "layer.smartObjects.relinkToFile", json!({})).unwrap();
+    app.poll_file_dialog(&ctx, None);
+    answer(&open, Some(FileDialogAnswer::Paths(vec![path.clone()])));
+    app.poll_file_dialog(&ctx, None);
+    assert!(!app.ui.status_error, "{}", app.ui.status);
+    std::fs::remove_dir_all(&dir).ok();
+    for id in ids {
+        assert_eq!(smart_source(&app, id), photocraft_doc::SmartSource::Linked { path: path.clone() });
+    }
+}
+
 #[test]
 fn export_contents_suggests_the_contents_file_name() {
     let (mut app, open, written, _) = smart_app();

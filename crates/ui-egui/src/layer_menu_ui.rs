@@ -77,6 +77,8 @@ pub fn entries(l: &Layer, multi: bool, has_selection: bool) -> Vec<Entry> {
             LayerContent::Shape(_) => v.push(Some(("Rasterize Layer", "layer.rasterize.shape"))),
             LayerContent::Smart(_) => {
                 v.push(Some((tl!("Edit Contents"), "layer.smartObjects.editContents")));
+                v.push(Some((tl!("Replace Contents…"), "layer.smartObjects.replaceContents")));
+                v.push(Some((tl!("Relink to File…"), "layer.smartObjects.relinkToFile")));
                 v.push(Some((tl!("Convert to Layers"), "layer.smartObjects.convertToLayers")));
                 v.push(Some(("Rasterize Layer", "layer.rasterize.smartObject")));
             }
@@ -574,7 +576,10 @@ mod tests {
         s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
         let ids: Vec<_> = entries(&layer(&s), false, false).into_iter().flatten().map(|e| e.1).collect();
         let edit = ids.iter().position(|id| *id == "layer.smartObjects.editContents").expect("Edit Contents entry");
-        assert_eq!(ids[edit + 1..edit + 3], ["layer.smartObjects.convertToLayers", "layer.rasterize.smartObject"]);
+        assert_eq!(
+            ids[edit + 1..edit + 5],
+            ["layer.smartObjects.replaceContents", "layer.smartObjects.relinkToFile", "layer.smartObjects.convertToLayers", "layer.rasterize.smartObject"]
+        );
     }
 
     /// Right-clicking inside a multi-layer selection offers one Rasterize item for the whole
@@ -592,7 +597,14 @@ mod tests {
         assert!(ids(false).contains(&"layer.smartObjects.editContents"), "a single smart object keeps its items");
         let multi = ids(true);
         assert!(multi.contains(&"layer.rasterize.layer"));
-        for single in ["layer.rasterize.smartObject", "layer.rasterize.shape", "layer.smartObjects.editContents", "layer.smartObjects.convertToLayers"] {
+        for single in [
+            "layer.rasterize.smartObject",
+            "layer.rasterize.shape",
+            "layer.smartObjects.editContents",
+            "layer.smartObjects.replaceContents",
+            "layer.smartObjects.relinkToFile",
+            "layer.smartObjects.convertToLayers",
+        ] {
             assert!(!multi.contains(&single), "{single} acts on one layer, not on a selection");
         }
         let label = entries(&smart, true, false).into_iter().flatten().find(|e| e.1 == "layer.rasterize.layer").unwrap().0;
