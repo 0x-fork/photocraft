@@ -1250,9 +1250,16 @@ impl Compositor {
     /// the budget first; when the device is still out of memory, every page the current cell
     /// doesn't use is dropped and creation is tried once more (#6563). `None` (with
     /// `layer_alloc` set) when it still fails: the refresh ends and the CPU draws it.
-    fn create_layer_texture(&mut self, device: &wgpu::Device, desc: &wgpu::TextureDescriptor<'_>, key: ResKey, bytes: u64) -> Option<wgpu::Texture> {
+    fn create_layer_texture(
+        &mut self,
+        device: &wgpu::Device,
+        desc: &wgpu::TextureDescriptor<'_>,
+        key: ResKey,
+        bytes: u64,
+        stats: &mut Stats,
+    ) -> Option<wgpu::Texture> {
         let replaced = self.residents.get(&key).map_or(0, Resident::bytes);
-        self.evict_residents(self.resident_budget, bytes.saturating_sub(replaced), Some(key));
+        stats.evicted += self.evict_residents(self.resident_budget, bytes.saturating_sub(replaced), Some(key)).0;
         // WebGPU reports errors asynchronously: its failures reach the health callbacks.
         if cfg!(target_arch = "wasm32") {
             return Some(device.create_texture(desc));
@@ -1262,7 +1269,7 @@ impl Compositor {
             match error {
                 None => return Some(texture),
                 Some(wgpu::Error::OutOfMemory { .. }) if !retry => {
-                    self.evict_residents(0, 0, Some(key));
+                    stats.evicted += self.evict_residents(0, 0, Some(key)).0;
                 }
                 Some(wgpu::Error::OutOfMemory { .. }) => {
                     self.layer_alloc = Some(OVER_BUDGET.into());
@@ -1594,7 +1601,7 @@ impl Compositor {
                 view_formats: &[],
             };
             let bytes = region.width() as u64 * region.height() as u64 * kind.bytes_per_pixel() as u64;
-            let texture = self.create_layer_texture(device, &desc, key, bytes)?;
+            let texture = self.create_layer_texture(device, &desc, key, bytes, stats)?;
             let view = texture.create_view(&Default::default());
             let default_nonzero = default_pixel.iter().any(|v| *v != 0.0);
             let mut r = Resident {
