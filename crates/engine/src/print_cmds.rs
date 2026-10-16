@@ -61,6 +61,27 @@ pub struct Marks {
     pub corner_crop: bool,
     pub center_crop: bool,
     pub registration: bool,
+    /// Photoshop's Functions › Bleed, in points: corner crop marks sit this far inside the image
+    /// edge, so the trim cuts through the image and leaves no paper-white sliver. 0 = on the edge.
+    pub bleed: f64,
+}
+
+/// Gap between the image edge and a crop mark, and the mark's length (pt).
+const MARK_GAP: f64 = 6.0;
+const MARK_LEN: f64 = 18.0;
+
+/// Corner crop marks around `(x, y, w, h)` as eight `(from, to)` segments, a horizontal then a
+/// vertical one per corner. Each starts `MARK_GAP` outside the image (so it never prints on it)
+/// and lies on the trim line, `bleed` inside the edge. The inset is symmetric, so this holds for
+/// both bottom-up (PDF) and top-down (Windows) coordinates.
+fn corner_crop_segments(bleed: f64, (x, y, w, h): (f64, f64, f64, f64)) -> [((f64, f64), (f64, f64)); 8] {
+    let mut out = [((0.0, 0.0), (0.0, 0.0)); 8];
+    for (i, (cx, cy, dx, dy)) in [(x, y, -1.0, -1.0), (x + w, y, 1.0, -1.0), (x, y + h, -1.0, 1.0), (x + w, y + h, 1.0, 1.0)].into_iter().enumerate() {
+        let (tx, ty) = (cx - dx * bleed, cy - dy * bleed);
+        out[2 * i] = ((cx + dx * MARK_GAP, ty), (cx + dx * (MARK_GAP + MARK_LEN), ty));
+        out[2 * i + 1] = ((tx, cy + dy * MARK_GAP), (tx, cy + dy * (MARK_GAP + MARK_LEN)));
+    }
+    out
 }
 
 /// One page: paper (pt), image box (pt, origin bottom-left), marks and texts.
@@ -102,12 +123,11 @@ fn deflate(data: &[u8]) -> Vec<u8> {
 /// Vector marks around `(x, y, w, h)`.
 fn marks_ops(m: Marks, (x, y, w, h): (f64, f64, f64, f64)) -> String {
     let mut s = String::from("q 0 G 0.3 w\n");
-    let (gap, len) = (6.0, 18.0);
+    let (gap, len) = (MARK_GAP, MARK_LEN);
     let line = |s: &mut String, x0: f64, y0: f64, x1: f64, y1: f64| s.push_str(&format!("{x0:.2} {y0:.2} m {x1:.2} {y1:.2} l S\n"));
     if m.corner_crop {
-        for (cx, cy, dx, dy) in [(x, y, -1.0, -1.0), (x + w, y, 1.0, -1.0), (x, y + h, -1.0, 1.0), (x + w, y + h, 1.0, 1.0)] {
-            line(&mut s, cx + dx * gap, cy, cx + dx * (gap + len), cy);
-            line(&mut s, cx, cy + dy * gap, cx, cy + dy * (gap + len));
+        for ((x0, y0), (x1, y1)) in corner_crop_segments(m.bleed, (x, y, w, h)) {
+            line(&mut s, x0, y0, x1, y1);
         }
     }
     if m.center_crop {
@@ -303,10 +323,16 @@ pub fn layout(doc: &Document, p: &Value, cmd: &str) -> Result<PrintLayout> {
     let (pw, ph) = paper(p, cmd)?;
     let dpi = f64::from(doc.resolution_dpi.max(1.0));
     let (iw, ih) = (f64::from(doc.size.width) * 72.0 / dpi, f64::from(doc.size.height) * 72.0 / dpi);
-    let marks = Marks {
+    // Bleed in inches, like Photoshop's Position fields; the marks need it in points.
+    let bleed = match p.get("bleed") {
+        None | Some(Value::Null) => 0.0,
+        Some(v) => v.as_f64().filter(|b| b.is_finite() && *b >= 0.0).ok_or_else(|| bad(cmd, "bleed is a width in inches, 0 or more"))? * 72.0,
+    };
+    let mut marks = Marks {
         corner_crop: p.get("cornerCropMarks").and_then(Value::as_bool).unwrap_or(false),
         center_crop: p.get("centerCropMarks").and_then(Value::as_bool).unwrap_or(false),
         registration: p.get("registrationMarks").and_then(Value::as_bool).unwrap_or(false),
+        bleed,
     };
     let margin = if marks.corner_crop || marks.center_crop || marks.registration { 36.0 } else { 18.0 };
     let fit = p.get("scaleToFit").and_then(Value::as_bool).unwrap_or(false);
@@ -316,6 +342,14 @@ pub fn layout(doc: &Document, p: &Value, cmd: &str) -> Result<PrintLayout> {
         p.get("scale").and_then(Value::as_f64).filter(|v| *v > 0.0).unwrap_or(100.0) / 100.0
     };
     let (w, h) = (iw * scale, ih * scale);
+    // The trim box must keep some area, or the marks of opposite corners would cross.
+    if 2.0 * marks.bleed >= w.min(h) {
+        return Err(bad(cmd, format!("bleed {:.3} in leaves no image inside the trim ({:.2} × {:.2} in printed)", marks.bleed / 72.0, w / 72.0, h / 72.0)));
+    }
+    // Bleed only moves crop marks; without them it has nothing to change.
+    if !marks.corner_crop {
+        marks.bleed = 0.0;
+    }
     let center = p.get("center").and_then(Value::as_bool).unwrap_or(true);
     let (x, y) = if center {
         ((pw - w) / 2.0, (ph - h) / 2.0)
@@ -398,7 +432,7 @@ fn render_and_spool(doc: &Document, p: &Value, cmd: &str) -> Result<Value> {
         require_printing_enabled()?;
         let printed = print_windows(&page, p, &doc.name, copies)?;
         return Ok(json!({
-            "pdf": Value::Null, "paper": [pw, ph], "imageRect": [x, y, w, h], "emulsionDown": emulsion_down, "scale": scale * 100.0,
+            "pdf": Value::Null, "paper": [pw, ph], "imageRect": [x, y, w, h], "emulsionDown": emulsion_down, "bleed": marks.bleed / 72.0, "scale": scale * 100.0,
             "copies": copies, "command": Value::Null, "sent": true, "spooler": printed, "color": color,
         }));
     }
@@ -431,7 +465,7 @@ fn render_and_spool(doc: &Document, p: &Value, cmd: &str) -> Result<Value> {
         sent = true;
     }
     Ok(
-        json!({"pdf": pdf_path, "bytes": pdf.len(), "paper": [pw, ph], "imageRect": [x, y, w, h], "emulsionDown": emulsion_down, "scale": scale * 100.0, "copies": copies, "command": command, "sent": sent, "spooler": spool, "color": color}),
+        json!({"pdf": pdf_path, "bytes": pdf.len(), "paper": [pw, ph], "imageRect": [x, y, w, h], "emulsionDown": emulsion_down, "bleed": marks.bleed / 72.0, "scale": scale * 100.0, "copies": copies, "command": command, "sent": sent, "spooler": spool, "color": color}),
     )
 }
 
@@ -750,7 +784,7 @@ pub fn specs() -> Vec<CommandSpec> {
             CommandSpec { id: $id, label: $label, menu: $menu, shortcut: $sc, params: $params, enabled: $enabled, journal: true, run: $run }
         };
     }
-    const PRINT_PARAMS: &str = r##"{"printerSettings":hex? (Windows driver settings),"printer":name? (default printer),"copies":1..999=1,"paper":"letter|legal|tabloid|a3|a4|a5|4x6|5x7"|[w,h] pt="letter","orientation":"portrait|landscape"="portrait","center":bool=true,"top":in?,"left":in?,"scale":%=100,"scaleToFit":bool=false,"colorHandling":"printerManages|photocraftManages|noColorManagement"="printerManages","printerProfile":profile? (photocraftManages),"intent":"perceptual|relative|saturation|absolute"="relative","bpc":bool=true,"cornerCropMarks":bool,"centerCropMarks":bool,"registrationMarks":bool,"description":bool,"labels":bool,"emulsionDown":bool=false (mirror the page left to right, for sublimation and other transfer printing),"output":pdf path? (print to PDF; then "send" defaults to false),"send":bool?,"dryRun":bool=false (render the PDF, report the backend command, don't spool; write a PDF only at an explicit output path)} → {pdf:path|null (null without explicit output), imageRect, command:diagnostic array|null, sent}"##;
+    const PRINT_PARAMS: &str = r##"{"printerSettings":hex? (Windows driver settings),"printer":name? (default printer),"copies":1..999=1,"paper":"letter|legal|tabloid|a3|a4|a5|4x6|5x7"|[w,h] pt="letter","orientation":"portrait|landscape"="portrait","center":bool=true,"top":in?,"left":in?,"scale":%=100,"scaleToFit":bool=false,"colorHandling":"printerManages|photocraftManages|noColorManagement"="printerManages","printerProfile":profile? (photocraftManages),"intent":"perceptual|relative|saturation|absolute"="relative","bpc":bool=true,"cornerCropMarks":bool,"centerCropMarks":bool,"registrationMarks":bool,"bleed":in=0 (Functions › Bleed: corner crop marks this far inside the image edge, on the trim line),"description":bool,"labels":bool,"emulsionDown":bool=false (mirror the page left to right, for sublimation and other transfer printing),"output":pdf path? (print to PDF; then "send" defaults to false),"send":bool?,"dryRun":bool=false (render the PDF, report the backend command, don't spool; write a PDF only at an explicit output path)} → {pdf:path|null (null without explicit output), imageRect, command:diagnostic array|null, sent}"##;
 
     vec![
         spec!("file.print", "Print…", &["File"], Some("Cmd+P"), PRINT_PARAMS, native_doc, print),

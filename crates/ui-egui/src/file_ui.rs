@@ -921,11 +921,13 @@ fn print_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Va
                     clip.image(tex.id(), img, uv, egui::Color32::WHITE);
                     let mark = egui::Stroke::new(1.0, egui::Color32::BLACK);
                     if l.marks.corner_crop {
+                        // Bleed puts the marks on the trim line, inside the image edge.
+                        let b = l.marks.bleed as f32 * k;
                         for (c, dx, dy) in
                             [(img.left_top(), -1.0, -1.0), (img.right_top(), 1.0, -1.0), (img.left_bottom(), -1.0, 1.0), (img.right_bottom(), 1.0, 1.0)]
                         {
-                            clip.line_segment([c + egui::vec2(dx * 3.0, 0.0), c + egui::vec2(dx * 12.0, 0.0)], mark);
-                            clip.line_segment([c + egui::vec2(0.0, dy * 3.0), c + egui::vec2(0.0, dy * 12.0)], mark);
+                            clip.line_segment([c + egui::vec2(dx * 3.0, -dy * b), c + egui::vec2(dx * 12.0, -dy * b)], mark);
+                            clip.line_segment([c + egui::vec2(-dx * b, dy * 3.0), c + egui::vec2(-dx * b, dy * 12.0)], mark);
                         }
                     }
                     if l.marks.registration {

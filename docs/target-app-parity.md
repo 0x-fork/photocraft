@@ -1,6 +1,6 @@
 # PhotoCraft vs Adobe Photoshop: target-app parity
 
-> **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-13 · **Change:** minor (on-canvas corner radius widgets, TOOL-214-12; `.atn` import maps 112 events; Free Transform H/V skew fields; stale rows corrected against `main` and the scorecard, estimates unchanged; Photoshop Actions `.atn` load and save; 2026-10-10: Tilt-Shift measurements added; earlier the same day: major, full re-measure against Photoshop 2026 27.11.0; merged `parity-estimate.md` and the roadmap's honest assessment; stale missing-tool rows corrected: Color Replacement and Red Eye are live toolbar tools, Frame landed; percentages unchanged) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-15 · **Change:** minor (Print › Functions › Bleed through `file.print`; on-canvas corner radius widgets, TOOL-214-12; `.atn` import maps 112 events; Free Transform H/V skew fields; stale rows corrected against `main` and the scorecard, estimates unchanged; Photoshop Actions `.atn` load and save; 2026-10-10: Tilt-Shift measurements added; earlier the same day: major, full re-measure against Photoshop 2026 27.11.0; merged `parity-estimate.md` and the roadmap's honest assessment; stale missing-tool rows corrected: Color Replacement and Red Eye are live toolbar tools, Frame landed; percentages unchanged) · **Target:** Adobe Photoshop 2026
 
 The authoritative answer to "how close is PhotoCraft to Photoshop, and how much work is left". The
 one-page summary is [`ROADMAP.md`](../ROADMAP.md); the ranked work list is [`gaps.md`](gaps.md);
@@ -286,7 +286,7 @@ just presence.
 | Transform, warp, puppet, perspective, liquify | ~88% | No Face-Aware Liquify (needs a landmark model) |
 | Automation: CLI, MCP, headless server, control channel | ~95% | Ahead of Photoshop here (see below) |
 | Image modes (RGB/Gray/CMYK/Lab/Indexed/Duotone/Multichannel) | ~85% | Multichannel display-only; no ink-plate model |
-| Print / export / Save for Web / slices / Generator | ~85% | No Separations/bleed; droplets basic |
+| Print / export / Save for Web / slices / Generator | ~85% | No Separations; Bleed only through `file.print` (no Print dialog field yet); droplets basic |
 | Computational photo (Photomerge, HDR, Lens, Camera Raw, Wide Angle) | ~70% | Classical implementations; generic lens profiles only |
 | Data-driven graphics (Variables, Data Sets) | ~0% | Not started (5 menu items) |
 | Video / Timeline / animation | ~0% | Not started (13 menu items) — a whole subsystem |
@@ -565,6 +565,7 @@ See [method, raw measurements and reproduction](five-algorithm-performance.md).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | minor | Print: Functions › Bleed (`file.print` / `file.printOneCopy` `bleed`, corner crop marks on the trim line, PDF and Windows paths); the Print dialog field is still missing; percentages unchanged |
 | 2026-10-13 | minor | Vector shapes: on-canvas corner radius widgets on live rectangles (TOOL-214-12); estimates unchanged |
 | 2026-10-13 | minor | Stale "missing tool" rows corrected against main: Color Replacement (`paint.colorReplacement`), Red Eye (`paint.redEye`) and Add/Delete Anchor Point (the Pen flyout) are live toolbar tools and Frame landed, so Art History Brush is the only tool still missing; percentages unchanged |
 | 2026-10-12 | minor | Free Transform options bar H/V skew fields; percentages unchanged |

@@ -434,3 +434,74 @@ fn printers_lists_the_spooler_destinations_without_a_document() {
         None => assert!(list.iter().all(|p| p["default"] == false)),
     }
 }
+
+/// A dry-run print to `name`.pdf with `extra` params; returns the result and the PDF content stream.
+fn print_with(s: &mut Session, dir: &str, name: &str, extra: Value) -> (Value, Vec<u8>) {
+    let mut p = json!({"output": format!("{dir}/{name}.pdf"), "dryRun": true, "paper": "a4", "center": false, "left": 1.0, "top": 1.0});
+    for (k, v) in extra.as_object().unwrap() {
+        p[k] = v.clone();
+    }
+    let r = s.execute("file.print", p).unwrap();
+    let pdf = std::fs::read(r["pdf"].as_str().unwrap()).unwrap();
+    (r, pdf)
+}
+
+#[test]
+fn zero_bleed_prints_exactly_as_before() {
+    let mut s = session("rgb", 8);
+    let dir = tmp("bleed-zero");
+    let (plain, a) = print_with(&mut s, &dir, "plain", json!({"cornerCropMarks": true}));
+    let (zero, b) = print_with(&mut s, &dir, "zero", json!({"cornerCropMarks": true, "bleed": 0.0}));
+    assert_eq!(a, b, "bleed 0 must not change a single byte");
+    assert_eq!(plain["bleed"], 0.0);
+    assert_eq!(zero["bleed"], 0.0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn bleed_puts_corner_crop_marks_on_the_trim_line_outside_the_image() {
+    let mut s = session("rgb", 8);
+    let dir = tmp("bleed");
+    let (r, pdf) = print_with(&mut s, &dir, "bleed", json!({"cornerCropMarks": true, "centerCropMarks": true, "bleed": 0.125}));
+    assert_eq!(r["bleed"], 0.125);
+    let rect: Vec<f64> = r["imageRect"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+    let (x, y, w, h) = (rect[0], rect[1], rect[2], rect[3]);
+    let c = pdf_content(&pdf);
+    // Bottom-left corner (PDF is bottom-up): the horizontal mark runs left from 6 pt outside the
+    // image, 9 pt (0.125 in) above the image's bottom edge; the vertical one 9 pt right of its left edge.
+    assert!(c.contains(&format!("{:.2} {:.2} m {:.2} {:.2} l S", x - 6.0, y + 9.0, x - 24.0, y + 9.0)), "{c}");
+    assert!(c.contains(&format!("{:.2} {:.2} m {:.2} {:.2} l S", x + 9.0, y - 6.0, x + 9.0, y - 24.0)), "{c}");
+    // Top-right corner, mirrored.
+    assert!(c.contains(&format!("{:.2} {:.2} m {:.2} {:.2} l S", x + w + 6.0, y + h - 9.0, x + w + 24.0, y + h - 9.0)), "{c}");
+    assert!(c.contains(&format!("{:.2} {:.2} m {:.2} {:.2} l S", x + w - 9.0, y + h + 6.0, x + w - 9.0, y + h + 24.0)), "{c}");
+    // Centre crop marks are on the midlines, which a symmetric bleed does not move.
+    assert!(c.contains(&format!("{:.2} {:.2} m {:.2} {:.2} l S", x + w / 2.0, y - 6.0, x + w / 2.0, y - 24.0)), "{c}");
+    // Print One Copy repeats the last print, bleed included.
+    let again = s.execute("file.printOneCopy", json!({"output": format!("{dir}/again.pdf"), "dryRun": true})).unwrap();
+    assert_eq!(again["bleed"], 0.125);
+    // The image box itself is unchanged: bleed moves marks, not pixels.
+    let (plain, _) = print_with(&mut s, &dir, "plain", json!({"cornerCropMarks": true}));
+    assert_eq!(plain["imageRect"], r["imageRect"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn bleed_without_corner_crop_marks_changes_nothing() {
+    let mut s = session("rgb", 8);
+    let dir = tmp("bleed-nomarks");
+    let (_, a) = print_with(&mut s, &dir, "plain", json!({"registrationMarks": true}));
+    let (r, b) = print_with(&mut s, &dir, "bleed", json!({"registrationMarks": true, "bleed": 0.1}));
+    assert_eq!(a, b);
+    assert_eq!(r["bleed"], 0.0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn bad_bleed_is_an_error_not_a_panic() {
+    let mut s = session("rgb", 8);
+    // The test document prints 300 × 150 pt, so 1.05 in (75.6 pt) leaves no trim box.
+    for bleed in [json!(-0.1), json!("0.1"), json!(true), json!([0.1]), json!(1.05), json!(1e308)] {
+        let r = s.execute("file.print", json!({"dryRun": true, "send": false, "output": "", "cornerCropMarks": true, "bleed": bleed}));
+        assert!(matches!(r, Err(EngineError::BadParams { .. })), "bleed {bleed}: {r:?}");
+    }
+}
