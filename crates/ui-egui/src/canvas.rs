@@ -650,11 +650,13 @@ pub(crate) fn eyedropper_ring_colors(app: &mut PhotocraftApp, x: f64, y: f64) ->
     Some((display_color(new), display_color([fg[0], fg[1], fg[2]])))
 }
 
-/// Draw the Eyedropper's comparison ring at `p`: the sampled colour on the upper arc, the
-/// current one below, both over a thin dark outline so they read on any image (#213). Like
-/// Photoshop it shows only while the mouse button is held (`held`): hovering shows the plain
-/// crosshair and samples nothing. `None` when not held, there is nothing to sample, or the
-/// Precise-cursor preference wants the plain crosshair.
+/// Draw the Eyedropper's comparison ring at `p`: an opaque neutral grey band around the
+/// pointer with the sampled colour on its upper half and the current one on the lower,
+/// framed by thin dark and light hairlines so every edge reads on any image, and the
+/// pipette at its centre marking the sampled pixel (#213, #6973). Like Photoshop it shows
+/// only while the mouse button is held (`held`): hovering shows the plain pipette and
+/// samples nothing. `None` when not held, there is nothing to sample, or the Precise-cursor
+/// preference wants the plain crosshair.
 fn eyedropper_ring(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewXform, p: Pos2, held: bool) -> Option<egui::CursorIcon> {
     // The options bar's Show Sampling Ring turns it off (#1649).
     if !held || !app.ui.tool_options.eyedropper_ring || app.session.prefs().cursors.other == photocraft_engine::prefs::OtherCursor::Precise {
@@ -662,26 +664,39 @@ fn eyedropper_ring(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewXf
     }
     let [x, y] = xf.to_doc(p);
     let (new, current) = eyedropper_ring_colors(app, x, y)?;
-    // Two arcs with a small gap at 3 and 9 o'clock. Screen y grows down, so PI..TAU is the
-    // upper half (the new colour) and 0..PI the lower (the current one).
+    // Photoshop's proportions (#6973): a ring about 210 pt across whose opaque grey outer
+    // band and coloured inner band are each about 17 pt wide, over a transparent centre.
+    // In points, so the ring scales with Interface › UI Scale like the rest of the cursor.
+    let (r_out, band) = (105.0_f32, 17.0_f32);
+    let r_in = r_out - 2.0 * band;
+    // Screen y grows down, so PI..TAU is the upper half (the sampled colour) and 0..PI the
+    // lower (the current one); the halves meet at 3 and 9 o'clock, as in Photoshop.
     use std::f32::consts::{PI, TAU};
-    let (r, w, gap) = (11.0_f32, 4.0_f32, 0.16_f32);
-    let arc = |a0: f32, a1: f32| -> Vec<Pos2> {
-        (0..=24)
-            .map(|i| {
-                let a = a0 + (a1 - a0) * i as f32 / 24.0;
-                p + vec2(a.cos(), a.sin()) * r
-            })
-            .collect()
-    };
-    let outline = crate::theme::Tokens::get(painter.ctx()).shadow;
-    for (a0, a1, colour) in [(PI + gap, TAU - gap, new), (gap, PI - gap, current)] {
-        let points = arc(a0, a1);
-        painter.add(egui::Shape::line(points.clone(), Stroke::new(w + 1.5, outline)));
-        painter.add(egui::Shape::line(points, Stroke::new(w, colour)));
-    }
-    Some(egui::CursorIcon::None)
+    let upper: Vec<Pos2> = (0..=48)
+        .map(|i| {
+            let a = PI + (TAU - PI) * i as f32 / 48.0;
+            p + vec2(a.cos(), a.sin()) * (r_in + band / 2.0)
+        })
+        .collect();
+    // `circle_stroke` paints its stroke outside the radius, `Shape::line` centres it.
+    painter.circle_stroke(p, r_in, Stroke::new(band, current));
+    painter.add(egui::Shape::line(upper, Stroke::new(band, new)));
+    painter.circle_stroke(p, r_in + band, Stroke::new(band, RING_GREY));
+    // Thin dark and light hairlines on the ring's two edges, one physical pixel wide, so it
+    // reads on any colour including a flat mid-grey that matches the band itself (#6973).
+    let px = 1.0 / painter.ctx().pixels_per_point().max(1.0);
+    let (dark, light) = (Stroke::new(px, Color32::from_black_alpha(160)), Stroke::new(px, Color32::from_white_alpha(160)));
+    painter.circle_stroke(p, r_out, dark);
+    painter.circle_stroke(p, r_out + px, light);
+    painter.circle_stroke(p, r_in - px, dark);
+    painter.circle_stroke(p, r_in - 2.0 * px, light);
+    // Photoshop keeps the pipette visible at the centre, its tip on the sampled pixel; a
+    // ring this size says nothing about where it samples without it.
+    Some(pipette_cursor(painter.ctx(), p))
 }
+
+/// The Eyedropper ring's opaque neutral grey, as Photoshop measures it (#6973).
+const RING_GREY: Color32 = Color32::from_gray(127);
 
 fn begin_live_stroke(app: &PhotocraftApp) -> Option<LiveStroke> {
     static STROKES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
