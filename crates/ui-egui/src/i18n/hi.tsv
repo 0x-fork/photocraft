@@ -374,24 +374,24 @@ cameraRaw	Contrast	कंट्रास्ट
 	Contrast	कंट्रास्ट
 cameraRaw	Curve	कर्व
 	Curve	कर्व
-cameraRaw	Darks	गहरा अंधेरा
-	Darks	गहरा अंधेरा
-cameraRaw	Dehaze	धुंध हटाएं
-	Dehaze	धुंध हटाएं
-cameraRaw	Detail	विवरण
-	Detail	विवरण
+cameraRaw	Darks	डार्क्स
+	Darks	डार्क्स
+cameraRaw	Dehaze	डीहेज़
+	Dehaze	डीहेज़
+cameraRaw	Detail	डिटेल
+	Detail	डिटेल
 cameraRaw	Developing {name}	{name} विकसित किया जा रहा है
 	Developing {name}	{name} विकसित किया जा रहा है
-cameraRaw	Effects	प्रभाव
-	Effects	प्रभाव
+cameraRaw	Effects	इफ़ेक्ट्स
+	Effects	इफ़ेक्ट्स
 cameraRaw	Exposure	एक्सपोज़र
 	Exposure	एक्सपोज़र
 cameraRaw	Feather	फ़ेदर
 	Feather	फ़ेदर
 cameraRaw	Full-resolution preview unavailable	पूर्ण-रिज़ॉल्यूशन पूर्वावलोकन अनुपलब्ध है
 	Full-resolution preview unavailable	पूर्ण-रिज़ॉल्यूशन पूर्वावलोकन अनुपलब्ध है
-cameraRaw	Global	समग्र
-	Global	समग्र
+cameraRaw	Global	ग्लोबल
+	Global	ग्लोबल
 cameraRaw	Grain	ग्रेन
 	Grain	ग्रेन
 cameraRaw	Green	हरा
@@ -402,32 +402,32 @@ cameraRaw	Highlight Priority	हाइलाइट प्राथमिकत�
 	Highlight Priority	हाइलाइट प्राथमिकता
 cameraRaw	Highlights	हाइलाइट्स
 	Highlights	हाइलाइट्स
-cameraRaw	Hue	रंग
-	Hue	रंग
-cameraRaw	Light	प्रकाश
-	Light	प्रकाश
-cameraRaw	Lights	हल्की रोशनी
-	Lights	हल्की रोशनी
+cameraRaw	Hue	ह्यू
+	Hue	ह्यू
+cameraRaw	Light	लाइट
+	Light	लाइट
+cameraRaw	Lights	लाइट्स
+	Lights	लाइट्स
 cameraRaw	Load Settings…	सेटिंग्स लोड करें…
 	Load Settings…	सेटिंग्स लोड करें…
 cameraRaw	Load settings from a Camera Raw .xmp file	Camera Raw .xmp फ़ाइल से सेटिंग्स लोड करें
 	Load settings from a Camera Raw .xmp file	Camera Raw .xmp फ़ाइल से सेटिंग्स लोड करें
 cameraRaw	Loaded Camera Raw settings from {file}	{file} से Camera Raw सेटिंग्स लोड की गईं
 	Loaded Camera Raw settings from {file}	{file} से Camera Raw सेटिंग्स लोड की गईं
-cameraRaw	Luminance	चमक
-	Luminance	चमक
-cameraRaw	Luminance Detail	चमक विवरण
-	Luminance Detail	चमक विवरण
+cameraRaw	Luminance	लुमिनेंस
+	Luminance	लुमिनेंस
+cameraRaw	Luminance Detail	लुमिनेंस डिटेल
+	Luminance Detail	लुमिनेंस डिटेल
 cameraRaw	Magenta	मैजेंटा
 	Magenta	मैजेंटा
 cameraRaw	Masking	मास्किंग
 	Masking	मास्किंग
-cameraRaw	Midpoint	मध्य बिंदु
-	Midpoint	मध्य बिंदु
-cameraRaw	Midtones	मध्यम टोन
-	Midtones	मध्यम टोन
-cameraRaw	Noise Reduction	शोर में कमी
-	Noise Reduction	शोर में कमी
+cameraRaw	Midpoint	मिडपॉइंट
+	Midpoint	मिडपॉइंट
+cameraRaw	Midtones	मिडटोन्स
+	Midtones	मिडटोन्स
+cameraRaw	Noise Reduction	नॉइज़ रिडक्शन
+	Noise Reduction	नॉइज़ रिडक्शन
 cameraRaw	OK	ठीक है
 cameraRaw	Open	खोलें
 	Open	खोलें
@@ -443,12 +443,12 @@ cameraRaw	Radius	त्रिज्या
 	Radius	त्रिज्या
 cameraRaw	Red	लाल
 	Red	लाल
-cameraRaw	Roughness	खुरदरापन
-	Roughness	खुरदरापन
-cameraRaw	Roundness	गोलाई
-	Roundness	गोलाई
-cameraRaw	Saturation	संतृप्ति
-	Saturation	संतृप्ति
+cameraRaw	Roughness	रफनेस
+	Roughness	रफनेस
+cameraRaw	Roundness	राउंडनेस
+	Roundness	राउंडनेस
+cameraRaw	Saturation	सैचुरेशन
+	Saturation	सैचुरेशन
 cameraRaw	Save Settings…	सेटिंग्स सहेजें…
 	Save Settings…	सेटिंग्स सहेजें…
 cameraRaw	Save these settings as a Camera Raw .xmp file	इन सेटिंग्स को Camera Raw .xmp फ़ाइल के रूप में सहेजें
@@ -465,22 +465,22 @@ cameraRaw	Show Red at 3 o'clock	3 बजे की स्थिति पर ल
 	Show Red at 3 o'clock	3 बजे की स्थिति पर लाल दिखाएँ
 cameraRaw	Show Selected Region	चयनित क्षेत्र दिखाएँ
 	Show Selected Region	चयनित क्षेत्र दिखाएँ
-cameraRaw	Show Skin Tone Indicator	त्वचा टोन संकेतक दिखाएँ
-	Show Skin Tone Indicator	त्वचा टोन संकेतक दिखाएँ
+cameraRaw	Show Skin Tone Indicator	स्किन टोन संकेतक दिखाएँ
+	Show Skin Tone Indicator	स्किन टोन संकेतक दिखाएँ
 cameraRaw	Show Vectorscope	वेक्टरस्कोप दिखाएँ
 	Show Vectorscope	वेक्टरस्कोप दिखाएँ
 cameraRaw	Size	आकार
 	Size	आकार
 cameraRaw	Temperature	तापमान
 	Temperature	तापमान
-cameraRaw	Texture	बनावट
-	Texture	बनावट
-cameraRaw	Tint	रंग झलक
-	Tint	रंग झलक
+cameraRaw	Texture	टेक्सचर
+	Texture	टेक्सचर
+cameraRaw	Tint	टिंट
+	Tint	टिंट
 cameraRaw	Tone Histogram	टोन हिस्टोग्राम
 	Tone Histogram	टोन हिस्टोग्राम
-cameraRaw	Vibrance	जीवंतता
-	Vibrance	जीवंतता
+cameraRaw	Vibrance	वाइब्रेंस
+	Vibrance	वाइब्रेंस
 cameraRaw	Vignetting	विगनेटिंग
 	Vignetting	विगनेटिंग
 cameraRaw	White Balance: As Shot	श्वेत संतुलन: शॉट के अनुसार
