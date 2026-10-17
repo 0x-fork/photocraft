@@ -14,8 +14,10 @@ mod error;
 mod output;
 
 pub use actions::{ActionsError, Steps, load_actions, load_actions_file, parse_actions};
-pub use args::USAGE;
-use args::{SUBCOMMANDS, parse};
+use args::{Command, parse};
+use automation::{commands, mcp, serve};
+use batch::{batch, droplet};
+use document::{convert, info, run_cmds};
 pub(crate) use error::{CliError, Result};
 
 /// [`run`] on the raw process arguments. An argument that is not valid Unicode is a usage error
@@ -27,7 +29,8 @@ pub fn run_os(args: &[std::ffi::OsString], out: &mut dyn Write, err: &mut dyn Wr
         match a.clone().into_string() {
             Ok(s) => strings.push(s),
             Err(raw) => {
-                let _ = writeln!(err, "error: argument {} is not valid Unicode: `{}`\n\n{USAGE}", i + 1, raw.to_string_lossy());
+                let usage = <args::Cli as clap::CommandFactory>::command().render_usage();
+                let _ = writeln!(err, "error: argument {} is not valid Unicode: `{}`\n\n{usage}", i + 1, raw.to_string_lossy());
                 return 2;
             }
         }
@@ -37,38 +40,31 @@ pub fn run_os(args: &[std::ffi::OsString], out: &mut dyn Write, err: &mut dyn Wr
 
 /// Run the CLI. Returns the process exit code (0 ok, 1 failure, 2 usage).
 pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    let Some(cmd) = args.first() else {
-        let _ = write!(err, "{USAGE}");
-        return 2;
-    };
-    match cmd.as_str() {
-        "-h" | "--help" | "help" => {
-            let _ = write!(out, "{USAGE}");
-            return 0;
-        }
-        "--version" | "version" => {
-            let _ = writeln!(out, "photocraft-cli {}", photocraft_engine::build_info::long_version());
-            return 0;
-        }
-        _ => {}
+    if matches!(args.first().map(String::as_str), Some("--version" | "version")) {
+        let _ = writeln!(out, "photocraft-cli {}", photocraft_engine::build_info::long_version());
+        return 0;
     }
-    let Some(sub) = SUBCOMMANDS.iter().find(|s| s.name == cmd) else {
-        let _ = writeln!(err, "error: unknown command `{cmd}`\n\n{USAGE}");
-        return 2;
-    };
-    let parsed = match parse(sub, &args[1..]) {
-        Ok(Some(p)) => p,
-        // `<subcommand> --help`: usage, without reading inputs or starting a server.
-        Ok(None) => {
-            let _ = write!(out, "{USAGE}");
-            return 0;
-        }
+    // Help (`help`, `-h`, `<subcommand> --help`) comes back as an error too, for `out`, exit 0: the
+    // subcommand never runs.
+    let cli = match parse(args) {
+        Ok(cli) => cli,
         Err(e) => {
-            let _ = writeln!(err, "error: {e}\n\n{USAGE}");
-            return 2;
+            let to: &mut dyn Write = if e.use_stderr() { err } else { out };
+            let _ = write!(to, "{}", e.render());
+            return e.exit_code();
         }
     };
-    match (sub.run)(&parsed, out, err) {
+    let result = match &cli.command {
+        Command::Convert(a) => convert(a, out, err),
+        Command::Info(a) => info(a, out),
+        Command::Run(a) => run_cmds(a, out, err),
+        Command::Batch(a) => batch(a, out, err),
+        Command::Droplet(a) => droplet(a, out, err),
+        Command::Commands(a) => commands(a, out),
+        Command::Mcp(a) => mcp(a),
+        Command::Serve(a) => serve(a, err),
+    };
+    match result {
         Ok(()) => 0,
         Err(e) => {
             let _ = writeln!(err, "error: {e}");

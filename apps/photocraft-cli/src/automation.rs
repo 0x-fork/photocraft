@@ -7,18 +7,18 @@ use photocraft_automation::{AuthorizedWorkspace, AutomationError, Headless, Phot
 
 use crate::{
     CliError, Result,
-    args::Args,
+    args::{CommandsArgs, ControlArgs, McpArgs, ServeArgs},
     output::{JsonStyle, print_json},
 };
 
-pub(crate) fn automation_workspace(args: &Args) -> Result<AuthorizedWorkspace, AutomationError> {
-    AuthorizedWorkspace::new(args.get("--automation-read-root").map(Path::new), args.get("--automation-write-root").map(Path::new))
+pub(crate) fn automation_workspace(args: &ControlArgs) -> Result<AuthorizedWorkspace, AutomationError> {
+    AuthorizedWorkspace::new(args.automation_read_root.as_deref().map(Path::new), args.automation_write_root.as_deref().map(Path::new))
 }
 
-pub(crate) fn commands(a: &Args, out: &mut dyn Write) -> Result {
+pub(crate) fn commands(a: &CommandsArgs, out: &mut dyn Write) -> Result {
     let h = Headless::new();
     let list = h.command_list();
-    let needle = a.get("--filter").map(str::to_lowercase);
+    let needle = a.filter.as_deref().map(str::to_lowercase);
     let items: Vec<&Value> = list
         .as_array()
         .map(|v| v.iter().collect::<Vec<_>>())
@@ -26,7 +26,7 @@ pub(crate) fn commands(a: &Args, out: &mut dyn Write) -> Result {
         .into_iter()
         .filter(|c| needle.as_ref().is_none_or(|n| photocraft_engine::commands::list_entry_matches(c, n)))
         .collect();
-    if a.has("--json") {
+    if a.json {
         return print_json(out, &Value::Array(items.into_iter().cloned().collect()), JsonStyle::Pretty);
     }
     for c in items {
@@ -36,14 +36,14 @@ pub(crate) fn commands(a: &Args, out: &mut dyn Write) -> Result {
     Ok(())
 }
 
-pub(crate) fn serve(a: &Args, err: &mut dyn Write) -> Result {
+pub(crate) fn serve(a: &ServeArgs, err: &mut dyn Write) -> Result {
     use std::sync::{Arc, Mutex};
-    let h = Arc::new(Mutex::new(Headless::with_workspace(automation_workspace(a)?)));
-    match a.get("--port") {
+    let h = Arc::new(Mutex::new(Headless::with_workspace(automation_workspace(&a.control)?)));
+    match &a.port {
         Some(port) => {
             let port: u16 = port.parse().map_err(|_| CliError::BadPort(port.to_owned()))?;
             let addr = format!("127.0.0.1:{port}");
-            let (supplied, token_file) = security::token_inputs(a.get("--control-token").map(str::to_owned), a.get("--control-token-file").map(PathBuf::from));
+            let (supplied, token_file) = security::token_inputs(a.control.control_token.clone(), a.control.control_token_file.as_deref().map(PathBuf::from));
             let token = security::server_token(supplied.as_deref(), token_file.as_deref())?;
             if let Some(path) = &token_file {
                 let _ = writeln!(err, "photocraft-cli control token file: {}", path.display());
@@ -62,14 +62,14 @@ pub(crate) fn serve(a: &Args, err: &mut dyn Write) -> Result {
     }
 }
 
-pub(crate) fn mcp(a: &Args) -> Result {
-    let server = match a.get("--bridge") {
+pub(crate) fn mcp(a: &McpArgs) -> Result {
+    let server = match &a.bridge {
         Some(addr) => {
-            let (supplied, token_file) = security::token_inputs(a.get("--control-token").map(str::to_owned), a.get("--control-token-file").map(PathBuf::from));
+            let (supplied, token_file) = security::token_inputs(a.control.control_token.clone(), a.control.control_token_file.as_deref().map(PathBuf::from));
             let token = security::client_token(supplied.as_deref(), token_file.as_deref())?;
             PhotocraftMcp::bridge(addr, &token)?
         }
-        None => PhotocraftMcp::headless_with_workspace(automation_workspace(a)?),
+        None => PhotocraftMcp::headless_with_workspace(automation_workspace(&a.control)?),
     };
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     Ok(rt.block_on(server.serve_stdio())?)

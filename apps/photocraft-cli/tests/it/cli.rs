@@ -40,7 +40,7 @@ fn ok(cmd: &mut Command) -> Printed {
 fn usage_and_unknown_command() {
     let o = bin().output().unwrap();
     assert_eq!(o.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&o.stderr).contains("USAGE"));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("convert"));
     let o = bin().arg("frobnicate").output().unwrap();
     assert_eq!(o.status.code(), Some(2));
     let out = ok(bin().arg("--help")).stdout;
@@ -59,14 +59,14 @@ fn every_subcommand_answers_help() {
             let o = bin().current_dir(&d).arg(sub).arg(help).arg("--out").arg("x.png").stdin(Stdio::null()).output().unwrap();
             let out = String::from_utf8_lossy(&o.stdout);
             assert_eq!(o.status.code(), Some(0), "{sub} {help}: {}", String::from_utf8_lossy(&o.stderr));
-            assert!(out.contains("USAGE") && out.contains("photocraft-cli batch"), "{sub} {help}: {out}");
+            assert!(out.contains(&format!("photocraft-cli {sub}")), "{sub} {help}: {out}");
         }
     }
     // Help where a flag's value should be is still help, not a missing value or a file named `-h`.
     for args in [&["run", "x.png", "--out", "--help"][..], &["commands", "--filter", "-h"], &["mcp", "--bridge", "-h"], &["serve", "--port", "--help"]] {
         let o = bin().current_dir(&d).args(args).stdin(Stdio::null()).output().unwrap();
         assert_eq!(o.status.code(), Some(0), "{args:?}: {}", String::from_utf8_lossy(&o.stderr));
-        assert!(String::from_utf8_lossy(&o.stdout).contains("USAGE"), "{args:?}");
+        assert!(String::from_utf8_lossy(&o.stdout).contains(&format!("photocraft-cli {}", args[0])), "{args:?}");
     }
     assert_eq!(std::fs::read_dir(&d).unwrap().count(), 0, "help wrote nothing");
 }
@@ -85,7 +85,7 @@ fn unknown_flags_are_usage_errors() {
         let o = cmd.output().unwrap();
         let err = String::from_utf8_lossy(&o.stderr);
         assert_eq!(o.status.code(), Some(2), "{err}");
-        assert!(err.contains(&format!("unknown flag {flag}")), "{err}");
+        assert!(err.contains(flag), "{err}");
     };
     for typo in [&["--fromat", "jpg"][..], &["--fromat=jpg"][..]] {
         fails(bin().args(["batch", "--actions"]).arg(&actions).arg("--in").arg(&input).arg("--out").arg(&out_dir).args(typo), "--fromat");
@@ -98,7 +98,7 @@ fn unknown_flags_are_usage_errors() {
     fails(bin().args(["info", "--json"]).arg(input.join("a.png")), "--json");
     let o = bin().args(["commands", "--json=yes"]).output().unwrap();
     assert_eq!(o.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&o.stderr).contains("--json takes no value"));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("--json"));
     // A flag can't be a value: a missing value is reported, not filled with the next flag.
     let o = bin()
         .args(["batch", "--actions"])
@@ -111,7 +111,7 @@ fn unknown_flags_are_usage_errors() {
         .output()
         .unwrap();
     assert_eq!(o.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&o.stderr).contains("--format needs a value"));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("a value is required for '--format"));
     assert!(!out_dir.exists(), "nothing written");
     // `--flag=value` still passes a value that starts with `--`.
     ok(bin().args(["commands", "--filter=--json"]));
@@ -144,23 +144,23 @@ fn server_usage_error(args: &[&str], expected: &str) {
 #[test]
 fn server_modes_reject_ignored_or_conflicting_options() {
     for sub in ["mcp", "serve"] {
-        server_usage_error(&[sub, "stray.psd"], "does not take positional arguments");
+        server_usage_error(&[sub, "stray.psd"], "unexpected argument 'stray.psd'");
         for flag in ["--control-token", "--control-token-file"] {
             server_usage_error(&[sub, flag, "unused"], if sub == "mcp" { "requires --bridge" } else { "requires --port" });
         }
         for flag in ["--automation-read-root", "--automation-write-root"] {
-            server_usage_error(&[sub, flag, ".", flag, "."], "may only be specified once");
-            server_usage_error(&[sub, &format!("{flag}=")], "needs a non-empty value");
-            server_usage_error(&[sub, flag, "--automation-write-root", "."], &format!("{flag} needs a value"));
+            server_usage_error(&[sub, flag, ".", flag, "."], "cannot be used multiple times");
+            server_usage_error(&[sub, &format!("{flag}=")], &format!("'{flag} "));
+            server_usage_error(&[sub, flag, "--automation-write-root", "."], &format!("a value is required for '{flag} "));
         }
         let transport = if sub == "mcp" { "--bridge" } else { "--port" };
         for flag in [transport, "--control-token", "--control-token-file"] {
-            server_usage_error(&[sub, flag, "one", &format!("{flag}=two")], "may only be specified once");
-            server_usage_error(&[sub, flag, ""], "needs a non-empty value");
+            server_usage_error(&[sub, flag, "one", &format!("{flag}=two")], "cannot be used multiple times");
+            server_usage_error(&[sub, flag, ""], &format!("'{flag} "));
         }
         server_usage_error(
             &[sub, transport, "7878", "--control-token", "unused", "--control-token-file", "unused"],
-            "use either --control-token or --control-token-file",
+            "cannot be used with",
         );
     }
     for flag in ["--automation-read-root", "--automation-write-root"] {
@@ -231,7 +231,7 @@ fn convert_errors() {
     let o = bin().args(["convert", "/missing/in.png"]).arg(d.join("x.png")).output().unwrap();
     assert_eq!(o.status.code(), Some(1));
     let o = bin().args(["convert", "only-one"]).output().unwrap();
-    assert_eq!(o.status.code(), Some(1));
+    assert_eq!(o.status.code(), Some(2));
     std::fs::remove_dir_all(d).unwrap();
 }
 

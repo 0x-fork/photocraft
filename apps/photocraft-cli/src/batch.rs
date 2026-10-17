@@ -8,7 +8,7 @@ use serde_json::json;
 use crate::{
     CliError, Result,
     actions::load_actions_file,
-    args::Args,
+    args::{BatchArgs, DropletArgs},
     output::{export_opts, warn_all},
 };
 
@@ -46,18 +46,18 @@ fn strip_shell_steps(action: &mut Action) {
     (action.steps, action.disabled, action.dialogs) = (steps, disabled, dialogs);
 }
 
-pub(crate) fn batch(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> Result {
+pub(crate) fn batch(a: &BatchArgs, out: &mut dyn Write, err: &mut dyn Write) -> Result {
     let needs = |what| CliError::Needs { sub: "batch", what };
-    let actions_path = a.get("--actions").ok_or_else(|| needs("--actions <file>"))?;
-    let in_dir = PathBuf::from(a.get("--in").ok_or_else(|| needs("--in <dir>"))?);
-    let out_dir = PathBuf::from(a.get("--out").ok_or_else(|| needs("--out <dir>"))?);
-    let (actions, mut set, warnings) = load_actions_file(actions_path, a.get("--action"))?;
+    let actions_path = a.actions.as_deref().ok_or_else(|| needs("--actions <file>"))?;
+    let in_dir = PathBuf::from(a.in_dir.as_deref().ok_or_else(|| needs("--in <dir>"))?);
+    let out_dir = PathBuf::from(a.out.as_deref().ok_or_else(|| needs("--out <dir>"))?);
+    let (actions, mut set, warnings) = load_actions_file(actions_path, a.action.as_deref())?;
     set.iter_mut().for_each(strip_shell_steps);
     warn_all(err, &warnings);
-    let opts = export_opts(a)?;
+    let opts = export_opts(&a.export)?;
     // Results are saved as `<out>/<stem>.<ext>`, so an `--out` that is the `--in` folder would
     // replace the originals (#492).
-    if !a.has("--in-place") && same_dir(&in_dir, &out_dir) {
+    if !a.in_place && same_dir(&in_dir, &out_dir) {
         return Err(CliError::OutIsIn(out_dir));
     }
     std::fs::create_dir_all(&out_dir)?;
@@ -71,7 +71,7 @@ pub(crate) fn batch(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> Resul
     let (mut ok, mut failed) = (0, 0);
     let mut written = photocraft_engine::file_cmds::OutputClaims::default();
     // `--format .jpg` names outputs `<stem>.jpg`, as `--format jpg` does (#490).
-    let format = a.get("--format").map(|f| f.strip_prefix('.').unwrap_or(f));
+    let format = a.export.format.as_deref().map(|f| f.strip_prefix('.').unwrap_or(f));
     for input in &inputs {
         let ext = format.map(str::to_owned).or_else(|| input.extension().map(|e| e.to_string_lossy().into_owned())).unwrap_or_else(|| "png".into());
         let stem = input.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
@@ -114,14 +114,10 @@ pub(crate) fn batch(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> Resul
     if failed > 0 { Err(CliError::FilesFailed(failed)) } else { Ok(()) }
 }
 
-pub(crate) fn droplet(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> Result {
-    let needs = |what| CliError::Needs { sub: "droplet", what };
-    let (file, inputs) = a.positional.split_first().ok_or_else(|| needs("<file.pcdroplet> and inputs"))?;
-    if inputs.is_empty() {
-        return Err(needs("at least one input file or folder"));
-    }
+pub(crate) fn droplet(a: &DropletArgs, out: &mut dyn Write, err: &mut dyn Write) -> Result {
+    let (file, inputs) = (&a.file, &a.inputs);
     let mut p = json!({"droplet": file, "input": inputs});
-    if let Some(o) = a.get("--out") {
+    if let Some(o) = &a.out {
         p["output"] = json!(o);
     }
     let mut s = photocraft_engine::Session::new();
