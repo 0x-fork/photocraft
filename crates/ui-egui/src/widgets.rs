@@ -497,22 +497,30 @@ fn take_label_scrub(ui: &Ui, rect: Rect) -> Option<LabelScrub> {
 struct FieldOpts {
     /// Decimal places shown (default: one, or two for a small range).
     decimals: Option<u32>,
+    /// Arrow-key and scrub step follow `decimals` (adjustment rows via [`slider_row_prec`], #5914).
+    step_from_decimals: bool,
     /// The unit typed units convert into (default: the suffix's, at [`set_field_resolution`]).
     units: Option<FieldUnits>,
     wrap_drag: bool,
 }
 
-/// Arrow-key and drag step for a value field: explicit `decimals` win over the range width
-/// (Exposure's ±20 stops still step by 0.01 when it shows two decimals, #5914).
-fn field_step(range: &std::ops::RangeInclusive<f32>, decimals: Option<u32>) -> f32 {
-    if let Some(d) = decimals {
-        return 10f32.powi(-(d.min(6) as i32));
+/// Arrow-key and drag step for a value field: [`FieldOpts::step_from_decimals`] uses `decimals`;
+/// otherwise the range width picks 0.01 (≤10) or 1.0.
+fn field_step(range: &std::ops::RangeInclusive<f32>, decimals: Option<u32>, step_from_decimals: bool) -> f32 {
+    if step_from_decimals {
+        if let Some(d) = decimals {
+            return 10f32.powi(-(d.min(6) as i32));
+        }
     }
     if *range.end() - *range.start() <= 10.0 { 0.01 } else { 1.0 }
 }
 
-fn field_fine(range: &std::ops::RangeInclusive<f32>, decimals: Option<u32>) -> bool {
-    decimals.is_some_and(|d| d > 0) || *range.end() - *range.start() <= 10.0
+fn field_fine(range: &std::ops::RangeInclusive<f32>, decimals: Option<u32>, step_from_decimals: bool) -> bool {
+    if step_from_decimals {
+        decimals.is_some_and(|d| d > 0) || *range.end() - *range.start() <= 10.0
+    } else {
+        *range.end() - *range.start() <= 10.0
+    }
 }
 
 /// A [`value_field`] that leaves `trailing` points free inside its box, right of the suffix, and
@@ -539,7 +547,7 @@ fn value_field_box(
     trailing: f32,
     opts: FieldOpts,
 ) -> (Response, Rect) {
-    let FieldOpts { decimals, units, wrap_drag } = opts;
+    let FieldOpts { decimals, step_from_decimals, units, wrap_drag } = opts;
     let t = Tokens::get(ui.ctx());
     let (rect, slot) = ui.allocate_exact_size(size, Sense::hover());
     let scrub = take_label_scrub(ui, rect).map(|s| {
@@ -577,8 +585,8 @@ fn value_field_box(
     let cy = rect.center().y;
     let field = Rect::from_min_max(pos2(rect.left() + 4.0, cy - slot_h / 2.0), pos2(rect.right() - 4.0 - suffix_w - trailing, cy + slot_h / 2.0));
     // Small ranges (gamma 0.01–9.99, 0–1 centres) need two decimals and a finer drag, like Photoshop.
-    let fine = field_fine(&range, decimals);
-    let unit = field_step(&range, decimals);
+    let fine = field_fine(&range, decimals, step_from_decimals);
+    let unit = field_step(&range, decimals, step_from_decimals);
     let (lo, hi) = (*range.start(), *range.end());
     let (step, grid) = arrow_step(ui, slot.id, unit);
     // new_child (not scope_builder): a scope would move the parent cursor back to the child rect.
@@ -1103,7 +1111,15 @@ pub fn slider_row_prec(
         let l = ui.label(egui::RichText::new(tl!(label)).color(t.text_dim));
         scrub_label_within(ui, &l, f32::INFINITY);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            changed_resp = Some(value_field_in(ui, value, range.clone(), suffix, 74.0, 0.0, FieldOpts { decimals, ..Default::default() }).0);
+            changed_resp = Some(value_field_in(
+                ui,
+                value,
+                range.clone(),
+                suffix,
+                74.0,
+                0.0,
+                FieldOpts { decimals, step_from_decimals: decimals.is_some(), ..Default::default() },
+            ).0);
         });
     });
     let s = slider_with(ui, value, range, gradient, g);
@@ -2053,7 +2069,7 @@ mod tests {
     fn arrow_keys_step_fractional_stops_when_decimals_are_set() {
         let mut h = Harness::new_ui_state(
             |ui, v: &mut f32| {
-                super::value_field_prec(ui, v, -20.0..=20.0, "", 74.0, 2);
+                super::slider_row_prec(ui, "Exposure", v, -20.0..=20.0, "", None, super::RowGestures::default(), Some(2));
             },
             0.0,
         );
