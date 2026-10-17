@@ -834,6 +834,8 @@ fn every_subcommand_help_returns_on_stdout() {
         for help in ["--help", "-h"] {
             let (code, out, err) = invoke(&[sub, help]);
             assert_eq!((code, out.is_empty(), err.is_empty()), (0, false, true), "{sub} {help}: {err}");
+            // `commands` would also exit 0 with output if it ran; its list names `file.new`, help doesn't.
+            assert!(!out.contains("file.new"), "{sub} {help} ran instead of printing help: {out}");
         }
     }
 }
@@ -864,7 +866,8 @@ fn flag_value_forms_and_repeats() {
     let (code, out, err) = invoke(&["commands", "--filter", "zzz-no-match", "--filter", "file.new"]);
     assert_eq!(code, 0, "{err}");
     assert_eq!(out, eq);
-    let (_, out, _) = invoke(&["commands", "--filter", "file.new", "--filter", "zzz-no-match"]);
+    let (code, out, err) = invoke(&["commands", "--filter", "file.new", "--filter", "zzz-no-match"]);
+    assert_eq!(code, 0, "{err}");
     assert!(out.is_empty(), "{out}");
     // A bare flag takes no value; a value flag needs one.
     let (code, out, err) = invoke(&["commands", "--json=1"]);
@@ -900,8 +903,10 @@ fn run_pairs_params_with_the_preceding_cmd() {
     let rows: Vec<Value> = out.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
     assert_eq!(rows.len(), 4, "{out}");
     let names: Vec<&str> = rows[3]["result"]["layers"].as_array().unwrap().iter().filter_map(|l| l["name"].as_str()).collect();
-    assert!(names.contains(&"First") && names.contains(&"Third"), "{names:?}");
-    assert_eq!(names.len(), 4, "the unnamed middle layer gets its default name: {names:?}");
+    let count = |n: &str| names.iter().filter(|x| **x == n).count();
+    assert_eq!((count("First"), count("Third")), (1, 1), "each --params applies to its own --cmd only: {names:?}");
+    // Three new layers plus the background; the middle one (no --params) has a default name.
+    assert_eq!(names.len(), 4, "{names:?}");
     let (code, _, err) = invoke(&["run", "--new", "{}", "--params", "{}", "--cmd", "layer.new.layer"]);
     assert_ne!(code, 0);
     assert!(err.contains("--params"), "{err}");
