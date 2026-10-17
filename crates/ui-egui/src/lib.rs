@@ -680,6 +680,8 @@ pub struct PhotocraftApp {
     filter_preview_worker: filter_preview_worker::Worker,
     /// Full CPU canvas redraws running in the background, by document (#4024).
     pub(crate) redraws: std::collections::HashMap<photocraft_doc::DocId, background_redraw::Redraw>,
+    /// The last finished background redraws, for going back to a state drawn a moment ago (#6528).
+    pub(crate) kept: background_redraw::KeptComposites,
     /// Select › Color Range dialog preview (proxy document + mask / image textures).
     pub(crate) color_range: Option<color_range_ui::Preview>,
     /// Image › Adjustments dialog preview through a temporary clipped adjustment layer.
@@ -886,6 +888,7 @@ impl PhotocraftApp {
             #[cfg(not(target_arch = "wasm32"))]
             filter_preview_worker: Default::default(),
             redraws: Default::default(),
+            kept: Default::default(),
             color_range: None,
             adjust_preview: None,
             synthetic: Vec::new(),
