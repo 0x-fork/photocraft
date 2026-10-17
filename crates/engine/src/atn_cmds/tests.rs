@@ -335,6 +335,8 @@ fn every_mapped_command_exports_and_imports_back() {
         ("file.placeEmbedded", json!({"path": "/tmp/logo.png", "scale": 50})),
         ("file.placeLinked", json!({"path": "/tmp/logo.png"})),
         ("file.openAs", json!({"path": "/tmp/a.psd"})),
+        ("file.saveAs", json!({"path": "/tmp/out/a.png"})),
+        ("file.saveACopy", json!({"path": "/tmp/out/a.tif"})),
         ("actions.conditional", json!({"if": "hasLayers", "then": "FS8-Layers", "else": "FS8-No-Layers", "set": "S"})),
         ("actions.conditional", json!({"if": "landscape", "then": "Wide", "else": null, "set": "S"})),
         ("actions.play", json!({"action": "Other", "set": "S"})),
@@ -1400,4 +1402,90 @@ fn function_keys_keep_shift_and_command() {
         assert_eq!(super::parse_function_key(bad), None, "{bad}");
     }
     assert_eq!(super::function_key_name(7, false, false), "F7");
+}
+
+fn one_action(items: Vec<AtnItem>) -> AtnFile {
+    AtnFile {
+        name: UnicodeString::new_nul("Saves"),
+        expanded: false,
+        actions: vec![AtnAction { name: UnicodeString::new_nul("A"), items, ..Default::default() }],
+        warnings: vec![],
+    }
+}
+
+fn save_as(format: &str, path: &str) -> Descriptor {
+    desc("null").with("As  ", D::Descriptor(desc(format))).with("In  ", path_value(path)).with("DocI", long(53.0))
+}
+
+#[test]
+fn save_as_to_a_file_imports_with_its_destination() {
+    let file = one_action(vec![
+        item("save", "Save", Some(save_as("PNGF", "/out/result.png"))),
+        item("save", "Save", Some(save_as("Google WebPShop", "C:\\out\\result.webp").with("Cpy ", D::Boolean(true)))),
+        item("save", "Save", Some(save_as("JPEG", "/out/result.jpeg"))),
+        item("save", "Save", None),
+        item("save", "Save", Some(desc("null").with("DocI", long(53.0)))),
+    ]);
+    let imp = import(&atn::write(&file).unwrap()).unwrap();
+    assert_eq!(
+        imp.actions[0].steps,
+        [
+            ("file.saveAs".to_string(), json!({"path": "/out/result.png"})),
+            ("file.saveACopy".to_string(), json!({"path": "C:\\out\\result.webp"})),
+            ("file.saveAs".to_string(), json!({"path": "/out/result.jpeg"})),
+            ("file.save".to_string(), json!({})),
+            ("file.save".to_string(), json!({})),
+        ]
+    );
+    assert!(imp.unsupported.is_empty());
+}
+
+#[test]
+fn save_as_that_cannot_be_mapped_stops_playback_instead_of_saving_over_the_file() {
+    // Before #7102 each of these imported as a plain File › Save, which overwrote the file the
+    // action was played on.
+    let file = one_action(vec![
+        item("save", "Save", Some(save_as("PNGF", "/out/folder"))),
+        item("save", "Save", Some(save_as("PNGF", "/out/v1.png").with("DIDr", D::Boolean(true)))),
+        item("save", "Save", Some(save_as("PNGF", "/out/result.webp"))),
+        item("save", "Save", Some(save_as("GIFf", "/out/result.gif"))),
+        item("save", "Save", Some(desc("null").with("As  ", D::Descriptor(desc("PNGF"))))),
+    ]);
+    let imp = import(&atn::write(&file).unwrap()).unwrap();
+    let ids: Vec<&str> = imp.actions[0].steps.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids, [PHOTOSHOP_STEP; 5]);
+    assert!(imp.actions[0].disabled.is_empty(), "kept saves stay on, so playback stops on them");
+    // The kept steps are written back byte for byte.
+    let a = &imp.actions[0];
+    let (bytes, skipped) = export("Saves", &[a], &[], false).unwrap();
+    assert!(skipped.is_empty());
+    let back = atn::parse(&bytes).unwrap();
+    for (out, orig) in back.actions[0].items.iter().zip(&file.actions[0].items) {
+        assert_eq!(out.descriptor, orig.descriptor);
+    }
+}
+
+#[test]
+fn saves_round_trip_through_photoshop_events() {
+    let steps = vec![
+        ("file.saveAs".to_string(), json!({"path": "/out/result.psd"})),
+        ("file.saveACopy".to_string(), json!({"path": "/out/copy.webp"})),
+        ("file.save".to_string(), json!({})),
+    ];
+    let a = Action::new("A", steps.clone());
+    let (bytes, skipped) = export("Saves", &[&a], &[], false).unwrap();
+    assert!(skipped.is_empty());
+    let file = atn::parse(&bytes).unwrap();
+    let items = &file.actions[0].items;
+    assert!(items.iter().all(|i| i.event.id() == "save"));
+    let first = items[0].descriptor.as_ref().unwrap();
+    assert_eq!(get_obj(first, "As  ").map(|f| trimmed(&f.class_id)).as_deref(), Some("Pht3"));
+    assert_eq!(first.get("In  ").and_then(path_text).as_deref(), Some("/out/result.psd"));
+    assert_eq!(get_bool(items[1].descriptor.as_ref().unwrap(), "Cpy "), Some(true));
+    assert_eq!(import(&bytes).unwrap().actions[0].steps, steps);
+
+    // A Save As PhotoCraft can't express in Photoshop's terms is skipped, never exported as a
+    // plain Save.
+    let odd = Action::new("B", vec![("file.saveAs".to_string(), json!({"path": "/out/result.xcf"}))]);
+    assert!(export("Saves", &[&odd], &[], false).is_err());
 }

@@ -1549,6 +1549,60 @@ fn open_to(_: &str, p: &Value) -> Option<Descriptor> {
     Some(desc("null").with("null", path_value(jstr(p, "path")?)))
 }
 
+/// Save As format classes (`As`) and the extensions PhotoCraft saves them under. The first
+/// extension of a class is the one exported; WebP comes from Google's WebPShop plug-in.
+const SAVE_FORMATS: &[(&str, &[&str])] = &[
+    ("Pht3", &["psd"]),
+    ("PNGF", &["png"]),
+    ("JPEG", &["jpg", "jpeg"]),
+    ("TIFF", &["tif", "tiff"]),
+    ("BMPF", &["bmp"]),
+    ("Google WebPShop", &["webp"]),
+    ("Google WebP", &["webp"]),
+];
+
+fn path_extension(path: &str) -> Option<String> {
+    let name = path.rsplit(['/', '\\']).next()?;
+    let (stem, ext) = name.rsplit_once('.')?;
+    (!stem.is_empty() && !ext.is_empty()).then(|| ext.to_ascii_lowercase())
+}
+
+/// `save`: a plain Save, or a Save As (`As` format, `In` destination, `Cpy` As a Copy).
+/// Only a destination that is a file of the recorded format imports: a folder (#5430), an
+/// unknown format or a mismatched extension stays a kept Photoshop step, so playback stops
+/// before writing rather than saving over the played file (#7102).
+fn save_from(d: &Descriptor) -> Mapped {
+    let unsupported = Mapped::Unsupported { harmless: false };
+    let (format, dest) = (get_obj(d, "As  "), d.get("In  "));
+    if format.is_none() && dest.is_none() {
+        return step("file.save", json!({}));
+    }
+    let Some(path) = dest.and_then(path_text) else { return unsupported };
+    if get_bool(d, "DIDr") == Some(true) {
+        return unsupported;
+    }
+    let Some(ext) = path_extension(&path) else { return unsupported };
+    if let Some(f) = format {
+        let class = trimmed(&f.class_id);
+        let Some((_, exts)) = SAVE_FORMATS.iter().find(|(c, _)| *c == class) else { return unsupported };
+        if !exts.contains(&ext.as_str()) {
+            return unsupported;
+        }
+    }
+    step(if get_bool(d, "Cpy ") == Some(true) { "file.saveACopy" } else { "file.saveAs" }, json!({"path": path}))
+}
+
+fn save_to(id: &str, p: &Value) -> Option<Descriptor> {
+    if id == "file.save" {
+        return Some(desc("null"));
+    }
+    let path = jstr(p, "path")?;
+    let ext = path_extension(path)?;
+    let (class, _) = SAVE_FORMATS.iter().find(|(_, exts)| exts.contains(&ext.as_str()))?;
+    let d = desc("null").with("As  ", D::Descriptor(desc(class))).with("In  ", path_value(path));
+    Some(if id == "file.saveACopy" { d.with("Cpy ", D::Boolean(true)) } else { d })
+}
+
 /// Photoshop's four-character condition codes that differ from the string ids.
 const CONDITION_CODES: &[(&str, &str)] = &[("Lyrs", "hasLayers")];
 
@@ -3046,7 +3100,7 @@ const EVENTS: &[Event] = &[
     Event { code: "Plc ", name: "placeEvent", label: "Place", ids: &["file.placeEmbedded", "file.placeLinked"], from: place_from, to: place_to },
     Event { code: "Opn ", name: "open", label: "Open", ids: &["file.openAs"], from: open_from, to: open_to },
     Event { code: "", name: "conditional", label: "If", ids: &["actions.conditional"], from: conditional_from, to: conditional_to },
-    ev!("save", "save", "Save", "file.save", &[]),
+    Event { code: "save", name: "save", label: "Save", ids: &["file.save", "file.saveAs", "file.saveACopy"], from: save_from, to: save_to },
     ev!("Rvrt", "revert", "Revert", "file.revert", &[]),
     Event { code: "Ply ", name: "play", label: "Play", ids: &["actions.play"], from: play_from, to: play_to },
     Event { code: "Stop", name: "stop", label: "Stop", ids: &[STOP_MESSAGE], from: stop_from, to: stop_to },
