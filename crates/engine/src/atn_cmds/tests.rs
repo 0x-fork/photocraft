@@ -1423,6 +1423,7 @@ fn save_as_to_a_file_imports_with_its_destination() {
         item("save", "Save", Some(save_as("PNGF", "/out/result.png"))),
         item("save", "Save", Some(save_as("Google WebPShop", "C:\\out\\result.webp").with("Cpy ", D::Boolean(true)))),
         item("save", "Save", Some(save_as("JPEG", "/out/result.jpeg"))),
+        item("save", "Save", Some(save_as("WebPFormat", "/out/result.webp"))),
         item("save", "Save", None),
         item("save", "Save", Some(desc("null").with("DocI", long(53.0)))),
     ]);
@@ -1433,6 +1434,7 @@ fn save_as_to_a_file_imports_with_its_destination() {
             ("file.saveAs".to_string(), json!({"path": "/out/result.png"})),
             ("file.saveACopy".to_string(), json!({"path": "C:\\out\\result.webp"})),
             ("file.saveAs".to_string(), json!({"path": "/out/result.jpeg"})),
+            ("file.saveAs".to_string(), json!({"path": "/out/result.webp"})),
             ("file.save".to_string(), json!({})),
             ("file.save".to_string(), json!({})),
         ]
@@ -1482,6 +1484,8 @@ fn saves_round_trip_through_photoshop_events() {
     assert_eq!(get_obj(first, "As  ").map(|f| trimmed(&f.class_id)).as_deref(), Some("Pht3"));
     assert_eq!(first.get("In  ").and_then(path_text).as_deref(), Some("/out/result.psd"));
     assert_eq!(get_bool(items[1].descriptor.as_ref().unwrap(), "Cpy "), Some(true));
+    // Photoshop's own WebP class, not the plug-in's: Photoshop 2026 rejects `Google WebPShop`.
+    assert_eq!(get_obj(items[1].descriptor.as_ref().unwrap(), "As  ").map(|f| trimmed(&f.class_id)).as_deref(), Some("WebPFormat"));
     assert_eq!(import(&bytes).unwrap().actions[0].steps, steps);
 
     // A Save As PhotoCraft can't express in Photoshop's terms is skipped, never exported as a

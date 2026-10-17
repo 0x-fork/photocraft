@@ -1550,13 +1550,16 @@ fn open_to(_: &str, p: &Value) -> Option<Descriptor> {
 }
 
 /// Save As format classes (`As`) and the extensions PhotoCraft saves them under. The first
-/// extension of a class is the one exported; WebP comes from Google's WebPShop plug-in.
+/// extension of a class is the one exported, and the first class of an extension is the one
+/// written back. `WebPFormat` is Photoshop's built-in WebP (checked against Photoshop 2026); the
+/// Google classes come from the older WebPShop plug-in and are only read.
 const SAVE_FORMATS: &[(&str, &[&str])] = &[
     ("Pht3", &["psd"]),
     ("PNGF", &["png"]),
     ("JPEG", &["jpg", "jpeg"]),
     ("TIFF", &["tif", "tiff"]),
     ("BMPF", &["bmp"]),
+    ("WebPFormat", &["webp"]),
     ("Google WebPShop", &["webp"]),
     ("Google WebP", &["webp"]),
 ];
