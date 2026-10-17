@@ -31,6 +31,17 @@ fn run(app: &mut PhotocraftApp, id: &str, p: Value) {
     }
 }
 
+#[derive(Clone, Copy)]
+struct DragComp {
+    document: photocraft_doc::DocId,
+    comp: u32,
+}
+
+fn drop_index(from: usize, target: usize, after: bool) -> usize {
+    let slot = target + usize::from(after);
+    if from < slot { slot - 1 } else { slot }
+}
+
 pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let Some(st) = app.session.active() else {
@@ -77,8 +88,35 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     .size(11.5),
             );
         }
-        for c in &doc.layer_comps {
-            let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::click());
+        for (index, c) in doc.layer_comps.iter().enumerate() {
+            let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::click_and_drag());
+            resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected == Some(c.id), &c.name));
+            resp.dnd_set_drag_payload(DragComp { document: doc.id, comp: c.id });
+            if let Some(source) = resp.dnd_hover_payload::<DragComp>()
+                && source.document == doc.id
+                && let Some(from) = doc.layer_comps.iter().position(|c| c.id == source.comp)
+            {
+                let after = ui.input(|i| i.pointer.hover_pos().is_some_and(|p| p.y >= rect.center().y));
+                let to = drop_index(from, index, after);
+                let y = if after { rect.bottom() } else { rect.top() };
+                ui.painter().line_segment([pos2(rect.left(), y), pos2(rect.right(), y)], Stroke::new(2.0, t.accent));
+                if resp.dnd_release_payload::<DragComp>().is_some() && from != to {
+                    select = Some(source.comp);
+                    action = Some(("layerComp.reorder", json!({"comp":source.comp, "index":to})));
+                }
+            }
+            resp.context_menu(|ui| {
+                if ui.add_enabled(index > 0, egui::Button::new(tl!("Move Up"))).clicked() {
+                    action = Some(("layerComp.reorder", json!({"comp":c.id, "index":index.saturating_sub(1)})));
+                    select = Some(c.id);
+                    ui.close();
+                }
+                if ui.add_enabled(index + 1 < doc.layer_comps.len(), egui::Button::new(tl!("Move Down"))).clicked() {
+                    action = Some(("layerComp.reorder", json!({"comp":c.id, "index":index + 1})));
+                    select = Some(c.id);
+                    ui.close();
+                }
+            });
             if selected == Some(c.id) {
                 ui.painter().rect_filled(rect, 0.0, t.row_selected);
             } else if resp.hovered() {
@@ -196,6 +234,48 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 mod tests {
     use super::*;
     use photocraft_engine::Session;
+
+    #[test]
+    fn dragging_a_comp_row_reorders_without_applying_it() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let mut app = PhotocraftApp::new(Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width":16,"height":16})).unwrap();
+        for name in ["First", "Second", "Third"] {
+            app.run("layerComp.new", json!({"name":name})).unwrap();
+        }
+        let applied = app.session.active().unwrap().doc.last_applied_comp;
+        let first = app.session.active().unwrap().doc.layer_comps[0].id;
+        let mut h = Harness::builder().with_size(vec2(360.0, 300.0)).build_ui_state(|ui, app| panel(app, ui), app);
+        h.run_steps(3);
+        let from = h.get_by_label("First").rect().center();
+        let row = h.get_by_label("Third").rect();
+        let to = pos2(row.center().x, row.bottom() - 2.0);
+        h.event(egui::Event::PointerMoved(from));
+        h.run_steps(1);
+        h.event(egui::Event::PointerButton { pos: from, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
+        h.run_steps(1);
+        h.event(egui::Event::PointerMoved(from + vec2(10.0, 0.0)));
+        h.run_steps(2);
+        h.event(egui::Event::PointerMoved(to));
+        h.run_steps(2);
+        h.event(egui::Event::PointerButton { pos: to, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
+        h.run_steps(3);
+        let app = h.state();
+        let doc = &app.session.active().unwrap().doc;
+        assert_eq!(doc.layer_comps.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["Second", "Third", "First"]);
+        assert_eq!(doc.last_applied_comp, applied);
+        assert_eq!(app.ui.layer_comp_selected, Some(first));
+    }
+
+    #[test]
+    fn comp_drop_slots_account_for_the_removed_source_row() {
+        assert_eq!(drop_index(0, 2, false), 1);
+        assert_eq!(drop_index(0, 2, true), 2);
+        assert_eq!(drop_index(2, 0, false), 0);
+        assert_eq!(drop_index(2, 0, true), 1);
+        assert_eq!(drop_index(1, 1, false), 1);
+        assert_eq!(drop_index(1, 1, true), 1);
+    }
 
     #[test]
     fn warning_icon_clears_only_its_own_comp() {
