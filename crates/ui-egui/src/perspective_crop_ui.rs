@@ -59,8 +59,9 @@ pub fn cancel(app: &mut PhotocraftApp) {
     app.pcrop.clicks.clear();
 }
 
-/// Another document became active: its pending quad is dropped.
-fn cancel_stale(app: &mut PhotocraftApp) {
+/// Another document became active: its pending quad is dropped (also from `sync_views`, so it is
+/// never drawn on the other document).
+pub(crate) fn cancel_stale(app: &mut PhotocraftApp) {
     let doc = app.session.active().map(|st| st.doc.id);
     if pending(app) && app.pcrop.doc.is_some() && app.pcrop.doc != doc {
         cancel(app);
@@ -322,5 +323,28 @@ mod tests {
         assert_eq!((size.width, size.height), (110, 86), "the quad's mean side lengths");
 
         assert_eq!(ordered([[10.0, 90.0], [100.0, 5.0], [0.0, 0.0], [90.0, 100.0]]), [[0.0, 0.0], [100.0, 5.0], [90.0, 100.0], [10.0, 90.0]]);
+    }
+
+    /// The pending quad belongs to its document (#1918): switching documents drops it, so it is
+    /// never drawn on the other one; on its own document it stays.
+    #[test]
+    fn switching_documents_drops_the_pending_quad() {
+        let mut s = photocraft_engine::Session::new();
+        for name in ["a", "b"] {
+            s.add_document(Document::with_background(name, Size::new(200, 150), ColorMode::Rgb, SampleType::U8, Color::WHITE), None);
+        }
+        s.set_active(0);
+        let mut app = PhotocraftApp::new(s, crate::Services::default());
+        app.ui.tool = Tool::PerspectiveCrop;
+        let ev = |app: &mut PhotocraftApp, e| assert!(pointer(app, e));
+        ev(&mut app, ToolEvent::Down { x: 20.0, y: 10.0, pressure: 1.0 });
+        ev(&mut app, ToolEvent::Move { x: 120.0, y: 90.0, pressure: 1.0 });
+        ev(&mut app, ToolEvent::Up { x: 120.0, y: 90.0 });
+        app.sync_views();
+        assert!(app.ui.perspective_crop.is_some(), "same document: the quad stays");
+        app.session.set_active(1);
+        app.sync_views();
+        assert_eq!(app.ui.perspective_crop, None);
+        assert!(app.pcrop.drag.is_none() && app.pcrop.clicks.is_empty());
     }
 }
