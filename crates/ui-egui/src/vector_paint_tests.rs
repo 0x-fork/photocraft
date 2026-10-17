@@ -316,3 +316,222 @@ fn options_bar_fill_swatch_recolours_the_shape_just_drawn() {
     h.state_mut().run("edit.undo", json!({})).unwrap();
     assert_eq!(shape(h.state()).fill, original.fill);
 }
+
+fn test_gradient() -> photocraft_doc::Fill {
+    photocraft_doc::Fill::Gradient {
+        stops: vec![(0.0, photocraft_doc::Color::rgba(0.123456, 0.5, 0.75, 1.0)), (1.0, photocraft_doc::Color::rgba(0.9, 0.2, 0.1, 0.6))],
+        angle: 30.0,
+        scale: 0.5,
+        style: photocraft_doc::GradientStyle::Radial,
+        reverse: true,
+        opacity_stops: vec![(0.0, 1.0), (1.0, 0.25)],
+        midpoints: vec![0.3],
+        offset: (0.125, -0.25),
+        dither: true,
+        align: false,
+    }
+}
+
+/// A gradient picked for the next shape's stroke and fill (the swatches' Gradient tab) reaches
+/// the drag preview and the committed shape exactly, every gradient field kept; a colour picked
+/// afterwards replaces it.
+#[test]
+fn tool_gradient_paints_reach_the_preview_and_the_next_shape() {
+    for (mode, depth) in [("rgb", 8), ("rgb", 32), ("gray", 16)] {
+        let mut app = app(mode, depth);
+        set_tool_paint(&mut app, true, PaintChange::Gradient(test_gradient())).unwrap();
+        set_tool_paint(&mut app, false, PaintChange::Gradient(test_gradient())).unwrap();
+        assert_eq!(app.ui.tool_options.stroke_width, 3.0, "a gradient enables the stroke");
+        assert!(app.ui.tool_options.shape_fill);
+        let preview = shape_preview(&app, Tool::Rectangle, [20.0, 20.0], [100.0, 80.0], Modifiers::NONE).unwrap();
+        finish_shape(&mut app, Tool::Rectangle, [20.0, 20.0], [100.0, 80.0], Modifiers::NONE);
+        let committed = shape(&app).clone();
+        assert_eq!(preview.fill, committed.fill);
+        assert_eq!(preview.stroke, committed.stroke);
+        assert_eq!(committed.stroke.as_ref().unwrap().paint, test_gradient(), "{mode}/{depth}");
+        assert_eq!(committed.fill, Some(test_gradient()));
+        let doc = &app.session.active().unwrap().doc;
+        let rendered = photocraft_vector::render_shape(&preview, doc.pixel_format(), doc.bounds());
+        assert_eq!(committed.cache.as_ref().unwrap(), &rendered, "{mode}/{depth}");
+        set_tool_paint(&mut app, true, PaintChange::Color([0.0, 1.0, 0.0, 1.0])).unwrap();
+        assert!(app.ui.tool_options.shape_stroke_gradient.is_none());
+        finish_shape(&mut app, Tool::Rectangle, [20.0, 20.0], [100.0, 80.0], Modifiers::NONE);
+        assert_eq!(shape(&app).stroke.as_ref().unwrap().paint, solid_paint([0.0, 1.0, 0.0, 1.0]));
+        assert_eq!(shape(&app).fill, Some(test_gradient()), "the fill keeps its gradient");
+    }
+}
+
+/// Options bar › Stroke › Gradient: the Rectangle tool's next stroke takes the current gradient,
+/// a preset's colours and a style, without editing the document.
+#[test]
+fn stroke_swatch_gradient_tab_sets_the_next_shapes_stroke() {
+    let mut h = harness(app("rgb", 8), false);
+    h.get_by_label("Stroke color").click();
+    h.run_steps(3);
+    h.get_by_label("Gradient").click();
+    h.run_steps(3);
+    let stroke_gradient = |h: &Harness<'_, PhotocraftApp>| match h.state().ui.tool_options.shape_stroke_gradient.clone() {
+        Some(photocraft_doc::Fill::Gradient { stops, style, angle, .. }) => (stops, style, angle),
+        other => panic!("a stroke gradient, not {other:?}"),
+    };
+    let (_, style, angle) = stroke_gradient(&h);
+    assert_eq!((style, angle), (photocraft_doc::GradientStyle::Linear, 90.0));
+    assert_eq!(h.state().ui.tool_options.stroke_width, 3.0, "choosing a gradient enables the stroke");
+    h.get_by_label("Blue 01").click();
+    h.run_steps(2);
+    let presets = h.state().session.presets.gradients.clone();
+    let blue = presets.iter().flat_map(|g| &g.items).find(|p| p.name == "Blue 01").unwrap();
+    let (fg, bg) = (h.state().session.tools.foreground, h.state().session.tools.background);
+    let blue_stops = blue.fill_stops(fg, bg).0;
+    assert_eq!(stroke_gradient(&h).0, blue_stops);
+    h.get_by_label("Radial Gradient").click();
+    h.run_steps(2);
+    let (stops, style, _) = stroke_gradient(&h);
+    assert_eq!((stops, style), (blue_stops, photocraft_doc::GradientStyle::Radial), "the style keeps the colours");
+    assert_eq!(h.state().session.active().unwrap().history.past_len(), 0, "tool defaults do not edit the document");
+    h.get_by_label("Solid").click();
+    h.run_steps(2);
+    assert!(h.state().ui.tool_options.shape_stroke_gradient.is_none(), "Solid goes back to the colour");
+}
+
+/// Properties › Stroke › Gradient gives the selected shape a gradient stroke in one undoable
+/// step, keeping its width; a style change keeps its colours.
+#[test]
+fn properties_stroke_swatch_gives_the_selected_shape_a_gradient_stroke() {
+    let mut app = app("rgb", 16);
+    app.run("shape.create", json!({"rect": [20, 20, 60, 40], "stroke": {"width": 4, "color": [1.0, 0.0, 0.0, 1.0]}})).unwrap();
+    let history = app.session.active().unwrap().history.past_len();
+    let mut h = harness(app, true);
+    h.get_by_label("Set shape stroke type").click();
+    h.run_steps(3);
+    h.get_by_label("Gradient").click();
+    h.run_steps(3);
+    let stroke = shape(h.state()).stroke.clone().unwrap();
+    let photocraft_doc::Fill::Gradient { stops, .. } = &stroke.paint else { panic!("a gradient stroke, not {:?}", stroke.paint) };
+    assert_eq!(stroke.width, 4.0);
+    assert_eq!(h.state().session.active().unwrap().history.past_len(), history + 1);
+    h.get_by_label("Reflected Gradient").click();
+    h.run_steps(3);
+    let photocraft_doc::Fill::Gradient { stops: after, style, .. } = shape(h.state()).stroke.clone().unwrap().paint else { panic!("still a gradient stroke") };
+    assert_eq!((&after, style), (stops, photocraft_doc::GradientStyle::Reflected));
+    while h.state().session.active().unwrap().history.past_len() > history {
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+    }
+    assert_eq!(shape(h.state()).stroke.as_ref().unwrap().paint, solid_paint([1.0, 0.0, 0.0, 1.0]));
+}
+
+fn tool_stroke_gradient(h: &Harness<'_, PhotocraftApp>) -> photocraft_doc::Fill {
+    h.state().ui.tool_options.shape_stroke_gradient.clone().expect("a stroke gradient")
+}
+
+fn gradient_stops(f: &photocraft_doc::Fill) -> photocraft_engine::presets::gradients::FillStops {
+    match f {
+        photocraft_doc::Fill::Gradient { stops, opacity_stops, .. } => (stops.clone(), opacity_stops.clone()),
+        other => panic!("a gradient, not {other:?}"),
+    }
+}
+
+/// Opens Options bar › Stroke › Gradient and returns the stops strip's rect.
+fn open_stroke_gradient(h: &mut Harness<'_, PhotocraftApp>) -> Rect {
+    h.get_by_label("Stroke color").click();
+    h.run_steps(3);
+    if h.state().ui.tool_options.shape_stroke_gradient.is_none() || h.state().ui.tool_options.stroke_width <= 0.0 {
+        h.get_by_label("Gradient").click();
+        h.run_steps(3);
+    }
+    h.get_by_label("Gradient stops").rect()
+}
+
+fn click(h: &mut Harness<'_, PhotocraftApp>, pos: Pos2) {
+    h.hover_at(pos);
+    h.step();
+    pointer(h, pos, true);
+    pointer(h, pos, false);
+    h.run_steps(2);
+}
+
+/// The Gradient tab's strip edits the stops as Photoshop's popover does: a click below the ramp
+/// adds a colour stop, above it an opacity stop; Delete removes the selected one; dragging a stop
+/// moves it; the selected colour stop's swatch opens an inline picker that recolours only it.
+#[test]
+fn gradient_tab_strip_adds_moves_recolours_and_deletes_stops() {
+    let mut h = harness(app("rgb", 16), false);
+    let strip = open_stroke_gradient(&mut h);
+    let (bar_left, bar_right, bar_top, bar_bottom) = (strip.left() + 8.0, strip.right() - 8.0, strip.top() + 16.0, strip.top() + 40.0);
+    let x_at = |loc: f32| bar_left + (bar_right - bar_left) * loc;
+    let (stops, opacity) = gradient_stops(&tool_stroke_gradient(&h));
+    assert_eq!((stops.len(), opacity.len()), (2, 0));
+    // A colour stop added in the middle takes the colour the gradient has there.
+    click(&mut h, pos2(x_at(0.5), bar_bottom - 4.0));
+    let (stops, _) = gradient_stops(&tool_stroke_gradient(&h));
+    assert_eq!(stops.len(), 3, "{stops:?}");
+    assert!(stops.iter().any(|(l, _)| (l - 0.5).abs() < 0.02), "{stops:?}");
+    // It is selected: Delete removes it again.
+    h.get_by_label("Delete").click();
+    h.run_steps(2);
+    assert_eq!(gradient_stops(&tool_stroke_gradient(&h)).0.len(), 2);
+    // An opacity stop above the ramp (the two implicit opaque ends become real stops).
+    click(&mut h, pos2(x_at(0.25), bar_top + 4.0));
+    let (_, opacity) = gradient_stops(&tool_stroke_gradient(&h));
+    assert_eq!(opacity.len(), 3, "{opacity:?}");
+    // Drag the first colour stop to 30 %.
+    let from = pos2(x_at(0.0), bar_bottom + 10.0);
+    let to = pos2(x_at(0.3), bar_bottom + 10.0);
+    h.hover_at(from);
+    h.step();
+    pointer(&mut h, from, true);
+    for k in 1..=4 {
+        h.event(Event::PointerMoved(from + (to - from) * (k as f32 / 4.0)));
+        h.step();
+    }
+    pointer(&mut h, to, false);
+    h.run_steps(2);
+    let (stops, _) = gradient_stops(&tool_stroke_gradient(&h));
+    let mut locations: Vec<f32> = stops.iter().map(|s| s.0).collect();
+    locations.sort_by(f32::total_cmp);
+    assert!((locations[0] - 0.3).abs() < 0.03 && locations[1] == 1.0, "{locations:?}");
+    // The selected stop's colour: its swatch opens the picker; a drag in it recolours that stop.
+    let before = gradient_stops(&tool_stroke_gradient(&h)).0;
+    let swatch = h.get(egui_kittest::kittest::by().label("Color").role(egui::accesskit::Role::ColorWell)).rect();
+    click(&mut h, swatch.center());
+    h.run_steps(2);
+    // The inline picker opens under the stop's rows (readouts, preview, then the saturation /
+    // value field); a click in that field.
+    let field = pos2(swatch.left() + 30.0, h.get_by_label("Location").rect().bottom() + 120.0);
+    click(&mut h, field);
+    let after = gradient_stops(&tool_stroke_gradient(&h)).0;
+    assert_eq!(after.len(), before.len());
+    let changed: Vec<_> = before.iter().zip(&after).filter(|(a, b)| a != b).collect();
+    assert_eq!(changed.len(), 1, "only the selected stop changes colour: {before:?} → {after:?}");
+    assert_eq!(h.state().session.active().unwrap().history.past_len(), 0, "tool defaults do not edit the document");
+}
+
+/// Align with layer is a checkbox of the tab, and the gradient a popup closes on is offered again
+/// in its Recent row.
+#[test]
+fn gradient_tab_align_with_layer_and_recent_row() {
+    let mut h = harness(app("rgb", 8), false);
+    open_stroke_gradient(&mut h);
+    let align = |h: &Harness<'_, PhotocraftApp>| matches!(tool_stroke_gradient(h), photocraft_doc::Fill::Gradient { align: true, .. });
+    assert!(align(&h));
+    h.get_by_label("Align with layer").click();
+    h.run_steps(2);
+    assert!(!align(&h));
+    h.get_by_label("Blue 01").click();
+    h.run_steps(2);
+    let blue = gradient_stops(&tool_stroke_gradient(&h));
+    assert!(h.query_by_label("Recent 1").is_none(), "nothing is recent yet");
+    h.key_press(Key::Escape);
+    h.run_steps(3);
+    assert_eq!(h.state().ui.recent_gradients.len(), 1, "closing the popup remembers its gradient");
+    open_stroke_gradient(&mut h);
+    h.get_by_label("Black, White").click();
+    h.run_steps(2);
+    assert_ne!(gradient_stops(&tool_stroke_gradient(&h)), blue);
+    h.get_by_label("Recent 1").click();
+    h.run_steps(2);
+    assert_eq!(gradient_stops(&tool_stroke_gradient(&h)), blue, "a Recent pick restores its stops");
+    h.key_press(Key::Escape);
+    h.run_steps(3);
+    assert_eq!(h.state().ui.recent_gradients.len(), 1, "the same stops are remembered once");
+}

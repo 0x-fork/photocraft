@@ -167,7 +167,7 @@ pub fn reset_options(o: &mut ToolOptions, tool: Tool) {
         Tool::CurvaturePen => reset!(vector_mode),
         Tool::FreeformPen => reset!(vector_mode, curve_fit),
         Tool::Rectangle | Tool::EllipseShape | Tool::Triangle | Tool::Polygon | Tool::Line | Tool::CustomShape => {
-            reset!(vector_mode, shape_fill, stroke_width, shape_stroke, corner_radius, polygon_sides, line_weight)
+            reset!(vector_mode, shape_fill, stroke_width, shape_stroke, shape_fill_gradient, shape_stroke_gradient, corner_radius, polygon_sides, line_weight)
         }
         Tool::ColorSampler
         | Tool::Ruler

@@ -586,6 +586,10 @@ pub struct ToolOptions {
     pub stroke_width: f32,
     #[serde(default)]
     pub shape_stroke: crate::shape_stroke_ui::StrokeOptions,
+    /// Shape tools: the gradient the next shape's fill / stroke takes (the swatches' Gradient
+    /// tab) instead of the foreground / background colour; `None` = the colour.
+    pub shape_fill_gradient: Option<photocraft_doc::Fill>,
+    pub shape_stroke_gradient: Option<photocraft_doc::Fill>,
     pub corner_radius: f32,
     pub polygon_sides: u32,
     pub line_weight: f32,
@@ -812,6 +816,8 @@ impl Default for ToolOptions {
             shape_fill: true,
             stroke_width: 0.0,
             shape_stroke: Default::default(),
+            shape_fill_gradient: None,
+            shape_stroke_gradient: None,
             corner_radius: 0.0,
             polygon_sides: 5,
             line_weight: 3.0,
@@ -1254,6 +1260,10 @@ pub struct UiState {
     pub selection_mode: u8,
     #[serde(default)]
     pub tool_options: ToolOptions,
+    /// The shape Fill / Stroke swatches' recently used gradients, newest first (the Gradient
+    /// tab's Recent row).
+    #[serde(default)]
+    pub recent_gradients: Vec<photocraft_doc::Fill>,
     /// In-progress polygonal lasso vertices (document coordinates).
     #[serde(default)]
     pub polygon: Vec<[f64; 2]>,
@@ -1377,6 +1387,7 @@ impl Default for UiState {
             brushes_panel: Default::default(),
             selection_mode: 0,
             tool_options: ToolOptions::default(),
+            recent_gradients: Vec::new(),
             polygon: Vec::new(),
             polygon_mode: String::new(),
             polygon_doc: None,

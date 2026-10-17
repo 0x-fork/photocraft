@@ -27,6 +27,8 @@ fn stroke_validation_rejects_hostile_values_without_editing_history() {
         json!({"dashOffset": 1e100}),
         json!({"width": "4"}),
         json!({"width": 0.00001, "dashes": [0.01, 0.01]}),
+        json!({"color": {"gradient": {"offset": [0.5]}}}),
+        json!({"color": {"gradient": {"offset": "centre"}}}),
     ];
     for stroke in invalid {
         assert!(s.execute("shape.edit", json!({"layer": id, "stroke": stroke})).is_err(), "{stroke}");
@@ -36,6 +38,33 @@ fn stroke_validation_rejects_hostile_values_without_editing_history() {
     }
     assert!(s.execute("shape.edit", json!({"layer": id, "rect": [1e100, 0, 20, 20]})).is_err());
     assert_eq!(s.active().unwrap().doc, before);
+}
+
+/// A gradient stroke keeps every gradient field through `shape.edit`, and `shape.info` reports
+/// them, so the shape swatches can change one setting without dropping the rest.
+#[test]
+fn gradient_stroke_round_trips_every_gradient_field() {
+    let mut s = session(100, 80, 16);
+    let id = s.execute("shape.create", json!({"rect": [20, 20, 50, 30], "stroke": {"width": 6}})).unwrap()["layer"].as_u64().unwrap();
+    let gradient = json!({"gradient": {
+        "stops": [[0.0, [0.25, 0.5, 0.75, 1.0]], [1.0, [1.0, 0.125, 0.0, 0.5]]],
+        "angle": 30.0, "scale": 50.0, "style": "radial", "reverse": true,
+        "opacityStops": [[1.0, 0.25], [0.0, 1.0]], "midpoints": [0.25], "offset": [0.125, -0.25], "dither": true, "align": false,
+    }});
+    let r = s.execute("shape.edit", json!({"layer": id, "stroke": {"color": gradient}})).unwrap();
+    let Some(Fill::Gradient { stops, angle, scale, style, reverse, opacity_stops, midpoints, offset, dither, align }) = shape(&s, id).stroke.map(|st| st.paint) else {
+        panic!("a gradient stroke")
+    };
+    assert_eq!(stops, vec![(0.0, Color::rgba(0.25, 0.5, 0.75, 1.0)), (1.0, Color::rgba(1.0, 0.125, 0.0, 0.5))]);
+    assert_eq!((angle, scale, style, reverse), (30.0, 0.5, GradientStyle::Radial, true));
+    assert_eq!(opacity_stops, vec![(0.0, 1.0), (1.0, 0.25)], "opacity stops are sorted");
+    assert_eq!((midpoints, offset, dither, align), (vec![0.25], (0.125, -0.25), true, false));
+    let g = &r["stroke"]["fill"]["gradient"];
+    assert_eq!((g["style"].as_str(), g["midpoints"].clone(), g["align"].as_bool()), (Some("radial"), json!([0.25]), Some(false)));
+    // A partial gradient keeps the defaults it always had.
+    s.execute("shape.edit", json!({"layer": id, "stroke": {"color": {"gradient": {"stops": [[0, "#000000"], [1, "#ffffff"]]}}}})).unwrap();
+    let Some(Fill::Gradient { opacity_stops, midpoints, offset, dither, align, .. }) = shape(&s, id).stroke.map(|st| st.paint) else { panic!("a gradient stroke") };
+    assert_eq!((opacity_stops, midpoints, offset, dither, align), (Vec::new(), Vec::new(), (0.0, 0.0), false, true));
 }
 
 #[test]
