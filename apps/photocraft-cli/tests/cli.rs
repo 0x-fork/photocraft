@@ -907,6 +907,9 @@ fn run_pairs_params_with_the_preceding_cmd() {
     assert_eq!((count("First"), count("Third")), (1, 1), "each --params applies to its own --cmd only: {names:?}");
     // Three new layers plus the background; the middle one (no --params) has a default name.
     assert_eq!(names.len(), 4, "{names:?}");
+    // Layers list top first: Third, the unnamed middle one, First, Background. Pairing --params
+    // with --cmd by position (params[i] -> cmd[i]) would name the middle one Third instead.
+    assert_eq!((names[0], names[2]), ("Third", "First"), "{names:?}");
     let (code, _, err) = invoke(&["run", "--new", "{}", "--params", "{}", "--cmd", "layer.new.layer"]);
     assert_ne!(code, 0);
     assert!(err.contains("--params"), "{err}");
