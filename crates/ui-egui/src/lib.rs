@@ -214,6 +214,7 @@ mod timeline_ui;
 mod titlebar;
 pub use titlebar::{Caption, CaptionFamily, CaptionIcon, CaptionIcons, CaptionStyle, RenderIconFn};
 pub mod tone;
+pub mod touch_twins;
 mod tool_cursor;
 pub mod tool_feedback;
 pub(crate) mod tool_memory;

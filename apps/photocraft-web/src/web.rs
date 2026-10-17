@@ -283,6 +283,12 @@ impl WebShell {
 }
 
 impl eframe::App for WebShell {
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        // A tap reaches eframe as Pointer Events and Touch Events: keep one press per tap, or the
+        // twin press closes the menu the first one opened (#2095).
+        photocraft_ui_egui::touch_twins::drop_twins(ctx, raw_input);
+    }
+
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let dropped = ctx.input_mut(|i| std::mem::take(&mut i.raw.dropped_files));
         for f in dropped {
