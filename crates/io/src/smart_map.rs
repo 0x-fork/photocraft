@@ -304,13 +304,17 @@ fn known_params(class: &str, f: Option<&Descriptor>) -> Option<(&'static str, J)
         ("Plr ", Some(f)) => json!({"mode": enum_param(f, "Cnvr", &POLAR_MODE)?}),
         ("ZgZg", Some(f)) => json!({"amount": int(f, "Amnt")?, "ridges": int(f, "NmbR")?, "style": enum_param(f, "ZZTy", &ZIGZAG_STYLE)?}),
         ("Wave", Some(f)) => {
-            // PhotoCraft's Wave has no Scale: a scaled wave stays verbatim rather than lose it.
-            if int(f, "SclH")? != 100 || int(f, "SclV")? != 100 {
+            // PhotoCraft's Wave has no Scale: a scaled wave stays verbatim rather than lose it. The
+            // same for more generators than the renderer models, which would draw fewer than
+            // Photoshop did (and than the file asks for, once its cached pixels are re-rendered).
+            let generators = int(f, "NmbG")?;
+            let modelled = u32::try_from(generators).is_ok_and(|g| (1..=photocraft_algo::MAX_WAVE_GENERATORS).contains(&g));
+            if int(f, "SclH")? != 100 || int(f, "SclV")? != 100 || !modelled {
                 return None;
             }
             json!({
                 "type": enum_param(f, "Wvtp", &WAVE_TYPE)?,
-                "generators": int(f, "NmbG")?,
+                "generators": generators,
                 "wavelengthMin": int(f, "WLMn")?,
                 "wavelengthMax": int(f, "WLMx")?,
                 "amplitudeMin": int(f, "AmMn")?,
@@ -1233,24 +1237,48 @@ mod tests {
         let f = filter_from_item(&item);
         assert_eq!(f.command, UNSUPPORTED_FILTER);
         assert_eq!(item_for_filter(&f).unwrap().get("Fltr"), item.get("Fltr"));
-        // Unscaled, it opens as PhotoCraft's Wave (Triangle, the other settings as stored).
+        // Unscaled, but with 332 generators (the renderer draws 64 at most), it stays Photoshop's too.
         let mut unscaled = match item.get("Fltr") {
             Some(Value::Descriptor(d)) => d.clone(),
             other => panic!("wave: no Fltr ({other:?})"),
         };
         set(&mut unscaled, "SclV", Value::Integer(100));
-        let f = filter_from_item(&photoshop_item(unscaled.clone()));
-        assert_eq!(
-            (f.command.as_str(), &f.params),
-            (
-                "filter.distort.wave",
-                &json!({"type": "triangle", "generators": 332, "wavelengthMin": 213, "wavelengthMax": 214, "amplitudeMin": 240, "amplitudeMax": 241,
-                        "undefinedAreas": "wrap", "seed": 1270346})
-            )
-        );
-        match item_for_filter(&f).unwrap().get("Fltr") {
-            Some(Value::Descriptor(ours)) => assert_eq!((&ours.class_id, &ours.items), (&unscaled.class_id, &unscaled.items)),
-            other => panic!("wave: no Fltr ({other:?})"),
+        let item = photoshop_item(unscaled);
+        let f = filter_from_item(&item);
+        assert_eq!(f.command, UNSUPPORTED_FILTER);
+        assert_eq!(item_for_filter(&f).unwrap().get("Fltr"), item.get("Fltr"));
+    }
+
+    /// An unscaled Wave opens as PhotoCraft's Wave (Triangle, the other settings as stored) up to
+    /// the generators the renderer models; one more and it stays Photoshop's, unchanged.
+    #[test]
+    fn wave_maps_up_to_the_generators_the_renderer_models() {
+        let max = i32::try_from(photocraft_algo::MAX_WAVE_GENERATORS).unwrap();
+        assert_eq!(max, 64);
+        let mut wave = Descriptor::from_bytes(&from_hex(PHOTOSHOP_WAVE).unwrap()).unwrap();
+        set(&mut wave, "SclV", Value::Integer(100));
+        for (generators, mapped) in [(1, true), (max, true), (max + 1, false), (999, false), (0, false), (-1, false)] {
+            set(&mut wave, "NmbG", Value::Integer(generators));
+            let item = photoshop_item(wave.clone());
+            let f = filter_from_item(&item);
+            if mapped {
+                assert_eq!(
+                    (f.command.as_str(), &f.params),
+                    (
+                        "filter.distort.wave",
+                        &json!({"type": "triangle", "generators": generators, "wavelengthMin": 213, "wavelengthMax": 214, "amplitudeMin": 240,
+                                "amplitudeMax": 241, "undefinedAreas": "wrap", "seed": 1270346})
+                    ),
+                    "{generators} generators"
+                );
+                match item_for_filter(&f).unwrap().get("Fltr") {
+                    Some(Value::Descriptor(ours)) => assert_eq!((&ours.class_id, &ours.items), (&wave.class_id, &wave.items), "{generators} generators"),
+                    other => panic!("wave: no Fltr ({other:?})"),
+                }
+            } else {
+                assert_eq!(f.command, UNSUPPORTED_FILTER, "{generators} generators");
+                assert_eq!(item_for_filter(&f).unwrap().get("Fltr"), item.get("Fltr"), "{generators} generators");
+            }
         }
     }
 
