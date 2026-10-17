@@ -530,4 +530,20 @@ mod tests {
         let o: ToolOptions = serde_json::from_str(r#"{"crop_ratio": "1:1"}"#).unwrap();
         assert_eq!((o.crop_width.as_str(), o.crop_resolution_unit.as_str()), ("", PX_PER_IN));
     }
+
+    /// Perspective Crop's W and H follow Preferences › Point/Pica Size, as the Crop tool's do.
+    #[test]
+    fn perspective_crop_points_follow_the_point_size_preference() {
+        let doc = Document::with_background("p", Size::new(200, 150), ColorMode::Rgb, SampleType::U8, Color::WHITE);
+        let mut s = photocraft_engine::Session::new();
+        s.add_document(doc, None);
+        let mut app = PhotocraftApp::new(s, crate::Services::default());
+        app.session.edit_prefs(|p| p.units_and_rulers.point_size = photocraft_engine::prefs::PointSize::Traditional);
+        let o = &mut app.ui.tool_options;
+        (o.crop_width, o.crop_height, o.crop_resolution) = ("7227 pt".into(), "100 px".into(), "72".into());
+        o.crop_resolution_unit = PX_PER_IN.into();
+        let mut p = json!({});
+        crate::perspective_crop_ui::size_params(&app, &mut p);
+        assert_eq!((p["width"].as_f64(), p["height"].as_f64()), (Some(7200.0), Some(100.0)), "{p}");
+    }
 }

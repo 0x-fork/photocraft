@@ -157,13 +157,15 @@ fn drag_to(app: &mut PhotocraftApp, p: [f64; 2]) {
 
 /// `image.perspectiveCrop`'s size params from W, H and the resolution (the Crop tool's fields):
 /// lengths in physical units convert at the typed resolution, else the document's.
-fn size_params(app: &PhotocraftApp, p: &mut Value) {
+pub(crate) fn size_params(app: &PhotocraftApp, p: &mut Value) {
     let o = &app.ui.tool_options;
     let res = crate::crop_size::resolution_ppi(o);
     let dpi = res.unwrap_or_else(|| app.session.active().map_or(72.0, |st| f64::from(st.doc.resolution_dpi)));
+    // Points and picas per Preferences › Point/Pica Size.
+    let pt_per_in = app.session.prefs().units_and_rulers.point_size.per_inch();
     let px = |text: &str| {
         let (v, u) = crate::crop_size::parse_length(text, Unit::Pixels)?;
-        let px = u.to_px(v, dpi, 0.0, 72.0).round();
+        let px = u.to_px(v, dpi, 0.0, pt_per_in).round();
         (px.is_finite() && px >= 1.0).then_some(px)
     };
     if let Some(w) = px(&o.crop_width) {
