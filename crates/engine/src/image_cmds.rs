@@ -212,7 +212,8 @@ fn image_size(s: &mut Session, p: &Value) -> Result<Value> {
     }
     s.edit("Image Size", |doc, _| {
         if let Some(r) = dpi {
-            doc.resolution_dpi = r.clamp(1.0, 10_000.0);
+            // Type keeps its pixel size; resampling below then scales it with the pixels.
+            crate::canvas_geom::set_resolution(doc, r.clamp(1.0, 10_000.0));
         }
         let filter = match resample {
             Method::None => return Ok(()),
@@ -998,6 +999,28 @@ mod tests {
         assert_eq!(doc(&s).resolution_dpi, 300.0);
         // #1815: the result is the size the document has, not the ignored request.
         assert_eq!(r, json!({"width": 40, "height": 20}));
+    }
+
+    /// Type keeps its pixel size across a resolution change: resampled 2x at twice the ppi it is
+    /// twice as tall (not 4x), with Resample off it stays, and a later re-render doesn't jump.
+    #[test]
+    fn image_size_with_a_new_resolution_scales_type_with_the_pixels_only() {
+        for (params, k) in [(json!({"width": 200, "height": 200, "resolution": 144}), 2), (json!({"resolution": 144, "resample": "none"}), 1)] {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": 100, "height": 100})).unwrap();
+            s.execute("type.create", json!({"x": 10, "y": 50, "text": "Hi", "size": 12})).unwrap();
+            let height = |s: &Session| doc(s).layers.last().unwrap().surface().unwrap().content_bounds().height();
+            let h0 = height(&s);
+            assert!(h0 > 4, "{h0}");
+            s.execute("image.imageSize", params.clone()).unwrap();
+            assert!(height(&s).abs_diff(h0 * k) <= 2, "{params}: {h0} -> {}", height(&s));
+            let d = doc(&s);
+            let LayerContent::Text(t) = &d.layers.last().unwrap().content else { panic!("type layer") };
+            let mut t = t.clone();
+            crate::type_cmds::refresh(d, &mut t);
+            let after = t.cache.unwrap().content_bounds().height();
+            assert!(after.abs_diff(h0 * k) <= 2, "{params}: re-rendered {h0} -> {after}");
+        }
     }
 
     #[test]
