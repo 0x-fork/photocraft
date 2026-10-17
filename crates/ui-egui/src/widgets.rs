@@ -507,10 +507,8 @@ struct FieldOpts {
 /// Arrow-key and drag step for a value field: [`FieldOpts::step_from_decimals`] uses `decimals`;
 /// otherwise the range width picks 0.01 (≤10) or 1.0.
 fn field_step(range: &std::ops::RangeInclusive<f32>, decimals: Option<u32>, step_from_decimals: bool) -> f32 {
-    if step_from_decimals {
-        if let Some(d) = decimals {
-            return 10f32.powi(-(d.min(6) as i32));
-        }
+    if step_from_decimals && let Some(d) = decimals {
+        return 10f32.powi(-(d.min(6) as i32));
     }
     if *range.end() - *range.start() <= 10.0 { 0.01 } else { 1.0 }
 }
