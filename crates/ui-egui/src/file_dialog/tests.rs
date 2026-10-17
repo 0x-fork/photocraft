@@ -688,6 +688,53 @@ fn smart_source(app: &PhotocraftApp, id: u64) -> photocraft_doc::SmartSource {
 }
 
 #[test]
+fn place_embedded_uses_the_single_file_picker_and_accepts_contents() {
+    let (mut app, open, _) = app();
+    let ctx = egui::Context::default();
+    assert!(menus::is_enabled(&app, "file.placeEmbedded"));
+    let source = photocraft_io::export(&app.session.active().unwrap().doc, "source.png", &Default::default()).unwrap().bytes;
+    let layers_before = app.session.active().unwrap().doc.layers.len();
+
+    // Cancel leaves the document alone and does not report an error.
+    menus::invoke(&mut app, &ctx, "file.placeEmbedded", json!({})).unwrap();
+    app.poll_file_dialog(&ctx, None);
+    assert!(matches!(open.borrow().as_slice(), [(FileDialogRequest::Open { multiple: false, .. }, _)]));
+    answer(&open, None);
+    app.poll_file_dialog(&ctx, None);
+    assert_eq!(app.session.active().unwrap().doc.layers.len(), layers_before);
+    assert!(!app.ui.status_error, "{}", app.ui.status);
+
+    // The Web picker returns the selected file's name and bytes instead of a filesystem path.
+    menus::invoke(&mut app, &ctx, "file.placeEmbedded", json!({})).unwrap();
+    app.poll_file_dialog(&ctx, None);
+    answer(&open, Some(FileDialogAnswer::Contents("source.png".into(), source)));
+    app.poll_file_dialog(&ctx, None);
+    assert!(!app.ui.status_error, "{}", app.ui.status);
+    let st = app.session.active().unwrap();
+    assert_eq!(st.doc.layers.len(), layers_before + 1);
+    let layer = st.doc.layer(st.active_layer.unwrap()).unwrap();
+    assert_eq!(layer.name, "source");
+    assert_eq!(app.ui.transform.as_ref().and_then(|t| t.made), Some(crate::state::MadeLayer::Place));
+    assert!(matches!(
+        &layer.content,
+        photocraft_doc::LayerContent::Smart(sm)
+            if matches!(&sm.source, photocraft_doc::SmartSource::Embedded { file_name, .. } if file_name == "source.png")
+    ));
+
+    // Finish the successful placement before starting the next picker.
+    crate::transform_tool::commit(&mut app);
+    assert!(app.ui.transform.is_none());
+
+    // Invalid contents are reported without adding a layer.
+    menus::invoke(&mut app, &ctx, "file.placeEmbedded", json!({})).unwrap();
+    app.poll_file_dialog(&ctx, None);
+    answer(&open, Some(FileDialogAnswer::Contents("broken.png".into(), b"not an image".to_vec())));
+    app.poll_file_dialog(&ctx, None);
+    assert!(app.ui.status_error);
+    assert_eq!(app.session.active().unwrap().doc.layers.len(), layers_before + 1);
+}
+
+#[test]
 fn replace_contents_picks_a_file_for_every_instance() {
     let (mut app, open, _, ids) = smart_app();
     let ctx = egui::Context::default();
