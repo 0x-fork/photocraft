@@ -334,6 +334,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 DialogKind::Command if crate::color_picker_ui::owns(&fields) => {
                     outcome = crate::color_picker_ui::body(ui, &mut fields);
                     crate::color_picker_ui::take_add_swatch(app, &mut fields);
+                    if let Some(web) = fields.get("__webOnly").and_then(Value::as_bool) {
+                        app.ui.color_panel.web_only = web;
+                    }
                 }
                 DialogKind::Command if crate::color_range_ui::owns(&fields) => crate::color_range_ui::body(app, ui, &mut fields),
                 DialogKind::Command if crate::prefs_ui::owns(&fields) => crate::prefs_ui::body(app, ui, &mut fields),

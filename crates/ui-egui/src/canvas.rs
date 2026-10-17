@@ -4091,6 +4091,8 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     if primary && hand_pan && response.dragged() {
         crate::transform_tool::draw_content(app, &painter, &xf);
         crate::transform_tool::draw_overlay(app, &painter, &xf);
+        // The Pen's path in progress survives a Space pan, and stays on screen through it (#6592).
+        crate::vector_ui::draw_overlay(app, &painter, &xf, &doc);
     }
     app.tool_override = None;
     if let Some(b) = layer_edges_rect(app, idx) {
@@ -5496,6 +5498,7 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
             {
                 e.dragging = false;
                 e.resize = None;
+                app.ui.caret_blink_time = app.last_frame_time;
             }
             if tool == Tool::Pen {
                 crate::vector_ui::pen_up(app);
