@@ -616,6 +616,12 @@ impl FilterParams {
         matches!(self, FilterParams::Fibers { .. } | FilterParams::Clouds { difference: false, .. })
     }
 
+    /// Whether the filter sizes its pattern by the canvas even with a selection (Clouds): its
+    /// bounds are then the canvas, and the selection only masks the result.
+    pub fn sizes_by_canvas(&self) -> bool {
+        matches!(self, FilterParams::Clouds { .. })
+    }
+
     /// Human-readable name.
     pub fn label(&self) -> &'static str {
         match self {

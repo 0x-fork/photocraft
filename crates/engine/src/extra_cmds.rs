@@ -1440,6 +1440,31 @@ mod tests {
         }
     }
 
+    /// A selection masks Clouds but doesn't change their size: inside it they are the canvas's
+    /// clouds, as when Clouds sized itself by the document (before it became a filter).
+    #[test]
+    fn clouds_in_a_selection_are_the_canvas_clouds() {
+        // Big enough that the canvas (cloud size 100 px) and the selection (16 px) size differently.
+        let big = |depth: u32| {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": 400, "height": 300, "depth": depth})).unwrap();
+            s.execute("layer.new.layer", json!({})).unwrap();
+            s
+        };
+        for depth in [8, 16, 32] {
+            let mut whole = big(depth);
+            whole.execute("filter.render.clouds", json!({"seed": 4})).unwrap();
+            let mut s = big(depth);
+            s.execute("select.rect", json!({"x": 50, "y": 40, "width": 60, "height": 50})).unwrap();
+            s.execute("filter.render.clouds", json!({"seed": 4})).unwrap();
+            for (x, y) in [(50, 40), (75, 60), (100, 85), (109, 89)] {
+                let (a, b) = (pixel(&s, x, y), pixel(&whole, x, y));
+                assert!((0..4).all(|c| (a[c] - b[c]).abs() < 1e-3), "depth {depth} at {x},{y}: {a:?} vs {b:?}");
+            }
+            assert_eq!(pixel(&s, 300, 200)[3], 0.0, "outside the selection the layer stays empty");
+        }
+    }
+
     #[test]
     fn average_and_clouds() {
         let mut s = session(8);
