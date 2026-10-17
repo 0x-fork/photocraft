@@ -514,11 +514,7 @@ fn field_step(range: &std::ops::RangeInclusive<f32>, decimals: Option<u32>, step
 }
 
 fn field_fine(range: &std::ops::RangeInclusive<f32>, decimals: Option<u32>, step_from_decimals: bool) -> bool {
-    if step_from_decimals {
-        decimals.is_some_and(|d| d > 0) || *range.end() - *range.start() <= 10.0
-    } else {
-        *range.end() - *range.start() <= 10.0
-    }
+    if step_from_decimals { decimals.is_some_and(|d| d > 0) || *range.end() - *range.start() <= 10.0 } else { *range.end() - *range.start() <= 10.0 }
 }
 
 /// A [`value_field`] that leaves `trailing` points free inside its box, right of the suffix, and
@@ -1109,15 +1105,18 @@ pub fn slider_row_prec(
         let l = ui.label(egui::RichText::new(tl!(label)).color(t.text_dim));
         scrub_label_within(ui, &l, f32::INFINITY);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            changed_resp = Some(value_field_in(
-                ui,
-                value,
-                range.clone(),
-                suffix,
-                74.0,
-                0.0,
-                FieldOpts { decimals, step_from_decimals: decimals.is_some(), ..Default::default() },
-            ).0);
+            changed_resp = Some(
+                value_field_in(
+                    ui,
+                    value,
+                    range.clone(),
+                    suffix,
+                    74.0,
+                    0.0,
+                    FieldOpts { decimals, step_from_decimals: decimals.is_some(), ..Default::default() },
+                )
+                .0,
+            );
         });
     });
     let s = slider_with(ui, value, range, gradient, g);
