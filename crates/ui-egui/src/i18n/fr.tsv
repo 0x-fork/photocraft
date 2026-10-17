@@ -3206,13 +3206,16 @@ curves	Smooth	Lisser
 	The transform couldn't be applied.	Impossible d'appliquer la transformation.
 # Preferences › Performance › GPU Memory; the status bar and slow-redraw notice
 	Its layers need {needed} of GPU memory; the budget leaves them {budget}.	Ses calques ont besoin de {needed} de mémoire GPU ; le budget leur laisse {budget}.
-	Set GPU Memory in Preferences › Performance to what your graphics card can hold (Automatic follows Memory Usage, up to a quarter of this computer's memory). The status bar shows GPU Memory Full while they don't fit.	Réglez Mémoire GPU dans Préférences › Performances sur ce que votre carte graphique peut contenir (Automatique suit Utilisation de la mémoire, jusqu'au quart de la mémoire de cet ordinateur). Tant qu'ils ne tiennent pas, la barre d'état affiche Mémoire GPU pleine.
+	Set GPU Memory in Preferences › Performance to what your graphics card can hold, at most 3/8 of its memory. Automatic follows Memory Usage, within a quarter of this computer's memory and 3/8 of the card's, and doesn't count the document against a card whose memory is known. The status bar shows GPU Memory Full while they don't fit.	Réglez Mémoire GPU dans Préférences › Performances sur ce que votre carte graphique peut contenir, au plus 3/8 de sa mémoire. Automatique suit Utilisation de la mémoire, dans la limite du quart de la mémoire de cet ordinateur et des 3/8 de celle de la carte, et ne compte pas le document sur une carte dont la mémoire est connue. Tant qu'ils ne tiennent pas, la barre d'état affiche Mémoire GPU pleine.
 	GPU Memory Full	Mémoire GPU pleine
 	The layers need {needed} of GPU memory and may hold {budget}, so edits that redraw the whole document do it on the CPU. Click to set GPU Memory.	Les calques ont besoin de {needed} de mémoire GPU et peuvent en occuper {budget} : les modifications qui redessinent tout le document le font sur le CPU. Cliquez pour régler Mémoire GPU.
 	GPU memory budget: {budget}	Budget de mémoire GPU : {budget}
 	This document's layers: {needed} of {budget} for layers	Calques de ce document : {needed} sur {budget} pour les calques
 	This document's layers need {needed} but may hold {budget}: whole-document redraws use the CPU	Les calques de ce document ont besoin de {needed} mais peuvent occuper {budget} : le document entier se redessine sur le CPU
 	GPU Memory (MB, 0 = Automatic)	Mémoire GPU (Mo, 0 = Automatique)
+	Replace	Remplacer
+	{name} was changed by another app after it was opened or saved here.	{name} a été modifié par une autre application après avoir été ouvert ou enregistré ici.
+	Replace it with this document, or cancel and use File › Save As to keep both.	Remplacez-le par ce document, ou annulez et utilisez Fichier › Enregistrer sous pour garder les deux.
 	(none)	(aucun)
 	32-bit Preview Options	Options d'aperçu 32 bits
 	AI Integrations	Intégrations d'IA
@@ -3901,7 +3904,6 @@ curves	Smooth	Lisser
 	Render Video	Rendu vidéo
 	Rendering…	Rendu en cours…
 	Reorder Layer	Réorganiser le calque
-	Replace	Remplacer
 	Replace Color	Remplacer la couleur
 	Replace Contents	Remplacer le contenu
 	Replace Footage	Remplacer le métrage
