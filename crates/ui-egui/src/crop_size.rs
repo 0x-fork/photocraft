@@ -525,6 +525,33 @@ mod tests {
         assert_eq!(app.session.active().unwrap().doc.size, Size::new(100, 50));
     }
 
+    /// A commit `image.crop` refuses (here a resolution past its 10 000 ppi) keeps the frame, its
+    /// turn and its box Undo; leaving the tool then drops the frame instead of retrying.
+    #[test]
+    fn a_refused_commit_keeps_the_frame_and_its_history() {
+        use crate::canvas::{ToolEvent, tool_event};
+        let mut app = app(SampleType::U8);
+        app.ui.tool_options = whr("4 in", "2 in", "20000", PX_PER_IN);
+        app.ui.tool_options.crop_shield.classic_mode = true;
+        crate::crop_ui::ensure_frame(&mut app);
+        tool_event(&mut app, ToolEvent::Down { x: 10.0, y: 10.0, pressure: 1.0 }, egui::Modifiers::NONE);
+        tool_event(&mut app, ToolEvent::Move { x: 110.0, y: 60.0, pressure: 1.0 }, egui::Modifiers::NONE);
+        tool_event(&mut app, ToolEvent::Up { x: 110.0, y: 60.0 }, egui::Modifiers::NONE);
+        app.ui.crop_angle = 12.0;
+        let frame = (app.ui.crop_rect, app.ui.crop_angle);
+        assert!(frame.0.is_some() && !app.crop.default_frame);
+        crate::canvas::commit_crop(&mut app);
+        assert_eq!(app.session.active().unwrap().doc.size, Size::new(400, 300), "refused");
+        assert_eq!((app.ui.crop_rect, app.ui.crop_angle), frame);
+        assert!(!app.crop.default_frame);
+        assert_eq!(crate::crop_ui::is_enabled(&app, "edit.undo"), Some(true), "the box Undo stays");
+        app.ui.tool = Tool::Move;
+        crate::crop_ui::ensure_frame(&mut app);
+        assert_eq!(app.ui.crop_rect, None);
+        crate::crop_ui::ensure_frame(&mut app);
+        assert_eq!(app.session.active().unwrap().doc.size, Size::new(400, 300));
+    }
+
     #[test]
     fn older_tool_options_load_without_the_new_fields() {
         let o: ToolOptions = serde_json::from_str(r#"{"crop_ratio": "1:1"}"#).unwrap();

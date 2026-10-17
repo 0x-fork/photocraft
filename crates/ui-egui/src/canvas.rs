@@ -6006,10 +6006,12 @@ pub fn commit_polygon(app: &mut PhotocraftApp) {
     }
 }
 
-/// Apply the crop tool's rectangle.
+/// Apply the crop tool's rectangle. When `image.crop` refuses it (the error is in the status bar),
+/// the frame, its turn and its box Undo stay for fixing.
 pub fn commit_crop(app: &mut PhotocraftApp) {
     // Never another document's frame (#1918).
     crate::crop_ui::cancel_stale(app);
+    let kept = crate::crop_ui::keep(app);
     // Committing ends the box's own Undo/Redo: from here Edit › Undo reverts the document.
     crate::crop_ui::clear_history(app);
     let Some(r) = app.ui.crop_rect.take() else { return };
@@ -6041,9 +6043,9 @@ pub fn commit_crop(app: &mut PhotocraftApp) {
     }
     // W x H x Resolution (#2443): resample to that size and set the resolution.
     crate::crop_size::commit_params(app, &mut p);
-    if app.run("image.crop", p).is_ok()
-        && let Some(i) = app.session.active_index()
-    {
+    if app.run("image.crop", p).is_err() {
+        crate::crop_ui::restore(app, kept);
+    } else if let Some(i) = app.session.active_index() {
         app.ui.views[i].fit_pending = true;
     }
 }

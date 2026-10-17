@@ -377,10 +377,14 @@ fn keeps_pending(app: &PhotocraftApp) -> bool {
 }
 
 /// Commits the drawn frame on leaving the Crop tool as ↵ would with the tool still picked (so the
-/// view goes upright too, `crop_mode::upright`), then gives the new tool back.
+/// view goes upright too, `crop_mode::upright`), then gives the new tool back. A refused crop
+/// keeps its frame: that is cancelled, so the new tool doesn't retry it every frame.
 fn commit_on_leave(app: &mut PhotocraftApp) {
     let tool = std::mem::replace(&mut app.ui.tool, Tool::Crop);
     crate::canvas::commit_crop(app);
+    if app.ui.crop_rect.is_some() {
+        cancel(app);
+    }
     app.ui.tool = tool;
 }
 
@@ -420,6 +424,30 @@ fn apply_step(app: &mut PhotocraftApp, s: CropStep) {
     app.ui.crop_rect = s.rect;
     app.ui.crop_angle = s.angle;
     app.crop.default_frame = s.default_frame;
+}
+
+/// The pending frame, its box Undo/Redo and the view's turn, kept while `image.crop` runs so a
+/// refused commit gives them back ([`restore`]).
+pub(crate) struct Kept {
+    step: CropStep,
+    undo: Vec<CropStep>,
+    redo: Vec<CropStep>,
+    view: Option<(f32, [f32; 2])>,
+}
+
+pub(crate) fn keep(app: &PhotocraftApp) -> Kept {
+    let view = app.session.active_index().and_then(|i| app.ui.views.get(i)).map(|v| (v.rotation, v.center));
+    Kept { step: step_of(app), undo: app.crop.undo.clone(), redo: app.crop.redo.clone(), view }
+}
+
+pub(crate) fn restore(app: &mut PhotocraftApp, k: Kept) {
+    apply_step(app, k.step);
+    (app.crop.undo, app.crop.redo) = (k.undo, k.redo);
+    if let Some((rotation, center)) = k.view
+        && let Some(v) = app.session.active_index().and_then(|i| app.ui.views.get_mut(i))
+    {
+        (v.rotation, v.center) = (rotation, center);
+    }
 }
 
 /// While the Crop tool has box history, Undo/Redo step the *box*, not the document (Photoshop keeps
