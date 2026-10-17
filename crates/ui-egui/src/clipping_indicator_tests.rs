@@ -165,10 +165,10 @@ fn panel_adjustment_clips_to_selected_layer_and_scope_undoes_at_all_depths() {
 }
 
 #[test]
-#[ignore = "writes synthetic compact adjustment-panel screenshots for visual inspection"]
+#[ignore = "writes synthetic compact adjustment-panel screenshots to log/adjustment-scope"]
 fn write_adjustment_scope_preview() {
     let phase = std::env::var("PHOTOCRAFT_EVIDENCE_PHASE").unwrap_or_else(|_| "after".into());
-    let output = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plan/evidence/5231");
+    let output = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../log/adjustment-scope");
     std::fs::create_dir_all(&output).unwrap();
     for theme in [crate::theme::ThemeKind::Pro, crate::theme::ThemeKind::Studio] {
         let mut h = adjustment_harness("Hue/Saturation", 8, theme, 2.0, true);
