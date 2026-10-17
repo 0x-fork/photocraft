@@ -902,13 +902,13 @@ fn find_replace(s: &mut Session, p: &Value) -> Result<Value> {
                 return Ok(json!({"count": 0, "layers": 0}));
             }
             s.edit("Replace All Text", |doc, _| {
-                let snapshot = doc.clone();
+                let (dpi, format) = (doc.resolution_dpi, doc.pixel_format());
                 for (id, matches) in &plan {
                     if let Some(LayerContent::Text(t)) = doc.layer_mut(*id).map(|l| &mut l.content) {
                         for (a, b) in matches.iter().rev() {
                             crate::type_cmds::replace_text(t, *a, *b, &replace);
                         }
-                        crate::type_cmds::refresh(&snapshot, t);
+                        crate::type_cmds::refresh_at(dpi, format, t);
                     }
                 }
                 Ok(())
@@ -926,10 +926,10 @@ fn find_replace(s: &mut Session, p: &Value) -> Result<Value> {
             {
                 crate::type_cmds::check_text_unlocked(&doc, id)?;
                 s.edit("Replace Text", |doc, _| {
-                    let snapshot = doc.clone();
+                    let (dpi, format) = (doc.resolution_dpi, doc.pixel_format());
                     if let Some(LayerContent::Text(t)) = doc.layer_mut(id).map(|l| &mut l.content) {
                         crate::type_cmds::replace_text(t, a, b, &replace);
-                        crate::type_cmds::refresh(&snapshot, t);
+                        crate::type_cmds::refresh_at(dpi, format, t);
                     }
                     Ok(())
                 })?;

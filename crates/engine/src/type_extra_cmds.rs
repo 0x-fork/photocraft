@@ -15,7 +15,8 @@ use serde_json::{Value, json};
 
 use crate::commands::{CommandSpec, layer_param};
 use crate::type_cmds::{
-    check_text_unlocked, format_targets, has_format_target, is_auto_named, layer_name, refresh, replace_text, style_paragraphs, style_range, with_text_targets,
+    check_text_unlocked, format_targets, has_format_target, is_auto_named, layer_name, refresh_at, replace_text, style_paragraphs, style_range,
+    with_text_targets,
 };
 use crate::{EngineError, Result, Session};
 
@@ -68,19 +69,20 @@ fn has_defaults(s: &Session) -> std::result::Result<(), String> {
 
 // ---------- helpers ----------
 
-/// Edits a type layer as one history step and re-renders it.
-fn with_text<R>(s: &mut Session, p: &Value, label: &str, f: impl FnOnce(&mut TextLayer, &Document) -> Result<R>) -> Result<R> {
+/// Edits a type layer as one history step and re-renders it. `f` gets the document's resolution
+/// (dpi).
+fn with_text<R>(s: &mut Session, p: &Value, label: &str, f: impl FnOnce(&mut TextLayer, f32) -> Result<R>) -> Result<R> {
     let id = layer_param(s, p)?;
     check_text_unlocked(&s.active().ok_or(EngineError::NoDocument)?.doc, id)?;
     s.edit(label, |doc, _| {
-        let snapshot = doc.clone();
+        let (dpi, format) = (doc.resolution_dpi, doc.pixel_format());
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
         let auto_named = is_auto_named(l);
         let LayerContent::Text(t) = &mut l.content else {
             return Err(EngineError::Other(format!("layer {} is {} {} layer, not a type layer", id.0, l.content.article(), l.content.kind_name())));
         };
-        let r = f(t, &snapshot)?;
-        refresh(&snapshot, t);
+        let r = f(t, dpi)?;
+        refresh_at(dpi, format, t);
         let name = auto_named.then(|| layer_name(&t.text));
         if let Some(n) = name {
             l.name = n;
@@ -90,7 +92,11 @@ fn with_text<R>(s: &mut Session, p: &Value, label: &str, f: impl FnOnce(&mut Tex
 }
 
 fn layout(doc: &Document, t: &TextLayer) -> photocraft_text::TextLayout {
-    photocraft_text::shared().lock().unwrap_or_else(|e| e.into_inner()).layout(t, doc.resolution_dpi)
+    layout_at(doc.resolution_dpi, t)
+}
+
+fn layout_at(dpi: f32, t: &TextLayer) -> photocraft_text::TextLayout {
+    photocraft_text::shared().lock().unwrap_or_else(|e| e.into_inner()).layout(t, dpi)
 }
 
 /// `m ∘ translate(tx, ty)`.
@@ -144,11 +150,11 @@ fn set_orientation(s: &mut Session, p: &Value, o: Orientation) -> Result<Value> 
 // ---------- point ⇄ paragraph ----------
 
 fn to_paragraph(s: &mut Session, p: &Value) -> Result<Value> {
-    let r = with_text(s, p, "Convert to Paragraph Text", |t, doc| {
-        let l = layout(doc, t);
-        let size_px = t.char_runs().iter().map(|r| r.style.size_pt).fold(t.size_pt, f32::max) * doc.resolution_dpi / 72.0;
+    let r = with_text(s, p, "Convert to Paragraph Text", |t, dpi| {
+        let l = layout_at(dpi, t);
+        let size_px = t.char_runs().iter().map(|r| r.style.size_pt).fold(t.size_pt, f32::max) * dpi / 72.0;
         let ps = t.paragraph_runs().first().map(|p| p.style.clone()).unwrap_or_default();
-        let indents = (ps.start_indent_pt + ps.end_indent_pt).max(0.0) * doc.resolution_dpi / 72.0;
+        let indents = (ps.start_indent_pt + ps.end_indent_pt).max(0.0) * dpi / 72.0;
         if l.vertical {
             // Line space: u along the columns, v across them (first column centred on v = 0).
             let [u0, v0, u1, v1] = l.line_bounds().unwrap_or([0.0, -size_px / 2.0, size_px, size_px / 2.0]);
@@ -178,7 +184,7 @@ fn to_paragraph(s: &mut Session, p: &Value) -> Result<Value> {
         probe.shape = TextShape::Box { x, y: y0, width, height };
         // Box text puts the first baseline at the box top plus the ascender height: measure it and
         // shift the box so that baseline stays at the point-text anchor (y = 0).
-        let b0 = layout(doc, &probe).lines.first().map_or(0.0, |ln| ln.baseline);
+        let b0 = layout_at(dpi, &probe).lines.first().map_or(0.0, |ln| ln.baseline);
         let y = y0 - b0;
         t.shape = TextShape::Box { x: 0.0, y: 0.0, width, height };
         t.transform = then_translate(&t.transform, f64::from(x), f64::from(y));
@@ -188,9 +194,9 @@ fn to_paragraph(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn to_point(s: &mut Session, p: &Value) -> Result<Value> {
-    let r = with_text(s, p, "Convert to Point Text", |t, doc| {
+    let r = with_text(s, p, "Convert to Point Text", |t, dpi| {
         let TextShape::Box { x, y, width, height } = t.shape else { return Err(EngineError::Other("already point text".into())) };
-        let l = layout(doc, t);
+        let l = layout_at(dpi, t);
         // Vertical type: columns run along the box height.
         let (x, width) = if l.vertical { (y, height) } else { (x, width) };
         let baseline = l.lines.first().map_or(0.0, |ln| ln.baseline);
@@ -496,11 +502,11 @@ fn paste_lorem(s: &mut Session, p: &Value) -> Result<Value> {
 fn update_all(s: &mut Session) -> Result<Value> {
     let mut n = 0;
     s.edit("Update All Text Layers", |doc, _| {
-        let snapshot = doc.clone();
-        let ids: Vec<LayerId> = snapshot.walk().into_iter().filter(|(_, _, l)| matches!(l.content, LayerContent::Text(_))).map(|(_, _, l)| l.id).collect();
+        let (dpi, format) = (doc.resolution_dpi, doc.pixel_format());
+        let ids: Vec<LayerId> = doc.walk().into_iter().filter(|(_, _, l)| matches!(l.content, LayerContent::Text(_))).map(|(_, _, l)| l.id).collect();
         for id in ids {
             if let Some(Layer { content: LayerContent::Text(t), .. }) = doc.layer_mut(id) {
-                refresh(&snapshot, t);
+                refresh_at(dpi, format, t);
                 n += 1;
             }
         }
@@ -582,7 +588,7 @@ fn replace_fonts(s: &mut Session, map: &serde_json::Map<String, Value>, all: boo
     }
     let mut n = 0;
     s.edit("Replace Missing Fonts", |doc, _| {
-        let snapshot = doc.clone();
+        let (dpi, format) = (doc.resolution_dpi, doc.pixel_format());
         for id in &ids {
             if let Some(Layer { content: LayerContent::Text(t), .. }) = doc.layer_mut(*id) {
                 let mut changed = false;
@@ -603,7 +609,7 @@ fn replace_fonts(s: &mut Session, map: &serde_json::Map<String, Value>, all: boo
                     at += r.len;
                 }
                 if changed {
-                    refresh(&snapshot, t);
+                    refresh_at(dpi, format, t);
                     n += 1;
                 }
             }
