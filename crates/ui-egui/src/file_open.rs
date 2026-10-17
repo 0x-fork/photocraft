@@ -36,12 +36,19 @@ pub enum DropTarget {
 /// `warnings` from an import, plus one for each font family the active document's type uses that
 /// isn't installed (#4559): Photoshop warns about missing fonts as a file opens, and the CLI and
 /// automation already report them; the type would otherwise silently render in a fallback face.
-pub(crate) fn with_missing_fonts(app: &PhotocraftApp, mut warnings: Vec<String>) -> Vec<String> {
-    if let Some(st) = app.session.active() {
-        for w in photocraft_engine::type_extra_cmds::missing_font_warnings(&st.doc) {
-            if !warnings.contains(&w) {
-                warnings.push(w);
-            }
+pub(crate) fn with_missing_fonts(app: &PhotocraftApp, warnings: Vec<String>) -> Vec<String> {
+    match app.session.active() {
+        Some(st) => with_missing_fonts_of(&st.doc, warnings),
+        None => warnings,
+    }
+}
+
+/// [`with_missing_fonts`] for `doc` itself: a file held back for its profile prompt
+/// (`open_prompt`) isn't the active document yet.
+pub(crate) fn with_missing_fonts_of(doc: &photocraft_doc::Document, mut warnings: Vec<String>) -> Vec<String> {
+    for w in photocraft_engine::type_extra_cmds::missing_font_warnings(doc) {
+        if !warnings.contains(&w) {
+            warnings.push(w);
         }
     }
     warnings
@@ -71,9 +78,7 @@ impl PhotocraftApp {
             crate::jobs_ui::start_open(self, &display_name(path), Some(path.to_string()), crate::jobs_ui::bytes(bytes))?;
             return Ok(Vec::new());
         }
-        let warnings = self.open_bytes(&display_name(path), bytes)?;
-        self.opened_from(path);
-        Ok(warnings)
+        self.open_bytes_from(&display_name(path), bytes, Some(path))
     }
 
     /// Record that the active document was just opened from `path`: File › Save writes back to it
@@ -84,6 +89,8 @@ impl PhotocraftApp {
             && !st.source_read_only
         {
             st.path = Some(path.to_string());
+            let doc = st.doc.id;
+            self.remember_stamp(doc, path);
         }
         self.push_recent(path);
     }
@@ -168,6 +175,12 @@ impl PhotocraftApp {
             DropTarget::Tabs(slot) => Some(slot),
             DropTarget::Canvas | DropTarget::Elsewhere => None,
         };
+        // A box still open from an earlier drop (or any Free Transform) is applied first (#4833):
+        // the queue below places the next file only once no box is open, so a separate drop
+        // would otherwise wait unseen for ↩. Files dropped together still go one by one.
+        if target == DropTarget::Canvas && self.ui.transform.is_some() && files.iter().any(|f| !crate::preset_files_ui::is_preset_file(&dropped_name(f))) {
+            crate::transform_tool::commit(self);
+        }
         for f in files {
             let name = dropped_name(&f);
             if target == DropTarget::Canvas && !crate::preset_files_ui::is_preset_file(&name) {
@@ -251,8 +264,21 @@ impl PhotocraftApp {
             match e {
                 OsEvent::Open(paths) => {
                     self.open_paths(&paths);
-                    // Bring the window forward when another app (Finder, the Dock) asked us to open.
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    // Bring the window forward when another app (Finder, the Dock, Explorer via a
+                    // second launch) asked us to open; restore it first if it was minimized.
+                    if ctx.input(|i| i.viewport().minimized) == Some(true) {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                    }
+                    // Native Wayland lets a window come forward only with the launcher's activation
+                    // token, which winit can't apply to an existing window (its focus is a no-op
+                    // there): mark the window as wanting attention instead, so the taskbar
+                    // highlights it rather than the file opening out of sight.
+                    let raise = if self.services.is_wayland {
+                        egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational)
+                    } else {
+                        egui::ViewportCommand::Focus
+                    };
+                    ctx.send_viewport_cmd(raise);
                     ctx.request_repaint();
                 }
                 OsEvent::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),

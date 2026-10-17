@@ -43,6 +43,25 @@ enum SmallCapsMode {
     Synthetic,
 }
 
+/// Index of the run containing byte offset `off`, given each run's start offset (non-decreasing):
+/// the last run starting at or before `off`, or 0 when none does. Binary search, so a layer with
+/// many runs doesn't make per-character lookups quadratic.
+fn run_index_at(run_starts: &[usize], off: usize) -> usize {
+    run_starts.partition_point(|&s| s <= off).saturating_sub(1)
+}
+
+/// Whether the style's selected face has an `smcp` feature (a font load and GSUB parse).
+fn probe_smcp(fonts: &mut FontDb, style: &CharStyle) -> bool {
+    #[cfg(test)]
+    SMCP_PROBES.with(|c| c.set(c.get() + 1));
+    fonts.selected_face_has_feature(&style.font_family, style.weight, style.italic, Tag::new(b"smcp"))
+}
+
+#[cfg(test)]
+thread_local! {
+    static SMCP_PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 fn small_caps_mode(caps: Caps, face_has_smcp: bool) -> SmallCapsMode {
     match caps {
         Caps::SmallCaps if face_has_smcp => SmallCapsMode::OpenType,
@@ -423,6 +442,8 @@ struct KernSlot {
     blank: bool,
     /// Advance along the line (px, horizontal scale included).
     advance: f32,
+    /// What horizontal scale adds to the shaped advance (px; negative below 100%).
+    growth: f32,
     /// A tab, shaped as a space; it advances to the next tab stop.
     tab: bool,
     /// Vertical type, upright glyph (its outline doesn't run along the column).
@@ -435,7 +456,7 @@ impl Layouter {
     }
 
     pub fn layout(&mut self, fonts: &mut FontDb, t: &TextLayer, dpi: f32) -> TextLayout {
-        let k = if dpi > 0.0 { dpi / 72.0 } else { 1.0 };
+        let k = if dpi.is_finite() && dpi > 0.0 { dpi / 72.0 } else { 1.0 };
         let runs = t.char_runs();
         let paras = t.paragraph_runs();
         let vertical = t.orientation == Orientation::Vertical;
@@ -469,7 +490,7 @@ impl Layouter {
                 Some(s)
             })
             .collect();
-        let style_at = |off: usize| run_starts.iter().rposition(|&s| s <= off).unwrap_or(0);
+        let style_at = |off: usize| run_index_at(&run_starts, off);
         let para_starts: Vec<usize> = paras
             .iter()
             .scan(0, |a, r| {
@@ -489,6 +510,17 @@ impl Layouter {
         let mut prev_baseline: Option<f32> = None;
         let mut pending_space = 0.0f32;
         let mut stop = false;
+        // Fixed for the whole layout, and the font probe only matters for styles that use small
+        // caps. A real `smcp` substitution must receive lowercase source text; only the fallback
+        // path uppercases it and scales it down.
+        let small_caps: Vec<SmallCapsMode> = out
+            .styles
+            .iter()
+            .map(|style| match style.caps {
+                Caps::SmallCaps => small_caps_mode(style.caps, probe_smcp(fonts, style)),
+                _ => SmallCapsMode::None,
+            })
+            .collect();
         for (pi, prange) in split_paragraphs(text).into_iter().enumerate() {
             if stop {
                 break;
@@ -503,13 +535,6 @@ impl Layouter {
             };
             let mut ptext = String::with_capacity(prefix.len() + content.len());
             ptext.push_str(prefix);
-            // A real `smcp` substitution must receive lowercase source text; only the fallback
-            // path uppercases it and scales it down.
-            let small_caps: Vec<SmallCapsMode> = out
-                .styles
-                .iter()
-                .map(|style| small_caps_mode(style.caps, fonts.selected_face_has_feature(&style.font_family, style.weight, style.italic, Tag::new(b"smcp"))))
-                .collect();
             // Ranges in `ptext` for lowercase characters rendered as synthetic small caps.
             // They have the same UTF-8 length as their uppercase form, so the layer's byte-based
             // run and caret offsets remain unchanged.
@@ -562,6 +587,12 @@ impl Layouter {
                 let si0 = style_at(prange.start);
                 for p in style_props(&out.styles[si0], k, &fallback, si0 as u32, small_caps[si0]) {
                     b.push_default(p);
+                }
+                // Paragraph text breaks a word wider than the box at the box edge, as Photoshop
+                // does (#6694): parley's default only breaks at UAX #14 opportunities and lets the
+                // word run out of the box. Point text has no width to overflow.
+                if is_box {
+                    b.push_default(StyleProperty::OverflowWrap(parley::style::OverflowWrap::BreakWord));
                 }
                 for (ri, st) in out.styles.iter().enumerate() {
                     let rs = run_starts[ri];
@@ -617,11 +648,29 @@ impl Layouter {
             // Box extent along the lines: width, or height for vertical type (columns).
             let (line_origin, line_len) = if vertical { (box_rect.1, box_rect.3) } else { (box_rect.0, box_rect.2) };
             let avail = if is_box { Some((line_len - indent_start - indent_end).max(1.0)) } else { None };
+            // Horizontal scale is applied after shaping, so paragraph text breaks at the box
+            // width divided by it (#5565). Mixed scales break at the largest, so no line
+            // overflows the box.
+            let break_scale = if is_box {
+                let si0 = style_at(prange.start);
+                (0..out.styles.len())
+                    .filter(|&ri| {
+                        let rs = run_starts.get(ri).copied().unwrap_or(0);
+                        let end = rs.saturating_add(runs.get(ri).map_or(0, |r| r.len));
+                        ri == si0 || (rs.max(prange.start) < end.min(content_end))
+                    })
+                    .filter_map(|ri| out.styles.get(ri))
+                    .map(effective_horizontal_scale)
+                    .fold(0.0f32, f32::max)
+            } else {
+                1.0
+            };
+            let break_scale = if break_scale > 0.0 { break_scale } else { 1.0 };
             let break_lines = |layout: &mut Layout<RunBrush>| {
                 if first_indent != 0.0 {
-                    layout.set_text_indent(first_indent, IndentOptions::default());
+                    layout.set_text_indent(first_indent / break_scale, IndentOptions::default());
                 }
-                layout.break_all_lines(avail);
+                layout.break_all_lines(avail.map(|a| a / break_scale));
             };
             // Paragraph text: a tab is never wider than a space plus one tab interval, so breaking
             // lines at that width keeps the expanded tabs inside the box, but can wrap early.
@@ -750,6 +799,7 @@ impl Layouter {
                             blank: first.is_none() || c.is_space_or_nbsp() || c.text_range().end <= prefix.len(),
                             upright: vertical && c.first_style().brush.1 != VClass::Rotate as u8,
                             advance: c.advance() * hs,
+                            growth: c.advance() * (hs - 1.0),
                             tab: tabs.binary_search(&c.text_range().start).is_ok(),
                         });
                     }
@@ -794,10 +844,15 @@ impl Layouter {
                 // moves the whole line).
                 let mut pos = indent_start + if li == 0 { first_indent } else { 0.0 };
                 let mut trailing_tabs = 0.0f32;
+                let mut trailing_growth = 0.0f32;
                 for (j, s) in slots.iter().enumerate() {
+                    // Trailing whitespace is outside the line's extent (`adv`).
+                    let trailing = s.blank && slots[j + 1..].iter().all(|n| n.blank);
+                    if trailing {
+                        trailing_growth += s.growth;
+                    }
                     if s.tab {
                         kern_px[j] = next_tab_stop(pos, tab_px) - pos - s.advance;
-                        // Trailing whitespace is outside the line's extent (`adv`).
                         if slots[j + 1..].iter().all(|n| n.blank) {
                             trailing_tabs += kern_px[j];
                         }
@@ -835,15 +890,18 @@ impl Layouter {
                 };
                 let dx = if is_box {
                     let base = line_origin + indent_start - kern_align;
-                    let slack = avail.unwrap_or(0.0) - adv - line_kern;
+                    let slack = avail.unwrap_or(0.0) - adv * break_scale - line_kern;
+                    // Parley aligned the unscaled line in `avail / break_scale`: scale its
+                    // indent and alignment offset back to the box.
+                    let scaled_offset = m.offset * (break_scale - 1.0);
                     base + if last_line {
                         match ps.align {
                             TextAlign::JustifyCenter => slack * 0.5 - m.offset,
                             TextAlign::JustifyRight => slack - m.offset,
-                            _ => 0.0,
+                            _ => scaled_offset,
                         }
                     } else {
-                        0.0
+                        scaled_offset
                     }
                 } else {
                     let target = match ps.align {
@@ -1008,7 +1066,7 @@ impl Layouter {
                     range: map(lr.start)..map(lr.end).min(content_end),
                     baseline,
                     x0,
-                    x1: x0 + adv + extra - trailing_tabs,
+                    x1: x0 + adv + extra - trailing_tabs - trailing_growth,
                     ascent,
                     descent,
                     paragraph: pi,
@@ -1018,6 +1076,11 @@ impl Layouter {
         }
         out
     }
+}
+
+/// A style's horizontal scale; unset (zero or negative) is 100%.
+fn effective_horizontal_scale(st: &CharStyle) -> f32 {
+    if st.horizontal_scale > 0.0 && st.horizontal_scale.is_finite() { st.horizontal_scale } else { 1.0 }
 }
 
 /// The first tab stop after `pos` (px from the anchor or box edge); stops are `interval` apart.
@@ -1355,7 +1418,63 @@ fn first_ascent(line: &parley::Line<'_, RunBrush>) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::{SmallCapsMode, feature_list, small_caps_mode, variation_list};
-    use photocraft_doc::text::{Caps, CharStyle, FontVariation};
+    use photocraft_doc::TextLayer;
+    use photocraft_doc::text::{Caps, CharStyle, FontVariation, TextRun};
+
+    /// Reference: the lookup the layout used before it became a binary search.
+    fn run_index_reference(starts: &[usize], off: usize) -> usize {
+        starts.iter().rposition(|&s| s <= off).unwrap_or(0)
+    }
+
+    #[test]
+    fn run_lookup_matches_the_linear_reference() {
+        // Deterministic pseudo-random run layouts with empty runs, equal adjacent styles and
+        // offsets past the end.
+        let mut seed = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = move |m: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed % m) as usize
+        };
+        for _ in 0..300 {
+            let n = next(12);
+            let mut acc = 0;
+            let starts: Vec<usize> = (0..n)
+                .map(|_| {
+                    let s = acc;
+                    acc += next(4); // 0 = empty run
+                    s
+                })
+                .collect();
+            for off in 0..acc + 4 {
+                assert_eq!(super::run_index_at(&starts, off), run_index_reference(&starts, off), "{starts:?} @ {off}");
+            }
+        }
+        assert_eq!(super::run_index_at(&[], 5), 0);
+    }
+
+    /// Many runs and paragraphs: the font is probed once per small-caps style per layout, not
+    /// once per style per paragraph, and styles that don't use small caps are never probed.
+    #[test]
+    fn small_caps_probe_runs_once_per_small_caps_style() {
+        let plain = CharStyle { font_family: "Inter".into(), ..Default::default() };
+        let small = CharStyle { caps: Caps::SmallCaps, ..plain.clone() };
+        let text: String = "a\n".repeat(300);
+        let runs = |small_every: usize| -> Vec<TextRun> {
+            (0..text.len()).map(|i| TextRun { len: 1, style: if small_every > 0 && i % small_every == 0 { small.clone() } else { plain.clone() } }).collect()
+        };
+        let mut engine = crate::TextEngine::new();
+        let mut probes = |small_every: usize| {
+            super::SMCP_PROBES.with(|c| c.set(0));
+            let layer = TextLayer { text: text.clone(), runs: runs(small_every), ..Default::default() };
+            let _ = engine.layout(&layer, 72.0);
+            super::SMCP_PROBES.with(|c| c.get())
+        };
+        assert_eq!(probes(0), 0);
+        let styles = text.len().div_ceil(2); // every other index is a small-caps run
+        assert_eq!(probes(2), styles);
+    }
 
     /// A variable font's optical size follows the type size unless the style sets `opsz` (#2985).
     #[test]
