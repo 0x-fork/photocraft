@@ -71,3 +71,32 @@ fn frame_and_remove_background_masks_match_the_document_depth() {
         }
     }
 }
+
+fn copied_style_over_background() -> (Session, u64, u64) {
+    let mut s = background_only();
+    let bg = s.active().unwrap().doc.background().unwrap().id.0;
+    s.execute("layer.new.layer", json!({})).unwrap();
+    s.execute("layer.layerStyle.dropShadow", json!({})).unwrap();
+    s.execute("layer.layerStyle.copyLayerStyle", json!({})).unwrap();
+    let layer = s.active().unwrap().active_layer.unwrap().0;
+    (s, bg, layer)
+}
+
+#[test]
+fn pasting_a_style_onto_the_background_turns_it_into_a_layer() {
+    let (mut s, bg, _) = copied_style_over_background();
+    s.execute("layer.layerStyle.pasteLayerStyle", json!({"layer": bg})).unwrap();
+    assert!(!has_background(&s), "the pasted style landed on a Background");
+    s.execute("edit.undo", json!({})).unwrap();
+    assert!(has_background(&s), "one undo restores the Background");
+}
+
+#[test]
+fn pasting_a_style_with_no_layer_skips_the_background() {
+    let (mut s, bg, layer) = copied_style_over_background();
+    s.execute("layer.select", json!({"layer": bg})).unwrap();
+    s.execute("layer.select", json!({"layer": layer, "mode": "add"})).unwrap();
+    s.execute("layer.layerStyle.pasteLayerStyle", json!({})).unwrap();
+    assert!(has_background(&s));
+    assert!(s.active().unwrap().doc.background().unwrap().effects.items.is_empty());
+}
