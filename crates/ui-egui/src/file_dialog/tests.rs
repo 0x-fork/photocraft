@@ -162,6 +162,37 @@ fn answer(open: &Open, answer: Option<FileDialogAnswer>) {
 }
 
 #[test]
+fn menu_open_exr_parts_asks_for_a_file_then_shows_the_parts_dialog() {
+    // Before the fix the menu ran the bare command: `missing "path"`, and no dialog (#7169).
+    let (mut app, open, _) = app();
+    let bytes = photocraft_io::export(&app.session.active().unwrap().doc, "render.exr", &Default::default()).unwrap().bytes;
+    let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let dir = std::env::temp_dir().join(format!("photocraft-menu-exr-parts-{}-{unique}", std::process::id()));
+    std::fs::create_dir(&dir).unwrap();
+    let path = dir.join("render.exr");
+    std::fs::write(&path, &bytes).unwrap();
+    let path = path.to_string_lossy().into_owned();
+    let ctx = egui::Context::default();
+    let r = menus::invoke(&mut app, &ctx, "file.openExrParts", json!({})).unwrap();
+    assert_eq!(r["fileDialog"], "open", "{r}");
+    app.poll_file_dialog(&ctx, None);
+    assert!(matches!(open.borrow().as_slice(), [(FileDialogRequest::Open { multiple: false, extensions: Some(e), .. }, _)] if e == &["exr"]));
+    answer(&open, Some(FileDialogAnswer::Paths(vec![path.clone()])));
+    app.poll_file_dialog(&ctx, None);
+    assert!(!app.ui.status_error, "{}", app.ui.status);
+    let dialog = app.ui.dialogs.iter().find(|d| d.fields.get("__command") == Some(&json!("file.openExrParts"))).expect("the parts dialog is open");
+    assert_eq!(dialog.fields["path"], json!(path));
+    let parts: Vec<&String> = dialog.fields.keys().filter(|k| k.starts_with("part/")).collect();
+    assert_eq!(parts.len(), 1, "{:?}", dialog.fields);
+    assert_eq!(dialog.fields[parts[0].as_str()], json!(true), "the first colour part is preselected");
+    let id = dialog.id;
+    let documents = app.session.documents().len();
+    crate::dialogs::confirm(&mut app, id).unwrap();
+    assert_eq!(app.session.documents().len(), documents + 1);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn menu_place_starts_transform_for_each_chosen_image() {
     for command in ["file.placeEmbedded", "file.placeLinked"] {
         let (mut app, open, _) = app();
