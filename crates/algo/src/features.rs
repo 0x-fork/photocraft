@@ -701,10 +701,14 @@ mod parallel_tests {
     }
 
     /// Blocks of random brightness: lots of strong corners, no libm in the making.
+    /// Only the recorded-hash test below uses these two helpers, and it is gated to the
+    /// platform whose libm the hashes were recorded from (#6489).
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     fn blocks(w: usize, h: usize, seed: u64) -> Vec<f32> {
         (0..w * h).map(|i| (mix(seed + ((i % w) / 8) as u64 * 4096 + ((i / w) / 8) as u64) >> 40) as f32 / 16_777_216.0).collect()
     }
 
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
     fn fnv(parts: &[u64]) -> u64 {
         let mut h = 0xcbf2_9ce4_8422_2325u64;
         for p in parts {
