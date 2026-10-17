@@ -15,6 +15,13 @@ use crate::state::{Tool, View};
 /// Largest texture side we upload; bigger documents display downsampled until the GPU path lands.
 pub const MAX_TEXTURE: u32 = 4096;
 
+/// The largest texture side to upload on this device: [`MAX_TEXTURE`], or less where the GPU
+/// allows less (2048 on some older or low-end GPUs and WebGL contexts). Past the device's limit
+/// egui asserts and the backend fails to create the texture.
+fn texture_side(ctx: &egui::Context) -> u32 {
+    u32::try_from(ctx.input(|i| i.max_texture_side)).unwrap_or(MAX_TEXTURE).clamp(1, MAX_TEXTURE)
+}
+
 pub(crate) struct ClonePreviewCache {
     key: String,
     texture: egui::TextureHandle,
@@ -1421,7 +1428,7 @@ pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
     if cache.tex_revision != revision || cache.texture.is_none() || cache.tex_preview_key != preview_key {
         let t0 = crate::gpu_canvas::now_ms();
         let longest = doc.size.width.max(doc.size.height);
-        let factor = longest.div_ceil(MAX_TEXTURE).max(1);
+        let factor = longest.div_ceil(texture_side(ctx)).max(1);
         let (w, h) = ((doc.size.width / factor).max(1), (doc.size.height / factor).max(1));
         let current = cache.texture.as_mut().filter(|t| t.size() == [w as usize, h as usize]);
         if let (Some(d), Some(t)) = (damage, current) {
@@ -1608,7 +1615,21 @@ fn ensure_gpu(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, visible:
         grid: None,
     });
     let present = cache.on_gpu && gpu.has(id.0, size);
-    if present && cache.revision == revision && cache.preview_key == preview_key {
+    let current = cache.revision == revision && cache.preview_key == preview_key;
+    // GPU Memory or Memory Usage changed with nothing to redraw: the new budget, and whether the
+    // layers fit it, show at once (the status bar's GPU Memory Full).
+    if present && app.perf.gpu_budget_allowance != budget_allowance(app) {
+        gpu_budget(app, &gpu, idx, false, visible);
+    }
+    // Switched to a document whose canvas is already current: size the budget for it and measure
+    // whether its layers fit, so GPU Memory Full shows (or clears) at once rather than at its
+    // next full refresh. Once per switch: the fit then names this document.
+    if present && app.perf.gpu_layer_fit.is_none_or(|f| f.doc != id.0) {
+        gpu_budget(app, &gpu, idx, false, visible);
+        let fit = gpu.measure_fit(&doc).unwrap_or(crate::gpu_canvas::LayerFit { doc: id.0, needed: 0, budget: 0 });
+        app.perf.gpu_layer_fit = Some(fit);
+    }
+    if present && current {
         // An adjustment preview composited where the view was: catch up where it moved to.
         if let Some(r) = crate::adjust_preview::uncovered(app, id, raw_key, visible) {
             let r = gpu.refresh(id.0, &doc, Some(r), display.as_deref());
@@ -1620,12 +1641,17 @@ fn ensure_gpu(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, visible:
     // draws it (checked before the memory budget, which walks the history, every frame).
     if !gpu.fits_canvas(&doc) {
         crate::background_redraw::cancel(app, id);
+        // Drawn on the CPU canvas: no layer budget applies to it.
+        if app.perf.gpu_layer_fit.is_some_and(|f| f.doc == id.0) {
+            app.perf.gpu_layer_fit = None;
+        }
         return false;
     }
     let partial = present && damage.is_some();
     gpu_budget(app, &gpu, idx, partial, visible);
     let defer = crate::background_redraw::enabled(app);
     let r = gpu.refresh_with(id.0, &doc, if partial { damage } else { None }, display.as_deref(), defer);
+    app.perf.gpu_layer_fit = gpu.layer_fit();
     if r.kind == "lost" || r.kind == crate::gpu_canvas::REFRESH_OVER_BUDGET {
         // The device is gone (`gpu_status` then drops the GPU canvas) or the canvas is over the
         // texture budget: draw this frame on the CPU path.
@@ -1666,21 +1692,32 @@ fn ensure_gpu(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, visible:
     true
 }
 
-/// Point the wgpu compositor at what the view shows, and size its memory budget from Memory
-/// Usage, the document's pixels and History, and physical memory: on full refreshes (pixels
-/// counted once per structural change, not per brush dab) and whenever the preference changes.
+/// Point the wgpu compositor at what the view shows, and size its memory budget from GPU Memory,
+/// or Memory Usage, the document's pixels and History (charged where the GPU shares the system's
+/// memory), physical memory and the GPU's own: on full refreshes (pixels counted once per
+/// structural change, not per brush dab) and whenever either preference changes.
 fn gpu_budget(app: &mut PhotocraftApp, gpu: &crate::gpu_canvas::GpuCanvas, idx: usize, partial: bool, visible: DRect) {
     gpu.set_focus(Some(visible));
-    let allowance = u64::from(app.session.prefs().performance.memory_usage_mb).saturating_mul(1 << 20);
-    if partial && app.perf.gpu_budget_allowance == allowance && gpu.memory_budget().is_some() {
+    let allowance = budget_allowance(app);
+    let changed = app.perf.gpu_budget_allowance != allowance;
+    if partial && !changed && gpu.memory_budget().is_some() {
         return;
     }
     let Some(st) = app.session.documents().get(idx) else { return };
-    let pixels = st.history.pixel_bytes(&st.doc) as u64;
-    let budget = crate::gpu_canvas::memory_budget(allowance, pixels, crate::gpu_canvas::physical_memory());
+    let pixels = st.memory_bytes() as u64;
+    let budget = crate::gpu_canvas::memory_budget(allowance.0, pixels, crate::gpu_canvas::physical_memory(), gpu.video_memory(), allowance.1);
     gpu.set_memory_budget(budget);
     app.perf.gpu_budget_mb = budget >> 20;
     app.perf.gpu_budget_allowance = allowance;
+    if changed && let Some(fit) = gpu.measure_fit(&st.doc) {
+        app.perf.gpu_layer_fit = Some(fit);
+    }
+}
+
+/// Memory Usage and GPU Memory (Preferences › Performance), in bytes.
+fn budget_allowance(app: &PhotocraftApp) -> (u64, u64) {
+    let performance = &app.session.prefs().performance;
+    (u64::from(performance.memory_usage_mb).saturating_mul(1 << 20), u64::from(performance.gpu_memory_mb).saturating_mul(1 << 20))
 }
 
 /// Live preview for an open filter dialog: run the filter on the proxy and upload it. With
@@ -3203,12 +3240,14 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     let bars_id = egui::Id::new(("pc-canvas-bars-hover", idx));
     let over_bars = ctx.data(|d| d.get_temp::<bool>(bars_id)).unwrap_or(false);
     let nav_hovered = response.hovered() || free_hover || over_bars;
-    let wheel = crate::wheel_nav::read(
+    // Interface › Enable Animations off: the wheel moves the canvas without a glide (#5721).
+    let wheel = crate::wheel_nav::read_with(
         &ctx,
         app.session.prefs().general.zoom_with_scroll_wheel,
         app.session.prefs().enhanced_controls.zoom_with_trackpad_pinch,
         response.id.with("wheel"),
         nav_hovered,
+        app.session.prefs().interface.enable_animations,
     );
     if nav_hovered {
         let pointer = ui.input(|i| i.pointer.hover_pos());
@@ -3310,7 +3349,10 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             primary && app.ui.dialogs.last().is_some_and(|d| crate::select_mask_view::owns(&d.fields) && crate::select_mask_view::brush_on(&d.fields));
         // Field Blur's pins are placed and dragged on the image (`blur_pins`).
         let pinning = primary && app.ui.dialogs.last().is_some_and(|d| crate::blur_pins::owns(&d.fields));
-        let hand = app.ui.tool == Tool::Hand && !picking && !range_picking && !refine_brushing && !pinning;
+        // Layer Style on a Drop or Inner Shadow page: a drag on the image moves the shadow (#5701).
+        let shadow_drag =
+            !picking && app.ui.dialogs.last().is_some_and(|d| d.kind == crate::state::DialogKind::LayerStyle && crate::layer_style::drags_shadow(&d.fields));
+        let hand = app.ui.tool == Tool::Hand && !picking && !range_picking && !refine_brushing && !pinning && !shadow_drag;
         if let Some(d) = crate::dialogs::pan_delta(&ctx, rect, hand) {
             let d = xf.unmap_vec(d) / (view.zoom / ppp);
             view.center[0] -= d.x;
@@ -3318,6 +3360,15 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             ctx.set_cursor_icon(crate::tool_cursor::hand(&ctx, true));
         } else if free_hover && (space_pan || hand) {
             ctx.set_cursor_icon(crate::tool_cursor::hand(&ctx, false));
+        } else if shadow_drag && !middle && crate::dialogs::free_pointer_over(&ctx, rect).is_some() {
+            ctx.set_cursor_icon(egui::CursorIcon::Move);
+            if let Some(p) = crate::dialogs::free_press(&ctx, rect) {
+                let (start, origin) = ctx.input(|i| (i.pointer.primary_pressed(), i.pointer.press_origin().unwrap_or(p)));
+                let total = xf.unmap_vec(p - origin) / (view.zoom / ppp);
+                if let Some(d) = app.ui.dialogs.last_mut() {
+                    crate::layer_style::drag_shadow(&mut d.fields, start, [f64::from(total.x), f64::from(total.y)]);
+                }
+            }
         } else if picking && let Some(p) = crate::dialogs::free_pointer_over(&ctx, rect) {
             if app.session.prefs().cursors.other == photocraft_engine::prefs::OtherCursor::Precise {
                 ctx.set_cursor_icon(egui::CursorIcon::Crosshair);
@@ -3828,8 +3879,10 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             // corner badge, as Photoshop's corner radius cursor.
             ui.ctx().set_cursor_icon(egui::CursorIcon::Default);
             crate::icons::cursor_badge(&ctx, "scan", p);
-        } else if let Some((r, p, c)) =
-            response.hover_pos().and_then(|p| transform_controls_rect(app, &xf).and_then(|r| transform_controls_cursor(r, p).map(|c| (r, p, c))))
+        } else if let Some((r, p, c)) = response
+            .hover_pos()
+            .filter(|_| !transform_controls_several(app))
+            .and_then(|p| transform_controls_rect(app, &xf).and_then(|r| transform_controls_cursor(r, p).map(|c| (r, p, c))))
         {
             // The Move tool draws handles without opening a Free Transform session.
             // Give them their resize/rotate cursors before the first pointer press (#2871).
@@ -4038,6 +4091,8 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     if primary && hand_pan && response.dragged() {
         crate::transform_tool::draw_content(app, &painter, &xf);
         crate::transform_tool::draw_overlay(app, &painter, &xf);
+        // The Pen's path in progress survives a Space pan, and stays on screen through it (#6592).
+        crate::vector_ui::draw_overlay(app, &painter, &xf, &doc);
     }
     app.tool_override = None;
     if let Some(b) = layer_edges_rect(app, idx) {
@@ -4504,8 +4559,8 @@ fn draw_beyond_canvas(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &Vie
         None => {
             let t0 = crate::gpu_canvas::now_ms();
             let extent = photocraft_engine::extra_cmds::reveal_all_bounds(&doc);
-            // One texel per `k` document pixels keeps every texture within MAX_TEXTURE.
-            let k = extent.width().max(extent.height()).div_ceil(MAX_TEXTURE).max(1);
+            // One texel per `k` document pixels keeps every texture within the device's side.
+            let k = extent.width().max(extent.height()).div_ceil(texture_side(&ctx)).max(1);
             let proxy = (k > 1).then(|| photocraft_compose::proxy::proxy_document(&doc, k));
             let src = proxy.as_ref().unwrap_or(&*doc);
             let k = k as i32;
@@ -4663,23 +4718,36 @@ pub(crate) fn layer_edges_rect(app: &PhotocraftApp, idx: usize) -> Option<photoc
     Some(b.translate(dx, dy))
 }
 
-/// Move tool › Show Transform Controls: the box Free Transform would open on the active layer.
-fn transform_controls_rect(app: &PhotocraftApp, xf: &ViewXform) -> Option<Rect> {
-    // A corner radius drag hides the box, as in Photoshop.
+/// The layers Move › Show Transform Controls frames: every selected layer but the Background.
+/// A corner radius drag hides the box, as in Photoshop.
+fn transform_controls_layers(app: &PhotocraftApp) -> Vec<&photocraft_doc::Layer> {
     if app.ui.tool != Tool::Move
         || !app.ui.tool_options.move_show_transform
         || app.ui.transform.is_some()
         || app.drag.is_some()
         || app.ui.corner_radius.is_some()
     {
-        return None;
+        return Vec::new();
     }
+    let Some(st) = app.session.active() else { return Vec::new() };
+    st.selected_layers().into_iter().filter_map(|id| st.doc.layer(id)).filter(|l| !crate::doc_props_ui::is_background(&st.doc, l)).collect()
+}
+
+/// Several layers are selected: Show Transform Controls frames them all, as Photoshop does, but
+/// Free Transform works on one layer, so the frame has no handles to scale or rotate them.
+fn transform_controls_several(app: &PhotocraftApp) -> bool {
+    transform_controls_layers(app).len() > 1
+}
+
+/// Move tool › Show Transform Controls: the boxes Free Transform would open on the selected
+/// layers, joined into one.
+fn transform_controls_rect(app: &PhotocraftApp, xf: &ViewXform) -> Option<Rect> {
     let st = app.session.active()?;
-    let l = st.active_layer.and_then(|id| st.doc.layer(id))?;
-    if crate::doc_props_ui::is_background(&st.doc, l) {
-        return None;
-    }
-    let b = photocraft_engine::transform_cmds::transform_frame(&st.doc, l);
+    let b = transform_controls_layers(app)
+        .into_iter()
+        .map(|l| photocraft_engine::transform_cmds::transform_frame(&st.doc, l))
+        .filter(|b| !b.is_empty())
+        .reduce(|a, b| a.union(&b))?;
     let (dx, dy) = crate::move_ui::floating_offset(app).unwrap_or((0, 0));
     let b = b.translate(dx, dy);
     if b.is_empty() {
@@ -4736,6 +4804,9 @@ fn transform_controls_hit(r: Rect, p: Pos2) -> bool {
 
 /// Enter the existing Free Transform session when a Move-tool transform control is pressed.
 fn begin_transform_controls_at(app: &mut PhotocraftApp, ctx: &egui::Context, xf: &ViewXform, p: Pos2) -> bool {
+    if transform_controls_several(app) {
+        return false;
+    }
     let Some(r) = transform_controls_rect(app, xf) else { return false };
     if !transform_controls_hit(r, p) {
         return false;
@@ -4749,11 +4820,21 @@ fn begin_transform_controls_at(app: &mut PhotocraftApp, ctx: &egui::Context, xf:
     }
 }
 
-/// Move tool › Show Transform Controls: the active layer's bounding box with its eight handles.
+/// Move tool › Show Transform Controls: the selected layers' bounding box, with its eight handles
+/// for one layer, and the outline of every selected shape layer, as in Photoshop.
 fn draw_transform_controls(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewXform) {
     let Some(r) = transform_controls_rect(app, xf) else { return };
     let accent = crate::theme::Tokens::get(painter.ctx()).accent;
+    let to_scr = |q: [f64; 2]| xf.to_screen(q[0] as f32, q[1] as f32);
+    for l in transform_controls_layers(app) {
+        if let LayerContent::Shape(sh) = &l.content {
+            crate::vector_ui::draw_outline(painter, &sh.path, &to_scr, accent);
+        }
+    }
     painter.rect_stroke(r, 0.0, Stroke::new(1.0, accent), egui::StrokeKind::Middle);
+    if transform_controls_several(app) {
+        return;
+    }
     for p in [r.left_top(), r.center_top(), r.right_top(), r.right_center(), r.right_bottom(), r.center_bottom(), r.left_bottom(), r.left_center()] {
         let h = Rect::from_center_size(p, vec2(7.0, 7.0));
         painter.rect_filled(h, 0.0, Color32::WHITE);
@@ -5417,6 +5498,7 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
             {
                 e.dragging = false;
                 e.resize = None;
+                app.ui.caret_blink_time = app.last_frame_time;
             }
             if tool == Tool::Pen {
                 crate::vector_ui::pen_up(app);
@@ -5764,14 +5846,12 @@ pub(crate) fn finish_gesture(app: &mut PhotocraftApp, d: Drag) {
                 let _ = app.run("select.deselect", json!({}));
             }
         }
-        Tool::Gradient => {
-            if (end[0] - d.start[0]).abs() + (end[1] - d.start[1]).abs() >= 2.0 {
-                let o = app.ui.tool_options.clone();
-                let _ = app.run(
-                    "paint.gradient",
-                    json!({"from": [d.start[0], d.start[1]], "to": [end[0], end[1]], "style": o.gradient_style, "reverse": o.gradient_reverse, "dither": o.gradient_dither, "opacity": o.fill_opacity, "mode": o.gradient_blend_mode.label(), "target": paint_target(app)}),
-                );
-            }
+        Tool::Gradient if (end[0] - d.start[0]).abs() + (end[1] - d.start[1]).abs() >= 2.0 => {
+            let o = app.ui.tool_options.clone();
+            let _ = app.run(
+                "paint.gradient",
+                json!({"from": [d.start[0], d.start[1]], "to": [end[0], end[1]], "style": o.gradient_style, "reverse": o.gradient_reverse, "dither": o.gradient_dither, "opacity": o.fill_opacity, "mode": o.gradient_blend_mode.label(), "target": paint_target(app)}),
+            );
         }
         Tool::Move => {
             let (dx, dy) = ((end[0] - d.start[0]).round(), (end[1] - d.start[1]).round());
@@ -6483,6 +6563,25 @@ mod tests {
         assert_eq!(uploads(&ctx), vec![(true, crisp)], "a partial update keeps the crisp sampling");
     }
 
+    /// A device that allows smaller textures than MAX_TEXTURE (2048 on some older GPUs and WebGL
+    /// contexts, and on the fallback adapter the GPU tests sometimes get under load): the canvas
+    /// texture is reduced to fit it. A 2600 px document was uploaded at full size, which egui
+    /// asserts on and the backend can't create.
+    #[test]
+    fn cpu_canvas_texture_fits_the_device_limit() {
+        for (side, (w, h), want) in [(2048, (2600, 1700), [1300, 850]), (2048, (5000, 2000), [1666, 666]), (8192, (5000, 2000), [2500, 1000])] {
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+            app.run("file.new", json!({"width": w, "height": h})).unwrap();
+            let ctx = egui::Context::default();
+            ctx.input_mut(|i| i.max_texture_side = side);
+            let (tex, _) = ensure_texture(&mut app, &ctx, 0, None).unwrap();
+            let mut delta = ctx.tex_manager().write().take_delta();
+            let sizes: Vec<_> = delta.set.get(&tex).into_iter().flatten().map(|d| d.image.size()).collect();
+            delta.clear();
+            assert_eq!(sizes, vec![want], "{w}x{h} on a {side} px device");
+        }
+    }
+
     #[test]
     fn cpu_canvas_of_a_reduced_document_stays_bilinear() {
         // Over MAX_TEXTURE the texture holds one texel per `factor` pixels: a texel is not a
@@ -6500,6 +6599,7 @@ mod tests {
 
     #[test]
     fn gpu_display_luts_are_per_display() {
+        let _gpu = photocraft_testkit::gpu_lock();
         let Ok(rs) = std::panic::catch_unwind(|| egui_kittest::wgpu::create_render_state(crate::gpu_canvas::wgpu_setup(), Default::default())) else {
             eprintln!("skipping: no GPU adapter");
             return;
@@ -7418,6 +7518,7 @@ mod tests {
         // must update only the reduced pixels it touched.
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
         let ctx = egui::Context::default();
+        ctx.input_mut(|i| i.max_texture_side = 8192);
         app.run("file.new", json!({"width": 4097, "height": 90, "background": "transparent"})).unwrap();
         let tilt = json!({"size": 30, "hardness": 1.0, "spacing": 0.05, "shapeDynamics": {"enabled": true, "size": {"control": "penTilt"}}});
         app.run("tools.setBrush", json!({ "brush": tilt })).unwrap();
@@ -8094,6 +8195,37 @@ mod tests {
 mod transform_controls_tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn several_selected_layers_share_one_frame_without_handles() {
+        // As in Photoshop: Show Transform Controls frames every selected layer. Free Transform
+        // works on one layer, so the shared frame doesn't start it.
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.execute("file.new", json!({"width": 200, "height": 200})).unwrap();
+        app.session.execute("shape.create", json!({"kind": "rect", "rect": [20, 30, 40, 40], "fill": "#ff0000"})).unwrap();
+        let a = app.session.active().unwrap().active_layer.unwrap();
+        app.session.execute("shape.create", json!({"kind": "rect", "rect": [100, 120, 50, 30], "fill": "#ff0000"})).unwrap();
+        app.sync_views();
+        app.ui.tool = Tool::Move;
+        app.ui.tool_options.move_show_transform = true;
+        let xf =
+            ViewXform { rect: Rect::from_min_size(Pos2::ZERO, vec2(200.0, 200.0)), zoom: 1.0, center: [100.0, 100.0], flip: false, rotation: 0.0, aspect: 1.0 };
+        let one = transform_controls_rect(&app, &xf).unwrap();
+        assert!(!transform_controls_several(&app));
+        app.session.execute("layer.select", json!({"layer": a.0, "mode": "add"})).unwrap();
+        assert!(transform_controls_several(&app));
+        let both = transform_controls_rect(&app, &xf).unwrap();
+        assert!(both.contains_rect(one) && both.width() > one.width() && both.height() > one.height(), "{both:?} frames both");
+        let (lt, rb) = (xf.to_doc(both.left_top()), xf.to_doc(both.right_bottom()));
+        assert!((lt[0] - 20.0).abs() < 1e-3 && (lt[1] - 30.0).abs() < 1e-3 && (rb[0] - 150.0).abs() < 1e-3 && (rb[1] - 150.0).abs() < 1e-3, "{lt:?} {rb:?}");
+        let ctx = egui::Context::default();
+        assert!(!begin_transform_controls_at(&mut app, &ctx, &xf, both.right_bottom()));
+        assert!(app.ui.transform.is_none());
+        // The Background never joins the frame.
+        let bg = app.session.active().unwrap().doc.layers[0].id;
+        app.session.execute("layer.select", json!({"layer": bg.0, "mode": "add"})).unwrap();
+        assert_eq!(transform_controls_layers(&app).len(), 2);
+    }
 
     #[test]
     fn move_transform_controls_start_free_transform_for_vector_shapes() {

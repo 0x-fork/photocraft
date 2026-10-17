@@ -2008,3 +2008,37 @@ fn hyphenless_postscript_names_split_trailing_styles() {
         assert_eq!((r.family.as_str(), r.weight, r.italic), (family, weight, italic), "{ps}");
     }
 }
+
+/// A word wider than its paragraph box wraps at the box edge instead of running past it (#6694);
+/// a normal break opportunity still wins, and a box that fits the word lays out exactly as before.
+#[test]
+fn a_word_wider_than_the_paragraph_box_breaks_at_the_box_edge() {
+    let mut e = TextEngine::new();
+    let word = "BLOQUEADO?!";
+    let alone = e.layout(&point(word, 12.0), 72.0);
+    assert_eq!(alone.lines.len(), 1, "{:?}", alone.lines);
+    let word_width = width(&alone);
+    let narrow = 30.0;
+    assert!(word_width > narrow * 2.0, "{word_width}");
+
+    let mut t = point(word, 12.0);
+    t.shape = TextShape::Box { x: 0.0, y: 0.0, width: narrow, height: 200.0 };
+    let l = e.layout(&t, 72.0);
+    assert!(l.lines.len() >= 2, "{:?}", l.lines);
+    for line in &l.lines {
+        assert!(line.x1 <= narrow + 0.5, "{line:?}");
+    }
+    let joined: String = l.lines.iter().map(|l| &word[l.range.clone()]).collect();
+    assert_eq!(joined, word);
+
+    t.shape = TextShape::Box { x: 0.0, y: 0.0, width: word_width + 20.0, height: 200.0 };
+    let fits = e.layout(&t, 72.0);
+    assert_eq!(fits.lines.len(), 1, "{:?}", fits.lines);
+    assert!((width(&fits) - word_width).abs() < 0.01, "{} vs {word_width}", width(&fits));
+
+    let mut spaced = point("ab cd", 12.0);
+    spaced.shape = TextShape::Box { x: 0.0, y: 0.0, width: narrow, height: 200.0 };
+    let l = e.layout(&spaced, 72.0);
+    assert_eq!(l.lines.len(), 2, "{:?}", l.lines);
+    assert_eq!(l.lines[1].range.start, 3, "{:?}", l.lines);
+}
