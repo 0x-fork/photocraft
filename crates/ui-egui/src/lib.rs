@@ -1896,9 +1896,8 @@ impl eframe::App for PhotocraftApp {
         self.collect_screenshots(ctx);
         self.issue_screenshots(ctx);
         prefs_ui::tick(self, ctx);
-        // Animation Effects off: the wheel scrolls its whole distance at once, before anything
-        // reads this frame's scroll (wheel_nav.rs).
-        if self.prefs_rt.reduce_motion {
+        // Before anything reads this frame's scroll (see `wheel_nav::unsmooth`).
+        if self.prefs_rt.animations_off {
             wheel_nav::unsmooth(ctx);
         }
         monitor_status::poll_frame(self, ctx, frame);
