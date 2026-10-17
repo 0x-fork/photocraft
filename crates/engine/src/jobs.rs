@@ -477,7 +477,9 @@ impl Session {
     /// Open a file in the background: read (for a path) and decode on a worker, with progress
     /// (per layer for PSD/PSB) and cancellation, then add the document like
     /// [`Session::open_document`] (Color Settings policies apply). `name` names the document.
-    /// The job's result is `{document, name, warnings, color}`; on wasm it runs inline. When
+    /// The job's result is `{document, docId, name, warnings, color}`; on wasm it runs inline.
+    /// `document` is the tab index at apply time; resolve `docId` before handling a delayed
+    /// completion, since earlier handlers may have moved or closed tabs. When
     /// Color Settings ask about the file's profile, the document is held back instead and the
     /// result is `{held, name, warnings, color}` (`color` the question): take it with
     /// [`Session::take_held_open`] once answered.
@@ -518,10 +520,12 @@ impl Session {
                     return Ok(json!({"held": held, "name": name_a, "warnings": r.warnings, "color": question}));
                 }
                 let (index, color) = s.open_document(r.document, None);
+                // Persisted IDs can collide: report the identity the session actually admitted.
+                let id = s.documents().get(index).ok_or(EngineError::NoDocument)?.doc.id;
                 if let Some(st) = s.active_mut() {
                     st.source_read_only = r.source_read_only;
                 }
-                Ok(json!({"document": index, "name": name_a, "warnings": r.warnings, "color": color}))
+                Ok(json!({"document": index, "docId": id.0, "name": name_a, "warnings": r.warnings, "color": color}))
             },
         )
     }
