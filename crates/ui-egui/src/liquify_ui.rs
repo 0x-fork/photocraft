@@ -551,27 +551,28 @@ pub fn cancel(app: &mut PhotocraftApp) {
 }
 
 /// OK: runs `filter.liquify` with the recorded strokes (one history step). When the dialog edits
-/// a smart filter, OK updates that filter instead (also when Restore All left no strokes).
-pub fn commit(app: &mut PhotocraftApp) {
-    let Some(mut d) = app.distort.liquify.take() else { return };
+/// a smart filter, OK updates that filter instead (also when Restore All left no strokes). The
+/// dialog closes either way. `app.run` shows a failed command's error in the status bar, and
+/// `commit` returns it.
+pub fn commit(app: &mut PhotocraftApp) -> Result<(), String> {
+    let Some(mut d) = app.distort.liquify.take() else { return Ok(()) };
     remember(app, &d.opts);
     d.end();
     if let Some(index) = d.smart_filter {
         let params = json!({"strokes": d.strokes, "meshSize": d.cell});
-        let _ = app.run("layer.smartFilter.setParams", json!({"layer": d.layer.0, "index": index, "params": params}));
-        return;
+        return app.run("layer.smartFilter.setParams", json!({"layer": d.layer.0, "index": index, "params": params})).map(|_| ());
     }
     if d.strokes.is_empty() {
-        return;
+        return Ok(());
     }
     let p = json!({"strokes": d.strokes, "meshSize": d.cell, "layer": d.layer.0});
-    let _ = app.run("filter.liquify", p);
+    app.run("filter.liquify", p).map(|_| ())
 }
 
 /// Control channel: `filter.liquify {"ui": {...}}` while the dialog is open.
 pub fn control(app: &mut PhotocraftApp, ui: &Value) -> Result<Value, String> {
     if ui.get("commit").and_then(Value::as_bool) == Some(true) {
-        commit(app);
+        commit(app)?;
         return Ok(json!({"committed": true}));
     }
     if ui.get("cancel").and_then(Value::as_bool) == Some(true) {
@@ -1027,7 +1028,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         pointer(app, ev, mods);
     }
     match action {
-        Some("ok") => commit(app),
+        Some("ok") => {
+            let _ = commit(app);
+        }
         Some("cancel") => cancel(app),
         _ => {}
     }
@@ -1174,7 +1177,7 @@ mod tests {
         });
         // OK and Esc keep the latest settings too.
         control(&mut app, &json!({"density": 90})).unwrap();
-        commit(&mut app);
+        commit(&mut app).unwrap();
         open(&mut app, &ctx).unwrap();
         assert_eq!(app.distort.liquify.as_ref().unwrap().opts.density, 90.0);
         control(&mut app, &json!({"density": 70})).unwrap();
@@ -1568,5 +1571,44 @@ mod tests {
         let pixels = plain.session.active().unwrap().active_layer.unwrap();
         assert!(open_smart_filter(&mut plain, &ctx, pixels, 0).is_err(), "not a smart object");
         assert!(app.distort.liquify.is_none() && plain.distort.liquify.is_none());
+    }
+
+    /// OK on a smart filter that is gone: the workspace closes, the status bar shows the error and
+    /// the control channel returns it.
+    #[test]
+    fn smart_filter_edit_that_cannot_be_applied_reports_the_error() {
+        let ctx = egui::Context::default();
+        let (mut app, layer) = smart_liquify_app();
+        open_smart_filter(&mut app, &ctx, layer, 0).unwrap();
+        drag(&mut app, 70.0, 84.0);
+        app.session.execute("layer.smartFilter.clearSmartFilters", json!({"layer": layer.0})).unwrap();
+        let steps = app.session.active().unwrap().history.past_len();
+        let r = control(&mut app, &json!({"commit": true}));
+        assert!(app.distort.liquify.is_none());
+        assert!(app.ui.status_error);
+        assert!(app.ui.status.contains("no smart filters"), "{}", app.ui.status);
+        assert!(smart(&app, layer).smart_filters.is_empty());
+        assert_eq!(app.session.active().unwrap().history.past_len(), steps);
+        assert_eq!(r, Err(app.ui.status.clone()));
+    }
+
+    /// OK after the layer was deleted: the dialog closes, the status bar shows the error and the
+    /// control channel returns it.
+    #[test]
+    fn liquify_that_cannot_be_applied_reports_the_error() {
+        let ctx = egui::Context::default();
+        let mut app = app_with_layer();
+        let layer = app.session.active().unwrap().active_layer.unwrap();
+        open(&mut app, &ctx).unwrap();
+        drag(&mut app, 40.0, 56.0);
+        assert_eq!(app.distort.liquify.as_ref().unwrap().strokes.len(), 1);
+        app.session.execute("layer.delete", json!({"layer": layer.0})).unwrap();
+        let steps = app.session.active().unwrap().history.past_len();
+        let r = control(&mut app, &json!({"commit": true}));
+        assert!(app.distort.liquify.is_none());
+        assert!(app.ui.status_error);
+        assert!(!app.ui.status.is_empty());
+        assert_eq!(app.session.active().unwrap().history.past_len(), steps);
+        assert_eq!(r, Err(app.ui.status.clone()));
     }
 }

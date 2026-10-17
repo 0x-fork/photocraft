@@ -166,7 +166,7 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
     }
     if app.distort.liquify.is_some() {
         if enter(ctx) {
-            crate::liquify_ui::commit(app);
+            let _ = crate::liquify_ui::commit(app);
         } else if esc(ctx) {
             crate::liquify_ui::cancel(app);
         } else {
