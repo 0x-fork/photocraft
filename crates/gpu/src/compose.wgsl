@@ -1016,6 +1016,16 @@ fn fx_color(d: vec2<i32>) -> vec4<f32> {
     return op.color;
 }
 
+// effects::paint: blend an effect's colour `s` (alpha = colour alpha × coverage × opacity) into
+// `dst` at document pixel `d`. Dissolve takes the effect fully or not at all (effects::dissolves_in).
+fn fx_composite(d: vec2<i32>, dst: vec4<f32>, s: vec4<f32>) -> vec4<f32> {
+    if (op.mode == M_DISSOLVE) {
+        if (dissolve_noise(d) < s.a) { return composite(M_NORMAL, dst, vec4(s.rgb, 1.0), 1.0); }
+        return dst;
+    }
+    return composite(op.mode, dst, s, 1.0);
+}
+
 // Effect chain steps (`kind`): 0 A at `opacity` × alpha; 1 an opaque copy of A (a clipping base
 // for clipped layers' effects); 2 A's colour with alpha `opacity` inside B's shape (the layer
 // before its interior effects); 3 A with its alpha × B's alpha (the shape's own alpha); 4 the
@@ -1034,7 +1044,7 @@ fn fs_fxinit(in: VOut) -> @location(0) vec4<f32> {
             let a = textureLoad(tex_b, p, 0).a;
             let s = textureLoad(tex_c, p, 0);
             if (s.a <= 0.0 || a <= INSIDE_EPS) { return c; }
-            return composite(op.mode, c, vec4(s.rgb, op.opacity * min(s.a / a, 1.0)), 1.0);
+            return fx_composite(doc_px(p), c, vec4(s.rgb, op.opacity * min(s.a / a, 1.0)));
         }
         case 5: {
             let a = textureLoad(tex_b, p, 0).a;
@@ -1083,12 +1093,12 @@ fn fs_fxpaint(in: VOut) -> @location(0) vec4<f32> {
         let k = min(m * op.p0.x, 1.0) * op.opacity;
         if (k <= 0.0) { return dst; }
         let t = 1.0 - clamp(m, 0.0, 1.0);
-        return composite(op.mode, dst, vec4(lut(0, t), lut(1, t), lut(2, t), lut(3, t) * k), 1.0);
+        return fx_composite(d, dst, vec4(lut(0, t), lut(1, t), lut(2, t), lut(3, t) * k));
     }
     let k = m * op.opacity;
     if (k <= 0.0) { return dst; }
     let c = fx_color(d);
-    return composite(op.mode, dst, vec4(c.rgb, c.a * k), 1.0);
+    return fx_composite(d, dst, vec4(c.rgb, c.a * k));
 }
 
 // Outside strokes (A = the exterior result before them, B = the layer, C = coverage so far in
@@ -1125,7 +1135,12 @@ fn fs_fxstroke(in: VOut) -> @location(0) vec4<f32> {
             k = clamp((1.0 - clamp(a, 0.0, 1.0)) / (1.0 - lay_a), 0.0, 1.0);
         }
     }
-    let share = k * op.opacity * (1.0 - cover);
+    var cov = k * op.opacity;
+    if (op.mode == M_DISSOLVE) {
+        // effects.rs: a Dissolve stroke covers each pixel fully or not at all.
+        cov = select(0.0, 1.0, cov > 0.0 && dissolve_noise(d) < cov);
+    }
+    let share = cov * (1.0 - cover);
     if (op.kind == 1) { return vec4(cover + share, lay_a, 0.0, 0.0); }
     var acc = vec4(0.0);
     if (!first) { acc = textureLoad(layer_tex, p, 0); }

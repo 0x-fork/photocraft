@@ -1278,7 +1278,9 @@ impl<'a> Planner<'a> {
                 p.c = cover.map(|c| self.retain(c));
                 p.d = acc;
                 let a = self.emit(p);
-                let mut p = self.fx_pass_kernel(Kernel::FxStroke, w, content, &Paint::Color([0.0; 3]), BlendMode::Normal, st.common.opacity, flags, clip, sb);
+                // The stroke's mode rides along only for Dissolve, whose coverage is all or
+                // nothing in this pass as in the colour pass (#6995).
+                let mut p = self.fx_pass_kernel(Kernel::FxStroke, w, content, &Paint::Color([0.0; 3]), st.common.blend, st.common.opacity, flags, clip, sb);
                 p.adjust_kind = 1;
                 p.map = Some(map(i, 0));
                 p.c = cover;

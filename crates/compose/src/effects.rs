@@ -68,13 +68,18 @@ pub const MAX_REACH: f32 = 512.0;
 /// shape's extent), Precise glows and chiselled bevels (exact Euclidean distances, whose f32
 /// arithmetic depends on where the region starts) and noise (it speckles any coverage above
 /// zero, so it would pick up the blur's float noise, which depends on where the region starts).
+/// Dissolve is not local for the same reason: it turns any coverage above zero into a chance of
+/// a full pixel.
 pub(crate) fn maps_are_local(layer: &Layer) -> bool {
-    layer.effects.items.iter().filter(|e| e.enabled()).all(|e| match e {
-        Effect::Stroke(s) => !matches!(s.paint, FxPaint::Gradient(_)),
-        Effect::DropShadow(s) | Effect::InnerShadow(s) => s.noise <= 0.0,
-        Effect::OuterGlow(g) | Effect::InnerGlow(g) => g.technique != GlowTechnique::Precise && g.noise <= 0.0,
-        Effect::BevelEmboss(b) => b.technique == BevelTechnique::Smooth,
-        _ => true,
+    layer.effects.items.iter().filter(|e| e.enabled()).all(|e| {
+        !dissolves(e)
+            && match e {
+                Effect::Stroke(s) => !matches!(s.paint, FxPaint::Gradient(_)),
+                Effect::DropShadow(s) | Effect::InnerShadow(s) => s.noise <= 0.0,
+                Effect::OuterGlow(g) | Effect::InnerGlow(g) => g.technique != GlowTechnique::Precise && g.noise <= 0.0,
+                Effect::BevelEmboss(b) => b.technique == BevelTechnique::Smooth,
+                _ => true,
+            }
     })
 }
 
@@ -1108,14 +1113,41 @@ fn sample_stops(stops: &[(f32, [f32; 3])], t: f32) -> [f32; 3] {
 
 /// Composite `color × coverage` into `dst` (both over the same rectangle).
 fn paint(dst: &mut Buffer, m: &Map, color: impl Fn(usize) -> [f32; 4], blend: BlendMode, opacity: f32) {
+    let (x0, y0, w) = (i64::from(dst.rect.x0), i64::from(dst.rect.y0), (dst.rect.width().max(1)) as usize);
     for (i, p) in dst.px.iter_mut().enumerate() {
         let a = m.v[i] * opacity;
         if a <= 0.0 {
             continue;
         }
         let c = color(i);
+        if blend == BlendMode::Dissolve {
+            if dissolves_in(x0 + (i % w) as i64, y0 + (i / w) as i64, c[3] * a) {
+                *p = psblend::composite(BlendMode::Normal, *p, [c[0], c[1], c[2], 1.0], 1.0);
+            }
+            continue;
+        }
         *p = psblend::composite(blend, *p, [c[0], c[1], c[2], c[3] * a], 1.0);
     }
+}
+
+/// Whether `e` paints anything in Dissolve mode.
+fn dissolves(e: &Effect) -> bool {
+    let d = |m: BlendMode| m == BlendMode::Dissolve;
+    match e {
+        Effect::DropShadow(s) | Effect::InnerShadow(s) => d(s.common.blend),
+        Effect::OuterGlow(g) | Effect::InnerGlow(g) => d(g.common.blend),
+        Effect::Stroke(s) => d(s.common.blend),
+        Effect::ColorOverlay { common, .. } | Effect::GradientOverlay { common, .. } | Effect::PatternOverlay { common, .. } => d(common.blend),
+        Effect::Satin(s) => d(s.common.blend),
+        Effect::BevelEmboss(b) => d(b.highlight.blend) || d(b.shadow.blend),
+    }
+}
+
+/// Dissolve on an effect (#6995): a pixel takes the effect fully or not at all, with probability
+/// `coverage`, picked by the same document-coordinate noise as a Dissolve layer. A soft glow or
+/// shadow turns into scattered speckle instead of a smooth falloff.
+fn dissolves_in(x: i64, y: i64, coverage: f32) -> bool {
+    hash_noise(x, y) < coverage
 }
 
 fn paint_color(dst: &mut Buffer, m: &Map, c: [f32; 3], blend: BlendMode, opacity: f32) {
@@ -2110,7 +2142,12 @@ pub(crate) fn composite_with_effects_prepared(
                 } else {
                     band
                 };
-                *sh = k * st.common.opacity * (1.0 - cover[i]);
+                let mut k = k * st.common.opacity;
+                if st.common.blend == BlendMode::Dissolve {
+                    let (x, y) = (i64::from(big.x0) + (i % w) as i64, i64::from(big.y0) + (i / w) as i64);
+                    k = if k > 0.0 && dissolves_in(x, y, k) { 1.0 } else { 0.0 };
+                }
+                *sh = k * (1.0 - cover[i]);
                 cover[i] += *sh;
             }
             // The stroke blended over the backdrop at full coverage.
