@@ -231,7 +231,11 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
                 None => {
                     let own = app.session.active().and_then(|d| d.path.clone().map(|p| (photocraft_engine::file_cmds::holds_at(&d.doc, &p), p, d)));
                     match own {
-                        Some((true, path, _)) => app.save_in_place(path),
+                        Some((true, path, d)) => {
+                            // Another app changed the file since it was opened or saved: ask first (#6596).
+                            let doc = d.doc.id;
+                            crate::disk_change_prompt::intercept(app, doc, &path, false).unwrap_or_else(|| app.save_in_place(path))
+                        }
                         Some((false, path, d)) if photocraft_engine::file_cmds::saves_in_place(&path) => {
                             // Its own file is layered but can't hold what the document has now.
                             let losses = photocraft_engine::file_cmds::losses_at(&d.doc, &path);

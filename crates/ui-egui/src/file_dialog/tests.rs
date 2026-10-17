@@ -1010,3 +1010,90 @@ fn render_video_menu_asks_for_directory_and_writes_frames_only_after_confirmatio
     assert!(!app.file_dialog_open());
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// How many times each path was written, standing in for its size and modification time.
+type Disk = Rc<RefCell<std::collections::HashMap<String, u64>>>;
+
+/// Gives `app` file stamps from a fake disk that its own writes update too.
+fn on_disk(app: &mut PhotocraftApp) -> Disk {
+    let disk = Disk::default();
+    let (read, wrote) = (disk.clone(), disk.clone());
+    app.services.file_stamp = Some(Box::new(move |path| read.borrow().get(path).map(|&n| crate::FileStamp { len: n, modified: None })));
+    let mut write = app.services.write.take().unwrap();
+    app.services.write = Some(Box::new(move |path, bytes| {
+        write(path, bytes)?;
+        *wrote.borrow_mut().entry(path.to_string()).or_default() += 1;
+        Ok(())
+    }));
+    disk
+}
+
+fn changed_by_another_app(disk: &Disk, path: &str) {
+    *disk.borrow_mut().entry(path.to_string()).or_default() += 1;
+}
+
+fn disk_prompt(app: &PhotocraftApp) -> Option<&crate::state::Dialog> {
+    app.ui.dialogs.iter().find(|d| crate::disk_change_prompt::owns(&d.fields))
+}
+
+#[test]
+fn save_asks_before_replacing_a_file_another_app_changed() {
+    let ctx = egui::Context::default();
+    let (mut app, _open, written) = app();
+    let disk = on_disk(&mut app);
+    changed_by_another_app(&disk, "/pics/a.psd");
+    app.opened_from("/pics/a.psd");
+    app.run("layer.new.layer", json!({})).unwrap();
+    // Unchanged on disk: Save writes at once.
+    menus::invoke(&mut app, &ctx, "file.save", json!({})).unwrap();
+    assert_eq!(*written.borrow(), ["/pics/a.psd"]);
+    assert!(disk_prompt(&app).is_none());
+
+    // Our own save isn't a change; another app's write after it is.
+    changed_by_another_app(&disk, "/pics/a.psd");
+    app.run("layer.new.layer", json!({})).unwrap();
+    let r = menus::invoke(&mut app, &ctx, "file.save", json!({})).unwrap();
+    assert_eq!(r["confirmationPending"], true);
+    assert_eq!(written.borrow().len(), 1, "nothing is written before the answer");
+    let prompt = disk_prompt(&app).expect("Save asks first");
+    assert!(prompt.fields["message"].as_str().unwrap().contains("a.psd"));
+
+    // Cancel leaves the file and the unsaved document alone.
+    let id = prompt.id;
+    app.ui.close_dialog(id);
+    assert_eq!(written.borrow().len(), 1);
+    assert!(app.session.active().unwrap().is_dirty());
+
+    // Replace writes it, and the next Save doesn't ask again.
+    let id = menus::invoke(&mut app, &ctx, "file.save", json!({})).unwrap()["dialog"].as_u64().unwrap();
+    crate::dialogs::confirm(&mut app, id).unwrap();
+    assert_eq!(written.borrow().len(), 2);
+    assert!(!app.session.active().unwrap().is_dirty());
+    app.run("layer.new.layer", json!({})).unwrap();
+    menus::invoke(&mut app, &ctx, "file.save", json!({})).unwrap();
+    assert_eq!(written.borrow().len(), 3);
+    assert!(disk_prompt(&app).is_none());
+}
+
+#[test]
+fn save_of_a_flat_file_asks_after_the_dialog_when_another_app_changed_it() {
+    let ctx = egui::Context::default();
+    // Lowercase: the Save dialog lowercases a typed extension by default.
+    let path = "/pics/My image.jpg";
+    let (mut app, open, written) = jpeg_app(None, false);
+    let disk = on_disk(&mut app);
+    changed_by_another_app(&disk, path);
+    app.opened_from(path);
+    app.run("image.adjustments.invert", json!({})).unwrap();
+    changed_by_another_app(&disk, path);
+    menus::invoke(&mut app, &ctx, "file.save", json!({})).unwrap();
+    app.poll_file_dialog(&ctx, None);
+    answer(&open, Some(FileDialogAnswer::SaveTo(path.into())));
+    app.poll_file_dialog(&ctx, None);
+    assert!(written.borrow().is_empty(), "the changed file is not replaced before the answer");
+    let id = disk_prompt(&app).expect("Save asks first").id;
+    crate::dialogs::confirm(&mut app, id).unwrap();
+    assert_eq!(*written.borrow(), [path]);
+    assert!(!app.session.active().unwrap().is_dirty());
+    assert_eq!(app.session.journal.last().map(|s| s.0.as_str()), Some("file.save"), "still recorded as a plain Save");
+}
