@@ -451,7 +451,7 @@ mod tests {
         assert_eq!(tr(HI(), "Layer"), "लेयर");
         assert_eq!(tr(HI(), "File"), "फ़ाइल");
         assert_eq!(trn(HI(), 1, "{n} layer", "{n} layers"), "1 लेयर");
-        assert_eq!(trn(HI(), 3, "{n} layer", "{n} layers"), "3 लेयरें");
+        assert_eq!(trn(HI(), 3, "{n} layer", "{n} layers"), "3 लेयर्स");
     }
 
     #[test]

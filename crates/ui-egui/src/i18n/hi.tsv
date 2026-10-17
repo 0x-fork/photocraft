@@ -39,7 +39,7 @@
 	Save	सहेजें
 	Save As…	इस रूप में सहेजें…
 	Save a Copy…	एक प्रति सहेजें…
-	Revert	वापस लौटें
+	Revert	मूल स्थिति में लाएं
 	Export	एक्सपोर्ट करें
 	Export As…	इस रूप में एक्सपोर्ट करें…
 	Quick Export as PNG	PNG के रूप में त्वरित एक्सपोर्ट
@@ -55,10 +55,10 @@
 	Cut	काटें
 	Copy	कॉपी करें
 	Copy Merged	मर्ज की गई कॉपी
-	Paste	पेस्ट
+	Paste	पेस्ट करें
 	Paste Special	विशेष रूप में पेस्ट करें
 	Paste in Place	स्थान पर पेस्ट करें
-	Paste Into	में पेस्ट करें
+	Paste Into	अंदर पेस्ट करें
 	Paste Outside	बाहर पेस्ट करें
 	Clear	साफ़ करें
 	Fill…	भरें…
@@ -117,7 +117,7 @@
 # Layer Menu
 	New	नया
 	Layer…	लेयर…
-	Layer from Background	पृष्ठभूमि से लेयर
+	Layer from Background	बैकग्राउंड से लेयर
 	Group…	समूह…
 	Group from Layers…	लेयर्स से समूह…
 	Artboard…	आर्टबोर्ड…
@@ -146,7 +146,7 @@
 	All	सभी
 	Deselect	अचयनित करें
 	Reselect	पुनः चयन करें
-	Inverse	उलटा करें
+	Inverse	उल्टा करें
 	All Layers	सभी लेयर्स
 	Deselect Layers	लेयर्स अचयनित करें
 	Find Layers	लेयर्स खोजें
@@ -195,13 +195,13 @@
 	Delete Workspace…	कार्यस्थान हटाएँ…
 	Lock Workspace	कार्यस्थान लॉक करें
 	Color	रंग
-	Swatches	नमूने
+	Swatches	स्वॉचेस
 	Gradients	ग्रेडिएंट्स
 	Patterns	पैटर्न्स
 	Properties	गुण
 	Layers	लेयर्स
 	Channels	चैनल्स
-	Paths	पथ
+	Paths	पाथ्स
 	History	हिस्ट्री
 	Actions	एक्शन्स
 	Brushes	ब्रश
@@ -263,8 +263,8 @@
 	Pen Tool	पेन टूल
 	Freeform Pen Tool	फ्रीफॉर्म पेन टूल
 	Curvature Pen Tool	कर्वचर पेन टूल
-	Add Anchor Point Tool	एंकर पॉइंट टूल
-	Delete Anchor Point Tool	एंकर पॉइंट टूल
+	Add Anchor Point Tool	ऐड एंकर पॉइंट टूल
+	Delete Anchor Point Tool	डिलीट एंकर पॉइंट टूल
 	Convert Point Tool	कन्वर्ट पॉइंट टूल
 	Horizontal Type Tool	हॉरिजोंटल टाइप टूल
 	Vertical Type Tool	वर्टिकल टाइप टूल
@@ -314,10 +314,10 @@
 	Auto	स्वचालित
 
 # Plurals
-@plural	{n} layer|{n} layers	{n} लेयर|{n} लेयरें
-@plural	{n} item|{n} items	{n} आइटम|{n} आइटम
+@plural	{n} layer|{n} layers	{n} लेयर|{n} लेयर्स
+@plural	{n} item|{n} items	{n} आइटम|{n} आइटम्स
 @plural	{n} document|{n} documents	{n} दस्तावेज़|{n} दस्तावेज़
-@plural	{n} pixel|{n} pixels	{n} पिक्सेल|{n} पिक्सेल
+@plural	{n} pixel|{n} pixels	{n} पिक्सेल|{n} पिक्सेल्स
 
 # Tool and Scope strings
 	Scope	दायरा
@@ -343,8 +343,8 @@ cameraRaw	Balance	संतुलन
 	Balance	संतुलन
 cameraRaw	Before (Y)	पहले (Y)
 	Before (Y)	पहले (Y)
-cameraRaw	Blacks	काले बिंदु
-	Blacks	काले बिंदु
+cameraRaw	Blacks	ब्लैक्स
+	Blacks	ब्लैक्स
 cameraRaw	Blending	मिश्रण
 	Blending	मिश्रण
 cameraRaw	Blue	नीला
@@ -453,8 +453,8 @@ cameraRaw	Save Settings…	सेटिंग्स सहेजें…
 	Save Settings…	सेटिंग्स सहेजें…
 cameraRaw	Save these settings as a Camera Raw .xmp file	इन सेटिंग्स को Camera Raw .xmp फ़ाइल के रूप में सहेजें
 	Save these settings as a Camera Raw .xmp file	इन सेटिंग्स को Camera Raw .xmp फ़ाइल के रूप में सहेजें
-cameraRaw	Shadow Clipping Warning (U)	छाया क्लिपिंग चेतावनी (U)
-	Shadow Clipping Warning (U)	छाया क्लिपिंग चेतावनी (U)
+cameraRaw	Shadow Clipping Warning (U)	शैडो क्लिपिंग चेतावनी (U)
+	Shadow Clipping Warning (U)	शैडो क्लिपिंग चेतावनी (U)
 cameraRaw	Shadows	शेडोज़
 	Shadows	शेडोज़
 cameraRaw	Sharpening	शार्पनिंग
@@ -483,9 +483,9 @@ cameraRaw	Vibrance	वाइब्रेंस
 	Vibrance	वाइब्रेंस
 cameraRaw	Vignetting	विगनेटिंग
 	Vignetting	विगनेटिंग
-cameraRaw	White Balance: As Shot	श्वेत संतुलन: शॉट के अनुसार
-	White Balance: As Shot	श्वेत संतुलन: शॉट के अनुसार
-cameraRaw	Whites	सफेद बिंदु
-	Whites	सफेद बिंदु
+cameraRaw	White Balance: As Shot	व्हाइट बैलेंस: शॉट के अनुसार
+	White Balance: As Shot	व्हाइट बैलेंस: शॉट के अनुसार
+cameraRaw	Whites	व्हाइट्स
+	Whites	व्हाइट्स
 cameraRaw	Yellow	पीला
 	Yellow	पीला
