@@ -281,7 +281,7 @@ fn warp(
     // that matters is the one at the source point landing in the clip's centre.
     let (cx, cy) = match clip.and_then(|c| Some((c, h.inverse()?))) {
         Some((c, inv)) => inv.apply((c.x0 as f64 + c.x1 as f64) / 2.0, (c.y0 as f64 + c.y1 as f64) / 2.0),
-        None => ((src_rect.x0 + src_rect.x1) as f64 / 2.0, (src_rect.y0 + src_rect.y1) as f64 / 2.0),
+        None => ((f64::from(src_rect.x0) + f64::from(src_rect.x1)) / 2.0, (f64::from(src_rect.y0) + f64::from(src_rect.y1)) / 2.0),
     };
     let scale = h.local_scale(cx, cy);
     let reduced;
@@ -366,10 +366,10 @@ fn warp(
             return Ok(None);
         }
         let fp: Vec<(f64, f64)> = poly.iter().map(|&(x, y)| inv.apply(x, y)).collect();
-        let fx0 = fp.iter().map(|c| c.0).fold(f64::MAX, f64::min).floor() as i32 - 3;
-        let fy0 = fp.iter().map(|c| c.1).fold(f64::MAX, f64::min).floor() as i32 - 3;
-        let fx1 = fp.iter().map(|c| c.0).fold(f64::MIN, f64::max).ceil() as i32 + 3;
-        let fy1 = fp.iter().map(|c| c.1).fold(f64::MIN, f64::max).ceil() as i32 + 3;
+        let fx0 = (fp.iter().map(|c| c.0).fold(f64::MAX, f64::min).floor() as i32).saturating_sub(3);
+        let fy0 = (fp.iter().map(|c| c.1).fold(f64::MAX, f64::min).floor() as i32).saturating_sub(3);
+        let fx1 = (fp.iter().map(|c| c.0).fold(f64::MIN, f64::max).ceil() as i32).saturating_add(3);
+        let fy1 = (fp.iter().map(|c| c.1).fold(f64::MIN, f64::max).ceil() as i32).saturating_add(3);
         // Without a one-signed forward w, a tile straddling the inverse horizon has no bounded footprint.
         let straddles = side.is_none() && wc.iter().any(|w| *w <= 0.0) && wc.iter().any(|w| *w >= 0.0);
         let foot = if straddles { src_rect } else { Rect::new(fx0, fy0, fx1, fy1).intersect(&src_rect) };

@@ -69,6 +69,7 @@ pub const TABLE: &[(&str, Class)] = &[
     ("photocraft", Class::Exempt),
     ("cli", Class::Exempt),
     ("web", Class::Exempt),
+    ("web-boot", Class::Exempt),
     ("xtask", Class::Exempt),
 ];
 
@@ -199,11 +200,8 @@ pub fn check(crates: &[Crate]) -> Vec<Violation> {
                 match classify(&d.name) {
                     // Unregistered deps are reported on their own entry.
                     None => {}
-                    Some(Class::Testkit) => {
-                        if d.kind != DepKind::Dev {
-                            out.push(Violation::TestkitAsNormalDep { krate: c.name.clone() });
-                        }
-                    }
+                    Some(Class::Testkit) if d.kind != DepKind::Dev => out.push(Violation::TestkitAsNormalDep { krate: c.name.clone() }),
+                    Some(Class::Testkit) => {}
                     Some(dc) => {
                         let to = dc.layer().unwrap_or(u8::MAX);
                         if to >= layer && !(to == layer && intra_layer_allowed(&c.name, &d.name)) {
@@ -373,7 +371,7 @@ mod tests {
 
     #[test]
     fn apps_and_xtask_exempt() {
-        for app in ["photocraft", "photocraft-cli", "photocraft-web", "xtask"] {
+        for app in ["photocraft", "photocraft-cli", "photocraft-web", "photocraft-web-boot", "xtask"] {
             assert!(check(&[c(app, &[("egui", Normal, false), ("photocraft-ui-egui", Normal, true)])]).is_empty());
         }
     }
