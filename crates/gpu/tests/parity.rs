@@ -4,7 +4,7 @@
 use photocraft_color::{BlendMode, Color, ColorMode, PixelFormat, SampleType};
 use photocraft_doc::adjust::{CurvePoint, HueRange, LevelsChannel};
 use photocraft_doc::{Adjustment, Document, Fill, GradientStyle, Layer, LayerContent, LayerMask};
-use photocraft_geom::{Rect, Size};
+use photocraft_geom::{Rect, Size, TILE_SIZE};
 use photocraft_gpu::{Compositor, render_to_vec};
 
 /// One 8-bit step, plus a few f32 ulps: two results exactly one step apart can differ by a hair
@@ -193,6 +193,30 @@ fn diff_rect(g: &mut Gpu, doc: &Document, rect: Rect, what: &str) -> Result<phot
 
 fn check(g: &mut Gpu, doc: &Document, what: &str) {
     diff_rect(g, doc, doc.bounds(), what).unwrap_or_else(|e| panic!("{e}"));
+}
+
+/// Growing a layer's tile footprint keeps the old texels in the overlap (`keep_overlap`) while
+/// the same update rewrites tiles inside that overlap (#6243). The keep copy is recorded in the
+/// frame's encoder and the changed tiles go through encoder-ordered scratch copies, so the
+/// fresh texels must win; if the copy ran after the tile writes (queue writes land before the
+/// encoder does), the overlap would keep the previous step's colours. Every step grows by one
+/// tile and rewrites everything with per-step noise, on the whole-texture and the paged
+/// compositor alike, and each render matches the CPU oracle.
+#[test]
+fn tile_growth_rewrite_keeps_fresh_texels_in_the_overlap() {
+    let Some(mut g) = gpu() else { return };
+    let tile = TILE_SIZE as u32;
+    let steps = 4;
+    let mut doc = Document::new("tile growth", Size::new(steps * tile, tile), ColorMode::Rgb, SampleType::U8);
+    doc.layers.push(Layer::raster("grow", PixelFormat::RGBA8));
+    for step in 1..=steps {
+        // Wider by one tile than at the last render, so the resident's region grows and every
+        // tile inside the kept overlap changes: stale texels cannot masquerade as correct ones.
+        let w = step * tile;
+        let data: Vec<f32> = (0..w * tile * 4).map(|i| rnd(1000 + step, i)).collect();
+        doc.layers[0].surface_mut().unwrap().write_region(Rect::from_xywh(0, 0, w, tile), &data);
+        check(&mut g, &doc, &format!("tile growth step {step}/{steps}"));
+    }
 }
 
 /// Closing a document frees what the compositor holds for it, however its canvas entry went
