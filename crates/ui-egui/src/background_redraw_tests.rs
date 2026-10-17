@@ -240,11 +240,13 @@ fn showing_a_hidden_layer_again_reuses_the_redraw_from_before_it_was_hidden() {
     assert!(g.harness.state().redraws.is_empty(), "no redraw: {}", g.harness.state().perf.last_refresh);
     assert_eq!(g.harness.state().perf.last_refresh, KEPT);
     assert_matches_synchronous(&mut g, doc);
-    // A real change composites again.
+    // A real change composites again. `last_refresh` is only set when that redraw finishes, so
+    // check that one started, then that it was a composite rather than kept blocks.
     g.harness.state_mut().run("layer.setProps", json!({"layer": layer.0, "opacity": 0.3})).expect("opacity");
     g.harness.step();
-    assert_ne!(g.harness.state().perf.last_refresh, KEPT);
+    assert!(g.harness.state().redraws.contains_key(&doc), "not served from kept blocks: {}", g.harness.state().perf.last_refresh);
     settle(&mut g);
+    assert_eq!(g.harness.state().perf.last_refresh, "background");
     assert_matches_synchronous(&mut g, doc);
 }
 
