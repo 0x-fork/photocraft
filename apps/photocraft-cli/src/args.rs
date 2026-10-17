@@ -130,9 +130,6 @@ pub(crate) struct RunArgs {
 /// droplet). An Actions set (the Actions panel's actions.json, {"actions": [{"name", "steps"}…]})
 /// plays the action --action names (needed when the set holds more than one) with the whole set
 /// loaded, so its steps can play other actions of the set.
-///
-/// An --out folder that is the --in folder is refused, as the results would replace the
-/// originals; --in-place allows it.
 #[derive(Args)]
 pub(crate) struct BatchArgs {
     /// The action list: actions.json, a droplet, or a Photoshop Actions file (.atn)
@@ -228,7 +225,7 @@ pub(crate) struct ServeArgs {
 fn steps(m: &ArgMatches) -> Vec<(bool, String)> {
     let mut steps: Vec<(usize, bool, String)> = Vec::new();
     for (id, is_cmd) in [("cmd", true), ("params", false)] {
-        if let (Some(at), Some(values)) = (m.indices_of(id), m.get_many::<String>(id)) {
+        if let (Some(at), Some(values)) = (m.indices_of(id), m.try_get_many::<String>(id).ok().flatten()) {
             steps.extend(at.zip(values).map(|(i, v)| (i, is_cmd, v.clone())));
         }
     }
