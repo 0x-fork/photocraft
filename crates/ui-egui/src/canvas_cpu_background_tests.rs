@@ -79,10 +79,13 @@ fn harness(size: [u32; 2], background: &str) -> Harness {
         app
     });
     h.run_steps(12);
+    h
+}
+
+fn assert_fixture(h: &Harness, background: &str) {
     let key = cache_key(h.state().session.documents()[0].doc.id, None);
     assert!(h.state().session.prefs().transparency_and_gamut.square().is_some());
     assert_eq!(h.state().canvases[&key].texture_opaque, background == "white", "fixture opacity");
-    h
 }
 
 /// Draw the unchanged reference path by temporarily disabling only the opacity guarantee.
@@ -105,6 +108,8 @@ fn omitting_an_occluded_checker_preserves_cpu_canvas_pixels() {
         eprintln!("skipping: no offscreen graphics adapter");
         return;
     };
+    // Fixture failures must fail the test, outside the missing-adapter skip above.
+    assert_fixture(&h, "white");
     for (rotation, flip, pattern) in [(0.0, false, false), (23.0, false, false), (0.0, true, false), (0.0, false, true)] {
         h.state_mut().ui.views[0].rotation = rotation;
         h.state_mut().ui.view.flip_horizontal = flip;
@@ -125,6 +130,7 @@ fn cpu_canvas_background_benchmark() {
     let output = std::env::var_os("PHOTOCRAFT_CPU_BENCH_OUTPUT").map(std::path::PathBuf::from);
     for background in ["white", "transparent"] {
         let mut h = harness([6000, 4000], background);
+        assert_fixture(&h, background);
         let v = &mut h.state_mut().ui.views[0];
         v.zoom = 1.0;
         v.center = [3000.0, 2000.0];
