@@ -3062,6 +3062,7 @@ cameraData	Lens	Lente
 	Wait for the current job to finish.	Aguarde a conclusão da tarefa atual.
 	The document or Smart Filter changed. Reopen its dialog.	O documento ou o Filtro Inteligente mudou. Reabra sua caixa de diálogo.
 	Opacity must be between 0% and 100%.	A opacidade deve estar entre 0% e 100%.
+	Dissolve is approximated: it blends without Photoshop's dither.	Dissolver é aproximado: a mesclagem ocorre sem o dither do Photoshop.
 
 	Loading fonts…	Carregando fontes…
 	Response curve	Curva de resposta

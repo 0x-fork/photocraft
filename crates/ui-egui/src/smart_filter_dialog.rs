@@ -130,6 +130,11 @@ pub(crate) fn edit_command(app: &PhotocraftApp, fields: &Map<String, Value>) -> 
     }
 }
 
+/// Dissolve has no per-pixel coverage sampling in Smart Filter blending yet (docs/smart-filters.md).
+fn mode_note(blend: Option<&str>) -> Option<&'static str> {
+    (blend == Some(BlendMode::Dissolve.label())).then(|| tl!("Dissolve is approximated: it blends without Photoshop's dither."))
+}
+
 pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, fields: &mut Map<String, Value>) {
     ui.horizontal(|ui| {
         ui.label(tl!("Mode"));
@@ -139,6 +144,9 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, fields: &mut Map<String,
             fields.insert("blend".into(), json!(blend));
         }
     });
+    if let Some(note) = mode_note(fields.get("blend").and_then(Value::as_str)) {
+        ui.label(egui::RichText::new(note).color(Tokens::get(ui.ctx()).text_faint).size(11.0));
+    }
     let mut opacity = fields.get("opacity").and_then(Value::as_f64).unwrap_or(100.0) as f32;
     if widgets::slider_row(ui, tl!("Opacity"), &mut opacity, 0.0..=100.0, "%", None).changed() {
         fields.insert("opacity".into(), json!(opacity));

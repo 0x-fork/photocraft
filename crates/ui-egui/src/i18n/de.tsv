@@ -2683,6 +2683,7 @@ cameraData	Lens	Objektiv
 	Wait for the current job to finish.	Warten Sie, bis der aktuelle Auftrag abgeschlossen ist.
 	The document or Smart Filter changed. Reopen its dialog.	Das Dokument oder der Smartfilter wurde geändert. Öffnen Sie den Dialog erneut.
 	Opacity must be between 0% and 100%.	Die Deckkraft muss zwischen 0% und 100% liegen.
+	Dissolve is approximated: it blends without Photoshop's dither.	Sprenkeln wird nur angenähert: Es wird ohne das Dithering von Photoshop gemischt.
 
 	Loading fonts…	Schriften werden geladen…
 	Response curve	Reaktionskurve

@@ -2983,6 +2983,7 @@ cameraData	Lens	Объектив
 	Wait for the current job to finish.	Дождитесь завершения текущей задачи.
 	The document or Smart Filter changed. Reopen its dialog.	Документ или смарт-фильтр изменился. Откройте его диалог заново.
 	Opacity must be between 0% and 100%.	Непрозрачность должна быть от 0% до 100%.
+	Dissolve is approximated: it blends without Photoshop's dither.	Растворение приближённое: смешивание без дизеринга Photoshop.
 
 	Loading fonts…	Загрузка шрифтов…
 	Response curve	Кривая отклика

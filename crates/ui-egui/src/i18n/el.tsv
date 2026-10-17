@@ -3739,6 +3739,7 @@ cameraData	Lens	Φακός
 	Wait for the current job to finish.	Περιμένετε να ολοκληρωθεί η τρέχουσα εργασία.
 	The document or Smart Filter changed. Reopen its dialog.	Το έγγραφο ή το έξυπνο φίλτρο άλλαξε. Ανοίξτε ξανά το παράθυρό του.
 	Opacity must be between 0% and 100%.	Η αδιαφάνεια πρέπει να είναι μεταξύ 0% και 100%.
+	Dissolve is approximated: it blends without Photoshop's dither.	Η Διάλυση προσεγγίζεται: η ανάμειξη γίνεται χωρίς το dither του Photoshop.
 
 	Loading fonts…	Φόρτωση γραμματοσειρών…
 	Response curve	Καμπύλη απόκρισης

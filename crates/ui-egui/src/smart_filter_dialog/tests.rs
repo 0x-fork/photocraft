@@ -37,6 +37,41 @@ fn tiny_images_keep_a_usable_preview_viewport() {
     .clear();
 }
 
+fn painted_text(app: &mut PhotocraftApp, fields: &mut Map<String, Value>) -> Vec<String> {
+    fn collect(shape: &egui::Shape, out: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(text) => out.push(text.galley.job.text.clone()),
+            egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| collect(s, out)),
+            _ => {}
+        }
+    }
+    let ctx = egui::Context::default();
+    PhotocraftApp::setup_context(&ctx, Default::default());
+    let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(480.0, 640.0))), ..Default::default() };
+    let mut output = ctx.run_ui(input, |ui| super::body(app, ui, fields));
+    output.textures_delta.clear();
+    let mut painted = Vec::new();
+    output.shapes.iter().for_each(|s| collect(&s.shape, &mut painted));
+    painted
+}
+
+#[test]
+fn only_dissolve_shows_the_approximation_note_near_the_mode_control() {
+    let note = "Dissolve is approximated: it blends without Photoshop's dither.";
+    let (mut app, layer) = app(8, "rgb");
+    let id = open(&mut app, layer, 0).unwrap();
+    let mut fields = app.ui.dialog_mut(id).unwrap().fields.clone();
+    for blend in BlendMode::LAYER_MODES {
+        fields.insert("blend".into(), json!(blend.label()));
+        let painted = painted_text(&mut app, &mut fields);
+        assert!(painted.iter().any(|s| s == "Mode"), "the Mode control paints for {}", blend.label());
+        assert_eq!(painted.iter().any(|s| s == note), blend == BlendMode::Dissolve, "note for {}", blend.label());
+    }
+    assert_eq!(mode_note(None), None);
+    assert_eq!(mode_note(Some("Normal")), None);
+    assert_eq!(mode_note(Some("Dissolve")), Some(note));
+}
+
 pub(crate) fn app(depth: u32, mode: &str) -> (PhotocraftApp, LayerId) {
     let mut s = photocraft_engine::Session::new();
     s.execute("file.new", json!({"width": 64, "height": 48, "depth": depth, "mode": mode})).unwrap();

@@ -3654,6 +3654,7 @@ cameraData	Lens	レンズ
 	Wait for the current job to finish.	現在の処理が完了するまでお待ちください。
 	The document or Smart Filter changed. Reopen its dialog.	ドキュメントまたはスマートフィルターが変更されました。ダイアログを開き直してください。
 	Opacity must be between 0% and 100%.	不透明度は0%から100%の範囲で指定してください。
+	Dissolve is approximated: it blends without Photoshop's dither.	ディザ合成は近似です。Photoshop のディザなしでブレンドします。
 
 	Loading fonts…	フォントを読み込み中…
 	Response curve	応答カーブ

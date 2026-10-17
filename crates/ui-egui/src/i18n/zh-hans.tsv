@@ -2655,6 +2655,7 @@ cameraData	Lens	镜头
 	Wait for the current job to finish.	请等待当前任务完成。
 	The document or Smart Filter changed. Reopen its dialog.	文档或智能滤镜已更改。请重新打开其对话框。
 	Opacity must be between 0% and 100%.	不透明度必须介于 0% 和 100% 之间。
+	Dissolve is approximated: it blends without Photoshop's dither.	“溶解”为近似效果：混合时没有 Photoshop 的抖动。
 
 	Loading fonts…	正在加载字体…
 	Response curve	响应曲线

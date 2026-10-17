@@ -3059,6 +3059,7 @@ cameraData	Lens	Objectif
 	Wait for the current job to finish.	Attendez la fin de la tâche en cours.
 	The document or Smart Filter changed. Reopen its dialog.	Le document ou le filtre dynamique a changé. Rouvrez sa boîte de dialogue.
 	Opacity must be between 0% and 100%.	L'opacité doit être comprise entre 0% et 100%.
+	Dissolve is approximated: it blends without Photoshop's dither.	Le mode Fondu est approximé : il fusionne sans le tramage de Photoshop.
 
 	Loading fonts…	Chargement des polices…
 	Response curve	Courbe de réponse
