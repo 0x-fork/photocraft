@@ -231,6 +231,21 @@ mod tests {
         assert_eq!(frame_angle([0.0, 0.0], [f64::INFINITY, 1.0], 1.0), None);
     }
 
+    /// A straighten is one box Undo step (#3145): Undo turns the frame back instead of undoing the
+    /// document under the pending crop, and Redo turns it again.
+    #[test]
+    fn straighten_is_a_box_undo_step() {
+        let mut app = app(SampleType::U8);
+        let before = (app.ui.crop_rect, app.ui.crop_angle);
+        drag(&mut app, &[[0.0, 0.0], [100.0, 17.6]], CMD);
+        let turned = (app.ui.crop_rect, app.ui.crop_angle);
+        assert!(turned.1.abs() > 5.0, "{turned:?}");
+        assert!(crate::crop_ui::intercept(&mut app, "edit.undo").is_some(), "Undo steps the box");
+        assert_eq!((app.ui.crop_rect, app.ui.crop_angle), before);
+        assert!(crate::crop_ui::intercept(&mut app, "edit.redo").is_some());
+        assert_eq!((app.ui.crop_rect, app.ui.crop_angle), turned);
+    }
+
     #[test]
     fn the_fitted_frame_is_the_largest_of_its_proportions_inside_the_canvas() {
         // Upright, the canvas's own proportions fill it.

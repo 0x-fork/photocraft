@@ -706,9 +706,17 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: Modifiers) -> bool 
     if crate::crop_straighten::pointer(app, ev, mods) {
         claim(app);
         // Default mode: the image turns so the line ends up level (the press keeps its point).
+        // The turn is one box Undo step, like any other frame gesture.
         match ev {
-            ToolEvent::Down { .. } => crate::crop_mode::sync(app, Some(p)),
-            _ => crate::crop_mode::sync_frame(app),
+            ToolEvent::Down { .. } => {
+                app.crop.press_step = Some(step_of(app));
+                crate::crop_mode::sync(app, Some(p));
+            }
+            ToolEvent::Move { .. } => crate::crop_mode::sync_frame(app),
+            ToolEvent::Up { .. } => {
+                crate::crop_mode::sync_frame(app);
+                push_press_step(app);
+            }
         }
         return true;
     }
@@ -774,16 +782,21 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: Modifiers) -> bool 
                 }
                 _ => {}
             }
-            if let Some(before) = app.crop.press_step.take()
-                && step_of(app) != before
-            {
-                app.crop.undo.push(before);
-                app.crop.redo.clear();
-            }
+            push_press_step(app);
         }
     }
     crate::crop_mode::sync_frame(app);
     true
+}
+
+/// On release: the frame state at the press becomes a box Undo step when the gesture changed it.
+fn push_press_step(app: &mut PhotocraftApp) {
+    if let Some(before) = app.crop.press_step.take()
+        && step_of(app) != before
+    {
+        app.crop.undo.push(before);
+        app.crop.redo.clear();
+    }
 }
 
 /// The frame follows the pointer at `p`.
