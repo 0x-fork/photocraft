@@ -1085,6 +1085,34 @@ mod tests {
         assert_eq!(f["metadata"], "none");
     }
 
+    /// A recorded Export As step replays only with a destination and a format Export As writes
+    /// (#7207); anything else is an error, not a guess.
+    #[test]
+    fn a_replayed_export_needs_a_path_and_a_known_format() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        assert!(replay(&mut app, &json!({"path": "/x.png"})).unwrap_err().contains("document"));
+        app.run("file.new", json!({"width": 4, "height": 4})).unwrap();
+        for bad in [json!({}), json!({"path": ""}), json!("nope"), json!({"path": 3})] {
+            assert!(replay(&mut app, &bad).unwrap_err().contains("path"), "{bad}");
+        }
+        for format in [json!("bmp"), json!(7)] {
+            assert!(replay(&mut app, &json!({"path": "/x.bmp", "format": format})).unwrap_err().contains("format"), "{format}");
+        }
+        // A setting of the wrong type or out of the dialog's range is an error, not its default.
+        for (key, v) in [
+            ("scale", json!("50")),
+            ("scale", json!(5000)),
+            ("quality", json!(0)),
+            ("transparency", json!("yes")),
+            ("metadata", json!("some")),
+            ("width", json!(-3)),
+        ] {
+            let mut step = json!({"path": "/x.png", "format": "png"});
+            step[key] = v.clone();
+            assert!(replay(&mut app, &step).unwrap_err().contains(key), "{key}: {v}");
+        }
+    }
+
     /// Only the dialog's own settings are remembered: not the destination, the document size or
     /// the layer the dialog was opened with.
     #[test]
