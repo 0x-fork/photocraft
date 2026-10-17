@@ -1616,11 +1616,7 @@ mod tests {
     #[test]
     fn baked_gradient_overlay_keeps_endpoint_colours_on_reopen() {
         let mut s = session();
-        s.execute(
-            "layer.layerStyle.gradientOverlay",
-            json!({"from": "#ff0000", "to": "#0000ff", "method": "classic"}),
-        )
-        .unwrap();
+        s.execute("layer.layerStyle.gradientOverlay", json!({"from": "#ff0000", "to": "#0000ff", "method": "classic"})).unwrap();
         let st = s.active().unwrap();
         let id = st.active_layer.unwrap();
         let layer = st.doc.layer(id).unwrap();
