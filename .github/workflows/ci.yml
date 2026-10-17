@@ -50,6 +50,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Git dependencies come from storytold
+        run: |
+          if grep -E '^source = "git\+' Cargo.lock | grep -v '"git+https://github.com/storytold/'; then
+            echo "Cargo.lock has a git dependency outside github.com/storytold"; exit 1
+          fi
       - id: pick
         env:
           EVENT: ${{ github.event_name }}
