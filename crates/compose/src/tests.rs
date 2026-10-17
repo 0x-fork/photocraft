@@ -1050,6 +1050,60 @@ fn outer_and_inner_glow_regions() {
     assert!(close4(px(&d, 5, 20), [1.0; 4]));
 }
 
+// An effect in Dissolve mode (#6995) shows its colour fully or not at all at each pixel, so a soft
+// glow becomes speckle thinning out with the glow instead of a smooth fade, and a half-opaque
+// outside stroke is scattered dots. The speckle follows document coordinates: a tile renders the
+// same pixels as the whole document.
+#[test]
+fn dissolve_effects_are_speckled_not_faded() {
+    let ring = |d: &Document| -> Vec<(i32, [f32; 4])> {
+        let mut v = Vec::new();
+        for y in 2..38_i32 {
+            for x in 2..38_i32 {
+                if !(9..31).contains(&x) || !(9..31).contains(&y) {
+                    v.push(((x - 20).abs().max((y - 20).abs()) - 10, px(d, x, y)));
+                }
+            }
+        }
+        v
+    };
+    let soft = Glow { size: 8.0, ..glow(GlowTechnique::Softer, GlowSource::Edge) };
+    let faded = fx_doc(vec![Effect::OuterGlow(soft.clone())]);
+    assert!(ring(&faded).iter().any(|(_, p)| p[0] > 0.1 && p[0] < 0.9), "a Normal glow fades smoothly");
+    let dissolved = Glow { common: FxCommon::new(BlendMode::Dissolve, 1.0), ..soft };
+    let d = fx_doc(vec![Effect::OuterGlow(dissolved.clone())]);
+    let (mut near, mut far) = ((0, 0), (0, 0));
+    for (dist, p) in ring(&d) {
+        let green = close4(p, [0.0, 1.0, 0.0, 1.0]);
+        assert!(green || close4(p, [1.0; 4]), "each pixel is the glow or the backdrop: {p:?} at distance {dist}");
+        let n = if dist <= 3 { &mut near } else { &mut far };
+        n.0 += usize::from(green);
+        n.1 += 1;
+    }
+    let share = |(g, n): (usize, usize)| g as f32 / n.max(1) as f32;
+    assert!(share(near) > 0.3 && share(far) < share(near) && far.0 > 0, "speckle thins out with the glow: {near:?} {far:?}");
+    assert!(!crate::effects::maps_are_local(&d.layers[1]), "Dissolve speckles any coverage, so its maps are not tiled");
+    let full = flatten(&d);
+    let tile = render(&d, Rect::new(4, 4, 21, 17));
+    for y in 4..17 {
+        for x in 4..21 {
+            assert_eq!(full.get(x, y), tile.get(x, y), "({x},{y})");
+        }
+    }
+
+    let d = fx_doc(vec![Effect::Stroke(StrokeFx {
+        common: FxCommon::new(BlendMode::Dissolve, 0.5),
+        size: 4.0,
+        position: StrokePosition::Outside,
+        paint: FxPaint::Color(Color::rgb(0.0, 0.0, 1.0)),
+    })]);
+    let band: Vec<[f32; 4]> = ring(&d).into_iter().filter(|(dist, _)| (0..4).contains(dist)).map(|(_, p)| p).collect();
+    let blue = band.iter().filter(|p| close4(**p, [0.0, 0.0, 1.0, 1.0])).count();
+    assert!(band.iter().all(|p| close4(*p, [0.0, 0.0, 1.0, 1.0]) || close4(*p, [1.0; 4])), "no half-blue pixel");
+    let share = blue as f32 / band.len() as f32;
+    assert!((share - 0.5).abs() < 0.1, "about half the band at 50 % opacity: {share}");
+}
+
 // A Precise inner glow from the centre is brightest in the middle and fades towards the edge,
 // like the Softer one; it used to paint nothing at all (#966).
 #[test]

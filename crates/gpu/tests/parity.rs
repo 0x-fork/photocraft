@@ -1411,6 +1411,29 @@ fn effect_cases() -> Vec<(&'static str, Vec<Effect>)> {
             vec![Effect::InnerGlow(glow(FxPaint::Color(Color::rgb(0.2, 1.0, 0.8)), GlowTechnique::Precise, 6.0, 0.3, GlowSource::Edge))],
         ),
         ("inner glow precise center", vec![Effect::InnerGlow(glow(pat_paint.clone(), GlowTechnique::Precise, 5.0, 0.0, GlowSource::Center))]),
+        // Dissolve effects (#6995): the same speckle as the CPU, pixel for pixel.
+        (
+            "outer glow dissolve",
+            vec![Effect::OuterGlow(Glow {
+                common: FxCommon::new(BlendMode::Dissolve, 0.8),
+                ..glow(FxPaint::Color(Color::rgb(1.0, 0.9, 0.2)), GlowTechnique::Softer, 10.0, 0.3, GlowSource::Edge)
+            })],
+        ),
+        (
+            "inner glow dissolve gradient",
+            vec![Effect::InnerGlow(Glow {
+                common: FxCommon::new(BlendMode::Dissolve, 1.0),
+                ..glow(FxPaint::Gradient(gradient()), GlowTechnique::Softer, 7.0, 0.1, GlowSource::Edge)
+            })],
+        ),
+        ("drop shadow dissolve", vec![Effect::DropShadow(shadow(BlendMode::Dissolve, 0.75, 120.0, 6.0, 8.0, 0.0))]),
+        (
+            "stroke outside dissolve",
+            vec![Effect::Stroke(StrokeFx {
+                common: FxCommon::new(BlendMode::Dissolve, 0.6),
+                ..stroke(4.0, StrokePosition::Outside, FxPaint::Color(Color::rgb(0.1, 0.2, 0.9)))
+            })],
+        ),
         ("bevel inner", vec![Effect::BevelEmboss(bevel(BevelStyle::InnerBevel, true, 7.0, 2.0))]),
         ("bevel outer", vec![Effect::BevelEmboss(bevel(BevelStyle::OuterBevel, true, 6.0, 0.0))]),
         ("bevel emboss down", vec![Effect::BevelEmboss(bevel(BevelStyle::Emboss, false, 8.0, 1.0))]),
