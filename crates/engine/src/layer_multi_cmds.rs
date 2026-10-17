@@ -1303,32 +1303,54 @@ fn merge_layers(s: &mut Session) -> Result<Value> {
     }
     let mid = s.edit("Merge Layers", |doc, active| {
         let ids = top_level(doc, &sel);
-        let top_id = *ids.last().ok_or_else(|| EngineError::Other("Merge Layers needs two or more layers".into()))?;
-        let top = doc.layer(top_id).ok_or(EngineError::NoLayer(top_id))?.clone();
+        let lowest_id = *ids.first().ok_or_else(|| EngineError::Other("Merge Layers needs two or more layers".into()))?;
+        let is_background = doc.is_background(lowest_id);
+
         let mut solo = doc.clone();
         solo.layers = ids.iter().filter_map(|id| doc.layer(*id)).filter(|l| l.visible).cloned().collect();
         if solo.layers.is_empty() {
             return Err(EngineError::Other("the selected layers are all hidden".into()));
         }
-        let fmt = doc.pixel_format();
-        let fmt = PixelFormat::new(fmt.mode, fmt.sample, true);
-        let mut merged = Layer::raster(top.name.clone(), fmt);
-        merged.locks = top.locks;
-        merged.label = top.label;
-        // Clipped layers of one chain merge into a layer still clipped to their base. Clipped
-        // layers of different chains don't: the result, at the top one's slot, would clip the
-        // lower chain's pixels to the upper chain's base.
-        let base = crate::clip_group::base_of(doc, top_id);
-        merged.clipped = base.is_some() && solo.layers.iter().all(|l| l.clipped && crate::clip_group::base_of(doc, l.id) == base);
-        *crate::pixels_mut(&mut merged)? = crate::pixels::composite_layers_uncropped(&solo, fmt);
-        let mid = merged.id;
-        // Hidden selected layers are discarded, as in Photoshop.
-        for id in &ids[..ids.len() - 1] {
-            doc.remove(*id);
+
+        if is_background {
+            let base = doc.layer(lowest_id).ok_or(EngineError::NoLayer(lowest_id))?.clone();
+            let fmt = doc.pixel_format();
+            let mut merged = Layer::raster(base.name.clone(), fmt);
+            merged.locks = base.locks;
+            merged.label = base.label;
+            merged.id = lowest_id;
+            merged.blend = base.blend;
+            merged.opacity = 1.0;
+            *crate::pixels_mut(&mut merged)? = crate::pixels::composite_layers(&solo, fmt, None);
+            for id in &ids[1..] {
+                doc.remove(*id);
+            }
+            *doc.layer_mut(lowest_id).ok_or(EngineError::NoLayer(lowest_id))? = merged;
+            *active = Some(lowest_id);
+            Ok(lowest_id)
+        } else {
+            let top_id = *ids.last().ok_or_else(|| EngineError::Other("Merge Layers needs two or more layers".into()))?;
+            let top = doc.layer(top_id).ok_or(EngineError::NoLayer(top_id))?.clone();
+            let fmt = doc.pixel_format();
+            let fmt = PixelFormat::new(fmt.mode, fmt.sample, true);
+            let mut merged = Layer::raster(top.name.clone(), fmt);
+            merged.locks = top.locks;
+            merged.label = top.label;
+            // Clipped layers of one chain merge into a layer still clipped to their base. Clipped
+            // layers of different chains don't: the result, at the top one's slot, would clip the
+            // lower chain's pixels to the upper chain's base.
+            let base = crate::clip_group::base_of(doc, top_id);
+            merged.clipped = base.is_some() && solo.layers.iter().all(|l| l.clipped && crate::clip_group::base_of(doc, l.id) == base);
+            *crate::pixels_mut(&mut merged)? = crate::pixels::composite_layers_uncropped(&solo, fmt);
+            let mid = merged.id;
+            // Hidden selected layers are discarded, as in Photoshop.
+            for id in &ids[..ids.len() - 1] {
+                doc.remove(*id);
+            }
+            *doc.layer_mut(top_id).ok_or(EngineError::NoLayer(top_id))? = merged;
+            *active = Some(mid);
+            Ok(mid)
         }
-        *doc.layer_mut(top_id).ok_or(EngineError::NoLayer(top_id))? = merged;
-        *active = Some(mid);
-        Ok(mid)
     })?;
     reselect(s, vec![mid], Some(mid));
     Ok(json!({ "layer": mid.0 }))
@@ -1513,6 +1535,23 @@ pub fn specs() -> Vec<CommandSpec> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn merge_with_background_preserves_background() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 20, "height": 20})).unwrap();
+        let bg_id = s.active().unwrap().doc.layers[0].id;
+        assert!(s.active().unwrap().doc.is_background(bg_id));
+        let l1 = LayerId(s.execute("layer.new.layer", json!({"name": "Generative Fill"})).unwrap()["layer"].as_u64().unwrap());
+        set_selection(&mut s, vec![bg_id, l1], Some(l1), Some(bg_id)).unwrap();
+        let res = s.execute("layer.mergeLayers", json!({})).unwrap();
+        let mid = LayerId(res["layer"].as_u64().unwrap());
+        assert_eq!(mid, bg_id);
+        let doc = &s.active().unwrap().doc;
+        assert_eq!(doc.layers.len(), 1);
+        assert!(doc.is_background(mid));
+        assert_eq!(doc.layers[0].name, "Background");
+    }
 
     #[test]
     fn duplicates_are_numbered_not_stacked() {
