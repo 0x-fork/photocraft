@@ -13,18 +13,19 @@ use crate::theme::Tokens;
 /// Screen rects covering the document image minus every artboard (vertical slabs between the
 /// boards' x edges, split around the boards they cross), and minus where visible layers outside
 /// the boards draw: Photoshop shows those over the pasteboard, so a board added next to earlier
-/// work must not paint over it (#5712).
+/// work must not paint over it (#5712). The Background and any layer that covers the whole
+/// canvas (or may draw anywhere, such as a fill layer) are backdrop, not loose work: they keep
+/// the pasteboard.
 pub fn pasteboard_rects(xf: &ViewXform, doc: &Document) -> Vec<Rect> {
     let canvas = doc.bounds();
-    let mut loose = Vec::new();
-    for l in doc.layers.iter().filter(|l| l.visible && !is_artboard(l)) {
-        match photocraft_compose::composite_bounds(l, canvas) {
-            // It may draw anywhere: no pasteboard shows.
-            None => return Vec::new(),
-            Some(b) if !b.is_empty() => loose.push(b),
-            Some(_) => {}
-        }
-    }
+    let background = doc.background().map(|b| b.id);
+    let loose: Vec<photocraft_geom::Rect> = doc
+        .layers
+        .iter()
+        .filter(|l| l.visible && !is_artboard(l) && Some(l.id) != background)
+        .filter_map(|l| photocraft_compose::composite_bounds(l, canvas))
+        .filter(|b| !b.is_empty() && !b.contains_rect(&canvas))
+        .collect();
     let boards: Vec<photocraft_geom::Rect> = doc.artboards().iter().map(|b| b.2.rect.intersect(&canvas)).filter(|r| !r.is_empty()).collect();
     let mut xs: Vec<i32> = vec![canvas.x0, canvas.x1];
     for b in &boards {
@@ -208,7 +209,7 @@ mod tests {
 
     fn app() -> (PhotocraftApp, egui::Context) {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
-        app.run("file.new", json!({"width": 100, "height": 50, "background": "transparent"})).unwrap();
+        app.run("file.new", json!({"width": 100, "height": 50})).unwrap();
         app.sync_views();
         (app, egui::Context::default())
     }
@@ -256,6 +257,29 @@ mod tests {
         // 100×50 canvas − the 40×50 board − the 20×20 loose pixels.
         assert!((area - (5000.0 - 2000.0 - 400.0)).abs() < 0.5, "{rects:?}");
         assert!(rects.iter().all(|r| !r.intersects(Rect::from_min_max(Pos2::new(60.5, 10.5), Pos2::new(79.5, 29.5)))));
+    }
+
+    #[test]
+    fn full_canvas_layers_keep_the_pasteboard() {
+        // The white Background (from `app()`) and a loose layer filling the whole canvas are
+        // backdrop: the pasteboard still shows outside the board.
+        let (mut app, _) = app();
+        app.run("layer.new.artboard", json!({"rect": [0, 0, 40, 50]})).unwrap();
+        let mut doc = (*app.session.active().unwrap().doc).clone();
+        assert!(doc.background().is_some());
+        let mut px = photocraft_doc::Layer::raster("Wash", doc.pixel_format());
+        px.surface_mut().unwrap().fill_rect(doc.bounds(), &[0.0, 0.0, 1.0, 1.0]);
+        doc.layers.push(px);
+        let xf = ViewXform {
+            rect: Rect::from_min_size(Pos2::ZERO, egui::vec2(100.0, 50.0)),
+            zoom: 1.0,
+            center: [50.0, 25.0],
+            flip: false,
+            rotation: 0.0,
+            aspect: 1.0,
+        };
+        let area: f32 = pasteboard_rects(&xf, &doc).iter().map(|r| r.area()).sum();
+        assert!((area - (5000.0 - 2000.0)).abs() < 0.5);
     }
 
     #[test]
