@@ -141,6 +141,7 @@ fn shape(t: WaveType, phase: f32) -> f32 {
     }
 }
 
+/// Wave: displace `src` over `out` by the average of `w.generators` seeded waves (at most `MAX_WAVE_GENERATORS`) along each axis.
 pub(crate) fn wave(src: &Image, out: Rect, ctx: &Ctx, w: WaveSpec) -> Vec<f32> {
     let n = w.generators.clamp(1, MAX_WAVE_GENERATORS);
     let lerp = |(a, b): (f32, f32), t: f32| a + (b - a).max(0.0) * t;

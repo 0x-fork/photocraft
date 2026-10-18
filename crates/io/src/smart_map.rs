@@ -140,6 +140,7 @@ struct Known {
     command: &'static str,
 }
 
+/// A four-character PSD code as the big-endian integer Photoshop stores it as.
 const fn code(c: &[u8; 4]) -> i32 {
     i32::from_be_bytes(*c)
 }
@@ -194,6 +195,7 @@ fn enum_value(p: &J, key: &str, default: &str, type_id: &str, table: &[(&[u8; 4]
     Ok(Value::Enumerated { type_id: Id::new(type_id), value: Id::Code(**code) })
 }
 
+/// The PSD filter record that PhotoCraft's `command` is written as, if it has one.
 fn known_by_command(command: &str) -> Option<&'static Known> {
     KNOWN.iter().find(|k| k.command == command)
 }
@@ -202,10 +204,12 @@ fn known_by_command(command: &str) -> Option<&'static Known> {
 /// composite: top-level keys).
 const CHANNELS: [(&[u8; 4], &str); 4] = [(b"Cmps", ""), (b"Rd  ", "red"), (b"Grn ", "green"), (b"Bl  ", "blue")];
 
+/// A numeric descriptor item as a finite number; `None` when it is absent, not a number, or not finite.
 fn px(d: &Descriptor, key: &str) -> Option<f64> {
     num(d.get(key)).filter(|v| v.is_finite())
 }
 
+/// An integer descriptor item; `None` when it is absent or of another type.
 fn int(d: &Descriptor, key: &str) -> Option<i32> {
     match d.get(key)? {
         Value::Integer(i) => Some(*i),
@@ -1324,6 +1328,7 @@ mod tests {
         assert_eq!(back.get("Nm  "), Some(&Value::Text(UnicodeString::new_nul("Invert"))));
     }
 
+    /// A filter PhotoCraft doesn't model, or a known one with settings it doesn't, is kept verbatim; only its visibility and blend change.
     #[test]
     fn unknown_filters_keep_their_descriptor() {
         let item = Descriptor::new("filterFX")
@@ -1502,6 +1507,7 @@ mod tests {
         }
     }
 
+    /// Filters with no PSD equivalent are skipped with a warning each, and the writable ones around them still export.
     #[test]
     fn unwritable_filters_are_reported_not_fatal() {
         let stack = FilterStack {
