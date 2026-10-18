@@ -676,6 +676,8 @@ impl Session {
     /// taken by the command it was drawn for: the stroke's finishing dabs are run first. Refused
     /// when the brush, tool options or layer changed during the stroke.
     pub fn offer_live_dab(&mut self, live: retouch_cmds::LiveDab) -> Result<()> {
+        // A refused offer withdraws the previous one too.
+        self.live_commit = None;
         let commit = live.into_commit(self)?;
         self.live_commit = Some(commit);
         Ok(())

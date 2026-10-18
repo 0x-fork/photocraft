@@ -447,9 +447,11 @@ fn releasing_a_sequential_dab_stroke_commits_what_a_replay_paints() {
             move_to(&mut h, x, y);
         }
         assert!(h.state().live_stroke.is_some(), "{cmd}: a live stroke");
+        h.state_mut().retouch_from_live = false;
         button(&mut h, 160.0, 70.0, false);
         h.run_steps(2);
         let app = h.state();
+        assert!(app.retouch_from_live, "{cmd}: the release took the live pixels instead of rendering the stroke again");
         let (_, p) = app.session.journal.iter().rev().find(|(id, _)| id == cmd).cloned().expect("a committed stroke");
         let mut fresh = photocraft_engine::Session::new();
         fresh.execute("file.new", json!({"width": 200, "height": 100, "background": "white"})).unwrap();

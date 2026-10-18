@@ -1697,11 +1697,14 @@ fn live_dab_offers_are_refused_or_dropped_when_they_dont_match() {
     assert!(r.get("fromLive").is_none());
     assert!(s.live_commit.is_none(), "the offer is used up");
     s.execute("edit.undo", json!({})).unwrap();
-    // The session brush (not in the params) changed during the stroke.
+    // The session brush (not in the params) changed during the stroke; the refusal also
+    // withdraws an earlier offer.
+    offer_live(&mut s, "paint.blur", &points, 0, &blur);
     let live = LiveDab::begin(&s, "paint.blur", &dab_opts(&points, 0, &blur)).unwrap();
     let roundness = s.tools.brush.roundness;
     s.tools.brush.roundness = roundness * 0.5;
     assert!(s.offer_live_dab(live).is_err());
+    assert!(s.live_commit.is_none(), "a refused offer leaves no earlier one behind");
     s.tools.brush.roundness = roundness;
     // Finger Painting's colour changed during the stroke.
     let finger = json!({"strength": 70, "fingerPainting": true});
