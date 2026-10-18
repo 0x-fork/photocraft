@@ -3013,4 +3013,19 @@ mod layers_panel_parity_tests {
         assert!(s.active().unwrap().fx_collapsed.contains(&named), "the named layer's new effects start collapsed");
         assert!(!s.active().unwrap().fx_collapsed.contains(&active), "the active layer is not the one changed");
     }
+
+    /// Transfer Effects changes the layer it moves the effects to, so that is the layer whose
+    /// disclosure follows the option, not the active layer or the one the effects came from.
+    #[test]
+    fn expand_new_effects_follows_the_transfer_destination() {
+        let (mut s, ids) = new_session();
+        let (from, to, active) = (ids[0], ids[1], ids[2]);
+        s.execute("layer.layerStyle.dropShadow", json!({"layer": from.0, "size": 2})).unwrap();
+        option(&mut s, "expandNewEffects", false);
+        assert_eq!(s.active().unwrap().active_layer, Some(active));
+        s.execute("layer.layerStyle.transferEffects", json!({"from": from.0, "to": to.0, "copy": true})).unwrap();
+        assert!(s.active().unwrap().doc.layer(to).is_some_and(|l| !l.effects.items.is_empty()));
+        assert!(s.active().unwrap().fx_collapsed.contains(&to), "the destination's new effects start collapsed");
+        assert!(!s.active().unwrap().fx_collapsed.contains(&active), "the active layer is not the one changed");
+    }
 }
