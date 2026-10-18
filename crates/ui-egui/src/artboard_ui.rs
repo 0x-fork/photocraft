@@ -2,7 +2,7 @@
 //! View › Fit Artboard on Screen, and the Properties panel section (X/Y/W/H, preset,
 //! background). Everything that changes the document is `layer.artboard.set` and friends.
 
-use egui::{Align2, Color32, Pos2, Rect, Stroke};
+use egui::{Align2, Color32, Pos2, Stroke};
 use photocraft_doc::{ArtboardBackground, Document, Layer};
 use serde_json::{Value, json};
 
@@ -214,6 +214,7 @@ pub fn properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
 mod tests {
     use super::*;
     use crate::menus::{invoke as menu, is_live, menu_items};
+    use egui::Rect;
 
     fn app() -> (PhotocraftApp, egui::Context) {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
