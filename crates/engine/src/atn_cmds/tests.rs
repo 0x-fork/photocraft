@@ -1013,6 +1013,23 @@ fn numeric_layer_references_refuse_silent_fallback_to_current_selection() {
     let err_transf = s.execute("actions.save", json!({"action": "TransformNumeric"}));
     assert!(err_transf.is_err(), "strict export must reject numeric layer ID for edit.transform");
 
+    // Same for layer.renameLayer, layer.setLabelColor, and each layer.arrange.* command
+    for (name, id, params) in [
+        ("RenameNumeric", "layer.renameLayer", json!({"layer": 42, "name": "Renamed"})),
+        ("LabelNumeric", "layer.setLabelColor", json!({"layer": 42, "color": "red"})),
+        ("BringToFrontNumeric", "layer.arrange.bringToFront", json!({"layer": 42})),
+        ("SendToBackNumeric", "layer.arrange.sendToBack", json!({"layer": 42})),
+        ("BringForwardNumeric", "layer.arrange.bringForward", json!({"layer": 42})),
+        ("SendBackwardNumeric", "layer.arrange.sendBackward", json!({"layer": 42})),
+    ] {
+        s.actions.list.push(Action::new(name, vec![(id.into(), params)]));
+        let before_actions = s.actions.list.clone();
+        let before_rev = s.active().unwrap().revision;
+        assert!(s.execute("actions.save", json!({"action": name})).is_err());
+        assert_eq!(s.actions.list, before_actions, "session actions must remain unchanged when save fails");
+        assert_eq!(s.active().unwrap().revision, before_rev, "document revision must remain unchanged when save fails");
+    }
+
     // With skipUnsupported: true, numeric layer references are skipped
     let skipped = s.execute("actions.save", json!({"action": "DeleteNumeric", "skipUnsupported": true})).unwrap();
     assert_eq!(skipped["steps"], 0);
