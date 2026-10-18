@@ -1387,3 +1387,32 @@ fn function_keys_keep_shift_and_command() {
     }
     assert_eq!(super::function_key_name(7, false, false), "F7");
 }
+
+#[test]
+fn recorded_layer_select_exports_to_atn() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+    let l = s.execute("layer.new.layer", json!({"name": "Wanted"})).unwrap();
+    let wanted_id = l["layer"].as_u64().unwrap();
+    s.execute("actions.record", json!({"name": "SelectWanted"})).unwrap();
+    s.execute("layer.select", json!({"layer": wanted_id})).unwrap();
+    s.execute("actions.stop", json!({})).unwrap();
+
+    let action = s.execute("actions.get", json!({"action": "SelectWanted"})).unwrap();
+    assert_eq!(action["steps"][0], json!(["layer.select", {"name": "Wanted"}]));
+
+    // Strict export should succeed and produce bytes without skipUnsupported
+    let saved = s.execute("actions.save", json!({"action": "SelectWanted"})).unwrap();
+    assert_eq!(saved["steps"], 1);
+    assert_eq!(saved["skipped"], json!([]));
+
+    // When exported with skipUnsupported: true, it shouldn't skip the step either
+    let saved_skip = s.execute("actions.save", json!({"action": "SelectWanted", "skipUnsupported": true})).unwrap();
+    assert_eq!(saved_skip["steps"], 1);
+    assert_eq!(saved_skip["skipped"], json!([]));
+
+    // If an action has an occurrence target (duplicate names), it cannot be represented unambiguously in .atn
+    let bad_action = Action::new("Dup", vec![("layer.select".into(), json!({"name": "Wanted", "occurrence": 1}))]);
+    let err = export("Set", &[&bad_action], &[], false);
+    assert!(err.is_err(), "occurrence without representation must fail strict export");
+}
