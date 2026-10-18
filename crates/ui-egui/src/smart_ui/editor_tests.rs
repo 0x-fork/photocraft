@@ -152,3 +152,29 @@ fn ctrl_i_uses_existing_invert_command_and_undo_redo_keep_the_source() {
     h.state_mut().run("edit.redo", json!({})).unwrap();
     assert_eq!(smart(h.state(), layer).smart_filters.len(), 3);
 }
+
+/// A recorded filter that lacks a parameter reopens with the schema default for it, not with the
+/// value the user last used in that filter's dialog; the parameters it does hold still win.
+#[test]
+fn filter_editor_starts_missing_parameters_from_defaults_not_remembered_values() {
+    let (mut app, layer) = app(8, "rgb");
+    let command = "filter.sharpen.smartSharpen";
+    app.session.prefs.edit(|p| {
+        p.dialogs.insert(command.into(), json!({"reduceNoise": 60, "radius": 9}));
+    });
+    let ctx = egui::Context::default();
+    let mut sm = smart(&app, layer).clone();
+    let index = sm.smart_filters.iter().position(|f| f.command == command).unwrap();
+    sm.smart_filters[index].params = json!({"amount": 125, "radius": 2});
+
+    super::open_editor(&mut app, &ctx, layer.0, &sm, index);
+    let fields = &app.ui.dialogs.last().unwrap().fields;
+    assert!(fields.contains_key("__smartFilter"), "it edits the recorded filter");
+    assert_eq!(fields["reduceNoise"].as_f64(), Some(10.0), "the spec default, not the remembered 60");
+    assert_eq!(fields["amount"].as_f64(), Some(125.0));
+    assert_eq!(fields["radius"].as_f64(), Some(2.0), "recorded values beat the remembered 9");
+
+    // A plain Filter menu dialog still starts from the remembered values.
+    let id = crate::filter_dialog::open(&mut app, command).unwrap();
+    assert_eq!(app.ui.dialog_mut(id).unwrap().fields["reduceNoise"].as_f64(), Some(60.0));
+}

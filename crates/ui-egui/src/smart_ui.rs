@@ -356,9 +356,15 @@ pub fn open_editor(app: &mut PhotocraftApp, ctx: &egui::Context, layer: u64, sm:
             return;
         }
     };
-    let Some(id) = crate::adjust_dialog::open(app, &f.command)
-        .or_else(|| crate::filter_dialog::has_dialog(&f.command).then(|| crate::filter_dialog::open(app, &f.command)).flatten())
-    else {
+    let Some(id) = crate::adjust_dialog::open(app, &f.command).or_else(|| {
+        let id = crate::filter_dialog::has_dialog(&f.command).then(|| crate::filter_dialog::open(app, &f.command)).flatten()?;
+        // The filter dialog opens on the user's last-used values; a recorded filter that lacks a
+        // key must show (and save) the schema default instead.
+        let mut fields = app.ui.dialog_mut(id)?.fields.clone();
+        crate::filter_dialog::reset_fields(app, &mut fields);
+        app.ui.dialog_mut(id)?.fields = fields;
+        Some(id)
+    }) else {
         return;
     };
     if let Some(d) = app.ui.dialog_mut(id) {
