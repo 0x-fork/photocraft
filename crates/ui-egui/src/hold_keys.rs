@@ -124,10 +124,11 @@ fn cmd_move_held(app: &PhotocraftApp, i: &InputState) -> bool {
 /// without ⌘) Zoom Out, as in Photoshop; the Modifier Keys panel's latched keys count. Not while
 /// Free Transform is open (its box keeps ⌘ for the distort handles), and a modifier pressed during
 /// a Hand press doesn't turn it into a zoom, release included: only a press made with it held
-/// zooms (that one is latched by [`for_frame`] until the button comes up).
+/// zooms (that one is latched by [`for_frame`] until the button comes up). A middle-button pan
+/// stays a pan whatever is held.
 fn hand_zoom(app: &PhotocraftApp, i: &InputState) -> Option<Temporary> {
     let p = &i.pointer;
-    let hand_press = (p.primary_down() || p.primary_released()) && !p.primary_pressed();
+    let hand_press = ((p.primary_down() || p.primary_released()) && !p.primary_pressed()) || p.middle_down();
     if app.ui.tool != Tool::Hand || app.ui.transform.is_some() || hand_press {
         return None;
     }

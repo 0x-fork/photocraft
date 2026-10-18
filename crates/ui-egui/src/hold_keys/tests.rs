@@ -857,6 +857,31 @@ fn modifiers_pressed_during_a_hand_pan_keep_panning() {
     }
 }
 
+/// A middle-button pan with the Hand selected keeps panning when ⌘ or ⌥ goes down during it.
+#[test]
+fn modifiers_pressed_during_a_middle_button_pan_keep_panning() {
+    for m in [Modifiers::COMMAND, Modifiers::ALT] {
+        let mut h = harness(Tool::Hand);
+        let (z0, c0) = (h.state().ui.views[0].zoom, h.state().ui.views[0].center);
+        let p = screen(&h, 200.0, 150.0);
+        h.event(Event::PointerMoved(p));
+        h.run_steps(1);
+        h.event(Event::PointerButton { pos: p, button: PointerButton::Middle, pressed: true, modifiers: Modifiers::NONE });
+        h.run_steps(1);
+        hold_mods(&mut h, m);
+        assert_eq!(held_tool(h.state(), &h.ctx), None, "{m:?}");
+        let q = p + vec2(60.0, 40.0);
+        h.event(Event::PointerMoved(q));
+        h.run_steps(2);
+        h.event(Event::PointerButton { pos: q, button: PointerButton::Middle, pressed: false, modifiers: platform(m) });
+        h.run_steps(1);
+        hold_mods(&mut h, Modifiers::NONE);
+        let v = &h.state().ui.views[0];
+        assert_eq!(v.zoom, z0, "{m:?}: no zoom");
+        assert!(v.center[0] < c0[0] - 30.0 && v.center[1] < c0[1] - 20.0, "{m:?}: panned {c0:?} -> {:?}", v.center);
+    }
+}
+
 /// Free Transform keeps ⌘ (its distort handles) while the Hand is selected.
 #[test]
 fn cmd_with_the_hand_tool_is_not_a_zoom_during_free_transform() {
