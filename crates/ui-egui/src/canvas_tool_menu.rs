@@ -1,5 +1,5 @@
 //! Canvas context menus for the selection tools, the Pen, the Zoom and Hand tools, an active Free
-//! Transform box, text being edited with a Type tool and the pasteboard (outside the image).
+//! Transform box, text being edited with a Type tool, the pasteboard (outside the image) and a guide.
 
 use egui::Context;
 use photocraft_doc::LayerContent;
@@ -31,6 +31,9 @@ pub struct CanvasToolMenu {
     /// Opened while a Type tool edits text: the text and type rows instead of the tool's actions.
     #[serde(default)]
     pub text: bool,
+    /// Opened on a guide: the guide menu (`guide_select`) instead of the tool's actions.
+    #[serde(default)]
+    pub guide: bool,
     /// The misspelled word under the pointer when the type edit menu opened: its suggestions head
     /// the menu.
     #[serde(default)]
@@ -144,6 +147,23 @@ const ENDS_TYPE_EDIT: [&str; 5] =
 
 /// The pasteboard menu's Select Custom Color… row.
 pub const PASTEBOARD_PICK: &str = "pasteboard.selectCustomColor";
+
+/// The guide menu's Edit Selected Guides row: New Guide's dialog on the selected guide.
+pub const GUIDE_EDIT: &str = "guides.editSelected";
+/// The guide menu's Clear Selected Guides row.
+pub const GUIDE_CLEAR: &str = "guides.clearSelected";
+
+/// Photoshop's guide menu (right-click on a guide), in its order. Its two Selected Guides rows act
+/// on the guide the right-click selected; the rest are the View menu's.
+pub const GUIDE_MENU: &[Row] = &[
+    Some(("Edit Selected Guides", GUIDE_EDIT)),
+    None,
+    Some(("Lock Guides", "view.lockGuides")),
+    Some(("Clear Guides", "view.clearGuides")),
+    Some(("Clear Canvas Guides", "view.clearCanvasGuides")),
+    Some(("Clear Selected Guides", GUIDE_CLEAR)),
+    Some(("Clear Selected Artboard Guides", "view.clearSelectedArtboardGuides")),
+];
 
 /// The pasteboard colours in the menu's order, which Space+F steps through.
 const CANVAS_COLORS: [CanvasColor; 6] =
@@ -264,8 +284,14 @@ pub fn applies(tool: Tool) -> bool {
             | Tool::MagneticLasso
             | Tool::MagicWand
             | Tool::ObjectSelection
-            | Tool::Pen
-    )
+    ) || path_menu(tool)
+}
+
+/// Tools whose canvas right-click opens the path menu ([`PEN_MENU`]): the Pen, and the Path
+/// Selection and Direct Selection tools, whose Photoshop menu offers the same whole-path actions
+/// for the selected path (#1056).
+pub fn path_menu(tool: Tool) -> bool {
+    matches!(tool, Tool::Pen | Tool::PathSelection | Tool::DirectSelection)
 }
 
 /// Tools whose plain canvas right-click offers the view menu.
@@ -280,7 +306,9 @@ pub fn selection_rows(has_selection: bool) -> &'static [Row] {
 
 /// The rows of an open menu.
 pub fn rows(menu: &CanvasToolMenu) -> &'static [Row] {
-    if menu.pasteboard {
+    if menu.guide {
+        GUIDE_MENU
+    } else if menu.pasteboard {
         PASTEBOARD_MENU
     } else if menu.transform {
         TRANSFORM_MENU
@@ -288,7 +316,7 @@ pub fn rows(menu: &CanvasToolMenu) -> &'static [Row] {
         VIEW_MENU
     } else if menu.text {
         TYPE_EDIT_MENU
-    } else if menu.tool == Tool::Pen {
+    } else if path_menu(menu.tool) {
         PEN_MENU
     } else {
         selection_rows(menu.has_selection)
@@ -304,6 +332,9 @@ pub fn available(app: &PhotocraftApp, menu: &CanvasToolMenu, command: &str) -> b
 /// Scale stays Free Transform's mode (only Free Transform is checked). Rotate is its own mode.
 /// Warp is not a box mode (it is its own session), and `for_command` would read it as Free.
 pub(crate) fn mode_checked(app: &PhotocraftApp, menu: &CanvasToolMenu, command: &str) -> bool {
+    if menu.guide {
+        return command == "view.lockGuides" && app.ui.extras.lock_guides;
+    }
     if menu.pasteboard {
         return pasteboard_choice(command) == Some(app.session.prefs().interface.canvas_color);
     }
@@ -393,6 +424,7 @@ pub fn open_transform(app: &mut PhotocraftApp, ctx: &Context, pos: [f32; 2]) -> 
         pasteboard: false,
         anchor: None,
         text: false,
+        guide: false,
         spelling: None,
     });
     crate::canvas_popup::mark_open(ctx, menu_id());
@@ -407,7 +439,15 @@ fn pasteboard_choice(command: &str) -> Option<CanvasColor> {
 
 /// The engine command (and params) a pasteboard row runs, for the automation policy: every row
 /// changes a preference.
-pub fn engine_call(menu: &CanvasToolMenu, command: &str) -> (String, Value) {
+pub fn engine_call(app: &PhotocraftApp, menu: &CanvasToolMenu, command: &str) -> (String, Value) {
+    if menu.guide {
+        let selected = crate::guide_select::selected(app);
+        return match command {
+            GUIDE_EDIT => ("view.editGuide".into(), json!({})),
+            GUIDE_CLEAR => ("view.deleteGuide".into(), selected.map_or(json!({}), |(v, i)| crate::guide_select::delete_params(v, i))),
+            _ => (command.into(), json!({})),
+        };
+    }
     match pasteboard_choice(command) {
         Some(c) if menu.pasteboard => ("prefs.set".into(), json!({"values": {"interface.canvasColor": c.name()}})),
         _ if menu.pasteboard => ("prefs.set".into(), json!({})),
@@ -437,7 +477,7 @@ pub fn pasteboard_at(app: &PhotocraftApp, tool: Tool, doc: [f64; 2]) -> bool {
     let Some(st) = app.session.active() else { return false };
     let (w, h) = (f64::from(st.doc.size.width), f64::from(st.doc.size.height));
     let outside = doc.iter().all(|v| v.is_finite()) && (doc[0] < 0.0 || doc[1] < 0.0 || doc[0] >= w || doc[1] >= h);
-    outside && tool != Tool::Pen && !crate::paint_mouse::has_brush_picker(tool) && !crate::paint_mouse::right_erases(app, tool) && app.ui.text_edit.is_none()
+    outside && !path_menu(tool) && !crate::paint_mouse::has_brush_picker(tool) && !crate::paint_mouse::right_erases(app, tool) && app.ui.text_edit.is_none()
 }
 
 /// Right-click on the pasteboard: its colour menu at screen point `pos`.
@@ -457,10 +497,49 @@ pub fn open_pasteboard(app: &mut PhotocraftApp, ctx: &Context, tool: Tool, pos: 
         pasteboard: true,
         anchor: None,
         text: false,
+        guide: false,
         spelling: None,
     });
     crate::canvas_popup::mark_open(ctx, menu_id());
     true
+}
+
+/// Right-click at document point `doc` on a guide that `tool` could drag (the Move tool, or ⌘ with
+/// a selection tool): select the guide and open the guide menu at screen point `pos`.
+pub fn open_guide(app: &mut PhotocraftApp, ctx: &Context, tool: Tool, mods: egui::Modifiers, pos: [f32; 2], doc: [f64; 2]) -> bool {
+    if !pos.iter().all(|v| v.is_finite()) || !doc.iter().all(|v| v.is_finite()) {
+        return false;
+    }
+    let hit = if tool == Tool::Move { crate::rulers::guide_at(app, doc[0], doc[1]) } else { crate::canvas::command_guide_at(app, tool, doc, mods) };
+    let Some((vertical, index)) = hit else { return false };
+    crate::guide_select::select(app, vertical, index);
+    app.ui.brush_picker = None;
+    app.ui.layer_menu = None;
+    app.ui.canvas_tool_menu = Some(CanvasToolMenu {
+        pos,
+        tool,
+        has_selection: false,
+        has_path: false,
+        path_name: None,
+        transform: false,
+        pasteboard: false,
+        anchor: None,
+        text: false,
+        guide: true,
+        spelling: None,
+    });
+    crate::canvas_popup::mark_open(ctx, menu_id());
+    true
+}
+
+/// A guide row: the two Selected Guides rows act on the selected guide; the rest are the View
+/// menu's commands.
+fn choose_guide(app: &mut PhotocraftApp, ctx: &Context, command: &str) -> Result<(), String> {
+    match command {
+        GUIDE_EDIT => crate::new_guide_ui::open_edit(app).map(|_| ()),
+        GUIDE_CLEAR => crate::guide_select::delete_selected(app).map(|_| ()),
+        _ => crate::menus::invoke(app, ctx, command, json!({})).map(|_| ()),
+    }
 }
 
 /// A pasteboard row: set the colour, or open the Color Picker on the custom one.
@@ -470,11 +549,17 @@ fn choose_pasteboard(app: &mut PhotocraftApp, menu: &CanvasToolMenu, command: &s
         crate::color_picker_ui::open_for_target(app, "pasteboard", "Color Picker (Custom Canvas Color)", rgb);
         return Ok(());
     }
-    let (command, params) = engine_call(menu, command);
+    let (command, params) = engine_call(app, menu, command);
     app.run(&command, params).map(|_| ())
 }
 
 pub fn entry_enabled(app: &PhotocraftApp, menu: &CanvasToolMenu, command: &str) -> bool {
+    if menu.guide {
+        return match command {
+            GUIDE_EDIT | GUIDE_CLEAR => crate::guide_select::selected(app).is_some(),
+            _ => GUIDE_MENU.iter().flatten().any(|(_, id)| *id == command) && crate::menus::is_enabled(app, command),
+        };
+    }
     if menu.pasteboard {
         return PASTEBOARD_MENU.iter().flatten().any(|(_, id)| *id == command);
     }
@@ -493,7 +578,7 @@ pub fn entry_enabled(app: &PhotocraftApp, menu: &CanvasToolMenu, command: &str) 
             c => TYPE_EDIT_MENU.iter().flatten().any(|(_, id)| *id == c) && crate::menus::is_enabled(app, c),
         };
     }
-    if menu.transform || menu.tool != Tool::Pen {
+    if menu.transform || !path_menu(menu.tool) {
         return crate::menus::is_enabled(app, command);
     }
     let Some(st) = app.session.active() else { return false };
@@ -549,7 +634,7 @@ pub fn open_at(app: &mut PhotocraftApp, ctx: &Context, tool: Tool, pos: [f32; 2]
     let path_name = crate::vector_ui::active_path_name(app);
     let spelling = if text { doc.and_then(|d| spelling_at(app, d)) } else { None };
     app.ui.canvas_tool_menu =
-        Some(CanvasToolMenu { pos, tool, has_selection, has_path, path_name, transform: false, pasteboard: false, anchor: None, text, spelling });
+        Some(CanvasToolMenu { pos, tool, has_selection, has_path, path_name, transform: false, pasteboard: false, anchor: None, text, guide: false, spelling });
     crate::canvas_popup::mark_open(ctx, menu_id());
     true
 }
@@ -572,6 +657,7 @@ pub fn open_view(app: &mut PhotocraftApp, ctx: &Context, tool: Tool, pos: [f32; 
         pasteboard: false,
         anchor: Some(doc),
         text: false,
+        guide: false,
         spelling: None,
     });
     crate::canvas_popup::mark_open(ctx, menu_id());
@@ -609,7 +695,9 @@ pub fn choose(app: &mut PhotocraftApp, ctx: &Context, command: &str) {
     if !available(app, &menu, command) {
         return;
     }
-    let result = if menu.pasteboard {
+    let result = if menu.guide {
+        choose_guide(app, ctx, command)
+    } else if menu.pasteboard {
         choose_pasteboard(app, &menu, command)
     } else if menu.anchor.is_some() {
         choose_view(app, ctx, &menu, command)
@@ -617,7 +705,7 @@ pub fn choose(app: &mut PhotocraftApp, ctx: &Context, command: &str) {
         choose_spelling(app, &menu, command)
     } else if menu.text {
         choose_type(app, ctx, command)
-    } else if menu.tool == Tool::Pen && !menu.transform {
+    } else if path_menu(menu.tool) && !menu.transform {
         choose_pen(app, ctx, &menu, command)
     } else if command == "select.toWorkPath" {
         // Photoshop's Make Work Path… asks for the tolerance first.
@@ -635,7 +723,7 @@ pub fn choose(app: &mut PhotocraftApp, ctx: &Context, command: &str) {
 /// A spelling row: replace the word under the pointer (the caret lands after the replacement), or
 /// add it to the user dictionary.
 fn choose_spelling(app: &mut PhotocraftApp, menu: &CanvasToolMenu, command: &str) -> Result<(), String> {
-    let (id, params) = engine_call(menu, command);
+    let (id, params) = engine_call(app, menu, command);
     let result = app.run(&id, params)?;
     if let Some(end) = result["end"].as_u64().map(|e| e as usize)
         && let Some(e) = app.ui.text_edit.as_mut()
@@ -1374,7 +1462,7 @@ mod tests {
         let mut app = app();
         app.ui.tool = Tool::Pen;
         for (x, y) in [(2.0, 2.0), (20.0, 2.0), (20.0, 20.0)] {
-            crate::vector_ui::pen_down(&mut app, x, y);
+            crate::vector_ui::pen_down(&mut app, x, y, false);
             crate::vector_ui::pen_up(&mut app);
         }
         crate::vector_ui::pen_commit(&mut app, true);
@@ -1396,7 +1484,7 @@ mod tests {
         let mut app = app();
         app.ui.tool = Tool::Pen;
         for (x, y) in [(2.0, 2.0), (20.0, 2.0), (20.0, 20.0)] {
-            crate::vector_ui::pen_down(&mut app, x, y);
+            crate::vector_ui::pen_down(&mut app, x, y, false);
             crate::vector_ui::pen_up(&mut app);
         }
         assert!(app.session.active().unwrap().doc.work_path.is_none());
@@ -1408,6 +1496,32 @@ mod tests {
         crate::dialogs::confirm(&mut app, dialog).unwrap();
         assert!(app.session.active().unwrap().doc.work_path.is_some());
         assert!(app.session.active().unwrap().doc.selection.is_some());
+    }
+
+    /// #1056: the Path Selection and Direct Selection tools' right-click opens the path menu for
+    /// the selected path, as the Pen's does, instead of nothing.
+    #[test]
+    fn path_selection_tools_open_the_path_menu() {
+        for tool in [Tool::PathSelection, Tool::DirectSelection] {
+            let mut app = app();
+            app.ui.tool = Tool::Pen;
+            for (x, y) in [(2.0, 2.0), (20.0, 2.0), (20.0, 20.0)] {
+                crate::vector_ui::pen_down(&mut app, x, y, false);
+                crate::vector_ui::pen_up(&mut app);
+            }
+            crate::vector_ui::pen_commit(&mut app, false);
+            assert!(app.session.active().unwrap().doc.work_path.is_some());
+            app.ui.tool = tool;
+            assert!(applies(tool));
+            assert!(open(&mut app, &Context::default(), tool, [10.0, 10.0]), "{tool:?}");
+            let menu = app.ui.canvas_tool_menu.clone().unwrap();
+            assert_eq!(rows(&menu), PEN_MENU, "{tool:?}");
+            assert!(menu.has_path && entry_enabled(&app, &menu, "path.toSelection"), "{tool:?}");
+            choose(&mut app, &Context::default(), "path.toSelection");
+            let dialog = app.ui.dialogs.last().map(|d| d.id).unwrap();
+            crate::dialogs::confirm(&mut app, dialog).unwrap();
+            assert!(app.session.active().unwrap().doc.selection.is_some(), "{tool:?}: Make Selection made one");
+        }
     }
 
     #[test]
@@ -1536,7 +1650,7 @@ mod tests {
         app.ui.tool = Tool::Pen;
         app.ui.tool_options.vector_mode = "shape".into();
         for (x, y) in [(2.0, 2.0), (20.0, 2.0), (20.0, 20.0)] {
-            crate::vector_ui::pen_down(&mut app, x, y);
+            crate::vector_ui::pen_down(&mut app, x, y, false);
             crate::vector_ui::pen_up(&mut app);
         }
         assert!(open(&mut app, &Context::default(), Tool::Pen, [10.0, 10.0]));
