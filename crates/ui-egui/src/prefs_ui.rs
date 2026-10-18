@@ -907,19 +907,9 @@ pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &V
             }
             dialog(d)
         }
-        "edit.contentAwareFill" => {
-            if !app.session.is_enabled(id) {
-                return Some(Err("Content-Aware Fill needs a selection on a pixel layer".into()));
-            }
-            let d = crate::filter_dialog::open(app, id);
-            if let Some(dm) = d.and_then(|d| app.ui.dialog_mut(d)) {
-                dm.fields.insert("__preview".into(), json!(true));
-                for k in ["margin", "seed", "channel"] {
-                    dm.fields.remove(k);
-                }
-            }
-            dialog(d)
-        }
+        // Photoshop's Content-Aware Fill workspace (caf_ui); the engine command with params
+        // still runs directly.
+        "edit.contentAwareFill" => Some(crate::caf_ui::open(app).map(|_| json!({"contentAwareFill": app.distort.describe()["contentAwareFill"]}))),
         // Photoshop has no dialog: the menu opens the scale box (with params: the engine).
         crate::cas_transform::COMMAND => Some(crate::cas_transform::begin(app, ctx)),
         "edit.presets.presetManager" => {
@@ -978,10 +968,22 @@ pub fn apply(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
     Ok(result)
 }
 
-/// Max dialog width for our dialogs.
+/// The size Preferences opens at: room for the widest section and about 30 settings rows. The
+/// dialog's resize grip changes it, and its contents follow (#7420).
+pub const PREFERENCES_SIZE: egui::Vec2 = egui::vec2(1040.0, 800.0);
+
+/// The height of the settings area (section list and fields) when `available` is left below the
+/// search field: everything but the dialog's button row (`item_spacing` + 8 pt + the buttons) and
+/// a little slack, never less than a few rows.
+fn settings_height(available: f32, item_spacing: f32, button_height: f32) -> f32 {
+    (available - (item_spacing + 8.0 + button_height + 4.0)).max(160.0)
+}
+
+/// Max dialog width for our dialogs. Preferences fills the width it is given (`available`, its
+/// resizable area).
 pub fn width(fields: &Map<String, Value>, available: f32) -> Option<f32> {
     match fields.get("__prefsui").and_then(Value::as_str)? {
-        "prefs" => Some(available.clamp(380.0, 1040.0)),
+        "prefs" => Some(available.max(380.0)),
         "shortcuts" => Some(720.0),
         _ => Some(460.0),
     }
@@ -1256,7 +1258,10 @@ fn prefs_body(ui: &mut egui::Ui, f: &mut Map<String, Value>, system: Option<egui
                 }
             }
         });
-        let content_height = (ui.ctx().content_rect().height() - 240.0).clamp(240.0, 680.0);
+        // The settings fill the dialog's resizable area down to the button row (#7420). Sizing them
+        // from the window instead left a resized dialog with empty space and the buttons mid-way.
+        // The area grows to fit its content, so this must never ask for more than it was given.
+        let content_height = settings_height(ui.available_height(), ui.spacing().item_spacing.y, crate::widgets::button_height(ui.ctx()));
         crate::widgets::vline(ui, content_height);
         ui.vertical(|ui| {
             ui.set_width((ui.available_width() - 12.0).max(340.0));
@@ -2568,14 +2573,29 @@ mod tests {
     }
 
     #[test]
-    fn preferences_dialog_width_follows_the_window() {
+    fn preferences_dialog_width_follows_its_resizable_area() {
         let prefs = serde_json::json!({"__prefsui": "prefs"});
         let prefs = prefs.as_object().unwrap();
         assert_eq!(super::width(prefs, 200.0), Some(380.0));
         assert_eq!(super::width(prefs, 800.0), Some(800.0));
-        assert_eq!(super::width(prefs, 3000.0), Some(1040.0));
+        // A dialog resized wider than it opens is filled, not left with empty space (#7420).
+        assert_eq!(super::width(prefs, 3000.0), Some(3000.0));
         let shortcuts = serde_json::json!({"__prefsui": "shortcuts"});
         assert_eq!(super::width(shortcuts.as_object().unwrap(), 3000.0), Some(720.0));
+    }
+
+    #[test]
+    fn preferences_settings_fill_the_dialog_down_to_the_buttons() {
+        // The settings area plus the button row (spacing, 8 pt gap, buttons) stays inside what the
+        // resizable area gives it, at any size: the area grows to fit its content, so asking for
+        // more would make the dialog grow every frame. The area follows the dialog's size (#7420).
+        for available in [300.0, 600.0, 1400.0] {
+            let h = super::settings_height(available, 4.0, 30.0);
+            assert!(h + 4.0 + 8.0 + 30.0 <= available, "{available}");
+            assert!(h + 4.0 + 8.0 + 30.0 + 8.0 >= available, "{available}");
+        }
+        assert_eq!(super::settings_height(1400.0, 4.0, 30.0) - super::settings_height(600.0, 4.0, 30.0), 800.0);
+        assert_eq!(super::settings_height(50.0, 4.0, 30.0), 160.0);
     }
     use super::*;
     use std::sync::{Arc, Mutex};
@@ -3985,9 +4005,11 @@ mod tests {
         assert!(note.starts_with("Monitor profile in use: sRGB") && note.contains("fallback"), "{note}");
         assert!(crate::menus::invoke(&mut app, &ctx, "edit.fade", json!({})).is_err());
         app.run("select.rect", json!({"x": 4, "y": 4, "width": 8, "height": 8})).unwrap();
-        let d = crate::menus::invoke(&mut app, &ctx, "edit.contentAwareFill", json!({})).unwrap()["dialog"].as_u64().unwrap();
-        assert_eq!(app.ui.dialogs.iter().find(|x| x.id == d).unwrap().fields["__preview"], true);
-        crate::dialogs::confirm(&mut app, d).unwrap();
+        // Content-Aware Fill opens its workspace (caf_ui); OK fills.
+        let r = crate::menus::invoke(&mut app, &ctx, "edit.contentAwareFill", json!({})).unwrap();
+        assert!(r["contentAwareFill"]["window"].is_array(), "{r}");
+        crate::caf_ui::commit(&mut app);
+        assert!(app.distort.caf.is_none());
         let r = crate::menus::invoke(&mut app, &ctx, "edit.contentAwareScale", json!({})).unwrap();
         assert_eq!(r["transform"]["rect"], json!([4.0, 4.0, 12.0, 12.0]));
         crate::transform_tool::cancel(&mut app);
