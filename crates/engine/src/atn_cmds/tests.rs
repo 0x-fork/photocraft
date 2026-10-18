@@ -1074,20 +1074,41 @@ fn numeric_layer_references_refuse_silent_fallback_to_current_selection() {
     let mut s = Session::new();
     s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
 
-    // Named layer reference exports successfully
+    let parse_first_desc = |v: &Value| -> Descriptor {
+        let bytes = photocraft_paint::tile::b64_decode(v["data"].as_str().unwrap()).unwrap();
+        let file = atn::parse(&bytes).unwrap();
+        file.actions[0].items[0].descriptor.clone().unwrap()
+    };
+
+    // Named layer reference exports successfully with Name reference to "A"
     s.actions.list.push(Action::new("DeleteNamed", vec![("layer.delete".into(), json!({"layer": "A"}))]));
     let saved_named = s.execute("actions.save", json!({"action": "DeleteNamed"})).unwrap();
     assert_eq!(saved_named["steps"], 1);
+    let named_desc = parse_first_desc(&saved_named);
+    match get_ref(&named_desc, "null").unwrap() {
+        [ReferenceItem::Name { name, .. }] => assert_eq!(name.to_string_lossy(), "A"),
+        other => panic!("expected Name reference to A, got {other:?}"),
+    }
 
-    // Omitted layer reference (target selection) exports successfully
+    // Omitted layer reference (target selection) exports successfully with Trgt enumerated reference
     s.actions.list.push(Action::new("DeleteTarget", vec![("layer.delete".into(), json!({}))]));
     let saved_target = s.execute("actions.save", json!({"action": "DeleteTarget"})).unwrap();
     assert_eq!(saved_target["steps"], 1);
+    let target_desc = parse_first_desc(&saved_target);
+    match get_ref(&target_desc, "null").unwrap() {
+        [ReferenceItem::Enumerated { value, .. }] => assert!(value.is("Trgt")),
+        other => panic!("expected Trgt enumerated reference, got {other:?}"),
+    }
 
-    // Explicit null layer reference also exports successfully as target selection
+    // Explicit null layer reference also exports successfully as target selection with Trgt enumerated reference
     s.actions.list.push(Action::new("DeleteNull", vec![("layer.delete".into(), json!({"layer": null}))]));
     let saved_null = s.execute("actions.save", json!({"action": "DeleteNull"})).unwrap();
     assert_eq!(saved_null["steps"], 1);
+    let null_desc = parse_first_desc(&saved_null);
+    match get_ref(&null_desc, "null").unwrap() {
+        [ReferenceItem::Enumerated { value, .. }] => assert!(value.is("Trgt")),
+        other => panic!("expected Trgt enumerated reference, got {other:?}"),
+    }
 
     // Explicit numeric ID reference cannot be silently converted to current target in strict export
     s.actions.list.push(Action::new("DeleteNumeric", vec![("layer.delete".into(), json!({"layer": 42}))]));
@@ -1100,38 +1121,14 @@ fn numeric_layer_references_refuse_silent_fallback_to_current_selection() {
     let err_msg = err_delete.unwrap_err().to_string();
     assert!(err_msg.contains("(`layer.delete` with numeric layer 42)"), "error message should name the numeric layer: {err_msg}");
 
-    // Same for layer.duplicate with numeric ID
-    s.actions.list.push(Action::new("DuplicateNumeric", vec![("layer.duplicate".into(), json!({"layer": 42, "name": "Copy"}))]));
-    let err_dup = s.execute("actions.save", json!({"action": "DuplicateNumeric"}));
-    assert!(err_dup.is_err(), "strict export must reject numeric layer ID for layer.duplicate rather than falling back to current target");
-
-    // Same for duplicate into new document with numeric ID
-    s.actions.list.push(Action::new("DuplicateNewDocNumeric", vec![("layer.duplicate".into(), json!({"layer": 42, "document": "new"}))]));
-    let err_dup_new = s.execute("actions.save", json!({"action": "DuplicateNewDocNumeric"}));
-    assert!(err_dup_new.is_err(), "strict export must reject numeric layer ID for duplicate into new document");
-
-    // Same for layer.translate with numeric ID
-    s.actions.list.push(Action::new("TranslateNumeric", vec![("layer.translate".into(), json!({"layer": 42, "dx": 5, "dy": 5}))]));
-    let err_trans = s.execute("actions.save", json!({"action": "TranslateNumeric"}));
-    assert!(err_trans.is_err(), "strict export must reject numeric layer ID for layer.translate rather than falling back to current target");
-
-    // Same for layer.setProps with numeric ID
-    s.actions.list.push(Action::new("SetPropsNumeric", vec![("layer.setProps".into(), json!({"layer": 42, "opacity": 0.5}))]));
-    let err_set = s.execute("actions.save", json!({"action": "SetPropsNumeric"}));
-    assert!(err_set.is_err(), "strict export must reject numeric layer ID for layer.setProps");
-
-    // Same for visibility with numeric ID
-    s.actions.list.push(Action::new("HideNumeric", vec![("layer.hideLayers".into(), json!({"layer": 42}))]));
-    let err_hide = s.execute("actions.save", json!({"action": "HideNumeric"}));
-    assert!(err_hide.is_err(), "strict export must reject numeric layer ID for layer.hideLayers");
-
-    // Same for edit.transform with numeric ID
-    s.actions.list.push(Action::new("TransformNumeric", vec![("edit.transform".into(), json!({"layer": 42, "dx": 5, "dy": 5}))]));
-    let err_transf = s.execute("actions.save", json!({"action": "TransformNumeric"}));
-    assert!(err_transf.is_err(), "strict export must reject numeric layer ID for edit.transform");
-
-    // Same for layer.renameLayer, layer.setLabelColor, layer.showLayers, layer.select, and each layer.arrange.* command
+    // Same rejection and state invariance for remaining commands with numeric layer reference
     for (name, id, params) in [
+        ("DuplicateNumeric", "layer.duplicate", json!({"layer": 42, "name": "Copy"})),
+        ("DuplicateNewDocNumeric", "layer.duplicate", json!({"layer": 42, "document": "new"})),
+        ("TranslateNumeric", "layer.translate", json!({"layer": 42, "dx": 5, "dy": 5})),
+        ("SetPropsNumeric", "layer.setProps", json!({"layer": 42, "opacity": 0.5})),
+        ("HideNumeric", "layer.hideLayers", json!({"layer": 42})),
+        ("TransformNumeric", "edit.transform", json!({"layer": 42, "dx": 5, "dy": 5})),
         ("RenameNumeric", "layer.renameLayer", json!({"layer": 42, "name": "Renamed"})),
         ("LabelNumeric", "layer.setLabelColor", json!({"layer": 42, "color": "red"})),
         ("ShowNumeric", "layer.showLayers", json!({"layer": 42})),
