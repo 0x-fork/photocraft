@@ -253,6 +253,16 @@ fn develop_fitted(bytes: &[u8], opts: &DevelopOptions) -> Result<photocraft_raw:
 /// a preview fallback): what the open-time Camera Raw dialog looks for.
 pub const DEVELOPED_NOTE: &str = "developed with default settings";
 
+/// The demosaic method a default open developed with, read back from its [`DEVELOPED_NOTE`]
+/// warning: the open-time dialog starts from it, whatever the preference says by the time the
+/// (background) open lands.
+pub fn developed_demosaic(warnings: &[String]) -> Option<Demosaic> {
+    let note = warnings.iter().find(|w| w.contains(DEVELOPED_NOTE))?;
+    let after = &note[note.find(DEVELOPED_NOTE)? + DEVELOPED_NOTE.len()..];
+    let id = after.trim_start().strip_prefix('(')?.split(" demosaic").next()?;
+    Demosaic::from_id(id)
+}
+
 /// Develops a raw file with explicit settings. Without `opts.camera_look`, a file without
 /// colour calibration gets one fitted to its embedded JPEG when that clearly helps.
 pub fn import_raw_with(name: &str, bytes: &[u8], opts: &DevelopOptions) -> Result<ImportResult, IoError> {
@@ -284,6 +294,14 @@ pub fn import_raw_with(name: &str, bytes: &[u8], opts: &DevelopOptions) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_developed_note_says_which_demosaic_method_was_used() {
+        let note = format!("NEF: {DEVELOPED_NOTE} (mhc demosaic, as-shot white balance) into 16-bit ProPhoto RGB");
+        assert_eq!(developed_demosaic(&["unrelated".to_string(), note]), Some(Demosaic::Mhc));
+        assert_eq!(developed_demosaic(&[format!("{DEVELOPED_NOTE} (amaze demosaic)")]), None);
+        assert_eq!(developed_demosaic(&["opened the embedded preview".to_string()]), None);
+    }
 
     #[test]
     fn camera_names_drop_a_repeated_make() {

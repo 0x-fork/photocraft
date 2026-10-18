@@ -223,11 +223,13 @@ pub fn without_develop_note(warnings: &[String]) -> Vec<String> {
     warnings.iter().filter(|w| !w.contains(photocraft_io::raw::DEVELOPED_NOTE)).cloned().collect()
 }
 
-/// Queues the open-time dialog for the active document (shown on the next frame).
-pub fn queue_open_dialog(app: &mut PhotocraftApp, name: &str, path: Option<&str>, bytes: Option<&[u8]>) {
+/// Queues the open-time dialog for the active document (shown on the next frame). `warnings`
+/// are the import's: its note says which demosaic method the open developed with.
+pub fn queue_open_dialog(app: &mut PhotocraftApp, name: &str, path: Option<&str>, bytes: Option<&[u8]>, warnings: &[String]) {
     if let Some(st) = app.session.active() {
-        // The open developed it with the preference's method (`jobs::import_options`).
-        let method = app.session.prefs().raw_defaults.demosaic.method();
+        // The method the open actually used (`jobs::import_options` at the job's start), from its
+        // note: the preference may have changed while a background open ran.
+        let method = photocraft_io::raw::developed_demosaic(warnings).unwrap_or_else(|| app.session.prefs().raw_defaults.demosaic.method());
         app.pending_raw_open = Some(RawOpen {
             document: st.doc.id,
             name: name.to_string(),
@@ -1617,6 +1619,16 @@ mod tests {
         // Only the open-time dialog has the choice.
         menu(&mut app, &ctx, "filter.cameraRaw", &json!({})).unwrap().unwrap();
         assert!(menu(&mut app, &ctx, "filter.cameraRaw", &json!({"ui": {"demosaic": "ahd"}})).unwrap().is_err());
+
+        // The preference may change while a background open runs: the dialog starts from the
+        // method the open developed with (its note), not from the newer preference.
+        let warnings = app.open_bytes("IMG_0004.dng", &dng).unwrap();
+        app.pending_raw_open.take();
+        app.run("prefs.set", json!({"path": "rawDefaults.demosaic", "value": "ahd"})).unwrap();
+        queue_open_dialog(&mut app, "IMG_0004.dng", None, Some(&dng), &warnings);
+        let raw = app.pending_raw_open.take().unwrap();
+        use photocraft_io::raw::Demosaic;
+        assert_eq!((raw.developed_with, raw.demosaic), (Demosaic::Bilinear, Demosaic::Bilinear));
     }
 
     #[test]
