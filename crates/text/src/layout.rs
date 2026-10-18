@@ -442,6 +442,8 @@ struct KernSlot {
     blank: bool,
     /// Advance along the line (px, horizontal scale included).
     advance: f32,
+    /// What horizontal scale adds to the shaped advance (px; negative below 100%).
+    growth: f32,
     /// A tab, shaped as a space; it advances to the next tab stop.
     tab: bool,
     /// Vertical type, upright glyph (its outline doesn't run along the column).
@@ -595,6 +597,12 @@ impl Layouter {
                 for p in style_props(&out.styles[si0], k, &fallback, si0 as u32, small_caps[si0]) {
                     b.push_default(p);
                 }
+                // Paragraph text breaks a word wider than the box at the box edge, as Photoshop
+                // does (#6694): parley's default only breaks at UAX #14 opportunities and lets the
+                // word run out of the box. Point text has no width to overflow.
+                if is_box {
+                    b.push_default(StyleProperty::OverflowWrap(parley::style::OverflowWrap::BreakWord));
+                }
                 for (ri, st) in out.styles.iter().enumerate() {
                     let rs = run_starts[ri];
                     let (a, z) = (rs.max(prange.start), (rs + runs[ri].len).min(content_end));
@@ -649,6 +657,24 @@ impl Layouter {
             // Box extent along the lines: width, or height for vertical type (columns).
             let (line_origin, line_len) = if vertical { (box_rect.1, box_rect.3) } else { (box_rect.0, box_rect.2) };
             let avail = if is_box { Some((line_len - indent_start - indent_end).max(1.0)) } else { None };
+            // Horizontal scale is applied after shaping, so paragraph text breaks at the box
+            // width divided by it (#5565). Mixed scales break at the largest, so no line
+            // overflows the box.
+            let break_scale = if is_box {
+                let si0 = style_at(prange.start);
+                (0..out.styles.len())
+                    .filter(|&ri| {
+                        let rs = run_starts.get(ri).copied().unwrap_or(0);
+                        let end = rs.saturating_add(runs.get(ri).map_or(0, |r| r.len));
+                        ri == si0 || (rs.max(prange.start) < end.min(content_end))
+                    })
+                    .filter_map(|ri| out.styles.get(ri))
+                    .map(effective_horizontal_scale)
+                    .fold(0.0f32, f32::max)
+            } else {
+                1.0
+            };
+            let break_scale = if break_scale > 0.0 { break_scale } else { 1.0 };
             // Area type: the first row goes no higher than one leading (plus paragraph spacing)
             // below the previous paragraph's last line.
             let space_before = if prev_baseline.is_some() { ps.space_before_pt * k } else { 0.0 };
@@ -661,10 +687,10 @@ impl Layouter {
             let area_budget = std::cell::Cell::new(MAX_AREA_PASSES);
             let break_lines = |layout: &mut Layout<RunBrush>| -> (Vec<Slot>, bool) {
                 if first_indent != 0.0 {
-                    layout.set_text_indent(first_indent, IndentOptions::default());
+                    layout.set_text_indent(first_indent / break_scale, IndentOptions::default());
                 }
                 let Some(a) = &area else {
-                    layout.break_all_lines(avail);
+                    layout.break_all_lines(avail.map(|a| a / break_scale));
                     return (Vec::new(), false);
                 };
                 // Plan every row with the paragraph's real line metrics (its tallest font and
@@ -783,6 +809,7 @@ impl Layouter {
                             blank: first.is_none() || c.is_space_or_nbsp() || c.text_range().end <= prefix.len(),
                             upright: vertical && c.first_style().brush.1 != VClass::Rotate as u8,
                             advance: c.advance() * hs,
+                            growth: c.advance() * (hs - 1.0),
                             tab: tabs.binary_search(&c.text_range().start).is_ok(),
                         });
                     }
@@ -827,10 +854,15 @@ impl Layouter {
                 // moves the whole line).
                 let mut pos = indent_start + if li == 0 { first_indent } else { 0.0 };
                 let mut trailing_tabs = 0.0f32;
+                let mut trailing_growth = 0.0f32;
                 for (j, s) in slots.iter().enumerate() {
+                    // Trailing whitespace is outside the line's extent (`adv`).
+                    let trailing = s.blank && slots[j + 1..].iter().all(|n| n.blank);
+                    if trailing {
+                        trailing_growth += s.growth;
+                    }
                     if s.tab {
                         kern_px[j] = next_tab_stop(pos, tab_px) - pos - s.advance;
-                        // Trailing whitespace is outside the line's extent (`adv`).
                         if slots[j + 1..].iter().all(|n| n.blank) {
                             trailing_tabs += kern_px[j];
                         }
@@ -872,15 +904,18 @@ impl Layouter {
                 let dx = if wraps {
                     let origin = slot.map_or(line_origin, |s| s.x);
                     let base = origin + indent_start - kern_align;
-                    let slack = line_avail.unwrap_or(0.0) - adv - line_kern;
+                    let slack = line_avail.unwrap_or(0.0) - adv * break_scale - line_kern;
+                    // Parley aligned the unscaled line in `avail / break_scale`: scale its
+                    // indent and alignment offset back to the box.
+                    let scaled_offset = m.offset * (break_scale - 1.0);
                     base + if last_line {
                         match ps.align {
                             TextAlign::JustifyCenter => slack * 0.5 - m.offset,
                             TextAlign::JustifyRight => slack - m.offset,
-                            _ => 0.0,
+                            _ => scaled_offset,
                         }
                     } else {
-                        0.0
+                        scaled_offset
                     }
                 } else {
                     let target = match ps.align {
@@ -1045,7 +1080,7 @@ impl Layouter {
                     range: map(lr.start)..map(lr.end).min(content_end),
                     baseline,
                     x0,
-                    x1: x0 + adv + extra - trailing_tabs,
+                    x1: x0 + adv + extra - trailing_tabs - trailing_growth,
                     ascent,
                     descent,
                     paragraph: pi,
@@ -1059,6 +1094,11 @@ impl Layouter {
         }
         out
     }
+}
+
+/// A style's horizontal scale; unset (zero or negative) is 100%.
+fn effective_horizontal_scale(st: &CharStyle) -> f32 {
+    if st.horizontal_scale > 0.0 && st.horizontal_scale.is_finite() { st.horizontal_scale } else { 1.0 }
 }
 
 /// The first tab stop after `pos` (px from the anchor or box edge); stops are `interval` apart.
