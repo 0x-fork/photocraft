@@ -223,10 +223,10 @@ fn moving_shrinks_the_selection_to_the_moved_pixels_at_every_depth() {
     }
 }
 
-/// The new selection is the old one where the layer has pixels: a soft selection keeps its soft
-/// edge, and half-transparent pixels stay as selected as they were, so they move whole next time.
+/// The new selection is what each pixel took with it: the selection, at most the pixel's alpha. A
+/// soft selection keeps its soft edge; a half-transparent pixel half selected moves whole.
 #[test]
-fn the_outline_keeps_soft_edges_and_selects_half_transparent_pixels_as_before() {
+fn the_outline_is_what_the_moved_pixels_took() {
     let (mut s, id) = session();
     s.edit("soften", |doc, _| {
         // Half-transparent red over (30..40, 10..30), beside the opaque (10..30)² square.
@@ -243,8 +243,8 @@ fn the_outline_keeps_soft_edges_and_selects_half_transparent_pixels_as_before() 
     let doc = &s.active().unwrap().doc;
     let near = |x: i32, y: i32, want: f32| assert!((selected(doc, x, y) - want).abs() < 0.01, "({x}, {y}): {} for {want}", selected(doc, x, y));
     near(25, 20, 1.0); // fully selected, opaque
-    near(35, 20, 0.5); // half selected, opaque
-    near(45, 20, 0.5); // half selected, half transparent: as selected as before
+    near(35, 20, 0.5); // half selected, opaque: half of it moved
+    near(45, 20, 0.5); // half selected, half transparent: all of it moved
     near(5, 5, 0.0); // selected, but nothing there
     assert_eq!(doc.selection.as_ref().unwrap().content_bounds(), Rect::new(20, 10, 50, 30));
 }
@@ -312,4 +312,69 @@ fn moving_again_from_the_shrunk_selection_leaves_no_edge_behind() {
         assert_eq!(leftover, 0.0, "{depth}-bit: nothing left where it was moved from");
         assert!((total(doc) - before).abs() < 0.05, "{depth}-bit: every edge pixel came back whole ({} vs {before})", total(doc));
     }
+}
+
+/// #7538, measured in Photoshop 2025: after moving a soft-edged shape from a loose marquee, the
+/// selection's strength at each edge pixel is that pixel's alpha (its marching ants run along the
+/// edge's 50 % line, and Quick Mask shows the edge partly selected), and a feathered selection
+/// over opaque pixels still lifts only part of them, leaving the rest behind.
+#[test]
+fn a_soft_edge_is_as_selected_as_it_is_opaque_and_feathered_moves_leave_the_rest() {
+    let (mut s, id) = session();
+    s.edit("soft edge", |doc, _| {
+        let surf = doc.layer_mut(id).unwrap().surface_mut().unwrap();
+        for (x, a) in [(30, 0.75), (31, 0.5), (32, 0.25)] {
+            surf.fill_rect(Rect::new(x, 10, x + 1, 30), &[1.0, 0.0, 0.0, a]);
+        }
+        Ok(())
+    })
+    .unwrap();
+    s.execute("select.rect", json!({"x": 5, "y": 5, "width": 40, "height": 30})).unwrap();
+    s.execute("select.float", json!({"dx": 10, "dy": 0})).unwrap();
+    s.execute("select.drop", json!({})).unwrap();
+    let doc = &s.active().unwrap().doc;
+    for (x, a) in [(39, 1.0), (40, 0.75), (41, 0.5), (42, 0.25), (43, 0.0)] {
+        assert!((selected(doc, x, 20) - a).abs() < 0.01, "x {x}: selected {} where alpha {a}", selected(doc, x, 20));
+        assert!((alpha(doc, id, x, 20) - a).abs() < 0.01, "x {x}: the pixel moved whole");
+    }
+    assert!((10..20).all(|x| alpha(doc, id, x, 20) == 0.0), "nothing left where it was");
+
+    // A feathered (half) selection over opaque pixels lifts half of them and leaves half.
+    let (mut s, id) = session();
+    s.edit("half", |doc, _| {
+        let mut sel = Surface::new(PixelFormat::GRAY8);
+        sel.fill_rect(Rect::new(10, 10, 30, 30), &[0.5]);
+        doc.selection = Some(sel);
+        Ok(())
+    })
+    .unwrap();
+    s.execute("select.float", json!({"dx": 30, "dy": 0})).unwrap();
+    s.execute("select.drop", json!({})).unwrap();
+    let doc = &s.active().unwrap().doc;
+    assert!((alpha(doc, id, 15, 20) - 0.5).abs() < 0.01 && (alpha(doc, id, 45, 20) - 0.5).abs() < 0.01, "half left, half moved");
+}
+
+/// #7538: arrow nudges add up to one floating piece, so up then down is back at no offset. The
+/// selection is the moved pixels' all the same, as after each of Photoshop's nudges, in one step;
+/// a piece that never moved (a click) changes nothing.
+#[test]
+fn nudging_away_and_back_keeps_the_moved_pixels_selection() {
+    let (mut s, _) = session();
+    s.execute("select.rect", json!({"x": 2, "y": 2, "width": 40, "height": 40})).unwrap();
+    let steps = s.active().unwrap().history.past_len();
+    s.execute("select.float", json!({"dx": 0, "dy": -1})).unwrap();
+    s.execute("select.float", json!({"dx": 0, "dy": 1})).unwrap();
+    s.execute("select.drop", json!({})).unwrap();
+    let st = s.active().unwrap();
+    assert_eq!(st.doc.selection.as_ref().map(|s| s.content_bounds()), Some(Rect::new(10, 10, 30, 30)), "the moved square's");
+    assert_eq!(st.history.past_len(), steps + 1, "one step");
+    s.undo();
+    assert_eq!(s.active().unwrap().doc.selection.as_ref().map(|s| s.content_bounds()), Some(Rect::new(2, 2, 42, 42)), "undone");
+
+    // A click: cut, never moved, dropped.
+    s.execute("select.float", json!({"dx": 0, "dy": 0})).unwrap();
+    s.execute("select.drop", json!({})).unwrap();
+    let st = s.active().unwrap();
+    assert_eq!(st.doc.selection.as_ref().map(|s| s.content_bounds()), Some(Rect::new(2, 2, 42, 42)), "a click keeps the marquee");
+    assert_eq!(st.history.past_len(), steps, "and adds no step");
 }

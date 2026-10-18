@@ -33,9 +33,10 @@ pub struct CutParts {
     pub layer: LayerId,
     rest: Surface,
     piece: Surface,
-    /// The selection the moved pixels take, unmoved: the selection limited to where the layer has
-    /// pixels (Photoshop shrinks the marching ants to the piece as the drag starts, #7538). `None`
-    /// keeps the selection: a mask has no transparency, and an empty piece no outline.
+    /// The selection the moved pixels take, unmoved: the alpha the piece took, the selection
+    /// limited to the layer's transparency (Photoshop shrinks the marching ants to the piece as the
+    /// drag starts, #7538). `None` keeps the selection: a mask has no transparency, and an empty
+    /// piece no outline.
     outline: Option<Surface>,
     /// The pieces are the layer's mask (`"target":"mask"`), not its pixels.
     mask: bool,
@@ -76,20 +77,32 @@ impl CutParts {
             let w = b.width() as usize;
             let mut cover = Vec::with_capacity(if mask { 0 } else { w * b.height() as usize });
             for (i, (p, r)) in pp.chunks_exact_mut(n).zip(rp.chunks_exact_mut(n)).enumerate() {
-                let k = sel.sample_channel(b.x0 + (i % w) as i32, b.y0 + (i / w) as i32, 0);
-                if !mask {
-                    // Where the layer has pixels, the selection keeps its strength: shrinking it to
-                    // their alpha would leave half-transparent edges partly behind on the next
-                    // move, a faint outline (#7538).
-                    cover.push(if p[a] > 0.0 { k.max(0.0) } else { 0.0 });
+                let k = sel.sample_channel(b.x0 + (i % w) as i32, b.y0 + (i / w) as i32, 0).clamp(0.0, 1.0);
+                if mask {
+                    // A mask has no alpha of its own: its selected part moves by the selection.
+                    if k <= 0.0 {
+                        p.fill(0.0);
+                    } else {
+                        p[a] *= k;
+                    }
+                    continue;
                 }
-                if k <= 0.0 {
+                // The selection is how much of each pixel's alpha moves, at most all of it, as
+                // Photoshop's Move tool lifts it (#7538): a feathered selection over opaque pixels
+                // lifts k of them and leaves 1 − k, while one no stronger than the pixels' own
+                // alpha (the outline a previous move left) lifts them whole. Multiplying instead
+                // left a × (1 − a) of every half-transparent edge pixel behind, a faint outline.
+                let lifted = p[a].min(k);
+                // The moved pixels' selection is what they took with them (Photoshop's marching
+                // ants hug the 50 % line of a soft edge), so moving them again lifts them whole.
+                cover.push(lifted);
+                if lifted <= 0.0 {
                     p.fill(0.0);
                 } else {
-                    p[a] *= k;
+                    p[a] = lifted;
                 }
                 if !copy && !fill {
-                    r[a] *= 1.0 - k;
+                    r[a] -= lifted;
                 }
             }
             if !mask {
@@ -149,6 +162,9 @@ pub struct Floating {
     pub offset: (i32, i32),
     pub revision: u64,
     pub parts: Arc<CutParts>,
+    /// The piece has been moved at least once, even if it is back where it was cut (nudged away
+    /// and back): its selection is the moved pixels' then, as each of Photoshop's nudges leaves it.
+    pub moved: bool,
 }
 
 /// The floating piece of `st`, if it is still valid (the document hasn't changed under it).
@@ -200,10 +216,11 @@ fn float(s: &mut Session, p: &Value) -> Result<Value> {
     if floating(st).is_none() {
         let layer = st.active_layer.ok_or_else(|| EngineError::Other("no active layer".into()))?;
         let parts = CutParts::new(&st.doc, layer, copy, background, crate::commands::is_mask_target(p))?;
-        st.floating = Some(Floating { layer, offset: (0, 0), revision: st.revision, parts: Arc::new(parts) });
+        st.floating = Some(Floating { layer, offset: (0, 0), revision: st.revision, parts: Arc::new(parts), moved: false });
     }
     let f = st.floating.as_mut().ok_or(EngineError::NoDocument)?;
     f.offset = (f.offset.0.saturating_add(dx), f.offset.1.saturating_add(dy));
+    f.moved |= (dx, dy) != (0, 0);
     Ok(json!({"layer": f.layer.0, "offset": [f.offset.0, f.offset.1]}))
 }
 
@@ -218,6 +235,15 @@ pub fn drop_floating(s: &mut Session) -> Result<Value> {
     st.floating = None;
     let (dx, dy) = f.offset;
     if (dx, dy) == (0, 0) {
+        // Back where it was cut: the pixels are as they were. A piece that never moved (a click)
+        // changes nothing; one nudged away and back keeps the moved pixels' selection (#7538).
+        if let Some(outline) = f.parts.outline().filter(|_| f.moved) {
+            let outline = outline.clone();
+            s.edit("Move", |doc, _| {
+                doc.selection = Some(outline);
+                Ok(())
+            })?;
+        }
         return Ok(json!({"dropped": true, "offset": [0, 0]}));
     }
     s.edit("Move", |doc, _| {
