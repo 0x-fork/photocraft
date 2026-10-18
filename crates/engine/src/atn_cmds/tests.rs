@@ -1387,3 +1387,29 @@ fn function_keys_keep_shift_and_command() {
     }
     assert_eq!(super::function_key_name(7, false, false), "F7");
 }
+
+#[test]
+fn select_rect_mode_strict_export_rejects_unrepresentable_modes() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+
+    // Default or "replace" mode succeeds
+    s.actions.list.push(Action::new("ReplaceAct", vec![("select.rect".into(), json!({"x": 4, "y": 4, "width": 2, "height": 2, "mode": "replace"}))]));
+    let saved = s.execute("actions.save", json!({"action": "ReplaceAct"})).unwrap();
+    assert_eq!(saved["steps"], 1);
+
+    // "add" mode cannot be silently converted to replace (set) in strict export
+    s.actions.list.push(Action::new("AddAct", vec![("select.rect".into(), json!({"x": 4, "y": 4, "width": 2, "height": 2, "mode": "add"}))]));
+    let err = s.execute("actions.save", json!({"action": "AddAct"}));
+    assert!(err.is_err(), "strict export must reject select.rect with add mode rather than converting to replace");
+
+    // "subtract" mode cannot be silently converted to replace either
+    s.actions.list.push(Action::new("SubtractAct", vec![("select.rect".into(), json!({"x": 4, "y": 4, "width": 2, "height": 2, "mode": "subtract"}))]));
+    let err_subtract = s.execute("actions.save", json!({"action": "SubtractAct"}));
+    assert!(err_subtract.is_err(), "strict export must reject select.rect with subtract mode rather than converting to replace");
+
+    // With skipUnsupported: true, unrepresentable modes are reported in skipped
+    let skipped = s.execute("actions.save", json!({"action": "AddAct", "skipUnsupported": true})).unwrap();
+    assert_eq!(skipped["steps"], 0);
+    assert_eq!(skipped["skipped"][0]["id"], "select.rect");
+}
