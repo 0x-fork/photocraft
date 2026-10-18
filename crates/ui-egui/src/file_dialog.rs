@@ -185,9 +185,10 @@ impl PhotocraftApp {
 
     /// Whether a save to `path` replaces a file the save dialog didn't ask about: the dialog
     /// answered `answered`, and [`saved_path`] changed it. A file at `path` that
-    /// [`Services::same_file`](crate::Services::same_file) finds is also the file at `answered` (the
+    /// [`Services::same_file`](crate::Services::same_file) finds is the same entry as `answered` (the
     /// same name in another letter case on a file system that ignores case, as Windows and macOS do
-    /// by default) counts as asked about. Never on the web, which has no file stamps.
+    /// by default) counts as asked about; a hard link to it does not. Never on the web, which has no
+    /// file stamps.
     fn replaces_unasked(&self, answered: &str, path: &str) -> bool {
         let Some(stamp) = self.services.file_stamp.as_ref() else { return false };
         answered != path && stamp(path).is_some() && !self.services.same_file.as_ref().is_some_and(|same| same(answered, path))
