@@ -212,6 +212,7 @@ struct Running {
     label: String,
     params: Value,
     journal: bool,
+    pre_selected: Option<Vec<LayerId>>,
     doc: Option<DocId>,
     /// The document as the job saw it: applying fails if it was edited meanwhile.
     snapshot: Option<Weak<Document>>,
@@ -376,6 +377,7 @@ pub fn run<T: Send + 'static>(
         label: label.to_string(),
         params: Value::Null,
         journal: true,
+        pre_selected: None,
         doc,
         snapshot,
         ctx,
@@ -753,6 +755,7 @@ impl Session {
                 job.command = id.to_string();
                 job.params = params;
                 job.journal = spec.journal;
+                job.pre_selected = pre_selected.clone();
                 let jid = job.id;
                 self.jobs.running.push(job);
                 Ok(Started::Job(jid))
@@ -820,7 +823,7 @@ impl Session {
     }
 
     fn apply_job(&mut self, job: &Running, apply: Option<Apply>, payload: Payload) -> Result<Value> {
-        let Running { label, doc, snapshot, coalesce, color_restrict, command, params, journal, .. } = job;
+        let Running { label, doc, snapshot, coalesce, color_restrict, command, params, journal, pre_selected, .. } = job;
         let prev_active = self.active;
         let target = match doc {
             Some(d) => {
@@ -855,7 +858,7 @@ impl Session {
         // Restoring the viewed document first would attribute Fade and slice updates
         // to that document instead, when the user switched tabs mid-job.
         if r.is_ok() {
-            self.after_command(command, params.clone(), *journal, Some(nested_from), None);
+            self.after_command(command, params.clone(), *journal, Some(nested_from), pre_selected.as_deref());
         }
         // Keep the user's active document unless the job opened a new one.
         // This also restores the selection when the apply step returned an error.

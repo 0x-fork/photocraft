@@ -972,6 +972,11 @@ fn numeric_layer_references_refuse_silent_fallback_to_current_selection() {
     let saved_target = s.execute("actions.save", json!({"action": "DeleteTarget"})).unwrap();
     assert_eq!(saved_target["steps"], 1);
 
+    // Explicit null layer reference also exports successfully as target selection
+    s.actions.list.push(Action::new("DeleteNull", vec![("layer.delete".into(), json!({"layer": null}))]));
+    let saved_null = s.execute("actions.save", json!({"action": "DeleteNull"})).unwrap();
+    assert_eq!(saved_null["steps"], 1);
+
     // Explicit numeric ID reference cannot be silently converted to current target in strict export
     s.actions.list.push(Action::new("DeleteNumeric", vec![("layer.delete".into(), json!({"layer": 42}))]));
     let before_actions = s.actions.list.clone();
