@@ -758,7 +758,7 @@ pub fn open_print(app: &mut PhotocraftApp) -> u64 {
         f.entry(k.to_string()).or_insert(v);
     }
     // Windows: the system's printers, and the paper from the chosen printer's driver settings.
-    if let Ok(list) = craft_print::rgb::printers() {
+    if let Ok(list) = photocraft_engine::print_cmds::rgb_printers(&app.session) {
         f.insert("__printers".into(), json!(list.iter().map(|p| p.name.clone()).collect::<Vec<_>>()));
         let known = |n: &str| list.iter().any(|p| p.name == n);
         if !known(&s(&f, "printer", "")) {
@@ -774,7 +774,7 @@ pub fn open_print(app: &mut PhotocraftApp) -> u64 {
 fn driver_page(f: &mut Map<String, Value>) {
     let printer = s(f, "printer", "");
     let settings = f.get("printerSettings").and_then(Value::as_str).and_then(|h| craft_print::rgb::DevMode::from_hex(h).ok());
-    match craft_print::rgb::page(&printer, settings.as_ref()) {
+    match photocraft_engine::print_cmds::with_spooler(|| craft_print::rgb::page(&printer, settings.as_ref())) {
         Ok(pg) => {
             f.insert("paper".into(), json!([pg.paper.0, pg.paper.1]));
             f.insert("orientation".into(), json!("portrait"));
@@ -976,7 +976,7 @@ fn print_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Va
                     if ui.button(tl!("Print Settings…")).clicked() {
                         let printer = s(f, "printer", "");
                         let current = f.get("printerSettings").and_then(Value::as_str).and_then(|h| craft_print::rgb::DevMode::from_hex(h).ok());
-                        match craft_print::rgb::settings_dialog(&printer, current.as_ref(), None) {
+                        match photocraft_engine::print_cmds::with_spooler(|| craft_print::rgb::settings_dialog(&printer, current.as_ref(), None)) {
                             Ok(Some(dm)) => {
                                 f.insert("printerSettings".into(), json!(dm.to_hex()));
                                 driver_page(f);
@@ -1168,6 +1168,8 @@ mod tests {
 
     fn app() -> (PhotocraftApp, egui::Context) {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        // Print lists this printer and does not ask the spooler.
+        app.session.printer_source = Some(Arc::new(|| vec![craft_print::Printer { name: "Test printer".into(), default: true, two_sided: None }]));
         app.run("file.new", json!({"width": 120, "height": 80, "name": "web"})).unwrap();
         (app, egui::Context::default())
     }
@@ -1447,9 +1449,12 @@ mod tests {
         let (mut app, ctx) = app();
         let id = crate::menus::invoke(&mut app, &ctx, "file.print", json!({})).unwrap()["dialog"].as_u64().unwrap();
         let f = &app.ui.dialog_mut(id).unwrap().fields;
-        assert!(f.get("__systemPrinters").is_some_and(Value::is_array));
+        assert_eq!(f["__systemPrinters"], json!([{"name": "Test printer", "default": true}]));
+        assert_eq!((f["__printers"].clone(), f["printer"].clone()), (json!(["Test printer"]), json!("Test printer")));
         assert!(params(f).get("__systemPrinters").is_none());
         assert!(params(f).get("__printers").is_none());
+        // Every test in this binary that opens Print lists the session's printers.
+        assert_eq!(photocraft_engine::print_cmds::system_printer_listings(), 0, "a test asked the system spooler for its printers");
     }
 
     #[test]

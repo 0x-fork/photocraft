@@ -196,12 +196,23 @@ fn native_rgb_route_preserves_pdf_only_color_and_page_content() {
     assert!(native_rgb_compatible(&page_of(1, vec![0; 2], false), "noColorManagement"));
 }
 
+/// Two printers, the second the default, in place of the system spooler's.
+fn test_printers() -> PrinterSource {
+    std::sync::Arc::new(|| {
+        vec![
+            craft_print::Printer { name: "Studio".into(), default: false, two_sided: None },
+            craft_print::Printer { name: "Office".into(), default: true, two_sided: Some(true) },
+        ]
+    })
+}
+
 #[test]
 fn printer_commands_answer_without_a_document_and_reject_bad_settings() {
     let mut s = Session::new();
+    s.printer_source = Some(test_printers());
     let r = s.execute("file.print.printers", json!({})).unwrap();
-    assert_eq!(r["supported"], cfg!(windows));
-    assert!(r["printers"].is_array());
+    assert_eq!(r["supported"], true);
+    assert_eq!(r["printers"], json!([{"name": "Studio", "default": false}, {"name": "Office", "default": true}]));
     assert!(s.execute("file.print.page", json!({"printer": "Anything", "printerSettings": "zz"})).is_err());
     let mut s = session("rgb", 8);
     assert!(s.execute("file.print", json!({"printer": "Anything", "printerSettings": "0102", "send": true})).is_err());
@@ -433,13 +444,60 @@ fn disabled_printing_never_spools() {
 #[test]
 fn printers_lists_the_spooler_destinations_without_a_document() {
     let mut s = Session::new();
+    s.printer_source = Some(test_printers());
     let r = s.execute("file.printers", json!({})).unwrap();
-    let list = r["printers"].as_array().unwrap();
-    assert!(list.iter().all(|p| p["name"].is_string() && p["default"].is_boolean()));
-    match r["default"].as_str() {
-        Some(d) => assert!(list.iter().any(|p| p["name"] == d && p["default"] == true)),
-        None => assert!(list.iter().all(|p| p["default"] == false)),
+    assert_eq!(r["printers"], json!([{"name": "Studio", "default": false}, {"name": "Office", "default": true}]));
+    assert_eq!(r["default"], "Office");
+    s.printer_source = Some(std::sync::Arc::new(Vec::new));
+    let r = s.execute("file.printers", json!({})).unwrap();
+    assert_eq!((r["printers"].clone(), r["default"].clone()), (json!([]), Value::Null));
+}
+
+/// Threads that list printers at the same time enter the spooler one at a time: the stand-in
+/// printer list records how many threads were inside it at once.
+#[test]
+fn printer_listings_enter_the_spooler_one_thread_at_a_time() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Barrier};
+    const THREADS: usize = 8;
+    let inside = Arc::new(AtomicUsize::new(0));
+    let most = Arc::new(AtomicUsize::new(0));
+    let start = Arc::new(Barrier::new(THREADS));
+    let threads: Vec<_> = (0..THREADS)
+        .map(|i| {
+            let (inside, most, start) = (Arc::clone(&inside), Arc::clone(&most), Arc::clone(&start));
+            std::thread::spawn(move || {
+                let mut s = Session::new();
+                s.printer_source = Some(Arc::new(move || {
+                    let now = inside.fetch_add(1, Ordering::SeqCst) + 1;
+                    most.fetch_max(now, Ordering::SeqCst);
+                    std::thread::sleep(std::time::Duration::from_millis(5));
+                    inside.fetch_sub(1, Ordering::SeqCst);
+                    vec![craft_print::Printer { name: "Office".into(), default: true, two_sided: None }]
+                }));
+                start.wait();
+                for _ in 0..3 {
+                    let id = if i % 2 == 0 { "file.printers" } else { "file.print.printers" };
+                    assert_eq!(s.execute(id, json!({})).unwrap()["printers"][0]["name"], "Office");
+                }
+            })
+        })
+        .collect();
+    for t in threads {
+        t.join().unwrap();
     }
+    assert_eq!(most.load(Ordering::SeqCst), 1, "two threads were in the printer listing at once");
+}
+
+/// A caller that panics inside the spooler leaves it usable for later callers.
+#[test]
+fn a_panic_inside_the_spooler_does_not_block_later_callers() {
+    let panicked = std::thread::spawn(|| with_spooler::<()>(|| panic!("a driver call panicked"))).join();
+    assert!(panicked.is_err());
+    assert_eq!(with_spooler(|| 7), 7);
+    let mut s = Session::new();
+    s.printer_source = Some(test_printers());
+    assert_eq!(s.execute("file.printers", json!({})).unwrap()["default"], "Office");
 }
 
 /// Spooling tests run in a child process: `disable_printing` is process-wide and a test above

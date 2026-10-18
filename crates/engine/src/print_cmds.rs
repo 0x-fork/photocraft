@@ -71,6 +71,53 @@ pub struct Spooler {
     pub run: SpoolFn,
 }
 
+/// A stand-in for the system's printers, installed on `Session::printer_source` (tests):
+/// `file.printers`, `file.print.printers` and the Print dialog list these and do not ask the spooler.
+pub type PrinterSource = std::sync::Arc<dyn Fn() -> Vec<craft_print::Printer> + Send + Sync>;
+
+/// Held while a thread of this process lists printers or calls into a printer driver.
+static SPOOLER: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Runs `f`, which lists printers or calls into a printer driver, while no other thread of this
+/// process does either. On Windows, two threads that open printers' PrintTicket providers for the
+/// first time at once can crash the process inside the spooler client (`winspool.drv`). A panic in
+/// an earlier caller does not block later ones.
+pub fn with_spooler<T>(f: impl FnOnce() -> T) -> T {
+    let _held = SPOOLER.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    f()
+}
+
+/// Counts the times this process asked the system for its printers.
+static SYSTEM_LISTINGS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// How many times this process has asked the system for its printers. A session with a
+/// `printer_source` does not ask.
+pub fn system_printer_listings() -> usize {
+    SYSTEM_LISTINGS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The printers `craft-print` spools to, or the session's stand-in for them.
+fn system_printer_list(s: &Session) -> Vec<craft_print::Printer> {
+    with_spooler(|| match &s.printer_source {
+        Some(source) => source(),
+        None => {
+            SYSTEM_LISTINGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            craft_print::printers()
+        }
+    })
+}
+
+/// The printers the GDI route prints to (`craft_print::rgb`), or the session's stand-in for them.
+pub fn rgb_printers(s: &Session) -> std::result::Result<Vec<craft_print::rgb::Printer>, craft_print::rgb::PrintError> {
+    with_spooler(|| match &s.printer_source {
+        Some(source) => Ok(source().into_iter().map(|p| craft_print::rgb::Printer { name: p.name, default: p.default }).collect()),
+        None => {
+            SYSTEM_LISTINGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            craft_print::rgb::printers()
+        }
+    })
+}
+
 /// Why the IPP route could not spool: no route at all (the app's spooler may have one), or a
 /// failure on a route that exists (a wrong printer name, a rejected job).
 enum SpoolError {
@@ -90,7 +137,7 @@ fn spool_job(spooler: Option<&Spooler>, job: &PrintJob, lp: &craft_print::Job) -
             return app(sp);
         }
         if let Some(name) = system_spooler() {
-            return craft_print::submit(&job.pdf, lp).map(|m| (m, name.to_string())).map_err(other);
+            return with_spooler(|| craft_print::submit(&job.pdf, lp)).map(|m| (m, name.to_string())).map_err(other);
         }
     }
     match cups_spool(job) {
@@ -189,10 +236,10 @@ fn cups_spool(job: &PrintJob) -> std::result::Result<String, SpoolError> {
 /// `file.printers`: the printers the system's (or `printServer`'s) print server knows, with the default. From
 /// `craft-print` (`lpstat`, the Windows spooler) where that is the route; over IPP for a named
 /// server and where there is no `lp` (a sandbox).
-fn system_printers(_s: &mut Session, p: &Value) -> Result<Value> {
+fn system_printers(s: &mut Session, p: &Value) -> Result<Value> {
     let named = p.get("printServer").and_then(Value::as_str).filter(|v| !v.is_empty());
-    if named.is_none() && system_spooler().is_some() {
-        let list = craft_print::printers();
+    if named.is_none() && (s.printer_source.is_some() || system_spooler().is_some()) {
+        let list = system_printer_list(s);
         let default = list.iter().find(|p| p.default).map(|p| p.name.clone());
         let printers: Vec<Value> = list.into_iter().map(|p| json!({"name": p.name, "default": p.default})).collect();
         return Ok(json!({"server": Value::Null, "default": default, "printers": printers}));
@@ -671,7 +718,7 @@ fn printer_name(p: &Value) -> Result<String> {
     if let Some(name) = p.get("printer").and_then(Value::as_str).filter(|v| !v.trim().is_empty()) {
         return Ok(name.to_string());
     }
-    craft_print::rgb::default_printer().map_err(other)?.ok_or_else(|| other("no printer chosen and no default printer is set"))
+    with_spooler(craft_print::rgb::default_printer).map_err(other)?.ok_or_else(|| other("no printer chosen and no default printer is set"))
 }
 
 /// The driver settings chosen with Print Settings… (`printerSettings`, hex), when any.
@@ -717,7 +764,7 @@ pub fn page_rect_top_left(page: &PrintPage) -> (f64, f64, f64, f64) {
 fn print_windows(page: &PrintPage, p: &Value, title: &str, copies: u32) -> Result<Value> {
     let printer = printer_name(p)?;
     let settings = printer_settings(p)?;
-    let device_page = craft_print::rgb::page(&printer, settings.as_ref()).map_err(other)?;
+    let device_page = with_spooler(|| craft_print::rgb::page(&printer, settings.as_ref())).map_err(other)?;
     if (device_page.paper.0 - page.paper.0).abs() > 2.0 || (device_page.paper.1 - page.paper.1).abs() > 2.0 {
         return Err(other("the driver paper or orientation differs from the print layout; choose the matching paper in Print Settings before printing"));
     }
@@ -739,14 +786,14 @@ fn print_windows(page: &PrintPage, p: &Value, title: &str, copies: u32) -> Resul
         color_policy,
         primitives: &primitives,
     };
-    let done = craft_print::rgb::print(&job, &image, rect).map_err(other)?;
+    let done = with_spooler(|| craft_print::rgb::print(&job, &image, rect)).map_err(other)?;
     Ok(
         json!({"printer": printer, "dpi": [done.dpi.0, done.dpi.1], "deviceRect": [done.device_rect.0, done.device_rect.1, done.device_rect.2, done.device_rect.3]}),
     )
 }
 
-fn printers(_: &mut Session, _: &Value) -> Result<Value> {
-    match craft_print::rgb::printers() {
+fn printers(s: &mut Session, _: &Value) -> Result<Value> {
+    match rgb_printers(s) {
         Ok(list) => Ok(json!({"supported": true, "printers": list.iter().map(|p| json!({"name": p.name, "default": p.default})).collect::<Vec<_>>()})),
         Err(craft_print::rgb::PrintError::Unsupported) => Ok(json!({"supported": false, "printers": []})),
         Err(e) => Err(other(e)),
@@ -755,7 +802,8 @@ fn printers(_: &mut Session, _: &Value) -> Result<Value> {
 
 fn printer_page(_: &mut Session, p: &Value) -> Result<Value> {
     let printer = printer_name(p)?;
-    let pg = craft_print::rgb::page(&printer, printer_settings(p)?.as_ref()).map_err(other)?;
+    let settings = printer_settings(p)?;
+    let pg = with_spooler(|| craft_print::rgb::page(&printer, settings.as_ref())).map_err(other)?;
     Ok(
         json!({"printer": printer, "paper": [pg.paper.0, pg.paper.1], "printable": [pg.printable.0, pg.printable.1, pg.printable.2, pg.printable.3], "dpi": [pg.dpi.0, pg.dpi.1]}),
     )
