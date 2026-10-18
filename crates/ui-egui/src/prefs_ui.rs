@@ -911,10 +911,10 @@ fn capture_key_press(capture_mods: egui::Modifiers, i: &egui::InputState) -> (eg
             pressed = Some((*key, mods | *modifiers));
             break;
         }
-        if let egui::Event::Key { key, pressed: false, modifiers, .. } = e {
-            if is_modifier_key(*key) {
-                mods = *modifiers;
-            }
+        if let egui::Event::Key { key, pressed: false, modifiers, .. } = e
+            && is_modifier_key(*key)
+        {
+            mods = *modifiers;
         }
     }
     (mods, pressed)

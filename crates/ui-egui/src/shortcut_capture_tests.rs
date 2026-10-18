@@ -215,7 +215,13 @@ fn a_function_key_moved_off_a_panel_toggle_runs_its_new_command() {
     // row in the dialog is Photoshop's `window.panel.brushSettings` while the key ran the shell's
     // `window.toggle.brushSettings`.
     let (mut h, id) = dialog(1.0, "select.modify.feather", "feather");
-    capture(&mut h, &crate::shortcuts::pretty("Shift+F6"), Key::ShiftLeft, Modifiers::NONE, Key::F5);
+    // Enter capture on the default row, then press plain F5 (not Shift+F5: #7190 records held modifiers).
+    h.get_by_label(&crate::shortcuts::pretty("Shift+F6")).click();
+    h.run_steps(2);
+    key(&mut h, Key::F5, true, Modifiers::NONE);
+    h.run_steps(1);
+    key(&mut h, Key::F5, false, Modifiers::NONE);
+    h.run_steps(2);
     let message = field(&h, id, "message");
     assert!(message.as_str().unwrap().contains("already in use"), "{message}");
     crate::dialogs::confirm(h.state_mut(), id).unwrap();
