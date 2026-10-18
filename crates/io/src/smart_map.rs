@@ -673,8 +673,11 @@ fn fltr_for(k: &Known, p: &J) -> Result<Option<Descriptor>, String> {
         }
         "Wave" => {
             let seed = p.get("seed").and_then(J::as_u64).and_then(|s| u32::try_from(s).ok()).unwrap_or(0);
+            // The renderer draws at most MAX_WAVE_GENERATORS: write what PhotoCraft rendered, so
+            // Photoshop doesn't draw more generators than the user saw.
+            let generators = pf(p, "generators", 5.0).round().clamp(1.0, f64::from(photocraft_algo::MAX_WAVE_GENERATORS)) as i32;
             d.with("Wvtp", enum_value(p, "type", "sine", "Wvtp", &WAVE_TYPE)?)
-                .with("NmbG", pi(p, "generators", 5.0))
+                .with("NmbG", Value::Integer(generators))
                 .with("WLMn", pi(p, "wavelengthMin", 10.0))
                 .with("WLMx", pi(p, "wavelengthMax", 120.0))
                 .with("AmMn", pi(p, "amplitudeMin", 5.0))
@@ -1279,6 +1282,24 @@ mod tests {
                 assert_eq!(f.command, UNSUPPORTED_FILTER, "{generators} generators");
                 assert_eq!(item_for_filter(&f).unwrap().get("Fltr"), item.get("Fltr"), "{generators} generators");
             }
+        }
+    }
+
+    /// PhotoCraft draws at most `MAX_WAVE_GENERATORS` generators, so a Wave edited past that exports
+    /// the 64 it rendered, and a count below 1 exports 1, instead of Photoshop drawing more.
+    #[test]
+    fn wave_export_writes_only_the_generators_the_renderer_draws() {
+        let max = i32::try_from(photocraft_algo::MAX_WAVE_GENERATORS).unwrap();
+        for (stored, written) in [(100, max), (999, max), (max + 1, max), (max, max), (5, 5), (1, 1), (0, 1), (-3, 1)] {
+            let wave = sf(
+                "filter.distort.wave",
+                json!({"type": "sine", "generators": stored, "wavelengthMin": 20, "wavelengthMax": 90, "amplitudeMin": 4, "amplitudeMax": 30}),
+            );
+            let fltr = match item_for_filter(&wave).unwrap().get("Fltr") {
+                Some(Value::Descriptor(d)) => d.clone(),
+                other => panic!("wave: no Fltr ({other:?})"),
+            };
+            assert_eq!(int(&fltr, "NmbG"), Some(written), "{stored} generators");
         }
     }
 
