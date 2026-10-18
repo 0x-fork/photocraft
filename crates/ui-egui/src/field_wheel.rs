@@ -104,23 +104,27 @@ pub fn notches(ui: &Ui, field: Id, focused: bool, rect: Rect) -> f32 {
     let events: Vec<Event> = if focused {
         ui.data_mut(|d| d.remove_temp::<Vec<Event>>(taken_id())).unwrap_or_default()
     } else {
-        if !ui.is_enabled() || !ui.rect_contains_pointer(rect) {
+        if !ui.is_enabled() {
             return 0.0;
         }
         let Some(mut g) = ui.data(|d| d.get_temp::<Gesture>(gesture_id())) else { return 0.0 };
         let (events, wheel): (Vec<Event>, bool) =
             ui.input(|i| (i.events.iter().filter(|e| for_field(e)).cloned().collect(), i.events.iter().any(|e| matches!(e, Event::MouseWheel { .. }))));
+        // Wheel the field doesn't take (a sideways swipe after a zero-delta start) hands the rest
+        // of the gesture to the view, which pans with it: also with the pointer off the field, so
+        // the gesture doesn't step it on coming back.
+        if g.owner == Owner::Field(field) && wheel && events.is_empty() {
+            g.owner = Owner::Elsewhere;
+            ui.data_mut(|d| d.insert_temp(gesture_id(), g));
+            return 0.0;
+        }
+        if !ui.rect_contains_pointer(rect) {
+            return 0.0;
+        }
         match g.owner {
             Owner::New if !events.is_empty() => {
                 g.owner = Owner::Field(field);
                 ui.data_mut(|d| d.insert_temp(gesture_id(), g));
-            }
-            // Wheel the field doesn't take (a sideways swipe after a zero-delta start) hands the
-            // rest of the gesture to the view, which pans with it.
-            Owner::Field(id) if id == field && wheel && events.is_empty() => {
-                g.owner = Owner::Elsewhere;
-                ui.data_mut(|d| d.insert_temp(gesture_id(), g));
-                return 0.0;
             }
             Owner::Field(id) if id == field => {}
             _ => return 0.0,
@@ -153,7 +157,12 @@ mod tests {
     /// A value field (0–1000) at the top left of a scroll area 100 pt tall, beside and above a
     /// large filler.
     fn harness(value: f32) -> Harness<'static, State> {
-        let mut h = Harness::builder().with_size(vec2(300.0, 200.0)).build_ui_state(
+        harness_stepping(value, 0.25)
+    }
+
+    /// [`harness`] with each step `step_dt` seconds long.
+    fn harness_stepping(value: f32, step_dt: f32) -> Harness<'static, State> {
+        let mut h = Harness::builder().with_size(vec2(300.0, 200.0)).with_step_dt(step_dt).build_ui_state(
             |ui, s: &mut State| {
                 super::begin_frame(ui.ctx());
                 let out = egui::ScrollArea::both().max_height(100.0).max_width(200.0).show(ui, |ui| {
@@ -278,6 +287,28 @@ mod tests {
         h.run_steps(4);
         assert_eq!(h.state().0, 100.0, "the field was not stepped");
         assert!(h.state().3 > 0.0, "the panel panned sideways");
+    }
+
+    /// The same swipe with the pointer off the field hands the gesture to the view too: coming
+    /// back over the field in the same gesture doesn't step it.
+    #[test]
+    fn a_sideways_swipe_off_the_field_keeps_the_rest_of_the_gesture_the_views() {
+        // Short frames: moving the pointer takes a frame of its own, and the gesture must not end.
+        let mut h = harness_stepping(100.0, 1.0 / 30.0);
+        h.hover_at(field(&h).center());
+        h.run_steps(1);
+        let ev = |phase, unit, d| egui::Event::MouseWheel { unit, delta: d, phase, modifiers: Modifiers::NONE };
+        h.event(ev(egui::TouchPhase::Start, egui::MouseWheelUnit::Point, vec2(0.0, 0.0)));
+        h.run_steps(1);
+        // A short swipe, so the field stays in view.
+        h.hover_at(field(&h).center() + vec2(0.0, 40.0));
+        h.event(ev(egui::TouchPhase::Move, egui::MouseWheelUnit::Point, vec2(-10.0, 0.0)));
+        h.run_steps(1);
+        h.hover_at(field(&h).center());
+        h.event(ev(egui::TouchPhase::Move, egui::MouseWheelUnit::Line, vec2(0.0, -1.0)));
+        h.run_steps(4);
+        assert_eq!(h.state().0, 100.0, "the field was not stepped");
+        assert!(h.state().1 > 0.0, "the panel scrolled");
     }
 
     #[test]
