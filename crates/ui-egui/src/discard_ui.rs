@@ -157,6 +157,25 @@ fn advance(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if next.is_some() {
         return;
     }
+    // A save or close hook may have dirtied a document that was clean when the prompt opened (or
+    // made a new one): ask about those before the final close, which discards without checking.
+    if one_by_one && let Some(p) = app.discard.as_ref() {
+        let (id, target) = (p.id.clone(), p.target);
+        let rest: Vec<DocId> = app
+            .session
+            .documents()
+            .iter()
+            .filter(|d| d.is_dirty() && (matches!(reach(&id), Some(Reach::All)) || Some(d.doc.id) != target))
+            .map(|d| d.doc.id)
+            .collect();
+        if !rest.is_empty() {
+            show_tab(app, rest.first().copied());
+            if let Some(p) = app.discard.as_mut() {
+                p.docs = rest;
+            }
+            return;
+        }
+    }
     let Some(Prompt { id, mut params, target, .. }) = app.discard.take() else { return };
     if id == EXIT {
         app.allow_close = true;
@@ -493,6 +512,38 @@ mod tests {
         assert_eq!(app.session.documents().len(), 2, "the answered document closes; still waiting on the second");
         advance(&mut app, &ctx);
         assert!(app.session.documents().is_empty());
+    }
+
+    /// A document that became dirty while the prompt was up is asked about before the final close (#4954).
+    #[test]
+    fn a_document_dirtied_during_the_prompt_is_asked_about_before_the_final_close() {
+        for command in ["file.closeAll", EXIT] {
+            let mut app = app_with_docs(2);
+            let ctx = egui::Context::default();
+            make_dirty(&mut app, 0);
+            let late = doc_id(&app, 1);
+            crate::menus::invoke(&mut app, &ctx, command, json!({})).unwrap();
+            make_dirty(&mut app, 1);
+            advance(&mut app, &ctx);
+            assert_eq!(app.discard.as_ref().map(|p| p.docs.clone()), Some(vec![late]), "{command}: asks about the newly dirty document");
+            assert!(!app.allow_close, "{command}");
+            assert_eq!(app.session.documents().len(), 1, "{command}: it is not discarded unasked");
+            advance(&mut app, &ctx);
+            assert!(app.discard.is_none(), "{command}");
+        }
+        // Close Others asks about the others too, but still not about the document it keeps.
+        let mut app = app_with_docs(3);
+        let ctx = egui::Context::default();
+        make_dirty(&mut app, 0);
+        let (late, kept) = (doc_id(&app, 1), doc_id(&app, 2));
+        crate::menus::invoke(&mut app, &ctx, "file.closeOthers", json!({"document": 2})).unwrap();
+        make_dirty(&mut app, 1);
+        make_dirty(&mut app, 2);
+        advance(&mut app, &ctx);
+        assert_eq!(app.discard.as_ref().map(|p| p.docs.clone()), Some(vec![late]), "file.closeOthers: asks about the newly dirty other document");
+        advance(&mut app, &ctx);
+        assert!(app.discard.is_none());
+        assert_eq!(app.session.documents().iter().map(|d| d.doc.id).collect::<Vec<_>>(), [kept]);
     }
 
     #[test]
