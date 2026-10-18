@@ -108,11 +108,19 @@ pub fn notches(ui: &Ui, field: Id, focused: bool, rect: Rect) -> f32 {
             return 0.0;
         }
         let Some(mut g) = ui.data(|d| d.get_temp::<Gesture>(gesture_id())) else { return 0.0 };
-        let events: Vec<Event> = ui.input(|i| i.events.iter().filter(|e| for_field(e)).cloned().collect());
+        let (events, wheel): (Vec<Event>, bool) =
+            ui.input(|i| (i.events.iter().filter(|e| for_field(e)).cloned().collect(), i.events.iter().any(|e| matches!(e, Event::MouseWheel { .. }))));
         match g.owner {
             Owner::New if !events.is_empty() => {
                 g.owner = Owner::Field(field);
                 ui.data_mut(|d| d.insert_temp(gesture_id(), g));
+            }
+            // Wheel the field doesn't take (a sideways swipe after a zero-delta start) hands the
+            // rest of the gesture to the view, which pans with it.
+            Owner::Field(id) if id == field && wheel && events.is_empty() => {
+                g.owner = Owner::Elsewhere;
+                ui.data_mut(|d| d.insert_temp(gesture_id(), g));
+                return 0.0;
             }
             Owner::Field(id) if id == field => {}
             _ => return 0.0,
@@ -138,21 +146,24 @@ mod tests {
     use egui_kittest::Harness;
     use egui_kittest::kittest::Queryable;
 
-    /// The value, the scroll area's offset, and whether the field is enabled.
-    type State = (f32, f32, bool);
+    /// The value, the scroll area's vertical offset, whether the field is enabled, and the
+    /// horizontal offset.
+    type State = (f32, f32, bool, f32);
 
-    /// A value field (0–1000) at the top of a scroll area 100 pt tall, above a tall filler.
+    /// A value field (0–1000) at the top left of a scroll area 100 pt tall, beside and above a
+    /// large filler.
     fn harness(value: f32) -> Harness<'static, State> {
         let mut h = Harness::builder().with_size(vec2(300.0, 200.0)).build_ui_state(
             |ui, s: &mut State| {
                 super::begin_frame(ui.ctx());
-                let out = egui::ScrollArea::vertical().max_height(100.0).show(ui, |ui| {
+                let out = egui::ScrollArea::both().max_height(100.0).max_width(200.0).show(ui, |ui| {
                     ui.add_enabled_ui(s.2, |ui| crate::widgets::value_field(ui, &mut s.0, 0.0..=1000.0, "px", 90.0));
-                    ui.allocate_space(vec2(200.0, 1000.0));
+                    ui.allocate_space(vec2(1000.0, 1000.0));
                 });
                 s.1 = out.state.offset.y;
+                s.3 = out.state.offset.x;
             },
-            (value, 0.0, true),
+            (value, 0.0, true, 0.0),
         );
         h.run();
         h
@@ -251,6 +262,22 @@ mod tests {
         h.run_steps(4);
         assert_eq!(h.state().0, 102.0);
         assert_eq!(h.state().1, 0.0, "the panel didn't scroll");
+    }
+
+    /// A trackpad gesture that starts with a zero-delta event over a field, then swipes sideways,
+    /// pans the view and leaves the field alone.
+    #[test]
+    fn a_sideways_swipe_after_a_zero_delta_start_pans_the_view() {
+        let mut h = harness(100.0);
+        h.hover_at(field(&h).center());
+        h.run_steps(1);
+        let ev = |phase, x| egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: vec2(x, 0.0), phase, modifiers: Modifiers::NONE };
+        h.event(ev(egui::TouchPhase::Start, 0.0));
+        h.run_steps(1);
+        h.event(ev(egui::TouchPhase::Move, -2.0));
+        h.run_steps(4);
+        assert_eq!(h.state().0, 100.0, "the field was not stepped");
+        assert!(h.state().3 > 0.0, "the panel panned sideways");
     }
 
     #[test]
