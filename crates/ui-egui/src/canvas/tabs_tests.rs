@@ -166,3 +166,14 @@ fn ctrl_tab_with_one_document_or_a_focused_field() {
     }
     assert!(!Focus::Widget.allows(&crate::shortcuts::parse("Tab").unwrap()), "a focused widget keeps plain Tab");
 }
+
+#[test]
+fn quick_mask_mode_names_the_quick_mask_in_the_tab() {
+    let mut h = harness(1, ThemeKind::Pro);
+    h.state_mut().run("layer.new.layer", json!({})).unwrap();
+    assert_eq!(pro_tab_title(h.state(), 0), "ch1-p01.png @ 100% (Layer 1, RGB/8)*");
+    h.state_mut().run("select.editInQuickMaskMode", json!({"on": true})).unwrap();
+    assert_eq!(pro_tab_title(h.state(), 0), "ch1-p01.png @ 100% (Quick Mask/8)*");
+    h.state_mut().run("select.editInQuickMaskMode", json!({"on": false})).unwrap();
+    assert_eq!(pro_tab_title(h.state(), 0), "ch1-p01.png @ 100% (Layer 1, RGB/8)*");
+}
