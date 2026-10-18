@@ -26,9 +26,10 @@ USAGE:
       --dpx-bits sets a DPX's bits per sample. Without it: 8 for an 8-bit document, else 16.
   photocraft-cli info <file> [--compact]
       Print the document as JSON (size, mode, depth, layer tree).
-  photocraft-cli run (<file> | --new <json>) --cmd <id> [--params <json>] [--cmd …] [--out <file>] [--format <ext>] [--quality <1-100>] [--tiff-layers] [--tga-bits <24|32>] [--dpx-bits <8|10|12|16>]
+  photocraft-cli run (<file> | --new <json>) --cmd <id> [--params <json>] [--cmd …] [--out <file>] [--format <ext>] [--quality <1-100>] [--in-place] [--tiff-layers] [--tga-bits <24|32>] [--dpx-bits <8|10|12|16>]
       Open a file, run engine commands in order, save the result. Each --params
-      applies to the preceding --cmd. Prints each command's JSON result.
+      applies to the preceding --cmd. Prints each command's JSON result. An --out that is the
+      <file> is refused, as the result would replace the original; --in-place allows it.
   photocraft-cli batch --actions <actions.json|set.atn> [--action <name>] --in <dir> --out <dir> [--format <ext>] [--quality <1-100>] [--in-place] [--tiff-layers] [--tga-bits <24|32>] [--dpx-bits <8|10|12|16>]
       Apply an action list to every image in a directory. A Photoshop Actions file (.atn) is a
       set: its action --action names plays, as below. JSON steps are [id, params] pairs,
@@ -76,7 +77,7 @@ const SUBCOMMANDS: &[Subcommand] = &[
     Subcommand {
         name: "run",
         values: &["--new", "--cmd", "--params", "--out", "--format", "--quality", "--tga-bits", "--dpx-bits"],
-        bare: &["--tiff-layers"],
+        bare: &["--in-place", "--tiff-layers"],
         run: run_cmds,
     },
     Subcommand {
@@ -317,6 +318,10 @@ fn run_cmds(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> R {
     let mut reported_fonts = std::collections::HashSet::<String>::new();
     match (a.positional.as_slice(), a.get("--new")) {
         ([file], None) => {
+            // Refused before the file is read or any command runs.
+            if let Some(out) = a.get("--out") {
+                refuse_overwriting_input(a, file, out)?;
+            }
             let o = h.open(Path::new(file)).map_err(|e| e.to_string())?;
             let ws: Vec<String> = serde_json::from_value(o["warnings"].clone()).unwrap_or_default();
             reported_fonts.extend(ws.iter().cloned());
