@@ -328,6 +328,7 @@ pub(crate) fn insert_fill_layer(
     Ok(id)
 }
 
+/// `layer.newFillLayer.pattern`: a Pattern Fill layer above the active one, masked as the Layers panel's Use Default Masks on Fill Layers option says.
 fn new_fill_layer(s: &mut Session, p: &Value) -> Result<Value> {
     let pat = resolve_param(s, "layer.newFillLayer.pattern", p)?;
     let default_mask = crate::commands::layer_panel_option(s, "useDefaultMasksOnFillLayers", true);
@@ -335,6 +336,7 @@ fn new_fill_layer(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"layer": id.0, "pattern": pat.id}))
 }
 
+/// `brush.texturePattern`: use a pattern as the brush texture, converted to grey as the luminance of its composite over white.
 fn brush_texture(s: &mut Session, p: &Value) -> Result<Value> {
     let pat = resolve_param(s, "brush.texturePattern", p)?;
     let n = pat.is_paintable().then(|| usize::try_from(pat.pixel_count()).ok()).flatten();

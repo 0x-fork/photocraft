@@ -2970,6 +2970,7 @@ mod layers_panel_parity_tests {
         assert!(s.active().unwrap().fx_collapsed.contains(&target));
     }
 
+    /// New Solid Color and Gradient fill layers get the default mask only while Use Default Masks on Fill Layers is on.
     #[test]
     fn fill_layers_respect_use_default_masks_option() {
         let (mut s, _) = new_session();

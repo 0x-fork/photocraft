@@ -382,6 +382,7 @@ mod tests {
         assert!(restored.layers_panel_dialog.is_none());
     }
 
+    /// With the option off a new fill layer has no mask and the mask is not targeted; with it on the new layer's mask is targeted.
     #[test]
     fn disabling_default_fill_masks_never_targets_an_absent_mask() {
         let mut session = photocraft_engine::Session::new();

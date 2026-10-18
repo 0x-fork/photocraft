@@ -406,6 +406,7 @@ pub(crate) fn mask_new_layer(doc: &Document, l: &mut Layer, p: &Value, cmd: &str
 pub(crate) const NEW_LAYER_PATH: &str =
     r##""path":"work"|saved path name|{…path}? (the active path: becomes the vector mask; else the selection is the layer mask, or white with no selection)"##;
 
+/// Add an adjustment layer above the active one; it takes the mask `mask_new_layer` builds from `p` (a path, the selection, or the default white mask).
 fn new_adjustment(s: &mut Session, adj: Adjustment, p: &Value, cmd: &str) -> Result<Value> {
     let label = format!("New {} Layer", adj.label());
     let name = adj.label().to_string();
@@ -419,6 +420,7 @@ fn new_adjustment(s: &mut Session, adj: Adjustment, p: &Value, cmd: &str) -> Res
     Ok(json!({ "layer": id.0 }))
 }
 
+/// Apply `adj` in place to the targeted layer mask, the targeted alpha channel or Quick Mask, or else the active layer's pixels, as one history step named `label`.
 fn destructive_adjust(s: &mut Session, label: &str, adj: Adjustment, p: &Value) -> Result<Value> {
     if is_mask_target(p) {
         // The targeted layer mask (#780): ⌘I inverts it, as in Photoshop.

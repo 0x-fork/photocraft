@@ -132,6 +132,7 @@ pub fn preview(s: &Session, cmd: &str, p: &Value) -> Result<Document> {
     Ok(doc)
 }
 
+/// Register `layer.fill.pattern.set` (the Pattern Fill dialog's command), journaled like any other edit.
 pub fn specs() -> Vec<CommandSpec> {
     vec![CommandSpec {
         id: SET,
@@ -217,6 +218,7 @@ mod tests {
         assert!(preview(&s, "edit.fill", &json!({})).is_err());
     }
 
+    /// At 8, 16 and 32 bits the Pattern Fill preview and the committed layer carry the default mask only while the option is on, and creating one is one undoable step.
     #[test]
     fn create_preview_and_commit_honor_default_masks_option() {
         for depth in [8, 16, 32] {
@@ -249,6 +251,7 @@ mod tests {
         }
     }
 
+    /// Malformed or out-of-range params, and missing layers or patterns, are errors in both the command and its preview, never panics.
     #[test]
     fn bad_params_and_targets_are_errors_not_panics() {
         let (mut s, id) = session(8);
