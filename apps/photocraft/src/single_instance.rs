@@ -88,27 +88,61 @@ pub struct LaunchContext<'a> {
 }
 
 /// Variables documented as the equivalent of a per-launch flag, each with the flag it stands for
-/// (`PHOTOCRAFT_PRESENT_MODE` is `--present-mode`). Setting one asks for the same thing as giving
-/// the flag, so it belongs to this process alone.
-const ENV_LAUNCH_OPTIONS: [(&str, &str); 6] = [
-    ("PHOTOCRAFT_PRESENT_MODE", "--present-mode"),
-    ("PHOTOCRAFT_FRAME_LATENCY", "--frame-latency"),
-    ("PHOTOCRAFT_STROKE_TRACE", "--stroke-trace"),
-    ("PHOTOCRAFT_IN_WINDOW_MENUS", "--in-window-menus"),
-    ("PHOTOCRAFT_AUTOMATION_READ_ROOT", "--automation-read-root"),
-    ("PHOTOCRAFT_AUTOMATION_WRITE_ROOT", "--automation-write-root"),
+/// (`PHOTOCRAFT_PRESENT_MODE` is `--present-mode`) and the rule that says whether its value asks for
+/// that option at all. Setting one asks for the same thing as giving the flag, so it belongs to this
+/// process alone.
+const ENV_LAUNCH_OPTIONS: [(&str, &str, ValueRule); 6] = [
+    ("PHOTOCRAFT_PRESENT_MODE", "--present-mode", present_mode_is_on),
+    ("PHOTOCRAFT_FRAME_LATENCY", "--frame-latency", frame_latency_is_on),
+    ("PHOTOCRAFT_STROKE_TRACE", "--stroke-trace", stroke_trace_is_on),
+    ("PHOTOCRAFT_IN_WINDOW_MENUS", "--in-window-menus", flag_is_on),
+    ("PHOTOCRAFT_AUTOMATION_READ_ROOT", "--automation-read-root", path_is_set),
+    ("PHOTOCRAFT_AUTOMATION_WRITE_ROOT", "--automation-write-root", path_is_set),
 ];
+
+/// Whether a variable's value asks this launch for its own option. Each rule matches how that
+/// variable is read where it takes effect, so a value ignored there keeps no process here either.
+type ValueRule = fn(&str) -> bool;
+
+/// A value `presentation::parse` accepts: it warns and ignores the rest, so an unrecognised
+/// `PHOTOCRAFT_PRESENT_MODE` changes nothing and so needs no process of its own.
+fn present_mode_is_on(value: &str) -> bool {
+    !value.trim().is_empty() && crate::presentation::parse(Some(value.trim()), None).0.mode.is_some()
+}
+
+/// [`present_mode_is_on`] for `PHOTOCRAFT_FRAME_LATENCY`, which takes `1` to `3`.
+fn frame_latency_is_on(value: &str) -> bool {
+    !value.trim().is_empty() && crate::presentation::parse(None, Some(value.trim())).0.latency.is_some()
+}
+
+/// Anything except `""`, `0`, `off` and `false`, which is how `StrokeTrace::from_value` reads it: the
+/// rest is a stderr summary or a CSV path.
+fn stroke_trace_is_on(value: &str) -> bool {
+    !matches!(value.trim(), "" | "0" | "off" | "false")
+}
+
+/// Any value except empty and `0`, as `main.rs` reads `PHOTOCRAFT_IN_WINDOW_MENUS` - which is why
+/// `off` means on there, and why this rule is not shared with the stroke trace above.
+fn flag_is_on(value: &str) -> bool {
+    let value = value.trim();
+    !value.is_empty() && value != "0"
+}
+
+/// A path is an option; an empty value is no path. Not trimmed: a path may end in a space.
+fn path_is_set(value: &str) -> bool {
+    !value.is_empty()
+}
 
 /// The per-process options this launch's environment sets, named as the flags they stand for. A
 /// launch that sets only variables would otherwise hand its files to the running instance, which
-/// never sees the override, and exit. Empty and `0` mean off, as with `PHOTOCRAFT_NEW_INSTANCE`.
+/// never sees the override, and exit.
 pub fn env_launch_options() -> Vec<&'static str> {
     env_launch_options_from(|name| std::env::var_os(name))
 }
 
 /// [`env_launch_options`] with the reader given, so the rule is testable without the environment.
 fn env_launch_options_from(get: impl Fn(&str) -> Option<std::ffi::OsString>) -> Vec<&'static str> {
-    ENV_LAUNCH_OPTIONS.iter().filter(|(name, _)| get(name).is_some_and(|v| !v.is_empty() && v != "0")).map(|(_, flag)| *flag).collect()
+    ENV_LAUNCH_OPTIONS.iter().filter(|(name, _, is_on)| get(name).is_some_and(|v| is_on(&v.to_string_lossy()))).map(|(_, flag, _)| *flag).collect()
 }
 
 /// Why this launch runs as its own instance, or `None` to take part in single-instance.
@@ -682,9 +716,18 @@ mod tests {
             with(&[("PHOTOCRAFT_STROKE_TRACE", "strokes.csv"), ("PHOTOCRAFT_AUTOMATION_WRITE_ROOT", "/tmp/out")]),
             vec!["--stroke-trace", "--automation-write-root"]
         );
-        // Nothing set, or a value that means off (`0`, empty), is an ordinary launch.
+        // Nothing set, or a value that means off, is an ordinary launch. Each variable is off the way
+        // it is read where it takes effect, not by one rule shared across all six.
         assert!(with(&[]).is_empty());
         assert!(with(&[("PHOTOCRAFT_IN_WINDOW_MENUS", "0"), ("PHOTOCRAFT_FRAME_LATENCY", "")]).is_empty());
+        // The trace is off at `off` and `false` as well, and a value the presentation parser rejects
+        // is ignored there, so neither keeps a process of its own here.
+        assert!(with(&[("PHOTOCRAFT_STROKE_TRACE", "off"), ("PHOTOCRAFT_PRESENT_MODE", "maybe"), ("PHOTOCRAFT_FRAME_LATENCY", "4")]).is_empty());
+        assert!(with(&[("PHOTOCRAFT_AUTOMATION_READ_ROOT", "")]).is_empty());
+        // Spaces are not part of a value, except in a path, where they can be.
+        assert_eq!(with(&[("PHOTOCRAFT_PRESENT_MODE", " novsync "), ("PHOTOCRAFT_STROKE_TRACE", " 1 ")]), vec!["--present-mode", "--stroke-trace"]);
+        // `PHOTOCRAFT_IN_WINDOW_MENUS=off` means menus in the window there, so it means it here too.
+        assert_eq!(with(&[("PHOTOCRAFT_IN_WINDOW_MENUS", "off")]), vec!["--in-window-menus"]);
         let base = LaunchContext {
             per_user_settings: true,
             new_instance_flag: false,
