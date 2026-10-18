@@ -172,6 +172,7 @@ pub fn paint(
 
 type Rects = (Vec<(MaskKind, Rect)>, Vec<(MaskKind, Rect)>);
 
+/// Memory key of the per-layer record of where the mask thumbnails and chains were drawn.
 fn rects_id() -> egui::Id {
     egui::Id::new("mask-thumb-rects")
 }

@@ -2771,6 +2771,7 @@ mod tests {
         assert!(s.execute("layer.setProps", json!({"locks": {"nope": true}})).is_err());
     }
 
+    /// `document.inspect` lists the selected layers and marks them in the layer list.
     #[test]
     fn inspect_reports_selection() {
         let mut s = session(8);
