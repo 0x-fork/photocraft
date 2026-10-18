@@ -432,6 +432,55 @@ fn every_mapped_command_exports_and_imports_back() {
     }
 }
 
+/// `paint.bucket` exported to .atn and imported back → its params, or None when it doesn't export.
+fn bucket_round_trip(params: Value) -> Option<Value> {
+    let item = export_item("paint.bucket", &params, "S")?;
+    let e = event_for(&item.event)?;
+    match (e.from)(item.descriptor.as_ref()?) {
+        Mapped::Steps(steps) => steps.first().map(|(id, p)| {
+            assert_eq!(id, "paint.bucket");
+            p.clone()
+        }),
+        _ => None,
+    }
+}
+
+/// A Paint Bucket step with an explicit colour keeps it through .atn (#7199): replayed on a fresh
+/// document, whose foreground is black, it still fills red. A colour .atn can't hold makes the
+/// step not export rather than fill with the foreground.
+#[test]
+fn bucket_keeps_an_explicit_color_through_atn() {
+    let fill = |params: &Value| {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 8, "height": 8, "background": "#ffffff"})).unwrap();
+        s.execute("paint.bucket", params.clone()).unwrap();
+        let d = s.active().unwrap();
+        d.doc.layer(d.active_layer.unwrap()).unwrap().surface().unwrap().pixel(2, 2)
+    };
+    let red = json!({"x": 2, "y": 2, "antiAlias": false, "color": "#ff0000"});
+    let back = bucket_round_trip(red.clone()).unwrap();
+    assert_eq!(back["color"], "#ff0000", "{back}");
+    assert_eq!(fill(&back), fill(&red));
+    assert_eq!(fill(&back), vec![1.0, 0.0, 0.0, 1.0]);
+    // The colour as an array of channels.
+    assert_eq!(bucket_round_trip(json!({"x": 1, "y": 1, "color": [0.0, 0.5, 1.0]})).unwrap()["color"], "#0080ff");
+    // No colour, or one the command can't read: the foreground, as before.
+    for p in [json!({"x": 1, "y": 1}), json!({"x": 1, "y": 1, "color": "red"})] {
+        let back = bucket_round_trip(p.clone()).unwrap();
+        assert!(back.get("color").is_none() && back.get("contents").is_none(), "{p} → {back}");
+    }
+    // A pattern fill ignores the colour, also when named with the older `source`.
+    for key in ["contents", "source"] {
+        let back = bucket_round_trip(json!({"x": 1, "y": 1, key: "pattern", "color": "#ff0000"})).unwrap();
+        assert_eq!(back["contents"], "pattern", "{key}: {back}");
+        assert!(back.get("color").is_none(), "{key}: {back}");
+    }
+    // Translucent or out-of-range colours have no .atn form.
+    for c in [json!("#ff000080"), json!([1.0, 0.0, 0.0, 0.5]), json!([2.0, 0.0, 0.0])] {
+        assert!(bucket_round_trip(json!({"x": 1, "y": 1, "color": c})).is_none(), "{c}");
+    }
+}
+
 #[test]
 fn unsupported_shapes_become_photoshop_steps_not_errors() {
     // Image size in two different percentages, a Paint Bucket click in percent of the canvas, a
