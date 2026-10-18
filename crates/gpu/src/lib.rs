@@ -24,7 +24,9 @@
 //!   staged uploads and evicted pages stay bounded.
 //! - **Stack reuse.** A complete root stack unit can checkpoint its backdrop into bounded chunk
 //!   textures. Exact COW snapshots invalidate the lower prefix; edits above it restore those
-//!   pixels and execute only the remaining passes. Groups and clipping units stay indivisible.
+//!   pixels and execute only the remaining passes, capturing on the way the highest checkpoint
+//!   below the edit, so repeating it (a duplicate or paste and its undo) skips that much more.
+//!   Groups and clipping units stay indivisible.
 //!
 //! Vector masks (rasterised once per mask state into a combined mask texture), layers clipped to
 //! pass-through groups, stroked shapes with clipped layers (fill and stroke split once per shape
@@ -47,7 +49,7 @@ use std::sync::Arc;
 
 use photocraft_color::{PixelFormat, SampleType};
 use photocraft_compose::effects::FieldKind;
-use photocraft_doc::{DocId, Document, Layer, LayerContent, LayerId, Pattern};
+use photocraft_doc::{DocId, Document, LayerContent, LayerId, Pattern};
 use photocraft_geom::{Rect, TILE_SIZE, TileCoord};
 use photocraft_raster::{Surface, Tile};
 
@@ -75,6 +77,11 @@ pub const FX_BUDGET: usize = 1536 << 20;
 pub const PAGE: u32 = 2048;
 /// GPU memory resident layer pages may hold before the least recently used are evicted.
 pub const RESIDENT_BUDGET: u64 = 4 << 30;
+/// GPU memory pattern textures may hold before the least recently painted are dropped (those the
+/// current frame paints with always stay).
+pub const PATTERN_BUDGET: u64 = 256 << 20;
+/// A pattern texture no frame has painted with for this many frames is dropped.
+pub const PATTERN_IDLE_FRAMES: u64 = 240;
 /// Uploads (bytes) [`Compositor::render`] stages before submitting the work recorded so far, so
 /// a refresh of a huge document never holds all its uploads in staging memory at once.
 const FLUSH_BYTES: u64 = 512 << 20;
@@ -136,7 +143,9 @@ enum TexKind {
     Rgba16F,
     /// GRAY8 masks copied verbatim.
     R8Direct,
-    /// Other masks as R32F.
+    /// 16-bit masks as R16F (the precision 16-bit pixels get as RGBA16F).
+    R16F,
+    /// 32-bit masks as R32F.
     R32F,
 }
 
@@ -147,7 +156,8 @@ impl TexKind {
             Role::Content | Role::Stroke if f.sample == SampleType::U8 => TexKind::Rgba8,
             Role::Content | Role::Stroke => TexKind::Rgba16F,
             Role::Mask if f == PixelFormat::GRAY8 => TexKind::R8Direct,
-            Role::Mask => TexKind::R32F,
+            Role::Mask if f.sample == SampleType::F32 => TexKind::R32F,
+            Role::Mask => TexKind::R16F,
         }
     }
     fn format(self) -> wgpu::TextureFormat {
@@ -155,6 +165,7 @@ impl TexKind {
             TexKind::Rgba8Direct | TexKind::Rgba8 => wgpu::TextureFormat::Rgba8Unorm,
             TexKind::Rgba16F => wgpu::TextureFormat::Rgba16Float,
             TexKind::R8Direct => wgpu::TextureFormat::R8Unorm,
+            TexKind::R16F => wgpu::TextureFormat::R16Float,
             TexKind::R32F => wgpu::TextureFormat::R32Float,
         }
     }
@@ -163,6 +174,7 @@ impl TexKind {
             TexKind::Rgba8Direct | TexKind::Rgba8 => 4,
             TexKind::Rgba16F => 8,
             TexKind::R8Direct => 1,
+            TexKind::R16F => 2,
             TexKind::R32F => 4,
         }
     }
@@ -183,6 +195,12 @@ struct CachedPattern {
     format: PixelFormat,
     default_bits: Vec<u32>,
     texture: Tex,
+    /// The document that last painted with it: closing that document frees the texture (#4971).
+    doc: DocId,
+    /// [`Compositor::frame`] when it last painted.
+    last_used: u64,
+    /// GPU bytes of the texture (RGBA32F).
+    bytes: u64,
 }
 
 struct Resident {
@@ -290,8 +308,8 @@ struct FxEntry {
     shape_key: u64,
     /// Tiles the shape was rendered from (content, mask): damage is their difference.
     tiles: [Option<fx::Tiles>; 2],
-    /// Groups: a clone pinning the tile pointers `shape_key` hashes.
-    _pin: Option<Layer>,
+    /// Groups: the tiles `shape_key` hashes, by address only (see [`fx::Tiles`]).
+    _pin: Vec<std::sync::Weak<Tile>>,
     /// The shape on the CPU (distance fields are computed from it) and on the GPU.
     shape_cpu: Vec<f32>,
     shape: Tex,
@@ -423,6 +441,10 @@ pub struct Compositor {
     /// The colour mode of the document being encoded: patterns paint in it
     /// (`photocraft_compose::pattern::pattern_rgba`).
     pattern_mode: photocraft_color::ColorMode,
+    /// The document being encoded, which owns the patterns it paints with.
+    pattern_doc: DocId,
+    /// GPU memory pattern textures may hold ([`PATTERN_BUDGET`] by default).
+    pattern_budget: u64,
     /// Texture side limit the paging is planned for (the device's, or smaller in tests).
     max_dim: u32,
     /// The device's real texture side limit.
@@ -670,6 +692,8 @@ impl Compositor {
             temps: Vec::new(),
             patterns: HashMap::new(),
             pattern_mode: photocraft_color::ColorMode::Rgb,
+            pattern_doc: DocId(0),
+            pattern_budget: PATTERN_BUDGET,
             max_dim: 0,
             device_max: device.limits().max_texture_dimension_2d,
             page: PAGE,
@@ -775,6 +799,11 @@ impl Compositor {
         total
     }
 
+    /// The GPU memory resident layer pages may hold (bytes; see [`Compositor::set_memory_budget`]).
+    pub fn resident_budget(&self) -> u64 {
+        self.resident_budget
+    }
+
     /// Whether a render of `region` keeps every layer page it needs within the budget; when it
     /// doesn't, each render re-uploads what was evicted.
     pub fn fits_budget(&self, doc: &Document, region: Rect) -> bool {
@@ -789,6 +818,17 @@ impl Compositor {
     /// GPU memory held by resident layer pages (bytes).
     pub fn resident_bytes(&self) -> u64 {
         self.residents.values().map(Resident::bytes).sum()
+    }
+
+    /// GPU memory held by cached pattern textures (bytes).
+    pub fn pattern_cache_bytes(&self) -> u64 {
+        self.patterns.values().map(|p| p.bytes).sum()
+    }
+
+    /// Set the GPU memory pattern textures may hold (default [`PATTERN_BUDGET`]). It takes effect
+    /// at the end of the next refresh.
+    pub fn set_pattern_budget(&mut self, bytes: u64) {
+        self.pattern_budget = bytes;
     }
 
     /// Whether `doc` can be composited on the GPU. Documents and layers larger than the texture
@@ -865,14 +905,22 @@ impl Compositor {
     pub fn forget_doc(&mut self, doc: DocId) {
         self.residents.retain(|_, r| r.doc != doc);
         self.fx.retain(|_, e| e.doc != doc);
+        self.patterns.retain(|_, p| p.doc != doc);
         self.prefix.forget(doc);
     }
 
     /// [`Self::forget_doc`] for every document `keep` rejects: what the compositor holds for
     /// documents that were closed, however their canvas entry went (#4529).
     pub fn retain_docs(&mut self, keep: impl Fn(DocId) -> bool) {
-        let mut gone: Vec<DocId> =
-            self.residents.values().map(|r| r.doc).chain(self.fx.values().map(|e| e.doc)).chain(self.prefix.doc()).filter(|d| !keep(*d)).collect();
+        let mut gone: Vec<DocId> = self
+            .residents
+            .values()
+            .map(|r| r.doc)
+            .chain(self.fx.values().map(|e| e.doc))
+            .chain(self.patterns.values().map(|p| p.doc))
+            .chain(self.prefix.doc())
+            .filter(|d| !keep(*d))
+            .collect();
         gone.sort_by_key(|d| d.0);
         gone.dedup();
         for d in gone {
@@ -880,9 +928,17 @@ impl Compositor {
         }
     }
 
-    /// Documents the compositor holds pages, effect maps or a lower-stack composite for.
+    /// Documents the compositor holds pages, effect maps, pattern textures or a lower-stack
+    /// composite for.
     pub fn held_docs(&self) -> Vec<DocId> {
-        let mut docs: Vec<DocId> = self.residents.values().map(|r| r.doc).chain(self.fx.values().map(|e| e.doc)).chain(self.prefix.doc()).collect();
+        let mut docs: Vec<DocId> = self
+            .residents
+            .values()
+            .map(|r| r.doc)
+            .chain(self.fx.values().map(|e| e.doc))
+            .chain(self.patterns.values().map(|p| p.doc))
+            .chain(self.prefix.doc())
+            .collect();
         docs.sort_by_key(|d| d.0);
         docs.dedup();
         docs
@@ -994,6 +1050,7 @@ impl Compositor {
         let plan = plan(doc)?;
         self.check_fx(doc, &plan)?;
         self.pattern_mode = doc.pixel_format().mode;
+        self.pattern_doc = doc.id;
         let mut stats = Stats { passes: plan.passes.len(), slots: plan.slots, ..Default::default() };
         if region.is_empty() {
             return Ok(stats);
@@ -1093,7 +1150,29 @@ impl Compositor {
         self.fx.retain(|(id, _), e| e.doc != doc.id || e.last_used == frame || live.contains(id));
         stats.evicted += self.evict().0;
         self.temps.retain(|(_, used)| frame.saturating_sub(*used) < 240);
+        self.evict_patterns();
         Ok(stats)
+    }
+
+    /// Drop the pattern textures no frame has painted with for [`PATTERN_IDLE_FRAMES`] frames,
+    /// then the least recently painted ones over the pattern budget. Never one this frame painted
+    /// with: it would only be uploaded again on the next frame.
+    fn evict_patterns(&mut self) {
+        let frame = self.frame;
+        self.patterns.retain(|_, p| frame.saturating_sub(p.last_used) < PATTERN_IDLE_FRAMES);
+        let mut total = self.pattern_cache_bytes();
+        if total > self.pattern_budget {
+            let mut lru: Vec<(u64, String, u64)> =
+                self.patterns.iter().filter(|(_, p)| p.last_used != frame).map(|(k, p)| (p.last_used, k.clone(), p.bytes)).collect();
+            lru.sort_unstable();
+            for (_, key, bytes) in lru {
+                if total <= self.pattern_budget {
+                    break;
+                }
+                self.patterns.remove(&key);
+                total = total.saturating_sub(bytes);
+            }
+        }
     }
 
     /// Keep resident pages within the resident budget and the effect cache within
@@ -1235,7 +1314,10 @@ impl Compositor {
         if chunks.is_empty() {
             return;
         }
-        let first_pass = checkpoint.filter(|_| chunks.iter().all(|c| self.prefix.contains(*c))).map_or(0, |c| c.pass_end);
+        // Chunks may hold different checkpoints: bind from the lowest one any of them resumes at.
+        let first_pass = checkpoint
+            .and_then(|_| chunks.iter().map(|c| self.prefix.restore_point(*c).map(|r| r.pass_end)).try_fold(usize::MAX, |m, p| Some(m.min(p?))))
+            .unwrap_or(0);
         let bound = self.bind_cell(device, queue, encoder, doc, plan, paged, cell, fr, first_pass, stats);
 
         // Chunk pool.
@@ -1305,7 +1387,7 @@ impl Compositor {
 
         for (ci, c) in chunks.iter().enumerate() {
             let mut resume = 0;
-            if let Some(cp) = checkpoint
+            if let Some(cp) = checkpoint.and_then(|_| self.prefix.restore_point(*c))
                 && let Some((dst, _)) = self.pool.get(cp.slot as usize)
                 && self.prefix.copy_out(encoder, *c, dst)
             {
@@ -1330,11 +1412,12 @@ impl Compositor {
                         return;
                     }
                 }
-                if resume == 0
+                // Also after resuming from a lower checkpoint: the chunk moves up to this one.
+                if resume < i
                     && let Some(cp) = checkpoint.filter(|cp| cp.pass_end == i)
                     && let Some((src, _)) = self.pool.get(cp.slot as usize)
                 {
-                    self.prefix.capture(device, encoder, *c, src);
+                    self.prefix.capture(device, encoder, *c, src, cp);
                 }
                 let scissor = match p.clip {
                     Some(clip) => {
@@ -1400,11 +1483,11 @@ impl Compositor {
                 pass.set_bind_group(1, bg1[i].as_ref(), &[]);
                 pass.draw(0..3, 0..1);
             }
-            if resume == 0
+            if resume < plan.passes.len()
                 && let Some(cp) = checkpoint.filter(|cp| cp.pass_end == plan.passes.len())
                 && let Some((src, _)) = self.pool.get(cp.slot as usize)
             {
-                self.prefix.capture(device, encoder, *c, src);
+                self.prefix.capture(device, encoder, *c, src, cp);
             }
             let (t, v) = &self.pool[plan.root as usize];
             sink(encoder, ChunkOut { rect: *c, texture: t, view: v });
@@ -1579,11 +1662,14 @@ impl Compositor {
         let format = pat.surface.format();
         // Unstored tiles read the default pixel, interpreted in the source format.
         let default_bits: Vec<u32> = pat.surface.default_pixel().iter().map(|v| v.to_bits()).collect();
-        if let Some(cached) = self.patterns.get(&key)
+        let (doc, last_used) = (self.pattern_doc, self.frame);
+        if let Some(cached) = self.patterns.get_mut(&key)
             && cached.fingerprint == fp
             && cached.format == format
             && cached.default_bits == default_bits
         {
+            cached.doc = doc;
+            cached.last_used = last_used;
             return cached.texture.view.clone();
         }
         let (w, h) = (pat.width, pat.height);
@@ -1597,7 +1683,8 @@ impl Compositor {
             wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
         );
         let v = t.view.clone();
-        self.patterns.insert(key, CachedPattern { fingerprint: fp, format, default_bits, texture: t });
+        let bytes = u64::from(w.max(1)) * u64::from(h.max(1)) * 16;
+        self.patterns.insert(key, CachedPattern { fingerprint: fp, format, default_bits, texture: t, doc, last_used, bytes });
         v
     }
 
@@ -1642,7 +1729,7 @@ impl Compositor {
         let layer = f.layer;
         let canvas = doc.bounds();
         let is_group = matches!(layer.content, LayerContent::Group(_));
-        let shape_key = if is_group { fx::group_key(layer, &doc.global_light) } else { fx::shape_key(layer, canvas) };
+        let shape_key = if is_group { fx::group_key(layer, &doc.global_light, &mut |_| {}) } else { fx::shape_key(layer, canvas) };
         let (content_src, mask_src) = if is_group { (None, None) } else { fx::shape_sources(layer) };
         let frame = self.frame;
         let (rw, rh) = (region.width(), region.height());
@@ -1690,7 +1777,13 @@ impl Compositor {
                     region,
                     shape_key,
                     tiles: [None, None],
-                    _pin: is_group.then(|| layer.clone()),
+                    _pin: if is_group {
+                        let mut pin = Vec::new();
+                        fx::group_key(layer, &doc.global_light, &mut |t| pin.push(Arc::downgrade(t)));
+                        pin
+                    } else {
+                        Vec::new()
+                    },
                     shape_cpu: vec![0.0; n],
                     shape,
                     fields: HashMap::new(),
@@ -2115,6 +2208,7 @@ fn convert_tile(surface: &Surface, tile: Option<&Arc<Tile>>, kind: TexKind, c: T
                 }
             }
             TexKind::R8Direct => out.push((px[0].clamp(0.0, 1.0) * 255.0 + 0.5) as u8),
+            TexKind::R16F => out.extend(f32_to_f16(px[0]).to_le_bytes()),
             TexKind::R32F => out.extend(px[0].to_le_bytes()),
         }
     }
@@ -2444,6 +2538,28 @@ mod tests {
         assert_eq!(op_words(&p, None, None, None).len() as u64, OP_UNIFORM);
     }
 
+    /// #6534: a 16-bit mask (16-bit documents, feathered or vector combined masks) costs two
+    /// bytes per pixel on the GPU, twice an 8-bit mask, not four; 32-bit masks stay R32Float.
+    #[test]
+    fn sixteen_bit_masks_upload_at_two_bytes_per_pixel() {
+        let gray = |sample| PixelFormat { sample, ..PixelFormat::GRAY8 };
+        assert_eq!(TexKind::for_surface(Role::Mask, PixelFormat::GRAY8).bytes_per_pixel(), 1);
+        let k16 = TexKind::for_surface(Role::Mask, gray(SampleType::U16));
+        assert_eq!(k16.bytes_per_pixel(), 2, "{k16:?}");
+        assert_eq!(k16.format().block_copy_size(None), Some(2), "{k16:?}");
+        let k32 = TexKind::for_surface(Role::Mask, gray(SampleType::F32));
+        assert_eq!(k32.format(), wgpu::TextureFormat::R32Float);
+        // The texels hold the mask values (a half each), the default pixel included.
+        let mut s = Surface::with_default(gray(SampleType::U16), &[1.0]);
+        s.fill_rect(Rect::new(0, 0, 4, 1), &[0.25]);
+        let c = TileCoord::new(0, 0);
+        let bytes = convert_tile(&s, s.tile(c), k16, c);
+        assert_eq!(bytes.len(), (TILE_SIZE * TILE_SIZE) as usize * 2);
+        assert_eq!(bytes.get(..2), Some(f32_to_f16(0.25).to_le_bytes().as_slice()));
+        assert_eq!(bytes.get(8..10), Some(f32_to_f16(1.0).to_le_bytes().as_slice()));
+        assert_eq!(convert_tile(&s, None, k16, c).get(..2), Some(f32_to_f16(1.0).to_le_bytes().as_slice()));
+    }
+
     /// #1774: a solid fill shares one tile across every coordinate; it is converted once, and
     /// every coordinate (shared or not) still gets exactly the bytes `convert_tile` gives it, at
     /// every depth and texture kind.
@@ -2456,7 +2572,8 @@ mod tests {
             (PixelFormat::RGBA16, TexKind::Rgba16F),
             (PixelFormat::RGBA32F, TexKind::Rgba16F),
             (PixelFormat::GRAY8, TexKind::R8Direct),
-            (PixelFormat { sample: SampleType::U16, ..PixelFormat::GRAY8 }, TexKind::R32F),
+            (PixelFormat { sample: SampleType::U16, ..PixelFormat::GRAY8 }, TexKind::R16F),
+            (PixelFormat { sample: SampleType::F32, ..PixelFormat::GRAY8 }, TexKind::R32F),
         ] {
             let mut s = Surface::new(fmt);
             let px = [0.2, 0.4, 0.6, 1.0];

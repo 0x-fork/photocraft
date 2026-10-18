@@ -177,6 +177,12 @@ fn set_quiet(s: &mut Session, f: impl FnOnce(&mut Document)) -> Result<()> {
 pub(crate) fn compound<R>(s: &mut Session, label: &str, f: impl FnOnce(&mut Session) -> Result<R>) -> Result<R> {
     let st = s.active().ok_or(EngineError::NoDocument)?;
     let (before, history, prior) = (st.doc.clone(), st.history.clone(), st.layer_target());
+    // An inner command may select a layer that disappears when the compound rolls back.
+    // Selection, channel targeting and coalescing must roll back with the document (#4975).
+    let anchor = st.layer_anchor;
+    let channel_view = st.channel_view.clone();
+    let coalesce = st.coalesce.clone();
+    let was_clean = !st.is_dirty();
     let journal = s.journal.len();
     // Color Sampler points are view state a step may move (crop, rotation): roll them back too, so
     // a failed second step can't leave them pinned to pixels the restored document no longer has.
@@ -187,23 +193,37 @@ pub(crate) fn compound<R>(s: &mut Session, label: &str, f: impl FnOnce(&mut Sess
     }
     let st = s.active_mut().ok_or(EngineError::NoDocument)?;
     st.history = history;
-    match r {
+    let result = match r {
         Ok(v) => {
             // As in `Session::edit`: undo targets what was selected just before the step (#1356).
             st.history.set_current_layers(prior);
             st.history.record(label, before, st.layer_target());
-            st.history.trim(&st.doc);
+            st.trim_history();
             st.coalesce = None;
             Ok(v)
         }
         Err(e) => {
             st.doc = before;
+            st.active_layer = prior.active;
+            st.selected_layers = prior.selected;
+            st.layer_anchor = anchor;
+            st.channel_view = channel_view;
+            st.coalesce = coalesce;
             st.color_samplers = samplers;
             st.revision += 1;
+            // A failed compound does not make an otherwise untouched document dirty.
+            if was_clean {
+                st.saved_revision = st.revision;
+            }
             st.last_damage = None;
             Err(e)
         }
+    };
+    if result.is_err() {
+        // The app-wide tool colours/mask mode follow the restored channel target.
+        s.sync_tools_mask_target();
     }
+    result
 }
 
 /// Current time as ISO 8601 UTC (`2026-10-01T12:34:56Z`); empty on the web (no clock).
@@ -1101,8 +1121,12 @@ fn place_scale_marker(s: &mut Session, p: &Value) -> Result<Value> {
     };
     // Bottom-left with a margin; the text sits under (or over) the bar.
     let margin = (w.min(h) * 0.03).round().max(2.0);
-    let bar_h = (font_size / 4.0).round().clamp(2.0, h / 4.0);
-    let text_h = if show_text { font_size * 1.25 } else { 0.0 };
+    // `fontSize` is in points; `type.create` renders it at resolution/72 px per point, so lay out
+    // the bar and label in those pixels (at 300 ppi, 12 pt is 50 px) (#5754).
+    let dpi = f64::from(d.resolution_dpi);
+    let font_px = font_size * if dpi.is_finite() && dpi > 0.0 { dpi / 72.0 } else { 1.0 };
+    let bar_h = (font_px / 4.0).round().clamp(2.0, h / 4.0);
+    let text_h = if show_text { font_px * 1.25 } else { 0.0 };
     // Keep the bar on the canvas when the text under it doesn't fit; the label is clipped instead (#932).
     let bar_y = if text_top { h - margin - bar_h } else { h - margin - bar_h - text_h }.max(0.0);
     // Likewise pull a bar nearly as wide as the image in from the right edge (#932).
@@ -1123,7 +1147,7 @@ fn place_scale_marker(s: &mut Session, p: &Value) -> Result<Value> {
         })?;
         let mut text_layer = Value::Null;
         if show_text {
-            let baseline = if text_top { f64::from(bar.y0) - font_size * 0.3 } else { f64::from(bar.y1) + font_size };
+            let baseline = if text_top { f64::from(bar.y0) - font_px * 0.3 } else { f64::from(bar.y1) + font_px };
             let mut tp = json!({"x": bar.x0, "y": baseline, "text": label, "size": font_size, "color": [rgb[0], rgb[1], rgb[2], 1.0], "name": label});
             if let Some(f) = &font {
                 tp["font"] = json!(f);

@@ -212,6 +212,12 @@ fn every_mapped_command_exports_and_imports_back() {
         ("image.mode.grayscale", json!({})),
         ("image.mode.bits16", json!({})),
         ("layer.duplicate", json!({"name": "copy"})),
+        // Duplicate into a new document is a `Mk`, not a `Dplc` (the three shapes of
+        // a recorded Duplicate Layer with Destination: New, plus a named layer).
+        ("layer.duplicate", json!({"document": "new"})),
+        ("layer.duplicate", json!({"document": "new", "documentName": "test new name"})),
+        ("layer.duplicate", json!({"document": "new", "name": "Laer name change"})),
+        ("layer.duplicate", json!({"layer": "Shadow", "document": "new", "documentName": "Doc"})),
         ("image.duplicate", json!({"mergedOnly": true})),
         ("layer.new.layer", json!({"name": "Ink", "opacity": 0.5, "mode": "Multiply"})),
         ("layer.new.group", json!({"name": "G"})),
@@ -426,6 +432,55 @@ fn every_mapped_command_exports_and_imports_back() {
     }
 }
 
+/// `paint.bucket` exported to .atn and imported back → its params, or None when it doesn't export.
+fn bucket_round_trip(params: Value) -> Option<Value> {
+    let item = export_item("paint.bucket", &params, "S")?;
+    let e = event_for(&item.event)?;
+    match (e.from)(item.descriptor.as_ref()?) {
+        Mapped::Steps(steps) => steps.first().map(|(id, p)| {
+            assert_eq!(id, "paint.bucket");
+            p.clone()
+        }),
+        _ => None,
+    }
+}
+
+/// A Paint Bucket step with an explicit colour keeps it through .atn (#7199): replayed on a fresh
+/// document, whose foreground is black, it still fills red. A colour .atn can't hold makes the
+/// step not export rather than fill with the foreground.
+#[test]
+fn bucket_keeps_an_explicit_color_through_atn() {
+    let fill = |params: &Value| {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 8, "height": 8, "background": "#ffffff"})).unwrap();
+        s.execute("paint.bucket", params.clone()).unwrap();
+        let d = s.active().unwrap();
+        d.doc.layer(d.active_layer.unwrap()).unwrap().surface().unwrap().pixel(2, 2)
+    };
+    let red = json!({"x": 2, "y": 2, "antiAlias": false, "color": "#ff0000"});
+    let back = bucket_round_trip(red.clone()).unwrap();
+    assert_eq!(back["color"], "#ff0000", "{back}");
+    assert_eq!(fill(&back), fill(&red));
+    assert_eq!(fill(&back), vec![1.0, 0.0, 0.0, 1.0]);
+    // The colour as an array of channels.
+    assert_eq!(bucket_round_trip(json!({"x": 1, "y": 1, "color": [0.0, 0.5, 1.0]})).unwrap()["color"], "#0080ff");
+    // No colour, or one the command can't read: the foreground, as before.
+    for p in [json!({"x": 1, "y": 1}), json!({"x": 1, "y": 1, "color": "red"})] {
+        let back = bucket_round_trip(p.clone()).unwrap();
+        assert!(back.get("color").is_none() && back.get("contents").is_none(), "{p} → {back}");
+    }
+    // A pattern fill ignores the colour, also when named with the older `source`.
+    for key in ["contents", "source"] {
+        let back = bucket_round_trip(json!({"x": 1, "y": 1, key: "pattern", "color": "#ff0000"})).unwrap();
+        assert_eq!(back["contents"], "pattern", "{key}: {back}");
+        assert!(back.get("color").is_none(), "{key}: {back}");
+    }
+    // Translucent or out-of-range colours have no .atn form.
+    for c in [json!("#ff000080"), json!([1.0, 0.0, 0.0, 0.5]), json!([2.0, 0.0, 0.0])] {
+        assert!(bucket_round_trip(json!({"x": 1, "y": 1, "color": c})).is_none(), "{c}");
+    }
+}
+
 #[test]
 fn unsupported_shapes_become_photoshop_steps_not_errors() {
     // Image size in two different percentages, a Paint Bucket click in percent of the canvas, a
@@ -448,6 +503,17 @@ fn unsupported_shapes_become_photoshop_steps_not_errors() {
             Some(desc("null").with("null", class_ref("AdjL")).with("Usng", D::Descriptor(desc("AdjL").with("Type", D::Descriptor(desc("GdMp")))))),
         ),
         item("GsnB", "Gaussian Blur", None),
+        // Duplicate into another open document: the `T` reference means nothing at
+        // replay, so the step is kept verbatim instead of misplayed as a same-doc copy.
+        item(
+            "Dplc",
+            "Duplicate",
+            Some(
+                desc("null")
+                    .with("null", target_ref("Lyr "))
+                    .with("T   ", D::Reference(vec![ReferenceItem::Name { class: class("Dcmn"), name: UnicodeString::new_nul("Other") }])),
+            ),
+        ),
     ];
     let file = AtnFile {
         name: UnicodeString::new_nul("Odd"),
@@ -457,8 +523,8 @@ fn unsupported_shapes_become_photoshop_steps_not_errors() {
     };
     let imp = import(&atn::write(&file).unwrap()).unwrap();
     let ids: Vec<&str> = imp.actions[0].steps.iter().map(|(id, _)| id.as_str()).collect();
-    assert_eq!(ids, [PHOTOSHOP_STEP, PHOTOSHOP_STEP, PHOTOSHOP_STEP, PHOTOSHOP_STEP, "filter.blur.gaussianBlur"]);
-    assert_eq!(imp.unsupported.len(), 4);
+    assert_eq!(ids, [PHOTOSHOP_STEP, PHOTOSHOP_STEP, PHOTOSHOP_STEP, PHOTOSHOP_STEP, "filter.blur.gaussianBlur", PHOTOSHOP_STEP]);
+    assert_eq!(imp.unsupported.len(), 5);
     assert!(imp.actions[0].disabled.is_empty(), "steps with a document effect stay on so playback reports them");
 }
 
