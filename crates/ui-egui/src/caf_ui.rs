@@ -307,6 +307,10 @@ pub struct CafWorkspace {
     pub error: Option<String>,
 }
 
+/// The preview's error when the sampling area has no pixels outside the fill area (the engine's
+/// fill refuses that case with the same words).
+const NOTHING_TO_SAMPLE: &str = "nothing to sample from: the sampling area has no pixels outside the fill area";
+
 /// The plan of the current state (without strokes when `strokes` is false).
 fn plan_params(w: &CafWorkspace, strokes: bool) -> Value {
     let o = &w.opts;
@@ -623,14 +627,23 @@ pub fn apply(app: &mut PhotocraftApp) -> Result<Value, String> {
     r
 }
 
-/// OK: fill and close.
+/// OK: fill and close. A fill that fails (nothing to sample from, a fill area too large, …)
+/// leaves the workspace open with the error in its panel, so the areas can be fixed and OK
+/// pressed again instead of the work being thrown away.
 pub fn commit(app: &mut PhotocraftApp) {
-    let ok = apply(app);
-    if let Err(e) = ok {
-        app.ui.status = e;
-        app.ui.status_error = true;
+    match apply(app) {
+        Ok(_) => close(app),
+        Err(e) => report(app, e),
     }
-    close(app);
+}
+
+/// An Apply or OK that failed: the error in the panel and the status bar.
+fn report(app: &mut PhotocraftApp, e: String) {
+    if let Some(w) = app.distort.caf.as_mut() {
+        w.error = Some(e.clone());
+    }
+    app.ui.status = e;
+    app.ui.status_error = true;
 }
 
 /// Cancel (button, Esc): closes; what was applied stays. The settings are kept.
@@ -678,6 +691,9 @@ fn undo(app: &mut PhotocraftApp) {
             w.redo.push(step);
             w.restate_all();
             w.stale();
+            // The sampling area changed, as with a new stroke: an error a failed OK or Apply left
+            // in the panel no longer applies (the other steps rebase, which clears it too).
+            w.error = None;
             false
         }
         Step::Fill(_) => {
@@ -710,6 +726,7 @@ fn redo(app: &mut PhotocraftApp) {
             w.undo.push(step);
             w.restate_all();
             w.stale();
+            w.error = None;
             false
         }
         Step::Fill(e) => {
@@ -895,10 +912,14 @@ pub fn control(app: &mut PhotocraftApp, ui: &Value) -> Result<Value, String> {
     if flag("waitPreview") {
         wait_preview(app)?;
     }
-    // OK last, with the settings given alongside.
+    // OK last, with the settings given alongside. A failed fill keeps the workspace open, as
+    // the OK button does.
     if flag("commit") {
         let r = apply(app);
-        close(app);
+        match &r {
+            Ok(_) => close(app),
+            Err(e) => report(app, e.clone()),
+        }
         return r.map(|v| json!({"committed": true, "result": v}));
     }
     Ok(app.distort.caf.as_ref().map(CafWorkspace::describe).unwrap_or(Value::Null))
@@ -932,6 +953,12 @@ fn compute_preview(
         photocraft_engine::EngineError::Cancelled => "cancelled".to_string(),
         e => e.to_string(),
     })?;
+    // Patches come only from the sampling area outside the fill area. With none (the Sampling
+    // Brush erased it all, a Custom area not painted yet) the fill would come out black, so the
+    // preview says so instead of showing that.
+    if !plan.source.iter().any(|s| *s) {
+        return Err(NOTHING_TO_SAMPLE.into());
+    }
     let (w, h) = (plan.rect.width() as usize, plan.rect.height() as usize);
     let n = plan.fmt.channels();
     let filled =
@@ -1566,8 +1593,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         Some("cancel") => cancel(app),
         Some("apply") => {
             if let Err(e) = apply(app) {
-                app.ui.status = e;
-                app.ui.status_error = true;
+                report(app, e);
             }
         }
         _ => {}
