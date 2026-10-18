@@ -62,13 +62,12 @@ mod platform {
 /// `gsettings`, so a worker thread does it and the UI reads its latest answer.
 #[cfg(all(unix, not(target_os = "macos")))]
 mod platform {
-    use std::sync::atomic::{AtomicU8, Ordering};
-    use std::sync::{Arc, OnceLock, mpsc};
+    use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, mpsc};
 
     use super::freedesktop;
 
     pub fn service() -> Option<photocraft_ui_egui::SystemAnimationsFn> {
-        let latest = Arc::new(AtomicU8::new(encode(None)));
+        let latest = Arc::new(Mutex::new(None));
         let wake: Arc<OnceLock<egui::Context>> = Arc::new(OnceLock::new());
         let (refresh, refreshes) = mpsc::channel::<()>();
         let publisher = Publisher { latest: Arc::clone(&latest), wake: Arc::clone(&wake) };
@@ -83,7 +82,7 @@ mod platform {
             if focused && !was_focused {
                 let _ = refresh.send(());
             }
-            decode(latest.load(Ordering::Relaxed))
+            *lock(&latest)
         }))
     }
 
@@ -102,14 +101,14 @@ mod platform {
 
     /// The worker's side of the latest answer. A change wakes the UI.
     struct Publisher {
-        latest: Arc<AtomicU8>,
+        latest: Arc<Mutex<Option<bool>>>,
         wake: Arc<OnceLock<egui::Context>>,
     }
 
     impl Publisher {
         fn publish(&self, animations: Option<bool>) {
-            let code = encode(animations);
-            if self.latest.swap(code, Ordering::Relaxed) != code
+            let previous = std::mem::replace(&mut *lock(&self.latest), animations);
+            if previous != animations
                 && let Some(ctx) = self.wake.get()
             {
                 ctx.request_repaint();
@@ -117,20 +116,9 @@ mod platform {
         }
     }
 
-    fn encode(animations: Option<bool>) -> u8 {
-        match animations {
-            None => 0,
-            Some(true) => 1,
-            Some(false) => 2,
-        }
-    }
-
-    fn decode(code: u8) -> Option<bool> {
-        match code {
-            1 => Some(true),
-            2 => Some(false),
-            _ => None,
-        }
+    /// The latest answer; a panic elsewhere while holding it doesn't lose it.
+    fn lock(latest: &Mutex<Option<bool>>) -> MutexGuard<'_, Option<bool>> {
+        latest.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     #[cfg(target_os = "linux")]
@@ -230,12 +218,16 @@ mod platform {
             freedesktop::without_portal(&desktop, &config_file, &gsettings)
         }
 
+        /// `$XDG_CONFIG_HOME`, or `~/.config` when it isn't set.
+        fn config_home() -> Option<PathBuf> {
+            let var = |key: &str| std::env::var_os(key).filter(|value| !value.is_empty()).map(PathBuf::from);
+            var("XDG_CONFIG_HOME").filter(|path| path.is_absolute()).or_else(|| Some(var("HOME")?.join(".config")))
+        }
+
         fn config_file(name: &str) -> Option<String> {
             use std::io::Read as _;
-            let dir = |key: &str| std::env::var_os(key).filter(|v| !v.is_empty()).map(PathBuf::from);
-            let config_home = dir("XDG_CONFIG_HOME").filter(|path| path.is_absolute()).or_else(|| dir("HOME").map(|home| home.join(".config")))?;
             let mut text = String::new();
-            std::fs::File::open(config_home.join(name)).ok()?.take(MAX_CONFIG_BYTES).read_to_string(&mut text).ok()?;
+            std::fs::File::open(config_home()?.join(name)).ok()?.take(MAX_CONFIG_BYTES).read_to_string(&mut text).ok()?;
             Some(text)
         }
 

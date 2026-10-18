@@ -4,7 +4,7 @@
 //! animations are on, or `None` when the value doesn't parse (the next source is asked then).
 
 /// GSettings' and the portal's `true`/`false`, or GTK's `1`/`0`.
-pub fn from_enabled(value: &str) -> Option<bool> {
+pub(super) fn from_enabled(value: &str) -> Option<bool> {
     match value.trim().to_ascii_lowercase().as_str() {
         "true" | "1" => Some(true),
         "false" | "0" => Some(false),
@@ -13,23 +13,26 @@ pub fn from_enabled(value: &str) -> Option<bool> {
 }
 
 /// KDE's animation speed factor: 0 turns animations off.
-pub fn from_duration_factor(value: &str) -> Option<bool> {
+pub(super) fn from_duration_factor(value: &str) -> Option<bool> {
     value.trim().parse::<f64>().ok().filter(|factor| factor.is_finite()).map(|factor| factor > 0.0)
 }
 
 /// The settings portal's `reduced-motion`: 1 asks for less motion; 0 and any value added later
 /// mean no preference.
 #[cfg(any(test, target_os = "linux"))]
-pub fn from_reduced_motion(value: &str) -> Option<bool> {
+pub(super) fn from_reduced_motion(value: &str) -> Option<bool> {
     value.trim().parse::<u32>().ok().map(|code| code != 1)
 }
 
 /// The desktop's setting when there is no settings portal to ask. `desktop` is
 /// `XDG_CURRENT_DESKTOP`, `config_file` reads a file in the user's config directory and
 /// `gsettings` runs `gsettings get <schema> <key>`.
-pub fn without_portal(desktop: &str, config_file: &dyn Fn(&str) -> Option<String>, gsettings: &dyn Fn(&str, &str) -> Option<String>) -> Option<bool> {
+pub(super) fn without_portal(desktop: &str, config_file: &dyn Fn(&str) -> Option<String>, gsettings: &dyn Fn(&str, &str) -> Option<String>) -> Option<bool> {
     let running = |name: &str| desktop.split(':').any(|part| part.eq_ignore_ascii_case(name));
-    let in_file = |file: &str, section: &str, key: &str, parse: fn(&str) -> Option<bool>| parse(ini_value(&config_file(file)?, section, key)?);
+    let in_file = |file: &str, section: &str, key: &str, parse: fn(&str) -> Option<bool>| {
+        let text = config_file(file)?;
+        parse(ini_value(&text, section, key)?)
+    };
 
     // KDE Plasma keeps it in its own file. A kdeglobals left over from another desktop doesn't count.
     if running("KDE")
@@ -45,11 +48,12 @@ pub fn without_portal(desktop: &str, config_file: &dyn Fn(&str) -> Option<String
     }
     // `true` may only be the schema's default on a desktop that doesn't use it, so GTK's own
     // file comes first: it is what a bare window manager's user writes, and what KDE keeps in step.
-    ["gtk-4.0/settings.ini", "gtk-3.0/settings.ini"].iter().find_map(|file| in_file(file, "Settings", "gtk-enable-animations", from_enabled)).or(gnome)
+    let gtk = ["gtk-4.0/settings.ini", "gtk-3.0/settings.ini"].iter().find_map(|file| in_file(file, "Settings", "gtk-enable-animations", from_enabled));
+    gtk.or(gnome)
 }
 
 /// The last value of `key` in `[section]` of an INI-style file (KDE's config, GTK's settings).
-pub fn ini_value<'a>(text: &'a str, section: &str, key: &str) -> Option<&'a str> {
+fn ini_value<'a>(text: &'a str, section: &str, key: &str) -> Option<&'a str> {
     let mut in_section = false;
     let mut found = None;
     for line in text.lines().map(str::trim) {
