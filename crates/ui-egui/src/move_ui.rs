@@ -478,6 +478,28 @@ mod tests {
         }
     }
 
+    /// #7538: a loose marquee round the red square shrinks to it as the drag starts: the canvas
+    /// outlines the moved pixels while they float, and the dropped selection is theirs. Alt-drag
+    /// (a copy) too.
+    #[test]
+    fn dragging_selected_pixels_shrinks_the_ants_to_them() {
+        for depth in [8, 16, 32] {
+            for m in [egui::Modifiers::NONE, egui::Modifiers::ALT] {
+                let (mut app, _) = selected_pixels(depth);
+                app.session.execute("select.rect", json!({"x": 2, "y": 2, "width": 30, "height": 30})).unwrap();
+                drag(&mut app, [16.0, 16.0], [26.0, 21.0], m);
+                assert_eq!(offset(&app), Some((10, 5)), "{depth}-bit, {m:?}: floating");
+                let ants = crate::canvas::floating_outline(&app, 0).map(|s| s.content_bounds());
+                assert_eq!(ants, Some(Rect::new(8, 8, 24, 24)), "{depth}-bit, {m:?}: the ants hug the red square");
+                assert!(crate::canvas::floating_outline(&app, 1).is_none(), "only the active document's");
+                app.run("select.drop", json!({})).unwrap();
+                let sel = app.session.active().unwrap().doc.selection.as_ref().map(|s| s.content_bounds());
+                assert_eq!(sel, Some(Rect::new(18, 13, 34, 29)), "{depth}-bit, {m:?}: dropped");
+                assert!(crate::canvas::floating_outline(&app, 0).is_none(), "nothing floats");
+            }
+        }
+    }
+
     /// ⌘-drag with a painting tool drags the selected pixels as the Move tool does, also when ⌘
     /// comes with the event (control channel, MCP) rather than as the held-key override.
     #[test]

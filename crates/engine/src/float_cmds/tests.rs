@@ -189,3 +189,93 @@ fn cutting_an_untouched_part_of_the_mask_moves_it_and_leaves_the_background_colo
     assert!((mask_at(&s, 12, 12) - 0.5).abs() < 0.01, "the hole takes the background colour");
     assert_eq!(mask_at(&s, 40, 12), 0.0);
 }
+
+/// Coverage of `d`'s selection at (x, y).
+fn selected(d: &Document, x: i32, y: i32) -> f32 {
+    d.selection.as_ref().map_or(0.0, |s| s.sample_channel(x, y, 0))
+}
+
+/// #7538: a marquee drawn loosely around an object on a transparent layer shrinks to the object
+/// once its pixels move, as in Photoshop, at every depth and when moving a copy.
+#[test]
+fn moving_shrinks_the_selection_to_the_moved_pixels_at_every_depth() {
+    for depth in [8, 16, 32] {
+        for copy in [false, true] {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": 80, "height": 60, "background": "transparent", "depth": depth})).unwrap();
+            s.execute("select.rect", json!({"x": 10, "y": 10, "width": 20, "height": 20})).unwrap();
+            s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+            // A marquee with empty space all round the red square.
+            s.execute("select.rect", json!({"x": 4, "y": 6, "width": 34, "height": 30})).unwrap();
+            s.execute("select.float", json!({"dx": 20, "dy": 5, "copy": copy})).unwrap();
+            let st = s.active().unwrap();
+            let outline = floating(st).unwrap().parts.outline().unwrap();
+            assert_eq!(outline.content_bounds(), Rect::new(10, 10, 30, 30), "{depth}-bit, copy {copy}: the outline while floating");
+            assert_eq!(st.doc.selection.as_ref().unwrap().content_bounds(), Rect::new(4, 6, 38, 36), "the document's is untouched");
+            s.execute("select.drop", json!({})).unwrap();
+            let doc = &s.active().unwrap().doc;
+            assert_eq!(doc.selection.as_ref().unwrap().content_bounds(), Rect::new(30, 15, 50, 35), "{depth}-bit, copy {copy}");
+            assert_eq!((selected(doc, 40, 25), selected(doc, 26, 13)), (1.0, 0.0), "{depth}-bit, copy {copy}: the moved square only");
+            // Undo brings back the marquee as it was drawn.
+            s.undo();
+            assert_eq!(s.active().unwrap().doc.selection.as_ref().unwrap().content_bounds(), Rect::new(4, 6, 38, 36), "{depth}-bit, copy {copy}");
+        }
+    }
+}
+
+/// The new selection is the old one times the layer's transparency: a soft selection over
+/// half-transparent pixels keeps both (Photoshop's selection ∩ transparency).
+#[test]
+fn the_outline_keeps_soft_edges_and_partial_transparency() {
+    let (mut s, id) = session();
+    s.edit("soften", |doc, _| {
+        // Half-transparent red over (30..40, 10..30), beside the opaque (10..30)² square.
+        doc.layer_mut(id).unwrap().surface_mut().unwrap().fill_rect(Rect::new(30, 10, 40, 30), &[1.0, 0.0, 0.0, 0.5]);
+        let mut sel = Surface::new(PixelFormat::GRAY8);
+        sel.fill_rect(Rect::new(0, 0, 60, 50), &[0.5]);
+        sel.fill_rect(Rect::new(10, 10, 20, 30), &[1.0]);
+        doc.selection = Some(sel);
+        Ok(())
+    })
+    .unwrap();
+    s.execute("select.float", json!({"dx": 10, "dy": 0})).unwrap();
+    s.execute("select.drop", json!({})).unwrap();
+    let doc = &s.active().unwrap().doc;
+    let near = |x: i32, y: i32, want: f32| assert!((selected(doc, x, y) - want).abs() < 0.01, "({x}, {y}): {} for {want}", selected(doc, x, y));
+    near(25, 20, 1.0); // fully selected, opaque
+    near(35, 20, 0.5); // half selected, opaque
+    near(45, 20, 0.25); // half selected, half transparent
+    near(5, 5, 0.0); // selected, but nothing there
+    assert_eq!(doc.selection.as_ref().unwrap().content_bounds(), Rect::new(20, 10, 50, 30));
+}
+
+/// Where the selection is the moved piece already (the Background, which has no transparency)
+/// or the piece has no outline (a mask, or only transparent pixels), the selection just moves.
+#[test]
+fn the_selection_just_moves_without_transparency_to_shrink_to() {
+    // The Background.
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 40, "height": 40})).unwrap();
+    s.execute("select.rect", json!({"x": 5, "y": 5, "width": 10, "height": 10})).unwrap();
+    s.execute("select.float", json!({"dx": 15, "dy": 0})).unwrap();
+    s.execute("select.drop", json!({})).unwrap();
+    assert_eq!(s.active().unwrap().doc.selection.as_ref().unwrap().content_bounds(), Rect::new(20, 5, 30, 15), "the Background");
+    // Only transparent pixels selected.
+    let (mut s, _) = session();
+    s.execute("select.rect", json!({"x": 40, "y": 5, "width": 10, "height": 10})).unwrap();
+    s.execute("select.float", json!({"dx": 5, "dy": 0})).unwrap();
+    assert!(floating(s.active().unwrap()).unwrap().parts.outline().is_none());
+    s.execute("select.drop", json!({})).unwrap();
+    assert_eq!(s.active().unwrap().doc.selection.as_ref().unwrap().content_bounds(), Rect::new(45, 5, 55, 15), "an empty piece");
+    // The mask: it has no transparency of its own.
+    let (mut s, id) = session();
+    s.edit("mask", |doc, _| {
+        doc.layer_mut(id).unwrap().mask = Some(photocraft_doc::LayerMask::reveal_all());
+        Ok(())
+    })
+    .unwrap();
+    s.execute("select.rect", json!({"x": 5, "y": 5, "width": 40, "height": 40})).unwrap();
+    s.execute("select.float", json!({"dx": 5, "dy": 0, "target": "mask"})).unwrap();
+    s.execute("select.drop", json!({})).unwrap();
+    assert_eq!(s.active().unwrap().doc.selection.as_ref().unwrap().content_bounds(), Rect::new(10, 5, 50, 45), "the mask");
+}

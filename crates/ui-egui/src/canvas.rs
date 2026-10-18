@@ -3224,8 +3224,10 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         // Select and Mask outlines its refined selection (on its preview proxy, reduced by `k`) in
         // the Marching Ants view and hides the ants in the others.
         let refined = crate::select_mask_view::ants(app, idx);
+        // A floating piece's ants hug the pixels being moved.
+        let floated = floating_outline(app, idx);
         let (outlined, k) = match &refined {
-            None => (doc.selection.as_ref(), 1),
+            None => (floated.as_ref().or(doc.selection.as_ref()), 1),
             Some(None) => (None, 1),
             Some(Some((proxy, k))) => (proxy.selection.as_ref(), (*k).max(1)),
         };
@@ -5758,6 +5760,16 @@ pub(crate) fn selection_drag_delta(app: &PhotocraftApp) -> Option<(i32, i32)> {
     let d = app.drag.as_ref().filter(|d| d.sel_move.is_some())?;
     let end = d.points.last().map_or(d.start, |p| [p[0], p[1]]);
     Some(((end[0] - d.start[0]).round().clamp(-1e7, 1e7) as i32, (end[1] - d.start[1]).round().clamp(-1e7, 1e7) as i32))
+}
+
+/// The selection a floating piece on document `idx` shows its ants for, before its offset: the
+/// moved pixels' outline, as in Photoshop (#7538); `None` outlines the document's selection. The
+/// surface's tiles are shared, so the clone is cheap.
+pub(crate) fn floating_outline(app: &PhotocraftApp, idx: usize) -> Option<photocraft_raster::Surface> {
+    if app.session.active_index() != Some(idx) {
+        return None;
+    }
+    photocraft_engine::float_cmds::floating(app.session.active()?)?.parts.outline().cloned()
 }
 
 /// Where the selection is drawn relative to where it is: a floating piece's offset plus a drag

@@ -101,11 +101,26 @@ fn moving_rect(app: &PhotocraftApp, tool: Tool) -> Option<[f64; 4]> {
     union(st.selected_layers().into_iter().filter_map(|id| layer_rect(&st.doc, id)))
 }
 
-/// The selection's bounds where it is shown: moved by its floating piece's offset.
+/// The bounds of the pixels a selection moves, where they are shown (#7538): its floating piece's
+/// outline at its offset. Before a drag first cuts the piece, the selection's bounds over the
+/// active layer's pixels, which hold the outline (exactly when the pixels lie in the selection).
+/// A targeted mask, an opaque layer or no pixels selected: the selection's own bounds.
 fn selection_rect(app: &PhotocraftApp) -> Option<[f64; 4]> {
     let st = app.session.active()?;
-    let (dx, dy) = photocraft_engine::float_cmds::floating(st).map_or((0, 0), |f| f.offset);
-    let r = st.doc.selection.as_ref()?.content_bounds().translate(dx, dy);
+    let sel = st.doc.selection.as_ref()?;
+    let r = match photocraft_engine::float_cmds::floating(st) {
+        Some(f) => f.parts.outline().unwrap_or(sel).content_bounds().translate(f.offset.0, f.offset.1),
+        None => {
+            let b = sel.content_bounds();
+            let pixels = st
+                .active_layer
+                .filter(|&id| !st.doc.is_background(id) && crate::canvas::paint_target(app) == "pixels")
+                .and_then(|id| st.doc.layer(id)?.surface())
+                .filter(|s| s.format().alpha)
+                .map(|s| b.intersect(&s.content_bounds()));
+            pixels.filter(|p| !p.is_empty()).unwrap_or(b)
+        }
+    };
     (!r.is_empty()).then(|| [r.x0, r.y0, r.x1, r.y1].map(f64::from))
 }
 
@@ -553,6 +568,23 @@ mod tests {
         app.run("edit.fill", json!({"color": "#0000ff"})).unwrap();
         app.run("select.deselect", json!({})).unwrap();
         app
+    }
+
+    /// #7538: moving selected pixels snaps (and frames) the pixels, not a loose marquee round them:
+    /// the box hugs the moved pixels before the first drag cuts them and while they float.
+    #[test]
+    fn moving_selected_pixels_snaps_their_bounds_not_the_marquee() {
+        let mut app = app_with_box();
+        app.ui.tool = Tool::Move;
+        app.run("select.rect", json!({"x": 20, "y": 20, "width": 100, "height": 90})).unwrap();
+        assert_eq!(moving_rect(&app, Tool::Move), Some([40.0, 40.0, 90.0, 80.0]), "before the cut");
+        app.run("select.float", json!({"dx": 10, "dy": 5})).unwrap();
+        assert_eq!(moving_rect(&app, Tool::Move), Some([50.0, 45.0, 100.0, 85.0]), "floating");
+        app.run("select.drop", json!({})).unwrap();
+        // The Background has no transparency to shrink to.
+        app.run("layer.select", json!({"name": "Background"})).unwrap();
+        app.run("select.rect", json!({"x": 20, "y": 20, "width": 100, "height": 90})).unwrap();
+        assert_eq!(moving_rect(&app, Tool::Move), Some([20.0, 20.0, 120.0, 110.0]), "the Background");
     }
 
     fn mover_bounds(app: &PhotocraftApp) -> photocraft_geom::Rect {

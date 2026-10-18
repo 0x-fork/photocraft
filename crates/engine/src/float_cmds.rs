@@ -12,11 +12,12 @@
 //!   which puts it back and then returns to the chosen state.
 //!
 //! While floating, the document is unchanged; [`displayed`] gives the document with the piece at
-//! its offset, for the canvas. The selection stays where it was until the drop.
+//! its offset, for the canvas. The selection stays where it was until the drop, when it becomes
+//! the piece's outline ([`CutParts::outline`]); the canvas shows that outline from the start.
 
 use std::sync::Arc;
 
-use photocraft_color::PixelFormat;
+use photocraft_color::{ColorMode, PixelFormat};
 use photocraft_doc::{Document, LayerContent, LayerId};
 use photocraft_raster::Surface;
 use serde_json::{Value, json};
@@ -32,6 +33,10 @@ pub struct CutParts {
     pub layer: LayerId,
     rest: Surface,
     piece: Surface,
+    /// The selection the moved pixels take, unmoved: the selection limited to the layer's
+    /// transparency (Photoshop shrinks the marching ants to the piece as the drag starts, #7538).
+    /// `None` keeps the selection: a mask has no transparency, and an empty piece no outline.
+    outline: Option<Surface>,
     /// The pieces are the layer's mask (`"target":"mask"`), not its pixels.
     mask: bool,
 }
@@ -59,6 +64,7 @@ impl CutParts {
         // A mask has no alpha: it keeps its format, and the cut leaves background colour.
         let mut rest = if mask { surf.clone() } else { full.clone() };
         let mut piece = Surface::new(with_alpha);
+        let mut outline = Surface::new(PixelFormat::new(ColorMode::Grayscale, sel.format().sample, false));
         let fill = !copy && (mask || doc.is_background(layer));
         // A mask's untouched pixels (its default, e.g. white) move too, so take the whole canvas.
         let b = sel.content_bounds().intersect(&if mask { doc.bounds() } else { surf.content_bounds() });
@@ -86,10 +92,21 @@ impl CutParts {
                 crate::pixels::try_fill_surface(&mut rest, b, background, Some(sel), true)?;
             }
             rest.prune();
+            if !mask {
+                // The piece's alpha is the selection times the layer's transparency.
+                outline.write_region(b, &pp.chunks_exact(n).map(|p| p[a]).collect::<Vec<_>>());
+                outline.prune();
+            }
             piece.write_region(b, &pp);
             piece.prune();
         }
-        Ok(Self { layer, rest, piece, mask })
+        let outline = (!outline.content_bounds().is_empty()).then_some(outline);
+        Ok(Self { layer, rest, piece, outline, mask })
+    }
+
+    /// The selection the moved pixels take, where they were cut (`None`: the selection stays).
+    pub fn outline(&self) -> Option<&Surface> {
+        self.outline.as_ref()
     }
 
     /// `doc` with the piece moved by whole pixels (dx, dy) over the cut-out layer.
@@ -184,7 +201,8 @@ fn float(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"layer": f.layer.0, "offset": [f.offset.0, f.offset.1]}))
 }
 
-/// Drop the floating piece into its layer and move the selection with it (one history step).
+/// Drop the floating piece into its layer and move the selection with it, shrunk to the piece's
+/// outline (one history step).
 pub fn drop_floating(s: &mut Session) -> Result<Value> {
     let Some(st) = s.active_mut() else { return Ok(json!({"dropped": false})) };
     let Some(f) = floating(st).cloned() else {
@@ -198,7 +216,8 @@ pub fn drop_floating(s: &mut Session) -> Result<Value> {
     }
     s.edit("Move", |doc, _| {
         f.parts.place(doc, dx, dy)?;
-        doc.selection = doc.selection.as_ref().map(|sel| photocraft_algo::resample::translate_surface(sel, dx, dy));
+        let sel = f.parts.outline().or(doc.selection.as_ref());
+        doc.selection = sel.map(|sel| photocraft_algo::resample::translate_surface(sel, dx, dy));
         Ok(())
     })?;
     Ok(json!({"dropped": true, "offset": [dx, dy]}))
@@ -251,7 +270,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Drop Floating Selection",
             menu: &[],
             shortcut: None,
-            params: r##"{} → {dropped, offset} (drops the floating piece into its layer and moves the selection with it: one history step)"##,
+            params: r##"{} → {dropped, offset} (drops the floating piece into its layer and moves the selection with it, shrunk to the moved pixels: the selection times the layer's transparency, as in Photoshop; a mask or an empty piece keeps the selection's shape; one history step)"##,
             enabled: |s| s.active().map(|_| ()).ok_or_else(|| "no document".into()),
             journal: true,
             run: |s, _| drop_floating(s),
