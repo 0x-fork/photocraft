@@ -86,6 +86,17 @@ mod tests {
         assert!(tap(&mut harness, true), "a third tap opens it again");
     }
 
+    /// A fast double tap delivered in one frame: each event changes the button's state, so none is
+    /// a twin.
+    #[test]
+    fn a_press_release_press_in_one_frame_keeps_all_three() {
+        let ctx = egui::Context::default();
+        let p = pos2(10.0, 10.0);
+        let mut raw = RawInput { time: Some(1.0), events: vec![button(p, true), button(p, false), button(p, true)], ..Default::default() };
+        drop_twins(&ctx, &mut raw);
+        assert_eq!(raw.events.len(), 3);
+    }
+
     #[test]
     fn a_press_held_for_long_still_passes() {
         let ctx = egui::Context::default();
