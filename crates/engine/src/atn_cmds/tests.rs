@@ -1452,10 +1452,13 @@ fn save_as_that_cannot_be_mapped_stops_playback_instead_of_saving_over_the_file(
         item("save", "Save", Some(save_as("PNGF", "/out/result.webp"))),
         item("save", "Save", Some(save_as("GIFf", "/out/result.gif"))),
         item("save", "Save", Some(desc("null").with("As  ", D::Descriptor(desc("PNGF"))))),
+        // A format that isn't a descriptor, with and without a destination.
+        item("save", "Save", Some(desc("null").with("As  ", long(1.0)))),
+        item("save", "Save", Some(desc("null").with("As  ", long(1.0)).with("In  ", path_value("/out/result.png")))),
     ]);
     let imp = import(&atn::write(&file).unwrap()).unwrap();
     let ids: Vec<&str> = imp.actions[0].steps.iter().map(|(id, _)| id.as_str()).collect();
-    assert_eq!(ids, [PHOTOSHOP_STEP; 5]);
+    assert_eq!(ids, [PHOTOSHOP_STEP; 7]);
     assert!(imp.actions[0].disabled.is_empty(), "kept saves stay on, so playback stops on them");
     // The kept steps are written back byte for byte.
     let a = &imp.actions[0];

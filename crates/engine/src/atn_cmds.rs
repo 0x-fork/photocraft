@@ -1576,10 +1576,16 @@ fn path_extension(path: &str) -> Option<String> {
 /// before writing rather than saving over the played file (#7102).
 fn save_from(d: &Descriptor) -> Mapped {
     let unsupported = Mapped::Unsupported { harmless: false };
-    let (format, dest) = (get_obj(d, "As  "), d.get("In  "));
-    if format.is_none() && dest.is_none() {
-        return step("file.save", json!({}));
-    }
+    let dest = d.get("In  ");
+    let format = match d.get("As  ") {
+        None if dest.is_none() => return step("file.save", json!({})),
+        None => None,
+        // A format that isn't a descriptor can't be checked against the destination.
+        Some(_) => match get_obj(d, "As  ") {
+            Some(f) => Some(f),
+            None => return unsupported,
+        },
+    };
     let Some(path) = dest.and_then(path_text) else { return unsupported };
     if get_bool(d, "DIDr") == Some(true) {
         return unsupported;
