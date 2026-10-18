@@ -106,6 +106,9 @@ fn set(s: &mut Session, p: &Value) -> Result<Value> {
         n.position = [nx, ny];
         // The popup travels with its icon.
         n.popup = [n.popup[0] + dx, n.popup[1] + dy, n.popup[2] + dx, n.popup[3] + dy];
+        if !n.popup.iter().all(|v| v.is_finite()) {
+            return Err(bad(CMD, "the move is too far: the note popup would leave the representable range"));
+        }
     }
     if n == d.notes[i] {
         return Ok(json!({"index": i, "note": note_json(i, &n), "changed": false}));
@@ -277,6 +280,19 @@ mod tests {
         s.execute("notes.delete", json!({"all": true})).unwrap();
         assert!(s.active().unwrap().doc.notes.is_empty());
         assert!(s.execute("notes.set", json!({"index": 0})).is_err());
+    }
+
+    #[test]
+    fn huge_move_is_rejected_and_document_stays_saveable() {
+        let mut s = session();
+        s.execute("notes.add", json!({"x": 1.7e308, "y": 0})).unwrap();
+        let before = s.active().unwrap().doc.notes[0].clone();
+        let past = s.active().unwrap().history.past_len();
+        assert!(s.execute("notes.set", json!({"index": 0, "x": -1.7e308})).is_err());
+        let a = s.active().unwrap();
+        assert_eq!(a.doc.notes[0], before);
+        assert_eq!(a.history.past_len(), past);
+        assert!(photocraft_format::save_to_bytes(&a.doc, &Default::default()).is_ok());
     }
 
     #[test]
