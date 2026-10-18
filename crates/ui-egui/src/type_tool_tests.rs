@@ -491,6 +491,28 @@ fn options_bar_t_icon_scrub_stops_at_the_size_limits() {
     assert_eq!(size_at(h.state(), id, 0), 1296.0, "Shift (10 pt per point) past the top stops at the maximum");
 }
 
+/// Rests the pointer on the widget named `label` past the tooltip delay; true when its tooltip
+/// (a second node with the same name) shows.
+fn tooltip_shows(h: &mut Harness<'static, PhotocraftApp>, label: &str) -> bool {
+    let at = h.get_by_label(label).rect().center();
+    h.hover_at(at);
+    h.run_steps(8);
+    h.query_all_by_label(label).count() == 2
+}
+
+/// The scrubby "T" icon keeps its "Font size" tooltip: the size field's drag area, laid over the
+/// icon after it, must not take its hover.
+#[test]
+fn options_bar_t_icon_shows_its_tooltip() {
+    let mut app = new_app();
+    app.run("type.create", json!({"text": "Hello", "size": 20, "x": 300, "y": 420})).unwrap();
+    let mut h = options_harness(app);
+    assert!(tooltip_shows(&mut h, "Set the text color"), "the probe sees an ordinary tooltip");
+    h.hover_at(egui::pos2(890.0, 55.0));
+    h.run_steps(4);
+    assert!(tooltip_shows(&mut h, "Font size"), "hovering the \"T\" icon shows \"Font size\"");
+}
+
 /// A point inside glyph `i` of vertical type: `f` of the way down its advance, right of the
 /// column's centre line.
 fn vglyph(h: &mut Harness<'static, PhotocraftApp>, id: LayerId, i: usize, f: f32) -> Pos2 {
