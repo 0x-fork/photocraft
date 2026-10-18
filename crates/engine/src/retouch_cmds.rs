@@ -900,7 +900,7 @@ fn tone_range(p: &Value, cmd: &str) -> Result<ToneRange> {
 
 /// A sequential-dab tool's settings (Dodge, Burn, Sponge, Blur, Sharpen, Smudge), parsed once and
 /// turned into its per-dab effect, for the commit and the live preview alike.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 enum DabTool {
     Tone { burn: bool, range: ToneRange, exposure: f32, protect: bool },
     Sponge { saturate: bool, vibrance: bool },
@@ -1008,7 +1008,15 @@ fn dab_cmd(s: &mut Session, p: &Value, cmd: &str) -> Result<Value> {
     let (stroke, id) = parse_brush(s, p, cmd)?;
     let (tool, label) = DabTool::parse(s, cmd, p, &stroke)?;
     let all = matches!(tool, DabTool::Focus { .. } | DabTool::Smudge { .. }) && sample_all_layers(p);
+    // The live stroke the canvas already drew for exactly this commit (`LiveDab::into_commit`):
+    // take its pixels instead of running every dab again (the hitch on release).
+    let live = s.live_commit.take().filter(|l| l.matches(s, cmd, p, &stroke.points));
+    let from_live = live.is_some();
     let dmg = run_stroke(s, label, id, p, |pre, surf, sel, lock| {
+        if let Some(l) = live {
+            *surf = l.surface;
+            return Ok(l.bounds);
+        }
         let fmt = surf.format();
         let mut effect = tool.effect(fmt, stroke.brush.spacing);
         let mut sampler = all.then(|| AllLayers::new(pre, fmt));
@@ -1017,12 +1025,93 @@ fn dab_cmd(s: &mut Session, p: &Value, cmd: &str) -> Result<Value> {
             None => effect(work, fp),
         }))
     })?;
-    Ok(json!({ "damage": damage_json(dmg) }))
+    let mut r = json!({ "damage": damage_json(dmg) });
+    if from_live {
+        r["fromLive"] = json!(true);
+    }
+    Ok(r)
+}
+
+/// Side of the tiles a live sequential-dab stroke keeps its working pixels in ([`WorkTiles`]).
+const WORK_TILE: i32 = 128;
+
+/// The working copy of a live sequential-dab stroke: the target's native channels as `f32`, in
+/// tiles copied from the pre-stroke surface the first time a dab writes to them. Unlike a
+/// `Surface`, it isn't rounded to the document's depth between dabs, so each dab sees what the
+/// commit's working copy (`apply_dab_stroke`) holds and the preview is the commit's pixels.
+struct WorkTiles {
+    ch: usize,
+    tiles: std::collections::HashMap<(i32, i32), Vec<f32>>,
+}
+
+impl WorkTiles {
+    fn new(ch: usize) -> Self {
+        Self { ch, tiles: std::collections::HashMap::new() }
+    }
+
+    fn tile_rect((tx, ty): (i32, i32)) -> Rect {
+        Rect::new(tx * WORK_TILE, ty * WORK_TILE, tx * WORK_TILE + WORK_TILE, ty * WORK_TILE + WORK_TILE)
+    }
+
+    /// The tiles `r` overlaps.
+    fn coords(r: Rect) -> impl Iterator<Item = (i32, i32)> {
+        let (x0, x1) = (r.x0.div_euclid(WORK_TILE), (r.x1 - 1).div_euclid(WORK_TILE));
+        let (y0, y1) = (r.y0.div_euclid(WORK_TILE), (r.y1 - 1).div_euclid(WORK_TILE));
+        let empty = r.is_empty();
+        (y0..=y1).filter(move |_| !empty).flat_map(move |ty| (x0..=x1).map(move |tx| (tx, ty)))
+    }
+
+    /// The working pixels of `r`: the pre-stroke pixels `pre` where no dab has written yet.
+    fn read(&self, pre: &Surface, r: Rect) -> Region {
+        let mut out = Region::new(r, self.ch);
+        let n = self.ch;
+        let mut buf = Vec::new();
+        for c in Self::coords(r) {
+            let tr = Self::tile_rect(c);
+            let part = r.intersect(&tr);
+            let w = part.width() as usize * n;
+            let tile = self.tiles.get(&c);
+            if tile.is_none() {
+                pre.read_region_into(part, &mut buf);
+            }
+            for y in part.y0..part.y1 {
+                let src = match tile {
+                    Some(t) => t.get(((y - tr.y0) * WORK_TILE + (part.x0 - tr.x0)) as usize * n..).and_then(|s| s.get(..w)),
+                    None => buf.get((y - part.y0) as usize * w..).and_then(|s| s.get(..w)),
+                };
+                let dst = out.index(part.x0, y) * n;
+                if let (Some(s), Some(d)) = (src, out.data.get_mut(dst..dst + w)) {
+                    d.copy_from_slice(s);
+                }
+            }
+        }
+        out
+    }
+
+    /// Store `region` as the working pixels of its rectangle.
+    fn write(&mut self, pre: &Surface, region: &Region) {
+        let (r, n) = (region.rect, self.ch);
+        for c in Self::coords(r) {
+            let tr = Self::tile_rect(c);
+            let tile = self.tiles.entry(c).or_insert_with(|| pre.read_region(tr));
+            let part = r.intersect(&tr);
+            let w = part.width() as usize * n;
+            for y in part.y0..part.y1 {
+                let dst = ((y - tr.y0) * WORK_TILE + (part.x0 - tr.x0)) as usize * n;
+                let src = region.index(part.x0, y) * n;
+                if let (Some(s), Some(d)) = (region.data.get(src..src + w), tile.get_mut(dst..dst + w)) {
+                    d.copy_from_slice(s);
+                }
+            }
+        }
+    }
 }
 
 /// A Dodge, Burn, Sponge, Blur, Sharpen or Smudge stroke shown while it is drawn: each new dab
 /// runs the tool's effect on a working copy of the target, in order, and the changed area is
 /// mixed back over the original at the brush opacity, as `apply_dab_stroke` does on release.
+/// The working copy keeps full precision ([`WorkTiles`]), so the pixels are the commit's, and the
+/// commit takes them over ([`Session::offer_live_dab`]) instead of running every dab again.
 /// Sample All Layers isn't previewed (its composite spans the whole stroke).
 pub struct LiveDab {
     /// The active document with the stroke so far.
@@ -1033,7 +1122,7 @@ pub struct LiveDab {
     effect: DabEffect,
     halo: i32,
     pre_surf: Surface,
-    work: Surface,
+    work: WorkTiles,
     id: Option<LayerId>,
     params: Value,
     opacity: f32,
@@ -1047,6 +1136,14 @@ pub struct LiveDab {
     preview_tail: bool,
     /// Where the shown tail is.
     tail: Rect,
+    /// The tool and brush the stroke started with, which its commit must still have: the
+    /// document revision doesn't cover the session's brush or foreground colour. `None` for
+    /// strokes whose commit renders itself (Color Replacement).
+    tool: Option<(DabTool, Box<BrushSettings>)>,
+    /// The document and revision the stroke started on.
+    base: (photocraft_doc::DocId, u64),
+    /// Every point rendered so far, in order.
+    points: Vec<StrokePoint>,
 }
 
 impl LiveDab {
@@ -1058,8 +1155,11 @@ impl LiveDab {
         }
         let (stroke, id) = parse_brush(s, p, cmd)?;
         let (tool, _) = DabTool::parse(s, cmd, p, &stroke)?;
-        let (halo, spacing) = (tool.halo(), stroke.brush.spacing);
-        Self::with_effect(s, cmd, p, stroke, id, halo, |pre| tool.effect(pre.format(), spacing))
+        let (halo, spacing, brush) = (tool.halo(), stroke.brush.spacing, Box::new(stroke.brush.clone()));
+        let effect = tool.clone();
+        let mut live = Self::with_effect(s, cmd, p, stroke, id, halo, |pre| effect.effect(pre.format(), spacing))?;
+        live.tool = Some((tool, brush));
+        Ok(live)
     }
 
     /// Start a live stroke of `cmd` that runs `effect` (made from the target before the stroke)
@@ -1073,7 +1173,9 @@ impl LiveDab {
         halo: i32,
         effect: impl FnOnce(&Surface) -> DabEffect,
     ) -> Result<Self> {
-        let mut doc = (*s.active().ok_or(EngineError::NoDocument)?.doc).clone();
+        let st = s.active().ok_or(EngineError::NoDocument)?;
+        let base = (st.doc.id, st.revision);
+        let mut doc = (*st.doc).clone();
         let sel = doc.selection.clone();
         let (surf, lock) = crate::channel_cmds::target_surface(&mut doc, id, p)?;
         let pre_surf = surf.clone();
@@ -1087,7 +1189,7 @@ impl LiveDab {
             done: 0,
             effect,
             halo,
-            work: pre_surf.clone(),
+            work: WorkTiles::new(pre_surf.channels()),
             pre_surf,
             id,
             params: p.clone(),
@@ -1097,6 +1199,9 @@ impl LiveDab {
             bounds: Rect::EMPTY,
             preview_tail: false,
             tail: Rect::EMPTY,
+            tool: None,
+            base,
+            points: Vec::new(),
         };
         live.push(&stroke.points)?;
         Ok(live)
@@ -1114,11 +1219,9 @@ impl LiveDab {
         self.bounds
     }
 
-    /// Render more points; returns the rectangle that changed.
-    /// Invalid coordinates reject the whole batch without changing the preview.
-    pub fn push(&mut self, pts: &[StrokePoint]) -> Result<Rect> {
-        crate::brush_cmds::check_coords(pts, &self.cmd)?;
-        self.renderer.push(pts);
+    /// Run the dabs the renderer has generated since the last call on the working copy; returns
+    /// the rectangle they changed.
+    fn run_new_dabs(&mut self) -> Rect {
         let ctx = self.renderer.ctx.clone();
         let new: Vec<_> = self.renderer.dabs().get(self.done..).unwrap_or_default().to_vec();
         let mut dmg = Rect::EMPTY;
@@ -1127,19 +1230,39 @@ impl LiveDab {
             if r.is_empty() {
                 continue;
             }
-            let mut region = Region::read(&self.work, r.inflate(self.halo));
+            let mut region = self.work.read(&self.pre_surf, r.inflate(self.halo));
             (self.effect)(&mut region, &ctx.footprint(d, self.done + k));
-            region.crop(r).write(&mut self.work);
+            self.work.write(&self.pre_surf, &region.crop(r));
             dmg = dmg.union(&r);
         }
         self.done += new.len();
+        dmg
+    }
+
+    /// Mix the working pixels of `r` back over the original into the shown document.
+    fn show(&mut self, r: Rect, work: &Region) -> Result<()> {
+        let (surf, _) = crate::channel_cmds::target_surface(std::sync::Arc::make_mut(&mut self.doc), self.id, &self.params)?;
+        photocraft_paint::retouch::mix_back(surf, &Region::read(&self.pre_surf, r), work, r, self.opacity, self.sel.as_ref(), self.lock);
+        Ok(())
+    }
+
+    /// Render more points; returns the rectangle that changed.
+    /// Invalid coordinates reject the whole batch without changing the preview.
+    /// Only the position and pressure of `pts` are used: the commands take no tilt or times.
+    pub fn push(&mut self, pts: &[StrokePoint]) -> Result<Rect> {
+        crate::brush_cmds::check_coords(pts, &self.cmd)?;
+        let pts: Vec<_> = pts.iter().map(|q| StrokePoint::new(q.x, q.y, q.pressure)).collect();
+        self.points.extend_from_slice(&pts);
+        self.renderer.push(&pts);
+        let dmg = self.run_new_dabs();
+        let ctx = self.renderer.ctx.clone();
         // The finishing dabs, run on a scratch copy of the working pixels.
         let mut tail = None;
         if self.preview_tail {
             let ds = self.renderer.tail_dabs();
             let r = ds.iter().fold(Rect::EMPTY, |a, d| a.union(&ctx.dab_rect(d, false)));
             if !r.is_empty() {
-                let mut region = Region::read(&self.work, r.inflate(self.halo));
+                let mut region = self.work.read(&self.pre_surf, r.inflate(self.halo));
                 for (k, d) in ds.iter().enumerate() {
                     (self.effect)(&mut region, &ctx.footprint(d, self.done + k));
                 }
@@ -1154,16 +1277,41 @@ impl LiveDab {
             return Ok(Rect::EMPTY);
         }
         self.bounds = self.bounds.union(&dmg).union(&tail_rect);
-        let (surf, _) = crate::channel_cmds::target_surface(std::sync::Arc::make_mut(&mut self.doc), self.id, &self.params)?;
         if !shown.is_empty() {
-            let (orig, work) = (Region::read(&self.pre_surf, shown), Region::read(&self.work, shown));
-            photocraft_paint::retouch::mix_back(surf, &orig, &work, shown, self.opacity, self.sel.as_ref(), self.lock);
+            let work = self.work.read(&self.pre_surf, shown);
+            self.show(shown, &work)?;
         }
         if let Some((r, work)) = tail {
-            photocraft_paint::retouch::mix_back(surf, &Region::read(&self.pre_surf, r), &work, r, self.opacity, self.sel.as_ref(), self.lock);
+            self.show(r, &work)?;
             self.tail = r;
         }
         Ok(shown.union(&tail_rect))
+    }
+
+    /// The finished stroke as its commit would take it over ([`Session::offer_live_dab`]): the
+    /// finishing dabs are run, and the pixels are the ones the command with the same params and
+    /// points paints. Only while the brush, tool settings and layer are still the ones the stroke
+    /// started with: the document revision doesn't cover those.
+    pub(crate) fn into_commit(mut self, s: &Session) -> Result<crate::brush_cmds::LiveCommit> {
+        let Some((tool, brush)) = self.tool.take() else {
+            return Err(bad(&self.cmd, "this stroke's commit renders itself"));
+        };
+        let (stroke, id) = parse_brush(s, &self.params, &self.cmd)?;
+        let (now, _) = DabTool::parse(s, &self.cmd, &self.params, &stroke)?;
+        if now != tool || stroke.brush != *brush || id != self.id {
+            return Err(bad(&self.cmd, "the brush, tool options or layer changed during the stroke"));
+        }
+        self.renderer.finish();
+        let dmg = self.run_new_dabs();
+        let shown = dmg.union(&self.tail);
+        if !shown.is_empty() {
+            let work = self.work.read(&self.pre_surf, shown);
+            self.show(shown, &work)?;
+        }
+        self.bounds = self.bounds.union(&dmg);
+        let (surf, _) = crate::channel_cmds::target_surface(std::sync::Arc::make_mut(&mut self.doc), self.id, &self.params)?;
+        let surface = surf.clone();
+        Ok(crate::brush_cmds::LiveCommit { cmd: self.cmd, base: self.base, params: self.params, seed: None, points: self.points, surface, bounds: self.bounds })
     }
 }
 

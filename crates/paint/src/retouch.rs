@@ -263,6 +263,10 @@ pub fn mix_back(target: &mut Surface, orig: &Region, work: &Region, rect: Rect, 
             let wv = work.px(x, y);
             let i = out.index(x, y) * n;
             let o = &mut out.data[i..i + n];
+            // Untouched by the dabs: keep the pixel exactly (the premultiplied mix can round it).
+            if *o == *wv {
+                continue;
+            }
             match a {
                 // Alpha changes: mix premultiplied, so colour under transparent pixels doesn't bleed in.
                 Some(a) if !lock_transparency => mix_premultiplied(o, wv, a, k),
