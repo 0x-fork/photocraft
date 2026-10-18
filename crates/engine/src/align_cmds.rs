@@ -154,6 +154,10 @@ fn pixels(l: &Layer, area: Rect) -> Option<(Vec<f32>, photocraft_color::PixelFor
     Some((s.read_region(area), s.format()))
 }
 
+/// The most pixels Auto-Blend works on past the canvas: a bound independent of the layers' own
+/// bounding boxes, which a sparse layer (a dot at each far corner) can make arbitrarily large.
+const MAX_BLEND_PIXELS: u64 = 1 << 27;
+
 fn auto_blend(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "edit.autoBlendLayers";
     let ids = selected_pixel_layers(s);
@@ -189,10 +193,11 @@ fn auto_blend(s: &mut Session, p: &Value) -> Result<Value> {
     }
     // The whole layers, past the canvas too (#5745): Auto-Align leaves a panorama's layers
     // partly off the canvas, and Photoshop masks and blends all of each layer, so Reveal All
-    // shows the whole panorama. Layers so far apart that their bounds are mostly empty keep to
-    // the canvas.
+    // shows the whole panorama. Layers so far apart that their bounds are mostly empty, or
+    // whose union exceeds `MAX_BLEND_PIXELS`, keep to the canvas.
     let canvas = doc.bounds();
-    let area = if px_of(&union) <= content_px.max(px_of(&canvas)).saturating_mul(2) { union } else { union.intersect(&canvas) };
+    let fits = px_of(&union) <= MAX_BLEND_PIXELS && px_of(&union) <= content_px.max(px_of(&canvas)).saturating_mul(2);
+    let area = if fits { union } else { union.intersect(&canvas) };
     if area.is_empty() {
         return Err(EngineError::Other("the selected layers are empty".into()));
     }
@@ -455,6 +460,35 @@ mod tests {
         assert_eq!((ml.value(300, 30), mr.value(300, 30)), (0.0, 1.0), "off the canvas");
         let blended = doc.layer(LayerId(r["blended"].as_u64().unwrap())).unwrap().surface().unwrap();
         assert_eq!(blended.pixel(300, 30)[3], 1.0, "the merged layer covers the off-canvas part");
+    }
+
+    /// A sparse layer whose bounds are huge (a dot at each far corner) raises its own content
+    /// estimate, so the extent past the canvas is capped independently: it keeps to the canvas.
+    #[test]
+    fn auto_blend_sparse_huge_bounds_keep_to_the_canvas() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 200, "height": 200, "background": "transparent"})).unwrap();
+        s.execute("layer.new.layer", json!({"name": "a"})).unwrap();
+        s.edit("a", |doc, active| {
+            let surf = doc.layer_mut(active.unwrap()).unwrap().surface_mut().unwrap();
+            surf.fill_rect(Rect::new(0, 0, 150, 200), &[0.2, 0.4, 0.5, 1.0]);
+            surf.fill_rect(Rect::new(100_000, 100_000, 100_001, 100_001), &[0.2, 0.4, 0.5, 1.0]);
+            Ok(())
+        })
+        .unwrap();
+        let a = s.active().unwrap().active_layer.unwrap();
+        s.execute("layer.new.layer", json!({"name": "b"})).unwrap();
+        s.edit("b", |doc, active| {
+            doc.layer_mut(active.unwrap()).unwrap().surface_mut().unwrap().fill_rect(Rect::new(50, 0, 200, 200), &[0.2, 0.4, 0.5, 1.0]);
+            Ok(())
+        })
+        .unwrap();
+        let b = s.active().unwrap().active_layer.unwrap();
+        select(&mut s, &[a, b]);
+        let r = s.execute("edit.autoBlendLayers", json!({"method": "panorama"})).unwrap();
+        let doc = &s.active().unwrap().doc;
+        let bb = doc.layer(LayerId(r["blended"].as_u64().unwrap())).unwrap().surface().unwrap().content_bounds();
+        assert!(bb.x1 <= 200 && bb.y1 <= 200, "{bb:?}");
     }
 
     #[test]
