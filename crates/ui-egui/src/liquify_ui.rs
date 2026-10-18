@@ -639,7 +639,18 @@ pub fn history_keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
 
 pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
     history_keys(app, ctx);
+    // ⌘+ / ⌘− / ⌘0 / ⌘1 (or their overrides) zoom the preview, not the canvas behind it (#7210).
+    let nav = if app.distort.liquify.is_some() { crate::shortcuts::nav_shortcut(app, ctx) } else { None };
     let Some(d) = app.distort.liquify.as_mut() else { return };
+    if let Some(id) = nav {
+        d.zoom = match id {
+            "view.zoomIn" => crate::zoom_levels::step_in_range(d.zoom, 1, ZOOM_MIN, ZOOM_MAX),
+            "view.zoomOut" => crate::zoom_levels::step_in_range(d.zoom, -1, ZOOM_MIN, ZOOM_MAX),
+            // Fit on Screen: the preview fits and centres the image on its next frame.
+            "view.fitOnScreen" => 0.0,
+            _ => 1.0,
+        };
+    }
     // Ctrl+H (Hide Extras) toggles the red freeze-mask overlay; the mask itself stays active.
     if ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::H)) {
         d.opts.show_mask = !d.opts.show_mask;
@@ -733,6 +744,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let mut action: Option<&str> = None;
     let mut events: Vec<ToolEvent> = Vec::new();
     let mut mods = egui::Modifiers::NONE;
+    let pinch_zooms = app.session.prefs().enhanced_controls.zoom_with_trackpad_pinch;
     egui::Area::new(egui::Id::new("liquify-dialog")).order(egui::Order::Foreground).fixed_pos(screen.min).show(ctx, |ui| {
         let Some(d) = app.distort.liquify.as_mut() else { return };
         d.upload(ctx);
@@ -850,19 +862,29 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         painter.rect_filled(area, 0.0, t.canvas);
         let (cw, ch) = (d.canvas.width() as f32, d.canvas.height() as f32);
         if d.zoom <= 0.0 {
-            d.zoom = ((area.width() - 40.0) / cw).min((area.height() - 40.0) / ch).clamp(0.01, 4.0);
+            d.zoom = ((area.width() - 40.0) / cw).min((area.height() - 40.0) / ch).clamp(ZOOM_MIN, 4.0);
             d.center = [f64::from(d.canvas.x0) + f64::from(cw) / 2.0, f64::from(d.canvas.y0) + f64::from(ch) / 2.0];
         }
         let resp = ui.interact(area, egui::Id::new("liquify-preview"), Sense::click_and_drag());
-        // Wheel zooms about the pointer.
-        if resp.hovered() {
-            let scroll = ui.input(|i| i.smooth_scroll_delta.y);
-            if scroll != 0.0
-                && let Some(hp) = resp.hover_pos()
-            {
+        // The wheel zooms about the pointer, ×1.1 a notch, and so does a trackpad pinch (unless
+        // Preferences › Enhanced Controls › Zoom with Trackpad Pinch is off); a sideways scroll
+        // pans (#7210). Read every frame, as `wheel_nav` asks, so its modifier state follows.
+        let wheel = crate::wheel_nav::read(ctx, true, pinch_zooms, egui::Id::new("liquify-preview-wheel"), resp.hovered());
+        if let Some(hp) = resp.hover_pos() {
+            let zoom = match wheel {
+                Some(crate::wheel_nav::Wheel::Zoom(f)) => Some((d.zoom * f).clamp(ZOOM_MIN, ZOOM_MAX)),
+                Some(crate::wheel_nav::Wheel::SnapZoom(n)) => {
+                    Some((0..n.unsigned_abs()).fold(d.zoom, |z, _| crate::zoom_levels::step_in_range(z, n.signum(), ZOOM_MIN, ZOOM_MAX)))
+                }
+                Some(crate::wheel_nav::Wheel::Pan(v)) => {
+                    d.center = [d.center[0] - f64::from(v.x / d.zoom), d.center[1] - f64::from(v.y / d.zoom)];
+                    None
+                }
+                None => None,
+            };
+            if let Some(z) = zoom {
                 let before = to_doc(d, area, hp);
-                // Liquify's own preview zoom, not the canvas (`zoom_levels` doesn't apply).
-                d.zoom = (d.zoom * (scroll / 200.0).exp()).clamp(0.01, 32.0);
+                d.zoom = z;
                 let after = to_doc(d, area, hp);
                 d.center = [d.center[0] + before[0] - after[0], d.center[1] + before[1] - after[1]];
             }
@@ -990,6 +1012,11 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         _ => {}
     }
 }
+
+/// The preview's zoom range (1 = the dialog's 100 %). Liquify keeps its own zoom, apart from the
+/// canvas behind it.
+const ZOOM_MIN: f32 = 0.01;
+const ZOOM_MAX: f32 = 32.0;
 
 fn to_screen(d: &LiquifyDialog, area: ERect, p: [f64; 2]) -> Pos2 {
     area.center() + vec2(((p[0] - d.center[0]) as f32) * d.zoom, ((p[1] - d.center[1]) as f32) * d.zoom)
