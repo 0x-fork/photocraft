@@ -245,6 +245,8 @@ fn open_raw(app: &mut PhotocraftApp, ctx: &egui::Context, raw: RawOpen) -> Resul
     };
     if let Some(d) = app.camera_raw.as_mut() {
         d.layer_name = raw.name.clone();
+        // The full-size preview retones the whole frame with it, as Open will.
+        d.detail.raw_curve = curve.clone().map(std::sync::Arc::new);
         d.raw_curve = curve;
         d.raw_open = Some(raw);
     }
