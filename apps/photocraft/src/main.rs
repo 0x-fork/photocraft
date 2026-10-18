@@ -369,6 +369,10 @@ fn main() -> eframe::Result {
     #[cfg(not(target_os = "macos"))]
     let single_instance = {
         let new_instance_env = std::env::var("PHOTOCRAFT_NEW_INSTANCE").ok();
+        // A variable documented as the equivalent of a per-launch flag counts as that flag: a
+        // launch that sets only `PHOTOCRAFT_PRESENT_MODE` (say) has per-process options too, so it
+        // keeps its own process instead of handing its files over and being ignored.
+        launch_options.extend_from_slice(&single_instance::env_launch_options());
         let context = single_instance::LaunchContext {
             per_user_settings: app_dirs::current().mode == app_dirs::Mode::Platform,
             new_instance_flag: new_instance,

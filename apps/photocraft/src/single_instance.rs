@@ -82,8 +82,33 @@ pub struct LaunchContext<'a> {
     pub control: bool,
     /// Paths that aren't valid Unicode: this launch reports them.
     pub unreadable_paths: bool,
-    /// Options that only apply to the process they're given to (`--safe-gpu`, …).
+    /// Options that only apply to the process they're given to (`--safe-gpu`, …), including the
+    /// ones this launch's environment sets (see [`env_launch_options`]).
     pub launch_options: &'a [&'static str],
+}
+
+/// Variables documented as the equivalent of a per-launch flag, each with the flag it stands for
+/// (`PHOTOCRAFT_PRESENT_MODE` is `--present-mode`). Setting one asks for the same thing as giving
+/// the flag, so it belongs to this process alone.
+const ENV_LAUNCH_OPTIONS: [(&str, &str); 6] = [
+    ("PHOTOCRAFT_PRESENT_MODE", "--present-mode"),
+    ("PHOTOCRAFT_FRAME_LATENCY", "--frame-latency"),
+    ("PHOTOCRAFT_STROKE_TRACE", "--stroke-trace"),
+    ("PHOTOCRAFT_IN_WINDOW_MENUS", "--in-window-menus"),
+    ("PHOTOCRAFT_AUTOMATION_READ_ROOT", "--automation-read-root"),
+    ("PHOTOCRAFT_AUTOMATION_WRITE_ROOT", "--automation-write-root"),
+];
+
+/// The per-process options this launch's environment sets, named as the flags they stand for. A
+/// launch that sets only variables would otherwise hand its files to the running instance, which
+/// never sees the override, and exit. Empty and `0` mean off, as with `PHOTOCRAFT_NEW_INSTANCE`.
+pub fn env_launch_options() -> Vec<&'static str> {
+    env_launch_options_from(|name| std::env::var_os(name))
+}
+
+/// [`env_launch_options`] with the reader given, so the rule is testable without the environment.
+fn env_launch_options_from(get: impl Fn(&str) -> Option<std::ffi::OsString>) -> Vec<&'static str> {
+    ENV_LAUNCH_OPTIONS.iter().filter(|(name, _)| get(name).is_some_and(|v| !v.is_empty() && v != "0")).map(|(_, flag)| *flag).collect()
 }
 
 /// Why this launch runs as its own instance, or `None` to take part in single-instance.
@@ -644,5 +669,31 @@ mod tests {
         assert!(skip_reason(&LaunchContext { unreadable_paths: true, ..base }).is_some());
         let reason = skip_reason(&LaunchContext { launch_options: &["--safe-gpu"], ..base });
         assert!(reason.is_some_and(|r| r.contains("--safe-gpu")));
+    }
+
+    /// A variable documented as the equivalent of a per-launch flag counts as that flag: a launch
+    /// that sets only variables has per-process options, so it keeps its own process rather than
+    /// handing its files to the running instance, which never sees the override.
+    #[test]
+    fn an_environment_override_counts_as_a_process_option() {
+        let with = |values: &[(&str, &str)]| env_launch_options_from(|n| values.iter().find(|(k, _)| *k == n).map(|(_, v)| (*v).into()));
+        assert_eq!(with(&[("PHOTOCRAFT_PRESENT_MODE", "novsync")]), vec!["--present-mode"]);
+        assert_eq!(
+            with(&[("PHOTOCRAFT_STROKE_TRACE", "strokes.csv"), ("PHOTOCRAFT_AUTOMATION_WRITE_ROOT", "/tmp/out")]),
+            vec!["--stroke-trace", "--automation-write-root"]
+        );
+        // Nothing set, or a value that means off (`0`, empty), is an ordinary launch.
+        assert!(with(&[]).is_empty());
+        assert!(with(&[("PHOTOCRAFT_IN_WINDOW_MENUS", "0"), ("PHOTOCRAFT_FRAME_LATENCY", "")]).is_empty());
+        let base = LaunchContext {
+            per_user_settings: true,
+            new_instance_flag: false,
+            new_instance_env: None,
+            control: false,
+            unreadable_paths: false,
+            launch_options: &[],
+        };
+        let reason = skip_reason(&LaunchContext { launch_options: &with(&[("PHOTOCRAFT_PRESENT_MODE", "novsync")]), ..base });
+        assert!(reason.as_deref().is_some_and(|r| r.contains("--present-mode")), "{reason:?}");
     }
 }
