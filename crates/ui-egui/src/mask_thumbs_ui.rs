@@ -172,6 +172,7 @@ pub fn paint(
 
 type Rects = (Vec<(MaskKind, Rect)>, Vec<(MaskKind, Rect)>);
 
+/// Memory key of the per-layer record of where the mask thumbnails and chains were drawn.
 fn rects_id() -> egui::Id {
     egui::Id::new("mask-thumb-rects")
 }
@@ -179,6 +180,12 @@ fn rects_id() -> egui::Id {
 /// The mask thumbnails and chains last drawn for layer `id` (for tests and automation).
 pub fn recorded(ctx: &egui::Context, id: u64) -> Option<Rects> {
     ctx.data(|d| d.get_temp::<std::collections::HashMap<u64, Rects>>(rects_id())).and_then(|m| m.get(&id).cloned())
+}
+
+/// Drop what was recorded for layer `id`, so a row drawn without mask thumbnails (thumbnail size
+/// None) can't be hit through rects from an earlier frame.
+pub fn forget(ctx: &egui::Context, id: u64) {
+    ctx.data_mut(|d| d.get_temp_mut_or_default::<std::collections::HashMap<u64, Rects>>(rects_id()).remove(&id));
 }
 
 /// A small vertical chain: two interlocking links.

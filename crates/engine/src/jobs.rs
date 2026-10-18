@@ -725,9 +725,12 @@ impl Session {
         let run_params = self.admit(id, spec, &params)?;
         // This UI-only disclosure preference applies to both `execute` and `start`:
         // desktop UI normally calls `start`, even for synchronous Layer Style commands.
+        // The layer the command will change, named as the command accepts it (id or name), else the
+        // active one. `layer.layerStyle.clear` needs no case: it leaves no effects, so nothing expands.
         let new_fx_target = if id.starts_with("layer.layerStyle.") {
+            let target = crate::commands::layer_param(self, &params).ok();
             self.active().and_then(|st| {
-                let target = params.get("layer").and_then(Value::as_u64).map(LayerId).or(st.active_layer)?;
+                let target = target?;
                 (st.doc.layer(target)?.effects.items.is_empty()).then_some((st.doc.id, target))
             })
         } else {
