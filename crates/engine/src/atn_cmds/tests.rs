@@ -630,6 +630,22 @@ fn retouching_set_events_map_to_their_commands() {
     assert_eq!(selective_from(&legacy), Some(json!({"yellows": [5.0, 0.0, 0.0, 0.0]})));
 }
 
+/// Select and Mask exports as the older `refineSelectionEdge` event, which has no Sample All
+/// Layers; a step that sets it exports as `smartBrushWorkspace` so the value survives.
+#[test]
+fn select_and_mask_keeps_sample_all_layers_on_export() {
+    let (event, d) = event_and_descriptor("select.refineEdge", &json!({"radius": 3, "output": "layerMask"})).unwrap();
+    assert_eq!(event.name, "refineSelectionEdge");
+    assert!(d.get("refineEdgeBorderRadius").is_some());
+    for sample in [true, false] {
+        let params = json!({"radius": 3, "output": "layerMask", "sampleAllLayers": sample});
+        let (event, d) = event_and_descriptor("select.refineEdge", &params).unwrap();
+        assert_eq!(event.name, "smartBrushWorkspace");
+        let Mapped::Steps(steps) = (event.from)(&d) else { panic!("{d:?}") };
+        assert_eq!(steps[0].1["sampleAllLayers"], sample);
+    }
+}
+
 #[test]
 fn step_commands_and_bad_params_fail_gracefully() {
     let mut s = Session::new();

@@ -3113,7 +3113,19 @@ const EVENTS: &[Event] = &[
     ev!("Brdr", "border", "Border", "select.modify.border", &[F("Wdth", "radius", Kind::Px)]),
     ev!("Grow", "grow", "Grow", "select.grow", &[F("Tlrn", "tolerance", Kind::Long)]),
     ev!("Smlr", "similar", "Similar", "select.similar", &[F("Tlrn", "tolerance", Kind::Long)]),
-    ev!("", "refineSelectionEdge", "Select and Mask", "select.refineEdge", REFINE_EDGE),
+    // `refineSelectionEdge` has no Sample All Layers, so a step with it exports as
+    // `smartBrushWorkspace` instead of dropping it.
+    Event {
+        code: "",
+        name: "refineSelectionEdge",
+        label: "Select and Mask",
+        ids: &["select.refineEdge"],
+        from: |d| match fields_from(d, REFINE_EDGE) {
+            Some(m) => step("select.refineEdge", Value::Object(m)),
+            None => Mapped::Unsupported { harmless: false },
+        },
+        to: |_, p| if p.get("sampleAllLayers").is_some() { None } else { fields_to(p, REFINE_EDGE, desc("null")) },
+    },
     ev!("", "smartBrushWorkspace", "Select and Mask", "select.refineEdge", SMART_BRUSH),
     ev!("", "autoCutout", "Select Subject", "select.subject", &[F("sampleAllLayers", "sampleAllLayers", Kind::Bool)]),
     Event { code: "ClrR", name: "colorRange", label: "Color Range", ids: &["select.colorRange"], from: color_range_from, to: color_range_to },
