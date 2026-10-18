@@ -496,7 +496,7 @@ fn main() -> eframe::Result {
         unreadable_paths,
         safe_gpu,
         new_instance,
-        launch_options,
+        mut launch_options,
         present_mode_arg,
         frame_latency_arg,
         stroke_trace_arg,
