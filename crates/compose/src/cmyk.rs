@@ -514,7 +514,8 @@ fn composite_layer(l: &Layer, clipped: &[Layer], backdrop: &mut CmykBuffer, cx: 
         composite_stack(&g.children, &mut content, cx);
         apply_mask(l, &mut content, cx);
         composite_clipped(clipped, &mut content, cx);
-        blend_into(backdrop, &content, l.blend, opacity, 1.0);
+        // As the compositor blends an isolated group: Fill apart from opacity for the special eight.
+        blend_into_fill(backdrop, &content, l, 1.0);
         return;
     }
     // Adjustment layers transform the backdrop, then blend the result back in.

@@ -295,8 +295,8 @@ fn ref_layer(l: &Layer, clipped: &[Layer], x: i32, y: i32, b: Cmyka) -> Cmyka {
         _ => ref_own(l, x, y),
     };
     content = ref_clip(clipped, content, x, y);
-    // A layer's own blend (not a group's) for the special eight below 100% Fill.
-    if l.fill_opacity < 1.0 && crate::psblend::fill_is_special(l.blend) && !matches!(l.content, LayerContent::Group(_)) {
+    // The special eight below 100% Fill, a layer's own blend and an isolated group's alike.
+    if l.fill_opacity < 1.0 && crate::psblend::fill_is_special(l.blend) {
         return over_special_fill(l, b, content);
     }
     over_layer(l, b, content, op, Some((x, y)))
@@ -370,6 +370,24 @@ fn masks_groups_and_clipping_match_the_reference() {
     pass.mask = Some(mask(&[(Rect::new(6, 0, 8, 6), 0.0)], 1.0, 1.0, true));
     d.layers.extend([base, clip, iso, pass]);
     assert_matches_reference(&d);
+}
+
+/// An isolated group in one of the special eight below 100% Fill blends with Fill apart from
+/// opacity, as the compositor blends it (the split route runs the compositor on stand-ins).
+#[test]
+fn isolated_groups_keep_the_special_fill_rule() {
+    for mode in [BlendMode::Difference, BlendMode::LinearBurn, BlendMode::LinearDodge, BlendMode::LinearLight, BlendMode::ColorDodge] {
+        assert!(crate::psblend::fill_is_special(mode), "{mode:?}");
+        let mut d = doc(4, 2);
+        d.layers.push(paper(4, 2, [0.2, 0.5, 0.1, 0.1]));
+        let mut g = Layer::group("iso", vec![layer(&[(Rect::new(0, 0, 3, 2), [0.6, 0.1, 0.4, 0.2, 0.8])])]);
+        g.blend = mode;
+        g.opacity = 0.9;
+        g.fill_opacity = 0.4;
+        d.layers.push(g);
+        assert_matches_reference(&d);
+        assert_routes_agree(&d);
+    }
 }
 
 #[test]
