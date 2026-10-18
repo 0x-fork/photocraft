@@ -173,6 +173,35 @@ fn the_web_opens_every_selected_file() {
     assert!(app.ui.notices.iter().any(|n| n.error && n.title.contains("broken.png")), "{:?}", app.ui.notices);
 }
 
+/// #5749: the web shell reads dropped files itself, so it asks where they landed: image files
+/// dropped on the canvas are placed from their bytes, presets and drops elsewhere are opened.
+#[test]
+fn web_drops_onto_the_canvas_are_placed_from_their_bytes() {
+    let ctx = egui::Context::default();
+    let mut app = app_with_canvas();
+    let names = vec!["photo.png".to_string(), "brushes.abr".to_string()];
+    // No pointer known: nothing is placed.
+    assert_eq!(app.dropped_on_canvas(&ctx, &names), [false, false]);
+    let at = Rc::new(std::cell::Cell::new(egui::pos2(400.0, 300.0)));
+    let reported = at.clone();
+    app.services.cursor_pos = Some(Box::new(move |_: &egui::Context| Some(reported.get())));
+    assert_eq!(app.dropped_on_canvas(&ctx, &names), [true, false]);
+    at.set(egui::pos2(20.0, 20.0));
+    assert_eq!(app.dropped_on_canvas(&ctx, &names), [false, false], "off the canvas: opened");
+    let layers = layer_count(&app);
+    app.drop_places.push_back(crate::file_open::DropPlace::Bytes("photo.png".into(), png_bytes(4, 3)));
+    app.drop_places.push_back(crate::file_open::DropPlace::Bytes("bad.png".into(), b"bad".to_vec()));
+    app.place_next_dropped(&ctx);
+    assert_eq!(layer_count(&app), layers + 1);
+    assert_eq!(app.ui.transform.as_ref().and_then(|t| t.made), Some(crate::state::MadeLayer::Place));
+    crate::transform_tool::commit(&mut app);
+    // The undecodable one is reported, not placed.
+    app.place_next_dropped(&ctx);
+    assert_eq!(layer_count(&app), layers + 1);
+    assert!(app.ui.notices.iter().any(|n| n.error && n.title.contains("bad.png")), "{:?}", app.ui.notices);
+    assert!(app.drop_places.is_empty());
+}
+
 #[test]
 fn pcraft_documents_save_in_place_but_flat_files_ask() {
     let (mut app, written) = app_with(vec![None]);

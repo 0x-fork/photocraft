@@ -33,6 +33,15 @@ pub enum DropTarget {
     Elsewhere,
 }
 
+/// A file dropped on the canvas, waiting its turn to be placed.
+pub(crate) enum DropPlace {
+    /// Dropped onto the window (desktop): read from its path, or through egui.
+    File(egui::DroppedFileHandle),
+    /// Read by the shell itself (the browser reads dropped files asynchronously): its name and
+    /// contents, delivered through [`Services::place_inbox`](crate::Services::place_inbox).
+    Bytes(String, Vec<u8>),
+}
+
 /// `warnings` from an import, plus one for each font family the active document's type uses that
 /// isn't installed (#4559): Photoshop warns about missing fonts as a file opens, and the CLI and
 /// automation already report them; the type would otherwise silently render in a fallback face.
@@ -211,7 +220,7 @@ impl PhotocraftApp {
         for f in files {
             let name = dropped_name(&f);
             if target == DropTarget::Canvas && !crate::preset_files_ui::is_preset_file(&name) {
-                self.drop_places.push_back(f);
+                self.drop_places.push_back(DropPlace::File(f));
                 continue;
             }
             match self.open_dropped_file(&f, &name, slot) {
@@ -220,6 +229,24 @@ impl PhotocraftApp {
                 Err(e) => self.open_failed(&name, &e),
             }
         }
+    }
+
+    /// Which of the files called `names`, dropped onto the window just now, are placed on the
+    /// active document's canvas rather than opened, for a shell that reads dropped files itself
+    /// (the browser reads them asynchronously, so the web shell can't hand them to
+    /// [`open_dropped`](Self::open_dropped)). It delivers those through
+    /// [`Services::place_inbox`](crate::Services::place_inbox) and the rest through
+    /// [`Services::inbox`](crate::Services::inbox). The pointer comes from
+    /// [`Services::cursor_pos`](crate::Services::cursor_pos). As with a desktop canvas drop, a Free
+    /// Transform still open is applied first (#4833).
+    pub fn dropped_on_canvas(&mut self, ctx: &egui::Context, names: &[String]) -> Vec<bool> {
+        let at = self.services.cursor_pos.as_mut().and_then(|f| f(ctx));
+        let canvas = self.drop_target(ctx, at) == DropTarget::Canvas;
+        let places: Vec<bool> = names.iter().map(|n| canvas && !crate::preset_files_ui::is_preset_file(n)).collect();
+        if places.contains(&true) && self.ui.transform.is_some() {
+            crate::transform_tool::commit(self);
+        }
+        places
     }
 
     /// Where a drop at `at` lands. Over a window or dialog it's neither the canvas nor the tabs.
@@ -259,11 +286,20 @@ impl PhotocraftApp {
     /// transform is in progress (so several files are placed and transformed one after another).
     pub(crate) fn place_next_dropped(&mut self, ctx: &egui::Context) {
         while self.ui.transform.is_none() {
-            let Some(f) = self.drop_places.pop_front() else { return };
-            let placed = if f.path().is_absolute() {
-                self.run("file.placeEmbedded", serde_json::json!({"path": f.path().to_string_lossy()}))
-            } else {
-                crate::read_dropped(&*f).and_then(|bytes| self.place_bytes(&dropped_name(&f), bytes, None))
+            let Some(next) = self.drop_places.pop_front() else { return };
+            let (name, placed) = match next {
+                DropPlace::File(f) if f.path().is_absolute() => {
+                    (dropped_name(&f), self.run("file.placeEmbedded", serde_json::json!({"path": f.path().to_string_lossy()})))
+                }
+                DropPlace::File(f) => {
+                    let name = dropped_name(&f);
+                    let placed = crate::read_dropped(&*f).and_then(|bytes| self.place_bytes(&name, bytes, None));
+                    (name, placed)
+                }
+                DropPlace::Bytes(name, bytes) => {
+                    let placed = self.place_bytes(&name, bytes, None);
+                    (name, placed)
+                }
             };
             match placed {
                 Ok(_) => {
@@ -271,7 +307,7 @@ impl PhotocraftApp {
                         self.ui.status = e;
                     }
                 }
-                Err(e) => self.failed(crate::i18n::fmt(tl!("Couldn't place {name}: {error}"), &[("name", &dropped_name(&f)), ("error", &e)])),
+                Err(e) => self.failed(crate::i18n::fmt(tl!("Couldn't place {name}: {error}"), &[("name", &name), ("error", &e)])),
             }
         }
     }
