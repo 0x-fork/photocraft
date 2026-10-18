@@ -83,6 +83,7 @@ pub fn paint_badge(painter: &egui::Painter, center: egui::Pos2, color: Color32) 
     }
 }
 
+/// Paint the Smart Filters header and one row per filter of Smart Object `l` (top filter first), with their drag, drop and click handling; actions go to `actions`.
 pub fn filter_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, doc: &Document, l: &Layer, depth: usize, actions: &mut Vec<(String, Value)>) {
     let LayerContent::Smart(sm) = &l.content else { return };
     if sm.smart_filters.is_empty() {

@@ -1,6 +1,7 @@
 use super::*;
 use photocraft_doc::{SmartFilter, SmartObject};
 
+/// A document reopened with the same id is a different allocation, so a dialog opened on the old one cannot edit it.
 #[test]
 fn a_same_id_reopened_document_rejects_the_previous_dialog() {
     let (mut app, layer) = app(8, "rgb");
@@ -18,6 +19,7 @@ fn a_same_id_reopened_document_rejects_the_previous_dialog() {
     assert!(Arc::ptr_eq(&before, &app.session.active().unwrap().doc));
 }
 
+/// An 8×8 image still gets the full-height preview area instead of collapsing it.
 #[test]
 fn tiny_images_keep_a_usable_preview_viewport() {
     let (mut app, layer) = app(8, "rgb");
@@ -37,7 +39,9 @@ fn tiny_images_keep_a_usable_preview_viewport() {
     .clear();
 }
 
+/// Run `body` for one frame and return every string it painted.
 fn painted_text(app: &mut PhotocraftApp, fields: &mut Map<String, Value>) -> Vec<String> {
+    /// Gather the text of `shape`, descending into nested shape groups.
     fn collect(shape: &egui::Shape, out: &mut Vec<String>) {
         match shape {
             egui::Shape::Text(text) => out.push(text.galley.job.text.clone()),
@@ -55,6 +59,7 @@ fn painted_text(app: &mut PhotocraftApp, fields: &mut Map<String, Value>) -> Vec
     painted
 }
 
+/// Of all the blend modes, only Dissolve shows the approximation note beside the Mode control.
 #[test]
 fn only_dissolve_shows_the_approximation_note_near_the_mode_control() {
     let note = "Dissolve is approximated: it blends without Photoshop's dither.";
@@ -72,6 +77,7 @@ fn only_dissolve_shows_the_approximation_note_near_the_mode_control() {
     assert_eq!(mode_note(Some("Dissolve")), Some(note));
 }
 
+/// A document with one Smart Object holding Box Blur and Smart Sharpen, wrapped in an app that renders on the calling thread.
 pub(crate) fn app(depth: u32, mode: &str) -> (PhotocraftApp, LayerId) {
     let mut s = photocraft_engine::Session::new();
     s.execute("file.new", json!({"width": 64, "height": 48, "depth": depth, "mode": mode})).unwrap();
@@ -89,15 +95,18 @@ pub(crate) fn app(depth: u32, mode: &str) -> (PhotocraftApp, LayerId) {
     (app, layer)
 }
 
+/// The Smart Object content of `layer` in the active document.
 pub(crate) fn smart(app: &PhotocraftApp, layer: LayerId) -> &SmartObject {
     let LayerContent::Smart(sm) = &app.session.active().unwrap().doc.layer(layer).unwrap().content else { panic!("smart") };
     sm
 }
 
+/// A copy of the Smart Object's filters, for comparing before and after an edit.
 fn filters(app: &PhotocraftApp, layer: LayerId) -> Vec<SmartFilter> {
     smart(app, layer).smart_filters.clone()
 }
 
+/// Blending edits one filter in a single history step, opacity is entered as a percentage, and undo/redo restore it.
 #[test]
 fn blending_edits_one_filter_with_percent_opacity_and_undo_redo() {
     for depth in [8, 16, 32] {
@@ -142,6 +151,7 @@ fn blending_edits_one_filter_with_percent_opacity_and_undo_redo() {
     }
 }
 
+/// The preview, switching it off and on, and Cancel never change the document or its history.
 #[test]
 fn preview_toggle_and_cancel_leave_document_and_history_untouched() {
     let (mut app, layer) = app(8, "rgb");
@@ -164,6 +174,7 @@ fn preview_toggle_and_cancel_leave_document_and_history_untouched() {
     assert_eq!(app.session.active().unwrap().history.past_len(), steps);
 }
 
+/// A dialog whose document or filter has since changed, or been switched away from, refuses to confirm.
 #[test]
 fn stale_filter_dialogs_cannot_edit_a_switched_or_changed_target() {
     for command in ["file.new", "edit.undo", "layer.smartFilter.delete", "layer.smartFilter.move"] {
@@ -181,6 +192,7 @@ fn stale_filter_dialogs_cannot_edit_a_switched_or_changed_target() {
     }
 }
 
+/// A reduced-size preview scales the filters' pixel parameters and the shared mask, and still contains the same number of filters.
 #[test]
 fn reduced_preview_scales_placement_stack_and_mask_without_adding_filters() {
     let (mut app, layer) = app(16, "rgb");
@@ -206,6 +218,7 @@ fn reduced_preview_scales_placement_stack_and_mask_without_adding_filters() {
     assert!(Arc::ptr_eq(&original, &app.session.active().unwrap().doc));
 }
 
+/// An edited blend and an Invert recorded earlier survive a save and reload of the native format.
 #[test]
 fn native_save_preserves_edited_blending_and_existing_invert() {
     let (mut app, layer) = app(8, "rgb");
@@ -221,6 +234,7 @@ fn native_save_preserves_edited_blending_and_existing_invert() {
     assert_eq!(serde_json::to_value(&sm.smart_filters).unwrap(), serde_json::to_value(filters(&app, layer)).unwrap());
 }
 
+/// An opacity outside 0–100% or not a number fails the dialog and leaves the document alone.
 #[test]
 fn invalid_opacity_fails_without_an_edit() {
     let (mut app, layer) = app(8, "rgb");
@@ -233,6 +247,7 @@ fn invalid_opacity_fails_without_an_edit() {
     }
 }
 
+/// Blending edits the filter the dialog opened on, whatever layer is selected and whether or not a layer mask is targeted.
 #[test]
 fn blending_does_not_follow_layer_selection_or_the_layer_mask_target() {
     let (mut app, layer) = app(8, "rgb");
@@ -255,6 +270,7 @@ fn blending_does_not_follow_layer_selection_or_the_layer_mask_target() {
     );
 }
 
+/// Blending an Invert smart filter keeps the translucent pixels' alpha at 8, 16 and 32 bits.
 #[test]
 fn invert_blending_keeps_transparency_at_every_depth() {
     for depth in [8, 16, 32] {

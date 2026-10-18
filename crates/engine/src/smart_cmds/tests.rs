@@ -7,6 +7,7 @@ const DEPTHS: [u64; 3] = [8, 16, 32];
 const W: i32 = 64;
 const H: i32 = 48;
 
+/// A partial filter strength keeps the source alpha and interpolates the filtered coverage, at every sample depth.
 #[test]
 fn filter_strength_preserves_alpha_and_interpolates_changed_coverage() {
     for sample in photocraft_color::SampleType::ALL {
@@ -42,6 +43,7 @@ fn filter_strength_preserves_alpha_and_interpolates_changed_coverage() {
     }
 }
 
+/// Blending a filter result in Screen, Multiply or Luminosity keeps source-over coverage where the filter changed alpha.
 #[test]
 fn non_normal_coverage_changes_retain_source_over_semantics() {
     for sample in photocraft_color::SampleType::ALL {

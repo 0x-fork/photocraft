@@ -2334,6 +2334,7 @@ impl PhotocraftApp {
         self.mask_thumb_kind(ctx, doc, id, mask, mask_thumbs_ui::THUMB_MASK)
     }
 
+    /// The thumbnail of `mask` under cache `kind`, re-rendered only when the mask's pixels or the document width change; Smart Filter and layer masks are cached apart.
     pub(crate) fn mask_thumb_kind(
         &mut self,
         ctx: &egui::Context,

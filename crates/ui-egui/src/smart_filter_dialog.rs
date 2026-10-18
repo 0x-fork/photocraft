@@ -20,6 +20,7 @@ pub(crate) struct Targets {
 }
 
 impl Targets {
+    /// Remember a weak handle to `doc` and return the opaque token that stands for it in a dialog's target.
     fn capture(&mut self, doc: &Arc<Document>) -> Result<u64, String> {
         self.next = self.next.checked_add(1).ok_or("Smart Filter target counter exhausted")?;
         self.snapshots.retain(|(_, doc)| doc.strong_count() > 0);
@@ -31,11 +32,13 @@ impl Targets {
         Ok(self.next)
     }
 
+    /// Whether `token` was captured from this very document allocation, not just one with the same id.
     fn matches(&self, token: u64, doc: &Arc<Document>) -> bool {
         self.snapshots.iter().find(|(id, _)| *id == token).and_then(|(_, doc)| doc.upgrade()).is_some_and(|old| Arc::ptr_eq(&old, doc))
     }
 }
 
+/// Identify the Smart Filter at `layer`/`index` (document, revision, filter) so a stale dialog can be told apart from a current one.
 fn snapshot(app: &PhotocraftApp, layer: LayerId, index: usize) -> Result<Value, String> {
     let st = app.session.active().ok_or("no document open")?;
     if app.session.job_on(st.doc.id).is_some() {
@@ -49,6 +52,7 @@ fn snapshot(app: &PhotocraftApp, layer: LayerId, index: usize) -> Result<Value, 
     Ok(json!({"doc": st.doc.id.0, "revision": st.revision, "layer": layer.0, "index": index, "filter": filter}))
 }
 
+/// The `__smartFilter` dialog field: the filter's snapshot plus a guard token for the document it was taken from.
 pub(crate) fn target(app: &mut PhotocraftApp, layer: LayerId, index: usize) -> Result<Value, String> {
     let mut target = snapshot(app, layer, index)?;
     let doc = &app.session.active().ok_or("no document open")?.doc;
@@ -76,6 +80,7 @@ pub(crate) fn validate_target(app: &PhotocraftApp, target: &Value) -> Result<(La
     Ok((layer, index))
 }
 
+/// Open the Blending Options dialog for one Smart Filter, starting from its recorded mode and opacity (shown as a percentage).
 pub fn open(app: &mut PhotocraftApp, layer: LayerId, index: usize) -> Result<u64, String> {
     let target = self::target(app, layer, index)?;
     let st = app.session.active().ok_or("no document open")?;
@@ -97,10 +102,12 @@ pub fn open(app: &mut PhotocraftApp, layer: LayerId, index: usize) -> Result<u64
     Ok(app.ui.open_dialog(DialogKind::Command, fields))
 }
 
+/// Whether `fields` belong to this Blending Options dialog rather than another Smart Filter editor.
 pub fn owns(fields: &Map<String, Value>) -> bool {
     fields.get("__command").and_then(Value::as_str) == Some(COMMAND) && fields.contains_key(TARGET)
 }
 
+/// The dialog title, naming the filter being edited.
 pub(crate) fn title(fields: &Map<String, Value>) -> String {
     crate::i18n::fmt(tl!("Blending Options ({filter})"), &[("filter", fields.get("__filterName").and_then(Value::as_str).unwrap_or_default())])
 }
@@ -116,6 +123,7 @@ fn blend_params(fields: &Map<String, Value>) -> Result<Value, String> {
     Ok(json!({"blend": blend, "opacity": opacity / 100.0}))
 }
 
+/// The command a confirmed Smart Filter dialog runs on the validated target: its blending, or `layer.smartFilter.setParams` for a parameter editor.
 pub(crate) fn edit_command(app: &PhotocraftApp, fields: &Map<String, Value>) -> Result<(String, Value), String> {
     let (layer, index) = validate_target(app, fields.get(TARGET).ok_or("no Smart Filter target")?)?;
     if owns(fields) {
@@ -135,6 +143,7 @@ fn mode_note(blend: Option<&str>) -> Option<&'static str> {
     (blend == Some(BlendMode::Dissolve.label())).then(|| tl!("Dissolve is approximated: it blends without Photoshop's dither."))
 }
 
+/// The Blending Options form: Mode (with the Dissolve note), Opacity, Preview and the result viewport.
 pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, fields: &mut Map<String, Value>) {
     ui.horizontal(|ui| {
         ui.label(tl!("Mode"));
@@ -168,6 +177,7 @@ struct ViewImage {
     texture: egui::TextureHandle,
 }
 
+/// Show the document as the dialog will leave it (the live preview, or the unchanged document while Preview is off) as a fixed-size thumbnail.
 fn viewport(app: &mut PhotocraftApp, ui: &mut egui::Ui, fields: &mut Map<String, Value>, preview: bool) {
     let Some(st) = app.session.active() else { return };
     let doc = if preview {

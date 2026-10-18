@@ -19,6 +19,7 @@ fn has_effects(s: &Session) -> std::result::Result<(), String> {
     if d.doc.walk().iter().any(|(_, _, l)| has_children(l)) { Ok(()) } else { Err("no layer has effects or smart filters".into()) }
 }
 
+/// Whether the layer has a list to disclose: effects, or Smart Filters on a Smart Object.
 fn has_children(l: &Layer) -> bool {
     !l.effects.items.is_empty() || matches!(&l.content, LayerContent::Smart(sm) if !sm.smart_filters.is_empty())
 }
@@ -96,6 +97,7 @@ mod tests {
         !s.active().unwrap().fx_collapsed.contains(&LayerId(id))
     }
 
+    /// Smart Filters hide and show with the layer's effects, as view state: no document edit, revision or history step.
     #[test]
     fn smart_filters_share_the_effects_disclosure_without_an_edit() {
         let (mut s, a, b) = session();

@@ -80,6 +80,7 @@ fn rerender(doc: &mut Document) -> Result<usize, String> {
     Ok(n)
 }
 
+/// Re-rendering Photoshop's Screen/Motion Blur oracle matches its merged composite, so the result retains the input's coverage.
 #[test]
 fn screen_motion_blur_retains_input_coverage() {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/photoshop/smart-filters/sf-blend-screen-100.psd");

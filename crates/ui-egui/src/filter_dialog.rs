@@ -953,6 +953,7 @@ pub(crate) fn preview_document_for_target(
     s.active().map(|d| crate::proxy::proxy_document(&d.doc, reduce_k))
 }
 
+/// Whether `command` is a Smart Filter edit (its parameters or its blending) rather than a filter run on its own.
 fn is_smart_edit(command: &str) -> bool {
     matches!(command, "layer.smartFilter.setParams" | "layer.smartFilter.blendingOptions")
 }
@@ -975,6 +976,7 @@ pub(crate) fn smart_preview_factor(doc: &Document, command: &str, params: &Value
     factor
 }
 
+/// Scale the pixel-sized parameters of `command` down by the preview proxy factor `k`, keeping each above its minimum and negative lengths negative.
 fn scale_preview_params(command: &str, params: &mut Value, k: u32) {
     if k > 1
         && let Some(o) = params.as_object_mut()

@@ -7,6 +7,7 @@ use crate::{
     smart_filter_dialog::tests::{app, smart},
 };
 
+/// The app with a recorded Smart Object, in a `width`-point dock and the given theme, ready to click.
 fn harness(width: f32, scale: f32, theme: crate::theme::ThemeKind) -> Harness<'static, PhotocraftApp> {
     let (app, _) = app(8, "rgb");
     let mut h =
@@ -24,6 +25,7 @@ fn harness(width: f32, scale: f32, theme: crate::theme::ThemeKind) -> Harness<'s
     h
 }
 
+/// Click `at` with the primary button, hovering first so the row reacts.
 fn click(h: &mut Harness<'_, PhotocraftApp>, at: egui::Pos2) {
     h.hover_at(at);
     h.run_steps(1);
@@ -33,6 +35,7 @@ fn click(h: &mut Harness<'_, PhotocraftApp>, at: egui::Pos2) {
     h.run_steps(2);
 }
 
+/// A filter row's name and blend icon are separate double-click targets, side by side without overlap, in every theme and dock width.
 #[test]
 fn names_and_blend_icons_have_separate_double_click_targets_and_no_overlap() {
     for theme in crate::theme::ThemeKind::ALL {
@@ -64,6 +67,7 @@ fn names_and_blend_icons_have_separate_double_click_targets_and_no_overlap() {
     }
 }
 
+/// The effects disclosure hides the effects and Smart Filters stacks together, as a view change only.
 #[test]
 fn disclosure_hides_both_stacks_without_changing_pixels_history_or_selection() {
     let mut h = harness(290.0, 1.5, Default::default());
@@ -89,6 +93,7 @@ fn disclosure_hides_both_stacks_without_changing_pixels_history_or_selection() {
     assert!(h.query_by_label("Blending Options (Box Blur)").is_some());
 }
 
+/// An adjustment on a Smart Object reopens its editor with the stored values and OK updates it in one step; Invert has no editor.
 #[test]
 fn adjustment_editor_reopens_stored_parameters_and_updates_instead_of_appending() {
     let (mut app, layer) = app(8, "rgb");
@@ -117,6 +122,7 @@ fn adjustment_editor_reopens_stored_parameters_and_updates_instead_of_appending(
     assert!(app.ui.dialogs.is_empty(), "Invert has no parameter editor");
 }
 
+/// The Smart Filters mask and the layer mask of one layer are cached as separate thumbnails.
 #[test]
 fn smart_and_layer_masks_have_separate_thumbnail_cache_entries() {
     let (mut app, layer) = app(8, "rgb");
@@ -132,6 +138,7 @@ fn smart_and_layer_masks_have_separate_thumbnail_cache_entries() {
     assert_eq!(first, app.mask_thumb(&ctx, &doc, layer, mask));
 }
 
+/// ⌘I on a Smart Object adds the ordinary Invert as a smart filter, and undo/redo leave the source contents alone.
 #[test]
 fn ctrl_i_uses_existing_invert_command_and_undo_redo_keep_the_source() {
     let mut h = harness(290.0, 1.0, Default::default());
