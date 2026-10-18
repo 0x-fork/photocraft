@@ -3790,6 +3790,22 @@ cameraData	Lens	Lens
 	Search settings…	Instellingen zoeken…
 	No matching settings	Geen overeenkomende instellingen
 	PhotoCraft — Screen Color Picker	PhotoCraft — Schermkleurkiezer
+# Edit › Content-Aware Fill workspace
+	Sampling Brush Tool	Gereedschap Monsterpenseel
+	Sampling Area Overlay	Overlay van monstergebied
+	Show Sampling Area	Monstergebied tonen
+	Indicates	Geeft aan
+	Sampling Area	Monstergebied
+	Excluded Area	Uitgesloten gebied
+	Sampling Area Options	Opties voor monstergebied
+	Rectangular	Rechthoekig
+	Fill Settings	Vulinstellingen
+	Rotation Adaptation	Rotatieaanpassing
+	Very High	Zeer hoog
+	Full	Volledig
+	Mirror	Spiegelen
+	Output Settings	Uitvoerinstellingen
+	Output To	Uitvoer naar
 
 # Smart Filter editors
 	Blending Options ({filter})	Overvloeiopties ({filter})
@@ -3799,7 +3815,6 @@ cameraData	Lens	Lens
 	The document or Smart Filter changed. Reopen its dialog.	Het document of het slimme filter is gewijzigd. Open het dialoogvenster opnieuw.
 	Opacity must be between 0% and 100%.	De dekking moet tussen 0% en 100% liggen.
 	Dissolve is approximated: it blends without Photoshop's dither.	Verspreiden is benaderd: het mengt zonder de dither van Photoshop.
-
 	Loading fonts…	Lettertypen laden…
 	Response curve	Responscurve
 	Simulate Pressure	Druk simuleren
@@ -3980,3 +3995,7 @@ curves	Smooth	Vloeiend maken
 	GPU Memory (MB, 0 = Automatic)	GPU-geheugen (MB, 0 = Automatisch)
 	{name} was changed by another app after it was opened or saved here.	{name} is door een andere app gewijzigd nadat het hier is geopend of bewaard.
 	Replace it with this document, or cancel and use File › Save As to keep both.	Vervang het door dit document, of annuleer en gebruik Bestand › Opslaan als om beide te houden.
+	Decrease Brush Size	Penseelgrootte verkleinen
+	Increase Brush Size	Penseelgrootte vergroten
+	Decrease Brush Hardness	Penseelhardheid verlagen
+	Increase Brush Hardness	Penseelhardheid verhogen
