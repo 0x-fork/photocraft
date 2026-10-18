@@ -213,6 +213,44 @@ pub fn rgb_to_gray(rgb: [f32; 3]) -> f32 {
     0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
 }
 
+pub fn rgb_to_hsb_sextant(rgb: [f32; 3]) -> [f32; 3] {
+    let (mx, mn) = (rgb[0].max(rgb[1]).max(rgb[2]), rgb[0].min(rgb[1]).min(rgb[2]));
+    let d = mx - mn;
+    let h = if d <= 0.0 {
+        0.0
+    } else if mx == rgb[0] {
+        ((rgb[1] - rgb[2]) / d).rem_euclid(6.0)
+    } else if mx == rgb[1] {
+        (rgb[2] - rgb[0]) / d + 2.0
+    } else {
+        (rgb[0] - rgb[1]) / d + 4.0
+    };
+    [h, if mx > 0.0 { d / mx } else { 0.0 }, mx]
+}
+
+pub fn rgb_from_hue_sextant(sextant: f32, chroma: f32, offset: f32) -> [f32; 3] {
+    let x = chroma * (1.0 - (sextant.rem_euclid(2.0) - 1.0).abs());
+    let (r, g, b) = match sextant as u32 {
+        0 => (chroma, x, 0.0),
+        1 => (x, chroma, 0.0),
+        2 => (0.0, chroma, x),
+        3 => (0.0, x, chroma),
+        4 => (x, 0.0, chroma),
+        _ => (chroma, 0.0, x),
+    };
+    [r + offset, g + offset, b + offset]
+}
+
+pub fn hsb_to_rgb([h, s, v]: [f32; 3]) -> [f32; 3] {
+    let chroma = v * s;
+    rgb_from_hue_sextant(h.rem_euclid(360.0) / 60.0, chroma, v - chroma)
+}
+
+pub fn rgb_to_hsb(rgb: [f32; 3]) -> [f32; 3] {
+    let [h, s, v] = rgb_to_hsb_sextant(rgb);
+    [60.0 * h, s, v]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,6 +342,23 @@ mod tests {
             let back = lab_to_srgb(srgb_to_lab(rgb));
             for i in 0..3 {
                 assert!((back[i] - rgb[i]).abs() < 2e-3, "{rgb:?} -> {back:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn hsb_conversions_match_known_colours_and_round_trip() {
+        assert_eq!(hsb_to_rgb([120.0, 1.0, 1.0]), [0.0, 1.0, 0.0]);
+        assert_eq!(hsb_to_rgb([0.0, 0.0, 0.5]), [0.5, 0.5, 0.5]);
+        assert_eq!(rgb_to_hsb([0.0, 0.0, 1.0]), [240.0, 1.0, 1.0]);
+        assert_eq!(rgb_to_hsb([0.25, 0.25, 0.25]), [0.0, 0.0, 0.25]);
+        for r in 0..=8 {
+            for g in 0..=8 {
+                for b in 0..=8 {
+                    let c = [r as f32 / 8.0, g as f32 / 8.0, b as f32 / 8.0];
+                    let back = hsb_to_rgb(rgb_to_hsb(c));
+                    assert!(back.iter().zip(c).all(|(x, y)| (x - y).abs() < 1e-5), "{c:?} -> {back:?}");
+                }
             }
         }
     }
