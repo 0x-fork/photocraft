@@ -2125,6 +2125,27 @@ fn area_lines_center_in_their_span() {
     }
 }
 
+/// Horizontal scale applies after shaping, so area lines break at the span width divided by it:
+/// widened text stays inside the shape and centred lines stay centred (#5565).
+#[test]
+fn horizontally_scaled_area_text_stays_inside_its_spans() {
+    let mut e = TextEngine::new();
+    let style = CharStyle { font_family: "Inter".into(), size_pt: 12.0, horizontal_scale: 1.5, ..Default::default() };
+    let mut t = styled(BUBBLE_TEXT, style);
+    let path = area_ellipse(0.0, 0.0, 240.0, 200.0);
+    t.shape = TextShape::Area { path: path.clone() };
+    let l = e.layout(&t, 72.0);
+    assert!(l.lines.len() >= 3, "{:?}", l.lines);
+    assert_lines_inside(&l, &path);
+    t.paragraphs = vec![ParagraphRun { len: t.text.len(), style: ParagraphStyle { align: TextAlign::Center, ..Default::default() } }];
+    t.shape = TextShape::Area { path: area_poly(&[(100.0, 0.0), (200.0, 100.0), (100.0, 200.0), (0.0, 100.0)]) };
+    let l = e.layout(&t, 72.0);
+    assert!(l.lines.len() >= 2, "{:?}", l.lines);
+    for line in &l.lines {
+        assert!(((line.x0 + line.x1) / 2.0 - 100.0).abs() < 1.5, "{line:?}");
+    }
+}
+
 #[test]
 fn area_rows_split_around_a_hole() {
     use photocraft_doc::vector::{PathOp, Subpath};
