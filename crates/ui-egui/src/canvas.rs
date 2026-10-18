@@ -4833,14 +4833,12 @@ fn transform_controls_several(app: &PhotocraftApp) -> bool {
 /// layers, joined into one.
 fn transform_controls_rect(app: &PhotocraftApp, xf: &ViewXform) -> Option<Rect> {
     let st = app.session.active()?;
-    let b = transform_controls_layers(app)
-        .into_iter()
-        .map(|l| photocraft_engine::transform_cmds::transform_frame(&st.doc, l))
-        .filter(|b| !b.is_empty())
-        .reduce(|a, b| a.union(&b))?;
+    let layers = transform_controls_layers(app);
+    let b = layers.iter().map(|l| photocraft_engine::transform_cmds::transform_frame(&st.doc, l)).filter(|b| !b.is_empty()).reduce(|a, b| a.union(&b))?;
     // Floating selected pixels are framed by their outline, as their ants are (#7538), not by the
-    // selection they were cut with.
-    let b = app.session.active_index().and_then(|idx| floating_outline(app, idx)).map_or(b, |o| o.content_bounds());
+    // selection they were cut with; a frame round other selected layers too keeps them all.
+    let alone = matches!(layers.as_slice(), [l] if photocraft_engine::float_cmds::floating(st).is_some_and(|f| f.layer == l.id));
+    let b = app.session.active_index().filter(|_| alone).and_then(|idx| floating_outline(app, idx)).map_or(b, |o| o.content_bounds());
     let (dx, dy) = crate::move_ui::floating_offset(app).unwrap_or((0, 0));
     let b = b.translate(dx, dy);
     if b.is_empty() {
@@ -5647,7 +5645,11 @@ fn hidden_target(app: &PhotocraftApp, tool: Tool) -> Option<&'static str> {
 
 /// Is document point `p` inside the active document's selection?
 fn inside_selection(app: &PhotocraftApp, p: [f64; 2]) -> bool {
-    let Some(sel) = app.session.active().and_then(|st| st.doc.selection.as_ref()) else { return false };
+    app.session.active().and_then(|st| st.doc.selection.as_ref()).is_some_and(|sel| covers(sel, p))
+}
+
+/// Does selection surface `sel` cover document point `p`?
+fn covers(sel: &photocraft_raster::Surface, p: [f64; 2]) -> bool {
     let mut v = [0.0f32];
     sel.read_pixel(p[0].floor() as i32, p[1].floor() as i32, &mut v);
     v[0] > 0.0
@@ -5668,7 +5670,10 @@ pub fn selection_drag_kind(app: &PhotocraftApp, tool: Tool, p: [f64; 2], mods: e
     // ⌘ cuts, ⌘⌥ copies (`select.float`'s `copy`).
     let cut = mods.command && !mods.shift;
     if let Some(f) = app.session.active().and_then(photocraft_engine::float_cmds::floating) {
-        let on = inside_selection(app, [p[0] - f64::from(f.offset.0), p[1] - f64::from(f.offset.1)]);
+        // A press on the piece's outline (where its ants are) drags it; one in the margin the cut
+        // left of the selection starts a new selection (#7538).
+        let at = [p[0] - f64::from(f.offset.0), p[1] - f64::from(f.offset.1)];
+        let on = f.parts.outline().map_or_else(|| inside_selection(app, at), |o| covers(o, at));
         return (on && !mods.shift && (!mods.alt || mods.command) && (cut || !clicky)).then_some(true);
     }
     if !inside_selection(app, p) {
@@ -8408,6 +8413,55 @@ mod transform_controls_tests {
         assert_eq!(frame(&app), [50, 45, 100, 85], "the floating pixels");
         app.run("select.drop", json!({})).unwrap();
         assert_eq!(frame(&app), [50, 45, 100, 85], "dropped");
+    }
+
+    /// A transparent 200² document: a red square (40..90, 40..80) on its layer, a loose marquee
+    /// (20..120, 20..110) round it, cut and floated 10, 5 to the right and down.
+    fn floating_square() -> PhotocraftApp {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.execute("file.new", json!({"width": 200, "height": 200, "background": "transparent"})).unwrap();
+        app.session.execute("select.rect", json!({"x": 40, "y": 40, "width": 50, "height": 40})).unwrap();
+        app.session.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        app.session.execute("select.rect", json!({"x": 20, "y": 20, "width": 100, "height": 90})).unwrap();
+        app.sync_views();
+        app.session.execute("select.float", json!({"dx": 10, "dy": 5})).unwrap();
+        app
+    }
+
+    /// #7538: a selection tool's press on a floating piece's ants drags it; one in the margin its
+    /// cut left of the loose marquee draws a new selection, as the ants say.
+    #[test]
+    fn a_press_in_the_margin_of_a_floating_piece_starts_a_new_selection() {
+        let app = floating_square();
+        let none = egui::Modifiers::NONE;
+        for tool in [Tool::RectMarquee, Tool::Lasso] {
+            assert_eq!(selection_drag_kind(&app, tool, [70.0, 60.0], none), Some(true), "{tool:?}: on the square drags it");
+            assert_eq!(selection_drag_kind(&app, tool, [33.0, 28.0], none), None, "{tool:?}: in the old marquee's margin");
+        }
+    }
+
+    /// Several selected layers keep one frame round them all while the active one's pixels float:
+    /// the piece's outline frames it only when it is the only layer framed.
+    #[test]
+    fn a_floating_piece_among_several_selected_layers_keeps_the_shared_frame() {
+        let mut app = floating_square();
+        app.session.execute("select.drop", json!({})).unwrap();
+        let a = app.session.active().unwrap().active_layer.unwrap();
+        app.session.execute("layer.new.layer", json!({})).unwrap();
+        app.session.execute("select.rect", json!({"x": 150, "y": 150, "width": 20, "height": 20})).unwrap();
+        app.session.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+        app.session.execute("layer.select", json!({"layer": a.0, "mode": "add"})).unwrap();
+        app.session.execute("select.rect", json!({"x": 20, "y": 20, "width": 100, "height": 90})).unwrap();
+        app.ui.tool = Tool::Move;
+        app.ui.tool_options.move_show_transform = true;
+        assert!(transform_controls_several(&app), "two layers framed");
+        app.session.execute("select.float", json!({"dx": 5, "dy": 0})).unwrap();
+        assert!(photocraft_engine::float_cmds::floating(app.session.active().unwrap()).is_some());
+        let xf =
+            ViewXform { rect: Rect::from_min_size(Pos2::ZERO, vec2(200.0, 200.0)), zoom: 1.0, center: [100.0, 100.0], flip: false, rotation: 0.0, aspect: 1.0 };
+        let r = transform_controls_rect(&app, &xf).unwrap();
+        let (lt, rb) = (xf.to_doc(r.left_top()), xf.to_doc(r.right_bottom()));
+        assert!(rb[0] - lt[0] > 60.0 && rb[1] - lt[1] > 60.0, "the frame isn't shrunk to the one piece: {lt:?} {rb:?}");
     }
 
     #[test]
