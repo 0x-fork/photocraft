@@ -9,13 +9,25 @@ use super::{color_of, f_of, overlay_gradient};
 fn edit_endpoint(stop: Option<&mut (f32, Color)>, params: &Value, key: &str) {
     if let (Some(stop), Some(color)) = (stop, color_of(params, key)) {
         // The dialog displays hex colours. Opening it must not quantize the saved source.
-        if !params.get(key).is_some_and(Value::is_string) || color.to_rgba8() != stop.1.to_rgba8() {
-            stop.1 = color;
+        let [r, g, b, _] = color.to_rgba8();
+        let [sr, sg, sb, _] = stop.1.to_rgba8();
+        if !params.get(key).is_some_and(Value::is_string) || [r, g, b] != [sr, sg, sb] {
+            let mut edited = color.in_mode(stop.1.mode);
+            edited.alpha = stop.1.alpha;
+            stop.1 = edited;
         }
     }
 }
 
 pub(super) fn overlay(gradient: &mut Gradient, interpolation: &mut Option<GradientInterpolation>, params: &Value) {
+    // Reset to Default restores the factory's unbaked interpolation too.
+    if params.get("method").and_then(Value::as_str) == Some("custom") {
+        if let Some(source) = interpolation.take() {
+            gradient.stops = source.stops;
+        }
+        overlay_gradient(gradient, params);
+        return;
+    }
     let requested = params.get("method").and_then(Value::as_str).filter(|name| photocraft_io::GradientMethod::from_name(name).is_some());
     if interpolation.is_none() && requested.is_none() {
         overlay_gradient(gradient, params);
@@ -105,9 +117,11 @@ mod tests {
     #[test]
     fn reopening_does_not_quantize_source_colours_or_rebake() {
         let mut gradient = Gradient::default();
+        gradient.stops[0].1.alpha = 0.37;
         let mut source = None;
         overlay(&mut gradient, &mut source, &json!({"from": [0.123456, 0.234567, 0.345678], "method": "perceptual"}));
         let before = (gradient.clone(), source.clone());
+        assert_eq!(source.as_ref().unwrap().stops[0].1.alpha, 0.37);
         let [r, g, b, _] = source.as_ref().unwrap().stops[0].1.to_rgba8();
         overlay(&mut gradient, &mut source, &json!({"from": format!("#{r:02x}{g:02x}{b:02x}"), "to": "#ffffff", "method": "perceptual", "smoothness": 100}));
         assert_eq!((gradient, source), before);
@@ -122,5 +136,26 @@ mod tests {
         overlay(&mut gradient, &mut source, &json!({"method": "custom", "opacity": 50}));
         assert_eq!(gradient, original);
         assert!(source.is_none());
+    }
+
+    #[test]
+    fn endpoint_edits_keep_the_source_colour_model() {
+        for mode in [photocraft_doc::ColorMode::Grayscale, photocraft_doc::ColorMode::Cmyk, photocraft_doc::ColorMode::Lab] {
+            let mut gradient = Gradient { stops: vec![(0.0, Color::BLACK.in_mode(mode)), (1.0, Color::WHITE.in_mode(mode))], ..Gradient::default() };
+            let mut source = None;
+            overlay(&mut gradient, &mut source, &json!({"method": "classic"}));
+            overlay(&mut gradient, &mut source, &json!({"from": "#ff0000"}));
+            assert!(source.as_ref().unwrap().stops.iter().all(|s| s.1.mode == mode));
+        }
+    }
+
+    #[test]
+    fn reset_to_factory_defaults_removes_the_recorded_method() {
+        let mut gradient = Gradient::default();
+        let mut source = None;
+        overlay(&mut gradient, &mut source, &json!({"method": "smooth", "from": "#ff0000"}));
+        overlay(&mut gradient, &mut source, &super::super::effect_defaults("gradientOverlay"));
+        assert!(source.is_none());
+        assert_eq!(gradient, Gradient::default());
     }
 }
