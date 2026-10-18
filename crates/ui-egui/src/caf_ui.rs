@@ -1704,6 +1704,65 @@ mod tests {
         assert_eq!(d["fillArea"], json!(400));
     }
 
+    /// A sampling area the Sampling Brush erased entirely previews as an error naming the
+    /// problem, not as the black fill it would make; undoing the stroke brings the preview back.
+    #[test]
+    fn an_erased_sampling_area_previews_as_an_error() {
+        let mut app = app_with_selection();
+        open(&mut app).unwrap();
+        control(&mut app, &json!({"sampling": "rectangular", "waitPreview": true})).unwrap();
+        assert!(ws(&app).describe()["previewError"].is_null());
+        // Subtracting (the default) with a brush wider than the 200 × 160 window.
+        let e = control(&mut app, &json!({"stroke": {"points": [[100.0, 80.0]], "size": 600}, "waitPreview": true})).unwrap_err();
+        assert!(e.contains("nothing to sample from"), "{e}");
+        let d = ws(&app).describe();
+        assert_eq!(d["sampledProxyPixels"].as_u64(), Some(0), "{d}");
+        assert!(d["previewError"].as_str().is_some_and(|e| e.contains("nothing to sample from")), "{d}");
+        let d = control(&mut app, &json!({"undo": true, "waitPreview": true})).unwrap();
+        assert!(d["previewError"].is_null(), "{d}");
+    }
+
+    /// OK whose fill fails keeps the workspace open with the error in its panel, from the button
+    /// and from the control channel, so the work isn't thrown away; once the fill can run, OK
+    /// fills and closes.
+    #[test]
+    fn a_failed_ok_keeps_the_workspace_open() {
+        let mut app = app_with_selection();
+        open(&mut app).unwrap();
+        let steps = app.session.active().unwrap().history.past_len();
+        app.session.execute("layer.setProps", json!({"locks": {"pixels": true}})).unwrap();
+        commit(&mut app);
+        assert!(app.distort.caf.is_some(), "OK keeps the workspace open when the fill fails");
+        assert!(ws(&app).error.as_deref().is_some_and(|e| e.contains("locked")), "{:?}", ws(&app).error);
+        assert!(app.ui.status_error);
+        assert!(control(&mut app, &json!({"commit": true})).unwrap_err().contains("locked"));
+        assert!(app.distort.caf.is_some(), "the control channel's OK too");
+        app.session.execute("layer.setProps", json!({"locks": {"pixels": false}})).unwrap();
+        let steps = app.session.active().unwrap().history.past_len().max(steps);
+        commit(&mut app);
+        assert!(app.distort.caf.is_none(), "OK closes once the fill runs");
+        assert!(app.session.active().unwrap().history.past_len() > steps, "and fills");
+    }
+
+    /// Undo or Redo of a sampling stroke changes what OK would fill, so it clears the error a
+    /// failed OK left in the panel, as a new stroke does; otherwise the stale error would stay
+    /// drawn over the recovered preview.
+    #[test]
+    fn undo_and_redo_of_a_stroke_clear_a_failed_oks_error() {
+        let mut app = app_with_selection();
+        open(&mut app).unwrap();
+        control(&mut app, &json!({"stroke": {"points": [[20.0, 20.0], [60.0, 20.0]], "size": 10}})).unwrap();
+        app.session.execute("layer.setProps", json!({"locks": {"pixels": true}})).unwrap();
+        commit(&mut app);
+        assert!(ws(&app).error.is_some(), "the failed OK reports in the panel");
+        control(&mut app, &json!({"undo": true})).unwrap();
+        assert!(ws(&app).error.is_none(), "Undo of the stroke clears it");
+        commit(&mut app);
+        assert!(ws(&app).error.is_some());
+        control(&mut app, &json!({"redo": true})).unwrap();
+        assert!(ws(&app).error.is_none(), "Redo of the stroke clears it too");
+    }
+
     #[test]
     fn apply_fills_and_stays_open_ok_closes_cancel_keeps_what_was_applied() {
         let mut app = app_with_selection();
