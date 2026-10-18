@@ -326,3 +326,12 @@ fn control_sets_the_mode_ramp_and_web_safe_ramp() {
         assert_eq!(app.ui.color_panel, cp, "{bad}: nothing changes");
     }
 }
+
+/// Only Web Colors is `webOnly` now that the state is camelCase; state saved before still loads.
+#[test]
+fn web_only_reads_its_old_snake_case_key() {
+    let old: crate::state::ColorPanelState = serde_json::from_value(json!({"background": true, "web_only": true})).unwrap();
+    assert!(old.background && old.web_only);
+    let new = serde_json::to_value(old).unwrap();
+    assert_eq!((new.get("webOnly"), new.get("web_only")), (Some(&json!(true)), None));
+}
