@@ -181,6 +181,12 @@ pub fn recorded(ctx: &egui::Context, id: u64) -> Option<Rects> {
     ctx.data(|d| d.get_temp::<std::collections::HashMap<u64, Rects>>(rects_id())).and_then(|m| m.get(&id).cloned())
 }
 
+/// Drop what was recorded for layer `id`, so a row drawn without mask thumbnails (thumbnail size
+/// None) can't be hit through rects from an earlier frame.
+pub fn forget(ctx: &egui::Context, id: u64) {
+    ctx.data_mut(|d| d.get_temp_mut_or_default::<std::collections::HashMap<u64, Rects>>(rects_id()).remove(&id));
+}
+
 /// A small vertical chain: two interlocking links.
 fn paint_chain(painter: &Painter, c: Pos2, color: Color32) {
     let st = Stroke::new(1.2, color);
