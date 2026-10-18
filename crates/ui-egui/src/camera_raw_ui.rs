@@ -28,10 +28,6 @@ const PROXY_SIDE: usize = 900;
 const PANEL_W: f32 = 330.0;
 const BANDS: [&str; 8] = ["Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"];
 
-#[cfg(test)]
-#[path = "camera_raw_identity_tests.rs"]
-mod identity_tests;
-
 pub struct CameraRawDialog {
     pub layer: LayerId,
     layer_name: String,
@@ -1707,3 +1703,7 @@ mod tests {
         assert_eq!(app.camera_raw.as_ref().unwrap().params.clarity, 25.0);
     }
 }
+
+#[cfg(test)]
+#[path = "camera_raw_identity_tests.rs"]
+mod identity_tests;
