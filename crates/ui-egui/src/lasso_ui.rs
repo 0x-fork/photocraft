@@ -204,15 +204,7 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: Modifiers) -> bool 
             let (down, polygonal, previous) = (lasso.down, lasso.polygonal, lasso.cursor);
             let p = if down && tool == Tool::FreeformPen {
                 let last = d.points.last().map_or(d.start, |pt| [pt[0], pt[1]]);
-                let [x, y] = crate::stroke_constraint::constrain(
-                    d.tool,
-                    &mut d.constrain,
-                    d.start,
-                    last,
-                    p,
-                    mods.shift,
-                    zoom,
-                );
+                let [x, y] = crate::stroke_constraint::constrain(d.tool, &mut d.constrain, d.start, last, p, mods.shift, zoom);
                 [x, y]
             } else {
                 p
