@@ -1092,7 +1092,8 @@ fn options_the_descriptors_cannot_carry_refuse_strict_export() {
         ("file.new", json!({"width": 24, "height": 18, "background": "transparent"})),
         ("file.new", json!({"width": 24, "height": 18, "background": "backgroundColor"})),
         ("select.loadSelection", json!({"channel": "Alpha 1", "invert": false, "operation": "new"})),
-        ("layer.setProps", json!({"layer": 2, "opacity": 0.5, "visible": true})),
+        // A named target (a numeric one is #7248, #7262).
+        ("layer.setProps", json!({"layer": "Pixels", "opacity": 0.5, "visible": true})),
         ("filter.noise.addNoise", json!({"amount": 30, "seed": 2147483647})),
     ];
     for (id, p) in carried {
