@@ -16,9 +16,9 @@
 //! uploads those blocks instead of compositing every layer again.
 
 use std::collections::VecDeque;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError};
+use std::sync::{Arc, Weak};
 
 use photocraft_doc::{DocId, Document};
 use photocraft_engine::display_color::CanvasDisplay;
@@ -86,7 +86,10 @@ impl Drop for Redraw {
 
 /// A finished redraw: the canvas texels of every block of `doc`.
 pub(crate) struct Kept {
-    doc: Arc<Document>,
+    /// Weak, so a kept composite never keeps a state alive (and its tiles allocated, outside Memory
+    /// Usage) once History has dropped it; such an entry is dead and goes at the next trim.
+    doc: Weak<Document>,
+    id: DocId,
     display: u64,
     format: eframe::wgpu::TextureFormat,
     blocks: Vec<Rect>,
@@ -100,7 +103,10 @@ impl Kept {
     /// else it holds), so a stale composite can't come back; Arc-shared tiles compare without
     /// reading their pixels.
     fn matches(&self, doc: &Arc<Document>, display: u64, format: eframe::wgpu::TextureFormat, blocks: &[Rect]) -> bool {
-        self.display == display && self.format == format && self.blocks == blocks && (Arc::ptr_eq(&self.doc, doc) || *self.doc == **doc)
+        self.display == display
+            && self.format == format
+            && self.blocks == blocks
+            && self.doc.upgrade().is_some_and(|kept| Arc::ptr_eq(&kept, doc) || *kept == **doc)
     }
 }
 
@@ -119,15 +125,18 @@ impl KeptComposites {
         self.entries.front()
     }
 
-    /// Keep `k` (in place of an entry of the same state), within `cap` bytes in all.
-    fn store(&mut self, k: Kept, cap: u64) {
-        self.entries.retain(|e| !e.matches(&k.doc, k.display, k.format, &k.blocks));
+    /// Keep `k`, the redraw of `doc` (in place of an entry of the same state), within `cap` bytes
+    /// in all.
+    fn store(&mut self, k: Kept, doc: &Arc<Document>, cap: u64) {
+        self.entries.retain(|e| !e.matches(doc, k.display, k.format, &k.blocks));
         self.entries.push_front(k);
         self.trim(cap);
     }
 
-    /// Drop the oldest entries until at most [`KEEP`], holding at most `cap` bytes, are left.
+    /// Drop dead entries (their state is gone), then the oldest until at most [`KEEP`], holding at
+    /// most `cap` bytes, are left.
     fn trim(&mut self, cap: u64) {
+        self.entries.retain(|k| k.doc.strong_count() > 0);
         while self.entries.len() > KEEP || self.bytes() > cap {
             self.entries.pop_back();
         }
@@ -138,7 +147,7 @@ impl KeptComposites {
     }
 
     fn retain(&mut self, live: impl Fn(DocId) -> bool) {
-        self.entries.retain(|k| live(k.doc.id));
+        self.entries.retain(|k| live(k.id));
     }
 }
 
@@ -275,8 +284,16 @@ pub(crate) fn poll(app: &mut PhotocraftApp, gpu: &GpuCanvas, doc: DocId) {
     }
     if r.collected.len() == r.blocks.len() && r.collected.iter().all(Option::is_some) {
         let texels = std::mem::take(&mut r.collected).into_iter().flatten().collect();
-        let k = Kept { doc: r.doc.clone(), display: r.display, format: r.format, blocks: r.blocks.clone(), texels, bytes: r.collected_bytes };
-        app.kept.store(k, r.cap);
+        let k = Kept {
+            doc: Arc::downgrade(&r.doc),
+            id: r.doc.id,
+            display: r.display,
+            format: r.format,
+            blocks: r.blocks.clone(),
+            texels,
+            bytes: r.collected_bytes,
+        };
+        app.kept.store(k, &r.doc, r.cap);
     }
     let ms = crate::gpu_canvas::now_ms() - r.started_ms;
     app.perf.record("background", r.drawn, ms, 0.0);

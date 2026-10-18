@@ -35,7 +35,15 @@ fn visible_blocks_come_first_nearest_the_view_centre() {
 fn kept(doc: &Arc<Document>, bytes: usize) -> Kept {
     let all = blocks(doc.bounds());
     let texels: Vec<Vec<u8>> = all.iter().map(|_| vec![1u8; bytes]).collect();
-    Kept { doc: doc.clone(), display: 7, format: eframe::wgpu::TextureFormat::Rgba8Unorm, bytes: (bytes * all.len()) as u64, blocks: all, texels }
+    Kept {
+        doc: Arc::downgrade(doc),
+        id: doc.id,
+        display: 7,
+        format: eframe::wgpu::TextureFormat::Rgba8Unorm,
+        bytes: (bytes * all.len()) as u64,
+        blocks: all,
+        texels,
+    }
 }
 
 #[test]
@@ -55,7 +63,7 @@ fn kept_composites_come_back_only_for_the_exact_state_and_stay_bounded() {
         Arc::new(d)
     };
     let mut cache = KeptComposites::default();
-    cache.store(kept(&a, 4), u64::MAX);
+    cache.store(kept(&a, 4), &a, u64::MAX);
     // The same state hits, also as an equal document that isn't the same Arc (a restore after a solo).
     assert!(cache.find(&a, 7, Rgba8Unorm, &all).is_some());
     assert!(cache.find(&Arc::new((*a).clone()), 7, Rgba8Unorm, &all).is_some());
@@ -75,14 +83,14 @@ fn kept_composites_come_back_only_for_the_exact_state_and_stay_bounded() {
     assert!(cache.find(&a, 7, Rgba16Float, &all).is_none(), "another texture format");
     assert!(cache.find(&a, 7, Rgba8Unorm, &all[1..]).is_none(), "other blocks");
     // At most KEEP entries, the least recently used going first.
-    cache.store(kept(&hidden, 4), u64::MAX);
+    cache.store(kept(&hidden, 4), &hidden, u64::MAX);
     assert!(cache.find(&a, 7, Rgba8Unorm, &all).is_some());
-    cache.store(kept(&faded, 4), u64::MAX);
+    cache.store(kept(&faded, 4), &faded, u64::MAX);
     assert_eq!(cache.entries.len(), KEEP);
     assert!(cache.find(&hidden, 7, Rgba8Unorm, &all).is_none(), "the least recently used went");
     assert!(cache.find(&a, 7, Rgba8Unorm, &all).is_some() && cache.find(&faded, 7, Rgba8Unorm, &all).is_some());
     // Storing a state again replaces its entry.
-    cache.store(kept(&faded, 4), u64::MAX);
+    cache.store(kept(&faded, 4), &faded, u64::MAX);
     assert_eq!(cache.entries.len(), 2);
     // The byte cap: a smaller one drops the oldest, and a composite over it isn't kept.
     let one = kept(&a, 4).bytes;
@@ -90,11 +98,19 @@ fn kept_composites_come_back_only_for_the_exact_state_and_stay_bounded() {
     assert_eq!(cache.entries.len(), 1);
     assert!(cache.bytes() <= one);
     cache.trim(0);
-    cache.store(kept(&a, 4), one - 1);
+    cache.store(kept(&a, 4), &a, one - 1);
     assert!(cache.entries.is_empty(), "over the cap");
     // A closed document's composites go.
-    cache.store(kept(&a, 4), u64::MAX);
+    cache.store(kept(&a, 4), &a, u64::MAX);
     cache.retain(|id| id != a.id);
+    assert!(cache.entries.is_empty());
+    // A state History no longer holds isn't kept alive: its entry is dead and goes.
+    let gone = changed(&|d| d.layers[0].opacity = 0.25);
+    cache.store(kept(&gone, 4), &gone, u64::MAX);
+    let equal = Arc::new((*gone).clone());
+    drop(gone);
+    assert!(cache.find(&equal, 7, Rgba8Unorm, &all).is_none(), "no strong reference to the drawn state");
+    cache.trim(u64::MAX);
     assert!(cache.entries.is_empty());
 }
 
