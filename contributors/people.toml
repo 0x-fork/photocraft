@@ -163,5 +163,12 @@ sync_github_name = true
 real_name = "Sidney Markowitz"
 sync_github_name = true
 
+[people.1Git2Clone]
+sync_github_name = true
+
+[people.Silvertree2010]
+display_name = "Netter"
+sync_github_name = false
+
 [people.WebWork-rrs]
 display_name = "Ratul Paul"
