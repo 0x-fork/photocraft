@@ -738,7 +738,13 @@ fn directory_save_waits_for_the_bundle_lock() {
     let doc = rich_doc(ColorMode::Rgb, SampleType::U8);
     let dir = temp_dir("lock");
     let other = std::fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).open(dir.join("save.lock")).unwrap();
-    other.lock().unwrap();
+    // A file system without file locks saves unlocked (`lock_bundle`), so there's nothing to test.
+    match other.try_lock() {
+        Ok(()) => {}
+        Err(std::fs::TryLockError::Error(e)) if e.kind() == std::io::ErrorKind::Unsupported => return,
+        Err(std::fs::TryLockError::Error(e)) => panic!("locking save.lock failed: {e}"),
+        Err(std::fs::TryLockError::WouldBlock) => panic!("save.lock is already locked"),
+    }
     let mut w = PcraftWriter::new();
     w.set_lock_wait(std::time::Duration::from_millis(100));
     let e = w.save_dir(&doc, &dir, &SaveOptions::default()).unwrap_err();
