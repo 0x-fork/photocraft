@@ -318,7 +318,7 @@ pub(crate) fn run_filter(s: &mut Session, id: &str, p: &Value) -> Result<Value> 
 /// own, and `cancelled` is asked before each one: on a 24 MP layer (a Background, whose
 /// transparency is locked) a serial pass took about 400 ms that a cancelled job had to sit out
 /// (#6205). `Err(Cancelled)` leaves `new` holding all its tiles, some of them not yet fixed.
-fn keep_alpha(old: &photocraft_raster::Surface, new: &mut photocraft_raster::Surface, cancelled: &(dyn Fn() -> bool + Sync)) -> Result<()> {
+pub(crate) fn keep_alpha(old: &photocraft_raster::Surface, new: &mut photocraft_raster::Surface, cancelled: &(dyn Fn() -> bool + Sync)) -> Result<()> {
     use photocraft_raster::Surface;
     use rayon::prelude::*;
     if old.format() != new.format() || !new.format().alpha {
