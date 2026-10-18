@@ -281,7 +281,11 @@ fn stops_strip(ui: &mut egui::Ui, fill: &Fill, id: egui::Id, fg: [f32; 4], bg: [
         let x = x_of(*loc);
         let sel = selected == Some(Marker::Opacity(i));
         let body = Rect::from_center_size(pos2(x, bar.top() - 10.0), vec2(10.0, 10.0));
-        p.add(egui::Shape::convex_polygon(vec![pos2(x, bar.top() - 1.0), pos2(x + 5.0, body.bottom()), pos2(x - 5.0, body.bottom())], outline(sel), Stroke::NONE));
+        p.add(egui::Shape::convex_polygon(
+            vec![pos2(x, bar.top() - 1.0), pos2(x + 5.0, body.bottom()), pos2(x - 5.0, body.bottom())],
+            outline(sel),
+            Stroke::NONE,
+        ));
         p.rect_filled(body, 1.0, egui::Color32::from_gray((a.clamp(0.0, 1.0) * 255.0) as u8));
         p.rect_stroke(body, 1.0, Stroke::new(1.0, outline(sel)), StrokeKind::Outside);
     }
@@ -331,7 +335,9 @@ fn stops_strip(ui: &mut egui::Ui, fill: &Fill, id: egui::Id, fg: [f32; 4], bg: [
                 let moved = edit.get("location").and_then(Value::as_f64).map(|l| l as f32);
                 let selection = match (drag.marker, edit.get("action").and_then(Value::as_str), moved) {
                     (Marker::Color(i), Some("move"), Some(l)) => Some(Marker::Color(index_after_move(&start_cs.iter().map(|s| s.0).collect::<Vec<_>>(), i, l))),
-                    (Marker::Opacity(i), Some("move"), Some(l)) => Some(Marker::Opacity(index_after_move(&start_os.iter().map(|s| s.0).collect::<Vec<_>>(), i, l))),
+                    (Marker::Opacity(i), Some("move"), Some(l)) => {
+                        Some(Marker::Opacity(index_after_move(&start_os.iter().map(|s| s.0).collect::<Vec<_>>(), i, l)))
+                    }
                     (Marker::Mid(i), ..) => Some(Marker::Mid(i)),
                     _ => None,
                 };
@@ -449,7 +455,10 @@ fn stop_fields(ui: &mut egui::Ui, fill: &Fill, id: egui::Id, fg: [f32; 4], bg: [
         // The stop's colour keeps its own alpha; transparency belongs to the opacity stops.
         let rgba = rgba_of(c);
         let cache = id.with(("stop-hsva", i));
-        let mut hsva = ui.data(|d| d.get_temp::<([f32; 4], egui::ecolor::Hsva)>(cache)).filter(|(previous, _)| *previous == rgba).map_or_else(|| picker_color(rgba), |(_, h)| h);
+        let mut hsva = ui
+            .data(|d| d.get_temp::<([f32; 4], egui::ecolor::Hsva)>(cache))
+            .filter(|(previous, _)| *previous == rgba)
+            .map_or_else(|| picker_color(rgba), |(_, h)| h);
         if egui::color_picker::color_picker_hsva_2d(ui, &mut hsva, egui::color_picker::Alpha::Opaque) {
             let [r, g, b, _] = picker_rgba(hsva);
             if [r, g, b].iter().zip(rgba).any(|(a, b)| (a - b).abs() > 0.000001) {

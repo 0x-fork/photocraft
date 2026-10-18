@@ -1509,7 +1509,8 @@ fn swatch(ui: &mut egui::Ui, fill: Option<&photocraft_doc::Fill>, fallback: [f32
     let open_key = popup_id.with("open");
     let was_open = ui.data(|d| d.get_temp::<bool>(open_key)).unwrap_or(false);
     let open = shown.is_some();
-    if was_open && !open
+    if was_open
+        && !open
         && let Some(g) = gradient
     {
         gradients.remember(g);
@@ -1579,8 +1580,13 @@ pub fn shape_properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, id: photocra
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(tl!("Fill")).color(t.text_dim).size(12.0));
             let (fg, bg) = (app.session.tools.foreground, app.session.tools.background);
-            let mut gradients =
-                GradientChoices { presets: &app.session.presets.gradients, current: &app.session.presets.gradient, recent: &mut app.ui.recent_gradients, fg, bg };
+            let mut gradients = GradientChoices {
+                presets: &app.session.presets.gradients,
+                current: &app.session.presets.gradient,
+                recent: &mut app.ui.recent_gradients,
+                fg,
+                bg,
+            };
             if let Some(change) = swatch(ui, sh.fill.as_ref(), fg, tl!("Set shape fill type"), &mut gradients) {
                 let fill = match change {
                     PaintChange::None => Value::Null,
