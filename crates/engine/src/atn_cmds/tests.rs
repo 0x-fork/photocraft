@@ -974,8 +974,12 @@ fn numeric_layer_references_refuse_silent_fallback_to_current_selection() {
 
     // Explicit numeric ID reference cannot be silently converted to current target in strict export
     s.actions.list.push(Action::new("DeleteNumeric", vec![("layer.delete".into(), json!({"layer": 42}))]));
+    let before_actions = s.actions.list.clone();
+    let before_rev = s.active().unwrap().revision;
     let err_delete = s.execute("actions.save", json!({"action": "DeleteNumeric"}));
     assert!(err_delete.is_err(), "strict export must reject numeric layer ID for layer.delete rather than falling back to current target");
+    assert_eq!(s.actions.list, before_actions, "session actions must remain unchanged when save fails");
+    assert_eq!(s.active().unwrap().revision, before_rev, "document revision must remain unchanged when save fails");
     let err_msg = err_delete.unwrap_err().to_string();
     assert!(err_msg.contains("(`layer.delete` with numeric layer 42)"), "error message should name the numeric layer: {err_msg}");
 
