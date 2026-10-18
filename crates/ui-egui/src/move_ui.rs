@@ -39,7 +39,10 @@ pub(crate) fn float_selected(app: &mut PhotocraftApp, copy: bool, dx: f64, dy: f
     let floating = app.session.active().is_some_and(|st| photocraft_engine::float_cmds::floating(st).is_some());
     let dropped = if copy && floating { app.run("select.drop", json!({})) } else { Ok(json!(null)) };
     match dropped.and_then(|_| app.run("select.float", json!({"dx": dx, "dy": dy, "copy": copy}))) {
-        Ok(_) => true,
+        Ok(_) => {
+            crate::snap_ui::follow_cut(app);
+            true
+        }
         Err(e) => {
             app.ui.status = e;
             app.ui.status_error = true;

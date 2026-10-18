@@ -101,27 +101,28 @@ fn moving_rect(app: &PhotocraftApp, tool: Tool) -> Option<[f64; 4]> {
     union(st.selected_layers().into_iter().filter_map(|id| layer_rect(&st.doc, id)))
 }
 
-/// The bounds of the pixels a selection moves, where they are shown (#7538): its floating piece's
-/// outline at its offset. Before a drag first cuts the piece, the selection's bounds over the
-/// active layer's pixels, which hold the outline (exactly when the pixels lie in the selection).
-/// A targeted mask, an opaque layer or no pixels selected: the selection's own bounds.
+/// The bounds of the pixels a selection moves, where they are shown: its floating piece's outline
+/// at its offset (#7538), else (nothing cut yet, or a mask or empty piece) the selection's bounds.
 fn selection_rect(app: &PhotocraftApp) -> Option<[f64; 4]> {
     let st = app.session.active()?;
     let sel = st.doc.selection.as_ref()?;
     let r = match photocraft_engine::float_cmds::floating(st) {
         Some(f) => f.parts.outline().unwrap_or(sel).content_bounds().translate(f.offset.0, f.offset.1),
-        None => {
-            let b = sel.content_bounds();
-            let pixels = st
-                .active_layer
-                .filter(|&id| !st.doc.is_background(id) && crate::canvas::paint_target(app) == "pixels")
-                .and_then(|id| st.doc.layer(id)?.surface())
-                .filter(|s| s.format().alpha)
-                .map(|s| b.intersect(&s.content_bounds()));
-            pixels.filter(|p| !p.is_empty()).unwrap_or(b)
-        }
+        None => sel.content_bounds(),
     };
     (!r.is_empty()).then(|| [r.x0, r.y0, r.x1, r.y1].map(f64::from))
+}
+
+/// A press cut the selected pixels after snapping began (`filter_event` runs before the tools):
+/// the move now snaps the cut piece's outline, not the selection it was cut with (#7538).
+pub(crate) fn follow_cut(app: &mut PhotocraftApp) {
+    let Some(rect) = selection_rect(app) else { return };
+    if let Some(snap) = app.prefs_rt.snap.as_mut() {
+        match &mut snap.gesture {
+            Gesture::Move { rect: r } | Gesture::SelectionMove { rect: r } => *r = rect,
+            _ => {}
+        }
+    }
 }
 
 fn is_point_tool(t: Tool) -> bool {
@@ -570,21 +571,41 @@ mod tests {
         app
     }
 
-    /// #7538: moving selected pixels snaps (and frames) the pixels, not a loose marquee round them:
-    /// the box hugs the moved pixels before the first drag cuts them and while they float.
+    /// #7538: moving selected pixels snaps (and frames) the pixels, not a loose marquee round them.
+    /// Snapping starts before the press cuts them, so the cut retargets it to their outline.
     #[test]
     fn moving_selected_pixels_snaps_their_bounds_not_the_marquee() {
+        for alt in [false, true] {
+            let mut app = app_with_box();
+            app.ui.tool = Tool::Move;
+            app.run("select.rect", json!({"x": 20, "y": 20, "width": 100, "height": 90})).unwrap();
+            let m = egui::Modifiers { alt, ..Default::default() };
+            crate::canvas::tool_event(&mut app, ToolEvent::Down { x: 60.0, y: 60.0, pressure: 1.0 }, m);
+            let gesture = app.prefs_rt.snap.as_ref().map(|s| s.gesture.clone());
+            assert_eq!(gesture, Some(Gesture::Move { rect: [40.0, 40.0, 90.0, 80.0] }), "alt {alt}: the blue box, not the marquee");
+            // 263 px right puts the box's left edge 3 px from the target's (the marquee's 20 px off).
+            crate::canvas::tool_event(&mut app, ToolEvent::Move { x: 323.0, y: 100.0, pressure: 1.0 }, m);
+            crate::canvas::tool_event(&mut app, ToolEvent::Up { x: 323.0, y: 100.0 }, m);
+            app.run("select.drop", json!({})).unwrap();
+            let sel = app.session.active().unwrap().doc.selection.as_ref().map(|s| s.content_bounds().x0);
+            assert_eq!(sel, Some(300), "alt {alt}: snapped to the target's edge");
+        }
+        // A marquee's ⌘-drag cuts them the same way.
+        let mut app = app_with_box();
+        app.ui.tool = Tool::RectMarquee;
+        app.run("select.rect", json!({"x": 20, "y": 20, "width": 100, "height": 90})).unwrap();
+        let cmd = egui::Modifiers { mac_cmd: true, command: true, ..Default::default() };
+        crate::canvas::tool_event(&mut app, ToolEvent::Down { x: 60.0, y: 60.0, pressure: 1.0 }, cmd);
+        let gesture = app.prefs_rt.snap.as_ref().map(|s| s.gesture.clone());
+        assert_eq!(gesture, Some(Gesture::SelectionMove { rect: [40.0, 40.0, 90.0, 80.0] }), "⌘-drag with the marquee");
+        // The Background has no transparency to shrink to.
         let mut app = app_with_box();
         app.ui.tool = Tool::Move;
-        app.run("select.rect", json!({"x": 20, "y": 20, "width": 100, "height": 90})).unwrap();
-        assert_eq!(moving_rect(&app, Tool::Move), Some([40.0, 40.0, 90.0, 80.0]), "before the cut");
-        app.run("select.float", json!({"dx": 10, "dy": 5})).unwrap();
-        assert_eq!(moving_rect(&app, Tool::Move), Some([50.0, 45.0, 100.0, 85.0]), "floating");
-        app.run("select.drop", json!({})).unwrap();
-        // The Background has no transparency to shrink to.
         app.run("layer.select", json!({"name": "Background"})).unwrap();
         app.run("select.rect", json!({"x": 20, "y": 20, "width": 100, "height": 90})).unwrap();
-        assert_eq!(moving_rect(&app, Tool::Move), Some([20.0, 20.0, 120.0, 110.0]), "the Background");
+        crate::canvas::tool_event(&mut app, ToolEvent::Down { x: 60.0, y: 60.0, pressure: 1.0 }, egui::Modifiers::NONE);
+        let gesture = app.prefs_rt.snap.as_ref().map(|s| s.gesture.clone());
+        assert_eq!(gesture, Some(Gesture::Move { rect: [20.0, 20.0, 120.0, 110.0] }), "the Background");
     }
 
     fn mover_bounds(app: &PhotocraftApp) -> photocraft_geom::Rect {
