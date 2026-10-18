@@ -2987,4 +2987,18 @@ mod layers_panel_parity_tests {
         s.execute("layer.layerStyle.dropShadow", json!({"layer": target.0, "size": 5})).unwrap();
         assert!(s.active().unwrap().fx_collapsed.contains(&target));
     }
+
+    /// The disclosure follows the layer the command changes, however the command names it: a
+    /// layer given by name is not the active one.
+    #[test]
+    fn expand_new_effects_follows_a_layer_named_by_its_name() {
+        let (mut s, ids) = new_session();
+        option(&mut s, "expandNewEffects", false);
+        let (named, active) = (ids[0], ids[2]);
+        assert_eq!(s.active().unwrap().active_layer, Some(active));
+        s.execute("layer.layerStyle.dropShadow", json!({"layer": "Test 0", "size": 2})).unwrap();
+        assert!(s.active().unwrap().doc.layer(named).is_some_and(|l| !l.effects.items.is_empty()));
+        assert!(s.active().unwrap().fx_collapsed.contains(&named), "the named layer's new effects start collapsed");
+        assert!(!s.active().unwrap().fx_collapsed.contains(&active), "the active layer is not the one changed");
+    }
 }
