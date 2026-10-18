@@ -5,7 +5,8 @@
 //!   takes the wheel out of the frame's input before anything is laid out, so neither the canvas
 //!   nor a panel scrolls or zooms with it. ⌥/Alt and ⌘/Ctrl + wheel stay the view's.
 //! - Over a field without focus, the wheel steps it too, but only a gesture that starts over it:
-//!   a panel being scrolled keeps scrolling when a field passes under the pointer.
+//!   a panel being scrolled keeps scrolling when a field passes under the pointer. A gesture that
+//!   leaves the field is the view's from then on.
 
 use egui::{Context, Event, Id, MouseWheelUnit, Rect, Ui, Vec2};
 
@@ -110,10 +111,10 @@ pub fn notches(ui: &Ui, field: Id, focused: bool, rect: Rect) -> f32 {
         let Some(mut g) = ui.data(|d| d.get_temp::<Gesture>(gesture_id())) else { return 0.0 };
         let (events, wheel): (Vec<Event>, bool) =
             ui.input(|i| (i.events.iter().filter(|e| for_field(e)).cloned().collect(), i.events.iter().any(|e| matches!(e, Event::MouseWheel { .. }))));
-        // Wheel the field doesn't take (a sideways swipe after a zero-delta start) hands the rest
-        // of the gesture to the view, which pans with it: also with the pointer off the field, so
-        // the gesture doesn't step it on coming back.
-        if g.owner == Owner::Field(field) && wheel && events.is_empty() {
+        // Wheel the field doesn't take (a sideways swipe after a zero-delta start), or any wheel
+        // with the pointer off the field, hands the rest of the gesture to the view: coming back
+        // over the field in the same gesture doesn't step it.
+        if g.owner == Owner::Field(field) && wheel && (events.is_empty() || !ui.rect_contains_pointer(rect)) {
             g.owner = Owner::Elsewhere;
             ui.data_mut(|d| d.insert_temp(gesture_id(), g));
             return 0.0;
@@ -309,6 +310,29 @@ mod tests {
         h.run_steps(4);
         assert_eq!(h.state().0, 100.0, "the field was not stepped");
         assert!(h.state().1 > 0.0, "the panel scrolled");
+    }
+
+    /// A gesture that steps a field, then wheels on with the pointer off it, is the view's from
+    /// then on: coming back over the field in the same gesture doesn't step it again.
+    #[test]
+    fn a_gesture_that_wheels_off_the_field_does_not_step_it_on_coming_back() {
+        // Short frames: moving the pointer takes a frame of its own, and the gesture must not end.
+        let mut h = harness_stepping(100.0, 1.0 / 30.0);
+        h.hover_at(field(&h).center());
+        h.run_steps(1);
+        // Up, so the panel (already at the top) doesn't move the field.
+        let up =
+            || egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: vec2(0.0, 1.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE };
+        h.event(up());
+        h.run_steps(1);
+        assert_eq!(h.state().0, 101.0);
+        h.hover_at(field(&h).center() + vec2(0.0, 40.0));
+        h.event(up());
+        h.run_steps(1);
+        h.hover_at(field(&h).center());
+        h.event(up());
+        h.run_steps(4);
+        assert_eq!(h.state().0, 101.0, "the field was stepped once, by the start of the gesture");
     }
 
     #[test]
