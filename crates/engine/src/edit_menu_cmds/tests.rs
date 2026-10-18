@@ -58,6 +58,38 @@ fn fade_with_blend_mode_and_invalidation() {
 }
 
 #[test]
+fn fade_uniform_layer_mask_invert_at_all_depths() {
+    for depth in [8, 16, 32] {
+        for (opacity, expected) in [(0, 1.0), (50, 0.5), (100, 0.0)] {
+            let mut s = session(depth);
+            s.execute("layer.layerMask.revealAll", json!({})).unwrap();
+            s.execute("channel.target", json!({"channel": "mask"})).unwrap();
+            let mask_pixel = |s: &Session| {
+                let layer = active(s);
+                let mask = &layer.mask.as_ref().unwrap().surface;
+                mask.pixel(5, 5)[0]
+            };
+            assert!((mask_pixel(&s) - 1.0).abs() < 0.01);
+            s.execute("image.adjustments.invert", json!({})).unwrap();
+            assert!(mask_pixel(&s) < 0.01, "depth {depth}: invert changed the mask");
+            assert!(s.edit_state.fade.as_ref().is_some_and(|f| f.mask), "depth {depth}: Fade must target the mask");
+            let history_before_fade = s.active().unwrap().history.past_len();
+
+            s.execute("edit.fade", json!({"opacity": opacity})).unwrap();
+            for (x, y) in [(0, 0), (5, 5), (63, 47)] {
+                let pixel = active(&s).mask.as_ref().unwrap().surface.pixel(x, y)[0];
+                assert!((pixel - expected).abs() < 0.02, "depth {depth}, opacity {opacity}, ({x}, {y}): {pixel}");
+            }
+            assert_eq!(s.active().unwrap().history.past_len(), history_before_fade + 1);
+            assert!(s.undo());
+            assert!(mask_pixel(&s) < 0.01, "undo restores inverted mask");
+            assert!(s.redo());
+            assert!((mask_pixel(&s) - expected).abs() < 0.02, "redo restores faded mask");
+        }
+    }
+}
+
+#[test]
 fn purge_commands() {
     let mut s = session(8);
     assert!(!s.is_enabled("edit.purge.undo"));

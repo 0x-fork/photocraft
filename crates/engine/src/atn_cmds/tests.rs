@@ -1173,3 +1173,24 @@ fn numeric_layer_references_refuse_silent_fallback_to_current_selection() {
     assert_eq!(saved_delete["steps"], 1, "recorded explicit delete of sole selected layer must export successfully as target delete");
     assert_eq!(saved_delete["skipped"].as_array().unwrap().len(), 0);
 }
+
+/// A filter recorded against a layer mask must not export as a plain filter that edits the
+/// layer's pixels on replay: Photoshop's descriptor has no field for PhotoCraft's `target`.
+#[test]
+fn add_noise_with_mask_target_is_not_exported_as_pixel_filter() {
+    let masked = Action {
+        name: "Probe".into(),
+        steps: vec![("filter.noise.addNoise".into(), json!({"amount": 75, "seed": 123, "target": "mask"}))],
+        ..Default::default()
+    };
+    assert!(export("Audit", &[&masked], &[], false).is_err());
+    let (_, skipped) = export("Audit", &[&masked], &[], true).unwrap();
+    assert_eq!(skipped, vec![Skipped { action: "Probe".into(), step: 0, id: "filter.noise.addNoise".into() }]);
+    for params in [json!({"amount": 75, "seed": 123}), json!({"amount": 75, "seed": 123, "target": "pixels"})] {
+        let plain = Action { name: "Plain".into(), steps: vec![("filter.noise.addNoise".into(), params)], ..Default::default() };
+        let (bytes, skipped) = export("Audit", &[&plain], &[], false).unwrap();
+        assert!(skipped.is_empty());
+        let imported = import(&bytes).unwrap();
+        assert_eq!(imported.actions[0].steps, vec![("filter.noise.addNoise".to_string(), json!({"amount": 75, "seed": 123}))]);
+    }
+}

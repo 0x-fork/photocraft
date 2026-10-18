@@ -68,7 +68,7 @@ pub(crate) fn after_command(s: &mut Session, id: &str) {
             let now = st.doc.layer(layer);
             let was = prev.layer(layer);
             let surf_eq = |a: Option<&Surface>, b: Option<&Surface>| match (a, b) {
-                (Some(a), Some(b)) => crate_fingerprint(a) == crate_fingerprint(b),
+                (Some(a), Some(b)) => a.format() == b.format() && a.default_pixel() == b.default_pixel() && crate_fingerprint(a) == crate_fingerprint(b),
                 (None, None) => true,
                 _ => false,
             };
@@ -214,7 +214,9 @@ fn fade(s: &mut Session, p: &Value) -> Result<Value> {
     if now.format() != before.format() {
         return Err(EngineError::Other("can't fade a step that changed the layer's pixel format".into()));
     }
-    let area = before.content_bounds().union(&now.content_bounds());
+    // A uniform mask can change every pixel without storing a single tile. In that case
+    // the content bounds are empty, but Fade must still blend across the canvas.
+    let area = if before.default_pixel() != now.default_pixel() { st.doc.bounds() } else { before.content_bounds().union(&now.content_bounds()) };
     let label = format!("Fade {}", src.label);
     s.edit(&label, |doc, _| {
         let l = doc.layer_mut(src.layer).ok_or(EngineError::NoLayer(src.layer))?;
@@ -329,7 +331,7 @@ fn can_caf(s: &Session) -> std::result::Result<(), String> {
 }
 
 /// Mask surface (gray) of an alpha channel by index or name.
-fn channel_mask<'a>(doc: &'a Document, v: &Value) -> Option<&'a Surface> {
+pub(crate) fn channel_mask<'a>(doc: &'a Document, v: &Value) -> Option<&'a Surface> {
     match v {
         Value::Number(n) => doc.channels.get(n.as_u64()? as usize).map(|c| &c.surface),
         Value::String(name) => doc.channels.iter().find(|c| c.name == *name).map(|c| &c.surface),

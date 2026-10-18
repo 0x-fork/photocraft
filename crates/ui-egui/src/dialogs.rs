@@ -664,7 +664,7 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
             if result.is_ok() {
                 crate::filter_dialog::remember(app, &cmd, &d.fields);
                 // A step dialog of a playing action: the action continues after it.
-                crate::actions::resume(app, &d.fields);
+                crate::actions::resume(app, &d.fields)?;
             }
             result
         }
