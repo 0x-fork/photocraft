@@ -4812,6 +4812,7 @@ dependencies = [
  "photocraft-vector",
  "rayon",
  "roxmltree",
+ "same-file",
  "serde",
  "serde_json",
  "tempfile",

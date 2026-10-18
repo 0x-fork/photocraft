@@ -234,7 +234,12 @@ pub fn same_file(a: &str, b: &str) -> bool {
     }
     #[cfg(windows)]
     {
-        // NTFS and FAT compare names without case.
+        // The volume serial number and file index of each, as unix compares dev and inode, so a
+        // hard link (another name for the file) is the same file.
+        if let Ok(same) = same_file::is_same_file(a, b) {
+            return same;
+        }
+        // Should a file not open: NTFS and FAT compare names without case.
         if let (Ok(x), Ok(y)) = (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
             return x.to_string_lossy().to_lowercase() == y.to_string_lossy().to_lowercase();
         }
