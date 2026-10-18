@@ -67,6 +67,8 @@ pub(crate) struct ReorderPreview {
     pub document: std::sync::Arc<Document>,
 }
 
+/// Cache the on-canvas preview of the layer drop in `payload` (a `layer.moveTo` request), unless Preview on Canvas is off.
+/// Marks the destination as hovered every frame; the preview itself is rebuilt only when the target changes.
 pub(crate) fn preview_reorder(app: &mut PhotocraftApp, payload: &serde_json::Value) {
     if !app.ui.layers_panel_options.preview_on_canvas_when_reordering_layers {
         app.reorder_preview = None;
@@ -96,6 +98,7 @@ pub(crate) fn preview_reorder(app: &mut PhotocraftApp, payload: &serde_json::Val
     });
 }
 
+/// The cached reorder preview and its compositor cache key for document `index`, if it was built for that document's current revision.
 pub(crate) fn display_reorder(app: &PhotocraftApp, index: usize) -> Option<(std::sync::Arc<Document>, u64)> {
     if !app.ui.layers_panel_options.preview_on_canvas_when_reordering_layers {
         return None;
@@ -246,6 +249,7 @@ fn options_body(ui: &mut Ui, draft: &mut LayersPanelOptions) {
     ui.checkbox(&mut draft.show_layer_mask_badges, tl!("Show layer mask badges"));
 }
 
+/// Show the pending Layers panel dialog (Panel Options, New Layer, New Group, Lock Layers) as a modal and apply it on OK.
 pub fn show_dialog(app: &mut PhotocraftApp, ctx: &Context) {
     let Some(mut dialog) = app.ui.layers_panel_dialog.take() else { return };
     let mut confirmed = false;
@@ -337,6 +341,7 @@ pub fn show_dialog(app: &mut PhotocraftApp, ctx: &Context) {
 mod tests {
     use super::*;
 
+    /// A fresh install shows Medium thumbnails of the whole document, like Photoshop's Panel Options defaults.
     #[test]
     fn default_panel_options_match_medium_document_previews() {
         let options = LayersPanelOptions::default();
@@ -369,6 +374,7 @@ mod tests {
         assert!(!app.session.prefs().interface.clip_thumbnails_to_layer_bounds);
     }
 
+    /// The options survive a UiState round trip; an open dialog is view state and is never serialized.
     #[test]
     fn options_round_trip_without_a_pending_dialog() {
         let mut ui = crate::state::UiState::default();
@@ -402,6 +408,7 @@ mod tests {
         assert!(app.ui.mask_target);
     }
 
+    /// Every option, including the mask badges, goes to the preferences and comes back from them.
     #[test]
     fn prefs_options_save_and_restore_all_switches() {
         let mut session = photocraft_engine::Session::new();
@@ -425,6 +432,7 @@ mod tests {
         assert_eq!(app.ui.layers_panel_options, saved);
     }
 
+    /// The flyout's Flatten Image runs the real `layer.flattenImage` command, and Undo brings the layers back.
     #[test]
     fn flyout_flatten_routes_to_real_engine_and_undo_restores_layers() {
         let mut session = photocraft_engine::Session::new();
@@ -444,6 +452,7 @@ mod tests {
         assert_eq!(app.session.active().unwrap().doc.layers.len(), count);
     }
 
+    /// Thumbnail and row sizes grow from None to Large in both themes, with the rows at least as tall as the thumbnails.
     #[test]
     fn geometry_matches_four_real_panel_sizes() {
         for pro in [false, true] {
@@ -458,6 +467,7 @@ mod tests {
         assert_eq!(thumbnail_geometry(LayerThumbnailSize::Large, true), (48.0, 56.0));
     }
 
+    /// Preferences saved before an option existed still load, with the default for the missing ones.
     #[test]
     fn panel_options_missing_fields_deserialize_with_defaults() {
         let options: LayersPanelOptions = serde_json::from_value(json!({})).unwrap();

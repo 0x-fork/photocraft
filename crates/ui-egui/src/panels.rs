@@ -2954,6 +2954,10 @@ fn layer_row(
     // The Layers Panel Options thumbnail size controls rows and both layer/mask thumbnails.
     let (base, row_h) = crate::layers_panel_ui::thumbnail_geometry(app.ui.layers_panel_options.thumbnail_size, t.pro);
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), row_h), Sense::click_and_drag());
+    // With thumbnails off no mask thumbnail is drawn, so none may keep catching drags from older frames.
+    if base == 0.0 {
+        crate::mask_thumbs_ui::forget(ctx, l.id.0);
+    }
     // A drag from a mask's thumbnail drags that mask, not the layer (#3113, #3119).
     let mask_drag = starts_mask_drag(ctx, l, &resp);
     if let Some(kind) = mask_drag {
