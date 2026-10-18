@@ -1143,6 +1143,8 @@ fn choice_label(v: &str) -> String {
         "dx12" => "DirectX 12".into(),
         "metal" => "Metal".into(),
         "gl" => "OpenGL".into(),
+        "ahd" => "AHD (adaptive homogeneity)".into(),
+        "mhc" => "Malvar–He–Cutler".into(),
         "cpu" => "CPU (no GPU acceleration)".into(),
         v => humanize(v),
     }
@@ -3481,9 +3483,10 @@ mod tests {
         assert!(has_visible_fields(&values, "enhancedControls"));
         assert!(!prefs::is_hidden("enhancedControls.rotateViewWithTrackpad"));
         assert!(!prefs::is_hidden("enhancedControls.zoomWithTrackpadPinch"));
-        // Camera Raw Defaults shows only "Open in Camera Raw" so far.
+        // Camera Raw Defaults shows "Open in Camera Raw" and the demosaic method so far.
         assert!(has_visible_fields(&values, "rawDefaults"));
         assert!(!prefs::is_hidden("rawDefaults.openInCameraRaw"));
+        assert!(!prefs::is_hidden("rawDefaults.demosaic"));
         assert!(prefs::is_hidden("rawDefaults.applyAutoTone"));
         assert!(!prefs::is_hidden("general.autoShowHomeScreen"));
         assert!(!prefs::is_hidden("interface.uiScale"));
