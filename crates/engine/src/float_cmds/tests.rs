@@ -223,10 +223,10 @@ fn moving_shrinks_the_selection_to_the_moved_pixels_at_every_depth() {
     }
 }
 
-/// The new selection is the old one times the layer's transparency: a soft selection over
-/// half-transparent pixels keeps both (Photoshop's selection ∩ transparency).
+/// The new selection is the old one where the layer has pixels: a soft selection keeps its soft
+/// edge, and half-transparent pixels stay as selected as they were, so they move whole next time.
 #[test]
-fn the_outline_keeps_soft_edges_and_partial_transparency() {
+fn the_outline_keeps_soft_edges_and_selects_half_transparent_pixels_as_before() {
     let (mut s, id) = session();
     s.edit("soften", |doc, _| {
         // Half-transparent red over (30..40, 10..30), beside the opaque (10..30)² square.
@@ -244,7 +244,7 @@ fn the_outline_keeps_soft_edges_and_partial_transparency() {
     let near = |x: i32, y: i32, want: f32| assert!((selected(doc, x, y) - want).abs() < 0.01, "({x}, {y}): {} for {want}", selected(doc, x, y));
     near(25, 20, 1.0); // fully selected, opaque
     near(35, 20, 0.5); // half selected, opaque
-    near(45, 20, 0.25); // half selected, half transparent
+    near(45, 20, 0.5); // half selected, half transparent: as selected as before
     near(5, 5, 0.0); // selected, but nothing there
     assert_eq!(doc.selection.as_ref().unwrap().content_bounds(), Rect::new(20, 10, 50, 30));
 }
@@ -278,4 +278,38 @@ fn the_selection_just_moves_without_transparency_to_shrink_to() {
     s.execute("select.float", json!({"dx": 5, "dy": 0, "target": "mask"})).unwrap();
     s.execute("select.drop", json!({})).unwrap();
     assert_eq!(s.active().unwrap().doc.selection.as_ref().unwrap().content_bounds(), Rect::new(10, 5, 50, 45), "the mask");
+}
+
+/// #7538: an anti-aliased shape moved, dropped, then moved again from its shrunk selection leaves
+/// nothing behind. With the selection shrunk to the pixels' alpha, the second move left
+/// a × (1 − a) of each edge pixel (up to 25 %), a faint outline where the shape had been.
+#[test]
+fn moving_again_from_the_shrunk_selection_leaves_no_edge_behind() {
+    for depth in [8, 16, 32] {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 120, "height": 100, "background": "transparent", "depth": depth})).unwrap();
+        s.execute("select.rect", json!({"x": 20, "y": 20, "width": 50, "height": 40, "ellipse": true})).unwrap();
+        s.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+        let id = s.active().unwrap().active_layer.unwrap();
+        let total = |doc: &Document| (0..100).flat_map(|y| (0..120).map(move |x| (x, y))).map(|(x, y)| alpha(doc, id, x, y)).sum::<f32>();
+        let (before, soft) = {
+            let doc = &s.active().unwrap().doc;
+            (total(doc), (0..100).flat_map(|y| (0..120).map(move |x| (x, y))).filter(|&(x, y)| (0.01..0.99).contains(&alpha(doc, id, x, y))).count())
+        };
+        assert!(soft > 20, "{depth}-bit: the ellipse has anti-aliased edges ({soft})");
+        s.execute("select.rect", json!({"x": 10, "y": 10, "width": 70, "height": 60})).unwrap();
+        s.execute("select.float", json!({"dx": 40, "dy": 30})).unwrap();
+        s.execute("select.drop", json!({})).unwrap();
+        // The ellipse now sits at (60..110, 50..90); move it back where it started.
+        s.execute("select.float", json!({"dx": -40, "dy": -30})).unwrap();
+        s.execute("select.drop", json!({})).unwrap();
+        let doc = &s.active().unwrap().doc;
+        let leftover = (50..100)
+            .flat_map(|y| (55..115).map(move |x| (x, y)))
+            .filter(|&(x, y)| x >= 72 || y >= 62)
+            .map(|(x, y)| alpha(doc, id, x, y))
+            .fold(0.0f32, f32::max);
+        assert_eq!(leftover, 0.0, "{depth}-bit: nothing left where it was moved from");
+        assert!((total(doc) - before).abs() < 0.05, "{depth}-bit: every edge pixel came back whole ({} vs {before})", total(doc));
+    }
 }

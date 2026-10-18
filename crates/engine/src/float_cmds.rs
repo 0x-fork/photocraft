@@ -33,9 +33,9 @@ pub struct CutParts {
     pub layer: LayerId,
     rest: Surface,
     piece: Surface,
-    /// The selection the moved pixels take, unmoved: the selection limited to the layer's
-    /// transparency (Photoshop shrinks the marching ants to the piece as the drag starts, #7538).
-    /// `None` keeps the selection: a mask has no transparency, and an empty piece no outline.
+    /// The selection the moved pixels take, unmoved: the selection limited to where the layer has
+    /// pixels (Photoshop shrinks the marching ants to the piece as the drag starts, #7538). `None`
+    /// keeps the selection: a mask has no transparency, and an empty piece no outline.
     outline: Option<Surface>,
     /// The pieces are the layer's mask (`"target":"mask"`), not its pixels.
     mask: bool,
@@ -74,8 +74,15 @@ impl CutParts {
             let mut rp = full.read_region(b);
             let mut pp = rp.clone();
             let w = b.width() as usize;
+            let mut cover = Vec::with_capacity(if mask { 0 } else { w * b.height() as usize });
             for (i, (p, r)) in pp.chunks_exact_mut(n).zip(rp.chunks_exact_mut(n)).enumerate() {
                 let k = sel.sample_channel(b.x0 + (i % w) as i32, b.y0 + (i / w) as i32, 0);
+                if !mask {
+                    // Where the layer has pixels, the selection keeps its strength: shrinking it to
+                    // their alpha would leave half-transparent edges partly behind on the next
+                    // move, a faint outline (#7538).
+                    cover.push(if p[a] > 0.0 { k.max(0.0) } else { 0.0 });
+                }
                 if k <= 0.0 {
                     p.fill(0.0);
                 } else {
@@ -93,8 +100,7 @@ impl CutParts {
             }
             rest.prune();
             if !mask {
-                // The piece's alpha is the selection times the layer's transparency.
-                outline.write_region(b, &pp.chunks_exact(n).map(|p| p[a]).collect::<Vec<_>>());
+                outline.write_region(b, &cover);
                 outline.prune();
             }
             piece.write_region(b, &pp);
@@ -270,7 +276,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Drop Floating Selection",
             menu: &[],
             shortcut: None,
-            params: r##"{} → {dropped, offset} (drops the floating piece into its layer and moves the selection with it, shrunk to the moved pixels: the selection times the layer's transparency, as in Photoshop; a mask or an empty piece keeps the selection's shape; one history step)"##,
+            params: r##"{} → {dropped, offset} (drops the floating piece into its layer and moves the selection with it, shrunk to the moved pixels: the selection limited to where the layer has pixels, as in Photoshop; a mask or an empty piece keeps the selection's shape; one history step)"##,
             enabled: |s| s.active().map(|_| ()).ok_or_else(|| "no document".into()),
             journal: true,
             run: |s, _| drop_floating(s),
