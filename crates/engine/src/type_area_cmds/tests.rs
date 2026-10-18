@@ -103,15 +103,20 @@ fn fill_path_rejects_bad_paths_without_history() {
         assert_eq!(history(&s), h, "no history step on error");
         assert_eq!(text(&s, id).shape, TextShape::Point);
     }
-    for p in [json!({"shape": "x"}), json!({"shape": u64::MAX}), json!({"layer": u64::MAX})] {
-        assert!(s.execute("type.fillPath", p).is_err());
+    // Bad params, a shape param that is not a shape layer, and a locked layer: each refused
+    // without a history step or a change to the layer.
+    let refused = |s: &mut Session, p: serde_json::Value| {
+        let h = history(s);
+        assert!(s.execute("type.fillPath", p.clone()).is_err(), "{p}");
+        assert_eq!(history(s), h, "no history step on error: {p}");
+        assert_eq!(text(s, id).shape, TextShape::Point, "{p}");
+    };
+    for p in [json!({"shape": "x"}), json!({"shape": u64::MAX}), json!({"layer": u64::MAX}), json!({"shape": id.0})] {
+        refused(&mut s, p);
     }
-    // A shape param that is not a shape layer.
-    assert!(s.execute("type.fillPath", json!({"shape": id.0})).is_err());
-    // Locked layer.
     set_work_path(&mut s, Path::new(vec![Subpath::polygon(&[(0.0, 0.0), (200.0, 0.0), (200.0, 200.0)])]));
     s.execute("layer.setProps", json!({"layer": id.0, "locked": true})).unwrap();
-    assert!(s.execute("type.fillPath", json!({})).is_err());
+    refused(&mut s, json!({}));
 }
 
 #[test]
