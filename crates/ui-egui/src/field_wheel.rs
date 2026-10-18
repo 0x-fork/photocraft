@@ -40,9 +40,11 @@ fn taken_id() -> Id {
     Id::new("pc-field-wheel-taken")
 }
 
-/// A wheel event the focused field takes: plain or Shift, not the view's Alt or Ctrl/Cmd zoom.
+/// A wheel event a field takes: plain or Shift, not the view's Alt or Ctrl/Cmd zoom, nor a plain
+/// sideways scroll (a trackpad swipe pans the view; Shift+wheel can arrive sideways).
 fn for_field(e: &Event) -> bool {
-    matches!(e, Event::MouseWheel { modifiers, .. } if !modifiers.alt && !modifiers.ctrl && !modifiers.command && !modifiers.mac_cmd)
+    matches!(e, Event::MouseWheel { delta, modifiers, .. }
+        if (delta.y != 0.0 || modifiers.shift) && !modifiers.alt && !modifiers.ctrl && !modifiers.command && !modifiers.mac_cmd)
 }
 
 /// Before this frame's UI is laid out: hand the wheel to the focused value field, if any, and
@@ -53,20 +55,23 @@ pub fn begin_frame(ctx: &Context) {
     let focused = ctx.data(|d| d.get_temp::<(Id, Id)>(focused_id())).filter(|(id, _)| ctx.memory(|m| m.has_focus(*id)));
     let (now, wheel) = ctx.input(|i| (i.time, i.events.iter().any(|e| matches!(e, Event::MouseWheel { .. }))));
     if let Some((_, field)) = focused {
-        let taken: Vec<Event> = ctx.input_mut(|i| {
+        let (taken, view_wheel): (Vec<Event>, bool) = ctx.input_mut(|i| {
             let (taken, rest) = std::mem::take(&mut i.events).into_iter().partition(for_field);
             i.events = rest;
-            // egui spreads each notch over a few frames: none of it scrolls anything meanwhile.
-            if !i.events.iter().any(|e| matches!(e, Event::MouseWheel { .. })) {
-                i.smooth_scroll_delta = Vec2::ZERO;
-            }
-            taken
+            (taken, i.events.iter().any(|e| matches!(e, Event::MouseWheel { .. })))
         });
+        if wheel {
+            // The latest wheel is the view's when any of it was left to the view (Alt, Ctrl/Cmd).
+            let owner = if view_wheel { Owner::Elsewhere } else { Owner::Field(field) };
+            ctx.data_mut(|d| d.insert_temp(gesture_id(), Gesture { last: now, owner }));
+        }
         if !taken.is_empty() {
-            ctx.data_mut(|d| {
-                d.insert_temp(taken_id(), taken);
-                d.insert_temp(gesture_id(), Gesture { last: now, owner: Owner::Field(field) });
-            });
+            ctx.data_mut(|d| d.insert_temp(taken_id(), taken));
+        }
+        // egui spreads each notch over a few frames: the tail of the field's own notches scrolls
+        // nothing, while the view's keeps all of its own.
+        if ctx.data(|d| d.get_temp::<Gesture>(gesture_id())).is_some_and(|g| g.owner == Owner::Field(field)) {
+            ctx.input_mut(|i| i.smooth_scroll_delta = Vec2::ZERO);
         }
         return;
     }
@@ -207,6 +212,27 @@ mod tests {
         h.run_steps(1);
         assert_eq!(h.state().0, 100.0, "the field passing under the pointer is not stepped");
         assert!(h.state().1 > 0.0, "the panel scrolled");
+    }
+
+    /// A plain sideways scroll (a trackpad swipe) is the view's, focused or hovered; Shift+wheel
+    /// that the system turned sideways still steps by ten.
+    #[test]
+    fn a_sideways_scroll_steps_a_field_only_with_shift() {
+        for focus in [false, true] {
+            for (m, want) in [(Modifiers::NONE, 100.0), (Modifiers::SHIFT, 110.0)] {
+                let mut h = harness(100.0);
+                if focus {
+                    h.get_by_role(Role::SpinButton).click();
+                    h.run();
+                }
+                let at = field(&h).center();
+                h.hover_at(at);
+                h.run_steps(1);
+                h.event(egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: vec2(1.0, 0.0), phase: egui::TouchPhase::Move, modifiers: m });
+                h.run_steps(4);
+                assert_eq!(h.state().0, want, "focus {focus}, {m:?}");
+            }
+        }
     }
 
     #[test]

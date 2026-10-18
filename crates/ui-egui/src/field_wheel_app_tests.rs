@@ -71,3 +71,35 @@ fn the_wheel_over_a_field_steps_it_without_a_click() {
     assert!(!field(&h, "21").is_focused(), "hovering doesn't put the cursor in the field");
     assert_eq!(view(&h), before, "the canvas didn't move");
 }
+
+/// How far a wheel of `delta` lines with `modifiers` over the canvas moves the view, a Smoothing
+/// field focused or not, once egui's smoothed scroll has run out. The field isn't stepped.
+fn canvas_pan(focus: bool, delta: egui::Vec2, modifiers: egui::Modifiers) -> (f32, [f32; 2]) {
+    let mut h = harness();
+    if focus {
+        field(&h, "10").click();
+        h.run();
+    }
+    let canvas = egui::pos2(640.0, 500.0);
+    h.hover_at(canvas);
+    h.run_steps(1);
+    let before = view(&h);
+    h.event(egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta, phase: egui::TouchPhase::Move, modifiers });
+    h.run_steps(40);
+    assert!(h.query_all_by_role(Role::SpinButton).any(|n| n.value().as_deref() == Some("10")), "focus {focus}: the field wasn't stepped");
+    let after = view(&h);
+    (after.0 / before.0, [after.1[0] - before.1[0], after.1[1] - before.1[1]])
+}
+
+/// The wheel a focused field leaves to the view moves it as far as with no field focused: its
+/// smoothed tail isn't cut off (⌘/Ctrl + wheel, and a plain sideways trackpad swipe).
+#[test]
+fn the_view_keeps_its_whole_wheel_while_a_field_is_focused() {
+    for (delta, m) in [(vec2(0.0, -1.0), egui::Modifiers::COMMAND), (vec2(0.0, -1.0), egui::Modifiers::CTRL), (vec2(-1.0, 0.0), egui::Modifiers::NONE)] {
+        let free = canvas_pan(false, delta, m);
+        assert!(free != (1.0, [0.0, 0.0]), "{delta:?} {m:?}: the wheel moves the view");
+        let focused = canvas_pan(true, delta, m);
+        let close = (focused.0 - free.0).abs() < 1e-3 && (0..2).all(|k| (focused.1[k] - free.1[k]).abs() < 0.5);
+        assert!(close, "{delta:?} {m:?}: {focused:?} with a field focused, {free:?} without");
+    }
+}
