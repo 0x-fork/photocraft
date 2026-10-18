@@ -242,7 +242,7 @@ fn upload(ctx: &egui::Context, app: &PhotocraftApp, name: &str, doc: &Document) 
 }
 
 /// The reduction that fits a `w`×`h` image inside a `max_side` texture (1: it already fits).
-fn texture_factor(w: u32, h: u32, max_side: usize) -> u32 {
+pub(crate) fn texture_factor(w: u32, h: u32, max_side: usize) -> u32 {
     let max_side = u32::try_from(max_side).unwrap_or(u32::MAX).max(1);
     w.max(h).div_ceil(max_side).max(1)
 }
@@ -329,6 +329,7 @@ mod tests {
                     None,
                     ChannelTarget::Alpha(0),
                     &[],
+                    &Default::default(),
                 )
                 .unwrap();
                 let ctx = egui::Context::default();
