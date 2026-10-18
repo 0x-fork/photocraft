@@ -496,7 +496,7 @@ fn main() -> eframe::Result {
         unreadable_paths,
         safe_gpu,
         new_instance,
-        mut launch_options,
+        launch_options,
         present_mode_arg,
         frame_latency_arg,
         stroke_trace_arg,
@@ -525,6 +525,9 @@ fn main() -> eframe::Result {
         // A variable documented as the equivalent of a per-launch flag counts as that flag: a
         // launch that sets only `PHOTOCRAFT_PRESENT_MODE` (say) has per-process options too, so it
         // keeps its own process instead of handing its files over and being ignored.
+        // Folded in here, inside the block that only non-macOS builds compile, so the binding
+        // above keeps its `mut` off macOS, where nothing is folded in.
+        let mut launch_options = launch_options;
         launch_options.extend_from_slice(&single_instance::env_launch_options());
         let context = single_instance::LaunchContext {
             per_user_settings: app_dirs::current().mode == app_dirs::Mode::Platform,
