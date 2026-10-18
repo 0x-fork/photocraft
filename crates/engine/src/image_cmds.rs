@@ -273,6 +273,17 @@ fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }
 }
 
+/// The flattened document, or an error when the canvas is over the compositor's render cap
+/// ([`photocraft_compose::MAX_RENDER_PIXELS`]; `flatten` returns an empty buffer then).
+fn flatten_whole(doc: &Document, cmd: &str) -> Result<photocraft_compose::Buffer> {
+    let buf = photocraft_compose::flatten(doc);
+    let (w, h) = (doc.size.width, doc.size.height);
+    if buf.px.len() as u64 != u64::from(w) * u64::from(h) {
+        return Err(bad(cmd, format!("the document ({w} x {h} px) is too large to flatten (limit {} pixels)", photocraft_compose::MAX_RENDER_PIXELS)));
+    }
+    Ok(buf)
+}
+
 /// Moves every surface, channel, selection and guide by `(dx, dy)`.
 ///
 /// Fails, before moving anything, when some pixels would land outside the i32 coordinate
@@ -650,11 +661,11 @@ fn rotated_crop(s: &mut Session, r: Rect, angle: f64, delete: bool, content_awar
 fn trim(s: &mut Session, p: &Value) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let canvas = d.doc.bounds();
-    let buf = photocraft_compose::flatten(&d.doc);
+    let buf = flatten_whole(&d.doc, "image.trim")?;
     let based = p.get("basedOn").and_then(Value::as_str).unwrap_or("transparent");
     let w = canvas.width() as usize;
     let reference = match based {
-        "topLeft" => Some(buf.px[0]),
+        "topLeft" => buf.px.first().copied(),
         "bottomRight" => buf.px.last().copied(),
         _ => None,
     };
@@ -729,7 +740,7 @@ fn duplicate(s: &mut Session, p: &Value) -> Result<Value> {
     doc.id = photocraft_doc::DocId::fresh();
     doc.name = p.get("name").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| format!("{} copy", d.doc.name));
     if p.get("mergedOnly").and_then(Value::as_bool).unwrap_or(false) {
-        let buf = photocraft_compose::flatten(&doc);
+        let buf = flatten_whole(&doc, "image.duplicate")?;
         let fmt = doc.pixel_format();
         let mut surf = Surface::new(fmt);
         let vals: Vec<f32> = buf.px.iter().flat_map(|q| photocraft_raster::from_rgba(&fmt, *q)).collect();
