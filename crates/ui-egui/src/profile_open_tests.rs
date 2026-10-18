@@ -204,7 +204,8 @@ fn a_held_file_still_reports_its_missing_fonts() {
     s.execute("type.create", serde_json::json!({"text": "Hi", "x": 2, "y": 12, "size": 10, "font": MISSING})).unwrap();
     let mut doc = (*s.active().unwrap().doc).clone();
     doc.icc_profile = Some(photocraft_cms::Builtin::from_id("adobe-rgb-compat").unwrap().profile().to_bytes());
-    let services = Services { import: Some(Box::new(move |_: &str, _: &[u8], _: &photocraft_io::ImportOptions| Ok((doc.clone(), Vec::new())))), ..Default::default() };
+    let services =
+        Services { import: Some(Box::new(move |_: &str, _: &[u8], _: &photocraft_io::ImportOptions| Ok((doc.clone(), Vec::new())))), ..Default::default() };
     let mut app = PhotocraftApp::new(Session::new(), services);
     app.run("edit.colorSettings", serde_json::json!({"askOnMismatch": true, "policyRgb": "preserve"})).unwrap();
     assert_eq!(app.open_bytes("poster.psd", b"x").unwrap(), vec![warning.clone()]);
