@@ -732,7 +732,6 @@ struct Draw<'a> {
     /// The selected preset's name (by identity, so look-alike duplicates stay distinct).
     current: Option<&'a str>,
     collapsed: &'a [String],
-    filtering: bool,
     grid: bool,
     layout: ListLayout,
     /// The picker cards' parts — name, stroke, tip — from the gear's boxes.
@@ -824,7 +823,7 @@ fn draw_nodes(ui: &mut egui::Ui, d: &Draw, nodes: &[Node], depth: usize, acts: &
             Node::Preset(p) => run.push(p),
             Node::Folder(f) => {
                 flush(ui, &mut run, acts);
-                let open = d.filtering || !d.collapsed.contains(&folder_view_key(d.label, &f.path));
+                let open = !d.collapsed.contains(&folder_view_key(d.label, &f.path));
                 group_header(ui, d.label, d.key, &f.path, open, f.count, acts);
                 if open && depth < MAX_VIEW_DEPTH {
                     draw_nodes(ui, d, &f.children, depth + 1, acts);
@@ -902,12 +901,12 @@ pub fn preset_list(ui: &mut egui::Ui, presets: &[BrushPreset], current: Option<&
                 continue;
             }
             let key = group_key(presets, &label);
-            let open = !filter.is_empty() || !collapsed.contains(&label);
+            let open = !collapsed.contains(&label);
             group_header(ui, &label, &key, &[], open, items.len(), &mut acts);
             if !open {
                 continue;
             }
-            let d = Draw { label: &label, key: &key, presets, current, collapsed, filtering: !filter.is_empty(), grid, layout, show, scale: st.scale };
+            let d = Draw { label: &label, key: &key, presets, current, collapsed, grid, layout, show, scale: st.scale };
             draw_nodes(ui, &d, &folder_tree(&items), 0, &mut acts);
             ui.add_space(2.0);
         }
