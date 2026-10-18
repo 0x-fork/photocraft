@@ -25,12 +25,18 @@ fn method_picker_is_pending_until_confirm_and_survives_reopening() {
     app.run("layer.layerStyle.gradientOverlay", json!({"from": "#ff0000", "to": "#0000ff"})).unwrap();
     let original = effect(&app).clone();
     let pending_fields = fields(&app);
-    let mut harness = egui_kittest::Harness::builder()
-        .with_size(vec2(1000.0, 1000.0))
-        .build_ui_state(|ui, state: &mut (PhotocraftApp, Map<String, Value>)| body(&mut state.0, ui, &mut state.1), (app, pending_fields));
+    let mut harness = egui_kittest::Harness::builder().with_size(vec2(1000.0, 1000.0)).build_ui_state(
+        |ui, state: &mut (PhotocraftApp, Map<String, Value>)| {
+            // The harness draws once before setup_context installs the app fonts.
+            if ui.ctx().fonts(|fonts| fonts.families().contains(&egui::FontFamily::Name("semibold".into()))) {
+                body(&mut state.0, ui, &mut state.1);
+            }
+        },
+        (app, pending_fields),
+    );
     PhotocraftApp::setup_context(&harness.ctx, crate::theme::ThemeKind::ALL[0]);
     harness.run_steps(3);
-    harness.get_by_label("Custom").click();
+    harness.get_by_value("Custom").click();
     harness.run_steps(2);
     harness.get_by_label("Smooth").click();
     harness.run_steps(2);
