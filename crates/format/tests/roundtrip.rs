@@ -12,6 +12,46 @@ use photocraft_raster::Rgba8Image;
 const MODES: [ColorMode; 4] = [ColorMode::Rgb, ColorMode::Grayscale, ColorMode::Cmyk, ColorMode::Lab];
 
 #[test]
+fn gradient_overlay_interpolation_roundtrips_in_native_documents() {
+    use photocraft_doc::effects::GradientInterpolation;
+    use photocraft_doc::{Color, Effect, FxCommon, Gradient};
+
+    for mode in MODES {
+        for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+            let mut doc = rich_doc(mode, depth);
+            let source = GradientInterpolation {
+                method: "smooth".into(),
+                smoothness: 73.0,
+                stops: vec![(0.0, Color::rgb(0.123456, 0.4, 0.9)), (0.4, Color::WHITE), (1.0, Color::BLACK)],
+            };
+            let effect = Effect::GradientOverlay {
+                common: FxCommon::new(photocraft_doc::BlendMode::Normal, 1.0),
+                gradient: Gradient::default(),
+                dither: true,
+                interpolation: Some(source),
+            }
+            .in_mode(mode);
+            doc.layers.first_mut().unwrap().effects.items.push(effect);
+            let bytes = save_to_bytes(&doc, &SaveOptions::default()).unwrap();
+            assert_eq!(load_from_bytes(&bytes).unwrap(), doc);
+        }
+    }
+}
+
+#[test]
+fn old_effect_snapshots_need_no_interpolation_record() {
+    let effect = photocraft_doc::Effect::GradientOverlay {
+        common: photocraft_doc::FxCommon::new(photocraft_doc::BlendMode::Normal, 1.0),
+        gradient: photocraft_doc::Gradient::default(),
+        dither: false,
+        interpolation: None,
+    };
+    let json = serde_json::to_value(&effect).unwrap();
+    assert!(json["GradientOverlay"].get("interpolation").is_none());
+    assert_eq!(serde_json::from_value::<photocraft_doc::Effect>(json).unwrap(), effect);
+}
+
+#[test]
 fn custom_shape_stroke_roundtrip_keeps_every_style_field() {
     for mode in MODES {
         for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
