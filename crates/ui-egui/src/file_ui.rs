@@ -1674,7 +1674,7 @@ mod web_playback_tests {
                 let doc = web_frame_document(&app.session.active().unwrap().doc, Some(frame)).unwrap();
                 let (proxy, _, _) = web_cmds::web_document(&doc, &json!({"width":16,"height":12}), &settings).unwrap();
                 let pixels = photocraft_compose::flatten(&proxy);
-                let optimized = web_cmds::optimize(&pixels.px, 16, photocraft_geom::Rect::new(0, 0, 16, 12), &settings, None, None, 72.0, true).unwrap();
+                let optimized = web_cmds::optimize(&pixels.px, 16, photocraft_geom::Rect::new(0, 0, 16, 12), &settings, None, None, None, 72.0, true).unwrap();
                 assert_eq!(&optimized.preview[..4], expected, "depth={depth} frame={frame}");
             }
         }
