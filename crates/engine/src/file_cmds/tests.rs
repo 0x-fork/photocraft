@@ -1315,10 +1315,13 @@ fn save_a_copy_writes_the_tiff_compression_asked_for() {
         assert_eq!(photocraft_io::import("a.tif", &bytes).unwrap().document.size, photocraft_geom::Size::new(12, 6));
     }
     let mut s = session(8, 8, 8);
+    let state = |s: &Session| s.active().map(|st| (st.revision, st.path.clone(), st.is_dirty()));
+    let before = state(&s);
     for bad in [json!("jpeg"), json!("LZW"), json!(5), json!(true)] {
         let out = join(&dir, "bad.tif");
         let r = s.execute("file.saveACopy", json!({"path": out, "tiffCompression": bad}));
         assert!(matches!(r, Err(EngineError::BadParams { .. })), "{bad}: {r:?}");
         assert!(!std::path::Path::new(&out).exists(), "{bad}: nothing written");
+        assert_eq!(state(&s), before, "{bad}: the document is as it was");
     }
 }
