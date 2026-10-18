@@ -135,6 +135,21 @@ fn capture(h: &mut Harness<'_, PhotocraftApp>, button: &str, modifier: Key, held
 }
 
 #[test]
+fn shift_is_recorded_when_modifier_key_events_carry_no_bits() {
+    // #7190: some platforms report ShiftLeft/ShiftRight with Modifiers::NONE; the real key can
+    // too, so capture must walk the frame's events instead of trusting one Key event.
+    let (mut h, id) = dialog(1.0, "edit.search", "search…");
+    h.get_by_label(&crate::shortcuts::pretty("Cmd+F")).click();
+    h.run_steps(2);
+    key(&mut h, Key::ShiftLeft, true, Modifiers::NONE);
+    h.run_steps(1);
+    key(&mut h, Key::F6, true, Modifiers::NONE);
+    h.run_steps(2);
+    assert_eq!(field(&h, id, "overrides")["edit.search"], json!("Shift+F6"));
+    assert_eq!(field(&h, id, "capture"), json!(false));
+}
+
+#[test]
 fn ctrl_k_is_recorded_as_ctrl_k_not_the_control_key() {
     for ppp in [1.0, 2.0] {
         let (mut h, id) = dialog(ppp, "edit.search", "search…");
