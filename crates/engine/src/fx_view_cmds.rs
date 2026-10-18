@@ -10,10 +10,12 @@ use crate::{EngineError, Result, Session};
 
 const ID: &str = "layer.setEffectsExpanded";
 
+/// A `layer.setEffectsExpanded` parameter error.
 fn bad(msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: ID.into(), msg: msg.into() }
 }
 
+/// The command is available while some layer has effects or Smart Filters to disclose.
 fn has_effects(s: &Session) -> std::result::Result<(), String> {
     let d = s.active().ok_or("no document open")?;
     if d.doc.walk().iter().any(|(_, _, l)| has_children(l)) { Ok(()) } else { Err("no layer has effects or smart filters".into()) }
@@ -24,6 +26,7 @@ fn has_children(l: &Layer) -> bool {
     !l.effects.items.is_empty() || matches!(&l.content, LayerContent::Smart(sm) if !sm.smart_filters.is_empty())
 }
 
+/// An optional boolean param: `None` when absent or null, an error when it is anything but true or false.
 fn opt_bool(p: &Value, key: &str) -> Result<Option<bool>> {
     match p.get(key) {
         None | Some(Value::Null) => Ok(None),
@@ -64,6 +67,7 @@ fn set_expanded(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"expanded": expanded, "layers": targets.len()}))
 }
 
+/// Register `layer.setEffectsExpanded`: view state, so it is not journaled and adds no undo step.
 pub fn specs() -> Vec<CommandSpec> {
     vec![CommandSpec {
         id: ID,
@@ -93,6 +97,7 @@ mod tests {
         (s, a, b)
     }
 
+    /// Whether the layer's effects list is shown, i.e. it is not in the document's collapsed set.
     fn open(s: &Session, id: u64) -> bool {
         !s.active().unwrap().fx_collapsed.contains(&LayerId(id))
     }
@@ -120,6 +125,7 @@ mod tests {
         assert!(s.active().unwrap().fx_collapsed.is_empty());
     }
 
+    /// Toggling one layer or all of them flips only the disclosure state: no history step, no duplicates, and the document stays clean.
     #[test]
     fn toggles_one_layer_or_all_without_history() {
         let (mut s, a, b) = session();

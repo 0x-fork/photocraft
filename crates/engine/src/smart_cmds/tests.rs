@@ -77,6 +77,7 @@ fn non_normal_coverage_changes_retain_source_over_semantics() {
     }
 }
 
+/// A `depth`-bit document with one empty layer.
 fn session(depth: u64) -> Session {
     let mut s = Session::new();
     s.execute("file.new", json!({"width": W, "height": H, "depth": depth})).unwrap();

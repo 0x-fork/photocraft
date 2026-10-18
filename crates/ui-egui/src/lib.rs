@@ -2330,6 +2330,7 @@ impl PhotocraftApp {
         id
     }
 
+    /// The cached thumbnail of `mask`, the layer mask of layer `id`.
     pub fn mask_thumb(&mut self, ctx: &egui::Context, doc: &Document, id: photocraft_doc::LayerId, mask: &photocraft_doc::LayerMask) -> egui::TextureId {
         self.mask_thumb_kind(ctx, doc, id, mask, mask_thumbs_ui::THUMB_MASK)
     }

@@ -206,6 +206,7 @@ pub fn filter_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, doc: &Document, l
 /// Filters row, all of them). Also what a click selects.
 pub(crate) type FilterDrag = (u64, Option<usize>);
 
+/// Memory key of the smart filter row being dragged.
 pub(crate) fn drag_key() -> egui::Id {
     egui::Id::new("smart-filter-drag")
 }
