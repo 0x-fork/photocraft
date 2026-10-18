@@ -346,6 +346,8 @@ pub fn apply_saved_preset(f: &mut Map<String, Value>, preset: &photocraft_engine
 /// Restore every setting of a saved or recent document (all but its name).
 pub fn apply_settings(f: &mut Map<String, Value>, settings: &DocumentSettings) {
     f.remove("backgroundColor");
+    // A preset without a Color Profile is on the working space, whatever was picked before.
+    f.remove("profile");
     if let Some(params) = settings.command_params().as_object() {
         f.extend(params.clone());
     }
@@ -745,7 +747,9 @@ pub fn body(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<Strin
                 let opts = profile_options(space, &working, &installed);
                 let mut profile = get_s(f, "profile", "working");
                 if !opts.iter().any(|(v, _)| *v == profile) {
+                    // Not a profile of this mode (or no longer installed): Create must not send it.
                     profile = "working".into();
+                    f.remove("profile");
                 }
                 let shown: Vec<(String, &str)> = opts.iter().map(|(v, l)| (v.clone(), l.as_str())).collect();
                 if widgets::dropdown(ui, "nd-profile", &mut profile, &shown, 240.0) {
@@ -850,6 +854,24 @@ mod tests {
                 s.execute("file.new", json!({"width": 2, "height": 2, "mode": mode, "profile": v})).unwrap_or_else(|e| panic!("{mode} {v}: {e}"));
             }
         }
+    }
+
+    /// A saved preset replaces the Color Profile picked before: its own, or the working space.
+    #[test]
+    fn applying_a_preset_replaces_the_picked_profile() {
+        let mut s = photocraft_engine::Session::new();
+        let base = json!({"width": 8, "height": 8, "mode": "cmyk", "unit": "px"});
+        s.execute("document.presets.save", json!({"name": "Plain", "settings": base})).unwrap();
+        let mut press = base.clone();
+        press["profile"] = json!("coated-cmyk");
+        s.execute("document.presets.save", json!({"name": "Press", "settings": press})).unwrap();
+        let mut f = Map::new();
+        f.insert("profile".into(), json!(photocraft_cms::Builtin::AdobeRgbCompat.id()));
+        apply_saved_preset(&mut f, &s.presets.documents[0]);
+        assert!(!f.contains_key("profile"), "{f:?}");
+        assert!(s.execute("file.new", command_params(&f)).is_ok());
+        apply_saved_preset(&mut f, &s.presets.documents[1]);
+        assert_eq!(f["profile"], "coated-cmyk");
     }
 
     #[test]
@@ -1028,6 +1050,7 @@ mod tests {
             depth: 8,
             background: "white".into(),
             background_color: None,
+            profile: None,
             unit: "px".into(),
             resolution_unit: "in".into(),
         };

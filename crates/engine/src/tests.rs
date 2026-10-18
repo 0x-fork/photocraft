@@ -177,10 +177,12 @@ fn file_new_tags_the_document_with_the_chosen_profile() {
     }
     // A profile that doesn't suit the mode, an unknown one or a wrong type opens nothing.
     let open = s.documents().len();
+    let (active, steps) = (s.active().unwrap().doc.id, s.active().unwrap().history.past_len());
     for bad in [json!("coated-cmyk"), json!("no-such-profile"), json!(""), json!(7), json!(null)] {
         assert!(s.execute("file.new", json!({"width": 4, "height": 4, "profile": bad})).is_err(), "{bad}");
+        assert_eq!(s.documents().len(), open, "{bad}");
+        assert_eq!((s.active().unwrap().doc.id, s.active().unwrap().history.past_len()), (active, steps), "{bad}");
     }
-    assert_eq!(s.documents().len(), open);
 }
 
 #[test]
