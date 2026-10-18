@@ -259,6 +259,13 @@ pub(crate) fn is_preview_key(key: u64) -> bool {
     key > BASE && key < BASE << 1
 }
 
+/// Does a Move drag of whole layers take the selection along? With several layers selected, as
+/// in Photoshop (#7538): their selected pixels can't float, so the layers move and the marching
+/// ants follow them.
+pub(crate) fn carries_selection(app: &PhotocraftApp) -> bool {
+    app.session.active().is_some_and(|st| st.doc.selection.is_some() && st.selected_layers().len() > 1)
+}
+
 /// Release: one `layer.translate` by the drag's offset. The canvas already shows the result, so
 /// its caches are told it showed the document: the command's damage rect refreshes that area.
 pub(crate) fn finish(app: &mut PhotocraftApp, dx: f64, dy: f64) {
@@ -268,7 +275,7 @@ pub(crate) fn finish(app: &mut PhotocraftApp, dx: f64, dy: f64) {
     if dx == 0.0 && dy == 0.0 {
         return;
     }
-    if app.run("layer.translate", json!({"dx": dx, "dy": dy})).is_err() {
+    if app.run("layer.translate", json!({"dx": dx, "dy": dy, "selection": carries_selection(app)})).is_err() {
         return;
     }
     let Some(p) = shown else { return };

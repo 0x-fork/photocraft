@@ -95,6 +95,7 @@ Triangle and Curvature Pen (minus legacy Rounded Rectangle and Targeted Adjustme
 | ⌘-arrow nudges the layer from any tool | missing | #2474 |
 | ⌥-drag duplicates, ⇧ constrains to 45° | done | `move_mods.rs` |
 | Dragging selected pixels shrinks the selection to them (the selection limited to where the layer has pixels, so moving again leaves no edge behind) as the drag starts, also with ⌥; the move box, snapping and Show Transform Controls use the moved pixels' bounds | done | #7538, `canvas.rs` `floating_outline` and `transform_controls_rect`, `snap_ui.rs` `follow_cut`, engine `float_cmds.rs` `CutParts::outline` |
+| With several layers selected and a selection, the Move tool moves the layers whole and the selection with them (ants follow the drag; one Move step) | done | #7538, `move_ui.rs` `carries_selection`, engine `layer.translate` `selection` |
 | Auto-Select with hover outline, box-select layers, double-click fit | missing | TOOL-214-4 |
 | Auto-Select bounding box and snapping follow the picked layer | partial | follow the previous layer (#2666) |
 | Several layers selected (⇧-click adds, box-select): Show Transform Controls frames them all, with every selected shape's outline | partial: the shared frame has no handles, since Free Transform works on one layer (`canvas.rs` `transform_controls_layers`, `several_selected_layers_share_one_frame_without_handles`; `move_auto_select_tests.rs`) | |
