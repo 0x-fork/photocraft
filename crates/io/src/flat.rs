@@ -60,11 +60,11 @@ pub fn import_flat(name: &str, bytes: &[u8]) -> Result<ImportResult, IoError> {
 /// The profile a HEIF's `nclx` colour description stands for, when the file has no ICC profile
 /// (#6752): a BT.2020 or P3 image is tagged so, and a PQ or HLG one, which the decoder turned into
 /// linear light, gets a linear profile on its primaries. BT.709 SDR stays untagged, read as sRGB
-/// as before.
+/// as before; BT.709 with a linear transfer (8) is tagged linear sRGB.
 fn cicp_profile(img: &Image) -> Option<Arc<Vec<u8>>> {
     let c = img.cicp?;
     let linear = img.sample_type().is_float();
-    if c.primaries == 1 && !linear {
+    if c.primaries == 1 && !linear && c.transfer != 8 {
         return None;
     }
     // Unspecified primaries on an HDR image: BT.2100's, which PQ and HLG are defined with.
@@ -902,6 +902,9 @@ mod cicp_tests {
         for transfer in [1, 2, 13] {
             assert_eq!(cicp_profile(&tagged(CSample::U16, codecs::Cicp { primaries: 1, transfer, matrix: 6, full_range: false })), None);
         }
+        // BT.709 with a linear transfer: linear sRGB, not read as sRGB.
+        let linear = codecs::Cicp { primaries: 1, transfer: 8, matrix: 6, full_range: true };
+        assert_eq!(description(cicp_profile(&tagged(CSample::U16, linear))).as_deref(), Some(Builtin::LinearSrgb.description()));
         let p3 = codecs::Cicp { primaries: 12, transfer: 13, matrix: 6, full_range: true };
         assert_eq!(description(cicp_profile(&tagged(CSample::U8, p3))).as_deref(), Some(Builtin::DisplayP3.description()));
         assert_eq!(cicp_profile(&Image::new(1, 1, ChannelLayout::Rgb, CSample::U8).unwrap()), None, "no nclx, no profile");
