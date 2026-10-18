@@ -1595,8 +1595,13 @@ fn restore_layer_selection_puts_back_what_still_exists() {
     let st = s.active().unwrap();
     assert_eq!((st.active_layer, st.selected_layers(), st.layer_anchor), (Some(b), vec![a, b], Some(a)));
     assert_eq!(st.saved_revision, st.revision, "selection is not an edit");
+    let snap = |s: &Session| {
+        let st = s.active().unwrap();
+        (st.active_layer, st.selected_layers(), st.layer_anchor, st.revision, st.saved_revision)
+    };
+    let before = snap(&s);
     assert!(matches!(s.restore_layer_selection(Some(gone), &[gone], None), Err(EngineError::NoLayer(_))));
-    assert_eq!(s.active().unwrap().active_layer, Some(b), "an error changes nothing");
+    assert_eq!(snap(&s), before, "an error changes nothing");
     s.restore_layer_selection(None, &[a], Some(a)).unwrap();
     let st = s.active().unwrap();
     assert_eq!((st.active_layer, st.selected_layers(), st.layer_anchor), (None, vec![], None), "no layer selected");
