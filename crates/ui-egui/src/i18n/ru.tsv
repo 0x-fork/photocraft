@@ -3199,3 +3199,7 @@ curves	Smooth	Сгладить
 	Replace	Заменить
 	{name} was changed by another app after it was opened or saved here.	Файл {name} был изменён другим приложением после того, как его открыли или сохранили здесь.
 	Replace it with this document, or cancel and use File › Save As to keep both.	Замените его этим документом или отмените и используйте Файл › Сохранить как, чтобы сохранить оба.
+	Decrease Brush Size	Уменьшить размер кисти
+	Increase Brush Size	Увеличить размер кисти
+	Decrease Brush Hardness	Уменьшить жёсткость кисти
+	Increase Brush Hardness	Увеличить жёсткость кисти

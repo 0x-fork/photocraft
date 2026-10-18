@@ -3221,3 +3221,7 @@ curves	Smooth	Haluskan
 	Replace	Ganti
 	{name} was changed by another app after it was opened or saved here.	{name} diubah oleh aplikasi lain setelah dibuka atau disimpan di sini.
 	Replace it with this document, or cancel and use File › Save As to keep both.	Ganti dengan dokumen ini, atau batalkan dan gunakan Berkas › Simpan Sebagai untuk menyimpan keduanya.
+	Decrease Brush Size	Perkecil ukuran kuas
+	Increase Brush Size	Perbesar ukuran kuas
+	Decrease Brush Hardness	Kurangi kekerasan kuas
+	Increase Brush Hardness	Tambah kekerasan kuas

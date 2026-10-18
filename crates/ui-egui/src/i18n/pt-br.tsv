@@ -4016,3 +4016,7 @@ layerLabel	No Color	Sem cor
 	GPU Memory (MB, 0 = Automatic)	Memória da GPU (MB, 0 = Automático)
 	{name} was changed by another app after it was opened or saved here.	{name} foi alterado por outro app depois de ser aberto ou salvo aqui.
 	Replace it with this document, or cancel and use File › Save As to keep both.	Substitua-o por este documento, ou cancele e use Arquivo › Salvar como para manter os dois.
+	Decrease Brush Size	Diminuir tamanho do pincel
+	Increase Brush Size	Aumentar tamanho do pincel
+	Decrease Brush Hardness	Diminuir dureza do pincel
+	Increase Brush Hardness	Aumentar dureza do pincel

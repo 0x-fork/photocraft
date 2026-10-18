@@ -1447,6 +1447,7 @@ pub(crate) fn family_picker_in(
 ) -> bool {
     let mut changed = false;
     let search_id = ui.id().with(("font-search", salt));
+    let focus_id = search_id.with("focus");
     // The list opens on the press, so a press-drag-release picks a font too (#2735).
     let (press, close) = crate::press_menu::PressCombo::before(ui, salt);
     let labels: Option<Arc<HashMap<String, String>>> = ui.ctx().data(|d| d.get_temp(font_labels_id()));
@@ -1462,26 +1463,25 @@ pub(crate) fn family_picker_in(
         .close_behavior(if matches!(close, egui::PopupCloseBehavior::IgnoreClicks) { close } else { egui::PopupCloseBehavior::CloseOnClickOutside });
 
     let response = combo.show_ui(ui, |ui| {
-        let (pass_id, focus_id, height_id) = (search_id.with("pass"), search_id.with("focus"), search_id.with("height"));
-        let pass = ui.ctx().cumulative_pass_nr();
-        let last_pass: Option<u64> = ui.data(|d| d.get_temp(pass_id));
-        // Freshly opened (not drawn last pass): focus the search field whatever the query, and keep
-        // asking until it has focus (the first pass is egui's invisible sizing pass) (#1369).
-        let opened = last_pass.is_none_or(|p| p.saturating_add(1) < pass);
-        let mut focus = opened || ui.data(|d| d.get_temp(focus_id)).unwrap_or(false);
+        let height_id = search_id.with("height");
+        // Each opening focuses the search, including a reopen on the very next pass. Keep
+        // asking through the invisible sizing pass, until the field receives focus.
+        let mut focus = ui.data(|d| d.get_temp(focus_id)).unwrap_or(true);
         let mut q: String = ui.data(|d| d.get_temp(search_id)).unwrap_or_default();
         // Consume these before TextEdit and the canvas can interpret them as caret movement.
         let down = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown));
         let up = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp));
         let enter = ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter));
-        let r = ui.add(egui::TextEdit::singleline(&mut q).hint_text(tl!("Search fonts")).desired_width(200.0));
-        if r.has_focus() {
-            focus = false;
-        } else if focus {
-            r.request_focus();
+        if focus {
+            ui.memory_mut(|m| m.request_focus(search_id.with("input")));
+        }
+        let r = ui.add(egui::TextEdit::singleline(&mut q).id(search_id.with("input")).hint_text(tl!("Search fonts")).desired_width(200.0));
+        if focus {
+            // The opening click can release after several focused frames. Keep the request
+            // pending through that release, which can hand focus back to the combo button.
+            focus = !r.has_focus() || ui.input(|i| i.pointer.primary_down() || i.pointer.primary_released());
         }
         ui.data_mut(|d| {
-            d.insert_temp(pass_id, pass);
             d.insert_temp(focus_id, focus);
             d.insert_temp(search_id, q.clone());
         });
@@ -1551,6 +1551,9 @@ pub(crate) fn family_picker_in(
         if accept { None } else { hovered }
     });
     press.after(&response.response);
+    if !egui::ComboBox::is_open(ui.ctx(), response.response.id) {
+        ui.data_mut(|d| d.remove::<bool>(focus_id));
+    }
     let hovered_font = response.inner.unwrap_or_default();
 
     // The wheel over the closed button steps through the families, a notch each, like Photoshop's

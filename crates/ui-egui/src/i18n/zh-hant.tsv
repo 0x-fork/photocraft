@@ -2832,3 +2832,7 @@ curves	Smooth	平滑
 	Replace	取代
 	{name} was changed by another app after it was opened or saved here.	{name} 在此處開啟或儲存後已被其他 App 更改。
 	Replace it with this document, or cancel and use File › Save As to keep both.	以此文件取代它，或取消並使用「檔案 › 另存新檔」以保留兩者。
+	Decrease Brush Size	縮小筆刷大小
+	Increase Brush Size	放大筆刷大小
+	Decrease Brush Hardness	降低筆刷硬度
+	Increase Brush Hardness	提高筆刷硬度
