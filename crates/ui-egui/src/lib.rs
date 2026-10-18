@@ -1312,6 +1312,12 @@ impl PhotocraftApp {
         r.truncate(cap);
     }
 
+    /// Preferences ▸ Type ▸ Recent Fonts: a smaller cap (or 0) applies to the existing list at
+    /// once, not only after the next pick.
+    pub fn sync_recent_fonts(&mut self) {
+        self.ui.recent_fonts.truncate(self.session.prefs().type_.recent_fonts.min(50) as usize);
+    }
+
     /// File › Open Recent › Clear Recent File List.
     pub fn clear_recent(&mut self) {
         self.ui.recent_files.clear();
@@ -2019,6 +2025,9 @@ impl eframe::App for PhotocraftApp {
         text_field_menu::show(&ctx);
         // Each painting tool keeps its own brush (#218), so switch the active tool's brush in
         // before anything this frame reads it (the cursor, the options bar, a stroke).
+        // Preferences ▸ Type ▸ Recent Fonts: a smaller cap (or 0) trims the existing list at
+        // once, not only after the next pick.
+        self.sync_recent_fonts();
         paint_mouse::sync_tool_brush(self);
         // A unit typed into a value field (`1in` in a px field) converts at the active document's
         // resolution, as in Photoshop.
