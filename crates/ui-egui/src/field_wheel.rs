@@ -41,10 +41,12 @@ fn taken_id() -> Id {
 }
 
 /// A wheel event a field takes: plain or Shift, not the view's Alt or Ctrl/Cmd zoom, nor a plain
-/// sideways scroll (a trackpad swipe pans the view; Shift+wheel can arrive sideways).
+/// sideways scroll (a trackpad swipe pans the view; Shift+wheel can arrive sideways). An event
+/// with no delta at all counts: macOS starts a trackpad gesture with one, and it is what lets a
+/// field under the pointer claim the gesture.
 fn for_field(e: &Event) -> bool {
     matches!(e, Event::MouseWheel { delta, modifiers, .. }
-        if (delta.y != 0.0 || modifiers.shift) && !modifiers.alt && !modifiers.ctrl && !modifiers.command && !modifiers.mac_cmd)
+        if (delta.y != 0.0 || delta.x == 0.0 || modifiers.shift) && !modifiers.alt && !modifiers.ctrl && !modifiers.command && !modifiers.mac_cmd)
 }
 
 /// Before this frame's UI is laid out: hand the wheel to the focused value field, if any, and
@@ -233,6 +235,22 @@ mod tests {
                 assert_eq!(h.state().0, want, "focus {focus}, {m:?}");
             }
         }
+    }
+
+    /// A trackpad gesture that macOS starts with a zero-delta event, then moves a frame later,
+    /// steps the field under the pointer.
+    #[test]
+    fn a_trackpad_gesture_that_starts_with_no_delta_steps_a_hovered_field() {
+        let mut h = harness(100.0);
+        h.hover_at(field(&h).center());
+        h.run_steps(1);
+        let ev = |phase, y| egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: vec2(0.0, y), phase, modifiers: Modifiers::NONE };
+        h.event(ev(egui::TouchPhase::Start, 0.0));
+        h.run_steps(1);
+        h.event(ev(egui::TouchPhase::Move, 2.0));
+        h.run_steps(4);
+        assert_eq!(h.state().0, 102.0);
+        assert_eq!(h.state().1, 0.0, "the panel didn't scroll");
     }
 
     #[test]
