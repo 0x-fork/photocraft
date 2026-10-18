@@ -230,11 +230,9 @@ fn a_refresh_outside_command_execution_surfaces_the_denial_instead_of_rendering_
         let before = h.session.active().unwrap().doc.clone();
         // Session::edit is the outside-execute mutation path (an edit closure the UI or a
         // linked-file change runs); the stored filter must be denied there too.
-        assert_denied(h.session.edit("Re-render", |d, _| {
-            match smart_cmds::refresh(d, layer) {
-                Ok(_) => Ok(()),
-                Err(e) => Err(e),
-            }
+        assert_denied(h.session.edit("Re-render", |d, _| match smart_cmds::refresh(d, layer) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e),
         }));
         assert!(Arc::ptr_eq(&before, &h.session.active().unwrap().doc));
         // A trusted session (no gate) still renders the same document.
