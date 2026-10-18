@@ -727,8 +727,14 @@ impl Session {
         // desktop UI normally calls `start`, even for synchronous Layer Style commands.
         // The layer the command will change, named as the command accepts it (id or name), else the
         // active one. `layer.layerStyle.clear` needs no case: it leaves no effects, so nothing expands.
+        // Transfer Effects changes its destination (`to`), not the layer it takes the effects from.
         let new_fx_target = if id.starts_with("layer.layerStyle.") {
-            let target = crate::commands::layer_param(self, &params).ok();
+            let target = if id == "layer.layerStyle.transferEffects" {
+                crate::commands::layer_param(self, &json!({"layer": params.get("to").cloned().unwrap_or(Value::Null)}))
+            } else {
+                crate::commands::layer_param(self, &params)
+            }
+            .ok();
             self.active().and_then(|st| {
                 let target = target?;
                 (st.doc.layer(target)?.effects.items.is_empty()).then_some((st.doc.id, target))
