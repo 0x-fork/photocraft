@@ -871,6 +871,21 @@ struct Event {
 }
 
 macro_rules! ev {
+    // `uncarried`: flags the command reads that the event's descriptor has no field for; a step
+    // with one of them set isn't exported (strict export fails, a partial one skips it).
+    ($code:literal, $name:literal, $label:literal, $id:literal, $fields:expr, uncarried: $flags:expr) => {
+        Event {
+            code: $code,
+            name: $name,
+            label: $label,
+            ids: &[$id],
+            from: |d| match fields_from(d, $fields) {
+                Some(m) => step($id, Value::Object(m)),
+                None => Mapped::Unsupported { harmless: false },
+            },
+            to: |_, p| if pixel_target(p) && !flag_set(p, $flags) { fields_to(p, $fields, desc("null")) } else { None },
+        }
+    };
     ($code:literal, $name:literal, $label:literal, $id:literal, $fields:expr) => {
         Event {
             code: $code,
@@ -884,6 +899,11 @@ macro_rules! ev {
             to: |_, p| if pixel_target(p) { fields_to(p, $fields, desc("null")) } else { None },
         }
     };
+}
+
+/// Whether any of the boolean `flags` is on in `p` (present, not null and not `false`).
+fn flag_set(p: &Value, flags: &[&str]) -> bool {
+    flags.iter().any(|f| p.get(*f).is_some_and(|v| !v.is_null() && *v != Value::Bool(false)))
 }
 
 /// Whether `p` edits the layer's pixels: no `"target"` or `"target":"pixels"`. Photoshop's
@@ -2053,6 +2073,14 @@ fn fill_to(id: &str, p: &Value) -> Option<Descriptor> {
         d = d.with("Tlrn", long(jnum(p, "tolerance").unwrap_or(32.0))).with("AntA", D::Boolean(jbool(p, "antiAlias").unwrap_or(true)));
         // `source` is the command's older name for `contents`.
         d = if p.get("contents").or_else(|| p.get("source")).and_then(Value::as_str) == Some("pattern") {
+            // `Pttn` names no pattern and holds no placement: a chosen pattern, a scale, an angle
+            // or a phase would replay with the current pattern at its defaults (#7543, #7544,
+            // #7545, #7546).
+            let num = |k: &str, default: f64| p.get(k).is_some_and(|v| !v.is_null() && v.as_f64() != Some(default));
+            let phase = p.get("phase").is_some_and(|v| !v.is_null() && v.as_array().is_none_or(|a| a.iter().any(|c| c.as_f64() != Some(0.0))));
+            if p.get("pattern").is_some_and(|v| !v.is_null()) || num("scale", 100.0) || num("angle", 0.0) || phase {
+                return None;
+            }
             d.with("Usng", enm("FlCn", "Pttn"))
         } else {
             // An explicit colour overrides the foreground (#7199): it travels as Fill's `Clr `.
@@ -2915,10 +2943,10 @@ const EVENTS: &[Event] = &[
     },
     // Selection.
     ev!("Invs", "inverse", "Inverse", "select.inverse", &[]),
-    ev!("Fthr", "feather", "Feather", "select.modify.feather", &[F("Rds ", "radius", Kind::Px)]),
-    ev!("Expn", "expand", "Expand", "select.modify.expand", &[F("By  ", "radius", Kind::Px)]),
-    ev!("Cntc", "contract", "Contract", "select.modify.contract", &[F("By  ", "radius", Kind::Px)]),
-    ev!("Smth", "smoothness", "Smooth", "select.modify.smooth", &[F("Rds ", "radius", Kind::Px)]),
+    ev!("Fthr", "feather", "Feather", "select.modify.feather", &[F("Rds ", "radius", Kind::Px)], uncarried: &["applyAtCanvasBounds"]),
+    ev!("Expn", "expand", "Expand", "select.modify.expand", &[F("By  ", "radius", Kind::Px)], uncarried: &["applyAtCanvasBounds"]),
+    ev!("Cntc", "contract", "Contract", "select.modify.contract", &[F("By  ", "radius", Kind::Px)], uncarried: &["applyAtCanvasBounds"]),
+    ev!("Smth", "smoothness", "Smooth", "select.modify.smooth", &[F("Rds ", "radius", Kind::Px)], uncarried: &["applyAtCanvasBounds"]),
     ev!("Brdr", "border", "Border", "select.modify.border", &[F("Wdth", "radius", Kind::Px)]),
     ev!("Grow", "grow", "Grow", "select.grow", &[F("Tlrn", "tolerance", Kind::Long)]),
     ev!("Smlr", "similar", "Similar", "select.similar", &[F("Tlrn", "tolerance", Kind::Long)]),
