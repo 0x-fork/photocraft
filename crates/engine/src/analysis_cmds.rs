@@ -722,10 +722,12 @@ fn group_index(d: &Document, p: &Value) -> Option<usize> {
     (i < d.measurement.count_groups.len()).then_some(i)
 }
 
-fn color_of(p: &Value, key: &str) -> Option<Color> {
-    p.get(key)?;
-    let c = crate::commands::color_param(p, key, [1.0, 0.0, 0.0, 1.0]);
-    Some(Color::rgb(c[0], c[1], c[2]))
+fn color_of(cmd: &str, p: &Value, key: &str) -> Result<Option<Color>> {
+    if p.get(key).is_none() {
+        return Ok(None);
+    }
+    let c = crate::commands::color_param(cmd, p, key, [1.0, 0.0, 0.0, 1.0])?;
+    Ok(Some(Color::rgb(c[0], c[1], c[2])))
 }
 
 /// Photoshop's colours for new count groups, in order.
@@ -840,7 +842,7 @@ fn count_clear(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn count_new_group(s: &mut Session, p: &Value) -> Result<Value> {
     let name = p.get("name").and_then(Value::as_str).map(str::to_string);
-    let color = color_of(p, "color");
+    let color = color_of("count.newGroup", p, "color")?;
     s.edit("New Count Group", |d, _| {
         let g = new_group(d, name, color);
         d.measurement.count_groups.push(g);
@@ -887,7 +889,7 @@ fn count_set_group(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(n) = p.get("name").and_then(Value::as_str) {
         grp.name = n.to_string();
     }
-    if let Some(c) = color_of(p, "color") {
+    if let Some(c) = color_of(CMD, p, "color")? {
         grp.color = c;
     }
     if let Some(v) = whole_size(CMD, p, "markerSize", 1, 10)? {
