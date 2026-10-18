@@ -588,6 +588,30 @@ fn wheel_over_the_closed_font_button_steps_through_the_families() {
 }
 
 #[test]
+fn wheel_over_the_closed_button_keeps_a_stable_order_with_recents() {
+    let mut h = harness_with_recents(FontPreview::Medium, vec![]);
+    let button = h.query_all_by_role(Role::ComboBox).next().unwrap().rect().center();
+    h.hover_at(button);
+    h.run();
+    let wheel = |h: &mut Harness<'static, State>, y: f32| {
+        h.event(egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: vec2(0.0, y), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE });
+        h.run();
+    };
+    wheel(&mut h, -1.0);
+    assert_eq!(h.state().current, "Family 01");
+    // The caller (the options bar) records the picked family as the most recent one.
+    h.state_mut().recents.insert(0, "Family 01".into());
+    h.run();
+    wheel(&mut h, -1.0);
+    assert_eq!(h.state().current, "Family 02", "the next notch keeps going, not back to the recent family");
+    h.state_mut().recents.insert(0, "Family 02".into());
+    h.run();
+    wheel(&mut h, -1.0);
+    assert_eq!(h.state().current, "Family 03");
+    assert!(popup_rect(&h).is_none(), "the list stays closed");
+}
+
+#[test]
 fn wheel_family_index_clamps_to_the_ends() {
     assert_eq!(super::wheel_family_index(0, 3, -5.0), Some(2));
     assert_eq!(super::wheel_family_index(1, 3, 1.0), Some(0));
