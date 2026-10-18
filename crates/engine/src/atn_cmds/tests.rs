@@ -976,19 +976,50 @@ fn numeric_layer_references_refuse_silent_fallback_to_current_selection() {
     s.actions.list.push(Action::new("DeleteNumeric", vec![("layer.delete".into(), json!({"layer": 42}))]));
     let err_delete = s.execute("actions.save", json!({"action": "DeleteNumeric"}));
     assert!(err_delete.is_err(), "strict export must reject numeric layer ID for layer.delete rather than falling back to current target");
+    let err_msg = err_delete.unwrap_err().to_string();
+    assert!(err_msg.contains("(`layer.delete` with numeric layer 42)"), "error message should name the numeric layer: {err_msg}");
 
     // Same for layer.duplicate with numeric ID
     s.actions.list.push(Action::new("DuplicateNumeric", vec![("layer.duplicate".into(), json!({"layer": 42, "name": "Copy"}))]));
     let err_dup = s.execute("actions.save", json!({"action": "DuplicateNumeric"}));
     assert!(err_dup.is_err(), "strict export must reject numeric layer ID for layer.duplicate rather than falling back to current target");
 
+    // Same for duplicate into new document with numeric ID
+    s.actions.list.push(Action::new("DuplicateNewDocNumeric", vec![("layer.duplicate".into(), json!({"layer": 42, "document": "new"}))]));
+    let err_dup_new = s.execute("actions.save", json!({"action": "DuplicateNewDocNumeric"}));
+    assert!(err_dup_new.is_err(), "strict export must reject numeric layer ID for duplicate into new document");
+
     // Same for layer.translate with numeric ID
     s.actions.list.push(Action::new("TranslateNumeric", vec![("layer.translate".into(), json!({"layer": 42, "dx": 5, "dy": 5}))]));
     let err_trans = s.execute("actions.save", json!({"action": "TranslateNumeric"}));
     assert!(err_trans.is_err(), "strict export must reject numeric layer ID for layer.translate rather than falling back to current target");
 
+    // Same for layer.setProps with numeric ID
+    s.actions.list.push(Action::new("SetPropsNumeric", vec![("layer.setProps".into(), json!({"layer": 42, "opacity": 0.5}))]));
+    let err_set = s.execute("actions.save", json!({"action": "SetPropsNumeric"}));
+    assert!(err_set.is_err(), "strict export must reject numeric layer ID for layer.setProps");
+
+    // Same for visibility with numeric ID
+    s.actions.list.push(Action::new("HideNumeric", vec![("layer.hideLayers".into(), json!({"layer": 42}))]));
+    let err_hide = s.execute("actions.save", json!({"action": "HideNumeric"}));
+    assert!(err_hide.is_err(), "strict export must reject numeric layer ID for layer.hideLayers");
+
+    // Same for edit.transform with numeric ID
+    s.actions.list.push(Action::new("TransformNumeric", vec![("edit.transform".into(), json!({"layer": 42, "dx": 5, "dy": 5}))]));
+    let err_transf = s.execute("actions.save", json!({"action": "TransformNumeric"}));
+    assert!(err_transf.is_err(), "strict export must reject numeric layer ID for edit.transform");
+
     // With skipUnsupported: true, numeric layer references are skipped
     let skipped = s.execute("actions.save", json!({"action": "DeleteNumeric", "skipUnsupported": true})).unwrap();
     assert_eq!(skipped["steps"], 0);
     assert_eq!(skipped["skipped"][0]["id"], "layer.delete");
+
+    // Blend-mode shortcut records layer.setProps with active layer ID, which normalises to the target form
+    let active_id = s.active().unwrap().active_layer.unwrap().0;
+    s.execute("actions.record", json!({"name": "RecordBlend"})).unwrap();
+    s.execute("layer.setProps", json!({"layer": active_id, "blend": "multiply"})).unwrap();
+    s.execute("actions.stop", json!({})).unwrap();
+    let saved_blend = s.execute("actions.save", json!({"action": "RecordBlend"})).unwrap();
+    assert_eq!(saved_blend["steps"], 1, "recorded blend shortcut step with active layer id must export successfully as target layer");
+    assert_eq!(saved_blend["skipped"].as_array().unwrap().len(), 0);
 }

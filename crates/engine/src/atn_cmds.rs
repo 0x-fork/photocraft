@@ -3080,7 +3080,15 @@ pub fn export(
                     skipped.push(Skipped { action: a.name.clone(), step: i, id: id.clone() });
                     continue;
                 }
-                return Err(format!("step {} of `{}` (`{id}`) has no Photoshop equivalent; pass \"skipUnsupported\": true to leave it out", i + 1, a.name));
+                let step_name = match params.get("layer") {
+                    Some(Value::Number(n)) => format!("`{id}` with numeric layer {n}"),
+                    _ => format!("`{id}`"),
+                };
+                return Err(format!(
+                    "step {} of `{}` ({step_name}) has no Photoshop equivalent; pass \"skipUnsupported\": true to leave it out",
+                    i + 1,
+                    a.name
+                ));
             };
             item.enabled = a.step_enabled(i);
             item.with_dialog = a.dialogs.contains(&i);
