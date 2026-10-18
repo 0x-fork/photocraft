@@ -1540,7 +1540,7 @@ impl Compositor {
             };
             // Only the region moved (painting past a layer's tiles grows it): keep the texels the
             // old texture already holds instead of converting and uploading every tile again.
-            let kept = self.residents.remove(&key).map_or(Rect::EMPTY, |old| keep_overlap(encoder, &old, &mut r));
+            let kept = self.residents.remove(&key).map_or(Rect::EMPTY, |old| keep_overlap(device, queue, &old, &mut r));
             // A new layer whose tiles another resident already holds (a duplicate shares its
             // source's tiles) starts as a GPU copy of that texture. Duplicating a 20 MP photo
             // converted and uploaded every tile again.
@@ -2109,14 +2109,16 @@ fn put_tiles(device: &wgpu::Device, queue: &wgpu::Queue, encoder: &mut wgpu::Com
 /// format and default pixel; only the region moved) and carry over the tiles they show, so only
 /// tiles outside the overlap or changed since need uploading. Returns the kept (tile-aligned)
 /// rect; empty when nothing can be kept.
-fn keep_overlap(encoder: &mut wgpu::CommandEncoder, old: &Resident, new: &mut Resident) -> Rect {
+fn keep_overlap(device: &wgpu::Device, queue: &wgpu::Queue, old: &Resident, new: &mut Resident) -> Rect {
     let same = old.kind == new.kind && old.format == new.format && old.cmyk == new.cmyk && old.default_bits == new.default_bits;
     let k = old.region.intersect(&new.region);
     if !same || k.is_empty() {
         return Rect::EMPTY;
     }
-    // Record the copy before this frame's tile uploads/copies. Keeping it in the active encoder
-    // preserves that order without forcing a separate queue submission for every region shift.
+    // Its own submission: tile writes go through the queue and land at the start of the next
+    // submit, before anything in the frame's encoder, so a copy recorded there would overwrite
+    // the tiles written after it with the old texels.
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("pc_compose_keep") });
     encoder.copy_texture_to_texture(
         wgpu::TexelCopyTextureInfo {
             texture: &old.texture,
@@ -2132,9 +2134,7 @@ fn keep_overlap(encoder: &mut wgpu::CommandEncoder, old: &Resident, new: &mut Re
         },
         wgpu::Extent3d { width: k.width(), height: k.height(), depth_or_array_layers: 1 },
     );
-    // A direct `queue.write_texture` would execute before this encoder's copy and then be
-    // overwritten. Route changed tiles through encoder-ordered scratch copies for this resident.
-    new.ordered = true;
+    queue.submit([encoder.finish()]);
     new.tiles = old.tiles.iter().filter(|(c, _)| k.contains_rect(&c.rect())).map(|(c, t)| (*c, t.clone())).collect();
     k
 }
