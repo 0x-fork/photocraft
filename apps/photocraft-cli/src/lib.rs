@@ -15,8 +15,10 @@ pub const USAGE: &str = "\
 photocraft-cli: headless PhotoCraft
 
 USAGE:
-  photocraft-cli convert <in> <out> [--format <ext>] [--quality <1-100>] [--tiff-layers] [--tga-bits <24|32>] [--dpx-bits <8|10|12|16>]
+  photocraft-cli convert <in> <out> [--format <ext>] [--quality <1-100>] [--in-place] [--tiff-layers] [--tga-bits <24|32>] [--dpx-bits <8|10|12|16>]
       Convert between formats (.pcraft, .psd, .png, .jpg, .tif, .webp, .exr, …).
+      An <out> that is the <in> file is refused, as the result would replace the original;
+      --in-place allows it.
       TIFF output is flat unless --tiff-layers keeps the layers (Photoshop layer data).
       --quality sets the JPEG or WebP quality; a WebP written with a quality is lossy, without one lossless.
       --tga-bits sets a TGA's bits per pixel: 32 writes the alpha channel (or else the transparency) as
@@ -69,7 +71,7 @@ struct Subcommand {
 }
 
 const SUBCOMMANDS: &[Subcommand] = &[
-    Subcommand { name: "convert", values: &["--format", "--quality", "--tga-bits", "--dpx-bits"], bare: &["--tiff-layers"], run: convert },
+    Subcommand { name: "convert", values: &["--format", "--quality", "--tga-bits", "--dpx-bits"], bare: &["--in-place", "--tiff-layers"], run: convert },
     Subcommand { name: "info", values: &[], bare: &["--compact"], run: |a, out, _| info(a, out) },
     Subcommand {
         name: "run",
@@ -239,11 +241,23 @@ fn automation_workspace(args: &Args) -> Result<AuthorizedWorkspace, String> {
         .map_err(|error| error.to_string())
 }
 
+/// An output that is the input file itself, however it is spelt (relative, with `./`, through a
+/// hard or symbolic link), would replace the original, and a lossy re-encode can't be undone: it
+/// is refused unless `--in-place` asks for it, as `batch` refuses an `--out` that is its `--in`
+/// folder (#7437).
+fn refuse_overwriting_input(a: &Args, input: &str, output: &str) -> R {
+    if !a.has("--in-place") && photocraft_engine::file_cmds::same_file(input, output) {
+        return Err(format!("{output} is the input file, so the result would replace the original: choose another output, or pass --in-place to overwrite it"));
+    }
+    Ok(())
+}
+
 fn convert(a: &Args, _out: &mut dyn Write, err: &mut dyn Write) -> R {
     let [input, output] = a.positional.as_slice() else {
         return Err("convert needs <in> <out>".into());
     };
     let opts = export_opts(a)?;
+    refuse_overwriting_input(a, input, output)?;
     let o = files::open(Path::new(input)).map_err(|e| e.to_string())?;
     warn_all(err, &o.warnings);
     warn_all(err, &photocraft_engine::type_extra_cmds::missing_font_warnings(&o.document));
