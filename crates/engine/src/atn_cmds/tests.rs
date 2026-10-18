@@ -1013,10 +1013,12 @@ fn numeric_layer_references_refuse_silent_fallback_to_current_selection() {
     let err_transf = s.execute("actions.save", json!({"action": "TransformNumeric"}));
     assert!(err_transf.is_err(), "strict export must reject numeric layer ID for edit.transform");
 
-    // Same for layer.renameLayer, layer.setLabelColor, and each layer.arrange.* command
+    // Same for layer.renameLayer, layer.setLabelColor, layer.showLayers, layer.select, and each layer.arrange.* command
     for (name, id, params) in [
         ("RenameNumeric", "layer.renameLayer", json!({"layer": 42, "name": "Renamed"})),
         ("LabelNumeric", "layer.setLabelColor", json!({"layer": 42, "color": "red"})),
+        ("ShowNumeric", "layer.showLayers", json!({"layer": 42})),
+        ("SelectNumeric", "layer.select", json!({"layer": 42})),
         ("BringToFrontNumeric", "layer.arrange.bringToFront", json!({"layer": 42})),
         ("SendToBackNumeric", "layer.arrange.sendToBack", json!({"layer": 42})),
         ("BringForwardNumeric", "layer.arrange.bringForward", json!({"layer": 42})),
