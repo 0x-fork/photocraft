@@ -1022,4 +1022,14 @@ fn numeric_layer_references_refuse_silent_fallback_to_current_selection() {
     let saved_blend = s.execute("actions.save", json!({"action": "RecordBlend"})).unwrap();
     assert_eq!(saved_blend["steps"], 1, "recorded blend shortcut step with active layer id must export successfully as target layer");
     assert_eq!(saved_blend["skipped"].as_array().unwrap().len(), 0);
+
+    // Record explicit layer.delete of the sole selected layer in a two-layer document
+    s.execute("layer.new.layer", json!({"name": "Second"})).unwrap();
+    let second_id = s.active().unwrap().active_layer.unwrap().0;
+    s.execute("actions.record", json!({"name": "RecordDelete"})).unwrap();
+    s.execute("layer.delete", json!({"layer": second_id})).unwrap();
+    s.execute("actions.stop", json!({})).unwrap();
+    let saved_delete = s.execute("actions.save", json!({"action": "RecordDelete"})).unwrap();
+    assert_eq!(saved_delete["steps"], 1, "recorded explicit delete of sole selected layer must export successfully as target delete");
+    assert_eq!(saved_delete["skipped"].as_array().unwrap().len(), 0);
 }

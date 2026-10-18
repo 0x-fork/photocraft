@@ -124,13 +124,16 @@ pub(crate) fn recorded_selection(s: &Session, mut p: Value) -> Value {
 /// parameter references the document's sole selected layer, normalises it to the target form
 /// (omitting `layer`) so that the recorded step applies to whatever layer is targeted when
 /// replayed or exported to `.atn` (#7248).
-pub(crate) fn recorded_step(s: &Session, id: &str, p: Value) -> Value {
+pub(crate) fn recorded_step(s: &Session, id: &str, p: Value, pre_selected: Option<&[LayerId]>) -> Value {
     if id == "layer.select" {
         return recorded_selection(s, p);
     }
     let Some(layer_id) = p.get("layer").and_then(Value::as_u64).map(LayerId) else { return p };
-    let Some(st) = s.active() else { return p };
-    if st.selected_layers().as_slice() == [layer_id] {
+    let is_sole_selected = match pre_selected {
+        Some(sel) => sel == [layer_id],
+        None => s.active().is_some_and(|st| st.selected_layers().as_slice() == [layer_id]),
+    };
+    if is_sole_selected {
         let mut p = p;
         if let Some(fields) = p.as_object_mut() {
             fields.remove("layer");

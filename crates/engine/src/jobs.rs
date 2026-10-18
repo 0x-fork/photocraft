@@ -726,6 +726,7 @@ impl Session {
         self.jobs.spawn = background;
         // Commands this one runs on its own behalf journal after this mark (#3067).
         let nested_from = self.journal.len();
+        let pre_selected = if self.actions.recording.is_some() { self.active().map(|st| st.selected_layers()) } else { None };
         // A replayable command is recorded as one step, so recording pauses while it runs: an
         // action it plays (a script step) must not flush the steps it ran so far into the action
         // being recorded, nor move the recording mark past the entries it is about to replace.
@@ -757,7 +758,7 @@ impl Session {
                 Ok(Started::Job(jid))
             }
             (Ok(v), None) => {
-                self.after_command(id, params, spec.journal, Some(nested_from));
+                self.after_command(id, params, spec.journal, Some(nested_from), pre_selected.as_deref());
                 Ok(Started::Done(v))
             }
         }
@@ -782,7 +783,7 @@ impl Session {
     /// dropped, so a recorded action replays the command once, not its steps as well (#3067).
     /// Edit › Transform › Again (and Again on a Copy) is not replayable and keeps the concrete
     /// steps it ran instead.
-    fn after_command(&mut self, id: &str, params: Value, journal: bool, nested_from: Option<usize>) {
+    fn after_command(&mut self, id: &str, params: Value, journal: bool, nested_from: Option<usize>, pre_selected: Option<&[LayerId]>) {
         // A layer-mask view ends when another layer becomes active (#196).
         if let Some(st) = self.active_mut() {
             crate::mask_view_cmds::fix(st);
@@ -797,7 +798,7 @@ impl Session {
             self.journal.truncate(from);
         }
         if !crate::brush_cmds::coalesce_journal(self, id, &params) {
-            let params = if self.actions.recording.is_some() { crate::layer_multi_cmds::recorded_step(self, id, params) } else { params };
+            let params = if self.actions.recording.is_some() { crate::layer_multi_cmds::recorded_step(self, id, params, pre_selected) } else { params };
             self.journal.push((id.to_string(), params));
         }
     }
@@ -854,7 +855,7 @@ impl Session {
         // Restoring the viewed document first would attribute Fade and slice updates
         // to that document instead, when the user switched tabs mid-job.
         if r.is_ok() {
-            self.after_command(command, params.clone(), *journal, Some(nested_from));
+            self.after_command(command, params.clone(), *journal, Some(nested_from), None);
         }
         // Keep the user's active document unless the job opened a new one.
         // This also restores the selection when the apply step returned an error.
