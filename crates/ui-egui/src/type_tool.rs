@@ -1584,7 +1584,10 @@ pub(crate) fn family_picker_in(
             ui.input_mut(|i| i.smooth_scroll_delta = egui::Vec2::ZERO);
         }
         let notches = crate::widgets::wheel_notches_of(ui, response.response.id.with("family-wheel"), hovered, 1.0);
-        let rows = font_menu_rows(families, labels, "", recents);
+        // The wheel steps in a stable order: hoisting the family it just picked as recent
+        // would change the order between notches and can jump back to the previous family.
+        // The open menu still shows the recent families first.
+        let rows = font_menu_rows(families, labels, "", &[]);
         if let Some(i) = rows.iter().position(|(f, _)| *f == current)
             && let Some(n) = wheel_family_index(i, rows.len(), notches)
             && let Some((f, _)) = rows.get(n)
@@ -2494,6 +2497,22 @@ mod tests {
         app.run("prefs.set", json!({"path": "type.recentFonts", "value": 0})).unwrap();
         app.note_recent_font("E");
         assert!(app.ui.recent_fonts.is_empty(), "0 keeps no list");
+    }
+
+    /// A smaller Recent Fonts cap (or 0) applies to the existing list at once, without waiting
+    /// for the next pick (CodeRabbit review of #3559).
+    #[test]
+    fn lowering_the_recent_fonts_cap_applies_at_once() {
+        let mut app = app();
+        for f in ["A", "B", "C"] {
+            app.note_recent_font(f);
+        }
+        app.run("prefs.set", json!({"path": "type.recentFonts", "value": 2})).unwrap();
+        app.sync_recent_fonts();
+        assert_eq!(app.ui.recent_fonts, ["C", "B"], "the smaller cap trims the tail without a pick");
+        app.run("prefs.set", json!({"path": "type.recentFonts", "value": 0})).unwrap();
+        app.sync_recent_fonts();
+        assert!(app.ui.recent_fonts.is_empty(), "0 clears the list");
     }
 
     fn layer_text(app: &PhotocraftApp) -> String {
