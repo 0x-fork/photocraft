@@ -956,3 +956,39 @@ fn remove_white_clears_the_targeted_layer_not_the_converted_background() {
     assert!(!st.doc.is_background(bottom.id), "the Background became a normal layer");
     assert!(bottom.surface().unwrap().sample_channel(2, 2, 1) > 0.99, "and kept its pixels");
 }
+
+#[test]
+fn numeric_layer_references_refuse_silent_fallback_to_current_selection() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+
+    // Named layer reference exports successfully
+    s.actions.list.push(Action::new("DeleteNamed", vec![("layer.delete".into(), json!({"layer": "A"}))]));
+    let saved_named = s.execute("actions.save", json!({"action": "DeleteNamed"})).unwrap();
+    assert_eq!(saved_named["steps"], 1);
+
+    // Omitted layer reference (target selection) exports successfully
+    s.actions.list.push(Action::new("DeleteTarget", vec![("layer.delete".into(), json!({}))]));
+    let saved_target = s.execute("actions.save", json!({"action": "DeleteTarget"})).unwrap();
+    assert_eq!(saved_target["steps"], 1);
+
+    // Explicit numeric ID reference cannot be silently converted to current target in strict export
+    s.actions.list.push(Action::new("DeleteNumeric", vec![("layer.delete".into(), json!({"layer": 42}))]));
+    let err_delete = s.execute("actions.save", json!({"action": "DeleteNumeric"}));
+    assert!(err_delete.is_err(), "strict export must reject numeric layer ID for layer.delete rather than falling back to current target");
+
+    // Same for layer.duplicate with numeric ID
+    s.actions.list.push(Action::new("DuplicateNumeric", vec![("layer.duplicate".into(), json!({"layer": 42, "name": "Copy"}))]));
+    let err_dup = s.execute("actions.save", json!({"action": "DuplicateNumeric"}));
+    assert!(err_dup.is_err(), "strict export must reject numeric layer ID for layer.duplicate rather than falling back to current target");
+
+    // Same for layer.translate with numeric ID
+    s.actions.list.push(Action::new("TranslateNumeric", vec![("layer.translate".into(), json!({"layer": 42, "dx": 5, "dy": 5}))]));
+    let err_trans = s.execute("actions.save", json!({"action": "TranslateNumeric"}));
+    assert!(err_trans.is_err(), "strict export must reject numeric layer ID for layer.translate rather than falling back to current target");
+
+    // With skipUnsupported: true, numeric layer references are skipped
+    let skipped = s.execute("actions.save", json!({"action": "DeleteNumeric", "skipUnsupported": true})).unwrap();
+    assert_eq!(skipped["steps"], 0);
+    assert_eq!(skipped["skipped"][0]["id"], "layer.delete");
+}
