@@ -20,9 +20,7 @@ fn tags(bytes: &[u8]) -> (Option<Vec<u8>>, Option<Vec<u8>>) {
     (r.map(<[u8]>::to_vec), l.map(<[u8]>::to_vec))
 }
 
-/// `doc` through a layered TIFF, and whether the TIFF kept its first alpha channel (it does
-/// when the document has no transparency for the one extra sample, #5301).
-fn roundtrip(doc: &Document) -> (Document, bool) {
+fn roundtrip(doc: &Document) -> Document {
     let r = tiff(doc, true);
     let (resources, layers) = tags(&r.bytes);
     let layers = layers.expect("layer data");
@@ -36,19 +34,17 @@ fn roundtrip(doc: &Document) -> (Document, bool) {
     // The TIFF is a plain image to any other reader: the composite at the document's size.
     let flat = photocraft_codecs::decode(&r.bytes).expect("flat decode");
     assert_eq!(flat.dimensions(), (doc.size.width, doc.size.height));
-    // A TIFF holds one extra sample: the transparency, or else the first alpha channel. The
-    // other alpha channels (and a Quick Mask) are not kept, and the export says so.
-    let kept = flat.meta.alpha_is_channel;
+    // A TIFF holds one transparency channel: extra alpha channels (and a Quick Mask) are not
+    // kept, and the export says so.
     let extra = doc.channels.len() + usize::from(doc.quick_mask.is_some());
-    assert_eq!(r.warnings.iter().any(|w| w.contains("alpha channel(s) are not written")), extra > usize::from(kept), "{:?}", r.warnings);
-    (import("x.tif", &r.bytes).expect("import").document, kept)
+    assert_eq!(r.warnings.iter().any(|w| w.contains("alpha channel(s) are not written")), extra > 0, "{:?}", r.warnings);
+    import("x.tif", &r.bytes).expect("import").document
 }
 
-/// `doc` as a layered TIFF round trip returns it: with its first alpha channel when the TIFF
-/// kept it (`kept`), without the others or a Quick Mask.
-fn expected(doc: &Document, kept: bool) -> Document {
+/// `doc` as a layered TIFF round trip returns it: without extra alpha channels or a Quick Mask.
+fn expected(doc: &Document) -> Document {
     let mut d = doc.clone();
-    d.channels.truncate(usize::from(kept));
+    d.channels.clear();
     d.quick_mask = None;
     d
 }
@@ -58,8 +54,8 @@ macro_rules! rt_case {
         #[test]
         fn $name() {
             let d = gen_doc($mode, $depth, $f);
-            let (back, kept) = roundtrip(&d);
-            assert_docs_eq(&expected(&d, kept), &back);
+            let back = roundtrip(&d);
+            assert_docs_eq(&expected(&d), &back);
         }
     };
 }
@@ -82,8 +78,8 @@ fn tiff_and_psd_open_as_the_same_document() {
         let d = gen_doc(mode, depth, Features::ALL);
         let psd = export(&d, "x.psd", &ExportOptions::default()).unwrap();
         let from_psd = import("x.psd", &psd.bytes).unwrap().document;
-        let (from_tif, kept) = roundtrip(&d);
-        assert_docs_eq(&expected(&from_psd, kept), &from_tif);
+        let from_tif = roundtrip(&d);
+        assert_docs_eq(&expected(&from_psd), &from_tif);
         // The composite the TIFF carries is what the document looks like.
         let tif = tiff(&d, true);
         let flat = import(
@@ -265,14 +261,12 @@ fn psdtags_fixtures_open_with_their_layers() {
         // tifffile writes a Software tag; nothing else is worth a warning.
         assert!(r.warnings.iter().all(|w| w.contains("text metadata")), "{name}: {:?}", r.warnings);
         // psdtags wrote the composite's alpha sample without the transparency flag, so by the
-        // PSD rules it is an alpha channel, which a re-save keeps when the document has no
-        // transparency for the one extra sample (#5301). Re-saving keeps everything else; the
-        // file is then in the encoder's byte order.
+        // PSD rules it is an alpha channel (which a re-save cannot keep). Re-saving keeps
+        // everything else; the file is then in the encoder's byte order.
         assert_eq!(d.channels.len(), 1, "{name}");
         let out = tiff(d, true);
-        let kept = photocraft_codecs::decode(&out.bytes).unwrap().meta.alpha_is_channel;
         let back = import(name, &out.bytes).unwrap().document;
-        assert_docs_eq(&expected(d, kept), &back);
+        assert_docs_eq(&expected(d), &back);
     }
 }
 
@@ -319,7 +313,7 @@ fn advanced_blending_survives_layered_tiff_in_both_byte_orders() {
             assert_eq!(l.excluded_channels, 0b010, "{depth:?} {order:?}");
             assert_eq!(l.blend_if, d.layers[1].blend_if, "{depth:?} {order:?}");
             assert_eq!(back.layers[2].advanced.knockout, Knockout::Shallow, "{depth:?} {order:?}");
-            assert_docs_eq(&expected(&d, photocraft_codecs::decode(&r.bytes).unwrap().meta.alpha_is_channel), &back);
+            assert_docs_eq(&expected(&d), &back);
         }
     }
 }
