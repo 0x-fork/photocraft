@@ -104,31 +104,33 @@ const ENV_LAUNCH_OPTIONS: [(&str, &str, ValueRule); 6] = [
 /// variable is read where it takes effect, so a value ignored there keeps no process here either.
 type ValueRule = fn(&str) -> bool;
 
-/// A value `presentation::parse` accepts: it warns and ignores the rest, so an unrecognised
-/// `PHOTOCRAFT_PRESENT_MODE` changes nothing and so needs no process of its own.
+/// A value `presentation::parse` accepts, handed over as written: it trims, treats empty as unset and
+/// warns and ignores anything it does not recognise, so an unrecognised `PHOTOCRAFT_PRESENT_MODE`
+/// changes nothing there and so needs no process of its own here.
 fn present_mode_is_on(value: &str) -> bool {
-    !value.trim().is_empty() && crate::presentation::parse(Some(value.trim()), None).0.mode.is_some()
+    crate::presentation::parse(Some(value), None).0.mode.is_some()
 }
 
 /// [`present_mode_is_on`] for `PHOTOCRAFT_FRAME_LATENCY`, which takes `1` to `3`.
 fn frame_latency_is_on(value: &str) -> bool {
-    !value.trim().is_empty() && crate::presentation::parse(None, Some(value.trim())).0.latency.is_some()
+    crate::presentation::parse(None, Some(value)).0.latency.is_some()
 }
 
 /// Anything except `""`, `0`, `off` and `false`, which is how `StrokeTrace::from_value` reads it: the
-/// rest is a stderr summary or a CSV path.
+/// rest is a stderr summary or a CSV path. It trims, so `" 0 "` is off there and off here.
 fn stroke_trace_is_on(value: &str) -> bool {
     !matches!(value.trim(), "" | "0" | "off" | "false")
 }
 
-/// Any value except empty and `0`, as `main.rs` reads `PHOTOCRAFT_IN_WINDOW_MENUS` - which is why
-/// `off` means on there, and why this rule is not shared with the stroke trace above.
+/// Any value except empty and exactly `0`, as `main.rs` reads `PHOTOCRAFT_IN_WINDOW_MENUS` - which is
+/// why `off` means on there, why this rule is not shared with the stroke trace above, and why it does
+/// not trim: a padded `" 0 "` enables the menus there, so it keeps a process here too.
 fn flag_is_on(value: &str) -> bool {
-    let value = value.trim();
     !value.is_empty() && value != "0"
 }
 
-/// A path is an option; an empty value is no path. Not trimmed: a path may end in a space.
+/// A path is an option; an empty value is no path. Not trimmed: a path may end in a space. An empty
+/// root is read as no root unless `--control` is given, and that flag keeps its own process already.
 fn path_is_set(value: &str) -> bool {
     !value.is_empty()
 }
@@ -724,8 +726,15 @@ mod tests {
         // is ignored there, so neither keeps a process of its own here.
         assert!(with(&[("PHOTOCRAFT_STROKE_TRACE", "off"), ("PHOTOCRAFT_PRESENT_MODE", "maybe"), ("PHOTOCRAFT_FRAME_LATENCY", "4")]).is_empty());
         assert!(with(&[("PHOTOCRAFT_AUTOMATION_READ_ROOT", "")]).is_empty());
-        // Spaces are not part of a value, except in a path, where they can be.
+        // Spaces are part of the value only where the reader keeps them: the trace and the two
+        // presentation values are trimmed where they take effect, the menu flag and a path are not.
         assert_eq!(with(&[("PHOTOCRAFT_PRESENT_MODE", " novsync "), ("PHOTOCRAFT_STROKE_TRACE", " 1 ")]), vec!["--present-mode", "--stroke-trace"]);
+        assert_eq!(
+            with(&[("PHOTOCRAFT_IN_WINDOW_MENUS", " 0 "), ("PHOTOCRAFT_AUTOMATION_WRITE_ROOT", " /tmp/out ")]),
+            vec!["--in-window-menus", "--automation-write-root"]
+        );
+        // A whitespace-only menu value is not empty, so it enables the menus there and here too.
+        assert_eq!(with(&[("PHOTOCRAFT_IN_WINDOW_MENUS", " ")]), vec!["--in-window-menus"]);
         // `PHOTOCRAFT_IN_WINDOW_MENUS=off` means menus in the window there, so it means it here too.
         assert_eq!(with(&[("PHOTOCRAFT_IN_WINDOW_MENUS", "off")]), vec!["--in-window-menus"]);
         let base = LaunchContext {
