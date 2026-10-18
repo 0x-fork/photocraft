@@ -361,6 +361,10 @@ pub fn translate(s: &mut Session, p: &Value) -> Result<Value> {
         }
         Some(other) => return Err(bad("layer.translate", format!("unknown units `{other}` (px|pt)"))),
     };
+    let carry = match p.get("selection") {
+        None | Some(Value::Null) => false,
+        Some(v) => v.as_bool().ok_or_else(|| bad("layer.translate", "`selection` must be a boolean"))?,
+    };
     if dx == 0 && dy == 0 {
         return Ok(Value::Null);
     }
@@ -372,10 +376,6 @@ pub fn translate(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(EngineError::Other("no active layer".into()));
     }
     let mask_target = p.get("target").and_then(Value::as_str) == Some("mask");
-    let carry = match p.get("selection") {
-        None | Some(Value::Null) => false,
-        Some(v) => v.as_bool().ok_or_else(|| bad("layer.translate", "`selection` must be a boolean"))?,
-    };
     let before = s.active().ok_or(EngineError::NoDocument)?.doc.clone();
     let ids = s.edit("Move", |doc, _| {
         let (alone, rest): (Vec<LayerId>, Vec<LayerId>) = roots.iter().partition(|id| mask_target && doc.layer(**id).is_some_and(moves_mask_alone));
@@ -2760,6 +2760,11 @@ mod tests {
         assert_eq!((sel(&s), bounds(&s, a)), (Some(Rect::new(5, 5, 75, 35)), Rect::new(10, 10, 30, 30)), "undone together");
         s.execute("layer.translate", json!({"dx": 7, "dy": 20})).unwrap();
         assert_eq!(sel(&s), Some(Rect::new(5, 5, 75, 35)), "without it the selection stays");
-        assert!(s.execute("layer.translate", json!({"dx": 1, "selection": "yes"})).is_err(), "a bad `selection` is an error");
+        let state = |s: &Session| (bounds(s, a), bounds(s, b), sel(s), s.active().unwrap().history.past_len());
+        let before = state(&s);
+        for dx in [1, 0] {
+            assert!(s.execute("layer.translate", json!({"dx": dx, "selection": "yes"})).is_err(), "dx {dx}: a bad `selection` is an error");
+            assert_eq!(state(&s), before, "dx {dx}: and changes nothing");
+        }
     }
 }

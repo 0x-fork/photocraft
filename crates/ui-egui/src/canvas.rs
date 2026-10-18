@@ -8459,6 +8459,20 @@ mod transform_controls_tests {
         assert!(app.session.undo());
         let sel = app.session.active().unwrap().doc.selection.as_ref().map(|s| s.content_bounds());
         assert_eq!(sel, Some(photocraft_geom::Rect::new(20, 20, 120, 110)), "Undo takes the selection back too");
+
+        // A piece floating (a marquee ⌘-drag with both selected) when the layers are dragged: the
+        // press drops it first, so the ants follow the drag from where it was dropped.
+        app.run("select.float", json!({"dx": 10, "dy": 5})).unwrap();
+        let outline = photocraft_engine::float_cmds::floating(app.session.active().unwrap()).unwrap().parts.outline().unwrap().content_bounds();
+        tool_event(&mut app, ToolEvent::Down { x: 60.0, y: 60.0, pressure: 1.0 }, m);
+        let st = app.session.active().unwrap();
+        assert!(photocraft_engine::float_cmds::floating(st).is_none(), "the press dropped the piece");
+        assert_eq!(st.doc.selection.as_ref().map(|s| s.content_bounds()), Some(outline.translate(10, 5)), "at its offset");
+        tool_event(&mut app, ToolEvent::Move { x: 72.0, y: 68.0, pressure: 1.0 }, m);
+        assert_eq!(selection_shown_offset(&app), Some((12, 8)), "then the ants follow the drag");
+        tool_event(&mut app, ToolEvent::Up { x: 72.0, y: 68.0 }, m);
+        let sel = app.session.active().unwrap().doc.selection.as_ref().map(|s| s.content_bounds());
+        assert_eq!(sel, Some(outline.translate(22, 13)), "released where the ants were");
     }
 
     /// A transparent 200² document: a red square (40..90, 40..80) on its layer, a loose marquee
