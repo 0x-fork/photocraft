@@ -112,10 +112,19 @@ pub fn open_layer(app: &mut PhotocraftApp, layer: photocraft_doc::LayerId) -> Re
     let ldoc = photocraft_engine::layer_menu_cmds::layer_document(&st.doc, layer).map_err(|e| e.to_string())?;
     let id = open(app)?;
     if let Some(d) = app.ui.dialogs.iter_mut().find(|d| d.id == id) {
-        d.fields.insert("__layer".into(), json!(layer.0));
-        d.fields.insert("__label".into(), json!(crate::i18n::fmt(crate::i18n::t("Export As: {name}"), &[("name", &ldoc.name)])));
-        d.fields.insert("__w".into(), json!(ldoc.size.width));
-        d.fields.insert("__h".into(), json!(ldoc.size.height));
+        let f = &mut d.fields;
+        f.insert("__layer".into(), json!(layer.0));
+        f.insert("__label".into(), json!(crate::i18n::fmt(crate::i18n::t("Export As: {name}"), &[("name", &ldoc.name)])));
+        f.insert("__w".into(), json!(ldoc.size.width));
+        f.insert("__h".into(), json!(ldoc.size.height));
+        // `open` seeded width and height from the document; in scale mode they follow the layer's
+        // trimmed size, so the dialog shows and edits the size the layer exports at. Exact pixels
+        // (sizing "pixels") are a size the user asked for, so those stay.
+        if s(f, "sizing") != "pixels"
+            && let Ok(size) = resize_from_scale(f64::from(ldoc.size.width), f64::from(ldoc.size.height), n(f, "scale", 100.0))
+        {
+            write_size(f, size, "scale");
+        }
     }
     Ok(id)
 }
@@ -983,6 +992,33 @@ mod tests {
         assert_eq!(f["format"], "png");
         assert_eq!(f["scale"], 100);
         assert_eq!(f["metadata"], "none");
+    }
+
+    /// Layer › Export As opens with the layer's trimmed size, not the document's: `open` seeds the
+    /// size fields from the document, and the layer replaces them in scale mode. A remembered
+    /// percent scales the layer; remembered exact pixels stay the size the user asked for.
+    #[test]
+    fn layer_export_as_opens_with_the_layer_size() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 40, "height": 30})).unwrap();
+        app.run("layer.new.layer", json!({})).unwrap();
+        app.run("select.rect", json!({"x": 4, "y": 2, "width": 10, "height": 6})).unwrap();
+        app.run("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        let layer = app.session.active().unwrap().active_layer.unwrap();
+        let id = open_layer(&mut app, layer).unwrap();
+        let f = &app.ui.dialog_mut(id).unwrap().fields;
+        assert_eq!((f["__w"].as_f64(), f["__h"].as_f64()), (Some(10.0), Some(6.0)));
+        assert_eq!((f["width"].as_f64(), f["height"].as_f64()), (Some(10.0), Some(6.0)));
+
+        app.session.prefs.edit(|p| p.dialogs.insert(COMMAND.into(), json!({"scale": 50})));
+        let id = open_layer(&mut app, layer).unwrap();
+        let f = &app.ui.dialog_mut(id).unwrap().fields;
+        assert_eq!((f["width"].as_f64(), f["height"].as_f64()), (Some(5.0), Some(3.0)));
+
+        app.session.prefs.edit(|p| p.dialogs.insert(COMMAND.into(), json!({"sizing": "pixels", "width": 120, "height": 80})));
+        let id = open_layer(&mut app, layer).unwrap();
+        let f = &app.ui.dialog_mut(id).unwrap().fields;
+        assert_eq!((f["width"].as_f64(), f["height"].as_f64()), (Some(120.0), Some(80.0)));
     }
 
     /// Only the dialog's own settings are remembered: not the destination, the document size or
