@@ -178,13 +178,21 @@ fn auto_blend(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let st = s.active().ok_or(EngineError::NoDocument)?;
     let doc: std::sync::Arc<Document> = st.doc.clone();
-    let mut area = Rect::EMPTY;
+    let mut union = Rect::EMPTY;
+    let mut content_px = 0u64;
+    let px_of = |r: &Rect| u64::from(r.width()) * u64::from(r.height());
     for id in &ids {
         if let Some(b) = doc.layer(*id).and_then(|l| l.surface()).map(|s| s.content_bounds()) {
-            area = area.union(&b);
+            union = union.union(&b);
+            content_px = content_px.saturating_add(px_of(&b));
         }
     }
-    let area = area.intersect(&doc.bounds());
+    // The whole layers, past the canvas too (#5745): Auto-Align leaves a panorama's layers
+    // partly off the canvas, and Photoshop masks and blends all of each layer, so Reveal All
+    // shows the whole panorama. Layers so far apart that their bounds are mostly empty keep to
+    // the canvas.
+    let canvas = doc.bounds();
+    let area = if px_of(&union) <= content_px.max(px_of(&canvas)).saturating_mul(2) { union } else { union.intersect(&canvas) };
     if area.is_empty() {
         return Err(EngineError::Other("the selected layers are empty".into()));
     }
@@ -416,6 +424,37 @@ mod tests {
             s.undo();
             assert!(s.active().unwrap().doc.layer(left).unwrap().mask.is_none());
         }
+    }
+
+    /// #5745: a layer Auto-Align left partly off the canvas is masked and blended over all of
+    /// its bounds, not cut off at the canvas edge.
+    #[test]
+    fn auto_blend_panorama_masks_past_the_canvas() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 200, "height": 60, "background": "transparent"})).unwrap();
+        s.execute("layer.new.layer", json!({"name": "left"})).unwrap();
+        s.edit("l", |doc, active| {
+            doc.layer_mut(active.unwrap()).unwrap().surface_mut().unwrap().fill_rect(Rect::new(0, 0, 150, 60), &[0.2, 0.4, 0.5, 1.0]);
+            Ok(())
+        })
+        .unwrap();
+        let left = s.active().unwrap().active_layer.unwrap();
+        s.execute("layer.new.layer", json!({"name": "right"})).unwrap();
+        s.edit("r", |doc, active| {
+            doc.layer_mut(active.unwrap()).unwrap().surface_mut().unwrap().fill_rect(Rect::new(120, 0, 320, 60), &[0.2, 0.4, 0.5, 1.0]);
+            Ok(())
+        })
+        .unwrap();
+        let right = s.active().unwrap().active_layer.unwrap();
+        select(&mut s, &[left, right]);
+        let r = s.execute("edit.autoBlendLayers", json!({"method": "panorama"})).unwrap();
+        let doc = &s.active().unwrap().doc;
+        let ml = doc.layer(left).unwrap().mask.as_ref().unwrap();
+        let mr = doc.layer(right).unwrap().mask.as_ref().unwrap();
+        assert_eq!((ml.value(10, 30), mr.value(10, 30)), (1.0, 0.0));
+        assert_eq!((ml.value(300, 30), mr.value(300, 30)), (0.0, 1.0), "off the canvas");
+        let blended = doc.layer(LayerId(r["blended"].as_u64().unwrap())).unwrap().surface().unwrap();
+        assert_eq!(blended.pixel(300, 30)[3], 1.0, "the merged layer covers the off-canvas part");
     }
 
     #[test]
