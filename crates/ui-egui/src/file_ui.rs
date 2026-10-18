@@ -76,7 +76,7 @@ pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &V
             app.session.active()?;
             json!({"dialog": open_print(app)})
         }
-        "file.printOneCopy" if app.session.file_menu.last_print.is_none() => {
+        "file.printOneCopy" if photocraft_engine::print_cmds::last_print(&app.session).is_none() => {
             app.session.active()?;
             json!({"dialog": open_print(app)})
         }
@@ -729,7 +729,8 @@ pub fn open_print(app: &mut PhotocraftApp) -> u64 {
     // Asked once per opening: the Printer menu lists what the spooler knows now.
     let printers = app.session.execute("file.printers", json!({})).unwrap_or_default();
     f.insert("__systemPrinters".into(), printers["printers"].clone());
-    if let Some(Value::Object(m)) = app.session.file_menu.last_print.clone() {
+    // The settings of the last print, also from an earlier session (#7410).
+    if let Some(Value::Object(m)) = photocraft_engine::print_cmds::last_print(&app.session) {
         f.extend(m);
     }
     for (k, v) in [
@@ -1450,6 +1451,23 @@ mod tests {
         assert!(f.get("__systemPrinters").is_some_and(Value::is_array));
         assert!(params(f).get("__systemPrinters").is_none());
         assert!(params(f).get("__printers").is_none());
+    }
+
+    /// #7410: File › Print opens with the settings of the last print, also those remembered from
+    /// an earlier session (the preferences), before anything was printed in this one.
+    #[test]
+    fn print_dialog_opens_with_the_settings_remembered_from_an_earlier_session() {
+        let (mut app, _) = app();
+        app.session.prefs.edit(|p| {
+            p.dialogs.insert(
+                photocraft_engine::print_cmds::REMEMBERED.into(),
+                json!({"paper": "a5", "scale": 50, "orientation": "landscape", "intent": "perceptual"}),
+            );
+        });
+        let id = open_print(&mut app);
+        let f = &app.ui.dialog_mut(id).unwrap().fields;
+        assert_eq!((&f["paper"], &f["scale"], &f["orientation"], &f["intent"]), (&json!("a5"), &json!(50), &json!("landscape"), &json!("perceptual")));
+        assert_eq!(f["copies"], 1, "what wasn't remembered keeps its default");
     }
 
     #[test]
