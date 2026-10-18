@@ -39,6 +39,7 @@ pub struct LayersPanelOptions {
 }
 
 impl LayersPanelOptions {
+    /// Every option at the Photoshop default: Medium thumbnails, filters shown, new effects expanded, no mask badges.
     pub fn defaults() -> Self {
         Self {
             thumbnail_size: LayerThumbnailSize::Medium,
@@ -53,6 +54,7 @@ impl LayersPanelOptions {
 }
 
 impl Default for LayersPanelOptions {
+    /// Same as [`LayersPanelOptions::defaults`], so serde fills missing fields with the Photoshop defaults.
     fn default() -> Self {
         Self::defaults()
     }

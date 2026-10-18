@@ -586,6 +586,7 @@ fn add_beside_places_a_board_on_each_side_and_alt_duplicates_contents() {
     assert!(s.execute("layer.artboard.addBeside", json!({"side": "diagonal"})).is_err());
 }
 
+/// Adding a duplicated artboard beside another appends "copy" to its name only while the Layers panel option is on.
 #[test]
 fn add_beside_duplicate_honors_panel_copy_name_preference() {
     for add_copy in [false, true] {

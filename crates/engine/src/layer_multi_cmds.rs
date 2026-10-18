@@ -2787,6 +2787,7 @@ mod tests {
 mod layers_panel_parity_tests {
     use super::*;
 
+    /// A 24×16 document with three layers, "Test 0" to "Test 2", above the Background; the last one is active.
     fn new_session() -> (Session, Vec<LayerId>) {
         let mut s = Session::new();
         s.execute("file.new", json!({"width": 24, "height": 16})).unwrap();
@@ -2794,6 +2795,7 @@ mod layers_panel_parity_tests {
         (s, ids)
     }
 
+    /// Set one Layers panel option in the preferences, as the Panel Options dialog does.
     fn option(s: &mut Session, key: &str, enabled: bool) {
         s.prefs.edit(|p| {
             let val = p.dialogs.entry("ui.layersPanelOptions".into()).or_insert_with(|| json!({}));
@@ -2803,6 +2805,7 @@ mod layers_panel_parity_tests {
         });
     }
 
+    /// The drag preview equals the committed `layer.moveTo` result and never touches the document or its history.
     #[test]
     fn preview_matches_real_move_and_never_edits_document_or_history() {
         let (mut s, ids) = new_session();
@@ -2816,6 +2819,7 @@ mod layers_panel_parity_tests {
         assert_eq!(candidate, *s.active().unwrap().doc, "visual preview must match committed layer order");
     }
 
+    /// A previewed ⌥-drag copy names its layers like the committed copy, with and without the "copy" suffix option.
     #[test]
     fn preview_copy_and_no_copy_suffix_option_match_committed_layers() {
         let (mut s, ids) = new_session();
@@ -2836,6 +2840,7 @@ mod layers_panel_parity_tests {
         assert!(s.active().unwrap().doc.layer(LayerId(d["layer"].as_u64().unwrap())).unwrap().name.contains("copy"));
     }
 
+    /// Drops the command refuses give no preview and leave the document alone; a multi-layer preview follows the committed stack order.
     #[test]
     fn preview_rejects_invalid_drop_unchanged() {
         let (mut s, ids) = new_session();
@@ -2882,6 +2887,7 @@ mod layers_panel_parity_tests {
         doc.layers.iter().map(|l| format!("{}{}", l.name, if l.clipped { "*" } else { "" })).collect::<Vec<_>>().join(" ")
     }
 
+    /// The id of the layer called `name`, searching the whole layer tree.
     fn id_of(s: &Session, name: &str) -> u64 {
         s.active().unwrap().doc.walk().into_iter().find(|(_, _, l)| l.name == name).unwrap().2.id.0
     }
@@ -2898,6 +2904,7 @@ mod layers_panel_parity_tests {
         assert_eq!(photocraft_compose::flatten(&preview).px, photocraft_compose::flatten(committed).px, "composite of {params}");
     }
 
+    /// Previewed moves join and release clipping groups exactly as the committed reorder does, copies included.
     #[test]
     fn preview_follows_clip_groups_like_the_committed_reorder() {
         // The fixtures of `clip_group::reorder_joins_and_leaves_groups`.
@@ -2924,6 +2931,7 @@ mod layers_panel_parity_tests {
         assert_preview_is_commit(s, json!({"layer": u, "target": c1, "position": "above", "copy": true}), "Background B C1* U copy* C2* U");
     }
 
+    /// Copying the locked Background in a preview gives the same unlocked copy, joining the clip group it lands in, as the command.
     #[test]
     fn preview_copies_the_background_like_the_committed_copy() {
         let mut s = clip_stack("A B*");
@@ -2944,6 +2952,7 @@ mod layers_panel_parity_tests {
         assert_eq!(photocraft_compose::flatten(&preview).px, photocraft_compose::flatten(committed).px);
     }
 
+    /// A drop that would move the Background off the bottom has no preview, as the command refuses it.
     #[test]
     fn preview_refuses_what_would_leave_the_background_off_the_bottom() {
         let mut s = clip_stack("A B");
@@ -2960,6 +2969,7 @@ mod layers_panel_parity_tests {
         }
     }
 
+    /// The UI runs commands through `start`; Expand New Effects applies there as well as to `execute`.
     #[test]
     fn expand_new_effects_applies_to_ui_start_dispatch_too() {
         let (mut s, ids) = new_session();
@@ -2970,6 +2980,7 @@ mod layers_panel_parity_tests {
         assert!(s.active().unwrap().fx_collapsed.contains(&target));
     }
 
+    /// Whether new effects start expanded is view state: it adds no history step, and editing an existing effect keeps its disclosure.
     #[test]
     fn expand_new_effects_is_view_state_and_keeps_edit_history_clean() {
         let (mut s, ids) = new_session();
