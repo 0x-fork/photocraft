@@ -501,6 +501,29 @@ fn press_esc(app: &mut PhotocraftApp, ctx: &egui::Context) {
 }
 
 #[test]
+fn esc_leaves_full_screen_with_the_crop_tool_showing_its_default_frame() {
+    let (mut app, ctx) = app_with(1);
+    app.ui.tool = crate::Tool::Crop;
+    crate::crop_ui::ensure_frame(&mut app);
+    assert!(app.ui.crop_rect.is_some() && app.crop.default_frame);
+    for mode in ["fullScreen", "fullScreenWithMenuBar"] {
+        menu(&mut app, &ctx, &format!("view.screenMode.{mode}"), json!({})).unwrap();
+        press_esc(&mut app, &ctx);
+        assert_eq!(app.ui.view.screen_mode, "standard", "{mode}");
+        assert!(app.ui.crop_rect.is_some() && app.crop.default_frame, "{mode}: the default frame stays");
+    }
+    // With Straighten armed, Esc drops it first and the mode stays.
+    menu(&mut app, &ctx, "view.screenMode.fullScreen", json!({})).unwrap();
+    app.crop.straighten.armed = true;
+    press_esc(&mut app, &ctx);
+    assert!(!app.crop.straighten.armed);
+    assert_eq!(app.ui.view.screen_mode, "fullScreen");
+    crate::crop_ui::ensure_frame(&mut app);
+    press_esc(&mut app, &ctx);
+    assert_eq!(app.ui.view.screen_mode, "standard");
+}
+
+#[test]
 fn esc_leaves_full_screen_modes_unless_something_else_owns_it() {
     let (mut app, ctx) = app_with(1);
     // Both full screen modes return to Standard, and the menu check follows (#4116).

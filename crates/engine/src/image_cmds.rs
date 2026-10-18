@@ -54,6 +54,18 @@ pub(crate) fn for_each_surface(layers: &mut [Layer], masks: bool, f: &mut dyn Fn
     }
 }
 
+/// Drops every fill cache of a layer tree. A fill layer covers the whole canvas, but its cache
+/// (the pixels a PSD stored) only the old one: after the canvas grows the fill must re-render
+/// from its model, or the added area stays transparent (#7362).
+fn drop_fill_caches(layers: &mut [Layer]) {
+    for l in layers {
+        l.fill_cache = None;
+        if let LayerContent::Group(g) = &mut l.content {
+            drop_fill_caches(&mut g.children);
+        }
+    }
+}
+
 /// Converts every pixel surface of a layer tree (masks included) to `depth`.
 pub(crate) fn convert_layers_depth(layers: &mut [Layer], depth: SampleType) {
     for_each_surface(layers, true, &mut |surf, _| {
@@ -337,6 +349,9 @@ fn crop_doc(doc: &mut Document, cmd: &str, r: Rect, delete_pixels: bool, extensi
             surf.write_interleaved(keep, &saved);
         }
     }
+    if extends {
+        drop_fill_caches(&mut doc.layers);
+    }
     crate::canvas_geom::refresh(doc, crate::canvas_geom::Refresh::Shapes);
     Ok(())
 }
@@ -397,6 +412,9 @@ fn canvas_size(s: &mut Session, p: &Value) -> Result<Value> {
     s.edit("Canvas Size", |doc, _| {
         translate_doc(doc, "image.canvasSize", dx, dy)?;
         doc.size = Size::new(nw, nh);
+        if nw > ow as u32 || nh > oh as u32 {
+            drop_fill_caches(&mut doc.layers);
+        }
         crate::canvas_geom::refresh(doc, crate::canvas_geom::Refresh::Shapes);
         let canvas = doc.bounds();
         let old = Rect::from_xywh(dx, dy, ow as u32, oh as u32);

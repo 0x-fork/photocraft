@@ -393,9 +393,10 @@ pub fn draw_rulers(app: &mut PhotocraftApp, ui: &mut egui::Ui, full: Rect, xf: &
             let c = at(v);
             if vertical {
                 p.line_segment([pos2(left.right() - RULER, c), pos2(left.right(), c)], tick);
-                // Labels stacked, as in Photoshop.
+                // Labels stacked, as in Photoshop, each character centred in the ruler's width
+                // (a narrow "1" used to hug the left edge while a "0" filled the strip).
                 for (i, ch) in ruler_label(v, step, whole).chars().enumerate() {
-                    p.text(pos2(left.left() + 3.0, c + 2.0 + i as f32 * 8.5), Align2::LEFT_TOP, ch, font.clone(), t.text_dim);
+                    p.text(pos2(left.left() + RULER * 0.5, c + 2.0 + i as f32 * 8.5), Align2::CENTER_TOP, ch, font.clone(), t.text_dim);
                 }
             } else {
                 p.line_segment([pos2(c, top.bottom() - RULER), pos2(c, top.bottom())], tick);
@@ -532,6 +533,28 @@ mod tests {
             }
         }
         assert!(failures.is_empty(), "ruler drawing overlaps the origin corner: {failures:?}");
+    }
+
+    /// #7314: the stacked characters of the left ruler's labels are centred on the strip, so a
+    /// narrow "1" lines up with a wide "0".
+    #[test]
+    fn left_ruler_label_characters_are_centred() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 256, "height": 128})).unwrap();
+        let (mut h, full, _) = ruler_harness(app);
+        h.run_steps(2);
+        let centres: Vec<f32> = h
+            .output()
+            .shapes
+            .iter()
+            .filter_map(|s| if let egui::Shape::Text(t) = &s.shape { Some(t) } else { None })
+            .filter(|t| t.pos.x < full.min.x + RULER && t.pos.y > full.min.y + RULER)
+            .map(|t| t.pos.x + t.galley.size().x * 0.5)
+            .collect();
+        assert!(centres.len() > 2, "the left ruler draws labels: {centres:?}");
+        for c in &centres {
+            assert!((c - (full.min.x + RULER * 0.5)).abs() < 0.01, "character centre {c} in {centres:?}");
+        }
     }
 
     #[test]
