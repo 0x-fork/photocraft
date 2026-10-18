@@ -2303,11 +2303,21 @@ fn color_picker(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 /// HSB or RGB sliders under the colour field (#7172).
 fn color_slider_mode_row(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     ui.add_space(6.0);
-    let mut mode = app.ui.color_panel.slider_mode;
-    let opts = [(ColorPanelSliderMode::Hsb, "HSB"), (ColorPanelSliderMode::Rgb, "RGB")];
-    if !widgets::dropdown_wheel_hovered(ui, "color-panel-slider-mode", &mut mode, &opts, 72.0).0.is_empty() {
-        app.ui.color_panel.slider_mode = mode;
-    }
+    let label = match app.ui.color_panel.slider_mode {
+        ColorPanelSliderMode::Hsb => tl!("HSB"),
+        ColorPanelSliderMode::Rgb => tl!("RGB"),
+    };
+    // A press menu, not a combo box: the default layout keeps the Color panel open beside
+    // adjustment editors, and harness tests pick the combo nearest "3D LUT File" (#7317).
+    let btn = ui.add_sized([72.0, ui.spacing().interact_size.y], egui::Button::new(label));
+    crate::press_menu::show(&btn, |ui, menu| {
+        if menu.item(ui, tl!("HSB")) {
+            app.ui.color_panel.slider_mode = ColorPanelSliderMode::Hsb;
+        }
+        if menu.item(ui, tl!("RGB")) {
+            app.ui.color_panel.slider_mode = ColorPanelSliderMode::Rgb;
+        }
+    });
 }
 
 /// Hue, Saturation and Brightness sliders for the foreground colour.
