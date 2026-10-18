@@ -29,6 +29,10 @@ fn stroke_validation_rejects_hostile_values_without_editing_history() {
         json!({"width": 0.00001, "dashes": [0.01, 0.01]}),
         json!({"color": {"gradient": {"offset": [0.5]}}}),
         json!({"color": {"gradient": {"offset": "centre"}}}),
+        // Stop lists past the gradient stop edits' 1024 cap are refused, not cut.
+        json!({"color": {"gradient": {"stops": vec![json!([0.5, "#ff0000"]); 1025]}}}),
+        json!({"color": {"gradient": {"opacityStops": vec![json!([0.5, 1.0]); 1025]}}}),
+        json!({"color": {"gradient": {"midpoints": vec![0.5; 1025]}}}),
     ];
     for stroke in invalid {
         assert!(s.execute("shape.edit", json!({"layer": id, "stroke": stroke})).is_err(), "{stroke}");
@@ -38,6 +42,9 @@ fn stroke_validation_rejects_hostile_values_without_editing_history() {
     }
     assert!(s.execute("shape.edit", json!({"layer": id, "rect": [1e100, 0, 20, 20]})).is_err());
     assert_eq!(s.active().unwrap().doc, before);
+    // The cap itself is accepted.
+    let at_cap = json!({"color": {"gradient": {"opacityStops": vec![json!([0.5, 1.0]); 1024], "midpoints": vec![0.5; 1024]}}});
+    s.execute("shape.edit", json!({"layer": id, "stroke": at_cap})).unwrap();
 }
 
 /// A gradient stroke keeps every gradient field through `shape.edit`, and `shape.info` reports

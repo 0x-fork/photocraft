@@ -35,7 +35,14 @@ fn assert_saved_path(saved: &Path, original: &Path) {
 }
 
 fn harness(app: PhotocraftApp, properties: bool) -> Harness<'static, PhotocraftApp> {
-    let mut h = Harness::builder().with_size(vec2(1000.0, 700.0)).build_ui_state(
+    // kittest's default step: 0.25 s a frame.
+    harness_stepped(app, properties, 0.25)
+}
+
+/// [`harness`] advancing `step_dt` seconds a frame (1/60 lets two clicks fall within egui's
+/// 0.3 s double-click window, as they do in the app).
+fn harness_stepped(app: PhotocraftApp, properties: bool, step_dt: f32) -> Harness<'static, PhotocraftApp> {
+    let mut h = Harness::builder().with_size(vec2(1000.0, 700.0)).with_step_dt(step_dt).build_ui_state(
         move |ui, app: &mut PhotocraftApp| {
             crate::screen_picker::tick(app, ui.ctx());
             if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
@@ -534,4 +541,43 @@ fn gradient_tab_align_with_layer_and_recent_row() {
     h.key_press(Key::Escape);
     h.run_steps(3);
     assert_eq!(h.state().ui.recent_gradients.len(), 1, "the same stops are remembered once");
+}
+
+/// #7176 review: the selected stop is an index; after taking a preset with fewer stops it pointed
+/// past them and the Color / Location rows vanished, leaving no way to recolour a stop. They stay,
+/// and double-clicking a colour stop opens its colour, as Photoshop's opens the Color Picker.
+#[test]
+fn gradient_tab_keeps_the_stop_colour_after_a_preset_with_fewer_stops() {
+    let mut h = harness_stepped(app("rgb", 8), false, 1.0 / 60.0);
+    let strip = open_stroke_gradient(&mut h);
+    let (bar_left, bar_right, bar_bottom) = (strip.left() + 8.0, strip.right() - 8.0, strip.top() + 40.0);
+    let x_at = |loc: f32| bar_left + (bar_right - bar_left) * loc;
+    // Three colour stops, the last one selected.
+    click(&mut h, pos2(x_at(0.5), bar_bottom - 4.0));
+    click(&mut h, pos2(x_at(1.0), bar_bottom + 10.0));
+    assert_eq!(gradient_stops(&tool_stroke_gradient(&h)).0.len(), 3);
+    h.get_by_label("Blue 01").click();
+    h.run_steps(3);
+    assert_eq!(gradient_stops(&tool_stroke_gradient(&h)).0.len(), 2);
+    assert!(h.query_by_label("Location").is_some(), "the selected stop's rows stay after a preset with fewer stops");
+    let color_well = egui_kittest::kittest::by().label("Color").role(egui::accesskit::Role::ColorWell);
+    assert!(h.query(color_well).is_some());
+    // Double-click the right colour stop: its picker opens, and a click in it recolours only that stop.
+    let stop = pos2(x_at(1.0), bar_bottom + 10.0);
+    h.hover_at(stop);
+    // A second later, so the two clicks are a double click and not a triple with the preset pick.
+    h.run_steps(60);
+    for _ in 0..2 {
+        pointer(&mut h, stop, true);
+        pointer(&mut h, stop, false);
+    }
+    h.run_steps(2);
+    let before = gradient_stops(&tool_stroke_gradient(&h)).0;
+    let swatch = h.get(egui_kittest::kittest::by().label("Color").role(egui::accesskit::Role::ColorWell)).rect();
+    let field = pos2(swatch.left() + 30.0, h.get_by_label("Location").rect().bottom() + 120.0);
+    click(&mut h, field);
+    let after = gradient_stops(&tool_stroke_gradient(&h)).0;
+    assert_eq!(after[0], before[0], "the left stop keeps its colour");
+    assert_ne!(after[1].1, before[1].1, "the double-clicked right stop is recoloured");
+    assert_eq!(after[1].0, before[1].0);
 }

@@ -81,6 +81,7 @@ pub(super) fn gradient_tab(ui: &mut egui::Ui, fill: &Fill, choices: &GradientCho
     let Fill::Gradient { angle, scale, style, reverse, align, .. } = fill else { return None };
     let t = Tokens::get(ui.ctx());
     let mut out: Option<Fill> = None;
+    let mut picked = false;
     egui::ScrollArea::vertical().id_salt(id.with("gradient-presets")).max_height(120.0).show(ui, |ui| {
         ui.set_width(WIDTH);
         let group_label = |ui: &mut egui::Ui, s: &str| ui.label(egui::RichText::new(s).color(t.text_dim).size(11.0));
@@ -95,6 +96,7 @@ pub(super) fn gradient_tab(ui: &mut egui::Ui, fill: &Fill, choices: &GradientCho
                     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name));
                     if resp.clicked() {
                         take_stops(edited(&mut out, fill), recent);
+                        picked = true;
                     }
                 }
             });
@@ -112,11 +114,16 @@ pub(super) fn gradient_tab(ui: &mut egui::Ui, fill: &Fill, choices: &GradientCho
                     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &preset.name));
                     if resp.on_hover_text(&preset.name).clicked() {
                         take_preset(edited(&mut out, fill), preset, choices.fg, choices.bg);
+                        picked = true;
                     }
                 }
             });
         }
     });
+    if picked {
+        // New stops: start from the first colour stop, its colour row showing.
+        ui.data_mut(|d| d.insert_temp(selection_key(id), Marker::Color(0)));
+    }
     ui.add_space(6.0);
     if let Some(f) = stops_strip(ui, out.as_ref().unwrap_or(fill), id, choices.fg, choices.bg) {
         out = Some(f);
@@ -239,6 +246,29 @@ fn apply(fill: &Fill, edit: &Value, fg: [f32; 4], bg: [f32; 4]) -> Option<Fill> 
     apply_stop(fill, edit, fg, bg).ok()
 }
 
+/// Where swatch `id` keeps its selected marker.
+fn selection_key(id: egui::Id) -> egui::Id {
+    id.with("stops-selected")
+}
+
+/// Where swatch `id` keeps whether the selected colour stop's inline picker is open.
+fn picker_key(id: egui::Id) -> egui::Id {
+    id.with("stop-picker-open")
+}
+
+/// The selected marker, when it still names a stop of `fill`; else the first colour stop. The
+/// marker is an index, so a preset with fewer stops, a deleted stop or another shape would
+/// otherwise leave it pointing past the stops (and the stop's fields would vanish).
+fn selection(ui: &egui::Ui, id: egui::Id, fill: &Fill) -> Marker {
+    let (cs, os, _) = sorted_stops(fill);
+    let valid = |m: &Marker| match *m {
+        Marker::Color(i) => i < cs.len(),
+        Marker::Opacity(i) => i < os.len(),
+        Marker::Mid(i) => i.saturating_add(1) < cs.len(),
+    };
+    ui.data(|d| d.get_temp::<Marker>(selection_key(id))).filter(valid).unwrap_or(Marker::Color(0))
+}
+
 /// The stops strip: the ramp with opacity stops above and colour stops below (Photoshop's).
 fn stops_strip(ui: &mut egui::Ui, fill: &Fill, id: egui::Id, fg: [f32; 4], bg: [f32; 4]) -> Option<Fill> {
     let t = Tokens::get(ui.ctx());
@@ -253,9 +283,9 @@ fn stops_strip(ui: &mut egui::Ui, fill: &Fill, id: egui::Id, fg: [f32; 4], bg: [
     }
     ui.painter().rect_stroke(bar, 0.0, Stroke::new(1.0, t.field_border), StrokeKind::Outside);
     let (cs, os, mids) = sorted_stops(fill);
-    let (drag_key, selection_key) = (id.with("stops-drag"), id.with("stops-selected"));
+    let (drag_key, selection_key) = (id.with("stops-drag"), selection_key(id));
     let drag: Option<Drag> = ui.data(|d| d.get_temp(drag_key));
-    let selected: Option<Marker> = drag.as_ref().map(|d| d.marker).or_else(|| ui.data(|d| d.get_temp(selection_key)));
+    let selected: Option<Marker> = Some(drag.as_ref().map_or_else(|| selection(ui, id, fill), |d| d.marker));
     let p = ui.painter();
     let outline = |sel: bool| if sel { t.accent } else { t.text_dim };
     for (i, (loc, c)) in cs.iter().enumerate() {
@@ -354,6 +384,19 @@ fn stops_strip(ui: &mut egui::Ui, fill: &Fill, id: egui::Id, fg: [f32; 4], bg: [
         }
         return out;
     }
+    // Double-clicking a colour stop opens its colour, as Photoshop's opens the Color Picker. egui
+    // counts a click within 0.6 s of the one before last as a triple click (a preset picked just
+    // before), which is a double click on the stop all the same.
+    if (resp.double_clicked() || resp.triple_clicked())
+        && let Some(pos) = resp.interact_pointer_pos()
+        && let Some(marker @ Marker::Color(_)) = hit(pos)
+    {
+        ui.data_mut(|d| {
+            d.insert_temp(selection_key, marker);
+            d.insert_temp(picker_key(id), true);
+        });
+        return None;
+    }
     if resp.clicked()
         && let Some(pos) = resp.interact_pointer_pos()
     {
@@ -381,8 +424,8 @@ fn stops_strip(ui: &mut egui::Ui, fill: &Fill, id: egui::Id, fg: [f32; 4], bg: [
 /// from its swatch), an opacity stop's opacity, a midpoint's position; Location and Delete.
 fn stop_fields(ui: &mut egui::Ui, fill: &Fill, id: egui::Id, fg: [f32; 4], bg: [f32; 4]) -> Option<Fill> {
     let t = Tokens::get(ui.ctx());
-    let selection_key = id.with("stops-selected");
-    let selected: Marker = ui.data(|d| d.get_temp(selection_key)).unwrap_or(Marker::Color(0));
+    let selection_key = selection_key(id);
+    let selected = selection(ui, id, fill);
     let (cs, os, mids) = sorted_stops(fill);
     let label = |ui: &mut egui::Ui, s: &str| ui.label(egui::RichText::new(s).color(t.text_dim).size(12.0));
     let mut edit: Option<Value> = None;
@@ -392,7 +435,7 @@ fn stop_fields(ui: &mut egui::Ui, fill: &Fill, id: egui::Id, fg: [f32; 4], bg: [
         Marker::Opacity(i) => (os.iter().map(|s| s.0).collect(), i),
         Marker::Mid(i) => (Vec::new(), i),
     };
-    let picker_key = id.with("stop-picker-open");
+    let picker_key = picker_key(id);
     let mut picker_open = ui.data(|d| d.get_temp::<bool>(picker_key)).unwrap_or(false);
     ui.horizontal(|ui| match selected {
         Marker::Color(i) => {
