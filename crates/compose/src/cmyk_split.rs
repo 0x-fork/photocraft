@@ -90,6 +90,11 @@ fn stand_in_color(c: &Color, planes: Planes) -> Color {
 
 /// A CMYK surface as an RGB one (same depth and alpha) holding the planes' brightness.
 fn stand_in_surface(s: &Surface, planes: Planes) -> Surface {
+    stand_in_surface_in(s, planes, crate::BAND_PIXELS)
+}
+
+/// [`stand_in_surface`], converting about `budget` pixels' worth of tiles at a time.
+fn stand_in_surface_in(s: &Surface, planes: Planes, budget: u64) -> Surface {
     let from = s.format();
     if from.mode != ColorMode::Cmyk {
         return s.clone();
@@ -130,15 +135,30 @@ fn stand_in_surface(s: &Surface, planes: Planes) -> Surface {
         map(&src, &mut dst);
         (*r, dst)
     };
-    #[cfg(not(target_arch = "wasm32"))]
-    let tiles: Vec<(Rect, Vec<f32>)> = {
-        use rayon::prelude::*;
-        rects.par_iter().map(convert).collect()
-    };
-    #[cfg(target_arch = "wasm32")]
-    let tiles: Vec<(Rect, Vec<f32>)> = rects.iter().map(convert).collect();
-    for (r, data) in &tiles {
-        out.write_region(*r, data);
+    // Converted a band's worth of tiles at a time, so the float samples in flight stay about
+    // one render band's, not the whole layer's.
+    let mut start = 0;
+    while start < rects.len() {
+        let mut end = start;
+        let mut pixels = 0u64;
+        while let Some(r) = rects.get(end)
+            && (end == start || pixels < budget)
+        {
+            pixels = pixels.saturating_add(u64::from(r.width()) * u64::from(r.height()));
+            end += 1;
+        }
+        let batch = rects.get(start..end).unwrap_or_default();
+        #[cfg(not(target_arch = "wasm32"))]
+        let tiles: Vec<(Rect, Vec<f32>)> = {
+            use rayon::prelude::*;
+            batch.par_iter().map(convert).collect()
+        };
+        #[cfg(target_arch = "wasm32")]
+        let tiles: Vec<(Rect, Vec<f32>)> = batch.iter().map(convert).collect();
+        for (r, data) in &tiles {
+            out.write_region(*r, data);
+        }
+        start = end;
     }
     out
 }
@@ -202,6 +222,10 @@ fn stand_in_effect(e: &mut Effect, planes: Planes) {
 }
 
 fn stand_in_layer(l: &mut Layer, planes: Planes, depth: SampleType, canvas: Rect) {
+    // The compositor never draws a hidden layer (nor what is clipped to it): no stand-in needed.
+    if !l.visible {
+        return;
+    }
     let cache = |c: &mut Option<Surface>| {
         if let Some(s) = c {
             *s = stand_in_surface(s, planes);
@@ -310,4 +334,39 @@ pub(super) fn render_planes(doc: &Document, rect: Rect, planes: Planes) -> Buffe
     let s = StandIn { doc: &d, cx: Ctx::for_doc(&d, &no_patterns) };
     s.prepare(rect);
     s.tile(rect)
+}
+
+#[cfg(test)]
+mod batch_tests {
+    use super::*;
+
+    /// A surface over many tiles converts alike one tile at a time or all at once, and a hidden
+    /// layer is left unconverted (the compositor never draws it).
+    #[test]
+    fn stand_ins_convert_in_batches_and_skip_hidden_layers() {
+        let fmt = PixelFormat::new(ColorMode::Cmyk, SampleType::U8, true);
+        let mut s = Surface::with_default(fmt, &[0.0; 5]);
+        let size = photocraft_geom::TILE_SIZE * 3 + 7;
+        s.fill_rect(Rect::new(0, 0, size, size / 2), &[0.2, 0.4, 0.6, 0.1, 1.0]);
+        s.fill_rect(Rect::new(5, size / 3, size, size), &[0.0, 0.9, 0.0, 0.5, 0.5]);
+        assert!(s.tiles().count() > 4);
+        let bounds = Rect::new(0, 0, size, size);
+        let read = |s: &Surface| {
+            let mut v = Vec::new();
+            s.read_region_into(bounds, &mut v);
+            v
+        };
+        for planes in [CMY, K] {
+            let whole = stand_in_surface_in(&s, planes, u64::MAX);
+            assert_eq!(read(&stand_in_surface_in(&s, planes, 1)), read(&whole));
+            assert_eq!(read(&stand_in_surface(&s, planes)), read(&whole));
+        }
+        let mut d = Document::new("d", photocraft_geom::Size::new(4, 4), ColorMode::Cmyk, SampleType::U8);
+        let mut hidden = Layer::raster("hidden", fmt);
+        hidden.visible = false;
+        d.layers.extend([Layer::raster("shown", fmt), hidden]);
+        let st = stand_in(&d, CMY);
+        let mode = |l: &Layer| l.surface().map(|s| s.format().mode);
+        assert_eq!(st.layers.iter().map(mode).collect::<Vec<_>>(), [Some(ColorMode::Rgb), Some(ColorMode::Cmyk)]);
+    }
 }
