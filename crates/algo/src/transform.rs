@@ -231,14 +231,37 @@ pub fn quad_to_rect(q: &[[f64; 2]; 4], w: f64, h: f64) -> Option<Homography> {
 
 /// The destination rectangle [`warp_surface`] fills for `src_rect` under `h`: the warped corners
 /// plus a pixel for filter support, each side clamped to ±2²⁰. `None` when a corner maps to
-/// infinity (the result is then empty). Lets a caller price a warp before allocating it.
+/// infinity (the result is then empty). Use [`warp_output_size`] to price the full result before
+/// admitting a transform: clipping these bounds must not hide an excessive scale.
 pub fn warp_output_bounds(src_rect: Rect, h: &Homography) -> Option<Rect> {
+    corner_bounds(&warp_corners(src_rect, h)?)
+}
+
+/// Unclipped output dimensions, including the same filter support as [`warp_output_bounds`].
+/// Position does not affect the price, so translating a small layer far away stays cheap.
+/// Unrepresentable or non-finite dimensions saturate at `u64::MAX`, allowing a caller to refuse
+/// the warp with a saturating pixel-budget comparison. Empty and singular inputs have no output.
+pub fn warp_output_size(src_rect: Rect, h: &Homography) -> Option<(u64, u64)> {
+    let corners = warp_corners(src_rect, h)?;
+    if !corners.iter().all(|(x, y)| x.is_finite() && y.is_finite()) {
+        return Some((u64::MAX, u64::MAX));
+    }
+    let x0 = corners.iter().map(|c| c.0).fold(f64::MAX, f64::min).floor();
+    let y0 = corners.iter().map(|c| c.1).fold(f64::MAX, f64::min).floor();
+    let x1 = corners.iter().map(|c| c.0).fold(f64::MIN, f64::max).ceil();
+    let y1 = corners.iter().map(|c| c.1).fold(f64::MIN, f64::max).ceil();
+    // Float-to-integer casts saturate, including when the finite endpoints' difference overflows.
+    Some((((x1 - x0) as u64).saturating_add(2), ((y1 - y0) as u64).saturating_add(2)))
+}
+
+fn warp_corners(src_rect: Rect, h: &Homography) -> Option<[(f64, f64); 4]> {
     if src_rect.is_empty() || h.inverse().is_none() {
         return None;
     }
-    let corners = [(src_rect.x0, src_rect.y0), (src_rect.x1, src_rect.y0), (src_rect.x1, src_rect.y1), (src_rect.x0, src_rect.y1)]
-        .map(|(x, y)| h.apply(x as f64, y as f64));
-    corner_bounds(&corners)
+    Some(
+        [(src_rect.x0, src_rect.y0), (src_rect.x1, src_rect.y0), (src_rect.x1, src_rect.y1), (src_rect.x0, src_rect.y1)]
+            .map(|(x, y)| h.apply(x as f64, y as f64)),
+    )
 }
 
 fn corner_bounds(corners: &[(f64, f64); 4]) -> Option<Rect> {
@@ -281,7 +304,7 @@ fn warp(
     // that matters is the one at the source point landing in the clip's centre.
     let (cx, cy) = match clip.and_then(|c| Some((c, h.inverse()?))) {
         Some((c, inv)) => inv.apply((c.x0 as f64 + c.x1 as f64) / 2.0, (c.y0 as f64 + c.y1 as f64) / 2.0),
-        None => ((src_rect.x0 + src_rect.x1) as f64 / 2.0, (src_rect.y0 + src_rect.y1) as f64 / 2.0),
+        None => ((f64::from(src_rect.x0) + f64::from(src_rect.x1)) / 2.0, (f64::from(src_rect.y0) + f64::from(src_rect.y1)) / 2.0),
     };
     let scale = h.local_scale(cx, cy);
     let reduced;
@@ -366,10 +389,10 @@ fn warp(
             return Ok(None);
         }
         let fp: Vec<(f64, f64)> = poly.iter().map(|&(x, y)| inv.apply(x, y)).collect();
-        let fx0 = fp.iter().map(|c| c.0).fold(f64::MAX, f64::min).floor() as i32 - 3;
-        let fy0 = fp.iter().map(|c| c.1).fold(f64::MAX, f64::min).floor() as i32 - 3;
-        let fx1 = fp.iter().map(|c| c.0).fold(f64::MIN, f64::max).ceil() as i32 + 3;
-        let fy1 = fp.iter().map(|c| c.1).fold(f64::MIN, f64::max).ceil() as i32 + 3;
+        let fx0 = (fp.iter().map(|c| c.0).fold(f64::MAX, f64::min).floor() as i32).saturating_sub(3);
+        let fy0 = (fp.iter().map(|c| c.1).fold(f64::MAX, f64::min).floor() as i32).saturating_sub(3);
+        let fx1 = (fp.iter().map(|c| c.0).fold(f64::MIN, f64::max).ceil() as i32).saturating_add(3);
+        let fy1 = (fp.iter().map(|c| c.1).fold(f64::MIN, f64::max).ceil() as i32).saturating_add(3);
         // Without a one-signed forward w, a tile straddling the inverse horizon has no bounded footprint.
         let straddles = side.is_none() && wc.iter().any(|w| *w <= 0.0) && wc.iter().any(|w| *w >= 0.0);
         let foot = if straddles { src_rect } else { Rect::new(fx0, fy0, fx1, fy1).intersect(&src_rect) };
@@ -392,6 +415,15 @@ fn warp(
                 px[((y - foot.y0) as usize * fw + (x - foot.x0) as usize) * n + c] as f64
             }
         };
+        // Samples past the source rect repeat its edge, so a stretched edge row or column keeps its
+        // colour and opacity (the "pixel stretch", #3773); the outline is antialiased by coverage
+        // instead. `foot_u`/`foot_v` are a destination pixel's extent in source pixels.
+        let clamped = |x: i32, y: i32, c: usize| at(x.clamp(src_rect.x0, src_rect.x1 - 1), y.clamp(src_rect.y0, src_rect.y1 - 1), c);
+        let (mx, my) = ((t.x0 + t.x1) as f64 / 2.0, (t.y0 + t.y1) as f64 / 2.0);
+        let (o, dx, dy) = (inv.apply(mx, my), inv.apply(mx + 1.0, my), inv.apply(mx, my + 1.0));
+        let extent = |e: f64| if e.is_finite() && e > 1e-12 { e } else { 1.0 };
+        let foot_u = extent((dx.0 - o.0).abs() + (dy.0 - o.0).abs());
+        let foot_v = extent((dx.1 - o.1).abs() + (dy.1 - o.1).abs());
         let w = t.width() as usize;
         let len = w.checked_mul(t.height() as usize).and_then(|v| v.checked_mul(n)).ok_or(photocraft_raster::AllocationError::SizeOverflow)?;
         let bytes = len.checked_mul(std::mem::size_of::<f32>()).ok_or(photocraft_raster::AllocationError::SizeOverflow)?;
@@ -424,7 +456,7 @@ fn warp(
                         for (dy, wy) in [(0, 1.0 - fy), (1, fy)] {
                             for (dx, wx) in [(0, 1.0 - fx), (1, fx)] {
                                 for (c, s) in acc.iter_mut().enumerate().take(n) {
-                                    *s += at(ix + dx, iy + dy, c) * wx * wy;
+                                    *s += clamped(ix + dx, iy + dy, c) * wx * wy;
                                 }
                             }
                         }
@@ -436,10 +468,19 @@ fn warp(
                             for (i, wxi) in wx.iter().enumerate() {
                                 let k = wxi * wyj;
                                 for (c, s) in acc.iter_mut().enumerate().take(n) {
-                                    *s += at(ix - 1 + i as i32, iy - 1 + j as i32, c) * k;
+                                    *s += clamped(ix - 1 + i as i32, iy - 1 + j as i32, c) * k;
                                 }
                             }
                         }
+                    }
+                }
+                if interp != Interp::Nearest {
+                    // How much of this pixel the warped source rect covers, per axis.
+                    let (uc, vc) = (u + 0.5, v + 0.5);
+                    let cu = ((uc - src_rect.x0 as f64).min(src_rect.x1 as f64 - uc) / foot_u + 0.5).clamp(0.0, 1.0);
+                    let cv = ((vc - src_rect.y0 as f64).min(src_rect.y1 as f64 - vc) / foot_v + 0.5).clamp(0.0, 1.0);
+                    for s in acc.iter_mut().take(n) {
+                        *s *= cu * cv;
                     }
                 }
                 let al = acc[a].clamp(0.0, 1.0);
@@ -493,6 +534,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn output_size_prices_the_unclipped_extent_independently_of_position() {
+        let src = Rect::new(0, 0, 24, 16);
+        for dx in [0.0, 900_000.0, 10_000_000.0] {
+            let h = Homography([1.0, 0.0, dx, 0.0, 1.0, -dx, 0.0, 0.0, 1.0]);
+            assert_eq!(warp_output_size(src, &h), Some((26, 18)));
+        }
+        for sx in [1e7, -1e7] {
+            let h = Homography([sx, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+            assert_eq!(warp_output_size(src, &h), Some((240_000_002, 18)));
+        }
+    }
+
+    #[test]
+    fn output_size_saturates_overflows_and_preserves_filter_support() {
+        let src = Rect::new(0, 0, 24, 16);
+        let fractional = Homography([0.5, 0.0, 0.25, 0.0, 1.0, 0.75, 0.0, 0.0, 1.0]);
+        let bounds = warp_output_bounds(src, &fractional).unwrap();
+        assert_eq!(warp_output_size(src, &fractional), Some((u64::from(bounds.width()), u64::from(bounds.height()))));
+        let huge = Homography([1e308, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(warp_output_size(src, &huge), Some((u64::MAX, u64::MAX)));
+        assert_eq!(warp_output_size(Rect::EMPTY, &Homography::IDENTITY), None);
+        assert_eq!(warp_output_size(src, &Homography([0.0; 9])), None);
+    }
+
+    #[test]
     fn the_interruptible_warp_reports_progress_and_stops_when_cancelled() {
         let mut s = Surface::new(PixelFormat::RGBA8);
         s.fill_rect(Rect::new(0, 0, 600, 400), &[0.2, 0.4, 0.6, 1.0]);
@@ -537,6 +603,24 @@ mod tests {
 
     fn rgba() -> Surface {
         Surface::new(PixelFormat::RGBA8)
+    }
+
+    /// The "pixel stretch" (#3773): a 1 px column scaled 100x stays solid across the stretch, as in
+    /// Photoshop. Samples past the source edge repeat the edge, and only the outline is antialiased.
+    #[test]
+    fn stretched_single_column_stays_opaque() {
+        let mut s = rgba();
+        s.fill_rect(Rect::new(0, 0, 1, 4), &[0.0, 1.0, 0.0, 1.0]);
+        for interp in [Interp::Bicubic, Interp::Bilinear] {
+            let h = Homography::rect_to_quad([0.0, 0.0, 1.0, 4.0], [[0.0, 0.0], [100.0, 0.0], [100.0, 4.0], [0.0, 4.0]]).unwrap();
+            let w = warp_surface(&s, Rect::new(0, 0, 1, 4), &h, interp).unwrap();
+            assert_eq!(w.content_bounds(), Rect::new(0, 0, 100, 4), "{interp:?}");
+            for x in [0, 1, 25, 50, 75, 99] {
+                for y in 0..4 {
+                    assert!((w.sample_channel(x, y, 3) - 1.0).abs() < 1e-6, "{interp:?} alpha at ({x}, {y}) = {}", w.sample_channel(x, y, 3));
+                }
+            }
+        }
     }
 
     /// Photoshop 27.11's Free Transform, Bicubic, 200 % about the centre of a 64 px image whose left
