@@ -38,11 +38,7 @@ pub fn sets_runtime_icon(exe: Option<&std::path::Path>) -> bool {
 /// is true; otherwise [`egui::IconData::default`] so eframe does not substitute its own icon
 /// on the Dock after the window opens (#7253).
 pub fn viewport_icon(exe: Option<&std::path::Path>) -> egui::IconData {
-    if sets_runtime_icon(exe) {
-        window_icon()
-    } else {
-        egui::IconData::default()
-    }
+    if sets_runtime_icon(exe) { window_icon() } else { egui::IconData::default() }
 }
 
 /// Whether `exe` is an app bundle's executable: `…/Name.app/Contents/MacOS/binary`.
