@@ -439,10 +439,17 @@ fn render_in(doc: &Document, sm: &SmartObject, ctx: &JobCtx) -> Result<Option<Su
         None => (0, placed()?),
     };
     let n = filters.len() as f32;
+    // The object's bounds, found once: the placed stage may have been evicted from the cache, and
+    // placing it again for every render filter would decode the source each time.
+    let mut object_bounds: Option<Rect> = None;
     for (i, (f, key)) in filters.iter().zip(&keys).enumerate().skip(done) {
         ctx.check()?;
         ctx.progress(i as f32 / n, "");
-        let bounds = if renders_in_object(f) { filter_bounds(f, &placed()?.surface, canvas) } else { canvas };
+        let bounds = match object_bounds {
+            _ if !renders_in_object(f) => canvas,
+            Some(b) => b,
+            None => *object_bounds.insert(filter_bounds(f, &placed()?.surface, canvas)),
+        };
         cur = Stage { surface: apply_smart_filter(f, &cur.surface, bounds, cur.extent)?, extent: cur.extent };
         stack_cache::put(*key, &cur);
     }
