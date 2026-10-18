@@ -219,6 +219,45 @@ pub(crate) fn stem(path: &str) -> String {
     }
 }
 
+/// Whether `a` and `b` name the same file: the same text, or, when both exist, the same file on
+/// disk (a hard link, a different case on a case-insensitive volume, `./` or `..` in one of them).
+pub fn same_file(a: &str, b: &str) -> bool {
+    if a == b {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let (Ok(x), Ok(y)) = (std::fs::metadata(a), std::fs::metadata(b)) {
+            return x.dev() == y.dev() && x.ino() == y.ino();
+        }
+    }
+    #[cfg(windows)]
+    {
+        // The volume serial number and file index of each, as unix compares dev and inode, so a
+        // hard link (another name for the file) is the same file.
+        if let Ok(same) = same_file::is_same_file(a, b) {
+            return same;
+        }
+        // Should a file not open: NTFS and FAT compare names without case.
+        if let (Ok(x), Ok(y)) = (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+            return x.to_string_lossy().to_lowercase() == y.to_string_lossy().to_lowercase();
+        }
+    }
+    false
+}
+
+/// A path as command results report it: `/` between components, whatever the platform.
+///
+/// `join` already builds with `/`, but a directory from the caller or from `std::path::absolute`
+/// carries the native separator, which would leave a reported path mixed. The control channel
+/// takes `/` and rejects alternate separators (`AuthorizedWorkspace` in `crates/automation`), so
+/// a result spelt this way can be handed straight back to it. Verbatim and UNC prefixes keep
+/// theirs: Win32 does not accept `/` after a leading `\\`.
+pub(crate) fn forward_slashes(path: String) -> String {
+    if path.starts_with(r"\\") { path } else { path.replace('\\', "/") }
+}
+
 pub(crate) fn join(dir: &str, name: &str) -> String {
     if dir.is_empty() {
         name.to_string()
@@ -340,6 +379,8 @@ pub(crate) fn encode(doc: &Document, path: &str, save: impl Into<SaveOpts>) -> R
         tga_bits: save.tga_bits,
         image_previews: save.image_previews,
         psd_maximize_compatibility: save.psd_maximize_compatibility,
+        // Linked files a PSD embeds are resolved against the document being worked on.
+        document_path: crate::doc_path::current(),
         ..Default::default()
     };
     // No quality chosen: write the file the way it was opened (a JPEG at its own quality, a WebP
@@ -445,6 +486,15 @@ fn revert(s: &mut Session) -> Result<Value> {
 fn save_a_copy(s: &mut Session, p: &Value) -> Result<Value> {
     let path = str_param(p, "path", "file.saveACopy")?.to_string();
     let d = s.active().ok_or(EngineError::NoDocument)?;
+    // A copy over the document's own file replaces it, and a flat or lossy format can't be
+    // undone, so it takes an explicit `overwrite` (#7437). The desktop dialog writes through the
+    // shell, after the OS has confirmed the replace.
+    if d.path.as_deref().is_some_and(|own| same_file(&path, own)) && p.get("overwrite").and_then(Value::as_bool) != Some(true) {
+        return Err(EngineError::BadParams {
+            cmd: "file.saveACopy".into(),
+            msg: "`path` is the document's own file, so the copy would replace it: choose another path, or pass \"overwrite\": true".into(),
+        });
+    }
     let mut doc = (*d.doc).clone();
     if p.get("layers").and_then(Value::as_bool) == Some(false) {
         // "Layers" unchecked in Save a Copy: write the flattened image.
@@ -461,7 +511,7 @@ fn save_a_copy(s: &mut Session, p: &Value) -> Result<Value> {
 /// With File Handling's ACEScg option on, such an EXR opens as ACEScg instead (AP1,
 /// linear) — the working space ACES render pipelines write. Only the io default is
 /// replaced; an embedded or EXIF-declared profile is kept untouched.
-fn tag_exr_colorspace(s: &Session, name: &str, doc: &mut Document) {
+pub(crate) fn tag_exr_colorspace(s: &Session, name: &str, doc: &mut Document) {
     if !name.to_ascii_lowercase().ends_with(".exr") || !s.prefs.get().file_handling.exr_aces_cg {
         return;
     }
@@ -578,7 +628,16 @@ fn place(s: &mut Session, p: &Value, linked: bool) -> Result<Value> {
     let cmd = if linked { "file.placeLinked" } else { "file.placeEmbedded" };
     let path = str_param(p, "path", cmd)?.to_string();
     let bytes = read_file(&path)?;
-    place_bytes(s, &path, bytes, linked.then(|| path.clone()), p)
+    // The link is stored absolute: a relative one would later be taken from the document's
+    // folder (`doc_path`), not the working directory the path was given in.
+    let link = linked.then(|| {
+        if std::path::Path::new(&path).is_relative() {
+            std::path::absolute(&path).map_or_else(|_| path.clone(), |a| a.to_string_lossy().into_owned())
+        } else {
+            path.clone()
+        }
+    });
+    place_bytes(s, &path, bytes, link, p)
 }
 
 // ---------- File Info (XMP) ----------
@@ -1432,7 +1491,7 @@ fn bake_cube_layers(size: usize, title: &str, layers: &[&Layer]) -> String {
         lattice.layers.push(a);
     }
     let out = photocraft_compose::flatten(&lattice);
-    let mut s = format!("TITLE \"{}\"\n# Created by Photocraft\nLUT_3D_SIZE {n}\nDOMAIN_MIN 0.0 0.0 0.0\nDOMAIN_MAX 1.0 1.0 1.0\n", title.replace('"', "'"));
+    let mut s = format!("TITLE \"{}\"\n# Created by PhotoCraft\nLUT_3D_SIZE {n}\nDOMAIN_MIN 0.0 0.0 0.0\nDOMAIN_MAX 1.0 1.0 1.0\n", title.replace('"', "'"));
     // .cube order: red changes fastest, then green, then blue.
     for b in 0..n {
         for g in 0..n {
@@ -1594,7 +1653,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Save a Copy…",
             &["File"],
             Some("Cmd+Alt+S"),
-            r##"{"path":str (format from the extension),"quality":0..12? (JPEG),"layers":bool=true,"tiffLayers":bool=false (TIFF: keep the layers; flat by default),"tgaBits":24|32? (TGA: 32 writes the alpha channel, or else the transparency, as the alpha; unset, 32 with an alpha channel or transparency, else 24),"dpxBits":8|10|12|16? (DPX: bits per sample; unset, 8 for an 8-bit document, else 16)}"##,
+            r##"{"path":str (format from the extension),"quality":0..12? (JPEG),"layers":bool=true,"overwrite":bool=false (replace the document's own file),"tiffLayers":bool=false (TIFF: keep the layers; flat by default),"tgaBits":24|32? (TGA: 32 writes the alpha channel, or else the transparency, as the alpha; unset, 32 with an alpha channel or transparency, else 24),"dpxBits":8|10|12|16? (DPX: bits per sample; unset, 8 for an 8-bit document, else 16)}"##,
             native_doc,
             save_a_copy
         ),
@@ -1760,5 +1819,39 @@ mod aces_exr_tests {
         open_bytes_as(&mut s, "shot.exr", &bytes, None, None).unwrap();
         let d = &s.active().unwrap().doc;
         assert_eq!(d.icc_profile.as_deref().map(|v| v.as_slice()), Some(aces.as_slice()));
+    }
+
+    /// The desktop app opens files as background jobs (File > Open, drag-drop, Open Recent):
+    /// the ACEScg preference applies there too, not only to `file.openAs`.
+    #[test]
+    fn exr_aces_cg_preference_applies_to_background_opens() {
+        use crate::jobs::{OpenSource, Started};
+        let image = photocraft_codecs::Image::from_f32(4, 4, photocraft_codecs::ChannelLayout::Rgb, &[0.5; 48]).unwrap();
+        let bytes =
+            std::sync::Arc::new(photocraft_codecs::encode(&image, photocraft_codecs::Format::OpenExr, &photocraft_codecs::EncodeOptions::default()).unwrap());
+        let linear = photocraft_cms::Builtin::LinearSrgb.profile().to_bytes();
+        let aces = photocraft_cms::Builtin::AcesCg.profile().to_bytes();
+        for (on, want) in [(false, &linear), (true, &aces)] {
+            let mut s = Session::new();
+            s.prefs.edit(|p| p.file_handling.exr_aces_cg = on);
+            let v = match s.start_open("shot.exr", OpenSource::Bytes(std::sync::Arc::clone(&bytes))).unwrap() {
+                Started::Job(id) => s.wait_job(id).unwrap(),
+                Started::Done(v) => v,
+            };
+            // ACEScg isn't the working space, so Ask When Opening holds it for the prompt, which
+            // names the ACEScg profile; linear sRGB (io's HDR default) opens without asking.
+            let profile = match v.get("held").and_then(Value::as_u64) {
+                Some(held) => {
+                    assert!(on, "{v}");
+                    assert!(v["color"]["embedded"].as_str().unwrap().starts_with("ACEScg"), "{v}");
+                    s.take_held_open(held).unwrap().0.icc_profile
+                }
+                None => {
+                    assert!(v.get("document").is_some(), "{v}");
+                    s.active().unwrap().doc.icc_profile.clone()
+                }
+            };
+            assert_eq!(profile.as_deref().map(|v| v.as_slice()), Some(want.as_slice()), "exr_aces_cg = {on}");
+        }
     }
 }

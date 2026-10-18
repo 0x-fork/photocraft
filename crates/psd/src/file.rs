@@ -102,6 +102,22 @@ impl PsdFile {
     /// Errors are those of [`Self::from_bytes`]; a merged image that passes the parse's check but
     /// cannot be decoded is the inner `Err`, as [`Self::decode_merged`] would return it.
     pub fn from_bytes_and_merged(data: &[u8], want: impl FnOnce(&PsdFile) -> bool) -> Result<(Self, Option<Result<Vec<u8>>>)> {
+        Self::from_bytes_and_merged_recovering(data, want, |_| false)
+    }
+
+    /// Parses like [`Self::from_bytes_and_merged`], but lets `recover` accept damage confined to
+    /// the merged image after all layer records and channel data have been read successfully.
+    /// Callers should opt in only when they can reconstruct the document from its layers.
+    ///
+    /// The original encoded image bytes are preserved and its parse error is returned as
+    /// `Some(Err(..))`, even when `want` did not request a decode. The caller must report that
+    /// error rather than silently discarding the merged image (which may hold extra channels).
+    /// Header/layer errors, missing compression fields and parse safety-limit errors stay fatal.
+    pub fn from_bytes_and_merged_recovering(
+        data: &[u8],
+        want: impl FnOnce(&PsdFile) -> bool,
+        recover: impl FnOnce(&PsdFile) -> bool,
+    ) -> Result<(Self, Option<Result<Vec<u8>>>)> {
         let mut r = Reader::new(data);
         let header = Header::read(&mut r)?;
         let psb = header.version.is_psb();
@@ -161,10 +177,30 @@ impl PsdFile {
         let image_data = ImageData { compression: Compression::Raw, data: Vec::new() };
         let mut file =
             PsdFile { header, color_mode_data, resources, layer_info, layer_info_placement, global_layer_mask, global_blocks, layer_mask_trailing, image_data };
-        let merged = if want(&file) { Some(file.read_merged_decoded(&mut r)?) } else { None };
-        if merged.is_none() {
-            file.image_data = ImageData::read(&mut r, &file.header)?;
-        }
+        let mut encoded = r.clone();
+        let merged = if want(&file) {
+            file.read_merged_decoded(&mut r).map(Some)
+        } else {
+            ImageData::read(&mut r, &file.header).map(|image| {
+                file.image_data = image;
+                None
+            })
+        };
+        let merged = match merged {
+            Ok(merged) => merged,
+            Err(error) => {
+                if matches!(error, PsdError::LimitExceeded(_)) || !recover(&file) {
+                    return Err(error);
+                }
+                let compression = Compression::from_u16(encoded.u16()?);
+                let source = encoded.peek_rest();
+                let mut data = Vec::new();
+                data.try_reserve_exact(source.len()).map_err(|_| PsdError::LimitExceeded("not enough memory to retain the damaged merged image"))?;
+                data.extend_from_slice(source);
+                file.image_data = ImageData { compression, data };
+                Some(Err(error))
+            }
+        };
         Ok((file, merged))
     }
 
@@ -318,7 +354,10 @@ impl PsdFile {
     /// `true` if the merged image carries a transparency channel: its first extra channel, when
     /// the layer count was stored negative or a "Saving Merged Transparency" global block (`Mtrn`,
     /// `Mt16`, `Mt32`) is present. Photoshop marks 32-bit documents with `Mt32` and a positive
-    /// layer count (psd-tools transparentbg.psd).
+    /// layer count (psd-tools transparentbg.psd). Photoshop also names the merged transparency
+    /// "Transparency" and lists it first among the alpha channel names, and some of its 16-bit
+    /// PSBs carry no other mark (#4654): when the layers sit in a global `Lr16`/`Lr32` block, that
+    /// name with one name per extra channel marks it too.
     pub fn merged_has_alpha(&self) -> bool {
         let Some(color) = self.header.color_mode.color_channels() else {
             return false;
@@ -328,9 +367,38 @@ impl PsdFile {
         }
         let marked = self.global_blocks.iter().any(|b| matches!(&b.key, b"Mtrn" | b"Mt16" | b"Mt32"));
         match &self.layer_info {
-            Some(li) => li.merged_alpha || marked,
+            Some(li) => {
+                let in_block = matches!(self.layer_info_placement, LayerInfoPlacement::GlobalBlock { .. });
+                li.merged_alpha || marked || (in_block && self.names_merged_transparency(self.header.channels - color))
+            }
             None => true,
         }
+    }
+
+    /// `true` when the alpha channel names (resource 1045, else 1006) hold exactly `extra` names
+    /// and the first is "Transparency", Photoshop's name for the merged transparency.
+    fn names_merged_transparency(&self, extra: u16) -> bool {
+        const NAME: &str = "Transparency";
+        let mut names = Vec::new();
+        if let Some(r) = self.resource(1045) {
+            let mut at = 0usize;
+            while let Some(len) = r.data.get(at..at.saturating_add(4)).and_then(|b| b.try_into().ok()).map(u32::from_be_bytes) {
+                at = at.saturating_add(4);
+                let end = (len as usize).checked_mul(2).and_then(|n| at.checked_add(n));
+                let Some(units) = end.and_then(|end| r.data.get(at..end)) else { break };
+                let units: Vec<u16> = units.as_chunks::<2>().0.iter().map(|c| u16::from_be_bytes(*c)).collect();
+                names.push(String::from_utf16_lossy(&units).trim_end_matches('\0').to_string());
+                at = at.saturating_add(units.len() * 2);
+            }
+        } else if let Some(r) = self.resource(1006) {
+            let mut at = 0usize;
+            while let Some(&len) = r.data.get(at) {
+                let Some(name) = r.data.get(at + 1..at + 1 + usize::from(len)) else { break };
+                names.push(String::from_utf8_lossy(name).into_owned());
+                at += 1 + usize::from(len);
+            }
+        }
+        names.len() == usize::from(extra) && names.first().is_some_and(|n| n == NAME)
     }
 
     /// Checks structural invariants that the writer relies on.

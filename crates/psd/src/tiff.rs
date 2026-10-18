@@ -681,13 +681,12 @@ pub mod transcode {
             if !self.from.is_little() && TaggedBlock::is_foreign_order_signature(self.r.peek_rest()) {
                 let sig = self.r.array::<4>()?;
                 let mut key = self.r.array::<4>()?;
-                let long = uses_long_length(self.version, &{
-                    let mut k = key;
-                    if self.to.is_little() {
-                        k.reverse();
-                    }
-                    k
-                });
+                // Only reached with `from == Big`: the key is canonical here whatever the
+                // target order. `TaggedBlock::write` sizes the length field from that same key.
+                // Reversing it for the target order before the check
+                // asked about a key `PSB_LONG_KEYS` never contains, so a PSB long key's 8-byte
+                // length was read as 4 and every later block was copied unconverted.
+                let long = uses_long_length(self.version, &key);
                 let len = self.r.len_field(long)?;
                 let data = self.r.bytes_u64(len)?;
                 if self.to.is_little() {
@@ -2209,6 +2208,25 @@ mod tests {
         let (big, _) = back.to_bytes(ByteOrder::Big).unwrap();
         assert!(big.windows(8).any(|x| x == b"MIB8Zzzz"));
         assert_eq!(ImageSourceData::from_bytes(&big).unwrap().0.global_blocks, back.global_blocks);
+    }
+
+    /// A PSB keeps `Mt16`/`Mt32`/`Mtrn`/`Alph` blocks of unknown layout verbatim, and their
+    /// length field is 8 bytes (a PSB long key). Writing them into a little-endian TIFF must
+    /// read that width; the old code looked the key up after reversing it for the target
+    /// order, which never matches `PSB_LONG_KEYS`.
+    #[test]
+    fn psb_foreign_order_long_key_roundtrips() {
+        let d = ImageSourceData {
+            version: Version::Psb,
+            byte_order: ByteOrder::Little,
+            global_blocks: vec![TaggedBlock { signature: *b"MIB8", key: *b"Mt16", data: vec![9, 8, 7, 6, 5, 4], padding: None }],
+            ..Default::default()
+        };
+        let (little, w) = d.to_bytes(ByteOrder::Little).unwrap();
+        assert!(w.is_empty(), "{w:?}");
+        let (back, w) = ImageSourceData::from_bytes(&little).unwrap();
+        assert!(w.is_empty(), "{w:?}");
+        assert_eq!(back.global_blocks, d.global_blocks, "the 8-byte length and the bytes survive");
     }
 
     #[test]
