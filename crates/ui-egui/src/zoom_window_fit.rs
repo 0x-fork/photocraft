@@ -34,7 +34,8 @@ pub struct Layout {
 }
 
 /// The inner size (points) of a window that wraps `view`'s document at its zoom and rotation,
-/// kept between [`MIN_SIZE`] and the screen. `None` until the view has a document size.
+/// at least [`MIN_SIZE`] but never bigger than the screen, even a screen smaller than that
+/// minimum. `None` until the view has a document size.
 pub fn wrapped_size(view: &View, layout: &Layout) -> Option<Vec2> {
     let usable = |x: f32| x.is_finite() && x > 0.0;
     if !usable(view.zoom) || !usable(layout.ppp) {
@@ -51,7 +52,9 @@ pub fn wrapped_size(view: &View, layout: &Layout) -> Option<Vec2> {
     let (sin, cos) = (sin.abs(), cos.abs());
     let image = vec2(w * cos + h * sin, w * sin + h * cos);
     let chrome = if layout.chrome.is_finite() { layout.chrome.max(Vec2::ZERO) } else { Vec2::ZERO };
-    let screen = layout.monitor.filter(|m| usable(m.x) && usable(m.y)).map_or(Vec2::splat(f32::INFINITY), |m| m - Vec2::splat(SCREEN_MARGIN)).max(MIN_SIZE);
+    // The screen is the hard cap: applied last, it wins over the minimum on a tiny screen.
+    let screen =
+        layout.monitor.filter(|m| usable(m.x) && usable(m.y)).map_or(Vec2::splat(f32::INFINITY), |m| (m - Vec2::splat(SCREEN_MARGIN)).max(Vec2::splat(1.0)));
     Some((image + chrome).max(MIN_SIZE).min(screen))
 }
 
@@ -135,6 +138,10 @@ mod tests {
         assert_eq!(wrapped_size(&view([400, 300], 16.0), &Layout { monitor: None, ..layout() }), Some(vec2(6400.0, 4800.0)));
         // A nonsense screen size is ignored rather than shrinking the window to nothing.
         assert_eq!(wrapped_size(&view([400, 300], 1.0), &Layout { monitor: Some(vec2(0.0, f32::NAN)), ..layout() }), Some(vec2(400.0, 300.0)));
+        // A screen smaller than the minimum still caps the window: it never outgrows the screen.
+        let tiny = Layout { monitor: Some(vec2(260.0, 190.0)), ..layout() };
+        assert_eq!(wrapped_size(&view([400, 300], 1.0), &tiny), Some(vec2(260.0, 190.0) - Vec2::splat(SCREEN_MARGIN)));
+        assert_eq!(wrapped_size(&view([400, 300], 0.05), &tiny), Some(vec2(260.0, 190.0) - Vec2::splat(SCREEN_MARGIN)));
     }
 
     #[test]
