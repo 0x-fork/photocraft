@@ -2675,9 +2675,11 @@ fn radial_blur_from(d: &Descriptor) -> Mapped {
 }
 
 fn radial_blur_to(_: &str, p: &Value) -> Option<Descriptor> {
+    // Photoshop's Radial Blur has no center parameter and always blurs from the center (0.5, 0.5).
+    // An explicit center must match 0.5 exactly; any non-default center cannot be faithfully exported.
     let is_default_center = |k: &str| match p.get(k) {
         None | Some(Value::Null) => true,
-        Some(v) => v.as_f64().is_some_and(|f| f.is_finite() && (f - 0.5).abs() <= 1e-4),
+        Some(v) => v.as_f64() == Some(0.5),
     };
     if !is_default_center("centerX") || !is_default_center("centerY") {
         return None;

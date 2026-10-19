@@ -1411,8 +1411,10 @@ fn radial_blur_off_center_strict_export_refuses_silent_recentering() {
         "OffCenter",
         vec![("filter.blur.radialBlur".into(), json!({"amount": 50, "method": "spin", "quality": "good", "centerX": 0.1, "centerY": 0.2}))],
     ));
+    let before_actions = s.actions.list.clone();
     let err = s.execute("actions.save", json!({"action": "OffCenter"}));
     assert!(err.is_err(), "strict export must reject off-center radial blur rather than silently recentering it");
+    assert_eq!(s.actions.list, before_actions, "actions list must remain unchanged after rejected save");
 
     // With skipUnsupported: true, off-center radial blur is skipped
     let skipped = s.execute("actions.save", json!({"action": "OffCenter", "skipUnsupported": true})).unwrap();
