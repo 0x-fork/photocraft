@@ -155,6 +155,12 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
     if let Some(r) = crate::prefs_ui::invoke(app, ctx, id, &params) {
         return r;
     }
+    // Save for Web's dialog would export the committed document, not the open Free Transform (#6737).
+    if id == crate::transform_tool::SAVE_FOR_WEB
+        && let Some(r) = crate::transform_tool::intercept(app, id)
+    {
+        return r;
+    }
     // Save for Web, Print and the other File-menu dialogs added with slices.
     if let Some(r) = crate::file_ui::invoke(app, ctx, id, &params) {
         return r;
@@ -1900,6 +1906,44 @@ mod tests {
             assert!(open(&h), "typing after the click keeps Help open ({what})");
             assert!(h.query_all_by_label_contains("› Levels").next().is_some(), "and lists the matches ({what})");
         }
+    }
+
+    /// #5996: a real key press comes as a key and its text. A letter typed into Help › Search is
+    /// text for the field, not a mnemonic: "S" ran System Info and "A" the ArtCraft website.
+    #[test]
+    fn help_search_letters_are_not_mnemonics() {
+        use egui::{Event, Key, Modifiers, PointerButton};
+        use egui_kittest::{Harness, kittest::Queryable};
+        let mut h = Harness::builder().with_size(egui::vec2(1200.0, 800.0)).with_max_steps(64).build_eframe(|cc| {
+            PhotocraftApp::setup_context(&cc.egui_ctx, crate::theme::ThemeKind::ALL[0]);
+            PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default())
+        });
+        h.run_steps(4);
+        let help = h.get_by_label("Help").rect().center();
+        h.event(Event::PointerMoved(help));
+        h.run_steps(1);
+        for pressed in [true, false] {
+            h.event(Event::PointerButton { pos: help, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE });
+            h.run_steps(1);
+        }
+        h.run_steps(3);
+        assert!(h.query_by_label_contains("About PhotoCraft").is_some(), "Help opened");
+        for c in "DeSelect all".chars() {
+            let key = Key::from_name(&c.to_ascii_uppercase().to_string());
+            if let Some(key) = key {
+                h.event(Event::Key { key, physical_key: Some(key), pressed: true, repeat: false, modifiers: Modifiers::NONE });
+            }
+            h.event(Event::Text(c.to_string()));
+            h.run_steps(1);
+            if let Some(key) = key {
+                h.event(Event::Key { key, physical_key: Some(key), pressed: false, repeat: false, modifiers: Modifiers::NONE });
+            }
+        }
+        h.run_steps(3);
+        assert!(h.query_by_label_contains("About PhotoCraft").is_some(), "typing keeps Help open");
+        let query: String = h.ctx.data(|d| d.get_temp(egui::Id::new("help-menu-search"))).unwrap_or_default();
+        assert_eq!(query, "DeSelect all", "every letter reached the field");
+        assert!(h.state().ui.dialogs.is_empty(), "no menu command ran: {:?}", h.state().ui.dialogs);
     }
 
     #[test]
