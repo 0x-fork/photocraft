@@ -24,6 +24,17 @@ fn time(runs: usize, mut f: impl FnMut()) -> f64 {
     )
 }
 
+/// [`time`] for a call that can fail: its first error ends the benchmark instead of being timed.
+fn try_time<E>(runs: usize, mut f: impl FnMut() -> Result<(), E>) -> Result<f64, E> {
+    let mut failed = None;
+    let ms = time(runs, || {
+        if failed.is_none() {
+            failed = f().err();
+        }
+    });
+    failed.map_or(Ok(ms), Err)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runs = if std::env::args().any(|a| a == "--quick") { 5 } else { 40 };
     let (w, h) = (858usize, 572usize);
@@ -87,12 +98,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let points = white_black_points(&src, w, h, p);
         let stages = per_pixel(p, w, h, false, points).ok_or("not per pixel")?;
         let size = [w as u32, h as u32];
-        let upload = time(runs, || {
-            pass.develop(&device, &queue, None, &src, None, size, &stages).ok();
-        });
-        let cached = time(runs, || {
-            pass.develop(&device, &queue, None, &src, Some(1), size, &stages).ok();
-        });
+        let upload = try_time(runs, || pass.develop(&device, &queue, None, &src, None, size, &stages).map(drop))?;
+        let cached = try_time(runs, || pass.develop(&device, &queue, None, &src, Some(1), size, &stages).map(drop))?;
         println!("{name}:");
         println!("  CPU develop                          {cpu:7.2} ms");
         println!("  GPU, source uploaded every time      {upload:7.2} ms");
