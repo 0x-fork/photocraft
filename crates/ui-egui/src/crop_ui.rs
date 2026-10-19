@@ -248,6 +248,21 @@ pub(crate) fn apply_ratio(app: &mut PhotocraftApp) {
     crate::crop_mode::sync_frame(app);
 }
 
+/// [`apply_ratio`] for a ratio being typed: fits from `base`, the frame the edit started with,
+/// not from the frame the last keystroke's ratio left (#7752).
+pub(crate) fn apply_ratio_from(app: &mut PhotocraftApp, base: [f64; 4]) {
+    if app.ui.tool != Tool::Crop || app.crop.drag.is_some() {
+        return;
+    }
+    if let Some(ratio) = preset_ratio(app)
+        && let Some(fitted) = fitted_ratio(base, ratio)
+        && app.ui.crop_rect != Some(fitted)
+    {
+        keyed(app, fitted);
+    }
+    crate::crop_mode::sync_frame(app);
+}
+
 fn fit_frame(app: &mut PhotocraftApp) {
     let dpi = app.session.active().map_or(72.0, |s| f64::from(s.doc.resolution_dpi));
     if let Some(r) = app.ui.crop_rect
