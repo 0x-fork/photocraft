@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 
 const RIPPLE: &str = "filter.distort.ripple";
 
+/// Build a deterministic RGB image at the requested depth that exposes Ripple rounding.
 fn fixture(depth: u32) -> Session {
     let mut s = Session::new();
     s.execute("file.new", json!({"width": 24, "height": 18, "depth": depth})).unwrap();
@@ -21,6 +22,7 @@ fn fixture(depth: u32) -> Session {
     s
 }
 
+/// Flatten the active document to compare direct, native and ATN playback pixels.
 fn pixels(s: &Session) -> Vec<[f32; 4]> {
     photocraft_compose::flatten(&s.active().unwrap().doc).px
 }

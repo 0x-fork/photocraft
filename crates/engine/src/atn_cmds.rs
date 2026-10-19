@@ -404,6 +404,8 @@ enum Kind {
 /// One descriptor key ↔ one command param.
 struct F(&'static str, &'static str, Kind);
 
+/// Import mapped descriptor fields, leaving absent values to command defaults.
+/// Return `None` when a present enum, blend mode or colour cannot be represented.
 fn fields_from(d: &Descriptor, fields: &[F]) -> Option<Map<String, Value>> {
     let mut m = Map::new();
     for F(key, param, kind) in fields {
@@ -430,6 +432,8 @@ fn fields_from(d: &Descriptor, fields: &[F]) -> Option<Map<String, Value>> {
     Some(m)
 }
 
+/// Export supplied mapped params, omitting absent values to preserve event defaults.
+/// Return `None` for unsupported values; `ExactLong` also rejects rounding or saturation.
 fn fields_to(p: &Value, fields: &[F], mut d: Descriptor) -> Option<Descriptor> {
     for F(key, param, kind) in fields {
         let Some(v) = p.get(param) else { continue };
