@@ -212,6 +212,15 @@ fn a_layers_own_transparency_floats_its_soft_pixels_whole() {
     assert!((alpha(d, id, 15, 45) - 0.5).abs() < 0.01, "they moved whole: {}", alpha(d, id, 15, 45));
     assert_eq!((alpha(d, id, 25, 20), alpha(d, id, 25, 45)), (0.0, 1.0));
 
+    // A copy (⌥) of them is as solid as they are, as Photoshop's Layer via Copy of the same
+    // selection is, and leaves them where they were.
+    s.undo();
+    s.execute("select.loadSelection", json!({"channel": "transparency"})).unwrap();
+    s.execute("select.float", json!({"dx": 0, "dy": 25, "copy": true})).unwrap();
+    s.execute("select.drop", json!({})).unwrap();
+    let d = &s.active().unwrap().doc;
+    assert!((alpha(d, id, 15, 20) - 0.5).abs() < 0.01 && (alpha(d, id, 15, 45) - 0.5).abs() < 0.01, "{} {}", alpha(d, id, 15, 20), alpha(d, id, 15, 45));
+
     // A half selection of an opaque pixel splits it half and half, as before.
     let (mut s, id) = session();
     s.execute("select.all", json!({})).unwrap();
