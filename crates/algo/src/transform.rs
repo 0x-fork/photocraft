@@ -294,7 +294,7 @@ fn warp(
         converted = src.try_convert(fmt)?;
         &converted
     };
-    let mut out = Surface::new(fmt);
+    let out = Surface::new(fmt);
     if src_rect.is_empty() || clip.is_some_and(|c| c.is_empty()) {
         return Ok(out);
     }
@@ -366,7 +366,7 @@ fn warp(
             return Ok(None);
         }
         let k = finished.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-        // The last few percent are the writes.
+        // Short of 100 %: the result is still pruned and handed back after the last tile.
         ctl.progress(0.98 * k as f32 / total as f32);
         // Source footprint of this tile (inverse-mapped corners of its sampled part), padded for the filter.
         let tc = [(t.x0, t.y0), (t.x1, t.y0), (t.x1, t.y1), (t.x0, t.y1)].map(|(x, y)| (x as f64, y as f64));
@@ -503,33 +503,29 @@ fn warp(
         }
         Ok(any.then_some((*t, outp)))
     };
-    let result_bytes = tiles.len().checked_mul(std::mem::size_of::<(Rect, Vec<f32>)>()).ok_or(photocraft_raster::AllocationError::SizeOverflow)?;
-    let mut done = Vec::new();
-    done.try_reserve_exact(tiles.len()).map_err(|_| photocraft_raster::AllocationError::NotEnoughMemory { bytes: result_bytes })?;
-    let done = std::sync::Mutex::new(done);
+    // Each tile is written as soon as it is warped, so only the tiles in flight hold their `f32`
+    // pixels: kept until the last one was done, they cost 16 bytes a pixel of an RGBA result on
+    // top of the result's own (#7807).
+    let out = std::sync::Mutex::new(out);
+    let warp_and_write = |tile: &Rect| -> Result<(), photocraft_raster::AllocationError> {
+        if let Some((r, v)) = work(tile)? {
+            out.lock().unwrap_or_else(std::sync::PoisonError::into_inner).try_write_region(r, &v)?;
+        }
+        Ok(())
+    };
     #[cfg(not(target_arch = "wasm32"))]
     {
         use rayon::prelude::*;
-        tiles.into_par_iter().try_for_each(|tile| -> Result<(), photocraft_raster::AllocationError> {
-            if let Some(result) = work(&tile)? {
-                done.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(result);
-            }
-            Ok(())
-        })?;
+        tiles.into_par_iter().try_for_each(|tile| warp_and_write(&tile))?;
     }
     #[cfg(target_arch = "wasm32")]
     for tile in tiles {
-        if let Some(result) = work(&tile)? {
-            done.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(result);
-        }
+        warp_and_write(&tile)?;
     }
-    let done = done.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
     if ctl.cancelled() {
-        return Ok(out);
+        return Ok(Surface::new(fmt));
     }
-    for (r, v) in done {
-        out.try_write_region(r, &v)?;
-    }
+    let mut out = out.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
     out.prune();
     Ok(out)
 }
