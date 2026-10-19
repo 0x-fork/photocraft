@@ -116,6 +116,7 @@ impl Ifd {
     }
 }
 
+/// Bytes per value of TIFF field type `typ`, BigTIFF's 8-byte types included, or 0 for an unknown type.
 pub(crate) fn type_size(typ: u16) -> usize {
     match typ {
         1 | 2 | 6 | 7 => 1,
