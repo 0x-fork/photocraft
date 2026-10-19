@@ -135,7 +135,7 @@ fn set_view(s: &mut Session, p: &Value) -> Result<Value> {
     let st = s.active_mut().ok_or(EngineError::NoDocument)?;
     let next = want.map(|mode| LayerMaskView { layer, mode, filter });
     // "off" for a layer whose mask isn't the one shown leaves the other view alone.
-    let applies = next.is_some() || st.channel_view.layer_mask.is_some_and(|v| v.layer == layer);
+    let applies = next.is_some() || st.channel_view.layer_mask.is_some_and(|v| v.layer == layer && v.filter == filter);
     if applies && st.channel_view.layer_mask != next {
         st.channel_view.layer_mask = next;
         // Hiding the mask while every colour channel is off would leave a blank canvas.
