@@ -724,12 +724,33 @@ fn selective_from(d: &Descriptor) -> Option<Value> {
 }
 
 fn selective_to(p: &Value) -> Option<Descriptor> {
-    let mut list = Vec::new();
-    for (ps, name) in SELECTIVE_RANGES {
+    // Each range, as the command reads it (`adjust_cmds::selective_from_params`): the array form
+    // `"reds": [c, m, y, k]` first, then the scalar form, which names one range in `"colors"` and
+    // gives the channels it changes. Writing only the arrays dropped the scalar form's values, and
+    // the step exported as an adjustment that changes nothing (#7672).
+    let mut rows: Vec<Option<[f64; 4]>> = vec![None; SELECTIVE_RANGES.len()];
+    for (row, (_, name)) in rows.iter_mut().zip(SELECTIVE_RANGES) {
         if let Some(a) = p.get(*name).and_then(Value::as_array) {
             let v = |i: usize| a.get(i).and_then(Value::as_f64).unwrap_or(0.0);
+            *row = Some([v(0), v(1), v(2), v(3)]);
+        }
+    }
+    if let Some(named) = jstr(p, "colors") {
+        let i = SELECTIVE_RANGES.iter().position(|(_, name)| *name == named)?;
+        let row = rows.get_mut(i)?;
+        let mut v = row.unwrap_or([0.0; 4]);
+        for (slot, key) in v.iter_mut().zip(["cyan", "magenta", "yellow", "black"]) {
+            if let Some(n) = jnum(p, key) {
+                *slot = n;
+            }
+        }
+        *row = Some(v);
+    }
+    let mut list = Vec::new();
+    for (row, (ps, _)) in rows.iter().zip(SELECTIVE_RANGES) {
+        if let Some(v) = row {
             list.push(D::Descriptor(
-                desc("ClrC").with("Clrs", enm("Clrs", ps)).with("Cyn ", pct(v(0))).with("Mgnt", pct(v(1))).with("Yllw", pct(v(2))).with("Blck", pct(v(3))),
+                desc("ClrC").with("Clrs", enm("Clrs", ps)).with("Cyn ", pct(v[0])).with("Mgnt", pct(v[1])).with("Yllw", pct(v[2])).with("Blck", pct(v[3])),
             ));
         }
     }
