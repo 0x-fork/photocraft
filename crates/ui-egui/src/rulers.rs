@@ -789,15 +789,16 @@ mod tests {
         assert!(h.query_by_label("X:").is_none(), "no readout once the drag ends");
     }
 
-    /// Moving a horizontal guide with the Move tool on the real canvas: `Y:` follows the pointer.
-    #[test]
-    fn moving_a_guide_on_the_canvas_shows_its_y() {
-        use egui_kittest::kittest::Queryable;
+    type AppHarness = egui_kittest::Harness<'static, PhotocraftApp>;
+
+    /// The real canvas on a 400 × 300 document with a horizontal guide at y = 100, at 100 %,
+    /// with the Move tool and snapping off.
+    fn canvas_harness(rulers: bool) -> AppHarness {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.run("file.new", json!({"width": 400, "height": 300})).unwrap();
         app.run("view.newGuide", json!({"orientation": "horizontal", "position": 100})).unwrap();
         app.sync_views();
-        app.ui.extras.rulers = false;
+        app.ui.extras.rulers = rulers;
         app.ui.extras.snap = false;
         app.ui.tool = crate::state::Tool::Move;
         let mut h = egui_kittest::Harness::builder().with_size(vec2(800.0, 600.0)).build_ui_state(
@@ -814,12 +815,23 @@ mod tests {
         let v = &mut h.state_mut().ui.views[0];
         (v.zoom, v.center, v.fit_pending) = (1.0, [200.0, 150.0], false);
         h.run_steps(2);
-        let at = |h: &egui_kittest::Harness<'static, PhotocraftApp>, x: f32, y: f32| {
-            let app = h.state();
-            let v = &app.ui.views[0];
-            let rect = content_rect(app, app.last_canvas_rect);
-            ViewXform { rect, zoom: v.zoom, center: v.center, flip: false, rotation: 0.0, aspect: 1.0 }.to_screen(x, y)
-        };
+        h
+    }
+
+    /// Screen point of document point `(x, y)` in [`canvas_harness`].
+    fn canvas_at(h: &AppHarness, x: f32, y: f32) -> Pos2 {
+        let app = h.state();
+        let v = &app.ui.views[0];
+        let rect = content_rect(app, app.last_canvas_rect);
+        ViewXform { rect, zoom: v.zoom, center: v.center, flip: false, rotation: 0.0, aspect: 1.0 }.to_screen(x, y)
+    }
+
+    /// Moving a horizontal guide with the Move tool on the real canvas: `Y:` follows the pointer.
+    #[test]
+    fn moving_a_guide_on_the_canvas_shows_its_y() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = canvas_harness(false);
+        let at = canvas_at;
         let press = at(&h, 200.0, 100.0);
         h.event(egui::Event::PointerMoved(press));
         h.run_steps(1);
@@ -837,6 +849,33 @@ mod tests {
         h.run_steps(2);
         assert_eq!(h.state().session.active().unwrap().doc.guides.horizontal, vec![140.0]);
         assert!(h.query_by_label("Y:").is_none(), "gone after the drop");
+    }
+
+    /// A guide dragged out of the top ruler: in each frame the readout shows where the guide is
+    /// after that frame's pointer move (the ruler handles the drag after the canvas is drawn), and
+    /// the frame that drops it shows none.
+    #[test]
+    fn ruler_drag_readout_is_current_every_frame() {
+        use egui_kittest::kittest::Queryable;
+        let mut h = canvas_harness(true);
+        let from = pos2(canvas_at(&h, 200.0, 0.0).x, h.state().last_canvas_rect.top() + RULER / 2.0);
+        h.event(egui::Event::PointerMoved(from));
+        h.run_steps(1);
+        h.event(egui::Event::PointerButton { pos: from, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
+        h.run_steps(1);
+        for y in [40.0, 60.0, 75.0] {
+            h.event(egui::Event::PointerMoved(canvas_at(&h, 200.0, y)));
+            h.run_steps(1);
+            let pos = h.state().guide_drag.map(|d| d.pos);
+            assert_eq!(pos, Some(f64::from(y)), "the drag follows the pointer");
+            assert!(h.query_by_label(&format!("{y} px")).is_some(), "readout at {y} in the same frame");
+        }
+        let up = canvas_at(&h, 200.0, 75.0);
+        h.event(egui::Event::PointerButton { pos: up, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
+        h.run_steps(1);
+        assert!(h.state().guide_drag.is_none());
+        assert!(h.query_by_label("Y:").is_none(), "no readout in the frame that drops the guide");
+        assert!(h.state().session.active().unwrap().doc.guides.horizontal.contains(&75.0), "the guide lands at y = 75");
     }
 
     #[test]
