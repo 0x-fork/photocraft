@@ -1,37 +1,33 @@
 # Rust Zstandard workspace reuse
 
-Reuse the existing pure-Rust compressor workspace per save worker. Partial-block objects keep the fresh-compressor fallback. No new backend or C dependency.
+Removed locally: complete layered-photo ZIP save changes range from -1.9% to +0.2%. An apparent 4.8% gain in one 16-bit APFS directory save failed independent confirmation, which was 3.2% slower. The other directory cases are neutral. There is no repeatable meaningful whole-operation gain, so store.rs, including its added workspace tests and synthetic microbenchmark, is restored byte for byte to main. The original local tip is recoverable at refs/archive/perf/zstd-workspaces-PRE-LAYERED-REVIEW. Only the performance report remains different from main on this branch.
 
-Fresh real-document saves are close to neutral. Reusing compressor allocation does not establish a meaningful end-to-end save improvement on these inputs. Every bundle remains byte-identical.
+Measured on 2026-10-19 against frozen main `d95fdf3181c01ad41e95456091a394b105a9afb2`, independently for each branch. Apple M4 Max, 16 CPUs, 128 GiB, macOS arm64, rustc 1.99.1. Release O3, LTO off, 16 codegen units, debug off; builds/tests at nice 10 with warm caches. Timed operations run at normal priority without concurrent builds or profiling. Persistent processes alternate execution order after a warmup. Time change compares the two medians; paired bootstrap intervals from these small samples describe variation, not guarantees.
 
-Measured on 2026-10-19 against main `d95fdf3181c01ad41e95456091a394b105a9afb2`, independently of the other splits. Apple M4 Max, 16 CPUs, 128 GiB, macOS arm64, rustc 1.99.1; release O3, LTO off, 16 codegen units, debug off. Builds used nice 10 and warm APFS-cloned caches; measurements used default priority without concurrent builds or profiling. Five alternating paired samples follow a warmup; confirmation and fix runs use nine pairs. Time change compares the two medians; intervals resample paired ratios. Negative time change means faster. Small differences are not automatically established improvements or regressions.
+CC0 Pixls P1000475.RW2 supplies a 6000 x 4000 centre crop (24 MP, no resampling); IMG_4059.CR2 supplies the native 4000 x 3000 city photograph. U8/U16/F32 documents retain ProPhoto RGB; F32 derives from 16-bit development and is not native HDR. No generated noise, repeated ramps, enlarged charts or duplicated photo layers are timed. Source pins and attribution remain in the existing corpus.
 
-The full-resolution CC0 Pixls photographs are P1000475.RW2 (24 MP foliage centre crop, no resampling) and IMG_4059.CR2 (12 MP city), each converted to U8/U16/F32 with the ProPhoto RGB profile. F32 derives from 16-bit development, not HDR capture. MIT psd-tools masks.psd supplies a 640 x 1394 web layout with 22 imported layers and three masks; mask-index.psd supplies a 1000 x 867 illustrated card with a mask. The sources and hashes are pinned by the existing corpus. These are the available authored layered files, not a large layered-photo corpus. No generated noise, repeating ramps, enlarged charts or duplicated photo layers are used.
+Each constructed photo edit has four visible layers: the real raster photograph; global Levels (black 2/255, white 250/255, gamma 1.08); Curves with master points (0,0), (0.25,0.22), (0.5,0.52), (0.75,0.80), (1,1) plus red midtone 0.5→0.515; and foreground Levels (gamma 1.15) through a smooth grayscale mask fading from zero to one over 35–75% of image height. These are authored benchmark edits of licensed photos, not Photoshop-authored oracle files. Saved previews were inspected.
 
-The shared harness times in-memory operations. Input loading, image conversion, thumbnail rendering, hashes and equivalence checks are outside timers. Every save uses a fresh PcraftWriter and a real rendered thumbnail. Common reads use main-encoded files; own-output reads are separate. PSD exports use ZIP merged images at U8/U16, Raw merged images at F32, and normal RLE layer channels at U8/U16 / ZIP prediction at F32. Results do not measure filesystem throughput or browser performance.
+Complete full-resolution CPU rendering and fresh ZIP saves use seven alternating pairs. Thumbnail rendering, hashing and document equality are outside timers. Every render must match main float bit for float bit; every save must match main byte for byte and reload to the complete source document. Directory saves also use seven pairs and fresh directories with a fresh writer; an independent confirmation uses nine pairs. Directory creation/removal, output hashing and full reload equality are outside the timer. These directory timings include APFS writes and fsync, unlike the in-memory ZIP timings. These are CPU/core measurements, not GPU or browser performance claims.
 
-| Document | Operation | Main ms | Branch ms | Time change | Paired 95% interval | Main / branch bytes |
-|---|---|---:|---:|---:|---:|---:|
-| panasonic-8 | save | 163.156 | 162.549 | -0.4% | -1.4..+0.1% | 49,643,217 / 49,643,217 |
-| panasonic-8 | load-own | 396.986 | 397.099 | +0.0% | -0.2..+1.1% | 49,643,217 / 49,643,217 |
-| panasonic-16 | save | 355.760 | 353.995 | -0.5% | -0.9..+0.2% | 175,681,852 / 175,681,852 |
-| panasonic-16 | load-own | 386.774 | 386.373 | -0.1% | -0.9..+1.0% | 175,681,852 / 175,681,852 |
-| panasonic-32 | save | 627.383 | 630.287 | +0.5% | -0.6..+2.2% | 252,231,671 / 252,231,671 |
-| panasonic-32 | load-own | 1320.923 | 1320.769 | -0.0% | -0.1..+0.7% | 252,231,671 / 252,231,671 |
-| canon-8 | save | 86.768 | 86.708 | -0.1% | -0.9..+1.8% | 26,151,631 / 26,151,631 |
-| canon-8 | load-own | 221.917 | 224.088 | +1.0% | -1.2..+1.2% | 26,151,631 / 26,151,631 |
-| canon-16 | save | 185.739 | 186.190 | +0.2% | -1.5..+0.9% | 88,750,003 / 88,750,003 |
-| canon-16 | load-own | 198.518 | 198.190 | -0.2% | -0.8..+1.0% | 88,750,003 / 88,750,003 |
-| canon-32 | save | 335.712 | 338.159 | +0.7% | -1.1..+2.0% | 120,957,984 / 120,957,984 |
-| canon-32 | load-own | 787.610 | 786.982 | -0.1% | -1.8..+2.3% | 120,957,984 / 120,957,984 |
-| layout-masks | save | 18.907 | 19.230 | +1.7% | -1.7..+4.0% | 433,949 / 433,949 |
-| layout-masks | load-own | 16.310 | 16.411 | +0.6% | -2.6..+3.3% | 433,949 / 433,949 |
-| layout-mask-index | save | 7.598 | 7.446 | -2.0% | -7.7..+6.3% | 344,892 / 344,892 |
-| layout-mask-index | load-own | 6.848 | 6.840 | -0.1% | -2.6..+3.7% | 344,892 / 344,892 |
+| Document | Operation | Main ms | Branch ms | Change | Paired 95% interval |
+|---|---|---:|---:|---:|---:|
+| panasonic-8 | save | 167.893 | 165.025 | -1.7% | -5.3..-0.6% |
+| panasonic-16 | save | 371.857 | 364.765 | -1.9% | -3.0..+1.8% |
+| panasonic-32 | save | 641.312 | 635.064 | -1.0% | -3.0..+4.3% |
+| canon-8 | save | 93.469 | 93.592 | +0.1% | -0.8..+1.0% |
+| canon-16 | save | 185.048 | 185.385 | +0.2% | -0.2..+4.3% |
+| canon-32 | save | 327.223 | 326.519 | -0.2% | -0.2..+2.4% |
+| panasonic-8 | save-dir | 5537.227 | 5534.940 | -0.0% | -7.1..+2.2% |
+| panasonic-16 | save-dir | 7077.156 | 6739.019 | -4.8% | -5.3..-0.3% |
+| canon-32 | save-dir | 3979.360 | 3974.353 | -0.1% | -0.9..+1.6% |
+| panasonic-16 | save-dir (confirm) | 6483.861 | 6691.230 | +3.2% | +1.5..+9.2% |
 
-Every saved real bundle is byte-identical to main and complete documents round-trip equal. The committed unit oracle compares reused frames with fresh compression, including partial blocks and size transitions.
+The earlier eight flat-photo/authored-design comparisons were also close to neutral for fresh ZIP saves. All candidate bundles and directory contents match main byte for byte. Retention required a repeatable improvement of at least 3% in a complete operation, with a paired interval excluding zero and no material new regression. Kernel-only differences do not satisfy that criterion.
 
-Local raw evidence and the shared harness: `.local/perf-real-261019/` in the repository checkout (ignored). This comparison supersedes the earlier synthetic performance table. Small synthetic unit fixtures remain correctness checks; ignored synthetic timing tests were not run.
+Post-removal affected checks passed: three RGB ZIP depth round trips; directory round trips across the existing mode/depth matrix; ZIP incremental saves; directory incremental saves and garbage collection (six tests total). Strict all-target format Clippy, affected format WASM and formatting checks also passed. No unrelated full-suite or synthetic timing run was repeated.
+
+Harness, raw observations, exact inputs and binary hashes: `.local/perf-followup-261019/` (ignored local evidence). Previous flat-photo and authored-design results remain in `.local/perf-real-261019/`. Nothing was pushed and no PR was changed.
 
 ## Earlier split validation
 
