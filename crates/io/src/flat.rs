@@ -64,7 +64,7 @@ pub fn import_flat(name: &str, bytes: &[u8]) -> Result<ImportResult, IoError> {
 fn cicp_profile(img: &Image) -> Option<Arc<Vec<u8>>> {
     let c = img.cicp?;
     let linear = img.sample_type().is_float();
-    if c.primaries == 1 && !linear && c.transfer != 8 {
+    if c.primaries == 1 && !linear && matches!(c.transfer, 1 | 2 | 6 | 13 | 14 | 15) {
         return None;
     }
     // Unspecified primaries on an HDR image: BT.2100's, which PQ and HLG are defined with.
