@@ -3907,6 +3907,8 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         // The transform preview is image content: it goes under the grid and guides, which
         // stay visible across a layer being transformed (#5086); the box is drawn later.
         crate::transform_tool::draw_content(app, &painter, &xf);
+        // So are Puppet Warp's, Perspective Warp's and Vanishing Point's warped pixels (#7781).
+        crate::distort_ui::draw_content(app, &painter, &xf);
         if app.ui.extras.grid && app.ui.view.extras {
             crate::rulers::draw_grid(app, &painter, &xf, &doc);
         }
@@ -8086,6 +8088,85 @@ mod tests {
         };
         assert!(preview < guide, "the guide ({guide}) draws over the transform preview ({preview})");
         assert!(guide < frame, "the box ({frame}) draws over the guide ({guide})");
+    }
+
+    #[test]
+    fn guides_draw_over_the_puppet_perspective_and_vanishing_point_previews() {
+        // #7781: like Free Transform's (#5086), the warped pixels of Puppet Warp and Perspective
+        // Warp and Vanishing Point's paste are image content. They were drawn with their pins and
+        // planes, after the guides, hiding every guide across them; the guides now go over them,
+        // the mesh lines, pins and planes over the guides, as in Photoshop.
+        for command in ["edit.puppetWarp", "edit.perspectiveWarp", photocraft_engine::vp_cmds::VP] {
+            let ctx = egui::Context::default();
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+            app.run("file.new", json!({"width": 400, "height": 300})).unwrap();
+            app.run("layer.new.layer", json!({})).unwrap();
+            app.run("select.rect", json!({"x": 100, "y": 100, "width": 100, "height": 60})).unwrap();
+            app.run("edit.fill", json!({"color": "#ff0000"})).unwrap();
+            if command == photocraft_engine::vp_cmds::VP {
+                app.run("edit.copy", json!({})).unwrap();
+            }
+            app.run("select.deselect", json!({})).unwrap();
+            app.run("view.newGuide", json!({"orientation": "vertical", "position": 150})).unwrap();
+            app.ui.extras.guides = true;
+            app.ui.extras.rulers = false;
+            app.sync_views();
+            crate::distort_ui::menu(&mut app, &ctx, command, &json!({})).expect("an on-canvas mode").expect("it starts");
+            if command == photocraft_engine::vp_cmds::VP {
+                // A plane over the document; the clipboard pastes onto it.
+                for (x, y) in [(20.0, 280.0), (380.0, 280.0), (300.0, 40.0), (100.0, 40.0)] {
+                    crate::distort_ui::pointer(&mut app, ToolEvent::Down { x, y, pressure: 1.0 }, egui::Modifiers::NONE);
+                    crate::distort_ui::pointer(&mut app, ToolEvent::Up { x, y }, egui::Modifiers::NONE);
+                }
+            }
+            let mut view = app.ui.views[0].clone();
+            view.zoom = 1.0;
+            view.center = [200.0, 150.0];
+            view.fit_pending = false;
+            view.fill_pending = false;
+            let rect = Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0));
+            let input = egui::RawInput { screen_rect: Some(rect), ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| {
+                canvas_view(&mut app, ui, 0, rect, view.clone(), true);
+            });
+            out.textures_delta.clear();
+            // At 100 % centred on the document, screen and document coordinates coincide.
+            let layer = Rect::from_min_max(pos2(100.0, 100.0), pos2(200.0, 160.0));
+            // Puppet Warp's mesh reaches its Expansion (2 px) past the pixels.
+            let near = |r: Rect| (r.min - layer.min).length() < 4.0 && (r.max - layer.max).length() < 4.0;
+            let shapes: Vec<&egui::Shape> = out.shapes.iter().map(|s| &s.shape).collect();
+            // The warped pixels (or the paste): a textured mesh over the layer (or on the plane,
+            // well inside the document, unlike the checkerboard and document image).
+            let preview = shapes.iter().position(|s| match s {
+                egui::Shape::Mesh(m) if m.texture_id != egui::TextureId::default() => {
+                    let r = m.calc_bounds();
+                    if command == photocraft_engine::vp_cmds::VP {
+                        r.width() > 10.0 && r.width() < 300.0 && r.min.x < 150.0 && r.max.x > 150.0
+                    } else {
+                        near(r)
+                    }
+                }
+                _ => false,
+            });
+            // The guide: a vertical line at x = 150 across the whole view.
+            let is_guide = |s: &egui::Shape| matches!(s, egui::Shape::LineSegment { points, .. } if points.iter().all(|p| (p.x - 150.0).abs() < 0.01) && (points[1].y - points[0].y).abs() > 200.0);
+            let guide = shapes.iter().position(|s| is_guide(s));
+            // Over the guide: Puppet Warp's mesh lines, the Vanishing Point plane's outline.
+            let overlay = shapes.iter().position(|s| match s {
+                egui::Shape::LineSegment { points, .. } => !is_guide(s) && points.iter().all(|p| layer.expand(3.0).contains(*p)),
+                egui::Shape::Path(p) => p.closed && p.points.len() == 4,
+                _ => false,
+            });
+            let (Some(preview), Some(guide)) = (preview, guide) else {
+                panic!("{command}: all painted: preview {preview:?}, guide {guide:?}");
+            };
+            assert!(preview < guide, "{command}: the guide ({guide}) draws over the warped pixels ({preview})");
+            if command != "edit.perspectiveWarp" {
+                // Perspective Warp has no plane yet: nothing of its own over the guide.
+                let Some(overlay) = overlay else { panic!("{command}: its mesh or plane is drawn") };
+                assert!(guide < overlay, "{command}: the mesh or plane ({overlay}) draws over the guide ({guide})");
+            }
+        }
     }
 
     #[test]
