@@ -33,10 +33,21 @@ pub struct PenPath {
     /// Curvature Pen: the anchor being dragged.
     #[serde(skip)]
     pub moving: Option<usize>,
-    /// Drawing carries on from an endpoint of this open subpath (path name, subpath index) of a
-    /// document path (#6593): the commit replaces that subpath instead of adding one.
+    /// Drawing carries on from an endpoint of this open subpath of a document path (#6593): the
+    /// commit replaces that subpath instead of adding one.
     #[serde(default)]
-    pub resumes: Option<(String, usize)>,
+    pub resumes: Option<Resumed>,
+}
+
+/// The subpath a Pen path carries on: where it is and what it was when drawing resumed. The
+/// commit replaces it only while it is still that subpath of that document; otherwise (another
+/// document, or the path changed meanwhile) the drawing is added as a new subpath.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Resumed {
+    pub doc: u64,
+    pub path: String,
+    pub index: usize,
+    pub was: photocraft_doc::vector::Subpath,
 }
 
 impl PenPath {
@@ -465,11 +476,10 @@ fn commit_path(app: &mut PhotocraftApp, pen: &PenPath, closed: bool) {
             stroke
         };
         app.run("shape.create", json!({"kind": "path", "path": path, "fill": fill, "stroke": stroke}))
-    } else if let Some(p) =
-        pen.resumes.as_ref().and_then(|(name, i)| app.session.active().and_then(|st| with_resumed_subpath(&st.doc, name, *i, &path)).map(|p| (name.clone(), p)))
+    } else if let Some((name, p)) =
+        pen.resumes.as_ref().and_then(|r| app.session.active().and_then(|st| with_resumed_subpath(&st.doc, r, &path)).map(|p| (r.path.clone(), p)))
     {
         // The resumed subpath, carried on, takes its old place: one step, no second subpath.
-        let (name, p) = p;
         app.run("path.set", json!({"name": name, "path": p})).inspect(|_| app.ui.selected_path = Some(name))
     } else if let Some((id, existing)) = targeted_vector_mask(app) {
         // A targeted vector mask takes the new subpath (#196), as in Photoshop.
@@ -515,6 +525,7 @@ fn resume_at(app: &PhotocraftApp, x: f64, y: f64, tol: f64) -> Option<PenPath> {
         return None;
     }
     let st = app.session.active()?;
+    let doc = st.doc.id.0;
     let name = app.ui.selected_path.clone().filter(|n| path_exists(&st.doc, n)).unwrap_or_else(|| "work".into());
     let near = |k: &photocraft_doc::Knot| (k.anchor.x - x).hypot(k.anchor.y - y) < tol;
     doc_path(&st.doc, &name)?.subpaths.iter().enumerate().filter(|(_, s)| !s.closed).find_map(|(i, s)| {
@@ -533,16 +544,25 @@ fn resume_at(app: &PhotocraftApp, x: f64, y: f64, tol: f64) -> Option<PenPath> {
             }
         }
         let unlinked = knots.iter().enumerate().filter(|(_, (_, smooth))| !smooth).map(|(i, _)| i).collect();
-        Some(PenPath { knots: knots.into_iter().map(|(k, _)| k).collect(), unlinked, resumes: Some((name.clone(), i)), ..Default::default() })
+        let resumes = Resumed { doc, path: name.clone(), index: i, was: s.clone() };
+        Some(PenPath { knots: knots.into_iter().map(|(k, _)| k).collect(), unlinked, resumes: Some(resumes), ..Default::default() })
     })
 }
 
-/// `name`'s path with its subpath `index` replaced by the one subpath of `drawn`, for a resumed
-/// Pen path's commit; `None` when that subpath is gone.
-fn with_resumed_subpath(doc: &Document, name: &str, index: usize, drawn: &Value) -> Option<Value> {
-    let mut p = photocraft_engine::vector_cmds::path_json(doc_path(doc, name)?);
-    let slot = p.get_mut("subpaths")?.as_array_mut()?.get_mut(index)?;
-    *slot = drawn.get("subpaths")?.get(0)?.clone();
+/// The resumed path with its subpath carried on: the one subpath of `drawn` takes the old one's
+/// anchors and closing, which keeps its other settings (its path operation). `None` when the
+/// subpath is no longer the one drawing resumed (another document, or the path changed).
+fn with_resumed_subpath(doc: &Document, r: &Resumed, drawn: &Value) -> Option<Value> {
+    let path = doc_path(doc, &r.path).filter(|_| doc.id.0 == r.doc)?;
+    if path.subpaths.get(r.index) != Some(&r.was) {
+        return None;
+    }
+    let mut p = photocraft_engine::vector_cmds::path_json(path);
+    let slot = p.get_mut("subpaths")?.as_array_mut()?.get_mut(r.index)?.as_object_mut()?;
+    let new = drawn.get("subpaths")?.get(0)?;
+    for key in ["closed", "knots"] {
+        slot.insert(key.into(), new.get(key)?.clone());
+    }
     Some(p)
 }
 

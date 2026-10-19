@@ -209,3 +209,26 @@ fn the_pen_carries_on_an_open_path_from_either_end() {
     let work = work_path(&app);
     assert_eq!((work.subpaths.len(), work.subpaths[1].closed, work.subpaths[1].knots.len()), (2, true, 3));
 }
+
+/// #6593 review: carrying on a subpath keeps its path operation, and a draft whose subpath changed
+/// meanwhile is added as a new subpath instead of overwriting another one.
+#[test]
+fn a_resumed_subpath_keeps_its_operation_and_a_stale_draft_adds_a_new_one() {
+    let mut app = app(Tool::Pen);
+    let open = |ax: f64, bx: f64, op: &str| json!({"closed": false, "op": op, "knots": [{"anchor": [ax, 20.0]}, {"anchor": [bx, 20.0]}]});
+    app.run("path.set", json!({"name": "work", "path": {"subpaths": [open(20.0, 80.0, "subtract")]}})).unwrap();
+    click(&mut app, 80.0, 20.0);
+    click(&mut app, 80.0, 80.0);
+    crate::vector_ui::pen_commit(&mut app, false);
+    let work = work_path(&app);
+    assert_eq!((work.subpaths.len(), work.subpaths[0].knots.len()), (1, 3));
+    assert_eq!(work.subpaths[0].op, photocraft_doc::vector::PathOp::Subtract, "the operation is kept");
+    // The work path is replaced while the draft is open: the draft becomes a new subpath.
+    click(&mut app, 20.0, 20.0);
+    click(&mut app, 20.0, 80.0);
+    app.run("path.set", json!({"name": "work", "path": {"subpaths": [open(120.0, 180.0, "combine")]}})).unwrap();
+    crate::vector_ui::pen_commit(&mut app, false);
+    let work = work_path(&app);
+    assert_eq!(work.subpaths.len(), 2, "a new subpath, the replaced one untouched");
+    assert_eq!(work.subpaths[0].knots.iter().map(|k| k.anchor.x).collect::<Vec<_>>(), [120.0, 180.0]);
+}
