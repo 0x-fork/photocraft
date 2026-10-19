@@ -777,6 +777,37 @@ fn assert_affine(a: Affine, b: Affine) {
     }
 }
 
+/// #5956: while typing, a plain drag from just outside the text moves it (Photoshop's Move cursor
+/// there), and typing carries on; a press further out commits the text, as before.
+#[test]
+fn a_drag_just_outside_the_typed_text_moves_it() {
+    let (app, id) = transform_app(false, false, Affine::translate(500.0, 350.0));
+    let mut h = harness(1.0, app);
+    let f = crate::type_transform::frame(h.state_mut()).unwrap();
+    let zoom = f64::from(h.state().point_zoom());
+    let mid = (f.quad[1][1] + f.quad[2][1]) / 2.0;
+    let near = frame_point(h.state(), [f.quad[1][0] + 20.0 / zoom, mid]);
+    let (ctx, view) = (h.ctx.clone(), xf(h.state()));
+    let cursor = crate::type_transform::cursor(h.state_mut(), &ctx, &view, near, Modifiers::NONE);
+    assert_eq!(cursor, Some(egui::CursorIcon::Move), "the Move cursor just outside the text");
+    let before = text(h.state(), id);
+    let count = h.state().session.active().unwrap().history.entries().len();
+    transform_drag(&mut h, near, near + egui::vec2(60.0, 30.0), Modifiers::NONE, false);
+    let after = text(h.state(), id);
+    assert_affine(after.transform, Affine::translate(60.0 / zoom, 30.0 / zoom).mul(&before.transform));
+    assert_eq!(after.text, before.text);
+    assert_eq!(h.state().ui.text_edit.as_ref().map(|e| e.layer), Some(id.0), "still typing");
+    assert_eq!(h.state().session.active().unwrap().history.entries().len(), count + 1);
+    // Further out: the press commits the text.
+    let f = crate::type_transform::frame(h.state_mut()).unwrap();
+    let far = frame_point(h.state(), [f.quad[1][0] + 100.0 / zoom, (f.quad[1][1] + f.quad[2][1]) / 2.0]);
+    let view = xf(h.state());
+    assert_eq!(crate::type_transform::cursor(h.state_mut(), &ctx, &view, far, Modifiers::NONE), None);
+    click(&mut h, far);
+    assert!(h.state().ui.text_edit.is_none(), "committed");
+    assert_affine(text(h.state(), id).transform, after.transform);
+}
+
 /// #1091: modifier changes alone draw/hide the oriented frame without touching editing/history.
 #[test]
 fn temporary_type_transform_visibility_and_cursors() {
