@@ -15,6 +15,8 @@ use crate::state::Tool;
 /// The refusal the report quotes, as the notice shows it.
 const MESSAGE: &str = "Free Transform: not enough memory for transforming pixels (the transformed layer \"Layer 1\" would be 37708 x 35259 px, more than the 1073741824 px limit); the document was not changed";
 
+/// The whole app with a filled layer on a 2000 x 1500 document, the Move tool, and the refusal in
+/// an error notice.
 fn app_harness() -> Harness<'static, PhotocraftApp> {
     let mut h = Harness::builder().with_size(vec2(1280.0, 800.0)).with_max_steps(8).build_eframe(|cc| {
         PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
@@ -56,11 +58,13 @@ fn frame(h: &mut Harness<'static, PhotocraftApp>, events: Vec<egui::Event>) -> V
     h.output().platform_output.commands.iter().filter_map(|c| if let egui::OutputCommand::CopyText(t) = c { Some(t.clone()) } else { None }).collect()
 }
 
+/// The primary button pressed or released at `p`, then a frame without events.
 fn button(h: &mut Harness<'static, PhotocraftApp>, p: Pos2, pressed: bool) {
     frame(h, vec![egui::Event::PointerButton { pos: p, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE }]);
     frame(h, vec![]);
 }
 
+/// A primary-button drag from `from` to `to` in ten moves.
 fn drag(h: &mut Harness<'static, PhotocraftApp>, from: Pos2, to: Pos2) {
     frame(h, vec![egui::Event::PointerMoved(from)]);
     button(h, from, true);
@@ -70,10 +74,13 @@ fn drag(h: &mut Harness<'static, PhotocraftApp>, from: Pos2, to: Pos2) {
     button(h, to, false);
 }
 
+/// A ⌘C press, as the Mac menu's key equivalent sends it.
 fn command_c() -> egui::Event {
     egui::Event::Key { key: egui::Key::C, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::COMMAND }
 }
 
+/// Text dragged across in the notice is what ⌘C copies, as a Copy event or a ⌘C press; the drag
+/// and the copy leave the layers, History and the session clipboard alone.
 #[test]
 fn copy_takes_the_text_dragged_across_in_an_error_notice_not_the_layer() {
     for (how, copy) in [("Event::Copy", egui::Event::Copy), ("a ⌘C press", command_c())] {
@@ -90,6 +97,30 @@ fn copy_takes_the_text_dragged_across_in_an_error_notice_not_the_layer() {
     }
 }
 
+/// The selection outlives the pointer: after the drag the pointer moves off the notice and over
+/// the canvas without a press, and ⌘C still copies the text, not the layer.
+#[test]
+fn copy_takes_the_selected_text_after_the_pointer_leaves_the_notice() {
+    for (how, copy) in [("Event::Copy", egui::Event::Copy), ("a ⌘C press", command_c())] {
+        let mut h = app_harness();
+        let before = document(&h);
+        let r = notice_text(&h);
+        drag(&mut h, r.left_top() + vec2(2.0, 6.0), r.right_bottom() - vec2(2.0, 6.0));
+        let canvas = Pos2::new(500.0, 400.0);
+        assert!(!r.contains(canvas));
+        for i in 1..=10 {
+            frame(&mut h, vec![egui::Event::PointerMoved(r.right_bottom() + (canvas - r.right_bottom()) * (i as f32 / 10.0))]);
+        }
+        let copied = frame(&mut h, vec![copy]);
+        frame(&mut h, vec![]);
+        assert!(copied.iter().any(|t| t.contains("1073741824 px limit")), "{how}: the selected text is copied: {copied:?}");
+        assert!(h.state().session.clipboard.is_none(), "{how}: Edit › Copy didn't copy the layer");
+        assert_eq!(document(&h), before, "{how}");
+    }
+}
+
+/// A plain click on the notice's text selects nothing, so ⌘C stays Edit › Copy and copies the
+/// layer.
 #[test]
 fn a_plain_click_on_a_notice_leaves_copy_to_the_document() {
     let mut h = app_harness();
