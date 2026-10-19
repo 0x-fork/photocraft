@@ -142,8 +142,8 @@ pub struct CanvasCache {
     /// `revision`, so the Navigator never shows a stale CPU image after GPU-path edits.
     pub tex_revision: u64,
     pub tex_preview_key: u64,
-    /// All uploaded texels are opaque: the checker behind this image cannot be seen. Updated
-    /// with uploads, never by scanning the document during a pan or other unchanged frame.
+    /// All uploaded texels are opaque. Screen coverage is checked separately before omitting
+    /// the checker. Updated with uploads, never by scanning during an unchanged frame.
     pub texture_opaque: bool,
     /// The CPU path's pixel grid for the part of the document in view (pixel_grid.rs).
     pub grid: Option<crate::pixel_grid::GridLines>,
@@ -3099,7 +3099,9 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             let rotated = view.rotation.abs() > 0.05;
             let checkerboard = app.session.prefs().transparency_and_gamut.square().map(|square| (checker(app, &ctx), square));
             let tex = ensure_texture(app, &ctx, idx, output).map(|(tex, _scale)| tex);
-            let opaque = app.canvases.get(&cache_key(doc.id, output)).is_some_and(|c| c.texture_opaque) && tex.is_some();
+            // Repeated-quad coverage is not proven identical on all Pattern Preview adapters.
+            // Retain its legacy checker submissions, including the central document's.
+            let opaque = !app.ui.view.pattern_preview && app.canvases.get(&cache_key(doc.id, output)).is_some_and(|c| c.texture_opaque) && tex.is_some();
             paint_cpu_document(&painter, &xf, doc.bounds(), rotated, checkerboard, tex, opaque);
             for &c in &pattern {
                 paint_cpu_document(&painter, &pattern_xf(&xf, c, size), doc.bounds(), rotated, checkerboard, tex, opaque);
