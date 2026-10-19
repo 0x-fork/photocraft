@@ -1156,9 +1156,14 @@ pub fn composite_bounds(layer: &Layer, canvas: Rect) -> Option<Rect> {
 pub fn change_bounds(layer: &Layer, canvas: Rect) -> Option<Rect> {
     fn reaches_below(l: &Layer) -> bool {
         match &l.content {
-            // Clipped, it changes only its base's pixels.
             LayerContent::Adjustment(_) => !l.clipped,
-            LayerContent::Group(g) if l.blend == BlendMode::PassThrough => g.children.iter().any(reaches_below),
+            // Clipped to a base, an adjustment changes only the base's pixels; one with no base
+            // beneath it in its list composites as an ordinary adjustment (#6535).
+            LayerContent::Group(g) if l.blend == BlendMode::PassThrough => g.children.iter().enumerate().any(|(k, c)| {
+                let orphan =
+                    c.clipped && matches!(c.content, LayerContent::Adjustment(_)) && g.children.get(..k).is_none_or(|below| below.iter().all(|b| b.clipped));
+                orphan || reaches_below(c)
+            }),
             _ => false,
         }
     }

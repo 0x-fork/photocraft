@@ -500,6 +500,32 @@ fn clipped_adjustment_changes_only_its_base() {
     assert_eq!(change_bounds_in(&on_group, 2, canvas), None);
 }
 
+/// #6535: a clipped adjustment with no base beneath it, inside a pass-through group, composites
+/// as an ordinary adjustment, so hiding the group or the layer clipped to it (which ends its
+/// isolation) changes the whole canvas, not just the group's pixels.
+#[test]
+fn orphan_clipped_adjustment_in_pass_through_base_reaches_everything() {
+    let canvas = Rect::new(0, 0, 8, 6);
+    let mut d = doc_white(8, 6);
+    let mut orphan = Layer::new("A", LayerContent::Adjustment(Adjustment::Invert));
+    orphan.clipped = true;
+    let mut g = Layer::group("G", vec![orphan, solid_layer("P", Rect::new(2, 1, 4, 3), [0.2, 0.4, 0.6, 1.0])]);
+    g.blend = BlendMode::PassThrough;
+    d.layers.push(g);
+    let mut x = Layer::new("X", LayerContent::Adjustment(Adjustment::Invert));
+    x.clipped = true;
+    d.layers.push(x);
+    let shown = px(&d, 0, 0);
+    d.layers[2].visible = false;
+    assert!(!close4(shown, px(&d, 0, 0)), "the toggle changes pixels outside the group");
+    assert_eq!(change_bounds_in(&d.layers, 2, canvas), None);
+    assert_eq!(change_bounds(&d.layers[1], canvas), None);
+    // With a base beneath it the clipped adjustment stays inside the group.
+    let LayerContent::Group(g) = &mut d.layers[1].content else { panic!("group") };
+    g.children.swap(0, 1);
+    assert_eq!(change_bounds_in(&d.layers, 2, canvas), Some(Rect::new(2, 1, 4, 3)));
+}
+
 #[test]
 fn threshold_posterize_levels_curves() {
     let mut buf = Buffer::filled(Rect::new(0, 0, 1, 1), [0.3, 0.3, 0.3, 1.0]);
