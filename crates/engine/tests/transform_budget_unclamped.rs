@@ -17,6 +17,8 @@ fn painted() -> Session {
     session
 }
 
+/// `command` with `params` is refused as too large, and the document, its revision and History
+/// are as they were.
 fn assert_refused_without_changes(session: &mut Session, command: &str, params: Value) {
     let state = session.active().unwrap();
     let (document, revision, history) = (state.doc.clone(), state.revision, state.history.past_len());
@@ -38,6 +40,7 @@ fn extreme_layer_scales_are_refused_before_a_clipped_strip_is_warped() {
     }
 }
 
+/// Transform Selection refuses the same extreme scales and keeps the selection.
 #[test]
 fn extreme_selection_scales_are_refused_without_losing_the_selection() {
     let mut session = painted();

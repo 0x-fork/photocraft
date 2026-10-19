@@ -564,6 +564,7 @@ impl Performance {
 }
 
 impl Default for Performance {
+    /// What a new install starts with, [`DEFAULT_MEMORY_USAGE_MB`] of Memory Usage among it.
     fn default() -> Self {
         Self {
             memory_usage_mb: DEFAULT_MEMORY_USAGE_MB,

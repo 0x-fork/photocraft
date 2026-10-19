@@ -148,6 +148,8 @@ fn affine_params(p: &Value, r: [f64; 4]) -> Homography {
     t(px + dx, py + dy).mul(&rot).mul(&skew).mul(&scale).mul(&t(-px, -py))
 }
 
+/// Select › Transform Selection: warps the selection outline by the params' matrix, quad or
+/// scale/rotate/move, refused when the result would not fit the transform budget.
 fn transform_selection(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "select.transformSelection";
     let d = s.active().ok_or(EngineError::NoDocument)?;

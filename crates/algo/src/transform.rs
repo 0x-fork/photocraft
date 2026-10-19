@@ -254,6 +254,21 @@ pub fn warp_output_size(src_rect: Rect, h: &Homography) -> Option<(u64, u64)> {
     Some((((x1 - x0) as u64).saturating_add(2), ((y1 - y0) as u64).saturating_add(2)))
 }
 
+/// The farthest from the origin (px) [`warp_surface`] places a pixel: each side of
+/// [`warp_output_bounds`] is clamped to ±2²⁰.
+pub const WARP_REACH: i32 = 1 << 20;
+
+/// Would [`warp_surface`] clip the result of warping `src_rect` by `h`: does a warped corner land
+/// past [`WARP_REACH`], whether the result is that large or only placed that far out? A caller
+/// refuses such a warp rather than lose the pixels beyond it. Empty and singular inputs have no
+/// output to clip.
+pub fn warp_output_clipped(src_rect: Rect, h: &Homography) -> bool {
+    let Some(corners) = warp_corners(src_rect, h) else { return false };
+    let lim = f64::from(WARP_REACH);
+    let within = |v: f64| v.is_finite() && v.floor() >= -lim && v.ceil() <= lim;
+    !corners.iter().all(|&(x, y)| within(x) && within(y))
+}
+
 fn warp_corners(src_rect: Rect, h: &Homography) -> Option<[(f64, f64); 4]> {
     if src_rect.is_empty() || h.inverse().is_none() {
         return None;
@@ -264,11 +279,13 @@ fn warp_corners(src_rect: Rect, h: &Homography) -> Option<[(f64, f64); 4]> {
     )
 }
 
+/// The pixel rectangle over the warped `corners` plus a pixel for filter support, each side
+/// clamped to [`WARP_REACH`]; `None` when a corner is not finite.
 fn corner_bounds(corners: &[(f64, f64); 4]) -> Option<Rect> {
     if !corners.iter().all(|c| c.0.is_finite() && c.1.is_finite()) {
         return None;
     }
-    let lim = (1 << 20) as f64;
+    let lim = f64::from(WARP_REACH);
     let bx0 = corners.iter().map(|c| c.0).fold(f64::MAX, f64::min).floor().max(-lim) as i32 - 1;
     let by0 = corners.iter().map(|c| c.1).fold(f64::MAX, f64::min).floor().max(-lim) as i32 - 1;
     let bx1 = corners.iter().map(|c| c.0).fold(f64::MIN, f64::max).ceil().min(lim) as i32 + 1;
@@ -547,6 +564,8 @@ mod tests {
         }
     }
 
+    /// The unclipped size matches the clipped bounds where nothing is clipped, saturates when it
+    /// can't be represented, and is `None` for empty or singular inputs.
     #[test]
     fn output_size_saturates_overflows_and_preserves_filter_support() {
         let src = Rect::new(0, 0, 24, 16);
@@ -557,6 +576,20 @@ mod tests {
         assert_eq!(warp_output_size(src, &huge), Some((u64::MAX, u64::MAX)));
         assert_eq!(warp_output_size(Rect::EMPTY, &Homography::IDENTITY), None);
         assert_eq!(warp_output_size(src, &Homography([0.0; 9])), None);
+    }
+
+    /// [`warp_output_clipped`] says yes exactly when [`warp_output_bounds`] clamps a side (#7807).
+    #[test]
+    fn output_clipped_matches_the_clamped_bounds() {
+        let src = Rect::new(0, 0, 24, 16);
+        let at = |dx: f64| Homography([1.0, 0.0, dx, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+        let edge = f64::from(WARP_REACH) - 24.0;
+        assert!(!warp_output_clipped(src, &at(edge)), "the right edge lands on the reach");
+        assert_eq!(warp_output_bounds(src, &at(edge)).map(|b| b.x1), Some(WARP_REACH + 1));
+        assert!(warp_output_clipped(src, &at(edge + 1.0)), "one pixel past it");
+        assert_eq!(warp_output_bounds(src, &at(edge + 1.0)).map(|b| b.x1), Some(WARP_REACH + 1), "clamped");
+        assert!(warp_output_clipped(src, &at(-f64::from(WARP_REACH) - 1.0)));
+        assert!(!warp_output_clipped(Rect::EMPTY, &at(1e12)), "nothing to clip");
     }
 
     #[test]

@@ -1,6 +1,6 @@
 //! Edit › Free Transform / Transform: projective transforms of layers (and the selection).
 
-use photocraft_algo::transform::{Homography, Interp, warp_output_size, warp_surface, warp_surface_with};
+use photocraft_algo::transform::{Homography, Interp, WARP_REACH, warp_output_clipped, warp_output_size, warp_surface, warp_surface_with};
 use photocraft_color::PixelFormat;
 use photocraft_doc::{Document, Layer, LayerContent, LayerId, Locks};
 use photocraft_geom::{Affine, Rect};
@@ -262,8 +262,9 @@ pub fn locked_for_transform(doc: &Document, id: LayerId) -> bool {
 /// Memory Usage, which [`Session::apply_prefs`] sets, rather than a fixed 2³⁰ px, so a stitched
 /// layer of a few gigapixels transforms on a machine that has the memory for it (#7807). Only the
 /// size of the result counts, not where it lands, so moving a layer far off the canvas stays
-/// allowed. A scale past it is refused rather than clipped (#3773): the warp would otherwise fill
-/// every tile of a result up to 2²¹ px on a side before anything could fail.
+/// allowed as far as the warp reaches ([`WARP_REACH`]). A scale past it is refused rather than
+/// clipped (#3773): the warp would otherwise fill every tile of a result up to 2²¹ px on a side
+/// before anything could fail.
 static BUDGET: AtomicU64 = AtomicU64::new((crate::prefs::DEFAULT_MEMORY_USAGE_MB as u64) << 20);
 
 /// Set the memory (bytes) one transform's result may take (see [`budget`]).
@@ -290,8 +291,9 @@ fn active_budget() -> u64 {
 }
 
 /// Refuse a warp of the content inside `src` (pixels of `format`) by `h` whose result would take
-/// more memory than the budget, before anything is built. `what` names the surface in the message,
-/// which names Memory Usage rather than a shortage: nothing has been allocated yet.
+/// more memory than the budget, or reach past where the warp places pixels (it would be clipped),
+/// before anything is built. `what` names the surface in the message, which names the setting or
+/// the reach rather than a shortage: nothing has been allocated yet.
 pub(crate) fn check_budget(src: Rect, h: &Homography, what: &str, format: PixelFormat) -> Result<()> {
     check_budget_with_limit(src, h, what, format, active_budget())
 }
@@ -309,6 +311,11 @@ fn check_budget_with_limit(src: Rect, h: &Homography, what: &str, format: PixelF
             "too large to transform: the transformed {what} would be {w} x {ht} px ({} MB), more than the {} MB Memory Usage allows (Preferences › Performance); the document was not changed",
             mb(bytes),
             budget >> 20
+        )));
+    }
+    if warp_output_clipped(src, h) {
+        return Err(EngineError::Other(format!(
+            "too large to transform: the transformed {what} would reach past ±{WARP_REACH} px, the farthest a transform places pixels; the document was not changed"
         )));
     }
     Ok(())
@@ -763,6 +770,7 @@ mod tests {
         s
     }
 
+    /// The content bounds of the active layer's pixels.
     fn active_bounds(s: &Session) -> Rect {
         let st = s.active().unwrap();
         st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap().content_bounds()
@@ -774,6 +782,7 @@ mod tests {
     /// Memory Usage's default, in bytes.
     const DEFAULT_BUDGET: u64 = (crate::prefs::DEFAULT_MEMORY_USAGE_MB as u64) << 20;
 
+    /// Scales of 10⁷ and past are refused by the real budget too, whatever the axis or sign.
     #[test]
     fn huge_transform_scales_exceed_the_production_budget_before_clipping() {
         let src = Rect::new(0, 0, 24, 16);
@@ -785,11 +794,36 @@ mod tests {
         }
     }
 
+    /// A 240000 px wide stretch, placed far from the canvas but within the warp's reach, fits.
     #[test]
     fn an_ordinary_transform_remains_within_the_production_budget() {
         let src = Rect::new(0, 0, 24, 16);
-        let h = Homography([10_000.0, 0.0, 900_000.0, 0.0, 1.0, -900_000.0, 0.0, 0.0, 1.0]);
+        let h = Homography([10_000.0, 0.0, 800_000.0, 0.0, 1.0, -900_000.0, 0.0, 0.0, 1.0]);
         assert!(check_budget_with_limit(src, &h, "layer", PixelFormat::RGBA8, DEFAULT_BUDGET).is_ok());
+    }
+
+    /// The warp places pixels only within ±2²⁰ px ([`WARP_REACH`]): a result that fits Memory
+    /// Usage but would reach past it, by its size or by where it lands, is refused, not clipped.
+    #[test]
+    fn a_result_past_the_warps_reach_is_refused_not_clipped() {
+        let src = Rect::new(0, 0, 24, 16);
+        let check = |h: [f64; 9]| check_budget_with_limit(src, &Homography(h), "layer", PixelFormat::RGBA8, DEFAULT_BUDGET);
+        // 2000016 x 18 px, 138 MB of 8-bit RGBA: from x = 0 it would be cut at 2²⁰; centred it fits.
+        let err = check([83_334.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]).unwrap_err().to_string();
+        assert!(err.contains("would reach past ±1048576 px") && err.ends_with("the document was not changed"), "{err}");
+        assert!(check([83_334.0, 0.0, -1_000_000.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]).is_ok());
+        // A small layer moved past the reach, either way on either axis.
+        for (dx, dy) in [(1_100_000.0, 0.0), (-1_100_000.0, 0.0), (0.0, 1_100_000.0), (0.0, -1_100_000.0)] {
+            assert!(check([1.0, 0.0, dx, 0.0, 1.0, dy, 0.0, 0.0, 1.0]).is_err(), "{dx}, {dy}");
+        }
+        // Through the command: nothing moves, nothing is lost.
+        let mut s = session();
+        let st = s.active().unwrap();
+        let (before, steps) = (st.doc.clone(), st.history.past_len());
+        let err = s.execute("edit.transform", json!({"matrix": [1, 0, 0, 1, 2_000_000, 0]})).unwrap_err().to_string();
+        assert!(err.contains("the transformed layer \"Layer 1\" would reach past ±1048576 px"), "{err}");
+        let st = s.active().unwrap();
+        assert!(st.doc == before && st.history.past_len() == steps, "the document is untouched");
     }
 
     /// #7807: the stitched layer's 90 % and 15°, a 37708 x 35259 px result that the old 2³⁰ px limit
@@ -884,6 +918,8 @@ mod tests {
         assert!(&l == st.doc.layer(group).unwrap(), "no child was transformed");
     }
 
+    /// Only the result's size is priced: a small layer moved 900000 px away (within the warp's
+    /// reach) and back keeps every pixel.
     #[test]
     fn moving_a_small_layer_far_off_the_canvas_is_within_budget() {
         let mut s = session();
