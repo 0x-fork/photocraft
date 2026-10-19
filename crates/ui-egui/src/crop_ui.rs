@@ -424,15 +424,16 @@ fn apply_step(app: &mut PhotocraftApp, s: CropStep) {
 
 /// While the Crop tool has box history, Undo/Redo step the *box*, not the document (Photoshop keeps
 /// Edit › Undo live during a crop, #1918/#3145). `Some(enabled)` for those commands, else `None` so
-/// the caller falls back to document history.
+/// the caller falls back to document history. While either box stack has a step, `intercept` takes
+/// both commands, so one with nothing left to step greys out rather than offering the document's.
 pub fn is_enabled(app: &PhotocraftApp, id: &str) -> Option<bool> {
-    if app.ui.tool != Tool::Crop {
+    if app.ui.tool != Tool::Crop || (app.crop.undo.is_empty() && app.crop.redo.is_empty()) {
         return None;
     }
     match id {
-        "edit.undo" if !app.crop.undo.is_empty() => Some(true),
-        "edit.redo" if !app.crop.redo.is_empty() => Some(true),
-        "edit.toggleLastState" if !app.crop.undo.is_empty() || !app.crop.redo.is_empty() => Some(false),
+        "edit.undo" => Some(!app.crop.undo.is_empty()),
+        "edit.redo" => Some(!app.crop.redo.is_empty()),
+        "edit.toggleLastState" => Some(false),
         _ => None,
     }
 }
@@ -1325,6 +1326,23 @@ mod tests {
         assert_eq!(app.session.active().unwrap().history.past_len(), doc_steps, "the document is untouched");
         app.run("edit.redo", json!({})).unwrap();
         assert!((app.ui.crop_rect.unwrap()[0] - 60.0).abs() < 1e-3, "redo re-applies the move");
+    }
+
+    /// Once the box has no step left in one direction, that command greys out rather than staying
+    /// live over the document's history and doing nothing (as the Free Transform box does).
+    #[test]
+    fn box_undo_and_redo_grey_out_when_their_stack_is_empty() {
+        let mut app = app(SampleType::U8);
+        app.run("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        assert!(app.session.active().unwrap().history.can_undo());
+        app.ui.crop_rect = Some([40.0, 30.0, 100.0, 70.0]);
+        app.crop.default_frame = false;
+        drag(&mut app, &[[70.0, 50.0], [90.0, 50.0]], NONE);
+        assert!(crate::menus::is_enabled(&app, "edit.undo"));
+        assert!(!crate::menus::is_enabled(&app, "edit.redo"), "no box step to redo");
+        app.run("edit.undo", json!({})).unwrap();
+        assert!(!crate::menus::is_enabled(&app, "edit.undo"), "no box step left to undo");
+        assert!(crate::menus::is_enabled(&app, "edit.redo"));
     }
 
     #[test]
