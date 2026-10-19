@@ -3218,3 +3218,5 @@ curves	Smooth	Сгладить
 	Use	Использовать
 	In Front	Спереди
 	Behind	Сзади
+# Actions: a step dialog holds a suspended recording (#7365)
+	Confirm or cancel the open action step dialog first	Сначала подтвердите или отмените открытый диалог шага операции

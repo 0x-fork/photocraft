@@ -3852,3 +3852,5 @@ navigator	Zoom	Zvětšení
 	Use	Použít
 	In Front	Vpředu
 	Behind	Vzadu
+# Actions: a step dialog holds a suspended recording (#7365)
+	Confirm or cancel the open action step dialog first	Nejprve potvrďte nebo zrušte otevřený dialog kroku akce

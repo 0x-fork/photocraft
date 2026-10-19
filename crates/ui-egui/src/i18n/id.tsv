@@ -3239,3 +3239,5 @@ curves	Smooth	Haluskan
 	Use	Gunakan
 	In Front	Di Depan
 	Behind	Di Belakang
+# Actions: a step dialog holds a suspended recording (#7365)
+	Confirm or cancel the open action step dialog first	Konfirmasi atau batalkan dulu dialog langkah tindakan yang terbuka

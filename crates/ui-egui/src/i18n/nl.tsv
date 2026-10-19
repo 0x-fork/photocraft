@@ -4004,3 +4004,5 @@ curves	Smooth	Vloeiend maken
 	Use	Gebruiken
 	In Front	Voor
 	Behind	Achter
+# Actions: a step dialog holds a suspended recording (#7365)
+	Confirm or cancel the open action step dialog first	Bevestig of annuleer eerst het geopende dialoogvenster van de handelingsstap

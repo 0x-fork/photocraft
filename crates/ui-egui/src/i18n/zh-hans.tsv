@@ -2868,3 +2868,5 @@ curves	Smooth	平滑
 	In Front	前面
 	Behind	后面
 	Blend	混合
+# Actions: a step dialog holds a suspended recording (#7365)
+	Confirm or cancel the open action step dialog first	请先确认或取消打开的动作步骤对话框

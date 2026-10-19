@@ -3731,3 +3731,5 @@ curves	Smooth	Làm mượt
 	Use	Dùng
 	In Front	Phía trước
 	Behind	Phía sau
+# Actions: a step dialog holds a suspended recording (#7365)
+	Confirm or cancel the open action step dialog first	Hãy xác nhận hoặc hủy hộp thoại bước hành động đang mở trước

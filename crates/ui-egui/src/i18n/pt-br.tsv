@@ -4034,3 +4034,5 @@ layerLabel	No Color	Sem cor
 	Use	Usar
 	In Front	Na frente
 	Behind	Atrás
+# Actions: a step dialog holds a suspended recording (#7365)
+	Confirm or cancel the open action step dialog first	Confirme ou cancele primeiro a caixa de diálogo aberta da etapa da ação

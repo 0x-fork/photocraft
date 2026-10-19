@@ -3843,3 +3843,5 @@ curves	Smooth	Wygładź
 	Use	Użyj
 	In Front	Z przodu
 	Behind	Z tyłu
+# Actions: a step dialog holds a suspended recording (#7365)
+	Confirm or cancel the open action step dialog first	Najpierw zatwierdź lub anuluj otwarte okno kroku operacji

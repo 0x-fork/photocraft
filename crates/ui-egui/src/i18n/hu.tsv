@@ -4163,3 +4163,5 @@ cameraRaw	Yellow	Sárga
 	Use	Használat
 	In Front	Elöl
 	Behind	Mögött
+# Actions: a step dialog holds a suspended recording (#7365)
+	Confirm or cancel the open action step dialog first	Előbb hagyd jóvá vagy vond vissza a művelet lépésének nyitott párbeszédablakát

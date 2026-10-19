@@ -3252,3 +3252,5 @@ curves	Smooth	Lisser
 	Use	Utiliser
 	In Front	Devant
 	Behind	Derrière
+# Actions: a step dialog holds a suspended recording (#7365)
+	Confirm or cancel the open action step dialog first	Validez ou annulez d’abord la boîte de dialogue ouverte de l’étape de l’action

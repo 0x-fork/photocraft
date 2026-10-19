@@ -3245,3 +3245,5 @@ curves	Smooth	Glätten
 	In Front	Davor
 	Behind	Dahinter
 	Blend	Mischen
+# Actions: a step dialog holds a suspended recording (#7365)
+	Confirm or cancel the open action step dialog first	Bestätige oder brich zuerst den offenen Dialog des Aktionsschritts ab

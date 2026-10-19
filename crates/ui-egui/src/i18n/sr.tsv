@@ -4317,3 +4317,5 @@ shape	Appearance	Izgled
 	Use	Koristi
 	In Front	Ispred
 	Behind	Iza
+# Actions: a step dialog holds a suspended recording (#7365)
+	Confirm or cancel the open action step dialog first	Prvo potvrdite ili otkažite otvoreni dijalog koraka radnje

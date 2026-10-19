@@ -3944,3 +3944,5 @@ curves	Smooth	Εξομάλυνση
 	Use	Χρήση
 	In Front	Μπροστά
 	Behind	Πίσω
+# Actions: a step dialog holds a suspended recording (#7365)
+	Confirm or cancel the open action step dialog first	Επιβεβαιώστε ή ακυρώστε πρώτα το ανοιχτό παράθυρο βήματος της ενέργειας

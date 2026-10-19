@@ -3921,3 +3921,5 @@ curves	Smooth	スムーズ
 	Use	使用
 	In Front	前面
 	Behind	背面
+# Actions: a step dialog holds a suspended recording (#7365)
+	Confirm or cancel the open action step dialog first	先に開いているアクションのステップのダイアログを確定またはキャンセルしてください

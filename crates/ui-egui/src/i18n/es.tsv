@@ -4206,3 +4206,5 @@ navigator	Zoom	Zoom
 	Use	Usar
 	In Front	Delante
 	Behind	Detrás
+# Actions: a step dialog holds a suspended recording (#7365)
+	Confirm or cancel the open action step dialog first	Confirme o cancele primero el cuadro de diálogo abierto del paso de la acción
