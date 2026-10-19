@@ -1177,13 +1177,25 @@ pub fn change_bounds(layer: &Layer, canvas: Rect) -> Option<Rect> {
 /// adjustment layer: it changes only its clip base's pixels, so it reaches as far as showing,
 /// hiding or restyling that base does (#6535). Still `None` when there is no base below it (the
 /// compositor then draws it as an ordinary adjustment) or the base is an adjustment itself
-/// (layers clipped to one composite atop the adjusted backdrop, everywhere).
-pub fn change_bounds_in(layers: &[Layer], k: usize, canvas: Rect) -> Option<Rect> {
+/// (layers clipped to one composite atop the adjusted backdrop, everywhere). `outer` is the list
+/// holding the group whose children `layers` are, and that group's index there (`None` at the
+/// top level): a pass-through group that is a clip base renders isolated while it holds a visible
+/// adjustment, so showing or hiding one inside can change the whole group.
+pub fn change_bounds_in(layers: &[Layer], k: usize, outer: Option<(&[Layer], usize)>, canvas: Rect) -> Option<Rect> {
     let layer = layers.get(k)?;
     if layer.clipped && matches!(layer.content, LayerContent::Adjustment(_)) {
         let base = layers.get(..k)?.iter().rev().find(|l| !l.clipped)?;
         if matches!(base.content, LayerContent::Adjustment(_)) {
             return None;
+        }
+        if let Some((outer, g)) = outer
+            && let Some(group) = outer.get(g)
+            && group.blend == BlendMode::PassThrough
+            && !group.clipped
+            && outer.get(g + 1).is_some_and(|above| above.clipped)
+        {
+            // The group bounds its base too.
+            return change_bounds(group, canvas);
         }
         return change_bounds(base, canvas);
     }
