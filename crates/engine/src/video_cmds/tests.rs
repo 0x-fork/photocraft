@@ -151,6 +151,39 @@ fn a_fully_transparent_animated_gif_frame_encodes() {
     assert!(f.indices.iter().all(|&i| Some(i) == f.transparent));
 }
 
+/// The GIF frame delays (centiseconds, from each Graphic Control Extension) of a Render Video.
+fn rendered_gif_delays(s: &Session) -> Vec<u16> {
+    let mut gif = Vec::new();
+    render_video_with(
+        s,
+        &json!({"format": "gif"}),
+        |_, bytes| {
+            gif = bytes.to_vec();
+            Ok(())
+        },
+        |_, _| true,
+    )
+    .unwrap();
+    gif.windows(6).filter(|w| w[..3] == [0x21, 0xF9, 0x04]).map(|w| u16::from_le_bytes([w[4], w[5]])).collect()
+}
+
+#[test]
+fn animated_gif_delay_follows_timelines_under_one_fps() {
+    // 0.5 fps is a valid timeline rate; its frames last 2 s, not the 1 s a 1 fps floor gave.
+    let mut s = session();
+    s.execute("timeline.create", json!({"duration": 2, "fps": 0.5})).unwrap();
+    assert_eq!(rendered_gif_delays(&s), [200, 200]);
+    // A loaded timeline with an unusable rate falls back to 30 fps (3 cs), as with no timeline.
+    let mut doc = (*s.active().unwrap().doc).clone();
+    doc.timeline = Some(Timeline::new(2, f32::NAN));
+    {
+        let st = s.active_mut().unwrap();
+        st.doc = std::sync::Arc::new(doc);
+        st.revision += 1;
+    }
+    assert_eq!(rendered_gif_delays(&s), [3, 3]);
+}
+
 #[test]
 fn inspect_reports_video_layer() {
     let dir = tmpdir("vinsp");
@@ -497,4 +530,26 @@ fn grow_duration_never_shrinks_and_keeps_the_work_area_valid() {
     t.work_end = 6;
     grow_duration(&mut t, 12);
     assert_eq!((t.work_start, t.work_end, t.duration), (0, 6, 12));
+}
+
+#[test]
+fn render_video_rejects_a_loaded_timeline_past_the_frame_cap() {
+    let mut s = session();
+    let mut doc = (*s.active().unwrap().doc).clone();
+    doc.timeline = Some(Timeline::new(usize::MAX, 30.0));
+    {
+        let st = s.active_mut().unwrap();
+        st.doc = std::sync::Arc::new(doc);
+        st.revision += 1;
+    }
+    let err = s.execute("file.export.renderVideo", json!({"dir": tmpdir("overlong"), "format": "gif"})).unwrap_err();
+    assert!(err.to_string().contains("limited to"), "{err}");
+}
+
+#[test]
+fn render_video_rejects_gif_frames_too_large_to_stage() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 9000, "height": 8000})).unwrap();
+    let err = s.execute("file.export.renderVideo", json!({"dir": tmpdir("large-gif"), "format": "gif"})).unwrap_err();
+    assert!(err.to_string().contains("too large"), "{err}");
 }

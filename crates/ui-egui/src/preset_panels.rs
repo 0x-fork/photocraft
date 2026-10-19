@@ -334,11 +334,19 @@ const FOOTER_GUESS: f32 = 32.0;
 
 /// Draws the folders and footer; `thumb` paints item `(group, item)` into a rect.
 /// Where a browser sits: the canvas (drop target), its height cap and the New button's tooltip.
+/// `flush` lays the grid out as Photoshop's Swatches panel: the cells touch, square-cornered and
+/// without a border of their own, so no screen is spent on gaps (#5103); gradients, patterns and
+/// the other preset grids keep their [`GRID_GAP`] and card borders.
 pub(crate) struct Place<'a> {
     pub(crate) canvas: Rect,
     pub(crate) max_h: f32,
     pub(crate) new_tip: &'a str,
+    pub(crate) flush: bool,
 }
+
+/// Space between the cells of a preset grid, and the grid's inset from the panel's left edge.
+const GRID_GAP: f32 = 4.0;
+const GRID_INSET: f32 = 8.0;
 
 pub(crate) fn browser(
     ui: &mut egui::Ui,
@@ -349,7 +357,7 @@ pub(crate) fn browser(
     thumb: &mut dyn FnMut(&egui::Ui, Rect, usize, usize),
 ) -> Vec<Ev> {
     let t = Tokens::get(ui.ctx());
-    let Place { canvas, max_h, new_tip } = place;
+    let Place { canvas, max_h, new_tip, flush } = place;
     let mut ev = Vec::new();
     let size = *st.sizes.get(panel).unwrap_or(&40.0);
     let list = size <= MIN_THUMB + 0.5;
@@ -439,15 +447,15 @@ pub(crate) fn browser(
                     continue;
                 }
                 let w = ui.available_width();
+                let pad = if list { 0.0 } else { GRID_INSET };
+                let gap = if list || flush { 0.0 } else { GRID_GAP };
                 let (cell, cols) = if list {
                     (vec2(w, 24.0), 1)
                 } else {
-                    let cols = ((w - 8.0 + 4.0) / (size + 4.0)).floor().max(1.0) as usize;
+                    let cols = ((w - pad + gap) / (size + gap)).floor().max(1.0) as usize;
                     (vec2(size, size), cols)
                 };
                 let rows = g.items.len().div_ceil(cols);
-                let pad = if list { 0.0 } else { 8.0 };
-                let gap = if list { 0.0 } else { 4.0 };
                 let (area, _) = ui.allocate_exact_size(vec2(w, rows as f32 * (cell.y + gap) + 2.0), Sense::hover());
                 for (ii, it) in g.items.iter().enumerate() {
                     let (cx, cy) = ((ii % cols) as f32, (ii / cols) as f32);
@@ -466,14 +474,20 @@ pub(crate) fn browser(
                         ui.painter().text(pos2(tr.right() + 8.0, r.center().y), Align2::LEFT_CENTER, &it.name, FontId::proportional(11.5), t.text);
                     } else {
                         thumb(ui, r, gi, ii);
-                        let (stroke, kind) = if is_sel {
-                            (Stroke::new(2.0, t.accent), egui::StrokeKind::Outside)
+                        // Touching cells draw no border of their own: only the selected and the
+                        // hovered one are outlined, over their neighbours, as in Photoshop.
+                        let stroke = if is_sel {
+                            Some((Stroke::new(2.0, t.accent), egui::StrokeKind::Outside))
                         } else if resp.hovered() {
-                            (Stroke::new(1.0, t.text_dim), egui::StrokeKind::Outside)
+                            Some((Stroke::new(1.0, t.text_dim), egui::StrokeKind::Outside))
+                        } else if flush {
+                            None
                         } else {
-                            (Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside)
+                            Some((Stroke::new(1.0, t.card_border), egui::StrokeKind::Inside))
                         };
-                        ui.painter().rect_stroke(r, CornerRadius::same(2), stroke, kind);
+                        if let Some((stroke, kind)) = stroke {
+                            ui.painter().rect_stroke(r, CornerRadius::same(if flush { 0 } else { 2 }), stroke, kind);
+                        }
                     }
                     let resp = if list { resp } else { resp.on_hover_text(&it.name) };
                     if resp.double_clicked() {
@@ -667,10 +681,11 @@ pub fn gradients_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let canvas = canvas_drop_rect(app);
     let mut st = std::mem::take(&mut app.ui.presets_ui);
     let max_h = (ui.available_height() - 40.0).clamp(90.0, 260.0);
-    let events = browser(ui, &mut st, "gradients", &groups, Place { canvas, max_h, new_tip: tl!("Create new gradient") }, &mut |ui, r, gi, ii| {
-        let stops = groups_src[gi].items[ii].resolve(fg, bg);
-        paint_gradient(ui, r, &stops);
-    });
+    let events =
+        browser(ui, &mut st, "gradients", &groups, Place { canvas, max_h, new_tip: tl!("Create new gradient"), flush: false }, &mut |ui, r, gi, ii| {
+            let stops = groups_src[gi].items[ii].resolve(fg, bg);
+            paint_gradient(ui, r, &stops);
+        });
     app.ui.presets_ui = st;
     for e in events {
         match &e {
@@ -715,11 +730,17 @@ pub fn patterns_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let mut st = std::mem::take(&mut app.ui.presets_ui);
     let max_h = (ui.available_height() - 40.0).clamp(90.0, 280.0);
     let ctx = ui.ctx().clone();
-    let events =
-        browser(ui, &mut st, "patterns", &groups, Place { canvas, max_h, new_tip: tl!("Create new pattern from the selection") }, &mut |ui, r, gi, ii| {
+    let events = browser(
+        ui,
+        &mut st,
+        "patterns",
+        &groups,
+        Place { canvas, max_h, new_tip: tl!("Create new pattern from the selection"), flush: false },
+        &mut |ui, r, gi, ii| {
             let tex = pattern_texture(&ctx, &pats[gi][ii]);
             ui.painter().image(tex.id(), r, Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)), Color32::WHITE);
-        });
+        },
+    );
     app.ui.presets_ui = st;
     for e in events {
         match &e {
@@ -820,7 +841,7 @@ pub fn styles_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         &mut st,
         "styles",
         &groups,
-        Place { canvas, max_h: 300.0, new_tip: tl!("Create new style from the selected layer") },
+        Place { canvas, max_h: 300.0, new_tip: tl!("Create new style from the selected layer"), flush: false },
         &mut |ui, r, gi, ii| {
             ui.painter().rect_filled(r, 2.0, t.field);
             ui.painter().image(texes[gi][ii].id(), r, Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)), Color32::WHITE);
@@ -864,7 +885,7 @@ pub fn shapes_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         &mut st,
         "shapes",
         &groups,
-        Place { canvas, max_h: 300.0, new_tip: tl!("Create new shape from the current path") },
+        Place { canvas, max_h: 300.0, new_tip: tl!("Create new shape from the current path"), flush: false },
         &mut |ui, r, gi, ii| {
             let tex = shape_texture(&ctx, &src[gi].items[ii]);
             ui.painter().image(tex.id(), r.shrink(2.0), Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)), t.text);
@@ -983,7 +1004,7 @@ fn tool_id(t: Tool) -> String {
 pub fn select_tool_preset(app: &mut PhotocraftApp, name: &str) {
     let Some(r) = run(app, "tool.presets.select", json!({"preset": name})) else { return };
     if let Some(tool) = r["tool"].as_str().and_then(Tool::from_name) {
-        app.ui.tool = tool;
+        crate::tool_memory::select(app, tool);
         // Each tool keeps its own brush (#218), so switch it in before the preset's brush lands
         // on it, and re-apply the brush the command just set for the old tool.
         crate::paint_mouse::sync_tool_brush(app);
@@ -1002,6 +1023,15 @@ pub fn select_tool_preset(app: &mut PhotocraftApp, name: &str) {
             app.ui.tool_options = opts;
         }
     }
+}
+
+/// The `tool.presets.new` params for the + button: `tool`'s own options only, so choosing the
+/// preset later leaves the other tools' settings alone.
+fn new_tool_preset_params(app: &PhotocraftApp, tool: Tool) -> Value {
+    let all = serde_json::to_value(&app.ui.tool_options).unwrap_or_default();
+    let own: serde_json::Map<String, Value> =
+        crate::tool_reset::option_keys(tool).iter().filter_map(|k| Some(((*k).to_string(), all.get(*k)?.clone()))).collect();
+    json!({"name": tool.label(), "tool": tool_id(tool), "options": {"toolOptions": own}})
 }
 
 pub fn tool_presets_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
@@ -1072,9 +1102,7 @@ pub fn tool_presets_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 action = Some(("tool.presets.edit".into(), json!({"action": "delete", "preset": n})));
             }
             if crate::icons::button(ui, "plus", 24.0, false, tl!("Create new tool preset")).clicked() {
-                let label = cur.label().to_string();
-                let opts = json!({"toolOptions": serde_json::to_value(&app.ui.tool_options).unwrap_or_default()});
-                action = Some(("tool.presets.new".into(), json!({"name": label, "tool": tool_id(cur), "options": opts})));
+                action = Some(("tool.presets.new".into(), new_tool_preset_params(app, cur)));
             }
         });
     });
@@ -1241,6 +1269,7 @@ pub fn clone_sample_point(app: &PhotocraftApp, at: Option<[f64; 2]>) -> Option<[
 mod tests {
     use super::*;
     use crate::menus::invoke;
+    use crate::state::ToolOptions;
 
     fn app() -> (PhotocraftApp, egui::Context) {
         let ctx = egui::Context::default();
@@ -1288,6 +1317,28 @@ mod tests {
         assert_eq!(tool_id(Tool::CloneStamp), "cloneStamp");
         assert_eq!(tool_id(Tool::PatternStamp), "patternStamp");
         assert_eq!(Tool::from_name(&tool_id(Tool::CustomShape)), Some(Tool::CustomShape));
+    }
+
+    /// #7356: a preset made with + keeps only its own tool's options, so choosing it doesn't
+    /// reset the Crop tool's Delete Cropped Pixels or the Move tool's Auto-Select.
+    #[test]
+    fn new_tool_preset_stores_only_its_tools_options() {
+        let (mut app, _) = app();
+        app.ui.tool = Tool::RectMarquee;
+        app.ui.tool_options.feather = 5.0;
+        let p = new_tool_preset_params(&app, Tool::RectMarquee);
+        let r = app.run("tool.presets.new", p).unwrap();
+        let name = r["name"].as_str().unwrap().to_string();
+        let stored = &app.session.presets.tool_presets.iter().find(|t| t.name == name).unwrap().options["toolOptions"];
+        assert_eq!(stored["feather"], json!(5.0));
+        assert!(stored.as_object().unwrap().keys().all(|k| !k.starts_with("crop_") && !k.starts_with("move_")), "{stored}");
+        app.ui.tool_options.feather = 0.0;
+        app.ui.tool_options.crop_delete = !ToolOptions::default().crop_delete;
+        app.ui.tool_options.move_auto_select = !ToolOptions::default().move_auto_select;
+        select_tool_preset(&mut app, &name);
+        assert_eq!(app.ui.tool_options.feather, 5.0);
+        assert_eq!(app.ui.tool_options.crop_delete, !ToolOptions::default().crop_delete);
+        assert_eq!(app.ui.tool_options.move_auto_select, !ToolOptions::default().move_auto_select);
     }
 
     #[test]
