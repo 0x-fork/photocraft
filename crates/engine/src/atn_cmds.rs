@@ -740,8 +740,13 @@ fn selective_to(p: &Value) -> Option<Descriptor> {
         let row = rows.get_mut(i)?;
         let mut v = row.unwrap_or([0.0; 4]);
         for (slot, key) in v.iter_mut().zip(["cyan", "magenta", "yellow", "black"]) {
-            if let Some(n) = jnum(p, key) {
-                *slot = n;
+            // A channel that is given but is not a number is an error in the command
+            // (`adjust_cmds::selective_from_params`), so a step carrying one cannot be written
+            // either: ignoring it would export a different adjustment than the one recorded.
+            // `null` counts as absent there, and so here.
+            match p.get(key) {
+                None | Some(Value::Null) => {}
+                Some(_) => *slot = jnum(p, key)?,
             }
         }
         *row = Some(v);

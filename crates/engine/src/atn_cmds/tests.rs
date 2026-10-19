@@ -197,6 +197,17 @@ fn a_selective_color_step_in_the_scalar_form_keeps_its_values() {
     // The array form is unchanged.
     let array = back(json!({"method": "relative", "yellows": [0, 0, -15, 5]}));
     assert_eq!(range(&array, "yellows"), [0.0, 0.0, -15.0, 5.0], "{array}");
+
+    // A channel the command would refuse is not quietly dropped: the step is refused too, since
+    // writing it would export an adjustment that is not the one recorded. `null` is absent, as
+    // the command reads it.
+    let mut s = Session::new();
+    s.actions.list.push(Action::new("A", vec![("image.adjustments.selectiveColor".into(), json!({"colors": "reds", "cyan": "35"}))]));
+    let e = s.execute("actions.save", json!({"action": "A"})).unwrap_err().to_string();
+    assert!(e.contains("image.adjustments.selectiveColor"), "{e}");
+
+    let nulled = back(json!({"colors": "reds", "cyan": 35, "magenta": null}));
+    assert_eq!(range(&nulled, "reds"), [35.0, 0.0, 0.0, 0.0], "{nulled}");
 }
 
 #[test]
