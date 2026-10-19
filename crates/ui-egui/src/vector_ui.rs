@@ -506,7 +506,7 @@ fn commit_path(app: &mut PhotocraftApp, pen: &PenPath, closed: bool) {
         // subpath, even with nothing selected in the Paths panel.
         let exists = |n: &String| app.session.active().is_some_and(|st| path_exists(&st.doc, n));
         let resumed_from = pen.resumes.as_ref().filter(|r| app.session.active().is_some_and(|st| st.doc.id.0 == r.doc)).map(|r| r.path.clone());
-        let target = app.ui.selected_path.clone().filter(exists).or_else(|| resumed_from.filter(exists));
+        let target = resumed_from.filter(exists).or_else(|| app.ui.selected_path.clone().filter(exists));
         let name = target.clone().unwrap_or_else(|| "work".into());
         let mut params = json!({"name": name, "path": path});
         if target.is_some() {

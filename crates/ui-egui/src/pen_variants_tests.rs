@@ -238,6 +238,17 @@ fn a_resumed_subpath_keeps_its_operation_and_a_stale_draft_adds_a_new_one() {
     app.run("path.set", json!({"name": "work", "path": {"subpaths": [open(120.0, 160.0, "combine")]}})).unwrap();
     crate::vector_ui::pen_commit(&mut app, false);
     assert_eq!(work_path(&app).subpaths.len(), 2, "added, not replacing the Work Path");
+    // And with another path selected: the draft still goes back to the path it came from.
+    app.run("path.set", json!({"name": "Other", "path": {"subpaths": [open(10.0, 30.0, "combine")]}})).unwrap();
+    click(&mut app, 160.0, 20.0);
+    click(&mut app, 160.0, 90.0);
+    app.ui.selected_path = Some("Other".into());
+    app.run("path.set", json!({"name": "work", "path": {"subpaths": [open(120.0, 150.0, "combine")]}})).unwrap();
+    crate::vector_ui::pen_commit(&mut app, false);
+    assert_eq!(work_path(&app).subpaths.len(), 2, "joined the Work Path it came from");
+    let st = app.session.active().unwrap();
+    let other = st.doc.paths.iter().find(|p| p.name == "Other").unwrap();
+    assert_eq!(other.path.subpaths.len(), 1, "the selected path is untouched");
 }
 
 /// #6593 review: undoing points in a resumed draft never removes the path's own anchors; past the
