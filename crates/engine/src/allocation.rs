@@ -66,11 +66,14 @@ pub(crate) fn fail_after_for_test(skip: usize) {
 }
 
 /// Whether a test failpoint trips here: the single-shot flag, or the counted flag
-/// once its `skip` attempts have passed cleanly earlier.
+/// once its `skip` attempts have passed cleanly earlier. The shot does not advance the
+/// counted flag: a one-shot failure is not itself a clean attempt.
 #[cfg(test)]
 fn failpoint_hits() -> bool {
-    let one_shot = FAIL_NEXT.with(|flag| flag.replace(false));
-    let after = FAIL_AFTER.with(|flag| match flag.get() {
+    if FAIL_NEXT.with(|flag| flag.replace(false)) {
+        return true;
+    }
+    FAIL_AFTER.with(|flag| match flag.get() {
         Some(0) => {
             flag.set(None);
             true
@@ -80,8 +83,7 @@ fn failpoint_hits() -> bool {
             false
         }
         None => false,
-    });
-    one_shot || after
+    })
 }
 
 #[cfg(test)]
@@ -103,5 +105,18 @@ mod tests {
         assert!(filled::<u8>(4, 0, "three").is_err_and(|e| e.to_string().contains("not enough memory for three")));
         // The flag is consumed by the trip: later attempts are clean again.
         assert!(filled::<u8>(4, 0, "four").is_ok());
+    }
+
+    #[test]
+    fn the_one_shot_does_not_spend_the_counted_failpoint() {
+        // One-shot and counted flags both armed: the shot trips the first attempt, and that
+        // failure is not a clean attempt, so the counter still has one to go past (review note
+        // on #7353). Afterwards the counted attempt trips as usual.
+        fail_after_for_test(1);
+        fail_next_for_test();
+        assert!(filled::<u8>(4, 0, "shot").is_err_and(|e| e.to_string().contains("not enough memory for shot")));
+        assert!(filled::<u8>(4, 0, "skipped").is_ok(), "the counted attempt has not run out of clean attempts");
+        assert!(filled::<u8>(4, 0, "counted").is_err_and(|e| e.to_string().contains("not enough memory for counted")));
+        assert!(filled::<u8>(4, 0, "done").is_ok());
     }
 }
