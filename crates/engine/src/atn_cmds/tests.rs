@@ -1315,9 +1315,10 @@ fn options_the_descriptors_cannot_carry_refuse_strict_export() {
         ("filter.noise.addNoise", json!({"amount": 30, "seed": 4294967295_u64})),
     ];
     for (id, p) in refused {
-        assert!(export("Audit7", &[&one(id, p.clone())], &[], false).is_err(), "{id} {p}");
+        let err = export("Audit7", &[&one(id, p.clone())], &[], false).unwrap_err();
+        assert!(err.contains(&format!("`{id}`")), "{id} {p}: the error names the step: {err}");
         let (_, skipped) = export("Audit7", &[&one(id, p.clone())], &[], true).unwrap();
-        assert_eq!(skipped.len(), 1, "{id} {p}");
+        assert_eq!(skipped, vec![Skipped { action: "Probe".into(), step: 0, id: id.into() }], "{id} {p}");
     }
     let carried = [
         ("layer.groupLayers", json!({"name": "Group"})),
