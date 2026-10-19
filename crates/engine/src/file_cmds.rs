@@ -558,6 +558,16 @@ pub(crate) fn tag_exr_colorspace(s: &Session, name: &str, doc: &mut Document) {
     }
 }
 
+/// Edit › Preferences › Raw Defaults › Resolution: the ppi a raw developed on open gets, as
+/// Camera Raw's workflow options set it (the raw itself states none). `warnings` are the
+/// import's notes, which say whether the raw was developed or only its preview opened.
+pub fn raw_defaults(s: &Session, warnings: &[String], doc: &mut Document) {
+    let ppi = s.prefs().raw_defaults.resolution;
+    if ppi.is_finite() && warnings.iter().any(|w| w.contains(photocraft_io::raw::DEVELOPED_NOTE)) {
+        doc.resolution_dpi = ppi.clamp(1.0, 10_000.0) as f32;
+    }
+}
+
 pub fn open_bytes_as(s: &mut Session, name: &str, bytes: &[u8], as_ext: Option<&str>, path: Option<String>) -> Result<Value> {
     crate::allocation::checkpoint("importing document")?;
     let decode_name = match as_ext {
@@ -567,6 +577,7 @@ pub fn open_bytes_as(s: &mut Session, name: &str, bytes: &[u8], as_ext: Option<&
     let r = photocraft_io::import(&decode_name, bytes).map_err(|e| EngineError::Other(format!("{decode_name}: {e}")))?;
     let mut doc = r.document;
     tag_exr_colorspace(s, &decode_name, &mut doc);
+    raw_defaults(s, &r.warnings, &mut doc);
     let path = match template_name(s, name) {
         Some(untitled) => {
             doc.name = untitled;

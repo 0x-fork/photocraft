@@ -537,6 +537,7 @@ impl Session {
             move |s, mut r: photocraft_io::ImportResult| {
                 // File Handling's ACEScg option, before the colour prompt looks at the profile.
                 crate::file_cmds::tag_exr_colorspace(s, &name_a, &mut r.document);
+                crate::file_cmds::raw_defaults(s, &r.warnings, &mut r.document);
                 // Ask When Opening: held back until the prompt is answered (`take_held_open`). A
                 // developed raw has no embedded profile to ask about.
                 let raw = r.warnings.iter().any(|w| w.contains(photocraft_io::raw::DEVELOPED_NOTE));
