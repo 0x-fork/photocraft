@@ -462,6 +462,7 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) -> Option<bool> {
     outcome
 }
 
+/// The Color Picker's colour field and component slider, editing the colour in f.
 fn color_field(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     let t = Tokens::get(ui.ctx());
     let mode = f.get("__mode").and_then(Value::as_str).unwrap_or("h").to_string();
@@ -1023,6 +1024,7 @@ mod tests {
         assert_eq!(color(&h), "#123456");
     }
 
+    /// Only Web Colors snaps hex, field and component edits to web-safe colours.
     #[test]
     fn web_only_snaps_hex_field_and_component_edits() {
         let mut f = Map::new();
@@ -1107,6 +1109,7 @@ mod tests {
         }
     }
 
+    /// Hex parsing refuses text whose bytes split a character instead of panicking.
     #[test]
     fn parse_hex_rejects_multibyte_text() {
         // Six bytes, three characters: the byte range 0..2 splits "é", which used to panic.
@@ -1114,8 +1117,10 @@ mod tests {
         assert_eq!(parse_hex("#ff880"), None);
     }
 
+    /// The shared HSB conversions give bit-identical output to the picker's old copies.
     #[test]
     fn shared_hsb_output_matches_the_old_picker_conversions() {
+        /// The picker's HSB to sRGB before it used photocraft-color.
         fn old_hsv_to_rgb(h: f32, s: f32, v: f32) -> [f32; 3] {
             let h = (h.rem_euclid(360.0)) / 60.0;
             let c = v * s;
@@ -1131,6 +1136,7 @@ mod tests {
             let m = v - c;
             [r + m, g + m, b + m]
         }
+        /// The picker's sRGB to HSB before it used photocraft-color.
         fn old_rgb_to_hsv(c: [f32; 3]) -> [f32; 3] {
             let (mx, mn) = (c[0].max(c[1]).max(c[2]), c[0].min(c[1]).min(c[2]));
             let d = mx - mn;
@@ -1163,6 +1169,7 @@ mod tests {
         }
     }
 
+    /// HSB and hex round-trip sRGB colours.
     #[test]
     fn hsv_round_trips() {
         for c in [[1.0, 0.0, 0.0], [0.2, 0.6, 0.4], [0.5, 0.5, 0.5], [0.0, 0.0, 1.0], [0.9, 0.8, 0.1]] {
@@ -1176,6 +1183,7 @@ mod tests {
         assert_eq!(parse_hex("#FF8000").map(hex).as_deref(), Some("#ff8000"));
     }
 
+    /// Locating a colour on the field and reading the field back agree in every mode.
     #[test]
     fn field_and_locate_are_inverse_in_every_mode() {
         let rgb = [0.8, 0.3, 0.2];

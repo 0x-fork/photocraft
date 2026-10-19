@@ -3955,6 +3955,7 @@ fn srgb_hsva(c: [f32; 4]) -> egui::ecolor::Hsva {
     egui::ecolor::Hsva::new(h / 360.0, s, v, 1.0)
 }
 
+/// The inverse of srgb_hsva: the Color panel's HSB back to sRGB-encoded values.
 fn hsva_srgb(h: egui::ecolor::Hsva) -> [f32; 4] {
     let [r, g, b] = photocraft_color::convert::hsb_to_rgb([h.h * 360.0, h.s.clamp(0.0, 1.0), h.v.clamp(0.0, 1.0)]);
     [r, g, b, 1.0]

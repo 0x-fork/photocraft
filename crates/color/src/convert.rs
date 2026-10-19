@@ -213,6 +213,7 @@ pub fn rgb_to_gray(rgb: [f32; 3]) -> f32 {
     0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]
 }
 
+/// HSB of an sRGB colour with the hue in sextants (0..6) instead of degrees, and hue 0 for greys.
 pub fn rgb_to_hsb_sextant(rgb: [f32; 3]) -> [f32; 3] {
     let (mx, mn) = (rgb[0].max(rgb[1]).max(rgb[2]), rgb[0].min(rgb[1]).min(rgb[2]));
     let d = mx - mn;
@@ -228,6 +229,7 @@ pub fn rgb_to_hsb_sextant(rgb: [f32; 3]) -> [f32; 3] {
     [h, if mx > 0.0 { d / mx } else { 0.0 }, mx]
 }
 
+/// The sRGB colour at a hue sextant (0..6) with the given chroma, raised by offset on every channel.
 pub fn rgb_from_hue_sextant(sextant: f32, chroma: f32, offset: f32) -> [f32; 3] {
     let x = chroma * (1.0 - (sextant.rem_euclid(2.0) - 1.0).abs());
     let (r, g, b) = match sextant as u32 {
@@ -241,11 +243,13 @@ pub fn rgb_from_hue_sextant(sextant: f32, chroma: f32, offset: f32) -> [f32; 3] 
     [r + offset, g + offset, b + offset]
 }
 
+/// HSB to sRGB, the hue in degrees (wrapping) and saturation and brightness in 0..1, as Photoshop's HSB.
 pub fn hsb_to_rgb([h, s, v]: [f32; 3]) -> [f32; 3] {
     let chroma = v * s;
     rgb_from_hue_sextant(h.rem_euclid(360.0) / 60.0, chroma, v - chroma)
 }
 
+/// sRGB to HSB, the hue in degrees 0..360 and saturation and brightness in 0..1.
 pub fn rgb_to_hsb(rgb: [f32; 3]) -> [f32; 3] {
     let [h, s, v] = rgb_to_hsb_sextant(rgb);
     [60.0 * h, s, v]
@@ -332,6 +336,7 @@ mod tests {
         });
     }
 
+    /// Lab round-trips sRGB and puts white at L 100 and black at L 0.
     #[test]
     fn lab_roundtrip_and_anchors() {
         let white = srgb_to_lab([1.0, 1.0, 1.0]);
@@ -346,6 +351,7 @@ mod tests {
         }
     }
 
+    /// HSB hits the primary and grey anchors and round-trips sRGB.
     #[test]
     fn hsb_conversions_match_known_colours_and_round_trip() {
         assert_eq!(hsb_to_rgb([120.0, 1.0, 1.0]), [0.0, 1.0, 0.0]);
