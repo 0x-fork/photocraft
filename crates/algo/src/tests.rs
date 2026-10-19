@@ -91,6 +91,27 @@ fn radial_blur_quality_defaults_for_older_serialized_parameters() {
 }
 
 #[test]
+fn nonpositive_tile_sizes_match_one_pixel_tiles() {
+    let area = Rect::new(0, 0, 4, 3);
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        let source = pattern(depth, area);
+        for params in all_filters().into_iter().chain([FilterParams::ShapeBlur { radius: 3.0, shape: BlurShape::Star }]) {
+            let expected = apply_tiled(&source, &params, area, area, None, 1, Some(area));
+            for tile in [0, -64, i32::MIN] {
+                let actual = apply_tiled(&source, &params, area, area, None, tile, Some(area));
+                assert_eq!(actual.read_region(area), expected.read_region(area), "{}: {depth:?}, tile={tile}", params.label());
+                let cancellable = apply_tiled_with(&source, &params, area, area, None, tile, Some(area), &photocraft_raster::Interrupt::NONE)
+                    .expect("a nonpositive tile size is normalized, not rejected");
+                assert_eq!(cancellable.read_region(area), expected.read_region(area), "{}: {depth:?}, tile={tile}", params.label());
+                let cancelled = photocraft_raster::Interrupt::cancel_only(&|| true);
+                assert!(apply_tiled_with(&source, &params, area, area, None, tile, Some(area), &cancelled).is_none());
+            }
+        }
+        assert_eq!(source.read_region(area), pattern(depth, area).read_region(area));
+    }
+}
+
+#[test]
 fn every_filter_is_tile_independent() {
     let s = pattern(SampleType::U8, R);
     for p in all_filters() {
@@ -414,6 +435,24 @@ fn twirl_keeps_centre_and_outside() {
     assert_ne!(out.pixel(20, 12), s.pixel(20, 12));
 }
 
+/// #5643: on a wide image Twirl, Pinch and Spherize fill the ellipse inscribed in the bounds, as
+/// Photoshop's do, not just a circle fitted to the height: a point near the left and right edges
+/// on the middle row changes, the corners don't, and a square still uses its inscribed circle.
+#[test]
+fn round_distortions_fill_the_inscribed_ellipse() {
+    let b = Rect::new(0, 0, 80, 40);
+    let s = pattern(SampleType::F32, b);
+    for p in [FilterParams::Twirl { angle: 180.0 }, FilterParams::Pinch { amount: 80.0 }, FilterParams::Spherize { amount: 80.0, mode: SpherizeMode::Normal }] {
+        let out = apply(&s, &p, b, b, None);
+        // 30 px left of centre on the middle row: outside the old 20 px circle, inside the ellipse.
+        assert_ne!(out.pixel(10, 21), s.pixel(10, 21), "{p:?}");
+        assert_ne!(out.pixel(69, 18), s.pixel(69, 18), "{p:?}");
+        for (x, y) in [(0, 0), (79, 0), (0, 39), (79, 39)] {
+            assert_eq!(out.pixel(x, y), s.pixel(x, y), "{p:?}: corner ({x}, {y}) is outside the ellipse");
+        }
+    }
+}
+
 #[test]
 fn motion_blur_spreads_along_angle_only() {
     let mut s = flat(SampleType::F32, R, [0.0, 0.0, 0.0, 1.0]);
@@ -446,6 +485,10 @@ fn halos_and_output_area() {
     assert_eq!(output_area(&FilterParams::Twirl { angle: 1.0 }, content, R, None), R);
     assert_eq!(output_area(&FilterParams::BoxBlur { radius: 1.0 }, content, R, Some(Rect::new(0, 0, 12, 12))), Rect::new(8, 8, 12, 12));
     assert!(output_area(&FilterParams::Invert, Rect::EMPTY, R, None).is_empty());
+    // Fibers renders without reading the layer: an empty layer still fills the bounds (#5241).
+    let fibers = FilterParams::Fibers { variance: 16.0, strength: 4.0, seed: 0, foreground: [0.0; 4], background: [1.0; 4] };
+    assert_eq!(output_area(&fibers, Rect::EMPTY, R, None), R);
+    assert_eq!(output_area(&fibers, content, R, Some(Rect::new(0, 0, 12, 12))), Rect::new(0, 0, 12, 12));
 }
 
 #[test]

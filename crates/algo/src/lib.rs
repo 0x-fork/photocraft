@@ -32,6 +32,7 @@ mod distort;
 mod distort2;
 pub mod erase;
 pub mod exif;
+pub mod faces;
 pub mod features;
 mod fxutil;
 mod gallery;
@@ -481,7 +482,8 @@ pub enum FilterParams {
         distribution: Distribution,
         monochromatic: bool,
         seed: u32,
-        /// Depth for [`DepthSource::LayerMask`] (channel 0, document coordinates), supplied by the caller.
+        /// Depth for [`DepthSource::LayerMask`] and [`DepthSource::Channel`] (channel 0, document
+        /// coordinates), supplied by the caller.
         #[serde(skip)]
         depth_map: Option<std::sync::Arc<Image>>,
     },
@@ -598,6 +600,13 @@ impl FilterParams {
     /// output area is the bounds, not the layer's content grown by the halo).
     pub fn is_global(&self) -> bool {
         self.halo() == Halo::Bounds
+    }
+
+    /// Whether the filter renders new pixels without reading the layer's own (Fibers): it fills
+    /// the reference bounds even where the layer is transparent, as Photoshop's does on an
+    /// empty layer, while still reading no neighbourhood.
+    pub fn renders_from_nothing(&self) -> bool {
+        matches!(self, FilterParams::Fibers { .. })
     }
 
     /// Human-readable name.
@@ -905,12 +914,13 @@ pub fn kernel(params: &FilterParams, src: &Image, out: Rect, ctx: &Ctx) -> Vec<f
 pub const TILE: i32 = 256;
 
 /// The area a filter writes for a layer whose pixels cover `content`:
-/// global filters write the reference bounds; others the content grown by
-/// the halo (blurs spread into transparent areas). Clipped to the
-/// selection's bounds when there is one.
+/// global filters and renders that ignore the layer's pixels (Fibers) write the reference
+/// bounds; others the content grown by the halo (blurs spread into transparent areas).
+/// Clipped to the selection's bounds when there is one.
 pub fn output_area(params: &FilterParams, content: Rect, bounds: Rect, selection_bounds: Option<Rect>) -> Rect {
     let mut area = match params.halo_for(bounds) {
         Halo::Bounds => bounds,
+        Halo::Radius(_) if params.renders_from_nothing() => bounds,
         Halo::Radius(r) => {
             if content.is_empty() {
                 Rect::EMPTY
@@ -963,6 +973,7 @@ fn auto_tile(params: &FilterParams, bounds: Rect) -> i32 {
 }
 
 /// [`apply`] / [`apply_in`] with an explicit tile size (tests use it to check tile independence).
+/// Nonpositive tile sizes are treated as one pixel.
 pub fn apply_tiled(
     surface: &Surface,
     params: &FilterParams,
@@ -1005,6 +1016,8 @@ fn apply_tiled_with_impl(
     ctl: &photocraft_raster::Interrupt,
     prepare_fast_paths: bool,
 ) -> Option<Surface> {
+    // Every dispatch path needs a positive step, including Motion Blur's fallback.
+    let tile = tile.max(1);
     if ctl.cancelled() {
         return None;
     }
