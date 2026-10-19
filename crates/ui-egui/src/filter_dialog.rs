@@ -1033,7 +1033,7 @@ pub(crate) fn ask_displace_map(app: &mut PhotocraftApp, command: String, fields:
         let result = app.run(&cmd, params);
         if result.is_ok() {
             remember(app, &cmd, &fields);
-            crate::actions::resume(app, &fields);
+            let _ = crate::actions::resume(app, &fields);
         }
         result
     })
