@@ -1039,7 +1039,6 @@ pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
     "plugIns.generatorEnabled",
     "type.textEngine",
     "enhancedControls.scrubbySliderAcceleration",
-    "enhancedControls.touchGestures",
     "rawDefaults.colorSpace",
     "rawDefaults.bitDepth",
     "rawDefaults.resolution",

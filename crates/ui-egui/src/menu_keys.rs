@@ -218,7 +218,12 @@ impl Keys {
                     self.alt_down = false;
                     tap |= std::mem::take(&mut self.alt_tap);
                 }
-                Event::Key { pressed: true, .. } | Event::Text(_) | Event::PointerButton { pressed: true, .. } => self.alt_tap = false,
+                // Alt+wheel (zoom, brush size…) or Alt going to the desktop is no tap either.
+                Event::Key { pressed: true, .. }
+                | Event::Text(_)
+                | Event::PointerButton { pressed: true, .. }
+                | Event::MouseWheel { .. }
+                | Event::WindowFocused(false) => self.alt_tap = false,
                 _ => {}
             }
         }
@@ -252,8 +257,10 @@ impl Keys {
             return;
         }
         if open {
-            // A letter runs the row with that mnemonic in the level the arrows are in.
-            let letter = events.iter().find_map(|e| match e {
+            // A letter runs the row with that mnemonic in the level the arrows are in, unless it is
+            // typed into a field in the menu: Help › Search took "S" for System Info (#5996).
+            let typing = ctx.text_edit_focused();
+            let letter = events.iter().filter(|_| !typing).find_map(|e| match e {
                 Event::Key { key, pressed: true, modifiers, .. } if !modifiers.command && !modifiers.ctrl && !modifiers.alt => {
                     key_char(*key).map(|c| (*key, c))
                 }

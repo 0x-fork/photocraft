@@ -743,6 +743,7 @@
 	Brush Settings	브러시 설정
 	Brushes	브러시
 	Channels	채널
+	Channel	채널
 	Character	문자
 	Character Styles	문자 스타일
 	Clone Source	복제 원본
@@ -1210,6 +1211,7 @@
 	Levels	레벨
 	Lighten	밝게 하기
 	Lightness	명도
+	Result	결과
 	Lights	밝은 계열
 	Limits:	제한:
 	Linear Gradient	선형 그레이디언트
