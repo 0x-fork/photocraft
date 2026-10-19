@@ -750,11 +750,18 @@ pub fn commit(app: &mut PhotocraftApp) -> Result<Value, String> {
         return Err(msg.into());
     }
     let params = s.params();
-    app.distort.vanishing = None;
+    let session = app.distort.vanishing.take();
     if params.get("paste").is_none() && params.get("clone").is_none() {
         return Ok(json!({"committed": false}));
     }
-    app.run(VP, params).map(|r| json!({"committed": true, "result": r}))
+    match app.run(VP, params) {
+        Ok(r) => Ok(json!({"committed": true, "result": r})),
+        Err(e) => {
+            // Keep the planes, source and strokes so the user can fix the cause and retry.
+            app.distort.vanishing = session;
+            Err(e)
+        }
+    }
 }
 
 /// Control channel: `filter.vanishingPoint {"ui": {...}}` while the mode is active.
