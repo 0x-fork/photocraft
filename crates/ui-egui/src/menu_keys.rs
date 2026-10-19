@@ -210,6 +210,10 @@ impl Keys {
         let mut tap = false;
         for e in &events {
             match e {
+                // A held Alt auto-repeats (after about half a second on Windows): only its first
+                // press starts a tap. A repeat must neither re-arm a tap that Alt+wheel or a key
+                // already spent, nor spend one itself (holding Alt alone is still a tap).
+                Event::Key { key: Key::AltLeft | Key::AltRight, pressed: true, repeat: true, .. } => self.alt_down = true,
                 Event::Key { key: Key::AltLeft | Key::AltRight, pressed: true, .. } => {
                     self.alt_down = true;
                     self.alt_tap = true;
