@@ -2111,6 +2111,7 @@ fn navigator_zoom_to(view: &mut crate::state::View, doc_rect: Rect, doc: [u32; 2
     view.zoom = crate::zoom_levels::clamp(zoom, view.doc_size);
     view.center = [r.center().x, r.center().y];
     view.fit_pending = false;
+    view.request_zoom_animation(false);
 }
 
 fn navigator_preview_id() -> egui::Id {
@@ -2246,6 +2247,13 @@ mod navigator_wheel_tests {
         assert_eq!(app.ui.views[0].zoom, 1.0);
         let c = app.ui.views[0].center;
         assert!((c[0] - 100.0).abs() < 1.0 && (c[1] - 50.0).abs() < 1.0, "the view follows the pointer: {c:?}");
+        // Finishing direct navigation during an existing zoom must snap to the new target.
+        let v = &mut app.ui.views[0];
+        v.zoom = 2.0;
+        v.request_zoom_animation(true);
+        v.display_camera = Some((1.5, c));
+        v.zoom_transition = Some(crate::state::ZoomTransition { from: (1.0, c), target: (v.zoom, c), started: 0.0 });
+        v.zoom_anchor = Some(([50.0, 25.0], [200.0, 150.0]));
         // ⌘/Ctrl-drag: the rectangle fills the canvas (`last_canvas_rect`, 800 × 600 pt).
         drag(&mut app, &ctx, Modifiers::COMMAND, [50.0, 25.0], [100.0, 50.0]);
         let mut expected = app.ui.views[0].clone();
@@ -2267,6 +2275,8 @@ mod navigator_wheel_tests {
             (expected.zoom, expected.center)
         );
         assert!(v.zoom > 1.0 && !v.fit_pending);
+        assert!(!v.zoom_animating && v.zoom_transition.is_none() && v.zoom_anchor.is_none(), "direct navigation cancels the old transition");
+        assert_eq!(v.display_camera, Some((v.zoom, v.center)), "the selected rectangle is displayed immediately");
         assert!(ctx.data(|d| d.get_temp::<Pos2>(navigator_zoom_drag_id())).is_none(), "the drag is over");
     }
 
