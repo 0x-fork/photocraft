@@ -1287,7 +1287,10 @@ fn transform_selection_keeps_its_interpolation_and_refuses_what_it_cannot_carry(
             json!({"warp": "arc"}),
             json!({"corners": [[0, 0], [10, 0], [10, 10], [0, 10]]}),
         ] {
-            assert!(export("Audit7", &[&one(id, p.clone())], &[], false).is_err(), "{id} {p}");
+            let err = export("Audit7", &[&one(id, p.clone())], &[], false).unwrap_err();
+            assert!(err.contains("no Photoshop equivalent") && err.contains(&format!("`{id}`")), "{id} {p}: {err}");
+            let (_, skipped) = export("Audit7", &[&one(id, p.clone())], &[], true).unwrap();
+            assert_eq!(skipped, vec![Skipped { action: "Probe".into(), step: 0, id: id.into() }], "{id} {p}");
         }
         let carried = json!({"scaleX": 140, "reference": "center", "skewX": 0, "skewY": 0});
         assert!(export("Audit7", &[&one(id, carried.clone())], &[], false).is_ok(), "{id} {carried}");
