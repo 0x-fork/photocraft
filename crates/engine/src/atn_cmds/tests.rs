@@ -212,10 +212,14 @@ fn a_setting_the_event_cannot_hold_is_refused() {
     ] {
         let mut s = Session::new();
         s.actions.list.push(Action::new("A", vec![(id.into(), params)]));
+        let before = s.actions.list[0].steps.clone();
         let e = s.execute("actions.save", json!({"action": "A"})).unwrap_err().to_string();
         assert!(e.contains(id), "{id}: {e}");
+        // A refused save leaves the action as it was: the step is still there to be played.
+        assert_eq!(s.actions.list[0].steps, before, "{id}");
         let r = s.execute("actions.save", json!({"action": "A", "skipUnsupported": true})).unwrap();
         assert_eq!(r["skipped"], json!([{"action": "A", "step": 0, "id": id}]), "{id}");
+        assert_eq!(s.actions.list[0].steps, before, "{id}: skipping a step does not drop it");
     }
 }
 
