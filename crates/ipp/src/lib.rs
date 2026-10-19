@@ -113,7 +113,9 @@ impl Endpoint {
 
     /// `server` as a socket path (starts with `/`) or `host[:port]` (port 631 by default). An IPv6
     /// server is `[address]` or `[address]:port`; written bare (more than one `:`) it keeps the
-    /// default port, because its last `:` cannot be told apart from a port separator.
+    /// default port, because its last `:` cannot be told apart from a port separator. Anything else
+    /// after the bracket (`[::1]:abc`) stays the host, so a mistyped endpoint cannot resolve rather
+    /// than quietly becoming the default one.
     pub fn parse(server: &str) -> Endpoint {
         if server.starts_with('/') {
             return Endpoint::Unix(PathBuf::from(server));
@@ -122,7 +124,16 @@ impl Endpoint {
         if let Some(rest) = server.strip_prefix('[')
             && let Some((host, tail)) = rest.split_once(']')
         {
-            let port = tail.strip_prefix(':').and_then(|p| p.parse().ok()).unwrap_or(631);
+            // Nothing after the bracket, or a real `:port`, is understood. Anything else (`[::1]:abc`,
+            // `[::1]:70000`, `[::1]junk`) keeps the whole string as the host, so the mistyped endpoint
+            // stays unresolvable instead of quietly becoming the default one.
+            let port = if tail.is_empty() {
+                631
+            } else if let Some(port) = tail.strip_prefix(':').and_then(|p| p.parse().ok()) {
+                port
+            } else {
+                return Endpoint::Tcp(server.to_string(), 631);
+            };
             return Endpoint::Tcp(host.to_string(), port);
         }
         // A bare IPv6 literal has more than one ':', so splitting on the last one would cut the
@@ -163,9 +174,12 @@ impl Endpoint {
         }
     }
 
+    /// The endpoint as an HTTP authority: an IPv6 host is bracketed, or its last colon reads as the
+    /// port separator and the request carries a host CUPS has never heard of.
     fn host(&self) -> String {
         match self {
             Endpoint::Unix(_) => "localhost".into(),
+            Endpoint::Tcp(host, port) if host.contains(':') => format!("[{host}]:{port}"),
             Endpoint::Tcp(host, port) => format!("{host}:{port}"),
         }
     }
@@ -175,6 +189,7 @@ impl std::fmt::Display for Endpoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Endpoint::Unix(p) => write!(f, "{}", p.display()),
+            Endpoint::Tcp(h, p) if h.contains(':') => write!(f, "[{h}]:{p}"),
             Endpoint::Tcp(h, p) => write!(f, "{h}:{p}"),
         }
     }

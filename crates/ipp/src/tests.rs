@@ -249,6 +249,27 @@ fn an_ipv6_print_server_is_parsed_as_a_host_not_as_host_port() {
     assert_eq!(Endpoint::parse("cups.example:6310"), Endpoint::Tcp("cups.example".into(), 6310));
     assert_eq!(Endpoint::parse("127.0.0.1:6310"), Endpoint::Tcp("127.0.0.1".into(), 6310));
     assert_eq!(Endpoint::parse("/var/run/cups/cups.sock"), Endpoint::Unix("/var/run/cups/cups.sock".into()));
+    // A mistyped bracketed endpoint is not quietly the default one: the whole string stays the host,
+    // so nothing can resolve it and detect() reports the endpoint unreachable.
+    assert_eq!(Endpoint::parse("[::1]:abc"), Endpoint::Tcp("[::1]:abc".into(), 631));
+    assert_eq!(Endpoint::parse("[::1]:70000"), Endpoint::Tcp("[::1]:70000".into(), 631));
+    assert_eq!(Endpoint::parse("[::1]junk"), Endpoint::Tcp("[::1]junk".into(), 631));
+    assert!(!Endpoint::parse("[::1]:abc").reachable());
+}
+
+/// The authority a request carries (the `Host:` header and the `ipp://` printer-uri) has to bracket an
+/// IPv6 host, or its last colon reads as the port separator and CUPS sees a nonsense host.
+#[test]
+fn an_ipv6_endpoint_writes_its_authority_in_brackets() {
+    assert_eq!(Endpoint::parse("::1").host(), "[::1]:631");
+    assert_eq!(Endpoint::parse("[::1]:631").host(), "[::1]:631");
+    assert_eq!(Endpoint::parse("[fe80::1]:6310").host(), "[fe80::1]:6310");
+    assert_eq!(Endpoint::parse("cups.example").host(), "cups.example:631");
+    assert_eq!(Endpoint::parse("cups.example:6310").host(), "cups.example:6310");
+    assert_eq!(Endpoint::parse("127.0.0.1:6310").host(), "127.0.0.1:6310");
+    // What the user is shown is written the same way.
+    assert_eq!(Endpoint::parse("::1").to_string(), "[::1]:631");
+    assert_eq!(Endpoint::parse("cups.example:6310").to_string(), "cups.example:6310");
 }
 
 #[test]
