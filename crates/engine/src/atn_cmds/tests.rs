@@ -1400,13 +1400,17 @@ fn select_rect_mode_strict_export_rejects_unrepresentable_modes() {
 
     // "add" mode cannot be silently converted to replace (set) in strict export
     s.actions.list.push(Action::new("AddAct", vec![("select.rect".into(), json!({"x": 4, "y": 4, "width": 2, "height": 2, "mode": "add"}))]));
+    let before_actions = s.actions.list.clone();
     let err = s.execute("actions.save", json!({"action": "AddAct"}));
     assert!(err.is_err(), "strict export must reject select.rect with add mode rather than converting to replace");
+    assert_eq!(s.actions.list, before_actions, "actions list must remain unchanged after rejected save");
 
     // "subtract" mode cannot be silently converted to replace either
     s.actions.list.push(Action::new("SubtractAct", vec![("select.rect".into(), json!({"x": 4, "y": 4, "width": 2, "height": 2, "mode": "subtract"}))]));
+    let before_actions_sub = s.actions.list.clone();
     let err_subtract = s.execute("actions.save", json!({"action": "SubtractAct"}));
     assert!(err_subtract.is_err(), "strict export must reject select.rect with subtract mode rather than converting to replace");
+    assert_eq!(s.actions.list, before_actions_sub, "actions list must remain unchanged after rejected save");
 
     // With skipUnsupported: true, unrepresentable modes are reported in skipped
     let skipped = s.execute("actions.save", json!({"action": "AddAct", "skipUnsupported": true})).unwrap();
