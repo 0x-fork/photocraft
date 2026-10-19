@@ -536,11 +536,9 @@ const EXACT_ESTIMATE_PX: f64 = 40_000_000.0;
 /// large to encode for an estimate or can't be encoded.
 #[cfg(not(target_arch = "wasm32"))]
 fn exact_estimate(doc: &Document, f: &Map<String, Value>) -> Option<u64> {
-    let scale = n(f, "scale", 100.0) / 100.0;
-    let px = match (f.get("width").and_then(Value::as_f64), f.get("height").and_then(Value::as_f64)) {
-        (Some(w), Some(h)) if w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0 => w * h,
-        _ => doc.size.width as f64 * scale * doc.size.height as f64 * scale,
-    };
+    // The size `export_document` will make: exact pixels only in pixel mode, else the scale.
+    let (w, h) = export_pixels(f64::from(doc.size.width), f64::from(doc.size.height), f, None).ok()?;
+    let px = w * h;
     if !px.is_finite() || px > EXACT_ESTIMATE_PX {
         return None;
     }
@@ -1169,8 +1167,38 @@ mod tests {
         };
         assert_eq!(size, Some(actual));
         // Over the limit there is no exact size; the proxy estimate stays.
-        let huge = Map::from_iter([("format".into(), json!("jpg")), ("width".into(), json!(10_000)), ("height".into(), json!(10_000))]);
+        let huge = Map::from_iter([
+            ("format".into(), json!("jpg")),
+            ("sizing".into(), json!("pixels")),
+            ("width".into(), json!(10_000)),
+            ("height".into(), json!(10_000)),
+        ]);
         assert_eq!(exact_estimate(&doc, &huge), None);
+        // In scale mode the size comes from the scale, as the export's does, not from stale pixels.
+        let big = Arc::new(Document::with_background(
+            "big",
+            photocraft_doc::Size::new(1000, 1000),
+            photocraft_doc::ColorMode::Rgb,
+            photocraft_doc::SampleType::U8,
+            photocraft_doc::Color::WHITE,
+        ));
+        let stale = Map::from_iter([
+            ("format".into(), json!("png")),
+            ("sizing".into(), json!("scale")),
+            ("scale".into(), json!(1000)),
+            ("width".into(), json!(100)),
+            ("height".into(), json!(100)),
+        ]);
+        assert_eq!(exact_estimate(&big, &stale), None, "10000 × 10000 at 1000 %, over the limit");
+        let small = Map::from_iter([
+            ("format".into(), json!("png")),
+            ("sizing".into(), json!("scale")),
+            ("scale".into(), json!(10)),
+            ("width".into(), json!(9000)),
+            ("height".into(), json!(9000)),
+        ]);
+        let at_10 = photocraft_io::export(&export_document(&big, &small, None).unwrap(), "x.png", &settings(&small).io_options()).unwrap().bytes.len() as u64;
+        assert_eq!(exact_estimate(&big, &small), Some(at_10), "100 × 100 at 10 %, within it");
     }
 
     #[test]
