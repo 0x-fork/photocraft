@@ -1779,6 +1779,52 @@ mod tests {
         assert_eq!(label("wavelengthMin"), "Wavelength Min");
     }
 
+    /// #7423 (review on #7799): re-editing a Displace smart filter and picking another open
+    /// document as its map previews with that document, as OK applies it. The preview session held
+    /// only the edited document, and the map's `mapDocument` sits inside the filter's `params`.
+    #[test]
+    fn smart_displace_preview_uses_the_map_document() {
+        let mut s = photocraft_engine::Session::new();
+        // Documents 0 and 1: a white and a black map, opened before the edited one.
+        s.execute("file.new", json!({"width": 8, "height": 8, "background": "white"})).unwrap();
+        s.execute("file.new", json!({"width": 8, "height": 8, "background": "black"})).unwrap();
+        s.execute("file.new", json!({"width": 48, "height": 32, "background": "transparent"})).unwrap();
+        s.edit("square", |doc, active| {
+            let fmt = doc.pixel_format();
+            let surf = doc.layer_mut(active.unwrap()).unwrap().surface_mut().unwrap();
+            surf.fill_rect(photocraft_geom::Rect::new(10, 10, 20, 12), &photocraft_raster::from_rgba(&fmt, [1.0, 0.0, 0.0, 1.0]));
+            Ok(())
+        })
+        .unwrap();
+        s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        s.execute("filter.distort.displace", json!({"horizontal": 10, "vertical": 0, "mapDocument": 0})).unwrap();
+        let doc = s.active().unwrap().doc.clone();
+        let layer = s.active().unwrap().active_layer;
+        let documents: Vec<_> = s.documents().iter().map(|d| d.doc.clone()).collect();
+        for map in [1, 0] {
+            let p = json!({"index": 0, "params": {"mapDocument": map}});
+            let mut applied = photocraft_engine::Session::new();
+            for d in &documents {
+                applied.add_document((**d).clone(), None);
+            }
+            applied.execute(SMART_FILTER_SET_PARAMS, p.clone()).unwrap();
+            let want = photocraft_compose::render(&applied.active().unwrap().doc, doc.bounds()).px;
+            let preview = preview_document_for_target(
+                &doc,
+                layer,
+                SMART_FILTER_SET_PARAMS,
+                &p,
+                1,
+                None,
+                photocraft_engine::channel_cmds::ChannelTarget::Composite,
+                &documents,
+                &ColorSettings::default(),
+            )
+            .unwrap_or_else(|| panic!("map {map}: no preview"));
+            assert!(photocraft_compose::render(&preview, doc.bounds()).px == want, "map {map}: the preview differs from what OK applies");
+        }
+    }
+
     /// Match Color's preview reads the Source document from the open documents, as OK does: the
     /// preview session held only the edited document, so a Source showed no change (#4851).
     #[test]

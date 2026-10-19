@@ -407,4 +407,38 @@ mod tests {
         }
         assert!(embedded_map(&json!({TEMPLATE_KEY: "0".repeat(MAX_TEMPLATE_BYTES * 2 + 2)})).is_none());
     }
+
+    /// #7423: a map from a file or an open document, embedded for a smart filter, is read back as
+    /// the filter's map and written to PSD like an imported one.
+    #[test]
+    fn an_embedded_map_reads_back_and_exports() {
+        let rect = Rect::new(0, 0, 3, 2);
+        // RGBA: red is the horizontal map, green the vertical one.
+        let rgba = Image { rect, ch: 4, data: (0..6).flat_map(|i| [i as f32 / 5.0, 1.0 - i as f32 / 5.0, 0.0, 1.0]).collect() };
+        let params = json!({"horizontal": 20, "vertical": -5, "fit": "tile", "undefinedAreas": "wrap", "mapDocument": 0, "mapLayer": 3});
+        let embedded = embed_map(&params, &rgba).unwrap();
+        for key in ["mapPath", "mapDocument", "mapLayer"] {
+            assert!(embedded.get(key).is_none(), "{key}");
+        }
+        assert_eq!(embedded["horizontal"], json!(20));
+        let map = embedded_map(&embedded).unwrap();
+        assert_eq!((map.rect, map.ch), (rect, 3));
+        let h: Vec<f32> = map.data.chunks(3).map(|p| p[0]).collect();
+        let v: Vec<f32> = map.data.chunks(3).map(|p| p[1]).collect();
+        assert_eq!(h, [0.0, 51.0 / 255.0, 102.0 / 255.0, 153.0 / 255.0, 204.0 / 255.0, 1.0]);
+        assert_eq!(v, [1.0, 204.0 / 255.0, 153.0 / 255.0, 102.0 / 255.0, 51.0 / 255.0, 0.0]);
+        // Written to PSD with the params' own settings.
+        let f = export_item(&embedded).unwrap();
+        let fltr = get_desc(&f, "Fltr").unwrap();
+        assert_eq!(num(fltr.get("HrzS")), Some(20.0));
+        assert_eq!(enum_of(fltr, "DspM"), Some(&b"Tile"[..]));
+        // A grey map displaces the same both ways.
+        let grey = Image { rect, ch: 1, data: vec![0.25; 6] };
+        let map = embedded_map(&embed_map(&json!({}), &grey).unwrap()).unwrap();
+        assert_eq!(map.ch, 1);
+        // Nothing to embed.
+        assert!(embed_map(&json!({}), &Image { rect: Rect::new(0, 0, 0, 0), ch: 4, data: vec![] }).is_none());
+        assert!(embed_map(&json!({}), &Image { rect, ch: 4, data: vec![0.0; 5] }).is_none(), "short data");
+        assert!(embed_map(&json!(3), &grey).is_none(), "params not an object");
+    }
 }
