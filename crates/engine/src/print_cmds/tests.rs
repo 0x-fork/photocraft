@@ -872,6 +872,9 @@ fn a_rejected_printable_area_fails_the_print_and_changes_nothing() {
         assert!(r.is_err(), "{printable}: {r:?}");
     }
     assert!(before == (last_print(&s), s.prefs.get().dialogs.get(REMEMBERED).cloned(), s.active().unwrap().doc.clone()));
+    // A print at a manual scale doesn't read the area, so a stale one doesn't fail it.
+    let r = s.execute("file.print", json!({"paper": "a3", "scale": 50, "printable": [0.0, 0.0, 842.29, 1191.14], "orientation": "landscape", "dryRun": true}));
+    assert!(r.is_ok(), "{r:?}");
     // Marks need room only to fit: a small manual scale in a 60 pt-wide area prints.
     let r = s.execute("file.print", json!({"paper": "a3", "scale": 5, "printable": [0, 0, 60, 1191.14], "cornerCropMarks": true, "dryRun": true}));
     assert!(r.is_ok(), "{r:?}");

@@ -527,14 +527,16 @@ pub fn layout(doc: &Document, p: &Value, cmd: &str) -> Result<PrintLayout> {
     // minus a fixed margin.
     let emulsion_down = p.get("emulsionDown").and_then(Value::as_bool).unwrap_or(false);
     let fit = p.get("scaleToFit").and_then(Value::as_bool).unwrap_or(false);
-    let fit_box = match printable(p, (pw, ph), cmd)? {
+    // Only a fitted print reads the area, so a stale one (a replayed action, another paper) can't
+    // fail a print at a manual scale.
+    let area = if fit { printable(p, (pw, ph), cmd)? } else { None };
+    let fit_box = match area {
         Some((x, y, w, h)) => {
             // Emulsion Down mirrors the page as it prints: fit the mirror of the printable area,
             // so the printed image lands inside the real one.
             let x = if emulsion_down { pw - x - w } else { x };
             let inset = if has_marks { 36.0 } else { 0.0 };
-            // Only Scale to Fit Media needs room for the marks; a manual scale is the user's.
-            if fit && !(w > 2.0 * inset && h > 2.0 * inset) {
+            if !(w > 2.0 * inset && h > 2.0 * inset) {
                 return Err(bad(cmd, "the printable area is too small for crop and registration marks"));
             }
             (x + inset, y + inset, w - 2.0 * inset, h - 2.0 * inset)
@@ -638,7 +640,8 @@ fn with_driver_printable(p: &Value) -> Option<Value> {
 }
 
 fn render_and_spool(doc: &Document, p: &Value, cmd: &str, spooler: Option<&Spooler>) -> Result<Value> {
-    let driver = native_route(p, spooler).then(|| with_driver_printable(p)).flatten();
+    let fit = p.get("scaleToFit").and_then(Value::as_bool).unwrap_or(false);
+    let driver = (fit && native_route(p, spooler)).then(|| with_driver_printable(p)).flatten();
     let p = driver.as_ref().unwrap_or(p);
     let PrintLayout { paper: (pw, ph), rect: (x, y, w, h), scale, marks, emulsion_down } = layout(doc, p, cmd)?;
     let (img, color) = print_image(doc, p, cmd)?;
