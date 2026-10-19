@@ -7,11 +7,13 @@ use photocraft_doc::{Bevel, BevelTechnique, BevelTexture, GlobalLight, Glow, Glo
 use super::{B, In, contour_lut, offset, stage};
 use crate::plan::{Kernel, stroke_widths};
 
+/// A flag as the shaders read it: 1.0 or 0.0.
 fn flag(v: bool) -> f32 {
     f32::from(u8::from(v))
 }
 
 impl B {
+    /// Drop or Inner Shadow stages. Returns the number of maps written.
     pub(super) fn shadow(&mut self, s: &Shadow, light: &GlobalLight, inner: bool) -> usize {
         // shadow_map
         let angle = if s.use_global_light { light.angle } else { s.angle };
@@ -22,6 +24,7 @@ impl B {
         1
     }
 
+    /// `src` spread or choked by `spread` of `size`, then blurred by the rest.
     fn spread_blur(&mut self, src: In, (size, spread): (f32, f32), inner: bool, dx: f32, dy: f32) -> In {
         let (r, bw) = fx::spread_split(size, spread);
         if r <= 0.0 {
@@ -38,6 +41,7 @@ impl B {
         self.blur(m, bw)
     }
 
+    /// Outer or Inner Glow stages, Precise or Softer. Returns the number of maps written.
     pub(super) fn glow(&mut self, g: &Glow, inner: bool) -> usize {
         // glow_map
         let center = inner && g.source == GlowSource::Center;
@@ -58,6 +62,7 @@ impl B {
         1
     }
 
+    /// Satin stages. Returns the number of maps written.
     pub(super) fn satin(&mut self, s: &Satin) -> usize {
         // satin_map
         let (dx, dy) = offset(s.angle, fx::satin_distance(s));
@@ -69,6 +74,7 @@ impl B {
         1
     }
 
+    /// Bevel and Emboss stages: the height map with its contour, texture and soften, then the shading. Returns the number of maps written.
     pub(super) fn bevel(&mut self, bv: &Bevel, light: &GlobalLight, patterns: &[Pattern], anchor: (f64, f64)) -> usize {
         // bevel_maps: a height map, then highlight and shadow shading.
         let g = fx::bevel_geom(bv);
@@ -91,6 +97,7 @@ impl B {
         self.bevel_shading(h, bv, &g, light)
     }
 
+    /// The bevel's height map: a tent blur of the shape for Smooth, distance ramps for the chisel techniques.
     fn bevel_height(&mut self, bv: &Bevel, g: &BevelGeom) -> In {
         if bv.technique == BevelTechnique::Smooth {
             return self.conv(In::Shape, fx::tent_kernel(g.width));
@@ -108,6 +115,7 @@ impl B {
         if soft && g.paint == BevelPaint::Both { self.conv(h, fx::tent_kernel(g.chisel_soft)) } else { h }
     }
 
+    /// `h` with the Texture element's pattern luminance added.
     fn bevel_texture(&mut self, h: In, t: &BevelTexture, pat: &Pattern, unit: f32, anchor: (f64, f64)) -> In {
         // Texture element: adds luminance × depth / unit to the height.
         let pl = photocraft_compose::pattern::Placement::anchored(anchor, t.link, t.phase, t.scale, 0.0);
@@ -119,6 +127,7 @@ impl B {
         self.push(st)
     }
 
+    /// Highlight and shadow shading of height map `h` into maps 0 and 1. Returns 2.
     fn bevel_shading(&mut self, h: In, bv: &Bevel, g: &BevelGeom, light: &GlobalLight) -> usize {
         let (angle, altitude) = if bv.use_global_light { (light.angle, light.altitude) } else { (bv.angle, bv.altitude) };
         let (sa, ca) = angle.to_radians().sin_cos();
@@ -144,6 +153,7 @@ impl B {
         2
     }
 
+    /// Stroke stages, the outside band into map 0 and the inside band into map 1. Returns 2.
     pub(super) fn stroke(&mut self, st: &StrokeFx, vector_shape: bool) -> usize {
         // Stroke bands: map 0 outside, map 1 inside.
         let (in_w, out_w) = stroke_widths(st);
@@ -163,6 +173,7 @@ impl B {
         2
     }
 
+    /// One stroke band of `width` from distance field `kind` into map `out`.
     fn stroke_band(&mut self, kind: FieldKind, width: f32, out: usize) {
         let d = self.field(kind, width);
         let mut s = stage(Kernel::MStroke, Some(d), None, [width, 0.0, 0.0, 0.0], 0);
@@ -170,6 +181,7 @@ impl B {
         self.stages.push(s);
     }
 
+    /// A hash of the built stages and fields that keys the compiled program (never 0).
     pub(super) fn key(&self, maps: usize) -> u64 {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         for s in &self.stages {

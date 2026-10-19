@@ -3,6 +3,7 @@ use photocraft_psd::descriptor::{Descriptor, Id, UnicodeString, Value, Versioned
 
 use super::{BW_KEYS, BW_TINT, clamp_i16, levels_write, put16, q255, rgb_desc};
 
+/// The values as big-endian 16-bit words.
 pub(super) fn words(xs: &[u16]) -> Vec<u8> {
     let mut v = Vec::new();
     for &x in xs {
@@ -11,10 +12,12 @@ pub(super) fn words(xs: &[u16]) -> Vec<u8> {
     v
 }
 
+/// Appends `x` as a clamped big-endian 16-bit integer.
 fn push_i16(v: &mut Vec<u8>, x: f32) {
     v.extend_from_slice(&clamp_i16(x).to_be_bytes());
 }
 
+/// The legacy Brightness/Contrast block and its descriptor block.
 pub(super) fn brightness_contrast(brightness: f32, contrast: f32, legacy: bool) -> Vec<([u8; 4], Vec<u8>)> {
     let mut v = Vec::new();
     push_i16(&mut v, brightness);
@@ -32,6 +35,7 @@ pub(super) fn brightness_contrast(brightness: f32, contrast: f32, legacy: bool) 
     vec![(*b"brit", v), (*b"CgEd", VersionedDescriptor::new(d).to_bytes())]
 }
 
+/// Hue/Saturation payload: the master values, then the six hue ranges.
 pub(super) fn hue_saturation(hsl: [f32; 3], colorize: bool, ranges: &[HueRange; 6]) -> Vec<u8> {
     let mut v = words(&[2]);
     v.push(u8::from(colorize));
@@ -60,6 +64,7 @@ pub(super) fn hue_saturation(hsl: [f32; 3], colorize: bool, ranges: &[HueRange; 
     v
 }
 
+/// Exposure payload.
 pub(super) fn exposure(exposure: f32, offset: f32, gamma: f32) -> Vec<u8> {
     let mut v = words(&[1]);
     for x in [exposure, offset, gamma] {
@@ -69,6 +74,7 @@ pub(super) fn exposure(exposure: f32, offset: f32, gamma: f32) -> Vec<u8> {
     v
 }
 
+/// Levels payload: master, the three colour channels, black (CMYK only), then identity records.
 pub(super) fn levels(master: &LevelsChannel, per_channel: &[LevelsChannel; 3], space: ToneSpace, black: &LevelsChannel) -> Vec<u8> {
     let mut v = words(&[2]);
     levels_write(&mut v, master);
@@ -83,6 +89,7 @@ pub(super) fn levels(master: &LevelsChannel, per_channel: &[LevelsChannel; 3], s
     v
 }
 
+/// Curves payload: each channel's points, or its 256-entry map in pencil mode.
 pub(super) fn curves(master: &[CurvePoint], per_channel: &[Vec<CurvePoint>; 3], space: ToneSpace, black: &[CurvePoint], pencil: bool) -> Vec<u8> {
     let mut v = vec![u8::from(pencil)];
     put16(&mut v, 1);
@@ -102,6 +109,7 @@ pub(super) fn curves(master: &[CurvePoint], per_channel: &[Vec<CurvePoint>; 3], 
     v
 }
 
+/// Selective Color payload, with each value clamped to ±100%.
 pub(super) fn selective_color(relative: bool, adjustments: &[[f32; 4]; 9]) -> Vec<u8> {
     let mut v = words(&[1, u16::from(!relative)]);
     v.extend_from_slice(&[0; 8]);
@@ -113,6 +121,7 @@ pub(super) fn selective_color(relative: bool, adjustments: &[[f32; 4]; 9]) -> Ve
     v
 }
 
+/// Color Lookup payload, written as an identity cube when there is no usable table.
 pub(super) fn color_lookup(name: &str, lut: Option<&[f32]>, size: u32, dither: bool) -> Vec<u8> {
     // A lookup without a usable table renders as identity, so it is written as a 2³ identity cube.
     let n = size as usize;
@@ -140,6 +149,7 @@ pub(super) fn color_lookup(name: &str, lut: Option<&[f32]>, size: u32, dither: b
     v
 }
 
+/// At least the two stops Photoshop needs, matching how fewer stops render.
 pub(super) fn gradient_stops(stops: &[(f32, [f32; 3])]) -> Vec<(f32, [f32; 3])> {
     // Photoshop needs two stops: none becomes black to white, one becomes a flat colour.
     match stops {
@@ -149,15 +159,18 @@ pub(super) fn gradient_stops(stops: &[(f32, [f32; 3])]) -> Vec<(f32, [f32; 3])> 
     }
 }
 
+/// A descriptor integer of `x` clamped to `lo..=hi`.
 fn percent(x: f32, lo: f32, hi: f32) -> Value {
     Value::Integer(i32::from(clamp_i16(x.clamp(lo, hi))))
 }
 
+/// Vibrance payload.
 pub(super) fn vibrance(vibrance: f32, saturation: f32) -> Vec<u8> {
     let d = Descriptor::new("null").with("vibrance", percent(vibrance, -100.0, 100.0)).with("Strt", percent(saturation, -100.0, 100.0));
     VersionedDescriptor::new(d).to_bytes()
 }
 
+/// Color Balance payload: shadows, midtones and highlights, then Preserve Luminosity.
 pub(super) fn color_balance(tones: [&[f32; 3]; 3], preserve_luminosity: bool) -> Vec<u8> {
     let mut v = Vec::new();
     for x in tones.into_iter().flatten() {
@@ -168,6 +181,7 @@ pub(super) fn color_balance(tones: [&[f32; 3]; 3], preserve_luminosity: bool) ->
     v
 }
 
+/// Black & White payload.
 pub(super) fn black_white(weights: &[f32; 6], tint: Option<[f32; 3]>) -> Vec<u8> {
     let mut d = Descriptor::new("null");
     for (w, k) in weights.iter().zip(BW_KEYS) {
@@ -181,6 +195,7 @@ pub(super) fn black_white(weights: &[f32; 6], tint: Option<[f32; 3]>) -> Vec<u8>
     VersionedDescriptor::new(d).to_bytes()
 }
 
+/// Photo Filter payload, version 2 with a 16-bit colour.
 pub(super) fn photo_filter(color: [f32; 3], density: f32, preserve_luminosity: bool) -> Vec<u8> {
     // Version 2 keeps the colour at 16 bits.
     let mut v = words(&[2, 0]);
@@ -195,6 +210,7 @@ pub(super) fn photo_filter(color: [f32; 3], density: f32, preserve_luminosity: b
     v
 }
 
+/// Channel Mixer payload: the red, green and blue records, then the gray record.
 pub(super) fn channel_mixer(matrix: &[[f32; 4]; 3], monochrome: bool) -> Vec<u8> {
     let mut v = words(&[1, u16::from(monochrome)]);
     // Red, green and blue rows, then the gray record that monochrome uses.

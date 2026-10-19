@@ -66,6 +66,7 @@ fn list<T: serde::de::DeserializeOwned>(p: &Value, k: &str) -> Option<Vec<T>> {
 const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 
+/// The value `options` pairs with param `k` (default name `d`), or `other` for a name it doesn't list.
 fn choice<T: Copy>(p: &Value, k: &str, d: &str, options: &[(&str, T)], other: T) -> T {
     let name = s(p, k, d);
     options.iter().find(|(n, _)| *n == name).map_or(other, |&(_, v)| v)
@@ -236,10 +237,12 @@ pub fn params_for(id: &str, p: &Value) -> Option<FilterParams> {
     }
 }
 
+/// The blur amount the Blur Gallery filters share.
 fn gallery_blur(p: &Value) -> f32 {
     f(p, "blur", 15.0).clamp(0.0, 500.0)
 }
 
+/// Filter › Stylize › Extrude parameters.
 fn extrude(p: &Value) -> FilterParams {
     FilterParams::Extrude {
         kind: if s(p, "type", "blocks") == "pyramids" { ExtrudeType::Pyramids } else { ExtrudeType::Blocks },
@@ -252,6 +255,7 @@ fn extrude(p: &Value) -> FilterParams {
     }
 }
 
+/// Filter › Stylize › Oil Paint parameters.
 fn oil_paint(p: &Value) -> FilterParams {
     FilterParams::OilPaint {
         stylization: f(p, "stylization", 4.0).clamp(0.1, 10.0),
@@ -264,6 +268,7 @@ fn oil_paint(p: &Value) -> FilterParams {
     }
 }
 
+/// Filter › Stylize › Tiles parameters.
 fn tiles(p: &Value) -> FilterParams {
     FilterParams::Tiles {
         count: i(p, "count", 10).clamp(1, 99) as u32,
@@ -275,6 +280,7 @@ fn tiles(p: &Value) -> FilterParams {
     }
 }
 
+/// Filter › Distort › Displace parameters.
 fn displace(p: &Value) -> FilterParams {
     FilterParams::Displace {
         horizontal: f(p, "horizontal", 10.0).clamp(-999.0, 999.0),
@@ -286,6 +292,7 @@ fn displace(p: &Value) -> FilterParams {
     }
 }
 
+/// Filter › Distort › Shear parameters: the listed curve points, or one bend from `amount`.
 fn shear(p: &Value) -> FilterParams {
     FilterParams::Shear {
         points: list::<[f32; 2]>(p, "points").unwrap_or_else(|| {
@@ -296,6 +303,7 @@ fn shear(p: &Value) -> FilterParams {
     }
 }
 
+/// Filter › Render › Lens Flare parameters.
 fn lens_flare(p: &Value) -> FilterParams {
     FilterParams::LensFlare {
         brightness: f(p, "brightness", 100.0).clamp(10.0, 300.0),
@@ -305,6 +313,7 @@ fn lens_flare(p: &Value) -> FilterParams {
     }
 }
 
+/// The one light Lighting Effects uses when the params list no `lights`.
 fn single_light(p: &Value) -> Light {
     let c = colour(p, "color", WHITE);
     Light {
@@ -324,6 +333,7 @@ fn single_light(p: &Value) -> Light {
     }
 }
 
+/// Filter › Render › Lighting Effects parameters.
 fn lighting_effects(p: &Value) -> FilterParams {
     FilterParams::LightingEffects {
         lights: list::<Light>(p, "lights").unwrap_or_else(|| vec![single_light(p)]),
@@ -337,6 +347,7 @@ fn lighting_effects(p: &Value) -> FilterParams {
     }
 }
 
+/// Filter › Blur › Smart Blur parameters.
 fn smart_blur(p: &Value) -> FilterParams {
     FilterParams::SmartBlur {
         radius: f(p, "radius", 3.0).clamp(0.1, 100.0),
@@ -346,6 +357,7 @@ fn smart_blur(p: &Value) -> FilterParams {
     }
 }
 
+/// Filter › Blur › Lens Blur parameters, with the depth map resolved later.
 fn lens_blur(p: &Value) -> FilterParams {
     FilterParams::LensBlur {
         radius: f(p, "radius", 15.0).clamp(0.0, 100.0),
@@ -365,6 +377,7 @@ fn lens_blur(p: &Value) -> FilterParams {
     }
 }
 
+/// Blur Gallery › Tilt-Shift parameters.
 fn tilt_shift(p: &Value) -> FilterParams {
     FilterParams::TiltShift {
         blur: gallery_blur(p),
@@ -376,6 +389,7 @@ fn tilt_shift(p: &Value) -> FilterParams {
     }
 }
 
+/// Blur Gallery › Iris Blur parameters: the listed pins, or one pin from the flat params.
 fn iris_blur(p: &Value) -> FilterParams {
     FilterParams::IrisBlur {
         pins: list::<IrisPin>(p, "pins").unwrap_or_else(|| {
@@ -393,10 +407,12 @@ fn iris_blur(p: &Value) -> FilterParams {
     }
 }
 
+/// `a` clamped to `lo..=360`, or 0 when it isn't finite.
 fn spin_angle(a: f32, lo: f32) -> f32 {
     if a.is_finite() { a.clamp(lo, 360.0) } else { 0.0 }
 }
 
+/// Blur Gallery › Spin Blur parameters: the listed pins with bounded angles, or one pin from the flat params.
 fn spin_blur(p: &Value) -> FilterParams {
     FilterParams::SpinBlur {
         pins: list::<SpinPin>(p, "pins")
@@ -420,6 +436,7 @@ fn spin_blur(p: &Value) -> FilterParams {
     }
 }
 
+/// Blur Gallery › Path Blur parameters: the listed paths with bounded speeds, or one straight path from the flat params.
 fn path_blur(p: &Value) -> FilterParams {
     FilterParams::PathBlur {
         paths: list::<BlurPath>(p, "paths")
@@ -440,6 +457,7 @@ fn path_blur(p: &Value) -> FilterParams {
     }
 }
 
+/// Filter › Other › Custom parameters: up to 25 kernel weights (the identity by default), scale and offset.
 fn custom(p: &Value) -> FilterParams {
     FilterParams::Custom {
         kernel: p

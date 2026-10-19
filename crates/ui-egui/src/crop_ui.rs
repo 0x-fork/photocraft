@@ -775,6 +775,7 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: Modifiers) -> bool 
     true
 }
 
+/// Press, drag and release of the frame. Returns true when the frame needs syncing to the view.
 fn track(app: &mut PhotocraftApp, ev: ToolEvent, p: [f64; 2], mods: Modifiers) -> bool {
     match ev {
         ToolEvent::Down { .. } => begin_drag(app, p),
@@ -788,6 +789,7 @@ fn track(app: &mut PhotocraftApp, ev: ToolEvent, p: [f64; 2], mods: Modifiers) -
     true
 }
 
+/// The Straighten line drag. Returns true when it took the event.
 fn straighten(app: &mut PhotocraftApp, ev: ToolEvent, mods: Modifiers, p: [f64; 2]) -> bool {
     // Straighten button or ⌘: the drag draws a line to level the frame on.
     if !crate::crop_straighten::pointer(app, ev, mods) {
@@ -810,6 +812,7 @@ fn straighten(app: &mut PhotocraftApp, ev: ToolEvent, mods: Modifiers, p: [f64; 
     true
 }
 
+/// Starts the drag a press at `p` selects: resize, move, turn or draw.
 fn begin_drag(app: &mut PhotocraftApp, p: [f64; 2]) {
     claim(app);
     app.crop.editing = true;
@@ -832,6 +835,7 @@ fn begin_drag(app: &mut PhotocraftApp, p: [f64; 2]) {
     });
 }
 
+/// A press inside the frame: moves the image in default mode, else the frame.
 fn inside_drag(app: &PhotocraftApp, p: [f64; 2], rect: [f64; 4]) -> CropDrag {
     // Default mode moves the image and keeps the box in place on screen, as in Photoshop.
     if crate::crop_mode::moves_image(app) {
@@ -841,6 +845,7 @@ fn inside_drag(app: &PhotocraftApp, p: [f64; 2], rect: [f64; 4]) -> CropDrag {
     }
 }
 
+/// A press outside the frame: turns the image in default mode, else the frame.
 fn outside_drag(app: &PhotocraftApp, p: [f64; 2], rect: [f64; 4], deg: f64) -> CropDrag {
     let c = center(rect);
     let grab = (p[1] - c[1]).atan2(p[0] - c[0]);
@@ -852,6 +857,7 @@ fn outside_drag(app: &PhotocraftApp, p: [f64; 2], rect: [f64; 4], deg: f64) -> C
     }
 }
 
+/// Ends `drag`: keeps a valid frame or restores the previous one, and records an undo step when it changed.
 fn release(app: &mut PhotocraftApp, drag: CropDrag) {
     let ok = app.ui.crop_rect.is_some_and(size_ok);
     // A click outside the untouched default frame (no turn) leaves it the default.
@@ -878,6 +884,7 @@ fn push_press_step(app: &mut PhotocraftApp) {
     }
 }
 
+/// Puts back the frame a too-small drag started from.
 fn restore_frame(app: &mut PhotocraftApp, drag: CropDrag) {
     match drag {
         CropDrag::Draw { prev, .. } => app.ui.crop_rect = prev,
@@ -888,6 +895,7 @@ fn restore_frame(app: &mut PhotocraftApp, drag: CropDrag) {
     }
 }
 
+/// Centres a newly drawn frame in default mode.
 fn finish_frame(app: &mut PhotocraftApp, drag: CropDrag) {
     // Auto Center Preview moves a box drawn in default mode to the middle.
     if let CropDrag::Draw { .. } = drag {
@@ -906,6 +914,7 @@ fn update(app: &mut PhotocraftApp, p: [f64; 2], mods: Modifiers) {
     }
 }
 
+/// Follows rotate, turn, move-image and live-centred resize drags. Returns false for the other drags.
 fn follow_view_drag(app: &mut PhotocraftApp, p: [f64; 2], mods: Modifiers) -> bool {
     match app.crop.drag {
         Some(CropDrag::Rotate { center, grab, from }) => app.ui.crop_angle = turned_angle(center, grab, from, p, mods.shift),
@@ -935,6 +944,7 @@ fn follow_view_drag(app: &mut PhotocraftApp, p: [f64; 2], mods: Modifiers) -> bo
     true
 }
 
+/// The frame a draw, move or resize drag gives at `p`, or None for the other drags.
 fn dragged_frame(app: &mut PhotocraftApp, p: [f64; 2], mods: Modifiers) -> Option<[f64; 4]> {
     let ratio = preset_ratio(app);
     let space = app.crop.space;
