@@ -881,9 +881,36 @@ macro_rules! ev {
                 Some(m) => step($id, Value::Object(m)),
                 None => Mapped::Unsupported { harmless: false },
             },
-            to: |_, p| if pixel_target(p) { fields_to(p, $fields, desc("null")) } else { None },
+            to: |_, p| if pixel_target(p) && holds_its_settings($id, p) { fields_to(p, $fields, desc("null")) } else { None },
         }
     };
+}
+
+/// Settings a mapped event has no field for, by command: `(param, the value the event plays as)`.
+/// Photoshop's event has nowhere to put these, so a step that sets one cannot be written: it
+/// would import as a different edit, silently. Such a step is refused, the way [`pixel_target`]
+/// refuses a filter aimed at a mask -- and no key Photoshop does not define is invented for it,
+/// which the clean-room rule forbids and which would make the file wrong in another reader.
+///
+/// A step that leaves the setting at the value the event plays as exports as before.
+const UNHOLDABLE: &[(&str, &[(&str, &str)])] = &[
+    // Crst carries ClSz only; replay seeds the pattern from 0 (#7668).
+    ("filter.pixelate.crystallize", &[("seed", "0")]),
+    // RdlB carries Amnt, BlrM and BlrQ; replay spins or zooms about the middle of the layer.
+    ("filter.blur.radialBlur", &[("centerX", "0.5"), ("centerY", "0.5")]),
+    // Mnm /Mxm carry Rds only; replay keeps squareness.
+    ("filter.other.minimum", &[("preserve", "squareness")]),
+    ("filter.other.maximum", &[("preserve", "squareness")]),
+];
+
+/// Whether every setting of `p` that its event cannot hold is at the value the event plays as
+/// (see [`UNHOLDABLE`]).
+fn holds_its_settings(id: &str, p: &Value) -> bool {
+    let Some((_, settings)) = UNHOLDABLE.iter().find(|(cmd, _)| *cmd == id) else { return true };
+    settings.iter().all(|(param, played)| match p.get(param) {
+        None | Some(Value::Null) => true,
+        Some(v) => v.as_str() == Some(played) || v.as_f64().is_some_and(|n| played.parse::<f64>().is_ok_and(|d| n == d)),
+    })
 }
 
 /// Whether `p` edits the layer's pixels: no `"target"` or `"target":"pixels"`. Photoshop's
