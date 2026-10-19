@@ -308,6 +308,12 @@ fn shift_45(origin: [f64; 2], p: [f64; 2], shift: bool) -> [f64; 2] {
 /// knot rather than undoing an unrelated, already committed document operation.
 pub fn pen_undo_last_point(app: &mut PhotocraftApp) -> bool {
     let Some(pen) = app.ui.pen.as_mut() else { return false };
+    // A resumed path's own anchors are not the draft's to take back: undoing past the ones added
+    // since it resumed drops the draft and leaves the path as it was (#6593).
+    if pen.resumes.as_ref().is_some_and(|r| pen.knots.len() <= r.was.knots.len()) {
+        app.ui.pen = None;
+        return true;
+    }
     if pen.knots.pop().is_none() {
         return false;
     }
@@ -492,7 +498,11 @@ fn commit_path(app: &mut PhotocraftApp, pen: &PenPath, closed: bool) {
         // Photoshop adds the new subpath to the path selected in the Paths panel, which is the
         // Work Path right after drawing one, so path after path builds up there (#4721). With no
         // path selected, a new Work Path replaces the old one. The drawn path ends up selected.
-        let target = app.ui.selected_path.clone().filter(|n| app.session.active().is_some_and(|st| path_exists(&st.doc, n)));
+        // A resumed draft whose subpath changed meanwhile joins the path it came from, as a new
+        // subpath, even with nothing selected in the Paths panel.
+        let exists = |n: &String| app.session.active().is_some_and(|st| path_exists(&st.doc, n));
+        let resumed_from = pen.resumes.as_ref().filter(|r| app.session.active().is_some_and(|st| st.doc.id.0 == r.doc)).map(|r| r.path.clone());
+        let target = app.ui.selected_path.clone().filter(exists).or_else(|| resumed_from.filter(exists));
         let name = target.clone().unwrap_or_else(|| "work".into());
         let mut params = json!({"name": name, "path": path});
         if target.is_some() {

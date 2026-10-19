@@ -231,4 +231,29 @@ fn a_resumed_subpath_keeps_its_operation_and_a_stale_draft_adds_a_new_one() {
     let work = work_path(&app);
     assert_eq!(work.subpaths.len(), 2, "a new subpath, the replaced one untouched");
     assert_eq!(work.subpaths[0].knots.iter().map(|k| k.anchor.x).collect::<Vec<_>>(), [120.0, 180.0]);
+    // The same with nothing selected in the Paths panel: still added to the Work Path it came from.
+    click(&mut app, 180.0, 20.0);
+    click(&mut app, 180.0, 90.0);
+    app.ui.selected_path = None;
+    app.run("path.set", json!({"name": "work", "path": {"subpaths": [open(120.0, 160.0, "combine")]}})).unwrap();
+    crate::vector_ui::pen_commit(&mut app, false);
+    assert_eq!(work_path(&app).subpaths.len(), 2, "added, not replacing the Work Path");
+}
+
+/// #6593 review: undoing points in a resumed draft never removes the path's own anchors; past the
+/// added ones it drops the draft and the path stays as it was.
+#[test]
+fn undo_in_a_resumed_draft_stops_at_the_paths_own_anchors() {
+    let mut app = app(Tool::Pen);
+    click(&mut app, 20.0, 20.0);
+    click(&mut app, 80.0, 20.0);
+    crate::vector_ui::pen_commit(&mut app, false);
+    let before = work_path(&app);
+    click(&mut app, 80.0, 20.0);
+    click(&mut app, 80.0, 80.0);
+    assert!(crate::vector_ui::pen_undo_last_point(&mut app), "takes back the added anchor");
+    assert_eq!(app.ui.pen.as_ref().map(|p| p.knots.len()), Some(2));
+    assert!(crate::vector_ui::pen_undo_last_point(&mut app), "drops the draft");
+    assert!(app.ui.pen.is_none());
+    assert_eq!(work_path(&app), before, "the path is as it was");
 }
