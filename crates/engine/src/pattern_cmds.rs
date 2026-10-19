@@ -557,7 +557,7 @@ mod tests {
         s.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
         s.execute("select.deselect", json!({})).unwrap();
         s.execute("layer.layerStyle.patternOverlay", json!({"pattern": "Diagonal Lines"})).unwrap();
-        s.execute("layer.layerStyle.stroke", json!({"size": 3, "color": "#00ff00", "add": true})).unwrap();
+        s.execute("layer.layerStyle.stroke", json!({"size": 3, "position": "outside", "color": "#00ff00", "add": true})).unwrap();
         let out = pixel(&s, 8, 15);
         assert!(out[1] > 0.9 && out[0] < 0.1, "stroke outside: {out:?}");
     }
