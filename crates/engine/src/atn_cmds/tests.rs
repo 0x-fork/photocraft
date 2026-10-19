@@ -1387,3 +1387,30 @@ fn function_keys_keep_shift_and_command() {
     }
     assert_eq!(super::function_key_name(7, false, false), "F7");
 }
+
+fn image_size_round_trip(params: &Value) -> Option<Value> {
+    let item = export_item("image.imageSize", params, "S")?;
+    let e = event_for(&item.event).unwrap();
+    match (e.from)(item.descriptor.as_ref().unwrap()) {
+        Mapped::Steps(steps) => Some(steps[0].1.clone()),
+        _ => panic!("image size descriptor did not import as steps"),
+    }
+}
+
+#[test]
+fn image_size_resolution_only_does_not_gain_keep_print_size() {
+    // The .atn cannot tell resolution-only from keepPrintSize:true, so the former must not
+    // export as a descriptor that imports back as keep-print-size.
+    let params = json!({"resolution": 144, "resample": "nearest"});
+    assert_eq!(image_size_round_trip(&params), None);
+}
+
+#[test]
+fn image_size_intentional_controls_still_round_trip() {
+    for params in [
+        json!({"resolution": 144.0, "resample": "nearest", "keepPrintSize": true}),
+        json!({"width": 12.0, "height": 10.0, "resolution": 144.0, "resample": "nearest"}),
+    ] {
+        assert_eq!(image_size_round_trip(&params), Some(params.clone()));
+    }
+}
