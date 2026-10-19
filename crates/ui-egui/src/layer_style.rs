@@ -648,7 +648,21 @@ fn apply(f: &Map<String, Value>, mut run: impl FnMut(&str, Value) -> Result<Valu
         let mut params = params;
         params["enabled"] = json!(on);
         let entry = match e.get("fx").filter(|fx| fx.is_object()) {
-            Some(fx) => json!({"kind": kind, "fx": fx, "params": params}),
+            Some(fx) => {
+                if kind == "bevelEmboss"
+                    && let Ok(original) = serde_json::from_value::<Effect>(fx.clone())
+                    && let Some(edits) = params.as_object_mut()
+                {
+                    let shown = values_of(&original, initial_light_angle.unwrap_or(120.0) as f32);
+                    // Unedited display values must not quantize imported shading in the snapshot.
+                    for key in ["highlightBlend", "highlightColor", "highlightOpacity", "shadowBlend", "shadowColor", "shadowOpacity"] {
+                        if edits.get(key) == shown.get(key) {
+                            edits.remove(key);
+                        }
+                    }
+                }
+                json!({"kind": kind, "fx": fx, "params": params})
+            }
             None => {
                 // A new instance: the page shows the factory defaults merged with
                 // the edits, and the engine builds from the full set.
@@ -2076,6 +2090,40 @@ mod tests {
             h.event(egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
             h.run();
             assert_eq!(*h.state(), expected);
+        }
+    }
+
+    #[test]
+    fn unedited_bevel_shading_keeps_imported_precision() {
+        for size in [None, Some(12.0)] {
+            let mut s = session();
+            s.execute("layer.layerStyle.bevelEmboss", json!({})).unwrap();
+            s.edit("imported shading", |doc, active| {
+                let Effect::BevelEmboss(b) = &mut doc.layer_mut(active.unwrap()).unwrap().effects.items[0] else { panic!("bevel") };
+                b.highlight_color = photocraft_color::Color::rgb(0.12345, 0.45678, 0.78901);
+                b.shadow_color = photocraft_color::Color::rgb(0.98765, 0.54321, 0.13579);
+                b.highlight.opacity = 0.3525;
+                b.shadow.opacity = 0.6175;
+                Ok(())
+            })
+            .unwrap();
+            let st = s.active().unwrap();
+            let id = st.active_layer.unwrap();
+            let original = st.doc.layer(id).unwrap().effects.items[0].clone();
+            let mut fields = initial_fields(st.doc.layer(id).unwrap(), Some("bevelEmboss"), st.doc.global_light.angle);
+            if let Some(size) = size {
+                set_param(&mut fields, "fx1", "size", json!(size));
+            }
+            apply(&fields, |cmd, p| s.execute(cmd, p).map_err(|e| e.to_string())).unwrap();
+            let Effect::BevelEmboss(before) = original else { panic!("bevel") };
+            let Effect::BevelEmboss(after) = &s.active().unwrap().doc.layer(id).unwrap().effects.items[0] else { panic!("bevel") };
+            assert_eq!(after.highlight, before.highlight);
+            assert_eq!(after.shadow, before.shadow);
+            assert_eq!(after.highlight_color, before.highlight_color);
+            assert_eq!(after.shadow_color, before.shadow_color);
+            if let Some(size) = size {
+                assert_eq!(after.size, size, "the unrelated edit still applies");
+            }
         }
     }
 
