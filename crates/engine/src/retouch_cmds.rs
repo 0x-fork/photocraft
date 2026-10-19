@@ -992,6 +992,37 @@ enum DabTool {
 /// One dab's edit of the working copy.
 pub(crate) type DabEffect = Box<dyn FnMut(&mut Region, &Footprint)>;
 
+/// Pixels an effect reads beyond the dab it writes. Smudge's pickup is a fixed-size square,
+/// independent of pressure, roundness and the dab's current angle.
+#[derive(Clone, Copy)]
+enum DabNeighborhood {
+    Halo(i32),
+    Smudge(i32),
+}
+
+impl DabNeighborhood {
+    fn halo(self) -> i32 {
+        match self {
+            Self::Halo(radius) | Self::Smudge(radius) => radius,
+        }
+    }
+
+    fn read_rect(self, rect: Rect, dab: &photocraft_paint::Dab) -> Rect {
+        match self {
+            Self::Halo(radius) => rect.inflate(radius),
+            Self::Smudge(radius) => {
+                let (x, y) = (dab.center.x.floor() as i32, dab.center.y.floor() as i32);
+                rect.union(&Rect::new(
+                    x.saturating_sub(radius),
+                    y.saturating_sub(radius),
+                    x.saturating_add(radius).saturating_add(1),
+                    y.saturating_add(radius).saturating_add(1),
+                ))
+            }
+        }
+    }
+}
+
 impl DabTool {
     /// The tool for `cmd` and its history label.
     fn parse(s: &Session, cmd: &str, p: &Value, stroke: &Stroke) -> Result<(Self, &'static str)> {
@@ -1033,10 +1064,11 @@ impl DabTool {
     }
 
     /// How far around each dab the effect reads (Blur and Sharpen read a neighbourhood).
-    fn halo(&self) -> i32 {
+    fn neighborhood(&self) -> DabNeighborhood {
         match self {
-            Self::Focus { sigma, .. } => (sigma * 3.0).ceil() as i32 + 1,
-            _ => 0,
+            Self::Focus { sigma, .. } => DabNeighborhood::Halo((sigma * 3.0).ceil() as i32 + 1),
+            Self::Smudge { max_size, .. } => DabNeighborhood::Smudge(Smudge::sampling_radius(*max_size)),
+            _ => DabNeighborhood::Halo(0),
         }
     }
 
@@ -1108,7 +1140,7 @@ fn dab_cmd(s: &mut Session, p: &Value, cmd: &str) -> Result<Value> {
         let fmt = surf.format();
         let mut effect = tool.effect(fmt, stroke.brush.spacing);
         let mut sampler = all.then(|| AllLayers::new(pre, fmt));
-        Ok(apply_dab_stroke(surf, &stroke, sel, lock, tool.halo(), |work, fp| match &mut sampler {
+        Ok(apply_dab_stroke(surf, &stroke, sel, lock, tool.neighborhood().halo(), |work, fp| match &mut sampler {
             Some(all) => all.dab(work, fp, |w, f| effect(w, f)),
             None => effect(work, fp),
         }))
@@ -1208,7 +1240,7 @@ pub struct LiveDab {
     renderer: photocraft_paint::StrokeRenderer,
     done: usize,
     effect: DabEffect,
-    halo: i32,
+    neighborhood: DabNeighborhood,
     pre_surf: Surface,
     work: WorkTiles,
     id: Option<LayerId>,
@@ -1244,9 +1276,9 @@ impl LiveDab {
         }
         let (stroke, id) = parse_brush(s, p, cmd)?;
         let (tool, _) = DabTool::parse(s, cmd, p, &stroke)?;
-        let (halo, spacing, brush) = (tool.halo(), stroke.brush.spacing, Box::new(stroke.brush.clone()));
+        let (neighborhood, spacing, brush) = (tool.neighborhood(), stroke.brush.spacing, Box::new(stroke.brush.clone()));
         let effect = tool.clone();
-        let mut live = Self::with_effect(s, cmd, p, stroke, id, halo, |pre| effect.effect(pre.format(), spacing))?;
+        let mut live = Self::with_neighborhood(s, cmd, p, stroke, id, neighborhood, |pre| effect.effect(pre.format(), spacing))?;
         live.tool = Some((tool, brush));
         Ok(live)
     }
@@ -1260,6 +1292,18 @@ impl LiveDab {
         stroke: Stroke,
         id: Option<LayerId>,
         halo: i32,
+        effect: impl FnOnce(&Surface) -> DabEffect,
+    ) -> Result<Self> {
+        Self::with_neighborhood(s, cmd, p, stroke, id, DabNeighborhood::Halo(halo), effect)
+    }
+
+    fn with_neighborhood(
+        s: &Session,
+        cmd: &str,
+        p: &Value,
+        stroke: Stroke,
+        id: Option<LayerId>,
+        neighborhood: DabNeighborhood,
         effect: impl FnOnce(&Surface) -> DabEffect,
     ) -> Result<Self> {
         let st = s.active().ok_or(EngineError::NoDocument)?;
@@ -1293,7 +1337,7 @@ impl LiveDab {
             renderer,
             done: 0,
             effect,
-            halo,
+            neighborhood,
             work: WorkTiles::new(pre_surf.channels()),
             pre_surf,
             id,
@@ -1335,7 +1379,7 @@ impl LiveDab {
             if r.is_empty() {
                 continue;
             }
-            let mut region = self.work.read(&self.pre_surf, r.inflate(self.halo));
+            let mut region = self.work.read(&self.pre_surf, self.neighborhood.read_rect(r, d));
             (self.effect)(&mut region, &ctx.footprint(d, self.done + k));
             self.work.write(&self.pre_surf, &region.crop(r));
             dmg = dmg.union(&r);
@@ -1367,7 +1411,7 @@ impl LiveDab {
             let ds = self.renderer.tail_dabs();
             let r = ds.iter().fold(Rect::EMPTY, |a, d| a.union(&ctx.dab_rect(d, false)));
             if !r.is_empty() {
-                let mut region = self.work.read(&self.pre_surf, r.inflate(self.halo));
+                let mut region = self.work.read(&self.pre_surf, r.inflate(self.neighborhood.halo()));
                 for (k, d) in ds.iter().enumerate() {
                     (self.effect)(&mut region, &ctx.footprint(d, self.done + k));
                 }
