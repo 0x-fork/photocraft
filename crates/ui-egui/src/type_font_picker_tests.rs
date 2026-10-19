@@ -290,14 +290,15 @@ fn arrows_on_the_field_step_through_the_families_after_a_pick() {
 fn the_first_arrow_after_a_pick_keeps_the_focus_between_neighbours() {
     for (enter, picked, stepped) in [(false, "Family 05", "Family 06"), (true, "Family 04", "Family 05")] {
         let families: Vec<String> = (0..20).map(|i| format!("Family {i:02}")).collect();
-        let state = State { current: "Family 03".into(), families, button: egui::Id::NULL, popup: egui::Id::NULL, preview: FontPreview::Off };
+        let state =
+            State { current: "Family 03".into(), families, button: egui::Id::NULL, popup: egui::Id::NULL, preview: FontPreview::Off, recents: Vec::new() };
         let mut h = Harness::builder().with_size(vec2(600.0, 900.0)).build_ui_state(
             |ui, s: &mut State| {
                 let _ = ui.button("Above");
                 s.button = ui.make_persistent_id(egui::IdSalt::new("type-font"));
                 s.popup = s.button.with("popup");
                 let fams = s.families.clone();
-                font_picker_in(ui, &mut s.current, 170.0, &fams, s.preview);
+                font_picker_in(ui, &mut s.current, 170.0, &fams, s.preview, &s.recents);
                 let _ = ui.button("Below");
             },
             state,
