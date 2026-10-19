@@ -2,6 +2,8 @@
 
 use photocraft_algo::transform::{Homography, Interp, WARP_REACH, warp_output_clipped, warp_output_size, warp_surface, warp_surface_with};
 use photocraft_color::PixelFormat;
+#[cfg(test)]
+use photocraft_color::{ColorMode, SampleType};
 use photocraft_doc::{Document, Layer, LayerContent, LayerId, Locks};
 use photocraft_geom::{Affine, Rect};
 use photocraft_raster::{Interrupt, Surface};
@@ -283,11 +285,12 @@ fn active_budget() -> u64 {
     budget()
 }
 
-/// Tests use a far lower budget (2²⁰ px of 8-bit RGBA), so proving a refusal never comes near
-/// allocating the real one.
+/// Tests use a far lower budget, so proving a refusal never comes near allocating the real one:
+/// 2²⁰ px of the widest format (32-bit CMYK with alpha, 20 MB), so a result within the old 2²⁰ px
+/// test limit still fits at any depth.
 #[cfg(test)]
 fn active_budget() -> u64 {
-    4 << 20
+    (1 << 20) * PixelFormat::new(ColorMode::Cmyk, SampleType::F32, true).bytes_per_pixel() as u64
 }
 
 /// Refuse a warp of the content inside `src` (pixels of `format`) by `h` whose result would take
@@ -776,8 +779,8 @@ mod tests {
         st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap().content_bounds()
     }
 
-    // ---- Memory budget (#3773, #7807). Tests run with a 4 MB budget (2²⁰ px of 8-bit RGBA), so
-    // nothing here comes near the real one. ----
+    // ---- Memory budget (#3773, #7807). Tests run with a 20 MB budget (2²⁰ px of 32-bit CMYK with
+    // alpha), so nothing here comes near the real one. ----
 
     /// Memory Usage's default, in bytes.
     const DEFAULT_BUDGET: u64 = (crate::prefs::DEFAULT_MEMORY_USAGE_MB as u64) << 20;
@@ -869,11 +872,11 @@ mod tests {
         let mut s = column();
         let st = s.active().unwrap();
         let (before, revision, steps) = (st.doc.clone(), st.revision, st.history.past_len());
-        // 200000 x 10 px of 8-bit RGBA output: twice the test budget.
-        let err = s.execute("edit.transform", stretch(2e5)).unwrap_err().to_string();
+        // 1000000 x 10 px of 8-bit RGBA output: about twice the test budget.
+        let err = s.execute("edit.transform", stretch(1e6)).unwrap_err().to_string();
         assert!(err.starts_with("too large to transform: the transformed layer \"Layer 1\""), "{err}");
         assert!(
-            err.contains("would be 200002 x 10 px (8 MB), more than the 4 MB Memory Usage allows") && err.ends_with("the document was not changed"),
+            err.contains("would be 1000002 x 10 px (39 MB), more than the 20 MB Memory Usage allows") && err.ends_with("the document was not changed"),
             "{err}"
         );
         // Nothing was allocated, so nothing ran short (#7807).
@@ -895,7 +898,7 @@ mod tests {
         let dot = s.active().unwrap().active_layer.unwrap();
         s.edit("paint", |doc, _| {
             doc.layer_mut(dot).unwrap().surface_mut().unwrap().fill_rect(Rect::new(10, 12, 11, 13), &[0.0, 1.0, 0.0, 1.0]);
-            // Widen the column to 8 px (x 2..10), so it alone needs 400002 x 10 px.
+            // Widen the column to 8 px (x 2..10), so it alone needs 800002 x 10 px (31 MB).
             doc.layer_mut(wide).unwrap().surface_mut().unwrap().fill_rect(Rect::new(2, 2, 10, 10), &[1.0, 0.0, 0.0, 1.0]);
             Ok(())
         })
@@ -906,7 +909,7 @@ mod tests {
         let st = s.active().unwrap();
         assert!(matches!(&st.doc.layer(group).unwrap().content, LayerContent::Group(g) if g.children.len() == 2));
         let (before, revision) = (st.doc.clone(), st.revision);
-        let k = 5e4;
+        let k = 1e5;
         assert!(s.execute("edit.transform", json!({"layer": group.0, "matrix": [k, 0, 0, 1, -10.0 * k, 0]})).is_err());
         let st = s.active().unwrap();
         assert!(st.doc == before && st.revision == revision, "nothing changed");
@@ -930,29 +933,30 @@ mod tests {
     }
 
     /// Each priced at its own format, as the warp makes it: an 8-bit outline, mask or channel with
-    /// alpha is 2 bytes a pixel, so 400000 x 10 px of it is twice the test budget.
+    /// alpha is 2 bytes a pixel, so a canvas-high column of it stretched 10⁶ times (34 MB) is over
+    /// the test budget.
     #[test]
     fn selections_masks_and_channels_have_the_same_budget() {
         // The selection outline of a layer transform.
         let mut s = column();
-        s.execute("select.rect", json!({"x": 10, "y": 2, "width": 1, "height": 8})).unwrap();
+        s.execute("select.rect", json!({"x": 10, "y": 0, "width": 1, "height": 16})).unwrap();
         let before = s.active().unwrap().doc.clone();
-        let err = s.execute("edit.transform", stretch(4e5)).unwrap_err().to_string();
+        let err = s.execute("edit.transform", stretch(1e6)).unwrap_err().to_string();
         assert!(err.contains("transformed selection would be"), "{err}");
         // Transform Selection.
-        let err = s.execute("select.transformSelection", stretch(4e5)).unwrap_err().to_string();
+        let err = s.execute("select.transformSelection", stretch(1e6)).unwrap_err().to_string();
         assert!(err.contains("transformed selection would be"), "{err}");
         assert!(s.active().unwrap().doc == before);
         // A targeted alpha channel.
         let mut s = column();
         s.execute("channel.new", json!({})).unwrap();
         s.edit("paint channel", |doc, _| {
-            doc.channels[0].surface.fill_rect(Rect::new(10, 2, 11, 10), &[1.0]);
+            doc.channels[0].surface.fill_rect(Rect::new(10, 0, 11, 16), &[1.0]);
             Ok(())
         })
         .unwrap();
         let before = s.active().unwrap().doc.clone();
-        let mut p = stretch(4e5);
+        let mut p = stretch(1e6);
         p["target"] = json!({"channel": 0});
         let err = s.execute("edit.transform", p).unwrap_err().to_string();
         assert!(err.contains("transformed mask or channel would be"), "{err}");
