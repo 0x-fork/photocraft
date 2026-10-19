@@ -416,21 +416,30 @@ struct Window {
     data: Vec<f32>,
 }
 
-/// Bilinear sample of `s` at (`x`, `y`) into `out` (one pixel), using `corners` (four pixels) as
-/// scratch, so the per-pixel clone loop does not allocate. Corners inside `win` come from it.
-fn sample(s: &Surface, win: &Window, x: f64, y: f64, corners: &mut [f32], out: &mut [f32]) {
+/// Bilinear sample of `s` at (`x`, `y`) into `out` (one pixel), with `corners` (resized to four
+/// pixels) as reused scratch. A footprint inside `win` is read from it, any other with one region
+/// read from `s`.
+fn sample(s: &Surface, win: &Window, x: f64, y: f64, corners: &mut Vec<f32>, out: &mut [f32]) {
     let n = out.len();
     let (x0, y0) = (x.floor() as i32, y.floor() as i32);
     let (tx, ty) = ((x - x0 as f64) as f32, (y - y0 as f64) as f32);
     let (x1, y1) = (x0.saturating_add(1), y0.saturating_add(1));
-    let w = win.area.width() as usize;
-    for (k, (px, py)) in [(x0, y0), (x1, y0), (x0, y1), (x1, y1)].into_iter().enumerate() {
-        let dst = &mut corners[k * n..(k + 1) * n];
-        if win.area.contains(px, py) {
-            let o = ((py - win.area.y0) as usize * w + (px - win.area.x0) as usize) * n;
-            dst.copy_from_slice(&win.data[o..o + n]);
-        } else {
-            s.read_pixel(px, py, dst);
+    let foot = Rect::new(x0, y0, x1.saturating_add(1), y1.saturating_add(1));
+    if !win.area.contains_rect(&foot) && foot.width() == 2 && foot.height() == 2 {
+        // Outside the window (or none): one region read looks the tile up once, where four
+        // `read_pixel` calls would look it up four times. Same corner order as below.
+        s.read_region_into(foot, corners);
+    } else {
+        corners.resize(4 * n, 0.0);
+        let w = win.area.width() as usize;
+        for (k, (px, py)) in [(x0, y0), (x1, y0), (x0, y1), (x1, y1)].into_iter().enumerate() {
+            let dst = &mut corners[k * n..(k + 1) * n];
+            if win.area.contains(px, py) {
+                let o = ((py - win.area.y0) as usize * w + (px - win.area.x0) as usize) * n;
+                dst.copy_from_slice(&win.data[o..o + n]);
+            } else {
+                s.read_pixel(px, py, dst);
+            }
         }
     }
     let r = corners;
@@ -534,7 +543,7 @@ mod tests {
     fn sample_at_the_edge_of_i32_does_not_overflow() {
         let s = Surface::new(PixelFormat::RGBA8);
         let win = Window { area: Rect::new(0, 0, 0, 0), data: Vec::new() };
-        let (mut corners, mut out) = ([0.0; 16], [1.0; 4]);
+        let (mut corners, mut out) = (Vec::new(), [1.0; 4]);
         sample(&s, &win, 3e9, 3e9, &mut corners, &mut out);
         assert_eq!(out, [0.0; 4]);
     }
@@ -546,13 +555,25 @@ mod tests {
         // Left of x = 256 is red, right is blue; the 2×2 footprint straddles the tile edge.
         s.fill_rect(Rect::new(0, 0, 256, 512), &a);
         s.fill_rect(Rect::new(256, 0, 512, 512), &b);
-        let (mut corners, mut out) = ([0.0; 16], [0.0; 4]);
+        let (mut corners, mut out) = (Vec::new(), [0.0; 4]);
         let want = [0.75, 0.0, 0.25, 1.0];
         // From the surface, from a window holding the footprint, and from one holding half of it.
         for area in [Rect::new(0, 0, 0, 0), Rect::new(250, 250, 260, 260), Rect::new(250, 250, 256, 260)] {
             let mut win = Window { area, data: Vec::new() };
             s.read_region_into(area, &mut win.data);
             sample(&s, &win, 255.25, 255.5, &mut corners, &mut out);
+            assert!(out.iter().zip(want).all(|(o, w)| (o - w).abs() < 1e-6), "{area:?}: {out:?}");
+        }
+        // Four different corners, one per tile, so both axes of the corner order count.
+        let mut q = Surface::new(PixelFormat::RGBA8);
+        for (x, y, px) in [(255, 255, [1.0, 0.0, 0.0, 1.0]), (256, 255, [0.0, 1.0, 0.0, 1.0]), (255, 256, [0.0, 0.0, 1.0, 1.0]), (256, 256, [1.0; 4])] {
+            q.fill_rect(Rect::new(x, y, x + 1, y + 1), &px);
+        }
+        let want = [0.375, 0.25, 0.75, 1.0];
+        for area in [Rect::new(0, 0, 0, 0), Rect::new(250, 250, 260, 260)] {
+            let mut win = Window { area, data: Vec::new() };
+            q.read_region_into(area, &mut win.data);
+            sample(&q, &win, 255.25, 255.75, &mut corners, &mut out);
             assert!(out.iter().zip(want).all(|(o, w)| (o - w).abs() < 1e-6), "{area:?}: {out:?}");
         }
         // Outside every tile, the default (transparent) pixel.
