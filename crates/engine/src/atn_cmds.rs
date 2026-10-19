@@ -1571,32 +1571,26 @@ fn path_extension(path: &str) -> Option<String> {
 }
 
 /// `save`: a plain Save, or a Save As (`As` format, `In` destination, `Cpy` As a Copy).
-/// Only a destination that is a file of the recorded format imports: a folder (#5430), an
-/// unknown format or a mismatched extension stays a kept Photoshop step, so playback stops
+/// Only a destination that is a file of the recorded format imports: a folder (#5430), a missing
+/// or unknown format or a mismatched extension stays a kept Photoshop step, so playback stops
 /// before writing rather than saving over the played file (#7102).
 fn save_from(d: &Descriptor) -> Mapped {
     let unsupported = Mapped::Unsupported { harmless: false };
-    let dest = d.get("In  ");
-    let format = match d.get("As  ") {
-        None if dest.is_none() => return step("file.save", json!({})),
-        None => None,
-        // A format that isn't a descriptor can't be checked against the destination.
-        Some(_) => match get_obj(d, "As  ") {
-            Some(f) => Some(f),
-            None => return unsupported,
-        },
-    };
-    let Some(path) = dest.and_then(path_text) else { return unsupported };
+    if d.get("As  ").is_none() && d.get("In  ").is_none() {
+        return step("file.save", json!({}));
+    }
+    // A Save As needs a format descriptor to check the destination against: without one (or
+    // with a format that isn't a descriptor) the step is kept.
+    let Some(format) = get_obj(d, "As  ") else { return unsupported };
+    let Some(path) = d.get("In  ").and_then(path_text) else { return unsupported };
     if get_bool(d, "DIDr") == Some(true) {
         return unsupported;
     }
     let Some(ext) = path_extension(&path) else { return unsupported };
-    if let Some(f) = format {
-        let class = trimmed(&f.class_id);
-        let Some((_, exts)) = SAVE_FORMATS.iter().find(|(c, _)| *c == class) else { return unsupported };
-        if !exts.contains(&ext.as_str()) {
-            return unsupported;
-        }
+    let class = trimmed(&format.class_id);
+    let Some((_, exts)) = SAVE_FORMATS.iter().find(|(c, _)| *c == class) else { return unsupported };
+    if !exts.contains(&ext.as_str()) {
+        return unsupported;
     }
     step(if get_bool(d, "Cpy ") == Some(true) { "file.saveACopy" } else { "file.saveAs" }, json!({"path": path}))
 }
