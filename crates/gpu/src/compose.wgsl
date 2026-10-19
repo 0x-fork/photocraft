@@ -851,6 +851,7 @@ fn fs_adjust(in: VOut) -> @location(0) vec4<f32> {
 }
 
 // Mix an adjusted result B back over the original A with blend mode, opacity and mask.
+// Both ordinary and clipped adjustments use this pass, retaining the original alpha.
 @fragment
 fn fs_adjmix(in: VOut) -> @location(0) vec4<f32> {
     let p = local(in.pos);

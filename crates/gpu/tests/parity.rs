@@ -2632,7 +2632,6 @@ fn pass_through_clipping_base_with_an_adjustment() {
     check(&mut g, &d, "pass-through clipping base with an adjustment");
 }
 
-
 /// An adjustment has no standalone source alpha: its opacity and mask gate binary coverage.
 #[test]
 fn dissolve_adjustment_matches_cpu() {
@@ -2670,4 +2669,22 @@ fn dissolve_effects_stack_matches_cpu() {
     styled.effects.items.push(Effect::ColorOverlay { common: FxCommon::new(BlendMode::Normal, 1.0), color: Color::BLACK });
     d.layers.push(styled);
     check(&mut g, &d, "dissolve effects");
+}
+
+#[test]
+fn dissolve_clipped_adjustment_matches_cpu() {
+    let Some(mut g) = gpu() else { return };
+    for fmt in [PixelFormat::RGBA8, PixelFormat::RGBA16, PixelFormat::RGBA32F] {
+        let mut d = Document::new("clipped adjustment", Size::new(272, 24), ColorMode::Rgb, fmt.sample);
+        let base = noise_layer("base", fmt, Rect::new(-3, -2, 268, 22), 47, 0.0);
+        let mut adjustment = Layer::new("invert", LayerContent::Adjustment(Adjustment::Invert));
+        adjustment.clipped = true;
+        adjustment.blend = BlendMode::Dissolve;
+        adjustment.opacity = 0.6;
+        adjustment.fill_opacity = 0.5;
+        adjustment.mask = Some(mask(Rect::new(0, 0, 260, 24), 48, 0.0));
+        d.layers.extend([base, adjustment]);
+        check(&mut g, &d, &format!("clipped Dissolve adjustment {fmt:?}"));
+        diff_rect(&mut g, &d, Rect::new(250, 1, 270, 20), "clipped adjustment offset region").unwrap_or_else(|e| panic!("{e}"));
+    }
 }

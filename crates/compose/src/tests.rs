@@ -3329,3 +3329,49 @@ fn dissolve_color_overlay_preserves_binary_layer_coverage() {
     let continuous = render(&d, d.bounds()).px;
     assert!(continuous.iter().all(|p| (p[0] - 0.5).abs() < E));
 }
+
+#[test]
+fn clipped_dissolve_adjustment_preserves_alpha_and_document_coverage() {
+    for fmt in [PixelFormat::RGBA8, PixelFormat::RGBA16, PixelFormat::RGBA32F] {
+        let mut d = Document::new("clipped adjustment", Size::new(272, 12), ColorMode::Rgb, fmt.sample);
+        let bounds = Rect::new(-3, -2, 272, 12);
+        let mut base = Layer::raster("base", fmt);
+        base.surface_mut().unwrap().fill_rect(bounds, &[1.0, 1.0, 1.0, 0.5]);
+        d.layers.push(base);
+        let original = render(&d, bounds);
+        let mut adjustment = Layer::new("invert", LayerContent::Adjustment(Adjustment::Invert));
+        adjustment.clipped = true;
+        adjustment.blend = BlendMode::Dissolve;
+        adjustment.opacity = 0.6;
+        adjustment.fill_opacity = 0.5;
+        let mut mask = photocraft_raster::Surface::new(PixelFormat::GRAY8);
+        mask.fill_rect(Rect::new(-3, -2, 260, 12), &[1.0]);
+        adjustment.mask = Some(LayerMask { surface: mask, enabled: true, linked: true, density: 1.0, feather: 0.0 });
+        d.layers.push(adjustment);
+        let whole = render(&d, bounds);
+        let mut changed = 0;
+        for y in bounds.y0..bounds.y1 {
+            for x in bounds.x0..bounds.x1 {
+                let p = whole.get(x, y);
+                let value = if x < 260 && dissolve_noise(x, y) < 0.3 {
+                    changed += 1;
+                    0.0
+                } else {
+                    1.0
+                };
+                assert!(close4(p, [value, value, value, original.get(x, y)[3]]), "{fmt:?} at ({x}, {y}): {p:?}");
+            }
+        }
+        assert!(changed > 0 && changed < whole.px.len());
+        let region = Rect::new(250, 1, 270, 10);
+        let part = render(&d, region);
+        for y in region.y0..region.y1 {
+            for x in region.x0..region.x1 {
+                assert!(close4(part.get(x, y), whole.get(x, y)), "{fmt:?} region at ({x}, {y})");
+            }
+        }
+        d.layers.last_mut().unwrap().blend = BlendMode::Normal;
+        let normal = render(&d, bounds);
+        assert!(normal.px.iter().any(|p| p[0] > 0.01 && p[0] < 0.99), "Normal keeps continuous mixing");
+    }
+}
