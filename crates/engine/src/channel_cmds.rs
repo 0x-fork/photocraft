@@ -445,7 +445,12 @@ fn ref_planes(doc: &Document, layer: Option<LayerId>, active: Option<LayerId>, r
                 _ => planes,
             }
         }
-        ChanRef::Alpha(i) => vec![read_plane(&doc.channels.get(i).ok_or_else(|| EngineError::Other(format!("no alpha channel {i}")))?.surface, area)],
+        ChanRef::Alpha(i) => {
+            let ch = doc.channels.get(i).ok_or_else(|| EngineError::Other(format!("no alpha channel {i}")))?;
+            let plane = read_plane(&ch.surface, area);
+            // A spot channel stores ink (1 = solid) but reads as its tone, as in Photoshop.
+            vec![if ch.spot.is_some() { plane.into_iter().map(|v| 1.0 - v).collect() } else { plane }]
+        }
         ChanRef::QuickMask => vec![read_plane(&doc.quick_mask.as_ref().ok_or_else(|| EngineError::Other("not in Quick Mask mode".into()))?.surface, area)],
         ChanRef::Selection => vec![sel::mask_from_surface(doc.selection.as_ref(), area)],
         ChanRef::Transparency => {
@@ -1713,10 +1718,12 @@ fn apply_image(s: &mut Session, p: &Value) -> Result<Value> {
             // source-over, so applying to an empty layer copies the source in any mode.
             let out_a = if preserve { base_a } else { w + base_a * (1.0 - w) };
             for (c, b) in px[..colors].iter_mut().enumerate() {
-                // One plane is a tone (a channel, a mask): a CMYK layer takes it as ink.
-                let top = if src.len() > 1 { src.get(c).unwrap_or(&src[0])[i] } else { tone(sf.mode, src[0][i]) };
-                let blended = top + (blending.apply(*b, top) - top) * base_a;
-                *b = if preserve { *b + (blended - *b) * w } else { (w * blended + base_a * (1.0 - w) * *b) / out_a };
+                // Blended as tone, as Photoshop does: a CMYK layer's ink turns into tone and back
+                // (Multiply darkens, so it adds ink). One plane (a channel, a mask) is a tone already.
+                let top = if src.len() > 1 { tone(sf.mode, src.get(c).unwrap_or(&src[0])[i]) } else { src[0][i] };
+                let base = tone(sf.mode, *b);
+                let blended = top + (blending.apply(base, top) - top) * base_a;
+                *b = tone(sf.mode, if preserve { base + (blended - base) * w } else { (w * blended + base_a * (1.0 - w) * base) / out_a });
             }
             if sf.alpha {
                 px[colors] = out_a;

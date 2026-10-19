@@ -646,6 +646,37 @@ fn cmyk_apply_image_of_a_colour_channel_keeps_ink_and_tone_apart() {
 }
 
 #[test]
+fn cmyk_apply_image_blends_as_tone() {
+    // Photoshop blends a CMYK layer as tone: Multiply (the default) with a white source changes
+    // nothing, and Multiply with Cyan multiplies every channel's tone by Cyan's, so it adds ink.
+    // A spot channel reads as tone too: its solid ink applies as full ink and isn't selected.
+    for depth in [8, 16] {
+        let mut s = cmyk_session(depth);
+        let (left, right) = (px(&s, 5, 5), px(&s, 30, 5));
+        let near = |a: &[f32], b: &[f32]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 0.01);
+        s.execute("channel.new", json!({"fill": "white"})).unwrap();
+        s.execute("channel.target", json!({"channel": "composite"})).unwrap();
+        s.execute("image.applyImage", json!({"source": {"channel": 0}})).unwrap();
+        assert!(near(&px(&s, 5, 5), &left), "depth {depth}: white multiplies to no change, {:?} vs {left:?}", px(&s, 5, 5));
+        s.undo();
+        s.execute("image.applyImage", json!({"source": {"channel": "cyan"}, "blending": "multiply"})).unwrap();
+        let want: Vec<f32> = left[..4].iter().map(|&ink| 1.0 - (1.0 - ink) * (1.0 - left[0])).chain([1.0]).collect();
+        assert!(near(&px(&s, 5, 5), &want), "depth {depth}: {:?} vs {want:?}", px(&s, 5, 5));
+        assert!(near(&px(&s, 30, 5), &right), "depth {depth}: no ink stays no ink");
+        s.undo();
+        rect(&mut s, 0, 0, 20, 20, "replace");
+        let r = s.execute("channel.newSpot", json!({"color": "#ff00ff", "solidity": 100})).unwrap();
+        let spot = r["channel"].as_u64().unwrap();
+        s.execute("select.deselect", json!({})).unwrap();
+        s.execute("channel.target", json!({"channel": "composite"})).unwrap();
+        s.execute("image.applyImage", json!({"source": {"channel": spot}, "blending": "normal"})).unwrap();
+        assert!(near(&px(&s, 5, 5), &[1.0; 5]) && near(&px(&s, 30, 5), &right), "depth {depth}: spot ink applies as ink, {:?}", px(&s, 5, 5));
+        s.execute("select.loadSelection", json!({"channel": spot})).unwrap();
+        assert!(sel_at(&s, 5, 5) < 1e-3 && (sel_at(&s, 30, 5) - 1.0).abs() < 1e-3, "depth {depth}: the spot's unprinted area loads");
+    }
+}
+
+#[test]
 fn calculations_results() {
     let mut s = session();
     rect(&mut s, 0, 0, 20, 20, "replace");
