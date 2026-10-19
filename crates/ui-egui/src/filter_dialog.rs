@@ -1114,11 +1114,10 @@ fn add_source_documents(s: &mut photocraft_engine::Session, doc_id: photocraft_d
     let Some(spec) = photocraft_engine::commands::find(command) else { return };
     let Some(o) = p.as_object_mut() else { return };
     let mut added: Vec<(usize, usize)> = Vec::new();
-    for param in parse_spec(spec.params).into_iter().filter(|p| p.kind == Kind::Document) {
-        let Some(v) = o.get_mut(&param.key) else { continue };
-        let Some(i) = v.as_u64().and_then(|i| usize::try_from(i).ok()) else { continue };
+    let mut remap = |v: &mut Value| {
+        let Some(i) = v.as_u64().and_then(|i| usize::try_from(i).ok()) else { return };
         // An index past the open documents stays as given, so the preview fails like OK would.
-        let Some(src) = documents.get(i) else { continue };
+        let Some(src) = documents.get(i) else { return };
         let at = if src.id == doc_id {
             0
         } else if let Some(&(_, at)) = added.iter().find(|(j, _)| *j == i) {
@@ -1129,6 +1128,18 @@ fn add_source_documents(s: &mut photocraft_engine::Session, doc_id: photocraft_d
             at
         };
         *v = json!(at);
+    };
+    for param in parse_spec(spec.params).into_iter().filter(|p| p.kind == Kind::Document) {
+        if let Some(v) = o.get_mut(&param.key) {
+            remap(v);
+        }
+    }
+    // A smart filter being edited carries its filter's params one level down: Displace's
+    // `mapDocument` there names an open document too.
+    if command == SMART_FILTER_SET_PARAMS
+        && let Some(v) = o.get_mut("params").and_then(Value::as_object_mut).and_then(|f| f.get_mut("mapDocument"))
+    {
+        remap(v);
     }
     // Adding a document makes it active: the command still runs on the edited one.
     s.set_active(0);

@@ -46,7 +46,7 @@ mod hue_sat;
 #[path = "perspective_warp_map.rs"]
 mod perspective_warp;
 
-pub use displace::embedded_map as displace_embedded_map;
+pub use displace::{embed_map as displace_embed_map, embedded_map as displace_embedded_map, without_map as displace_without_map};
 
 /// Command id of a Photoshop smart filter PhotoCraft does not implement. Its params hold the
 /// filter's name, Photoshop filter id and descriptor (`psd`, hex); it renders as a pass-through.

@@ -38,6 +38,10 @@ const HEADER: usize = 10;
 const MODE_TWO_PLANES: u16 = 3;
 /// 8K × 8K: far beyond the observed document-sized maps, and bounds the f32 map we build.
 const MAX_MAP_PIXELS: usize = 1 << 26;
+/// 4K × 4K: the largest map PhotoCraft embeds itself. Params hold it as hex, about 4 bytes per
+/// pixel, copied with every history state and written into `.pcraft`'s manifest, so a few of the
+/// largest readable maps would make a file the reader refuses.
+const MAX_EMBED_PIXELS: usize = 1 << 24;
 /// The template is the item plus the map; a little room for the rest of the descriptor.
 const MAX_TEMPLATE_BYTES: usize = 2 * MAX_MAP_PIXELS + (1 << 20);
 
@@ -154,6 +158,69 @@ pub(super) fn export_item(params: &J) -> Result<Descriptor, String> {
     set_enum(&mut f, "UndA", choice("undefinedAreas", &UNDEFINED, "repeat")?);
     set(&mut item, "Fltr", Value::Descriptor(f));
     Ok(item)
+}
+
+/// `filter.distort.displace` params with `map` embedded the way Photoshop embeds a Displace
+/// smart filter's map: a `filterFX` item ([`TEMPLATE_KEY`]) holding it as two 8-bit planes. A
+/// smart filter re-renders from its params alone, so a map read from a file or an open document
+/// must travel with them (#7423); embedded, it also saves to `.pcraft` and PSD like an imported
+/// one. `map`'s first channel is the horizontal map and its second the vertical one (the first
+/// again for one or two channels), as the filter reads them. `mapPath`, `mapDocument` and
+/// `mapLayer` are dropped: `map` was already read from them (from that layer, when one was
+/// named), and the embedded map replaces them. `None` for params that are not an
+/// object, or an empty, short or oversized map.
+pub fn embed_map(params: &J, map: &Image) -> Option<J> {
+    let (w, h) = (map.rect.width(), map.rect.height());
+    let n = usize::try_from(w).ok()?.checked_mul(usize::try_from(h).ok()?)?;
+    if n == 0 || n > MAX_EMBED_PIXELS || map.ch == 0 || map.data.len() < n.checked_mul(map.ch)? {
+        return None;
+    }
+    let vertical = if map.ch >= 3 { 1 } else { 0 };
+    let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let pixels = || map.data.chunks_exact(map.ch).take(n);
+    let mut planes = Vec::with_capacity(HEADER + 2 * n);
+    planes.extend(h.to_le_bytes());
+    planes.extend(w.to_le_bytes());
+    planes.extend(MODE_TWO_PLANES.to_le_bytes());
+    planes.extend(pixels().map(|px| px.first().map_or(0, |v| byte(*v))));
+    planes.extend(pixels().map(|px| px.get(vertical).map_or(0, |v| byte(*v))));
+    let enumerated = |t: &str, v: &str| Value::Enumerated { type_id: Id::new(t), value: Id::new(v) };
+    // The settings here are placeholders: the params' own replace them when the filter renders
+    // and when it is written to PSD (`export_item`).
+    let neutral = SmartFilter { command: String::new(), params: J::Null, blend: photocraft_color::BlendMode::Normal, opacity: 1.0, visible: true };
+    let item = Descriptor::new("filterFX")
+        .with("Nm  ", Value::Text(photocraft_psd::descriptor::UnicodeString::new_nul("Displace...")))
+        .with("blendOptions", blend_options(&neutral))
+        .with("enab", Value::Boolean(true))
+        .with("hasoptions", Value::Boolean(true))
+        .with(
+            "Fltr",
+            Value::Descriptor(
+                Descriptor::new(CLASS)
+                    .with("HrzS", Value::Integer(10))
+                    .with("VrtS", Value::Integer(10))
+                    .with("DspM", enumerated("DspM", "StrF"))
+                    .with("UndA", enumerated("UndA", "RptE"))
+                    .with("EmbF", Value::Boolean(true))
+                    .with(MAP_KEY, Value::RawData(planes)),
+            ),
+        )
+        .with("filterID", Value::Integer(FILTER_ID));
+    let mut out = params.as_object()?.clone();
+    for key in ["mapPath", "mapDocument", "mapLayer"] {
+        out.remove(key);
+    }
+    out.insert(TEMPLATE_KEY.into(), json!(to_hex(&item.to_bytes())));
+    Some(J::Object(out))
+}
+
+/// `params` without the embedded map, for a Displace that names another one to read instead.
+pub fn without_map(params: &J) -> J {
+    let mut out = params.clone();
+    if let J::Object(m) = &mut out {
+        m.remove(TEMPLATE_KEY);
+    }
+    out
 }
 
 /// The displacement map embedded in Displace params imported from PSD (`None` when there is
