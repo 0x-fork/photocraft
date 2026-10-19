@@ -144,11 +144,44 @@ fn near_border(t: &TransformSession, p: [f64; 2], tol: f64) -> bool {
     })
 }
 
-/// The text's frame when `p` is just outside it, where a plain press moves the text (#5956).
+/// Screen points from `p` to the frame's outline, as the view draws it (zoom, rotation and pixel
+/// aspect).
+fn border_points(app: &PhotocraftApp, t: &TransformSession, p: [f64; 2]) -> f64 {
+    let xf = ViewXform::active(app);
+    let zoom = f64::from(app.point_zoom().max(0.01));
+    let on_screen = |q: [f64; 2]| {
+        let d = [q[0] - p[0], q[1] - p[1]];
+        match xf {
+            Some(xf) => {
+                let v = xf.map_vec(egui::vec2(d[0] as f32, d[1] as f32));
+                [f64::from(v.x), f64::from(v.y)]
+            }
+            None => [d[0] * zoom, d[1] * zoom],
+        }
+    };
+    t.quad
+        .iter()
+        .zip(t.quad.iter().cycle().skip(1))
+        .take(4)
+        .map(|(a, b)| {
+            let (a, b) = (on_screen(*a), on_screen(*b));
+            let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+            let len = dx * dx + dy * dy;
+            let f = if len > 0.0 { (-a[0] * dx - a[1] * dy) / len } else { 0.0 }.clamp(0.0, 1.0);
+            (a[0] + f * dx).hypot(a[1] + f * dy)
+        })
+        .fold(f64::INFINITY, f64::min)
+}
+
+/// The text's frame when `p` is just outside it, where a plain press moves the text (#5956). Over
+/// another type layer the press is the Type tool's, as before.
 fn move_zone(app: &mut PhotocraftApp, p: [f64; 2]) -> Option<TransformSession> {
     let t = frame(app)?;
-    let reach = MOVE_REACH_PT / f64::from(app.point_zoom().max(0.01));
-    (crate::transform_tool::hit(&t, p, 0.0) == Hit::Outside && near_border(&t, p, reach)).then_some(t)
+    if crate::transform_tool::hit(&t, p, 0.0) != Hit::Outside || border_points(app, &t, p) > MOVE_REACH_PT {
+        return None;
+    }
+    let other = crate::type_tool::hit_layer(app, p[0], p[1]).is_some_and(|id| id.0 != t.layer);
+    (!other).then_some(t)
 }
 
 /// Start a temporary drag of `frame` from `p` on `h`. Returns false when it can't start.

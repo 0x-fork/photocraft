@@ -808,6 +808,53 @@ fn a_drag_just_outside_the_typed_text_moves_it() {
     assert_affine(text(h.state(), id).transform, after.transform);
 }
 
+/// #5956 review: the reach is screen points as the view draws them, so a pixel-aspect stretch
+/// doesn't widen it, and a press on another type layer near the text is still the Type tool's.
+#[test]
+fn the_move_reach_is_on_screen_and_leaves_other_type_alone() {
+    let (mut app, id) = transform_app(false, false, Affine::translate(500.0, 350.0));
+    app.ui.view.pixel_aspect_correction = true;
+    app.ui.view.pixel_aspect = "anamorphic2To1".into();
+    let mut h = harness(1.0, app);
+    h.run_steps(1);
+    let f = crate::type_transform::frame(h.state_mut()).unwrap();
+    let mid = (f.quad[1][1] + f.quad[2][1]) / 2.0;
+    let edge = frame_point(h.state(), [f.quad[1][0], mid]);
+    let (ctx, view) = (h.ctx.clone(), xf(h.state()));
+    assert_eq!(crate::type_transform::cursor(h.state_mut(), &ctx, &view, edge + egui::vec2(30.0, 0.0), Modifiers::NONE), Some(egui::CursorIcon::Move));
+    // 50 points out is 25 document points across a 2:1 pixel: out of reach.
+    assert_eq!(crate::type_transform::cursor(h.state_mut(), &ctx, &view, edge + egui::vec2(50.0, 0.0), Modifiers::NONE), None);
+    let before = text(h.state(), id);
+    transform_drag(&mut h, edge + egui::vec2(50.0, 0.0), edge + egui::vec2(110.0, 30.0), Modifiers::NONE, false);
+    assert_affine(text(h.state(), id).transform, before.transform);
+}
+
+/// #5956 review: a press on another type layer within reach of the text being typed is the Type
+/// tool's (it commits and moves to that text), not a move of the edited text.
+#[test]
+fn a_press_on_other_type_near_the_text_does_not_move_it() {
+    let mut app = new_app();
+    let id = LayerId(app.run("type.create", json!({"text": "Hi", "size": 32, "x": 300, "y": 420})).unwrap()["layer"].as_u64().unwrap());
+    let right = app.session.active().unwrap().doc.layer(id).unwrap().surface().unwrap().content_bounds().x1;
+    let other = LayerId(app.run("type.create", json!({"text": "Other", "size": 32, "x": right + 6, "y": 420})).unwrap()["layer"].as_u64().unwrap());
+    app.run("layer.select", json!({"layer": id.0})).unwrap();
+    super::edit_active(&mut app).unwrap();
+    let mut h = harness(1.0, app);
+    h.run_steps(1);
+    let f = crate::type_transform::frame(h.state_mut()).unwrap();
+    let ob = h.state().session.active().unwrap().doc.layer(other).unwrap().surface().unwrap().content_bounds();
+    let mid = f64::from(ob.y0 + ob.y1) / 2.0;
+    let on_other = frame_point(h.state(), [f64::from(ob.x0) + 4.0, mid]);
+    let edge = frame_point(h.state(), [f.quad[1][0], mid]);
+    assert!(on_other.x - edge.x > 0.0 && on_other.x - edge.x < 40.0, "the other text is within reach: {} pt", on_other.x - edge.x);
+    let (ctx, view) = (h.ctx.clone(), xf(h.state()));
+    assert_ne!(crate::type_transform::cursor(h.state_mut(), &ctx, &view, on_other, Modifiers::NONE), Some(egui::CursorIcon::Move));
+    let before = text(h.state(), id);
+    transform_drag(&mut h, on_other, on_other + egui::vec2(60.0, 30.0), Modifiers::NONE, false);
+    assert_affine(text(h.state(), id).transform, before.transform);
+    assert_ne!(h.state().ui.text_edit.as_ref().map(|e| e.layer), Some(id.0), "the edit moved on");
+}
+
 /// #1091: modifier changes alone draw/hide the oriented frame without touching editing/history.
 #[test]
 fn temporary_type_transform_visibility_and_cursors() {
