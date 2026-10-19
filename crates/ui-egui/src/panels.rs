@@ -2013,11 +2013,13 @@ fn navigator(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // Visible-area rectangle.
     let v = app.ui.views[idx].clone();
     let canvas = app.last_canvas_rect;
-    let point_zoom = (v.zoom / app.canvas_ppp()).max(1e-6);
+    let (zoom, center) =
+        if v.zoom_animating && app.session.prefs().general.animated_zoom { v.display_camera.unwrap_or((v.zoom, v.center)) } else { (v.zoom, v.center) };
+    let point_zoom = (zoom / app.canvas_ppp()).max(1e-6);
     // Pixel aspect correction shows fewer document columns across the same canvas width.
     let vw = canvas.width() / point_zoom / app.ui.view.display_aspect() * s;
     let vh = canvas.height() / point_zoom * s;
-    let c = pos2(rect.min.x + v.center[0] * s, rect.min.y + v.center[1] * s);
+    let c = pos2(rect.min.x + center[0] * s, rect.min.y + center[1] * s);
     let vr = Rect::from_center_size(c, vec2(vw, vh)).intersect(frame.shrink(1.0));
     ui.painter().rect_stroke(vr, 2.0, Stroke::new(1.5, Color32::from_rgb(255, 84, 84)), StrokeKind::Middle);
     // Photoshop's one row under the preview (#4840): the zoom, typed in percent, then Zoom Out,
@@ -2142,6 +2144,53 @@ pub(crate) fn last_navigator_controls(ctx: &egui::Context) -> Option<Rect> {
 mod navigator_wheel_tests {
     use super::*;
     use egui::{Event, Modifiers, MouseWheelUnit, RawInput, TouchPhase};
+
+    /// The painted viewport follows the camera visible on the canvas, including preference changes.
+    #[test]
+    fn navigator_viewport_follows_the_displayed_camera_during_animation() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 200, "height": 100})).unwrap();
+        app.sync_views();
+        app.last_canvas_rect = Rect::from_min_size(Pos2::ZERO, vec2(80.0, 60.0));
+        let ctx = egui::Context::default();
+        PhotocraftApp::setup_context(&ctx, crate::theme::ThemeKind::ALL[0]);
+        for _ in 0..3 {
+            frame(&mut app, &ctx, pos2(5.0, 5.0), 0.0);
+        }
+        for (animating, enabled, displayed) in [
+            (true, true, Some((2.0, [70.0, 40.0]))),
+            (true, true, Some((3.0, [110.0, 50.0]))),
+            (false, true, Some((2.0, [70.0, 40.0]))),
+            (true, false, Some((2.0, [70.0, 40.0]))),
+            (true, true, None),
+        ] {
+            app.run("prefs.set", json!({"values": {"general.animatedZoom": enabled}})).unwrap();
+            let v = &mut app.ui.views[0];
+            v.zoom = 4.0;
+            v.center = [140.0, 60.0];
+            v.zoom_animating = animating;
+            v.display_camera = displayed;
+            let mut out = ctx.run_ui(RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(430.0, 460.0))), ..Default::default() }, |ui| {
+                navigator(&mut app, ui)
+            });
+            let painted = out
+                .shapes
+                .iter()
+                .find_map(|s| match &s.shape {
+                    egui::Shape::Rect(r) if r.stroke.color == Color32::from_rgb(255, 84, 84) => Some(r.rect),
+                    _ => None,
+                })
+                .expect("Navigator viewport outline");
+            let (zoom, center) = if animating && enabled { displayed.unwrap_or((4.0, [140.0, 60.0])) } else { (4.0, [140.0, 60.0]) };
+            let preview = last_navigator_preview(&ctx).unwrap();
+            let scale = preview.width() / 200.0;
+            let expected_center = preview.min + vec2(center[0], center[1]) * scale;
+            let expected_size = vec2(80.0 / app.ui.view.display_aspect(), 60.0) * (app.canvas_ppp() / zoom * scale);
+            assert!((painted.center() - expected_center).length() < 0.01, "{animating}/{enabled}/{displayed:?}: {painted:?}");
+            assert!((painted.size() - expected_size).length() < 0.01, "{animating}/{enabled}/{displayed:?}: {painted:?}");
+            out.textures_delta.clear();
+        }
+    }
 
     fn frame(app: &mut PhotocraftApp, ctx: &egui::Context, pointer: Pos2, wheel: f32) {
         let mut events = vec![Event::PointerMoved(pointer)];
