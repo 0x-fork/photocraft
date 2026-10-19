@@ -169,3 +169,9 @@ sync_github_name = true
 [people.Silvertree2010]
 display_name = "Netter"
 sync_github_name = false
+
+[people.Byxis]
+sync_github_name = true
+
+[people.00xJS]
+sync_github_name = true
