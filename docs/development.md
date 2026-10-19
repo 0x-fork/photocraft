@@ -12,7 +12,9 @@
 ### Windows source builds
 
 Use the Rust MSVC toolchain and install Visual Studio or Microsoft C++ Build Tools with the
-**Desktop development with C++** workload. Follow Microsoft's
+**Desktop development with C++** workload (on Windows on ARM64 / `aarch64-pc-windows-msvc`, such
+as NVIDIA RTX Spark, also select **C++ Clang Compiler for Windows** or ensure `clang-cl.exe` is on
+`PATH`, as `aws-lc-sys` needs it to assemble ARMv8 crypto routines). Follow Microsoft's
 [Rust setup guide](https://learn.microsoft.com/en-us/windows/dev-environment/rust/setup),
 then open a new terminal and check `cargo --version` and `rustc --version`.
 
