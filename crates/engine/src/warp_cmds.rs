@@ -218,7 +218,7 @@ fn warp_layer(
             Some(sel) => crate::transform_cmds::move_gray_selected(
                 &m.surface,
                 sel,
-                &|lifted, src| warp_mesh_surface_with(lifted, src, &map, interp, &Interrupt::NONE).ok_or(EngineError::Cancelled),
+                &|lifted, src| warp_mesh_surface_with(lifted, src, &map, interp, ctl).ok_or(EngineError::Cancelled),
                 &whole,
             )?,
             None => whole(&m.surface)?,
@@ -963,5 +963,28 @@ mod tests {
             let want = if x < 15 { 0.0 } else { 1.0 };
             assert!((mask_at(&s, x, y) - want).abs() < 0.01, "({x},{y}): {}", mask_at(&s, x, y));
         }
+    }
+
+    /// Esc stops the warp of a selected linked mask too, not only of the pixels. A fill layer has
+    /// no pixels to warp, so the mask is the only part that can see the cancel.
+    #[test]
+    fn a_cancelled_warp_stops_in_a_selected_linked_mask() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 100, "height": 100})).unwrap();
+        s.execute("layer.newFillLayer.solidColor", json!({})).unwrap();
+        s.execute("layer.layerMask.revealAll", json!({})).unwrap();
+        s.edit("link", |doc, active| {
+            doc.layer_mut(active.unwrap()).unwrap().mask.as_mut().unwrap().linked = true;
+            Ok(())
+        })
+        .unwrap();
+        s.execute("select.rect", json!({"x": 10, "y": 10, "width": 10, "height": 10})).unwrap();
+        let st = s.active().unwrap();
+        let (sel, mut l) = (st.doc.selection.clone().unwrap(), st.doc.layer(st.active_layer.unwrap()).unwrap().clone());
+        let rect = Rect::new(10, 10, 20, 20);
+        let w = Warp::preset(WarpStyle::Flag, 35.0, rect_f(rect));
+        let ctl = Interrupt::cancel_only(&|| true);
+        let r = warp_layer(Some(&sel), Locks::default(), &mut l, &w, rect, Interp::Bicubic, None, &ctl);
+        assert!(matches!(r, Err(EngineError::Cancelled)), "{r:?}");
     }
 }
