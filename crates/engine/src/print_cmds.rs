@@ -526,13 +526,15 @@ pub fn layout(doc: &Document, p: &Value, cmd: &str) -> Result<PrintLayout> {
     // borderless paper); marks keep their inset inside it. Without one (CUPS, PDF), the paper
     // minus a fixed margin.
     let emulsion_down = p.get("emulsionDown").and_then(Value::as_bool).unwrap_or(false);
+    let fit = p.get("scaleToFit").and_then(Value::as_bool).unwrap_or(false);
     let fit_box = match printable(p, (pw, ph), cmd)? {
         Some((x, y, w, h)) => {
             // Emulsion Down mirrors the page as it prints: fit the mirror of the printable area,
             // so the printed image lands inside the real one.
             let x = if emulsion_down { pw - x - w } else { x };
             let inset = if has_marks { 36.0 } else { 0.0 };
-            if !(w > 2.0 * inset && h > 2.0 * inset) {
+            // Only Scale to Fit Media needs room for the marks; a manual scale is the user's.
+            if fit && !(w > 2.0 * inset && h > 2.0 * inset) {
                 return Err(bad(cmd, "the printable area is too small for crop and registration marks"));
             }
             (x + inset, y + inset, w - 2.0 * inset, h - 2.0 * inset)
@@ -542,7 +544,6 @@ pub fn layout(doc: &Document, p: &Value, cmd: &str) -> Result<PrintLayout> {
             (margin, margin, pw - 2.0 * margin, ph - 2.0 * margin)
         }
     };
-    let fit = p.get("scaleToFit").and_then(Value::as_bool).unwrap_or(false);
     let scale = if fit { (fit_box.2 / iw).min(fit_box.3 / ih) } else { p.get("scale").and_then(Value::as_f64).filter(|v| *v > 0.0).unwrap_or(100.0) / 100.0 };
     let (w, h) = (iw * scale, ih * scale);
     let center = p.get("center").and_then(Value::as_bool).unwrap_or(true);

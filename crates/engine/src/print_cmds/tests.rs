@@ -860,3 +860,21 @@ fn a_print_uses_the_printable_area_but_does_not_remember_it() {
     let last = last_print(&s).unwrap();
     assert!(last.get("printable").is_none() && last["scaleToFit"] == true, "{last}");
 }
+
+#[test]
+fn a_rejected_printable_area_fails_the_print_and_changes_nothing() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 500, "height": 1000, "resolution": 72})).unwrap();
+    s.execute("file.print", json!({"paper": "a3", "scale": 50, "dryRun": true})).unwrap();
+    let before = (last_print(&s), s.prefs.get().dialogs.get(REMEMBERED).cloned(), s.active().unwrap().doc.clone());
+    for printable in [json!([2000, 0, 100, 100]), json!([0, "oops", 0, 842.29, 1191.14])] {
+        let r = s.execute("file.print", json!({"paper": "a3", "scaleToFit": true, "printable": printable, "dryRun": true}));
+        assert!(r.is_err(), "{printable}: {r:?}");
+    }
+    assert!(before == (last_print(&s), s.prefs.get().dialogs.get(REMEMBERED).cloned(), s.active().unwrap().doc.clone()));
+    // Marks need room only to fit: a small manual scale in a 60 pt-wide area prints.
+    let r = s.execute("file.print", json!({"paper": "a3", "scale": 5, "printable": [0, 0, 60, 1191.14], "cornerCropMarks": true, "dryRun": true}));
+    assert!(r.is_ok(), "{r:?}");
+    let r = s.execute("file.print", json!({"paper": "a3", "scaleToFit": true, "printable": [0, 0, 60, 1191.14], "cornerCropMarks": true, "dryRun": true}));
+    assert!(r.is_err(), "{r:?}");
+}
