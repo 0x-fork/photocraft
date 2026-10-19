@@ -169,3 +169,43 @@ fn new_pens_with_command_edit_paths_as_direct_selection() {
         assert_eq!(app.ui.tool, tool);
     }
 }
+
+/// #6593: a Pen press on an endpoint of an open path carries on drawing it, as in Photoshop,
+/// from its last anchor or (reversed) its first; the commit extends that subpath in one step
+/// instead of adding a second one. Elsewhere the press starts a new subpath as before.
+#[test]
+fn the_pen_carries_on_an_open_path_from_either_end() {
+    let mut app = app(Tool::Pen);
+    let anchors = |app: &PhotocraftApp| -> Vec<Vec<[f64; 2]>> {
+        work_path(app).subpaths.iter().map(|s| s.knots.iter().map(|k| [k.anchor.x, k.anchor.y]).collect()).collect()
+    };
+    let steps = |app: &PhotocraftApp| app.session.active().unwrap().history.past_len();
+    click(&mut app, 20.0, 20.0);
+    click(&mut app, 80.0, 20.0);
+    crate::vector_ui::pen_commit(&mut app, false);
+    assert_eq!(anchors(&app), [vec![[20.0, 20.0], [80.0, 20.0]]]);
+    // From the last anchor.
+    let before = steps(&app);
+    click(&mut app, 80.0, 20.0);
+    click(&mut app, 80.0, 80.0);
+    crate::vector_ui::pen_commit(&mut app, false);
+    assert_eq!(anchors(&app), [vec![[20.0, 20.0], [80.0, 20.0], [80.0, 80.0]]], "the same subpath, extended");
+    assert_eq!(steps(&app), before + 1, "one History step");
+    // From the first anchor: the subpath runs the other way and carries on past it.
+    click(&mut app, 20.0, 20.0);
+    click(&mut app, 20.0, 80.0);
+    crate::vector_ui::pen_commit(&mut app, false);
+    assert_eq!(anchors(&app), [vec![[80.0, 80.0], [80.0, 20.0], [20.0, 20.0], [20.0, 80.0]]]);
+    // Anywhere else: a new subpath next to it.
+    click(&mut app, 150.0, 150.0);
+    click(&mut app, 200.0, 150.0);
+    crate::vector_ui::pen_commit(&mut app, false);
+    assert_eq!(anchors(&app).len(), 2, "a second subpath");
+    // Closing on the far end of a resumed path closes that subpath.
+    click(&mut app, 200.0, 150.0);
+    click(&mut app, 175.0, 190.0);
+    click(&mut app, 150.0, 150.0);
+    assert!(app.ui.pen.is_none(), "closed and committed");
+    let work = work_path(&app);
+    assert_eq!((work.subpaths.len(), work.subpaths[1].closed, work.subpaths[1].knots.len()), (2, true, 3));
+}
