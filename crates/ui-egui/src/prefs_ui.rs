@@ -3506,11 +3506,13 @@ mod tests {
         assert!(!prefs::is_hidden("type.useEscToCommit"));
         assert!(!prefs::is_hidden("type.smartQuotes"));
         assert!(!prefs::is_hidden("type.showFontNamesInEnglish"));
-        // Rotate View with Trackpad and the pinch zoom are live; the other Enhanced Controls rows
-        // stay hidden.
+        // Rotate View with Trackpad, the pinch zoom and Enable Gestures are live; the other
+        // Enhanced Controls rows stay hidden.
         assert!(has_visible_fields(&values, "enhancedControls"));
         assert!(!prefs::is_hidden("enhancedControls.rotateViewWithTrackpad"));
         assert!(!prefs::is_hidden("enhancedControls.zoomWithTrackpadPinch"));
+        assert!(!prefs::is_hidden("enhancedControls.touchGestures"));
+        assert!(prefs::is_hidden("enhancedControls.scrubbySliderAcceleration"));
         // Camera Raw Defaults shows only "Open in Camera Raw" so far.
         assert!(has_visible_fields(&values, "rawDefaults"));
         assert!(!prefs::is_hidden("rawDefaults.openInCameraRaw"));
