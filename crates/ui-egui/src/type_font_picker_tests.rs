@@ -125,7 +125,12 @@ fn the_search_field_stays_put_while_the_list_scrolls() {
     // The wheel over a row scrolls the list.
     h.hover_at(h.get_by_label("Family 05").rect().center());
     for _ in 0..6 {
-        h.event(egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: vec2(0.0, -3.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE });
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: vec2(0.0, -3.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: Modifiers::NONE,
+        });
         h.run();
     }
     let scrolled = h.get_by_label("Family 00").rect();
