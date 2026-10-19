@@ -93,6 +93,7 @@ pub(crate) fn import_layered(name: &str, img: &Image, layers: &[u8]) -> Result<I
         ChannelLayout::Gray | ChannelLayout::GrayA => (PsdMode::Grayscale, 1),
         ChannelLayout::Rgb | ChannelLayout::Rgba => (PsdMode::Rgb, 3),
         ChannelLayout::Cmyk | ChannelLayout::CmykA => (PsdMode::Cmyk, 4),
+        ChannelLayout::Lab | ChannelLayout::LabA => (PsdMode::Lab, 3),
     };
     let depth = match img.sample_type() {
         CSample::U8 => 8,
@@ -201,8 +202,13 @@ pub(crate) fn export_layered(doc: &Document, opts: &ExportOptions, ctl: &photocr
     let big = doc.size.width > 30_000 || doc.size.height > 30_000;
     // The PSD exporter renders the composite we need for the TIFF itself: unmatted (the TIFF
     // keeps straight alpha) and uncompressed (its planes are interleaved below).
-    let psd_opts =
-        PsdExportOptions { force_psb: opts.force_psb || big, merged_matte: false, merged_compression: Compression::Raw, maximize_compatibility: true };
+    let psd_opts = PsdExportOptions {
+        force_psb: opts.force_psb || big,
+        merged_matte: false,
+        merged_compression: Compression::Raw,
+        maximize_compatibility: true,
+        document_path: opts.document_path.clone(),
+    };
     // TIFF has no palette, bitmap or duotone layout: the PSD model of an Indexed Color, Bitmap
     // or Duotone document is made in its pixel format (RGB or Grayscale), which the PSD exporter
     // otherwise writes in the document's own mode.
