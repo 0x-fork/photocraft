@@ -2624,6 +2624,15 @@ macro_rules! adjustment_event {
 
 const RIPPLE_SIZE: &[(&str, &str)] = &[("Sml", "small"), ("Mdm", "medium"), ("Lrg", "large")];
 
+/// Select and Mask to Photoshop. The descriptor has no field for the Refine Edge Brush, so a
+/// step with `refineStrokes` can't be exported faithfully.
+fn refine_edge_to(_: &str, p: &Value) -> Option<Descriptor> {
+    if !pixel_target(p) || p.get("refineStrokes").is_some_and(|v| !v.is_null() && v.as_array().is_none_or(|a| !a.is_empty())) {
+        return None;
+    }
+    fields_to(p, REFINE_EDGE, desc("null"))
+}
+
 /// Select and Mask (`refineSelectionEdge`). Smart Radius, decontamination and the output follow
 /// Photoshop's; the edge itself is PhotoCraft's own matting, so results differ in detail.
 const REFINE_EDGE: &[F] = &[
@@ -3000,7 +3009,17 @@ const EVENTS: &[Event] = &[
     ev!("Brdr", "border", "Border", "select.modify.border", &[F("Wdth", "radius", Kind::Px)]),
     ev!("Grow", "grow", "Grow", "select.grow", &[F("Tlrn", "tolerance", Kind::Long)]),
     ev!("Smlr", "similar", "Similar", "select.similar", &[F("Tlrn", "tolerance", Kind::Long)]),
-    ev!("", "refineSelectionEdge", "Select and Mask", "select.refineEdge", REFINE_EDGE),
+    Event {
+        code: "",
+        name: "refineSelectionEdge",
+        label: "Select and Mask",
+        ids: &["select.refineEdge"],
+        from: |d| match fields_from(d, REFINE_EDGE) {
+            Some(m) => step("select.refineEdge", Value::Object(m)),
+            None => Mapped::Unsupported { harmless: false },
+        },
+        to: refine_edge_to,
+    },
     // Edit.
     Event { code: "Fl  ", name: "fill", label: "Fill", ids: &["edit.fill", "paint.bucket"], from: fill_from, to: fill_to },
     ev!("Strk", "stroke", "Stroke", "edit.stroke", STROKE),
