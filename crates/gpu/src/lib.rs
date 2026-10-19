@@ -2181,7 +2181,11 @@ fn convert_tiles(surface: &Surface, tiles: Vec<(TileCoord, Arc<Tile>)>, kind: Te
             })
         });
         for ((t, cs), bytes) in batch.iter().zip(parts.chunks(bands as usize)) {
-            put(t, cs, &bytes.concat());
+            // One part (every format but CMYK and Lab) goes through as is: no copy per tile.
+            match bytes {
+                [one] => put(t, cs, one),
+                _ => put(t, cs, &bytes.concat()),
+            }
         }
     }
     groups.len()
