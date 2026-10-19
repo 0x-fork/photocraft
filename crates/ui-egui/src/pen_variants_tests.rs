@@ -253,7 +253,12 @@ fn undo_in_a_resumed_draft_stops_at_the_paths_own_anchors() {
     click(&mut app, 80.0, 80.0);
     assert!(crate::vector_ui::pen_undo_last_point(&mut app), "takes back the added anchor");
     assert_eq!(app.ui.pen.as_ref().map(|p| p.knots.len()), Some(2));
+    // A ⌘/Ctrl selection on the draft's anchors.
+    app.ui.direct_selection.target = Some(crate::direct_select::PathRef::Pen);
+    app.ui.direct_selection.anchors = vec![[0, 1]];
     assert!(crate::vector_ui::pen_undo_last_point(&mut app), "drops the draft");
     assert!(app.ui.pen.is_none());
+    assert_eq!(app.ui.direct_selection.target, None, "the selection on the dropped draft goes with it");
+    assert!(app.ui.direct_selection.anchors.is_empty());
     assert_eq!(work_path(&app), before, "the path is as it was");
 }

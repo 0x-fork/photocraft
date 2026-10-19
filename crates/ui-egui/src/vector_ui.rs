@@ -311,6 +311,10 @@ pub fn pen_undo_last_point(app: &mut PhotocraftApp) -> bool {
     // A resumed path's own anchors are not the draft's to take back: undoing past the ones added
     // since it resumed drops the draft and leaves the path as it was (#6593).
     if pen.resumes.as_ref().is_some_and(|r| pen.knots.len() <= r.was.knots.len()) {
+        // A ⌘/Ctrl selection on the draft goes with it.
+        if app.ui.direct_selection.target == Some(crate::direct_select::PathRef::Pen) {
+            app.ui.direct_selection = Default::default();
+        }
         app.ui.pen = None;
         return true;
     }
