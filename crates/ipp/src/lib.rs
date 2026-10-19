@@ -111,12 +111,25 @@ impl Endpoint {
         .find(Endpoint::reachable)
     }
 
-    /// `server` as a socket path (starts with `/`) or `host[:port]` (port 631 by default).
+    /// `server` as a socket path (starts with `/`) or `host[:port]` (port 631 by default). An IPv6
+    /// server is `[address]` or `[address]:port`; written bare (more than one `:`) it keeps the
+    /// default port, because its last `:` cannot be told apart from a port separator.
     pub fn parse(server: &str) -> Endpoint {
         if server.starts_with('/') {
             return Endpoint::Unix(PathBuf::from(server));
         }
-        let (host, port) = server.rsplit_once(':').and_then(|(h, p)| p.parse().ok().map(|p| (h.to_string(), p))).unwrap_or((server.to_string(), 631));
+        // `[IPv6]:port` - the brackets tell the address from the port, and are not part of the host.
+        if let Some(rest) = server.strip_prefix('[')
+            && let Some((host, tail)) = rest.split_once(']')
+        {
+            let port = tail.strip_prefix(':').and_then(|p| p.parse().ok()).unwrap_or(631);
+            return Endpoint::Tcp(host.to_string(), port);
+        }
+        // A bare IPv6 literal has more than one ':', so splitting on the last one would cut the
+        // address in half: it is the host, and the port stays the default. A zone id (`fe80::1%eth0`)
+        // carries no ':', so there a port can still follow the address.
+        let host_port = if server.matches(':').count() > 1 && !server.contains('%') { None } else { server.rsplit_once(':') };
+        let (host, port) = host_port.and_then(|(h, p)| p.parse().ok().map(|p| (h.to_string(), p))).unwrap_or((server.to_string(), 631));
         Endpoint::Tcp(host, port)
     }
 

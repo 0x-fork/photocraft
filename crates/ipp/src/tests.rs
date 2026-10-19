@@ -232,6 +232,25 @@ fn the_unix_socket_endpoint_works_and_detect_honours_cups_server() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// An IPv6 print server is not a `host:port` split: a bare address has more than one ':', and the
+/// brackets of `[address]:port` must not end up inside the host, where no resolver can read them.
+#[test]
+fn an_ipv6_print_server_is_parsed_as_a_host_not_as_host_port() {
+    assert_eq!(Endpoint::parse("::1"), Endpoint::Tcp("::1".into(), 631));
+    assert_eq!(Endpoint::parse("fe80::1"), Endpoint::Tcp("fe80::1".into(), 631));
+    assert_eq!(Endpoint::parse("2001:db8::1"), Endpoint::Tcp("2001:db8::1".into(), 631));
+    assert_eq!(Endpoint::parse("[::1]"), Endpoint::Tcp("::1".into(), 631));
+    assert_eq!(Endpoint::parse("[::1]:631"), Endpoint::Tcp("::1".into(), 631));
+    assert_eq!(Endpoint::parse("[fe80::1]:6310"), Endpoint::Tcp("fe80::1".into(), 6310));
+    // A zone id carries no ':', so a port can still follow it without brackets.
+    assert_eq!(Endpoint::parse("fe80::1%eth0:631"), Endpoint::Tcp("fe80::1%eth0".into(), 631));
+    // What already worked is unchanged.
+    assert_eq!(Endpoint::parse("cups.example"), Endpoint::Tcp("cups.example".into(), 631));
+    assert_eq!(Endpoint::parse("cups.example:6310"), Endpoint::Tcp("cups.example".into(), 6310));
+    assert_eq!(Endpoint::parse("127.0.0.1:6310"), Endpoint::Tcp("127.0.0.1".into(), 6310));
+    assert_eq!(Endpoint::parse("/var/run/cups/cups.sock"), Endpoint::Unix("/var/run/cups/cups.sock".into()));
+}
+
 #[test]
 fn requests_start_with_the_mandatory_attributes() {
     let r = Request::new(OP_PRINT_JOB, 9).end();
