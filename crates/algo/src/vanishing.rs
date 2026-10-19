@@ -376,8 +376,10 @@ pub fn clone_stroke(scene: &Scene, surf: &mut Surface, source: [f64; 2], points:
             || u64::from(win.area.width()) * u64::from(win.area.height()) > 4 * dest_px
         {
             win.area = Rect::new(0, 0, 0, 0);
+            win.data.clear();
+        } else {
+            src_copy.read_region_into(win.area, &mut win.data);
         }
-        src_copy.read_region_into(win.area, &mut win.data);
         let mut data = surf.read_region(area);
         let w = area.width() as usize;
         let mut changed = false;
