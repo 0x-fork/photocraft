@@ -277,6 +277,7 @@ pub(crate) fn check_budget(src: Rect, h: &Homography, what: &str) -> Result<()> 
     check_budget_with_limit(src, h, what, BUDGET)
 }
 
+/// [`check_budget`] against `budget` px (the tests price the production limit with it).
 fn check_budget_with_limit(src: Rect, h: &Homography, what: &str, budget: u64) -> Result<()> {
     let Some((w, ht)) = warp_output_size(src, h) else { return Ok(()) };
     if w.saturating_mul(ht) > budget {
@@ -779,6 +780,8 @@ mod tests {
         json!({"matrix": [k, 0, 0, 1, -10.0 * k, 0], "interpolation": "nearest"})
     }
 
+    /// A stretch past the budget is refused with the limit named, and the document, its revision
+    /// and History stay as they were; within the budget the same stretch applies unclipped.
     #[test]
     fn a_scale_past_the_pixel_budget_is_refused_and_changes_nothing() {
         let mut s = column();
