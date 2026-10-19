@@ -985,13 +985,15 @@ fn pointer_from_touch(ui: &Ui) -> bool {
 
 /// Whether this click on `resp` completes a double-click / double-tap, counted the Windows way (Photoshop): a click soon after a lone click near the same spot; the click after a double starts over.
 ///
-/// Time window is [`DOUBLE_CLICK_S`] (0.5 s). Mouse uses egui's `max_click_dist` (6 px); touch uses [`TOUCH_MAX_CLICK_DIST`] so finger jitter between taps still counts. Call on every click for that widget so the first tap is remembered.
+/// Time window is 0.5 s (Windows / Photoshop; egui's default is 0.3 s). Mouse uses egui's `max_click_dist` (6 px); touch uses 32 px so finger jitter between taps still counts. Call on every click for that widget so the first tap is remembered.
 pub fn second_click(ui: &Ui, resp: &Response) -> bool {
     if !resp.clicked() {
         return false;
     }
     let key = resp.id.with("pc-last-click");
-    let (time, pos) = ui.input(|i| (i.time, i.pointer.interact_pos()));
+    // Prefer the response's hit pos: raw `pointer.interact_pos` can be unset on a release-only frame.
+    let pos = resp.interact_pointer_pos().or_else(|| ui.input(|i| i.pointer.interact_pos()));
+    let time = ui.input(|i| i.time);
     let touch = pointer_from_touch(ui);
     let mouse_dist = ui.ctx().options(|o| o.input_options.max_click_dist);
     let last: Option<(f64, Pos2, bool)> = ui.data(|d| d.get_temp(key));
