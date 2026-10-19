@@ -1890,6 +1890,25 @@ mod tests {
         assert!(mean_red(&app) > before + 0.05, "{before} → {}", mean_red(&app));
     }
 
+    /// #7789: Preferences › Raw Defaults › Resolution sets a raw's ppi when the app opens it
+    /// itself (no background job) and from automation, and a Camera Raw re-develop keeps it.
+    #[test]
+    fn a_raw_opens_and_redevelops_at_the_raw_defaults_resolution() {
+        let (mut app, dng) = raw_app();
+        let ctx = egui::Context::default();
+        app.run("prefs.set", json!({"path": "rawDefaults.resolution", "value": 240})).unwrap();
+        app.open_bytes("IMG_0004.dng", &dng).unwrap();
+        assert_eq!(app.session.active().unwrap().doc.resolution_dpi, 240.0);
+        let raw = app.pending_raw_open.take().unwrap();
+        open_raw(&mut app, &ctx, raw).unwrap();
+        menu(&mut app, &ctx, "filter.cameraRaw", &json!({"ui": {"set": {"exposure": 1.0}}})).unwrap().unwrap();
+        let r = menu(&mut app, &ctx, "filter.cameraRaw", &json!({"ui": {"commit": true}})).unwrap().unwrap();
+        assert_eq!(r["redeveloped"], true, "{r}");
+        assert_eq!(app.session.active().unwrap().doc.resolution_dpi, 240.0, "kept by the re-develop");
+        app.open_automation_bytes("IMG_0005.dng", &dng).unwrap();
+        assert_eq!(app.session.active().unwrap().doc.resolution_dpi, 240.0, "automation open");
+    }
+
     #[test]
     fn cancel_closes_the_raw_and_the_preference_skips_the_dialog() {
         let (mut app, dng) = raw_app();
