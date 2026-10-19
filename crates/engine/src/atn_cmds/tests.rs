@@ -1089,3 +1089,21 @@ fn add_noise_with_mask_target_is_not_exported_as_pixel_filter() {
         assert_eq!(imported.actions[0].steps, vec![("filter.noise.addNoise".to_string(), json!({"amount": 75, "seed": 123}))]);
     }
 }
+
+/// Photoshop's Duplicate Layer has no in-place flag: an in-place duplicate (the artboard copy
+/// that stays on the original) must not be exported as a plain duplicate, which places the
+/// copy beside the original on playback.
+#[test]
+fn duplicate_in_place_is_not_exported_as_plain_duplicate() {
+    let in_place = Action { name: "Probe".into(), steps: vec![("layer.duplicate".into(), json!({"inPlace": true}))], ..Default::default() };
+    assert!(export("Audit5", &[&in_place], &[], false).is_err());
+    let (_, skipped) = export("Audit5", &[&in_place], &[], true).unwrap();
+    assert_eq!(skipped, vec![Skipped { action: "Probe".into(), step: 0, id: "layer.duplicate".into() }]);
+    for params in [json!({}), json!({"inPlace": false})] {
+        let plain = Action { name: "Plain".into(), steps: vec![("layer.duplicate".into(), params)], ..Default::default() };
+        let (bytes, skipped) = export("Audit5", &[&plain], &[], false).unwrap();
+        assert!(skipped.is_empty());
+        let imported = import(&bytes).unwrap();
+        assert_eq!(imported.actions[0].steps, vec![("layer.duplicate".to_string(), json!({}))]);
+    }
+}
