@@ -677,6 +677,45 @@ fn cmyk_apply_image_blends_as_tone() {
 }
 
 #[test]
+fn apply_image_onto_a_spot_channel_blends_as_tone() {
+    let near = |a: &[f32], b: &[f32]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 0.01);
+    // #5787: a spot channel stores ink but reads and takes tone, so the spot applied onto itself
+    // changes nothing (Normal or Multiply), and Cyan applied onto it gives it Cyan's ink.
+    for depth in [8, 16] {
+        let mut s = cmyk_session(depth);
+        let cyan = px(&s, 5, 5)[0];
+        rect(&mut s, 0, 0, 10, 20, "replace");
+        let spot = s.execute("channel.newSpot", json!({"color": "#ff00ff", "solidity": 100})).unwrap()["channel"].as_u64().unwrap();
+        s.execute("select.deselect", json!({})).unwrap();
+        let ink = |s: &Session| [5, 15, 30].map(|x| chan(s, spot as usize, x, 5));
+        let before = ink(&s);
+        assert!(near(&before, &[1.0, 0.0, 0.0]), "depth {depth}: {before:?}");
+        for blending in ["normal", "multiply"] {
+            s.execute("image.applyImage", json!({"source": {"channel": spot}, "blending": blending, "target": {"channel": spot}})).unwrap();
+            assert!(near(&ink(&s), &before), "depth {depth}: {blending} onto itself, {:?}", ink(&s));
+        }
+        s.execute("image.applyImage", json!({"source": {"channel": "cyan"}, "blending": "normal", "target": {"channel": spot}})).unwrap();
+        assert!(near(&ink(&s), &[cyan, cyan, 0.0]), "depth {depth}: Cyan's ink, {:?}", ink(&s));
+    }
+}
+
+#[test]
+fn apply_image_from_an_rgb_document_onto_cmyk_reads_it_in_its_own_mode() {
+    let near = |a: &[f32], b: &[f32]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() < 0.01);
+    // #5787: an RGB composite is tone in RGB terms: white multiplied (the default) onto a CMYK
+    // layer changes nothing.
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 40, "height": 20, "background": "white"})).unwrap();
+    s.execute("file.new", json!({"width": 40, "height": 20, "mode": "cmyk", "background": "white"})).unwrap();
+    rect(&mut s, 0, 0, 20, 20, "replace");
+    s.execute("edit.fill", json!({"color": "#00ffff"})).unwrap();
+    s.execute("select.deselect", json!({})).unwrap();
+    let before = (px(&s, 5, 5), px(&s, 30, 5));
+    s.execute("image.applyImage", json!({"source": {"document": 0}})).unwrap();
+    assert!(near(&px(&s, 5, 5), &before.0) && near(&px(&s, 30, 5), &before.1), "{:?} vs {before:?}", (px(&s, 5, 5), px(&s, 30, 5)));
+}
+
+#[test]
 fn calculations_results() {
     let mut s = session();
     rect(&mut s, 0, 0, 20, 20, "replace");

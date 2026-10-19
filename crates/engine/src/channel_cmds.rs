@@ -638,6 +638,19 @@ pub(crate) fn is_channel_target(p: &Value) -> bool {
     matches!(target_of(p), Target::Alpha(_) | Target::QuickMask)
 }
 
+/// The target is a spot channel: it stores ink but takes tone, as it reads.
+pub(crate) fn is_spot_target(doc: &Document, p: &Value) -> bool {
+    matches!(target_of(p), Target::Alpha(i) if doc.channels.get(i).is_some_and(|c| c.spot.is_some()))
+}
+
+/// Inverts `r` of a channel surface (ink to tone and back).
+pub(crate) fn invert_region(s: &mut Surface, r: Rect) -> Result<()> {
+    let mut v = crate::allocation::read_region(s, r, "inverting a channel")?;
+    v.iter_mut().for_each(|x| *x = 1.0 - *x);
+    s.try_write_region(r, &v)?;
+    Ok(())
+}
+
 /// The surface a pixel command writes to and whether the layer's transparency is locked.
 pub(crate) fn target_surface<'a>(doc: &'a mut Document, layer: Option<LayerId>, p: &Value) -> Result<(&'a mut Surface, bool)> {
     match target_of(p) {
@@ -1680,6 +1693,8 @@ fn apply_image(s: &mut Session, p: &Value) -> Result<Value> {
     let preserve = p.get("preserveTransparency").and_then(Value::as_bool).unwrap_or(false);
     let src_spec = source_spec(p, "source", "source").unwrap_or_else(|| json!({}));
     let src = source(s, &src_spec, cmd, false)?;
+    // A composite's planes are in its own document's mode, which may not be the target's.
+    let src_mode = s.documents().get(doc_index(s, &src_spec, "document")?).map(|d| edit_mode(&d.doc)).ok_or(EngineError::NoDocument)?;
     let mask = mask_plane(s, p, cmd)?;
     let layer = s.active().and_then(|d| d.active_layer);
     s.edit("Apply Image", |doc, _| {
@@ -1690,9 +1705,18 @@ fn apply_image(s: &mut Session, p: &Value) -> Result<Value> {
             // A grayscale target gets the luminosity of a colour source (one plane).
             let srcp =
                 if src.len() == 1 { src[0].clone() } else { (0..src[0].len()).map(|i| src.iter().map(|pl| pl[i]).sum::<f32>() / src.len() as f32).collect() };
+            let spot = is_spot_target(doc, p);
+            let ink = |v: f32| if spot { 1.0 - v } else { v };
             let (surf, _) = target_surface(doc, None, p)?;
             let base = read_plane(surf, area);
-            let out: Vec<f32> = base.iter().enumerate().map(|(i, &b)| b + (blending.apply(b, srcp[i]) - b) * weight(i)).collect();
+            let out: Vec<f32> = base
+                .iter()
+                .enumerate()
+                .map(|(i, &b)| {
+                    let b = ink(b);
+                    ink(b + (blending.apply(b, srcp[i]) - b) * weight(i))
+                })
+                .collect();
             *surf = plane_surface(&out, area, surf.format());
             return Ok(());
         }
@@ -1722,7 +1746,7 @@ fn apply_image(s: &mut Session, p: &Value) -> Result<Value> {
             for (c, b) in px[..colors].iter_mut().enumerate() {
                 // Blended as tone, as Photoshop does: a CMYK layer's ink turns into tone and back
                 // (Multiply darkens, so it adds ink). One plane (a channel, a mask) is a tone already.
-                let top = if src.len() > 1 { tone(sf.mode, src.get(c).unwrap_or(&src[0])[i]) } else { src[0][i] };
+                let top = if src.len() > 1 { tone(src_mode, src.get(c).unwrap_or(&src[0])[i]) } else { src[0][i] };
                 let base = tone(sf.mode, *b);
                 let blended = top + (blending.apply(base, top) - top) * base_a;
                 *b = tone(sf.mode, if preserve { base + (blended - base) * w } else { (w * blended + base_a * (1.0 - w) * base) / out_a });
