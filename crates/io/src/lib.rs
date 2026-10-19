@@ -52,8 +52,10 @@ mod multichannel_map;
 mod ora;
 pub use ora::losses as ora_losses;
 pub mod pattern_map;
+mod pcraft_cache;
 pub mod pdf;
 mod pdn;
+pub use pcraft_cache::PcraftExportCache;
 pub mod pixels;
 mod psd_export;
 mod psd_import;
@@ -191,6 +193,8 @@ pub struct ExportOptions {
     /// The path of the document's own file, which linked smart objects that PSD/PSB and layered
     /// TIFF embed are resolved against ([`doc_path::resolve`]).
     pub document_path: Option<std::path::PathBuf>,
+    /// Reuse one cache per open document for native saves; other formats ignore it.
+    pub pcraft_cache: Option<PcraftExportCache>,
 }
 
 impl Default for ExportOptions {
@@ -204,6 +208,7 @@ impl Default for ExportOptions {
             image_previews: true,
             psd_maximize_compatibility: true,
             document_path: None,
+            pcraft_cache: None,
         }
     }
 }
@@ -413,7 +418,11 @@ fn export_stages(doc: &Document, name_or_ext: &str, opts: &ExportOptions, ctl: &
         ctl.check().map_err(|_| IoError::Cancelled)?;
         ctl.progress(PCRAFT_PREVIEWS_DONE);
         let previews = photocraft_format::SaveOptions { thumbnail, composite };
-        return Ok(ExportResult { bytes: photocraft_format::save_to_bytes(doc.as_ref(), &previews)?, warnings: Vec::new() });
+        let bytes = match &opts.pcraft_cache {
+            Some(cache) => cache.encode(doc.as_ref(), &previews)?,
+            None => photocraft_format::save_to_bytes(doc.as_ref(), &previews)?,
+        };
+        return Ok(ExportResult { bytes, warnings: Vec::new() });
     }
     if ext == "psd" || ext == "psb" {
         let o = PsdExportOptions {
