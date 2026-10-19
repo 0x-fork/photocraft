@@ -245,7 +245,9 @@ fn automation_workspace(args: &Args) -> Result<AuthorizedWorkspace, String> {
 /// An output that is the input file itself, however it is spelt (relative, with `./`, through a
 /// hard or symbolic link), would replace the original, and a lossy re-encode can't be undone: it
 /// is refused unless `--in-place` asks for it, as `batch` refuses an `--out` that is its `--in`
-/// folder (#7437).
+/// folder (#7437). The paths are compared when the command starts and the save opens `output`
+/// again later, so another process swapping in a link meanwhile goes unnoticed: this guards
+/// against mistakes, it is not a security boundary.
 fn refuse_overwriting_input(a: &Args, input: &str, output: &str) -> R {
     if !a.has("--in-place") && photocraft_engine::file_cmds::same_file(input, output) {
         return Err(format!("{output} is the input file, so the result would replace the original: choose another output, or pass --in-place to overwrite it"));
