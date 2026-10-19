@@ -916,7 +916,7 @@ pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &V
             Some(Ok(json!({"dialog": open_kind(app, "presets", "Preset Manager", json!({"kind": "brushes", "selected": 0, "newName": ""}))})))
         }
         "edit.presets.exportImportPresets" => Some(Ok(
-            json!({"dialog": open_kind(app, "presetsIO", "Export/Import Presets", json!({"action": "export", "brushes": true, "customShapes": true}))}),
+            json!({"dialog": open_kind(app, "presetsIO", "Export/Import Presets", json!({"action": "export", "brushes": true, "customShapes": true, "tools": true}))}),
         )),
         _ => None,
     }
@@ -968,10 +968,22 @@ pub fn apply(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
     Ok(result)
 }
 
-/// Max dialog width for our dialogs.
+/// The size Preferences opens at: room for the widest section and about 30 settings rows. The
+/// dialog's resize grip changes it, and its contents follow (#7420).
+pub const PREFERENCES_SIZE: egui::Vec2 = egui::vec2(1040.0, 800.0);
+
+/// The height of the settings area (section list and fields) when `available` is left below the
+/// search field: everything but the dialog's button row (`item_spacing` + 8 pt + the buttons) and
+/// a little slack, never less than a few rows.
+fn settings_height(available: f32, item_spacing: f32, button_height: f32) -> f32 {
+    (available - (item_spacing + 8.0 + button_height + 4.0)).max(160.0)
+}
+
+/// Max dialog width for our dialogs. Preferences fills the width it is given (`available`, its
+/// resizable area).
 pub fn width(fields: &Map<String, Value>, available: f32) -> Option<f32> {
     match fields.get("__prefsui").and_then(Value::as_str)? {
-        "prefs" => Some(available.clamp(380.0, 1040.0)),
+        "prefs" => Some(available.max(380.0)),
         "shortcuts" => Some(720.0),
         _ => Some(460.0),
     }
@@ -1246,7 +1258,10 @@ fn prefs_body(ui: &mut egui::Ui, f: &mut Map<String, Value>, system: Option<egui
                 }
             }
         });
-        let content_height = (ui.ctx().content_rect().height() - 240.0).clamp(240.0, 680.0);
+        // The settings fill the dialog's resizable area down to the button row (#7420). Sizing them
+        // from the window instead left a resized dialog with empty space and the buttons mid-way.
+        // The area grows to fit its content, so this must never ask for more than it was given.
+        let content_height = settings_height(ui.available_height(), ui.spacing().item_spacing.y, crate::widgets::button_height(ui.ctx()));
         crate::widgets::vline(ui, content_height);
         ui.vertical(|ui| {
             ui.set_width((ui.available_width() - 12.0).max(340.0));
@@ -2303,7 +2318,7 @@ fn presets_io_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
             180.0,
         );
     });
-    for (k, label) in [("brushes", tl!("Brushes")), ("customShapes", tl!("Custom Shapes"))] {
+    for (k, label) in [("brushes", tl!("Brushes")), ("customShapes", tl!("Custom Shapes")), ("tools", tl!("Tool Presets"))] {
         let mut on = f.get(k).and_then(Value::as_bool).unwrap_or(true);
         crate::widgets::checkbox(ui, &mut on, label);
         f.insert(k.into(), json!(on));
@@ -2427,7 +2442,7 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
         }
         "presets" => Ok(Value::Null),
         "presetsIO" => {
-            let kinds: Vec<&str> = ["brushes", "customShapes"].into_iter().filter(|k| f.get(*k).and_then(Value::as_bool).unwrap_or(true)).collect();
+            let kinds: Vec<&str> = ["brushes", "customShapes", "tools"].into_iter().filter(|k| f.get(*k).and_then(Value::as_bool).unwrap_or(true)).collect();
             if f.get("action").and_then(Value::as_str) == Some("import") {
                 app.pick_file_bytes(move |app, name, bytes| {
                     let text = String::from_utf8(bytes).map_err(|_| format!("{name} is not a preset file"))?;
@@ -2558,14 +2573,29 @@ mod tests {
     }
 
     #[test]
-    fn preferences_dialog_width_follows_the_window() {
+    fn preferences_dialog_width_follows_its_resizable_area() {
         let prefs = serde_json::json!({"__prefsui": "prefs"});
         let prefs = prefs.as_object().unwrap();
         assert_eq!(super::width(prefs, 200.0), Some(380.0));
         assert_eq!(super::width(prefs, 800.0), Some(800.0));
-        assert_eq!(super::width(prefs, 3000.0), Some(1040.0));
+        // A dialog resized wider than it opens is filled, not left with empty space (#7420).
+        assert_eq!(super::width(prefs, 3000.0), Some(3000.0));
         let shortcuts = serde_json::json!({"__prefsui": "shortcuts"});
         assert_eq!(super::width(shortcuts.as_object().unwrap(), 3000.0), Some(720.0));
+    }
+
+    #[test]
+    fn preferences_settings_fill_the_dialog_down_to_the_buttons() {
+        // The settings area plus the button row (spacing, 8 pt gap, buttons) stays inside what the
+        // resizable area gives it, at any size: the area grows to fit its content, so asking for
+        // more would make the dialog grow every frame. The area follows the dialog's size (#7420).
+        for available in [300.0, 600.0, 1400.0] {
+            let h = super::settings_height(available, 4.0, 30.0);
+            assert!(h + 4.0 + 8.0 + 30.0 <= available, "{available}");
+            assert!(h + 4.0 + 8.0 + 30.0 + 8.0 >= available, "{available}");
+        }
+        assert_eq!(super::settings_height(1400.0, 4.0, 30.0) - super::settings_height(600.0, 4.0, 30.0), 800.0);
+        assert_eq!(super::settings_height(50.0, 4.0, 30.0), 160.0);
     }
     use super::*;
     use std::sync::{Arc, Mutex};
@@ -3476,11 +3506,13 @@ mod tests {
         assert!(!prefs::is_hidden("type.useEscToCommit"));
         assert!(!prefs::is_hidden("type.smartQuotes"));
         assert!(!prefs::is_hidden("type.showFontNamesInEnglish"));
-        // Rotate View with Trackpad and the pinch zoom are live; the other Enhanced Controls rows
-        // stay hidden.
+        // Rotate View with Trackpad, the pinch zoom and Enable Gestures are live; the other
+        // Enhanced Controls rows stay hidden.
         assert!(has_visible_fields(&values, "enhancedControls"));
         assert!(!prefs::is_hidden("enhancedControls.rotateViewWithTrackpad"));
         assert!(!prefs::is_hidden("enhancedControls.zoomWithTrackpadPinch"));
+        assert!(!prefs::is_hidden("enhancedControls.touchGestures"));
+        assert!(prefs::is_hidden("enhancedControls.scrubbySliderAcceleration"));
         // Camera Raw Defaults shows only "Open in Camera Raw" so far.
         assert!(has_visible_fields(&values, "rawDefaults"));
         assert!(!prefs::is_hidden("rawDefaults.openInCameraRaw"));
@@ -3517,6 +3549,23 @@ mod tests {
         tick(&mut app2, &ctx);
         assert_eq!(app2.session.prefs().interface.theme, Theme::Classic);
         assert!(store2.lock().unwrap().as_ref().unwrap().contains("classic"));
+    }
+
+    #[test]
+    fn preset_export_dialog_offers_tool_presets() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        let opened = crate::menus::invoke(&mut app, &ctx, "edit.presets.exportImportPresets", json!({})).unwrap();
+        let fields = app.ui.dialog_mut(opened["dialog"].as_u64().unwrap()).unwrap().fields.clone();
+        assert_eq!(fields["tools"], true);
+        let mut h = Harness::builder().with_size(vec2(420.0, 260.0)).build_ui_state(presets_io_body, fields);
+        h.run_steps(2);
+        h.get_by_label("Tool Presets").click();
+        h.run_steps(2);
+        assert_eq!(h.state()["tools"], false);
+        assert_eq!(h.state()["brushes"], true);
+        assert_eq!(h.state()["customShapes"], true);
     }
 
     #[test]

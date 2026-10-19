@@ -234,7 +234,12 @@ pub fn same_file(a: &str, b: &str) -> bool {
     }
     #[cfg(windows)]
     {
-        // NTFS and FAT compare names without case.
+        // The volume serial number and file index of each, as unix compares dev and inode, so a
+        // hard link (another name for the file) is the same file.
+        if let Ok(same) = same_file::is_same_file(a, b) {
+            return same;
+        }
+        // Should a file not open: NTFS and FAT compare names without case.
         if let (Ok(x), Ok(y)) = (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
             return x.to_string_lossy().to_lowercase() == y.to_string_lossy().to_lowercase();
         }
@@ -481,6 +486,15 @@ fn revert(s: &mut Session) -> Result<Value> {
 fn save_a_copy(s: &mut Session, p: &Value) -> Result<Value> {
     let path = str_param(p, "path", "file.saveACopy")?.to_string();
     let d = s.active().ok_or(EngineError::NoDocument)?;
+    // A copy over the document's own file replaces it, and a flat or lossy format can't be
+    // undone, so it takes an explicit `overwrite` (#7437). The desktop dialog writes through the
+    // shell, after the OS has confirmed the replace.
+    if d.path.as_deref().is_some_and(|own| same_file(&path, own)) && p.get("overwrite").and_then(Value::as_bool) != Some(true) {
+        return Err(EngineError::BadParams {
+            cmd: "file.saveACopy".into(),
+            msg: "`path` is the document's own file, so the copy would replace it: choose another path, or pass \"overwrite\": true".into(),
+        });
+    }
     let mut doc = (*d.doc).clone();
     if p.get("layers").and_then(Value::as_bool) == Some(false) {
         // "Layers" unchecked in Save a Copy: write the flattened image.
@@ -1279,10 +1293,12 @@ fn has_live_effects(l: &Layer) -> bool {
     l.effects.enabled && l.effects.items.iter().any(|e| e.enabled())
 }
 
-/// The layer rendered alone (keeping what `keep` says), as a surface in `fmt`. With `apply_mask`
-/// off the layer's pixel and vector masks are left out of the render, so a caller that keeps them
-/// live on the baked raster does not mask the pixels twice.
-fn bake(l: &Layer, canvas: Rect, fmt: PixelFormat, keep_effects: bool, apply_mask: bool) -> Surface {
+/// The layer of `doc` rendered alone (keeping what `keep` says) with the document's Global Light,
+/// patterns and canvas, as a surface in the document's format. With `apply_mask` off the layer's
+/// pixel and vector masks are left out of the render, so a caller that keeps them live on the
+/// baked raster does not mask the pixels twice.
+fn bake(doc: &Document, l: &Layer, keep_effects: bool, apply_mask: bool) -> Surface {
+    let canvas = doc.bounds();
     let mut tmp = l.clone();
     tmp.opacity = 1.0;
     tmp.blend = photocraft_color::BlendMode::Normal;
@@ -1299,7 +1315,7 @@ fn bake(l: &Layer, canvas: Rect, fmt: PixelFormat, keep_effects: bool, apply_mas
     // Render over the union of the canvas and the content so off-canvas pixels survive.
     let area = l.surface().map_or(canvas, |s| s.content_bounds().union(&canvas));
     let area = if keep_effects { area.inflate(256) } else { area };
-    buffer_surface(&photocraft_compose::render_layer(&tmp, area), fmt)
+    buffer_surface(&photocraft_compose::render_layer_in(doc, &tmp, area), doc.pixel_format())
 }
 
 fn walk_ids(doc: &Document) -> Vec<LayerId> {
@@ -1309,8 +1325,6 @@ fn walk_ids(doc: &Document) -> Vec<LayerId> {
 fn flatten_all_effects(s: &mut Session) -> Result<Value> {
     let mut n = 0;
     s.edit("Flatten All Layer Effects", |doc, _| {
-        let canvas = doc.bounds();
-        let fmt = doc.pixel_format();
         for id in walk_ids(doc) {
             let Some(l) = doc.layer(id) else { continue };
             if !has_live_effects(l) || matches!(l.content, LayerContent::Group(_) | LayerContent::Adjustment(_)) {
@@ -1318,7 +1332,7 @@ fn flatten_all_effects(s: &mut Session) -> Result<Value> {
             }
             // The pixel and vector masks stay on the layer (baking must not destroy them), so the
             // pixels are baked without them and each mask then applies once to the baked raster.
-            let px = bake(l, canvas, fmt, true, false);
+            let px = bake(doc, l, true, false);
             let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
             l.content = LayerContent::Raster(px);
             l.effects = Default::default();
@@ -1335,8 +1349,6 @@ fn flatten_all_effects(s: &mut Session) -> Result<Value> {
 fn flatten_all_masks(s: &mut Session) -> Result<Value> {
     let (mut n, mut skipped) = (0, 0);
     s.edit("Flatten All Masks", |doc, _| {
-        let canvas = doc.bounds();
-        let fmt = doc.pixel_format();
         for id in walk_ids(doc) {
             let Some(l) = doc.layer(id) else { continue };
             let masked = l.mask.as_ref().is_some_and(|m| m.enabled) || l.vector_mask.is_some();
@@ -1349,7 +1361,7 @@ fn flatten_all_masks(s: &mut Session) -> Result<Value> {
                 skipped += 1;
                 continue;
             }
-            let px = bake(l, canvas, fmt, false, true);
+            let px = bake(doc, l, false, true);
             let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
             l.content = LayerContent::Raster(px);
             l.mask = None;
@@ -1639,7 +1651,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Save a Copy…",
             &["File"],
             Some("Cmd+Alt+S"),
-            r##"{"path":str (format from the extension),"quality":0..12? (JPEG),"layers":bool=true,"tiffLayers":bool=false (TIFF: keep the layers; flat by default),"tgaBits":24|32? (TGA: 32 writes the alpha channel, or else the transparency, as the alpha; unset, 32 with an alpha channel or transparency, else 24),"dpxBits":8|10|12|16? (DPX: bits per sample; unset, 8 for an 8-bit document, else 16)}"##,
+            r##"{"path":str (format from the extension),"quality":0..12? (JPEG),"layers":bool=true,"overwrite":bool=false (replace the document's own file),"tiffLayers":bool=false (TIFF: keep the layers; flat by default),"tgaBits":24|32? (TGA: 32 writes the alpha channel, or else the transparency, as the alpha; unset, 32 with an alpha channel or transparency, else 24),"dpxBits":8|10|12|16? (DPX: bits per sample; unset, 8 for an 8-bit document, else 16)}"##,
             native_doc,
             save_a_copy
         ),
