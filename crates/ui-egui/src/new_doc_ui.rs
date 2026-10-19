@@ -424,7 +424,8 @@ fn saved_presets(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<
                     let response = ui.add_sized(vec2(422.0, 32.0), label).on_hover_text(&preset.name);
                     if response.clicked() {
                         apply_saved_preset(f, preset);
-                        create |= response.double_clicked() || response.triple_clicked();
+                        // Touch-tolerant double-tap (finger jitter > egui's 6 px); see `widgets::second_click`.
+                        create |= widgets::second_click(ui, &response);
                     }
                     if widgets::secondary_button(ui, tl!("Delete"), 76.0).clicked() {
                         match app.run("document.presets.delete", json!({"name":preset.name})) {
@@ -594,7 +595,8 @@ pub fn body(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<Strin
                                     Card::Builtin(p) => apply_preset(f, p, &units),
                                     Card::Recent(settings) => apply_settings(f, settings),
                                 }
-                                create |= resp.double_clicked() || resp.triple_clicked();
+                                // Touch-tolerant double-tap (finger jitter > egui's 6 px); see `widgets::second_click`.
+                                create |= widgets::second_click(ui, &resp);
                             }
                         }
                     });
