@@ -19,6 +19,8 @@ struct Options {
     json: Option<PathBuf>,
 }
 
+/// Parses legacy `[n] [mp]` arguments and the perf runner's `--reps`/`--json` flags.
+/// Rejects missing, out-of-range, or non-finite values before allocating images.
 fn options(args: impl IntoIterator<Item = String>) -> Result<Options, String> {
     let mut out = Options { n: 4, mp: 24.0, reps: 1, json: None };
     let mut positional = Vec::new();
@@ -69,6 +71,8 @@ fn peak_rss_bytes() -> Option<u64> {
     None
 }
 
+/// Builds deterministic overlapping RGB inputs and times each multi-band blend.
+/// Writes individual samples and whole-process peak RSS to JSON when requested.
 fn run() -> Result<(), String> {
     let o = options(std::env::args().skip(1))?;
     let sh = ((o.mp * 1e6 / 1.5).sqrt().round() as usize).max(2);
@@ -127,6 +131,7 @@ fn run() -> Result<(), String> {
     Ok(())
 }
 
+/// Runs the benchmark, reporting argument or output errors with a failing exit status.
 fn main() {
     if let Err(e) = run() {
         eprintln!("bench_multiband: {e}");
@@ -138,10 +143,12 @@ fn main() {
 mod tests {
     use super::*;
 
+    /// Converts borrowed argument slices for the owned-string command-line parser.
     fn parse(args: &[&str]) -> Result<Options, String> {
         options(args.iter().map(|s| s.to_string()))
     }
 
+    /// Confirms backwards compatibility with the positional and perf-runner forms.
     #[test]
     fn parses_old_positional_args_and_perf_runner_args() {
         assert_eq!(parse(&[]).unwrap().n, 4);
@@ -151,6 +158,7 @@ mod tests {
         );
     }
 
+    /// Checks invalid counts, non-finite sizes, repetitions, and missing flag values.
     #[test]
     fn rejects_bad_benchmark_args() {
         for args in [
