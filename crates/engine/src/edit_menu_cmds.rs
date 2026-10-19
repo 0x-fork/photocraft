@@ -75,9 +75,11 @@ pub(crate) fn after_command(s: &mut Session, id: &str, params: &Value) {
     let Some(st) = s.active() else { return };
     let label = st.history.undo_label().unwrap_or(id).to_string();
     // An alpha channel or the Quick Mask took the edit instead of the layer when the command ran
-    // on it (#7382): its explicit `target`, or the one the Channels panel gave it.
+    // on it (#7382): its explicit `target`, or the one the Channels panel gave it. Only commands
+    // routed to channels edit them; the others edit the layer whatever `target` says.
     let run = crate::channel_cmds::inject_target(s, id, params.clone());
     let channel = match crate::channel_cmds::target_of(&run) {
+        _ if !crate::channel_cmds::routed(id) => None,
         Target::Alpha(i) if i < st.doc.channels.len() => Some(FadeTarget::Channel(i)),
         Target::QuickMask if st.doc.quick_mask.is_some() => Some(FadeTarget::QuickMask),
         _ => None,

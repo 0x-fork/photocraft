@@ -143,6 +143,15 @@ fn fade_follows_the_target_the_command_ran_on() {
     assert_eq!(s.active().unwrap().doc.channels[0].surface.pixel(5, 5)[0], 0.0, "the channel is left alone");
 }
 
+/// A command that only edits layers (Auto Tone) fades the layer, even given a channel `target`.
+#[test]
+fn fade_ignores_a_target_the_command_doesnt_take() {
+    let mut s = session(8);
+    s.execute("select.editInQuickMaskMode", json!({"on": true})).unwrap();
+    s.execute("image.autoTone", json!({"target": "quickMask"})).unwrap();
+    assert!(matches!(s.edit_state.fade.as_ref().map(|f| f.target), Some(FadeTarget::Pixels(_))));
+}
+
 #[test]
 fn purge_commands() {
     let mut s = session(8);
