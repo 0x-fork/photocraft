@@ -44,7 +44,8 @@ pub const UNGROUPED: &str = "My Brushes";
 /// Brush preset indices in the Brushes panel's order: groups in order of first appearance (no
 /// group is [`UNGROUPED`]), and in each group its folders where their first preset is, depth first
 /// (as `brushes_tab` draws them). A preset its name can't select (an earlier one has the same name
-/// up to case, and `tools.setBrush` picks that one) is left out, so stepping never gets stuck.
+/// up to case, and `tools.setBrush` picks that one) is left out afterwards, so stepping never
+/// gets stuck.
 fn panel_order(presets: &[photocraft_paint::BrushPreset]) -> Vec<usize> {
     fn path(p: &photocraft_paint::BrushPreset) -> &[String] {
         p.folder.get(..p.folder.len().min(crate::brush_preset_cmds::MAX_FOLDER_DEPTH)).unwrap_or_default()
@@ -66,10 +67,6 @@ fn panel_order(presets: &[photocraft_paint::BrushPreset]) -> Vec<usize> {
     }
     let mut groups: Vec<(&str, Vec<usize>)> = Vec::new();
     for (i, p) in presets.iter().enumerate() {
-        let selectable = photocraft_paint::presets::find(presets, &p.name).is_some_and(|q| std::ptr::eq(q, p));
-        if !selectable {
-            continue;
-        }
         let group = if p.group.is_empty() { UNGROUPED } else { p.group.as_str() };
         match groups.iter_mut().find(|(g, _)| *g == group) {
             Some((_, v)) => v.push(i),
@@ -80,6 +77,9 @@ fn panel_order(presets: &[photocraft_paint::BrushPreset]) -> Vec<usize> {
     for (_, items) in &groups {
         flatten(presets, items, 0, &mut out);
     }
+    // Groups and folders are placed by every preset, as the panel places them; only then are the
+    // presets their names can't select left out.
+    out.retain(|&i| presets.get(i).is_some_and(|p| photocraft_paint::presets::find(presets, &p.name).is_some_and(|q| std::ptr::eq(q, p))));
     out
 }
 
@@ -236,6 +236,11 @@ mod tests {
         let presets = vec![preset("Foo", "", &[], 1.0), preset("foo", "", &[], 1.0), preset("Bar", "", &[], 1.0)];
         let names: Vec<&str> = panel_order(&presets).into_iter().map(|i| presets[i].name.as_str()).collect();
         assert_eq!(names, ["Foo", "Bar"]);
+        // A skipped duplicate still places its group where the panel does: G2 (from `foo`) comes
+        // before G3, so the panel's Foo, foo, Baz, Bar steps as Foo, Baz, Bar.
+        let presets = vec![preset("Foo", "G1", &[], 1.0), preset("foo", "G2", &[], 1.0), preset("Bar", "G3", &[], 1.0), preset("Baz", "G2", &[], 1.0)];
+        let names: Vec<&str> = panel_order(&presets).into_iter().map(|i| presets[i].name.as_str()).collect();
+        assert_eq!(names, ["Foo", "Baz", "Bar"]);
     }
 
     #[test]
