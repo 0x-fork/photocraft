@@ -778,10 +778,12 @@ fn driver_page(f: &mut Map<String, Value>) {
     match craft_print::rgb::page(&printer, settings.as_ref()) {
         Ok(pg) => {
             f.insert("paper".into(), json!([pg.paper.0, pg.paper.1]));
+            f.insert("printable".into(), json!([pg.printable.0, pg.printable.1, pg.printable.2, pg.printable.3]));
             f.insert("orientation".into(), json!("portrait"));
             f.remove("__pageError");
         }
         Err(e) => {
+            f.remove("printable");
             f.insert("__pageError".into(), json!(e.to_string()));
         }
     }
@@ -882,7 +884,9 @@ fn print_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Va
             f.insert("__driverPageInitialized".into(), json!(true));
         }
     } else {
+        // PDF output and previews have no driver page: Scale to Fit Media uses the paper.
         f.remove("__driverPageInitialized");
+        f.remove("printable");
     }
     let p = params(f);
     ui.horizontal_top(|ui| {
