@@ -70,13 +70,17 @@ impl CutParts {
             let w = b.width() as usize;
             for (i, (p, r)) in pp.chunks_exact_mut(n).zip(rp.chunks_exact_mut(n)).enumerate() {
                 let k = sel.sample_channel(b.x0 + (i % w) as i32, b.y0 + (i / w) as i32, 0);
+                // The selection lifts its share of a pixel's coverage, up to all of it, and the
+                // rest stays (Photoshop): a layer's own transparency, loaded as the selection,
+                // lifts it whole and leaves no ghost behind (#7655). An opaque pixel splits as k
+                // and 1 − k, as a product would.
                 if k <= 0.0 {
                     p.fill(0.0);
                 } else {
-                    p[a] *= k;
+                    p[a] = p[a].min(k);
                 }
                 if !copy && !fill {
-                    r[a] *= 1.0 - k;
+                    r[a] = (r[a] - k).max(0.0);
                 }
             }
             if !mask {
