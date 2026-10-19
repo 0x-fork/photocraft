@@ -2052,6 +2052,12 @@ fn visible_doc_rect(xf: &ViewXform) -> DRect {
     DRect::new(c(x0.floor()) - 2, c(y0.floor()) - 2, c(x1.ceil()) + 2, c(y1.ceil()) + 2)
 }
 
+/// Prioritize deferred redraw blocks visible at either the target or the animated display camera.
+/// The displayed camera may still show old texture contents outside the target's visible area.
+fn redraw_focus(target: &ViewXform, displayed: &ViewXform) -> DRect {
+    visible_doc_rect(target).union(&visible_doc_rect(displayed))
+}
+
 /// Zoomed-out Image › Adjustments preview on a large document: the wgpu compositor renders the
 /// reduced preview document (`adjust_preview::gpu_proxy`) into its own texture, over the target's
 /// area after the first frame. Returns (factor, gpu key, dimensions) to draw.
@@ -3134,7 +3140,6 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     // Document rendering follows the target; only shader uniforms and overlay geometry ease.
     let target_xf = ViewXform { rect, zoom: view.zoom / ppp, center: view.center, flip, rotation: view.rotation, aspect };
     let render_zoom = view.zoom;
-    let render_visible = visible_doc_rect(&target_xf);
     let mut display_view = animated_view(&mut view, target_xf, ppp, app.session.prefs().general.animated_zoom, ctx.input(|i| i.time));
     if primary && let Some(stored) = app.ui.views.get_mut(idx) {
         stored.zoom_animating = view.zoom_animating;
@@ -3213,7 +3218,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 offset: [0.0, 0.0],
             };
             paint_gpu_view(&painter, rect, params, &pattern);
-        } else if gpu_ok && ensure_gpu(app, &ctx, idx, render_visible) {
+        } else if gpu_ok && ensure_gpu(app, &ctx, idx, redraw_focus(&target_xf, &xf)) {
             on_gpu = true;
             app.perf.gpu = true;
             // Shadow, checkerboard, document and pixel grid in one custom shader (gpu_canvas.rs).
@@ -4343,9 +4348,6 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     view
 }
 
-/// Zoom to `new_zoom` about the pointer `p`. By default the document point under it stays under
-/// it; with Preferences › Tools › Zoom Clicked Point to Center (`center_on_point`) it moves to the
-/// centre of the view instead (#204).
 /// Where a wheel or pinch zoom anchors for a pointer at `p`: the pointer itself over the image,
 /// otherwise the nearest point of the image (#3720). Anchoring on a pointer out on the gray
 /// pasteboard slid the image away from it, out of the window after a few notches; Photoshop keeps
@@ -4360,6 +4362,8 @@ fn wheel_anchor(xf: &ViewXform, p: Pos2, doc_size: [u32; 2]) -> Pos2 {
     if c == d { p } else { xf.to_screen(c[0] as f32, c[1] as f32) }
 }
 
+/// Zoom to `new_zoom` about `p`: keep its document point under the pointer, or move it to the
+/// view centre when Zoom Clicked Point to Center (`center_on_point`) is enabled.
 fn zoom_about(view: &mut View, xf: &ViewXform, p: Pos2, new_zoom: f32, center_on_point: bool, ppp: f32) {
     let before = xf.to_doc(p);
     view.zoom = new_zoom;
@@ -8952,12 +8956,42 @@ mod rotation_preview_isolation_tests {
 mod zoom_animation_tests {
     use super::*;
 
+    /// Screen geometry shared by the zoom-transition regressions.
     fn camera(view: &View) -> ViewXform {
         ViewXform { rect: Rect::from_min_size(Pos2::ZERO, vec2(1000.0, 700.0)), zoom: view.zoom, center: view.center, flip: false, rotation: 0.0, aspect: 1.0 }
     }
 
+    /// A settled camera whose transition state starts empty.
     fn view() -> View {
         View { zoom: 1.0, center: [200.0, 150.0], doc_size: [400, 300], fit_pending: false, ..Default::default() }
+    }
+
+    /// Deferred uploads prioritize both visible areas throughout a recentering zoom.
+    #[test]
+    fn deferred_redraw_focus_covers_target_and_displayed_cameras() {
+        for rotation in [0.0, 37.0] {
+            let mut v = view();
+            let mut initial = camera(&v);
+            initial.rotation = rotation;
+            animated_view(&mut v, initial, 1.0, true, 0.0);
+            v.zoom = 2.0;
+            v.center = [1600.0, 900.0];
+            v.request_zoom_animation(true);
+            let target = ViewXform { zoom: v.zoom, center: v.center, ..initial };
+            let target_visible = visible_doc_rect(&target);
+            for time in [0.0, 0.11, 0.22] {
+                let shown = animated_view(&mut v, target, 1.0, true, time);
+                let displayed = ViewXform { zoom: shown.zoom, center: shown.center, ..target };
+                let displayed_visible = visible_doc_rect(&displayed);
+                let focus = redraw_focus(&target, &displayed);
+                assert_eq!(focus.intersect(&target_visible), target_visible);
+                assert_eq!(focus.intersect(&displayed_visible), displayed_visible);
+                if time == 0.0 {
+                    assert_ne!(focus, target_visible, "the old view must also receive priority");
+                }
+            }
+            assert_eq!(redraw_focus(&target, &target), target_visible, "settled views keep the same focus");
+        }
     }
 
     #[test]

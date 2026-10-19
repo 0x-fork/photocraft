@@ -13,6 +13,7 @@ use photocraft_doc::{Color, ColorMode, Document, SampleType, Size};
 use photocraft_engine::Session;
 use serde_json::Value;
 
+/// The embedded-profile choice uses the current built-in profile's displayed name.
 fn use_embedded() -> String {
     format!("Use the embedded profile ({})", photocraft_cms::Builtin::AdobeRgbCompat.description())
 }
