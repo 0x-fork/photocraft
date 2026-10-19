@@ -893,23 +893,36 @@ macro_rules! ev {
 /// which the clean-room rule forbids and which would make the file wrong in another reader.
 ///
 /// A step that leaves the setting at the value the event plays as exports as before.
-const UNHOLDABLE: &[(&str, &[(&str, &str)])] = &[
+/// How a setting the event cannot carry behaves once the step is replayed without it. Which of
+/// the two a setting takes follows the command's own reading of it, not the parameter spec.
+enum Lost {
+    /// Replay uses this value, so only a step already at it survives. Numbers and strings are
+    /// both compared as written, since the commands below read these settings as written.
+    ReplaysAs(&'static str),
+    /// The command reads only this one spelling as anything other than what replay does, so every
+    /// other value survives -- a differently cased one included, because it too plays as replay's.
+    DiffersAt(&'static str),
+}
+
+const UNHOLDABLE: &[(&str, &[(&str, Lost)])] = &[
     // Crst carries ClSz only; replay seeds the pattern from 0 (#7668).
-    ("filter.pixelate.crystallize", &[("seed", "0")]),
+    ("filter.pixelate.crystallize", &[("seed", Lost::ReplaysAs("0"))]),
     // RdlB carries Amnt, BlrM and BlrQ; replay spins or zooms about the middle of the layer.
-    ("filter.blur.radialBlur", &[("centerX", "0.5"), ("centerY", "0.5")]),
-    // Mnm /Mxm carry Rds only; replay keeps squareness.
-    ("filter.other.minimum", &[("preserve", "squareness")]),
-    ("filter.other.maximum", &[("preserve", "squareness")]),
+    ("filter.blur.radialBlur", &[("centerX", Lost::ReplaysAs("0.5")), ("centerY", Lost::ReplaysAs("0.5"))]),
+    // Mnm /Mxm carry Rds only; replay keeps squareness, and so does the command for anything but
+    // the exact string "roundness" -- see `preserve` in filters.rs.
+    ("filter.other.minimum", &[("preserve", Lost::DiffersAt("roundness"))]),
+    ("filter.other.maximum", &[("preserve", Lost::DiffersAt("roundness"))]),
 ];
 
-/// Whether every setting of `p` that its event cannot hold is at the value the event plays as
+/// Whether every setting of `p` that its event cannot hold would play the same without it
 /// (see [`UNHOLDABLE`]).
 fn holds_its_settings(id: &str, p: &Value) -> bool {
     let Some((_, settings)) = UNHOLDABLE.iter().find(|(cmd, _)| *cmd == id) else { return true };
-    settings.iter().all(|(param, played)| match p.get(param) {
-        None | Some(Value::Null) => true,
-        Some(v) => v.as_str() == Some(played) || v.as_f64().is_some_and(|n| played.parse::<f64>().is_ok_and(|d| n == d)),
+    settings.iter().all(|(param, lost)| match (p.get(param), lost) {
+        (None | Some(Value::Null), _) => true,
+        (Some(v), Lost::ReplaysAs(played)) => v.as_str() == Some(played) || v.as_f64().is_some_and(|n| played.parse::<f64>().is_ok_and(|d| n == d)),
+        (Some(v), Lost::DiffersAt(spelling)) => v.as_str() != Some(spelling),
     })
 }
 

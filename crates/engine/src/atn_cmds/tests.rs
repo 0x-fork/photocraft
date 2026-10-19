@@ -233,6 +233,11 @@ fn settings_at_the_value_the_event_plays_still_export() {
         ("filter.blur.radialBlur", json!({"amount": 10})),
         ("filter.other.minimum", json!({"radius": 4, "preserve": "squareness"})),
         ("filter.other.maximum", json!({"radius": 4})),
+        // `preserve` reaches the filter through a comparison with the exact string "roundness",
+        // so these play as squareness -- replay's own value -- and lose nothing by export (#7759
+        // review).
+        ("filter.other.minimum", json!({"radius": 4, "preserve": "Squareness"})),
+        ("filter.other.maximum", json!({"radius": 4, "preserve": "Roundness"})),
     ] {
         let mut s = Session::new();
         s.actions.list.push(Action::new("A", vec![(id.into(), params.clone())]));
