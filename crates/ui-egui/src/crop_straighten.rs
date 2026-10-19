@@ -70,6 +70,8 @@ pub fn reset(app: &mut PhotocraftApp) {
 pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: Modifiers) -> bool {
     match ev {
         ToolEvent::Down { x, y, .. } => {
+            // A line whose release went elsewhere (Space's Hand took it) never continues here.
+            app.crop.straighten.line = None;
             let s = app.crop.straighten;
             if app.crop.drag.is_some() || !(s.armed || mods.command) {
                 return false;
@@ -323,6 +325,21 @@ mod tests {
         toggle(&mut app);
         drag(&mut app, &[[f64::NAN, 50.0], [190.0, f64::INFINITY]], NONE);
         assert!(app.ui.crop_angle.is_finite() && app.ui.crop_rect.unwrap().iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn a_line_whose_release_was_lost_never_takes_over_the_next_drag() {
+        let mut app = app(SampleType::U8);
+        app.ui.crop_rect = Some([20.0, 20.0, 120.0, 70.0]);
+        app.crop.default_frame = false;
+        // A ⌘-drag whose release went to the temporary Hand (Space pressed mid-line).
+        tool_event(&mut app, ToolEvent::Down { x: 0.0, y: 0.0, pressure: 1.0 }, CMD);
+        tool_event(&mut app, ToolEvent::Move { x: 100.0, y: 17.6, pressure: 1.0 }, CMD);
+        assert!(app.crop.straighten.line.is_some());
+        // The next plain drag inside the frame moves it, and ends.
+        drag(&mut app, &[[50.0, 40.0], [60.0, 40.0]], NONE);
+        assert_eq!((app.ui.crop_rect, app.ui.crop_angle), (Some([30.0, 20.0, 130.0, 70.0]), 0.0));
+        assert!(app.crop.drag.is_none() && app.crop.straighten.line.is_none());
     }
 
     #[test]
