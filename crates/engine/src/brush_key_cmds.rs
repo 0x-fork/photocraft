@@ -37,8 +37,14 @@ fn size(s: &mut Session, up: bool) -> Result<Value> {
     crate::brush_cmds::set_brush(s, &json!({ "brush": { "size": size } }))
 }
 
-/// Brush preset indices in the Brushes panel's order: groups in order of first appearance, and in
-/// each group its folders where their first preset is, depth first (as `brushes_tab` draws them).
+/// The Brushes panel's label for presets saved without a group: they share its group with presets
+/// in a group of that name.
+pub const UNGROUPED: &str = "My Brushes";
+
+/// Brush preset indices in the Brushes panel's order: groups in order of first appearance (no
+/// group is [`UNGROUPED`]), and in each group its folders where their first preset is, depth first
+/// (as `brushes_tab` draws them). A preset its name can't select (an earlier one has the same name
+/// up to case, and `tools.setBrush` picks that one) is left out, so stepping never gets stuck.
 fn panel_order(presets: &[photocraft_paint::BrushPreset]) -> Vec<usize> {
     fn path(p: &photocraft_paint::BrushPreset) -> &[String] {
         p.folder.get(..p.folder.len().min(crate::brush_preset_cmds::MAX_FOLDER_DEPTH)).unwrap_or_default()
@@ -60,9 +66,14 @@ fn panel_order(presets: &[photocraft_paint::BrushPreset]) -> Vec<usize> {
     }
     let mut groups: Vec<(&str, Vec<usize>)> = Vec::new();
     for (i, p) in presets.iter().enumerate() {
-        match groups.iter_mut().find(|(g, _)| *g == p.group) {
+        let selectable = photocraft_paint::presets::find(presets, &p.name).is_some_and(|q| std::ptr::eq(q, p));
+        if !selectable {
+            continue;
+        }
+        let group = if p.group.is_empty() { UNGROUPED } else { p.group.as_str() };
+        match groups.iter_mut().find(|(g, _)| *g == group) {
             Some((_, v)) => v.push(i),
-            None => groups.push((&p.group, vec![i])),
+            None => groups.push((group, vec![i])),
         }
     }
     let mut out = Vec::with_capacity(presets.len());
@@ -217,6 +228,14 @@ mod tests {
         let names: Vec<&str> = panel_order(&presets).into_iter().map(|i| presets[i].name.as_str()).collect();
         // G1: a, folder F (c, e, then Sub's f where its first preset is, g), d; then G2: b.
         assert_eq!(names, ["a", "c", "e", "f", "g", "d", "b"]);
+        // No group is the panel's "My Brushes": one group with presets named into it.
+        let presets = vec![preset("x", "", &[], 1.0), preset("y", UNGROUPED, &[], 1.0), preset("z", "", &[], 1.0), preset("w", "G", &[], 1.0)];
+        let names: Vec<&str> = panel_order(&presets).into_iter().map(|i| presets[i].name.as_str()).collect();
+        assert_eq!(names, ["x", "y", "z", "w"]);
+        // A name only a case apart from an earlier one can't be picked by name: skipped.
+        let presets = vec![preset("Foo", "", &[], 1.0), preset("foo", "", &[], 1.0), preset("Bar", "", &[], 1.0)];
+        let names: Vec<&str> = panel_order(&presets).into_iter().map(|i| presets[i].name.as_str()).collect();
+        assert_eq!(names, ["Foo", "Bar"]);
     }
 
     #[test]
@@ -242,8 +261,13 @@ mod tests {
             [sc("tools.previousBrush"), sc("tools.nextBrush"), sc("tools.firstBrush"), sc("tools.lastBrush")],
             [Some(","), Some("."), Some("Shift+,"), Some("Shift+.")]
         );
+        // No presets: an error, and the brush and the current preset stay as they were.
         s.tools.presets.clear();
-        assert!(s.execute("tools.nextBrush", Value::Null).is_err());
+        let (brush, current) = (s.tools.brush.clone(), s.tools.current_preset.clone());
+        for id in ["tools.previousBrush", "tools.nextBrush", "tools.firstBrush", "tools.lastBrush"] {
+            assert!(s.execute(id, Value::Null).is_err(), "{id}");
+        }
+        assert_eq!((s.tools.brush.clone(), s.tools.current_preset.clone()), (brush, current));
     }
 
     #[test]
