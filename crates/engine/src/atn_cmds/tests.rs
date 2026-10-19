@@ -186,6 +186,10 @@ fn every_mapped_command_exports_and_imports_back() {
             json!({"colorize": false, "hue": 10, "saturation": -20, "lightness": 0, "reds": {"hue": 5, "saturation": 0, "lightness": 0, "range": [315, 345, 15, 45]}}),
         ),
         ("image.adjustments.brightnessContrast", json!({"brightness": 10, "contrast": -5, "legacy": false})),
+        (
+            "image.adjustments.shadowsHighlights",
+            json!({"shadowAmount": 60, "shadowTone": 40, "shadowRadius": 25, "highlightAmount": 10, "highlightTone": 50, "highlightRadius": 30, "blackClip": 0.02, "whiteClip": 0.05, "midtone": 15, "color": 20}),
+        ),
         ("image.adjustments.threshold", json!({"level": 100})),
         ("image.adjustments.posterize", json!({"levels": 4})),
         ("image.adjustments.invert", json!({})),
@@ -585,6 +589,33 @@ fn save_writes_the_file_and_the_set_of_the_selected_action() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// #7290: saving over an existing ATN must replace it atomically (a temporary file renamed over
+/// it), never truncate and rewrite it in place, so a write that fails partway (a full disk)
+/// leaves the previously valid file readable. A handle opened on the old file still sees the old
+/// bytes after an atomic replacement; an in-place rewrite changes them under it.
+#[cfg(unix)]
+#[test]
+fn save_over_an_existing_file_never_rewrites_it_in_place() {
+    use std::io::Read;
+    let mut s = Session::new();
+    s.actions.list.push(Action::new("Owned", vec![("select.all".into(), json!({}))]));
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("Owned.atn");
+    let p = path.to_string_lossy().to_string();
+    s.execute("actions.save", json!({"path": p})).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let mut old = std::fs::File::open(&path).unwrap();
+    s.actions.list.push(Action::new("Second", vec![("select.all".into(), json!({}))]));
+    s.execute("actions.save", json!({"path": p})).unwrap();
+    let mut seen = Vec::new();
+    old.read_to_end(&mut seen).unwrap();
+    assert_eq!(seen, before, "the existing ATN was rewritten in place");
+    let after = atn::parse(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(after.actions.len(), 2);
+    let names: Vec<_> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name()).collect();
+    assert_eq!(names, vec![std::ffi::OsString::from("Owned.atn")], "no temporary file is left behind");
+}
+
 #[test]
 fn layer_param_accepts_a_name() {
     let mut s = Session::new();
@@ -622,7 +653,7 @@ fn remaining_events_import_in_their_photoshop_shapes() {
     let moved = desc("null")
         .with("null", target_ref("Lyr "))
         .with("FTcs", enm("QCSt", "Qcsa"))
-        .with("Ofst", D::Descriptor(desc("Ofst").with("Hrzn", px(-57.4)).with("Vrtc", px(12.0))))
+        .with("Ofst", D::Descriptor(desc("Ofst").with("Hrzn", px(-57.0)).with("Vrtc", px(12.0))))
         .with("Intr", enm("Intp", "Bcbc"));
     let scaled = desc("null")
         .with("null", target_ref("Lyr "))
@@ -1004,4 +1035,120 @@ fn remove_white_clears_the_targeted_layer_not_the_converted_background() {
     let bottom = st.doc.layers.first().unwrap();
     assert!(!st.doc.is_background(bottom.id), "the Background became a normal layer");
     assert!(bottom.surface().unwrap().sample_channel(2, 2, 1) > 0.99, "and kept its pixels");
+}
+
+/// #5830: Shadows/Highlights (`adaptCorrect`) recorded by Photoshop, with string IDs, plays as
+/// Image › Adjustments › Shadows/Highlights instead of stopping as a step with no equivalent.
+#[test]
+fn photoshop_shadows_highlights_steps_play() {
+    let tones = |amount: f64, width: f64, radius: i32| {
+        D::Descriptor(desc("adaptCorrectTones").with("amount", pct(amount)).with("width", pct(width)).with("radius", D::Integer(radius)))
+    };
+    let d = desc("null")
+        .with("shadowMode", tones(35.0, 50.0, 30))
+        .with("highlightMode", tones(20.0, 40.0, 24))
+        .with("blackClip", D::Double(0.01))
+        .with("whiteClip", D::Double(0.02))
+        .with("center", D::Integer(5))
+        .with("colorCorrection", D::Integer(20));
+    let e = event_for(&item("adaptCorrect", "Sombra/Realce", None).event).expect("adaptCorrect is mapped");
+    let Mapped::Steps(steps) = (e.from)(&d) else { panic!("Shadows/Highlights maps to a step") };
+    assert_eq!(steps.len(), 1);
+    let (id, p) = &steps[0];
+    assert_eq!(id, "image.adjustments.shadowsHighlights");
+    let mut p = p.clone();
+    normalise(&mut p);
+    assert_eq!(
+        p,
+        json!({"shadowAmount": 35, "shadowTone": 50, "shadowRadius": 30, "highlightAmount": 20, "highlightTone": 40, "highlightRadius": 24, "blackClip": 0.01, "whiteClip": 0.02, "midtone": 5, "color": 20})
+    );
+    // The same settings as char IDs read the same; absent keys are left to the defaults.
+    let codes = desc("null")
+        .with("sdwM", D::Descriptor(desc("adaptCorrectTones").with("Amnt", pct(35.0)).with("Wdth", pct(50.0)).with("Rds ", D::Integer(30))))
+        .with("BlcC", D::Double(0.01));
+    let Mapped::Steps(steps) = (e.from)(&codes) else { panic!("char IDs map too") };
+    let mut q = steps[0].1.clone();
+    normalise(&mut q);
+    assert_eq!(q, json!({"shadowAmount": 35, "shadowTone": 50, "shadowRadius": 30, "blackClip": 0.01}));
+    // And it runs on a document.
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 16, "height": 16, "background": "#404040"})).unwrap();
+    s.execute(id, p).unwrap();
+}
+
+#[test]
+fn save_while_recording_includes_pending_steps() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+    s.execute("actions.record", json!({"name": "Pending"})).unwrap();
+    s.execute("layer.new.layer", json!({"name": "Recorded"})).unwrap();
+
+    // While still recording (without calling actions.stop), save the action.
+    let saved = s.execute("actions.save", json!({"action": "Pending"})).unwrap();
+    assert_eq!(saved["steps"], 1, "pending steps must be flushed and included in save");
+    assert_eq!(saved["skipped"], json!([]));
+
+    // After save, recording continues and additional steps are flushed on stop without duplication.
+    s.execute("layer.new.layer", json!({"name": "Second"})).unwrap();
+    s.execute("actions.stop", json!({})).unwrap();
+
+    let action = s.execute("actions.get", json!({"action": "Pending"})).unwrap();
+    assert_eq!(action["steps"].as_array().unwrap().len(), 2, "both steps must be present without duplication");
+}
+
+/// Photoshop's Close has no document target: a Close of a specific document must not be
+/// exported as a plain Close, which would close the active document on playback.
+#[test]
+fn close_with_document_target_is_not_exported_as_plain_close() {
+    let targeted = Action { name: "Probe".into(), steps: vec![("file.close".into(), json!({"document": 0}))], ..Default::default() };
+    assert!(export("Audit4", &[&targeted], &[], false).is_err());
+    let (_, skipped) = export("Audit4", &[&targeted], &[], true).unwrap();
+    assert_eq!(skipped, vec![Skipped { action: "Probe".into(), step: 0, id: "file.close".into() }]);
+    let plain = Action { name: "Plain".into(), steps: vec![("file.close".into(), json!({}))], ..Default::default() };
+    let (bytes, skipped) = export("Audit4", &[&plain], &[], false).unwrap();
+    assert!(skipped.is_empty());
+    let imported = import(&bytes).unwrap();
+    assert_eq!(imported.actions[0].steps, vec![("file.close".to_string(), json!({}))]);
+}
+
+/// A translation-only Free Transform with a fractional offset must not collapse into an
+/// integer `layer.translate`: the sub-pixel placement and interpolation have to survive.
+#[test]
+fn fractional_translation_only_transform_keeps_offset_and_interpolation() {
+    let params = json!({"dx": 0.5, "dy": 0, "interpolation": "bilinear"});
+    let d = transform_to("edit.transform", &params).unwrap();
+    let file = AtnFile {
+        name: UnicodeString::new_nul("Frac"),
+        expanded: false,
+        actions: vec![AtnAction { name: UnicodeString::new_nul("A"), items: vec![item("transform", "Transform", Some(d))], ..Default::default() }],
+        warnings: vec![],
+    };
+    let imp = import(&atn::write(&file).unwrap()).unwrap();
+    assert!(imp.unsupported.is_empty());
+    let steps = &imp.actions[0].steps;
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].0, "edit.transform");
+    assert_eq!(steps[0].1.get("dx").and_then(Value::as_f64), Some(0.5));
+    assert_eq!(steps[0].1.get("interpolation"), Some(&json!("bilinear")));
+}
+
+/// A filter recorded against a layer mask must not export as a plain filter that edits the
+/// layer's pixels on replay: Photoshop's descriptor has no field for PhotoCraft's `target`.
+#[test]
+fn add_noise_with_mask_target_is_not_exported_as_pixel_filter() {
+    let masked = Action {
+        name: "Probe".into(),
+        steps: vec![("filter.noise.addNoise".into(), json!({"amount": 75, "seed": 123, "target": "mask"}))],
+        ..Default::default()
+    };
+    assert!(export("Audit", &[&masked], &[], false).is_err());
+    let (_, skipped) = export("Audit", &[&masked], &[], true).unwrap();
+    assert_eq!(skipped, vec![Skipped { action: "Probe".into(), step: 0, id: "filter.noise.addNoise".into() }]);
+    for params in [json!({"amount": 75, "seed": 123}), json!({"amount": 75, "seed": 123, "target": "pixels"})] {
+        let plain = Action { name: "Plain".into(), steps: vec![("filter.noise.addNoise".into(), params)], ..Default::default() };
+        let (bytes, skipped) = export("Audit", &[&plain], &[], false).unwrap();
+        assert!(skipped.is_empty());
+        let imported = import(&bytes).unwrap();
+        assert_eq!(imported.actions[0].steps, vec![("filter.noise.addNoise".to_string(), json!({"amount": 75, "seed": 123}))]);
+    }
 }

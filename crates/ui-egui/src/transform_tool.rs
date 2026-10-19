@@ -792,11 +792,12 @@ fn preview_image(
         (None, Some(s)) if layer.is_some_and(|l| matches!(l.content, LayerContent::Raster(_))) => Some(s),
         _ => {
             let mut solo = doc.clone();
-            for l in solo.layers.iter_mut() {
-                if l.id != id && doc.layer(id).is_some_and(|_| !contains(l, id)) {
-                    l.visible = false;
-                } else {
-                    // Its clipping base is hidden here, which would clip it away entirely (#5239).
+            if layer.is_some() {
+                solo_layer(&mut solo.layers, id);
+            } else {
+                // Keep the previous fallback for an invalid id: render the document, with only
+                // top-level clipping disabled. Production callers get ids from this document.
+                for l in &mut solo.layers {
                     l.clipped = false;
                 }
             }
@@ -983,6 +984,26 @@ fn show_only(layers: &mut [photocraft_doc::Layer], keep: &[LayerId]) {
         }
         match &mut l.content {
             LayerContent::Group(g) if g.children.iter().any(|c| keep.iter().any(|k| contains(c, *k))) => show_only(&mut g.children, keep),
+            _ => l.visible = false,
+        }
+    }
+}
+
+/// Leave only `id`, its descendants and the groups holding it visible. Every layer on that path
+/// is detached from its clipping base because the base is hidden in this isolated render (#5239).
+/// Hide every layer but `id` and the groups holding it, and unclip those, so a render shows that
+/// layer alone (the Free Transform preview, Liquify's one-layer backdrop).
+pub(crate) fn solo_layer(layers: &mut [photocraft_doc::Layer], id: LayerId) {
+    for l in layers {
+        if l.id == id {
+            l.clipped = false;
+            continue;
+        }
+        match &mut l.content {
+            LayerContent::Group(g) if g.children.iter().any(|c| contains(c, id)) => {
+                l.clipped = false;
+                solo_layer(&mut g.children, id);
+            }
             _ => l.visible = false,
         }
     }
@@ -2595,9 +2616,23 @@ fn quad_scale(t: &TransformSession) -> f32 {
 }
 
 /// W and H (%), the angle (°) and the horizontal skew (°) the options bar shows for the box.
+/// A mirrored box reads as a negative W or H, whichever keeps the angle nearer 0 (Photoshop:
+/// Flip Horizontal is W -100 % at 0°, Flip Vertical H -100 % at 0°). Both are the same box:
+/// negating W and H and turning by a half turn cancel out.
 fn readout(t: &TransformSession) -> (f64, f64, f64, f64) {
     let p = Parts::of(t);
-    (p.sx * 100.0, p.sy.abs() * 100.0, p.angle.to_degrees(), p.skew_h.to_degrees())
+    let wrap = |a: f64| {
+        let a = a.rem_euclid(std::f64::consts::TAU);
+        if a > std::f64::consts::PI { a - std::f64::consts::TAU } else { a }
+    };
+    let turned = wrap(p.angle + std::f64::consts::PI);
+    let (sx, sy, angle) = if p.sy < 0.0 && turned.abs() < wrap(p.angle).abs() { (-p.sx, -p.sy, turned) } else { (p.sx, p.sy, p.angle) };
+    (sx * 100.0, sy * 100.0, angle.to_degrees(), p.skew_h.to_degrees())
+}
+
+/// `v`, kept off zero with its sign: a divisor for a W or H scale that may be negative.
+fn nonzero(v: f64) -> f64 {
+    if v.abs() < 1e-9 { 1e-9f64.copysign(v) } else { v }
 }
 
 /// The box's affine part read as Photoshop's options bar does: the frame scaled (W, H), skewed
@@ -2858,12 +2893,12 @@ pub(crate) fn position_size_fields(app: &mut PhotocraftApp, ui: &mut egui::Ui, t
     let (w, h) = (size_pct(&u, w, side_w) as f32, size_pct(&u, h, side_h) as f32);
     if rw.changed() || rh.changed() {
         let (kx, ky) = if link {
-            let k = if rw.changed() { w as f64 / sx.max(1e-9) } else { h as f64 / sy.max(1e-9) };
+            let k = if rw.changed() { w as f64 / nonzero(sx) } else { h as f64 / nonzero(sy) };
             // Linked, the other side follows: keep it within its own limit too.
             let k = k.min(f64::from(wlim) / sx.abs().max(1e-9)).min(f64::from(hlim) / sy.abs().max(1e-9));
             (k, k)
         } else {
-            (w as f64 / sx.max(1e-9), h as f64 / sy.max(1e-9))
+            (w as f64 / nonzero(sx), h as f64 / nonzero(sy))
         };
         scale_about_pivot(app, kx, ky);
     }
@@ -3321,6 +3356,43 @@ mod tests {
         let (w, h, angle, skew) = readout(&t);
         assert!(eq6(w, 100.0) && eq6(h, 100.0) && eq6(angle, 0.0), "{w} {h} {angle}");
         assert!(eq6(skew, 20.0), "{skew}");
+    }
+
+    /// The test box flipped horizontally and vertically, as Edit › Transform › Flip leaves it.
+    const FLIPPED_H: [[f64; 2]; 4] = [[100.0, 0.0], [0.0, 0.0], [0.0, 50.0], [100.0, 50.0]];
+    const FLIPPED_V: [[f64; 2]; 4] = [[0.0, 50.0], [100.0, 50.0], [100.0, 0.0], [0.0, 0.0]];
+
+    /// Photoshop puts a flip's minus on the flipped axis and keeps the angle at 0: Flip Horizontal
+    /// reads W -100 %, Flip Vertical H -100 % (it read 180° and nothing at all).
+    #[test]
+    fn a_flipped_box_reads_as_a_negative_scale_on_that_axis() {
+        let mut t = session();
+        for (quad, want) in [(FLIPPED_H, (-100.0, 100.0)), (FLIPPED_V, (100.0, -100.0))] {
+            t.quad = quad;
+            let (w, h, angle, skew) = readout(&t);
+            assert!(eq6(w, want.0) && eq6(h, want.1) && eq6(angle, 0.0) && eq6(skew, 0.0), "{quad:?}: {w} {h} {angle} {skew}");
+        }
+        // Flipped both ways is a half turn, not a mirror.
+        t.quad = [[100.0, 50.0], [0.0, 50.0], [0.0, 0.0], [100.0, 0.0]];
+        let (w, h, angle, _) = readout(&t);
+        assert!(eq6(w, 100.0) && eq6(h, 100.0) && eq6(angle.abs(), 180.0), "{w} {h} {angle}");
+    }
+
+    /// The bar's fields act on a flipped box without undoing the flip: angle 0 keeps it as it is,
+    /// and a typed W scales it and keeps it mirrored.
+    #[test]
+    fn bar_fields_keep_a_flipped_box_flipped() {
+        let flip_h = |app: &mut PhotocraftApp| app.ui.transform.as_mut().unwrap().quad = FLIPPED_H;
+        let t = type_into_bar_field_with(flip_h, 4, "0");
+        assert!(t.quad.iter().flatten().zip(FLIPPED_H.iter().flatten()).all(|(a, b)| eq6(*a, *b)), "{:?}", t.quad);
+        let t = type_into_bar_field_with(flip_h, 2, "-50");
+        let (w, h, angle, _) = readout(&t);
+        assert!(eq6(w, -50.0) && eq6(h, 50.0) && eq6(angle, 0.0), "{w} {h} {angle}");
+        assert!(eq6(t.quad[0][0] - t.quad[1][0], 50.0), "50 px wide, still mirrored: {:?}", t.quad);
+        let flip_v = |app: &mut PhotocraftApp| app.ui.transform.as_mut().unwrap().quad = FLIPPED_V;
+        let t = type_into_bar_field_with(flip_v, 3, "-200");
+        let (w, h, _, _) = readout(&t);
+        assert!(eq6(w, 200.0) && eq6(h, -200.0), "{w} {h}");
     }
 
     /// Typing H and V skews leans the box about the reference point; the angle, W and H fields keep
@@ -4745,6 +4817,60 @@ mod tests {
         // At 100% the texture has at least as many texels as the box covers screen pixels.
         let t = app.ui.transform.as_ref().unwrap();
         assert!(pv.texture.size()[0] as f64 >= t.rect[2] - t.rect[0]);
+    }
+
+    #[test]
+    fn nested_group_preview_excludes_its_siblings() {
+        use photocraft_color::PixelFormat;
+        use photocraft_doc::Layer;
+
+        let mut app = app_with_square(64, photocraft_geom::Rect::new(8, 8, 24, 24));
+        let st = app.session.active_mut().unwrap();
+        let doc = Arc::make_mut(&mut st.doc);
+        let target_pixels = doc.layers.pop().unwrap();
+        let mut sibling = Layer::raster("sibling", PixelFormat::RGBA8);
+        sibling.surface_mut().unwrap().fill_rect(photocraft_geom::Rect::new(12, 12, 20, 20), &[0.0, 0.0, 1.0, 1.0]);
+        let target = Layer::group("target", vec![target_pixels]);
+        let target_id = target.id;
+        doc.layers.push(Layer::group("parent", vec![target, sibling]));
+
+        let (image, _) = preview_image(&st.doc, target_id, None, photocraft_geom::Rect::new(8, 8, 24, 24), 4096, false);
+        assert_eq!(
+            image.pixels[8 * image.size[0] + 8],
+            Color32::from_rgb(255, 0, 0),
+            "a sibling in the parent group must not be baked into the moving texture"
+        );
+    }
+
+    #[test]
+    fn nested_group_preview_detaches_every_clipped_ancestor() {
+        use photocraft_color::PixelFormat;
+        use photocraft_doc::Layer;
+
+        let mut app = app_with_square(64, photocraft_geom::Rect::new(8, 8, 24, 24));
+        let st = app.session.active_mut().unwrap();
+        let doc = Arc::make_mut(&mut st.doc);
+        let target_pixels = doc.layers.pop().unwrap();
+        let target = Layer::group("target", vec![target_pixels]);
+        let target_id = target.id;
+        let mut middle = Layer::group("middle clipped ancestor", vec![target]);
+        middle.clipped = true;
+        let mut inner_base = Layer::raster("hidden inner clipping base", PixelFormat::RGBA8);
+        inner_base.surface_mut().unwrap().fill_rect(photocraft_geom::Rect::new(0, 0, 64, 64), &[0.0, 0.0, 1.0, 1.0]);
+        let mut outer = Layer::group("outer clipped ancestor", vec![inner_base, middle]);
+        outer.clipped = true;
+        doc.layers.push(outer);
+
+        let (image, _) = preview_image(&st.doc, target_id, None, photocraft_geom::Rect::new(8, 8, 24, 24), 4096, false);
+        assert_eq!(image.pixels[8 * image.size[0] + 8], Color32::from_rgb(255, 0, 0), "hidden clipping bases must not make a nested target disappear");
+    }
+
+    #[test]
+    fn unknown_preview_target_keeps_the_previous_document_fallback() {
+        let app = app_with_square(64, photocraft_geom::Rect::new(8, 8, 24, 24));
+        let st = app.session.active().unwrap();
+        let (image, _) = preview_image(&st.doc, LayerId::fresh(), None, photocraft_geom::Rect::new(8, 8, 24, 24), 4096, false);
+        assert_eq!(image.pixels[8 * image.size[0] + 8], Color32::from_rgb(255, 0, 0));
     }
 
     /// The textured meshes `draw_content` paints for the moving pixels (not the box or handles).
