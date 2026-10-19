@@ -186,8 +186,12 @@ fn error_statuses_and_broken_replies_are_errors() {
     assert!(matches!(printers(&ep), Err(Error::Protocol(_))));
     let (ep, _rx) = fake(b"not ipp at all".to_vec(), false, 200);
     assert!(matches!(printers(&ep), Err(Error::Protocol(_))));
-    // Nobody listening.
-    let e = printers(&Endpoint::Tcp("127.0.0.1".into(), 1)).unwrap_err();
+    // Nobody listening. No port is guaranteed free - on a CI VM something can hold port 1 and reset the
+    // connection - so take one the OS says is free and release it again.
+    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = free.local_addr().unwrap().port();
+    drop(free);
+    let e = printers(&Endpoint::Tcp("127.0.0.1".into(), port)).unwrap_err();
     assert!(matches!(e, Error::Unreachable(_)), "{e}");
 }
 
