@@ -69,7 +69,7 @@ tablets against Photoshop side by side.
 | Behaviour | Status | Evidence |
 |---|---|---|
 | ⌃⌥-drag (macOS) / Alt+right-drag (Windows) resizes and changes hardness with a readout | done | TOOL-213-10 |
-| `[` `]` size, `⇧[` `⇧]` hardness, number keys opacity, ⇧+numbers flow | done | 2026-10-07 |
+| `[` `]` size, `⇧[` `⇧]` hardness, number keys opacity, ⇧+numbers flow (swapped when build-up is on) | done | 2026-10-07 |
 | ⌥-click samples a colour with painting tools; Eyedropper comparison ring | done | TOOL-213-9 |
 | ⇧-click draws a straight line from the last point | done | |
 | Hold `~` with the Brush or Pencil to erase with its brush: Clear mode while held (rebindable under Tools › Temporary) | done | `hold_keys.rs`, #3439 |
