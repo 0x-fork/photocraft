@@ -1702,9 +1702,13 @@ fn apply_image(s: &mut Session, p: &Value) -> Result<Value> {
         let selection = doc.selection.as_ref().map(|m| sel::mask_from_surface(Some(m), area));
         let weight = |i: usize| opacity * mask.as_ref().map_or(1.0, |m| m[i]) * selection.as_ref().map_or(1.0, |m| m[i]);
         if is_channel_target(p) {
-            // A grayscale target gets the luminosity of a colour source (one plane).
-            let srcp =
-                if src.len() == 1 { src[0].clone() } else { (0..src[0].len()).map(|i| src.iter().map(|pl| pl[i]).sum::<f32>() / src.len() as f32).collect() };
+            // A grayscale target gets the luminosity of a colour source (one plane). A composite's
+            // planes are averaged as tone: a CMYK composite stores ink, so white has none.
+            let srcp = if src.len() == 1 {
+                src[0].clone()
+            } else {
+                (0..src[0].len()).map(|i| src.iter().map(|pl| tone(src_mode, pl[i])).sum::<f32>() / src.len() as f32).collect()
+            };
             let spot = is_spot_target(doc, p);
             let ink = |v: f32| if spot { 1.0 - v } else { v };
             let (surf, _) = target_surface(doc, None, p)?;
@@ -1746,7 +1750,10 @@ fn apply_image(s: &mut Session, p: &Value) -> Result<Value> {
             for (c, b) in px[..colors].iter_mut().enumerate() {
                 // Blended as tone, as Photoshop does: a CMYK layer's ink turns into tone and back
                 // (Multiply darkens, so it adds ink). One plane (a channel, a mask) is a tone already.
-                let top = if src.len() > 1 { tone(src_mode, src.get(c).unwrap_or(&src[0])[i]) } else { src[0][i] };
+                // A CMYK composite onto another mode darkens each tone by its Black, so Black
+                // alone stays black.
+                let k = if src_mode == ColorMode::Cmyk && sf.mode != ColorMode::Cmyk { src.get(3).map_or(1.0, |pl| tone(src_mode, pl[i])) } else { 1.0 };
+                let top = if src.len() > 1 { tone(src_mode, src.get(c).unwrap_or(&src[0])[i]) * k } else { src[0][i] };
                 let base = tone(sf.mode, *b);
                 let blended = top + (blending.apply(base, top) - top) * base_a;
                 *b = tone(sf.mode, if preserve { base + (blended - base) * w } else { (w * blended + base_a * (1.0 - w) * base) / out_a });

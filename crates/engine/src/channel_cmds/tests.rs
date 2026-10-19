@@ -716,6 +716,41 @@ fn apply_image_from_an_rgb_document_onto_cmyk_reads_it_in_its_own_mode() {
 }
 
 #[test]
+fn apply_image_of_a_cmyk_composite_onto_a_spot_channel_blends_as_tone() {
+    // #5787: the CMYK composite stores ink, so its white has none: applied in Normal onto an empty
+    // spot channel, the spot stays empty on the white and takes ink on the Cyan.
+    for depth in [8, 16] {
+        let mut s = cmyk_session(depth);
+        let spot = s.execute("channel.newSpot", json!({"color": "#ff00ff", "solidity": 100})).unwrap()["channel"].as_u64().unwrap() as usize;
+        s.execute("image.applyImage", json!({"blending": "normal", "target": {"channel": spot}})).unwrap();
+        let (cyan, white) = (chan(&s, spot, 5, 5), chan(&s, spot, 30, 5));
+        assert!(white < 0.01 && cyan > 0.1 && cyan < 0.9, "depth {depth}: cyan {cyan}, white {white}");
+    }
+}
+
+#[test]
+fn apply_image_of_a_cmyk_composite_onto_rgb_keeps_black() {
+    // #5787: Black alone (no C, M or Y) applied from a CMYK document onto RGB stays black, and
+    // the CMYK white stays white (the merged image goes through RGB, so a few levels of drift).
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 40, "height": 20, "mode": "cmyk", "background": "white"})).unwrap();
+    {
+        let d = s.active_mut().unwrap();
+        let id = d.active_layer.unwrap();
+        let surf = std::sync::Arc::make_mut(&mut d.doc).layer_mut(id).unwrap().surface_mut().unwrap();
+        let n = surf.format().channels();
+        let mut k = vec![0.0; 20 * 20 * n];
+        k.chunks_exact_mut(n).for_each(|p| p[3] = 1.0);
+        surf.write_region(Rect::new(0, 0, 20, 20), &k);
+    }
+    s.execute("file.new", json!({"width": 40, "height": 20, "background": "white"})).unwrap();
+    s.execute("image.applyImage", json!({"source": {"document": 0}, "blending": "normal"})).unwrap();
+    let (black, white) = (px(&s, 5, 5), px(&s, 30, 5));
+    assert!(black[..3].iter().all(|&v| v < 0.05), "{black:?}");
+    assert!(white[..3].iter().all(|&v| v > 0.95), "{white:?}");
+}
+
+#[test]
 fn calculations_results() {
     let mut s = session();
     rect(&mut s, 0, 0, 20, 20, "replace");
