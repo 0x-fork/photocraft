@@ -1607,9 +1607,10 @@ pub(crate) fn family_picker_in(
             // the frame. Cancel it, so the arrow only steps the font.
             ui.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
         }
-        // The wheel's step: a negative notch is the next family.
+        // The wheel's step: a negative notch is the next family. Steps use a stable order (no
+        // recents hoisting), so recording the picked family cannot make the next step jump back.
         let notches = f32::from(u8::from(up)) - f32::from(u8::from(down));
-        let rows = font_menu_rows(families, labels, "");
+        let rows = font_menu_rows(families, labels, "", &[]);
         if let Some(i) = rows.iter().position(|(f, _)| *f == current)
             && let Some(n) = wheel_family_index(i, rows.len(), notches)
             && let Some((f, _)) = rows.get(n)
