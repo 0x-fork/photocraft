@@ -86,10 +86,10 @@ pub fn effect_defaults(kind: &str) -> Value {
             json!({"blend": "Multiply", "color": "#000000", "opacity": 75, "angle": 120, "useGlobalLight": true, "distance": 5, "choke": 0, "size": 5, "contour": "Linear", "antiAlias": false, "noise": 0})
         }
         "outerGlow" => {
-            json!({"blend": "Screen", "opacity": 75, "color": "#ffffbe", "spread": 0, "size": 5, "range": 50, "contour": "Linear", "antiAlias": false, "noise": 0})
+            json!({"blend": "Screen", "opacity": 75, "color": "#ffffbe", "technique": "softer", "spread": 0, "size": 5, "range": 50, "contour": "Linear", "antiAlias": false, "noise": 0})
         }
         "innerGlow" => {
-            json!({"blend": "Screen", "opacity": 75, "color": "#ffffbe", "source": "edge", "choke": 0, "size": 5, "contour": "Linear", "antiAlias": false, "noise": 0})
+            json!({"blend": "Screen", "opacity": 75, "color": "#ffffbe", "technique": "softer", "source": "edge", "choke": 0, "size": 5, "range": 50, "contour": "Linear", "antiAlias": false, "noise": 0})
         }
         "stroke" => json!({"size": 3, "position": "outside", "blend": "Normal", "opacity": 100, "color": "#000000"}),
         "colorOverlay" => json!({"blend": "Normal", "color": "#ff0000", "opacity": 100}),
@@ -1007,7 +1007,7 @@ pub fn specs() -> Vec<CommandSpec> {
         style_cmd!(
             "innerGlow",
             "Inner Glow…",
-            r##"{"color":"#rrggbb","opacity":0..100=75,"blend":str="screen","technique":"softer|precise","source":"edge|center","choke":0..100,"size":px,"contour":name|curve,"antiAlias":bool,"noise":0..100,"add":bool}"##
+            r##"{"color":"#rrggbb","opacity":0..100=75,"blend":str="screen","technique":"softer|precise","source":"edge|center","choke":0..100,"size":px,"range":0..100,"contour":name|curve,"antiAlias":bool,"noise":0..100,"add":bool}"##
         ),
         style_cmd!(
             "stroke",

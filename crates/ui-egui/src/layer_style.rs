@@ -14,7 +14,7 @@
 //!   the page-only `blendIfChannel`; `channelNames`: the document's colour channels.
 
 use egui::{Color32, RichText, Sense, Stroke, StrokeKind, vec2};
-use photocraft_doc::effects::{FxPaint, GlowSource, StrokePosition};
+use photocraft_doc::effects::{FxPaint, GlowSource, GlowTechnique, StrokePosition};
 use photocraft_doc::{Effect, Layer};
 use serde_json::{Map, Value, json};
 
@@ -89,6 +89,7 @@ fn spec(kind: &str) -> &'static [(&'static str, &'static str, P)] {
     const TECHNIQUE: &[(&str, &str)] = &[("smooth", "Smooth"), ("chiselHard", "Chisel Hard"), ("chiselSoft", "Chisel Soft")];
     const DIR: &[(&str, &str)] = &[("up", "Up"), ("down", "Down")];
     const SRC: &[(&str, &str)] = &[("edge", "Edge"), ("center", "Center")];
+    const GLOW_TECHNIQUE: &[(&str, &str)] = &[("softer", "Softer"), ("precise", "Precise")];
     const CONTOUR: P = P::Contour(Some("antiAlias"));
     match kind {
         "dropShadow" => &[
@@ -116,24 +117,28 @@ fn spec(kind: &str) -> &'static [(&'static str, &'static str, P)] {
             ("contour", "Contour", CONTOUR),
             ("noise", "Noise", P::Slider(0.0, 100.0, "%")),
         ],
+        // Photoshop's order (#6698): Technique before the spread or choke, Range after the contour.
         "outerGlow" => &[
             ("blend", "Blend Mode", P::Blend),
             ("opacity", "Opacity", P::Slider(0.0, 100.0, "%")),
             ("color", "Color", P::Color),
+            ("technique", "Technique", P::Choice(GLOW_TECHNIQUE)),
             ("spread", "Spread", P::Slider(0.0, 100.0, "%")),
             ("size", "Size", P::Slider(0.0, 250.0, "px")),
-            ("range", "Range", P::Slider(1.0, 100.0, "%")),
             ("contour", "Contour", CONTOUR),
+            ("range", "Range", P::Slider(1.0, 100.0, "%")),
             ("noise", "Noise", P::Slider(0.0, 100.0, "%")),
         ],
         "innerGlow" => &[
             ("blend", "Blend Mode", P::Blend),
             ("opacity", "Opacity", P::Slider(0.0, 100.0, "%")),
             ("color", "Color", P::Color),
+            ("technique", "Technique", P::Choice(GLOW_TECHNIQUE)),
             ("source", "Source", P::Choice(SRC)),
             ("choke", "Choke", P::Slider(0.0, 100.0, "%")),
             ("size", "Size", P::Slider(0.0, 250.0, "px")),
             ("contour", "Contour", CONTOUR),
+            ("range", "Range", P::Slider(1.0, 100.0, "%")),
             ("noise", "Noise", P::Slider(0.0, 100.0, "%")),
         ],
         "stroke" => &[
@@ -243,6 +248,7 @@ fn values_of(e: &Effect, light: f32) -> Value {
             } else {
                 drop_keys(&mut v, &["color"]);
             }
+            set(&mut v, "technique", json!(if g.technique == GlowTechnique::Precise { "precise" } else { "softer" }));
             set(&mut v, if matches!(e, Effect::OuterGlow(_)) { "spread" } else { "choke" }, json!((g.spread * 100.0).round()));
             set(&mut v, "size", json!(g.size));
             set(&mut v, "range", json!((g.range * 100.0).round()));
@@ -1884,6 +1890,48 @@ mod tests {
         assert_eq!(glow["params"]["source"], json!("center"), "the dialog shows the effect's source");
         apply(&f, |cmd, p| s.execute(cmd, p).map_err(|e| e.to_string())).unwrap();
         assert_eq!(source(&s), Some(GlowSource::Center), "OK keeps the source");
+    }
+
+    /// #6698: Inner Glow lacked Photoshop's Technique and Range, Outer Glow its Technique. They
+    /// show in Photoshop's order, the dialog loads them, and OK keeps them.
+    #[test]
+    fn glows_show_and_keep_technique_and_range() {
+        let keys = |kind: &str| spec(kind).iter().map(|(k, _, _)| *k).collect::<Vec<_>>();
+        assert_eq!(keys("innerGlow"), ["blend", "opacity", "color", "technique", "source", "choke", "size", "contour", "range", "noise"]);
+        assert_eq!(keys("outerGlow"), ["blend", "opacity", "color", "technique", "spread", "size", "contour", "range", "noise"]);
+        let mut s = session();
+        s.execute("layer.layerStyle.innerGlow", json!({"technique": "precise", "range": 30})).unwrap();
+        s.execute("layer.layerStyle.outerGlow", json!({"technique": "precise"})).unwrap();
+        let glows = |s: &photocraft_engine::Session| {
+            let d = s.active().unwrap();
+            let id = d.active_layer.unwrap();
+            d.doc
+                .layer(id)
+                .unwrap()
+                .effects
+                .items
+                .iter()
+                .filter_map(|e| match e {
+                    Effect::InnerGlow(g) | Effect::OuterGlow(g) => Some((kind_of(e), g.technique, (g.range * 100.0).round())),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let expected = [("outerGlow", GlowTechnique::Precise, 50.0), ("innerGlow", GlowTechnique::Precise, 30.0)];
+        let mut have = glows(&s);
+        have.sort_by_key(|g| g.0);
+        let mut want = expected.to_vec();
+        want.sort_by_key(|g| g.0);
+        assert_eq!(have, want);
+        let st = s.active().unwrap();
+        let id = st.active_layer.unwrap();
+        let f = initial_fields(st.doc.layer(id).unwrap(), None, st.doc.global_light.angle);
+        let inner = effects_of(&f).iter().find(|e| e["kind"] == json!("innerGlow")).unwrap().clone();
+        assert_eq!((&inner["params"]["technique"], &inner["params"]["range"]), (&json!("precise"), &json!(30.0)), "the dialog shows them");
+        apply(&f, |cmd, p| s.execute(cmd, p).map_err(|e| e.to_string())).unwrap();
+        let mut have = glows(&s);
+        have.sort_by_key(|g| g.0);
+        assert_eq!(have, want, "OK keeps them");
     }
 
     #[test]
