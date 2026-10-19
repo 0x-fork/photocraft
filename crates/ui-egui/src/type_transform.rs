@@ -19,8 +19,9 @@ const PREVIEW_BASE: u64 = 1 << 37;
 const ROTATE_PX: f64 = 28.0;
 /// How far outside the text being typed a plain press moves it, as the Move tool (#5956), in
 /// screen points. Photoshop 2025, measured at 100 %: a drag from 35 pt off the glyphs moved the
-/// text without ending typing, one from 48 pt committed it instead.
-const MOVE_REACH_PT: f64 = 40.0;
+/// text without ending typing, one from 48 pt committed it instead. Kept under 40 pt, so a press
+/// 40 pt outside a paragraph box still commits the text (#7606).
+const MOVE_REACH_PT: f64 = 38.0;
 
 /// Cached rendered preview and bounded damage history. Unchanged pointer positions render nothing.
 pub(crate) struct Preview {
@@ -178,6 +179,10 @@ fn border_points(app: &PhotocraftApp, t: &TransformSession, p: [f64; 2]) -> f64 
 fn move_zone(app: &mut PhotocraftApp, p: [f64; 2]) -> Option<TransformSession> {
     let t = frame(app)?;
     if crate::transform_tool::hit(&t, p, 0.0) != Hit::Outside || border_points(app, &t, p) > MOVE_REACH_PT {
+        return None;
+    }
+    // Inside a paragraph box, off the glyphs, a press places the caret, as in Photoshop (#7606).
+    if crate::type_tool::inside_box(app, LayerId(t.layer), p[0], p[1]) {
         return None;
     }
     let other = crate::type_tool::hit_layer(app, p[0], p[1]).is_some_and(|id| id.0 != t.layer);

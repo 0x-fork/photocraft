@@ -239,7 +239,7 @@ fn resize_box(app: &mut PhotocraftApp, ed: &TextEdit, i: u8, x: f64, y: f64) {
 
 /// True when document point (`x`, `y`) lies inside the paragraph box of type layer `id` (false
 /// for point text).
-fn inside_box(app: &mut PhotocraftApp, id: LayerId, x: f64, y: f64) -> bool {
+pub(crate) fn inside_box(app: &mut PhotocraftApp, id: LayerId, x: f64, y: f64) -> bool {
     let Some((bx, by, w, h)) = box_shape(app, id) else { return false };
     let Some((_, aff, _)) = layout(app, id) else { return false };
     let (tx, ty) = to_text(&aff, x, y);
