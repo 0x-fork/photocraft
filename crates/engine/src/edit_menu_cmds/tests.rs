@@ -128,6 +128,21 @@ fn fade_an_alpha_channel_or_the_quick_mask_at_all_depths() {
     }
 }
 
+/// A command told to edit the layer (`"target": "pixels"`) does so with an alpha channel targeted,
+/// and Fade then fades the layer, not the channel.
+#[test]
+fn fade_follows_the_target_the_command_ran_on() {
+    let mut s = session(8);
+    s.execute("channel.new", json!({"fill": "black"})).unwrap();
+    s.execute("channel.target", json!({"channel": 0})).unwrap();
+    s.execute("edit.fill", json!({"color": "#000000", "target": "pixels"})).unwrap();
+    assert_eq!(px(&s, 5, 5)[0], 0.0, "the layer was filled");
+    assert!(matches!(s.edit_state.fade.as_ref().map(|f| f.target), Some(FadeTarget::Pixels(_))));
+    s.execute("edit.fade", json!({"opacity": 25})).unwrap();
+    assert!((px(&s, 5, 5)[0] - 0.75).abs() < 0.01, "the layer faded");
+    assert_eq!(s.active().unwrap().doc.channels[0].surface.pixel(5, 5)[0], 0.0, "the channel is left alone");
+}
+
 #[test]
 fn purge_commands() {
     let mut s = session(8);

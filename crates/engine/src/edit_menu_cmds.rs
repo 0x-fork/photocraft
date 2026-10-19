@@ -13,7 +13,7 @@ use photocraft_raster::{Surface, from_rgba_into, to_rgba};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::channel_cmds::ChannelTarget;
+use crate::channel_cmds::Target;
 use crate::commands::{CommandSpec, blend_from_str, int, layer_param};
 use crate::{EngineError, Result, Session};
 
@@ -68,16 +68,18 @@ fn fadeable(id: &str) -> bool {
 }
 
 /// Called after every successful command: remember a fadeable result.
-pub(crate) fn after_command(s: &mut Session, id: &str) {
+pub(crate) fn after_command(s: &mut Session, id: &str, params: &Value) {
     if !fadeable(id) {
         return;
     }
     let Some(st) = s.active() else { return };
     let label = st.history.undo_label().unwrap_or(id).to_string();
-    // A targeted alpha channel, or the Quick Mask, takes the edit instead of the layer (#7382).
-    let channel = match st.channel_view.target {
-        ChannelTarget::Alpha(i) if i < st.doc.channels.len() => Some(FadeTarget::Channel(i)),
-        ChannelTarget::Composite if st.doc.quick_mask.is_some() => Some(FadeTarget::QuickMask),
+    // An alpha channel or the Quick Mask took the edit instead of the layer when the command ran
+    // on it (#7382): its explicit `target`, or the one the Channels panel gave it.
+    let run = crate::channel_cmds::inject_target(s, id, params.clone());
+    let channel = match crate::channel_cmds::target_of(&run) {
+        Target::Alpha(i) if i < st.doc.channels.len() => Some(FadeTarget::Channel(i)),
+        Target::QuickMask if st.doc.quick_mask.is_some() => Some(FadeTarget::QuickMask),
         _ => None,
     };
     if let Some(target) = channel {
