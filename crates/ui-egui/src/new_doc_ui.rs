@@ -1321,7 +1321,7 @@ mod tests {
             assert_pixel(&mut h, [0.0; 4]);
         }
 
-        /// Framework-style touch: the second tap lands ~20 px off (past egui's 6 px) and still creates.
+        /// Framework-style touch: the second tap lands ~48 px off (past egui's 6 px and the old 32 px touch slop) and still creates.
         #[test]
         fn touch_double_tap_with_jitter_creates_from_builtin_preset() {
             let mut h = harness();
@@ -1331,7 +1331,7 @@ mod tests {
             touch_tap_at(&mut h, at);
             assert_eq!(fields(&h)["__preset"], "Portrait, 4 x 6");
             assert!(h.state().session.documents().is_empty(), "first tap only selects");
-            touch_tap_at(&mut h, egui::pos2(at.x + 20.0, at.y));
+            touch_tap_at(&mut h, egui::pos2(at.x + 48.0, at.y));
             assert_eq!(created(&h), (1200, 1800, 300.0));
         }
 

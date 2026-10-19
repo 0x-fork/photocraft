@@ -975,8 +975,8 @@ pub(crate) fn wheel_notches_of(ui: &Ui, id: egui::Id, hovered: bool, shift_notch
 /// Windows' default double-click time (Photoshop's; egui's own default is 0.3 s).
 const DOUBLE_CLICK_S: f64 = 0.5;
 
-/// Finger jitter between taps easily exceeds egui's 6 px `max_click_dist`; ~32 px is about a third of an inch at 96 DPI and matches common touch hit-slop (Windows' mouse SM_CXDOUBLECLK is only 4 px and is not used for touch).
-const TOUCH_MAX_CLICK_DIST: f32 = 32.0;
+/// Finger jitter between taps easily exceeds egui's 6 px `max_click_dist`; 64 px is about two-thirds of an inch at 96 DPI (roughly a fingertip pad). 32 px still rejected casual Framework double-taps; Windows' mouse SM_CXDOUBLECLK is only 4 px and is not used for touch.
+const TOUCH_MAX_CLICK_DIST: f32 = 64.0;
 
 /// True when this frame's pointer work came from a touch contact (still down, or a Touch event including End on the click frame).
 fn pointer_from_touch(ui: &Ui) -> bool {
@@ -985,7 +985,7 @@ fn pointer_from_touch(ui: &Ui) -> bool {
 
 /// Whether this click on `resp` completes a double-click / double-tap, counted the Windows way (Photoshop): a click soon after a lone click near the same spot; the click after a double starts over.
 ///
-/// Time window is 0.5 s (Windows / Photoshop; egui's default is 0.3 s). Mouse uses egui's `max_click_dist` (6 px); touch uses 32 px so finger jitter between taps still counts. Call on every click for that widget so the first tap is remembered.
+/// Time window is 0.5 s (Windows / Photoshop; egui's default is 0.3 s). Mouse uses egui's `max_click_dist` (6 px); touch uses [`TOUCH_MAX_CLICK_DIST`] so finger jitter between taps still counts. Call on every click for that widget so the first tap is remembered.
 pub fn second_click(ui: &Ui, resp: &Response) -> bool {
     if !resp.clicked() {
         return false;
@@ -1964,12 +1964,13 @@ mod tests {
         saw
     }
 
-    /// #2274 touch: two taps ~20 px apart (past egui's 6 px mouse limit, inside our touch slop) within 0.5 s count as a double; the same mouse path does not.
+    /// #2274 touch: taps past egui's 6 px mouse limit (and past the old 32 px touch slop) within 0.5 s still count as a double; the same mouse path does not.
     #[test]
     fn second_click_tolerates_touch_jitter_but_keeps_mouse_tight() {
         let area = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, 200.0));
         let a = egui::pos2(50.0, 50.0);
-        let b = egui::pos2(70.0, 50.0); // 20 px — past max_click_dist (6), inside TOUCH_MAX_CLICK_DIST (32)
+        let mild = egui::pos2(70.0, 50.0); // 20 px — past mouse max_click_dist (6)
+        let wide = egui::pos2(50.0 + 48.0, 50.0); // past the old 32 px slop, inside TOUCH_MAX_CLICK_DIST (64)
         for touch in [false, true] {
             let ctx = egui::Context::default();
             let mut out = ctx.run_ui(
@@ -1984,9 +1985,24 @@ mod tests {
             );
             out.textures_delta.clear();
             assert!(!pointer_click(&ctx, 0.1, a, touch), "first click only arms the pair");
-            let second = pointer_click(&ctx, 0.25, b, touch);
+            let second = pointer_click(&ctx, 0.25, mild, touch);
             assert_eq!(second, touch, "touch={touch}: 20 px jitter is a double only for touch");
         }
+        // Touch-only: casual Framework-style drift beyond the previous 32 px budget.
+        let ctx = egui::Context::default();
+        let mut out = ctx.run_ui(
+            egui::RawInput {
+                time: Some(0.0),
+                screen_rect: Some(area),
+                ..Default::default()
+            },
+            |ui| {
+                ui.allocate_rect(area, egui::Sense::click());
+            },
+        );
+        out.textures_delta.clear();
+        assert!(!pointer_click(&ctx, 0.1, a, true));
+        assert!(pointer_click(&ctx, 0.25, wide, true), "48 px touch jitter is still a double");
     }
 
     /// A mouse double past the time window is not a double, even at the same pixel.
