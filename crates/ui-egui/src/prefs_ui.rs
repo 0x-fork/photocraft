@@ -893,10 +893,18 @@ fn capture_mods_json(m: egui::Modifiers) -> Value {
     })
 }
 
-/// While capture is active: refresh the held modifiers (including across frames) and, if a
-/// non-modifier key was pressed this frame, return it with the modifiers that held with it.
-/// Modifier-key presses count even when egui reports no modifier bits on them (#7190).
-fn capture_key_press(capture_mods: egui::Modifiers, i: &egui::InputState) -> (egui::Modifiers, Option<(egui::Key, egui::Modifiers)>) {
+/// While capture is active: refresh held modifiers (including across frames via dialog
+/// `captureMods`) and, if a non-modifier key was pressed this frame, return it with the
+/// modifiers held with it.
+///
+/// #7190 root cause: capture used to [`find_map`](Iterator::find_map) the first non-modifier
+/// [`Event::Key`] and pass only that event's `modifiers` into [`shortcut_text`]. On Linux and
+/// Windows, winit/egui often reports `ShiftLeft`/`ShiftRight` (and sometimes the letter key) with
+/// [`Modifiers::NONE`], and the modifier down and the letter down often land in separate UI
+/// frames. Shift was then missing from the stored binding (`F6` instead of `Shift+F6`). Like #292
+/// for `ControlLeft`, we walk the frame's events, OR in [`modifier_key_modifiers`] for modifier
+/// keys, and persist accumulated modifiers in `captureMods` until capture ends.
+pub(crate) fn capture_key_press(capture_mods: egui::Modifiers, i: &egui::InputState) -> (egui::Modifiers, Option<(egui::Key, egui::Modifiers)>) {
     let mut mods = capture_mods | i.modifiers;
     let mut pressed = None;
     for e in &i.events {
