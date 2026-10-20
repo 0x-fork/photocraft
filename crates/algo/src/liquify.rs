@@ -920,18 +920,30 @@ impl ProxyImage {
             return false;
         }
         source_scratch.resize(source_len, [0.0; 4]);
-        src.read_rgba_into(src_rect, source_scratch);
-        if !src.format().alpha {
-            for pixel in source_scratch.iter_mut() {
-                pixel[3] = 1.0;
+        // Read and premultiply the source in one pass per band of rows: at an 800 px brush it is
+        // about a million pixels, most of an update when read on one thread (P30).
+        let opaque = !src.format().alpha;
+        let read_band = |first_row: usize, band: &mut [[f32; 4]]| {
+            let y = src_rect.y0 + first_row as i32;
+            src.read_rgba_into(Rect::new(src_rect.x0, y, src_rect.x1, y + (band.len() / sw) as i32), band);
+            for pixel in band.iter_mut() {
+                if opaque {
+                    pixel[3] = 1.0;
+                }
+                let alpha = pixel[3];
+                pixel[0] *= alpha;
+                pixel[1] *= alpha;
+                pixel[2] *= alpha;
             }
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use rayon::prelude::*;
+            const BAND_ROWS: usize = 32;
+            source_scratch.par_chunks_mut(sw * BAND_ROWS).enumerate().for_each(|(band, rows)| read_band(band * BAND_ROWS, rows));
         }
-        for pixel in source_scratch.iter_mut() {
-            let alpha = pixel[3];
-            pixel[0] *= alpha;
-            pixel[1] *= alpha;
-            pixel[2] *= alpha;
-        }
+        #[cfg(target_arch = "wasm32")]
+        read_band(0, source_scratch);
 
         let x0 = (region.x0 - bounds.x0) as usize;
         let x1 = (region.x1 - bounds.x0) as usize;
