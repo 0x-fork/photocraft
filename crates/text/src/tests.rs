@@ -1,6 +1,6 @@
 use photocraft_color::{Color, PixelFormat, SampleType};
 use photocraft_doc::TextLayer;
-use photocraft_doc::text::{Caps, CharStyle, FontFeature, Orientation, ParagraphRun, ParagraphStyle, TextAlign, TextDirection, TextRun, TextShape};
+use photocraft_doc::text::{AntiAlias, Caps, CharStyle, FontFeature, Orientation, ParagraphRun, ParagraphStyle, TextAlign, TextDirection, TextRun, TextShape};
 use photocraft_geom::Affine;
 
 use crate::{TextEngine, fonts};
@@ -11,6 +11,38 @@ fn point(text: &str, size_pt: f32) -> TextLayer {
 
 fn styled(text: &str, style: CharStyle) -> TextLayer {
     TextLayer { text: text.into(), runs: vec![TextRun { len: text.len(), style }], ..Default::default() }
+}
+
+/// The rasteriser's pixel stages — composing one colour's coverage, unpremultiplying it, and
+/// converting the tiles — are per pixel: no pixel reads a slot another pixel wrote. Spreading them
+/// over threads therefore has to leave every byte as it was, which a one-thread pool checks.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn parallel_raster_matches_a_single_thread() {
+    let one = rayon::ThreadPoolBuilder::new().num_threads(1).build().expect("one-thread pool");
+    let mut e = TextEngine::new();
+    let boxed = TextShape::Box { x: 0.0, y: 0.0, width: 220.0, height: 90.0 };
+    let paragraph = TextLayer {
+        text: "A paragraph box that wraps over several lines and covers many tiles, so the whole raster is exercised.".into(),
+        font_family: "Inter".into(),
+        size_pt: 18.0,
+        shape: boxed,
+        ..Default::default()
+    };
+    let no_aa = TextLayer { text: "No AA edge".into(), font_family: "Inter".into(), size_pt: 30.0, antialias: AntiAlias::None, ..Default::default() };
+    let cases: Vec<(TextLayer, f32, PixelFormat)> = vec![
+        (point("Parallel", 48.0), 72.0, PixelFormat::RGBA8),
+        (styled("Bold italic", CharStyle { size_pt: 40.0, faux_bold: true, faux_italic: true, ..Default::default() }), 300.0, PixelFormat::RGBA8),
+        (no_aa, 150.0, PixelFormat::RGBA16),
+        (styled("Wide gamut", CharStyle { size_pt: 36.0, color: Color::rgba(2.5, -0.25, 0.5, 0.4), ..Default::default() }), 96.0, PixelFormat::RGBA32F),
+        (with_para(paragraph, ParagraphStyle::default()), 144.0, PixelFormat::RGBA8),
+    ];
+    for (layer, dpi, format) in cases {
+        let (_, spread) = e.render(&layer, dpi, format);
+        let (_, single) = one.install(|| e.render(&layer, dpi, format));
+        assert_eq!(spread.rect, single.rect, "{}", layer.text);
+        assert_eq!(spread.surface, single.surface, "{}", layer.text);
+    }
 }
 
 #[test]
@@ -270,6 +302,44 @@ fn box_text_wraps_inside_width() {
     t.shape = TextShape::Box { x: 0.0, y: 0.0, width: 100.0, height: 30.0 };
     let l2 = e.layout(&t, 72.0);
     assert_eq!(l2.lines.len(), 2);
+}
+
+/// #5565: paragraph text breaks at its horizontally scaled width. At 60% it breaks like 100%
+/// text in a box 1/0.6 as wide, and the lines fill the box instead of wrapping early.
+#[test]
+fn horizontal_scale_breaks_paragraph_lines_at_the_scaled_width() {
+    let mut e = TextEngine::new();
+    let text = "The quick brown fox jumps over the lazy dog again and again until the paragraph wraps";
+    let boxed = |scale: f32, width: f32, align: TextAlign| {
+        let style = CharStyle { font_family: "Inter".into(), size_pt: 12.0, horizontal_scale: scale, ..Default::default() };
+        let t = TextLayer { shape: TextShape::Box { x: 10.0, y: 0.0, width, height: 1000.0 }, ..styled(text, style) };
+        with_para(t, ParagraphStyle { align, ..Default::default() })
+    };
+    let ranges = |l: &crate::TextLayout| l.lines.iter().map(|ln| ln.range.clone()).collect::<Vec<_>>();
+    for scale in [0.6f32, 1.5] {
+        let scaled = e.layout(&boxed(scale, 120.0, TextAlign::Left), 72.0);
+        let plain = e.layout(&boxed(1.0, 120.0 / scale, TextAlign::Left), 72.0);
+        assert!(scaled.lines.len() > 1, "{scale}");
+        assert_eq!(ranges(&scaled), ranges(&plain), "{scale}: same breaks as unscaled text in the widened box");
+        for (li, ln) in scaled.lines.iter().enumerate() {
+            assert!(ln.x0 >= 10.0 - 1e-3 && ln.x1 <= 130.0 + 1e-3, "{scale}: {ln:?}");
+            // The extent ends at the last glyph, not after the scaled trailing space.
+            let ink = scaled.clusters.iter().filter(|c| c.line == li && !text[c.range.clone()].trim().is_empty());
+            assert!((ink.map(|c| c.x + c.advance).fold(0.0, f32::max) - ln.x1).abs() < 0.01, "{scale}: {ln:?}");
+        }
+    }
+    // At 60% the lines use the box: the first would not fit at 100%.
+    let scaled = e.layout(&boxed(0.6, 120.0, TextAlign::Left), 72.0);
+    assert!(scaled.lines[0].x1 > 110.0, "{:?}", scaled.lines[0]);
+    // Centred and right-aligned lines are placed by their scaled width.
+    let c = e.layout(&boxed(0.6, 120.0, TextAlign::Center), 72.0);
+    for ln in &c.lines {
+        assert!(((ln.x0 + ln.x1) * 0.5 - 70.0).abs() < 0.5, "{ln:?}");
+    }
+    let r = e.layout(&boxed(0.6, 120.0, TextAlign::Right), 72.0);
+    for ln in &r.lines {
+        assert!((ln.x1 - 130.0).abs() < 0.5, "{ln:?}");
+    }
 }
 
 #[test]
@@ -1452,6 +1522,23 @@ fn japanese_box_text_preserves_wrap_boundaries() {
     assert_eq!(end, text.text.len());
 }
 
+/// #5959: Korean box text broke between Hangul syllables, mid-word ("설 / 정이나"). Lines break at
+/// the spaces between words, as Photoshop sets Korean; a word longer than the box still breaks.
+#[test]
+fn korean_box_text_wraps_between_words() {
+    let mut engine = TextEngine::new();
+    let mut text = point("여기서는 각종 설정이나 캐릭터 제작을 진행합니다.", 12.0);
+    text.shape = TextShape::Box { x: 0.0, y: 0.0, width: 60.0, height: 1000.0 };
+    let layout = engine.layout(&text, 72.0);
+    assert!(layout.lines.len() > 2, "{}", layout.lines.len());
+    let words: Vec<&str> = text.text.split(' ').collect();
+    for line in &layout.lines {
+        let content = text.text.get(line.range.clone()).expect("UTF-8 line boundaries").trim();
+        assert!(content.split(' ').all(|w| words.contains(&w)), "a line holds whole words only: {content:?}");
+    }
+    assert_eq!(super::layout::hangul_runs("a 한국어 b"), vec![2..11]);
+}
+
 /// Which craft-fonts family drew the glyphs of `l` (matched by the embedded bytes).
 fn craft_family_of(l: &crate::TextLayout) -> Vec<&'static str> {
     let mut v = Vec::new();
@@ -2007,4 +2094,38 @@ fn hyphenless_postscript_names_split_trailing_styles() {
         let r = fonts::guess_from_postscript(ps);
         assert_eq!((r.family.as_str(), r.weight, r.italic), (family, weight, italic), "{ps}");
     }
+}
+
+/// A word wider than its paragraph box wraps at the box edge instead of running past it (#6694);
+/// a normal break opportunity still wins, and a box that fits the word lays out exactly as before.
+#[test]
+fn a_word_wider_than_the_paragraph_box_breaks_at_the_box_edge() {
+    let mut e = TextEngine::new();
+    let word = "BLOQUEADO?!";
+    let alone = e.layout(&point(word, 12.0), 72.0);
+    assert_eq!(alone.lines.len(), 1, "{:?}", alone.lines);
+    let word_width = width(&alone);
+    let narrow = 30.0;
+    assert!(word_width > narrow * 2.0, "{word_width}");
+
+    let mut t = point(word, 12.0);
+    t.shape = TextShape::Box { x: 0.0, y: 0.0, width: narrow, height: 200.0 };
+    let l = e.layout(&t, 72.0);
+    assert!(l.lines.len() >= 2, "{:?}", l.lines);
+    for line in &l.lines {
+        assert!(line.x1 <= narrow + 0.5, "{line:?}");
+    }
+    let joined: String = l.lines.iter().map(|l| &word[l.range.clone()]).collect();
+    assert_eq!(joined, word);
+
+    t.shape = TextShape::Box { x: 0.0, y: 0.0, width: word_width + 20.0, height: 200.0 };
+    let fits = e.layout(&t, 72.0);
+    assert_eq!(fits.lines.len(), 1, "{:?}", fits.lines);
+    assert!((width(&fits) - word_width).abs() < 0.01, "{} vs {word_width}", width(&fits));
+
+    let mut spaced = point("ab cd", 12.0);
+    spaced.shape = TextShape::Box { x: 0.0, y: 0.0, width: narrow, height: 200.0 };
+    let l = e.layout(&spaced, 72.0);
+    assert_eq!(l.lines.len(), 2, "{:?}", l.lines);
+    assert_eq!(l.lines[1].range.start, 3, "{:?}", l.lines);
 }
