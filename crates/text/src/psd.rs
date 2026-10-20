@@ -30,6 +30,12 @@ pub struct TySh {
     pub bounds: [f32; 4],
 }
 
+/// Whether a type transform can reach rendering or egui. Pixel coordinates use i32 throughout
+/// the document, so non-finite and unrepresentable affine terms are rejected (#4758).
+pub fn transform_is_safe(t: &Affine) -> bool {
+    t.m.iter().all(|v| v.is_finite() && v.abs() <= f64::from(i32::MAX))
+}
+
 /// Parses a `TySh` block.
 pub fn parse_tysh(data: &[u8]) -> Option<TySh> {
     let f = |at: usize| data.get(at..at + 8).map(|b| f64::from_be_bytes(b.try_into().unwrap_or([0; 8])));
@@ -37,9 +43,7 @@ pub fn parse_tysh(data: &[u8]) -> Option<TySh> {
     for (i, v) in m.iter_mut().enumerate() {
         *v = f(2 + i * 8)?;
     }
-    // Pixel coordinates use i32 throughout the document. Reject non-finite and
-    // unrepresentable affine terms before they reach rendering or egui (#4758).
-    if !m.iter().all(|v| v.is_finite() && v.abs() <= f64::from(i32::MAX)) {
+    if !transform_is_safe(&Affine { m }) {
         return None;
     }
     let (text, used) = VersionedDescriptor::parse_prefix(data.get(52..)?).ok()?;

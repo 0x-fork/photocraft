@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use photocraft_color::{BlendMode, ColorMode, PixelFormat, SampleType};
 use photocraft_doc::{
-    AlphaChannel, Document, Effects, FillCache, Group, Layer, LayerContent, LayerMask, ShapeLayer, SmartContentsId, SmartObject, SmartSource,
+    AlphaChannel, Document, Effects, FillCache, Group, Layer, LayerContent, LayerMask, ShapeLayer, SmartContentsId, SmartObject, SmartSource, TextLayer,
 };
 use photocraft_geom::{Rect, Size, TILE_SIZE};
 use photocraft_psd::layer::{CHANNEL_REAL_USER_MASK, CHANNEL_TRANSPARENCY, CHANNEL_USER_MASK};
@@ -362,9 +362,18 @@ impl Ctx<'_> {
             }
             LayerContent::Adjustment(adj)
         } else if let Some(block) = rec.block(b"TySh") {
-            // Only canonical, safely decoded type data can become editable text. A retained
-            // foreign-order block must never be handed to the big-endian reader (#4758).
-            let parsed = (!block.is_foreign_order()).then(|| photocraft_text::psd::text_layer_from_tysh(&block.data, self.dpi)).flatten();
+            // Only canonical type data with a safe transform can become a text layer. A retained
+            // foreign-order block must never be handed to the big-endian reader (#4758). Canonical
+            // data the typed reader can't decode stays a type layer as before (usually without
+            // text), so its TySh is saved back verbatim instead of being dropped with the raster.
+            let parsed = (!block.is_foreign_order())
+                .then(|| {
+                    photocraft_text::psd::text_layer_from_tysh(&block.data, self.dpi).or_else(|| {
+                        let (text, transform) = blocks::parse_tysh(&block.data).unwrap_or_default();
+                        photocraft_text::psd::transform_is_safe(&transform).then(|| TextLayer { text, transform, ..Default::default() })
+                    })
+                })
+                .flatten();
             if let Some(mut t) = parsed {
                 if let Some(txt2) = &self.txt2 {
                     photocraft_text::psd::apply_txt2(&mut t, &block.data, txt2);
@@ -378,7 +387,7 @@ impl Ctx<'_> {
                 t.psd_raw = principal(b"TySh");
                 LayerContent::Text(t)
             } else {
-                self.warn(format!("layer \"{name}\": unreadable or unsafe type geometry; kept as pixels with its original type data"));
+                self.warn(format!("layer \"{name}\": type data in another byte order or with unsafe type geometry; kept as pixels"));
                 LayerContent::Raster(self.record_surface(rec, &name))
             }
         } else if let Some(k) = smart_key {

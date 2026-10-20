@@ -67,3 +67,20 @@ fn foreign_or_unsafe_type_keeps_cached_pixels_without_editable_geometry() {
         assert!(opened.layers[0].psd_blocks.iter().any(|(k, data)| k == b"TySh" && **data == raw));
     }
 }
+
+#[test]
+fn canonical_type_the_typed_reader_rejects_stays_type_and_saves_its_block() {
+    let doc = document();
+    let (mut psd, _) = document_to_psd_with(&doc, &PsdExportOptions::default());
+    let block = psd.layer_info.as_mut().unwrap().layers[0].blocks.iter_mut().find(|b| b.key == *b"TySh").unwrap();
+    // A text descriptor version the typed reader doesn't know; the matrix is ordinary.
+    block.data[52..56].copy_from_slice(&17u32.to_be_bytes());
+    let raw = block.data.clone();
+    let (opened, warnings) = psd_to_document(&psd);
+    assert!(!warnings.iter().any(|w| w.contains("unsafe type geometry")), "{warnings:?}");
+    let LayerContent::Text(t) = &opened.layers[0].content else { panic!("canonical type must stay a type layer") };
+    let LayerContent::Text(before) = &doc.layers[0].content else { panic!("source type") };
+    assert_eq!(t.transform, before.transform);
+    let (saved, _) = document_to_psd_with(&opened, &PsdExportOptions::default());
+    assert_eq!(saved.layers()[0].block(b"TySh").map(|b| &b.data), Some(&raw), "PSD save must keep the type block");
+}
