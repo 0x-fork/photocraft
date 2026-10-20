@@ -175,6 +175,7 @@ fn shared_layout_keeps_panel_identity_across_themes_and_respects_workspace_lock(
 /// Explicit offscreen evidence; this creates no native windows.
 #[test]
 fn capture_custom_panel_docking_visual_fixtures() {
+    let _gpu = photocraft_testkit::gpu_lock();
     let Some(directory) = std::env::var_os("CRAFT_UI_DOCKING_FIXTURES").map(std::path::PathBuf::from) else { return };
     std::fs::create_dir_all(&directory).unwrap();
     for theme in crate::theme::ThemeKind::ALL {
@@ -211,6 +212,7 @@ fn capture_custom_panel_docking_visual_fixtures() {
 
 #[test]
 fn floating_group_titles_are_opaque_in_studio_themes() {
+    let _gpu = photocraft_testkit::gpu_lock();
     // Studio's tab strip is transparent over the dock's card; a floating group must not show the canvas (#4509).
     let mut app = app();
     app.run("window.panel.float", json!({"panel":"swatches","x":40,"y":60,"width":300,"height":300})).unwrap();
@@ -346,6 +348,7 @@ fn splitting_a_short_column_keeps_the_layers_footer_visible_and_usable() {
 
 #[test]
 fn populated_canvas_keeps_a_real_opacity_edit_after_floating_and_redocking() {
+    let _gpu = photocraft_testkit::gpu_lock();
     let mut app = app();
     app.ui.theme = crate::theme::ThemeKind::Studio;
     app.run("file.new", json!({"width":480,"height":360})).unwrap();
@@ -580,6 +583,23 @@ fn explicit_reveal_activates_existing_tab_and_expands_custom_group() {
     let before = app.ui.docking.clone();
     assert!(app.run("window.panel.layers", json!({"show":"yes"})).is_err());
     assert_eq!(app.ui.docking, before);
+}
+
+// #2455 in a custom workspace: the pro Color field fills a tall floating group, not 120 pt.
+#[test]
+fn pro_color_field_fills_a_tall_custom_group() {
+    let mut app = app();
+    app.run("window.panel.float", json!({"panel":"color","x":40,"y":60,"width":320,"height":560})).unwrap();
+    assert!(app.ui.docking.is_some());
+    let h = harness(app, vec2(1280.0, 800.0));
+    // The SV field and the 14 pt hue strip beside it are draggable, equally tall and 8 pt apart.
+    let drags: Vec<egui::Rect> =
+        h.ctx.viewport(|v| v.this_pass.widgets.layers().flat_map(|(_, w)| w).filter(|w| w.sense.senses_drag()).map(|w| w.rect).collect());
+    let field = drags
+        .iter()
+        .find(|f| drags.iter().any(|s| s.width() == 14.0 && s.top() == f.top() && s.height() == f.height() && (s.left() - f.right() - 8.0).abs() < 0.5))
+        .expect("Color field with its hue strip");
+    assert!(field.height() > 300.0, "field stays short in a 560 pt group: {field:?}");
 }
 
 // #4028: in a custom workspace too, a new adjustment layer brings Properties to the front.
