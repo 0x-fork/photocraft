@@ -373,30 +373,56 @@ fn reveal_in_finder(s: &mut Session, p: &Value) -> Result<Value> {
     let SmartSource::Linked { path } = &sm.source else {
         return Err(other("embedded smart objects have no file to reveal"));
     };
-    reveal(path, p.get("dryRun").and_then(Value::as_bool).unwrap_or(false))
+    // The path is stored in the document: shown only when it would be followed.
+    let file =
+        crate::doc_path::resolve_in(path, d.path.as_deref().map(std::path::Path::new)).map_err(|why| crate::doc_path::refusal("the linked file", path, why))?;
+    reveal(&file.to_string_lossy(), p.get("dryRun").and_then(Value::as_bool).unwrap_or(false))
 }
 
 /// Show `path` in the platform file manager ([`reveal_command`] + [`spawn`]); `dry_run` answers
 /// the program and arguments instead (tests). Shared by the smart-object command and the document
 /// tab's Reveal in Finder (UI-217-6).
 pub(crate) fn reveal(path: &str, dry_run: bool) -> Result<Value> {
-    let (program, args) = reveal_command(path);
+    let (program, args) = reveal_command(path)?;
     if dry_run {
         return Ok(json!({"program": program, "args": args}));
     }
+    ensure_folder(program, &args)?;
     spawn(program, &args)?;
     Ok(json!({"path": path}))
 }
 
+/// `xdg-open` opens whatever it is given in its default application, so it only gets a folder: a
+/// linked path such as `tool.jar/a.png` would otherwise launch `tool.jar` instead of showing it.
+fn ensure_folder(program: &str, args: &[String]) -> Result<()> {
+    if program != "xdg-open" {
+        return Ok(());
+    }
+    match args.first() {
+        Some(dir) if std::path::Path::new(dir).is_dir() => Ok(()),
+        Some(dir) => Err(other(format!("{dir} is not a folder, so it can't be shown in the file manager"))),
+        None => Err(other("no folder to show in the file manager")),
+    }
+}
+
 /// The file-manager invocation that selects `path` on this platform.
-pub fn reveal_command(path: &str) -> (&'static str, Vec<String>) {
-    if cfg!(target_os = "macos") {
-        ("open", vec!["-R".into(), path.into()])
-    } else if cfg!(target_os = "windows") {
-        ("explorer", vec![format!("/select,{path}")])
-    } else {
-        let parent = std::path::Path::new(path).parent().map_or_else(|| ".".to_string(), |p| p.to_string_lossy().into_owned());
-        ("xdg-open", vec![parent])
+pub fn reveal_command(path: &str) -> Result<(&'static str, Vec<String>)> {
+    reveal_command_on(std::env::consts::OS, path)
+}
+
+/// [`reveal_command`] on the platform `os` (a `std::env::consts::OS` value).
+fn reveal_command_on(os: &str, path: &str) -> Result<(&'static str, Vec<String>)> {
+    match os {
+        // `--` ends the options: a path starting with `-` is not read as one.
+        "macos" => Ok(("open", vec!["-R".into(), "--".into(), path.into()])),
+        // Explorer splits `/select,` arguments at commas and reads quotes itself, so such a path
+        // would select something else.
+        "windows" if path.contains([',', '"']) => Err(other(format!("{path} can't be shown in Explorer: its path contains a comma or a quotation mark"))),
+        "windows" => Ok(("explorer", vec![format!("/select,{path}")])),
+        _ => {
+            let parent = std::path::Path::new(path).parent().map_or_else(|| ".".to_string(), |p| p.to_string_lossy().into_owned());
+            Ok(("xdg-open", vec![parent]))
+        }
     }
 }
 
@@ -612,8 +638,14 @@ fn blend_range(v: &Value) -> Option<BlendRange> {
 
 fn global_light(s: &mut Session, p: &Value) -> Result<Value> {
     let cur = s.active().ok_or(EngineError::NoDocument)?.doc.global_light;
-    let angle = num(p, "angle", cur.angle);
-    let altitude = num(p, "altitude", cur.altitude).clamp(0.0, 90.0);
+    // Read as f64 and reject what f32 can't hold: 1e39 would become inf, and rem_euclid NaN.
+    let f32_param = |key: &str, default: f32| match p.get(key).and_then(Value::as_f64) {
+        None => Ok(default),
+        Some(v) if v.is_finite() && v.abs() <= f64::from(f32::MAX) => Ok(v as f32),
+        Some(_) => Err(bad("layer.layerStyle.globalLight", format!("{key} must be a finite number"))),
+    };
+    let angle = f32_param("angle", cur.angle)?;
+    let altitude = f32_param("altitude", cur.altitude)?.clamp(0.0, 90.0);
     let angle = (angle + 180.0).rem_euclid(360.0) - 180.0;
     s.edit("Global Light", |doc, _| {
         doc.global_light.angle = angle;

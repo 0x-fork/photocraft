@@ -94,8 +94,32 @@ fn mask_slider_drags_preview_live_and_undo_as_separate_gestures() {
     h.state_mut().run("edit.redo", json!({})).unwrap();
     assert!((mask(&h).density - 0.5).abs() < 0.01);
     h.run_steps(3);
-    drag(&mut h, 1, &[0.0, 0.01, 0.02]);
-    assert!((mask(&h).feather - 20.0).abs() < 0.1);
+    // #6545: Feather's track is curved like Photoshop's, so a fifth of the way is 8 px, not 200.
+    drag(&mut h, 1, &[0.0, 0.1, 0.2]);
+    assert!((mask(&h).feather - 8.0).abs() < 0.3, "feather {}", mask(&h).feather);
+}
+
+/// #6545: the curve is only the track's. A typed Feather and the arrow keys stay exact px, and
+/// drawing the knob for them never writes the value back.
+#[test]
+fn typed_and_stepped_feather_stays_exact() {
+    let mut h = harness(false, crate::theme::ThemeKind::Pro);
+    h.query_all_by_role(egui::accesskit::Role::SpinButton).nth(1).unwrap().click();
+    h.run_steps(1);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.event(egui::Event::Text("5".into()));
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(mask(&h).feather, 5.0);
+    h.query_all_by_role(egui::accesskit::Role::SpinButton).nth(1).unwrap().click();
+    h.run_steps(1);
+    h.key_press(egui::Key::ArrowUp);
+    h.run_steps(3);
+    assert_eq!(mask(&h).feather, 6.0);
+    let before = h.state().session.active().unwrap().history.past_len();
+    h.run_steps(5);
+    assert_eq!(mask(&h).feather, 6.0);
+    assert_eq!(h.state().session.active().unwrap().history.past_len(), before, "idle frames write nothing");
 }
 
 #[test]
@@ -211,5 +235,45 @@ fn refine_row_opens_the_select_and_mask_and_color_range_dialogs() {
         if open == crate::color_range_ui::COMMAND {
             assert!(crate::color_range_ui::owns(fields), "the Color Range dialog, not the generic one");
         }
+    }
+}
+
+/// A Studio-layout theme's floating Properties card, with no mask targeted.
+fn card_harness(new_layer: bool, theme: crate::theme::ThemeKind) -> Harness<'static, PhotocraftApp> {
+    let mut session = photocraft_engine::Session::new();
+    session.execute("file.new", json!({"width": 64, "height": 64, "background": "white"})).unwrap();
+    if new_layer {
+        session.execute("layer.new.layer", json!({})).unwrap();
+    }
+    let mut app = PhotocraftApp::new(session, crate::Services::default());
+    app.ui.panels.properties = true;
+    app.last_canvas_rect = Rect::from_min_size(egui::Pos2::ZERO, vec2(800.0, 600.0));
+    let mut h = Harness::builder().with_size(vec2(800.0, 600.0)).with_step_dt(1.0 / 60.0).build_ui_state(
+        |ui, app: &mut PhotocraftApp| {
+            if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("semibold".into()))) {
+                properties_window(app, ui.ctx());
+            }
+        },
+        app,
+    );
+    PhotocraftApp::setup_context(&h.ctx, theme);
+    h.run_steps(4);
+    h
+}
+
+#[test]
+fn floating_properties_card_shows_document_properties_for_the_background() {
+    for theme in [crate::theme::ThemeKind::Studio, crate::theme::ThemeKind::BreezeDark] {
+        let h = card_harness(false, theme);
+        assert!(h.query_all_by_label("Document").next().is_some(), "{theme:?}: Document properties in the card");
+    }
+}
+
+#[test]
+fn floating_properties_card_shows_pixel_layer_properties() {
+    for theme in [crate::theme::ThemeKind::Studio, crate::theme::ThemeKind::BreezeDark] {
+        let h = card_harness(true, theme);
+        assert!(h.query_all_by_label("Opacity").next().is_some(), "{theme:?}: layer controls in the card");
+        assert!(h.query_all_by_label("Document").next().is_none());
     }
 }

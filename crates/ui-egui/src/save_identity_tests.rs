@@ -205,6 +205,29 @@ fn image_previews_preference_reaches_the_exporter() {
     }
 }
 
+/// Preferences › File Handling › Maximize PSD and PSB File Compatibility reaches the exporter of
+/// Save As, Save and automation saves: Always and Ask When Saving keep the PSD's real merged
+/// image, Never doesn't.
+#[test]
+fn maximize_compatibility_preference_reaches_the_exporter() {
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let mut app = app();
+    let log = seen.clone();
+    app.services.export = Some(Box::new(move |_, _, settings: &ExportSettings| {
+        log.borrow_mut().push(settings.psd_maximize_compatibility);
+        Ok((b"out".to_vec(), Vec::new()))
+    }));
+    let ctx = egui::Context::default();
+    for (value, expect) in [("always", true), ("never", false), ("ask", true)] {
+        app.run("prefs.set", json!({"path": "fileHandling.maximizePsdCompatibility", "value": value})).unwrap();
+        seen.borrow_mut().clear();
+        menus::invoke(&mut app, &ctx, "file.saveAs", json!({"path": format!("{value}.psd")})).unwrap();
+        menus::invoke(&mut app, &ctx, "file.save", json!({})).unwrap();
+        app.save_automation(Some(format!("{value} agent.psd"))).unwrap();
+        assert_eq!(*seen.borrow(), [expect; 3], "{value}");
+    }
+}
+
 /// #2399: Save and Save As start at the opened file's own encoding: a JPEG's estimated quality,
 /// a WebP lossy (at its quality) or lossless; a new document keeps the codec defaults.
 #[test]
@@ -230,4 +253,22 @@ fn save_settings_start_at_the_opened_files_encoding() {
     let lossless = photocraft_codecs::encode(&img, Format::WebP, &EncodeOptions::default()).unwrap();
     app.open_bytes("art.webp", &lossless).unwrap();
     assert!(app.save_settings().webp_lossless);
+}
+
+/// A browser download is only requested: the document takes the name but keeps its unsaved
+/// changes, so the leave-page guard stays armed (#4962). A confirmed write still saves it.
+#[test]
+fn unconfirmed_download_names_the_document_but_keeps_it_unsaved() {
+    assert_eq!(crate::saved_revision_after_write(true, 7, 3), 7);
+    assert_eq!(crate::saved_revision_after_write(false, 7, 3), 3);
+    let mut app = app();
+    app.services.write_unconfirmed = true;
+    let (_, _, revision, saved) = identity(&app);
+    app.save_as(Some("download.psd".into())).unwrap();
+    assert_eq!(identity(&app), ("download.psd".into(), Some("download.psd".into()), revision, saved));
+    assert!(app.session.active().unwrap().is_dirty());
+    assert!(app.has_unsaved_work());
+    app.services.write_unconfirmed = false;
+    app.save_as(Some("download.psd".into())).unwrap();
+    assert!(!app.has_unsaved_work());
 }

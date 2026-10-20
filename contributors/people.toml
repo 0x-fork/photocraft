@@ -124,3 +124,64 @@ sync_github_name = true
 
 [people.arthurdeka]
 sync_github_name = true
+
+[people.aweussom]
+real_name = "Tommy Leonhardsen"
+
+[people.Furash]
+sync_github_name = true
+
+[people.lucAmbr0]
+sync_github_name = true
+
+[people.Hevarh1]
+sync_github_name = true
+
+[people.dotCooCoo]
+real_name = "Robert Lee"
+sync_github_name = true
+
+[people.deadmeu]
+sync_github_name = true
+
+[people.megaDon101]
+display_name = "megadon"
+sync_github_name = false
+
+[people.sssehnsuchttt]
+sync_github_name = true
+
+[people.VanTan666]
+display_name = "VanTan"
+sync_github_name = false
+
+[people.yeniufuklar-com]
+real_name = "Ufuk Efe"
+sync_github_name = true
+
+[people.nicolasfalesy]
+sync_github_name = true
+
+[people.sidney]
+real_name = "Sidney Markowitz"
+sync_github_name = true
+
+[people.TaylorBurke]
+sync_github_name = true
+
+[people.1Git2Clone]
+sync_github_name = true
+
+[people.Silvertree2010]
+display_name = "Netter"
+sync_github_name = false
+
+[people.Byxis]
+sync_github_name = true
+
+[people.00xJS]
+sync_github_name = true
+
+[people.guillehr2]
+real_name = "Guillem Hermida"
+sync_github_name = true

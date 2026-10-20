@@ -39,6 +39,8 @@ pub static ICONS: &[(&str, &[u8])] = &[
     ("diamond", include_bytes!("../../../assets/icons/diamond.svg")),
     ("direct-select", include_bytes!("../../../assets/icons/direct-select.svg")),
     ("droplet", include_bytes!("../../../assets/icons/droplet.svg")),
+    // Original: a dashed horizontal ellipse (Elliptical Marquee), on Lucide's grid and stroke.
+    ("ellipse-dashed", include_bytes!("../../../assets/icons/ellipse-dashed.svg")),
     ("ellipsis", include_bytes!("../../../assets/icons/ellipsis.svg")),
     ("eraser", include_bytes!("../../../assets/icons/eraser.svg")),
     // Derived from Lucide's eraser (ISC): with a sparkle (Magic Eraser) / a transparency grid (Background Eraser).
@@ -54,6 +56,8 @@ pub static ICONS: &[(&str, &[u8])] = &[
     ("folder-plus", include_bytes!("../../../assets/icons/folder-plus.svg")),
     ("frame-placeholder", include_bytes!("../../../assets/icons/frame-placeholder.svg")),
     ("gauge", include_bytes!("../../../assets/icons/gauge.svg")),
+    // PhotoCraft original: the Gradient tool glyph (a rectangle filled with a linear ramp).
+    ("gradient", include_bytes!("../../../assets/icons/gradient.svg")),
     ("grid-2x2", include_bytes!("../../../assets/icons/grid-2x2.svg")),
     ("grid-3x3", include_bytes!("../../../assets/icons/grid-3x3.svg")),
     ("hand", include_bytes!("../../../assets/icons/hand.svg")),
@@ -99,6 +103,7 @@ pub static ICONS: &[(&str, &[u8])] = &[
     ("pause", include_bytes!("../../../assets/icons/pause.svg")),
     ("plus", include_bytes!("../../../assets/icons/plus.svg")),
     ("pointer", include_bytes!("../../../assets/icons/pointer.svg")),
+    ("quick-selection", include_bytes!("../../../assets/icons/quick-selection.svg")),
     ("rectangle-horizontal", include_bytes!("../../../assets/icons/rectangle-horizontal.svg")),
     ("rectangle-vertical", include_bytes!("../../../assets/icons/rectangle-vertical.svg")),
     ("redo-2", include_bytes!("../../../assets/icons/redo-2.svg")),

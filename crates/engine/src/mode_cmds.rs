@@ -27,6 +27,14 @@ fn num(p: &Value, key: &str, default: f32) -> f32 {
     p.get(key).and_then(Value::as_f64).map_or(default, |v| v as f32)
 }
 
+/// A finite number param, `default` when absent or null; anything else is a bad-params error.
+fn finite_num(p: &Value, cmd: &str, key: &str, default: f64) -> Result<f64> {
+    match p.get(key) {
+        None | Some(Value::Null) => Ok(default),
+        Some(v) => v.as_f64().filter(|f| f.is_finite()).ok_or_else(|| bad(cmd, format!("`{key}` must be a number"))),
+    }
+}
+
 fn str_or<'a>(p: &'a Value, key: &str, default: &'a str) -> &'a str {
     p.get(key).and_then(Value::as_str).unwrap_or(default)
 }
@@ -55,7 +63,8 @@ pub fn rotated_size(size: Size, deg: f64) -> Size {
 
 pub(crate) fn rotate_arbitrary(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "image.rotation.arbitrary";
-    let angle = f64::from(num(p, "angle", 0.0));
+    // At full precision: an f32 angle can grow the canvas 1 px past what `rotated_size` gives callers.
+    let angle = p.get("angle").and_then(Value::as_f64).unwrap_or(0.0);
     if !angle.is_finite() || angle.abs() > 3600.0 {
         return Err(bad(CMD, "angle out of range"));
     }
@@ -67,15 +76,18 @@ pub(crate) fn rotate_arbitrary(s: &mut Session, p: &Value) -> Result<Value> {
     if deg.rem_euclid(360.0).abs() < 1e-9 {
         return Ok(json!({"width": s.active().map(|d| d.doc.size.width), "height": s.active().map(|d| d.doc.size.height)}));
     }
-    let bg = s.tools.background;
+    // The Background stays opaque, whatever the background colour's alpha.
+    let bg = [s.tools.background[0], s.tools.background[1], s.tools.background[2], 1.0];
     // Color Sampler points turn with the canvas (the same map the edit applies to the geometry).
+    // They are pixel indices, so map the pixel's centre, as the warp samples the pixels.
     {
         let old = s.active().ok_or(EngineError::NoDocument)?.doc.size;
         let new = rotated_size(old, deg);
         let (sn, cs) = deg.to_radians().sin_cos();
         let (cx, cy) = (f64::from(old.width) / 2.0, f64::from(old.height) / 2.0);
         let (nx, ny) = (f64::from(new.width) / 2.0, f64::from(new.height) / 2.0);
-        s.set_sampler_map(Affine { m: [cs, sn, -sn, cs, nx - (cs * cx - sn * cy), ny - (sn * cx + cs * cy)] });
+        let a = Affine { m: [cs, sn, -sn, cs, nx - (cs * cx - sn * cy), ny - (sn * cx + cs * cy)] };
+        s.set_sampler_map(Affine::translate(0.5, 0.5).then(&a).then(&Affine::translate(-0.5, -0.5)));
     }
     let size = s.edit("Rotate Canvas", |doc, _| {
         let old = doc.size;
@@ -100,7 +112,8 @@ pub(crate) fn rotate_arbitrary(s: &mut Session, p: &Value) -> Result<Value> {
                 let rotated = photocraft_algo::transform::warp_surface(surf, src, &h, interp)?;
                 let mut base = Surface::new(fmt);
                 let fill = photocraft_raster::from_rgba(&fmt, bg);
-                base.write_region(canvas, &fill.repeat(canvas.width() as usize * canvas.height() as usize));
+                // One shared tile per full tile, not a canvas-sized float buffer.
+                base.fill_rect(canvas, &fill);
                 crate::transform_cmds::composite_over(&mut base, &rotated);
                 base.prune();
                 *surf = base;
@@ -321,8 +334,14 @@ fn color_table(s: &mut Session, p: &Value) -> Result<Value> {
     }
     match p.get("transparent") {
         Some(Value::Null) => table.transparent = None,
-        Some(v) => table.transparent = v.as_u64().filter(|&i| (i as usize) < table.colors.len()).map(|i| i as u8).or(table.transparent),
-        None => {}
+        Some(v) => {
+            let len = table.colors.len();
+            let i =
+                v.as_u64().filter(|&i| i < len as u64).ok_or_else(|| bad(CMD, format!("transparent: an index from 0 to {} or null", len.saturating_sub(1))))?;
+            table.transparent = u8::try_from(i).ok();
+        }
+        // A shrunk table can't keep a transparent entry past its end (#4186).
+        None => table.transparent = table.transparent.filter(|&i| usize::from(i) < table.colors.len()),
     }
     let report = |t: &ColorTable| json!({"colors": t.colors.iter().map(|c| hex(*c)).collect::<Vec<_>>(), "transparent": t.transparent});
     if table == cur {
@@ -382,9 +401,14 @@ fn bitmap(s: &mut Session, p: &Value) -> Result<Value> {
         "pattern" => BitmapMethod::Pattern,
         "diffusion" => BitmapMethod::Diffusion,
         "halftone" => {
-            let freq = num(p, "frequency", 53.0).clamp(1.0, 999.0);
+            // Photoshop's Halftone Screen: frequency 1..999 lines/inch, angle -180..180 degrees.
+            let freq = finite_num(p, CMD, "frequency", 53.0)?.clamp(1.0, 999.0) as f32;
+            let angle = finite_num(p, CMD, "angle", 45.0)?;
+            if !(-180.0..=180.0).contains(&angle) {
+                return Err(bad(CMD, format!("angle {angle} is outside -180..180")));
+            }
             let shape = HalftoneShape::from_id(str_or(p, "shape", "round")).ok_or_else(|| bad(CMD, "shape: round|ellipse|line|square|diamond|cross"))?;
-            BitmapMethod::Halftone { cell: (dpi / freq).max(2.0), angle: num(p, "angle", 45.0), shape }
+            BitmapMethod::Halftone { cell: (dpi / freq).max(2.0), angle: angle as f32, shape }
         }
         m => {
             return Err(bad(CMD, format!("method `{m}` (threshold|pattern|diffusion|halftone)")));
@@ -425,6 +449,10 @@ fn parse_inks(cmd: &str, v: &Value, n: usize) -> Result<Vec<DuotoneInk>> {
         if let Some(pts) = ink.get("curve").and_then(Value::as_array) {
             let mut curve: Vec<CurvePoint> =
                 pts.iter().filter_map(|p| Some(CurvePoint { input: p.get(0)?.as_f64()? as f32 / 100.0, output: p.get(1)?.as_f64()? as f32 / 100.0 })).collect();
+            // 1e39 is a valid JSON number but inf as f32, and a .pcraft with an inf curve can't be saved.
+            if curve.iter().any(|p| !p.input.is_finite() || !p.output.is_finite()) {
+                return Err(bad(cmd, "curve points must be finite numbers 0..100"));
+            }
             curve.sort_by(|a, b| a.input.total_cmp(&b.input));
             if curve.len() >= 2 {
                 d.curve = curve;

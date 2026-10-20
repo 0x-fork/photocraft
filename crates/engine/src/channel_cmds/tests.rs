@@ -219,6 +219,20 @@ fn deleting_a_channel_remaps_all_surviving_eyes_and_targets() {
 }
 
 #[test]
+fn targeting_the_composite_hides_the_alpha_overlay() {
+    for (cmd, params) in [("channel.target", json!({"channel": "composite"})), ("channel.target.composite", json!({}))] {
+        let mut s = session();
+        s.execute("channel.new", json!({})).unwrap();
+        assert!(s.active().unwrap().channel_view.alpha_shown(0));
+        s.execute(cmd, params).unwrap();
+        let st = s.active().unwrap();
+        assert_eq!(st.channel_view.visible_colors(3), 3, "{cmd}");
+        assert!(!st.channel_view.alpha_shown(0), "{cmd}: the alpha eye turns off");
+        assert!(st.channel_view.is_plain(&st.doc), "{cmd}: no overlay left on the image (#4538)");
+    }
+}
+
+#[test]
 fn every_colour_channel_can_hide_while_alpha_stays() {
     let mut s = session();
     s.execute("channel.new", json!({"fill": "white", "name": "Alpha"})).unwrap();
@@ -534,6 +548,18 @@ fn apply_image_hand_computed() {
 }
 
 #[test]
+fn apply_image_subtract_layer_from_itself_is_mid_grey() {
+    // Frequency separation: Subtract, Scale 2, Offset 128, in the flat form the dialog sends.
+    let mut s = session();
+    s.execute("edit.fill", json!({"color": "#c08040"})).unwrap();
+    s.execute("layer.new.layer", json!({"name": "High"})).unwrap();
+    s.execute("edit.fill", json!({"color": "#406080"})).unwrap();
+    s.execute("image.applyImage", json!({"sourceLayer": "High", "blending": "subtract", "scale": 2.0, "offset": 128})).unwrap();
+    let p = px(&s, 3, 3);
+    assert!(p[..3].iter().all(|v| (v - 128.0 / 255.0).abs() < 0.003), "{p:?}");
+}
+
+#[test]
 fn apply_image_onto_transparent_layer() {
     for depth in [8, 16, 32] {
         let mut s = session_depth(depth);
@@ -840,4 +866,52 @@ fn thumbnail_selection_shape_without_pixel_cache_uses_its_transparency() {
         let b = s.active().unwrap().doc.selection.as_ref().unwrap().content_bounds();
         assert_eq!((b.x0, b.y0, b.width(), b.height()), (20, 10, 40, 30));
     }
+}
+
+/// #5335: a single targeted channel is the only Curves popup entry, named as in the Channels panel.
+#[test]
+fn isolated_curve_channel_matches_the_channels_panel() {
+    let mut s = session();
+    assert!(isolated_curve_channel(s.active().unwrap()).is_none(), "composite lists every colour channel");
+    s.execute("channel.target", json!({"channel": {"color": 1}})).unwrap();
+    let green = isolated_curve_channel(s.active().unwrap()).expect("green");
+    assert_eq!((green.name.as_str(), green.key, green.tint), ("Green", "green", true));
+    assert!(green.translate && green.gray.is_none(), "built-in colour labels follow the language");
+
+    s.execute("layer.layerMask.revealAll", json!({})).unwrap();
+    s.execute("channel.target", json!({"channel": "mask"})).unwrap();
+    let mask = isolated_curve_channel(s.active().unwrap()).expect("mask");
+    assert_eq!(mask.key, "");
+    assert!(!mask.tint);
+    assert_eq!(mask.name, format!("{} Mask", doc(&s).layer(s.active().unwrap().active_layer.unwrap()).unwrap().name));
+
+    s.execute("channel.new", json!({"name": "Green", "fill": "white"})).unwrap();
+    s.execute("channel.target", json!({"channel": 0})).unwrap();
+    let alpha = isolated_curve_channel(s.active().unwrap()).expect("alpha");
+    assert_eq!((alpha.name.as_str(), alpha.key, alpha.tint), ("Green", "", false));
+    assert!(!alpha.translate, "a custom channel name stays exactly as entered");
+    assert_eq!(alpha.gray, Some(GraySurface::Alpha(0)));
+
+    let mut qm = session();
+    qm.execute("select.editInQuickMaskMode", json!({"on": true})).unwrap();
+    let row = isolated_curve_channel(qm.active().unwrap()).expect("quick mask");
+    assert_eq!((row.name.as_str(), row.tint), ("Quick Mask", false));
+    assert_eq!(row.gray, Some(GraySurface::QuickMask));
+}
+
+/// #5335: selecting the mask in the Layers panel gives the same isolated Curves channel as
+/// selecting it in the Channels panel; the Quick Mask keeps priority.
+#[test]
+fn layers_panel_mask_target_isolates_the_curve_channel() {
+    let mut s = session();
+    assert!(isolated_curve_channel_for(s.active().unwrap(), true).is_none(), "a layer without a mask is not targeted");
+    s.execute("layer.layerMask.revealAll", json!({})).unwrap();
+    s.execute("channel.target", json!({"channel": "mask"})).unwrap();
+    let by_panel = isolated_curve_channel(s.active().unwrap()).expect("mask targeted from the Channels panel");
+    s.execute("channel.target", json!({"channel": "composite"})).unwrap();
+    let by_layers = isolated_curve_channel_for(s.active().unwrap(), true).expect("mask targeted from the Layers panel");
+    assert_eq!(by_panel, by_layers, "both ways of selecting the mask give the same dropdown");
+    s.execute("select.editInQuickMaskMode", json!({"on": true})).unwrap();
+    let row = isolated_curve_channel_for(s.active().unwrap(), true).expect("quick mask wins");
+    assert_eq!((row.name.as_str(), row.gray), ("Quick Mask", Some(GraySurface::QuickMask)));
 }

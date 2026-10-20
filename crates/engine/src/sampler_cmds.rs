@@ -24,8 +24,11 @@ fn has_doc(s: &Session) -> std::result::Result<(), String> {
     s.active().map(|_| ()).ok_or_else(|| "no document open".into())
 }
 
-/// Naive device CMYK (no ICC profile), in percent, as the Info panel shows it.
+/// Naive device CMYK (no ICC profile), in percent, as the Info panel shows it. 32-bit samples can
+/// lie outside 0..1, so each channel is clamped first (NaN reads as 0), like the RGB readout.
 pub fn device_cmyk(r: f32, g: f32, b: f32) -> [i32; 4] {
+    let unit = |v: f32| if v.is_nan() { 0.0 } else { v.clamp(0.0, 1.0) };
+    let (r, g, b) = (unit(r), unit(g), unit(b));
     let k = 1.0 - r.max(g).max(b);
     let f = |v: f32| if k >= 1.0 { 0.0 } else { (1.0 - v - k) / (1.0 - k) };
     [f(r), f(g), f(b), k].map(|v| (v * 100.0).round() as i32)
@@ -362,7 +365,7 @@ mod tests {
 
     #[test]
     fn a_right_angle_rotation_moves_points() {
-        // 90° clockwise about the centre: the doc centre stays put.
+        // 90° clockwise about the centre: pixel (x, y) of the 100×80 canvas goes to (79 - y, x).
         let mut s = session();
         s.execute("view.colorSamplers.add", json!({"x": 50, "y": 40})).unwrap();
         s.execute("image.rotation.arbitrary", json!({"angle": 90, "direction": "cw"})).unwrap();
@@ -370,19 +373,78 @@ mod tests {
         assert_eq!(p.len(), 1);
         let pos = p[0]["position"].as_array().unwrap();
         let (x, y) = (pos[0].as_f64().unwrap(), pos[1].as_f64().unwrap());
-        // The new canvas is 80×100, so the centre is (40, 50).
-        assert!((x - 40.0).abs() < 1e-6 && (y - 50.0).abs() < 1e-6, "{pos:?}");
+        assert!((x - 39.0).abs() < 1e-6 && (y - 50.0).abs() < 1e-6, "{pos:?}");
+    }
+
+    #[test]
+    fn flips_and_right_angle_turns_keep_points_on_their_pixel() {
+        use crate::canvas_geom::Turn;
+        for (id, turn) in [
+            ("image.imageRotation.flipCanvasHorizontal", Turn::FlipHorizontal),
+            ("image.imageRotation.flipCanvasVertical", Turn::FlipVertical),
+            ("image.imageRotation.180", Turn::Rotate180),
+            ("image.imageRotation.90cw", Turn::Cw90),
+            ("image.imageRotation.90ccw", Turn::Ccw90),
+        ] {
+            // A black pixel at (3, 3) of a white 100×80 document, with a point on it.
+            let mut s = session();
+            s.edit("paint", |doc, _| {
+                let surf = doc.layers[0].surface_mut().unwrap();
+                let black = photocraft_raster::from_rgba(&surf.format(), [0.0, 0.0, 0.0, 1.0]);
+                surf.fill_rect(Rect::new(3, 3, 4, 4), &black);
+                Ok(())
+            })
+            .unwrap();
+            s.execute("view.colorSamplers.add", json!({"x": 3, "y": 3})).unwrap();
+            s.execute(id, json!({})).unwrap();
+            let (x, y) = turn.pixel_map(100, 80)(3, 3);
+            let p = points(&mut s);
+            assert_eq!(p.len(), 1, "{id}");
+            assert_eq!(p[0]["position"], json!([f64::from(x), f64::from(y)]), "{id}");
+            assert_eq!(p[0]["rgb"], json!([0, 0, 0]), "{id}");
+        }
+    }
+
+    #[test]
+    fn an_arbitrary_rotation_keeps_points_on_their_pixel() {
+        // The pixel at (3, 3) of the 100×80 document, and where each turn moves it.
+        for (angle, direction, at) in [(90, "cw", [76.0, 3.0]), (90, "ccw", [3.0, 96.0]), (180, "cw", [96.0, 76.0])] {
+            let mut s = session();
+            s.edit("paint", |doc, _| {
+                let surf = doc.layers[0].surface_mut().unwrap();
+                let black = photocraft_raster::from_rgba(&surf.format(), [0.0, 0.0, 0.0, 1.0]);
+                surf.fill_rect(Rect::new(3, 3, 4, 4), &black);
+                Ok(())
+            })
+            .unwrap();
+            s.execute("view.colorSamplers.add", json!({"x": 3, "y": 3})).unwrap();
+            s.execute("view.colorSamplers.add", json!({"x": 0, "y": 0})).unwrap();
+            s.execute("image.rotation.arbitrary", json!({"angle": angle, "direction": direction})).unwrap();
+            assert_eq!(s.take_samplers_removed(), 0, "{angle} {direction}: the corner point stays on the canvas");
+            let p = points(&mut s);
+            assert_eq!(p.len(), 2, "{angle} {direction}: the corner point stays on the canvas");
+            assert_eq!(p[0]["position"], json!(at), "{angle} {direction}");
+            assert_eq!(p[0]["rgb"], json!([0, 0, 0]), "{angle} {direction}");
+        }
     }
 
     #[test]
     fn a_rotated_crop_moves_points() {
-        // The crop frame is centred on the point, so the point lands at the new canvas centre.
+        // The crop frame is centred on the point's pixel; turned 90° that pixel lands at (10, 9).
         let mut s = session();
+        s.edit("paint", |doc, _| {
+            let surf = doc.layers[0].surface_mut().unwrap();
+            let black = photocraft_raster::from_rgba(&surf.format(), [0.0, 0.0, 0.0, 1.0]);
+            surf.fill_rect(Rect::new(50, 40, 51, 41), &black);
+            Ok(())
+        })
+        .unwrap();
         s.execute("view.colorSamplers.add", json!({"x": 50, "y": 40})).unwrap();
         s.execute("image.crop", json!({"x": 40, "y": 30, "width": 20, "height": 20, "angle": 90})).unwrap();
         let p = points(&mut s);
         assert_eq!(p.len(), 1);
-        assert_eq!(p[0]["position"], json!([10.0, 10.0]));
+        assert_eq!(p[0]["position"], json!([10.0, 9.0]));
+        assert_eq!(p[0]["rgb"], json!([0, 0, 0]));
     }
 
     #[test]
@@ -416,6 +478,36 @@ mod tests {
         assert_eq!(device_cmyk(0.0, 0.0, 0.0), [0, 0, 0, 100]);
         assert_eq!(device_cmyk(1.0, 0.0, 0.0), [0, 100, 100, 0]);
         assert_eq!(device_cmyk(0.5, 0.5, 0.5), [0, 0, 0, 50]);
+    }
+
+    /// 32-bit samples can lie outside 0..1 (or be NaN); the CMYK readout clamps them like the RGB
+    /// readout does instead of reporting K:-50% or C:120% (#4191).
+    #[test]
+    fn device_cmyk_clamps_out_of_range_and_nan_samples() {
+        assert_eq!(device_cmyk(1.5, 1.5, 1.5), [0, 0, 0, 0]);
+        assert_eq!(device_cmyk(2.0, 0.0, 0.0), [0, 100, 100, 0]);
+        let in_range = |c: [i32; 4]| c.iter().all(|v| (0..=100).contains(v));
+        for (r, g, b) in [(-0.2, 0.5, 0.5), (-1.0, -1.0, -1.0), (f32::NAN, 0.5, 0.5), (f32::NAN, f32::NAN, f32::NAN), (f32::INFINITY, f32::NEG_INFINITY, 0.5)] {
+            let c = device_cmyk(r, g, b);
+            assert!(in_range(c), "{r} {g} {b} -> {c:?}");
+        }
+        assert_eq!(device_cmyk(f32::NAN, f32::NAN, f32::NAN), [0, 0, 0, 100]);
+    }
+
+    #[test]
+    fn hdr_pixel_on_a_32_bit_document_reads_in_range() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 8, "height": 8, "depth": 32, "background": "white"})).unwrap();
+        s.edit("paint", |doc, _| {
+            let surf = doc.layers[0].surface_mut().unwrap();
+            let hdr = photocraft_raster::from_rgba(&surf.format(), [2.0, 2.0, 2.0, 1.0]);
+            surf.fill_rect(Rect::new(3, 3, 4, 4), &hdr);
+            Ok(())
+        })
+        .unwrap();
+        let r = s.execute("view.colorSamplers.add", json!({"x": 3, "y": 3})).unwrap();
+        assert_eq!(r["point"]["rgb"], json!([255, 255, 255]));
+        assert_eq!(r["point"]["cmyk"], json!([0, 0, 0, 0]));
     }
 
     #[test]

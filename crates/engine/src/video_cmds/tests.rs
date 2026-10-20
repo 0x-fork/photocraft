@@ -151,6 +151,39 @@ fn a_fully_transparent_animated_gif_frame_encodes() {
     assert!(f.indices.iter().all(|&i| Some(i) == f.transparent));
 }
 
+/// The GIF frame delays (centiseconds, from each Graphic Control Extension) of a Render Video.
+fn rendered_gif_delays(s: &Session) -> Vec<u16> {
+    let mut gif = Vec::new();
+    render_video_with(
+        s,
+        &json!({"format": "gif"}),
+        |_, bytes| {
+            gif = bytes.to_vec();
+            Ok(())
+        },
+        |_, _| true,
+    )
+    .unwrap();
+    gif.windows(6).filter(|w| w[..3] == [0x21, 0xF9, 0x04]).map(|w| u16::from_le_bytes([w[4], w[5]])).collect()
+}
+
+#[test]
+fn animated_gif_delay_follows_timelines_under_one_fps() {
+    // 0.5 fps is a valid timeline rate; its frames last 2 s, not the 1 s a 1 fps floor gave.
+    let mut s = session();
+    s.execute("timeline.create", json!({"duration": 2, "fps": 0.5})).unwrap();
+    assert_eq!(rendered_gif_delays(&s), [200, 200]);
+    // A loaded timeline with an unusable rate falls back to 30 fps (3 cs), as with no timeline.
+    let mut doc = (*s.active().unwrap().doc).clone();
+    doc.timeline = Some(Timeline::new(2, f32::NAN));
+    {
+        let st = s.active_mut().unwrap();
+        st.doc = std::sync::Arc::new(doc);
+        st.revision += 1;
+    }
+    assert_eq!(rendered_gif_delays(&s), [3, 3]);
+}
+
 #[test]
 fn inspect_reports_video_layer() {
     let dir = tmpdir("vinsp");
@@ -330,6 +363,32 @@ fn a_still_gif_is_one_frame_at_the_default_rate() {
     assert_eq!(s.active().unwrap().doc.layer(id).unwrap().video.as_ref().unwrap().fps, 10.0);
 }
 
+/// Interpret Footage and New Video Layer from File reject an fps that isn't a finite number in
+/// `(0, MAX_FPS]` and keep the layer as it was (#5657). 1e39 used to become an infinite rate the
+/// next `.pcraft` save refused.
+#[test]
+fn an_invalid_frame_rate_is_an_error_and_changes_nothing() {
+    let mut s = session();
+    let id = LayerId(s.execute("layer.videoLayers.newBlankVideoLayer", json!({})).unwrap()["layer"].as_u64().unwrap());
+    let fps = |s: &Session| s.active().unwrap().doc.layer(id).unwrap().video.as_ref().unwrap().fps;
+    assert_eq!(fps(&s), 30.0);
+    for bad in [json!(0), json!(-1), json!(1e39), json!("x")] {
+        assert!(s.execute("layer.videoLayers.interpretFootage", json!({"fps": bad})).is_err(), "fps {bad}");
+        assert_eq!(fps(&s), 30.0, "fps {bad}");
+    }
+    s.execute("layer.videoLayers.interpretFootage", json!({"fps": 24})).unwrap();
+    assert_eq!(fps(&s), 24.0);
+
+    let dir = tmpdir("gifin-badfps");
+    let path = format!("{dir}/anim.gif");
+    write_gif(&path, 8, 8, &[([255, 0, 0], 10), ([0, 255, 0], 10)]);
+    let layers = s.active().unwrap().doc.layer_count();
+    for bad in [json!(0), json!(-1), json!(1e39), json!("x")] {
+        assert!(s.execute("layer.videoLayers.newVideoLayerFromFile", json!({"path": path, "fps": bad})).is_err(), "fps {bad}");
+        assert_eq!(s.active().unwrap().doc.layer_count(), layers, "fps {bad}");
+    }
+}
+
 #[test]
 fn video_frames_to_layers_takes_every_gif_frame() {
     let dir = tmpdir("gifin-ftl");
@@ -429,4 +488,94 @@ fn restoring_blank_video_frames_still_produces_blank_frames() {
     s.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
     s.execute("layer.videoLayers.restoreFrame", json!({})).unwrap();
     assert_eq!(layer_px(&s, id)[3], 0.0);
+}
+
+fn work_area(s: &Session) -> (usize, usize, usize) {
+    let t = s.active().unwrap().doc.timeline.as_ref().unwrap();
+    (t.work_start, t.work_end, t.duration)
+}
+
+#[test]
+fn video_edits_keep_a_narrowed_work_area() {
+    // #4170: a video edit pushed the work-area end to the full duration.
+    for (cmd, params) in [
+        ("layer.videoLayers.showAlteredVideo", json!({})),
+        ("layer.videoLayers.restoreFrame", json!({})),
+        ("layer.videoLayers.interpretFootage", json!({"fps": 24})),
+    ] {
+        let mut s = session();
+        s.execute("timeline.create", json!({"duration": 30, "fps": 30})).unwrap();
+        s.execute("layer.videoLayers.newBlankVideoLayer", json!({})).unwrap();
+        s.execute("timeline.setProps", json!({"workStart": 2, "workEnd": 10})).unwrap();
+        assert_eq!(work_area(&s), (2, 10, 30));
+        s.execute(cmd, params).unwrap();
+        assert_eq!(work_area(&s), (2, 10, 30), "{cmd} moved the work area");
+    }
+}
+
+#[test]
+fn a_full_work_area_grows_with_the_duration() {
+    let mut s = session();
+    s.execute("timeline.create", json!({"duration": 30, "fps": 30})).unwrap();
+    s.execute("layer.videoLayers.newBlankVideoLayer", json!({})).unwrap();
+    assert_eq!(work_area(&s), (0, 30, 30));
+    s.execute("layer.videoLayers.insertBlankFrame", json!({})).unwrap();
+    assert_eq!(work_area(&s), (0, 31, 31));
+    // A narrowed work area stays put when the duration grows.
+    s.execute("timeline.setProps", json!({"workStart": 2, "workEnd": 10})).unwrap();
+    s.execute("layer.videoLayers.insertBlankFrame", json!({})).unwrap();
+    assert_eq!(work_area(&s), (2, 10, 32));
+}
+
+#[test]
+fn longer_footage_grows_only_a_full_work_area() {
+    let dir = tmpdir("workarea");
+    for i in 0..5 {
+        write_png(&format!("{dir}/f{i:02}.png"), 16, 12, "#808080");
+    }
+    // A work area covering everything follows the longer footage.
+    let mut s = session();
+    s.execute("timeline.create", json!({"duration": 3, "fps": 30})).unwrap();
+    s.execute("layer.videoLayers.newVideoLayerFromFile", json!({"path": dir})).unwrap();
+    assert_eq!(work_area(&s), (0, 5, 5));
+    // A narrowed one stays put.
+    let mut s = session();
+    s.execute("timeline.create", json!({"duration": 3, "fps": 30})).unwrap();
+    s.execute("timeline.setProps", json!({"workStart": 1, "workEnd": 2})).unwrap();
+    s.execute("layer.videoLayers.newVideoLayerFromFile", json!({"path": dir})).unwrap();
+    assert_eq!(work_area(&s), (1, 2, 5));
+}
+
+#[test]
+fn grow_duration_never_shrinks_and_keeps_the_work_area_valid() {
+    let mut t = Timeline::new(10, 30.0);
+    grow_duration(&mut t, 4);
+    assert_eq!((t.duration, t.work_end), (10, 10));
+    grow_duration(&mut t, 0);
+    assert_eq!((t.duration, t.work_end), (10, 10));
+    t.work_end = 6;
+    grow_duration(&mut t, 12);
+    assert_eq!((t.work_start, t.work_end, t.duration), (0, 6, 12));
+}
+
+#[test]
+fn render_video_rejects_a_loaded_timeline_past_the_frame_cap() {
+    let mut s = session();
+    let mut doc = (*s.active().unwrap().doc).clone();
+    doc.timeline = Some(Timeline::new(usize::MAX, 30.0));
+    {
+        let st = s.active_mut().unwrap();
+        st.doc = std::sync::Arc::new(doc);
+        st.revision += 1;
+    }
+    let err = s.execute("file.export.renderVideo", json!({"dir": tmpdir("overlong"), "format": "gif"})).unwrap_err();
+    assert!(err.to_string().contains("limited to"), "{err}");
+}
+
+#[test]
+fn render_video_rejects_gif_frames_too_large_to_stage() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 9000, "height": 8000})).unwrap();
+    let err = s.execute("file.export.renderVideo", json!({"dir": tmpdir("large-gif"), "format": "gif"})).unwrap_err();
+    assert!(err.to_string().contains("too large"), "{err}");
 }
