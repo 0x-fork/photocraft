@@ -206,6 +206,39 @@ fn selected_id(app: &mut PhotocraftApp, promote: bool) -> Option<u32> {
     }
 }
 
+/// Delete or Backspace with no modifiers, with the Slice Select tool and a slice selected,
+/// deletes that slice, as in Photoshop (#7862). It never reaches Layer › Delete or Edit › Clear.
+/// An auto slice has nothing to delete, and View › Lock Slices refuses with a message.
+pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
+    use crate::shortcut_dispatch::Focus;
+    // Text fields and widgets that delete with these keys themselves keep them.
+    if app.ui.tool != Tool::SliceSelect
+        || app.ui.slices.selected.is_none()
+        || app.ui.text_edit.is_some()
+        || matches!(Focus::of(ctx), Focus::Text | Focus::DeletingWidget)
+    {
+        return false;
+    }
+    let mods = ctx.input(|i| i.modifiers);
+    if !mods.is_none() || !ctx.input_mut(|i| i.consume_key(mods, egui::Key::Delete) || i.consume_key(mods, egui::Key::Backspace)) {
+        return false;
+    }
+    let result = if app.session.file_menu.slices_locked {
+        Err(tl!("Slices are locked (View › Lock Slices)").to_string())
+    } else {
+        match selected_id(app, false) {
+            Some(id) => app.run("slice.delete", json!({"slice": id})).map(|_| app.ui.slices.selected = None),
+            // An auto slice is made from the user slices around it: it goes when they do.
+            None => Ok(()),
+        }
+    };
+    if let Err(e) = result {
+        app.ui.status = e;
+        app.ui.status_error = true;
+    }
+    true
+}
+
 /// Slice Options dialog for the selected slice (auto slices are promoted on OK).
 pub fn open_options(app: &mut PhotocraftApp) -> Result<Value, String> {
     let n = app.ui.slices.selected.ok_or("select a slice with the Slice Select tool")?;
