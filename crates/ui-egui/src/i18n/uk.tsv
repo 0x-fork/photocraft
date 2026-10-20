@@ -3952,3 +3952,8 @@ curves	Smooth	Згладити
 	Use	Використати
 	In Front	Спереду
 	Behind	Ззаду
+
+# DDS Options (#1327)
+	DDS Options	Параметри DDS
+	Compression	Стиснення
+	Generate Mipmaps	Створити MIP-карти
