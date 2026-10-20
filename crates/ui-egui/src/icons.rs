@@ -109,7 +109,7 @@ pub fn tool_icon(t: Tool) -> &'static str {
         Tool::Crop => "crop",
         Tool::PerspectiveCrop => "perspective-crop",
         Tool::Slice => "slice-knife",
-        Tool::SliceSelect => "square-dashed-mouse-pointer",
+        Tool::SliceSelect => "slice-select",
         Tool::Frame => "frame-placeholder",
         Tool::Gradient => "gradient",
         Tool::PaintBucket => "paint-bucket",
