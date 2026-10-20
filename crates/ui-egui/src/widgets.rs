@@ -1867,6 +1867,33 @@ fn clean(text: &str) -> String {
 mod tests {
     use egui::{Key, Modifiers};
 
+    /// A light theme rings the slider knob with its outline token; a dark Studio-layout one draws
+    /// the plain knob (#7927).
+    #[test]
+    fn light_themes_draw_the_slider_knob_outline() {
+        use crate::theme::{ThemeKind, Tokens};
+        fn rings(shape: &egui::Shape, out: &mut Vec<egui::Color32>) {
+            match shape {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| rings(s, out)),
+                egui::Shape::Circle(c) if c.radius == 7.0 && c.stroke.width == 1.0 => out.push(c.stroke.color),
+                _ => {}
+            }
+        }
+        for kind in [ThemeKind::StudioLight, ThemeKind::Adwaita, ThemeKind::BreezeLight, ThemeKind::SoftLight, ThemeKind::Studio] {
+            let ctx = egui::Context::default();
+            crate::theme::apply(&ctx, kind);
+            let mut v = 50.0;
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                super::slider(ui, &mut v, 0.0..=100.0, None);
+            });
+            out.textures_delta.clear();
+            let mut found = Vec::new();
+            out.shapes.iter().for_each(|c| rings(&c.shape, &mut found));
+            let want: Vec<_> = Tokens::for_kind(kind).knob_outline().into_iter().collect();
+            assert_eq!(found, want, "{kind:?}");
+        }
+    }
+
     #[test]
     fn checkbox_label_is_a_button_target_not_selectable_text() {
         use egui::CursorIcon;

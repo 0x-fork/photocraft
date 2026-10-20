@@ -1274,6 +1274,32 @@ mod tests {
         (hi + 0.05) / (lo + 0.05)
     }
 
+    /// The light themes outline their white slider knob so its edge holds WCAG's 3:1 non-text
+    /// contrast against the panels sliders sit on (#7927); the dark ones keep the plain knob.
+    #[test]
+    fn light_themes_outline_the_slider_knob() {
+        for kind in ThemeKind::ALL {
+            let t = Tokens::for_kind(kind);
+            // The Pro layouts keep their dark ring (it rims a grey knob), Classic its bevelled knob.
+            if t.pro || t.bevel {
+                continue;
+            }
+            match t.knob_outline() {
+                Some(outline) => {
+                    assert!(!t.dark(), "{kind:?}");
+                    for panel in [t.dock, t.card, t.chrome] {
+                        assert!(contrast(outline, panel) >= 3.0, "{kind:?}: knob outline {outline:?} on {panel:?}");
+                    }
+                }
+                None => assert!(t.dark(), "{kind:?}: a light theme without a knob outline"),
+            }
+        }
+        assert_eq!(Tokens::for_kind(ThemeKind::Pro).knob_outline(), Some(Color32::from_gray(40)), "Pro is unchanged");
+        for kind in [ThemeKind::StudioLight, ThemeKind::Adwaita, ThemeKind::BreezeLight, ThemeKind::SoftLight] {
+            assert!(Tokens::for_kind(kind).knob_outline().is_some(), "{kind:?}");
+        }
+    }
+
     #[test]
     fn adwaita_themes_parse_and_meet_text_contrast() {
         for kind in [ThemeKind::Adwaita, ThemeKind::AdwaitaDark] {
