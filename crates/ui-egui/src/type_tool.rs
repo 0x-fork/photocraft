@@ -1999,12 +1999,25 @@ fn icon_label(ui: &mut egui::Ui, icon: &str, tip: &str) {
 
 /// Labelled numeric field (Photoshop's icon + value pairs). Returns the new value when edited.
 fn num_field(ui: &mut egui::Ui, label: &str, tip: &str, v: f32, range: std::ops::RangeInclusive<f32>, unit: &str, width: f32) -> Option<f32> {
+    num_field_with_label(ui, label, tip, v, range, unit, width, 22.0)
+}
+
+fn num_field_with_label(
+    ui: &mut egui::Ui,
+    label: &str,
+    tip: &str,
+    v: f32,
+    range: std::ops::RangeInclusive<f32>,
+    unit: &str,
+    width: f32,
+    label_width: f32,
+) -> Option<f32> {
     let t = crate::theme::Tokens::get(ui.ctx());
     let mut v = v;
     let mut out = None;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
-        let (r, resp) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::hover());
+        let (r, resp) = ui.allocate_exact_size(egui::vec2(label_width, 22.0), egui::Sense::hover());
         ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, label, crate::theme::semibold(10.0), t.text_dim);
         crate::widgets::scrub_label(ui, &resp.on_hover_text(tl!(tip)));
         let response = crate::widgets::value_field(ui, &mut v, range, unit, width);
@@ -2051,10 +2064,10 @@ fn metric_field(ui: &mut egui::Ui, field: MetricField<'_>) -> Option<MetricChoic
     let mut chosen = None;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
-        // num_field includes a 22pt label and 4pt gap; the combo adds its own
-        // chrome. Reserve the complete width so the chevron stays aligned with
-        // the Transform column rather than extending past it at narrow widths.
-        if let Some(v) = num_field(ui, label, tip, value, range, unit, (width - 58.0).max(24.0)) {
+        // The preset chevron shares the cell with a numeric field. A slightly
+        // narrower scrub label leaves enough width for the numeric editor's suffix
+        // at the minimum dock size without expanding the whole row past the column.
+        if let Some(v) = num_field_with_label(ui, label, tip, value, range, unit, (width - 54.0).max(28.0), 18.0) {
             chosen = Some(MetricChoice::Value(v));
         }
         let (press, close) = crate::press_menu::PressCombo::before(ui, salt);
