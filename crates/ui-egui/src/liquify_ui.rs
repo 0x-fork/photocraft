@@ -616,6 +616,13 @@ fn alt_tool(t: LiquifyTool) -> LiquifyTool {
     }
 }
 
+/// Where the brush outline is drawn: under the pointer, except during an Alt-drag of the brush
+/// size (`resize`), when it stays at the drag's anchor and only grows or shrinks, as the brush
+/// tools' Alt-drag does outside Liquify (#7884).
+fn brush_circle_at(resize: Option<(Pos2, f32, f32)>, hover: Option<Pos2>) -> Option<Pos2> {
+    resize.map(|(anchor, ..)| anchor).or(hover)
+}
+
 /// Alt+right-drag, and Control+Alt-drag, change the Liquify brush instead of painting (#4702).
 fn brush_resize_gesture(mods: egui::Modifiers, secondary: bool) -> bool {
     mods.alt && (secondary || mods.ctrl)
@@ -1036,8 +1043,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             let line: Vec<Pos2> = pts.iter().map(|p| to_screen(d, area, *p)).collect();
             clip.add(egui::Shape::line(line, Stroke::new(1.0, color)));
         }
-        // Brush outline (the lasso has none).
-        if let Some(hp) = resp.hover_pos() {
+        // Brush outline (the lasso has none). While Alt-dragging its size it stays where the drag
+        // started, so only its size changes (#7884).
+        if let Some(hp) = brush_circle_at(d.brush_resize, resp.hover_pos()) {
             if d.opts.tool != LiquifyTool::LassoMask {
                 let r = d.opts.size * 0.5 * d.zoom;
                 clip.circle_stroke(hp, r, Stroke::new(1.5, Color32::BLACK));
@@ -1049,10 +1057,14 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         // Mouse → strokes (Space or middle button pans). Alt+right-drag resizes the brush (#4702).
         let (pan, secondary, mods_now) =
             ui.input(|i| (i.key_down(egui::Key::Space) || i.pointer.middle_down(), i.pointer.button_down(egui::PointerButton::Secondary), i.modifiers));
-        let resize = d.brush_resize.is_some() || (resp.drag_started() && brush_resize_gesture(mods_now, secondary));
+        // From the press, not once the drag is recognised a few points later: that first frame
+        // would otherwise start a stroke.
+        let resize = d.brush_resize.is_some() || (resp.is_pointer_button_down_on() && brush_resize_gesture(mods_now, secondary));
         if resize {
+            // Anchored where the button went down, not where the drag was recognised a few
+            // points later, so the outline doesn't jump when the gesture starts.
             if d.brush_resize.is_none()
-                && let Some(p) = resp.interact_pointer_pos()
+                && let Some(p) = ui.input(|i| i.pointer.press_origin()).or_else(|| resp.interact_pointer_pos())
             {
                 d.brush_resize = Some((p, d.opts.size, d.opts.density));
             }
