@@ -1096,8 +1096,18 @@ fn make_from(d: &Descriptor) -> Mapped {
             if let Some(n) = using.and_then(|u| get_text(u, "Nm  ")) {
                 p.insert("name".into(), n.into());
             }
-            let id = if get_ref(d, "From").is_some() { "layer.groupLayers" } else { "layer.new.group" };
-            step(id, Value::Object(p))
+            match get_ref(d, "From") {
+                // A named source layer stays the source (#7236); a target reference and an
+                // index/id source (our exporter never writes those) keep the old implicit
+                // import: the group lands on the current selection at playback.
+                Some(r) => {
+                    if let Some(t) = layer_target(r) {
+                        p.extend(t);
+                    }
+                    step("layer.groupLayers", Value::Object(p))
+                }
+                None => step("layer.new.group", Value::Object(p)),
+            }
         }
         _ => Mapped::Unsupported { harmless: false },
     }
@@ -1124,7 +1134,9 @@ fn make_to(id: &str, p: &Value) -> Option<Descriptor> {
         }
         "layer.new.group" => desc("null").with("null", class_ref("layerSection")).with("Usng", D::Descriptor(with_name("layerSection"))),
         "layer.groupLayers" => {
-            desc("null").with("null", class_ref("layerSection")).with("From", target_ref("Lyr ")).with("Usng", D::Descriptor(with_name("layerSection")))
+            // An explicit source layer goes in by name like every other layer reference; a
+            // step without one keeps the target-layer form (#7236).
+            desc("null").with("null", class_ref("layerSection")).with("From", layer_ref(p)).with("Usng", D::Descriptor(with_name("layerSection")))
         }
         "layer.new.layerViaCopy" | "layer.new.layerViaCut" => {
             let mut d = desc("null").with("Nw  ", D::Descriptor(desc("Lyr "))).with("Usng", enm("ArSl", "Slct"));
