@@ -525,7 +525,9 @@ fn validate_bundle_file(root: &Path, path: &Path) -> Result<()> {
     plain_file_or_missing(path)
 }
 
-fn write_bundle_file(root: &Path, path: &Path, data: &[u8]) -> Result<()> {
+fn write_bundle_file(root: &Path, path: &Path, data: &[u8], fs: &dyn crate::atomic::AtomicFs) -> Result<()> {
+    #[cfg(not(windows))]
+    let _ = fs;
     validate_bundle_file(root, path)?;
     let parent = path.parent().ok_or_else(|| unsafe_bundle_entry(path))?;
     let name = path.file_name().ok_or_else(|| unsafe_bundle_entry(path))?;
@@ -562,6 +564,10 @@ fn write_bundle_file(root: &Path, path: &Path, data: &[u8]) -> Result<()> {
         // itself, never its referent, even if one appears after this check.
         validate_bundle_file(root, path)?;
         crate::atomic::retry_rename(crate::atomic::RenameRetry::platform(), || std::fs::rename(&tmp, path))?;
+        #[cfg(windows)]
+        {
+            fs.sync_dir(parent).map_err(|e| crate::atomic::publication_error(e, path))?;
+        }
         #[cfg(unix)]
         {
             let _ = std::fs::File::open(parent).and_then(|d| d.sync_all());
@@ -807,6 +813,11 @@ impl PcraftWriter {
     /// rewrites missing or damaged objects, then writes the manifest
     /// atomically and removes unreferenced objects.
     pub fn save_dir(&mut self, doc: &Document, dir: &Path, opts: &SaveOptions) -> Result<SaveStats> {
+        self.save_dir_with(doc, dir, opts, &crate::atomic::RealFs)
+    }
+
+    /// The same save path with an injectable publication barrier, for failure/GC ordering tests.
+    fn save_dir_with(&mut self, doc: &Document, dir: &Path, opts: &SaveOptions, fs: &dyn crate::atomic::AtomicFs) -> Result<SaveStats> {
         let canonical_dir = bundle_root(dir)?;
         let dir = canonical_dir.as_path();
         let existing = list_objects(dir)?;
@@ -862,7 +873,7 @@ impl PcraftWriter {
                 Object::Tile(..) => stats.tiles_written += 1,
                 Object::Blob(_) => stats.blobs_written += 1,
             }
-            write_bundle_file(dir, &object_path, &obj.compressed())?;
+            write_bundle_file(dir, &object_path, &obj.compressed(), fs)?;
             let written = path_signature(&object_path)?;
             if let Some(cache) = &mut self.verified_directory {
                 match written {
@@ -876,7 +887,7 @@ impl PcraftWriter {
             }
         }
         for (name, data) in &p.previews {
-            write_bundle_file(dir, &dir.join(name), data)?;
+            write_bundle_file(dir, &dir.join(name), data, fs)?;
         }
         // Pin all GC directories before removing stale previews or objects.
         // Unix cleanup then stays within these directories even if a pathname is swapped.
@@ -891,7 +902,17 @@ impl PcraftWriter {
                 }
             }
         }
-        write_bundle_file(dir, &dir.join(MANIFEST), &p.manifest)?;
+        #[cfg(windows)]
+        {
+            // A previous attempt may have published an object and then failed its directory
+            // flush. The retry can reuse those valid bytes (including cached ones), so flush
+            // both object directories again before publishing a manifest that references them.
+            // This also persists the fixed subdirectories of a newly created bundle.
+            for sub in ["tiles", "blobs"] {
+                fs.sync_dir(&dir.join(sub)).map_err(|e| crate::atomic::publication_error(e, &dir.join(sub)))?;
+            }
+        }
+        write_bundle_file(dir, &dir.join(MANIFEST), &p.manifest, fs)?;
         // The manifest is committed: the save has succeeded. Removing objects it no longer
         // references is best-effort housekeeping (a vanished or locked file must not turn a
         // complete save into a reported failure); a leftover is retried on the next save.
@@ -1011,3 +1032,6 @@ pub(crate) fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
     crate::atomic::atomic_write(path, data)?;
     Ok(())
 }
+
+#[cfg(all(test, windows))]
+mod durability_tests;
