@@ -901,7 +901,7 @@ pub fn preset_list(ui: &mut egui::Ui, presets: &[BrushPreset], current: Option<&
                 continue;
             }
             let key = group_key(presets, &label);
-            let open = !collapsed.contains(&label);
+            let open = !filter.is_empty() || !collapsed.contains(&label);
             group_header(ui, &label, &key, &[], open, items.len(), &mut acts);
             if !open {
                 continue;
