@@ -2304,17 +2304,17 @@ fn color_picker(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 fn color_slider_mode_row(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     ui.add_space(6.0);
     let label = match app.ui.color_panel.slider_mode {
-        ColorPanelSliderMode::Hsb => tl!("HSB"),
-        ColorPanelSliderMode::Rgb => tl!("RGB"),
+        ColorPanelSliderMode::Hsb => tl!("HSB/HSL"),
+        ColorPanelSliderMode::Rgb => tl!("RGB Color"),
     };
     // A press menu, not a combo box: the default layout keeps the Color panel open beside
     // adjustment editors, and harness tests pick the combo nearest "3D LUT File" (#7317).
     let btn = ui.add_sized([72.0, ui.spacing().interact_size.y], egui::Button::new(label));
     crate::press_menu::show(&btn, |ui, menu| {
-        if menu.item(ui, tl!("HSB")) {
+        if menu.item(ui, tl!("HSB/HSL")) {
             app.ui.color_panel.slider_mode = ColorPanelSliderMode::Hsb;
         }
-        if menu.item(ui, tl!("RGB")) {
+        if menu.item(ui, tl!("RGB Color")) {
             app.ui.color_panel.slider_mode = ColorPanelSliderMode::Rgb;
         }
     });
