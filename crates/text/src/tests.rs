@@ -2160,6 +2160,39 @@ fn area_overflow_is_hidden() {
     assert_lines_inside(&l, &path);
 }
 
+/// A long word that reaches the narrow bottom of a full bubble is hidden with the rest, not
+/// drawn past the outline: the wide middle rows would hold it, so the shape just ran out.
+#[test]
+fn area_overflow_at_the_narrow_bottom_is_hidden() {
+    let mut e = TextEngine::new();
+    let words = "Unfortunately the misunderstanding between representatives continued indefinitely. ";
+    for (w, h, size) in [(260.0, 160.0, 12.0), (180.0, 140.0, 14.0), (150.0, 220.0, 12.0)] {
+        let mut t = point(&words.repeat(8), size);
+        let path = area_ellipse(0.0, 0.0, w, h);
+        t.shape = TextShape::Area { path: path.clone() };
+        let l = e.layout(&t, 72.0);
+        assert!(!l.lines.is_empty());
+        assert!(l.lines.last().unwrap().range.end < t.text.len(), "the rest is hidden");
+        assert_lines_inside(&l, &path);
+    }
+}
+
+/// The same in a later paragraph: its own rows start below the wide top of the shape, but the
+/// shape would still hold the word there, so it is hidden rather than drawn past the outline.
+#[test]
+fn area_overflow_in_a_later_paragraph_is_hidden() {
+    let mut e = TextEngine::new();
+    // A funnel: 300 px wide at the top, a point at the bottom.
+    let path = area_poly(&[(0.0, 0.0), (300.0, 0.0), (150.0, 300.0)]);
+    for n in (10..120).step_by(5) {
+        let text = format!("{}\nmisunderstanding and more", "cat ".repeat(n));
+        let mut t = point(&text, 12.0);
+        t.shape = TextShape::Area { path: path.clone() };
+        let l = e.layout(&t, 72.0);
+        assert_lines_inside(&l, &path);
+    }
+}
+
 #[test]
 fn area_lines_center_in_their_span() {
     let mut e = TextEngine::new();
@@ -2254,7 +2287,7 @@ fn area_word_wider_than_every_span_overflows_instead_of_hiding_the_text() {
     t.shape = TextShape::Area { path };
     let l = e.layout(&t, 72.0);
     let first = l.lines.first().expect("the text is shown");
-    // The word overflows its 40 px span, as in a text box, on the first row.
+    // The word overflows its 40 px span on the first row (box text would break it, #6694).
     assert!(first.x1 - first.x0 > 40.0 && first.x1 - first.x0 < 200.0, "{first:?}");
     assert!(first.x0 >= -0.5, "{first:?}");
     // Nothing is hidden.

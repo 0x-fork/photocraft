@@ -1200,7 +1200,8 @@ struct Need {
 ///
 /// A span too narrow for the word that would start it (the narrow top of an ellipse) is left
 /// empty and the word goes to the first later span that holds it, as Photoshop does. A word no
-/// later span holds overflows its span, as in a text box. Parley doesn't report a line's
+/// later span holds but another span of the shape would means the shape is full: it and the rest are
+/// hidden. Only a word no span holds overflows its span. Parley doesn't report a line's
 /// trailing whitespace while breaking, so overflowing lines are found after a pass and the
 /// paragraph broken again; `budget` (shared by the paragraph's calls) bounds the passes.
 ///
@@ -1219,13 +1220,12 @@ fn break_area(
 ) -> (Vec<Slot>, bool) {
     let inset = indents.0 + indents.1;
     let mut rows = AreaRows { area, m, min_width, next: from, rows: Vec::new(), done: false };
+    // Every row of the shape from its top, whatever paragraph came before (found lazily).
+    let mut shape_rows = AreaRows { area, m, min_width, next: area.bounds[1], rows: Vec::new(), done: false };
     let mut needs: Vec<Need> = Vec::new();
     loop {
         let (slots, overflow) = break_area_pass(layout, &mut rows, inset, scale, &needs);
         budget.set(budget.get().saturating_sub(1));
-        if budget.get() == 0 {
-            return (slots, overflow);
-        }
         // Each line's text start and scaled width without its trailing whitespace.
         let lines: Vec<(usize, f32)> = layout
             .lines()
@@ -1234,6 +1234,20 @@ fn break_area(
                 (l.text_range().start, (lm.advance - lm.trailing_whitespace) * scale)
             })
             .collect();
+        // A line still wider than its span that some span of the shape would hold: the shape ran
+        // out of room for it (the narrow bottom of a full bubble). It and the rest are hidden, as
+        // overflow; only a word no span holds overflows its span.
+        let mut ran_out = |slots: Vec<Slot>, overflow: bool| match lines
+            .iter()
+            .zip(&slots)
+            .position(|(&(_, width), s)| width > s.width + 0.5 && shape_rows.first_fit(0, 0, width, inset).is_some())
+        {
+            Some(li) => (slots.into_iter().take(li).collect(), true),
+            None => (slots, overflow),
+        };
+        if budget.get() == 0 {
+            return ran_out(slots, overflow);
+        }
         // A line that now starts elsewhere (an earlier line changed) no longer needs its span.
         let kept = needs.len();
         needs.retain(|n| lines.get(n.line).is_some_and(|l| l.0 == n.start));
@@ -1247,10 +1261,11 @@ fn break_area(
                 break;
             }
         }
-        match new {
-            Some(n) => needs.push(n),
-            None => return (slots, overflow),
+        if let Some(n) = new {
+            needs.push(n);
+            continue;
         }
+        return ran_out(slots, overflow);
     }
 }
 
