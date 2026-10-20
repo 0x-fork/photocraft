@@ -444,6 +444,8 @@ impl Default for HistoryLog {
 pub struct FileHandling {
     pub image_previews: Ask,
     pub lowercase_extension: bool,
+    /// File › Save a Copy suggests the document's own name rather than "<name> copy" (#8080).
+    pub do_not_append_copy: bool,
     /// Saves run in the background while you keep working (on), or in the foreground under a
     /// modal progress dialog that blocks the app until the file is written (off).
     pub save_in_background: bool,
@@ -467,11 +469,20 @@ pub struct FileHandling {
     pub recent_files: Vec<String>,
 }
 
+impl FileHandling {
+    /// What File › Save a Copy appends to the document's name: " copy", or nothing with Do not
+    /// append "copy" to filename when saving a copy (#8080).
+    pub fn copy_suffix(&self) -> &'static str {
+        if self.do_not_append_copy { "" } else { " copy" }
+    }
+}
+
 impl Default for FileHandling {
     fn default() -> Self {
         Self {
             image_previews: Ask::Always,
             lowercase_extension: true,
+            do_not_append_copy: false,
             save_in_background: true,
             autosave: true,
             autosave_minutes: 10,

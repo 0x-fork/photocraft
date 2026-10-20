@@ -4159,6 +4159,7 @@ navigator	Zoom	Zoom
 	Chisel Hard	Cincelar duro
 	Chisel Soft	Cincelar suave
 	Open color-less EXR as ACEScg	Abrir EXR sin espacio de color como ACEScg
+	Do not append "copy" to filename when saving a copy	No añadir «copy» al nombre de archivo al guardar una copia
 # Export As metadata and profile options
 
 # View › Guides › right-click a guide

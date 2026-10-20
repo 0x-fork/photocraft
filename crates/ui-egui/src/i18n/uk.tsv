@@ -3897,6 +3897,7 @@ curves	Smooth	Згладити
 	Chisel Hard	Жорстке різьблення
 	Chisel Soft	М'яке різьблення
 	Open color-less EXR as ACEScg	Відкривати EXR без колірного профілю як ACEScg
+	Do not append "copy" to filename when saving a copy	Не додавати «copy» до імені файлу під час збереження копії
 
 # View › Guides › right-click a guide
 	Edit Selected Guides	Редагувати вибрані напрямні
