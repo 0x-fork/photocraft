@@ -19,6 +19,7 @@
 //! copied untouched. [`ProxyImage::render`] is the cheap preview path: bilinear field and
 //! bilinear source on a downsampled RGBA copy, re-rendered only where a dab changed things.
 
+use crate::par;
 use photocraft_geom::Rect;
 use photocraft_raster::Surface;
 use serde::{Deserialize, Serialize};
@@ -185,6 +186,10 @@ struct StrokeCursor {
     last_dab: [f64; 2],
     carry: f64,
 }
+
+/// Dabs over this many field nodes compute their rows in parallel (an 800 px brush has about
+/// 125,000); smaller ones are not worth the hand-off.
+const PARALLEL_DAB_NODES: usize = 16_384;
 
 /// Distance between dabs along a stroke for brush radius `r`: a twentieth of the radius, so a
 /// drag is many small pushes and its edge stays smooth.
@@ -559,15 +564,8 @@ impl LiquifyField {
             }
             row
         };
-        #[cfg(not(target_arch = "wasm32"))]
-        let writes: Vec<Vec<(usize, [f32; 2], f32)>> = if (i1 - i0 + 1) * (j1 - j0 + 1) > 16_384 {
-            use rayon::prelude::*;
-            (j0..=j1).into_par_iter().map(node_row).collect()
-        } else {
-            (j0..=j1).map(node_row).collect()
-        };
-        #[cfg(target_arch = "wasm32")]
-        let writes: Vec<Vec<(usize, [f32; 2], f32)>> = (j0..=j1).map(node_row).collect();
+        let rows = j1 - j0 + 1;
+        let writes = par::map(rows, rows * (i1 - i0 + 1) > PARALLEL_DAB_NODES, |row| node_row(j0 + row));
         for (idx, d, f) in writes.into_iter().flatten() {
             self.d[idx] = d;
             self.freeze[idx] = f;
@@ -932,11 +930,12 @@ impl ProxyImage {
             return false;
         }
         source_scratch.resize(source_len, [0.0; 4]);
-        // Read and premultiply the source in one pass per band of rows: at an 800 px brush it is
-        // about a million pixels, most of an update when read on one thread (P30).
+        // Read and premultiply the source in one pass per band of rows, the bands in parallel: at
+        // an 800 px brush it is about a million pixels (P30).
         let opaque = !src.format().alpha;
-        let read_band = |first_row: usize, band: &mut [[f32; 4]]| {
-            let y = src_rect.y0 + first_row as i32;
+        const BAND_ROWS: usize = 32;
+        par::chunks_mut(source_scratch, sw * BAND_ROWS, true, |band_index, band| {
+            let y = src_rect.y0 + (band_index * BAND_ROWS) as i32;
             src.read_rgba_into(Rect::new(src_rect.x0, y, src_rect.x1, y + (band.len() / sw) as i32), band);
             for pixel in band.iter_mut() {
                 if opaque {
@@ -947,15 +946,7 @@ impl ProxyImage {
                 pixel[1] *= alpha;
                 pixel[2] *= alpha;
             }
-        };
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            use rayon::prelude::*;
-            const BAND_ROWS: usize = 32;
-            source_scratch.par_chunks_mut(sw * BAND_ROWS).enumerate().for_each(|(band, rows)| read_band(band * BAND_ROWS, rows));
-        }
-        #[cfg(target_arch = "wasm32")]
-        read_band(0, source_scratch);
+        });
 
         let x0 = (region.x0 - bounds.x0) as usize;
         let x1 = (region.x1 - bounds.x0) as usize;
