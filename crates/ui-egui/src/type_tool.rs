@@ -2051,7 +2051,10 @@ fn metric_field(ui: &mut egui::Ui, field: MetricField<'_>) -> Option<MetricChoic
     let mut chosen = None;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
-        if let Some(v) = num_field(ui, label, tip, value, range, unit, (width - 38.0).max(24.0)) {
+        // num_field includes a 22pt label and 4pt gap; the combo adds its own
+        // chrome. Reserve the complete width so the chevron stays aligned with
+        // the Transform column rather than extending past it at narrow widths.
+        if let Some(v) = num_field(ui, label, tip, value, range, unit, (width - 58.0).max(24.0)) {
             chosen = Some(MetricChoice::Value(v));
         }
         let (press, close) = crate::press_menu::PressCombo::before(ui, salt);
