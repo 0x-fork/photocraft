@@ -1,4 +1,4 @@
-//! Photocraft's first UI shell, built on egui/eframe.
+//! PhotoCraft's first UI shell, built on egui/eframe.
 //!
 //! This crate is deliberately thin. Every action goes through
 //! [`photocraft_engine::Session::execute`], and all UI state lives in [`state::UiState`] (plain
@@ -25,6 +25,7 @@ pub mod anchor_tools;
 pub mod artboard_tool;
 pub mod artboard_ui;
 pub(crate) mod background_redraw;
+pub mod bidi_text;
 mod blend_keys;
 pub(crate) mod blend_preview;
 pub mod blur_pins;
@@ -37,6 +38,7 @@ pub mod brush_preview;
 pub mod brush_resize;
 pub mod brush_sections;
 pub mod brushes_tab;
+pub mod caf_ui;
 pub(crate) mod cam_preview;
 mod cam_transform;
 mod camera_raw_detail_ui;
@@ -67,6 +69,7 @@ pub mod crop_shield;
 pub mod crop_size;
 pub mod crop_straighten;
 pub mod crop_ui;
+pub mod dds_options_ui;
 pub mod delete_layer_prompt;
 pub mod dialog_alt_reset;
 pub mod dialog_blend_ui;
@@ -74,6 +77,7 @@ pub mod dialogs;
 pub mod direct_select;
 pub mod direction;
 pub mod discard_ui;
+pub mod disk_change_prompt;
 pub mod distort_ui;
 pub mod doc_props_ui;
 pub mod dock;
@@ -269,6 +273,9 @@ pub struct ExportSettings {
     /// Targa: bits per pixel from Targa Options or Export As (`None`: 32 with an alpha channel or
     /// transparency, else 24).
     pub tga_bits: Option<photocraft_io::TgaBits>,
+    /// DDS: the compression and mip chain from DDS Options (uncompressed without mipmaps unless
+    /// chosen).
+    pub dds: photocraft_io::DdsOptions,
     /// PSD/PSB: embed a thumbnail (Preferences › File Handling › Image Previews; see
     /// [`PhotocraftApp::save_settings`]).
     pub image_previews: bool,
@@ -281,6 +288,9 @@ pub struct ExportSettings {
     /// Embed EXIF, resolution and other non-XMP metadata when the format supports it. Export As
     /// turns this off for Metadata: None; Save As leaves it on.
     pub embed_metadata: bool,
+    /// The path of the document's own file, which linked smart objects that PSD/PSB embed are
+    /// resolved against ([`photocraft_io::ExportOptions::document_path`]).
+    pub document_path: Option<std::path::PathBuf>,
 }
 
 impl Default for ExportSettings {
@@ -292,10 +302,12 @@ impl Default for ExportSettings {
             tiff_layers: true,
             xmp_all: true,
             tga_bits: None,
+            dds: photocraft_io::DdsOptions::default(),
             image_previews: true,
             psd_maximize_compatibility: true,
             embed_icc: true,
             embed_metadata: true,
+            document_path: None,
         }
     }
 }
@@ -317,9 +329,42 @@ impl ExportSettings {
         opts.tiff_layers = self.tiff_layers;
         opts.xmp = if self.xmp_all { photocraft_io::XmpEmbed::All } else { photocraft_io::XmpEmbed::None };
         opts.tga_bits = self.tga_bits;
+        opts.encode.dds = self.dds;
         opts.image_previews = self.image_previews;
         opts.psd_maximize_compatibility = self.psd_maximize_compatibility;
+        opts.document_path = self.document_path.clone();
         opts
+    }
+}
+
+/// The format answers a save takes instead of asking: the Targa bits per pixel and the DDS options
+/// (`"tgaBits"`, `"ddsCompression"`, `"ddsMipmaps"`). `None` asks in Save As and takes the
+/// default in automation saves, which never prompt.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FormatChoices {
+    pub tga_bits: Option<photocraft_io::TgaBits>,
+    pub dds: Option<photocraft_io::DdsOptions>,
+}
+
+impl FormatChoices {
+    /// The answers in command `cmd`'s params; a bad value is an error.
+    pub fn from_params(params: &Value, cmd: &str) -> Result<Self, String> {
+        Ok(FormatChoices { tga_bits: targa_options_ui::bits_param(params, cmd)?, dds: dds_options_ui::options_param(params, cmd)? })
+    }
+
+    /// The export settings with these answers applied.
+    pub(crate) fn apply(self, settings: ExportSettings) -> ExportSettings {
+        ExportSettings { tga_bits: self.tga_bits, dds: self.dds.unwrap_or(settings.dds), ..settings }
+    }
+
+    /// Adds the answers to a recorded save step.
+    fn record(self, step: &mut Value) {
+        if let Some(bits) = self.tga_bits {
+            step["tgaBits"] = bits.bits().into();
+        }
+        if let Some(dds) = self.dds {
+            dds_options_ui::record(dds, step);
+        }
     }
 }
 
@@ -349,10 +394,26 @@ pub(crate) fn plain_raster(doc: &Document) -> Option<&photocraft_doc::Layer> {
 /// Encode a document: (file bytes, warnings about anything approximated or dropped).
 pub type ExportFn = Box<dyn Fn(&Document, &str, &ExportSettings) -> Result<(Vec<u8>, Vec<String>), String>>;
 pub type WriteFn = Box<dyn FnMut(&str, &[u8]) -> Result<(), String>>;
+/// What a file on disk looked like when a document last read or wrote it: File › Save asks
+/// before replacing a file another app changed since (#6596).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FileStamp {
+    pub len: u64,
+    pub modified: Option<std::time::SystemTime>,
+}
+/// The [`FileStamp`] of the file at a path, `None` when it can't be read.
+pub type FileStampFn = Box<dyn Fn(&str) -> Option<FileStamp>>;
 /// Encode a document and write it to a path, reporting the stage to the job; returns the export
 /// warnings. Runs on a worker thread (see [`Services::save_file`]). It must call
 /// [`jobs_ui::SaveCtl::commit`] right before replacing the file, and write nothing if that fails.
 pub type SaveFileFn = std::sync::Arc<dyn Fn(&Document, &str, &ExportSettings, &jobs_ui::SaveCtl) -> Result<Vec<String>, String> + Send + Sync>;
+
+/// The revision a document counts as saved at after `written` went to its writer: that one when
+/// the writer confirms the bytes were stored, else still `previous`, so the document stays
+/// unsaved. A browser download is only a request the user can cancel (#4962).
+pub(crate) fn saved_revision_after_write(confirmed: bool, written: u64, previous: u64) -> u64 {
+    if confirmed { written } else { previous }
+}
 
 /// Who a finished save serves.
 #[derive(Clone, Copy)]
@@ -379,6 +440,8 @@ pub type EncodePngFn = Box<dyn Fn(u32, u32, &[u8]) -> Result<Vec<u8>, String>>;
 pub type ClipboardSetFn = Box<dyn FnMut(u32, u32, &[u8]) -> Result<(), String>>;
 /// Read an RGBA8 image from the OS clipboard.
 pub type ClipboardGetFn = Box<dyn FnMut() -> Option<(u32, u32, Vec<u8>)>>;
+/// Whether the last clipboard read found no way to reach the OS clipboard at all.
+pub type ClipboardUnreadableFn = Box<dyn Fn() -> bool>;
 /// Shared queue of (file name, bytes) delivered asynchronously.
 pub type Inbox = std::sync::Arc<std::sync::Mutex<Vec<(String, Vec<u8>)>>>;
 /// Read the saved preferences text (`None` when there is none yet).
@@ -446,6 +509,13 @@ pub struct Services {
     pub file_dialog: Option<FileDialogFn>,
     /// Write bytes to a path (native) or trigger a download (web).
     pub write: Option<WriteFn>,
+    /// Size and modification time of a file (native); `None` on the web, where Save never
+    /// writes back to a file.
+    pub file_stamp: Option<FileStampFn>,
+    /// `write` only asks for the bytes to be kept (a browser download, which the user can
+    /// cancel and which reports nothing back), so a save through it names the document but
+    /// leaves its changes unsaved and the leave-page guard armed (#4962).
+    pub write_unconfirmed: bool,
     /// Encode and write in one step on a worker thread, so a large save doesn't freeze the
     /// window (#2017). With background jobs on, saves use it instead of `export` and `write`.
     pub save_file: Option<SaveFileFn>,
@@ -466,11 +536,19 @@ pub struct Services {
     /// Preferences ▸ General ▸ Beep When Done: the platform's default beep, played when a
     /// background job finishes successfully. `None` in the web build (and in tests).
     pub beep: Option<fn()>,
-    /// Files delivered asynchronously (web drag-and-drop): drained every frame.
+    /// Files delivered asynchronously (web drag-and-drop): drained every frame and opened as
+    /// documents.
     pub inbox: Option<Inbox>,
+    /// Files delivered asynchronously for a drop onto the active document's canvas (web
+    /// drag-and-drop, routed by [`PhotocraftApp::dropped_on_canvas`]): placed as layers like a
+    /// desktop canvas drop (Place Embedded, each in Free Transform).
+    pub place_inbox: Option<Inbox>,
     /// OS clipboard images: copies go out, screenshots and images from other apps come in.
     pub clipboard_set_image: Option<ClipboardSetFn>,
     pub clipboard_get_image: Option<ClipboardGetFn>,
+    /// True when the last `clipboard_get_image` read had no clipboard to read, as in a Flatpak on
+    /// Wayland (#5031), rather than a clipboard that holds no image. `None` where that can't happen.
+    pub clipboard_unreadable: Option<ClipboardUnreadableFn>,
     /// Preferences persistence: the platform config directory on native, browser storage on
     /// the web (see `prefs_ui`).
     pub load_prefs: Option<LoadTextFn>,
@@ -494,8 +572,9 @@ pub struct Services {
     pub append_text: Option<AppendTextFn>,
     /// OS requests (macOS open-documents / quit Apple events), polled every frame.
     pub os_events: Option<OsEventsFn>,
-    /// The pointer position read from the OS (desktop): winit 0.30's file drops carry none, and
-    /// the window gets no pointer events during an OS drag (see `file_open::DropTarget`).
+    /// The pointer position read from the OS (desktop) or from the page's drag events (web):
+    /// file drops carry none, and the window gets no pointer events during an OS drag (see
+    /// `file_open::DropTarget`).
     pub cursor_pos: Option<CursorPosFn>,
     /// Caps Lock toggled on (desktop; `None` on Wayland and the web). Read once per frame, so
     /// the canvas can show the precise crosshair for painting tools, whatever the preference.
@@ -568,9 +647,9 @@ pub struct PhotocraftApp {
     /// Footprint trail of a retouching drag (see `stroke_trail`).
     trail: Option<stroke_trail::Trail>,
     /// Remove tool strokes waiting to be applied together (Remove after each stroke off), the
-    /// document they belong to, and their tint on the canvas (`retouch_ui`).
+    /// document, layer and channel they belong to, and their tint on the canvas (`retouch_ui`).
     pub(crate) remove_pending: Vec<Vec<[f64; 3]>>,
-    pub(crate) remove_pending_doc: Option<photocraft_doc::DocId>,
+    pub(crate) remove_pending_target: Option<retouch_ui::RemoveTarget>,
     pub(crate) remove_trail: Option<stroke_trail::Trail>,
     /// The open menus' items, reused between frames (`menus::ItemCache`).
     pub(crate) menu_cache: Option<menus::ItemCache>,
@@ -642,6 +721,9 @@ pub struct PhotocraftApp {
     fonts_ready: bool,
     /// Screen rect of the main canvas last frame (for overlays and the navigator).
     pub last_canvas_rect: egui::Rect,
+    /// Window › Arrange: the first document of the shown run of tiles, when there are more
+    /// documents than tiles (`canvas::arranged_cells`).
+    pub(crate) arrange_start: usize,
     /// Physical pixels per egui point of the canvas last frame (`ctx.pixels_per_point`, which
     /// folds in both the display scale and Interface › UI Scale). The canvas maps document pixels
     /// to physical pixels, so point-space geometry divides the view zoom by this (see
@@ -653,11 +735,11 @@ pub struct PhotocraftApp {
     /// The document tab strip last frame: a drop there opens the file at the slot under it.
     pub(crate) tab_strip: Option<canvas::TabStrip>,
     /// Files dropped on the canvas still to place, one Free Transform at a time.
-    pub(crate) drop_places: std::collections::VecDeque<egui::DroppedFileHandle>,
+    pub(crate) drop_places: std::collections::VecDeque<file_open::DropPlace>,
     /// The document each of `ui.views` belongs to, as of the last [`Self::sync_views`].
     view_docs: Vec<DocId>,
     pub fps: f32,
-    last_frame_time: f64,
+    pub(crate) last_frame_time: f64,
     thumbs: HashMap<(photocraft_doc::LayerId, u8), (u64, egui::TextureHandle)>,
     /// The document area each layer thumbnail in `thumbs` frames (the canvas, or the layer's
     /// bounds with Clip Thumbnails to Layer Bounds; #4281).
@@ -684,6 +766,9 @@ pub struct PhotocraftApp {
     pub(crate) color_range: Option<color_range_ui::Preview>,
     /// Image › Adjustments dialog preview through a temporary clipped adjustment layer.
     pub(crate) adjust_preview: Option<adjust_preview::AdjustPreview>,
+    /// The Properties panel's live adjustment-layer drag: its damage region and coverage
+    /// (`adjust_preview::live_key`).
+    pub(crate) live_adjust_preview: Option<adjust_preview::LiveAdjust>,
     /// Synthetic input events queued by automation (`ui.click`, `ui.key`, …), injected next frame.
     pub(crate) synthetic: Vec<egui::Event>,
     /// True only while a frame is processing synthetic automation input. It
@@ -787,8 +872,13 @@ pub struct PhotocraftApp {
     /// Where each document was last saved or exported to through a dialog (#1826): its next Save
     /// As or export dialog starts there rather than beside the document. Session-only.
     pub(crate) save_dirs: HashMap<photocraft_doc::DocId, std::path::PathBuf>,
+    /// Each document's own file as it was when the document was opened from it or saved to it
+    /// (see [`FileStamp`]).
+    pub(crate) disk_stamps: HashMap<photocraft_doc::DocId, (String, FileStamp)>,
     /// A save to an RGB Targa parked behind the Targa Options prompt (see `targa_options_ui`).
     pub(crate) targa_options: Option<targa_options_ui::Prompt>,
+    /// A save to a DDS texture parked behind the DDS Options prompt (see `dds_options_ui`).
+    pub(crate) dds_options: Option<dds_options_ui::Prompt>,
     /// Files read but not opened yet: the first waits on its profile prompt, the rest behind it
     /// (see `open_prompt`).
     pub(crate) held_opens: std::collections::VecDeque<open_prompt::Held>,
@@ -833,7 +923,7 @@ impl PhotocraftApp {
             committed_stroke: None,
             trail: None,
             remove_pending: Vec::new(),
-            remove_pending_doc: None,
+            remove_pending_target: None,
             remove_trail: None,
             menu_cache: None,
             move_preview: None,
@@ -867,6 +957,7 @@ impl PhotocraftApp {
             last_window_title: String::new(),
             fonts_ready: false,
             last_canvas_rect: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0)),
+            arrange_start: 0,
             ppp: 1.0,
             drop_canvas_rect: None,
             tab_strip: None,
@@ -888,6 +979,7 @@ impl PhotocraftApp {
             redraws: Default::default(),
             color_range: None,
             adjust_preview: None,
+            live_adjust_preview: None,
             synthetic: Vec::new(),
             automation_input: false,
             channel_thumbs: None,
@@ -936,7 +1028,9 @@ impl PhotocraftApp {
             file_dialog: None,
             tiff_options: None,
             save_dirs: HashMap::new(),
+            disk_stamps: HashMap::new(),
             targa_options: None,
+            dds_options: None,
             held_opens: Default::default(),
             allow_close: false,
             stylus: Default::default(),
@@ -1087,6 +1181,11 @@ impl PhotocraftApp {
                 self.import_os_clipboard();
             }
             if self.session.clipboard.is_none() && self.services.clipboard_get_image.is_some() {
+                if self.services.clipboard_unreadable.as_ref().is_some_and(|unreadable| unreadable()) {
+                    // The clipboard may well hold an image that can't be reached: say why.
+                    notices::clipboard_unreadable(self);
+                    return Ok(serde_json::json!({"pasted": false}));
+                }
                 // Enabled on the strength of the OS clipboard, which held no image: a quiet no-op.
                 let message = "Nothing to paste: the clipboard holds no image";
                 self.ui.status = tl!(message).into();
@@ -1383,21 +1482,22 @@ impl PhotocraftApp {
     /// continues on a later frame, see `file_dialog`). Returns `{"path", "warnings"}` (the export
     /// warnings are also shown to the user).
     pub fn save_as(&mut self, path: Option<String>) -> Result<Value, String> {
-        self.save_as_with(path, None)
+        self.save_as_with(path, FormatChoices::default())
     }
 
-    /// [`Self::save_as`], writing a Targa with `tga_bits` per pixel when given (no Targa Options
-    /// prompt): `file.save` and `file.saveAs` with `tgaBits`.
-    pub fn save_as_with(&mut self, path: Option<String>, tga_bits: Option<photocraft_io::TgaBits>) -> Result<Value, String> {
-        self.save_dialog_flow(path, tga_bits, false)
+    /// [`Self::save_as`], writing a Targa or DDS texture with the `choices` given instead of
+    /// asking for them (no Targa or DDS Options prompt): `file.save` and `file.saveAs` with
+    /// `tgaBits`, `ddsCompression` or `ddsMipmaps`.
+    pub fn save_as_with(&mut self, path: Option<String>, choices: FormatChoices) -> Result<Value, String> {
+        self.save_dialog_flow(path, choices, false)
     }
 
     /// [`Self::save_as_with`]. `plain_save` marks File › Save that had to ask for a file name
     /// (a flat file): confirming the document's own file is recorded as a `file.save` step,
     /// which writes whichever file the action is played on, not as a Save As to a fixed path.
-    pub(crate) fn save_dialog_flow(&mut self, path: Option<String>, tga_bits: Option<photocraft_io::TgaBits>, plain_save: bool) -> Result<Value, String> {
+    pub(crate) fn save_dialog_flow(&mut self, path: Option<String>, choices: FormatChoices, plain_save: bool) -> Result<Value, String> {
         if self.save_options_open() {
-            return Err("Answer TIFF or Targa Options before starting another save".into());
+            return Err("Answer the TIFF, Targa or DDS Options before starting another save".into());
         }
         // Edit Contents documents save back into their smart object.
         if path.is_none() && self.session.is_enabled("layer.smartObjects.saveContents") {
@@ -1405,7 +1505,7 @@ impl PhotocraftApp {
             return Ok(serde_json::json!({"path": "smart object", "warnings": []}));
         }
         if let Some(path) = path {
-            return self.save_to(path, tga_bits);
+            return self.save_to(path, choices);
         }
         let st = self.session.active().ok_or("no document")?;
         // PDN imports default to our native format, which preserves Paint.NET's blend modes;
@@ -1438,7 +1538,14 @@ impl PhotocraftApp {
         self.pick_save(&suggested, move |app, path| {
             app.with_document(doc, |app| {
                 let own = app.session.active().and_then(|st| st.path.clone());
-                let r = app.save_to(path.clone(), tga_bits)?;
+                // Confirming the document's own file: ask first if another app changed it (#6596).
+                if plain_save
+                    && own.as_deref() == Some(path.as_str())
+                    && let Some(r) = crate::disk_change_prompt::intercept(app, doc, &path, true)
+                {
+                    return r;
+                }
+                let r = app.save_to(path.clone(), choices)?;
                 if plain_save && own.as_deref() == Some(path.as_str()) {
                     app.journal_as_plain_save(&path);
                 }
@@ -1448,13 +1555,18 @@ impl PhotocraftApp {
     }
 
     /// [`Self::save_as_with`] once the path is known.
-    fn save_to(&mut self, path: String, tga_bits: Option<photocraft_io::TgaBits>) -> Result<Value, String> {
-        // An RGB Targa asks for its bits per pixel, unless the caller chose them; the save
-        // continues from the prompt (still a copy when it would be one without the prompt),
-        // which records the step once answered.
-        if tga_bits.is_none() && targa_options_ui::wants_prompt(self, &path) {
+    pub(crate) fn save_to(&mut self, path: String, choices: FormatChoices) -> Result<Value, String> {
+        // An RGB Targa asks for its bits per pixel, and a DDS texture for its compression, unless
+        // the caller chose them; the save continues from the prompt (still a copy when it would
+        // be one without the prompt), which records the step once answered.
+        if choices.tga_bits.is_none() && targa_options_ui::wants_prompt(self, &path) {
             let copy = self.saves_copy(&path, None)?;
             targa_options_ui::park(self, path.clone(), copy, "file.saveAs")?;
+            return Ok(serde_json::json!({"path": path, "warnings": []}));
+        }
+        if choices.dds.is_none() && dds_options_ui::wants_prompt(&path) {
+            let copy = self.saves_copy(&path, None)?;
+            dds_options_ui::park(self, path.clone(), copy, "file.saveAs")?;
             return Ok(serde_json::json!({"path": path, "warnings": []}));
         }
         // A layered TIFF asks about its layers first (Preferences › File Handling); the save
@@ -1463,55 +1575,69 @@ impl PhotocraftApp {
             tiff_options_ui::park(self, path.clone())?;
             return Ok(serde_json::json!({"path": path, "warnings": []}));
         }
-        self.save_as_step(path, None, tga_bits)
+        self.save_as_step(path, None, choices)
     }
 
-    /// File › Save back to the document's own layered file, recorded as a `file.save` step.
-    pub(crate) fn save_in_place(&mut self, path: String) -> Result<Value, String> {
+    /// File › Save back to the document's own file, recorded as a `file.save` step with the
+    /// Targa or DDS answer in `choices` (a replayed Save of a flat file brings its own).
+    pub(crate) fn save_in_place(&mut self, path: String, choices: FormatChoices) -> Result<Value, String> {
         if self.save_options_open() {
-            return Err("Answer TIFF or Targa Options before starting another save".into());
+            return Err("Answer the TIFF, Targa or DDS Options before starting another save".into());
         }
-        let r = self.write_save(path, None, None)?;
-        self.session.journal.push(("file.save".into(), Value::Object(Default::default())));
+        let r = self.write_save(path, None, choices)?;
+        let mut step = Value::Object(Default::default());
+        choices.record(&mut step);
+        self.session.journal.push(("file.save".into(), step));
         Ok(r)
     }
 
-    /// Writes the Save As and journals it as a `file.saveAs` step with its path (and TIFF or
-    /// Targa answer), so an action being recorded keeps it (#2032).
-    fn save_as_step(&mut self, path: String, tiff_layers: Option<bool>, tga_bits: Option<photocraft_io::TgaBits>) -> Result<Value, String> {
-        let r = self.write_save(path.clone(), tiff_layers, tga_bits)?;
+    /// Writes the Save As and journals it as a `file.saveAs` step with its path (and TIFF,
+    /// Targa or DDS answer), so an action being recorded keeps it (#2032).
+    fn save_as_step(&mut self, path: String, tiff_layers: Option<bool>, choices: FormatChoices) -> Result<Value, String> {
+        let r = self.write_save(path.clone(), tiff_layers, choices)?;
         let mut step = serde_json::json!({"path": path});
         if let Some(layers) = tiff_layers {
             step["tiffLayers"] = layers.into();
         }
-        if let Some(bits) = tga_bits {
-            step["tgaBits"] = bits.bits().into();
-        }
+        choices.record(&mut step);
         self.session.journal.push(("file.saveAs".into(), step));
         Ok(r)
     }
 
-    /// Re-label the Save As just journaled for `path` as File › Save (see [`Self::save_dialog_flow`]).
-    fn journal_as_plain_save(&mut self, path: &str) {
+    /// Re-label the Save As just journaled for `path` as File › Save (see [`Self::save_dialog_flow`]),
+    /// keeping its Targa or DDS answer so playback writes the file the same way. A save parked
+    /// behind Targa or DDS Options hasn't been journaled yet: it is recorded as File › Save once
+    /// answered.
+    pub(crate) fn journal_as_plain_save(&mut self, path: &str) {
+        let parked = [self.targa_options.as_mut().map(|p| (&p.path, &mut p.record)), self.dds_options.as_mut().map(|p| (&p.path, &mut p.record))];
+        if let Some((_, record)) = parked.into_iter().flatten().find(|(p, record)| p.as_str() == path && **record == "file.saveAs") {
+            *record = "file.save";
+            return;
+        }
         if let Some(last) = self.session.journal.last_mut()
             && last.0 == "file.saveAs"
             && last.1.get("path").and_then(Value::as_str) == Some(path)
-            && last.1.as_object().is_some_and(|o| o.len() == 1)
+            && let Some(step) = last.1.as_object()
+            && step.keys().all(|k| matches!(k.as_str(), "path" | "tgaBits" | "ddsCompression" | "ddsMipmaps"))
         {
-            *last = ("file.save".into(), Value::Object(Default::default()));
+            let mut step = step.clone();
+            step.remove("path");
+            *last = ("file.save".into(), Value::Object(step));
         }
     }
 
     /// Replays a recorded `file.save` / `file.saveAs` / `file.saveACopy` step: no dialog or prompt, and the
-    /// recorded TIFF or Targa answer (if any) stands in for the TIFF or Targa Options prompt.
+    /// recorded TIFF, Targa or DDS answer (if any) stands in for the TIFF, Targa or DDS Options prompt.
     pub(crate) fn replay_save(&mut self, id: &str, params: &Value) -> Result<Value, String> {
         if self.save_options_open() {
-            return Err("Answer TIFF or Targa Options before starting another save".into());
+            return Err("Answer the TIFF, Targa or DDS Options before starting another save".into());
         }
         if id == "file.save" {
             // The file the action is played on: one that holds the whole document, or a flat
             // file a recorded Save confirmed in the dialog while the document is still a plain
-            // raster, so it is never flattened over (#3531, #3806).
+            // raster, so it is never flattened over (#3531, #3806). A flat file's recorded Targa
+            // or DDS answer stands in for the prompt.
+            let choices = FormatChoices::from_params(params, id)?;
             let st = self.session.active().ok_or("no document")?;
             let flat_own = |p: &str| {
                 !photocraft_engine::file_cmds::saves_in_place(p)
@@ -1521,16 +1647,16 @@ impl PhotocraftApp {
             let path = st.path.clone().filter(|p| photocraft_engine::file_cmds::holds_at(&st.doc, p) || flat_own(p)).ok_or(
                 "Save writes back only to the document's own PSD, PSB, .pcraft or OpenRaster file (OpenRaster only when it holds everything), or to its own flat file while the document is a single plain layer",
             )?;
-            return self.save_in_place(path);
+            return self.save_in_place(path, choices);
         }
         let path = params.get("path").and_then(Value::as_str).filter(|p| !p.is_empty()).ok_or("Save As needs a `path`")?;
-        let tga_bits = targa_options_ui::bits_param(params, id)?;
+        let choices = FormatChoices::from_params(params, id)?;
         if id == "file.saveACopy" {
             // A copy: the document keeps its own file and unsaved state, as when recorded (#4373).
             let doc = self.session.active().ok_or("no document")?.doc.clone();
-            return crate::view_cmds::write_copy(self, &doc, path, tga_bits);
+            return crate::view_cmds::write_copy(self, &doc, path, choices);
         }
-        self.save_as_step(path.to_string(), params.get("tiffLayers").and_then(Value::as_bool), tga_bits)
+        self.save_as_step(path.to_string(), params.get("tiffLayers").and_then(Value::as_bool), choices)
     }
 
     /// What a save writes by default under the preferences: File Handling › Image Previews
@@ -1549,6 +1675,7 @@ impl PhotocraftApp {
             settings.jpeg_quality = e.jpeg_quality.map(|q| q.clamp(1, 100));
             settings.webp_lossless = e.webp_lossless.unwrap_or(settings.webp_lossless);
             settings.webp_quality = e.webp_quality.map(|q| q.min(100));
+            settings.document_path = st.path.as_deref().map(std::path::PathBuf::from);
         }
         settings
     }
@@ -1569,11 +1696,11 @@ impl PhotocraftApp {
     }
 
     /// Writes the active document to a known path. `tiff_layers` is the TIFF Options answer:
-    /// `Some(false)` discards the layers and saves a copy. `tga_bits` is the Targa bits per
-    /// pixel (`None`: 32 with an alpha channel or transparency, else 24).
-    fn write_save(&mut self, path: String, tiff_layers: Option<bool>, tga_bits: Option<photocraft_io::TgaBits>) -> Result<Value, String> {
+    /// `Some(false)` discards the layers and saves a copy. `choices` are the Targa bits per
+    /// pixel (`None`: 32 with an alpha channel or transparency, else 24) and the DDS options.
+    fn write_save(&mut self, path: String, tiff_layers: Option<bool>, choices: FormatChoices) -> Result<Value, String> {
         let copy = self.saves_copy(&path, tiff_layers)?;
-        let settings = ExportSettings { tiff_layers: tiff_layers.unwrap_or(ExportSettings::default().tiff_layers), tga_bits, ..self.save_settings() };
+        let settings = choices.apply(ExportSettings { tiff_layers: tiff_layers.unwrap_or(ExportSettings::default().tiff_layers), ..self.save_settings() });
         match self.write_document(path.clone(), &settings, copy)? {
             Some((path, warnings)) => Ok(serde_json::json!({"path": path, "warnings": warnings})),
             None => Ok(serde_json::json!({"path": path, "warnings": [], "pending": true, "job": self.jobs.last_started.map(|j| j.0)})),
@@ -1592,11 +1719,12 @@ impl PhotocraftApp {
             return jobs_ui::start_save(self, path, settings.clone(), copy, save, false);
         }
         let st = self.session.active().ok_or("no document")?;
-        let (doc, revision) = (st.doc.id, st.revision);
+        let (doc, written, previous) = (st.doc.id, st.revision, st.saved_revision);
         let export = self.services.export.as_ref().ok_or("no exporter configured")?;
         let (bytes, warnings) = export(&st.doc, &path, settings)?;
         let write = self.services.write.as_mut().ok_or("no writer configured")?;
         write(&path, &bytes)?;
+        let revision = saved_revision_after_write(!self.services.write_unconfirmed, written, previous);
         self.saved(doc, revision, &path, &warnings, copy);
         Ok(Some((path, warnings)))
     }
@@ -1633,6 +1761,7 @@ impl PhotocraftApp {
                     st.saved_to(path.to_string());
                     // The job locked the document, but record the revision that was written.
                     st.saved_revision = revision;
+                    app.remember_stamp(doc, path);
                 }
                 // "Save Document" script events and File › Generate › Image Assets.
                 if hooks
@@ -1652,6 +1781,9 @@ impl PhotocraftApp {
             if hooks {
                 self.push_recent(path);
             }
+        } else if self.disk_stamps.get(&doc).is_some_and(|(own, _)| own == path) {
+            // A copy written over the document's own file is this app's change too.
+            self.remember_stamp(doc, path);
         }
         self.ui.status_error = false;
         let what = crate::i18n::fmt(tl!("Saved {name}"), &[("name", file_open::display_name(path).as_str())]);
@@ -1659,9 +1791,24 @@ impl PhotocraftApp {
         self.sync_views();
     }
 
-    /// TIFF Options or Targa Options is waiting on an answer before a save is written.
+    /// Note how `doc`'s own file at `path` looks now that the document read or wrote it.
+    pub(crate) fn remember_stamp(&mut self, doc: photocraft_doc::DocId, path: &str) {
+        match self.services.file_stamp.as_ref().and_then(|stamp| stamp(path)) {
+            Some(now) => self.disk_stamps.insert(doc, (path.to_string(), now)),
+            None => self.disk_stamps.remove(&doc),
+        };
+    }
+
+    /// Another app changed `doc`'s own file at `path` since the document was opened from it or
+    /// last saved to it. A file that is gone, or one never stamped, counts as unchanged.
+    pub(crate) fn changed_on_disk(&self, doc: photocraft_doc::DocId, path: &str) -> bool {
+        let Some((own, then)) = self.disk_stamps.get(&doc) else { return false };
+        own == path && self.services.file_stamp.as_ref().and_then(|stamp| stamp(path)).is_some_and(|now| now != *then)
+    }
+
+    /// TIFF, Targa or DDS Options is waiting on an answer before a save is written.
     pub(crate) fn save_options_open(&self) -> bool {
-        self.tiff_options.is_some() || self.targa_options.is_some()
+        self.tiff_options.is_some() || self.targa_options.is_some() || self.dds_options.is_some()
     }
 
     /// A print worker may still be handing a job to the system queue.
@@ -1678,12 +1825,13 @@ impl PhotocraftApp {
     /// picker or ambient writer is reachable from this path. Returns the path
     /// written and the export warnings (also shown to the user).
     pub fn save_automation(&mut self, path: Option<String>) -> Result<Value, String> {
-        self.save_automation_with(path, None)
+        self.save_automation_with(path, FormatChoices::default())
     }
 
-    /// [`Self::save_automation`] writing a Targa with `tga_bits` per pixel (`None`: 32 with an
-    /// alpha channel or transparency, else 24). Automation saves never prompt.
-    pub fn save_automation_with(&mut self, path: Option<String>, tga_bits: Option<photocraft_io::TgaBits>) -> Result<Value, String> {
+    /// [`Self::save_automation`] writing a Targa or DDS texture with the `choices` given (a
+    /// Targa's `None`: 32 with an alpha channel or transparency, else 24; a DDS texture's:
+    /// uncompressed without mipmaps). Automation saves never prompt.
+    pub fn save_automation_with(&mut self, path: Option<String>, choices: FormatChoices) -> Result<Value, String> {
         let target = {
             let state = self.session.active().ok_or("no document")?;
             // As File › Save: without `path` only a layered file is written back (#416).
@@ -1696,7 +1844,7 @@ impl PhotocraftApp {
         if self.background_jobs
             && let Some(save) = self.services.automation_save.clone()
         {
-            return match jobs_ui::start_save(self, target.clone(), ExportSettings { tga_bits, ..self.save_settings() }, false, save, true)? {
+            return match jobs_ui::start_save(self, target.clone(), choices.apply(self.save_settings()), false, save, true)? {
                 Some((path, warnings)) => Ok(reply(&path, &warnings)),
                 None => {
                     let job = self.jobs.last_started;
@@ -1706,7 +1854,7 @@ impl PhotocraftApp {
         }
         let state = self.session.active().ok_or("no document")?;
         let (doc, revision) = (state.doc.id, state.revision);
-        let settings = ExportSettings { tga_bits, ..self.save_settings() };
+        let settings = choices.apply(self.save_settings());
         let export = self.services.export.as_ref().ok_or("no exporter configured")?;
         let (bytes, warnings) = export(&state.doc, &target, &settings)?;
         let write = self.services.automation_write.as_mut().ok_or("automation write authority is not configured")?;
@@ -1867,6 +2015,10 @@ impl eframe::App for PhotocraftApp {
                 self.open_failed(&name, &e);
             }
         }
+        // Web drops onto the canvas, read since the last frame: placed below, one at a time.
+        let to_place: Vec<(String, Vec<u8>)> =
+            self.services.place_inbox.as_ref().map(|q| std::mem::take(&mut *q.lock().unwrap_or_else(|e| e.into_inner()))).unwrap_or_default();
+        self.drop_places.extend(to_place.into_iter().map(|(name, bytes)| file_open::DropPlace::Bytes(name, bytes)));
         // Finder double-click / Open With / Dock drops (macOS open-documents events).
         self.drain_os_events(ctx);
         // While files are dragged over the window it gets no pointer events: keep frames coming so
@@ -2002,6 +2154,7 @@ impl eframe::App for PhotocraftApp {
         discard_ui::show(self, &ctx);
         tiff_options_ui::show(self, &ctx);
         targa_options_ui::show(self, &ctx);
+        dds_options_ui::show(self, &ctx);
         distort_ui::show(self, &ctx);
         camera_raw_ui::show(self, &ctx);
         wide_angle_ui::show(self, &ctx);
@@ -2038,6 +2191,18 @@ impl eframe::App for PhotocraftApp {
             ctx.set_cursor_icon(egui::CursorIcon::Wait);
         }
         let ui_ms = gpu_canvas::now_ms() - t0;
+        // A GPU measurement lands a frame or two after the refresh it belongs to. Refreshes
+        // carry them out, but the last refresh before the app settles has none following it, so
+        // drain the timer here too or its number is never reported. Drain it either way: a
+        // measurement left sitting would surface later against an unrelated refresh. Report it
+        // only while the canvas is still on the GPU, since a CPU refresh clears `gpu_ms`
+        // precisely so a GPU number is never shown as that refresh's.
+        if let Some(gpu) = &self.gpu
+            && let Some(t) = gpu.take_gpu_timing()
+            && self.perf.last_refresh.starts_with("gpu")
+        {
+            self.perf.record_gpu(t);
+        }
         self.perf.frame(ui_ms);
         if self.stroke_trace.enabled() {
             self.stroke_trace.canvas(self.perf.frame_refresh_ms);
@@ -2741,6 +2906,9 @@ mod dropdown_press_tests;
 
 #[cfg(test)]
 mod marquee_tests;
+
+#[cfg(test)]
+mod guide_cursor_tests;
 
 #[cfg(test)]
 mod canvas_menu_tests;
