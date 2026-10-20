@@ -1200,3 +1200,33 @@ fn save_of_a_flat_file_asks_after_the_dialog_when_another_app_changed_it() {
     assert!(!app.session.active().unwrap().is_dirty());
     assert_eq!(app.session.journal.last(), Some(&("file.save".to_string(), json!({}))), "still recorded as a plain Save");
 }
+
+/// A script's JPEG Options answer survives the changed-on-disk prompt: Replace writes with it,
+/// without asking JPEG Options.
+#[test]
+fn a_scripted_quality_survives_the_changed_on_disk_prompt() {
+    let ctx = egui::Context::default();
+    let path = "/pics/My image.jpg";
+    let (mut app, open, written) = jpeg_app(None, false);
+    let qualities: Rc<RefCell<Vec<Option<u8>>>> = Rc::default();
+    let q = qualities.clone();
+    app.services.export = Some(Box::new(move |_: &photocraft_doc::Document, _: &str, s: &crate::ExportSettings| {
+        q.borrow_mut().push(s.jpeg_quality);
+        Ok((b"out".to_vec(), Vec::new()))
+    }));
+    let disk = on_disk(&mut app);
+    changed_by_another_app(&disk, path);
+    app.opened_from(path);
+    app.run("image.adjustments.invert", json!({})).unwrap();
+    changed_by_another_app(&disk, path);
+    menus::invoke(&mut app, &ctx, "file.save", json!({"quality": 5})).unwrap();
+    app.poll_file_dialog(&ctx, None);
+    answer(&open, Some(FileDialogAnswer::SaveTo(path.into())));
+    app.poll_file_dialog(&ctx, None);
+    assert!(written.borrow().is_empty(), "the changed file is not replaced before the answer");
+    let id = disk_prompt(&app).expect("Save asks first").id;
+    crate::dialogs::confirm(&mut app, id).unwrap();
+    assert!(app.jpeg_options.is_none(), "the script answered JPEG Options");
+    assert_eq!(*written.borrow(), [path]);
+    assert_eq!(qualities.borrow().last().copied().flatten(), Some(photocraft_engine::file_cmds::jpeg_quality(5.0)));
+}

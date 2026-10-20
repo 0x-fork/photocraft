@@ -1552,7 +1552,7 @@ impl PhotocraftApp {
                 // Confirming the document's own file: ask first if another app changed it (#6596).
                 if plain_save
                     && own.as_deref() == Some(path.as_str())
-                    && let Some(r) = crate::disk_change_prompt::intercept(app, doc, &path, true)
+                    && let Some(r) = crate::disk_change_prompt::intercept(app, doc, &path, true, choices)
                 {
                     return r;
                 }
