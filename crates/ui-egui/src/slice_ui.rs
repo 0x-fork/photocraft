@@ -29,8 +29,67 @@ pub struct SliceUi {
 /// A gesture in progress.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SliceDrag {
-    New { start: [f64; 2], cur: [f64; 2] },
-    Move { id: u32, start: [f64; 2], cur: [f64; 2], rect: photocraft_geom::Rect },
+    New {
+        start: [f64; 2],
+        cur: [f64; 2],
+    },
+    Move {
+        id: u32,
+        start: [f64; 2],
+        cur: [f64; 2],
+        rect: photocraft_geom::Rect,
+    },
+    /// A handle of the selected slice: `handle` is −1, 0 or 1 per axis (the left, untouched or
+    /// right edge; the top, untouched or bottom edge).
+    Resize {
+        id: u32,
+        handle: [i8; 2],
+        start: [f64; 2],
+        cur: [f64; 2],
+        rect: photocraft_geom::Rect,
+    },
+}
+
+/// How far from a handle (screen points) a press still grabs it.
+const HANDLE_REACH: f64 = 5.0;
+
+/// The handle of `r` at document point `p`, within `reach` document pixels: the corners first,
+/// then the edge middles, as the overlay draws them.
+fn handle_at(r: photocraft_geom::Rect, p: [f64; 2], reach: f64) -> Option<[i8; 2]> {
+    let (x0, y0, x1, y1) = (f64::from(r.x0), f64::from(r.y0), f64::from(r.x1), f64::from(r.y1));
+    let at = |h: [i8; 2]| {
+        let x = match h[0] {
+            -1 => x0,
+            1 => x1,
+            _ => (x0 + x1) / 2.0,
+        };
+        let y = match h[1] {
+            -1 => y0,
+            1 => y1,
+            _ => (y0 + y1) / 2.0,
+        };
+        (p[0] - x).abs() <= reach && (p[1] - y).abs() <= reach
+    };
+    [[-1, -1], [1, -1], [-1, 1], [1, 1], [0, -1], [0, 1], [-1, 0], [1, 0]].into_iter().find(|h| at(*h))
+}
+
+/// `r` with the edges `handle` grabs moved by (`dx`, `dy`), turned the right way round when an
+/// edge is dragged past the opposite one, and at least 1 × 1.
+fn resized(r: photocraft_geom::Rect, handle: [i8; 2], dx: i32, dy: i32) -> photocraft_geom::Rect {
+    let (mut x0, mut y0, mut x1, mut y1) = (r.x0, r.y0, r.x1, r.y1);
+    match handle[0] {
+        -1 => x0 = x0.saturating_add(dx),
+        1 => x1 = x1.saturating_add(dx),
+        _ => {}
+    }
+    match handle[1] {
+        -1 => y0 = y0.saturating_add(dy),
+        1 => y1 = y1.saturating_add(dy),
+        _ => {}
+    }
+    let (x0, x1) = (x0.min(x1), x0.max(x1).max(x0.min(x1).saturating_add(1)));
+    let (y0, y1) = (y0.min(y1), y0.max(y1).max(y0.min(y1).saturating_add(1)));
+    photocraft_geom::Rect::new(x0, y0, x1, y1)
 }
 
 fn is_slice_tool(t: Tool) -> bool {
@@ -66,6 +125,16 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, _mods: egui::Modifiers) -
                     app.ui.slices.drag = Some(SliceDrag::New { start: [x, y], cur: [x, y] });
                 }
             } else {
+                // A handle of the selected user slice resizes it (#7863).
+                let reach = HANDLE_REACH / f64::from(app.point_zoom().max(0.01));
+                let grabbed = app.ui.slices.selected.filter(|_| !locked).and_then(|n| {
+                    let r = slices::resolve(&doc).into_iter().find(|r| r.number == n && r.origin == SliceOrigin::User)?;
+                    Some((r.id?, r.rect, handle_at(r.rect, [x, y], reach)?))
+                });
+                if let Some((id, rect, handle)) = grabbed {
+                    app.ui.slices.drag = Some(SliceDrag::Resize { id, handle, start: [x, y], cur: [x, y], rect });
+                    return true;
+                }
                 let hit = slice_at(&doc, x, y);
                 app.ui.slices.selected = hit.as_ref().map(|r| r.number);
                 // The whole slice moves, also when the press hits one piece of a covered slice.
@@ -77,7 +146,7 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, _mods: egui::Modifiers) -
             }
         }
         ToolEvent::Move { x, y, .. } => match &mut app.ui.slices.drag {
-            Some(SliceDrag::New { cur, .. }) | Some(SliceDrag::Move { cur, .. }) => *cur = [x, y],
+            Some(SliceDrag::New { cur, .. }) | Some(SliceDrag::Move { cur, .. }) | Some(SliceDrag::Resize { cur, .. }) => *cur = [x, y],
             None => {}
         },
         ToolEvent::Up { x, y } => match app.ui.slices.drag.take() {
@@ -99,6 +168,13 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, _mods: egui::Modifiers) -
                         let d = app.session.active().map(|d| d.doc.clone());
                         app.ui.slices.selected = d.and_then(|d| slices::resolve(&d).into_iter().find(|s| s.id == Some(id)).map(|s| s.number));
                     }
+                }
+            }
+            Some(SliceDrag::Resize { id, handle, start, rect, .. }) => {
+                let r = resized(rect, handle, (x - start[0]).round() as i32, (y - start[1]).round() as i32);
+                if r != rect && app.run("slice.set", json!({"slice": id, "rect": [r.x0, r.y0, r.width(), r.height()]})).is_ok() {
+                    let d = app.session.active().map(|d| d.doc.clone());
+                    app.ui.slices.selected = d.and_then(|d| slices::resolve(&d).into_iter().find(|s| s.id == Some(id)).map(|s| s.number));
                 }
             }
             None => {}
@@ -189,6 +265,10 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
         }
         Some(SliceDrag::Move { start, cur, rect, .. }) => {
             let r = rect.translate((cur[0] - start[0]).round() as i32, (cur[1] - start[1]).round() as i32);
+            painter.rect_stroke(to_screen(r), 0.0, Stroke::new(2.0, selected_color), egui::StrokeKind::Inside);
+        }
+        Some(SliceDrag::Resize { handle, start, cur, rect, .. }) => {
+            let r = resized(*rect, *handle, (cur[0] - start[0]).round() as i32, (cur[1] - start[1]).round() as i32);
             painter.rect_stroke(to_screen(r), 0.0, Stroke::new(2.0, selected_color), egui::StrokeKind::Inside);
         }
         None => {}
