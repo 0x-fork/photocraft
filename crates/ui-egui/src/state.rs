@@ -605,6 +605,10 @@ pub struct ToolOptions {
     pub marquee_width: f32,
     #[serde(default = "one")]
     pub marquee_height: f32,
+    /// The unit Fixed Size's Width and Height show (a [`photocraft_engine::prefs::Unit`] name,
+    /// picked by right-clicking them); the size itself stays in pixels (#7910).
+    #[serde(default = "default_marquee_unit")]
+    pub marquee_unit: String,
     /// Move tool: Auto-Select (with "layer" or "group" target) and Show Transform Controls.
     /// Auto-Select is on with the "group" target by default, as in current Photoshop;
     /// ⌘/Ctrl-click inverts it.
@@ -738,6 +742,10 @@ fn default_marquee_style() -> String {
     "normal".into()
 }
 
+fn default_marquee_unit() -> String {
+    "pixels".into()
+}
+
 fn one() -> f32 {
     1.0
 }
@@ -869,6 +877,7 @@ impl Default for ToolOptions {
             marquee_style: default_marquee_style(),
             marquee_width: 1.0,
             marquee_height: 1.0,
+            marquee_unit: default_marquee_unit(),
             move_auto_select: true,
             move_target: default_move_target(),
             move_show_transform: false,
