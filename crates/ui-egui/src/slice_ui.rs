@@ -419,6 +419,52 @@ mod tests {
     }
 
     #[test]
+    fn handles_resize_the_edges_they_hang_off() {
+        let r = photocraft_geom::Rect::new(10, 10, 40, 30);
+        assert_eq!(handle_at(r, [10.5, 9.0], 2.0), Some([-1, -1]));
+        assert_eq!(handle_at(r, [25.0, 30.0], 2.0), Some([0, 1]));
+        assert_eq!(handle_at(r, [40.0, 20.0], 2.0), Some([1, 0]));
+        assert_eq!(handle_at(r, [25.0, 20.0], 2.0), None, "the middle is no handle");
+        assert_eq!(resized(r, [1, 0], 5, 9), photocraft_geom::Rect::new(10, 10, 45, 30), "the right edge only");
+        assert_eq!(resized(r, [-1, 1], -4, 6), photocraft_geom::Rect::new(6, 10, 40, 36));
+        assert_eq!(resized(r, [-1, 0], 50, 0), photocraft_geom::Rect::new(40, 10, 60, 30), "dragged past the other edge");
+        assert_eq!(resized(r, [1, 0], -30, 0), photocraft_geom::Rect::new(10, 10, 11, 30), "never empty");
+    }
+
+    /// #7863: with Slice Select, dragging a handle of the selected slice resizes it; the middle
+    /// still moves it, and locked slices keep their size.
+    #[test]
+    fn slice_select_handles_resize_the_slice() {
+        let mut app = app();
+        let m = egui::Modifiers::NONE;
+        app.ui.tool = Tool::Slice;
+        pointer(&mut app, ToolEvent::Down { x: 10.0, y: 10.0, pressure: 1.0 }, m);
+        pointer(&mut app, ToolEvent::Up { x: 40.0, y: 30.0 }, m);
+        app.ui.tool = Tool::SliceSelect;
+        let rect = |app: &PhotocraftApp| app.session.active().unwrap().doc.slices.list[0].rect;
+        // The bottom-right corner.
+        pointer(&mut app, ToolEvent::Down { x: 40.0, y: 30.0, pressure: 1.0 }, m);
+        assert!(matches!(app.ui.slices.drag, Some(SliceDrag::Resize { handle: [1, 1], .. })));
+        pointer(&mut app, ToolEvent::Move { x: 50.0, y: 45.0, pressure: 1.0 }, m);
+        pointer(&mut app, ToolEvent::Up { x: 50.0, y: 45.0 }, m);
+        assert_eq!(rect(&app), photocraft_geom::Rect::new(10, 10, 50, 45));
+        assert!(app.ui.slices.selected.is_some(), "still selected");
+        // The left edge's middle.
+        pointer(&mut app, ToolEvent::Down { x: 10.0, y: 27.0, pressure: 1.0 }, m);
+        pointer(&mut app, ToolEvent::Up { x: 4.0, y: 60.0 }, m);
+        assert_eq!(rect(&app), photocraft_geom::Rect::new(4, 10, 50, 45), "only the left edge moves");
+        // Inside, away from the handles, it still moves.
+        pointer(&mut app, ToolEvent::Down { x: 30.0, y: 20.0, pressure: 1.0 }, m);
+        pointer(&mut app, ToolEvent::Up { x: 32.0, y: 21.0 }, m);
+        assert_eq!(rect(&app), photocraft_geom::Rect::new(6, 11, 52, 46));
+        // Locked: the handle doesn't resize.
+        app.run("view.lockSlices", json!({"on": true})).unwrap();
+        pointer(&mut app, ToolEvent::Down { x: 52.0, y: 46.0, pressure: 1.0 }, m);
+        pointer(&mut app, ToolEvent::Up { x: 70.0, y: 70.0 }, m);
+        assert_eq!(rect(&app), photocraft_geom::Rect::new(6, 11, 52, 46));
+    }
+
+    #[test]
     fn locked_slices_ignore_gestures() {
         let mut app = app();
         app.run("view.lockSlices", json!({"on": true})).unwrap();
