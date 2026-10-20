@@ -494,6 +494,39 @@ fn dpx_converts_both_ways_with_the_bits_asked_for() {
     }
 }
 
+/// DDS converts both ways; `--dds-compression` picks the FourCC (bytes 84–87; none writes
+/// uncompressed pixels) and `--dds-mipmaps` the mip count (bytes 28–31). A compression that
+/// isn't none, bc1, bc2 or bc3 is refused and nothing is written (#1327).
+#[test]
+fn dds_converts_both_ways_with_the_compression_asked_for() {
+    let d = tmp("dds");
+    let a = d.join("a.png");
+    write_png(&a, 8, 4, 3);
+    for (args, fourcc, mips) in [
+        (&[][..], [0; 4], 1),
+        (&["--dds-compression", "bc1"][..], *b"DXT1", 1),
+        (&["--dds-compression", "DXT3", "--dds-mipmaps"][..], *b"DXT3", 4),
+        (&["--dds-compression", "bc3"][..], *b"DXT5", 1),
+        (&["--dds-mipmaps"][..], [0; 4], 4),
+    ] {
+        let out = d.join("a.dds");
+        ok(bin().arg("convert").arg(&a).arg(&out).args(args));
+        let bytes = std::fs::read(&out).unwrap();
+        let mip_count = u32::from_le_bytes(bytes[28..32].try_into().unwrap());
+        assert_eq!((&bytes[..4], &bytes[84..88], mip_count), (&b"DDS "[..], &fourcc[..], mips), "{args:?}");
+        let back = d.join("back.png");
+        ok(bin().arg("convert").arg(&out).arg(&back));
+        assert!(back.exists(), "{args:?}");
+    }
+    for bad in ["bc7", "dxt2", ""] {
+        let out = d.join("bad.dds");
+        let o = bin().arg("convert").arg(&a).arg(&out).args(["--dds-compression", bad]).output().unwrap();
+        assert_eq!(o.status.code(), Some(1), "--dds-compression {bad}");
+        assert!(String::from_utf8_lossy(&o.stderr).contains(&format!("bad --dds-compression `{bad}`")), "--dds-compression {bad}");
+        assert!(!out.exists(), "--dds-compression {bad} wrote a file");
+    }
+}
+
 /// `--tga-bits` picks a TGA's bits per pixel (byte 16 of its header); anything but 24 or 32 is
 /// refused and nothing is written.
 #[test]
