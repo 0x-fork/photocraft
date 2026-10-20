@@ -314,6 +314,7 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) ->
                 Some(i) => {
                     app.ui.analysis.note_selected = Some(i);
                     app.ui.analysis.notes = true;
+                    show_note_options(app, i);
                     app.ui.analysis.drag = Some(Drag::Note(i, [x - doc.notes[i].position[0], y - doc.notes[i].position[1]]));
                 }
                 None => {
@@ -760,6 +761,15 @@ pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
 }
 
+/// Selecting note `i` shows its author and colour in the Note tool's options bar, as Photoshop
+/// does (#7940); a new note then takes them unless they are changed.
+fn show_note_options(app: &mut PhotocraftApp, i: usize) {
+    let Some(note) = app.session.active().and_then(|d| d.doc.notes.get(i)) else { return };
+    let (author, color) = (note.author.clone(), note.color.to_rgb());
+    app.ui.analysis.note_author = author;
+    app.ui.analysis.note_color = color;
+}
+
 fn notes_panel(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let notes = app.session.active().map(|d| d.doc.notes.clone()).unwrap_or_default();
     let n = notes.len();
@@ -767,6 +777,7 @@ fn notes_panel(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let mut close = false;
     let mut edit: Option<Value> = None;
     let mut delete = false;
+    let mut navigated = false;
     let t = Tokens::get(ctx);
     panel_window(app, ctx, "notes-panel", tl!("Notes"), vec2(-40.0, 300.0), 260.0, |ui| {
         close = title_row(ui, tl!("Notes"));
@@ -787,9 +798,11 @@ fn notes_panel(app: &mut PhotocraftApp, ctx: &egui::Context) {
         ui.horizontal(|ui| {
             if ui.add_enabled_ui(n > 1, |ui| crate::icons::button(ui, "chevrons-left", 22.0, false, tl!("Previous note"))).inner.clicked() {
                 sel = sel.map(|i| (i + n - 1) % n);
+                navigated = true;
             }
             if ui.add_enabled_ui(n > 1, |ui| crate::icons::button(ui, "chevrons-right", 22.0, false, tl!("Next note"))).inner.clicked() {
                 sel = sel.map(|i| (i + 1) % n);
+                navigated = true;
             }
             let template = "{index} of {total}";
             let position = crate::i18n::fmt(tl!(template), &[("index", &sel.map_or(0, |i| i + 1).to_string()), ("total", &n.to_string())]);
@@ -802,6 +815,9 @@ fn notes_panel(app: &mut PhotocraftApp, ctx: &egui::Context) {
         });
     });
     app.ui.analysis.note_selected = sel;
+    if navigated && let Some(i) = sel {
+        show_note_options(app, i);
+    }
     if let Some(p) = edit {
         let _ = app.run("notes.set", p);
     }
