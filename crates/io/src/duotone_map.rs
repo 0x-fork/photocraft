@@ -14,9 +14,13 @@
 //! | 414 | 11 × 10 | overprint colours, space 0xFFFF = computed |
 //!
 //! A curve's 13 values are the ink's density in tenths of a percent at gray densities of 0, 5,
-//! 10, 20, …, 90, 95 and 100 %; −1 leaves a point out (Photoshop's empty dialog fields).
+//! 10, 20, …, 90, 95 and 100 %; −1 leaves a point out (Photoshop's empty dialog fields), except
+//! at 0 and 100 %: Photoshop refuses to open a file with −1 there.
+//!
+//! A colour-book ink (PANTONE, …) is stored by its book key, not a colour. Photoshop also writes
+//! every ink's Lab equivalent in image resource 1066 (Alternate Duotone Colors): version 1, a
+//! count, then one 10-byte colour per ink in the same order.
 
-use photocraft_color::convert::{cmyk_to_rgb_naive, lab_to_srgb};
 use photocraft_doc::adjust::CurvePoint;
 use photocraft_doc::{Duotone, DuotoneInk};
 use photocraft_psd::aco::AcoColor;
@@ -29,27 +33,27 @@ const NO_COLOR: [u8; 10] = [0xFF, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0];
 const NAMES_AT: usize = 44;
 const CURVES_AT: usize = 300;
 const DOT_GAIN_AT: usize = 412;
+/// Image resource: the inks' Lab equivalents.
+pub(crate) const ALTERNATE_DUOTONE_COLORS: u16 = 1066;
 
 fn u16_at(b: &[u8], at: usize) -> Option<u16> {
     b.get(at..at + 2).map(|s| u16::from_be_bytes([s[0], s[1]]))
 }
 
-/// The sRGB display colour of an ink colour; `None` for a colour book or another space we can't
-/// show.
-fn display(c: AcoColor) -> Option<[f32; 3]> {
-    let f = |v: u16| f32::from(v) / 65535.0;
-    Some(match c {
-        AcoColor::Rgb(v) => v.map(f),
-        AcoColor::Cmyk(v) => cmyk_to_rgb_naive(v.map(f)),
-        AcoColor::Lab { l, a, b } => lab_to_srgb([f32::from(l.min(10000)) / 100.0, f32::from(a) / 100.0, f32::from(b) / 100.0]).map(|v| v.clamp(0.0, 1.0)),
-        AcoColor::Gray(g) => [1.0 - f32::from(g.min(10000)) / 10000.0; 3],
-        _ => return None,
-    })
+/// The sRGB display colour of the 10-byte colour structure at `at`; `None` for a colour book or
+/// another space we can't show.
+fn display(b: &[u8], at: usize) -> Option<[f32; 3]> {
+    let space = u16_at(b, at)?;
+    let values = [u16_at(b, at + 2)?, u16_at(b, at + 4)?, u16_at(b, at + 6)?, u16_at(b, at + 8)?];
+    let c = crate::channel_map::decode_known_color(space, values)?;
+    Some(c.to_rgb().map(|v| v.clamp(0.0, 1.0)))
 }
 
 /// The inks of a Duotone block, or `None` when it is not one this reads (the caller keeps it raw).
-/// `unknown` is set when an ink's colour can't be shown (a colour book): it is shown as black.
-pub(crate) fn parse(b: &[u8], unknown: &mut bool) -> Option<Vec<DuotoneInk>> {
+/// `alternate` is resource 1066, which gives a colour-book ink its colour. `unknown` is set when
+/// an ink's colour can't be shown even so; it is then black here, and the caller shows the
+/// grey plate instead.
+pub(crate) fn parse(b: &[u8], alternate: Option<&[u8]>, unknown: &mut bool) -> Option<Vec<DuotoneInk>> {
     if b.len() < DOT_GAIN_AT || u16_at(b, 0)? != 1 {
         return None;
     }
@@ -59,10 +63,8 @@ pub(crate) fn parse(b: &[u8], unknown: &mut bool) -> Option<Vec<DuotoneInk>> {
     }
     (0..n)
         .map(|i| {
-            let at = 4 + 10 * i;
-            let space = u16_at(b, at)?;
-            let values = [u16_at(b, at + 2)?, u16_at(b, at + 4)?, u16_at(b, at + 6)?, u16_at(b, at + 8)?];
-            let color = display(AcoColor::from_record(space, values)).unwrap_or_else(|| {
+            let alt = alternate.filter(|a| u16_at(a, 0) == Some(1) && u16_at(a, 2).is_some_and(|k| usize::from(k) > i));
+            let color = display(b, 4 + 10 * i).or_else(|| display(alt?, 4 + 10 * i)).unwrap_or_else(|| {
                 *unknown = true;
                 [0.0; 3]
             });
@@ -140,15 +142,21 @@ fn curve_values(curve: Option<&[CurvePoint]>) -> [i16; 13] {
     }
     let pts = pts.unwrap_or_default();
     let slot = |x: f32| CURVE_AT.iter().position(|a| (f32::from(*a) / 100.0 - x).abs() < 1e-4);
+    let ink = DuotoneInk { name: String::new(), color: [0.0; 3], curve: pts.to_vec() };
     if pts.iter().all(|p| slot(p.input).is_some()) {
         for p in pts {
             if let Some(k) = slot(p.input) {
                 out[k] = per_mille(p.output);
             }
         }
+        // Photoshop needs both ends.
+        for k in [0, 12] {
+            if out[k] < 0 {
+                out[k] = per_mille(ink.density(f32::from(CURVE_AT[k]) / 100.0));
+            }
+        }
         return out;
     }
-    let ink = DuotoneInk { name: String::new(), color: [0.0; 3], curve: pts.to_vec() };
     for (k, x) in CURVE_AT.iter().enumerate() {
         out[k] = per_mille(ink.density(f32::from(*x) / 100.0));
     }
@@ -197,7 +205,7 @@ mod tests {
             psd_raw: None,
         };
         let mut unknown = false;
-        let back = parse(&write(&d), &mut unknown).unwrap();
+        let back = parse(&write(&d), None, &mut unknown).unwrap();
         assert!(!unknown);
         assert_eq!(back.len(), 3);
         for (a, b) in d.inks.iter().zip(&back) {
@@ -218,26 +226,68 @@ mod tests {
         assert_eq!((v[0], v[6], v[12]), (0, 746, 1000), "{v:?}");
     }
 
+    /// Black (CMYK) and PANTONE 327 CVC as Photoshop writes them (psd-tools'
+    /// `colormodes/4x4_8bit_duotone.psd`): the book ink is stored by its key, "  327C".
+    fn black_and_pantone() -> Vec<u8> {
+        let mut b = write(&Duotone { inks: vec![ink("Black", [0.0; 3], &[]), ink("PANTONE 327 CVC", [0.0; 3], &[])], psd_raw: None });
+        b[4..14].copy_from_slice(&[0, 2, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0]);
+        b[14..24].copy_from_slice(&[0, 3, 0x20, 0x20, 0x33, 0x32, 0x37, 0x43, 0, 0]);
+        b
+    }
+
     #[test]
-    fn a_colour_book_ink_reads_as_black_and_says_so() {
-        let mut b = write(&Duotone { inks: vec![ink("PANTONE 300 C", [0.0, 0.3, 0.7], &[])], psd_raw: None });
-        b[4..6].copy_from_slice(&3u16.to_be_bytes());
+    fn a_colour_book_ink_without_its_lab_equivalent_is_unknown() {
         let mut unknown = false;
-        let inks = parse(&b, &mut unknown).unwrap();
+        let inks = parse(&black_and_pantone(), None, &mut unknown).unwrap();
         assert!(unknown);
-        assert_eq!((inks[0].name.as_str(), inks[0].color), ("PANTONE 300 C", [0.0; 3]));
+        assert_eq!((inks[1].name.as_str(), inks[1].color), ("PANTONE 327 CVC", [0.0; 3]));
+        assert!(inks[0].color.iter().all(|&c| c < 0.2), "CMYK black: {:?}", inks[0].color);
+    }
+
+    #[test]
+    fn a_colour_book_ink_takes_its_colour_from_resource_1066() {
+        // Photoshop's resource 1066 of the same file: Lab (9.53, 4.98, 4.25) and (45.49, -66, -5).
+        let alternate = [0, 1, 0, 2, 0, 7, 0x03, 0xB9, 0x01, 0xF2, 0x01, 0xA9, 0, 0, 0, 7, 0x11, 0xC5, 0xE6, 0x38, 0xFE, 0x0C, 0, 0, 1, 0];
+        let mut unknown = false;
+        let inks = parse(&black_and_pantone(), Some(&alternate), &mut unknown).unwrap();
+        assert!(!unknown);
+        let [r, g, b] = inks[1].color;
+        assert!(r < 0.1 && g > 0.4 && b > 0.35 && g > b, "PANTONE 327 is teal: {:?}", inks[1].color);
+        // A short or foreign resource gives nothing.
+        let mut unknown = false;
+        parse(&black_and_pantone(), Some(&alternate[..14]), &mut unknown).unwrap();
+        assert!(unknown);
+    }
+
+    #[test]
+    fn an_hsb_ink_is_shown() {
+        let mut b = write(&Duotone { inks: vec![ink("Green", [0.0; 3], &[])], psd_raw: None });
+        // Hue 120°, full saturation and brightness.
+        b[4..14].copy_from_slice(&[0, 1, 0x55, 0x55, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0]);
+        let mut unknown = false;
+        let inks = parse(&b, None, &mut unknown).unwrap();
+        assert!(!unknown);
+        assert!(inks[0].color[1] > 0.99 && inks[0].color[0] < 0.01 && inks[0].color[2] < 0.01, "{:?}", inks[0].color);
+    }
+
+    #[test]
+    fn a_curve_always_has_both_ends() {
+        // On the grid, but without a 0 % or a 100 % point: Photoshop won't open −1 there.
+        let curve = [CurvePoint { input: 0.2, output: 0.1 }, CurvePoint { input: 0.5, output: 0.7 }];
+        let v = curve_values(Some(&curve));
+        assert_eq!(v, [100, -1, -1, 100, -1, -1, 700, -1, -1, -1, -1, -1, 700]);
     }
 
     #[test]
     fn malformed_blocks_are_not_read() {
         let mut unknown = false;
         let good = write(&Duotone { inks: vec![ink("Black", [0.0; 3], &[])], psd_raw: None });
-        assert!(parse(&good[..100], &mut unknown).is_none());
+        assert!(parse(&good[..100], None, &mut unknown).is_none());
         let mut v = good.clone();
         v[1] = 2;
-        assert!(parse(&v, &mut unknown).is_none(), "version");
+        assert!(parse(&v, None, &mut unknown).is_none(), "version");
         let mut n = good;
         n[3] = 5;
-        assert!(parse(&n, &mut unknown).is_none(), "ink count");
+        assert!(parse(&n, None, &mut unknown).is_none(), "ink count");
     }
 }

@@ -1537,11 +1537,11 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
     let fmt = doc.pixel_format();
     // A Duotone is written over its grey plate with its inks: the block it was imported with,
     // verbatim, while the inks are unedited, else one made from them (`duotone_map`). Photoshop
-    // has no 32-bit Duotone.
+    // has only 8-bit Duotone: it refuses to open a 16-bit one.
     let duotone_inks: Option<Vec<u8>> = doc
         .duotone
         .as_ref()
-        .filter(|d| !d.inks.is_empty() && doc.mode == ColorMode::Duotone && fmt.mode == ColorMode::Grayscale && fmt.sample != SampleType::F32)
+        .filter(|d| !d.inks.is_empty() && doc.mode == ColorMode::Duotone && fmt.mode == ColorMode::Grayscale && fmt.sample == SampleType::U8)
         .map(|d| d.psd_raw.clone().unwrap_or_else(|| crate::duotone_map::write(d)));
     let sample = fmt.sample;
     let cc = fmt.mode.color_channels();
