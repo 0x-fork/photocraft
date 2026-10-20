@@ -751,6 +751,31 @@ fn apply_image_of_a_cmyk_composite_onto_rgb_keeps_black() {
 }
 
 #[test]
+fn apply_image_of_a_cmyk_composite_onto_an_alpha_channel_takes_its_luminosity() {
+    // #5787: a CMYK composite reaches a channel as its luminosity, as Calculations reads it, so
+    // Black alone stays dark and white stays white.
+    for depth in [8, 16] {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 40, "height": 20, "mode": "cmyk", "depth": depth, "background": "white"})).unwrap();
+        {
+            let d = s.active_mut().unwrap();
+            let id = d.active_layer.unwrap();
+            let surf = std::sync::Arc::make_mut(&mut d.doc).layer_mut(id).unwrap().surface_mut().unwrap();
+            let n = surf.format().channels();
+            let mut k = vec![1.0; 20 * 20 * n];
+            k.chunks_exact_mut(n).for_each(|p| p[..3].fill(0.0));
+            surf.write_region(Rect::new(0, 0, 20, 20), &k);
+        }
+        let a = s.execute("channel.new", json!({})).unwrap()["channel"].as_u64().unwrap() as usize;
+        s.execute("image.applyImage", json!({"blending": "normal", "target": {"channel": a}})).unwrap();
+        let b = s.execute("image.calculations", json!({"source1": {}, "source2": {}, "blending": "normal"})).unwrap()["channel"].as_u64().unwrap() as usize;
+        let (black, white) = (chan(&s, a, 5, 5), chan(&s, a, 30, 5));
+        assert!(black < 0.25 && (white - 1.0).abs() < 1e-3, "depth {depth}: black {black}, white {white}");
+        assert!((black - chan(&s, b, 5, 5)).abs() < 1e-3, "depth {depth}: as Calculations reads it");
+    }
+}
+
+#[test]
 fn calculations_results() {
     let mut s = session();
     rect(&mut s, 0, 0, 20, 20, "replace");

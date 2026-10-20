@@ -1692,9 +1692,11 @@ fn apply_image(s: &mut Session, p: &Value) -> Result<Value> {
     let opacity = p.get("opacity").and_then(Value::as_f64).unwrap_or(100.0).clamp(0.0, 100.0) as f32 / 100.0;
     let preserve = p.get("preserveTransparency").and_then(Value::as_bool).unwrap_or(false);
     let src_spec = source_spec(p, "source", "source").unwrap_or_else(|| json!({}));
-    let src = source(s, &src_spec, cmd, false)?;
     // A composite's planes are in its own document's mode, which may not be the target's.
     let src_mode = s.documents().get(doc_index(s, &src_spec, "document")?).map(|d| edit_mode(&d.doc)).ok_or(EngineError::NoDocument)?;
+    // A CMYK composite reaches a channel as its luminosity, as Calculations reads it: its planes
+    // are ink, and an average of their tones would leave Black alone light gray.
+    let src = source(s, &src_spec, cmd, src_mode == ColorMode::Cmyk && is_channel_target(p))?;
     let mask = mask_plane(s, p, cmd)?;
     let layer = s.active().and_then(|d| d.active_layer);
     s.edit("Apply Image", |doc, _| {
@@ -1702,13 +1704,10 @@ fn apply_image(s: &mut Session, p: &Value) -> Result<Value> {
         let selection = doc.selection.as_ref().map(|m| sel::mask_from_surface(Some(m), area));
         let weight = |i: usize| opacity * mask.as_ref().map_or(1.0, |m| m[i]) * selection.as_ref().map_or(1.0, |m| m[i]);
         if is_channel_target(p) {
-            // A grayscale target gets the luminosity of a colour source (one plane). A composite's
-            // planes are averaged as tone: a CMYK composite stores ink, so white has none.
-            let srcp = if src.len() == 1 {
-                src[0].clone()
-            } else {
-                (0..src[0].len()).map(|i| src.iter().map(|pl| tone(src_mode, pl[i])).sum::<f32>() / src.len() as f32).collect()
-            };
+            // A grayscale target gets one plane: a CMYK composite's luminosity (above), the average of
+            // another composite's planes.
+            let srcp =
+                if src.len() == 1 { src[0].clone() } else { (0..src[0].len()).map(|i| src.iter().map(|pl| pl[i]).sum::<f32>() / src.len() as f32).collect() };
             let spot = is_spot_target(doc, p);
             let ink = |v: f32| if spot { 1.0 - v } else { v };
             let (surf, _) = target_surface(doc, None, p)?;
