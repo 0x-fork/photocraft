@@ -1127,6 +1127,30 @@ pub(crate) mod tests {
         render(&mut app, &ctx, windows);
     }
 
+    /// Clicking a note with the Note tool shows its author and colour in the options bar (#7940),
+    /// so a note from a PSD reads as itself, not as the next note's defaults.
+    #[test]
+    fn clicking_a_note_shows_its_author_and_color() {
+        let (mut app, _ctx) = app();
+        app.run("notes.add", json!({"x": 20, "y": 20, "author": "Ann", "color": [1.0, 0.5, 0.75]})).unwrap();
+        app.run("notes.add", json!({"x": 120, "y": 80, "author": "Bob", "color": [0.25, 0.5, 1.0]})).unwrap();
+        app.ui.tool = Tool::Note;
+        app.ui.analysis.note_author = "Me".into();
+        app.ui.analysis.note_color = [1.0, 1.0, 0.51];
+        down(&mut app, 22.0, 22.0, egui::Modifiers::NONE);
+        up(&mut app, 22.0, 22.0);
+        assert_eq!(app.ui.analysis.note_selected, Some(0));
+        assert_eq!((app.ui.analysis.note_author.as_str(), app.ui.analysis.note_color), ("Ann", [1.0, 0.5, 0.75]));
+        down(&mut app, 122.0, 82.0, egui::Modifiers::NONE);
+        up(&mut app, 122.0, 82.0);
+        assert_eq!((app.ui.analysis.note_author.as_str(), app.ui.analysis.note_color), ("Bob", [0.25, 0.5, 1.0]));
+        // A click off the notes adds one with what the bar now shows, and leaves the notes as they were.
+        down(&mut app, 170.0, 40.0, egui::Modifiers::NONE);
+        up(&mut app, 170.0, 40.0);
+        let notes = app.session.active().unwrap().doc.notes.clone();
+        assert_eq!(notes.iter().map(|n| n.author.as_str()).collect::<Vec<_>>(), ["Ann", "Bob", "Bob"]);
+    }
+
     #[test]
     fn dialogs_open_and_run_their_commands() {
         let (mut app, ctx) = app();
