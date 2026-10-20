@@ -1652,7 +1652,7 @@ mod tests {
             b.map(|(x0, y0, x1, y1)| (x0 as u16, y0 as u16, x1 as u16 + 1, y1 as u16 + 1))
         }
         for bpp in [1, 2, 3, 4, 6, 8, 16] {
-            let dp: Vec<u8> = (0..bpp as u8).map(|i| i * 37 + 5).collect();
+            let dp: Vec<u8> = (0..bpp).map(|i| (i * 37 + 5) as u8).collect();
             let row = TILE_SIZE as usize * bpp;
             for spots in [vec![], vec![0], vec![row - 1], vec![63, 64], vec![row * 7 + 127, row * 7 + 128, row * 200 + 5], vec![row * 255 + row / 2]] {
                 for byte in 0..bpp {
