@@ -3252,3 +3252,8 @@ curves	Smooth	Lisser
 	Use	Utiliser
 	In Front	Devant
 	Behind	Derrière
+
+# DDS Options (#1327)
+	DDS Options	Options DDS
+	Compression	Compression
+	Generate Mipmaps	Générer les mipmaps
