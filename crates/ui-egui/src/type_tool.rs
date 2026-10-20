@@ -2051,7 +2051,7 @@ fn metric_field(ui: &mut egui::Ui, field: MetricField<'_>) -> Option<MetricChoic
     let mut chosen = None;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 0.0;
-        if let Some(v) = num_field(ui, label, tip, value, range, unit, (width - 28.0).max(24.0)) {
+        if let Some(v) = num_field(ui, label, tip, value, range, unit, (width - 38.0).max(24.0)) {
             chosen = Some(MetricChoice::Value(v));
         }
         let (press, close) = crate::press_menu::PressCombo::before(ui, salt);
