@@ -753,6 +753,29 @@ mod tests {
     }
 
     #[test]
+    fn stroke_overprint_is_read_and_written() {
+        for overprint in [false, true] {
+            let fx = [Effect::Stroke(StrokeFx {
+                common: FxCommon::new(BlendMode::Normal, 1.0),
+                size: 3.0,
+                position: StrokePosition::Outside,
+                paint: FxPaint::Color(Color::BLACK),
+                overprint,
+            })];
+            let (_, back) = parse_lfx2(&write_lfx2(false, &fx)).unwrap();
+            let [Effect::Stroke(s)] = back.as_slice() else { panic!("{back:?}") };
+            assert_eq!(s.overprint, overprint);
+        }
+        // A stroke without the key (other writers) has Overprint off.
+        let d = Descriptor::new("null").with("FrFX", Value::Descriptor(Descriptor::new("FrFX").with("enab", Value::Boolean(true))));
+        let mut data = 0u32.to_be_bytes().to_vec();
+        data.extend(VersionedDescriptor::new(d).to_bytes());
+        let (_, back) = parse_lfx2(&data).unwrap();
+        let [Effect::Stroke(s)] = back.as_slice() else { panic!("{back:?}") };
+        assert!(!s.overprint);
+    }
+
+    #[test]
     fn lfx2_ignores_absent_effects_but_keeps_disabled_configured_effects() {
         let d = Descriptor::new("null")
             .with("DrSh", Value::Descriptor(Descriptor::new("DrSh").with("present", Value::Boolean(false)).with("enab", Value::Boolean(false))))
