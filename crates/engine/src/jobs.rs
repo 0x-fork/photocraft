@@ -532,6 +532,15 @@ impl Session {
                     })?;
                 ctx.progress(0.95, "Preparing layers");
                 warm_layer_bounds(&imported.document, || ctx.check())?;
+                // Type layers need the shared text engine, whose first use waits for the
+                // installed-font scan started at launch (minutes on some machines). Wait here,
+                // so the shell's missing-font check after the open finds it ready instead of
+                // freezing the window (#7332).
+                if crate::type_extra_cmds::has_type_layers(&imported.document) {
+                    ctx.progress(0.97, "Loading fonts");
+                    let _ = photocraft_text::shared();
+                    ctx.check()?;
+                }
                 Ok(imported)
             },
             move |s, mut r: photocraft_io::ImportResult| {
