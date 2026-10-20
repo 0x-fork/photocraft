@@ -12,8 +12,9 @@
 //! Any save can ask: check [`wants_prompt`], then [`park`] (which starts where
 //! [`Start::for_active`] says) or [`park_at`] with a [`Start`] of its own, and return. The answer
 //! is written by [`confirm`] and journalled as the `record` command passed to `park`: with its
-//! path, `quality` (0–12, left out when the file's own quality was kept) and `jpegFormat`, or with
-//! no params for a plain `file.save`, which writes whichever file an action is played on.
+//! path, `quality` (0–12, left out when the file's own quality was kept) and `jpegFormat`, or
+//! without the path for a plain `file.save`, which writes whichever file an action is played on
+//! ([`plain_save_step`]).
 
 use photocraft_codecs::JpegFormat;
 use serde_json::Value;
@@ -66,6 +67,23 @@ pub fn choice_param(params: &Value, cmd: &str) -> Result<Option<JpegChoice>, Str
         ),
     };
     Ok((quality.is_some() || format.is_some()).then(|| JpegChoice { quality, format: format.unwrap_or_default() }))
+}
+
+/// The params of a recorded plain `file.save` (which writes whichever file an action is played
+/// on): none, unless JPEG Options changed something, so that a replay writes it too without
+/// asking. `quality` is left out when the file's own quality was kept, and `jpegFormat` when it
+/// is Baseline, the default.
+pub fn plain_save_step(choice: Option<JpegChoice>) -> Value {
+    let mut step = Value::Object(Default::default());
+    if let Some(c) = choice {
+        if let Some(q) = c.quality {
+            step["quality"] = q.into();
+        }
+        if c.format != JpegFormat::Baseline {
+            step["jpegFormat"] = c.format.name().into();
+        }
+    }
+    step
 }
 
 /// The JPEG Options in a recorded save step, which replays without asking. A `file.saveACopy`
@@ -231,8 +249,8 @@ pub fn confirm(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let own = p.own_quality.filter(|&q| quality_from_percent(u32::from(q)) == p.quality);
     let choice = JpegChoice { quality: own.is_none().then_some(p.quality), format: p.format };
     let step = if p.record == "file.save" {
-        // A plain Save writes whichever file the action is played on (#3531).
-        Value::Object(Default::default())
+        // A plain Save writes whichever file the action is played on (#3531), with the answer.
+        plain_save_step(Some(choice))
     } else {
         let mut step = serde_json::json!({"path": p.path});
         choice.record(&mut step);

@@ -187,6 +187,42 @@ fn plain_save_of_a_flat_jpeg_asks_jpeg_options_and_records_a_plain_save() {
     assert_eq!(app.session.actions.list[0].steps, [("file.save".to_string(), json!({}))]);
 }
 
+/// A plain Save confirmed in the dialog keeps a changed JPEG Options answer in its recorded step,
+/// and playing it writes the active flat JPEG with that answer, without asking.
+#[test]
+fn plain_save_of_a_flat_jpeg_records_and_replays_a_changed_quality() {
+    let ctx = egui::Context::default();
+    let (mut app, open, written) = jpeg_app(Some("/pics/photo.jpg"), false);
+    let qualities: Rc<RefCell<Vec<Option<u8>>>> = Rc::default();
+    let q = qualities.clone();
+    app.services.export = Some(Box::new(move |_: &photocraft_doc::Document, _: &str, s: &crate::ExportSettings| {
+        q.borrow_mut().push(s.jpeg_quality);
+        Ok((b"out".to_vec(), Vec::new()))
+    }));
+    app.run("actions.record", json!({})).unwrap();
+    menus::invoke(&mut app, &ctx, "file.save", json!({})).unwrap();
+    app.poll_file_dialog(&ctx, None);
+    answer(&open, Some(FileDialogAnswer::SaveTo("/pics/photo.jpg".into())));
+    app.poll_file_dialog(&ctx, None);
+    let prompt = app.jpeg_options.as_mut().expect("JPEG Options");
+    prompt.quality = 3;
+    prompt.format = photocraft_codecs::JpegFormat::Progressive;
+    crate::jpeg_options_ui::confirm(&mut app, &ctx);
+    app.run("actions.stop", json!({})).unwrap();
+    assert_eq!(app.session.actions.list[0].steps, [("file.save".to_string(), json!({"quality": 3, "jpegFormat": "progressive"}))]);
+    // Played on another flat JPEG: written over itself at quality 3, with no dialog or prompt.
+    let bytes = photocraft_io::export(&app.session.active().unwrap().doc, "other.jpg", &Default::default()).unwrap().bytes;
+    let index = app.session.add_document(photocraft_io::import("other.jpg", &bytes).unwrap().document, Some("/pics/other.jpg".into()));
+    app.session.set_active(index);
+    written.borrow_mut().clear();
+    let played = app.run("actions.play", json!({"action": 0})).unwrap();
+    assert!(played.get("failed").is_none(), "{played}");
+    assert!(app.jpeg_options.is_none(), "playback does not ask");
+    assert!(open.borrow().is_empty(), "no Save dialog");
+    assert_eq!(*written.borrow(), ["/pics/other.jpg"]);
+    assert_eq!(qualities.borrow().last().copied().flatten(), Some(photocraft_engine::file_cmds::jpeg_quality(3.0)));
+}
+
 /// The user answers the open dialog, from the dialog's own thread.
 fn answer(open: &Open, answer: Option<FileDialogAnswer>) {
     let (_, reply) = open.borrow_mut().pop().expect("a dialog is open");

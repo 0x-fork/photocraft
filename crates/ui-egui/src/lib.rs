@@ -1591,11 +1591,17 @@ impl PhotocraftApp {
 
     /// File › Save back to the document's own layered file, recorded as a `file.save` step.
     pub(crate) fn save_in_place(&mut self, path: String) -> Result<Value, String> {
+        self.save_in_place_with(path, SaveChoices::default())
+    }
+
+    /// [`Self::save_in_place`] with JPEG Options already answered (a replayed or scripted Save),
+    /// recorded with them ([`jpeg_options_ui::plain_save_step`]).
+    pub(crate) fn save_in_place_with(&mut self, path: String, choices: SaveChoices) -> Result<Value, String> {
         if self.save_options_open() {
             return Err(SAVE_OPTIONS_OPEN.into());
         }
-        let r = self.write_save(path, None, SaveChoices::default())?;
-        self.session.journal.push(("file.save".into(), Value::Object(Default::default())));
+        let r = self.write_save(path, None, choices)?;
+        self.session.journal.push(("file.save".into(), jpeg_options_ui::plain_save_step(choices.jpeg)));
         Ok(r)
     }
 
@@ -1649,7 +1655,8 @@ impl PhotocraftApp {
             let path = st.path.clone().filter(|p| photocraft_engine::file_cmds::holds_at(&st.doc, p) || flat_own(p)).ok_or(
                 "Save writes back only to the document's own PSD, PSB, .pcraft or OpenRaster file (OpenRaster only when it holds everything), or to its own flat file while the document is a single plain layer",
             )?;
-            return self.save_in_place(path);
+            // A recorded JPEG Options answer writes the same way, without asking.
+            return self.save_in_place_with(path, SaveChoices::from_step(params, id)?);
         }
         let path = params.get("path").and_then(Value::as_str).filter(|p| !p.is_empty()).ok_or("Save As needs a `path`")?;
         let choices = SaveChoices::from_step(params, id)?;
