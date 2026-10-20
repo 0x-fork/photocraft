@@ -2868,3 +2868,8 @@ curves	Smooth	平滑
 	In Front	前面
 	Behind	后面
 	Blend	混合
+
+# DDS Options (#1327)
+	DDS Options	DDS 选项
+	Compression	压缩
+	Generate Mipmaps	生成 Mipmap
