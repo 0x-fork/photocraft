@@ -739,6 +739,16 @@ mod tests {
         assert_eq!(write_lfx2(true, a), write_lfx2(true, b));
     }
 
+    /// `approx` compares re-serialized bytes, so a field the writer drops looks equal on both
+    /// sides: read the Gloss Contour's Anti-aliased back directly.
+    #[test]
+    fn bevel_gloss_anti_alias_is_written() {
+        let fx: Vec<Effect> = sample_effects().into_iter().filter(|e| matches!(e, Effect::BevelEmboss(_))).collect();
+        assert!(matches!(fx.as_slice(), [Effect::BevelEmboss(b)] if b.gloss_anti_alias));
+        let (_, back) = parse_lfx2(&write_lfx2(false, &fx)).unwrap();
+        assert!(matches!(back.as_slice(), [Effect::BevelEmboss(b)] if b.gloss_anti_alias), "{back:?}");
+    }
+
     #[test]
     fn lfx2_roundtrip_all_kinds() {
         let fx = sample_effects();
