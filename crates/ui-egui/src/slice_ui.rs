@@ -329,6 +329,40 @@ mod tests {
         assert!(doc.slices.list.iter().any(|s| s.name == "footer"));
     }
 
+    /// #7865: with View › Lock Slices on, Slice Select doesn't select (or move) a slice, and the
+    /// Slice tool doesn't start one; both say why, as Photoshop's error does.
+    #[test]
+    fn locked_slices_cannot_be_selected() {
+        let mut app = app();
+        let m = egui::Modifiers::NONE;
+        app.ui.tool = Tool::Slice;
+        pointer(&mut app, ToolEvent::Down { x: 10.0, y: 10.0, pressure: 1.0 }, m);
+        pointer(&mut app, ToolEvent::Up { x: 40.0, y: 30.0 }, m);
+        let rect = app.session.active().unwrap().doc.slices.list[0].rect;
+        app.ui.slices.selected = None;
+        app.run("view.lockSlices", json!({"on": true})).unwrap();
+        app.ui.tool = Tool::SliceSelect;
+        pointer(&mut app, ToolEvent::Down { x: 20.0, y: 20.0, pressure: 1.0 }, m);
+        pointer(&mut app, ToolEvent::Move { x: 30.0, y: 30.0, pressure: 1.0 }, m);
+        pointer(&mut app, ToolEvent::Up { x: 30.0, y: 30.0 }, m);
+        assert_eq!(app.ui.slices.selected, None, "not selected");
+        assert_eq!(app.session.active().unwrap().doc.slices.list[0].rect, rect, "not moved");
+        assert!(app.ui.status_error && app.ui.status.contains("locked"), "{}", app.ui.status);
+        // The Slice tool says so too.
+        app.ui.status_error = false;
+        app.ui.tool = Tool::Slice;
+        pointer(&mut app, ToolEvent::Down { x: 50.0, y: 50.0, pressure: 1.0 }, m);
+        pointer(&mut app, ToolEvent::Up { x: 80.0, y: 70.0 }, m);
+        assert_eq!(app.session.active().unwrap().doc.slices.list.len(), 1);
+        assert!(app.ui.status_error && app.ui.status.contains("locked"), "{}", app.ui.status);
+        // Unlocked again, Slice Select selects it.
+        app.run("view.lockSlices", json!({"on": false})).unwrap();
+        app.ui.tool = Tool::SliceSelect;
+        pointer(&mut app, ToolEvent::Down { x: 20.0, y: 20.0, pressure: 1.0 }, m);
+        pointer(&mut app, ToolEvent::Up { x: 20.0, y: 20.0 }, m);
+        assert!(app.ui.slices.selected.is_some());
+    }
+
     #[test]
     fn dragging_a_piece_moves_the_whole_covered_slice() {
         // #7770: the slice under a later one is drawn as pieces; dragging one moves all of it.
