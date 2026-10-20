@@ -1601,7 +1601,11 @@ impl PhotocraftApp {
             return Err(SAVE_OPTIONS_OPEN.into());
         }
         let r = self.write_save(path, None, choices)?;
-        self.session.journal.push(("file.save".into(), jpeg_options_ui::plain_save_step(choices.jpeg)));
+        let mut step = jpeg_options_ui::plain_save_step(choices.jpeg);
+        if let Some(bits) = choices.tga_bits {
+            step["tgaBits"] = bits.bits().into();
+        }
+        self.session.journal.push(("file.save".into(), step));
         Ok(r)
     }
 

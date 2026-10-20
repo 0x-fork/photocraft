@@ -1201,6 +1201,15 @@ fn save_of_a_flat_file_asks_after_the_dialog_when_another_app_changed_it() {
     assert_eq!(app.session.journal.last(), Some(&("file.save".to_string(), json!({}))), "still recorded as a plain Save");
 }
 
+/// A replayed plain Save keeps its Targa answer in the step it records, as well as its JPEG one.
+#[test]
+fn a_replayed_plain_save_records_its_targa_answer() {
+    let (mut app, _, written) = jpeg_app(Some("/pics/photo.tga"), false);
+    app.replay_save("file.save", &json!({"tgaBits": 24})).unwrap();
+    assert_eq!(*written.borrow(), ["/pics/photo.tga"]);
+    assert_eq!(app.session.journal.last(), Some(&("file.save".to_string(), json!({"tgaBits": 24}))));
+}
+
 /// A script's JPEG Options answer survives the changed-on-disk prompt: Replace writes with it,
 /// without asking JPEG Options.
 #[test]
