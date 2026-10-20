@@ -127,7 +127,7 @@ pub fn specs() -> Vec<CommandSpec> {
             params: r#"{"family":str,"on":bool?=toggle} → family, favorite, favorites"#,
             enabled: always,
             run: favorite,
-            journal: true,
+            journal: false,
         },
         CommandSpec {
             id: "type.font.noteRecent",
@@ -137,7 +137,7 @@ pub fn specs() -> Vec<CommandSpec> {
             params: r#"{"family":str} → recent (most recent first, at most 5)"#,
             enabled: always,
             run: note_recent,
-            journal: true,
+            journal: false,
         },
         CommandSpec {
             id: "type.font.clearRecent",
@@ -147,7 +147,7 @@ pub fn specs() -> Vec<CommandSpec> {
             params: "{}",
             enabled: always,
             run: clear_recent,
-            journal: true,
+            journal: false,
         },
         CommandSpec {
             id: "type.font.library",

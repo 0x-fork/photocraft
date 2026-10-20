@@ -101,3 +101,11 @@ fn bad_params_are_errors_and_change_nothing() {
     assert_eq!(favorite_fonts(&s), ["Arial"]);
     assert!(recent_fonts(&s).is_empty());
 }
+
+#[test]
+fn font_library_edits_are_not_recorded_into_actions() {
+    // Playing an action back must not rewrite the user's recent or favourite fonts.
+    for id in ["type.font.favorite", "type.font.noteRecent", "type.font.clearRecent", "type.font.library"] {
+        assert!(!crate::actions_cmds::replayable(id), "{id}");
+    }
+}

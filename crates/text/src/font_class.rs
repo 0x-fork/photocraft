@@ -134,8 +134,10 @@ const BLACKLETTER: [&str; 7] = ["fraktur", "blackletter", "black letter", "textu
 pub fn classify(family: &str, family_class: i16, panose: [u8; 10], fixed_pitch: bool) -> Option<FontClass> {
     let name = family.to_lowercase();
     let has = |words: &[&str]| words.iter().any(|w| name.contains(w));
+    // Whole words of the name, so "Encode Sans" isn't read as a "code" font.
+    let words: Vec<&str> = name.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
     // PANOSE Latin Text proportion 9 is monospaced.
-    if fixed_pitch || (panose[0] == 2 && panose[3] == 9) || has(&[" mono", "mono ", "monospace", "code", "consol", "courier"]) {
+    if fixed_pitch || (panose[0] == 2 && panose[3] == 9) {
         return Some(FontClass::Monospace);
     }
     if has(&BLACKLETTER) {
@@ -168,7 +170,9 @@ pub fn classify(family: &str, family_class: i16, panose: [u8; 10], fixed_pitch: 
         }
     }
     // Last, the name.
-    if has(&["slab"]) {
+    if words.iter().any(|w| matches!(*w, "mono" | "monospace" | "monospaced" | "code" | "courier") || w.starts_with("consol")) {
+        Some(FontClass::Monospace)
+    } else if has(&["slab"]) {
         Some(FontClass::SlabSerif)
     } else if has(&["sans", "grotesk", "grotesque", "gothic"]) {
         Some(FontClass::SansSerif)
@@ -243,6 +247,11 @@ mod tests {
         assert_eq!(classify("Noto Serif", 0, NONE, false), Some(FontClass::Serif));
         assert_eq!(classify("Noto Sans", 0, NONE, false), Some(FontClass::SansSerif));
         assert_eq!(classify("Fira Code", 0, NONE, false), Some(FontClass::Monospace));
+        assert_eq!(classify("Space Mono", 0, NONE, false), Some(FontClass::Monospace));
+        // "code" inside a word, or a name the tables contradict, doesn't make a monospace.
+        assert_eq!(classify("Encode Sans", 0, NONE, false), Some(FontClass::SansSerif));
+        assert_eq!(classify("Encode Sans", 0x0805, NONE, false), Some(FontClass::SansSerif));
+        assert_eq!(classify("Code Pro Sans", 0x0805, NONE, false), Some(FontClass::SansSerif), "the class beats the name");
         assert_eq!(classify("Permanent Marker", 0, NONE, false), Some(FontClass::Handwritten));
         assert_eq!(classify("Unknowable", 0, NONE, false), None);
         // Out-of-range or garbage table values don't panic or misfile.

@@ -1448,6 +1448,9 @@ pub(crate) struct FontLibrary {
     pub toggled: Option<String>,
     /// The style picked under a family's ">" (with the family), for the caller to apply.
     pub picked_style: Option<String>,
+    /// Whether a font was picked from the open menu (click or Enter), not stepped to with the
+    /// wheel or the arrow keys: only a picked font joins the recent fonts.
+    pub picked: bool,
     /// Family traits to filter by instead of the installed fonts' (tests).
     pub traits: Option<Arc<crate::font_filters::TraitsMap>>,
     /// Each family's style names instead of the installed fonts' (tests).
@@ -1509,11 +1512,15 @@ fn font_picker(app: &mut PhotocraftApp, ui: &mut egui::Ui, current: &mut String,
     let mut library = FontLibrary { preview_text: preview_text(app), ..FontLibrary::of(app) };
     let changed = family_picker_in(ui, "type-font", current, width, &families(), preview, &mut library);
     let style = library.picked_style.take();
+    let picked = library.picked;
     library.finish(app);
     if !changed {
         return None;
     }
-    note_recent_font(app, current);
+    // Only a font picked from the menu is recent: the wheel and the arrows step past many.
+    if picked {
+        note_recent_font(app, current);
+    }
     Some(style)
 }
 
@@ -1908,6 +1915,7 @@ pub(crate) fn family_picker_in(
         }
     }
 
+    library.picked = picked;
     changed
 }
 

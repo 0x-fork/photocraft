@@ -402,7 +402,11 @@ fn options_editor(app: &mut PhotocraftApp, ui: &mut egui::Ui, paragraph: bool, s
                 "font" => {
                     let mut f = v.as_str().unwrap_or("").to_string();
                     if family_picker(ui, &format!("style-font-{paragraph}-{id}"), &mut f, preview, &mut library) {
-                        set = Some(json!({ panel: f }));
+                        // A style picked under the family's ">" comes with it.
+                        set = Some(match library.picked_style.take() {
+                            Some(style) => json!({ panel: f, "fontStyle": style }),
+                            None => json!({ panel: f }),
+                        });
                     }
                 }
                 "pt" | "num" | "leading" => {
@@ -628,10 +632,11 @@ pub fn glyphs_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let mut f = family.clone();
         let mut library = crate::type_tool::FontLibrary::of(app);
         let picked = family_picker(ui, "glyph-family", &mut f, app.session.prefs().type_.font_preview, &mut library);
+        let picked_style = library.picked_style.take();
         library.finish(app);
         if picked {
             app.ui.type_panels.glyph_family = f;
-            app.ui.type_panels.glyph_style = tl!("Regular").into();
+            app.ui.type_panels.glyph_style = picked_style.unwrap_or_else(|| tl!("Regular").into());
         }
         let styles = crate::type_tool::styles(&family);
         let mut s = style.clone();

@@ -1022,3 +1022,40 @@ fn options_bar_hover_previews_with_the_character_picker_also_shown() {
     h.run();
     assert_eq!(font(&mut h), "Inter", "leaving the row restores the committed font");
 }
+
+/// Each change of font with whether it was picked from the menu (only those are recent fonts).
+#[test]
+fn only_a_font_picked_from_the_menu_counts_as_picked_not_one_stepped_to() {
+    struct S {
+        current: String,
+        families: Vec<String>,
+        library: super::FontLibrary,
+        changes: Vec<(String, bool)>,
+    }
+    let families: Vec<String> = (0..20).map(|i| format!("Family {i:02}")).collect();
+    let state = S { current: "Family 00".into(), families, library: super::FontLibrary::default(), changes: Vec::new() };
+    let mut h = Harness::builder().with_size(vec2(600.0, 900.0)).build_ui_state(
+        |ui, s: &mut S| {
+            let fams = s.families.clone();
+            if super::family_picker_in(ui, "type-font", &mut s.current, 170.0, &fams, FontPreview::Medium, &mut s.library) {
+                s.changes.push((s.current.clone(), s.library.picked));
+            }
+        },
+        state,
+    );
+    h.run();
+    let button = h.query_all_by_role(Role::ComboBox).next().unwrap().rect().center();
+    // The wheel over the closed button steps through three families.
+    h.hover_at(button);
+    h.run();
+    h.event(egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: vec2(0.0, -3.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE });
+    h.run();
+    assert_eq!(h.state().current, "Family 03");
+    assert!(h.state().changes.iter().all(|(_, picked)| !picked), "stepping with the wheel picks nothing: {:?}", h.state().changes);
+    // A click on a row of the open menu is a pick.
+    h.query_all_by_role(Role::ComboBox).next().unwrap().click();
+    h.run();
+    h.get_by_label("Family 07").click();
+    h.run();
+    assert_eq!(h.state().changes.last(), Some(&("Family 07".to_string(), true)));
+}
