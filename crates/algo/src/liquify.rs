@@ -487,9 +487,11 @@ impl LiquifyField {
                 bilinear(&self.d, self.w, self.h, gx, gy)
             }
         };
-        let mut writes: Vec<(usize, [f32; 2], f32)> = Vec::with_capacity((i1 - i0 + 1) * (j1 - j0 + 1));
+        // Every node reads only the snapshot and the field as it was before this dab (the writes
+        // land after), so rows are independent: a large brush computes them in parallel.
         let inv_cell = 1.0 / self.cell;
-        for j in j0..=j1 {
+        let node_row = |j: usize| -> Vec<(usize, [f32; 2], f32)> {
+            let mut row = Vec::with_capacity(i1 - i0 + 1);
             for i in i0..=i1 {
                 let p = self.node_pos(i, j);
                 let (dx, dy) = (p[0] - c[0], p[1] - c[1]);
@@ -503,7 +505,7 @@ impl LiquifyField {
                 if s.tool == LiquifyTool::Freeze || s.tool == LiquifyTool::Thaw {
                     let f = self.freeze[idx];
                     let v = if s.tool == LiquifyTool::Freeze { (f as f64 + k_raw).min(1.0) } else { (f as f64 - k_raw).max(0.0) };
-                    writes.push((idx, self.d[idx], v as f32));
+                    row.push((idx, self.d[idx], v as f32));
                     continue;
                 }
                 let k = k_raw * (1.0 - f64::from(self.freeze[idx]));
@@ -553,10 +555,20 @@ impl LiquifyField {
                         [(q[0] + dq[0] - p[0]) as f32, (q[1] + dq[1] - p[1]) as f32]
                     }
                 };
-                writes.push((idx, new, self.freeze[idx]));
+                row.push((idx, new, self.freeze[idx]));
             }
-        }
-        for (idx, d, f) in writes {
+            row
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        let writes: Vec<Vec<(usize, [f32; 2], f32)>> = if (i1 - i0 + 1) * (j1 - j0 + 1) > 16_384 {
+            use rayon::prelude::*;
+            (j0..=j1).into_par_iter().map(node_row).collect()
+        } else {
+            (j0..=j1).map(node_row).collect()
+        };
+        #[cfg(target_arch = "wasm32")]
+        let writes: Vec<Vec<(usize, [f32; 2], f32)>> = (j0..=j1).map(node_row).collect();
+        for (idx, d, f) in writes.into_iter().flatten() {
             self.d[idx] = d;
             self.freeze[idx] = f;
         }
