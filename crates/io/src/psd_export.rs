@@ -32,6 +32,10 @@ const PSD_SAVE_HEADROOM: u64 = 1024 * 1024;
 pub struct PsdExportOptions {
     /// Write PSB even when the document fits PSD limits.
     pub force_psb: bool,
+    /// Switch to PSB when the encoded file exceeds PSD's 2 GB limit (`fit_psd_size`). A writer
+    /// that embeds the layer data elsewhere turns this off: the layered TIFF writes PSD-style
+    /// layer data and falls back to PSB only when a length really overflows 32 bits.
+    pub size_limit_psb: bool,
     /// Matte the merged image against white where it is translucent, as Photoshop does
     /// (`false` keeps straight colour under the alpha: for containers that store the composite
     /// with its own alpha, such as a layered TIFF).
@@ -44,11 +48,21 @@ pub struct PsdExportOptions {
     /// readers that only show the merged image see white. A document without layer records always
     /// gets the real image, since its pixels live nowhere else.
     pub maximize_compatibility: bool,
+    /// The path of the document's own file: linked smart objects are resolved against it
+    /// ([`crate::doc_path::resolve`]) before they are read and embedded.
+    pub document_path: Option<std::path::PathBuf>,
 }
 
 impl Default for PsdExportOptions {
     fn default() -> Self {
-        PsdExportOptions { force_psb: false, merged_matte: true, merged_compression: Compression::Rle, maximize_compatibility: true }
+        PsdExportOptions {
+            force_psb: false,
+            size_limit_psb: true,
+            merged_matte: true,
+            merged_compression: Compression::Rle,
+            maximize_compatibility: true,
+            document_path: None,
+        }
     }
 }
 
@@ -56,6 +70,8 @@ struct Ex {
     fmt: PixelFormat,
     /// Document resolution (for generated type-layer data).
     dpi: f32,
+    /// The document's own file, which linked smart objects are resolved against.
+    document: Option<std::path::PathBuf>,
     /// Character/paragraph styles written into every type layer's engine data.
     text_styles: photocraft_doc::TextStyles,
     mask_fmt: PixelFormat,
@@ -105,9 +121,7 @@ fn psd_background(doc: &Document) -> Option<photocraft_doc::LayerId> {
     if canvas.is_empty() || s.content_bounds() != canvas {
         return None;
     }
-    let n = s.channels();
-    let opaque = s.read_region(canvas).chunks_exact(n).all(|p| p.last().is_some_and(|a| *a >= 1.0));
-    opaque.then_some(l.id)
+    crate::flat::opaque_surface(s, canvas).then_some(l.id)
 }
 
 /// How deep embedded documents are exported inside each other before a smart object is written
@@ -932,7 +946,8 @@ impl Ex {
             SmartSource::Linked { path } => {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    let bytes = std::fs::read(path).map_err(|e| format!("the linked file {path} can't be read: {e}"))?;
+                    let file = crate::doc_path::resolve(path, self.document.as_deref()).map_err(|e| format!("the linked file {path} is not opened: {e}"))?;
+                    let bytes = std::fs::read(file).map_err(|e| format!("the linked file {path} can't be read: {e}"))?;
                     let name = path.rsplit(['/', '\\']).next().unwrap_or(path).to_string();
                     self.warnings.push(format!("the linked smart object {name} was embedded (PSD export keeps no external links)"));
                     self.embed(sm.contents_id, &name, &bytes)
@@ -1001,8 +1016,12 @@ impl Ex {
                 return Err(format!("smart objects nest more than {MAX_NESTING} deep"));
             }
             let doc = photocraft_format::load_from_bytes(bytes).map_err(|e| format!("its contents can't be read: {e}"))?;
-            let (file, warnings) =
-                document_to_psd_nested(&doc, &PsdExportOptions { force_psb: true, ..Default::default() }, self.smart.depth + 1, &Interrupt::NONE);
+            let (file, warnings) = document_to_psd_nested(
+                &doc,
+                &PsdExportOptions { force_psb: true, document_path: self.document.clone(), ..Default::default() },
+                self.smart.depth + 1,
+                &Interrupt::NONE,
+            );
             let data = file.to_bytes().map_err(|e| format!("its contents can't be written: {e}"))?;
             let stem = file_name.rsplit_once('.').map_or(file_name, |(a, _)| a);
             self.warnings.extend(warnings.into_iter().map(|w| format!("smart object {stem}: {w}")));
@@ -1256,6 +1275,10 @@ pub(crate) fn keep_imported_resource(doc: &Document, id: u16, data: &[u8]) -> bo
     if !crate::annotations_map::keep_resource(doc, id) {
         return false;
     }
+    // Guides v2 and guide GUIDs: only while they still describe the document's guides.
+    if !crate::guides_map::keep_resource(doc, id, data) {
+        return false;
+    }
     // A preserved clipping-path resource is only valid while it names the current one.
     if id == crate::vector_map::CLIPPING_PATH {
         let n = usize::from(data.first().copied().unwrap_or(0));
@@ -1451,6 +1474,7 @@ fn document_to_psd_sized(doc: &Document, opts: &PsdExportOptions, depth: u32, ct
     let mut ex = Ex {
         fmt,
         dpi: doc.resolution_dpi,
+        document: opts.document_path.clone(),
         text_styles: doc.text_styles.clone(),
         text_index: Default::default(),
         mask_fmt: PixelFormat::new(ColorMode::Grayscale, sample, false),
@@ -1740,7 +1764,9 @@ fn document_to_psd_sized(doc: &Document, opts: &PsdExportOptions, depth: u32, ct
         image_data,
         write_as_psb: false,
     };
-    ex.warnings.extend(fit_psd_size(&mut file, size_limit));
+    if opts.size_limit_psb {
+        ex.warnings.extend(fit_psd_size(&mut file, size_limit));
+    }
     let version = file.written_version();
     for block in &mut file.global_blocks {
         block.signature = block_signature(block.signature, version);
