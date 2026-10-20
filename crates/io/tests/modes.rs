@@ -177,6 +177,29 @@ fn indexed_bmp_warns_that_it_has_no_transparency() {
 }
 
 #[test]
+fn indexed_bmp_exports_when_its_only_palette_entry_is_marked_transparent() {
+    let mut d = doc(ColorMode::Indexed);
+    d.color_table = Some(ColorTable { colors: vec![[255, 0, 0]], transparent: Some(0) });
+
+    let r = photocraft_io::export(&d, "x.bmp", &Default::default()).unwrap();
+
+    assert_eq!(u16::from_le_bytes([r.bytes[28], r.bytes[29]]), 8, "8 bits per pixel");
+    let back = photocraft_io::import("x.bmp", &r.bytes).unwrap().document;
+    assert_eq!(&back.layers[0].surface().unwrap().rgba(1, 1)[..3], &[1.0, 0.0, 0.0]);
+}
+
+#[test]
+fn indexed_bmp_matches_opaque_pixels_against_the_transparent_palette_entry() {
+    let mut d = doc(ColorMode::Indexed);
+    d.color_table = Some(ColorTable { colors: vec![[255, 0, 0], [0, 0, 255]], transparent: Some(0) });
+
+    let r = photocraft_io::export(&d, "x.bmp", &Default::default()).unwrap();
+
+    let back = photocraft_io::import("x.bmp", &r.bytes).unwrap().document;
+    assert_eq!(&back.layers[0].surface().unwrap().rgba(1, 1)[..3], &[1.0, 0.0, 0.0]);
+}
+
+#[test]
 fn indexed_bmp_without_a_usable_table_falls_back_to_rgb() {
     // No table (or one past 256 entries) keeps the old 24-bit path rather than failing the save.
     for table in [None, Some(ColorTable { colors: vec![[0; 3]; 257], transparent: None })] {

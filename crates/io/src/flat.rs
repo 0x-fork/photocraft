@@ -820,8 +820,9 @@ fn export_mode_specific(doc: &Document, format: Format, opts: &ExportOptions) ->
             let Some(table) = doc.color_table.as_ref().filter(|t| !t.colors.is_empty() && t.colors.len() <= 256) else { return Ok(None) };
             // PNG transparency belongs to a palette index, not its RGB value. Keep the
             // transparent entry out of opaque lookup, even when it duplicates an opaque colour.
+            let png_transparent_index = table.transparent.map(usize::from).filter(|_| format == Format::Png);
             let (opaque_indices, colors): (Vec<u8>, Vec<_>) =
-                table.colors.iter().copied().enumerate().filter(|(i, _)| Some(*i) != table.transparent.map(usize::from)).map(|(i, c)| (i as u8, c)).unzip();
+                table.colors.iter().copied().enumerate().filter(|(i, _)| Some(*i) != png_transparent_index).map(|(i, c)| (i as u8, c)).unzip();
             let opaque = photocraft_doc::ColorTable { colors, transparent: None };
             let mut idx = try_buffer(doc.size.area() as usize, 1)?;
             photocraft_compose::render_bands(doc, doc.bounds(), 0, |band| -> Result<(), IoError> {
@@ -830,7 +831,7 @@ fn export_mode_specific(doc: &Document, format: Format, opts: &ExportOptions) ->
                         Some(t) if p[3] < 0.5 => t,
                         _ => *opaque_indices
                             .get(opaque.nearest([p[0], p[1], p[2]]))
-                            .ok_or_else(|| IoError::Unsupported("Indexed PNG palette has no opaque entry; add an opaque colour or convert to RGB".into()))?,
+                            .ok_or_else(|| IoError::Unsupported("Indexed palette has no opaque entry; add an opaque colour or convert to RGB".into()))?,
                     };
                     idx.push(i);
                 }
