@@ -1229,4 +1229,6 @@ fn a_scripted_quality_survives_the_changed_on_disk_prompt() {
     assert!(app.jpeg_options.is_none(), "the script answered JPEG Options");
     assert_eq!(*written.borrow(), [path]);
     assert_eq!(qualities.borrow().last().copied().flatten(), Some(photocraft_engine::file_cmds::jpeg_quality(5.0)));
+    // Recorded as a plain Save keeping the answer, so a replay writes the file it's played on.
+    assert_eq!(app.session.journal.last(), Some(&("file.save".to_string(), json!({"quality": 5, "jpegFormat": "baseline"}))));
 }

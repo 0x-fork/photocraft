@@ -1627,12 +1627,16 @@ impl PhotocraftApp {
             p.record = "file.save";
             return;
         }
+        // Only the path goes: a script's JPEG or Targa answer stays, so a replay writes the file
+        // it is played on the same way. Any other answer (TIFF layers) keeps the Save As.
         if let Some(last) = self.session.journal.last_mut()
             && last.0 == "file.saveAs"
             && last.1.get("path").and_then(Value::as_str) == Some(path)
-            && last.1.as_object().is_some_and(|o| o.len() == 1)
+            && let Some(step) = last.1.as_object()
+            && step.keys().all(|k| matches!(k.as_str(), "path" | "quality" | "jpegFormat" | "tgaBits"))
         {
-            *last = ("file.save".into(), Value::Object(Default::default()));
+            let step: serde_json::Map<String, Value> = step.iter().filter(|(k, _)| k.as_str() != "path").map(|(k, v)| (k.clone(), v.clone())).collect();
+            *last = ("file.save".into(), Value::Object(step));
         }
     }
 
