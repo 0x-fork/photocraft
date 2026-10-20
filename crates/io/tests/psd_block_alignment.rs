@@ -6,7 +6,7 @@
 //! boundary for half of all pattern names.
 
 use photocraft_color::{ColorMode, PixelFormat, SampleType};
-use photocraft_doc::{Document, Fill, Layer, LayerContent, Pattern};
+use photocraft_doc::{Adjustment, Document, Fill, Layer, LayerContent, Pattern};
 use photocraft_geom::{Rect, Size};
 use photocraft_io::*;
 use photocraft_psd::PsdFile;
@@ -49,5 +49,18 @@ fn layer_blocks_are_four_byte_aligned() {
             }
             assert_eq!(fills, names.len(), "{depth:?} {path}: every pattern fill keeps its PtFl block");
         }
+    }
+}
+
+#[test]
+fn generated_gradient_map_blocks_are_four_byte_aligned() {
+    let cases = [(vec![(0.0, [0.04, 0.1, 0.18]), (1.0, [1.0; 3])], 128), (vec![(0.0, [0.04, 0.1, 0.18]), (0.5, [0.4, 0.2, 0.1]), (1.0, [1.0; 3])], 148)];
+    for (stops, expected_length) in cases {
+        let mut doc = Document::new("gradient", Size::new(16, 16), ColorMode::Rgb, SampleType::U8);
+        doc.layers.push(Layer::new("Gradient Map", LayerContent::Adjustment(Adjustment::GradientMap { stops, reverse: false, dither: false })));
+        let bytes = export(&doc, "gradient.psd", &ExportOptions::default()).expect("export").bytes;
+        let file = PsdFile::from_bytes(&bytes).expect("reparse");
+        let block = file.layers().iter().find_map(|layer| layer.block(b"grdm")).expect("Gradient Map block");
+        assert_eq!(block.data.len(), expected_length, "grdm declared length must include padding");
     }
 }
