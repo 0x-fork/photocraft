@@ -240,6 +240,20 @@ impl CameraRawDialog {
     pub(crate) fn render_pending(&self) -> bool {
         self.pending.is_some()
     }
+
+    /// A newer frame means the worker failure is over: takes its message down, unless something
+    /// else has reported since.
+    fn clear_recovered_error(&mut self, ui: &mut crate::UiState) {
+        let Some((e, revision)) = &self.preview_error else { return };
+        if *revision == self.preview_revision {
+            return;
+        }
+        if ui.status_error && ui.status == *e {
+            ui.status.clear();
+            ui.status_error = false;
+        }
+        self.preview_error = None;
+    }
 }
 
 /// Everything one develop of the proxy reads, owned, so it can run off the UI thread.
@@ -897,6 +911,8 @@ fn menu_update(app: &mut PhotocraftApp, ctx: &egui::Context, ui: &Value) -> Opti
     if d.dirty {
         d.render(ctx);
     }
+    // The control channel can read the status before the next frame draws.
+    d.clear_recovered_error(&mut app.ui);
     if app.ui.camera_raw_scope.vectorscope
         && let Some(d) = app.camera_raw.as_mut()
     {
@@ -1192,17 +1208,7 @@ fn draw(app: &mut PhotocraftApp, ctx: &egui::Context, own_window: bool) {
             app.ui.status_error = true;
         }
         d.request_render(ctx);
-        // A newer frame means the failure is over: take its message down, unless something else
-        // has reported since.
-        if let Some((e, revision)) = &d.preview_error
-            && *revision != d.preview_revision
-        {
-            if app.ui.status_error && app.ui.status == *e {
-                app.ui.status.clear();
-                app.ui.status_error = false;
-            }
-            d.preview_error = None;
-        }
+        d.clear_recovered_error(&mut app.ui);
         let (full, _) = ui.allocate_exact_size(screen.size(), Sense::click());
         let painter = ui.painter().clone();
         painter.rect_filled(full, 0.0, t.chrome);
@@ -1669,6 +1675,14 @@ mod tests {
         finish_worker(app.camera_raw.as_mut().unwrap(), &ctx);
         frame(&mut app);
         assert!(app.ui.status_error && app.ui.status == "something else failed", "{}", app.ui.status);
+
+        // A control-channel edit renders on its own thread; the status is clear before any frame.
+        fail(&mut app);
+        frame(&mut app);
+        assert!(app.ui.status_error);
+        menu(&mut app, &ctx, "filter.cameraRaw", &json!({"ui": {"set": {"exposure": -0.5}}})).unwrap().unwrap();
+        assert!(!app.ui.status_error && app.ui.status.is_empty(), "{}", app.ui.status);
+        assert_eq!(crate::control::inspect(&app, &ctx)["statusError"], false);
     }
 
     #[test]
