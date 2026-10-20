@@ -220,8 +220,9 @@ fn shape_properties_edit_density_and_feather() {
         // Live: the fill already shows beyond the path at half strength.
         let a = shape(&h).cache.as_ref().unwrap().rgba(2, 2)[3];
         assert!((a - 0.5).abs() < 0.03, "{theme:?}: {a}");
-        drag(&mut h, feather, &[0.0, 0.005, 0.01]);
-        assert!((shape(&h).feather - 10.0).abs() < 0.5, "{theme:?}: feather {}", shape(&h).feather);
+        // Feather's track is curved (#6545): a fifth of the way is 8 px.
+        drag(&mut h, feather, &[0.0, 0.1, 0.2]);
+        assert!((shape(&h).feather - 8.0).abs() < 0.3, "{theme:?}: feather {}", shape(&h).feather);
         assert_eq!(h.state().session.active().unwrap().history.past_len(), before + 2);
         h.state_mut().run("edit.undo", json!({})).unwrap();
         assert_eq!(shape(&h).feather, 0.0);
