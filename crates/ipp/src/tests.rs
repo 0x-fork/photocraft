@@ -186,13 +186,36 @@ fn error_statuses_and_broken_replies_are_errors() {
     assert!(matches!(printers(&ep), Err(Error::Protocol(_))));
     let (ep, _rx) = fake(b"not ipp at all".to_vec(), false, 200);
     assert!(matches!(printers(&ep), Err(Error::Protocol(_))));
-    // Nobody listening. No port is guaranteed free - on a CI VM something can hold port 1 and reset the
-    // connection - so take one the OS says is free and release it again.
-    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = free.local_addr().unwrap().port();
-    drop(free);
-    let e = printers(&Endpoint::Tcp("127.0.0.1".into(), port)).unwrap_err();
+    // Nobody reachable. A port is never guaranteed to be free, let alone to stay free: that is what
+    // made the old port-1 case fail on a FreeBSD CI VM. A name that can never resolve (RFC 2606)
+    // reaches the same exit without owning or releasing anything.
+    let e = printers(&Endpoint::Tcp("printer.invalid".into(), 631)).unwrap_err();
     assert!(matches!(e, Error::Unreachable(_)), "{e}");
+    assert!(e.to_string().contains("printer.invalid"), "{e} does not name the server it tried");
+}
+
+#[test]
+fn a_refused_connection_is_unreachable_and_keeps_why() {
+    // The refused-connect path, with the machine no longer deciding what is closed: the connect call
+    // is a parameter, so this test cannot race for an ephemeral port with anything.
+    let addr: SocketAddr = "192.0.2.9:631".parse().unwrap();
+    let asked_for = std::cell::RefCell::new(None);
+    let open = |seen: SocketAddr| -> std::io::Result<TcpStream> {
+        *asked_for.borrow_mut() = Some(seen);
+        Err(std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "nobody is listening on this port"))
+    };
+    let e = match open_tcp("printserver", 631, addr, open) {
+        Ok(_) => panic!("nothing opens {addr}"),
+        Err(e) => e,
+    };
+    assert_eq!(*asked_for.borrow(), Some(addr), "the connector is handed the resolved address");
+    match &e {
+        Error::Unreachable(m) => {
+            assert!(m.contains("printserver:631"), "{e} does not name the endpoint");
+            assert!(m.contains("nobody is listening on this port"), "{e} loses why the connect failed");
+        }
+        other => panic!("expected Unreachable, got {other}"),
+    }
 }
 
 #[test]
