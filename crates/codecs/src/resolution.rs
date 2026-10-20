@@ -176,6 +176,7 @@ pub(crate) fn exif_with_resolution_adding_missing(exif: &[u8], ppi: (f32, f32)) 
     exif_with_resolution_inner(exif, ppi, true)
 }
 
+/// Rewrite valid IFD0 resolution tags and optionally append tags that are missing or malformed.
 fn exif_with_resolution_inner(exif: &[u8], ppi: (f32, f32), add_missing: bool) -> Cow<'_, [u8]> {
     if ppi_pair(f64::from(ppi.0), f64::from(ppi.1)).is_none() {
         return Cow::Borrowed(exif);
@@ -321,6 +322,7 @@ fn resolution_entry(order: Order, big: bool, tag: u16, value: u64) -> Option<Vec
     Some(entry)
 }
 
+/// Round `value` up to the next `alignment` boundary, returning `None` on overflow.
 fn align_up(value: usize, alignment: usize) -> Option<usize> {
     value.checked_add((alignment - value % alignment) % alignment)
 }
@@ -534,6 +536,7 @@ pub(crate) fn export_exif_adding_missing_resolution(exif: &[u8], ppi: Option<(f3
     export_exif_inner(exif, ppi, true)
 }
 
+/// Normalize EXIF orientation and thumbnails, optionally adding missing output resolution tags.
 fn export_exif_inner(exif: &[u8], ppi: Option<(f32, f32)>, add_missing: bool) -> Cow<'_, [u8]> {
     let up = upright_exif(exif);
     let up = match exif_without_thumbnail(&up) {

@@ -342,6 +342,7 @@ fn strip_jfif_app0(bytes: &mut Vec<u8>) {
     }
 }
 
+/// Return whether both resolution values are finite and within the supported metadata range.
 fn usable_dpi(dpi: Option<(f32, f32)>) -> bool {
     dpi.is_some_and(|(x, y)| x.is_finite() && y.is_finite() && (1.0..=1_000_000.0).contains(&x) && (1.0..=1_000_000.0).contains(&y))
 }
@@ -362,6 +363,7 @@ pub(crate) fn exif_segment(exif: &[u8], dpi: Option<(f32, f32)>) -> Option<Vec<u
     (seg.len() <= MAX_SEGMENT).then_some(seg)
 }
 
+/// Build an EXIF APP1 segment, adding missing resolution tags when the source metadata is valid.
 fn exif_segment_with_resolution(exif: &[u8], dpi: Option<(f32, f32)>) -> Option<Vec<u8>> {
     let seg = [EXIF_HEADER, crate::resolution::export_exif_adding_missing_resolution(exif, dpi).as_ref()].concat();
     (seg.len() <= MAX_SEGMENT).then_some(seg)
@@ -417,15 +419,18 @@ mod tests {
     use super::*;
     use crate::{Format, Metadata};
 
+    /// Build a little-endian TIFF with an empty IFD0 for metadata tests.
     fn empty_tiff() -> Vec<u8> {
         // Little-endian TIFF with an empty IFD0 and no next IFD.
         b"II*\0\x08\0\0\0\0\0\0\0\0\0\0\0".to_vec()
     }
 
+    /// Return whether the JPEG begins with a JFIF APP0 segment.
     fn has_jfif_app0(bytes: &[u8]) -> bool {
         bytes.get(2..11) == Some(b"\xff\xe0\0\x10JFIF\0")
     }
 
+    /// CMYK JPEG output must omit JFIF while retaining Adobe's CMYK marker.
     #[test]
     fn cmyk_jpeg_omits_jfif_but_keeps_adobe_cmyk_marker() {
         let img = Image::from_raw(2, 1, ChannelLayout::Cmyk, SampleType::U8, vec![0, 32, 64, 96, 255, 224, 192, 160]).unwrap();
@@ -438,6 +443,7 @@ mod tests {
         assert_eq!(crate::decode_as(Format::Jpeg, &bytes).unwrap().layout(), ChannelLayout::Cmyk);
     }
 
+    /// CMYK JPEG output stores image resolution in EXIF when the source has no EXIF.
     #[test]
     fn cmyk_jpeg_preserves_dpi_without_source_exif() {
         let mut img = Image::from_raw(1, 1, ChannelLayout::Cmyk, SampleType::U8, vec![0, 0, 0, 0]).unwrap();
@@ -448,6 +454,7 @@ mod tests {
         assert_eq!(crate::decode_as(Format::Jpeg, &bytes).unwrap().meta.dpi, Some((300.0, 150.0)));
     }
 
+    /// CMYK JPEG output adds missing EXIF resolution tags to existing metadata.
     #[test]
     fn cmyk_jpeg_preserves_dpi_with_source_exif_without_resolution_tags() {
         let mut img = Image::from_raw(1, 1, ChannelLayout::Cmyk, SampleType::U8, vec![0, 0, 0, 0]).unwrap();
@@ -457,6 +464,7 @@ mod tests {
         assert_eq!(crate::decode_as(Format::Jpeg, &bytes).unwrap().meta.dpi, Some((240.0, 120.0)));
     }
 
+    /// Adding missing resolution tags makes them readable from the rewritten IFD0.
     #[test]
     fn exif_with_resolution_adds_missing_ifd0_entries() {
         let exif = empty_tiff();
@@ -465,6 +473,7 @@ mod tests {
         assert_eq!(crate::resolution::exif_resolution(&rewritten), Some((240.0, 120.0)));
     }
 
+    /// RGB JPEG output continues to store image resolution in JFIF density fields.
     #[test]
     fn rgb_jpeg_keeps_jfif_density() {
         let mut img = Image::from_raw(1, 1, ChannelLayout::Rgb, SampleType::U8, vec![12, 34, 56]).unwrap();
