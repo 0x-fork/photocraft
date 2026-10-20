@@ -158,7 +158,10 @@ fn a_print_job_carries_the_document_and_returns_its_id() {
     assert_eq!(op, OP_PRINT_JOB);
     assert_eq!(doc, pdf);
     let get = |n: &str| attrs.iter().find(|a| a.name == n).cloned().unwrap_or_else(|| panic!("{n}"));
-    assert_eq!(get("printer-uri").values[0], format!("ipp://{}/printers/Office", ep.host()).as_bytes());
+    let uri = String::from_utf8(get("printer-uri").values[0].clone()).unwrap();
+    // Spelled out here rather than echoed back from host(), so the printer-uri the server receives is
+    // pinned down even when the authority is an IP literal.
+    assert!(uri.starts_with("ipp://127.0.0.1:") && uri.ends_with("/printers/Office"), "{uri}");
     assert_eq!(get("job-name").values[0], b"photo.psd");
     assert_eq!(get("requesting-user-name").values[0], b"diego");
     assert_eq!(get("document-format").values[0], b"application/pdf");
@@ -267,9 +270,17 @@ fn an_ipv6_endpoint_writes_its_authority_in_brackets() {
     assert_eq!(Endpoint::parse("cups.example").host(), "cups.example:631");
     assert_eq!(Endpoint::parse("cups.example:6310").host(), "cups.example:6310");
     assert_eq!(Endpoint::parse("127.0.0.1:6310").host(), "127.0.0.1:6310");
-    // What the user is shown is written the same way.
+    // A scoped address keeps its zone id, but the authority writes it "%25"-escaped: a bare "%" is
+    // not valid inside an authority, and the escaped form is what CUPS and curl-style ipp:// URIs
+    // use. The host itself stays raw, because that is what the resolver gets.
+    assert_eq!(Endpoint::parse("fe80::1%3:631").host(), "[fe80::1%253]:631");
+    assert_eq!(Endpoint::parse("[fe80::1%3]:6310").host(), "[fe80::1%253]:6310");
+    assert_eq!(Endpoint::parse("fe80::1%eth0:631").host(), "[fe80::1%25eth0]:631");
+    assert_eq!(Endpoint::parse("fe80::1%3:631"), Endpoint::Tcp("fe80::1%3".into(), 631));
+    // What the user is shown is written the same way, with the zone exactly as it was typed.
     assert_eq!(Endpoint::parse("::1").to_string(), "[::1]:631");
     assert_eq!(Endpoint::parse("cups.example:6310").to_string(), "cups.example:6310");
+    assert_eq!(Endpoint::parse("fe80::1%3:631").to_string(), "[fe80::1%3]:631");
 }
 
 #[test]

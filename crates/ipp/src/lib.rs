@@ -175,11 +175,17 @@ impl Endpoint {
     }
 
     /// The endpoint as an HTTP authority: an IPv6 host is bracketed, or its last colon reads as the
-    /// port separator and the request carries a host CUPS has never heard of.
+    /// port separator and the request carries a host CUPS has never heard of. A scoped address keeps
+    /// its zone id and writes it escaped as "%25": "%" is not valid inside an authority (RFC 3986
+    /// section 3.2.2 reserves it for escaping), and the escaped form is what CUPS, curl and the
+    /// ipp:// URIs CUPS writes use for a zone. RFC 9844 (Aug 2025) obsoleted RFC 6874, which had made
+    /// that form URI syntax, so this is interop rather than a standard; dropping the zone instead
+    /// would name a different host on the wire than the socket was opened to. The socket still gets
+    /// the raw address%zone, which is the form a resolver understands.
     fn host(&self) -> String {
         match self {
             Endpoint::Unix(_) => "localhost".into(),
-            Endpoint::Tcp(host, port) if host.contains(':') => format!("[{host}]:{port}"),
+            Endpoint::Tcp(host, port) if host.contains(':') => format!("[{}]:{port}", host.replace('%', "%25")),
             Endpoint::Tcp(host, port) => format!("{host}:{port}"),
         }
     }
