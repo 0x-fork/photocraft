@@ -129,7 +129,12 @@ fn parse(sub: &Subcommand, args: &[String]) -> Result<Option<Args>, String> {
             }
             a.flags.push((k.to_owned(), Some(v.to_owned())));
         } else if sub.values.contains(&s.as_str()) {
-            let v = args.get(i + 1).filter(|v| !v.starts_with("--") && v.as_str() != "-h").ok_or_else(|| format!("{s} needs a value"))?;
+            // A flag where the value should be is a missing value, not the value; help still wins.
+            let v = args.get(i + 1);
+            if v.is_some_and(|v| v == "--help" || v == "-h") {
+                return Ok(None);
+            }
+            let v = v.filter(|v| !v.starts_with("--")).ok_or_else(|| format!("{s} needs a value"))?;
             a.flags.push((s.clone(), Some(v.clone())));
             i += 1;
         } else if sub.bare.contains(&s.as_str()) {
