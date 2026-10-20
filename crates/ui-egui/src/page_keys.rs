@@ -105,3 +105,83 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
     ctx.request_repaint();
     true
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn page_keys_map_to_photoshops_scrolls() {
+        let size = vec2(800.0, 600.0);
+        let (none, shift, cmd) = (Modifiers::NONE, Modifiers::SHIFT, Modifiers::COMMAND);
+        assert_eq!(page_key(Key::PageDown, none, size), Some(PageKey::Scroll(vec2(0.0, 600.0))));
+        assert_eq!(page_key(Key::PageUp, none, size), Some(PageKey::Scroll(vec2(0.0, -600.0))));
+        assert_eq!(page_key(Key::PageDown, shift, size), Some(PageKey::Scroll(vec2(0.0, SMALL_STEP))));
+        assert_eq!(page_key(Key::PageUp, cmd, size), Some(PageKey::Scroll(vec2(-800.0, 0.0))));
+        assert_eq!(page_key(Key::PageDown, cmd | shift, size), Some(PageKey::Scroll(vec2(SMALL_STEP, 0.0))));
+        assert_eq!(page_key(Key::Home, none, size), Some(PageKey::Corner { end: false }));
+        assert_eq!(page_key(Key::End, none, size), Some(PageKey::Corner { end: true }));
+        assert_eq!(page_key(Key::PageDown, Modifiers::ALT, size), None);
+        assert_eq!(page_key(Key::Home, shift, size), None);
+        assert_eq!(page_key(Key::ArrowDown, none, size), None);
+    }
+
+    /// #8057: through the app's key handling, Page Down scrolls a zoomed-in document a screen
+    /// down at the same zoom, ⇧ a small step, ⌘ sideways; Home and End jump to the corners.
+    #[test]
+    fn page_keys_scroll_the_zoomed_canvas() {
+        let ctx = egui::Context::default();
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width": 2000, "height": 2000})).unwrap();
+        app.sync_views();
+        app.ppp = 1.0;
+        let v = &mut app.ui.views[0];
+        (v.zoom, v.center, v.fit_pending, v.fill_pending) = (4.0, [1000.0, 1000.0], false, false);
+        let size = crate::rulers::content_rect(&app, app.last_canvas_rect).size();
+        let press = |app: &mut PhotocraftApp, key: Key, modifiers: Modifiers| {
+            let raw = egui::RawInput {
+                events: vec![Event::ModifiersChanged(modifiers), Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers }],
+                ..Default::default()
+            };
+            ctx.begin_pass(raw);
+            crate::shortcuts::handle(app, &ctx);
+            ctx.end_pass().textures_delta.clear();
+            app.ui.views[0].center
+        };
+        let near = |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).abs() < 1e-3 && (a[1] - b[1]).abs() < 1e-3;
+        let c = press(&mut app, Key::PageDown, Modifiers::NONE);
+        assert!(near(c, [1000.0, 1000.0 + size.y / 4.0]), "a screen down: {c:?}");
+        assert_eq!(app.ui.views[0].zoom, 4.0, "the zoom stays");
+        let c = press(&mut app, Key::PageUp, Modifiers::NONE);
+        assert!(near(c, [1000.0, 1000.0]), "and back: {c:?}");
+        let c = press(&mut app, Key::PageDown, Modifiers::SHIFT);
+        assert!(near(c, [1000.0, 1000.0 + SMALL_STEP / 4.0]), "a small step: {c:?}");
+        let c = press(&mut app, Key::PageUp, Modifiers::COMMAND);
+        assert!(near(c, [1000.0 - size.x / 4.0, 1000.0 + SMALL_STEP / 4.0]), "a screen left: {c:?}");
+        let c = press(&mut app, Key::Home, Modifiers::NONE);
+        assert!(near(c, [size.x / 8.0, size.y / 8.0]), "the top-left corner: {c:?}");
+        let c = press(&mut app, Key::End, Modifiers::NONE);
+        assert!(near(c, [2000.0 - size.x / 8.0, 2000.0 - size.y / 8.0]), "the bottom-right corner: {c:?}");
+
+        // Rotated a quarter turn or flipped, the corner still lands on a canvas corner with the
+        // document running into the canvas from it.
+        let rect = crate::rulers::content_rect(&app, app.last_canvas_rect);
+        for (rotation, flip) in [(90.0, false), (0.0, true), (-90.0, true)] {
+            app.ui.views[0].rotation = rotation;
+            app.ui.view.flip_horizontal = flip;
+            for (key, corner, inward) in [(Key::Home, [0.0, 0.0], 1.0), (Key::End, [2000.0, 2000.0], -1.0)] {
+                let center = press(&mut app, key, Modifiers::NONE);
+                let xf = crate::canvas::ViewXform { rect, zoom: 4.0, center, flip, rotation, aspect: 1.0 };
+                let at = xf.to_screen(corner[0], corner[1]);
+                let on_corner = [rect.left_top(), rect.right_top(), rect.left_bottom(), rect.right_bottom()].iter().any(|c| c.distance(at) < 1e-2);
+                assert!(on_corner, "{key:?} at {rotation}° flip {flip}: {at:?} in {rect:?}");
+                assert!(
+                    rect.contains(xf.to_screen(corner[0] + inward, corner[1] + inward)),
+                    "{key:?} at {rotation}° flip {flip}: the document runs into the canvas"
+                );
+            }
+        }
+    }
+}
