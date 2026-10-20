@@ -262,8 +262,8 @@ pub(crate) fn run_filter(s: &mut Session, id: &str, p: &Value) -> Result<Value> 
             };
             let selection = doc.selection.clone();
             let sel_bounds = selection.as_ref().map(photocraft_raster::Surface::content_bounds);
-            // Distortions centre on the selection when there is one, else the canvas. Clouds size
-            // their pattern by the canvas either way; the selection only masks them.
+            // Distortions centre on the selection when there is one, else the canvas. Clouds and
+            // Fibers place and size their pattern by the canvas either way; the selection masks them.
             let doc_bounds = doc.bounds();
             let bounds = if fp.sizes_by_canvas() { doc_bounds } else { sel_bounds.filter(|b| !b.is_empty()).unwrap_or(doc_bounds) };
             // Neighbourhood filters repeat edge pixels at the canvas edge (or past it, where the

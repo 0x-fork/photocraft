@@ -1197,3 +1197,25 @@ fn lens_flare_centres_on_the_smart_object() {
     let (x, y) = (core.iter().map(|p| p.0).sum::<i32>() / core.len() as i32, core.iter().map(|p| p.1).sum::<i32>() / core.len() as i32);
     assert!((x - 48).abs() <= 1 && (y - 36).abs() <= 1, "flare at {x},{y}, the object's centre is 48,36");
 }
+
+/// Moving a smart object moves its Clouds and Fibers with it: the pattern is anchored at the
+/// object, not at the canvas, so re-rendering after the move doesn't change the texture.
+#[test]
+fn clouds_and_fibers_move_with_the_smart_object() {
+    for (command, params) in [("filter.render.clouds", json!({"seed": 3})), ("filter.render.fibers", json!({"seed": 3}))] {
+        let mut s = session(8);
+        paint(&mut s);
+        let id = convert(&mut s);
+        s.execute(command, params).unwrap();
+        let before = flat(&s);
+        s.execute("edit.transform", json!({"layer": id, "matrix": [1, 0, 0, 1, 8, 6]})).unwrap();
+        let after = flat(&s);
+        // Inside the object (painted from (-6, 5) to (40, 38)) both before and after the move.
+        for y in 8..30 {
+            for x in 2..30 {
+                let (a, b) = (before[(y * W + x) as usize], after[((y + 6) * W + x + 8) as usize]);
+                assert!((0..4).all(|c| (a[c] - b[c]).abs() < 1e-3), "{command} at {x},{y}: {a:?} vs {b:?}");
+            }
+        }
+    }
+}

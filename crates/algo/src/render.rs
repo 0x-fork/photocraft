@@ -47,7 +47,8 @@ fn clouds_value(x: f32, y: f32, base: f32, seed: u32) -> f32 {
 }
 
 /// Clouds between the foreground and background colours; Difference Clouds subtracts them from
-/// the pixels (alpha kept). The cloud size is a quarter of the bounds' longer side.
+/// the pixels (alpha kept). The cloud size is a quarter of the bounds' longer side, and the
+/// pattern is anchored at the bounds' corner (so it moves with a smart object).
 pub(crate) fn clouds(src: &Image, out: Rect, ctx: &Ctx, seed: u32, difference: bool, colours: ([f32; 4], [f32; 4])) -> Vec<f32> {
     let n = src.ch;
     let (fg, bg) = colours;
@@ -55,6 +56,7 @@ pub(crate) fn clouds(src: &Image, out: Rect, ctx: &Ctx, seed: u32, difference: b
     let mut res = src.crop(out);
     for (i, px) in res.chunks_exact_mut(n).enumerate() {
         let (x, y) = xy(out, i);
+        let (x, y) = (x - ctx.bounds.x0, y - ctx.bounds.y0);
         let t = clouds_value(x as f32, y as f32, base, seed);
         let c: [f32; 3] = std::array::from_fn(|k| fg[k] + (bg[k] - fg[k]) * t);
         if difference {
@@ -81,8 +83,9 @@ pub(crate) fn fibers(src: &Image, out: Rect, ctx: &Ctx, variance: f32, strength:
     let fy = fx / (2.0 + st * 1.5) * (0.5 + var / 32.0);
     let mut res = src.crop(out);
     for (i, px) in res.chunks_exact_mut(n).enumerate() {
+        // Anchored at the bounds' corner, so the fibres move with a smart object.
         let (x, y) = xy(out, i);
-        let (xf, yf) = (x as f32, y as f32);
+        let (xf, yf) = ((x - ctx.bounds.x0) as f32, (y - ctx.bounds.y0) as f32);
         let mut sum = 0.0;
         let mut amp = 1.0;
         let mut norm = 0.0;
