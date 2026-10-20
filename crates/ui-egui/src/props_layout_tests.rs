@@ -313,3 +313,36 @@ fn properties_distribute_buttons_move_selected_layers_and_undo_in_both_axes() {
         assert_eq!(restored, before, "{button}: undo restores its location");
     }
 }
+
+/// #4608: with the Background one of several selected layers (and the active one), Properties
+/// shows the Document properties as before, with Align and Distribute above them, and its buttons
+/// align the selection: the Background stays, the other layer lines up with it.
+#[test]
+fn background_in_a_multiple_selection_keeps_align_and_distribute() {
+    use photocraft_doc::LayerId;
+    let mut s = photocraft_engine::Session::new();
+    s.execute("file.new", json!({"width": 300, "height": 200})).unwrap();
+    let bg = s.active().unwrap().doc.layers[0].id.0;
+    let block = s.execute("layer.new.layer", json!({"name": "Block"})).unwrap()["layer"].as_u64().unwrap();
+    s.execute("select.rect", json!({"x": 20, "y": 30, "width": 40, "height": 20})).unwrap();
+    s.execute("edit.fill", json!({"contents": "color", "color": "#336699"})).unwrap();
+    s.execute("select.deselect", json!({})).unwrap();
+    // Background alone: the Document properties only.
+    s.execute("layer.select", json!({"layer": bg})).unwrap();
+    let mut h = harness(s, 1.0, 320.0);
+    assert!(h.query_by_label("Align Horizontal Centers").is_none(), "one layer: Document properties only");
+    // The Background is still the active layer once Block joins the selection.
+    h.state_mut().run("layer.select", json!({"layer": block, "mode": "add"})).unwrap();
+    h.state_mut().run("layer.select", json!({"layer": bg, "mode": "add"})).unwrap();
+    h.run_steps(8);
+    assert_eq!(h.state().session.active().unwrap().active_layer, Some(LayerId(bg)));
+    assert_eq!(h.state().session.active().unwrap().selected_layers().len(), 2);
+    let names: Vec<String> = headers(&h).into_iter().map(|(n, _)| n).collect();
+    assert!(names.iter().any(|n| n == "Align and Distribute"), "{names:?}");
+    h.get_by_label("Align Horizontal Centers").click();
+    h.run_steps(4);
+    let st = h.state().session.active().unwrap();
+    let b = st.doc.layer(LayerId(block)).unwrap().surface().unwrap().content_bounds();
+    assert_eq!((b.x0 + b.x1) / 2, 150, "centred on the Background, which spans the canvas: {b:?}");
+    assert_eq!(b.y0, 30, "only horizontally");
+}

@@ -22,6 +22,22 @@ fn default_dir(app: &PhotocraftApp) -> String {
     app.session.active().and_then(|d| d.path.as_deref()).and_then(|p| p.rfind(['/', '\\']).map(|i| p[..i].to_string())).unwrap_or_else(|| ".".into())
 }
 
+/// A packaged macOS app does not start in a useful writable working directory. A saved
+/// document keeps its own folder; otherwise prefer the user's Documents folder.
+fn droplet_default_dir(app: &PhotocraftApp) -> String {
+    let dir = default_dir(app);
+    if dir != "." {
+        return dir;
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(home) = std::env::var_os("HOME") {
+        let home = std::path::PathBuf::from(home);
+        let documents = home.join("Documents");
+        return if documents.is_dir() { documents } else { home }.to_string_lossy().into_owned();
+    }
+    dir
+}
+
 fn doc_stem(app: &PhotocraftApp) -> String {
     app.session.active().map(|d| d.doc.name.rsplit_once('.').map_or(d.doc.name.clone(), |(a, _)| a.to_string())).unwrap_or_else(|| tl!("Untitled").into())
 }
@@ -39,8 +55,10 @@ fn form(app: &mut PhotocraftApp, command: &str, label: &str, fields: Value, choi
     json!({"dialog": app.ui.open_dialog(DialogKind::Command, f)})
 }
 
-/// File › Scripts › Browse… lists these script files (plus the JSON/text the engine parses).
-const SCRIPT_EXTENSIONS: &[&str] = &["psjs", "ccjs", "jsx", "js", "jsxbin", "json", "txt"];
+/// File › Scripts › Browse… lists Photoshop's script types (matching its filter, #2452) plus the
+/// JSON/text/droplet files the engine parses; selecting a Photoshop script gets the engine's
+/// "not Photoshop ExtendScript" error instead of hiding those files from the picker.
+const SCRIPT_EXTENSIONS: &[&str] = &["psjs", "ccjs", "jsx", "js", "jsxbin", "json", "txt", "pcdroplet"];
 
 /// Menu items fronted here (dialogs before the engine command). `None` when not ours.
 pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Value) -> Option<Result<Value, String>> {
@@ -58,7 +76,7 @@ pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &V
             app.session.active()?;
             json!({"dialog": open_print(app)})
         }
-        "file.printOneCopy" if app.session.file_menu.last_print.is_none() => {
+        "file.printOneCopy" if photocraft_engine::print_cmds::last_print(&app.session).is_none() => {
             app.session.active()?;
             json!({"dialog": open_print(app)})
         }
@@ -71,6 +89,7 @@ pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &V
             json!({"units": ["inches", "cm", "pixels"], "mode": ["rgb", "gray", "cmyk", "lab"]}),
         ),
         "file.automate.createDroplet" => {
+            let dir = droplet_default_dir(app);
             let Some(action) = crate::actions::selected_action(app) else {
                 return Some(Err("record an action in the Actions panel first".into()));
             };
@@ -84,13 +103,10 @@ pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &V
                 json!({"format": ["same", "png", "jpg", "psd", "tiff"]}),
             )
         }
-        "file.scripts.statistics" => {
-            let modes: Vec<&str> = photocraft_doc::StackMode::ALL.iter().map(|m| m.id()).collect();
-            form(app, id, "Image Statistics", json!({"mode": "median", "input": dir, "align": false}), json!({"mode": modes}))
-        }
+        "file.scripts.statistics" => json!({"dialog": crate::stack_dialog::open_statistics(app)}),
         "file.scripts.browse" => {
             return Some(app.pick_file_bytes_filtered(SCRIPT_EXTENSIONS, |app, name, bytes| {
-                let r = app.run("file.scripts.browse", json!({"script": String::from_utf8_lossy(&bytes)}));
+                let r = app.run("file.scripts.browse", json!({"name": name, "script": String::from_utf8_lossy(&bytes)}));
                 if r.is_ok() {
                     let template = "Ran script {name}";
                     app.ui.status = crate::i18n::fmt(tl!(template), &[("name", &name)]);
@@ -152,11 +168,12 @@ pub fn ok_label(f: &Map<String, Value>) -> Option<&'static str> {
     }
 }
 
-pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) {
+/// The body of Save for Web or Print (dialog `id`).
+pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>, id: u64) {
     if f.contains_key("__web") {
         web_body(app, ui, f);
     } else {
-        print_body(app, ui, f);
+        print_body(app, ui, f, id);
     }
 }
 
@@ -350,6 +367,27 @@ fn web_pane(app: &PhotocraftApp, ui: &mut egui::Ui, size: egui::Vec2, p: Option<
         ui.add(egui::Label::new(egui::RichText::new(l1).color(t.text).size(11.5)).truncate());
         ui.add(egui::Label::new(egui::RichText::new(l2).color(t.text_dim).size(11.0)).truncate());
     });
+}
+
+/// Print's Printer menu: the default printer (value ""), then every printer `file.printers`
+/// listed. A saved name the spooler no longer lists stays selectable rather than vanishing.
+/// CUPS queue names stand in for spaces with `_`; the labels show the spaces.
+fn printer_options(list: Option<&Value>, current: &str) -> Vec<(String, String)> {
+    let printers: Vec<(&str, bool)> = list
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(|p| Some((p.get("name")?.as_str()?, p.get("default").and_then(Value::as_bool).unwrap_or(false)))).collect())
+        .unwrap_or_default();
+    let pretty = |n: &str| n.replace('_', " ");
+    let default = match printers.iter().find(|p| p.1) {
+        Some((n, _)) => format!("{} ({})", tl!("Default printer"), pretty(n)),
+        None => tl!("Default printer").to_string(),
+    };
+    let mut opts = vec![(String::new(), default)];
+    opts.extend(printers.iter().map(|(n, _)| (n.to_string(), pretty(n))));
+    if !current.is_empty() && !printers.iter().any(|p| p.0 == current) {
+        opts.push((current.to_string(), pretty(current)));
+    }
+    opts
 }
 
 fn dropdown_str(ui: &mut egui::Ui, id: &str, f: &mut Map<String, Value>, key: &str, opts: &[(&str, &str)], w: f32) {
@@ -689,7 +727,11 @@ pub fn open_print(app: &mut PhotocraftApp) -> u64 {
     let mut f = Map::new();
     f.insert("__print".into(), json!(true));
     f.insert("__label".into(), json!("PhotoCraft Print Settings"));
-    if let Some(Value::Object(m)) = app.session.file_menu.last_print.clone() {
+    // Asked once per opening: the Printer menu lists what the spooler knows now.
+    let printers = app.session.execute("file.printers", json!({})).unwrap_or_default();
+    f.insert("__systemPrinters".into(), printers["printers"].clone());
+    // The settings of the last print, also from an earlier session (#7410).
+    if let Some(Value::Object(m)) = photocraft_engine::print_cmds::last_print(&app.session) {
         f.extend(m);
     }
     for (k, v) in [
@@ -717,7 +759,33 @@ pub fn open_print(app: &mut PhotocraftApp) -> u64 {
     ] {
         f.entry(k.to_string()).or_insert(v);
     }
+    // Windows: the system's printers, and the paper from the chosen printer's driver settings.
+    if let Ok(list) = craft_print::rgb::printers() {
+        f.insert("__printers".into(), json!(list.iter().map(|p| p.name.clone()).collect::<Vec<_>>()));
+        let known = |n: &str| list.iter().any(|p| p.name == n);
+        if !known(&s(&f, "printer", "")) {
+            let fallback = list.iter().find(|p| p.default).or(list.first()).map(|p| p.name.clone()).unwrap_or_default();
+            f.insert("printer".into(), json!(fallback));
+            f.remove("printerSettings");
+        }
+    }
     app.ui.open_dialog(DialogKind::Command, f)
+}
+
+/// Takes the paper from the printer's driver settings (Windows), as Photoshop does.
+fn driver_page(f: &mut Map<String, Value>) {
+    let printer = s(f, "printer", "");
+    let settings = f.get("printerSettings").and_then(Value::as_str).and_then(|h| craft_print::rgb::DevMode::from_hex(h).ok());
+    match craft_print::rgb::page(&printer, settings.as_ref()) {
+        Ok(pg) => {
+            f.insert("paper".into(), json!([pg.paper.0, pg.paper.1]));
+            f.insert("orientation".into(), json!("portrait"));
+            f.remove("__pageError");
+        }
+        Err(e) => {
+            f.insert("__pageError".into(), json!(e.to_string()));
+        }
+    }
 }
 
 /// Points per unit for the Position and Size fields.
@@ -798,10 +866,42 @@ fn print_paper_controls(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     }
 }
 
-fn print_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) {
+/// Save as PDF › Browse…: where to write the PDF, into Print dialog `id` once the file dialog
+/// answers. Without it the only way to save a PDF was to type a full path (#5328).
+fn browse_pdf(app: &mut PhotocraftApp, id: u64, suggested: &str) {
+    let r = app.pick_save(suggested, move |app, path| {
+        let d = app.ui.dialog_mut(id).ok_or("the dialog was closed")?;
+        d.fields.insert("output".into(), json!(path));
+        Ok(Value::Null)
+    });
+    if let Err(e) = r
+        && e != crate::file_dialog::CANCELLED
+    {
+        app.ui.status = e;
+    }
+}
+
+fn print_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>, id: u64) {
     let t = Tokens::get(ui.ctx());
     let Some(doc) = app.session.active().map(|d| d.doc.clone()) else { return };
+    // PDF exports and previews retain editable paper on Windows too. Only a real native
+    // submission takes its media from the printer; entering that mode refreshes the driver
+    // geometry after any export-only paper edits.
+    let printers: Option<Vec<String>> = if !b(f, "dryRun", false) && s(f, "output", "").is_empty() {
+        f.get("__printers").and_then(Value::as_array).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+    } else {
+        None
+    };
+    if printers.is_some() {
+        if !b(f, "__driverPageInitialized", false) {
+            driver_page(f);
+            f.insert("__driverPageInitialized".into(), json!(true));
+        }
+    } else {
+        f.remove("__driverPageInitialized");
+    }
     let p = params(f);
+    let mut browse = false;
     ui.horizontal_top(|ui| {
         // Page preview.
         ui.vertical(|ui| {
@@ -877,15 +977,57 @@ fn print_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Va
                 ui.label(egui::RichText::new(s).font(crate::theme::semibold(12.0)).color(t.text));
             };
             head(ui, tl!("Printer Setup"));
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(tl!("Printer")).color(t.text_dim));
-                let mut pr = s(f, "printer", "");
-                if ui.add(egui::TextEdit::singleline(&mut pr).hint_text(tl!("Default printer")).desired_width(180.0)).changed() {
-                    f.insert("printer".into(), json!(pr));
+            if let Some(printers) = &printers {
+                // Windows: Photoshop's Printer menu and Print Settings… (the driver's own dialog).
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(tl!("Printer")).color(t.text_dim));
+                    let before = s(f, "printer", "");
+                    let opts: Vec<(&str, &str)> = printers.iter().map(|n| (n.as_str(), n.as_str())).collect();
+                    dropdown_str(ui, "print-printer", f, "printer", &opts, 220.0);
+                    if s(f, "printer", "") != before {
+                        f.remove("printerSettings");
+                        driver_page(f);
+                    }
+                });
+                ui.horizontal(|ui| {
+                    number(ui, f, "copies", tl!("Copies"), 1.0..=999.0, "", 1.0);
+                    if ui.button(tl!("Print Settings…")).clicked() {
+                        let printer = s(f, "printer", "");
+                        let current = f.get("printerSettings").and_then(Value::as_str).and_then(|h| craft_print::rgb::DevMode::from_hex(h).ok());
+                        match craft_print::rgb::settings_dialog(&printer, current.as_ref(), None) {
+                            Ok(Some(dm)) => {
+                                f.insert("printerSettings".into(), json!(dm.to_hex()));
+                                driver_page(f);
+                            }
+                            Ok(None) => {}
+                            Err(e) => {
+                                f.insert("__pageError".into(), json!(e.to_string()));
+                            }
+                        }
+                    }
+                });
+                let paper = p.get("paper").and_then(Value::as_array).map(|a| (a.first().and_then(Value::as_f64), a.get(1).and_then(Value::as_f64)));
+                let text = match paper {
+                    Some((Some(w), Some(h))) => format!("{:.0} × {:.0} mm  ·  {}", w / 72.0 * 25.4, h / 72.0 * 25.4, tl!("set in Print Settings…")),
+                    _ => String::new(),
+                };
+                ui.label(egui::RichText::new(text).color(t.text_dim).size(11.0));
+                if let Some(e) = f.get("__pageError").and_then(Value::as_str) {
+                    ui.label(egui::RichText::new(e).color(t.warning).size(11.0));
                 }
-            });
-            number(ui, f, "copies", tl!("Copies"), 1.0..=999.0, "", 1.0);
-            print_paper_controls(ui, f);
+            } else {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(tl!("Printer")).color(t.text_dim));
+                    let mut pr = s(f, "printer", "");
+                    let opts = printer_options(f.get("__systemPrinters"), &pr);
+                    let o: Vec<(String, &str)> = opts.iter().map(|(k, l)| (k.clone(), l.as_str())).collect();
+                    if crate::widgets::dropdown(ui, "print-printer", &mut pr, &o, 240.0) {
+                        f.insert("printer".into(), json!(pr));
+                    }
+                });
+                number(ui, f, "copies", tl!("Copies"), 1.0..=999.0, "", 1.0);
+                print_paper_controls(ui, f);
+            }
             head(ui, tl!("Color Management"));
             dropdown_str(
                 ui,
@@ -937,6 +1079,11 @@ fn print_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Va
                     );
                     check(ui, f, "bpc", tl!("Black Point Compensation"), true);
                 });
+                if printers.is_some() {
+                    ui.label(
+                        egui::RichText::new(tl!("Remember to turn off the printer's own colour management in Print Settings…")).color(t.warning).size(11.0),
+                    );
+                }
             }
             head(ui, tl!("Position and Size"));
             dropdown_str(ui, "print-units", f, "units", &[("cm", tl!("Centimeters")), ("mm", tl!("Millimeters")), ("in", tl!("Inches"))], 130.0);
@@ -1000,13 +1147,24 @@ fn print_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Va
             });
             head(ui, tl!("Functions"));
             check(ui, f, "emulsionDown", tl!("Emulsion Down"), false);
-            head(ui, tl!("Save as PDF"));
-            let mut out = s(f, "output", "");
-            if ui.add(egui::TextEdit::singleline(&mut out).hint_text(tl!("(print to the printer)")).desired_width(300.0)).changed() {
-                f.insert("output".into(), json!(out));
+            if b(f, "emulsionDown", false) && printers.is_some() {
+                ui.label(egui::RichText::new(tl!("Don't also tick Mirror Image in Print Settings…: the two flips cancel out.")).color(t.text_dim).size(11.0));
             }
+            head(ui, tl!("Save as PDF"));
+            ui.horizontal(|ui| {
+                let mut out = s(f, "output", "");
+                if ui.add(egui::TextEdit::singleline(&mut out).hint_text(tl!("(print to the printer)")).desired_width(240.0)).changed() {
+                    f.insert("output".into(), json!(out));
+                }
+                browse = ui.button(tl!("Browse…")).clicked();
+            });
         });
     });
+    if browse {
+        let current = s(f, "output", "");
+        let suggested = if current.is_empty() { std::path::Path::new(&doc.name).with_extension("pdf").to_string_lossy().into_owned() } else { current };
+        browse_pdf(app, id, &suggested);
+    }
 }
 
 fn print_confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value, String> {
@@ -1018,7 +1176,9 @@ fn print_confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Valu
 }
 
 pub(crate) fn print_status(app: &mut PhotocraftApp, r: &Value) {
-    app.ui.status = if r["sent"] == json!(true) {
+    app.ui.status = if let Some(printer) = r["spooler"]["printer"].as_str() {
+        crate::i18n::fmt(tl!("Sent to {printer}"), &[("printer", printer)])
+    } else if r["sent"] == json!(true) {
         let template = "Sent to the printer ({spooler})";
         crate::i18n::fmt(tl!(template), &[("spooler", r["spooler"].as_str().unwrap_or(""))])
     } else {
@@ -1036,6 +1196,20 @@ mod tests {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.run("file.new", json!({"width": 120, "height": 80, "name": "web"})).unwrap();
         (app, egui::Context::default())
+    }
+
+    #[test]
+    fn droplet_folder_follows_the_document_or_uses_a_safe_fallback() {
+        let (mut app, _) = app();
+        let fallback = droplet_default_dir(&app);
+        #[cfg(target_os = "macos")]
+        if std::env::var_os("HOME").is_some() {
+            assert!(std::path::Path::new(&fallback).is_absolute());
+        }
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(fallback, ".");
+        app.session.active_mut().unwrap().path = Some("/tmp/photocraft/drawing.pcraft".into());
+        assert_eq!(droplet_default_dir(&app), "/tmp/photocraft");
     }
 
     #[test]
@@ -1284,6 +1458,66 @@ mod tests {
     }
 
     #[test]
+    fn printer_menu_lists_the_spooler_printers_after_the_default() {
+        let list = json!([{"name": "HP_OfficeJet_3830_series", "default": true}, {"name": "DNP_DP_DS620", "default": false}]);
+        let o = printer_options(Some(&list), "");
+        let keys: Vec<&str> = o.iter().map(|p| p.0.as_str()).collect();
+        assert_eq!(keys, ["", "HP_OfficeJet_3830_series", "DNP_DP_DS620"]);
+        assert!(o[0].1.ends_with("(HP OfficeJet 3830 series)"), "{}", o[0].1);
+        assert_eq!(o[2].1, "DNP DP DS620");
+        // A remembered printer that's gone stays selectable; no list still offers the default.
+        let o = printer_options(Some(&list), "Old_Queue");
+        assert_eq!(o.last().unwrap().0, "Old_Queue");
+        assert_eq!(printer_options(None, "").len(), 1);
+        // The dialog asks the engine, and the list never reaches file.print's params.
+        let (mut app, ctx) = app();
+        let id = crate::menus::invoke(&mut app, &ctx, "file.print", json!({})).unwrap()["dialog"].as_u64().unwrap();
+        let f = &app.ui.dialog_mut(id).unwrap().fields;
+        assert!(f.get("__systemPrinters").is_some_and(Value::is_array));
+        assert!(params(f).get("__systemPrinters").is_none());
+        assert!(params(f).get("__printers").is_none());
+    }
+
+    /// #7410: File › Print opens with the settings of the last print, also those remembered from
+    /// an earlier session (the preferences), before anything was printed in this one.
+    #[test]
+    fn print_dialog_opens_with_the_settings_remembered_from_an_earlier_session() {
+        let (mut app, _) = app();
+        app.session.prefs.edit(|p| {
+            p.dialogs.insert(
+                photocraft_engine::print_cmds::REMEMBERED.into(),
+                json!({"paper": "a5", "scale": 50, "orientation": "landscape", "intent": "perceptual"}),
+            );
+        });
+        let id = open_print(&mut app);
+        let f = &app.ui.dialog_mut(id).unwrap().fields;
+        assert_eq!((&f["paper"], &f["scale"], &f["orientation"], &f["intent"]), (&json!("a5"), &json!(50), &json!("landscape"), &json!("perceptual")));
+        assert_eq!(f["copies"], 1, "what wasn't remembered keeps its default");
+    }
+
+    /// #5328: Save as PDF has Browse…, which fills the field from a Save dialog (suggesting the
+    /// document's name as a PDF) rather than needing a typed path.
+    #[test]
+    fn save_as_pdf_browse_fills_the_output_from_a_save_dialog() {
+        use crate::file_dialog::{FileDialogAnswer, FileDialogRequest};
+        use egui_kittest::{Harness, kittest::Queryable};
+        let out = std::env::temp_dir().join(format!("pc-printui-browse-{}", std::process::id())).to_string_lossy().into_owned();
+        let (show, asked) = crate::file_dialog::fake(vec![Some(FileDialogAnswer::SaveTo(out.clone()))]);
+        let mut h = Harness::builder().with_size(egui::vec2(1440.0, 900.0)).with_max_steps(64).build_eframe(move |cc| {
+            PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+            PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services { file_dialog: Some(show), ..Default::default() })
+        });
+        h.state_mut().run("file.new", json!({"width": 120, "height": 80, "name": "poster"})).unwrap();
+        let id = open_print(h.state_mut());
+        h.run_steps(3);
+        h.get_by_label("Browse…").click();
+        h.run_steps(4);
+        assert!(matches!(asked.borrow().as_slice(), [FileDialogRequest::Save { suggested }] if suggested.ends_with("poster.pdf")), "{:?}", asked.borrow());
+        // A name chosen without an extension gets the suggested one.
+        assert_eq!(h.state_mut().ui.dialog_mut(id).unwrap().fields["output"], json!(format!("{out}.pdf")));
+    }
+
+    #[test]
     fn print_dialog_does_not_inherit_scripted_send_override() {
         for send in [false, true] {
             let (mut app, ctx) = app();
@@ -1487,7 +1721,7 @@ mod web_playback_tests {
                 let doc = web_frame_document(&app.session.active().unwrap().doc, Some(frame)).unwrap();
                 let (proxy, _, _) = web_cmds::web_document(&doc, &json!({"width":16,"height":12}), &settings).unwrap();
                 let pixels = photocraft_compose::flatten(&proxy);
-                let optimized = web_cmds::optimize(&pixels.px, 16, photocraft_geom::Rect::new(0, 0, 16, 12), &settings, None, None, 72.0, true).unwrap();
+                let optimized = web_cmds::optimize(&pixels.px, 16, photocraft_geom::Rect::new(0, 0, 16, 12), &settings, None, None, None, 72.0, true).unwrap();
                 assert_eq!(&optimized.preview[..4], expected, "depth={depth} frame={frame}");
             }
         }

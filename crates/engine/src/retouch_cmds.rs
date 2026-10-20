@@ -15,7 +15,7 @@ use photocraft_algo::retouch::{ToneRange, dodge_burn, local_blur, local_sharpen,
 use photocraft_color::{BlendMode, PixelFormat, SampleType};
 use photocraft_doc::{Document, LayerContent, LayerId};
 use photocraft_geom::Rect;
-use photocraft_paint::retouch::{Footprint, Region, Smudge, alpha_index, apply_coverage, apply_dab_stroke, stroke_coverage};
+use photocraft_paint::retouch::{Footprint, Region, Smudge, alpha_index, apply_coverage, apply_dab_stroke};
 use photocraft_paint::{BrushSettings, Stroke, StrokePoint};
 use photocraft_raster::{Surface, from_rgba_into, to_rgba};
 use serde_json::{Value, json};
@@ -26,12 +26,71 @@ use crate::{EngineError, Result, Session};
 mod content_aware_move;
 mod patch;
 mod pattern_stamp;
+mod periodic;
 mod remove;
 pub use content_aware_move::{ContentAwarePreview, preview as content_aware_move_preview};
 pub use patch::preview as patch_preview;
 
 fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }
+}
+
+/// A single stroke's accumulated coverage must stay at or under this many pixels (8192², so a
+/// stroke corner to corner across a 24–36 MP canvas fits). Larger footprints return an error
+/// instead of allocating.
+const MAX_STROKE_PIXELS: u64 = 67_108_864;
+
+/// Refuse a stroke whose footprint would not fit the coverage budget, from the points and brush
+/// size alone, before the renderer allocates anything for it.
+fn reject_huge_stroke(cmd: &str, stroke: &Stroke) -> Result<()> {
+    // Dynamics place dabs beyond the input points, so half the tip is not the whole reach:
+    // Scattering offsets a centre by up to its amount times the tip size, and a Dual Brush dab
+    // reaches its own radius further. Pad by what those can add so this estimate does not fall
+    // short of what the renderer will cover. It is only the cheap early-out; the rendered extent
+    // is admitted for real in `coverage` below.
+    let b = &stroke.brush;
+    let size = f64::from(b.size.max(1.0));
+    let scatter = if b.scattering.enabled { size * f64::from(b.scattering.scatter.jitter.max(0.0)) } else { 0.0 };
+    let dual = if b.dual_brush.enabled { f64::from(b.dual_brush.size.max(0.0)) * 0.5 } else { 0.0 };
+    let pad = size.mul_add(0.5, 4.0) + scatter + dual;
+    let mut min_x = f64::INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+    for q in &stroke.points {
+        min_x = min_x.min(q.x);
+        min_y = min_y.min(q.y);
+        max_x = max_x.max(q.x);
+        max_y = max_y.max(q.y);
+    }
+    if !min_x.is_finite() || !min_y.is_finite() || !max_x.is_finite() || !max_y.is_finite() {
+        return Err(bad(cmd, "point coordinates must be finite"));
+    }
+    let w = (max_x - min_x + pad * 2.0).ceil().max(1.0);
+    let h = (max_y - min_y + pad * 2.0).ceil().max(1.0);
+    if !w.is_finite() || !h.is_finite() || w > 1.0e9 || h > 1.0e9 {
+        return Err(bad(cmd, format!("stroke too large (at most {MAX_STROKE_PIXELS} px)")));
+    }
+    let area = (w as u64).saturating_mul(h as u64);
+    if area > MAX_STROKE_PIXELS {
+        return Err(bad(cmd, format!("stroke too large ({w:.0}×{h:.0} px, at most {MAX_STROKE_PIXELS})")));
+    }
+    Ok(())
+}
+
+/// The stroke's coverage, with the **rendered** extent admitted before the dense buffer exists.
+///
+/// `reject_huge_stroke` estimates from the input points; this is the real bound. Rendering is
+/// tiled, so it holds only the tiles the dabs touch; the extent is read from those tiles once
+/// every dab is placed (tips, dynamics and scattering included) and checked against `max`, and
+/// only a stroke that fits is made dense. `max` is a parameter so tests can inject a small budget.
+fn coverage_within(cmd: &str, stroke: &Stroke, max: u64) -> Result<(Rect, Vec<f32>)> {
+    photocraft_paint::retouch::stroke_coverage_within(stroke, max).ok_or_else(|| bad(cmd, format!("stroke too large (at most {max} px)")))
+}
+
+/// [`coverage_within`] at the shared allowance.
+fn coverage(cmd: &str, stroke: &Stroke) -> Result<(Rect, Vec<f32>)> {
+    coverage_within(cmd, stroke, MAX_STROKE_PIXELS)
 }
 
 /// A pixel layer, a layer with a mask, or a targeted alpha channel / Quick Mask (as the Brush).
@@ -206,6 +265,7 @@ fn clone_mapping(s: &mut Session, p: &Value, stroke: &Stroke, cmd: &str) -> Resu
 
 /// Source pixels for destination `rect`: a translated read, or a bilinear resample when the
 /// clone source is scaled, rotated or flipped.
+#[allow(clippy::too_many_arguments)]
 fn clone_sample(
     pre: &Document,
     id: Option<LayerId>,
@@ -213,8 +273,12 @@ fn clone_sample(
     which: SampleLayers,
     rect: Rect,
     map: &crate::presets::clone_source::Mapping,
+    wrap: bool,
     cmd: &str,
 ) -> Result<Region> {
+    let read = |rect| {
+        if wrap { periodic::sample(pre, id, surf, which, rect, cmd) } else { Ok(sample(pre, id, surf, which, rect)) }
+    };
     if map.is_translation() {
         let off = map.offset();
         let src = rect.translate(off.0, off.1);
@@ -223,17 +287,28 @@ fn clone_sample(
         if src.width() != rect.width() || src.height() != rect.height() {
             return Err(bad(cmd, format!("source offset [{}, {}] is too far: the sample window leaves the coordinate range", off.0, off.1)));
         }
-        let mut r = sample(pre, id, surf, which, src);
+        let mut r = read(src)?;
         r.rect = rect;
         return Ok(r);
     }
-    let src = sample(pre, id, surf, which, map.source_rect(rect));
+    let src = read(map.source_rect(rect))?;
     Ok(crate::presets::clone_source::resample(&src, rect, map, alpha_index(&surf.format())))
 }
 
 /// Read-only clone overlay. Shares the stroke sampler without anchoring a source or editing history.
 /// Both destination and transformed source allocations are bounded for interactive use.
 pub fn clone_preview(s: &Session, rect: Rect, map: &crate::presets::clone_source::Mapping, sample_layer: &str) -> Result<photocraft_compose::Buffer> {
+    clone_preview_periodic(s, rect, map, sample_layer, false)
+}
+
+/// Clone-source overlay with optional source repetition for View > Pattern Preview.
+pub fn clone_preview_periodic(
+    s: &Session,
+    rect: Rect,
+    map: &crate::presets::clone_source::Mapping,
+    sample_layer: &str,
+    wrap: bool,
+) -> Result<photocraft_compose::Buffer> {
     if ![map.source.0, map.source.1, map.anchor.0, map.anchor.1].into_iter().chain(map.m).all(|v| v.is_finite() && v.abs() < 1_000_000.0) {
         return Err(bad("clone.preview", "invalid preview mapping"));
     }
@@ -253,7 +328,7 @@ pub fn clone_preview(s: &Session, rect: Rect, map: &crate::presets::clone_source
     let id = d.active_layer.ok_or_else(|| bad("clone.preview", "no active layer"))?;
     let surf = d.doc.layer(id).and_then(|l| l.surface()).ok_or_else(|| bad("clone.preview", "no pixel surface"))?;
     let which = sample_layers(&json!({"sampleLayer": sample_layer}), "clone.preview")?;
-    let region = clone_sample(&d.doc, Some(id), surf, which, rect, map, "clone.preview")?;
+    let region = clone_sample(&d.doc, Some(id), surf, which, rect, map, wrap, "clone.preview")?;
     let px = region.data.chunks_exact(surf.format().channels()).map(|p| to_rgba(&surf.format(), p)).collect();
     Ok(photocraft_compose::Buffer { rect, px })
 }
@@ -295,6 +370,7 @@ fn clamp_samples(fmt: &PixelFormat, data: &mut [f32]) {
 fn clone_stamp(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "paint.cloneStamp";
     let (stroke, id) = parse_brush(s, p, CMD)?;
+    reject_huge_stroke(CMD, &stroke)?;
     let which = sample_layers(p, CMD)?;
     let mode = blend_param(p, CMD)?;
     let aligned = flag(p, "aligned", true);
@@ -304,16 +380,26 @@ fn clone_stamp(s: &mut Session, p: &Value) -> Result<Value> {
     let from_live = live.is_some();
     let map = clone_mapping(s, p, &stroke, CMD)?;
     let off = map.offset();
-    let dmg = run_stroke(s, "Clone Stamp", id, p, |pre, surf, sel, lock| {
-        if let Some(l) = live {
-            *surf = l.surface;
-            return Ok(l.bounds);
-        }
-        let (bounds, cov) = stroke_coverage(&stroke);
-        // Samples come from the pre-stroke state, so pixels painted earlier in the stroke are never re-cloned.
-        let paint = clone_sample(pre, id, surf, which, bounds, &map, CMD)?;
-        Ok(apply_coverage(surf, bounds, &cov, stroke.brush.opacity, sel, lock, &paint, mode))
-    })?;
+    let dmg =
+        run_stroke(s, "Clone Stamp", id, p, |pre, surf, sel, lock| {
+            if let Some(l) = live {
+                *surf = l.surface;
+                return Ok(l.bounds);
+            }
+            if flag(p, "wrap", false) {
+                let mut renderer = photocraft_paint::StrokeRenderer::new(&stroke.brush, None, 1.0);
+                renderer.push(&stroke.points);
+                renderer.finish();
+                let before = surf.clone();
+                let bounds = renderer.bounds();
+                return periodic::Composite { target: surf, before: &before, tile: pre.bounds(), opacity: stroke.brush.opacity, selection: sel, lock, mode }
+                    .draw(bounds, &stroke.brush, &stroke.points, |r| clone_sample(pre, id, &before, which, r, &map, true, CMD));
+            }
+            let (bounds, cov) = coverage(CMD, &stroke)?;
+            // Samples come from the pre-stroke state, so pixels painted earlier in the stroke are never re-cloned.
+            let paint = clone_sample(pre, id, surf, which, bounds, &map, flag(p, "wrap", false), CMD)?;
+            Ok(apply_coverage(surf, bounds, &cov, stroke.brush.opacity, sel, lock, &paint, mode))
+        })?;
     let mut r = clone_result(dmg, off, aligned, p, &stroke);
     if from_live {
         r["fromLive"] = json!(true);
@@ -414,7 +500,12 @@ impl LiveRetouch {
 
     /// Everything the stroke has touched so far.
     pub fn bounds(&self) -> Rect {
-        self.renderer.bounds().union(&self.tail)
+        let bounds = self.renderer.bounds().union(&self.tail);
+        if self.cmd == "paint.cloneStamp" && flag(&self.params, "wrap", false) {
+            periodic::project(bounds, self.pre.bounds()).into_iter().fold(Rect::EMPTY, |a, b| a.union(&b))
+        } else {
+            bounds
+        }
     }
 
     /// Every point rendered so far, in order.
@@ -457,6 +548,9 @@ impl LiveRetouch {
         let pts: Vec<_> = pts.iter().map(|q| StrokePoint::new(q.x, q.y, q.pressure)).collect();
         self.points.extend_from_slice(&pts);
         self.renderer.push(&pts);
+        if self.cmd == "paint.cloneStamp" && flag(&self.params, "wrap", false) {
+            return self.push_periodic();
+        }
         let old = std::mem::replace(&mut self.tail, Rect::EMPTY);
         let mut dmg = Rect::EMPTY;
         if !old.is_empty() {
@@ -478,13 +572,36 @@ impl LiveRetouch {
         Ok(dmg)
     }
 
+    fn push_periodic(&mut self) -> Result<Rect> {
+        let mut dirty = self.renderer.take_dirty_rect().union(&self.tail);
+        let mut tail = self.renderer.tail_preview();
+        self.tail = tail.as_mut().map_or(Rect::EMPTY, |t| t.take_dirty_rect());
+        dirty = dirty.union(&self.tail);
+        let LivePaint::Clone { which, map, cmd } = &self.paint else {
+            return Err(bad(&self.cmd, "periodic painting requires a clone source"));
+        };
+        let (surf, _) = crate::channel_cmds::target_surface(std::sync::Arc::make_mut(&mut self.doc), self.id, &self.params)?;
+        periodic::Composite {
+            target: surf,
+            before: &self.pre_surf,
+            tile: self.pre.bounds(),
+            opacity: self.opacity,
+            selection: self.sel.as_ref(),
+            lock: self.lock,
+            mode: self.mode,
+        }
+        .draw(dirty, &self.brush, &self.points, |r| clone_sample(&self.pre, self.id, &self.pre_surf, *which, r, map, true, cmd))
+    }
+
     /// Redraw `r` from the pre-stroke pixels with the clone source through coverage `cov`.
     fn composite(&mut self, r: Rect, cov: &[f32]) -> Result<Rect> {
         if r.is_empty() {
             return Ok(r);
         }
         let paint = match &self.paint {
-            LivePaint::Clone { which, map, cmd } => clone_sample(&self.pre, self.id, &self.pre_surf, *which, r, map, cmd)?,
+            LivePaint::Clone { which, map, cmd } => {
+                clone_sample(&self.pre, self.id, &self.pre_surf, *which, r, map, *cmd == "paint.cloneStamp" && flag(&self.params, "wrap", false), cmd)?
+            }
             LivePaint::History(src) => Region::read(src, r),
         };
         let (surf, _) = crate::channel_cmds::target_surface(std::sync::Arc::make_mut(&mut self.doc), self.id, &self.params)?;
@@ -534,16 +651,17 @@ fn heal_region(fmt: &PixelFormat, src: &Region, dst: &Region, mask: &[bool]) -> 
 fn healing_brush(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "paint.healingBrush";
     let (stroke, id) = parse_brush(s, p, CMD)?;
+    reject_huge_stroke(CMD, &stroke)?;
     let which = sample_layers(p, CMD)?;
     let mode = blend_param(p, CMD)?;
     let aligned = flag(p, "aligned", true);
     let map = clone_mapping(s, p, &stroke, CMD)?;
     let off = map.offset();
     let dmg = run_stroke(s, "Healing Brush", id, p, |pre, surf, sel, lock| {
-        let (bounds, cov) = stroke_coverage(&stroke);
+        let (bounds, cov) = coverage(CMD, &stroke)?;
         let (g, cov) = pad_coverage(bounds, &cov, 2);
         let fmt = surf.format();
-        let src = clone_sample(pre, id, surf, which, g, &map, CMD)?;
+        let src = clone_sample(pre, id, surf, which, g, &map, false, CMD)?;
         // The destination the texture is fitted to: the layer itself, or what the user sees when
         // sampling several layers (so healing onto an empty layer matches the composite).
         let dst = if which == SampleLayers::Current { Region::read(surf, g) } else { composite_region(pre, id, which, g, fmt) };
@@ -573,6 +691,10 @@ fn history_brush(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "paint.historyBrush";
     let (stroke, id) = parse_brush(s, p, CMD)?;
     let mode = blend_param(p, CMD)?;
+    // The coverage and the source region below are both dense over the stroke's bounds, so a
+    // thin stroke across a large canvas would still ask for the whole box. Refuse it from the
+    // points and brush size, before the source surface is cloned or anything is rendered (#4961).
+    reject_huge_stroke(CMD, &stroke)?;
     let live = s.live_commit.take().filter(|l| l.matches(s, CMD, p, &stroke.points));
     let from_live = live.is_some();
     let src_surface = history_source(s, id, p, CMD)?;
@@ -583,7 +705,7 @@ fn history_brush(s: &mut Session, p: &Value) -> Result<Value> {
         }
         let fmt = surf.format();
         let src = if src_surface.format() == fmt { src_surface } else { src_surface.convert(fmt) };
-        let (bounds, cov) = stroke_coverage(&stroke);
+        let (bounds, cov) = coverage(CMD, &stroke)?;
         let paint = Region::read(&src, bounds);
         Ok(apply_coverage(surf, bounds, &cov, stroke.brush.opacity, sel, lock, &paint, mode))
     })?;
@@ -660,12 +782,12 @@ enum SpotType {
 /// Photoshop 25.4 (measured): a dab changes exactly the brush's footprint, and Content-Aware takes
 /// its texture from around it, as Edit › Fill does from its window
 /// ([`crate::fill_cmds::sampling_window`] of the stroke's bounds), which is what this samples.
-fn spot_heal_surface(surf: &mut Surface, pre: &Document, stroke: &Stroke, kind: SpotType, all: bool, sel: Option<&Surface>, lock: bool) -> Rect {
-    let (bounds, cov) = stroke_coverage(stroke);
+fn spot_heal_surface(surf: &mut Surface, pre: &Document, stroke: &Stroke, kind: SpotType, all: bool, sel: Option<&Surface>, lock: bool) -> Result<Rect> {
+    let (bounds, cov) = coverage("paint.spotHealing", stroke)?;
     let size = stroke.brush.size;
     let region_rect = crate::fill_cmds::sampling_window(bounds, pre.bounds());
     if region_rect.is_empty() {
-        return Rect::EMPTY;
+        return Ok(Rect::EMPTY);
     }
     // Proximity Match looks for its source anywhere in that window.
     let margin = (region_rect.width().max(region_rect.height()) / 2) as i32;
@@ -682,7 +804,7 @@ fn spot_heal_surface(surf: &mut Surface, pre: &Document, stroke: &Stroke, kind: 
     }
     let hole: Vec<bool> = stroke_cov.iter().map(|c| *c > 0.0).collect();
     if !hole.iter().any(|h| *h) {
-        return Rect::EMPTY;
+        return Ok(Rect::EMPTY);
     }
     // Synthesise over a slightly larger domain than the Poisson region, so the solve's boundary pixels
     // carry synthesised values that differ from the untouched surroundings: that mismatch is what the
@@ -706,12 +828,13 @@ fn spot_heal_surface(surf: &mut Surface, pre: &Document, stroke: &Stroke, kind: 
     let healed = heal_region(&fmt, &src, &img, &heal_mask);
     let dmg = bounds.intersect(&region_rect);
     let dmg_cov: Vec<f32> = (dmg.y0..dmg.y1).flat_map(|y| (dmg.x0..dmg.x1).map(move |x| (x, y))).map(|(x, y)| stroke_cov[img.index(x, y)]).collect();
-    apply_coverage(surf, dmg, &dmg_cov, stroke.brush.opacity, sel, lock, &healed, BlendMode::Normal)
+    Ok(apply_coverage(surf, dmg, &dmg_cov, stroke.brush.opacity, sel, lock, &healed, BlendMode::Normal))
 }
 
 fn spot_healing(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "paint.spotHealing";
     let (stroke, id) = parse_brush(s, p, CMD)?;
+    reject_huge_stroke(CMD, &stroke)?;
     let kind = match string(p, "type", "contentAware") {
         "contentAware" => SpotType::ContentAware,
         "createTexture" => SpotType::CreateTexture,
@@ -719,7 +842,7 @@ fn spot_healing(s: &mut Session, p: &Value) -> Result<Value> {
         o => return Err(bad(CMD, format!("unknown type `{o}` (contentAware|createTexture|proximityMatch)"))),
     };
     let all = sample_all_layers(p);
-    let dmg = run_stroke(s, "Spot Healing Brush", id, p, |pre, surf, sel, lock| Ok(spot_heal_surface(surf, pre, &stroke, kind, all, sel, lock)))?;
+    let dmg = run_stroke(s, "Spot Healing Brush", id, p, |pre, surf, sel, lock| spot_heal_surface(surf, pre, &stroke, kind, all, sel, lock))?;
     Ok(json!({ "damage": damage_json(dmg) }))
 }
 
@@ -1168,7 +1291,7 @@ pub fn specs() -> Vec<CommandSpec> {
             menu: &[],
             shortcut: None,
             params: brush_params!(
-                r#","source":[sx,sy] (sampled under the first point) | "offset":[dx,dy],"aligned":bool=true,"sampleLayer":"current|currentAndBelow|all"="current","mode":"normal|multiply|…"="normal" → {"damage","offset","aligned","nextSource"}"#
+                r#","source":[sx,sy] (sampled under the first point) | "offset":[dx,dy],"aligned":bool=true,"sampleLayer":"current|currentAndBelow|all"="current","mode":"normal|multiply|…"="normal","wrap":bool=false (repeat source and stroke at document edges for Pattern Preview) → {"damage","offset","aligned","nextSource"}"#
             ),
             enabled: has_pixel_layer,
             run: clone_stamp,

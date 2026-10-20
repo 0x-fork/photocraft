@@ -65,7 +65,7 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
     let thumbs = app.channel_thumbs(&ctx);
     // The active layer's mask (Photoshop lists it, in italics, below the colour channels).
-    let masked = active_layer.and_then(|id| doc.layer(id)).filter(|l| l.mask.is_some()).cloned();
+    let masked = active_layer.and_then(|id| doc.layer(id)).filter(|l| l.mask.is_some());
     let mask_tex = masked.as_ref().and_then(|l| Some(app.mask_thumb(&ctx, &doc, l.id, l.mask.as_ref()?)));
     let mask_targeted = masked.is_some()
         && (app.ui.mask_target || view.target == ChannelTarget::LayerMask)
@@ -217,8 +217,16 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     actions.push(("channel.target".into(), json!({ "channel": target })));
                 }
             }
+            // Like Photoshop: double-clicking the thumbnail opens Channel Options (where an alpha
+            // channel becomes a spot channel, #3761), double-clicking the name renames it.
+            let on_thumb = resp.interact_pointer_pos().is_some_and(|p| p.x < cell.right() + 4.0);
+            if row == Row::QuickMask && resp.double_clicked() {
+                actions.push(("ui.channelOptions".into(), json!("quickMask")));
+            }
             if let Row::Alpha(i) = row {
-                if resp.double_clicked() {
+                if resp.double_clicked() && on_thumb {
+                    actions.push(("ui.channelOptions".into(), json!(i)));
+                } else if resp.double_clicked() {
                     ctx.data_mut(|d| d.insert_temp(rename_id, name.clone()));
                 }
                 if let Some(mut text) = ctx.data(|d| d.get_temp::<String>(rename_id)) {
@@ -250,6 +258,7 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             item(ui, a, "Duplicate Channel", "channel.duplicate", json!({ "channel": i }));
                             item(ui, a, "Delete Channel", "channel.delete", json!({ "channel": i }));
                             item(ui, a, "Rename Channel…", "ui.renameChannel", json!(i));
+                            item(ui, a, "Channel Options…", "ui.channelOptions", json!(i));
                             ui.separator();
                             if ch.spot.is_some() {
                                 item(ui, a, "Merge Spot Channel", "channel.mergeSpot", json!({ "channel": i }));
@@ -261,6 +270,7 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         }
                         Row::QuickMask => {
                             item(ui, a, "Exit Quick Mask", "select.editInQuickMaskMode", json!({ "on": false }));
+                            item(ui, a, "Quick Mask Options…", "ui.channelOptions", json!("quickMask"));
                             indicates_items(ui, a, json!("quickMask"), doc.quick_mask.as_ref().map(|q| q.indicates).unwrap_or_default());
                             overlay_colors(ui, a, json!("quickMask"));
                         }
@@ -275,7 +285,7 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     }
                     ui.separator();
                     item(ui, a, "New Channel…", "channel.new", json!({}));
-                    item(ui, a, "New Spot Channel…", "channel.newSpot", json!({}));
+                    item(ui, a, "New Spot Channel…", "ui.newSpotChannel", json!({}));
                     ui.separator();
                     item(ui, a, "Split Channels", "channel.split", json!({}));
                     item(ui, a, "Merge Channels…", "channel.merge", json!({}));
@@ -320,7 +330,11 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         }
         let load = icons::button(ui, "circle-dashed", 26.0, false, tl!("Load channel as selection"));
         if load.clicked() {
-            actions.push(("select.loadSelection".into(), json!({ "channel": target_ref })));
+            // The selected mask row can coexist with a Composite engine target while mask
+            // painting is active. The footer follows the row the user sees as targeted.
+            let params =
+                if mask_targeted { json!({ "channel": "mask", "layer": masked.as_ref().map(|layer| layer.id.0) }) } else { json!({ "channel": target_ref }) };
+            actions.push(("select.loadSelection".into(), params));
         }
         actions.extend(drop(ui, &load, Footer::Load));
     });
@@ -335,6 +349,14 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 let row = Row::Alpha(p.as_u64().unwrap_or(0) as usize);
                 ctx.data_mut(|d| d.insert_temp(egui::Id::new(("chan-rename", doc.id.0, format!("{:?}", row.reference()))), i.name.clone()));
             }
+            continue;
+        }
+        if id == "ui.newSpotChannel" {
+            crate::channel_options_ui::open_new_spot(app);
+            continue;
+        }
+        if id == "ui.channelOptions" {
+            crate::channel_options_ui::open(app, &p);
             continue;
         }
         let _ = app.run(&id, p);
@@ -595,6 +617,68 @@ mod tests {
         assert!(h.state().session.active().unwrap().doc.selection.is_none());
         drag_to(&mut h, "Red copy", "Load channel as selection");
         assert!(h.state().session.active().unwrap().doc.selection.is_some(), "the white channel selects everything");
+    }
+
+    /// The footer follows the targeted row shown by the panel when mask painting is active,
+    /// even though the engine's channel-view target remains Composite. Other channel targets
+    /// continue to load their own values, and each load remains one undoable selection change.
+    #[test]
+    fn footer_loads_the_selected_layer_mask_and_preserves_color_alpha_targets() {
+        let (mut h, _) = channels_harness();
+        h.state_mut().run("select.rect", json!({"x": 0, "y": 0, "width": 32, "height": 48})).unwrap();
+        h.state_mut().run("layer.layerMask.hideAll", json!({})).unwrap();
+        h.state_mut().run("layer.layerMask.revealSelection", json!({})).unwrap();
+        h.state_mut().run("channel.target", json!({"channel": "composite"})).unwrap();
+        h.state_mut().ui.mask_target = true;
+        h.run_steps(2);
+
+        let click_load = |h: &mut egui_kittest::Harness<'_, PhotocraftApp>| {
+            use egui::{Modifiers, PointerButton};
+            let p = at(h, "Load channel as selection");
+            h.hover_at(p);
+            h.run_steps(1);
+            h.event(egui::Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+            h.run_steps(1);
+            h.event(egui::Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+            h.run_steps(2);
+        };
+        let sample =
+            |h: &egui_kittest::Harness<'_, PhotocraftApp>, x, y| h.state().session.active().unwrap().doc.selection.as_ref().unwrap().sample_channel(x, y, 0);
+
+        assert_eq!(h.state().session.active().unwrap().channel_view.target, ChannelTarget::Composite);
+        click_load(&mut h);
+        assert_eq!((sample(&h, 8, 8), sample(&h, 48, 8)), (1.0, 0.0), "mask row selection wins over the Composite engine target");
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        assert!(h.state().session.active().unwrap().doc.selection.is_none());
+        h.state_mut().run("edit.redo", json!({})).unwrap();
+        assert_eq!((sample(&h, 8, 8), sample(&h, 48, 8)), (1.0, 0.0));
+
+        h.state_mut().ui.mask_target = false;
+        h.state_mut().run("channel.target", json!({"channel": "composite"})).unwrap();
+        click_load(&mut h);
+        assert_eq!((sample(&h, 8, 8), sample(&h, 48, 8)), (1.0, 1.0), "composite luminosity remains available");
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        assert_eq!((sample(&h, 8, 8), sample(&h, 48, 8)), (1.0, 0.0));
+        h.state_mut().run("edit.redo", json!({})).unwrap();
+        assert_eq!((sample(&h, 8, 8), sample(&h, 48, 8)), (1.0, 1.0));
+
+        h.state_mut().run("select.rect", json!({"x": 0, "y": 0, "width": 32, "height": 48})).unwrap();
+        h.state_mut().run("channel.new", json!({"fill": "selection"})).unwrap();
+        h.state_mut().run("select.deselect", json!({})).unwrap();
+        h.state_mut().run("channel.target", json!({"channel": "red"})).unwrap();
+        click_load(&mut h);
+        assert_eq!((sample(&h, 8, 8), sample(&h, 48, 8)), (1.0, 1.0), "color channel still loads its own plane");
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        h.state_mut().run("edit.redo", json!({})).unwrap();
+        assert_eq!((sample(&h, 8, 8), sample(&h, 48, 8)), (1.0, 1.0));
+
+        h.state_mut().run("channel.target", json!({"channel": 1})).unwrap();
+        click_load(&mut h);
+        assert_eq!((sample(&h, 8, 8), sample(&h, 48, 8)), (1.0, 0.0), "alpha channel still loads its own plane");
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        assert_eq!((sample(&h, 8, 8), sample(&h, 48, 8)), (1.0, 1.0));
+        h.state_mut().run("edit.redo", json!({})).unwrap();
+        assert_eq!((sample(&h, 8, 8), sample(&h, 48, 8)), (1.0, 0.0));
     }
 
     /// A plain click on a row still targets it, and a drag released elsewhere does nothing.

@@ -1,4 +1,5 @@
 pub(crate) mod dds;
+pub(crate) mod dds_bc;
 pub(crate) mod deep_exr;
 pub(crate) mod dpx;
 pub(crate) mod exr;
@@ -10,7 +11,9 @@ pub(crate) mod jpeg;
 pub(crate) mod pcx;
 pub(crate) mod png;
 pub(crate) mod pnm;
+pub(crate) mod tga;
 pub(crate) mod tiff;
+pub(crate) mod tiff_exif;
 pub(crate) mod tiff_ifd;
 pub(crate) mod via_image;
 pub(crate) mod vp8;
