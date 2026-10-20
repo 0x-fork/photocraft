@@ -1082,6 +1082,34 @@ fn glow_gradient_follows_the_shape() {
     assert!(edge[0] > 0.8 && edge[2] < 0.2, "{edge:?}");
 }
 
+// A Gradient Overlay spans the layer's frame: growing the layer repaints all of it, not just the
+// new pixels (#4053). Effects that don't depend on the frame repaint only what changed.
+#[test]
+fn relayout_damage_covers_a_layer_whose_gradient_frame_moved() {
+    let overlay = Effect::GradientOverlay { common: FxCommon::new(photocraft_color::BlendMode::Normal, 1.0), gradient: Gradient::default(), dither: false };
+    let grown = |a: &Document, rect: Rect, rgba: [f32; 4]| {
+        let mut b = a.clone();
+        let old = b.layers.last().unwrap().clone();
+        let mut l = solid_layer("sq", rect, rgba);
+        (l.id, l.effects) = (old.id, old.effects);
+        *b.layers.last_mut().unwrap() = l;
+        b
+    };
+    let a = fx_doc(vec![overlay.clone()]);
+    let b = grown(&a, Rect::new(10, 10, 36, 34), [1.0, 0.0, 0.0, 1.0]);
+    let d = crate::relayout_damage(&a, &b);
+    assert!(d.contains_rect(&Rect::new(10, 10, 36, 34)), "{d:?}");
+    // Same bounds, other pixels: the frame stays, the pixels' own damage is enough.
+    assert_eq!(crate::relayout_damage(&a, &grown(&a, Rect::new(10, 10, 30, 30), [0.0, 1.0, 0.0, 1.0])), Rect::EMPTY);
+    // A Color Overlay doesn't depend on the frame.
+    let c = fx_doc(vec![Effect::ColorOverlay { common: FxCommon::new(photocraft_color::BlendMode::Normal, 1.0), color: Color::BLACK }]);
+    assert_eq!(crate::relayout_damage(&c, &grown(&c, Rect::new(10, 10, 36, 34), [1.0, 0.0, 0.0, 1.0])), Rect::EMPTY);
+    // Nor does a disabled overlay.
+    let mut off = a.clone();
+    off.layers.last_mut().unwrap().effects.enabled = false;
+    assert_eq!(crate::relayout_damage(&off, &grown(&off, Rect::new(10, 10, 36, 34), [1.0, 0.0, 0.0, 1.0])), Rect::EMPTY);
+}
+
 #[test]
 fn gradient_overlay_follows_angle_and_reverse() {
     let g = Gradient { stops: vec![(0.0, Color::BLACK), (1.0, Color::WHITE)], angle: 0.0, ..Gradient::default() };
@@ -3164,4 +3192,53 @@ fn a_pass_through_clipping_base_keeps_its_adjustments_inside() {
     clip.clipped = true;
     d.layers.push(clip);
     assert!(close4(px(&d, 1, 1), [1.0, 1.0, 1.0, 1.0]), "{:?}", px(&d, 1, 1));
+}
+
+// A cache entry reserves the addresses of the tiles its key hashes, not their pixels (#4530): once
+// the document lets go of a styled layer or group (an edit replaced its tiles, or it was
+// deleted), the effect cache keeps none of its pixel memory alive, and the maps are still
+// reused while the layer is unchanged.
+#[test]
+fn effect_cache_keeps_no_pixels_of_a_dropped_layer() {
+    let mut d = doc_white(300, 300);
+    let mut l = solid_layer("styled", Rect::new(20, 20, 280, 280), [0.9, 0.2, 0.2, 1.0]);
+    l.effects.items = vec![stroke(3.0, StrokePosition::Outside)];
+    d.layers.push(l);
+    let mut g = Layer::group("g", vec![solid_layer("child", Rect::new(40, 40, 120, 120), [0.1, 0.2, 0.9, 1.0])]);
+    g.effects.items = vec![Effect::DropShadow(Shadow { size: 2.0, spread: 0.0, ..shadow(3.0, 90.0) })];
+    d.layers.push(g);
+    let first = render(&d, d.bounds());
+    let tile = |l: &Layer| l.surface().and_then(|s| s.tiles().next()).map(|(_, t)| t.clone()).unwrap();
+    let own = tile(&d.layers[1]);
+    let LayerContent::Group(grp) = &d.layers[2].content else { panic!("not a group") };
+    let child = tile(&grp.children[0]);
+    assert_eq!(render(&d, d.bounds()).px, first.px, "warm render");
+    drop(d);
+    // Only this test's handles are left: the cache pins neither the layer's nor the child's pixels.
+    assert_eq!(std::sync::Arc::strong_count(&own), 1);
+    assert_eq!(std::sync::Arc::strong_count(&child), 1);
+}
+
+// Concurrent callers share one memoized effect identity.
+#[test]
+fn concurrent_effect_identity_misses_compute_once() {
+    let mut doc = identity_doc(SampleType::U8);
+    // Make the existing pure identity hash long enough to expose overlapping misses.
+    doc.layers[1].effects.items = vec![Effect::DropShadow(shadow(4.0, 120.0)); 512];
+    let layer = &doc.layers[1];
+    let keys = LayerKeys::default();
+    let start = std::sync::Barrier::new(8);
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                scope.spawn(|| {
+                    start.wait();
+                    keys.identity(layer, Some(&doc))
+                })
+            })
+            .collect();
+        let ids: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+        assert!(ids.iter().all(|id| *id == ids[0]));
+    });
+    assert_eq!(keys.built.load(std::sync::atomic::Ordering::Relaxed), 1, "concurrent cache misses must compute one memoized identity");
 }

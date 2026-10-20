@@ -329,10 +329,14 @@ fn ruler_pos(xf: &ViewXform, vertical: bool, u: f64, px_per_unit: f64, zero: [f6
 /// (`y_axis` false) or the left one, from Preferences › Units & Rulers and the zoom. Minor ticks
 /// sit at tenths of the step.
 fn ruler_scale(app: &PhotocraftApp, xf: &ViewXform, y_axis: bool) -> (f64, f64) {
+    ruler_scale_of(app, app.session.active().map(|d| &*d.doc), xf, y_axis)
+}
+
+/// [`ruler_scale`] for the view of `doc`.
+fn ruler_scale_of(app: &PhotocraftApp, doc: Option<&photocraft_doc::Document>, xf: &ViewXform, y_axis: bool) -> (f64, f64) {
     let ur = &app.session.prefs().units_and_rulers;
     let (unit, ppi) = (ur.rulers, ur.point_size.per_inch());
-    let (dpi, size) =
-        app.session.active().map_or((72.0, [1.0, 1.0]), |d| (d.doc.resolution_dpi.max(1.0) as f64, [d.doc.size.width as f64, d.doc.size.height as f64]));
+    let (dpi, size) = doc.map_or((72.0, [1.0, 1.0]), |d| (d.resolution_dpi.max(1.0) as f64, [d.size.width as f64, d.size.height as f64]));
     let px_per_unit = unit.to_px(1.0, dpi, if y_axis { size[1] } else { size[0] }, ppi).max(1e-9);
     // The top ruler runs along document x, which pixel aspect correction stretches.
     let zoom = if y_axis { xf.zoom } else { xf.zoom_x() };
@@ -356,9 +360,16 @@ fn ruler_label(v: f64, step: f64, whole: bool) -> String {
     if step >= 1.0 || whole { format!("{}", v.round() as i64) } else { crate::widgets::fmt_num2(v) }
 }
 
-/// Rulers along the top and left of `full` (the canvas rect before `content_rect`), with the
-/// pointer position marked; dragging out of a ruler creates a guide.
-pub fn draw_rulers(app: &mut PhotocraftApp, ui: &mut egui::Ui, full: Rect, xf: &ViewXform) {
+/// The rulers of `doc`'s view in `full`: background, ticks and labels from its zero point.
+/// Returns the top, left and corner rects, the painter, the zero point and the minor tick sizes.
+#[allow(clippy::type_complexity)]
+fn paint(
+    app: &PhotocraftApp,
+    ui: &egui::Ui,
+    full: Rect,
+    xf: &ViewXform,
+    doc: &photocraft_doc::Document,
+) -> (Rect, Rect, Rect, egui::Painter, [f64; 2], [f64; 2]) {
     let t = Tokens::get(ui.ctx());
     let top = Rect::from_min_max(pos2(full.left() + RULER, full.top()), pos2(full.right(), full.top() + RULER));
     let left = Rect::from_min_max(pos2(full.left(), full.top() + RULER), pos2(full.left() + RULER, full.bottom()));
@@ -376,11 +387,11 @@ pub fn draw_rulers(app: &mut PhotocraftApp, ui: &mut egui::Ui, full: Rect, xf: &
     let unit = app.session.prefs().units_and_rulers.rulers;
     let whole = unit == Unit::Pixels;
     // The zero point (#2955): rulers read 0 there and count the distance from it.
-    let origin = app.session.active().map_or([0.0, 0.0], |d| d.doc.ruler_origin);
+    let origin = doc.ruler_origin;
     let mut ticks = [1.0; 2];
     for vertical in [false, true] {
         let p = p.with_clip_rect(if vertical { left } else { top });
-        let (px_per_unit, step) = ruler_scale(app, xf, vertical);
+        let (px_per_unit, step) = ruler_scale_of(app, Some(doc), xf, vertical);
         ticks[usize::from(vertical)] = step * px_per_unit / 10.0;
         let (u0, u1) = if vertical {
             ruler_range(xf, left.left_top(), left.left_bottom(), 1, px_per_unit, origin)
@@ -393,9 +404,10 @@ pub fn draw_rulers(app: &mut PhotocraftApp, ui: &mut egui::Ui, full: Rect, xf: &
             let c = at(v);
             if vertical {
                 p.line_segment([pos2(left.right() - RULER, c), pos2(left.right(), c)], tick);
-                // Labels stacked, as in Photoshop.
+                // Labels stacked, as in Photoshop, each character centred in the ruler's width
+                // (a narrow "1" used to hug the left edge while a "0" filled the strip).
                 for (i, ch) in ruler_label(v, step, whole).chars().enumerate() {
-                    p.text(pos2(left.left() + 3.0, c + 2.0 + i as f32 * 8.5), Align2::LEFT_TOP, ch, font.clone(), t.text_dim);
+                    p.text(pos2(left.left() + RULER * 0.5, c + 2.0 + i as f32 * 8.5), Align2::CENTER_TOP, ch, font.clone(), t.text_dim);
                 }
             } else {
                 p.line_segment([pos2(c, top.bottom() - RULER), pos2(c, top.bottom())], tick);
@@ -413,6 +425,23 @@ pub fn draw_rulers(app: &mut PhotocraftApp, ui: &mut egui::Ui, full: Rect, xf: &
             v += step;
         }
     }
+    (top, left, corner, p, origin, ticks)
+}
+
+/// Rulers for a document view that isn't the active one (another tile of Window › Arrange, a
+/// floating window): shown as the active view's are, but guides and the zero point are dragged
+/// in the active view (#6017).
+pub fn paint_rulers(app: &PhotocraftApp, ui: &egui::Ui, full: Rect, xf: &ViewXform, doc: &photocraft_doc::Document) {
+    paint(app, ui, full, xf, doc);
+}
+
+/// Rulers along the top and left of `full` (the canvas rect before `content_rect`), with the
+/// pointer position marked; dragging out of a ruler creates a guide.
+pub fn draw_rulers(app: &mut PhotocraftApp, ui: &mut egui::Ui, full: Rect, xf: &ViewXform) {
+    let Some(doc) = app.session.active().map(|d| d.doc.clone()) else { return };
+    let (top, left, corner, p, origin, ticks) = paint(app, ui, full, xf, &doc);
+    let t = Tokens::get(ui.ctx());
+    let unit = app.session.prefs().units_and_rulers.rulers;
     // Pointer position markers.
     if let Some(h) = ui.ctx().pointer_hover_pos().filter(|h| full.contains(*h)) {
         let m = Stroke::new(1.0, t.text);
@@ -431,6 +460,9 @@ pub fn draw_rulers(app: &mut PhotocraftApp, ui: &mut egui::Ui, full: Rect, xf: &
             ui.ctx().set_cursor_icon(if vertical { egui::CursorIcon::ResizeHorizontal } else { egui::CursorIcon::ResizeVertical });
         }
         if let Some(pos) = resp.interact_pointer_pos().filter(|_| salt != "ruler-corner" && (resp.dragged() || resp.drag_started())) {
+            // ⌥/Alt turns the guide the other way, as in Photoshop: a vertical guide out of the top
+            // ruler, a horizontal one out of the left (#5698), switching as Alt goes up and down.
+            let vertical = vertical != ui.input(|i| i.modifiers.alt);
             let d = xf.to_doc(pos);
             let along = if vertical { d[0] } else { d[1] };
             let pos = if ui.input(|i| i.modifiers.shift) { snap_to_tick(app, xf, vertical, along) } else { crate::snap_ui::snap_guide(app, vertical, along) };
@@ -529,6 +561,28 @@ mod tests {
             }
         }
         assert!(failures.is_empty(), "ruler drawing overlaps the origin corner: {failures:?}");
+    }
+
+    /// #7314: the stacked characters of the left ruler's labels are centred on the strip, so a
+    /// narrow "1" lines up with a wide "0".
+    #[test]
+    fn left_ruler_label_characters_are_centred() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 256, "height": 128})).unwrap();
+        let (mut h, full, _) = ruler_harness(app);
+        h.run_steps(2);
+        let centres: Vec<f32> = h
+            .output()
+            .shapes
+            .iter()
+            .filter_map(|s| if let egui::Shape::Text(t) = &s.shape { Some(t) } else { None })
+            .filter(|t| t.pos.x < full.min.x + RULER && t.pos.y > full.min.y + RULER)
+            .map(|t| t.pos.x + t.galley.size().x * 0.5)
+            .collect();
+        assert!(centres.len() > 2, "the left ruler draws labels: {centres:?}");
+        for c in &centres {
+            assert!((c - (full.min.x + RULER * 0.5)).abs() < 0.01, "character centre {c} in {centres:?}");
+        }
     }
 
     #[test]
@@ -663,6 +717,24 @@ mod tests {
         h.run_steps(2);
         assert!(h.query_by_label("30").is_some() && h.query_by_label("15").is_some(), "X 30, Y 15 from the zero point at (20, 5)");
         assert!(h.query_by_label("50").is_none(), "not the raw image x");
+    }
+
+    /// #5728: dragging a guide shows its coordinate in the Info panel on one axis only.
+    #[test]
+    fn info_panel_shows_guide_drag_position_outside_canvas() {
+        use egui_kittest::kittest::Queryable;
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 200, "height": 100})).unwrap();
+        app.hover_doc = None;
+        app.guide_drag = Some(GuideDrag { vertical: true, index: None, pos: 42.0, press: 42.0 });
+        let mut h = egui_kittest::Harness::builder()
+            .with_size(vec2(260.0, 240.0))
+            .build_ui_state(|ui, app| crate::panels::dock_body(app, ui, crate::dock::Group::Navigator, 2), app);
+        h.run_steps(2);
+        assert!(h.query_by_label("42").is_some(), "vertical guide: X readout");
+        h.state_mut().guide_drag = Some(GuideDrag { vertical: false, index: None, pos: 17.0, press: 17.0 });
+        h.run_steps(2);
+        assert!(h.query_by_label("17").is_some(), "horizontal guide: Y readout");
     }
 
     #[test]
@@ -808,7 +880,17 @@ mod tests {
     fn command_drag_over_a_guide_moves_the_guide_with_any_tool() {
         use crate::canvas::{ToolEvent, tool_event};
         use crate::state::Tool;
-        for (tool, locked) in [(Tool::Brush, false), (Tool::RectMarquee, false), (Tool::Lasso, false), (Tool::MagicWand, false), (Tool::RectMarquee, true)] {
+        for (tool, locked) in [
+            (Tool::Brush, false),
+            (Tool::Eraser, false),
+            (Tool::Gradient, false),
+            (Tool::Frame, false),
+            (Tool::Artboard, false),
+            (Tool::RectMarquee, false),
+            (Tool::Lasso, false),
+            (Tool::MagicWand, false),
+            (Tool::RectMarquee, true),
+        ] {
             let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
             app.run("file.new", json!({"width": 80, "height": 60, "background": "transparent"})).unwrap();
             app.sync_views();
@@ -951,6 +1033,35 @@ mod tests {
         }
     }
 
+    /// #5698: as in Photoshop, an Alt-drag out of the top ruler makes a vertical guide and one out
+    /// of the left ruler a horizontal guide; without Alt each ruler makes its own kind.
+    #[test]
+    fn alt_drags_a_guide_of_the_other_orientation_out_of_a_ruler() {
+        let full = Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0));
+        let rect = Rect::from_min_max(full.min + vec2(RULER, RULER), full.max);
+        let xf = ViewXform { rect, zoom: 1.0, center: [128.0, 64.0], flip: false, rotation: 0.0, aspect: 1.0 };
+        let drag = |from: Pos2, modifiers: egui::Modifiers| {
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+            app.run("file.new", json!({"width": 256, "height": 128})).unwrap();
+            let mut h = egui_kittest::Harness::builder().with_size(vec2(400.0, 300.0)).build_ui_state(move |ui, app| draw_rulers(app, ui, full, &xf), app);
+            let to = xf.to_screen(37.0, 90.0);
+            h.event_modifiers(egui::Event::PointerMoved(from), modifiers);
+            h.event_modifiers(egui::Event::PointerButton { pos: from, button: egui::PointerButton::Primary, pressed: true, modifiers }, modifiers);
+            h.run_steps(1);
+            h.event_modifiers(egui::Event::PointerMoved(to), modifiers);
+            h.run_steps(1);
+            h.event_modifiers(egui::Event::PointerButton { pos: to, button: egui::PointerButton::Primary, pressed: false, modifiers }, modifiers);
+            h.run_steps(2);
+            let g = &h.state().session.active().unwrap().doc.guides;
+            (g.vertical.clone(), g.horizontal.clone())
+        };
+        let (top, left) = (pos2(200.0, RULER / 2.0), pos2(RULER / 2.0, 150.0));
+        assert_eq!(drag(top, egui::Modifiers::NONE), (vec![], vec![90.0]), "top ruler: horizontal");
+        assert_eq!(drag(left, egui::Modifiers::NONE), (vec![37.0], vec![]), "left ruler: vertical");
+        assert_eq!(drag(top, egui::Modifiers::ALT), (vec![37.0], vec![]), "Alt from the top ruler: vertical");
+        assert_eq!(drag(left, egui::Modifiers::ALT), (vec![], vec![90.0]), "Alt from the left ruler: horizontal");
+    }
+
     /// #3770: a guide Shift-dragged out of a ruler lands on the nearest tick the ruler draws
     /// (tenths of the labelled step, in the ruler unit); without Shift it lands where it's dropped.
     #[test]
@@ -978,6 +1089,8 @@ mod tests {
             h.state().session.active().unwrap().doc.guides.vertical.clone()
         };
         assert_eq!(drag_guide(egui::Modifiers::NONE), vec![37.0]);
+        // #5698: Alt turns it into a horizontal guide (at the drop's y, the document's centre).
+        assert_eq!(drag_guide(egui::Modifiers::ALT), Vec::<f64>::new(), "no vertical guide with Alt");
         // Pixels at 100%: labels every 100 px, ticks every 10 px.
         assert_eq!(drag_guide(egui::Modifiers::SHIFT), vec![40.0]);
 
