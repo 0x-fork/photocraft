@@ -66,7 +66,7 @@ fn round_trip(doc: &Document) -> (PsdFile, Document) {
 /// Opaque pixels of the render that are mostly `channel` (0 red, 1 green, 2 blue).
 fn count(s: &Surface, channel: usize) -> usize {
     let r = s.content_bounds();
-    s.read_region(r).chunks_exact(4).filter(|p| p[3] > 0.5 && p[channel] > 0.5 && (0..3).all(|c| c == channel || p[c] < 0.5)).count()
+    s.read_region(r).as_chunks::<4>().0.iter().filter(|p| p[3] > 0.5 && p[channel] > 0.5 && (0..3).all(|c| c == channel || p[c] < 0.5)).count()
 }
 
 /// Before #4112 a cylinder was read as no warp: re-rendering the contents drew them flat, the

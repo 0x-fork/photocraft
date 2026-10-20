@@ -145,6 +145,22 @@ fn cylinder_in_source(w: &Warp, inv: &Homography, sb: [f64; 4]) -> Option<Warp> 
     Some(Warp::custom(mesh, sb))
 }
 
+/// Whether the custom warp `w` is exactly what Warp mode shows for `layer`'s stored cylinder
+/// ([`smart_warp_doc_space`]: its mesh over the same box), so committing it untouched changes
+/// nothing. Stored as a custom warp instead, the cylinder would be lost, as a PSD keeps it only
+/// as `warpCylinder` (#4112).
+fn is_stored_cylinder(layer: &Layer, w: &Warp) -> bool {
+    let LayerContent::Smart(sm) = &layer.content else { return false };
+    if w.style != WarpStyle::Custom || sm.warp.as_ref().is_none_or(|s| s.style != WarpStyle::Cylinder) {
+        return false;
+    }
+    let (Some(shown), Some(m)) = (smart_warp_doc_space(layer), w.mesh.as_ref()) else { return false };
+    let Some(o) = shown.mesh.as_ref() else { return false };
+    let tol = 1e-6 * (1.0 + o.points.iter().flatten().chain(&shown.bounds).fold(0.0f64, |a, v| a.max(v.abs())));
+    let near = |a: &[f64], b: &[f64]| a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() <= tol);
+    o.us == m.us && o.vs == m.vs && near(&shown.bounds, &w.bounds) && near(o.points.as_flattened(), m.points.as_flattened())
+}
+
 /// A Background is turned into a normal layer by the caller first
 /// ([`crate::extra_cmds::background_to_layer`]).
 fn warp_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut Layer, w: &Warp, rect: Rect, interp: Interp, frames: Option<&Frames>) -> Result<()> {
@@ -383,6 +399,10 @@ fn apply(s: &mut Session, p: &Value, cmd: &str) -> Result<Value> {
     }
     let is_smart = matches!(s.active().and_then(|d| d.doc.layer(id)).map(|l| &l.content), Some(LayerContent::Smart(_)));
     if w.is_identity() && !is_smart {
+        return Ok(json!({"layer": id.0, "changed": false}));
+    }
+    // An untouched cylinder (Warp mode, then Enter) stays as it is, with no history step.
+    if p.get("mesh").is_none() && s.active().and_then(|d| d.doc.layer(id)).is_some_and(|l| is_stored_cylinder(l, &w)) {
         return Ok(json!({"layer": id.0, "changed": false}));
     }
     let interp = Interp::parse(p.get("interpolation").and_then(Value::as_str).unwrap_or("bicubic"));
@@ -798,6 +818,52 @@ mod tests {
         let w = stored(&s);
         assert_eq!(w.style, WarpStyle::Custom);
         assert_eq!(w.mesh.as_ref().map(|m| (m.nx(), m.ny())), Some((13, 4)));
+    }
+
+    /// Warp mode shows a stored cylinder as its mesh, and Enter commits that mesh untouched: the
+    /// smart object keeps its cylinder (else the next PSD save writes no warp), while a moved
+    /// point still makes it a custom warp.
+    #[test]
+    fn untouched_cylinder_committed_from_warp_mode_stays_a_cylinder() {
+        for scale in [100, 150] {
+            let mut s = session(8);
+            s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+            s.execute("edit.transform", json!({"scaleX": scale, "scaleY": 100})).unwrap();
+            let id = s.active().unwrap().active_layer.unwrap();
+            let rect = warp_bounds(&s.active().unwrap().doc, s.active().unwrap().doc.layer(id).unwrap());
+            let [x0, x1] = [f64::from(rect.x0), f64::from(rect.x1)];
+            let values = [x0, 40.0, x1, 10.0, 0.3, 0.3, 0.5];
+            s.execute("layer.smartObjects.warp", json!({"style": "cylinder", "values": values, "rect": [rect.x0, 10, rect.x1, 40]})).unwrap();
+            let stored = |s: &Session| {
+                let st = s.active().unwrap();
+                let LayerContent::Smart(sm) = &st.doc.layer(id).unwrap().content else { panic!("smart") };
+                sm.warp.clone().unwrap()
+            };
+            let cylinder = stored(&s);
+            assert_eq!(cylinder.style, WarpStyle::Cylinder, "{scale}");
+            let shown = smart_warp_doc_space(s.active().unwrap().doc.layer(id).unwrap()).unwrap();
+            assert_eq!(shown.style, WarpStyle::Custom);
+            s.execute("select.all", json!({})).unwrap();
+            let (sel, steps) = (s.active().unwrap().doc.selection.clone(), s.active().unwrap().history.past_len());
+            let r = s.execute("edit.transform.warp", json!({"layer": id.0, "rect": shown.bounds, "warp": shown, "interpolation": "bicubic"})).unwrap();
+            assert_eq!(r["changed"], false, "{scale}");
+            assert_eq!(stored(&s), cylinder, "{scale}: untouched");
+            let st = s.active().unwrap();
+            assert!(st.doc.selection == sel && st.history.past_len() == steps, "{scale}: no step, the selection stays");
+            // The same mesh over another box is another warp.
+            let mut wider = shown.clone();
+            wider.bounds[2] += 10.0;
+            s.execute("edit.transform.warp", json!({"layer": id.0, "rect": wider.bounds, "warp": wider})).unwrap();
+            assert_eq!(stored(&s).style, WarpStyle::Custom, "{scale}: other box");
+            s.execute("edit.undo", json!({})).unwrap();
+            assert_eq!(stored(&s), cylinder);
+            let mut moved = shown.clone();
+            if let Some(m) = moved.mesh.as_mut() {
+                m.points[20][1] += 5.0;
+            }
+            s.execute("edit.transform.warp", json!({"layer": id.0, "rect": moved.bounds, "warp": moved})).unwrap();
+            assert_eq!(stored(&s).style, WarpStyle::Custom, "{scale}: edited");
+        }
     }
 
     #[test]
