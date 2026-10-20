@@ -93,7 +93,8 @@ pub fn hex(c: [f32; 3]) -> String {
 
 pub fn parse_hex(s: &str) -> Option<[f32; 3]> {
     let h = s.trim().trim_start_matches('#');
-    if h.len() != 6 {
+    // `from_str_radix` accepts a leading '+', so require plain hex digits first.
+    if h.len() != 6 || !h.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
     // `get`, not `[..]`: typed text may be multi-byte, and a byte range can split a character.
@@ -1142,6 +1143,13 @@ mod tests {
         // Six bytes, three characters: the byte range 0..2 splits "é", which used to panic.
         assert_eq!(parse_hex("aé€"), None);
         assert_eq!(parse_hex("#ff880"), None);
+    }
+
+    #[test]
+    fn parse_hex_rejects_signs() {
+        assert_eq!(parse_hex("#+f+f+f"), None);
+        assert_eq!(parse_hex("+1+2+3"), None);
+        assert!(parse_hex("#0f0f0f").is_some());
     }
 
     #[test]
