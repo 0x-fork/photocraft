@@ -273,10 +273,11 @@ pub fn is_psd(bytes: &[u8]) -> bool {
     bytes.starts_with(b"8BPS")
 }
 
-/// PSD/PSB/PSDT by magic or by a declared Photoshop extension so File › Open does not
-/// send `.psd` through the generic image codecs (`codec: unrecognized image format`, #5258).
+/// PSD/PSB/PSDT by magic, or by a declared Photoshop extension when no other raster
+/// signature is present. A PNG/JPEG/TIFF downloaded as `.psd` still opens from its bytes
+/// (#5258 review).
 fn is_psd_input(name: &str, bytes: &[u8]) -> bool {
-    is_psd(bytes) || PSD_EXTS.iter().any(|e| has_extension(name, e))
+    is_psd(bytes) || (PSD_EXTS.iter().any(|e| has_extension(name, e)) && photocraft_codecs::detect(bytes).is_none())
 }
 
 /// Imports a file. PSD/PSB, Affinity containers and camera raws are detected by magic; everything
@@ -343,11 +344,6 @@ fn import_stages(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt, m
     if affinity::is_affinity(bytes) || affinity::has_extension(name) {
         return affinity::import(name, bytes);
     }
-    // Same predicate as above; the magic case already returned, so this routes the declared
-    // `.psd`/`.psb`/`.psdt` extensions that are not Affinity containers.
-    if is_psd_input(name, bytes) {
-        return import_psd(name, bytes, ctl);
-    }
     if ora::is_ora(bytes) || has_extension(name, "ora") {
         return ora::import(name, bytes, ctl);
     }
@@ -364,6 +360,11 @@ fn import_stages(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt, m
     }
     if is_svg_input(name, bytes) {
         return svg::import_svg_with_group_depth(name, bytes, max_group_depth);
+    }
+    // A `.psd`/`.psb`/`.psdt` with no raster signature keeps the PSD error instead of
+    // `codec: unrecognized image format` (#5258). Magic already returned above.
+    if is_psd_input(name, bytes) {
+        return import_psd(name, bytes, ctl);
     }
     flat::import_flat(name, bytes)
 }
@@ -610,5 +611,22 @@ mod tests {
         assert!(!msg.contains("unrecognized image format"), "{msg}");
         // A renamed Affinity file keeps the Affinity loader (magic before the .psd suffix).
         assert!(!super::is_psd(b"\0\xffKA"));
+    }
+
+    /// A common mislabeled download: PNG/JPEG bytes named `.psd` open from the signature,
+    /// as on main and in Photoshop.
+    #[test]
+    fn raster_bytes_named_psd_still_open() {
+        use photocraft_codecs::{ChannelLayout, EncodeOptions, Format, Image};
+        let n = 8 * 8 * 3;
+        let img = Image::from_u8(8, 8, ChannelLayout::Rgb, vec![180; n]).unwrap();
+        let png = photocraft_codecs::encode(&img, Format::Png, &EncodeOptions::default()).unwrap();
+        let jpeg = photocraft_codecs::encode(&img, Format::Jpeg, &EncodeOptions::default()).unwrap();
+        for (name, bytes) in [("download.psd", png.as_slice()), ("scan.PSB", jpeg.as_slice())] {
+            assert!(!is_psd_input(name, bytes), "{name}");
+            let d = import(name, bytes).unwrap_or_else(|e| panic!("{name}: {e}")).document;
+            assert_eq!(d.bounds().width(), 8, "{name}");
+            assert_eq!(d.bounds().height(), 8, "{name}");
+        }
     }
 }

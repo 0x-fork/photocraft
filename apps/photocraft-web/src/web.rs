@@ -397,10 +397,7 @@ fn services(inbox: Inbox, place_inbox: Inbox, cursor_pos: photocraft_ui_egui::Cu
                 let dialog = if let Some(exts) = extensions {
                     rfd::AsyncFileDialog::new().add_filter("Supported Files", &exts)
                 } else {
-                    rfd::AsyncFileDialog::new()
-                        .add_filter("All Formats", OPEN_EXTS)
-                        .add_filter("Photoshop", &["psd", "psb", "psdt"])
-                        .add_filter("SVG", SVG_EXTS)
+                    rfd::AsyncFileDialog::new().add_filter("All Formats", OPEN_EXTS).add_filter("SVG", SVG_EXTS)
                 };
                 let answer = if multiple {
                     match dialog.pick_files().await {
