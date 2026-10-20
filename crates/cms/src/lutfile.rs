@@ -230,6 +230,10 @@ pub fn write_cube(l: &LutFile) -> String {
         s.push_str(&format!("TITLE \"{}\"\n", l.title.replace('"', "'")));
     }
     s.push_str(&format!("LUT_3D_SIZE {}\n", l.size));
+    if l.domain_min != [0.0; 3] || l.domain_max != [1.0; 3] {
+        s.push_str(&format!("DOMAIN_MIN {} {} {}\n", l.domain_min[0], l.domain_min[1], l.domain_min[2]));
+        s.push_str(&format!("DOMAIN_MAX {} {} {}\n", l.domain_max[0], l.domain_max[1], l.domain_max[2]));
+    }
     for c in l.data.as_chunks::<3>().0 {
         s.push_str(&format!("{:.6} {:.6} {:.6}\n", c[0], c[1], c[2]));
     }
@@ -300,6 +304,22 @@ pub fn builtin(id: &str) -> Option<LutFile> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn write_cube_keeps_non_default_domain() {
+        let mut l = LutFile::identity(2);
+        l.domain_min = [0.1; 3];
+        l.domain_max = [0.9; 3];
+        let back = parse_cube(&write_cube(&l)).unwrap();
+        assert_eq!(back.domain_min, [0.1; 3]);
+        assert_eq!(back.domain_max, [0.9; 3]);
+        l.domain_min = [0.0, 0.0, 0.5];
+        l.domain_max = [1.0; 3];
+        let back = parse_cube(&write_cube(&l)).unwrap();
+        assert_eq!(back.domain_min, [0.0, 0.0, 0.5]);
+        assert_eq!(back.domain_max, [1.0; 3]);
+        assert!(!write_cube(&LutFile::identity(2)).contains("DOMAIN"));
+    }
 
     #[test]
     fn cube_domain_is_kept_and_validated() {
