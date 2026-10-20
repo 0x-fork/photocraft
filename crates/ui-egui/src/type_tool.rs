@@ -1999,7 +1999,7 @@ fn icon_label(ui: &mut egui::Ui, icon: &str, tip: &str) {
 
 /// Labelled numeric field (Photoshop's icon + value pairs). Returns the new value when edited.
 fn num_field(ui: &mut egui::Ui, label: &str, tip: &str, v: f32, range: std::ops::RangeInclusive<f32>, unit: &str, width: f32) -> Option<f32> {
-    num_field_with_label(ui, label, tip, v, range, unit, width, 22.0)
+    num_field_with_label(ui, label, tip, v, range, unit, (width, 22.0))
 }
 
 fn num_field_with_label(
@@ -2009,9 +2009,9 @@ fn num_field_with_label(
     v: f32,
     range: std::ops::RangeInclusive<f32>,
     unit: &str,
-    width: f32,
-    label_width: f32,
+    widths: (f32, f32),
 ) -> Option<f32> {
+    let (width, label_width) = widths;
     let t = crate::theme::Tokens::get(ui.ctx());
     let mut v = v;
     let mut out = None;
@@ -2067,7 +2067,7 @@ fn metric_field(ui: &mut egui::Ui, field: MetricField<'_>) -> Option<MetricChoic
         // The preset chevron shares the cell with a numeric field. A slightly
         // narrower scrub label leaves enough width for the numeric editor's suffix
         // at the minimum dock size without expanding the whole row past the column.
-        if let Some(v) = num_field_with_label(ui, label, tip, value, range, unit, (width - 54.0).max(28.0), 18.0) {
+        if let Some(v) = num_field_with_label(ui, label, tip, value, range, unit, ((width - 54.0).max(28.0), 18.0)) {
             chosen = Some(MetricChoice::Value(v));
         }
         let (press, close) = crate::press_menu::PressCombo::before(ui, salt);
