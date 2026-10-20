@@ -63,10 +63,11 @@ flags on `photocraft-cli mcp --bridge` are rejected. Explicit `--control-token` 
 `--control-token-file` flags require `--bridge` and are mutually exclusive. Bridge credentials
 can also come from `PHOTOCRAFT_CONTROL_TOKEN` or `PHOTOCRAFT_CONTROL_TOKEN_FILE`.
 
-MCP and `serve` launch options take one non-empty value each and cannot be repeated. Missing
-values, stray positional arguments and options for the wrong mode are usage errors (exit 2),
-reported on stderr before the server starts; stdout stays available for protocol messages.
-For `serve`, explicit credential flags require `--port`; stdio needs no control token.
+MCP and `serve` launch options (all but `--help`/`-h`) take one non-empty value each and cannot
+be repeated. Missing values, stray positional arguments and options for the wrong mode are
+usage errors (exit 2), reported on stderr before the server starts; stdout stays available for
+protocol messages. For `serve`, explicit credential flags require `--port`; stdio needs no
+control token.
 
 ## Tools and resources
 

@@ -65,7 +65,7 @@ Paths supplied to the current CLI are ordinary operating-system paths. The CLI d
 
 CLI parsing reports malformed flags and JSON as errors, and a flag the subcommand doesn't take (a typo such as `--fromat`) is a usage error (exit status 2) rather than being ignored. It is not a security policy layer. Engine commands remain responsible for validating their own parameters.
 
-`mcp` and `serve` reject positional arguments, repeated options, empty values and options for
-the wrong mode before starting a server. Explicit control-token flags require `mcp --bridge`
-or `serve --port`. Configure automation roots on the desktop process when using bridge mode;
-the CLI rejects root flags there. See the [MCP launch guide](mcp.md) for examples.
+`mcp` and `serve` reject positional arguments, repeated options, missing or empty values and
+options for the wrong mode before starting a server. Explicit control-token flags require
+`mcp --bridge` or `serve --port`. Configure automation roots on the desktop process when using
+bridge mode; the CLI rejects root flags there. See the [MCP launch guide](mcp.md) for examples.

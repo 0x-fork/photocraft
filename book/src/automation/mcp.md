@@ -25,8 +25,9 @@ client's launch directory. In bridge mode the roots are configured on the deskto
 flags on `photocraft-cli mcp --bridge` are rejected. Explicit `--control-token` and
 `--control-token-file` flags require `--bridge` and are mutually exclusive; bridge credentials can
 also come from `PHOTOCRAFT_CONTROL_TOKEN` or `PHOTOCRAFT_CONTROL_TOKEN_FILE`. Each launch option
-takes one non-empty value and cannot be repeated. Stray positional arguments, missing values and
-options for the wrong mode are usage errors (exit 2) reported on stderr before the server starts.
+except `--help`/`-h` takes one non-empty value and cannot be repeated. Stray positional arguments,
+missing values and options for the wrong mode are usage errors (exit 2) reported on stderr before
+the server starts.
 
 Tools cover session/document operations, command discovery and execution, batching, and—when bridged—UI inspection and control. Tool schemas improve correctness but are not authorization boundaries.
 
