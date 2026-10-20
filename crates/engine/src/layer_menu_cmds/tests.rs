@@ -141,6 +141,24 @@ fn global_light_blending_options_scale_effects() {
 }
 
 #[test]
+fn global_light_rejects_numbers_beyond_f32() {
+    let mut s = session(8, "rgb");
+    // In-range values still wrap into -180..=180 and clamp to 0..=90.
+    s.execute("layer.layerStyle.globalLight", json!({"angle": 450, "altitude": 120})).unwrap();
+    assert_eq!((doc(&s).global_light.angle, doc(&s).global_light.altitude), (90.0, 90.0));
+    s.execute("layer.layerStyle.globalLight", json!({"angle": 540, "altitude": 30})).unwrap();
+    assert_eq!((doc(&s).global_light.angle.abs(), doc(&s).global_light.altitude), (180.0, 30.0));
+    let before = doc(&s).global_light;
+    let steps = s.active().unwrap().history.past_len();
+    // 1e39 overflowed f32 to inf, which rem_euclid turned into a stored NaN (#4181).
+    for p in [json!({"angle": 1e39}), json!({"angle": -1e39}), json!({"altitude": 1e39}), json!({"altitude": -1e39})] {
+        assert!(s.execute("layer.layerStyle.globalLight", p.clone()).is_err(), "{p}");
+        assert_eq!(doc(&s).global_light, before, "{p}");
+        assert_eq!(s.active().unwrap().history.past_len(), steps, "{p}");
+    }
+}
+
+#[test]
 fn blending_options_blend_if() {
     for depth in DEPTHS {
         let mut s = session(depth, "rgb");
@@ -447,16 +465,13 @@ fn stack_mode_rejects_sources_without_visible_layers() {
 
 #[test]
 fn reveal_in_finder_dry_run_and_enabled() {
+    let link = std::env::temp_dir().join("pics").join("a.png").to_string_lossy().into_owned();
     let mut s = session(8, "rgb");
     assert!(!s.is_enabled("layer.smartObjects.revealInFinder"));
     s.edit("linked", |doc, active| {
         let mut l = Layer::new(
             "linked",
-            LayerContent::Smart(photocraft_doc::SmartObject::new(
-                SmartSource::Linked { path: "/tmp/pics/a.png".into() },
-                photocraft_geom::Affine::IDENTITY,
-                None,
-            )),
+            LayerContent::Smart(photocraft_doc::SmartObject::new(SmartSource::Linked { path: link.clone() }, photocraft_geom::Affine::IDENTITY, None)),
         );
         l.visible = true;
         *active = Some(doc.insert_above(*active, l));
@@ -465,9 +480,59 @@ fn reveal_in_finder_dry_run_and_enabled() {
     .unwrap();
     assert!(s.is_enabled("layer.smartObjects.revealInFinder"));
     let r = s.execute("layer.smartObjects.revealInFinder", json!({"dryRun": true})).unwrap();
-    let (prog, args) = reveal_command("/tmp/pics/a.png");
+    let (prog, args) = reveal_command(&link).unwrap();
     assert_eq!(r["program"], json!(prog));
     assert_eq!(r["args"], json!(args));
+}
+
+#[test]
+fn reveal_follows_linked_paths_like_the_link_and_passes_paths_as_paths() {
+    let mut s = session(8, "rgb");
+    let folder = std::env::temp_dir().join("pics");
+    s.active_mut().unwrap().path = Some(folder.join("doc.pcraft").to_string_lossy().into_owned());
+    let mut link = |path: &str| {
+        s.edit("linked", |doc, active| {
+            let so = photocraft_doc::SmartObject::new(SmartSource::Linked { path: path.into() }, photocraft_geom::Affine::IDENTITY, None);
+            *active = Some(doc.insert_above(*active, Layer::new("linked", LayerContent::Smart(so))));
+            Ok(())
+        })
+        .unwrap();
+        s.execute("layer.smartObjects.revealInFinder", json!({"dryRun": true})).map_err(|e| e.to_string())
+    };
+    let err = link(r"\\192.0.2.1\share\x.png").unwrap_err();
+    assert!(err.contains("is not opened: the path is on another computer"), "{err}");
+    // A relative link is shown next to the document.
+    let r = link("a.png").unwrap();
+    assert_eq!(r["args"], json!(reveal_command(&folder.join("a.png").to_string_lossy()).unwrap().1));
+    // The document's own file is shown wherever it is, a network share included.
+    s.active_mut().unwrap().path = Some(r"\\192.0.2.1\share\doc.psd".into());
+    s.execute("file.revealInFinder", json!({"dryRun": true})).unwrap();
+
+    assert_eq!(reveal_command_on("macos", "-a.png").unwrap(), ("open", vec!["-R".to_string(), "--".into(), "-a.png".into()]));
+    assert_eq!(reveal_command_on("windows", r"C:\pics\a.png").unwrap(), ("explorer", vec![r"/select,C:\pics\a.png".to_string()]));
+    for path in [r"C:\pics\a,b.png", r#"C:\pics\a".png"#] {
+        assert!(reveal_command_on("windows", path).is_err(), "{path}");
+    }
+}
+
+/// `xdg-open` launches a file it is given, so Reveal hands it the link's folder only when that is a
+/// folder: a link stored as `tool.jar/a.png` names a file, not a folder, as its parent.
+#[test]
+fn reveal_on_linux_never_hands_xdg_open_a_file() {
+    let dir = std::env::temp_dir().join(format!("photocraft-reveal-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("tool.jar");
+    std::fs::write(&file, b"not a folder").unwrap();
+    let (program, args) = reveal_command_on("linux", &file.join("a.png").to_string_lossy()).unwrap();
+    assert_eq!(args, vec![file.to_string_lossy().into_owned()]);
+    let err = ensure_folder(program, &args).unwrap_err();
+    assert!(err.to_string().contains("is not a folder"), "{err}");
+    let (program, args) = reveal_command_on("linux", &dir.join("a.png").to_string_lossy()).unwrap();
+    ensure_folder(program, &args).unwrap();
+    assert!(ensure_folder("xdg-open", &[]).is_err());
+    // Finder and Explorer select the file itself, whatever it is.
+    ensure_folder("open", &["-R".into(), "--".into(), file.to_string_lossy().into_owned()]).unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -570,7 +635,7 @@ fn transfer_effects_moves_or_copies_between_layers() {
     for bad in [
         json!({"from": a.0, "to": a.0}),
         json!({"from": a.0}),
-        json!({"from": a.0, "to": 9999}),
+        json!({"from": a.0, "to": u64::MAX}),
         json!({"from": a.0, "to": b.0, "effect": 7}),
         json!({"from": a.0, "to": b.0, "effect": -1}),
         json!({"from": b.0, "to": a.0}),
@@ -578,4 +643,82 @@ fn transfer_effects_moves_or_copies_between_layers() {
         assert!(s.execute("layer.layerStyle.transferEffects", bad.clone()).is_err(), "{bad}");
     }
     assert_eq!(s.active().unwrap().history.past_len(), steps);
+}
+
+#[test]
+fn applying_a_feathered_mask_preserves_its_soft_composite() {
+    for depth in DEPTHS {
+        let mut s = session(depth, "rgb");
+        paint(&mut s, |_, _| [1.0, 0.0, 0.0, 1.0]);
+        s.edit("mask fixture", |doc, active| {
+            let mut mask = LayerMask::hide_all();
+            mask.surface.fill_rect(Rect::new(0, 0, 20, 30), &[1.0]);
+            mask.feather = 2.0;
+            doc.layer_mut(active.unwrap()).unwrap().mask = Some(mask);
+            Ok(())
+        })
+        .unwrap();
+        let before = photocraft_compose::flatten(doc(&s)).px;
+        assert!(before[15 * 40 + 19][3] > 0.0 && before[15 * 40 + 19][3] < 1.0, "mask must start with a soft edge");
+        s.execute("layer.layerMask.apply", json!({})).unwrap();
+        assert!(active(&s).mask.is_none(), "Apply removes the pixel mask");
+        let after = photocraft_compose::flatten(doc(&s)).px;
+        for (a, b) in before.iter().zip(&after) {
+            assert!((a[3] - b[3]).abs() <= 1.0 / 255.0 + 1e-5, "depth {depth}: alpha {a:?} became {b:?}");
+        }
+        assert!(s.undo());
+        assert!(active(&s).mask.as_ref().is_some_and(|m| m.feather == 2.0));
+    }
+}
+
+#[test]
+fn applying_a_disabled_feathered_mask_does_not_hide_pixels() {
+    let mut s = session(8, "rgb");
+    paint(&mut s, |_, _| [0.7, 0.2, 0.1, 1.0]);
+    s.edit("disabled mask", |doc, active| {
+        let mut mask = LayerMask::hide_all();
+        mask.feather = 3.0;
+        mask.enabled = false;
+        doc.layer_mut(active.unwrap()).unwrap().mask = Some(mask);
+        Ok(())
+    })
+    .unwrap();
+    s.execute("layer.layerMask.apply", json!({})).unwrap();
+    assert_eq!(active(&s).surface().unwrap().rgba(20, 15)[3], 1.0);
+}
+
+#[test]
+fn from_transparency_preserves_mask_coverage_outside_the_canvas() {
+    for depth in DEPTHS {
+        let mut s = session(depth, "rgb");
+        paint(&mut s, |_, _| [1.0, 0.0, 0.0, 0.5]);
+        let before = photocraft_compose::flatten(doc(&s)).px;
+        s.execute("layer.translate", json!({"dx": 20})).unwrap();
+        s.execute("layer.layerMask.fromTransparency", json!({})).unwrap();
+        let mask = active(&s).mask.as_ref().unwrap();
+        assert!((mask.value(50, 10) - 0.5).abs() < 1.0 / 255.0 + 1e-6, "off-canvas mask at depth {depth}");
+        s.execute("layer.translate", json!({"dx": -20})).unwrap();
+        let after = photocraft_compose::flatten(doc(&s)).px;
+        for (a, b) in before.iter().zip(&after) {
+            assert!((a[3] - b[3]).abs() <= 1.0 / 255.0 + 1e-6, "alpha changed at depth {depth}: {a:?} -> {b:?}");
+        }
+    }
+}
+
+#[test]
+fn applying_a_feathered_mask_keeps_off_canvas_pixels_it_reveals() {
+    let mut s = session(8, "rgb");
+    paint(&mut s, |_, _| [1.0, 0.0, 0.0, 1.0]);
+    s.execute("layer.translate", json!({"dx": 20})).unwrap();
+    s.edit("mask fixture", |doc, active| {
+        // Reveal the whole layer, including the 20 px now past the right edge.
+        let mut mask = LayerMask::hide_all();
+        mask.surface.fill_rect(Rect::new(0, 0, 60, 30), &[1.0]);
+        mask.feather = 2.0;
+        doc.layer_mut(active.unwrap()).unwrap().mask = Some(mask);
+        Ok(())
+    })
+    .unwrap();
+    s.execute("layer.layerMask.apply", json!({})).unwrap();
+    assert_eq!(active(&s).surface().unwrap().rgba(52, 15)[3], 1.0, "off-canvas pixel stays visible");
 }

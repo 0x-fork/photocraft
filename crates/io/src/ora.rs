@@ -245,7 +245,7 @@ fn flag(node: roxmltree::Node<'_, '_>, name: &str) -> bool {
 
 /// Shared node properties: name, visibility, opacity and composite operation.
 fn props(node: roxmltree::Node<'_, '_>, layer: &mut Layer, index: usize, warnings: &mut Warnings) -> Result<()> {
-    layer.name = node.attribute("name").map(str::trim).filter(|n| !n.is_empty()).map_or_else(|| format!("Layer {index}"), str::to_string);
+    layer.name = node.attribute("name").filter(|name| !name.trim().is_empty()).map_or_else(|| format!("Layer {index}"), str::to_string);
     layer.visible = node.attribute("visibility").is_none_or(|v| v.trim() != "hidden");
     layer.opacity = num(node, "opacity", 1.0)?.clamp(0.0, 1.0) as f32;
     layer.blend = composite_op(node.attribute("composite-op").map_or("svg:src-over", str::trim), &layer.name, warnings);
@@ -258,9 +258,23 @@ fn props(node: roxmltree::Node<'_, '_>, layer: &mut Layer, index: usize, warning
     Ok(())
 }
 
+/// OpenRaster 0.0.6 defaults to isolated groups and makes `auto` explicitly pass-through.
+/// Older files used inference from the group's blend mode; keep that behavior when the
+/// version is absent or unrecognized, too. Compare the numeric core, not version strings.
+fn uses_explicit_group_isolation(version: Option<&str>) -> bool {
+    let Some(core) = version.and_then(|v| v.trim().split(['-', '+']).next()) else { return false };
+    let mut parts = core.split('.');
+    let number = |part: Option<&str>| part.and_then(|s| s.parse::<u32>().ok());
+    match (number(parts.next()), number(parts.next()), number(parts.next()), parts.next()) {
+        (Some(major), Some(minor), Some(patch), None) => [major, minor, patch] >= [0, 0, 6],
+        _ => false,
+    }
+}
+
 struct Reader<'a, 'c> {
     zip: ZipReader<'a>,
     ctl: &'c Interrupt<'c>,
+    explicit_group_isolation: bool,
     nodes: usize,
     budget: usize,
     warnings: Warnings,
@@ -325,10 +339,15 @@ impl Reader<'_, '_> {
                 "stack" => {
                     let mut layer = Layer::group("", Vec::new());
                     props(child, &mut layer, index, &mut self.warnings)?;
-                    // `auto` (the default) isolates only when something needs it: an
-                    // OpenRaster group without its own blend mode is a pass-through group.
-                    let isolate = child.attribute("isolation").map(str::trim) == Some("isolate");
-                    if !isolate && layer.blend == BlendMode::Normal {
+                    let isolation = child.attribute("isolation").map(str::trim);
+                    let pass_through = if self.explicit_group_isolation {
+                        // Since 0.0.6 only explicit `auto` passes through, ignoring the
+                        // group's composite-op. An omitted isolation means `isolate`.
+                        isolation == Some("auto")
+                    } else {
+                        isolation != Some("isolate") && layer.blend == BlendMode::Normal
+                    };
+                    if pass_through {
                         layer.blend = BlendMode::PassThrough;
                     }
                     let children = self.stack(child, depth + 1)?;
@@ -415,7 +434,15 @@ pub(crate) fn import(name: &str, bytes: &[u8], ctl: &Interrupt<'_>) -> Result<Im
         return Err(invalid("the canvas exceeds the 1 GiB pixel limit"));
     }
     let root = image.children().find(|n| n.has_tag_name("stack")).ok_or_else(|| invalid("stack.xml has no root <stack>"))?;
-    let mut reader = Reader { zip, ctl, nodes: 0, budget: MAX_PIXEL_BYTES, warnings: Warnings::default(), images: Vec::new() };
+    let mut reader = Reader {
+        zip,
+        ctl,
+        explicit_group_isolation: uses_explicit_group_isolation(image.attribute("version")),
+        nodes: 0,
+        budget: MAX_PIXEL_BYTES,
+        warnings: Warnings::default(),
+        images: Vec::new(),
+    };
     let nodes = reader.stack(root, 1)?;
     ctl.progress(0.8);
     let depth = document_depth(&reader.images);
@@ -476,6 +503,8 @@ struct Writer<'a> {
     next: usize,
     sample: CSample,
     warnings: Warnings,
+    /// Only collect the warnings ([`losses`]): no pixels are rendered or encoded.
+    dry: bool,
 }
 
 /// Straight RGBA floats as interleaved PNG samples at `sample` depth.
@@ -524,7 +553,10 @@ impl Writer<'_> {
             "name=\"{}\" visibility=\"{}\" opacity=\"{}\"",
             escape(&layer.name),
             if layer.visible { "visible" } else { "hidden" },
-            layer.opacity.clamp(0.0, 1.0)
+            // OpenRaster has only one opacity for groups. For ordinary isolated groups,
+            // fold fill opacity into that attribute; groups have no pixel payload in which
+            // to bake it as raster layers do (#3048).
+            if matches!(&layer.content, LayerContent::Group(_)) { (layer.opacity * layer.fill_opacity).clamp(0.0, 1.0) } else { layer.opacity.clamp(0.0, 1.0) }
         );
         let op = op_name(layer.blend).unwrap_or_else(|| {
             self.warnings.layer(&layer.name, &format!("the {} blend mode has no OpenRaster equivalent; it was saved as Normal", layer.blend.label()));
@@ -533,6 +565,15 @@ impl Writer<'_> {
         attrs.push_str(&format!(" composite-op=\"{op}\""));
         if layer.locks.all || layer.locks.pixels {
             attrs.push_str(" edit-locked=\"true\"");
+        }
+        // OpenRaster's one edit lock reopens as Lock All; it has no position lock (#7018).
+        if layer.locks.pixels && !layer.locks.all {
+            self.warnings.layer(&layer.name, "Lock Image Pixels was saved as OpenRaster's edit lock; it reopens as Lock All");
+        }
+        // The Background's position lock is part of being the Background, not one the user set:
+        // every new document has it, and OpenRaster has no Background to keep it on.
+        if layer.locks.position && !layer.locks.all && !self.doc.is_background(layer.id) {
+            self.warnings.layer(&layer.name, "Lock Position is not saved to OpenRaster");
         }
         if layer.locks.transparency {
             attrs.push_str(" alpha-preserve=\"true\"");
@@ -547,9 +588,27 @@ impl Writer<'_> {
             self.warnings.layer(&layer.name, "vector masks are not saved to OpenRaster");
         }
         if layer.fill_opacity < 1.0 {
-            self.warnings.layer(&layer.name, "fill opacity was combined into the layer opacity");
+            if matches!(&layer.content, LayerContent::Group(_)) {
+                self.warnings.layer(&layer.name, "fill opacity was combined into the layer opacity");
+            } else {
+                self.warnings.layer(&layer.name, "fill opacity was applied to the saved layer pixels");
+            }
         }
         attrs
+    }
+
+    /// What saving a non-group layer's pixels loses: a type, shape, fill or smart object layer
+    /// becomes pixels, and its pixel mask is applied to them.
+    fn content_warnings(&mut self, layer: &Layer) {
+        if !matches!(layer.content, LayerContent::Raster(_)) {
+            self.warnings.layer(&layer.name, &format!("{} layers are saved to OpenRaster as pixels", layer.content.kind_name().to_lowercase()));
+        }
+        if let Some(mask) = layer.mask.as_ref().filter(|m| m.enabled) {
+            if mask.feather > 0.0 {
+                self.warnings.layer(&layer.name, "layer mask feathering is not applied in OpenRaster");
+            }
+            self.warnings.layer(&layer.name, "layer masks were applied to the layer pixels");
+        }
     }
 
     /// The layer's own pixels (straight RGBA floats) and their bounds; its pixel mask applied.
@@ -571,15 +630,10 @@ impl Writer<'_> {
                 solo.mask = None;
                 solo.effects = Default::default();
                 let r = photocraft_compose::composite_bounds(&solo, canvas).unwrap_or(canvas).intersect(&canvas);
-                self.warnings.layer(&layer.name, &format!("{} layers are saved to OpenRaster as pixels", layer.content.kind_name().to_lowercase()));
                 (r, photocraft_compose::render_layer(&solo, r).px)
             }
         };
         if let Some(mask) = layer.mask.as_ref().filter(|m| m.enabled) {
-            if mask.feather > 0.0 {
-                self.warnings.layer(&layer.name, "layer mask feathering is not applied in OpenRaster");
-            }
-            self.warnings.layer(&layer.name, "layer masks were applied to the layer pixels");
             let mut values = Vec::new();
             mask.values_into(rect, &mut values);
             for (p, m) in buf.iter_mut().zip(values) {
@@ -616,6 +670,10 @@ impl Writer<'_> {
                 }
                 _ => {
                     let attrs = self.common(layer);
+                    self.content_warnings(layer);
+                    if self.dry {
+                        continue;
+                    }
                     let (rect, px) = self.pixels(layer);
                     let (rect, px) = if rect.is_empty() { (Rect::from_xywh(0, 0, 1, 1), vec![[0.0; 4]]) } else { (rect, px) };
                     let src = format!("data/layer{}.png", self.next);
@@ -641,10 +699,8 @@ pub(crate) fn export(doc: &Document) -> Result<ExportResult> {
     let mut zip = ZipWriter::new();
     // The mimetype must be the first entry, stored, so the type is readable at a fixed offset.
     zip.add("mimetype", MIMETYPE)?;
-    let mut w = Writer { doc, zip, xml: String::new(), next: 0, sample, warnings: Warnings::default() };
-    if doc.depth == SampleType::F32 {
-        w.warnings.note("32-bit float layers are saved as 16-bit PNGs");
-    }
+    let mut w = Writer { doc, zip, xml: String::new(), next: 0, sample, warnings: Warnings::default(), dry: false };
+    document_warnings(doc, &mut w.warnings);
     w.xml.push_str(&format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<image version=\"0.0.6\" w=\"{}\" h=\"{}\" xres=\"{}\" yres=\"{}\"><stack>",
         doc.size.width,
@@ -654,24 +710,48 @@ pub(crate) fn export(doc: &Document) -> Result<ExportResult> {
     ));
     w.layers(&doc.layers, 1)?;
     w.xml.push_str("</stack></image>\n");
-    let Writer { mut zip, xml, mut warnings, .. } = w;
+    let Writer { mut zip, xml, warnings, .. } = w;
     zip.add("stack.xml", xml.as_bytes())?;
     let merged = photocraft_compose::flatten(doc);
     zip.add("mergedimage.png", &png(doc.size.width, doc.size.height, &merged.px, sample)?)?;
     let thumb = photocraft_compose::thumbnail(doc, THUMBNAIL_SIDE);
     let thumb = Image::from_raw(thumb.width, thumb.height, ChannelLayout::Rgba, CSample::U8, thumb.pixels)?;
     zip.add("Thumbnails/thumbnail.png", &codecs::encode(&thumb, Format::Png, &codecs::EncodeOptions::default())?)?;
+    Ok(ExportResult { bytes: zip.finish()?, warnings: warnings.finish() })
+}
+
+/// What saving `doc` to OpenRaster loses that isn't in a layer.
+fn document_warnings(doc: &Document, warnings: &mut Warnings) {
+    if doc.depth == SampleType::F32 {
+        warnings.note("32-bit float layers are saved as 16-bit PNGs");
+    }
     if !doc.channels.is_empty() {
         warnings.note("alpha channels are not saved to OpenRaster");
     }
     if !doc.metadata.text.is_empty() || doc.metadata.xmp.is_some() || doc.metadata.exif.is_some() {
         warnings.note("metadata (XMP, EXIF, text) is not saved to OpenRaster");
     }
-    if doc.icc_profile.is_some() {
+    // Readers assume sRGB, so an sRGB document loses nothing by the missing tag.
+    let srgb = |bytes: &[u8]| photocraft_cms::Profile::parse(bytes).is_ok_and(|p| p.same_colors(photocraft_cms::Builtin::Srgb.profile()));
+    if doc.icc_profile.as_deref().is_some_and(|b| !srgb(b)) {
         warnings.note("the colour profile is not saved to OpenRaster; readers assume sRGB");
     }
     if doc.mode == ColorMode::Grayscale {
         warnings.note("grayscale layers are saved as RGB");
     }
-    Ok(ExportResult { bytes: zip.finish()?, warnings: warnings.finish() })
+}
+
+/// Everything saving `doc` to OpenRaster would lose (the warnings [`export`] gives), without
+/// rendering or encoding anything. Empty when an OpenRaster file holds the whole document, so it
+/// can be the document's own file; otherwise a save to OpenRaster is a copy (#3806).
+pub fn losses(doc: &Document) -> Vec<String> {
+    if !matches!(doc.mode, ColorMode::Rgb | ColorMode::Grayscale) {
+        return vec!["OpenRaster holds RGB layers; convert the document to RGB or Grayscale first".into()];
+    }
+    let mut w = Writer { doc, zip: ZipWriter::new(), xml: String::new(), next: 0, sample: CSample::U8, warnings: Warnings::default(), dry: true };
+    document_warnings(doc, &mut w.warnings);
+    if let Err(e) = w.layers(&doc.layers, 1) {
+        w.warnings.note(&e.to_string());
+    }
+    w.warnings.finish()
 }

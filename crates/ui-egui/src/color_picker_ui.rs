@@ -171,7 +171,12 @@ pub fn open(app: &mut PhotocraftApp, target: &str) -> u64 {
     let c = if target == "background" { app.session.tools.background } else { app.session.tools.foreground };
     let rgb = [c[0], c[1], c[2]];
     let label = if target == "background" { "Color Picker (Background Color)" } else { "Color Picker (Foreground Color)" };
-    app.ui.open_dialog(DialogKind::Command, initial_fields(target, label, rgb))
+    let mut fields = fields_with_web(app, target, label, rgb);
+    // A colour that was picked as CMYK shows the inks it was picked as, not what its sRGB stand-in converts to (#4196).
+    if let Some(cmyk) = app.session.tools.picked_cmyk(rgb) {
+        fields.insert("__cmyk".into(), json!(cmyk));
+    }
+    app.ui.open_dialog(DialogKind::Command, fields)
 }
 
 /// Shared initial state for every target; the picker layout is independent of its destination.
@@ -187,10 +192,23 @@ pub(crate) fn initial_fields(target: &str, label: &str, rgb: [f32; 3]) -> Map<St
     f
 }
 
+/// Seed [`initial_fields`] with the last Only Web Colors setting. With web-only on, the opening
+/// colour is snapped and `__orig` follows it: OK without an edit is "unchanged", so opening the
+/// picker never rewrites a fill behind the user's back (#4995).
+pub(crate) fn fields_with_web(app: &PhotocraftApp, target: &str, label: &str, rgb: [f32; 3]) -> Map<String, Value> {
+    let mut f = initial_fields(target, label, rgb);
+    f.insert("__webOnly".into(), json!(app.ui.color_panel.web_only));
+    if app.ui.color_panel.web_only {
+        set_rgb(&mut f, rgb, Keep::Nothing);
+        f.insert("__orig".into(), f["color"].clone());
+    }
+    f
+}
+
 /// Open the picker on `rgb` for something other than the tool colours: OK runs `command` with
 /// `params` plus `"color": "#rrggbb"` (e.g. a gradient stop's colour).
 pub fn open_for_command(app: &mut PhotocraftApp, label: &str, rgb: [f32; 3], command: &str, params: Value) -> u64 {
-    let mut f = initial_fields("command", label, rgb);
+    let mut f = fields_with_web(app, "command", label, rgb);
     f.insert("__command".into(), json!(command));
     f.insert("__params".into(), params);
     app.ui.open_dialog(DialogKind::Command, f)
@@ -199,33 +217,16 @@ pub fn open_for_command(app: &mut PhotocraftApp, label: &str, rgb: [f32; 3], com
 /// Open the picker on `rgb` for a colour field of another dialog (e.g. Edit › Fill's Color…): OK
 /// writes `"#rrggbb"` into `field` of dialog `dialog`, which stays open; Cancel leaves it alone.
 pub fn open_for_field(app: &mut PhotocraftApp, label: &str, rgb: [f32; 3], dialog: u64, field: &str) -> u64 {
-    let hsv = rgb_to_hsv(rgb);
-    let mut f = Map::new();
-    f.insert("__colorPicker".into(), json!("field"));
-    f.insert("__label".into(), json!(label));
+    let mut f = fields_with_web(app, "field", label, rgb);
     f.insert("__dialog".into(), json!(dialog));
     f.insert("__field".into(), json!(field));
-    f.insert("color".into(), json!(hex(rgb)));
-    f.insert("__orig".into(), json!(hex(rgb)));
-    f.insert("__hsv".into(), json!(hsv));
-    f.insert("__mode".into(), json!("h"));
-    f.insert("__webOnly".into(), json!(false));
     app.ui.open_dialog(DialogKind::Command, f)
 }
 
 /// Open the picker on `rgb` for a colour the shell keeps itself (e.g. the Crop shield's custom
 /// colour): OK hands `"#rrggbb"` to `target`'s setter in [`confirm`]; Cancel leaves it alone.
 pub fn open_for_target(app: &mut PhotocraftApp, target: &str, label: &str, rgb: [f32; 3]) -> u64 {
-    let hsv = rgb_to_hsv(rgb);
-    let mut f = Map::new();
-    f.insert("__colorPicker".into(), json!(target));
-    f.insert("__label".into(), json!(label));
-    f.insert("color".into(), json!(hex(rgb)));
-    f.insert("__orig".into(), json!(hex(rgb)));
-    f.insert("__hsv".into(), json!(hsv));
-    f.insert("__mode".into(), json!("h"));
-    f.insert("__webOnly".into(), json!(false));
-    app.ui.open_dialog(DialogKind::Command, f)
+    app.ui.open_dialog(DialogKind::Command, fields_with_web(app, target, label, rgb))
 }
 
 /// Set by a dialog body (to the picker's title) to open the Color Picker on its `color` field.
@@ -298,6 +299,15 @@ pub fn owns(f: &Map<String, Value>) -> bool {
     f.contains_key("__colorPicker")
 }
 
+/// Alt+Cancel (Reset): restore the colour from when the picker opened (same as clicking Current).
+pub fn reset(f: &mut Map<String, Value>) {
+    if !owns(f) {
+        return;
+    }
+    let orig = f.get("__orig").and_then(Value::as_str).and_then(parse_hex).unwrap_or([0.0; 3]);
+    set_rgb(f, orig, Keep::Nothing);
+}
+
 /// The Color Picker, when it is the top dialog (another dialog opened over it takes the input).
 pub fn top(app: &PhotocraftApp) -> Option<u64> {
     app.ui.dialogs.last().filter(|d| owns(&d.fields)).map(|d| d.id)
@@ -353,7 +363,7 @@ pub fn current(f: &Map<String, Value>) -> Components {
 
 fn set_rgb(f: &mut Map<String, Value>, rgb: [f32; 3], keep: Keep) {
     let web = f.get("__webOnly").and_then(Value::as_bool).unwrap_or(false);
-    let (rgb, keep) = if web { (rgb.map(|v| (v * 5.0).round() / 5.0), Keep::Nothing) } else { (rgb, keep) };
+    let (rgb, keep) = if web { (web_safe(rgb), Keep::Nothing) } else { (rgb, keep) };
     f.insert("color".into(), json!(hex(rgb)));
     for key in ["__hsv", "__lab", "__cmyk"] {
         f.remove(key);
@@ -391,21 +401,57 @@ fn grid_mesh(rect: Rect, n: usize, color: impl Fn(f32, f32) -> [f32; 3]) -> Mesh
     m
 }
 
-/// Room for both component columns, including units, without overflowing the title's width.
-pub(crate) const CONTENT_WIDTH: f32 = 624.0;
+/// Cells per side of the banded Only Web Colors field: fine enough that the band edges follow the
+/// colour model, coarse enough to stay cheap to draw each frame.
+const WEB_CELLS: usize = 64;
+
+/// Snap each channel to the web-safe ramp (00, 33, 66, 99, CC, FF).
+fn web_safe(c: [f32; 3]) -> [f32; 3] {
+    c.map(|v| (v.clamp(0.0, 1.0) * 5.0).round() / 5.0)
+}
+
+/// Like [`grid_mesh`], but every cell is one flat colour sampled at its centre, so a quantized
+/// field shows hard bands instead of blending between the snapped corners.
+fn flat_grid_mesh(rect: Rect, n: usize, color: impl Fn(f32, f32) -> [f32; 3]) -> Mesh {
+    let mut m = Mesh::default();
+    let n = n.max(1);
+    let (cw, ch) = (rect.width() / n as f32, rect.height() / n as f32);
+    for j in 0..n {
+        for i in 0..n {
+            let c = c32(color((i as f32 + 0.5) / n as f32, (j as f32 + 0.5) / n as f32));
+            let (x0, y0) = (rect.left() + i as f32 * cw, rect.top() + j as f32 * ch);
+            let a = m.vertices.len() as u32;
+            for (dx, dy) in [(0.0, 0.0), (cw, 0.0), (cw, ch), (0.0, ch)] {
+                m.colored_vertex(pos2(x0 + dx, y0 + dy), c);
+            }
+            m.add_triangle(a, a + 1, a + 2);
+            m.add_triangle(a, a + 2, a + 3);
+        }
+    }
+    m
+}
+
+/// Room for both component columns, including units, without overflowing the title's width; with
+/// the frame and title the window fits Photoshop's (about 534 x 376 points).
+pub(crate) const CONTENT_WIDTH: f32 = 488.0;
+/// Side of the colour field (Photoshop's is about 256 points).
+const FIELD: f32 = 200.0;
+/// Width of the component fields.
+const VALUE_W: f32 = 42.0;
 
 /// Draw the picker and its top-right actions. `Some(true)` confirms, `Some(false)` cancels.
 pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) -> Option<bool> {
     ui.set_width(CONTENT_WIDTH);
+    ui.spacing_mut().item_spacing.y = 4.0;
     let mut outcome = None;
     ui.horizontal_top(|ui| {
-        ui.spacing_mut().item_spacing.x = 20.0;
+        ui.spacing_mut().item_spacing.x = 12.0;
         ui.vertical(|ui| {
             ui.horizontal_top(|ui| {
-                ui.spacing_mut().item_spacing.x = 12.0;
+                ui.spacing_mut().item_spacing.x = 6.0;
                 color_field(ui, f);
             });
-            ui.add_space(10.0);
+            ui.add_space(8.0);
             let mut web = f.get("__webOnly").and_then(Value::as_bool).unwrap_or(false);
             if widgets::checkbox(ui, &mut web, tl!("Only Web Colors")).changed() {
                 f.insert("__webOnly".into(), json!(web));
@@ -413,7 +459,7 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) -> Option<bool> {
             }
             // Under the colour field, not in the action column: the dialog must still fit a
             // 760 x 480 window.
-            ui.add_space(6.0);
+            ui.add_space(4.0);
             if let Some(rgb) = crate::screen_picker::button(ui, ui.id().with("screen-color")) {
                 set_rgb(f, rgb, Keep::Nothing);
             }
@@ -421,23 +467,24 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) -> Option<bool> {
         ui.vertical(|ui| {
             ui.horizontal_top(|ui| {
                 swatches(ui, f);
-                let button_width = ui.available_width().max(168.0);
-                ui.vertical(|ui| {
+                // As wide as the longest label, at the right edge like Photoshop's.
+                let button_width = widgets::button_width(ui, &[tl!("OK"), tl!("Cancel"), tl!("Add to Swatches")]).max(96.0);
+                ui.with_layout(egui::Layout::top_down(egui::Align::Max), |ui| {
                     if widgets::primary_button(ui, tl!("OK"), button_width).clicked() {
                         outcome = Some(true);
                     }
-                    ui.add_space(6.0);
+                    ui.add_space(4.0);
                     if widgets::secondary_button(ui, tl!("Cancel"), button_width).clicked() {
                         outcome = Some(false);
                     }
-                    ui.add_space(6.0);
+                    ui.add_space(4.0);
                     // Handled by the dialog host, which has the app (`take_add_swatch`).
                     if widgets::secondary_button(ui, tl!("Add to Swatches"), button_width).clicked() {
                         f.insert("__addSwatch".into(), json!(true));
                     }
                 });
             });
-            ui.add_space(14.0);
+            ui.add_space(4.0);
             let mode = f.get("__mode").and_then(Value::as_str).unwrap_or("h").to_string();
             fields(ui, f, &mode, &current(f));
         });
@@ -452,8 +499,13 @@ fn color_field(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     let (rgb, hsv, lab) = (now.rgb, now.hsv, now.lab);
     let (fx, fy, fz) = locate(&mode, hsv, rgb, lab);
     // Colour field.
-    let (field, resp) = ui.allocate_exact_size(vec2(280.0, 280.0), Sense::click_and_drag());
-    ui.painter().add(grid_mesh(field, 32, |x, y| field_color(&mode, fz, x, y)));
+    let (field, resp) = ui.allocate_exact_size(vec2(FIELD, FIELD), Sense::click_and_drag());
+    let web_only = f.get("__webOnly").and_then(Value::as_bool).unwrap_or(false);
+    // Only Web Colors bands the field to the 216 web-safe colours, as in Photoshop (#4107).
+    let mesh = |rect: Rect, color: &dyn Fn(f32, f32) -> [f32; 3]| {
+        if web_only { flat_grid_mesh(rect, WEB_CELLS, |x, y| web_safe(color(x, y))) } else { grid_mesh(rect, 32, color) }
+    };
+    ui.painter().add(mesh(field, &|x, y| field_color(&mode, fz, x, y)));
     ui.painter().rect_stroke(field, 0.0, Stroke::new(1.0, t.field_border), StrokeKind::Outside);
     let marker = pos2(field.left() + fx * field.width(), field.top() + fy * field.height());
     ui.painter().circle_stroke(marker, 5.0, Stroke::new(1.5, if hsv[2] > 0.6 && hsv[1] < 0.4 { Color32::BLACK } else { Color32::WHITE }));
@@ -469,8 +521,8 @@ fn color_field(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
         set_rgb(f, c, keep);
     }
     // Component slider (hue runs 360° at the top to 0° at the bottom, like Photoshop).
-    let (strip, sresp) = ui.allocate_exact_size(vec2(20.0, 280.0), Sense::click_and_drag());
-    ui.painter().add(grid_mesh(strip, 32, |_, y| slider_color(&mode, 1.0 - y, hsv, rgb, lab)));
+    let (strip, sresp) = ui.allocate_exact_size(vec2(18.0, FIELD), Sense::click_and_drag());
+    ui.painter().add(mesh(strip, &|_, y| slider_color(&mode, 1.0 - y, hsv, rgb, lab)));
     let sy = strip.top() + (1.0 - fz) * strip.height();
     for (x, dir) in [(strip.left() - 1.0, 1.0f32), (strip.right() + 1.0, -1.0)] {
         let tri = vec![pos2(x, sy), pos2(x - 6.0 * dir, sy - 4.0), pos2(x - 6.0 * dir, sy + 4.0)];
@@ -496,17 +548,17 @@ fn swatches(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     let t = Tokens::get(ui.ctx());
     let rgb = current(f).rgb;
     let orig = f.get("__orig").and_then(Value::as_str).and_then(parse_hex).unwrap_or(rgb);
-    let (area, _) = ui.allocate_exact_size(vec2(64.0 + 26.0, 104.0), Sense::hover());
+    let (area, _) = ui.allocate_exact_size(vec2(56.0 + 24.0, 92.0), Sense::hover());
     // new / current swatches, labelled above and below.
-    let sw = Rect::from_min_size(area.min + vec2(0.0, 16.0), vec2(64.0, 72.0));
+    let sw = Rect::from_min_size(area.min + vec2(0.0, 16.0), vec2(56.0, 64.0));
     let p = ui.painter();
     let label = |text: &str, at: egui::Pos2, align: egui::Align2| {
         p.text(at, align, text, egui::FontId::proportional(11.0), t.text_dim);
     };
     label(tl!("new"), pos2(sw.center().x, sw.top() - 3.0), egui::Align2::CENTER_BOTTOM);
     label(tl!("current"), pos2(sw.center().x, sw.bottom() + 3.0), egui::Align2::CENTER_TOP);
-    p.rect_filled(Rect::from_min_size(sw.min, vec2(64.0, 36.0)), 0.0, c32(rgb));
-    let cur = Rect::from_min_size(sw.min + vec2(0.0, 36.0), vec2(64.0, 36.0));
+    p.rect_filled(Rect::from_min_size(sw.min, vec2(56.0, 32.0)), 0.0, c32(rgb));
+    let cur = Rect::from_min_size(sw.min + vec2(0.0, 32.0), vec2(56.0, 32.0));
     p.rect_filled(cur, 0.0, c32(orig));
     p.rect_stroke(sw, 0.0, Stroke::new(1.0, t.field_border), StrokeKind::Outside);
     let click_cur = ui.interact(cur, ui.id().with("cp-current"), Sense::click());
@@ -582,9 +634,9 @@ fn fields(ui: &mut egui::Ui, f: &mut Map<String, Value>, mode: &str, now: &Compo
     let mut edit: Option<([f32; 3], Keep)> = None;
     let mut new_mode: Option<&str> = None;
     ui.horizontal_top(|ui| {
-        ui.spacing_mut().item_spacing.x = 28.0;
+        ui.spacing_mut().item_spacing.x = 10.0;
         ui.vertical(|ui| {
-            egui::Grid::new("cp-hsb-rgb").min_row_height(0.0).num_columns(4).spacing([6.0, 4.0]).show(ui, |ui| {
+            egui::Grid::new("cp-hsb-rgb").min_row_height(0.0).num_columns(4).spacing([4.0, 2.0]).show(ui, |ui| {
                 let vals = [hsv[0], hsv[1] * 100.0, hsv[2] * 100.0, rgb[0] * 255.0, rgb[1] * 255.0, rgb[2] * 255.0];
                 let units = ["°", "%", "%", "", "", ""];
                 let ranges = [0.0..=360.0, 0.0..=100.0, 0.0..=100.0, 0.0..=255.0, 0.0..=255.0, 0.0..=255.0];
@@ -596,7 +648,7 @@ fn fields(ui: &mut egui::Ui, f: &mut Map<String, Value>, mode: &str, now: &Compo
                     }
                     ui.label(egui::RichText::new(tl!(&label)).color(t.text_dim));
                     let mut v = vals[i].round();
-                    if widgets::value_field(ui, &mut v, ranges[i].clone(), "", 54.0).changed() {
+                    if widgets::value_field(ui, &mut v, ranges[i].clone(), "", VALUE_W).changed() {
                         let (mut h, mut c) = (hsv, rgb);
                         if i < 3 {
                             h[i] = if i == 0 { v } else { v / 100.0 };
@@ -610,7 +662,7 @@ fn fields(ui: &mut egui::Ui, f: &mut Map<String, Value>, mode: &str, now: &Compo
                     ui.label(egui::RichText::new(units[i]).color(t.text_faint));
                     ui.end_row();
                     if i == 2 {
-                        ui.allocate_exact_size(vec2(0.0, 6.0), Sense::hover());
+                        ui.allocate_exact_size(vec2(0.0, 3.0), Sense::hover());
                         ui.end_row();
                     }
                 }
@@ -621,9 +673,33 @@ fn fields(ui: &mut egui::Ui, f: &mut Map<String, Value>, mode: &str, now: &Compo
                 // While the field has focus it shows what is being typed, not the colour: rebuilding it from
                 // the colour every frame would throw away every keystroke until six valid digits were in.
                 let id = ui.id().with("cp-hex");
-                let typing = if ui.memory(|m| m.has_focus(id)) { ui.data(|d| d.get_temp::<String>(id)) } else { None };
-                let mut h = typing.unwrap_or_else(|| hex(rgb).trim_start_matches('#').to_string());
-                let r = ui.add(egui::TextEdit::singleline(&mut h).id(id).char_limit(6).desired_width(80.0).font(crate::theme::mono(12.0)));
+                crate::field_tab::register(ui.ctx(), id);
+                if !f.contains_key("__focused") {
+                    f.insert("__focused".into(), json!(true));
+                    crate::field_tab::focus(ui.ctx(), id);
+                    let current_hex = hex(rgb);
+                    crate::field_tab::select_all(ui.ctx(), id, current_hex.trim_start_matches('#'));
+                    ui.memory_mut(|m| m.request_focus(id));
+                }
+                let focused = ui.memory(|m| m.has_focus(id));
+                let pasted = if focused { take_hex_paste(ui) } else { None };
+                let typing = if focused { ui.data(|d| d.get_temp::<String>(id)) } else { None };
+                // Drop stale typing when another path (web snap, field drag, Current) changed `color`.
+                let shown = hex(rgb);
+                let mut h = match pasted {
+                    Some(c) => hex(c).trim_start_matches('#').to_ascii_uppercase(),
+                    None => match typing {
+                        Some(t) if parse_hex(&t).is_none() || parse_hex(&t).map(hex).as_deref() == Some(shown.as_str()) => t,
+                        _ => shown.trim_start_matches('#').to_ascii_uppercase(),
+                    },
+                };
+                let r = crate::widgets::text_field_ex(ui, id, &mut h, "", 64.0, true, Some(6));
+                if let Some(c) = pasted {
+                    edit = Some((c, Keep::Nothing));
+                }
+                if r.gained_focus() {
+                    crate::field_tab::select_all(ui.ctx(), id, &h);
+                }
                 if r.has_focus() {
                     ui.data_mut(|d| d.insert_temp(id, h.clone()));
                 } else {
@@ -636,7 +712,7 @@ fn fields(ui: &mut egui::Ui, f: &mut Map<String, Value>, mode: &str, now: &Compo
                 }
             });
         });
-        egui::Grid::new("cp-lab-cmyk").min_row_height(0.0).num_columns(4).spacing([6.0, 4.0]).show(ui, |ui| {
+        egui::Grid::new("cp-lab-cmyk").min_row_height(0.0).num_columns(4).spacing([4.0, 2.0]).show(ui, |ui| {
             for (i, (v, range)) in [(lab[0], 0.0..=100.0), (lab[1], -128.0..=127.0), (lab[2], -128.0..=127.0)].into_iter().enumerate() {
                 let (key, label) = LAB_MODES[i];
                 if radio(ui, mode == key, label) {
@@ -644,7 +720,7 @@ fn fields(ui: &mut egui::Ui, f: &mut Map<String, Value>, mode: &str, now: &Compo
                 }
                 ui.label(egui::RichText::new(tl!(&label)).color(t.text_dim));
                 let mut x = v.round();
-                if widgets::value_field(ui, &mut x, range, "", 54.0).changed() {
+                if widgets::value_field(ui, &mut x, range, "", VALUE_W).changed() {
                     let mut l = lab;
                     l[i] = x;
                     edit = Some((photocraft_color::convert::lab_to_srgb(l).map(|c| c.clamp(0.0, 1.0)), Keep::Lab(l)));
@@ -652,13 +728,13 @@ fn fields(ui: &mut egui::Ui, f: &mut Map<String, Value>, mode: &str, now: &Compo
                 ui.label("");
                 ui.end_row();
             }
-            ui.allocate_exact_size(vec2(0.0, 6.0), Sense::hover());
+            ui.allocate_exact_size(vec2(0.0, 3.0), Sense::hover());
             ui.end_row();
             for (i, label) in ["C:", "M:", "Y:", "K:"].into_iter().enumerate() {
                 ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
                 ui.label(egui::RichText::new(tl!(&label)).color(t.text_dim));
                 let mut x = (cmyk[i] * 100.0).round();
-                if widgets::value_field(ui, &mut x, 0.0..=100.0, "", 54.0).changed() {
+                if widgets::value_field(ui, &mut x, 0.0..=100.0, "", VALUE_W).changed() {
                     let mut k = cmyk;
                     k[i] = x / 100.0;
                     edit = Some((photocraft_color::convert::cmyk_to_rgb(k).map(|c| c.clamp(0.0, 1.0)), Keep::Cmyk(k)));
@@ -676,6 +752,23 @@ fn fields(ui: &mut egui::Ui, f: &mut Map<String, Value>, mode: &str, now: &Compo
     }
 }
 
+fn take_hex_paste(ui: &egui::Ui) -> Option<[f32; 3]> {
+    ui.input_mut(|i| {
+        let mut found = None;
+        i.events.retain(|e| match e {
+            egui::Event::Paste(s) => match parse_hex(s) {
+                Some(c) => {
+                    found = Some(c);
+                    false
+                }
+                None => true,
+            },
+            _ => true,
+        });
+        found
+    })
+}
+
 /// Add to Swatches was clicked: add the picked colour to the Swatches panel.
 pub fn take_add_swatch(app: &mut PhotocraftApp, f: &mut Map<String, Value>) {
     if f.remove("__addSwatch").and_then(|v| v.as_bool()) == Some(true) {
@@ -691,8 +784,14 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
     if crate::layer_style::color_picker::owns(f) {
         return crate::layer_style::color_picker::confirm(app, f);
     }
+    if crate::solid_fill_ui::owns_new(f) {
+        return crate::solid_fill_ui::confirm_new(app, f);
+    }
     if crate::solid_fill_ui::owns(f) {
         return crate::solid_fill_ui::confirm(app, f);
+    }
+    if crate::shape_fill_ui::owns(f) {
+        return crate::shape_fill_ui::confirm(app, f);
     }
     let target = f.get("__colorPicker").and_then(Value::as_str).unwrap_or("foreground");
     let color = f.get("color").and_then(Value::as_str).unwrap_or("#000000");
@@ -722,7 +821,12 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
         // The pasteboard menu's Select Custom Color…: the custom colour, and use it.
         return app.run("prefs.set", json!({"values": {"interface.canvasColor": "custom", "interface.canvasCustomColor": color}}));
     }
-    let r = app.run("tools.setColors", json!({ target: color }))?;
+    let mut params = json!({ target: color });
+    // The CMYK values the person entered stay the colour's inks: a CMYK document is filled with them (#4196).
+    if let Some(cmyk) = parse_hex(color).and_then(|rgb| kept::<4>(f, "__cmyk", rgb, photocraft_color::convert::cmyk_to_rgb)) {
+        params[format!("{target}Cmyk")] = json!(cmyk);
+    }
+    let r = app.run("tools.setColors", params)?;
     if target == "foreground" {
         crate::type_tool::foreground_changed(app);
     }
@@ -736,6 +840,23 @@ mod tests {
     use egui_kittest::kittest::Queryable;
 
     use super::*;
+
+    /// #4107: with Only Web Colors on, the field is drawn in flat web-safe bands.
+    #[test]
+    fn web_only_field_is_flat_web_safe_bands() {
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(200.0, 200.0));
+        let m = flat_grid_mesh(rect, WEB_CELLS, |x, y| web_safe(field_color("h", 0.3, x, y)));
+        let ramp = [0u8, 51, 102, 153, 204, 255];
+        for v in &m.vertices {
+            assert!([v.color.r(), v.color.g(), v.color.b()].iter().all(|c| ramp.contains(c)), "{:?}", v.color);
+        }
+        // Each cell's four corners share one colour (no blending between bands).
+        for q in m.vertices.chunks(4) {
+            assert!(q.iter().all(|v| v.color == q[0].color));
+        }
+        let distinct: std::collections::HashSet<_> = m.vertices.iter().map(|v| v.color).collect();
+        assert!(distinct.len() > 1 && distinct.len() <= 216);
+    }
 
     fn picker(color: &str) -> Harness<'static, Map<String, Value>> {
         let mut f = Map::new();
@@ -768,6 +889,13 @@ mod tests {
     }
 
     #[test]
+    fn hex_field_shows_uppercase_without_rewriting_the_selected_color() {
+        let h = picker("#12abef");
+        assert_eq!(h.get_by_role(Role::TextInput).value().as_deref(), Some("12ABEF"));
+        assert_eq!(color(&h), "#12abef", "casing is presentation only");
+    }
+
+    #[test]
     fn hex_field_takes_typed_digits() {
         let mut h = picker("#000000");
         h.get_by_role(Role::TextInput).click();
@@ -783,6 +911,62 @@ mod tests {
         h.key_press(egui::Key::Tab);
         h.run_steps(2);
         assert_eq!(color(&h), "#ff8800");
+    }
+
+    #[test]
+    fn hex_field_takes_every_paste_with_or_without_hash() {
+        let mut h = picker("#336699");
+        for (paste, want) in [("ff8800", "#ff8800"), ("#00ff00", "#00ff00"), (" 1234AB\n", "#1234ab")] {
+            h.event(egui::Event::Paste(paste.into()));
+            h.run_steps(2);
+            assert_eq!(color(&h), want, "paste {paste:?}");
+            assert_eq!(h.get_by_role(Role::TextInput).value().as_deref(), Some(&want[1..].to_ascii_uppercase()[..]));
+        }
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+        h.run_steps(1);
+        h.event(egui::Event::Paste("ff".into()));
+        h.run_steps(2);
+        assert_eq!(h.get_by_role(Role::TextInput).value().as_deref(), Some("ff"));
+        assert_eq!(color(&h), "#1234ab");
+    }
+
+    #[test]
+    fn color_picker_opens_with_hex_focused_and_selected() {
+        let mut h = picker("#336699");
+        let hex_field = h.get_by_role(Role::TextInput);
+        assert!(hex_field.is_focused(), "the hex field automatically has focus on open");
+        // Typing directly replaces the selected hex digits without manual clicking or Command+A.
+        type_keys(&mut h, "ff8800");
+        assert_eq!(color(&h), "#ff8800", "typing replaces the selected hex code");
+    }
+
+    #[test]
+    fn color_picker_dialog_hex_field_is_in_tab_order_and_confirms_typed_color() {
+        let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let mut h = Harness::builder().with_size(vec2(760.0, 480.0)).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app);
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        open(h.state_mut(), "foreground");
+        h.run_steps(3);
+        assert!(h.get_by_role(Role::TextInput).is_focused(), "hex field has focus in dialog frame");
+        for ch in "ff8800".chars() {
+            h.event(egui::Event::Text(ch.to_string()));
+            h.run_steps(1);
+        }
+        h.key_press(egui::Key::Enter);
+        h.run_steps(3);
+        assert_eq!(hex([h.state().session.tools.foreground[0], h.state().session.tools.foreground[1], h.state().session.tools.foreground[2]]), "#ff8800");
+    }
+
+    #[test]
+    fn alt_reset_restores_orig_color() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.tools.foreground = [0.2, 0.4, 0.6, 1.0];
+        let id = open(&mut app, "foreground");
+        let f = &mut app.ui.dialog_mut(id).unwrap().fields;
+        f.insert("color".into(), json!("#ff0000"));
+        reset(f);
+        assert_eq!(f["color"], json!(hex([0.2, 0.4, 0.6])));
+        assert_eq!(f["__orig"], json!(hex([0.2, 0.4, 0.6])));
     }
 
     #[test]
@@ -829,17 +1013,86 @@ mod tests {
         assert!(hex.left() < lightness.left() && hex.top() > inputs[5].bottom());
     }
 
+    /// The whole Color Picker window (title, frame and all) is no bigger than Photoshop's: about
+    /// 534 x 376 points (Photoshop 27.11 on macOS, measured from a screenshot at the same scale as
+    /// PhotoCraft's, which was 682 x 438).
+    #[test]
+    fn the_picker_window_is_no_bigger_than_photoshops() {
+        let mut h = Harness::builder().with_size(vec2(1400.0, 900.0)).with_max_steps(64).build_eframe(|cc| {
+            PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+            PhotocraftApp::new(photocraft_engine::Session::new(), Default::default())
+        });
+        h.run_steps(4);
+        let id = open(h.state_mut(), "foreground");
+        h.run_steps(6);
+        let rect = h.ctx.memory(|m| m.area_rect(egui::Id::new(("dialog", id)))).expect("the picker window");
+        assert!(rect.width() <= 534.0 && rect.height() <= 376.0, "Color Picker window {} x {} points, Photoshop's 534 x 376", rect.width(), rect.height());
+        // Everything still shows: the three actions and all 13 component fields.
+        for label in ["OK", "Cancel", "Add to Swatches", "Only Web Colors"] {
+            assert!(rect.contains_rect(h.get_by_label(label).rect()), "{label} inside the window");
+        }
+        assert_eq!(h.query_all_by_role(Role::SpinButton).filter(|n| rect.contains_rect(n.rect())).count(), 13);
+        // The actions are as wide as the longest label ("Add to Swatches" is about 133 points in
+        // the button font), not stretched across the column (160). Photoshop's are about 116.
+        let widths: Vec<f32> = ["OK", "Cancel", "Add to Swatches"].iter().map(|l| h.get_by_label(l).rect().width()).collect();
+        assert!(widths.iter().all(|w| (w - widths[0]).abs() < 0.5), "one width for all three actions: {widths:?}");
+        assert!(widths[0] <= 136.0, "actions {} points wide, Photoshop's about 116", widths[0]);
+    }
+
     #[test]
     fn web_colors_and_current_swatch_still_update_the_picker() {
         let mut h = picker("#123456");
         h.get_by_label("Only Web Colors").click();
         h.run_steps(2);
         assert_eq!(color(&h), "#003366");
+        assert_eq!(h.get_by_role(Role::TextInput).value().as_deref(), Some("003366"), "hex field follows the snap while it has focus");
         h.get_by_label("Only Web Colors").click();
         h.run_steps(2);
         h.get_by_label("Click to restore the current colour").click();
         h.run_steps(2);
         assert_eq!(color(&h), "#123456");
+    }
+
+    #[test]
+    fn web_only_snaps_hex_field_and_component_edits() {
+        let mut f = Map::new();
+        f.insert("color".into(), json!("#123456"));
+        f.insert("__webOnly".into(), json!(true));
+        set_rgb(&mut f, parse_hex("#ff8800").unwrap(), Keep::Nothing);
+        assert_eq!(f["color"], json!("#ff9900"));
+        set_rgb(&mut f, hsv_to_rgb(40.0, 1.0, 1.0), Keep::Hsv([40.0, 1.0, 1.0]));
+        assert_eq!(f["color"], json!("#ff9900"));
+        assert!(f.get("__hsv").is_none(), "kept HSV does not outlive a web snap");
+        set_rgb(&mut f, photocraft_color::convert::lab_to_srgb([50.0, 40.0, 20.0]).map(|c| c.clamp(0.0, 1.0)), Keep::Lab([50.0, 40.0, 20.0]));
+        assert_eq!(not_web_safe(parse_hex(f["color"].as_str().unwrap()).unwrap()), None);
+        assert!(f.get("__lab").is_none());
+    }
+
+    #[test]
+    fn web_only_survives_reopen_and_other_picker_targets() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.ui.color_panel.web_only = true;
+        let id = open(&mut app, "foreground");
+        let f = &app.ui.dialog_mut(id).unwrap().fields;
+        assert_eq!(f["__webOnly"], json!(true));
+        assert_eq!(f["color"], json!(hex(web_safe([app.session.tools.foreground[0], app.session.tools.foreground[1], app.session.tools.foreground[2]]))));
+        assert_eq!(f["__orig"], f["color"], "the opening snap moves __orig too, so OK with no edit is unchanged");
+        app.ui.dialogs.clear();
+        let id = open_for_target(&mut app, "noteColor", "Color Picker", [1.0, 0.53, 0.0]);
+        let f = &app.ui.dialogs.iter().find(|d| d.id == id).unwrap().fields;
+        assert_eq!(f["__webOnly"], json!(true));
+        assert_eq!(f["color"], json!("#ff9900"));
+        assert_eq!(f["__orig"], json!("#ff9900"), "a non-web-safe start colour is not committed by opening the picker");
+    }
+
+    #[test]
+    fn sample_at_snaps_when_only_web_colors_is_on() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let id = open(&mut app, "foreground");
+        let f = &mut app.ui.dialog_mut(id).unwrap().fields;
+        f.insert("__webOnly".into(), json!(true));
+        set_rgb(f, [0.07, 0.2, 0.34], Keep::Nothing);
+        assert_eq!(f["color"], json!("#003366"));
     }
 
     #[test]
@@ -960,6 +1213,24 @@ mod tests {
         let fields = d.fields.clone();
         confirm(&mut app, &fields).unwrap();
         assert_eq!(hex([app.session.tools.background[0], app.session.tools.background[1], app.session.tools.background[2]]), "#3366cc");
+    }
+
+    /// #4196: CMYK values typed into the picker survive OK, so the colour fills a CMYK document with those inks and
+    /// reopening the picker shows them again.
+    #[test]
+    fn cmyk_values_survive_ok_and_a_reopen() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        let cyan = [1.0, 0.0, 0.0, 0.0];
+        let id = open(&mut app, "foreground");
+        let d = app.ui.dialog_mut(id).unwrap();
+        set_rgb(&mut d.fields, photocraft_color::convert::cmyk_to_rgb(cyan).map(|c| c.clamp(0.0, 1.0)), Keep::Cmyk(cyan));
+        let fields = d.fields.clone();
+        confirm(&mut app, &fields).unwrap();
+        let fg = app.session.tools.foreground;
+        assert_eq!(app.session.tools.picked_cmyk([fg[0], fg[1], fg[2]]), Some(cyan));
+        let id = open(&mut app, "foreground");
+        let again = current(&app.ui.dialogs.iter().find(|d| d.id == id).unwrap().fields);
+        assert_eq!(again.cmyk, cyan);
     }
 
     fn dialog_color(app: &PhotocraftApp, id: u64) -> &str {

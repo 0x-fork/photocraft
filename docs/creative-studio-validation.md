@@ -121,3 +121,67 @@ cargo xtask perf --quick
 Native Linux/Wayland/X11, macOS, physical Wacom/Windows pen input, physical GPU
 presentation and real pointer-to-display latency remain unqualified on this host.
 WASM compile success is not browser interaction qualification.
+
+
+## Current-main integration qualification (2026-10-20)
+
+PR #3627 integrates main `872748fb5b2a53e09dd4e385e31968d985c0515b`
+(PhotoCraft 0.11.1), preserving the original `6c9ec00f` / `92891b59` commits.
+The regular Mixer Brush tool and command use the live transaction automatically.
+Upstream prepared Brush/Pencil and retouch commits, Color Replacement live strokes,
+symmetry, Alt-Zoom and spring-loaded tool behavior remain in place. The new raw-pointer
+regression checks real mixed pixels while held, exact prepared commit, one Undo step,
+and return to the previous tool after a temporary Mixer Brush drag.
+
+Native qualification was run serially on Windows to avoid concurrent WARP rendering:
+
+- The broad engine/paint/UI run passed 1,812 engine unit tests, 233 engine integration
+  tests, 111 paint unit tests, and 3,148 UI unit tests. It initially failed two UI tests:
+  the old cancellation harness dropped an unapplied egui texture delta, and six mixer
+  control labels lacked translations. The harness now clears its unused test output,
+  and those labels are translated in all 20 catalogs.
+- After those corrections, the same three-package test graph rebuilt successfully.
+  All 9 mixer and 69 localization unit tests passed; all 28 UI integration binaries
+  passed (116 tests). The rest of the already-passing unit tests were not repeated.
+  The broad run reported 32 ignored tests; these are not counted as passed.
+- The separately invoked ignored `panic_hunt` adversarial command test passed.
+- Native all-target check and strict all-target Clippy passed for the touched crates.
+  Layering, parity regeneration, scorecard regeneration and all `xtask wasm` checks
+  passed. Existing wasm-only unused-item warnings remain; compilation is not browser
+  interaction qualification.
+- Windows rejected the single `cargo fmt --all -- --check` command with error 206
+  (command line too long). Checking the same 362 workspace target roots individually
+  with rustfmt and their declared editions passed without changing formatting rules.
+
+The synthetic orange/teal fixture was inspected on both CPU and GPU canvas paths.
+In each path, the held-stroke and committed canvas RGB bytes match exactly. The
+captures use Microsoft Basic Render Driver / DX12; they do not qualify a physical
+GPU, pen device, or pointer-to-display latency. The CPU captures and original asset
+attribution are committed in `docs/images/mixer-main-*.png` and `ATTRIBUTION.md`.
+
+### Current integration performance
+
+`cargo xtask perf --quick --skip-build` completed all five release benchmark groups
+successfully after prebuilding the configured examples. No baseline was updated.
+The runner reports an RTX 2070 SUPER on this Windows host; its checked-in baseline
+is from an Apple M4 Pro, so it explicitly skipped regression comparison. Quick-mode
+budgets are not applied. The layout benchmark still reports slow group operations
+(e.g. group-drag median 351.86 ms and release median 418.56 ms); this run does not
+establish overall performance parity or that those timings regressed from main.
+
+The release `mixer_probe` used a 6000 x 4000 three-layer synthetic document and
+60 input updates. LTO was disabled and codegen units set to 16. The recorded working
+tree was the uncommitted merge over `92891b59` and `872748fb`, not either parent alone.
+
+| Tip (px) | Begin (ms) | Update median / p95 / max (ms) | Prepared commit (ms) | Historical frozen-composite whole stroke (ms) |
+|---|---|---|---|---|
+| 16 | 2.020 | 0.147 / 1.324 / 2.061 | 1.589 | 59.681 |
+| 64 | 3.423 | 0.433 / 5.714 / 8.014 | 1.633 | 81.402 |
+| 256 | 17.925 | 0.003 / 10.025 / 12.041 | 2.609 | 78.885 |
+
+The last column measures a complete historical frozen-composite stroke, whereas
+live-update and prepared-commit columns split that work across input events; they
+must not be presented as an overall speedup ratio. At larger spacing some input
+updates emit no dab, explaining the very small 256 px median. These are CPU engine
+timings, not GPU/display FPS or physical tablet latency. The earlier 96-case matrix
+remains historical evidence; it was not repeated for this integration.

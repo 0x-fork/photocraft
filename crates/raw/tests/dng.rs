@@ -1,7 +1,7 @@
 //! Synthetic DNG files: every storage layout decodes to the exact sensor
 //! samples, and development reproduces known colours.
 
-use photocraft_raw::testgen::{DngSpec, DngStorage, mosaic, scene};
+use photocraft_raw::testgen::{DngSpec, DngStorage, Val, baseline_jpeg, mosaic, scene};
 use photocraft_raw::*;
 
 fn sensor(bytes: &[u8]) -> Sensor {
@@ -69,6 +69,132 @@ fn linear_raw_decodes_and_develops() {
     let d = develop_sensor(&s, &DevelopOptions::default()).unwrap();
     assert_eq!((d.width, d.height, d.rgb.len()), (20, 10, 600));
     assert!(d.info.cfa.is_none());
+}
+
+/// A horizontal ramp from `lo` to `hi` (inclusive), the same in every row.
+fn ramp(w: usize, h: usize, lo: u16, hi: u16) -> Vec<u16> {
+    (0..w * h).map(|i| lo + ((u32::from(hi - lo) * (i % w) as u32) / (w as u32 - 1)) as u16).collect()
+}
+
+/// Developed RGB of a monochrome DNG: every pixel has R = G = B, and the first row's grey level
+/// rises with the ramp. Returns the first row's grey levels.
+fn assert_neutral_ramp(d: &Developed, name: &str) -> Vec<u16> {
+    let px = d.rgb.as_chunks::<3>().0;
+    assert!(px.iter().all(|p| p[0] == p[1] && p[1] == p[2]), "{name}: channels differ");
+    let row: Vec<u16> = px[..d.width as usize].iter().map(|p| p[0]).collect();
+    assert!(row.windows(2).all(|w| w[1] >= w[0]), "{name}: not monotonic: {row:?}");
+    assert!(row[row.len() - 1] > row[0] + 10_000, "{name}: flat: {row:?}");
+    row
+}
+
+/// #3497: a one-sample LinearRaw DNG (VueScan film scans, Leica Monochrom) was rejected as
+/// "LinearRaw data with 1 samples per pixel". It opens as neutral grey from every storage.
+#[test]
+fn monochrome_linear_raw_develops_to_neutral_grey() {
+    let (w, h) = (37, 23);
+    let cases: Vec<(&str, u16, DngStorage)> = vec![
+        ("16-bit strips", 16, DngStorage::Strips { rows: 5 }),
+        ("12-bit packed", 12, DngStorage::Strips { rows: 4 }),
+        ("8-bit", 8, DngStorage::Strips { rows: 23 }),
+        ("LJ92 strips", 14, DngStorage::Lj92Strips { rows: 6 }),
+        ("LJ92 tiles", 16, DngStorage::Lj92Tiles { width: 16, height: 8 }),
+        ("deflate predictor 2", 16, DngStorage::DeflateStrips { rows: 7, predictor: 2 }),
+        ("lossy JPEG tiles", 8, DngStorage::LossyJpegTiles { width: 16, height: 8 }),
+        ("lossy JPEG strips", 8, DngStorage::LossyJpegStrips { rows: 5 }),
+    ];
+    for (name, bits, storage) in cases {
+        let white = ((1u32 << bits) - 1) as u16;
+        let data = ramp(w, h, 0, white);
+        let mut spec = DngSpec::monochrome(w, h, data.clone());
+        spec.bits = bits;
+        spec.white = u32::from(white);
+        spec.storage = storage;
+        let lossy = matches!(storage, DngStorage::LossyJpegTiles { .. } | DngStorage::LossyJpegStrips { .. });
+        let s = sensor(&spec.build());
+        assert_eq!((s.samples, s.cfa.is_none(), s.is_monochrome()), (1, true, true), "{name}");
+        if !lossy {
+            assert_eq!(s.data, data, "{name}");
+        }
+        let d = develop_sensor(&s, &DevelopOptions::default()).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!((d.width, d.height, d.rgb.len()), (37, 23, 37 * 23 * 3), "{name}");
+        assert!(d.info.cfa.is_none() && d.info.wb_multipliers == [1.0; 3], "{name}: {:?}", d.info);
+        assert!(d.warnings.iter().all(|w| !w.contains("colour") && !w.contains("white balance")), "{name}: {:?}", d.warnings);
+        let row = assert_neutral_ramp(&d, name);
+        if !lossy {
+            assert_eq!((row[0], row[row.len() - 1]), (0, 65535), "{name}");
+        }
+    }
+}
+
+/// Black and white levels of a monochrome DNG scale its one sample; the white-balance
+/// settings do not tint it.
+#[test]
+fn monochrome_linear_raw_levels_and_white_balance() {
+    let (w, h) = (32, 4);
+    let mut spec = DngSpec::monochrome(w, h, ramp(w, h, 1000, 60000));
+    spec.black = vec![1000];
+    spec.white = 60000;
+    let s = sensor(&spec.build());
+    for wb in [WhiteBalance::AsShot, WhiteBalance::Auto, WhiteBalance::Multipliers([2.0, 1.0, 1.5])] {
+        let d = develop_sensor(&s, &DevelopOptions { white_balance: wb, ..Default::default() }).unwrap();
+        let row = assert_neutral_ramp(&d, &format!("{wb:?}"));
+        assert_eq!((row[0], row[w - 1]), (0, 65535), "{wb:?}");
+    }
+    // Develop exposure still applies.
+    let dark = develop_sensor(&s, &DevelopOptions { exposure: -1.0, ..Default::default() }).unwrap();
+    let row = assert_neutral_ramp(&dark, "exposure -1");
+    assert!(row[w - 1] < 60000, "{row:?}");
+}
+
+/// Colour metadata a monochrome DNG may carry, well-formed or not (a 1×3 ColorMatrix, a
+/// one-value ColorMatrix or AsShotNeutral, BlackLevel counts that fit no repeat), is ignored
+/// or falls back; it never errors or indexes out of bounds.
+#[test]
+fn monochrome_linear_raw_odd_metadata_develops() {
+    let (w, h) = (16, 6);
+    let base = DngSpec::monochrome(w, h, ramp(w, h, 100, 4000));
+    let rat = |v: &[f64]| Val::SRational(v.iter().map(|x| ((x * 10000.0) as i32, 10000)).collect());
+    let variants: Vec<(&str, DngSpec)> = vec![
+        ("1x3 ColorMatrix", DngSpec { ifd0_extra: vec![(50721, rat(&[0.3, 0.6, 0.1])), (50778, Val::Short(vec![21]))], ..base.clone() }),
+        ("one-value ColorMatrix", DngSpec { ifd0_extra: vec![(50721, rat(&[1.0]))], ..base.clone() }),
+        ("one-value AsShotNeutral", DngSpec { ifd0_extra: vec![(50728, Val::Rational(vec![(1, 1)]))], ..base.clone() }),
+        ("two BlackLevels", DngSpec { black: vec![100, 120], ..base.clone() }),
+        ("three BlackLevels", DngSpec { black: vec![100, 110, 120], ..base.clone() }),
+        ("2x2 BlackLevel repeat", DngSpec { black: vec![100, 101, 102, 103], black_repeat: (2, 2), ..base.clone() }),
+        ("2x2 repeat, one value", DngSpec { black: vec![100], black_repeat: (2, 2), ..base.clone() }),
+        ("3x3 ColorMatrix", DngSpec { color_matrix1: Some((21, [3.2, -1.5, -0.5, -1.0, 1.9, 0.04, 0.06, -0.2, 1.06])), ..base.clone() }),
+        ("3-value AsShotNeutral", DngSpec { as_shot_neutral: Some([0.5, 1.0, 0.7]), ..base.clone() }),
+    ];
+    for (name, spec) in variants {
+        let d = develop(&spec.build(), &DevelopOptions::default()).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_neutral_ramp(&d, name);
+    }
+}
+
+/// Broken monochrome DNGs fail with an error, not a panic.
+#[test]
+fn broken_monochrome_linear_raw_errors() {
+    let (w, h) = (16, 6);
+    let spec = DngSpec::monochrome(w, h, ramp(w, h, 100, 4000));
+    // Every truncation decodes to an error or develops; none panics, and a cut into the
+    // strip data is an error.
+    let b = spec.build();
+    for n in 0..b.len() {
+        if let Ok(s) = decode(&b[..n], &Limits::default()) {
+            let _ = develop_sensor(&s, &DevelopOptions::default());
+        }
+    }
+    let first: Vec<u8> = spec.data[..4].iter().flat_map(|v| v.to_le_bytes()).collect();
+    let strip = b.windows(first.len()).position(|win| win == first.as_slice()).expect("strip data");
+    assert!(decode(&b[..strip + w], &Limits::default()).is_err(), "truncated strip");
+    // Two samples per pixel is no LinearRaw layout.
+    let two = DngSpec { samples: 2, data: ramp(2 * w, h, 100, 4000), ..spec.clone() };
+    let err = decode(&two.build(), &Limits::default()).unwrap_err().to_string();
+    assert!(err.contains("2 samples per pixel"), "{err}");
+    // A monochrome sensor holding less data than its size.
+    let mut s = sensor(&spec.build());
+    s.data.truncate(10);
+    assert!(develop_sensor(&s, &DevelopOptions::default()).is_err());
 }
 
 /// `spec`'s file with its Orientation entry (a SHORT `from`) rewritten as a LONG `to`.
@@ -297,6 +423,31 @@ fn highlights_clip_to_white_and_exposure_applies() {
     let up = develop(&b, &DevelopOptions { exposure: 1.0, ..Default::default() }).unwrap().rgb[27];
     let lin = |v: u16| (f64::from(v) / 65535.0).powf(1.8);
     assert!((lin(up) / lin(base) - 2.0).abs() < 0.02, "{} vs {}", lin(up), lin(base));
+}
+
+/// storytold/photocraft#4348 (as storytold/lightcraft#548): a 12-bit DNG that states WhiteLevel 4095
+/// but whose sensor saturates at 3567 in every colour. Under the camera's white balance (red x2.46,
+/// blue x1.59) the stuck red and blue samples clip at 1 while green stays at 0.85, so a blown wall
+/// rendered magenta. The wall must come out neutral, and the unclipped ramp beside it unchanged.
+#[test]
+fn highlights_that_clip_below_the_stated_white_level_stay_neutral() {
+    let (w, h) = (64, 32);
+    let data: Vec<u16> = (0..w * h).map(|i| if i % w < w / 2 { 528 + ((i % w) * 90 + (i / w) * 3) as u16 } else { 3567 }).collect();
+    let mut spec = DngSpec::cfa(w, h, data.clone());
+    spec.bits = 12;
+    spec.black = vec![528];
+    spec.white = 4095;
+    spec.as_shot_neutral = Some([1.0 / 2.46, 1.0, 1.0 / 1.59]);
+    let b = spec.build();
+    let d = develop(&b, &DevelopOptions::default()).unwrap();
+    let px = &d.rgb[(16 * w + 48) * 3..(16 * w + 48) * 3 + 3];
+    let lin = |v: u16| (f64::from(v) / 65535.0).powf(1.8);
+    let tint = (lin(px[0]) / lin(px[1]) - 1.0).abs().max((lin(px[2]) / lin(px[1]) - 1.0).abs());
+    assert!(tint < 0.01, "the clipped wall is tinted: {px:?}");
+    let s = sensor(&b);
+    for (i, (&got, &was)) in s.data.iter().zip(&data).enumerate() {
+        assert_eq!(got, if was == 3567 { 4095 } else { was }, "sample {i}");
+    }
 }
 
 #[test]
@@ -561,87 +712,236 @@ fn profile_gain_table_map_is_reported() {
     assert!(gain_table(&sensor(&spec.build())));
 }
 
-/// Adobe DNG compression 34892 (lossy baseline JPEG, 8-bit luma tiles): decodes to the tile
-/// samples widened to 16 bits, within the JPEG quality band (Q60 artifacts are mild but real).
+// ---------------------------------------------------------------- lossy DNG (compression 34892)
+
+/// The largest difference between decoded and source samples, in stored (8-bit) levels.
+fn worst_diff(got: &[u16], want: &[u16]) -> u16 {
+    assert_eq!(got.len(), want.len());
+    got.iter().zip(want).map(|(g, w)| g.abs_diff(*w)).max().unwrap_or(0)
+}
+
+/// An 8-bit lossy DNG around `data` (every value below 256): BitsPerSample 8, WhiteLevel 255.
+fn lossy_spec(w: usize, h: usize, data: Vec<u16>, storage: DngStorage) -> DngSpec {
+    assert!(data.iter().all(|&v| v <= 255));
+    let mut spec = DngSpec::cfa(w, h, data);
+    spec.bits = 8;
+    spec.white = 255;
+    spec.storage = storage;
+    spec
+}
+
+/// Adobe DNG compression 34892 (DNG 1.4 lossy JPEG): a CFA image whose tiles or strips are
+/// baseline JPEGs of 8-bit gray samples. They decode as the stored values (0..255, like any
+/// other 8-bit raw: levels and the linearization table apply afterwards), within the JPEG
+/// quality band (Q60 artifacts are mild but real), from whole and partial edge tiles and
+/// from strips with a short last strip.
 #[test]
-fn lossy_jpeg_tiles_decode() {
-    let (w, h) = (32, 32);
+fn lossy_jpeg_cfa_tiles_and_strips_decode_stored_values() {
+    let (w, h) = (37, 23); // odd: partial edge tiles and a short last strip
     // A smooth ramp: baseline JPEG at Q60 keeps it within a few quantisation steps.
-    let data: Vec<u16> = (0..w * h).map(|i| 4096 + (i / w) as u16 * 16).collect();
-    let mut spec = DngSpec::cfa(w, h, data.clone());
-    spec.storage = DngStorage::LossyJpegTiles { width: 16, height: 16 };
-    let s = sensor(&spec.build());
-    assert_eq!((s.width, s.height, s.samples), (w, h, 1));
-    let mut worst = 0u32;
-    for (got, want) in s.data.iter().zip(&data) {
-        // The tile was written 8-bit (>>8), so the quantised expectation is (want>>8)<<8.
-        let quant = u32::from(*want >> 8) << 8;
-        worst = worst.max(u32::from(got.abs_diff(quant as u16)));
+    let data: Vec<u16> = (0..w * h).map(|i| ((i % w) * 5 + (i / w) * 2) as u16).collect();
+    let cases = [
+        ("16x8 tiles", DngStorage::LossyJpegTiles { width: 16, height: 8 }),
+        ("one tile", DngStorage::LossyJpegTiles { width: 37, height: 23 }),
+        ("strips of 5", DngStorage::LossyJpegStrips { rows: 5 }),
+        ("one strip", DngStorage::LossyJpegStrips { rows: 23 }),
+    ];
+    for (name, storage) in cases {
+        let bytes = lossy_spec(w, h, data.clone(), storage).build();
+        assert_eq!(identify(&bytes), Some(RawFormat::Dng), "{name}");
+        let s = sensor(&bytes);
+        assert_eq!((s.width, s.height, s.samples, s.cfa.is_some()), (w, h, 1, true), "{name}");
+        assert_eq!(s.white, [255.0; 3], "{name}");
+        assert!(s.data.iter().all(|&v| v <= 255), "{name}: a sample above the 8-bit range");
+        let worst = worst_diff(&s.data, &data);
+        assert!(worst <= 4, "{name}: worst deviation from the source: {worst} levels");
+        let d = develop_sensor(&s, &DevelopOptions::default()).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!((d.width as usize, d.height as usize, d.rgb.len()), (w, h, w * h * 3), "{name}");
+        assert!(d.info.cfa.is_some(), "{name}");
     }
-    assert!(worst <= 4 * 256, "worst deviation from the 8-bit quantisation: {worst}");
+}
+
+/// A 3-sample LinearRaw lossy DNG (as Adobe writes them: demosaiced, YCbCr-coded JPEG tiles)
+/// decodes to the stored R, G, B, each channel at its own level, from tiles and strips.
+#[test]
+fn lossy_jpeg_linearraw_rgb_tiles_and_strips_decode_stored_values() {
+    let (w, h) = (37, 23);
+    // Channel offsets of 64 levels survive JPEG chroma quantisation at Q60; the ramp is smooth.
+    let data: Vec<u16> = (0..w * h * 3).map(|i| ((i / 3 % w) * 2 + i / 3 / w) as u16 + (i % 3) as u16 * 64).collect();
+    let cases = [
+        ("16x16 tiles", DngStorage::LossyJpegTiles { width: 16, height: 16 }),
+        ("one tile", DngStorage::LossyJpegTiles { width: 37, height: 23 }),
+        ("strips of 7", DngStorage::LossyJpegStrips { rows: 7 }),
+    ];
+    for (name, storage) in cases {
+        let mut spec = lossy_spec(w, h, data.clone(), storage);
+        spec.samples = 3;
+        let s = sensor(&spec.build());
+        assert_eq!((s.width, s.height, s.samples, s.cfa.is_none()), (w, h, 3, true), "{name}");
+        assert!(s.data.iter().all(|&v| v <= 255), "{name}: a sample above the 8-bit range");
+        let worst = worst_diff(&s.data, &data);
+        assert!(worst <= 8, "{name}: worst deviation from the source: {worst} levels");
+        // Each channel carries its own level: R and B stay apart everywhere.
+        for p in 0..w * h {
+            let (r, b) = (s.data[p * 3], s.data[p * 3 + 2]);
+            assert!(b >= r + 64 - 8, "{name}: channels collapsed at pixel {p}: R {r}, B {b}");
+        }
+        let d = develop_sensor(&s, &DevelopOptions::default()).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!((d.width as usize, d.height as usize, d.rgb.len()), (w, h, w * h * 3), "{name}");
+    }
+}
+
+/// The decoded 8-bit values are the stored samples, so WhiteLevel defaults to 255 when absent,
+/// BlackLevel / WhiteLevel scale them and a LinearizationTable maps them, exactly as for an
+/// uncompressed 8-bit DNG. Flat images keep the comparison inside the JPEG's DC rounding.
+#[test]
+fn lossy_jpeg_levels_and_linearization_apply_to_stored_values() {
+    let (w, h) = (24, 16);
+    let tiles = DngStorage::LossyJpegTiles { width: 16, height: 8 };
+    let flat = |v: u16| vec![v; w * h];
+    let grey = |d: &Developed| d.rgb.chunks(3).map(|p| p[0]).collect::<Vec<u16>>();
+
+    // No WhiteLevel: 255 is white. A flat 255 develops to full white, a flat 0 to black.
+    for (v, lo, hi) in [(255u16, 65000u16, 65535u16), (0, 0, 300)] {
+        let mut spec = DngSpec::monochrome(w, h, flat(v));
+        spec.bits = 8;
+        spec.white = 0;
+        spec.storage = tiles;
+        let s = sensor(&spec.build());
+        assert_eq!(s.white, [255.0; 3]);
+        let d = develop_sensor(&s, &DevelopOptions::default()).unwrap();
+        assert!(grey(&d).iter().all(|&g| (lo..=hi).contains(&g)), "flat {v}: {:?}", &grey(&d)[..4]);
+    }
+
+    // BlackLevel 20 / WhiteLevel 220 scale the stored values like the uncompressed path.
+    let levels = |storage: DngStorage| {
+        let mut spec = DngSpec::monochrome(w, h, flat(200));
+        spec.bits = 8;
+        spec.black = vec![20];
+        spec.white = 220;
+        spec.storage = storage;
+        let s = sensor(&spec.build());
+        assert_eq!((s.white, s.black.at(0, 0, 0, 1)), ([220.0; 3], 20.0));
+        grey(&develop_sensor(&s, &DevelopOptions::default()).unwrap())
+    };
+    let (lossy, plain) = (levels(tiles), levels(DngStorage::Strips { rows: h }));
+    assert!(plain[0] > 50_000 && plain[0] < 65_000, "{}", plain[0]);
+    let worst = worst_diff(&lossy, &plain);
+    assert!(worst <= 600, "levels: lossy and uncompressed differ by {worst}");
+
+    // A LinearizationTable indexed by the stored value. It is flat around 200, so the JPEG's
+    // DC rounding (199 or 200) lands on the same output: the two paths develop identically.
+    let table: Vec<u16> = (0..256u32).map(|v| if (190..=210).contains(&v) { 40_000 } else { (v * 257) as u16 }).collect();
+    let linearized = |storage: DngStorage| {
+        let mut spec = DngSpec::monochrome(w, h, flat(200));
+        spec.bits = 8;
+        spec.white = 0;
+        spec.linearization = Some(table.clone());
+        spec.storage = storage;
+        let s = sensor(&spec.build());
+        assert_eq!(s.linearization.as_deref(), Some(table.as_slice()));
+        assert_eq!(s.white, [65535.0; 3], "the table's maximum is white");
+        grey(&develop_sensor(&s, &DevelopOptions::default()).unwrap())
+    };
+    let (lossy, plain) = (linearized(tiles), linearized(DngStorage::Strips { rows: h }));
+    assert!(plain[0] > 40_000 && plain[0] < 60_000, "{}", plain[0]);
+    assert_eq!(lossy, plain, "linearization: the lossy path differs from the uncompressed one");
 }
 
 /// A lossy JPEG tile cut mid-stream fails cleanly.
 #[test]
-fn lossy_jpeg_tiles_hostile() {
+fn lossy_jpeg_truncated_tile_errors() {
     let (w, h) = (32, 32);
-    let data: Vec<u16> = (0..w * h).map(|_i| 8192u16).collect();
-    let mut spec = DngSpec::cfa(w, h, data);
-    spec.storage = DngStorage::LossyJpegTiles { width: 32, height: 32 };
-    let bytes = spec.build();
+    let bytes = lossy_spec(w, h, vec![128; w * h], DngStorage::LossyJpegTiles { width: 32, height: 32 }).build();
     let at = bytes.windows(2).position(|w| w == [0xFF, 0xD8]).expect("jpeg SOI") + 2;
     let cut = &bytes[..at + (bytes.len() - at) / 2];
-    assert!(decode(cut, &Limits::default()).is_err(), "a cut JPEG tile must not decode");
+    assert!(matches!(decode(cut, &Limits::default()), Err(RawError::Malformed(_))), "a cut JPEG tile must not decode");
 }
 
-/// A tile JPEG whose header lies about its size fails the header check, before any pixel
-/// decode (a hostile SOF must not be able to size the decoder's buffers first).
+/// A tile JPEG whose header disagrees with the tile size fails the header check, before any
+/// pixel decode (a hostile SOF must not be able to size the decoder's buffers first).
 #[test]
 fn lossy_jpeg_tile_dimension_mismatch_errors() {
-    use image::ImageEncoder as _;
     let (w, h) = (32, 32);
-    let data: Vec<u16> = (0..w * h).map(|i| 4096 + (i / w) as u16 * 16).collect();
-    let mut spec = DngSpec::cfa(w, h, data);
-    spec.storage = DngStorage::LossyJpegTiles { width: 32, height: 32 };
-    let mut bytes = spec.build();
-    // Swap the 32x32 tile JPEG for a 16x16 one, inside the same segment (the trailing bytes
-    // after its EOI stay; the JPEG decoder stops at EOI).
-    let small = {
-        let img = image::GrayImage::from_fn(16, 16, |x, _| image::Luma([(x as u16 * 16) as u8]));
-        let mut j = Vec::new();
-        let enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut j, 60);
-        enc.write_image(img.as_raw(), 16, 16, image::ExtendedColorType::L8).unwrap();
-        j
-    };
-    let soi = bytes.windows(3).position(|w| w == [0xFF, 0xD8, 0xFF]).expect("SOI");
-    let eoi = soi + bytes[soi..].windows(2).position(|w| w == [0xFF, 0xD9]).expect("EOI") + 2;
-    bytes.splice(soi..eoi, small);
-    let err = decode(&bytes, &Limits::default()).unwrap_err().to_string();
+    let mut spec = lossy_spec(w, h, vec![100; w * h], DngStorage::LossyJpegTiles { width: 32, height: 32 });
+    let small: Vec<u8> = (0..16 * 16).map(|i| (i % 16 * 16) as u8).collect();
+    spec.lossy_segments = vec![baseline_jpeg(&small, 16, 16, 1)];
+    let err = decode(&spec.build(), &Limits::default()).unwrap_err().to_string();
     assert!(err.contains("16x16") && err.contains("32x32"), "{err}");
+    // A tile coded at the image's row count instead of the tile's is tolerated (a strip-like
+    // encoder); anything else is not.
+    let (w, h) = (16, 12);
+    let mut spec = lossy_spec(w, h, vec![100; w * h], DngStorage::LossyJpegTiles { width: 16, height: 16 });
+    spec.lossy_segments = vec![baseline_jpeg(&[100u8; 16 * 12], 16, 12, 1)];
+    let s = sensor(&spec.build());
+    assert_eq!((s.width, s.height), (w, h));
+    assert!(s.data.iter().all(|&v| v.abs_diff(100) <= 2));
+    for (tw, th) in [(16, 14), (16, 18), (12, 16), (18, 16)] {
+        spec.lossy_segments = vec![baseline_jpeg(&vec![100u8; tw * th], tw, th, 1)];
+        assert!(matches!(decode(&spec.build(), &Limits::default()), Err(RawError::Malformed(_))), "{tw}x{th}");
+    }
+    // A strip must be coded at its own row count.
+    let mut spec = lossy_spec(w, h, vec![100; w * h], DngStorage::LossyJpegStrips { rows: 8 });
+    spec.lossy_segments = vec![baseline_jpeg(&[100u8; 16 * 8], 16, 8, 1), baseline_jpeg(&[100u8; 16 * 8], 16, 8, 1)];
+    assert!(matches!(decode(&spec.build(), &Limits::default()), Err(RawError::Malformed(_))));
 }
 
-/// A 3-sample LinearRaw lossy DNG (YCbCr on disk, as real camera files are) decodes to RGB
-/// tiles widened to 16 bits, within the JPEG quality band; a LinearizationTable maps the
-/// decoded samples in the develop stage, so the sensor sees the raw widened values.
+/// A tile with the wrong number of JPEG components (a colour JPEG in a CFA DNG, a gray one in a
+/// 3-sample LinearRaw DNG) is rejected rather than silently converted.
 #[test]
-fn lossy_jpeg_rgb_linearraw_decodes() {
-    let (w, h) = (32, 32);
-    // Channel offsets of 64 8-bit steps survive JPEG chroma quantisation at Q60.
-    let data: Vec<u16> = (0..w * h * 3).map(|i| 4096 + ((i / (w * 3)) as u16 * 16) + (i % 3) as u16 * 64 * 256).collect();
-    let mut spec = DngSpec::cfa(w, h, data.clone());
-    spec.samples = 3;
+fn lossy_jpeg_component_count_mismatch_errors() {
+    let (w, h) = (16, 16);
+    let mut cfa = lossy_spec(w, h, vec![90; w * h], DngStorage::LossyJpegTiles { width: 16, height: 16 });
+    cfa.lossy_segments = vec![baseline_jpeg(&vec![90u8; w * h * 3], w, h, 3)];
+    let err = decode(&cfa.build(), &Limits::default()).unwrap_err();
+    assert!(matches!(&err, RawError::Malformed(m) if m.contains("3 components")), "{err}");
+
+    let mut rgb = lossy_spec(w, h, vec![90; w * h * 3], DngStorage::LossyJpegTiles { width: 16, height: 16 });
+    rgb.samples = 3;
+    rgb.lossy_segments = vec![baseline_jpeg(&vec![90u8; w * h], w, h, 1)];
+    let err = decode(&rgb.build(), &Limits::default()).unwrap_err();
+    assert!(matches!(&err, RawError::Malformed(m) if m.contains("1 components")), "{err}");
+}
+
+/// A SOF claiming a 65535x65535 frame inside a 16x16 tile is refused at the header, under the
+/// default limits as well as tight ones: the frame is never allocated.
+#[test]
+fn lossy_jpeg_oversized_frame_header_errors() {
+    let (w, h) = (16, 16);
+    let mut bytes = lossy_spec(w, h, vec![90; w * h], DngStorage::LossyJpegTiles { width: 16, height: 16 }).build();
+    let sof = bytes.windows(2).position(|m| m == [0xFF, 0xC0]).expect("SOF0");
+    // FF C0 | length (2) | precision (1) | height (2) | width (2)
+    bytes[sof + 5..sof + 9].copy_from_slice(&[0xFF, 0xFF, 0xFF, 0xFF]);
+    for limits in [Limits::default(), Limits { max_width: 64, max_height: 64, max_pixels: 1 << 12, max_alloc: 1 << 16 }] {
+        assert!(matches!(decode(&bytes, &limits), Err(RawError::Malformed(_))));
+    }
+    // The IFD cannot grow a tile past the limits either: a tile larger than the budget is
+    // refused before its JPEG is looked at.
+    let tight = Limits { max_width: 64, max_height: 64, max_pixels: 1 << 12, max_alloc: 1 << 10 };
+    let big = lossy_spec(40, 40, vec![90; 1600], DngStorage::LossyJpegTiles { width: 40, height: 40 }).build();
+    assert!(decode(&big, &tight).is_err());
+}
+
+/// DNG 1.4 stores lossy JPEG at 8 bits per sample; other depths and sample counts are reported
+/// as unsupported, not decoded as something else.
+#[test]
+fn lossy_jpeg_rejects_other_depths_and_sample_counts() {
+    let (w, h) = (16, 16);
+    let mut spec = DngSpec::cfa(w, h, vec![4000; w * h]);
     spec.storage = DngStorage::LossyJpegTiles { width: 16, height: 16 };
-    let s = sensor(&spec.build());
-    assert_eq!((s.width, s.height, s.samples), (w, h, 3));
-    let mut worst = 0u32;
-    for (got, want) in s.data.iter().zip(&data) {
-        let quant = u32::from(*want >> 8) << 8;
-        worst = worst.max(u32::from(got.abs_diff(quant as u16)));
+    for bits in [12u16, 16] {
+        spec.bits = bits;
+        spec.white = (1 << bits) - 1;
+        let err = decode(&spec.build(), &Limits::default()).unwrap_err();
+        assert!(matches!(&err, RawError::Unsupported(m) if m.contains(&format!("{bits}-bit"))), "{err}");
     }
-    assert!(worst <= 8 * 256, "worst deviation from the 8-bit quantisation: {worst}");
-    // Each channel carries its own level: R and B stay apart everywhere.
-    for p in 0..w * h {
-        let (r, b) = (s.data[p * 3], s.data[p * 3 + 2]);
-        assert!(r.abs_diff(b) >= 64 * 256 - 8 * 256, "channels collapsed at pixel {p}");
-    }
+    // Four samples per pixel (the IFD's claim; the JPEG itself is three-component).
+    let mut spec = lossy_spec(w, h, vec![90; w * h * 3], DngStorage::LossyJpegTiles { width: 16, height: 16 });
+    spec.samples = 3;
+    let mut bytes = spec.build();
+    let samples_tag = 277u16.to_le_bytes();
+    let at = bytes.windows(4).position(|e| e[..2] == samples_tag && e[2..] == 3u16.to_le_bytes()).expect("SamplesPerPixel entry");
+    bytes[at + 8] = 4;
+    let err = decode(&bytes, &Limits::default()).unwrap_err();
+    assert!(matches!(&err, RawError::Unsupported(m) if m.contains("4 samples")), "{err}");
 }

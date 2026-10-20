@@ -5,6 +5,20 @@ implement the floating palette, harmony wheel, physical brush rack or bristle wo
 Those must follow qualification of the painting and sampling foundation. These
 original studio features do not change Photoshop parity counts.
 
+## Integration with current main (2026-10-20)
+
+The foundation is integrated with upstream `872748fb5b2a53e09dd4e385e31968d985c0515b`
+(PhotoCraft 0.11.1). The regular Mixer Brush tool and `paint.mixerBrush` command
+use the incremental mixer; there is no separate experimental tool to enable.
+The merge retains upstream Color Replacement live strokes, prepared Brush/Pencil
+and retouch commits, ordinary-brush symmetry, Alt-Zoom handling and spring-loaded
+tool keys. A raw-pointer regression verifies mixed pixels while the button is held,
+exact preview/commit equality, one Undo step and return from a temporary Mixer Brush.
+
+The original qualification and timings below remain historical evidence for their
+recorded baseline. Current integration results are recorded separately in
+`creative-studio-validation.md`; they do not establish hardware tablet or display latency.
+
 ## Traced cause
 
 Baseline: upstream main `29f1ff9e90f2581ea2964e3276d85c71ab7e79a0`.
@@ -63,11 +77,11 @@ stale document context cancel the UI transaction.
 
 Commands: `brush.mixer.sample`, `brush.mixer.load`, `brush.mixer.clean`,
 and the existing `paint.mixerBrush`. UI text uses the existing localization system;
-new translations are not supplied for every catalog yet.
+the six paint-load control labels are translated in all 20 supported catalogs.
 
 ## Resource envelope and limitations
 
-Live mixer size is limited to 512 pixels; dense footprints to 1,048,576 pixels;
+Live mixer size is limited to 1024 pixels; dense footprints to 4,194,304 pixels;
 one input segment to 2,048 pixels; one stroke to 250,000 dabs and 256 working tiles
 (256 x 256 pixels each). Requests beyond these limits return errors. A spatial load
 uses 64 KiB of float color data. Document snapshots share untouched tiles. These
@@ -93,7 +107,7 @@ begin/move/prepared-commit costs on a 24 MP three-layer document. It is not an O
 display latency test. Run it under a recorded machine/build configuration and keep
 its actual JSON results with the review evidence.
 
-## Upstream compatibility
+## Original upstream compatibility assessment (2026-10-11)
 
 No PDF Binder #2011 or PDF integration #2751 code is modified. This branch starts
 from upstream main, not the PDF branch. Relevant open work inspected on 2026-10-11:
@@ -145,3 +159,17 @@ integration. Open AI PRs #2878 (provider interface / Gemini), #730 (OpenAI), #28
 Provider work must reconcile those existing contributions. No external AI provider
 has been invoked, and publishing advanced palette/bristle/AI components requires
 the owner's separate release approval after licensing review.
+
+## Current integration visual check
+
+A synthetic orange/teal background and an empty paint layer, painted with a purple
+loaded Mixer Brush. The middle capture is taken while the stroke is still held.
+The held-stroke and committed canvas RGB pixels are identical.
+Captures use the CPU canvas with the Microsoft Basic Render Driver offscreen shell;
+they do not qualify physical GPU or tablet latency.
+
+![Before the stroke](images/mixer-main-before.png)
+
+![Actual mixed paint while held](images/mixer-main-held.png)
+
+![The committed result](images/mixer-main-committed.png)

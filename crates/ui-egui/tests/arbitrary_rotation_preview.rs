@@ -11,14 +11,19 @@ type Harness = egui_kittest::Harness<'static, PhotocraftApp>;
 
 fn harness() -> Option<Harness> {
     let built = std::panic::catch_unwind(|| {
-        egui_kittest::Harness::builder().with_size(egui::vec2(1280.0, 800.0)).with_pixels_per_point(1.0).with_max_steps(64).wgpu().build_eframe(|cc| {
-            PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
-            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
-            if let Some(rs) = cc.wgpu_render_state.as_ref() {
-                app.set_wgpu(rs.clone());
-            }
-            app
-        })
+        egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1280.0, 800.0))
+            .with_pixels_per_point(1.0)
+            .with_max_steps(64)
+            .wgpu_setup(photocraft_ui_egui::gpu_canvas::wgpu_setup())
+            .build_eframe(|cc| {
+                PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+                let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+                if let Some(rs) = cc.wgpu_render_state.as_ref() {
+                    app.set_wgpu(rs.clone());
+                }
+                app
+            })
     });
     match built {
         Ok(h) => Some(h),
@@ -87,6 +92,7 @@ fn blue(h: &mut Harness, name: &str) -> (usize, u32, u32) {
 
 #[test]
 fn size_changing_rotation_preview_is_visible_and_preserves_the_panned_center() {
+    let _gpu = photocraft_testkit::gpu_lock();
     let Some(mut h) = harness() else { return };
     h.run_steps(4);
     for (width, height, zoom, center, degrees, factor) in [
@@ -121,6 +127,7 @@ fn size_changing_rotation_preview_is_visible_and_preserves_the_panned_center() {
 
 #[test]
 fn preview_toggle_and_cancel_keep_the_document_while_ok_applies_rotation() {
+    let _gpu = photocraft_testkit::gpu_lock();
     let Some(mut h) = harness() else { return };
     h.run_steps(4);
     setup(&mut h, 400, 240, 1.0, [200.0, 120.0]);

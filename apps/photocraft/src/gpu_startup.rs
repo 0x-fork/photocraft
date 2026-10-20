@@ -177,6 +177,12 @@ pub fn plan_with_mode(pref: GpuBackend, mode: RenderingMode, crashed: Option<&Ma
     plan(backend, crashed, env, safe_gpu, os)
 }
 
+/// Persist successful hardware fallbacks, but never silently pin CPU mode.
+/// The recovery dialog explicitly stores CPU mode when the user chooses it.
+pub fn backend_to_remember(plan: &Plan) -> Option<GpuBackend> {
+    (plan.remember && plan.backend != GpuBackend::Cpu).then_some(plan.backend)
+}
+
 /// Instance backends for `plan` (`None`: egui's default, which honours `WGPU_BACKEND`).
 pub fn backends(plan: &Plan, os: Os) -> Option<wgpu::Backends> {
     if plan.env.is_some() {
@@ -227,9 +233,10 @@ pub struct Candidate {
 /// Rank of an adapter (lower is better): high-performance device types first (egui's power
 /// preference) or software adapters first for `cpu`; then backends, with DX12 before Vulkan for
 /// Intel on Windows. For `cpu`, any GL adapter comes before Vulkan, which is only the fallback
-/// for presenting the window (see [`backends`]).
+/// for presenting the window (see [`backends`]). On Windows GL comes after every other adapter,
+/// WARP included: GL there (VMware's SVGA3D, GL-only old GPUs) drew a black window (#5191, #1788).
 fn rank(a: &Candidate, backend: GpuBackend, os: Os) -> (u8, u8, u8) {
-    let fallback = u8::from(backend == GpuBackend::Cpu && a.backend == wgpu::Backend::Vulkan);
+    let fallback = u8::from((backend == GpuBackend::Cpu && a.backend == wgpu::Backend::Vulkan) || (os == Os::Windows && a.backend == wgpu::Backend::Gl));
     let ty = match a.device_type {
         wgpu::DeviceType::DiscreteGpu => 0,
         wgpu::DeviceType::IntegratedGpu => 1,
@@ -267,6 +274,14 @@ pub fn intel_dx12_applied(adapters: &[Candidate], chosen: usize, os: Os) -> bool
         && adapters.iter().any(|a| a.vendor == INTEL && a.backend == wgpu::Backend::Vulkan)
 }
 
+/// wgpu compiles indirect-call validation shaders inside `request_device`; Metal's compiler
+/// crashes on them on old Intel Macs (Iris Pro, GPUFamily 1 on Monterey), so no mode could start
+/// (#3107). Only Intel Macs skip them: PhotoCraft issues no indirect draws or dispatches, but every
+/// other GPU keeps wgpu's default. `WGPU_VALIDATION_INDIRECT_CALL=1` still wins.
+fn skips_indirect_validation(os: Os, intel: bool) -> bool {
+    os == Os::Mac && intel
+}
+
 /// Configure eframe's wgpu setup for `plan`: instance backends, the DX12 shader compiler, adapter
 /// selection (Intel on Windows, software adapters for `cpu`) and the marker update once the
 /// adapter is chosen. `note` receives a remark for System Info (e.g. the Intel default).
@@ -274,6 +289,9 @@ pub fn configure(setup: &mut egui_wgpu::WgpuSetup, plan: &Plan, os: Os, sentinel
     if let egui_wgpu::WgpuSetup::CreateNew(create) = setup {
         if let Some(b) = backends(plan, os) {
             create.instance_descriptor.backends = b;
+        }
+        if skips_indirect_validation(os, cfg!(target_arch = "x86_64")) {
+            create.instance_descriptor.flags = create.instance_descriptor.flags.difference(wgpu::InstanceFlags::VALIDATION_INDIRECT_CALL).with_env();
         }
         if os == Os::Windows {
             let exe = std::env::current_exe().ok();
@@ -425,6 +443,14 @@ pub fn read_display_server(path: Option<&Path>) -> photocraft_engine::prefs::Lin
         .unwrap_or_default()
 }
 
+/// Preferences › Performance › Low-Latency Drawing (`performance.lowLatencyDrawing`, off unless
+/// turned on), read before the window opens: it picks the surface's present mode.
+pub fn read_low_latency(path: Option<&Path>) -> bool {
+    let v: Value = path.and_then(|p| std::fs::read_to_string(p).ok()).and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
+    let default = photocraft_engine::prefs::Preferences::default().performance.low_latency_drawing;
+    v.get("performance").and_then(|p| p.get("lowLatencyDrawing")).and_then(Value::as_bool).unwrap_or(default)
+}
+
 /// Read the policy leniently at startup, including old settings without renderingMode.
 pub fn read_rendering_prefs(path: Option<&Path>) -> (GpuBackend, RenderingMode) {
     let v: Value = path.and_then(|p| std::fs::read_to_string(p).ok()).and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
@@ -443,6 +469,23 @@ mod tests {
 
     fn crashed(backend: &str, adapter_backend: &str) -> Marker {
         Marker { backend: backend.into(), adapter: "Intel(R) UHD Graphics".into(), adapter_backend: adapter_backend.into(), ..Default::default() }
+    }
+
+    #[test]
+    fn low_latency_drawing_is_read_before_the_window_opens_and_defaults_off() {
+        let dir = std::env::temp_dir().join(format!("photocraft-low-latency-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("preferences.json");
+        let read = |json: &str| {
+            std::fs::write(&file, json).unwrap();
+            read_low_latency(Some(&file))
+        };
+        assert!(read(r#"{"performance":{"lowLatencyDrawing":true}}"#));
+        assert!(!read(r#"{"performance":{"lowLatencyDrawing":false}}"#));
+        assert!(!read(r#"{"performance":{"lowLatencyDrawing":"nope"}}"#), "garbage keeps the default (off)");
+        assert!(!read("not json"));
+        assert!(!read_low_latency(None), "no settings file: the default (off)");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -530,6 +573,27 @@ mod tests {
         assert_eq!(plan(Auto, None, Some("dx12"), true, Os::Windows).backend, Cpu);
     }
 
+    /// #3483: A temporary CPU recovery must not change the next launch.
+    #[test]
+    fn cpu_recovery_requires_explicit_confirmation_to_persist() {
+        let gl_crash = crashed("gl", "gl");
+        let cpu = plan_with_mode(Auto, RenderingMode::Auto, Some(&gl_crash), None, false, Os::Other);
+        assert_eq!((cpu.backend, cpu.remember), (Cpu, true));
+        assert_eq!(backend_to_remember(&cpu), None);
+
+        let safe = plan_with_mode(Auto, RenderingMode::Auto, None, None, true, Os::Other);
+        assert_eq!(safe.backend, Cpu);
+        assert_eq!(backend_to_remember(&safe), None);
+        // An unconfirmed fallback leaves the original automatic selection intact.
+        assert_eq!(plan_with_mode(Auto, RenderingMode::Auto, None, None, false, Os::Other).backend, Auto);
+        // A working hardware fallback can still be remembered.
+        let vk_crash = crashed("auto", "vulkan");
+        let gl = plan_with_mode(Auto, RenderingMode::Auto, Some(&vk_crash), None, false, Os::Other);
+        assert_eq!(backend_to_remember(&gl), Some(Gl));
+        // CPU explicitly selected in preferences still works.
+        assert_eq!(plan_with_mode(Auto, RenderingMode::Cpu, None, None, false, Os::Other).backend, Cpu);
+    }
+
     #[test]
     fn safe_gpu_forces_the_cpu_for_one_launch() {
         let p = plan(Vulkan, Some(&crashed("vulkan", "vulkan")), None, true, Os::Other);
@@ -597,6 +661,20 @@ mod tests {
         assert_eq!(pick(&[nvidia_gl, nvidia_vk], Auto, Os::Other), Some(1));
     }
 
+    /// #5191, #1788: a Windows VM offers VMware's SVGA3D over GL (`Other`) and WARP (`Cpu`, DX12).
+    /// GL drew a black window; WARP works. GL stays the last resort.
+    #[test]
+    fn windows_auto_prefers_warp_over_gl() {
+        use wgpu::{Backend as B, DeviceType as T};
+        let svga_gl = cand(0x15ad, T::Other, B::Gl);
+        let warp = cand(0x1414, T::Cpu, B::Dx12);
+        assert_eq!(pick(&[svga_gl, warp], Auto, Os::Windows), Some(1));
+        assert_eq!(pick(&[cand(INTEL, T::IntegratedGpu, B::Gl), warp], Auto, Os::Windows), Some(1));
+        assert_eq!(pick(&[svga_gl], Auto, Os::Windows), Some(0));
+        // Elsewhere GL keeps its rank.
+        assert_eq!(pick(&[svga_gl, warp], Auto, Os::Other), Some(0));
+    }
+
     #[test]
     fn adapters_must_present_even_when_none_support_the_surface() {
         let mut a = cand(INTEL, wgpu::DeviceType::IntegratedGpu, wgpu::Backend::Dx12);
@@ -661,7 +739,7 @@ mod tests {
         } else {
             s.finish();
         }
-        let (prev, _s) = Sentinel::begin(&dir);
+        let (prev, _s) = begin_when_unlocked(&dir);
         assert_eq!(prev, Previous::Clean);
         assert_eq!(plan(Auto, prev.crashed(), None, false, Os::Other).backend, Auto);
         let _ = std::fs::remove_dir_all(&dir);
@@ -671,6 +749,22 @@ mod tests {
         let d = std::env::temp_dir().join(format!("photocraft-gpu-startup-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d
+    }
+
+    /// `Sentinel::begin`, called again up to 50 times, 10 ms apart, while it returns
+    /// `Previous::Busy`. Other tests in this binary spawn processes: between fork and exec a child
+    /// briefly shares the marker's flock, so `begin` can see the lock as busy just after a test
+    /// drops its sentinel.
+    fn begin_when_unlocked(dir: &Path) -> (Previous, Option<Sentinel>) {
+        let (mut prev, mut s) = Sentinel::begin(dir);
+        for _ in 0..50 {
+            if prev != Previous::Busy {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            (prev, s) = Sentinel::begin(dir);
+        }
+        (prev, s)
     }
 
     #[test]
@@ -688,16 +782,7 @@ mod tests {
         assert!(none.is_none());
         // The process dies in the driver: the lock goes, the marker stays.
         drop(s);
-        // Another test in this binary spawns a process: between its fork and exec the child briefly
-        // shares this file's flock, so `begin` can see the lock as busy. Retry for a moment.
-        let (mut prev, mut s) = Sentinel::begin(&dir);
-        for _ in 0..50 {
-            if prev != Previous::Busy {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            (prev, s) = Sentinel::begin(&dir);
-        }
+        let (prev, s) = begin_when_unlocked(&dir);
         let m = prev.crashed().cloned().expect("crash detected");
         assert_eq!((m.adapter.as_str(), m.tried()), ("GPU", Some(Vulkan)));
         // This start succeeds: the next one finds nothing.
@@ -707,6 +792,29 @@ mod tests {
         assert!(!dir.join(MARKER_FILE).exists());
         let (prev, _s) = Sentinel::begin(&dir);
         assert_eq!(prev, Previous::Clean);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn begin_when_unlocked_waits_for_a_briefly_held_lock() {
+        let dir = temp_dir("shared-lock");
+        let (_, s) = Sentinel::begin(&dir);
+        let mut s = s.expect("sentinel");
+        s.write(Marker { backend: "vulkan".into(), ..Default::default() }).unwrap();
+        // After the start dies, a second handle on the marker holds the lock for 50 ms, as a
+        // spawned child's copy of the descriptor does until the child calls exec.
+        let held = File::open(dir.join(MARKER_FILE)).unwrap();
+        drop(s);
+        held.lock().unwrap();
+        assert_eq!(Sentinel::begin(&dir).0, Previous::Busy);
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            held.unlock().unwrap();
+        });
+        let (prev, s) = begin_when_unlocked(&dir);
+        release.join().unwrap();
+        assert_eq!(prev.crashed().map(|m| m.backend.as_str()), Some("vulkan"));
+        s.expect("sentinel").finish();
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -727,7 +835,7 @@ mod tests {
             } else {
                 s.finish();
             }
-            let (previous, s) = Sentinel::begin(&dir);
+            let (previous, s) = begin_when_unlocked(&dir);
             assert_eq!(previous.crashed().is_some(), keep, "{name}: {result:?}");
             if !keep {
                 assert_eq!(plan(Vulkan, previous.crashed(), None, false, Os::Other).backend, Vulkan);
@@ -795,6 +903,30 @@ mod tests {
                 C::StaticDxc | C::Auto => false,
             };
             assert!(safe, "{:?}", create.instance_descriptor.backend_options.dx12.shader_compiler);
+        }
+    }
+
+    #[test]
+    fn intel_macs_skip_the_indirect_validation_shaders() {
+        // Metal's compiler crashed on them on Intel Iris Pro, losing the device in every mode (#3107).
+        assert!(skips_indirect_validation(Os::Mac, true));
+        // Apple silicon, Windows and Linux keep wgpu's validation.
+        for (os, intel) in [(Os::Mac, false), (Os::Windows, true), (Os::Other, true), (Os::Other, false)] {
+            assert!(!skips_indirect_validation(os, intel), "{os:?} intel={intel}");
+        }
+        for (os, safe_gpu) in [(Os::Windows, false), (Os::Other, true), (Os::Other, false)] {
+            let mut setup = egui_wgpu::WgpuSetup::without_display_handle();
+            let egui_wgpu::WgpuSetup::CreateNew(before) = &setup else { panic!("a new instance") };
+            let before = before.instance_descriptor.flags;
+            configure(&mut setup, &plan(Auto, None, None, safe_gpu, os), os, Arc::new(Mutex::new(None)), Arc::default());
+            let egui_wgpu::WgpuSetup::CreateNew(create) = &setup else { panic!("a new instance") };
+            assert_eq!(create.instance_descriptor.flags, before, "{os:?}: flags untouched");
+        }
+        if cfg!(target_arch = "x86_64") && std::env::var_os("WGPU_VALIDATION_INDIRECT_CALL").is_none() {
+            let mut setup = egui_wgpu::WgpuSetup::without_display_handle();
+            configure(&mut setup, &plan(Auto, None, None, false, Os::Mac), Os::Mac, Arc::new(Mutex::new(None)), Arc::default());
+            let egui_wgpu::WgpuSetup::CreateNew(create) = &setup else { panic!("a new instance") };
+            assert!(!create.instance_descriptor.flags.contains(wgpu::InstanceFlags::VALIDATION_INDIRECT_CALL));
         }
     }
 }

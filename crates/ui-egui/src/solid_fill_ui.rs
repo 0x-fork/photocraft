@@ -30,6 +30,36 @@ pub(crate) fn open(app: &mut PhotocraftApp) -> Option<u64> {
     Some(color_picker_ui::open_for_command(app, "Color Picker (Solid Color)", color.to_rgb(), cmds::SET, params))
 }
 
+/// Creating a Solid Color fill is transactional: the document is unchanged until OK.
+/// The picker is seeded with the foreground colour, matching the engine's default.
+pub(crate) fn open_new(app: &mut PhotocraftApp) -> Option<u64> {
+    let document = app.session.active()?.doc.id.0;
+    let foreground = app.session.tools.foreground;
+    Some(color_picker_ui::open_for_command(
+        app,
+        "Color Picker (Solid Color)",
+        [foreground[0], foreground[1], foreground[2]],
+        "layer.newFillLayer.solidColor",
+        json!({"document": document}),
+    ))
+}
+
+/// A creation picker is distinct from the editor opened by a fill layer's thumbnail.
+pub(crate) fn owns_new(f: &Map<String, Value>) -> bool {
+    f.get("__command").and_then(Value::as_str) == Some("layer.newFillLayer.solidColor")
+        && f.get("__params").and_then(|p| p.get("document")).and_then(Value::as_u64).is_some()
+}
+
+pub(crate) fn confirm_new(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value, String> {
+    let expected = f.get("__params").and_then(|p| p.get("document")).and_then(Value::as_u64).ok_or("missing Solid Color document")?;
+    let st = app.session.active().ok_or("no document open")?;
+    if st.doc.id.0 != expected {
+        return Err("the target document is no longer active".into());
+    }
+    let color = f.get("color").and_then(Value::as_str).ok_or("missing Solid Color colour")?;
+    app.run("layer.newFillLayer.solidColor", json!({"color": color}))
+}
+
 pub(crate) fn owns(f: &Map<String, Value>) -> bool {
     f.get("__command").and_then(Value::as_str) == Some(cmds::SET)
 }
@@ -113,6 +143,15 @@ pub(crate) fn display_doc(app: &mut PhotocraftApp, idx: usize) -> Option<(Arc<Do
 /// Clean-room drawing of Photoshop's Solid Color thumbnail: an inset colour sample with the
 /// small fill marker underneath, rather than a raster thumbnail covering the whole tile.
 pub(crate) fn paint_thumbnail(ui: &egui::Ui, color: Color, rect: Rect) {
+    thumbnail_frame(ui, rect, |swatch| {
+        let [r, g, b, a] = color.to_rgba8();
+        crate::widgets::checker(ui.painter(), swatch, 3.0);
+        ui.painter().rect_filled(swatch, 0.0, Color32::from_rgba_unmultiplied(r, g, b, a));
+    });
+}
+
+/// Shared fill-layer thumbnail frame and marker, drawn around the inset contents.
+pub(crate) fn thumbnail_frame(ui: &egui::Ui, rect: Rect, contents: impl FnOnce(Rect)) {
     let t = Tokens::get(ui.ctx());
     let p = ui.painter();
     p.rect_filled(rect, if t.pro { 0.0 } else { t.radius_sm }, t.field);
@@ -120,9 +159,7 @@ pub(crate) fn paint_thumbnail(ui: &egui::Ui, color: Color, rect: Rect) {
     let sample = Rect::from_center_size(rect.center() - vec2(0.0, size.y * 0.08), size);
     let bar_height = (size.y * 0.17).max(2.0);
     let swatch = Rect::from_min_max(sample.min, pos2(sample.right(), sample.bottom() - bar_height));
-    let [r, g, b, a] = color.to_rgba8();
-    crate::widgets::checker(p, swatch, 3.0);
-    p.rect_filled(swatch, 0.0, Color32::from_rgba_unmultiplied(r, g, b, a));
+    contents(swatch);
     p.rect_stroke(sample, 0.0, Stroke::new(1.0, t.text), StrokeKind::Outside);
     let y = swatch.bottom();
     p.line_segment([pos2(sample.left(), y), pos2(sample.right(), y)], Stroke::new(1.0, t.text));

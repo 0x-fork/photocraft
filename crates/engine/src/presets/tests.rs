@@ -61,6 +61,32 @@ fn gradient_builtins_and_listing() {
 }
 
 #[test]
+fn rainbow_gradient_presets() {
+    let mut s = session(8);
+    let v = s.execute("gradient.presets.list", json!({})).unwrap();
+    let group = v["groups"].as_array().unwrap().iter().find(|g| g["name"] == "Rainbows").unwrap();
+    let presets = group["presets"].as_array().unwrap();
+    let names: Vec<&str> = presets.iter().map(|p| p["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["Rainbow", "Pastel Rainbow", "Neon Rainbow", "Oil Slick", "Rainbow Fade"]);
+    // The three hue ramps share the same 13 evenly spaced hues: smooth, not the 7 coarse ROYGBIV points.
+    for p in [&presets[0], &presets[1], &presets[2]] {
+        let stops = p["stops"].as_array().unwrap();
+        assert_eq!(stops.len(), 13, "{}", p["name"]);
+        assert_eq!(stops[0][0], json!(0.0));
+        assert_eq!(stops[12][0], json!(1.0));
+    }
+    assert_eq!(presets[3]["stops"].as_array().unwrap().len(), 11, "oil slick");
+    assert_eq!(presets[4]["transparency"], json!([[0.0, 0.0], [0.125, 100.0], [0.875, 100.0], [1.0, 0.0]]));
+    // Rainbow Fade paints opaque across the middle and transparent at both ends.
+    s.execute("gradient.presets.select", json!({"preset": "Rainbow Fade"})).unwrap();
+    s.execute("layer.new.layer", json!({})).unwrap();
+    s.execute("paint.gradient", json!({"from": [0, 0], "to": [63, 0]})).unwrap();
+    assert!(layer_px(&s, 0, 5)[3] < 0.1, "left edge transparent: {:?}", layer_px(&s, 0, 5));
+    assert!(layer_px(&s, 63, 5)[3] < 0.1, "right edge transparent: {:?}", layer_px(&s, 63, 5));
+    assert!(layer_px(&s, 32, 5)[3] > 0.95, "middle opaque: {:?}", layer_px(&s, 32, 5));
+}
+
+#[test]
 fn gradient_tool_uses_selected_preset_at_every_depth() {
     for depth in [8, 16, 32] {
         let mut s = session(depth);
@@ -292,6 +318,23 @@ fn gradient_new_rename_move_delete_groups() {
 }
 
 #[test]
+fn gradient_rename_group_refuses_a_name_another_group_has() {
+    let mut s = Session::new();
+    s.execute("gradient.presets.edit", json!({"action": "newGroup", "name": "Pastels"})).unwrap();
+    let names = |s: &mut Session| -> Vec<Value> {
+        s.execute("gradient.presets.list", json!({})).unwrap()["groups"].as_array().unwrap().iter().map(|g| g["name"].clone()).collect()
+    };
+    let before = names(&mut s);
+    assert!(before.contains(&json!("Blues")));
+    let err = s.execute("gradient.presets.edit", json!({"action": "renameGroup", "group": "Pastels", "name": "Blues"})).unwrap_err();
+    assert!(err.to_string().contains("already exists"), "{err}");
+    assert_eq!(names(&mut s), before, "a refused rename leaves the groups unchanged");
+    // Renaming a group to its own name is fine.
+    s.execute("gradient.presets.edit", json!({"action": "renameGroup", "group": "Pastels", "name": "Pastels"})).unwrap();
+    assert_eq!(names(&mut s), before);
+}
+
+#[test]
 fn presets_persist_through_preferences_json() {
     let mut s = Session::new();
     s.execute("gradient.presets.new", json!({"name": "Saved", "stops": [[0, "#ff0000"], [1, "#0000ff"]]})).unwrap();
@@ -357,6 +400,43 @@ fn pattern_groups_select_apply_and_sync() {
     // Deleting a group deletes its patterns from the library.
     s.execute("pattern.presets.edit", json!({"action": "deleteGroup", "group": "Textures"})).unwrap();
     assert!(crate::pattern_cmds::resolve(&s, "Weave").is_none());
+}
+
+#[test]
+fn pattern_batch_delete_keeps_the_library_when_one_name_is_missing() {
+    let mut s = session(8);
+    let before = s.execute("pattern.presets.list", json!({})).unwrap();
+    let err = s.execute("pattern.presets.edit", json!({"action": "delete", "preset": ["Bricks", "missing"]})).unwrap_err();
+    assert!(err.to_string().contains("missing"), "{err}");
+    assert_eq!(s.execute("pattern.presets.list", json!({})).unwrap(), before);
+    assert!(crate::pattern_cmds::resolve(&s, "Bricks").is_some());
+}
+
+#[test]
+fn pattern_batch_delete_rejects_non_string_members_without_deleting() {
+    for invalid in [json!(null), json!(7), json!({})] {
+        let mut s = session(8);
+        let before = s.execute("pattern.presets.list", json!({})).unwrap();
+        assert!(s.execute("pattern.presets.edit", json!({"action": "delete", "preset": ["Bricks", invalid]})).is_err());
+        assert_eq!(s.execute("pattern.presets.list", json!({})).unwrap(), before);
+    }
+}
+
+#[test]
+fn pattern_batch_delete_refuses_a_document_only_pattern_up_front() {
+    let mut s = session(8);
+    let added = s.execute("edit.definePattern", json!({"name": "Document Only"})).unwrap();
+    let id = added["pattern"].as_str().unwrap().to_string();
+    let pattern = s.patterns.items.iter().find(|p| p.id == id).unwrap().clone();
+    s.edit("Embed pattern fixture", |doc, _| {
+        doc.patterns.push(pattern.clone());
+        Ok(())
+    })
+    .unwrap();
+    s.execute("pattern.delete", json!({"pattern": id})).unwrap();
+    let before = s.patterns.items.clone();
+    assert!(s.execute("pattern.presets.edit", json!({"action": "delete", "preset": ["Bricks", id]})).is_err());
+    assert_eq!(s.patterns.items, before, "nothing is deleted when one entry is not in the library");
 }
 
 // ------------------------------------------------------------------ styles
@@ -512,6 +592,92 @@ fn tool_presets_save_filter_select() {
     assert!(s.execute("tool.presets.new", json!({"name": "x"})).is_err());
 }
 
+/// Crop presets are `crop` tool presets: saved, listed, persisted and deleted like the others.
+#[test]
+fn crop_presets_are_tool_presets_that_persist() {
+    let mut s = Session::new();
+    let opts =
+        json!({"toolOptions": {"crop_ratio": "whr", "crop_width": "4 in", "crop_height": "5 in", "crop_resolution": "300", "crop_resolution_unit": "px/in"}});
+    s.execute("tool.presets.new", json!({"name": "4 x 5 in 300 ppi", "tool": "crop", "options": opts})).unwrap();
+    let r = s.execute("tool.presets.new", json!({"name": "4 x 5 in 300 ppi", "tool": "crop", "options": opts})).unwrap();
+    assert_eq!(r["name"], "4 x 5 in 300 ppi 2", "a taken name gets a number");
+    let mut t = Session::new();
+    t.load_prefs_json(&s.prefs_to_json()).unwrap();
+    let v = t.execute("tool.presets.list", json!({"tool": "crop"})).unwrap();
+    assert_eq!(v["presets"].as_array().unwrap().len(), 2);
+    let r = t.execute("tool.presets.select", json!({"preset": "4 x 5 in 300 ppi"})).unwrap();
+    assert_eq!(r["options"]["toolOptions"]["crop_width"], "4 in");
+    // Deleting several is all or nothing.
+    assert!(t.execute("tool.presets.edit", json!({"action": "delete", "preset": ["4 x 5 in 300 ppi", "missing"]})).is_err());
+    assert_eq!(t.presets.tool_presets.iter().filter(|p| p.tool == "crop").count(), 2);
+    let r = t.execute("tool.presets.edit", json!({"action": "delete", "preset": ["4 x 5 in 300 ppi 2", "4 x 5 in 300 ppi", "4 x 5 in 300 ppi"]})).unwrap();
+    assert_eq!(r["deleted"], 2);
+    assert!(t.presets.tool_presets.iter().all(|p| p.tool != "crop"));
+}
+
+#[test]
+fn tool_preset_names_and_params_are_checked() {
+    let mut s = Session::new();
+    let n = s.presets.tool_presets.len();
+    let long = "x".repeat(crate::brush_preset_cmds::MAX_NAME + 1);
+    for bad in [
+        json!({"name": long, "tool": "crop"}),
+        json!({"name": 7, "tool": "crop"}),
+        json!({"name": ["a"], "tool": "crop"}),
+        json!({"tool": 3}),
+        json!({"tool": "crop", "options": "big"}),
+        json!({"tool": "crop", "options": [1]}),
+        json!(null),
+        json!([]),
+    ] {
+        assert!(s.execute("tool.presets.new", bad.clone()).is_err(), "{bad}");
+    }
+    assert_eq!(s.presets.tool_presets.len(), n);
+    // An empty or blank name falls back to the tool's; the longest name fits.
+    assert_eq!(s.execute("tool.presets.new", json!({"name": "   ", "tool": "crop"})).unwrap()["name"], "crop");
+    let max = "é".repeat(crate::brush_preset_cmds::MAX_NAME);
+    assert_eq!(s.execute("tool.presets.new", json!({"name": max, "tool": "crop"})).unwrap()["name"], json!(max));
+    assert!(s.execute("tool.presets.edit", json!({"action": "rename", "preset": "crop", "name": long})).is_err());
+    assert!(s.execute("tool.presets.edit", json!({"action": "rename", "preset": "crop", "name": "  "})).is_err());
+    // The store is capped.
+    while s.presets.tool_presets.len() < super::tools::MAX_PRESETS {
+        let i = s.presets.tool_presets.len();
+        s.presets.tool_presets.push(super::tools::ToolPreset { name: format!("p{i}"), tool: "crop".into(), options: json!({}) });
+    }
+    assert!(s.execute("tool.presets.new", json!({"name": "one more", "tool": "crop"})).is_err());
+}
+
+/// A damaged entry in the saved tool presets is skipped; the other presets (and preferences) load.
+#[test]
+fn damaged_tool_presets_skip_only_the_bad_entries() {
+    let mut s = Session::new();
+    s.execute("gradient.presets.new", json!({"name": "Kept", "stops": [[0, "#ff0000"], [1, "#0000ff"]]})).unwrap();
+    let mut prefs: Value = serde_json::from_str(&s.prefs_to_json()).unwrap();
+    prefs["presets"]["tool_presets"] = json!([
+        {"name": "Good", "tool": "crop", "options": {"toolOptions": {"crop_ratio": "2:3"}}},
+        {"name": 5, "tool": "crop"},
+        {"tool": "crop"},
+        {"name": "   ", "tool": "crop"},
+        {"name": "x".repeat(300), "tool": "crop"},
+        {"name": "No tool", "tool": ""},
+        "junk",
+        null,
+        {"name": "Good", "tool": "brush"},
+        {"name": "Odd options", "tool": "crop", "options": 12},
+    ]);
+    let mut t = Session::new();
+    t.load_prefs_json(&prefs.to_string()).unwrap();
+    let names: Vec<&str> = t.presets.tool_presets.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(names, ["Good", "Odd options"]);
+    assert!(t.presets.tool_presets[1].options.is_object());
+    assert!(t.presets.gradients.iter().any(|g| g.items.iter().any(|p| p.name == "Kept")), "other presets still load");
+    // Not an array at all: no tool presets, still no crash.
+    prefs["presets"]["tool_presets"] = json!({"a": 1});
+    let mut u = Session::new();
+    u.load_prefs_json(&prefs.to_string()).unwrap();
+    assert!(u.presets.tool_presets.is_empty());
+}
+
 // ------------------------------------------------------------------ clone source
 
 fn clone_doc(depth: u32) -> Session {
@@ -598,4 +764,48 @@ fn clone_source_errors_and_overlay() {
     let v: Value = s.execute("cloneSource.set", json!({"source": [1, 1], "width": 5000, "rotation": 270})).unwrap();
     assert_eq!(v["width"], json!(1000.0));
     assert_eq!(v["rotation"], json!(-90.0));
+}
+
+// ------------------------------------------------------------------ persistence
+
+/// #5602: one damaged preset set in the preferences file must not discard the saved New
+/// Document presets (or any other set) at the next launch.
+#[test]
+fn a_damaged_preset_set_keeps_the_other_sets() {
+    let mut s = Session::new();
+    let settings = json!({"width": 1600, "height": 900, "resolution": 144});
+    s.execute("document.presets.save", json!({"name": "Banner", "settings": settings})).unwrap();
+    let saved = s.presets.to_json(&s);
+    for key in ["gradients", "gradient", "styles", "shapes", "pattern_groups", "custom_shapes", "layer_defaults", "swatches"] {
+        let mut blob = saved.clone();
+        blob[key] = json!("not a preset set");
+        let mut next = Session::new();
+        next.load_presets_json(blob);
+        assert_eq!(next.presets.documents, s.presets.documents, "damaged `{key}`");
+        assert_eq!(next.presets.tool_presets.len(), Session::new().presets.tool_presets.len(), "damaged `{key}`");
+    }
+    // Null sets keep their defaults, as before.
+    let mut next = Session::new();
+    next.load_presets_json(json!({"tool_presets": null, "gradients": null, "documents": saved["documents"].clone()}));
+    assert_eq!(next.presets.tool_presets.len(), Session::new().presets.tool_presets.len());
+    assert_eq!(next.presets.gradients.len(), Session::new().presets.gradients.len());
+    assert_eq!(next.presets.documents, s.presets.documents);
+}
+
+// ------------------------------------------------------------------ export presets
+
+#[test]
+fn export_presets_survive_a_presets_json_round_trip() {
+    let mut s = Session::new();
+    s.execute("file.export.presets.save", json!({"name": "Web", "settings": {"format": "jpg", "quality": 70}})).unwrap();
+    assert_eq!(s.presets.export_presets.len(), 1);
+
+    let saved = s.presets.to_json(&s);
+    assert_eq!(saved["export_presets"].as_array().map(Vec::len), Some(1));
+
+    let mut restored = Session::new();
+    restored.load_presets_json(saved);
+    assert_eq!(restored.presets.export_presets.len(), 1);
+    assert_eq!(restored.presets.export_presets[0].name, "Web");
+    assert_eq!(restored.presets.export_presets[0].settings.format, "jpg");
 }

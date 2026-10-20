@@ -2,7 +2,7 @@
 
 **Stage: alpha** · next: beta, ~30 points (ready for real work ~45% → ~75%, with reliable PSD) and ~1,100–1,800 h away
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-10 · **Change:** major (first version: full re-measure against Photoshop 2026 27.11.0) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-13 · **Change:** minor (oracle floor 145 of 258 and 953 open issues, as in gaps.md and on GitHub; toolbox count 56 of 68, 12 missing) · **Target:** Adobe Photoshop 2026
 
 PhotoCraft's one-page summary of how close it is to Adobe Photoshop 2026 (27.11.0, measured from
 the installed app on 2026-10-10) at version 0.6.0. Detail: [target-app parity](docs/target-app-parity.md)
@@ -19,7 +19,7 @@ About 80% of the work parallelizes.
 
 | | Value | Kind |
 |---|---|---|
-| **Feature breadth** | **~76%** | partly measured: menus 628/628, tools 53/68, panels 30/35, formats 13+4 of 31 |
+| **Feature breadth** | **~76%** | partly measured: menus 628/628, tools 56/68, panels 30/35, formats 13+4 of 31 |
 | **Ready for real work** | **~45%** (40–50%) | estimated: weighted by dimension below |
 | Mainstream practitioner | ~43% (38–48%) | estimated: weekly areas of a typical pro, with discounts ([method](docs/target-app-parity.md#mainstream-practitioner-43)) |
 | Essentials user | ~61% (55–67%) | estimated: core features only ([method](docs/target-app-parity.md#essentials-user-61)) |
@@ -40,7 +40,7 @@ the one above. About 80% parallelizes (independent crates and command modules); 
 architecture and the PSD writer are the serial parts.
 
 **Why alpha.** Core workflows (open, layer, select, paint, adjust, filter, type, save) work end to
-end, and breadth is high, but users of 0.5/0.6 have 579 open issues, 22 of 25 performance budgets
+end, and breadth is high, but 953 issues are open (2026-10-13), 22 of 25 performance budgets
 are missed, and PSDs we write are not yet reliably accepted by Photoshop (#1281, #2469). Beta
 needs ~75% ready and no blocking PSD gap. The [alpha gate](docs/roadmap.md#alpha-gate) passes: all six core workflows
 (retouch, composite, cut-out, design, paint, PSD exchange) complete end to end and save and reopen;
@@ -95,7 +95,7 @@ because engine messages are still English. Detail: [localization-parity](docs/lo
 | Simplified Chinese | `zh-hans` | 100% | partial |
 | Spanish | `es` | 100% | partial |
 | Hindi | `hi` | 0% | none |
-| Arabic | `ar` | 0% (no RTL UI) | none |
+| Arabic | `ar` | 0% (RTL shell only) | none |
 | French | `fr` | 100% | partial |
 | Portuguese (Brazil) | `pt-br` | 100% | partial |
 | Indonesian | `id` | 100% | partial |
@@ -110,11 +110,11 @@ Also shipped: Traditional Chinese, Russian, Ukrainian, Czech, Polish, Greek, Dut
 
 | Rank | Milestone | Estimate |
 |---|---|---:|
-| 1 | PSD that Photoshop trusts: Save As corruption, Photoshop re-open check, Photoshop-oracle floor 133 → 200+ of 256 | 150–250 h |
+| 1 | PSD that Photoshop trusts: Save As corruption, Photoshop re-open check, Photoshop-oracle floor 145 → 200+ of 258 | 150–250 h |
 | 2 | Performance budgets: the 22 over-budget scenarios and the 150-layer GPU crash | 200–350 h |
 | 3 | User bug backlog to under 100 open | 250–400 h |
 | 4 | Brush and transform feel (brush-parity, ui-parity rows) | 160–290 h |
-| 5 | The 15 missing tools | 60–100 h |
+| 5 | The 12 missing tools | 60–100 h |
 
 Detail and the next releases: [docs/roadmap.md](docs/roadmap.md).
 
@@ -135,6 +135,8 @@ Detail and the next releases: [docs/roadmap.md](docs/roadmap.md).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | Focus item 1 quoted the oracle floor as 133 of 256; it is 145 of 258 (`crates/io/tests/corpus.rs`, gaps.md G1). Open issues 579 → 953 (2026-10-13) |
+| 2026-10-11 | minor | Toolbox count 56 of 68 (12 missing) with the Convert Point tool (#3204) |
 | 2026-10-10 | minor | Readiness by audience with hours per tier |
 | 2026-10-10 | minor | Mainstream-practitioner and essentials-user numbers added |
 | 2026-10-10 | minor | Alpha gate result (passes; stays alpha) in the stage explanation |

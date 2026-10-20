@@ -1,5 +1,5 @@
 //! ⌥-click through the real canvas: the Brush's temporary Eyedropper (#1659) and the Clone
-//! Stamp's source point and painting (#1658).
+//! Stamp's source point and painting (#1658), the Zoom tool's Zoom Out (#3137).
 
 use egui::{Modifiers, PointerButton, Pos2, vec2};
 use egui_kittest::Harness;
@@ -142,6 +142,47 @@ fn mixer_alt_click_samples_the_tip_through_zoomed_rotated_canvas_input() {
 }
 
 #[test]
+fn mixer_raw_drag_commits_live_pixels_before_a_spring_tool_returns() {
+    for spring in [false, true] {
+        let mut app = two_colours();
+        app.run("layer.new.layer", json!({})).unwrap();
+        app.run("tools.setColors", json!({"foreground":"#0000ff"})).unwrap();
+        app.run("tools.setBrush", json!({"brush":{"size":24,"pressureSize":false,"mixer":{"wet":1.0,"mix":0.5},"smoothing":{"amount":0.0}}})).unwrap();
+        let mut h = harness(app);
+        h.state_mut().ui.tool = Tool::MixerBrush;
+        let before = h.state().session.active().unwrap().doc.clone();
+        let steps = h.state().session.active().unwrap().history.past_len();
+        let start = screen(&h, 40.0, 50.0);
+        h.event(egui::Event::PointerMoved(start));
+        h.run_steps(1);
+        button(&mut h, start, true, Modifiers::NONE);
+        if spring {
+            // A temporary Mixer Brush's key was released while its mouse drag is held.
+            h.state_mut().ui.spring =
+                Some(crate::spring_tools::Spring { previous: Tool::Zoom, tool: Tool::MixerBrush, keys: vec![], since: 0.0, used: true, released: true });
+        }
+        let end = screen(&h, 80.0, 50.0);
+        h.event(egui::Event::PointerMoved(end));
+        h.run_steps(2);
+        assert_eq!(h.state().ui.tool, Tool::MixerBrush);
+        let shown = crate::canvas::display_doc(h.state_mut(), 0).0;
+        let id = h.state().session.active().unwrap().active_layer.unwrap();
+        let paint = shown.layer(id).unwrap().surface().unwrap();
+        let mixed = paint.rgba(60, 50);
+        assert!(mixed[0] > 0.0 && mixed[2] > 0.0 && mixed[3] > 0.0, "real red/blue mixing while held: {mixed:?}");
+        assert!(std::sync::Arc::ptr_eq(&before, &h.state().session.active().unwrap().doc));
+        button(&mut h, end, false, Modifiers::NONE);
+        h.run_steps(2);
+        let st = h.state().session.active().unwrap();
+        assert_eq!(st.doc.layer(id).unwrap().surface().unwrap(), paint);
+        assert_eq!(st.history.past_len(), steps + 1);
+        assert_eq!(h.state().ui.tool, if spring { Tool::Zoom } else { Tool::MixerBrush });
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        assert_eq!(*h.state().session.active().unwrap().doc, *before);
+    }
+}
+
+#[test]
 fn alt_click_sets_the_clone_source_and_a_drag_paints_it() {
     let mut h = harness(two_colours());
     h.state_mut().ui.tool = Tool::CloneStamp;
@@ -209,7 +250,7 @@ fn grabbed_alt_click(h: &mut Harness<'static, PhotocraftApp>, x: f32, y: f32, re
 
 #[test]
 fn an_alt_click_the_window_manager_took_says_so() {
-    for tool in [Tool::Brush, Tool::Pencil, Tool::CloneStamp, Tool::Healing] {
+    for tool in [Tool::Brush, Tool::Pencil, Tool::CloneStamp, Tool::Healing, Tool::Zoom] {
         let mut h = harness(two_colours());
         h.state_mut().ui.tool = tool;
         grabbed_alt_click(&mut h, 50.0, 50.0, true);
@@ -258,4 +299,20 @@ fn a_latched_alt_samples_and_sets_the_clone_source_without_the_key() {
     h.state_mut().ui.tool = Tool::CloneStamp;
     click(&mut h, 150.0, 50.0, Modifiers::NONE);
     assert!(h.state().session.presets.clone.active().source.is_some());
+}
+
+#[test]
+fn alt_click_with_the_zoom_tool_zooms_out_held_or_latched() {
+    for (sticky, scrubby, m) in [(false, true, Modifiers::ALT), (true, true, Modifiers::NONE), (true, false, Modifiers::NONE)] {
+        let mut h = harness(two_colours());
+        h.state_mut().ui.tool = Tool::Zoom;
+        h.state_mut().ui.tool_options.zoom_scrubby = scrubby;
+        h.state_mut().ui.shell.sticky_alt = sticky;
+        click(&mut h, 50.0, 50.0, m);
+        assert_eq!(h.state().ui.views[0].zoom, 2.0 / 3.0, "sticky={sticky} scrubby={scrubby}");
+        // Without ⌥ the click zooms in again.
+        h.state_mut().ui.shell.sticky_alt = false;
+        click(&mut h, 50.0, 50.0, Modifiers::NONE);
+        assert_eq!(h.state().ui.views[0].zoom, 1.0, "sticky={sticky} scrubby={scrubby}");
+    }
 }

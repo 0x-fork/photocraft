@@ -159,6 +159,60 @@ fn color_replacement_modes() {
     assert!(s.execute("paint.colorReplacement", json!({"points": [[1, 1]], "mode": "bogus"})).is_err());
 }
 
+/// The live Color Replacement stroke shows what `paint.colorReplacement` commits, at 8 and 16
+/// bits: red-left/blue-right halves, a stroke from red into blue in each sampling mode. The live
+/// working copy is stored at the layer's depth between dabs, so 8 bits may round a level apart.
+#[test]
+fn live_color_replacement_matches_the_commit() {
+    for depth in [8, 16] {
+        for sampling in ["continuous", "once", "backgroundSwatch"] {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": 80, "height": 40, "background": "#ff0000", "depth": depth})).unwrap();
+            s.execute("select.rect", json!({"x": 40, "y": 0, "width": 40, "height": 40})).unwrap();
+            s.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+            s.execute("select.deselect", json!({})).unwrap();
+            s.execute("tools.setColors", json!({"foreground": "#00ff00", "background": "#0000ff"})).unwrap();
+            let all = [[10.0, 20.0], [30.0, 20.0], [50.0, 20.0], [70.0, 22.0]];
+            let pts = |v: &[[f64; 2]]| v.iter().map(|q| StrokePoint::new(q[0], q[1], 1.0)).collect::<Vec<_>>();
+            let opts = |p: &[[f64; 2]]| json!({"points": p, "size": 12, "hardness": 50, "sampling": sampling, "tolerance": 30, "target": "pixels"});
+            let mut live = live_color_replacement(&s, &opts(&all[..1])).unwrap();
+            live.push(&pts(&all[1..3])).unwrap();
+            live.push(&pts(&all[3..])).unwrap();
+            let shown = live.doc.clone();
+            s.execute("paint.colorReplacement", opts(&all)).unwrap();
+            let id = s.active().unwrap().active_layer.unwrap();
+            let (a, b) = (shown.layer(id).unwrap().surface().unwrap(), s.active().unwrap().doc.layer(id).unwrap().surface().unwrap());
+            let mut worst = 0.0f32;
+            // Everywhere, the stroke's finishing dab included (the live stroke previews it).
+            for y in 0..40 {
+                for x in 0..80 {
+                    let (got, want) = (a.rgba(x, y), b.rgba(x, y));
+                    worst = (0..4).map(|c| (got[c] - want[c]).abs()).fold(worst, f32::max);
+                }
+            }
+            assert!(b.rgba(10, 20)[1] > 0.5 || sampling == "backgroundSwatch", "{depth}-bit {sampling}: recoloured");
+            assert!(worst <= 2.0 / 255.0 + 1e-6, "{depth}-bit {sampling}: live and commit differ by {worst}");
+        }
+    }
+}
+
+/// Color Replacement recolours layer pixels only: a mask, channel or Quick Mask target is
+/// refused (it would otherwise recolour the layer behind the user's back).
+#[test]
+fn color_replacement_refuses_non_pixel_targets() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 20, "height": 20, "background": "#ff0000"})).unwrap();
+    let steps = s.active().unwrap().history.entries().len();
+    for t in [json!("mask"), json!("quickMask"), json!({"channel": 0}), json!(3)] {
+        let p = json!({"points": [[10, 10]], "size": 6, "target": t});
+        assert!(s.execute("paint.colorReplacement", p.clone()).is_err(), "{t}");
+        assert!(live_color_replacement(&s, &p).is_err(), "{t}");
+    }
+    assert_eq!(s.active().unwrap().history.entries().len(), steps);
+    s.execute("paint.colorReplacement", json!({"points": [[10, 10]], "size": 6, "target": "pixels"})).unwrap();
+    assert_eq!(s.active().unwrap().history.entries().len(), steps + 1);
+}
+
 #[test]
 fn presets_save_load_delete_round_trip() {
     let mut s = session(10, 10);
@@ -181,6 +235,45 @@ fn presets_save_load_delete_round_trip() {
     assert_eq!(s.tools.presets.len(), n0);
     assert!(s.execute("brush.presets.delete", json!({"name": "Mine"})).is_err());
     assert!(s.execute("brush.presets.save", json!({})).is_err());
+}
+
+/// The New Brush Preset dialog's boxes (#4490): a preset saved without Capture Brush Size or
+/// Include Tool Settings leaves the tool's size, mode, opacity, flow and pressure buttons as they
+/// are when picked; one saved with Include Color brings its colour back as the foreground. A preset
+/// saved without the boxes picks as it always did.
+#[test]
+fn presets_save_captures_size_tool_settings_and_color_as_asked() {
+    let mut s = session(10, 10);
+    s.execute("tools.setBrush", json!({"size": 40, "opacity": 0.5, "flow": 0.25, "mode": "Multiply", "pressureSize": false})).unwrap();
+    s.tools.foreground = [1.0, 0.0, 0.0, 1.0];
+    s.execute("brush.presets.save", json!({"name": "Legacy"})).unwrap();
+    s.execute("brush.presets.save", json!({"name": "Bare", "captureSize": false, "toolSettings": false})).unwrap();
+    s.execute("brush.presets.save", json!({"name": "Red", "color": true})).unwrap();
+    let caps = |n: &str| s.tools.presets.iter().find(|p| p.name == n).unwrap().captures.clone();
+    assert!(caps("Legacy").is_default(), "no boxes, the captures of any other preset");
+    assert_eq!(caps("Bare"), PresetCaptures { size: false, tool_settings: false, color: false });
+    assert!(caps("Red").color);
+
+    // Change the tool, then pick each.
+    let other = json!({"size": 9, "opacity": 1.0, "flow": 1.0, "mode": "Normal", "pressureSize": true});
+    s.execute("tools.setBrush", other.clone()).unwrap();
+    s.tools.foreground = [0.0, 0.0, 1.0, 1.0];
+    s.execute("tools.setBrush", json!({"preset": "Legacy"})).unwrap();
+    let b = &s.tools.brush;
+    assert_eq!((b.size, b.opacity, b.flow, b.mode, b.pressure_size), (40.0, 0.5, 0.25, photocraft_color::BlendMode::Multiply, false), "everything it saved");
+    assert_eq!(s.tools.foreground, [0.0, 0.0, 1.0, 1.0], "a preset without Include Color leaves the foreground");
+
+    s.execute("tools.setBrush", other.clone()).unwrap();
+    s.execute("tools.setBrush", json!({"preset": "Bare"})).unwrap();
+    let b = &s.tools.brush;
+    assert_eq!((b.size, b.opacity, b.flow, b.mode, b.pressure_size), (9.0, 1.0, 1.0, photocraft_color::BlendMode::Normal, true), "the tool's own");
+    assert_eq!(s.tools.current_preset.as_deref(), Some("Bare"));
+
+    s.execute("tools.setBrush", json!({"preset": "Red"})).unwrap();
+    assert_eq!(s.tools.foreground, [1.0, 0.0, 0.0, 1.0], "Include Color sets the foreground");
+    // A stroke naming the preset takes the same brush.
+    let r = resolve_brush(&s, &json!({"preset": "Bare"}), "paint.brush").unwrap();
+    assert_eq!(r.size, s.tools.brush.size);
 }
 
 #[test]
@@ -257,6 +350,89 @@ fn set_brush_merges_fields() {
 }
 
 #[test]
+fn resizing_a_brush_resizes_its_enabled_secondary_tip() {
+    let mut s = session(64, 64);
+    s.execute("tools.setBrush", json!({"size": 40, "dualBrush": {"enabled": true, "size": 12}})).unwrap();
+    s.execute("tools.setBrush", json!({"size": 80})).unwrap();
+    assert_eq!((s.tools.brush.size, s.tools.brush.dual_brush.size), (80.0, 24.0));
+
+    s.execute("tools.setBrush", json!({"brush": {"size": 20}})).unwrap();
+    assert_eq!((s.tools.brush.size, s.tools.brush.dual_brush.size), (20.0, 6.0));
+
+    // Editing both diameters in the same patch is an explicit secondary-tip size.
+    s.execute("tools.setBrush", json!({"size": 40, "dualBrush": {"size": 18}})).unwrap();
+    assert_eq!((s.tools.brush.size, s.tools.brush.dual_brush.size), (40.0, 18.0));
+    s.execute("tools.setBrush", json!({"dualBrush": {"size": 9}})).unwrap();
+    assert_eq!(s.tools.brush.dual_brush.size, 9.0);
+
+    // The stroke-level size override must use the same proportional dimensions.
+    let for_stroke = resolve_brush(&s, &json!({"size": 80, "points": [[10, 10]]}), "paint.stroke").unwrap();
+    assert_eq!((for_stroke.size, for_stroke.dual_brush.size), (80.0, 18.0));
+    assert_eq!((s.tools.brush.size, s.tools.brush.dual_brush.size), (40.0, 9.0));
+}
+
+/// Every way of changing the main size scales the Dual Brush tip as Photoshop does (#4809): `[` /
+/// `]`, the options bar / Brushes panel / Alt+right-drag (`tools.setBrush` with only a size), down
+/// to 1 px and back without losing the proportion to a floor.
+#[test]
+fn every_size_change_scales_the_dual_tip_and_keeps_its_proportion() {
+    let mut s = session(32, 32);
+    s.execute("tools.setBrush", json!({"brush": {"size": 100, "dualBrush": {"enabled": true, "size": 20}}})).unwrap();
+    let sizes = |s: &Session| (s.tools.brush.size, s.tools.brush.dual_brush.size);
+    s.execute("tools.decreaseBrushSize", json!({})).unwrap();
+    assert_eq!(sizes(&s), (80.0, 16.0));
+    s.execute("tools.increaseBrushSize", json!({})).unwrap();
+    assert_eq!(sizes(&s), (100.0, 20.0));
+    // A coalesced drag (options bar slider, Alt+right-drag) is a run of size-only patches.
+    for size in [60, 10, 1] {
+        s.execute("tools.setBrush", json!({"brush": {"size": size}, "coalesce": "drag"})).unwrap();
+    }
+    assert_eq!(s.tools.brush.size, 1.0);
+    assert!((s.tools.brush.dual_brush.size - 0.2).abs() < 1e-5, "no 0.5 px floor: {}", s.tools.brush.dual_brush.size);
+    s.execute("tools.setBrush", json!({"brush": {"size": 100}})).unwrap();
+    assert_eq!(s.tools.brush.size, 100.0);
+    assert!((s.tools.brush.dual_brush.size - 20.0).abs() < 1e-3, "back to 20 px: {}", s.tools.brush.dual_brush.size);
+    // Painting with the sub-pixel dual tip works (the renderer bounds it).
+    s.execute("tools.setBrush", json!({"brush": {"size": 1}})).unwrap();
+    s.execute("paint.stroke", json!({"points": [[4, 16], [28, 16]]})).unwrap();
+}
+
+/// Picking a preset that captured its size sets both diameters from the preset: the dual tip is
+/// not scaled on top of that.
+#[test]
+fn a_captured_preset_size_is_not_scaled_twice() {
+    let mut s = session(32, 32);
+    s.execute("tools.setBrush", json!({"size": 40, "dualBrush": {"enabled": true, "size": 10}})).unwrap();
+    s.execute("brush.presets.save", json!({"name": "Dual40"})).unwrap();
+    s.execute("tools.setBrush", json!({"size": 200})).unwrap();
+    assert_eq!(s.tools.brush.dual_brush.size, 50.0);
+    s.execute("tools.setBrush", json!({"preset": "Dual40"})).unwrap();
+    assert_eq!((s.tools.brush.size, s.tools.brush.dual_brush.size), (40.0, 10.0));
+}
+
+#[test]
+fn bad_sizes_fail_and_leave_the_dual_tip_alone() {
+    let mut s = session(32, 32);
+    s.execute("tools.setBrush", json!({"brush": {"size": 100, "dualBrush": {"enabled": true, "size": 20}}})).unwrap();
+    for bad in [json!(1e30), json!("big"), json!([1]), json!({"x": 1}), json!(null)] {
+        let _ = s.execute("tools.setBrush", json!({"brush": {"size": bad}}));
+        assert_eq!(s.tools.brush.dual_brush.size, 20.0, "{bad}");
+        assert_eq!(s.tools.brush.size, 100.0, "{bad}");
+    }
+    assert!(s.execute("tools.setBrush", json!({"brush": {"size": 1e30}})).is_err());
+}
+
+#[test]
+fn an_uncaptured_preset_size_keeps_dual_brush_proportions() {
+    let mut s = session(32, 32);
+    s.execute("tools.setBrush", json!({"size": 40, "dualBrush": {"enabled": true, "size": 10}})).unwrap();
+    s.execute("brush.presets.save", json!({"name": "Dual", "captureSize": false})).unwrap();
+    s.execute("tools.setBrush", json!({"size": 80})).unwrap();
+    s.execute("tools.setBrush", json!({"preset": "Dual"})).unwrap();
+    assert_eq!((s.tools.brush.size, s.tools.brush.dual_brush.size), (80.0, 20.0));
+}
+
+#[test]
 fn set_brush_keeps_untouched_bitmaps_and_replaces_touched_ones() {
     let tile = |w, h, k: u32| GrayTile::from_fn(w, h, move |x, y| ((x * k + y) % 5) as f32 / 4.0);
     let base = BrushSettings {
@@ -315,6 +491,26 @@ fn define_brush_from_selection() {
     s.execute("select.deselect", json!({})).unwrap();
     s.execute("paint.stroke", json!({"points": [[30, 32]], "color": "#ff0000"})).unwrap();
     assert!(rgba(&s, 30, 32)[3] > 0.9);
+}
+
+#[test]
+fn define_brush_from_selection_survives_allocation_failure() {
+    // The sampled tip is one f32 buffer over the whole selection, and the selection mask is a
+    // second of the same size. Both are reserved through the fallible allocator, so an allocation
+    // failure must be a graceful error (brush, presets, history and document untouched), never a
+    // panic or an OOM abort.
+    let mut s = session(40, 40);
+    s.execute("select.rect", json!({"x": 5, "y": 5, "width": 20, "height": 20})).unwrap();
+    let brush_before = s.tools.brush.clone();
+    let presets_before = s.tools.presets.clone();
+    let history_before = s.active().unwrap().history.past_len();
+    crate::allocation::fail_next_for_test();
+    let result = s.execute("brush.defineFromSelection", json!({"name": "Blob"}));
+    let _ = crate::allocation::capacity::<u8>(0, "reset failpoint");
+    assert!(result.is_err(), "an allocation failure must be reported, not panic");
+    assert_eq!(s.tools.brush, brush_before, "the current brush is unchanged");
+    assert_eq!(s.tools.presets, presets_before, "the preset list is unchanged");
+    assert_eq!(s.active().unwrap().history.past_len(), history_before, "no history step was recorded");
 }
 
 #[test]
@@ -690,10 +886,11 @@ fn out_of_range_scatter_is_rejected_and_the_maximum_still_paints() {
         let d: Vec<i64> = r["damage"].as_array().unwrap().iter().map(|v| v.as_i64().unwrap()).collect();
         assert!(d[0].abs() < 1000 && d[1].abs() < 1000 && d[2] > 0 && d[3] > 0, "{r}");
     }
-    // Control: 200 % scatter paints where it did before the cap.
+    // Control: 200 % scatter paints where it did before the cap (the soft default tip reaches a
+    // little past its radius).
     let mut s = new();
     s.execute("tools.setBrush", json!({ "brush": scatter(2.0) })).unwrap();
-    assert_eq!(s.execute("paint.stroke", stroke).unwrap(), json!({"damage": [17, 14, 23, 23]}));
+    assert_eq!(s.execute("paint.stroke", stroke).unwrap(), json!({"damage": [15, 12, 27, 27]}));
 }
 
 #[test]
@@ -739,4 +936,204 @@ fn strokes_convert_through_the_documents_cmyk_profile() {
     plain.execute("paint.stroke", params).unwrap();
     let untagged = ink(&surface(&plain));
     assert!(tagged != untagged, "the document's CMYK profile must convert the painted ink: {tagged:?} vs {untagged:?}");
+}
+
+/// A live stroke over `pts` (pushed in chunks, as the canvas does) and its commit params.
+fn live_and_commit(s: &Session, cmd: &str, base: Value, pts: &[[f64; 3]]) -> (LiveStroke, Value) {
+    let mut p = base;
+    p["points"] = json!([pts[0]]);
+    let mut live = LiveStroke::begin_with(s, cmd, &p).unwrap();
+    for c in pts[1..].chunks(2) {
+        let sp: Vec<StrokePoint> = c.iter().map(|q| StrokePoint::new(q[0], q[1], q[2] as f32)).collect();
+        live.push(&sp).unwrap();
+    }
+    p["points"] = json!(pts);
+    p["seed"] = json!(live.seed);
+    (live, p)
+}
+
+#[test]
+fn a_commit_takes_the_live_strokes_pixels_and_they_equal_a_fresh_render() {
+    let pts = [[10.0, 50.0, 1.0], [60.0, 30.0, 0.7], [120.0, 60.0, 0.9], [180.0, 40.0, 0.4], [150.0, 80.0, 1.0]];
+    for (cmd, base) in [
+        ("paint.stroke", json!({"brush": {"size": 18, "hardness": 0.0, "flow": 0.5}, "smoothing": 0.5, "target": "pixels"})),
+        ("paint.stroke", json!({"preset": "Spatter", "smoothing": 0.0, "target": "pixels"})),
+        ("paint.stroke", json!({"brush": {"size": 12}, "erase": true, "target": "pixels"})),
+        ("paint.pencil", json!({"smoothing": 0.0})),
+    ] {
+        let mut s = session(200, 100);
+        let (live, p) = live_and_commit(&s, cmd, base.clone(), &pts);
+        let steps = s.active().unwrap().history.past_len();
+        s.offer_live_stroke(live).unwrap();
+        let r = s.execute(cmd, p.clone()).unwrap();
+        s.clear_live_stroke();
+        assert_eq!(r["fromLive"], true, "{cmd} {base}: the commit took the live pixels");
+        assert_eq!(s.active().unwrap().history.past_len(), steps + 1, "one undo step");
+        // The journal's replay renders from scratch and must give the same pixels.
+        let mut fresh = session(200, 100);
+        let r = fresh.execute(cmd, p).unwrap();
+        assert!(r.get("fromLive").is_none());
+        assert!(same_pixels(&surface(&s), &surface(&fresh), Rect::new(0, 0, 200, 100)), "{cmd} {base}");
+        // Undo restores the pre-stroke pixels.
+        s.undo();
+        assert!(same_pixels(&surface(&s), &surface(&session(200, 100)), Rect::new(0, 0, 200, 100)));
+    }
+}
+
+#[test]
+fn an_offer_that_does_not_match_the_commit_is_ignored() {
+    let pts = [[10.0, 50.0, 1.0], [60.0, 30.0, 0.7], [120.0, 60.0, 0.9]];
+    let base = json!({"brush": {"size": 10}, "smoothing": 0.0, "target": "pixels"});
+    // Different points.
+    let mut s = session(200, 100);
+    let (live, mut p) = live_and_commit(&s, "paint.stroke", base.clone(), &pts);
+    p["points"] = json!([[10.0, 50.0, 1.0], [190.0, 90.0, 1.0]]);
+    s.offer_live_stroke(live).unwrap();
+    let r = s.execute("paint.stroke", p.clone()).unwrap();
+    s.clear_live_stroke();
+    assert!(r.get("fromLive").is_none());
+    let mut fresh = session(200, 100);
+    fresh.execute("paint.stroke", p).unwrap();
+    assert!(same_pixels(&surface(&s), &surface(&fresh), Rect::new(0, 0, 200, 100)));
+    // The document changed after the stroke began.
+    let mut s = session(200, 100);
+    let (live, p) = live_and_commit(&s, "paint.stroke", base.clone(), &pts);
+    s.execute("layer.new.layer", json!({})).unwrap();
+    s.offer_live_stroke(live).unwrap();
+    let r = s.execute("paint.stroke", p).unwrap();
+    s.clear_live_stroke();
+    assert!(r.get("fromLive").is_none(), "a stale offer is never used");
+    // Another command leaves an offer untaken, and a later unrelated stroke can't use it.
+    let mut s = session(200, 100);
+    let (live, _) = live_and_commit(&s, "paint.stroke", base.clone(), &pts);
+    s.offer_live_stroke(live).unwrap();
+    let mut other = base;
+    other["points"] = json!([[5.0, 5.0, 1.0], [40.0, 5.0, 1.0]]);
+    let r = s.execute("paint.stroke", other).unwrap();
+    assert!(r.get("fromLive").is_none());
+}
+
+#[test]
+fn set_brush_takes_a_per_dynamic_curve_and_a_patch_resets_it() {
+    let mut s = session(20, 20);
+    let curve = json!([[0.0, 0.0], [0.5, 0.2], [1.0, 1.0]]);
+    s.execute("tools.setBrush", json!({"shapeDynamics": {"enabled": true, "size": {"control": "penPressure", "curve": curve}}})).unwrap();
+    let with = s.tools.brush.clone();
+    assert_eq!(with.shape_dynamics.size.curve.points(), vec![[0.0, 0.0], [0.5, 0.2], [1.0, 1.0]]);
+    assert!(with.transfer.opacity.curve.is_linear(), "other dynamics keep their own curve");
+    // The panel's diff back to linear is a real patch, and applying it restores the linear curve.
+    let mut linear = with.clone();
+    linear.shape_dynamics.size.curve = photocraft_paint::ResponseCurve::LINEAR;
+    let patch = brush_patch(&with, &linear);
+    assert_eq!(patch["shapeDynamics"]["size"]["curve"], json!([[0.0, 0.0], [1.0, 1.0]]));
+    s.execute("tools.setBrush", patch).unwrap();
+    assert!(s.tools.brush.shape_dynamics.size.curve.is_linear());
+}
+
+#[test]
+fn last_brush_is_remembered_when_the_revision_moves_only() {
+    let mut s = session(8, 8);
+    restore_brush(&mut s);
+    // A restore is already in the preferences: nothing to write, no clone or serialise.
+    s.prefs.edit(|p| p.last_brush = json!("sentinel"));
+    remember_brush(&mut s);
+    assert_eq!(s.prefs().last_brush, json!("sentinel"), "an unchanged brush must not serialise");
+    s.execute("tools.setBrush", json!({"size": 23})).unwrap();
+    assert!(s.tools.brush_rev > s.tools.brush_saved_rev);
+    remember_brush(&mut s);
+    assert_eq!(s.prefs().last_brush["brush"]["size"].as_f64(), Some(23.0));
+    assert_eq!(s.tools.brush_saved_rev, s.tools.brush_rev, "the revision is marked saved");
+    // Revision unchanged: even a hand-written value stays (the gate is a counter compare).
+    s.prefs.edit(|p| p.last_brush = json!("sentinel"));
+    remember_brush(&mut s);
+    assert_eq!(s.prefs().last_brush, json!("sentinel"));
+}
+
+#[test]
+fn rejected_brush_changes_do_not_move_the_revision() {
+    let mut s = session(8, 8);
+    let rev = s.tools.brush_rev;
+    assert!(s.execute("tools.setBrush", json!({"size": "big"})).is_err());
+    assert_eq!(s.tools.brush_rev, rev, "a rejected brush leaves no change behind");
+    s.execute("tools.setBrush", json!({"size": 31})).unwrap();
+    assert!(s.tools.brush_rev > rev);
+}
+
+#[test]
+fn the_revision_tracks_the_picked_preset_too() {
+    let mut s = session(8, 8);
+    s.execute("tools.setBrush", json!({"preset": "Hard Round"})).unwrap();
+    let rev = s.tools.brush_rev;
+    s.execute("brush.presets.setCurrent", json!({"name": "Soft Round"})).unwrap();
+    assert!(s.tools.brush_rev > rev, "the remembered preset name follows the picked preset");
+    remember_brush(&mut s);
+    assert_eq!(s.prefs().last_brush["preset"].as_str(), Some("Soft Round"));
+}
+
+#[test]
+fn the_remembered_brush_restores_at_launch() {
+    let mut s = session(8, 8);
+    s.execute("tools.setBrush", json!({"preset": "Hard Round", "size": 44, "hardness": 0.3})).unwrap();
+    remember_brush(&mut s);
+    let stored = s.prefs().last_brush.clone();
+    assert_eq!(stored["preset"].as_str(), Some("Hard Round"));
+    let mut t = Session::new();
+    assert_ne!(t.tools.brush.size, 44.0, "a fresh session starts on the default brush");
+    t.prefs.edit(|p| p.last_brush = stored);
+    restore_brush(&mut t);
+    assert_eq!(t.tools.brush.size, 44.0);
+    assert_eq!(t.tools.brush.hardness, 0.3);
+    assert_eq!(t.tools.current_preset.as_deref(), Some("Hard Round"));
+    assert_eq!(t.tools.brush_saved_rev, t.tools.brush_rev, "the restored value is already stored");
+    // A malformed remembered brush keeps the default (never an error, never a panic).
+    let mut bad = Session::new();
+    bad.prefs.edit(|p| p.last_brush = json!({"brush": {"size": "huge"}}));
+    restore_brush(&mut bad);
+    assert_eq!(bad.tools.brush.size, Session::new().tools.brush.size);
+}
+
+#[test]
+fn remembered_brushes_never_embed_large_bitmaps() {
+    use std::sync::Arc;
+    let big = GrayTile::from_fn(PREVIEW_SIDE + 1, 8, |_, _| 1.0);
+    assert!(ref_tip(&TipShape::Sampled(big)).is_none(), "a big sampled tip cannot be embedded");
+    let small = GrayTile::from_fn(8, 8, |_, _| 1.0);
+    assert!(ref_tip(&TipShape::Sampled(small.clone())).is_some(), "small tiles embed");
+    let stored =
+        StoredTile { key: "k".into(), width: 300, height: 200, preview: Arc::new(small), full: Some(Arc::new(GrayTile::from_fn(300, 200, |_, _| 1.0))) };
+    let t = ref_tip(&TipShape::Stored(stored)).expect("stored tips are remembered as references");
+    assert!(matches!(t, TipShape::Stored(r) if r.full.is_none()), "a loaded full bitmap is dropped");
+    assert!(ref_pattern(&Pattern::Tile(GrayTile::from_fn(PREVIEW_SIDE + 1, 4, |_, _| 1.0))).is_none());
+}
+
+/// Photoshop's Clear painting mode (#3439): a Brush or Pencil stroke in `"mode": "clear"` erases
+/// with that brush, and History still names the tool rather than the Eraser.
+#[test]
+fn clear_mode_erases_with_the_brush_or_pencil() {
+    for (cmd, label) in [("paint.stroke", "Brush Tool"), ("paint.pencil", "Pencil")] {
+        let mut s = session(40, 20);
+        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        s.execute(cmd, json!({"points": [[2, 10], [38, 10]], "size": 6, "mode": "clear", "brush": {"hardness": 1.0}})).unwrap();
+        assert_eq!(rgba(&s, 20, 10)[3], 0.0, "{cmd}: cleared to transparency");
+        assert_eq!(rgba(&s, 20, 2), [1.0, 0.0, 0.0, 1.0], "{cmd}: untouched pixels stay");
+        assert_eq!(s.active().unwrap().history.undo_label(), Some(label), "{cmd}");
+    }
+}
+
+/// #4344: a foreground picked as CMYK 100/0/0/0 is painted into a CMYK document as those inks by
+/// the Brush and the Pencil, not as whatever its sRGB stand-in converts back to (100/28/0/17).
+#[test]
+fn brush_and_pencil_paint_a_cmyk_pick_with_the_picked_inks() {
+    let cyan = [1.0f32, 0.0, 0.0, 0.0];
+    for cmd in ["paint.stroke", "paint.pencil"] {
+        let mut s = session(16, 16);
+        s.execute("image.mode.cmyk", json!({})).unwrap();
+        let rgb = photocraft_color::convert::cmyk_to_rgb(cyan).map(|c| c.clamp(0.0, 1.0));
+        s.execute("tools.setColors", json!({"foreground": rgb, "foregroundCmyk": cyan})).unwrap();
+        s.execute(cmd, json!({"points": [[8.0, 8.0]], "size": 6.0, "hardness": 1.0})).unwrap();
+        let st = s.active().unwrap();
+        let surf = st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap();
+        let got: Vec<f32> = surf.read_region(Rect::new(8, 8, 9, 9)).into_iter().take(4).collect();
+        assert!(got.iter().zip(cyan).all(|(a, b)| (a - b).abs() < 0.02), "{cmd}: {got:?}");
+    }
 }
