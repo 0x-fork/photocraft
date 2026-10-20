@@ -3974,3 +3974,7 @@ cameraData	Lens	Lens
 	Use	Kullan
 	In Front	Önde
 	Behind	Arkada
+
+# DDS Options (#1327)
+	DDS Options	DDS Seçenekleri
+	Generate Mipmaps	Mipmap oluştur

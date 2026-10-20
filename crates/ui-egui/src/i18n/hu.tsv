@@ -4163,3 +4163,7 @@ cameraRaw	Yellow	Sárga
 	Use	Használat
 	In Front	Elöl
 	Behind	Mögött
+
+# DDS Options (#1327)
+	DDS Options	DDS-beállítások
+	Generate Mipmaps	Mipmapek létrehozása

@@ -3245,3 +3245,8 @@ curves	Smooth	Glätten
 	In Front	Davor
 	Behind	Dahinter
 	Blend	Mischen
+
+# DDS Options (#1327)
+	DDS Options	DDS-Optionen
+	Compression	Komprimierung
+	Generate Mipmaps	Mipmaps erzeugen
