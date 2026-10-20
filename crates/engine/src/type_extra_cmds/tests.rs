@@ -108,8 +108,9 @@ fn vertical_orientation_renders_columns_inside_the_canvas() {
     assert!(l.vertical && l.lines.len() == 2);
     let [x0, y0, x1, y1] = l.bounds().unwrap();
     assert!(x1 > 0.0 && x0 < -40.0 && y0 >= -1e-3 && y1 > 60.0, "{:?}", l.bounds());
-    // Bad layer ids fail cleanly.
-    assert!(s.execute("type.orientation.vertical", json!({"layer": 9999})).is_err());
+    // Bad layer ids fail cleanly. Not a small number like 9999: ids come from one process-wide
+    // counter, so in a full test run a layer made above can get it (#3343).
+    assert!(s.execute("type.orientation.vertical", json!({"layer": u64::MAX})).is_err());
 }
 
 #[test]
@@ -299,7 +300,7 @@ fn type_attaches_to_a_path_and_releases_it() {
     .unwrap();
     assert!(s.execute("type.attachToPath", json!({"subpath": 5})).is_err());
     assert!(s.execute("type.attachToPath", json!({"start": "far"})).is_err());
-    assert!(s.execute("type.attachToPath", json!({"shape": 9999})).is_err());
+    assert!(s.execute("type.attachToPath", json!({"shape": u64::MAX})).is_err());
     s.execute("type.attachToPath", json!({"start": 4})).unwrap();
     assert!(matches!(text(&s, id).shape, TextShape::Path { start, .. } if start == 4.0));
     let on_path = ink(&s, id);
@@ -326,6 +327,27 @@ fn all_locked_layer_rejects_paste_lorem_ipsum_without_history() {
         assert_eq!(text(&s, id).text, "Hi");
         assert_eq!(s.active().unwrap().history.past_len(), history);
     }
+}
+
+#[test]
+fn paste_lorem_ipsum_inserts_into_the_layer_param_not_the_active_layer() {
+    // #5659: with a pixel layer active, an explicit type "layer" got a new text box instead.
+    let mut s = session(8);
+    let id = text_layer(&mut s, "Hi");
+    s.execute("layer.new.layer", json!({})).unwrap();
+    let pixel = s.active().unwrap().active_layer.unwrap();
+    assert_ne!(pixel, id);
+    let count = s.active().unwrap().doc.walk().len();
+    let r = s.execute("type.pasteLoremIpsum", json!({"layer": id.0, "at": 0})).unwrap();
+    assert!(text(&s, id).text.starts_with(LOREM_IPSUM), "{}", text(&s, id).text);
+    assert!(text(&s, id).text.ends_with("Hi"));
+    assert_eq!(r["caret"], LOREM_IPSUM.chars().count());
+    assert_eq!(s.active().unwrap().doc.walk().len(), count);
+    // An explicit layer that is not a type layer is an error, not a new layer.
+    let history = s.active().unwrap().history.past_len();
+    assert!(s.execute("type.pasteLoremIpsum", json!({"layer": pixel.0})).is_err());
+    assert_eq!(s.active().unwrap().doc.walk().len(), count);
+    assert_eq!(s.active().unwrap().history.past_len(), history);
 }
 
 /// A type layer stored with a family label that is not installed, as a PSD keeps the family it
@@ -397,4 +419,22 @@ fn exact_postscript_face_outside_the_guessed_family_is_not_missing() {
     // Neither the stored family nor the family guessed from the name is installed: only the exact face.
     assert!(!fonts.has_family(&photocraft_text::fonts::guess_from_postscript("UnrelatedPS30").family));
     assert_eq!((style_font_missing(&mut fonts, &style("UnrelatedPS30")), style_font_missing(&mut fonts, &style("UnrelatedPS31"))), (false, true));
+}
+
+/// #5044: PostScript names whose family has its space elsewhere (`BMDoHyeon`, family
+/// "BM DoHyeon") or an underscore style suffix (`Daum_SemiBold`). Guessing splits them as
+/// "BM Do Hyeon" and "Daum_Semi Bold", neither installed; the exact installed face resolves them.
+#[test]
+fn camel_case_and_underscore_postscript_names_resolve_to_their_installed_faces() {
+    let mut fonts = photocraft_text::FontDb::new();
+    fonts.register_font_data(renamed_face(&photocraft_text::fonts::INTER_REGULAR, "BM DoHyeon", "BMDoHyeon"));
+    fonts.register_font_data(renamed_face(&photocraft_text::fonts::INTER_REGULAR, "Daum", "Daum_SemiBold"));
+    for (ps, family) in [("BMDoHyeon", "BM DoHyeon"), ("Daum_SemiBold", "Daum")] {
+        let guess = photocraft_text::fonts::guess_from_postscript(ps).family;
+        assert!(!fonts.has_family(&guess), "{ps}: the guess {guess:?} is not an installed family");
+        let r = fonts.resolve_postscript(ps);
+        assert_eq!((r.family.as_str(), r.exact), (family, true), "{ps}");
+        let style = photocraft_doc::text::CharStyle { font_family: guess.clone(), postscript_name: Some(ps.into()), ..Default::default() };
+        assert!(!style_font_missing(&mut fonts, &style), "{ps} stored as {guess:?} is not missing");
+    }
 }

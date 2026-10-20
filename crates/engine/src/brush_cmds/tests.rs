@@ -350,6 +350,89 @@ fn set_brush_merges_fields() {
 }
 
 #[test]
+fn resizing_a_brush_resizes_its_enabled_secondary_tip() {
+    let mut s = session(64, 64);
+    s.execute("tools.setBrush", json!({"size": 40, "dualBrush": {"enabled": true, "size": 12}})).unwrap();
+    s.execute("tools.setBrush", json!({"size": 80})).unwrap();
+    assert_eq!((s.tools.brush.size, s.tools.brush.dual_brush.size), (80.0, 24.0));
+
+    s.execute("tools.setBrush", json!({"brush": {"size": 20}})).unwrap();
+    assert_eq!((s.tools.brush.size, s.tools.brush.dual_brush.size), (20.0, 6.0));
+
+    // Editing both diameters in the same patch is an explicit secondary-tip size.
+    s.execute("tools.setBrush", json!({"size": 40, "dualBrush": {"size": 18}})).unwrap();
+    assert_eq!((s.tools.brush.size, s.tools.brush.dual_brush.size), (40.0, 18.0));
+    s.execute("tools.setBrush", json!({"dualBrush": {"size": 9}})).unwrap();
+    assert_eq!(s.tools.brush.dual_brush.size, 9.0);
+
+    // The stroke-level size override must use the same proportional dimensions.
+    let for_stroke = resolve_brush(&s, &json!({"size": 80, "points": [[10, 10]]}), "paint.stroke").unwrap();
+    assert_eq!((for_stroke.size, for_stroke.dual_brush.size), (80.0, 18.0));
+    assert_eq!((s.tools.brush.size, s.tools.brush.dual_brush.size), (40.0, 9.0));
+}
+
+/// Every way of changing the main size scales the Dual Brush tip as Photoshop does (#4809): `[` /
+/// `]`, the options bar / Brushes panel / Alt+right-drag (`tools.setBrush` with only a size), down
+/// to 1 px and back without losing the proportion to a floor.
+#[test]
+fn every_size_change_scales_the_dual_tip_and_keeps_its_proportion() {
+    let mut s = session(32, 32);
+    s.execute("tools.setBrush", json!({"brush": {"size": 100, "dualBrush": {"enabled": true, "size": 20}}})).unwrap();
+    let sizes = |s: &Session| (s.tools.brush.size, s.tools.brush.dual_brush.size);
+    s.execute("tools.decreaseBrushSize", json!({})).unwrap();
+    assert_eq!(sizes(&s), (80.0, 16.0));
+    s.execute("tools.increaseBrushSize", json!({})).unwrap();
+    assert_eq!(sizes(&s), (100.0, 20.0));
+    // A coalesced drag (options bar slider, Alt+right-drag) is a run of size-only patches.
+    for size in [60, 10, 1] {
+        s.execute("tools.setBrush", json!({"brush": {"size": size}, "coalesce": "drag"})).unwrap();
+    }
+    assert_eq!(s.tools.brush.size, 1.0);
+    assert!((s.tools.brush.dual_brush.size - 0.2).abs() < 1e-5, "no 0.5 px floor: {}", s.tools.brush.dual_brush.size);
+    s.execute("tools.setBrush", json!({"brush": {"size": 100}})).unwrap();
+    assert_eq!(s.tools.brush.size, 100.0);
+    assert!((s.tools.brush.dual_brush.size - 20.0).abs() < 1e-3, "back to 20 px: {}", s.tools.brush.dual_brush.size);
+    // Painting with the sub-pixel dual tip works (the renderer bounds it).
+    s.execute("tools.setBrush", json!({"brush": {"size": 1}})).unwrap();
+    s.execute("paint.stroke", json!({"points": [[4, 16], [28, 16]]})).unwrap();
+}
+
+/// Picking a preset that captured its size sets both diameters from the preset: the dual tip is
+/// not scaled on top of that.
+#[test]
+fn a_captured_preset_size_is_not_scaled_twice() {
+    let mut s = session(32, 32);
+    s.execute("tools.setBrush", json!({"size": 40, "dualBrush": {"enabled": true, "size": 10}})).unwrap();
+    s.execute("brush.presets.save", json!({"name": "Dual40"})).unwrap();
+    s.execute("tools.setBrush", json!({"size": 200})).unwrap();
+    assert_eq!(s.tools.brush.dual_brush.size, 50.0);
+    s.execute("tools.setBrush", json!({"preset": "Dual40"})).unwrap();
+    assert_eq!((s.tools.brush.size, s.tools.brush.dual_brush.size), (40.0, 10.0));
+}
+
+#[test]
+fn bad_sizes_fail_and_leave_the_dual_tip_alone() {
+    let mut s = session(32, 32);
+    s.execute("tools.setBrush", json!({"brush": {"size": 100, "dualBrush": {"enabled": true, "size": 20}}})).unwrap();
+    for bad in [json!(1e30), json!("big"), json!([1]), json!({"x": 1}), json!(null)] {
+        let _ = s.execute("tools.setBrush", json!({"brush": {"size": bad}}));
+        assert_eq!(s.tools.brush.dual_brush.size, 20.0, "{bad}");
+        assert_eq!(s.tools.brush.size, 100.0, "{bad}");
+    }
+    assert!(s.execute("tools.setBrush", json!({"brush": {"size": 1e30}})).is_err());
+}
+
+#[test]
+fn an_uncaptured_preset_size_keeps_dual_brush_proportions() {
+    let mut s = session(32, 32);
+    s.execute("tools.setBrush", json!({"size": 40, "dualBrush": {"enabled": true, "size": 10}})).unwrap();
+    s.execute("brush.presets.save", json!({"name": "Dual", "captureSize": false})).unwrap();
+    s.execute("tools.setBrush", json!({"size": 80})).unwrap();
+    s.execute("tools.setBrush", json!({"preset": "Dual"})).unwrap();
+    assert_eq!((s.tools.brush.size, s.tools.brush.dual_brush.size), (80.0, 20.0));
+}
+
+#[test]
 fn set_brush_keeps_untouched_bitmaps_and_replaces_touched_ones() {
     let tile = |w, h, k: u32| GrayTile::from_fn(w, h, move |x, y| ((x * k + y) % 5) as f32 / 4.0);
     let base = BrushSettings {
@@ -408,6 +491,26 @@ fn define_brush_from_selection() {
     s.execute("select.deselect", json!({})).unwrap();
     s.execute("paint.stroke", json!({"points": [[30, 32]], "color": "#ff0000"})).unwrap();
     assert!(rgba(&s, 30, 32)[3] > 0.9);
+}
+
+#[test]
+fn define_brush_from_selection_survives_allocation_failure() {
+    // The sampled tip is one f32 buffer over the whole selection, and the selection mask is a
+    // second of the same size. Both are reserved through the fallible allocator, so an allocation
+    // failure must be a graceful error (brush, presets, history and document untouched), never a
+    // panic or an OOM abort.
+    let mut s = session(40, 40);
+    s.execute("select.rect", json!({"x": 5, "y": 5, "width": 20, "height": 20})).unwrap();
+    let brush_before = s.tools.brush.clone();
+    let presets_before = s.tools.presets.clone();
+    let history_before = s.active().unwrap().history.past_len();
+    crate::allocation::fail_next_for_test();
+    let result = s.execute("brush.defineFromSelection", json!({"name": "Blob"}));
+    let _ = crate::allocation::capacity::<u8>(0, "reset failpoint");
+    assert!(result.is_err(), "an allocation failure must be reported, not panic");
+    assert_eq!(s.tools.brush, brush_before, "the current brush is unchanged");
+    assert_eq!(s.tools.presets, presets_before, "the preset list is unchanged");
+    assert_eq!(s.active().unwrap().history.past_len(), history_before, "no history step was recorded");
 }
 
 #[test]
@@ -908,6 +1011,23 @@ fn an_offer_that_does_not_match_the_commit_is_ignored() {
     other["points"] = json!([[5.0, 5.0, 1.0], [40.0, 5.0, 1.0]]);
     let r = s.execute("paint.stroke", other).unwrap();
     assert!(r.get("fromLive").is_none());
+}
+
+#[test]
+fn set_brush_takes_a_per_dynamic_curve_and_a_patch_resets_it() {
+    let mut s = session(20, 20);
+    let curve = json!([[0.0, 0.0], [0.5, 0.2], [1.0, 1.0]]);
+    s.execute("tools.setBrush", json!({"shapeDynamics": {"enabled": true, "size": {"control": "penPressure", "curve": curve}}})).unwrap();
+    let with = s.tools.brush.clone();
+    assert_eq!(with.shape_dynamics.size.curve.points(), vec![[0.0, 0.0], [0.5, 0.2], [1.0, 1.0]]);
+    assert!(with.transfer.opacity.curve.is_linear(), "other dynamics keep their own curve");
+    // The panel's diff back to linear is a real patch, and applying it restores the linear curve.
+    let mut linear = with.clone();
+    linear.shape_dynamics.size.curve = photocraft_paint::ResponseCurve::LINEAR;
+    let patch = brush_patch(&with, &linear);
+    assert_eq!(patch["shapeDynamics"]["size"]["curve"], json!([[0.0, 0.0], [1.0, 1.0]]));
+    s.execute("tools.setBrush", patch).unwrap();
+    assert!(s.tools.brush.shape_dynamics.size.curve.is_linear());
 }
 
 #[test]
