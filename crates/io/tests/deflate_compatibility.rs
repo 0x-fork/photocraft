@@ -1,7 +1,7 @@
 //! Backend compatibility, including native-format tile data rather than ZIP assembly alone.
 mod common;
 
-use std::{hint::black_box, io::Read, time::Instant};
+use std::io::Read;
 
 use photocraft_codecs::{ChannelLayout, Format, Image, SampleType as CodecSample};
 use photocraft_color::{ColorMode, SampleType};
@@ -71,53 +71,5 @@ fn png_psd_and_pcraft_decode_identically() {
         assert!(load_from_bytes(&bytes).unwrap() == doc, "all tile bytes, {depth:?}");
         let image = Image::from_u8(7, 3, ChannelLayout::Rgba, thumbnail.pixels).unwrap();
         check_png(&read_thumbnail(&bytes).unwrap().unwrap(), &image);
-    }
-}
-
-#[test]
-#[ignore = "manual 24 MP release benchmark; run on main and the backend branch"]
-fn benchmark_deflate_formats() {
-    for pattern in ["ramp", "noise"] {
-        let mut doc = document(SampleType::U8, Size::new(6000, 4000));
-        if pattern == "noise" {
-            let mut seed = 0x9e3779b9u32;
-            let raw: Vec<u8> = (0..96_000_000usize)
-                .map(|i| {
-                    seed ^= seed << 13;
-                    seed ^= seed >> 17;
-                    seed ^= seed << 5;
-                    if i % 4 == 3 { 255 } else { (seed >> 24) as u8 }
-                })
-                .collect();
-            doc.layers[0].content = LayerContent::Raster(photocraft_raster::Surface::from_interleaved(doc.pixel_format(), doc.bounds(), &raw));
-        }
-        let pixels = doc.layers[0].surface().unwrap().read_region(doc.bounds());
-        let image = Image::from_normalized(6000, 4000, ChannelLayout::Rgba, CodecSample::U8, &pixels).unwrap();
-        drop(pixels);
-        let psd_opts = PsdExportOptions { merged_compression: Compression::Zip, merged_matte: false, ..Default::default() };
-        let save_opts = SaveOptions { thumbnail: Some(Rgba8Image::new(256, 170)), ..Default::default() };
-        let png = photocraft_codecs::encode(&image, Format::Png, &Default::default()).unwrap();
-        let psd = document_to_psd_with(&doc, &psd_opts).0.to_bytes().unwrap();
-        let pcraft = save_to_bytes(&doc, &save_opts).unwrap();
-        for trial in 0..6 {
-            for op in ["png-encode", "png-decode", "psd-encode", "psd-decode", "pcraft-save", "pcraft-load"] {
-                let start = Instant::now();
-                let size = match op {
-                    "png-encode" => black_box(photocraft_codecs::encode(black_box(&image), Format::Png, &Default::default()).unwrap()).len(),
-                    "png-decode" => black_box(photocraft_codecs::decode(black_box(&png)).unwrap()).data().len(),
-                    "psd-encode" => black_box(document_to_psd_with(black_box(&doc), &psd_opts).0.to_bytes().unwrap()).len(),
-                    "psd-decode" => {
-                        black_box(import("bench.psd", black_box(&psd)).unwrap());
-                        psd.len()
-                    }
-                    "pcraft-save" => black_box(save_to_bytes(black_box(&doc), &save_opts).unwrap()).len(),
-                    _ => {
-                        black_box(load_from_bytes(black_box(&pcraft)).unwrap());
-                        pcraft.len()
-                    }
-                };
-                println!("deflate,{pattern}-{op},{trial},{:.3},{size}", start.elapsed().as_secs_f64() * 1000.0);
-            }
-        }
     }
 }

@@ -2,9 +2,19 @@
 
 Replace the workspace flate2 Rust backend with zlib-rs and runtime CPU detection. Tiles in .pcraft remain Zstandard; deflate changes its PNG previews.
 
-Retained with explicitly accepted tradeoffs. Some PSD ZIP files grow by up to 0.71%; the 16-bit city PSD import is about 6% slower in confirmation; the small web-layout PNG grows by 598 bytes (+1.40%); one .pcraft preview adds 25 bytes. Real photo PNGs become smaller and encode faster. Compression-effort probes recovered size only by introducing other speed regressions, so no effort change is applied. There is no native-format tile speedup from deflate.
+Size, import-speed and dependency tradeoffs remain maintainer decisions.
+Some PSD ZIP files grow by up to 0.71%. The macOS 16-bit city PSD import is about 6% slower in confirmation.
+The small web-layout PNG grows by 598 bytes (+1.40%). One .pcraft preview adds 25 bytes.
+Real photo PNGs become smaller and encode faster. Compression levels are unchanged.
+There is no native-format tile speedup from deflate.
 
-Measured on 2026-10-19 against main `d95fdf3181c01ad41e95456091a394b105a9afb2`, independently of the other splits. Apple M4 Max, 16 CPUs, 128 GiB, macOS arm64, rustc 1.99.1; release O3, LTO off, 16 codegen units, debug off. Builds used nice 10 and warm APFS-cloned caches; measurements used default priority without concurrent builds or profiling. Five alternating paired samples follow a warmup; confirmation and fix runs use nine pairs. Time change compares the two medians; intervals resample paired ratios. Negative time change means faster. Small differences are not automatically established improvements or regressions.
+Measured on 2026-10-19 against main `d95fdf31`, independently of the other performance changes.
+Host: Apple M4 Max, 16 CPUs, 128 GiB RAM, macOS arm64, rustc 1.99.1.
+Release settings: optimization level 3, no LTO, 16 codegen units and no debug information.
+Builds finish before measurement. Measurements use default priority without concurrent builds or profiling.
+Five alternating pairs follow a warmup. Confirmation uses nine pairs.
+Time changes compare medians, and intervals resample paired ratios. Negative changes mean less elapsed time.
+Small differences are not automatically established improvements or regressions.
 
 The full-resolution CC0 Pixls photographs are P1000475.RW2 (24 MP foliage centre crop, no resampling) and IMG_4059.CR2 (12 MP city), each converted to U8/U16/F32 with the ProPhoto RGB profile. F32 derives from 16-bit development, not HDR capture. MIT psd-tools masks.psd supplies a 640 x 1394 web layout with 22 imported layers and three masks; mask-index.psd supplies a 1000 x 867 illustrated card with a mask. The sources and hashes are pinned by the existing corpus. These are the available authored layered files, not a large layered-photo corpus. No generated noise, repeating ramps, enlarged charts or duplicated photo layers are used.
 
@@ -59,15 +69,18 @@ The shared harness times in-memory operations. Input loading, image conversion, 
 
 Every PNG encode decodes to identical source pixels, each PSD operation produces the same decoded layer/mask samples as main, and complete .pcraft documents compare equal at every depth. Compressed bytes may differ. The committed compatibility test independently inflates PNG IDAT and PSD ZIP/ZIP-prediction data using old miniz_oxide and checks .pcraft tiles plus thumbnails.
 
-Local raw evidence and the shared harness: `.local/perf-real-261019/` in the repository checkout (ignored). This comparison supersedes the earlier synthetic performance table. Small synthetic unit fixtures remain correctness checks; ignored synthetic timing tests were not run.
+## Linux and Windows x86-64 validation
 
-## Earlier split validation
+[GitHub Actions run](https://github.com/reneleonhardt/photocraft/actions/runs/39444647224) passed the deflate compatibility test,
+the full IO/codecs/format package tests and `cargo xtask wasm` on Ubuntu 24.04 and Windows 2022 x86-64.
+The temporary `ci/deflate-zlib-rs-x86` branch at `46232997` contains the workflow and benchmark setup.
+The run's `deflate-x86-results` artifact contains all raw samples, the full table, input and binary hashes, backend features and host details.
 
-These checks passed when the split was prepared; they were not all rerun for this benchmark review. Current affected checks are listed above where production code changed.
-
-- `cargo test -p photocraft-codecs -p photocraft-psd -p photocraft-format -p photocraft-io --locked`: passed (1956 passed, 9 ignored).
-- `cargo clippy -p photocraft-codecs -p photocraft-psd -p photocraft-format -p photocraft-io --locked --all-targets -- -D warnings`: passed.
-- `cargo xtask layers`: passed.
-- `cargo xtask wasm`: passed.
-- `cargo xtask test-corpus -p psd -p codecs -p io`: passed (1853 passed, 9 ignored).
-- The compatibility test also passed with the main backend before measurements. To reproduce the main comparison, copy only this test and its miniz_oxide dev-dependency into a clean main worktree.
+The timing host used an Intel Xeon 6973P-C with four vCPUs and rustc 1.99.1.
+Main at `d95fdf31` and the backend change at `a37198d4` used matching release settings.
+One warmup preceded nine alternating pairs on the same 12/24 MP photos at U8/U16.
+Both importers received the same baseline-encoded PSD files. Loading, conversion, hashes and checks stayed outside the elapsed-time measurements.
+PNG encode time fell 23.8–56.8%, PSD export time 18.1–58.2%, and PSD import time 7.8–21.6%.
+The 16-bit city import fell from 440.733 to 402.057 ms (-8.78%); the macOS slowdown did not recur on this runner.
+Photo PNGs became 1.2–2.1% smaller. Exported PSDs grew by 0.014–0.709%.
+All decoded pixels, dimensions, depths and profiles matched. These results cover this Linux host; Windows and F32 were not timed.

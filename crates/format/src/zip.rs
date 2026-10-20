@@ -214,7 +214,7 @@ impl<'a> ZipReader<'a> {
                 // small forged archive must not reserve gigabytes up front, so the
                 // preallocation is capped (DEFLATE expands at most ~1032x).
                 let mut out = Vec::with_capacity(e.uncompressed.min(raw.len().saturating_mul(1032)).min(64 << 20));
-                flate2::read::DeflateDecoder::new(raw)
+                flate2::bufread::DeflateDecoder::new(raw)
                     .take((max as u64).saturating_add(1))
                     .read_to_end(&mut out)
                     .map_err(|err| FormatError::corrupt(format!("zip entry `{}`: {err}", e.name)))?;
@@ -325,6 +325,34 @@ mod tests {
         bytes[pos] = b'j';
         let r = ZipReader::new(&bytes).unwrap();
         assert!(r.read_by_name("a", 100).is_err());
+    }
+
+    #[test]
+    fn slice_deflate_matches_buffered_reader_and_preserves_checks() {
+        use std::io::Write as _;
+
+        let content = b"PhotoCraft ZIP payload".repeat(5000);
+        let mut encoder = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::none());
+        encoder.write_all(&content).unwrap();
+        let compressed = encoder.finish().unwrap();
+        assert!(compressed.len() > 32 * 1024);
+        let mut previous = Vec::new();
+        flate2::read::DeflateDecoder::new(compressed.as_slice()).read_to_end(&mut previous).unwrap();
+        let mut writer = ZipWriter::new();
+        writer.add("payload", &compressed).unwrap();
+        let bytes = writer.finish().unwrap();
+        let reader = ZipReader::new(&bytes).unwrap();
+        let mut entry = reader.entries[0].clone();
+        entry.method = 8;
+        entry.uncompressed = content.len();
+        entry.crc = crc32(&content);
+        assert_eq!(reader.read(&entry, content.len()).unwrap(), previous);
+        assert!(matches!(reader.read(&entry, content.len() - 1), Err(FormatError::LimitExceeded(_))));
+        entry.crc ^= 1;
+        assert!(matches!(reader.read(&entry, content.len()), Err(FormatError::Corrupt(_))));
+        entry.crc ^= 1;
+        entry.compressed /= 2;
+        assert!(matches!(reader.read(&entry, content.len()), Err(FormatError::Corrupt(_))));
     }
 
     /// A valid DEFLATE-compressed bundle may be read with an effectively
