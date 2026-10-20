@@ -143,16 +143,48 @@ fn layered_save_respects_explicit_jpeg_choices() {
     app.poll_file_dialog(&ctx, None);
     answer(&open, Some(FileDialogAnswer::SaveTo("/exports/chosen.JPEG".into())));
     app.poll_file_dialog(&ctx, None);
+    // JPEG Options asks first (FILE-215-19, #5563). The JPEG can't hold the layers, so it is a
+    // copy and the document keeps its file (#2550).
+    assert_eq!(app.jpeg_options.as_ref().map(|p| (p.path.as_str(), p.copy)), Some(("/exports/chosen.jpeg", true)));
+    assert!(written.borrow().is_empty());
+    crate::jpeg_options_ui::confirm(&mut app, &ctx);
     assert_eq!(*written.borrow(), ["/exports/chosen.jpeg"]);
-    // The JPEG can't hold the layers, so it is a copy and the document keeps its file (#2550).
     assert_eq!(app.session.active().unwrap().path.as_deref(), Some("/pics/My image.JPEG"));
-    // Explicit command paths carry the same choice and bypass the picker.
+    // Explicit command paths carry the same choice and bypass the picker: without a JPEG answer
+    // JPEG Options still asks, and a `quality` answers it.
     for command in ["file.save", "file.saveAs"] {
         let (mut app, open, written) = jpeg_app(Some("/pics/My image.JPEG"), true);
         menus::invoke(&mut app, &ctx, command, json!({"path": "/exports/chosen.jpg"})).unwrap();
         assert!(!app.file_dialog_open() && open.borrow().is_empty());
+        assert!(app.jpeg_options.as_ref().is_some_and(|p| p.copy), "{command}");
+        crate::jpeg_options_ui::confirm(&mut app, &ctx);
         assert_eq!(*written.borrow(), ["/exports/chosen.jpg"]);
+
+        let (mut app, open, written) = jpeg_app(Some("/pics/My image.JPEG"), true);
+        menus::invoke(&mut app, &ctx, command, json!({"path": "/exports/chosen.jpg", "quality": 8})).unwrap();
+        assert!(!app.file_dialog_open() && open.borrow().is_empty() && app.jpeg_options.is_none(), "{command}");
+        assert_eq!(*written.borrow(), ["/exports/chosen.jpg"]);
+        assert_eq!(app.session.active().unwrap().path.as_deref(), Some("/pics/My image.JPEG"));
     }
+}
+
+/// File › Save on a flat JPEG asks for its name; confirming its own file asks JPEG Options and,
+/// once answered, records a plain Save that writes the file an action is played on (#3531).
+#[test]
+fn plain_save_of_a_flat_jpeg_asks_jpeg_options_and_records_a_plain_save() {
+    let ctx = egui::Context::default();
+    let (mut app, open, written) = jpeg_app(Some("/pics/photo.jpg"), false);
+    app.run("actions.record", json!({})).unwrap();
+    menus::invoke(&mut app, &ctx, "file.save", json!({})).unwrap();
+    app.poll_file_dialog(&ctx, None);
+    answer(&open, Some(FileDialogAnswer::SaveTo("/pics/photo.jpg".into())));
+    app.poll_file_dialog(&ctx, None);
+    assert_eq!(app.jpeg_options.as_ref().map(|p| (p.record, p.copy)), Some(("file.save", false)));
+    assert!(written.borrow().is_empty());
+    crate::jpeg_options_ui::confirm(&mut app, &ctx);
+    app.run("actions.stop", json!({})).unwrap();
+    assert_eq!(*written.borrow(), ["/pics/photo.jpg"]);
+    assert_eq!(app.session.actions.list[0].steps, [("file.save".to_string(), json!({}))]);
 }
 
 /// The user answers the open dialog, from the dialog's own thread.
@@ -1124,7 +1156,11 @@ fn save_of_a_flat_file_asks_after_the_dialog_when_another_app_changed_it() {
     assert!(written.borrow().is_empty(), "the changed file is not replaced before the answer");
     let id = disk_prompt(&app).expect("Save asks first").id;
     crate::dialogs::confirm(&mut app, id).unwrap();
+    // Then JPEG Options (FILE-215-19), whose answer is still recorded as a plain Save.
+    assert!(written.borrow().is_empty());
+    assert_eq!(app.jpeg_options.as_ref().map(|p| p.record), Some("file.save"));
+    crate::jpeg_options_ui::confirm(&mut app, &ctx);
     assert_eq!(*written.borrow(), [path]);
     assert!(!app.session.active().unwrap().is_dirty());
-    assert_eq!(app.session.journal.last().map(|s| s.0.as_str()), Some("file.save"), "still recorded as a plain Save");
+    assert_eq!(app.session.journal.last(), Some(&("file.save".to_string(), json!({}))), "still recorded as a plain Save");
 }

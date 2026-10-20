@@ -47,7 +47,7 @@ pub fn confirm(app: &mut PhotocraftApp, fields: &Map<String, Value>) -> Result<V
     let flat = fields.get("flat").and_then(Value::as_bool) == Some(true);
     app.with_document(doc, |app| {
         if flat {
-            let r = app.save_to(path.clone(), None)?;
+            let r = app.save_to(path.clone(), crate::SaveChoices::default())?;
             app.journal_as_plain_save(&path);
             Ok(r)
         } else {
