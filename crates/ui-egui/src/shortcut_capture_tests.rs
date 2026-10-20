@@ -149,10 +149,8 @@ fn capture_key_press_records_shift_when_key_events_carry_no_modifier_bits() {
     // Same event pattern as Linux/Windows egui: modifier and letter Key events with empty bits.
     // Legacy capture → (F6, NONE) → shortcut_text → "F6"; capture_key_press → "Shift+F6".
     let key_event = |key: Key| Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE };
-    let (mods, pressed) = crate::prefs_ui::capture_key_press(
-        Modifiers::NONE,
-        &input_state(vec![key_event(Key::ShiftLeft), key_event(Key::F6)], Modifiers::NONE),
-    );
+    let (mods, pressed) =
+        crate::prefs_ui::capture_key_press(Modifiers::NONE, &input_state(vec![key_event(Key::ShiftLeft), key_event(Key::F6)], Modifiers::NONE));
     assert!(mods.shift);
     let (key, m) = pressed.expect("F6 press");
     assert_eq!(key, Key::F6);
