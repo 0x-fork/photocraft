@@ -278,6 +278,29 @@ mod tests {
         }
     }
 
+    #[test]
+    fn slice_select_icon_is_its_own() {
+        // #7859: Slice Select reused Object Selection's dashed square with a pointer. As in
+        // Photoshop it is the Slice knife with a pointer: unlike Object Selection, and the Slice
+        // tool's knife plus ink of its own (the pointer).
+        assert_ne!(tool_icon(Tool::SliceSelect), tool_icon(Tool::ObjectSelection));
+        assert_ne!(tool_icon(Tool::SliceSelect), tool_icon(Tool::Slice));
+        for size in [14_u32, 28] {
+            let select = ink(tool_icon(Tool::SliceSelect), size);
+            assert!(select.iter().any(|&pixel| pixel), "Slice Select must have ink at {size}px");
+            let object = ink(tool_icon(Tool::ObjectSelection), size);
+            let shared = select.iter().zip(&object).filter(|(a, b)| **a && **b).count();
+            let union = select.iter().zip(&object).filter(|(a, b)| **a || **b).count();
+            assert!(union > 0, "icons must have ink at {size}px");
+            let overlap = shared as f32 / union as f32;
+            assert!(overlap < 0.5, "Slice Select and Object Selection must read as distinct: {overlap:.2} of their ink overlaps at {size}px");
+            let slice = ink(tool_icon(Tool::Slice), size);
+            let own = select.iter().zip(&slice).filter(|(a, b)| **a && !**b).count();
+            let total = select.iter().filter(|a| **a).count();
+            assert!(own as f32 >= 0.3 * total as f32, "the pointer sets Slice Select apart from Slice: {own} of {total} pixels at {size}px");
+        }
+    }
+
     /// Ink bounding box `(width, height)` of a rasterized mask.
     fn ink_extent(mask: &[bool], size: u32) -> (usize, usize) {
         let s = size as usize;
