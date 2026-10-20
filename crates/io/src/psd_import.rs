@@ -1022,7 +1022,19 @@ pub(crate) fn psd_to_document_decoded(
             cx.warn("color mode data is not preserved");
         }
         match flat_composite(file, merged.as_ref(), photocraft_psd::compression::MAX_DECODED_BYTES) {
-            Ok(img) => {
+            Ok(mut img) => {
+                // Resource 1047: pixels of the transparent entry are transparent.
+                if h.color_mode == PsdMode::Indexed
+                    && let Some(t) = doc.color_table.as_ref().and_then(|t| t.transparent)
+                    && let Some(Ok(all)) = &merged
+                    && let Some(indices) = sizes.and_then(|(_, plane)| merged_plane(all, 0, plane))
+                {
+                    for (px, &i) in img.data.as_chunks_mut::<4>().0.iter_mut().zip(indices) {
+                        if i == t {
+                            px[3] = 0;
+                        }
+                    }
+                }
                 let mut s = Surface::new(fmt);
                 write_rgba8(&mut s, canvas, &img.data);
                 drop(img);

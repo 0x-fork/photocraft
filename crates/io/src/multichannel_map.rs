@@ -168,7 +168,7 @@ pub(crate) fn layerless_file(
     let global_blocks: Vec<TaggedBlock> = crate::annotations_map::export_blocks(doc, crate::pattern_map::export_global_blocks(doc))
         .into_iter()
         .filter(|(_, key, _)| !matches!(key, b"Layr" | b"Lr16" | b"Lr32"))
-        .map(|(sig, key, data)| crate::psd_export::global_block(sig, key, &data))
+        .map(|(sig, key, data)| crate::psd_export::global_block(crate::psd_export::block_signature(sig, header.version), key, &data))
         .collect();
     PsdFile {
         header,

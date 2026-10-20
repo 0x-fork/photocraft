@@ -17,10 +17,15 @@ pub(crate) const TRANSPARENCY_INDEX: u16 = 1047;
 /// Channel resources (names, display info, alpha identifiers): these modes have no extra channels.
 const CHANNEL_RESOURCES: [u16; 4] = [1006, 1045, 1053, crate::channel_map::DISPLAY_INFO];
 
-/// The PSD for an Indexed Color document with a colour table of at most 256 entries, or a Bitmap
-/// document; None for any other document (it is written like the others).
+/// The PSD for an Indexed Color document with a colour table of at most 256 entries, one of them
+/// opaque, or a Bitmap document; None for any other document (it is written like the others). A
+/// document with alpha channels or a Quick Mask is written like the others too: the importer does
+/// not read the extra channels of these modes back, so they would be lost.
 pub(crate) fn document_to_psd(doc: &Document, force_psb: bool) -> Option<(PsdFile, Vec<String>)> {
-    let table = doc.color_table.as_ref().filter(|t| !t.colors.is_empty() && t.colors.len() <= 256);
+    if !doc.channels.is_empty() || doc.quick_mask.is_some() {
+        return None;
+    }
+    let table = doc.color_table.as_ref().filter(|t| t.colors.len() <= 256 && (0..t.colors.len()).any(|i| Some(i) != t.transparent.map(usize::from)));
     let (mode, plane, color_mode_data) = match doc.mode {
         ColorMode::Indexed => {
             let table = table?;
@@ -52,6 +57,11 @@ pub(crate) fn document_to_psd(doc: &Document, force_psb: bool) -> Option<(PsdFil
         if let Some(i) = t.transparent {
             resources.push(ImageResource::new(TRANSPARENCY_INDEX, u16::from(i).to_be_bytes().to_vec()));
         }
+        // Photoshop keeps the RGB profile of an Indexed document (Bitmap has none). A profile of
+        // another colour space (kept from a Grayscale or CMYK source) does not describe the table.
+        if let Some(icc) = doc.icc_profile.as_ref().filter(|icc| icc.get(16..20) == Some(b"RGB ".as_slice())) {
+            resources.push(ImageResource::new(ids::ICC_PROFILE, icc.to_vec()));
+        }
     }
     // An imported transparency index that no longer applies is not copied either.
     let keep = |id: u16, _: &[u8]| !CHANNEL_RESOURCES.contains(&id) && id != TRANSPARENCY_INDEX && id != COLOR_TABLE_COUNT;
@@ -70,14 +80,23 @@ fn palette(t: &ColorTable) -> Vec<u8> {
     m
 }
 
-/// The flattened document as palette indices (the nearest entry; the transparent one where the
-/// document is less than half covered).
+/// The flattened document as palette indices: the transparent entry where the document is less
+/// than half covered, else the nearest other entry (the transparent one may duplicate an opaque
+/// colour, as in many PNG-8 files). Without a transparent entry the document is flattened over
+/// white, as Photoshop does.
 fn indices(doc: &Document, t: &ColorTable) -> Vec<u8> {
+    let (opaque_indices, colors): (Vec<u8>, Vec<_>) =
+        t.colors.iter().copied().enumerate().filter(|(i, _)| Some(*i) != t.transparent.map(usize::from)).map(|(i, c)| (i as u8, c)).unzip();
+    let opaque = ColorTable { colors, transparent: None };
     let mut idx = Vec::with_capacity(doc.size.area() as usize);
     let _ = photocraft_compose::render_bands(doc, doc.bounds(), 0, |band| -> Result<(), ()> {
         idx.extend(band.px.iter().map(|p| match t.transparent {
             Some(i) if p[3] < 0.5 => i,
-            _ => t.nearest([p[0], p[1], p[2]]) as u8,
+            Some(_) => opaque_indices.get(opaque.nearest([p[0], p[1], p[2]])).copied().unwrap_or(0),
+            None => {
+                let over_white = |c: f32| c * p[3] + (1.0 - p[3]);
+                t.nearest([over_white(p[0]), over_white(p[1]), over_white(p[2])]) as u8
+            }
         }));
         Ok(())
     });
