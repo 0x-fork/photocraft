@@ -60,17 +60,22 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, _mods: egui::Modifiers) -
     let Some(doc) = app.session.active().map(|d| d.doc.clone()) else { return true };
     let locked = app.session.file_menu.slices_locked;
     match ev {
+        // View › Lock Slices: neither tool draws, selects or moves a slice, and the press says
+        // why, as Photoshop's error does (#7865).
+        ToolEvent::Down { .. } if locked => {
+            app.ui.slices.selected = None;
+            app.ui.status = tl!("Slices are locked (View › Lock Slices)").to_string();
+            app.ui.status_error = true;
+        }
         ToolEvent::Down { x, y, .. } => {
             if tool == Tool::Slice {
-                if !locked {
-                    app.ui.slices.drag = Some(SliceDrag::New { start: [x, y], cur: [x, y] });
-                }
+                app.ui.slices.drag = Some(SliceDrag::New { start: [x, y], cur: [x, y] });
             } else {
                 let hit = slice_at(&doc, x, y);
                 app.ui.slices.selected = hit.as_ref().map(|r| r.number);
                 // The whole slice moves, also when the press hits one piece of a covered slice.
                 if let Some(r) = hit
-                    && let Some(sl) = r.id.and_then(|id| doc.slices.get(id)).filter(|_| !locked && r.origin == SliceOrigin::User)
+                    && let Some(sl) = r.id.and_then(|id| doc.slices.get(id)).filter(|_| r.origin == SliceOrigin::User)
                 {
                     app.ui.slices.drag = Some(SliceDrag::Move { id: sl.id, start: [x, y], cur: [x, y], rect: sl.rect });
                 }
