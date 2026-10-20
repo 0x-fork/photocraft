@@ -328,6 +328,22 @@ pub(crate) fn retarget_gradient_map(data: &mut [u8], target: &Adjustment, channe
     }
 }
 
+/// `true` for a `grdm` block exactly as older PhotoCraft builds wrote it: [`write_gradient_map`]'s
+/// output without the two padding bytes, which makes Photoshop refuse the file (#8070). Blocks
+/// from other writers, whatever their length, are not matched.
+pub(crate) fn is_unpadded_photocraft_gradient_map(data: &[u8]) -> bool {
+    if data.len().is_multiple_of(4) {
+        return false;
+    }
+    match parse_gradient_map(data) {
+        Some(Adjustment::GradientMap { stops, reverse, dither }) => {
+            let padded = write_gradient_map(&stops, reverse, dither);
+            padded.len() == data.len() + 2 && padded.starts_with(data)
+        }
+        _ => false,
+    }
+}
+
 /// `grdm` version 1 for [`Adjustment::GradientMap`] (Classic interpolation, Smoothness 0, so
 /// the stops are reproduced exactly).
 fn write_gradient_map(stops: &[(f32, [f32; 3])], reverse: bool, dither: bool) -> Vec<u8> {
