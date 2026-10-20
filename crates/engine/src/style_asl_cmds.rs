@@ -44,6 +44,9 @@ fn import(s: &mut Session, p: &Value) -> Result<Value> {
         None => true,
         Some(v) => v.as_bool().ok_or_else(|| bad(IMPORT, "`replace` must be a boolean"))?,
     };
+    // A file named like a built-in group ("Basics.asl") goes to "Basics 2": built-ins are never replaced.
+    let builtin: Vec<String> = crate::presets::styles::builtin().into_iter().map(|g| g.name).collect();
+    let group = if builtin.contains(&group) { (2..).map(|i| format!("{group} {i}")).find(|g| !builtin.contains(g)).unwrap_or(group) } else { group };
     let imp = asl_map::read_asl(&bytes).map_err(|e| bad(IMPORT, e))?;
     if imp.styles.is_empty() {
         return Err(bad(IMPORT, "the file holds no styles"));
@@ -143,7 +146,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Import Styles…",
             menu: &[],
             shortcut: None,
-            params: r##"{"path":".asl file"?,"data":base64 bytes?,"group":string?=file name,"replace":bool=true (replace a group of the same name)} → {group, imported, count, patterns (ids added to the pattern library), warnings}"##,
+            params: r##"{"path":".asl file"?,"data":base64 bytes?,"group":string?=file name (a built-in group's name becomes "<name> 2": built-ins are never replaced),"replace":bool=true (replace a group of the same name)} → {group, imported, count, patterns (ids added to the pattern library), warnings}"##,
             enabled: always,
             run: import,
             journal: true,
@@ -199,6 +202,20 @@ mod tests {
         let groups = s.presets.styles.len();
         s.execute(IMPORT, json!({"data": data, "group": "Back"})).unwrap();
         assert_eq!(s.presets.styles.len(), groups);
+    }
+
+    #[test]
+    fn a_file_named_like_a_built_in_group_keeps_that_group() {
+        let mut s = session();
+        let basics = s.presets.styles.iter().find(|g| g.name == "Basics").unwrap().items.clone();
+        let data = s.execute(EXPORT, json!({"group": "Text Effects"})).unwrap()["data"].as_str().unwrap().to_string();
+        for _ in 0..2 {
+            let r = s.execute(IMPORT, json!({"data": data, "group": "Basics"})).unwrap();
+            assert_eq!(r["group"], "Basics 2");
+        }
+        assert_eq!(s.presets.styles.iter().find(|g| g.name == "Basics").unwrap().items, basics);
+        // Re-importing replaces the copy instead of adding another.
+        assert_eq!(s.presets.styles.iter().filter(|g| g.name.starts_with("Basics")).count(), 2);
     }
 
     #[test]

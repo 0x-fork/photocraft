@@ -9,12 +9,12 @@
 //! effects scale other than 100 %) is left out with a warning naming the style, and the rest of
 //! the file still imports.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use photocraft_color::BlendMode;
 use photocraft_doc::{Effect, FxPaint, Pattern};
 use photocraft_psd::asl::{self, AslFile};
-use photocraft_psd::descriptor::{Descriptor, Value};
+use photocraft_psd::descriptor::{Descriptor, Id, Value};
 
 use crate::blocks::{enum_of, get_desc, num};
 use crate::effects_map::{blend_from_id, blend_value, effects_descriptor, effects_from_descriptor, is_known_effects_key};
@@ -76,12 +76,27 @@ fn pct(d: &Descriptor, key: &str) -> Option<f32> {
     num(d.get(key)).filter(|v| v.is_finite()).map(|v| (v as f32 / 100.0).clamp(0.0, 1.0))
 }
 
-fn unique(name: &str, taken: &[String]) -> String {
-    let free = |n: &str| !taken.iter().any(|t| t.eq_ignore_ascii_case(n));
-    if free(name) {
-        return name.to_string();
+/// Style names in use within one file (ASCII-lowercased), with the next number to try for each
+/// repeated name, so a file of identical names stays linear.
+#[derive(Default)]
+struct Taken {
+    names: HashSet<String>,
+    next: HashMap<String, usize>,
+}
+
+impl Taken {
+    /// `name`, else `name 2`, `name 3`… (case-insensitive); in use from then on.
+    fn unique(&mut self, name: &str) -> String {
+        let key = name.to_ascii_lowercase();
+        if self.names.insert(key.clone()) {
+            return name.to_string();
+        }
+        let from = self.next.get(&key).copied().unwrap_or(2);
+        let i = (from..).find(|i| !self.names.contains(&format!("{key} {i}"))).unwrap_or(from);
+        self.names.insert(format!("{key} {i}"));
+        self.next.insert(key, i + 1);
+        format!("{name} {i}")
     }
-    (2..).map(|i| format!("{name} {i}")).find(|n| free(n)).unwrap_or_else(|| name.to_string())
 }
 
 /// Reads an `.asl` style library.
@@ -95,12 +110,11 @@ pub fn read_asl(bytes: &[u8]) -> Result<AslImport, String> {
     if skipped_patterns > 0 {
         out.warnings.push(format!("{skipped_patterns} empty or unreadable patterns were skipped"));
     }
-    let mut taken: Vec<String> = Vec::new();
+    let mut taken = Taken::default();
     let mut missing: BTreeSet<String> = BTreeSet::new();
     for (i, s) in file.styles.iter().enumerate() {
         let base = if s.name.trim().is_empty() { format!("Style {}", i + 1) } else { s.name.trim().to_string() };
-        let name = unique(&base, &taken);
-        taken.push(name.clone());
+        let name = taken.unique(&base);
         let mut style = AslStyle { name: name.clone(), effects: Vec::new(), blend: None, opacity: None, fill_opacity: None };
         let mut left_out: Vec<String> = Vec::new();
         if let Some(fx) = get_desc(&s.style, "Lefx") {
@@ -168,9 +182,11 @@ pub fn write_asl(styles: &[AslStyle], patterns: &[Pattern]) -> Result<Vec<u8>, S
             .iter()
             .enumerate()
             .map(|(i, s)| {
-                let mut d = Descriptor::new("Styl")
-                    .with("documentMode", Value::Descriptor(Descriptor::new("documentMode")))
-                    .with("Lefx", Value::Descriptor(effects_descriptor(true, &s.effects)));
+                // A style library's effects object has class `Lefx` (a layer's `lfx2` uses `null`).
+                let mut lefx = effects_descriptor(true, &s.effects);
+                lefx.class_id = Id::new("Lefx");
+                let mut d =
+                    Descriptor::new("Styl").with("documentMode", Value::Descriptor(Descriptor::new("documentMode"))).with("Lefx", Value::Descriptor(lefx));
                 if s.blend.is_some() || s.opacity.is_some() || s.fill_opacity.is_some() {
                     d = d.with(
                         "blendOptions",
@@ -194,7 +210,7 @@ mod tests {
     use super::*;
     use photocraft_color::{Color, ColorMode, PixelFormat, SampleType};
     use photocraft_doc::{BevelTexture, FxCommon, StrokePosition};
-    use photocraft_psd::descriptor::{Id, UnicodeString};
+    use photocraft_psd::descriptor::UnicodeString;
     use photocraft_raster::Surface;
 
     fn pattern(id: &str, s: SampleType) -> Pattern {
@@ -361,6 +377,28 @@ mod tests {
         }
         assert!(read_asl(b"").is_err());
         assert!(read_asl(&photocraft_psd::grd::write(&[])).is_err());
+    }
+
+    #[test]
+    fn exported_effects_object_has_class_lefx() {
+        let bytes = write_asl(&styles(), &[]).unwrap();
+        let file = asl::parse(&bytes).unwrap();
+        for s in &file.styles {
+            let lefx = get_desc(&s.style, "Lefx").unwrap();
+            assert_eq!(lefx.class_id, Id::new("Lefx"), "{}", s.name);
+        }
+    }
+
+    #[test]
+    fn many_identical_names_import_quickly() {
+        let names = vec!["A"; asl::MAX_STYLES];
+        let bytes = synthetic(Descriptor::new("Lefx"), None, &names);
+        let start = std::time::Instant::now();
+        let imp = read_asl(&bytes).unwrap();
+        assert!(start.elapsed() < std::time::Duration::from_secs(10), "{:?}", start.elapsed());
+        assert_eq!(imp.styles.len(), asl::MAX_STYLES);
+        assert_eq!(imp.styles[1].name, "A 2");
+        assert_eq!(imp.styles.last().unwrap().name, format!("A {}", asl::MAX_STYLES));
     }
 
     #[test]
