@@ -105,6 +105,73 @@ fn unknown_flags_are_usage_errors() {
     assert!(!out.trim().contains('\n'), "compact JSON is one line");
 }
 
+fn server_usage_error(args: &[&str], expected: &str) {
+    let o = bin().args(args).env_remove("PHOTOCRAFT_CONTROL_TOKEN").env_remove("PHOTOCRAFT_CONTROL_TOKEN_FILE").stdin(Stdio::null()).output().unwrap();
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert_eq!(o.status.code(), Some(2), "{args:?}: {err}");
+    assert!(o.stdout.is_empty(), "usage errors must leave protocol stdout empty: {args:?}");
+    assert!(err.contains(expected), "{args:?}: expected {expected:?} in {err}");
+}
+
+#[test]
+fn server_modes_reject_ignored_or_conflicting_options() {
+    for sub in ["mcp", "serve"] {
+        server_usage_error(&[sub, "stray.psd"], "does not take positional arguments");
+        for flag in ["--control-token", "--control-token-file"] {
+            server_usage_error(&[sub, flag, "unused"], if sub == "mcp" { "requires --bridge" } else { "requires --port" });
+        }
+        for flag in ["--automation-read-root", "--automation-write-root"] {
+            server_usage_error(&[sub, flag, ".", flag, "."], "may only be specified once");
+            server_usage_error(&[sub, &format!("{flag}=")], "needs a non-empty value");
+            server_usage_error(&[sub, flag, "--automation-write-root", "."], &format!("{flag} needs a value"));
+            server_usage_error(&["mcp", "--bridge", "127.0.0.1:7878", flag, "."], "configure automation roots on the desktop app");
+        }
+        let transport = if sub == "mcp" { "--bridge" } else { "--port" };
+        for flag in [transport, "--control-token", "--control-token-file"] {
+            server_usage_error(&[sub, flag, "one", &format!("{flag}=two")], "may only be specified once");
+            server_usage_error(&[sub, flag, ""], "needs a non-empty value");
+        }
+        server_usage_error(
+            &[sub, transport, "7878", "--control-token", "unused", "--control-token-file", "unused"],
+            "use either --control-token or --control-token-file",
+        );
+    }
+}
+
+#[test]
+fn server_validation_does_not_consume_stdio_or_create_files() {
+    let d = tmp("server-validation");
+    let token = d.join("must-not-be-created.token");
+    let mut child = bin()
+        .args(["serve", "--port", "0", "--control-token-file"])
+        .arg(&token)
+        .arg("stray")
+        .env_remove("PHOTOCRAFT_CONTROL_TOKEN")
+        .env_remove("PHOTOCRAFT_CONTROL_TOKEN_FILE")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    // Keep stdin open: invalid launch arguments must fail before starting a server.
+    let input = child.stdin.take().unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while child.try_wait().unwrap().is_none() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    if child.try_wait().unwrap().is_none() {
+        child.kill().unwrap();
+        child.wait().unwrap();
+        panic!("invalid configuration started a server");
+    }
+    drop(input);
+    let o = child.wait_with_output().unwrap();
+    assert_eq!(o.status.code(), Some(2), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(o.stdout.is_empty());
+    assert!(!token.exists(), "validation must happen before creating credentials");
+    std::fs::remove_dir_all(d).unwrap();
+}
+
 #[test]
 fn convert_png_pcraft_png_is_lossless() {
     let d = tmp("convert");
