@@ -624,8 +624,20 @@ fn native_route(p: &Value, spooler: Option<&Spooler>) -> bool {
 }
 
 /// `p` with the driver's printable area, read from the printer itself, so Print One Copy, the
-/// CLI, control and replayed actions fit the same area as the Print dialog does (#7782).
-fn with_driver_printable(p: &Value) -> Option<Value> {
+/// CLI, control and replayed actions fit the same area as the Print dialog does (#7782). A
+/// native print never fits an area the caller passed: without the driver's, it has none.
+fn with_driver_printable(p: &Value) -> Value {
+    let mut out = p.clone();
+    if let Some(o) = out.as_object_mut() {
+        o.remove("printable");
+        if let Some(area) = driver_printable(p) {
+            o.insert("printable".into(), area);
+        }
+    }
+    out
+}
+
+fn driver_printable(p: &Value) -> Option<Value> {
     let printer = printer_name(p).ok()?;
     let pg = craft_print::rgb::page(&printer, printer_settings(p).ok()?.as_ref()).ok()?;
     // Only for the paper the driver is set to: a print laid out on another paper keeps the
@@ -634,14 +646,12 @@ fn with_driver_printable(p: &Value) -> Option<Value> {
     if (pg.paper.0 - pw).abs() > 2.0 || (pg.paper.1 - ph).abs() > 2.0 {
         return None;
     }
-    let mut p = p.clone();
-    p.as_object_mut()?.insert("printable".into(), json!([pg.printable.0, pg.printable.1, pg.printable.2, pg.printable.3]));
-    Some(p)
+    Some(json!([pg.printable.0, pg.printable.1, pg.printable.2, pg.printable.3]))
 }
 
 fn render_and_spool(doc: &Document, p: &Value, cmd: &str, spooler: Option<&Spooler>) -> Result<Value> {
     let fit = p.get("scaleToFit").and_then(Value::as_bool).unwrap_or(false);
-    let driver = (fit && native_route(p, spooler)).then(|| with_driver_printable(p)).flatten();
+    let driver = (fit && native_route(p, spooler)).then(|| with_driver_printable(p));
     let p = driver.as_ref().unwrap_or(p);
     let PrintLayout { paper: (pw, ph), rect: (x, y, w, h), scale, marks, emulsion_down } = layout(doc, p, cmd)?;
     let (img, color) = print_image(doc, p, cmd)?;
@@ -1068,7 +1078,7 @@ pub fn specs() -> Vec<CommandSpec> {
             CommandSpec { id: $id, label: $label, menu: $menu, shortcut: $sc, params: $params, enabled: $enabled, journal: true, run: $run }
         };
     }
-    const PRINT_PARAMS: &str = r##"{"printerSettings":hex? (Windows driver settings),"printer":name? (default printer),"copies":1..999=1,"paper":"letter|legal|tabloid|a3|a4|a5|4x6|5x7"|[w,h] pt="letter","orientation":"portrait|landscape"="portrait","center":bool=true,"top":in?,"left":in?,"scale":%=100,"scaleToFit":bool=false,"printable":[x,y,w,h] pt? (the driver's printable area from the paper's top-left, as file.print.page reports it; Scale to Fit Media fits it, else the paper minus 18 pt),"colorHandling":"printerManages|photocraftManages|noColorManagement"="printerManages","printerProfile":profile? (photocraftManages),"intent":"perceptual|relative|saturation|absolute"="relative","bpc":bool=true,"cornerCropMarks":bool,"centerCropMarks":bool,"registrationMarks":bool,"description":bool,"labels":bool,"emulsionDown":bool=false (mirror the page left to right, for sublimation and other transfer printing),"output":pdf path? (print to PDF; then "send" defaults to false),"send":bool?,"printServer":"host[:port]|socket path"? (default: the system's CUPS; a named server is always printed to over IPP),"dryRun":bool=false (render the PDF, report the backend command, don't spool; write a PDF only at an explicit output path)} → {pdf:path|null (null without explicit output), imageRect, command:diagnostic array|null, sent, spooler:where the job went|null, backend:"lp|windows|ipp|portal"|null}"##;
+    const PRINT_PARAMS: &str = r##"{"printerSettings":hex? (Windows driver settings),"printer":name? (default printer),"copies":1..999=1,"paper":"letter|legal|tabloid|a3|a4|a5|4x6|5x7"|[w,h] pt="letter","orientation":"portrait|landscape"="portrait","center":bool=true,"top":in?,"left":in?,"scale":%=100,"scaleToFit":bool=false,"printable":[x,y,w,h] pt? (the driver's printable area from the paper's top-left, as file.print.page reports it; Scale to Fit Media fits it, else the paper minus 18 pt; a native Windows print reads the driver's own instead),"colorHandling":"printerManages|photocraftManages|noColorManagement"="printerManages","printerProfile":profile? (photocraftManages),"intent":"perceptual|relative|saturation|absolute"="relative","bpc":bool=true,"cornerCropMarks":bool,"centerCropMarks":bool,"registrationMarks":bool,"description":bool,"labels":bool,"emulsionDown":bool=false (mirror the page left to right, for sublimation and other transfer printing),"output":pdf path? (print to PDF; then "send" defaults to false),"send":bool?,"printServer":"host[:port]|socket path"? (default: the system's CUPS; a named server is always printed to over IPP),"dryRun":bool=false (render the PDF, report the backend command, don't spool; write a PDF only at an explicit output path)} → {pdf:path|null (null without explicit output), imageRect, command:diagnostic array|null, sent, spooler:where the job went|null, backend:"lp|windows|ipp|portal"|null}"##;
 
     vec![
         spec!("file.print", "Print…", &["File"], Some("Cmd+P"), PRINT_PARAMS, native_doc, print),

@@ -850,6 +850,15 @@ fn emulsion_down_fits_the_mirrored_printable_area() {
     assert!(printed.0 >= 10.0 - 1e-9 && printed.1 <= pw - 40.0 + 1e-9, "printed at {printed:?}: {l:?}");
 }
 
+/// A native print fits only the driver's area: one the caller passed is dropped when the
+/// driver can't give one for this paper (no such paper here, or no driver at all).
+#[test]
+fn a_native_print_drops_a_printable_area_the_driver_did_not_give() {
+    let p = with_driver_printable(&json!({"paper": [500.0, 500.0], "printable": [0.0, 0.0, 100.0, 100.0], "scaleToFit": true}));
+    assert!(p.get("printable").is_none(), "{p}");
+    assert_eq!(p["paper"], json!([500.0, 500.0]));
+}
+
 #[test]
 fn a_print_uses_the_printable_area_but_does_not_remember_it() {
     let mut s = Session::new();
