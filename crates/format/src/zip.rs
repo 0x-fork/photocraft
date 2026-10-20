@@ -214,8 +214,9 @@ impl<'a> ZipReader<'a> {
                 // small forged archive must not reserve gigabytes up front, so the
                 // preallocation is capped (DEFLATE expands at most ~1032x).
                 let mut out = Vec::with_capacity(e.uncompressed.min(raw.len().saturating_mul(1032)).min(64 << 20));
+                // One surplus byte proves a false size without expanding to the caller's larger budget.
                 flate2::bufread::DeflateDecoder::new(raw)
-                    .take((max as u64).saturating_add(1))
+                    .take((e.uncompressed as u64).saturating_add(1))
                     .read_to_end(&mut out)
                     .map_err(|err| FormatError::corrupt(format!("zip entry `{}`: {err}", e.name)))?;
                 out
@@ -355,9 +356,35 @@ mod tests {
         assert!(matches!(reader.read(&entry, content.len()), Err(FormatError::Corrupt(_))));
     }
 
-    /// A valid DEFLATE-compressed bundle may be read with an effectively
-    /// unlimited caller budget (e.g. corruption/round-trip checks). On 64-bit
-    /// targets `usize::MAX as u64 + 1` overflows, so the decoder must saturate.
+    /// A false small size must stop expansion before decoding the rest of the stream.
+    #[test]
+    fn deflate_surplus_stops_before_a_corrupt_suffix() {
+        // Non-final stored block, then an invalid block type after its payload.
+        let raw = [&[0, 32, 0, 0xdf, 0xff][..], &[b'x'; 32], &[7]].concat();
+        let reader = ZipReader { bytes: &raw, entries: Vec::new(), by_name: HashMap::new() };
+        for declared in [0, 7] {
+            let entry = Entry { name: "surplus".into(), method: 8, crc: 0, compressed: raw.len(), uncompressed: declared, data_offset: 0 };
+            let err = reader.read(&entry, usize::MAX).unwrap_err();
+            assert!(err.to_string().contains("wrong size"), "{err}");
+        }
+    }
+
+    /// Correct output length and CRC do not replace the final DEFLATE block.
+    #[test]
+    fn deflate_requires_a_complete_stream_including_empty_entries() {
+        for (raw, content) in [(&[0, 1, 0, 0xfe, 0xff, b'x', 1, 0, 0, 0xff, 0xff][..], &b"x"[..]), (&[3, 0][..], &b""[..])] {
+            let reader = ZipReader { bytes: raw, entries: Vec::new(), by_name: HashMap::new() };
+            let mut entry =
+                Entry { name: "complete".into(), method: 8, crc: crc32(content), compressed: raw.len(), uncompressed: content.len(), data_offset: 0 };
+            assert_eq!(reader.read(&entry, content.len()).unwrap(), content);
+            for cut in 0..raw.len() {
+                entry.compressed = cut;
+                assert!(matches!(reader.read(&entry, content.len()), Err(FormatError::Corrupt(_))), "cut at {cut}");
+            }
+        }
+    }
+
+    /// An unlimited caller budget still checks a DEFLATE entry's declared size.
     #[test]
     fn deflated_entry_with_unbounded_limit_round_trips() {
         use std::io::Write as _;

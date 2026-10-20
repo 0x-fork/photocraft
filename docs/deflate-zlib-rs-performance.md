@@ -8,6 +8,9 @@ The small web-layout PNG grows by 598 bytes (+1.40%). One .pcraft preview adds 2
 Real photo PNGs become smaller and encode faster. Compression levels are unchanged.
 There is no native-format tile speedup from deflate.
 
+These timings measure the backend switch before the ZIP input-buffer removal and output-size guard.
+Neither ZIP change was benchmarked.
+
 Measured on 2026-10-19 against main `d95fdf31`, independently of the other performance changes.
 Host: Apple M4 Max, 16 CPUs, 128 GiB RAM, macOS arm64, rustc 1.99.1.
 Release settings: optimization level 3, no LTO, 16 codegen units and no debug information.
