@@ -555,6 +555,7 @@ pub(crate) fn run(effects: &[GalleryEffect], src: &Image, out: Rect, ctx: &Ctx) 
     res
 }
 
+/// Applies one gallery effect to the working window in place.
 fn apply(e: &GalleryEffect, win: &mut Win, ctx: &Ctx) {
     let g = |k: &str| e.get(k);
     let (w, h) = (win.w, win.h);
@@ -1313,6 +1314,8 @@ mod tests {
         }
     }
 
+    /// Flat greys keep their tone through every pattern and Contrast, black and white stay
+    /// solid, and Contrast makes the screen crisper.
     #[test]
     fn halftone_keeps_tones_and_contrast_sets_how_hard() {
         // It used to be all ink or paper at any Contrast, with white crosses in the shadows
@@ -1417,10 +1420,15 @@ mod tests {
         let only = std::env::var("GALLERY_ONLY").ok();
         let set = std::env::var("GALLERY_SET").unwrap_or_default();
         let tag = std::env::var("GALLERY_TAG").unwrap_or_default();
+        if let Some(k) = &only {
+            assert!(crate::GalleryFilter::ALL.iter().any(|f| f.key() == k), "GALLERY_ONLY={k} is not a gallery filter");
+        }
         for f in crate::GalleryFilter::ALL.iter().filter(|f| only.as_deref().is_none_or(|k| k == f.key())) {
             let mut e = GalleryEffect::new(*f);
             for kv in set.split(',').filter(|kv| !kv.is_empty()) {
                 let (k, v) = kv.split_once('=').unwrap();
+                // `set` ignores unknown keys; a misspelt one would render the default unnoticed.
+                assert!(f.params().iter().any(|p| p.key == k), "{k} is not a parameter of {}", f.key());
                 match v.parse::<f32>() {
                     Ok(n) => e.set(k, n),
                     Err(_) => assert!(e.set_choice(k, v), "{k} has no choice {v}"),
