@@ -195,13 +195,12 @@ fn check(g: &mut Gpu, doc: &Document, what: &str) {
     diff_rect(g, doc, doc.bounds(), what).unwrap_or_else(|e| panic!("{e}"));
 }
 
-/// Growing a layer's tile footprint keeps the old texels in the overlap (`keep_overlap`) while
-/// the same update rewrites tiles inside that overlap (#6243). The keep copy is recorded in the
-/// frame's encoder and the changed tiles go through encoder-ordered scratch copies, so the
-/// fresh texels must win; if the copy ran after the tile writes (queue writes land before the
-/// encoder does), the overlap would keep the previous step's colours. Every step grows by one
-/// tile and rewrites everything with per-step noise, on the whole-texture and the paged
-/// compositor alike, and each render matches the CPU oracle.
+/// Growing a layer's tile footprint keeps the old texels in the overlap (`keep_overlap`)
+/// while the same update rewrites tiles inside that overlap (#6243): whatever submission
+/// shape the copy takes, the kept overlap must never overwrite tiles the same update
+/// rewrote — the fresh texels win. Every step grows by one tile and rewrites everything
+/// with per-step noise, on the whole-texture and the paged compositor alike, and each
+/// render matches the CPU oracle.
 #[test]
 fn tile_growth_rewrite_keeps_fresh_texels_in_the_overlap() {
     let Some(mut g) = gpu() else { return };
