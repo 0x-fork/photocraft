@@ -1354,15 +1354,6 @@ fn set_from(d: &Descriptor) -> Mapped {
             }
             _ => unsupported,
         },
-        // The foreground or background colour (Color Picker, Swatches). Colours in other models
-        // (Lab, CMYK, a colour book) stay unsupported.
-        (Some("Clr"), Target::Property(p)) if p == "FrgC" || p == "BckC" => match get_obj(d, "T   ").and_then(color_hex) {
-            Some(c) => {
-                let which = if p == "FrgC" { "foreground" } else { "background" };
-                step("tools.setColors", json!({ which: c }))
-            }
-            None => unsupported,
-        },
         // Quick Mask mode on (`set` of the document's quick-mask property); `clearEvent` turns it off.
         (Some("Prpr"), Target::Property(p)) if p == "QucM" => step("select.editInQuickMaskMode", json!({"on": true})),
         // Layer › New › Layer From Background (Photoshop records the New Layer dialog's values
@@ -1534,18 +1525,6 @@ fn set_to(id: &str, p: &Value) -> Option<Descriptor> {
                 return None;
             }
             desc("null").with("null", layer_ref(p)).with("T   ", D::Descriptor(t))
-        }
-        "tools.setColors" => {
-            let (key, hex) = match (jstr(p, "foreground"), jstr(p, "background")) {
-                (Some(f), None) => ("FrgC", f),
-                (None, Some(b)) => ("BckC", b),
-                _ => return None,
-            };
-            if p.as_object()?.len() != 1 {
-                return None;
-            }
-            let r = D::Reference(vec![ReferenceItem::Property { class: class("Clr "), key: Id::new(key) }]);
-            desc("null").with("null", r).with("T   ", D::Descriptor(color_desc(hex)?))
         }
         "layer.new.layerFromBackground" => {
             let bckg = D::Reference(vec![ReferenceItem::Property { class: class("Lyr "), key: Id::new("Bckg") }]);
@@ -2998,7 +2977,7 @@ fn color_range_to(_: &str, p: &Value) -> Option<Descriptor> {
     Some(d)
 }
 
-/// Create / Release Clipping Mask (`groupEvent` / `ungroup`) on the target or a named layer.
+/// Release Clipping Mask (`ungroup`) on the target or a named layer.
 fn clipping_from(d: &Descriptor, id: &str) -> Mapped {
     match get_ref(d, "null") {
         None => none(id),
@@ -3276,7 +3255,6 @@ const EVENTS: &[Event] = &[
             "layer.setAdjustment",
             "layer.fill.pattern.set",
             "layer.new.layerFromBackground",
-            "tools.setColors",
         ],
         from: set_from,
         to: set_to,
@@ -3338,14 +3316,6 @@ const EVENTS: &[Event] = &[
         to: merge_visible_to,
     },
     ev!("Mrg2", "mergeLayersNew", "Merge Layers", "layer.mergeLayers", &[]),
-    Event {
-        code: "GrpL",
-        name: "groupEvent",
-        label: "Create Clipping Mask",
-        ids: &["layer.createClippingMask"],
-        from: |d| clipping_from(d, "layer.createClippingMask"),
-        to: clipping_to,
-    },
     Event {
         code: "Ungr",
         name: "ungroup",
