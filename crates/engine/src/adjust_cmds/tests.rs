@@ -740,8 +740,17 @@ fn folder_luts_lists_lut_files_by_name() {
         std::fs::write(dir.path().join(f), "LUT_3D_SIZE 2\n").unwrap();
     }
     std::fs::create_dir(dir.path().join("sub.cube")).unwrap();
+    // Too large to be a LUT (sparse, so cheap to make).
+    std::fs::File::create(dir.path().join("huge.cube")).unwrap().set_len(MAX_FOLDER_LUT_BYTES + 1).unwrap();
+    let mut want = vec!["A.3DL", "b.cube", "c.look"];
+    // A symlink to a LUT is listed: shared LUT libraries are often linked in.
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(dir.path().join("b.cube"), dir.path().join("linked.cube")).unwrap();
+        want.push("linked.cube");
+    }
     let names: Vec<_> = folder_luts(dir.path().to_str().unwrap()).into_iter().map(|(name, _)| name).collect();
-    assert_eq!(names, ["A.3DL", "b.cube", "c.look"]);
+    assert_eq!(names, want);
     assert!(folder_luts("").is_empty());
     assert!(folder_luts(dir.path().join("missing").to_str().unwrap()).is_empty());
 }

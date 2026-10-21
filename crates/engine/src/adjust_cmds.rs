@@ -170,10 +170,14 @@ fn base_name(path: &str) -> String {
 
 /// Most LUT files [`folder_luts`] lists.
 const MAX_FOLDER_LUTS: usize = 500;
+/// Largest LUT file [`folder_luts`] lists: a 129³ `.cube` (the parser's largest) is about 60 MB.
+const MAX_FOLDER_LUT_BYTES: u64 = 64 << 20;
 
 /// The `.cube`, `.3dl` and `.look` files directly in `dir`, as (file name, path) sorted by name,
 /// for Color Lookup's dropdown (Preferences › File Handling › LUT Folder, #6558). An empty,
-/// missing or unreadable folder lists nothing; hidden files and subfolders are skipped.
+/// missing or unreadable folder lists nothing; hidden files, subfolders and files too large to be
+/// a LUT are skipped. A symlink to a LUT file is listed, as a studio's shared library often is.
+/// Contents are only parsed when one is picked, which reports a malformed file.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn folder_luts(dir: &str) -> Vec<(String, String)> {
     let dir = dir.trim();
@@ -183,8 +187,12 @@ pub fn folder_luts(dir: &str) -> Vec<(String, String)> {
         .filter_map(|e| {
             let name = e.file_name().into_string().ok()?;
             let ext = name.rsplit_once('.')?.1.to_ascii_lowercase();
+            if name.starts_with('.') || !matches!(ext.as_str(), "cube" | "3dl" | "look") {
+                return None;
+            }
             let path = e.path();
-            (!name.starts_with('.') && matches!(ext.as_str(), "cube" | "3dl" | "look") && path.is_file()).then_some((name, path.to_str()?.to_string()))
+            let meta = std::fs::metadata(&path).ok()?;
+            (meta.is_file() && meta.len() <= MAX_FOLDER_LUT_BYTES).then_some((name, path.to_str()?.to_string()))
         })
         .collect();
     out.sort_by_key(|(name, _)| name.to_lowercase());
