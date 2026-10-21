@@ -1435,11 +1435,13 @@ fn sanitize_keeps_windows_device_names_off_the_disk() {
     assert_eq!(sanitize("CON"), "CON_");
     assert_eq!(sanitize("com1.v2"), "com1_.v2");
     assert_eq!(sanitize("lpt9 .final"), "lpt9 _.final");
-    for name in ["nul", "CON", "com1.v2", "lpt9 .final", "aux", "prn", "conin$", "clock$"] {
+    assert_eq!(sanitize("COM¹"), "COM¹_");
+    assert_eq!(sanitize("LPT².txt"), "LPT²_.txt");
+    for name in ["nul", "CON", "com1.v2", "lpt9 .final", "aux", "prn", "conin$", "clock$", "COM¹", "lpt³.x"] {
         assert!(!is_windows_device_name(&sanitize(name)), "{name} -> {}", sanitize(name));
     }
     // Names that only start like a device are files like any other.
-    for name in ["console", "normal", "com10", "lpt0", "nullify", "con_"] {
+    for name in ["console", "normal", "com10", "lpt0", "nullify", "con_", "com⁴", "com¹¹"] {
         assert_eq!(sanitize(name), name);
     }
 }

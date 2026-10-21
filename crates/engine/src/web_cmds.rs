@@ -19,7 +19,7 @@ use photocraft_geom::Rect;
 use serde_json::{Value, json};
 
 use crate::commands::CommandSpec;
-use crate::file_cmds::{is_windows_device_name, join, native_doc, stem, write_file};
+use crate::file_cmds::{is_windows_device_name, join, native_doc, portable_device_name, stem, write_file};
 use crate::{EngineError, Result, Session};
 
 fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
@@ -732,7 +732,7 @@ fn slice_file(name: &str) -> String {
 /// Generated filenames should remain usable on Windows even when a document or slice is named
 /// after a reserved device. Caller-supplied path components are still rejected below.
 fn portable_generated_stem(stem: String) -> String {
-    if is_windows_device_name(&stem) { format!("{stem}_") } else { stem }
+    portable_device_name(stem)
 }
 
 fn html_escape(s: &str) -> String {

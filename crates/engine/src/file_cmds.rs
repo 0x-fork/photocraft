@@ -273,25 +273,30 @@ pub(crate) fn join(dir: &str, name: &str) -> String {
 pub(crate) fn sanitize(name: &str) -> String {
     let s: String = name.chars().map(|c| if c.is_alphanumeric() || matches!(c, '-' | '_' | ' ' | '.') { c } else { '_' }).collect();
     let s = s.trim().trim_matches('.').to_string();
-    if s.is_empty() {
-        return "layer".into();
+    if s.is_empty() { "layer".into() } else { portable_device_name(s) }
+}
+
+/// `name` with a `_` before its first dot when it is a Windows device name (`nul` → `nul_`,
+/// `com1.v2` → `com1_.v2`); a `_` at the end would leave the device stem in place.
+pub(crate) fn portable_device_name(name: String) -> String {
+    if !is_windows_device_name(&name) {
+        return name;
     }
-    if !is_windows_device_name(&s) {
-        return s;
-    }
-    match s.split_once('.') {
+    match name.split_once('.') {
         Some((device, rest)) => format!("{device}_.{rest}"),
-        None => format!("{s}_"),
+        None => format!("{name}_"),
     }
 }
 
 /// Whether `component` names a Windows device (`CON`, `NUL`, `COM1`…, with any extension):
-/// Windows opens the device instead of a file or folder of that name.
+/// Windows opens the device instead of a file or folder of that name. `COM` and `LPT` take the
+/// superscript digits ¹ ² ³ as well, as Windows does.
 pub(crate) fn is_windows_device_name(component: &str) -> bool {
     let stem = component.split('.').next().unwrap_or(component).trim_end_matches(' ').to_ascii_uppercase();
+    let port = |n: &str| matches!(n, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³");
     matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CLOCK$" | "CONIN$" | "CONOUT$")
-        || stem.strip_prefix("COM").is_some_and(|n| matches!(n, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"))
-        || stem.strip_prefix("LPT").is_some_and(|n| matches!(n, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"))
+        || stem.strip_prefix("COM").is_some_and(port)
+        || stem.strip_prefix("LPT").is_some_and(port)
 }
 
 pub(crate) fn import(name: &str, bytes: &[u8]) -> Result<Document> {
