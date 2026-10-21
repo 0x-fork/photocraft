@@ -3977,3 +3977,11 @@ curves	Smooth	Εξομάλυνση
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Προσαρμογέας GPU
+
+# Styles panel: Import / Export Styles (.asl)
+	Import Styles…	Εισαγωγή στιλ…
+	Export Selected Styles…	Εξαγωγή επιλεγμένων στιλ…
+	Export Styles…	Εξαγωγή στιλ…
+	{file} is not a style library (.asl)	Το {file} δεν είναι βιβλιοθήκη στιλ (.asl)
+@plural	Imported {n} style from {file}|Imported {n} styles from {file}	Εισήχθη {n} στιλ από το {file}|Εισήχθησαν {n} στιλ από το {file}
+@plural	Exported {n} style to {file}|Exported {n} styles to {file}	Εξήχθη {n} στιλ στο {file}|Εξήχθησαν {n} στιλ στο {file}

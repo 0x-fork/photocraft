@@ -4004,3 +4004,11 @@ cameraData	Lens	Lens
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU bağdaştırıcısı
+
+# Styles panel: Import / Export Styles (.asl)
+@plural	Imported {n} style from {file}|Imported {n} styles from {file}	{file} dosyasından {n} stil içe aktarıldı
+@plural	Exported {n} style to {file}|Exported {n} styles to {file}	{n} stil {file} dosyasına dışa aktarıldı
+	Import Styles…	Stilleri İçe Aktar…
+	Export Selected Styles…	Seçili Stilleri Dışa Aktar…
+	Export Styles…	Stilleri Dışa Aktar…
+	{file} is not a style library (.asl)	{file} bir stil kitaplığı değil (.asl)

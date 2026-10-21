@@ -716,6 +716,9 @@ fn apply_style_preset(app: &PhotocraftApp, f: &mut Map<String, Value>, name: &st
     if let Some(fo) = style.fill_opacity {
         set_param(f, BLENDING, "fillOpacity", json!((fo * 100.0).round()));
     }
+    if let Some(o) = style.opacity {
+        set_param(f, BLENDING, "opacity", json!((o * 100.0).round()));
+    }
 }
 
 /// Saves the dialog's pending state (enabled instances + blending page) as a style preset.
@@ -742,6 +745,7 @@ fn save_new_style(app: &mut PhotocraftApp, f: &Map<String, Value>) {
             "effects": entries,
             "blend": bo.get("blend").cloned().unwrap_or(Value::Null),
             "fillOpacity": bo.get("fillOpacity").cloned().unwrap_or(Value::Null),
+            "opacity": bo.get("opacity").cloned().unwrap_or(Value::Null),
         }),
     ) {
         app.ui.status = crate::i18n::fmt(tl!("Style {name} saved"), &[("name", v["name"].as_str().unwrap_or("Style"))]);
@@ -2155,9 +2159,11 @@ mod tests {
         let id = app.session.active().unwrap().active_layer.unwrap();
         let mut f = initial_fields(app.session.active().unwrap().doc.layer(id).unwrap(), Some("stroke"), 120.0);
         set_param(&mut f, "fx1", "size", json!(9));
+        set_param(&mut f, BLENDING, "opacity", json!(40));
         save_new_style(&mut app, &f);
         let preset = app.session.presets.styles.iter().flat_map(|g| g.items.iter()).find(|st| st.name == "Style").expect("the preset is created");
         assert_eq!(preset.effects.len(), 1, "only the enabled instance is saved");
+        assert_eq!(preset.opacity, Some(0.4), "the pending opacity is saved, not the layer's");
         // A second layer gets the pending style back through the swatch path.
         app.run("layer.new.layer", json!({})).unwrap();
         let mut f2 = initial_fields(app.session.active().unwrap().doc.layer(app.session.active().unwrap().active_layer.unwrap()).unwrap(), None, 120.0);
@@ -2166,6 +2172,7 @@ mod tests {
         // Swatch clicks update the dialog fields only; document is untouched until confirm.
         assert_eq!(effects_of(&f2).len(), 1);
         assert_eq!(effects_of(&f2)[0]["params"]["size"], json!(9.0));
+        assert_eq!(f2["p:blendingOptions"]["opacity"], json!(40.0), "the swatch brings the style's opacity");
         // Confirming applies the style to the layer.
         confirm(&mut app, &f2).unwrap();
         let st = app.session.active().unwrap();

@@ -3887,3 +3887,11 @@ navigator	Zoom	Zvětšení
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptér GPU
+
+# Styles panel: Import / Export Styles (.asl)
+	Import Styles…	Importovat styly…
+	Export Selected Styles…	Exportovat vybrané styly…
+	Export Styles…	Exportovat styly…
+	{file} is not a style library (.asl)	{file} není knihovna stylů (.asl)
+@plural	Imported {n} style from {file}|Imported {n} styles from {file}	Importován {n} styl ze souboru {file}|Importovány {n} styly ze souboru {file}|Importováno {n} stylů ze souboru {file}
+@plural	Exported {n} style to {file}|Exported {n} styles to {file}	Exportován {n} styl do souboru {file}|Exportovány {n} styly do souboru {file}|Exportováno {n} stylů do souboru {file}

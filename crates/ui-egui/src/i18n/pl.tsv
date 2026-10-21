@@ -3877,3 +3877,11 @@ curves	Smooth	Wygładź
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Karta GPU
+
+# Styles panel: Import / Export Styles (.asl)
+	Import Styles…	Importuj style…
+	Export Selected Styles…	Eksportuj zaznaczone style…
+	Export Styles…	Eksportuj style…
+	{file} is not a style library (.asl)	{file} nie jest biblioteką stylów (.asl)
+@plural	Imported {n} style from {file}|Imported {n} styles from {file}	Zaimportowano {n} styl z {file}|Zaimportowano {n} style z {file}|Zaimportowano {n} stylów z {file}
+@plural	Exported {n} style to {file}|Exported {n} styles to {file}	Wyeksportowano {n} styl do {file}|Wyeksportowano {n} style do {file}|Wyeksportowano {n} stylów do {file}

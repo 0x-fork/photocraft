@@ -3955,3 +3955,11 @@ curves	Smooth	スムーズ
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU アダプター
+
+# Styles panel: Import / Export Styles (.asl)
+	Import Styles…	スタイルを読み込み…
+	Export Selected Styles…	選択したスタイルを書き出し…
+	Export Styles…	スタイルを書き出し…
+	{file} is not a style library (.asl)	{file} はスタイルライブラリ (.asl) ではありません
+@plural	Imported {n} style from {file}|Imported {n} styles from {file}	{file} からスタイル {n} 個を読み込みました
+@plural	Exported {n} style to {file}|Exported {n} styles to {file}	{file} にスタイル {n} 個を書き出しました

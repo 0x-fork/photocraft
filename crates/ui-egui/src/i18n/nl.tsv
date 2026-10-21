@@ -4037,3 +4037,11 @@ curves	Smooth	Vloeiend maken
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU-adapter
+
+# Styles panel: Import / Export Styles (.asl)
+	Import Styles…	Stijlen importeren…
+	Export Selected Styles…	Geselecteerde stijlen exporteren…
+	Export Styles…	Stijlen exporteren…
+	{file} is not a style library (.asl)	{file} is geen stijlbibliotheek (.asl)
+@plural	Imported {n} style from {file}|Imported {n} styles from {file}	{n} stijl geïmporteerd uit {file}|{n} stijlen geïmporteerd uit {file}
+@plural	Exported {n} style to {file}|Exported {n} styles to {file}	{n} stijl geëxporteerd naar {file}|{n} stijlen geëxporteerd naar {file}

@@ -3283,3 +3283,11 @@ curves	Smooth	Glätten
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU-Adapter
+
+# Styles panel: Import / Export Styles (.asl)
+	Import Styles…	Stile importieren…
+	Export Selected Styles…	Ausgewählte Stile exportieren…
+	Export Styles…	Stile exportieren…
+	{file} is not a style library (.asl)	{file} ist keine Stilbibliothek (.asl)
+@plural	Imported {n} style from {file}|Imported {n} styles from {file}	{n} Stil aus {file} importiert|{n} Stile aus {file} importiert
+@plural	Exported {n} style to {file}|Exported {n} styles to {file}	{n} Stil nach {file} exportiert|{n} Stile nach {file} exportiert

@@ -38,6 +38,7 @@ pub mod abr_map;
 mod adjust_map;
 pub mod affinity;
 pub mod annotations_map;
+pub mod asl_map;
 pub mod blocks;
 pub mod camera_raw_xmp;
 mod channel_map;

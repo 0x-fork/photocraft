@@ -4347,3 +4347,11 @@ shape	Appearance	Izgled
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU adapter
+
+# Styles panel: Import / Export Styles (.asl)
+	Import Styles…	Uvezi stilove…
+	Export Selected Styles…	Izvezi izabrane stilove…
+	Export Styles…	Izvezi stilove…
+	{file} is not a style library (.asl)	{file} nije biblioteka stilova (.asl)
+@plural	Imported {n} style from {file}|Imported {n} styles from {file}	Uvezen je {n} stil iz {file}|Uvezena su {n} stila iz {file}|Uvezeno je {n} stilova iz {file}
+@plural	Exported {n} style to {file}|Exported {n} styles to {file}	Izvezen je {n} stil u {file}|Izvezena su {n} stila u {file}|Izvezeno je {n} stilova u {file}

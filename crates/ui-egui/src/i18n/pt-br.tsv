@@ -4067,3 +4067,11 @@ layerLabel	No Color	Sem cor
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptador de GPU
+
+# Styles panel: Import / Export Styles (.asl)
+	Import Styles…	Importar estilos…
+	Export Selected Styles…	Exportar estilos selecionados…
+	Export Styles…	Exportar estilos…
+	{file} is not a style library (.asl)	{file} não é uma biblioteca de estilos (.asl)
+@plural	Imported {n} style from {file}|Imported {n} styles from {file}	{n} estilo importado de {file}|{n} estilos importados de {file}
+@plural	Exported {n} style to {file}|Exported {n} styles to {file}	{n} estilo exportado para {file}|{n} estilos exportados para {file}

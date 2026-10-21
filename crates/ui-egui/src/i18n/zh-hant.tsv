@@ -2893,3 +2893,11 @@ curves	Smooth	平滑
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU 介面卡
+
+# Styles panel: Import / Export Styles (.asl)
+	Import Styles…	匯入樣式…
+	Export Selected Styles…	匯出所選樣式…
+	Export Styles…	匯出樣式…
+	{file} is not a style library (.asl)	{file} 不是樣式庫 (.asl)
+@plural	Imported {n} style from {file}|Imported {n} styles from {file}	已從 {file} 匯入 {n} 個樣式
+@plural	Exported {n} style to {file}|Exported {n} styles to {file}	已將 {n} 個樣式匯出至 {file}

@@ -4394,3 +4394,11 @@ shape	Appearance	Aspetto
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adattatore GPU
+
+# Styles panel: Import / Export Styles (.asl)
+	Import Styles…	Importa stili…
+	Export Selected Styles…	Esporta stili selezionati…
+	Export Styles…	Esporta stili…
+	{file} is not a style library (.asl)	{file} non è una libreria di stili (.asl)
+@plural	Imported {n} style from {file}|Imported {n} styles from {file}	{n} stile importato da {file}|{n} stili importati da {file}
+@plural	Exported {n} style to {file}|Exported {n} styles to {file}	{n} stile esportato in {file}|{n} stili esportati in {file}

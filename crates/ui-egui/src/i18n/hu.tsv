@@ -48,6 +48,8 @@
 @plural	{n} step|{n} steps	{n} lépés
 @plural	{warning} (+{n} more brush preset warning)|{warning} (+{n} more brush preset warnings)	{warning} (+{n} további figyelmeztetés az ecset-előbeállításokról)
 @plural	{what} with {n} warning|{what} with {n} warnings	{what} ({n} figyelmeztetés)
+@plural	Imported {n} style from {file}|Imported {n} styles from {file}	{n} stílus importálva. Forrás: {file}
+@plural	Exported {n} style to {file}|Exported {n} styles to {file}	{n} stílus exportálva. Cél: {file}
 @id	file.close	Bezárás
 @id	layer.layerMask.apply	Alkalmazás
 @id	edit.clear	Kiürítés
@@ -4193,3 +4195,9 @@ cameraRaw	Yellow	Sárga
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU-adapter
+
+# Styles panel: Import / Export Styles (.asl)
+	Import Styles…	Stílusok importálása…
+	Export Selected Styles…	Kijelölt stílusok exportálása…
+	Export Styles…	Stílusok exportálása…
+	{file} is not a style library (.asl)	{file} nem stíluskönyvtár (.asl)

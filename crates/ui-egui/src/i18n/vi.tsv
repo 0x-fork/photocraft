@@ -3766,3 +3766,11 @@ curves	Smooth	Làm mượt
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Bộ điều hợp GPU
+
+# Styles panel: Import / Export Styles (.asl)
+	Import Styles…	Nhập kiểu…
+	Export Selected Styles…	Xuất các kiểu đã chọn…
+	Export Styles…	Xuất kiểu…
+	{file} is not a style library (.asl)	{file} không phải là thư viện kiểu (.asl)
+@plural	Imported {n} style from {file}|Imported {n} styles from {file}	Đã nhập {n} kiểu từ {file}
+@plural	Exported {n} style to {file}|Exported {n} styles to {file}	Đã xuất {n} kiểu sang {file}

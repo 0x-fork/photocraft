@@ -85,7 +85,7 @@ pub(crate) fn blend_long_value(m: BlendMode) -> Value {
     Value::Enumerated { type_id: Id::new("BlnM"), value: Id::new(n) }
 }
 
-fn blend_value(m: BlendMode) -> Value {
+pub(crate) fn blend_value(m: BlendMode) -> Value {
     let n = BLEND_NAMES.iter().find(|(b, _)| *b == m).map_or("Nrml", |(_, n)| n);
     Value::Enumerated { type_id: Id::new("BlnM"), value: Id::new(n) }
 }
@@ -301,7 +301,19 @@ const KINDS: [(&str, &str); 10] = [
 /// Parses `lfx2` block data: `(master switch, effects)`.
 pub fn parse_lfx2(data: &[u8]) -> Option<(bool, Vec<Effect>)> {
     let (vd, _) = VersionedDescriptor::parse_prefix(data.get(4..)?).ok()?;
-    let d = vd.descriptor;
+    Some(effects_from_descriptor(&vd.descriptor))
+}
+
+/// Keys of an effects descriptor (`lfx2`, a style library's `Lefx`) that
+/// [`effects_from_descriptor`] reads, or that carry no effect of their own.
+pub fn is_known_effects_key(key: &[u8]) -> bool {
+    KINDS.iter().any(|(single, multi)| single.as_bytes() == key || (!multi.is_empty() && multi.as_bytes() == key))
+        || matches!(key, b"masterFXSwitch" | b"Scl " | b"numModifyingFX")
+}
+
+/// The effects of an effects descriptor (the body of `lfx2`, a style library's `Lefx`):
+/// `(master switch, effects)`.
+pub fn effects_from_descriptor(d: &Descriptor) -> (bool, Vec<Effect>) {
     let master = !matches!(d.get("masterFXSwitch"), Some(Value::Boolean(false)));
     let mut out = Vec::new();
     for (single, multi) in KINDS {
@@ -317,7 +329,7 @@ pub fn parse_lfx2(data: &[u8]) -> Option<(bool, Vec<Effect>)> {
                 }
             }
             _ => {
-                if let Some(x) = get_desc(&d, single)
+                if let Some(x) = get_desc(d, single)
                     && let Some(e) = parse_one(single, x)
                 {
                     out.push(e);
@@ -325,7 +337,7 @@ pub fn parse_lfx2(data: &[u8]) -> Option<(bool, Vec<Effect>)> {
             }
         }
     }
-    Some((master, out))
+    (master, out)
 }
 
 fn unit(u: &[u8; 4], v: f32) -> Value {
@@ -511,6 +523,13 @@ fn write_one(e: &Effect) -> (&'static str, Descriptor) {
 
 /// Serializes effects as `lfx2` block data.
 pub fn write_lfx2(master: bool, items: &[Effect]) -> Vec<u8> {
+    let mut out = 0u32.to_be_bytes().to_vec();
+    out.extend(VersionedDescriptor::new(effects_descriptor(master, items)).to_bytes());
+    out
+}
+
+/// Effects as an effects descriptor (the body of `lfx2`, a style library's `Lefx`).
+pub fn effects_descriptor(master: bool, items: &[Effect]) -> Descriptor {
     let mut d = Descriptor::new("null").with("Scl ", unit(b"#Prc", 100.0)).with("masterFXSwitch", Value::Boolean(master));
     for (single, multi) in KINDS {
         let of_kind: Vec<Descriptor> = items.iter().map(write_one).filter(|(k, _)| *k == single).map(|(_, d)| d).collect();
@@ -522,9 +541,7 @@ pub fn write_lfx2(master: bool, items: &[Effect]) -> Vec<u8> {
             _ => d = d.with(single, Value::Descriptor(of_kind.into_iter().next().unwrap_or_default())),
         }
     }
-    let mut out = 0u32.to_be_bytes().to_vec();
-    out.extend(VersionedDescriptor::new(d).to_bytes());
-    out
+    d
 }
 
 fn fixed(v: u32) -> f32 {
