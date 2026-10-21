@@ -573,12 +573,12 @@ mod library_tests {
         open_editor(&mut fields, "fx1", "contour");
         let naming = egui::Id::new(("contour-editor", "fx1", "contour")).with("naming");
         ctx.data_mut(|d| d.insert_temp(naming, "Unfinished".to_string()));
-        let _ = ctx.run_ui(Default::default(), |ui| editor(&mut app, ui, &mut fields));
+        ctx.run_ui(Default::default(), |ui| editor(&mut app, ui, &mut fields)).textures_delta.clear();
         let input = egui::RawInput {
             events: vec![egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }],
             ..Default::default()
         };
-        let _ = ctx.run_ui(input, |ui| editor(&mut app, ui, &mut fields));
+        ctx.run_ui(input, |ui| editor(&mut app, ui, &mut fields)).textures_delta.clear();
         assert!(!fields.contains_key(EDITOR));
         assert!(ctx.data(|d| d.get_temp::<String>(naming)).is_none());
         assert!(app.session.presets.contours.is_empty());
