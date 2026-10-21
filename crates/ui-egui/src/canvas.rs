@@ -3240,6 +3240,9 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             let t = crate::theme::Tokens::get(&ctx);
             let pasteboard = crate::prefs_ui::pasteboard_color(app);
             let dot_tex = dots(&ctx, &t);
+            // Cut around the layers as they are shown, so a loose layer dragged with the Move tool
+            // (or otherwise previewed) is not covered where it now draws.
+            let shown = display_doc(app, idx).0;
             // Each piece is painted as its own quad (the painter clips to the canvas), so a
             // rotated view does not paint a piece's bounding box over the boards or loose work.
             let fill = |q: &[Pos2; 4], tex: Option<egui::TextureId>, color: Color32| {
@@ -3253,7 +3256,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 mesh.add_triangle(0, 2, 3);
                 painter.add(mesh);
             };
-            for q in crate::artboard_ui::pasteboard_quads(&xf, &doc) {
+            for q in crate::artboard_ui::pasteboard_quads(&xf, &shown) {
                 if !Rect::from_points(&q).intersects(rect) {
                     continue;
                 }
