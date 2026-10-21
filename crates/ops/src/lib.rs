@@ -63,11 +63,13 @@ pub struct History {
     brush_source: Option<u64>,
 }
 
-/// The undo and redo states [`History::clear_states`] removed.
+/// The undo and redo states [`History::clear_states`] removed, and the History Brush source set
+/// before it.
 #[derive(Clone, Debug)]
 struct Cleared {
     undo: VecDeque<HistoryState>,
     redo: Vec<HistoryState>,
+    brush_source: Option<u64>,
 }
 
 /// The undo label of the step [`History::clear_states`] adds (Edit › Undo Clear History).
@@ -157,9 +159,10 @@ impl History {
     pub fn undo(&mut self, current: Arc<Document>) -> Option<(Arc<Document>, LayerTarget)> {
         // Undo Clear History: the cleared states come back; the document doesn't change.
         if let Some(cleared) = self.cleared.take() {
-            let Cleared { undo, redo } = *cleared;
+            let Cleared { undo, redo, brush_source } = *cleared;
             self.undo = undo;
             self.redo = redo;
+            self.brush_source = brush_source;
             self.tiles = None;
             return Some((current, self.current_layers.clone()));
         }
@@ -307,6 +310,7 @@ impl History {
     /// History panel › Clear History: take every state but the current one off the list without
     /// changing the document. Unlike [`Self::clear`] (Edit › Purge › Histories) it is undoable:
     /// the next [`Self::undo`] puts the states back, and the next recorded step forgets them.
+    /// The History Brush's source goes back to the default until that undo, as in [`Self::clear`].
     /// Returns false (and changes nothing) when the current state is the only one.
     pub fn clear_states(&mut self) -> bool {
         if self.undo.is_empty() && self.redo.is_empty() {
@@ -314,7 +318,8 @@ impl History {
         }
         let undo = std::mem::take(&mut self.undo);
         let redo = std::mem::take(&mut self.redo);
-        self.cleared = Some(Box::new(Cleared { undo, redo }));
+        let brush_source = self.brush_source.take();
+        self.cleared = Some(Box::new(Cleared { undo, redo, brush_source }));
         self.tiles = None;
         true
     }
@@ -660,6 +665,22 @@ mod tests {
         h.clear();
         assert_eq!(h.brush_source(), Some(0));
         assert_eq!(h.row_doc(0, &cur).unwrap().name, "b");
+    }
+
+    /// History panel › Clear History leaves a usable (default) source, and its undo restores the
+    /// source set on a past state.
+    #[test]
+    fn clear_states_resets_the_brush_source_until_undo() {
+        let mut h = History::new(50);
+        let mut cur = Arc::new(base());
+        edit(&mut h, &mut cur, "A", |d| d.name = "a".into());
+        edit(&mut h, &mut cur, "B", |d| d.name = "b".into());
+        assert!(h.set_brush_source(1));
+        assert!(h.clear_states());
+        assert_eq!(h.brush_source(), Some(0));
+        assert_eq!(h.row_doc(0, &cur).unwrap().name, "b");
+        cur = h.undo(cur).unwrap().0;
+        assert_eq!((h.brush_source(), h.row_doc(1, &cur).unwrap().name.as_str()), (Some(1), "a"));
     }
 
     #[test]
