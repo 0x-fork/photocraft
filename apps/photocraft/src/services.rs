@@ -6,7 +6,7 @@ use photocraft_doc::{Document, Layer, Size};
 use photocraft_format::RecoveryStore;
 use photocraft_geom::Rect;
 use photocraft_ui_egui::{FileDialogAnswer, FileDialogReply, FileDialogRequest, Recoverable, Services};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -36,16 +36,47 @@ fn open_filter_extensions(extensions: &[&str]) -> Vec<String> {
     extensions.iter().map(|ext| if case_sensitive_globs { ext.chars().map(class).collect() } else { ext.to_string() }).collect()
 }
 
-/// An explicit SVG filter keeps vector artwork discoverable even when a native picker defaults to
-/// the PhotoCraft-only filter. SVG is also included in All Formats for normal multi-format opens.
+/// File › Open's file types after All Formats, as Photoshop lists them: one per format, so a folder
+/// of mixed files can be narrowed to one kind (#6337). Together they cover every extension of
+/// [`OPEN_EXTS`]. An explicit SVG filter also keeps vector artwork discoverable when a native
+/// picker defaults to another filter.
+const OPEN_FILTERS: &[(&str, &[&str])] = &[
+    ("PhotoCraft", &["pcraft"]),
+    ("Photoshop", &["psd", "psb", "psdt"]),
+    ("Affinity", &["af", "afdesign", "afphoto", "afpub"]),
+    ("Krita", &["kra", "krz"]),
+    ("OpenRaster", &["ora"]),
+    ("Paint.NET", &["pdn"]),
+    ("SVG", SVG_EXTS),
+    ("PNG", &["png"]),
+    ("JPEG", &["jpg", "jpeg"]),
+    ("HEIF", &["heic", "heif", "hif"]),
+    ("TIFF", &["tif", "tiff"]),
+    ("WebP", &["webp"]),
+    ("GIF", &["gif"]),
+    ("BMP", &["bmp"]),
+    ("Targa", &["tga"]),
+    ("ICO", &["ico"]),
+    ("QOI", &["qoi"]),
+    ("PCX", &["pcx"]),
+    ("DDS", &["dds"]),
+    ("XPM", &["xpm"]),
+    ("Portable Bitmap", &["pbm", "pgm", "ppm", "pam", "pfm"]),
+    ("OpenEXR", &["exr"]),
+    ("Radiance HDR", &["hdr"]),
+    ("FITS", &["fits", "fit", "fts"]),
+    ("DPX and Cineon", &["dpx", "cin"]),
+    ("Camera Raw", &["dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf"]),
+    ("Brushes", &["abr"]),
+    ("Gradients", &["grd"]),
+    ("Swatches", &["aco", "ase"]),
+    ("Keyboard Shortcuts", &["kys"]),
+];
+
 fn open_filters() -> Vec<(&'static str, Vec<String>)> {
-    vec![
-        ("All Formats", open_filter_extensions(OPEN_EXTS)),
-        ("PhotoCraft", open_filter_extensions(&["pcraft"])),
-        ("OpenRaster", open_filter_extensions(&["ora"])),
-        ("Krita", open_filter_extensions(&["kra", "krz"])),
-        ("SVG", open_filter_extensions(SVG_EXTS)),
-    ]
+    std::iter::once(("All Formats", open_filter_extensions(OPEN_EXTS)))
+        .chain(OPEN_FILTERS.iter().map(|(name, exts)| (*name, open_filter_extensions(exts))))
+        .collect()
 }
 
 /// File › Save As formats: (filter name, extensions). The filter matching the suggested name's
@@ -68,6 +99,8 @@ const SAVE_FILTERS: &[(&str, &[&str])] = &[
     ("OpenEXR", &["exr"]),
     ("FITS", &["fits", "fit"]),
     ("DPX", &["dpx"]),
+    // Game and 3D textures; DDS Options asks for the compression and mipmaps (#1327).
+    ("DDS", &["dds"]),
 ];
 
 /// Non-document files the shell saves (Swatches panel exports): offered alone, so the dialog
@@ -160,10 +193,7 @@ fn show_file_dialog(request: FileDialogRequest, parent: Option<&eframe::Frame>, 
             let dialog = if let Some(exts) = extensions {
                 dialog.add_filter("Supported Files", &open_filter_extensions(&exts.iter().map(String::as_str).collect::<Vec<_>>()))
             } else {
-                open_filters()
-                    .into_iter()
-                    .fold(dialog, |dialog, (name, extensions)| dialog.add_filter(name, &extensions))
-                    .add_filter("Paint.NET", &open_filter_extensions(&["pdn"]))
+                open_filters().into_iter().fold(dialog, |dialog, (name, extensions)| dialog.add_filter(name, &extensions))
             };
             if multiple {
                 let picked = dialog.pick_files();
@@ -244,7 +274,7 @@ fn path_of(file: &rfd::FileHandle) -> String {
 }
 
 /// Runs `future` to completion on this thread, sleeping until it is woken.
-fn block_on<T>(future: impl Future<Output = T>) -> T {
+pub(crate) fn block_on<T>(future: impl Future<Output = T>) -> T {
     struct Unpark(std::thread::Thread);
     impl std::task::Wake for Unpark {
         fn wake(self: Arc<Self>) {
@@ -265,7 +295,7 @@ fn block_on<T>(future: impl Future<Output = T>) -> T {
 
 /// Per-user settings directory: `PHOTOCRAFT_CONFIG_DIR`, else `<exe dir>/PhotoCraftData` in
 /// portable mode, else the platform convention. Everything the app persists lives under it
-/// except, on Windows, crash-recovery autosaves; see [`crate::app_dirs`].
+/// except, on Windows and Linux, crash-recovery autosaves; see [`crate::app_dirs`].
 pub fn config_dir() -> Option<PathBuf> {
     crate::app_dirs::config_dir()
 }
@@ -280,8 +310,9 @@ pub fn presets_dir() -> Option<PathBuf> {
     config_dir().map(|d| d.join("Presets"))
 }
 
-/// Crash-recovery autosaves: under the settings directory, except on Windows, where they stay
-/// out of the roaming profile (see [`crate::app_dirs::recovery_dir`]).
+/// Crash-recovery autosaves: under the settings directory, except where that is synced with the
+/// settings: the Windows roaming profile and the Linux config folder (see
+/// [`crate::app_dirs::resolve_recovery`]).
 fn recovery_dir() -> Option<PathBuf> {
     crate::app_dirs::recovery_dir()
 }
@@ -461,20 +492,21 @@ fn image_from_svg_text(text: &str) -> Option<(u32, u32, Vec<u8>)> {
 /// What a paste reads from the OS clipboard, in this order: the first copied file that is an
 /// image (Finder also puts the file's icon on the clipboard as an image, which would otherwise
 /// paste instead of the file), the clipboard's image, then a drawing copied as SVG markup. Each
-/// read runs only when the ones before it found nothing.
+/// read runs only when the ones before it found nothing. A read that fails, such as one of a busy
+/// clipboard, returns its error, and the reads after it don't run.
 fn clipboard_image<C>(
     clipboard: &mut C,
-    files: impl FnOnce(&mut C) -> Option<Vec<PathBuf>>,
-    image: impl FnOnce(&mut C) -> Option<(u32, u32, Vec<u8>)>,
-    text: impl FnOnce(&mut C) -> Option<String>,
-) -> Option<(u32, u32, Vec<u8>)> {
-    if let Some(img) = files(clipboard).and_then(|paths| image_from_files(&paths)) {
-        return Some(img);
+    files: impl FnOnce(&mut C) -> Result<Option<Vec<PathBuf>>, String>,
+    image: impl FnOnce(&mut C) -> Result<Option<(u32, u32, Vec<u8>)>, String>,
+    text: impl FnOnce(&mut C) -> Result<Option<String>, String>,
+) -> Result<Option<(u32, u32, Vec<u8>)>, String> {
+    if let Some(img) = files(clipboard)?.and_then(|paths| image_from_files(&paths)) {
+        return Ok(Some(img));
     }
-    if let Some(img) = image(clipboard) {
-        return Some(img);
+    if let Some(img) = image(clipboard)? {
+        return Ok(Some(img));
     }
-    text(clipboard).and_then(|text| image_from_svg_text(&text))
+    Ok(text(clipboard)?.and_then(|text| image_from_svg_text(&text)))
 }
 
 /// The shell command that starts this install under XWayland, where winit delivers file drops
@@ -498,6 +530,7 @@ fn shell_word(s: &str) -> String {
 
 pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) -> Services {
     let clip: Rc<RefCell<Option<arboard::Clipboard>>> = Rc::default();
+    let clip_unreadable: Rc<Cell<bool>> = Rc::default();
     let automation_read = automation.clone().map(|workspace| {
         Box::new(move |path: &str| {
             let bytes = workspace.read(path).map_err(|error| error.to_string())?;
@@ -571,28 +604,49 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
         }),
         clipboard_get_image: Some({
             let clip = clip.clone();
+            let unreadable = clip_unreadable.clone();
             Box::new(move || {
-                let mut slot = clip.try_borrow_mut().ok()?;
+                let mut slot = clip.try_borrow_mut().map_err(|_| "clipboard is busy".to_string())?;
                 let cb = match slot.as_mut() {
                     Some(c) => c,
-                    None => slot.insert(arboard::Clipboard::new().ok()?),
+                    None => {
+                        // arboard opens only when some backend works. In a Flatpak on Wayland none
+                        // does (#5031): the sandbox hides the data-control protocol from it, and
+                        // `--socket=fallback-x11` gives no X server while a compositor runs.
+                        let opened = arboard::Clipboard::new();
+                        unreadable.set(opened.is_err());
+                        slot.insert(opened.map_err(|e| e.to_string())?)
+                    }
                 };
                 clipboard_image(
                     cb,
-                    |cb| cb.get().file_list().ok(),
-                    |cb| {
-                        if let Ok(img) = cb.get_image() {
-                            return Some((img.width as u32, img.height as u32, img.bytes.into_owned()));
-                        }
-                        #[cfg(target_os = "linux")]
-                        return wayland_clipboard_image();
-                        #[cfg(not(target_os = "linux"))]
-                        None
+                    |cb| match cb.get().file_list() {
+                        Ok(paths) => Ok(Some(paths)),
+                        Err(error @ arboard::Error::ClipboardOccupied) => Err(error.to_string()),
+                        Err(_) => Ok(None),
                     },
-                    |cb| cb.get_text().ok(),
+                    |cb| match cb.get_image() {
+                        Ok(img) => Ok(Some((img.width as u32, img.height as u32, img.bytes.into_owned()))),
+                        Err(error) => {
+                            #[cfg(target_os = "linux")]
+                            if let Some(image) = wayland_clipboard_image() {
+                                return Ok(Some(image));
+                            }
+                            match error {
+                                arboard::Error::ContentNotAvailable => Ok(None),
+                                _ => Err(error.to_string()),
+                            }
+                        }
+                    },
+                    |cb| match cb.get_text() {
+                        Ok(text) => Ok(Some(text)),
+                        Err(error @ arboard::Error::ClipboardOccupied) => Err(error.to_string()),
+                        Err(_) => Ok(None),
+                    },
                 )
             })
         }),
+        clipboard_unreadable: Some(Box::new(move || clip_unreadable.get())),
         load_prefs: Some(Box::new(|| std::fs::read_to_string(prefs_file()?).ok())),
         photoshop_shortcuts: Some(Box::new(|| crate::photoshop_settings::live_keyboard_shortcuts(&|k| std::env::var_os(k)))),
         save_prefs: Some(Box::new(|text: &str| write_atomic(&prefs_file().ok_or("no config directory")?, text.as_bytes()))),
@@ -731,6 +785,57 @@ mod tests {
         assert_eq!(with_chosen_type(Path::new("/pics/art.psd"), opened, &[]), PathBuf::from("/pics/art.psd"));
     }
 
+    /// Regression using the real clipboard on an isolated Windows CI runner.
+    #[cfg(target_os = "windows")]
+    #[test]
+    #[ignore = "requires exclusive use of the Windows clipboard"]
+    fn busy_native_clipboard_preserves_copied_shape() {
+        for id in ["edit.paste", "edit.pasteSpecial.pasteInPlace"] {
+            let mut native = native(None);
+            let services = Services {
+                clipboard_set_image: native.clipboard_set_image.take(),
+                clipboard_get_image: native.clipboard_get_image.take(),
+                ..Default::default()
+            };
+            let mut app = PhotocraftApp::new(Session::new(), services);
+            app.run("file.new", json!({"width": 80, "height": 60})).unwrap();
+            app.run("shape.create", json!({"kind": "rect", "rect": [10, 10, 40, 20], "fill": "#ff0000"})).unwrap();
+            app.run("edit.copy", json!({})).unwrap();
+            assert!(app.session.clipboard.as_ref().unwrap().layers.is_some());
+            assert!(app.services.clipboard_get_image.as_mut().unwrap()().unwrap().is_some(), "native export succeeded");
+            app.run("file.new", json!({"width": 80, "height": 60})).unwrap();
+
+            // Another thread holds the OS clipboard open beyond arboard's bounded retry window.
+            let (ready_tx, ready_rx) = std::sync::mpsc::channel();
+            let (release_tx, release_rx) = std::sync::mpsc::channel();
+            let holder = std::thread::spawn(move || {
+                // A non-null window distinguishes this owner from arboard's null-window opens.
+                let guard = winsafe::HWND::GetDesktopWindow().OpenClipboard().unwrap();
+                ready_tx.send(()).unwrap();
+                release_rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+                drop(guard);
+            });
+            ready_rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+            let contention = arboard::Clipboard::new().unwrap().get_image().err();
+            let first = app.run(id, json!({}));
+            release_tx.send(()).unwrap();
+            holder.join().unwrap();
+            assert!(matches!(contention, Some(arboard::Error::ClipboardOccupied)), "diagnostic must actually occupy the clipboard: {contention:?}");
+            eprintln!("paste while clipboard occupied: {first:?}");
+            assert!(first.is_err(), "report contention rather than a successful no-op");
+            assert!(
+                app.session.clipboard.as_ref().is_some_and(|clip| clip.layers.is_some()),
+                "a temporary OS read failure must not discard the copied editable shape"
+            );
+            app.run(id, json!({})).unwrap();
+            let state = app.session.active().unwrap();
+            assert!(
+                matches!(state.doc.layer(state.active_layer.unwrap()).unwrap().content, photocraft_doc::LayerContent::Shape(_)),
+                "retry keeps the shape editable"
+            );
+        }
+    }
+
     #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn open_filters_cover_uppercase_and_mixed_case_extensions() {
@@ -763,6 +868,26 @@ mod tests {
         let svg_filter = open_filters().into_iter().find(|(name, _)| *name == "SVG").map(|(_, exts)| exts).unwrap_or_default();
         assert_eq!(svg_filter, open_filter_extensions(SVG_EXTS));
         assert!(svg_filter.iter().any(|glob| matches(glob, "svg")) && svg_filter.iter().any(|glob| matches(glob, "svgz")));
+    }
+
+    /// #6337: after All Formats, every format File › Open reads has its own filter, and no filter
+    /// offers an extension All Formats doesn't.
+    #[test]
+    fn every_open_format_has_its_own_filter() {
+        let filters = open_filters();
+        assert_eq!(filters[0], ("All Formats", open_filter_extensions(OPEN_EXTS)), "All Formats comes first");
+        let mut named: Vec<&str> = OPEN_FILTERS.iter().flat_map(|(_, exts)| exts.iter().copied()).collect();
+        let total = named.len();
+        named.sort_unstable();
+        named.dedup();
+        assert_eq!(named.len(), total, "an extension is listed under two filters");
+        let mut all = OPEN_EXTS.to_vec();
+        all.sort_unstable();
+        assert_eq!(named, all, "the named filters cover All Formats exactly");
+        let names: Vec<&str> = filters.iter().map(|(name, _)| *name).collect();
+        for name in ["Photoshop", "Affinity", "HEIF", "PNG", "JPEG", "TIFF", "Portable Bitmap", "OpenEXR", "Radiance HDR", "Paint.NET"] {
+            assert!(names.contains(&name), "{name}");
+        }
     }
 
     #[cfg(not(all(unix, not(target_os = "macos"))))]
@@ -880,7 +1005,7 @@ mod tests {
                 assert!(format.caps().write, "{name}: .{ext} can't be written");
             }
         }
-        for ext in ["ico", "gif", "bmp"] {
+        for ext in ["ico", "gif", "bmp", "dds"] {
             assert!(save_filters("Untitled-1.psd").iter().any(|(_, exts)| exts.iter().any(|e| e == ext)), ".{ext} is offered");
         }
         assert_eq!(save_filters("icon.ico")[0].0, "ICO", "an .ico name leads with its own type");
@@ -1215,7 +1340,7 @@ mod tests {
 
     /// The clipboard as `clipboard_image` reads it when it holds only `text`.
     fn from_text(text: &str) -> Option<(u32, u32, Vec<u8>)> {
-        clipboard_image(&mut (), |_| None, |_| None, |_| Some(text.to_string()))
+        clipboard_image(&mut (), |_| Ok(None), |_| Ok(None), |_| Ok(Some(text.to_string()))).expect("no read fails")
     }
 
     fn pixel(img: &(u32, u32, Vec<u8>), x: u32, y: u32) -> [u8; 4] {
@@ -1272,18 +1397,39 @@ mod tests {
         let mut text_read = false;
         let svg_text = |read: &mut bool| {
             *read = true;
-            Some(COPIED_RECTANGLE.to_string())
+            Ok(Some(COPIED_RECTANGLE.to_string()))
         };
-        let got = clipboard_image(&mut text_read, |_| Some(vec![png.clone()]), |_| Some(blue.clone()), svg_text);
-        assert_eq!(got.map(|(w, h, _)| (w, h)), Some((3, 2)), "the copied file");
-        let got = clipboard_image(&mut text_read, |_| None, |_| Some(blue.clone()), svg_text);
-        assert_eq!(got.map(|(w, h, _)| (w, h)), Some((2, 2)), "the image, not the SVG text");
+        let got = clipboard_image(&mut text_read, |_| Ok(Some(vec![png.clone()])), |_| Ok(Some(blue.clone())), svg_text);
+        assert_eq!(got.unwrap().map(|(w, h, _)| (w, h)), Some((3, 2)), "the copied file");
+        let got = clipboard_image(&mut text_read, |_| Ok(None), |_| Ok(Some(blue.clone())), svg_text);
+        assert_eq!(got.unwrap().map(|(w, h, _)| (w, h)), Some((2, 2)), "the image, not the SVG text");
         assert!(!text_read, "the text isn't read while there is a file or an image");
         // A copied file that isn't an image (an .svg) falls through to the image, then the text.
         let svg = dir.join("drawing.svg");
         std::fs::write(&svg, COPIED_RECTANGLE).unwrap();
-        let got = clipboard_image(&mut (), |_| Some(vec![svg.clone()]), |_| None, |_| Some(COPIED_RECTANGLE.to_string()));
-        assert_eq!(got.map(|(w, h, _)| (w, h)), Some((121, 81)));
+        let got = clipboard_image(&mut (), |_| Ok(Some(vec![svg.clone()])), |_| Ok(None), |_| Ok(Some(COPIED_RECTANGLE.to_string())));
+        assert_eq!(got.unwrap().map(|(w, h, _)| (w, h)), Some((121, 81)));
+    }
+
+    /// A failed read, such as one of a busy clipboard, is the paste's error: the reads after it,
+    /// the SVG text included, don't run.
+    #[test]
+    fn a_failed_clipboard_read_is_an_error_and_the_text_is_not_read() {
+        fn busy<T>() -> Result<T, String> {
+            Err("the clipboard is busy".to_string())
+        }
+        let mut text_read = false;
+        let svg_text = |read: &mut bool| {
+            *read = true;
+            Ok(Some(COPIED_RECTANGLE.to_string()))
+        };
+        let got = clipboard_image(&mut text_read, |_| busy(), |_| Ok(None), svg_text);
+        assert_eq!(got, Err("the clipboard is busy".to_string()), "the file list's error");
+        let got = clipboard_image(&mut text_read, |_| Ok(None), |_| busy(), svg_text);
+        assert_eq!(got, Err("the clipboard is busy".to_string()), "the image's error");
+        assert!(!text_read, "the text isn't read after a failed read");
+        let got = clipboard_image(&mut (), |_| Ok(None), |_| Ok(None), |_| busy());
+        assert_eq!(got, Err("the clipboard is busy".to_string()), "the text's error");
     }
 
     /// Edit › Paste with SVG markup as the clipboard's only content adds a new layer that holds the
@@ -1293,7 +1439,7 @@ mod tests {
         let text: Rc<RefCell<String>> = Rc::new(RefCell::new(HALF_RED.to_string()));
         let clip = text.clone();
         let services = Services {
-            clipboard_get_image: Some(Box::new(move || clipboard_image(&mut (), |_| None, |_| None, |_| Some(clip.borrow().clone())))),
+            clipboard_get_image: Some(Box::new(move || clipboard_image(&mut (), |_| Ok(None), |_| Ok(None), |_| Ok(Some(clip.borrow().clone()))))),
             ..Default::default()
         };
         let mut app = PhotocraftApp::new(Session::new(), services);
