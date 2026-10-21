@@ -426,6 +426,7 @@ pub fn confirm_command(app: &PhotocraftApp, fields: &serde_json::Map<String, Val
 #[cfg(test)]
 mod editor_tests;
 
+#[cfg(test)]
 mod layer_thumbnail_scaling_tests {
     use super::*;
     use egui_kittest::{Harness, kittest::Queryable};
