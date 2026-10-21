@@ -8,7 +8,7 @@ The small web-layout PNG grows by 598 bytes (+1.40%). One .pcraft preview adds 2
 Real photo PNGs become smaller and encode faster. Compression levels are unchanged.
 There is no native-format tile speedup from deflate.
 
-The timings below measure only the backend switch. They exclude the later ZIP allocation and validation changes.
+The timings below measure only the backend switch. They exclude the later ZIP allocation, validation and slice decoder changes.
 
 Measured on 2026-10-19 against main `d95fdf31`, independently of the other performance changes.
 Host: Apple M4 Max, 16 CPUs, 128 GiB RAM, macOS arm64, rustc 1.99.1.
@@ -74,6 +74,8 @@ Every PNG encode decodes to identical source pixels, each PSD operation produces
 ## Allocation and validation changes
 
 ZIP lookup keys borrow valid UTF-8 entry paths, avoiding a second string allocation per entry. Invalid names keep their previous lossy spelling and duplicate-name lookup still selects the first entry. The bundle writer reserves the complete archive after compression, including its central directory. It rejects entry paths that exceed ZIP's 65,535-byte field before writing and checks that the central-directory size fits its ZIP field. These archive paths are independent of filesystem path limits.
+
+Affinity zlib entries, deep EXR ZIP chunks and compressed SVG input now decode directly from their byte slices. This removes flate2's 32 KiB input-buffer allocation and copy for each decoder. Output bounds, checksums and SVG concatenated gzip members remain covered by tests. These are structural allocation reductions, not measured timing gains.
 
 ## Linux and Windows x86-64 validation
 
