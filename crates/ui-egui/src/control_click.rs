@@ -23,7 +23,9 @@ impl ControlClick {
                         self.secondary_down = false;
                     }
                 }
-                egui::Event::WindowFocused(false) | egui::Event::PointerGone => self.secondary_down = false,
+                // A drag keeps the mapping when the pointer leaves the window or focus is lost: the
+                // release still arrives and must match the secondary press egui already saw. The
+                // next press recomputes it, so a missed release can't remap a plain click.
                 _ => {}
             }
         }
@@ -72,6 +74,30 @@ mod tests {
             ControlClick::default().normalize(&mut events, macos);
             assert!(events.iter().all(|e| matches!(e, Event::PointerButton { button: PointerButton::Primary, .. })));
         }
+    }
+
+    #[test]
+    fn a_control_drag_out_of_the_window_and_back_releases_the_secondary_button() {
+        let ctx = egui::Context::default();
+        let mut state = ControlClick::default();
+        let frames = [
+            vec![Event::PointerMoved(egui::pos2(50.0, 50.0)), button(true, Modifiers::CTRL)],
+            vec![Event::PointerGone],
+            vec![Event::WindowFocused(false)],
+            vec![Event::PointerMoved(egui::pos2(60.0, 60.0))],
+            vec![button(false, Modifiers::NONE)],
+        ];
+        let mut down = Vec::new();
+        for mut events in frames {
+            state.normalize(&mut events, true);
+            ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| {
+                down.push(ui.input(|i| (i.pointer.secondary_down(), i.pointer.primary_down())));
+            })
+            .textures_delta
+            .clear();
+        }
+        assert_eq!(down.first(), Some(&(true, false)), "the Control press is a secondary press");
+        assert_eq!(down.last(), Some(&(false, false)), "the release after re-entry ends it: no stuck button");
     }
 
     #[test]
