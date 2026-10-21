@@ -82,6 +82,79 @@ fn unsupported_raw_falls_back_to_the_embedded_preview() {
     assert!(r.warnings.first().is_some_and(|w| w.contains("Nikon compressed NEF") && w.contains("embedded")), "{:?}", r.warnings);
 }
 
+/// A DNG 1.7 laid out as converters write one with JPEG XL raw data: an 8×6 JPEG thumbnail in
+/// IFD0, raw data this reader refuses (here floating-point LinearRaw), and a 40×30 preview
+/// compressed with JPEG XL, stored as the raw is (IFD0 Orientation 6).
+fn dng_with_jxl_preview() -> Vec<u8> {
+    use zune_core::{bit_depth::BitDepth, colorspace::ColorSpace, options::EncoderOptions};
+    let thumb = Image::from_u8(8, 6, ChannelLayout::Rgb, vec![90; 8 * 6 * 3]).unwrap();
+    let thumb = photocraft_codecs::encode(&thumb, Format::Jpeg, &EncodeOptions::default()).unwrap();
+    let (w, h) = (40usize, 30usize);
+    let rgb: Vec<u8> = (0..w * h).flat_map(|i| [(i % w * 6) as u8, (i / w * 8) as u8, 120]).collect();
+    let mut preview = Vec::new();
+    zune_jpegxl::JxlSimpleEncoder::new(&rgb, EncoderOptions::new(w, h, ColorSpace::RGB, BitDepth::Eight)).encode(&mut preview).unwrap();
+    let mut t = TiffBuilder::default();
+    let raw_strip = t.blob(vec![0; 4 * 4 * 3 * 2]);
+    let raw = t.ifd(vec![
+        (254, Val::Long(vec![0])),
+        (256, Val::Long(vec![4])),
+        (257, Val::Long(vec![4])),
+        (258, Val::Short(vec![16, 16, 16])),
+        (259, Val::Short(vec![1])),
+        (262, Val::Short(vec![34892])),
+        (273, Val::Blobs(vec![raw_strip])),
+        (277, Val::Short(vec![3])),
+        (278, Val::Long(vec![4])),
+        (279, Val::Long(vec![4 * 4 * 3 * 2])),
+        (339, Val::Short(vec![3, 3, 3])),
+    ]);
+    let preview_len = preview.len() as u32;
+    let preview_strip = t.blob(preview);
+    let preview = t.ifd(vec![
+        (254, Val::Long(vec![1])),
+        (256, Val::Long(vec![w as u32])),
+        (257, Val::Long(vec![h as u32])),
+        (258, Val::Short(vec![8, 8, 8])),
+        (259, Val::Short(vec![52546])),
+        (262, Val::Short(vec![2])),
+        (273, Val::Blobs(vec![preview_strip])),
+        (277, Val::Short(vec![3])),
+        (278, Val::Long(vec![h as u32])),
+        (279, Val::Long(vec![preview_len])),
+        (50970, Val::Long(vec![2])),
+    ]);
+    let thumb_len = thumb.len() as u32;
+    let thumb_strip = t.blob(thumb);
+    let ifd0 = t.ifd(vec![
+        (254, Val::Long(vec![1])),
+        (256, Val::Long(vec![8])),
+        (257, Val::Long(vec![6])),
+        (258, Val::Short(vec![8, 8, 8])),
+        (259, Val::Short(vec![7])),
+        (262, Val::Short(vec![6])),
+        (271, Val::Ascii("Synthetic".into())),
+        (273, Val::Blobs(vec![thumb_strip])),
+        (274, Val::Short(vec![6])),
+        (277, Val::Short(vec![3])),
+        (278, Val::Long(vec![6])),
+        (279, Val::Long(vec![thumb_len])),
+        (330, Val::Ifds(vec![raw, preview])),
+        (50706, Val::Byte(vec![1, 7, 0, 0])),
+    ]);
+    t.chain = vec![ifd0];
+    t.build()
+}
+
+/// #8125: a DNG whose raw data isn't supported opens its full JPEG XL preview, upright, not
+/// the small JPEG thumbnail.
+#[test]
+fn unsupported_dng_falls_back_to_its_jpeg_xl_preview() {
+    let r = import("photo.dng", &dng_with_jxl_preview()).unwrap();
+    assert_eq!((r.document.size.width, r.document.size.height), (30, 40), "the 40×30 preview, turned upright: {:?}", r.warnings);
+    let w = r.warnings.first().map_or("", String::as_str);
+    assert!(w.contains("floating-point") && w.contains("40x30 JPEG XL preview"), "{:?}", r.warnings);
+}
+
 #[test]
 fn unsupported_raw_without_preview_is_a_clear_error() {
     let mut cr3 = vec![0, 0, 0, 24];

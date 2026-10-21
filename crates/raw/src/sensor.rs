@@ -212,7 +212,7 @@ pub(crate) enum JpegLayout {
 }
 
 /// DNG 1.7 JPEG XL compression.
-const JPEG_XL: u32 = 52546;
+pub(crate) const JPEG_XL: u32 = 52546;
 
 /// Inflates one zlib tile into at most `need` bytes. The stream must run to its end: a truncated
 /// stream, or one that holds more than `need` bytes, is an error rather than a silent cut-off.

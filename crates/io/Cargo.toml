@@ -55,3 +55,6 @@ flate2 = { workspace = true }
 photocraft-psd = { workspace = true, features = ["testgen"] }
 photocraft-raw = { workspace = true, features = ["testgen"] }
 proptest = { workspace = true }
+# Lossless JPEG XL encoder for the JPEG XL DNG preview test (tests only), as in photocraft-raw.
+zune-jpegxl = { version = "=0.5.2", default-features = false, features = ["std"] }
+zune-core = { workspace = true }
