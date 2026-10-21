@@ -2327,7 +2327,7 @@ mod tests {
     }
 
     /// A `filterFX` item holding `fltr`, as Photoshop writes a filter with options.
-    fn measured_item(name: &str, fltr: Descriptor, filter_id: i32) -> Descriptor {
+    fn pixelate_item(name: &str, fltr: Descriptor, filter_id: i32) -> Descriptor {
         Descriptor::new("filterFX")
             .with("Nm  ", Value::Text(UnicodeString::new_nul(name)))
             .with("blendOptions", Value::Descriptor(Descriptor::new("blendOptions").with("Opct", unit(b"#Prc", 100.0)).with("Md  ", enumv("BlnM", "Nrml"))))
@@ -2353,7 +2353,7 @@ mod tests {
         }
         // Measured in Photoshop: `{'_class': 'Mztn', 'MztT': 'MztT.CrsD'}` and `LngS`, filterID 1299870830.
         for (code, ty) in [("CrsD", "coarseDots"), ("LngS", "longStrokes")] {
-            let item = measured_item("Mezzotint...", Descriptor::new("Mztn").with("MztT", enumv("MztT", code)), 1_299_870_830);
+            let item = pixelate_item("Mezzotint...", Descriptor::new("Mztn").with("MztT", enumv("MztT", code)), 1_299_870_830);
             let f = filter_from_item(&item);
             assert_eq!((f.command.as_str(), &f.params), ("filter.pixelate.mezzotint", &json!({"type": ty})));
         }
@@ -2391,7 +2391,7 @@ mod tests {
             .with("Ang2", Value::Integer(20))
             .with("Ang3", Value::Integer(30))
             .with("Ang4", Value::Integer(40));
-        let item = measured_item("Color Halftone...", measured.clone(), 1_131_180_616);
+        let item = pixelate_item("Color Halftone...", measured.clone(), 1_131_180_616);
         let f = filter_from_item(&item);
         assert_eq!(f.command, "filter.pixelate.colorHalftone");
         assert_eq!(f.params, json!({"maxRadius": 6, "channel1": 10, "channel2": 20, "channel3": 30, "channel4": 40}));
@@ -2416,17 +2416,17 @@ mod tests {
                 .with("Ang4", Value::Integer(40))
         };
         let cases = [
-            measured_item("Mezzotint...", Descriptor::new("Mztn"), code(b"Mztn")),
-            measured_item("Mezzotint...", mz(enumv("MztT", "Sprk")), code(b"Mztn")),
-            measured_item("Mezzotint...", mz(Value::Integer(1)), code(b"Mztn")),
-            measured_item("Color Halftone...", Descriptor::new("ClrH"), code(b"ClrH")),
-            measured_item("Color Halftone...", ch(Value::Double(6.0), Value::Integer(10)), code(b"ClrH")),
-            measured_item("Color Halftone...", ch(unit(b"#Pxl", 6.0), Value::Integer(10)), code(b"ClrH")),
-            measured_item("Color Halftone...", ch(Value::Integer(3), Value::Integer(10)), code(b"ClrH")),
-            measured_item("Color Halftone...", ch(Value::Integer(128), Value::Integer(10)), code(b"ClrH")),
-            measured_item("Color Halftone...", ch(Value::Integer(6), Value::Integer(361)), code(b"ClrH")),
-            measured_item("Color Halftone...", ch(Value::Integer(6), Value::Integer(i32::MIN)), code(b"ClrH")),
-            measured_item("Color Halftone...", ch(Value::Integer(6), Value::Double(f64::NAN)), code(b"ClrH")),
+            pixelate_item("Mezzotint...", Descriptor::new("Mztn"), code(b"Mztn")),
+            pixelate_item("Mezzotint...", mz(enumv("MztT", "Sprk")), code(b"Mztn")),
+            pixelate_item("Mezzotint...", mz(Value::Integer(1)), code(b"Mztn")),
+            pixelate_item("Color Halftone...", Descriptor::new("ClrH"), code(b"ClrH")),
+            pixelate_item("Color Halftone...", ch(Value::Double(6.0), Value::Integer(10)), code(b"ClrH")),
+            pixelate_item("Color Halftone...", ch(unit(b"#Pxl", 6.0), Value::Integer(10)), code(b"ClrH")),
+            pixelate_item("Color Halftone...", ch(Value::Integer(3), Value::Integer(10)), code(b"ClrH")),
+            pixelate_item("Color Halftone...", ch(Value::Integer(128), Value::Integer(10)), code(b"ClrH")),
+            pixelate_item("Color Halftone...", ch(Value::Integer(6), Value::Integer(361)), code(b"ClrH")),
+            pixelate_item("Color Halftone...", ch(Value::Integer(6), Value::Integer(i32::MIN)), code(b"ClrH")),
+            pixelate_item("Color Halftone...", ch(Value::Integer(6), Value::Double(f64::NAN)), code(b"ClrH")),
         ];
         for item in cases {
             let f = filter_from_item(&item);
