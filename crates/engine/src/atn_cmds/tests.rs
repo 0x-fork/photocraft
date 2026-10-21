@@ -199,6 +199,50 @@ fn save_round_trips_through_photoshop_events() {
     assert_eq!(r["set"], "Ours");
 }
 
+/// `image.adjustments.selectiveColor` takes a range as an array (`"reds": [c, m, y, k]`) or as
+/// the scalar form that names one range (`"colors": "reds", "cyan": 35`). Only the arrays were
+/// written, so a step recorded the other way exported as an adjustment that changes nothing, with
+/// `skipped` empty (#7672).
+#[test]
+fn a_selective_color_step_in_the_scalar_form_keeps_its_values() {
+    let back = |params: Value| -> Value {
+        let mut s = Session::new();
+        s.actions.list.push(Action::new("A", vec![("image.adjustments.selectiveColor".into(), params)]));
+        let r = s.execute("actions.save", json!({"action": "A"})).unwrap();
+        assert_eq!(r["skipped"], json!([]));
+        let imported = import(&photocraft_paint::tile::b64_decode(r["data"].as_str().unwrap()).unwrap()).unwrap();
+        imported.actions[0].steps[0].1.clone()
+    };
+
+    // The numbers are read back as numbers; a percentage may arrive as 35 or 35.0.
+    let range =
+        |step: &Value, name: &str| -> Vec<f64> { step[name].as_array().unwrap_or(&Vec::new()).iter().map(|v| v.as_f64().unwrap_or(f64::NAN)).collect() };
+
+    // The reported step: one range, one channel.
+    let scalar = back(json!({"method": "absolute", "colors": "reds", "cyan": 35}));
+    assert_eq!(scalar["method"], "absolute");
+    assert_eq!(range(&scalar, "reds"), [35.0, 0.0, 0.0, 0.0], "{scalar}");
+
+    // The scalar form over an array keeps both, as playing the step would.
+    let both = back(json!({"reds": [10, 20, 30, 40], "colors": "reds", "cyan": 35}));
+    assert_eq!(range(&both, "reds"), [35.0, 20.0, 30.0, 40.0], "{both}");
+
+    // The array form is unchanged.
+    let array = back(json!({"method": "relative", "yellows": [0, 0, -15, 5]}));
+    assert_eq!(range(&array, "yellows"), [0.0, 0.0, -15.0, 5.0], "{array}");
+
+    // A channel the command would refuse is not quietly dropped: the step is refused too, since
+    // writing it would export an adjustment that is not the one recorded. `null` is absent, as
+    // the command reads it.
+    let mut s = Session::new();
+    s.actions.list.push(Action::new("A", vec![("image.adjustments.selectiveColor".into(), json!({"colors": "reds", "cyan": "35"}))]));
+    let e = s.execute("actions.save", json!({"action": "A"})).unwrap_err().to_string();
+    assert!(e.contains("image.adjustments.selectiveColor"), "{e}");
+
+    let nulled = back(json!({"colors": "reds", "cyan": 35, "magenta": null}));
+    assert_eq!(range(&nulled, "reds"), [35.0, 0.0, 0.0, 0.0], "{nulled}");
+}
+
 #[test]
 fn every_mapped_command_exports_and_imports_back() {
     let cases: Vec<(&str, Value)> = vec![
