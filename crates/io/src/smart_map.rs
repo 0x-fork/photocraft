@@ -330,14 +330,6 @@ fn enum_name(f: &Descriptor, key: &str, type_id: &str, table: &[(&[u8; 4], &'sta
     table.iter().find(|(c, _)| value.as_bytes() == &c[..]).map(|(_, n)| *n)
 }
 
-/// Finite `key` of `f` stored as a unit float in `unit` (another unit would be re-written as this one).
-fn unit_value(f: &Descriptor, key: &str, unit: &[u8; 4]) -> Option<f64> {
-    match f.get(key)? {
-        Value::UnitFloat { unit: u, value } if u == unit && value.is_finite() => Some(*value),
-        _ => None,
-    }
-}
-
 /// Finite `key` of `f` stored as a plain double (the type Photoshop writes and we write back).
 fn double(f: &Descriptor, key: &str) -> Option<f64> {
     match f.get(key)? {
@@ -568,7 +560,7 @@ fn known_params(class: &str, f: Option<&Descriptor>, item: &Descriptor) -> Optio
             json!({"amount": px(f, "Nose")?, "distribution": dist, "monochromatic": mono, "seed": int(f, "FlRs").unwrap_or(0)})
         }
         ("surfaceBlur", Some(f)) if only_keys(f, &["Rds ", "Thsh"]) => json!({
-            "radius": in_range(unit_value(f, "Rds ", b"#Pxl")?, 1.0, 100.0)?,
+            "radius": unit_in(f, "Rds ", b"#Pxl", 1.0, 100.0)?,
             "threshold": int_in(f, "Thsh", 2, 255)?,
         }),
         ("SmrB", Some(f)) if only_keys(f, &["Rds ", "Thsh", "SmBQ", "SmBM"]) => json!({
