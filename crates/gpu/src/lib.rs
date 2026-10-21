@@ -1258,7 +1258,7 @@ impl Compositor {
             // submit, so there the refresh goes to the CPU straight away.
             if flush && self.layer_alloc.as_deref() == Some(OVER_BUDGET) {
                 self.layer_alloc = None;
-                submit_batch(device, queue, encoder, self.health.as_ref(), &mut last_submit);
+                submit_batch(device, queue, encoder, self.health.as_ref(), self.timer.as_mut(), &mut last_submit);
                 #[cfg(not(target_arch = "wasm32"))]
                 match self.health.as_ref() {
                     Some(h) => {
@@ -1278,7 +1278,7 @@ impl Compositor {
                     return Err(Unsupported(f.to_string()));
                 }
                 let mut batch = Some(&mut last_submit);
-                self.run_cell(device, queue, encoder, doc.id, &plan, &paged, cell, &fr, &chunks, checkpoint, &mut stats, sink, &mut batch);
+                self.run_cell(device, queue, encoder, doc.id, &plan, &runs, &paged, cell, &fr, &chunks, checkpoint, &mut stats, sink, &mut batch);
                 if let Some(f) = self.fault() {
                     return Err(Unsupported(f.to_string()));
                 }
@@ -1290,7 +1290,7 @@ impl Compositor {
             }
             let (evicted, bytes) = self.evict();
             stats.evicted += evicted;
-            freed += bytes + std::mem::take(&mut self.admit_freed);
+            freed = freed.saturating_add(bytes.saturating_add(std::mem::take(&mut self.admit_freed)));
             if flush && (self.staged >= flush_bytes || work >= FLUSH_WORK || freed >= flush_bytes || self.recorded >= FLUSH_OPS) {
                 submit_batch(device, queue, encoder, self.health.as_ref(), self.timer.as_mut(), &mut last_submit);
                 self.staged = 0;
