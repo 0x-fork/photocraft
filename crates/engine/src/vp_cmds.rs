@@ -361,9 +361,13 @@ mod tests {
         s.execute("file.new", json!({"width": 200, "height": 200, "depth": 32})).unwrap();
         s.execute("layer.new.layer", json!({})).unwrap();
         let floor = json!({"corners": [[60, 60], [140, 60], [190, 190], [10, 190]]});
+        let before = s.active().unwrap().doc.clone();
+        let steps = s.active().unwrap().history.past_len();
         for torn in [json!({"from": 0, "angle": 1e9}), json!({"from": 0, "depth": -1}), json!({"from": 0, "depth": 1e300})] {
             let e = s.execute(VP, json!({"planes": [floor, torn]})).unwrap_err().to_string();
             assert!(e.contains("plane 1"), "{e}");
+            assert!(std::sync::Arc::ptr_eq(&s.active().unwrap().doc, &before));
+            assert_eq!(s.active().unwrap().history.past_len(), steps);
         }
         let many: Vec<[f64; 2]> = vec![[100.0, 150.0]; MAX_CLONE_DABS + 1];
         for clone in [
@@ -374,10 +378,14 @@ mod tests {
             json!({"source": [100, 180]}),
         ] {
             let label: String = clone.to_string().chars().take(80).collect();
-            assert!(s.execute(VP, json!({"planes": [floor], "clone": clone})).is_err(), "{label}");
+            assert!(s.execute(VP, json!({"planes": [floor], "clone": clone, "newLayer": true})).is_err(), "{label}");
+            assert!(std::sync::Arc::ptr_eq(&s.active().unwrap().doc, &before));
+            assert_eq!(s.active().unwrap().history.past_len(), steps);
         }
         let planes: Vec<Value> = std::iter::repeat_n(floor.clone(), MAX_PLANES + 1).collect();
         assert!(s.execute(VP, json!({"planes": planes})).is_err());
+        assert!(std::sync::Arc::ptr_eq(&s.active().unwrap().doc, &before));
+        assert_eq!(s.active().unwrap().history.past_len(), steps);
         // A clone on a torn-off wall, at 32 bits, sampling the floor.
         let r = s
             .execute(VP, json!({"planes": [floor, {"from": 0, "edge": "top", "angle": 90, "depth": 0.5}], "clone": [{"source": [100, 150], "points": [[100, 50], [104, 50]], "size": 8}]}))

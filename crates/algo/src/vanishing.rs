@@ -382,8 +382,9 @@ pub fn clone_source(scene: &Scene, source: [f64; 2], anchor: [f64; 2], p: [f64; 
 }
 
 /// [`clone_stroke`]'s dabs at `points` for a stroke anchored at `anchor` (its first dab, which
-/// fixes the offset and the brush's metric size), so a stroke can be painted in pieces exactly
-/// as one. Returns the dabs painted and the area they changed.
+/// fixes the offset and the brush's metric size). Samples a snapshot taken at this call.
+/// For incremental painting use [`clone_dabs_from`] with one snapshot per stroke.
+/// Returns the dabs painted and the area they changed.
 #[allow(clippy::too_many_arguments)]
 pub fn clone_dabs(
     scene: &Scene,
@@ -395,9 +396,29 @@ pub fn clone_dabs(
     hardness: f64,
     opacity: f32,
 ) -> (usize, Rect) {
+    let src_copy = surf.clone();
+    clone_dabs_from(scene, surf, &src_copy, source, anchor, points, size, hardness, opacity)
+}
+
+/// Paint a batch of one stroke using the same immutable source snapshot for every batch.
+/// Source and destination must have the same pixel format; otherwise no dabs are painted.
+#[allow(clippy::too_many_arguments)]
+pub fn clone_dabs_from(
+    scene: &Scene,
+    surf: &mut Surface,
+    src_copy: &Surface,
+    source: [f64; 2],
+    anchor: [f64; 2],
+    points: &[[f64; 2]],
+    size: f64,
+    hardness: f64,
+    opacity: f32,
+) -> (usize, Rect) {
+    if surf.format() != src_copy.format() {
+        return (0, Rect::EMPTY);
+    }
     let Some(f) = CloneFrame::new(scene, source, anchor, size) else { return (0, Rect::EMPTY) };
     let (lud, lvd) = f.ld;
-    let src_copy = surf.clone();
     let fmt = surf.format();
     let n = fmt.channels();
     let mut dabs = 0;
@@ -434,7 +455,7 @@ pub fn clone_dabs(
             let k = (fall * fall * (3.0 - 2.0 * fall)) as f32 * opacity;
             // Source pixel at the same metric offset.
             let (sx, sy) = f.hs.apply((m[0] + f.offset[0]) / f.ls.0, (m[1] + f.offset[1]) / f.ls.1);
-            let s = sample(&src_copy, sx - 0.5, sy - 0.5, n);
+            let s = sample(src_copy, sx - 0.5, sy - 0.5, n);
             for c in 0..n {
                 px[c] += (s[c] - px[c]) * k;
             }
@@ -554,5 +575,23 @@ mod tests {
         // The stroke's anchor copies from the source itself.
         let back = clone_source(&sc, [sx, sy], [dx, dy], [dx, dy]).unwrap();
         assert!((back[0] - sx).abs() < 1e-6 && (back[1] - sy).abs() < 1e-6, "{back:?}");
+    }
+    #[test]
+    fn incremental_clone_uses_one_source_snapshot_per_stroke() {
+        let sc = Scene::new(VpPlane { corners: [[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [0.0, 100.0]] }, [50.0, 50.0], None, 800.0);
+        for fmt in [PixelFormat::RGBA8, PixelFormat::RGBA16, PixelFormat::RGBA32F] {
+            let mut original = Surface::new(fmt);
+            for x in 0..100 {
+                original.fill_rect(Rect::new(x, 0, x + 1, 100), &[x as f32 / 100.0, (x % 7) as f32 / 6.0, 0.3, 1.0]);
+            }
+            let points = [[40.0, 50.0], [44.0, 50.0], [48.0, 50.0], [52.0, 50.0]];
+            let mut whole = original.clone();
+            assert_eq!(clone_stroke(&sc, &mut whole, [36.0, 50.0], &points, 12.0, 0.8, 1.0), 4);
+            let mut pieces = original.clone();
+            for part in points.chunks(2) {
+                clone_dabs_from(&sc, &mut pieces, &original, [36.0, 50.0], points[0], part, 12.0, 0.8, 1.0);
+            }
+            assert_eq!(whole.read_region(Rect::new(0, 0, 100, 100)), pieces.read_region(Rect::new(0, 0, 100, 100)));
+        }
     }
 }

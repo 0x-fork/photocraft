@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use egui::{Color32, Pos2, Stroke, TextureHandle, pos2};
 use photocraft_algo::transform::Homography;
-use photocraft_algo::vanishing::{Edge, PlaneCheck, Scene, VpPlane, clone_dabs, clone_source};
+use photocraft_algo::vanishing::{Edge, PlaneCheck, Scene, VpPlane, clone_dabs_from, clone_source};
 use photocraft_doc::{DocId, Document, Layer, LayerContent, LayerId};
 use photocraft_engine::vp_cmds::{CloneSpec, MAX_CLONE_DABS, MAX_CLONE_STROKES, VP, copy_changed, visible_image};
 use photocraft_geom::Rect;
@@ -97,6 +97,8 @@ struct StampPreview {
     new_layer: bool,
     /// On a new layer: the visible image the strokes sample, with the strokes so far.
     work: Option<Surface>,
+    /// The sampled image before the current stroke, retained across frame batches.
+    source: Option<(usize, Surface)>,
     /// The target layer's pixels as painted so far.
     out: Surface,
     /// Strokes painted: those before `.0`, and the first `.1` points of stroke `.0`.
@@ -497,7 +499,8 @@ impl VpSession {
             // The old preview's area changes back too.
             let keys = self.preview.take().map(|p| p.keys).unwrap_or_default();
             area = keys.iter().fold(Rect::EMPTY, |a, k| union(a, k.1));
-            self.preview = Some(StampPreview { rev: self.rev, new_layer: self.new_layer, work, out, done: (0, 0), keys, shown: self.base.clone() });
+            self.preview =
+                Some(StampPreview { rev: self.rev, new_layer: self.new_layer, work, source: None, out, done: (0, 0), keys, shown: self.base.clone() });
         }
         let Some(pv) = self.preview.as_mut() else { return false };
         let (from_stroke, from_point) = pv.done;
@@ -507,15 +510,19 @@ impl VpSession {
             if points.is_empty() {
                 continue;
             }
+            if pv.source.as_ref().is_none_or(|(stroke, _)| *stroke != si) {
+                pv.source = Some((si, pv.work.as_ref().unwrap_or(&pv.out).clone()));
+            }
+            let Some((_, source)) = pv.source.as_ref() else { continue };
             let (hard, opacity) = (c.hardness, c.opacity as f32);
             let changed = match pv.work.as_mut() {
                 Some(work) => {
                     let before = work.clone();
-                    let (_, a) = clone_dabs(&sc, work, c.source, *anchor, points, c.size, hard, opacity);
+                    let (_, a) = clone_dabs_from(&sc, work, source, c.source, *anchor, points, c.size, hard, opacity);
                     copy_changed(&mut pv.out, &before, work, a);
                     a
                 }
-                None => clone_dabs(&sc, &mut pv.out, c.source, *anchor, points, c.size, hard, opacity).1,
+                None => clone_dabs_from(&sc, &mut pv.out, source, c.source, *anchor, points, c.size, hard, opacity).1,
             };
             area = union(area, changed);
         }
@@ -1328,5 +1335,34 @@ mod tests {
         assert_eq!((s.planes.len(), s.strokes.len()), (2, 1));
         assert!(s.torn[1].is_some());
         assert!(crate::distort_ui::display_doc(&app, 0).is_some(), "the stroke shows again");
+    }
+    #[test]
+    fn overlapping_stamp_preview_matches_commit_across_batches() {
+        for new_layer in [false, true] {
+            let (ctx, mut app) = app_with_layer();
+            app.session
+                .edit("pattern", |doc, active| {
+                    let surf = doc.layer_mut(active.unwrap()).unwrap().surface_mut().unwrap();
+                    for x in 0..240 {
+                        surf.fill_rect(Rect::new(x, 0, x + 1, 160), &[x as f32 / 240.0, (x % 7) as f32 / 6.0, 0.3, 1.0]);
+                    }
+                    Ok(())
+                })
+                .unwrap();
+            crate::distort_ui::menu(&mut app, &ctx, VP, &json!({})).unwrap().unwrap();
+            control(&mut app, &json!({"planes": [{"corners": [[10, 10], [230, 10], [230, 150], [10, 150]]}]})).unwrap();
+            let points = [[80.0, 80.0], [84.0, 80.0], [88.0, 80.0], [92.0, 80.0]];
+            let s = app.distort.vanishing.as_mut().unwrap();
+            s.new_layer = new_layer;
+            s.strokes.push(CloneSpec { source: [76.0, 80.0], points: points[..2].to_vec(), size: 12.0, hardness: 0.8, opacity: 1.0 });
+            assert!(s.paint_preview(|| 1));
+            s.strokes[0].points.extend_from_slice(&points[2..]);
+            assert!(s.paint_preview(|| 2));
+            let (shown, _) = s.shown().unwrap();
+            let expected = photocraft_compose::flatten(&shown).px;
+            assert_ne!(expected, photocraft_compose::flatten(&app.session.active().unwrap().doc).px);
+            commit(&mut app).unwrap();
+            assert_eq!(photocraft_compose::flatten(&app.session.active().unwrap().doc).px, expected, "newLayer={new_layer}");
+        }
     }
 }
