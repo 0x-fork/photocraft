@@ -243,7 +243,7 @@ fn smart_filter_commands_check_an_explicit_layer_target() {
     assert_eq!(active(&s), curves, "the active layer stays");
     // A target that isn't a smart object with filters is still refused, and the active layer stays.
     assert!(matches!(s.execute("layer.smartFilter.setParams", json!({"layer": curves, "params": {}})), Err(EngineError::Disabled(..))));
-    assert!(s.execute("layer.smartFilter.setParams", json!({"layer": 999_999, "params": {}})).is_err());
+    assert!(s.execute("layer.smartFilter.setParams", json!({"layer": u64::MAX, "params": {}})).is_err());
     assert_eq!(active(&s), curves);
 }
 
@@ -328,6 +328,37 @@ fn selection_becomes_the_filter_mask() {
     s.execute("layer.smartFilter.deleteFilterMask", json!({})).unwrap();
     assert!(active_smart(&s).filter_mask.is_none());
     assert!(!s.is_enabled("layer.smartFilter.deleteFilterMask"));
+}
+
+/// #5619: deleting (or dragging away) the last smart filter removes the filter mask with it, so
+/// the next filter takes the new selection instead of the old one.
+#[test]
+fn removing_the_last_filter_removes_its_filter_mask() {
+    let mut s = session(8);
+    paint(&mut s);
+    let original = flat(&s);
+    let a = convert(&mut s);
+    s.execute("select.rect", json!({"x": 0, "y": 0, "width": 16, "height": 48})).unwrap();
+    s.execute("filter.blur.gaussianBlur", json!({"radius": 3})).unwrap();
+    assert!(active_smart(&s).filter_mask.is_some());
+    s.execute("layer.smartFilter.delete", json!({})).unwrap();
+    assert!(active_smart(&s).filter_mask.is_none(), "the last filter takes its mask along");
+    s.execute("select.rect", json!({"x": 20, "y": 0, "width": 20, "height": 48})).unwrap();
+    s.execute("filter.blur.gaussianBlur", json!({"radius": 3})).unwrap();
+    let px = flat(&s);
+    let at = |v: &Vec<[f32; 4]>, x: i32, y: i32| v[(y * W + x) as usize];
+    assert_eq!(at(&px, 6, 20), at(&original, 6, 20), "the old selection is not filtered");
+    assert_ne!(at(&px, 30, 20), at(&original, 30, 20), "the new selection is filtered");
+
+    // Dragging the only filter to another smart object leaves no mask behind either.
+    s.execute("select.deselect", json!({})).unwrap();
+    s.execute("layer.new.layer", json!({})).unwrap();
+    paint(&mut s);
+    let b = convert(&mut s);
+    s.execute("layer.smartFilter.transfer", json!({"from": a, "to": b, "filter": 0})).unwrap();
+    let doc = &s.active().unwrap().doc;
+    let LayerContent::Smart(sm) = &doc.layer(LayerId(a)).unwrap().content else { panic!("not smart") };
+    assert!(sm.smart_filters.is_empty() && sm.filter_mask.is_none());
 }
 
 /// Scales `id` to 10 % around the origin and back, returning the composite.
