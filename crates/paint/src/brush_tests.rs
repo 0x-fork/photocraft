@@ -908,6 +908,38 @@ fn smoothing_without_catch_up_stops_while_the_pointer_pauses() {
 }
 
 #[test]
+fn a_smoothed_brush_keeps_the_pressure_of_where_it_is_when_the_pen_lifts() {
+    // #5713: a fast stroke at full pressure, lifted in the last sample. The brush trails far
+    // behind the pointer; it used to take the lift's pressure there, and the end catch-up drew
+    // a hairline from the trailing brush to the pointer.
+    let pts: Vec<StrokePoint> =
+        (0..=20).map(|i| StrokePoint { time: f64::from(i) * 4.0, ..StrokePoint::new(f64::from(i) * 10.0, 0.0, if i < 20 { 1.0 } else { 0.05 }) }).collect();
+    let out = smooth_points(&Smoothing { amount: 0.8, ..Default::default() }, 1.0, &pts);
+    let (last, rest) = out.split_last().unwrap();
+    assert_eq!((last.x, last.pressure), (200.0, 0.05), "the catch-up still ends at the pen's last sample");
+    let lifted = rest.last().unwrap();
+    assert!(lifted.x < 190.0, "the brush lags the pointer: {}", lifted.x);
+    for p in rest {
+        assert!(p.pressure > 0.5, "the trailing brush at x {} has pressure {}", p.x, p.pressure);
+    }
+}
+
+#[test]
+fn a_pulled_string_brush_takes_the_pose_along_the_string() {
+    let ps = Smoothing { amount: 0.2, pulled_string: true, catch_up_on_end: false, ..Default::default() };
+    let a = StrokePoint { rotation: 350.0, ..StrokePoint::new(0.0, 0.0, 1.0) };
+    let b = StrokePoint { rotation: 10.0, tilt_x: 40.0, ..StrokePoint::new(100.0, 0.0, 0.0) };
+    let out = smooth_points(&ps, 1.0, &[a, b]);
+    // The 20 px string leaves the brush 80 % of the way to the pointer.
+    let p = out.last().unwrap();
+    assert!((p.x - 80.0).abs() < 1e-4, "{}", p.x);
+    assert!((p.pressure - 0.2).abs() < 1e-4, "{}", p.pressure);
+    assert!((p.tilt_x - 32.0).abs() < 1e-3, "{}", p.tilt_x);
+    // Rotation the short way round: 350° + 80 % of 20°.
+    assert!((p.rotation - 6.0).abs() < 1e-3, "{}", p.rotation);
+}
+
+#[test]
 fn pose_overrides_stylus_values() {
     let b = BrushSettings {
         size: 40.0,
@@ -1525,4 +1557,52 @@ fn an_aliased_stroke_at_partial_opacity_is_one_flat_colour() {
     for x in 3..60 {
         assert_eq!(s.rgba(x, 5), first, "pixel {x} of the Pencil line");
     }
+}
+
+/// Photoshop (measured): a 100 px brush with a 20 px Dual Brush tip resized to 50 / 2 / 1 px has a
+/// 10 / 0.4 / 0.2 px dual tip, unrounded and with no floor, and back at 100 px it is 20 px again; past
+/// 5000 px the dual tip is capped there and the proportion is lost (#4809).
+#[test]
+fn resizing_scales_the_dual_tip_like_photoshop() {
+    let mut b = BrushSettings { size: 100.0, ..brush() };
+    b.dual_brush.enabled = true;
+    b.dual_brush.size = 20.0;
+    for (main, dual) in [(50.0, 10.0), (2.0, 0.4), (1.0, 0.2), (100.0, 20.0), (240.0, 48.0), (100.0, 20.0)] {
+        b.resize_with_dual_brush(main);
+        assert_eq!(b.size, main);
+        assert!((b.dual_brush.size - dual).abs() < 1e-4, "main {main}: dual {} != {dual}", b.dual_brush.size);
+    }
+    // The cap: 300 px at 100 px would be 15000 px at 5000 px; Photoshop stores 5000 and scales from it.
+    b.dual_brush.size = 300.0;
+    b.resize_with_dual_brush(MAX_BRUSH_SIZE);
+    assert_eq!(b.dual_brush.size, MAX_BRUSH_SIZE);
+    b.resize_with_dual_brush(100.0);
+    assert_eq!(b.dual_brush.size, 100.0);
+    // A sub-pixel dual tip renders at the renderer's smallest diameter.
+    b.dual_brush.size = 20.0;
+    b.resize_with_dual_brush(1.0);
+    assert_eq!(b.bounded_for_render().dual_brush.size, 0.5);
+}
+
+#[test]
+fn resizing_with_bad_sizes_leaves_the_dual_tip_alone() {
+    let mut b = BrushSettings { size: 100.0, ..brush() };
+    b.dual_brush.enabled = true;
+    b.dual_brush.size = 20.0;
+    for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 0.0, -5.0] {
+        b.size = 100.0;
+        b.resize_with_dual_brush(bad);
+        assert_eq!(b.dual_brush.size, 20.0, "{bad}");
+    }
+    for bad_dual in [f32::NAN, 0.0, -3.0] {
+        b.size = 100.0;
+        b.dual_brush.size = bad_dual;
+        b.resize_with_dual_brush(50.0);
+        assert_eq!(b.dual_brush.size.to_bits(), bad_dual.to_bits(), "a bad dual size {bad_dual} is left as it was");
+    }
+    // A disabled dual tip keeps its size.
+    b.dual_brush = DualBrush { enabled: false, size: 20.0, ..Default::default() };
+    b.size = 100.0;
+    b.resize_with_dual_brush(50.0);
+    assert_eq!(b.dual_brush.size, 20.0);
 }
