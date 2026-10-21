@@ -13,7 +13,7 @@ pub(crate) fn modal_allows(app: &PhotocraftApp, id: &str) -> bool {
     if app.camera_raw.is_some() || crate::crop_ui::blocks(app, id) {
         return false;
     }
-    (app.ui.dialogs.is_empty() && app.discard.is_none()) || crate::shortcuts::NAV_COMMANDS.contains(&id)
+    (app.ui.dialogs.is_empty() && app.ui.layers_panel_dialog.is_none() && app.discard.is_none()) || crate::shortcuts::NAV_COMMANDS.contains(&id)
 }
 
 /// Top-level menus in Photoshop order.
@@ -502,7 +502,7 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
         "edit.paste" if params.as_object().is_none_or(|o| o.is_empty()) => {
             // Photoshop: paste in place when the copied area is visible, else centred in the view;
             // images from other apps are always centred.
-            app.import_os_clipboard();
+            app.import_os_clipboard()?;
             app.clip_read_for_paste = true;
             let external = app.clip_external;
             let visible = !external
@@ -587,6 +587,12 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
         }
         "window.togglePanels" => {
             // Tab hides the Tools panel, the options bar and the dock; Tab again shows what it hid.
+            if app.ui.view.hides_chrome() {
+                // Full Screen Mode: Tab only shows or hides the chrome for now (#6760); the panels'
+                // own state, `hidden_by_tab` included, stays as it was before entering.
+                app.ui.panels.full_screen_chrome = !app.ui.panels.full_screen_chrome;
+                return Ok(Value::Null);
+            }
             let p = &mut app.ui.panels;
             match p.hidden_by_tab.take() {
                 Some([toolbar, options, dock]) if !(p.toolbar || p.options_bar || p.dock) => {
