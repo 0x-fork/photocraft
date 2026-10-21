@@ -86,10 +86,10 @@ pub fn effect_defaults(kind: &str) -> Value {
             json!({"blend": "Multiply", "color": "#000000", "opacity": 75, "angle": 120, "useGlobalLight": true, "distance": 5, "choke": 0, "size": 5, "contour": "Linear", "antiAlias": false, "noise": 0})
         }
         "outerGlow" => {
-            json!({"blend": "Screen", "opacity": 75, "color": "#ffffbe", "spread": 0, "size": 5, "range": 50, "contour": "Linear", "antiAlias": false, "noise": 0})
+            json!({"blend": "Screen", "opacity": 75, "color": "#ffffbe", "technique": "softer", "spread": 0, "size": 5, "range": 50, "contour": "Linear", "antiAlias": false, "noise": 0})
         }
         "innerGlow" => {
-            json!({"blend": "Screen", "opacity": 75, "color": "#ffffbe", "source": "edge", "choke": 0, "size": 5, "contour": "Linear", "antiAlias": false, "noise": 0})
+            json!({"blend": "Screen", "opacity": 75, "color": "#ffffbe", "technique": "softer", "source": "edge", "choke": 0, "size": 5, "range": 50, "contour": "Linear", "antiAlias": false, "noise": 0})
         }
         "stroke" => json!({"size": 1, "position": "inside", "blend": "Normal", "opacity": 100, "overprint": false, "color": "#000000"}),
         "colorOverlay" => json!({"blend": "Normal", "color": "#ff0000", "opacity": 100}),
@@ -1006,12 +1006,12 @@ pub fn specs() -> Vec<CommandSpec> {
         style_cmd!(
             "outerGlow",
             "Outer Glow…",
-            r##"{"color":"#rrggbb","opacity":0..100=75,"blend":str="screen","technique":"softer|precise","spread":0..100,"size":px,"range":0..100,"contour":name|curve,"antiAlias":bool,"noise":0..100,"add":bool}"##
+            r##"{"color":"#rrggbb","opacity":0..100=75,"blend":str="screen","technique":"softer|precise","spread":0..100,"size":px,"range":1..100=50,"contour":name|curve,"antiAlias":bool,"noise":0..100,"add":bool}"##
         ),
         style_cmd!(
             "innerGlow",
             "Inner Glow…",
-            r##"{"color":"#rrggbb","opacity":0..100=75,"blend":str="screen","technique":"softer|precise","source":"edge|center","choke":0..100,"size":px,"contour":name|curve,"antiAlias":bool,"noise":0..100,"add":bool}"##
+            r##"{"color":"#rrggbb","opacity":0..100=75,"blend":str="screen","technique":"softer|precise","source":"edge|center","choke":0..100,"size":px,"range":1..100=50,"contour":name|curve,"antiAlias":bool,"noise":0..100,"add":bool}"##
         ),
         style_cmd!(
             "stroke",
@@ -1146,6 +1146,26 @@ mod tests {
         assert!((b.contour.as_ref().unwrap().range - 0.7).abs() < 1e-6);
         let t = b.texture.as_ref().unwrap();
         assert_eq!((t.name.as_str(), t.depth, t.invert), ("Bubbles", -2.0, true));
+    }
+
+    /// #6698 review: a glow's Range runs 1..100 %, as its slider and Photoshop's do. A 0 is
+    /// held at the 1 % floor, and 100 is kept.
+    #[test]
+    fn glow_range_is_held_to_one_through_one_hundred() {
+        for kind in ["outerGlow", "innerGlow"] {
+            for (sent, kept) in [(0.0, 0.01), (-5.0, 0.01), (1.0, 0.01), (50.0, 0.5), (100.0, 1.0), (250.0, 1.0)] {
+                let mut s = session();
+                s.execute(&format!("layer.layerStyle.{kind}"), json!({"range": sent})).unwrap();
+                let range = match &effects(&s)[0] {
+                    Effect::OuterGlow(g) | Effect::InnerGlow(g) => g.range,
+                    other => panic!("{other:?}"),
+                };
+                assert!((range - kept).abs() < 1e-6, "{kind} range {sent} kept as {range}, not {kept}");
+            }
+        }
+        let doc = |id: &str| specs().into_iter().find(|c| c.id == id).map(|c| c.params).unwrap_or_default();
+        assert!(doc("layer.layerStyle.outerGlow").contains(r#""range":1..100=50"#));
+        assert!(doc("layer.layerStyle.innerGlow").contains(r#""range":1..100=50"#));
     }
 
     #[test]
