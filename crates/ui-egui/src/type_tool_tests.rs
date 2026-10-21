@@ -1629,9 +1629,13 @@ mod multi_layer_formatting {
     #[test]
     fn character_and_paragraph_fields_follow_the_type_units_preference() {
         use egui_kittest::kittest::NodeT;
-        let (mut app, ids) = fixture();
+        // The resolution is set before the type exists: Image Size keeps existing type's pixel
+        // size (#7125), so a layer made earlier would be 6 pt here.
+        let mut app = new_app();
         app.run("prefs.set", json!({"path": "unitsAndRulers.typeUnits", "value": "pixels"})).unwrap();
         app.run("image.imageSize", json!({"resolution": 144, "resample": "none"})).unwrap();
+        let ids =
+            [LayerId(app.run("type.create", json!({"text": "AéBCD", "font": "Inter", "size": 12, "color": "#000000"})).unwrap()["layer"].as_u64().unwrap())];
         selected(&mut app, &[ids[0]]);
         let mut h = controls(app, true);
         let shown = h.get_by_role_and_label(Role::SpinButton, "Font size").accesskit_node().numeric_value();
