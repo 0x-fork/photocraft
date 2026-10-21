@@ -21,7 +21,8 @@ const CHANNEL_RESOURCES: [u16; 4] = [1006, 1045, 1053, crate::channel_map::DISPL
 /// opaque, or a Bitmap document; None for any other document (it is written like the others). A
 /// document with alpha channels or a Quick Mask is written like the others too: the importer does
 /// not read the extra channels of these modes back, so they would be lost.
-pub(crate) fn document_to_psd(doc: &Document, force_psb: bool) -> Option<(PsdFile, Vec<String>)> {
+/// A file past `size_limit` bytes is written as PSB (see `psd_export::fit_psd_size`).
+pub(crate) fn document_to_psd(doc: &Document, force_psb: bool, size_limit: u64) -> Option<(PsdFile, Vec<String>)> {
     if !doc.channels.is_empty() || doc.quick_mask.is_some() {
         return None;
     }
@@ -63,7 +64,7 @@ pub(crate) fn document_to_psd(doc: &Document, force_psb: bool) -> Option<(PsdFil
     }
     // An imported transparency index that no longer applies is not copied either.
     let keep = |id: u16, _: &[u8]| !CHANNEL_RESOURCES.contains(&id) && id != TRANSPARENCY_INDEX && id != COLOR_TABLE_COUNT;
-    let file = crate::multichannel_map::layerless_file(doc, header, image_data, color_mode_data, resources, keep, &mut warnings);
+    let file = crate::multichannel_map::layerless_file(doc, header, image_data, color_mode_data, resources, keep, size_limit, &mut warnings);
     Some((file, warnings))
 }
 

@@ -1463,6 +1463,15 @@ pub(crate) fn fit_psd_size(file: &mut PsdFile, limit: u64) -> Option<String> {
     }
 }
 
+/// Signs every global block for the version `file` is written as ([`block_signature`]): run
+/// after [`fit_psd_size`], which may turn a PSD into a PSB.
+pub(crate) fn sign_global_blocks(file: &mut PsdFile) {
+    let version = file.written_version();
+    for block in &mut file.global_blocks {
+        block.signature = block_signature(block.signature, block.key, version);
+    }
+}
+
 /// [`document_to_psd_with`] for a document embedded `depth` smart objects deep.
 fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, ctl: &Interrupt) -> (PsdFile, Vec<String>) {
     document_to_psd_sized(doc, opts, depth, ctl, PSD_MAX_FILE_SIZE)
@@ -1473,7 +1482,7 @@ fn document_to_psd_sized(doc: &Document, opts: &PsdExportOptions, depth: u32, ct
     if doc.mode == ColorMode::Multichannel {
         return crate::multichannel_map::document_to_psd(doc, opts.force_psb, size_limit);
     }
-    if let Some(file) = crate::palette_map::document_to_psd(doc, opts.force_psb) {
+    if let Some(file) = crate::palette_map::document_to_psd(doc, opts.force_psb, size_limit) {
         return file;
     }
     let fmt = doc.pixel_format();
@@ -1713,7 +1722,7 @@ fn document_to_psd_sized(doc: &Document, opts: &PsdExportOptions, depth: u32, ct
         if !ex.records.is_empty() && matches!(&key, b"Lr16" | b"Lr32" | b"Layr") {
             continue;
         }
-        // The signature follows the final version (see `block_signature` below).
+        // The signature follows the final version (see `sign_global_blocks`).
         global_blocks.push(global_block(sig, key, &data));
     }
     if let Some(txt2) = txt2 {
@@ -1798,10 +1807,7 @@ fn document_to_psd_sized(doc: &Document, opts: &PsdExportOptions, depth: u32, ct
     if opts.size_limit_psb {
         ex.warnings.extend(fit_psd_size(&mut file, size_limit));
     }
-    let version = file.written_version();
-    for block in &mut file.global_blocks {
-        block.signature = block_signature(block.signature, block.key, version);
-    }
+    sign_global_blocks(&mut file);
     (file, ex.warnings)
 }
 
@@ -2109,6 +2115,50 @@ mod tests {
         let back = PsdFile::from_bytes(&file.to_bytes().unwrap()).unwrap();
         assert_eq!(back.header.version, Version::Psb);
         assert_eq!(back.decode_merged().unwrap(), PsdFile::from_bytes(&export_sized(&doc, u64::MAX).0.to_bytes().unwrap()).unwrap().decode_merged().unwrap());
+    }
+
+    /// Indexed Color and Bitmap (written without layers, #4816), Multichannel and RGB follow the
+    /// encoded-size rule, and a file turned into PSB by its size writes its global blocks with
+    /// 8-byte lengths as `8B64` (#7937), whatever signature they were kept with; a file that fits
+    /// stays a PSD with `8BIM` throughout.
+    #[test]
+    fn every_mode_promoted_by_size_signs_long_blocks_8b64() {
+        let white = photocraft_color::Color::rgba(1.0, 1.0, 1.0, 1.0);
+        let mut docs = Vec::new();
+        for (mode, psd_mode) in [(ColorMode::Indexed, PsdMode::Indexed), (ColorMode::Bitmap, PsdMode::Bitmap), (ColorMode::Rgb, PsdMode::Rgb)] {
+            let mut doc = Document::with_background("modes", photocraft_geom::Size::new(64, 64), ColorMode::Rgb, SampleType::U8, white);
+            doc.mode = mode;
+            doc.color_table = Some(photocraft_doc::ColorTable { colors: vec![[255, 255, 255], [0, 0, 0]], transparent: None });
+            docs.push((doc, psd_mode));
+        }
+        let mut multichannel = document(64, 64);
+        multichannel.mode = ColorMode::Multichannel;
+        multichannel.channels.push(photocraft_doc::AlphaChannel::new("Cyan", photocraft_raster::Surface::new(PixelFormat::GRAY8)));
+        docs.push((multichannel, PsdMode::Multichannel));
+        for (mut doc, psd_mode) in docs {
+            doc.metadata.psd_global_blocks = vec![
+                (*b"8BIM", *b"cinf", std::sync::Arc::new(vec![0, 0, 0, 16, 0, 0, 0, 0])),
+                (*b"8BIM", *b"pths", std::sync::Arc::new(vec![0, 0, 0, 16, 0, 0, 0, 0])),
+                (*b"8B64", *b"FMsk", std::sync::Arc::new(vec![0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0, 0, 50])),
+                (*b"8BIM", *b"Patt", std::sync::Arc::new(Vec::new())),
+            ];
+            let written = |limit| {
+                let (file, warnings) = export_sized(&doc, limit);
+                let bytes = file.to_bytes().unwrap();
+                let back = PsdFile::from_bytes(&bytes).unwrap();
+                let blocks = back.global_blocks.iter().map(|b| (b.signature, b.key)).collect::<Vec<_>>();
+                (bytes.len() as u64, back, blocks, warnings)
+            };
+            let (len, small, blocks, _) = written(u64::MAX);
+            assert_eq!((small.header.version, small.header.color_mode), (Version::Psd, psd_mode), "{psd_mode:?}");
+            assert_eq!(blocks, vec![(*b"8BIM", *b"cinf"), (*b"8BIM", *b"pths"), (*b"8BIM", *b"FMsk"), (*b"8BIM", *b"Patt")], "{psd_mode:?}: a PSD keeps 8BIM");
+            // One byte short of the encoded length: the same document is written as PSB.
+            let (_, big, blocks, warnings) = written(len + PSD_SAVE_HEADROOM - 1);
+            assert_eq!((big.header.version, big.header.color_mode), (Version::Psb, psd_mode), "{psd_mode:?}: {warnings:?}");
+            assert!(warnings.iter().any(|w| w == "encoded size exceeds 2 GB; written as PSB"), "{psd_mode:?}: {warnings:?}");
+            assert_eq!(blocks, vec![(*b"8B64", *b"cinf"), (*b"8B64", *b"pths"), (*b"8B64", *b"FMsk"), (*b"8BIM", *b"Patt")], "{psd_mode:?}: a PSB signs 8B64");
+            assert_eq!(big.decode_merged().unwrap(), small.decode_merged().unwrap(), "{psd_mode:?}");
+        }
     }
 
     #[test]

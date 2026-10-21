@@ -120,15 +120,16 @@ pub(crate) fn document_to_psd(doc: &Document, force_psb: bool, size_limit: u64) 
     // Alpha identifiers: one u32 per channel, only while they still match the channels.
     let keep = |id: u16, data: &[u8]| id != ALPHA_IDENTIFIERS || data.len() == channels.len().saturating_mul(4);
     let color_mode_data = photocraft_psd::hdr::color_mode_data_for_depth(header.depth);
-    let mut file = layerless_file(doc, header, image_data, color_mode_data, resources, keep, &mut warnings);
-    warnings.extend(crate::psd_export::fit_psd_size(&mut file, size_limit));
+    let file = layerless_file(doc, header, image_data, color_mode_data, resources, keep, size_limit, &mut warnings);
     (file, warnings)
 }
 
 /// A PSD without layers around `image_data`: `resources` (the mode's own) plus the paths, XMP,
 /// EXIF and every other imported resource `keep` accepts (except the ones that only describe
 /// layers and any already in `resources`), and the document-level tagged blocks. Shared by the
-/// modes that have no layers in Photoshop: Multichannel, Indexed Color and Bitmap.
+/// modes that have no layers in Photoshop: Multichannel, Indexed Color and Bitmap. A file past
+/// `size_limit` bytes is written as PSB (see `psd_export::fit_psd_size`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn layerless_file(
     doc: &Document,
     header: Header,
@@ -136,6 +137,7 @@ pub(crate) fn layerless_file(
     color_mode_data: Vec<u8>,
     mut resources: Vec<ImageResource>,
     keep: impl Fn(u16, &[u8]) -> bool,
+    size_limit: u64,
     warnings: &mut Vec<String>,
 ) -> PsdFile {
     resources.extend(crate::psd_export::path_resources(doc, warnings));
@@ -163,13 +165,14 @@ pub(crate) fn layerless_file(
     }
     resources.push(version_info_resource(true));
     // Document-level tagged blocks (patterns, notes, ...) are valid without a layer section; a
-    // kept layer block would describe layers the document doesn't have.
+    // kept layer block would describe layers the document doesn't have. Their signatures follow
+    // the version the file is written as, known once its size is.
     let global_blocks: Vec<TaggedBlock> = crate::annotations_map::export_blocks(doc, crate::pattern_map::export_global_blocks(doc))
         .into_iter()
         .filter(|(_, key, _)| !matches!(key, b"Layr" | b"Lr16" | b"Lr32"))
-        .map(|(sig, key, data)| crate::psd_export::global_block(crate::psd_export::block_signature(sig, key, header.version), key, &data))
+        .map(|(sig, key, data)| crate::psd_export::global_block(sig, key, &data))
         .collect();
-    PsdFile {
+    let mut file = PsdFile {
         header,
         color_mode_data,
         resources,
@@ -180,5 +183,8 @@ pub(crate) fn layerless_file(
         layer_mask_trailing: Vec::new(),
         image_data,
         write_as_psb: false,
-    }
+    };
+    warnings.extend(crate::psd_export::fit_psd_size(&mut file, size_limit));
+    crate::psd_export::sign_global_blocks(&mut file);
+    file
 }
