@@ -869,3 +869,16 @@ fn windows_pdf_component_is_detected_by_loading_its_dll() {
 fn the_windows_pdf_check_is_a_no_op_elsewhere() {
     assert!(require_windows_pdf().is_ok());
 }
+
+#[test]
+fn package_of_a_document_named_after_a_windows_device_is_written() {
+    // On Windows a folder named `nul` is the NUL device: the save failed with "path not found".
+    let dir = tmp("package-device-name");
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 8, "height": 8, "name": "nul.psd"})).unwrap();
+    let r = s.execute("file.package", json!({"dir": format!("{dir}/pkg")})).unwrap();
+    assert_eq!(r["folder"].as_str().unwrap(), format!("{dir}/pkg/nul_"));
+    let document = r["document"].as_str().unwrap();
+    assert!(document.ends_with("pkg/nul_/nul_.pcraft"), "{document}");
+    assert!(std::path::Path::new(document).is_file());
+}
