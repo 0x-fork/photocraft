@@ -188,3 +188,42 @@ fn command_click_on_a_thumbnail_loads_transparency_except_on_the_background() {
     click(&mut h, shape, Modifiers::COMMAND);
     assert_eq!(bounds(&h), Some(photocraft_geom::Rect::new(100, 50, 220, 150)), "a hidden layer's transparency loads too");
 }
+
+/// A click on the empty space below the last row of the Layers panel deselects every layer, as
+/// in Photoshop (#8100); a click on a row still selects it.
+#[test]
+fn a_click_below_the_layers_deselects_them() {
+    use egui::{Event, PointerButton, pos2, vec2};
+    let mut s = photocraft_engine::Session::new();
+    s.execute("file.new", json!({"width": 64, "height": 48})).unwrap();
+    let top = s.execute("layer.new.layer", json!({"name": "Top"})).unwrap()["layer"].as_u64().unwrap();
+    let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).with_max_steps(64).build_eframe(move |cc| {
+        PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+        PhotocraftApp::new(s, crate::Services::default())
+    });
+    let ctx = h.ctx.clone();
+    let (r, _) = crate::control::ControlRequest::new("ui.set", json!({"dock": {"collapsed": ["color", "properties", "history", "navigator"]}}));
+    crate::control::handle(h.state_mut(), &ctx, &r);
+    h.run_steps(8);
+    let click = |h: &mut egui_kittest::Harness<'_, PhotocraftApp>, at: egui::Pos2| {
+        h.hover_at(at);
+        h.run_steps(1);
+        h.event(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+        h.run_steps(1);
+        h.event(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+        h.run_steps(3);
+    };
+    let selected = |h: &egui_kittest::Harness<'_, PhotocraftApp>| h.state().session.active().unwrap().selected_layers();
+    assert_eq!(selected(&h), vec![photocraft_doc::LayerId(top)]);
+    let rows = crate::layer_row_ui::recorded(&h.ctx);
+    let bottom = rows.iter().map(|r| r.row.bottom()).fold(f32::MIN, f32::max);
+    let row = rows.iter().find(|r| r.layer == top).unwrap().row;
+    click(&mut h, pos2(row.center().x, bottom + 40.0));
+    assert!(selected(&h).is_empty(), "the empty space deselects every layer");
+    assert_eq!(h.state().session.active().unwrap().active_layer, None);
+    // Past the double-click window, on the row as it is now drawn.
+    h.run_steps(40);
+    let row = crate::layer_row_ui::recorded(&h.ctx).into_iter().find(|r| r.layer == top).unwrap().row;
+    click(&mut h, pos2(row.left() + 46.0, row.center().y));
+    assert_eq!(selected(&h), vec![photocraft_doc::LayerId(top)], "a row still selects");
+}
