@@ -4152,12 +4152,13 @@ fn srgb_bytes(c: [f32; 4]) -> [u8; 3] {
 /// so a 50% grey has Brightness 50%. egui's `Hsva` conversions work in linear light, which put
 /// that grey at 22% and drew the field's middle as 188 (#3323); `Hsva` only holds the numbers.
 fn srgb_hsva(c: [f32; 4]) -> egui::ecolor::Hsva {
-    let [h, s, v] = crate::color_picker_ui::rgb_to_hsv([c[0], c[1], c[2]].map(|v| v.clamp(0.0, 1.0)));
+    let [h, s, v] = photocraft_color::convert::rgb_to_hsb([c[0], c[1], c[2]].map(|v| v.clamp(0.0, 1.0)));
     egui::ecolor::Hsva::new(h / 360.0, s, v, 1.0)
 }
 
+/// The inverse of srgb_hsva: the Color panel's HSB back to sRGB-encoded values.
 fn hsva_srgb(h: egui::ecolor::Hsva) -> [f32; 4] {
-    let [r, g, b] = crate::color_picker_ui::hsv_to_rgb(h.h * 360.0, h.s.clamp(0.0, 1.0), h.v.clamp(0.0, 1.0));
+    let [r, g, b] = photocraft_color::convert::hsb_to_rgb([h.h * 360.0, h.s.clamp(0.0, 1.0), h.v.clamp(0.0, 1.0)]);
     [r, g, b, 1.0]
 }
 
@@ -4693,7 +4694,7 @@ mod color_tests {
         assert_eq!(hsva_color32(egui::ecolor::Hsva::new(0.3, 0.0, 0.5, 1.0)), Color32::from_gray(128));
         // The same numbers as the Color Picker dialog for a saturated colour.
         let c = [0.847, 0.271, 0.180];
-        let (ours, dialog) = (srgb_hsva([c[0], c[1], c[2], 1.0]), crate::color_picker_ui::rgb_to_hsv(c));
+        let (ours, dialog) = (srgb_hsva([c[0], c[1], c[2], 1.0]), photocraft_color::convert::rgb_to_hsb(c));
         assert!((ours.h * 360.0 - dialog[0]).abs() < 0.5 && (ours.s - dialog[1]).abs() < 1e-3 && (ours.v - dialog[2]).abs() < 1e-3, "{ours:?} vs {dialog:?}");
     }
 
