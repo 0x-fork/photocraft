@@ -2171,6 +2171,11 @@
 	Color Replacement Tool	Nástroj Nahrazení barvy
 	Color Replacement	Nahrazení barvy
 	Wet	Vlhkost
+	Current Brush Load	Aktuální náplň štětce
+	Load Brush	Naplnit štětec
+	Clean Brush	Vyčistit štětec
+	Load the brush after each stroke	Naplnit štětec po každém tahu
+	Clean the brush after each stroke	Vyčistit štětec po každém tahu
 	Mix	Míchání
 	Wetness Jitter	Kolísání vlhkosti
 	Mix Jitter	Kolísání míchání
@@ -3856,3 +3861,6 @@ navigator	Zoom	Zvětšení
 # DDS Options (#1327)
 	DDS Options	Možnosti DDS
 	Generate Mipmaps	Generovat mipmapy
+
+# Graphics Adapter preference (#1885)
+	GPU adapter	Adaptér GPU
