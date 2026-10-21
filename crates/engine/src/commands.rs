@@ -1495,6 +1495,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::adjust_cmds::specs());
     v.extend(crate::layer_menu_cmds::specs());
     v.extend(crate::layer_label_cmds::specs());
+    v.extend(crate::layer_xmp_cmds::specs());
     v.extend(crate::mode_cmds::specs());
     v.extend(crate::multichannel_cmds::specs());
     v.extend(crate::pattern_cmds::specs());
