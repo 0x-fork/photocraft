@@ -73,6 +73,8 @@ pub struct Spooler {
 
 /// A stand-in for the system's printers, installed on `Session::printer_source` (tests):
 /// `file.printers`, `file.print.printers` and the Print dialog list these and do not ask the spooler.
+/// `file.print.printers` and the dialog's driver Printer menu list them on Windows only, where the
+/// GDI route is; elsewhere they answer as that route does there.
 pub type PrinterSource = std::sync::Arc<dyn Fn() -> Vec<craft_print::Printer> + Send + Sync>;
 
 /// Held while a thread of this process lists printers or calls into a printer driver.
@@ -166,7 +168,7 @@ fn list_system_printers(s: &Session) -> Vec<craft_print::Printer> {
 /// Lists the GDI route's printers; called with the spooler lock held.
 fn list_rgb_printers(s: &Session) -> RgbPrinters {
     let list = match &s.printer_source {
-        Some(source) => Ok(source().into_iter().map(|p| craft_print::rgb::Printer { name: p.name, default: p.default }).collect()),
+        Some(source) => stand_in_rgb_printers(source, cfg!(windows)),
         None => {
             SYSTEM_LISTINGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             craft_print::rgb::printers()
@@ -176,12 +178,22 @@ fn list_rgb_printers(s: &Session) -> RgbPrinters {
     list
 }
 
+/// The GDI route's answer from a stand-in: its printers on Windows, and `Unsupported` elsewhere,
+/// as `craft_print::rgb::printers` answers there.
+fn stand_in_rgb_printers(source: &PrinterSource, windows: bool) -> RgbPrinters {
+    if !windows {
+        return Err(craft_print::rgb::PrintError::Unsupported);
+    }
+    Ok(source().into_iter().map(|p| craft_print::rgb::Printer { name: p.name, default: p.default }).collect())
+}
+
 /// The printers `craft-print` spools to, or the session's stand-in for them.
 fn system_printer_list(s: &Session) -> Vec<craft_print::Printer> {
     with_spooler(|| list_system_printers(s))
 }
 
-/// The printers the GDI route prints to (`craft_print::rgb`), or the session's stand-in for them.
+/// The printers the GDI route prints to (`craft_print::rgb`), or on Windows the session's stand-in
+/// for them.
 pub fn rgb_printers(s: &Session) -> RgbPrinters {
     with_spooler(|| list_rgb_printers(s))
 }

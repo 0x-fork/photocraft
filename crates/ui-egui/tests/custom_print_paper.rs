@@ -6,16 +6,19 @@ use serde_json::{Map, Value, json};
 
 fn app() -> (PhotocraftApp, u64) {
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), photocraft_ui_egui::Services::default());
-    // Exercise PDF paper controls even when native printers are available, on every OS. Print
-    // lists this printer and does not ask the spooler.
+    // Print lists this printer and does not ask the spooler.
     app.session.printer_source =
         Some(std::sync::Arc::new(|| vec![craft_print::Printer { name: "Test native printer".into(), default: true, two_sided: None }]));
     app.run("file.new", json!({"width": 120, "height": 80, "name": "Custom paper"})).unwrap();
     let id = open_print(&mut app);
     assert_no_system_listing();
+    let fields = &mut app.ui.dialog_mut(id).unwrap().fields;
     // Every UI path in these fixtures is safe even if an unexpected Enter confirms the dialog.
-    app.ui.dialog_mut(id).unwrap().fields.insert("dryRun".into(), json!(true));
-    assert_eq!(app.ui.dialog_mut(id).unwrap().fields["__printers"], json!(["Test native printer"]));
+    fields.insert("dryRun".into(), json!(true));
+    // The driver Printer menu lists the stand-in on Windows only, where the GDI route is.
+    assert_eq!(fields.get("__printers"), cfg!(windows).then(|| json!(["Test native printer"])).as_ref());
+    // Exercise PDF paper controls even when native printers are available, on every OS.
+    fields.insert("__printers".into(), json!(["Test native printer"]));
     (app, id)
 }
 

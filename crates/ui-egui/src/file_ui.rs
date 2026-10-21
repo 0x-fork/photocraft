@@ -1540,7 +1540,11 @@ mod tests {
         let id = crate::menus::invoke(&mut app, &ctx, "file.print", json!({})).unwrap()["dialog"].as_u64().unwrap();
         let f = &app.ui.dialog_mut(id).unwrap().fields;
         assert_eq!(f["__systemPrinters"], json!([{"name": "Test printer", "default": true}]));
-        assert_eq!((f["__printers"].clone(), f["printer"].clone()), (json!(["Test printer"]), json!("Test printer")));
+        // The driver Printer menu lists the stand-in on Windows only, where the GDI route is.
+        assert_eq!(f.get("__printers"), cfg!(windows).then(|| json!(["Test printer"])).as_ref());
+        if cfg!(windows) {
+            assert_eq!(f["printer"], "Test printer");
+        }
         assert!(params(f).get("__systemPrinters").is_none());
         assert!(params(f).get("__printers").is_none());
         // Every test in this binary that opens Print lists the session's printers.

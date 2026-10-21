@@ -211,11 +211,22 @@ fn printer_commands_answer_without_a_document_and_reject_bad_settings() {
     let mut s = Session::new();
     s.printer_source = Some(test_printers());
     let r = s.execute("file.print.printers", json!({})).unwrap();
-    assert_eq!(r["supported"], true);
-    assert_eq!(r["printers"], json!([{"name": "Studio", "default": false}, {"name": "Office", "default": true}]));
+    assert_eq!(r["supported"], cfg!(windows));
+    let listed = if cfg!(windows) { json!([{"name": "Studio", "default": false}, {"name": "Office", "default": true}]) } else { json!([]) };
+    assert_eq!(r["printers"], listed);
     assert!(s.execute("file.print.page", json!({"printer": "Anything", "printerSettings": "zz"})).is_err());
     let mut s = session("rgb", 8);
     assert!(s.execute("file.print", json!({"printer": "Anything", "printerSettings": "0102", "send": true})).is_err());
+}
+
+/// The GDI route lists a stand-in's printers only on Windows. Elsewhere it answers `Unsupported`
+/// as the real route does, so the Print dialog shows the system's printers and paper controls.
+#[test]
+fn stand_in_printers_reach_the_gdi_route_on_windows_only() {
+    let source = test_printers();
+    assert_eq!(stand_in_rgb_printers(&source, false), Err(craft_print::rgb::PrintError::Unsupported));
+    let listed = stand_in_rgb_printers(&source, true).unwrap();
+    assert_eq!(listed.iter().map(|p| (p.name.as_str(), p.default)).collect::<Vec<_>>(), [("Studio", false), ("Office", true)]);
 }
 
 /// Synthetic driver settings: a DEVMODEW of `size` bytes plus `extra` private driver bytes, every
@@ -592,7 +603,8 @@ fn printer_listings_enter_the_spooler_one_thread_at_a_time() {
                 }));
                 start.wait();
                 for _ in 0..3 {
-                    let id = if i % 2 == 0 { "file.printers" } else { "file.print.printers" };
+                    // `file.print.printers` lists the stand-in on Windows only.
+                    let id = if i % 2 == 0 || !cfg!(windows) { "file.printers" } else { "file.print.printers" };
                     assert_eq!(s.execute(id, json!({})).unwrap()["printers"][0]["name"], "Office");
                 }
             })
