@@ -1306,6 +1306,38 @@ mod tests {
         }
     }
 
+    /// A 0.1.0 to 0.7.0 file whose first extra channel is an alpha channel, spots after it. In its
+    /// 14-byte DisplayInfo records the spots' kind bytes sit where a 13-byte reader (main's, and
+    /// this one's) doesn't look, so only the padded reading finds a spot for the rule. Every plane
+    /// is then read straight, as those versions read it, and keeps its ink. The 13-byte reader
+    /// opens each channel's options from shifted bytes, as on main: here every channel opens as
+    /// an alpha channel. A spot of 2 % solidity puts a 2 where that reader looks for the kind, so
+    /// that channel opens as a spot: without the rule its plane would be inverted. Saved again and
+    /// reopened, every channel keeps its ink and kind.
+    #[test]
+    fn an_early_file_with_an_alpha_channel_first_keeps_its_ink() {
+        for solidity in [0.0, 0.02] {
+            let mut doc = channels_document(SampleType::U8);
+            doc.channels.swap(0, 1);
+            doc.channels[1].spot = Some((photocraft_color::Color::rgb(0.0, 0.627, 1.0), solidity));
+            let names: Vec<&str> = doc.channels.iter().map(|c| c.name.as_str()).collect();
+            assert_eq!(names, ["Alpha 1", "Spot A", "Spot B"]);
+            let bytes = as_earlier_photocraft_saved(&doc, version_info_cs6(true), true);
+            let file = PsdFile::from_bytes(&bytes).unwrap();
+            let info = &file.resource(crate::channel_map::DISPLAY_INFO).unwrap().data;
+            let misread = solidity > 0.0;
+            assert_eq!(crate::channel_map::spot_flags(info, true, 0), [false, misread, false], "{solidity}: 13-byte records");
+            assert!(earlier_photocraft_spot_planes(&file), "{solidity}: found in the 14-byte records");
+            let opened = crate::import("old.psd", &bytes).unwrap().document;
+            assert_eq!(ink(&opened), ink(&doc), "{solidity}: the ink 0.7.0 opened");
+            assert_eq!(spots(&opened), [false, misread, false], "{solidity}: kinds as main reads them");
+            let saved = crate::export(&opened, "old.psd", &crate::ExportOptions::default()).unwrap();
+            let again = crate::import("again.psd", &saved.bytes).unwrap().document;
+            assert_eq!(ink(&again), ink(&doc), "{solidity}: saved again");
+            assert_eq!(spots(&again), spots(&opened), "{solidity}: saved again");
+        }
+    }
+
     /// A file with spots and no 1053 that no earlier PhotoCraft wrote is read in Photoshop's
     /// polarity (0 = solid ink). psd-tools' `cmyk-spot.psd` is one: its 1057 names psd-tools as
     /// writer and reader. So is a file with no 1057, with Photoshop CS6's names without the NUL,
