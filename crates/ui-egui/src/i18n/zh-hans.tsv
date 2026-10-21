@@ -2824,6 +2824,9 @@ curves	Smooth	平滑
 # View › Guides › right-click a guide
 	Edit Selected Guides	编辑所选参考线
 	Clear Selected Guides	清除所选参考线
+	Bicubic Automatic	双三次（自动）
+	Bicubic Smoother	双三次（较平滑）
+	Bicubic Sharper	双三次（较锐利）
 	Pasting from other apps is unavailable	无法从其他应用粘贴
 	PhotoCraft can't reach the system clipboard in this session. On Wayland, a Flatpak sandbox hides the protocol that images from other apps are read through.	PhotoCraft 在此会话中无法访问系统剪贴板。在 Wayland 上，Flatpak 沙盒会隐藏读取其他应用图像所用的协议。
 	To paste from other apps, start PhotoCraft under XWayland: `{command}`	要从其他应用粘贴，请在 XWayland 下启动 PhotoCraft：`{command}`

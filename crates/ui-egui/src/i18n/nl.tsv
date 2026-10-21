@@ -3959,6 +3959,9 @@ curves	Smooth	Vloeiend maken
 # View › Guides › right-click a guide
 	Edit Selected Guides	Geselecteerde hulplijnen bewerken
 	Clear Selected Guides	Geselecteerde hulplijnen wissen
+	Bicubic Automatic	Bicubisch automatisch
+	Bicubic Smoother	Bicubisch vloeiender
+	Bicubic Sharper	Bicubisch scherper
 	Pasting from other apps is unavailable	Plakken vanuit andere apps is niet beschikbaar
 	PhotoCraft can't reach the system clipboard in this session. On Wayland, a Flatpak sandbox hides the protocol that images from other apps are read through.	PhotoCraft heeft in deze sessie geen toegang tot het systeemklembord. Onder Wayland verbergt een Flatpak-sandbox het protocol waarmee afbeeldingen uit andere apps worden gelezen.
 	To paste from other apps, start PhotoCraft under XWayland: `{command}`	Om vanuit andere apps te plakken, start je PhotoCraft onder XWayland: `{command}`

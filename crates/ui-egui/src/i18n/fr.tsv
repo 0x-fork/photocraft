@@ -3205,6 +3205,9 @@ curves	Smooth	Lisser
 # View › Guides › right-click a guide
 	Edit Selected Guides	Modifier les repères sélectionnés
 	Clear Selected Guides	Effacer les repères sélectionnés
+	Bicubic Automatic	Bicubique automatique
+	Bicubic Smoother	Bicubique plus lisse
+	Bicubic Sharper	Bicubique plus net
 	Pasting from other apps is unavailable	Le collage depuis d’autres applications est indisponible
 	PhotoCraft can't reach the system clipboard in this session. On Wayland, a Flatpak sandbox hides the protocol that images from other apps are read through.	PhotoCraft ne peut pas accéder au presse-papiers du système dans cette session. Sous Wayland, le bac à sable Flatpak masque le protocole par lequel les images des autres applications sont lues.
 	To paste from other apps, start PhotoCraft under XWayland: `{command}`	Pour coller depuis d’autres applications, lancez PhotoCraft sous XWayland : `{command}`

@@ -4116,6 +4116,9 @@ cameraRaw	Yellow	Sárga
 # View › Guides › right-click a guide
 	Edit Selected Guides	Kijelölt segédvonalak szerkesztése
 	Clear Selected Guides	Kijelölt segédvonalak törlése
+	Bicubic Automatic	Automatikus bikubikus
+	Bicubic Smoother	Simább bikubikus
+	Bicubic Sharper	Élesebb bikubikus
 	Pasting from other apps is unavailable	A beillesztés más alkalmazásokból nem érhető el
 	PhotoCraft can't reach the system clipboard in this session. On Wayland, a Flatpak sandbox hides the protocol that images from other apps are read through.	A PhotoCraft ebben a munkamenetben nem fér hozzá a rendszer vágólapjához. Waylanden a Flatpak homokozó elrejti azt a protokollt, amelyen keresztül más alkalmazások képei olvashatók.
 	To paste from other apps, start PhotoCraft under XWayland: `{command}`	Ha más alkalmazásokból szeretne beilleszteni, indítsa a PhotoCraftot XWayland alatt: `{command}`
