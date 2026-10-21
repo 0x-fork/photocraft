@@ -685,6 +685,57 @@ fn jpeg_xl_linear_raw_develops() {
     assert_eq!(develop(&spec.build(), &DevelopOptions::default()).unwrap().rgb, d.rgb);
 }
 
+/// A LinearRaw JPEG XL strip of `data` (16-bit samples) whose raw IFD says the samples are
+/// floating-point (SampleFormat 3), as converters write lossy DNGs (#8125). The codestream is
+/// an integer one (the test encoder writes no floats): the decoder reads it as floats in 0..=1,
+/// the same values a float codestream of `data / 65535` holds.
+fn float_jxl_dng(data: &[u16], w: usize, h: usize, white: Option<f64>) -> DngSpec {
+    let mut spec = DngSpec::cfa(w, h, data.to_vec());
+    spec.samples = 3;
+    spec.white = 0;
+    spec.storage = DngStorage::JxlStrips { rows: h };
+    spec.jxl_segments = vec![jxl(data, w, h, 3, 16)];
+    spec.raw_extra = vec![(339, Val::Short(vec![3; 3]))];
+    if let Some(white) = white {
+        spec.raw_extra.push((50717, Val::Double(vec![white; 3])));
+    }
+    spec
+}
+
+#[test]
+fn floating_point_jpeg_xl_linear_raw_decodes() {
+    let (w, h) = (24, 16);
+    let data = noise(w * h * 3, 16);
+    // White level 1.0 (the default) becomes 65535: the samples read back as stored.
+    let s = sensor(&float_jxl_dng(&data, w, h, None).build());
+    assert_eq!((s.width, s.height, s.samples), (w, h, 3));
+    assert_eq!(s.data, data);
+    assert_eq!(s.white, [65535.0; 3]);
+    // A stated white level of 0.5 becomes 65535 too: samples double, those above it clip.
+    let s = sensor(&float_jxl_dng(&data, w, h, Some(0.5)).build());
+    assert_eq!(s.white, [65535.0; 3]);
+    assert_eq!(s.data, data.iter().map(|&v| (u32::from(v) * 2).min(65535) as u16).collect::<Vec<_>>());
+    // It develops like the same samples stored as integers.
+    let pixels: Vec<u16> = scene(w, h).iter().flat_map(|p| p.map(|v| (v * 20000.0) as u16)).collect();
+    let float = develop(&float_jxl_dng(&pixels, w, h, None).build(), &DevelopOptions::default()).unwrap();
+    let mut ints = DngSpec::cfa(w, h, pixels.clone());
+    ints.samples = 3;
+    ints.white = 65535;
+    ints.storage = DngStorage::Strips { rows: h };
+    assert_eq!(float.rgb, develop(&ints.build(), &DevelopOptions::default()).unwrap().rgb);
+}
+
+#[test]
+fn floating_point_raw_data_that_isnt_jpeg_xl_is_unsupported() {
+    let (w, h) = (8, 4);
+    let mut spec = float_jxl_dng(&noise(w * h * 3, 16), w, h, None);
+    spec.storage = DngStorage::Strips { rows: h };
+    match decode(&spec.build(), &Limits::default()) {
+        Err(RawError::Unsupported(m)) => assert!(m.contains("floating-point"), "{m}"),
+        other => panic!("expected unsupported, got {other:?}"),
+    }
+}
+
 #[test]
 fn jpeg_xl_mismatches_are_errors() {
     let (w, h) = (16, 8);

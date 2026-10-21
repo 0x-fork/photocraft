@@ -221,8 +221,10 @@ pub(crate) fn decode(t: &Tiff, limits: &Limits) -> Result<Sensor> {
         Some(l) => f32::from(l.iter().copied().max().unwrap_or(u16::MAX)),
         None => max,
     };
+    // Floating-point levels are in the floats' units: scale them as the samples were.
+    let unit = plane.float_scale.unwrap_or(1.0);
     let wl = t.tag_floats(&raw, tag::WHITE_LEVEL);
-    let white = [0, 1, 2].map(|s| wl.get(s).or_else(|| wl.first()).map(|v| *v as f32).filter(|v| *v > 0.0).unwrap_or(white_default));
+    let white = [0, 1, 2].map(|s| wl.get(s).or_else(|| wl.first()).map(|v| *v as f32 * unit).filter(|v| *v > 0.0).unwrap_or(white_default));
 
     let (rows, cols) = match t.tag_uints(&raw, tag::BLACK_LEVEL_REPEAT_DIM).as_slice() {
         [r, c] if (1..=16).contains(r) && (1..=16).contains(c) => (*r as usize, *c as usize),
@@ -230,17 +232,17 @@ pub(crate) fn decode(t: &Tiff, limits: &Limits) -> Result<Sensor> {
     };
     let bl = t.tag_floats(&raw, tag::BLACK_LEVEL);
     let mut black = if bl.len() == rows * cols * samples {
-        BlackLevels { rows, cols, values: bl.iter().map(|v| *v as f32).collect(), delta_h: Vec::new(), delta_v: Vec::new() }
+        BlackLevels { rows, cols, values: bl.iter().map(|v| *v as f32 * unit).collect(), delta_h: Vec::new(), delta_v: Vec::new() }
     } else {
-        BlackLevels::uniform(bl.first().copied().unwrap_or(0.0) as f32)
+        BlackLevels::uniform(bl.first().copied().unwrap_or(0.0) as f32 * unit)
     };
     let dh = t.tag_floats(&raw, tag::BLACK_LEVEL_DELTA_H);
     if dh.len() == active.width {
-        black.delta_h = dh.iter().map(|v| *v as f32).collect();
+        black.delta_h = dh.iter().map(|v| *v as f32 * unit).collect();
     }
     let dv = t.tag_floats(&raw, tag::BLACK_LEVEL_DELTA_V);
     if dv.len() == active.height {
-        black.delta_v = dv.iter().map(|v| *v as f32).collect();
+        black.delta_v = dv.iter().map(|v| *v as f32 * unit).collect();
     }
 
     let color = color_info(t, &ifd0);

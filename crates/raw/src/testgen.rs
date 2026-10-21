@@ -487,6 +487,8 @@ pub struct DngSpec {
     pub model: String,
     /// Extra IFD0 entries, written after the generated ones (e.g. malformed colour tags).
     pub ifd0_extra: Vec<(u16, Val)>,
+    /// Extra raw-IFD entries, written after the generated ones (e.g. SampleFormat).
+    pub raw_extra: Vec<(u16, Val)>,
 }
 
 impl DngSpec {
@@ -524,6 +526,7 @@ impl DngSpec {
             make: "Photocraft".into(),
             model: "Synthetic".into(),
             ifd0_extra: Vec::new(),
+            raw_extra: Vec::new(),
         }
     }
 
@@ -772,6 +775,7 @@ impl DngSpec {
         if let Some(l) = &self.linearization {
             raw.push((50712, Val::Short(l.clone())));
         }
+        raw.extend(self.raw_extra.iter().cloned());
         let raw_ifd = t.ifd(raw);
         // IFD0: a tiny RGB thumbnail plus the DNG metadata.
         let thumb = t.blob(vec![128; 3 * 4]);

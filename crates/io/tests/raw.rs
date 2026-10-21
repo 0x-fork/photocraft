@@ -22,6 +22,28 @@ fn dng_opens_as_16_bit_prophoto() {
     assert!(r.warnings.iter().any(|w| w.contains("DNG") && w.contains("ProPhoto")), "{:?}", r.warnings);
 }
 
+/// #8125: a lossy DNG's floating-point LinearRaw data, JPEG XL-compressed, is developed (not
+/// replaced by a preview). The test codestream is an integer one the reader takes as floats.
+#[test]
+fn floating_point_jpeg_xl_dng_is_developed() {
+    use photocraft_raw::testgen::DngStorage;
+    use zune_core::{bit_depth::BitDepth, colorspace::ColorSpace, options::EncoderOptions};
+    let (w, h) = (24, 16);
+    let data: Vec<u16> = scene(w, h).iter().flat_map(|p| p.map(|v| (v * 20000.0) as u16)).collect();
+    let bytes: Vec<u8> = data.iter().flat_map(|v| v.to_ne_bytes()).collect();
+    let mut segment = Vec::new();
+    zune_jpegxl::JxlSimpleEncoder::new(&bytes, EncoderOptions::new(w, h, ColorSpace::RGB, BitDepth::Sixteen)).encode(&mut segment).unwrap();
+    let mut spec = DngSpec::cfa(w, h, data);
+    spec.samples = 3;
+    spec.white = 0;
+    spec.storage = DngStorage::JxlStrips { rows: h };
+    spec.jxl_segments = vec![segment];
+    spec.raw_extra = vec![(339, Val::Short(vec![3; 3]))];
+    let r = import("lossy.dng", &spec.build()).unwrap();
+    assert_eq!((r.document.size.width, r.document.size.height, r.document.depth), (24, 16, SampleType::U16));
+    assert!(r.warnings.iter().all(|w| !w.contains("preview")), "{:?}", r.warnings);
+}
+
 /// #3497: a monochrome (one-sample LinearRaw) DNG, as VueScan writes film scans, opens as a
 /// 16-bit RGB document (neutral grey) instead of failing as unsupported.
 #[test]

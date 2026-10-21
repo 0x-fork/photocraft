@@ -189,6 +189,9 @@ pub(crate) struct Plane {
     pub samples: usize,
     pub bits: u32,
     pub data: Vec<u16>,
+    /// For floating-point samples, the factor they were multiplied by (their white level becomes
+    /// 65535, `bits` is then 16): the file's black and white levels are scaled by it too.
+    pub float_scale: Option<f32>,
 }
 
 pub(crate) struct Segment {
@@ -237,9 +240,19 @@ pub(crate) fn read_plane(t: &Tiff, ifd: &Ifd, limits: &Limits, layout: JpegLayou
     if !(1..=4).contains(&samples) {
         return Err(RawError::unsupported(format!("{samples} samples per pixel")));
     }
-    if t.tag_uint(ifd, tag::SAMPLE_FORMAT) == Some(3) {
-        return Err(RawError::unsupported("floating-point raw data"));
+    // Floating-point data is read when it is JPEG XL-compressed, as converters write lossy
+    // LinearRaw (DNG 1.7, #8125): 16, 24 or 32-bit floats, read as 16-bit samples.
+    let float = t.tag_uint(ifd, tag::SAMPLE_FORMAT) == Some(3);
+    if float && compression != JPEG_XL {
+        return Err(RawError::unsupported("floating-point raw data that isn't JPEG XL-compressed"));
     }
+    if float && !matches!(bits, 16 | 24 | 32) {
+        return Err(RawError::unsupported(format!("{bits}-bit floating-point raw samples")));
+    }
+    let bits = if float { 16 } else { bits };
+    // The floats' white level (default 1.0, DNG 1.7 WhiteLevel) becomes 65535.
+    let float_scale =
+        float.then(|| 65535.0 / t.tag_floats(ifd, tag::WHITE_LEVEL).first().map(|v| *v as f32).filter(|v| v.is_finite() && *v > 0.0).unwrap_or(1.0));
     if !(1..=16).contains(&bits) {
         return Err(RawError::unsupported(format!("{bits}-bit raw samples")));
     }
@@ -288,7 +301,7 @@ pub(crate) fn read_plane(t: &Tiff, ifd: &Ifd, limits: &Limits, layout: JpegLayou
             // A JPEG XL segment codes only the rows inside the image (strips) or the whole tile.
             JPEG_XL => {
                 let coded_rows = if tiled { s.h } else { rows };
-                let mut v = jxl::decode(src, s.w, coded_rows, samples, bits, limits)?;
+                let mut v = jxl::decode(src, s.w, coded_rows, samples, bits, float_scale, limits)?;
                 v.resize(s.w * s.h * samples, 0);
                 Ok(v)
             }
@@ -331,7 +344,7 @@ pub(crate) fn read_plane(t: &Tiff, ifd: &Ifd, limits: &Limits, layout: JpegLayou
             data[at..at + cols * samples].copy_from_slice(src);
         }
     }
-    Ok(Plane { width, height, samples, bits, data })
+    Ok(Plane { width, height, samples, bits, data, float_scale })
 }
 
 pub(crate) fn segments(t: &Tiff, ifd: &Ifd, width: usize, height: usize) -> Result<Vec<Segment>> {
