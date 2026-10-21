@@ -21,8 +21,9 @@ pub struct Prompt {
     /// Save a Copy: the document keeps its path and unsaved changes.
     pub copy: bool,
     /// The step the answered save is recorded as, so an action being recorded keeps it:
-    /// `file.saveAs` for Save As (#2032, even when a flat Targa is written as a copy) and
-    /// `file.saveACopy` for Save a Copy (#4373).
+    /// `file.saveAs` for Save As (#2032, even when a flat Targa is written as a copy),
+    /// `file.saveACopy` for Save a Copy (#4373), and `file.save` when File › Save confirmed the
+    /// document's own Targa (#3531), which plays back on the file the action is played on.
     pub record: &'static str,
 }
 
@@ -76,10 +77,13 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     });
     cancel |= modal.should_close();
     p.bits = bits;
-    if ok || ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
+    // A focused button takes Enter as its click without consuming the key: Enter on Cancel cancels.
+    if ok || (!cancel && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))) {
         let Some(p) = app.targa_options.take() else { return };
         let settings = ExportSettings { tga_bits: Some(p.bits), ..app.save_settings() };
-        let step = serde_json::json!({"path": p.path, "tgaBits": p.bits.bits()});
+        // A plain Save writes whichever file the action is played on (#3531): no path.
+        let mut step = if p.record == "file.save" { serde_json::json!({}) } else { serde_json::json!({"path": p.path}) };
+        step["tgaBits"] = p.bits.bits().into();
         app.write_answered_save(ctx, p.doc, p.path, &settings, p.copy, (p.record, step));
     } else if cancel {
         app.targa_options = None;

@@ -231,7 +231,8 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     cancel |= modal.should_close();
     p.quality = quality.min(MAX_QUALITY);
     p.format = format;
-    if ok || ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
+    // A focused button takes Enter as its click without consuming the key: Enter on Cancel cancels.
+    if ok || (!cancel && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter))) {
         confirm(app, ctx);
     } else if cancel {
         app.jpeg_options = None;

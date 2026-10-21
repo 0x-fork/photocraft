@@ -69,6 +69,7 @@ pub mod crop_shield;
 pub mod crop_size;
 pub mod crop_straighten;
 pub mod crop_ui;
+pub mod dds_options_ui;
 pub mod delete_layer_prompt;
 pub mod dialog_alt_reset;
 pub mod dialog_blend_ui;
@@ -254,41 +255,55 @@ pub use file_open::OsEvent;
 pub use state::{Tool, UiState};
 
 /// The error a save gets while another save waits on its format prompt.
-pub(crate) const SAVE_OPTIONS_OPEN: &str = "Answer TIFF, Targa or JPEG Options before starting another save";
+pub(crate) const SAVE_OPTIONS_OPEN: &str = "Answer the TIFF, Targa, DDS or JPEG Options before starting another save";
 
-/// What a save was told beyond its path, so it skips the prompts that would ask: Targa bits
-/// (`tgaBits`) and JPEG Options (`quality` 0–12, `jpegFormat`).
+/// The format answers a save takes instead of asking: the Targa bits per pixel (`"tgaBits"`),
+/// the DDS options (`"ddsCompression"`, `"ddsMipmaps"`) and JPEG Options (`"quality"` 0–12,
+/// `"jpegFormat"`). `None` asks in Save As and takes the default in automation saves, which never
+/// prompt.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct SaveChoices {
+pub struct FormatChoices {
     pub tga_bits: Option<photocraft_io::TgaBits>,
+    pub dds: Option<photocraft_io::DdsOptions>,
     pub jpeg: Option<jpeg_options_ui::JpegChoice>,
 }
 
-impl SaveChoices {
-    /// The choices in command or control call `cmd`'s params; one it can't read is an error.
+impl FormatChoices {
+    /// The answers in command or control call `cmd`'s params; a bad value is an error.
     pub fn from_params(params: &Value, cmd: &str) -> Result<Self, String> {
-        Ok(SaveChoices { tga_bits: targa_options_ui::bits_param(params, cmd)?, jpeg: jpeg_options_ui::choice_param(params, cmd)? })
+        Ok(FormatChoices {
+            tga_bits: targa_options_ui::bits_param(params, cmd)?,
+            dds: dds_options_ui::options_param(params, cmd)?,
+            jpeg: jpeg_options_ui::choice_param(params, cmd)?,
+        })
     }
 
-    /// The choices in a recorded save step, read as leniently as the engine command that may have
+    /// The answers in a recorded save step, read as leniently as the engine command that may have
     /// recorded it (see [`jpeg_options_ui::recorded_choice`]).
-    fn from_step(params: &Value, cmd: &str) -> Result<Self, String> {
-        Ok(SaveChoices { tga_bits: targa_options_ui::bits_param(params, cmd)?, jpeg: jpeg_options_ui::recorded_choice(params, cmd)? })
+    pub(crate) fn from_step(params: &Value, cmd: &str) -> Result<Self, String> {
+        Ok(FormatChoices {
+            tga_bits: targa_options_ui::bits_param(params, cmd)?,
+            dds: dds_options_ui::options_param(params, cmd)?,
+            jpeg: jpeg_options_ui::recorded_choice(params, cmd)?,
+        })
     }
 
-    /// `settings` writing these choices.
+    /// The export settings with these answers applied.
     pub fn apply(self, settings: ExportSettings) -> ExportSettings {
-        let settings = ExportSettings { tga_bits: self.tga_bits.or(settings.tga_bits), ..settings };
+        let settings = ExportSettings { tga_bits: self.tga_bits.or(settings.tga_bits), dds: self.dds.unwrap_or(settings.dds), ..settings };
         match self.jpeg {
             Some(j) => j.apply(settings),
             None => settings,
         }
     }
 
-    /// Adds the choices to a recorded save step.
-    fn record(self, step: &mut Value) {
+    /// Adds the answers to a recorded save step.
+    pub(crate) fn record(self, step: &mut Value) {
         if let Some(bits) = self.tga_bits {
             step["tgaBits"] = bits.bits().into();
+        }
+        if let Some(dds) = self.dds {
+            dds_options_ui::record(dds, step);
         }
         if let Some(j) = self.jpeg {
             j.record(step);
@@ -318,6 +333,9 @@ pub struct ExportSettings {
     /// Targa: bits per pixel from Targa Options or Export As (`None`: 32 with an alpha channel or
     /// transparency, else 24).
     pub tga_bits: Option<photocraft_io::TgaBits>,
+    /// DDS: the compression and mip chain from DDS Options (uncompressed without mipmaps unless
+    /// chosen).
+    pub dds: photocraft_io::DdsOptions,
     /// PSD/PSB: embed a thumbnail (Preferences › File Handling › Image Previews; see
     /// [`PhotocraftApp::save_settings`]).
     pub image_previews: bool,
@@ -345,6 +363,7 @@ impl Default for ExportSettings {
             tiff_layers: true,
             xmp_all: true,
             tga_bits: None,
+            dds: photocraft_io::DdsOptions::default(),
             image_previews: true,
             psd_maximize_compatibility: true,
             embed_icc: true,
@@ -372,6 +391,7 @@ impl ExportSettings {
         opts.tiff_layers = self.tiff_layers;
         opts.xmp = if self.xmp_all { photocraft_io::XmpEmbed::All } else { photocraft_io::XmpEmbed::None };
         opts.tga_bits = self.tga_bits;
+        opts.encode.dds = self.dds;
         opts.image_previews = self.image_previews;
         opts.psd_maximize_compatibility = self.psd_maximize_compatibility;
         opts.document_path = self.document_path.clone();
@@ -890,6 +910,8 @@ pub struct PhotocraftApp {
     pub(crate) targa_options: Option<targa_options_ui::Prompt>,
     /// A save to a JPEG parked behind the JPEG Options prompt (see `jpeg_options_ui`).
     pub(crate) jpeg_options: Option<jpeg_options_ui::Prompt>,
+    /// A save to a DDS texture parked behind the DDS Options prompt (see `dds_options_ui`).
+    pub(crate) dds_options: Option<dds_options_ui::Prompt>,
     /// Files read but not opened yet: the first waits on its profile prompt, the rest behind it
     /// (see `open_prompt`).
     pub(crate) held_opens: std::collections::VecDeque<open_prompt::Held>,
@@ -1042,6 +1064,7 @@ impl PhotocraftApp {
             disk_stamps: HashMap::new(),
             targa_options: None,
             jpeg_options: None,
+            dds_options: None,
             held_opens: Default::default(),
             allow_close: false,
             stylus: Default::default(),
@@ -1493,20 +1516,20 @@ impl PhotocraftApp {
     /// continues on a later frame, see `file_dialog`). Returns `{"path", "warnings"}` (the export
     /// warnings are also shown to the user).
     pub fn save_as(&mut self, path: Option<String>) -> Result<Value, String> {
-        self.save_as_with(path, SaveChoices::default())
+        self.save_as_with(path, FormatChoices::default())
     }
 
     /// [`Self::save_as`] with the format choices already made, which skip their prompts:
-    /// `file.save` and `file.saveAs` with `tgaBits` (no Targa Options), or `quality` or
-    /// `jpegFormat` (no JPEG Options).
-    pub fn save_as_with(&mut self, path: Option<String>, choices: SaveChoices) -> Result<Value, String> {
+    /// `file.save` and `file.saveAs` with `tgaBits` (no Targa Options), `ddsCompression` or
+    /// `ddsMipmaps` (no DDS Options), or `quality` or `jpegFormat` (no JPEG Options).
+    pub fn save_as_with(&mut self, path: Option<String>, choices: FormatChoices) -> Result<Value, String> {
         self.save_dialog_flow(path, choices, false)
     }
 
     /// [`Self::save_as_with`]. `plain_save` marks File › Save that had to ask for a file name
     /// (a flat file): confirming the document's own file is recorded as a `file.save` step,
     /// which writes whichever file the action is played on, not as a Save As to a fixed path.
-    pub(crate) fn save_dialog_flow(&mut self, path: Option<String>, choices: SaveChoices, plain_save: bool) -> Result<Value, String> {
+    pub(crate) fn save_dialog_flow(&mut self, path: Option<String>, choices: FormatChoices, plain_save: bool) -> Result<Value, String> {
         if self.save_options_open() {
             return Err(SAVE_OPTIONS_OPEN.into());
         }
@@ -1566,13 +1589,19 @@ impl PhotocraftApp {
     }
 
     /// [`Self::save_as_with`] once the path is known.
-    pub(crate) fn save_to(&mut self, path: String, choices: SaveChoices) -> Result<Value, String> {
-        // An RGB Targa asks for its bits per pixel, and a JPEG for its quality and format, unless
-        // the caller chose them; the save continues from the prompt (still a copy when it would
-        // be one without the prompt), which records the step once answered.
+    pub(crate) fn save_to(&mut self, path: String, choices: FormatChoices) -> Result<Value, String> {
+        // An RGB Targa asks for its bits per pixel, a DDS texture for its compression, and a JPEG
+        // for its quality and format, unless the caller chose them; the save continues from the
+        // prompt (still a copy when it would be one without the prompt), which records the step
+        // once answered.
         if choices.tga_bits.is_none() && targa_options_ui::wants_prompt(self, &path) {
             let copy = self.saves_copy(&path, None)?;
             targa_options_ui::park(self, path.clone(), copy, "file.saveAs")?;
+            return Ok(serde_json::json!({"path": path, "warnings": []}));
+        }
+        if choices.dds.is_none() && dds_options_ui::wants_prompt(&path) {
+            let copy = self.saves_copy(&path, None)?;
+            dds_options_ui::park(self, path.clone(), copy, "file.saveAs")?;
             return Ok(serde_json::json!({"path": path, "warnings": []}));
         }
         if choices.jpeg.is_none() && jpeg_options_ui::wants_prompt(self, &path) {
@@ -1589,29 +1618,25 @@ impl PhotocraftApp {
         self.save_as_step(path, None, choices)
     }
 
-    /// File › Save back to the document's own layered file, recorded as a `file.save` step.
-    pub(crate) fn save_in_place(&mut self, path: String) -> Result<Value, String> {
-        self.save_in_place_with(path, SaveChoices::default())
-    }
-
-    /// [`Self::save_in_place`] with JPEG Options already answered (a replayed or scripted Save),
-    /// recorded with them ([`jpeg_options_ui::plain_save_step`]).
-    pub(crate) fn save_in_place_with(&mut self, path: String, choices: SaveChoices) -> Result<Value, String> {
+    /// File › Save back to the document's own file, recorded as a `file.save` step with the
+    /// Targa, DDS or JPEG answer in `choices` (a replayed or scripted Save of a flat file brings
+    /// its own).
+    pub(crate) fn save_in_place(&mut self, path: String, choices: FormatChoices) -> Result<Value, String> {
         if self.save_options_open() {
             return Err(SAVE_OPTIONS_OPEN.into());
         }
         let r = self.write_save(path, None, choices)?;
+        // JPEG Options are recorded only where they change something
+        // ([`jpeg_options_ui::plain_save_step`]); the Targa and DDS answers as given.
         let mut step = jpeg_options_ui::plain_save_step(choices.jpeg);
-        if let Some(bits) = choices.tga_bits {
-            step["tgaBits"] = bits.bits().into();
-        }
+        FormatChoices { jpeg: None, ..choices }.record(&mut step);
         self.session.journal.push(("file.save".into(), step));
         Ok(r)
     }
 
     /// Writes the Save As and journals it as a `file.saveAs` step with its path (and TIFF,
-    /// Targa or JPEG answer), so an action being recorded keeps it (#2032).
-    fn save_as_step(&mut self, path: String, tiff_layers: Option<bool>, choices: SaveChoices) -> Result<Value, String> {
+    /// Targa, DDS or JPEG answer), so an action being recorded keeps it (#2032).
+    fn save_as_step(&mut self, path: String, tiff_layers: Option<bool>, choices: FormatChoices) -> Result<Value, String> {
         let r = self.write_save(path.clone(), tiff_layers, choices)?;
         let mut step = serde_json::json!({"path": path});
         if let Some(layers) = tiff_layers {
@@ -1622,30 +1647,36 @@ impl PhotocraftApp {
         Ok(r)
     }
 
-    /// Re-label the Save As just journaled for `path` as File › Save (see [`Self::save_dialog_flow`]).
-    /// A JPEG save still waiting on JPEG Options is recorded as File › Save once answered.
+    /// Re-label the Save As just journaled for `path` as File › Save (see [`Self::save_dialog_flow`]),
+    /// keeping its Targa, DDS or JPEG answer so playback writes the file the same way. A save
+    /// parked behind Targa, DDS or JPEG Options hasn't been journaled yet: it is recorded as
+    /// File › Save once answered.
     pub(crate) fn journal_as_plain_save(&mut self, path: &str) {
-        if let Some(p) = self.jpeg_options.as_mut()
-            && p.path == path
-        {
-            p.record = "file.save";
+        let parked = [
+            self.targa_options.as_mut().map(|p| (&p.path, &mut p.record)),
+            self.dds_options.as_mut().map(|p| (&p.path, &mut p.record)),
+            self.jpeg_options.as_mut().map(|p| (&p.path, &mut p.record)),
+        ];
+        if let Some((_, record)) = parked.into_iter().flatten().find(|(p, record)| p.as_str() == path && **record == "file.saveAs") {
+            *record = "file.save";
             return;
         }
-        // Only the path goes: a script's JPEG or Targa answer stays, so a replay writes the file
-        // it is played on the same way. Any other answer (TIFF layers) keeps the Save As.
+        // Only the path goes: a script's format answer stays, so a replay writes the file it is
+        // played on the same way. Any other answer (TIFF layers) keeps the Save As.
         if let Some(last) = self.session.journal.last_mut()
             && last.0 == "file.saveAs"
             && last.1.get("path").and_then(Value::as_str) == Some(path)
             && let Some(step) = last.1.as_object()
-            && step.keys().all(|k| matches!(k.as_str(), "path" | "quality" | "jpegFormat" | "tgaBits"))
+            && step.keys().all(|k| matches!(k.as_str(), "path" | "tgaBits" | "ddsCompression" | "ddsMipmaps" | "quality" | "jpegFormat"))
         {
-            let step: serde_json::Map<String, Value> = step.iter().filter(|(k, _)| k.as_str() != "path").map(|(k, v)| (k.clone(), v.clone())).collect();
+            let mut step = step.clone();
+            step.remove("path");
             *last = ("file.save".into(), Value::Object(step));
         }
     }
 
     /// Replays a recorded `file.save` / `file.saveAs` / `file.saveACopy` step: no dialog or
-    /// prompt, and the recorded TIFF, Targa or JPEG answer (if any) stands in for its prompt.
+    /// prompt, and the recorded TIFF, Targa, DDS or JPEG answer (if any) stands in for its prompt.
     pub(crate) fn replay_save(&mut self, id: &str, params: &Value) -> Result<Value, String> {
         if self.save_options_open() {
             return Err(SAVE_OPTIONS_OPEN.into());
@@ -1653,7 +1684,9 @@ impl PhotocraftApp {
         if id == "file.save" {
             // The file the action is played on: one that holds the whole document, or a flat
             // file a recorded Save confirmed in the dialog while the document is still a plain
-            // raster, so it is never flattened over (#3531, #3806).
+            // raster, so it is never flattened over (#3531, #3806). A flat file's recorded Targa,
+            // DDS or JPEG answer writes the same way, without asking.
+            let choices = FormatChoices::from_step(params, id)?;
             let st = self.session.active().ok_or("no document")?;
             let flat_own = |p: &str| {
                 !photocraft_engine::file_cmds::saves_in_place(p)
@@ -1663,11 +1696,10 @@ impl PhotocraftApp {
             let path = st.path.clone().filter(|p| photocraft_engine::file_cmds::holds_at(&st.doc, p) || flat_own(p)).ok_or(
                 "Save writes back only to the document's own PSD, PSB, .pcraft or OpenRaster file (OpenRaster only when it holds everything), or to its own flat file while the document is a single plain layer",
             )?;
-            // A recorded JPEG Options answer writes the same way, without asking.
-            return self.save_in_place_with(path, SaveChoices::from_step(params, id)?);
+            return self.save_in_place(path, choices);
         }
         let path = params.get("path").and_then(Value::as_str).filter(|p| !p.is_empty()).ok_or("Save As needs a `path`")?;
-        let choices = SaveChoices::from_step(params, id)?;
+        let choices = FormatChoices::from_step(params, id)?;
         if id == "file.saveACopy" {
             // A copy: the document keeps its own file and unsaved state, as when recorded (#4373).
             let doc = self.session.active().ok_or("no document")?.doc.clone();
@@ -1714,8 +1746,9 @@ impl PhotocraftApp {
 
     /// Writes the active document to a known path. `tiff_layers` is the TIFF Options answer:
     /// `Some(false)` discards the layers and saves a copy. `choices` are the Targa bits per pixel
-    /// (`None`: 32 with an alpha channel or transparency, else 24) and the JPEG Options.
-    fn write_save(&mut self, path: String, tiff_layers: Option<bool>, choices: SaveChoices) -> Result<Value, String> {
+    /// (`None`: 32 with an alpha channel or transparency, else 24), the DDS options and the JPEG
+    /// Options.
+    fn write_save(&mut self, path: String, tiff_layers: Option<bool>, choices: FormatChoices) -> Result<Value, String> {
         let copy = self.saves_copy(&path, tiff_layers)?;
         let settings = choices.apply(ExportSettings { tiff_layers: tiff_layers.unwrap_or(ExportSettings::default().tiff_layers), ..self.save_settings() });
         match self.write_document(path.clone(), &settings, copy)? {
@@ -1823,12 +1856,12 @@ impl PhotocraftApp {
         own == path && self.services.file_stamp.as_ref().and_then(|stamp| stamp(path)).is_some_and(|now| now != *then)
     }
 
-    /// TIFF, Targa or JPEG Options is waiting on an answer before a save is written.
+    /// TIFF, Targa, DDS or JPEG Options is waiting on an answer before a save is written.
     pub(crate) fn save_options_open(&self) -> bool {
-        self.tiff_options.is_some() || self.targa_options.is_some() || self.jpeg_options.is_some()
+        self.tiff_options.is_some() || self.targa_options.is_some() || self.dds_options.is_some() || self.jpeg_options.is_some()
     }
 
-    /// Writes a save that waited on a format prompt (Targa or JPEG Options) once answered:
+    /// Writes a save that waited on a format prompt (Targa, DDS or JPEG Options) once answered:
     /// journals `step` as its command (`file.saveAs` for Save As, `file.saveACopy` for Save a
     /// Copy, `file.save` for a plain Save), so an action being recorded keeps it with this answer
     /// (#2032, #4373), reports a failure in the status bar, and releases a close prompt waiting on
@@ -1863,12 +1896,13 @@ impl PhotocraftApp {
     /// picker or ambient writer is reachable from this path. Returns the path
     /// written and the export warnings (also shown to the user).
     pub fn save_automation(&mut self, path: Option<String>) -> Result<Value, String> {
-        self.save_automation_with(path, SaveChoices::default())
+        self.save_automation_with(path, FormatChoices::default())
     }
 
-    /// [`Self::save_automation`] with the Targa bits per pixel (`None`: 32 with an alpha channel
-    /// or transparency, else 24) and JPEG Options in `choices`. Automation saves never prompt.
-    pub fn save_automation_with(&mut self, path: Option<String>, choices: SaveChoices) -> Result<Value, String> {
+    /// [`Self::save_automation`] writing with the format `choices` given (a Targa's `None`: 32
+    /// with an alpha channel or transparency, else 24; a DDS texture's: uncompressed without
+    /// mipmaps; a JPEG's: the file's own quality, Baseline). Automation saves never prompt.
+    pub fn save_automation_with(&mut self, path: Option<String>, choices: FormatChoices) -> Result<Value, String> {
         let target = {
             let state = self.session.active().ok_or("no document")?;
             // As File › Save: without `path` only a layered file is written back (#416).
@@ -2192,6 +2226,7 @@ impl eframe::App for PhotocraftApp {
         tiff_options_ui::show(self, &ctx);
         targa_options_ui::show(self, &ctx);
         jpeg_options_ui::show(self, &ctx);
+        dds_options_ui::show(self, &ctx);
         distort_ui::show(self, &ctx);
         camera_raw_ui::show(self, &ctx);
         wide_angle_ui::show(self, &ctx);

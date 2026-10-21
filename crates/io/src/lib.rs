@@ -45,6 +45,7 @@ pub mod effects_map;
 pub mod exr_parts;
 mod flat;
 mod gradient_bake;
+pub mod guides_map;
 pub use gradient_bake::{Method as GradientMethod, bake as bake_gradient};
 mod kra;
 pub mod linked;
@@ -67,8 +68,8 @@ pub mod text_styles_map;
 pub mod tiff_layers;
 pub mod vector_map;
 
-pub use photocraft_codecs::DpxBits;
 use photocraft_codecs::{CodecError, EncodeOptions};
+pub use photocraft_codecs::{DdsCompression, DdsOptions, DpxBits};
 use photocraft_doc::{Adjustment, Document, Layer, LayerContent};
 use photocraft_psd::{PsdError, PsdFile};
 

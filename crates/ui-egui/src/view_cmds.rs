@@ -1442,11 +1442,15 @@ fn save_a_copy(app: &mut PhotocraftApp) -> Result<Value, String> {
     let suggested = format!("{stem} copy.psd");
     // The copy is of the document as it was when asked.
     app.pick_save(&suggested, move |app, path| {
-        // An RGB Targa asks for its bits per pixel first, and a JPEG for its JPEG Options; the
-        // copy is written from the prompt.
+        // An RGB Targa asks for its bits per pixel first, a DDS texture for its compression, and
+        // a JPEG for its JPEG Options; the copy is written from the prompt.
         let parked = app.with_document(doc.id, |app| {
             if crate::targa_options_ui::wants_prompt(app, &path) {
                 crate::targa_options_ui::park(app, path.clone(), true, "file.saveACopy")?;
+                return Ok(true);
+            }
+            if crate::dds_options_ui::wants_prompt(&path) {
+                crate::dds_options_ui::park(app, path.clone(), true, "file.saveACopy")?;
                 return Ok(true);
             }
             if crate::jpeg_options_ui::wants_prompt(app, &path) {
@@ -1458,15 +1462,16 @@ fn save_a_copy(app: &mut PhotocraftApp) -> Result<Value, String> {
         if parked {
             return Ok(json!({"path": path, "warnings": []}));
         }
-        let r = write_copy(app, &doc, &path, crate::SaveChoices::default())?;
+        let r = write_copy(app, &doc, &path, crate::FormatChoices::default())?;
         app.session.journal.push(("file.saveACopy".into(), json!({"path": path})));
         Ok(r)
     })
 }
 
 /// Writes `doc` to `path` as a copy (Save a Copy, and its replayed action step): the document's
-/// path and saved state are untouched. `choices` are the Targa and JPEG answers, when there are any.
-pub(crate) fn write_copy(app: &mut PhotocraftApp, doc: &photocraft_doc::Document, path: &str, choices: crate::SaveChoices) -> Result<Value, String> {
+/// path and saved state are untouched. `choices` are the Targa, DDS and JPEG answers, when there
+/// are any.
+pub(crate) fn write_copy(app: &mut PhotocraftApp, doc: &photocraft_doc::Document, path: &str, choices: crate::FormatChoices) -> Result<Value, String> {
     let settings = choices.apply(app.save_settings());
     let export = app.services.export.as_ref().ok_or("no exporter configured")?;
     let (bytes, warnings) = export(doc, path, &settings)?;

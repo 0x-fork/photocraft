@@ -99,6 +99,8 @@ const SAVE_FILTERS: &[(&str, &[&str])] = &[
     ("OpenEXR", &["exr"]),
     ("FITS", &["fits", "fit"]),
     ("DPX", &["dpx"]),
+    // Game and 3D textures; DDS Options asks for the compression and mipmaps (#1327).
+    ("DDS", &["dds"]),
 ];
 
 /// Non-document files the shell saves (Swatches panel exports): offered alone, so the dialog
@@ -903,7 +905,7 @@ mod tests {
                 assert!(format.caps().write, "{name}: .{ext} can't be written");
             }
         }
-        for ext in ["ico", "gif", "bmp"] {
+        for ext in ["ico", "gif", "bmp", "dds"] {
             assert!(save_filters("Untitled-1.psd").iter().any(|(_, exts)| exts.iter().any(|e| e == ext)), ".{ext} is offered");
         }
         assert_eq!(save_filters("icon.ico")[0].0, "ICO", "an .ico name leads with its own type");

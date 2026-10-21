@@ -219,6 +219,53 @@ fn save_a_copy_writes_the_dpx_bits_asked_for() {
     }
 }
 
+/// `ddsCompression` picks the DDS FourCC (or none, uncompressed) and `ddsMipmaps` the mip count
+/// in the header; unset, an uncompressed texture without mipmaps. Bad values are refused before
+/// anything is written.
+#[test]
+fn save_a_copy_writes_the_dds_options_asked_for() {
+    let dir = tmp("dds-options");
+    let le32 = |b: &[u8], at: usize| u32::from_le_bytes(b[at..at + 4].try_into().unwrap());
+    for (params, fourcc, mips) in [
+        (json!({}), [0; 4], 1),
+        (json!({"ddsCompression": "none", "ddsMipmaps": true}), [0; 4], 5),
+        (json!({"ddsCompression": "bc1"}), *b"DXT1", 1),
+        (json!({"ddsCompression": "DXT3", "ddsMipmaps": false}), *b"DXT3", 1),
+        (json!({"ddsCompression": "bc3", "ddsMipmaps": true}), *b"DXT5", 5),
+        (json!({"ddsCompression": null, "ddsMipmaps": null}), [0; 4], 1),
+    ] {
+        let mut s = session(16, 12, 8);
+        let out = join(&dir, "a.dds");
+        let mut p = params.clone();
+        p["path"] = json!(out);
+        s.execute("file.saveACopy", p).unwrap();
+        let bytes = std::fs::read(&out).unwrap();
+        assert_eq!((&bytes[..4], &bytes[84..88], le32(&bytes, 28)), (&b"DDS "[..], &fourcc[..], mips), "{params}");
+        assert_eq!(photocraft_io::import("a.dds", &bytes).unwrap().document.size, photocraft_geom::Size::new(16, 12), "{params}");
+    }
+    let mut s = session(8, 8, 8);
+    let state = |s: &Session| s.active().map(|st| (st.revision, st.path.clone(), st.is_dirty()));
+    let before = state(&s);
+    for bad in [json!({"ddsCompression": "bc7"}), json!({"ddsCompression": 1}), json!({"ddsMipmaps": "yes"}), json!({"ddsMipmaps": 1})] {
+        let out = join(&dir, "bad.dds");
+        let mut p = bad.clone();
+        p["path"] = json!(out);
+        let r = s.execute("file.saveACopy", p);
+        assert!(matches!(r, Err(EngineError::BadParams { .. })), "{bad}: {r:?}");
+        assert!(!std::path::Path::new(&out).exists(), "{bad}: nothing written");
+        assert_eq!(state(&s), before, "{bad}: the document is untouched");
+    }
+}
+
+#[test]
+fn dds_params_are_none_until_one_is_given() {
+    use photocraft_io::{DdsCompression, DdsOptions};
+    assert_eq!(dds_param(&json!({}), "file.saveAs").unwrap(), None);
+    assert_eq!(dds_param(&json!({"ddsCompression": null}), "file.saveAs").unwrap(), None);
+    assert_eq!(dds_param(&json!({"ddsMipmaps": true}), "file.saveAs").unwrap(), Some(DdsOptions { compression: DdsCompression::None, mipmaps: true }));
+    assert_eq!(dds_param(&json!({"ddsCompression": "bc2"}), "file.saveAs").unwrap(), Some(DdsOptions { compression: DdsCompression::Bc2, mipmaps: false }));
+}
+
 /// A `tgaBits` other than 24 or 32 is a bad parameter, reported before anything is written.
 #[test]
 fn bad_targa_bits_are_refused_before_writing() {

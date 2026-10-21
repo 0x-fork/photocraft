@@ -4322,3 +4322,7 @@ shape	Appearance	Izgled
 	Use	Koristi
 	In Front	Ispred
 	Behind	Iza
+
+# DDS Options (#1327)
+	DDS Options	DDS opcije
+	Generate Mipmaps	Generiši mipmape
