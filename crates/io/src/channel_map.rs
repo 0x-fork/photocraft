@@ -25,10 +25,10 @@ const SPACE_GRAY: u16 = 8;
 
 /// Converts one spot channel's plane (native-endian samples) between the document's ink density
 /// (1 = solid ink) and the way Photoshop stores a spot channel (0 = solid ink, the maximum =
-/// bare paper; every TIFF Photoshop 27 saves stores it so). The conversion is its own inverse,
-/// so it serves both open and save. Every reader and writer of Photoshop-polarity spot planes
-/// goes through here: a change to the in-memory convention changes only this function. Alpha
-/// channels are stored straight (the maximum = selected) and never come here.
+/// bare paper; every PSD and TIFF Photoshop 27.11 saves stores it so). The conversion is its own
+/// inverse, so it serves both open and save. Every reader and writer of Photoshop-polarity spot
+/// planes goes through here: a change to the in-memory convention changes only this function.
+/// Alpha channels are stored straight (the maximum = selected) and never come here.
 pub(crate) fn photoshop_spot_plane(plane: &mut [u8], sample: SampleType) {
     crate::pixels::invert_plane(plane, sample);
 }
@@ -36,9 +36,13 @@ pub(crate) fn photoshop_spot_plane(plane: &mut [u8], sample: SampleType) {
 /// Resource 1053 for `count` channels: one big-endian u32 identifier each, with no length prefix
 /// (Photoshop, ag-psd and psd-tools read u32s until the resource ends). Photoshop 27.11 numbers a
 /// new document's channels 3, 4, 5, … in every colour mode (RGB, CMYK, Gray and Lab, in its PSDs
-/// and TIFFs alike), so these do too.
-pub(crate) fn alpha_identifiers(count: usize) -> Vec<u8> {
-    let mut out = Vec::with_capacity(count.saturating_mul(4));
+/// and TIFFs alike), so these do too. `transparency`: the merged image's transparency channel
+/// comes first, with identifier 0 (Photoshop's transparent PSD lists `0, 3, 4, 5`).
+pub(crate) fn alpha_identifiers(transparency: bool, count: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(count.saturating_add(1).saturating_mul(4));
+    if transparency {
+        out.extend_from_slice(&0u32.to_be_bytes());
+    }
     for i in 0..count {
         let id = 3u32.saturating_add(u32::try_from(i).unwrap_or(u32::MAX));
         out.extend_from_slice(&id.to_be_bytes());
@@ -84,6 +88,14 @@ fn display_records(data: &[u8], versioned: bool) -> std::slice::ChunksExact<'_, 
 /// without a record is not a spot.
 pub(crate) fn spot_flags(data: &[u8], versioned: bool, skip: usize) -> Vec<bool> {
     display_records(data, versioned).skip(skip).map(|rec| rec.get(12) == Some(&2)).collect()
+}
+
+/// Whether a DisplayInfo resource 1077 marks any channel as a spot (kind 2), in 13-byte records
+/// (Photoshop's, and PhotoCraft's since 0.8.2) or in the 14-byte padded records PhotoCraft wrote
+/// up to 0.7.0.
+pub(crate) fn display_info_marks_spot(data: &[u8]) -> bool {
+    let body = data.get(4..).unwrap_or_default();
+    [13, 14].into_iter().any(|size| body.chunks_exact(size).any(|rec| rec.get(12) == Some(&2)))
 }
 
 /// Applies a DisplayInfo resource (`versioned` = 1077: 13-byte records after a version; else the
@@ -189,8 +201,9 @@ mod tests {
         assert_eq!(back[0].indicates, ColorIndicates::SelectedAreas);
         assert_eq!(back[1].spot, s.spot);
         assert_eq!(spot_flags(&bytes, true, 0), [false, true]);
-        assert_eq!(alpha_identifiers(2), [0, 0, 0, 3, 0, 0, 0, 4]);
-        assert!(alpha_identifiers(0).is_empty());
+        assert!(display_info_marks_spot(&bytes));
+        assert!(!display_info_marks_spot(&display_info(&[&a], true)), "alpha and transparency records only");
+        assert!(!display_info_marks_spot(&bytes[..10]));
         // Photoshop 27 writes a 13-byte record (no pad): red spot, solidity 60.
         let ps = [0, 0, 0, 1, 0, 0, 0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 0x3c, 2];
         let mut spot = vec![AlphaChannel::new("S", Surface::new(PixelFormat::GRAY8))];
@@ -225,6 +238,34 @@ mod tests {
         let mut got: Vec<AlphaChannel> = (0..14).map(|i| AlphaChannel::new(format!("{i}"), Surface::new(PixelFormat::GRAY8))).collect();
         apply_display_info(&packed, true, 0, &mut got);
         assert_eq!(got[13].spot.map(|(_, s)| (s * 100.0).round() as u16), many[13].spot.map(|(_, s)| (s * 100.0).round() as u16));
+    }
+
+    /// Resource 1053 as Photoshop 27.11 numbers a new document's channels: 3, 4, 5 in every colour
+    /// mode, with the merged transparency first as 0 (its transparent PSD lists `0, 3, 4, 5`).
+    #[test]
+    fn alpha_identifiers_are_numbered_as_photoshop_does() {
+        let ids = |transparency, count| alpha_identifiers(transparency, count).as_chunks::<4>().0.iter().map(|c| u32::from_be_bytes(*c)).collect::<Vec<_>>();
+        assert_eq!(ids(false, 3), [3, 4, 5]);
+        assert_eq!(ids(true, 3), [0, 3, 4, 5]);
+        assert_eq!(ids(false, 1), [3]);
+        assert!(ids(false, 0).is_empty());
+        assert_eq!(ids(true, 0), [0]);
+        assert_eq!(alpha_identifiers(false, 2), [0, 0, 0, 3, 0, 0, 0, 4]);
+    }
+
+    /// PhotoCraft 0.1.0 to 0.7.0 padded each 1077 record to 14 bytes, so a spot after the first
+    /// record sits where a 13-byte reader finds no kind 2; it is still recognised.
+    #[test]
+    fn a_spot_is_found_in_padded_records() {
+        let alpha = |kind: u8| [0, 0, 0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 50, kind, 0];
+        let mut old = 1u32.to_be_bytes().to_vec();
+        old.extend_from_slice(&alpha(1));
+        old.extend_from_slice(&alpha(0));
+        old.extend_from_slice(&alpha(2));
+        assert_eq!(spot_flags(&old, true, 0), [false, false, false], "13-byte records misread the padded ones");
+        assert!(display_info_marks_spot(&old));
+        old.truncate(old.len() - 14);
+        assert!(!display_info_marks_spot(&old), "two alpha records");
     }
 
     /// Photoshop's spot ink (0 = solid) and the document's density (1 = solid) at every depth,

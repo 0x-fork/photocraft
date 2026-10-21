@@ -665,7 +665,7 @@ fn ink(d: &Document) -> (f32, f32) {
 fn photoshop_transparency_and_spot_tiff(doc: &Document, layers: bool) -> Vec<u8> {
     use photocraft_psd::{Compression, TaggedBlock};
 
-    let opts = PsdExportOptions { merged_matte: false, merged_compression: Compression::Raw, photoshop_spot_polarity: true, ..Default::default() };
+    let opts = PsdExportOptions { merged_matte: false, merged_compression: Compression::Raw, ..Default::default() };
     let (file, _) = document_to_psd_with(doc, &opts);
     let planes = file.decode_merged().unwrap();
     let n = 16;
@@ -850,8 +850,8 @@ fn assert_photoshop_layered_tiff(bytes: &[u8], with_spot: bool) {
 
 /// Photoshop 27's Kato-Karate TIFF stores spot ink inverted: every non-white artwork pixel
 /// has spot 0, and the white background is spot 255. An alpha channel is the other way
-/// around (255 = selected). A PSD keeps storing both planes straight, as earlier versions did,
-/// and a TIFF opened and saved as PSD does the same. Everything round-trips.
+/// around (255 = selected). Photoshop's PSDs store both the same way, and so does a PSD saved
+/// here. Everything round-trips, PSD → TIFF → PSD included.
 #[test]
 fn spot_ink_is_stored_as_zero_and_alpha_is_not() {
     use photocraft_color::{Color, PixelFormat};
@@ -891,11 +891,14 @@ fn spot_ink_is_stored_as_zero_and_alpha_is_not() {
         let first = 3 + usize::from(file.merged_has_alpha());
         let spot_plane = &merged[first * plane..(first + 1) * plane];
         let alpha_plane = &merged[(first + 1) * plane..(first + 2) * plane];
-        // Background (0,0) and artwork (3,3), both straight: max = solid ink, max = selected.
-        assert_stored(spot_plane, 0, depth, true, "psd spot background");
-        assert_stored(spot_plane, (3 * w as usize + 3) * bps, depth, false, "psd spot art");
+        // Background (0,0) and artwork (3,3). Spot: 0 = solid ink, max = paper.
+        // Alpha: max = selected, 0 = empty.
+        assert_stored(spot_plane, 0, depth, false, "psd spot background");
+        assert_stored(spot_plane, (3 * w as usize + 3) * bps, depth, true, "psd spot art");
         assert_stored(alpha_plane, 0, depth, true, "psd alpha background");
         assert_stored(alpha_plane, (3 * w as usize + 3) * bps, depth, false, "psd alpha art");
+        // The merged transparency (0), then the spot and the alpha channel (3, 4).
+        assert_eq!(file.resource(1053).map(|r| identifiers(&r.data)), Some(vec![0, 3, 4]), "{depth:?}");
         let back = import("pol.psd", &psd.bytes).unwrap().document;
         let area = Rect::new(0, 0, w as i32, h as i32);
         assert_eq!(back.channels[0].surface.to_interleaved(area), doc.channels[0].surface.to_interleaved(area), "{depth:?} psd spot");
@@ -905,7 +908,8 @@ fn spot_ink_is_stored_as_zero_and_alpha_is_not() {
 
         if depth == SampleType::U8 {
             for layers in [false, true] {
-                let r = export(&doc, "pol.tif", &ExportOptions { tiff_layers: layers, ..ExportOptions::default() }).unwrap();
+                // The document as opened from the PSD, so the PSD's own resources come along.
+                let r = export(&back, "pol.tif", &ExportOptions { tiff_layers: layers, ..ExportOptions::default() }).unwrap();
                 let (spp, _bps, extra, _rows, samples) = independent_samples(&r.bytes);
                 assert_eq!((spp, extra.as_slice()), (5, [0u16, 0].as_slice()), "{layers}");
                 // Reference TIFF: artwork spot sample is 0, background spot sample is 255.
@@ -913,17 +917,38 @@ fn spot_ink_is_stored_as_zero_and_alpha_is_not() {
                 assert_eq!(samples[(3 * w as usize + 3) * 5 + 3], 0, "{layers} art spot");
                 assert_eq!(samples[4], 0, "{layers} background alpha");
                 assert_eq!(samples[(3 * w as usize + 3) * 5 + 4], 255, "{layers} art alpha");
-                let back = import("pol.tif", &r.bytes).unwrap().document;
-                assert_eq!(back.channels[0].surface.to_interleaved(area), doc.channels[0].surface.to_interleaved(area), "{layers}");
-                assert_eq!(back.channels[1].surface.to_interleaved(area), doc.channels[1].surface.to_interleaved(area), "{layers}");
-                // Saved as PSD: straight planes, and no 1053 (the TIFF's isn't kept on open).
-                let psd = PsdFile::from_bytes(&export(&back, "pol.psd", &ExportOptions::default()).unwrap().bytes).unwrap();
+                // One identifier per extra sample, numbered from 3 (no transparency sample).
+                assert_eq!(tiff_alpha_identifiers(&r.bytes), [3, 4], "{layers}");
+                let from_tiff = import("pol.tif", &r.bytes).unwrap().document;
+                assert_eq!(from_tiff.channels[0].surface.to_interleaved(area), doc.channels[0].surface.to_interleaved(area), "{layers}");
+                assert_eq!(from_tiff.channels[1].surface.to_interleaved(area), doc.channels[1].surface.to_interleaved(area), "{layers}");
+                assert!(from_tiff.channels[0].spot.is_some() && from_tiff.channels[1].spot.is_none(), "{layers}");
+                // Saved as PSD again: the first PSD's planes, and one 1053 of its own. The flat TIFF's
+                // composite was matted on white, so only the layered one brings transparency back.
+                let psd = PsdFile::from_bytes(&export(&from_tiff, "pol.psd", &ExportOptions::default()).unwrap().bytes).unwrap();
                 let again = psd.decode_merged().unwrap();
                 assert_eq!(again[again.len() - 2 * plane..], merged[(first * plane)..(first + 2) * plane], "{layers} tiff to psd");
-                assert!(psd.resource(1053).is_none(), "{layers} tiff to psd");
+                assert_eq!(psd.merged_has_alpha(), layers, "{layers} tiff to psd");
+                let want: Vec<u32> = if layers { vec![0, 3, 4] } else { vec![3, 4] };
+                assert_eq!(psd.resources.iter().filter(|r| r.id == 1053).map(|r| identifiers(&r.data)).collect::<Vec<_>>(), [want], "{layers} tiff to psd");
+                let reopened = import("pol.psd", &psd.to_bytes().unwrap()).unwrap().document;
+                assert_eq!(reopened.channels[0].surface.to_interleaved(area), doc.channels[0].surface.to_interleaved(area), "{layers}");
+                assert_eq!(reopened.channels[1].surface.to_interleaved(area), doc.channels[1].surface.to_interleaved(area), "{layers}");
             }
         }
     }
+}
+
+/// The big-endian u32s of a resource 1053.
+fn identifiers(data: &[u8]) -> Vec<u32> {
+    data.as_chunks::<4>().0.iter().map(|c| u32::from_be_bytes(*c)).collect()
+}
+
+/// The identifiers in a TIFF's resource 1053 (none without one).
+fn tiff_alpha_identifiers(bytes: &[u8]) -> Vec<u32> {
+    let resources = tags(bytes).0.expect("photoshop resources");
+    let (blocks, _) = photocraft_psd::tiff::resources_from_bytes(&resources).unwrap();
+    blocks.iter().find(|b| b.id == 1053).map(|b| identifiers(&b.data)).unwrap_or_default()
 }
 
 /// `at` addresses one sample of a big-endian PSD plane. `zero` expects 0; otherwise the

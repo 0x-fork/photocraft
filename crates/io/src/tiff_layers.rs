@@ -21,7 +21,7 @@ use photocraft_raster::Surface;
 
 use crate::flat::{csample, encode_image, image_to_document, layout_for, single_layer, try_buffer};
 use crate::psd_export::PsdExportOptions;
-use crate::psd_import::{PsdImportOptions, psd_to_document_decoded};
+use crate::psd_import::psd_to_document;
 use crate::{ExportOptions, ExportResult, ImportResult, IoError};
 
 /// `true` when saving `doc` as TIFF writes layer data: anything beyond a single Background
@@ -130,13 +130,11 @@ pub(crate) fn import_layered(name: &str, img: &Image, layers: &[u8]) -> Result<I
     });
     // The same nesting limit as opening a PSD (#2940).
     crate::psd_import::check_group_depth(&file)?;
-    // Photoshop's TIFFs store spot ink 0 = solid (a PSD is read as earlier versions saved it).
-    let import = PsdImportOptions { photoshop_spot_polarity: true };
-    let (mut doc, w) = psd_to_document_decoded(&file, &photocraft_raster::Interrupt::NONE, None, import).ok_or(IoError::Cancelled)?;
+    // Spot planes are read in Photoshop's polarity (0 = solid ink), as from a PSD. The importer's
+    // rule for PSDs from earlier PhotoCraft versions never applies: those versions stored no
+    // extra samples in a TIFF, and a TIFF with them carries 1053.
+    let (mut doc, w) = psd_to_document(&file);
     warnings.extend(w);
-    // Resource 1053 (the channel identifiers) is written afresh on a TIFF save. Kept, it would
-    // follow the document into a PSD, whose spot planes are stored the other way round.
-    doc.metadata.psd_resources.retain(|(id, ..)| *id != crate::channel_map::ALPHA_IDENTIFIERS);
     doc.name = name.to_string();
     if doc.icc_profile.is_none() {
         doc.icc_profile = img.icc.clone().map(Arc::new);
@@ -248,8 +246,6 @@ pub(crate) fn export_layered(doc: &Document, opts: &ExportOptions, ctl: &photocr
         merged_compression: Compression::Raw,
         maximize_compatibility: true,
         document_path: opts.document_path.clone(),
-        // Spot planes as Photoshop's TIFFs store them (0 = solid ink); a PSD save stays as it was.
-        photoshop_spot_polarity: true,
     };
     // TIFF has no palette, bitmap or duotone layout: the PSD model of an Indexed Color, Bitmap
     // or Duotone document is made in its pixel format (RGB or Grayscale), which the PSD exporter
@@ -299,11 +295,11 @@ pub(crate) fn export_layered(doc: &Document, opts: &ExportOptions, ctl: &photocr
     // transparency plane stays out of the IFD (see above); a file with no extra channels keeps
     // it, so a plain transparent TIFF still opens with alpha.
     let write_alpha = has_alpha && kept == 0;
-    // One identifier per extra sample actually stored. A 1053 kept from an opened PSD lists that
-    // file's channels, the merged transparency's included, so it is never copied.
+    // One identifier per extra sample actually stored. The PSD model's 1053 lists the merged
+    // transparency too, and a kept one lists an opened file's channels, so neither is copied.
     resources.retain(|r| r.id != crate::channel_map::ALPHA_IDENTIFIERS);
     if kept > 0 {
-        resources.push(ImageResource::new(crate::channel_map::ALPHA_IDENTIFIERS, crate::channel_map::alpha_identifiers(kept)));
+        resources.push(ImageResource::new(crate::channel_map::ALPHA_IDENTIFIERS, crate::channel_map::alpha_identifiers(false, kept)));
     }
     // Resource 1022 names a channel of the PSD merged image, which counts the transparency plane.
     // The IFD below does not, so the id moves back by one.
@@ -812,7 +808,7 @@ fn channel_resources(existing: Option<&[u8]>, names: &[&str], channels: &[&Alpha
     resources.push(ImageResource::new(1006, crate::psd_export::pascal_names_resource(names)));
     resources.push(ImageResource::new(1045, crate::psd_export::unicode_names_resource(names)));
     resources.push(ImageResource::new(crate::channel_map::DISPLAY_INFO, crate::channel_map::display_info(channels, false)));
-    resources.push(ImageResource::new(crate::channel_map::ALPHA_IDENTIFIERS, crate::channel_map::alpha_identifiers(names.len())));
+    resources.push(ImageResource::new(crate::channel_map::ALPHA_IDENTIFIERS, crate::channel_map::alpha_identifiers(false, names.len())));
     if let Some(id) = quick_id {
         let mut data = id.to_be_bytes().to_vec();
         data.push(0);
