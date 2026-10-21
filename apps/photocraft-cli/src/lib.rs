@@ -6,6 +6,8 @@
 use std::ffi::OsString;
 use std::io::Write;
 
+use clap::CommandFactory;
+
 mod actions;
 mod args;
 mod automation;
@@ -20,6 +22,12 @@ use automation::{commands, mcp, serve};
 use batch::{batch, droplet};
 use document::{convert, info, run_cmds};
 pub(crate) use error::{CliError, Result};
+
+/// The command line's clap definition, for generating shell completions and man pages
+/// (`examples/man-and-completions.rs`).
+pub fn command() -> clap::Command {
+    args::Cli::command()
+}
 
 /// Run the CLI on its arguments (without the program name). Returns the process exit code (0 ok,
 /// 1 failure, 2 usage). clap reads the arguments as they are: a path that is not valid Unicode (a
