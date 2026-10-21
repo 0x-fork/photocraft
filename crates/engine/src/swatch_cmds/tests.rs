@@ -180,6 +180,31 @@ fn act_round_trip_loads_a_photoshop_color_table() {
 }
 
 #[test]
+fn act_that_starts_like_an_aco_is_still_an_act() {
+    // First colour 0, 1, 0 and second colour 5, …: the first four bytes read as an .aco version 1
+    // header with five swatches, and the .aco reader would take 50 bytes of junk from it.
+    let mut colors = [[0u8; 3]; 256];
+    colors[0] = [0, 1, 0];
+    for (i, c) in colors.iter_mut().enumerate().skip(1) {
+        *c = [(i as u8).wrapping_add(4), 7, 9];
+    }
+    for file in [photocraft_psd::act::write(&colors, None, None).unwrap(), photocraft_psd::act::write(&colors, Some(256), None).unwrap()] {
+        assert_eq!(&file[..4], &[0, 1, 0, 5]);
+        let mut s = Session::new();
+        let r = s.execute("swatches.import", json!({"data": b64_encode(&file), "mode": "replace"})).unwrap();
+        assert_eq!((r["format"].as_str(), r["count"].as_u64()), (Some("act"), Some(256)), "{} bytes", file.len());
+    }
+    // A real .aco of exactly 768 bytes (ten swatches with 25-character names) stays an .aco.
+    let swatches: Vec<AcoSwatch> = (0..10u16).map(|i| AcoSwatch { name: format!("{i:0>25}"), color: AcoColor::Rgb([i * 1000, 0, 65535]) }).collect();
+    let file = photocraft_psd::aco::write(&swatches).unwrap();
+    assert_eq!(file.len(), photocraft_psd::act::PALETTE_LEN);
+    let mut s = Session::new();
+    let r = s.execute("swatches.import", json!({"data": b64_encode(&file), "mode": "replace"})).unwrap();
+    assert_eq!((r["format"].as_str(), r["count"].as_u64()), (Some("aco"), Some(10)));
+    assert_eq!(s.presets.swatches[0].items[9].name, format!("{:0>25}", 9));
+}
+
+#[test]
 fn ase_round_trip_keeps_groups_floats_and_kinds() {
     let src = AseFile {
         entries: vec![

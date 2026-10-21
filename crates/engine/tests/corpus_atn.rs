@@ -10,9 +10,10 @@ use photocraft_engine::Session;
 use serde_json::json;
 
 fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
-    for e in rd.flatten() {
-        let p = e.path();
+    // An unreadable folder fails the test rather than shrinking the corpus.
+    let rd = std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+    for e in rd {
+        let p = e.unwrap_or_else(|e| panic!("{}: {e}", dir.display())).path();
         if p.is_dir() {
             collect(&p, out);
         } else if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("atn")) {

@@ -58,7 +58,7 @@ pub fn parse(data: &[u8]) -> Result<ActFile> {
     Ok(ActFile { colors, count, transparent })
 }
 
-/// Write an `.act` file: the 256-color palette plus the trailer when `file` has one.
+/// Write an `.act` file: the 256-color palette plus the trailer when `count` or `transparent` is given.
 /// Short palettes are padded with black; fails on a palette longer than 256 colors.
 pub fn write(colors: &[[u8; 3]], count: Option<u16>, transparent: Option<u16>) -> Result<Vec<u8>> {
     if colors.len() > COLOR_COUNT {

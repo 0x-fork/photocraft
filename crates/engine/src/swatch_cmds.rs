@@ -629,15 +629,16 @@ pub fn write_file(groups: &[Group<Swatch>], format: Format) -> std::result::Resu
 fn import(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "swatches.import";
     let (bytes, stem) = crate::preset_import_cmds::file_bytes(p, CMD, ".aco, .act or .ase file")?;
+    // `.act` has no magic: exactly 768/772 bytes. An `.act` whose first colour is `0, 1, x` or
+    // `0, 2, x` starts like an `.aco`, and the .aco reader ignores trailing bytes, so at those
+    // lengths an .aco header only counts when its sections fill the file exactly.
+    let act_len = bytes.len() == photocraft_psd::act::PALETTE_LEN || bytes.len() == photocraft_psd::act::PALETTE_LEN + photocraft_psd::act::TRAILER_LEN;
     let format = match str_param(p, "format") {
         Some(f) => Format::parse(f).ok_or_else(|| bad(CMD, format!("unknown format `{f}` (aco|act|ase)")))?,
         None if ext_format(str_param(p, "path")) == Some(Format::Act) => Format::Act,
         None if bytes.starts_with(photocraft_psd::ase::SIGNATURE) => Format::Ase,
-        None if matches!(bytes.get(..2), Some([0, 1] | [0, 2])) => Format::Aco,
-        // `.act` has no magic: an exact 768/772 bytes that is neither .ase nor .aco.
-        None if bytes.len() == photocraft_psd::act::PALETTE_LEN || bytes.len() == photocraft_psd::act::PALETTE_LEN + photocraft_psd::act::TRAILER_LEN => {
-            Format::Act
-        }
+        None if matches!(bytes.get(..2), Some([0, 1] | [0, 2])) && (!act_len || photocraft_psd::aco::sections_len(&bytes) == Some(bytes.len())) => Format::Aco,
+        None if act_len => Format::Act,
         None => ext_format(str_param(p, "path")).ok_or_else(|| bad(CMD, "not an .aco, .act or .ase swatch file"))?,
     };
     let mode = str_param(p, "mode").unwrap_or("append");
@@ -852,7 +853,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Import Swatches…",
             menu: &[],
             shortcut: None,
-            params: r##"{"path":".aco, .act or .ase file"?,"data":base64 bytes?,"format":"aco|act|ase"? (detected),"mode":"append|replace"="append","group":str?=file name (the group for ungrouped colours)} → {format,mode,groups,count,warnings}"##,
+            params: r##"{"path":".aco, .act or .ase file"?,"data":base64 bytes?,"format":"aco|act|ase"? (detected; an .act by its .act path or its 768/772-byte length),"mode":"append|replace"="append","group":str?=file name (the group for ungrouped colours)} → {format,mode,groups,count,warnings}"##,
             enabled: always,
             run: import,
             journal: true,
