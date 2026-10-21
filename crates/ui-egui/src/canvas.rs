@@ -4150,6 +4150,16 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             if !resizing && !alt && !app.ui.shell.sticky_alt {
                 draw_clone_preview(app, &painter, &xf, xf.to_doc(p), output);
             }
+            // The Type tool over a path shows Photoshop's area-type or type-on-a-path pointer (#218).
+            // Not while a type edit is open (a click then commits rather than starting new type),
+            // nor over type a click would edit.
+            let type_path = if matches!(tool, Tool::Type | Tool::VerticalType) && app.ui.text_edit.is_none() {
+                let [x, y] = xf.to_doc(p);
+                let shift = crate::workspace_ui::sticky_mods(app, ui.input(|i| i.modifiers)).shift;
+                crate::type_tool::hover_path_target(app, x, y, shift)
+            } else {
+                None
+            };
             let icon = match tool {
                 // Resizing the brush: the circle stays where the drag began (`brush_resize`).
                 t if resizing && crate::brush_resize::applies(t) => egui::CursorIcon::None,
@@ -4279,6 +4289,10 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 Tool::Hand => crate::tool_cursor::hand(ui.ctx(), false),
                 Tool::RotateView => crate::rotate_view::cursor(response.dragged()),
                 Tool::Zoom => crate::tool_cursor::zoom(ui.ctx(), zoom_out(alt)),
+                Tool::Type | Tool::VerticalType if type_path.is_some() => match type_path {
+                    Some(crate::type_tool::PathClick::Area { .. }) => crate::tool_cursor::area_type(&painter, p),
+                    _ => crate::tool_cursor::path_type(&painter, p),
+                },
                 Tool::Type | Tool::VerticalType | Tool::HorizontalTypeMask | Tool::VerticalTypeMask => egui::CursorIcon::Text,
                 Tool::MagneticLasso => crate::magnetic_lasso_ui::cursor(app, &painter, p, xf.zoom),
                 Tool::RedEye => {

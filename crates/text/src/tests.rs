@@ -2422,3 +2422,289 @@ fn a_word_wider_than_the_paragraph_box_breaks_at_the_box_edge() {
     assert_eq!(l.lines.len(), 2, "{:?}", l.lines);
     assert_eq!(l.lines[1].range.start, 3, "{:?}", l.lines);
 }
+
+/// Closed polygon in text space.
+fn area_poly(pts: &[(f64, f64)]) -> photocraft_doc::vector::Path {
+    photocraft_doc::vector::Path::new(vec![photocraft_doc::vector::Subpath::polygon(pts)])
+}
+
+/// An ellipse from four kappa curves inside `[x, y, w, h]`.
+fn area_ellipse(x: f64, y: f64, w: f64, h: f64) -> photocraft_doc::vector::Path {
+    use photocraft_doc::vector::{Knot, Subpath};
+    use photocraft_geom::Point;
+    let (rx, ry, cx, cy) = (w / 2.0, h / 2.0, x + w / 2.0, y + h / 2.0);
+    let (kx, ky) = (0.552_284_75 * rx, 0.552_284_75 * ry);
+    let p = Point::new;
+    let knots = vec![
+        Knot::smooth(p(cx, y), p(cx - kx, y), p(cx + kx, y)),
+        Knot::smooth(p(x + w, cy), p(x + w, cy - ky), p(x + w, cy + ky)),
+        Knot::smooth(p(cx, y + h), p(cx + kx, y + h), p(cx - kx, y + h)),
+        Knot::smooth(p(x, cy), p(x, cy + ky), p(x, cy - ky)),
+    ];
+    photocraft_doc::vector::Path::new(vec![Subpath { closed: true, knots, op: Default::default() }])
+}
+
+const BUBBLE_TEXT: &str = "Well, that went better than expected. Now where did the cat hide the keys this time?";
+
+/// Every laid-out line sits inside a span of the shape across its band.
+fn assert_lines_inside(l: &crate::TextLayout, path: &photocraft_doc::vector::Path) {
+    let a = crate::area::AreaShape::new(path, false).unwrap();
+    for line in &l.lines {
+        let spans = a.spans(line.baseline - line.ascent, line.baseline + line.descent, 0.0);
+        assert!(spans.iter().any(|&(s0, s1)| line.x0 >= s0 - 0.5 && line.x1 <= s1 + 0.5), "{line:?} not inside {spans:?}");
+    }
+}
+
+#[test]
+fn area_text_stays_inside_an_ellipse() {
+    let mut e = TextEngine::new();
+    let mut t = point(BUBBLE_TEXT, 18.0);
+    let path = area_ellipse(0.0, 0.0, 260.0, 160.0);
+    t.shape = TextShape::Area { path: path.clone() };
+    let l = e.layout(&t, 72.0);
+    assert!(l.lines.len() >= 4, "{}", l.lines.len());
+    assert_lines_inside(&l, &path);
+    // The top of an ellipse is too narrow for a line at its very edge: the first line starts lower.
+    assert!(l.lines[0].baseline - l.lines[0].ascent > 1.0, "{:?}", l.lines[0]);
+    // Lines go down the shape in text order.
+    for w in l.lines.windows(2) {
+        assert!(w[1].baseline >= w[0].baseline && w[1].range.start >= w[0].range.end, "{w:?}");
+    }
+    // Middle lines are wider than the first (the ellipse is widest in the middle).
+    let width = |i: usize| l.lines[i].x1 - l.lines[i].x0;
+    assert!(width(l.lines.len() / 2) > width(0), "{l:?}");
+}
+
+#[test]
+fn area_overflow_is_hidden() {
+    let mut e = TextEngine::new();
+    let mut t = point(&BUBBLE_TEXT.repeat(10), 14.0);
+    let path = area_ellipse(0.0, 0.0, 200.0, 80.0);
+    t.shape = TextShape::Area { path: path.clone() };
+    let l = e.layout(&t, 72.0);
+    assert!(!l.lines.is_empty());
+    assert!(l.lines.last().unwrap().range.end < t.text.len(), "the rest is hidden");
+    assert_lines_inside(&l, &path);
+}
+
+/// A long word that reaches the narrow bottom of a full bubble is hidden with the rest, not
+/// drawn past the outline: the wide middle rows would hold it, so the shape just ran out.
+#[test]
+fn area_overflow_at_the_narrow_bottom_is_hidden() {
+    let mut e = TextEngine::new();
+    let words = "Unfortunately the misunderstanding between representatives continued indefinitely. ";
+    for (w, h, size) in [(260.0, 160.0, 12.0), (180.0, 140.0, 14.0), (150.0, 220.0, 12.0)] {
+        let mut t = point(&words.repeat(8), size);
+        let path = area_ellipse(0.0, 0.0, w, h);
+        t.shape = TextShape::Area { path: path.clone() };
+        let l = e.layout(&t, 72.0);
+        assert!(!l.lines.is_empty());
+        assert!(l.lines.last().unwrap().range.end < t.text.len(), "the rest is hidden");
+        assert_lines_inside(&l, &path);
+    }
+}
+
+/// The same in a later paragraph: its own rows start below the wide top of the shape, but the
+/// shape would still hold the word there, so it is hidden rather than drawn past the outline.
+#[test]
+fn area_overflow_in_a_later_paragraph_is_hidden() {
+    let mut e = TextEngine::new();
+    // A funnel: 300 px wide at the top, a point at the bottom.
+    let path = area_poly(&[(0.0, 0.0), (300.0, 0.0), (150.0, 300.0)]);
+    for n in (10..120).step_by(5) {
+        let text = format!("{}\nmisunderstanding and more", "cat ".repeat(n));
+        let mut t = point(&text, 12.0);
+        t.shape = TextShape::Area { path: path.clone() };
+        let l = e.layout(&t, 72.0);
+        assert_lines_inside(&l, &path);
+    }
+}
+
+#[test]
+fn area_lines_center_in_their_span() {
+    let mut e = TextEngine::new();
+    let mut t = point(BUBBLE_TEXT, 12.0);
+    t.paragraphs = vec![ParagraphRun { len: t.text.len(), style: ParagraphStyle { align: TextAlign::Center, ..Default::default() } }];
+    // A diamond: every row's span is centred on x = 100.
+    t.shape = TextShape::Area { path: area_poly(&[(100.0, 0.0), (200.0, 100.0), (100.0, 200.0), (0.0, 100.0)]) };
+    let l = e.layout(&t, 72.0);
+    assert!(l.lines.len() >= 3);
+    for line in &l.lines {
+        assert!(((line.x0 + line.x1) / 2.0 - 100.0).abs() < 1.5, "{line:?}");
+    }
+}
+
+/// Horizontal scale applies after shaping, so area lines break at the span width divided by it:
+/// widened text stays inside the shape and centred lines stay centred (#5565).
+#[test]
+fn horizontally_scaled_area_text_stays_inside_its_spans() {
+    let mut e = TextEngine::new();
+    let style = CharStyle { font_family: "Inter".into(), size_pt: 12.0, horizontal_scale: 1.5, ..Default::default() };
+    let mut t = styled(BUBBLE_TEXT, style);
+    let path = area_ellipse(0.0, 0.0, 240.0, 200.0);
+    t.shape = TextShape::Area { path: path.clone() };
+    let l = e.layout(&t, 72.0);
+    assert!(l.lines.len() >= 3, "{:?}", l.lines);
+    assert_lines_inside(&l, &path);
+    t.paragraphs = vec![ParagraphRun { len: t.text.len(), style: ParagraphStyle { align: TextAlign::Center, ..Default::default() } }];
+    t.shape = TextShape::Area { path: area_poly(&[(100.0, 0.0), (200.0, 100.0), (100.0, 200.0), (0.0, 100.0)]) };
+    let l = e.layout(&t, 72.0);
+    assert!(l.lines.len() >= 2, "{:?}", l.lines);
+    for line in &l.lines {
+        assert!(((line.x0 + line.x1) / 2.0 - 100.0).abs() < 1.5, "{line:?}");
+    }
+}
+
+#[test]
+fn area_rows_split_around_a_hole() {
+    use photocraft_doc::vector::{PathOp, Subpath};
+    let mut e = TextEngine::new();
+    let mut t = point(&BUBBLE_TEXT.repeat(6), 12.0);
+    let path = photocraft_doc::vector::Path::new(vec![
+        Subpath::polygon(&[(0.0, 0.0), (300.0, 0.0), (300.0, 300.0), (0.0, 300.0)]),
+        Subpath::polygon(&[(120.0, 100.0), (180.0, 100.0), (180.0, 200.0), (120.0, 200.0)]).with_op(PathOp::Subtract),
+    ]);
+    t.shape = TextShape::Area { path: path.clone() };
+    let l = e.layout(&t, 72.0);
+    assert_lines_inside(&l, &path);
+    // Some baseline carries two lines: one left of the hole, one right of it, left first.
+    let w = l.lines.windows(2).find(|w| (w[0].baseline - w[1].baseline).abs() < 1e-3).expect("a row split around the hole");
+    let (left, right) = (&w[0], &w[1]);
+    assert!(left.x1 <= 120.5 && right.x0 >= 179.5, "{left:?} {right:?}");
+}
+
+#[test]
+fn vertical_area_text_stays_inside() {
+    use photocraft_doc::text::Orientation;
+    let mut e = TextEngine::new();
+    let mut t = point(BUBBLE_TEXT, 12.0);
+    t.orientation = Orientation::Vertical;
+    t.shape = TextShape::Area { path: area_poly(&[(0.0, 0.0), (120.0, 0.0), (120.0, 200.0), (0.0, 200.0)]) };
+    let l = e.layout(&t, 72.0);
+    assert!(l.lines.len() >= 2, "several columns");
+    for g in &l.glyphs {
+        assert!(g.x > -1.0 && g.x < 121.0 && g.y > -1.0 && g.y < 201.0, "{g:?}");
+    }
+}
+
+#[test]
+fn area_without_room_lays_out_nothing_and_a_bad_path_lays_out_as_point_text() {
+    let mut e = TextEngine::new();
+    let mut t = point("Hello", 40.0);
+    // 10 px tall: no 40 pt line fits.
+    t.shape = TextShape::Area { path: area_poly(&[(0.0, 0.0), (300.0, 0.0), (300.0, 10.0), (0.0, 10.0)]) };
+    assert!(e.layout(&t, 72.0).lines.is_empty());
+    // An open path encloses nothing (only reachable from a hostile file): point text, no panic.
+    t.shape = TextShape::Area { path: photocraft_doc::vector::Path::new(vec![photocraft_doc::vector::Subpath::polyline(&[(0.0, 0.0), (9.0, 9.0)])]) };
+    let point_layout = e.layout(&point("Hello", 40.0), 72.0);
+    assert_eq!(e.layout(&t, 72.0).lines.len(), point_layout.lines.len());
+}
+
+#[test]
+fn area_word_wider_than_every_span_overflows_instead_of_hiding_the_text() {
+    use photocraft_doc::vector::Subpath;
+    let mut e = TextEngine::new();
+    // Two 40 px columns 120 px apart: their bounding box is 200 px wide, but no span is wider
+    // than 40 px, so no row can ever hold the long word.
+    let mut t = point("Wonderfulness is a long word", 12.0);
+    let path = photocraft_doc::vector::Path::new(vec![
+        Subpath::polygon(&[(0.0, 0.0), (40.0, 0.0), (40.0, 200.0), (0.0, 200.0)]),
+        Subpath::polygon(&[(160.0, 0.0), (200.0, 0.0), (200.0, 200.0), (160.0, 200.0)]),
+    ]);
+    t.shape = TextShape::Area { path };
+    let l = e.layout(&t, 72.0);
+    let first = l.lines.first().expect("the text is shown");
+    // The word overflows its 40 px span on the first row (box text would break it, #6694).
+    assert!(first.x1 - first.x0 > 40.0 && first.x1 - first.x0 < 200.0, "{first:?}");
+    assert!(first.x0 >= -0.5, "{first:?}");
+    // Nothing is hidden.
+    assert_eq!(l.lines.last().map(|line| line.range.end), Some(t.text.len()), "{:?}", l.lines);
+}
+
+#[test]
+fn single_size_area_paragraph_breaks_in_one_pass() {
+    let mut e = TextEngine::new();
+    let mut t = point(BUBBLE_TEXT, 12.0);
+    t.shape = TextShape::Area { path: area_poly(&[(0.0, 0.0), (300.0, 0.0), (300.0, 300.0), (0.0, 300.0)]) };
+    crate::layout::AREA_PASSES.with(|c| c.set(0));
+    let l = e.layout(&t, 72.0);
+    assert!(l.lines.len() >= 2);
+    // Rows are planned with the paragraph's real metrics: no re-plan and no skipped spans.
+    assert_eq!(crate::layout::AREA_PASSES.with(|c| c.get()), 1);
+}
+
+#[test]
+fn area_word_skips_a_narrow_span_for_a_wider_one_on_the_same_row() {
+    let mut e = TextEngine::new();
+    let mut t = point("Wonderful things happen in speech bubbles every single day.", 12.0);
+    // A U: a 24 px left arm and a wide right arm above y = 150, joined below it.
+    let path = area_poly(&[(0.0, 0.0), (24.0, 0.0), (24.0, 150.0), (80.0, 150.0), (80.0, 0.0), (300.0, 0.0), (300.0, 200.0), (0.0, 200.0)]);
+    t.shape = TextShape::Area { path: path.clone() };
+    let l = e.layout(&t, 72.0);
+    assert_lines_inside(&l, &path);
+    let first = l.lines.first().expect("the text is shown");
+    // "Wonderful" is wider than the left arm: it starts the text in the right arm, on the first
+    // row, and nothing is put in the left arm's span on that row.
+    assert_eq!(first.range.start, 0);
+    assert!(first.x0 >= 79.5, "{first:?}");
+    assert!(first.baseline < 30.0, "first row: {first:?}");
+    assert_eq!(l.lines.iter().filter(|line| (line.baseline - first.baseline).abs() < 1e-3).count(), 1, "{:?}", l.lines);
+    assert_eq!(l.lines.last().map(|line| line.range.end), Some(t.text.len()), "nothing hidden");
+}
+
+#[test]
+fn area_stacks_paragraphs_with_leading_and_space_before() {
+    let mut e = TextEngine::new();
+    let text = "First paragraph of the bubble text.\nSecond paragraph goes right after it.";
+    let mut t = point(text, 12.0);
+    let style = ParagraphStyle { space_before_pt: 6.0, ..Default::default() };
+    let leading = style.auto_leading * 12.0;
+    t.paragraphs = vec![ParagraphRun { len: text.len(), style }];
+    let path = area_poly(&[(0.0, 0.0), (120.0, 0.0), (120.0, 300.0), (0.0, 300.0)]);
+    t.shape = TextShape::Area { path: path.clone() };
+    let l = e.layout(&t, 72.0);
+    assert_lines_inside(&l, &path);
+    let (p0, p1): (Vec<_>, Vec<_>) = l.lines.iter().partition(|line| line.paragraph == 0);
+    assert!(p0.len() >= 2 && p1.len() >= 2, "both paragraphs wrap: {:?}", l.lines);
+    assert!(p1.iter().all(|line| line.paragraph == 1));
+    // The second paragraph starts right after the break, one leading plus space before lower.
+    let second = text.find('\n').unwrap() + 1;
+    assert_eq!(p1[0].range.start, second);
+    let gap = p1[0].baseline - p0.last().unwrap().baseline;
+    assert!((gap - (leading + 6.0)).abs() < 1.0, "gap {gap}, want {}", leading + 6.0);
+    // Lines within a paragraph are one leading apart.
+    for w in p0.windows(2) {
+        assert!((w[1].baseline - w[0].baseline - leading).abs() < 1.0, "{w:?}");
+    }
+    assert_eq!(l.lines.last().map(|line| line.range.end), Some(text.len()));
+}
+
+#[test]
+fn area_justify_fills_each_span_but_the_last_line() {
+    let mut e = TextEngine::new();
+    let mut t = point(&BUBBLE_TEXT.repeat(2), 12.0);
+    t.paragraphs = vec![ParagraphRun { len: t.text.len(), style: ParagraphStyle { align: TextAlign::JustifyLeft, ..Default::default() } }];
+    let path = area_ellipse(0.0, 0.0, 260.0, 160.0);
+    t.shape = TextShape::Area { path: path.clone() };
+    let l = e.layout(&t, 72.0);
+    assert!(l.lines.len() >= 4, "{}", l.lines.len());
+    assert_lines_inside(&l, &path);
+    let a = crate::area::AreaShape::new(&path, false).unwrap();
+    let span_of = |line: &crate::LineInfo| {
+        a.spans(line.baseline - line.ascent, line.baseline + line.descent, 0.0)
+            .into_iter()
+            .find(|&(s0, s1)| line.x0 >= s0 - 0.5 && line.x1 <= s1 + 0.5)
+            .unwrap()
+    };
+    let (last, rest) = l.lines.split_last().unwrap();
+    for line in rest {
+        // Justified: the glyphs run from one edge of the line's span to the other.
+        let (s0, s1) = span_of(line);
+        let ink = l.glyphs.iter().filter(|g| (g.y - line.baseline).abs() < 1e-3).map(|g| g.x).fold(f32::MIN, f32::max);
+        assert!((line.x0 - s0).abs() < 1.0, "{line:?} in {s0}..{s1}");
+        assert!(ink > s1 - 12.0, "last glyph at {ink}, span ends {s1}: {line:?}");
+    }
+    // The last line is set flush left, not stretched.
+    let (s0, s1) = span_of(last);
+    assert!((last.x0 - s0).abs() < 1.0 && last.x1 < s1 - 12.0, "{last:?} in {s0}..{s1}");
+}
