@@ -463,4 +463,74 @@ mod tests {
         let px = s.active().unwrap().doc.layers[0].surface().unwrap().pixel(1, 1);
         assert!(px[2] > 0.5 && px[1] < 0.5, "redo reaches the blue fill: {px:?}");
     }
+
+    /// Off, taking a step back with `Session::rollback` (a cancelled Free Transform of a made
+    /// layer, an abandoned Alt-drag copy, a compound command whose later part failed) keeps the
+    /// unrecorded visibility as Undo does, and gives back the visibility the step itself changed,
+    /// whether it takes the step back exactly, falls back to Undo or lands on the oldest state.
+    #[test]
+    fn rollback_keeps_unrecorded_visibility() {
+        // Exactly: the fill is taken back, the eye's hide stays.
+        let (mut s, id) = doc();
+        s.execute(CMD, json!({"makeLayerVisibilityChangesUndoable": false})).unwrap();
+        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        s.execute("layer.setProps", json!({"layer": id, "visible": false})).unwrap();
+        assert!(s.rollback());
+        assert!(!red(&s, id), "the fill is taken back");
+        assert!(!visible(&s, id), "the unrecorded hide stays");
+        assert!(!s.active().unwrap().history.can_redo(), "nothing to redo");
+
+        // Landing on the oldest state (the New Layer step taken back): the hidden background stays
+        // hidden.
+        let (mut s, _) = doc();
+        s.execute(CMD, json!({"makeLayerVisibilityChangesUndoable": false})).unwrap();
+        let bg = s.active().unwrap().doc.layers[0].id.0;
+        s.execute("layer.setProps", json!({"layer": bg, "visible": false})).unwrap();
+        assert!(s.rollback());
+        assert_eq!(s.active().unwrap().doc.layers.len(), 1, "the new layer is taken back");
+        assert!(!visible(&s, bg), "the unrecorded hide stays on the oldest state");
+        assert!(!s.rollback(), "nothing left to take back");
+        assert!(!visible(&s, bg));
+
+        // A step that changed visibility (Apply Layer Comp) gives it back.
+        let (mut s, id) = doc();
+        s.execute(CMD, json!({"makeLayerVisibilityChangesUndoable": false})).unwrap();
+        s.execute("layer.setProps", json!({"layer": id, "visible": false})).unwrap();
+        s.execute("layerComp.new", json!({"name": "Hidden"})).unwrap();
+        s.execute("layer.setProps", json!({"layer": id, "visible": true})).unwrap();
+        s.execute("layerComp.apply", json!({"comp": "Hidden"})).unwrap();
+        assert!(!visible(&s, id));
+        assert!(s.rollback());
+        assert!(visible(&s, id), "taking back Apply Layer Comp shows the layer again");
+
+        // Falling back to Undo (the history changed since the fill: undo, redo).
+        let (mut s, id) = doc();
+        s.execute(CMD, json!({"makeLayerVisibilityChangesUndoable": false})).unwrap();
+        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        s.execute("edit.undo", json!({})).unwrap();
+        s.execute("edit.redo", json!({})).unwrap();
+        s.execute("layer.setProps", json!({"layer": id, "visible": false})).unwrap();
+        assert!(s.rollback());
+        assert!(!red(&s, id) && !visible(&s, id), "the fallback Undo keeps the hide too");
+        assert!(!s.active().unwrap().history.can_redo());
+
+        // Non-linear: a step recorded after stepping back, taken back exactly, keeps the hide and
+        // gives the later state back to redo.
+        let (mut s, id) = doc();
+        s.execute(CMD, json!({"makeLayerVisibilityChangesUndoable": false, "allowNonLinearHistory": true})).unwrap();
+        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        s.execute("edit.undo", json!({})).unwrap();
+        s.execute("image.adjustments.invert", json!({})).unwrap();
+        s.execute("layer.setProps", json!({"layer": id, "visible": false})).unwrap();
+        assert!(s.rollback());
+        assert!(!red(&s, id) && !visible(&s, id), "back before the invert, still hidden");
+        assert!(s.active().unwrap().history.can_redo(), "the fill is redoable again");
+
+        // On (the default) the eye records a state of its own, which a rollback takes back.
+        let (mut s, id) = doc();
+        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        s.execute("layer.setProps", json!({"layer": id, "visible": false})).unwrap();
+        assert!(s.rollback());
+        assert!(red(&s, id) && visible(&s, id), "the hide is taken back, the fill stays");
+    }
 }

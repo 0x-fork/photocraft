@@ -1017,8 +1017,12 @@ impl Session {
         if self.active_job().is_some() {
             return false;
         }
+        let keep_visibility = !self.visibility_undoable();
         let Some(st) = self.active_mut() else { return false };
         st.coalesce = None;
+        // The step taken back (and the later states it moved, in non-linear history): the layers
+        // whose visibility it changed get it back, the unrecorded changes stay, as for Undo.
+        let changed = st.history.current_visibility().to_vec();
         let Some((mut d, layers)) = st.history.rollback() else {
             let undone = self.undo();
             if undone && let Some(st) = self.active_mut() {
@@ -1028,6 +1032,9 @@ impl Session {
         };
         if d.name != st.doc.name {
             Arc::make_mut(&mut d).name.clone_from(&st.doc.name);
+        }
+        if keep_visibility {
+            carry_visibility(&st.doc, &mut d, &changed);
         }
         let damage = layer_multi_cmds::step_damage(&d, &st.doc);
         st.doc = d;
