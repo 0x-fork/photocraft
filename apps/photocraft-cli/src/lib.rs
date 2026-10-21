@@ -10,13 +10,13 @@ mod args;
 mod automation;
 mod batch;
 mod document;
+mod error;
 mod output;
 
-pub use actions::{Steps, load_actions, load_actions_file, parse_actions};
+pub use actions::{ActionsError, Steps, load_actions, load_actions_file, parse_actions};
 pub use args::USAGE;
 use args::{SUBCOMMANDS, parse};
-
-pub(crate) type R = Result<(), String>;
+pub(crate) use error::{CliError, Result};
 
 /// [`run`] on the raw process arguments. An argument that is not valid Unicode is a usage error
 /// naming its position and a lossy rendering (exit 2), never a panic: `std::env::args()` aborts
@@ -74,5 +74,22 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
             let _ = writeln!(err, "error: {e}");
             1
         }
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    /// What [`crate::run`] returned and wrote.
+    pub(crate) struct Invoke {
+        pub(crate) code: i32,
+        pub(crate) stdout: String,
+        pub(crate) stderr: String,
+    }
+
+    pub(crate) fn invoke(args: &[&str]) -> Invoke {
+        let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        let code = crate::run(&args, &mut stdout, &mut stderr);
+        Invoke { code, stdout: String::from_utf8(stdout).unwrap(), stderr: String::from_utf8(stderr).unwrap() }
     }
 }

@@ -4,10 +4,12 @@ use std::path::Path;
 use photocraft_automation::{Headless, files};
 use serde_json::{Value, json};
 
+use photocraft_engine::type_extra_cmds::missing_font_warnings;
+
 use crate::{
-    R,
+    CliError, Result,
     args::Args,
-    output::{export_opts, missing_font_warnings, print_json, warn_all},
+    output::{JsonStyle, export_opts, print_json, warn_all},
 };
 
 /// An output that is the input file itself, however it is spelt (relative, with `./`, through a
@@ -16,39 +18,39 @@ use crate::{
 /// folder (#7437). The paths are compared when the command starts and the save opens `output`
 /// again later, so another process swapping in a link meanwhile goes unnoticed: this guards
 /// against mistakes, it is not a security boundary.
-fn refuse_overwriting_input(a: &Args, input: &str, output: &str) -> R {
+fn refuse_overwriting_input(a: &Args, input: &str, output: &str) -> Result {
     if !a.has("--in-place") && photocraft_engine::file_cmds::same_file(input, output) {
-        return Err(format!("{output} is the input file, so the result would replace the original: choose another output, or pass --in-place to overwrite it"));
+        return Err(CliError::OutIsInput(output.to_owned()));
     }
     Ok(())
 }
 
-pub(crate) fn convert(a: &Args, _out: &mut dyn Write, err: &mut dyn Write) -> R {
+pub(crate) fn convert(a: &Args, _out: &mut dyn Write, err: &mut dyn Write) -> Result {
     let [input, output] = a.positional.as_slice() else {
-        return Err("convert needs <in> <out>".into());
+        return Err(CliError::Needs { sub: "convert", what: "<in> <out>" });
     };
     let opts = export_opts(a)?;
     refuse_overwriting_input(a, input, output)?;
-    let mut o = files::open(Path::new(input)).map_err(|e| e.to_string())?;
+    let mut o = files::open(Path::new(input))?;
     // Preferences › Raw Defaults › Resolution at its default, as `run` and `info` open a raw.
     photocraft_engine::file_cmds::raw_defaults(&photocraft_engine::Session::new(), &o.warnings, &mut o.document);
     warn_all(err, &o.warnings);
-    warn_all(err, &photocraft_engine::type_extra_cmds::missing_font_warnings(&o.document));
-    let ws = files::save(&o.document, Path::new(output), a.get("--format"), &opts, None).map_err(|e| e.to_string())?;
+    warn_all(err, &missing_font_warnings(&o.document));
+    let ws = files::save(&o.document, Path::new(output), a.get("--format"), &opts, None)?;
     warn_all(err, &ws);
     Ok(())
 }
 
-pub(crate) fn info(a: &Args, out: &mut dyn Write) -> R {
+pub(crate) fn info(a: &Args, out: &mut dyn Write) -> Result {
     let [file] = a.positional.as_slice() else {
-        return Err("info needs <file>".into());
+        return Err(CliError::Needs { sub: "info", what: "<file>" });
     };
     let mut h = Headless::trusted_local();
-    let opened = h.open(Path::new(file)).map_err(|e| e.to_string())?;
-    let mut doc = h.inspect(None).map_err(|e| e.to_string())?;
+    let opened = h.open(Path::new(file))?;
+    let mut doc = h.inspect(None)?;
     let mut warnings = opened["warnings"].as_array().cloned().unwrap_or_default();
     if let Some(st) = h.session.active() {
-        warnings.extend(missing_font_warnings(photocraft_engine::type_extra_cmds::missing_fonts(&st.doc)).into_iter().map(Value::String));
+        warnings.extend(missing_font_warnings(&st.doc).into_iter().map(Value::String));
     }
     doc["warnings"] = Value::Array(warnings);
     doc["file"] = json!(file);
@@ -58,18 +60,18 @@ pub(crate) fn info(a: &Args, out: &mut dyn Write) -> R {
             m.remove(k);
         }
     }
-    print_json(out, &doc, a.has("--compact"))
+    print_json(out, &doc, if a.has("--compact") { JsonStyle::Compact } else { JsonStyle::Pretty })
 }
 
 /// `(id, params)` pairs from repeated `--cmd`/`--params` flags.
-fn command_list(a: &Args) -> Result<Vec<(String, Value)>, String> {
+fn command_list(a: &Args) -> Result<Vec<(String, Value)>> {
     let mut cmds: Vec<(String, Value)> = Vec::new();
     for (k, v) in &a.flags {
         match (k.as_str(), v) {
             ("--cmd", Some(id)) => cmds.push((id.clone(), json!({}))),
             ("--params", Some(p)) => {
-                let last = cmds.last_mut().ok_or("--params must follow a --cmd")?;
-                last.1 = serde_json::from_str(p).map_err(|e| format!("bad --params JSON for `{}`: {e}", last.0))?;
+                let last = cmds.last_mut().ok_or(CliError::ParamsBeforeCmd)?;
+                last.1 = serde_json::from_str(p).map_err(|source| CliError::BadParams { id: last.0.clone(), source })?;
             }
             _ => {}
         }
@@ -77,7 +79,7 @@ fn command_list(a: &Args) -> Result<Vec<(String, Value)>, String> {
     Ok(cmds)
 }
 
-pub(crate) fn run_cmds(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> R {
+pub(crate) fn run_cmds(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> Result {
     let opts = export_opts(a)?;
     let mut h = Headless::trusted_local();
     // Opening, running commands and exporting can all notice the same missing font:
@@ -89,54 +91,41 @@ pub(crate) fn run_cmds(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> R 
             if let Some(out) = a.get("--out") {
                 refuse_overwriting_input(a, file, out)?;
             }
-            let o = h.open(Path::new(file)).map_err(|e| e.to_string())?;
+            let o = h.open(Path::new(file))?;
             let ws: Vec<String> = serde_json::from_value(o["warnings"].clone()).unwrap_or_default();
-            reported_fonts.extend(ws.iter().cloned());
             warn_all(err, &ws);
             reported_fonts.extend(ws);
         }
         ([], Some(new)) => {
-            let p: Value = serde_json::from_str(new).map_err(|e| format!("bad --new JSON: {e}"))?;
-            h.command_run("file.new", p).map_err(|e| format!("--new: {e}"))?;
+            let p: Value = serde_json::from_str(new).map_err(CliError::BadNew)?;
+            h.command_run("file.new", p).map_err(CliError::New)?;
         }
-        _ => return Err("run needs exactly one of <file> or --new <json>".into()),
+        _ => return Err(CliError::Needs { sub: "run", what: "exactly one of <file> or --new <json>" }),
     }
     let cmds = command_list(a)?;
     if cmds.is_empty() && a.get("--out").is_none() {
-        return Err("run needs at least one --cmd (or --out)".into());
+        return Err(CliError::Needs { sub: "run", what: "at least one --cmd (or --out)" });
     }
     for (id, params) in cmds {
-        let r = h.command_run(&id, params).map_err(|e| format!("`{id}`: {e}"))?;
-        if let Some(e) = photocraft_engine::actions_cmds::nested_failure(&id, &r) {
-            return Err(format!("`{id}`: {e}"));
+        let r = h.command_run(&id, params).map_err(|source| CliError::Command { id: id.clone(), source })?;
+        if let Some(message) = photocraft_engine::actions_cmds::nested_failure(&id, &r) {
+            return Err(CliError::NestedFailure { id, message });
         }
-        let new_warnings: Vec<String> = h
-            .session
-            .active()
-            .map(|st| missing_font_warnings(photocraft_engine::type_extra_cmds::missing_fonts(&st.doc)))
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|w| reported_fonts.insert(w.clone()))
-            .collect();
+        let new_warnings: Vec<String> =
+            h.session.active().map(|st| missing_font_warnings(&st.doc)).unwrap_or_default().into_iter().filter(|w| reported_fonts.insert(w.clone())).collect();
         warn_all(err, &new_warnings);
         let mut result = json!({"command": id, "result": r});
         if !new_warnings.is_empty() {
             result["warnings"] = json!(new_warnings);
         }
-        print_json(out, &result, true)?;
+        print_json(out, &result, JsonStyle::Compact)?;
     }
     // A `run` with only `--out` still reports missing fonts before exporting.
-    let remaining: Vec<String> = h
-        .session
-        .active()
-        .map(|st| missing_font_warnings(photocraft_engine::type_extra_cmds::missing_fonts(&st.doc)))
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|w| reported_fonts.insert(w.clone()))
-        .collect();
+    let remaining: Vec<String> =
+        h.session.active().map(|st| missing_font_warnings(&st.doc)).unwrap_or_default().into_iter().filter(|w| reported_fonts.insert(w.clone())).collect();
     warn_all(err, &remaining);
     if let Some(o) = a.get("--out") {
-        let r = h.save(None, Some(Path::new(o)), a.get("--format"), &opts).map_err(|e| e.to_string())?;
+        let r = h.save(None, Some(Path::new(o)), a.get("--format"), &opts)?;
         let ws: Vec<String> = serde_json::from_value(r["warnings"].clone()).unwrap_or_default();
         let ws: Vec<String> = ws.into_iter().filter(|w| reported_fonts.insert(w.clone())).collect();
         warn_all(err, &ws);
@@ -147,15 +136,10 @@ pub(crate) fn run_cmds(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> R 
 #[cfg(test)]
 mod missing_font_warning_tests {
     use super::*;
-    use crate::{batch::is_input, run};
-
-    fn invoke(args: &[&str]) -> (i32, String, String) {
-        let mut output = Vec::new();
-        let mut errors = Vec::new();
-        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-        let code = run(&args, &mut output, &mut errors);
-        (code, String::from_utf8(output).unwrap(), String::from_utf8(errors).unwrap())
-    }
+    use crate::{
+        batch::is_input,
+        test_support::{Invoke, invoke},
+    };
 
     #[test]
     fn missing_typeface_is_reported_by_run_info_and_convert() {
@@ -168,7 +152,7 @@ mod missing_font_warning_tests {
         let png_str = png.to_string_lossy().to_string();
         let params = json!({"x": 6, "y": 38, "text": "Missing font warning", "font": family, "size": 20}).to_string();
 
-        let (code, stdout, stderr) = invoke(&[
+        let Invoke { code, stdout, stderr } = invoke(&[
             "run",
             "--new",
             r#"{"width":256,"height":96,"background":"white"}"#,
@@ -188,19 +172,19 @@ mod missing_font_warning_tests {
         assert!(commands[0]["warnings"].as_array().unwrap().iter().any(|w| w.as_str().is_some_and(|s| s.contains(family))));
         assert!(commands[1].get("warnings").is_none(), "only newly detected missing fonts are reported");
 
-        let (code, stdout, stderr) = invoke(&["info", &native_str, "--compact"]);
+        let Invoke { code, stdout, stderr } = invoke(&["info", &native_str, "--compact"]);
         assert_eq!(code, 0, "{stderr}");
         let info: Value = serde_json::from_str(&stdout).unwrap();
         assert!(info["warnings"].as_array().unwrap().iter().any(|w| w.as_str().is_some_and(|s| s.contains(family))));
         assert!(stderr.is_empty(), "info puts warnings in JSON, not stderr");
 
-        let (code, _, stderr) = invoke(&["convert", &native_str, &png_str]);
+        let Invoke { code, stderr, .. } = invoke(&["convert", &native_str, &png_str]);
         assert_eq!(code, 0, "{stderr}");
         assert!(stderr.contains(&format!("warning: font '{family}'")), "{stderr}");
         assert!(png.is_file());
 
         // Even with no commands, run --out checks the opened document before export.
-        let (code, stdout, stderr) = invoke(&["run", &native_str, "--out", &png_str]);
+        let Invoke { code, stdout, stderr } = invoke(&["run", &native_str, "--out", &png_str]);
         assert_eq!(code, 0, "{stderr}");
         assert!(stdout.is_empty());
         assert_eq!(stderr.matches(family).count(), 1);
@@ -214,15 +198,15 @@ mod missing_font_warning_tests {
         std::fs::create_dir_all(&folder).unwrap();
         let path = |name: &str| folder.join(name).to_string_lossy().to_string();
         let (native, ora, png) = (path("layers.pcraft"), path("layers.ora"), path("back.png"));
-        let (code, _, stderr) = invoke(&["run", "--new", r#"{"width":16,"height":12}"#, "--cmd", "layer.new.layer", "--out", &native]);
+        let Invoke { code, stderr, .. } = invoke(&["run", "--new", r#"{"width":16,"height":12}"#, "--cmd", "layer.new.layer", "--out", &native]);
         assert_eq!(code, 0, "{stderr}");
-        let (code, _, stderr) = invoke(&["convert", &native, &ora]);
+        let Invoke { code, stderr, .. } = invoke(&["convert", &native, &ora]);
         assert_eq!(code, 0, "{stderr}");
-        let (code, stdout, stderr) = invoke(&["info", &ora, "--compact"]);
+        let Invoke { code, stdout, stderr } = invoke(&["info", &ora, "--compact"]);
         assert_eq!(code, 0, "{stderr}");
         let info: Value = serde_json::from_str(&stdout).unwrap();
         assert_eq!(info["layers"].as_array().map(Vec::len), Some(2), "{info}");
-        let (code, _, stderr) = invoke(&["convert", &ora, &png]);
+        let Invoke { code, stderr, .. } = invoke(&["convert", &ora, &png]);
         assert_eq!(code, 0, "{stderr}");
         assert!(is_input(std::path::Path::new(&ora)));
         // Krita documents are batch inputs too (import-only).
@@ -241,14 +225,14 @@ mod missing_font_warning_tests {
         let png = folder.join("blank.png");
         let native_str = native.to_string_lossy().to_string();
         let png_str = png.to_string_lossy().to_string();
-        let (code, _, stderr) = invoke(&["run", "--new", r#"{"width":16,"height":16}"#, "--out", &native_str]);
+        let Invoke { code, stderr, .. } = invoke(&["run", "--new", r#"{"width":16,"height":16}"#, "--out", &native_str]);
         assert_eq!(code, 0, "{stderr}");
         assert!(!stderr.contains("font '"), "{stderr}");
-        let (code, stdout, stderr) = invoke(&["info", &native_str, "--compact"]);
+        let Invoke { code, stdout, stderr } = invoke(&["info", &native_str, "--compact"]);
         assert_eq!(code, 0, "{stderr}");
         let info: Value = serde_json::from_str(&stdout).unwrap();
         assert!(info["warnings"].as_array().unwrap().iter().all(|w| !w.as_str().unwrap_or_default().contains("font '")));
-        let (code, _, stderr) = invoke(&["convert", &native_str, &png_str]);
+        let Invoke { code, stderr, .. } = invoke(&["convert", &native_str, &png_str]);
         assert_eq!(code, 0, "{stderr}");
         assert!(!stderr.contains("font '"), "{stderr}");
         let _ = std::fs::remove_dir_all(&folder);

@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use crate::{
-    R,
+    Result,
     automation::{commands, mcp, serve},
     batch::{batch, droplet},
     document::{convert, info, run_cmds},
@@ -75,7 +75,7 @@ pub(crate) struct Subcommand {
     pub(crate) name: &'static str,
     pub(crate) values: &'static [&'static str],
     pub(crate) bare: &'static [&'static str],
-    pub(crate) run: fn(&Args, &mut dyn Write, &mut dyn Write) -> R,
+    pub(crate) run: fn(&Args, &mut dyn Write, &mut dyn Write) -> Result,
 }
 
 pub(crate) const SUBCOMMANDS: &[Subcommand] = &[
@@ -138,10 +138,33 @@ pub(crate) const SUBCOMMANDS: &[Subcommand] = &[
     },
 ];
 
+/// A command line [`parse`] refuses: printed with the usage text, exit 2.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum UsageError {
+    #[error("unknown flag {flag} for {sub}")]
+    UnknownFlag { flag: String, sub: &'static str },
+    #[error("{0} takes no value")]
+    TakesNoValue(String),
+    #[error("{0} needs a value")]
+    NeedsValue(String),
+    #[error("{0} does not take positional arguments")]
+    Positional(&'static str),
+    #[error("{0} may only be specified once")]
+    Repeated(String),
+    #[error("{0} needs a non-empty value")]
+    EmptyValue(String),
+    #[error("use either --control-token or --control-token-file, not both")]
+    TokenAndTokenFile,
+    #[error("{flag} requires {transport}")]
+    Requires { flag: &'static str, transport: &'static str },
+    #[error("configure automation roots on the desktop app; --automation-read-root and --automation-write-root require headless MCP mode")]
+    BridgeRoots,
+}
+
 /// The subcommand's arguments, or `None` when they ask for help (`--help` or `-h`).
-pub(crate) fn parse(sub: &Subcommand, args: &[String]) -> Result<Option<Args>, String> {
+pub(crate) fn parse(sub: &Subcommand, args: &[String]) -> Result<Option<Args>, UsageError> {
     let mut a = Args { positional: Vec::new(), flags: Vec::new() };
-    let unknown = |flag: &str| format!("unknown flag {flag} for {}", sub.name);
+    let unknown = |flag: &str| UsageError::UnknownFlag { flag: flag.to_owned(), sub: sub.name };
     let mut i = 0;
     while let Some(s) = args.get(i) {
         if s == "--help" || s == "-h" {
@@ -149,7 +172,7 @@ pub(crate) fn parse(sub: &Subcommand, args: &[String]) -> Result<Option<Args>, S
         }
         if let Some((k, v)) = s.split_once('=').filter(|(k, _)| k.starts_with("--")) {
             if sub.bare.contains(&k) {
-                return Err(format!("{k} takes no value"));
+                return Err(UsageError::TakesNoValue(k.to_owned()));
             }
             if !sub.values.contains(&k) {
                 return Err(unknown(k));
@@ -161,7 +184,7 @@ pub(crate) fn parse(sub: &Subcommand, args: &[String]) -> Result<Option<Args>, S
             if v.is_some_and(|v| v == "--help" || v == "-h") {
                 return Ok(None);
             }
-            let v = v.filter(|v| !v.starts_with("--")).ok_or_else(|| format!("{s} needs a value"))?;
+            let v = v.filter(|v| !v.starts_with("--")).ok_or_else(|| UsageError::NeedsValue(s.clone()))?;
             a.flags.push((s.clone(), Some(v.clone())));
             i += 1;
         } else if sub.bare.contains(&s.as_str()) {
@@ -179,33 +202,33 @@ pub(crate) fn parse(sub: &Subcommand, args: &[String]) -> Result<Option<Args>, S
 
 /// Refuse launch options that would otherwise be silently ignored. In particular, bridge
 /// roots belong to the desktop process: accepting them here promises authority we cannot set.
-fn validate_server_args(sub: &str, a: &Args) -> R {
+fn validate_server_args(sub: &'static str, a: &Args) -> Result<(), UsageError> {
     if !matches!(sub, "mcp" | "serve") {
         return Ok(());
     }
     if !a.positional.is_empty() {
-        return Err(format!("{sub} does not take positional arguments"));
+        return Err(UsageError::Positional(sub));
     }
     let mut seen = std::collections::HashSet::new();
     for (flag, value) in &a.flags {
         if !seen.insert(flag) {
-            return Err(format!("{flag} may only be specified once"));
+            return Err(UsageError::Repeated(flag.clone()));
         }
         if value.as_deref().is_none_or(str::is_empty) {
-            return Err(format!("{flag} needs a non-empty value"));
+            return Err(UsageError::EmptyValue(flag.clone()));
         }
     }
     if a.has("--control-token") && a.has("--control-token-file") {
-        return Err("use either --control-token or --control-token-file, not both".into());
+        return Err(UsageError::TokenAndTokenFile);
     }
     let transport = if sub == "mcp" { "--bridge" } else { "--port" };
     for flag in ["--control-token", "--control-token-file"] {
         if a.has(flag) && !a.has(transport) {
-            return Err(format!("{flag} requires {transport}"));
+            return Err(UsageError::Requires { flag, transport });
         }
     }
     if sub == "mcp" && a.has("--bridge") && (a.has("--automation-read-root") || a.has("--automation-write-root")) {
-        return Err("configure automation roots on the desktop app; --automation-read-root and --automation-write-root require headless MCP mode".into());
+        return Err(UsageError::BridgeRoots);
     }
     Ok(())
 }

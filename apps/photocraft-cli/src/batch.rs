@@ -6,7 +6,7 @@ use photocraft_engine::actions_cmds::Action;
 use serde_json::json;
 
 use crate::{
-    R,
+    CliError, Result,
     actions::load_actions_file,
     args::Args,
     output::{export_opts, warn_all},
@@ -46,27 +46,27 @@ fn strip_shell_steps(action: &mut Action) {
     (action.steps, action.disabled, action.dialogs) = (steps, disabled, dialogs);
 }
 
-pub(crate) fn batch(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> R {
-    let actions_path = a.get("--actions").ok_or("batch needs --actions <file>")?;
-    let in_dir = PathBuf::from(a.get("--in").ok_or("batch needs --in <dir>")?);
-    let out_dir = PathBuf::from(a.get("--out").ok_or("batch needs --out <dir>")?);
+pub(crate) fn batch(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> Result {
+    let needs = |what| CliError::Needs { sub: "batch", what };
+    let actions_path = a.get("--actions").ok_or_else(|| needs("--actions <file>"))?;
+    let in_dir = PathBuf::from(a.get("--in").ok_or_else(|| needs("--in <dir>"))?);
+    let out_dir = PathBuf::from(a.get("--out").ok_or_else(|| needs("--out <dir>"))?);
     let (actions, mut set, warnings) = load_actions_file(actions_path, a.get("--action"))?;
     set.iter_mut().for_each(strip_shell_steps);
-    for w in &warnings {
-        let _ = writeln!(err, "warning: {w}");
-    }
+    warn_all(err, &warnings);
     let opts = export_opts(a)?;
     // Results are saved as `<out>/<stem>.<ext>`, so an `--out` that is the `--in` folder would
     // replace the originals (#492).
     if !a.has("--in-place") && same_dir(&in_dir, &out_dir) {
-        return Err(format!(
-            "--out {} is the --in folder, so the results would replace the originals: choose another --out folder, or pass --in-place to overwrite them",
-            out_dir.display()
-        ));
+        return Err(CliError::OutIsIn(out_dir));
     }
-    std::fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
-    let mut inputs: Vec<PathBuf> =
-        std::fs::read_dir(&in_dir).map_err(|e| format!("{}: {e}", in_dir.display()))?.flatten().map(|e| e.path()).filter(|p| is_input(p)).collect();
+    std::fs::create_dir_all(&out_dir)?;
+    let mut inputs: Vec<PathBuf> = std::fs::read_dir(&in_dir)
+        .map_err(|source| CliError::ReadDir { path: in_dir.clone(), source })?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| is_input(p))
+        .collect();
     inputs.sort();
     let (mut ok, mut failed) = (0, 0);
     let mut written = photocraft_engine::file_cmds::OutputClaims::default();
@@ -77,24 +77,24 @@ pub(crate) fn batch(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> R {
         let stem = input.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
         let target = out_dir.join(format!("{stem}.{ext}"));
         let target_text = target.to_string_lossy();
-        let r = (|| -> Result<Vec<String>, String> {
-            written.check(&target_text)?;
+        let r = (|| -> Result<Vec<String>> {
+            written.check(&target_text).map_err(CliError::OutputClaimed)?;
             let mut h = Headless::trusted_local();
             // Steps that play another action find it in the set; the session's playback stack
             // stops an action that calls itself.
             h.session.actions.list = set.clone();
-            h.open(input).map_err(|e| e.to_string())?;
+            h.open(input)?;
             for (id, p) in &actions {
                 if photocraft_engine::actions_cmds::shell_view_command(id) || photocraft_engine::actions_cmds::shell_save_command(id) {
                     continue;
                 }
-                let r = h.command_run(id, p.clone()).map_err(|e| format!("`{id}`: {e}"))?;
+                let r = h.command_run(id, p.clone()).map_err(|source| CliError::Command { id: id.clone(), source })?;
                 // A failed step inside a called action makes this file an error, not a saved result.
-                if let Some(e) = photocraft_engine::actions_cmds::nested_failure(id, &r) {
-                    return Err(format!("`{id}`: {e}"));
+                if let Some(message) = photocraft_engine::actions_cmds::nested_failure(id, &r) {
+                    return Err(CliError::NestedFailure { id: id.clone(), message });
                 }
             }
-            let r = h.save(None, Some(&target), Some(&ext), &opts).map_err(|e| e.to_string())?;
+            let r = h.save(None, Some(&target), Some(&ext), &opts)?;
             Ok(serde_json::from_value(r["warnings"].clone()).unwrap_or_default())
         })();
         match r {
@@ -111,20 +111,21 @@ pub(crate) fn batch(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> R {
         }
     }
     let _ = writeln!(out, "{ok} succeeded, {failed} failed");
-    if failed > 0 { Err(format!("{failed} file(s) failed")) } else { Ok(()) }
+    if failed > 0 { Err(CliError::FilesFailed(failed)) } else { Ok(()) }
 }
 
-pub(crate) fn droplet(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> R {
-    let (file, inputs) = a.positional.split_first().ok_or("droplet needs <file.pcdroplet> and inputs")?;
+pub(crate) fn droplet(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> Result {
+    let needs = |what| CliError::Needs { sub: "droplet", what };
+    let (file, inputs) = a.positional.split_first().ok_or_else(|| needs("<file.pcdroplet> and inputs"))?;
     if inputs.is_empty() {
-        return Err("droplet needs at least one input file or folder".into());
+        return Err(needs("at least one input file or folder"));
     }
     let mut p = json!({"droplet": file, "input": inputs});
     if let Some(o) = a.get("--out") {
         p["output"] = json!(o);
     }
     let mut s = photocraft_engine::Session::new();
-    let r = s.execute("file.automate.runDroplet", p).map_err(|e| e.to_string())?;
+    let r = s.execute("file.automate.runDroplet", p)?;
     for f in r["files"].as_array().into_iter().flatten() {
         let _ = writeln!(out, "ok    {}", f.as_str().unwrap_or_default());
     }
@@ -132,21 +133,14 @@ pub(crate) fn droplet(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> R {
     for e in &errors {
         let _ = writeln!(err, "FAIL  {}: {}", e["file"].as_str().unwrap_or_default(), e["error"].as_str().unwrap_or_default());
     }
-    if errors.is_empty() { Ok(()) } else { Err(format!("{} file(s) failed", errors.len())) }
+    if errors.is_empty() { Ok(()) } else { Err(CliError::FilesFailed(errors.len())) }
 }
 
 #[cfg(test)]
 mod batch_action_set_tests {
     use super::*;
-    use crate::run;
+    use crate::test_support::{Invoke, invoke};
     use serde_json::Value;
-
-    fn invoke(args: &[&str]) -> (i32, String, String) {
-        let (mut output, mut errors) = (Vec::new(), Vec::new());
-        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-        let code = run(&args, &mut output, &mut errors);
-        (code, String::from_utf8(output).unwrap(), String::from_utf8(errors).unwrap())
-    }
 
     /// A batched action that plays another action of its set finds it in every file's session; a
     /// failure inside the called action fails the file, and a self-call stops instead of looping.
@@ -157,7 +151,7 @@ mod batch_action_set_tests {
         let path = |name: &str| dir.join(name).to_string_lossy().to_string();
         std::fs::create_dir_all(dir.join("in")).unwrap();
         for name in ["a", "b"] {
-            let (code, _, stderr) = invoke(&["run", "--new", r#"{"width":8,"height":6}"#, "--out", &path(&format!("in/{name}.png"))]);
+            let Invoke { code, stderr, .. } = invoke(&["run", "--new", r#"{"width":8,"height":6}"#, "--out", &path(&format!("in/{name}.png"))]);
             assert_eq!(code, 0, "{stderr}");
         }
         let set = json!({"version": 1, "actions": [
@@ -170,16 +164,16 @@ mod batch_action_set_tests {
         std::fs::write(dir.join("actions.json"), set.to_string()).unwrap();
         let batch = |action: &str| invoke(&["batch", "--actions", &path("actions.json"), "--action", action, "--in", &path("in"), "--out", &path(action)]);
 
-        let (code, stdout, stderr) = batch("Outer");
+        let Invoke { code, stdout, stderr } = batch("Outer");
         assert_eq!(code, 0, "{stdout}{stderr}");
         for name in ["a", "b"] {
-            let (code, info, stderr) = invoke(&["info", &path(&format!("Outer/{name}.png")), "--compact"]);
+            let Invoke { code, stdout: info, stderr } = invoke(&["info", &path(&format!("Outer/{name}.png")), "--compact"]);
             assert_eq!(code, 0, "{stderr}");
             let info: Value = serde_json::from_str(&info).unwrap();
             assert_eq!((info["width"].as_u64(), info["height"].as_u64()), (Some(6), Some(8)), "rotated by the called action");
         }
         for action in ["Calls bad", "Loop"] {
-            let (code, stdout, stderr) = batch(action);
+            let Invoke { code, stdout, stderr } = batch(action);
             assert_ne!(code, 0, "{stdout}");
             assert_eq!(stderr.matches("FAIL").count(), 2, "{stderr}");
             assert!(!dir.join(action).join("a.png").exists(), "a file whose called action failed is not saved");
@@ -195,7 +189,7 @@ mod batch_action_set_tests {
         let _ = std::fs::remove_dir_all(&dir);
         let path = |name: &str| dir.join(name).to_string_lossy().to_string();
         std::fs::create_dir_all(dir.join("in")).unwrap();
-        let (code, _, stderr) = invoke(&["run", "--new", r#"{"width":8,"height":6}"#, "--out", &path("in/a.png")]);
+        let Invoke { code, stderr, .. } = invoke(&["run", "--new", r#"{"width":8,"height":6}"#, "--out", &path("in/a.png")]);
         assert_eq!(code, 0, "{stderr}");
         let set = json!({"version": 1, "actions": [
             {"name": "Outer", "steps": [["actions.play", {"action": "Rotate"}], ["file.saveAs", {}]]},
@@ -209,10 +203,10 @@ mod batch_action_set_tests {
         ]});
         std::fs::write(dir.join("actions.json"), set.to_string()).unwrap();
         for action in ["Outer", "Rotate"] {
-            let (code, stdout, stderr) =
+            let Invoke { code, stdout, stderr } =
                 invoke(&["batch", "--actions", &path("actions.json"), "--action", action, "--in", &path("in"), "--out", &path(action)]);
             assert_eq!(code, 0, "{stdout}{stderr}");
-            let (code, info, stderr) = invoke(&["info", &path(&format!("{action}/a.png")), "--compact"]);
+            let Invoke { code, stdout: info, stderr } = invoke(&["info", &path(&format!("{action}/a.png")), "--compact"]);
             assert_eq!(code, 0, "{stderr}");
             let info: Value = serde_json::from_str(&info).unwrap();
             assert_eq!((info["width"].as_u64(), info["height"].as_u64()), (Some(6), Some(8)), "{action}: rotated once, the unchecked step skipped");
