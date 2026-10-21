@@ -640,8 +640,10 @@ fn image_assets_never_write_one_file_twice() {
     let dir = tmp("asset-variant-collisions");
     d.layer_mut(top).unwrap().name = "icon.png".into();
     d.layer_mut(logo).unwrap().name = "Logo".into();
-    d.layers
-        .push(Layer::new("default 50% + 200% + 200% @2x", LayerContent::Group(photocraft_doc::Group { children: vec![], expanded: false, artboard: None })));
+    d.layers.push(Layer::new(
+        "default 50% + 200% + 200% @2x",
+        LayerContent::Group(photocraft_doc::Group { children: vec![], expanded: false, artboard: None, frame_stroke: None }),
+    ));
     let (files, errors) = generate_assets(&d, &dir);
     let names: Vec<_> = files.iter().map(|p| std::path::Path::new(p).file_name().unwrap().to_string_lossy().into_owned()).collect();
     assert_eq!(names, ["icon.png", "icon@2x.png"]);
