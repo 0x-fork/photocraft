@@ -387,13 +387,8 @@ const DIFFUSE_MODES: [(&str, &str); 4] = [("Nrml", "normal"), ("DrkO", "darkenOn
 /// Trace Contour's `Edg ` (`CntE` enum, measured in Photoshop) ↔ our `edge`.
 const TRACE_EDGES: [(&str, &str); 2] = [("Upr ", "upper"), ("Lwr ", "lower")];
 
-/// The `long` value of `key` when it lies in `lo..=hi`.
-fn int_in(d: &Descriptor, key: &str, lo: i32, hi: i32) -> Option<i32> {
-    int(d, key).filter(|v| (lo..=hi).contains(v))
-}
-
 /// Our name for the enum value of `key` (of type `type_id`) through `table` (Photoshop's value, ours).
-fn enum_param(d: &Descriptor, key: &str, type_id: &str, table: &[(&str, &'static str)]) -> Option<&'static str> {
+fn enum_from(d: &Descriptor, key: &str, type_id: &str, table: &[(&str, &'static str)]) -> Option<&'static str> {
     let Some(Value::Enumerated { type_id: t, value }) = d.get(key) else { return None };
     if t.as_bytes() != type_id.as_bytes() {
         return None;
@@ -448,8 +443,8 @@ fn known_params(class: &str, f: Option<&Descriptor>, item: &Descriptor) -> Optio
             }
             json!({"radius": int_in(f, "Rds ", 1, 500)?, "threshold": int_in(f, "Thsh", 0, 255)?})
         }
-        ("Dfs ", Some(f)) => json!({"mode": enum_param(f, "Md  ", "DfsM", &DIFFUSE_MODES)?}),
-        ("TrcC", Some(f)) => json!({"level": int_in(f, "Lvl ", 0, 255)?, "edge": enum_param(f, "Edg ", "CntE", &TRACE_EDGES)?}),
+        ("Dfs ", Some(f)) => json!({"mode": enum_from(f, "Md  ", "DfsM", &DIFFUSE_MODES)?}),
+        ("TrcC", Some(f)) => json!({"level": int_in(f, "Lvl ", 0, 255)?, "edge": enum_from(f, "Edg ", "CntE", &TRACE_EDGES)?}),
         ("Crst", Some(f)) => json!({"cellSize": int_in(f, "ClSz", CELL_SIZE.0, CELL_SIZE.1)?}),
         ("Pntl", Some(f)) => {
             let mut p = json!({"cellSize": int_in(f, "ClSz", CELL_SIZE.0, CELL_SIZE.1)?});
