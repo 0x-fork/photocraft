@@ -183,6 +183,20 @@ fn int(d: &Descriptor, key: &str) -> Option<i32> {
     }
 }
 
+/// `Some(())` when every setting of `f` is one of `keys`: a filter with a setting we don't write
+/// back stays verbatim instead of losing it on save.
+fn only_keys(f: &Descriptor, keys: &[&str]) -> Option<()> {
+    f.items.iter().all(|(k, _)| keys.iter().any(|key| k.is(key))).then_some(())
+}
+
+/// The value of the enum `key` when its type is `type_id` (a mistyped enum is not modelled).
+fn typed_enum<'a>(f: &'a Descriptor, key: &str, type_id: &str) -> Option<&'a [u8]> {
+    match f.get(key)? {
+        Value::Enumerated { type_id: t, value } if t.is(type_id) => Some(value.as_bytes()),
+        _ => None,
+    }
+}
+
 fn channel_key(d: &Descriptor) -> Option<&'static str> {
     let Some(Value::Reference(items)) = d.get("Chnl") else { return None };
     let Some(ReferenceItem::Enumerated { value, .. }) = items.first() else { return None };
@@ -271,20 +285,6 @@ const CUSTOM_OFFSET: (i32, i32) = (-9999, 9999);
 
 fn int_in(v: Option<i32>, (lo, hi): (i32, i32)) -> Option<i32> {
     v.filter(|v| (lo..=hi).contains(v))
-}
-
-/// `Some(())` when every setting of `f` is one of `keys`: a filter with a setting we don't write
-/// back stays verbatim instead of losing it on save.
-fn only_keys(f: &Descriptor, keys: &[&str]) -> Option<()> {
-    f.items.iter().all(|(k, _)| keys.iter().any(|key| k.is(key))).then_some(())
-}
-
-/// The value of the enum `key` when its type is `type_id` (a mistyped enum is not modelled).
-fn typed_enum<'a>(f: &'a Descriptor, key: &str, type_id: &str) -> Option<&'a [u8]> {
-    match f.get(key)? {
-        Value::Enumerated { type_id: t, value } if t.is(type_id) => Some(value.as_bytes()),
-        _ => None,
-    }
 }
 
 /// `filter.other.custom` params for a `Cstm` filter: `Mtrx` is 25 longs, row-major 5 × 5. Values
