@@ -2256,6 +2256,16 @@ fn bucket_color(v: Option<&Value>) -> Option<Option<Descriptor>> {
     Some(Some(desc("RGBC").with("Rd  ", D::Double(rgba[0] * 255.0)).with("Grn ", D::Double(rgba[1] * 255.0)).with("Bl  ", D::Double(rgba[2] * 255.0))))
 }
 
+/// Preserve the command's effective integer width instead of rounding its input again.
+fn stroke_to(_: &str, p: &Value) -> Option<Descriptor> {
+    if !pixel_target(p) {
+        return None;
+    }
+    let mut params = if p.is_null() { Map::new() } else { p.as_object()?.clone() };
+    params.insert("width".into(), Value::from(crate::extra_cmds::stroke_width(p)));
+    fields_to(&Value::Object(params), STROKE, desc("null"))
+}
+
 const STROKE: &[F] = &[
     F("Wdth", "width", Kind::Long),
     F("Lctn", "location", Kind::Enum("StrL", STROKE_LOCATION)),
@@ -3192,7 +3202,17 @@ const EVENTS: &[Event] = &[
     ev!("", "refineSelectionEdge", "Select and Mask", "select.refineEdge", REFINE_EDGE),
     // Edit.
     Event { code: "Fl  ", name: "fill", label: "Fill", ids: &["edit.fill", "paint.bucket"], from: fill_from, to: fill_to },
-    ev!("Strk", "stroke", "Stroke", "edit.stroke", STROKE),
+    Event {
+        code: "Strk",
+        name: "stroke",
+        label: "Stroke",
+        ids: &["edit.stroke"],
+        from: |d| match fields_from(d, STROKE) {
+            Some(m) => step("edit.stroke", Value::Object(m)),
+            None => Mapped::Unsupported { harmless: false },
+        },
+        to: stroke_to,
+    },
     ev!("copy", "copyEvent", "Copy", "edit.copy", &[]),
     ev!("CpyM", "copyMerged", "Copy Merged", "edit.copyMerged", &[]),
     ev!("cut ", "cut", "Cut", "edit.cut", &[]),
