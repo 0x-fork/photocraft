@@ -3,6 +3,7 @@
 use egui::{Align2, Color32, CornerRadius, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, pos2, vec2};
 use photocraft_color::BlendMode;
 use photocraft_doc::{Layer, LayerContent, LayerId};
+use photocraft_engine::history_source_cmds::HistorySource;
 use serde_json::{Value, json};
 
 use crate::mask_thumbs_ui::MaskKind;
@@ -1331,6 +1332,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         // Ratios, sizes, saved presets, New / Delete Crop Preset… (#2443, #1919).
                         crate::crop_presets::dropdown(app, ui);
                         let o = &mut app.ui.tool_options;
+                        let mut ratio_base = None;
                         if o.crop_ratio == crate::crop_size::WHR {
                             crate::crop_size::fields(o, ui);
                         } else {
@@ -1338,14 +1340,26 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             // Original Ratio shows the document's numbers, as Photoshop does.
                             let (mut rw, mut rh) = crate::crop_size::custom_ratio_fields(o, doc_size);
                             let decimals = crate::crop_size::RATIO_DECIMALS;
-                            let cw = widgets::value_field_prec(ui, &mut rw, 0.0..=99_999.0, "", 54.0, decimals).changed();
+                            let fw = widgets::value_field_prec(ui, &mut rw, 0.0..=99_999.0, "", 54.0, decimals);
                             let swap = icons::button(ui, "arrow-left-right", 22.0, false, tl!("Swaps height and width")).clicked();
-                            let ch = widgets::value_field_prec(ui, &mut rh, 0.0..=99_999.0, "", 54.0, decimals).changed();
+                            let fh = widgets::value_field_prec(ui, &mut rh, 0.0..=99_999.0, "", 54.0, decimals);
+                            let (cw, ch) = (fw.changed(), fh.changed());
                             if swap {
                                 std::mem::swap(&mut rw, &mut rh);
                             }
                             if cw || ch || swap {
                                 crate::crop_size::set_custom_ratio_fields(o, rw, rh);
+                            }
+                            // Every ratio typed or scrubbed in one edit fits from the frame the edit
+                            // started with: 1:3 on the way to 16:3 mustn't shrink it first (#7752).
+                            let base_id = egui::Id::new("crop-ratio-edit-base");
+                            if cw || ch {
+                                ratio_base = ui.data(|d| d.get_temp::<[f64; 4]>(base_id)).or(app.ui.crop_rect);
+                            }
+                            if ![&fw, &fh].iter().any(|f| f.has_focus() || f.dragged()) {
+                                ui.data_mut(|d| d.remove::<[f64; 4]>(base_id));
+                            } else if let Some(base) = ratio_base {
+                                ui.data_mut(|d| d.insert_temp(base_id, base));
                             }
                         }
                         widgets::vline(ui, 22.0);
@@ -1371,7 +1385,10 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             150.0,
                         );
                         if crate::crop_ui::preset_ratio(app) != before_ratio {
-                            crate::crop_ui::apply_ratio(app);
+                            match ratio_base {
+                                Some(base) => crate::crop_ui::apply_ratio_from(app, base),
+                                None => crate::crop_ui::apply_ratio(app),
+                            }
                         }
                         if pick_shield_color {
                             crate::crop_shield::pick_custom_color(app);
@@ -3341,6 +3358,7 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let entries = st.history.entries();
     let current = entries.len() - 1;
     let redo: Vec<String> = st.history.redo_labels().map(str::to_string).collect();
+    let source = photocraft_engine::history_source_cmds::source(st);
     let selected_snap = selected_snapshot(ui.ctx(), st);
     let ctx = ui.ctx().clone();
     // A row dragged onto the trash (#5324); a drag that never saw its release must not outlive it.
@@ -3364,6 +3382,7 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
     let mut snap_cmd = None;
     let mut target: Option<usize> = None;
+    let mut set_source: Option<usize> = None;
     let all = entries.iter().map(|e| (e.clone(), false)).chain(redo.iter().map(|e| (e.clone(), true)));
     // The dock gives History a fixed height: the rows scroll above the footer.
     let footer = if t.pro { widgets::footer_height(ui) + ui.spacing().item_spacing.y } else { 0.0 };
@@ -3406,6 +3425,9 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 if is_redo { t.text_faint } else { t.icon },
             );
             ui.painter().text(pos2(rect.left() + 58.0, rect.center().y), Align2::LEFT_CENTER, &e, egui::FontId::proportional(12.0), color);
+            if history_source_column(ui, rect, egui::Id::new(("history-source", i)), source == Some(HistorySource::State(i))) {
+                set_source = Some(i);
+            }
             if resp.clicked() && i != current {
                 target = Some(i);
             } else if resp.clicked() && selected_snap.is_some() {
@@ -3414,6 +3436,12 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             }
         }
     });
+    if let Some(i) = set_source
+        && let Err(e) = app.run("history.setSource", json!({"state": i}))
+    {
+        app.ui.status = e;
+        app.ui.status_error = true;
+    }
     if let Some(drag) = drag
         && let Some(p) = ctx.input(|i| i.pointer.interact_pos())
     {
@@ -3471,7 +3499,7 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             // The snapshot stays selected while the document is the state the click made.
             Ok(_) => {
                 if let (Some(id), Some(st)) = (picked, app.session.active()) {
-                    ctx.data_mut(|d| d.insert_temp::<SelectedSnapshot>(selected_snapshot_key(st.doc.id), (id, history_spot(st))));
+                    select_snapshot(&ctx, st, id);
                 }
             }
         }
@@ -3484,6 +3512,21 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         app.ui.status = e;
         app.ui.status_error = true;
     }
+}
+
+/// The History panel's source column at the left of a state or snapshot row: the History Brush
+/// icon on the source; a click makes the row the source (`history.setSource`). It sits above the
+/// row, so the click doesn't also step to the state or snapshot.
+fn history_source_column(ui: &mut egui::Ui, row: Rect, salt: egui::Id, is_source: bool) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let cell = Rect::from_min_size(row.min, vec2(24.0, row.height()));
+    let resp = ui.interact(cell, ui.id().with(salt), Sense::click()).on_hover_text(tl!("Sets the source for the history brush"));
+    if is_source {
+        icons::paint(ui, cell.shrink(4.0), icons::tool_icon(Tool::HistoryBrush), 12.0, t.icon);
+    } else if resp.hovered() {
+        icons::paint(ui, cell.shrink(4.0), icons::tool_icon(Tool::HistoryBrush), 12.0, t.text_faint);
+    }
+    resp.clicked()
 }
 
 /// A History panel row being dragged, for a drop on the trash (#5324).
@@ -3510,10 +3553,15 @@ fn selected_snapshot_key(doc: photocraft_doc::DocId) -> egui::Id {
     egui::Id::new(("history-snapshot-selected", doc))
 }
 
+/// Select snapshot `id` at the history's current state, as a click on its row does.
+pub(crate) fn select_snapshot(ctx: &egui::Context, st: &photocraft_engine::DocState, id: u64) {
+    ctx.data_mut(|d| d.insert_temp::<SelectedSnapshot>(selected_snapshot_key(st.doc.id), (id, history_spot(st))));
+}
+
 /// The selected snapshot: the one last clicked, while it still exists and the history is still at
 /// the state that click made. Any other step (an edit, Undo, a state row) deselects it, as in
 /// Photoshop.
-fn selected_snapshot(ctx: &egui::Context, st: &photocraft_engine::DocState) -> Option<u64> {
+pub(crate) fn selected_snapshot(ctx: &egui::Context, st: &photocraft_engine::DocState) -> Option<u64> {
     let key = selected_snapshot_key(st.doc.id);
     let (id, spot) = ctx.data(|d| d.get_temp::<SelectedSnapshot>(key))?;
     let live = spot == history_spot(st) && st.snapshots.iter().any(|s| s.id == id);
@@ -3532,6 +3580,7 @@ fn snapshot_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, selected: Option<u6
     let t = Tokens::get(ui.ctx());
     let st = app.session.active()?;
     let (doc_id, snaps) = (st.doc.id, st.snapshots.clone());
+    let source = photocraft_engine::history_source_cmds::source(st);
     let live: Vec<u64> = snaps.iter().map(|s| s.id).collect();
     // Per document: snapshot ids restart in each, and a tab switch must not carry the edit over.
     let rename_id = egui::Id::new(("history-snapshot-rename", doc_id));
@@ -3579,7 +3628,9 @@ fn snapshot_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, selected: Option<u6
                 ui.painter().text(pos2(thumb.right() + 8.0, rect.center().y), Align2::LEFT_CENTER, &snap.name, egui::FontId::proportional(12.0), t.text);
             }
         }
-        if resp.double_clicked() {
+        if history_source_column(ui, rect, egui::Id::new(("history-snapshot-source", snap.id)), source == Some(HistorySource::Snapshot(snap.id))) {
+            cmd = Some(("history.setSource", json!({"snapshot": snap.id})));
+        } else if resp.double_clicked() {
             renaming = Some((snap.id, snap.name.clone()));
         } else if resp.clicked() {
             cmd = Some(("history.selectSnapshot", json!({"snapshot": snap.id})));
@@ -3694,7 +3745,7 @@ fn adjustment_controls(app: &mut PhotocraftApp, ui: &mut egui::Ui, id: LayerId, 
 fn layer_controls(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
     let t = Tokens::get(ui.ctx());
     if let Some(s) = layer.surface() {
-        let b = app.cached_bounds(layer.id.0, s);
+        let b = app.layer_frame_bounds(layer, s);
         egui::Grid::new("props-grid").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
             for (k, v) in [("X", b.x0.to_string()), ("Y", b.y0.to_string()), ("W", b.width().to_string()), ("H", b.height().to_string())] {
                 ui.label(RichText::new(k).color(t.text_dim));
@@ -3782,6 +3833,7 @@ fn properties_body_inner(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         }
         if matches!(layer.content, LayerContent::Shape(_)) {
             crate::vector_ui::shape_properties(app, ui, id);
+            crate::mask_props_ui::shape_properties(app, ui, layer);
         }
     }
 }
@@ -5052,6 +5104,51 @@ mod history_transform_tests {
         let st = h.state().session.active().unwrap();
         assert_eq!(st.history.entries().len(), steps - 1, "trash deletes the current state");
         assert!(!st.history.can_redo(), "and it can't be redone");
+    }
+
+    /// The source column at the left of each state (#2966): a click makes that state the History
+    /// Brush's source through `history.setSource`, without stepping to it.
+    #[test]
+    fn history_source_column_sets_the_history_brush_source() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 200, "height": 150})).unwrap();
+        app.run("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        app.run("edit.fill", json!({"color": "#00ff00"})).unwrap();
+        let mut h = Harness::builder().with_size(vec2(300.0, 400.0)).build_ui_state(|ui, app: &mut PhotocraftApp| history(app, ui), app);
+        h.run_steps(2);
+        // The column cells are the only 24 pt squares, one per state, top to bottom.
+        let mut cells: Vec<Rect> = h
+            .ctx
+            .viewport(|v| v.prev_pass.widgets.layers().flat_map(|(_, w)| w.iter()).filter(|w| w.rect.size() == vec2(24.0, 24.0)).map(|w| w.rect).collect());
+        cells.sort_by(|a, b| a.center().y.total_cmp(&b.center().y));
+        cells.dedup();
+        assert_eq!(cells.len(), 3, "Open, Fill, Fill: {cells:?}");
+        assert_eq!(h.state().session.active().unwrap().history.brush_source(), Some(0), "the default source");
+        click(&mut h, cells[1].center());
+        let st = h.state().session.active().unwrap();
+        assert_eq!(st.history.brush_source(), Some(1), "the clicked state is the source");
+        assert_eq!((st.history.entries().len(), st.history.can_redo()), (3, false), "and the document did not step back");
+    }
+
+    /// Snapshot rows have the source column too: a click makes the snapshot the source without
+    /// returning to it.
+    #[test]
+    fn history_source_column_on_a_snapshot_row() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 200, "height": 150})).unwrap();
+        app.run("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        app.run("history.newSnapshot", json!({})).unwrap();
+        let mut h = Harness::builder().with_size(vec2(300.0, 400.0)).build_ui_state(|ui, app: &mut PhotocraftApp| history(app, ui), app);
+        h.run_steps(2);
+        // The snapshot row's cell is the only 24×38 one (the opening row has no column).
+        let cells: Vec<Rect> = h
+            .ctx
+            .viewport(|v| v.prev_pass.widgets.layers().flat_map(|(_, w)| w.iter()).filter(|w| w.rect.size() == vec2(24.0, 38.0)).map(|w| w.rect).collect());
+        let cell = *cells.first().expect("a snapshot source cell");
+        click(&mut h, cell.center());
+        let st = h.state().session.active().unwrap();
+        assert_eq!(photocraft_engine::history_source_cmds::source(st), Some(HistorySource::Snapshot(1)));
+        assert_eq!(st.history.entries().len(), 2, "the document did not return to the snapshot");
     }
 }
 
@@ -6550,6 +6647,46 @@ mod compact_visual_regressions {
             .collect();
         assert!(texts.contains(&"1.414"), "{texts:?}");
         assert_eq!(app.ui.tool_options.crop_ratio, "1.414:1", "showing the ratio leaves it alone");
+    }
+
+    #[test]
+    fn a_typed_crop_ratio_fits_from_the_frame_the_edit_started_with() {
+        // #7752: typing 16 over 4 gave 1:3, then 16:3 inside that 100 x 300 frame (100 x 18.75).
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        let Some(kind) = crate::theme::ThemeKind::ALL.into_iter().find(|k| {
+            crate::theme::apply(&ctx, *k);
+            Tokens::get(&ctx).pro
+        }) else {
+            return;
+        };
+        crate::theme::apply(&ctx, kind);
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 400, "height": 300})).unwrap();
+        app.ui.tool = Tool::Crop;
+        app.ui.tool_options.crop_shield.classic_mode = true;
+        app.ui.tool_options.crop_ratio = "4:3".into();
+        app.ui.crop_rect = Some([0.0, 0.0, 400.0, 300.0]);
+        let screen = Rect::from_min_size(egui::Pos2::ZERO, vec2(1600.0, 120.0));
+        let step = |app: &mut PhotocraftApp, events: Vec<egui::Event>| {
+            let mut input = input_at_scale(screen, 1.0);
+            input.events = events;
+            ctx.run_ui(input, |ui| options_bar(app, ui)).textures_delta.clear();
+        };
+        for _ in 0..3 {
+            step(&mut app, vec![]);
+        }
+        // The ratio's W field is the bar's first number field; focusing it selects its text.
+        widgets::focus_first_field(&ctx, true);
+        step(&mut app, vec![]);
+        step(&mut app, vec![egui::Event::Text("1".into())]);
+        assert_eq!(app.ui.tool_options.crop_ratio, "1:3");
+        step(&mut app, vec![egui::Event::Text("6".into())]);
+        step(&mut app, vec![]);
+        assert_eq!(app.ui.tool_options.crop_ratio, "16:3");
+        let r = app.ui.crop_rect.unwrap();
+        let want = [0.0, 112.5, 400.0, 187.5];
+        assert!(r.iter().zip(want).all(|(a, b)| (a - b).abs() < 1e-9), "16:3 fitted once in 400 x 300: {r:?}");
     }
 
     #[test]
