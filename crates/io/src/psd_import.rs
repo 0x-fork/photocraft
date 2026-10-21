@@ -686,7 +686,7 @@ fn write_rgba8(s: &mut Surface, canvas: Rect, data: &[u8]) {
     }
 }
 
-fn parse_guides(data: &[u8], doc: &mut Document) {
+pub(crate) fn parse_guides(data: &[u8], doc: &mut Document) {
     let rd = |at: usize| data.get(at..at + 4).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
     let Some(count) = rd(12) else { return };
     for i in 0..count as usize {
@@ -764,6 +764,12 @@ pub(crate) fn merged_needed(file: &PsdFile) -> bool {
     !layered || file.layers().is_empty() || usize::from(h.channels) > mode.color_channels() + usize::from(file.merged_has_alpha())
 }
 
+/// A damaged merged preview need not prevent opening independently stored layers (#6152).
+/// Other modes are imported flattened, so their merged image cannot be discarded.
+pub(crate) fn can_recover_layers(file: &PsdFile) -> bool {
+    matches!(file.header.color_mode, PsdMode::Grayscale | PsdMode::Rgb | PsdMode::Cmyk | PsdMode::Lab) && file.header.depth != 1 && !file.layers().is_empty()
+}
+
 /// [`psd_to_document_with`] with the merged image already decoded (by
 /// [`PsdFile::from_bytes_and_merged`] with [`merged_needed`]), so it is not decoded again.
 pub(crate) fn psd_to_document_decoded(
@@ -830,6 +836,7 @@ pub(crate) fn psd_to_document_decoded(
             id => doc.metadata.psd_resources.push((id, String::from_utf8_lossy(&r.name).into_owned(), Arc::new(r.data.clone()))),
         }
     }
+    crate::guides_map::apply_colors(&mut doc);
     for b in &file.global_blocks {
         doc.metadata.psd_global_blocks.push((b.signature, b.key, Arc::new(b.data.clone())));
     }
@@ -901,9 +908,15 @@ pub(crate) fn psd_to_document_decoded(
         ctl.progress(0.1);
         if let Err(e) = &m {
             cx.warn(format!("merged image could not be decoded: {e}"));
+            if can_recover_layers(file) {
+                cx.warn("extra alpha/spot channels in the merged image could not be recovered");
+            }
         }
         Some(m)
     } else {
+        if let Some(Err(e)) = decoded {
+            cx.warn(format!("merged image could not be decoded; opened the available layers instead: {e}"));
+        }
         None
     };
 
@@ -988,8 +1001,12 @@ pub(crate) fn psd_to_document_decoded(
         if h.color_mode == PsdMode::Indexed && file.color_mode_data.len() >= 768 {
             // Planar palette: 256 reds, 256 greens, 256 blues (the Color Table).
             let m = &file.color_mode_data;
-            let colors = (0..256).map(|i| [m[i], m[256 + i], m[512 + i]]).collect();
-            doc.color_table = Some(photocraft_doc::ColorTable { colors, transparent: None });
+            // Resource 1046 says how many entries are used, 1047 which one is transparent.
+            let u16_of = |id: u16| file.resource(id).and_then(|r| r.data.get(..2)).map(|b| u16::from_be_bytes([b[0], b[1]]));
+            let count = u16_of(crate::palette_map::COLOR_TABLE_COUNT).map_or(256, usize::from).clamp(1, 256);
+            let colors = (0..count).map(|i| [m[i], m[256 + i], m[512 + i]]).collect();
+            let transparent = u16_of(crate::palette_map::TRANSPARENCY_INDEX).filter(|&i| usize::from(i) < count).map(|i| i as u8);
+            doc.color_table = Some(photocraft_doc::ColorTable { colors, transparent });
         } else if h.color_mode == PsdMode::Duotone && !file.color_mode_data.is_empty() {
             // The duotone ink block is undocumented: keep it raw; the image shows as its gray plate.
             doc.duotone =
@@ -999,7 +1016,19 @@ pub(crate) fn psd_to_document_decoded(
             cx.warn("color mode data is not preserved");
         }
         match flat_composite(file, merged.as_ref(), photocraft_psd::compression::MAX_DECODED_BYTES) {
-            Ok(img) => {
+            Ok(mut img) => {
+                // Resource 1047: pixels of the transparent entry are transparent.
+                if h.color_mode == PsdMode::Indexed
+                    && let Some(t) = doc.color_table.as_ref().and_then(|t| t.transparent)
+                    && let Some(Ok(all)) = &merged
+                    && let Some(indices) = sizes.and_then(|(_, plane)| merged_plane(all, 0, plane))
+                {
+                    for (px, &i) in img.data.as_chunks_mut::<4>().0.iter_mut().zip(indices) {
+                        if i == t {
+                            px[3] = 0;
+                        }
+                    }
+                }
                 let mut s = Surface::new(fmt);
                 write_rgba8(&mut s, canvas, &img.data);
                 drop(img);
