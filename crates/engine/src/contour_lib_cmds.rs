@@ -282,19 +282,35 @@ mod tests {
         assert!(delete(&mut s, &json!({"name": "ghost"})).is_err());
         assert!(delete(&mut s, &json!({})).is_err());
         assert!(save(&mut s, &json!({})).is_err(), "empty library");
+        new(&mut s, &json!({"contour": curve("x"), "name": "Existing"})).unwrap();
+        let before = s.presets.contours.clone();
         for p in [
             json!({}),
             json!({"data": 3}),
             json!({"data": "!!"}),
             json!({"data": "AAAA"}),
+            json!({"data": "AAAA", "mode": "replace"}),
             json!({"data": "AAAA", "mode": "x"}),
             json!({"path": "/nonexistent/x.shc"}),
         ] {
             assert!(load(&mut s, &p).is_err(), "{p}");
+            assert_eq!(s.presets.contours, before, "{p}");
         }
-        assert!(s.presets.contours.is_empty());
+        assert_eq!(s.presets.contours, before);
         let big = from_json(&json!([{"points": [[0, 0]]}, "Ring", 7, {"name": "Cone", "points": [[0, 0], [1, 1]]}]));
         assert_eq!(big.len(), 1);
         assert_eq!(name_of(&big[0]), "Cone 2");
+    }
+    #[test]
+    fn malformed_persisted_library_keeps_existing_contours() {
+        let mut s = Session::new();
+        new(&mut s, &json!({"contour": curve("x"), "name": "Existing"})).unwrap();
+        let before = s.presets.contours.clone();
+        for value in [json!(null), json!(3), json!("bad"), json!({})] {
+            s.load_presets_json(json!({"contours": value}));
+            assert_eq!(s.presets.contours, before);
+        }
+        s.load_presets_json(json!({"contours": []}));
+        assert!(s.presets.contours.is_empty());
     }
 }

@@ -238,7 +238,7 @@ impl Session {
             crate::swatch_cmds::cap_library(&mut g);
             self.presets.swatches = g;
         }
-        if let Some(c) = p.contours {
+        if let Some(c) = p.contours.filter(Value::is_array) {
             self.presets.contours = crate::contour_lib_cmds::from_json(&c);
         }
         self.presets.rev += 1;

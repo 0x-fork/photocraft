@@ -131,7 +131,7 @@ pub(super) fn row(
         let mut chosen_user: Option<Value> = None;
         let mut delete: Option<String> = None;
         let mut act: Option<Act> = None;
-        let user = app.session.presets.contours.clone();
+        let user = &app.session.presets.contours;
         egui::Popup::from_response(&arrow).open_bool(&mut open).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
             ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
             egui::Grid::new(("contour-presets", effect, key)).spacing(vec2(4.0, 4.0)).show(ui, |ui| {
@@ -483,6 +483,7 @@ pub(super) fn editor(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<Str
         close = Some(true);
     }
     if let Some(keep) = close {
+        ctx.data_mut(|d| d.remove_temp::<String>(naming_id));
         close_editor(f, keep);
         return;
     }
@@ -552,5 +553,34 @@ fn report(app: &mut PhotocraftApp, r: Result<Value, String>) {
     {
         app.ui.status_error = true;
         app.ui.status = e;
+    }
+}
+
+#[cfg(test)]
+mod library_tests {
+    use super::*;
+
+    #[test]
+    fn cancelling_the_editor_discards_the_contour_name_draft() {
+        let ctx = egui::Context::default();
+        PhotocraftApp::setup_context(&ctx, Default::default());
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width": 32, "height": 32})).unwrap();
+        app.run("layer.new.layer", json!({})).unwrap();
+        app.run("layer.layerStyle.dropShadow", json!({})).unwrap();
+        let st = app.session.active().unwrap();
+        let mut fields = crate::layer_style::initial_fields(st.doc.layer(st.active_layer.unwrap()).unwrap(), None, 120.0);
+        open_editor(&mut fields, "fx1", "contour");
+        let naming = egui::Id::new(("contour-editor", "fx1", "contour")).with("naming");
+        ctx.data_mut(|d| d.insert_temp(naming, "Unfinished".to_string()));
+        let _ = ctx.run_ui(Default::default(), |ui| editor(&mut app, ui, &mut fields));
+        let input = egui::RawInput {
+            events: vec![egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }],
+            ..Default::default()
+        };
+        let _ = ctx.run_ui(input, |ui| editor(&mut app, ui, &mut fields));
+        assert!(!fields.contains_key(EDITOR));
+        assert!(ctx.data(|d| d.get_temp::<String>(naming)).is_none());
+        assert!(app.session.presets.contours.is_empty());
     }
 }
