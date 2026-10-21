@@ -525,6 +525,7 @@ fn long_in_range(v: Option<i32>, (lo, hi): (i32, i32)) -> Option<i32> {
 /// `filter.other.custom` params for a `Cstm` filter: `Mtrx` is 25 longs, row-major 5 × 5. Values
 /// outside Photoshop's ranges are not modelled (the filter stays verbatim).
 fn custom_params(f: &Descriptor) -> Option<J> {
+    only_keys(f, &["Mtrx", "Scl ", "Ofst"])?;
     let Some(Value::List(m)) = f.get("Mtrx") else { return None };
     if m.len() != 25 {
         return None;
@@ -613,7 +614,8 @@ fn known_params(class: &str, f: Option<&Descriptor>, item: &Descriptor) -> Optio
         }),
         ("Tls ", Some(f)) => tiles_params(f, item)?,
         ("Ofst", Some(f)) => {
-            let fill = OFFSET_FILL.iter().find(|(psd, _)| enum_of(f, "Fl  ") == Some(psd.as_bytes()))?.1;
+            only_keys(f, &["Hrzn", "Vrtc", "Fl  "])?;
+            let fill = OFFSET_FILL.iter().find(|(psd, _)| typed_enum(f, "Fl  ", "FlMd") == Some(psd.as_bytes()))?.1;
             json!({"horizontal": int(f, "Hrzn")?, "vertical": int(f, "Vrtc")?, "undefinedAreas": fill})
         }
         ("Cstm", Some(f)) => custom_params(f)?,
@@ -2343,6 +2345,10 @@ mod tests {
             offset_fltr(i(1), unit(b"#Pxl", f64::NAN), enumv("FlMd", "Wrp ")),
             Descriptor::new("Ofst").with("Hrzn", i(1)).with("Fl  ", enumv("FlMd", "Wrp ")),
             Descriptor::new("Ofst"),
+            // A mistyped enum, a setting we don't write back and a repeated one.
+            offset_fltr(i(1), i(2), enumv("Xxxx", "Wrp ")),
+            offset_fltr(i(1), i(2), enumv("FlMd", "Wrp ")).with("Xtra", i(1)),
+            offset_fltr(i(1), i(2), enumv("FlMd", "Wrp ")).with("Hrzn", i(3)),
         ] {
             let item = measured_named_item(b"Ofst", "Offset...", fltr);
             let f = filter_from_item(&item);
@@ -2424,6 +2430,8 @@ mod tests {
             Descriptor::new("Cstm").with("Scl ", i(1)).with("Ofst", i(0)).with("Mtrx", i(5)),
             Descriptor::new("Cstm").with("Scl ", i(1)).with("Mtrx", Value::List(longs(&SHARPEN))),
             Descriptor::new("Cstm"),
+            // A setting we don't write back.
+            custom_fltr(i(1), i(0), longs(&SHARPEN)).with("Xtra", i(1)),
         ] {
             let item = measured_named_item(b"Cstm", "Custom...", fltr);
             let f = filter_from_item(&item);
