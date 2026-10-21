@@ -215,11 +215,8 @@ pub(crate) fn start(
         Some(mut old) if old.blocks == all => {
             // Blocks drawn from another state aren't part of this one's composite.
             let same = old.display == display_key && (Arc::ptr_eq(&old.doc, &doc) || *old.doc == *doc);
-            let (collected, bytes) = if same && old.collected_bytes <= cap {
-                (std::mem::take(&mut old.collected), old.collected_bytes)
-            } else {
-                (vec![None; all.len()], 0)
-            };
+            let (collected, bytes) =
+                if same && old.collected_bytes <= cap { (std::mem::take(&mut old.collected), old.collected_bytes) } else { (vec![None; all.len()], 0) };
             (std::mem::take(&mut old.pending), (old.started_ms, old.drawn), fallback.or_else(|| old.fallback.take()), (collected, bytes, cap))
         }
         _ => (vec![false; all.len()], (crate::gpu_canvas::now_ms(), 0), fallback, (vec![None; all.len()], 0, cap)),
