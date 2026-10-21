@@ -79,6 +79,17 @@ fn visible_sections(hidden: &[String]) -> Vec<Vec<(usize, Vec<Tool>)>> {
     sections
 }
 
+/// A primary-button gesture started on this tool; open only after it leaves its hit area.
+/// Using pointer origin rather than `Response::dragged` also works for click-only icon buttons.
+fn tool_flyout_drag_open(button: Rect, origin: Option<Pos2>, pointer: Option<Pos2>, primary_down: bool) -> bool {
+    primary_down && origin.is_some_and(|p| button.contains(p)) && pointer.is_some_and(|p| !button.contains(p))
+}
+
+/// A toolbar press cannot click a flyout row in egui because the press began elsewhere.
+fn tool_flyout_release(row: Rect, pointer: Option<Pos2>, released: bool, from_button: bool) -> bool {
+    released && from_button && pointer.is_some_and(|p| row.contains(p))
+}
+
 pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let (w1, bx, m) = if t.pro { (40.0, 30.0, 5i8) } else { (50.0, 36.0, 7i8) };
@@ -179,7 +190,7 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                         crate::tool_memory::select(app, tool);
                                         let _ = app.run("view.actualPixels", json!({}));
                                     }
-                                    // Right-click or long-press opens the flyout (Photoshop).
+                                    // Right-click, long-press, or press-drag away opens the flyout (Photoshop).
                                     let held_for =
                                         resp.is_pointer_button_down_on().then(|| ui.input(|i| i.pointer.press_start_time().map(|t0| i.time - t0))).flatten();
                                     if slot.len() > 1
@@ -189,6 +200,8 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                         ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(0.35 - seconds));
                                     }
                                     let long_press = held_for.is_some_and(|seconds| seconds >= 0.35);
+                                    let drag_open = ui
+                                        .input(|i| tool_flyout_drag_open(resp.rect, i.pointer.press_origin(), i.pointer.hover_pos(), i.pointer.primary_down()));
                                     // Clicking the button of its open flyout again, with either button, closes
                                     // it (#4932); the release that ends the long press that opened it doesn't.
                                     let open_here = ui.data(|d| d.get_temp::<(egui::Id, Rect)>(flyout_id)).is_some_and(|(k, _)| k == key);
@@ -196,10 +209,10 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                         && (resp.secondary_clicked() || (resp.clicked() && ui.data(|d| d.get_temp::<egui::Id>(held_id)) != Some(key)));
                                     if reclicked {
                                         ui.data_mut(|d| d.remove::<(egui::Id, Rect)>(flyout_id));
-                                    } else if slot.len() > 1 && (resp.secondary_clicked() || long_press) {
+                                    } else if slot.len() > 1 && (resp.secondary_clicked() || long_press || drag_open) {
                                         ui.data_mut(|d| {
                                             d.insert_temp(flyout_id, (key, resp.rect));
-                                            if long_press {
+                                            if long_press || drag_open {
                                                 d.insert_temp(held_id, key);
                                             }
                                         });
@@ -267,7 +280,13 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                                                                 t.text_dim,
                                                             );
                                                         }
-                                                        if ir.clicked() {
+                                                        let drag_release = tool_flyout_release(
+                                                            r,
+                                                            ui.input(|i| i.pointer.hover_pos()),
+                                                            ui.input(|i| i.pointer.primary_released()),
+                                                            ui.data(|d| d.get_temp::<egui::Id>(held_id)) == Some(key),
+                                                        );
+                                                        if ir.clicked() || drag_release {
                                                             crate::tool_memory::select(app, item);
                                                             ui.data_mut(|d| d.remove::<(egui::Id, Rect)>(flyout_id));
                                                         }
@@ -5464,6 +5483,82 @@ mod swatch_type_tests {
         let st = h.state().session.active().unwrap();
         let Some(photocraft_doc::LayerContent::Text(t)) = st.doc.layer(photocraft_doc::LayerId(id)).map(|l| &l.content) else { panic!("type layer") };
         assert_eq!(t.char_runs().len(), 1, "still one white run");
+    }
+}
+
+#[cfg(test)]
+mod tool_flyout_drag_tests {
+    use super::*;
+
+    fn frame(app: &mut PhotocraftApp, ctx: &egui::Context, time: f64, events: Vec<egui::Event>) {
+        let mut out = ctx.run_ui(
+            egui::RawInput { time: Some(time), events, screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1200.0, 1800.0))), ..Default::default() },
+            |ui| toolbar(app, ui),
+        );
+        out.textures_delta.clear();
+    }
+
+    fn primary(pos: Pos2, pressed: bool) -> egui::Event {
+        egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() }
+    }
+
+    #[test]
+    fn flyout_drag_only_opens_after_a_primary_press_leaves_its_button() {
+        let button = Rect::from_min_size(pos2(20.0, 20.0), vec2(36.0, 36.0));
+        let inside = button.center();
+        let outside = pos2(120.0, 34.0);
+        assert!(!tool_flyout_drag_open(button, Some(inside), Some(inside), true));
+        assert!(!tool_flyout_drag_open(button, Some(inside), Some(outside), false));
+        assert!(!tool_flyout_drag_open(button, Some(outside), Some(outside), true));
+        assert!(!tool_flyout_drag_open(button, None, Some(outside), true));
+        assert!(tool_flyout_drag_open(button, Some(inside), Some(outside), true));
+        let row = Rect::from_min_size(pos2(90.0, 20.0), vec2(160.0, 26.0));
+        assert!(tool_flyout_release(row, Some(row.center()), true, true));
+        assert!(!tool_flyout_release(row, Some(row.center()), false, true));
+        assert!(!tool_flyout_release(row, Some(row.center()), true, false));
+        assert!(!tool_flyout_release(row, Some(outside + vec2(0.0, 200.0)), true, true));
+        assert!(!tool_flyout_release(row, None, true, true));
+    }
+
+    /// #2301: the press begins on the toolbar button, not on a flyout row. No long-press
+    /// delay is needed; releasing over the second row picks it and closes the flyout.
+    #[test]
+    fn flyout_press_drag_release_selects_the_row_without_long_press() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        PhotocraftApp::setup_context(&ctx, crate::theme::ThemeKind::ALL[0]);
+        frame(&mut app, &ctx, 0.0, vec![]);
+        frame(&mut app, &ctx, 0.1, vec![]);
+        let slot_index = TOOL_SECTIONS.iter().flat_map(|section| section.iter()).position(|slot| slot.contains(&Tool::Brush)).unwrap();
+        let bx = if Tokens::get(&ctx).pro { 30.0 } else { 36.0 };
+        let mut buttons: Vec<Rect> = ctx.viewport(|v| {
+            v.prev_pass
+                .widgets
+                .layers()
+                .flat_map(|(_, w)| w.iter())
+                .filter(|w| w.rect.size() == egui::Vec2::splat(bx) && w.sense.senses_click())
+                .map(|w| w.rect)
+                .collect()
+        });
+        buttons.sort_by(|a, b| a.top().total_cmp(&b.top()));
+        let origin = buttons[slot_index].center();
+        let key = egui::Id::new(("tool-slot", slot_index));
+        let flyout_id = egui::Id::new("tool-flyout");
+        let initial = app.ui.tool;
+        frame(&mut app, &ctx, 1.0, vec![egui::Event::PointerMoved(origin), primary(origin, true)]);
+        assert!(ctx.data(|d| d.get_temp::<(egui::Id, Rect)>(flyout_id)).is_none());
+        // Move right of the icon, still held. The flyout must appear before 350 ms.
+        frame(&mut app, &ctx, 1.08, vec![egui::Event::PointerMoved(origin + vec2(bx + 70.0, 0.0))]);
+        assert_eq!(ctx.data(|d| d.get_temp::<(egui::Id, Rect)>(flyout_id)).map(|(id, _)| id), Some(key));
+        assert_eq!(app.ui.tool, initial, "drag-opening doesn't activate the starting tool");
+        let menu = ctx.memory(|m| m.area_rect(key.with("flyout"))).expect("flyout area");
+        let row = pos2(menu.left() + 65.0, menu.top() + 47.0);
+        frame(&mut app, &ctx, 1.12, vec![egui::Event::PointerMoved(row)]);
+        frame(&mut app, &ctx, 1.16, vec![primary(row, false)]);
+        assert_eq!(app.ui.tool, Tool::Pencil);
+        assert!(ctx.data(|d| d.get_temp::<(egui::Id, Rect)>(flyout_id)).is_none());
+        frame(&mut app, &ctx, 1.2, vec![]);
+        assert_eq!(app.ui.tool, Tool::Pencil, "the original button cannot activate on release");
     }
 }
 
