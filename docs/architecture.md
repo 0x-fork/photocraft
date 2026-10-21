@@ -555,7 +555,7 @@ codegen-units = 1
 opt-level = 2          # image code is unusable at opt-level 0
 ```
 
-Versions are pinned in the workspace `Cargo.toml` (`[workspace.dependencies]`).
+Dependency requirements are centralized in the workspace `Cargo.toml` (`[workspace.dependencies]`); `Cargo.lock` records the exact resolved versions.
 
 ---
 
