@@ -708,6 +708,10 @@ mod tests {
         let mut s = Session::new();
         s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
         let before = s.active().unwrap().history.past_len();
+        // Outside playback the command stays disabled, like Photoshop's greyed menu item.
+        assert!(s.execute("select.deselect", json!({})).is_err());
+        assert!(s.active().unwrap().doc.selection.is_none());
+        assert_eq!(s.active().unwrap().history.past_len(), before, "rejection adds no history step");
         let deselect = crate::commands::find("select.deselect").unwrap();
         assert_eq!((deselect.run)(&mut s, &json!({})).unwrap(), Value::Null);
         assert_eq!(s.active().unwrap().history.past_len(), before, "no history step");
