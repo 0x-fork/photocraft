@@ -286,7 +286,8 @@ pub(crate) fn update_frame(entry: &mut E, shape: &TextShape) {
             frame.set("2", data);
             *entry = E::Dict(vec![("0".into(), frame)]);
         }
-        _ if kind != PATH_FRAME => {}
+        // Leave unreadable path frames unchanged. They were not imported as detached paths.
+        _ if kind != PATH_FRAME || frame.is_none_or(|f| read(f).is_err()) => {}
         TextShape::Box { x, y, width, height } => *entry = box_frame(f64::from(*x), f64::from(*y), f64::from(*width), f64::from(*height)),
         TextShape::Point => *entry = point_frame(),
     }
