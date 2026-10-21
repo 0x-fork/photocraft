@@ -215,33 +215,37 @@ pub(crate) fn decode_comps(resource: Option<&[u8]>, doc: &Document) -> (Vec<Laye
     for (_, _, l) in doc.walk() {
         let Some(settings) = layer_cmls(l).and_then(|c| parse_cmls(&c)) else { continue };
         let here = layer_position(l);
+        // Photoshop writes `enab` only where the layer's visibility changes from one comp to the
+        // next: a comp's entry without it has the last `enab` before it, or visible when none
+        // came before (#8093). Only comps that capture visibility take that inherited value; the
+        // Last Document State entry (comp 0) and the others keep what the entry says.
+        let mut inherited = true;
         for s in settings {
-            if s.visible.is_none() && s.offset.is_none() {
-                continue;
+            let resolved = s.visible.unwrap_or(inherited);
+            if s.comps.iter().any(|id| *id != 0) {
+                inherited = resolved;
             }
-            let state = CompLayerState {
-                layer: l.id,
-                visible: s.visible,
-                position: match (here, s.offset) {
-                    (Some(h), Some(o)) => {
-                        let p = offset_position(h, o);
-                        if p.is_none() {
-                            warnings.push(format!(
-                                "layer \"{}\": layer comp position offset ({}, {}) is out of range; that position was not imported",
-                                l.name, o.0, o.1
-                            ));
-                        }
-                        p
+            let position = match (here, s.offset) {
+                (Some(h), Some(o)) => {
+                    let p = offset_position(h, o);
+                    if p.is_none() {
+                        warnings.push(format!(
+                            "layer \"{}\": layer comp position offset ({}, {}) is out of range; that position was not imported",
+                            l.name, o.0, o.1
+                        ));
                     }
-                    _ => None,
-                },
-                appearance: None,
+                    p
+                }
+                _ => None,
             };
             for id in &s.comps {
                 let target = if *id == 0 { Some(&mut last) } else { comps.iter_mut().find(|c| c.id == *id) };
-                if let Some(c) = target {
-                    c.states.push(state.clone());
+                let Some(c) = target else { continue };
+                let visible = if *id != 0 && c.apply_visibility { Some(resolved) } else { s.visible };
+                if visible.is_none() && s.offset.is_none() {
+                    continue;
                 }
+                c.states.push(CompLayerState { layer: l.id, visible, position, appearance: None });
             }
         }
     }
