@@ -1035,6 +1035,8 @@ fn save_for_web_impl(s: &mut Session, p: &Value, write: &mut dyn FnMut(&str, &[u
 
 // ---------- Export Preferences / Quick Export ----------
 
+/// File › Export › Export Preferences…: sets the given `export.*` preferences through `prefs.set`
+/// (validated like any other preference) and returns the whole section.
 fn export_preferences(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.export.exportPreferences";
     let mut values = serde_json::Map::new();
@@ -1496,6 +1498,8 @@ pub fn assets_dir(doc_path: &str) -> String {
     join(&dir, &format!("{}-assets", stem(doc_path)))
 }
 
+/// File › Generate › Image Assets: toggles generation for the active document (or sets it with
+/// `on`) and, when it is on and the output folder is known, writes the assets now.
 fn image_assets(s: &mut Session, p: &Value) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let id: DocId = d.doc.id;
