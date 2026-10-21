@@ -1318,6 +1318,9 @@ fn cmyk_of(fmt: &PixelFormat) -> bool {
 /// `ctl` gets the fraction of rows done after each band; once it is cancelled the rest of the
 /// image is left blank (the caller discards it).
 fn merged_planes(doc: &Document, fmt: &PixelFormat, cmyk: bool, matte: bool, ctl: &Interrupt) -> (Vec<u8>, bool, bool) {
+    if cmyk && let Some(planes) = merged_ink_planes(doc, fmt.sample, matte, ctl) {
+        return planes;
+    }
     let sample = fmt.sample;
     let cc = fmt.mode.color_channels();
     let bps = sample.bytes();
@@ -1373,6 +1376,57 @@ fn merged_planes(doc: &Document, fmt: &PixelFormat, cmyk: bool, matte: bool, ctl
         Ok(())
     });
     (planes, has_alpha, translucent)
+}
+
+/// [`merged_planes`] of a CMYK document whose layers are mixed on their ink values
+/// (`photocraft_compose::cmyk`), so opaque pixels keep their exact inks; `None` for documents
+/// that composite in RGB. Reports progress and stops on cancel like [`merged_planes`].
+fn merged_ink_planes(doc: &Document, sample: SampleType, matte: bool, ctl: &Interrupt) -> Option<(Vec<u8>, bool, bool)> {
+    let bps = sample.bytes();
+    let n = doc.size.area() as usize;
+    let plane = n * bps;
+    let mut planes = vec![0u8; plane * 5];
+    let (mut has_alpha, mut translucent) = (false, false);
+    let canvas = doc.bounds();
+    let w = canvas.width() as usize;
+    let rows = canvas.height().max(1) as f32;
+    // A cancelled export leaves the rest blank (the caller discards it), so the result stands either way.
+    let _ = photocraft_compose::cmyk::render_cmyk_bands(doc, canvas, 0, |band| -> Result<(), ()> {
+        if ctl.cancelled() {
+            return Err(());
+        }
+        // Retain alpha whenever it differs from opaque at the stored precision.
+        has_alpha |= band.px.iter().any(|p| match sample {
+            SampleType::U8 => q255(p[4]) < 255,
+            SampleType::U16 => (p[4].clamp(0.0, 1.0) * 65535.0 + 0.5) as u16 != u16::MAX,
+            SampleType::F32 => p[4] != 1.0,
+        });
+        translucent |= band.px.iter().any(|p| p[4] < 1.0);
+        let start = (band.rect.y0 - canvas.y0) as usize * w;
+        let parts = crate::pixels::par_map(crate::pixels::bands(band.px.len()), |range| {
+            let mut out: Vec<Vec<u8>> = (0..5).map(|_| Vec::with_capacity(range.len() * bps)).collect();
+            for p in band.px.get(range.clone()).unwrap_or(&[]) {
+                for (c, o) in out.iter_mut().enumerate() {
+                    // Inks matted against white paper (no ink) like Photoshop (see
+                    // `pixels::matte`), and stored inverted as PSD's CMYK is.
+                    let v = if c < 4 { 1.0 - if matte { crate::pixels::matte(p[c], p[4], 0.0) } else { p[c] } } else { p[4] };
+                    encode_be(v, sample, o);
+                }
+            }
+            (range.start, out)
+        });
+        for (at, part) in parts {
+            for (c, src) in part.iter().enumerate() {
+                let o = c * plane + (start + at) * bps;
+                if let Some(dst) = planes.get_mut(o..o + src.len()) {
+                    dst.copy_from_slice(src);
+                }
+            }
+        }
+        ctl.progress((band.rect.y1 - canvas.y0) as f32 / rows);
+        Ok(())
+    })?;
+    Some((planes, has_alpha, translucent))
 }
 
 /// The merged image of a file saved without Maximize Compatibility: Photoshop's white placeholder
