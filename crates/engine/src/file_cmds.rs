@@ -105,7 +105,7 @@ pub fn list_images(dir: &str) -> Result<Vec<String>> {
     let mut out: Vec<String> = rd
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.is_file() && p.extension().and_then(|x| x.to_str()).is_some_and(|x| OPENABLE.contains(&x.to_ascii_lowercase().as_str())))
+        .filter(|p| p.is_file() && openable_name(&p.to_string_lossy()))
         .map(|p| p.to_string_lossy().into_owned())
         .collect();
     out.sort();
@@ -116,12 +116,20 @@ pub fn list_images(dir: &str) -> Result<Vec<String>> {
     Err(EngineError::Other(format!("cannot list {dir}: no file system on the web")))
 }
 
+/// Whether a folder entry is one the batch commands open: an `OPENABLE` extension, or GIMP's
+/// gzipped `.xcf.gz`, whose last extension alone says nothing.
+#[cfg(not(target_arch = "wasm32"))]
+fn openable_name(path: &str) -> bool {
+    let lower = file_name(path).to_ascii_lowercase();
+    lower.ends_with(".xcf.gz") || lower.rsplit_once('.').is_some_and(|(_, ext)| OPENABLE.contains(&ext))
+}
+
 /// Extensions the batch commands pick up from a folder.
 #[cfg(not(target_arch = "wasm32"))]
 const OPENABLE: &[&str] = &[
-    "pdn", "ora", "kra", "krz", "psd", "psb", "pcraft", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "exr", "hdr", "qoi", "ico", "pnm",
-    "ppm", "pgm", "fits", "fit", "fts", "dpx", "heic", "heif", "hif", "dng", "cr2", "nef", "nrw", "arw", "pef", "svg", "svgz", "af", "afdesign", "afphoto",
-    "afpub",
+    "pdn", "ora", "xcf", "xcfgz", "kra", "krz", "psd", "psb", "pcraft", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "exr", "hdr", "qoi",
+    "ico", "pnm", "ppm", "pgm", "fits", "fit", "fts", "dpx", "heic", "heif", "hif", "dng", "cr2", "nef", "nrw", "arw", "pef", "svg", "svgz", "af", "afdesign",
+    "afphoto", "afpub",
 ];
 
 /// Whether saving `doc` as a TIFF writes Photoshop layer data (anything beyond a lone
@@ -963,8 +971,8 @@ fn file_info(s: &mut Session, p: &Value) -> Result<Value> {
 fn fit_image(s: &mut Session, p: &Value) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let (w, h) = (d.doc.size.width as f64, d.doc.size.height as f64);
-    let bw = f64_param(p, "width").unwrap_or(w).max(1.0);
-    let bh = f64_param(p, "height").unwrap_or(h).max(1.0);
+    let bw = size_param(p, "width").unwrap_or(w);
+    let bh = size_param(p, "height").unwrap_or(h);
     let k = (bw / w).min(bh / h);
     if (k > 1.0 && p.get("dontEnlarge").and_then(Value::as_bool).unwrap_or(false)) || ((w * k).round() == w && (h * k).round() == h) {
         return Ok(json!({"width": w, "height": h, "changed": false}));
@@ -999,11 +1007,14 @@ fn conditional_mode_change(s: &mut Session, p: &Value) -> Result<Value> {
         other => return Err(EngineError::BadParams { cmd: cmd.into(), msg: format!("unsupported target mode \"{other}\" (rgb, grayscale, cmyk, lab)") }),
     };
     let cur = mode_name(s.active().ok_or(EngineError::NoDocument)?.doc.mode);
+    // One spelling per source mode, for the array and the single-string forms alike (#7042).
+    let norm = |v: &str| {
+        let v = v.to_ascii_lowercase();
+        if v == "gray" { "grayscale".to_string() } else { v }
+    };
     let from: Vec<String> = match p.get("from") {
-        Some(Value::Array(a)) => {
-            a.iter().filter_map(Value::as_str).map(|v| v.to_ascii_lowercase().replace("gray", "grayscale").replace("grayscalescale", "grayscale")).collect()
-        }
-        Some(Value::String(v)) if v != "any" => vec![v.to_ascii_lowercase()],
+        Some(Value::Array(a)) => a.iter().filter_map(Value::as_str).map(norm).collect(),
+        Some(Value::String(v)) => vec![norm(v)],
         _ => vec!["any".into()],
     };
     if cur == to || !(from.iter().any(|f| f == "any" || f == cur)) {
