@@ -2112,6 +2112,11 @@
 	Apply the pen's tilt and rotation to the tip shape	Terapkan kemiringan dan rotasi pena ke bentuk ujung
 	Mixer Brush	Kuas Pencampur
 	Wet	Basah
+	Current Brush Load	Muatan Kuas Saat Ini
+	Load Brush	Muat Kuas
+	Clean Brush	Bersihkan Kuas
+	Load the brush after each stroke	Muat kuas setelah setiap goresan
+	Clean the brush after each stroke	Bersihkan kuas setelah setiap goresan
 	Mix	Campur
 	Wetness Jitter	Jitter Kebasahan
 	Mix Jitter	Jitter Campuran
@@ -3245,10 +3250,11 @@ curves	Smooth	Haluskan
 	Compression	Kompresi
 	Generate Mipmaps	Buat mipmap
 
-# Live Mixer Brush paint load controls (#3627)
+# Graphics Adapter preference (#1885)
+	GPU adapter	Adaptor GPU
+
+# Contributor workflow labels
 	Paint Load	Muatan cat
 	Alt-click the canvas to load the brush tip	Alt-klik kanvas untuk mengisi ujung kuas
-	Load Brush	Isi kuas
-	Clean Brush	Bersihkan kuas
 	Clean pickup after stroke	Bersihkan warna yang diambil setelah goresan
 	Reload after stroke	Isi ulang setelah goresan

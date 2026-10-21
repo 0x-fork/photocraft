@@ -2095,6 +2095,11 @@
 	Apply the pen's tilt and rotation to the tip shape	Primeni nagib i rotaciju olovke na oblik vrha
 	Mixer Brush	Četkica za mešanje
 	Wet	Vlažnost
+	Current Brush Load	Trenutno punjenje četkice
+	Load Brush	Napuni četkicu
+	Clean Brush	Očisti četkicu
+	Load the brush after each stroke	Napuni četkicu posle svakog poteza
+	Clean the brush after each stroke	Očisti četkicu posle svakog poteza
 	Mix	Mešanje
 	Wetness Jitter	Kolebanje vlažnosti
 	Mix Jitter	Kolebanje mešanja
@@ -4322,10 +4327,11 @@ shape	Appearance	Izgled
 	DDS Options	DDS opcije
 	Generate Mipmaps	Generiši mipmape
 
-# Live Mixer Brush paint load controls (#3627)
+# Graphics Adapter preference (#1885)
+	GPU adapter	GPU adapter
+
+# Contributor workflow labels
 	Paint Load	Punjenje bojom
 	Alt-click the canvas to load the brush tip	Kliknite na platno uz Alt da napunite vrh četkice bojom
-	Load Brush	Napunite četkicu
-	Clean Brush	Očistite četkicu
 	Clean pickup after stroke	Očisti pokupljenu boju posle poteza
 	Reload after stroke	Ponovo napuni posle poteza

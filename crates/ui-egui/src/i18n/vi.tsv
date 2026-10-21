@@ -1296,6 +1296,11 @@
 	Mixer Brush	Cọ trộn
 	Mixer Brush Tool	Công cụ Cọ trộn
 	Wet	Ướt
+	Current Brush Load	Lượng sơn hiện tại của cọ
+	Load Brush	Nạp sơn cho cọ
+	Clean Brush	Làm sạch cọ
+	Load the brush after each stroke	Nạp sơn cho cọ sau mỗi nét vẽ
+	Clean the brush after each stroke	Làm sạch cọ sau mỗi nét vẽ
 	Load	Tải
 	Mix	Trộn
 	Flow	Lưu lượng
@@ -3737,10 +3742,11 @@ curves	Smooth	Làm mượt
 	Compression	Nén
 	Generate Mipmaps	Tạo mipmap
 
-# Live Mixer Brush paint load controls (#3627)
+# Graphics Adapter preference (#1885)
+	GPU adapter	Bộ điều hợp GPU
+
+# Contributor workflow labels
 	Paint Load	Nạp màu vẽ
 	Alt-click the canvas to load the brush tip	Nhấp vào vùng vẽ trong khi giữ Alt để nạp màu vào đầu cọ
-	Load Brush	Nạp màu cho cọ
-	Clean Brush	Làm sạch cọ
 	Clean pickup after stroke	Xóa màu đã lấy sau nét vẽ
 	Reload after stroke	Nạp lại sau nét vẽ

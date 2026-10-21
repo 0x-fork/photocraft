@@ -605,3 +605,57 @@ fn an_inline_job_ctx_lets_another_thread_cancel_inline_work() {
     s.set_inline_job_ctx(None);
     s.execute("filter.blur.gaussianBlur", json!({"radius": 2})).unwrap();
 }
+
+#[test]
+fn every_job_terminal_path_drops_a_prepared_mixer_stroke() {
+    use crate::brush_cmds::mixer_live::LiveMixer;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    for outcome in 0..6 {
+        let mut s = session(32, 32);
+        let live = LiveMixer::begin(&s, &json!({"points": [[16, 16]], "size": 4})).unwrap();
+        live.prepare_commit(&mut s).unwrap();
+        let gate = Arc::new(AtomicBool::new(false));
+        let worker_gate = gate.clone();
+        let id = job(s
+            .start_job(
+                "test.mixer_cleanup",
+                json!({}),
+                "Mixer cleanup",
+                true,
+                move |ctx| {
+                    while !worker_gate.load(Ordering::Relaxed) {
+                        ctx.check()?;
+                        std::thread::sleep(Duration::from_millis(1));
+                    }
+                    if outcome == 1 { Err(EngineError::Other("worker failed".into())) } else { Ok(()) }
+                },
+                move |_, ()| {
+                    if outcome == 4 { Err(EngineError::Other("apply failed".into())) } else { Ok(json!({})) }
+                },
+            )
+            .unwrap());
+        assert!(s.prepared_mixer.is_some());
+        if outcome == 2 {
+            assert!(s.cancel_job(id));
+            s.join_cancelled_jobs();
+        } else {
+            if outcome == 3 {
+                // Simulate replacement outside command dispatch, which itself clears offers.
+                let doc = (*s.active().unwrap().doc).clone();
+                s.active_mut().unwrap().doc = Arc::new(doc);
+            } else if outcome == 5 {
+                s.docs.clear();
+                s.active = None;
+            }
+            gate.store(true, Ordering::Relaxed);
+        }
+        let event = wait_event(&mut s, id);
+        match outcome {
+            0 => assert!(matches!(event.outcome, JobOutcome::Done(_))),
+            2 => assert!(matches!(event.outcome, JobOutcome::Cancelled)),
+            _ => assert!(matches!(event.outcome, JobOutcome::Failed(_))),
+        }
+        assert!(s.prepared_mixer.is_none(), "terminal path {outcome} retained the preview");
+    }
+}

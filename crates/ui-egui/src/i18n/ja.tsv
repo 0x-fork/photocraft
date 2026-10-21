@@ -2153,6 +2153,11 @@
 	Mixer Brush Tool	混合ブラシツール
 	Color Replacement Tool	色の置き換えツール
 	Wet	ウェット
+	Current Brush Load	現在のブラシの絵の具
+	Load Brush	ブラシに補充
+	Clean Brush	ブラシを洗浄
+	Load the brush after each stroke	ストロークごとにブラシに補充
+	Clean the brush after each stroke	ストロークごとにブラシを洗浄
 	Mix	混合
 	Wetness Jitter	ウェットのジッター
 	Mix Jitter	混合のジッター
@@ -3927,10 +3932,11 @@ curves	Smooth	スムーズ
 	Compression	圧縮
 	Generate Mipmaps	ミップマップを生成
 
-# Live Mixer Brush paint load controls (#3627)
+# Graphics Adapter preference (#1885)
+	GPU adapter	GPU アダプター
+
+# Contributor workflow labels
 	Paint Load	絵の具の補充
 	Alt-click the canvas to load the brush tip	Alt キーを押しながらキャンバスをクリックしてブラシ先端に絵の具を補充
-	Load Brush	ブラシに絵の具を補充
-	Clean Brush	ブラシを洗浄
 	Clean pickup after stroke	ストローク後に拾った色を除去
 	Reload after stroke	ストローク後に再補充

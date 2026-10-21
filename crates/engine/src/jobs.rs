@@ -914,7 +914,6 @@ impl Session {
                 .unwrap_or_else(|_| Err(EngineError::Other(format!("`{label}` failed with an internal error (logged); the document is unchanged")))),
             None => Err(EngineError::Other("internal error: job applied twice".into())),
         };
-        self.prepared_mixer = None;
         if self.actions.recording.is_none() {
             self.actions.recording = recording;
         }
@@ -944,6 +943,9 @@ impl Session {
     }
 
     fn end_job(&mut self, job: &Running, outcome: JobOutcome) {
+        // Every terminal path invalidates a preview, including worker errors, cancellation
+        // and discarded results whose document was closed or changed.
+        self.prepared_mixer = None;
         let (state, result, error) = match &outcome {
             JobOutcome::Done(v) => ("done", Some(v.clone()), None),
             JobOutcome::Failed(e) => ("failed", None, Some(e.clone())),

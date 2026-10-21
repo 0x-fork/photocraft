@@ -22,6 +22,7 @@ fn valid_state(state: &MixerState) -> bool {
     state.amount.is_finite()
         && state.reservoir.as_ref().is_none_or(valid_color)
         && state.pickup.as_ref().is_none_or(valid_color)
+        && state.color.as_ref().is_none_or(valid_color)
         && state.spatial.as_ref().is_none_or(|colors| colors.len() == 4096 && colors.iter().all(valid_color))
 }
 
@@ -152,7 +153,7 @@ impl LiveMixer {
             flow: pct(p, "flow", bm.flow * 100.0),
             sample_all_layers: flag(p, "sampleAllLayers", bm.sample_all_layers) && crate::channel_cmds::target_of(p) == crate::channel_cmds::Target::Pixels,
             clean_after_stroke: flag(p, "cleanAfterStroke", bm.clean_after_stroke),
-            reload_after_stroke: flag(p, "loadAfterStroke", bm.reload_after_stroke),
+            load_after_stroke: flag(p, "loadAfterStroke", bm.load_after_stroke),
         };
         let initial_state = if let Some(value) = p.get("mixerState") {
             if value.get("spatial").and_then(Value::as_array).is_some_and(|v| v.len() != 4096) {
@@ -166,13 +167,15 @@ impl LiveMixer {
         if !valid_state(&state) {
             return Err(bad(CMD, "loaded paint must be finite and color magnitudes at most 1000000"));
         }
-        if state.spatial.is_none() && settings.reload_after_stroke {
-            let color = color(p.get("color"), s.tools.foreground);
-            if !valid_color(&color) {
-                return Err(bad(CMD, "loaded color must be finite and magnitudes at most 1000000"));
-            }
-            state.load(color);
+        let paint = color(p.get("color"), s.tools.foreground);
+        if !valid_color(&paint) {
+            return Err(bad(CMD, "loaded color must be finite and magnitudes at most 1000000"));
         }
+        // Earlier captured replay states had no foreground marker. Keep their loaded paint.
+        if p.get("mixerState").is_some_and(|v| v.get("color").is_none()) && (state.reservoir.is_some() || state.spatial.is_some()) {
+            state.color = Some(paint);
+        }
+        state.begin_stroke(paint);
         let layer = if crate::channel_cmds::is_channel_target(p) { None } else { Some(layer_id(s, p)?) };
         let mut doc = (*s.active().ok_or(EngineError::NoDocument)?.doc).clone();
         let selection = doc.selection.clone();
@@ -312,12 +315,8 @@ pub(super) fn run(s: &mut Session, p: &Value) -> Result<Value> {
         Ok(())
     })?;
     let mut state = live.state;
-    if live.core.settings.clean_after_stroke {
-        state.clean();
-    }
-    if live.core.settings.reload_after_stroke && state.reservoir.is_some() {
-        state.amount = 1.0;
-    }
+    let paint = live.core.ctx.brush.color;
+    state.end_stroke(paint, live.core.settings.clean_after_stroke, live.core.settings.load_after_stroke);
     s.tools.mixer = state;
     Ok(damage_json(s, damage))
 }
@@ -405,22 +404,7 @@ pub(super) fn sample(s: &mut Session, p: &Value) -> Result<Value> {
     average[3] = 1.0;
     s.tools.mixer.load(average);
     s.tools.mixer.spatial = Some(load);
-    s.tools.mixer.clean();
+    s.tools.mixer.pickup = None;
+    s.tools.mixer.color = Some(s.tools.foreground);
     Ok(json!({"width":64,"height":64,"color":average}))
-}
-
-pub(super) fn load(s: &mut Session, p: &Value) -> Result<Value> {
-    let color = color(p.get("color"), s.tools.foreground);
-    if !valid_color(&color) {
-        return Err(bad("brush.mixer.load", "loaded color must be finite and magnitudes at most 1000000"));
-    }
-    s.tools.mixer.load(color);
-    Ok(json!({"loaded":true}))
-}
-
-pub(super) fn clean(s: &mut Session, _: &Value) -> Result<Value> {
-    s.tools.mixer = MixerState::default();
-    // Cleaning is an explicit empty-brush choice, so do not silently reload the next stroke.
-    s.tools.brush.mixer.reload_after_stroke = false;
-    Ok(json!({"loaded":false}))
 }

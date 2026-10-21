@@ -1000,6 +1000,11 @@
 	Mix	Змішування
 	Auto Clean Brush	Автоматично очищувати пензель
 	Wet	Вологість
+	Current Brush Load	Поточне завантаження пензля
+	Load Brush	Завантажити пензель
+	Clean Brush	Очистити пензель
+	Load the brush after each stroke	Завантажувати пензель після кожного штриха
+	Clean the brush after each stroke	Очищати пензель після кожного штриха
 	Rate	Частота
 	Airbrush: keeps depositing paint while the pointer rests.	Аерограф: продовжує наносити фарбу, коли вказівник нерухомий.
 	Pulled String Mode	Режим натягнутої нитки
@@ -3958,10 +3963,11 @@ curves	Smooth	Згладити
 	Compression	Стиснення
 	Generate Mipmaps	Створити MIP-карти
 
-# Live Mixer Brush paint load controls (#3627)
+# Graphics Adapter preference (#1885)
+	GPU adapter	Адаптер GPU
+
+# Contributor workflow labels
 	Paint Load	Завантаження фарби
 	Alt-click the canvas to load the brush tip	Клацніть полотно з Alt, щоб набрати фарбу на кінчик пензля
-	Load Brush	Завантажити пензель
-	Clean Brush	Очистити пензель
 	Clean pickup after stroke	Очищати набраний колір після мазка
 	Reload after stroke	Завантажувати знову після мазка

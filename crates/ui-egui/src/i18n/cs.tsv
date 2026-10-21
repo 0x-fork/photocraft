@@ -2171,6 +2171,11 @@
 	Color Replacement Tool	Nástroj Nahrazení barvy
 	Color Replacement	Nahrazení barvy
 	Wet	Vlhkost
+	Current Brush Load	Aktuální náplň štětce
+	Load Brush	Naplnit štětec
+	Clean Brush	Vyčistit štětec
+	Load the brush after each stroke	Naplnit štětec po každém tahu
+	Clean the brush after each stroke	Vyčistit štětec po každém tahu
 	Mix	Míchání
 	Wetness Jitter	Kolísání vlhkosti
 	Mix Jitter	Kolísání míchání
@@ -3857,10 +3862,11 @@ navigator	Zoom	Zvětšení
 	DDS Options	Možnosti DDS
 	Generate Mipmaps	Generovat mipmapy
 
-# Live Mixer Brush paint load controls (#3627)
+# Graphics Adapter preference (#1885)
+	GPU adapter	Adaptér GPU
+
+# Contributor workflow labels
 	Paint Load	Nabírání barvy
 	Alt-click the canvas to load the brush tip	Kliknutím na plátno s klávesou Alt naberete barvu na špičku štětce
-	Load Brush	Naplnit štětec
-	Clean Brush	Vyčistit štětec
 	Clean pickup after stroke	Vyčistit nabranou barvu po tahu
 	Reload after stroke	Znovu naplnit po tahu

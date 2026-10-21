@@ -26,13 +26,16 @@ pub struct MixerSettings {
     pub flow: f32,
     /// Pick up colour from all visible layers instead of the target layer only.
     pub sample_all_layers: bool,
+    /// Load the brush with the stroke color after each stroke (the automatic Load option).
+    #[serde(alias = "reloadAfterStroke")]
+    pub load_after_stroke: bool,
+    /// Empty the brush after each stroke (the automatic Clean option).
     pub clean_after_stroke: bool,
-    pub reload_after_stroke: bool,
 }
 
 impl Default for MixerSettings {
     fn default() -> Self {
-        Self { wet: 0.5, load: 0.5, mix: 0.5, flow: 1.0, sample_all_layers: true, clean_after_stroke: true, reload_after_stroke: true }
+        Self { wet: 0.5, load: 0.5, mix: 0.5, flow: 1.0, sample_all_layers: true, clean_after_stroke: true, load_after_stroke: true }
     }
 }
 
@@ -48,18 +51,53 @@ pub struct MixerState {
     pub pickup: Option<[f32; 4]>,
     /// A bounded 64 x 64 spatial load in tip-local coordinates. Empty cells carry no paint.
     pub spatial: Option<Vec<[f32; 4]>>,
+    /// The color recorded by the last stroke (its color) or the last Load Brush or Clean Brush
+    /// (the foreground). None = no stroke, load or clean yet.
+    pub color: Option<[f32; 4]>,
 }
 
 impl MixerState {
-    /// Load the reservoir with a colour (full).
+    /// Load Brush: fill the reservoir with a color (full).
     pub fn load(&mut self, color: [f32; 4]) {
         self.spatial = None;
         self.reservoir = Some(color);
         self.amount = 1.0;
     }
-    /// Clean the brush (drop the picked-up colour).
+    /// Clean Brush: empty the reservoir and the pickup well.
     pub fn clean(&mut self) {
+        self.spatial = None;
+        self.reservoir = None;
+        self.amount = 0.0;
         self.pickup = None;
+    }
+    /// Before a stroke in `color`: choosing a color other than [`MixerState::color`] loads the
+    /// reservoir with it.
+    pub fn begin_stroke(&mut self, color: [f32; 4]) {
+        if self.color != Some(color) {
+            self.load(color);
+            self.color = Some(color);
+        }
+    }
+    /// After a stroke in `color`: the automatic Clean empties the brush, then the automatic Load
+    /// fills the reservoir again.
+    pub fn end_stroke(&mut self, color: [f32; 4], clean: bool, load: bool) {
+        // Automatic Load replenishes a sampled tip as well as a solid-color load.
+        // Move its bounded buffer through Clean instead of allocating a copy.
+        let spatial = if load { self.spatial.take() } else { None };
+        let paint = if spatial.is_some() { self.reservoir.unwrap_or(color) } else { color };
+        if clean {
+            self.clean();
+        }
+        if load {
+            self.load(paint);
+            self.spatial = spatial;
+        }
+        self.color = Some(color);
+    }
+    /// The reservoir color the next stroke in `color` starts with (the Current Brush Load
+    /// swatch); None = a clean brush.
+    pub fn next_load(&self, color: [f32; 4]) -> Option<[f32; 4]> {
+        if self.color != Some(color) { Some(color) } else { self.reservoir }
     }
 }
 
@@ -295,6 +333,78 @@ mod tests {
         assert!(p[2] > 0.2, "{p:?}");
         st.clean();
         assert!(st.pickup.is_none());
+    }
+
+    #[test]
+    fn a_clean_brush_paints_only_the_canvas_color_it_picks_up() {
+        let mut st = MixerState::default();
+        st.load([0.0, 0.0, 1.0, 1.0]);
+        st.pickup = Some([0.0, 1.0, 0.0, 1.0]);
+        st.clean();
+        assert_eq!((st.reservoir, st.amount, st.pickup), (None, 0.0, None));
+        // On red, the clean wet brush smears red and lays down none of the blue it was loaded with.
+        let mut s = Surface::new(PixelFormat::RGBA8);
+        s.fill_rect(Rect::new(0, 0, 200, 20), &[1.0, 0.0, 0.0, 1.0]);
+        apply_mixer_stroke(&mut s, None, &stroke(10.0), &MixerSettings::default(), &mut st, None, false);
+        let c = s.rgba(100, 10);
+        assert!(c[0] > 0.99 && c[1] < 0.01 && c[2] < 0.01, "{c:?}");
+    }
+
+    #[test]
+    fn a_new_color_loads_the_brush_and_the_automatic_options_run_after_the_stroke() {
+        let (blue, green) = ([0.0, 0.0, 1.0, 1.0], [0.0, 1.0, 0.0, 1.0]);
+        let mut st = MixerState::default();
+        // A brush never loaded takes the stroke's color.
+        assert_eq!(st.next_load(blue), Some(blue));
+        st.begin_stroke(blue);
+        assert_eq!((st.reservoir, st.amount), (Some(blue), 1.0));
+        // Clean on, Load off: the next stroke in the same color starts empty.
+        st.end_stroke(blue, true, false);
+        assert_eq!(st.next_load(blue), None);
+        st.begin_stroke(blue);
+        assert_eq!((st.reservoir, st.pickup), (None, None));
+        // Choosing another color loads it.
+        assert_eq!(st.next_load(green), Some(green));
+        st.begin_stroke(green);
+        assert_eq!((st.reservoir, st.amount), (Some(green), 1.0));
+        // Load on, Clean off: the reservoir is full again and the pickup stays.
+        st.amount = 0.1;
+        st.pickup = Some(blue);
+        st.end_stroke(green, false, true);
+        assert_eq!((st.reservoir, st.amount, st.pickup), (Some(green), 1.0, Some(blue)));
+        // Both on: a fresh load with no pickup.
+        st.end_stroke(green, true, true);
+        assert_eq!((st.reservoir, st.amount, st.pickup), (Some(green), 1.0, None));
+    }
+
+    #[test]
+    fn spatial_load_obeys_automatic_clean_and_load() {
+        let foreground = [0.0, 0.0, 1.0, 1.0];
+        let sampled = [1.0, 0.0, 0.0, 1.0];
+        let tip = vec![sampled; 4096];
+        let mut state = MixerState::default();
+        state.load(sampled);
+        state.spatial = Some(tip.clone());
+        state.color = Some(foreground);
+        state.amount = 0.1;
+        state.end_stroke(foreground, true, true);
+        assert_eq!(state.spatial.as_ref(), Some(&tip));
+        assert_eq!((state.reservoir, state.amount, state.pickup), (Some(sampled), 1.0, None));
+        state.begin_stroke(foreground);
+        assert_eq!(state.spatial.as_ref(), Some(&tip));
+        state.end_stroke(foreground, true, false);
+        assert!(state.spatial.is_none() && state.reservoir.is_none());
+        state.begin_stroke(foreground);
+        assert!(state.reservoir.is_none(), "Clean stays empty until a new color or Load");
+    }
+
+    #[test]
+    fn earlier_reload_setting_deserializes_as_automatic_load() {
+        let settings: MixerSettings = serde_json::from_value(serde_json::json!({"reloadAfterStroke":false})).unwrap();
+        assert!(!settings.load_after_stroke);
+        let saved = serde_json::to_value(settings).unwrap();
+        assert_eq!(saved["loadAfterStroke"], false);
+        assert!(saved.get("reloadAfterStroke").is_none());
     }
 
     #[test]

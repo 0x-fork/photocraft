@@ -2118,6 +2118,11 @@
 	Apply the pen's tilt and rotation to the tip shape	Appliquer l'inclinaison et la rotation du stylet à la forme de la pointe
 	Mixer Brush	Pinceau mélangeur
 	Wet	Humidité
+	Current Brush Load	Charge actuelle du pinceau
+	Load Brush	Charger le pinceau
+	Clean Brush	Nettoyer le pinceau
+	Load the brush after each stroke	Charger le pinceau après chaque trait
+	Clean the brush after each stroke	Nettoyer le pinceau après chaque trait
 	Mix	Mélange
 	Wetness Jitter	Variation de l'humidité
 	Mix Jitter	Variation du mélange
@@ -3258,10 +3263,11 @@ curves	Smooth	Lisser
 	Compression	Compression
 	Generate Mipmaps	Générer les mipmaps
 
-# Live Mixer Brush paint load controls (#3627)
+# Graphics Adapter preference (#1885)
+	GPU adapter	Adaptateur GPU
+
+# Contributor workflow labels
 	Paint Load	Charge de peinture
 	Alt-click the canvas to load the brush tip	Alt-clic sur la zone de travail pour charger la pointe du pinceau
-	Load Brush	Charger le pinceau
-	Clean Brush	Nettoyer le pinceau
 	Clean pickup after stroke	Nettoyer la couleur prélevée après le trait
 	Reload after stroke	Recharger après le trait

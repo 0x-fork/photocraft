@@ -67,9 +67,13 @@ stale document context cancel the UI transaction.
   The normalized spatial load follows subsequent dab poses. Resolution is bounded;
   subpixel gaps smaller than a reservoir cell are not losslessly represented.
 * Load Brush replaces the spatial load with foreground paint. Clean Brush empties
-  it and disables automatic reload. The pickup-clean and reload settings are part
-  of the existing serialized brush settings. The loaded reservoir persists during
-  the application session, including tool switches; restart persistence is not added.
+  it without changing the automatic Load/Clean options, matching current main. A
+  cleaned brush stays empty for the next stroke unless the foreground changes or
+  Load is chosen. Automatic Clean empties it after a stroke; automatic Load then
+  refills the solid-color or sampled spatial tip when enabled. The canonical saved
+  setting is `loadAfterStroke`; earlier `reloadAfterStroke` settings still deserialize.
+  The loaded reservoir persists during the session, including tool switches;
+  restart persistence is not added.
 * Native pixel conversion enters the document's CMYK profile scope, as the existing
   brush engine does. The loaded-tip preview uses the document-to-monitor canvas
   transform. Cross-document reservoir color-profile conversion is not implemented;
