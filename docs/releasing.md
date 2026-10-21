@@ -192,8 +192,12 @@ Locally on Windows: `dotnet tool install -g wix --version 5.0.2`,
 
 `packaging/linux/package.sh` stages one FHS tree and makes every format from it. The tree
 holds both binaries, `ai.storyteller.photocraft.desktop`, hicolor icons from 16 px to 512 px
-plus a scalable SVG, AppStream metainfo, and a shared-mime-info file for `.pcraft`, `.psb` and
-`.qoi`.
+plus a scalable SVG, AppStream metainfo, a shared-mime-info file for `.pcraft`, `.psb` and
+`.qoi`, and `photocraft-cli`'s man pages and bash, zsh and fish completions. The
+`man-and-completions` example, built with the binaries, writes those; a cross build runs it
+through `EMULATOR` and leaves them out without one. The zsh completion is in
+`/usr/share/zsh/site-functions`, which Fedora's and openSUSE's zsh read; the `.deb` also links it
+from `/usr/share/zsh/vendor-completions`, which Debian's zsh reads instead.
 
 Why these formats:
 
