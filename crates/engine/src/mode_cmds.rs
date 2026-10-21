@@ -431,8 +431,17 @@ fn bitmap(s: &mut Session, p: &Value) -> Result<Value> {
     let (nw, nh) = if (output - input).abs() < 1e-6 {
         (ow, oh)
     } else {
-        let side = |v: u32| (f64::from(v) * output / input).round().clamp(1.0, 300_000.0) as u32;
-        (side(ow), side(oh))
+        // Keeping the print size can ask for more pixels than a document may have: refuse that
+        // rather than clamp, which would change the print size.
+        let max = crate::document_preset_cmds::MAX_DIMENSION;
+        let side = |v: u32| {
+            let n = (f64::from(v) * output / input).round().max(1.0);
+            if n > f64::from(max) {
+                return Err(bad(CMD, format!("{n} px across at {output} pixels/inch is more than {max} px; choose a lower Output resolution")));
+            }
+            Ok(n as u32)
+        };
+        (side(ow)?, side(oh)?)
     };
     if (nw, nh) != (ow, oh) {
         // Besides the resampled document, the conversion holds an RGBA f32 composite (16 B/px; 32

@@ -485,6 +485,16 @@ fn bitmap_output_resolution_budgets_the_whole_conversion_not_just_the_resample()
         assert_eq!(s.active().unwrap().history.past_len(), before, "{depth}");
         let d = doc(&s);
         assert_eq!((d.mode, d.size.width, d.resolution_dpi), (ColorMode::Grayscale, 100, 1.0), "{depth}");
+        // A side past the 300,000 px document limit is refused, not clamped (that would change
+        // the print size): 20000 px at 72 ppi is 333,333 px at 1200 ppi.
+        let mut wide = ramp(20_000, 1, depth, 72.0);
+        let e = wide.execute("image.mode.bitmap", json!({"method": "threshold", "resolution": 1200})).unwrap_err().to_string();
+        assert!(e.contains("300000 px"), "{depth}: {e}");
+        assert_eq!((doc(&wide).mode, doc(&wide).size.width), (ColorMode::Grayscale, 20_000), "{depth}");
+        // 18000 px to 300,000 px exactly is allowed.
+        let mut edge = ramp(18_000, 1, depth, 72.0);
+        edge.execute("image.mode.bitmap", json!({"method": "threshold", "resolution": 1200})).unwrap();
+        assert_eq!(doc(&edge).size.width, 300_000, "{depth}");
         // A size that fits is still converted.
         s.execute("image.mode.bitmap", json!({"method": "diffusion", "resolution": 3})).unwrap();
         assert_eq!((doc(&s).size.width, doc(&s).mode), (300, ColorMode::Bitmap), "{depth}");
