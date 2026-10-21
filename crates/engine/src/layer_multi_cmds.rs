@@ -6,7 +6,7 @@
 //! changing it never adds a history step. Every structural change below is one history step.
 
 use photocraft_color::PixelFormat;
-use photocraft_doc::{Document, Layer, LayerContent, LayerId};
+use photocraft_doc::{Document, Layer, LayerContent, LayerId, VideoData};
 use photocraft_geom::Rect;
 use serde_json::{Value, json};
 
@@ -728,26 +728,48 @@ fn doc_pixels_equal(a: &Document, b: &Document) -> bool {
 /// [`step_damage`] but without computing any bounds. Cheap: pixels compare by tile pointer.
 /// Conservative (`false`) past a nesting depth no real document reaches.
 pub fn same_pixels(a: &Document, b: &Document) -> bool {
-    fn walk(xs: &[Layer], ys: &[Layer], depth: usize) -> bool {
+    pixels_equal_with(a, b, |_, _| false)
+}
+
+/// [`same_pixels`], with video layers equal when `video_equal` says their frame stacks are.
+fn pixels_equal_with(a: &Document, b: &Document, video_equal: fn(&VideoData, &VideoData) -> bool) -> bool {
+    fn walk(xs: &[Layer], ys: &[Layer], depth: usize, video_equal: fn(&VideoData, &VideoData) -> bool) -> bool {
         depth < 256
             && xs.len() == ys.len()
             && xs.iter().zip(ys).all(|(x, y)| {
-                x.video.is_none()
-                    && y.video.is_none()
-                    && layer_pixels_equal(x, y)
+                layer_pixels_equal(x, y)
+                    && match (&x.video, &y.video) {
+                        (None, None) => true,
+                        (Some(vx), Some(vy)) => video_equal(vx, vy),
+                        _ => false,
+                    }
                     && match (x.children(), y.children()) {
-                        (Some(xc), Some(yc)) => walk(xc, yc, depth + 1),
+                        (Some(xc), Some(yc)) => walk(xc, yc, depth + 1, video_equal),
                         (None, None) => true,
                         _ => false,
                     }
             })
     }
-    doc_pixels_equal(a, b) && walk(&a.layers, &b.layers, 0)
+    doc_pixels_equal(a, b) && walk(&a.layers, &b.layers, 0, video_equal)
+}
+
+/// Whether two video layers hold the same frames: the same settings and stack shape
+/// (`VideoData`'s own, shallow equality) and the same tile pointers in every frame, painted and
+/// original. Pointer compares only, like [`surfaces_equal`].
+fn video_frames_equal(a: &VideoData, b: &VideoData) -> bool {
+    let frames = |x: &[photocraft_raster::Surface], y: &[photocraft_raster::Surface]| x.len() == y.len() && x.iter().zip(y).all(|(f, g)| surfaces_equal(f, g));
+    *a == *b
+        && frames(&a.frames, &b.frames)
+        && match (&a.original_frames, &b.original_frames) {
+            (Some(x), Some(y)) => frames(x, y),
+            (None, None) => true,
+            _ => false,
+        }
 }
 
 /// Whether `a` and `b` differ at most in their selection (#6865): a selection step, which must
-/// not mark a clean document modified. Pixels compare by tile pointer ([`same_pixels`], which
-/// also turns down video layers, whose own equality is shallow); every other field compares
+/// not mark a clean document modified. Pixels compare by tile pointer (as in [`same_pixels`],
+/// plus every frame of a video layer, whose own equality is shallow); every other field compares
 /// structurally, where copy-on-write `Arc`s of `Eq` data short-circuit on pointer identity. The
 /// destructure is exhaustive, so a new `Document` field fails to compile until it is classified.
 pub fn selection_only_change(a: &Document, b: &Document) -> bool {
@@ -785,8 +807,8 @@ pub fn selection_only_change(a: &Document, b: &Document) -> bool {
         timeline,
         file_encoding,
     } = a;
-    // The ignored fields above are the pixel ones `same_pixels` already compares.
-    same_pixels(a, b)
+    // The ignored fields above are the pixel ones `pixels_equal_with` already compares.
+    pixels_equal_with(a, b, video_frames_equal)
         && *id == b.id
         && *name == b.name
         && *layers == b.layers

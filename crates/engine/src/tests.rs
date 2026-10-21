@@ -1162,6 +1162,23 @@ fn selection_tools_do_not_dirty_the_document() {
 }
 
 #[test]
+fn selections_keep_a_document_with_a_video_layer_clean() {
+    // #6865: video frames compare by tile pointer, so selecting in a document with a video
+    // layer doesn't mark it modified either; changing the frames still does.
+    let mut s = session_with_doc();
+    s.execute("layer.videoLayers.newBlankVideoLayer", json!({})).unwrap();
+    let st = s.active_mut().unwrap();
+    st.saved_revision = st.revision;
+    s.execute("select.rect", json!({"x": 1, "y": 1, "width": 4, "height": 4})).unwrap();
+    s.execute("select.deselect", json!({})).unwrap();
+    assert!(!s.active().unwrap().is_dirty(), "selecting is not an edit");
+    assert!(s.undo());
+    assert!(!s.active().unwrap().is_dirty(), "undoing a selection is not an edit");
+    s.execute("layer.videoLayers.insertBlankFrame", json!({})).unwrap();
+    assert!(s.active().unwrap().is_dirty(), "a new frame is an edit");
+}
+
+#[test]
 fn coalesced_edits_share_one_history_step() {
     let mut s = Session::new();
     s.execute("file.new", json!({"width": 20, "height": 20})).unwrap();
