@@ -803,6 +803,9 @@ pub fn filter_from_item(item: &Descriptor) -> SmartFilter {
         Some(perspective_warp::CLASS) => perspective_warp::import_params(item).map(|p| (perspective_warp::COMMAND, p)),
         Some(GALLERY_CLASS) => fltr.and_then(|f| gallery_params(item, f)).map(|p| (GALLERY_COMMAND, p)),
         Some(c @ ("Fbrs" | "Clds" | "DfrC")) => fltr.and_then(|f| coloured_params(c, item, f)),
+        // A `Fltr` that is there but not a descriptor is settings we can't read: kept verbatim
+        // rather than taken for a filter stored without options (which would drop it on save).
+        _ if fltr.is_none() && item.get("Fltr").is_some() => None,
         c => c.and_then(|c| known_params(c, fltr, item)),
     };
     let (command, params) = match known {
@@ -1768,12 +1771,18 @@ mod tests {
             photoshop_no_options_item("X", Value::Integer(-1)),
             // Settings we don't know of on a filter that has none.
             photoshop_no_options_item("X", Value::Integer(blur)).with("Fltr", Value::Descriptor(Descriptor::new("Blr ").with("Amnt", Value::Integer(5)))),
+            // Settings that aren't a descriptor, on a filter that has none.
+            photoshop_no_options_item("X", Value::Integer(blur)).with("Fltr", Value::Integer(5)),
+            photoshop_no_options_item("X", Value::Integer(blur)).with("Fltr", Value::Text(UnicodeString::new_nul("Blr "))),
+            photoshop_no_options_item("X", Value::Integer(781)).with("Fltr", Value::Integer(5)),
         ];
         for item in cases {
             let f = filter_from_item(&item);
             assert_eq!(f.command, UNSUPPORTED_FILTER, "{item:?}");
             // Written back (a bare item gains blending and visibility) and still not editable.
-            let back = filter_from_item(&item_for_filter(&f).unwrap());
+            let written = item_for_filter(&f).unwrap();
+            assert_eq!(written.get("Fltr"), item.get("Fltr"), "{item:?}");
+            let back = filter_from_item(&written);
             assert_eq!((back.command.as_str(), &back.params["filterID"]), (UNSUPPORTED_FILTER, &f.params["filterID"]));
         }
     }
