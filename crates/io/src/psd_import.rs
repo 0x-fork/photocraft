@@ -368,9 +368,16 @@ impl Ctx<'_> {
                 let (text, transform) = blocks::parse_tysh(&data).unwrap_or_default();
                 TextLayer { text, transform, ..Default::default() }
             });
+            let mut path_error = None;
             if let Some(txt2) = &self.txt2 {
                 photocraft_text::psd::apply_txt2(&mut t, &data, txt2);
+                // Type on a path keeps its path only in its `Txt2` frame (#7962).
+                path_error = photocraft_text::psd::apply_txt2_path(&mut t, &data, txt2).err();
                 photocraft_text::psd::apply_txt2_frame(&mut t, &data, txt2);
+            }
+            if let Some(e) = path_error {
+                let shape = if matches!(t.shape, photocraft_doc::text::TextShape::Box { .. }) { "paragraph" } else { "point" };
+                self.warn(format!("layer \"{name}\": its type path could not be read ({e}); it opens as {shape} text"));
             }
             // Photoshop's pixels are the cache only when the file has some: ag-psd, GIMP and
             // other writers leave type layers without image data (Photoshop re-renders them on
