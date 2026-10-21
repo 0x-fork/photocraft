@@ -105,7 +105,8 @@ exports. All integers are `i32` unless noted; pointers are offsets into the modu
   clamped to `min..max` (ints rounded), a wrong type or an unknown choice is an error.
 - `unit` (optional, on `number` and `int` params): `"px"` marks a length in document pixels (a
   radius, distance, shift or size); `"none"`, the default, is everything else (levels, factors,
-  counts, percentages). Any other value is a manifest error. A filter dialog's live preview on a
+  counts, percentages). Any other value (an unknown string, a number…) is treated as `"none"`, as
+  when the field is absent, so older manifests keep installing. A filter dialog's live preview on a
   large document runs on a reduced copy (Preferences › Performance › Low Resolution Previews), and
   the host divides each `px` param by that reduction (ints rounded, kept within `min..max`) so the
   preview shows the same lengths OK applies; when a `px` param with a positive `min` would drop below

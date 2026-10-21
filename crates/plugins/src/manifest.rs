@@ -48,6 +48,17 @@ impl Unit {
     }
 }
 
+/// Reads `"unit"` leniently: `"px"` is [`Unit::Px`]; anything else (an unknown string such as
+/// `"pt"`, a number, `null`, an array…) is unitless, as when the field is absent. Manifests from
+/// before `unit` existed could carry any value there (unknown fields were ignored), and they must
+/// keep installing.
+fn lenient_unit<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Unit, D::Error> {
+    Ok(match Value::deserialize(d)? {
+        Value::String(s) if s == "px" => Unit::Px,
+        _ => Unit::None,
+    })
+}
+
 /// One declared parameter.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -57,7 +68,7 @@ pub enum ParamSpec {
         min: f64,
         max: f64,
         default: f64,
-        #[serde(default, skip_serializing_if = "Unit::is_none")]
+        #[serde(default, deserialize_with = "lenient_unit", skip_serializing_if = "Unit::is_none")]
         unit: Unit,
     },
     /// A whole number in `min..=max`.
@@ -68,7 +79,7 @@ pub enum ParamSpec {
         max: i64,
         #[serde(default)]
         default: i64,
-        #[serde(default, skip_serializing_if = "Unit::is_none")]
+        #[serde(default, deserialize_with = "lenient_unit", skip_serializing_if = "Unit::is_none")]
         unit: Unit,
     },
     /// A checkbox.
@@ -495,12 +506,19 @@ mod tests {
     }
 
     #[test]
-    fn malformed_units_are_manifest_errors() {
+    fn unknown_units_are_unitless() {
+        // Unknown fields were always ignored, so a manifest may already carry any `unit`: it must
+        // keep installing, unscaled, exactly as when the field is absent.
         for unit in [r#""pt""#, r#""PX""#, r#""""#, "5", "true", "null", r#"["px"]"#, r#"{"px":1}"#] {
-            let bad = format!(r#"{{"id":"a","name":"x","kind":"filter","params":{{"r":{{"type":"number","min":0,"max":9,"default":1,"unit":{unit}}}}}}}"#);
-            assert!(matches!(Manifest::parse(bad.as_bytes()), Err(Error::Manifest(_))), "{bad}");
-            let bad = bad.replace(r#""type":"number""#, r#""type":"int""#);
-            assert!(matches!(Manifest::parse(bad.as_bytes()), Err(Error::Manifest(_))), "{bad}");
+            let text = format!(r#"{{"id":"a","name":"x","kind":"filter","params":{{"r":{{"type":"number","min":0,"max":9,"default":1,"unit":{unit}}}}}}}"#);
+            for text in [text.clone(), text.replace(r#""type":"number""#, r#""type":"int""#)] {
+                let m = Manifest::parse(text.as_bytes()).unwrap_or_else(|e| panic!("{text}: {e}"));
+                assert!(!m.is_pixel_param("r"), "{text}");
+                let mut p = json!({"r": 8}).as_object().unwrap().clone();
+                m.scale_for_preview(&mut p, 4);
+                assert_eq!(Value::Object(p), json!({"r": 8}), "{text}");
+                assert!(serde_json::to_value(&m).unwrap()["params"]["r"].get("unit").is_none(), "{text}");
+            }
         }
     }
 
