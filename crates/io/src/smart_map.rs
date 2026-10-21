@@ -189,6 +189,7 @@ const MEZZOTINT_TYPES: [(&[u8; 4], &str); 10] = [
 /// Color Halftone's `Rds ` (max radius) and `Ang1`..`Ang4` (screen angles) longs, read within
 /// the dialog's ranges; anything else is kept verbatim.
 fn color_halftone_params(f: &Descriptor) -> Option<J> {
+    only_keys(f, &["Rds ", "Ang1", "Ang2", "Ang3", "Ang4"])?;
     let radius = int(f, "Rds ").filter(|r| (4..=127).contains(r))?;
     let angle = |k: &str| int(f, k).filter(|a| (-360..=360).contains(a));
     Some(json!({"maxRadius": radius, "channel1": angle("Ang1")?, "channel2": angle("Ang2")?, "channel3": angle("Ang3")?, "channel4": angle("Ang4")?}))
@@ -201,6 +202,20 @@ fn px(d: &Descriptor, key: &str) -> Option<f64> {
 fn int(d: &Descriptor, key: &str) -> Option<i32> {
     match d.get(key)? {
         Value::Integer(i) => Some(*i),
+        _ => None,
+    }
+}
+
+/// `Some(())` when every setting of `f` is one of `keys`: a filter with a setting we don't write
+/// back stays verbatim instead of losing it on save.
+fn only_keys(f: &Descriptor, keys: &[&str]) -> Option<()> {
+    f.items.iter().all(|(k, _)| keys.iter().any(|key| k.is(key))).then_some(())
+}
+
+/// The value of the enum `key` when its type is `type_id` (a mistyped enum is not modelled).
+fn typed_enum<'a>(f: &'a Descriptor, key: &str, type_id: &str) -> Option<&'a [u8]> {
+    match f.get(key)? {
+        Value::Enumerated { type_id: t, value } if t.is(type_id) => Some(value.as_bytes()),
         _ => None,
     }
 }
@@ -306,7 +321,8 @@ fn known_params(class: &str, f: Option<&Descriptor>) -> Option<(&'static str, J)
         }
         ("Msc ", Some(f)) => json!({"cellSize": px(f, "ClSz")?}),
         ("Mztn", Some(f)) => {
-            let t = enum_of(f, "MztT")?;
+            only_keys(f, &["MztT"])?;
+            let t = typed_enum(f, "MztT", "MztT")?;
             json!({"type": MEZZOTINT_TYPES.iter().find(|(c, _)| t == &c[..])?.1})
         }
         ("ClrH", Some(f)) => color_halftone_params(f)?,
@@ -1320,6 +1336,10 @@ mod tests {
             measured_item("Color Halftone...", ch(Value::Integer(6), Value::Integer(361)), code(b"ClrH")),
             measured_item("Color Halftone...", ch(Value::Integer(6), Value::Integer(i32::MIN)), code(b"ClrH")),
             measured_item("Color Halftone...", ch(Value::Integer(6), Value::Double(f64::NAN)), code(b"ClrH")),
+            // A mistyped enum and settings we don't write back.
+            measured_item("Mezzotint...", mz(enumv("Xxxx", "FnDt")), code(b"Mztn")),
+            measured_item("Mezzotint...", mz(enumv("MztT", "FnDt")).with("Xtra", Value::Integer(1)), code(b"Mztn")),
+            measured_item("Color Halftone...", ch(Value::Integer(6), Value::Integer(10)).with("Xtra", Value::Integer(1)), code(b"ClrH")),
         ];
         for item in cases {
             let f = filter_from_item(&item);
