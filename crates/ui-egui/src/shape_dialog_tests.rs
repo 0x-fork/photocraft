@@ -249,56 +249,84 @@ fn the_dialog_body_renders_for_every_tool_and_unit() {
     }
 }
 
-/// The texts a dialog body draws.
-fn body_texts(app: &PhotocraftApp, fields: &mut serde_json::Map<String, Value>) -> Vec<String> {
-    let ctx = egui::Context::default();
-    let mut out = ctx.run_ui(egui::RawInput::default(), |ui| body(app, ui, fields));
+/// One frame of a dialog body with `events`: the texts it draws, each with its screen rect.
+fn frame(ctx: &egui::Context, app: &PhotocraftApp, fields: &mut serde_json::Map<String, Value>, events: Vec<egui::Event>) -> Vec<(String, egui::Rect)> {
+    let input = egui::RawInput { events, ..Default::default() };
+    let mut out = ctx.run_ui(input, |ui| body(app, ui, fields));
     out.textures_delta.clear();
     let mut texts = Vec::new();
     for clip in &out.shapes {
         if let egui::Shape::Text(t) = &clip.shape {
-            texts.push(t.galley.text().to_string());
+            texts.push((t.galley.text().to_string(), t.galley.rect.translate(t.pos.to_vec2())));
         }
     }
     texts
 }
 
-/// #7786: Width and Height show in the unit picked from their right-click menu (the ruler unit
-/// until then), the sizes stay in pixels, and OK remembers the unit with the other values.
+/// A click of `button` at `pos`, as frames: move there, press, release.
+fn click(ctx: &egui::Context, app: &PhotocraftApp, f: &mut serde_json::Map<String, Value>, pos: egui::Pos2, button: egui::PointerButton) {
+    let press = |pressed| egui::Event::PointerButton { pos, button, pressed, modifiers: egui::Modifiers::NONE };
+    frame(ctx, app, f, vec![egui::Event::PointerMoved(pos)]);
+    frame(ctx, app, f, vec![press(true)]);
+    frame(ctx, app, f, vec![press(false)]);
+}
+
+/// Each of Width and Height: its value and unit, and the value's screen rect.
+fn sides(texts: &[(String, egui::Rect)]) -> Vec<(String, String, egui::Rect)> {
+    ["Width:", "Height:"]
+        .iter()
+        .filter_map(|l| texts.iter().position(|(t, _)| t == l))
+        .filter_map(|i| {
+            let (v, r) = texts.get(i + 1)?.clone();
+            Some((v, texts.get(i + 2)?.0.clone(), r))
+        })
+        .collect()
+}
+
+/// #7786: right-clicking Width or Height offers the length units (no Percent, as in Photoshop's
+/// Create Rectangle) and switches only that field; the sizes stay in pixels and the unit isn't
+/// remembered, so the next dialog follows the ruler unit again.
 #[test]
-fn width_and_height_show_in_the_picked_unit_and_remember_it() {
+fn right_click_picks_the_unit_of_that_field_only_and_it_is_not_remembered() {
     let mut app = app();
     press(&mut app, Tool::Rectangle, [10.0, 10.0], [10.0, 10.0]);
     let id = only_dialog(&app);
     let mut f = app.ui.dialog_mut(id).unwrap().fields.clone();
-    assert_eq!(f["unit"], json!("pixels"), "the ruler unit at first");
-    // Each of Width and Height: its label, its value, its unit.
-    let sides = |texts: &[String]| -> Vec<(String, String)> {
-        ["Width:", "Height:"]
-            .iter()
-            .filter_map(|l| texts.iter().position(|t| t == l))
-            .filter_map(|i| Some((texts.get(i + 1)?.clone(), texts.get(i + 2)?.clone())))
-            .collect()
-    };
+    let ctx = egui::Context::default();
+    let shown = |s: &[(String, String, egui::Rect)]| s.iter().map(|(v, u, _)| (v.clone(), u.clone())).collect::<Vec<_>>();
     let px = ("100".to_string(), "px".to_string());
-    assert_eq!(sides(&body_texts(&app, &mut f)), [px.clone(), px], "shown in pixels");
-    // What the menu's Millimeters sets: 100 px at the document's 72 ppi is 35.28 mm.
-    f.insert("unit".into(), json!("mm"));
-    let mm = ("35.28".to_string(), "mm".to_string());
-    assert_eq!(sides(&body_texts(&app, &mut f)), [mm.clone(), mm]);
+    let texts = frame(&ctx, &app, &mut f, vec![]);
+    let s = sides(&texts);
+    assert_eq!(shown(&s), [px.clone(), px.clone()], "shown in the ruler unit, pixels");
+    // Right-click Width: its menu lists the lengths and no Percent.
+    click(&ctx, &app, &mut f, s[0].2.center(), egui::PointerButton::Secondary);
+    let menu = frame(&ctx, &app, &mut f, vec![]);
+    let has = |label: &str| menu.iter().any(|(t, _)| t.ends_with(label));
+    assert!(["Pixels", "Inches", "Centimeters", "Millimeters", "Points", "Picas"].iter().all(|l| has(l)), "{menu:?}");
+    assert!(!has("Percent"), "Photoshop's menu here has no Percent");
+    let mm_item = menu.iter().find(|(t, _)| t == "Millimeters").unwrap().1.center();
+    click(&ctx, &app, &mut f, mm_item, egui::PointerButton::Primary);
+    // Only Width changes: 100 px at the document's 72 ppi is 35.28 mm; the size stays in pixels.
+    let s = sides(&frame(&ctx, &app, &mut f, vec![]));
+    assert_eq!(shown(&s), [("35.28".to_string(), "mm".to_string()), px.clone()]);
+    assert_eq!((f["widthUnit"].as_str(), f.get("heightUnit")), (Some("mm"), None));
     assert_eq!(f["width"].as_f64(), Some(100.0), "the size stays in pixels");
-    set(&mut app, id, json!({"unit": "mm", "width": 50}));
+    // Height has its own menu, with its own unit checked: Inches switches Height alone.
+    click(&ctx, &app, &mut f, s[1].2.center(), egui::PointerButton::Secondary);
+    let menu = frame(&ctx, &app, &mut f, vec![]);
+    assert!(menu.iter().any(|(t, _)| t == "✓ Pixels"), "{menu:?}");
+    let in_item = menu.iter().find(|(t, _)| t == "Inches").unwrap().1.center();
+    click(&ctx, &app, &mut f, in_item, egui::PointerButton::Primary);
+    let s = sides(&frame(&ctx, &app, &mut f, vec![]));
+    assert_eq!(shown(&s), [("35.28".to_string(), "mm".to_string()), ("1.389".to_string(), "in".to_string())]);
+    // OK, then the rulers change: the next dialog shows the new ruler unit, not the pick.
+    set(&mut app, id, json!({"widthUnit": "mm", "width": 50}));
     crate::dialogs::confirm(&mut app, id).unwrap();
-    // The next Create Rectangle opens in millimetres, with the remembered size.
+    app.run("prefs.set", json!({"path": "unitsAndRulers.rulers", "value": "cm"})).unwrap();
     press(&mut app, Tool::Rectangle, [40.0, 40.0], [40.0, 40.0]);
     let id = only_dialog(&app);
-    let f = &app.ui.dialog_mut(id).unwrap().fields;
-    assert_eq!((f["unit"].as_str(), f["width"].as_f64()), (Some("mm"), Some(50.0)));
-    // A remembered unit that isn't one falls back to the ruler unit.
-    app.ui.close_dialog(id);
-    app.session.prefs.edit(|p| {
-        p.dialogs.insert("shape.create.rectangle".into(), json!({"unit": "furlongs"}));
-    });
-    press(&mut app, Tool::Rectangle, [40.0, 40.0], [40.0, 40.0]);
-    assert_eq!(app.ui.dialogs[0].fields["unit"], json!("pixels"));
+    let mut f = app.ui.dialog_mut(id).unwrap().fields.clone();
+    assert_eq!((f.get("widthUnit"), f["width"].as_f64()), (None, Some(50.0)), "the size is remembered, the unit isn't");
+    let s = sides(&frame(&egui::Context::default(), &app, &mut f, vec![]));
+    assert_eq!(shown(&s), [("1.76".to_string(), "cm".to_string()), ("3.53".to_string(), "cm".to_string())]);
 }
