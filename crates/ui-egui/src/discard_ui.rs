@@ -959,10 +959,11 @@ mod tests {
     #[path = "targa_tests.rs"]
     mod targa_tests;
 
-    #[path = "jpeg_tests.rs"]
-    mod jpeg_tests;
     #[path = "dds_tests.rs"]
     mod dds_tests;
+
+    #[path = "jpeg_tests.rs"]
+    mod jpeg_tests;
 
     /// One frame with the window's close button pressed; the commands the guard sent.
     fn window_close_commands(app: &mut PhotocraftApp) -> Vec<egui::ViewportCommand> {
