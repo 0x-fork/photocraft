@@ -1,8 +1,9 @@
 //! The command line, as clap types. Values stay strings: the handlers check them, with their own
 //! messages (#7071). A flag a subcommand doesn't take is a usage error, so a typo such as
-//! `--fromat` can't be silently ignored (#423). A value flag never takes the next flag as its
-//! value: a value starting with `-` is written `--out=-image.png` (or `./-image.png`); negative
-//! numbers are kept where they mean something.
+//! `--fromat` can't be silently ignored (#423), and so is a repeated one: `--quality 80 --quality
+//! 60` is more likely a mistake than a choice. A value starting with `-` is written
+//! `--out=-image.png` (or `./-image.png`), so a value flag never takes the next flag as its value;
+//! negative numbers are kept where they mean something.
 
 use clap::builder::NonEmptyStringValueParser;
 use clap::error::ErrorKind;
@@ -10,7 +11,7 @@ use clap::{ArgAction, ArgMatches, Args, CommandFactory, FromArgMatches, Parser, 
 
 /// photocraft-cli: headless PhotoCraft
 #[derive(Parser)]
-#[command(name = "photocraft-cli", arg_required_else_help = true, args_override_self = true)]
+#[command(name = "photocraft-cli", version = photocraft_engine::build_info::long_version_static(), arg_required_else_help = true)]
 pub(crate) struct Cli {
     #[command(subcommand)]
     pub(crate) command: Command,
@@ -248,24 +249,18 @@ pub(crate) fn parse(args: &[String]) -> Result<Cli, clap::Error> {
     let mut cli = Cli::from_arg_matches(&matches)?;
     match (&mut cli.command, matches.subcommand()) {
         (Command::Run(r), Some((_, m))) => r.steps = steps(m),
-        (Command::Mcp(_), Some((name, m))) => check_server(cmd.find_subcommand_mut(name), &given, m, "bridge")?,
-        (Command::Serve(_), Some((name, m))) => check_server(cmd.find_subcommand_mut(name), &given, m, "port")?,
+        (Command::Mcp(_), Some((name, m))) => check_server(cmd.find_subcommand_mut(name), m, "bridge")?,
+        (Command::Serve(_), Some((name, m))) => check_server(cmd.find_subcommand_mut(name), m, "port")?,
         _ => {}
     }
     Ok(cli)
 }
 
 /// Refuse `mcp` and `serve` launch options that would otherwise be silently ignored (#8035): a
-/// repeated one (the last wins everywhere else), a token without the bridge or port that reads it,
-/// and bridge roots, which belong to the desktop process: accepting them here promises authority
-/// the bridge cannot set.
-fn check_server(sub: Option<&mut clap::Command>, given: &[&str], m: &ArgMatches, transport: &str) -> Result<(), clap::Error> {
+/// token without the bridge or port that reads it, and bridge roots, which belong to the desktop
+/// process: accepting them here promises authority the bridge cannot set.
+fn check_server(sub: Option<&mut clap::Command>, m: &ArgMatches, transport: &str) -> Result<(), clap::Error> {
     let Some(sub) = sub else { return Ok(()) };
-    let mut seen = std::collections::HashSet::new();
-    let flags = given.iter().skip(1).take_while(|a| **a != "--").filter(|a| a.starts_with("--"));
-    if let Some(flag) = flags.map(|a| a.split_once('=').map_or(*a, |(k, _)| k)).find(|k| !seen.insert(*k)) {
-        return Err(sub.error(ErrorKind::ArgumentConflict, format!("the argument '{flag}' cannot be used multiple times")));
-    }
     for (id, flag) in [("control_token", "--control-token"), ("control_token_file", "--control-token-file")] {
         if m.contains_id(id) && !m.contains_id(transport) {
             return Err(sub.error(ErrorKind::MissingRequiredArgument, format!("{flag} requires --{transport}")));

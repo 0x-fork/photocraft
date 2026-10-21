@@ -40,12 +40,8 @@ pub fn run_os(args: &[std::ffi::OsString], out: &mut dyn Write, err: &mut dyn Wr
 
 /// Run the CLI. Returns the process exit code (0 ok, 1 failure, 2 usage).
 pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    if matches!(args.first().map(String::as_str), Some("--version" | "version")) {
-        let _ = writeln!(out, "photocraft-cli {}", photocraft_engine::build_info::long_version());
-        return 0;
-    }
-    // Help (`help`, `-h`, `<subcommand> --help`) comes back as an error too, for `out`, exit 0: the
-    // subcommand never runs.
+    // Help and `--version` (`help`, `-h`, `<subcommand> --help`, `-V`) come back as errors too,
+    // for `out`, exit 0: the subcommand never runs.
     let cli = match parse(args) {
         Ok(cli) => cli,
         Err(e) => {

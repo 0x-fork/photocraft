@@ -1025,7 +1025,8 @@ fn invoke(args: &[&str]) -> Invoke {
 
 const SUBCOMMANDS: [&str; 8] = ["convert", "info", "run", "batch", "droplet", "commands", "mcp", "serve"];
 
-/// Pins top-level dispatch: help goes to stdout (exit 0), no arguments is a usage error on stderr.
+/// Pins top-level dispatch: help and the version go to stdout (exit 0), no arguments is a usage
+/// error on stderr. There is no `version` subcommand.
 #[test]
 fn top_level_help_version_and_no_arguments() {
     let Invoke { code, stdout: out, stderr: err } = invoke(&[]);
@@ -1034,11 +1035,14 @@ fn top_level_help_version_and_no_arguments() {
         let Invoke { code, stdout: out, stderr: err } = invoke(&[help]);
         assert_eq!((code, out.is_empty(), err.is_empty()), (0, false, true), "{help}");
     }
-    for version in ["--version", "version"] {
+    for version in ["--version", "-V"] {
         let Invoke { code, stdout: out, stderr: err } = invoke(&[version]);
         assert_eq!((code, err.as_str()), (0, ""), "{version}");
-        assert!(out.starts_with("photocraft-cli "), "{version}: {out}");
+        assert!(out.starts_with("photocraft-cli ") && out.ends_with('\n') && out.lines().count() == 1, "{version}: {out}");
     }
+    let Invoke { code, stdout: out, stderr: err } = invoke(&["version"]);
+    assert_eq!((code, out.is_empty()), (2, true));
+    assert!(err.contains("version"), "{err}");
     let Invoke { code, stdout: out, stderr: err } = invoke(&["frobnicate"]);
     assert_eq!((code, out.is_empty()), (2, true));
     assert!(err.contains("frobnicate"), "{err}");
@@ -1071,7 +1075,8 @@ fn every_subcommand_rejects_an_unknown_flag() {
     }
 }
 
-/// `--flag=value`, a bare flag given a value, a value flag without one, and repeated flags.
+/// `--flag=value`, a bare flag given a value, a value flag without one, repeated flags, and values
+/// that start with `-`.
 #[test]
 fn flag_value_forms_and_repeats() {
     let ids = |out: &str| out.lines().filter_map(|l| l.split_whitespace().next()).map(str::to_owned).collect::<Vec<_>>();
@@ -1080,13 +1085,25 @@ fn flag_value_forms_and_repeats() {
     let spaced = invoke(&["commands", "--filter", "file.new"]).stdout;
     assert_eq!(eq, spaced);
     assert!(ids(&eq).contains(&"file.new".to_string()), "{eq}");
-    // The last of a repeated value flag wins, whichever order they come in.
-    let Invoke { code, stdout: out, stderr: err } = invoke(&["commands", "--filter", "zzz-no-match", "--filter", "file.new"]);
+    // A repeated flag is a usage error naming it, more likely a mistake than a choice.
+    for repeat in [&["commands", "--filter", "zzz-no-match", "--filter", "file.new"][..], &["commands", "--json", "--json"][..]] {
+        let Invoke { code, stdout: out, stderr: err } = invoke(repeat);
+        assert_eq!((code, out.is_empty()), (2, true), "{repeat:?}");
+        assert!(err.contains(repeat[1]) && err.contains("cannot be used multiple times"), "{repeat:?}: {err}");
+    }
+    let Invoke { code, stderr: err, .. } = invoke(&["convert", "a.png", "b.jpg", "--quality", "80", "--quality", "60"]);
+    assert_eq!(code, 2);
+    assert!(err.contains("--quality"), "{err}");
+    // A value starting with `-` needs `=`; without it the token is a flag, never the value. A
+    // negative number is still a value.
+    let Invoke { code, stdout: out, stderr: err } = invoke(&["commands", "--filter=-zzz-no-match"]);
+    assert_eq!((code, out.as_str()), (0, ""), "{err}");
+    for value in ["-zzz-no-match", "--json"] {
+        let Invoke { code, stdout: out, .. } = invoke(&["commands", "--filter", value]);
+        assert_eq!((code, out.is_empty()), (2, true), "--filter {value}");
+    }
+    let Invoke { code, stderr: err, .. } = invoke(&["commands", "--filter", "-1"]);
     assert_eq!(code, 0, "{err}");
-    assert_eq!(out, eq);
-    let Invoke { code, stdout: out, stderr: err } = invoke(&["commands", "--filter", "file.new", "--filter", "zzz-no-match"]);
-    assert_eq!(code, 0, "{err}");
-    assert!(out.is_empty(), "{out}");
     // A bare flag takes no value; a value flag needs one.
     let Invoke { code, stdout: out, stderr: err } = invoke(&["commands", "--json=1"]);
     assert_eq!((code, out.is_empty()), (2, true));
@@ -1145,5 +1162,17 @@ fn convert_opens_a_raw_at_the_raw_defaults_resolution() {
     ok(bin().args(["convert"]).arg(&raw).arg(&psd));
     let doc = photocraft_io::import("IMG_0001.psd", &std::fs::read(&psd).unwrap()).unwrap().document;
     assert_eq!(doc.resolution_dpi, 300.0);
+    std::fs::remove_dir_all(d).unwrap();
+}
+
+/// `--out=-image.png` writes `-image.png`; `--out -image.png` is a usage error and writes nothing.
+#[test]
+fn a_value_starting_with_a_dash_is_written_with_equals() {
+    let d = tmp("dash-value");
+    let o = bin().current_dir(&d).args(["run", "--new", r#"{"width":4,"height":4}"#, "--out", "-image.png"]).output().unwrap();
+    assert_eq!(o.status.code(), Some(2), "{}", String::from_utf8_lossy(&o.stderr));
+    assert_eq!(std::fs::read_dir(&d).unwrap().count(), 0);
+    ok(bin().current_dir(&d).args(["run", "--new", r#"{"width":4,"height":4}"#, "--out=-image.png"]));
+    assert!(d.join("-image.png").is_file());
     std::fs::remove_dir_all(d).unwrap();
 }
