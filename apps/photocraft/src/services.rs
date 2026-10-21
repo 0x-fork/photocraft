@@ -831,6 +831,9 @@ mod tests {
         assert!(!globs.iter().any(|glob| matches(glob, "txt")));
         let svg_filter = open_filters().into_iter().find(|(name, _)| *name == "SVG").map(|(_, exts)| exts).unwrap_or_default();
         assert_eq!(svg_filter, open_filter_extensions(SVG_EXTS));
+        let psd_filter = open_filters().into_iter().find(|(name, _)| *name == "Photoshop").map(|(_, exts)| exts).unwrap_or_default();
+        assert_eq!(psd_filter, open_filter_extensions(&["psd", "psb", "psdt"]));
+        assert!(psd_filter.iter().any(|glob| matches(glob, "psd")) && psd_filter.iter().any(|glob| matches(glob, "PSD")));
         assert!(svg_filter.iter().any(|glob| matches(glob, "svg")) && svg_filter.iter().any(|glob| matches(glob, "svgz")));
     }
 
@@ -860,6 +863,10 @@ mod tests {
         assert_eq!(open_filter_extensions(OPEN_EXTS), OPEN_EXTS);
         assert_eq!(open_filter_extensions(&["pcraft"]), ["pcraft"]);
         assert_eq!(open_filters().into_iter().find(|(name, _)| *name == "SVG").map(|(_, exts)| exts), Some(vec!["svg".to_string(), "svgz".to_string()]));
+        assert_eq!(
+            open_filters().into_iter().find(|(name, _)| *name == "Photoshop").map(|(_, exts)| exts),
+            Some(vec!["psd".to_string(), "psb".to_string(), "psdt".to_string()])
+        );
     }
 
     #[test]
