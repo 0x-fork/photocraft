@@ -890,11 +890,14 @@ fn pen_dialog(app: &mut PhotocraftApp, command: &str, label: &str, name: &str) {
 /// dialog for the path being drawn (committed first, as the menu does) or the active path.
 pub(crate) fn make_selection(app: &mut PhotocraftApp) -> Result<(), String> {
     let pending = app.ui.pen.as_ref().is_some_and(|p| p.knots.len() >= 2);
-    let pending_layer = pending && (app.ui.tool_options.vector_mode == "shape" || app.ui.vector_mask_target);
+    // Where `pen_commit` puts the path being drawn: a shape layer or the targeted vector mask,
+    // else the Paths panel path it adds to (a selected saved path, or the Work Path), which it
+    // selects so it is the active path.
+    let pending_layer = pending && (app.ui.tool_options.vector_mode == "shape" || crate::vector_ui::targeted_vector_mask(app).is_some());
     if pending {
         crate::vector_ui::pen_commit(app, false);
     }
-    let name = if pending { Some(if pending_layer { "layer" } else { "work" }.to_string()) } else { crate::vector_ui::active_path_name(app) }
+    let name = if pending_layer { Some("layer".to_string()) } else { crate::vector_ui::active_path_name(app) }
         .ok_or_else(|| "No path is available for this action".to_string())?;
     pen_dialog(app, "path.toSelection", "Make Selection…", &name);
     Ok(())
@@ -1706,6 +1709,16 @@ mod tests {
         let dialog = app.ui.dialogs.last().map(|d| d.id).unwrap();
         crate::dialogs::confirm(&mut app, dialog).unwrap();
         assert!(app.session.active().unwrap().doc.selection.is_some());
+        // Drawn with a saved path selected, the path is added to that one (#4721): the dialog is
+        // for it, not for a Work Path.
+        app.run("path.rename", json!({"name": "work", "to": "Cutout"})).unwrap();
+        app.ui.selected_path = Some("Cutout".into());
+        for (x, y) in [(4.0, 24.0), (12.0, 24.0), (12.0, 30.0)] {
+            crate::vector_ui::pen_down(&mut app, x, y, false);
+            crate::vector_ui::pen_up(&mut app);
+        }
+        make_selection(&mut app).unwrap();
+        assert_eq!(app.ui.dialogs.last().and_then(|d| d.fields.get("name")), Some(&json!("Cutout")));
     }
 
     /// #1056: the Path Selection and Direct Selection tools' right-click opens the path menu for
