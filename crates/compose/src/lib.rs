@@ -1023,9 +1023,13 @@ pub fn layer_bounds(layer: &Layer, canvas: Rect) -> Rect {
 }
 
 /// Where a Photoshop Frame's stroke ([`shape_split::frame_shape`]) draws, within `canvas`; empty
-/// for other layers.
+/// for other layers. Taken from the compiled stroke the renderer draws, not the path grown by the
+/// stroke width: a mitered corner reaches up to `miter_limit` widths past the path, and a frame
+/// has no pixels of its own that would cover it.
 fn frame_stroke_bounds(layer: &Layer, canvas: Rect) -> Rect {
-    shape_split::frame_shape(layer).and_then(|sh| shape_bounds(&sh)).map_or(Rect::EMPTY, |r| r.intersect(&canvas))
+    shape_split::frame_shape(layer)
+        .and_then(|sh| photocraft_vector::CompiledShape::new(&sh, photocraft_vector::DEFAULT_TOLERANCE, canvas).bounds())
+        .map_or(Rect::EMPTY, |r| r.intersect(&canvas))
 }
 
 /// Where a layer's effects take their shape from: [`layer_bounds`], except that a group's
@@ -1033,18 +1037,21 @@ fn frame_stroke_bounds(layer: &Layer, canvas: Rect) -> Rect {
 /// shadow and must not be cut off at the child's pixels, #3274).
 pub fn effect_source_bounds(layer: &Layer, canvas: Rect) -> Rect {
     match &layer.content {
-        LayerContent::Group(g) if g.artboard.is_none() && !advanced::shapeless(layer) => g.children.iter().filter(|c| c.visible).fold(Rect::EMPTY, |acc, c| {
-            let m = if effects::has_effects(c) { effects::margin(c) } else { 0 };
-            let b = effect_source_bounds(c, canvas);
-            let b = if b.is_empty() { b } else { b.inflate(m) };
-            if b.is_empty() {
-                acc
-            } else if acc.is_empty() {
-                b
-            } else {
-                acc.union(&b)
-            }
-        }),
+        // A Frame's stroke is part of the group's content its effects are built from.
+        LayerContent::Group(g) if g.artboard.is_none() && !advanced::shapeless(layer) => {
+            g.children.iter().filter(|c| c.visible).fold(frame_stroke_bounds(layer, canvas), |acc, c| {
+                let m = if effects::has_effects(c) { effects::margin(c) } else { 0 };
+                let b = effect_source_bounds(c, canvas);
+                let b = if b.is_empty() { b } else { b.inflate(m) };
+                if b.is_empty() {
+                    acc
+                } else if acc.is_empty() {
+                    b
+                } else {
+                    acc.union(&b)
+                }
+            })
+        }
         _ => layer_bounds(layer, canvas),
     }
 }
