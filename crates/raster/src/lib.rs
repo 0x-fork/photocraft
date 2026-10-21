@@ -253,10 +253,20 @@ impl Surface {
         if !self.tiles.contains_key(&c) {
             let tile = Arc::new(Tile::try_filled(&self.format, &self.default_pixel)?);
             self.tiles.insert(c, tile);
-        } else if self.tiles.get(&c).is_some_and(|t| Arc::strong_count(t) > 1) {
-            let original = self.tiles.get(&c).ok_or(AllocationError::SizeOverflow)?;
-            let tile = Arc::new(original.try_clone()?);
-            self.tiles.insert(c, tile);
+        } else if self.tiles.get_mut(&c).is_some_and(|t| Arc::get_mut(t).is_none()) {
+            let original = self.tiles.remove(&c).ok_or(AllocationError::SizeOverflow)?;
+            let tile = match Arc::try_unwrap(original) {
+                // Weak cache references must not force a pixel-buffer copy.
+                Ok(tile) => tile,
+                Err(original) => match original.try_clone() {
+                    Ok(tile) => tile,
+                    Err(error) => {
+                        self.tiles.insert(c, original);
+                        return Err(error);
+                    }
+                },
+            };
+            self.tiles.insert(c, Arc::new(tile));
         }
         self.tiles.get_mut(&c).and_then(Arc::get_mut).ok_or(AllocationError::SizeOverflow)
     }
@@ -1278,6 +1288,23 @@ mod tests {
         let before = surface.clone();
         assert_eq!(surface.try_write_region(Rect::new(0, 0, 2, 2), &[1.0]), Err(AllocationError::SizeOverflow));
         assert_eq!(surface, before);
+    }
+
+    #[test]
+    fn fallible_tile_edits_move_weakly_cached_pixels_and_copy_shared_pixels() {
+        for fmt in [PixelFormat::RGBA8, PixelFormat::RGBA16, PixelFormat::RGBA32F] {
+            let mut surface = Surface::new(fmt);
+            let coord = TileCoord::new(0, 0);
+            let pixels = surface.try_tile_mut(coord).unwrap().bytes().as_ptr();
+            let weak = Arc::downgrade(surface.tile(coord).unwrap());
+            let tile = surface.try_tile_mut(coord).unwrap();
+            assert_eq!(tile.bytes().as_ptr(), pixels);
+            assert!(weak.upgrade().is_none());
+            let snapshot = surface.clone();
+            surface.try_write_region(Rect::new(0, 0, 1, 1), &[1.0; 4]).unwrap();
+            assert_eq!(snapshot.pixel(0, 0), vec![0.0; 4]);
+            assert_eq!(surface.pixel(0, 0), vec![1.0; 4]);
+        }
     }
 
     #[test]

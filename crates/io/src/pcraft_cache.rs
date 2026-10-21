@@ -59,7 +59,7 @@ mod tests {
             let (_, stats) = cache.0.lock().unwrap().save_zip(&doc, &SaveOptions::default()).unwrap();
             assert_eq!(stats.tiles_reused, stats.tiles_total);
             assert_eq!(stats.tiles_written, 0);
-            doc.layers[0].surface_mut().unwrap().write_pixel(0, 0, &[0.8, 0.3, 0.1, 1.0]);
+            doc.layers[0].surface_mut().unwrap().try_write_region(photocraft_geom::Rect::new(0, 0, 1, 1), &[0.8, 0.3, 0.1, 1.0]).unwrap();
             let next = export(&doc, "second.pcraft", &options).unwrap();
             let mut expected = doc.clone();
             expected.name = "second.pcraft".into();

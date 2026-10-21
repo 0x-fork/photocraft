@@ -316,11 +316,12 @@ struct Collect<'c> {
 }
 
 impl Sink for Collect<'_> {
+    /// Reuses hashes by allocation and sample byte order without upgrading weak references.
     fn tile(&mut self, format: PixelFormat, tile: &Arc<Tile>) -> Hash {
         let key = (Arc::as_ptr(tile) as usize, format.sample);
         if let Some(cache) = self.hash_cache.as_deref_mut()
             && let Some((w, h)) = cache.get(&key)
-            && w.upgrade().is_some_and(|t| Arc::ptr_eq(&t, tile))
+            && std::ptr::eq(w.as_ptr(), Arc::as_ptr(tile))
         {
             let h = h.clone();
             self.tiles.entry(h.clone()).or_insert_with(|| (tile.clone(), format.sample));
@@ -334,11 +335,12 @@ impl Sink for Collect<'_> {
         h
     }
 
+    /// Reuses hashes for the same allocation without upgrading weak references.
     fn blob(&mut self, data: &Arc<Vec<u8>>) -> Hash {
         let key = Arc::as_ptr(data) as usize;
         if let Some(cache) = self.blob_hash_cache.as_deref_mut()
             && let Some((w, h)) = cache.get(&key)
-            && w.upgrade().is_some_and(|b| Arc::ptr_eq(&b, data))
+            && std::ptr::eq(w.as_ptr(), Arc::as_ptr(data))
         {
             let h = h.clone();
             self.blobs.entry(h.clone()).or_insert_with(|| data.clone());
@@ -815,25 +817,25 @@ impl PcraftWriter {
         let todo: Vec<(&String, &Object)> = p.objects.iter().filter(|(path, _)| !self.compressed.contains_key(*path)).collect();
         let mut fresh: HashMap<&String, Arc<Vec<u8>>> = par_compress(&todo)?.into_iter().collect();
         for (path, obj) in &p.objects {
-            let data = match self.compressed.get(path) {
-                Some(d) => {
+            let (key, data) = match self.compressed.remove_entry(path) {
+                Some((key, data)) => {
                     if matches!(obj, Object::Tile(..)) {
                         stats.tiles_reused += 1;
                     }
-                    d.clone()
+                    (Some(key), data)
                 }
                 None => {
                     match obj {
                         Object::Tile(..) => stats.tiles_written += 1,
                         Object::Blob(_) => stats.blobs_written += 1,
                     }
-                    fresh.remove(path).unwrap_or_else(|| Arc::new(obj.compressed()))
+                    (None, fresh.remove(path).unwrap_or_else(|| Arc::new(obj.compressed())))
                 }
             };
             z.add(path, &data)?;
             if data.capacity() <= self.compressed_budget.saturating_sub(cached_bytes) {
                 cached_bytes += data.capacity();
-                next.insert(path.clone(), data);
+                next.insert(key.unwrap_or_else(|| path.clone()), data);
             }
         }
         self.compressed = next;
@@ -1031,6 +1033,10 @@ fn compressed_cache_budget_limits_retained_capacity_without_changing_bytes() {
     doc.layers.push(Layer::new("pixels", LayerContent::Raster(surface)));
     let mut writer = PcraftWriter::new();
     let (expected, _) = writer.save_zip(&doc, &SaveOptions::default()).unwrap();
+    let key = writer.compressed.keys().next().unwrap().clone();
+    let key_allocation = writer.compressed.get_key_value(&key).unwrap().0.as_ptr();
+    assert_eq!(writer.save_zip(&doc, &SaveOptions::default()).unwrap().0, expected);
+    assert_eq!(writer.compressed.get_key_value(&key).unwrap().0.as_ptr(), key_allocation);
     let budget = writer.compressed.values().map(|v| v.capacity()).min().unwrap();
     writer.set_compressed_cache_budget(budget);
     assert!(writer.compressed.is_empty());

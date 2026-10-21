@@ -5,6 +5,8 @@ blob identities reuse weakly cached hashes; compressed payload capacity retained
 saves is capped at 64 MiB. The last cache owner releases it. Other formats ignore the cache,
 and one-shot exports still work. Save As names, previews, cancellation, atomic writes and
 saved revisions keep their existing behavior. Tile hash identity includes sample depth.
+Fallible edits move uniquely owned tile pixels when weak cache references remain; shared
+pixels keep their copy-on-write behavior.
 
 The format writer's compressed-cache limit defaults to unbounded for existing callers.
 The UI selects 64 MiB. This is retained memory that a one-shot save would release; it does
@@ -20,9 +22,12 @@ Two upstream PSD designs add authored layered-file coverage. No generated noise 
 The table uses seven alternating pairs after warmup and includes thumbnail/composite
 rendering, encoding, APFS atomic writes, fsync and rename. Hashing, reload equality and file
 removal are outside timers. Intervals are paired bootstrap 95% descriptions of these samples.
-The parent's production path is the same as main. Each small edit changes one real-photo tile.
+These writer-reuse results compare main `d95fdf31` and the original parent `f64a143c`
+with `05bd004b`; the original parent's production save path matches that main baseline.
+Each small edit changes one real-photo tile. The later cache-ownership changes remove
+redundant allocations and reference-count updates; no separate timing gain is claimed.
 
-| Document | Operation | Main ms | Parent ms | Retained ms | Change vs parent |
+| Document | Operation | Main ms | Original parent ms | Writer reuse ms | Change vs original parent |
 |---|---|---:|---:|---:|---:|
 | 24 MP foliage, U16 | save-first-disk | 966.0 | 966.0 | 984.9 | +2.0% (-8.5..+2.7) |
 | 24 MP foliage, U16 | save-repeat-disk | 983.0 | 983.0 | 651.8 | -33.7% (-35.8..-30.9) |
