@@ -994,6 +994,7 @@ fn quick_export_exr_preserves_linear_hdr_and_alpha() {
         assert_eq!(result["format"], "exr");
         let path = format!("{dir}/source.exr");
         assert_eq!(result["path"], path);
+        assert_eq!(result["bytes"].as_u64(), Some(std::fs::metadata(&path).unwrap().len()));
         let decoded = decode(&path);
         assert_eq!(decoded.sample_type(), SampleType::F32);
         let actual = decoded.convert(ChannelLayout::Rgba, SampleType::F32).to_f32_samples().unwrap();

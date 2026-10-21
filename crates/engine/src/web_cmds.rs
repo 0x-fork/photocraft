@@ -1106,7 +1106,7 @@ fn quick_export(s: &mut Session, p: &Value) -> Result<Value> {
         let out = photocraft_io::export(&doc, "exr", &opts).map_err(other)?;
         write_file(&path, &out.bytes)?;
         crate::automate_cmds::fire_event(s, "export");
-        return Ok(json!({"path": path, "format": fmt, "warnings": out.warnings}));
+        return Ok(json!({"path": path, "format": fmt, "bytes": out.bytes.len(), "warnings": out.warnings}));
     }
     let metadata = serde_json::to_value(prefs.metadata).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
     let mut o = serde_json::Map::new();
