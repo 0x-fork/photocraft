@@ -297,6 +297,8 @@ pub struct ExportSettings {
     /// The path of the document's own file, which linked smart objects that PSD/PSB embed are
     /// resolved against ([`photocraft_io::ExportOptions::document_path`]).
     pub document_path: Option<std::path::PathBuf>,
+    /// Native save cache owned by the open document; exports without one remain one-shot.
+    pub pcraft_cache: Option<photocraft_io::PcraftExportCache>,
 }
 
 impl Default for ExportSettings {
@@ -314,6 +316,7 @@ impl Default for ExportSettings {
             embed_icc: true,
             embed_metadata: true,
             document_path: None,
+            pcraft_cache: None,
         }
     }
 }
@@ -339,6 +342,7 @@ impl ExportSettings {
         opts.image_previews = self.image_previews;
         opts.psd_maximize_compatibility = self.psd_maximize_compatibility;
         opts.document_path = self.document_path.clone();
+        opts.pcraft_cache = self.pcraft_cache.clone();
         opts
     }
 }
@@ -1753,6 +1757,7 @@ impl PhotocraftApp {
             settings.webp_lossless = e.webp_lossless.unwrap_or(settings.webp_lossless);
             settings.webp_quality = e.webp_quality.map(|q| q.min(100));
             settings.document_path = st.path.as_deref().map(std::path::PathBuf::from);
+            settings.pcraft_cache = Some(st.pcraft_cache.clone());
         }
         settings
     }
