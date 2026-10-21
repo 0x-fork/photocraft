@@ -1458,3 +1458,10 @@ fn batch_naming_rejects_outputs_that_replace_inputs_before_processing() {
     assert_eq!(std::fs::read(&first).unwrap(), before[0]);
     assert_eq!(std::fs::read(&second).unwrap(), before[1]);
 }
+
+#[test]
+fn exposure_text_near_one_second_is_not_one_over_one() {
+    assert_eq!(exposure_text(0.996).as_deref(), Some("1 s"));
+    assert_eq!(exposure_text(0.99).as_deref(), Some("0.99 s"));
+    assert_eq!(exposure_text(1.0 / 250.0).as_deref(), Some("1/250 s"));
+}
