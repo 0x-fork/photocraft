@@ -617,3 +617,40 @@ fn transparency_shapes_off_ignores_masks_and_reaches_groups() {
         check(&d, 9, 4, px([148, 151, 150], 1.0), "group, alpha 70 %");
     }
 }
+
+/// A clipped knockout in a Transparency Shapes Layer off base of the special eight: the knockout
+/// stops at the base's own content (Blend Clipped Layers as Group), so it gives back the base's
+/// colour without touching its alpha, and the base's transparency still blends as Fill under a
+/// feathered vector mask. Where the fill-0 knocker covers an earlier clipped layer the composite
+/// is the base's alone.
+#[test]
+fn transparency_shapes_off_keeps_the_base_alpha_under_a_clipped_knockout() {
+    let square = photocraft_doc::vector::Path::new(vec![photocraft_doc::vector::Subpath::polygon(&[(2.0, 1.0), (10.0, 1.0), (10.0, 7.0), (2.0, 7.0)])]);
+    for depth in DEPTHS {
+        for k in [Knockout::Shallow, Knockout::Deep] {
+            let mut d = Document::with_background("t", Size::new(12, 8), ColorMode::Rgb, depth, Color::rgb(90.0 / 255.0, 110.0 / 255.0, 130.0 / 255.0));
+            let mut base = solid(&d, "base", Rect::new(0, 0, 3, 8), [0.78, 0.59, 0.31, 0.3]);
+            base.surface_mut().unwrap().fill_rect(Rect::new(3, 0, 12, 8), &photocraft_raster::from_rgba(&d.pixel_format(), [0.78, 0.59, 0.31, 0.7]));
+            base.blend = BlendMode::ColorDodge;
+            base.opacity = 0.53;
+            base.advanced.transparency_shapes = false;
+            base.vector_mask = Some(photocraft_doc::vector::VectorMask { feather: 1.5, ..photocraft_doc::vector::VectorMask::new(square.clone()) });
+            d.layers.push(base);
+            let alone = render(&d, d.bounds()).px;
+            let mut red = solid(&d, "red", full(&d), [1.0, 0.0, 0.0, 0.5]);
+            red.clipped = true;
+            let mut knock = knocker(&d, k);
+            knock.clipped = true;
+            d.layers.extend([red, knock]);
+            let got = render(&d, d.bounds()).px;
+            let what = format!("{k:?} ({depth:?})");
+            for (i, (g, a)) in got.iter().zip(&alone).enumerate() {
+                if i % 12 < 6 {
+                    assert!(close(*g, *a), "{what}: knocked out at {i}: {g:?}, the base alone {a:?}");
+                }
+            }
+            assert!(!close(got[6 * 12 + 8], alone[6 * 12 + 8]), "{what}: the red shows outside the knocker");
+            check(&d, 4, 3, alone[3 * 12 + 4], &what);
+        }
+    }
+}
