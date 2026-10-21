@@ -869,3 +869,14 @@ fn windows_pdf_component_is_detected_by_loading_its_dll() {
 fn the_windows_pdf_check_is_a_no_op_elsewhere() {
     assert!(require_windows_pdf().is_ok());
 }
+
+#[test]
+fn printer_queries_refuse_dry_runs_before_contacting_a_backend() {
+    let mut s = Session::new();
+    for command in ["file.printers", "file.print.printers", "file.print.page"] {
+        for params in [json!({"dryRun": true}), json!({"dryRun": true, "printServer": "127.0.0.1:1", "printer": "Synthetic unavailable printer"})] {
+            let error = s.execute(command, params).unwrap_err().to_string();
+            assert!(error.contains("printer queries are unavailable in a dry run"), "{command}: {error}");
+        }
+    }
+}
