@@ -128,6 +128,17 @@ pub fn shell_save_command(id: &str) -> bool {
     matches!(id, "file.save" | "file.saveAs" | "file.saveACopy")
 }
 
+/// The failure for a played Save step whose document `target` (the one active when the step
+/// started) is no longer open: a Save Document script event closed it. Playback stops there, so
+/// the next step without a document, such as the Close half of an imported Close with Save: Yes,
+/// doesn't act on whichever document is active now (#7367).
+pub fn save_target_closed(s: &Session, id: &str, target: Option<photocraft_doc::DocId>) -> Option<String> {
+    let target = target.filter(|_| shell_save_command(id))?;
+    (!s.documents().iter().any(|d| d.doc.id == target)).then(|| {
+        "the document was closed during the save (by a Save Document script event); playback stopped so later steps don't act on another document".into()
+    })
+}
+
 /// View-only menu commands recorded by the desktop shell. Headless playback reports
 /// them as unsupported instead of silently dropping them; Batch and droplets skip them.
 pub fn shell_view_command(id: &str) -> bool {
