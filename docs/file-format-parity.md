@@ -127,7 +127,7 @@ remaining gaps in #1606 stay tracked with per-sample corpus ceilings.
 | Brushes `.abr` | R/W | R/W | `psd/src/abr.rs` (v6/v12) |
 | Gradients `.grd` | R/W | R/W | |
 | Patterns `.pat` | R/W | R/W | |
-| Swatches `.aco`, `.ase` | R/W | R/W | FILE-215-14 |
+| Swatches `.aco`, `.act`, `.ase` | R/W | R/W | FILE-215-14; `.act` also from Image › Mode › Color Table Load…/Save… (`psd/src/act.rs`) |
 | LUTs `.cube` / `.3dl` / `.look` | R/W (Export Color Lookup) | R/W / R / R | `cms/src/lutfile.rs` |
 | Keyboard shortcuts `.kys` | R/W | R/W | `engine/src/kys.rs` (`write`: Edit › Keyboard Shortcuts › Export…, rows carry our id; Photoshop reading our files is unverified) |
 | ICC profiles | R | R | Own CMS |
