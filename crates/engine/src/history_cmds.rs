@@ -207,8 +207,13 @@ fn delete_snapshot(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({ "snapshot": snap.id, "snapshots": st.snapshots.len() }))
 }
 
+/// A state other than the oldest exists to delete: a past or the current one, and with Allow
+/// Non-Linear History a later (dimmed) one too, also while the oldest state is current.
 fn can_delete(s: &Session) -> std::result::Result<(), String> {
-    s.active().filter(|d| d.history.can_undo()).map(|_| ()).ok_or_else(|| "the oldest state can't be deleted".into())
+    s.active()
+        .filter(|d| d.history.can_undo() || (d.history.non_linear && d.history.can_redo()))
+        .map(|_| ())
+        .ok_or_else(|| "the oldest state can't be deleted".into())
 }
 
 fn has_doc(s: &Session) -> std::result::Result<(), String> {

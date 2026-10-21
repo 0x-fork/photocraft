@@ -45,8 +45,19 @@ fn select_state(s: &mut Session, p: &Value) -> Result<Value> {
     let mut layers = None;
     let mut at = past;
     while at != target {
-        let step = if target < at { st.history.undo(doc.clone()) } else { st.history.redo(doc.clone()) };
-        let Some((d, l)) = step else { break };
+        // History Options: visibility changes that are not history states stay as they are,
+        // step by step as Undo / Redo keep them, except on the layers whose visibility the step
+        // passed over changed.
+        let undoing = target < at;
+        let mut changed = if undoing { st.history.current_visibility().to_vec() } else { Vec::new() };
+        let step = if undoing { st.history.undo(doc.clone()) } else { st.history.redo(doc.clone()) };
+        let Some((mut d, l)) = step else { break };
+        if keep_visibility {
+            if !undoing {
+                changed = st.history.current_visibility().to_vec();
+            }
+            crate::carry_visibility(&doc, &mut d, &changed);
+        }
         doc = d;
         layers = Some(l);
         at = if target < at { at - 1 } else { at + 1 };
@@ -57,10 +68,6 @@ fn select_state(s: &mut Session, p: &Value) -> Result<Value> {
     // Save As changes file identity outside history, as Edit › Undo keeps it.
     if doc.name != start.name {
         std::sync::Arc::make_mut(&mut doc).name.clone_from(&start.name);
-    }
-    // Visibility changes that are not history states stay as they are (History Options).
-    if keep_visibility {
-        crate::carry_visibility(&start, &mut doc);
     }
     let damage = crate::layer_multi_cmds::step_damage(&start, &doc);
     st.doc = doc;

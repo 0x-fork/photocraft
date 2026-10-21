@@ -33,6 +33,9 @@ pub struct HistoryState {
     pub doc: Arc<Document>,
     /// The layers targeted when this state was created.
     pub layers: LayerTarget,
+    /// The layers whose visibility the step that created this state changed, as stepping to this
+    /// state from the one before it in the list must apply it; see [`History::current_visibility`].
+    pub visibility: Vec<LayerId>,
 }
 
 #[derive(Clone, Debug)]
@@ -50,6 +53,8 @@ pub struct History {
     current_label: String,
     /// The layers targeted when the current document was created (opened or edited).
     current_layers: LayerTarget,
+    /// [`HistoryState::visibility`] of the current state.
+    current_visibility: Vec<LayerId>,
     /// History Options › Allow Non-Linear History: a step recorded while later states exist
     /// (after stepping back) keeps them and goes to the end of the list, instead of discarding
     /// them; see [`History::record`] and [`History::remove`].
@@ -77,6 +82,7 @@ impl History {
             max_bytes: 0,
             current_label: "Open".into(),
             current_layers: LayerTarget::default(),
+            current_visibility: Vec::new(),
             non_linear: false,
             last_moved: None,
         }
@@ -98,12 +104,16 @@ impl History {
         }
         let prev_label = std::mem::replace(&mut self.current_label, label.into());
         let prev_layers = std::mem::replace(&mut self.current_layers, layers);
-        self.undo.push_back(HistoryState { label: prev_label, doc: before, layers: prev_layers });
+        let prev_visibility = std::mem::take(&mut self.current_visibility);
+        self.undo.push_back(HistoryState { label: prev_label, doc: before, layers: prev_layers, visibility: prev_visibility });
         let mut moved = 0;
         if self.non_linear {
             // `redo` holds the next state last; the list order is oldest first. Their tiles stay
             // counted: they only move from the redo side to the undo side.
             while let Some(state) = self.redo.pop() {
+                // The new step follows the last of them in the list but was made from `before`:
+                // stepping back to them walks back over their steps.
+                merge_ids(&mut self.current_visibility, &state.visibility);
                 self.undo.push_back(state);
                 moved += 1;
             }
@@ -143,6 +153,21 @@ impl History {
         self.current_layers = layers;
     }
 
+    /// The layers whose visibility the step that produced the current document changed, as the
+    /// session reported them with [`History::add_current_visibility`]. With History Options ›
+    /// Make Layer Visibility Changes Undoable off, showing or hiding a layer is not a step, so
+    /// stepping through history keeps every other layer's visibility as it is; these layers take
+    /// the visibility of the state stepped to, since a recorded step changed them.
+    pub fn current_visibility(&self) -> &[LayerId] {
+        &self.current_visibility
+    }
+
+    /// Note layers whose visibility the current step changed (after [`History::record`], and
+    /// again when a later change coalesces into the step).
+    pub fn add_current_visibility(&mut self, ids: &[LayerId]) {
+        merge_ids(&mut self.current_visibility, ids);
+    }
+
     /// Undo: `current` becomes redoable; returns the document to make current and the layers it
     /// targeted when it was created.
     pub fn undo(&mut self, current: Arc<Document>) -> Option<(Arc<Document>, LayerTarget)> {
@@ -154,7 +179,8 @@ impl History {
         }
         let label = std::mem::replace(&mut self.current_label, prev.label);
         let layers = std::mem::replace(&mut self.current_layers, prev.layers.clone());
-        self.redo.push(HistoryState { label, doc: current, layers });
+        let visibility = std::mem::replace(&mut self.current_visibility, prev.visibility);
+        self.redo.push(HistoryState { label, doc: current, layers, visibility });
         Some((prev.doc, prev.layers))
     }
 
@@ -168,7 +194,8 @@ impl History {
         }
         let label = std::mem::replace(&mut self.current_label, next.label);
         let layers = std::mem::replace(&mut self.current_layers, next.layers.clone());
-        self.undo.push_back(HistoryState { label, doc: current, layers });
+        let visibility = std::mem::replace(&mut self.current_visibility, next.visibility);
+        self.undo.push_back(HistoryState { label, doc: current, layers, visibility });
         Some((next.doc, next.layers))
     }
 
@@ -202,6 +229,8 @@ impl History {
         if let Some(tiles) = &mut self.tiles {
             tiles.remove(&state.doc);
         }
+        // The current step now starts where the purged one did.
+        merge_ids(&mut self.current_visibility, &state.visibility);
         true
     }
 
@@ -219,6 +248,11 @@ impl History {
         if let Some(tiles) = &mut self.tiles {
             tiles.remove(&state.doc);
         }
+        // The state after it now follows the one before it.
+        match self.undo.get_mut(i) {
+            Some(next) => merge_ids(&mut next.visibility, &state.visibility),
+            None => merge_ids(&mut self.current_visibility, &state.visibility),
+        }
         true
     }
 
@@ -231,6 +265,11 @@ impl History {
         self.last_moved = None;
         if let Some(tiles) = &mut self.tiles {
             tiles.remove(&state.doc);
+        }
+        // The state after it in the list (the one before it in `redo`) now follows the state
+        // before it.
+        if let Some(next) = k.checked_sub(1).and_then(|n| self.redo.get_mut(n)) {
+            merge_ids(&mut next.visibility, &state.visibility);
         }
         true
     }
@@ -246,6 +285,11 @@ impl History {
         }
         self.current_label = prev.label;
         self.current_layers = prev.layers.clone();
+        let dropped = std::mem::replace(&mut self.current_visibility, prev.visibility);
+        // The next later state now follows `prev`.
+        if let Some(next) = self.redo.last_mut() {
+            merge_ids(&mut next.visibility, &dropped);
+        }
         Some((prev.doc, prev.layers))
     }
 
@@ -273,6 +317,7 @@ impl History {
         }
         self.current_label = prev.label;
         self.current_layers = prev.layers.clone();
+        self.current_visibility = prev.visibility;
         Some((prev.doc, prev.layers))
     }
 
@@ -299,6 +344,7 @@ impl History {
 
     pub fn clear(&mut self) {
         self.last_moved = None;
+        self.current_visibility.clear();
         self.undo.clear();
         self.redo.clear();
         self.tiles = None;
@@ -402,6 +448,15 @@ impl History {
             tiles.remove(&state.doc);
         }
         drop
+    }
+}
+
+/// Add the ids of `from` that `into` lacks.
+fn merge_ids(into: &mut Vec<LayerId>, from: &[LayerId]) {
+    for id in from {
+        if !into.contains(id) {
+            into.push(*id);
+        }
     }
 }
 
@@ -615,6 +670,67 @@ mod tests {
         let (c, _) = h.redo(cur).unwrap();
         assert_eq!(h.entries(), ["Open", "A", "C"]);
         assert_counter(&h, &c);
+    }
+
+    /// Each state keeps the layers whose visibility its own step changed; when a state goes
+    /// (Purge, a non-linear Delete) or a step is appended after the kept later states, the step
+    /// that now follows covers the changes of the steps it now spans.
+    #[test]
+    fn step_visibility_follows_steps_and_spans_removed_ones() {
+        let vis = |h: &History| {
+            let mut v: Vec<u64> = h.current_visibility().iter().map(|l| l.0).collect();
+            v.sort_unstable();
+            v
+        };
+        // Open, then steps A, B, C, D changing layers 1, 2, 3, 4.
+        let steps = |n: usize, non_linear: bool| {
+            let mut h = History { non_linear, ..History::default() };
+            let mut cur = Arc::new(base());
+            for (i, label) in ["A", "B", "C", "D"].into_iter().take(n).enumerate() {
+                edit(&mut h, &mut cur, label, |d| d.name = label.to_lowercase());
+                h.add_current_visibility(&[LayerId(i as u64 + 1)]);
+            }
+            (h, cur)
+        };
+        let (mut h, cur) = steps(3, false);
+        assert_eq!(vis(&h), [3]);
+        let (cur, _) = h.undo(cur).unwrap();
+        assert_eq!(vis(&h), [2]);
+        h.redo(cur).unwrap();
+        assert_eq!(vis(&h), [3]);
+        // Purge: C now starts from A.
+        h.purge_last();
+        assert_eq!(vis(&h), [2, 3]);
+        // Non-linear Delete of B (between A and C): C now follows A.
+        let (mut h, cur) = steps(4, true);
+        assert!(h.remove(2));
+        h.undo(cur).unwrap();
+        assert_eq!(vis(&h), [2, 3]);
+        // Of the later B (A current): C follows A.
+        let (mut h, mut cur) = steps(3, true);
+        cur = h.undo(cur).unwrap().0;
+        cur = h.undo(cur).unwrap().0;
+        assert!(h.remove_later(0));
+        h.redo(cur).unwrap();
+        assert_eq!(vis(&h), [2, 3]);
+        // Of the current B (C later): A is current, C follows it.
+        let (mut h, cur) = steps(3, true);
+        h.undo(cur).unwrap();
+        let cur = h.drop_current().unwrap().0;
+        assert_eq!(vis(&h), [1]);
+        h.redo(cur).unwrap();
+        assert_eq!(vis(&h), [2, 3]);
+        // A step after the kept later states B and C (made from A) follows C in the list.
+        let (mut h, mut cur) = steps(3, true);
+        cur = h.undo(cur).unwrap().0;
+        cur = h.undo(cur).unwrap().0;
+        edit(&mut h, &mut cur, "D", |d| d.name = "d".into());
+        h.add_current_visibility(&[LayerId(4)]);
+        assert_eq!(vis(&h), [2, 3, 4]);
+        h.rollback().unwrap();
+        assert_eq!(vis(&h), [1], "rollback restores A's");
+        h.clear();
+        assert_eq!(vis(&h), Vec::<u64>::new());
     }
 
     #[test]
