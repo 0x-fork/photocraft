@@ -1127,8 +1127,8 @@ pub struct PlacedSpec<'a> {
 
 /// Where the frame corners land (top-left, top-right, bottom-right, bottom-left), as x, y pairs.
 /// The frame is [`crate::blocks::placed_frame`] of `warp`, the warp the block stores, for an
-/// affine placement (the inverse of `parse_smart`), the source rect for a projective one (as
-/// `parse_smart_perspective` reads it).
+/// affine placement (the inverse of `parse_smart`), [`crate::blocks::perspective_frame`] of it
+/// for a projective one (as `parse_smart_perspective` reads it).
 fn quad_points(s: &PlacedSpec<'_>, warp: Option<&Warp>) -> [f64; 8] {
     let (w, h) = s.size;
     let [a, b, c, d, e, f] = s.transform.m;
@@ -1136,7 +1136,7 @@ fn quad_points(s: &PlacedSpec<'_>, warp: Option<&Warp>) -> [f64; 8] {
         Some(p) => photocraft_algo::transform::Homography(*p).apply(x, y),
         None => (a * x + c * y + e, b * x + d * y + f),
     };
-    let [x0, y0, x1, y1] = if s.perspective.is_some() { [0.0, 0.0, w, h] } else { crate::blocks::placed_frame(warp, w, h) };
+    let [x0, y0, x1, y1] = if s.perspective.is_some() { crate::blocks::perspective_frame(warp, w, h) } else { crate::blocks::placed_frame(warp, w, h) };
     let mut out = [0.0; 8];
     for (i, (x, y)) in [(x0, y0), (x1, y0), (x1, y1), (x0, y1)].into_iter().enumerate() {
         (out[2 * i], out[2 * i + 1]) = map(x, y);
@@ -1187,10 +1187,10 @@ fn warp_head(class: &str, w: &Warp) -> Descriptor {
         .with("Left", Value::Double(x0))
         .with("Btom", Value::Double(y1))
         .with("Rght", Value::Double(x1));
-    Descriptor::new(class)
-        .with("warpStyle", enumv("warpStyle", w.style.psd_name()))
-        .with("warpValue", Value::Double(w.bend))
-        .with("warpPerspective", Value::Double(w.h_distort))
+    let d = Descriptor::new(class).with("warpStyle", enumv("warpStyle", w.style.psd_name())).with("warpValue", Value::Double(w.bend));
+    // A cylinder is stored as its seven `warpValues` (#4112).
+    let d = if w.style == WarpStyle::Cylinder { d.with("warpValues", Value::List(w.values.iter().copied().map(Value::Double).collect())) } else { d };
+    d.with("warpPerspective", Value::Double(w.h_distort))
         .with("warpPerspectiveOther", Value::Double(w.v_distort))
         .with("warpRotate", enumv("Ornt", if w.vertical { "Vrtc" } else { "Hrzn" }))
         .with("bounds", Value::Descriptor(bounds))
@@ -1208,7 +1208,8 @@ fn mesh_points(m: &BezierMesh) -> Value {
 
 /// The `warp` descriptor (also the `PlLd` warp). A split warp is written as no warp: `SoLd`
 /// keeps it in `quiltWarp` ([`quilt_desc`]), next to this `warpNone`, as Photoshop does. A
-/// custom warp without a usable mesh is written as no warp, with a message.
+/// custom warp without a usable mesh is written as no warp, with a message. A cylinder is
+/// written as its seven `warpValues`.
 fn warp_desc(w: Option<&Warp>, size: (f64, f64), warnings: &mut Vec<String>) -> Value {
     let none = Warp::none([0.0, 0.0, size.0, size.1]);
     let mut w = w.unwrap_or(&none).clone();
@@ -3325,6 +3326,53 @@ mod tests {
         assert_eq!(p.transform, transform);
         // The imported quad reads as unmoved, so the template's `Trnf` is kept as stored.
         assert!(!quad_moved(&p.descriptor, &spec, spec.warp));
+    }
+
+    /// #4112: a regenerated `SoLd` (after Replace Contents, a move…) writes a cylinder back as
+    /// `warpCylinder` and its seven values, not as no warp, and frames its control-point box with
+    /// the quad, affine or projective, so import places it where it was.
+    #[test]
+    fn cylinder_warp_round_trips_through_sold() {
+        let v = [100.0, 800.0, 900.0, 200.0, 0.3, 0.3, 0.5];
+        let warp = Warp::cylinder(&v, [0.0, 0.0, 1000.0, 1000.0]).unwrap();
+        let transform = Affine { m: [0.5, 0.0, 0.0, 0.5, 40.0, 30.0] };
+        let mut spec =
+            PlacedSpec { idnt: "i", placed: "p", transform, perspective: None, size: (1000.0, 1000.0), dpi: 72.0, warp: Some(&warp), filter_fx: None };
+        let mut warnings = Vec::new();
+        let sold = sold_bytes(None, &spec, &mut warnings);
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let p = parse_sold(&sold).expect("parses");
+        let Some(Value::Descriptor(w)) = p.descriptor.get("warp") else { panic!("no warp") };
+        assert_eq!(crate::blocks::enum_of(w, "warpStyle"), Some(b"warpCylinder".as_slice()));
+        let Some(Value::List(values)) = w.get("warpValues") else { panic!("no warpValues") };
+        assert_eq!(values.iter().filter_map(|x| num(Some(x))).collect::<Vec<_>>(), v);
+        assert!(w.get("customEnvelopeWarp").is_none());
+        assert_eq!(crate::blocks::parse_placed_warp(b"SoLd", &sold), Some(warp.clone()));
+        for (a, b) in p.transform.m.iter().zip(transform.m) {
+            assert!((a - b).abs() < 1e-9, "{:?}", p.transform);
+        }
+        // The quad is the image of the control-point box, not of the source rect.
+        let cb = warp.mesh.as_ref().unwrap().control_bounds();
+        let Some(Value::List(q)) = p.descriptor.get("Trnf") else { panic!("no Trnf") };
+        let q: Vec<f64> = q.iter().filter_map(|x| num(Some(x))).collect();
+        let want = [cb[0], cb[1], cb[2], cb[1], cb[2], cb[3], cb[0], cb[3]].map(|c| 0.5 * c);
+        for (i, (a, b)) in q.iter().zip(want).enumerate() {
+            let shift = if i % 2 == 0 { 40.0 } else { 30.0 };
+            assert!((a - (b + shift)).abs() < 1e-9, "corner {i}: {q:?}");
+        }
+        assert!(!quad_moved(&p.descriptor, &spec, spec.warp));
+        // A projective placement comes back as the same map.
+        let h = photocraft_algo::transform::Homography::rect_to_quad(cb, [[10.0, 20.0], [410.0, 60.0], [400.0, 480.0], [30.0, 520.0]]).unwrap();
+        spec.perspective = Some(h.0);
+        let sold = sold_bytes(None, &spec, &mut warnings);
+        let back = crate::blocks::parse_smart_perspective(b"SoLd", &sold).expect("projective");
+        let n = |m: [f64; 9]| m.map(|x| x / m[8]);
+        for (a, b) in n(back).iter().zip(n(h.0)) {
+            assert!((a - b).abs() < 1e-9 * (1.0 + b.abs()), "{back:?} vs {:?}", h.0);
+        }
+        let plld = plld_bytes(&spec, &mut warnings);
+        assert_eq!(crate::blocks::parse_plld_warp(&plld), crate::blocks::PlldWarp::Warp(warp));
+        assert!(warnings.is_empty(), "{warnings:?}");
     }
 
     #[test]
