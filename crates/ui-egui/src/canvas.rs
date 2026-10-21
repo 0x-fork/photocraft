@@ -5365,7 +5365,7 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
         return;
     }
     // View › Snap / Snap To and smart guides (snap_ui.rs).
-    if app.ui.tool == Tool::MixerBrush && mods.alt && !mods.ctrl && app.drag.is_none() {
+    if app.ui.tool == Tool::MixerBrush && mods.alt && !mods.ctrl && app.drag.is_none() && !armed && app.brush_resize.is_none() {
         if let ToolEvent::Down { x, y, pressure } = ev {
             let pen = app.stylus.sample().unwrap_or_default();
             let p = json!({"points":[[x,y,pressure,pen.tilt_x,pen.tilt_y,pen.rotation]],"target":paint_target(app)});

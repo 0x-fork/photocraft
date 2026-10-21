@@ -299,3 +299,17 @@ fn mixer_command_outgrows_the_preview_tile_budget_without_losing_the_stroke() {
     s.execute("edit.undo", json!({})).unwrap();
     assert!(target(&s).read_region(end).chunks_exact(4).all(|px| px[3] == 0.0));
 }
+
+#[test]
+fn mixer_empty_samples_preserve_the_previous_load_and_document() {
+    let mut s = fixture(PixelFormat::RGBA8);
+    s.execute("brush.mixer.sample", json!({"points": [[96,48]], "size": 40})).unwrap();
+    let state = s.tools.mixer.clone();
+    let doc = s.active().unwrap().doc.clone();
+    for params in [json!({"points": [[20,20]], "size": 8, "sampleAllLayers": false}), json!({"points": [[-100,-100]], "size": 8, "sampleAllLayers": true})] {
+        let error = s.execute("brush.mixer.sample", params).unwrap_err().to_string();
+        assert!(error.contains("contains no paint"), "{error}");
+        assert_eq!(s.tools.mixer, state);
+        assert!(Arc::ptr_eq(&s.active().unwrap().doc, &doc));
+    }
+}

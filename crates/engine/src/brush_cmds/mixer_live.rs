@@ -396,10 +396,11 @@ pub(super) fn sample(s: &mut Session, p: &Value) -> Result<Value> {
         }
         average[3] += c[3];
     }
-    if average[3] > 0.0 {
-        for k in 0..3 {
-            average[k] /= average[3];
-        }
+    if average[3] <= 0.0 {
+        return Err(bad("brush.mixer.sample", "the sampled area contains no paint; the previous brush load is unchanged"));
+    }
+    for k in 0..3 {
+        average[k] /= average[3];
     }
     average[3] = 1.0;
     s.tools.mixer.load(average);
