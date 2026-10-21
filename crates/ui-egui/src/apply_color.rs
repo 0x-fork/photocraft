@@ -6,14 +6,13 @@
 //! * a Type tool, not editing: the colour of every selected type layer (`type.setStyle`);
 //! * a shape tool, a Pen or a path selection tool: the fill of every selected shape layer
 //!   (`shape.edit` with `fill`);
-//! * the Move tool (layers picked by a click, ⇧-click or its marquee): both, every selected type
-//!   layer and shape;
-//! * any other tool (the brushes, the pixel selection tools…): nothing, only the foreground.
+//! * any other tool (the Move tool, the brushes, the pixel selection tools…): nothing, only the
+//!   foreground.
 //!
 //! One pick is one history step for all the layers it recolours; a drag in the Color panel's field
 //! or sliders is one step too.
 
-use egui::Context;
+use egui::{Context, Id};
 use photocraft_doc::LayerContent;
 use serde_json::json;
 
@@ -41,25 +40,53 @@ fn recolours_shapes(tool: Tool) -> bool {
         )
 }
 
-/// Is the pointer still held from an earlier frame (a drag in the Color panel), so this pick
-/// joins the previous one's history step?
-pub fn continuing(ctx: &Context) -> bool {
-    ctx.input(|i| i.pointer.any_down() && !i.pointer.any_pressed())
+/// The gesture a Color panel pick belongs to: the press while the pointer is held (a drag in its
+/// field or sliders), else the field being typed into (its value changes with every keystroke);
+/// `None` for a click. Every pick of one gesture joins one history step, and the next press or
+/// focused field starts another.
+pub fn gesture(ctx: &Context) -> Option<String> {
+    if let Some(t) = ctx.input(|i| if i.pointer.any_down() { i.pointer.press_start_time() } else { None }) {
+        return Some(format!("press-{}", t.to_bits()));
+    }
+    // A click (reported on its release) is a step of its own, even while a field keeps the focus.
+    if ctx.input(|i| i.pointer.any_released()) {
+        return None;
+    }
+    // The focused field; on the frame Enter commits a typed sum (`2*64`) it has just let go, so
+    // the field focused last frame.
+    let (last, n) = ctx.data(|d| d.get_temp::<(Option<Id>, u64)>(focus_key())).unwrap_or_default();
+    ctx.memory(|m| m.focused()).or(last).map(|id| format!("field-{}-{n}", id.value()))
+}
+
+fn focus_key() -> Id {
+    Id::new("apply-color-focus")
+}
+
+/// Counts the changes of keyboard focus, so two values typed into one field, each after
+/// focusing it, are two history steps (see [`gesture`]). Called every frame by the Color panel.
+pub fn track_focus(ctx: &Context) {
+    let focused = ctx.memory(|m| m.focused());
+    ctx.data_mut(|d| {
+        let (last, n) = d.get_temp::<(Option<Id>, u64)>(focus_key()).unwrap_or_default();
+        if last != focused {
+            d.insert_temp(focus_key(), (focused, n.wrapping_add(1)));
+        }
+    });
 }
 
 /// The foreground colour just changed through the Color panel, the Swatches panel or the Color
 /// Picker: recolour what is selected, as the tool in hand says (see the module docs).
-/// `continuing` (a drag still in progress) joins the previous pick's history step.
-pub fn foreground_changed(app: &mut PhotocraftApp, continuing: bool) {
+/// Picks of one `gesture` (a Color panel drag or typed value, see [`gesture`]) share one history
+/// step; `None` (a swatch, the Color Picker, a click) is a step of its own.
+pub fn foreground_changed(app: &mut PhotocraftApp, gesture: Option<String>) {
     // Editing type: the selected characters, in the editing session's step; nothing else.
     if app.ui.text_edit.is_some() {
         crate::type_tool::foreground_changed(app);
         return;
     }
     let tool = app.ui.tool;
-    // What the tool in hand recolours: type layers, shape layers, or both (the Move tool).
+    // What the tool in hand recolours: type layers or shape layers.
     let (do_texts, do_shapes) = match tool {
-        Tool::Move => (true, true),
         t if t.is_type() && !t.is_type_mask() => (true, false),
         t if recolours_shapes(t) => (false, true),
         _ => return,
@@ -75,13 +102,9 @@ pub fn foreground_changed(app: &mut PhotocraftApp, continuing: bool) {
     if texts.is_empty() && shapes.is_empty() {
         return;
     }
-    let key = match app.ui.apply_color_key.clone().filter(|_| continuing) {
-        Some(k) => k,
-        None => {
-            let k = format!("apply-color-{}", app.ui.alloc_id());
-            app.ui.apply_color_key = Some(k.clone());
-            k
-        }
+    let key = match gesture {
+        Some(g) => format!("apply-color-{g}"),
+        None => format!("apply-color-{}", app.ui.alloc_id()),
     };
     let color = hex(app.session.tools.foreground);
     let result = (|| {

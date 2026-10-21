@@ -209,7 +209,7 @@ Paragraph; the rest open as in-app floating windows.
 | Drag panels to reorder and regroup | partial | #2272, #2305 |
 | Docked resize pushes the neighbour | partial | #2573 |
 | Color panel wheel and RGB/HSB/CMYK/Lab sliders | missing | UI-217-17, #2569 |
-| A colour picked in the Color or Swatches panel or the Color Picker recolours the selection: selected characters while editing; every selected type layer with a Type tool; every selected shape's fill with a shape, Pen or path selection tool; both with the Move tool (layers picked by click, ⇧-click or its marquee); only the foreground with other tools; one history step (a Color panel drag too) | done: `apply_color.rs`, `apply_color_tests.rs` | |
+| A colour picked in the Color or Swatches panel or the Color Picker recolours the selection: selected characters while editing; every selected type layer with a Type tool; every selected shape's fill with a shape, Pen or path selection tool; only the foreground with other tools, the Move tool too; one history step (a Color panel drag too) | done: `apply_color.rs`, `apply_color_tests.rs` | |
 | Window size and dock width remembered | done | UI-217-2 |
 | Command palette with recents | done | UI-217-7 |
 | Menu bar from the keyboard: Alt / F10 focus the bar, ← → ↓ ↩ drive it, Alt+letter opens a menu, underlined mnemonics run items | done | `menu_keys.rs`, #4988; macOS uses the native bar |
@@ -258,4 +258,4 @@ Paragraph; the rest open as in-app floating windows.
 | 2026-10-14 | minor | Last selected tool restored across launches; temporary overrides excluded, explicit Eraser choices retained, and final selection flushed on normal exit |
 | 2026-10-13 | minor | Free Transform with a selection: the box is the selection's rectangle, and the marching ants follow it while it is transformed (#5297) |
 | 2026-10-14 | minor | Move › Show Transform Controls frames every selected layer and outlines the selected shapes |
-| 2026-10-14 | minor | A colour picked in the Color or Swatches panel or the Color Picker recolours the selected type layers (Type tool), shape fills (shape, Pen and path selection tools), or both (Move tool) |
+| 2026-10-14 | minor | A colour picked in the Color or Swatches panel or the Color Picker recolours the selected type layers (Type tool) or shape fills (shape, Pen and path selection tools) |

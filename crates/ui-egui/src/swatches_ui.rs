@@ -53,7 +53,7 @@ pub fn use_swatch(app: &mut PhotocraftApp, name: &str, background: bool) {
     if run(app, "swatches.use", json!({"swatch": name, "target": target})).is_some() && !background {
         // Clicking a swatch recolours the selected characters (#364), or the selected type or
         // shape layers with a Type, shape or Pen tool, as in Photoshop.
-        crate::apply_color::foreground_changed(app, false);
+        crate::apply_color::foreground_changed(app, None);
     }
 }
 

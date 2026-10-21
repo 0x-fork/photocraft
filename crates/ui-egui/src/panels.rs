@@ -2372,8 +2372,9 @@ fn hsb_sliders(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     if changed {
         app.session.tools.foreground = hsva_srgb(hsva);
         ui.data_mut(|d| d.insert_temp(key, hsva));
-        crate::apply_color::foreground_changed(app, crate::apply_color::continuing(ui.ctx()));
+        crate::apply_color::foreground_changed(app, crate::apply_color::gesture(ui.ctx()));
     }
+    crate::apply_color::track_focus(ui.ctx());
 }
 
 // ----------------------------------------------------------------------------- layers
@@ -3973,7 +3974,7 @@ fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 app.session.tools.background = hsva_srgb(hsva);
             } else {
                 app.session.tools.foreground = hsva_srgb(hsva);
-                crate::apply_color::foreground_changed(app, crate::apply_color::continuing(ui.ctx()));
+                crate::apply_color::foreground_changed(app, crate::apply_color::gesture(ui.ctx()));
             }
             ui.data_mut(|d| d.insert_temp(key, (hsva.h, hsva.s)));
         }
@@ -3986,7 +3987,7 @@ fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 app.session.tools.background = c;
             } else {
                 app.session.tools.foreground = c;
-                crate::apply_color::foreground_changed(app, crate::apply_color::continuing(ui.ctx()));
+                crate::apply_color::foreground_changed(app, crate::apply_color::gesture(ui.ctx()));
             }
             // Keep the hue for greys, so the field marker doesn't jump to red; the saturation with
             // it, so a later black lands on the corner it was last dragged to (#3228).
@@ -3996,6 +3997,7 @@ fn color_field(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             }
         }
     });
+    crate::apply_color::track_focus(ui.ctx());
 }
 
 /// Tool colours are sRGB-encoded floats; egui's Hsva works on sRGB bytes via these helpers
@@ -4753,6 +4755,71 @@ mod color_tests {
         assert_eq!(srgb_bytes(h.state().session.tools.foreground), [0x00, 0x80, 0x00]);
     }
 
+    /// Typing a value into the R, G or B field recolours a selected shape as one undo step per
+    /// field, not one per keystroke.
+    #[test]
+    fn typing_an_rgb_value_recolours_the_selected_shape_in_one_step() {
+        use egui_kittest::kittest::Queryable;
+        use photocraft_doc::{Fill, LayerContent, LayerId};
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.execute("file.new", json!({"width": 64, "height": 48})).unwrap();
+        let id = LayerId(app.run("shape.create", json!({"rect": [8, 8, 40, 30], "fill": "#000000"})).unwrap()["layer"].as_u64().unwrap());
+        app.ui.tool = crate::state::Tool::Rectangle;
+        app.session.tools.foreground = [0.0, 0.0, 0.0, 1.0];
+        let mut h = field_harness(app);
+        let fill = |app: &PhotocraftApp| match &app.session.active().unwrap().doc.layer(id).unwrap().content {
+            LayerContent::Shape(sh) => match &sh.fill {
+                Some(Fill::Solid(c)) => srgb_bytes([c.c[0], c.c[1], c.c[2], 1.0]),
+                _ => panic!("a solid fill"),
+            },
+            _ => panic!("not a shape layer"),
+        };
+        let steps = |app: &PhotocraftApp| app.session.active().unwrap().history.entries().len();
+        let before = steps(h.state());
+        // The only spin buttons are R, G and B, in that order.
+        for (field, text, steps_after, want) in [(1, "128", 1, [0x00, 0x80, 0x00]), (2, "64", 2, [0x00, 0x80, 0x40])] {
+            h.query_all_by_role(egui::accesskit::Role::SpinButton).nth(field).unwrap().click();
+            h.run_steps(1);
+            h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+            h.run_steps(1);
+            for ch in text.chars() {
+                h.event(egui::Event::Text(ch.to_string()));
+                h.run_steps(1);
+            }
+            h.key_press(egui::Key::Tab);
+            h.run_steps(2);
+            assert_eq!(fill(h.state()), want, "{text}");
+            assert_eq!(steps(h.state()), before + steps_after, "{text}: one step for the typed value");
+        }
+        // Typing into B again and clicking the field while B still has the focus: two steps, the
+        // click is not part of the typed value.
+        h.query_all_by_role(egui::accesskit::Role::SpinButton).nth(2).unwrap().click();
+        h.run_steps(1);
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+        h.run_steps(1);
+        h.event(egui::Event::Text("9".into()));
+        h.run_steps(1);
+        assert_eq!(fill(h.state()), [0x00, 0x80, 0x09]);
+        assert_eq!(steps(h.state()), before + 3, "the typed 9");
+        let min = h.ctx.input(|i| i.viewport_rect()).min;
+        click(&mut h, min + vec2(60.0, 10.0));
+        assert_eq!(steps(h.state()), before + 4, "the click after typing");
+        // A sum applies when Enter commits it, after the field let go of the focus: still the
+        // step of the "2" typed before it.
+        h.query_all_by_role(egui::accesskit::Role::SpinButton).next().unwrap().click();
+        h.run_steps(1);
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+        h.run_steps(1);
+        for ch in "2*64".chars() {
+            h.event(egui::Event::Text(ch.to_string()));
+            h.run_steps(1);
+        }
+        h.key_press(egui::Key::Enter);
+        h.run_steps(2);
+        assert_eq!(fill(h.state())[0], 0x80, "2*64");
+        assert_eq!(steps(h.state()), before + 5, "2*64 is one step");
+    }
+
     /// The pro Color panel's hex readout edits the foreground too.
     #[test]
     fn color_field_hex_field_takes_a_typed_hex() {
@@ -4862,6 +4929,43 @@ mod color_tests {
             let [d] = h.state().ui.dialogs.as_slice() else { panic!("one Color Picker") };
             assert_eq!(d.fields.get("__colorPicker").and_then(Value::as_str), Some(target));
         }
+    }
+
+    /// With a shape tool and a shape layer selected, the field recolours its fill, and each
+    /// gesture is its own undo step: a click, every drag, and a swatch followed by a drag. A drag
+    /// only reaches the field after its press frame, so it must not join the step before it.
+    #[test]
+    fn color_panel_gestures_recolour_the_selected_shape_in_separate_steps() {
+        use photocraft_doc::{Fill, LayerContent, LayerId};
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.execute("file.new", json!({"width": 64, "height": 48})).unwrap();
+        let id = LayerId(app.run("shape.create", json!({"rect": [8, 8, 40, 30], "fill": "#000000"})).unwrap()["layer"].as_u64().unwrap());
+        app.ui.tool = crate::state::Tool::Rectangle;
+        let mut h = field_harness(app);
+        let is_foreground = |app: &PhotocraftApp| {
+            let fg = app.session.tools.foreground;
+            match &app.session.active().unwrap().doc.layer(id).unwrap().content {
+                LayerContent::Shape(sh) => matches!(&sh.fill, Some(Fill::Solid(c)) if (0..3).all(|i| (c.c[i] - fg[i]).abs() < 0.01)),
+                _ => panic!("not a shape layer"),
+            }
+        };
+        let steps = |app: &PhotocraftApp| app.session.active().unwrap().history.entries().len();
+        let before = steps(h.state());
+        let min = h.ctx.input(|i| i.viewport_rect()).min;
+        click(&mut h, min + vec2(60.0, 10.0));
+        assert!(is_foreground(h.state()));
+        assert_eq!(steps(h.state()), before + 1, "the click");
+        drag(&mut h, min + vec2(120.0, 40.0), min + vec2(250.0, 120.0));
+        assert!(is_foreground(h.state()));
+        assert_eq!(steps(h.state()), before + 2, "the drag is one more step");
+        drag(&mut h, min + vec2(200.0, 60.0), min + vec2(100.0, 150.0));
+        assert_eq!(steps(h.state()), before + 3, "the next drag another");
+        let name = h.state_mut().run("swatches.list", json!({})).unwrap()["groups"][0]["swatches"][0]["name"].as_str().unwrap().to_string();
+        crate::swatches_ui::use_swatch(h.state_mut(), &name, false);
+        assert_eq!(steps(h.state()), before + 4, "the swatch");
+        drag(&mut h, min + vec2(150.0, 30.0), min + vec2(220.0, 100.0));
+        assert!(is_foreground(h.state()));
+        assert_eq!(steps(h.state()), before + 5, "a drag after a swatch is a step of its own");
     }
 
     /// Press at `from`, move to `to` in six steps and release, as egui sees a drag.

@@ -1210,9 +1210,6 @@ pub struct UiState {
     /// Direct Selection tool: selected anchors and the drag in progress (#790).
     #[serde(default)]
     pub direct_selection: crate::direct_select::DirectSelection,
-    /// The history step a Color panel drag recolouring the selection joins (`apply_color`).
-    #[serde(skip)]
-    pub apply_color_key: Option<String>,
     /// A live rectangle's corner radius widget being dragged (TOOL-214-12).
     #[serde(skip)]
     pub corner_radius: Option<crate::corner_radius::Drag>,
@@ -1407,7 +1404,6 @@ impl Default for UiState {
             pen: None,
             stroke_editor: None,
             direct_selection: Default::default(),
-            apply_color_key: None,
             corner_radius: None,
             selected_path: None,
             panels: Panels::default(),
