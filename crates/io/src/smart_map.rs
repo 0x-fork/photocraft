@@ -419,11 +419,6 @@ const EXTRUDE_DEPTH: (i32, i32) = (1, 255);
 const TILE_COUNT: (i32, i32) = (1, 99);
 const TILE_OFFSET: (i32, i32) = (1, 99);
 
-/// The `long` at `key` when it lies in `range` (inclusive).
-fn long_within(d: &Descriptor, key: &str, range: (i32, i32)) -> Option<i32> {
-    int(d, key).filter(|v| (range.0..=range.1).contains(v))
-}
-
 /// The `bool` at `key`.
 fn bool_at(d: &Descriptor, key: &str) -> Option<bool> {
     match d.get(key)? {
@@ -432,22 +427,12 @@ fn bool_at(d: &Descriptor, key: &str) -> Option<bool> {
     }
 }
 
-/// Our name for the enum at `key`, which must be of type `type_id`, through `table`.
-fn enum_from(d: &Descriptor, key: &str, type_id: &str, table: &[(&str, &'static str)]) -> Option<&'static str> {
-    match d.get(key)? {
-        Value::Enumerated { type_id: t, value } if t.as_bytes() == type_id.as_bytes() => {
-            table.iter().find(|(psd, _)| value.as_bytes() == psd.as_bytes()).map(|(_, ours)| *ours)
-        }
-        _ => None,
-    }
-}
-
 /// Tiles' params; background and foreground fills use the colours the entry carries (`FrgC`,
 /// `BckC`). `None` when a setting or a colour that is there can't be read.
 fn tiles_params(f: &Descriptor, item: &Descriptor) -> Option<J> {
     let mut out = Map::new();
-    out.insert("count".into(), json!(long_within(f, "TlNm", TILE_COUNT)?));
-    out.insert("maxOffset".into(), json!(long_within(f, "TlOf", TILE_OFFSET)?));
+    out.insert("count".into(), json!(int_in(f, "TlNm", TILE_COUNT.0, TILE_COUNT.1)?));
+    out.insert("maxOffset".into(), json!(int_in(f, "TlOf", TILE_OFFSET.0, TILE_OFFSET.1)?));
     out.insert("fill".into(), json!(enum_from(f, "FlCl", "FlCl", &TILE_FILLS)?));
     for (psd, ours) in [("FrgC", "foreground"), ("BckC", "background")] {
         if item.get(psd).is_some() {
@@ -522,8 +507,8 @@ fn known_params(class: &str, f: Option<&Descriptor>, item: &Descriptor) -> Optio
         }),
         ("Extr", Some(f)) => json!({
             "type": enum_from(f, "ExtT", "ExtT", &EXTRUDE_TYPES)?,
-            "size": long_within(f, "ExtS", EXTRUDE_SIZE)?,
-            "depth": long_within(f, "ExtD", EXTRUDE_DEPTH)?,
+            "size": int_in(f, "ExtS", EXTRUDE_SIZE.0, EXTRUDE_SIZE.1)?,
+            "depth": int_in(f, "ExtD", EXTRUDE_DEPTH.0, EXTRUDE_DEPTH.1)?,
             "depthMode": enum_from(f, "ExtR", "ExtR", &EXTRUDE_DEPTHS)?,
             "solidFrontFaces": bool_at(f, "ExtF")?,
             "maskIncompleteBlocks": bool_at(f, "ExtM")?,
@@ -836,24 +821,9 @@ fn enum_out(p: &J, key: &str, default: &str, type_id: &str, table: &[(&str, &str
     Ok(enumv(type_id, psd))
 }
 
-/// Our enum param `key` (`default` when absent) as Photoshop's enum of type `type_id`.
-fn enum_to(p: &J, key: &str, default: &str, type_id: &str, table: &[(&str, &str)]) -> Result<Value, String> {
-    let ours = match p.get(key) {
-        None => default,
-        Some(v) => v.as_str().ok_or_else(|| format!("`{key}` is not a string"))?,
-    };
-    let (psd, _) = table.iter().find(|(_, o)| *o == ours).ok_or_else(|| format!("{key} `{ours}` has no PSD equivalent"))?;
-    Ok(enumv(type_id, psd))
-}
-
 /// `key` rounded to a `long` in `lo..=hi`.
 fn pi_in(p: &J, key: &str, default: f64, lo: i32, hi: i32) -> Value {
     Value::Integer(pf(p, key, default).round().clamp(f64::from(lo), f64::from(hi)) as i32)
-}
-
-/// Param `key` (`default` when absent or not a finite number) as a `long` clamped to `range`.
-fn long_clamped(p: &J, key: &str, default: f64, range: (i32, i32)) -> Value {
-    Value::Integer(pf(p, key, default).round().clamp(f64::from(range.0), f64::from(range.1)) as i32)
 }
 
 /// Param `key` as a `bool` (false when absent or not a bool, as the engine reads it).
@@ -917,19 +887,19 @@ fn fltr_for(k: &Known, p: &J) -> Result<Option<Descriptor>, String> {
         "Pntl" => d.with("ClSz", pi_in(p, "cellSize", 5.0, CELL_SIZE.0, CELL_SIZE.1)),
         // Photoshop stores no random seed for these: our `seed` is not written.
         "Wnd " => {
-            d.with("WndM", enum_to(p, "method", "wind", "WndM", &WIND_METHODS)?).with("Drct", enum_to(p, "direction", "fromRight", "Drct", &WIND_DIRECTIONS)?)
+            d.with("WndM", enum_out(p, "method", "wind", "WndM", &WIND_METHODS)?).with("Drct", enum_out(p, "direction", "fromRight", "Drct", &WIND_DIRECTIONS)?)
         }
         "Extr" => d
-            .with("ExtT", enum_to(p, "type", "blocks", "ExtT", &EXTRUDE_TYPES)?)
-            .with("ExtS", long_clamped(p, "size", 30.0, EXTRUDE_SIZE))
-            .with("ExtD", long_clamped(p, "depth", 30.0, EXTRUDE_DEPTH))
-            .with("ExtR", enum_to(p, "depthMode", "random", "ExtR", &EXTRUDE_DEPTHS)?)
+            .with("ExtT", enum_out(p, "type", "blocks", "ExtT", &EXTRUDE_TYPES)?)
+            .with("ExtS", pi_in(p, "size", 30.0, EXTRUDE_SIZE.0, EXTRUDE_SIZE.1))
+            .with("ExtD", pi_in(p, "depth", 30.0, EXTRUDE_DEPTH.0, EXTRUDE_DEPTH.1))
+            .with("ExtR", enum_out(p, "depthMode", "random", "ExtR", &EXTRUDE_DEPTHS)?)
             .with("ExtF", bool_param(p, "solidFrontFaces"))
             .with("ExtM", bool_param(p, "maskIncompleteBlocks")),
         "Tls " => d
-            .with("TlNm", long_clamped(p, "count", 10.0, TILE_COUNT))
-            .with("TlOf", long_clamped(p, "maxOffset", 10.0, TILE_OFFSET))
-            .with("FlCl", enum_to(p, "fill", "background", "FlCl", &TILE_FILLS)?),
+            .with("TlNm", pi_in(p, "count", 10.0, TILE_COUNT.0, TILE_COUNT.1))
+            .with("TlOf", pi_in(p, "maxOffset", 10.0, TILE_OFFSET.0, TILE_OFFSET.1))
+            .with("FlCl", enum_out(p, "fill", "background", "FlCl", &TILE_FILLS)?),
         "Lvls" => d.with("Adjs", adjustments(p, false)?),
         "Crvs" => d.with("Adjs", adjustments(p, true)?),
         "adaptCorrect" => {
