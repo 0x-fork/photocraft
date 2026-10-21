@@ -1144,9 +1144,7 @@ pub fn relayout_damage(a: &Document, b: &Document) -> Rect {
 }
 
 /// The bounding box of a shape layer's path and stroke, ignoring its Density and Feather: its
-/// path control bounds plus stroke width. It is the frame Free Transform and the Move tool's
-/// transform controls show for a soft shape, whose rendering reaches past it (in Photoshop a
-/// shape's transform frame follows its path whatever its mask Density and Feather).
+/// path control bounds plus stroke width (a conservative reach for any alignment, cap and join).
 pub fn hard_shape_bounds(sh: &photocraft_doc::ShapeLayer) -> Option<Rect> {
     if sh.fill.is_none() && sh.stroke.as_ref().is_none_or(|s| s.width <= 0.0 || s.opacity <= 0.0) {
         return None;
@@ -1154,6 +1152,35 @@ pub fn hard_shape_bounds(sh: &photocraft_doc::ShapeLayer) -> Option<Rect> {
     let (x0, y0, x1, y1) = sh.path.control_bounds()?;
     let stroke_margin = sh.stroke.as_ref().filter(|s| s.opacity > 0.0).map_or(0.0, |s| s.width.ceil()) as i32;
     let r = Rect::new(x0.floor() as i32, y0.floor() as i32, x1.ceil() as i32, y1.ceil() as i32).inflate(stroke_margin);
+    (!r.is_empty()).then_some(r)
+}
+
+/// The frame Free Transform, the Move tool's transform controls, snapping and Properties show for
+/// a soft shape (Density below 100 % or a Feather), whose rendering reaches past its path: the
+/// pixels the same shape renders in `format` over `canvas` at full Density without Feather, so
+/// the frame is exactly the hard shape's whatever the stroke's alignment, cap and join (in
+/// Photoshop a shape's transform frame follows its path and stroke whatever its mask Density and
+/// Feather, #5846). An inverted path's frame is its own outline, not the whole canvas. Renders
+/// only the strips along the edges of the rasterizers' (1 px conservative) bounds.
+pub fn soft_shape_frame(sh: &photocraft_doc::ShapeLayer, format: photocraft_color::PixelFormat, canvas: Rect) -> Option<Rect> {
+    let mut path = sh.path.clone();
+    path.inverted = false;
+    let hard = photocraft_doc::ShapeLayer { density: 1.0, feather: 0.0, path, fill: sh.fill.clone(), stroke: sh.stroke.clone(), ..Default::default() };
+    let shape = photocraft_vector::CompiledShape::new(&hard, photocraft_vector::DEFAULT_TOLERANCE, canvas);
+    let mut r = shape.bounds()?.intersect(&canvas);
+    let painted = |strip: Rect| !shape.render(format, strip).content_bounds().is_empty();
+    while !r.is_empty() && !painted(Rect::new(r.x0, r.y0, r.x1, r.y0 + 1)) {
+        r.y0 += 1;
+    }
+    while !r.is_empty() && !painted(Rect::new(r.x0, r.y1 - 1, r.x1, r.y1)) {
+        r.y1 -= 1;
+    }
+    while !r.is_empty() && !painted(Rect::new(r.x0, r.y0, r.x0 + 1, r.y1)) {
+        r.x0 += 1;
+    }
+    while !r.is_empty() && !painted(Rect::new(r.x1 - 1, r.y0, r.x1, r.y1)) {
+        r.x1 -= 1;
+    }
     (!r.is_empty()).then_some(r)
 }
 

@@ -58,8 +58,9 @@ fn feather_matches_photoshops_ramp() {
         let r = row(&shape_doc(depth, 1.0, 10.0, None), 100);
         let ours: Vec<i32> = (0..15).map(|i| r[30 + 3 * i]).collect();
         let dev = ours.iter().zip(PS_FEATHER_10).map(|(a, b)| (a - i32::from(b)).abs()).max().unwrap_or(0);
-        // Same Gaussian (sigma = feather) as a vector mask: within 3 levels of Photoshop.
-        assert!(dev <= 3, "{depth:?}: ours {ours:?} vs Photoshop {PS_FEATHER_10:?} (max {dev})");
+        // Same Gaussian (sigma = feather) as a vector mask: within 1 level of Photoshop (as
+        // scorecard TOOL-214-12 claims; measured max deviation 1 at every depth).
+        assert!(dev <= 1, "{depth:?}: ours {ours:?} vs Photoshop {PS_FEATHER_10:?} (max {dev})");
         eprintln!("{depth:?}: ours {ours:?}, Photoshop {PS_FEATHER_10:?}, max deviation {dev}");
         // The path runs between pixels 49 and 50: their mean is half way.
         assert!((r[49] + r[50] - 255).abs() <= 2, "{depth:?}: half way on the path: {} {}", r[49], r[50]);
