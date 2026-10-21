@@ -609,24 +609,21 @@ fn hue_entry(p: &Value, range: Option<(usize, &Value)>) -> Option<Descriptor> {
         }
     }
     for (key, param) in [("Hue ", "hue"), ("Strt", "saturation"), ("Lght", "lightness")] {
-        if let Some(v) = jnum(p, param) {
-            e = e.with(key, long(v));
-        }
+        e = e.with(key, long(jnum(p, param).unwrap_or(0.0)));
     }
     Some(e)
 }
 
-// Exporters write only what the importer read, so a loaded set saves and reloads to the same
-// steps; Photoshop fills in its own defaults for what is missing.
+// Exporters leave out a param the step doesn't set only where Photoshop plays the missing key
+// as PhotoCraft's default (checked against Photoshop: Fill opacity and mode, Crop delete,
+// Selective Color method, Channel Mixer monochrome, Paint Bucket contiguous; Gradient Map
+// reverse and dither, which Photoshop itself leaves out when off). Elsewhere they
+// write PhotoCraft's default, as Photoshop plays a missing key differently (Color Balance
+// preserve luminosity off, Canvas Size anchored top left, Apply Image Normal) or refuses the
+// step (Paint Bucket without a tolerance).
 fn hue_sat_to(p: &Value) -> Option<Descriptor> {
-    let mut d = desc("HStr").with("presetKind", enm("presetKindType", "presetKindCustom"));
-    if let Some(c) = jbool(p, "colorize") {
-        d = d.with("Clrz", D::Boolean(c));
-    }
-    let mut entries = Vec::new();
-    if ["hue", "saturation", "lightness"].iter().any(|k| p.get(*k).is_some()) {
-        entries.push(D::Descriptor(hue_entry(p, None)?));
-    }
+    let d = desc("HStr").with("presetKind", enm("presetKindType", "presetKindCustom")).with("Clrz", D::Boolean(jbool(p, "colorize").unwrap_or(false)));
+    let mut entries = vec![D::Descriptor(hue_entry(p, None)?)];
     for (i, name) in HUE_RANGES.iter().enumerate() {
         if let Some(r) = p.get(*name).filter(|v| v.is_object()) {
             entries.push(D::Descriptor(hue_entry(r, Some((i, r)))?));
@@ -661,14 +658,9 @@ fn color_balance_from(d: &Descriptor) -> Option<Value> {
 fn color_balance_to(p: &Value) -> Option<Descriptor> {
     let mut d = desc("ClrB");
     for (key, param) in [("ShdL", "shadows"), ("MdtL", "midtones"), ("HghL", "highlights")] {
-        if let Some(t) = triple_to(p, param) {
-            d = d.with(key, t);
-        }
+        d = d.with(key, triple_to(p, param).unwrap_or_else(|| D::List(vec![long(0.0), long(0.0), long(0.0)])));
     }
-    if let Some(b) = jbool(p, "preserveLuminosity") {
-        d = d.with("PrsL", D::Boolean(b));
-    }
-    Some(d)
+    Some(d.with("PrsL", D::Boolean(jbool(p, "preserveLuminosity").unwrap_or(true))))
 }
 
 const BW: &[F] = &[
@@ -1336,8 +1328,12 @@ fn set_from(d: &Descriptor) -> Mapped {
             match get_obj(d, "T   ").and_then(|t| adjustment_by_class(&trimmed(&t.class_id)).map(|a| (a, t))) {
                 Some((a, t)) => match (a.from)(t) {
                     // `kind` names the adjustment so Save Actions can write the class back.
+                    // Not on an empty set (Photoshop's "reset to default"): params with any key
+                    // merge, none reset.
                     Some(mut p) => {
-                        p["kind"] = json!(a.suffix);
+                        if let Some(o) = p.as_object_mut().filter(|o| !o.is_empty()) {
+                            o.insert("kind".into(), json!(a.suffix));
+                        }
                         step("layer.setAdjustment", p)
                     }
                     None => unsupported,
@@ -1380,11 +1376,15 @@ fn set_to(id: &str, p: &Value) -> Option<Descriptor> {
             desc("null").with("null", quick_mask_ref())
         }
         "tools.setColors" => {
-            // One colour per step: the foreground when given, else the background.
+            // One colour per Photoshop step: a step that sets both (or any other key) doesn't
+            // export rather than lose one.
+            if p.as_object().is_some_and(|o| o.keys().any(|k| k != "foreground" && k != "background")) {
+                return None;
+            }
             let (key, hex) = match (jstr(p, "foreground"), jstr(p, "background")) {
-                (Some(f), _) => ("FrgC", f),
+                (Some(f), None) => ("FrgC", f),
                 (None, Some(b)) => ("BckC", b),
-                (None, None) => return None,
+                _ => return None,
             };
             desc("null")
                 .with("null", D::Reference(vec![ReferenceItem::Property { class: class("Clr "), key: code(key) }]))
@@ -1798,9 +1798,7 @@ fn apply_image_to(_: &str, p: &Value) -> Option<Descriptor> {
     if let Some(i) = jbool(&source, "invert") {
         with = with.with("Invr", D::Boolean(i));
     }
-    if let Some(b) = jstr(p, "blending") {
-        with = with.with("Clcl", enm("Clcn", lookup_back(CALC_BLEND, b)?));
-    }
+    with = with.with("Clcl", enm("Clcn", lookup_back(CALC_BLEND, jstr(p, "blending").unwrap_or("multiply"))?));
     if let Some(v) = jnum(p, "opacity") {
         with = with.with("Opct", pct(v));
     }
@@ -1851,14 +1849,15 @@ fn export_from(d: &Descriptor) -> Mapped {
 
 fn export_to(_: &str, p: &Value) -> Option<Descriptor> {
     let path = jstr(p, "path")?;
-    let mut u = desc("SaveForWeb").with("Op  ", enm("SWOp", "OpSa"));
-    if let Some(f) = jstr(p, "format") {
-        u = u.with("Fmt ", enm("IRFm", lookup_back(WEB_FORMATS, f)?));
-    }
-    for (key, param) in [("Intr", "interlaced"), ("Trns", "transparency"), ("EICC", "embedIcc"), ("Prgr", "progressive"), ("Optm", "optimized")] {
-        if let Some(b) = jbool(p, param) {
-            u = u.with(key, D::Boolean(b));
-        }
+    let mut u = desc("SaveForWeb").with("Op  ", enm("SWOp", "OpSa")).with("Fmt ", enm("IRFm", lookup_back(WEB_FORMATS, jstr(p, "format").unwrap_or("png24"))?));
+    for (key, param, default) in [
+        ("Intr", "interlaced", false),
+        ("Trns", "transparency", true),
+        ("EICC", "embedIcc", false),
+        ("Prgr", "progressive", false),
+        ("Optm", "optimized", true),
+    ] {
+        u = u.with(key, D::Boolean(jbool(p, param).unwrap_or(default)));
     }
     if let Some(q) = jnum(p, "quality") {
         u = u.with("Qlty", long(q));
@@ -1868,15 +1867,14 @@ fn export_to(_: &str, p: &Value) -> Option<Descriptor> {
     }
     match jstr(p, "matte") {
         Some("none") => u = u.with("Mtt ", D::Boolean(false)),
-        Some(matte) => {
-            let c = color_desc(matte)?;
+        matte => {
+            let c = color_desc(matte.unwrap_or("#ffffff"))?;
             u = u
                 .with("Mtt ", D::Boolean(true))
                 .with("MttR", get_num(&c, "Rd  ").map(long)?)
                 .with("MttG", get_num(&c, "Grn ").map(long)?)
                 .with("MttB", get_num(&c, "Bl  ").map(long)?);
         }
-        None => {}
     }
     Some(desc("null").with("Usng", D::Descriptor(u)).with("In  ", path_value(path)))
 }
@@ -2121,12 +2119,7 @@ fn fill_from(d: &Descriptor) -> Mapped {
 fn fill_to(id: &str, p: &Value) -> Option<Descriptor> {
     if id == "paint.bucket" {
         let mut d = desc("null").with("From", D::Descriptor(desc("Pnt ").with("Hrzn", px(jnum(p, "x")?)).with("Vrtc", px(jnum(p, "y")?))));
-        if let Some(t) = jnum(p, "tolerance") {
-            d = d.with("Tlrn", long(t));
-        }
-        if let Some(a) = jbool(p, "antiAlias") {
-            d = d.with("AntA", D::Boolean(a));
-        }
+        d = d.with("Tlrn", long(jnum(p, "tolerance").unwrap_or(32.0))).with("AntA", D::Boolean(jbool(p, "antiAlias").unwrap_or(true)));
         // `source` is the command's older name for `contents`.
         d = if p.get("contents").or_else(|| p.get("source")).and_then(Value::as_str) == Some("pattern") {
             d.with("Usng", enm("FlCn", "Pttn"))
@@ -2418,9 +2411,7 @@ fn canvas_size_to(_: &str, p: &Value) -> Option<Descriptor> {
     if let Some(hh) = jnum(p, "height") {
         d = d.with("Hght", px(hh));
     }
-    if jstr(p, "anchor").is_some() {
-        d = d.with("Hrzn", enm("HrzL", h)).with("Vrtc", enm("VrtL", v));
-    }
+    d = d.with("Hrzn", enm("HrzL", h)).with("Vrtc", enm("VrtL", v));
     if let Some(c) = jstr(p, "extensionColor") {
         d = match lookup_back(EXTENSION, c) {
             Some(e) => d.with("canvasExtensionColorType", enm("canvasExtensionColorType", e)),

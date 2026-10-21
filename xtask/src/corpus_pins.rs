@@ -239,7 +239,6 @@ pub const AFFINITY: PinnedCorpus = PinnedCorpus {
         )
     },
 };
-/// Every pinned corpus, in fetch order.
 /// Photoshop Actions files (`.atn`) from public repositories under permissive licences, the
 /// real-file oracles of `photocraft-psd::atn` and the engine's `.atn` import (2026-10-12).
 /// https://github.com/sbaril/Photoshop-Scripts (MIT): `Actions/`.
@@ -307,6 +306,7 @@ pub const ATN: PinnedCorpus = PinnedCorpus {
     },
 };
 
+/// Every pinned corpus, in fetch order.
 pub const ALL: &[&PinnedCorpus] = &[&PSD_MIXED, &PSD_TOOLS, &PHOTOSHOP, &HEIF, &EXR, &AFFINITY, &ATN];
 
 /// `corpus/pixls`: real camera raws from <https://raw.pixls.us> (released into the public

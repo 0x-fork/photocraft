@@ -21,7 +21,8 @@ pub const PIXLS_CRATES: &[&str] = &["photocraft-raw"];
 /// Corpus crates with a `heif` feature: test-corpus enables it so the HEIF corpus tests run.
 const HEIF_CRATES: &[&str] = &["photocraft-codecs", "photocraft-io"];
 
-/// Paths whose changes make `test-corpus --changed` run (the file-format and rendering crates).
+/// Paths whose changes make `test-corpus --changed` run (the file-format and rendering crates,
+/// and the engine's `.atn` import and export).
 const CRITICAL: &[&str] = &[
     "crates/psd/",
     "crates/io/",
@@ -33,6 +34,7 @@ const CRITICAL: &[&str] = &[
     "crates/format/",
     "crates/affinity/",
     "crates/raw/",
+    "crates/engine/src/atn_cmds",
 ];
 /// `cargo xtask corpus [--all | --pngsuite | --download | --psd | --psd-tools | --heif | --exr | --pixls | --affinity | --atn | --photoshop [--local]] [--update-manifest]`
 pub fn cmd(args: &[&str]) -> Result<(), String> {

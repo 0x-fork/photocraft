@@ -1446,3 +1446,51 @@ fn function_keys_keep_shift_and_command() {
     }
     assert_eq!(super::function_key_name(7, false, false), "F7");
 }
+
+/// A param a PhotoCraft step leaves out exports as PhotoCraft's default wherever Photoshop plays
+/// the missing key differently (checked against Photoshop): Canvas Size anchors top left,
+/// Apply Image blends Normal, Color Balance turns preserve luminosity off, and a Paint Bucket
+/// step without a tolerance doesn't play at all.
+#[test]
+fn defaults_photoshop_plays_differently_are_written() {
+    let exported = |id: &str, p: Value| export_item(id, &p, "S").and_then(|i| i.descriptor).unwrap_or_else(|| panic!("{id} does not export"));
+    let bucket = exported("paint.bucket", json!({"x": 1, "y": 2}));
+    assert_eq!((get_num(&bucket, "Tlrn"), get_bool(&bucket, "AntA")), (Some(32.0), Some(true)));
+    let canvas = exported("image.canvasSize", json!({"width": 10, "height": 10}));
+    assert_eq!((get_enum(&canvas, "Hrzn").as_deref(), get_enum(&canvas, "Vrtc").as_deref()), (Some("Cntr"), Some("Cntr")));
+    let apply = exported("image.applyImage", json!({}));
+    assert_eq!(get_obj(&apply, "With").and_then(|w| get_enum(w, "Clcl")).as_deref(), Some("Mltp"));
+    let balance = exported("image.adjustments.colorBalance", json!({"midtones": [10, 0, 0]}));
+    assert_eq!(get_bool(&balance, "PrsL"), Some(true));
+    assert_eq!(get_list(&balance, "ShdL").map(<[D]>::len), Some(3));
+}
+
+/// Photoshop sets one colour per step: a step that sets both doesn't export rather than drop one.
+#[test]
+fn set_colors_exports_only_a_single_colour() {
+    assert!(export_item("tools.setColors", &json!({"foreground": "#ff0000", "background": "#0000ff"}), "S").is_none());
+    assert!(export_item("tools.setColors", &json!({"foregroundCmyk": [0, 0, 0, 100], "background": "#0000ff"}), "S").is_none());
+    assert!(export_item("tools.setColors", &json!({"background": "#0000ff"}), "S").is_some());
+}
+
+/// Photoshop's reset of an adjustment layer (`set` with an empty `T`) stays a reset: `kind`
+/// only joins params that edit something, as any key makes `layer.setAdjustment` merge.
+#[test]
+fn adjustment_layer_reset_still_resets() {
+    let set = |t: Descriptor| desc("null").with("null", target_ref("AdjL")).with("T   ", D::Descriptor(t));
+    let reset = set(desc("HStr").with("presetKind", enm("presetKindType", "presetKindDefault")));
+    let edit = set(desc("ClrB").with("MdtL", D::List(vec![long(10.0), long(0.0), long(0.0)])));
+    let file = AtnFile {
+        name: UnicodeString::new_nul("Reset"),
+        expanded: false,
+        actions: vec![AtnAction {
+            name: UnicodeString::new_nul("A"),
+            items: vec![item("setd", "Set", Some(reset)), item("setd", "Set", Some(edit))],
+            ..Default::default()
+        }],
+        warnings: vec![],
+    };
+    let steps = import(&atn::write(&file).unwrap()).unwrap().actions.remove(0).steps;
+    assert_eq!(steps[0], ("layer.setAdjustment".to_string(), json!({})));
+    assert_eq!(steps[1].1, json!({"midtones": [10, 0, 0], "kind": "colorBalance"}));
+}
