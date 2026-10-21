@@ -1707,8 +1707,9 @@ impl PhotocraftApp {
         }
     }
 
-    /// Replays a recorded `file.save` / `file.saveAs` / `file.saveACopy` step: no dialog or prompt, and the
-    /// recorded TIFF, Targa or DDS answer (if any) stands in for the TIFF, Targa or DDS Options prompt.
+    /// Replays a recorded `file.save` / `file.saveAs` / `file.saveACopy` / `file.export.exportAs`
+    /// step: no dialog or prompt, and the recorded TIFF, Targa or DDS answer (if any) stands in for
+    /// the TIFF, Targa or DDS Options prompt.
     pub(crate) fn replay_save(&mut self, id: &str, params: &Value) -> Result<Value, String> {
         if self.save_options_open() {
             return Err("Answer the TIFF, Targa or DDS Options before starting another save".into());
@@ -1729,6 +1730,10 @@ impl PhotocraftApp {
                 "Save writes back only to the document's own PSD, PSB, .pcraft or OpenRaster file (OpenRaster only when it holds everything), or to its own flat file while the document is a single plain layer",
             )?;
             return self.save_in_place(path, choices);
+        }
+        if id == crate::export_dialog::COMMAND {
+            // Export As has its own settings, its TGA bits included (#7207).
+            return crate::export_dialog::replay(self, params);
         }
         let path = params.get("path").and_then(Value::as_str).filter(|p| !p.is_empty()).ok_or("Save As needs a `path`")?;
         let choices = FormatChoices::from_params(params, id)?;
