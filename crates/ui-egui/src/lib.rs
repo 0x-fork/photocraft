@@ -26,6 +26,7 @@ pub mod artboard_tool;
 pub mod artboard_ui;
 pub(crate) mod background_redraw;
 pub mod bidi_text;
+pub(crate) mod bitmap_dialog;
 mod blend_keys;
 pub(crate) mod blend_preview;
 pub mod blur_pins;
@@ -106,6 +107,7 @@ pub mod gpu_status;
 pub mod gradient_ui;
 pub mod guide_layout_ui;
 pub mod guide_select;
+pub mod history_menu_ui;
 pub mod hold_keys;
 pub mod i18n;
 mod icon_data;
@@ -137,6 +139,7 @@ pub mod menu_nav;
 pub mod menus;
 pub mod monitor_status;
 pub mod move_box;
+pub mod move_distance;
 pub mod move_hover;
 pub mod move_lock;
 pub mod move_mods;
@@ -238,6 +241,7 @@ pub mod wide_angle_ui;
 pub mod widgets;
 pub mod work_area;
 pub mod workspace_ui;
+pub mod zoom_hold;
 pub mod zoom_levels;
 pub mod zoom_tool;
 
@@ -662,6 +666,8 @@ pub struct PhotocraftApp {
     pub(crate) move_preview: Option<move_ui::MovePreview>,
     /// Move tool › Show Highlight on Rollover: the last hover answer (`move_hover`).
     pub(crate) move_hover: Option<move_hover::Hover>,
+    /// Smart Guides distances shown with ⌘ held over the canvas: the last answer (`move_distance`).
+    pub(crate) move_distance: Option<move_distance::Cache>,
     /// Object Selection › Object Finder: the hover preview (`object_finder`).
     pub(crate) object_finder: Option<object_finder::Finder>,
     /// A blend mode hovered in the Layers panel, shown live (`blend_preview`).
@@ -936,6 +942,7 @@ impl PhotocraftApp {
             menu_cache: None,
             move_preview: None,
             move_hover: None,
+            move_distance: None,
             object_finder: None,
             blend_preview: None,
             patch_preview: None,
@@ -1345,6 +1352,7 @@ impl PhotocraftApp {
         // ... and to the document it was started on.
         crate::canvas::polygon_cancel_stale(self);
         crate::crop_ui::cancel_stale(self);
+        crate::perspective_crop_ui::cancel_stale(self);
         let ids: Vec<DocId> = self.session.documents().iter().map(|d| d.doc.id).collect();
         // Where the document of view `i` is now. Views not tracked yet keep their index.
         let now = |i: usize| match self.view_docs.get(i) {
@@ -2587,6 +2595,16 @@ impl PhotocraftApp {
         self.bounds_cache.insert(key, (rev, b));
         b
     }
+
+    /// The box Properties › Transform shows for `layer` (X, Y, W, H): its pixels' bounds, but a
+    /// soft shape's path and stroke, whose Density and Feather render past them (#5846), as its
+    /// transform frame does.
+    pub fn layer_frame_bounds(&mut self, layer: &photocraft_doc::Layer, surface: &photocraft_raster::Surface) -> photocraft_geom::Rect {
+        match &layer.content {
+            photocraft_doc::LayerContent::Shape(sh) if sh.has_soft_mask() => photocraft_compose::hard_shape_bounds(sh).unwrap_or(photocraft_geom::Rect::EMPTY),
+            _ => self.cached_bounds(layer.id.0, surface),
+        }
+    }
 }
 
 impl PhotocraftApp {
@@ -2892,6 +2910,8 @@ mod pen_variants_tests;
 mod color_replacement_tests;
 #[cfg(test)]
 mod layer_shortcut_tests;
+#[cfg(test)]
+mod live_retouch_tests;
 #[cfg(test)]
 mod pencil_tests;
 #[cfg(test)]
