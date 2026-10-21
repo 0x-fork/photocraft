@@ -2153,6 +2153,11 @@
 	Mixer Brush Tool	Strumento Pennello miscelatore
 	Color Replacement Tool	Strumento Sostituzione colore
 	Wet	Bagnato
+	Current Brush Load	Carico attuale del pennello
+	Load Brush	Carica pennello
+	Clean Brush	Pulisci pennello
+	Load the brush after each stroke	Carica il pennello dopo ogni tratto
+	Clean the brush after each stroke	Pulisci il pennello dopo ogni tratto
 	Mix	Miscela
 	Wetness Jitter	Variazione bagnato
 	Mix Jitter	Variazione miscela
@@ -4369,3 +4374,6 @@ shape	Appearance	Aspetto
 # Color Table (.act) dialog
 	There is no color table to save.	Non c'è alcuna tabella colori da salvare.
 @plural	Saved {n} color to {file}|Saved {n} colors to {file}	Salvato {n} colore in {file}|Salvati {n} colori in {file}
+
+# Graphics Adapter preference (#1885)
+	GPU adapter	Adattatore GPU
