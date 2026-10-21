@@ -3088,11 +3088,14 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         return;
     };
     let doc = st.doc.clone();
-    let revision = st.revision;
     let entries = st.history.entries();
     let current = entries.len() - 1;
     let redo: Vec<String> = st.history.redo_labels().map(str::to_string).collect();
     let selected_snap = selected_snapshot(ui.ctx(), st);
+    // The newest past state is a new document on every step, Undo and Redo, also at the state
+    // limit, where the counts and a repeated name stay the same.
+    let newest = st.history.past_len().checked_sub(1).and_then(|i| st.history.state(i)).map(|d| std::sync::Arc::as_ptr(&d) as usize);
+    let spot = (doc.id, history_spot(st), newest);
     let ctx = ui.ctx().clone();
     // A row dragged onto the trash (#5324); a drag that never saw its release must not outlive it.
     if !ctx.input(|i| i.pointer.primary_down() || i.pointer.any_released()) {
@@ -3119,8 +3122,16 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // The dock gives History a fixed height: the rows scroll above the footer.
     let footer = if t.pro { widgets::footer_height(ui) + ui.spacing().item_spacing.y } else { 0.0 };
     let max_h = (ui.available_height() - footer).max(40.0);
-    let follow_id = ui.id().with(("history-follow-rev", doc.id));
-    let follow = ui.ctx().data(|d| d.get_temp::<u64>(follow_id)) != Some(revision);
+    // Follow the current state when the history moves (a new step, Undo, a state row) or another
+    // document comes up (`spot`), scrolling only if its row is hidden (#5909). Other changes (a
+    // layer click, a channel eye) and a selected snapshot leave the list where the user put it.
+    let follow_id = egui::Id::new("history-follow");
+    let moved = ui.ctx().data_mut(|d| {
+        let moved = d.get_temp::<(photocraft_doc::DocId, HistorySpot, Option<usize>)>(follow_id).as_ref() != Some(&spot);
+        d.insert_temp(follow_id, spot);
+        moved
+    });
+    let follow = moved && selected_snap.is_none();
     egui::ScrollArea::vertical().id_salt("history-rows").max_height(max_h).auto_shrink([false, false]).show(ui, |ui| {
         // Snapshots head the list and scroll with the states, so many of them never push the
         // footer out of a short dock.
@@ -3169,9 +3180,9 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             }
         }
         if follow && let Some(rect) = current_rect {
-            ui.scroll_to_rect(rect, Some(egui::Align::BOTTOM));
+            // No alignment: a row already in view stays put. No animation, as the Layers panel reveal.
+            ui.scroll_to_rect_animation(rect, None, egui::style::ScrollAnimation::none());
         }
-        ui.ctx().data_mut(|d| d.insert_temp(follow_id, revision));
     });
     if let Some(drag) = drag
         && let Some(p) = ctx.input(|i| i.pointer.interact_pos())
