@@ -3629,6 +3629,49 @@ mod tests {
         }
     }
 
+    /// #6212: `toolBrushes.owner` names the tool whose brush `last_brush` holds. A brush that
+    /// can't be remembered yet (a sampled tip too big to embed) leaves `last_brush` at the old
+    /// owner's brush, so the old owner stays saved: the next launch gives that brush back to it,
+    /// not to the tool selected since.
+    #[test]
+    fn the_saved_brush_owner_follows_the_saved_last_brush() {
+        use crate::state::Tool;
+        use photocraft_engine::paint::{GrayTile, TipShape};
+        let (mut app, store) = app_with_store();
+        let ctx = egui::Context::default();
+        tick(&mut app, &ctx);
+        app.session.tools.brush.size = 77.0;
+        app.session.tools.brush_changed();
+        crate::last_brush::persist(&mut app, &ctx);
+        crate::tool_memory::persist(&mut app, &ctx);
+        // The Brush's tip becomes a big sampled one, then the Eraser takes over that brush.
+        app.session.tools.brush.tip = TipShape::Sampled(GrayTile::from_fn(400, 300, |x, y| ((x * y) % 7) as f32 / 7.0));
+        app.session.tools.brush_changed();
+        app.ui.tool = Tool::Eraser;
+        crate::paint_mouse::sync_tool_brush(&mut app);
+        crate::last_brush::persist(&mut app, &ctx);
+        crate::tool_memory::persist(&mut app, &ctx);
+        tick(&mut app, &ctx);
+        let saved = stored(&store);
+        assert_eq!(saved["lastBrush"]["brush"]["size"], json!(77.0), "the big tip is not remembered yet");
+        assert_ne!(saved["toolBrushes"]["owner"], json!("Eraser"), "{saved}");
+        let (mut app2, _) = app_with_saved(store.lock().unwrap().clone());
+        tick(&mut app2, &ctx);
+        assert_eq!(app2.ui.brush_tool, Tool::Brush, "the 77 px brush is the Brush's");
+        assert_eq!(app2.session.tools.brush.size, 77.0);
+
+        // Once the Eraser's brush is saved, the Eraser owns it in the preferences too.
+        app.session.tools.brush.tip = TipShape::Round;
+        app.session.tools.brush.size = 33.0;
+        app.session.tools.brush_changed();
+        crate::last_brush::persist(&mut app, &ctx);
+        crate::tool_memory::persist(&mut app, &ctx);
+        tick(&mut app, &ctx);
+        let saved = stored(&store);
+        assert_eq!(saved["toolBrushes"]["owner"], json!("Eraser"), "{saved}");
+        assert_eq!(saved["lastBrush"]["brush"]["size"], json!(33.0));
+    }
+
     /// #6212: a damaged or hand-edited `toolBrushes` never panics: what reads back loads (clamped
     /// to the options bar's ranges), the rest is skipped and those tools start from the brush.
     #[test]
@@ -3678,6 +3721,7 @@ mod tests {
         }
         app.ui.tool = Tool::Smudge;
         crate::paint_mouse::sync_tool_brush(&mut app);
+        crate::last_brush::persist(&mut app, &ctx);
         crate::tool_memory::persist(&mut app, &ctx);
         tick(&mut app, &ctx);
         let saved = stored(&store);
@@ -3685,6 +3729,7 @@ mod tests {
         assert!(saved["toolBrushes"]["brushes"].get("Eraser").is_some() && saved["toolBrushes"]["brushes"].get("Brush").is_some());
 
         crate::menus::invoke(&mut app, &ctx, crate::tool_reset::RESET, json!({})).unwrap();
+        crate::last_brush::persist(&mut app, &ctx);
         crate::tool_memory::persist(&mut app, &ctx);
         tick(&mut app, &ctx);
         let saved = stored(&store);
@@ -3693,6 +3738,7 @@ mod tests {
         assert!(saved["toolBrushes"]["brushes"].get("Eraser").is_some());
 
         crate::menus::invoke(&mut app, &ctx, crate::tool_reset::RESET_ALL, json!({"confirmed": true})).unwrap();
+        crate::last_brush::persist(&mut app, &ctx);
         crate::tool_memory::persist(&mut app, &ctx);
         tick(&mut app, &ctx);
         let saved = stored(&store);
