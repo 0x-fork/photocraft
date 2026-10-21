@@ -967,6 +967,21 @@ fn quantize(b: &mut Buffer, q: f32) {
     }
 }
 
+/// Blend an adjustment layer's result (`adjusted`) back into the backdrop it was made from, each
+/// pixel by its coverage `ks` (opacity × mask) in blend mode `mode`.
+fn blend_back(backdrop: &mut [[f32; 4]], adjusted: &[[f32; 4]], ks: impl Iterator<Item = f32>, mode: BlendMode) {
+    for ((b, a), k) in backdrop.iter_mut().zip(adjusted).zip(ks) {
+        if k <= 0.0 {
+            continue;
+        }
+        let s = [a[0], a[1], a[2]];
+        // Normal is the source as it is (`blend_rgb` gives exactly that), and most adjustment
+        // layers are Normal: no per-pixel mode dispatch for them.
+        let blended = if mode == BlendMode::Normal { s } else { blend::blend_rgb(mode, [b[0], b[1], b[2]], s) };
+        *b = [b[0] + (blended[0] - b[0]) * k, b[1] + (blended[1] - b[1]) * k, b[2] + (blended[2] - b[2]) * k, b[3]];
+    }
+}
+
 /// Deterministic hash for Dissolve (document-coordinate based, so it is stable under tiling).
 #[inline]
 fn dissolve_noise(x: i32, y: i32) -> f32 {
@@ -1748,19 +1763,9 @@ fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer
         cx.apply_adjustment(adj, &mut adjusted);
         // Clipped layers onto an adjustment are uncommon; they composite atop the adjusted result.
         advanced::composite_clipped(clipped, &mut adjusted, cx);
-        for y in rect.y0..rect.y1 {
-            for x in rect.x0..rect.x1 {
-                let i = ((y - rect.y0) as usize) * rect.width() as usize + (x - rect.x0) as usize;
-                let k = opacity * mask_k(&mv, i);
-                if k <= 0.0 {
-                    continue;
-                }
-                // Only `adjusted` has changed; this pixel's original backdrop is still in place.
-                let b = backdrop.px[i];
-                let a = adjusted.px[i];
-                let blended = blend::blend_rgb(layer.blend, [b[0], b[1], b[2]], [a[0], a[1], a[2]]);
-                backdrop.px[i] = [b[0] + (blended[0] - b[0]) * k, b[1] + (blended[1] - b[1]) * k, b[2] + (blended[2] - b[2]) * k, b[3]];
-            }
+        match &mv {
+            Some(m) => blend_back(&mut backdrop.px, &adjusted.px, m.iter().map(|v| opacity * v), layer.blend),
+            None => blend_back(&mut backdrop.px, &adjusted.px, std::iter::repeat(opacity), layer.blend),
         }
         recycle_buffer(adjusted);
         return;
