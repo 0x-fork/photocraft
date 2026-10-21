@@ -60,17 +60,22 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, _mods: egui::Modifiers) -
     let Some(doc) = app.session.active().map(|d| d.doc.clone()) else { return true };
     let locked = app.session.file_menu.slices_locked;
     match ev {
+        // View › Lock Slices: neither tool draws, selects or moves a slice, and the press says
+        // why, as Photoshop's error does (#7865).
+        ToolEvent::Down { .. } if locked => {
+            app.ui.slices.selected = None;
+            app.ui.status = tl!("Slices are locked (View › Lock Slices)").to_string();
+            app.ui.status_error = true;
+        }
         ToolEvent::Down { x, y, .. } => {
             if tool == Tool::Slice {
-                if !locked {
-                    app.ui.slices.drag = Some(SliceDrag::New { start: [x, y], cur: [x, y] });
-                }
+                app.ui.slices.drag = Some(SliceDrag::New { start: [x, y], cur: [x, y] });
             } else {
                 let hit = slice_at(&doc, x, y);
                 app.ui.slices.selected = hit.as_ref().map(|r| r.number);
                 // The whole slice moves, also when the press hits one piece of a covered slice.
                 if let Some(r) = hit
-                    && let Some(sl) = r.id.and_then(|id| doc.slices.get(id)).filter(|_| !locked && r.origin == SliceOrigin::User)
+                    && let Some(sl) = r.id.and_then(|id| doc.slices.get(id)).filter(|_| r.origin == SliceOrigin::User)
                 {
                     app.ui.slices.drag = Some(SliceDrag::Move { id: sl.id, start: [x, y], cur: [x, y], rect: sl.rect });
                 }
@@ -322,6 +327,40 @@ mod tests {
         crate::dialogs::confirm(&mut app, id).unwrap();
         let doc = app.session.active().unwrap().doc.clone();
         assert!(doc.slices.list.iter().any(|s| s.name == "footer"));
+    }
+
+    /// #7865: with View › Lock Slices on, Slice Select doesn't select (or move) a slice, and the
+    /// Slice tool doesn't start one; both say why, as Photoshop's error does.
+    #[test]
+    fn locked_slices_cannot_be_selected() {
+        let mut app = app();
+        let m = egui::Modifiers::NONE;
+        app.ui.tool = Tool::Slice;
+        pointer(&mut app, ToolEvent::Down { x: 10.0, y: 10.0, pressure: 1.0 }, m);
+        pointer(&mut app, ToolEvent::Up { x: 40.0, y: 30.0 }, m);
+        let rect = app.session.active().unwrap().doc.slices.list[0].rect;
+        app.ui.slices.selected = None;
+        app.run("view.lockSlices", json!({"on": true})).unwrap();
+        app.ui.tool = Tool::SliceSelect;
+        pointer(&mut app, ToolEvent::Down { x: 20.0, y: 20.0, pressure: 1.0 }, m);
+        pointer(&mut app, ToolEvent::Move { x: 30.0, y: 30.0, pressure: 1.0 }, m);
+        pointer(&mut app, ToolEvent::Up { x: 30.0, y: 30.0 }, m);
+        assert_eq!(app.ui.slices.selected, None, "not selected");
+        assert_eq!(app.session.active().unwrap().doc.slices.list[0].rect, rect, "not moved");
+        assert!(app.ui.status_error && app.ui.status.contains("locked"), "{}", app.ui.status);
+        // The Slice tool says so too.
+        app.ui.status_error = false;
+        app.ui.tool = Tool::Slice;
+        pointer(&mut app, ToolEvent::Down { x: 50.0, y: 50.0, pressure: 1.0 }, m);
+        pointer(&mut app, ToolEvent::Up { x: 80.0, y: 70.0 }, m);
+        assert_eq!(app.session.active().unwrap().doc.slices.list.len(), 1);
+        assert!(app.ui.status_error && app.ui.status.contains("locked"), "{}", app.ui.status);
+        // Unlocked again, Slice Select selects it.
+        app.run("view.lockSlices", json!({"on": false})).unwrap();
+        app.ui.tool = Tool::SliceSelect;
+        pointer(&mut app, ToolEvent::Down { x: 20.0, y: 20.0, pressure: 1.0 }, m);
+        pointer(&mut app, ToolEvent::Up { x: 20.0, y: 20.0 }, m);
+        assert!(app.ui.slices.selected.is_some());
     }
 
     #[test]
