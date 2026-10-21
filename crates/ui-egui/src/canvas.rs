@@ -6032,6 +6032,12 @@ fn snap_aliased_tip(app: &PhotocraftApp, tool: Tool, x: f64, y: f64) -> (f64, f6
 }
 
 pub(crate) fn finish_gesture(app: &mut PhotocraftApp, d: Drag) {
+    // Control can select a different tool and release before the next frame cancels the drag.
+    // Cancel before even recording a Shift-stroke anchor, including the preview fallback paths.
+    if d.tool == Tool::MixerBrush && app.ui.tool != Tool::MixerBrush {
+        app.live_stroke = None;
+        return;
+    }
     let mut end = d.points.last().copied().unwrap_or([d.start[0], d.start[1], 1.0]);
     let (sx, sy) = snap_aliased_tip(app, d.tool, end[0], end[1]);
     end[0] = sx;
@@ -7958,6 +7964,40 @@ mod tests {
             assert_eq!(*app.session.active().unwrap().doc, *before);
             app.run("paint.mixerBrush", params).unwrap();
             assert_eq!(*app.session.active().unwrap().doc, *doc);
+        }
+    }
+
+    #[test]
+    fn mixer_control_tool_switch_before_release_cancels_every_preview_path() {
+        for preview in 0..3 {
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+            app.run("file.new", json!({"width":120,"height":60,"background":"#00ff00"})).unwrap();
+            app.run("layer.new.layer", json!({})).unwrap();
+            app.run("tools.setBrush", json!({"size":12,"pressureSize":false})).unwrap();
+            let before = app.session.active().unwrap().doc.clone();
+            let steps = app.session.active().unwrap().history.past_len();
+            let anchor = app.last_stroke_end;
+            let ctx = egui::Context::default();
+            let (request, _reply) = crate::control::ControlRequest::new(
+                "ui.pointer",
+                json!({"tool":"mixerBrush","events":[{"kind":"down","x":20,"y":30},{"kind":"move","x":50,"y":30}]}),
+            );
+            let _ = crate::control::handle(&mut app, &ctx, &request);
+            assert!(app.drag.is_some() && app.live_stroke.is_some());
+            if preview == 1 {
+                app.live_stroke.as_mut().unwrap().preview_failed = true;
+            } else if preview == 2 {
+                app.live_stroke = None;
+            }
+            // No intervening UI frame: control selects the new tool before dispatching Up.
+            let (request, _reply) = crate::control::ControlRequest::new("ui.pointer", json!({"tool":"brush","events":[{"kind":"up","x":95,"y":30}]}));
+            let _ = crate::control::handle(&mut app, &ctx, &request);
+            assert_eq!(app.ui.tool, Tool::Brush);
+            assert!(app.drag.is_none() && app.live_stroke.is_none());
+            assert!(std::sync::Arc::ptr_eq(&before, &app.session.active().unwrap().doc));
+            assert_eq!(app.session.active().unwrap().history.past_len(), steps);
+            assert_eq!(app.last_stroke_end, anchor);
+            assert!(!app.session.journal.iter().any(|(id, _)| id == "paint.mixerBrush"));
         }
     }
 
