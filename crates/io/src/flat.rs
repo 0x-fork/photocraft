@@ -53,8 +53,23 @@ pub fn import_flat(name: &str, bytes: &[u8]) -> Result<ImportResult, IoError> {
     }
     if d.icc_profile.is_none() && d.mode == ColorMode::Rgb {
         d.icc_profile = cicp_profile(&img);
+        if d.icc_profile.is_none()
+            && let Some((profile, warning)) = hdr_fallback(&img)
+        {
+            d.icc_profile = Some(profile);
+            r.warnings.push(warning);
+        }
     }
     Ok(r)
+}
+
+/// A PQ or HLG image, which the decoder turned into linear light, on primaries
+/// [`cicp_profile`] has no profile for: left untagged it would be read as sRGB-encoded, so it is
+/// tagged linear sRGB (its tones right, its primaries assumed) and the warning says so.
+fn hdr_fallback(img: &Image) -> Option<(Arc<Vec<u8>>, String)> {
+    let c = img.cicp.filter(|c| c.is_hdr() && img.sample_type().is_float())?;
+    let warning = format!("the HDR colour primaries (H.273 code {}) aren't supported; the image is read as linear sRGB", c.primaries);
+    Some((photocraft_cms::Builtin::LinearSrgb.profile().to_bytes(), warning))
 }
 
 /// The profile a HEIF's `nclx` colour description stands for, when the file has no ICC profile
@@ -908,6 +923,19 @@ mod cicp_tests {
         let p3 = codecs::Cicp { primaries: 12, transfer: 13, matrix: 6, full_range: true };
         assert_eq!(description(cicp_profile(&tagged(CSample::U8, p3))).as_deref(), Some(Builtin::DisplayP3.description()));
         assert_eq!(cicp_profile(&Image::new(1, 1, ChannelLayout::Rgb, CSample::U8).unwrap()), None, "no nclx, no profile");
+    }
+
+    #[test]
+    fn hdr_on_unsupported_primaries_is_tagged_linear_srgb_with_a_warning() {
+        // DCI-P3 (11) primaries: no profile, but the linear pixels must not be read as sRGB.
+        let hlg = codecs::Cicp { primaries: 11, transfer: codecs::Cicp::TRANSFER_HLG, matrix: 9, full_range: true };
+        let img = tagged(CSample::F32, hlg);
+        assert_eq!(cicp_profile(&img), None);
+        let (profile, warning) = hdr_fallback(&img).unwrap();
+        assert_eq!(description(Some(profile)).as_deref(), Some(Builtin::LinearSrgb.description()));
+        assert!(warning.contains("11"), "{warning}");
+        // SDR on the same primaries keeps its samples as decoded: no fallback.
+        assert!(hdr_fallback(&tagged(CSample::U16, codecs::Cicp { transfer: 13, ..hlg })).is_none());
     }
 }
 
