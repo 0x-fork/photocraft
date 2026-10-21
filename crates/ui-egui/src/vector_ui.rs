@@ -1199,11 +1199,14 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
     let stroke_color = swatch(ui, stroke.as_ref().map(|s| &s.paint), bg, tl!("Stroke color"));
     if crate::widgets::value_field(ui, &mut width, 0.0..=288.0, "px", 58.0).changed() {
         o.stroke_width = width;
-        let mut p = json!({"width": width});
-        if stroke.is_none() {
-            p["color"] = json!(bg);
+        // A 0 px "change" (an arrow step clamped at the minimum) must not add a stroke.
+        if stroke.is_some() || width > 0.0 {
+            let mut p = json!({"width": width});
+            if stroke.is_none() {
+                p["color"] = json!(bg);
+            }
+            edit = Some(json!({"stroke": p, "coalesce": key("stroke-w")}));
         }
-        edit = Some(json!({"stroke": p, "coalesce": key("stroke-w")}));
     }
     let preview = target.as_ref().filter(|s| s.stroke.is_some()).map(|s| (s.doc, s.layer));
     if let Some(change) =
@@ -1529,7 +1532,7 @@ pub fn shape_properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, id: photocra
                 edit = Some(json!({"stroke": stroke, "coalesce": coalesce("stroke")}));
             }
             let mut w = sh.stroke.as_ref().map_or(0.0, |s| s.width);
-            if crate::widgets::value_field(ui, &mut w, 0.0..=288.0, "px", 60.0).changed() {
+            if crate::widgets::value_field(ui, &mut w, 0.0..=288.0, "px", 60.0).changed() && (sh.stroke.is_some() || w > 0.0) {
                 edit = Some(json!({"stroke": {"width": w}, "coalesce": coalesce("stroke-w")}));
             }
         });
