@@ -725,10 +725,11 @@ pub(crate) fn deselect_loaded_path(app: &mut PhotocraftApp, name: &str) {
 }
 
 /// Is the active document's Work Path drawn and edited on the canvas? Not after
-/// [`deselect_loaded_path`] hid it, until a path is selected again in the Paths panel or the Work
-/// Path changes (a new one drawn, Make Work Path, `path.set`…) (#6079).
+/// [`deselect_loaded_path`] hid it, until the Work Path is selected again in the Paths panel (a
+/// saved path or a layer's path doesn't show it) or it changes (a new one drawn, Make Work Path,
+/// `path.set`…) (#6079).
 pub(crate) fn work_path_shown(app: &PhotocraftApp) -> bool {
-    if app.ui.selected_path.is_some() {
+    if app.ui.selected_path.as_deref() == Some("work") {
         return true;
     }
     let Some((doc, hidden)) = &app.ui.hidden_work_path else { return true };
@@ -2154,6 +2155,12 @@ mod tests {
         assert!(app.session.active().unwrap().doc.work_path.is_some());
         assert!(app.session.active().unwrap().doc.selection.is_none());
         assert_eq!(overlay_shapes(&app, &ctx), 0, "still hidden");
+        // Selecting a saved path in the Paths panel doesn't show it; only the Work Path does.
+        let saved = json!({"subpaths": [{"closed": true, "knots": [{"anchor": [60, 60]}, {"anchor": [90, 60]}, {"anchor": [90, 90]}]}]});
+        app.run("path.set", json!({"name": "Saved", "path": saved})).unwrap();
+        app.ui.selected_path = Some("Saved".into());
+        assert!(!work_path_shown(&app) && overlay_shapes(&app, &ctx) == 0, "a saved path keeps the Work Path hidden");
+        app.ui.selected_path = None;
         // Another Work Path made any other way (Make Work Path, `path.set` over the control
         // channel…) is a different path: it shows without being selected.
         let other = json!({"subpaths": [{"closed": true, "knots": [{"anchor": [5, 5]}, {"anchor": [50, 5]}, {"anchor": [50, 50]}]}]});
