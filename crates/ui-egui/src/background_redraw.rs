@@ -208,18 +208,21 @@ pub(crate) fn start(
 ) {
     let all = blocks(doc.bounds());
     let display_key = display.as_deref().map_or(0, |d| d.texture_key);
+    // Taken again when a running redraw continues: the edit (or Memory Usage) may have changed it.
+    let cap = keep_cap(app, doc.id);
+    app.kept.trim(cap);
     let (mut pending, since, fallback, mut keep) = match app.redraws.remove(&doc.id) {
         Some(mut old) if old.blocks == all => {
             // Blocks drawn from another state aren't part of this one's composite.
             let same = old.display == display_key && (Arc::ptr_eq(&old.doc, &doc) || *old.doc == *doc);
-            let (collected, bytes) = if same { (std::mem::take(&mut old.collected), old.collected_bytes) } else { (vec![None; all.len()], 0) };
-            (std::mem::take(&mut old.pending), (old.started_ms, old.drawn), fallback.or_else(|| old.fallback.take()), (collected, bytes, old.cap))
+            let (collected, bytes) = if same && old.collected_bytes <= cap {
+                (std::mem::take(&mut old.collected), old.collected_bytes)
+            } else {
+                (vec![None; all.len()], 0)
+            };
+            (std::mem::take(&mut old.pending), (old.started_ms, old.drawn), fallback.or_else(|| old.fallback.take()), (collected, bytes, cap))
         }
-        _ => {
-            let cap = keep_cap(app, doc.id);
-            app.kept.trim(cap);
-            (vec![false; all.len()], (crate::gpu_canvas::now_ms(), 0), fallback, (vec![None; all.len()], 0, cap))
-        }
+        _ => (vec![false; all.len()], (crate::gpu_canvas::now_ms(), 0), fallback, (vec![None; all.len()], 0, cap)),
     };
     for (p, b) in pending.iter_mut().zip(&all) {
         *p |= !b.intersect(&region).is_empty();
@@ -293,7 +296,9 @@ pub(crate) fn poll(app: &mut PhotocraftApp, gpu: &GpuCanvas, doc: DocId) {
             texels,
             bytes: r.collected_bytes,
         };
-        app.kept.store(k, &r.doc, r.cap);
+        // The cap as it is now, not when the redraw began (once per redraw, not per frame).
+        let cap = keep_cap(app, doc);
+        app.kept.store(k, &r.doc, cap);
     }
     let ms = crate::gpu_canvas::now_ms() - r.started_ms;
     app.perf.record("background", r.drawn, ms, 0.0);

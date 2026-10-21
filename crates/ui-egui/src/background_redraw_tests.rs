@@ -266,6 +266,21 @@ fn showing_a_hidden_layer_again_reuses_the_redraw_from_before_it_was_hidden() {
     assert_matches_synchronous(&mut g, doc);
 }
 
+/// Memory Usage lowered while a redraw runs: the finished composite is kept within what it leaves
+/// now, not what it left when the redraw began.
+#[test]
+fn a_redraw_finishing_after_memory_usage_drops_keeps_nothing_over_it() {
+    let _gpu = photocraft_testkit::gpu_lock();
+    let Some(mut g) = gpu_app() else { return };
+    let doc = cpu_only_document(g.harness.state_mut(), 4096, 3072);
+    g.harness.step();
+    assert!(g.harness.state().redraws.contains_key(&doc));
+    // Less than the document's own pixels: nothing is left for kept composites.
+    g.harness.state_mut().session.edit_prefs(|p| p.performance.memory_usage_mb = 1);
+    settle(&mut g);
+    assert!(g.harness.state().kept.entries.is_empty(), "a composite was kept over the current cap");
+}
+
 #[test]
 fn closing_the_document_stops_its_redraw() {
     let _gpu = photocraft_testkit::gpu_lock();
