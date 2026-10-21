@@ -8,8 +8,7 @@ The small web-layout PNG grows by 598 bytes (+1.40%). One .pcraft preview adds 2
 Real photo PNGs become smaller and encode faster. Compression levels are unchanged.
 There is no native-format tile speedup from deflate.
 
-These timings measure the backend switch before the ZIP input-buffer removal and output-size guard.
-Neither ZIP change was benchmarked.
+The timings below measure only the backend switch. They exclude the later ZIP allocation and validation changes.
 
 Measured on 2026-10-19 against main `d95fdf31`, independently of the other performance changes.
 Host: Apple M4 Max, 16 CPUs, 128 GiB RAM, macOS arm64, rustc 1.99.1.
@@ -71,6 +70,10 @@ The shared harness times in-memory operations. Input loading, image conversion, 
 | layout-mask-index | psd-import | 3.362 | 2.721 | -19.1% | -21.3..-11.2% | 411,435 / 411,435 |
 
 Every PNG encode decodes to identical source pixels, each PSD operation produces the same decoded layer/mask samples as main, and complete .pcraft documents compare equal at every depth. Compressed bytes may differ. The committed compatibility test independently inflates PNG IDAT and PSD ZIP/ZIP-prediction data using old miniz_oxide and checks .pcraft tiles plus thumbnails.
+
+## Allocation and validation changes
+
+ZIP lookup keys borrow valid UTF-8 entry paths, avoiding a second string allocation per entry. Invalid names keep their previous lossy spelling and duplicate-name lookup still selects the first entry. The bundle writer reserves the complete archive after compression, including its central directory. It rejects entry paths that exceed ZIP's 65,535-byte field before writing and checks that the central-directory size fits its ZIP field. These archive paths are independent of filesystem path limits.
 
 ## Linux and Windows x86-64 validation
 
