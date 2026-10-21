@@ -532,7 +532,7 @@ fn dtf_like_spot_is_written_in_full() {
         assert_eq!(info.len(), 17, "{name}");
         assert_eq!(u16::from_be_bytes([info[14], info[15]]), 60, "{name} solidity");
         assert_eq!(info[16], 2, "{name} spot kind");
-        // RGB occupies samples 0..2, so the spot's identifier is 3.
+        // Photoshop numbers a new document's channels from 3.
         assert_eq!(block(1053).data, 3u32.to_be_bytes(), "{name} channel id");
 
         let back = import("dtf.tif", &r.bytes).unwrap().document;
@@ -665,7 +665,7 @@ fn ink(d: &Document) -> (f32, f32) {
 fn photoshop_transparency_and_spot_tiff(doc: &Document, layers: bool) -> Vec<u8> {
     use photocraft_psd::{Compression, TaggedBlock};
 
-    let opts = PsdExportOptions { merged_matte: false, merged_compression: Compression::Raw, ..Default::default() };
+    let opts = PsdExportOptions { merged_matte: false, merged_compression: Compression::Raw, photoshop_spot_polarity: true, ..Default::default() };
     let (file, _) = document_to_psd_with(doc, &opts);
     let planes = file.decode_merged().unwrap();
     let n = 16;
@@ -850,7 +850,8 @@ fn assert_photoshop_layered_tiff(bytes: &[u8], with_spot: bool) {
 
 /// Photoshop 27's Kato-Karate TIFF stores spot ink inverted: every non-white artwork pixel
 /// has spot 0, and the white background is spot 255. An alpha channel is the other way
-/// around (255 = selected). Both polarities round-trip, in TIFF and in PSD.
+/// around (255 = selected). A PSD keeps storing both planes straight, as earlier versions did,
+/// and a TIFF opened and saved as PSD does the same. Everything round-trips.
 #[test]
 fn spot_ink_is_stored_as_zero_and_alpha_is_not() {
     use photocraft_color::{Color, PixelFormat};
@@ -890,10 +891,9 @@ fn spot_ink_is_stored_as_zero_and_alpha_is_not() {
         let first = 3 + usize::from(file.merged_has_alpha());
         let spot_plane = &merged[first * plane..(first + 1) * plane];
         let alpha_plane = &merged[(first + 1) * plane..(first + 2) * plane];
-        // Background (0,0) and artwork (3,3). Spot: 0 = solid ink, max = paper.
-        // Alpha: max = selected, 0 = empty.
-        assert_stored(spot_plane, 0, depth, false, "psd spot background");
-        assert_stored(spot_plane, (3 * w as usize + 3) * bps, depth, true, "psd spot art");
+        // Background (0,0) and artwork (3,3), both straight: max = solid ink, max = selected.
+        assert_stored(spot_plane, 0, depth, true, "psd spot background");
+        assert_stored(spot_plane, (3 * w as usize + 3) * bps, depth, false, "psd spot art");
         assert_stored(alpha_plane, 0, depth, true, "psd alpha background");
         assert_stored(alpha_plane, (3 * w as usize + 3) * bps, depth, false, "psd alpha art");
         let back = import("pol.psd", &psd.bytes).unwrap().document;
@@ -916,6 +916,11 @@ fn spot_ink_is_stored_as_zero_and_alpha_is_not() {
                 let back = import("pol.tif", &r.bytes).unwrap().document;
                 assert_eq!(back.channels[0].surface.to_interleaved(area), doc.channels[0].surface.to_interleaved(area), "{layers}");
                 assert_eq!(back.channels[1].surface.to_interleaved(area), doc.channels[1].surface.to_interleaved(area), "{layers}");
+                // Saved as PSD: straight planes, and no 1053 (the TIFF's isn't kept on open).
+                let psd = PsdFile::from_bytes(&export(&back, "pol.psd", &ExportOptions::default()).unwrap().bytes).unwrap();
+                let again = psd.decode_merged().unwrap();
+                assert_eq!(again[again.len() - 2 * plane..], merged[(first * plane)..(first + 2) * plane], "{layers} tiff to psd");
+                assert!(psd.resource(1053).is_none(), "{layers} tiff to psd");
             }
         }
     }

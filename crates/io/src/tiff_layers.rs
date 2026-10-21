@@ -21,7 +21,7 @@ use photocraft_raster::Surface;
 
 use crate::flat::{csample, encode_image, image_to_document, layout_for, single_layer, try_buffer};
 use crate::psd_export::PsdExportOptions;
-use crate::psd_import::psd_to_document;
+use crate::psd_import::{PsdImportOptions, psd_to_document_decoded};
 use crate::{ExportOptions, ExportResult, ImportResult, IoError};
 
 /// `true` when saving `doc` as TIFF writes layer data: anything beyond a single Background
@@ -130,8 +130,13 @@ pub(crate) fn import_layered(name: &str, img: &Image, layers: &[u8]) -> Result<I
     });
     // The same nesting limit as opening a PSD (#2940).
     crate::psd_import::check_group_depth(&file)?;
-    let (mut doc, w) = psd_to_document(&file);
+    // Photoshop's TIFFs store spot ink 0 = solid (a PSD is read as earlier versions saved it).
+    let import = PsdImportOptions { photoshop_spot_polarity: true };
+    let (mut doc, w) = psd_to_document_decoded(&file, &photocraft_raster::Interrupt::NONE, None, import).ok_or(IoError::Cancelled)?;
     warnings.extend(w);
+    // Resource 1053 (the channel identifiers) is written afresh on a TIFF save. Kept, it would
+    // follow the document into a PSD, whose spot planes are stored the other way round.
+    doc.metadata.psd_resources.retain(|(id, ..)| *id != crate::channel_map::ALPHA_IDENTIFIERS);
     doc.name = name.to_string();
     if doc.icc_profile.is_none() {
         doc.icc_profile = img.icc.clone().map(Arc::new);
@@ -243,6 +248,8 @@ pub(crate) fn export_layered(doc: &Document, opts: &ExportOptions, ctl: &photocr
         merged_compression: Compression::Raw,
         maximize_compatibility: true,
         document_path: opts.document_path.clone(),
+        // Spot planes as Photoshop's TIFFs store them (0 = solid ink); a PSD save stays as it was.
+        photoshop_spot_polarity: true,
     };
     // TIFF has no palette, bitmap or duotone layout: the PSD model of an Indexed Color, Bitmap
     // or Duotone document is made in its pixel format (RGB or Grayscale), which the PSD exporter
@@ -292,14 +299,11 @@ pub(crate) fn export_layered(doc: &Document, opts: &ExportOptions, ctl: &photocr
     // transparency plane stays out of the IFD (see above); a file with no extra channels keeps
     // it, so a plain transparent TIFF still opens with alpha.
     let write_alpha = has_alpha && kept == 0;
-    // One identifier per extra sample actually stored, replacing any preserved 1053 whose count
-    // described the PSD merged image (which still included transparency).
+    // One identifier per extra sample actually stored. A 1053 kept from an opened PSD lists that
+    // file's channels, the merged transparency's included, so it is never copied.
+    resources.retain(|r| r.id != crate::channel_map::ALPHA_IDENTIFIERS);
     if kept > 0 {
-        resources.retain(|r| r.id != crate::channel_map::ALPHA_IDENTIFIERS);
-        // Photoshop's spot TIFF (RGB, Save Transparency off) stores identifier 3: the spot's
-        // index among the IFD samples, not a 1-based count of user channels.
-        let first = u32::try_from(cc.saturating_add(usize::from(write_alpha))).unwrap_or(u32::MAX);
-        resources.push(ImageResource::new(crate::channel_map::ALPHA_IDENTIFIERS, crate::channel_map::alpha_identifiers_from(first, kept)));
+        resources.push(ImageResource::new(crate::channel_map::ALPHA_IDENTIFIERS, crate::channel_map::alpha_identifiers(kept)));
     }
     // Resource 1022 names a channel of the PSD merged image, which counts the transparency plane.
     // The IFD below does not, so the id moves back by one.
@@ -371,6 +375,10 @@ fn tiff_image_source(doc: &Document, file: &photocraft_psd::PsdFile) -> ImageSou
     }
     if let Some(info) = &mut isd.layer_info {
         for layer in &mut info.layers {
+            // Photoshop sets flag bit 3 on every record it writes, group dividers included (299 of
+            // the 305 dividers in the corpus's Photoshop files). PhotoCraft's PSDs set it on
+            // layers only, unchanged here.
+            layer.flags.0 |= photocraft_psd::layer::LayerFlags::BIT4_USEFUL;
             photoshop_layer_blocks(&mut layer.blocks);
         }
     }
@@ -577,9 +585,8 @@ fn channel_plane(channel: &AlphaChannel, canvas: Rect, sample: CSample) -> Resul
     if bytes.len() != expect {
         return Err(format!("channel \"{}\" does not cover the canvas", channel.name));
     }
-    // Document density is 1 = solid ink. Photoshop's TIFF stores the opposite for a spot.
     if channel.spot.is_some() {
-        crate::pixels::invert_plane(&mut bytes, depth, false);
+        crate::channel_map::photoshop_spot_plane(&mut bytes, depth);
     }
     if sample == CSample::F16 {
         let mut out = Vec::with_capacity(n.saturating_mul(2));
@@ -784,8 +791,7 @@ pub(crate) fn stamp_flat_channels(doc: &Document, img: &mut Image) -> Vec<String
         );
     }
     let quick_id = if quick_last { u16::try_from(color_channels.saturating_add(picked.len()).saturating_sub(1)).ok() } else { None };
-    let first_id = u32::try_from(color_channels).unwrap_or(u32::MAX);
-    match channel_resources(img.meta.photoshop_resources.as_deref(), &names, &picked, quick_id, first_id) {
+    match channel_resources(img.meta.photoshop_resources.as_deref(), &names, &picked, quick_id) {
         Ok(bytes) => img.meta.photoshop_resources = Some(bytes),
         Err(e) => warnings.push(format!("spot channel options were not written to the TIFF: {e}")),
     }
@@ -794,7 +800,7 @@ pub(crate) fn stamp_flat_channels(doc: &Document, img: &mut Image) -> Vec<String
 }
 
 /// Existing Photoshop resources with the channel-name, display-info and quick-mask blocks replaced.
-fn channel_resources(existing: Option<&[u8]>, names: &[&str], channels: &[&AlphaChannel], quick_id: Option<u16>, first_id: u32) -> Result<Vec<u8>, IoError> {
+fn channel_resources(existing: Option<&[u8]>, names: &[&str], channels: &[&AlphaChannel], quick_id: Option<u16>) -> Result<Vec<u8>, IoError> {
     let mut resources = match existing.filter(|b| !b.is_empty()) {
         Some(b) => resources_from_bytes(b)?.0,
         None => Vec::new(),
@@ -805,7 +811,7 @@ fn channel_resources(existing: Option<&[u8]>, names: &[&str], channels: &[&Alpha
     resources.push(ImageResource::new(1006, crate::psd_export::pascal_names_resource(names)));
     resources.push(ImageResource::new(1045, crate::psd_export::unicode_names_resource(names)));
     resources.push(ImageResource::new(crate::channel_map::DISPLAY_INFO, crate::channel_map::display_info(channels, false)));
-    resources.push(ImageResource::new(crate::channel_map::ALPHA_IDENTIFIERS, crate::channel_map::alpha_identifiers_from(first_id, names.len())));
+    resources.push(ImageResource::new(crate::channel_map::ALPHA_IDENTIFIERS, crate::channel_map::alpha_identifiers(names.len())));
     if let Some(id) = quick_id {
         let mut data = id.to_be_bytes().to_vec();
         data.push(0);
@@ -834,19 +840,18 @@ pub(crate) fn channels_from_extras(doc: &mut Document, img: &Image) -> Vec<Strin
     // its own display record), ahead of the channels the extra samples hold.
     let skip = usize::from(img.layout().has_alpha() && all_names.len() == img.meta.extra_samples.len().saturating_add(1));
     let names = all_names.get(skip..).unwrap_or_default();
-    let kept = img.meta.extra_samples.len().min(codecs::MAX_EXTRA_SAMPLES);
     let spots = if let Some(r) = resources.iter().find(|r| r.id == crate::channel_map::DISPLAY_INFO) {
-        crate::channel_map::spot_flags(&r.data, true, kept.saturating_add(skip)).split_off(skip)
+        crate::channel_map::spot_flags(&r.data, true, skip)
     } else if let Some(r) = resources.iter().find(|r| r.id == crate::channel_map::DISPLAY_INFO_OLD) {
-        crate::channel_map::spot_flags(&r.data, false, kept.saturating_add(skip)).split_off(skip)
+        crate::channel_map::spot_flags(&r.data, false, skip)
     } else {
-        vec![false; kept]
+        Vec::new()
     };
     let start = doc.channels.len();
     let n_px = (w as usize).saturating_mul(h as usize);
     for (k, e) in img.meta.extra_samples.iter().take(codecs::MAX_EXTRA_SAMPLES).enumerate() {
-        let invert = spots.get(k).copied().unwrap_or(false);
-        match mask_from_plane(&e.data, w, h, n_px, img.sample_type(), doc.depth, invert) {
+        let spot = spots.get(k).copied().unwrap_or(false);
+        match mask_from_plane(&e.data, w, h, n_px, img.sample_type(), doc.depth, spot) {
             Ok(surface) => {
                 let name = names.get(k).cloned().filter(|s| !s.is_empty()).unwrap_or_else(|| format!("Alpha {}", k + 1));
                 doc.channels.push(AlphaChannel::new(name, surface));
@@ -877,8 +882,8 @@ pub(crate) fn channels_from_extras(doc: &mut Document, img: &Image) -> Vec<Strin
 }
 
 /// Native-endian extra-sample bytes → a grayscale surface at the document depth.
-/// `invert` turns Photoshop spot ink (0 = solid) into document density (1 = solid).
-fn mask_from_plane(data: &[u8], w: u32, h: u32, n: usize, from: CSample, depth: SampleType, invert: bool) -> Result<Surface, String> {
+/// `photoshop_spot`: the sample is a spot channel in Photoshop's polarity (0 = solid ink).
+fn mask_from_plane(data: &[u8], w: u32, h: u32, n: usize, from: CSample, depth: SampleType, photoshop_spot: bool) -> Result<Surface, String> {
     let rect = Rect::new(0, 0, w as i32, h as i32);
     let mut bytes = match (from, depth) {
         (CSample::U8, SampleType::U8) | (CSample::U16, SampleType::U16) | (CSample::F32, SampleType::F32) => {
@@ -900,8 +905,8 @@ fn mask_from_plane(data: &[u8], w: u32, h: u32, n: usize, from: CSample, depth: 
         }
         _ => return Err(format!("an extra TIFF sample ({from:?}) does not match the document depth and was dropped")),
     };
-    if invert {
-        crate::pixels::invert_plane(&mut bytes, depth, false);
+    if photoshop_spot {
+        crate::channel_map::photoshop_spot_plane(&mut bytes, depth);
     }
     if bytes.len() != n.saturating_mul(depth.bytes()) {
         return Err("an extra TIFF sample did not match the image and was dropped".into());

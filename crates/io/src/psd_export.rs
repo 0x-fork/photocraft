@@ -50,6 +50,11 @@ pub struct PsdExportOptions {
     /// The path of the document's own file: linked smart objects are resolved against it
     /// ([`crate::doc_path::resolve`]) before they are read and embedded.
     pub document_path: Option<std::path::PathBuf>,
+    /// Store spot channels as Photoshop's TIFFs do, 0 = solid ink (see
+    /// [`crate::channel_map::photoshop_spot_plane`]). Only the layered TIFF sets it: a PSD keeps
+    /// writing the document's density as it is (1 = solid ink), so files saved by earlier
+    /// versions keep reading the same.
+    pub photoshop_spot_polarity: bool,
 }
 
 impl Default for PsdExportOptions {
@@ -61,6 +66,7 @@ impl Default for PsdExportOptions {
             merged_compression: Compression::Rle,
             maximize_compatibility: true,
             document_path: None,
+            photoshop_spot_polarity: false,
         }
     }
 }
@@ -484,8 +490,6 @@ impl Ex {
         }
         flags.set_hidden(!l.visible);
         flags.set_transparency_protected(l.locks.transparency);
-        // Bit 3 (with bit 4 clear) is the flag Photoshop sets on every layer it writes.
-        flags.0 |= LayerFlags::BIT4_USEFUL;
         let mut blocks = vec![TaggedBlock::unicode_name(&l.name), TaggedBlock::layer_id(id)];
         let lspf = blocks::lspf_from_locks(&l.locks);
         if lspf != 0 {
@@ -1077,8 +1081,6 @@ impl Ex {
             match &l.content {
                 LayerContent::Group(g) => {
                     let id = self.fresh_id();
-                    let mut divider_flags = LayerFlags(0);
-                    divider_flags.0 |= LayerFlags::BIT4_USEFUL;
                     self.records.push(LayerRecord {
                         channels: self.empty_channels(),
                         blending_ranges: BlendingRanges::full(self.cc),
@@ -1088,7 +1090,6 @@ impl Ex {
                             TaggedBlock::layer_id(id),
                             TaggedBlock::section_divider(SectionType::BoundingDivider, None, None),
                         ],
-                        flags: divider_flags,
                         ..Default::default()
                     });
                     self.emit(&g.children, tick);
@@ -1710,10 +1711,11 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
     };
     for a in &extra {
         let s = if a.surface.format() != ex.mask_fmt { a.surface.convert(ex.mask_fmt) } else { a.surface.clone() };
-        let bytes = s.to_interleaved(canvas);
-        // Spot ink is stored inverted (0 = solid, max = paper), the same way Multichannel
-        // and a Photoshop TIFF do. An alpha channel stays straight (max = selected).
-        planes.extend(deinterleave(&bytes, 1, sample, &[a.spot.is_some()]).remove(0));
+        let mut bytes = s.to_interleaved(canvas);
+        if opts.photoshop_spot_polarity && a.spot.is_some() {
+            crate::channel_map::photoshop_spot_plane(&mut bytes, sample);
+        }
+        planes.extend(deinterleave(&bytes, 1, sample, &[false]).remove(0));
     }
     let channels = (cc + usize::from(has_alpha) + extra.len()) as u16;
     let mode = if duotone_inks.is_some() { PsdMode::Duotone } else { psd_mode(fmt.mode) };
@@ -1744,7 +1746,6 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
         resources.push(ImageResource::new(1006, pascal_names_resource(&names)));
         resources.push(ImageResource::new(1045, unicode_names_resource(&names)));
         resources.push(ImageResource::new(crate::channel_map::DISPLAY_INFO, crate::channel_map::display_info(&extra, has_alpha)));
-        resources.push(ImageResource::new(crate::channel_map::ALPHA_IDENTIFIERS, crate::channel_map::alpha_identifiers(extra.len())));
     }
     if let Some(id) = quick_mask_id {
         let mut data = id.to_be_bytes().to_vec();
@@ -1827,10 +1828,6 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
         if !keep_imported_resource(doc, *id, data) {
             continue;
         }
-        // A fresh 1053 was written with the extra channels. A preserved copy would be a second one.
-        if *id == crate::channel_map::ALPHA_IDENTIFIERS && !extra.is_empty() {
-            continue;
-        }
         let mut r = ImageResource::new(*id, data.to_vec());
         r.name = legacy_name(name);
         resources.push(r);
@@ -1881,7 +1878,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
         resources,
         layer_info,
         layer_info_placement: placement,
-        global_layer_mask: (has_layers || !global_blocks.is_empty()).then(GlobalLayerMask::photoshop_default),
+        global_layer_mask: (has_layers || !global_blocks.is_empty()).then(GlobalLayerMask::default),
         global_blocks,
         layer_mask_trailing: Vec::new(),
         image_data,
@@ -1956,6 +1953,69 @@ mod tests {
         let back = crate::import("flat.psd", &out.to_bytes().unwrap()).unwrap().document;
         let bg = &back.layers[0];
         assert!(back.layers.len() == 1 && bg.name == "Background" && bg.locks.transparency && bg.locks.position, "{:?}", bg.locks);
+    }
+
+    /// A layered document with a spot and an alpha channel. Each channel holds 100 %, 25 %, 75 %
+    /// and 0 % in four columns, the layout of the Photoshop spot oracles.
+    fn spot_and_alpha_document() -> Document {
+        let mut doc = document(4, 1);
+        doc.layers.push(Layer::group("Group", vec![Layer::raster("Layer 1", doc.pixel_format())]));
+        let channel = |name: &str| {
+            let mut s = Surface::new(PixelFormat::GRAY8);
+            s.write_interleaved(doc.bounds(), &[255, 64, 191, 0]);
+            photocraft_doc::AlphaChannel::new(name, s)
+        };
+        let mut spot = channel("Spot Color 1");
+        spot.spot = Some((photocraft_doc::Color::rgb(0.0, 0.6, 1.0), 0.0));
+        let alpha = channel("Alpha 1");
+        doc.channels.extend([spot, alpha]);
+        doc
+    }
+
+    /// Photoshop's spot polarity is for the layered TIFF only: a PSD stores a spot plane and an
+    /// alpha plane straight (255 = solid ink, 255 = selected) as before, so files saved by earlier
+    /// versions and this one read the same. It writes no resource 1053, an empty global layer
+    /// mask, and flag bit 3 on the layers but not on the group's closing divider. Opening it gives
+    /// the same ink back.
+    #[test]
+    fn psd_stores_spot_and_alpha_planes_straight() {
+        let doc = spot_and_alpha_document();
+        let written = |photoshop_spot_polarity| {
+            let opts = PsdExportOptions { photoshop_spot_polarity, ..Default::default() };
+            PsdFile::from_bytes(&document_to_psd_with(&doc, &opts).0.to_bytes().unwrap()).unwrap()
+        };
+        let extra_planes = |file: &PsdFile| {
+            let planes = file.decode_merged().unwrap();
+            planes[planes.len() - 2 * 4..].to_vec()
+        };
+        let file = written(false);
+        assert_eq!(extra_planes(&file), [255, 64, 191, 0, 255, 64, 191, 0], "spot, then alpha");
+        assert!(file.resource(crate::channel_map::ALPHA_IDENTIFIERS).is_none());
+        assert_eq!(file.global_layer_mask.as_ref().map(|m| m.data.len()), Some(0));
+        let flags: Vec<u8> = file.layers().iter().map(|l| l.flags.0 & LayerFlags::BIT4_USEFUL).collect();
+        assert_eq!(flags, [0, LayerFlags::BIT4_USEFUL, LayerFlags::BIT4_USEFUL], "closing divider, layer, group");
+        let back = crate::import("spot.psd", &file.to_bytes().unwrap()).unwrap().document;
+        assert!(back.channels[0].spot.is_some() && back.channels[1].spot.is_none());
+        for c in &back.channels {
+            assert_eq!(c.surface.to_interleaved(back.bounds()), [255, 64, 191, 0], "{}", c.name);
+        }
+        // The layered TIFF's switch inverts the spot plane only.
+        assert_eq!(extra_planes(&written(true)), [0, 191, 64, 255, 255, 64, 191, 0]);
+    }
+
+    /// Resource 1053 (alpha identifiers, in every Photoshop file with an extra channel) is kept
+    /// from an opened PSD and written back unchanged, as before.
+    #[test]
+    fn psd_alpha_identifiers_survive_open_and_save() {
+        let mut file = document_to_psd(&spot_and_alpha_document());
+        let ids = [0, 0, 0, 3, 0, 0, 0, 2];
+        file.resources.push(ImageResource::new(crate::channel_map::ALPHA_IDENTIFIERS, ids.to_vec()));
+        let opened = crate::import("ps.psd", &file.to_bytes().unwrap()).unwrap().document;
+        let saved = crate::export(&opened, "x.psd", &crate::ExportOptions::default()).unwrap();
+        let again = PsdFile::from_bytes(&saved.bytes).unwrap();
+        let kept: Vec<&ImageResource> = again.resources.iter().filter(|r| r.id == crate::channel_map::ALPHA_IDENTIFIERS).collect();
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].data, ids);
     }
 
     #[test]
