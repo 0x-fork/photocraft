@@ -82,13 +82,15 @@ what an agent can't finish alone.
 - **Estimate:** 80–140 h.
 
 ### G8. Type depth
-- **Missing:** type on a path (TYPE-218-1), paragraph direction UI (TYPE-218-2), complex-script
-  fallback fonts and golden tests (TYPE-218-3), OpenType Numerals and Stylistic Sets submenus
-  (TYPE-218-5; the Character panel buttons landed 2026-10-11, #3752), live Warp Text preview
-  (TYPE-218-7, #2689), "rasterize and continue" for distort/perspective on type
-  (TYPE-218-9), text free transform (#2630). Done since the re-measure: manual and optical kerning
-  with PSD round trip (TYPE-218-6, #206), variable-font axes (TYPE-218-4, #2985).
-- **Evidence:** scorecard Type: 3 done, 2 partial, 4 missing. 2026-10-11: 2/3/4/5 clicks select
+- **Missing:** type on a path beyond rigid glyph placement (TYPE-218-1 partial, #4365),
+  paragraph direction UI (TYPE-218-2), complex-script fallback fonts and golden tests
+  (TYPE-218-3), OpenType Numerals and Stylistic Sets submenus
+  (TYPE-218-5; the Character panel buttons landed 2026-10-11, #3752), text free transform
+  (#2630). Done since the re-measure: manual and optical kerning with PSD round trip
+  (TYPE-218-6, #206), variable-font axes (TYPE-218-4, #2985), Warp on live type without a
+  rasterize prompt, as in Photoshop (TYPE-218-9, #3004), and the live Warp Text preview that opens
+  with the layer's warp (TYPE-218-7, #2689).
+- **Evidence:** scorecard Type: 5 done, 3 partial, 1 missing. 2026-10-11: 2/3/4/5 clicks select
   word, line, paragraph and all text, with tests (TYPE-218-8, #3493). The Type tool froze the app for
   60 s on one macOS machine (#2518).
 - **Estimate:** 120–200 h.
@@ -305,6 +307,7 @@ what an agent can't finish alone.
 | 2026-10-13 | minor | G10: Cineon read landed (10-bit gray/RGB, shares the DPX path); Cineon write remains open |
 | 2026-10-12 | minor | G10: DPX read and write (#1049); Cineon remains open |
 | 2026-10-12 | minor | G4: checkbox-only Brush Settings rows preserve the open controls and Smoothing settings (#4283); no readiness percentage or estimate changed |
+| 2026-10-11 | minor | G8: the live Warp Text preview (TYPE-218-7) moved to done; TYPE-218-9 listed as done; Type evidence recounted to 5/3/1 (TYPE-218-1 type on a path is partial on main) |
 | 2026-10-12 | minor | G11: Load/Save Actions `.atn` landed (AUTO-219-2 partial); remaining panel work listed |
 | 2026-10-12 | minor | Refreshed against main: G5 items fixed by #2480, #2327, #2609, #2684, #2675, #2556, #2396, #2527, #2625 and TOOL-214-5/#2442; G7 TOOL-214-7 and Transform On Drop done; G2 #2377 fixed (#2417); G9 UI scale (UI-217-9) and Stamp Visible (UI-217-22) done, prefs 27 of 156; G10 #2225 done (#2482); G13 Khmer, Lao, Myanmar fallback (#3259); G14 CR3 line; G17 Windows ARM64 done (DIST-220-2) |
 | 2026-10-11 | minor | G7: Tilt-Shift's band (lines, turn dots) and Spin Blur's pins (outline handles, blur-angle ring) on the image; Path Blur remains a dialog |
