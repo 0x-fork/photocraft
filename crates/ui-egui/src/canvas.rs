@@ -8118,6 +8118,12 @@ mod tests {
                     crate::distort_ui::pointer(&mut app, ToolEvent::Down { x, y, pressure: 1.0 }, egui::Modifiers::NONE);
                     crate::distort_ui::pointer(&mut app, ToolEvent::Up { x, y }, egui::Modifiers::NONE);
                 }
+            } else if command == "edit.perspectiveWarp" {
+                // One plane, dragged out across the guide.
+                crate::distort_ui::pointer(&mut app, ToolEvent::Down { x: 60.0, y: 70.0, pressure: 1.0 }, egui::Modifiers::NONE);
+                crate::distort_ui::pointer(&mut app, ToolEvent::Move { x: 240.0, y: 190.0, pressure: 1.0 }, egui::Modifiers::NONE);
+                crate::distort_ui::pointer(&mut app, ToolEvent::Up { x: 240.0, y: 190.0 }, egui::Modifiers::NONE);
+                assert_eq!(app.distort.perspective.as_ref().map(|s| s.planes.len()), Some(1), "the drag makes a plane");
             }
             let mut view = app.ui.views[0].clone();
             view.zoom = 1.0;
@@ -8151,21 +8157,27 @@ mod tests {
             // The guide: a vertical line at x = 150 across the whole view.
             let is_guide = |s: &egui::Shape| matches!(s, egui::Shape::LineSegment { points, .. } if points.iter().all(|p| (p.x - 150.0).abs() < 0.01) && (points[1].y - points[0].y).abs() > 200.0);
             let guide = shapes.iter().position(|s| is_guide(s));
-            // Over the guide: Puppet Warp's mesh lines, the Vanishing Point plane's outline.
+            // Over the guide: Puppet Warp's mesh lines, the Vanishing Point plane's outline, the
+            // Perspective Warp plane's outline (exactly the dragged rectangle).
+            let plane = Rect::from_min_max(pos2(60.0, 70.0), pos2(240.0, 190.0));
             let overlay = shapes.iter().position(|s| match s {
-                egui::Shape::LineSegment { points, .. } => !is_guide(s) && points.iter().all(|p| layer.expand(3.0).contains(*p)),
-                egui::Shape::Path(p) => p.closed && p.points.len() == 4,
+                egui::Shape::LineSegment { points, .. } => {
+                    command != "edit.perspectiveWarp" && !is_guide(s) && points.iter().all(|p| layer.expand(3.0).contains(*p))
+                }
+                egui::Shape::Path(p) => {
+                    p.closed
+                        && p.points.len() == 4
+                        && (command != "edit.perspectiveWarp"
+                            || (Rect::from_points(&p.points).min - plane.min).length() + (Rect::from_points(&p.points).max - plane.max).length() < 0.5)
+                }
                 _ => false,
             });
             let (Some(preview), Some(guide)) = (preview, guide) else {
                 panic!("{command}: all painted: preview {preview:?}, guide {guide:?}");
             };
             assert!(preview < guide, "{command}: the guide ({guide}) draws over the warped pixels ({preview})");
-            if command != "edit.perspectiveWarp" {
-                // Perspective Warp has no plane yet: nothing of its own over the guide.
-                let Some(overlay) = overlay else { panic!("{command}: its mesh or plane is drawn") };
-                assert!(guide < overlay, "{command}: the mesh or plane ({overlay}) draws over the guide ({guide})");
-            }
+            let Some(overlay) = overlay else { panic!("{command}: its mesh or plane is drawn") };
+            assert!(guide < overlay, "{command}: the mesh or plane ({overlay}) draws over the guide ({guide})");
         }
     }
 
