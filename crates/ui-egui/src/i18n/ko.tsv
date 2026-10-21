@@ -3257,6 +3257,7 @@ cameraData	Lens	렌즈
 	Show Layers	레이어 표시
 	Thumbnail Contents	축소판 내용
 	Thumbnail Size	축소판 크기
+	Use Default Masks on Fill Layers	칠 레이어에 기본 마스크 사용
 	Expand New Effects	새 효과 펼치기
 	Add “copy” to Copied Layers and Groups	복사한 레이어 및 그룹에 “복사” 추가
 	Preview on canvas when reordering layers	레이어 순서 변경 시 캔버스에서 미리보기

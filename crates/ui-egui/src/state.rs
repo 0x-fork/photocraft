@@ -32,6 +32,7 @@ pub struct LayersPanelOptions {
     #[serde(skip)]
     pub thumbnail_contents: LayerThumbnailContents,
     pub show_filters: bool,
+    pub use_default_masks_on_fill_layers: bool,
     pub expand_new_effects: bool,
     pub add_copy_to_copied_layers_and_groups: bool,
     pub preview_on_canvas_when_reordering_layers: bool,
@@ -45,6 +46,7 @@ impl LayersPanelOptions {
             thumbnail_size: LayerThumbnailSize::Medium,
             thumbnail_contents: LayerThumbnailContents::EntireDocument,
             show_filters: true,
+            use_default_masks_on_fill_layers: true,
             expand_new_effects: true,
             add_copy_to_copied_layers_and_groups: true,
             preview_on_canvas_when_reordering_layers: true,

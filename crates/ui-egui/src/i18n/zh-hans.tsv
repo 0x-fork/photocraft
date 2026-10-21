@@ -2690,6 +2690,7 @@ cameraData	Lens	镜头
 	Show Layers	显示图层
 	Thumbnail Contents	缩略图内容
 	Thumbnail Size	缩略图大小
+	Use Default Masks on Fill Layers	在填充图层上使用默认蒙版
 	Expand New Effects	展开新效果
 	Add “copy” to Copied Layers and Groups	为复制的图层和组添加“副本”
 	Preview on canvas when reordering layers	重新排列图层时在画布上预览

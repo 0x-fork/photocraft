@@ -238,6 +238,8 @@ fn options_body(ui: &mut Ui, draft: &mut LayersPanelOptions) {
         ui.add_space(4.0);
     });
     ui.add_space(9.0);
+    ui.checkbox(&mut draft.use_default_masks_on_fill_layers, tl!("Use Default Masks on Fill Layers"));
+    ui.add_space(3.0);
     ui.checkbox(&mut draft.expand_new_effects, tl!("Expand New Effects"));
     ui.add_space(3.0);
     ui.checkbox(&mut draft.add_copy_to_copied_layers_and_groups, tl!("Add “copy” to Copied Layers and Groups"));
@@ -346,6 +348,7 @@ mod tests {
         assert_eq!(options.thumbnail_size, LayerThumbnailSize::Medium);
         assert_eq!(options.thumbnail_contents, LayerThumbnailContents::EntireDocument);
         assert!(options.show_filters);
+        assert!(options.use_default_masks_on_fill_layers);
         assert!(options.expand_new_effects);
         assert!(options.add_copy_to_copied_layers_and_groups);
         assert!(options.preview_on_canvas_when_reordering_layers);
@@ -385,6 +388,26 @@ mod tests {
         assert!(restored.layers_panel_dialog.is_none());
     }
 
+    /// With the option off a new fill layer has no mask and the mask is not targeted; with it on the new layer's mask is targeted.
+    #[test]
+    fn disabling_default_fill_masks_never_targets_an_absent_mask() {
+        let mut session = photocraft_engine::Session::new();
+        session.execute("file.new", json!({"width": 32, "height": 24})).unwrap();
+        let mut app = PhotocraftApp::new(session, crate::Services::default());
+        app.ui.layers_panel_options.use_default_masks_on_fill_layers = false;
+        persist_options(&mut app);
+        app.run("layer.newFillLayer.solidColor", json!({"color": "#778899"})).unwrap();
+        let layer = app.session.active().and_then(|st| st.active_layer.and_then(|id| st.doc.layer(id))).unwrap();
+        assert!(layer.mask.is_none());
+        assert!(!app.ui.mask_target && !app.ui.vector_mask_target);
+        app.ui.layers_panel_options.use_default_masks_on_fill_layers = true;
+        persist_options(&mut app);
+        app.run("layer.newFillLayer.gradient", json!({})).unwrap();
+        let layer = app.session.active().and_then(|st| st.active_layer.and_then(|id| st.doc.layer(id))).unwrap();
+        assert!(layer.mask.is_some());
+        assert!(app.ui.mask_target);
+    }
+
     /// Every option, including the mask badges, goes to the preferences and comes back from them.
     #[test]
     fn prefs_options_save_and_restore_all_switches() {
@@ -395,6 +418,7 @@ mod tests {
             thumbnail_size: LayerThumbnailSize::Large,
             thumbnail_contents: LayerThumbnailContents::EntireDocument,
             show_filters: false,
+            use_default_masks_on_fill_layers: false,
             expand_new_effects: false,
             add_copy_to_copied_layers_and_groups: false,
             preview_on_canvas_when_reordering_layers: false,

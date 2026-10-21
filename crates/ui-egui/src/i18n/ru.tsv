@@ -3011,6 +3011,7 @@ cameraData	Lens	Объектив
 	Show Layers	Показать слои
 	Thumbnail Contents	Содержимое миниатюр
 	Thumbnail Size	Размер миниатюр
+	Use Default Masks on Fill Layers	Использовать маски по умолчанию для слоёв-заливок
 	Expand New Effects	Раскрывать новые эффекты
 	Add “copy” to Copied Layers and Groups	Добавлять «копия» к дублированным слоям и группам
 	Preview on canvas when reordering layers	Предпросмотр на холсте при изменении порядка слоёв

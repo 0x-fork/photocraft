@@ -3755,6 +3755,7 @@ cameraData	Lens	Об'єктив
 	Show Layers	Показати шари
 	Thumbnail Contents	Вміст мініатюр
 	Thumbnail Size	Розмір мініатюр
+	Use Default Masks on Fill Layers	Використовувати типові маски для шарів заливки
 	Expand New Effects	Розгортати нові ефекти
 	Add “copy” to Copied Layers and Groups	Додавати «копія» до скопійованих шарів і груп
 	Preview on canvas when reordering layers	Попередній перегляд на полотні під час зміни порядку шарів

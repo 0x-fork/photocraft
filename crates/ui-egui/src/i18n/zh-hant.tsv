@@ -2660,6 +2660,7 @@ cameraData	Lens	鏡頭
 	Show Layers	顯示圖層
 	Thumbnail Contents	縮圖內容
 	Thumbnail Size	縮圖大小
+	Use Default Masks on Fill Layers	在填色圖層使用預設遮色片
 	Expand New Effects	展開新效果
 	Add “copy” to Copied Layers and Groups	為複製的圖層和群組加上「副本」
 	Preview on canvas when reordering layers	重新排列圖層時在畫布上預覽

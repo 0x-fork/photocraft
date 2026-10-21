@@ -3123,6 +3123,70 @@ mod layers_panel_parity_tests {
         assert!(s.active().unwrap().fx_collapsed.contains(&target));
     }
 
+    /// New Solid Color and Gradient fill layers get the default mask only while Use Default Masks on Fill Layers is on.
+    #[test]
+    fn fill_layers_respect_use_default_masks_option() {
+        let (mut s, _) = new_session();
+        option(&mut s, "useDefaultMasksOnFillLayers", false);
+        let new = s.execute("layer.newFillLayer.solidColor", json!({"color": "#112233"})).unwrap();
+        let id = LayerId(new["layer"].as_u64().unwrap());
+        assert!(s.active().unwrap().doc.layer(id).unwrap().mask.is_none());
+        option(&mut s, "useDefaultMasksOnFillLayers", true);
+        let new = s.execute("layer.newFillLayer.gradient", json!({})).unwrap();
+        let id = LayerId(new["layer"].as_u64().unwrap());
+        assert!(s.active().unwrap().doc.layer(id).unwrap().mask.is_some());
+    }
+
+    /// With the option off only the default reveal-all mask goes away: an active selection still
+    /// becomes the layer mask and an explicit path still becomes the vector mask (path first).
+    #[test]
+    fn fill_layers_without_default_masks_keep_selection_and_explicit_path_masks() {
+        const KINDS: [(&str, &str); 3] = [
+            ("layer.newFillLayer.solidColor", r##"{"color": "#112233"}"##),
+            ("layer.newFillLayer.gradient", "{}"),
+            ("layer.newFillLayer.pattern", r#"{"pattern": "Checkerboard"}"#),
+        ];
+        let path = json!({"subpaths": [{"closed": true, "knots": [[2, 2], [10, 2], [10, 10], [2, 10]]}]});
+        let (mut s, _) = new_session();
+        option(&mut s, "useDefaultMasksOnFillLayers", false);
+        // Creates the fill layer; returns its raster mask and whether it has a vector mask.
+        let create = |s: &mut Session, cmd: &str, params: &str, path: Option<&Value>| {
+            let mut p: Value = serde_json::from_str(params).unwrap();
+            if let Some(path) = path {
+                p["path"] = path.clone();
+            }
+            let id = LayerId(s.execute(cmd, p).unwrap()["layer"].as_u64().unwrap());
+            let l = s.active().unwrap().doc.layer(id).unwrap();
+            (l.mask.clone(), l.vector_mask.is_some())
+        };
+
+        for (cmd, params) in KINDS {
+            let (mask, vector) = create(&mut s, cmd, params, None);
+            assert!(mask.is_none() && !vector, "{cmd}: no selection, no path: no mask at all");
+        }
+
+        s.execute("select.rect", json!({"x": 4, "y": 4, "width": 8, "height": 6})).unwrap();
+        for (cmd, params) in KINDS {
+            let (mask, vector) = create(&mut s, cmd, params, None);
+            let mask = mask.unwrap_or_else(|| panic!("{cmd}: the selection still becomes the layer mask"));
+            assert!(!vector, "{cmd}");
+            assert!(mask.surface.pixel(6, 6)[0] > 0.99, "{cmd}: inside the selection reveals");
+            assert!(mask.surface.pixel(20, 12)[0] < 0.01, "{cmd}: outside the selection hides");
+        }
+
+        // An explicit path wins over the selection, as with the option on.
+        for selected in [true, false] {
+            if !selected {
+                s.execute("select.deselect", json!({})).unwrap();
+            }
+            for (cmd, params) in KINDS {
+                let (mask, vector) = create(&mut s, cmd, params, Some(&path));
+                assert!(vector, "{cmd}: the explicit path becomes the vector mask (selection: {selected})");
+                assert!(mask.is_none(), "{cmd}: no raster mask next to the vector mask (selection: {selected})");
+            }
+        }
+    }
+
     /// Whether new effects start expanded is view state: it adds no history step, and editing an existing effect keeps its disclosure.
     #[test]
     fn expand_new_effects_is_view_state_and_keeps_edit_history_clean() {

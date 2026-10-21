@@ -3679,6 +3679,7 @@ cameraData	Lens	レンズ
 	Show Layers	レイヤーを表示
 	Thumbnail Contents	サムネールの内容
 	Thumbnail Size	サムネールのサイズ
+	Use Default Masks on Fill Layers	塗りつぶしレイヤーにデフォルトのマスクを使用
 	Expand New Effects	新しい効果を展開
 	Add “copy” to Copied Layers and Groups	コピーしたレイヤーとグループの名前に「コピー」を追加
 	Preview on canvas when reordering layers	レイヤーの並べ替え時にカンバスでプレビュー

@@ -1247,13 +1247,24 @@ impl PhotocraftApp {
             jobs_ui::run(self, id, params)
         };
         let creates_adjustment_or_fill = id.starts_with("layer.newAdjustmentLayer.") || id.starts_with("layer.newFillLayer.");
-        if r.is_ok() && (ADDS_LAYER_MASK.contains(&id) || creates_adjustment_or_fill) {
-            // Adding a layer mask targets it, as in Photoshop (#2166).
+        if r.is_ok() && ADDS_LAYER_MASK.contains(&id) {
+            // Adding an explicit mask targets it, as in Photoshop (#2166).
             self.ui.mask_target = true;
             self.ui.vector_mask_target = false;
-            // Properties still shows the new adjustment or fill layer's settings, not its mask,
-            // as in Photoshop (#3369): clicking the mask thumbnail switches it to the mask.
-            self.ui.properties_layer = if creates_adjustment_or_fill { self.session.active().and_then(|st| st.active_layer).map(|l| l.0) } else { None };
+            self.ui.properties_layer = None;
+        } else if r.is_ok() && creates_adjustment_or_fill {
+            // Panel Options may suppress a fill layer's default mask. Never target a
+            // nonexistent mask; an active path creates a vector mask instead.
+            let masks = self
+                .session
+                .active()
+                .and_then(|st| st.active_layer.and_then(|id| st.doc.layer(id)))
+                .map(|layer| (layer.mask.is_some(), layer.vector_mask.is_some()))
+                .unwrap_or((false, false));
+            self.ui.mask_target = masks.0;
+            self.ui.vector_mask_target = !masks.0 && masks.1;
+            // Keep Properties on the new layer contents, as on main (#3369).
+            self.ui.properties_layer = self.session.active().and_then(|st| st.active_layer).map(|l| l.0);
         }
         if r.is_ok() && creates_adjustment_or_fill {
             // Properties comes to the front, shown and expanded, so the new layer's settings can
