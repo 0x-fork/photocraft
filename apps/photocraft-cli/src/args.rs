@@ -7,11 +7,13 @@
 //! something.
 
 use std::ffi::OsString;
+use std::fmt;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 
-use clap::builder::NonEmptyStringValueParser;
 use clap::error::ErrorKind;
 use clap::{ArgAction, ArgGroup, ArgMatches, Args, CommandFactory, FromArgMatches, Parser, Subcommand};
+use photocraft_automation::args::{AutomationArgs, ControlArgs, control_port};
 use photocraft_codecs::{JpegFormat, TiffCompression};
 use photocraft_io::{DdsCompression, DpxBits, TgaBits};
 use serde_json::Value;
@@ -195,32 +197,17 @@ pub(crate) struct CommandsArgs {
     pub(crate) filter: Option<String>,
 }
 
-// The control token and the folders automation may touch: shared by `mcp` and `serve`.
-#[derive(Args)]
-pub(crate) struct ControlArgs {
-    /// The control token (64 hex digits)
-    #[arg(long, value_name = "64-HEX", value_parser = NonEmptyStringValueParser::new(), conflicts_with = "control_token_file")]
-    pub(crate) control_token: Option<String>,
-    /// A file holding the control token, used instead of --control-token (a server creates it
-    /// when missing)
-    #[arg(long, value_name = "PATH")]
-    pub(crate) control_token_file: Option<PathBuf>,
-    /// The folder automation may read from (none without it)
-    #[arg(long, value_name = "DIR")]
-    pub(crate) automation_read_root: Option<PathBuf>,
-    /// The folder automation may write to (none without it)
-    #[arg(long, value_name = "DIR")]
-    pub(crate) automation_write_root: Option<PathBuf>,
-}
-
 /// Run the MCP server on stdio (headless engine, or bridge to a running `photocraft --control <port>`)
 #[derive(Args)]
 pub(crate) struct McpArgs {
-    /// Bridge to the PhotoCraft app listening here instead of a headless engine
-    #[arg(long, value_name = "127.0.0.1:PORT", value_parser = NonEmptyStringValueParser::new())]
-    pub(crate) bridge: Option<String>,
+    /// Bridge to the PhotoCraft app listening here instead of a headless engine; a bare port means
+    /// 127.0.0.1:<PORT>
+    #[arg(long, value_name = "127.0.0.1:PORT", value_parser = bridge)]
+    pub(crate) bridge: Option<Bridge>,
     #[command(flatten)]
     pub(crate) control: ControlArgs,
+    #[command(flatten)]
+    pub(crate) automation: AutomationArgs,
 }
 
 /// Keep one headless session open and answer JSON lines on stdio, or on 127.0.0.1:<PORT>
@@ -232,10 +219,12 @@ pub(crate) struct McpArgs {
 #[derive(Args)]
 pub(crate) struct ServeArgs {
     /// Listen on 127.0.0.1:<PORT> instead of stdio
-    #[arg(long, value_name = "PORT")]
+    #[arg(long, value_name = "PORT", value_parser = control_port)]
     pub(crate) port: Option<u16>,
     #[command(flatten)]
     pub(crate) control: ControlArgs,
+    #[command(flatten)]
+    pub(crate) automation: AutomationArgs,
 }
 
 /// Why a value was refused: clap prints it after the flag and its value (exit 2).
@@ -251,6 +240,9 @@ enum ValueError {
     TiffCompression,
     #[error("expected baseline, optimized or progressive")]
     JpegFormat,
+    /// Why a `--bridge` value is refused.
+    #[error("expected a port, 0-65535 (--bridge also takes 127.0.0.1:<PORT>)")]
+    Bridge,
 }
 
 fn tga_bits(s: &str) -> Result<TgaBits, ValueError> {
@@ -276,6 +268,33 @@ fn tiff_compression(s: &str) -> Result<TiffCompression, ValueError> {
 
 fn jpeg_format(s: &str) -> Result<JpegFormat, ValueError> {
     JpegFormat::parse(s).ok_or(ValueError::JpegFormat)
+}
+
+/// Where `mcp --bridge` connects. Shown as the address: `127.0.0.1:<PORT>` for a port.
+#[derive(Clone)]
+pub(crate) enum Bridge {
+    /// A bare port: the app on 127.0.0.1.
+    Port(u16),
+    /// `host:port`, as given. Whether the host is loopback is the bridge's to say.
+    Addr(String),
+}
+
+impl fmt::Display for Bridge {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Bridge::Port(port) => SocketAddr::from((Ipv4Addr::LOCALHOST, *port)).fmt(f),
+            Bridge::Addr(addr) => f.write_str(addr),
+        }
+    }
+}
+
+/// `mcp --bridge`: a port, or `host:port`.
+fn bridge(s: &str) -> Result<Bridge, ValueError> {
+    match control_port(s) {
+        Ok(port) => Ok(Bridge::Port(port)),
+        Err(_) if s.contains(':') => Ok(Bridge::Addr(s.to_owned())),
+        Err(_) => Err(ValueError::Bridge),
+    }
 }
 
 /// `--new` and `--params`: bad JSON is a usage error, before any work. Whether the value is an

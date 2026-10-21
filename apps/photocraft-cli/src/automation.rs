@@ -1,18 +1,15 @@
 use std::io::Write;
+use std::net::{Ipv4Addr, SocketAddr};
 
 use serde_json::Value;
 
-use photocraft_automation::{AuthorizedWorkspace, AutomationError, Headless, PhotocraftMcp, security};
+use photocraft_automation::{Headless, PhotocraftMcp, security};
 
 use crate::{
     Result,
-    args::{CommandsArgs, ControlArgs, McpArgs, ServeArgs},
+    args::{CommandsArgs, McpArgs, ServeArgs},
     output::{JsonStyle, print_json},
 };
-
-pub(crate) fn automation_workspace(args: &ControlArgs) -> Result<AuthorizedWorkspace, AutomationError> {
-    AuthorizedWorkspace::new(args.automation_read_root.as_deref(), args.automation_write_root.as_deref())
-}
 
 pub(crate) fn commands(a: &CommandsArgs, out: &mut dyn Write) -> Result {
     let h = Headless::new();
@@ -37,10 +34,10 @@ pub(crate) fn commands(a: &CommandsArgs, out: &mut dyn Write) -> Result {
 
 pub(crate) fn serve(a: &ServeArgs, err: &mut dyn Write) -> Result {
     use std::sync::{Arc, Mutex};
-    let h = Arc::new(Mutex::new(Headless::with_workspace(automation_workspace(&a.control)?)));
+    let h = Arc::new(Mutex::new(Headless::with_workspace(a.automation.workspace()?)));
     match a.port {
         Some(port) => {
-            let addr = format!("127.0.0.1:{port}");
+            let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port)).to_string();
             let (supplied, token_file) = security::token_inputs(a.control.control_token.clone(), a.control.control_token_file.clone());
             let token = security::server_token(supplied.as_deref(), token_file.as_deref())?;
             if let Some(path) = &token_file {
@@ -65,9 +62,9 @@ pub(crate) fn mcp(a: &McpArgs) -> Result {
         Some(addr) => {
             let (supplied, token_file) = security::token_inputs(a.control.control_token.clone(), a.control.control_token_file.clone());
             let token = security::client_token(supplied.as_deref(), token_file.as_deref())?;
-            PhotocraftMcp::bridge(addr, &token)?
+            PhotocraftMcp::bridge(&addr.to_string(), &token)?
         }
-        None => PhotocraftMcp::headless_with_workspace(automation_workspace(&a.control)?),
+        None => PhotocraftMcp::headless_with_workspace(a.automation.workspace()?),
     };
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     Ok(rt.block_on(server.serve_stdio())?)

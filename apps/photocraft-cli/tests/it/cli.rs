@@ -855,20 +855,8 @@ fn mcp_stdio_handshake_and_tool_call() {
     let mut child = bin().arg("mcp").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
     let mut stdin = child.stdin.take().unwrap();
     let mut stdout = BufReader::new(child.stdout.take().unwrap());
-    let mut send = |v: Value| {
-        writeln!(stdin, "{v}").unwrap();
-        stdin.flush().unwrap();
-    };
-    let mut recv = |id: u64| -> Value {
-        loop {
-            let mut line = String::new();
-            assert!(stdout.read_line(&mut line).unwrap() > 0, "server closed");
-            let v: Value = serde_json::from_str(&line).unwrap();
-            if v["id"] == id {
-                return v;
-            }
-        }
-    };
+    let mut send = |v: Value| mcp_send(&mut stdin, v);
+    let mut recv = |id: u64| mcp_recv(&mut stdout, id);
     send(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
         "protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}));
     let init = recv(1);
@@ -884,6 +872,63 @@ fn mcp_stdio_handshake_and_tool_call() {
     send(json!({"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"doc_render_preview","arguments":{}}}));
     let r = recv(4);
     assert_eq!(r["result"]["content"][0]["type"], "image", "{r}");
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+/// Send one JSON-RPC line to an `mcp` child.
+fn mcp_send(stdin: &mut impl Write, v: Value) {
+    writeln!(stdin, "{v}").unwrap();
+    stdin.flush().unwrap();
+}
+
+/// Read an `mcp` child's lines up to the reply to `id`.
+fn mcp_recv(stdout: &mut impl BufRead, id: u64) -> Value {
+    loop {
+        let mut line = String::new();
+        assert!(stdout.read_line(&mut line).unwrap() > 0, "server closed");
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v["id"] == id {
+            return v;
+        }
+    }
+}
+
+/// `mcp --bridge` takes a port or anything with a `:`; anything else is a usage error. A bare port
+/// means 127.0.0.1, and the bridge connects at the first call, so with no app there the call fails
+/// naming that address.
+#[test]
+fn mcp_bridge_takes_a_port_or_an_address() {
+    let o = bin().args(["mcp", "--bridge", "nope"]).stdin(Stdio::null()).output().unwrap();
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert_eq!(o.status.code(), Some(2), "{err}");
+    assert!(err.contains("invalid value 'nope' for '--bridge"), "{err}");
+    assert!(err.contains("expected a port, 0-65535 (--bridge also takes 127.0.0.1:<PORT>)"), "{err}");
+
+    // Nothing listens on port 1 in a test run. The token only has to be well-formed.
+    let token = "a".repeat(64);
+    let mut child = bin()
+        .args(["mcp", "--bridge", "1", "--control-token", token.as_str()])
+        .env_remove("PHOTOCRAFT_CONTROL_TOKEN")
+        .env_remove("PHOTOCRAFT_CONTROL_TOKEN_FILE")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    mcp_send(
+        &mut stdin,
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+        "protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}),
+    );
+    mcp_recv(&mut stdout, 1);
+    mcp_send(&mut stdin, json!({"jsonrpc":"2.0","method":"notifications/initialized"}));
+    mcp_send(&mut stdin, json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"session_list","arguments":{}}}));
+    let r = mcp_recv(&mut stdout, 2);
+    assert_eq!(r["result"]["isError"], true, "{r}");
+    assert!(r["result"]["content"][0]["text"].as_str().unwrap_or_default().contains("127.0.0.1:1"), "{r}");
     let _ = child.kill();
     let _ = child.wait();
 }
