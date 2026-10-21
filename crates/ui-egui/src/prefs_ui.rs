@@ -234,9 +234,13 @@ pub fn load(app: &mut PhotocraftApp) {
     }
     app.prefs_rt.loaded = true;
     let mut invalid = Vec::new();
+    let mut stored = None;
     if let Some(text) = app.services.load_prefs.as_mut().and_then(|f| f()) {
         match app.session.load_prefs_json(&text) {
-            Ok(found) => invalid = found,
+            Ok(found) => {
+                invalid = found;
+                stored = serde_json::from_str::<Value>(&text).ok();
+            }
             Err(e) => {
                 let template = "Preferences were reset: {error}";
                 app.ui.status = crate::i18n::fmt(tl!(template), &[("error", &e)]);
@@ -251,9 +255,24 @@ pub fn load(app: &mut PhotocraftApp) {
     crate::view_cmds::restore(app);
     app.sync_recent();
     app.prefs_rt.saved_rev = app.session.prefs.rev();
-    app.prefs_rt.saved_value = Some(app.session.prefs_value());
+    let loaded = app.session.prefs_value();
+    app.prefs_rt.saved_value = Some(match stored {
+        Some(stored) => stored_base(&loaded, &stored),
+        None => loaded,
+    });
     if !invalid.is_empty() {
         repair_invalid(app, &invalid);
+    }
+}
+
+/// The save base after loading `stored`: what the file holds, limited to the keys `loaded` (this
+/// version's preferences) has. Whatever loading changed there (a migrated default, the file's
+/// version) then differs from the base, so the next save writes it rather than keeping the old
+/// value under a newer version (#5647). Keys only the file has stay out, so the merge keeps them.
+fn stored_base(loaded: &Value, stored: &Value) -> Value {
+    match (loaded, stored) {
+        (Value::Object(l), Value::Object(s)) => Value::Object(s.iter().filter_map(|(k, sv)| l.get(k).map(|lv| (k.clone(), stored_base(lv, sv)))).collect()),
+        _ => stored.clone(),
     }
 }
 
@@ -3191,6 +3210,33 @@ mod tests {
         tick(&mut next, &ctx);
         assert!(next.ui.notices.iter().all(|n| n.title != "Some preferences were reset"));
         assert_eq!(next.session.prefs().file_handling.autosave_minutes, 5);
+    }
+
+    #[test]
+    fn an_old_files_shift_tool_switch_migration_is_saved_with_the_new_version() {
+        // #5647: a file before version 2 loads with Use Shift Key for Tool Switch on. Saving
+        // writes that and the current version, so turning it off later isn't taken for the old
+        // default on the next launch.
+        let ctx = egui::Context::default();
+        for saved in [
+            json!({"version": 1, "tools": {"useShiftKeyForToolSwitch": false}, "futureSection": {"kept": true}}),
+            json!({"tools": {"useShiftKeyForToolSwitch": false}, "futureSection": {"kept": true}}),
+        ] {
+            let (mut app, store) = app_with_saved(Some(saved.to_string()));
+            tick(&mut app, &ctx);
+            assert!(app.session.prefs().tools.use_shift_key_for_tool_switch, "{saved}");
+            app.run("prefs.set", json!({"values": {"performance.historyStates": 12}})).unwrap();
+            tick(&mut app, &ctx);
+            let v = stored(&store);
+            assert_eq!(v["version"], json!(prefs::PREFS_VERSION), "{saved}");
+            assert_eq!(v["tools"]["useShiftKeyForToolSwitch"], true, "{saved}");
+            assert_eq!(v["futureSection"]["kept"], true, "keys this version doesn't know survive");
+            app.run("prefs.set", json!({"values": {"tools.useShiftKeyForToolSwitch": false}})).unwrap();
+            tick(&mut app, &ctx);
+            let (mut next, _) = app_with_saved(store.lock().unwrap().clone());
+            tick(&mut next, &ctx);
+            assert!(!next.session.prefs().tools.use_shift_key_for_tool_switch, "{saved}: turned off, it stays off");
+        }
     }
 
     #[test]
