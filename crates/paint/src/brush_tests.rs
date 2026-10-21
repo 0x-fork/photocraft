@@ -1641,9 +1641,17 @@ fn large_tips_render_the_same_in_parallel_and_serially() {
             })
             .collect()
     };
+    // The threshold is process-wide: put the default back however the test ends, a panic
+    // inside a render included.
+    struct Restore;
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            crate::render::set_parallel_min_pixels(crate::render::DEFAULT_PARALLEL_MIN_PIXELS);
+        }
+    }
+    let _restore = Restore;
     let parallel = render(0);
     let serial = render(usize::MAX);
-    crate::render::set_parallel_min_pixels(256 * 256);
     for (i, (p, s)) in parallel.iter().zip(&serial).enumerate() {
         assert_eq!(p.len(), s.len());
         let diff = p.iter().zip(s).filter(|(a, b)| a != b).count();

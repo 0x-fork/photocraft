@@ -44,7 +44,11 @@ pub const COV_TILE: i32 = 64;
 /// it the threads cost more than they save. A large soft tip is tens of megapixels per dab, and
 /// every stage of it is independent per row or tile, so the pixels come out the same.
 #[cfg(not(target_arch = "wasm32"))]
-static PARALLEL_MIN_PIXELS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(256 * 256);
+pub(crate) const DEFAULT_PARALLEL_MIN_PIXELS: usize = 256 * 256;
+
+/// The threshold in use: [`DEFAULT_PARALLEL_MIN_PIXELS`] (tests move it).
+#[cfg(not(target_arch = "wasm32"))]
+static PARALLEL_MIN_PIXELS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(DEFAULT_PARALLEL_MIN_PIXELS);
 
 /// Whether `pixels` of independent work are worth the thread pool (the web has none: there every
 /// stage takes its serial path).
