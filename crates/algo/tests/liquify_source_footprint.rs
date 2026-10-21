@@ -4,10 +4,13 @@ use photocraft_color::{ColorMode, PixelFormat, SampleType};
 use photocraft_geom::Rect;
 use photocraft_raster::Surface;
 
+/// Keeps the document size fixed while moving its edges relative to global tiles.
 fn bounds(shift: i32) -> Rect {
     Rect::new(shift, 0, shift + 1024, 512)
 }
 
+/// Builds translated copies of RGB ramps and alternating columns so missing
+/// interpolation taps change the sampled colors.
 fn source(sample: SampleType, shift: i32) -> Surface {
     let mut surface = Surface::new(PixelFormat::new(ColorMode::Rgb, sample, false));
     let mut row = vec![0.0; 1024 * 3];
@@ -20,6 +23,8 @@ fn source(sample: SampleType, shift: i32) -> Surface {
     surface
 }
 
+/// Creates matching brush paths in document-relative coordinates, optionally
+/// beside a frozen region that gives the displacement field a sharp boundary.
 fn strokes(shift: i32, masked: bool) -> Vec<LiquifyStroke> {
     let offset = f64::from(shift);
     let mut strokes = Vec::new();
@@ -39,6 +44,8 @@ fn strokes(shift: i32, masked: bool) -> Vec<LiquifyStroke> {
     strokes
 }
 
+/// Checks that a half-tile translation preserves editable output across sample
+/// depths and mesh sizes when image content and brush paths move together.
 fn check_tile_translation(masked: bool) {
     for sample in [SampleType::U8, SampleType::U16, SampleType::F32] {
         let original = source(sample, 0);
