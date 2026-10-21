@@ -299,8 +299,9 @@ impl DetailPreview {
 
 /// The full-size result of `params` over `area`. With a raw file's tone `curve`, the raw-stage
 /// sliders are applied first to the whole area, from the whole frame's maps as Open computes them
-/// ([`photocraft_io::raw::retone`]), then the rest of the pipeline: at 1:1 the preview shows what
-/// Open will make.
+/// ([`photocraft_io::raw::retone`]), then the rest of the pipeline: at 1:1 the preview shows close
+/// to what Open will make. It retones the developed pixels, which already carry the black point,
+/// so it differs from Open only in the deepest shadows, as `retone` documents.
 fn develop(source: &Surface, curve: Option<&[[f32; 2]]>, area: PixelRect, params: &CameraRaw, coverage: &Coverage) -> Surface {
     let tone = photocraft_io::raw::Tone {
         shadows: params.shadows,
@@ -317,16 +318,25 @@ fn develop(source: &Surface, curve: Option<&[[f32; 2]]>, area: PixelRect, params
             photocraft_io::raw::retone(&mut px, w, h, curve, tone);
             let fmt = source.format();
             let n = fmt.channels();
-            let mut data = source.read_region(area);
-            for (out, q) in data.chunks_exact_mut(n).zip(&px) {
-                let alpha = if fmt.alpha { out.get(n - 1).copied() } else { None };
-                photocraft_raster::from_rgba_into(&fmt, *q, out);
-                if let (Some(a), Some(o)) = (alpha, out.get_mut(n - 1)) {
-                    *o = a;
-                }
-            }
+            // Written back in bands of rows, so only one band-sized buffer lives next to `px`
+            // (a whole-area one is another 4 bytes per channel and pixel). Each band is read from
+            // the source first to keep its stored alpha.
             let mut out = source.clone();
-            out.write_region(area, &data);
+            let band = (65_536 / w.max(1)).max(1);
+            let mut data = Vec::new();
+            for (b, rows) in px.chunks(band * w.max(1)).enumerate() {
+                let y0 = area.y0 + (b * band) as i32;
+                let rect = PixelRect::new(area.x0, y0, area.x1, y0 + (rows.len() / w.max(1)) as i32);
+                source.read_region_into(rect, &mut data);
+                for (o, q) in data.chunks_exact_mut(n).zip(rows) {
+                    let alpha = if fmt.alpha { o.get(n - 1).copied() } else { None };
+                    photocraft_raster::from_rgba_into(&fmt, *q, o);
+                    if let (Some(a), Some(last)) = (alpha, o.get_mut(n - 1)) {
+                        *last = a;
+                    }
+                }
+                out.write_region(rect, &data);
+            }
             let rest = CameraRaw { shadows: 0.0, highlights: 0.0, clarity: 0.0, texture: 0.0, dehaze: 0.0, ..params.clone() };
             (Some(out), rest)
         }
