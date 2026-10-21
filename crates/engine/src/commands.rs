@@ -232,9 +232,6 @@ pub(crate) fn u32_id_param(cmd: &str, p: &Value, key: &str) -> Result<Option<u32
     p.get(key).map(|v| u32_id(cmd, key, v)).transpose()
 }
 
-fn f32_or(p: &Value, key: &str, default: f32) -> f32 {
-    p.get(key).and_then(Value::as_f64).map(|v| v as f32).unwrap_or(default)
-}
 /// JSON numbers may be finite f64 values but overflow when stored in a document's f32 field.
 pub(crate) fn finite_f32(cmd: &str, key: &str, value: f64) -> Result<f32> {
     let narrowed = value as f32;
@@ -1052,7 +1049,7 @@ fn build() -> Vec<CommandSpec> {
             |s, p| {
                 let a = color_param("layer.newFillLayer.gradient", p, "from", s.tools.foreground)?;
                 let b = color_param("layer.newFillLayer.gradient", p, "to", s.tools.background)?;
-                let angle = f32_or(p, "angle", 90.0);
+                let angle = crate::gradient_fill_cmds::angle_param("layer.newFillLayer.gradient", p, 90.0)?;
                 let style = crate::layer_style::gradient_style(p.get("style").and_then(Value::as_str).unwrap_or("linear"));
                 let reverse = p.get("reverse").and_then(Value::as_bool).unwrap_or(false);
                 let id = s.edit("New Gradient Fill Layer", |doc, active| {
