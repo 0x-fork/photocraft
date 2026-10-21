@@ -2,8 +2,8 @@
 # Build and package PhotoCraft for FreeBSD:
 #
 #   $DIST/photocraft-<version>-freebsd-x86_64.tar.gz   a /usr/local-style tree:
-#       photocraft-<version>-freebsd-x86_64/{bin, share/applications, share/icons, share/mime,
-#       share/metainfo, share/doc/photocraft}
+#       photocraft-<version>-freebsd-x86_64/{bin, man/man1, share/applications, share/icons,
+#       share/mime, share/metainfo, share/doc/photocraft, share/{bash-completion,zsh,fish}}
 #
 # Install by copying the tree's contents into /usr/local:
 #   tar -xzf photocraft-<version>-freebsd-x86_64.tar.gz --strip-components 1 -C /usr/local
@@ -46,8 +46,11 @@ echo "==> PhotoCraft $VERSION for FreeBSD $ARCH"
 
 # The release VM has 12 GB; full parallelism on the biggest crates runs it out of memory.
 export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}"
+# The man-and-completions example is built with the binaries: it writes photocraft-cli's man pages
+# and shell completions below.
 if [[ "$SKIP_BUILD" = 0 ]]; then
-  (cd "$ROOT" && cargo build --release --locked -p photocraft -p photocraft-cli --features heif)
+  (cd "$ROOT" && cargo build --release --locked -p photocraft -p photocraft-cli --features heif \
+    --bins --example man-and-completions)
 fi
 WORK="$CARGO_TARGET_DIR/freebsd-package"
 STAGE="$WORK/$BASENAME"
@@ -83,6 +86,22 @@ copy_docs "$STAGE/share/doc/photocraft"
 for f in NOTICE ATTRIBUTION.md; do
   if [[ -f "$ROOT/$f" ]]; then install -m 644 "$ROOT/$f" "$STAGE/share/doc/photocraft/"; fi
 done
+# photocraft-cli's man pages and shell completions, from its clap definition, written by the
+# example built above. A dry run builds nothing, so it leaves them out.
+if [[ "$DRY_RUN" = 0 ]]; then
+  CLI_DOCS="$BIN/examples/man-and-completions"
+  if [[ ! -x "$CLI_DOCS" ]]; then
+    echo "error: $CLI_DOCS is missing: build it with the binaries (without --skip-build)" >&2
+    exit 1
+  fi
+  "$CLI_DOCS" "$WORK/cli-docs"
+  mkdir -p "$STAGE/man/man1" "$STAGE/share/bash-completion/completions" \
+    "$STAGE/share/zsh/site-functions" "$STAGE/share/fish/vendor_completions.d"
+  install -m 644 "$WORK"/cli-docs/*.1 "$STAGE/man/man1/"
+  install -m 644 "$WORK/cli-docs/photocraft-cli.bash" "$STAGE/share/bash-completion/completions/photocraft-cli"
+  install -m 644 "$WORK/cli-docs/_photocraft-cli" "$STAGE/share/zsh/site-functions/_photocraft-cli"
+  install -m 644 "$WORK/cli-docs/photocraft-cli.fish" "$STAGE/share/fish/vendor_completions.d/photocraft-cli.fish"
+fi
 
 for f in bin/photocraft bin/photocraft-cli "share/applications/$APP_ID.desktop" \
   "share/icons/hicolor/256x256/apps/$APP_ID.png" "share/icons/hicolor/scalable/apps/$APP_ID.svg" \
