@@ -9,6 +9,8 @@ use photocraft_raster::Surface;
 use serde_json::json;
 use std::time::Instant;
 
+/// Measure live updates and prepared commits on a synthetic 24 MP document against a frozen-source reference.
+/// These CPU timings do not measure hardware input or display latency.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut results = Vec::new();
     for size in [16.0, 64.0, 256.0] {

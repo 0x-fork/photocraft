@@ -1,5 +1,6 @@
 // Frozen pre-optimization dab kernel. Keep independent of the optimized implementation.
 use super::*;
+/// Keep the allocation-heavy scalar kernel independent so optimizations cannot silently change pickup or blending.
 fn reference(
     work: &mut crate::retouch::Region,
     fp: &crate::retouch::Footprint,

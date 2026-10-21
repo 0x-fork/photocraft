@@ -606,6 +606,7 @@ fn an_inline_job_ctx_lets_another_thread_cancel_inline_work() {
     s.execute("filter.blur.gaussianBlur", json!({"radius": 2})).unwrap();
 }
 
+/// Exercise six terminal job routes so prepared paint snapshots cannot outlive a completed or discarded job.
 #[test]
 fn every_job_terminal_path_drops_a_prepared_mixer_stroke() {
     use crate::brush_cmds::mixer_live::LiveMixer;

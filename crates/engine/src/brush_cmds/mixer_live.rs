@@ -14,10 +14,12 @@ const CMD: &str = "paint.mixerBrush";
 const MAX_TILES: usize = 256;
 const TILE: i32 = 256;
 
+/// Accept bounded finite channels, including HDR values, without admitting unsafe arithmetic inputs.
 fn valid_color(color: &[f32; 4]) -> bool {
     color.iter().all(|v| v.is_finite() && v.abs() <= 1_000_000.0)
 }
 
+/// Validate finite paint-load values and the exact 64 by 64 shape of a spatial reservoir.
 fn valid_state(state: &MixerState) -> bool {
     state.amount.is_finite()
         && state.reservoir.as_ref().is_none_or(valid_color)
@@ -48,6 +50,8 @@ struct Core {
 }
 
 impl Core {
+    /// Apply a batch against evolving working pixels and return its damage bounds.
+    /// The dab and footprint limits always apply; the tile limit applies only to live previews.
     fn apply(&mut self, dabs: &[Dab]) -> Result<Rect> {
         if self.count.saturating_add(dabs.len()) > 250_000 {
             return Err(bad(CMD, "stroke exceeds 250000 dabs; start another stroke"));
@@ -130,10 +134,12 @@ pub struct LiveMixer {
 }
 
 impl LiveMixer {
+    /// Capture the current document and paint load, then render the initial samples with live-preview limits.
     pub fn begin(s: &Session, p: &Value) -> Result<Self> {
         Self::begin_with_limits(s, p, true)
     }
 
+    /// Share initialization between live previews and command replay while keeping their tile budgets distinct.
     fn begin_with_limits(s: &Session, p: &Value, preview_limits: bool) -> Result<Self> {
         has_paintable(s).map_err(EngineError::Other)?;
         if p.get("points").and_then(Value::as_array).is_some_and(|v| v.len() > 65_536) {
@@ -216,9 +222,11 @@ impl LiveMixer {
         Ok(live)
     }
 
+    /// Return all damaged pixels, including the provisional smoothing tail currently shown by the preview.
     pub fn bounds(&self) -> Rect {
         self.core.bounds.union(&self.tail)
     }
+    /// Whether the dab generator needs stationary time samples, as for a continuing airbrush stroke.
     pub fn wants_time(&self) -> bool {
         self.core.generator.wants_time()
     }
@@ -273,6 +281,7 @@ impl LiveMixer {
         })
     }
 
+    /// Serialize recorded points, the original paint load, resolved brush and seed for deterministic replay.
     fn commit_params(&self) -> Result<Value> {
         let mut params = self.core.params.clone();
         params["points"] = serde_json::to_value(&self.points).map_err(|e| bad(CMD, e.to_string()))?;
@@ -299,6 +308,8 @@ impl LiveMixer {
     }
 }
 
+/// Consume a matching prepared result or replay without the preview tile cap, then commit one history step.
+/// The completed stroke also applies the automatic clean/load settings to the stored paint load.
 pub(super) fn run(s: &mut Session, p: &Value) -> Result<Value> {
     let cached = s.prepared_mixer.take().filter(|live| {
         s.active().is_some_and(|st| Arc::ptr_eq(&st.doc, &live.original) && (live.core.layer.is_none() || st.active_layer == live.core.layer))

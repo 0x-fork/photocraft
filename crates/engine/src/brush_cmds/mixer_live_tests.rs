@@ -3,6 +3,7 @@ use super::*;
 use photocraft_color::PixelFormat;
 use std::sync::Arc;
 
+/// Build format-specific red/green sampling layers and an empty painting target.
 fn fixture(fmt: PixelFormat) -> Session {
     let mut s = Session::new();
     s.execute("file.new", json!({"width":192,"height":96,"background":"#808080"})).unwrap();
@@ -24,6 +25,7 @@ fn fixture(fmt: PixelFormat) -> Session {
     s
 }
 
+/// Snapshot the active raster target for exact pixel comparisons without borrowing the session.
 fn target(s: &Session) -> Surface {
     let st = s.active().unwrap();
     st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap().clone()
@@ -242,6 +244,7 @@ fn mixer_large_tip_retains_off_canvas_paint_and_commits_the_live_result() {
     assert_eq!(*s.active().unwrap().doc, *source);
 }
 
+/// Large pointer jumps must replay identically instead of turning a valid stroke into an input-limit error.
 #[test]
 fn mixer_long_segments_are_interpolated_and_replay_matches_live() {
     let mut s = fixture(PixelFormat::RGBA8);

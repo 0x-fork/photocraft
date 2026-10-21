@@ -9,10 +9,12 @@ use photocraft_paint::{BrushSettings, Stroke, StrokePoint};
 use serde_json::json;
 use std::time::Instant;
 
+/// Express monotonic elapsed time in the milliseconds used by the benchmark report.
 fn ms(start: Instant) -> f64 {
     start.elapsed().as_secs_f64() * 1000.0
 }
 
+/// Report nearest-rank percentiles and the sample count; an empty measurement set yields JSON null.
 fn stats(mut times: Vec<f64>) -> serde_json::Value {
     if times.is_empty() {
         return serde_json::Value::Null;
@@ -25,6 +27,7 @@ fn stats(mut times: Vec<f64>) -> serde_json::Value {
         "p99_ms":times.get((len as f64 * 0.99).ceil() as usize - 1),"max_ms":times.last(),"samples":len})
 }
 
+/// Measure incremental updates and the final prepared commit separately on a deterministic stroke fixture.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<_> = std::env::args().collect();
     let dim: i32 = args.get(1).ok_or("missing dimension")?.parse()?;

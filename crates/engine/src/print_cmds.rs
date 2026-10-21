@@ -855,8 +855,8 @@ fn print_windows(page: &PrintPage, p: &Value, title: &str, copies: u32) -> Resul
     )
 }
 
-// Driver discovery/settings are external I/O, even when no page is spooled. A dry run must
-// not block on a disconnected printer or a print server (including in the command panic hunt).
+/// Driver discovery/settings are external I/O, even when no page is spooled. A dry run must
+/// not block on a disconnected printer or a print server (including in the command panic hunt).
 fn require_live_printer_query(p: &Value) -> Result<()> {
     if p.get("dryRun").and_then(Value::as_bool).unwrap_or(false) {
         Err(other("printer queries are unavailable in a dry run; omit dryRun to query the live printer backend"))
@@ -865,6 +865,7 @@ fn require_live_printer_query(p: &Value) -> Result<()> {
     }
 }
 
+/// List native RGB-print destinations only for a live query; dry runs must not contact printer drivers.
 fn printers(_: &mut Session, p: &Value) -> Result<Value> {
     require_live_printer_query(p)?;
     match craft_print::rgb::printers() {

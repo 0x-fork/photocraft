@@ -7967,6 +7967,7 @@ mod tests {
         }
     }
 
+    /// Reproduce a tool change and release in one control call, before a UI frame can cancel the old gesture.
     #[test]
     fn mixer_control_tool_switch_before_release_cancels_every_preview_path() {
         for preview in 0..3 {
