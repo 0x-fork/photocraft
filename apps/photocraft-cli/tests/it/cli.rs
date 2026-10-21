@@ -6,9 +6,16 @@ use std::process::{Command, Stdio};
 
 use serde_json::{Value, json};
 
+/// The binary, without the variables `mcp` and `serve` fall back to: a test that wants one sets it.
 fn bin() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_photocraft-cli"))
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_photocraft-cli"));
+    for var in ENV_VARS {
+        cmd.env_remove(var);
+    }
+    cmd
 }
+
+const ENV_VARS: [&str; 3] = ["PHOTOCRAFT_CONTROL_PORT", "PHOTOCRAFT_CONTROL_TOKEN", "PHOTOCRAFT_CONTROL_TOKEN_FILE"];
 
 fn tmp(name: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("pc-cli-{}-{name}", std::process::id()));
@@ -909,8 +916,6 @@ fn mcp_bridge_takes_a_port_or_an_address() {
     let token = "a".repeat(64);
     let mut child = bin()
         .args(["mcp", "--bridge", "1", "--control-token", token.as_str()])
-        .env_remove("PHOTOCRAFT_CONTROL_TOKEN")
-        .env_remove("PHOTOCRAFT_CONTROL_TOKEN_FILE")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -1272,4 +1277,120 @@ fn either_or_flags_are_usage_errors() {
         assert_eq!(o.status.code(), Some(2), "--port {port}: {err}");
         assert!(err.contains("--port"), "--port {port}: {err}");
     }
+}
+
+/// How a run of the binary ended.
+struct Exited {
+    code: Option<i32>,
+    stderr: String,
+}
+
+/// The binary run with `args` and one variable set, stdin at its end.
+fn with_var(args: &[&str], var: &str, value: &str) -> Exited {
+    let o = bin().args(args).env(var, value).stdin(Stdio::null()).output().unwrap();
+    Exited { code: o.status.code(), stderr: String::from_utf8_lossy(&o.stderr).into_owned() }
+}
+
+/// A port nothing listens on, for a `serve` to take.
+fn free_port() -> u16 {
+    std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap().local_addr().unwrap().port()
+}
+
+/// `serve` on TCP never exits: read its stderr until it says it is serving (or its stderr closes),
+/// then kill it.
+fn serve_tcp_stderr(cmd: &mut Command) -> String {
+    use std::io::Read as _;
+    let mut child = cmd.stdin(Stdio::null()).stderr(Stdio::piped()).spawn().unwrap();
+    // Read on a thread, so a `serve` that stays silent with stderr open fails the test after the
+    // deadline instead of hanging it.
+    let mut stderr = child.stderr.take().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        while let Ok(n) = stderr.read(&mut buf) {
+            if n == 0 || tx.send(buf[..n].to_vec()).is_err() {
+                break;
+            }
+        }
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut err = String::new();
+    while !err.contains("photocraft-cli serving on") {
+        match rx.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())) {
+            Ok(chunk) => err.push_str(&String::from_utf8_lossy(&chunk)),
+            Err(_) => break,
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    err
+}
+
+/// #2491: `PHOTOCRAFT_CONTROL_PORT` turns `serve` from stdio into a TCP listener and `mcp` from a
+/// headless engine into a bridge, and both say so on stderr. A flag wins, an empty value counts as
+/// unset, and a bad value is a usage error naming the variable.
+#[test]
+fn control_port_env_switches_modes_with_a_notice_and_flags_win() {
+    let port = free_port();
+    let err = serve_tcp_stderr(bin().arg("serve").env("PHOTOCRAFT_CONTROL_PORT", port.to_string()));
+    assert!(err.contains(&format!("PHOTOCRAFT_CONTROL_PORT={port} is set; serving on TCP instead of stdio")), "{err}");
+    assert!(err.contains("unset it to serve stdio") && err.contains("photocraft-cli serving on"), "{err}");
+
+    // No token is given, so the bridge fails after the notice.
+    let err = with_var(&["mcp"], "PHOTOCRAFT_CONTROL_PORT", &port.to_string()).stderr;
+    assert!(err.contains(&format!("PHOTOCRAFT_CONTROL_PORT is set; bridging to the app on 127.0.0.1:{port}")), "{err}");
+    assert!(err.contains("unset it to run headless"), "{err}");
+
+    // The flag wins, so the variable's bad value is never parsed.
+    let err = serve_tcp_stderr(bin().args(["serve", "--port"]).arg(port.to_string()).env("PHOTOCRAFT_CONTROL_PORT", "not-a-port"));
+    assert!(err.contains("photocraft-cli serving on") && !err.contains("PHOTOCRAFT_CONTROL_PORT"), "{err}");
+
+    // Empty or blank counts as unset: `serve` reads stdio (at its end, so it exits at once) and
+    // `mcp` stays headless.
+    for empty in ["", "  "] {
+        let Exited { code, stderr: err } = with_var(&["serve"], "PHOTOCRAFT_CONTROL_PORT", empty);
+        assert!(code == Some(0) && !err.contains("PHOTOCRAFT_CONTROL_PORT"), "{empty:?}: {err}");
+        let err = with_var(&["mcp"], "PHOTOCRAFT_CONTROL_PORT", empty).stderr;
+        assert!(!err.contains("bridging"), "{empty:?}: {err}");
+    }
+
+    for (sub, bad) in [
+        ("serve", "not-a-port"),
+        ("serve", "70000"),
+        ("mcp", "nope"),
+        ("mcp", "70000"),
+        // `--bridge` takes host:port, the variable only a port.
+        ("mcp", "127.0.0.1:7878"),
+        ("mcp", ":7878"),
+        ("mcp", "bad:port"),
+    ] {
+        let Exited { code, stderr: err } = with_var(&[sub], "PHOTOCRAFT_CONTROL_PORT", bad);
+        assert_eq!(code, Some(2), "{sub} {bad}: {err}");
+        assert!(err.contains(&format!("invalid value '{bad}' for 'PHOTOCRAFT_CONTROL_PORT'")), "{sub} {bad}: {err}");
+    }
+}
+
+/// `--control-token` and `--control-token-file` fall back to `PHOTOCRAFT_CONTROL_TOKEN` and
+/// `PHOTOCRAFT_CONTROL_TOKEN_FILE`. One from the environment and the other as a flag is the
+/// either/or usage error, naming the variable. Help names the token's variable, never its value.
+#[test]
+fn control_token_env_vars_are_the_flags_fallbacks() {
+    let token = "a".repeat(64);
+    for sub in ["mcp", "serve"] {
+        let Exited { code, stderr: err } = with_var(&[sub, "--control-token", token.as_str()], "PHOTOCRAFT_CONTROL_TOKEN_FILE", "token");
+        assert_eq!(code, Some(2), "{sub}: {err}");
+        assert!(err.contains("PHOTOCRAFT_CONTROL_TOKEN_FILE") && err.contains("cannot be used with"), "{sub}: {err}");
+        let Exited { code, stderr: err } = with_var(&[sub, "--control-token-file", "token"], "PHOTOCRAFT_CONTROL_TOKEN", &token);
+        assert_eq!(code, Some(2), "{sub}: {err}");
+        assert!(err.contains("PHOTOCRAFT_CONTROL_TOKEN") && err.contains("cannot be used with") && !err.contains(&token), "{sub}: {err}");
+        let o = bin().args([sub, "--help"]).env("PHOTOCRAFT_CONTROL_TOKEN", &token).output().unwrap();
+        let out = String::from_utf8_lossy(&o.stdout);
+        assert!(out.contains("[env: PHOTOCRAFT_CONTROL_TOKEN]") && !out.contains(&token), "{sub}: {out}");
+    }
+    // The server takes the variable's token, so it neither generates nor prints one; an empty
+    // variable counts as unset.
+    let err = serve_tcp_stderr(bin().args(["serve", "--port"]).arg(free_port().to_string()).env("PHOTOCRAFT_CONTROL_TOKEN", &token));
+    assert!(err.contains("photocraft-cli serving on") && !err.contains("control token"), "{err}");
+    let err = serve_tcp_stderr(bin().args(["serve", "--port"]).arg(free_port().to_string()).env("PHOTOCRAFT_CONTROL_TOKEN", ""));
+    assert!(err.contains("photocraft-cli serving on") && err.contains("photocraft-cli control token: "), "{err}");
 }

@@ -308,7 +308,8 @@ impl Read for AuthDeadlineStream {
     }
 }
 
-/// Environment-aware token inputs shared by the desktop app and CLI.
+/// Environment-aware token inputs for the desktop app. `photocraft-cli` declares the same variables
+/// on its flags instead (`args::ControlArgs`).
 pub fn token_inputs(supplied: Option<String>, token_file: Option<PathBuf>) -> (Option<String>, Option<PathBuf>) {
     let supplied = supplied.or_else(|| std::env::var("PHOTOCRAFT_CONTROL_TOKEN").ok());
     let token_file = token_file.or_else(|| std::env::var_os("PHOTOCRAFT_CONTROL_TOKEN_FILE").map(PathBuf::from));

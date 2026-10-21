@@ -37,10 +37,15 @@ pub(crate) fn serve(a: &ServeArgs, err: &mut dyn Write) -> Result {
     let h = Arc::new(Mutex::new(Headless::with_workspace(a.automation.workspace()?)));
     match a.port {
         Some(port) => {
+            if a.port_from_env {
+                // Name the mode switch: an exported variable changes what this command does, and
+                // unsetting it (or setting it empty) is the way back to stdio.
+                let _ = writeln!(err, "photocraft-cli: PHOTOCRAFT_CONTROL_PORT={port} is set; serving on TCP instead of stdio (unset it to serve stdio)");
+            }
             let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, port)).to_string();
-            let (supplied, token_file) = security::token_inputs(a.control.control_token.clone(), a.control.control_token_file.clone());
-            let token = security::server_token(supplied.as_deref(), token_file.as_deref())?;
-            if let Some(path) = &token_file {
+            let (supplied, token_file) = (a.control.control_token.as_deref(), a.control.control_token_file.as_deref());
+            let token = security::server_token(supplied, token_file)?;
+            if let Some(path) = token_file {
                 let _ = writeln!(err, "photocraft-cli control token file: {}", path.display());
             } else if supplied.is_none() {
                 let _ = writeln!(err, "photocraft-cli control token: {token}");
@@ -57,11 +62,17 @@ pub(crate) fn serve(a: &ServeArgs, err: &mut dyn Write) -> Result {
     }
 }
 
-pub(crate) fn mcp(a: &McpArgs) -> Result {
+pub(crate) fn mcp(a: &McpArgs, err: &mut dyn Write) -> Result {
     let server = match &a.bridge {
         Some(addr) => {
-            let (supplied, token_file) = security::token_inputs(a.control.control_token.clone(), a.control.control_token_file.clone());
-            let token = security::client_token(supplied.as_deref(), token_file.as_deref())?;
+            if a.bridge_from_env {
+                // Name the mode switch, as `serve` does: the way back to headless is to unset it.
+                let _ = writeln!(
+                    err,
+                    "photocraft-cli: PHOTOCRAFT_CONTROL_PORT is set; bridging to the app on {addr} instead of a headless engine (unset it to run headless)"
+                );
+            }
+            let token = security::client_token(a.control.control_token.as_deref(), a.control.control_token_file.as_deref())?;
             PhotocraftMcp::bridge(&addr.to_string(), &token)?
         }
         None => PhotocraftMcp::headless_with_workspace(a.automation.workspace()?),

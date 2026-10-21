@@ -48,7 +48,7 @@ where
         Command::Batch(a) => batch(a, out, err),
         Command::Droplet(a) => droplet(a, out, err),
         Command::Commands(a) => commands(a, out),
-        Command::Mcp(a) => mcp(a),
+        Command::Mcp(a) => mcp(a, err),
         Command::Serve(a) => serve(a, err),
     };
     match result {
