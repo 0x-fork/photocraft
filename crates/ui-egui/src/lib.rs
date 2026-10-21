@@ -2475,7 +2475,7 @@ impl PhotocraftApp {
         self.mask_thumb_kind(ctx, doc, id, mask, mask_thumbs_ui::THUMB_MASK)
     }
 
-    /// The thumbnail of `mask` under cache `kind`, re-rendered only when the mask's pixels or the document width change; Smart Filter and layer masks are cached apart.
+    /// The thumbnail of `mask` under cache `kind`, re-rendered only when the mask's pixels or the document size change; Smart Filter and layer masks are cached apart.
     pub(crate) fn mask_thumb_kind(
         &mut self,
         ctx: &egui::Context,
@@ -2484,7 +2484,7 @@ impl PhotocraftApp {
         mask: &photocraft_doc::LayerMask,
         kind: u8,
     ) -> egui::TextureId {
-        let rev = surface_fingerprint(&mask.surface) ^ (doc.size.width as u64) << 40;
+        let rev = surface_fingerprint(&mask.surface) ^ (doc.size.width as u64) << 40 ^ (doc.size.height as u64) << 16;
         let key = (id, kind);
         if let Some((r, tex)) = self.thumbs.get(&key)
             && *r == rev

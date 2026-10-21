@@ -396,16 +396,11 @@ pub fn preview_command<'a>(fields: &serde_json::Map<String, Value>, command: &'a
 
 /// The command a confirmed filter dialog runs: smart-filter edits update the recorded filter.
 pub fn confirm_command(app: &PhotocraftApp, fields: &serde_json::Map<String, Value>, command: String, params: Value) -> Result<(String, Value), String> {
-    if crate::smart_filter_dialog::owns(fields) {
+    // One builder for the preview and for OK, so the two cannot differ.
+    if fields.contains_key("__smartFilter") {
         return crate::smart_filter_dialog::edit_command(app, fields);
     }
-    match fields.get("__smartFilter") {
-        Some(sf) => {
-            let (layer, index) = crate::smart_filter_dialog::validate_target(app, sf)?;
-            Ok(("layer.smartFilter.setParams".into(), json!({"layer": layer.0, "index": index, "params": params})))
-        }
-        None => Ok((command, params)),
-    }
+    Ok((command, params))
 }
 
 #[cfg(test)]
