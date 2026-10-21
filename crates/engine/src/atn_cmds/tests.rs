@@ -577,6 +577,45 @@ fn bucket_keeps_an_explicit_color_through_atn() {
     }
 }
 
+/// `image.adjustments.photoFilter` exported to .atn and imported back → its params, or None.
+fn photo_filter_round_trip(params: Value) -> Option<Value> {
+    let item = export_item("image.adjustments.photoFilter", &params, "S")?;
+    let e = event_for(&item.event)?;
+    match (e.from)(item.descriptor.as_ref()?) {
+        Mapped::Steps(steps) => steps.first().map(|(id, p)| {
+            assert_eq!(id, "image.adjustments.photoFilter");
+            p.clone()
+        }),
+        _ => None,
+    }
+}
+
+#[test]
+fn photo_filter_preset_only_step_keeps_its_resolved_color() {
+    // #7235: the Photoshop descriptor keeps only a colour (`phfl`/`PhtF` are colour-only; the io
+    // notes reach the same conclusion from the CS2 oracles). A step recorded with only `filter`
+    // previously exported with no colour at all, so re-imported playback fell back to the default
+    // warming filter; it must export the resolved colour of the chosen preset instead.
+    let mut back = photo_filter_round_trip(json!({"filter": "cooling80", "density": 60, "preserveLuminosity": true})).unwrap();
+    normalise(&mut back);
+    assert_eq!(back, json!({"color": "#006dff", "density": 60, "preserveLuminosity": true}));
+    // An omitted density stays omitted: running the imported step applies the same default.
+    let mut back = photo_filter_round_trip(json!({"filter": "red"})).unwrap();
+    normalise(&mut back);
+    assert_eq!(back, json!({"color": "#ea1a1a"}));
+    // With an explicit colour too, the colour wins, as when running the command.
+    let mut back = photo_filter_round_trip(json!({"filter": "cooling80", "color": "#123456", "density": 25})).unwrap();
+    normalise(&mut back);
+    assert_eq!(back, json!({"color": "#123456", "density": 25}));
+    let mut back = photo_filter_round_trip(json!({"color": "#123456", "density": 25})).unwrap();
+    normalise(&mut back);
+    assert_eq!(back, json!({"color": "#123456", "density": 25}));
+    // An unknown preset id keeps the old export: no colour resolves, playback applies its default.
+    let mut back = photo_filter_round_trip(json!({"filter": "nope", "density": 25})).unwrap();
+    normalise(&mut back);
+    assert_eq!(back, json!({"density": 25}));
+}
+
 #[test]
 fn unsupported_shapes_become_photoshop_steps_not_errors() {
     // Image size in two different percentages, a Paint Bucket click in percent of the canvas, a

@@ -856,7 +856,7 @@ const ADJUSTMENTS: &[Adjustment] = &[
     Adjustment { class: "ClrB", suffix: "colorBalance", from: color_balance_from, to: color_balance_to },
     adj_fields!("Vbrn", "vibrance", &[F("vibrance", "vibrance", Kind::Long), F("Strt", "saturation", Kind::Long)]),
     adj_fields!("Exps", "exposure", &[F("Exps", "exposure", Kind::Dbl), F("Ofst", "offset", Kind::Dbl), F("gammaCorrection", "gamma", Kind::Dbl)]),
-    adj_fields!("PhtF", "photoFilter", &[F("Clr ", "color", Kind::Color), F("Dnst", "density", Kind::Long), F("PrsL", "preserveLuminosity", Kind::Bool)]),
+    Adjustment { class: "PhtF", suffix: "photoFilter", from: |d| fields_from(d, PHOTO_FILTER_FIELDS).map(Value::Object), to: photo_filter_to },
     adj_fields!("BlnW", "blackWhite", BW),
     Adjustment { class: "ChnM", suffix: "channelMixer", from: channel_mixer_from, to: channel_mixer_to },
     Adjustment { class: "SlcC", suffix: "selectiveColor", from: selective_from, to: selective_to },
@@ -865,6 +865,29 @@ const ADJUSTMENTS: &[Adjustment] = &[
 
 fn adjustment_by_class(c: &str) -> Option<&'static Adjustment> {
     ADJUSTMENTS.iter().find(|a| a.class.trim_end() == c.trim_end())
+}
+
+const PHOTO_FILTER_FIELDS: &[F] = &[F("Clr ", "color", Kind::Color), F("Dnst", "density", Kind::Long), F("PrsL", "preserveLuminosity", Kind::Bool)];
+
+/// A `PhtF` step whose params carry a `filter` preset without an explicit `color`: the descriptor
+/// form is colour-only (Photoshop stores no preset key — the `phfl` notes in `crates/io` conclude
+/// the same from its CS2 oracles), so the resolved colour must be written, or re-imported playback
+/// falls back to the default warming filter. With both present, the explicit colour wins, as when
+/// running the command. An unknown preset id keeps the old export (no colour) instead of failing.
+fn photo_filter_to(p: &Value) -> Option<Descriptor> {
+    let mut p = p.clone();
+    if p.get("color").is_none() {
+        let hex = p.get("filter").and_then(Value::as_str).and_then(preset_color);
+        if let (Some(hex), Some(o)) = (hex, p.as_object_mut()) {
+            o.insert("color".into(), hex.into());
+        }
+    }
+    fields_to(&p, PHOTO_FILTER_FIELDS, desc("PhtF"))
+}
+
+/// The preset id's resolved `#rrggbb`, or none (no id given, or an unknown one).
+fn preset_color(id: &str) -> Option<String> {
+    crate::adjust_params::PHOTO_FILTERS.iter().find(|f| f.0 == id).map(|(_, _, rgb)| format!("#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]))
 }
 
 fn adjustment_by_suffix(suffix: &str) -> Option<&'static Adjustment> {
