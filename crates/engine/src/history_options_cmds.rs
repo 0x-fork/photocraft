@@ -533,4 +533,29 @@ mod tests {
         assert!(s.rollback());
         assert!(red(&s, id) && visible(&s, id), "the hide is taken back, the fill stays");
     }
+
+    /// Non-linear, a step that moves more later states than the History States limit leaves room
+    /// for is still taken back exactly by a rollback (a compound command whose later part failed):
+    /// the document before it comes back with the full list, not an Undo onto the last later
+    /// state that also drops the rest.
+    #[test]
+    fn rollback_past_the_state_limit_restores_the_list() {
+        let (mut s, id) = doc();
+        s.execute(CMD, json!({"allowNonLinearHistory": true})).unwrap();
+        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        s.execute("image.adjustments.invert", json!({})).unwrap();
+        s.execute("edit.undo", json!({})).unwrap();
+        s.execute("edit.undo", json!({})).unwrap();
+        let before = entries(&s);
+        let redo: Vec<String> = s.active().unwrap().history.redo_labels().map(str::to_string).collect();
+        assert_eq!(redo.len(), 2);
+        s.active_mut().unwrap().history.max_states = 2;
+        s.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+        assert!(s.rollback());
+        assert_eq!(entries(&s), before);
+        assert_eq!(s.active().unwrap().history.redo_labels().map(str::to_string).collect::<Vec<_>>(), redo);
+        assert!(!red(&s, id), "back on the New Layer state, not on the inverted fill");
+        s.execute("edit.redo", json!({})).unwrap();
+        assert!(red(&s, id), "the red fill is still redoable");
+    }
 }
