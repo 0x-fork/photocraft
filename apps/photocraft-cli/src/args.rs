@@ -36,6 +36,7 @@ pub(crate) struct ExportArgs {
     #[arg(long, value_name = "EXT")]
     pub(crate) format: Option<String>,
     /// JPEG or WebP quality, 1-100. A WebP written with a quality is lossy, without one lossless
+    // allow_negative_numbers makes `--quality -1` an out-of-range value rather than an unexpected argument.
     #[arg(long, value_name = "1-100", allow_negative_numbers = true)]
     pub(crate) quality: Option<String>,
     /// Keep the layers in TIFF output (Photoshop layer data); TIFF output is flat without it

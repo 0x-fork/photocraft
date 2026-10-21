@@ -63,9 +63,11 @@ layers because that would lose their group's blending semantics.
 
 Paths supplied to the current CLI are ordinary operating-system paths. The CLI does not restrict them to a workspace root. Batch output creates the requested output directory, and save operations may create parent directories. `batch` refuses an output directory that is its input directory (the results would replace the originals) unless `--in-place` is given. Run untrusted action files only in an appropriately isolated account or environment.
 
-CLI parsing reports malformed flags and JSON as errors, and a flag the subcommand doesn't take (a typo such as `--fromat`) is a usage error (exit status 2) rather than being ignored. It is not a security policy layer. Engine commands remain responsible for validating their own parameters.
+CLI parsing reports malformed flags and JSON as errors. A flag the subcommand doesn't take (a typo such as `--fromat`) and a flag given twice (only `--cmd` and `--params` may repeat) are usage errors (exit status 2), rather than being ignored. A value flag never takes the next flag as its value, so a value starting with `-` is written with `=` (`--out=-image.png`) or as `./-image.png`; negative numbers such as `--filter -1` still work. `photocraft-cli --version` (or `-V`) prints the version; there is no `version` subcommand.
 
-`mcp` and `serve` reject positional arguments, repeated options, missing or empty values and
-options for the wrong mode before starting a server. Explicit control-token flags require
-`mcp --bridge` or `serve --port`. Configure automation roots on the desktop process when using
-bridge mode; the CLI rejects root flags there. See the [MCP launch guide](mcp.md) for examples.
+`mcp` and `serve` reject positional arguments, empty values and options for the wrong mode before
+starting a server. Explicit control-token flags require `mcp --bridge` or `serve --port`. Configure
+automation roots on the desktop process when using bridge mode; the CLI rejects root flags there.
+See the [MCP launch guide](mcp.md) for examples.
+
+This checking is not a security policy layer. Engine commands remain responsible for validating their own parameters.
