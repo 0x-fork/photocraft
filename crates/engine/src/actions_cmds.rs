@@ -98,6 +98,10 @@ pub struct ActionState {
     /// Bumped whenever `list` changes, so the preset store can skip unchanged writes.
     #[serde(skip)]
     pub rev: u64,
+    /// Bumped by each `actions.record`, so a background job knows whether the recording it was
+    /// started in is still the one running when its result lands.
+    #[serde(skip)]
+    pub take: u64,
 }
 
 impl ActionState {
@@ -298,6 +302,7 @@ fn record(s: &mut Session, p: &Value) -> Result<Value> {
         s.actions.list.len() - 1
     };
     s.actions.recording = Some((s.journal.len(), idx));
+    s.actions.take = s.actions.take.wrapping_add(1);
     let name = s.actions.list.get(idx).map(|a| a.name.clone()).unwrap_or_default();
     Ok(json!({"action": name, "index": idx}))
 }
