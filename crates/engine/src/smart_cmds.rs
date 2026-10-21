@@ -1041,10 +1041,40 @@ fn set_filter_visible(s: &mut Session, p: &Value) -> Result<Value> {
     })
 }
 
+/// The Displace filter, whose map a smart filter keeps embedded in its params.
+const DISPLACE: &str = "filter.distort.displace";
+
 fn set_filter_params(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "layer.smartFilter.setParams";
     let new = p.get("params").cloned().ok_or_else(|| bad(CMD, "pass `params` (merged into the filter's parameters)"))?;
     let authorize = s.authorize;
+    // A Displace given another open document as its map embeds that one in place of the old
+    // (#7423). It is read here, before the edit, from the session; the request is authorized
+    // first, as the merged params are below. A new `mapPath` stays a path (read next to the
+    // document on each re-render) and only drops the old embedded map; an empty one, or a
+    // negative `mapDocument` (the dialog's "None"), names no map.
+    let new_map_asked = crate::filters_ext::map_document(&new).is_some();
+    let new_path = crate::filters_ext::map_path(&new).is_some();
+    let displace = {
+        let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
+        let sm = smart(doc, layer_param(s, p)?)?;
+        sm.smart_filters.get(filter_index(CMD, p, sm)?).is_some_and(|f| f.command == DISPLACE)
+    };
+    let new_map = if displace && new_map_asked {
+        // The old embedded map, if the edit passed it back, gives way to the one named.
+        let request = crate::filters_ext::displace_request(&new);
+        if let Some(gate) = authorize {
+            gate(DISPLACE, &request)?;
+        }
+        let mut fp = crate::filters::params_for(DISPLACE, &request).ok_or_else(|| bad(CMD, "unreadable Displace settings"))?;
+        crate::filters_ext::resolve(s, &mut fp, &request)?;
+        match fp {
+            photocraft_algo::FilterParams::Displace { map, .. } => map,
+            _ => None,
+        }
+    } else {
+        None
+    };
     edit_filters(s, p, "Edit Smart Filter", |sm| {
         let i = filter_index(CMD, p, sm)?;
         let f = &mut sm.smart_filters[i];
@@ -1054,6 +1084,14 @@ fn set_filter_params(s: &mut Session, p: &Value) -> Result<Value> {
         match (&mut f.params, new) {
             (Value::Object(old), Value::Object(n)) => old.extend(n),
             (slot, n) => *slot = n,
+        }
+        if f.command == DISPLACE {
+            if let Some(map) = &new_map {
+                f.params = photocraft_io::smart_map::displace_embed_map(&f.params, map)
+                    .ok_or_else(|| bad(CMD, "the displacement map is too large to keep in a Smart Object's filter"))?;
+            } else if new_path {
+                f.params = photocraft_io::smart_map::displace_without_map(&f.params);
+            }
         }
         // Authorize the underlying command with the complete merged params, including paths
         // already stored in the document, before committing the edit or starting a worker.
