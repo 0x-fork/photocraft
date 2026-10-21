@@ -1529,43 +1529,48 @@ pub(crate) fn family_picker_in(
         let preview = crate::font_preview::sample(preview);
         let row_h = preview.map_or(28.0, |(_, [_, h])| (h + 4.0).max(28.0));
 
+        // Wrap the font rows in a ScrollArea so only the list scrolls: the search field above
+        // stays fixed at the top of the popup.
         let mut hovered: Option<String> = None;
-        for (f, label) in rows {
-            // Highlighted by its fill alone, as Photoshop's font menu is. A selectable button lays
-            // out its frame's stroke only once hovered or selected, so with the theme's stroke the
-            // row under the pointer (and the selected one) grew and pushed the rows below down:
-            // the list jumped as the pointer moved (#7406).
-            let mut button = egui::Button::selectable(f == current, label).truncate().stroke(egui::Stroke::NONE);
-            if let Some((size, [_, h])) = preview {
-                button =
-                    button.right_text(egui::Atom::custom(ui.id().with(("font-sample", f)), egui::vec2(crate::font_preview::slot_width(ui.ctx(), f, size), h)));
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for (f, label) in rows {
+                // Highlighted by its fill alone, as Photoshop's font menu is. A selectable button lays
+                // out its frame's stroke only once hovered or selected, so with the theme's stroke the
+                // row under the pointer (and the selected one) grew and pushed the rows below down:
+                // the list jumped as the pointer moved (#7406).
+                let mut button = egui::Button::selectable(f == current, label).truncate().stroke(egui::Stroke::NONE);
+                if let Some((size, [_, h])) = preview {
+                    button = button
+                        .right_text(egui::Atom::custom(ui.id().with(("font-sample", f)), egui::vec2(crate::font_preview::slot_width(ui.ctx(), f, size), h)));
+                }
+                let response = ui.add_sized([330.0, row_h], button);
+                if (down || up) && f == current {
+                    response.scroll_to_me(Some(egui::Align::Center));
+                }
+                if let Some((size, _)) = preview
+                    && ui.is_rect_visible(response.rect)
+                {
+                    crate::font_preview::paint(ui, f, response.rect, size);
+                }
+                if response.hovered() {
+                    hovered = Some(f.clone());
+                }
+                if press.chosen(ui, &response) {
+                    *current = f.clone();
+                    // A served family not fetched yet: start now, before any text needs it.
+                    photocraft_text::served::request(f);
+                    changed = true;
+                    picked = true;
+                    ui.data_mut(|d| d.remove::<String>(search_id));
+                    hovered = None;
+                    ui.close();
+                }
             }
-            let response = ui.add_sized([330.0, row_h], button);
-            if (down || up) && f == current {
-                response.scroll_to_me(Some(egui::Align::Center));
-            }
-            if let Some((size, _)) = preview
-                && ui.is_rect_visible(response.rect)
-            {
-                crate::font_preview::paint(ui, f, response.rect, size);
-            }
-            if response.hovered() {
-                hovered = Some(f.clone());
-            }
-            if press.chosen(ui, &response) {
-                *current = f.clone();
-                // A served family not fetched yet: start now, before any text needs it.
-                photocraft_text::served::request(f);
-                changed = true;
-                picked = true;
-                ui.data_mut(|d| d.remove::<String>(search_id));
-                hovered = None;
-                ui.close();
-            }
-        }
+        });
         // egui measures a popup only when it opens and never lets it grow back, so a filtered
         // list would leave the menu short after the query is cleared (#1369). Keep the unfiltered
-        // height while searching.
+        // height while searching. Measured after the rows: before them `min_rect` only holds the
+        // search field, and the cache would shrink the menu to it.
         if ql.is_empty() {
             let h = ui.min_rect().height();
             ui.data_mut(|d| d.insert_temp(height_id, h));
