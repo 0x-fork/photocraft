@@ -1331,6 +1331,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         // Ratios, sizes, saved presets, New / Delete Crop Preset… (#2443, #1919).
                         crate::crop_presets::dropdown(app, ui);
                         let o = &mut app.ui.tool_options;
+                        let mut ratio_base = None;
                         if o.crop_ratio == crate::crop_size::WHR {
                             crate::crop_size::fields(o, ui);
                         } else {
@@ -1338,14 +1339,26 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             // Original Ratio shows the document's numbers, as Photoshop does.
                             let (mut rw, mut rh) = crate::crop_size::custom_ratio_fields(o, doc_size);
                             let decimals = crate::crop_size::RATIO_DECIMALS;
-                            let cw = widgets::value_field_prec(ui, &mut rw, 0.0..=99_999.0, "", 54.0, decimals).changed();
+                            let fw = widgets::value_field_prec(ui, &mut rw, 0.0..=99_999.0, "", 54.0, decimals);
                             let swap = icons::button(ui, "arrow-left-right", 22.0, false, tl!("Swaps height and width")).clicked();
-                            let ch = widgets::value_field_prec(ui, &mut rh, 0.0..=99_999.0, "", 54.0, decimals).changed();
+                            let fh = widgets::value_field_prec(ui, &mut rh, 0.0..=99_999.0, "", 54.0, decimals);
+                            let (cw, ch) = (fw.changed(), fh.changed());
                             if swap {
                                 std::mem::swap(&mut rw, &mut rh);
                             }
                             if cw || ch || swap {
                                 crate::crop_size::set_custom_ratio_fields(o, rw, rh);
+                            }
+                            // Every ratio typed or scrubbed in one edit fits from the frame the edit
+                            // started with: 1:3 on the way to 16:3 mustn't shrink it first (#7752).
+                            let base_id = egui::Id::new("crop-ratio-edit-base");
+                            if cw || ch {
+                                ratio_base = ui.data(|d| d.get_temp::<[f64; 4]>(base_id)).or(app.ui.crop_rect);
+                            }
+                            if ![&fw, &fh].iter().any(|f| f.has_focus() || f.dragged()) {
+                                ui.data_mut(|d| d.remove::<[f64; 4]>(base_id));
+                            } else if let Some(base) = ratio_base {
+                                ui.data_mut(|d| d.insert_temp(base_id, base));
                             }
                         }
                         widgets::vline(ui, 22.0);
@@ -1371,7 +1384,10 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             150.0,
                         );
                         if crate::crop_ui::preset_ratio(app) != before_ratio {
-                            crate::crop_ui::apply_ratio(app);
+                            match ratio_base {
+                                Some(base) => crate::crop_ui::apply_ratio_from(app, base),
+                                None => crate::crop_ui::apply_ratio(app),
+                            }
                         }
                         if pick_shield_color {
                             crate::crop_shield::pick_custom_color(app);
@@ -6555,6 +6571,46 @@ mod compact_visual_regressions {
             .collect();
         assert!(texts.contains(&"1.414"), "{texts:?}");
         assert_eq!(app.ui.tool_options.crop_ratio, "1.414:1", "showing the ratio leaves it alone");
+    }
+
+    #[test]
+    fn a_typed_crop_ratio_fits_from_the_frame_the_edit_started_with() {
+        // #7752: typing 16 over 4 gave 1:3, then 16:3 inside that 100 x 300 frame (100 x 18.75).
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        let Some(kind) = crate::theme::ThemeKind::ALL.into_iter().find(|k| {
+            crate::theme::apply(&ctx, *k);
+            Tokens::get(&ctx).pro
+        }) else {
+            return;
+        };
+        crate::theme::apply(&ctx, kind);
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 400, "height": 300})).unwrap();
+        app.ui.tool = Tool::Crop;
+        app.ui.tool_options.crop_shield.classic_mode = true;
+        app.ui.tool_options.crop_ratio = "4:3".into();
+        app.ui.crop_rect = Some([0.0, 0.0, 400.0, 300.0]);
+        let screen = Rect::from_min_size(egui::Pos2::ZERO, vec2(1600.0, 120.0));
+        let step = |app: &mut PhotocraftApp, events: Vec<egui::Event>| {
+            let mut input = input_at_scale(screen, 1.0);
+            input.events = events;
+            ctx.run_ui(input, |ui| options_bar(app, ui)).textures_delta.clear();
+        };
+        for _ in 0..3 {
+            step(&mut app, vec![]);
+        }
+        // The ratio's W field is the bar's first number field; focusing it selects its text.
+        widgets::focus_first_field(&ctx, true);
+        step(&mut app, vec![]);
+        step(&mut app, vec![egui::Event::Text("1".into())]);
+        assert_eq!(app.ui.tool_options.crop_ratio, "1:3");
+        step(&mut app, vec![egui::Event::Text("6".into())]);
+        step(&mut app, vec![]);
+        assert_eq!(app.ui.tool_options.crop_ratio, "16:3");
+        let r = app.ui.crop_rect.unwrap();
+        let want = [0.0, 112.5, 400.0, 187.5];
+        assert!(r.iter().zip(want).all(|(a, b)| (a - b).abs() < 1e-9), "16:3 fitted once in 400 x 300: {r:?}");
     }
 
     #[test]
