@@ -224,8 +224,18 @@ fn corpus_photoshop_path_text_opens_on_its_path() {
             let iou = if union > 0.0 { inter / union } else { 1.0 };
             let edges = [ps_rect.x0 - our_rect.x0, ps_rect.y0 - our_rect.y0, ps_rect.x1 - our_rect.x1, ps_rect.y1 - our_rect.y1];
             println!("{file}: ps={ps_rect:?} ours={our_rect:?} iou={iou:.2} edges={edges:?}");
-            assert!(edges.iter().all(|d| d.abs() <= 8), "{file}: ink bounds {our_rect:?}, Photoshop's {ps_rect:?}");
-            assert!(iou > 0.2, "{file}: the glyphs sit where Photoshop drew them (IoU {iou:.2})");
+            // Where the type starts on the path and how far it reaches across it hold with any
+            // font; the far end and the glyph overlap need the font Photoshop used (a wider
+            // fallback runs further around the circle).
+            let [x0, y0, _, y1] = edges;
+            assert!([x0, y0, y1].iter().all(|d| d.abs() <= 8), "{file}: ink bounds {our_rect:?}, Photoshop's {ps_rect:?}");
+            let family = t.runs.first().map(|r| r.style.font_family.clone()).unwrap_or_default();
+            if engine.fonts.has_family(&family) {
+                assert!(edges.iter().all(|d| d.abs() <= 8), "{file}: ink bounds {our_rect:?}, Photoshop's {ps_rect:?}");
+                assert!(iou > 0.2, "{file}: the glyphs sit where Photoshop drew them (IoU {iou:.2})");
+            } else {
+                eprintln!("{file}: {family:?} not installed, far edge and overlap comparison skipped");
+            }
         }
 
         // Edited: new text and the path moved 10 px right; saved and opened again.
