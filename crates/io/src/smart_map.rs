@@ -220,11 +220,6 @@ fn unit_in(d: &Descriptor, key: &str, u: &[u8; 4], lo: f64, hi: f64) -> Option<f
     }
 }
 
-/// A `long` value within `lo..=hi`.
-fn int_in(d: &Descriptor, key: &str, lo: i32, hi: i32) -> Option<i32> {
-    int(d, key).filter(|v| (lo..=hi).contains(v))
-}
-
 /// `filter.sharpen.smartSharpen` params; `None` for a setting PhotoCraft doesn't render.
 fn smart_sharpen_params(f: &Descriptor) -> Option<J> {
     if f.items.iter().any(|(k, _)| !SMART_SHARPEN_KEYS.iter().any(|x| k.is(x))) {
@@ -1456,19 +1451,6 @@ mod tests {
             let back = filter_from_item(&item_for_filter(&f).unwrap());
             assert_eq!((back.command.as_str(), &back.params["filterID"]), (UNSUPPORTED_FILTER, &f.params["filterID"]));
         }
-    }
-
-    /// A `filterFXList` item as Photoshop writes it, around filter `fltr`.
-    fn ps_item(name: &str, fltr: Descriptor, filter_id: i32) -> Descriptor {
-        Descriptor::new("filterFX")
-            .with("Nm  ", Value::Text(UnicodeString::new_nul(name)))
-            .with("blendOptions", Value::Descriptor(Descriptor::new("blendOptions").with("Opct", unit(b"#Prc", 100.0)).with("Md  ", enumv("BlnM", "normal"))))
-            .with("enab", Value::Boolean(true))
-            .with("hasoptions", Value::Boolean(true))
-            .with("FrgC", rgbc(0.0))
-            .with("BckC", rgbc(255.0))
-            .with("Fltr", Value::Descriptor(fltr))
-            .with("filterID", Value::Integer(filter_id))
     }
 
     /// Smart Sharpen's `Fltr` in the measured shape (no `presetKind`, no `Angl`).
