@@ -1387,3 +1387,27 @@ fn function_keys_keep_shift_and_command() {
     }
     assert_eq!(super::function_key_name(7, false, false), "F7");
 }
+
+/// `image.imageSize` with `resample: "none"` ignores width, height and percent; the `.atn`
+/// round trip must not turn them into a pixel resize (#7189).
+#[test]
+fn image_size_resample_none_keeps_ignoring_its_size_through_atn_export() {
+    let event = event_for(&export_item("image.imageSize", &json!({"resolution": 72}), "S").expect("exports").event).expect("a known event");
+    let back = |p: Value| {
+        let item = export_item("image.imageSize", &p, "S")?;
+        let Mapped::Steps(steps) = (event.from)(item.descriptor.as_ref().unwrap()) else { panic!("does not import back") };
+        let mut back = steps[0].1.clone();
+        normalise(&mut back);
+        Some(back)
+    };
+    for sized in [json!({"width": 12, "height": 10}), json!({"width": 12}), json!({"percent": 200}), json!({"width": 12, "percent": 50, "height": 3})] {
+        let mut p = sized.clone();
+        p["resolution"] = json!(144);
+        p["resample"] = json!("none");
+        assert_eq!(back(p.clone()), Some(json!({"resolution": 144, "resample": "none"})), "{p}");
+    }
+    // A step with nothing left to record is refused rather than exported as an empty (unsupported) event.
+    assert_eq!(back(json!({"width": 12, "height": 10, "resample": "none"})), None);
+    // Real resizes are untouched.
+    assert_eq!(back(json!({"width": 12, "height": 10, "resample": "bicubic"})), Some(json!({"width": 12, "height": 10, "resample": "bicubic"})));
+}
