@@ -280,6 +280,7 @@ impl Manifest {
     pub fn preview_factor(&self, params: &Map<String, Value>, k: u32) -> u32 {
         self.pixel_params().fold(k.max(1), |k, (key, min, max, default, _)| match Self::pixel_value(params, key, min, max, default) {
             Some(v) if min > 0.0 => k.min((v / min).floor().max(1.0).min(f64::from(k)) as u32),
+            Some(v) if max < 0.0 => k.min((v / max).floor().max(1.0).min(f64::from(k)) as u32),
             _ => k,
         })
     }
