@@ -26,6 +26,7 @@ pub mod artboard_tool;
 pub mod artboard_ui;
 pub(crate) mod background_redraw;
 pub mod bidi_text;
+pub(crate) mod bitmap_dialog;
 mod blend_keys;
 pub(crate) mod blend_preview;
 pub mod blur_pins;
@@ -58,6 +59,7 @@ pub mod cjk_fonts;
 pub mod clip_line_ui;
 pub mod color_picker_ui;
 pub mod color_range_ui;
+pub mod color_table_ui;
 pub mod comps_ui;
 pub mod control;
 pub mod corner_radius;
@@ -106,6 +108,7 @@ pub mod gpu_status;
 pub mod gradient_ui;
 pub mod guide_layout_ui;
 pub mod guide_select;
+pub mod history_menu_ui;
 pub mod hold_keys;
 pub mod i18n;
 mod icon_data;
@@ -124,6 +127,7 @@ pub mod layer_row_ui;
 pub mod layer_style;
 mod layer_transfer;
 pub mod layer_tree_ui;
+pub mod layers_panel_ui;
 mod layout_keys;
 pub mod links;
 pub mod liquify_ui;
@@ -137,6 +141,7 @@ pub mod menu_nav;
 pub mod menus;
 pub mod monitor_status;
 pub mod move_box;
+pub mod move_distance;
 pub mod move_hover;
 pub mod move_lock;
 pub mod move_mods;
@@ -221,6 +226,7 @@ pub mod tool_feedback;
 pub(crate) mod tool_memory;
 mod tool_reset;
 mod tool_shortcuts;
+pub mod touch_twins;
 pub mod transform_fx;
 pub mod transform_tex;
 pub mod transform_tool;
@@ -238,6 +244,7 @@ pub mod wide_angle_ui;
 pub mod widgets;
 pub mod work_area;
 pub mod workspace_ui;
+pub mod zoom_hold;
 pub mod zoom_levels;
 pub mod zoom_tool;
 
@@ -291,6 +298,8 @@ pub struct ExportSettings {
     /// The path of the document's own file, which linked smart objects that PSD/PSB embed are
     /// resolved against ([`photocraft_io::ExportOptions::document_path`]).
     pub document_path: Option<std::path::PathBuf>,
+    /// Native save cache owned by the open document; exports without one remain one-shot.
+    pub pcraft_cache: Option<photocraft_io::PcraftExportCache>,
 }
 
 impl Default for ExportSettings {
@@ -308,6 +317,7 @@ impl Default for ExportSettings {
             embed_icc: true,
             embed_metadata: true,
             document_path: None,
+            pcraft_cache: None,
         }
     }
 }
@@ -333,6 +343,7 @@ impl ExportSettings {
         opts.image_previews = self.image_previews;
         opts.psd_maximize_compatibility = self.psd_maximize_compatibility;
         opts.document_path = self.document_path.clone();
+        opts.pcraft_cache = self.pcraft_cache.clone();
         opts
     }
 }
@@ -568,6 +579,10 @@ pub struct Services {
     pub autosave: Option<AutosaveFn>,
     /// None for services that report synchronous success through `autosave`.
     pub autosave_results: Option<AutosaveResultsFn>,
+    /// Finish every queued crash-recovery autosave and wait for it, with outcomes like
+    /// `autosave_results`. For a session that ends without asking: the window's graphics device
+    /// was lost (see `gpu_status::check_window`).
+    pub flush_autosaves: Option<AutosaveResultsFn>,
     pub discard_autosave: Option<DiscardAutosaveFn>,
     pub recover: Option<RecoverFn>,
     pub adopt_autosave: Option<AdoptAutosaveFn>,
@@ -662,10 +677,16 @@ pub struct PhotocraftApp {
     pub(crate) move_preview: Option<move_ui::MovePreview>,
     /// Move tool › Show Highlight on Rollover: the last hover answer (`move_hover`).
     pub(crate) move_hover: Option<move_hover::Hover>,
+    /// Smart Guides distances shown with ⌘ held over the canvas: the last answer (`move_distance`).
+    pub(crate) move_distance: Option<move_distance::Cache>,
     /// Object Selection › Object Finder: the hover preview (`object_finder`).
     pub(crate) object_finder: Option<object_finder::Finder>,
     /// A blend mode hovered in the Layers panel, shown live (`blend_preview`).
     pub(crate) blend_preview: Option<blend_preview::BlendPreview>,
+    /// Layers panel drag: temporary reordered document displayed until mouse release.
+    pub(crate) reorder_preview: Option<layers_panel_ui::ReorderPreview>,
+    /// Whether the currently dragged layer is over a valid destination this frame.
+    pub(crate) reorder_preview_hit: bool,
     /// Patch Tool drag: the healed document at the pointer (`patch_preview`).
     pub(crate) patch_preview: Option<patch_preview::PatchPreview>,
     /// Content-Aware Move drag or box shown with its result (`cam_preview`).
@@ -767,6 +788,8 @@ pub struct PhotocraftApp {
     filter_preview_worker: filter_preview_worker::Worker,
     /// Full CPU canvas redraws running in the background, by document (#4024).
     pub(crate) redraws: std::collections::HashMap<photocraft_doc::DocId, background_redraw::Redraw>,
+    /// The last finished background redraws, for going back to a state drawn a moment ago (#6528).
+    pub(crate) kept: background_redraw::KeptComposites,
     /// Select › Color Range dialog preview (proxy document + mask / image textures).
     pub(crate) color_range: Option<color_range_ui::Preview>,
     /// Image › Adjustments dialog preview through a temporary clipped adjustment layer.
@@ -863,6 +886,14 @@ pub struct PhotocraftApp {
     /// GPU canvas renderer, when running on the wgpu backend (see [`Self::set_wgpu`]). Dropped
     /// for the rest of the session when the device is lost (see `gpu_status`).
     gpu: Option<gpu_canvas::GpuCanvas>,
+    /// The device the window itself draws with, and its health flag: the GPU canvas's, or one
+    /// watched for the CPU canvas (see `gpu_status::check_window`).
+    window_device: Option<(eframe::wgpu::Device, photocraft_gpu::DeviceHealth)>,
+    /// That device was lost: frames draw nothing and the app closes once its work is saved (#3438).
+    window_lost: bool,
+    /// When (in `egui::InputState::time`) to try saving unsaved work for recovery again after a
+    /// failed attempt; the app closes only once it succeeded.
+    window_recovery_retry: Option<f64>,
     /// Run once the first frames have rendered (see [`Self::on_started`]).
     started: Option<gpu_status::StartedHook>,
     /// Frame and canvas-upload timings (exposed via `ui.inspect`).
@@ -936,8 +967,11 @@ impl PhotocraftApp {
             menu_cache: None,
             move_preview: None,
             move_hover: None,
+            move_distance: None,
             object_finder: None,
             blend_preview: None,
+            reorder_preview: None,
+            reorder_preview_hit: false,
             patch_preview: None,
             cam_preview: None,
             magnetic: Default::default(),
@@ -985,6 +1019,7 @@ impl PhotocraftApp {
             #[cfg(not(target_arch = "wasm32"))]
             filter_preview_worker: Default::default(),
             redraws: Default::default(),
+            kept: Default::default(),
             color_range: None,
             adjust_preview: None,
             live_adjust_preview: None,
@@ -1029,6 +1064,9 @@ impl PhotocraftApp {
             doc_hist: None,
             hist_job: None,
             gpu: None,
+            window_device: None,
+            window_lost: false,
+            window_recovery_retry: None,
             started: None,
             perf: Default::default(),
             stroke_trace: stroke_trace::StrokeTrace::from_env(),
@@ -1052,6 +1090,7 @@ impl PhotocraftApp {
         };
         // Saved preferences are in place before the first frame; recovery starts in upkeep.
         prefs_ui::load(&mut app);
+        layers_panel_ui::restore_options(&mut app);
         // After the saved preferences, which say whether the set was already offered.
         kys_import::offer_import(&mut app);
         notices::wayland_file_drop_guidance(&mut app);
@@ -1081,10 +1120,12 @@ impl PhotocraftApp {
                 self.perf.gpu_info.canvas = "cpu".into();
                 self.perf.gpu_info.fallback = Some(detail.clone());
                 gpu_status::queue_fallback_notice(self, detail);
+                self.watch_window_device(&rs.device);
                 return;
             }
         };
         self.perf.gpu_info.canvas = "gpu".into();
+        self.window_device = Some((rs.device.clone(), gpu.health().clone()));
         self.gpu = Some(gpu);
         self.prefs_rt.gpu_style = None;
     }
@@ -1098,6 +1139,24 @@ impl PhotocraftApp {
     /// The GPU canvas's device health flag (tests inject faults through it).
     pub fn gpu_health(&self) -> Option<photocraft_gpu::DeviceHealth> {
         self.gpu.as_ref().map(|g| g.health().clone())
+    }
+
+    /// Watch the device the window draws with when the GPU canvas doesn't (the CPU canvas), so
+    /// its loss is handled like the GPU canvas's (see `gpu_status::check_window`).
+    pub fn watch_window_device(&mut self, device: &eframe::wgpu::Device) {
+        self.window_device = Some((device.clone(), photocraft_gpu::DeviceHealth::watch(device)));
+    }
+
+    /// Whether the window's graphics device was lost, so the app saves its documents for
+    /// recovery and closes once they are saved (#3438).
+    pub fn window_lost(&self) -> bool {
+        self.window_lost
+    }
+
+    /// Destroy the window's graphics device, as a driver reset does (`ui.gpu.simulateLoss`
+    /// with `destroy`, tests). Returns whether there was one.
+    pub fn destroy_window_device(&mut self) -> bool {
+        self.window_device.as_ref().map(|(device, _)| device.destroy()).is_some()
     }
 
     /// Run `hook` once the app has rendered its first frames (and a document opened at launch
@@ -1232,13 +1291,24 @@ impl PhotocraftApp {
             jobs_ui::run(self, id, params)
         };
         let creates_adjustment_or_fill = id.starts_with("layer.newAdjustmentLayer.") || id.starts_with("layer.newFillLayer.");
-        if r.is_ok() && (ADDS_LAYER_MASK.contains(&id) || creates_adjustment_or_fill) {
-            // Adding a layer mask targets it, as in Photoshop (#2166).
+        if r.is_ok() && ADDS_LAYER_MASK.contains(&id) {
+            // Adding an explicit mask targets it, as in Photoshop (#2166).
             self.ui.mask_target = true;
             self.ui.vector_mask_target = false;
-            // Properties still shows the new adjustment or fill layer's settings, not its mask,
-            // as in Photoshop (#3369): clicking the mask thumbnail switches it to the mask.
-            self.ui.properties_layer = if creates_adjustment_or_fill { self.session.active().and_then(|st| st.active_layer).map(|l| l.0) } else { None };
+            self.ui.properties_layer = None;
+        } else if r.is_ok() && creates_adjustment_or_fill {
+            // Panel Options may suppress a fill layer's default mask. Never target a
+            // nonexistent mask; an active path creates a vector mask instead.
+            let masks = self
+                .session
+                .active()
+                .and_then(|st| st.active_layer.and_then(|id| st.doc.layer(id)))
+                .map(|layer| (layer.mask.is_some(), layer.vector_mask.is_some()))
+                .unwrap_or((false, false));
+            self.ui.mask_target = masks.0;
+            self.ui.vector_mask_target = !masks.0 && masks.1;
+            // Keep Properties on the new layer contents, as on main (#3369).
+            self.ui.properties_layer = self.session.active().and_then(|st| st.active_layer).map(|l| l.0);
         }
         if r.is_ok() && creates_adjustment_or_fill {
             // Properties comes to the front, shown and expanded, so the new layer's settings can
@@ -1345,6 +1415,7 @@ impl PhotocraftApp {
         // ... and to the document it was started on.
         crate::canvas::polygon_cancel_stale(self);
         crate::crop_ui::cancel_stale(self);
+        crate::perspective_crop_ui::cancel_stale(self);
         let ids: Vec<DocId> = self.session.documents().iter().map(|d| d.doc.id).collect();
         // Where the document of view `i` is now. Views not tracked yet keep their index.
         let now = |i: usize| match self.view_docs.get(i) {
@@ -1658,8 +1729,9 @@ impl PhotocraftApp {
         }
     }
 
-    /// Replays a recorded `file.save` / `file.saveAs` / `file.saveACopy` step: no dialog or prompt, and the
-    /// recorded TIFF, Targa or DDS answer (if any) stands in for the TIFF, Targa or DDS Options prompt.
+    /// Replays a recorded `file.save` / `file.saveAs` / `file.saveACopy` / `file.export.exportAs`
+    /// step: no dialog or prompt, and the recorded TIFF, Targa or DDS answer (if any) stands in for
+    /// the TIFF, Targa or DDS Options prompt.
     pub(crate) fn replay_save(&mut self, id: &str, params: &Value) -> Result<Value, String> {
         if self.save_options_open() {
             return Err("Answer the TIFF, Targa or DDS Options before starting another save".into());
@@ -1680,6 +1752,10 @@ impl PhotocraftApp {
                 "Save writes back only to the document's own PSD, PSB, .pcraft or OpenRaster file (OpenRaster only when it holds everything), or to its own flat file while the document is a single plain layer",
             )?;
             return self.save_in_place(path, choices);
+        }
+        if id == crate::export_dialog::COMMAND {
+            // Export As has its own settings, its TGA bits included (#7207).
+            return crate::export_dialog::replay(self, params);
         }
         let path = params.get("path").and_then(Value::as_str).filter(|p| !p.is_empty()).ok_or("Save As needs a `path`")?;
         let choices = FormatChoices::from_params(params, id)?;
@@ -1708,6 +1784,7 @@ impl PhotocraftApp {
             settings.webp_lossless = e.webp_lossless.unwrap_or(settings.webp_lossless);
             settings.webp_quality = e.webp_quality.map(|q| q.min(100));
             settings.document_path = st.path.as_deref().map(std::path::PathBuf::from);
+            settings.pcraft_cache = Some(st.pcraft_cache.clone());
         }
         settings
     }
@@ -2016,6 +2093,8 @@ impl eframe::App for PhotocraftApp {
         if self.ui.text_edit.as_ref().is_some_and(|ed| !self.ui.tool.is_type() || ed.mask != self.ui.tool.is_type_mask()) {
             type_tool::commit(self);
         }
+        // So does selecting another layer or document by any route (#6483).
+        type_tool::end_if_left(self);
         if self.ui.pen.as_ref().is_some_and(|p| !p.drawn_with(self.ui.tool)) {
             vector_ui::pen_commit(self, false);
         }
@@ -2141,6 +2220,7 @@ impl eframe::App for PhotocraftApp {
                 }
             });
             self.automation_input = false;
+            gpu_status::check_window(self, &ctx);
             return;
         }
         if screen_picker::busy(&ctx) {
@@ -2151,19 +2231,24 @@ impl eframe::App for PhotocraftApp {
         // system title bar this is where the document name lives, as the in-app title is hidden.
         panels::sync_window_title(self, &ctx);
         let chrome = !self.ui.view.hides_chrome();
-        if chrome && self.ui.panels.menu_bar {
+        if chrome {
+            self.ui.panels.full_screen_chrome = false;
+        }
+        // In Full Screen Mode, Tab shows the menu bar, options bar, toolbar and dock (#6760).
+        let tabbed_in = !chrome && self.ui.panels.full_screen_chrome;
+        if (chrome || tabbed_in) && self.ui.panels.menu_bar {
             panels::title_bar(self, ui);
         }
-        if chrome && self.ui.panels.options_bar {
+        if (chrome && self.ui.panels.options_bar) || tabbed_in {
             panels::options_bar(self, ui);
         }
         if chrome && self.ui.panels.status_bar {
             panels::status_bar(self, ui);
         }
-        if chrome && self.ui.panels.toolbar {
+        if (chrome && self.ui.panels.toolbar) || tabbed_in {
             panels::toolbar(self, ui);
         }
-        if chrome && self.ui.panels.dock {
+        if (chrome && self.ui.panels.dock) || tabbed_in {
             panels::right_dock(self, ui);
         }
         let t = theme::Tokens::get(&ctx);
@@ -2181,6 +2266,7 @@ impl eframe::App for PhotocraftApp {
         workspace_ui::windows(self, &ctx);
         palette::show(self, &ctx);
         dialogs::show(self, &ctx);
+        layers_panel_ui::show_dialog(self, &ctx);
         rasterize_prompt::run_pending(self, &ctx);
         jobs_ui::dialog(self, &ctx);
         discard_ui::show(self, &ctx);
@@ -2258,6 +2344,8 @@ impl eframe::App for PhotocraftApp {
         jobs_ui::keep_polling(self, &ctx);
         // Menus and buttons in this frame may have asked for a file dialog.
         self.poll_file_dialog(&ctx, Some(frame));
+        // Last, after everything drawn this frame: a lost window device can't draw it (#3438).
+        gpu_status::check_window(self, &ctx);
     }
 }
 
@@ -2587,6 +2675,31 @@ impl PhotocraftApp {
         self.bounds_cache.insert(key, (rev, b));
         b
     }
+
+    /// The box Properties › Transform shows for `layer` (X, Y, W, H): its pixels' bounds, but a
+    /// soft shape's path and stroke, whose Density and Feather render past them (#5846), as its
+    /// transform frame does.
+    pub fn layer_frame_bounds(&mut self, layer: &photocraft_doc::Layer, surface: &photocraft_raster::Surface) -> photocraft_geom::Rect {
+        match &layer.content {
+            photocraft_doc::LayerContent::Shape(sh) if sh.has_soft_mask() => {
+                // Cached per rendering, like the pixel bounds: the frame renders strips of the shape.
+                let (key, rev) = (layer.id.0 | 1 << 63, surface_fingerprint(surface));
+                if let Some((r, b)) = self.bounds_cache.get(&key)
+                    && *r == rev
+                {
+                    return *b;
+                }
+                let canvas = self.session.active().map_or_else(|| surface.content_bounds(), |st| st.doc.bounds());
+                let b = photocraft_compose::soft_shape_frame(sh, surface.format(), canvas).unwrap_or(photocraft_geom::Rect::EMPTY);
+                if self.bounds_cache.len() > 256 {
+                    self.bounds_cache.clear();
+                }
+                self.bounds_cache.insert(key, (rev, b));
+                b
+            }
+            _ => self.cached_bounds(layer.id.0, surface),
+        }
+    }
 }
 
 impl PhotocraftApp {
@@ -2893,6 +3006,8 @@ mod color_replacement_tests;
 #[cfg(test)]
 mod layer_shortcut_tests;
 #[cfg(test)]
+mod live_retouch_tests;
+#[cfg(test)]
 mod pencil_tests;
 #[cfg(test)]
 mod tool_shortcut_tests;
@@ -2905,6 +3020,8 @@ mod transform_fx_tests;
 
 #[cfg(test)]
 mod layer_props_ui_tests;
+#[cfg(test)]
+mod notice_text_tests;
 #[cfg(test)]
 mod transform_switch_tests;
 #[cfg(test)]
