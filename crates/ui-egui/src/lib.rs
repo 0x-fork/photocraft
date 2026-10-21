@@ -2602,7 +2602,22 @@ impl PhotocraftApp {
     /// transform frame does.
     pub fn layer_frame_bounds(&mut self, layer: &photocraft_doc::Layer, surface: &photocraft_raster::Surface) -> photocraft_geom::Rect {
         match &layer.content {
-            photocraft_doc::LayerContent::Shape(sh) if sh.has_soft_mask() => photocraft_compose::hard_shape_bounds(sh).unwrap_or(photocraft_geom::Rect::EMPTY),
+            photocraft_doc::LayerContent::Shape(sh) if sh.has_soft_mask() => {
+                // Cached per rendering, like the pixel bounds: the frame renders strips of the shape.
+                let (key, rev) = (layer.id.0 | 1 << 63, surface_fingerprint(surface));
+                if let Some((r, b)) = self.bounds_cache.get(&key)
+                    && *r == rev
+                {
+                    return *b;
+                }
+                let canvas = self.session.active().map_or_else(|| surface.content_bounds(), |st| st.doc.bounds());
+                let b = photocraft_compose::soft_shape_frame(sh, surface.format(), canvas).unwrap_or(photocraft_geom::Rect::EMPTY);
+                if self.bounds_cache.len() > 256 {
+                    self.bounds_cache.clear();
+                }
+                self.bounds_cache.insert(key, (rev, b));
+                b
+            }
             _ => self.cached_bounds(layer.id.0, surface),
         }
     }
