@@ -47,6 +47,7 @@ mod flat;
 mod gradient_bake;
 pub mod guides_map;
 pub use gradient_bake::{Method as GradientMethod, bake as bake_gradient};
+mod duotone_map;
 mod kra;
 pub mod linked;
 mod multichannel_map;

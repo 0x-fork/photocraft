@@ -891,7 +891,13 @@ fn hard_stop_effects_and_gradient_maps_request_cpu() {
             let paint = FxPaint::Gradient(gradient.clone());
             let effects = [
                 Effect::GradientOverlay { common: FxCommon::new(BlendMode::Normal, 1.0), gradient, dither: false },
-                Effect::Stroke(StrokeFx { common: FxCommon::new(BlendMode::Normal, 1.0), size: 1.0, position: StrokePosition::Inside, paint: paint.clone() }),
+                Effect::Stroke(StrokeFx {
+                    common: FxCommon::new(BlendMode::Normal, 1.0),
+                    size: 1.0,
+                    position: StrokePosition::Inside,
+                    paint: paint.clone(),
+                    overprint: false,
+                }),
                 Effect::InnerGlow(glow(paint.clone(), GlowTechnique::Softer, 1.0, 0.0, GlowSource::Edge)),
                 Effect::OuterGlow(glow(paint, GlowTechnique::Softer, 1.0, 0.0, GlowSource::Edge)),
             ];
@@ -1448,6 +1454,7 @@ fn bevel(style: BevelStyle, up: bool, size: f32, soften: f32) -> Bevel {
         altitude: 35.0,
         use_global_light: true,
         gloss_contour: Contour::Linear,
+        gloss_anti_alias: false,
         highlight: FxCommon::new(BlendMode::Screen, 0.8),
         highlight_color: Color::rgb(1.0, 1.0, 0.9),
         shadow: FxCommon::new(BlendMode::Multiply, 0.7),
@@ -1458,7 +1465,7 @@ fn bevel(style: BevelStyle, up: bool, size: f32, soften: f32) -> Bevel {
 }
 
 fn stroke(size: f32, position: StrokePosition, paint: FxPaint) -> StrokeFx {
-    StrokeFx { common: FxCommon::new(BlendMode::Normal, 0.9), size, position, paint }
+    StrokeFx { common: FxCommon::new(BlendMode::Normal, 0.9), size, position, paint, overprint: false }
 }
 
 fn checker_pattern() -> Pattern {

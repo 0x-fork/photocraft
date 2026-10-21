@@ -121,6 +121,7 @@ enum Target {
     Property(String),
     Class,
     Offset(i32),
+    Index(u32),
     Other,
 }
 
@@ -131,6 +132,7 @@ fn target(r: &[ReferenceItem]) -> Target {
         Some(ReferenceItem::Property { key, .. }) => Target::Property(trimmed(key)),
         Some(ReferenceItem::Class(_)) => Target::Class,
         Some(ReferenceItem::Offset { offset, .. }) => Target::Offset(*offset),
+        Some(ReferenceItem::Index { index, .. }) => Target::Index(*index),
         _ => Target::Other,
     }
 }
@@ -612,19 +614,22 @@ fn hue_entry(p: &Value, range: Option<(usize, &Value)>) -> Option<Descriptor> {
     Some(e)
 }
 
+// Exporters leave out a param the step doesn't set only where Photoshop plays the missing key
+// as PhotoCraft's default (checked against Photoshop: Fill opacity and mode, Crop delete,
+// Selective Color method, Channel Mixer monochrome, Paint Bucket contiguous; Gradient Map
+// reverse and dither, which Photoshop itself leaves out when off). Elsewhere they
+// write PhotoCraft's default, as Photoshop plays a missing key differently (Color Balance
+// preserve luminosity off, Canvas Size anchored top left, Apply Image Normal) or refuses the
+// step (Paint Bucket without a tolerance).
 fn hue_sat_to(p: &Value) -> Option<Descriptor> {
+    let d = desc("HStr").with("presetKind", enm("presetKindType", "presetKindCustom")).with("Clrz", D::Boolean(jbool(p, "colorize").unwrap_or(false)));
     let mut entries = vec![D::Descriptor(hue_entry(p, None)?)];
     for (i, name) in HUE_RANGES.iter().enumerate() {
         if let Some(r) = p.get(*name).filter(|v| v.is_object()) {
             entries.push(D::Descriptor(hue_entry(r, Some((i, r)))?));
         }
     }
-    Some(
-        desc("HStr")
-            .with("presetKind", enm("presetKindType", "presetKindCustom"))
-            .with("Clrz", D::Boolean(jbool(p, "colorize").unwrap_or(false)))
-            .with("Adjs", D::List(entries)),
-    )
+    Some(d.with("Adjs", D::List(entries)))
 }
 
 fn triple(d: &Descriptor, k: &str) -> Option<Value> {
@@ -694,7 +699,10 @@ fn channel_mixer_to(p: &Value) -> Option<Descriptor> {
             d = d.with(key, D::Descriptor(desc("ChMx").with("Rd  ", pct(v(0))).with("Grn ", pct(v(1))).with("Bl  ", pct(v(2))).with("Cnst", pct(v(3)))));
         }
     }
-    Some(d.with("Mnch", D::Boolean(jbool(p, "monochrome").unwrap_or(false))))
+    if let Some(m) = jbool(p, "monochrome") {
+        d = d.with("Mnch", D::Boolean(m));
+    }
+    Some(d)
 }
 
 const SELECTIVE_RANGES: &[(&str, &str)] = &[
@@ -733,12 +741,11 @@ fn selective_to(p: &Value) -> Option<Descriptor> {
             ));
         }
     }
-    Some(
-        desc("SlcC")
-            .with("presetKind", enm("presetKindType", "presetKindCustom"))
-            .with("Mthd", enm("CrcM", if jstr(p, "method") == Some("absolute") { "Absl" } else { "Rltv" }))
-            .with("ClrC", D::List(list)),
-    )
+    let mut d = desc("SlcC").with("presetKind", enm("presetKindType", "presetKindCustom"));
+    if let Some(m) = jstr(p, "method") {
+        d = d.with("Mthd", enm("CrcM", if m == "absolute" { "Absl" } else { "Rltv" }));
+    }
+    Some(d.with("ClrC", D::List(list)))
 }
 
 /// Gradient Map: the gradient's colour stops at 0..4096 → `stops: [[0..1, "#rrggbb"], …]`.
@@ -787,12 +794,14 @@ fn gradient_map_to(p: &Value) -> Option<Descriptor> {
         .with("Intr", D::Double(4096.0))
         .with("Clrs", D::List(stops?))
         .with("Trns", transparency);
-    Some(
-        desc("GdMp")
-            .with("Grad", D::Descriptor(grad))
-            .with("Rvrs", D::Boolean(jbool(p, "reverse").unwrap_or(false)))
-            .with("Dthr", D::Boolean(jbool(p, "dither").unwrap_or(false))),
-    )
+    let mut d = desc("GdMp").with("Grad", D::Descriptor(grad));
+    if let Some(r) = jbool(p, "reverse") {
+        d = d.with("Rvrs", D::Boolean(r));
+    }
+    if let Some(dd) = jbool(p, "dither") {
+        d = d.with("Dthr", D::Boolean(dd));
+    }
+    Some(d)
 }
 
 /// An adjustment: its Photoshop class (also the direct event's code), the command suffix (`image.adjustments.<suffix>`, `layer.newAdjustmentLayer.<suffix>`), and
@@ -1019,7 +1028,7 @@ fn make_from(d: &Descriptor) -> Mapped {
             let id = if get_bool(d, "Cpy ") == Some(true) { "layer.new.layerViaCopy" } else { "layer.new.layerViaCut" };
             let mut v = vec![(id, json!({}))];
             if let Some(n) = get_text(nw, "Nm  ") {
-                v.push(("layer.renameLayer", json!({"name": n})));
+                v.push(("layer.setProps", json!({"name": n})));
             }
             return steps(v);
         }
@@ -1272,6 +1281,11 @@ fn set_from(d: &Descriptor) -> Mapped {
             }
             steps(v)
         }
+        // The toolbox colours.
+        (Some("Clr"), Target::Property(p)) if p == "FrgC" || p == "BckC" => match get_obj(d, "T   ").and_then(color_hex) {
+            Some(hex) => step("tools.setColors", json!({(if p == "FrgC" { "foreground" } else { "background" }): hex})),
+            None => unsupported,
+        },
         (Some("Lyr"), _) => {
             let Some(mut p) = layer_target(r) else { return unsupported };
             let Some(t) = get_obj(d, "T   ") else { return unsupported };
@@ -1313,7 +1327,15 @@ fn set_from(d: &Descriptor) -> Mapped {
         (Some("AdjL"), Target::Ordinal(o)) if o == "Trgt" => {
             match get_obj(d, "T   ").and_then(|t| adjustment_by_class(&trimmed(&t.class_id)).map(|a| (a, t))) {
                 Some((a, t)) => match (a.from)(t) {
-                    Some(p) => step("layer.setAdjustment", p),
+                    // `kind` names the adjustment so Save Actions can write the class back.
+                    // Not on an empty set (Photoshop's "reset to default"): params with any key
+                    // merge, none reset.
+                    Some(mut p) => {
+                        if let Some(o) = p.as_object_mut().filter(|o| !o.is_empty()) {
+                            o.insert("kind".into(), json!(a.suffix));
+                        }
+                        step("layer.setAdjustment", p)
+                    }
                     None => unsupported,
                 },
                 None => unsupported,
@@ -1352,6 +1374,21 @@ fn set_to(id: &str, p: &Value) -> Option<Descriptor> {
                 return None;
             }
             desc("null").with("null", quick_mask_ref())
+        }
+        "tools.setColors" => {
+            // One colour per Photoshop step: a step that sets both (or any other key) doesn't
+            // export rather than lose one.
+            if p.as_object().is_some_and(|o| o.keys().any(|k| k != "foreground" && k != "background")) {
+                return None;
+            }
+            let (key, hex) = match (jstr(p, "foreground"), jstr(p, "background")) {
+                (Some(f), None) => ("FrgC", f),
+                (None, Some(b)) => ("BckC", b),
+                _ => return None,
+            };
+            desc("null")
+                .with("null", D::Reference(vec![ReferenceItem::Property { class: class("Clr "), key: code(key) }]))
+                .with("T   ", D::Descriptor(color_desc(hex)?))
         }
         "select.rect" => {
             let (x, y, w, h) = (jnum(p, "x")?, jnum(p, "y")?, jnum(p, "width")?, jnum(p, "height")?);
@@ -1445,9 +1482,17 @@ fn select_from(d: &Descriptor) -> Mapped {
             }
         }
         (Some(c), Target::Class) if is_tool_class(c) => Mapped::Unsupported { harmless: true },
+        // A menu item chosen while recording (`Mn`): the View menu's zoom items replay.
+        (Some("Mn"), Target::Ordinal(item)) => match lookup(MENU_ITEMS, &item) {
+            Some(id) => none(id),
+            None => Mapped::Unsupported { harmless: false },
+        },
         _ => Mapped::Unsupported { harmless: false },
     }
 }
+
+/// `MnIt` menu-item codes ↔ the shell's view commands.
+const MENU_ITEMS: &[(&str, &str)] = &[("FtOn", "view.fitOnScreen"), ("ActP", "view.actualPixels"), ("ZmIn", "view.zoomIn"), ("ZmOt", "view.zoomOut")];
 
 fn select_to(id: &str, p: &Value) -> Option<Descriptor> {
     let ord = |o: &str| D::Reference(vec![ReferenceItem::Enumerated { class: class("Lyr "), type_id: code("Ordn"), value: code(o) }]);
@@ -1479,7 +1524,10 @@ fn select_to(id: &str, p: &Value) -> Option<Descriptor> {
         "layer.addBelowToSelection" => desc("null").with("null", ord("Bckw")).with("selectionModifier", enm("selectionModifierType", "addToSelection")),
         "layer.selectTop" => desc("null").with("null", ord("Frnt")),
         "layer.selectBottom" => desc("null").with("null", ord("Back")),
-        _ => return None,
+        _ => {
+            let item = lookup_back(MENU_ITEMS, id)?;
+            desc("null").with("null", D::Reference(vec![ReferenceItem::Enumerated { class: class("Mn  "), type_id: code("MnIt"), value: code(item) }]))
+        }
     })
 }
 
@@ -1600,7 +1648,9 @@ fn close_to(_: &str, p: &Value) -> Option<Descriptor> {
 /// width/height in percent, angle). A layer moved only becomes `layer.translate`; anything
 /// else is `edit.transform`'s relative form; the selection's frame is `select.transformSelection`.
 fn transform_from(d: &Descriptor) -> Mapped {
-    let Some(r) = get_ref(d, "null") else { return Mapped::Unsupported { harmless: false } };
+    // No reference (a smart object replaced in place, `replaceLayer`) means the target layer.
+    let target_layer = [ReferenceItem::Enumerated { class: class("Lyr "), type_id: code("Ordn"), value: code("Trgt") }];
+    let r: &[ReferenceItem] = get_ref(d, "null").unwrap_or(&target_layer);
     let unsupported = Mapped::Unsupported { harmless: false };
     let mut p = Map::new();
     if let Some(o) = get_obj(d, "Ofst") {
@@ -1861,6 +1911,16 @@ fn visibility_to(_: &str, p: &Value) -> Option<Descriptor> {
 
 fn move_from(d: &Descriptor) -> Mapped {
     let Some(r) = get_ref(d, "null") else { return Mapped::Unsupported { harmless: false } };
+    // The selection outline nudged.
+    if ref_class(r).as_deref() == Some("Chnl") && matches!(target(r), Target::Property(p) if p == "fsel") {
+        return match get_obj(d, "T   ") {
+            Some(t) if matches!(t.get("Hrzn"), Some(D::UnitFloat { unit: PX, .. })) => match (get_num(t, "Hrzn"), get_num(t, "Vrtc")) {
+                (Some(dx), Some(dy)) => step("select.transformSelection", json!({"dx": dx.round(), "dy": dy.round()})),
+                _ => Mapped::Unsupported { harmless: false },
+            },
+            _ => Mapped::Unsupported { harmless: false },
+        };
+    }
     if ref_class(r).as_deref() != Some("Lyr") {
         return Mapped::Unsupported { harmless: false };
     }
@@ -1896,6 +1956,8 @@ fn move_from(d: &Descriptor) -> Mapped {
                 Target::Ordinal(o) if o == "Prvs" => "layer.arrange.sendBackward",
                 Target::Offset(1) => "layer.arrange.bringForward",
                 Target::Offset(-1) => "layer.arrange.sendBackward",
+                // Index 0 is the bottom of the stack.
+                Target::Index(0) => "layer.arrange.sendToBack",
                 _ => return Mapped::Unsupported { harmless: false },
             };
             step(id, Value::Object(p))
@@ -2071,7 +2133,9 @@ fn fill_to(id: &str, p: &Value) -> Option<Descriptor> {
         if let Some(o) = jnum(p, "opacity") {
             d = d.with("Opct", pct(o));
         }
-        d = d.with("Cntg", D::Boolean(jbool(p, "contiguous").unwrap_or(true)));
+        if let Some(c) = jbool(p, "contiguous") {
+            d = d.with("Cntg", D::Boolean(c));
+        }
         if let Some(m) = jbool(p, "sampleAllLayers") {
             d = d.with("Mrgd", D::Boolean(m));
         }
@@ -2082,7 +2146,12 @@ fn fill_to(id: &str, p: &Value) -> Option<Descriptor> {
     if contents == "color" {
         d = d.with("Clr ", D::Descriptor(color_desc(jstr(p, "color")?)?));
     }
-    d = d.with("Opct", pct(jnum(p, "opacity").unwrap_or(100.0))).with("Md  ", enm("BlnM", blend_ps(jstr(p, "mode").unwrap_or("Normal"))?));
+    if let Some(o) = jnum(p, "opacity") {
+        d = d.with("Opct", pct(o));
+    }
+    if let Some(m) = jstr(p, "mode") {
+        d = d.with("Md  ", enm("BlnM", blend_ps(m)?));
+    }
     if let Some(t) = jbool(p, "preserveTransparency") {
         d = d.with("PrsT", D::Boolean(t));
     }
@@ -2496,7 +2565,10 @@ fn crop_to(_: &str, p: &Value) -> Option<Descriptor> {
     if let Some(a) = jnum(p, "angle") {
         d = d.with("Angl", ang(a));
     }
-    Some(d.with("Dlt ", D::Boolean(jbool(p, "deleteCroppedPixels").unwrap_or(true))))
+    if let Some(del) = jbool(p, "deleteCroppedPixels") {
+        d = d.with("Dlt ", D::Boolean(del));
+    }
+    Some(d)
 }
 
 fn stop_from(d: &Descriptor) -> Mapped {
@@ -2913,6 +2985,7 @@ const EVENTS: &[Event] = &[
             "select.rect",
             "select.lasso",
             "select.editInQuickMaskMode",
+            "tools.setColors",
             "layer.setProps",
             "layer.renameLayer",
             "layer.setLabelColor",
@@ -2938,6 +3011,10 @@ const EVENTS: &[Event] = &[
             "channel.target",
             "edit.undo",
             "edit.redo",
+            "view.fitOnScreen",
+            "view.actualPixels",
+            "view.zoomIn",
+            "view.zoomOut",
         ],
         from: select_from,
         to: select_to,
@@ -2981,6 +3058,29 @@ const EVENTS: &[Event] = &[
     ev!("", "rasterizeLayer", "Rasterize", "layer.rasterize.layer", &[]),
     ev!("", "selectAllLayers", "Select All Layers", "select.allLayers", &[]),
     ev!("", "selectNoLayers", "Deselect Layers", "select.deselectLayers", &[]),
+    ev!("", "groupEvent", "Create Clipping Mask", "layer.createClippingMask", &[]),
+    ev!("", "ungroupLayersEvent", "Ungroup Layers", "layer.ungroupLayers", &[]),
+    ev!("", "copyEffects", "Copy Layer Style", "layer.layerStyle.copyLayerStyle", &[]),
+    ev!("", "pasteEffects", "Paste Layer Style", "layer.layerStyle.pasteLayerStyle", &[]),
+    Event {
+        code: "",
+        name: "collapseAllGroupsEvent",
+        label: "Collapse All Groups",
+        ids: &["layer.setExpanded"],
+        from: |_| step("layer.setExpanded", json!({"all": true, "expanded": false})),
+        to: |_, p| (jbool(p, "all") == Some(true) && jbool(p, "expanded") == Some(false)).then(|| desc("null")),
+    },
+    Event {
+        code: "",
+        name: "applyComp",
+        label: "Apply Layer Comp",
+        ids: &["layerComp.apply"],
+        from: |d| match get_ref(d, "null").map(target) {
+            Some(Target::Name(n)) => step("layerComp.apply", json!({"comp": n})),
+            _ => Mapped::Unsupported { harmless: false },
+        },
+        to: |_, p| Some(desc("null").with("null", name_ref("compsClass", jstr(p, "comp")?))),
+    },
     ev!("Dfrg", "defringe", "Defringe", "layer.matting.defringe", &[F("Wdth", "width", Kind::Px)]),
     Event {
         code: "Algn",
@@ -3098,7 +3198,7 @@ pub struct Imported {
 
 fn photoshop_step(item: &AtnItem) -> (String, Value) {
     let descriptor = item.descriptor.as_ref().map(|d| photocraft_paint::tile::b64_encode(&d.to_bytes()));
-    (PHOTOSHOP_STEP.into(), json!({"event": item.event.id(), "name": item.dictionary, "descriptor": descriptor}))
+    (PHOTOSHOP_STEP.into(), json!({"event": item.event.id(), "name": item.label(), "descriptor": descriptor}))
 }
 
 /// Integral floats become integers (`2.0` → `2`), as the commands' own docs and recordings
@@ -3133,7 +3233,7 @@ fn convert_action(a: &AtnAction, set: &str, unsupported: &mut Vec<Unsupported>) 
         let (new_steps, enabled) = match mapped {
             Mapped::Steps(s) => (s, item.enabled),
             Mapped::Unsupported { harmless } => {
-                unsupported.push(Unsupported { action: name.clone(), step: i, event: item.event.id(), name: item.dictionary.clone() });
+                unsupported.push(Unsupported { action: name.clone(), step: i, event: item.event.id(), name: item.label() });
                 (vec![photoshop_step(item)], item.enabled && !harmless)
             }
         };
@@ -3184,21 +3284,21 @@ fn export_item(id: &str, params: &Value, set: &str) -> Option<AtnItem> {
         let event = jstr(params, "event")?;
         let event = match event.as_bytes() {
             [a, b, c, d] => AtnEvent::Code([*a, *b, *c, *d]),
-            _ => AtnEvent::Name(event.to_string()),
+            _ => AtnEvent::name(event),
         };
         let descriptor = match jstr(params, "descriptor") {
             Some(b64) => Some(Descriptor::from_bytes(&photocraft_paint::tile::b64_decode(b64)?).ok()?),
             None => None,
         };
-        return Some(AtnItem { event, dictionary: jstr(params, "name").unwrap_or("").to_string(), descriptor, ..Default::default() });
+        return Some(AtnItem { event, dictionary: jstr(params, "name").unwrap_or("").as_bytes().to_vec(), descriptor, ..Default::default() });
     }
     let mut params = params.clone();
     if (id == "actions.play" || id == "actions.conditional") && params.get("set").is_none() {
         params["set"] = json!(set);
     }
     let (e, descriptor) = event_and_descriptor(id, &params)?;
-    let event = if e.code.is_empty() { AtnEvent::Name(e.name.to_string()) } else { AtnEvent::Code(e.code.as_bytes().try_into().ok()?) };
-    Some(AtnItem { event, dictionary: e.label.to_string(), descriptor: Some(descriptor), ..Default::default() })
+    let event = if e.code.is_empty() { AtnEvent::name(e.name) } else { AtnEvent::Code(e.code.as_bytes().try_into().ok()?) };
+    Some(AtnItem { event, dictionary: e.label.as_bytes().to_vec(), descriptor: Some(descriptor), ..Default::default() })
 }
 
 /// An action's key as a shortcut string: `F5`, with Photoshop's Shift and Command options

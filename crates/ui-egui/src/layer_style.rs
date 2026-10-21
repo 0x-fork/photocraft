@@ -141,6 +141,7 @@ fn spec(kind: &str) -> &'static [(&'static str, &'static str, P)] {
             ("position", "Position", P::Choice(POS)),
             ("blend", "Blend Mode", P::Blend),
             ("opacity", "Opacity", P::Slider(0.0, 100.0, "%")),
+            ("overprint", "Overprint", P::Check),
             ("color", "Color", P::Color),
         ],
         "colorOverlay" => &[("blend", "Blend Mode", P::Blend), ("color", "Color", P::Color), ("opacity", "Opacity", P::Slider(0.0, 100.0, "%"))],
@@ -172,7 +173,7 @@ fn spec(kind: &str) -> &'static [(&'static str, &'static str, P)] {
             ("angle", "Angle", P::Angle),
             ("useGlobalLight", "Use Global Light", P::Check),
             ("altitude", "Altitude", P::Slider(0.0, 90.0, "°")),
-            ("glossContour", "Gloss Contour", P::Contour(None)),
+            ("glossContour", "Gloss Contour", P::Contour(Some("glossAntiAlias"))),
             // Bevel & Emboss › Contour element.
             ("contour", "Contour", P::Check),
             ("contourName", "", P::Contour(Some("contourAntiAlias"))),
@@ -266,6 +267,7 @@ fn values_of(e: &Effect, light: f32) -> Value {
                     _ => "outside",
                 }),
             );
+            set(&mut v, "overprint", json!(s.overprint));
             if let FxPaint::Color(c) = &s.paint {
                 set(&mut v, "color", json!(hex(c)));
             } else {
@@ -355,6 +357,7 @@ fn values_of(e: &Effect, light: f32) -> Value {
             set(&mut v, "altitude", json!(b.altitude));
             set(&mut v, "direction", json!(if b.up { "up" } else { "down" }));
             set(&mut v, "glossContour", photocraft_engine::layer_style::contour_param(&b.gloss_contour));
+            set(&mut v, "glossAntiAlias", json!(b.gloss_anti_alias));
             set(&mut v, "contour", json!(b.contour.is_some()));
             if let Some(c) = &b.contour {
                 set(&mut v, "contourName", photocraft_engine::layer_style::contour_param(&c.contour));
@@ -1632,6 +1635,40 @@ mod tests {
                 && g.stops[1].1 == photocraft_color::Color::rgb(0.0, 0.0, 1.0)),
             "the gradient is carried, not reset",
         );
+    }
+
+    #[test]
+    fn bevel_gloss_anti_alias_survives_the_dialog() {
+        let mut s = session();
+        s.execute("layer.layerStyle.bevelEmboss", json!({"glossContour": "Ring - Double", "glossAntiAlias": true})).unwrap();
+        let st = s.active().unwrap();
+        let id = st.active_layer.unwrap();
+        let mut f = initial_fields(st.doc.layer(id).unwrap(), None, st.doc.global_light.angle);
+        assert_eq!(effects_of(&f)[0]["params"]["glossAntiAlias"], json!(true));
+        // Editing another setting keeps the gloss contour's Anti-aliased.
+        set_param(&mut f, "fx1", "size", json!(12));
+        apply(&f, |cmd, p| s.execute(cmd, p).map_err(|e| e.to_string())).unwrap();
+        let st = s.active().unwrap();
+        let items = &st.doc.layer(id).unwrap().effects.items;
+        let Some(photocraft_doc::Effect::BevelEmboss(b)) = items.first() else { panic!("{items:?}") };
+        assert_eq!(b.size, 12.0);
+        assert!(b.gloss_anti_alias);
+    }
+
+    #[test]
+    fn stroke_overprint_survives_the_dialog() {
+        let mut s = session();
+        s.execute("layer.layerStyle.stroke", json!({"size": 3, "color": "#000000", "overprint": true})).unwrap();
+        let st = s.active().unwrap();
+        let id = st.active_layer.unwrap();
+        let mut f = initial_fields(st.doc.layer(id).unwrap(), None, st.doc.global_light.angle);
+        assert_eq!(effects_of(&f)[0]["params"]["overprint"], json!(true));
+        // Editing another setting keeps Overprint.
+        set_param(&mut f, "fx1", "size", json!(5));
+        apply(&f, |cmd, p| s.execute(cmd, p).map_err(|e| e.to_string())).unwrap();
+        let strokes = strokes_of(&s);
+        assert_eq!(strokes[0].size, 5.0);
+        assert!(strokes[0].overprint);
     }
 
     #[test]

@@ -314,12 +314,27 @@ pub fn apply_smart_filters(placed: &Surface, sm: &SmartObject, canvas: Rect) -> 
     // Edge pixels repeat at the canvas ∪ placed-content edge, as for layer filters.
     let extent = canvas.union(&placed.content_bounds());
     for f in sm.smart_filters.iter().filter(|f| f.visible) {
-        cur = apply_smart_filter(f, &cur, canvas, extent)?;
+        cur = apply_smart_filter(f, &cur, filter_bounds(f, placed, canvas), extent)?;
     }
     Ok(match sm.filter_mask.as_ref().filter(|m| m.enabled) {
         Some(m) => photocraft_compose::filter_mask::mix(placed, &cur, m),
         None => cur,
     })
+}
+
+/// The reference bounds of smart filter `f`. Render filters work within the smart object, as
+/// Photoshop's do: Lens Flare's centre is a fraction of the object, and Clouds and Fibers fill it
+/// and size their pattern by it. The object is its placed content's bounds (which leaves out
+/// fully transparent edges of the source); the other filters use the canvas, as on a layer.
+fn filter_bounds(f: &SmartFilter, placed: &Surface, canvas: Rect) -> Rect {
+    match placed.content_bounds() {
+        b if renders_in_object(f) && !b.is_empty() => b,
+        _ => canvas,
+    }
+}
+
+fn renders_in_object(f: &SmartFilter) -> bool {
+    matches!(f.command.as_str(), "filter.render.clouds" | "filter.render.differenceClouds" | "filter.render.fibers" | "filter.render.lensFlare")
 }
 
 /// One visible smart filter over `cur`, blended with its blend mode and opacity. `Err` when the
@@ -424,10 +439,18 @@ fn render_in(doc: &Document, sm: &SmartObject, ctx: &JobCtx) -> Result<Option<Su
         None => (0, placed()?),
     };
     let n = filters.len() as f32;
+    // The object's bounds, found once: the placed stage may have been evicted from the cache, and
+    // placing it again for every render filter would decode the source each time.
+    let mut object_bounds: Option<Rect> = None;
     for (i, (f, key)) in filters.iter().zip(&keys).enumerate().skip(done) {
         ctx.check()?;
         ctx.progress(i as f32 / n, "");
-        cur = Stage { surface: apply_smart_filter(f, &cur.surface, canvas, cur.extent)?, extent: cur.extent };
+        let bounds = match object_bounds {
+            _ if !renders_in_object(f) => canvas,
+            Some(b) => b,
+            None => *object_bounds.insert(filter_bounds(f, &placed()?.surface, canvas)),
+        };
+        cur = Stage { surface: apply_smart_filter(f, &cur.surface, bounds, cur.extent)?, extent: cur.extent };
         stack_cache::put(*key, &cur);
     }
     ctx.progress(1.0, "");

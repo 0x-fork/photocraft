@@ -2521,6 +2521,7 @@ mod tests {
             altitude: 30.0,
             use_global_light: false,
             gloss_contour: Contour::Linear,
+            gloss_anti_alias: false,
             highlight: photocraft_doc::FxCommon::new(BlendMode::Screen, 0.75),
             highlight_color: photocraft_color::Color::WHITE,
             shadow: photocraft_doc::FxCommon::new(BlendMode::Multiply, 0.75),
