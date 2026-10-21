@@ -3,6 +3,7 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+use std::ffi::OsString;
 use std::io::Write;
 
 mod actions;
@@ -20,13 +21,18 @@ use batch::{batch, droplet};
 use document::{convert, info, run_cmds};
 pub(crate) use error::{CliError, Result};
 
-/// [`run`] on the raw process arguments. An argument that is not valid Unicode is a usage error
-/// naming its position and a lossy rendering (exit 2), never a panic: `std::env::args()` aborts
-/// the process on one (issue #1108).
-pub fn run_os(args: &[std::ffi::OsString], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
-    let mut strings = Vec::with_capacity(args.len());
-    for (i, a) in args.iter().enumerate() {
-        match a.clone().into_string() {
+/// Run the CLI on its arguments (without the program name). Returns the process exit code (0 ok,
+/// 1 failure, 2 usage). An argument that is not valid Unicode is a usage error naming its position
+/// and a lossy rendering (exit 2), never a panic: `std::env::args()` aborts the process on one
+/// (issue #1108).
+pub fn run<I, T>(args: I, out: &mut dyn Write, err: &mut dyn Write) -> i32
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString>,
+{
+    let mut strings = Vec::new();
+    for (i, a) in args.into_iter().map(Into::into).enumerate() {
+        match a.into_string() {
             Ok(s) => strings.push(s),
             Err(raw) => {
                 let usage = <args::Cli as clap::CommandFactory>::command().render_usage();
@@ -35,14 +41,9 @@ pub fn run_os(args: &[std::ffi::OsString], out: &mut dyn Write, err: &mut dyn Wr
             }
         }
     }
-    run(&strings, out, err)
-}
-
-/// Run the CLI. Returns the process exit code (0 ok, 1 failure, 2 usage).
-pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     // Help and `--version` (`help`, `-h`, `<subcommand> --help`, `-V`) come back as errors too,
     // for `out`, exit 0: the subcommand never runs.
-    let cli = match parse(args) {
+    let cli = match parse(&strings) {
         Ok(cli) => cli,
         Err(e) => {
             let to: &mut dyn Write = if e.use_stderr() { err } else { out };
@@ -80,8 +81,7 @@ pub(crate) mod test_support {
 
     pub(crate) fn invoke(args: &[&str]) -> Invoke {
         let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
-        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-        let code = crate::run(&args, &mut stdout, &mut stderr);
+        let code = crate::run(args, &mut stdout, &mut stderr);
         Invoke { code, stdout: String::from_utf8(stdout).unwrap(), stderr: String::from_utf8(stderr).unwrap() }
     }
 }

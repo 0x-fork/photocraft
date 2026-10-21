@@ -839,7 +839,7 @@ fn commands_listing() {
 fn in_process_run_matches_binary() {
     let mut out = Vec::new();
     let mut err = Vec::new();
-    let code = photocraft_cli::run(&["commands".into(), "--filter".into(), "file.new".into()], &mut out, &mut err);
+    let code = photocraft_cli::run(["commands", "--filter", "file.new"], &mut out, &mut err);
     assert_eq!(code, 0);
     assert!(String::from_utf8(out).unwrap().contains("file.new"));
 }
@@ -1018,8 +1018,7 @@ struct Invoke {
 
 fn invoke(args: &[&str]) -> Invoke {
     let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
-    let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-    let code = photocraft_cli::run(&args, &mut stdout, &mut stderr);
+    let code = photocraft_cli::run(args, &mut stdout, &mut stderr);
     Invoke { code, stdout: String::from_utf8(stdout).unwrap(), stderr: String::from_utf8(stderr).unwrap() }
 }
 
