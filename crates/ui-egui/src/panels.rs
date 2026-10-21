@@ -314,7 +314,9 @@ pub fn toolbar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     reveal_focused_control(ui);
                 });
             ui.add_space(if t.pro { 8.0 } else { 14.0 });
-            color_chips(app, ui, double);
+            // Centred in the tool column as it is before the tools scroll: a scroll bar widens the
+            // UI it is in, and the chips moved over by its width (#7316).
+            color_chips(app, ui, double, full.width());
             ui.add_space(8.0);
 
             let layout = if double { egui::Layout::left_to_right(egui::Align::Min) } else { egui::Layout::top_down(egui::Align::Min) };
@@ -436,7 +438,7 @@ fn chips_height(pro: bool, studio: bool, wide: bool) -> f32 {
 /// Photoshop's foreground / background colour chips: the Default Colors (D) and Switch Colors (X)
 /// icons above them, the foreground chip over the background one, all centred in the toolbar
 /// column and kept inside it.
-fn color_chips(app: &mut PhotocraftApp, ui: &mut egui::Ui, two_columns: bool) {
+fn color_chips(app: &mut PhotocraftApp, ui: &mut egui::Ui, two_columns: bool, column: f32) {
     let t = Tokens::get(ui.ctx());
     // Studio themes: round chips stacked vertically, the controls below them.
     let studio = t.round_chips;
@@ -444,7 +446,7 @@ fn color_chips(app: &mut PhotocraftApp, ui: &mut egui::Ui, two_columns: bool) {
     // With two tool columns (a short window) the round chips lie side by side, which saves height.
     let wide = studio && two_columns;
     let group = if studio && !wide { chip } else { chip + step };
-    let w = ui.available_width().max(group);
+    let w = column.max(group);
     let (rect, _) = ui.allocate_exact_size(vec2(w, chips_height(t.pro, studio, wide)), Sense::hover());
     let left = (rect.left() + (w - group) / 2.0).round();
     let (fg, bg) = if wide {
@@ -4706,9 +4708,13 @@ mod color_tests {
             let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
             app.session.tools.foreground = [1.0, 0.0, 0.0, 1.0];
             app.session.tools.background = [0.0, 0.0, 1.0, 1.0];
-            let mut h = egui_kittest::Harness::builder()
-                .with_size(vec2(80.0, 120.0))
-                .build_ui_state(|ui, app: &mut PhotocraftApp| color_chips(app, ui, two_columns), app);
+            let mut h = egui_kittest::Harness::builder().with_size(vec2(80.0, 120.0)).build_ui_state(
+                |ui, app: &mut PhotocraftApp| {
+                    let w = ui.available_width();
+                    color_chips(app, ui, two_columns, w)
+                },
+                app,
+            );
             PhotocraftApp::setup_context(&h.ctx, kind);
             h.run_steps(2);
             h.get_by_label("Swap colours (X)").click();
@@ -4760,8 +4766,13 @@ mod color_tests {
                 resize: None,
                 preedit: None,
             });
-            let mut h =
-                egui_kittest::Harness::builder().with_size(vec2(80.0, 120.0)).build_ui_state(|ui, app: &mut PhotocraftApp| color_chips(app, ui, false), app);
+            let mut h = egui_kittest::Harness::builder().with_size(vec2(80.0, 120.0)).build_ui_state(
+                |ui, app: &mut PhotocraftApp| {
+                    let w = ui.available_width();
+                    color_chips(app, ui, false, w)
+                },
+                app,
+            );
             PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
             h.run_steps(2);
             h.get_by_label("Swap colours (X)").click();
@@ -6587,6 +6598,51 @@ mod compact_visual_regressions {
                     }
                     harness.render().unwrap().save(directory.join(format!("{stem}-scrolled.png"))).unwrap();
                     std::fs::write(directory.join(format!("{stem}-scrolled.json")), serde_json::to_vec_pretty(&metadata).unwrap()).unwrap();
+                }
+            }
+        }
+    }
+
+    /// #7316: a window too short for the tools scrolls them, and the scroll bar widened the UI
+    /// the colour chips were centred in, so they (and Switch Colors with them) sat a bar's width
+    /// right of the tools. They stay where they are in a window tall enough not to scroll.
+    #[test]
+    fn color_chips_stay_centred_when_the_tools_scroll() {
+        let chips = |kind: crate::theme::ThemeKind, double: bool, height: f32, scale: f32| {
+            let ctx = egui::Context::default();
+            egui_extras::install_image_loaders(&ctx);
+            crate::theme::install_fonts(&ctx);
+            crate::theme::apply(&ctx, kind);
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+            app.session.tools.foreground = [1.0, 0.0, 1.0, 1.0];
+            app.session.tools.background = [0.0, 1.0, 0.0, 1.0];
+            app.ui.panels.toolbar_double = double;
+            let input = || input_at_scale(Rect::from_min_size(egui::Pos2::ZERO, vec2(800.0, height)), scale);
+            // The scroll bar shows from the frame after the one that measured the tools.
+            let mut output = ctx.run_ui(input(), |ui| toolbar(&mut app, ui));
+            for _ in 0..2 {
+                output.textures_delta.clear();
+                output = ctx.run_ui(input(), |ui| toolbar(&mut app, ui));
+            }
+            output.textures_delta.clear();
+            [Color32::from_rgb(255, 0, 255), Color32::GREEN].map(|color| {
+                output
+                    .shapes
+                    .iter()
+                    .find_map(|shape| match &shape.shape {
+                        egui::Shape::Rect(rect) if rect.fill == color => Some(rect.rect.center()),
+                        egui::Shape::Circle(circle) if circle.fill == color => Some(circle.center),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| panic!("{kind:?}: both color chips are painted"))
+                    .x
+            })
+        };
+        for kind in crate::theme::ThemeKind::ALL {
+            for double in [false, true] {
+                for scale in [1.0, 2.0] {
+                    let (short, tall) = (chips(kind, double, 420.0, scale), chips(kind, double, 1400.0, scale));
+                    assert_eq!(short, tall, "{kind:?}, two columns {double}, scale {scale}: the chips don't move when the tools scroll");
                 }
             }
         }
