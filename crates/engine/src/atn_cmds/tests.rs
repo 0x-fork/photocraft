@@ -1387,3 +1387,23 @@ fn function_keys_keep_shift_and_command() {
     }
     assert_eq!(super::function_key_name(7, false, false), "F7");
 }
+
+/// The Apply Image dialog's flat source fields keep their meaning through a strict `.atn` export
+/// (#7197): they used to come back as the merged composite.
+#[test]
+fn apply_image_flat_source_fields_survive_a_strict_export() {
+    let flat = json!({"sourceLayer": "Pixels", "sourceChannel": "green", "sourceInvert": true, "blending": "normal", "opacity": 75});
+    let item = export_item("image.applyImage", &flat, "S").expect("the flat form exports");
+    let event = event_for(&item.event).expect("a known event");
+    let Mapped::Steps(steps) = (event.from)(item.descriptor.as_ref().unwrap()) else { panic!("does not import back") };
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0].1["source"], json!({"layer": "Pixels", "channel": "green", "invert": true}));
+    // The nested form is unchanged, and the "merged" layer of a flat form stays merged.
+    let merged = json!({"sourceLayer": "merged", "sourceChannel": "red"});
+    let item = export_item("image.applyImage", &merged, "S").expect("exports");
+    let Mapped::Steps(steps) = (event.from)(item.descriptor.as_ref().unwrap()) else { panic!("does not import back") };
+    assert_eq!(steps[0].1["source"], json!({"layer": "merged", "channel": "red"}));
+    // A source in another document cannot be written: the step is skipped, not rewritten.
+    assert!(export_item("image.applyImage", &json!({"source": {"document": "Other", "channel": "red"}}), "S").is_none());
+    assert!(export_item("image.applyImage", &json!({"sourceDocument": "Other"}), "S").is_none());
+}

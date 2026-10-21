@@ -1736,7 +1736,13 @@ fn apply_image_from(d: &Descriptor) -> Mapped {
 }
 
 fn apply_image_to(_: &str, p: &Value) -> Option<Descriptor> {
-    let source = p.get("source").cloned().unwrap_or(json!({}));
+    // The Apply Image dialog sends flat `sourceLayer`/`sourceChannel`/`sourceInvert` fields; read
+    // them as the command does, or the export would quietly reset them to the merged composite.
+    let source = crate::channel_cmds::source_spec(p, "source", "source").unwrap_or(json!({}));
+    // A source from another open document has no event form here: skip the step, don't rewrite it.
+    if source.get("document").is_some_and(|d| !d.is_null()) {
+        return None;
+    }
     let channel = jstr(&source, "channel").unwrap_or("composite");
     let chan = lookup_back(SOURCE_CHANNELS, channel).or_else(|| lookup_back(CHANNELS, channel))?;
     let mut items = vec![ReferenceItem::Enumerated { class: class("Chnl"), type_id: code("Chnl"), value: code(chan) }];
