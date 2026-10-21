@@ -230,6 +230,7 @@ cargo run -p photocraft-cli -- run in.png --cmd layer.new.layer --params '{"name
 cargo run -p photocraft-cli -- run --new '{"width":800,"height":600}' --cmd document.inspect
 cargo run -p photocraft-cli -- batch --actions actions.json --in photos/ --out done/ --format jpg
 cargo run -p photocraft-cli -- commands --filter blur                    # the command registry
+cargo run -p photocraft-cli --example man-and-completions -- out/       # man pages + bash/zsh/fish/elvish/PowerShell completions
 ```
 
 `actions.json` holds the steps of a recorded action: `[["<id>", {…}], …]`, `[{"command": "<id>", "params": {…}}, …]` or bare ids, as a list or wrapped in `{"actions": …}` or `{"steps": …}`; a droplet file works too. It can also be an Actions set (the Actions panel's `actions.json`, `{"actions": [{"name": …, "steps": […]}, …]}`): `--action <name>` picks the action to play (optional when the set holds one), and the whole set is loaded for each file, so a step that plays another action of the set works. `batch` refuses an `--out` folder that is the `--in` folder, since the results would replace the originals, unless `--in-place` is given. `run` prints one JSON line per command result.
