@@ -990,6 +990,53 @@ fn tab_hides_all_panels_and_shift_tab_only_the_dock() {
     assert!(serde_json::from_value::<crate::state::Panels>(v).unwrap().dock);
 }
 
+#[test]
+fn tab_in_full_screen_shows_and_hides_the_chrome_and_leaving_restores_the_panels() {
+    // #6760: Full Screen Mode starts with the chrome hidden; Tab shows the menu bar and panels over
+    // the canvas, Tab again hides them. Tab there never touches the panels' own state, so leaving
+    // Full Screen brings them back exactly as they were, however many Tabs were pressed.
+    let (mut app, _, _) = app_with_layers();
+    let ctx = egui::Context::default();
+    let run = |app: &mut PhotocraftApp, id: &str| crate::menus::invoke(app, &ctx, id, json!({})).unwrap();
+    let state = |app: &PhotocraftApp| {
+        let p = &app.ui.panels;
+        (p.toolbar, p.options_bar, p.dock, p.hidden_by_tab)
+    };
+    // Before entering: the options bar hidden by hand, then everything hidden by Tab (outside Full Screen).
+    for (hide_by_hand, tab_first) in [(false, false), (true, false), (false, true)] {
+        app.ui.panels = crate::state::Panels::default();
+        app.ui.panels.options_bar = !hide_by_hand;
+        if tab_first {
+            run(&mut app, "window.togglePanels");
+        }
+        let before = state(&app);
+        run(&mut app, "view.screenMode.fullScreen");
+        assert!(!app.ui.panels.full_screen_chrome, "hidden on entry");
+        run(&mut app, "window.togglePanels");
+        assert!(app.ui.panels.full_screen_chrome, "Tab shows the chrome");
+        assert_eq!(state(&app), before, "Tab in Full Screen leaves the panels alone");
+        run(&mut app, "view.screenMode.standard");
+        assert!(!app.ui.panels.full_screen_chrome);
+        assert_eq!(state(&app), before, "one Tab: restored as before entering");
+        run(&mut app, "view.screenMode.fullScreen");
+        run(&mut app, "window.togglePanels");
+        run(&mut app, "window.togglePanels");
+        assert!(!app.ui.panels.full_screen_chrome, "Tab twice hides the chrome again");
+        assert_eq!(state(&app), before);
+        run(&mut app, "view.screenMode.standard");
+        assert_eq!(state(&app), before, "two Tabs: restored as before entering");
+    }
+    // Entering again starts hidden, even when the last visit left the chrome shown.
+    run(&mut app, "view.screenMode.fullScreen");
+    run(&mut app, "window.togglePanels");
+    run(&mut app, "view.screenMode.standard");
+    run(&mut app, "view.screenMode.fullScreen");
+    assert!(!app.ui.panels.full_screen_chrome);
+    // The flag is not saved.
+    let v = serde_json::to_value(&app.ui.panels).unwrap();
+    assert!(v.get("full_screen_chrome").is_none());
+}
+
 /// #2726: the Navigator sizes its own preview to the group (no outer scroll area, so no scroll
 /// fade over the thumbnail), keeping the document's aspect, with the zoom controls below it.
 #[test]

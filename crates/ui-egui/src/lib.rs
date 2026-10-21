@@ -2197,19 +2197,24 @@ impl eframe::App for PhotocraftApp {
         // system title bar this is where the document name lives, as the in-app title is hidden.
         panels::sync_window_title(self, &ctx);
         let chrome = !self.ui.view.hides_chrome();
-        if chrome && self.ui.panels.menu_bar {
+        if chrome {
+            self.ui.panels.full_screen_chrome = false;
+        }
+        // In Full Screen Mode, Tab shows the menu bar, options bar, toolbar and dock (#6760).
+        let tabbed_in = !chrome && self.ui.panels.full_screen_chrome;
+        if (chrome || tabbed_in) && self.ui.panels.menu_bar {
             panels::title_bar(self, ui);
         }
-        if chrome && self.ui.panels.options_bar {
+        if (chrome && self.ui.panels.options_bar) || tabbed_in {
             panels::options_bar(self, ui);
         }
         if chrome && self.ui.panels.status_bar {
             panels::status_bar(self, ui);
         }
-        if chrome && self.ui.panels.toolbar {
+        if (chrome && self.ui.panels.toolbar) || tabbed_in {
             panels::toolbar(self, ui);
         }
-        if chrome && self.ui.panels.dock {
+        if (chrome && self.ui.panels.dock) || tabbed_in {
             panels::right_dock(self, ui);
         }
         let t = theme::Tokens::get(&ctx);
