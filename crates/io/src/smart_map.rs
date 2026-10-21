@@ -311,24 +311,6 @@ fn only_keys(f: &Descriptor, keys: &[&str]) -> bool {
     f.items.iter().all(|(k, _)| keys.iter().any(|x| k.is(x)))
 }
 
-/// Our name for enum `key`'s value in `f` (of enum type `type_id`), from `(PSD value, our name)`
-/// pairs. An enum of another type is not one we know, so the filter stays verbatim.
-fn enum_name(f: &Descriptor, key: &str, type_id: &str, table: &[(&[u8; 4], &'static str)]) -> Option<&'static str> {
-    let Some(Value::Enumerated { type_id: t, value }) = f.get(key) else { return None };
-    if t.as_bytes() != type_id.as_bytes() {
-        return None;
-    }
-    table.iter().find(|(c, _)| value.as_bytes() == &c[..]).map(|(_, n)| *n)
-}
-
-/// Finite `key` of `f` stored as a unit float in `unit` (another unit would be re-written as this one).
-fn unit_value(f: &Descriptor, key: &str, unit: &[u8; 4]) -> Option<f64> {
-    match f.get(key)? {
-        Value::UnitFloat { unit: u, value } if u == unit && value.is_finite() => Some(*value),
-        _ => None,
-    }
-}
-
 /// Finite `key` of `f` stored as a plain double (the type Photoshop writes and we write back).
 fn double(f: &Descriptor, key: &str) -> Option<f64> {
     match f.get(key)? {
@@ -357,20 +339,20 @@ fn pi_range(p: &J, key: &str, default: f64, lo: i32, hi: i32) -> Result<Value, S
 }
 
 /// Enum `type_id` holding the PSD value of our name `p[key]` (`default` when absent).
-fn enum_param(p: &J, key: &str, default: &str, type_id: &str, table: &[(&[u8; 4], &'static str)]) -> Result<Value, String> {
+fn enum_param(p: &J, key: &str, default: &str, type_id: &str, table: &[(&str, &'static str)]) -> Result<Value, String> {
     let name = match p.get(key) {
         None | Some(J::Null) => default,
         Some(v) => v.as_str().ok_or_else(|| format!("setting `{key}` is not text"))?,
     };
-    let code = table.iter().find(|(_, n)| *n == name).map(|(c, _)| **c).ok_or_else(|| format!("{key} `{name}` has no PSD equivalent"))?;
-    Ok(Value::Enumerated { type_id: Id::new(type_id), value: Id::Code(code) })
+    let (code, _) = table.iter().find(|(_, n)| *n == name).ok_or_else(|| format!("{key} `{name}` has no PSD equivalent"))?;
+    Ok(enumv(type_id, code))
 }
 
 /// Smart Blur `SmBQ` / `SmBM` and Radial Blur `BlrM` / `BlrQ` values (measured in Photoshop).
-const SMART_BLUR_QUALITY: [(&[u8; 4], &str); 3] = [(b"SBQL", "low"), (b"SBQM", "medium"), (b"SBQH", "high")];
-const SMART_BLUR_MODE: [(&[u8; 4], &str); 3] = [(b"SBMN", "normal"), (b"SBME", "edgeOnly"), (b"SBMO", "overlayEdge")];
-const RADIAL_METHOD: [(&[u8; 4], &str); 2] = [(b"Spn ", "spin"), (b"Zm  ", "zoom")];
-const RADIAL_QUALITY: [(&[u8; 4], &str); 3] = [(b"Drft", "draft"), (b"Gd  ", "good"), (b"Bst ", "best")];
+const SMART_BLUR_QUALITY: [(&str, &str); 3] = [("SBQL", "low"), ("SBQM", "medium"), ("SBQH", "high")];
+const SMART_BLUR_MODE: [(&str, &str); 3] = [("SBMN", "normal"), ("SBME", "edgeOnly"), ("SBMO", "overlayEdge")];
+const RADIAL_METHOD: [(&str, &str); 2] = [("Spn ", "spin"), ("Zm  ", "zoom")];
+const RADIAL_QUALITY: [(&str, &str); 3] = [("Drft", "draft"), ("Gd  ", "good"), ("Bst ", "best")];
 
 fn channel_key(d: &Descriptor) -> Option<&'static str> {
     let Some(Value::Reference(items)) = d.get("Chnl") else { return None };
@@ -559,19 +541,19 @@ fn known_params(class: &str, f: Option<&Descriptor>, item: &Descriptor) -> Optio
             json!({"amount": px(f, "Nose")?, "distribution": dist, "monochromatic": mono, "seed": int(f, "FlRs").unwrap_or(0)})
         }
         ("surfaceBlur", Some(f)) if only_keys(f, &["Rds ", "Thsh"]) => json!({
-            "radius": in_range(unit_value(f, "Rds ", b"#Pxl")?, 1.0, 100.0)?,
+            "radius": unit_in(f, "Rds ", b"#Pxl", 1.0, 100.0)?,
             "threshold": int_in(f, "Thsh", 2, 255)?,
         }),
         ("SmrB", Some(f)) if only_keys(f, &["Rds ", "Thsh", "SmBQ", "SmBM"]) => json!({
             "radius": in_range(double(f, "Rds ")?, 0.1, 100.0)?,
             "threshold": in_range(double(f, "Thsh")?, 0.1, 100.0)?,
-            "quality": enum_name(f, "SmBQ", "SmBQ", &SMART_BLUR_QUALITY)?,
-            "mode": enum_name(f, "SmBM", "SmBM", &SMART_BLUR_MODE)?,
+            "quality": enum_from(f, "SmBQ", "SmBQ", &SMART_BLUR_QUALITY)?,
+            "mode": enum_from(f, "SmBM", "SmBM", &SMART_BLUR_MODE)?,
         }),
         ("RdlB", Some(f)) if only_keys(f, &["Amnt", "BlrM", "BlrQ"]) => json!({
             "amount": int_in(f, "Amnt", 1, 100)?,
-            "method": enum_name(f, "BlrM", "BlrM", &RADIAL_METHOD)?,
-            "quality": enum_name(f, "BlrQ", "BlrQ", &RADIAL_QUALITY)?,
+            "method": enum_from(f, "BlrM", "BlrM", &RADIAL_METHOD)?,
+            "quality": enum_from(f, "BlrQ", "BlrQ", &RADIAL_QUALITY)?,
         }),
         ("Msc ", Some(f)) => json!({"cellSize": px(f, "ClSz")?}),
         ("Mztn", Some(f)) => {
