@@ -6,6 +6,7 @@ use photocraft_doc::{Layer, Size};
 use std::cell::{Cell, RefCell};
 use std::io;
 
+/// The object or manifest directory barrier at which to inject one publication failure.
 #[derive(Clone, Copy, Debug)]
 enum FailAt {
     Tiles,
@@ -13,6 +14,7 @@ enum FailAt {
     Manifest,
 }
 
+/// Real filesystem operations with recorded barriers and a single failure at the chosen stage.
 struct PublicationFault {
     root: PathBuf,
     old_manifest: Vec<u8>,
@@ -22,18 +24,23 @@ struct PublicationFault {
 }
 
 impl AtomicFs for PublicationFault {
+    /// Keep temporary-file writes and file flushes real; only directory barriers are injected.
     fn write_new(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
         RealFs.write_new(path, bytes)
     }
+    /// Publish through the real rename so a barrier error occurs after replacement.
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
         RealFs.rename(from, to)
     }
+    /// Use real cleanup so the test can detect premature removal of old objects.
     fn remove(&self, path: &Path) -> io::Result<()> {
         RealFs.remove(path)
     }
+    /// Preserve normal replacement metadata behavior during failure injection.
     fn copy_metadata(&self, from: &Path, to: &Path) -> io::Result<()> {
         RealFs.copy_metadata(from, to)
     }
+    /// Record every barrier and fail the selected stage once, allowing a same-writer retry.
     fn sync_dir(&self, dir: &Path) -> io::Result<()> {
         self.synced.borrow_mut().push(dir.to_path_buf());
         let fail = match self.stage {
@@ -48,6 +55,8 @@ impl AtomicFs for PublicationFault {
     }
 }
 
+/// Failed object or manifest publication retains old objects; a retry flushes reused objects
+/// before the manifest and resumes garbage collection only after durable publication.
 #[test]
 fn failed_bundle_publication_retains_old_objects_and_same_writer_retry_is_durable() {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);

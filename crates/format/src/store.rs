@@ -525,6 +525,8 @@ fn validate_bundle_file(root: &Path, path: &Path) -> Result<()> {
     plain_file_or_missing(path)
 }
 
+/// Publish a validated bundle entry through a flushed temporary file and replacing rename.
+/// On Windows, propagate a failed directory barrier even though the new entry is already visible.
 fn write_bundle_file(root: &Path, path: &Path, data: &[u8], fs: &dyn crate::atomic::AtomicFs) -> Result<()> {
     #[cfg(not(windows))]
     let _ = fs;

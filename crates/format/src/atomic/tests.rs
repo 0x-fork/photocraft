@@ -69,6 +69,7 @@ impl AtomicFs for Faulty {
     fn remove(&self, path: &Path) -> io::Result<()> {
         RealFs.remove(path)
     }
+    /// Count publication barriers and optionally fail before the real directory flush.
     fn sync_dir(&self, dir: &Path) -> io::Result<()> {
         self.synced.set(self.synced.get() + 1);
         if self.fail_sync_dir {
@@ -107,6 +108,7 @@ fn a_failed_publication_flush_is_reported_and_can_be_retried() {
     assert_no_temp(&d.0);
 }
 
+/// A real Windows directory handle must flush successfully and preserve directory-open errors.
 #[cfg(windows)]
 #[test]
 fn windows_directory_flush_opens_a_directory_and_reports_open_errors() {
@@ -152,6 +154,7 @@ fn creates_missing_parent_folders() {
     assert_eq!(std::fs::read(&p).unwrap(), b"x");
 }
 
+/// A partial temporary write must preserve the original and never reach publication or its flush.
 #[test]
 fn write_failure_halfway_keeps_original() {
     let d = TempDir::new("write");
@@ -167,6 +170,7 @@ fn write_failure_halfway_keeps_original() {
     assert_no_temp(&d.0);
 }
 
+/// A failed replacement must preserve the original and skip the publication barrier.
 #[test]
 fn rename_failure_keeps_original() {
     let d = TempDir::new("rename");

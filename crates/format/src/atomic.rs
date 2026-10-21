@@ -101,6 +101,8 @@ impl AtomicFs for RealFs {
     fn remove(&self, path: &Path) -> io::Result<()> {
         std::fs::remove_file(path)
     }
+    /// Flush directory publication using a directory handle on Unix and Windows.
+    /// Windows requests only `FILE_ADD_FILE`; opening or flushing the handle can fail the save.
     fn sync_dir(&self, dir: &Path) -> io::Result<()> {
         #[cfg(unix)]
         {
