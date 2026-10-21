@@ -268,8 +268,11 @@ pub(crate) fn is_preview_key(key: u64) -> bool {
 /// Release: one `layer.translate` by the drag's offset. The canvas already shows the result, so
 /// its caches are told it showed the document: the command's damage rect refreshes that area.
 pub(crate) fn finish(app: &mut PhotocraftApp, dx: f64, dy: f64) {
+    // Within the range the preview and the ΔX/ΔY readout show (`drag_offset`), so the release
+    // commits the offset they showed even at the lowest zoom of a huge document.
+    let (dx, dy) = (dx.clamp(-1e7, 1e7), dy.clamp(-1e7, 1e7));
     // Only when the canvas shows this very offset (else it recomposites everything once).
-    let at = (dx.clamp(-1e7, 1e7) as i32, dy.clamp(-1e7, 1e7) as i32);
+    let at = (dx as i32, dy as i32);
     let shown = app.move_preview.take().filter(|p| p.shown.is_some() && p.offsets.last() == Some(&at));
     if dx == 0.0 && dy == 0.0 {
         return;
@@ -345,6 +348,23 @@ mod tests {
         assert_eq!(super::offset_readout(&app), Some(["10 px".to_string(), "-3 px".to_string()]));
         crate::canvas::tool_event(&mut app, ToolEvent::Up { x: 34.4, y: 20.8 }, m);
         assert_eq!(super::offset_readout(&app), None, "released");
+    }
+
+    /// A release past the ±10,000,000 px the preview and the readout show commits the offset they
+    /// showed, not the raw pointer distance.
+    #[test]
+    fn a_release_commits_the_offset_the_readout_caps_at() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.execute("file.new", json!({"width": 64, "height": 64, "background": "transparent"})).unwrap();
+        app.sync_views();
+        app.session.execute("layer.new.layer", json!({})).unwrap();
+        app.session.execute("select.rect", json!({"x": 8, "y": 8, "width": 16, "height": 16})).unwrap();
+        app.session.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        app.session.execute("select.deselect", json!({})).unwrap();
+        super::finish(&mut app, 2.5e7, -2.5e7);
+        let st = app.session.active().unwrap();
+        let s = st.active_layer.and_then(|id| st.doc.layer(id)).and_then(|l| l.surface()).unwrap();
+        assert!(s.pixel(16 + 10_000_000, 16 - 10_000_000)[3] > 0.5, "moved by the capped offset");
     }
 
     /// A shape reaching past the canvas edge renders cut at the canvas, but its path goes on: a
