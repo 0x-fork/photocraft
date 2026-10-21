@@ -514,11 +514,14 @@ impl Default for Export {
     }
 }
 
+/// [`Performance::memory_usage_mb`]'s default.
+pub const DEFAULT_MEMORY_USAGE_MB: u32 = 8192;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Performance {
     /// Memory PhotoCraft may use, in MB: bounds each document's pixels plus its History (the
-    /// oldest states are dropped beyond it).
+    /// oldest states are dropped beyond it), and the result of one transform.
     pub memory_usage_mb: u32,
     /// Undo steps kept per document (History panel states).
     pub history_states: u32,
@@ -573,9 +576,10 @@ impl Performance {
 }
 
 impl Default for Performance {
+    /// What a new install starts with, [`DEFAULT_MEMORY_USAGE_MB`] of Memory Usage among it.
     fn default() -> Self {
         Self {
-            memory_usage_mb: 8192,
+            memory_usage_mb: DEFAULT_MEMORY_USAGE_MB,
             history_states: 50,
             cache_levels: 4,
             cache_tile_size: 8192,
@@ -1741,7 +1745,7 @@ impl Session {
     }
 
     /// Push engine-relevant preferences into live state: every document's history limit, the
-    /// layer-effect cache budget and the text engine's missing-glyph protection.
+    /// transform and layer-effect cache budgets and the text engine's missing-glyph protection.
     pub fn apply_prefs(&mut self) {
         let n = self.prefs().performance.history_states.max(1) as usize;
         let bytes = self.prefs().performance.history_budget_bytes();
@@ -1752,6 +1756,7 @@ impl Session {
             st.trim_history();
         }
         photocraft_compose::set_effect_cache_budget(budget << 20);
+        crate::transform_cmds::set_budget(u64::from(self.prefs().performance.memory_usage_mb) << 20);
         // Without waiting for the system font scan: this runs on the UI thread at launch.
         photocraft_text::set_shared_missing_glyph_protection(self.prefs().type_.missing_glyph_protection());
         crate::plugin_cmds::sync_prefs(self);

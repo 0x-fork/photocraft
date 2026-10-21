@@ -1,11 +1,14 @@
 //! Edit › Free Transform / Transform: projective transforms of layers (and the selection).
 
-use photocraft_algo::transform::{Homography, Interp, warp_output_size, warp_surface, warp_surface_with};
+use photocraft_algo::transform::{Homography, Interp, WARP_REACH, warp_output_clipped, warp_output_size, warp_surface, warp_surface_with};
 use photocraft_color::PixelFormat;
+#[cfg(test)]
+use photocraft_color::{ColorMode, SampleType};
 use photocraft_doc::{Document, Layer, LayerContent, LayerId, Locks};
 use photocraft_geom::{Affine, Rect};
 use photocraft_raster::{Interrupt, Surface};
 use serde_json::{Value, json};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::commands::CommandSpec;
 use crate::{EngineError, Result, Session};
@@ -260,32 +263,65 @@ pub fn locked_for_transform(doc: &Document, id: LayerId) -> bool {
     false
 }
 
-/// The largest result (px) a single Free Transform warp may build: 2³⁰, the bound Puppet Warp uses
-/// too ([`photocraft_algo::puppet::MAX_WARP_PIXELS`]). Only the size of the result counts, not
-/// where it lands, so moving a layer far off the canvas stays allowed. A scale past it is refused
-/// rather than clipped (#3773): the warp would otherwise fill every tile of a result up to 2²¹ px
-/// on a side before anything could fail.
-pub const MAX_TRANSFORM_PIXELS: u64 = 1 << 30;
+/// The memory (bytes) a single Free Transform warp's result may take: Preferences › Performance ›
+/// Memory Usage, which [`Session::apply_prefs`] sets, rather than a fixed 2³⁰ px, so a stitched
+/// layer of a few gigapixels transforms on a machine that has the memory for it (#7807). Only the
+/// size of the result counts, not where it lands, so moving a layer far off the canvas stays
+/// allowed as far as the warp reaches ([`WARP_REACH`]). A scale past it is refused rather than
+/// clipped (#3773): the warp would otherwise fill every tile of a result up to 2²¹ px on a side
+/// before anything could fail.
+static BUDGET: AtomicU64 = AtomicU64::new((crate::prefs::DEFAULT_MEMORY_USAGE_MB as u64) << 20);
 
-/// Tests use a far lower budget, so proving a refusal never comes near allocating the real one.
-#[cfg(not(test))]
-const BUDGET: u64 = MAX_TRANSFORM_PIXELS;
-#[cfg(test)]
-const BUDGET: u64 = 1 << 20;
-
-/// Refuse a warp of the content inside `src` by `h` whose result would exceed the pixel budget,
-/// before anything is built. `what` names the surface in the message, which names the limit
-/// rather than memory: nothing has been allocated, so no memory ran short (#7807).
-pub(crate) fn check_budget(src: Rect, h: &Homography, what: &str) -> Result<()> {
-    check_budget_with_limit(src, h, what, BUDGET)
+/// Set the memory (bytes) one transform's result may take (see [`budget`]).
+pub fn set_budget(bytes: u64) {
+    BUDGET.store(bytes, Ordering::Relaxed);
 }
 
-/// [`check_budget`] against `budget` px (the tests price the production limit with it).
-fn check_budget_with_limit(src: Rect, h: &Homography, what: &str, budget: u64) -> Result<()> {
+/// The memory (bytes) one transform's result may take: Memory Usage.
+pub fn budget() -> u64 {
+    BUDGET.load(Ordering::Relaxed)
+}
+
+/// What [`check_budget`] holds a result to: [`budget`].
+#[cfg(not(test))]
+fn active_budget() -> u64 {
+    budget()
+}
+
+/// Tests use a far lower budget, so proving a refusal never comes near allocating the real one:
+/// 2²⁰ px of the widest format (32-bit CMYK with alpha, 20 MB), so a result within the old 2²⁰ px
+/// test limit still fits at any depth.
+#[cfg(test)]
+fn active_budget() -> u64 {
+    (1 << 20) * PixelFormat::new(ColorMode::Cmyk, SampleType::F32, true).bytes_per_pixel() as u64
+}
+
+/// Refuse a warp of the content inside `src` (pixels of `format`) by `h` whose result would take
+/// more memory than the budget, or reach past where the warp places pixels (it would be clipped),
+/// before anything is built. `what` names the surface in the message, which names the setting or
+/// the reach rather than a shortage: nothing has been allocated yet.
+pub(crate) fn check_budget(src: Rect, h: &Homography, what: &str, format: PixelFormat) -> Result<()> {
+    check_budget_with_limit(src, h, what, format, active_budget())
+}
+
+/// [`check_budget`] against `budget` bytes (the tests price the production budget with it).
+fn check_budget_with_limit(src: Rect, h: &Homography, what: &str, format: PixelFormat, budget: u64) -> Result<()> {
     let Some((w, ht)) = warp_output_size(src, h) else { return Ok(()) };
-    if w.saturating_mul(ht) > budget {
+    // The warp writes each tile into the result as it goes, so the result is what it holds; it
+    // adds alpha to a format without it.
+    let bpp = PixelFormat::new(format.mode, format.sample, true).bytes_per_pixel() as u64;
+    let bytes = w.saturating_mul(ht).saturating_mul(bpp);
+    if bytes > budget {
+        let mb = |b: u64| b.div_ceil(1 << 20);
         return Err(EngineError::Other(format!(
-            "too large to transform: the transformed {what} would be {w} x {ht} px, more than the {budget} px limit; the document was not changed"
+            "too large to transform: the transformed {what} would be {w} x {ht} px ({} MB), more than the {} MB Memory Usage allows (Preferences › Performance); the document was not changed",
+            mb(bytes),
+            budget >> 20
+        )));
+    }
+    if warp_output_clipped(src, h) {
+        return Err(EngineError::Other(format!(
+            "too large to transform: the transformed {what} would reach past ±{WARP_REACH} px, the farthest a transform places pixels; the document was not changed"
         )));
     }
     Ok(())
@@ -306,10 +342,10 @@ fn check_layer_budget(doc_sel: Option<&Surface>, l: &Layer, h: &Homography) -> R
             LayerContent::Text(_) | LayerContent::Shape(_) => {}
             LayerContent::Smart(sm) => {
                 if let Some(c) = &sm.cache {
-                    check_budget(c.content_bounds(), h, "smart object")?;
+                    check_budget(c.content_bounds(), h, "smart object", c.format())?;
                 }
                 if let Some(m) = &sm.filter_mask {
-                    check_budget(m.surface.content_bounds(), h, "smart filter mask")?;
+                    check_budget(m.surface.content_bounds(), h, "smart filter mask", m.surface.format())?;
                 }
             }
             _ => {
@@ -319,7 +355,7 @@ fn check_layer_budget(doc_sel: Option<&Surface>, l: &Layer, h: &Homography) -> R
                         Some(sel) => surf.content_bounds().intersect(&sel.content_bounds()),
                         None => surf.content_bounds(),
                     };
-                    check_budget(src, h, &format!("layer \"{}\"", l.name))?;
+                    check_budget(src, h, &format!("layer \"{}\"", l.name), surf.format())?;
                 }
             }
         }
@@ -331,7 +367,7 @@ fn check_layer_budget(doc_sel: Option<&Surface>, l: &Layer, h: &Homography) -> R
                 Some(sel) => sel.content_bounds(),
                 None => m.surface.content_bounds(),
             };
-            check_budget(src, h, "layer mask")?;
+            check_budget(src, h, "layer mask", m.surface.format())?;
         }
     }
     Ok(())
@@ -339,7 +375,7 @@ fn check_layer_budget(doc_sel: Option<&Surface>, l: &Layer, h: &Homography) -> R
 
 /// `group` holds the locks `l` inherits from the groups around it ([`group_locks`]). A Background
 /// is turned into a normal layer by the caller first ([`crate::extra_cmds::background_to_layer`]).
-/// Refused, with `l` untouched, when a result would exceed [`MAX_TRANSFORM_PIXELS`].
+/// Refused, with `l` untouched, when a result would take more than [`budget`].
 pub(crate) fn transform_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut Layer, h: &Homography, affine: Option<Affine>, interp: Interp) -> Result<()> {
     transform_layer_with(doc_sel, group, l, h, affine, interp, &Interrupt::NONE)
 }
@@ -667,14 +703,14 @@ fn transform_doc(
     let sel = doc.selection.clone();
     // The selection outline moves too: price it before anything is built.
     if let Some(sel) = sel.as_ref().filter(|_| !h.is_identity()) {
-        check_budget(sel.content_bounds(), h, "selection")?;
+        check_budget(sel.content_bounds(), h, "selection", sel.format())?;
     }
     if lone {
         // A targeted unlinked mask, alpha channel or Quick Mask transforms by itself.
         if !h.is_identity() {
             let (surf, _) = crate::channel_cmds::target_surface(doc, id, p)?;
             let src = sel.as_ref().map_or_else(|| surf.content_bounds(), Surface::content_bounds);
-            check_budget(src, h, "mask or channel")?;
+            check_budget(src, h, "mask or channel", surf.format())?;
             *surf = match &sel {
                 Some(sel) => warp_gray_selected(surf, sel, h, interp)?,
                 None => warp_gray(surf, h, interp)?,
@@ -740,29 +776,78 @@ mod tests {
         s
     }
 
+    /// The content bounds of the active layer's pixels.
     fn active_bounds(s: &Session) -> Rect {
         let st = s.active().unwrap();
         st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap().content_bounds()
     }
 
-    // ---- Pixel budget (#3773). Tests run with a 2²⁰ px budget, so nothing here comes near the real one. ----
+    // ---- Memory budget (#3773, #7807). Tests run with a 20 MB budget (2²⁰ px of 32-bit CMYK with
+    // alpha), so nothing here comes near the real one. ----
 
+    /// Memory Usage's default, in bytes.
+    const DEFAULT_BUDGET: u64 = (crate::prefs::DEFAULT_MEMORY_USAGE_MB as u64) << 20;
+
+    /// Scales of 10⁷ and past are refused by the real budget too, whatever the axis or sign.
     #[test]
     fn huge_transform_scales_exceed_the_production_budget_before_clipping() {
         let src = Rect::new(0, 0, 24, 16);
         for scale in [1e7, 1e28, 1e306] {
             for (sx, sy) in [(scale, 1.0), (1.0, scale), (-scale, 1.0)] {
                 let h = Homography([sx, 0.0, 0.0, 0.0, sy, 0.0, 0.0, 0.0, 1.0]);
-                assert!(check_budget_with_limit(src, &h, "layer", MAX_TRANSFORM_PIXELS).is_err(), "{sx} x {sy} must be refused");
+                assert!(check_budget_with_limit(src, &h, "layer", PixelFormat::RGBA8, DEFAULT_BUDGET).is_err(), "{sx} x {sy} must be refused");
             }
         }
     }
 
+    /// A 240000 px wide stretch, placed far from the canvas but within the warp's reach, fits.
     #[test]
     fn an_ordinary_transform_remains_within_the_production_budget() {
         let src = Rect::new(0, 0, 24, 16);
-        let h = Homography([10_000.0, 0.0, 900_000.0, 0.0, 1.0, -900_000.0, 0.0, 0.0, 1.0]);
-        assert!(check_budget_with_limit(src, &h, "layer", MAX_TRANSFORM_PIXELS).is_ok());
+        let h = Homography([10_000.0, 0.0, 800_000.0, 0.0, 1.0, -900_000.0, 0.0, 0.0, 1.0]);
+        assert!(check_budget_with_limit(src, &h, "layer", PixelFormat::RGBA8, DEFAULT_BUDGET).is_ok());
+    }
+
+    /// The warp places pixels only within ±2²⁰ px ([`WARP_REACH`]): a result that fits Memory
+    /// Usage but would reach past it, by its size or by where it lands, is refused, not clipped.
+    #[test]
+    fn a_result_past_the_warps_reach_is_refused_not_clipped() {
+        let src = Rect::new(0, 0, 24, 16);
+        let check = |h: [f64; 9]| check_budget_with_limit(src, &Homography(h), "layer", PixelFormat::RGBA8, DEFAULT_BUDGET);
+        // 2000016 x 18 px, 138 MB of 8-bit RGBA: from x = 0 it would be cut at 2²⁰; centred it fits.
+        let err = check([83_334.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]).unwrap_err().to_string();
+        assert!(err.contains("would reach past ±1048576 px") && err.ends_with("the document was not changed"), "{err}");
+        assert!(check([83_334.0, 0.0, -1_000_000.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]).is_ok());
+        // A small layer moved past the reach, either way on either axis.
+        for (dx, dy) in [(1_100_000.0, 0.0), (-1_100_000.0, 0.0), (0.0, 1_100_000.0), (0.0, -1_100_000.0)] {
+            assert!(check([1.0, 0.0, dx, 0.0, 1.0, dy, 0.0, 0.0, 1.0]).is_err(), "{dx}, {dy}");
+        }
+        // Through the command: nothing moves, nothing is lost.
+        let mut s = session();
+        let st = s.active().unwrap();
+        let (before, steps) = (st.doc.clone(), st.history.past_len());
+        let err = s.execute("edit.transform", json!({"matrix": [1, 0, 0, 1, 2_000_000, 0]})).unwrap_err().to_string();
+        assert!(err.contains("the transformed layer \"Layer 1\" would reach past ±1048576 px"), "{err}");
+        let st = s.active().unwrap();
+        assert!(st.doc == before && st.history.past_len() == steps, "the document is untouched");
+    }
+
+    /// #7807: the stitched layer's 90 % and 15°, a 37708 x 35259 px result that the old 2³⁰ px limit
+    /// refused, fits the default Memory Usage at 8 bits (5072 MB); at 16 bits it needs Memory Usage
+    /// raised, and the message says so.
+    #[test]
+    fn a_gigapixel_layer_transforms_within_memory_usage() {
+        let src = Rect::new(0, 0, 35_020, 31_171);
+        let r = [0.0, 0.0, 35_020.0, 31_171.0];
+        let h = relative_matrix(&json!({"scaleX": 90, "scaleY": 90, "rotate": 15}), r).unwrap().unwrap();
+        assert_eq!(warp_output_size(src, &h), Some((37_708, 35_259)), "the report's result, past the old limit");
+        assert!(check_budget_with_limit(src, &h, "layer \"Layer 1\"", PixelFormat::RGBA8, DEFAULT_BUDGET).is_ok());
+        let err = check_budget_with_limit(src, &h, "layer \"Layer 1\"", PixelFormat::RGBA16, DEFAULT_BUDGET).unwrap_err().to_string();
+        assert!(err.contains("(10144 MB), more than the 8192 MB Memory Usage allows (Preferences › Performance)"), "{err}");
+        assert!(check_budget_with_limit(src, &h, "layer", PixelFormat::RGBA16, 2 * DEFAULT_BUDGET).is_ok());
+        // A format without alpha is priced as the warp makes it, with alpha.
+        let rgb8 = PixelFormat::new(PixelFormat::RGBA8.mode, PixelFormat::RGBA8.sample, false);
+        assert!(check_budget_with_limit(src, &h, "layer", rgb8, 5071 << 20).is_err());
     }
 
     /// A 16 x 16 document whose active layer is a 1 x 8 column at x = 10.
@@ -790,12 +875,15 @@ mod tests {
         let mut s = column();
         let st = s.active().unwrap();
         let (before, revision, steps) = (st.doc.clone(), st.revision, st.history.past_len());
-        // 200000 x 10 px of output: twice the test budget.
-        let err = s.execute("edit.transform", stretch(2e5)).unwrap_err().to_string();
+        // 1000000 x 10 px of 8-bit RGBA output: about twice the test budget.
+        let err = s.execute("edit.transform", stretch(1e6)).unwrap_err().to_string();
         assert!(err.starts_with("too large to transform: the transformed layer \"Layer 1\""), "{err}");
-        assert!(err.contains("would be 200002 x 10 px, more than the 1048576 px limit") && err.ends_with("the document was not changed"), "{err}");
-        // Nothing was allocated: the limit is named, not memory (#7807).
-        assert!(!err.contains("memory"), "{err}");
+        assert!(
+            err.contains("would be 1000002 x 10 px (39 MB), more than the 20 MB Memory Usage allows") && err.ends_with("the document was not changed"),
+            "{err}"
+        );
+        // Nothing was allocated, so nothing ran short (#7807).
+        assert!(!err.contains("not enough memory"), "{err}");
         let st = s.active().unwrap();
         assert!(st.doc == before, "the document is untouched");
         assert_eq!((st.revision, st.history.past_len()), (revision, steps));
@@ -813,7 +901,7 @@ mod tests {
         let dot = s.active().unwrap().active_layer.unwrap();
         s.edit("paint", |doc, _| {
             doc.layer_mut(dot).unwrap().surface_mut().unwrap().fill_rect(Rect::new(10, 12, 11, 13), &[0.0, 1.0, 0.0, 1.0]);
-            // Widen the column to 8 px (x 2..10), so it alone needs 400002 x 10 px.
+            // Widen the column to 8 px (x 2..10), so it alone needs 800002 x 10 px (31 MB).
             doc.layer_mut(wide).unwrap().surface_mut().unwrap().fill_rect(Rect::new(2, 2, 10, 10), &[1.0, 0.0, 0.0, 1.0]);
             Ok(())
         })
@@ -824,7 +912,7 @@ mod tests {
         let st = s.active().unwrap();
         assert!(matches!(&st.doc.layer(group).unwrap().content, LayerContent::Group(g) if g.children.len() == 2));
         let (before, revision) = (st.doc.clone(), st.revision);
-        let k = 5e4;
+        let k = 1e5;
         assert!(s.execute("edit.transform", json!({"layer": group.0, "matrix": [k, 0, 0, 1, -10.0 * k, 0]})).is_err());
         let st = s.active().unwrap();
         assert!(st.doc == before && st.revision == revision, "nothing changed");
@@ -836,6 +924,8 @@ mod tests {
         assert!(&l == st.doc.layer(group).unwrap(), "no child was transformed");
     }
 
+    /// Only the result's size is priced: a small layer moved 900000 px away (within the warp's
+    /// reach) and back keeps every pixel.
     #[test]
     fn moving_a_small_layer_far_off_the_canvas_is_within_budget() {
         let mut s = session();
@@ -845,28 +935,31 @@ mod tests {
         assert_eq!(active_bounds(&s), Rect::new(10, 10, 30, 20), "and back, every pixel kept");
     }
 
+    /// Each priced at its own format, as the warp makes it: an 8-bit outline, mask or channel with
+    /// alpha is 2 bytes a pixel, so a canvas-high column of it stretched 10⁶ times (34 MB) is over
+    /// the test budget.
     #[test]
     fn selections_masks_and_channels_have_the_same_budget() {
         // The selection outline of a layer transform.
         let mut s = column();
-        s.execute("select.rect", json!({"x": 10, "y": 2, "width": 1, "height": 8})).unwrap();
+        s.execute("select.rect", json!({"x": 10, "y": 0, "width": 1, "height": 16})).unwrap();
         let before = s.active().unwrap().doc.clone();
-        let err = s.execute("edit.transform", stretch(2e5)).unwrap_err().to_string();
+        let err = s.execute("edit.transform", stretch(1e6)).unwrap_err().to_string();
         assert!(err.contains("transformed selection would be"), "{err}");
         // Transform Selection.
-        let err = s.execute("select.transformSelection", stretch(2e5)).unwrap_err().to_string();
+        let err = s.execute("select.transformSelection", stretch(1e6)).unwrap_err().to_string();
         assert!(err.contains("transformed selection would be"), "{err}");
         assert!(s.active().unwrap().doc == before);
         // A targeted alpha channel.
         let mut s = column();
         s.execute("channel.new", json!({})).unwrap();
         s.edit("paint channel", |doc, _| {
-            doc.channels[0].surface.fill_rect(Rect::new(10, 2, 11, 10), &[1.0]);
+            doc.channels[0].surface.fill_rect(Rect::new(10, 0, 11, 16), &[1.0]);
             Ok(())
         })
         .unwrap();
         let before = s.active().unwrap().doc.clone();
-        let mut p = stretch(2e5);
+        let mut p = stretch(1e6);
         p["target"] = json!({"channel": 0});
         let err = s.execute("edit.transform", p).unwrap_err().to_string();
         assert!(err.contains("transformed mask or channel would be"), "{err}");
