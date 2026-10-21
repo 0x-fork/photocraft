@@ -334,6 +334,12 @@ fn enum_name(f: &Descriptor, key: &str, type_id: &str, table: &[(&[u8; 4], &'sta
     table.iter().find(|(c, _)| value.as_bytes() == &c[..]).map(|(_, n)| *n)
 }
 
+/// True when `f` holds each of the given keys once and nothing else: a repeated key would be
+/// written back only once.
+fn exact_keys(f: &Descriptor, keys: &[&str]) -> bool {
+    f.items.len() == keys.len() && only_keys(f, keys) && keys.iter().all(|x| f.items.iter().any(|(k, _)| k.is(x)))
+}
+
 /// Finite `key` of `f` stored as a plain double (the type Photoshop writes and we write back).
 fn double(f: &Descriptor, key: &str) -> Option<f64> {
     match f.get(key)? {
@@ -359,6 +365,14 @@ fn pi_range(p: &J, key: &str, default: f64, lo: i32, hi: i32) -> Result<Value, S
         return Err(format!("setting `{key}` ({v}) is not a number in {lo}..={hi}"));
     }
     Ok(Value::Integer(v as i32))
+}
+
+/// The `doub` at `key` (not a long or a unit value, which a re-save would turn into a `doub`).
+fn double_at(d: &Descriptor, key: &str) -> Option<f64> {
+    match d.get(key)? {
+        Value::Double(v) if v.is_finite() => Some(*v),
+        _ => None,
+    }
 }
 
 /// Enum `type_id` holding the PSD value of our name `p[key]` (`default` when absent).
@@ -620,11 +634,16 @@ fn known_params(class: &str, f: Option<&Descriptor>, item: &Descriptor) -> Optio
             json!({"horizontal": int(f, "Hrzn")?, "vertical": int(f, "Vrtc")?, "undefinedAreas": enum_from(f, "Fl  ", "FlMd", &OFFSET_FILL)?})
         }
         ("Cstm", Some(f)) => custom_params(f)?,
-        ("LnsF", Some(f)) => {
-            let centre = get_desc(f, "FlrC")?;
-            let lens = enum_of(f, "Lns ")?;
-            let lens = LENSES.iter().find(|(c, _)| lens == &c[..])?.1;
-            json!({"brightness": int(f, "Brgh")?, "centerX": px(centre, "Hrzn")?, "centerY": px(centre, "Vrtc")?, "lens": lens})
+        // Only the settings and value types Photoshop writes (and we write back); anything else
+        // keeps the filter verbatim.
+        ("LnsF", Some(f)) if exact_keys(f, &["Brgh", "FlrC", "Lns "]) => {
+            let centre = get_desc(f, "FlrC").filter(|c| c.class_id.is("Pnt ") && exact_keys(c, &["Hrzn", "Vrtc"]))?;
+            let Some(Value::Enumerated { type_id, value }) = f.get("Lns ") else { return None };
+            if !type_id.is("Lns ") {
+                return None;
+            }
+            let lens = LENSES.iter().find(|(c, _)| value.as_bytes() == &c[..])?.1;
+            json!({"brightness": int(f, "Brgh")?, "centerX": double_at(centre, "Hrzn")?, "centerY": double_at(centre, "Vrtc")?, "lens": lens})
         }
         ("Lvls", Some(f)) => levels_params(f)?,
         ("Crvs", Some(f)) => curves_params(f)?,
@@ -670,7 +689,19 @@ fn rgbc_colour(d: &Descriptor) -> Option<J> {
 /// their params are the `Fltr` settings plus those colours.
 fn coloured_params(class: &str, item: &Descriptor, f: &Descriptor) -> Option<(&'static str, J)> {
     let k = KNOWN.iter().find(|k| k.class == class)?;
-    let colour = |key: &str| get_desc(item, key).and_then(rgbc_colour);
+    // An `RGBC` of three `doub`s in 0–255, as Photoshop writes it (and we write it back); any
+    // other colour keeps the filter verbatim.
+    let colour = |key: &str| {
+        get_desc(item, key)
+            .filter(|c| c.class_id.is("RGBC") && exact_keys(c, &["Rd  ", "Grn ", "Bl  "]))
+            .filter(|c| ["Rd  ", "Grn ", "Bl  "].iter().all(|k| double_at(c, k).is_some_and(|v| (0.0..=255.0).contains(&v))))
+            .and_then(rgbc_colour)
+    };
+    // Only the settings Photoshop writes; an extra or repeated one keeps the filter verbatim.
+    let keys: &[&str] = if class == "Fbrs" { &["Vrnc", "Strg", "RndS"] } else { &["FlRs"] };
+    if !exact_keys(f, keys) {
+        return None;
+    }
     // The seeds (`RndS`, `FlRs`) are signed longs; ours is their bit pattern.
     let mut p = match class {
         "Fbrs" => json!({"variance": int(f, "Vrnc")?, "strength": int(f, "Strg")?, "seed": int(f, "RndS")? as u32}),
@@ -3552,6 +3583,68 @@ mod tests {
         let mut item = photoshop(PHOTOSHOP_LENS_FLARE);
         set_lens(&mut item, *b"Xxxx");
         assert_eq!(filter_from_item(&item).command, UNSUPPORTED_FILTER);
+    }
+
+    /// The descriptor at `path` (nested keys) inside `item`, for editing.
+    fn desc_at<'a>(item: &'a mut Descriptor, path: &[&str]) -> &'a mut Descriptor {
+        path.iter().fold(item, |d, key| {
+            let Some(Value::Descriptor(x)) = d.items.iter_mut().find(|(k, _)| k.is(key)).map(|(_, v)| v) else { panic!("no {key}") };
+            x
+        })
+    }
+
+    #[test]
+    fn render_filters_with_settings_we_dont_model_stay_verbatim() {
+        // Each case changes one thing in a Photoshop item: an extra setting, a repeated one, or a
+        // value of another type than Photoshop writes. Opened as editable, a re-save would drop the
+        // extra setting or rewrite the value; kept verbatim, the item is written back byte for byte.
+        type Edit = Box<dyn Fn(&mut Descriptor)>;
+        /// A descriptor path in the item (nested keys) and the edit made there.
+        type Change = (&'static [&'static str], Edit);
+        let extra: fn(&mut Descriptor) = |d| d.items.push((Id::new("Xtra"), Value::Integer(1)));
+        let as_double = |key: &'static str| -> Edit { Box::new(move |d| set(d, key, Value::Double(1.0))) };
+        let as_long = |key: &'static str| -> Edit { Box::new(move |d| set(d, key, Value::Integer(1))) };
+        let repeat = |key: &'static str| -> Edit {
+            Box::new(move |d| {
+                let v = d.get(key).cloned().unwrap();
+                d.items.push((Id::new(key), v));
+            })
+        };
+        let colour_edits = || -> Vec<Change> {
+            vec![
+                (&["FrgC"], Box::new(|d: &mut Descriptor| d.items.push((Id::new("redFloat"), Value::Double(0.5))))),
+                (&["BckC"], as_long("Grn ")),
+                (&["FrgC"], Box::new(|d: &mut Descriptor| set(d, "Rd  ", Value::Double(300.0)))),
+                (&["BckC"], Box::new(|d: &mut Descriptor| d.class_id = Id::new("HSBC"))),
+            ]
+        };
+        let mut cases: Vec<(&str, &'static [&'static str], Edit)> = Vec::new();
+        for hex in [PHOTOSHOP_CLOUDS, PHOTOSHOP_DIFFERENCE_CLOUDS] {
+            cases.push((hex, &["Fltr"], Box::new(extra)));
+            cases.push((hex, &["Fltr"], repeat("FlRs")));
+            cases.push((hex, &["Fltr"], as_double("FlRs")));
+            cases.extend(colour_edits().into_iter().map(|(p, e)| (hex, p, e)));
+        }
+        cases.push((PHOTOSHOP_FIBERS, &["Fltr"], Box::new(extra)));
+        cases.push((PHOTOSHOP_FIBERS, &["Fltr"], repeat("Strg")));
+        for key in ["Vrnc", "Strg", "RndS"] {
+            cases.push((PHOTOSHOP_FIBERS, &["Fltr"], as_double(key)));
+        }
+        cases.extend(colour_edits().into_iter().map(|(p, e)| (PHOTOSHOP_FIBERS, p, e)));
+        cases.push((PHOTOSHOP_LENS_FLARE, &["Fltr"], Box::new(extra)));
+        cases.push((PHOTOSHOP_LENS_FLARE, &["Fltr"], repeat("Brgh")));
+        cases.push((PHOTOSHOP_LENS_FLARE, &["Fltr"], as_double("Brgh")));
+        cases.push((PHOTOSHOP_LENS_FLARE, &["Fltr"], Box::new(|d| set(d, "Lns ", Value::Enumerated { type_id: Id::new("Xxxx"), value: Id::Code(*b"Zm  ") }))));
+        cases.push((PHOTOSHOP_LENS_FLARE, &["Fltr", "FlrC"], Box::new(extra)));
+        cases.push((PHOTOSHOP_LENS_FLARE, &["Fltr", "FlrC"], as_long("Hrzn")));
+        cases.push((PHOTOSHOP_LENS_FLARE, &["Fltr", "FlrC"], Box::new(|d| set(d, "Vrtc", Value::UnitFloat { unit: *b"#Pxl", value: 0.5 }))));
+        for (i, (hex, path, edit)) in cases.iter().enumerate() {
+            let mut item = photoshop(hex);
+            edit(desc_at(&mut item, path));
+            let f = filter_from_item(&item);
+            assert_eq!(f.command, UNSUPPORTED_FILTER, "case {i} ({path:?}): {:?}", f.params);
+            assert_eq!(item_for_filter(&f).unwrap().to_bytes(), item.to_bytes(), "case {i} ({path:?})");
+        }
     }
 
     #[test]

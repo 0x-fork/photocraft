@@ -246,6 +246,31 @@ fn a_16_bit_duotone_is_written_as_grayscale() {
 }
 
 #[test]
+fn a_layered_duotone_keeps_its_image_without_maximize_compatibility() {
+    // A Duotone opens flattened from its merged image (its layer records are not read), so that
+    // image is written in full even when Maximize Compatibility is off, never the placeholder.
+    let mut d = duotone_doc(photocraft_color::SampleType::U8);
+    let mut top = photocraft_doc::Layer::new("Dark", LayerContent::Raster(photocraft_raster::Surface::new(d.pixel_format())));
+    if let LayerContent::Raster(s) = &mut top.content {
+        s.fill_rect(photocraft_geom::Rect::new(0, 0, 2, 2), &photocraft_raster::from_rgba(&d.pixel_format(), [0.0, 0.0, 0.0, 1.0]));
+    }
+    d.layers.push(top);
+    let opts = ExportOptions { psd_maximize_compatibility: false, ..Default::default() };
+    let f = PsdFile::from_bytes(&export(&d, "x.psd", &opts).unwrap().bytes).unwrap();
+    assert_eq!(f.header.color_mode, ColorMode::Duotone);
+    assert!(!f.layers().is_empty(), "the layers are still written");
+    // The grey plate: the left half black (the top layer), the right half the 50% grey background.
+    let plate: Vec<u8> = f.decode_merged().unwrap();
+    assert_eq!(plate.len(), 8);
+    assert!(plate[..2].iter().chain(&plate[4..6]).all(|&v| v == 0), "{plate:?}");
+    assert!(plate[2..4].iter().chain(&plate[6..]).all(|&v| (127..=128).contains(&v)), "{plate:?}");
+    let (back, _) = psd_to_document(&f);
+    let maxed = PsdFile::from_bytes(&export(&d, "x.psd", &ExportOptions::default()).unwrap().bytes).unwrap();
+    assert_eq!(f.decode_merged().unwrap(), maxed.decode_merged().unwrap());
+    assert_eq!(back.duotone.as_ref().map(|x| x.inks.len()), Some(2));
+}
+
+#[test]
 fn a_colour_book_ink_shows_its_lab_equivalent_or_the_grey_plate() {
     let out = export(&duotone_doc(photocraft_color::SampleType::U8), "x.psd", &ExportOptions::default()).unwrap();
     let mut f = PsdFile::from_bytes(&out.bytes).unwrap();
