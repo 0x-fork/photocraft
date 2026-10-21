@@ -3980,6 +3980,5 @@ cameraData	Lens	Lens
 	Generate Mipmaps	Mipmap oluştur
 
 # Color Table (.act) dialog
-	Export Swatches as Color Table…	Renk örneklerini Renk Tablosu olarak dışa aktar…
 	There is no color table to save.	Kaydedilecek renk tablosu yok.
 @plural	Saved {n} color to {file}|Saved {n} colors to {file}	{n} renk {file} konumuna kaydedildi

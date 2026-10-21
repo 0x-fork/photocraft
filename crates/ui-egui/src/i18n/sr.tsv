@@ -4323,6 +4323,5 @@ shape	Appearance	Izgled
 	Generate Mipmaps	Generiši mipmape
 
 # Color Table (.act) dialog
-	Export Swatches as Color Table…	Извези узорке као табелу боја…
 	There is no color table to save.	Нема табеле боја за чување.
 @plural	Saved {n} color to {file}|Saved {n} colors to {file}	Сачувана је {n} боја у {file}|Сачуване су {n} боје у {file}|Сачувано је {n} боја у {file}

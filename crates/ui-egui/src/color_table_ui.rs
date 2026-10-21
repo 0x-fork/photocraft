@@ -2,8 +2,9 @@
 //!
 //! The dialog itself is the schema one (`filter_dialog`); this module only adds the file row.
 //! Load fills the pending table from a picked `.act` (OK then applies it); Save writes the
-//! pending table — the dialog's colors, else its preset, else the document's table — to a
-//! picked `.act`. Parsing lives in the engine (`swatch_cmds`); this module only draws and
+//! pending table — the loaded colors while the Table menu is on Custom, else its preset, else
+//! the document's table — to a picked `.act`. Picking a preset after Load… drops the loaded
+//! colors. Parsing lives in the engine (`swatch_cmds`); this module only draws and
 //! dispatches.
 
 use serde_json::{Map, Value, json};
@@ -19,9 +20,25 @@ fn unhex(s: &str) -> Option<[u8; 3]> {
     Some(f.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8))
 }
 
-/// The pending table: the dialog's colors, else its preset, else the document's table.
+/// Whether the Table menu is on Custom (or unset), the only state where loaded colors apply.
+fn custom(fields: &Map<String, Value>) -> bool {
+    fields.get("table").and_then(Value::as_str).is_none_or(|t| t == "custom")
+}
+
+/// A preset picked after Load… replaces the loaded table: forget its colors and transparent entry.
+fn drop_loaded_unless_custom(fields: &mut Map<String, Value>) {
+    if !custom(fields) {
+        fields.remove("colors");
+        fields.remove("transparent");
+    }
+}
+
+/// The pending table: the dialog's loaded colors (while the Table menu is on Custom), else its
+/// preset, else the document's table.
 fn pending(app: &PhotocraftApp, fields: &Map<String, Value>) -> Option<(Vec<[u8; 3]>, Option<u16>)> {
-    if let Some(a) = fields.get("colors").and_then(Value::as_array) {
+    if custom(fields)
+        && let Some(a) = fields.get("colors").and_then(Value::as_array)
+    {
         let colors: Option<Vec<[u8; 3]>> = a.iter().filter_map(Value::as_str).map(unhex).collect();
         let colors = colors.filter(|c| !c.is_empty() && c.len() <= photocraft_engine::swatch_cmds::ACT_COLORS)?;
         let transparent = fields.get("transparent").and_then(Value::as_u64).and_then(|i| u16::try_from(i).ok());
@@ -38,7 +55,11 @@ fn pending(app: &PhotocraftApp, fields: &Map<String, Value>) -> Option<(Vec<[u8;
 
 /// Load…/Save… row for the Color Table dialog (`id` finds its fields after the file picker
 /// answers, as the picker is asynchronous).
-pub fn buttons(app: &mut PhotocraftApp, ui: &mut egui::Ui, id: u64, fields: &Map<String, Value>) {
+pub fn buttons(app: &mut PhotocraftApp, ui: &mut egui::Ui, id: u64, fields: &mut Map<String, Value>) {
+    // `fields` is the frame's copy that the dialog writes back and OK sends: drop the loaded
+    // table there once a preset is picked, so OK applies what the Table menu shows.
+    drop_loaded_unless_custom(fields);
+    let fields = &*fields;
     ui.horizontal(|ui| {
         if ui.button(tl!("Load…")).clicked()
             && let Err(e) = app.pick_file_bytes_filtered(&["act"], move |app, name, bytes| {
@@ -107,13 +128,14 @@ mod tests {
     #[test]
     fn pending_prefers_dialog_colors_then_preset() {
         let app = app();
-        // The dialog's own colors win, with its transparent entry.
-        let fields = Map::from_iter([
-            ("table".to_string(), json!("blackBody")),
-            ("colors".to_string(), json!(["#ff0000", "#00ff00"])),
-            ("transparent".to_string(), json!(1)),
-        ]);
-        assert_eq!(pending(&app, &fields), Some((vec![[255, 0, 0], [0, 255, 0]], Some(1))));
+        // Loaded colors win while the Table menu is on Custom, with their transparent entry.
+        let loaded = |table: &str| {
+            Map::from_iter([("table".to_string(), json!(table)), ("colors".to_string(), json!(["#ff0000", "#00ff00"])), ("transparent".to_string(), json!(1))])
+        };
+        assert_eq!(pending(&app, &loaded("custom")), Some((vec![[255, 0, 0], [0, 255, 0]], Some(1))));
+        // A preset picked after Load… is what Save… writes, not the loaded colors.
+        let (colors, transparent) = pending(&app, &loaded("blackBody")).unwrap();
+        assert_eq!((colors.len(), transparent), (256, None));
         // Else the preset (256 entries, no transparency).
         let fields = Map::from_iter([("table".to_string(), json!("blackBody"))]);
         let (colors, transparent) = pending(&app, &fields).unwrap();
@@ -121,6 +143,27 @@ mod tests {
         assert_eq!(colors[0], [0, 0, 0]);
         // Nothing pending without colors, preset or document table.
         assert_eq!(pending(&app, &Map::from_iter([("table".to_string(), json!("custom"))])), None);
+    }
+
+    /// What OK sends is the dialog's fields: after a preset is picked they hold no loaded colors
+    /// (which `image.mode.colorTable` would apply over the preset), and Custom keeps them.
+    #[test]
+    fn a_preset_picked_after_load_drops_the_loaded_colors() {
+        let loaded = |table: &str| {
+            Map::from_iter([
+                ("__command".to_string(), json!("image.mode.colorTable")),
+                ("table".to_string(), json!(table)),
+                ("colors".to_string(), json!(["#ff0000"])),
+                ("transparent".to_string(), json!(0)),
+            ])
+        };
+        let mut fields = loaded("grayscale");
+        drop_loaded_unless_custom(&mut fields);
+        assert!(!fields.contains_key("colors") && !fields.contains_key("transparent"), "{fields:?}");
+        assert_eq!(fields.get("table"), Some(&json!("grayscale")));
+        let mut fields = loaded("custom");
+        drop_loaded_unless_custom(&mut fields);
+        assert_eq!(fields, loaded("custom"));
     }
 
     #[test]

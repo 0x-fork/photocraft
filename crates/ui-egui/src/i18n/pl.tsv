@@ -3850,6 +3850,5 @@ curves	Smooth	Wygładź
 	Generate Mipmaps	Generuj mipmapy
 
 # Color Table (.act) dialog
-	Export Swatches as Color Table…	Eksportuj próbki jako tabelę kolorów…
 	There is no color table to save.	Brak tabeli kolorów do zapisania.
 @plural	Saved {n} color to {file}|Saved {n} colors to {file}	Zapisano {n} kolor do {file}|Zapisano {n} kolory do {file}|Zapisano {n} kolorów do {file}

@@ -3858,6 +3858,5 @@ navigator	Zoom	Zvětšení
 	Generate Mipmaps	Generovat mipmapy
 
 # Color Table (.act) dialog
-	Export Swatches as Color Table…	Exportovat vzorníky jako tabulku barev…
 	There is no color table to save.	Neexistuje žádná tabulka barev k uložení.
 @plural	Saved {n} color to {file}|Saved {n} colors to {file}	Uložena {n} barva do {file}|Uloženy {n} barvy do {file}|Uloženo {n} barev do {file}

@@ -3959,6 +3959,5 @@ curves	Smooth	Згладити
 	Generate Mipmaps	Створити MIP-карти
 
 # Color Table (.act) dialog
-	Export Swatches as Color Table…	Експортувати зразки як таблицю кольорів…
 	There is no color table to save.	Немає таблиці кольорів для збереження.
 @plural	Saved {n} color to {file}|Saved {n} colors to {file}	Збережено {n} колір у {file}|Збережено {n} кольори у {file}|Збережено {n} кольорів у {file}

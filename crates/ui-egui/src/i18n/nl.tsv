@@ -4010,6 +4010,5 @@ curves	Smooth	Vloeiend maken
 	Generate Mipmaps	Mipmaps genereren
 
 # Color Table (.act) dialog
-	Export Swatches as Color Table…	Stalen exporteren als kleurtabel…
 	There is no color table to save.	Er is geen kleurtabel om op te slaan.
 @plural	Saved {n} color to {file}|Saved {n} colors to {file}	{n} kleur opgeslagen in {file}|{n} kleuren opgeslagen in {file}

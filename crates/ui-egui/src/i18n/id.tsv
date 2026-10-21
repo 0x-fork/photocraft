@@ -3246,6 +3246,5 @@ curves	Smooth	Haluskan
 	Generate Mipmaps	Buat mipmap
 
 # Color Table (.act) dialog
-	Export Swatches as Color Table…	Ekspor swatch sebagai Tabel Warna…
 	There is no color table to save.	Tidak ada tabel warna untuk disimpan.
 @plural	Saved {n} color to {file}|Saved {n} colors to {file}	{n} warna disimpan ke {file}

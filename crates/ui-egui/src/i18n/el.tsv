@@ -3950,6 +3950,5 @@ curves	Smooth	Εξομάλυνση
 	Generate Mipmaps	Δημιουργία mipmap
 
 # Color Table (.act) dialog
-	Export Swatches as Color Table…	Εξαγωγή δειγμάτων ως πίνακα χρωμάτων…
 	There is no color table to save.	Δεν υπάρχει πίνακας χρωμάτων για αποθήκευση.
 @plural	Saved {n} color to {file}|Saved {n} colors to {file}	Αποθηκεύτηκε {n} χρώμα στο {file}|Αποθηκεύτηκαν {n} χρώματα στο {file}

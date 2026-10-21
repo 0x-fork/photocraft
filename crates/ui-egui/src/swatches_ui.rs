@@ -5,8 +5,7 @@
 //! As in Photoshop, clicking a swatch sets the foreground colour (and recolours selected type);
 //! Alt- or Ctrl/Cmd-clicking sets the background colour; double-clicking renames it. The
 //! panel menu (the group's "…" button) adds New Swatch, New Group, Import/Replace (`.aco`,
-//! `.act`, `.ase`), Export (`.aco`), Export as Color Table (`.act`) and Export for Exchange
-//! (`.ase`) and Reset. Every action is a
+//! `.act`, `.ase`), Export (`.aco`) and Export for Exchange (`.ase`) and Reset. Every action is a
 //! `swatches.*` engine command; this module only draws and dispatches. Colours are shown in the
 //! RGB working space through `photocraft-cms` (cached per library revision and colour settings).
 
@@ -154,6 +153,11 @@ pub fn import_bytes(app: &mut PhotocraftApp, name: &str, bytes: &[u8], replace: 
     let stem = std::path::Path::new(name).file_stem().map(|s| s.to_string_lossy().to_string()).filter(|s| !s.trim().is_empty());
     let mut p = source(name, bytes);
     p["mode"] = json!(if replace { "replace" } else { "append" });
+    // Bytes without a path (the browser, drag and drop) are sniffed by content, and `.act` has
+    // no signature: one starting 00 01 or 00 02 reads as `.aco`. Its file name decides.
+    if std::path::Path::new(name).extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("act")) {
+        p["format"] = json!("act");
+    }
     if let Some(stem) = stem {
         p["group"] = json!(stem);
     }
@@ -220,9 +224,6 @@ pub fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     if ui.add_enabled(!empty, egui::Button::new(tl!("Export Swatches for Exchange…"))).clicked() {
         act = Some("ase");
     }
-    if ui.add_enabled(!empty, egui::Button::new(tl!("Export Swatches as Color Table…"))).clicked() {
-        act = Some("act");
-    }
     ui.separator();
     if ui.button(tl!("Reset Swatches")).clicked() {
         act = Some("reset");
@@ -240,7 +241,7 @@ pub fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         }
         "import" => import_dialog(app, false),
         "replace" => import_dialog(app, true),
-        "aco" | "ase" | "act" => export_dialog(app, a),
+        "aco" | "ase" => export_dialog(app, a),
         _ => app.run("swatches.reset", json!({})),
     };
     if let Err(e) = r
@@ -276,6 +277,18 @@ mod tests {
     use crate::state::Tool;
     use egui::{Modifiers, vec2};
     use egui_kittest::Harness;
+
+    /// Bytes without a path (the browser) go by the file name: an `.act` whose first color is
+    /// 00 01 xx looks like an `.aco` header by content.
+    #[test]
+    fn an_act_from_bytes_imports_by_its_file_name() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let mut colors = vec![[10u8, 20, 30]; 256];
+        colors[0] = [0, 1, 5];
+        let bytes = photocraft_psd::act::write(&colors, None, None).unwrap();
+        let r = import_bytes(&mut app, "Palette.act", &bytes, true).unwrap();
+        assert_eq!((r["format"].as_str(), r["count"].as_u64()), (Some("act"), Some(256)));
+    }
 
     fn click(h: &mut Harness<'_, PhotocraftApp>, p: egui::Pos2, modifiers: Modifiers) {
         h.hover_at(p);

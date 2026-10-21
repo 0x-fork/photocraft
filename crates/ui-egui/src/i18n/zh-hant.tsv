@@ -2860,6 +2860,5 @@ curves	Smooth	平滑
 	Generate Mipmaps	產生 Mipmap
 
 # Color Table (.act) dialog
-	Export Swatches as Color Table…	將色票匯出為色表…
 	There is no color table to save.	沒有可儲存的色表。
 @plural	Saved {n} color to {file}|Saved {n} colors to {file}	已將 {n} 種顏色儲存至 {file}

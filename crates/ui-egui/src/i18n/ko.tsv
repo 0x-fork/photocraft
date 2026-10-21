@@ -3433,6 +3433,5 @@ curves	Smooth	매끄럽게
 	Generate Mipmaps	밉맵 생성
 
 # Color Table (.act) dialog
-	Export Swatches as Color Table…	색상표로 견본 내보내기…
 	There is no color table to save.	저장할 색상표가 없습니다.
 @plural	Saved {n} color to {file}|Saved {n} colors to {file}	{file}에 색상 {n}개 저장

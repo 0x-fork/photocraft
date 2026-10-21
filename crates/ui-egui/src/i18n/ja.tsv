@@ -3928,6 +3928,5 @@ curves	Smooth	スムーズ
 	Generate Mipmaps	ミップマップを生成
 
 # Color Table (.act) dialog
-	Export Swatches as Color Table…	スウォッチをカラーテーブルとして書き出し…
 	There is no color table to save.	保存するカラーテーブルがありません。
 @plural	Saved {n} color to {file}|Saved {n} colors to {file}	{file} に {n} 色を保存しました
