@@ -510,6 +510,8 @@ pub(crate) fn encode(doc: &Document, path: &str, save: impl Into<SaveOpts>) -> R
         psd_maximize_compatibility: save.psd_maximize_compatibility,
         // Linked files a PSD embeds are resolved against the document being worked on.
         document_path: crate::doc_path::current(),
+        // An untrusted session's stored paths are document data: embed none of them.
+        read_linked_files: !crate::jobs::authorization_installed(),
         ..Default::default()
     };
     // No quality chosen: write the file the way it was opened (a JPEG at its own quality, a WebP
