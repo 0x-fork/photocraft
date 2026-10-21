@@ -4,7 +4,10 @@
 //! texels that differ. Between uploads it frees render targets cleared to red, so stale memory is
 //! red if the driver hands it back without honouring the copy.
 //!
-//! cargo run --release -p photocraft-gpu --example zero_block_probe -- [dx12|vulkan|gl] [rounds] [guard]
+//! cargo run --release -p photocraft-gpu --example zero_block_probe -- [dx12|vulkan|gl] [rounds] [guard] [adapter=<name>]
+//!
+//! `adapter=<name>` probes the first adapter whose name contains `<name>` (case-insensitive), e.g.
+//! `adapter=iris` on a machine that also has a discrete GPU; without it wgpu picks its default adapter.
 
 use wgpu::util::DeviceExt;
 
@@ -30,7 +33,17 @@ fn main() {
     // `guard`: transparent texels are uploaded as (0, 0, 0, 1), as `photocraft_ui_egui::texel_guard` does.
     let guard = args.get(3).is_some_and(|a| a == "guard");
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends, ..wgpu::InstanceDescriptor::new_without_display_handle() });
-    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).expect("adapter");
+    let adapter = match args.iter().find_map(|a| a.strip_prefix("adapter=")).map(str::to_lowercase) {
+        Some(want) => {
+            let adapters = pollster::block_on(instance.enumerate_adapters(backends));
+            let names: Vec<String> = adapters.iter().map(|a| a.get_info().name).collect();
+            adapters
+                .into_iter()
+                .find(|a| a.get_info().name.to_lowercase().contains(&want))
+                .unwrap_or_else(|| panic!("no adapter matches {want:?}; found {names:?}"))
+        }
+        None => pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).expect("adapter"),
+    };
     let info = adapter.get_info();
     println!("adapter: {} ({:?}) driver {} {}", info.name, info.backend, info.driver, info.driver_info);
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).expect("device");
