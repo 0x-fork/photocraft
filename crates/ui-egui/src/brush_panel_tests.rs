@@ -883,11 +883,31 @@ fn brushes_panel_groups_collapse_and_filter() {
     let n = brush_preview::render_count(&ctx);
     assert_eq!(shown(&mut h), all);
     assert_eq!(brush_preview::render_count(&ctx), n);
-    // A filter shows matching presets even in collapsed groups.
+    // A filter shows matching presets even in collapsed top-level groups.
     let first = h.state().session.tools.presets[0].name.clone();
     h.state_mut().ui.brushes_panel.filter = first.to_uppercase();
     h.run_steps(2);
     assert!(brush_preview::render_count(&ctx) >= n);
+}
+
+/// #7257: with a search filter active, nested folders that contain matches can still be closed.
+#[test]
+fn brush_search_allows_collapsing_nested_folders() {
+    use egui_kittest::kittest::Queryable;
+    let mut h = harness(1, 0);
+    let builtin_groups: Vec<String> = grouped_presets(&h.state().session.tools.presets).into_iter().map(|(g, _)| g).collect();
+    h.state_mut().ui.brushes_panel.collapsed = builtin_groups;
+    for p in [kit("Kit Top", &[]), kit("Kit Pen", &["Test Inks"]), kit("Kit Nib", &["Test Inks", "Test Fine"])] {
+        h.state_mut().session.tools.presets.push(p);
+    }
+    h.state_mut().ui.brushes_panel.filter = "Kit".into();
+    h.run_steps(3);
+    assert!(h.query_by_label("Kit Nib").is_some(), "search shows nested matches");
+    h.get_by_label("Test Inks").click();
+    h.run_steps(3);
+    assert_eq!(h.state().ui.brushes_panel.collapsed.last().map(String::as_str), Some("Kit/Test Inks"));
+    assert!(h.query_by_label("Kit Nib").is_none() && h.query_by_label("Test Fine").is_none());
+    assert!(h.query_by_label("Kit Pen").is_none());
 }
 
 fn kit(name: &str, folder: &[&str]) -> paint::BrushPreset {
