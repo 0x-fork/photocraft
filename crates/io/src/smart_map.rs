@@ -183,10 +183,11 @@ fn int(d: &Descriptor, key: &str) -> Option<i32> {
     }
 }
 
-/// `Some(())` when every setting of `f` is one of `keys`: a filter with a setting we don't write
-/// back stays verbatim instead of losing it on save.
+/// `Some(())` when every setting of `f` is one of `keys`, each at most once: a filter with a
+/// setting we don't write back (or a repeated one) stays verbatim instead of losing it on save.
 fn only_keys(f: &Descriptor, keys: &[&str]) -> Option<()> {
-    f.items.iter().all(|(k, _)| keys.iter().any(|key| k.is(key))).then_some(())
+    let known = f.items.iter().all(|(k, _)| keys.iter().any(|key| k.is(key)));
+    (known && keys.iter().all(|key| f.items.iter().filter(|(k, _)| k.is(key)).count() <= 1)).then_some(())
 }
 
 /// The value of the enum `key` when its type is `type_id` (a mistyped enum is not modelled).
@@ -1326,9 +1327,10 @@ mod tests {
             offset_fltr(i(1), unit(b"#Pxl", f64::NAN), enumv("FlMd", "Wrp ")),
             Descriptor::new("Ofst").with("Hrzn", i(1)).with("Fl  ", enumv("FlMd", "Wrp ")),
             Descriptor::new("Ofst"),
-            // A mistyped enum and a setting we don't write back.
+            // A mistyped enum, a setting we don't write back and a repeated one.
             offset_fltr(i(1), i(2), enumv("Xxxx", "Wrp ")),
             offset_fltr(i(1), i(2), enumv("FlMd", "Wrp ")).with("Xtra", i(1)),
+            offset_fltr(i(1), i(2), enumv("FlMd", "Wrp ")).with("Hrzn", i(3)),
         ] {
             let item = measured_item(b"Ofst", "Offset...", fltr);
             let f = filter_from_item(&item);
