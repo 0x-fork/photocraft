@@ -7,7 +7,7 @@ use photocraft_engine::history_source_cmds::HistorySource;
 use serde_json::{Value, json};
 
 use crate::mask_thumbs_ui::MaskKind;
-use crate::state::Tool;
+use crate::state::{ColorPanelSliderMode, Tool};
 use crate::theme::{self, Tokens};
 use crate::{PhotocraftApp, icons, widgets};
 
@@ -1907,7 +1907,14 @@ pub(crate) fn dock_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, group: crate
     match (group, tab) {
         (Group::Color, 2) => crate::preset_panels::gradients_panel(app, ui),
         (Group::Color, 3) => crate::preset_panels::patterns_panel(app, ui),
-        (Group::Color, 0) if pro => color_field(app, ui),
+        (Group::Color, 0) if pro => {
+            color_field(app, ui);
+            if app.ui.color_panel.slider_mode == ColorPanelSliderMode::Rgb {
+                ui.add_space(8.0);
+                rgb_sliders(app, ui);
+            }
+            color_slider_mode_row(app, ui);
+        }
         (Group::Color, _) if pro => crate::swatches_ui::panel(app, ui),
         (Group::Color, 0) => crate::swatches_ui::panel(app, ui),
         (Group::Color, _) => color_picker(app, ui),
@@ -2430,7 +2437,31 @@ fn empty(ui: &mut egui::Ui, s: &str) {
 fn color_picker(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     color_field(app, ui);
     ui.add_space(8.0);
-    hsb_sliders(app, ui);
+    match app.ui.color_panel.slider_mode {
+        ColorPanelSliderMode::Hsb => hsb_sliders(app, ui),
+        ColorPanelSliderMode::Rgb => rgb_sliders(app, ui),
+    }
+    color_slider_mode_row(app, ui);
+}
+
+/// HSB or RGB sliders under the colour field (#7172).
+fn color_slider_mode_row(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    ui.add_space(6.0);
+    let label = match app.ui.color_panel.slider_mode {
+        ColorPanelSliderMode::Hsb => tl!("HSB/HSL"),
+        ColorPanelSliderMode::Rgb => tl!("RGB Color"),
+    };
+    // A press menu, not a combo box: the default layout keeps the Color panel open beside
+    // adjustment editors, and harness tests pick the combo nearest "3D LUT File" (#7317).
+    let btn = ui.add_sized([72.0, ui.spacing().interact_size.y], egui::Button::new(label));
+    crate::press_menu::show(&btn, |ui, menu| {
+        if menu.item(ui, tl!("HSB/HSL")) {
+            app.ui.color_panel.slider_mode = ColorPanelSliderMode::Hsb;
+        }
+        if menu.item(ui, tl!("RGB Color")) {
+            app.ui.color_panel.slider_mode = ColorPanelSliderMode::Rgb;
+        }
+    });
 }
 
 /// Hue, Saturation and Brightness sliders for the foreground colour.
@@ -2460,6 +2491,32 @@ fn hsb_sliders(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         app.session.tools.foreground = hsva_srgb(hsva);
         ui.data_mut(|d| d.insert_temp(key, hsva));
         crate::type_tool::foreground_changed(app);
+    }
+}
+
+/// Red, Green and Blue sliders (0–255) for the colour the panel is editing (#7172).
+fn rgb_sliders(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    let bg = app.ui.color_panel.background;
+    let mut c = if bg { app.session.tools.background } else { app.session.tools.foreground };
+    let mut rgb = srgb_bytes(c).map(f32::from);
+    let dynamic = app.session.prefs().interface.dynamic_color_sliders;
+    let mut changed = false;
+    let [r0, g0, b0] = rgb.map(|v| v.round() as u8);
+    let r_stops = [Color32::from_rgb(0, g0, b0), Color32::from_rgb(255, g0, b0)];
+    changed |= widgets::slider_row(ui, tl!("Red"), &mut rgb[0], 0.0..=255.0, "", dynamic.then_some(&r_stops)).changed();
+    let g_stops = [Color32::from_rgb(r0, 0, b0), Color32::from_rgb(r0, 255, b0)];
+    changed |= widgets::slider_row(ui, tl!("Green"), &mut rgb[1], 0.0..=255.0, "", dynamic.then_some(&g_stops)).changed();
+    let b_stops = [Color32::from_rgb(r0, g0, 0), Color32::from_rgb(r0, g0, 255)];
+    changed |= widgets::slider_row(ui, tl!("Blue"), &mut rgb[2], 0.0..=255.0, "", dynamic.then_some(&b_stops)).changed();
+    if changed {
+        let q = |v: f32| (v.clamp(0.0, 255.0).round() / 255.0).clamp(0.0, 1.0);
+        c = [q(rgb[0]), q(rgb[1]), q(rgb[2]), 1.0];
+        if bg {
+            app.session.tools.background = c;
+        } else {
+            app.session.tools.foreground = c;
+            crate::type_tool::foreground_changed(app);
+        }
     }
 }
 
@@ -4718,6 +4775,26 @@ mod color_tests {
         for ch in text.chars() {
             h.event(egui::Event::Text(ch.to_string()));
             h.run_steps(1);
+        }
+    }
+
+    #[test]
+    fn rgb_slider_mode_shows_red_green_blue_rows() {
+        use egui_kittest::kittest::Queryable;
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.ui.color_panel.slider_mode = ColorPanelSliderMode::Rgb;
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(300.0, 360.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                    color_picker(app, ui);
+                }
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(2);
+        for label in ["Red", "Green", "Blue"] {
+            h.get_by_label(label);
         }
     }
 

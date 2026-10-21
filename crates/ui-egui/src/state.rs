@@ -1115,6 +1115,15 @@ pub struct DockTabs {
     pub brushes: usize,
 }
 
+/// Sliders under the Color panel's field: hue/saturation/brightness or red/green/blue (#7172).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ColorPanelSliderMode {
+    #[default]
+    Hsb,
+    Rgb,
+}
+
 /// Color panel state.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -1124,6 +1133,9 @@ pub struct ColorPanelState {
     /// Color Picker › Only Web Colors, kept across opens like Photoshop (#4995).
     #[serde(default)]
     pub web_only: bool,
+    /// HSB or RGB sliders under the colour field (#7172).
+    #[serde(default)]
+    pub slider_mode: ColorPanelSliderMode,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
