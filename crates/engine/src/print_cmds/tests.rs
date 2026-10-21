@@ -1,6 +1,8 @@
 use super::*;
 use photocraft_doc::{Knot, NamedPath, Path, Subpath};
 
+/// Compares signed-offset layout with actual PDF image operators and whole-page mirroring
+/// across scale/fit/orientation cases, while checking the source document stays unchanged.
 #[test]
 fn negative_print_positions_match_pdf_without_changing_the_document() {
     let dir = tmp("negative-position");
@@ -39,6 +41,8 @@ fn negative_print_positions_match_pdf_without_changing_the_document() {
     }
 }
 
+/// Checks inclusive signed inch limits, malformed manual offsets and overflow-prone scale
+/// or paper inputs at the shared layout boundary, without invoking a printer.
 #[test]
 fn print_position_and_geometry_bounds_reject_malformed_inputs() {
     let s = session("rgb", 8);

@@ -493,7 +493,16 @@ pub struct PrintLayout {
 /// Symmetric safety bound for manual Top/Left offsets, shared with the dialog (inches).
 pub const MAX_POSITION_INCHES: f64 = 10000.0;
 
-/// The print layout for `doc` with Print parameters `p` (used by the dialog's preview too).
+/// Resolves the shared preview/PDF layout without changing `doc`.
+///
+/// Paper and image bounds use points (72 per inch), with the image origin at bottom-left.
+/// Manual `top`/`left` are inches from the paper's top-left; negative values place artwork
+/// off-page. Center ignores these offsets. Scale to Fit preserves the aspect ratio and uses
+/// the available paper area after the existing mark margins, overriding percentage scale.
+/// Emulsion Down is recorded for rendering; the returned rectangle is not yet mirrored.
+///
+/// Returns an error for malformed manual offsets or offsets beyond [`MAX_POSITION_INCHES`],
+/// nonfinite geometry, geometry magnitudes above 1e9, or nonpositive image dimensions.
 pub fn layout(doc: &Document, p: &Value, cmd: &str) -> Result<PrintLayout> {
     let (pw, ph) = paper(p, cmd)?;
     let dpi = f64::from(doc.resolution_dpi.max(1.0));

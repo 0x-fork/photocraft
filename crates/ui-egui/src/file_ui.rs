@@ -840,10 +840,14 @@ fn length_field(ui: &mut egui::Ui, label: &str, pt: &mut f64, units: &str) -> bo
     length_field_prec(ui, label, pt, units, 0)
 }
 
+/// Edits a point-valued length in the selected units, with the requested decimal precision.
+/// Retains the nonnegative 0..=10000 display-unit range used by existing size fields.
 fn length_field_prec(ui: &mut egui::Ui, label: &str, pt: &mut f64, units: &str, decimals: u32) -> bool {
     length_field_range(ui, label, pt, units, decimals, 0.0..=10000.0)
 }
 
+/// Edits a length stored in print points (72 per inch), returning true for a finite edit.
+/// `range` is in the displayed `units`; a signed range permits negative Top/Left offsets.
 fn length_field_range(ui: &mut egui::Ui, label: &str, pt: &mut f64, units: &str, decimals: u32, range: std::ops::RangeInclusive<f32>) -> bool {
     let t = Tokens::get(ui.ctx());
     let k = unit_pt(units);
@@ -923,8 +927,14 @@ fn browse_pdf(app: &mut PhotocraftApp, id: u64, suggested: &str) {
     }
 }
 
-/// Both the pointer and the painter use egui points, including on Retina displays.
-/// Applying pixels_per_point here would count the display scale a second time.
+/// Converts total displacement from a fixed drag-start layout into manual inch offsets.
+/// Resolving Center before the drag avoids a jump; each update replaces the offsets rather
+/// than accumulating movement. Emulsion Down reverses horizontal layout-space movement.
+///
+/// `delta` and the painter use egui points, including on Retina displays; the scale is egui
+/// points per print point (1/72 inch). Applying pixels_per_point would count HiDPI twice.
+/// Invalid scales or nonfinite displacement/offsets return false without changing fields.
+/// Accepted offsets are clamped to the engine's safety bound and Center is disabled.
 fn drag_print_position(f: &mut Map<String, Value>, start: photocraft_engine::print_cmds::PrintLayout, delta: egui::Vec2, points_per_print_point: f32) -> bool {
     if !points_per_print_point.is_finite() || points_per_print_point <= 0.0 || !delta.is_finite() {
         return false;
@@ -943,12 +953,18 @@ fn drag_print_position(f: &mut Map<String, Value>, start: photocraft_engine::pri
     true
 }
 
+/// Maps the engine's bottom-left print-point rectangle into top-left egui coordinates.
+/// `k` is egui points per print point; Emulsion Down mirrors placement across the page,
+/// matching the PDF page transform. Returns the full image bounds for the caller to clip.
 fn print_preview_image(l: photocraft_engine::print_cmds::PrintLayout, page: egui::Rect, k: f32) -> egui::Rect {
     let (x, y, w, h) = l.rect;
     let x = if l.emulsion_down { l.paper.0 - x - w } else { x };
     egui::Rect::from_min_size(egui::pos2(page.left() + x as f32 * k, page.bottom() - (y + h) as f32 * k), egui::vec2(w as f32 * k, h as f32 * k))
 }
 
+/// Draws the print controls and paper-clipped preview using the engine's shared layout.
+/// Dragging the visible image updates dialog offsets live from a fixed gesture origin;
+/// the position row stays present while centered so switching to manual cannot move the page.
 fn print_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>, id: u64) {
     let t = Tokens::get(ui.ctx());
     let Some(doc) = app.session.active().map(|d| d.doc.clone()) else { return };
@@ -1298,6 +1314,8 @@ pub(crate) fn print_status(app: &mut PhotocraftApp, r: &Value) {
 mod tests {
     use super::*;
 
+    /// Checks no-jump centering and nonaccumulating screen displacement against shared layout
+    /// across fit, percentage scaling, orientation and mirroring combinations.
     #[test]
     fn print_drag_uses_the_resolved_layout_and_screen_points_without_accumulation() {
         let (app, _) = app();
@@ -1334,6 +1352,8 @@ mod tests {
         }
     }
 
+    /// Checks rejected pointer geometry leaves fields untouched and extreme finite drags
+    /// clamp both inch offsets to the same safety limits as numeric positioning.
     #[test]
     fn print_drag_rejects_nonfinite_input_and_bounds_offsets() {
         let (app, _) = app();

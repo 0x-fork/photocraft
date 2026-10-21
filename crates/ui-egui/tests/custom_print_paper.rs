@@ -28,6 +28,8 @@ fn harness(app: PhotocraftApp) -> Harness<'static, PhotocraftApp> {
     harness_at_scale(app, 1.0)
 }
 
+/// Builds the real dialog at an explicit physical-pixels-per-egui-point ratio so pointer
+/// events remain in egui points while exercising both standard and Retina display scales.
 fn harness_at_scale(app: PhotocraftApp, pixels_per_point: f32) -> Harness<'static, PhotocraftApp> {
     let mut h = Harness::builder().with_size(vec2(1000.0, 900.0)).with_pixels_per_point(pixels_per_point).with_max_steps(64).build_ui_state(show, app);
     PhotocraftApp::setup_context(&h.ctx, Default::default());
@@ -67,6 +69,8 @@ fn fields(h: &Harness<'_, PhotocraftApp>, id: u64) -> Map<String, Value> {
     h.state().ui.dialogs.iter().find(|d| d.id == id).unwrap().fields.clone()
 }
 
+/// Finds the thumbnail's painted mesh bounds, rather than the earlier interaction bounds,
+/// so drag assertions detect visible lag in the same frame as a Center transition.
 fn painted_image(h: &Harness<'_, PhotocraftApp>) -> egui::Rect {
     let active = h.state().session.active().unwrap();
     let key = egui::Id::new(("print-thumb", active.doc.id.0, active.revision));
@@ -81,6 +85,8 @@ fn painted_image(h: &Harness<'_, PhotocraftApp>) -> egui::Rect {
         .expect("the print image must be painted")
 }
 
+/// Exercises live painted movement at 1x/2x display scale, signed numeric entry and pointer
+/// capture off-page and back, then verifies Center restores the shared layout's placement.
 #[test]
 fn preview_drag_and_negative_fields_work_at_standard_and_retina_scale() {
     for pixels_per_point in [1.0, 2.0] {
