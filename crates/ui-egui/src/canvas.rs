@@ -3766,7 +3766,9 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         // it owns the press: no scrub, and its release is no click step.
         if tool == Tool::Zoom && !transform_owns_pointer {
             let out = zoom_out(ui.input(|i| i.modifiers.alt));
-            if crate::zoom_hold::update(&ctx, &mut view, &xf, app.session.prefs().general.animated_zoom, out, ppp) {
+            let on_canvas = !under_dialog && !over_compass && response.is_pointer_button_down_on();
+            let hold = crate::zoom_hold::hold_id(idx, primary, ctx.viewport_id());
+            if crate::zoom_hold::update(&ctx, &mut view, &xf, app.session.prefs().general.animated_zoom, out, ppp, on_canvas, hold) {
                 (buttons.started, buttons.dragged, buttons.stopped, buttons.clicked) = (false, false, false, false);
             }
         }
