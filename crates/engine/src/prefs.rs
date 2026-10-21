@@ -444,6 +444,8 @@ impl Default for HistoryLog {
 pub struct FileHandling {
     pub image_previews: Ask,
     pub lowercase_extension: bool,
+    /// Saves run in the background while you keep working (on), or in the foreground under a
+    /// modal progress dialog that blocks the app until the file is written (off).
     pub save_in_background: bool,
     /// Save recovery information (crash recovery autosave).
     pub autosave: bool,
@@ -1040,11 +1042,9 @@ pub const SECTIONS: [(&str, &str); 18] = [
 /// preference is read anywhere outside `prefs.rs`, and while an unlisted one is read nowhere.
 pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
     "general.colorPicker",
-    "general.animatedZoom",
     "general.zoomResizesWindows",
     "workspace.autoShowHiddenPanels",
     "workspace.enableFloatingDocumentWindowDocking",
-    "fileHandling.saveInBackground",
     "performance.cacheLevels",
     "performance.effectCacheMb",
     "performance.legacyCompositing",
