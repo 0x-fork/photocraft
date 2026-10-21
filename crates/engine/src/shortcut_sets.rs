@@ -35,18 +35,29 @@ pub struct ShortcutSet {
 }
 
 impl ShortcutSet {
-    /// The bindings `p` uses now, without the actions' function keys (they belong to the
+    /// A set of these bindings, without the actions' function keys (they belong to the
     /// actions, as in an `.atn` file, not to a set).
+    pub fn from_bindings(shortcuts: &BTreeMap<String, String>, alternates: &BTreeMap<String, Vec<String>>) -> Self {
+        let shortcuts = shortcuts.iter().filter(|(id, _)| !is_action_key(id)).map(|(id, k)| (id.clone(), k.clone())).collect();
+        Self { shortcuts, alternate_shortcuts: alternates.clone() }
+    }
+
+    /// The bindings `p` uses now, without the actions' function keys.
     pub fn of(p: &Preferences) -> Self {
-        let shortcuts = p.shortcuts.iter().filter(|(id, _)| !is_action_key(id)).map(|(id, k)| (id.clone(), k.clone())).collect();
-        Self { shortcuts, alternate_shortcuts: p.alternate_shortcuts.clone() }
+        Self::from_bindings(&p.shortcuts, &p.alternate_shortcuts)
+    }
+
+    /// Put this set's bindings in place of `shortcuts` / `alternates`, keeping the actions'
+    /// function keys: switching sets with `useSet` and in the Keyboard Shortcuts dialog.
+    pub fn apply(&self, shortcuts: &mut BTreeMap<String, String>, alternates: &mut BTreeMap<String, Vec<String>>) {
+        shortcuts.retain(|id, _| is_action_key(id));
+        shortcuts.extend(self.shortcuts.iter().filter(|(id, _)| !is_action_key(id)).map(|(id, k)| (id.clone(), k.clone())));
+        *alternates = self.alternate_shortcuts.clone();
     }
 
     /// Use this set's bindings in `p`, keeping the actions' function keys.
     pub fn load_into(&self, p: &mut Preferences) {
-        p.shortcuts.retain(|id, _| is_action_key(id));
-        p.shortcuts.extend(self.shortcuts.iter().filter(|(id, _)| !is_action_key(id)).map(|(id, k)| (id.clone(), k.clone())));
-        p.alternate_shortcuts = self.alternate_shortcuts.clone();
+        self.apply(&mut p.shortcuts, &mut p.alternate_shortcuts);
     }
 
     /// Check every key (a set from a call or a hand-edited file must not hold garbage).
@@ -91,13 +102,20 @@ fn saved(p: &Preferences) -> Option<&ShortcutSet> {
     p.shortcut_sets.get(&p.shortcut_set)
 }
 
-/// Do the bindings differ from the set in use?
-pub fn modified(p: &Preferences) -> bool {
-    let now = ShortcutSet::of(p);
-    match saved(p) {
-        Some(s) => *s != now,
+/// Do these bindings differ from the set `active` of `sets` ("" or a missing name: the
+/// defaults)? The actions' function keys don't count, on either side (a set saved before they
+/// were left out may still hold some). The Keyboard Shortcuts dialog's "(modified)" too.
+pub fn differs(sets: &BTreeMap<String, ShortcutSet>, active: &str, shortcuts: &BTreeMap<String, String>, alternates: &BTreeMap<String, Vec<String>>) -> bool {
+    let now = ShortcutSet::from_bindings(shortcuts, alternates);
+    match sets.get(active) {
+        Some(s) => ShortcutSet::from_bindings(&s.shortcuts, &s.alternate_shortcuts) != now,
         None => now != ShortcutSet::default(),
     }
+}
+
+/// Do the bindings differ from the set in use?
+pub fn modified(p: &Preferences) -> bool {
+    differs(&p.shortcut_sets, &p.shortcut_set, &p.shortcuts, &p.alternate_shortcuts)
 }
 
 /// Before the call's binding changes: `useSet` loads a set ("" or [`DEFAULTS_NAME`]: the
@@ -131,7 +149,8 @@ pub fn store(next: &mut Preferences, p: &Value) -> Result<bool, String> {
             let name = set_name(name)?;
             let set: ShortcutSet = serde_json::from_value(s.clone()).map_err(|e| format!("set `{name}`: {e}"))?;
             set.validate().map_err(|e| format!("set `{name}`: {e}"))?;
-            sets.insert(name, set);
+            // Like `saveSet`, a set holds no action keys.
+            sets.insert(name, ShortcutSet::from_bindings(&set.shortcuts, &set.alternate_shortcuts));
         }
         next.shortcut_sets = sets;
         changed = true;
@@ -298,6 +317,21 @@ mod tests {
         assert!(p.shortcut_sets.is_empty() && p.shortcut_set.is_empty());
         assert_eq!(describe(&p)["activeSet"], "");
         assert!(modified(&p), "F9 differs from the defaults");
+    }
+
+    #[test]
+    fn sets_from_the_dialog_or_an_old_file_hold_no_action_keys() {
+        // The dialog's OK sends its sets as `sets`; an action key in one is dropped.
+        let mut p = prefs();
+        let sets = json!({"Mine": {"shortcuts": {"edit.copy": "F9", "actions.play:Sepia": "F2"}}});
+        store(&mut p, &json!({"sets": sets, "activeSet": "Mine"})).unwrap();
+        assert_eq!(p.shortcut_sets["Mine"].shortcuts, BTreeMap::from([("edit.copy".to_string(), "F9".to_string())]));
+        // A set saved before action keys were left out still holds one: it doesn't count.
+        p.shortcut_sets.get_mut("Mine").unwrap().shortcuts.insert("actions.play:Old".into(), "F5".into());
+        p.shortcuts = BTreeMap::from([("edit.copy".to_string(), "F9".to_string()), ("actions.play:Sepia".to_string(), "F2".to_string())]);
+        assert!(!modified(&p), "neither side's action keys count");
+        p.shortcuts.insert("edit.copy".into(), "F8".into());
+        assert!(modified(&p), "a real edit does");
     }
 
     #[test]

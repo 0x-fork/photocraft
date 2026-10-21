@@ -2204,11 +2204,9 @@ fn set_row(
     if !active.is_empty() && !sets.contains_key(&active) {
         active.clear();
     }
-    let now = ShortcutSet { shortcuts: overrides.clone(), alternate_shortcuts: alternates.clone() };
-    let modified = match sets.get(&active) {
-        Some(s) => *s != now,
-        None => now != ShortcutSet::default(),
-    };
+    // The engine decides what a set holds and when it is modified (not the actions' F-keys).
+    let now = ShortcutSet::from_bindings(overrides, alternates);
+    let modified = shortcut_sets::differs(&sets, &active, overrides, alternates);
     let defaults = tl!("PhotoCraft Defaults").to_string();
     let shown = |name: &str| -> String {
         let base = if name.is_empty() { defaults.clone() } else { name.to_string() };
@@ -2224,9 +2222,8 @@ fn set_row(
         let mut chosen = active.clone();
         let pairs: Vec<(String, &str)> = names.iter().map(|(n, l)| (n.clone(), l.as_str())).collect();
         if crate::widgets::dropdown(ui, "shortcut-set", &mut chosen, &pairs, 220.0) && chosen != active {
-            let set = sets.get(&chosen).cloned().unwrap_or_default();
-            *overrides = set.shortcuts;
-            *alternates = set.alternate_shortcuts;
+            // As `useSet`: the set's bindings, keeping the actions' F-keys.
+            sets.get(&chosen).cloned().unwrap_or_default().apply(overrides, alternates);
             active = chosen;
             message.clear();
         }
