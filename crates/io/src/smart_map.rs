@@ -273,9 +273,24 @@ fn int_in(v: Option<i32>, (lo, hi): (i32, i32)) -> Option<i32> {
     v.filter(|v| (lo..=hi).contains(v))
 }
 
+/// `Some(())` when every setting of `f` is one of `keys`: a filter with a setting we don't write
+/// back stays verbatim instead of losing it on save.
+fn only_keys(f: &Descriptor, keys: &[&str]) -> Option<()> {
+    f.items.iter().all(|(k, _)| keys.iter().any(|key| k.is(key))).then_some(())
+}
+
+/// The value of the enum `key` when its type is `type_id` (a mistyped enum is not modelled).
+fn typed_enum<'a>(f: &'a Descriptor, key: &str, type_id: &str) -> Option<&'a [u8]> {
+    match f.get(key)? {
+        Value::Enumerated { type_id: t, value } if t.is(type_id) => Some(value.as_bytes()),
+        _ => None,
+    }
+}
+
 /// `filter.other.custom` params for a `Cstm` filter: `Mtrx` is 25 longs, row-major 5 × 5. Values
 /// outside Photoshop's ranges are not modelled (the filter stays verbatim).
 fn custom_params(f: &Descriptor) -> Option<J> {
+    only_keys(f, &["Mtrx", "Scl ", "Ofst"])?;
     let Some(Value::List(m)) = f.get("Mtrx") else { return None };
     if m.len() != 25 {
         return None;
@@ -311,7 +326,8 @@ fn known_params(class: &str, f: Option<&Descriptor>) -> Option<(&'static str, J)
         ("Msc ", Some(f)) => json!({"cellSize": px(f, "ClSz")?}),
         ("Embs", Some(f)) => json!({"angle": int(f, "Angl")?, "height": int(f, "Hght")?, "amount": int(f, "Amnt")?}),
         ("Ofst", Some(f)) => {
-            let fill = OFFSET_FILL.iter().find(|(psd, _)| enum_of(f, "Fl  ") == Some(psd.as_bytes()))?.1;
+            only_keys(f, &["Hrzn", "Vrtc", "Fl  "])?;
+            let fill = OFFSET_FILL.iter().find(|(psd, _)| typed_enum(f, "Fl  ", "FlMd") == Some(psd.as_bytes()))?.1;
             json!({"horizontal": int(f, "Hrzn")?, "vertical": int(f, "Vrtc")?, "undefinedAreas": fill})
         }
         ("Cstm", Some(f)) => custom_params(f)?,
@@ -1310,6 +1326,9 @@ mod tests {
             offset_fltr(i(1), unit(b"#Pxl", f64::NAN), enumv("FlMd", "Wrp ")),
             Descriptor::new("Ofst").with("Hrzn", i(1)).with("Fl  ", enumv("FlMd", "Wrp ")),
             Descriptor::new("Ofst"),
+            // A mistyped enum and a setting we don't write back.
+            offset_fltr(i(1), i(2), enumv("Xxxx", "Wrp ")),
+            offset_fltr(i(1), i(2), enumv("FlMd", "Wrp ")).with("Xtra", i(1)),
         ] {
             let item = measured_item(b"Ofst", "Offset...", fltr);
             let f = filter_from_item(&item);
@@ -1391,6 +1410,8 @@ mod tests {
             Descriptor::new("Cstm").with("Scl ", i(1)).with("Ofst", i(0)).with("Mtrx", i(5)),
             Descriptor::new("Cstm").with("Scl ", i(1)).with("Mtrx", Value::List(longs(&SHARPEN))),
             Descriptor::new("Cstm"),
+            // A setting we don't write back.
+            custom_fltr(i(1), i(0), longs(&SHARPEN)).with("Xtra", i(1)),
         ] {
             let item = measured_item(b"Cstm", "Custom...", fltr);
             let f = filter_from_item(&item);
