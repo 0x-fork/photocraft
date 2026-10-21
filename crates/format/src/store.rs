@@ -881,17 +881,14 @@ impl PcraftWriter {
         // Pin all GC directories before removing stale previews or objects.
         // Unix cleanup then stays within these directories even if a pathname is swapped.
         let gc = BundleGc::new(dir)?;
+        write_bundle_file(dir, &dir.join(MANIFEST), &p.manifest)?;
+        // Omitted previews belong to the previous manifest until the new one commits.
+        // After commit, a locked leftover is only housekeeping, just like unused objects.
         for stale in [THUMB, COMPOSITE] {
             if !p.previews.iter().any(|(n, _)| *n == stale) {
-                let path = dir.join(stale);
-                validate_bundle_file(dir, &path)?;
-                match remove_bundle_file(dir, &path, &gc) {
-                    Err(FormatError::Io(e)) if e.kind() == std::io::ErrorKind::NotFound => {}
-                    other => other?,
-                }
+                let _ = remove_bundle_file(dir, &dir.join(stale), &gc);
             }
         }
-        write_bundle_file(dir, &dir.join(MANIFEST), &p.manifest)?;
         // The manifest is committed: the save has succeeded. Removing objects it no longer
         // references is best-effort housekeeping (a vanished or locked file must not turn a
         // complete save into a reported failure); a leftover is retried on the next save.
