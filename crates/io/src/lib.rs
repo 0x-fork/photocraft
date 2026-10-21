@@ -20,6 +20,8 @@
 //!   opacity and visibility; see `ora`.
 //! * Krita (`.kra`, `.krz`) documents open with their paint layers, groups and transparency
 //!   masks (import only); see `kra`.
+//! * GIMP XCF (`.xcf`, `.xcf.gz`) documents open with their layers, groups, masks, blend modes,
+//!   channels and selection, read only; see `xcf`.
 //! * Affinity documents (`.af`, `.afdesign`, `.afphoto`, `.afpub`) open natively
 //!   with no source save path, what isn't imported listed in the warnings; a file
 //!   whose native data can't be read opens as its embedded preview; see `affinity`.
@@ -45,11 +47,13 @@ pub mod effects_map;
 pub mod exr_parts;
 mod flat;
 mod gradient_bake;
+pub mod guides_map;
 pub use gradient_bake::{Method as GradientMethod, bake as bake_gradient};
 mod kra;
 pub mod linked;
 mod multichannel_map;
 mod ora;
+mod palette_map;
 pub use ora::losses as ora_losses;
 pub mod pattern_map;
 pub mod pdf;
@@ -66,10 +70,11 @@ mod text_import;
 pub mod text_styles_map;
 pub mod tiff_layers;
 pub mod vector_map;
+mod xcf;
 
-pub use photocraft_codecs::DpxBits;
 use photocraft_codecs::{CodecError, EncodeOptions};
-use photocraft_doc::Document;
+pub use photocraft_codecs::{DdsCompression, DdsOptions, DpxBits};
+use photocraft_doc::{Adjustment, Document, Layer, LayerContent};
 use photocraft_psd::{PsdError, PsdFile};
 
 pub use adjust_map::ADJUSTMENT_KEYS;
@@ -92,6 +97,9 @@ pub enum IoError {
     /// OpenRaster read failure.
     #[error("OpenRaster: {0}")]
     Ora(String),
+    /// A GIMP XCF file that could not be read.
+    #[error("XCF: {0}")]
+    Xcf(String),
     /// PSD parse/write failure.
     #[error("PSD: {0}")]
     Psd(#[from] PsdError),
@@ -138,6 +146,34 @@ pub struct ImportResult {
 pub(crate) fn unequal_resolution_warning(x: f64, y: f64) -> Option<String> {
     ((x - y).abs() >= 0.01)
         .then(|| format!("the vertical resolution ({y:.2} ppi) differs from the horizontal ({x:.2} ppi); the document keeps {x:.2} ppi for both"))
+}
+
+/// Warnings about a loaded document's layers that render without their stored effect, for
+/// sources that carry no import warnings of their own (a crafted `.pcraft`): a Color Lookup
+/// whose table can't be applied silently renders as the identity instead (#1763).
+pub fn open_warnings(doc: &Document) -> Vec<String> {
+    let mut out = Vec::new();
+    // Iterative, so no document's nesting can make this recurse.
+    let mut stack: Vec<&Layer> = doc.layers.iter().rev().collect();
+    while let Some(l) = stack.pop() {
+        if let LayerContent::Adjustment(Adjustment::ColorLookup { name: _, size, lut, .. }) = &l.content {
+            match lut.as_deref().zip(photocraft_doc::adjust::lut3d_len(*size)) {
+                Some((table, len)) if table.len() >= len => {}
+                Some((table, len)) => out.push(format!(
+                    "layer \"{}\": its Color Lookup table has {} values, but a {size}³ lookup needs {len}; the layer renders without the lookup",
+                    l.name,
+                    table.len()
+                )),
+                None => {
+                    out.push(format!("layer \"{}\": its Color Lookup has no usable table for a {size}³ lookup; the layer renders without the lookup", l.name))
+                }
+            }
+        }
+        if let Some(children) = l.children() {
+            stack.extend(children.iter().rev());
+        }
+    }
+    out
 }
 
 /// Result of [`export`].
@@ -276,7 +312,8 @@ pub fn import_with_svg_group_depth_and_interrupt(
 fn import_stages(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt, max_group_depth: usize) -> Result<ImportResult, IoError> {
     // A declared native extension must reach its loader so malformed bundles retain format errors.
     if has_extension(name, photocraft_format::EXTENSION) || photocraft_format::is_pcraft(bytes) {
-        return Ok(ImportResult { document: photocraft_format::load_from_bytes(bytes)?, warnings: Vec::new(), source_read_only: false, preview_only: false });
+        let document = photocraft_format::load_from_bytes(bytes)?;
+        return Ok(ImportResult { warnings: open_warnings(&document), document, source_read_only: false, preview_only: false });
     }
     if is_psd(bytes) {
         // A merged image the import reads is decoded with the parse: a ZIP one is inflated once.
@@ -305,6 +342,14 @@ fn import_stages(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt, m
     // misleading .kra suffix (as with SVG imports).
     if kra::is_kra(bytes) || (kra::EXTENSIONS.iter().any(|e| has_extension(name, e)) && photocraft_codecs::detect(bytes).is_none()) {
         return kra::import(name, bytes, ctl);
+    }
+    // GIMP files are gzip or raw; as above, a recognized raster signature still wins over a
+    // misleading .xcf suffix.
+    if xcf::is_xcf(bytes) || (has_extension(name, "xcf") && photocraft_codecs::detect(bytes).is_none()) {
+        return xcf::import(name, bytes, ctl);
+    }
+    if xcf::is_gzipped_xcf(name, bytes) {
+        return xcf::import(name, &xcf::gunzip(bytes)?, ctl);
     }
     if has_extension(name, "pdn") || bytes.starts_with(b"PDN3") {
         return pdn::import(name, bytes, ctl);
@@ -397,6 +442,11 @@ fn export_stages(doc: &Document, name_or_ext: &str, opts: &ExportOptions, ctl: &
     }
     if kra::EXTENSIONS.contains(&ext.as_str()) {
         return Err(IoError::Unsupported("Krita files are import-only; save as .ora to open the layers in Krita, or .pcraft to keep everything".into()));
+    }
+    if ext == "xcf" {
+        return Err(IoError::Unsupported(
+            "XCF is GIMP's own format and PhotoCraft only opens it; save as .pcraft to keep the layers, or export a flat image".into(),
+        ));
     }
     if ext == "ora" {
         return ora::export(doc);

@@ -57,6 +57,9 @@ fn framed_by_selection(doc: &Document, bounds: Rect) -> Rect {
 pub(crate) fn whole_layer_bounds(layer: &Layer) -> Rect {
     let content = match &layer.content {
         LayerContent::Group(g) => g.children.iter().map(whole_layer_bounds).fold(Rect::EMPTY, |a, b| a.union(&b)),
+        // A soft shape (Density below 100 % or a Feather) renders past its path, over the whole
+        // canvas below 100 %: its frame follows the path and stroke, as in Photoshop (#5846).
+        LayerContent::Shape(sh) if sh.has_soft_mask() => photocraft_compose::hard_shape_bounds(sh).unwrap_or(Rect::EMPTY),
         _ => layer.surface().map_or(Rect::EMPTY, photocraft_compose::bounds::content_bounds),
     };
     if content.is_empty() { layer.mask.as_ref().map_or(Rect::EMPTY, |m| photocraft_compose::bounds::content_bounds(&m.surface)) } else { content }
@@ -378,6 +381,9 @@ fn apply_transform(
     // With a selection only the selected pixels move, and so only the same region of a linked
     // mask (#205). Groups, type, shapes and smart objects move whole.
     let mask_sel = doc_sel.filter(|_| !moves_whole(l));
+    // The masks (and so a fill's frame) move, but a fill layer's cached render isn't warped:
+    // drop it, the fill re-renders from its model (as `transform_layer_geometry` does).
+    l.fill_cache = None;
     match &mut l.content {
         LayerContent::Group(g) => {
             for c in g.children.iter_mut() {
@@ -508,13 +514,124 @@ pub(crate) fn refresh_text(doc: &Document, l: &mut Layer) {
 }
 
 /// Normal-blend `top` over `dst` (both straight alpha, same format).
+/// Works tile by tile in parallel on `top`'s allocated tiles: fully opaque tiles share their
+/// `Arc<Tile>` directly with `dst`, and opaque/transparent pixels on border tiles copy encoded
+/// bytes without a whole-region `f32` round trip.
 pub(crate) fn composite_over(dst: &mut Surface, top: &Surface) {
+    use photocraft_color::{SampleType, read_sample};
+    use photocraft_geom::TileCoord;
+    use photocraft_raster::Tile;
+    use rayon::prelude::*;
+    use std::sync::Arc;
+
+    let fmt = dst.format();
+    let n = fmt.channels();
+    if n == 0 || !fmt.alpha || top.format() != fmt {
+        return;
+    }
+    let a = n - 1;
+    if top.default_pixel().get(a).is_none_or(|&ta| ta <= 0.0) {
+        let top_tiles: Vec<(TileCoord, Arc<Tile>)> = top.tiles().map(|(&tc, t)| (tc, t.clone())).collect();
+        if top_tiles.is_empty() {
+            return;
+        }
+        let bpp = fmt.bytes_per_pixel();
+        let sb = fmt.sample.bytes();
+        let alpha_off = bpp - sb;
+        let dst_empty_default = dst.default_bytes().iter().all(|&b| b == 0);
+        let dst_ref = &*dst;
+        let edits: Vec<(TileCoord, Arc<Tile>)> = top_tiles
+            .into_par_iter()
+            .filter_map(|(tc, top_tile)| {
+                let tb = top_tile.bytes();
+                let all_opaque = match fmt.sample {
+                    SampleType::U8 => tb.chunks_exact(bpp).all(|px| px.get(alpha_off) == Some(&u8::MAX)),
+                    SampleType::U16 => tb.chunks_exact(bpp).all(|px| px.get(alpha_off..bpp) == Some(&[u8::MAX, u8::MAX])),
+                    SampleType::F32 => tb.chunks_exact(bpp).all(|px| read_sample(px, SampleType::F32, a) == 1.0),
+                };
+                if all_opaque {
+                    return Some((tc, top_tile));
+                }
+                let all_transparent = match fmt.sample {
+                    SampleType::U8 => tb.chunks_exact(bpp).all(|px| px.get(alpha_off) == Some(&0)),
+                    SampleType::U16 => tb.chunks_exact(bpp).all(|px| px.get(alpha_off..bpp) == Some(&[0, 0])),
+                    SampleType::F32 => tb.chunks_exact(bpp).all(|px| read_sample(px, SampleType::F32, a) <= 0.0),
+                };
+                if all_transparent {
+                    return None;
+                }
+                if dst_ref.tile(tc).is_none() && dst_empty_default {
+                    let clean_zero = match fmt.sample {
+                        SampleType::U8 => tb.chunks_exact(bpp).all(|px| px.get(alpha_off) != Some(&0) || px.iter().all(|&b| b == 0)),
+                        SampleType::U16 => tb.chunks_exact(bpp).all(|px| px.get(alpha_off..bpp) != Some(&[0, 0]) || px.iter().all(|&b| b == 0)),
+                        SampleType::F32 => tb.chunks_exact(bpp).all(|px| read_sample(px, SampleType::F32, a) > 0.0 || px.iter().all(|&b| b == 0)),
+                    };
+                    if clean_zero {
+                        return Some((tc, top_tile));
+                    }
+                }
+                let mut out_tile = match dst_ref.tile(tc) {
+                    Some(dt) => (**dt).clone(),
+                    None => dst_ref.try_default_tile().ok()?,
+                };
+                let mut tp = [0.0f32; 8];
+                let mut dp = [0.0f32; 8];
+                for (out_px, top_px) in out_tile.bytes_mut().chunks_exact_mut(bpp).zip(tb.chunks_exact(bpp)) {
+                    match fmt.sample {
+                        SampleType::U8 => {
+                            let ta_b = top_px[alpha_off];
+                            if ta_b == 0 {
+                                continue;
+                            }
+                            if ta_b == u8::MAX {
+                                out_px.copy_from_slice(top_px);
+                                continue;
+                            }
+                        }
+                        SampleType::U16 => {
+                            if top_px[alpha_off..bpp] == [0, 0] {
+                                continue;
+                            }
+                            if top_px[alpha_off..bpp] == [u8::MAX, u8::MAX] {
+                                out_px.copy_from_slice(top_px);
+                                continue;
+                            }
+                        }
+                        SampleType::F32 => {
+                            let ta = read_sample(top_px, SampleType::F32, a);
+                            if ta <= 0.0 {
+                                continue;
+                            }
+                            if ta == 1.0 {
+                                out_px.copy_from_slice(top_px);
+                                continue;
+                            }
+                        }
+                    }
+                    for c in 0..n {
+                        tp[c] = read_sample(top_px, fmt.sample, c);
+                        dp[c] = read_sample(out_px, fmt.sample, c);
+                    }
+                    let (ta, da) = (tp[a], dp[a]);
+                    let oa = ta + da * (1.0 - ta);
+                    if oa > 0.0 {
+                        for c in 0..a {
+                            dp[c] = (tp[c] * ta + dp[c] * da * (1.0 - ta)) / oa;
+                        }
+                    }
+                    dp[a] = oa;
+                    photocraft_raster::encode_pixel(&fmt, &dp[..n], out_px);
+                }
+                Some((tc, Arc::new(out_tile)))
+            })
+            .collect();
+        dst.put_tiles(edits);
+        return;
+    }
     let b = top.content_bounds();
     if b.is_empty() {
         return;
     }
-    let n = dst.format().channels();
-    let a = n - 1;
     let t = top.read_region(b);
     let mut d = dst.read_region(b);
     for (dp, tp) in d.chunks_exact_mut(n).zip(t.chunks_exact(n)) {
@@ -992,6 +1109,57 @@ mod tests {
         assert!(!active_bounds(&s).is_empty());
     }
 
+    /// A gradient fill layer whose mask (a selection when it was made) frames the gradient over
+    /// 10..40, with the cached render a PSD import gives it: exactly the pixels the fill renders.
+    fn cached_gradient_fill() -> Session {
+        let mut s = session();
+        s.execute("select.rect", json!({"x": 10, "y": 10, "width": 30, "height": 30})).unwrap();
+        s.execute("layer.newFillLayer.gradient", json!({"from": "#ff0000", "to": "#0000ff", "angle": 0})).unwrap();
+        s.execute("select.deselect", json!({})).unwrap();
+        s.edit("cache", |doc, active| {
+            let (fmt, canvas) = (doc.pixel_format(), doc.bounds());
+            let l = doc.layer_mut(active.unwrap()).unwrap();
+            let LayerContent::Fill(f) = &l.content else { panic!("a fill layer") };
+            let buf = photocraft_compose::render_fill_content(l, f, canvas, &[]);
+            let mut surface = Surface::new(fmt);
+            let vals: Vec<f32> = buf.px.iter().flat_map(|p| photocraft_raster::from_rgba(&fmt, *p)).collect();
+            surface.write_region(canvas, &vals);
+            l.fill_cache = Some(photocraft_doc::FillCache { fill: f.clone(), surface });
+            Ok(())
+        })
+        .unwrap();
+        s
+    }
+
+    /// How far the composite is from the composite with the fill re-rendered from its model
+    /// (cache dropped): the largest channel difference.
+    fn off_from_fresh(s: &Session) -> f32 {
+        let st = s.active().unwrap();
+        let mut fresh: Document = (*st.doc).clone();
+        fresh.layer_mut(st.active_layer.unwrap()).unwrap().fill_cache = None;
+        let (a, b) = (photocraft_compose::render(&st.doc, st.doc.bounds()).px, photocraft_compose::render(&fresh, fresh.bounds()).px);
+        a.iter().zip(&b).flat_map(|(p, q)| p.iter().zip(q).map(|(x, y)| (x - y).abs())).fold(0.0, f32::max)
+    }
+
+    #[test]
+    fn transforming_a_fill_layer_drops_its_stale_cached_render() {
+        let mut s = cached_gradient_fill();
+        let off = off_from_fresh(&s);
+        assert!(off < 0.01, "the cache is the fill's own render: {off}");
+        // The mask (and so the gradient's frame) moves 50 px right and doubles in height.
+        s.execute("edit.transform", json!({"matrix": [1, 0, 0, 2, 50, 0]})).unwrap();
+        let off = off_from_fresh(&s);
+        assert!(off < 0.01, "the composite shows the fill laid out in its new frame, not the old render: {off}");
+    }
+
+    #[test]
+    fn warping_a_fill_layer_drops_its_stale_cached_render() {
+        let mut s = cached_gradient_fill();
+        s.execute("edit.transform.warp", json!({"style": "arc", "bend": 50})).unwrap();
+        let off = off_from_fresh(&s);
+        assert!(off < 0.01, "the composite shows the fill laid out in its new frame, not the old render: {off}");
+    }
+
     #[test]
     fn type_moves_with_the_move_command() {
         let mut s = session();
@@ -1443,5 +1611,43 @@ mod tests {
         for bad in [json!({"scaleX": 0}), json!({"rotate": "x"}), json!({"dx": f64::NAN})] {
             assert!(s.execute("edit.transform", bad.clone()).is_err(), "{bad}");
         }
+    }
+
+    /// #5846: a shape's Density and Feather render past its path (over the whole canvas below
+    /// 100 %), but its transform frame follows the path, as in Photoshop: the same box as the hard
+    /// shape for Free Transform, the Move tool's controls and snapping, never the canvas.
+    #[test]
+    fn a_soft_shapes_frame_follows_its_path() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 200, "height": 200})).unwrap();
+        let id = s.execute("shape.create", json!({"kind": "rect", "rect": [20, 30, 60, 40], "fill": "#000000"})).unwrap()["layer"].as_u64().unwrap();
+        let id = photocraft_doc::LayerId(id);
+        let boxes = |s: &Session| {
+            let st = s.active().unwrap();
+            let l = st.doc.layer(id).unwrap();
+            (transform_bounds(&st.doc, l), transform_frame(&st.doc, l), crate::snap::layer_rect(&st.doc, id))
+        };
+        let hard = boxes(&s);
+        assert_eq!(hard.0, Rect::new(20, 30, 80, 70), "the hard shape's frame");
+        s.execute("layer.vectorMask.edit", json!({"density": 60, "feather": 20})).unwrap();
+        {
+            let st = s.active().unwrap();
+            let LayerContent::Shape(sh) = &st.doc.layer(id).unwrap().content else { panic!("a shape") };
+            let painted = photocraft_compose::bounds::content_bounds(sh.cache.as_ref().unwrap());
+            assert_eq!(painted, st.doc.bounds(), "the soft fill renders over the whole canvas");
+        }
+        let soft = boxes(&s);
+        assert_eq!(soft, hard, "the frame ignores Density and Feather");
+        assert_ne!(soft.1, s.active().unwrap().doc.bounds());
+        // Feather alone (density 100 %) leaves the frame on the path too, not grown by the blur.
+        s.execute("layer.vectorMask.edit", json!({"density": 100, "feather": 20})).unwrap();
+        assert_eq!(boxes(&s), hard);
+        // Free Transform scales about the path's centre, not the canvas's.
+        s.execute("edit.transform", json!({"layer": id.0, "scaleX": 200})).unwrap();
+        let st = s.active().unwrap();
+        let LayerContent::Shape(sh) = &st.doc.layer(id).unwrap().content else { panic!("a shape") };
+        let (x0, y0, x1, y1) = sh.path.control_bounds().unwrap();
+        assert_eq!((x0.round(), y0.round(), x1.round(), y1.round()), (-10.0, 30.0, 110.0, 70.0));
+        assert_eq!((sh.density, sh.feather), (1.0, 20.0), "the transform keeps the soft settings");
     }
 }
