@@ -39,7 +39,8 @@ impl ShortcutSet {
     /// actions, as in an `.atn` file, not to a set).
     pub fn from_bindings(shortcuts: &BTreeMap<String, String>, alternates: &BTreeMap<String, Vec<String>>) -> Self {
         let shortcuts = shortcuts.iter().filter(|(id, _)| !is_action_key(id)).map(|(id, k)| (id.clone(), k.clone())).collect();
-        Self { shortcuts, alternate_shortcuts: alternates.clone() }
+        let alternate_shortcuts = alternates.iter().filter(|(id, _)| !is_action_key(id)).map(|(id, k)| (id.clone(), k.clone())).collect();
+        Self { shortcuts, alternate_shortcuts }
     }
 
     /// The bindings `p` uses now, without the actions' function keys.
@@ -52,7 +53,8 @@ impl ShortcutSet {
     pub fn apply(&self, shortcuts: &mut BTreeMap<String, String>, alternates: &mut BTreeMap<String, Vec<String>>) {
         shortcuts.retain(|id, _| is_action_key(id));
         shortcuts.extend(self.shortcuts.iter().filter(|(id, _)| !is_action_key(id)).map(|(id, k)| (id.clone(), k.clone())));
-        *alternates = self.alternate_shortcuts.clone();
+        alternates.retain(|id, _| is_action_key(id));
+        alternates.extend(self.alternate_shortcuts.iter().filter(|(id, _)| !is_action_key(id)).map(|(id, k)| (id.clone(), k.clone())));
     }
 
     /// Use this set's bindings in `p`, keeping the actions' function keys.
@@ -347,6 +349,27 @@ mod tests {
         assert_eq!(p.shortcuts.get("actions.play:Sepia").map(String::as_str), Some("F2"), "kept switching to a named set");
         store(&mut p, &json!({"saveSet": "Other"})).unwrap();
         assert!(p.shortcut_sets.values().all(|s| s.shortcuts.is_empty()), "a saved set holds no action keys");
+    }
+
+    #[test]
+    fn switching_sets_keeps_action_alternate_keys() {
+        // An action key set as an alternate (`alternateShortcuts.actions.play:<name>`) is the
+        // action's too: a saved set leaves it out and switching sets keeps it.
+        let mut p = prefs();
+        p.alternate_shortcuts.insert("edit.copy".into(), vec!["F9".into()]);
+        p.alternate_shortcuts.insert("actions.play:Sepia".into(), vec!["F7".into()]);
+        store(&mut p, &json!({"saveSet": "Mine"})).unwrap();
+        assert_eq!(p.shortcut_sets["Mine"].alternate_shortcuts, BTreeMap::from([("edit.copy".to_string(), vec!["F9".to_string()])]));
+        load(&mut p, &json!({"useSet": ""})).unwrap();
+        assert_eq!(p.alternate_shortcuts, BTreeMap::from([("actions.play:Sepia".to_string(), vec!["F7".to_string()])]), "kept switching to the defaults");
+        let sets = json!({"Other": {"alternateShortcuts": {"edit.cut": ["F8"], "actions.play:Old": ["F6"]}}});
+        store(&mut p, &json!({"sets": sets})).unwrap();
+        load(&mut p, &json!({"useSet": "Other"})).unwrap();
+        assert_eq!(
+            p.alternate_shortcuts,
+            BTreeMap::from([("actions.play:Sepia".to_string(), vec!["F7".to_string()]), ("edit.cut".to_string(), vec!["F8".to_string()])]),
+            "a set from the dialog brings no action key and keeps the one in use"
+        );
     }
 
     #[test]
