@@ -239,6 +239,7 @@ fn parse_bevel(d: &Descriptor) -> Bevel {
         altitude: f(d, "Lald", 30.0),
         use_global_light: !matches!(d.get("uglg"), Some(Value::Boolean(false))),
         gloss_contour: contour(d, "TrnS"),
+        gloss_anti_alias: bool_of(d, "antialiasGloss"),
         highlight: FxCommon { enabled: true, blend: blend_of(d, "hglM", BlendMode::Screen), opacity: pct(d, "hglO", 0.75) },
         highlight_color: get_desc(d, "hglC").and_then(color_from_desc).unwrap_or(Color::WHITE),
         shadow: FxCommon { enabled: true, blend: blend_of(d, "sdwM", BlendMode::Multiply), opacity: pct(d, "sdwO", 0.75) },
@@ -482,6 +483,7 @@ fn write_one(e: &Effect) -> (&'static str, Descriptor) {
                 .with("blur", unit(b"#Pxl", b.size))
                 .with("bvlD", Value::Enumerated { type_id: Id::new("BESs"), value: Id::new(if b.up { "In  " } else { "Out " }) })
                 .with("TrnS", contour_value(&b.gloss_contour))
+                .with("antialiasGloss", Value::Boolean(b.gloss_anti_alias))
                 .with("Sftn", unit(b"#Pxl", b.soften));
             let d = match &b.contour {
                 Some(c) => d
@@ -720,6 +722,7 @@ mod tests {
                 altitude: 40.0,
                 use_global_light: false,
                 gloss_contour: Contour::Linear,
+                gloss_anti_alias: true,
                 highlight: FxCommon::new(BlendMode::Screen, 0.75),
                 highlight_color: Color::WHITE,
                 shadow: FxCommon::new(BlendMode::Multiply, 0.6),
@@ -734,6 +737,16 @@ mod tests {
         // Colours go through 0..255 doubles; compare via re-serialization.
         assert_eq!(a.len(), b.len());
         assert_eq!(write_lfx2(true, a), write_lfx2(true, b));
+    }
+
+    /// `approx` compares re-serialized bytes, so a field the writer drops looks equal on both
+    /// sides: read the Gloss Contour's Anti-aliased back directly.
+    #[test]
+    fn bevel_gloss_anti_alias_is_written() {
+        let fx: Vec<Effect> = sample_effects().into_iter().filter(|e| matches!(e, Effect::BevelEmboss(_))).collect();
+        assert!(matches!(fx.as_slice(), [Effect::BevelEmboss(b)] if b.gloss_anti_alias));
+        let (_, back) = parse_lfx2(&write_lfx2(false, &fx)).unwrap();
+        assert!(matches!(back.as_slice(), [Effect::BevelEmboss(b)] if b.gloss_anti_alias), "{back:?}");
     }
 
     #[test]
