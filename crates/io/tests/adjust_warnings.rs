@@ -70,10 +70,15 @@ fn photoshop_layout_color_lookup_round_trips_through_psb() {
     let opts = ExportOptions { force_psb: true, ..Default::default() };
     let (doc, warnings) = reopen(Adjustment::Unsupported { psd_key: "clrL".into(), raw: raw.clone() }, "x.psb", &opts);
     assert!(warnings.iter().all(|w| !w.contains("Teal Look")), "{warnings:?}");
-    let LayerContent::Adjustment(Adjustment::ColorLookup { name, size, lut: Some(table), tetrahedral: false, dither: false }) = &doc.layers[0].content else {
+    let LayerContent::Adjustment(Adjustment::ColorLookup { name, size, lut: Some(table), tetrahedral: false, dither: false, source: Some(source) }) =
+        &doc.layers[0].content
+    else {
         panic!("{:?}", doc.layers[0].content)
     };
     assert_eq!(name, "frost.cube");
+    // The loaded `.cube` file is kept as its source, so a later save can embed it unchanged.
+    assert_eq!(source.format, photocraft_doc::adjust::LutFormat::Cube);
+    assert_eq!(source.bytes.as_slice(), b"LUT_3D_SIZE 2\n0 0 0\n0 1 1\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n");
     assert_eq!(*size, 2);
     let want: Vec<f32> = [0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0].into();
     assert_eq!(table.as_slice(), want.as_slice());
@@ -95,18 +100,32 @@ fn photoshop_layout_color_lookup_round_trips_through_psb() {
 fn short_color_lookup_table_warns_on_open() {
     // A stored table shorter than size³×3 renders as the identity; opening must say so, naming
     // the layer (#1763).
-    let short = Adjustment::ColorLookup { name: "t.cube".into(), size: 3, lut: Some(std::sync::Arc::new(vec![0.5; 7])), tetrahedral: false, dither: false };
+    let short = Adjustment::ColorLookup {
+        name: "t.cube".into(),
+        size: 3,
+        lut: Some(std::sync::Arc::new(vec![0.5; 7])),
+        tetrahedral: false,
+        dither: false,
+        source: None,
+    };
     let (doc, warnings) = reopen(short, "x.pcraft", &ExportOptions::default());
     assert!(matches!(&doc.layers[0].content, LayerContent::Adjustment(Adjustment::ColorLookup { .. })), "{:?}", doc.layers[0].content);
     let w: Vec<&String> = warnings.iter().filter(|w| w.contains("Teal Look")).collect();
     assert_eq!(w.len(), 1, "{warnings:?}");
     assert!(w[0].contains("Color Lookup") && w[0].contains("7 values") && w[0].contains("81"), "{}", w[0]);
     // A table long enough for its size opens without the note.
-    let ok = Adjustment::ColorLookup { name: "t.cube".into(), size: 2, lut: Some(std::sync::Arc::new(vec![0.5; 24])), tetrahedral: false, dither: false };
+    let ok = Adjustment::ColorLookup {
+        name: "t.cube".into(),
+        size: 2,
+        lut: Some(std::sync::Arc::new(vec![0.5; 24])),
+        tetrahedral: false,
+        dither: false,
+        source: None,
+    };
     let (_, warnings) = reopen(ok, "x.pcraft", &ExportOptions::default());
     assert!(warnings.iter().all(|w| !w.contains("Teal Look")), "{warnings:?}");
     // A missing table renders as the identity too.
-    let none = Adjustment::ColorLookup { name: "t.cube".into(), size: 2, lut: None, tetrahedral: false, dither: false };
+    let none = Adjustment::ColorLookup { name: "t.cube".into(), size: 2, lut: None, tetrahedral: false, dither: false, source: None };
     let (_, warnings) = reopen(none, "x.pcraft", &ExportOptions::default());
     assert!(warnings.iter().any(|w| w.contains("Teal Look") && w.contains("no usable table")), "{warnings:?}");
 }
