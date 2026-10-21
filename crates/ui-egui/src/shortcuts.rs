@@ -38,7 +38,8 @@ pub fn parse(s: &str) -> Option<KeyboardShortcut> {
         ";" => Some(Key::Semicolon),
         "'" => Some(Key::Quote),
         "]" => Some(Key::CloseBracket),
-        name => Key::from_name(name),
+        // Case-insensitive too: bindings saved as `Shift+Pageup` before #6827 still work.
+        name => Key::from_name(name).or_else(|| Key::ALL.iter().find(|k| k.name().eq_ignore_ascii_case(name)).copied()),
     }?;
     Some(KeyboardShortcut::new(mods, key))
 }

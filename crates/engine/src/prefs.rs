@@ -1491,7 +1491,15 @@ pub fn normalize_shortcut(s: &str) -> Option<String> {
     Some(s)
 }
 
+/// Key names spelled with more than one capital (egui's `Key::name`): Title case would turn
+/// `PageUp` into `Pageup`, which no key matches, so a binding saved that way never fired (#6827).
+const MULTI_WORD_KEYS: [&str; 8] =
+    ["PageUp", "PageDown", "OpenBracket", "CloseBracket", "OpenCurlyBracket", "CloseCurlyBracket", "BrowserBack", "IntlBackslash"];
+
 fn capitalize(s: &str) -> String {
+    if let Some(k) = MULTI_WORD_KEYS.iter().find(|k| k.eq_ignore_ascii_case(s)) {
+        return (*k).to_string();
+    }
     let mut c = s.chars();
     match c.next() {
         Some(f) if f.is_ascii_alphabetic() => {
