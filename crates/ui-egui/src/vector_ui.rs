@@ -1208,8 +1208,11 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
         None => (o.shape_fill, o.shape_fill.then(|| solid_paint(fg)), (o.stroke_width > 0.0).then(|| o.shape_stroke.stroke(o.stroke_width, solid_paint(bg)))),
     };
     let mut width = stroke.as_ref().map_or(0.0, |s| s.width);
+    let stroke_enabled = stroke.as_ref().is_some_and(|s| s.width > 0.0);
     let style = stroke.as_ref().map_or_else(|| o.shape_stroke.clone(), crate::shape_stroke_ui::StrokeOptions::from);
-    let key = |k: &str| target.as_ref().map(|s| format!("shape-options-{:?}-{}-{k}", s.doc, s.layer.0));
+    let gesture_key = ui.id().with("shape-options-paint-gesture");
+    let gesture = paint_gesture(ui, gesture_key);
+    let key = |k: &str| target.as_ref().map(|s| format!("shape-options-{:?}-{}-{k}:{}:{gesture}", s.doc, s.layer.0, gesture_key.value()));
     let mut edit: Option<Value> = None;
     lbl(ui, tl!("Fill:"));
     if crate::widgets::checkbox(ui, &mut has_fill, "").changed() {
@@ -1221,19 +1224,24 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
     let stroke_color = swatch(ui, stroke.as_ref().map(|s| &s.paint), bg, tl!("Stroke color"));
     if crate::widgets::value_field(ui, &mut width, 0.0..=288.0, "px", 58.0).changed() {
         o.stroke_width = width;
-        let mut p = json!({"width": width});
-        if stroke.is_none() {
-            p["color"] = json!(bg);
+        // A 0 px "change" (an arrow step clamped at the minimum) must not add a stroke.
+        if stroke.is_some() || width > 0.0 {
+            let mut p = json!({"width": width});
+            if stroke.is_none() {
+                p["color"] = json!(bg);
+            }
+            edit = Some(json!({"stroke": p, "coalesce": key("stroke-w")}));
         }
-        edit = Some(if width <= 0.0 { json!({"stroke": null}) } else { json!({"stroke": p, "coalesce": key("stroke-w")}) });
     }
     let preview = target.as_ref().filter(|s| s.stroke.is_some()).map(|s| (s.doc, s.layer));
     if let Some(change) =
-        crate::shape_stroke_ui::button(ui, "tool-stroke", &style, &mut app.ui.stroke_editor, true, tool != Tool::EllipseShape, preview, stroke.is_some())
+        crate::shape_stroke_ui::button(ui, "tool-stroke", &style, &mut app.ui.stroke_editor, true, tool != Tool::EllipseShape, preview, stroke_enabled)
     {
         let mut p = change.options.params();
-        if stroke.is_none() {
+        if !stroke_enabled {
             p["width"] = json!(3.0);
+        }
+        if stroke.is_none() {
             p["color"] = json!(bg);
         }
         edit = Some(json!({"stroke": p, "coalesce": change.coalesce}));
@@ -1303,6 +1311,12 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
         if let Err(e) = app.run("shape.edit", p) {
             app.ui.status = e;
             app.ui.status_error = true;
+        }
+        if !ui.input(|i| i.pointer.any_down()) {
+            ui.data_mut(|d| {
+                let gesture = d.get_temp_mut_or_default::<(u64, u64)>(gesture_key);
+                gesture.0 = gesture.0.wrapping_add(1);
+            });
         }
     }
     true
@@ -1543,9 +1557,8 @@ pub fn shape_properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, id: photocra
                 edit = Some(json!({"stroke": stroke, "coalesce": coalesce("stroke")}));
             }
             let mut w = sh.stroke.as_ref().map_or(0.0, |s| s.width);
-            if crate::widgets::value_field(ui, &mut w, 0.0..=288.0, "px", 60.0).changed() {
-                let stroke = if w <= 0.0 { Value::Null } else { json!({"width": w}) };
-                edit = Some(json!({"stroke": stroke, "coalesce": coalesce("stroke-w")}));
+            if crate::widgets::value_field(ui, &mut w, 0.0..=288.0, "px", 60.0).changed() && (sh.stroke.is_some() || w > 0.0) {
+                edit = Some(json!({"stroke": {"width": w}, "coalesce": coalesce("stroke-w")}));
             }
         });
         let style = sh.stroke.as_ref().map(crate::shape_stroke_ui::StrokeOptions::from).unwrap_or_default();
