@@ -334,10 +334,9 @@ fn enum_name(f: &Descriptor, key: &str, type_id: &str, table: &[(&[u8; 4], &'sta
     table.iter().find(|(c, _)| value.as_bytes() == &c[..]).map(|(_, n)| *n)
 }
 
-/// True when `f` holds each of the given keys once and nothing else: a repeated key would be
-/// written back only once.
+/// True when `f` holds each of the given keys once and nothing else.
 fn exact_keys(f: &Descriptor, keys: &[&str]) -> bool {
-    f.items.len() == keys.len() && only_keys(f, keys) && keys.iter().all(|x| f.items.iter().any(|(k, _)| k.is(x)))
+    only_keys(f, keys) && keys.iter().all(|x| f.items.iter().any(|(k, _)| k.is(x)))
 }
 
 /// Finite `key` of `f` stored as a plain double (the type Photoshop writes and we write back).
@@ -365,14 +364,6 @@ fn pi_range(p: &J, key: &str, default: f64, lo: i32, hi: i32) -> Result<Value, S
         return Err(format!("setting `{key}` ({v}) is not a number in {lo}..={hi}"));
     }
     Ok(Value::Integer(v as i32))
-}
-
-/// The `doub` at `key` (not a long or a unit value, which a re-save would turn into a `doub`).
-fn double_at(d: &Descriptor, key: &str) -> Option<f64> {
-    match d.get(key)? {
-        Value::Double(v) if v.is_finite() => Some(*v),
-        _ => None,
-    }
 }
 
 /// Enum `type_id` holding the PSD value of our name `p[key]` (`default` when absent).
@@ -638,12 +629,8 @@ fn known_params(class: &str, f: Option<&Descriptor>, item: &Descriptor) -> Optio
         // keeps the filter verbatim.
         ("LnsF", Some(f)) if exact_keys(f, &["Brgh", "FlrC", "Lns "]) => {
             let centre = get_desc(f, "FlrC").filter(|c| c.class_id.is("Pnt ") && exact_keys(c, &["Hrzn", "Vrtc"]))?;
-            let Some(Value::Enumerated { type_id, value }) = f.get("Lns ") else { return None };
-            if !type_id.is("Lns ") {
-                return None;
-            }
-            let lens = LENSES.iter().find(|(c, _)| value.as_bytes() == &c[..])?.1;
-            json!({"brightness": int(f, "Brgh")?, "centerX": double_at(centre, "Hrzn")?, "centerY": double_at(centre, "Vrtc")?, "lens": lens})
+            let lens = enum_name(f, "Lns ", "Lns ", &LENSES)?;
+            json!({"brightness": int(f, "Brgh")?, "centerX": double(centre, "Hrzn")?, "centerY": double(centre, "Vrtc")?, "lens": lens})
         }
         ("Lvls", Some(f)) => levels_params(f)?,
         ("Crvs", Some(f)) => curves_params(f)?,
@@ -694,7 +681,7 @@ fn coloured_params(class: &str, item: &Descriptor, f: &Descriptor) -> Option<(&'
     let colour = |key: &str| {
         get_desc(item, key)
             .filter(|c| c.class_id.is("RGBC") && exact_keys(c, &["Rd  ", "Grn ", "Bl  "]))
-            .filter(|c| ["Rd  ", "Grn ", "Bl  "].iter().all(|k| double_at(c, k).is_some_and(|v| (0.0..=255.0).contains(&v))))
+            .filter(|c| ["Rd  ", "Grn ", "Bl  "].iter().all(|k| double(c, k).is_some_and(|v| (0.0..=255.0).contains(&v))))
             .and_then(rgbc_colour)
     };
     // Only the settings Photoshop writes; an extra or repeated one keeps the filter verbatim.
