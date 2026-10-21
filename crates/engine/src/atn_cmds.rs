@@ -1028,7 +1028,9 @@ fn make_from(d: &Descriptor) -> Mapped {
     if let Some(D::Class(c)) = d.get("Nw  ")
         && trimmed(&c.class_id) == "Chnl"
     {
-        let at_mask = get_ref(d, "At  ").is_some_and(|r| ref_class(r).as_deref() == Some("Chnl") && matches!(target(r), Target::Ordinal(o) if o == "Msk"));
+        // The target layer's mask only: a further item (a `Lyr` by name…) puts it on another layer.
+        let at_mask = get_ref(d, "At  ")
+            .is_some_and(|r| r.len() == 1 && ref_class(r).as_deref() == Some("Chnl") && matches!(target(r), Target::Ordinal(o) if o == "Msk"));
         return match get_enum(d, "Usng").and_then(|u| lookup(MASK_USING, &u)) {
             Some(id) if at_mask => none(id),
             _ => Mapped::Unsupported { harmless: false },

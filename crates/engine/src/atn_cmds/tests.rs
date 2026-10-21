@@ -665,6 +665,18 @@ fn retouching_set_events_map_to_their_commands() {
     // A legacy PhotoCraft export's `Yllw` yellows still read.
     let legacy = desc("null").with("ClrC", D::List(vec![D::Descriptor(desc("ClrC").with("Clrs", enm("Clrs", "Yllw")).with("Cyn ", pct(5.0)))]));
     assert_eq!(selective_from(&legacy), Some(json!({"yellows": [5.0, 0.0, 0.0, 0.0]})));
+    // The mask of a named layer is not the target layer's mask: it stays unsupported.
+    let other_layer = desc("null")
+        .with("Nw  ", D::Class(class("Chnl")))
+        .with(
+            "At  ",
+            D::Reference(vec![
+                ReferenceItem::Enumerated { class: class("Chnl"), type_id: code("Chnl"), value: code("Msk ") },
+                ReferenceItem::Name { class: class("Lyr "), name: UnicodeString::new_nul("Other") },
+            ]),
+        )
+        .with("Usng", enm("UsrM", "RvlA"));
+    assert!(matches!(make_from(&other_layer), Mapped::Unsupported { harmless: false }));
 }
 
 /// Select and Mask exports as the older `refineSelectionEdge` event, which has no Sample All
