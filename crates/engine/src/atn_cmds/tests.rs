@@ -1384,6 +1384,28 @@ fn save_while_recording_includes_pending_steps() {
     assert_eq!(action["steps"].as_array().unwrap().len(), 2, "both steps must be present without duplication");
 }
 
+/// #7233: the Minimum / Maximum descriptor carries the radius only, so a step with Preserve:
+/// Roundness is refused by strict export (and left out, reported, otherwise) instead of replaying
+/// as the default Squareness. Squareness, explicit or by default, still round-trips.
+#[test]
+fn minimum_and_maximum_with_roundness_are_not_exported_as_squareness() {
+    for id in ["filter.other.minimum", "filter.other.maximum"] {
+        let round = Action { name: "Round".into(), steps: vec![(id.into(), json!({"radius": 2, "preserve": "roundness"}))], ..Default::default() };
+        assert!(export("Audit", &[&round], &[], false).is_err(), "{id}: strict export refuses it");
+        let (_, skipped) = export("Audit", &[&round], &[], true).unwrap();
+        assert_eq!(skipped, vec![Skipped { action: "Round".into(), step: 0, id: id.into() }], "{id}");
+        for p in [json!({"radius": 2}), json!({"radius": 2, "preserve": "squareness"})] {
+            let square = Action { name: "Square".into(), steps: vec![(id.into(), p.clone())], ..Default::default() };
+            let (bytes, skipped) = export("Audit", &[&square], &[], false).unwrap();
+            assert!(skipped.is_empty(), "{id} {p}");
+            let imported = import(&bytes).unwrap();
+            let (got, params) = &imported.actions[0].steps[0];
+            assert_eq!((got.as_str(), params["radius"].as_f64()), (id, Some(2.0)), "{id} {p}");
+            assert!(params.get("preserve").is_none_or(|v| v == "squareness"), "{id} {p}: {params}");
+        }
+    }
+}
+
 /// Photoshop's Close has no document target: a Close of a specific document must not be
 /// exported as a plain Close, which would close the active document on playback.
 #[test]

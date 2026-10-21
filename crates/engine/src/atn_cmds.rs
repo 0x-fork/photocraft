@@ -907,6 +907,11 @@ struct Event {
 
 macro_rules! ev {
     ($code:literal, $name:literal, $label:literal, $id:literal, $fields:expr) => {
+        ev!($code, $name, $label, $id, $fields, unless | _ | false)
+    };
+    // `unless`: params the descriptor can't carry, so such a step isn't exported (it would replay
+    // differently) rather than losing them.
+    ($code:literal, $name:literal, $label:literal, $id:literal, $fields:expr, unless $skip:expr) => {
         Event {
             code: $code,
             name: $name,
@@ -916,9 +921,16 @@ macro_rules! ev {
                 Some(m) => step($id, Value::Object(m)),
                 None => Mapped::Unsupported { harmless: false },
             },
-            to: |_, p| if pixel_target(p) { fields_to(p, $fields, desc("null")) } else { None },
+            to: |_, p| if pixel_target(p) && !($skip)(p) { fields_to(p, $fields, desc("null")) } else { None },
         }
     };
+}
+
+/// Minimum / Maximum with Preserve: Roundness. The descriptor here maps the radius only, and
+/// Photoshop's encoding of the shape isn't verified, so such a step is not exported: it would
+/// replay as the default Squareness (#7233).
+fn preserves_roundness(p: &Value) -> bool {
+    p.get("preserve").and_then(Value::as_str) == Some("roundness")
 }
 
 /// Whether `p` edits the layer's pixels: no `"target"` or `"target":"pixels"`. Photoshop's
@@ -2822,8 +2834,8 @@ const EVENTS: &[Event] = &[
     ev!("ShrM", "sharpenMore", "Sharpen More", "filter.sharpen.sharpenMore", &[]),
     ev!("ShrE", "sharpenEdges", "Sharpen Edges", "filter.sharpen.sharpenEdges", &[]),
     ev!("HghP", "highPass", "High Pass", "filter.other.highPass", &[F("Rds ", "radius", Kind::Px)]),
-    ev!("Mnm ", "minimum", "Minimum", "filter.other.minimum", &[F("Rds ", "radius", Kind::Px)]),
-    ev!("Mxm ", "maximum", "Maximum", "filter.other.maximum", &[F("Rds ", "radius", Kind::Px)]),
+    ev!("Mnm ", "minimum", "Minimum", "filter.other.minimum", &[F("Rds ", "radius", Kind::Px)], unless preserves_roundness),
+    ev!("Mxm ", "maximum", "Maximum", "filter.other.maximum", &[F("Rds ", "radius", Kind::Px)], unless preserves_roundness),
     ev!(
         "Ofst",
         "offset",
