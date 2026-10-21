@@ -358,6 +358,13 @@ fn profile_command_may_read_ambient(id: &str, params: &Value) -> bool {
     if matches!(id, "color.profileMismatch" | "edit.colorSettings" | "edit.installedProfiles" | "view.proofSetup") {
         return true;
     }
+    // New Document skips exact `working` and `none`; the other working aliases resolve
+    // the configured working space, which may be an .icc path.
+    if id == "file.new" {
+        return params.get("profile").and_then(Value::as_str).is_some_and(|profile| {
+            matches!(profile, "default" | "working-cmyk" | "workingCmyk" | "working-rgb" | "workingRgb" | "working-gray" | "workingGray")
+        });
+    }
     matches!(id, "edit.assignProfile" | "edit.convertToProfile" | "edit.profileInfo")
         && params.get("profile").and_then(Value::as_str).is_some_and(|profile| {
             matches!(profile, "working" | "default" | "working-cmyk" | "workingCmyk" | "working-rgb" | "workingRgb" | "working-gray" | "workingGray")
@@ -763,6 +770,10 @@ mod tests {
         assert!(authorize_engine_command("image.mode.rgb", &serde_json::json!({"profile": "srgb"})).is_ok());
         assert!(authorize_engine_command("file.new", &serde_json::json!({"profile": "/outside/profile.icc"})).is_err());
         assert!(authorize_engine_command("file.new", &serde_json::json!({"profile": "adobe-rgb-compat"})).is_ok());
+        assert!(authorize_engine_command("file.new", &serde_json::json!({"profile": "working"})).is_ok());
+        assert!(authorize_engine_command("file.new", &serde_json::json!({"profile": "none"})).is_ok());
+        assert!(authorize_engine_command("file.new", &serde_json::json!({"profile": "default"})).is_err());
+        assert!(authorize_engine_command("file.new", &serde_json::json!({"profile": "working-cmyk"})).is_err());
         // Shortcut sets: text in and out is fine; a path reads or writes the filesystem.
         let ks = |p: serde_json::Value| authorize_engine_command("edit.keyboardShortcuts", &p);
         assert!(ks(serde_json::json!({"exportKys": true, "summarize": true, "importKys": "<photoshop-keyboard-shortcuts/>"})).is_ok());
