@@ -552,8 +552,7 @@ fn finish_open(app: &mut PhotocraftApp, name: &str, path: Option<&str>, v: &Valu
     let held = |doc, read_only, question, policy_applied| crate::open_prompt::Held {
         doc,
         read_only,
-        recovery_mode: v.get("recovery").and_then(Value::as_bool).unwrap_or(false),
-        recovery_pending: v.get("recovery").and_then(Value::as_bool).unwrap_or(false),
+        damage_pending: v.get("damaged").and_then(Value::as_bool).unwrap_or(false),
         name: name.to_string(),
         path: path.map(str::to_string),
         warnings: warnings.clone(),
@@ -565,7 +564,7 @@ fn finish_open(app: &mut PhotocraftApp, name: &str, path: Option<&str>, v: &Valu
     // Held back for the profile prompt (Ask When Opening).
     if let Some(id) = v.get("held").and_then(Value::as_u64) {
         let (doc, read_only) = app.session.take_held_open(id).ok_or("the open job's document is gone")?;
-        crate::open_prompt::arrive(app, held(doc, read_only, v.get("color").cloned(), false));
+        crate::open_prompt::arrive(app, held(doc, read_only, v.get("color").filter(|q| !q.is_null()).cloned(), false));
         return Ok(());
     }
     let mut index = v.get("document").and_then(Value::as_u64).ok_or("the open job returned no document")? as usize;
@@ -609,11 +608,8 @@ pub(crate) fn after_open(app: &mut PhotocraftApp, name: &str, path: Option<&str>
     } else {
         notices::io_warnings(app, &opened, warnings);
     }
-    // Script event hooks can save a file or run other I/O commands. Do not
-    // dispatch them automatically for a recovered, partially decoded PSD.
-    if !app.session.active().is_some_and(|st| st.recovery_mode) {
-        photocraft_engine::automate_cmds::document_opened(&mut app.session);
-    }
+    // Script events bound to "Open Document".
+    photocraft_engine::automate_cmds::document_opened(&mut app.session);
     app.sync_views();
 }
 

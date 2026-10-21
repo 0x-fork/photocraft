@@ -540,9 +540,6 @@ fn save_a_copy(s: &mut Session, p: &Value) -> Result<Value> {
             msg: "`path` is the document's own file, so the copy would replace it: choose another path, or pass \"overwrite\": true".into(),
         });
     }
-    // Engine commands can be replayed from scripts. Recovery mode is never
-    // allowed to use the ordinary replacement writer, even for Save a Copy.
-    let recovery = d.recovery_mode;
     let mut doc = (*d.doc).clone();
     if p.get("layers").and_then(Value::as_bool) == Some(false) {
         // "Layers" unchecked in Save a Copy: write the flattened image.
@@ -550,14 +547,7 @@ fn save_a_copy(s: &mut Session, p: &Value) -> Result<Value> {
         let px = flattened(&doc, fmt);
         doc.layers = vec![Layer::new("Background", LayerContent::Raster(px))];
     }
-    let opts = SaveOpts::from_params(s, p, "file.saveACopy")?;
-    let warnings = if recovery {
-        let (bytes, warnings) = encode(&doc, &path, opts)?;
-        photocraft_io::write_recovery_copy_bytes(std::path::Path::new(&path), &bytes).map_err(|e| EngineError::Other(e.to_string()))?;
-        warnings
-    } else {
-        save_doc(&doc, &path, opts)?
-    };
+    let warnings = save_doc(&doc, &path, SaveOpts::from_params(s, p, "file.saveACopy")?)?;
     Ok(json!({"path": path, "warnings": warnings}))
 }
 
@@ -1461,15 +1451,7 @@ fn flatten_all_masks(s: &mut Session) -> Result<Value> {
 fn layers_to_files(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.export.layersToFiles";
     let dir = str_param(p, "dir", cmd).or_else(|_| str_param(p, "output", cmd))?.to_string();
-    let recovery = s.active().is_some_and(|d| d.recovery_mode);
-    let names = export_layers_with(s, p, |name, bytes| {
-        let path = join(&dir, name);
-        if recovery {
-            photocraft_io::write_recovery_copy_bytes(std::path::Path::new(&path), bytes).map_err(|e| EngineError::Other(e.to_string()))
-        } else {
-            write_file(&path, bytes)
-        }
-    })?;
+    let names = export_layers_with(s, p, |name, bytes| write_file(&join(&dir, name), bytes))?;
     let files: Vec<String> = names.iter().map(|name| join(&dir, name)).collect();
     Ok(json!({"files": files}))
 }
@@ -1641,11 +1623,7 @@ fn color_lookup_tables(s: &mut Session, p: &Value) -> Result<Value> {
     let cube = bake_cube_layers(size as usize, &title, &layers);
     match p.get("path").and_then(Value::as_str) {
         Some(path) => {
-            if d.recovery_mode {
-                photocraft_io::write_recovery_copy_bytes(std::path::Path::new(path), cube.as_bytes()).map_err(|e| EngineError::Other(e.to_string()))?;
-            } else {
-                write_file(path, cube.as_bytes())?;
-            }
+            write_file(path, cube.as_bytes())?;
             Ok(json!({"path": path, "size": size, "layerCount": count}))
         }
         None => Ok(json!({"cube": cube, "size": size, "layerCount": count})),
@@ -1945,26 +1923,5 @@ mod aces_exr_tests {
             };
             assert_eq!(profile.as_deref().map(|v| v.as_slice()), Some(want.as_slice()), "exr_aces_cg = {on}");
         }
-    }
-}
-
-#[cfg(test)]
-mod psd_recovery_tests {
-    use super::*;
-    #[cfg(not(target_arch = "wasm32"))]
-    #[test]
-    fn an_engine_action_does_not_replace_an_existing_file_in_recovery_mode() {
-        let mut s = Session::new();
-        s.execute("file.new", json!({"width": 2, "height": 2})).unwrap();
-        s.active_mut().unwrap().recovery_mode = true;
-        let path = std::env::temp_dir().join(format!(
-            "photocraft-engine-recovery-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        std::fs::write(&path, b"original").unwrap();
-        assert!(s.execute("file.saveACopy", json!({"path": path})).is_err());
-        assert_eq!(std::fs::read(&path).unwrap(), b"original");
-        std::fs::remove_file(path).unwrap();
     }
 }

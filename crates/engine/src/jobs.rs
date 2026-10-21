@@ -510,14 +510,14 @@ impl Session {
         self.start_open_inner(name, source, false)
     }
 
-    /// GUI opening: PSDs are decoded with the opt-in recovery path, but a
-    /// damaged result is held back until the user accepts the recovery prompt.
-    /// Headless/automation opening keeps the strict default above.
+    /// Interactive opening: hold a damaged PSD until the user answers a damage
+    /// confirmation, without changing import or subsequent save behaviour.
+    /// Headless callers keep using [`Self::start_open`].
     pub fn start_open_for_user(&mut self, name: &str, source: OpenSource) -> Result<Started> {
         self.start_open_inner(name, source, true)
     }
 
-    fn start_open_inner(&mut self, name: &str, source: OpenSource, offer_recovery: bool) -> Result<Started> {
+    fn start_open_inner(&mut self, name: &str, source: OpenSource, confirm_damage: bool) -> Result<Started> {
         let label = format!("Opening {name}");
         let name_w = name.to_string();
         let name_a = name.to_string();
@@ -536,32 +536,26 @@ impl Session {
                 ctx.check()?;
                 ctx.progress(0.02, "Decoding");
                 let imported = ctx
-                    .stage(0.02, 0.95, "Decoding", |ctl| {
-                        if offer_recovery && photocraft_io::is_psd(&bytes) {
-                            photocraft_io::import_psd_for_recovery_with(&name_w, &bytes, ctl)
-                        } else {
-                            photocraft_io::import_with_svg_group_depth_and_interrupt(&name_w, &bytes, max_svg_group_depth, ctl)
-                        }
-                    })
+                    .stage(0.02, 0.95, "Decoding", |ctl| photocraft_io::import_for_open_with(&name_w, &bytes, max_svg_group_depth, ctl))
                     .map_err(|e| match e {
                         photocraft_io::IoError::Cancelled => EngineError::Cancelled,
                         e => EngineError::Other(e.to_string()),
                     })?;
                 ctx.progress(0.95, "Preparing layers");
-                warm_layer_bounds(&imported.document, || ctx.check())?;
+                warm_layer_bounds(&imported.0.document, || ctx.check())?;
                 Ok(imported)
             },
-            move |s, mut r: photocraft_io::ImportResult| {
+            move |s, (mut r, damaged): (photocraft_io::ImportResult, bool)| {
                 // File Handling's ACEScg option, before the colour prompt looks at the profile.
                 crate::file_cmds::tag_exr_colorspace(s, &name_a, &mut r.document);
                 // Ask When Opening: held back until the prompt is answered (`take_held_open`). A
                 // developed raw has no embedded profile to ask about.
                 let raw = r.warnings.iter().any(|w| w.contains(photocraft_io::raw::DEVELOPED_NOTE));
-                let recovery = offer_recovery && r.source_read_only && r.warnings.iter().any(|w| w.starts_with("PSD/PSB RECOVERY:"));
+                let damaged = confirm_damage && damaged;
                 let question = s.color.open_question(&r.document).filter(|_| !raw);
-                if recovery || question.is_some() {
+                if damaged || question.is_some() {
                     let held = s.hold_open(r.document, r.source_read_only);
-                    return Ok(json!({"held": held, "name": name_a, "warnings": r.warnings, "color": question, "recovery": recovery}));
+                    return Ok(json!({"held": held, "name": name_a, "warnings": r.warnings, "color": question, "damaged": damaged}));
                 }
                 let (index, color) = s.open_document(r.document, None);
                 if let Some(st) = s.active_mut() {
@@ -1022,3 +1016,50 @@ pub fn specs() -> Vec<crate::commands::CommandSpec> {
 #[cfg(test)]
 #[path = "jobs_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../io/tests/support/recovery_psd.rs"]
+mod psd_open_fixture;
+
+#[cfg(test)]
+mod psd_open_confirmation_tests {
+    use super::*;
+
+    fn result(s: &mut Session, started: Started) -> Value {
+        match started {
+            Started::Done(v) => v,
+            Started::Job(id) => s.wait_job(id).unwrap(),
+        }
+    }
+
+    #[test]
+    fn headless_open_keeps_best_effort_psd_import() {
+        let mut s = Session::new();
+        let started = s.start_open("damaged.psd", OpenSource::Bytes(Arc::new(super::psd_open_fixture::make_psd(true)))).unwrap();
+        let v = result(&mut s, started);
+        assert!(v.get("document").is_some(), "{v}");
+        assert!(v.get("held").is_none(), "no new prompt for a headless caller");
+        assert!(!s.active().unwrap().source_read_only);
+        assert!(v["warnings"].as_array().unwrap().iter().any(|w| w.as_str().unwrap().contains("could not be decoded")));
+    }
+
+    #[test]
+    fn interactive_open_holds_only_a_damaged_psd() {
+        for corrupt in [false, true] {
+            let mut s = Session::new();
+            let started = s.start_open_for_user("file.psd", OpenSource::Bytes(Arc::new(super::psd_open_fixture::make_psd(corrupt)))).unwrap();
+            let v = result(&mut s, started);
+            if corrupt {
+                assert_eq!(v["damaged"], true);
+                assert!(s.documents().is_empty());
+                let held = v["held"].as_u64().unwrap();
+                let (doc, read_only) = s.take_held_open(held).unwrap();
+                assert_eq!(doc.layers.len(), 2);
+                assert!(!read_only);
+            } else {
+                assert!(v.get("document").is_some(), "{v}");
+                assert!(!s.active().unwrap().source_read_only);
+            }
+        }
+    }
+}

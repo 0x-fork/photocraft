@@ -696,9 +696,6 @@ fn web_confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
 
 /// Runs Save for Web with `p`, which says where to write.
 fn save_for_web(app: &mut PhotocraftApp, p: Value) -> Result<Value, String> {
-    if app.session.active().is_some_and(|st| st.recovery_mode) {
-        return Err("PSD recovery: Save for Web is disabled for this document; first save a new recovery copy and reopen it".into());
-    }
     #[cfg(target_arch = "wasm32")]
     let result = download_for_web(app, p);
     #[cfg(not(target_arch = "wasm32"))]

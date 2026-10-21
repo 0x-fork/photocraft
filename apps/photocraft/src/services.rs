@@ -363,19 +363,6 @@ fn save_through(
     Ok(r.warnings)
 }
 
-fn recovery_save_file(
-    doc: &Document,
-    path: &str,
-    settings: &photocraft_ui_egui::ExportSettings,
-    ctl: &photocraft_ui_egui::jobs_ui::SaveCtl,
-) -> Result<Vec<String>, String> {
-    save_through(doc, path, settings, ctl, |p, b, progress| {
-        photocraft_io::write_recovery_copy_bytes(Path::new(p), b).map_err(|e| e.to_string())?;
-        progress(1.0);
-        Ok(())
-    })
-}
-
 fn save_file(
     doc: &Document,
     path: &str,
@@ -550,8 +537,6 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
             crate::crash_guard::guard("Export", || photocraft_io::export(doc, path, &opts).map(|r| (r.bytes, r.warnings)).map_err(|e| e.to_string()))
         })),
         save_file: Some(Arc::new(save_file)),
-        recovery_save_file: Some(Arc::new(recovery_save_file)),
-        recovery_write: Some(Box::new(|path: &str, bytes: &[u8]| photocraft_io::write_recovery_copy_bytes(Path::new(path), bytes).map_err(|e| e.to_string()))),
         file_dialog: Some(Box::new(show_file_dialog)),
         write: Some(Box::new(|path: &str, bytes: &[u8]| write_atomic(Path::new(path), bytes))),
         file_stamp: Some(Box::new(|path: &str| {

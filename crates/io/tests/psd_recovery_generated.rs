@@ -7,7 +7,7 @@
 #[path = "support/recovery_psd.rs"]
 mod recovery_psd;
 
-use photocraft_io::{IoError, import, import_psd_for_recovery};
+use photocraft_io::{import, import_for_open};
 use photocraft_psd::PsdFile;
 
 #[test]
@@ -18,10 +18,12 @@ fn valid_generated_psd_opens_normally() {
     assert!(!result.source_read_only);
     assert!(!result.preview_only);
     assert_eq!(result.document.layers.len(), 2);
+    let (_, damaged) = import_for_open("valid-two-layers.psd", &bytes, photocraft_doc::MAX_GROUP_DEPTH).unwrap();
+    assert!(!damaged);
 }
 
 #[test]
-fn corrupt_generated_rle_channel_requires_opt_in_recovery() {
+fn corrupt_generated_rle_channel_keeps_best_effort_import_and_reports_damage() {
     let bytes = recovery_psd::make_psd(true);
     assert_eq!(bytes.len(), 74_986, "the fixture should retain the reference PSD layout");
     let (parsed, _) = PsdFile::from_bytes_and_merged(&bytes, |_| false).expect("the PSD container must stay valid");
@@ -32,15 +34,49 @@ fn corrupt_generated_rle_channel_requires_opt_in_recovery() {
     assert!(layer.decode_channel(2, parsed.header.depth, parsed.header.version).is_ok());
     assert!(parsed.decode_merged().is_ok(), "the composite must remain recoverable");
 
-    let error = import("corrupt-green-rle.psd", &bytes).unwrap_err();
-    assert!(matches!(error, IoError::Unsupported(_)), "unexpected error: {error}");
+    let imported = import("corrupt-green-rle.psd", &bytes).expect("headless imports keep readable content");
+    assert!(!imported.source_read_only);
+    assert!(!imported.preview_only);
+    assert_eq!(imported.document.layers.len(), 2);
+    assert!(imported.warnings.iter().any(|w| w.contains("could not be decoded")));
 
-    let recovered = import_psd_for_recovery("corrupt-green-rle.psd", &bytes).expect("explicit recovery must return readable layers");
-    assert!(recovered.source_read_only, "recovery must not save over the source");
-    assert!(!recovered.preview_only);
-    assert!(!recovered.document.layers.is_empty());
-    assert!(recovered.warnings.iter().any(|w| w.starts_with("PSD/PSB RECOVERY:")));
-    assert!(recovered.warnings.iter().any(|w| w.contains("could not be decoded")));
+    let (opened, damaged) = import_for_open("corrupt-green-rle.psd", &bytes, photocraft_doc::MAX_GROUP_DEPTH).unwrap();
+    assert!(damaged, "interactive opening must ask whether to continue");
+    assert!(!opened.source_read_only, "the flag does not introduce a save restriction");
+    assert_eq!(opened.warnings, imported.warnings);
+    assert_eq!(opened.document.layers.len(), imported.document.layers.len());
+}
+
+#[test]
+fn damaged_composite_keeps_layers_and_requests_interactive_confirmation() {
+    let mut file = PsdFile::from_bytes(&recovery_psd::make_psd(false)).unwrap();
+    file.image_data.data.truncate(file.image_data.data.len() / 2);
+    let bytes = file.to_bytes().unwrap();
+    let imported = import("damaged-preview.psd", &bytes).expect("intact layers are still usable");
+    assert_eq!(imported.document.layers.len(), 2);
+    assert!(!imported.source_read_only);
+    let (opened, damaged) = import_for_open("damaged-preview.psd", &bytes, photocraft_doc::MAX_GROUP_DEPTH).unwrap();
+    assert!(damaged);
+    assert_eq!(opened.warnings, imported.warnings);
+    assert!(opened.warnings.iter().any(|w| w.contains("merged image")));
+}
+
+#[test]
+fn ordinary_compatibility_warning_does_not_mean_damaged() {
+    use photocraft_psd::{ImageResource, ResolutionInfo, resources::ids};
+    let mut file = PsdFile::from_bytes(&recovery_psd::make_psd(false)).unwrap();
+    let resolution = ResolutionInfo { v_res_fixed: ResolutionInfo::from_dpi(150.0).v_res_fixed, ..ResolutionInfo::from_dpi(300.0) };
+    file.resources.push(ImageResource::new(ids::RESOLUTION_INFO, resolution.to_bytes()));
+    let (opened, damaged) = import_for_open("resolution.psd", &file.to_bytes().unwrap(), photocraft_doc::MAX_GROUP_DEPTH).unwrap();
+    assert!(!damaged);
+    assert!(opened.warnings.iter().any(|w| w.contains("vertical resolution")));
+}
+
+#[test]
+fn fatal_parse_errors_are_not_turned_into_confirmation_requests() {
+    let bytes = b"8BPS\0";
+    assert!(import("truncated.psd", bytes).is_err());
+    assert!(import_for_open("truncated.psd", bytes, photocraft_doc::MAX_GROUP_DEPTH).is_err());
 }
 
 /// Generate the same two PSDs on demand for manual testing in the GUI.

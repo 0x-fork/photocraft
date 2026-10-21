@@ -526,10 +526,6 @@ pub struct Services {
     /// Encode and write in one step on a worker thread, so a large save doesn't freeze the
     /// window (#2017). With background jobs on, saves use it instead of `export` and `write`.
     pub save_file: Option<SaveFileFn>,
-    /// Recovery-mode writes publish ONLY new files (no replace, even via aliases).
-    pub recovery_write: Option<WriteFn>,
-    /// The worker version of `recovery_write`, to keep large PSD copies responsive.
-    pub recovery_save_file: Option<SaveFileFn>,
     /// File access used only by control/MCP requests. Interactive dialogs keep
     /// using `file_dialog` and `write` with the user's authority.
     pub automation_read: Option<AutomationReadFn>,
@@ -1459,13 +1455,14 @@ impl PhotocraftApp {
         }
         let import = self.services.import.as_ref().ok_or("no importer configured")?;
         let max_svg_group_depth = self.session.prefs().file_handling.rasterize_svg_groups_deeper_than as usize;
-        let (doc, warnings, recovery_mode) = match import(name, bytes, max_svg_group_depth) {
-            Ok((doc, warnings)) => (doc, warnings, false),
-            Err(error) if photocraft_io::is_psd(bytes) => match photocraft_io::import_psd_for_recovery(name, bytes) {
-                Ok(r) if r.source_read_only && r.warnings.iter().any(|w| w.starts_with("PSD/PSB RECOVERY:")) => (r.document, r.warnings, true),
-                _ => return Err(error),
-            },
-            Err(error) => return Err(error),
+        let (doc, warnings, damaged) = if photocraft_io::is_psd(bytes) {
+            // Read PSD damage as structured information in the same decode, not by
+            // retrying an error or matching the text of a compatibility warning.
+            let (r, damaged) = photocraft_io::import_for_open(name, bytes, max_svg_group_depth).map_err(|e| e.to_string())?;
+            (r.document, r.warnings, damaged)
+        } else {
+            let (doc, warnings) = import(name, bytes, max_svg_group_depth)?;
+            (doc, warnings, false)
         };
         // Edit › Color Settings policies apply on open; Ask When Opening holds the file back
         // until its prompt is answered, and later files wait behind it (`open_prompt`).
@@ -1479,9 +1476,8 @@ impl PhotocraftApp {
             self,
             open_prompt::Held {
                 doc,
-                read_only: recovery_mode || photocraft_io::affinity::is_affinity(bytes),
-                recovery_mode,
-                recovery_pending: recovery_mode,
+                read_only: photocraft_io::affinity::is_affinity(bytes),
+                damage_pending: damaged,
                 name: name.to_string(),
                 path: path.map(str::to_string),
                 warnings: warnings.clone(),
@@ -1553,7 +1549,7 @@ impl PhotocraftApp {
             return Err("Answer the TIFF, Targa or DDS Options before starting another save".into());
         }
         // Edit Contents documents save back into their smart object.
-        if path.is_none() && !self.session.active().is_some_and(|st| st.recovery_mode) && self.session.is_enabled("layer.smartObjects.saveContents") {
+        if path.is_none() && self.session.is_enabled("layer.smartObjects.saveContents") {
             self.run("layer.smartObjects.saveContents", serde_json::json!({}))?;
             return Ok(serde_json::json!({"path": "smart object", "warnings": []}));
         }
@@ -1575,21 +1571,16 @@ impl PhotocraftApp {
                 || (e == "ora" && holds_ora)
                 || (flat && photocraft_codecs::from_extension(&e).is_some_and(|f| f.caps().write))
         });
-        let suggested = if st.recovery_mode {
-            let name = st.doc.name.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(&st.doc.name);
-            format!("{name} recovered.psd")
-        } else {
-            match &st.path {
-                Some(p) if writable => p.clone(),
-                p => {
-                    let source = p.as_deref().unwrap_or(&st.doc.name);
-                    let ext = match photocraft_engine::file_cmds::extension(source).as_deref() {
-                        Some("pdn") => "pcraft",
-                        Some("kra" | "krz") => "ora",
-                        _ => "psd",
-                    };
-                    std::path::Path::new(source).with_extension(ext).to_string_lossy().into_owned()
-                }
+        let suggested = match &st.path {
+            Some(p) if writable => p.clone(),
+            p => {
+                let source = p.as_deref().unwrap_or(&st.doc.name);
+                let ext = match photocraft_engine::file_cmds::extension(source).as_deref() {
+                    Some("pdn") => "pcraft",
+                    Some("kra" | "krz") => "ora",
+                    _ => "psd",
+                };
+                std::path::Path::new(source).with_extension(ext).to_string_lossy().into_owned()
             }
         };
         let doc = st.doc.id;
@@ -1771,23 +1762,6 @@ impl PhotocraftApp {
     /// `None` when the save went to a background job (#2017), which finishes it in
     /// [`jobs_ui::tick`].
     pub(crate) fn write_document(&mut self, path: String, settings: &ExportSettings, copy: bool) -> Result<Option<(String, Vec<String>)>, String> {
-        if self.session.active().is_some_and(|st| st.recovery_mode) {
-            // Keep the recovery restriction for the entire session, even after
-            // successfully writing a copy. Neither Save nor Save As can replace
-            // ANY existing file; only a new copy is possible.
-            if self.background_jobs {
-                let writer = self.services.recovery_save_file.clone().ok_or("safe recovery-copy writer not available")?;
-                return jobs_ui::start_save(self, path, settings.clone(), true, writer, false);
-            }
-            let st = self.session.active().ok_or("no document")?;
-            let (doc, revision) = (st.doc.id, st.revision);
-            let export = self.services.export.as_ref().ok_or("no exporter configured")?;
-            let (bytes, warnings) = export(&st.doc, &path, settings)?;
-            let write = self.services.recovery_write.as_mut().ok_or("safe recovery-copy writer not available")?;
-            write(&path, &bytes)?;
-            self.saved(doc, revision, &path, &warnings, true);
-            return Ok(Some((path, warnings)));
-        }
         if self.background_jobs
             && let Some(save) = self.services.save_file.clone()
         {
@@ -1825,12 +1799,7 @@ impl PhotocraftApp {
                 (false, holds)
             }
         };
-        let recovery_copy = copy && self.session.documents().iter().any(|st| st.doc.id == doc && st.recovery_mode);
-        self.ui.status = if recovery_copy {
-            crate::i18n::fmt(tl!("Saved recovered copy as {name}"), &[("name", path)])
-        } else {
-            crate::i18n::fmt(tl!("Saved {name}"), &[("name", path)])
-        };
+        self.ui.status = crate::i18n::fmt(tl!("Saved {name}"), &[("name", path)]);
         if !copy {
             // A background save may finish while another document is active (or after its
             // document was closed, when there is nothing left to record).
@@ -1912,11 +1881,6 @@ impl PhotocraftApp {
     /// Targa's `None`: 32 with an alpha channel or transparency, else 24; a DDS texture's:
     /// uncompressed without mipmaps). Automation saves never prompt.
     pub fn save_automation_with(&mut self, path: Option<String>, choices: FormatChoices) -> Result<Value, String> {
-        // Automation writes use a capability-scoped writer which may replace a
-        // destination. Do not silently downgrade the recovery no-overwrite rule.
-        if self.session.active().is_some_and(|st| st.recovery_mode) {
-            return Err("PSD recovery: automated saving is disabled for this document; choose File > Save a Copy with a new filename".into());
-        }
         let target = {
             let state = self.session.active().ok_or("no document")?;
             // As File › Save: without `path` only a layered file is written back (#416).
@@ -2234,7 +2198,6 @@ impl eframe::App for PhotocraftApp {
         workspace_ui::windows(self, &ctx);
         palette::show(self, &ctx);
         dialogs::show(self, &ctx);
-        open_prompt::recovery_dialog(self, &ctx);
         rasterize_prompt::run_pending(self, &ctx);
         jobs_ui::dialog(self, &ctx);
         discard_ui::show(self, &ctx);
@@ -2979,6 +2942,8 @@ mod transform_undo_tests;
 #[cfg(test)]
 mod transform_type_tests;
 
+#[cfg(test)]
+mod psd_open_tests;
 #[cfg(test)]
 mod save_identity_tests;
 
