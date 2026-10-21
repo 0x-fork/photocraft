@@ -249,6 +249,7 @@ pub fn apply_char_props(s: &mut CharStyle, p: &Value) -> bool {
         if !text.fonts.has_family(v) {
             let resolved = text.fonts.resolve_postscript(v);
             if resolved.exact {
+                s.variations.retain(|f| f.axis != "wght");
                 s.font_family = resolved.family;
                 s.weight = resolved.weight;
                 s.italic = resolved.italic;
