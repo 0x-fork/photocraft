@@ -211,7 +211,7 @@ fn delete_snapshot(s: &mut Session, p: &Value) -> Result<Value> {
 /// Non-Linear History a later (dimmed) one too, also while the oldest state is current.
 fn can_delete(s: &Session) -> std::result::Result<(), String> {
     s.active()
-        .filter(|d| d.history.can_undo() || (d.history.non_linear && d.history.can_redo()))
+        .filter(|d| d.history.past_len() > 0 || (d.history.non_linear && d.history.can_redo()))
         .map(|_| ())
         .ok_or_else(|| "the oldest state can't be deleted".into())
 }

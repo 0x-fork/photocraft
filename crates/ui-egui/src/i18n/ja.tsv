@@ -3711,8 +3711,10 @@ curves	Smooth	スムーズ
 	No document open	ドキュメントが開かれていません
 	{n} of {max} sample points	{max} 個中 {n} 個のサンプルポイント
 
-# History panel › History Options… (#2966)
+# History panel menu (#2966)
+	New Snapshot…	新規スナップショット…
 	History Options…	ヒストリーオプション…
+# History panel › History Options… (#2966)
 	Allow Non-Linear History	非線形のヒストリーを許可
 	Make Layer Visibility Changes Undoable	レイヤーの表示/非表示の変更を取り消し可能にする
 # Print dialog (#2697)
@@ -3858,6 +3860,9 @@ curves	Smooth	スムーズ
 	Reset All Locked Settings	ロックされた設定をすべて初期化
 	Copy Texture to Other Tools	テクスチャを他のツールにコピー
 	ICO is limited to 256 × 256 pixels	ICO は 256 × 256 ピクセルまでです
+# History panel › History Brush source (#2966)
+	Paints from the History panel's source state	ヒストリーパネルのソース状態からペイントします
+	Sets the source for the history brush	ヒストリーブラシのソースを設定します
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	埋め込みプロファイルを使用 ({profile})
 	Convert to the working space ({profile})	作業用スペースに変換 ({profile})
@@ -3876,6 +3881,9 @@ curves	Smooth	スムーズ
 # View › Guides › right-click a guide
 	Edit Selected Guides	選択したガイドを編集
 	Clear Selected Guides	選択したガイドを消去
+	Bicubic Automatic	バイキュービック法 (自動)
+	Bicubic Smoother	バイキュービック法 - 滑らか
+	Bicubic Sharper	バイキュービック法 - シャープ
 	Pasting from other apps is unavailable	他のアプリからの貼り付けは利用できません
 	PhotoCraft can't reach the system clipboard in this session. On Wayland, a Flatpak sandbox hides the protocol that images from other apps are read through.	このセッションでは PhotoCraft がシステムのクリップボードにアクセスできません。Wayland では、Flatpak のサンドボックスが他のアプリの画像を読み取るためのプロトコルを隠します。
 	To paste from other apps, start PhotoCraft under XWayland: `{command}`	他のアプリから貼り付けるには、XWayland 上で PhotoCraft を起動してください: `{command}`
@@ -3895,6 +3903,17 @@ curves	Smooth	スムーズ
 	set name	セット名
 	{set} (modified)	{set}（変更あり）
 	Show file name in title	タイトルにファイル名を表示
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	50% しきい値
+	Pattern Dither	パターンディザ
+	Diffusion Dither	拡散ディザ
+	Halftone Screen	ハーフトーンスクリーン
+	Custom Pattern	カスタムパターン
+	Frequency:	線数:
+	Lines/Inch	線/インチ
+	Lines/Centimeter	線/センチメートル
+	Ellipse	楕円
 	Accept and Go to Conflict	適用して競合へ移動
 	Changes undone.	変更を取り消しました。
 	Choose a new shortcut for this command, or leave it without one.	このコマンドに新しいショートカットを選択するか、なしのままにしてください。
