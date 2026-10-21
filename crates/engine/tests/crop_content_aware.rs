@@ -157,3 +157,61 @@ fn bad_params_and_unfillable_crops_fail_cleanly() {
         assert_eq!(s.active().unwrap().history.past_len(), past, "{p}");
     }
 }
+
+/// `doc` with its left 16 columns red, then cropped to x = 16 keeping the cropped pixels: the red
+/// lies hidden past the canvas's left edge.
+fn hidden_red(background: &str) -> Session {
+    let mut s = doc("rgb", 8, background);
+    s.execute("tools.setColors", json!({"foreground": "#ff0000", "background": "#000000"})).unwrap();
+    s.execute("select.rect", json!({"x": 0, "y": 0, "width": 16, "height": 48})).unwrap();
+    s.execute("edit.fill", json!({"contents": "foreground"})).unwrap();
+    s.execute("select.deselect", json!({})).unwrap();
+    s.execute("image.crop", json!({"x": 16, "y": 0, "width": 48, "height": 48, "deleteCroppedPixels": false})).unwrap();
+    assert_eq!(size(&s), (48, 48));
+    s
+}
+
+const RED: [f32; 4] = [1.0, 0.0, 0.0, 1.0];
+
+/// A frame pulled back out over pixels a Delete Cropped Pixels off crop hid keeps them: only what
+/// lies past them is filled (#8060). Before, the whole strip past the old canvas was filled over.
+#[test]
+fn extending_crop_keeps_the_hidden_pixels() {
+    let mut s = hidden_red("transparent");
+    let green = layer(&s).rgba(24, 24);
+    crop(&mut s, json!({"x": -24, "y": 0, "width": 72, "height": 48, "deleteCroppedPixels": false}), true).unwrap();
+    assert_eq!(size(&s), (72, 48));
+    let surf = layer(&s);
+    for y in 0..48 {
+        for x in 8..24 {
+            assert_eq!(surf.rgba(x, y), RED, "the hidden red at ({x}, {y}) is kept");
+        }
+        for x in 0..8 {
+            let px = surf.rgba(x, y);
+            assert!(px[3] > 0.99, "past the hidden pixels ({x}, {y}) is filled: {px:?}");
+        }
+        assert!(close(surf.rgba(40, y), green, 1e-6), "the canvas is unchanged");
+    }
+}
+
+/// A turned frame that reaches over the Background's hidden pixels shows them, not a fill
+/// from the canvas (#8060).
+#[test]
+fn rotated_crop_keeps_the_hidden_pixels() {
+    let mut s = hidden_red("white");
+    // A diamond on the canvas's left edge: its left half lies over the hidden red, all of it inside
+    // the turned canvas (so nothing takes the background colour).
+    crop(&mut s, json!({"x": -10, "y": 14, "width": 20, "height": 20, "angle": 45, "deleteCroppedPixels": false}), true).unwrap();
+    assert_eq!(size(&s), (20, 20));
+    let (w, h) = size(&s);
+    let surf = layer(&s);
+    let mut red = 0;
+    for y in 0..h as i32 {
+        for x in 0..w as i32 {
+            let px = surf.rgba(x, y);
+            assert!(px[0] > 0.5 && px[3] > 0.99, "no background colour or transparency at ({x}, {y}): {px:?}");
+            red += usize::from(close(px, RED, 0.06));
+        }
+    }
+    assert!(red >= 100, "the hidden red shows in the turned frame: {red} red pixels");
+}

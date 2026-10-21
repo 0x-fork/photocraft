@@ -521,9 +521,11 @@ fn crop(s: &mut Session, p: &Value) -> Result<Value> {
     let extension = s.tools.background;
     s.edit("Crop", |doc, active| {
         let original = doc.size;
+        // Taken before the crop: the pixels a Delete Cropped Pixels off crop hid count as image (#8060).
+        let coverage = content_aware.then(|| crate::crop_fill::Coverage::crop(r, original.width, original.height).holding(doc, *active));
         crop_doc(doc, "image.crop", r, delete, extension)?;
-        if content_aware {
-            crate::crop_fill::fill_uncovered(doc, *active, &crate::crop_fill::Coverage::crop(r, original.width, original.height))?;
+        if let Some(coverage) = &coverage {
+            crate::crop_fill::fill_uncovered(doc, *active, coverage)?;
         }
         doc.selection = None;
         target.apply(doc);
@@ -666,6 +668,14 @@ fn rotated_crop(s: &mut Session, r: Rect, angle: f64, delete: bool, content_awar
         width: f64::from(size.width),
         height: f64::from(size.height),
         rotated: true,
+        held: None,
+    };
+    // The pixels before the turn: a Delete Cropped Pixels off crop's hidden ones count as image (#8060).
+    let coverage = if content_aware {
+        let d = s.active().ok_or(EngineError::NoDocument)?;
+        coverage.holding(&d.doc, d.active_layer)
+    } else {
+        coverage
     };
     crate::analysis_cmds::compound(s, "Crop", |s| {
         // Pixels the crop deletes needn't be turned first: keeping only what lands in the frame
