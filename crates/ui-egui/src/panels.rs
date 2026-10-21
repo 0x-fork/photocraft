@@ -3456,8 +3456,16 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
     let mut footer_cmd: Option<(&str, Value)> = None;
     if t.pro {
-        // With a snapshot selected the trash deletes it, as in Photoshop (#5324).
-        let can_delete = selected_snap.is_some() || app.session.is_enabled("history.deleteState");
+        // With a snapshot selected the trash deletes it, as in Photoshop (#5324). A click deletes
+        // the current state, never the oldest; a drop can delete a later (dimmed) one, which
+        // Allow Non-Linear History offers even while the oldest state is current.
+        let can_click = selected_snap.is_some() || app.session.active().is_some_and(|st| st.history.past_len() > 0);
+        let can_drop = match drag {
+            Some(HistoryDrag::Snapshot(_)) => true,
+            Some(HistoryDrag::State(_)) => app.session.is_enabled("history.deleteState"),
+            None => false,
+        };
+        let can_delete = can_click || can_drop;
         let can_new = app.session.is_enabled("history.newDocument");
         widgets::panel_footer(ui, |ui| {
             let trash = ui.add_enabled_ui(can_delete, |ui| icons::button(ui, "trash", 26.0, false, tl!("Delete current state"))).inner;
@@ -5332,6 +5340,49 @@ mod snapshot_row_tests {
         let st = h.state().session.active().unwrap();
         assert_eq!(st.history.entries().len(), 1, "the dragged state and the ones after it are deleted");
         assert_eq!(st.snapshots.len(), 1, "the snapshot is kept");
+    }
+
+    /// With Allow Non-Linear History and only the oldest state current, a click on the trash has
+    /// nothing to delete (the oldest state stays, as in Photoshop), so the trash is disabled; a
+    /// later (dimmed) state dragged onto it is still deleted, and once a past state exists again
+    /// the click works.
+    #[test]
+    fn non_linear_trash_click_never_targets_the_oldest_state() {
+        let mut h = pro_history();
+        h.state_mut().run("history.options", json!({"allowNonLinearHistory": true})).unwrap();
+        for _ in 0..3 {
+            h.state_mut().run("edit.undo", json!({})).unwrap();
+        }
+        h.run_steps(3);
+        let history = |h: &Harness<'static, PhotocraftApp>| {
+            let st = h.state().session.active().unwrap();
+            (st.history.past_len(), st.history.redo_labels().count())
+        };
+        assert_eq!(history(&h), (0, 3), "Open current, New Layer, Fill, Fill dimmed");
+        assert!(h.state().session.is_enabled("history.deleteState"), "the engine still offers a later state to delete");
+        let enabled = |h: &Harness<'static, PhotocraftApp>| {
+            let p = trash(h);
+            h.ctx.viewport(|v| {
+                v.prev_pass.widgets.layers().flat_map(|(_, w)| w.iter()).find(|w| w.rect.size() == vec2(26.0, 26.0) && w.rect.center() == p).map(|w| w.enabled)
+            })
+        };
+        assert_eq!(enabled(&h), Some(false), "a click would only target the oldest state");
+        let p = trash(&h);
+        click(&mut h, p);
+        assert_eq!(history(&h), (0, 3), "the click deletes nothing");
+        assert!(!h.state().ui.status_error, "and reports no error: {}", h.state().ui.status);
+
+        // The last dimmed Fill dragged onto the trash: only it goes.
+        let row = h.get_all_by_label("Fill").last().expect("the dimmed Fill row").rect().center();
+        drag(&mut h, row, p);
+        assert_eq!(history(&h), (0, 2), "the dragged later state is deleted");
+
+        // A past state again: the click deletes the current one.
+        h.state_mut().run("edit.redo", json!({})).unwrap();
+        h.run_steps(3);
+        assert_eq!(enabled(&h), Some(true));
+        click(&mut h, p);
+        assert_eq!(history(&h).0, 0, "the click deleted the current state");
     }
 
     /// Snapshot rows scroll with the states: many snapshots in a short dock leave the footer and
