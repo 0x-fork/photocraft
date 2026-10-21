@@ -158,3 +158,42 @@ fn soft_shape_bounds_cover_the_fill() {
     assert_eq!(layer_bounds(&dense.layers[1], canvas), canvas);
     assert!(effect_outline(&dense.layers[1]).is_none(), "a soft fill's alpha is its outline");
 }
+
+/// A soft shape's frame is the hard shape's painted pixels, also where a subtracted subpath
+/// leaves most of the rasterizers' bounds empty (#5846), at every depth.
+#[test]
+fn soft_shape_frame_skips_a_subtracted_margin() {
+    let canvas = Rect::new(0, 0, 200, 200);
+    let mut cut = Subpath::polygon(&[(40.0, 40.0), (160.0, 40.0), (160.0, 140.0), (40.0, 140.0)]);
+    cut.op = photocraft_doc::vector::PathOp::Subtract;
+    let path = Path::new(vec![Subpath::polygon(&[(50.0, 50.0), (150.0, 50.0), (150.0, 150.0), (50.0, 150.0)]), cut]);
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        let sh = ShapeLayer { path: path.clone(), fill: Some(Fill::Solid(Color::BLACK)), density: 0.5, feather: 4.0, ..ShapeLayer::default() };
+        assert_eq!(soft_shape_frame(&sh, doc(depth).pixel_format(), canvas), Some(Rect::new(50, 140, 150, 150)), "{depth:?}");
+    }
+}
+
+/// The frame scan renders a few strips per edge, not one per empty row or column: a 2-px
+/// painted spot in a 4000 × 3000 bounds takes a handful of renders and is found exactly.
+#[test]
+fn soft_shape_frame_scan_is_bounded() {
+    let spot = Rect::new(2500, 1700, 2502, 1702);
+    let mut calls = 0;
+    let got = trim_to_painted(Rect::new(0, 0, 4000, 3000), |strip| {
+        calls += 1;
+        strip.intersect(&spot)
+    });
+    assert_eq!(got, Some(spot));
+    assert!(calls <= 4 * 14, "{calls} renders");
+    let mut calls = 0;
+    assert_eq!(
+        trim_to_painted(Rect::new(0, 0, 4000, 3000), |_| {
+            calls += 1;
+            Rect::EMPTY
+        }),
+        None
+    );
+    assert!(calls <= 14, "an empty shape stops after the top edge: {calls} renders");
+    assert_eq!(trim_to_painted(Rect::EMPTY, |r| r), None);
+    assert_eq!(trim_to_painted(Rect::new(3, 4, 9, 7), |r| r), Some(Rect::new(3, 4, 9, 7)), "a full rect keeps its edges");
+}

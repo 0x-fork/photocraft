@@ -1167,19 +1167,59 @@ pub fn soft_shape_frame(sh: &photocraft_doc::ShapeLayer, format: photocraft_colo
     path.inverted = false;
     let hard = photocraft_doc::ShapeLayer { density: 1.0, feather: 0.0, path, fill: sh.fill.clone(), stroke: sh.stroke.clone(), ..Default::default() };
     let shape = photocraft_vector::CompiledShape::new(&hard, photocraft_vector::DEFAULT_TOLERANCE, canvas);
-    let mut r = shape.bounds()?.intersect(&canvas);
-    let painted = |strip: Rect| !shape.render(format, strip).content_bounds().is_empty();
-    while !r.is_empty() && !painted(Rect::new(r.x0, r.y0, r.x1, r.y0 + 1)) {
-        r.y0 += 1;
+    let r = shape.bounds()?.intersect(&canvas);
+    trim_to_painted(r, |strip| shape.render(format, strip).content_bounds())
+}
+
+/// `r` shrunk to the pixels `painted` reports (the painted bounds within a strip of `r`, empty if
+/// none), looking in from each edge through strips that double in thickness: a few renders per
+/// edge however wide the empty margin (a subtracted or intersected subpath can leave most of the
+/// rasterizers' bounds empty), and none of `r`'s inside rendered at once.
+fn trim_to_painted(mut r: Rect, mut painted: impl FnMut(Rect) -> Rect) -> Option<Rect> {
+    // Top: the first strip holding paint gives the first painted row.
+    let mut t = 1;
+    while !r.is_empty() {
+        let strip = Rect::new(r.x0, r.y0, r.x1, r.y0.saturating_add(t).min(r.y1));
+        let p = painted(strip).intersect(&strip);
+        if !p.is_empty() {
+            r.y0 = p.y0;
+            break;
+        }
+        r.y0 = strip.y1;
+        t = t.saturating_mul(2);
     }
-    while !r.is_empty() && !painted(Rect::new(r.x0, r.y1 - 1, r.x1, r.y1)) {
-        r.y1 -= 1;
+    let mut t = 1;
+    while !r.is_empty() {
+        let strip = Rect::new(r.x0, r.y1.saturating_sub(t).max(r.y0), r.x1, r.y1);
+        let p = painted(strip).intersect(&strip);
+        if !p.is_empty() {
+            r.y1 = p.y1;
+            break;
+        }
+        r.y1 = strip.y0;
+        t = t.saturating_mul(2);
     }
-    while !r.is_empty() && !painted(Rect::new(r.x0, r.y0, r.x0 + 1, r.y1)) {
-        r.x0 += 1;
+    let mut t = 1;
+    while !r.is_empty() {
+        let strip = Rect::new(r.x0, r.y0, r.x0.saturating_add(t).min(r.x1), r.y1);
+        let p = painted(strip).intersect(&strip);
+        if !p.is_empty() {
+            r.x0 = p.x0;
+            break;
+        }
+        r.x0 = strip.x1;
+        t = t.saturating_mul(2);
     }
-    while !r.is_empty() && !painted(Rect::new(r.x1 - 1, r.y0, r.x1, r.y1)) {
-        r.x1 -= 1;
+    let mut t = 1;
+    while !r.is_empty() {
+        let strip = Rect::new(r.x1.saturating_sub(t).max(r.x0), r.y0, r.x1, r.y1);
+        let p = painted(strip).intersect(&strip);
+        if !p.is_empty() {
+            r.x1 = p.x1;
+            break;
+        }
+        r.x1 = strip.x0;
+        t = t.saturating_mul(2);
     }
     (!r.is_empty()).then_some(r)
 }
