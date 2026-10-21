@@ -3229,6 +3229,17 @@ curves	Smooth	Glätten
 	set name	Name des Satzes
 	{set} (modified)	{set} (geändert)
 	Show file name in title	Dateiname im Titel anzeigen
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	50 %-Schwellenwert
+	Pattern Dither	Musterdither
+	Diffusion Dither	Diffusionsdither
+	Halftone Screen	Rasterung
+	Custom Pattern	Eigenes Muster
+	Frequency:	Frequenz:
+	Lines/Inch	Linien/Zoll
+	Lines/Centimeter	Linien/Zentimeter
+	Ellipse	Ellipse
 	Accept and Go to Conflict	Übernehmen und zum Konflikt
 	Changes undone.	Änderungen rückgängig gemacht.
 	Choose a new shortcut for this command, or leave it without one.	Wählen Sie einen neuen Kurzbefehl für diesen Befehl oder lassen Sie ihn ohne.

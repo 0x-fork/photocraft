@@ -3920,6 +3920,17 @@ curves	Smooth	Згладити
 	set name	назва набору
 	{set} (modified)	{set} (змінено)
 	Show file name in title	Показувати ім’я файла в заголовку
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	Поріг 50%
+	Pattern Dither	Візерунковий дизеринг
+	Diffusion Dither	Дифузійний дизеринг
+	Halftone Screen	Півтоновий растр
+	Custom Pattern	Довільний візерунок
+	Frequency:	Лініатура:
+	Lines/Inch	Ліній/дюйм
+	Lines/Centimeter	Ліній/сантиметр
+	Ellipse	Еліпс
 	Accept and Go to Conflict	Прийняти й перейти до конфлікту
 	Changes undone.	Зміни скасовано.
 	Choose a new shortcut for this command, or leave it without one.	Виберіть нове клавіатурне скорочення для цієї команди або залиште її без нього.

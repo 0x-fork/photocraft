@@ -3405,6 +3405,17 @@ curves	Smooth	매끄럽게
 	set name	세트 이름
 	{set} (modified)	{set}(수정됨)
 	Show file name in title	제목에 파일 이름 표시
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	50% 한계값
+	Pattern Dither	패턴 디더
+	Diffusion Dither	확산 디더
+	Halftone Screen	하프톤 스크린
+	Custom Pattern	사용자 정의 패턴
+	Frequency:	빈도:
+	Lines/Inch	선/인치
+	Lines/Centimeter	선/센티미터
+	Ellipse	타원
 	Accept and Go to Conflict	적용 후 충돌 항목으로 이동
 	Changes undone.	변경 사항을 취소했습니다.
 	Choose a new shortcut for this command, or leave it without one.	이 명령의 새 단축키를 선택하거나 단축키 없이 두세요.

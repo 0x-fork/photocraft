@@ -3831,6 +3831,17 @@ navigator	Zoom	Zvětšení
 	set name	název sady
 	{set} (modified)	{set} (změněno)
 	Show file name in title	Zobrazit název souboru v titulu
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	50% práh
+	Pattern Dither	Rozptyl se vzorkem
+	Diffusion Dither	Difuzní rozptyl
+	Halftone Screen	Polotónový rastr
+	Custom Pattern	Vlastní vzorek
+	Frequency:	Frekvence:
+	Lines/Inch	Linky/palec
+	Lines/Centimeter	Linky/centimetr
+	Ellipse	Elipsa
 	Accept and Go to Conflict	Přijmout a přejít ke konfliktu
 	Changes undone.	Změny vráceny.
 	Choose a new shortcut for this command, or leave it without one.	Zvolte pro tento příkaz novou zkratku, nebo ho nechte bez ní.

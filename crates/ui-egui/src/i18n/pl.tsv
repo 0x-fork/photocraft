@@ -3819,6 +3819,17 @@ curves	Smooth	Wygładź
 	set name	nazwa zestawu
 	{set} (modified)	{set} (zmieniony)
 	Show file name in title	Pokaż nazwę pliku w tytule
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	Próg 50%
+	Pattern Dither	Rozpraszanie wzorkiem
+	Diffusion Dither	Rozpraszanie dyfuzyjne
+	Halftone Screen	Raster półtonowy
+	Custom Pattern	Własny wzór
+	Frequency:	Częstotliwość:
+	Lines/Inch	Linii/cal
+	Lines/Centimeter	Linii/centymetr
+	Ellipse	Elipsa
 	Accept and Go to Conflict	Akceptuj i przejdź do konfliktu
 	Changes undone.	Zmiany cofnięte.
 	Choose a new shortcut for this command, or leave it without one.	Wybierz nowy skrót dla tego polecenia lub zostaw je bez skrótu.

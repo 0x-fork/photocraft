@@ -4138,6 +4138,17 @@ cameraRaw	Yellow	Sárga
 	set name	készlet neve
 	{set} (modified)	{set} (módosítva)
 	Show file name in title	Fájlnév megjelenítése a címben
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	50%-os küszöb
+	Pattern Dither	Mintázatos keverés
+	Diffusion Dither	Diffúziós keverés
+	Halftone Screen	Féltónusrács
+	Custom Pattern	Egyéni mintázat
+	Frequency:	Gyakoriság:
+	Lines/Inch	Vonal/hüvelyk
+	Lines/Centimeter	Vonal/centiméter
+	Ellipse	Ellipszis
 	Accept and Go to Conflict	Elfogadás és ugrás az ütközéshez
 	Changes undone.	Változások visszavonva.
 	Choose a new shortcut for this command, or leave it without one.	Válasszon új billentyűparancsot ehhez a parancshoz, vagy hagyja nélküle.

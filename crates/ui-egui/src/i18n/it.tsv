@@ -4342,6 +4342,17 @@ shape	Appearance	Aspetto
 	set name	nome del set
 	{set} (modified)	{set} (modificato)
 	Show file name in title	Mostra nome file nel titolo
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	Soglia 50%
+	Pattern Dither	Dithering pattern
+	Diffusion Dither	Dithering diffusione
+	Halftone Screen	Retino mezzetinte
+	Custom Pattern	Pattern personalizzato
+	Frequency:	Frequenza:
+	Lines/Inch	Linee/Pollice
+	Lines/Centimeter	Linee/Centimetro
+	Ellipse	Ellisse
 	Accept and Go to Conflict	Accetta e vai al conflitto
 	Changes undone.	Modifiche annullate.
 	Choose a new shortcut for this command, or leave it without one.	Scegli una nuova scorciatoia per questo comando o lascialo senza.

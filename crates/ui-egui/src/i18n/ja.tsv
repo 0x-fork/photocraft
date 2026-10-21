@@ -3897,6 +3897,17 @@ curves	Smooth	スムーズ
 	set name	セット名
 	{set} (modified)	{set}（変更あり）
 	Show file name in title	タイトルにファイル名を表示
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	50% しきい値
+	Pattern Dither	パターンディザ
+	Diffusion Dither	拡散ディザ
+	Halftone Screen	ハーフトーンスクリーン
+	Custom Pattern	カスタムパターン
+	Frequency:	線数:
+	Lines/Inch	線/インチ
+	Lines/Centimeter	線/センチメートル
+	Ellipse	楕円
 	Accept and Go to Conflict	適用して競合へ移動
 	Changes undone.	変更を取り消しました。
 	Choose a new shortcut for this command, or leave it without one.	このコマンドに新しいショートカットを選択するか、なしのままにしてください。

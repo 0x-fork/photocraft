@@ -3708,6 +3708,17 @@ curves	Smooth	Làm mượt
 	set name	tên bộ
 	{set} (modified)	{set} (đã sửa đổi)
 	Show file name in title	Hiển thị tên tệp trong tiêu đề
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	Ngưỡng 50%
+	Pattern Dither	Hòa sắc họa tiết
+	Diffusion Dither	Hòa sắc khuếch tán
+	Halftone Screen	Màn bán sắc
+	Custom Pattern	Họa tiết tùy chỉnh
+	Frequency:	Tần số:
+	Lines/Inch	Đường/inch
+	Lines/Centimeter	Đường/centimet
+	Ellipse	Elip
 	Accept and Go to Conflict	Chấp nhận và đến xung đột
 	Changes undone.	Đã hoàn tác thay đổi.
 	Choose a new shortcut for this command, or leave it without one.	Chọn phím tắt mới cho lệnh này, hoặc để lệnh không có phím tắt.

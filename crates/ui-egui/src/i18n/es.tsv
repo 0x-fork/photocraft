@@ -4183,6 +4183,17 @@ navigator	Zoom	Zoom
 	set name	nombre del conjunto
 	{set} (modified)	{set} (modificado)
 	Show file name in title	Mostrar nombre de archivo en el título
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	Umbral 50%
+	Pattern Dither	Tramado de motivo
+	Diffusion Dither	Tramado de difusión
+	Halftone Screen	Trama de semitonos
+	Custom Pattern	Motivo personalizado
+	Frequency:	Frecuencia:
+	Lines/Inch	Líneas/pulgada
+	Lines/Centimeter	Líneas/centímetro
+	Ellipse	Elipse
 	Accept and Go to Conflict	Aceptar e ir al conflicto
 	Changes undone.	Cambios deshechos.
 	Choose a new shortcut for this command, or leave it without one.	Elija un nuevo método abreviado para este comando o déjelo sin ninguno.

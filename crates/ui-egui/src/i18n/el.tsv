@@ -3921,6 +3921,17 @@ curves	Smooth	Εξομάλυνση
 	set name	όνομα συνόλου
 	{set} (modified)	{set} (τροποποιημένο)
 	Show file name in title	Εμφάνιση ονόματος αρχείου στον τίτλο
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	Κατώφλι 50%
+	Pattern Dither	Πρόσμιξη μοτίβου
+	Diffusion Dither	Πρόσμιξη διάχυσης
+	Halftone Screen	Ράστερ ημιτόνων
+	Custom Pattern	Προσαρμοσμένο μοτίβο
+	Frequency:	Συχνότητα:
+	Lines/Inch	Γραμμές/ίντσα
+	Lines/Centimeter	Γραμμές/εκατοστό
+	Ellipse	Έλλειψη
 	Accept and Go to Conflict	Αποδοχή και μετάβαση στη σύγκρουση
 	Changes undone.	Οι αλλαγές αναιρέθηκαν.
 	Choose a new shortcut for this command, or leave it without one.	Επιλέξτε νέα συντόμευση για αυτήν την εντολή ή αφήστε την χωρίς.

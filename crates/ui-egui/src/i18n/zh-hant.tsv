@@ -2832,6 +2832,19 @@ curves	Smooth	平滑
 	{set} (modified)	{set}（已修改）
 	Random	隨機
 	Show file name in title	標題中顯示檔案名稱
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	50% 臨界值
+	Pattern Dither	圖樣混色
+	Diffusion Dither	擴散混色
+	Halftone Screen	半色調網屏
+	Custom Pattern	自訂圖樣
+	Frequency:	頻率：
+	Lines/Inch	線/英吋
+	Lines/Centimeter	線/公分
+	Ellipse	橢圓
+	Cross	十字
+	Method	方法
 	Accept and Go to Conflict	接受並前往衝突
 	Changes undone.	已還原變更。
 	Choose a new shortcut for this command, or leave it without one.	為此指令選擇新的快速鍵，或保持沒有快速鍵。

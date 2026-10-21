@@ -3193,6 +3193,19 @@ curves	Smooth	Сгладить
 	{set} (modified)	{set} (изменён)
 	Random	Случайно
 	Show file name in title	Показывать имя файла в заголовке
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	Порог 50%
+	Pattern Dither	Регулярный дизеринг
+	Diffusion Dither	Диффузионный дизеринг
+	Halftone Screen	Полутоновый растр
+	Custom Pattern	Свой узор
+	Frequency:	Линиатура:
+	Lines/Inch	Линий/дюйм
+	Lines/Centimeter	Линий/см
+	Ellipse	Эллипс
+	Diamond	Ромб
+	Cross	Крест
 	Accept and Go to Conflict	Принять и перейти к конфликту
 	Changes undone.	Изменения отменены.
 	Choose a new shortcut for this command, or leave it without one.	Выберите новую комбинацию для этой команды или оставьте её без комбинации.

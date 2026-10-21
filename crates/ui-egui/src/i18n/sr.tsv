@@ -4292,6 +4292,17 @@ shape	Appearance	Izgled
 	set name	ime skupa
 	{set} (modified)	{set} (izmenjen)
 	Show file name in title	Prikaži naziv datoteke u naslovu
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	Prag 50%
+	Pattern Dither	Dither šarom
+	Diffusion Dither	Difuzni dither
+	Halftone Screen	Polutonski raster
+	Custom Pattern	Prilagođena šara
+	Frequency:	Frekvencija:
+	Lines/Inch	Linija/inč
+	Lines/Centimeter	Linija/centimetar
+	Ellipse	Elipsa
 	Accept and Go to Conflict	Prihvati i idi na sukob
 	Changes undone.	Izmene su poništene.
 	Choose a new shortcut for this command, or leave it without one.	Izaberite novu prečicu za ovu komandu ili je ostavite bez prečice.

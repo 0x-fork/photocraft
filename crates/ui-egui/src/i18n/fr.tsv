@@ -3228,6 +3228,18 @@ curves	Smooth	Lisser
 	{set} (modified)	{set} (modifié)
 	Random	Aléatoire
 	Show file name in title	Afficher le nom de fichier dans le titre
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	Seuil 50 %
+	Pattern Dither	Simulation par motif
+	Diffusion Dither	Simulation par diffusion
+	Halftone Screen	Trame de demi-teintes
+	Custom Pattern	Motif personnalisé
+	Frequency:	Fréquence :
+	Lines/Inch	Lignes/pouce
+	Lines/Centimeter	Lignes/centimètre
+	Ellipse	Ellipse
+	Cross	Croix
 	Accept and Go to Conflict	Accepter et aller au conflit
 	Changes undone.	Modifications annulées.
 	Choose a new shortcut for this command, or leave it without one.	Choisissez un nouveau raccourci pour cette commande ou laissez-la sans raccourci.

@@ -3215,6 +3215,18 @@ curves	Smooth	Haluskan
 	{set} (modified)	{set} (diubah)
 	Random	Acak
 	Show file name in title	Tampilkan nama file di judul
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	Threshold 50%
+	Pattern Dither	Dither Pola
+	Diffusion Dither	Dither Difusi
+	Halftone Screen	Layar Halftone
+	Custom Pattern	Pola Kustom
+	Frequency:	Frekuensi:
+	Lines/Inch	Garis/Inci
+	Lines/Centimeter	Garis/Sentimeter
+	Ellipse	Elips
+	Cross	Silang
 	Accept and Go to Conflict	Terima dan Buka Konflik
 	Changes undone.	Perubahan dibatalkan.
 	Choose a new shortcut for this command, or leave it without one.	Pilih pintasan baru untuk perintah ini, atau biarkan tanpa pintasan.

@@ -4011,6 +4011,17 @@ layerLabel	No Color	Sem cor
 	set name	nome do conjunto
 	{set} (modified)	{set} (modificado)
 	Show file name in title	Exibir nome do arquivo no título
+
+# Image › Mode › Bitmap (#5559)
+	50% Threshold	Limiar de 50%
+	Pattern Dither	Pontilhamento de padrão
+	Diffusion Dither	Pontilhamento de difusão
+	Halftone Screen	Retícula de meio-tom
+	Custom Pattern	Padrão personalizado
+	Frequency:	Frequência:
+	Lines/Inch	Linhas/polegada
+	Lines/Centimeter	Linhas/centímetro
+	Ellipse	Elipse
 	Accept and Go to Conflict	Aceitar e ir para o conflito
 	Changes undone.	Alterações desfeitas.
 	Choose a new shortcut for this command, or leave it without one.	Escolha um novo atalho para este comando ou deixe-o sem atalho.
