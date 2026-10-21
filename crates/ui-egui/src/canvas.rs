@@ -1205,8 +1205,13 @@ pub(crate) fn display_doc(app: &mut PhotocraftApp, idx: usize) -> (std::sync::Ar
     if let Some(shown) = crate::patch_preview::display_doc(app, idx) {
         return shown;
     }
-    // Content-Aware Move drag or box: the result, once computed in the background.
+    // Content-Aware Move drag or box: the result, once computed in the background. It comes
+    // before the reorder preview, which is built from the session document and would drop it.
     if let Some(shown) = crate::cam_preview::display_doc(app, idx) {
+        return shown;
+    }
+    // Live Layers-panel reorder previews the actual composite before mouse release.
+    if let Some(shown) = crate::layers_panel_ui::display_reorder(app, idx) {
         return shown;
     }
     // A blend mode hovered in the Layers panel.

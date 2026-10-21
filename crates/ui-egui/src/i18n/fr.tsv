@@ -3075,6 +3075,24 @@ cameraData	Lens	Objectif
 	Duplicate Layer	Dupliquer le calque
 	Contract	Contracter
 
+	Animation Options	Options d’animation
+	Entire Document	Document entier
+	Filter Options	Options de filtrage
+	Layer Bounds	Limites du calque
+	Layers Panel Options	Options du panneau Calques
+	Lock Layers	Verrouiller les calques
+	New Artboard…	Nouveau plan de travail…
+	New Group…	Nouveau groupe…
+	Prevent Auto-Nesting	Empêcher l’imbrication automatique
+	Show Layers	Afficher les calques
+	Thumbnail Contents	Contenu des vignettes
+	Thumbnail Size	Taille des vignettes
+	Use Default Masks on Fill Layers	Utiliser les masques par défaut sur les calques de remplissage
+	Expand New Effects	Développer les nouveaux effets
+	Add “copy” to Copied Layers and Groups	Ajouter « copie » aux calques et groupes dupliqués
+	Preview on canvas when reordering layers	Prévisualiser sur la zone de travail lors du réagencement des calques
+	Show layer mask badges	Afficher les badges des masques de fusion
+
 # Smart Filter editors
 	Blending Options ({filter})	Options de fusion ({filter})
 	Hide the layer's effects and Smart Filters  ({key}-click: all layers)	Masquer les effets du calque et les filtres dynamiques  ({key}-clic : tous les calques)
