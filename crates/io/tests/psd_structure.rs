@@ -288,6 +288,33 @@ fn indexed_document_whose_only_entry_is_transparent_is_not_written_as_indexed() 
 }
 
 #[test]
+fn indexed_save_warns_whenever_flattening_loses_a_layer() {
+    // One plain visible pixel layer is the merged image: no warning. A single hidden, masked,
+    // half-opaque or type layer, or a second layer, is lost in the flat file, so the save says so.
+    let flat = |d: &photocraft_doc::Document| {
+        let out = export(d, "x.psd", &ExportOptions::default()).unwrap();
+        assert_eq!(PsdFile::from_bytes(&out.bytes).unwrap().header.color_mode, ColorMode::Indexed);
+        out.warnings.iter().any(|w| w.contains("written flattened"))
+    };
+    let plain = indexed_doc(photocraft_color::Color::rgba(1.0, 1.0, 1.0, 1.0), vec![[255, 255, 255], [0, 0, 0]], None);
+    assert!(!flat(&plain), "a single plain layer flattens losslessly");
+    let changes: [fn(&mut photocraft_doc::Layer); 4] = [
+        |l| l.visible = false,
+        |l| l.opacity = 0.5,
+        |l| l.mask = Some(photocraft_doc::LayerMask::hide_all()),
+        |l| l.content = LayerContent::Text(photocraft_doc::TextLayer::default()),
+    ];
+    for (i, change) in changes.iter().enumerate() {
+        let mut d = plain.clone();
+        change(&mut d.layers[0]);
+        assert!(flat(&d), "change {i} is lost when flattened, so the save warns");
+    }
+    let mut two = plain.clone();
+    two.layers.push(two.layers[0].clone());
+    assert!(flat(&two));
+}
+
+#[test]
 fn indexed_and_bitmap_documents_with_channels_keep_them() {
     // PhotoCraft does not read extra channels of a palette-mode PSD back, so these documents keep
     // the RGB / Grayscale file that holds their alpha channels and Quick Mask.
