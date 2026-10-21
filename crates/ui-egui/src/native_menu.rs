@@ -546,7 +546,7 @@ fn language_node(pref: &str, lang: Lang) -> Node {
         role: Some(ItemRole::Language),
     };
     let mut children = vec![Node::Item(item("auto", tr(lang, "Auto"))), Node::Separator];
-    children.extend(Lang::all().map(|l| Node::Item(item(l.code(), l.name()))));
+    children.extend(Lang::for_picker().into_iter().map(|l| Node::Item(item(l.code(), l.name()))));
     Node::Submenu { label: tr(lang, "Language").into(), children, role: Some(ItemRole::Language) }
 }
 
