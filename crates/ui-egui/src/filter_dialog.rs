@@ -1014,9 +1014,11 @@ pub(crate) fn needs_displace_map(command: &str, params: &Value) -> bool {
 /// Asks for the displacement map, then runs Displace with the dialog's values and that file, as
 /// OK in a dialog that had one would (smart filters included). Cancel applies nothing. In the
 /// browser the picker gives contents, not a path the filter can read: the map has to be opened
-/// as a document and picked as Map Document there.
+/// as a document and picked as Map Document there. It displaces the document that asked, even
+/// when another one was activated while the picker was open.
 pub(crate) fn ask_displace_map(app: &mut PhotocraftApp, command: String, fields: Map<String, Value>) -> Result<Value, String> {
     use crate::file_dialog::{FileDialogAnswer, FileDialogRequest};
+    let doc = app.active_doc_id()?;
     let initial_dir = crate::file_dialog::last_used_dir(&app.ui.recent_files);
     app.ask_file(FileDialogRequest::Open { multiple: false, initial_dir, extensions: None }, move |app, answer| {
         let path = match answer {
@@ -1029,6 +1031,7 @@ pub(crate) fn ask_displace_map(app: &mut PhotocraftApp, command: String, fields:
         };
         let mut fields = fields;
         fields.insert("mapPath".into(), json!(path));
+        app.refocus(doc)?;
         let (cmd, params) = crate::smart_ui::confirm_command(&fields, command, params_of(&fields));
         let result = app.run(&cmd, params);
         if result.is_ok() {
@@ -1396,10 +1399,15 @@ mod tests {
         let id = open(&mut app, "filter.distort.displace").unwrap();
         crate::dialogs::confirm(&mut app, id).unwrap();
         assert!(app.file_dialog_open(), "OK leaves the map picker pending");
+        // Another document activated while the picker is open is left alone.
+        app.run("file.new", json!({"width": 16, "height": 16, "background": "white"})).unwrap();
+        let other_steps = app.session.documents()[1].history.past_len();
         // The frame shows the picker (the service is asked then) and acts on its answer.
         app.poll_file_dialog(&ctx, None);
         assert_eq!(asked.borrow().len(), 1, "OK asks for the map");
+        assert_eq!(app.session.active_index(), Some(0), "the document that asked is shown");
         assert_eq!(app.session.active().unwrap().history.past_len(), steps + 1, "Displace ran with the chosen map");
+        assert_eq!(app.session.documents()[1].history.past_len(), other_steps, "not on the other document");
         // Cancelled: nothing is applied.
         let id = open(&mut app, "filter.distort.displace").unwrap();
         crate::dialogs::confirm(&mut app, id).unwrap();
