@@ -131,8 +131,9 @@ pub enum Outcome {
 /// field's value is validated before the first one is applied, so a typo, an unknown field, a
 /// bad value or a bad nested key can't reply with success while nothing — or only half of it —
 /// changed (#412).
-pub const UI_SET_FIELDS: [&str; 37] = [
+pub const UI_SET_FIELDS: [&str; 38] = [
     "tool",
+    "strokeTrace",
     "panels",
     "dock",
     "dockTabs",
@@ -206,6 +207,20 @@ fn num_field(p: &Value, key: &str) -> std::result::Result<Option<f64>, String> {
     match p.get(key) {
         None => Ok(None),
         Some(v) => v.as_f64().filter(|f| f.is_finite()).map(Some).ok_or_else(|| format!("{key} must be a finite number")),
+    }
+}
+
+/// A finite number that stays finite as `f32` (1e39 would turn into inf and silently reset
+/// rotation to 0° or zoom to 100%).
+fn f32_range(n: &f64) -> bool {
+    n.is_finite() && n.abs() <= f64::from(f32::MAX)
+}
+
+/// A `ui.set` numeric field the view stores as `f32`: `Ok(None)` when absent, else within `f32` range.
+fn f32_field(p: &Value, key: &str) -> std::result::Result<Option<f64>, String> {
+    match p.get(key) {
+        None => Ok(None),
+        Some(v) => v.as_f64().filter(f32_range).map(Some).ok_or_else(|| format!("{key} must be a finite number within f32 range")),
     }
 }
 
@@ -492,6 +507,19 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                     None => None,
                 };
                 let gradient_classic = bool_field(p, "gradientClassic")?;
+                // The stroke latency trace (`stroke_trace`), at runtime: on (stderr) or off. A CSV
+                // file is only for the user's own launch (`--stroke-trace <path>`): a path over the
+                // control channel would write outside the automation write root.
+                let stroke_trace = match p.get("strokeTrace") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::Bool(b)) => Some(if *b { "stderr" } else { "off" }),
+                    Some(Value::String(v)) => match v.trim() {
+                        "stderr" | "on" | "true" => Some("stderr"),
+                        "off" | "false" => Some("off"),
+                        _ => return Err("strokeTrace must be true, false, \"stderr\" or \"off\"; a CSV file is set at launch (--stroke-trace <path>)".into()),
+                    },
+                    Some(_) => return Err("strokeTrace must be true, false, \"stderr\" or \"off\"".into()),
+                };
                 // The Eyedropper's options bar (#1649): Sample Size, Sample, Show Sampling Ring.
                 let eyedropper_size = match p.get("eyedropperSampleSize") {
                     Some(v) => Some(
@@ -557,9 +585,9 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                 let dock = whole_object(&app.ui.dock, p.get("dock"), "dock")?;
                 // Which chip the Color panel edits.
                 let color_panel = whole_object(&app.ui.color_panel, p.get("colorPanel"), "colorPanel")?;
-                let dock_width = num_field(p, "dockWidth")?;
-                let zoom = num_field(p, "zoom")?;
-                let rotation = num_field(p, "rotation")?;
+                let dock_width = f32_field(p, "dockWidth")?;
+                let zoom = f32_field(p, "zoom")?;
+                let rotation = f32_field(p, "rotation")?;
                 if rotation.is_some() && app.session.active_index().is_none() {
                     return Err("no document open".into());
                 }
@@ -572,6 +600,9 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                         let (Some(x), Some(y)) = (a.first().and_then(Value::as_f64), a.get(1).and_then(Value::as_f64)) else {
                             return Err("center must be [x, y] of two numbers".into());
                         };
+                        if !f32_range(&x) || !f32_range(&y) {
+                            return Err("center must be finite numbers within f32 range".into());
+                        }
                         Some([x as f32, y as f32])
                     }
                     None => None,
@@ -662,6 +693,9 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                 let gradient_before = app.ui.tool_options.clone();
                 if let Some(mode) = gradient_blend {
                     app.ui.tool_options.gradient_blend_mode = mode;
+                }
+                if let Some(v) = &stroke_trace {
+                    app.stroke_trace.set(v);
                 }
                 if let Some(classic) = gradient_classic {
                     app.ui.tool_options.gradient_classic = classic;
@@ -1026,6 +1060,13 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                     }
                     continue;
                 }
+                // ⌘/Ctrl-click with Curves open adds a point at the pixel's tone, on press only (#7325).
+                if !secondary && !space && button != "middle" && mods.command && crate::adjust_dialog::curves_on_top(app) {
+                    if matches!(ev, ToolEvent::Down { .. }) {
+                        crate::adjust_dialog::add_point_at(app, ctx, x, y, mods.shift);
+                    }
+                    continue;
+                }
                 // A Properties Levels/Curves eyedropper owns the primary button the same way.
                 if app.ui.dialogs.is_empty() && !matches!(s("button"), Some("secondary" | "right")) && crate::layer_picker::armed(app).is_some() {
                     if matches!(ev, ToolEvent::Down { .. }) {
@@ -1076,7 +1117,10 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                         }
                         continue;
                     }
-                    if crate::canvas_tool_menu::applies(app.ui.tool) || crate::canvas_tool_menu::editing_text(app, app.ui.tool) {
+                    if crate::canvas_tool_menu::applies(app.ui.tool)
+                        || crate::canvas_tool_menu::editing_text(app, app.ui.tool)
+                        || crate::canvas_tool_menu::type_layer_at(app, app.ui.tool, [x, y]).is_some()
+                    {
                         if down {
                             crate::canvas_tool_menu::open_at(app, ctx, app.ui.tool, screen_point(app, x, y), Some([x, y]));
                         }
@@ -1253,10 +1297,10 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
             }
             None => err("missing `path`"),
         },
-        "app.save" => match crate::targa_options_ui::bits_param(p, "app.save") {
-            Ok(tga_bits) => {
+        "app.save" => match crate::FormatChoices::from_params(p, "app.save") {
+            Ok(choices) => {
                 let path = s("path").map(str::to_string);
-                run_waiting(app, p.get("wait").and_then(Value::as_bool).unwrap_or(true), move |app| app.save_automation_with(path, tga_bits))
+                run_waiting(app, p.get("wait").and_then(Value::as_bool).unwrap_or(true), move |app| app.save_automation_with(path, choices))
             }
             Err(e) => err(e),
         },
@@ -1383,6 +1427,26 @@ mod tests {
             Outcome::Done(v) => v,
             _ => panic!("{method}: expected an immediate reply"),
         }
+    }
+
+    #[test]
+    fn ui_set_turns_the_stroke_trace_on_and_off_at_runtime() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        assert!(!app.stroke_trace.enabled());
+        assert_eq!(call(&mut app, &ctx, "ui.set", json!({"strokeTrace": true}))["ok"], true);
+        assert!(app.stroke_trace.enabled());
+        assert_eq!(call(&mut app, &ctx, "ui.set", json!({"strokeTrace": "off"}))["ok"], true);
+        assert!(!app.stroke_trace.enabled());
+        let bad = call(&mut app, &ctx, "ui.set", json!({"strokeTrace": 3, "tool": "Pencil"}));
+        assert_eq!(bad["ok"], false);
+        // A file path isn't accepted over the channel (it would write outside the automation
+        // write root); nothing is created.
+        let path = std::env::temp_dir().join(format!("photocraft-trace-{}.csv", std::process::id()));
+        let bad = call(&mut app, &ctx, "ui.set", json!({"strokeTrace": path.to_str().unwrap(), "tool": "Pencil"}));
+        assert_eq!(bad["ok"], false);
+        assert!(!path.exists());
+        assert!(!app.stroke_trace.enabled() && app.ui.tool != crate::state::Tool::Pencil, "a rejected call applies nothing");
     }
 
     #[test]
@@ -1670,7 +1734,7 @@ mod tests {
         let image = clipboard.clone();
         let mut app = PhotocraftApp::new(
             photocraft_engine::Session::new(),
-            crate::Services { clipboard_get_image: Some(Box::new(move || image.lock().ok()?.clone())), ..Default::default() },
+            crate::Services { clipboard_get_image: Some(Box::new(move || Ok(image.lock().unwrap().clone()))), ..Default::default() },
         );
         let ctx = egui::Context::default();
         let opened = call(&mut app, &ctx, "ui.dialog.open", json!({"kind":"newDocument"}));
@@ -2216,6 +2280,32 @@ mod tests {
     }
 
     #[test]
+    fn ui_set_rejects_view_numbers_beyond_f32_range() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        app.run("file.new", json!({"width": 32, "height": 32})).unwrap();
+        app.sync_views();
+        let r = call(&mut app, &ctx, "ui.set", json!({"rotation": 30, "zoom": 2, "center": [3, 4], "dockWidth": 300}));
+        assert_eq!(r["ok"], true, "{r}");
+        let dock = |ctx: &egui::Context| ctx.data(|d| d.get_temp::<f32>(crate::panels::dock_width_id()));
+        let (rotation, zoom, center) = (app.ui.views[0].rotation, app.ui.views[0].zoom, app.ui.views[0].center);
+        // Finite in f64 but infinite as f32: an error, not a silent reset to 0°, 100% or the minimum dock width.
+        for params in
+            [json!({"rotation": 1e39}), json!({"zoom": 1e39}), json!({"center": [1e39, 0]}), json!({"center": [0, -1e39]}), json!({"dockWidth": 1e39})]
+        {
+            let r = call(&mut app, &ctx, "ui.set", params.clone());
+            assert_eq!(r["ok"], false, "{params}: {r}");
+            assert_eq!(app.ui.views[0].rotation, rotation, "{params}");
+            assert_eq!(app.ui.views[0].zoom, zoom, "{params}");
+            assert_eq!(app.ui.views[0].center, center, "{params}");
+            assert_eq!(dock(&ctx), Some(300.0), "{params}");
+        }
+        // Huge but representable still clamps to the top zoom level.
+        assert_eq!(call(&mut app, &ctx, "ui.set", json!({"zoom": 1e38}))["ok"], true);
+        assert!(app.ui.views[0].zoom.is_finite() && app.ui.views[0].zoom > zoom, "{}", app.ui.views[0].zoom);
+    }
+
+    #[test]
     fn ui_set_theme_keeps_explicit_dock_tab_indices() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         let ctx = egui::Context::default();
@@ -2392,6 +2482,37 @@ mod tests {
         let r = call(&mut app, &ctx, "app.save", json!({"path": "d.tga", "tgaBits": 16}));
         assert!(r["error"].as_str().unwrap().contains("tgaBits"), "{r}");
         assert_eq!(written.borrow().len(), 3, "a bad tgaBits writes nothing");
+    }
+
+    /// `app.save` takes the DDS options (`ddsCompression`, `ddsMipmaps`) and never stops at DDS
+    /// Options.
+    #[test]
+    fn automation_save_passes_dds_options_without_asking() {
+        use photocraft_io::{DdsCompression, DdsOptions};
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        let asked: Rc<RefCell<Vec<DdsOptions>>> = Rc::default();
+        let a = asked.clone();
+        let services = crate::Services {
+            export: Some(Box::new(move |_d: &photocraft_doc::Document, _p: &str, s: &crate::ExportSettings| {
+                a.borrow_mut().push(s.dds);
+                Ok((b"out".to_vec(), Vec::new()))
+            })),
+            automation_write: Some(Box::new(|_: &str, _: &[u8]| Ok(()))),
+            ..Default::default()
+        };
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), services);
+        let ctx = egui::Context::default();
+        app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        for params in [json!({"path": "a.dds"}), json!({"path": "b.dds", "ddsCompression": "bc1", "ddsMipmaps": true})] {
+            let r = call(&mut app, &ctx, "app.save", params.clone());
+            assert_eq!(r["result"]["path"], params["path"], "{r}");
+            assert!(app.dds_options.is_none(), "automation saves never prompt");
+        }
+        assert_eq!(*asked.borrow(), [DdsOptions::default(), DdsOptions { compression: DdsCompression::Bc1, mipmaps: true }]);
+        let r = call(&mut app, &ctx, "app.save", json!({"path": "c.dds", "ddsCompression": "bc9"}));
+        assert!(r["error"].as_str().unwrap().contains("ddsCompression"), "{r}");
+        assert_eq!(asked.borrow().len(), 2, "a bad ddsCompression writes nothing");
     }
 
     #[test]

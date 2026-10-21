@@ -681,13 +681,12 @@ pub mod transcode {
             if !self.from.is_little() && TaggedBlock::is_foreign_order_signature(self.r.peek_rest()) {
                 let sig = self.r.array::<4>()?;
                 let mut key = self.r.array::<4>()?;
-                let long = uses_long_length(self.version, &{
-                    let mut k = key;
-                    if self.to.is_little() {
-                        k.reverse();
-                    }
-                    k
-                });
+                // Only reached with `from == Big`: the key is canonical here whatever the
+                // target order. `TaggedBlock::write` sizes the length field from that same key.
+                // Reversing it for the target order before the check
+                // asked about a key `PSB_LONG_KEYS` never contains, so a PSB long key's 8-byte
+                // length was read as 4 and every later block was copied unconverted.
+                let long = uses_long_length(self.version, &key);
                 let len = self.r.len_field(long)?;
                 let data = self.r.bytes_u64(len)?;
                 if self.to.is_little() {
@@ -1285,6 +1284,7 @@ pub mod transcode {
                     self.i32()?;
                 }
                 b"Idnt" | b"indx" => {
+                    self.class()?;
                     self.u32()?;
                 }
                 b"name" => {
@@ -1411,9 +1411,27 @@ pub mod transcode {
             })
         }
 
-        /// `FEid` / `FXid`: version, u64 length, items with per-channel planes (4-byte RLE counts).
+        /// `FEid` / `FXid`: version, then one section per smart object (u64 length, items with
+        /// per-channel planes and 4-byte RLE counts), each padded to 4 bytes.
         fn filter_effects(&mut self) -> Result<()> {
             self.u32()?;
+            loop {
+                let len = self.r.clone().len_field(true)?;
+                self.filter_effects_section()?;
+                // Mirrors `FilterEffects::parse`: the last section's padding may be cut short.
+                let pad = usize::try_from((4 - len % 4) % 4).unwrap_or(0).min(self.remaining());
+                self.raw(pad)?;
+                let rest = self.r.peek_rest();
+                if rest.len() <= 3 && rest.iter().all(|&b| b == 0) {
+                    return Ok(());
+                }
+                if rest.len() < 8 {
+                    return Err(PsdError::invalid(format!("filter effects: {} unexpected bytes after the data", rest.len())));
+                }
+            }
+        }
+
+        fn filter_effects_section(&mut self) -> Result<()> {
             self.sized_region(true, |t| {
                 while !t.r.is_empty() {
                     t.pascal(1)?;
@@ -1791,6 +1809,17 @@ mod tests {
     }
 
     #[test]
+    fn descriptor_references_by_identifier_and_index_keep_their_class() {
+        use crate::descriptor::{Class, ReferenceItem};
+        let class = || Class { name: UnicodeString::new(""), class_id: Id::new("Lyr ") };
+        let desc = Descriptor::new("null")
+            .with("null", Value::Reference(vec![ReferenceItem::Identifier { class: class(), id: 7 }, ReferenceItem::Index { class: class(), index: 2 }]));
+        let mut data = 0u32.to_be_bytes().to_vec();
+        data.extend(VersionedDescriptor::new(desc).to_bytes());
+        block_rt(*b"lfx2", data);
+    }
+
+    #[test]
     fn type_block_layout() {
         let mut data = Vec::new();
         data.put_u16(1);
@@ -2053,6 +2082,39 @@ mod tests {
         assert_eq!(FilterEffects::parse(&back.global_blocks[0].data).unwrap(), fx);
     }
 
+    /// Photoshop writes one `FEid` section per smart object: every section's lengths and
+    /// numbers are swapped, not only the first one's.
+    #[test]
+    fn filter_effects_block_swaps_every_section() {
+        use crate::filter_effects::{EffectsPlane, FilterEffects, FilterEffectsItem};
+        let rect = crate::layer::Rect { top: 0, left: 0, bottom: 2, right: 3 };
+        let item = |id: &str, v: u8| FilterEffectsItem {
+            id: id.into(),
+            version: 1,
+            rect,
+            depth: 8,
+            max_channels: 1,
+            slots: vec![Some(EffectsPlane::encode(Compression::Raw, &[v; 6], 3, 2, 8).unwrap()), None, None],
+            mask: None,
+        };
+        let fx = FilterEffects { version: 1, items: vec![item("first", 1), item("second-object", 2)] };
+        let data = fx.to_bytes();
+        let len1 = u64::from_be_bytes(data[4..12].try_into().unwrap()) as usize;
+        let second = 12 + len1 + (4 - len1 % 4) % 4;
+        let len2 = &data[second..second + 8];
+        block_rt(*b"FEid", data.clone());
+        let d = ImageSourceData { global_blocks: vec![TaggedBlock::new(*b"FEid", data.clone())], ..Default::default() };
+        let (little, _) = d.to_bytes(ByteOrder::Little).unwrap();
+        // 36-byte signature, then `MIB8`, the reversed key and a u32 length: the block data.
+        let body = &little[36 + 12..];
+        let mut swapped = len2.to_vec();
+        swapped.reverse();
+        assert_eq!(&body[second..second + 8], &swapped[..], "second section's length is little-endian");
+        let (back, w) = ImageSourceData::from_bytes(&little).unwrap();
+        assert!(w.is_empty(), "{w:?}");
+        assert_eq!(FilterEffects::parse(&back.global_blocks[0].data).unwrap(), fx);
+    }
+
     #[test]
     fn metadata_setting_items() {
         let desc = VersionedDescriptor::new(Descriptor::new("null")).to_bytes();
@@ -2209,6 +2271,25 @@ mod tests {
         let (big, _) = back.to_bytes(ByteOrder::Big).unwrap();
         assert!(big.windows(8).any(|x| x == b"MIB8Zzzz"));
         assert_eq!(ImageSourceData::from_bytes(&big).unwrap().0.global_blocks, back.global_blocks);
+    }
+
+    /// A PSB keeps `Mt16`/`Mt32`/`Mtrn`/`Alph` blocks of unknown layout verbatim, and their
+    /// length field is 8 bytes (a PSB long key). Writing them into a little-endian TIFF must
+    /// read that width; the old code looked the key up after reversing it for the target
+    /// order, which never matches `PSB_LONG_KEYS`.
+    #[test]
+    fn psb_foreign_order_long_key_roundtrips() {
+        let d = ImageSourceData {
+            version: Version::Psb,
+            byte_order: ByteOrder::Little,
+            global_blocks: vec![TaggedBlock { signature: *b"MIB8", key: *b"Mt16", data: vec![9, 8, 7, 6, 5, 4], padding: None }],
+            ..Default::default()
+        };
+        let (little, w) = d.to_bytes(ByteOrder::Little).unwrap();
+        assert!(w.is_empty(), "{w:?}");
+        let (back, w) = ImageSourceData::from_bytes(&little).unwrap();
+        assert!(w.is_empty(), "{w:?}");
+        assert_eq!(back.global_blocks, d.global_blocks, "the 8-byte length and the bytes survive");
     }
 
     #[test]
