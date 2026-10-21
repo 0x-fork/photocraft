@@ -148,15 +148,19 @@ fn auto_align(s: &mut Session, p: &Value) -> Result<Value> {
     )
 }
 
-/// Native-channel pixels of a layer over `area` (transparent outside its content).
-fn pixels(l: &Layer, area: Rect) -> Option<(Vec<f32>, photocraft_color::PixelFormat)> {
-    let s = l.surface()?;
-    Some((s.read_region(area), s.format()))
+/// The most memory Auto-Blend's working buffers may take past the canvas: a bound independent
+/// of the layers' own bounding boxes, which a sparse layer (a dot at each far corner) can make
+/// arbitrarily large, and of how many layers are blended.
+const MAX_BLEND_BYTES: u64 = 4 << 30;
+
+/// What Auto-Blend's buffers hold per work-area pixel, as f32: each layer's pixels, luminance,
+/// alpha and mask weight, plus the merged picture and the depth map.
+fn blend_bytes_per_pixel(layers: u64, channels: u64) -> u64 {
+    layers.saturating_mul(channels.saturating_add(3)).saturating_add(channels.saturating_mul(2)).saturating_mul(4)
 }
 
-/// The most pixels Auto-Blend works on past the canvas: a bound independent of the layers' own
-/// bounding boxes, which a sparse layer (a dot at each far corner) can make arbitrarily large.
-const MAX_BLEND_PIXELS: u64 = 1 << 27;
+/// Auto-Blend's buffers, for allocation errors.
+const BLEND_BUFFERS: &str = "Auto-Blend Layers";
 
 fn auto_blend(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "edit.autoBlendLayers";
@@ -194,9 +198,11 @@ fn auto_blend(s: &mut Session, p: &Value) -> Result<Value> {
     // The whole layers, past the canvas too (#5745): Auto-Align leaves a panorama's layers
     // partly off the canvas, and Photoshop masks and blends all of each layer, so Reveal All
     // shows the whole panorama. Layers so far apart that their bounds are mostly empty, or
-    // whose union exceeds `MAX_BLEND_PIXELS`, keep to the canvas.
+    // whose buffers would exceed `MAX_BLEND_BYTES`, keep to the canvas.
     let canvas = doc.bounds();
-    let fits = px_of(&union) <= MAX_BLEND_PIXELS && px_of(&union) <= content_px.max(px_of(&canvas)).saturating_mul(2);
+    let channels = ids.iter().filter_map(|id| doc.layer(*id).and_then(|l| l.surface()).map(|s| s.channels() as u64)).max().unwrap_or(4);
+    let per_px = blend_bytes_per_pixel(ids.len() as u64, channels);
+    let fits = px_of(&union).saturating_mul(per_px) <= MAX_BLEND_BYTES && px_of(&union) <= content_px.max(px_of(&canvas)).saturating_mul(2);
     let area = if fits { union } else { union.intersect(&canvas) };
     if area.is_empty() {
         return Err(EngineError::Other("the selected layers are empty".into()));
@@ -208,9 +214,10 @@ fn auto_blend(s: &mut Session, p: &Value) -> Result<Value> {
     let mut fmt = None;
     for id in &ids {
         let l = doc.layer(*id).ok_or(EngineError::NoLayer(*id))?;
-        let (px, f) = pixels(l, area).ok_or(EngineError::NoLayer(*id))?;
+        let surf = l.surface().ok_or(EngineError::NoLayer(*id))?;
+        let (px, f) = (crate::allocation::read_region(surf, area, BLEND_BUFFERS)?, surf.format());
         let n = f.channels();
-        let (mut lv, mut av) = (vec![0.0f32; w * h], vec![0.0f32; w * h]);
+        let (mut lv, mut av) = (crate::allocation::filled(w * h, 0.0f32, BLEND_BUFFERS)?, crate::allocation::filled(w * h, 0.0f32, BLEND_BUFFERS)?);
         for i in 0..w * h {
             let c = to_rgba(&f, &px[i * n..(i + 1) * n]);
             lv[i] = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
@@ -489,6 +496,17 @@ mod tests {
         let doc = &s.active().unwrap().doc;
         let bb = doc.layer(LayerId(r["blended"].as_u64().unwrap())).unwrap().surface().unwrap().content_bounds();
         assert!(bb.x1 <= 200 && bb.y1 <= 200, "{bb:?}");
+    }
+
+    /// The budget past the canvas counts every layer's buffers, not just the work-area pixels.
+    #[test]
+    fn auto_blend_budget_counts_layers_and_channels() {
+        // Two RGBA layers: 4 bytes × (2 layers × (4 channels + luma, alpha, weight) + merged + depth).
+        assert_eq!(blend_bytes_per_pixel(2, 4), 88);
+        assert!(blend_bytes_per_pixel(5, 4) > blend_bytes_per_pixel(2, 4));
+        // A 2^27-pixel area would need about 11 GiB for just two RGBA layers: it keeps to the canvas.
+        assert!((1u64 << 27).saturating_mul(blend_bytes_per_pixel(2, 4)) > MAX_BLEND_BYTES);
+        assert_eq!(blend_bytes_per_pixel(u64::MAX, 4), u64::MAX, "saturates instead of overflowing");
     }
 
     #[test]
