@@ -3360,6 +3360,10 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let redo: Vec<String> = st.history.redo_labels().map(str::to_string).collect();
     let source = photocraft_engine::history_source_cmds::source(st);
     let selected_snap = selected_snapshot(ui.ctx(), st);
+    // The newest past state is a new document on every step, Undo and Redo, also at the state
+    // limit, where the counts and a repeated name stay the same.
+    let newest = st.history.past_len().checked_sub(1).and_then(|i| st.history.state(i)).map(|d| std::sync::Arc::as_ptr(&d) as usize);
+    let spot = (doc.id, history_spot(st), newest);
     let ctx = ui.ctx().clone();
     // A row dragged onto the trash (#5324); a drag that never saw its release must not outlive it.
     if !ctx.input(|i| i.pointer.primary_down() || i.pointer.any_released()) {
@@ -3387,10 +3391,21 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // The dock gives History a fixed height: the rows scroll above the footer.
     let footer = if t.pro { widgets::footer_height(ui) + ui.spacing().item_spacing.y } else { 0.0 };
     let max_h = (ui.available_height() - footer).max(40.0);
+    // Follow the current state when the history moves (a new step, Undo, a state row) or another
+    // document comes up (`spot`), scrolling only if its row is hidden (#5909). Other changes (a
+    // layer click, a channel eye) and a selected snapshot leave the list where the user put it.
+    let follow_id = egui::Id::new("history-follow");
+    let moved = ui.ctx().data_mut(|d| {
+        let moved = d.get_temp::<(photocraft_doc::DocId, HistorySpot, Option<usize>)>(follow_id).as_ref() != Some(&spot);
+        d.insert_temp(follow_id, spot);
+        moved
+    });
+    let follow = moved && selected_snap.is_none();
     egui::ScrollArea::vertical().id_salt("history-rows").max_height(max_h).auto_shrink([false, false]).show(ui, |ui| {
         // Snapshots head the list and scroll with the states, so many of them never push the
         // footer out of a short dock.
         snap_cmd = snapshot_rows(app, ui, selected_snap);
+        let mut current_rect = None;
         for (i, (e, is_redo)) in all.enumerate() {
             // The current state shows selected unless a snapshot is (Photoshop highlights one row).
             let selected = i == current && selected_snap.is_none();
@@ -3400,6 +3415,9 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &e));
             if resp.drag_started() {
                 ui.ctx().data_mut(|d| d.insert_temp(history_drag_key(), HistoryDrag::State(i)));
+            }
+            if i == current {
+                current_rect = Some(rect);
             }
             if selected {
                 ui.painter().rect_filled(rect, if t.pro { 0.0 } else { t.radius_sm }, if t.pro { t.row_selected } else { t.accent_soft });
@@ -3434,6 +3452,10 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 // The current state is already the document: clicking it only selects it.
                 ctx.data_mut(|d| d.remove::<SelectedSnapshot>(selected_snapshot_key(doc.id)));
             }
+        }
+        if follow && let Some(rect) = current_rect {
+            // No alignment: a row already in view stays put. No animation, as the Layers panel reveal.
+            ui.scroll_to_rect_animation(rect, None, egui::style::ScrollAnimation::none());
         }
     });
     if let Some(i) = set_source
