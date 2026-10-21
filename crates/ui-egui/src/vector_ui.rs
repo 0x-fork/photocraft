@@ -2228,10 +2228,12 @@ mod tests {
             assert_eq!(overlay_shapes(&app, &ctx), 0, "{tool:?}: View > Show > Target Path off");
             app.ui.view.show.target_path = true;
         }
-        // Path Selection adds its anchor squares (the outline plus three anchors, two shapes each).
+        // Path Selection (and the Pen tools, as for the work path) add anchor squares.
         app.ui.tool = Tool::Move;
         let plain = overlay_shapes(&app, &ctx);
         app.ui.tool = Tool::PathSelection;
+        assert!(overlay_shapes(&app, &ctx) > plain);
+        app.ui.tool = Tool::Pen;
         assert!(overlay_shapes(&app, &ctx) > plain);
     }
 
