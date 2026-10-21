@@ -2349,6 +2349,27 @@ impl PhotocraftApp {
         colors_off && !alpha_on
     }
 
+    /// Explicitly targeting a filter mask ends any conflicting mask view.
+    pub(crate) fn select_filter_mask_target(&mut self, layer: Option<u64>) {
+        if layer.is_some() {
+            if let Some(st) = self.session.active_mut() {
+                if st.channel_view.layer_mask.is_some_and(|v| !v.filter || Some(v.layer.0) != layer) {
+                    st.channel_view.layer_mask = None;
+                }
+                if matches!(
+                    st.channel_view.target,
+                    photocraft_engine::channel_cmds::ChannelTarget::LayerMask | photocraft_engine::channel_cmds::ChannelTarget::VectorMask
+                ) {
+                    st.channel_view.target = photocraft_engine::channel_cmds::ChannelTarget::Composite;
+                }
+            }
+            self.ui.mask_target = false;
+            self.ui.vector_mask_target = false;
+        }
+        self.ui.filter_mask_target = layer;
+        self.sync_mask_targets();
+    }
+
     /// Viewing a layer mask (#196) targets it; a vector-mask target needs a vector mask on the
     /// active layer (a shape layer's path is its content, not a mask). Targeting a mask or the
     /// pixels brings back that target's foreground/background pair, as in Photoshop (#2166).

@@ -799,7 +799,7 @@ impl Session {
         let d = self.active_mut()?;
         d.doc.layer(target)?;
         let active = d.active_layer.replace(target);
-        let r = (spec.enabled)(self);
+        let r = self.precondition(spec, params);
         if let Some(d) = self.active_mut() {
             d.active_layer = active;
         }

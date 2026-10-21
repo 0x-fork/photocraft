@@ -754,12 +754,8 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                     app.sync_mask_targets();
                 }
                 if let Some(m) = filter_mask_target {
-                    app.ui.filter_mask_target = if m { app.session.active().and_then(|st| st.active_layer).map(|id| id.0) } else { None };
-                    if m {
-                        app.ui.mask_target = false;
-                        app.ui.vector_mask_target = false;
-                    }
-                    app.sync_mask_targets();
+                    let layer = if m { app.session.active().and_then(|st| st.active_layer).map(|id| id.0) } else { None };
+                    app.select_filter_mask_target(layer);
                 }
                 // Selection tools' options-bar mode: 0 New, 1 Add, 2 Subtract, 3 Intersect.
                 if let Some(m) = selection_mode {

@@ -2839,10 +2839,7 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             continue;
         }
         if id == "ui.filterMaskTarget" {
-            app.ui.filter_mask_target = p.as_u64();
-            app.ui.mask_target = false;
-            app.ui.vector_mask_target = false;
-            app.sync_mask_targets();
+            app.select_filter_mask_target(p.as_u64());
             continue;
         }
         // Double-clicking a mask thumbnail opens its settings: show Properties.

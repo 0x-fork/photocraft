@@ -457,6 +457,35 @@ mod tests {
         assert_eq!(app.ui.filter_mask_target, None, "a layer mask target replaces it");
     }
 
+    #[test]
+    fn selecting_the_filter_mask_replaces_a_layer_mask_view() {
+        let mut app = PhotocraftApp::new(Session::new(), Services::default());
+        app.run("file.new", json!({"width": 32, "height": 32})).unwrap();
+        app.run("layer.new.layer", json!({})).unwrap();
+        app.run("edit.fill", json!({"contents": "color", "color": "#ff0000"})).unwrap();
+        app.run("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        app.run("filter.blur.gaussianBlur", json!({"radius": 2})).unwrap();
+        app.run("layer.layerMask.revealAll", json!({})).unwrap();
+        app.run("view.layerMask", json!({"mode": "gray"})).unwrap();
+        app.sync_mask_targets();
+        assert!(app.layer_mask_targeted());
+        let id = app.session.active().unwrap().active_layer.unwrap();
+        app.select_filter_mask_target(Some(id.0));
+        app.sync_views();
+        assert!(app.filter_mask_targeted());
+        assert!(!app.layer_mask_targeted());
+        assert!(photocraft_engine::mask_view_cmds::current(app.session.active().unwrap()).is_none());
+        app.run("paint.stroke", json!({"points": [[8, 8]], "size": 6, "hardness": 1, "color": "#000000"})).unwrap();
+        let st = app.session.active().unwrap();
+        let layer = st.doc.layer(id).unwrap();
+        assert_eq!(layer.mask.as_ref().unwrap().value(8, 8), 1.0);
+        let LayerContent::Smart(sm) = &layer.content else { panic!("smart object") };
+        assert_eq!(sm.filter_mask.as_ref().unwrap().value(8, 8), 0.0);
+        app.run("view.layerMask", json!({"mode": "gray", "mask": "filter"})).unwrap();
+        app.select_filter_mask_target(Some(id.0));
+        assert!(photocraft_engine::mask_view_cmds::current(app.session.active().unwrap()).unwrap().filter, "a matching filter-mask view stays open");
+    }
+
     /// A pixel layer, a shape layer and a smart object, in that order.
     fn layers() -> [Layer; 3] {
         let mut s = photocraft_engine::Session::new();

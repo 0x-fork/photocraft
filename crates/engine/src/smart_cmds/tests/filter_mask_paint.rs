@@ -20,7 +20,11 @@ fn painting_the_filter_mask_hides_the_filters_there_in_one_undo_step() {
         let original = flat(&s);
         convert(&mut s);
         // Without smart filters there is no filter mask to paint.
+        let before = s.active().unwrap().doc.clone();
+        let steps = s.active().unwrap().history.past_len();
         assert!(matches!(stroke(&mut s, Some("filterMask")), Err(EngineError::Disabled(..))), "depth {depth}");
+        assert!(std::sync::Arc::ptr_eq(&s.active().unwrap().doc, &before));
+        assert_eq!(s.active().unwrap().history.past_len(), steps);
         s.execute("filter.blur.gaussianBlur", json!({"radius": 3})).unwrap();
         let blurred = flat(&s);
         assert!(active_smart(&s).filter_mask.is_none());
@@ -64,7 +68,9 @@ fn a_shown_filter_mask_takes_the_paint() {
     paint(&mut s);
     convert(&mut s);
     s.execute("filter.blur.gaussianBlur", json!({"radius": 3})).unwrap();
+    let before = s.active().unwrap().channel_view.clone();
     assert!(s.execute("view.layerMask", json!({"mode": "gray", "mask": "filter"})).is_err(), "no filter mask yet");
+    assert_eq!(s.active().unwrap().channel_view, before);
     stroke(&mut s, Some("filterMask")).unwrap();
     let v = s.execute("view.layerMask", json!({"mode": "gray", "mask": "filter"})).unwrap();
     assert_eq!(v["mode"], "gray");
@@ -75,5 +81,50 @@ fn a_shown_filter_mask_takes_the_paint() {
     let d = s.active().unwrap();
     assert!(matches!(d.doc.layer(d.active_layer.unwrap()).unwrap().content, LayerContent::Smart(_)), "still a smart object");
     // Bad params are refused, not a panic.
+    let before = s.active().unwrap().channel_view.clone();
     assert!(s.execute("view.layerMask", json!({"mask": 3})).is_err());
+    assert_eq!(s.active().unwrap().channel_view, before);
+}
+
+#[test]
+fn copying_the_filter_mask_never_copies_the_layer_mask() {
+    for depth in DEPTHS {
+        let mut s = session(depth);
+        paint(&mut s);
+        convert(&mut s);
+        s.execute("filter.blur.gaussianBlur", json!({"radius": 3})).unwrap();
+        stroke(&mut s, Some("filterMask")).unwrap();
+        for layer_mask in [false, true] {
+            if layer_mask {
+                s.execute("layer.layerMask.revealAll", json!({})).unwrap();
+            }
+            let before = s.active().unwrap().doc.clone();
+            let steps = s.active().unwrap().history.past_len();
+            let result = s.execute("edit.copy", json!({"target": "filterMask"})).unwrap();
+            assert_eq!(result["target"], "filterMask");
+            let clip = s.clipboard.as_ref().unwrap();
+            assert_eq!(clip.surface.rgba(8, 20), [0.0, 0.0, 0.0, 1.0]);
+            assert_eq!(clip.surface.rgba(30, 20), [1.0; 4]);
+            assert!(std::sync::Arc::ptr_eq(&s.active().unwrap().doc, &before));
+            assert_eq!(s.active().unwrap().history.past_len(), steps);
+        }
+    }
+}
+
+#[test]
+fn an_explicit_layer_checks_filter_mask_eligibility() {
+    let mut s = session(8);
+    paint(&mut s);
+    let id = convert(&mut s);
+    s.execute("filter.blur.gaussianBlur", json!({"radius": 3})).unwrap();
+    s.execute("shape.create", json!({"kind": "rect", "rect": [1, 1, 20, 20], "fill": "#ff0000"})).unwrap();
+    let active = s.active().unwrap().active_layer;
+    s.execute("paint.cloneStamp", json!({"layer": id, "target": "filterMask", "source": [8, 8], "points": [[20, 20]], "size": 4})).unwrap();
+    assert_eq!(s.active().unwrap().active_layer, active);
+    // A shape has no filter mask: rejection must precede recoloring its fill.
+    let before = s.active().unwrap().doc.clone();
+    let steps = s.active().unwrap().history.past_len();
+    assert!(s.execute("edit.fillForeground", json!({"layer": active.unwrap().0, "target": "filterMask"})).is_err());
+    assert!(std::sync::Arc::ptr_eq(&s.active().unwrap().doc, &before));
+    assert_eq!(s.active().unwrap().history.past_len(), steps);
 }
