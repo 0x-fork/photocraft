@@ -1826,10 +1826,10 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
     resources.push(version_info_resource(real_merged));
 
     let has_layers = !ex.records.is_empty();
-    // Photoshop writes a merged-transparency marker (`Mtrn`, `Mt16`, `Mt32`) before the layer
-    // block, and won't open a file whose `Lr32` comes first (#5068): the layer block goes right
-    // after the last kept marker, else first.
-    let index = global_blocks.iter().rposition(|b| matches!(&b.key, b"Mtrn" | b"Mt16" | b"Mt32")).map_or(0, |i| i + 1);
+    // Photoshop writes a merged-transparency marker (`Mtrn`, `Mt16`, `Mt32`; `MTrn` in a TIFF)
+    // before the layer block, and won't open a file whose `Lr32` comes first (#5068): the layer
+    // block goes right after the last kept marker, else first.
+    let index = global_blocks.iter().rposition(TaggedBlock::is_merged_transparency_marker).map_or(0, |i| i + 1);
     let placement = match (has_layers, sample) {
         (true, SampleType::U16) => LayerInfoPlacement::GlobalBlock { index, signature: *b"8BIM", key: *b"Lr16", padding: None },
         (true, SampleType::F32) => LayerInfoPlacement::GlobalBlock { index, signature: *b"8BIM", key: *b"Lr32", padding: None },
@@ -1963,7 +1963,12 @@ mod tests {
     /// `transparentbg.psd` re-saved both ways). The layer block follows a kept marker.
     #[test]
     fn layer_block_follows_a_kept_merged_transparency_marker() {
-        for (depth, key, marker) in [(SampleType::F32, *b"Lr32", *b"Mt32"), (SampleType::U16, *b"Lr16", *b"Mt16"), (SampleType::F32, *b"Lr32", *b"Mtrn")] {
+        for (depth, key, marker) in [
+            (SampleType::F32, *b"Lr32", *b"Mt32"),
+            (SampleType::U16, *b"Lr16", *b"Mt16"),
+            (SampleType::F32, *b"Lr32", *b"Mtrn"),
+            (SampleType::F32, *b"Lr32", *b"MTrn"),
+        ] {
             let mut doc = Document::new("t", photocraft_geom::Size::new(8, 6), ColorMode::Rgb, depth);
             let mut s = Surface::new(doc.pixel_format());
             s.fill_rect(photocraft_geom::Rect::new(1, 1, 5, 4), &[0.5, 0.2, 0.9, 1.0]);
