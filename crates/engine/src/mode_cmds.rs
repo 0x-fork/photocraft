@@ -87,7 +87,7 @@ pub(crate) fn rotate_arbitrary(s: &mut Session, p: &Value) -> Result<Value> {
         let (cx, cy) = (f64::from(old.width) / 2.0, f64::from(old.height) / 2.0);
         let (nx, ny) = (f64::from(new.width) / 2.0, f64::from(new.height) / 2.0);
         let a = Affine { m: [cs, sn, -sn, cs, nx - (cs * cx - sn * cy), ny - (sn * cx + cs * cy)] };
-        s.set_sampler_map(Affine::translate(0.5, 0.5).then(&a).then(&Affine::translate(-0.5, -0.5)));
+        s.set_canvas_map(a, Affine::translate(0.5, 0.5).then(&a).then(&Affine::translate(-0.5, -0.5)));
     }
     let size = s.edit("Rotate Canvas", |doc, _| {
         let old = doc.size;

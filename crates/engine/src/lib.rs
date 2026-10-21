@@ -498,6 +498,9 @@ pub struct Session {
     /// The canvas-geometry map the next [`Session::edit`] applies to the Color Sampler points (crop,
     /// Canvas Size, Image Size, rotation set it just before their edit). Consumed by the edit.
     sampler_map: Option<photocraft_geom::Affine>,
+    /// The same edit's map in edge coordinates, for the painting symmetry (Image Rotation maps the
+    /// samplers' pixel centres instead). Consumed by the edit.
+    symmetry_map: Option<photocraft_geom::Affine>,
     /// Each open document's linked smart objects' files: size and modification time when last
     /// seen ([`link_watch`]).
     pub link_stamps: std::collections::HashMap<(u64, String), link_watch::Stamp>,
@@ -566,8 +569,16 @@ impl Session {
     /// Move the Color Sampler points through `a` in the next [`Session::edit`] (crop, Canvas Size,
     /// Image Size, rotation), dropping the ones that land outside the new canvas. View state: the
     /// points stay pinned to their pixels, no history step. Cleared by the edit it is set for.
+    /// The painting symmetry moves through `a` too.
     pub(crate) fn set_sampler_map(&mut self, a: photocraft_geom::Affine) {
-        self.sampler_map = Some(a);
+        self.set_canvas_map(a, a);
+    }
+
+    /// [`set_sampler_map`](Self::set_sampler_map) for an edit whose sampler map differs from its
+    /// geometry map (a flip or rotation maps pixel centres): `geometry` moves the painting symmetry.
+    pub(crate) fn set_canvas_map(&mut self, geometry: photocraft_geom::Affine, samplers: photocraft_geom::Affine) {
+        self.sampler_map = Some(samplers);
+        self.symmetry_map = Some(geometry);
     }
 
     pub fn sync_tools_mask_target(&mut self) {
@@ -795,6 +806,7 @@ impl Session {
         let _document = crate::doc_path::scope(self.active().and_then(|d| d.path.as_deref()).map(std::path::Path::new));
         let restrict = self.color_restrict;
         let sampler_map = self.sampler_map.take();
+        let symmetry_map = self.symmetry_map.take();
         let st = self.active_mut().ok_or(EngineError::NoDocument)?;
         let before = st.doc.clone();
         // Selecting layers is not a step, so the state this edit leaves behind targets what was
@@ -829,6 +841,10 @@ impl Session {
             let n = st.color_samplers.len();
             st.color_samplers.retain(|p| bounds.contains(p[0].floor() as i32, p[1].floor() as i32));
             samplers_removed = n - st.color_samplers.len();
+        }
+        // The painting symmetry stays on its pixels too (Photoshop keeps it as a path).
+        if let Some(a) = symmetry_map {
+            st.symmetry = st.symmetry.take().and_then(|sym| sym.transform(&a));
         }
         // The pixels the edit can have changed, as its undo would report them: nothing for a
         // selection, guides or a layer's name (a new lasso selection used to recomposite a large
