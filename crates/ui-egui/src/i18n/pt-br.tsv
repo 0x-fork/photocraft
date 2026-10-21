@@ -4044,5 +4044,9 @@ layerLabel	No Color	Sem cor
 	DDS Options	Opções de DDS
 	Generate Mipmaps	Gerar mipmaps
 
+# Color Table (.act) dialog
+	There is no color table to save.	Não há tabela de cores para salvar.
+@plural	Saved {n} color to {file}|Saved {n} colors to {file}	{n} cor salva em {file}|{n} cores salvas em {file}
+
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptador de GPU

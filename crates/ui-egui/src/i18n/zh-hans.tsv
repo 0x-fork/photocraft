@@ -2880,5 +2880,9 @@ curves	Smooth	平滑
 	Compression	压缩
 	Generate Mipmaps	生成 Mipmap
 
+# Color Table (.act) dialog
+	There is no color table to save.	没有可保存的色表。
+@plural	Saved {n} color to {file}|Saved {n} colors to {file}	已将 {n} 种颜色保存到 {file}
+
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU 适配器

@@ -3963,5 +3963,9 @@ curves	Smooth	Згладити
 	Compression	Стиснення
 	Generate Mipmaps	Створити MIP-карти
 
+# Color Table (.act) dialog
+	There is no color table to save.	Немає таблиці кольорів для збереження.
+@plural	Saved {n} color to {file}|Saved {n} colors to {file}	Збережено {n} колір у {file}|Збережено {n} кольори у {file}|Збережено {n} кольорів у {file}
+
 # Graphics Adapter preference (#1885)
 	GPU adapter	Адаптер GPU

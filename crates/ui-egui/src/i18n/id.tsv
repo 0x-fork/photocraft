@@ -3250,5 +3250,9 @@ curves	Smooth	Haluskan
 	Compression	Kompresi
 	Generate Mipmaps	Buat mipmap
 
+# Color Table (.act) dialog
+	There is no color table to save.	Tidak ada tabel warna untuk disimpan.
+@plural	Saved {n} color to {file}|Saved {n} colors to {file}	{n} warna disimpan ke {file}
+
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptor GPU

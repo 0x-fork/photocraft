@@ -3263,5 +3263,9 @@ curves	Smooth	Lisser
 	Compression	Compression
 	Generate Mipmaps	Générer les mipmaps
 
+# Color Table (.act) dialog
+	There is no color table to save.	Il n’y a aucune table de couleurs à enregistrer.
+@plural	Saved {n} color to {file}|Saved {n} colors to {file}	{n} couleur enregistrée dans {file}|{n} couleurs enregistrées dans {file}
+
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptateur GPU

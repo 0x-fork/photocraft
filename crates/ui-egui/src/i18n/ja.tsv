@@ -3932,5 +3932,9 @@ curves	Smooth	スムーズ
 	Compression	圧縮
 	Generate Mipmaps	ミップマップを生成
 
+# Color Table (.act) dialog
+	There is no color table to save.	保存するカラーテーブルがありません。
+@plural	Saved {n} color to {file}|Saved {n} colors to {file}	{file} に {n} 色を保存しました
+
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU アダプター

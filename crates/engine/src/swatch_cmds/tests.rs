@@ -147,6 +147,39 @@ fn aco_round_trip_keeps_16_bit_values_and_books() {
 }
 
 #[test]
+fn act_round_trip_loads_a_photoshop_color_table() {
+    // A Photoshop-saved table: 256 RGB colors plus the count/transparent trailer.
+    let mut colors = [[0u8; 3]; 256];
+    colors[0] = [255, 255, 255];
+    for (i, c) in colors.iter_mut().enumerate().skip(1) {
+        let v = i as u8;
+        *c = [v, 255 - v, 128];
+    }
+    let file = photocraft_psd::act::write(&colors, Some(256), Some(255)).unwrap();
+    assert_eq!(file.len(), 772);
+    let mut s = Session::new();
+    let r = s.execute("swatches.import", json!({"data": b64_encode(&file), "group": "Table", "mode": "replace"})).unwrap();
+    assert_eq!((r["format"].as_str(), r["count"].as_u64()), (Some("act"), Some(256)));
+    assert_eq!(r["warnings"].as_array().unwrap().len(), 1, "the transparent color is reported");
+    assert_eq!(s.presets.swatches[0].items[0].color, SwatchColor::Rgb([1.0, 1.0, 1.0]));
+    assert_eq!(s.presets.swatches[0].items[1].name, "Swatch 2");
+    // Sniffed by length without a format, and by extension from a path.
+    let r = s.execute("swatches.import", json!({"data": b64_encode(&file), "mode": "replace"})).unwrap();
+    assert_eq!(r["format"].as_str(), Some("act"));
+    // Export keeps the 256 RGB colors; the trailer comes back in canonical form
+    // (swatches have no transparency to preserve).
+    let canon = photocraft_psd::act::write(&colors, Some(256), None).unwrap();
+    assert_eq!(export_bytes(&mut s, json!({"format": "act"})), canon);
+    // A bigger library is capped at 256 with a warning; groups collapse to one list.
+    for i in 0..300 {
+        s.execute("swatches.add", json!({"name": format!("Extra {i}"), "color": {"model": "rgb", "values": [1, 0, 0]}})).unwrap();
+    }
+    let r = s.execute("swatches.export", json!({"format": "act"})).unwrap();
+    assert_eq!(r["count"], 256);
+    assert!(r["warnings"].as_array().unwrap().iter().any(|w| w.as_str().is_some_and(|w| w.contains("first 256"))));
+}
+
+#[test]
 fn ase_round_trip_keeps_groups_floats_and_kinds() {
     let src = AseFile {
         entries: vec![
