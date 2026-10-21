@@ -544,7 +544,9 @@ impl CropTarget {
     /// Applies the target to a document that has just been cropped (inside the crop's history step).
     fn apply(&self, doc: &mut Document) {
         if let Some((w, h)) = self.size {
-            resample_doc(doc, w, h, self.filter);
+            // As for Image Size: an Indexed Color document holds only its colour table's colours (#6019).
+            let filter = if doc.mode == ColorMode::Indexed { Resample::Nearest } else { self.filter };
+            resample_doc(doc, w, h, filter);
         }
         if let Some(r) = self.resolution {
             doc.resolution_dpi = r;
@@ -1559,6 +1561,32 @@ mod tests {
         let mut s = session();
         s.execute("image.crop", json!({"x": 2, "y": 3, "width": 30, "height": 10, "resolution": 150})).unwrap();
         assert_eq!((doc(&s).size, doc(&s).resolution_dpi), (Size::new(30, 10), 150.0));
+    }
+
+    /// #7722: a W x H crop of an Indexed Color document resamples like Image Size (#6019), with
+    /// Nearest Neighbor, so no pixel gets a blend that isn't in the colour table.
+    #[test]
+    fn crop_target_resamples_indexed_color_with_nearest_neighbor() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 2, "height": 1})).unwrap();
+        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        s.execute("select.rect", json!({"x": 1, "y": 0, "width": 1, "height": 1})).unwrap();
+        s.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+        s.execute("select.deselect", json!({})).unwrap();
+        s.execute("image.mode.indexedColor", json!({})).unwrap();
+        for resample in [None, Some("bicubic"), Some("automatic"), Some("bilinear"), Some("lanczos")] {
+            let mut p = json!({"x": 0, "y": 0, "width": 2, "height": 1, "targetWidth": 8, "targetHeight": 1});
+            if let Some(r) = resample {
+                p["resample"] = json!(r);
+            }
+            s.execute("image.crop", p).unwrap();
+            let surf = doc(&s).layers[0].surface().unwrap();
+            for x in 0..8 {
+                let px = surf.pixel(x, 0);
+                assert!(px[..3] == [1.0, 0.0, 0.0] || px[..3] == [0.0, 0.0, 1.0], "{resample:?}: no blended colour at x {x}: {px:?}");
+            }
+            s.execute("history.undo", json!({})).unwrap();
+        }
     }
 
     #[test]
