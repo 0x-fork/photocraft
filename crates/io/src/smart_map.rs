@@ -314,10 +314,11 @@ fn int_in(f: &Descriptor, key: &str, lo: i32, hi: i32) -> Option<i32> {
     int(f, key).filter(|v| (lo..=hi).contains(v))
 }
 
-/// True when `f` holds only the given keys. A filter with a setting we don't know about (Radial
-/// Blur's off-centre centre, for one) is kept verbatim rather than losing that setting.
+/// True when `f` holds only the given keys, each at most once. A filter with a setting we don't
+/// know about (Radial Blur's off-centre centre, for one) or a repeated one is kept verbatim rather
+/// than losing that setting.
 fn only_keys(f: &Descriptor, keys: &[&str]) -> bool {
-    f.items.iter().all(|(k, _)| keys.iter().any(|x| k.is(x)))
+    f.items.iter().all(|(k, _)| keys.iter().any(|x| k.is(x))) && keys.iter().all(|key| f.items.iter().filter(|(k, _)| k.is(key)).count() <= 1)
 }
 
 /// Our name for enum `key`'s value in `f` (of enum type `type_id`), from `(PSD value, our name)`
@@ -525,7 +526,9 @@ fn long_in_range(v: Option<i32>, (lo, hi): (i32, i32)) -> Option<i32> {
 /// `filter.other.custom` params for a `Cstm` filter: `Mtrx` is 25 longs, row-major 5 × 5. Values
 /// outside Photoshop's ranges are not modelled (the filter stays verbatim).
 fn custom_params(f: &Descriptor) -> Option<J> {
-    only_keys(f, &["Mtrx", "Scl ", "Ofst"])?;
+    if !only_keys(f, &["Mtrx", "Scl ", "Ofst"]) {
+        return None;
+    }
     let Some(Value::List(m)) = f.get("Mtrx") else { return None };
     if m.len() != 25 {
         return None;
@@ -613,10 +616,8 @@ fn known_params(class: &str, f: Option<&Descriptor>, item: &Descriptor) -> Optio
             "maskIncompleteBlocks": bool_at(f, "ExtM")?,
         }),
         ("Tls ", Some(f)) => tiles_params(f, item)?,
-        ("Ofst", Some(f)) => {
-            only_keys(f, &["Hrzn", "Vrtc", "Fl  "])?;
-            let fill = OFFSET_FILL.iter().find(|(psd, _)| typed_enum(f, "Fl  ", "FlMd") == Some(psd.as_bytes()))?.1;
-            json!({"horizontal": int(f, "Hrzn")?, "vertical": int(f, "Vrtc")?, "undefinedAreas": fill})
+        ("Ofst", Some(f)) if only_keys(f, &["Hrzn", "Vrtc", "Fl  "]) => {
+            json!({"horizontal": int(f, "Hrzn")?, "vertical": int(f, "Vrtc")?, "undefinedAreas": enum_from(f, "Fl  ", "FlMd", &OFFSET_FILL)?})
         }
         ("Cstm", Some(f)) => custom_params(f)?,
         ("LnsF", Some(f)) => {
