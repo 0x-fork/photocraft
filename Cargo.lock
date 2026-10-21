@@ -4878,6 +4878,7 @@ version = "0.11.1"
 dependencies = [
  "half",
  "log",
+ "photocraft-cms",
  "photocraft-color",
  "photocraft-compose",
  "photocraft-doc",
