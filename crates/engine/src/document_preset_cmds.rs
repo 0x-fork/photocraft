@@ -388,8 +388,6 @@ mod tests {
         let plain = saved(&mut s, "Plain", settings());
         assert!(plain["settings"].get("profile").is_none());
         assert!(s.presets.documents[1].settings.command_params().get("profile").is_none());
-        config["profile"] = json!(" ");
-        assert!(s.execute("document.presets.save", json!({"name":"Blank","settings":config})).is_err());
     }
 
     #[test]
@@ -529,6 +527,9 @@ mod tests {
             ("backgroundColor", json!([2, 0, 0])),
             ("unit", json!("yards")),
             ("resolutionUnit", json!("px")),
+            ("profile", json!("")),
+            ("profile", json!(" \t")),
+            ("profile", json!(12)),
         ] {
             let mut config = settings();
             config[key] = bad;
