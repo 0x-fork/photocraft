@@ -74,7 +74,8 @@ pub struct Spooler {
 /// A stand-in for the system's printers, installed on `Session::printer_source` (tests):
 /// `file.printers`, `file.print.printers` and the Print dialog list these and do not ask the spooler.
 /// `file.print.printers` and the dialog's driver Printer menu list them on Windows only, where the
-/// GDI route is; elsewhere they answer as that route does there.
+/// GDI route is; elsewhere they answer as that route does there. In the browser `file.printers`
+/// lists none of them, as it lists no printers there without a stand-in.
 pub type PrinterSource = std::sync::Arc<dyn Fn() -> Vec<craft_print::Printer> + Send + Sync>;
 
 /// Held while a thread of this process lists printers or calls into a printer driver.
@@ -154,7 +155,7 @@ fn keep<T>(kept: &std::sync::Mutex<Option<T>>, value: T) {
 
 /// Lists the printers; called with the spooler lock held.
 fn list_system_printers(s: &Session) -> Vec<craft_print::Printer> {
-    let list = match &s.printer_source {
+    let list = match stand_in_printers(s.printer_source.as_ref(), cfg!(target_arch = "wasm32")) {
         Some(source) => source(),
         None => {
             SYSTEM_LISTINGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -163,6 +164,12 @@ fn list_system_printers(s: &Session) -> Vec<craft_print::Printer> {
     };
     keep(&LAST_PRINTERS, list.clone());
     list
+}
+
+/// `file.printers`' stand-in: the session's outside the browser, and `None` in the browser, where
+/// `file.printers` lists no printers.
+fn stand_in_printers(source: Option<&PrinterSource>, browser: bool) -> Option<&PrinterSource> {
+    source.filter(|_| !browser)
 }
 
 /// Lists the GDI route's printers; called with the spooler lock held.
@@ -208,7 +215,7 @@ pub fn rgb_printers_without_waiting(s: &Session) -> RgbPrinters {
 /// `file.printers` for the UI thread, which lists the printers as `rgb_printers_without_waiting`
 /// does where `craft-print` is the route.
 pub fn printers_without_waiting(s: &mut Session) -> Value {
-    if s.printer_source.is_none() && system_spooler().is_none() {
+    if stand_in_printers(s.printer_source.as_ref(), cfg!(target_arch = "wasm32")).is_none() && system_spooler().is_none() {
         return system_printers(s, &json!({})).unwrap_or_default();
     }
     let list = try_with_spooler(|| list_system_printers(s)).or_else(|| last(&LAST_PRINTERS)).unwrap_or_else(|| system_printer_list(s));
@@ -343,7 +350,7 @@ fn cups_spool(job: &PrintJob) -> std::result::Result<String, SpoolError> {
 /// server and where there is no `lp` (a sandbox).
 fn system_printers(s: &mut Session, p: &Value) -> Result<Value> {
     let named = p.get("printServer").and_then(Value::as_str).filter(|v| !v.is_empty());
-    if named.is_none() && (s.printer_source.is_some() || system_spooler().is_some()) {
+    if named.is_none() && (stand_in_printers(s.printer_source.as_ref(), cfg!(target_arch = "wasm32")).is_some() || system_spooler().is_some()) {
         return Ok(printers_answer(system_printer_list(s)));
     }
     #[cfg(all(not(target_arch = "wasm32"), not(target_os = "windows")))]

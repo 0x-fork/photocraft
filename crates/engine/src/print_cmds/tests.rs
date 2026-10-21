@@ -229,6 +229,17 @@ fn stand_in_printers_reach_the_gdi_route_on_windows_only() {
     assert_eq!(listed.iter().map(|p| (p.name.as_str(), p.default)).collect::<Vec<_>>(), [("Studio", false), ("Office", true)]);
 }
 
+/// `file.printers` lists a stand-in's printers everywhere but the browser. In the browser it lists
+/// none, as the real command does there.
+#[test]
+fn stand_in_printers_reach_file_printers_outside_the_browser_only() {
+    let source = test_printers();
+    assert!(stand_in_printers(Some(&source), true).is_none());
+    let listed = stand_in_printers(Some(&source), false).map(|source| source());
+    assert_eq!(listed.unwrap_or_default().iter().map(|p| (p.name.as_str(), p.default)).collect::<Vec<_>>(), [("Studio", false), ("Office", true)]);
+    assert!(stand_in_printers(None, false).is_none());
+}
+
 /// Synthetic driver settings: a DEVMODEW of `size` bytes plus `extra` private driver bytes, every
 /// byte a pattern so a stray write shows, with `dmFields` saying only the paper size is set.
 fn devmode(size: u16, extra: u16) -> Vec<u8> {
