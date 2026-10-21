@@ -64,19 +64,28 @@ fn unit_label(u: Unit) -> &'static str {
 /// Every length unit, in the Preferences › Units & Rulers order.
 const UNITS: [Unit; 7] = [Unit::Pixels, Unit::Inches, Unit::Centimeters, Unit::Millimeters, Unit::Points, Unit::Picas, Unit::Percent];
 
-/// The ruler right-click menu: every length unit with its (translated) label and whether it's the
-/// one in effect. Picking one changes the ruler unit exactly as the preference pane does.
-fn unit_menu_items(current: Unit) -> Vec<(String, &'static str, bool)> {
-    UNITS.iter().map(|&u| (tl!(unit_label(u)).to_string(), u.name(), u == current)).collect()
+/// The units Photoshop's Create Rectangle (and the other shape dialogs) offer on a right-click of
+/// Width or Height: the lengths, without Percent.
+pub(crate) const LENGTH_UNITS: [Unit; 6] = [Unit::Pixels, Unit::Inches, Unit::Centimeters, Unit::Millimeters, Unit::Points, Unit::Picas];
+
+/// The ruler right-click menu: every unit of `units` with its (translated) label and whether it's
+/// the one in effect. Picking one changes the ruler unit exactly as the preference pane does.
+fn unit_menu_items(current: Unit, units: &[Unit]) -> Vec<(String, &'static str, bool)> {
+    units.iter().map(|&u| (tl!(unit_label(u)).to_string(), u.name(), u == current)).collect()
 }
 
 /// The length units menu that right-clicking a ruler (or Free Transform's W and H fields) opens;
 /// the chosen unit's name is returned (`None` if the menu is dismissed without a pick).
 pub(crate) fn unit_menu(ui: &mut egui::Ui, current: Unit) -> Option<&'static str> {
+    unit_menu_of(ui, current, &UNITS)
+}
+
+/// [`unit_menu`] with only `units` in it.
+pub(crate) fn unit_menu_of(ui: &mut egui::Ui, current: Unit, units: &[Unit]) -> Option<&'static str> {
     crate::widgets::menu_scroll(ui, |ui| {
         ui.set_min_width(150.0);
         let mut chosen = None;
-        for (label, name, checked) in unit_menu_items(current) {
+        for (label, name, checked) in unit_menu_items(current, units) {
             let label = if checked { format!("✓ {label}") } else { label };
             if ui.button(label).clicked() {
                 ui.close();
@@ -969,7 +978,7 @@ mod tests {
 
     #[test]
     fn unit_menu_lists_every_unit_with_the_current_one_checked() {
-        let items = unit_menu_items(Unit::Inches);
+        let items = unit_menu_items(Unit::Inches, &UNITS);
         assert_eq!(items.len(), Unit::NAMES.len());
         // Every unit is offered, labelled, and in the preference's order.
         assert_eq!(items[0], ("Pixels".to_string(), "pixels", false));

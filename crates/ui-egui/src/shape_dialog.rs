@@ -2,8 +2,8 @@
 //! opens Photoshop's creation dialog instead of drawing. OK runs the same `shape.create` command as
 //! a drag, with the options bar's fill and stroke, at the clicked point (or centred on it).
 //! Width and height are stored in document pixels (so automation can set them with
-//! `ui.dialog.set`) and shown in the ruler unit, or in one picked from the Width and Height
-//! fields' right-click menu (remembered with the other values).
+//! `ui.dialog.set`) and shown in the ruler unit, or each in one picked from its right-click menu
+//! (`widthUnit`, `heightUnit`; not remembered, as in Photoshop).
 
 use egui::{Align2, Sense, pos2, vec2};
 use serde_json::{Map, Value, json};
@@ -18,7 +18,7 @@ const MARK: &str = "__createShape";
 /// Largest side the dialog accepts, in pixels (Photoshop's document limit).
 const MAX_PX: f64 = 300_000.0;
 /// Remembered values (document pixels; sides and radii come from the options bar).
-const KEYS: [&str; 5] = ["width", "height", "fromCenter", "starRatio", "unit"];
+const KEYS: [&str; 4] = ["width", "height", "fromCenter", "starRatio"];
 
 pub fn owns(fields: &Map<String, Value>) -> bool {
     fields.contains_key(MARK)
@@ -43,7 +43,6 @@ fn valid(key: &str, v: &Value) -> bool {
     match key {
         "width" | "height" => v.as_f64().is_some_and(|x| x.is_finite() && (1.0..=MAX_PX).contains(&x)),
         "starRatio" => v.as_f64().is_some_and(|x| x.is_finite() && (1.0..=100.0).contains(&x)),
-        "unit" => v.as_str().is_some_and(|u| Unit::parse(u).is_some()),
         _ => v.is_boolean(),
     }
 }
@@ -72,8 +71,6 @@ pub fn open(app: &mut PhotocraftApp, tool: Tool, at: [f64; 2]) -> Option<u64> {
     f.insert("width".into(), json!(100.0));
     f.insert("height".into(), json!(100.0));
     f.insert("fromCenter".into(), json!(false));
-    // The unit Width and Height show (the ruler unit until one is picked with a right-click).
-    f.insert("unit".into(), json!(app.session.prefs().units_and_rulers.rulers.name()));
     match kind {
         "rectangle" => {
             f.insert("radii".into(), json!([r, r, r, r]));
@@ -166,16 +163,16 @@ fn label(ui: &mut egui::Ui, text: &str) {
 pub fn body(app: &PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     ui.spacing_mut().item_spacing.y = 6.0;
     let kind = f.get(MARK).and_then(Value::as_str).unwrap_or("").to_string();
-    // Width and height in the dialog's unit (percent of the document's side): the ruler unit, or
-    // the one picked from the fields' right-click menu, as in Photoshop (#7786).
+    // Width and height each in its own unit (percent of the document's side): the ruler unit, or
+    // the one picked from that field's right-click menu, as in Photoshop (#7786).
     let ur = &app.session.prefs().units_and_rulers;
-    let unit = f.get("unit").and_then(Value::as_str).and_then(Unit::parse).unwrap_or(ur.rulers);
-    let ppi = ur.point_size.per_inch();
+    let (rulers, ppi) = (ur.rulers, ur.point_size.per_inch());
     let (dpi, size) = app
         .session
         .active()
         .map_or((72.0, [1.0, 1.0]), |d| (f64::from(d.doc.resolution_dpi.max(1.0)), [f64::from(d.doc.size.width), f64::from(d.doc.size.height)]));
-    for (key, text, extent) in [("width", tl!("Width:"), size[0]), ("height", tl!("Height:"), size[1])] {
+    for (key, unit_key, text, extent) in [("width", "widthUnit", tl!("Width:"), size[0]), ("height", "heightUnit", tl!("Height:"), size[1])] {
+        let unit = f.get(unit_key).and_then(Value::as_str).and_then(Unit::parse).unwrap_or(rulers);
         ui.horizontal(|ui| {
             label(ui, text);
             let px = num(f, key).unwrap_or(100.0);
@@ -187,10 +184,10 @@ pub fn body(app: &PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) 
                 let px = unit.to_px(f64::from(v), dpi, extent, ppi).clamp(1.0, MAX_PX);
                 f.insert(key.into(), json!((px * 1000.0).round() / 1000.0));
             }
-            // Right-click: the length units, for both fields (the sizes stay in pixels).
+            // Right-click: the length units for this field (the sizes stay in pixels).
             resp.context_menu(|ui| {
-                if let Some(name) = crate::rulers::unit_menu(ui, unit) {
-                    f.insert("unit".into(), json!(name));
+                if let Some(name) = crate::rulers::unit_menu_of(ui, unit, &crate::rulers::LENGTH_UNITS) {
+                    f.insert(unit_key.into(), json!(name));
                 }
             });
         });
