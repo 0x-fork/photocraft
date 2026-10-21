@@ -320,10 +320,49 @@ fn only_keys(f: &Descriptor, keys: &[&str]) -> bool {
     f.items.iter().all(|(k, _)| keys.iter().any(|x| k.is(x)))
 }
 
-/// Our name for enum `key`'s value in `f`, from `(PSD value, our name)` pairs.
-fn enum_name(f: &Descriptor, key: &str, table: &[(&[u8; 4], &'static str)]) -> Option<&'static str> {
-    let v = enum_of(f, key)?;
-    table.iter().find(|(c, _)| v == &c[..]).map(|(_, n)| *n)
+/// Our name for enum `key`'s value in `f` (of enum type `type_id`), from `(PSD value, our name)`
+/// pairs. An enum of another type is not one we know, so the filter stays verbatim.
+fn enum_name(f: &Descriptor, key: &str, type_id: &str, table: &[(&[u8; 4], &'static str)]) -> Option<&'static str> {
+    let Some(Value::Enumerated { type_id: t, value }) = f.get(key) else { return None };
+    if t.as_bytes() != type_id.as_bytes() {
+        return None;
+    }
+    table.iter().find(|(c, _)| value.as_bytes() == &c[..]).map(|(_, n)| *n)
+}
+
+/// Finite `key` of `f` stored as a unit float in `unit` (another unit would be re-written as this one).
+fn unit_value(f: &Descriptor, key: &str, unit: &[u8; 4]) -> Option<f64> {
+    match f.get(key)? {
+        Value::UnitFloat { unit: u, value } if u == unit && value.is_finite() => Some(*value),
+        _ => None,
+    }
+}
+
+/// Finite `key` of `f` stored as a plain double (the type Photoshop writes and we write back).
+fn double(f: &Descriptor, key: &str) -> Option<f64> {
+    match f.get(key)? {
+        Value::Double(v) if v.is_finite() => Some(*v),
+        _ => None,
+    }
+}
+
+/// `p[key]` (`default` when absent) when it is a number in `lo..=hi`, the range the filter opens
+/// with; anything else is an error, so a saved filter always opens as the same editable filter.
+fn pf_range(p: &J, key: &str, default: f64, lo: f64, hi: f64) -> Result<f64, String> {
+    match p.get(key) {
+        None | Some(J::Null) => Ok(default),
+        Some(v) => v.as_f64().filter(|x| (lo..=hi).contains(x)).ok_or_else(|| format!("setting `{key}` ({v}) is not a number in {lo}..={hi}")),
+    }
+}
+
+/// Integer `p[key]` (rounded; `default` when absent) in `lo..=hi`, as a PSD long.
+fn pi_range(p: &J, key: &str, default: f64, lo: i32, hi: i32) -> Result<Value, String> {
+    let v = pf_range(p, key, default, f64::from(i32::MIN), f64::from(i32::MAX))?.round();
+    let range = f64::from(lo)..=f64::from(hi);
+    if !range.contains(&v) {
+        return Err(format!("setting `{key}` ({v}) is not a number in {lo}..={hi}"));
+    }
+    Ok(Value::Integer(v as i32))
 }
 
 /// Enum `type_id` holding the PSD value of our name `p[key]` (`default` when absent).
@@ -529,19 +568,19 @@ fn known_params(class: &str, f: Option<&Descriptor>, item: &Descriptor) -> Optio
             json!({"amount": px(f, "Nose")?, "distribution": dist, "monochromatic": mono, "seed": int(f, "FlRs").unwrap_or(0)})
         }
         ("surfaceBlur", Some(f)) if only_keys(f, &["Rds ", "Thsh"]) => json!({
-            "radius": in_range(px(f, "Rds ")?, 1.0, 100.0)?,
+            "radius": in_range(unit_value(f, "Rds ", b"#Pxl")?, 1.0, 100.0)?,
             "threshold": int_in(f, "Thsh", 2, 255)?,
         }),
         ("SmrB", Some(f)) if only_keys(f, &["Rds ", "Thsh", "SmBQ", "SmBM"]) => json!({
-            "radius": in_range(px(f, "Rds ")?, 0.1, 100.0)?,
-            "threshold": in_range(px(f, "Thsh")?, 0.1, 100.0)?,
-            "quality": enum_name(f, "SmBQ", &SMART_BLUR_QUALITY)?,
-            "mode": enum_name(f, "SmBM", &SMART_BLUR_MODE)?,
+            "radius": in_range(double(f, "Rds ")?, 0.1, 100.0)?,
+            "threshold": in_range(double(f, "Thsh")?, 0.1, 100.0)?,
+            "quality": enum_name(f, "SmBQ", "SmBQ", &SMART_BLUR_QUALITY)?,
+            "mode": enum_name(f, "SmBM", "SmBM", &SMART_BLUR_MODE)?,
         }),
         ("RdlB", Some(f)) if only_keys(f, &["Amnt", "BlrM", "BlrQ"]) => json!({
             "amount": int_in(f, "Amnt", 1, 100)?,
-            "method": enum_name(f, "BlrM", &RADIAL_METHOD)?,
-            "quality": enum_name(f, "BlrQ", &RADIAL_QUALITY)?,
+            "method": enum_name(f, "BlrM", "BlrM", &RADIAL_METHOD)?,
+            "quality": enum_name(f, "BlrQ", "BlrQ", &RADIAL_QUALITY)?,
         }),
         ("Msc ", Some(f)) => json!({"cellSize": px(f, "ClSz")?}),
         ("Mztn", Some(f)) => {
@@ -961,18 +1000,20 @@ fn fltr_for(k: &Known, p: &J) -> Result<Option<Descriptor>, String> {
                 .with("Mnch", Value::Boolean(p.get("monochromatic").and_then(J::as_bool).unwrap_or(false)))
                 .with("FlRs", pi(p, "seed", 0.0))
         }
-        "surfaceBlur" => d.with("Rds ", unit(b"#Pxl", pf(p, "radius", 5.0))).with("Thsh", pi(p, "threshold", 15.0)),
+        "surfaceBlur" => d.with("Rds ", unit(b"#Pxl", pf_range(p, "radius", 5.0, 1.0, 100.0)?)).with("Thsh", pi_range(p, "threshold", 15.0, 2, 255)?),
         "SmrB" => d
-            .with("Rds ", Value::Double(pf(p, "radius", 3.0)))
-            .with("Thsh", Value::Double(pf(p, "threshold", 25.0)))
+            .with("Rds ", Value::Double(pf_range(p, "radius", 3.0, 0.1, 100.0)?))
+            .with("Thsh", Value::Double(pf_range(p, "threshold", 25.0, 0.1, 100.0)?))
             .with("SmBQ", enum_param(p, "quality", "high", "SmBQ", &SMART_BLUR_QUALITY)?)
             .with("SmBM", enum_param(p, "mode", "normal", "SmBM", &SMART_BLUR_MODE)?),
         "RdlB" => {
             // Photoshop wrote no centre key for a centred blur; an off-centre one is unmeasured.
-            if ["centerX", "centerY"].iter().any(|k| (pf(p, k, 0.5) - 0.5).abs() > 1e-9) {
-                return Err("an off-centre Radial Blur centre is not written to PSD".into());
+            for k in ["centerX", "centerY"] {
+                if (pf_range(p, k, 0.5, 0.0, 1.0)? - 0.5).abs() > 1e-9 {
+                    return Err("an off-centre Radial Blur centre is not written to PSD".into());
+                }
             }
-            d.with("Amnt", pi(p, "amount", 10.0))
+            d.with("Amnt", pi_range(p, "amount", 10.0, 1, 100)?)
                 .with("BlrM", enum_param(p, "method", "spin", "BlrM", &RADIAL_METHOD)?)
                 .with("BlrQ", enum_param(p, "quality", "good", "BlrQ", &RADIAL_QUALITY)?)
         }
@@ -2617,6 +2658,12 @@ mod tests {
         assert_eq!(fltr("filter.blur.radialBlur", json!({"centerX": 0.5, "centerY": 0.5})), Some(Value::Descriptor(radial_blur(10, "Spn ", "Gd  "))));
     }
 
+    /// `d` with `key` set to `v` (replacing the measured value).
+    fn replaced(mut d: Descriptor, key: &str, v: Value) -> Descriptor {
+        set(&mut d, key, v);
+        d
+    }
+
     /// Malformed or unmodelled blur descriptors stay verbatim (and are written back unchanged);
     /// settings PSD can't hold are reported, never a panic.
     #[test]
@@ -2657,6 +2704,16 @@ mod tests {
             // A key we don't model (an off-centre Radial Blur would carry one).
             (radial_blur(10, "Zm  ", "Gd  ").with("Cntr", Value::Descriptor(Descriptor::new("Pnt ").with("Hrzn", Value::Double(10.0)))), radial),
             (surface_blur(5.0, 15).with("Edg ", Value::Integer(1)), 1135),
+            // Enums of another type, units and value types we would not write back.
+            (replaced(smart_blur(3.0, 25.0, "SBQH", "SBMN"), "SmBQ", enumv("Othr", "SBQH")), smart),
+            (replaced(smart_blur(3.0, 25.0, "SBQH", "SBMN"), "SmBM", enumv("SmBQ", "SBMN")), smart),
+            (replaced(radial_blur(10, "Spn ", "Gd  "), "BlrM", enumv("Othr", "Spn ")), radial),
+            (replaced(radial_blur(10, "Spn ", "Gd  "), "BlrQ", enumv("BlrM", "Gd  ")), radial),
+            (Descriptor::new("surfaceBlur").with("Rds ", unit(b"#Prc", 5.0)).with("Thsh", Value::Integer(15)), 1135),
+            (Descriptor::new("surfaceBlur").with("Rds ", Value::Double(5.0)).with("Thsh", Value::Integer(15)), 1135),
+            (replaced(smart_blur(3.0, 25.0, "SBQH", "SBMN"), "Rds ", unit(b"#Pxl", 3.0)), smart),
+            (replaced(smart_blur(3.0, 25.0, "SBQH", "SBMN"), "Thsh", unit(b"#Prc", 25.0)), smart),
+            (replaced(smart_blur(3.0, 25.0, "SBQH", "SBMN"), "Thsh", Value::Integer(25)), smart),
         ];
         for (fltr, id) in bad {
             let item = ps_item("x", fltr.clone(), id);
@@ -2677,8 +2734,33 @@ mod tests {
             ("filter.blur.radialBlur", json!({"quality": ["best"]})),
             ("filter.blur.radialBlur", json!({"centerX": 0.25})),
             ("filter.blur.radialBlur", json!({"centerY": 1.0})),
+            // A centre, or a value, that is there but can't be written as Photoshop would open it.
+            ("filter.blur.radialBlur", json!({"centerX": "middle"})),
+            ("filter.blur.radialBlur", json!({"centerY": true})),
+            ("filter.blur.radialBlur", json!({"amount": 0})),
+            ("filter.blur.radialBlur", json!({"amount": 101})),
+            ("filter.blur.radialBlur", json!({"amount": "10"})),
+            ("filter.blur.surfaceBlur", json!({"radius": 0.5})),
+            ("filter.blur.surfaceBlur", json!({"radius": 100.5})),
+            ("filter.blur.surfaceBlur", json!({"threshold": 1})),
+            ("filter.blur.surfaceBlur", json!({"threshold": 256})),
+            ("filter.blur.surfaceBlur", json!({"radius": "5"})),
+            ("filter.blur.smartBlur", json!({"radius": 0.05})),
+            ("filter.blur.smartBlur", json!({"threshold": 100.5})),
+            ("filter.blur.smartBlur", json!({"threshold": [25]})),
         ] {
             assert!(item_for_filter(&sf(command, p.clone())).is_err(), "{command} {p}");
+        }
+        // Every value that is written opens again as the same editable filter (range ends included).
+        for (command, p) in [
+            ("filter.blur.surfaceBlur", json!({"radius": 1.0, "threshold": 2})),
+            ("filter.blur.surfaceBlur", json!({"radius": 100.0, "threshold": 255})),
+            ("filter.blur.smartBlur", json!({"radius": 0.1, "threshold": 100.0, "quality": "low", "mode": "edgeOnly"})),
+            ("filter.blur.radialBlur", json!({"amount": 1, "method": "zoom", "quality": "best", "centerX": 0.5, "centerY": null})),
+            ("filter.blur.radialBlur", json!({"amount": 100, "method": "spin", "quality": "draft"})),
+        ] {
+            let back = filter_from_item(&item_for_filter(&sf(command, p.clone())).unwrap());
+            assert_eq!(back.command, command, "{p}");
         }
         // Hostile numbers write without panicking.
         for p in [json!({"radius": f64::MAX, "threshold": -1e300, "amount": 1e300}), json!({"radius": "x", "threshold": null}), json!(null), json!([1, 2])] {
