@@ -10,6 +10,8 @@
 //! - `session.list`, `doc.open {path}`, `doc.new {…file.new params}`,
 //!   `doc.place {path, scale?, fit?, center?, index?}` (#2810: the read root is the scope,
 //!   the counterpart of the refused ambient `file.placeEmbedded`),
+//!   `doc.replaceSmartObject {path, layer?, index?}` (#8061: the same scope for
+//!   `layer.smartObjects.replaceContents`),
 //!   `doc.exportLayers {dir, format?, prefix?, visibleOnly?, quality?, index?}`,
 //!   `doc.exportDataSets {dir, format?, dataSets?, naming?, index?}`,
 //!   `doc.importDataSets {path, delimiter?, index?}` (#3216: the same treatment for the export
@@ -43,6 +45,7 @@ pub const METHODS: &[&str] = &[
     "session.list",
     "doc.open",
     "doc.place",
+    "doc.replaceSmartObject",
     "doc.new",
     "doc.save",
     "doc.exportLayers",
@@ -107,6 +110,13 @@ impl Headless {
                 opts.remove("path");
                 opts.remove("index");
                 self.place(index_of(&p)?, path, &Value::Object(opts))
+            }
+            "doc.replaceSmartObject" => {
+                let path = str_of(&p, "path").ok_or_else(|| bad("doc.replaceSmartObject needs `path`"))?;
+                let mut opts = p.as_object().cloned().unwrap_or_default();
+                opts.remove("path");
+                opts.remove("index");
+                self.replace_smart_object(index_of(&p)?, path, &Value::Object(opts))
             }
             "doc.new" => self.command_run("file.new", p),
             "doc.save" => {
@@ -677,6 +687,56 @@ mod tests {
         let trusted = t.handle("doc.place", json!({"path": root.join("logo.png").to_string_lossy()})).unwrap();
         assert!(trusted["layer"].as_u64().is_some(), "{trusted}");
         // Release directory capabilities before cleanup on Windows.
+        drop(t);
+        drop(h);
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn doc_replace_smart_object_reads_through_the_read_root_and_never_outside_it() {
+        let base = std::env::temp_dir().join(format!("pc-doc-replace-so-{}", std::process::id()));
+        let root = base.join("workspace");
+        let outside = base.join("outside");
+        for dir in [&root, &outside] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        let png = |w: u32, h: u32, v: u8| {
+            let img = photocraft_codecs::Image::from_u8(w, h, photocraft_codecs::ChannelLayout::Rgb, vec![v; (w * h * 3) as usize]).unwrap();
+            photocraft_codecs::encode(&img, photocraft_codecs::Format::Png, &Default::default()).unwrap()
+        };
+        std::fs::write(root.join("logo.png"), png(8, 6, 42)).unwrap();
+        std::fs::write(root.join("red.png"), png(8, 6, 200)).unwrap();
+        std::fs::write(outside.join("red.png"), png(8, 6, 200)).unwrap();
+        let absolute = outside.join("red.png").to_string_lossy().into_owned();
+
+        let mut h = Headless::with_workspace(crate::AuthorizedWorkspace::new(Some(&root), Some(&root)).unwrap());
+        h.handle("doc.new", json!({"width": 40, "height": 30})).unwrap();
+        let layer = h.handle("doc.place", json!({"path": "logo.png"})).unwrap()["layer"].clone();
+        let replaced = h.handle("doc.replaceSmartObject", json!({"path": "red.png", "layer": layer})).unwrap();
+        assert_eq!(replaced["layer"], layer, "{replaced}");
+        let undo = h.handle("engine.execute", json!({"command": "edit.undo"}));
+        assert!(undo.is_ok(), "the replacement is one history step: {undo:?}");
+        // Outside the read root, a bad layer, a missing path or a file that is no image: refused, nothing changed.
+        for (params, reason) in [
+            (json!({"path": "../outside/red.png"}), "parent traversal"),
+            (json!({"path": absolute}), "must be inside the automation root"),
+            (json!({"path": "red.png", "layer": 999_999}), ""),
+            (json!({}), "needs `path`"),
+        ] {
+            let refused = h.handle("doc.replaceSmartObject", params).unwrap_err().to_string();
+            assert!(refused.contains(reason), "{refused}");
+        }
+        std::fs::write(root.join("junk.png"), b"not an image").unwrap();
+        assert!(h.handle("doc.replaceSmartObject", json!({"path": "junk.png", "layer": layer})).is_err());
+        // The ambient command keeps its refusal.
+        let ambient = h.handle("engine.execute", json!({"command": "layer.smartObjects.replaceContents", "params": {"path": "red.png"}}));
+        assert!(ambient.unwrap_err().to_string().contains("ambient filesystem paths"));
+        // Trusted local keeps the ambient command.
+        let mut t = Headless::trusted_local();
+        t.handle("doc.new", json!({"width": 40, "height": 30})).unwrap();
+        let tl = t.handle("doc.place", json!({"path": root.join("logo.png").to_string_lossy()})).unwrap()["layer"].clone();
+        let trusted = t.handle("doc.replaceSmartObject", json!({"path": root.join("red.png").to_string_lossy(), "layer": tl})).unwrap();
+        assert_eq!(trusted["layer"], tl, "{trusted}");
         drop(t);
         drop(h);
         std::fs::remove_dir_all(base).unwrap();
