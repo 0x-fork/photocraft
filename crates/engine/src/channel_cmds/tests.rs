@@ -772,7 +772,35 @@ fn apply_image_of_a_cmyk_composite_onto_an_alpha_channel_takes_its_luminosity() 
         let (black, white) = (chan(&s, a, 5, 5), chan(&s, a, 30, 5));
         assert!(black < 0.25 && (white - 1.0).abs() < 1e-3, "depth {depth}: black {black}, white {white}");
         assert!((black - chan(&s, b, 5, 5)).abs() < 1e-3, "depth {depth}: as Calculations reads it");
+        // A targeted layer mask is a grayscale target too: it takes the same luminosity.
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("layer.layerMask.revealAll", json!({})).unwrap();
+        s.execute("channel.target", json!({"channel": "mask"})).unwrap();
+        s.execute("image.applyImage", json!({"blending": "normal"})).unwrap();
+        let d = s.active().unwrap();
+        let m = &d.doc.layer(d.active_layer.unwrap()).unwrap().mask.as_ref().unwrap().surface;
+        let (mb, mw) = (m.sample_channel(5, 5, 0), m.sample_channel(30, 5, 0));
+        assert!((mb - black).abs() < 1e-3 && (mw - 1.0).abs() < 1e-3, "depth {depth}: mask black {mb}, white {mw}");
     }
+}
+
+#[test]
+fn apply_image_into_targeted_layer_mask_leaves_the_pixels() {
+    let mut s = session();
+    s.execute("layer.new.layer", json!({})).unwrap();
+    s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+    s.execute("layer.layerMask.revealAll", json!({})).unwrap();
+    s.execute("channel.target", json!({"channel": "mask"})).unwrap();
+    // The green channel of the red composite is black: it lands in the mask, not the layer.
+    s.execute("image.applyImage", json!({"source": {"channel": "green"}, "blending": "normal"})).unwrap();
+    let d = s.active().unwrap();
+    let l = d.doc.layer(d.active_layer.unwrap()).unwrap();
+    let m = &l.mask.as_ref().unwrap().surface;
+    assert!(m.sample_channel(3, 3, 0) < 0.01, "mask {}", m.sample_channel(3, 3, 0));
+    // Outside the canvas the mask keeps revealing.
+    assert!(m.sample_channel(-5, -5, 0) > 0.99, "mask outside {}", m.sample_channel(-5, -5, 0));
+    let p = px(&s, 3, 3);
+    assert!(p[0] > 0.99 && p[1] < 0.01 && p[2] < 0.01 && p[3] > 0.99, "layer pixels {p:?}");
 }
 
 #[test]
