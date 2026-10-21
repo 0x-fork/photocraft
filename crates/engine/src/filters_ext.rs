@@ -173,6 +173,12 @@ pub fn params_for(id: &str, p: &Value) -> Option<FilterParams> {
             },
         },
         // ---- Render ----
+        "filter.render.clouds" | "filter.render.differenceClouds" => FilterParams::Clouds {
+            seed: seed(p),
+            difference: id == "filter.render.differenceClouds",
+            foreground: colour(p, "foreground", BLACK),
+            background: colour(p, "background", WHITE),
+        },
         "filter.render.fibers" => FilterParams::Fibers {
             variance: f(p, "variance", 16.0).clamp(1.0, 64.0),
             strength: f(p, "strength", 4.0).clamp(1.0, 64.0),
@@ -401,7 +407,8 @@ pub fn params_for(id: &str, p: &Value) -> Option<FilterParams> {
 
 /// Ids whose rendering uses the foreground/background colours.
 fn uses_colours(id: &str) -> bool {
-    matches!(id, "filter.render.fibers" | "filter.stylize.tiles" | "filter.pixelate.pointillize") || crate::gallery_cmds::uses_colours(id)
+    matches!(id, "filter.render.clouds" | "filter.render.differenceClouds" | "filter.render.fibers" | "filter.stylize.tiles" | "filter.pixelate.pointillize")
+        || crate::gallery_cmds::uses_colours(id)
 }
 
 /// Fills in session state a filter reads (the current colours) as explicit params, so the
@@ -628,6 +635,8 @@ pub fn specs() -> Vec<CommandSpec> {
             r##"{"amount":-100..100=10,"ridges":0..20=5,"style":"pondRipples|outFromCenter|aroundCenter"}"##
         ),
         // Render
+        cmd!("filter.render.clouds", "Clouds", ["Filter", "Render"], r##"{"seed":u32=0,"foreground":json,"background":json}"##),
+        cmd!("filter.render.differenceClouds", "Difference Clouds", ["Filter", "Render"], r##"{"seed":u32=0,"foreground":json,"background":json}"##),
         cmd!(
             "filter.render.fibers",
             "Fibers…",
