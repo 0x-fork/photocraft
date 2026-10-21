@@ -488,7 +488,8 @@ fn save_preset(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<St
         });
     }
     if let Some(error) = f.get("__presetError").and_then(Value::as_str) {
-        ui.add(egui::Label::new(error).wrap());
+        // The engine's message stays copyable, unlike the static labels around it.
+        ui.add(egui::Label::new(error).wrap().selectable(true));
     }
 }
 
@@ -496,6 +497,9 @@ fn save_preset(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<St
 /// A recent category click can make egui count the preset double-click as a triple-click.
 pub fn body(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) -> bool {
     let t = Tokens::get(ui.ctx());
+    // Headings and field labels are static, as in Photoshop: no text cursor over them, no
+    // drag-selecting them (#8331). Text fields keep theirs.
+    ui.style_mut().interaction.selectable_labels = false;
     let cat = get_s(f, "__category", "Recent");
     let mut create = false;
     // Category tabs.
@@ -1271,6 +1275,37 @@ mod tests {
             for (actual, expected) in pixel.as_array().unwrap().iter().zip(expected) {
                 assert!((actual.as_f64().unwrap() - expected).abs() < 0.001, "background pixel: {pixel}");
             }
+        }
+
+        fn cursor_over(h: &mut Harness<'static, PhotocraftApp>, at: egui::Pos2) -> egui::CursorIcon {
+            h.hover_at(at);
+            h.run_steps(2);
+            h.output().platform_output.cursor_icon
+        }
+
+        /// #8331: headings and field labels keep the arrow; only the text fields show the I-beam.
+        #[test]
+        fn labels_show_the_arrow_and_only_text_fields_the_text_cursor() {
+            use egui_kittest::kittest::NodeT;
+            let mut h = harness();
+            let label_at = |h: &Harness<'static, PhotocraftApp>, text: &str| {
+                h.query_all_by_label(text)
+                    .find(|n| n.accesskit_node().role() == Role::Label)
+                    .map(|n| n.rect().center())
+                    .unwrap_or_else(|| panic!("a {text:?} label"))
+            };
+            for text in ["PRESET DETAILS", "Width", "Height", "Resolution", "Color Mode", "Background Contents"] {
+                let at = label_at(&h, text);
+                assert_eq!(cursor_over(&mut h, at), egui::CursorIcon::Default, "over {text:?}");
+            }
+            // The name field still shows the text cursor, so the check above can tell them apart.
+            let name = h.query_all_by_role(Role::TextInput).next().map(|n| n.rect().center()).expect("the name field");
+            assert_eq!(cursor_over(&mut h, name), egui::CursorIcon::Text, "over the name field");
+            // The Saved tab's labels too.
+            h.get_by_label("Saved").click();
+            h.run_steps(2);
+            let at = label_at(&h, "No saved presets yet.");
+            assert_eq!(cursor_over(&mut h, at), egui::CursorIcon::Default, "over the empty Saved list");
         }
 
         #[test]
