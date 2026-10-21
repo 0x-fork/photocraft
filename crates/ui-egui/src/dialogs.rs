@@ -336,7 +336,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 DialogKind::Command if crate::tool_reset::owns(&fields) => crate::tool_reset::body(ui),
                 DialogKind::Command if crate::crop_presets::owns(&fields) => crate::crop_presets::body(app, ui, &mut fields),
                 DialogKind::Command if crate::variables_ui::owns(&fields) => crate::variables_ui::body(app, ui, &mut fields),
-                DialogKind::Command if crate::file_ui::owns(&fields) => crate::file_ui::body(app, ui, &mut fields),
+                DialogKind::Command if crate::file_ui::owns(&fields) => crate::file_ui::body(app, ui, &mut fields, d.id),
                 DialogKind::Command if crate::color_picker_ui::owns(&fields) => {
                     outcome = crate::color_picker_ui::body(ui, &mut fields);
                     crate::color_picker_ui::take_add_swatch(app, &mut fields);
@@ -361,7 +361,13 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     // parameters reserves its own space (#3769).
                     let room = (ctx.content_rect().height() - DIALOG_CHROME - crate::filter_preview_ui::reserved_height(&fields)).max(120.0);
                     let body = |ui: &mut egui::Ui, fields: &mut serde_json::Map<String, Value>| {
-                        egui::ScrollArea::vertical().id_salt(id.with("body")).max_height(room).show(ui, |ui| crate::filter_dialog::body(ui, fields));
+                        egui::ScrollArea::vertical().id_salt(id.with("body")).max_height(room).show(ui, |ui| {
+                            if crate::bitmap_dialog::owns(fields) {
+                                crate::bitmap_dialog::body(app, ui, fields);
+                            } else {
+                                crate::filter_dialog::body(ui, fields);
+                            }
+                        });
                         // The in-dialog preview window sits under the scrolling parameters (#3769),
                         // so it never shifts them.
                         crate::filter_preview_ui::window(app, d.id, ui, fields);
