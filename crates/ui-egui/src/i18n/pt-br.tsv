@@ -4046,3 +4046,6 @@ layerLabel	No Color	Sem cor
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptador de GPU
+
+# Export Preferences › Image Assets: Keep Full Artboard Size
+	Image Assets: Keep Full Artboard Size	Recursos de imagem: manter o tamanho completo da prancheta

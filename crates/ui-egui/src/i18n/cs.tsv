@@ -3864,3 +3864,6 @@ navigator	Zoom	Zvětšení
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptér GPU
+
+# Export Preferences › Image Assets: Keep Full Artboard Size
+	Image Assets: Keep Full Artboard Size	Obrazové podklady: zachovat celou velikost kreslicí plochy

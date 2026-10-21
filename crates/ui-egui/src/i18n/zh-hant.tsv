@@ -2867,3 +2867,6 @@ curves	Smooth	平滑
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU 介面卡
+
+# Export Preferences › Image Assets: Keep Full Artboard Size
+	Image Assets: Keep Full Artboard Size	影像資產：保留完整工作區域大小

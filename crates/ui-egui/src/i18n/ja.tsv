@@ -3934,3 +3934,6 @@ curves	Smooth	スムーズ
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU アダプター
+
+# Export Preferences › Image Assets: Keep Full Artboard Size
+	Image Assets: Keep Full Artboard Size	画像アセット: アートボード全体のサイズを保持

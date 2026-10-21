@@ -3231,3 +3231,6 @@ curves	Smooth	Сгладить
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Адаптер GPU
+
+# Export Preferences › Image Assets: Keep Full Artboard Size
+	Image Assets: Keep Full Artboard Size	Ресурсы изображений: сохранять полный размер монтажной области

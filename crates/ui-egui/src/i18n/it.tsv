@@ -4373,3 +4373,6 @@ shape	Appearance	Aspetto
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adattatore GPU
+
+# Export Preferences › Image Assets: Keep Full Artboard Size
+	Image Assets: Keep Full Artboard Size	Risorse immagine: mantieni la dimensione intera della tavola da disegno

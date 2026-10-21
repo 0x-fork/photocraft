@@ -3956,3 +3956,6 @@ curves	Smooth	Εξομάλυνση
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Προσαρμογέας GPU
+
+# Export Preferences › Image Assets: Keep Full Artboard Size
+	Image Assets: Keep Full Artboard Size	Πόροι εικόνας: διατήρηση πλήρους μεγέθους πίνακα σχεδίασης

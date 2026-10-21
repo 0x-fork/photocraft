@@ -3259,3 +3259,6 @@ curves	Smooth	Glätten
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU-Adapter
+
+# Export Preferences › Image Assets: Keep Full Artboard Size
+	Image Assets: Keep Full Artboard Size	Bild-Assets: Volle Zeichenbereichsgröße beibehalten

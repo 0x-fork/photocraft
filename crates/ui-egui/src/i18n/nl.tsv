@@ -4016,3 +4016,6 @@ curves	Smooth	Vloeiend maken
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU-adapter
+
+# Export Preferences › Image Assets: Keep Full Artboard Size
+	Image Assets: Keep Full Artboard Size	Afbeeldingsmiddelen: volledige tekengebiedgrootte behouden

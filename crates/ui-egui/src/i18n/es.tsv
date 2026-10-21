@@ -4218,3 +4218,6 @@ navigator	Zoom	Zoom
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptador de GPU
+
+# Export Preferences › Image Assets: Keep Full Artboard Size
+	Image Assets: Keep Full Artboard Size	Recursos de imagen: mantener el tamaño completo de la mesa de trabajo
