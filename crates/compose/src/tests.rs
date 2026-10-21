@@ -1665,6 +1665,105 @@ fn shapeless_effect_maps_cover_only_the_band_being_rendered() {
     );
 }
 
+/// [`shapeless_fx_doc`] with Transparency Shapes Layer back on everywhere: ordinary layers, whose
+/// effect regions are their own bounds grown by the effects' reach.
+fn ordinary_fx_doc(depth: SampleType) -> Document {
+    fn shaped(layers: &mut [Layer]) {
+        for l in layers {
+            l.advanced.transparency_shapes = true;
+            if let LayerContent::Group(g) = &mut l.content {
+                shaped(&mut g.children);
+            }
+        }
+    }
+    let mut d = shapeless_fx_doc(depth);
+    shaped(&mut d.layers);
+    d
+}
+
+#[test]
+fn effect_maps_over_the_cache_budget_are_built_over_the_render_rect() {
+    // #8330: an ordinary layer's maps cover its whole region, so on a large document a render's
+    // layers can need more than the effect cache holds; building one then evicts the next one
+    // needed, and every render, however small, builds them all again. Over the budget, local maps
+    // are built over the render rect (plus twice the reach), as a shapeless layer's are (#1909).
+    let d = ordinary_fx_doc(SampleType::U8);
+    let patterns = pattern::PreparedPatterns::new(&d.patterns, pattern::PREPARED_PATTERN_BYTES);
+    // A row through fx8 (pixels at y 552..570, an outside stroke and an inner glow).
+    let band = Rect::new(0, 561, 48, 562);
+    let mut cx = Ctx::for_doc(&d, &patterns);
+    assert!(!cx.fx_over_budget, "a small document fits");
+    let l = &d.layers[9];
+    let whole = effect_region(l, band, &cx);
+    cx.set_fx_clip(band);
+    assert_eq!(effect_region(l, band, &cx), whole, "under the budget: the whole region");
+    cx.fx_over_budget = true;
+    let (part, clipped) = effect_region(l, band, &cx);
+    assert_eq!(part, whole.0.intersect(&band.inflate(2 * effects::margin(l))));
+    assert!(clipped && part.height() < whole.0.height(), "{part:?} vs {:?}", whole.0);
+    let built = effect_maps(l, band, &cx).bytes();
+    cx.fx_over_budget = false;
+    cx.set_fx_clip(Rect::new(0, 0, 1, 1));
+    cx.set_fx_clip(band);
+    assert!(built < effect_maps(l, band, &cx).bytes());
+    cx.fx_over_budget = true;
+    // Composited over more than the band, and maps that aren't local: the whole region.
+    assert_eq!(effect_region(l, Rect::new(0, 500, 48, 600), &cx), whole);
+    let noisy = &d.layers[2];
+    assert!(!effects::maps_are_local(noisy));
+    cx.set_fx_clip(Rect::new(0, 100, 48, 140));
+    assert!(!effect_region(noisy, Rect::new(0, 100, 48, 140), &cx).1);
+}
+
+#[test]
+fn renders_with_maps_clipped_over_the_budget_match_the_whole_maps() {
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        let d = ordinary_fx_doc(depth);
+        let patterns = pattern::PreparedPatterns::new(&d.patterns, pattern::PREPARED_PATTERN_BYTES);
+        purge_effect_cache();
+        let whole = render(&d, d.bounds());
+        let mut cx = Ctx::for_doc(&d, &patterns);
+        cx.fx_over_budget = true;
+        // Bands, edit-sized parts and single tiles, each from maps built over it alone.
+        purge_effect_cache();
+        let bands = (0..10).map(|i| Rect::new(0, i * 64, 48, (i + 1) * 64));
+        let parts = [Rect::new(3, 290, 41, 333), Rect::new(0, 0, 48, 20), Rect::new(20, 600, 48, 640), Rect::new(0, 296, 20, 312), Rect::new(10, 425, 40, 445)];
+        for r in bands.chain(parts) {
+            let p = render_tiled_with(&d, r, RENDER_TILE, &cx);
+            for y in r.y0..r.y1 {
+                for x in r.x0..r.x1 {
+                    assert_eq!(p.get(x, y), whole.get(x, y), "{depth:?}: {r:?} differs at ({x},{y})");
+                }
+            }
+        }
+        assert!(render_tiled_with(&d, d.bounds(), 16, &cx).px == whole.px, "{depth:?}: tiled render differs");
+    }
+}
+
+#[test]
+fn the_effect_map_estimate_is_a_lower_bound() {
+    // fx_over_budget compares a lower bound of the maps' bytes with the budget: it must not
+    // exceed what building them takes, or a document that fits would lose its shared maps.
+    let d = ordinary_fx_doc(SampleType::U8);
+    let patterns = pattern::PreparedPatterns::new(&d.patterns, pattern::PREPARED_PATTERN_BYTES);
+    let cx = Ctx::for_doc(&d, &patterns);
+    let mut todo = Vec::new();
+    effect_layers(&d.layers, d.bounds(), 0, &mut todo);
+    let built: usize = todo.iter().map(|l| effect_maps(l, d.bounds(), &cx).bytes()).sum();
+    let estimate = fx_region_bytes(&d.layers, d.bounds());
+    assert!(estimate > 0 && estimate <= built as u64, "estimate {estimate} B, built {built} B");
+    // A 9000 x 6000 document with three full layers, each with a drop shadow (#8330's case):
+    // about 1.3 GB, over the default 768 MB. One such layer fits.
+    let mut big = Document::with_background("big", Size::new(9000, 6000), ColorMode::Rgb, SampleType::U8, Color::WHITE);
+    let mut l = Layer::raster("fill", big.pixel_format());
+    l.surface_mut().unwrap().fill_rect(big.bounds(), &photocraft_raster::from_rgba(&big.pixel_format(), [0.8, 0.5, 0.3, 1.0]));
+    l.effects.items = vec![Effect::DropShadow(Shadow { size: 40.0, ..shadow(20.0, 120.0) })];
+    big.layers.push(l.clone());
+    assert!(fx_region_bytes(&big.layers, big.bounds()) < DEFAULT_FX_CACHE_BUDGET as u64);
+    big.layers.extend([l.clone(), l]);
+    assert!(fx_region_bytes(&big.layers, big.bounds()) > DEFAULT_FX_CACHE_BUDGET as u64);
+}
+
 // ---------- PSD-fidelity effect semantics (fitted on Photoshop composites) ----------
 
 #[test]
