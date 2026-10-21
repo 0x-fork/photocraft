@@ -172,6 +172,18 @@ pub fn tiff_page_orientation(bytes: &[u8], page: usize) -> u16 {
     tiff::orientation(bytes, Some(page))
 }
 
+/// The EXIF block (`Metadata::exif`) of a camera raw built on TIFF (NEF, ARW, CR2, DNG,
+/// Panasonic RW2), for the image developed from it: IFD0's descriptive tags (make, model,
+/// date…) and the Exif and GPS directories, as a TIFF opens with. Orientation is not part of
+/// it, nor the Exif directory's pixel dimensions (the sensor's or the preview's size). When those
+/// were all its Exif directory held, the block is IFD0's tags alone, so the camera's make and
+/// model are still kept. `None` when the file is not built on a classic TIFF stream or has none
+/// of these tags.
+pub fn raw_exif(bytes: &[u8]) -> Option<Vec<u8>> {
+    let dirs = crate::codecs::tiff_exif::read_raw(bytes).filter(|d| d.has_directories() || !d.ifd0.is_empty())?;
+    Some(crate::codecs::tiff_exif::block(&dirs))
+}
+
 /// The limits check and the orientation, shared by every decoder.
 fn finish_decode(img: Image, o: u16, opts: &DecodeOptions) -> Result<Image, CodecError> {
     let l = &opts.limits;
