@@ -296,7 +296,7 @@ pub(crate) fn export_layered(doc: &Document, opts: &ExportOptions, ctl: &photocr
     // it, so a plain transparent TIFF still opens with alpha.
     let write_alpha = has_alpha && kept == 0;
     // One identifier per extra sample actually stored. The PSD model's 1053 lists the merged
-    // transparency too, and a kept one lists an opened file's channels, so neither is copied.
+    // transparency too, which the IFD leaves out next to extra samples, so it is not copied.
     resources.retain(|r| r.id != crate::channel_map::ALPHA_IDENTIFIERS);
     if kept > 0 {
         resources.push(ImageResource::new(crate::channel_map::ALPHA_IDENTIFIERS, crate::channel_map::alpha_identifiers(false, kept)));

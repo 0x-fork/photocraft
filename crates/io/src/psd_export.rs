@@ -1826,8 +1826,10 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
         if !keep_imported_resource(doc, *id, data) {
             continue;
         }
-        // A fresh 1053 was written with the extra channels; a preserved copy would be a second one.
-        if *id == crate::channel_map::ALPHA_IDENTIFIERS && !extra.is_empty() {
+        // 1053 is written afresh with the extra channels. A kept copy (from a Multichannel file, or
+        // a document saved by an earlier version) would be a second one, or list channels that
+        // are gone.
+        if *id == crate::channel_map::ALPHA_IDENTIFIERS {
             continue;
         }
         let mut r = ImageResource::new(*id, data.to_vec());
@@ -2030,20 +2032,25 @@ mod tests {
         assert_eq!(alpha_ids(&file), Some(vec![0, 3, 4]));
     }
 
-    /// A Photoshop file's own 1053 is kept on open (as every unmapped resource is), but a save
-    /// writes one fresh 1053 for the channels the document has, never the kept one as well. The
+    /// A save writes one fresh 1053 for the channels the document has. A Photoshop file's own is
+    /// not kept on open (it would be new metadata after every round trip), and one a document
+    /// carries anyway (kept by an earlier version) is never written: next to the fresh one it
+    /// would be a second, and without channels it would list channels that are gone. The
     /// identifiers here, 3 and 2, are those of psd-tools' `cmyk-alpha-spot.psd` (Photoshop 24.7).
     #[test]
-    fn a_kept_alpha_identifiers_resource_is_not_written_twice() {
+    fn a_kept_alpha_identifiers_resource_is_not_written() {
+        let kept = || (crate::channel_map::ALPHA_IDENTIFIERS, String::new(), std::sync::Arc::new([0, 0, 0, 3, 0, 0, 0, 2].to_vec()));
         let mut file = document_to_psd(&spot_and_alpha_document());
         file.resources.retain(|r| r.id != crate::channel_map::ALPHA_IDENTIFIERS);
-        file.resources.push(ImageResource::new(crate::channel_map::ALPHA_IDENTIFIERS, [0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 2].to_vec()));
-        let opened = crate::import("ps.psd", &file.to_bytes().unwrap()).unwrap().document;
-        assert!(opened.metadata.psd_resources.iter().any(|(id, ..)| *id == crate::channel_map::ALPHA_IDENTIFIERS));
-        let saved = crate::export(&opened, "x.psd", &crate::ExportOptions::default()).unwrap();
-        let again = PsdFile::from_bytes(&saved.bytes).unwrap();
+        file.resources.push(ImageResource::new(kept().0, kept().2.to_vec()));
+        let mut opened = crate::import("ps.psd", &file.to_bytes().unwrap()).unwrap().document;
+        assert!(!opened.metadata.psd_resources.iter().any(|(id, ..)| *id == crate::channel_map::ALPHA_IDENTIFIERS));
+        opened.metadata.psd_resources.push(kept());
+        let again = PsdFile::from_bytes(&crate::export(&opened, "x.psd", &crate::ExportOptions::default()).unwrap().bytes).unwrap();
         assert_eq!(again.resources.iter().filter(|r| r.id == crate::channel_map::ALPHA_IDENTIFIERS).count(), 1);
         assert_eq!(alpha_ids(&again), Some(vec![0, 3, 4]));
+        opened.channels.clear();
+        assert_eq!(alpha_ids(&document_to_psd(&opened)), None, "no channels left");
     }
 
     #[test]

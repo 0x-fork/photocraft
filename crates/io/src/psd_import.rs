@@ -873,6 +873,10 @@ pub(crate) fn psd_to_document_decoded(
                 doc.clipping_path = Some(photocraft_doc::ClippingPath { name, flatness: 0.0 });
                 doc.metadata.psd_resources.push((r.id, String::from_utf8_lossy(&r.name).into_owned(), Arc::new(r.data.clone())));
             }
+            // Resource 1053 is written afresh with the extra channels on every save, so a kept copy
+            // would be new metadata after each round trip. Multichannel has no such rewrite: the
+            // imported bytes are the channel ids, copied back while they still match.
+            crate::channel_map::ALPHA_IDENTIFIERS if !multichannel => {}
             id if MAPPED_RESOURCES.contains(&id) => {}
             id => doc.metadata.psd_resources.push((id, String::from_utf8_lossy(&r.name).into_owned(), Arc::new(r.data.clone()))),
         }
