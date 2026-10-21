@@ -20,7 +20,8 @@
 //! listed, can be hidden, reordered or deleted, and is written back unchanged.
 //!
 //! Camera Raw and Displace keep their whole item as a template next to the editable settings
-//! (Displace's carries the embedded displacement map, see `displace_map.rs`).
+//! (Displace's carries the embedded displacement map, see `displace_map.rs`). Hue/Saturation
+//! (`HStr`) maps to its adjustment command in `hue_sat_filter_map.rs`.
 
 use photocraft_color::{BlendMode, ColorMode, PixelFormat, SampleType};
 use photocraft_doc::{LayerMask, SmartFilter};
@@ -39,6 +40,8 @@ use crate::blocks::{enum_of, get_desc, num};
 mod camera_raw;
 #[path = "displace_map.rs"]
 mod displace;
+#[path = "hue_sat_filter_map.rs"]
+mod hue_sat;
 
 pub use displace::embedded_map as displace_embedded_map;
 
@@ -469,6 +472,7 @@ pub fn filter_from_item(item: &Descriptor) -> SmartFilter {
     let known = match class.as_deref() {
         Some(camera_raw::CLASS) => camera_raw::import_params(item).map(|p| (camera_raw::COMMAND, p)),
         Some(displace::CLASS) => displace::import_params(item).map(|p| (displace::COMMAND, p)),
+        Some(hue_sat::CLASS) => fltr.and_then(hue_sat::import_params).map(|p| (hue_sat::COMMAND, p)),
         Some(GALLERY_CLASS) => fltr.and_then(|f| gallery_params(item, f)).map(|p| (GALLERY_COMMAND, p)),
         c => c.and_then(|c| known_params(c, fltr)),
     };
@@ -623,6 +627,9 @@ pub fn item_for_filter(f: &SmartFilter) -> Result<Descriptor, String> {
     }
     if f.command == GALLERY_COMMAND {
         return gallery_item(f);
+    }
+    if f.command == hue_sat::COMMAND {
+        return hue_sat::export_item(f);
     }
     if f.command == UNSUPPORTED_FILTER {
         let raw = f.params.get("psd").and_then(J::as_str).and_then(from_hex).ok_or("its filter data is missing")?;
