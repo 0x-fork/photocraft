@@ -962,9 +962,24 @@ pub fn adjustment_quantum(depth: photocraft_color::SampleType) -> Option<f32> {
 fn quantize(b: &mut Buffer, q: f32) {
     for p in &mut b.px {
         for v in p.iter_mut() {
-            *v = (*v * q + 0.5).floor() / q;
+            *v = branchless_floor(*v * q + 0.5) / q;
         }
     }
+}
+
+/// `x.floor()`, bit for bit (signed zeros, infinities and NaNs included), without a call: baseline
+/// x86-64 has no SSE4.1 `roundss`, so `floor` is a software routine there, called once per sample
+/// of the backdrop under every adjustment layer ([`quantize`]). This form has no branch, so the
+/// loop vectorizes.
+#[inline]
+fn branchless_floor(x: f32) -> f32 {
+    // From 2^23 on every f32 is whole. Below it, adding and taking away 2^23 rounds to the
+    // nearest whole number; where that went up, step down.
+    const WHOLE: f32 = 8_388_608.0;
+    let a = x.abs();
+    let r = ((a + WHOLE) - WHOLE).copysign(x);
+    let r = if r > x { r - 1.0 } else { r };
+    if a < WHOLE { r } else { x }
 }
 
 /// Blend an adjustment layer's result (`adjusted`) back into the backdrop it was made from, each
