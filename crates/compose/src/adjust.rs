@@ -232,7 +232,8 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
             }
         }
         Adjustment::ColorBalance { shadows, midtones, highlights, preserve_luminosity } => {
-            map_rgb(buf, |c| std::array::from_fn(|ch| color_balance_channel([*shadows, *midtones, *highlights], *preserve_luminosity, ch, c[ch])))
+            let curves = BalanceCurve::rgb([*shadows, *midtones, *highlights], *preserve_luminosity);
+            map_rgb(buf, |c| std::array::from_fn(|ch| curves[ch].eval(c[ch])))
         }
         Adjustment::SelectiveColor { relative, adjustments } => map_rgb(buf, |c| selective_color(c, *relative, adjustments)),
         Adjustment::ColorLookup { lut: Some(table), size, tetrahedral, dither, .. } if lut3d_len(*size).is_some_and(|len| table.len() >= len) => {
@@ -786,48 +787,89 @@ pub fn lut3d_sample(lut: &[f32], n: usize, c: [f32; 3], tetrahedral: bool) -> [f
 /// - Preserve Luminosity on: each channel's black point is (max − own) shadows levels, its white
 ///   point 255 − (own − min) highlights levels, and m = own − (max + min) / 2 midtones.
 ///
-/// A gamma > 1 starts with slope 2^gamma at black ([`balance_gamma`]: up to 18 of 255 brighter
+/// A gamma > 1 starts with slope 2^gamma at black (up to 18 of 255 brighter
 /// near black without it). When the black point reaches the white point, input
 /// at or above the white point is white and the rest black.
 pub fn color_balance_channel(tones: [[f32; 3]; 3], preserve_luminosity: bool, ch: usize, v: f32) -> f32 {
-    let [shadows, midtones, highlights] = tones.map(|t| t.map(|s| if s.is_finite() { s.clamp(-100.0, 100.0) } else { 0.0 }));
-    let own = |t: [f32; 3]| t.get(ch).copied().unwrap_or(0.0);
-    let max = |t: [f32; 3]| t[0].max(t[1]).max(t[2]);
-    let min = |t: [f32; 3]| t[0].min(t[1]).min(t[2]);
-    let (black, white, m) = if preserve_luminosity {
-        (max(shadows) - own(shadows), own(highlights) - min(highlights), own(midtones) - (max(midtones) + min(midtones)) / 2.0)
-    } else {
-        ((-own(shadows)).max(0.0), own(highlights).max(0.0), own(midtones) + (own(shadows) + own(highlights)) / 2.0)
-    };
-    let (b, w) = (black / 255.0, 1.0 - white / 255.0);
-    let v = if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 };
-    if v >= w {
-        return 1.0;
-    }
-    if v <= b {
-        return 0.0;
-    }
-    balance_gamma((v - b) / (w - b), 2f32.powf(m / 100.0))
+    BalanceCurve::new(tones, preserve_luminosity, ch).eval(v)
 }
 
-/// The midtone gamma of Color Balance's per-channel Levels (`u` in 0..1): `u^(1/gamma)`, except
-/// that a gamma > 1 (which would start with infinite slope) starts at slope 2^gamma and joins the
-/// power curve in a cubic Hermite at twice the input where that line meets it (Photoshop,
-/// measured on a 16-bit ramp at gamma 1.07..2: within 0.02 of 255).
-fn balance_gamma(u: f32, gamma: f32) -> f32 {
-    let e = 1.0 / gamma.max(0.01);
-    let power = u.powf(e);
-    if gamma <= 1.0 {
-        return power;
+/// One channel's Color Balance curve (see [`color_balance_channel`]), with the terms that don't
+/// depend on the sample worked out once rather than per pixel.
+pub struct BalanceCurve {
+    /// Input black and white points.
+    b: f32,
+    w: f32,
+    /// The power curve's exponent, 1 / gamma.
+    e: f32,
+    /// The Hermite join of a gamma > 1.
+    knee: Option<Knee>,
+}
+
+/// Where a gamma > 1 curve's Hermite join ends (`u0`), its starting slope 2^gamma (`s0`), and the
+/// power curve's value (`p`) and slope (`d`) at `u0`.
+#[derive(Clone, Copy)]
+struct Knee {
+    u0: f32,
+    s0: f32,
+    p: f32,
+    d: f32,
+}
+
+impl BalanceCurve {
+    /// The red, green and blue curves.
+    pub fn rgb(tones: [[f32; 3]; 3], preserve_luminosity: bool) -> [Self; 3] {
+        std::array::from_fn(|ch| Self::new(tones, preserve_luminosity, ch))
     }
-    let s0 = 2f32.powf(gamma);
-    let u0 = (2.0 * s0.powf(1.0 / (e - 1.0))).min(1.0);
-    if u0.is_nan() || u0 <= 0.0 || u >= u0 {
-        return power;
+
+    /// The curve of channel `ch` (0 red, 1 green, 2 blue) for the shadows, midtones and
+    /// highlights slider triples `tones`.
+    pub fn new(tones: [[f32; 3]; 3], preserve_luminosity: bool, ch: usize) -> Self {
+        let [shadows, midtones, highlights] = tones.map(|t| t.map(|s| if s.is_finite() { s.clamp(-100.0, 100.0) } else { 0.0 }));
+        let own = |t: [f32; 3]| t.get(ch).copied().unwrap_or(0.0);
+        let max = |t: [f32; 3]| t[0].max(t[1]).max(t[2]);
+        let min = |t: [f32; 3]| t[0].min(t[1]).min(t[2]);
+        let (black, white, m) = if preserve_luminosity {
+            (max(shadows) - own(shadows), own(highlights) - min(highlights), own(midtones) - (max(midtones) + min(midtones)) / 2.0)
+        } else {
+            ((-own(shadows)).max(0.0), own(highlights).max(0.0), own(midtones) + (own(shadows) + own(highlights)) / 2.0)
+        };
+        // The midtone gamma of the channel's Levels: `u^(1/gamma)`, except that a gamma > 1
+        // (which would start with infinite slope) starts at slope 2^gamma and joins the power
+        // curve in a cubic Hermite at twice the input where that line meets it (Photoshop,
+        // measured on a 16-bit ramp at gamma 1.07..2: within 0.02 of 255).
+        let gamma = 2f32.powf(m / 100.0);
+        let e = 1.0 / gamma.max(0.01);
+        let knee = if gamma > 1.0 {
+            let s0 = 2f32.powf(gamma);
+            let u0 = (2.0 * s0.powf(1.0 / (e - 1.0))).min(1.0);
+            (!u0.is_nan() && u0 > 0.0).then(|| Knee { u0, s0, p: u0.powf(e), d: e * u0.powf(e - 1.0) })
+        } else {
+            None
+        };
+        Self { b: black / 255.0, w: 1.0 - white / 255.0, e, knee }
     }
-    let (p, d, t) = (u0.powf(e), e * u0.powf(e - 1.0), u / u0);
-    let (t2, t3) = (t * t, t * t * t);
-    ((t3 - 2.0 * t2 + t) * u0 * s0 + (3.0 * t2 - 2.0 * t3) * p + (t3 - t2) * u0 * d).clamp(0.0, 1.0)
+
+    /// The curve at `v` (0..1).
+    pub fn eval(&self, v: f32) -> f32 {
+        let (b, w) = (self.b, self.w);
+        let v = if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 };
+        if v >= w {
+            return 1.0;
+        }
+        if v <= b {
+            return 0.0;
+        }
+        let u = (v - b) / (w - b);
+        match self.knee {
+            Some(Knee { u0, s0, p, d }) if u < u0 => {
+                let t = u / u0;
+                let (t2, t3) = (t * t, t * t * t);
+                ((t3 - 2.0 * t2 + t) * u0 * s0 + (3.0 * t2 - 2.0 * t3) * p + (t3 - t2) * u0 * d).clamp(0.0, 1.0)
+            }
+            _ => u.powf(self.e),
+        }
+    }
 }
 
 /// How much a colour belongs to each Selective Color range: reds, yellows, greens, cyans,
@@ -1733,6 +1775,66 @@ mod tone_tests {
             let single = [[0.0; 3], [30.0, 0.0, 0.0], [0.0; 3]];
             assert!((color_balance_channel(single, true, 0, input) - input.powf(2f32.powf(-0.15))).abs() < 1e-6);
             assert!((color_balance_channel(single, true, 1, input) - input.powf(2f32.powf(0.15))).abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn color_balance_curve_matches_the_per_sample_formula_bitwise() {
+        // The curve works out its sample-independent terms once; this is the formula it replaced,
+        // evaluated whole for every sample.
+        fn per_sample(tones: [[f32; 3]; 3], preserve_luminosity: bool, ch: usize, v: f32) -> f32 {
+            let [shadows, midtones, highlights] = tones.map(|t| t.map(|s| if s.is_finite() { s.clamp(-100.0, 100.0) } else { 0.0 }));
+            let own = |t: [f32; 3]| t.get(ch).copied().unwrap_or(0.0);
+            let max = |t: [f32; 3]| t[0].max(t[1]).max(t[2]);
+            let min = |t: [f32; 3]| t[0].min(t[1]).min(t[2]);
+            let (black, white, m) = if preserve_luminosity {
+                (max(shadows) - own(shadows), own(highlights) - min(highlights), own(midtones) - (max(midtones) + min(midtones)) / 2.0)
+            } else {
+                ((-own(shadows)).max(0.0), own(highlights).max(0.0), own(midtones) + (own(shadows) + own(highlights)) / 2.0)
+            };
+            let (b, w) = (black / 255.0, 1.0 - white / 255.0);
+            let v = if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 };
+            if v >= w {
+                return 1.0;
+            }
+            if v <= b {
+                return 0.0;
+            }
+            let (u, gamma) = ((v - b) / (w - b), 2f32.powf(m / 100.0));
+            let e = 1.0 / gamma.max(0.01);
+            let power = u.powf(e);
+            if gamma <= 1.0 {
+                return power;
+            }
+            let s0 = 2f32.powf(gamma);
+            let u0 = (2.0 * s0.powf(1.0 / (e - 1.0))).min(1.0);
+            if u0.is_nan() || u0 <= 0.0 || u >= u0 {
+                return power;
+            }
+            let (p, d, t) = (u0.powf(e), e * u0.powf(e - 1.0), u / u0);
+            let (t2, t3) = (t * t, t * t * t);
+            ((t3 - 2.0 * t2 + t) * u0 * s0 + (3.0 * t2 - 2.0 * t3) * p + (t3 - t2) * u0 * d).clamp(0.0, 1.0)
+        }
+        let mut seed = 0x9e37_79b9_u32;
+        let mut slider = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            (seed % 241) as f32 - 120.0
+        };
+        let mut settings = vec![[[0.0; 3]; 3], [[f32::NAN, 1e9, -1e9]; 3], [[-100.0; 3], [100.0; 3], [100.0; 3]]];
+        settings.extend((0..120).map(|_| std::array::from_fn(|_| std::array::from_fn(|_| slider()))));
+        let samples: Vec<f32> = (0..=1024).map(|i| i as f32 / 1024.0).chain([-0.5, 1.5, f32::NAN, f32::INFINITY]).collect();
+        for tones in settings {
+            for preserve in [false, true] {
+                for ch in [0, 1, 2, 7] {
+                    let curve = BalanceCurve::new(tones, preserve, ch);
+                    for &v in &samples {
+                        let (got, want) = (curve.eval(v), per_sample(tones, preserve, ch, v));
+                        assert_eq!(got.to_bits(), want.to_bits(), "{tones:?} {preserve} ch {ch} v {v}: {got} vs {want}");
+                    }
+                }
+            }
         }
     }
 
