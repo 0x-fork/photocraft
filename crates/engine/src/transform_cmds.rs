@@ -274,16 +274,19 @@ const BUDGET: u64 = MAX_TRANSFORM_PIXELS;
 const BUDGET: u64 = 1 << 20;
 
 /// Refuse a warp of the content inside `src` by `h` whose result would exceed the pixel budget,
-/// before anything is built. `what` names the surface in the message.
+/// before anything is built. `what` names the surface in the message, which names the limit
+/// rather than memory: nothing has been allocated, so no memory ran short (#7807).
 pub(crate) fn check_budget(src: Rect, h: &Homography, what: &str) -> Result<()> {
     check_budget_with_limit(src, h, what, BUDGET)
 }
 
+/// [`check_budget`] against `budget` px (the tests price the production limit with it).
 fn check_budget_with_limit(src: Rect, h: &Homography, what: &str, budget: u64) -> Result<()> {
     let Some((w, ht)) = warp_output_size(src, h) else { return Ok(()) };
     if w.saturating_mul(ht) > budget {
-        let detail = format!("the transformed {what} would be {w} x {ht} px, more than the {budget} px limit");
-        return Err(crate::allocation::error("transforming pixels", &detail));
+        return Err(EngineError::Other(format!(
+            "too large to transform: the transformed {what} would be {w} x {ht} px, more than the {budget} px limit; the document was not changed"
+        )));
     }
     Ok(())
 }
@@ -780,6 +783,8 @@ mod tests {
         json!({"matrix": [k, 0, 0, 1, -10.0 * k, 0], "interpolation": "nearest"})
     }
 
+    /// A stretch past the budget is refused with the limit named, and the document, its revision
+    /// and History stay as they were; within the budget the same stretch applies unclipped.
     #[test]
     fn a_scale_past_the_pixel_budget_is_refused_and_changes_nothing() {
         let mut s = column();
@@ -787,8 +792,10 @@ mod tests {
         let (before, revision, steps) = (st.doc.clone(), st.revision, st.history.past_len());
         // 200000 x 10 px of output: twice the test budget.
         let err = s.execute("edit.transform", stretch(2e5)).unwrap_err().to_string();
-        assert!(err.starts_with("not enough memory for transforming pixels"), "{err}");
-        assert!(err.contains("would be 200002 x 10 px") && err.ends_with("the document was not changed"), "{err}");
+        assert!(err.starts_with("too large to transform: the transformed layer \"Layer 1\""), "{err}");
+        assert!(err.contains("would be 200002 x 10 px, more than the 1048576 px limit") && err.ends_with("the document was not changed"), "{err}");
+        // Nothing was allocated: the limit is named, not memory (#7807).
+        assert!(!err.contains("memory"), "{err}");
         let st = s.active().unwrap();
         assert!(st.doc == before, "the document is untouched");
         assert_eq!((st.revision, st.history.past_len()), (revision, steps));
