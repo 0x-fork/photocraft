@@ -208,7 +208,7 @@ what an agent can't finish alone.
   tool press zooms continuously about the press point, ⌥ out (#6210, `ui-egui/src/zoom_hold.rs`).
 - **Progress (2026-10-12):** toolbar tool shortcuts can be reassigned, removed and reset (#4086),
   with saved bindings, matching toolbar hints and regression coverage (`ui-egui/src/tool_shortcuts.rs`).
-- **Missing:** 24 of 169 preferences do nothing (scorecard prefs audit, 2026-10-15: Save in
+- **Missing:** 24 of 171 preferences do nothing (scorecard prefs audit, 2026-10-15: Save in
   Background now takes effect, #6207); panel groups can't
   float or tear off into OS windows (UI-217-5, #1828, #1213, #2305); Color panel lacks wheel and
   slider modes (UI-217-17, #2569); more themes (UI-217-11, #2661); a single pixel layer
