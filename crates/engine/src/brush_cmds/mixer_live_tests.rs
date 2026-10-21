@@ -1,6 +1,7 @@
 use super::mixer_live::LiveMixer;
 use super::*;
 use photocraft_color::PixelFormat;
+use std::sync::Arc;
 
 fn fixture(fmt: PixelFormat) -> Session {
     let mut s = Session::new();
@@ -239,4 +240,62 @@ fn mixer_large_tip_retains_off_canvas_paint_and_commits_the_live_result() {
     assert_eq!(target(&s), shown);
     s.execute("edit.undo", json!({})).unwrap();
     assert_eq!(*s.active().unwrap().doc, *source);
+}
+
+#[test]
+fn mixer_long_segments_are_interpolated_and_replay_matches_live() {
+    let mut s = fixture(PixelFormat::RGBA8);
+    let p = json!({"points":[[20,48],[5020,48]],"seed":71,"size":2,"sampleAllLayers":false,"wet":0,"mix":0,"load":100,"color":"#ff0000"});
+    let live = LiveMixer::begin(&s, &p).unwrap();
+    let id = s.active().unwrap().active_layer.unwrap();
+    let expected = live.doc.layer(id).unwrap().surface().unwrap().clone();
+    s.execute("paint.mixerBrush", p).unwrap();
+    for x in [20, 1020, 2068, 4090, 5019] {
+        assert_eq!(target(&s).rgba(x, 48), expected.rgba(x, 48));
+        assert!(target(&s).rgba(x, 48)[3] > 0.0);
+    }
+}
+
+#[test]
+fn mixer_prepared_offer_is_dropped_on_every_early_dispatch_failure() {
+    for failure in 0..4 {
+        let mut s = fixture(PixelFormat::RGBA8);
+        let live = LiveMixer::begin(&s, &json!({"points":[[20,20]],"size":4})).unwrap();
+        let p = live.prepare_commit(&mut s).unwrap();
+        let before = s.active().unwrap().doc.clone();
+        let result = match failure {
+            0 => {
+                s.authorize = Some(|_, _| Err(EngineError::Other("denied".into())));
+                s.execute("paint.mixerBrush", p)
+            }
+            1 => s.execute("paint.mixerBrush", json!("invalid params")),
+            2 => s.execute("unknown.command", p),
+            _ => {
+                s.active_mut().unwrap().active_layer = None;
+                s.execute("paint.mixerBrush", p)
+            }
+        };
+        assert!(result.is_err());
+        assert!(s.prepared_mixer.is_none(), "failed dispatch retained the preview: {failure}");
+        assert!(Arc::ptr_eq(&s.active().unwrap().doc, &before));
+    }
+}
+
+#[test]
+fn mixer_command_outgrows_the_preview_tile_budget_without_losing_the_stroke() {
+    let mut s = fixture(PixelFormat::RGBA8);
+    let points: Vec<_> = (0..257).map(|i| [128.0 + (i % 17) as f64 * 512.0, 128.0 + (i / 17) as f64 * 512.0]).collect();
+    let p = json!({"points":points,"size":2,"brush":{"spacing":10.0,"smoothing":{"amount":0.0}},"seed":44,
+        "sampleAllLayers":false,"wet":0,"mix":0,"load":100,"color":"#ff0000"});
+    let before = s.active().unwrap().doc.clone();
+    let err = LiveMixer::begin(&s, &p).err().expect("bounded preview");
+    assert!(err.to_string().contains("256 tiles"), "{err}");
+    assert!(Arc::ptr_eq(&s.active().unwrap().doc, &before));
+    s.execute("paint.mixerBrush", p).unwrap();
+    // Spacing deliberately leaves gaps; inspect the final tile's stroke region instead
+    // of assuming the exact release pixel is a dab center.
+    let end = Rect::new(600, 7776, 672, 7840);
+    assert!(target(&s).read_region(end).chunks_exact(4).any(|px| px[3] > 0.0));
+    s.execute("edit.undo", json!({})).unwrap();
+    assert!(target(&s).read_region(end).chunks_exact(4).all(|px| px[3] == 0.0));
 }

@@ -33,6 +33,7 @@ struct Core {
     pre: Surface,
     work: Surface,
     tiles: BTreeSet<(i32, i32)>,
+    preview_limits: bool,
     state: MixerState,
     settings: MixerSettings,
     layer: Option<LayerId>,
@@ -67,7 +68,7 @@ impl Core {
             for ty in r.y0.div_euclid(TILE)..=(r.y1 - 1).div_euclid(TILE) {
                 for tx in r.x0.div_euclid(TILE)..=(r.x1 - 1).div_euclid(TILE) {
                     if !self.tiles.contains(&(tx, ty)) {
-                        if self.tiles.len() >= MAX_TILES {
+                        if self.preview_limits && self.tiles.len() >= MAX_TILES {
                             return Err(bad(CMD, "Mixer Brush stroke working set exceeds 256 tiles"));
                         }
                         let tile = Rect::new(tx * TILE, ty * TILE, (tx + 1) * TILE, (ty + 1) * TILE);
@@ -129,6 +130,10 @@ pub struct LiveMixer {
 
 impl LiveMixer {
     pub fn begin(s: &Session, p: &Value) -> Result<Self> {
+        Self::begin_with_limits(s, p, true)
+    }
+
+    fn begin_with_limits(s: &Session, p: &Value, preview_limits: bool) -> Result<Self> {
         has_paintable(s).map_err(EngineError::Other)?;
         if p.get("points").and_then(Value::as_array).is_some_and(|v| v.len() > 65_536) {
             return Err(bad(CMD, "stroke exceeds 65536 recorded input samples"));
@@ -181,6 +186,7 @@ impl LiveMixer {
             pre,
             work,
             tiles: BTreeSet::new(),
+            preview_limits,
             state: state.clone(),
             settings,
             layer,
@@ -221,21 +227,36 @@ impl LiveMixer {
         if self.points.len().saturating_add(points.len()) > 65_536 {
             return Err(bad(CMD, "stroke exceeds 65536 recorded input samples"));
         }
-        let mut last = self.core.last;
-        for point in points {
-            if last.is_some_and(|p| (point.x - p.x).hypot(point.y - p.y) > 2048.0) {
-                return Err(bad(CMD, "input segment exceeds 2048 pixels; supply interpolated input"));
-            }
-            last = Some(*point);
-        }
         let cmyk = self.cmyk.clone();
         photocraft_color::convert::with_cmyk_space(cmyk.as_ref(), || {
             let old_tail = self.tail;
             let mut damage = Rect::EMPTY;
             for point in points {
-                let (mut dabs, mut dual) = (Vec::new(), Vec::new());
-                self.core.generator.push(&[*point], &mut dabs, &mut dual);
-                damage = damage.union(&self.core.apply(&dabs)?);
+                // Bound each temporary dab batch without rejecting sparse mouse events or
+                // long Shift-click lines. Live and recorded replay use identical interpolation.
+                let start = self.core.last.unwrap_or(*point);
+                let steps = ((point.x - start.x).hypot(point.y - start.y) / 2048.0).ceil().max(1.0) as usize;
+                for step in 1..=steps {
+                    let f = step as f64 / steps as f64;
+                    let ff = f as f32;
+                    let q = if step == steps {
+                        *point
+                    } else {
+                        StrokePoint {
+                            x: start.x + (point.x - start.x) * f,
+                            y: start.y + (point.y - start.y) * f,
+                            pressure: start.pressure + (point.pressure - start.pressure) * ff,
+                            tilt_x: start.tilt_x + (point.tilt_x - start.tilt_x) * ff,
+                            tilt_y: start.tilt_y + (point.tilt_y - start.tilt_y) * ff,
+                            rotation: start.rotation + (point.rotation - start.rotation) * ff,
+                            wheel: start.wheel + (point.wheel - start.wheel) * ff,
+                            time: start.time + (point.time - start.time) * f,
+                        }
+                    };
+                    let (mut dabs, mut dual) = (Vec::new(), Vec::new());
+                    self.core.generator.push(&[q], &mut dabs, &mut dual);
+                    damage = damage.union(&self.core.apply(&dabs)?);
+                }
                 self.core.last = Some(*point);
             }
             let mut finished = self.core.clone();
@@ -283,7 +304,7 @@ pub(super) fn run(s: &mut Session, p: &Value) -> Result<Value> {
     });
     let live = match cached {
         Some(live) => live,
-        None => LiveMixer::begin(s, p)?,
+        None => LiveMixer::begin_with_limits(s, p, false)?,
     };
     let damage = live.bounds();
     s.edit("Mixer Brush", |doc, _| {

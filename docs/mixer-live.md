@@ -81,11 +81,17 @@ the six paint-load control labels are translated in all 20 supported catalogs.
 
 ## Resource envelope and limitations
 
-Live mixer size is limited to 1024 pixels; dense footprints to 4,194,304 pixels;
-one input segment to 2,048 pixels; one stroke to 250,000 dabs and 256 working tiles
-(256 x 256 pixels each). Requests beyond these limits return errors. A spatial load
-uses 64 KiB of float color data. Document snapshots share untouched tiles. These
-limits are explicit initial engineering bounds, not hardware qualification.
+Mixer size is limited to 1024 pixels, dense footprints to 4,194,304 pixels,
+and a stroke to 65,536 input samples and 250,000 dabs. Long input segments are
+interpolated into batches of at most 2,048 pixels instead of being rejected.
+The live preview alone is limited to 256 working tiles (256 x 256 pixels each).
+If that preview budget is exhausted, the UI retains all stroke input and the
+last valid preview, then replays the full stroke atomically on release. The
+normal command is not subject to the preview tile budget. Escape, focus loss,
+and document/tool changes still cancel the retained gesture. Other invalid
+requests return errors without committing partial paint. A spatial load uses
+64 KiB of float color data. Document snapshots share untouched tiles. These
+bounds do not constitute hardware qualification.
 
 No fluid solver or grouped-bristle deformation model is introduced. Existing brush
 tip/dynamics support is reused. Windows pen tilt/rotation remain limited by the
