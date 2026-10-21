@@ -453,7 +453,8 @@ const CUSTOM_CELL: (i32, i32) = (-999, 999);
 const CUSTOM_SCALE: (i32, i32) = (1, 9999);
 const CUSTOM_OFFSET: (i32, i32) = (-9999, 9999);
 
-fn int_in(v: Option<i32>, (lo, hi): (i32, i32)) -> Option<i32> {
+/// `v` when it lies in `lo..=hi`.
+fn long_in_range(v: Option<i32>, (lo, hi): (i32, i32)) -> Option<i32> {
     v.filter(|v| (lo..=hi).contains(v))
 }
 
@@ -464,9 +465,9 @@ fn custom_params(f: &Descriptor) -> Option<J> {
     if m.len() != 25 {
         return None;
     }
-    let kernel: Option<Vec<J>> = m.iter().map(|v| int_in(int_value(v), CUSTOM_CELL).map(|v| json!(v))).collect();
-    let scale = int_in(int(f, "Scl "), CUSTOM_SCALE)?;
-    let offset = int_in(int(f, "Ofst"), CUSTOM_OFFSET)?;
+    let kernel: Option<Vec<J>> = m.iter().map(|v| long_in_range(int_value(v), CUSTOM_CELL).map(|v| json!(v))).collect();
+    let scale = long_in_range(int(f, "Scl "), CUSTOM_SCALE)?;
+    let offset = long_in_range(int(f, "Ofst"), CUSTOM_OFFSET)?;
     Some(json!({"kernel": kernel?, "scale": scale, "offset": offset}))
 }
 
@@ -2120,7 +2121,7 @@ mod tests {
 
     /// A `filterFXList` item as measured in Photoshop (applied through Action Manager to a smart
     /// object, saved, `filterFX` read back).
-    fn measured_item(id: &[u8; 4], name: &str, fltr: Descriptor) -> Descriptor {
+    fn measured_named_item(id: &[u8; 4], name: &str, fltr: Descriptor) -> Descriptor {
         Descriptor::new("filterFX")
             .with("Nm  ", Value::Text(UnicodeString::new_nul(name)))
             .with("blendOptions", blend_options(&sf("", J::Null)))
@@ -2162,7 +2163,7 @@ mod tests {
     #[test]
     fn offset_measured_descriptors_open_as_offset() {
         for (h, v, fill, ours) in [(0, 0, "Wrp ", "wrap"), (12, -7, "Bckg", "transparent"), (5, 3, "Rpt ", "repeat")] {
-            let item = measured_item(b"Ofst", "Offset...", offset_fltr(Value::Integer(h), Value::Integer(v), enumv("FlMd", fill)));
+            let item = measured_named_item(b"Ofst", "Offset...", offset_fltr(Value::Integer(h), Value::Integer(v), enumv("FlMd", fill)));
             let f = filter_from_item(&item);
             assert_eq!(f.command, "filter.other.offset");
             assert_eq!(f.params, json!({"horizontal": h, "vertical": v, "undefinedAreas": ours}));
@@ -2191,7 +2192,7 @@ mod tests {
             Descriptor::new("Ofst").with("Hrzn", i(1)).with("Fl  ", enumv("FlMd", "Wrp ")),
             Descriptor::new("Ofst"),
         ] {
-            let item = measured_item(b"Ofst", "Offset...", fltr);
+            let item = measured_named_item(b"Ofst", "Offset...", fltr);
             let f = filter_from_item(&item);
             assert_eq!(f.command, UNSUPPORTED_FILTER, "{item:?}");
             assert_eq!(item_for_filter(&f).unwrap().to_bytes(), item.to_bytes(), "kept byte for byte");
@@ -2228,7 +2229,7 @@ mod tests {
     fn custom_measured_descriptors_open_as_custom() {
         let blur = [0, 0, 0, 0, 0, 0, 1, 2, 1, 0, 0, 2, 4, 2, 0, 0, 1, 2, 1, 0, 0, 0, 0, 0, 0];
         for (kernel, scale, offset) in [(SHARPEN, 1, 0), (blur, 2, 10)] {
-            let item = measured_item(b"Cstm", "Custom...", custom_fltr(Value::Integer(scale), Value::Integer(offset), longs(&kernel)));
+            let item = measured_named_item(b"Cstm", "Custom...", custom_fltr(Value::Integer(scale), Value::Integer(offset), longs(&kernel)));
             let f = filter_from_item(&item);
             assert_eq!(f.command, "filter.other.custom");
             assert_eq!(f.params, json!({"kernel": kernel, "scale": scale, "offset": offset}));
@@ -2272,7 +2273,7 @@ mod tests {
             Descriptor::new("Cstm").with("Scl ", i(1)).with("Mtrx", Value::List(longs(&SHARPEN))),
             Descriptor::new("Cstm"),
         ] {
-            let item = measured_item(b"Cstm", "Custom...", fltr);
+            let item = measured_named_item(b"Cstm", "Custom...", fltr);
             let f = filter_from_item(&item);
             assert_eq!(f.command, UNSUPPORTED_FILTER, "{item:?}");
             assert_eq!(item_for_filter(&f).unwrap().to_bytes(), item.to_bytes(), "kept byte for byte");
