@@ -287,6 +287,7 @@ const MEZZOTINT_TYPES: [(&[u8; 4], &str); 10] = [
 /// Color Halftone's `Rds ` (max radius) and `Ang1`..`Ang4` (screen angles) longs, read within
 /// the dialog's ranges; anything else is kept verbatim.
 fn color_halftone_params(f: &Descriptor) -> Option<J> {
+    only_keys(f, &["Rds ", "Ang1", "Ang2", "Ang3", "Ang4"])?;
     let radius = int(f, "Rds ").filter(|r| (4..=127).contains(r))?;
     let angle = |k: &str| int(f, k).filter(|a| (-360..=360).contains(a));
     Some(json!({"maxRadius": radius, "channel1": angle("Ang1")?, "channel2": angle("Ang2")?, "channel3": angle("Ang3")?, "channel4": angle("Ang4")?}))
@@ -580,7 +581,8 @@ fn known_params(class: &str, f: Option<&Descriptor>, item: &Descriptor) -> Optio
         }),
         ("Msc ", Some(f)) => json!({"cellSize": px(f, "ClSz")?}),
         ("Mztn", Some(f)) => {
-            let t = enum_of(f, "MztT")?;
+            only_keys(f, &["MztT"])?;
+            let t = typed_enum(f, "MztT", "MztT")?;
             json!({"type": MEZZOTINT_TYPES.iter().find(|(c, _)| t == &c[..])?.1})
         }
         ("ClrH", Some(f)) => color_halftone_params(f)?,
@@ -2542,6 +2544,11 @@ mod tests {
             pixelate_item("Color Halftone...", ch(Value::Integer(6), Value::Integer(361)), code(b"ClrH")),
             pixelate_item("Color Halftone...", ch(Value::Integer(6), Value::Integer(i32::MIN)), code(b"ClrH")),
             pixelate_item("Color Halftone...", ch(Value::Integer(6), Value::Double(f64::NAN)), code(b"ClrH")),
+            // A mistyped enum and settings we don't write back.
+            measured_item("Mezzotint...", mz(enumv("Xxxx", "FnDt")), code(b"Mztn")),
+            measured_item("Mezzotint...", mz(enumv("MztT", "FnDt")).with("Xtra", Value::Integer(1)), code(b"Mztn")),
+            measured_item("Color Halftone...", ch(Value::Integer(6), Value::Integer(10)).with("Xtra", Value::Integer(1)), code(b"ClrH")),
+            measured_item("Color Halftone...", ch(Value::Integer(6), Value::Integer(10)).with("Ang1", Value::Integer(11)), code(b"ClrH")),
         ];
         for item in cases {
             let f = filter_from_item(&item);
