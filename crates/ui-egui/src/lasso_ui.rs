@@ -207,12 +207,21 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: Modifiers) -> bool 
         }
         ToolEvent::Move { .. } | ToolEvent::Up { .. } => {
             let up = matches!(ev, ToolEvent::Up { .. });
+            let zoom = app.point_zoom();
             let Some(d) = app.drag.as_mut().filter(|d| d.tool == tool) else { return true };
+            d.track(mods);
             let Some(lasso) = &d.lasso else { return true };
             let (down, polygonal, previous) = (lasso.down, lasso.polygonal, lasso.cursor);
+            let p = if down && tool == Tool::FreeformPen {
+                let last = d.points.last().map_or(d.start, |pt| [pt[0], pt[1]]);
+                let [x, y] = crate::stroke_constraint::constrain(d.tool, &mut d.constrain, d.start, last, p, mods.shift, zoom);
+                [x, y]
+            } else {
+                p
+            };
             if d.reposition {
                 // Move relative to the rubber-band endpoint, not the last fixed vertex.
-                let last = d.points.last().map_or(d.start, |p| [p[0], p[1]]);
+                let last = d.points.last().map_or(d.start, |pt| [pt[0], pt[1]]);
                 d.shift_to([last[0] + p[0] - previous[0], last[1] + p[1] - previous[1]]);
             } else if down {
                 // While the button is down the outline follows the pointer (freehand), Alt or
