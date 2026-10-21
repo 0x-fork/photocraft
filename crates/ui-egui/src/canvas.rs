@@ -3275,21 +3275,32 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             let t = crate::theme::Tokens::get(&ctx);
             let pasteboard = crate::prefs_ui::pasteboard_color(app);
             let dot_tex = dots(&ctx, &t);
-            for r in crate::artboard_ui::pasteboard_rects(&xf, &doc) {
-                let r = r.intersect(rect);
-                if !r.is_positive() {
+            // Cut around the layers as they are shown, so a loose layer dragged with the Move tool
+            // (or otherwise previewed) is not covered where it now draws.
+            let shown = display_doc(app, idx).0;
+            // Each piece is painted as its own quad (the painter clips to the canvas), so a
+            // rotated view does not paint a piece's bounding box over the boards or loose work.
+            let fill = |q: &[Pos2; 4], tex: Option<egui::TextureId>, color: Color32| {
+                let mut mesh = tex.map_or_else(egui::Mesh::default, egui::Mesh::with_texture);
+                for &p in q {
+                    // Same phase as the dots around the document.
+                    let uv = if tex.is_some() { ((p - rect.min) / 22.0).to_pos2() } else { egui::epaint::WHITE_UV };
+                    mesh.vertices.push(egui::epaint::Vertex { pos: p, uv, color });
+                }
+                mesh.add_triangle(0, 1, 2);
+                mesh.add_triangle(0, 2, 3);
+                painter.add(mesh);
+            };
+            for q in crate::artboard_ui::pasteboard_quads(&xf, &shown) {
+                if !Rect::from_points(&q).intersects(rect) {
                     continue;
                 }
                 match pasteboard {
-                    Some(c) => {
-                        painter.rect_filled(r, 0.0, c);
-                    }
+                    Some(c) => fill(&q, None, c),
                     None => {
-                        painter.rect_filled(r, 0.0, t.canvas);
+                        fill(&q, None, t.canvas);
                         if let Some(id) = dot_tex {
-                            // Same phase as the dots around the document.
-                            let uv = Rect::from_min_max(((r.min - rect.min) / 22.0).to_pos2(), ((r.max - rect.min) / 22.0).to_pos2());
-                            painter.image(id, r, uv, Color32::WHITE);
+                            fill(&q, Some(id), Color32::WHITE);
                         }
                     }
                 }
