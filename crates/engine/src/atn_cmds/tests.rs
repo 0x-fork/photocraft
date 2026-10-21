@@ -1401,3 +1401,46 @@ fn function_keys_keep_shift_and_command() {
     }
     assert_eq!(super::function_key_name(7, false, false), "F7");
 }
+
+/// #8302, #8308: Hue/Saturation's hue is `H   ` in Photoshop's `Hst2`, both ways. It was written
+/// and read as `Hue `: exported actions failed in Photoshop, and Photoshop-recorded ones lost
+/// their hue on import with no warning. PhotoCraft's own older files (`Hue `) still read.
+#[test]
+fn hue_saturation_uses_photoshops_hue_key() {
+    let params = json!({"colorize": false, "hue": 30, "saturation": 20, "lightness": -7, "greens": {"hue": -12, "saturation": 0, "lightness": 0, "range": [75, 105, 135, 165]}});
+    let a = Action::new("H", vec![("image.adjustments.hueSaturation".into(), params.clone())]);
+    let (bytes, skipped) = export("S", &[&a], &[], false).unwrap();
+    assert!(skipped.is_empty());
+    let file = atn::parse(&bytes).unwrap();
+    let d = file.actions[0].items[0].descriptor.clone().expect("a descriptor");
+    let entries: Vec<Descriptor> =
+        get_list(&d, "Adjs").expect("Adjs").iter().filter_map(|e| if let D::Descriptor(e) = e { Some(e.clone()) } else { None }).collect();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(get_num(&entries[0], "H   "), Some(30.0), "the master hue under H");
+    assert_eq!(get_num(&entries[1], "H   "), Some(-12.0), "a range's hue under H");
+    assert!(entries.iter().all(|e| get_num(e, "Hue ").is_none()), "no Hue key");
+
+    // A Photoshop-recorded step (H) and an older PhotoCraft one (Hue ) both import with the hue.
+    let step = |key: &str| {
+        desc("null")
+            .with("presetKind", enm("presetKindType", "presetKindCustom"))
+            .with("Clrz", D::Boolean(false))
+            .with("Adjs", D::List(vec![D::Descriptor(desc("Hst2").with(key, long(30.0)).with("Strt", long(20.0)).with("Lght", long(-7.0)))]))
+    };
+    for key in ["H   ", "Hue "] {
+        let e = event_for(&item("HStr", "", None).event).expect("HStr imports");
+        match (e.from)(&step(key)) {
+            Mapped::Steps(steps) => {
+                assert_eq!(steps[0].0, "image.adjustments.hueSaturation");
+                assert_eq!(steps[0].1["hue"], json!(30.0), "{key:?}: {}", steps[0].1);
+                assert_eq!(steps[0].1["saturation"], json!(20.0));
+            }
+            Mapped::Unsupported { .. } => panic!("{key:?} is unsupported"),
+        }
+    }
+    // Through a whole file, saved and loaded back: the hue survives.
+    let back = import(&bytes).unwrap();
+    let mut p = back.actions[0].steps[0].1.clone();
+    normalise(&mut p);
+    assert_eq!(p["hue"], json!(30), "{p}");
+}
