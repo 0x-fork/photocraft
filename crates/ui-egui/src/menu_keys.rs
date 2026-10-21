@@ -99,7 +99,8 @@ pub fn assign(labels: &[&str], preferred: &[Option<char>]) -> Vec<Option<char>> 
 /// `english` (same order). A label with an ASCII letter or digit keeps its text and is assigned
 /// as [`assign`] does. One without (Chinese, Japanese, Korean…) can't be typed on its own, so it
 /// shows its English label's letter after it in parentheses and takes that letter, as Windows menus
-/// do in those languages ("文件(F)", #5863). Mnemonics stay unique within the group.
+/// do in those languages ("文件(F)", #5863). Mnemonics stay unique within the group, and a shown
+/// "(F)" is always the row's key.
 pub fn localized(labels: &[String], english: &[&str], preferred: &[Option<char>]) -> (Vec<String>, Vec<Option<char>>) {
     let typed = |l: &str| l.chars().any(|c| c.is_ascii_alphanumeric());
     // The key goes before a trailing ellipsis, as Windows writes it: "新建(N)…".
@@ -122,7 +123,18 @@ pub fn localized(labels: &[String], english: &[&str], preferred: &[Option<char>]
             }
         }
     }
-    let keys = assign(&shown.iter().map(String::as_str).collect::<Vec<_>>(), &pref);
+    // The suffixed labels take their keys first: a label with letters of its own must not take
+    // the key a suffix shows ("Camera Raw 滤镜…" before "转换为智能滤镜(C)" leaves C to the latter).
+    let suffixed = |i: &usize| shown.get(*i) != labels.get(*i);
+    let order: Vec<usize> = (0..shown.len()).filter(suffixed).chain((0..shown.len()).filter(|i| !suffixed(i))).collect();
+    let ordered: Vec<&str> = order.iter().map(|&i| shown.get(i).map_or("", String::as_str)).collect();
+    let ordered_pref: Vec<Option<char>> = order.iter().map(|&i| pref.get(i).copied().flatten()).collect();
+    let mut keys = vec![None; shown.len()];
+    for (&i, key) in order.iter().zip(assign(&ordered, &ordered_pref)) {
+        if let Some(slot) = keys.get_mut(i) {
+            *slot = key;
+        }
+    }
     (shown, keys)
 }
 

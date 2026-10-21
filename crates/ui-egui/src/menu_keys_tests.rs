@@ -261,6 +261,10 @@ fn labels_without_latin_letters_show_their_english_key() {
     let (shown, keys) = crate::menu_keys::localized(&["关闭".to_string(), "复制".to_string()], &["Close", "Copy"], &[]);
     assert_eq!(shown, ["关闭(C)", "复制(O)"]);
     assert_eq!(keys, [Some('C'), Some('O')]);
+    // A shown "(C)" keeps its key even when a label with letters of its own comes first.
+    let (shown, keys) = crate::menu_keys::localized(&["Copy".to_string(), "关闭".to_string()], &["Open", "Close"], &[]);
+    assert_eq!(shown, ["Copy", "关闭(C)"]);
+    assert_eq!(keys, [Some('O'), Some('C')]);
     // An English UI is unchanged.
     let labels: Vec<String> = ["File", "Edit"].map(String::from).to_vec();
     assert_eq!(crate::menu_keys::localized(&labels, &["File", "Edit"], &[Some('F'), Some('E')]).0, labels);
