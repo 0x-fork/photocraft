@@ -672,6 +672,53 @@ fn panel_tab_context_menu_closes_one_tab_or_its_group() {
     }
 }
 
+/// #7265: Studio's floating Properties card has the docked group's Adjustments tab, so Window ›
+/// Adjustments shows the grid of adjustment layers instead of Properties.
+#[test]
+fn studio_properties_card_shows_the_adjustments_tab() {
+    use egui_kittest::kittest::Queryable;
+
+    let (mut app, _, _) = app_with_layers();
+    app.last_canvas_rect = Rect::from_min_size(Pos2::ZERO, vec2(900.0, 700.0));
+    let mut h = Harness::builder().with_size(vec2(900.0, 700.0)).build_ui_state(
+        |ui, app: &mut PhotocraftApp| {
+            let ctx = ui.ctx().clone();
+            if ctx.fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                crate::panels::properties_window(app, &ctx);
+            }
+        },
+        app,
+    );
+    PhotocraftApp::setup_context(&h.ctx, ThemeKind::Studio);
+    h.state_mut().ui.theme = ThemeKind::Studio;
+    h.run_steps(3);
+    let ctx = h.ctx.clone();
+    crate::menus::invoke(h.state_mut(), &ctx, "window.panel.adjustments", json!({})).unwrap();
+    h.run_steps(3);
+    assert!(h.state().ui.panels.properties && h.state().ui.dock_tabs.properties == 1);
+    assert!(h.query_by_label("Add an adjustment").is_some(), "Window › Adjustments shows the Adjustments grid");
+    // The Properties tab switches back to the layer's properties.
+    h.get_by_label("Properties").click();
+    h.run_steps(3);
+    assert_eq!(h.state().ui.dock_tabs.properties, 0);
+    assert!(h.query_by_label("Add an adjustment").is_none());
+    assert!(h.query_by_label("Reset to defaults").is_some(), "the Curves layer's properties");
+    // Closing the Adjustments tab leaves Properties alone on the card.
+    h.get_by_label("Adjustments").click();
+    h.run_steps(3);
+    let p = h.get_by_label("Adjustments").rect().center();
+    h.hover_at(p);
+    h.run_steps(1);
+    h.event(egui::Event::PointerButton { pos: p, button: PointerButton::Secondary, pressed: true, modifiers: Modifiers::NONE });
+    h.step();
+    h.event(egui::Event::PointerButton { pos: p, button: PointerButton::Secondary, pressed: false, modifiers: Modifiers::NONE });
+    h.run_steps(2);
+    h.get_by_label("Close").click();
+    h.run_steps(3);
+    assert!(h.state().ui.panels.properties && h.state().ui.dock_tabs.properties == 0);
+    assert!(h.query_by_label("Adjustments").is_none() && h.query_by_label("Reset to defaults").is_some());
+}
+
 fn is_pro(theme: ThemeKind) -> bool {
     theme.is_pro()
 }

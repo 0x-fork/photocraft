@@ -3675,8 +3675,9 @@ fn snapshot_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, selected: Option<u6
 
 // ----------------------------------------------------------------------------- properties
 
-/// Floating Properties card anchored to the canvas' top-right corner. It shows the same content as
-/// the docked panel (`properties_body`): document, layer, adjustment and mask properties.
+/// Floating Properties card anchored to the canvas' top-right corner. It has the docked group's
+/// tabs: Properties (`properties_body`: document, layer, adjustment and mask properties) and
+/// Adjustments (`adjustments_grid`).
 pub fn properties_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if app.ui.docking.is_some() {
         return;
@@ -3706,24 +3707,44 @@ pub fn properties_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let shown = egui::Area::new(card_id).order(egui::Order::Middle).fixed_pos(pos + offset).show(ctx, |ui| {
         frame.show(ui, |ui| {
             ui.set_width(width - 28.0);
-            let title = ui.horizontal(|ui| {
-                ui.label(RichText::new(tl!("Properties")).font(theme::semibold(13.5)).color(t.text));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if icons::button(ui, "minus", 22.0, false, tl!("Hide Properties")).clicked() {
-                        app.ui.panels.properties = false;
-                    }
-                });
-            });
-            let bar = title.response.rect.with_max_x(title.response.rect.right() - 28.0);
+            // Properties | Adjustments, as on the docked group (#7265).
+            let group = crate::dock::Group::Properties;
+            let visible = app.ui.dock.visible_tabs(group, false);
+            let indices: Vec<usize> = visible.iter().map(|(i, _)| *i).collect();
+            let tabs: Vec<&str> = visible.iter().map(|(_, name)| *name).collect();
+            let mut sel = indices.iter().position(|i| *i == app.ui.dock_tabs.properties).unwrap_or(0);
+            let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
+            let hide = Rect::from_min_max(pos2(row.right() - 22.0, row.top() + 1.0), pos2(row.right(), row.bottom() - 1.0));
+            if icons::button(&mut ui.new_child(egui::UiBuilder::new().max_rect(hide)), "minus", 22.0, false, tl!("Hide Properties")).clicked() {
+                app.ui.panels.properties = false;
+            }
+            // The title bar drags the card; registered before the tabs so they keep their clicks.
+            let bar = Rect::from_min_max(row.min, pos2((hide.left() - 6.0).max(row.left()), row.bottom()));
             let grip = ui.interact(bar, card_id.with("title"), Sense::drag());
             if grip.hovered() || grip.dragged() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
             }
             drag = grip.drag_delta();
+            let strip = crate::tab_strip::pill_tabs(ui, card_id.with("tabs"), bar, &tabs, &mut sel, false);
+            if let Some(&picked) = indices.get(sel) {
+                app.ui.dock_tabs.properties = picked;
+            }
+            match strip.context {
+                Some(crate::tab_strip::TabContextAction::Close(i)) => {
+                    if let Some(&tab) = indices.get(i) {
+                        crate::dock::close_tab(app, group, tab, false);
+                    }
+                }
+                Some(crate::tab_strip::TabContextAction::CloseGroup) => app.ui.panels.properties = false,
+                None => {}
+            }
             ui.add_space(6.0);
             widgets::hairline(ui);
             ui.add_space(8.0);
-            properties_body(app, ui);
+            match indices.get(sel) {
+                Some(0) | None => properties_body(app, ui),
+                Some(_) => adjustments_grid(app, ui),
+            }
         });
     });
     if drag != egui::Vec2::ZERO && canvas.is_positive() {
