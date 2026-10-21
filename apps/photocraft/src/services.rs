@@ -70,6 +70,7 @@ const OPEN_FILTERS: &[(&str, &[&str])] = &[
     ("Camera Raw", &["dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf"]),
     ("Brushes", &["abr"]),
     ("Gradients", &["grd"]),
+    ("Styles", &["asl"]),
     ("Swatches", &["aco", "ase"]),
     ("Keyboard Shortcuts", &["kys"]),
 ];

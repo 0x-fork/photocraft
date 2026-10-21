@@ -925,6 +925,7 @@ mod tests {
                 | "path.rename"
                 | "path.stroke"
                 | "type.attachToPath"
+                | "type.fillPath"
                 | "type.detachFromPath"
                 | "select.toWorkPath"
                 | "layer.vectorMask.add"
