@@ -3421,7 +3421,8 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     {
         let label = match drag {
             HistoryDrag::Snapshot(id) => app.session.active().and_then(|st| st.snapshots.iter().find(|s| s.id == id)).map(|s| s.name.clone()),
-            HistoryDrag::State(i) => entries.get(i).cloned(),
+            // Rows number the past states, then the later (dimmed) ones a non-linear drag can lift.
+            HistoryDrag::State(i) => entries.get(i).or_else(|| i.checked_sub(entries.len()).and_then(|j| redo.get(j))).cloned(),
         };
         crate::layer_transfer::ghost(&ctx, p, &label.unwrap_or_default());
     }

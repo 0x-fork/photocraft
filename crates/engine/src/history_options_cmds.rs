@@ -81,8 +81,14 @@ pub(crate) fn delete_state(s: &mut Session, i: usize, current: usize) -> Result<
         if !removed {
             return Err(EngineError::Other(format!("state {i} is not held")));
         }
-        // The document is unchanged, but the History panel's rows are not.
+        // The document is unchanged, but the History panel's rows are not: a view-only change
+        // that keeps a clean document clean.
+        let clean = st.saved_revision == st.revision;
         st.revision += 1;
+        st.view_revision += 1;
+        if clean {
+            st.saved_revision = st.revision;
+        }
         st.last_damage = Some(photocraft_geom::Rect::EMPTY);
         return Ok(());
     }
@@ -375,6 +381,56 @@ mod tests {
         assert!(s.execute("history.deleteState", json!({})).is_err(), "the oldest state itself stays");
         s.execute("history.deleteState", json!({"state": 1})).unwrap();
         assert!(!s.is_enabled("history.deleteState"), "nothing left but the oldest state");
+    }
+
+    /// Non-linear Delete of a past or later state leaves the document as it is, so a saved
+    /// (clean) document stays clean; deleting the current state steps back and modifies it.
+    #[test]
+    fn non_linear_delete_of_another_state_keeps_a_clean_document_clean() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 16, "height": 16})).unwrap();
+        s.execute(CMD, json!({"allowNonLinearHistory": true})).unwrap();
+        for c in ["#ff0000", "#00ff00", "#0000ff", "#808080"] {
+            s.execute("edit.fill", json!({"color": c})).unwrap();
+        }
+        s.execute("edit.undo", json!({})).unwrap();
+        // States: New, Fill 1-3 (3 current), the dimmed Fill 4. As if just saved.
+        let st = s.active_mut().unwrap();
+        st.saved_revision = st.revision;
+        let rev = st.revision;
+        s.execute("history.deleteState", json!({"state": 1})).unwrap();
+        let st = s.active().unwrap();
+        assert!(!st.is_dirty(), "deleting a past state left the saved document unmodified");
+        assert!(st.revision > rev, "the History panel still sees the change");
+        s.execute("history.deleteState", json!({"state": 3})).unwrap();
+        assert!(!s.active().unwrap().is_dirty(), "deleting a later state left it unmodified too");
+        assert_eq!(s.active().unwrap().history.redo_labels().count(), 0);
+        // A modified document stays modified.
+        s.execute("edit.fill", json!({"color": "#ffffff"})).unwrap();
+        s.execute("history.deleteState", json!({"state": 1})).unwrap();
+        assert!(s.active().unwrap().is_dirty());
+        // The current state: the document steps back, which is a change.
+        let st = s.active_mut().unwrap();
+        st.saved_revision = st.revision;
+        s.execute("history.deleteState", json!({})).unwrap();
+        assert!(s.active().unwrap().is_dirty());
+    }
+
+    /// With the option off, a recorded step that changes visibility along with other properties
+    /// (layer.setProps visible + opacity is one Layer Properties state) is undone and redone as a
+    /// whole: the carried-over visibility skips the layers the step itself changed.
+    #[test]
+    fn undoing_a_mixed_visibility_and_opacity_change_undoes_both() {
+        let (mut s, id) = doc();
+        s.execute(CMD, json!({"makeLayerVisibilityChangesUndoable": false})).unwrap();
+        let n = entries(&s).len();
+        s.execute("layer.setProps", json!({"layer": id, "visible": false, "opacity": 0.5})).unwrap();
+        assert_eq!(entries(&s).len(), n + 1, "the mixed change is a state");
+        let opacity = |s: &Session| s.active().unwrap().doc.layer(photocraft_doc::LayerId(id)).unwrap().opacity;
+        s.execute("edit.undo", json!({})).unwrap();
+        assert!(visible(&s, id) && (opacity(&s) - 1.0).abs() < 1e-6, "undo shows the layer again and restores its opacity");
+        s.execute("edit.redo", json!({})).unwrap();
+        assert!(!visible(&s, id) && (opacity(&s) - 0.5).abs() < 1e-6, "redo hides it again");
     }
 
     /// Non-linear Delete reaches a later (dimmed) state too, and deletes only it; linear history
