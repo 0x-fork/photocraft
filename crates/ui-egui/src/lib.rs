@@ -2980,6 +2980,8 @@ mod transform_fx_tests;
 #[cfg(test)]
 mod layer_props_ui_tests;
 #[cfg(test)]
+mod notice_text_tests;
+#[cfg(test)]
 mod transform_switch_tests;
 #[cfg(test)]
 mod transform_undo_tests;
