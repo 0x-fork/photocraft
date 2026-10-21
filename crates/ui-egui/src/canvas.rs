@@ -947,8 +947,14 @@ impl ViewXform {
                 rotation: v.rotation,
                 aspect: app.ui.view.display_aspect(),
             }
-            .pixel_aligned(app.canvas_ppp()),
+            .pixel_aligned_for(app, app.canvas_ppp()),
         )
+    }
+
+    fn pixel_aligned_for(self, app: &PhotocraftApp, ppp: f32) -> Self {
+        // Default Crop counter-moves the frame and camera with fractional pointer deltas.
+        // Preserve that continuous mapping so its fixed frame does not wobble during a drag.
+        if crate::crop_mode::moves_image(app) { self } else { self.pixel_aligned(ppp) }
     }
 
     /// At integer physical magnifications, texel edges must land on display pixel edges.
@@ -3176,7 +3182,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     let flip = app.ui.view.flip_horizontal;
     // Canvas geometry (ViewXform, ViewParams, painter rects) is in egui points.
     let point_zoom = view.zoom / ppp;
-    let xf = ViewXform { rect, zoom: point_zoom, center: view.center, flip, rotation: view.rotation, aspect }.pixel_aligned(ppp);
+    let xf = ViewXform { rect, zoom: point_zoom, center: view.center, flip, rotation: view.rotation, aspect }.pixel_aligned_for(app, ppp);
     let pixel_grid = app.ui.view.shows(app.ui.view.show.pixel_grid);
     let response = ui.allocate_rect(rect, Sense::click_and_drag());
     let stroke_dismissal = primary && crate::shape_stroke_ui::dismiss_from_canvas(app, &response);
@@ -4039,7 +4045,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             ctx.request_repaint();
         }
     }
-    let xf = if crop_camera { ViewXform { center: view.center, rotation: view.rotation, ..xf }.pixel_aligned(ppp) } else { xf };
+    let xf = if crop_camera { ViewXform { center: view.center, rotation: view.rotation, ..xf }.pixel_aligned_for(app, ppp) } else { xf };
     let (img_rect, beyond, layer_edges) = painted.unwrap_or_else(|| paint_canvas(app, ui, &view, xf));
     if primary && !(hand_pan && response.dragged()) {
         // The transform preview is image content: it goes under the grid and guides, which

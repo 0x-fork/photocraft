@@ -124,3 +124,13 @@ fn cpu_canvas_paints_its_image_on_physical_pixel_edges() {
         assert_eq!(app.ui.views[0].center, saved_center);
     }
 }
+
+#[test]
+fn crop_image_movement_keeps_its_continuous_camera_mapping() {
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    app.ui.tool = Tool::Crop;
+    let xf = xform(1.0, [523.0, 471.0]);
+    assert_eq!(xf.pixel_aligned_for(&app, 1.0).center, xf.center);
+    app.ui.tool_options.crop_shield.classic_mode = true;
+    assert_pixel_edges(xf.pixel_aligned_for(&app, 1.0), 1.0);
+}
