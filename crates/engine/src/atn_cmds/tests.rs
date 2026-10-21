@@ -724,6 +724,8 @@ fn retouching_set_events_map_to_their_commands() {
         item("set", "Set", Some(fg)),
         item("set", "Set", Some(lab_fg)),
         item("groupEvent", "Create Clipping Mask", Some(desc("null").with("null", target_ref("Lyr ")))),
+        item("GrpL", "Create Clipping Mask", Some(desc("null").with("null", target_ref("Lyr ")))),
+        item("groupEvent", "Create Clipping Mask", Some(desc("null").with("null", name_ref("Lyr ", "Shadow")))),
         item("someFutureEvent", "Something New", Some(desc("null").with("Amnt", long(5.0)))),
     ];
     let file = AtnFile {
@@ -748,6 +750,8 @@ fn retouching_set_events_map_to_their_commands() {
         ("tools.setColors", json!({"foreground": "#0000ff"})),
         (PHOTOSHOP_STEP, Value::Null),
         ("layer.createClippingMask", json!({})),
+        ("layer.createClippingMask", json!({})),
+        ("layer.createClippingMask", json!({"layer": "Shadow"})),
         (PHOTOSHOP_STEP, Value::Null),
     ];
     assert_eq!(steps.len(), expected.len(), "{steps:?}");
@@ -760,7 +764,7 @@ fn retouching_set_events_map_to_their_commands() {
     // Sampled Colors (Lab range), an unknown Color Range key, a Lab colour and an unknown
     // event stay unsupported rather than play with other values.
     let unsupported: Vec<(&str, usize)> = imp.unsupported.iter().map(|u| (u.event.as_str(), u.step)).collect();
-    assert_eq!(unsupported, [("colorRange", 4), ("colorRange", 5), ("set", 8), ("someFutureEvent", 10)]);
+    assert_eq!(unsupported, [("colorRange", 4), ("colorRange", 5), ("set", 8), ("someFutureEvent", 12)]);
     // A legacy PhotoCraft export's `Yllw` yellows still read.
     let legacy = desc("null").with("ClrC", D::List(vec![D::Descriptor(desc("ClrC").with("Clrs", enm("Clrs", "Yllw")).with("Cyn ", pct(5.0)))]));
     assert_eq!(selective_from(&legacy), Some(json!({"yellows": [5.0, 0.0, 0.0, 0.0]})));

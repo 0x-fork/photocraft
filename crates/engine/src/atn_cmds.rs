@@ -2977,7 +2977,7 @@ fn color_range_to(_: &str, p: &Value) -> Option<Descriptor> {
     Some(d)
 }
 
-/// Release Clipping Mask (`ungroup`) on the target or a named layer.
+/// Create / Release Clipping Mask (`groupEvent` / `ungroup`) on the target or a named layer.
 fn clipping_from(d: &Descriptor, id: &str) -> Mapped {
     match get_ref(d, "null") {
         None => none(id),
@@ -3329,7 +3329,14 @@ const EVENTS: &[Event] = &[
     ev!("", "rasterizeLayer", "Rasterize", "layer.rasterize.layer", &[]),
     ev!("", "selectAllLayers", "Select All Layers", "select.allLayers", &[]),
     ev!("", "selectNoLayers", "Deselect Layers", "select.deselectLayers", &[]),
-    ev!("", "groupEvent", "Create Clipping Mask", "layer.createClippingMask", &[]),
+    Event {
+        code: "GrpL",
+        name: "groupEvent",
+        label: "Create Clipping Mask",
+        ids: &["layer.createClippingMask"],
+        from: |d| clipping_from(d, "layer.createClippingMask"),
+        to: clipping_to,
+    },
     ev!("", "ungroupLayersEvent", "Ungroup Layers", "layer.ungroupLayers", &[]),
     ev!("", "copyEffects", "Copy Layer Style", "layer.layerStyle.copyLayerStyle", &[]),
     ev!("", "pasteEffects", "Paste Layer Style", "layer.layerStyle.pasteLayerStyle", &[]),
