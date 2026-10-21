@@ -1047,11 +1047,13 @@ pub fn effect_source_bounds(layer: &Layer, canvas: Rect) -> Rect {
 /// shape's layer effects from its vector outline, not from its pixels: a stroke runs along the
 /// whole path even where a gradient fill fades out (psd-tools stroke-effects). `None` for other
 /// layers, shapes without fill, empty and inverted paths, and shapes whose vector stroke reaches
-/// past the path (their pixels give the outline: psd-tools double-stroke-effects).
+/// past the path (their pixels give the outline: psd-tools double-stroke-effects), and shapes
+/// with a density or feather.
 pub fn effect_outline(layer: &Layer) -> Option<&photocraft_doc::vector::Path> {
     let LayerContent::Shape(sh) = &layer.content else { return None };
     let stroke_inside = sh.stroke.as_ref().is_none_or(|s| s.width <= 0.0 || s.align == photocraft_doc::vector::StrokeAlign::Inside);
-    (sh.fill.is_some() && stroke_inside && !sh.path.is_empty() && !sh.path.inverted).then_some(&sh.path)
+    // A soft (feathered or less dense) fill's own alpha is its outline.
+    (sh.fill.is_some() && stroke_inside && !sh.path.is_empty() && !sh.path.inverted && !sh.has_soft_mask()).then_some(&sh.path)
 }
 
 /// The shape a layer's effects are built from over `rect` (row-major): its content's alpha
@@ -1141,8 +1143,11 @@ pub fn relayout_damage(a: &Document, b: &Document) -> Rect {
     out
 }
 
-/// The bounding box of a shape layer's vector content: its path control bounds plus stroke width.
-pub fn shape_bounds(sh: &photocraft_doc::ShapeLayer) -> Option<Rect> {
+/// The bounding box of a shape layer's path and stroke, ignoring its Density and Feather: its
+/// path control bounds plus stroke width. It is the frame Free Transform and the Move tool's
+/// transform controls show for a soft shape, whose rendering reaches past it (in Photoshop a
+/// shape's transform frame follows its path whatever its mask Density and Feather).
+pub fn hard_shape_bounds(sh: &photocraft_doc::ShapeLayer) -> Option<Rect> {
     if sh.fill.is_none() && sh.stroke.as_ref().is_none_or(|s| s.width <= 0.0 || s.opacity <= 0.0) {
         return None;
     }
@@ -1150,6 +1155,20 @@ pub fn shape_bounds(sh: &photocraft_doc::ShapeLayer) -> Option<Rect> {
     let stroke_margin = sh.stroke.as_ref().filter(|s| s.opacity > 0.0).map_or(0.0, |s| s.width.ceil()) as i32;
     let r = Rect::new(x0.floor() as i32, y0.floor() as i32, x1.ceil() as i32, y1.ceil() as i32).inflate(stroke_margin);
     (!r.is_empty()).then_some(r)
+}
+
+/// The bounding box of a shape layer's vector content: its path control bounds plus stroke width
+/// (and the reach of a soft fill).
+pub fn shape_bounds(sh: &photocraft_doc::ShapeLayer) -> Option<Rect> {
+    let r = hard_shape_bounds(sh)?;
+    // A soft fill reaches past the path: by its feather, or everywhere below 100 % density.
+    if sh.fill.is_some() && sh.has_soft_mask() {
+        if sh.density.is_finite() && sh.density < 1.0 {
+            return Some(Rect::new(i32::MIN / 4, i32::MIN / 4, i32::MAX / 4, i32::MAX / 4));
+        }
+        return Some(r.union(&photocraft_vector::feather::path_area(&sh.path, masks::feather_sigma(sh.feather))));
+    }
+    Some(r)
 }
 
 /// The layer's effective mask over `rect` (row-major), read once per tile: the pixel mask
@@ -1438,9 +1457,14 @@ pub fn composite_bounds(layer: &Layer, canvas: Rect) -> Option<Rect> {
 pub fn change_bounds(layer: &Layer, canvas: Rect) -> Option<Rect> {
     fn reaches_below(l: &Layer) -> bool {
         match &l.content {
-            // Clipped, it changes only its base's pixels.
             LayerContent::Adjustment(_) => !l.clipped,
-            LayerContent::Group(g) if l.blend == BlendMode::PassThrough => g.children.iter().any(reaches_below),
+            // Clipped to a base, an adjustment changes only the base's pixels; one with no base
+            // beneath it in its list composites as an ordinary adjustment (#6535).
+            LayerContent::Group(g) if l.blend == BlendMode::PassThrough => g.children.iter().enumerate().any(|(k, c)| {
+                let orphan =
+                    c.clipped && matches!(c.content, LayerContent::Adjustment(_)) && g.children.get(..k).is_none_or(|below| below.iter().all(|b| b.clipped));
+                orphan || reaches_below(c)
+            }),
             _ => false,
         }
     }
@@ -1448,6 +1472,35 @@ pub fn change_bounds(layer: &Layer, canvas: Rect) -> Option<Rect> {
         return None;
     }
     composite_bounds(layer, canvas)
+}
+
+/// [`change_bounds`] of `layers[k]` in its sibling list (bottom→top), which also bounds a clipped
+/// adjustment layer: it changes only its clip base's pixels, so it reaches as far as showing,
+/// hiding or restyling that base does (#6535). Still `None` when there is no base below it (the
+/// compositor then draws it as an ordinary adjustment) or the base is an adjustment itself
+/// (layers clipped to one composite atop the adjusted backdrop, everywhere). `outer` is the list
+/// holding the group whose children `layers` are, and that group's index there (`None` at the
+/// top level): a pass-through group that is a clip base renders isolated while it holds a visible
+/// adjustment, so showing or hiding one inside can change the whole group.
+pub fn change_bounds_in(layers: &[Layer], k: usize, outer: Option<(&[Layer], usize)>, canvas: Rect) -> Option<Rect> {
+    let layer = layers.get(k)?;
+    if layer.clipped && matches!(layer.content, LayerContent::Adjustment(_)) {
+        let base = layers.get(..k)?.iter().rev().find(|l| !l.clipped)?;
+        if matches!(base.content, LayerContent::Adjustment(_)) {
+            return None;
+        }
+        if let Some((outer, g)) = outer
+            && let Some(group) = outer.get(g)
+            && group.blend == BlendMode::PassThrough
+            && !group.clipped
+            && outer.get(g + 1).is_some_and(|above| above.clipped)
+        {
+            // The group bounds its base too.
+            return change_bounds(group, canvas);
+        }
+        return change_bounds(base, canvas);
+    }
+    change_bounds(layer, canvas)
 }
 
 /// Whether the layer's content is transparent outside its bounds (every surface it draws from
@@ -2213,6 +2266,8 @@ fn blend_span_g(dst: &mut [[f32; 4]], src: &[[f32; 4]], x0: i32, y: i32, mode: B
     }
 }
 
+#[cfg(test)]
+mod soft_shape_tests;
 #[cfg(test)]
 mod stroke_tests;
 #[cfg(test)]
