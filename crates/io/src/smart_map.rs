@@ -170,7 +170,7 @@ const KNOWN: [Known; 22] = [
     Known { class: "Twrl", filter_id: code(b"Twrl"), name: "Twirl...", command: "filter.distort.twirl" },
     Known { class: "Wave", filter_id: code(b"Wave"), name: "Wave...", command: "filter.distort.wave" },
     Known { class: "ZgZg", filter_id: code(b"ZgZg"), name: "ZigZag...", command: "filter.distort.zigZag" },
-    // Image › Adjustments › Invert on a smart object: no settings, so no `Fltr` (yet `hasoptions`).
+    // Image › Adjustments › Invert on a smart object: no settings, so no `Fltr` (`hasoptions` false).
     Known { class: "Invr", filter_id: code(b"Invr"), name: "Invert", command: "image.adjustments.invert" },
 ];
 
@@ -676,7 +676,12 @@ fn fltr_for(k: &Known, p: &J) -> Result<Option<Descriptor>, String> {
             d.with("Amnt", pi(p, "amount", 10.0)).with("NmbR", pi(p, "ridges", 5.0)).with("ZZTy", enum_value(p, "style", "pondRipples", "ZZTy", &ZIGZAG_STYLE)?)
         }
         "Wave" => {
-            let seed = p.get("seed").and_then(J::as_u64).and_then(|s| u32::try_from(s).ok()).unwrap_or(0);
+            // The seed the renderer draws with (engine `filters::seed`): a u32, else a legacy signed
+            // or fractional seed, rounded and saturated, as its bit pattern.
+            let seed = match p.get("seed").and_then(J::as_u64).and_then(|s| u32::try_from(s).ok()) {
+                Some(s) => Value::Integer(s as i32),
+                None => pi(p, "seed", 0.0),
+            };
             // The renderer draws at most MAX_WAVE_GENERATORS: write what PhotoCraft rendered, so
             // Photoshop doesn't draw more generators than the user saw.
             let generators = pf(p, "generators", 5.0).round().clamp(1.0, f64::from(photocraft_algo::MAX_WAVE_GENERATORS)) as i32;
@@ -689,7 +694,7 @@ fn fltr_for(k: &Known, p: &J) -> Result<Option<Descriptor>, String> {
                 .with("SclH", Value::Integer(100))
                 .with("SclV", Value::Integer(100))
                 .with("UndA", enum_value(p, "undefinedAreas", "wrap", "UndA", &UNDEFINED_AREAS)?)
-                .with("RndS", Value::Integer(seed as i32))
+                .with("RndS", seed)
         }
         "Invr" => return Ok(None),
         _ => return Err("not a recognized filter".into()),
@@ -726,8 +731,7 @@ pub fn item_for_filter(f: &SmartFilter) -> Result<Descriptor, String> {
         .with("Nm  ", Value::Text(UnicodeString::new_nul(k.name)))
         .with("blendOptions", blend_options(f))
         .with("enab", Value::Boolean(f.visible))
-        // Photoshop marks Invert as having options although it stores none.
-        .with("hasoptions", Value::Boolean(fltr.is_some() || k.class == "Invr"))
+        .with("hasoptions", Value::Boolean(fltr.is_some()))
         .with("FrgC", rgbc(0.0))
         .with("BckC", rgbc(255.0));
     if let Some(x) = fltr {
@@ -1308,14 +1312,38 @@ mod tests {
         }
     }
 
-    /// Invert on a smart object: Photoshop stores no `Fltr`, but `hasoptions` and its filter id.
+    /// `RndS` is the seed the renderer draws with, also for a legacy signed or fractional seed
+    /// (stored as is by `layer.smartFilter.setParams`), not 0.
+    #[test]
+    fn wave_export_writes_the_seed_the_renderer_draws() {
+        for (stored, written) in [
+            (json!(77), 77),
+            (json!(4_000_000_000u32), -294_967_296),
+            (json!(-1), -1),
+            (json!(7.4), 7),
+            (json!(-2.6), -3),
+            (json!(1e12), i32::MAX),
+            (json!("x"), 0),
+        ] {
+            let wave = sf("filter.distort.wave", json!({"generators": 3, "seed": stored}));
+            let fltr = match item_for_filter(&wave).unwrap().get("Fltr") {
+                Some(Value::Descriptor(d)) => d.clone(),
+                other => panic!("wave: no Fltr ({other:?})"),
+            };
+            assert_eq!(int(&fltr, "RndS"), Some(written), "seed {stored}");
+            // And it reads back as that bit pattern.
+            assert_eq!(known_params("Wave", Some(&fltr)).unwrap().1["seed"], json!(written as u32), "seed {stored}");
+        }
+    }
+
+    /// Invert on a smart object: Photoshop stores no `Fltr`, `hasoptions` false and its filter id.
     #[test]
     fn invert_smart_filter_reads_and_writes_like_photoshop() {
         let item = Descriptor::new("filterFX")
             .with("Nm  ", Value::Text(UnicodeString::new_nul("Invert")))
             .with("blendOptions", Value::Descriptor(Descriptor::new("blendOptions").with("Opct", unit(b"#Prc", 100.0)).with("Md  ", enumv("BlnM", "normal"))))
             .with("enab", Value::Boolean(true))
-            .with("hasoptions", Value::Boolean(true))
+            .with("hasoptions", Value::Boolean(false))
             .with("FrgC", rgbc(255.0))
             .with("BckC", rgbc(0.0))
             .with("filterID", Value::Integer(code(b"Invr")));
@@ -1323,7 +1351,7 @@ mod tests {
         assert_eq!((f.command.as_str(), &f.params), ("image.adjustments.invert", &json!({})));
         let back = item_for_filter(&f).unwrap();
         assert_eq!(back.get("Fltr"), None);
-        assert_eq!(back.get("hasoptions"), Some(&Value::Boolean(true)));
+        assert_eq!(back.get("hasoptions"), Some(&Value::Boolean(false)));
         assert_eq!(back.get("filterID"), Some(&Value::Integer(code(b"Invr"))));
         assert_eq!(back.get("Nm  "), Some(&Value::Text(UnicodeString::new_nul("Invert"))));
     }
