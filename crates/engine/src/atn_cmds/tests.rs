@@ -250,6 +250,7 @@ fn every_mapped_command_exports_and_imports_back() {
         ("filter.sharpen.unsharpMask", json!({"amount": 120, "radius": 1.5, "threshold": 3})),
         ("filter.noise.addNoise", json!({"amount": 12.5, "distribution": "gaussian", "monochromatic": true, "seed": 7})),
         ("filter.noise.median", json!({"radius": 2})),
+        ("filter.stylize.emboss", json!({"angle": 135, "height": 3, "amount": 100})),
         ("filter.blur.motionBlur", json!({"angle": 45, "distance": 20})),
         ("filter.blur.smartBlur", json!({"radius": 2.5, "threshold": 40, "quality": "medium", "mode": "overlayEdge"})),
         ("filter.other.offset", json!({"horizontal": 10, "vertical": -5, "undefinedAreas": "wrap"})),
@@ -1498,6 +1499,28 @@ fn arbitrary_rotation_keeps_interpolation_through_atn() {
         assert!(imported.unsupported.is_empty());
         assert_eq!(imported.actions[0].steps, vec![("image.rotation.arbitrary".to_string(), params)]);
     }
+}
+
+/// Filter › Stylize › Emboss saves as Photoshop's `Embs` event with integer `Angl`, `Hght` and
+/// `Amnt`, and loads back as the same step (#7946: it was skipped, so a portable action lost it).
+#[test]
+fn emboss_saves_as_photoshops_event_and_loads_back() {
+    let mut s = Session::new();
+    let params = json!({"angle": 130, "height": 1, "amount": 70});
+    s.actions.list.push(Action::new("Pore", vec![("filter.stylize.emboss".into(), params.clone())]));
+    let r = s.execute("actions.save", json!({"action": "Pore"})).unwrap();
+    assert_eq!(r["skipped"], json!([]));
+    let saved = photocraft_paint::tile::b64_decode(r["data"].as_str().unwrap()).unwrap();
+    let file = atn::parse(&saved).unwrap();
+    let step = &file.actions[0].items[0];
+    assert_eq!(step.event.id(), "Embs");
+    let d = step.descriptor.as_ref().unwrap();
+    for (key, want) in [("Angl", 130), ("Hght", 1), ("Amnt", 70)] {
+        assert_eq!(d.get(key), Some(&D::Integer(want)), "{key}");
+    }
+    let mut t = Session::new();
+    t.execute("actions.load", json!({"data": b64(&saved)})).unwrap();
+    assert_eq!(t.actions.list[0].steps, vec![("filter.stylize.emboss".to_string(), params)]);
 }
 
 /// A filter recorded against a layer mask must not export as a plain filter that edits the
