@@ -837,6 +837,41 @@ mod tests {
     }
 
     #[test]
+    fn doc_export_data_sets_judges_pixel_replacement_paths_like_apply() {
+        let base = std::env::temp_dir().join(format!("pc-doc-data-set-pixels-{}", std::process::id()));
+        let root = base.join("workspace");
+        std::fs::create_dir_all(&root).unwrap();
+        let red = photocraft_codecs::Image::from_u8(4, 4, photocraft_codecs::ChannelLayout::Rgb, [255, 0, 0].repeat(16)).unwrap();
+        let photo = base.join("photo.png");
+        std::fs::write(&photo, photocraft_codecs::encode(&red, photocraft_codecs::Format::Png, &Default::default()).unwrap()).unwrap();
+        let mut h = Headless::with_workspace(crate::AuthorizedWorkspace::new(Some(&root), Some(&root)).unwrap());
+        h.handle("doc.new", json!({"width": 8, "height": 8, "background": "white", "name": "card"})).unwrap();
+        let layer = h.handle("engine.execute", json!({"command": "layer.new.layer", "params": {}})).unwrap()["layer"].clone();
+        h.handle(
+            "engine.execute",
+            json!({"command": "image.variables.define", "params": {"defs": [{"name": "photo", "layer": layer, "type": "pixelReplacement"}]}}),
+        )
+        .unwrap();
+        // Storing the path is allowed; reading it is what the gate judges.
+        h.handle(
+            "engine.execute",
+            json!({"command": "image.variables.dataSets", "params": {"dataSets": [
+                {"name": "swap", "values": [{"variable": "photo", "kind": "pixels", "value": photo.to_string_lossy()}]},
+            ]}}),
+        )
+        .unwrap();
+        let applied = h.handle("engine.execute", json!({"command": "image.applyDataSet", "params": {"name": "swap"}})).unwrap_err().to_string();
+        assert!(applied.contains("ambient filesystem paths"), "{applied}");
+        let sets = root.join("sets");
+        let exported = h.handle("doc.exportDataSets", json!({"dir": sets.to_string_lossy(), "format": "png"})).unwrap_err().to_string();
+        assert!(exported.contains("ambient filesystem paths"), "{exported}");
+        assert_eq!(std::fs::read_dir(&sets).map_or(0, Iterator::count), 0, "nothing of the refused batch is written");
+        // Release directory capabilities before cleanup on Windows.
+        drop(h);
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn trusted_local_render_keeps_full_size_behavior() {
         let mut h = Headless::trusted_local();
         h.handle("doc.new", json!({"width": 2049, "height": 1})).unwrap();

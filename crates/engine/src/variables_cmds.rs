@@ -243,10 +243,9 @@ fn replace_pixels(doc: &mut Document, layer: LayerId, path: &str, method: PixelM
     Ok(())
 }
 
-fn apply_data_set(s: &mut Session, p: &Value) -> Result<Value> {
-    let (set, idx) = resolve_set(s, p, "image.applyDataSet")?;
-    let vars = s.active().ok_or(EngineError::NoDocument)?.doc.variables.clone();
-    // Pixel Replacement reads image files, so an untrusted session's gate judges each path.
+/// Pixel Replacement reads image files, so an untrusted session's gate judges each path a data
+/// set would read: whether it is applied or exported, the path is document data.
+fn authorize_pixel_paths(s: &Session, set: &DataSet) -> Result<()> {
     if let Some(auth) = s.authorize {
         for dv in &set.values {
             if let VarValue::Pixels(path) = &dv.value {
@@ -254,6 +253,13 @@ fn apply_data_set(s: &mut Session, p: &Value) -> Result<Value> {
             }
         }
     }
+    Ok(())
+}
+
+fn apply_data_set(s: &mut Session, p: &Value) -> Result<Value> {
+    let (set, idx) = resolve_set(s, p, "image.applyDataSet")?;
+    let vars = s.active().ok_or(EngineError::NoDocument)?.doc.variables.clone();
+    authorize_pixel_paths(s, &set)?;
     s.edit(&format!("Apply Data Set \"{}\"", set.name), |doc, _| apply_to_doc(doc, &vars, &set))?;
     set_vars(s, |v| v.active = Some(idx))?;
     Ok(json!({"applied": set.name, "index": idx}))
@@ -408,6 +414,10 @@ pub fn export_data_sets_with(s: &Session, p: &Value, mut write: impl FnMut(&str,
     let sets: Vec<DataSet> = vars.data_sets.iter().filter(|d| wanted.as_ref().is_none_or(|w| w.contains(&d.name))).cloned().collect();
     if sets.is_empty() {
         return Err(bad("file.export.dataSetsAsFiles", "no data sets to export"));
+    }
+    // Judge every image path before anything is written, as Apply Data Set does.
+    for set in &sets {
+        authorize_pixel_paths(s, set)?;
     }
     // Filename template: `{name}` (sanitised data-set name), `{index}` (1-based). Default `{name}`.
     let template = p.get("naming").and_then(Value::as_str).unwrap_or("{name}");
