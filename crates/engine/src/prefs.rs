@@ -1519,7 +1519,8 @@ pub const TEMPORARY_TOOLS: &[(&str, &str, &str)] = &[
 /// Photoshop's second default keys (#3665): (command, key). Each command keeps its main key
 /// (the one its menu shows) and answers these as well, as in Photoshop's default set: the
 /// legacy function keys F2 Cut, F3 Copy, F4 Paste and Shift+F7 Inverse; Shift+Backspace
-/// (Shift+Delete on a Mac) for Fill; and ⌘+ beside ⌘= for Zoom In.
+/// (Shift+Delete on a Mac) for Fill; ⌘+ beside ⌘= for Zoom In; and off the Mac, Ctrl+F4 beside
+/// Ctrl+W for Close (Windows' close-document key; macOS keeps Ctrl+F4 for window focus).
 pub const ALTERNATE_SHORTCUTS: &[(&str, &str)] = &[
     ("edit.cut", "F2"),
     ("edit.copy", "F3"),
@@ -1527,6 +1528,8 @@ pub const ALTERNATE_SHORTCUTS: &[(&str, &str)] = &[
     ("edit.fill", "Shift+Backspace"),
     ("select.inverse", "Shift+F7"),
     ("view.zoomIn", "Cmd++"),
+    #[cfg(not(target_os = "macos"))]
+    ("file.close", "Cmd+F4"),
 ];
 
 /// A command's default alternate keys ([`ALTERNATE_SHORTCUTS`]).
