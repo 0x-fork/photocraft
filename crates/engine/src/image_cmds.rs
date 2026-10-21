@@ -288,7 +288,16 @@ pub(crate) fn resample_doc(doc: &mut Document, nw: u32, nh: u32, filter: Resampl
         *surf = resize_surface_in_canvas(surf, sx, sy, if is_mask { Resample::Bilinear } else { filter }, canvas);
     });
     let k = ((sx + sy) / 2.0) as f32;
-    for_each_layer(&mut doc.layers, &mut |l| scale_effects(&mut l.effects, k));
+    for_each_layer(&mut doc.layers, &mut |l| {
+        scale_effects(&mut l.effects, k);
+        // Canvas resampling scales the whole appearance, including shape strokes (#8341).
+        // Dash lengths and offsets are already expressed in multiples of this width.
+        if let LayerContent::Shape(sh) = &mut l.content
+            && let Some(stroke) = &mut sh.stroke
+        {
+            stroke.width *= k;
+        }
+    });
     for ch in doc.channels.iter_mut().chain(doc.quick_mask.as_mut()) {
         ch.surface = resize_surface_in_canvas(&ch.surface, sx, sy, Resample::Bilinear, canvas);
     }
