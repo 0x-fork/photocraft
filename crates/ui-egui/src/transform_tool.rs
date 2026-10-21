@@ -2153,11 +2153,7 @@ pub fn draw_skew_cursor(ctx: &egui::Context, at: Pos2, tangent: egui::Vec2) {
         let tip = p_end + u * (dir * 3.5);
         let wing1 = p_end - u * (dir * 2.5) + perp * 3.5;
         let wing2 = p_end - u * (dir * 2.5) - perp * 3.5;
-        painter.add(egui::Shape::convex_polygon(
-            vec![tip, wing1, wing2],
-            tokens.accent_text,
-            Stroke::new(1.0, tokens.shadow),
-        ));
+        painter.add(egui::Shape::convex_polygon(vec![tip, wing1, wing2], tokens.accent_text, Stroke::new(1.0, tokens.shadow)));
     }
 }
 
@@ -2300,7 +2296,9 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
             let b_scr = scr(t.quad[(i + 1) % 4]);
             let tangent = b_scr - a_scr;
             draw_skew_cursor(painter.ctx(), at, tangent);
-        } else if !mods.command && let Some(k) = rotate_dir(t, Some(pv), p, tol) {
+        } else if !mods.command
+            && let Some(k) = rotate_dir(t, Some(pv), p, tol)
+        {
             // Through the view, so the arc bends round the corner as it shows under a turned or
             // flipped view.
             let toward = xf.to_screen((p[0] + k[0] * 16.0) as f32, (p[1] + k[1] * 16.0) as f32) - at;
@@ -4503,7 +4501,10 @@ mod tests {
             let t = app.ui.transform.clone().unwrap();
             let xf = ViewXform::active(&app).unwrap();
             let mid = |i: usize| [(t.quad[i][0] + t.quad[(i + 1) % 4][0]) / 2.0, (t.quad[i][1] + t.quad[(i + 1) % 4][1]) / 2.0];
-            let got: Vec<_> = (0..4).map(|i| cursor(&app, &xf, t.quad[i], egui::Modifiers::NONE)).chain((0..4).map(|i| cursor(&app, &xf, mid(i), egui::Modifiers::NONE))).collect();
+            let got: Vec<_> = (0..4)
+                .map(|i| cursor(&app, &xf, t.quad[i], egui::Modifiers::NONE))
+                .chain((0..4).map(|i| cursor(&app, &xf, mid(i), egui::Modifiers::NONE)))
+                .collect();
             let want = [want[0], want[1], want[0], want[1], want[2], want[3], want[2], want[3]].map(Some);
             assert_eq!(got, want, "box {deg}°, view {view}°, flip {flip}");
         }
@@ -5497,5 +5498,10 @@ mod tests {
 
         // Release drag
         crate::canvas::tool_event(&mut app, ToolEvent::Up { x: 50.0, y: 60.0 }, command);
+
+        // Once released, dragging has ended: far outside returns the commit-on-click cursor,
+        // and hovering the corner without Command restores normal resize cursor.
+        assert_eq!(cursor(&app, &xf, [200.0, 200.0], command), Some(CursorIcon::Alias));
+        assert_ne!(cursor(&app, &xf, [50.0, 60.0], egui::Modifiers::NONE), Some(CursorIcon::None));
     }
 }
