@@ -4806,6 +4806,7 @@ mod color_tests {
             let anchor = if selected { 6 } else { 11 };
             app.ui.text_edit = Some(crate::state::TextEdit {
                 layer: id.0,
+                document: None,
                 caret: 11,
                 anchor,
                 session: "s".into(),
@@ -5549,6 +5550,7 @@ mod swatch_type_tests {
         app.ui.tool = Tool::Type;
         app.ui.text_edit = Some(crate::state::TextEdit {
             layer: id,
+            document: None,
             caret: 0,
             anchor: 5,
             session: "s".into(),

@@ -2061,6 +2061,8 @@ impl eframe::App for PhotocraftApp {
         if self.ui.text_edit.as_ref().is_some_and(|ed| !self.ui.tool.is_type() || ed.mask != self.ui.tool.is_type_mask()) {
             type_tool::commit(self);
         }
+        // So does selecting another layer or document by any route (#6483).
+        type_tool::end_if_left(self);
         if self.ui.pen.as_ref().is_some_and(|p| !p.drawn_with(self.ui.tool)) {
             vector_ui::pen_commit(self, false);
         }

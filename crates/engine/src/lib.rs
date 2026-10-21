@@ -899,6 +899,31 @@ impl Session {
         Ok(())
     }
 
+    /// Put back a layer selection (active layer, selected layers, anchor) that a step moved, such
+    /// as the undo ending an empty Type Mask, which restores the selection from before it. `None`
+    /// is no layer selected. Selected layers that are gone are dropped; an active layer that is
+    /// gone is an error and changes nothing. Like [`Self::select_layer`], not an edit.
+    pub fn restore_layer_selection(&mut self, active: Option<LayerId>, selected: &[LayerId], anchor: Option<LayerId>) -> Result<()> {
+        let st = self.active_mut().ok_or(EngineError::NoDocument)?;
+        if let Some(id) = active
+            && st.doc.layer(id).is_none()
+        {
+            return Err(EngineError::NoLayer(id));
+        }
+        st.active_layer = active;
+        st.selected_layers = selected.to_vec();
+        st.layer_anchor = anchor.filter(|_| active.is_some());
+        fix_selection(st);
+        channel_cmds::fix_view(st);
+        let clean = st.saved_revision == st.revision;
+        st.revision += 1;
+        if clean {
+            st.saved_revision = st.revision;
+        }
+        st.last_damage = Some(photocraft_geom::Rect::EMPTY);
+        Ok(())
+    }
+
     /// Re-renders the pixels of type layers whose font arrived after they were drawn (the web
     /// build fetches served fonts on demand, `photocraft_text::served`). The layers' model is
     /// unchanged, so this is no history step and leaves a clean document clean. Unknown documents
