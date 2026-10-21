@@ -484,6 +484,9 @@ fn is_enabled_with_engine(app: &PhotocraftApp, id: &str, engine_enabled: impl Fn
         // Embedded placement reads the picker's bytes on every platform. Linked placement keeps
         // the engine's native filesystem guard because its source must remain reachable.
         "file.placeEmbedded" => doc && app.services.file_dialog.is_some(),
+        // Batch's dialog is built from an Actions-panel action. Keep it disabled until one
+        // exists instead of opening a menu item that can only report "record an action".
+        "file.automate.batch" => crate::actions::selected_action(app).is_some() && engine_enabled(),
         i if wraps(i) => engine_enabled(),
         _ => true,
     })
@@ -609,6 +612,9 @@ fn wraps(id: &str) -> bool {
             | "image.calculations"
             | "select.saveSelection"
             | "select.loadSelection"
+            | "layer.videoLayers.newVideoLayerFromFile"
+            | "layer.videoLayers.replaceFootage"
+            | "layer.videoLayers.interpretFootage"
     )
 }
 
@@ -1247,6 +1253,29 @@ fn front(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Value)
             Some(app.pick_save(&name, move |app, path| {
                 app.with_document(doc, |app| app.run("layer.smartObjects.convertToLinked", json!({"layer": layer.0, "path": path})))
             }))
+        }
+        "layer.videoLayers.newVideoLayerFromFile" | "layer.videoLayers.replaceFootage" => {
+            let doc = match app.active_doc_id() {
+                Ok(doc) => doc,
+                Err(e) => return Some(Err(e)),
+            };
+            let cmd = id.to_string();
+            Some(app.pick_file_bytes(move |app, path, _bytes| {
+                app.with_document(doc, |app| {
+                    let r = app.run(&cmd, json!({"path": path}));
+                    if r.is_ok() && app.session.active().is_some_and(|d| d.doc.timeline.is_some()) {
+                        app.ui.timeline.open = true;
+                    }
+                    app.sync_views();
+                    r
+                })
+            }))
+        }
+        "layer.videoLayers.interpretFootage" => {
+            let st = app.session.active()?;
+            let id_layer = st.active_layer?;
+            let fps = st.doc.layer(id_layer).and_then(|l| l.video.as_ref()).map_or(30.0, |v| v.fps);
+            dialog(app, json!({"fps": fps}), json!({}))
         }
         "file.fileInfo" => {
             let info = app.session.execute("file.fileInfo", json!({})).ok()?;
