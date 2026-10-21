@@ -484,6 +484,8 @@ impl Ex {
         }
         flags.set_hidden(!l.visible);
         flags.set_transparency_protected(l.locks.transparency);
+        // Bit 3 (with bit 4 clear) is the flag Photoshop sets on every layer it writes.
+        flags.0 |= LayerFlags::BIT4_USEFUL;
         let mut blocks = vec![TaggedBlock::unicode_name(&l.name), TaggedBlock::layer_id(id)];
         let lspf = blocks::lspf_from_locks(&l.locks);
         if lspf != 0 {
@@ -1075,6 +1077,8 @@ impl Ex {
             match &l.content {
                 LayerContent::Group(g) => {
                     let id = self.fresh_id();
+                    let mut divider_flags = LayerFlags(0);
+                    divider_flags.0 |= LayerFlags::BIT4_USEFUL;
                     self.records.push(LayerRecord {
                         channels: self.empty_channels(),
                         blending_ranges: BlendingRanges::full(self.cc),
@@ -1084,6 +1088,7 @@ impl Ex {
                             TaggedBlock::layer_id(id),
                             TaggedBlock::section_divider(SectionType::BoundingDivider, None, None),
                         ],
+                        flags: divider_flags,
                         ..Default::default()
                     });
                     self.emit(&g.children, tick);
@@ -1205,9 +1210,12 @@ pub(crate) fn pascal_names_resource(names: &[&str]) -> Vec<u8> {
     let mut v = Vec::new();
     for n in names {
         let b = legacy_name(n);
-        v.push(b.len() as u8);
-        v.extend_from_slice(&b);
+        let n = b.len().min(255);
+        v.push(n as u8);
+        v.extend_from_slice(&b[..n]);
     }
+    // No per-string pad: Photoshop's resource 1006 for "Spot Color 1" is 13 bytes
+    // (length byte + 12 characters). The 8BIM container pads an odd resource separately.
     v
 }
 
@@ -1703,7 +1711,9 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
     for a in &extra {
         let s = if a.surface.format() != ex.mask_fmt { a.surface.convert(ex.mask_fmt) } else { a.surface.clone() };
         let bytes = s.to_interleaved(canvas);
-        planes.extend(deinterleave(&bytes, 1, sample, &[false]).remove(0));
+        // Spot ink is stored inverted (0 = solid, max = paper), the same way Multichannel
+        // and a Photoshop TIFF do. An alpha channel stays straight (max = selected).
+        planes.extend(deinterleave(&bytes, 1, sample, &[a.spot.is_some()]).remove(0));
     }
     let channels = (cc + usize::from(has_alpha) + extra.len()) as u16;
     let mode = if duotone_inks.is_some() { PsdMode::Duotone } else { psd_mode(fmt.mode) };
@@ -1734,6 +1744,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
         resources.push(ImageResource::new(1006, pascal_names_resource(&names)));
         resources.push(ImageResource::new(1045, unicode_names_resource(&names)));
         resources.push(ImageResource::new(crate::channel_map::DISPLAY_INFO, crate::channel_map::display_info(&extra, has_alpha)));
+        resources.push(ImageResource::new(crate::channel_map::ALPHA_IDENTIFIERS, crate::channel_map::alpha_identifiers(extra.len())));
     }
     if let Some(id) = quick_mask_id {
         let mut data = id.to_be_bytes().to_vec();
@@ -1816,6 +1827,10 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
         if !keep_imported_resource(doc, *id, data) {
             continue;
         }
+        // A fresh 1053 was written with the extra channels. A preserved copy would be a second one.
+        if *id == crate::channel_map::ALPHA_IDENTIFIERS && !extra.is_empty() {
+            continue;
+        }
         let mut r = ImageResource::new(*id, data.to_vec());
         r.name = legacy_name(name);
         resources.push(r);
@@ -1866,7 +1881,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, c
         resources,
         layer_info,
         layer_info_placement: placement,
-        global_layer_mask: (has_layers || !global_blocks.is_empty()).then(GlobalLayerMask::default),
+        global_layer_mask: (has_layers || !global_blocks.is_empty()).then(GlobalLayerMask::photoshop_default),
         global_blocks,
         layer_mask_trailing: Vec::new(),
         image_data,
