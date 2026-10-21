@@ -565,6 +565,9 @@ fn curves_to(p: &Value) -> Option<Descriptor> {
     Some(desc("Crvs").with("presetKind", enm("presetKindType", "presetKindCustom")).with("Adjs", D::List(entries)))
 }
 
+/// The hue key of a Hue/Saturation adjustment (`Hst2`): Photoshop's `H   ` (#8302).
+const HUE_KEY: &str = "H   ";
+
 const HUE_RANGES: [&str; 6] = ["reds", "yellows", "greens", "cyans", "blues", "magentas"];
 
 fn hue_sat_from(d: &Descriptor) -> Option<Value> {
@@ -575,8 +578,11 @@ fn hue_sat_from(d: &Descriptor) -> Option<Value> {
     for e in get_list(d, "Adjs").unwrap_or(&[]) {
         let D::Descriptor(e) = e else { return None };
         let mut m = Map::new();
-        for (key, param) in [("Hue ", "hue"), ("Strt", "saturation"), ("Lght", "lightness")] {
-            if let Some(v) = get_num(e, key) {
+        // Photoshop's hue key is `H   ` (stringID "hue", #8302); PhotoCraft wrote `Hue ` before,
+        // so its own older files still read.
+        let hue = get_num(e, HUE_KEY).or_else(|| get_num(e, "Hue "));
+        for (param, v) in [("hue", hue), ("saturation", get_num(e, "Strt")), ("lightness", get_num(e, "Lght"))] {
+            if let Some(v) = v {
                 m.insert(param.into(), v.into());
             }
         }
@@ -606,7 +612,7 @@ fn hue_entry(p: &Value, range: Option<(usize, &Value)>) -> Option<Descriptor> {
             }
         }
     }
-    for (key, param) in [("Hue ", "hue"), ("Strt", "saturation"), ("Lght", "lightness")] {
+    for (key, param) in [(HUE_KEY, "hue"), ("Strt", "saturation"), ("Lght", "lightness")] {
         e = e.with(key, long(jnum(p, param).unwrap_or(0.0)));
     }
     Some(e)
