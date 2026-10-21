@@ -686,7 +686,7 @@ fn write_rgba8(s: &mut Surface, canvas: Rect, data: &[u8]) {
     }
 }
 
-fn parse_guides(data: &[u8], doc: &mut Document) {
+pub(crate) fn parse_guides(data: &[u8], doc: &mut Document) {
     let rd = |at: usize| data.get(at..at + 4).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
     let Some(count) = rd(12) else { return };
     for i in 0..count as usize {
@@ -764,6 +764,12 @@ pub(crate) fn merged_needed(file: &PsdFile) -> bool {
     !layered || file.layers().is_empty() || usize::from(h.channels) > mode.color_channels() + usize::from(file.merged_has_alpha())
 }
 
+/// A damaged merged preview need not prevent opening independently stored layers (#6152).
+/// Other modes are imported flattened, so their merged image cannot be discarded.
+pub(crate) fn can_recover_layers(file: &PsdFile) -> bool {
+    matches!(file.header.color_mode, PsdMode::Grayscale | PsdMode::Rgb | PsdMode::Cmyk | PsdMode::Lab) && file.header.depth != 1 && !file.layers().is_empty()
+}
+
 /// [`psd_to_document_with`] with the merged image already decoded (by
 /// [`PsdFile::from_bytes_and_merged`] with [`merged_needed`]), so it is not decoded again.
 pub(crate) fn psd_to_document_decoded(
@@ -830,6 +836,7 @@ pub(crate) fn psd_to_document_decoded(
             id => doc.metadata.psd_resources.push((id, String::from_utf8_lossy(&r.name).into_owned(), Arc::new(r.data.clone()))),
         }
     }
+    crate::guides_map::apply_colors(&mut doc);
     for b in &file.global_blocks {
         doc.metadata.psd_global_blocks.push((b.signature, b.key, Arc::new(b.data.clone())));
     }
@@ -901,9 +908,15 @@ pub(crate) fn psd_to_document_decoded(
         ctl.progress(0.1);
         if let Err(e) = &m {
             cx.warn(format!("merged image could not be decoded: {e}"));
+            if can_recover_layers(file) {
+                cx.warn("extra alpha/spot channels in the merged image could not be recovered");
+            }
         }
         Some(m)
     } else {
+        if let Some(Err(e)) = decoded {
+            cx.warn(format!("merged image could not be decoded; opened the available layers instead: {e}"));
+        }
         None
     };
 
