@@ -369,8 +369,9 @@ fn tiff_image_source(doc: &Document, file: &photocraft_psd::PsdFile) -> ImageSou
         info.merged_alpha = false;
     }
     // A merged-transparency marker kept from an opened file (Photoshop's `MTrn`) would make the
-    // first spot read back as transparency: keep it only while the composite keeps that sample.
-    if spot_extras || !file.layer_info.as_ref().is_some_and(|l| l.merged_alpha) {
+    // first spot read back as transparency. The PSD export already drops it over an opaque
+    // composite; a transparent one keeps it there, but the TIFF leaves that sample out here.
+    if spot_extras {
         isd.global_blocks.retain(|b| !b.is_merged_transparency_marker());
     }
     if let Some(info) = &mut isd.layer_info {
