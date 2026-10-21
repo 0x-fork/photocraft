@@ -1342,6 +1342,69 @@ fn hand_tool_offers_scale_buttons_and_requests_the_right_view() {
 }
 
 #[test]
+fn fixed_size_shows_and_takes_the_unit_picked_on_its_fields() {
+    use egui::accesskit::Role;
+    use egui_kittest::kittest::{NodeT, Queryable};
+
+    // 254 ppi is 10 px a millimetre.
+    let mut app = app();
+    app.run("file.new", json!({"width": 400, "height": 200, "resolution": 254})).unwrap();
+    app.sync_views();
+    app.ui.tool = crate::state::Tool::RectMarquee;
+    let o = &mut app.ui.tool_options;
+    (o.marquee_style, o.marquee_width, o.marquee_height) = ("fixedSize".into(), 100.0, 50.0);
+    assert_eq!(o.marquee_unit, "pixels");
+    let mut h = Harness::builder().with_size(vec2(1400.0, 360.0)).build_ui_state(
+        |ui, app: &mut PhotocraftApp| {
+            if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                crate::panels::options_bar(app, ui);
+            }
+        },
+        app,
+    );
+    PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Pro);
+    h.run_steps(4);
+    let has = |h: &Harness<'static, PhotocraftApp>, v: f64| h.query_all_by_role(Role::SpinButton).any(|n| n.accesskit_node().numeric_value() == Some(v));
+    assert!(has(&h, 100.0) && has(&h, 50.0));
+
+    // A right-click on Width lists the units; Millimeters shows both sides in mm.
+    h.query_all_by_role(Role::SpinButton).find(|n| n.accesskit_node().numeric_value() == Some(100.0)).unwrap().click_secondary();
+    h.run_steps(3);
+    h.get_by_label("Millimeters").click();
+    h.run_steps(4);
+    let o = &h.state().ui.tool_options;
+    assert_eq!(o.marquee_unit, "mm");
+    assert_eq!((o.marquee_width, o.marquee_height), (100.0, 50.0), "the size itself stays in pixels");
+    assert!(has(&h, 10.0) && has(&h, 5.0), "100 x 50 px at 254 ppi is 10 x 5 mm");
+
+    // A number typed now is in mm.
+    let field = h.query_all_by_role(Role::SpinButton).position(|n| n.accesskit_node().numeric_value() == Some(10.0)).unwrap();
+    h.query_all_by_role(Role::SpinButton).nth(field).unwrap().click();
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.run_steps(1);
+    h.event(egui::Event::Text("20".into()));
+    h.run_steps(1);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(h.state().ui.tool_options.marquee_width, 200.0);
+
+    // Entering and leaving a field without an edit keeps the pixels, even where the unit rounds
+    // them (50 px at 254 ppi is 0.197 in, which reads back as 50.038 px).
+    h.query_all_by_role(Role::SpinButton).find(|n| n.accesskit_node().numeric_value() == Some(5.0)).unwrap().click_secondary();
+    h.run_steps(3);
+    h.get_by_label("Inches").click();
+    h.run_steps(4);
+    let field = h.query_all_by_role(Role::SpinButton).position(|n| n.accesskit_node().numeric_value().is_some_and(|v| (v - 0.19685).abs() < 1e-4)).unwrap();
+    h.query_all_by_role(Role::SpinButton).nth(field).unwrap().click();
+    h.run_steps(2);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(h.state().ui.tool_options.marquee_unit, "inches");
+    assert_eq!(h.state().ui.tool_options.marquee_height, 50.0);
+}
+
+#[test]
 fn a_dynamic_gets_its_own_response_curve() {
     use egui_kittest::kittest::Queryable;
     let mut h = harness(0, 1);

@@ -1186,6 +1186,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         }
                         ui.spacing_mut().item_spacing.x = 8.0;
                         widgets::vline(ui, 22.0);
+                        let (units, size) = fixed_size_units(app);
                         let o = &mut app.ui.tool_options;
                         opt_label(ui, tl!("Feather"));
                         widgets::value_field(ui, &mut o.feather, 0.0..=1000.0, "px", 62.0);
@@ -1204,15 +1205,29 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             (o.marquee_width, o.marquee_height) = if o.marquee_style == "fixedSize" { (64.0, 64.0) } else { (1.0, 1.0) };
                         }
                         let fixed = sized && o.marquee_style != "normal";
-                        let (unit, range) = if o.marquee_style == "fixedSize" { ("px", 1.0..=300_000.0) } else { ("", 0.001..=999.0) };
+                        let fixed_size = o.marquee_style == "fixedSize";
+                        // Fixed Size shows its pixels in the unit picked by right-clicking Width or Height (#7910).
+                        let units = widgets::FieldUnits { unit: photocraft_engine::prefs::Unit::parse(&o.marquee_unit).unwrap_or_default(), ..units };
                         ui.add_enabled_ui(fixed, |ui| {
+                            let mut picked = None;
                             opt_label(ui, tl!("Width"));
-                            widgets::value_field(ui, &mut o.marquee_width, range.clone(), unit, 62.0);
+                            if fixed_size {
+                                picked = fixed_size_field(ui, &mut o.marquee_width, units, size[0]);
+                            } else {
+                                widgets::value_field(ui, &mut o.marquee_width, 0.001..=999.0, "", 62.0);
+                            }
                             if icons::button(ui, "arrow-left-right", 22.0, false, tl!("Swaps height and width")).clicked() {
                                 std::mem::swap(&mut o.marquee_width, &mut o.marquee_height);
                             }
                             opt_label(ui, tl!("Height"));
-                            widgets::value_field(ui, &mut o.marquee_height, range, unit, 62.0);
+                            if fixed_size {
+                                picked = fixed_size_field(ui, &mut o.marquee_height, units, size[1]).or(picked);
+                            } else {
+                                widgets::value_field(ui, &mut o.marquee_height, 0.001..=999.0, "", 62.0);
+                            }
+                            if let Some(name) = picked {
+                                o.marquee_unit = name.into();
+                            }
                         });
                         widgets::vline(ui, 22.0);
                         if widgets::secondary_button(ui, tl!("Select and Mask…"), 0.0).clicked() {
@@ -1672,6 +1687,40 @@ fn opt_label(ui: &mut egui::Ui, s: &str) {
     let text = if t.pro && !s.ends_with(':') { format!("{s}:") } else { s.to_string() };
     let label = ui.add(egui::Label::new(RichText::new(tl!(&text)).color(t.text_dim)).selectable(false));
     widgets::scrub_option_label(ui, &label);
+}
+
+/// The largest Fixed Size side, in pixels.
+const FIXED_SIZE_MAX_PX: f64 = 300_000.0;
+
+/// The resolution Fixed Size's units convert at (the active document's, 72 ppi without one) and
+/// the document's size in pixels, which a percentage is of. The unit is the caller's.
+fn fixed_size_units(app: &PhotocraftApp) -> (widgets::FieldUnits, [f64; 2]) {
+    let ppi = app.session.prefs().units_and_rulers.point_size.per_inch();
+    let (dpi, size) = app
+        .session
+        .active()
+        .map_or((72.0, [1.0, 1.0]), |d| (f64::from(d.doc.resolution_dpi.max(1.0)), [f64::from(d.doc.size.width), f64::from(d.doc.size.height)]));
+    (widgets::FieldUnits { unit: photocraft_engine::prefs::Unit::Pixels, dpi, ppi }, size)
+}
+
+/// One of Fixed Size's Width and Height (#7910): `px` shown in `units.unit` (a typed unit converts),
+/// still stored in pixels. A right-click lists the units, as on the rulers; returns the one picked.
+fn fixed_size_field(ui: &mut egui::Ui, px: &mut f32, units: widgets::FieldUnits, extent: f64) -> Option<&'static str> {
+    let widgets::FieldUnits { unit, dpi, ppi } = units;
+    let to_unit = |px: f64| unit.from_px(px, dpi, extent, ppi) as f32;
+    let before = to_unit(f64::from(*px));
+    let mut v = before;
+    let places = unit.decimals() as u32;
+    let resp = widgets::value_field_extent(ui, &mut v, to_unit(1.0)..=to_unit(FIXED_SIZE_MAX_PX), unit.suffix(), 62.0, places, units, extent);
+    // Leaving the field re-reads the rounded text it showed (100 px at 72 ppi reads back as
+    // 1.389 in); that isn't an edit, so the pixels stay exact.
+    let shown = |x: f32| (f64::from(x) * 10f64.powi(places as i32)).round();
+    if resp.changed() && shown(v) != shown(before) {
+        *px = unit.to_px(f64::from(v), dpi, extent, ppi).clamp(1.0, FIXED_SIZE_MAX_PX) as f32;
+    }
+    let mut picked = None;
+    resp.context_menu(|ui| picked = crate::rulers::unit_menu(ui, unit));
+    picked
 }
 
 fn percent_field(ui: &mut egui::Ui, label: &str, value: &mut f32, range: std::ops::RangeInclusive<f32>, width: f32) {
