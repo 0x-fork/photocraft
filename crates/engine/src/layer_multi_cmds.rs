@@ -2976,20 +2976,27 @@ mod layers_panel_parity_tests {
         assert!(s.active().unwrap().doc.layer(LayerId(d["layer"].as_u64().unwrap())).unwrap().name.contains("copy"));
     }
 
-    /// Drops the command refuses give no preview and leave the document alone; a multi-layer preview follows the committed stack order.
+    /// Drops the command refuses (or ignores) give no preview and leave the document alone; a multi-layer preview follows the committed stack order.
     #[test]
     fn preview_rejects_invalid_drop_unchanged() {
         let (mut s, ids) = new_session();
         let before = s.active().unwrap().doc.clone();
-        for p in [
-            json!({"layer": ids[1].0, "target": ids[1].0, "position": "above"}),
-            json!({"layer": ids[1].0, "target": 999999, "position": "below"}),
-            json!({"layer": ids[1].0, "target": ids[2].0, "position": "into"}),
-            json!({"layer": ids[1].0, "target": ids[2].0, "position": "invalid"}),
+        // Dropping a layer on itself is a no-op for the command, the others are errors.
+        for (p, command_rejects) in [
+            (json!({"layer": ids[1].0, "target": ids[1].0, "position": "above"}), false),
+            (json!({"layer": ids[1].0, "target": 999999, "position": "below"}), true),
+            (json!({"layer": ids[1].0, "target": ids[2].0, "position": "into"}), true),
+            (json!({"layer": ids[1].0, "target": ids[2].0, "position": "invalid"}), true),
         ] {
             assert!(preview_move(&before, &p, true).is_none(), "{p}");
+            let result = s.execute("layer.moveTo", p.clone());
+            if command_rejects {
+                assert!(result.is_err(), "{p}");
+            } else {
+                assert_eq!(result.unwrap(), Value::Null, "{p}");
+            }
+            assert_eq!(*before, *s.active().unwrap().doc, "{p}");
         }
-        assert_eq!(*before, *s.active().unwrap().doc);
         // Multi-layer preview and commit follow the same stack order regardless of params order.
         let p = json!({"layers": [ids[2].0, ids[0].0], "target": ids[1].0, "position": "below"});
         let candidate = preview_move(&before, &p, true).unwrap();
