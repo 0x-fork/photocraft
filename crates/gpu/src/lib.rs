@@ -468,6 +468,8 @@ pub struct Compositor {
     recorded: u32,
     /// Why a layer page texture couldn't be created this refresh (it then ends on the CPU).
     layer_alloc: Option<String>,
+    /// Bytes of pages dropped to admit new ones, not yet counted towards an intermediate submit.
+    admit_freed: u64,
     acc_format: wgpu::TextureFormat,
     /// Whether the effect-map pipelines could be built (else documents with layer effects are
     /// [`Unsupported`] and use the CPU compositor).
@@ -727,6 +729,7 @@ impl Compositor {
             staged: 0,
             recorded: 0,
             layer_alloc: None,
+            admit_freed: 0,
             acc_format,
             effect_maps: map_error.is_none(),
             cmyk: 0,
@@ -1095,6 +1098,7 @@ impl Compositor {
         self.staged = 0;
         self.recorded = 0;
         self.layer_alloc = None;
+        self.admit_freed = 0;
 
         // Only render owns submission. A caller may discard encode's command buffer, so it
         // cannot establish (or consume) a checkpoint whose GPU copy might never execute.
@@ -1148,6 +1152,37 @@ impl Compositor {
             if let Some(f) = self.fault() {
                 return Err(Unsupported(f.to_string()));
             }
+            // Out of memory although every page this cell doesn't use was dropped: the work recorded
+            // since the last submit can still hold those pages. Submit it, wait until the GPU is done
+            // with it so their memory is released, and run the cell once more. `encode` can't
+            // submit, so there the refresh goes to the CPU straight away.
+            if flush && self.layer_alloc.as_deref() == Some(OVER_BUDGET) {
+                self.layer_alloc = None;
+                submit_batch(device, queue, encoder, self.health.as_ref(), &mut last_submit);
+                #[cfg(not(target_arch = "wasm32"))]
+                match self.health.as_ref() {
+                    Some(h) => {
+                        h.wait(device, last_submit.clone());
+                    }
+                    None => {
+                        let _ = device.poll(wgpu::PollType::Wait { submission_index: last_submit.clone(), timeout: None });
+                    }
+                }
+                self.staged = 0;
+                self.recorded = 0;
+                work = 0;
+                freed = 0;
+                self.admit_freed = 0;
+                stats.flushes += 1;
+                if let Some(f) = self.fault() {
+                    return Err(Unsupported(f.to_string()));
+                }
+                let mut batch = Some(&mut last_submit);
+                self.run_cell(device, queue, encoder, doc.id, &plan, &paged, cell, &fr, &chunks, checkpoint, &mut stats, sink, &mut batch);
+                if let Some(f) = self.fault() {
+                    return Err(Unsupported(f.to_string()));
+                }
+            }
             // A page didn't fit even after evicting: this refresh goes to the CPU, the next one
             // tries the GPU again (#6563).
             if let Some(e) = self.layer_alloc.take() {
@@ -1155,7 +1190,7 @@ impl Compositor {
             }
             let (evicted, bytes) = self.evict();
             stats.evicted += evicted;
-            freed += bytes;
+            freed += bytes + std::mem::take(&mut self.admit_freed);
             if flush && (self.staged >= flush_bytes || work >= FLUSH_WORK || freed >= flush_bytes || self.recorded >= FLUSH_OPS) {
                 submit_batch(device, queue, encoder, self.health.as_ref(), &mut last_submit);
                 self.staged = 0;
@@ -1254,7 +1289,8 @@ impl Compositor {
     /// Create the page texture for `key`, `bytes` large. Least recently used pages make room in
     /// the budget first; when the device is still out of memory, every page the current cell
     /// doesn't use is dropped and creation is tried once more (#6563). `None` (with
-    /// `layer_alloc` set) when it still fails: the refresh ends and the CPU draws it.
+    /// `layer_alloc` set) when it still fails: `render` submits the recorded work, which can still
+    /// hold the dropped pages, and runs the cell once more; after that the CPU draws the refresh.
     fn create_layer_texture(
         &mut self,
         device: &wgpu::Device,
@@ -1264,7 +1300,9 @@ impl Compositor {
         stats: &mut Stats,
     ) -> Option<wgpu::Texture> {
         let replaced = self.residents.get(&key).map_or(0, Resident::bytes);
-        stats.evicted += self.evict_residents(self.resident_budget, bytes.saturating_sub(replaced), Some(key)).0;
+        let (n, dropped) = self.evict_residents(self.resident_budget, bytes.saturating_sub(replaced), Some(key));
+        stats.evicted += n;
+        self.admit_freed = self.admit_freed.saturating_add(dropped);
         // WebGPU reports errors asynchronously: its failures reach the health callbacks.
         if cfg!(target_arch = "wasm32") {
             return Some(device.create_texture(desc));
@@ -1274,7 +1312,9 @@ impl Compositor {
             match error {
                 None => return Some(texture),
                 Some(wgpu::Error::OutOfMemory { .. }) if !retry => {
-                    stats.evicted += self.evict_residents(0, 0, Some(key)).0;
+                    let (n, dropped) = self.evict_residents(0, 0, Some(key));
+                    stats.evicted += n;
+                    self.admit_freed = self.admit_freed.saturating_add(dropped);
                 }
                 Some(wgpu::Error::OutOfMemory { .. }) => {
                     self.layer_alloc = Some(OVER_BUDGET.into());
