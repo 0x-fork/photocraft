@@ -1219,7 +1219,6 @@ mod tests {
         for (cmd, p, want) in [
             ("gradientOverlay", json!({"scale": 1000}), 1.5),
             ("gradientOverlay", json!({"scale": 1}), 0.1),
-            ("gradientOverlay", json!({"scale": 1e39}), 1.5),
             ("gradientOverlay", json!({"scale": 80}), 0.8),
             ("stroke", json!({"from": "#000000", "to": "#ffffff", "scale": -50}), 0.1),
             ("stroke", json!({"from": "#000000", "to": "#ffffff", "scale": 0}), 0.1),
@@ -1229,6 +1228,9 @@ mod tests {
             s.execute(&format!("layer.layerStyle.{cmd}"), p.clone()).unwrap();
             assert!((scale(&s) - want).abs() < 1e-6, "{cmd} {p}: {}", scale(&s));
         }
+        // Beyond f32 range is refused before any edit (commands.rs), not clamped.
+        let err = session().execute("layer.layerStyle.gradientOverlay", json!({"scale": 1e39})).unwrap_err();
+        assert!(format!("{err:?}").contains("finite 32-bit"), "{err:?}");
     }
 
     #[test]
