@@ -4329,3 +4329,5 @@ shape	Appearance	Izgled
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU adapter
+
+	EXR	EXR

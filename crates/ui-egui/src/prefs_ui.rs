@@ -1180,6 +1180,7 @@ fn humanize(key: &str) -> String {
 
 fn choice_label(v: &str) -> String {
     match v {
+        "exr" => "EXR".into(),
         "cm" => "Centimeters".into(),
         "mm" => "Millimeters".into(),
         "75" | "80" | "85" | "90" | "95" | "100" | "125" | "150" | "175" | "200" | "250" | "300" => format!("{v}%"),
