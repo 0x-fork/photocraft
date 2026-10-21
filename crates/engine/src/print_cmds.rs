@@ -81,9 +81,31 @@ static SPOOLER: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// Runs `f`, which lists printers or calls into a printer driver, while no other thread of this
 /// process does either. On Windows, two threads that open printers' PrintTicket providers for the
 /// first time at once can crash the process inside the spooler client (`winspool.drv`). A panic in
-/// an earlier caller does not block later ones.
+/// an earlier caller does not block later ones. A call made inside `f` on the same thread runs at
+/// once.
 pub fn with_spooler<T>(f: impl FnOnce() -> T) -> T {
+    if HOLDING.get() {
+        return f();
+    }
     let _held = SPOOLER.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    holding(f)
+}
+
+thread_local! {
+    /// Whether this thread holds `SPOOLER`.
+    static HOLDING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Runs `f` with `HOLDING` set; called with `SPOOLER` held.
+fn holding<T>(f: impl FnOnce() -> T) -> T {
+    struct Release;
+    impl Drop for Release {
+        fn drop(&mut self) {
+            HOLDING.set(false);
+        }
+    }
+    HOLDING.set(true);
+    let _release = Release;
     f()
 }
 
@@ -96,26 +118,96 @@ pub fn system_printer_listings() -> usize {
     SYSTEM_LISTINGS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// The printers `craft-print` spools to, or the session's stand-in for them.
-fn system_printer_list(s: &Session) -> Vec<craft_print::Printer> {
-    with_spooler(|| match &s.printer_source {
+/// Runs `f` as `with_spooler` does, or returns `None` at once while another thread of this
+/// process holds the lock (the UI thread, which must not wait for a print job or a driver).
+pub fn try_with_spooler<T>(f: impl FnOnce() -> T) -> Option<T> {
+    if HOLDING.get() {
+        return Some(f());
+    }
+    let _held = match SPOOLER.try_lock() {
+        Ok(held) => held,
+        Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => return None,
+    };
+    Some(holding(f))
+}
+
+/// What the Print dialog shows when `try_with_spooler` finds the lock held.
+pub const SPOOLER_BUSY: &str = "the printer driver is busy with another print; try again when it finishes";
+
+/// The GDI route's printers, or why they could not be listed.
+pub type RgbPrinters = std::result::Result<Vec<craft_print::rgb::Printer>, craft_print::rgb::PrintError>;
+
+/// The last answers `system_printer_list` and `rgb_printers` got in this process.
+static LAST_PRINTERS: std::sync::Mutex<Option<Vec<craft_print::Printer>>> = std::sync::Mutex::new(None);
+static LAST_RGB_PRINTERS: std::sync::Mutex<Option<RgbPrinters>> = std::sync::Mutex::new(None);
+
+fn last<T: Clone>(kept: &std::sync::Mutex<Option<T>>) -> Option<T> {
+    kept.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+}
+
+fn keep<T>(kept: &std::sync::Mutex<Option<T>>, value: T) {
+    *kept.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(value);
+}
+
+/// Lists the printers; called with the spooler lock held.
+fn list_system_printers(s: &Session) -> Vec<craft_print::Printer> {
+    let list = match &s.printer_source {
         Some(source) => source(),
         None => {
             SYSTEM_LISTINGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             craft_print::printers()
         }
-    })
+    };
+    keep(&LAST_PRINTERS, list.clone());
+    list
 }
 
-/// The printers the GDI route prints to (`craft_print::rgb`), or the session's stand-in for them.
-pub fn rgb_printers(s: &Session) -> std::result::Result<Vec<craft_print::rgb::Printer>, craft_print::rgb::PrintError> {
-    with_spooler(|| match &s.printer_source {
+/// Lists the GDI route's printers; called with the spooler lock held.
+fn list_rgb_printers(s: &Session) -> RgbPrinters {
+    let list = match &s.printer_source {
         Some(source) => Ok(source().into_iter().map(|p| craft_print::rgb::Printer { name: p.name, default: p.default }).collect()),
         None => {
             SYSTEM_LISTINGS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             craft_print::rgb::printers()
         }
-    })
+    };
+    keep(&LAST_RGB_PRINTERS, list.clone());
+    list
+}
+
+/// The printers `craft-print` spools to, or the session's stand-in for them.
+fn system_printer_list(s: &Session) -> Vec<craft_print::Printer> {
+    with_spooler(|| list_system_printers(s))
+}
+
+/// The printers the GDI route prints to (`craft_print::rgb`), or the session's stand-in for them.
+pub fn rgb_printers(s: &Session) -> RgbPrinters {
+    with_spooler(|| list_rgb_printers(s))
+}
+
+/// `rgb_printers` for the UI thread: while another thread lists printers or is in a printer driver
+/// (a print job being handed to the spooler, Print Settings…), the list the last listing in this
+/// process got, without waiting. Only the first listing in the process waits.
+pub fn rgb_printers_without_waiting(s: &Session) -> RgbPrinters {
+    try_with_spooler(|| list_rgb_printers(s)).or_else(|| last(&LAST_RGB_PRINTERS)).unwrap_or_else(|| rgb_printers(s))
+}
+
+/// `file.printers` for the UI thread, which lists the printers as `rgb_printers_without_waiting`
+/// does where `craft-print` is the route.
+pub fn printers_without_waiting(s: &mut Session) -> Value {
+    if s.printer_source.is_none() && system_spooler().is_none() {
+        return system_printers(s, &json!({})).unwrap_or_default();
+    }
+    let list = try_with_spooler(|| list_system_printers(s)).or_else(|| last(&LAST_PRINTERS)).unwrap_or_else(|| system_printer_list(s));
+    printers_answer(list)
+}
+
+/// `file.printers`' answer for a list from `craft-print`.
+fn printers_answer(list: Vec<craft_print::Printer>) -> Value {
+    let default = list.iter().find(|p| p.default).map(|p| p.name.clone());
+    let printers: Vec<Value> = list.into_iter().map(|p| json!({"name": p.name, "default": p.default})).collect();
+    json!({"server": Value::Null, "default": default, "printers": printers})
 }
 
 /// Why the IPP route could not spool: no route at all (the app's spooler may have one), or a
@@ -240,10 +332,7 @@ fn cups_spool(job: &PrintJob) -> std::result::Result<String, SpoolError> {
 fn system_printers(s: &mut Session, p: &Value) -> Result<Value> {
     let named = p.get("printServer").and_then(Value::as_str).filter(|v| !v.is_empty());
     if named.is_none() && (s.printer_source.is_some() || system_spooler().is_some()) {
-        let list = system_printer_list(s);
-        let default = list.iter().find(|p| p.default).map(|p| p.name.clone());
-        let printers: Vec<Value> = list.into_iter().map(|p| json!({"name": p.name, "default": p.default})).collect();
-        return Ok(json!({"server": Value::Null, "default": default, "printers": printers}));
+        return Ok(printers_answer(system_printer_list(s)));
     }
     #[cfg(all(not(target_arch = "wasm32"), not(target_os = "windows")))]
     {

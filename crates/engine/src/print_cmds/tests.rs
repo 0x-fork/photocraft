@@ -615,6 +615,71 @@ fn a_panic_inside_the_spooler_does_not_block_later_callers() {
     assert_eq!(s.execute("file.printers", json!({})).unwrap()["default"], "Office");
 }
 
+/// A driver call made while this thread already holds the spooler (a command run from the Print
+/// dialog's `try_with_spooler`) runs at once.
+#[test]
+fn a_thread_holding_the_spooler_does_not_wait_for_itself() {
+    let (done, finished) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut s = Session::new();
+        s.printer_source = Some(test_printers());
+        // Inside one outer hold, so no other test takes the lock between the calls.
+        let answers = with_spooler(|| {
+            let nested = with_spooler(|| with_spooler(|| 7));
+            let tried = try_with_spooler(|| with_spooler(|| try_with_spooler(|| 8)));
+            let listed = try_with_spooler(|| s.execute("file.printers", json!({})).unwrap()["default"].clone());
+            (nested, tried, listed)
+        });
+        done.send(answers).unwrap();
+    });
+    // Bounded, so a thread that waits for itself fails the test rather than hanging it.
+    let answers = finished.recv_timeout(std::time::Duration::from_secs(30)).expect("a thread holding the spooler waited for itself");
+    assert_eq!(answers, (7, Some(Some(8)), Some(json!("Office"))));
+}
+
+/// While another thread is in the spooler (a print job being handed over, Print Settings…), the
+/// Print dialog's listings return at once with the last lists this process got.
+#[test]
+fn listings_without_waiting_return_the_last_lists_while_the_spooler_is_busy() {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{Arc, mpsc};
+    let asked = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&asked);
+    let mut s = Session::new();
+    s.printer_source = Some(Arc::new(move || {
+        counted.fetch_add(1, Ordering::SeqCst);
+        vec![craft_print::Printer { name: "Office".into(), default: true, two_sided: None }]
+    }));
+    // Lists once, so there are last lists.
+    s.execute("file.printers", json!({})).unwrap();
+    s.execute("file.print.printers", json!({})).unwrap();
+    let (held_tx, held) = mpsc::channel();
+    let (release, released_rx) = mpsc::channel::<()>();
+    let released = Arc::new(AtomicBool::new(false));
+    let holder = {
+        let released = Arc::clone(&released);
+        std::thread::spawn(move || {
+            with_spooler(|| {
+                // Nothing replaces the last lists while the lock is held.
+                held_tx.send((last(&LAST_PRINTERS), last(&LAST_RGB_PRINTERS))).unwrap();
+                // Bounded, so a listing that waits fails the test rather than hanging it.
+                let _ = released_rx.recv_timeout(std::time::Duration::from_secs(5));
+                released.store(true, Ordering::SeqCst);
+            });
+        })
+    };
+    let (kept, kept_rgb) = held.recv().unwrap();
+    let before = asked.load(Ordering::SeqCst);
+    let listed = printers_without_waiting(&mut s);
+    let listed_rgb = rgb_printers_without_waiting(&s);
+    assert!(!released.load(Ordering::SeqCst), "the listing waited for the spooler");
+    release.send(()).unwrap();
+    holder.join().unwrap();
+    assert_eq!(asked.load(Ordering::SeqCst), before, "a printer list was asked for while the spooler was busy");
+    assert_eq!(listed, printers_answer(kept.unwrap()));
+    assert_eq!(listed_rgb, kept_rgb.unwrap());
+}
+
 /// Spooling tests run in a child process: `disable_printing` is process-wide and a test above
 /// sets it, and CI sets `PHOTOCRAFT_NO_PRINT` for the whole shell. True in the child, which runs
 /// the test body; the parent starts the child and checks that it passed.
