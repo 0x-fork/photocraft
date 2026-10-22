@@ -3,6 +3,33 @@ use photocraft_psd::atn::{AtnAction, AtnEvent, AtnFile, AtnItem};
 use photocraft_psd::descriptor::{Descriptor, Id, ReferenceItem, UnicodeString, Value as D};
 use serde_json::json;
 
+#[test]
+fn blend_modes_accept_photoshop_string_ids_and_export_canonical_char_ids() {
+    for (string_id, char_id, label) in [
+        ("normal", "Nrml", "Normal"),
+        ("dissolve", "Dslv", "Dissolve"),
+        ("darken", "Drkn", "Darken"),
+        ("multiply", "Mltp", "Multiply"),
+        ("colorBurn", "CBrn", "Color Burn"),
+        ("lighten", "Lghn", "Lighten"),
+        ("screen", "Scrn", "Screen"),
+        ("colorDodge", "CDdg", "Color Dodge"),
+        ("overlay", "Ovrl", "Overlay"),
+        ("softLight", "SftL", "Soft Light"),
+        ("hardLight", "HrdL", "Hard Light"),
+        ("difference", "Dfrn", "Difference"),
+        ("exclusion", "Xclu", "Exclusion"),
+        ("hue", "H", "Hue"),
+        ("saturation", "Strt", "Saturation"),
+        ("color", "Clr", "Color"),
+        ("luminosity", "Lmns", "Luminosity"),
+        ("passThrough", "PsTh", "Pass Through"),
+    ] {
+        assert_eq!(blend_label(string_id), Some(label), "{string_id}");
+        assert_eq!(blend_ps(label), Some(char_id), "{label} remains serialized canonically");
+    }
+}
+
 fn item(event: &str, label: &str, d: Option<Descriptor>) -> AtnItem {
     let event = match event.as_bytes() {
         [a, b, c, dd] => AtnEvent::Code([*a, *b, *c, *dd]),
