@@ -4089,3 +4089,152 @@ layerLabel	No Color	Sem cor
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptador de GPU
+
+# Channels panel menu: channel commands, spot channels, Quick Mask, Color Indicates
+	New Channel…	Novo canal…
+	Duplicate Channel	Duplicar canal
+	Delete Channel	Excluir canal
+	Rename Channel…	Renomear canal…
+	New Spot Channel…	Novo canal de cor especial…
+	Merge Spot Channel	Mesclar canal de cor especial
+	Convert to Alpha Channel	Converter em canal alfa
+	Split Channels	Dividir canais
+	Merge Channels…	Mesclar canais…
+	Exit Quick Mask	Sair da máscara rápida
+	Color Indicates Masked Areas	A cor indica áreas mascaradas
+	Color Indicates Selected Areas	A cor indica áreas selecionadas
+
+# Layer Style › Blending Options: advanced blending and Blend If
+	General Blending	Mesclagem geral
+	Shallow	Raso
+	Deep	Profundo
+	Blend Interior Effects as Group	Mesclar efeitos internos como grupo
+	Blend Clipped Layers as Group	Mesclar camadas recortadas como grupo
+	Transparency Shapes Layer	A transparência define a forma da camada
+	Layer Mask Hides Effects	A máscara de camada oculta os efeitos
+	Vector Mask Hides Effects	A máscara vetorial oculta os efeitos
+	This Layer:	Esta camada:
+	Underlying Layer:	Camada subjacente:
+
+# Canvas right-click menus: pasteboard color, paths and shapes
+	Dark Gray	Cinza-escuro
+	Medium Gray	Cinza médio
+	Select Custom Color…	Selecionar cor personalizada…
+	Color Picker (Custom Canvas Color)	Seletor de cores (Cor personalizada da tela de pintura)
+	Make Work Path…	Criar demarcador de trabalho…
+	Create Vector Mask	Criar máscara vetorial
+	Make Selection…	Fazer seleção…
+	Fill Path…	Preencher demarcador…
+	Clipping Path…	Demarcador de corte…
+	Free Transform Path	Transformação livre do demarcador
+	Unite Shapes at Overlap	Unir formas na sobreposição
+	Subtract Shapes at Overlap	Subtrair formas na sobreposição
+	Copy Fill	Copiar preenchimento
+	Copy Complete Stroke	Copiar traçado completo
+	Paste Fill	Colar preenchimento
+	Paste Complete Stroke	Colar traçado completo
+	Make Symmetry Path	Criar demarcador de simetria
+	Disable Symmetry Path	Desativar demarcador de simetria
+
+# Color Picker titles
+	Color Picker (Foreground Color)	Seletor de cores (Cor de primeiro plano)
+	Color Picker (Background Color)	Seletor de cores (Cor de fundo)
+	Pick Color From Image	Escolher cor da imagem
+
+# Rasterize prompts
+	This layer must be rasterized before proceeding.	Esta camada precisa ser rasterizada antes de continuar.
+	This type layer must be rasterized before proceeding. Its text will no longer be editable. Rasterize the type?	Esta camada de texto precisa ser rasterizada antes de continuar. O texto não poderá mais ser editado. Rasterizar o texto?
+	This shape layer must be rasterized before proceeding. It will no longer be editable as a shape. Rasterize the shape?	Esta camada de forma precisa ser rasterizada antes de continuar. Ela não poderá mais ser editada como forma. Rasterizar a forma?
+	This Smart Object must be rasterized before proceeding. Its contents will no longer be editable. Rasterize the Smart Object?	Este objeto inteligente precisa ser rasterizado antes de continuar. O conteúdo não poderá mais ser editado. Rasterizar o objeto inteligente?
+	This fill layer must be rasterized before proceeding. Its fill content will no longer be editable. Rasterize the layer?	Esta camada de preenchimento precisa ser rasterizada antes de continuar. O conteúdo do preenchimento não poderá mais ser editado. Rasterizar a camada?
+
+# GPU and display status (status bar, System Info)
+	Graphics adapter: {adapter}	Adaptador gráfico: {adapter}
+	Backend: {backend} ({type})	Backend: {backend} ({type})
+	Driver: {driver}	Driver: {driver}
+	GPU backend preference: {backend}	Preferência de backend da GPU: {backend}
+	Selected at launch: {backend}	Selecionado ao iniciar: {backend}
+	Image compositor: {processor}	Compositor de imagens: {processor}
+	Window renderer: {renderer}	Renderizador da janela: {renderer}
+	Graphics adapter	Adaptador gráfico
+	Software adapter	Adaptador de software
+	unknown type	tipo desconhecido
+	Fallback: {reason}	Modo alternativo: {reason}
+	This session: {reason}	Nesta sessão: {reason}
+	Platform: {os} {arch}	Plataforma: {os} {arch}
+	GPU retry scheduled	Nova tentativa da GPU agendada
+	Save your work and restart PhotoCraft to retry GPU acceleration. CPU rendering remains active for this session.	Salve seu trabalho e reinicie o PhotoCraft para tentar a aceleração por GPU novamente. A renderização pela CPU continua ativa nesta sessão.
+	GPU device was lost; using the CPU renderer.	O dispositivo da GPU foi perdido; usando o renderizador da CPU.
+	GPU error; using the CPU renderer.	Erro da GPU; usando o renderizador da CPU.
+	Monitor profile: {profile}	Perfil do monitor: {profile}
+	Monitor profile in use: {profile}	Perfil do monitor em uso: {profile}
+	Monitor profile in use on {display}: {profile}	Perfil do monitor em uso em {display}: {profile}
+	Monitor profile on {display}: {profile}	Perfil do monitor em {display}: {profile}
+	Monitor profile on {display} (main window): {profile}	Perfil do monitor em {display} (janela principal): {profile}
+	Display profiles: {reason}	Perfis de tela: {reason}
+	Display profile not used	Perfil de tela não usado
+	previous reading kept; the last re-read failed: {reason}	leitura anterior mantida; a última releitura falhou: {reason}
+	The canvas is shown as sRGB. Choose a monitor profile in Edit › Color Settings.	A tela de pintura é exibida como sRGB. Escolha um perfil de monitor em Editar › Configurações de cores.
+	The canvas on {display} is shown as sRGB. Choose a monitor profile in Edit › Color Settings.	A tela de pintura em {display} é exibida como sRGB. Escolha um perfil de monitor em Editar › Configurações de cores.
+
+# Status messages
+	Nothing to paste: the clipboard holds no image	Nada para colar: a área de transferência não contém imagem
+	Opened {url}	Aberto: {url}
+	Preferences saved	Preferências salvas
+	Preferences were reset: {error}	As preferências foram redefinidas: {error}
+	Couldn't save preferences: {error}. Retrying…	Não foi possível salvar as preferências: {error}. Tentando novamente…
+	Preferences can't be saved	Não é possível salvar as preferências
+	PhotoCraft keeps retrying; until a save succeeds, preference changes are lost when it closes.	O PhotoCraft continua tentando; até que um salvamento dê certo, as alterações nas preferências serão perdidas ao fechar.
+	Invalid panel layout; restored the default dock	Layout de painéis inválido; a disposição padrão dos painéis foi restaurada
+	Recovered {name}	Recuperado: {name}
+	Autosave failed: {error}	Falha ao salvar automaticamente: {error}
+	Exported presets to {path}	Predefinições exportadas para {path}
+	Ran script {name}	Script executado: {name}
+	Sent to the printer ({spooler})	Enviado para a impressora ({spooler})
+	Printed to {path}	Impresso em {path}
+	Exported {path} ({size})	Exportado: {path} ({size})
+	Exported {path}	Exportado: {path}
+	Saved a copy as {path}	Cópia salva como {path}
+	Exported contents to {path}	Conteúdo exportado para {path}
+	Saved {path}; image assets: {n} in {dir}	Salvo: {path}; recursos de imagem: {n} em {dir}
+	Couldn't open {name}: {error}	Não foi possível abrir {name}: {error}
+	Added swatch {name}	Amostra adicionada: {name}
+	{message} (notes: {n}; {warning})	{message} (observações: {n}; {warning})
+	Step {step} ({id}) failed: {error}	Falha na etapa {step} ({id}): {error}
+	Could not rename the action: {error}	Não foi possível renomear a ação: {error}
+	Action playback failed: {error}	Falha ao reproduzir a ação: {error}
+	Clone source set at {x}, {y}	Origem da clonagem definida em {x}, {y}
+	Color management: {error}	Gerenciamento de cores: {error}
+	No custom shape "{name}": pick one in the options bar or Window › Shapes	Nenhuma forma personalizada “{name}”: escolha uma na barra de opções ou em Janela › Formas
+	{label} is not available: {reason}	{label} não está disponível: {reason}
+	Open Recent is unavailable on the web	Abrir recentes não está disponível na web
+	Importing {what} from {file}…	Importando {what} de {file}…
+	brushes	pincéis
+	gradients	degradês
+	This adjustment ({key}) is kept as imported and can't be edited yet.	Este ajuste ({key}) é mantido como foi importado e ainda não pode ser editado.
+	{shortcut} assigned.	{shortcut} atribuído.
+	{shortcut} is already in use by {commands} and will be removed from it when you click OK.	{shortcut} já está em uso por {commands} e será removido de lá quando você clicar em OK.
+
+# Panels and small controls
+	Grid view	Visualização em grade
+	List view	Visualização em lista
+	New Brush Preset	Nova predefinição de pincel
+	Toggle the Brush Settings panel	Alternar o painel Configurações do pincel
+	Scroll menu up	Rolar o menu para cima
+	Scroll menu down	Rolar o menu para baixo
+	{index} of {total}	{index} de {total}
+	Data Set: {name}  ({index}/{total})	Conjunto de dados: {name}  ({index}/{total})
+	(none)	(nenhum)
+	Apply {option}: {state}	Aplicar {option}: {state}
+	on	ativado
+	off	desativado
+
+# Liquify tools (tooltips)
+	Forward Warp	Deformação para frente
+	Twirl Clockwise	Torcer no sentido horário
+	Twirl Counterclockwise	Torcer no sentido anti-horário
+	Pucker	Franzir
+	Bloat	Inflar
+	Push Left	Empurrar para a esquerda
+	Freeze Mask	Congelar máscara
+	Thaw Mask	Descongelar máscara
