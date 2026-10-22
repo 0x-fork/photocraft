@@ -2043,6 +2043,103 @@ mod tests {
     }
 
     #[test]
+    fn a_step_dialog_keeps_its_continuation_token() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.background_jobs = false;
+        app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        for (name, steps) in [
+            ("First", vec![("filter.blur.gaussianBlur".into(), json!({"radius": 1}))]),
+            ("Second", vec![("filter.blur.gaussianBlur".into(), json!({"radius": 1})), ("select.all".into(), json!({}))]),
+        ] {
+            let mut action = Action::new(name, steps);
+            action.dialogs.insert(0);
+            app.session.actions.list.push(action);
+        }
+        let first = play(&mut app, &json!({"action": "First"})).unwrap()["paused"]["dialog"].as_u64().unwrap();
+        let second = play(&mut app, &json!({"action": "Second"})).unwrap()["paused"]["dialog"].as_u64().unwrap();
+        let first_token = app.ui.dialog_mut(first).unwrap().fields[RESUME].clone();
+        let second_token = app.ui.dialog_mut(second).unwrap().fields[RESUME].clone();
+        for token in [second_token.clone(), Value::Null, json!("invalid"), json!({"action": "Second", "from": 1})] {
+            let (request, _) = crate::control::ControlRequest::new("ui.dialog.set", json!({"dialog": first, "field": RESUME, "value": token}));
+            let response = crate::control::handle(&mut app, &egui::Context::default(), &request);
+            assert!(matches!(response, crate::control::Outcome::Done(ref v) if v["error"].as_str().is_some_and(|e| e.contains("read-only"))));
+            assert_eq!(app.ui.dialog_mut(first).unwrap().fields[RESUME], first_token);
+            assert_eq!(app.ui.dialog_mut(second).unwrap().fields[RESUME], second_token);
+            assert_eq!(app.paused_playbacks.paused.len(), 2);
+        }
+        crate::dialogs::confirm(&mut app, first).unwrap();
+        assert!(app.session.active().unwrap().doc.selection.is_none(), "First must not run Second's remaining step");
+        crate::dialogs::confirm(&mut app, second).unwrap();
+        assert!(app.session.active().unwrap().doc.selection.is_some());
+        assert!(app.paused_playbacks.paused.is_empty());
+    }
+
+    fn recording_with_displace_child() -> PhotocraftApp {
+        let mut app = recording_with_dialog_child();
+        app.background_jobs = false;
+        app.session.actions.list[0].steps[0] = ("filter.distort.displace".into(), json!({}));
+        app
+    }
+
+    fn assert_displace_call_finished(app: &mut PhotocraftApp, suffix_count: usize) {
+        assert!(!app.file_dialog_open());
+        assert!(app.ui.dialogs.is_empty());
+        assert!(app.paused_playbacks.paused.is_empty());
+        assert!(app.session.actions.recording.is_some());
+        assert_eq!(suffixes(app), suffix_count);
+        app.run("actions.stop", json!({})).unwrap();
+        assert_eq!(app.session.actions.list[1].steps, child_call(), "record the child call exactly once");
+        app.run("actions.record", json!({"name": "Next"})).unwrap();
+    }
+
+    #[test]
+    fn a_displace_step_restores_recording_when_the_map_picker_fails_or_is_cancelled() {
+        use crate::file_dialog::FileDialogAnswer;
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing.png").to_string_lossy().into_owned();
+        for answer in [
+            None,
+            Some(FileDialogAnswer::Unavailable("no picker available".into())),
+            Some(FileDialogAnswer::Paths(Vec::new())),
+            Some(FileDialogAnswer::Contents("map.png".into(), Vec::new())),
+            Some(FileDialogAnswer::Paths(vec![missing])),
+        ] {
+            let mut app = recording_with_displace_child();
+            let (show, _) = crate::file_dialog::fake(vec![answer]);
+            app.services.file_dialog = Some(show);
+            let id = pause_child(&mut app);
+            crate::dialogs::confirm(&mut app, id).unwrap();
+            assert!(app.file_dialog_open());
+            assert!(app.session.actions.recording.is_none());
+            app.poll_file_dialog(&egui::Context::default(), None);
+            assert_displace_call_finished(&mut app, 0);
+        }
+    }
+
+    #[test]
+    fn a_displace_step_restores_recording_when_the_map_picker_cannot_start() {
+        let mut app = recording_with_displace_child();
+        let id = pause_child(&mut app);
+        assert!(crate::dialogs::confirm(&mut app, id).is_err());
+        assert_displace_call_finished(&mut app, 0);
+    }
+
+    #[test]
+    fn a_displace_step_resumes_and_records_its_call_once_after_choosing_a_map() {
+        let mut app = recording_with_displace_child();
+        let dir = tempfile::tempdir().unwrap();
+        let map = dir.path().join("map.png");
+        let bytes = photocraft_io::export(&app.session.active().unwrap().doc, "png", &Default::default()).unwrap().bytes;
+        std::fs::write(&map, bytes).unwrap();
+        let (show, _) = crate::file_dialog::fake(vec![Some(crate::file_dialog::FileDialogAnswer::Paths(vec![map.to_string_lossy().into_owned()]))]);
+        app.services.file_dialog = Some(show);
+        let id = pause_child(&mut app);
+        crate::dialogs::confirm(&mut app, id).unwrap();
+        app.poll_file_dialog(&egui::Context::default(), None);
+        assert_displace_call_finished(&mut app, 1);
+    }
+
+    #[test]
     fn a_step_dialog_takes_only_the_steps_values() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.run("file.new", json!({"width": 16, "height": 16})).unwrap();

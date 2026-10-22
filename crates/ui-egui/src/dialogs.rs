@@ -818,7 +818,20 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
             };
             if crate::filter_dialog::needs_displace_map(&cmd, &crate::filter_dialog::params_of(&d.fields)) {
                 app.filter_preview = None;
-                return crate::filter_dialog::ask_displace_map(app, cmd, d.fields.clone());
+                let result = crate::filter_dialog::ask_displace_map(app, cmd, d.fields.clone());
+                if result.is_err() {
+                    crate::actions::abandoned(app, &d.fields);
+                } else {
+                    // Cancel and an unavailable picker finish before the Displace callback
+                    // runs. Observe the whole file-dialog result, including those exits.
+                    app.after_file_dialog(move |app, result| {
+                        if result.is_err() {
+                            crate::actions::abandoned(app, &d.fields);
+                        }
+                        result
+                    });
+                }
+                return result;
             }
             let (cmd, params) = match crate::smart_ui::confirm_command(app, &d.fields, cmd, crate::filter_dialog::params_of(&d.fields)) {
                 Ok(edit) => edit,
