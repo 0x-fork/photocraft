@@ -339,7 +339,9 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) {
     }
 }
 
-pub fn draw(s: &PuppetSession, painter: &egui::Painter, xf: &ViewXform) {
+/// The warped pixels: image content, drawn under the grid and guides like the document so a
+/// guide stays visible across the layer being warped (#7781). The mesh lines and pins are [`draw`].
+pub fn draw_content(s: &PuppetSession, painter: &egui::Painter, xf: &ViewXform) {
     let b = s.bounds;
     let (w, h) = (f64::from(b.width()), f64::from(b.height()));
     let mut mesh = egui::Mesh::with_texture(s.texture.id());
@@ -353,6 +355,10 @@ pub fn draw(s: &PuppetSession, painter: &egui::Painter, xf: &ViewXform) {
         mesh.add_triangle(a as u32, bb as u32, c as u32);
     }
     painter.add(mesh);
+}
+
+/// The mesh lines and pins over the warped pixels ([`draw_content`]) and the guides.
+pub fn draw(s: &PuppetSession, painter: &egui::Painter, xf: &ViewXform) {
     if s.show_mesh {
         let line = Stroke::new(0.6, Color32::from_rgba_unmultiplied(40, 40, 40, 150));
         let mut seen = std::collections::HashSet::new();
