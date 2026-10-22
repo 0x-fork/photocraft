@@ -984,23 +984,10 @@ fn enum_out(p: &J, key: &str, default: &str, type_id: &str, table: &[(&str, &str
     Ok(enumv(type_id, psd))
 }
 
-/// `key` rounded to a `long` in `lo..=hi` (clamped, as the engine clamps Extrude and Tiles).
+/// `key` rounded to a `long` in `lo..=hi` (clamped, and a non-number is the default, as the
+/// engine reads Extrude, Tiles, Trace Contour, Crystallize and Pointillize).
 fn pi_in(p: &J, key: &str, default: f64, lo: i32, hi: i32) -> Value {
     Value::Integer(pf(p, key, default).round().clamp(f64::from(lo), f64::from(hi)) as i32)
-}
-
-/// `key` (`default` when absent) rounded to a `long`; a value that is not a number, or rounds
-/// outside `lo..=hi`, is an error rather than a different filter written in its place.
-fn pi_checked(p: &J, key: &str, default: f64, lo: i32, hi: i32) -> Result<Value, String> {
-    let v = match p.get(key) {
-        None => default,
-        Some(v) => v.as_f64().filter(|x| x.is_finite()).ok_or_else(|| format!("`{key}` is not a number"))?,
-    }
-    .round();
-    if !(f64::from(lo)..=f64::from(hi)).contains(&v) {
-        return Err(format!("{key} {v} is outside {lo}..={hi}"));
-    }
-    Ok(Value::Integer(v as i32))
 }
 
 /// Param `key` as a `bool` (false when absent or not a bool, as the engine reads it).
@@ -1076,9 +1063,9 @@ fn fltr_for(k: &Known, p: &J) -> Result<Option<Descriptor>, String> {
         }
         // Photoshop stores no random seed for these: `seed` is ours only and is not written.
         "Dfs " => d.with("Md  ", enum_out(p, "mode", "normal", "DfsM", &DIFFUSE_MODES)?),
-        "TrcC" => d.with("Lvl ", pi_checked(p, "level", 128.0, 0, 255)?).with("Edg ", enum_out(p, "edge", "lower", "CntE", &TRACE_EDGES)?),
-        "Crst" => d.with("ClSz", pi_checked(p, "cellSize", 10.0, CELL_SIZE.0, CELL_SIZE.1)?),
-        "Pntl" => d.with("ClSz", pi_checked(p, "cellSize", 5.0, CELL_SIZE.0, CELL_SIZE.1)?),
+        "TrcC" => d.with("Lvl ", pi_in(p, "level", 128.0, 0, 255)).with("Edg ", enum_out(p, "edge", "lower", "CntE", &TRACE_EDGES)?),
+        "Crst" => d.with("ClSz", pi_in(p, "cellSize", 10.0, CELL_SIZE.0, CELL_SIZE.1)),
+        "Pntl" => d.with("ClSz", pi_in(p, "cellSize", 5.0, CELL_SIZE.0, CELL_SIZE.1)),
         // Photoshop stores no random seed for these: our `seed` is not written.
         "Wnd " => {
             d.with("WndM", enum_out(p, "method", "wind", "WndM", &WIND_METHODS)?).with("Drct", enum_out(p, "direction", "fromRight", "Drct", &WIND_DIRECTIONS)?)
@@ -2879,7 +2866,8 @@ mod tests {
             fltr("filter.stylize.diffuse", json!({"mode": "normal", "seed": 7})),
             Some(Value::Descriptor(Descriptor::new("Dfs ").with("Md  ", enumv("DfsM", "Nrml"))))
         );
-        // Defaults, range ends and values that round into the range are written.
+        // Defaults and out-of-range values are written as the engine renders them: clamped to
+        // Photoshop's ranges, and a non-number as the default.
         assert_eq!(
             fltr("filter.stylize.traceContour", json!({})),
             Some(Value::Descriptor(Descriptor::new("TrcC").with("Lvl ", Value::Integer(128)).with("Edg ", enumv("CntE", "Lwr "))))
@@ -2902,6 +2890,16 @@ mod tests {
             fltr("filter.stylize.traceContour", json!({"level": 255.4})),
             Some(Value::Descriptor(Descriptor::new("TrcC").with("Lvl ", Value::Integer(255)).with("Edg ", enumv("CntE", "Lwr "))))
         );
+        let crst = |v: i32| Some(Value::Descriptor(Descriptor::new("Crst").with("ClSz", Value::Integer(v))));
+        let pntl = |v: i32| Some(Value::Descriptor(Descriptor::new("Pntl").with("ClSz", Value::Integer(v))));
+        let trcc = |v: i32, e: &str| Some(Value::Descriptor(Descriptor::new("TrcC").with("Lvl ", Value::Integer(v)).with("Edg ", enumv("CntE", e))));
+        assert_eq!(fltr("filter.pixelate.crystallize", json!({"cellSize": 1e9})), crst(300));
+        assert_eq!(fltr("filter.pixelate.crystallize", json!({"cellSize": 2.4})), crst(3));
+        assert_eq!(fltr("filter.pixelate.pointillize", json!({"cellSize": "big"})), pntl(5));
+        assert_eq!(fltr("filter.pixelate.pointillize", json!({"cellSize": null})), pntl(5));
+        assert_eq!(fltr("filter.stylize.traceContour", json!({"level": -40, "edge": "upper"})), trcc(0, "Upr "));
+        assert_eq!(fltr("filter.stylize.traceContour", json!({"level": 255.5})), trcc(255, "Lwr "));
+        assert_eq!(fltr("filter.stylize.traceContour", json!({"level": [128]})), trcc(128, "Lwr "));
     }
 
     #[test]
@@ -2951,14 +2949,6 @@ mod tests {
             ("filter.stylize.traceContour", json!({"edge": "middle"})),
             ("filter.pixelate.pointillize", json!({"background": "teal"})),
             ("filter.pixelate.pointillize", json!({"background": [1.0]})),
-            // Numbers outside Photoshop's ranges, or not numbers: not clamped or replaced.
-            ("filter.pixelate.crystallize", json!({"cellSize": 1e9})),
-            ("filter.pixelate.crystallize", json!({"cellSize": 2.4})),
-            ("filter.pixelate.pointillize", json!({"cellSize": "big"})),
-            ("filter.pixelate.pointillize", json!({"cellSize": null})),
-            ("filter.stylize.traceContour", json!({"level": -40, "edge": "upper"})),
-            ("filter.stylize.traceContour", json!({"level": 255.5})),
-            ("filter.stylize.traceContour", json!({"level": [128]})),
         ] {
             assert!(item_for_filter(&sf(c, p.clone())).is_err(), "{c} {p}");
         }
