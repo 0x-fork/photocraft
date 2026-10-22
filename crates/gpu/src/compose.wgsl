@@ -675,18 +675,30 @@ fn adjust(c: vec3<f32>) -> vec3<f32> {
             if (light > 0.0) { lc = c + (1.0 - c) * light; }
             let lh = rgb_to_hsl(lc);
             hh = rem_euclid(lh.x + (p0.x + dh) / 360.0, 1.0);
-            // Raising saturation divides by 1 - s; lowering it multiplies by 1 + s. At 32 bits the
-            // slider is cut to whole 8-bit levels and the result isn't clipped
-            // (compose::adjust::hue_saturation_in).
-            var sq = sat;
-            if (hdr) { sq = sign(sat) * floor(abs(sat) * 255.0) / 255.0; }
-            if (sq > 0.0) {
-                ss = lh.y / max(1.0 - sq, 1.0 / 512.0);
+            var rgb: vec3<f32>;
+            if (hdr) {
+                // 32-bit: the chroma scaled around the lightness, unclipped, by Photoshop's factor
+                // in whole numbers (compose::adjust::hue_saturation_in, hdr_saturation_factor).
+                var k: f32;
+                if (sat <= 0.0) {
+                    k = 1.0 - floor(-sat * 256.0 + 1e-4) / 256.0;
+                } else {
+                    let steps = min(u32(floor(sat * 254.0 + 1e-4)), 254u);
+                    k = f32(min(65280u / (255u - steps), 32767u)) / 256.0;
+                }
+                let d = (max(max(lc.r, lc.g), lc.b) - min(min(lc.r, lc.g), lc.b)) * k;
+                let lo = lh.z - d / 2.0;
+                let hi = lh.z + d / 2.0;
+                rgb = vec3(hue_ch(lo, hi, hh + 1.0 / 3.0), hue_ch(lo, hi, hh), hue_ch(lo, hi, hh - 1.0 / 3.0));
             } else {
-                ss = lh.y * (1.0 + sq);
+                // Raising saturation divides by 1 - s; lowering it multiplies by 1 + s.
+                if (sat > 0.0) {
+                    ss = clamp(lh.y / max(1.0 - sat, 1.0 / 512.0), 0.0, 1.0);
+                } else {
+                    ss = clamp(lh.y * (1.0 + sat), 0.0, 1.0);
+                }
+                rgb = hsl_to_rgb(hh, ss, lh.z);
             }
-            if (hdr) { ss = max(ss, 0.0); } else { ss = clamp(ss, 0.0, 1.0); }
-            var rgb = hsl_to_rgb(hh, ss, lh.z);
             // compose::adjust::range_lightness: towards the brightest channel when raised, the darkest when lowered.
             let rl = clamp(dl, -1.0, 1.0);
             if (rl > 0.0) {

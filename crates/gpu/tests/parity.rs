@@ -711,6 +711,29 @@ fn lookup(n: usize, tetrahedral: bool, dither: bool) -> Adjustment {
     Adjustment::ColorLookup { name: "test".into(), lut: Some(std::sync::Arc::new(t)), size: n as u32, tetrahedral, dither }
 }
 
+/// 32-bit Hue/Saturation on colours at and above HSL lightness 1 and with a negative channel,
+/// where the HSL saturation divides by zero: the GPU scales the chroma as the CPU does
+/// (compose::adjust::hue_saturation_in), finite and unclipped.
+#[test]
+fn hdr_hue_saturation_bright_colours() {
+    let Some(mut g) = gpu() else { return };
+    let mut d = Document::new("t", Size::new(4, 1), ColorMode::Rgb, SampleType::F32);
+    let mut bg = Layer::raster("bg", d.pixel_format());
+    let px = [2.0, 0.0, 0.0, 1.0, 0.25, -0.25, 0.0, 1.0, 1.1, 0.9, 1.0, 1.0, 0.55, 0.45, 0.5, 1.0];
+    bg.surface_mut().unwrap().write_region(Rect::from_xywh(0, 0, 4, 1), &px);
+    d.layers.push(bg);
+    for (hue, saturation) in [(40.0, 0.0), (0.0, 25.0), (0.0, -25.0), (40.0, 75.0)] {
+        let hs = Adjustment::HueSaturation { hue, saturation, lightness: 0.0, colorize: false, ranges: HueRange::defaults() };
+        d.layers.push(Layer::new("hs", LayerContent::Adjustment(hs)));
+        check(&mut g, &d, &format!("hue {hue} saturation {saturation} on bright colours"));
+        d.layers.pop();
+    }
+    // A PSD can store a Colorize saturation beyond 100: clamped before the 32-bit scaling on both.
+    let hs = Adjustment::HueSaturation { hue: 200.0, saturation: 150.0, lightness: 50.0, colorize: true, ranges: HueRange::defaults() };
+    d.layers.push(Layer::new("hs", LayerContent::Adjustment(hs)));
+    check(&mut g, &d, "colorize saturation 150");
+}
+
 #[test]
 fn adjustment_layers() {
     let Some(mut g) = gpu() else { return };

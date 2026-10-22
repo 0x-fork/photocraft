@@ -673,7 +673,8 @@ pub fn hue_range_tables(ranges: &[HueRange; 6]) -> [Vec<f32>; 3] {
 /// (their oracles are exact without it). Only a raised Lightness is measured; a lowered one is
 /// taken to scale the same way.
 pub fn colorize_saturation(s: f32, lightness: f32, colorize: bool, depth: Option<SampleType>) -> f32 {
-    if colorize && depth == Some(SampleType::F32) { s * (1.0 - lightness.abs().min(1.0)) } else { s }
+    // Clamped here too: a PSD can store a saturation beyond ±100, and the GPU scales it unclamped.
+    if colorize && depth == Some(SampleType::F32) { s.clamp(-1.0, 1.0) * (1.0 - lightness.abs().min(1.0)) } else { s }
 }
 
 /// One Hue/Saturation evaluation: hue shift in degrees, saturation and lightness in -1..=1.
@@ -685,9 +686,9 @@ pub fn hue_saturation(c: [f32; 3], hue: f32, s: f32, l: f32, colorize: bool) -> 
 
 /// [`hue_saturation`] in a document of `depth`. At 32 bits Photoshop doesn't clip the raised
 /// saturation, so saturated colours leave 0..1 (red with Hue +40, Saturation +25, Lightness -10
-/// becomes (1.0477, 0.649, -0.1477)), and it raises it by `1 / (1 - s)` with `s` cut to whole 8-bit
-/// levels (25 % → 63/255, a factor of 1.328 where 1/0.75 is 1.333): the photoshop corpus's rgb32
-/// hue-saturation.psd is exact so.
+/// becomes (1.0477, 0.649, -0.1477)), and it scales each colour's chroma around its lightness by
+/// [`hdr_saturation_factor`], so colours at or above lightness 1 keep their hue too: the photoshop
+/// corpus's rgb32 hue-saturation.psd is exact so.
 pub fn hue_saturation_in(c: [f32; 3], hue: f32, s: f32, l: f32, colorize: bool, depth: Option<SampleType>) -> [f32; 3] {
     let hdr = depth == Some(SampleType::F32);
     let lighten = |v: f32| if l > 0.0 { v + (1.0 - v) * l } else { v * (1.0 + l) };
@@ -700,17 +701,34 @@ pub fn hue_saturation_in(c: [f32; 3], hue: f32, s: f32, l: f32, colorize: bool, 
     // Photoshop applies Lightness first, then rotates the hue and scales the saturation of the
     // result: Hue +40, Saturation +25, Lightness -10 turns (240, 160, 30) into (173, 243, 0), not
     // (168, 230, 14) (Photoshop 27.11 corpus file adjustments/rgb8/hue-saturation).
-    let (hh, ss, ll) = rgb_to_hsl(c.map(lighten));
+    let lc = c.map(lighten);
+    let (hh, ss, ll) = rgb_to_hsl(lc);
     let hh = (hh + hue / 360.0).rem_euclid(1.0);
+    if hdr {
+        // The chroma, not the HSL saturation, whose `2 - max - min` divisor is 0 at lightness 1
+        // and negative above it: (2, 0, 0) with Hue +40 becomes (2, 1.333, 0) in Photoshop.
+        let d = (lc[0].max(lc[1]).max(lc[2]) - lc[0].min(lc[1]).min(lc[2])) * hdr_saturation_factor(s);
+        return hue_rgb(hh, ll - d / 2.0, ll + d / 2.0);
+    }
     // Raising saturation divides by 1 - s, lowering it multiplies by 1 + s: +50 % doubles it
     // (measured in Photoshop 27.11); +100 % saturates any colour that has some.
-    let ss = if hdr {
-        let s = s.signum() * (s.abs() * 255.0).floor() / 255.0;
-        (if s > 0.0 { ss / (1.0 - s).max(1.0 / 512.0) } else { ss * (1.0 + s) }).max(0.0)
-    } else {
-        if s > 0.0 { ss / (1.0 - s).max(1.0 / 512.0) } else { ss * (1.0 + s) }.clamp(0.0, 1.0)
-    };
+    let ss = if s > 0.0 { ss / (1.0 - s).max(1.0 / 512.0) } else { ss * (1.0 + s) }.clamp(0.0, 1.0);
     hsl_to_rgb(hh, ss, ll)
+}
+
+/// The factor 32-bit Hue/Saturation scales chroma by for saturation `s` (-1..1), as Photoshop
+/// computes it (measured at every whole percent from -100 to +100 on a 32-bit document): lowering
+/// cuts `s` to 1/256 steps, raising cuts it to 254 steps out of 255, takes 255 / (255 - steps) to
+/// 1/256 and stops at 32767/256, so +25 % gives 340/256, +99 % 63.75 and +100 % 127.996.
+/// compose.wgsl's Hue/Saturation does the same in whole numbers.
+pub fn hdr_saturation_factor(s: f32) -> f32 {
+    // The 1e-4 keeps a master plus range sum on its step: -0.46 + 0.96 is 0.49999997 in f32.
+    let s = s.clamp(-1.0, 1.0);
+    if s <= 0.0 {
+        return 1.0 - (-s * 256.0 + 1e-4).floor() / 256.0;
+    }
+    let steps = (s * 254.0 + 1e-4).floor() as u32;
+    (65280 / 255u32.saturating_sub(steps).max(1)).min(32767) as f32 / 256.0
 }
 
 /// A colour range's Lightness, applied after the master edits. It moves each channel towards the
@@ -1459,7 +1477,11 @@ pub fn hsl_to_rgb(h: f32, s: f32, l: f32) -> [f32; 3] {
         return [l; 3];
     }
     let q = if l < 0.5 { l * (1.0 + s) } else { l + s - l * s };
-    let p = 2.0 * l - q;
+    hue_rgb(h, 2.0 * l - q, q)
+}
+
+/// The colour of hue `h` (0..1) with its smallest channel at `p` and its largest at `q`.
+fn hue_rgb(h: f32, p: f32, q: f32) -> [f32; 3] {
     let f = |mut t: f32| {
         t = t.rem_euclid(1.0);
         if t < 1.0 / 6.0 {
@@ -1568,12 +1590,6 @@ mod tone_tests {
         [b.px[0][0], b.px[0][1], b.px[0][2]]
     }
 
-    /// Photoshop's own 32-bit results (photoshop corpus rgb32): nothing clips, legacy contrast
-    /// pivots at 127, the mixer cuts its percentages to 1/1024 and counts 255/512 of the
-    /// constant, and the Black & White tint keeps values above 1.
-    /// Photoshop's 32-bit Colorize (photoshop corpus rgb32 hue-saturation-colorize.psd: hue -160,
-    /// saturation 40, lightness +5): red becomes (0.3445, 0.5852, 0.7055), 0.95 of the chroma an
-    /// 8-bit Colorize gives at the same lightness, (0.335, 0.5883, 0.715).
     /// Photoshop's 32-bit Hue/Saturation (photoshop corpus rgb32 hue-saturation.psd: hue +40,
     /// saturation +25, lightness -10): saturated colours leave 0..1, and the saturation factor is
     /// 1 / (1 - 63/255), so red becomes (1.0477, 0.649, -0.1477), where 8 bits clip to (0.9, 0.6, 0).
@@ -1591,6 +1607,9 @@ mod tone_tests {
         assert!(b.px[0].iter().all(|v| (0.0..=1.0).contains(v)), "16 bits clip: {:?}", b.px[0]);
     }
 
+    /// Photoshop's 32-bit Colorize (photoshop corpus rgb32 hue-saturation-colorize.psd: hue -160,
+    /// saturation 40, lightness +5): red becomes (0.3445, 0.5852, 0.7055), 0.95 of the chroma an
+    /// 8-bit Colorize gives at the same lightness, (0.335, 0.5883, 0.715).
     #[test]
     fn thirty_two_bit_colorize_scales_the_saturation() {
         let adj = Adjustment::HueSaturation { hue: -160.0, saturation: 40.0, lightness: 5.0, colorize: true, ranges: HueRange::defaults() };
@@ -1602,6 +1621,61 @@ mod tone_tests {
         assert!(near([b.px[0][0], b.px[0][1], b.px[0][2]], [0.335, 0.5883, 0.715]), "16-bit keeps the full saturation: {:?}", b.px[0]);
     }
 
+    /// Photoshop's 32-bit saturation factor (Hue/Saturation on red (1, 0, 0) in a 32-bit document,
+    /// read back from the saved float TIFF, exact in 1/512): red's R is 0.5 + 0.5 x the factor.
+    #[test]
+    fn thirty_two_bit_saturation_steps_match_photoshop() {
+        for (sat, want) in [
+            (10.0, 539.0 / 512.0),
+            (75.0, 2.4609375),
+            (90.0, 2673.0 / 512.0),
+            (99.0, 32.375),
+            (100.0, 33023.0 / 512.0),
+            (-10.0, 487.0 / 512.0),
+            (-25.0, 0.875),
+            (-50.0, 0.75),
+            (-100.0, 0.5),
+        ] {
+            let adj = Adjustment::HueSaturation { hue: 0.0, saturation: sat, lightness: 0.0, colorize: false, ranges: HueRange::defaults() };
+            let got = hdr(&adj, [1.0, 0.0, 0.0])[0];
+            assert!((got - want).abs() < 1e-4, "saturation {sat}: {got}, Photoshop {want}");
+        }
+    }
+
+    /// 32-bit colours at or above HSL lightness 1 (red at +1 stop, (2, 0, 0)) keep their hue and
+    /// get their chroma scaled like any other, as in Photoshop; they used to turn NaN or grey.
+    #[test]
+    fn thirty_two_bit_hue_saturation_keeps_bright_colours() {
+        let pale = [280.0 / 255.0, 230.0 / 255.0, 256.0 / 255.0];
+        let near = |got: [f32; 3], want: [f32; 3]| got.iter().zip(want).all(|(g, w)| (g - w).abs() <= 1e-3 * w.abs().max(1.0));
+        for (hue, sat, c, want) in [
+            (40.0, 0.0, [2.0, 0.0, 0.0], [2.0, 1.33301, 0.0]),
+            (40.0, 0.0, pale, [1.09804, 0.930687, 0.901961]),
+            (0.0, 25.0, [2.0, 0.0, 0.0], [2.32812, -0.328125, -0.328125]),
+            (0.0, 25.0, pale, [1.13021, 0.869792, 1.00521]),
+            (0.0, -25.0, [2.0, 0.0, 0.0], [1.75, 0.25, 0.25]),
+            (0.0, 100.0, [140.0 / 255.0, 115.0 / 255.0, 128.0 / 255.0], [6.77432, -5.77432, 0.750976]),
+            (0.0, 100.0, [2.0, 0.0, 0.0], [128.996, -126.996, -126.996]),
+        ] {
+            let adj = Adjustment::HueSaturation { hue, saturation: sat, lightness: 0.0, colorize: false, ranges: HueRange::defaults() };
+            let got = hdr(&adj, c);
+            assert!(near(got, want), "hue {hue}, saturation {sat}, {c:?}: {got:?}, Photoshop {want:?}");
+        }
+        // A master plus a range edit that add up to a whole step stay on it: Reds +96 over a master
+        // -46 scales red as much as a master +50 alone (in f32 the sum is 0.49999997).
+        let mut ranges = HueRange::defaults();
+        ranges[0].saturation = 96.0;
+        let summed = Adjustment::HueSaturation { hue: 0.0, saturation: -46.0, lightness: 0.0, colorize: false, ranges };
+        let single = Adjustment::HueSaturation { hue: 0.0, saturation: 50.0, lightness: 0.0, colorize: false, ranges: HueRange::defaults() };
+        assert_eq!(hdr(&summed, [1.0, 0.0, 0.0]), hdr(&single, [1.0, 0.0, 0.0]));
+        // Lightness 0 with a negative channel divides by zero the same way.
+        let adj = Adjustment::HueSaturation { hue: 40.0, saturation: 25.0, lightness: 0.0, colorize: false, ranges: HueRange::defaults() };
+        assert!(hdr(&adj, [0.25, -0.25, 0.0]).iter().all(|v| v.is_finite()));
+    }
+
+    /// Photoshop's own 32-bit results (photoshop corpus rgb32): nothing clips, legacy contrast
+    /// pivots at 127, the mixer cuts its percentages to 1/1024 and counts 255/512 of the
+    /// constant, and the Black & White tint keeps values above 1.
     #[test]
     fn thirty_two_bit_adjustments_match_photoshop_unclipped() {
         let near = |got: [f32; 3], want: [f32; 3], tol: f32| got.iter().zip(want).all(|(g, w)| (g - w).abs() <= tol);
