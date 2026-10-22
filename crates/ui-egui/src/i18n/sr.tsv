@@ -4434,9 +4434,6 @@ shape	Appearance	Izgled
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU adapter
-
-# Export Preferences › Image Assets: Keep Full Artboard Size
-	Image Assets: Keep Full Artboard Size	Slikovni resursi: zadrži punu veličinu radne table
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Prvo potvrdite ili otkažite otvoreni dijalog koraka radnje
 	Pro Medium Gray	Pro srednje siva

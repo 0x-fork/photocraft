@@ -1037,7 +1037,6 @@ fn export_preferences(s: &mut Session, p: &Value) -> Result<Value> {
         ("webpQuality", "export.webpQuality"),
         ("metadata", "export.metadata"),
         ("convertToSrgb", "export.convertToSrgb"),
-        ("imageAssetsFullArtboards", "export.imageAssetsFullArtboards"),
     ] {
         if let Some(v) = p.get(k) {
             values.insert(key.into(), v.clone());
@@ -1405,10 +1404,10 @@ fn asset_output_path(dir: &str, relative: &str) -> Result<(String, String)> {
 /// Names are compared ignoring case, as `Logo.png` and `logo.png` are one file on Windows and
 /// macOS.
 ///
-/// A layer is trimmed to its visible pixels. With `full_artboards` (Export Preferences › Image
-/// Assets: Keep Full Artboard Size) an artboard keeps its board, transparent edges included, as
-/// File › Export › Artboards to Files writes it.
-pub fn generate_assets(doc: &Document, dir: &str, full_artboards: bool) -> (Vec<String>, Vec<Value>) {
+/// A layer is trimmed to its visible pixels; an artboard keeps its whole board, transparent edges
+/// included, as File › Export › Artboards to Files writes it (Photoshop's Generator exports an
+/// artboard asset at the board's bounds).
+pub fn generate_assets(doc: &Document, dir: &str) -> (Vec<String>, Vec<Value>) {
     let dpi = f64::from(doc.resolution_dpi.max(1.0));
     let mut defaults: Option<Vec<AssetDefault>> = None;
     let mut by_layer: Vec<Vec<(LayerId, AssetSpec)>> = Vec::new();
@@ -1440,8 +1439,7 @@ pub fn generate_assets(doc: &Document, dir: &str, full_artboards: bool) -> (Vec<
                 if written.contains(&key) {
                     return Err(other(format!("{rel}: another layer already writes this file; rename one of the layers")));
                 }
-                let board = if full_artboards { crate::artboard_cmds::artboard_document(doc, *id)? } else { None };
-                let mut one = match board {
+                let mut one = match crate::artboard_cmds::artboard_document(doc, *id)? {
                     Some(board) => board,
                     None => crate::layer_menu_cmds::layer_document(doc, *id)?,
                 };
@@ -1518,7 +1516,7 @@ fn image_assets(s: &mut Session, p: &Value) -> Result<Value> {
     }
     match dir {
         Some(dir) if !cfg!(target_arch = "wasm32") => {
-            let (files, errors) = generate_assets(&d.doc, &dir, s.prefs().export.image_assets_full_artboards);
+            let (files, errors) = generate_assets(&d.doc, &dir);
             Ok(json!({"enabled": true, "dir": dir, "files": files, "errors": errors}))
         }
         _ => Ok(json!({"enabled": true, "dir": null, "files": [], "note": "assets are written when the document is saved"})),
@@ -1532,7 +1530,7 @@ pub fn on_saved(s: &Session, index: usize) -> Option<Value> {
         return None;
     }
     let dir = assets_dir(d.path.as_deref()?);
-    let (files, errors) = generate_assets(&d.doc, &dir, s.prefs().export.image_assets_full_artboards);
+    let (files, errors) = generate_assets(&d.doc, &dir);
     Some(json!({"dir": dir, "files": files, "errors": errors}))
 }
 
@@ -1560,7 +1558,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Export Preferences…",
             &["File", "Export"],
             None,
-            r##"{"quickExportFormat":"png|jpg|gif|webp|exr"?,"quickExportLocation":"ask|sameFolder"?,"jpegQuality":1..100?,"webpLossless":bool?,"webpQuality":1..100?,"metadata":"none|copyright|all"?,"convertToSrgb":bool?,"imageAssetsFullArtboards":bool? (Image Assets export artboards at the board's size instead of trimming transparent edges)} → {values}"##,
+            r##"{"quickExportFormat":"png|jpg|gif|webp|exr"?,"quickExportLocation":"ask|sameFolder"?,"jpegQuality":1..100?,"webpLossless":bool?,"webpQuality":1..100?,"metadata":"none|copyright|all"?,"convertToSrgb":bool?} → {values}"##,
             |_| Ok(()),
             export_preferences
         ),

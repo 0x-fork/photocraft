@@ -4062,9 +4062,6 @@ curves	Smooth	Εξομάλυνση
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Προσαρμογέας GPU
-
-# Export Preferences › Image Assets: Keep Full Artboard Size
-	Image Assets: Keep Full Artboard Size	Πόροι εικόνας: διατήρηση πλήρους μεγέθους πίνακα σχεδίασης
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Επιβεβαιώστε ή ακυρώστε πρώτα το ανοιχτό παράθυρο βήματος της ενέργειας
 	Pro Medium Gray	Pro μεσαίου γκρι

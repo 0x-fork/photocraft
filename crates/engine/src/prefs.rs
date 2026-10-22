@@ -519,9 +519,6 @@ pub struct Export {
     pub webp_quality: u32,
     pub metadata: ExportMetadata,
     pub convert_to_srgb: bool,
-    /// File › Generate › Image Assets exports an artboard named like an asset at the board's
-    /// size, transparent edges included, instead of trimming it to its visible pixels.
-    pub image_assets_full_artboards: bool,
 }
 
 impl Default for Export {
@@ -534,7 +531,6 @@ impl Default for Export {
             webp_quality: 85,
             metadata: ExportMetadata::Copyright,
             convert_to_srgb: true,
-            image_assets_full_artboards: false,
         }
     }
 }

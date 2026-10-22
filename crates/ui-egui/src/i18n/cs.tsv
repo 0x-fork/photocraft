@@ -4107,9 +4107,6 @@ cameraRaw	Dehaze	Odstranění oparu
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptér GPU
-
-# Export Preferences › Image Assets: Keep Full Artboard Size
-	Image Assets: Keep Full Artboard Size	Obrazové podklady: zachovat celou velikost kreslicí plochy
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Nejprve potvrďte nebo zrušte otevřený dialog kroku akce
 	Pro Medium Gray	Pro (středně šedý)

@@ -3373,9 +3373,6 @@ curves	Smooth	Glätten
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU-Adapter
-
-# Export Preferences › Image Assets: Keep Full Artboard Size
-	Image Assets: Keep Full Artboard Size	Bild-Assets: Volle Zeichenbereichsgröße beibehalten
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Bestätige oder brich zuerst den offenen Dialog des Aktionsschritts ab
 	Pro Medium Gray	Pro (Mittelgrau)

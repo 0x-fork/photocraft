@@ -3376,9 +3376,6 @@ curves	Smooth	Haluskan
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptor GPU
-
-# Export Preferences › Image Assets: Keep Full Artboard Size
-	Image Assets: Keep Full Artboard Size	Aset Gambar: Pertahankan Ukuran Penuh Artboard
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Konfirmasi atau batalkan dulu dialog langkah tindakan yang terbuka
 	Pro Medium Gray	Pro Abu-abu Sedang

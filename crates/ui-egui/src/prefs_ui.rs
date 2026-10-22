@@ -1214,10 +1214,6 @@ fn humanize(key: &str) -> String {
     if key == "webpQuality" {
         return "Quality".into();
     }
-    // File › Generate › Image Assets keeps a transparent artboard's full board instead of trimming it.
-    if key == "imageAssetsFullArtboards" {
-        return "Image Assets: Keep Full Artboard Size".into();
-    }
     // The auto-hide notice settings read best with their own labels (Interface › Notification, #2022).
     if key == "notificationAutoHide" {
         return "Auto Hide Notifications".into();
@@ -2736,7 +2732,6 @@ mod tests {
         assert!(export_field_visible(&obj, "webpQuality"));
         assert_eq!(humanize("webpLossless"), "Lossless");
         assert_eq!(humanize("webpQuality"), "Quality");
-        assert_eq!(humanize("imageAssetsFullArtboards"), "Image Assets: Keep Full Artboard Size");
         obj.insert("quickExportFormat".into(), json!("exr"));
         for key in ["jpegQuality", "webpLossless", "webpQuality", "convertToSrgb", "metadata"] {
             assert!(!export_field_visible(&obj, key), "EXR must not offer ignored web settings: {key}");

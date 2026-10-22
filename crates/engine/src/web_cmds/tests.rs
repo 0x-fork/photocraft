@@ -639,17 +639,17 @@ fn image_assets_are_generated_now_and_on_save() {
     d.layers.push(Layer::new("default 200% @2x", LayerContent::Group(photocraft_doc::Group { children: vec![], expanded: false, artboard: None })));
     let lid = d.layers[1].id;
     d.layer_mut(lid).unwrap().name = "icon.png".into();
-    let (files, errors) = generate_assets(&d, &dir, false);
+    let (files, errors) = generate_assets(&d, &dir);
     assert!(errors.is_empty(), "{errors:?}");
     assert_eq!(files.iter().map(|p| std::path::PathBuf::from(p.as_str())).collect::<Vec<_>>(), vec![std::path::Path::new(&dir).join("icon@2x.png")]);
     assert_eq!(decode(&files[0]).dimensions(), (128, 80));
 }
 
-/// Export Preferences › Image Assets: Keep Full Artboard Size. A transparent artboard whose
-/// contents don't fill it is trimmed to its pixels by default; with the preference on it keeps
-/// the board's size, transparent edges included. Layers inside the board are still trimmed.
+/// Photoshop's Generator exports an artboard named like an asset at the board's size, transparent
+/// edges included (generator-assets renderer: the canvas bounds are the artboard's), with no
+/// preference. Layers inside the board are still trimmed to their pixels.
 #[test]
-fn image_assets_keep_full_artboards_when_asked() {
+fn image_assets_keep_full_artboards() {
     let dir = tmp("asset-artboards");
     let mut s = Session::new();
     s.execute("file.new", json!({"width": 64, "height": 48, "name": "boards.psd", "background": "transparent"})).unwrap();
@@ -664,19 +664,11 @@ fn image_assets_keep_full_artboards_when_asked() {
         Ok(())
     })
     .unwrap();
-    assert!(!s.prefs().export.image_assets_full_artboards, "trimming stays the default");
 
-    let r = s.execute("file.generate.imageAssets", json!({"on": true, "dir": dir})).unwrap();
-    assert!(r["errors"].as_array().unwrap().is_empty(), "{r}");
-    assert_eq!(decode(&format!("{dir}/board.png")).dimensions(), (8, 6), "off: trimmed to the board's pixels");
-    assert_eq!(decode(&format!("{dir}/logo.png")).dimensions(), (8, 6));
-
-    let r = s.execute("file.export.exportPreferences", json!({"imageAssetsFullArtboards": true})).unwrap();
-    assert_eq!(r["values"]["imageAssetsFullArtboards"], true);
     let r = s.execute("file.generate.imageAssets", json!({"on": true, "dir": dir})).unwrap();
     assert!(r["errors"].as_array().unwrap().is_empty(), "{r}");
     let board = decode(&format!("{dir}/board.png"));
-    assert_eq!(board.dimensions(), (40, 30), "on: the whole board");
+    assert_eq!(board.dimensions(), (40, 30), "the whole board, not its trimmed pixels");
     let px = board.to_rgba8();
     let at = |x: usize, y: usize| &px[(y * 40 + x) * 4..(y * 40 + x) * 4 + 4];
     assert_eq!(at(0, 0)[3], 0, "the board's empty corner stays transparent");
@@ -685,12 +677,6 @@ fn image_assets_keep_full_artboards_when_asked() {
     assert!(at(8, 4)[0] > 250 && at(8, 4)[3] == 255, "{:?}", at(8, 4));
     assert_eq!(at(7, 4)[3], 0);
     assert_eq!(decode(&format!("{dir}/logo.png")).dimensions(), (8, 6), "a layer on the board is still trimmed");
-
-    // Preferences saved before this setting existed load with it off.
-    let mut old = s.prefs().to_json();
-    old["export"].as_object_mut().unwrap().remove("imageAssetsFullArtboards");
-    let restored: crate::prefs::Preferences = serde_json::from_value(old).unwrap();
-    assert!(!restored.export.image_assets_full_artboards);
 }
 
 /// #6614: two layers, or two default variants, naming one file never overwrite each other: the
@@ -714,7 +700,7 @@ fn image_assets_never_write_one_file_twice() {
     let (top, logo) = (id(&d, "Top"), id(&d, "Logo"));
     d.layer_mut(top).unwrap().name = "Logo.PNG".into();
     d.layer_mut(logo).unwrap().name = "logo.png, logo.png".into();
-    let (files, errors) = generate_assets(&d, &dir, false);
+    let (files, errors) = generate_assets(&d, &dir);
     assert_eq!(files.iter().map(|p| std::path::PathBuf::from(p.as_str())).collect::<Vec<_>>(), vec![std::path::Path::new(&dir).join("Logo.png")]);
     assert_eq!(decode(&files[0]).dimensions(), (4, 4), "the top layer keeps the file");
     assert_eq!(errors.len(), 2, "{errors:?}");
@@ -727,7 +713,7 @@ fn image_assets_never_write_one_file_twice() {
     d.layer_mut(logo).unwrap().name = "Logo".into();
     d.layers
         .push(Layer::new("default 50% + 200% + 200% @2x", LayerContent::Group(photocraft_doc::Group { children: vec![], expanded: false, artboard: None })));
-    let (files, errors) = generate_assets(&d, &dir, false);
+    let (files, errors) = generate_assets(&d, &dir);
     let names: Vec<_> = files.iter().map(|p| std::path::Path::new(p).file_name().unwrap().to_string_lossy().into_owned()).collect();
     assert_eq!(names, ["icon.png", "icon@2x.png"]);
     assert_eq!(decode(&files[0]).dimensions(), (2, 2), "the 50% variant keeps icon.png");
@@ -744,7 +730,7 @@ fn image_assets_reject_traversal_from_names_and_defaults() {
     let id = d.layers[1].id;
     d.layer_mut(id).unwrap().name =
         format!("nested/ok.png, ../escaped.png, ..\\backslash.png, {outside}/absolute.png, C:\\drive\\escape.png, CON.png, aux/escape.png, foo./trailing.png");
-    let (files, errors) = generate_assets(&d, &dir, false);
+    let (files, errors) = generate_assets(&d, &dir);
     assert_eq!(files.iter().map(|p| std::path::PathBuf::from(p.as_str())).collect::<Vec<_>>(), vec![std::path::Path::new(&dir).join("nested").join("ok.png")]);
     assert_eq!(errors.len(), 7, "{errors:?}");
     assert!(errors.iter().all(|e| e["error"].as_str().unwrap().contains("unsafe component")), "{errors:?}");
@@ -756,7 +742,7 @@ fn image_assets_reject_traversal_from_names_and_defaults() {
         "default ../ + /outside/ + ..\\bad/ + C:\\drive/ + 50% nested/",
         LayerContent::Group(photocraft_doc::Group { children: vec![], expanded: false, artboard: None }),
     ));
-    let (files, errors) = generate_assets(&d, &dir, false);
+    let (files, errors) = generate_assets(&d, &dir);
     assert_eq!(
         files.iter().map(|p| std::path::PathBuf::from(p.as_str())).collect::<Vec<_>>(),
         vec![std::path::Path::new(&dir).join("nested").join("safe.png")]
@@ -780,7 +766,7 @@ fn image_assets_reject_existing_symlinks_in_folders_and_files() {
     let mut d = (*session(8).active().unwrap().doc).clone();
     let id = d.layers[1].id;
     d.layer_mut(id).unwrap().name = "linked/new/sub.png, leaf.png, leaf.webp, good/safe.png".into();
-    let (files, errors) = generate_assets(&d, &dir, false);
+    let (files, errors) = generate_assets(&d, &dir);
     assert_eq!(files, vec![format!("{dir}/good/safe.png")]);
     assert_eq!(errors.len(), 3, "{errors:?}");
     assert!(errors.iter().all(|e| e["error"].as_str().unwrap().contains("symlink")), "{errors:?}");
@@ -791,7 +777,7 @@ fn image_assets_reject_existing_symlinks_in_folders_and_files() {
     let linked_root = format!("{dir}/rootlink");
     std::os::unix::fs::symlink(&outside, &linked_root).unwrap();
     d.layer_mut(id).unwrap().name = "root.png".into();
-    let (files, errors) = generate_assets(&d, &format!("{linked_root}/"), false);
+    let (files, errors) = generate_assets(&d, &format!("{linked_root}/"));
     assert!(errors.is_empty(), "{errors:?}");
     assert_eq!(files, vec![format!("{linked_root}/root.png")]);
     assert!(std::path::Path::new(&format!("{outside}/root.png")).is_file());
