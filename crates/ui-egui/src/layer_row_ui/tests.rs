@@ -638,3 +638,38 @@ fn clicking_the_lock_icon_on_a_row_unlocks_the_layer() {
     assert!(doc.background().is_none(), "the Background became a normal layer");
     assert!(!doc.layer(bg).unwrap().locks.any());
 }
+
+#[test]
+fn eye_column_edges_toggle_visibility_without_selecting_layer() {
+    // #8467: clicks at the far left or right edge of the eye column must toggle visibility
+    // rather than falling through to select the row.
+    let mut s = photocraft_engine::Session::new();
+    s.execute("file.new", json!({"width": 64, "height": 48})).unwrap();
+    let l1 = s.execute("layer.new.layer", json!({"name": "Top"})).unwrap()["layer"].as_u64().unwrap();
+    let l0 = s.execute("layer.new.layer", json!({"name": "Bottom"})).unwrap()["layer"].as_u64().unwrap();
+    s.execute("layer.select", json!({"layer": l0})).unwrap();
+
+    let mut h = harness(s, 1.0, "promedium", 290.0);
+    let visible = |h: &Harness<'_, PhotocraftApp>, id: u64| h.state().session.active().unwrap().doc.layer(photocraft_doc::LayerId(id)).unwrap().visible;
+    let selected = |h: &Harness<'_, PhotocraftApp>| h.state().session.active().unwrap().active_layer.unwrap().0;
+
+    let row_for = |h: &Harness<'_, PhotocraftApp>, id: u64| {
+        recorded(&h.ctx).into_iter().find(|r| r.layer == id).unwrap().row
+    };
+
+    let top_row = row_for(&h, l1);
+    // Click at the far left edge of the eye column (left + 1.0, top + 1.0)
+    let left_edge = pos2(top_row.left() + 1.0, top_row.top() + 1.0);
+    click(&mut h, left_edge);
+
+    assert!(!visible(&h, l1), "click on left edge of eye column should hide layer");
+    assert_eq!(selected(&h), l0, "click on eye column must not select the layer");
+
+    // Click at the right edge of the eye column (left + 29.0, bottom - 1.0)
+    let right_edge = pos2(top_row.left() + 29.0, top_row.bottom() - 1.0);
+    click(&mut h, right_edge);
+
+    assert!(visible(&h, l1), "click on right edge of eye column should show layer again");
+    assert_eq!(selected(&h), l0, "click on eye column must not select the layer");
+}
+
