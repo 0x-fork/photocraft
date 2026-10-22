@@ -799,6 +799,10 @@ fn download_for_web(app: &mut PhotocraftApp, mut p: Value) -> Result<Value, Stri
 
 // ---------- Print ----------
 
+/// Opens a Print dialog seeded from the last print, filling missing fields with defaults.
+/// Refreshes the printer list on each opening; when native driver enumeration succeeds,
+/// an unavailable saved printer is replaced and its stale driver settings are discarded.
+/// Returns the dialog ID without submitting a print job.
 pub fn open_print(app: &mut PhotocraftApp) -> u64 {
     let mut f = Map::new();
     f.insert("__print".into(), json!(true));
@@ -953,6 +957,9 @@ fn print_paper_size(value: Option<&Value>) -> (f64, f64) {
     }
 }
 
+/// Edits the paper preset, orientation and custom dimensions, remembering custom sizes
+/// across preset switches. Dimensions are displayed in the selected units but stored as
+/// unrotated print points; the engine applies orientation and validates the final size.
 fn print_paper_controls(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     let previous = f.get("paper").cloned();
     let mut selected = if previous.as_ref().is_some_and(Value::is_array) { "custom".to_string() } else { s(f, "paper", "letter") };
@@ -1383,6 +1390,8 @@ fn print_params(f: &Map<String, Value>) -> Value {
     p
 }
 
+/// Submits the dialog parameters to `file.print`, propagating command errors unchanged.
+/// Updates the status for completed results only; pending jobs report completion later.
 fn print_confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value, String> {
     let r = app.run("file.print", print_params(f))?;
     if r["pending"] != json!(true) {
