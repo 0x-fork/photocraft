@@ -520,3 +520,17 @@ cameraRaw	Yellow	पीला
 	Clean Brush	ब्रश साफ़ करें
 	Load the brush after each stroke	हर स्ट्रोक के बाद ब्रश लोड करें
 	Clean the brush after each stroke	हर स्ट्रोक के बाद ब्रश साफ़ करें
+	8 bit	8 बिट
+	16 bit	16 बिट
+	32 bit (float)	32 बिट (फ़्लोट)
+	Integer	पूर्णांक
+	Floating point	फ़्लोटिंग पॉइंट
+	Delete layer ‘{name}’?	लेयर ‘{name}’ हटाएँ?
+	Delete {count} layers? {names}	{count} लेयर हटाएँ? {names}
+	Delete layer?	लेयर हटाएँ?
+	Don't show again	दोबारा न दिखाएँ
+	The document is closed	दस्तावेज़ बंद है
+	The document or selected layers changed. Please request deletion again.	दस्तावेज़ या चुनी हुई लेयर बदल गई हैं। कृपया हटाने का अनुरोध फिर से करें।
+	Missing delete command	हटाने का कमांड नहीं मिला
+	Invalid delete command	हटाने का कमांड अमान्य है
+	Layer deleted, but confirmation preference could not be saved: {error}	लेयर हटा दी गई, लेकिन पुष्टि की प्राथमिकता सहेजी नहीं जा सकी: {error}
