@@ -66,7 +66,12 @@ pub fn rich_doc(mode: ColorMode, depth: SampleType) -> Document {
     mask.linked = false;
     paint.mask = Some(mask);
     paint.effects.items.push(Effect::ColorOverlay { common: FxCommon::new(BlendMode::Normal, 0.8), color: Color::rgb(1.0, 0.2, 0.1) });
-    paint.effects.items.push(Effect::GradientOverlay { common: FxCommon::new(BlendMode::Normal, 0.8), gradient: Gradient::default(), dither: true });
+    paint.effects.items.push(Effect::GradientOverlay {
+        common: FxCommon::new(BlendMode::Normal, 0.8),
+        gradient: Gradient::default(),
+        dither: true,
+        interpolation: None,
+    });
     paint.effects.psd_raw = Some(blob(3, 64));
     paint.psd_blocks.push((*b"vmsk", blob(4, 40)));
     paint.psd_blocks.push((*b"lnsr", blob(5, 4)));

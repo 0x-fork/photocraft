@@ -23,6 +23,8 @@ use crate::{PhotocraftApp, widgets};
 
 pub(crate) mod color_picker;
 mod contour;
+#[cfg(test)]
+mod gradient_method_tests;
 
 #[derive(Clone, Copy)]
 enum P {
@@ -30,6 +32,7 @@ enum P {
     Color,
     Blend,
     Choice(&'static [(&'static str, &'static str)]),
+    GradientMethod,
     Check,
     Angle,
     /// A pattern from the dialog's `patternList` field (`[[id, name], …]`).
@@ -159,6 +162,7 @@ fn spec(kind: &str) -> &'static [(&'static str, &'static str, P)] {
             ("style", "Style", P::Choice(GSTYLE)),
             ("angle", "Angle", P::Angle),
             ("scale", "Scale", P::Slider(10.0, 150.0, "%")),
+            ("method", "Method", P::GradientMethod),
         ],
         "patternOverlay" => &[
             ("blend", "Blend Mode", P::Blend),
@@ -293,13 +297,19 @@ fn values_of(e: &Effect, light: f32) -> Value {
             set(&mut v, "opacity", json!((common.opacity * 100.0).round()));
             set(&mut v, "color", json!(hex(color)));
         }
-        Effect::GradientOverlay { common, gradient: g, .. } => {
+        Effect::GradientOverlay { common, gradient: g, interpolation, .. } => {
             set(&mut v, "blend", json!(common.blend.label()));
             set(&mut v, "opacity", json!((common.opacity * 100.0).round()));
-            // Endpoint colours and geometry always load into the dialog. A baked curve
-            // (classic interpolation, PSD import) keeps its interior stops in `fx`;
-            // `overlay_gradient` only retints the ends unless `method` is present.
-            if let (Some(first), Some(last)) = (g.stops.first(), g.stops.last()) {
+            let stops = interpolation.as_ref().map_or(&g.stops, |source| &source.stops);
+            if let Some(source) = interpolation {
+                set(&mut v, "method", json!(source.method));
+                set(&mut v, "smoothness", json!(source.smoothness));
+            }
+            // Endpoint colours and geometry always load into the dialog. Recorded
+            // interpolation exposes the original source ends; a baked curve without a
+            // record (PSD import) keeps its interior stops in `fx`, and an edit only
+            // retints its ends until a method is chosen.
+            if let (Some(first), Some(last)) = (stops.first(), stops.last()) {
                 set(&mut v, "from", json!(hex(&first.1)));
                 set(&mut v, "to", json!(hex(&last.1)));
             }
@@ -1052,6 +1062,44 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
                             let opts: Vec<(String, &str)> = options.iter().map(|(v, l)| (v.to_string(), *l)).collect();
                             if widgets::dropdown(ui, &format!("fx-{sel_kind}-{key}"), &mut cur, &opts, 150.0) {
                                 let value = json!(cur);
+                                disp[key] = value.clone();
+                                set_param(f, &selected, key, value);
+                            }
+                        });
+                    }
+                    P::GradientMethod => {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(tl!("Method")).color(t.text_dim));
+                            let mut current = disp.get(key).and_then(Value::as_str).unwrap_or("custom").to_string();
+                            let mut options = vec![
+                                ("smooth".to_string(), "Smooth"),
+                                ("perceptual".to_string(), "Perceptual"),
+                                ("linear".to_string(), "Linear"),
+                                ("classic".to_string(), "Classic"),
+                            ];
+                            // Old/imported curves have no method record. Preserve them until
+                            // the user explicitly chooses an interpolation method.
+                            if photocraft_io::GradientMethod::from_name(&current).is_none() {
+                                current = "custom".into();
+                                options.insert(0, ("custom".into(), "Custom"));
+                            }
+                            if widgets::dropdown(ui, "fx-gradientOverlay-method", &mut current, &options, 150.0) {
+                                // The older dialog deliberately omits From/To for rich imported
+                                // curves. Once a method is chosen, show the real source ends.
+                                let snapshot = entry(f, &selected).and_then(|e| e.get("fx")).cloned();
+                                if let Some(Effect::GradientOverlay { gradient, interpolation, .. }) =
+                                    snapshot.and_then(|v| serde_json::from_value::<Effect>(v).ok())
+                                {
+                                    let stops = interpolation.as_ref().map_or(&gradient.stops, |source| &source.stops);
+                                    for (key, stop) in [("from", stops.first()), ("to", stops.last())] {
+                                        if entry(f, &selected).and_then(|e| e.get("params")).and_then(|p| p.get(key)).is_none()
+                                            && let Some(stop) = stop
+                                        {
+                                            set_param(f, &selected, key, json!(hex(&stop.1)));
+                                        }
+                                    }
+                                }
+                                let value = json!(current);
                                 disp[key] = value.clone();
                                 set_param(f, &selected, key, value);
                             }

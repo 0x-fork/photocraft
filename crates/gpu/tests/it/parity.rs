@@ -955,7 +955,7 @@ fn hard_stop_effects_and_gradient_maps_request_cpu() {
             }
             let paint = FxPaint::Gradient(gradient.clone());
             let effects = [
-                Effect::GradientOverlay { common: FxCommon::new(BlendMode::Normal, 1.0), gradient, dither: false },
+                Effect::GradientOverlay { common: FxCommon::new(BlendMode::Normal, 1.0), gradient, dither: false, interpolation: None },
                 Effect::Stroke(StrokeFx {
                     common: FxCommon::new(BlendMode::Normal, 1.0),
                     size: 1.0,
@@ -1686,6 +1686,7 @@ fn effect_cases() -> Vec<(&'static str, Vec<Effect>)> {
                 common: FxCommon::new(BlendMode::Normal, 0.8),
                 gradient: Gradient { style: GradientStyle::Radial, ..gradient() },
                 dither: false,
+                interpolation: None,
             }],
         ),
         (
@@ -1757,7 +1758,7 @@ fn effect_cases() -> Vec<(&'static str, Vec<Effect>)> {
                     invert: false,
                 }),
                 Effect::ColorOverlay { common: FxCommon::new(BlendMode::SoftLight, 0.5), color: Color::rgb(0.9, 0.3, 0.2) },
-                Effect::GradientOverlay { common: FxCommon::new(BlendMode::Overlay, 0.4), gradient: gradient(), dither: false },
+                Effect::GradientOverlay { common: FxCommon::new(BlendMode::Overlay, 0.4), gradient: gradient(), dither: false, interpolation: None },
                 Effect::Stroke(stroke(3.0, StrokePosition::Outside, FxPaint::Color(Color::rgb(0.0, 0.0, 0.0)))),
             ],
         ),
