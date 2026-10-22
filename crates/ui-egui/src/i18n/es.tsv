@@ -4262,3 +4262,8 @@ navigator	Zoom	Zoom
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptador de GPU
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Dirección de párrafo automática
+	Left-to-right paragraph direction	Dirección de párrafo de izquierda a derecha
+	Right-to-left paragraph direction	Dirección de párrafo de derecha a izquierda

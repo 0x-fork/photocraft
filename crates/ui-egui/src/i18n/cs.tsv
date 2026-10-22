@@ -3911,3 +3911,8 @@ navigator	Zoom	Zvětšení
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptér GPU
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Automatický směr odstavce
+	Left-to-right paragraph direction	Směr odstavce zleva doprava
+	Right-to-left paragraph direction	Směr odstavce zprava doleva

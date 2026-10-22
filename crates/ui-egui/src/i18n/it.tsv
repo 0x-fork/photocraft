@@ -4417,3 +4417,8 @@ shape	Appearance	Aspetto
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adattatore GPU
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Direzione del paragrafo automatica
+	Left-to-right paragraph direction	Direzione del paragrafo da sinistra a destra
+	Right-to-left paragraph direction	Direzione del paragrafo da destra a sinistra

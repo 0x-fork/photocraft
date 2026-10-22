@@ -3791,3 +3791,8 @@ curves	Smooth	Làm mượt
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Bộ điều hợp GPU
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Hướng đoạn văn tự động
+	Left-to-right paragraph direction	Hướng đoạn văn từ trái sang phải
+	Right-to-left paragraph direction	Hướng đoạn văn từ phải sang trái

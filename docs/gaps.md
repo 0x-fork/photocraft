@@ -85,7 +85,7 @@ what an agent can't finish alone.
 
 ### G8. Type depth
 - **Missing:** type on a path beyond rigid glyph placement (TYPE-218-1 partial, #4365; the Type tool's click on a shown path landed),
-  paragraph direction UI (TYPE-218-2), complex-script fallback fonts and golden tests
+  the visual RTL caret (TYPE-218-2; the paragraph direction buttons landed 2026-10-20), complex-script fallback fonts and golden tests
   (TYPE-218-3), OpenType Numerals and Stylistic Sets submenus
   (TYPE-218-5; the Character panel buttons landed 2026-10-11, #3752), text free transform
   (#2630). Done since the re-measure: manual and optical kerning with PSD round trip
@@ -297,6 +297,7 @@ what an agent can't finish alone.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-20 | minor | G8: Auto / Left-to-right / Right-to-left paragraph direction buttons in the Paragraph panel, Properties and the Type options bar; TYPE-218-2 partial (the visual RTL caret is still missing) |
 | 2026-10-18 | minor | G13: Russian gained the 1,229 dynamic UI labels other catalogs already had (filter and adjustment parameters, Camera Raw, lighting, History/Layers/paths menus, metadata, System Info, status templates, dialogs); engine messages and native review remain open |
 | 2026-10-15 | minor | G1 / #5972 A1: render only provably constant-RGB `GdFl` noise fills; variable noise synthesis remains open |
 | 2026-10-18 | minor | G9: with no selection, Copy takes fill and adjustment layers whole and Paste recreates them (#2344); UI-217-23 stays partial (a single pixel layer copies its pixels only); estimate unchanged |

@@ -1996,6 +1996,7 @@ fn default_style_params(app: &PhotocraftApp) -> serde_json::Value {
     p["fontStyle"] = json!(o.type_style);
     p["size"] = json!(o.type_size);
     p["align"] = json!(o.type_align);
+    p["direction"] = json!(o.type_direction);
     p["color"] = json!(hex(app.session.tools.foreground));
     p
 }
@@ -2066,6 +2067,11 @@ fn apply_defaults(app: &mut PhotocraftApp, props: &serde_json::Value) {
             "align" => {
                 if let Some(v) = value.as_str() {
                     o.type_align = v.into();
+                }
+            }
+            "direction" => {
+                if let Some(v) = value.as_str() {
+                    o.type_direction = v.into();
                 }
             }
             "metricsAsShown" => {} // Defaults have no layer transform.
@@ -2215,6 +2221,15 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         if crate::icons::button(ui, icon, 24.0, o.type_align == align, tip).clicked() {
             app.ui.tool_options.type_align = align.into();
             apply(app, ui.ctx(), json!({"align": align}));
+        }
+    }
+    ui.spacing_mut().item_spacing.x = 8.0;
+    crate::widgets::vline(ui, 22.0);
+    ui.spacing_mut().item_spacing.x = 2.0;
+    for (key, tip, d) in direction_items() {
+        if direction_button(ui, d, o.type_direction == key, tip).clicked() {
+            app.ui.tool_options.type_direction = key.into();
+            apply(app, ui.ctx(), json!({"direction": key}));
         }
     }
     ui.spacing_mut().item_spacing.x = 8.0;
@@ -2428,6 +2443,47 @@ fn align_glyph(p: &egui::Painter, r: egui::Rect, a: photocraft_doc::text::TextAl
         };
         p.line_segment([egui::pos2(x0, y), egui::pos2(x0 + len, y)], Stroke::new(1.5, c));
     }
+}
+
+/// Paragraph direction choices for the Paragraph panel and the options bar (TYPE-218-2): the
+/// `direction` value `type.setStyle` takes, the tooltip, and the direction it sets.
+fn direction_items() -> [(&'static str, &'static str, photocraft_doc::text::TextDirection); 3] {
+    use photocraft_doc::text::TextDirection as D;
+    [
+        ("auto", tl!("Automatic paragraph direction"), D::Auto),
+        ("ltr", tl!("Left-to-right paragraph direction"), D::Ltr),
+        ("rtl", tl!("Right-to-left paragraph direction"), D::Rtl),
+    ]
+}
+
+/// A pilcrow over an arrow pointing the way the paragraph runs; Auto points both ways.
+fn direction_glyph(p: &egui::Painter, r: egui::Rect, d: photocraft_doc::text::TextDirection, c: Color32) {
+    use photocraft_doc::text::TextDirection as D;
+    let g = p.layout_no_wrap("¶".to_string(), egui::FontId::proportional(11.0), c);
+    p.galley(egui::pos2(r.center().x - g.size().x / 2.0, r.top() - 2.0), g, c);
+    let (y, s) = (r.bottom() - 1.5, Stroke::new(1.3, c));
+    p.line_segment([egui::pos2(r.left(), y), egui::pos2(r.right(), y)], s);
+    let head = |x: f32, towards: f32| {
+        for dy in [-3.0, 3.0] {
+            p.line_segment([egui::pos2(x, y), egui::pos2(x - towards * 3.0, y + dy)], s);
+        }
+    };
+    if d != D::Rtl {
+        head(r.right(), 1.0);
+    }
+    if d != D::Ltr {
+        head(r.left(), -1.0);
+    }
+}
+
+/// The options bar's 24 px square button for one paragraph direction, styled like its icon buttons.
+fn direction_button(ui: &mut egui::Ui, d: photocraft_doc::text::TextDirection, selected: bool, tip: &str) -> egui::Response {
+    let (r, resp) = ui.allocate_exact_size(egui::vec2(24.0, 24.0), egui::Sense::click());
+    let tint = crate::icons::button_chrome(ui, r, selected, resp.hovered());
+    direction_glyph(ui.painter(), egui::Rect::from_center_size(r.center(), egui::vec2(14.0, 16.0)), d, tint);
+    let tip = tip.to_string();
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, &tip));
+    resp.on_hover_text(tip)
 }
 
 /// A toggle button (faux styles, paragraph alignment) of width `w`, painted by `paint`.
@@ -2784,6 +2840,19 @@ fn type_sections(app: &mut PhotocraftApp, ui: &mut egui::Ui, character: bool, pa
                     .inner;
                 if clicked {
                     apply(app, ui.ctx(), json!({"align": key}));
+                }
+            }
+        });
+        ui.add_space(ROW_GAP);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            for (key, tip, d) in direction_items() {
+                let clicked = toggle_cell(ui, cw, para.direction == d, tip, |ui, r, col| {
+                    let g = egui::Rect::from_center_size(r.center(), egui::vec2(14.0, 16.0));
+                    direction_glyph(ui.painter(), g, d, col);
+                });
+                if clicked {
+                    apply(app, ui.ctx(), json!({"direction": key}));
                 }
             }
         });

@@ -4217,3 +4217,8 @@ cameraRaw	Yellow	Sárga
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU-adapter
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Automatikus bekezdésirány
+	Left-to-right paragraph direction	Balról jobbra irányuló bekezdés
+	Right-to-left paragraph direction	Jobbról balra irányuló bekezdés

@@ -3309,3 +3309,8 @@ curves	Smooth	Glätten
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU-Adapter
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Automatische Absatzrichtung
+	Left-to-right paragraph direction	Absatzrichtung von links nach rechts
+	Right-to-left paragraph direction	Absatzrichtung von rechts nach links

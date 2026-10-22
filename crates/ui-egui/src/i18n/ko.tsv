@@ -3490,3 +3490,8 @@ curves	Smooth	매끄럽게
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU 어댑터
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	자동 단락 방향
+	Left-to-right paragraph direction	왼쪽에서 오른쪽 단락 방향
+	Right-to-left paragraph direction	오른쪽에서 왼쪽 단락 방향

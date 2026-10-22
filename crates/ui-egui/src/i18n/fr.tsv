@@ -4342,3 +4342,8 @@ layers	Fill	Remplissage
 layers	Fill:	Remplissage :
 navigator	Zoom	Zoom
 shape	Appearance	Apparence
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Sens du paragraphe automatique
+	Left-to-right paragraph direction	Sens du paragraphe de gauche à droite
+	Right-to-left paragraph direction	Sens du paragraphe de droite à gauche

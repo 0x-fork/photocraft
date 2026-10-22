@@ -4505,3 +4505,8 @@ layers	Fill	Заливка
 layers	Fill:	Заливка:
 navigator	Zoom	Масштаб
 shape	Appearance	Оформление
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Автоматическое направление абзаца
+	Left-to-right paragraph direction	Направление абзаца слева направо
+	Right-to-left paragraph direction	Направление абзаца справа налево

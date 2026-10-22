@@ -4090,3 +4090,8 @@ layerLabel	No Color	Sem cor
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptador de GPU
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Direção automática do parágrafo
+	Left-to-right paragraph direction	Direção do parágrafo da esquerda para a direita
+	Right-to-left paragraph direction	Direção do parágrafo da direita para a esquerda

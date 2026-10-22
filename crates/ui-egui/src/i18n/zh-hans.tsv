@@ -2938,3 +2938,8 @@ curves	Smooth	平滑
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU 适配器
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	自动段落方向
+	Left-to-right paragraph direction	从左到右的段落方向
+	Right-to-left paragraph direction	从右到左的段落方向

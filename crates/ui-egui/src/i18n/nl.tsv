@@ -4060,3 +4060,8 @@ curves	Smooth	Vloeiend maken
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU-adapter
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Automatische alinearichting
+	Left-to-right paragraph direction	Alinearichting van links naar rechts
+	Right-to-left paragraph direction	Alinearichting van rechts naar links

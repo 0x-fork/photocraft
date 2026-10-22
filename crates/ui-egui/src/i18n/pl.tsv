@@ -3900,3 +3900,8 @@ curves	Smooth	Wygładź
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Karta GPU
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Automatyczny kierunek akapitu
+	Left-to-right paragraph direction	Kierunek akapitu od lewej do prawej
+	Right-to-left paragraph direction	Kierunek akapitu od prawej do lewej

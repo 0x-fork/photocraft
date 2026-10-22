@@ -4000,3 +4000,8 @@ curves	Smooth	Εξομάλυνση
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Προσαρμογέας GPU
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Αυτόματη κατεύθυνση παραγράφου
+	Left-to-right paragraph direction	Κατεύθυνση παραγράφου από αριστερά προς τα δεξιά
+	Right-to-left paragraph direction	Κατεύθυνση παραγράφου από δεξιά προς τα αριστερά

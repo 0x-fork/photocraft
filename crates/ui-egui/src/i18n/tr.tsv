@@ -4028,3 +4028,8 @@ cameraData	Lens	Lens
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU bağdaştırıcısı
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Otomatik paragraf yönü
+	Left-to-right paragraph direction	Soldan sağa paragraf yönü
+	Right-to-left paragraph direction	Sağdan sola paragraf yönü

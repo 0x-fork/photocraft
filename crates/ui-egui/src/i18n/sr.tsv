@@ -4371,3 +4371,8 @@ shape	Appearance	Izgled
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU adapter
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Automatski smer pasusa
+	Left-to-right paragraph direction	Smer pasusa sleva nadesno
+	Right-to-left paragraph direction	Smer pasusa zdesna nalevo
