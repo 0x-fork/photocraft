@@ -323,6 +323,7 @@ mod tests {
                     size: 3.0,
                     position: photocraft_doc::StrokePosition::Outside,
                     paint: photocraft_doc::FxPaint::Color(photocraft_color::Color::rgb(0.0, 0.0, 1.0)),
+                    overprint: false,
                 })];
                 Ok(())
             })

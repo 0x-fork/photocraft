@@ -300,7 +300,7 @@ mod tests {
         assert!(u.shown.is_none() && !u.busy);
         assert_eq!(u.hint, Some(empty_layer_hint()));
         // Sample All Layers on: no hint, the object is looked up.
-        app.ui.tool_options.sample_all_layers = true;
+        app.ui.tool_options.sample_all.object_selection = true;
         assert!(update(&mut app, Some([100.0, 80.0]), false, 100.0).hint.is_none());
         assert!(hover(&mut app, [100.0, 80.0]).shown.is_some());
     }
