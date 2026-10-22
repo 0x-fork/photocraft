@@ -3143,11 +3143,10 @@ fn layer_row(
         painter.line_segment([rect.left_bottom(), rect.right_bottom()], Stroke::new(1.0, t.separator));
     }
     let mut x = rect.left() + 6.0;
-    let eye = Rect::from_min_size(pos2(x, rect.center().y - 11.0), vec2(22.0, 22.0));
-    // The eye takes drags too (so a drag starting on it never reorders the row): dragging down
-    // the eyes gives every row swept over the visibility the first eye toggled to.
-    let eye_resp = ui.interact(eye, ui.id().with(("eye", l.id.0)), Sense::click_and_drag());
-    // A hidden layer's eye box is left empty (still clickable).
+    // The whole eye column takes drags too (so a drag starting on it never reorders the row): dragging down
+    // the eyes gives every row swept over the visibility the first eye toggled to (#8467).
+    let eye_resp = ui.interact(eye_cell, ui.id().with(("eye", l.id.0)), Sense::click_and_drag());
+    // A hidden layer's eye box is left empty (still clickable; the whole column takes the click, #8467).
     if l.visible {
         // Centre the drawing in the column while preserving the visibility hit area.
         icons::paint(ui, eye_cell, "eye", 15.0, t.layer_label_icon(l.label));
