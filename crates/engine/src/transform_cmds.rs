@@ -32,7 +32,7 @@ pub fn moves_whole(layer: &Layer) -> bool {
 /// content within the selection, or all of it for a layer that [`moves_whole`] (#2630).
 /// Content scans are cached per tile: snapping asks for every layer's bounds per Move drag.
 pub fn transform_bounds(doc: &Document, layer: &Layer) -> Rect {
-    let content = whole_layer_bounds(layer);
+    let content = whole_layer_bounds(doc, layer);
     match &doc.selection {
         Some(sel) if !moves_whole(layer) => content.intersect(&sel.content_bounds()),
         _ => content,
@@ -57,12 +57,12 @@ fn framed_by_selection(doc: &Document, bounds: Rect) -> Rect {
 }
 
 /// A group moves all its descendants, so its frame must not clip raster children to the selection.
-pub(crate) fn whole_layer_bounds(layer: &Layer) -> Rect {
+pub(crate) fn whole_layer_bounds(doc: &Document, layer: &Layer) -> Rect {
     let content = match &layer.content {
-        LayerContent::Group(g) => g.children.iter().map(whole_layer_bounds).fold(Rect::EMPTY, |a, b| a.union(&b)),
+        LayerContent::Group(g) => g.children.iter().map(|c| whole_layer_bounds(doc, c)).fold(Rect::EMPTY, |a, b| a.union(&b)),
         // A soft shape (Density below 100 % or a Feather) renders past its path, over the whole
         // canvas below 100 %: its frame follows the path and stroke, as in Photoshop (#5846).
-        LayerContent::Shape(sh) if sh.has_soft_mask() => photocraft_compose::hard_shape_bounds(sh).unwrap_or(Rect::EMPTY),
+        LayerContent::Shape(sh) if sh.has_soft_mask() => photocraft_compose::soft_shape_frame(sh, doc.pixel_format(), doc.bounds()).unwrap_or(Rect::EMPTY),
         _ => layer.surface().map_or(Rect::EMPTY, photocraft_compose::bounds::content_bounds),
     };
     if content.is_empty() { layer.mask.as_ref().map_or(Rect::EMPTY, |m| photocraft_compose::bounds::content_bounds(&m.surface)) } else { content }
@@ -1749,5 +1749,33 @@ mod tests {
         let (x0, y0, x1, y1) = sh.path.control_bounds().unwrap();
         assert_eq!((x0.round(), y0.round(), x1.round(), y1.round()), (-10.0, 30.0, 110.0, 70.0));
         assert_eq!((sh.density, sh.feather), (1.0, 20.0), "the transform keeps the soft settings");
+    }
+
+    /// A stroked soft shape's frame is the hard shape's rendered frame for every stroke alignment:
+    /// a centred stroke reaches half its width past the path, not its full width; both stop at
+    /// the canvas edge.
+    #[test]
+    fn a_stroked_soft_shapes_frame_matches_the_hard_shapes() {
+        for (align, reach, x) in [("center", 5, 50), ("inside", 0, 50), ("outside", 10, 50), ("center", 5, -20)] {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": 200, "height": 200})).unwrap();
+            let stroke = json!({"width": 10, "color": "#ff0000", "align": align, "join": "round"});
+            let id = s.execute("shape.create", json!({"kind": "rect", "rect": [x, 50, 60, 40], "fill": "#000000", "stroke": stroke})).unwrap()["layer"]
+                .as_u64()
+                .unwrap();
+            let id = photocraft_doc::LayerId(id);
+            let boxes = |s: &Session| {
+                let st = s.active().unwrap();
+                let l = st.doc.layer(id).unwrap();
+                (transform_bounds(&st.doc, l), transform_frame(&st.doc, l), crate::snap::layer_rect(&st.doc, id))
+            };
+            let hard = boxes(&s);
+            // Hand-computed: the path is x..x + 60 x 50..90, the stroke reaches `reach` px past it.
+            assert_eq!(hard.0, Rect::new((x - reach).max(0), 50 - reach, x + 60 + reach, 90 + reach), "{align} at {x}: the hard shape's frame");
+            s.execute("layer.vectorMask.edit", json!({"density": 60, "feather": 8})).unwrap();
+            assert_eq!(boxes(&s), hard, "{align} at {x}: Density and Feather leave the frame");
+            s.execute("layer.vectorMask.edit", json!({"density": 100, "feather": 8})).unwrap();
+            assert_eq!(boxes(&s), hard, "{align} at {x}: Feather alone leaves the frame");
+        }
     }
 }

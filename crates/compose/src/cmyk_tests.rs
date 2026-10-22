@@ -1258,6 +1258,7 @@ fn make_effect(f: &FxSpec) -> Effect {
             size: *size,
             position: [StrokePosition::Outside, StrokePosition::Inside, StrokePosition::Center][usize::from(*position) % 3],
             paint: paint(color, gradient),
+            overprint: false,
         }),
         FxSpec::Overlay { color, blend, opacity } => Effect::ColorOverlay { common: FxCommon::new(*blend, *opacity), color: ink_color(*color) },
         FxSpec::GradientOverlay { from, to, blend, opacity } => Effect::GradientOverlay {
@@ -1288,6 +1289,7 @@ fn make_effect(f: &FxSpec) -> Effect {
             altitude: 30.0,
             use_global_light: false,
             gloss_contour: Contour::Linear,
+            gloss_anti_alias: false,
             highlight: FxCommon::new(BlendMode::Screen, 0.75),
             highlight_color: ink_color(*highlight),
             shadow: FxCommon::new(BlendMode::Multiply, 0.75),
@@ -1422,6 +1424,7 @@ fn overlays_and_strokes_paint_exact_inks() {
         size: 1.0,
         position: StrokePosition::Outside,
         paint: FxPaint::Color(ink_color([0.0, 1.0, 0.0, 0.0])),
+        overprint: false,
     }));
     d.layers.push(l);
     let got = render_cmyk(&d, d.bounds()).unwrap_or_else(|| panic!("supported"));

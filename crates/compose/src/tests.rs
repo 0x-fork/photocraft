@@ -1185,6 +1185,7 @@ fn stroke(size: f32, position: StrokePosition) -> Effect {
         size,
         position,
         paint: FxPaint::Color(Color::rgb(0.0, 0.0, 1.0)),
+        overprint: false,
     })
 }
 
@@ -1461,6 +1462,7 @@ fn satin_and_bevel_stay_inside_shape() {
             altitude: 30.0,
             use_global_light: false,
             gloss_contour: photocraft_doc::Contour::Linear,
+            gloss_anti_alias: false,
             highlight: FxCommon::new(photocraft_color::BlendMode::Screen, 0.75),
             highlight_color: Color::WHITE,
             shadow: FxCommon::new(photocraft_color::BlendMode::Multiply, 0.75),
@@ -1637,6 +1639,7 @@ fn bevel_fx(style: photocraft_doc::BevelStyle, soften: f32) -> Effect {
         altitude: 30.0,
         use_global_light: false,
         gloss_contour: photocraft_doc::Contour::Linear,
+        gloss_anti_alias: false,
         highlight: FxCommon::new(photocraft_color::BlendMode::Screen, 0.75),
         highlight_color: Color::WHITE,
         shadow: FxCommon::new(photocraft_color::BlendMode::Multiply, 0.75),
@@ -1877,6 +1880,7 @@ fn emboss_shades_the_composited_layer() {
         altitude: 30.0,
         use_global_light: false,
         gloss_contour: photocraft_doc::Contour::Linear,
+        gloss_anti_alias: false,
         highlight: FxCommon::new(photocraft_color::BlendMode::Normal, 1.0),
         highlight_color: Color::WHITE,
         shadow: FxCommon::new(photocraft_color::BlendMode::Multiply, 0.0),
@@ -1926,6 +1930,7 @@ fn upper_stroke_blends_with_the_backdrop_not_the_lower_stroke() {
         size: 3.0,
         position: StrokePosition::Outside,
         paint: FxPaint::Color(Color::rgb(1.0, 1.0, 0.0)),
+        overprint: false,
     });
     let d = fx_doc(vec![yellow, stroke(8.0, StrokePosition::Outside)]);
     assert!(close4(px(&d, 8, 20), [1.0, 1.0, 0.0, 1.0]), "{:?}", px(&d, 8, 20));
@@ -2856,6 +2861,7 @@ fn nested_parallel_fx_doc() -> Document {
         size: 3.0,
         position: StrokePosition::Inside,
         paint: FxPaint::Color(Color::rgb(1.0, 0.0, 0.0)),
+        overprint: false,
     })];
     let mut glow = Layer::new("glow", LayerContent::Fill(g(90.0)));
     glow.opacity = 0.5;
@@ -2886,6 +2892,7 @@ fn nested_parallel_fx_doc() -> Document {
         altitude: 32.0,
         use_global_light: false,
         gloss_contour: Contour::Linear,
+        gloss_anti_alias: false,
         highlight: FxCommon::new(BlendMode::Screen, 0.75),
         highlight_color: Color::WHITE,
         shadow: FxCommon::new(BlendMode::Multiply, 0.75),
