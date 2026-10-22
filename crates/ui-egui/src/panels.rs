@@ -3221,6 +3221,7 @@ fn layer_row(
         if t.bevel {
             crate::widgets::surface(ui, well, t.field, false);
         } else {
+            painter.rect_filled(well, t.radius_sm, t.field);
             let (hi, lo) = if t.dark() {
                 (Color32::from_black_alpha(65), Color32::from_white_alpha(35))
             } else {
