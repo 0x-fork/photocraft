@@ -243,6 +243,7 @@ mod panel_defaults {
         let id = LayerId(app.run("type.create", json!({"text": "AéBC", "size": 24})).unwrap()["layer"].as_u64().unwrap());
         app.ui.text_edit = Some(crate::state::TextEdit {
             layer: id.0,
+            document: None,
             caret: 2,
             anchor: 1,
             session: "panel-default-selection".into(),
