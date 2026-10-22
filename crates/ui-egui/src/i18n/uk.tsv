@@ -4009,3 +4009,5 @@ curves	Smooth	Згладити
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Адаптер GPU
+# Actions: a step dialog holds a suspended recording (#7365)
+	Confirm or cancel the open action step dialog first	Спочатку підтвердьте або скасуйте відкритий діалог кроку операції

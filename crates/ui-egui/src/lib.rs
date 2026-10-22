@@ -1232,6 +1232,7 @@ impl PhotocraftApp {
                 return Err(if self.ui.status.is_empty() { tl!("The transform couldn't be applied.").into() } else { self.ui.status.clone() });
             }
         }
+        actions::suspended_guard(self, id)?;
         if let Some(result) = panel_docking::command(self, id, &params) {
             return result;
         }

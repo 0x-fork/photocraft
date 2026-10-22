@@ -389,13 +389,18 @@ pub fn finish_playback(s: &mut Session, recording: Option<(usize, usize)>, actio
     s.actions.playback_stack.pop();
     s.actions.playing = s.actions.playing.saturating_sub(1);
     if let Some((_, idx)) = recording {
-        s.actions.recording = Some((s.journal.len(), idx));
-        let mut params = json!({"action": action.name});
-        if from > 0 {
-            params["from"] = json!(from);
-        }
-        s.journal.push(("actions.play".into(), params));
+        restore_recording(s, idx, &action.name, from);
     }
+}
+
+/// Resume recording into action `idx` and journal the named call that suspended it.
+pub fn restore_recording(s: &mut Session, idx: usize, action: &str, from: usize) {
+    s.actions.recording = Some((s.journal.len(), idx));
+    let mut params = json!({"action": action});
+    if from > 0 {
+        params["from"] = json!(from);
+    }
+    s.journal.push(("actions.play".into(), params));
 }
 
 /// Nested playback returns a structured failure even though the command itself succeeded.
