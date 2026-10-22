@@ -1900,6 +1900,14 @@ fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer
                 // Only `adjusted` has changed; this pixel's original backdrop is still in place.
                 let b = backdrop.px[i];
                 let a = adjusted.px[i];
+                if layer.blend == BlendMode::Dissolve {
+                    // An adjustment has no standalone source alpha. Its effective coverage
+                    // comes from its own opacity and mask, not a continuous RGB mix (#3050).
+                    if dissolve_noise(x, y) < k {
+                        backdrop.px[i] = [a[0], a[1], a[2], b[3]];
+                    }
+                    continue;
+                }
                 let blended = blend::blend_rgb(layer.blend, [b[0], b[1], b[2]], [a[0], a[1], a[2]]);
                 backdrop.px[i] = [b[0] + (blended[0] - b[0]) * k, b[1] + (blended[1] - b[1]) * k, b[2] + (blended[2] - b[2]) * k, b[3]];
             }
@@ -2265,6 +2273,14 @@ fn composite_atop_any(layer: &Layer, base: &mut Buffer, cx: &Ctx) {
         for (i, p) in base.px.iter_mut().enumerate() {
             let k = layer.opacity * layer.fill_opacity * mask_k(&mv, i);
             let a = adjusted.px[i];
+            if layer.blend == BlendMode::Dissolve {
+                let x = rect.x0 + (i % rect.width() as usize) as i32;
+                let y = rect.y0 + (i / rect.width() as usize) as i32;
+                if dissolve_noise(x, y) < k {
+                    *p = [a[0], a[1], a[2], p[3]];
+                }
+                continue;
+            }
             let bl = blend::blend_rgb(layer.blend, [p[0], p[1], p[2]], [a[0], a[1], a[2]]);
             for c in 0..3 {
                 p[c] += (bl[c] - p[c]) * k;
@@ -2311,6 +2327,16 @@ fn composite_atop_any(layer: &Layer, base: &mut Buffer, cx: &Ctx) {
             continue;
         }
         let s = content.px[i];
+        if layer.blend == BlendMode::Dissolve {
+            // Clipping preserves the opaque base's alpha. Dissolve still selects source
+            // pixels by spatial coverage instead of continuously mixing the colours (#3052).
+            let x = rect.x0 + (i as i32 % rect.width() as i32);
+            let y = rect.y0 + (i as i32 / rect.width() as i32);
+            if dissolve_noise(x, y) < s[3] * opacity {
+                *p = [s[0], s[1], s[2], alpha];
+            }
+            continue;
+        }
         // Blend as if the base were opaque, then keep the base's alpha.
         let r = blend::composite_gamma(layer.blend, [p[0], p[1], p[2], 1.0], s, opacity, gamma);
         *p = [r[0], r[1], r[2], alpha];
