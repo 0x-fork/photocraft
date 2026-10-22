@@ -859,7 +859,7 @@ mod tests {
     fn after_an_os_move_the_bar_and_the_edges_take_the_next_press() {
         /// Press and drag along `path`; the window manager takes over, so no release ever arrives.
         fn handed_off(w: &mut Win, path: &[Pos2]) -> Vec<ViewportCommand> {
-            let mut events = vec![vec![Event::PointerMoved(path[0])], vec![button(path[0], true)]];
+            let mut events = vec![vec![Event::PointerMoved(path[0])], vec![button(path[0], true, egui::PointerButton::Primary)]];
             events.extend(path[1..].iter().map(|p| vec![Event::PointerMoved(*p)]));
             events.push(vec![]);
             events.into_iter().flat_map(|e| w.frame(e).viewport_output.remove(&ViewportId::ROOT).map(|v| v.commands).unwrap_or_default()).collect()
