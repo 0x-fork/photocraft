@@ -3046,6 +3046,7 @@
 	Set shape fill type	Ορισμός τύπου γεμίσματος σχήματος
 	Set shape stroke type	Ορισμός τύπου περιγράμματος σχήματος
 	Set the text color	Ορισμός χρώματος κειμένου
+	Create warped text	Δημιουργία παραμορφωμένου κειμένου
 	Shadows/Highlights	Σκιές/φωτεινές περιοχές
 	Shape	Σχήμα
 	Shape Blur	Θόλωση σχήματος
@@ -4038,3 +4039,8 @@ curves	Smooth	Εξομάλυνση
 	Resize Windows to Fit	Προσαρμογή μεγέθους παραθύρων
 
 	EXR	EXR
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Αυτόματη κατεύθυνση παραγράφου
+	Left-to-right paragraph direction	Κατεύθυνση παραγράφου από αριστερά προς τα δεξιά
+	Right-to-left paragraph direction	Κατεύθυνση παραγράφου από δεξιά προς τα αριστερά

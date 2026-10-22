@@ -656,6 +656,14 @@ pub struct ToolOptions {
     pub type_size: f32,
     pub type_aa: String,
     pub type_align: String,
+    /// Character/Paragraph panel defaults beyond the options bar, in `type.setStyle`'s
+    /// parameter format. Kept as overrides so saved engine defaults still supply unset fields.
+    /// OpenType features and variable-font axes are merged per tag/axis.
+    #[serde(default)]
+    pub type_style_defaults: serde_json::Map<String, serde_json::Value>,
+    /// Type tool: paragraph direction of new type, "auto" (from the first strong character),
+    /// "ltr" or "rtl" (TYPE-218-2).
+    pub type_direction: String,
     /// Clone Stamp / Healing Brush.
     pub clone_aligned: bool,
     /// Pattern Stamp: lock the tile origin in document space across strokes.
@@ -956,6 +964,8 @@ impl Default for ToolOptions {
             type_size: 48.0,
             type_aa: "sharp".into(),
             type_align: "left".into(),
+            type_style_defaults: serde_json::Map::new(),
+            type_direction: "auto".into(),
             clone_aligned: true,
             pattern_stamp_aligned: true,
             pattern_stamp_impressionist: false,
@@ -1140,6 +1150,17 @@ pub enum MadeLayer {
     Place,
 }
 
+/// A paragraph-box handle drag: the handle, and the box (text-space) and layer transform as
+/// they were at the press. Every move recomputes from this snapshot, so ⌥ pressed or released
+/// mid-drag mirrors about the centre the box started with — as if it had been held from the
+/// start.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BoxResize {
+    pub handle: u8,
+    pub shape: [f32; 4],
+    pub aff: photocraft_geom::Affine,
+}
+
 /// In-progress inline type editing (Type tool). Offsets are character indices.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TextEdit {
@@ -1161,7 +1182,7 @@ pub struct TextEdit {
     pub dragging: bool,
     /// Paragraph-box handle being dragged (0-3 corners from top-left clockwise, 4-7 top/right/bottom/left edges).
     #[serde(skip)]
-    pub resize: Option<u8>,
+    pub resize: Option<BoxResize>,
     /// IME composition in progress: (start, length) in characters. The preedit text lives in the
     /// layer so it lays out like typed text; each IME update replaces it.
     #[serde(skip)]
@@ -1262,6 +1283,10 @@ pub struct UiState {
     /// Recently opened file paths, most-recent first (File › Open Recent). Capped; de-duplicated.
     #[serde(default)]
     pub recent_files: Vec<String>,
+    /// Recently picked type families, most-recent first (the font menu's Recent group). Capped by
+    /// Preferences ▸ Type ▸ Recent Fonts; de-duplicated.
+    #[serde(default)]
+    pub recent_fonts: Vec<String>,
     /// Inline type editing session, if any.
     #[serde(default)]
     pub text_edit: Option<TextEdit>,
@@ -1507,6 +1532,7 @@ impl Default for UiState {
             group_tools: Vec::new(),
             spring: None,
             recent_files: Vec::new(),
+            recent_fonts: Vec::new(),
             text_edit: None,
             caret_blink_time: 0.0,
             text_edit_return_tool: None,

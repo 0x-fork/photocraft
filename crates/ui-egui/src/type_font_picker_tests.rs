@@ -13,6 +13,7 @@ struct State {
     button: egui::Id,
     popup: egui::Id,
     preview: FontPreview,
+    recents: Vec<String>,
 }
 
 fn harness() -> Harness<'static, State> {
@@ -20,16 +21,21 @@ fn harness() -> Harness<'static, State> {
 }
 
 fn harness_with(preview: FontPreview) -> Harness<'static, State> {
+    harness_with_recents(preview, Vec::new())
+}
+
+fn harness_with_recents(preview: FontPreview, recents: Vec<String>) -> Harness<'static, State> {
     // Enough families that the unfiltered menu hits its maximum height and scrolls.
     let mut families: Vec<String> = (0..60).map(|i| format!("Family {i:02}")).collect();
     families.push("Zeta Sans".into());
-    let state = State { current: "Family 00".into(), families, button: egui::Id::NULL, popup: egui::Id::NULL, preview };
+    let state = State { current: "Family 00".into(), families, button: egui::Id::NULL, popup: egui::Id::NULL, preview, recents };
     let mut h = Harness::builder().with_size(vec2(600.0, 900.0)).build_ui_state(
         |ui, s: &mut State| {
             s.button = ui.make_persistent_id(egui::IdSalt::new("type-font"));
             s.popup = s.button.with("popup");
             let fams = s.families.clone();
-            font_picker_in(ui, &mut s.current, 170.0, &fams, s.preview);
+            let recents = s.recents.clone();
+            font_picker_in(ui, &mut s.current, 170.0, &fams, s.preview, &recents);
         },
         state,
     );
@@ -332,14 +338,15 @@ fn arrows_on_the_field_step_through_the_families_after_a_pick() {
 fn the_first_arrow_after_a_pick_keeps_the_focus_between_neighbours() {
     for (enter, picked, stepped) in [(false, "Family 05", "Family 06"), (true, "Family 04", "Family 05")] {
         let families: Vec<String> = (0..20).map(|i| format!("Family {i:02}")).collect();
-        let state = State { current: "Family 03".into(), families, button: egui::Id::NULL, popup: egui::Id::NULL, preview: FontPreview::Off };
+        let state =
+            State { current: "Family 03".into(), families, button: egui::Id::NULL, popup: egui::Id::NULL, preview: FontPreview::Off, recents: Vec::new() };
         let mut h = Harness::builder().with_size(vec2(600.0, 900.0)).build_ui_state(
             |ui, s: &mut State| {
                 let _ = ui.button("Above");
                 s.button = ui.make_persistent_id(egui::IdSalt::new("type-font"));
                 s.popup = s.button.with("popup");
                 let fams = s.families.clone();
-                font_picker_in(ui, &mut s.current, 170.0, &fams, s.preview);
+                font_picker_in(ui, &mut s.current, 170.0, &fams, s.preview, &s.recents);
                 let _ = ui.button("Below");
             },
             state,
@@ -647,12 +654,14 @@ fn localized_font_names_label_the_menu_but_pick_the_family() {
         button: egui::Id::NULL,
         popup: egui::Id::NULL,
         preview: FontPreview::Medium,
+        recents: Vec::new(),
     };
     let mut h = Harness::builder().with_size(vec2(600.0, 900.0)).build_ui_state(
         |ui, s: &mut State| {
             s.popup = ui.make_persistent_id(egui::IdSalt::new("type-font")).with("popup");
             let fams = s.families.clone();
-            font_picker_in(ui, &mut s.current, 170.0, &fams, s.preview);
+            let recents = s.recents.clone();
+            font_picker_in(ui, &mut s.current, 170.0, &fams, s.preview, &recents);
         },
         state,
     );
@@ -687,7 +696,7 @@ fn font_menu_rows_search_both_names_and_sort_by_label() {
     let labels: HashMap<String, String> =
         [("MS Gothic", "ＭＳ ゴシック"), ("Microsoft YaHei", "微软雅黑")].iter().map(|(a, b)| (a.to_string(), b.to_string())).collect();
     let rows = |labels: Option<&HashMap<String, String>>, q: &str| -> Vec<(String, String)> {
-        super::font_menu_rows(&families, labels, q).into_iter().map(|(f, l)| (f.clone(), l.to_string())).collect()
+        super::font_menu_rows(&families, labels, q, &[]).into_iter().map(|(f, l)| (f.clone(), l.to_string())).collect()
     };
     let english = rows(None, "");
     assert!(english.iter().all(|(f, l)| f == l));
@@ -696,6 +705,28 @@ fn font_menu_rows_search_both_names_and_sort_by_label() {
     assert_eq!(rows(Some(&labels), "yahei"), [("Microsoft YaHei".to_string(), "微软雅黑".to_string())]);
     assert_eq!(rows(Some(&labels), "雅黑"), [("Microsoft YaHei".to_string(), "微软雅黑".to_string())]);
     assert!(rows(Some(&labels), "nothing").is_empty());
+}
+
+/// Preferences ▸ Type ▸ Recent Fonts: recently used families move to the top (most recent first,
+/// once each); a query drops the hoisting so the list stays alphabetical while searching.
+#[test]
+fn recent_fonts_are_hoisted_to_the_top() {
+    let families: Vec<String> = ["Arial", "Baskerville", "Courier", "Zeta Sans"].iter().map(|s| s.to_string()).collect();
+    let recents: Vec<String> = vec!["Zeta Sans".into(), "Courier".into()];
+    let rows = |q: &str| -> Vec<String> { super::font_menu_rows(&families, None, q, &recents).into_iter().map(|(f, _)| f.clone()).collect() };
+    assert_eq!(rows(""), ["Zeta Sans", "Courier", "Arial", "Baskerville"], "recents hoist, most recent first, once each");
+    assert_eq!(rows("a"), ["Arial", "Baskerville", "Zeta Sans"], "a query drops the hoisting");
+}
+
+/// The menu itself draws the hoisted recents first.
+#[test]
+fn recent_fonts_appear_first_in_the_menu() {
+    let mut h = harness_with_recents(FontPreview::Medium, vec!["Zeta Sans".into(), "Family 05".into()]);
+    open(&mut h);
+    let zeta = h.get_by_label("Zeta Sans").rect().top();
+    let five = h.get_by_label("Family 05").rect().top();
+    let six = h.get_by_label("Family 06").rect().top();
+    assert!(zeta < five && five < six, "recents come first, in order: {zeta} {five} {six}");
 }
 
 #[test]
@@ -715,6 +746,30 @@ fn wheel_over_the_closed_font_button_steps_through_the_families() {
     assert_eq!(h.state().current, "Family 01");
     wheel(&mut h, 5.0);
     assert_eq!(h.state().current, "Family 00", "stops at the first family");
+}
+
+#[test]
+fn wheel_over_the_closed_button_keeps_a_stable_order_with_recents() {
+    let mut h = harness_with_recents(FontPreview::Medium, vec![]);
+    let button = h.query_all_by_role(Role::ComboBox).next().unwrap().rect().center();
+    h.hover_at(button);
+    h.run();
+    let wheel = |h: &mut Harness<'static, State>, y: f32| {
+        h.event(egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Line, delta: vec2(0.0, y), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE });
+        h.run();
+    };
+    wheel(&mut h, -1.0);
+    assert_eq!(h.state().current, "Family 01");
+    // The caller (the options bar) records the picked family as the most recent one.
+    h.state_mut().recents.insert(0, "Family 01".into());
+    h.run();
+    wheel(&mut h, -1.0);
+    assert_eq!(h.state().current, "Family 02", "the next notch keeps going, not back to the recent family");
+    h.state_mut().recents.insert(0, "Family 02".into());
+    h.run();
+    wheel(&mut h, -1.0);
+    assert_eq!(h.state().current, "Family 03");
+    assert!(popup_rect(&h).is_none(), "the list stays closed");
 }
 
 #[test]

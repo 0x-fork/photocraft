@@ -1489,6 +1489,7 @@
 	Set shape fill type	Establecer el tipo de relleno de la forma
 	Set shape stroke type	Establecer el tipo de trazo de la forma
 	Set the text color	Establecer el color del texto
+	Create warped text	Crear texto deformado
 	Shadows	Sombras
 	Shape:	Forma:
 	Sharpening	Enfoque
@@ -4300,3 +4301,8 @@ navigator	Zoom	Zoom
 	Resize Windows to Fit	Redimensionar ventanas para ajustar
 
 	EXR	EXR
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Dirección de párrafo automática
+	Left-to-right paragraph direction	Dirección de párrafo de izquierda a derecha
+	Right-to-left paragraph direction	Dirección de párrafo de derecha a izquierda

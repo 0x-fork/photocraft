@@ -1517,6 +1517,7 @@
 	Set shape fill type	设置形状填充类型
 	Set shape stroke type	设置形状描边类型
 	Set the text color	设置文字颜色
+	Create warped text	创建变形文字
 	Shadows	阴影
 	Shape:	形状：
 	Sharpening	锐化
@@ -1666,6 +1667,7 @@
 	Brush Pose	画笔姿态
 	Brush Tip Shape	画笔笔尖形状
 	Brush Tool	画笔工具
+	Pencil Tool	铅笔工具
 	Build-up	累积
 	Burn Tool	加深工具
 	Centimeters	厘米
@@ -1720,6 +1722,7 @@
 	ExtraBold	特粗
 	ExtraLight	特细
 	Eyedropper Tool	吸管工具
+	Color Sampler Tool	颜色取样器工具
 	Fade	渐隐
 	Fill Opacity	填充不透明度
 	Film & Video	电影与视频
@@ -1736,6 +1739,7 @@
 	Highlights from:	高光下限：
 	History Brush Tool	历史记录画笔工具
 	Horizontal Type Tool	横排文字工具
+	Vertical Type Tool	直排文字工具
 	Horizontal Type Mask Tool	横排文字蒙版工具
 	Vertical Type Mask Tool	直排文字蒙版工具
 	Image Size:	图像大小：
@@ -1867,9 +1871,11 @@
 	Tabloid	Tabloid 纸
 	Text Replacement	文字替换
 	Thin	纤细
+	To	到
 	Traditional (72.27 points/inch)	传统（72.27 点/英寸）
 	Transfer	传递
 	Triangle Tool	三角形工具
+	Up	向上
 	Unsaved changes	未保存的更改
 	Uses the foreground and background colours.	使用前景色和背景色。
 	Watercolour look: lighter interior, darker rims.	水彩效果：内部较浅，边缘较深。
@@ -2991,3 +2997,8 @@ curves	Smooth	平滑
 	Resize Windows to Fit	调整窗口大小以适合
 
 	EXR	EXR
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	自动段落方向
+	Left-to-right paragraph direction	从左到右的段落方向
+	Right-to-left paragraph direction	从右到左的段落方向

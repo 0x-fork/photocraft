@@ -4412,6 +4412,15 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 // Photoshop's Move tool keeps the standard arrow pointer (#5646): the movable
                 // layer under it is marked by the hover outline, not by a different cursor.
                 Tool::Move => egui::CursorIcon::Default,
+                // Over a path it can follow, the Type tool's path-type pointer (Photoshop).
+                Tool::Type
+                    if app.drag.is_none() && {
+                        let [x, y] = xf.to_doc(p);
+                        crate::type_tool::path_at(app, x, y).is_some()
+                    } =>
+                {
+                    crate::type_tool::path_cursor(&painter, p)
+                }
                 // Dragging is handled with the pan itself, above.
                 Tool::Hand => crate::tool_cursor::hand(ui.ctx(), false),
                 Tool::RotateView => crate::rotate_view::cursor(response.dragged()),
@@ -5453,7 +5462,7 @@ pub(crate) fn composite_color(app: &mut PhotocraftApp, x: f64, y: f64) -> Option
 fn tool_move(app: &mut PhotocraftApp, x: f64, y: f64, pressure: f32, mods: egui::Modifiers) {
     let tool = app.active_tool();
     if tool.is_type() && app.drag.is_none() {
-        crate::type_tool::pointer_move(app, x, y);
+        crate::type_tool::pointer_move(app, x, y, mods);
     }
     if tool == Tool::Pen && mods.alt {
         crate::vector_ui::pen_break_handle(app);

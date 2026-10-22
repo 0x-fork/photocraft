@@ -1475,6 +1475,7 @@
 	Set shape fill type	모양 채우기 유형 설정
 	Set shape stroke type	모양 획 유형 설정
 	Set the text color	텍스트 색상 설정
+	Create warped text	뒤틀린 텍스트 만들기
 	Shadows	어두운 영역
 	Shape:	모양:
 	Sharpening	선명 효과
@@ -3546,3 +3547,8 @@ curves	Smooth	매끄럽게
 	Resize Windows to Fit	창 크기 맞추기
 
 	EXR	EXR
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	자동 단락 방향
+	Left-to-right paragraph direction	왼쪽에서 오른쪽 단락 방향
+	Right-to-left paragraph direction	오른쪽에서 왼쪽 단락 방향

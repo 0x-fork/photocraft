@@ -1478,6 +1478,7 @@
 	Set shape fill type	Atur jenis isian bentuk
 	Set shape stroke type	Atur jenis stroke bentuk
 	Set the text color	Atur warna teks
+	Create warped text	Buat teks warp
 	Shadows	Bayangan
 	Shape:	Bentuk:
 	Sharpening	Penajaman
@@ -3352,3 +3353,8 @@ curves	Smooth	Haluskan
 	Resize Windows to Fit	Ubah ukuran jendela agar pas
 
 	EXR	EXR
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Arah paragraf otomatis
+	Left-to-right paragraph direction	Arah paragraf kiri ke kanan
+	Right-to-left paragraph direction	Arah paragraf kanan ke kiri

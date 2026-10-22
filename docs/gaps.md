@@ -84,8 +84,8 @@ what an agent can't finish alone.
 - **Estimate:** 80–140 h.
 
 ### G8. Type depth
-- **Missing:** type on a path beyond rigid glyph placement (TYPE-218-1 partial, #4365),
-  paragraph direction UI (TYPE-218-2), complex-script fallback fonts and golden tests
+- **Missing:** type on a path beyond rigid glyph placement (TYPE-218-1 partial, #4365; the Type tool's click on a shown path landed),
+  the visual RTL caret (TYPE-218-2; the paragraph direction buttons landed 2026-10-20), complex-script fallback fonts and golden tests
   (TYPE-218-3), OpenType Numerals and Stylistic Sets submenus
   (TYPE-218-5; the Character panel buttons landed 2026-10-11, #3752), text free transform
   (#2630). Done since the re-measure: manual and optical kerning with PSD round trip
@@ -220,6 +220,9 @@ what an agent can't finish alone.
 ### G9. Panels, preferences and workspace
 - **Progress (2026-10-15):** Preferences › General › Animated Zoom takes effect: a held Zoom
   tool press zooms continuously about the press point, ⌥ out (#6210, `ui-egui/src/zoom_hold.rs`).
+- **Progress (2026-10-14, #5556):** Character and Paragraph controls stay available without
+  a type target, editing persisted Type tool defaults inherited by new text. Formatting existing
+  selected text keeps its current command and undo scope. Other panel gaps remain open.
 - **Progress (2026-10-12):** toolbar tool shortcuts can be reassigned, removed and reset (#4086),
   with saved bindings, matching toolbar hints and regression coverage (`ui-egui/src/tool_shortcuts.rs`).
 - **Missing:** 24 of 171 preferences do nothing (scorecard prefs audit, 2026-10-15: Save in
@@ -292,6 +295,10 @@ what an agent can't finish alone.
   as tofu (#1408, #1693).
 - **Evidence (2026-10-11):** Czech dynamic UI wrappers, hardware labels and composed messages
   translate at display sites; engine errors remain English. This does not close G13.
+- **Evidence (2026-10-15):** Russian gained the 1,229 dynamic labels the other catalogs already
+  had (filter and adjustment parameters, Camera Raw, lighting, History/Layers/paths menus,
+  metadata, System Info, status templates, dialogs), with a terminology note
+  ([localization-ru](localization-ru.md)); engine errors remain English. This does not close G13.
 - **Detail:** [`localization-parity.md`](localization-parity.md).
 - **Estimate:** 80–140 h. **Human:** native-speaker review of every catalog (none is recorded).
 
@@ -308,7 +315,9 @@ what an agent can't finish alone.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-20 | minor | G8: Auto / Left-to-right / Right-to-left paragraph direction buttons in the Paragraph panel, Properties and the Type options bar; TYPE-218-2 partial (the visual RTL caret is still missing) |
 | 2026-10-19 | minor | G10: JPEG Options dialog landed (FILE-215-19); no readiness percentage or estimate changed |
+| 2026-10-18 | minor | G13: Russian gained the 1,229 dynamic UI labels other catalogs already had (filter and adjustment parameters, Camera Raw, lighting, History/Layers/paths menus, metadata, System Info, status templates, dialogs); engine messages and native review remain open |
 | 2026-10-15 | minor | G10: Cineon write landed (10-bit log gray/RGB, Save As `.cin`) |
 | 2026-10-15 | minor | G1 / #5972 A1: render only provably constant-RGB `GdFl` noise fills; variable noise synthesis remains open |
 | 2026-10-18 | minor | G9: with no selection, Copy takes fill and adjustment layers whole and Paste recreates them (#2344); UI-217-23 stays partial (a single pixel layer copies its pixels only); estimate unchanged |
@@ -337,8 +346,10 @@ what an agent can't finish alone.
 | 2026-10-13 | minor | G1: a pass-through group that is a clipping base and holds an adjustment layer renders isolated; psd-tools passthrough_clipping_mask_adjustment passes; psd-tools floor → 240 of 309 |
 | 2026-10-13 | minor | G1: 16-bit Posterize bins the 16-bit sample, as Photoshop does (exact on two oracles); psd-tools floor → 241 of 309 |
 | 2026-10-13 | minor | G1: Gradient Map driven by the W3C luminosity (0.3, 0.59, 0.11), as Photoshop is; rgb8/rgb16 gradient-map pass; Photoshop-oracle floor 145 → 147 of 258 |
+| 2026-10-14 | minor | G9: Character/Paragraph defaults before creating text (#5556); no percentage or estimate changed |
 | 2026-10-13 | minor | G6: stale "missing tool" list corrected against `main` — Color Replacement (`paint.colorReplacement`), Red Eye (`paint.redEye`) and Add/Delete Anchor Point (P flyout, #4144) are live tools, so the toolbox is 67 of 68 and Art History Brush is the only one missing; no percentage or estimate changed |
 | 2026-10-13 | minor | G10: Amiga IFF/ILBM read landed (1–8 planes, CMAP, stored and ByteRun1); IFF write remains open |
+| 2026-10-13 | minor | G8: a Type tool click on the work path or the active shape layer's path starts type on it at the point clicked (TYPE-218-1, partial); no readiness percentage or estimate changed |
 | 2026-10-13 | minor | G4: Hue Jitter amount-track appearance (#3825, partial); no readiness percentage or estimate changed |
 | 2026-10-13 | minor | G4: minimum inputs in Shape Dynamics and Transfer follow their Control (#3825, partial); no readiness percentage or estimate changed |
 | 2026-10-12 | minor | G5: Free Transform options bar H/V skew fields done |

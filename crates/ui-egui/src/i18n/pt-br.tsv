@@ -1463,6 +1463,7 @@
 	Set shape fill type	Definir tipo de preenchimento da forma
 	Set shape stroke type	Definir tipo de traçado da forma
 	Set the text color	Definir a cor do texto
+	Create warped text	Criar texto deformado
 	Shadows	Sombras
 	Shape:	Forma:
 	Sharpening	Nitidez
@@ -4277,3 +4278,8 @@ layerLabel	No Color	Sem cor
 	Resize Windows to Fit	Redimensionar janelas para caber
 
 	EXR	EXR
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Direção automática do parágrafo
+	Left-to-right paragraph direction	Direção do parágrafo da esquerda para a direita
+	Right-to-left paragraph direction	Direção do parágrafo da direita para a esquerda

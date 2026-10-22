@@ -1089,7 +1089,6 @@ pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
     "plugIns.allowScriptsToConnect",
     "plugIns.generatorEnabled",
     "type.textEngine",
-    "type.recentFonts",
     "enhancedControls.scrubbySliderAcceleration",
     "rawDefaults.colorSpace",
     "rawDefaults.bitDepth",

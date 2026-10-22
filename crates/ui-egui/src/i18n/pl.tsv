@@ -1498,6 +1498,7 @@
 	Set shape fill type	Ustaw typ wypełnienia kształtu
 	Set shape stroke type	Ustaw typ obrysu kształtu
 	Set the text color	Ustaw kolor tekstu
+	Create warped text	Utwórz wypaczony tekst
 	Shadows	Cienie
 	Shape:	Kształt:
 	Sharpening	Wyostrzanie
@@ -3954,3 +3955,8 @@ curves	Smooth	Wygładź
 	Resize Windows to Fit	Dopasuj rozmiar okien
 
 	EXR	EXR
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Automatyczny kierunek akapitu
+	Left-to-right paragraph direction	Kierunek akapitu od lewej do prawej
+	Right-to-left paragraph direction	Kierunek akapitu od prawej do lewej

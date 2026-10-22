@@ -1444,6 +1444,7 @@
 	Set shape fill type	Şekil doldurma türünü ayarla
 	Set shape stroke type	Şekil kontur türünü ayarla
 	Set the text color	Metin rengini ayarla
+	Create warped text	Çarpık metin oluştur
 	Shadows	Gölgeler
 	Shape:	Şekil:
 	Sharpening	Keskinleştirme
@@ -4068,3 +4069,8 @@ cameraData	Lens	Lens
 	Resize Windows to Fit	Pencereleri sığacak şekilde boyutlandır
 
 	EXR	EXR
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Otomatik paragraf yönü
+	Left-to-right paragraph direction	Soldan sağa paragraf yönü
+	Right-to-left paragraph direction	Sağdan sola paragraf yönü

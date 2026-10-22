@@ -1497,6 +1497,7 @@
 	Set shape fill type	設定形狀填滿類型
 	Set shape stroke type	設定形狀筆畫類型
 	Set the text color	設定文字顏色
+	Create warped text	建立彎曲文字
 	Shadows	陰影
 	Shape:	形狀：
 	Sharpening	銳利化
@@ -2960,3 +2961,8 @@ curves	Smooth	平滑
 	Resize Windows to Fit	調整視窗大小以符合
 
 	EXR	EXR
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	自動段落方向
+	Left-to-right paragraph direction	由左至右的段落方向
+	Right-to-left paragraph direction	由右至左的段落方向

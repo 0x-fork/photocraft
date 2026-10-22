@@ -201,3 +201,16 @@ display_name = "Jason Brashear"
 [people.AndreeSalazar]
 real_name = "Andreé Salazar"
 sync_github_name = true
+
+[people.LorenzoFasolino]
+real_name = "Lorenzo Fasolino"
+display_name = "Lorenzo Fasolino"
+sync_github_name = false
+
+[people.zolyy]
+real_name = "Gall Zoltan"
+sync_github_name = false
+
+[people.theshubh77]
+real_name = "Shubham Bhamare"
+sync_github_name = true

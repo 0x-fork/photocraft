@@ -1486,6 +1486,7 @@
 	Set shape fill type	シェイプの塗りの種類を設定
 	Set shape stroke type	シェイプの線の種類を設定
 	Set the text color	文字色を設定
+	Create warped text	ワープテキストを作成
 	Shadows	シャドウ
 	Shape:	シェイプ:
 	Sharpening	シャープ
@@ -4016,3 +4017,8 @@ curves	Smooth	スムーズ
 	Resize Windows to Fit	ウィンドウサイズを合わせる
 
 	EXR	EXR
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	段落の方向を自動判別
+	Left-to-right paragraph direction	左から右への段落方向
+	Right-to-left paragraph direction	右から左への段落方向

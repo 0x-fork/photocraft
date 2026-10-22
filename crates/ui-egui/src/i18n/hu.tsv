@@ -1306,6 +1306,7 @@
 	Set painting symmetry options	Festési szimmetria beállításai
 	Set the overlay options for the Crop tool	A Körbevágás eszköz fedvénybeállításai
 	Set the text color	Szövegszín beállítása
+	Create warped text	Torzított szöveg létrehozása
 	Settings:	Beállítások:
 	Shape Dynamics	Alakdinamika
 	Sharpen Tool	Élesítő
@@ -4255,3 +4256,8 @@ cameraRaw	Yellow	Sárga
 	Resize Windows to Fit	Ablakok átméretezése a képhez
 
 	EXR	EXR
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Automatikus bekezdésirány
+	Left-to-right paragraph direction	Balról jobbra irányuló bekezdés
+	Right-to-left paragraph direction	Jobbról balra irányuló bekezdés

@@ -1446,6 +1446,7 @@
 	Set shape fill type	Podesi vrstu popune oblika
 	Set shape stroke type	Podesi vrstu obruba oblika
 	Set the text color	Postavi boju teksta
+	Create warped text	Napravi iskrivljeni tekst
 	Shadows	Senke
 	Shape:	Oblik:
 	Sharpening	Izoštravanje
@@ -4410,3 +4411,8 @@ shape	Appearance	Izgled
 	Resize Windows to Fit	Prilagodi veličinu prozora
 
 	EXR	EXR
+
+# Paragraph direction (TYPE-218-2)
+	Automatic paragraph direction	Automatski smer pasusa
+	Left-to-right paragraph direction	Smer pasusa sleva nadesno
+	Right-to-left paragraph direction	Smer pasusa zdesna nalevo
