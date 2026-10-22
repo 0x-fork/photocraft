@@ -3684,9 +3684,10 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         if tool == Tool::Crop && response.is_pointer_button_down_on() && ui.input(|i| i.pointer.primary_down()) && crate::crop_ui::press(app) {
             ctx.request_repaint();
         }
-        // Capture intent at the press, before egui's drag threshold: Type transforms keep
-        // Command, and marquee add/subtract must not become a live Shift/Alt constraint.
-        let capture_press = tool.is_type() || matches!(tool, Tool::RectMarquee | Tool::EllipseMarquee | Tool::SingleRowMarquee | Tool::SingleColumnMarquee);
+        // Capture intent at the press, before egui's drag threshold or click replay on release:
+        // Type transforms keep Command; selections keep Add/Subtract if Shift/Alt is released.
+        let capture_press = tool.is_type()
+            || matches!(tool, Tool::RectMarquee | Tool::EllipseMarquee | Tool::SingleRowMarquee | Tool::SingleColumnMarquee | Tool::ObjectSelection);
         let tool_press = egui::Id::new(("tool-pointer-press-modifiers", idx));
         if capture_press
             && let Some((p, press_mods)) = ui.input(|i| {
@@ -3927,6 +3928,11 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         {
             let click_button = if app.secondary_erase { PointerButton::Secondary } else { PointerButton::Primary };
             let click_mods = ui.input(|i| pointer_button_modifiers(&i.events, click_button)).unwrap_or(mods);
+            let click_mods = if tool == Tool::ObjectSelection && click_button == PointerButton::Primary {
+                ctx.data(|d| d.get_temp(tool_press)).unwrap_or(click_mods)
+            } else {
+                click_mods
+            };
             let d = xf.to_doc(p);
             match tool {
                 Tool::Zoom if !transform_owns_pointer => {

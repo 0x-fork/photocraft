@@ -13,12 +13,16 @@ use crate::canvas::ViewXform;
 use crate::state::Tool;
 
 fn harness(tool: Tool) -> Harness<'static, PhotocraftApp> {
+    harness_with_step_dt(tool, 0.25)
+}
+
+fn harness_with_step_dt(tool: Tool, step_dt: f32) -> Harness<'static, PhotocraftApp> {
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
     app.run("file.new", json!({"width": 400, "height": 300})).unwrap();
     app.sync_views();
     app.ui.extras.rulers = false;
     app.ui.tool = tool;
-    let mut h = Harness::builder().with_size(vec2(1000.0, 700.0)).build_ui_state(
+    let mut h = Harness::builder().with_size(vec2(1000.0, 700.0)).with_step_dt(step_dt).build_ui_state(
         |ui, app: &mut PhotocraftApp| {
             let ctx = ui.ctx().clone();
             if !ctx.fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
@@ -145,6 +149,57 @@ fn shift_during_the_drag_draws_a_square_and_the_readout_follows() {
     mods(&mut h, Modifiers::NONE);
     assert_eq!(selection(&h), Rect::new(50, 50, 150, 150));
     assert!(h.query_by_label("W:").is_none() && h.query_by_label_contains(" px").is_none(), "the readout goes away with the drag");
+}
+
+#[test]
+fn object_selection_keeps_the_mode_from_the_mouse_press() {
+    for dragged in [false, true] {
+        for held in [false, true] {
+            for at_press in [Modifiers::SHIFT, Modifiers::ALT] {
+                let mut h = harness_with_step_dt(Tool::ObjectSelection, 1.0 / 60.0);
+                h.state_mut().ui.extras.snap = false;
+                h.state_mut().run("paint.pencil", json!({"points": [[220, 150]], "size": 60, "color": "#ff0000"})).unwrap();
+                let st = h.state().session.active().unwrap();
+                let doc = st.doc.clone();
+                let target = st.active_layer;
+                let region = photocraft_engine::smartselect_cmds::find_object(&doc, target, false, 220.0, 150.0).expect("the red disc is detectable");
+                h.state_mut().session.object_finder.insert(&doc, target, std::sync::Arc::new(region));
+                if at_press.alt {
+                    h.state_mut().run("select.all", json!({})).unwrap();
+                } else {
+                    h.state_mut().run("select.rect", json!({"x": 10, "y": 10, "width": 20, "height": 20})).unwrap();
+                }
+                let start_doc = if dragged { [180.0, 110.0] } else { [220.0, 150.0] };
+                mods(&mut h, at_press);
+                move_to(&mut h, start_doc[0], start_doc[1]);
+                let start = screen(&h, start_doc[0], start_doc[1]);
+                button(&mut h, start, true, at_press);
+                assert!(h.state().drag.is_none(), "the press is still below egui's drag threshold");
+                let during = if held { at_press } else { Modifiers::NONE };
+                mods(&mut h, during);
+                let end_doc = if dragged { [260.0, 190.0] } else { start_doc };
+                release_at(&mut h, end_doc[0], end_doc[1], during);
+                let app = h.state();
+                assert!(!app.ui.status_error, "{}", app.ui.status);
+                let (command, params) = app.session.journal.last().expect("the gesture dispatched a command");
+                assert_eq!(command, "select.object", "the canvas dispatched Object Selection");
+                let expected = if at_press.alt { "subtract" } else { "add" };
+                assert_eq!(params["mode"], expected, "dragged={dragged}, held={held}");
+                let sel = app.session.active().unwrap().doc.selection.as_ref().expect("the old selection survives outside the object");
+                assert!(sel.sample_channel(20, 20, 0) > 0.99, "the gesture must preserve selection outside the object");
+                assert_eq!(sel.sample_channel(220, 150, 0) > 0.5, !at_press.alt, "the disc follows the requested mode");
+                mods(&mut h, Modifiers::NONE);
+                move_to(&mut h, 220.0, 150.0);
+                let next = screen(&h, 220.0, 150.0);
+                button(&mut h, next, true, Modifiers::NONE);
+                release_at(&mut h, 220.0, 150.0, Modifiers::NONE);
+                let (_, params) = h.state().session.journal.last().unwrap();
+                assert_eq!(params["mode"], "replace", "the next unmodified click must not reuse the previous mode");
+                let sel = h.state().session.active().unwrap().doc.selection.as_ref().unwrap();
+                assert!(sel.sample_channel(20, 20, 0) < 0.01 && sel.sample_channel(220, 150, 0) > 0.99);
+            }
+        }
+    }
 }
 
 /// #5472: a ⇧ square pressed between pixels read 101 × 102 and selected that, because each axis
