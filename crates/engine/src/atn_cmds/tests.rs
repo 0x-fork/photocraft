@@ -1465,10 +1465,11 @@ fn black_white_adjustment_layer_saves_as_photoshops_class_and_old_class_still_im
     assert_eq!(r["unsupported"], json!([]), "{r}");
     assert_eq!(t.actions.list[0].steps, vec![(id.to_string(), params)]);
 
-    // Photoshop's minimal Make (no settings) and the old PhotoCraft class both load; near misses
-    // stay Photoshop steps.
+    // Photoshop's minimal Make (no settings) and an old PhotoCraft Make with a setting both load,
+    // the setting kept; near misses stay Photoshop steps.
     let make = |class: &str| {
-        let using = desc("AdjL").with("Type", D::Descriptor(desc(class)));
+        let kind = if class == "BlnW" { desc(class).with("Rd  ", long(17.0)) } else { desc(class) };
+        let using = desc("AdjL").with("Type", D::Descriptor(kind));
         item("Mk  ", "Make", Some(desc("null").with("null", class_ref("AdjL")).with("Usng", D::Descriptor(using))))
     };
     let data = set_of("S", vec![("A", ["BanW", "BlnW", "BANW", "BlnWx"].into_iter().map(make).collect())]);
@@ -1476,6 +1477,7 @@ fn black_white_adjustment_layer_saves_as_photoshops_class_and_old_class_still_im
     let r = t.execute("actions.load", json!({"data": data})).unwrap();
     let steps: Vec<&str> = t.actions.list[0].steps.iter().map(|(id, _)| id.as_str()).collect();
     assert_eq!(steps, [id, id, PHOTOSHOP_STEP, PHOTOSHOP_STEP], "{r}");
+    assert_eq!(t.actions.list[0].steps[1].1["reds"], 17, "{r}");
 }
 
 /// Smart Blur's quality uses Photoshop's `SmBQ` codes (`SBQL`/`SBQM`/`SBQH`): measured in

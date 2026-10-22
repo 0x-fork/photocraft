@@ -886,6 +886,7 @@ const ADJUSTMENTS: &[Adjustment] = &[
 /// load; export never writes them.
 const LEGACY_CLASSES: &[(&str, &str)] = &[("BlnW", "BanW")];
 
+/// The adjustment with Photoshop class `c`, or the one an old PhotoCraft class stands for.
 fn adjustment_by_class(c: &str) -> Option<&'static Adjustment> {
     let c = c.trim_end();
     let c = LEGACY_CLASSES.iter().find(|(old, _)| *old == c).map_or(c, |(_, class)| class);
