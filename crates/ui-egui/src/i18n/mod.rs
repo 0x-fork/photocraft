@@ -187,7 +187,7 @@ fn expand(packed: &str, keys: &[&str]) -> Result<String, String> {
 }
 
 /// The registry. English first: it is the fallback and the source language.
-pub static LANGUAGES: [LangInfo; 21] = [
+pub static LANGUAGES: [LangInfo; 22] = [
     LangInfo { code: "en", name: "English", source: b"", plural: plural_one_other, complete_menus: false, catalog: OnceLock::new() },
     LangInfo { code: "ja", name: "日本語", source: catalog!("ja"), plural: plural_none, complete_menus: true, catalog: OnceLock::new() },
     LangInfo { code: "zh-hans", name: "简体中文", source: catalog!("zh-hans"), plural: plural_none, complete_menus: true, catalog: OnceLock::new() },
@@ -220,6 +220,8 @@ pub static LANGUAGES: [LangInfo; 21] = [
     LangInfo { code: "tr", name: "Türkçe", source: catalog!("tr"), plural: plural_none, complete_menus: true, catalog: OnceLock::new() },
     // Vietnamese; `vi-VN` resolves here.
     LangInfo { code: "vi", name: "Tiếng Việt", source: catalog!("vi"), plural: plural_none, complete_menus: true, catalog: OnceLock::new() },
+    // Hindi; `hi`, `hi-IN` locales resolve here.
+    LangInfo { code: "hi", name: "हिन्दी", source: catalog!("hi"), plural: plural_one_other, complete_menus: false, catalog: OnceLock::new() },
 ];
 
 impl LangInfo {
@@ -436,6 +438,21 @@ mod tests {
     const CS: fn() -> Lang = || Lang::from_code("cs").expect("cs registered");
     const ID: fn() -> Lang = || Lang::from_code("id").expect("id registered");
     const VI: fn() -> Lang = || Lang::from_code("vi").expect("vi registered");
+    const HI: fn() -> Lang = || Lang::from_code("hi").expect("hi registered");
+
+    #[test]
+    fn hindi_tags_resolve() {
+        for tag in ["hi", "hi-IN", "hi_IN", "hi_IN.UTF-8"] {
+            assert_eq!(lang_from_tag(tag), Some(HI()), "{tag}");
+        }
+        assert_eq!(HI().name(), "हिन्दी");
+        assert_eq!(Lang::from_pref("hi"), HI());
+        assert_eq!(Lang::from_pref("HI"), HI());
+        assert_eq!(tr(HI(), "Layer"), "लेयर");
+        assert_eq!(tr(HI(), "File"), "फ़ाइल");
+        assert_eq!(trn(HI(), 1, "{n} layer", "{n} layers"), "1 लेयर");
+        assert_eq!(trn(HI(), 3, "{n} layer", "{n} layers"), "3 लेयर्स");
+    }
 
     #[test]
     fn indonesian_tags_resolve() {

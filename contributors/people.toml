@@ -200,3 +200,7 @@ sync_github_name = false
 [people.zolyy]
 real_name = "Gall Zoltan"
 sync_github_name = false
+
+[people.theshubh77]
+real_name = "Shubham Bhamare"
+sync_github_name = true
