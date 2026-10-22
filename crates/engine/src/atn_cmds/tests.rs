@@ -1734,6 +1734,108 @@ fn fractional_translation_only_transform_keeps_offset_and_interpolation() {
     assert_eq!(steps[0].1.get("interpolation"), Some(&json!("bilinear")));
 }
 
+#[test]
+fn numeric_layer_references_refuse_silent_fallback_to_current_selection() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+
+    let parse_first_desc = |v: &Value| -> Descriptor {
+        let bytes = photocraft_paint::tile::b64_decode(v["data"].as_str().unwrap()).unwrap();
+        let file = atn::parse(&bytes).unwrap();
+        file.actions[0].items[0].descriptor.clone().unwrap()
+    };
+
+    // Named layer reference exports successfully with Name reference to "A"
+    s.actions.list.push(Action::new("DeleteNamed", vec![("layer.delete".into(), json!({"layer": "A"}))]));
+    let saved_named = s.execute("actions.save", json!({"action": "DeleteNamed"})).unwrap();
+    assert_eq!(saved_named["steps"], 1);
+    let named_desc = parse_first_desc(&saved_named);
+    match get_ref(&named_desc, "null").unwrap() {
+        [ReferenceItem::Name { name, .. }] => assert_eq!(name.to_string_lossy(), "A"),
+        other => panic!("expected Name reference to A, got {other:?}"),
+    }
+
+    // Omitted layer reference (target selection) exports successfully with Trgt enumerated reference
+    s.actions.list.push(Action::new("DeleteTarget", vec![("layer.delete".into(), json!({}))]));
+    let saved_target = s.execute("actions.save", json!({"action": "DeleteTarget"})).unwrap();
+    assert_eq!(saved_target["steps"], 1);
+    let target_desc = parse_first_desc(&saved_target);
+    match get_ref(&target_desc, "null").unwrap() {
+        [ReferenceItem::Enumerated { value, .. }] => assert!(value.is("Trgt")),
+        other => panic!("expected Trgt enumerated reference, got {other:?}"),
+    }
+
+    // Explicit null layer reference also exports successfully as target selection with Trgt enumerated reference
+    s.actions.list.push(Action::new("DeleteNull", vec![("layer.delete".into(), json!({"layer": null}))]));
+    let saved_null = s.execute("actions.save", json!({"action": "DeleteNull"})).unwrap();
+    assert_eq!(saved_null["steps"], 1);
+    let null_desc = parse_first_desc(&saved_null);
+    match get_ref(&null_desc, "null").unwrap() {
+        [ReferenceItem::Enumerated { value, .. }] => assert!(value.is("Trgt")),
+        other => panic!("expected Trgt enumerated reference, got {other:?}"),
+    }
+
+    // Explicit numeric ID reference cannot be silently converted to current target in strict export
+    s.actions.list.push(Action::new("DeleteNumeric", vec![("layer.delete".into(), json!({"layer": 42}))]));
+    let before_actions = s.actions.list.clone();
+    let before_rev = s.active().unwrap().revision;
+    let err_delete = s.execute("actions.save", json!({"action": "DeleteNumeric"}));
+    assert!(err_delete.is_err(), "strict export must reject numeric layer ID for layer.delete rather than falling back to current target");
+    assert_eq!(s.actions.list, before_actions, "session actions must remain unchanged when save fails");
+    assert_eq!(s.active().unwrap().revision, before_rev, "document revision must remain unchanged when save fails");
+    let err_msg = err_delete.unwrap_err().to_string();
+    assert!(err_msg.contains("(`layer.delete` with numeric layer 42)"), "error message should name the numeric layer: {err_msg}");
+
+    // Same rejection and state invariance for remaining commands with numeric layer reference
+    for (name, id, params) in [
+        ("DuplicateNumeric", "layer.duplicate", json!({"layer": 42, "name": "Copy"})),
+        ("DuplicateNewDocNumeric", "layer.duplicate", json!({"layer": 42, "document": "new"})),
+        ("TranslateNumeric", "layer.translate", json!({"layer": 42, "dx": 5, "dy": 5})),
+        ("SetPropsNumeric", "layer.setProps", json!({"layer": 42, "opacity": 0.5})),
+        ("HideNumeric", "layer.hideLayers", json!({"layer": 42})),
+        ("TransformNumeric", "edit.transform", json!({"layer": 42, "dx": 5, "dy": 5})),
+        ("RenameNumeric", "layer.renameLayer", json!({"layer": 42, "name": "Renamed"})),
+        ("LabelNumeric", "layer.setLabelColor", json!({"layer": 42, "color": "red"})),
+        ("ShowNumeric", "layer.showLayers", json!({"layer": 42})),
+        ("SelectNumeric", "layer.select", json!({"layer": 42})),
+        ("BringToFrontNumeric", "layer.arrange.bringToFront", json!({"layer": 42})),
+        ("SendToBackNumeric", "layer.arrange.sendToBack", json!({"layer": 42})),
+        ("BringForwardNumeric", "layer.arrange.bringForward", json!({"layer": 42})),
+        ("SendBackwardNumeric", "layer.arrange.sendBackward", json!({"layer": 42})),
+    ] {
+        s.actions.list.push(Action::new(name, vec![(id.into(), params)]));
+        let before_actions = s.actions.list.clone();
+        let before_rev = s.active().unwrap().revision;
+        assert!(s.execute("actions.save", json!({"action": name})).is_err());
+        assert_eq!(s.actions.list, before_actions, "session actions must remain unchanged when save fails");
+        assert_eq!(s.active().unwrap().revision, before_rev, "document revision must remain unchanged when save fails");
+    }
+
+    // With skipUnsupported: true, numeric layer references are skipped
+    let skipped = s.execute("actions.save", json!({"action": "DeleteNumeric", "skipUnsupported": true})).unwrap();
+    assert_eq!(skipped["steps"], 0);
+    assert_eq!(skipped["skipped"][0]["id"], "layer.delete");
+
+    // Blend-mode shortcut records layer.setProps with active layer ID, which normalises to the target form
+    let active_id = s.active().unwrap().active_layer.unwrap().0;
+    s.execute("actions.record", json!({"name": "RecordBlend"})).unwrap();
+    s.execute("layer.setProps", json!({"layer": active_id, "blend": "multiply"})).unwrap();
+    s.execute("actions.stop", json!({})).unwrap();
+    let saved_blend = s.execute("actions.save", json!({"action": "RecordBlend"})).unwrap();
+    assert_eq!(saved_blend["steps"], 1, "recorded blend shortcut step with active layer id must export successfully as target layer");
+    assert_eq!(saved_blend["skipped"].as_array().unwrap().len(), 0);
+
+    // Record explicit layer.delete of the sole selected layer in a two-layer document
+    s.execute("layer.new.layer", json!({"name": "Second"})).unwrap();
+    let second_id = s.active().unwrap().active_layer.unwrap().0;
+    s.execute("actions.record", json!({"name": "RecordDelete"})).unwrap();
+    s.execute("layer.delete", json!({"layer": second_id})).unwrap();
+    s.execute("actions.stop", json!({})).unwrap();
+    let saved_delete = s.execute("actions.save", json!({"action": "RecordDelete"})).unwrap();
+    assert_eq!(saved_delete["steps"], 1, "recorded explicit delete of sole selected layer must export successfully as target delete");
+    assert_eq!(saved_delete["skipped"].as_array().unwrap().len(), 0);
+}
+
 /// Arbitrary canvas rotation must keep its interpolation through a strict export: dropping it
 /// silently replays the rotation with the default bicubic resampling.
 #[test]
