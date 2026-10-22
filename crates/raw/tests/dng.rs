@@ -1,7 +1,7 @@
 //! Synthetic DNG files: every storage layout decodes to the exact sensor
 //! samples, and development reproduces known colours.
 
-use photocraft_raw::testgen::{DngSpec, DngStorage, Val, baseline_jpeg, mosaic, scene};
+use photocraft_raw::testgen::{self, DngSpec, DngStorage, Val, baseline_jpeg, mosaic, scene};
 use photocraft_raw::*;
 
 fn sensor(bytes: &[u8]) -> Sensor {
@@ -747,6 +747,63 @@ fn floating_point_white_levels_per_plane_scale_from_the_highest() {
     let s = sensor(&spec.build());
     assert_eq!(s.data, data, "scaled by 1.0, the highest: nothing clipped");
     assert_eq!(s.white, [32767.5, 65535.0, 32767.5]);
+}
+
+/// `Σ cᵢ · xⁱ` at `x`, both clipped to 0..1 (as MapPolynomial).
+fn poly(c: &[f64], x: f64) -> f64 {
+    let x = x.clamp(0.0, 1.0);
+    c.iter().rev().fold(0.0, |acc, c| acc * x + c).clamp(0.0, 1.0)
+}
+
+/// #8125: a lossy DNG's OpcodeList2 carries a MapPolynomial per plane, and its colours depend on
+/// it. Each plane's samples are mapped through its polynomial, on the linear reference values.
+#[test]
+fn map_polynomial_maps_each_plane_of_floating_point_data() {
+    let (w, h) = (24, 16);
+    let data = noise(w * h * 3, 16);
+    let planes = [vec![0.0, 0.5, 0.5], vec![0.0, 1.0], vec![0.1, 0.8, 0.0, 0.3]];
+    let mut spec = float_jxl_dng(&data, w, h, None);
+    spec.opcode_list2 = Some(testgen::map_polynomial_opcode_list(
+        [0, 0, h as u32, w as u32],
+        &planes.iter().enumerate().map(|(p, c)| (p as u32, c.clone())).collect::<Vec<_>>(),
+    ));
+    let bytes = spec.build();
+    let s = sensor(&bytes);
+    let want: Vec<u16> = data.iter().enumerate().map(|(i, &v)| (poly(&planes[i % 3], f64::from(v) / 65535.0) * 65535.0).round() as u16).collect();
+    assert_eq!(s.data, want);
+    assert!(s.warnings.iter().all(|w| !w.contains("MapPolynomial")), "{:?}", s.warnings);
+    let d = develop(&bytes, &DevelopOptions::default()).unwrap();
+    assert!(d.warnings.iter().all(|w| !w.contains("MapPolynomial")), "{:?}", d.warnings);
+}
+
+/// With a LinearizationTable, MapPolynomial maps the linearized values: the samples are
+/// linearized first and the table is then done with.
+#[test]
+fn map_polynomial_follows_the_linearization_table() {
+    let (w, h) = (16, 8);
+    let data = noise(w * h, 12);
+    let table: Vec<u16> = (0..4096u16).map(|i| i * 2).collect();
+    let mut spec = DngSpec::cfa(w, h, data.clone());
+    spec.bits = 12;
+    spec.white = 8190;
+    spec.linearization = Some(table.clone());
+    spec.opcode_list2 = Some(testgen::map_polynomial_opcode_list([0, 0, h as u32, w as u32], &[(0, vec![0.0, 0.0, 1.0])]));
+    let s = sensor(&spec.build());
+    assert!(s.linearization.is_none(), "applied with the polynomial");
+    let want: Vec<u16> = data.iter().map(|&v| (poly(&[0.0, 0.0, 1.0], f64::from(table[usize::from(v)]) / 8190.0) * 8190.0).round() as u16).collect();
+    assert_eq!(s.data, want);
+}
+
+/// A LinearizationTable maps integer samples: floating-point data ignores one.
+#[test]
+fn floating_point_raw_data_ignores_a_linearization_table() {
+    let (w, h) = (24, 16);
+    let data = noise(w * h * 3, 16);
+    let mut spec = float_jxl_dng(&data, w, h, None);
+    spec.linearization = Some(vec![0; 4]);
+    let s = sensor(&spec.build());
+    assert!(s.linearization.is_none());
+    assert_eq!(s.data, data);
 }
 
 /// Floating-point samples are read into four bytes each before they become 16-bit: the limits

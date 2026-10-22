@@ -851,6 +851,27 @@ pub fn gain_map_opcode_list(area: [u32; 4], pitch: u32, gains: [[f32; 2]; 2]) ->
     b
 }
 
+/// An opcode list of MapPolynomial opcodes (ID 8), one per `(plane, coefficients)`, each over
+/// `area` (top, left, bottom, right) at pitch 1.
+pub fn map_polynomial_opcode_list(area: [u32; 4], planes: &[(u32, Vec<f64>)]) -> Vec<u8> {
+    let mut b = (planes.len() as u32).to_be_bytes().to_vec();
+    for (plane, coefficients) in planes {
+        let mut p = Vec::new();
+        let degree = coefficients.len().saturating_sub(1) as u32;
+        for v in [area[0], area[1], area[2], area[3], *plane, 1, 1, 1, degree] {
+            p.extend_from_slice(&v.to_be_bytes());
+        }
+        for c in coefficients {
+            p.extend_from_slice(&c.to_be_bytes());
+        }
+        for v in [8u32, 0x0103_0000, 0, p.len() as u32] {
+            b.extend_from_slice(&v.to_be_bytes());
+        }
+        b.extend_from_slice(&p);
+    }
+    b
+}
+
 // ---------------------------------------------------------------- CR2
 
 /// A synthetic CR2: one lossless JPEG with `components` components, cut into
