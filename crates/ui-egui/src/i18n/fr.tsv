@@ -3322,3 +3322,4 @@ curves	Smooth	Lisser
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptateur GPU
+	Not rendered: this adjustment ({key}) is kept as imported.	Non rendu : ce réglage ({key}) est conservé tel qu'importé.

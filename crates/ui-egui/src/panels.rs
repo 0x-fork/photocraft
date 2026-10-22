@@ -5633,6 +5633,10 @@ mod layer_pct_slider_tests;
 mod fx_drag_tests;
 
 #[cfg(test)]
+#[path = "unsupported_marker_tests.rs"]
+mod unsupported_marker_tests;
+
+#[cfg(test)]
 mod lock_tests {
     use super::*;
     use crate::canvas::{ToolEvent, tool_event};

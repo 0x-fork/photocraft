@@ -4428,3 +4428,4 @@ shape	Appearance	Aspetto
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adattatore GPU
+	Not rendered: this adjustment ({key}) is kept as imported.	Non renderizzato: questa regolazione ({key}) viene conservata come importata.

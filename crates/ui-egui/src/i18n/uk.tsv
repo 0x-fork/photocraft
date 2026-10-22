@@ -4020,3 +4020,4 @@ curves	Smooth	Згладити
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Адаптер GPU
+	Not rendered: this adjustment ({key}) is kept as imported.	Не відображається: це коригування ({key}) збережено як було імпортовано.

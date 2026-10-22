@@ -4011,3 +4011,4 @@ curves	Smooth	Εξομάλυνση
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Προσαρμογέας GPU
+	Not rendered: this adjustment ({key}) is kept as imported.	Δεν αποδίδεται: αυτή η προσαρμογή ({key}) διατηρείται όπως εισήχθη.

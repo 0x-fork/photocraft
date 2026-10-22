@@ -3989,3 +3989,4 @@ curves	Smooth	スムーズ
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU アダプター
+	Not rendered: this adjustment ({key}) is kept as imported.	レンダリングされません: この調整（{key}）はインポートされたまま保持されます。

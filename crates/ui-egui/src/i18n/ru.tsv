@@ -3289,3 +3289,4 @@ curves	Smooth	Сгладить
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Адаптер GPU
+	Not rendered: this adjustment ({key}) is kept as imported.	Не отображается: эта коррекция ({key}) сохранена как при импорте.

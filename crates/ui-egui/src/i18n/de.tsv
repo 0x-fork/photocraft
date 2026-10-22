@@ -3320,3 +3320,4 @@ curves	Smooth	Glätten
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU-Adapter
+	Not rendered: this adjustment ({key}) is kept as imported.	Nicht dargestellt: Diese Einstellung ({key}) wird wie importiert beibehalten.

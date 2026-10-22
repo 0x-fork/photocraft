@@ -1613,6 +1613,7 @@ pub fn adjustment_kind(a: &Adjustment) -> &'static str {
         Adjustment::GradientMap { .. } => "gradientMap",
         Adjustment::SelectiveColor { .. } => "selectiveColor",
         Adjustment::ColorLookup { .. } => "colorLookup",
+        Adjustment::Unsupported { .. } => "unsupported",
         _ => "invert",
     }
 }

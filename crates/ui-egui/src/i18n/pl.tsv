@@ -3911,3 +3911,4 @@ curves	Smooth	Wygładź
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Karta GPU
+	Not rendered: this adjustment ({key}) is kept as imported.	Nie jest renderowana: ta korekta ({key}) jest zachowana w postaci zaimportowanej.

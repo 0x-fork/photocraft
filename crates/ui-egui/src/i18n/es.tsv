@@ -4273,3 +4273,4 @@ navigator	Zoom	Zoom
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptador de GPU
+	Not rendered: this adjustment ({key}) is kept as imported.	No se renderiza: este ajuste ({key}) se conserva tal como se importó.
