@@ -251,6 +251,10 @@ pub fn preview_factor(command: &str, params: &Value, k: u32) -> u32 {
     if k <= 1 || full_resolution_preview(command, params) {
         return 1;
     }
+    // A plug-in's pixel lengths are the params its manifest marks `"unit": "px"` (#7524).
+    if command == photocraft_engine::plugin_cmds::RUN {
+        return photocraft_engine::plugin_cmds::preview_factor(params, k);
+    }
     let Some(spec) = photocraft_engine::commands::find(command) else { return k };
     let k = parse_spec(spec.params).into_iter().fold(k, |k, p| match p.kind {
         Kind::Range { min, .. } if min > 0.0 && is_pixel_param_of(command, &p.key) => match params.get(&p.key).and_then(Value::as_f64) {
@@ -1115,7 +1119,12 @@ pub(crate) fn preview_document_for_target(
         s.select_layer(id).ok()?;
     }
     s.active_mut()?.channel_view.target = target;
-    if run_k > 1
+    if command == photocraft_engine::plugin_cmds::RUN {
+        // A plug-in declares its pixel lengths (`"unit": "px"` in its manifest), and only those
+        // are scaled: a 12 px shift previewed 4 times too wide at k = 4, and a unitless param that
+        // happens to be called `size` or `radius` must not be divided (#7524).
+        photocraft_engine::plugin_cmds::scale_for_preview(&mut p, run_k);
+    } else if run_k > 1
         && let Some(o) = p.as_object_mut()
     {
         let spec = photocraft_engine::commands::find(command).map(|c| parse_spec(c.params)).unwrap_or_default();
