@@ -12,14 +12,74 @@ use serde_json::json;
 use crate::PhotocraftApp;
 use crate::state::{Tool, View};
 
-/// Largest texture side we upload; bigger documents display downsampled until the GPU path lands.
+/// Largest texture side we upload; bigger documents are uploaded downsampled, with the part in
+/// view added at the screen's resolution when zoomed in (`detail_plan`).
 pub const MAX_TEXTURE: u32 = 4096;
 
 /// The largest texture side to upload on this device: [`MAX_TEXTURE`], or less where the GPU
 /// allows less (2048 on some older or low-end GPUs and WebGL contexts). Past the device's limit
 /// egui asserts and the backend fails to create the texture.
 fn texture_side(ctx: &egui::Context) -> u32 {
-    u32::try_from(ctx.input(|i| i.max_texture_side)).unwrap_or(MAX_TEXTURE).clamp(1, MAX_TEXTURE)
+    clamp_texture_side(ctx.input(|i| i.max_texture_side))
+}
+
+/// [`texture_side`] for a device whose largest texture side is `max_texture_side`.
+fn clamp_texture_side(max_texture_side: usize) -> u32 {
+    u32::try_from(max_texture_side).unwrap_or(MAX_TEXTURE).clamp(1, MAX_TEXTURE)
+}
+
+/// How many document pixels per side one texel of the CPU canvas texture of a `size` document
+/// holds when textures are at most `side` texels per side: 1 (full resolution) when it fits.
+fn texture_factor(size: [u32; 2], side: u32) -> u32 {
+    size[0].max(size[1]).div_ceil(side.max(1)).max(1)
+}
+
+/// What the CPU canvas draws over its reduced texture so a large document shows its own pixels
+/// at 100 % (#7568): the part of the document in view (`region`, document pixels) composited at
+/// one texel per `factor` pixels, a power of two no coarser than the screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct DetailPlan {
+    pub factor: u32,
+    pub region: DRect,
+}
+
+/// The detail region snaps outward to multiples of this many texels, so a small pan reuses it.
+const DETAIL_QUANTUM: i32 = 256;
+
+/// The detail texture a CPU canvas view of a `size` document needs, at `zoom` physical pixels
+/// per document pixel over `visible` (document pixels), with textures at most `side` texels per
+/// side: `None` when the whole-document texture is already as fine as the screen (a document
+/// that fits, or a view zoomed out far enough), or nothing of the document is in view.
+///
+/// A document over `side` (4096 px, or the device's smaller limit) is uploaded reduced, so at
+/// 100 % it was drawn magnified and blurred. The detail costs what the window shows, not what the
+/// document holds: its side is capped by `side` like any texture, coarsening by powers of two.
+pub(crate) fn detail_plan(size: [u32; 2], side: u32, zoom: f32, visible: DRect) -> Option<DetailPlan> {
+    if !zoom.is_finite() || zoom <= 0.0 {
+        return None;
+    }
+    let base = texture_factor(size, side);
+    let mut factor = crate::adjust_preview::proxy_factor(zoom);
+    let bounds = DRect::new(0, 0, i32::try_from(size[0]).ok()?, i32::try_from(size[1]).ok()?);
+    let v = visible.intersect(&bounds);
+    if v.is_empty() {
+        return None;
+    }
+    while factor < base {
+        let q = DETAIL_QUANTUM.saturating_mul(i32::try_from(factor).unwrap_or(i32::MAX));
+        let up = |x: i32| x.div_euclid(q).saturating_add(i32::from(x.rem_euclid(q) != 0)).saturating_mul(q);
+        let region = DRect::new(v.x0.div_euclid(q).saturating_mul(q), v.y0.div_euclid(q).saturating_mul(q), up(v.x1), up(v.y1)).intersect(&bounds);
+        // A reduced region's texel count can round one up (`render_reduced_damage`'s cells).
+        let fits = |n: u32| n.div_ceil(factor).saturating_add(1) <= side;
+        // Snapped when that fits, else just what is in view (a window near the device's limit).
+        for region in [region, v] {
+            if !region.is_empty() && fits(region.width()) && fits(region.height()) {
+                return Some(DetailPlan { factor, region });
+            }
+        }
+        factor = factor.saturating_mul(2);
+    }
+    None
 }
 
 pub(crate) struct ClonePreviewCache {
@@ -144,6 +204,40 @@ pub struct CanvasCache {
     pub tex_preview_key: u64,
     /// The CPU path's pixel grid for the part of the document in view (pixel_grid.rs).
     pub grid: Option<crate::pixel_grid::GridLines>,
+    /// The CPU path's sharper textures of the part in view, over a reduced `texture` (#7568),
+    /// by `InView::key` (two windows of a document can show different parts).
+    pub detail: Vec<(u64, DetailTexture)>,
+}
+
+/// [`CanvasCache::detail`]: the part of the document `DetailPlan` chose, uploaded at its factor.
+pub struct DetailTexture {
+    texture: egui::TextureHandle,
+    plan: DetailPlan,
+    /// The texels it holds, in the plan's reduced pixels (`render_reduced_damage`'s output rect).
+    out: DRect,
+    /// Revision and preview key (display key folded in) it was rendered at.
+    revision: u64,
+    preview_key: u64,
+    /// Pixels were composited for it this call (for the perf span).
+    rendered: bool,
+}
+
+/// The CPU canvas textures to draw: the whole document, and over it the sharper part in view.
+pub(crate) struct CpuTextures {
+    pub texture: egui::TextureId,
+    pub scale: f32,
+    /// The detail texture and the document area it covers (x0, y0, x1, y1 in document pixels).
+    pub detail: Option<(egui::TextureId, [f32; 4])>,
+}
+
+/// The part of a CPU canvas view in sight: its document area and zoom (physical pixels per
+/// document pixel), for [`ensure_texture_in_view`]'s detail texture.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct InView {
+    pub visible: DRect,
+    pub zoom: f32,
+    /// Which view this is, so each keeps its own detail texture.
+    pub key: u64,
 }
 
 /// An in-progress pointer gesture on the canvas.
@@ -1448,6 +1542,18 @@ fn canvas_texture_options(factor: u32) -> TextureOptions {
 /// Make sure the canvas texture for document `idx` on `display` is current; returns (texture
 /// id, scale).
 pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, display: Option<u32>) -> Option<(egui::TextureId, f32)> {
+    ensure_texture_in_view(app, ctx, idx, display, None).map(|t| (t.texture, t.scale))
+}
+
+/// [`ensure_texture`], and for a canvas showing `view` of a document too large for one
+/// full-resolution texture, the detail texture of the part in view ([`detail_plan`], #7568).
+pub(crate) fn ensure_texture_in_view(
+    app: &mut PhotocraftApp,
+    ctx: &egui::Context,
+    idx: usize,
+    display: Option<u32>,
+    view: Option<InView>,
+) -> Option<CpuTextures> {
     let output = display;
     let (revision, last_damage, id) = {
         let st = app.session.documents().get(idx)?;
@@ -1465,6 +1571,16 @@ pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
     let (display, display_key) = canvas_display(app, &doc, output);
     let seen = app.canvases.get(&cache_key(id, output)).map(|c| (c.tex_revision, c.tex_preview_key));
     let damage = seen.and_then(|seen| damage_since(app, idx, seen, (revision, preview_key), display_key, last_damage));
+    // The detail texture can lag the whole-document one (made or moved later): its own damage.
+    let detail_seen = view.and_then(|v| {
+        let c = app.canvases.get(&cache_key(id, output))?;
+        c.detail.iter().find(|(k, _)| *k == v.key).map(|(_, d)| (d.revision, d.preview_key))
+    });
+    let detail_damage = match detail_seen {
+        Some(s) if Some(s) == seen => damage,
+        Some(s) => damage_since(app, idx, s, (revision, preview_key), display_key, last_damage),
+        None => None,
+    };
     let preview_key = preview_key ^ display_key;
     let cache = app.canvases.entry(cache_key(id, output)).or_insert(CanvasCache {
         revision: 0,
@@ -1475,11 +1591,11 @@ pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
         tex_revision: 0,
         tex_preview_key: 0,
         grid: None,
+        detail: Vec::new(),
     });
     if cache.tex_revision != revision || cache.texture.is_none() || cache.tex_preview_key != preview_key {
         let t0 = crate::gpu_canvas::now_ms();
-        let longest = doc.size.width.max(doc.size.height);
-        let factor = longest.div_ceil(texture_side(ctx)).max(1);
+        let factor = texture_factor([doc.size.width, doc.size.height], texture_side(ctx));
         let (w, h) = ((doc.size.width / factor).max(1), (doc.size.height / factor).max(1));
         let current = cache.texture.as_mut().filter(|t| t.size() == [w as usize, h as usize]);
         if let (Some(d), Some(t)) = (damage, current) {
@@ -1508,7 +1624,108 @@ pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
         cache.tex_revision = revision;
         cache.tex_preview_key = preview_key;
     }
-    Some((cache.texture.as_ref()?.id(), cache.scale))
+    let texture = cache.texture.as_ref()?.id();
+    let scale = cache.scale;
+    // Without a view (the Navigator's call) the views' detail textures stay as they are.
+    let Some(view) = view else { return Some(CpuTextures { texture, scale, detail: None }) };
+    let old = cache.detail.iter().position(|(k, _)| *k == view.key).map(|i| cache.detail.remove(i).1);
+    let Some(plan) = detail_plan([doc.size.width, doc.size.height], texture_side(ctx), view.zoom, view.visible) else {
+        return Some(CpuTextures { texture, scale, detail: None });
+    };
+    let t0 = crate::gpu_canvas::now_ms();
+    let name = format!("canvas-detail-{}-{}", id.0, cache_key(id, output).1);
+    let detail = update_detail(ctx, &doc, display.as_deref(), name, plan, old, detail_damage, (revision, preview_key));
+    if detail.as_ref().is_some_and(|d| d.rendered) {
+        app.perf.span("canvas detail", crate::gpu_canvas::now_ms() - t0);
+    }
+    let Some(mut detail) = detail else { return Some(CpuTextures { texture, scale, detail: None }) };
+    detail.rendered = false;
+    // Where its texels lie in the document: reduced texel t covers [t·W/w, (t+1)·W/w).
+    let (w, h) = ((doc.size.width / plan.factor).max(1), (doc.size.height / plan.factor).max(1));
+    let (sx, sy) = (doc.size.width as f32 / w as f32, doc.size.height as f32 / h as f32);
+    let out = detail.out;
+    let shown = (detail.texture.id(), [out.x0 as f32 * sx, out.y0 as f32 * sy, out.x1 as f32 * sx, out.y1 as f32 * sy]);
+    cache.detail.push((view.key, detail));
+    // Views that stopped asking (a closed window, a zoom out) give theirs up past a few.
+    if cache.detail.len() > MAX_DETAIL_VIEWS {
+        cache.detail.remove(0);
+    }
+    Some(CpuTextures { texture, scale, detail: Some(shown) })
+}
+
+/// Most CPU canvas views of one document on one display that keep a detail texture.
+const MAX_DETAIL_VIEWS: usize = 4;
+
+/// The detail texture for `plan` at document state `now` (revision, preview key with the display
+/// key folded in): `old` as it is when current, updated over `damage` when only that changed
+/// within the same region, or rendered again. `None` when the region holds no texels.
+#[allow(clippy::too_many_arguments)]
+fn update_detail(
+    ctx: &egui::Context,
+    doc: &Document,
+    display: Option<&photocraft_engine::display_color::CanvasDisplay>,
+    name: String,
+    plan: DetailPlan,
+    old: Option<DetailTexture>,
+    damage: Option<DRect>,
+    now: (u64, u64),
+) -> Option<DetailTexture> {
+    let (w, h) = ((doc.size.width / plan.factor).max(1), (doc.size.height / plan.factor).max(1));
+    let options = canvas_texture_options(plan.factor);
+    let (kept, spare) = match old {
+        Some(d) if d.plan == plan => (Some(d), None),
+        d => (None, d.map(|d| d.texture)),
+    };
+    if let Some(mut d) = kept {
+        if (d.revision, d.preview_key) == now {
+            return Some(d);
+        }
+        // An edit or a stroke step in view: only the texels it touched.
+        if let Some(dmg) = damage {
+            let dmg = dmg.intersect(&plan.region);
+            let buf = (!dmg.is_empty()).then(|| photocraft_compose::render_reduced_damage(doc, w, h, dmg));
+            let fits = buf.as_ref().is_none_or(|b| d.out.contains_rect(&b.rect));
+            if fits {
+                if let Some(b) = buf.filter(|b| !b.rect.is_empty()) {
+                    let at = [b.rect.x0.abs_diff(d.out.x0) as usize, b.rect.y0.abs_diff(d.out.y0) as usize];
+                    d.texture.set_partial(at, display_image(display, &b), options);
+                    d.rendered = true;
+                }
+                (d.revision, d.preview_key) = now;
+                return Some(d);
+            }
+        }
+        return render_detail(ctx, doc, display, name, plan, Some(d.texture), now);
+    }
+    render_detail(ctx, doc, display, name, plan, spare, now)
+}
+
+/// [`update_detail`]'s whole render of `plan`'s region, into `texture` when it is the same size.
+fn render_detail(
+    ctx: &egui::Context,
+    doc: &Document,
+    display: Option<&photocraft_engine::display_color::CanvasDisplay>,
+    name: String,
+    plan: DetailPlan,
+    texture: Option<egui::TextureHandle>,
+    now: (u64, u64),
+) -> Option<DetailTexture> {
+    let (w, h) = ((doc.size.width / plan.factor).max(1), (doc.size.height / plan.factor).max(1));
+    let options = canvas_texture_options(plan.factor);
+    let buf = photocraft_compose::render_reduced_damage(doc, w, h, plan.region);
+    let out = buf.rect;
+    if out.is_empty() {
+        return None;
+    }
+    let img = display_image(display, &buf);
+    let texture = match texture {
+        Some(mut t) if t.size() == img.size => {
+            t.set(img, options);
+            t
+        }
+        _ => ctx.load_texture(name, img, options),
+    };
+    Some(DetailTexture { texture, plan, out, revision: now.0, preview_key: now.1, rendered: true })
 }
 
 /// What changed since a canvas cache showed (`revision`, `preview key`) `seen`, when only a
@@ -1691,6 +1908,7 @@ fn ensure_gpu(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, visible:
         tex_revision: 0,
         tex_preview_key: 0,
         grid: None,
+        detail: Vec::new(),
     });
     let present = cache.on_gpu && gpu.has(id.0, size);
     let current = cache.revision == revision && cache.preview_key == preview_key;
@@ -3252,8 +3470,16 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             }
             let rotated = view.rotation.abs() > 0.05;
             let checkerboard = app.session.prefs().transparency_and_gamut.square().map(|square| (checker(app, &ctx), square));
-            let tex = ensure_texture(app, &ctx, idx, output).map(|(tex, _scale)| tex);
+            // A document too large for one full-resolution texture also gets the part in view at
+            // the screen's resolution, drawn over the reduced whole (#7568).
+            let in_view =
+                InView { visible: visible_doc_rect(&xf), zoom: view.zoom, key: egui::Id::new(("pc-canvas-detail", ctx.viewport_id(), idx, primary)).value() };
+            let textures = ensure_texture_in_view(app, &ctx, idx, output, Some(in_view));
+            let tex = textures.as_ref().map(|t| t.texture);
             paint_cpu_document(&painter, &xf, doc.bounds(), rotated, checkerboard, tex);
+            if let Some((detail, area)) = textures.and_then(|t| t.detail) {
+                paint_cpu_detail(&painter, &xf, doc.bounds(), rotated, checkerboard, detail, area);
+            }
             for &c in &pattern {
                 paint_cpu_document(&painter, &pattern_xf(&xf, c, size), doc.bounds(), rotated, checkerboard, tex);
             }
@@ -4517,6 +4743,48 @@ fn paint_cpu_document(
             painter.image(tex, img_rect, uv, Color32::WHITE);
         }
     }
+}
+
+/// [`ensure_texture_in_view`]'s detail texture over document area `area` (x0, y0, x1, y1), on its
+/// own checkerboard (or white), so the reduced texture under it doesn't show through where the
+/// image is transparent. The checkerboard keeps [`paint_cpu_document`]'s phase.
+fn paint_cpu_detail(
+    painter: &egui::Painter,
+    xf: &ViewXform,
+    bounds: DRect,
+    rotated: bool,
+    checker: Option<(egui::TextureId, f32)>,
+    tex: egui::TextureId,
+    area: [f32; 4],
+) {
+    let [x0, y0, x1, y1] = area;
+    let corners = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+    let pts = corners.map(|[x, y]| xf.to_screen(x, y));
+    let quad = |tex: egui::TextureId, uvs: [Pos2; 4]| {
+        let mut mesh = Mesh::with_texture(tex);
+        for (pos, uv) in pts.into_iter().zip(uvs) {
+            mesh.vertices.push(egui::epaint::Vertex { pos, uv, color: Color32::WHITE });
+        }
+        mesh.add_triangle(0, 1, 2);
+        mesh.add_triangle(0, 2, 3);
+        painter.add(egui::Shape::mesh(mesh));
+    };
+    match checker {
+        Some((checker_id, square)) => {
+            let tile = 2.0 * square;
+            let uvs = if rotated {
+                corners.map(|[x, y]| pos2(x / tile, y / tile))
+            } else {
+                let min = xf.doc_rect(bounds).min;
+                pts.map(|p| ((p - min) / tile).to_pos2())
+            };
+            quad(checker_id, uvs);
+        }
+        None => {
+            painter.add(egui::Shape::convex_polygon(pts.to_vec(), Color32::WHITE, Stroke::NONE));
+        }
+    }
+    quad(tex, [pos2(0.0, 0.0), pos2(1.0, 0.0), pos2(1.0, 1.0), pos2(0.0, 1.0)]);
 }
 
 fn paint_mapped_quad(painter: &egui::Painter, xf: &ViewXform, size: [f32; 2], color: Color32) {
@@ -6968,6 +7236,109 @@ mod tests {
         let uploads: Vec<_> = delta.set.get(&tex).into_iter().flatten().map(|d| d.options).collect();
         delta.clear();
         assert_eq!(uploads, vec![TextureOptions::LINEAR]);
+    }
+
+    /// #7568: a document over the texture limit was drawn from one reduced texture, so at 100 %
+    /// it was magnified and blurred. The view now gets the part in sight at one texel per
+    /// document pixel, about the window's size, whatever the device's limit.
+    #[test]
+    fn cpu_canvas_detail_plan_shows_large_documents_at_full_resolution() {
+        let size = [12000, 8000];
+        // A 1920×1080 view in the middle (`visible_doc_rect` adds 2 px around it).
+        let screen = DRect::new(4998, 2998, 6922, 4082);
+        for limit in [16384, 8192, 4096, 2048] {
+            let side = clamp_texture_side(limit);
+            assert!(texture_factor(size, side) > 1, "the whole document is reduced on a {limit} px device");
+            for zoom in [1.0, 2.0, 8.0] {
+                let plan = detail_plan(size, side, zoom, screen).unwrap_or_else(|| panic!("{limit} px device at {zoom}"));
+                assert_eq!(plan.factor, 1, "one texel per document pixel at {zoom} on a {limit} px device");
+                assert!(plan.region.contains_rect(&screen), "{plan:?}");
+                assert!(plan.region.width() <= 1924 + 2 * 256 && plan.region.height() <= 1084 + 2 * 256, "about the view's size: {plan:?}");
+                assert!(plan.region.width() < side && plan.region.height() < side, "{plan:?}");
+            }
+        }
+        // A small pan reuses the region (no new composite).
+        assert_eq!(detail_plan(size, 4096, 1.0, screen), detail_plan(size, 4096, 1.0, screen.translate(8, -8)));
+        // A window wider than a small device's limit coarsens rather than exceed it.
+        let wide = DRect::new(0, 0, 3000, 2000);
+        let plan = detail_plan(size, 2048, 1.0, wide).unwrap();
+        assert_eq!(plan.factor, 2);
+        assert!(plan.region.width() / 2 < 2048 && plan.region.contains_rect(&wide), "{plan:?}");
+        // Zoomed out a little: finer than the reduced whole, as fine as the screen.
+        let plan = detail_plan(size, 4096, 0.4, DRect::new(0, 0, 4800, 2700)).unwrap();
+        assert_eq!(plan.factor, 2);
+        // Zoomed out far enough, the reduced whole is as fine as the screen: nothing to add.
+        let whole = DRect::new(0, 0, 12000, 8000);
+        assert_eq!(detail_plan(size, 4096, 0.25, whole), None);
+        assert_eq!(detail_plan(size, 4096, 1.0 / 3.0, whole), None, "a detail as large as the document would not fit");
+        // A document that fits is uploaded whole at full resolution.
+        assert_eq!(detail_plan([4000, 3000], 4096, 1.0, screen), None);
+        // Nothing of the document in view, or a broken zoom.
+        assert_eq!(detail_plan(size, 4096, 1.0, DRect::new(-500, -500, -10, -10)), None);
+        for zoom in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            assert_eq!(detail_plan(size, 4096, zoom, screen), None, "{zoom}");
+        }
+        assert_eq!(detail_plan([0, 0], 4096, 1.0, screen), None);
+        assert_eq!(detail_plan([u32::MAX, 8], 4096, 1.0, screen), None);
+    }
+
+    #[test]
+    fn cpu_canvas_detail_shows_a_large_documents_own_pixels_at_100_percent() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width": 3 * MAX_TEXTURE, "height": 8})).unwrap();
+        app.run("select.rect", json!({"x": 101, "y": 0, "width": 1, "height": 8})).unwrap();
+        app.run("edit.fill", json!({"color": "#000000"})).unwrap();
+        app.run("select.deselect", json!({})).unwrap();
+        let ctx = egui::Context::default();
+        ctx.input_mut(|i| i.max_texture_side = 16384);
+        let uploads = |ctx: &egui::Context, tex: egui::TextureId| {
+            let mut delta = ctx.tex_manager().write().take_delta();
+            let seen: Vec<_> = delta.set.get(&tex).into_iter().flatten().map(|d| (d.pos, d.options, d.image.clone())).collect();
+            delta.clear();
+            seen
+        };
+        let row = |image: &egui::ImageData| {
+            let egui::ImageData::Color(image) = image;
+            (image.size, image.pixels.clone())
+        };
+        let view = InView { visible: DRect::new(0, 0, 1000, 8), zoom: 1.0, key: 1 };
+        let t = ensure_texture_in_view(&mut app, &ctx, 0, None, Some(view)).unwrap();
+        assert!(t.scale < 1.0, "the whole document is reduced");
+        let (detail, area) = t.detail.expect("a detail texture at 100 %");
+        assert_eq!(area, [0.0, 0.0, 1024.0, 8.0]);
+        let crisp = TextureOptions { magnification: egui::TextureFilter::Nearest, ..TextureOptions::LINEAR };
+        let up = uploads(&ctx, detail);
+        assert_eq!(up.len(), 1);
+        let (pos, options, image) = &up[0];
+        assert_eq!((*pos, *options), (None, crisp));
+        let (size, px) = row(image);
+        assert_eq!(size, [1024, 8]);
+        assert_eq!((px[100], px[101], px[102]), (Color32::WHITE, Color32::BLACK, Color32::WHITE), "the 1 px line stays 1 px");
+        // Unchanged: nothing is composited again, and a small pan keeps the region.
+        let panned = InView { visible: DRect::new(4, 0, 1004, 8), ..view };
+        assert_eq!(ensure_texture_in_view(&mut app, &ctx, 0, None, Some(panned)).unwrap().detail, Some((detail, area)));
+        assert!(uploads(&ctx, detail).is_empty());
+        // The Navigator's call (no view) leaves the view's detail alone.
+        ensure_texture(&mut app, &ctx, 0, None).unwrap();
+        assert_eq!(app.canvases.values().map(|c| c.detail.len()).sum::<usize>(), 1);
+        // An edit in view updates just its texels.
+        app.run("select.rect", json!({"x": 300, "y": 0, "width": 1, "height": 8})).unwrap();
+        ensure_texture_in_view(&mut app, &ctx, 0, None, Some(view)).unwrap();
+        uploads(&ctx, detail);
+        app.run("edit.fill", json!({"color": "#000000"})).unwrap();
+        assert_eq!(ensure_texture_in_view(&mut app, &ctx, 0, None, Some(view)).unwrap().detail.map(|d| d.0), Some(detail));
+        let up = uploads(&ctx, detail);
+        assert_eq!(up.len(), 1);
+        let (pos, options, image) = &up[0];
+        assert_eq!(*options, crisp);
+        let [x, y] = pos.expect("a partial update");
+        let (size, px) = row(image);
+        assert!(y == 0 && x < 300 && x + size[0] > 300, "the edit's texels: {x} {size:?}");
+        assert_eq!((px[299 - x], px[300 - x]), (Color32::WHITE, Color32::BLACK));
+        // Zoomed out, the reduced texture is enough: the detail goes.
+        let far = InView { zoom: 0.25, ..view };
+        assert!(ensure_texture_in_view(&mut app, &ctx, 0, None, Some(far)).unwrap().detail.is_none());
+        assert!(app.canvases.values().all(|c| c.detail.is_empty()));
     }
 
     #[test]
