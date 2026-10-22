@@ -412,11 +412,14 @@ pub fn refine_legacy_point_origin(layer: &mut TextLayer, dpi: f32, engine: &mut 
     if layer.transform != guessed {
         return;
     }
-    let Some(bounds) = engine.layout(layer, dpi).bounds() else { return };
-    if !bounds.iter().all(|v| v.is_finite()) {
+    // `boundingBox` is the tight ink box (Photoshop writes the layout box as `bounds`), so match
+    // it with the layout's ink, not its logical box: text whose ink starts below the ascent
+    // line (`...`, `_`, lowercase) would otherwise land too low.
+    let Some(ink) = crate::render::ink_bounds(&engine.layout(layer, dpi)) else { return };
+    if !ink.iter().all(|v| v.is_finite()) {
         return;
     }
-    let corrected = t.transform.mul(&Affine::translate(x - f64::from(bounds[0]), y - f64::from(bounds[1])));
+    let corrected = t.transform.mul(&Affine::translate(x - ink[0], y - ink[1]));
     if corrected.m.iter().all(|v| v.is_finite()) {
         layer.transform = corrected;
         // A valid frame can coincide with the initial estimate; numeric equality cannot tell
