@@ -3432,7 +3432,6 @@ curves	Smooth	Сгладить
 	Color management: {error}	Управление цветом: {error}
 	Colored Pencil	Цветной карандаш
 	Comic Book	Комикс
-	Command	Команда
 	Commit Perspective Warp (↩)	Применить перспективную деформацию (↩)
 	Commit Puppet Warp (↩)	Применить марионеточную деформацию (↩)
 	Commit any current edits (⌘↩)	Применить текущие изменения (⌘↩)
@@ -3441,14 +3440,12 @@ curves	Smooth	Сгладить
 	Commit transform (↩)	Применить трансформирование (↩)
 	Commit warp (↩)	Применить деформацию (↩)
 	Compare	Сравнить
-	Compression	Сжатие
 	Conditional Mode Change	Условная смена режима
 	Confirm	Подтвердить
 	Conform	Подогнать
 	Constraints	Ограничения
 	Content-Aware Fill needs a selection on a pixel layer	Заливка с учётом содержимого требует выделенной области на пиксельном слое
 	Continue	Продолжить
-	Contract	Сжать
 	Contrasty	Контрастный
 	Convert	Преобразовать
 	Convert to Alpha Channel	Преобразовать в альфа-канал
@@ -3482,7 +3479,6 @@ curves	Smooth	Сгладить
 	Create new brush from the current settings	Создать новую кисть из текущих параметров
 	Create new brush preset from the current settings	Создать новый набор кистей из текущих параметров
 	Create…	Создать…
-	Cross	Крест
 	Cross Process	Кросс-процесс
 	Crosshatch	Перекрёстная штриховка
 	Crosswise	Перекрёстно
@@ -3542,7 +3538,6 @@ curves	Smooth	Сгладить
 	Depth Map	Карта глубины
 	Depth Mode	Режим глубины
 	Diameter	Диаметр
-	Diamond	Ромб
 	Diffuse	Диффузия
 	Diffuse Glow	Рассеянное свечение
 	Direction	Направление
@@ -3574,7 +3569,6 @@ curves	Smooth	Сгладить
 	Driver: {driver}	Драйвер: {driver}
 	Dry Brush	Сухая кисть
 	Duplicate Channel	Дублировать канал
-	Duplicate Layer	Дублировать слой
 	Duplicate Layers	Дублировать слои
 	Duplication	Дублирование
 	Dust & Scratches	Пыль и царапины
@@ -3880,7 +3874,6 @@ curves	Smooth	Сгладить
 	Loading…	Загрузка…
 	Lock All	Заблокировать всё
 	Lock Image Pixels	Заблокировать пиксели изображения
-	Lock Layers	Заблокировать слои
 	Lock Position	Закрепить положение
 	Lock Transparent Pixels	Заблокировать прозрачные пиксели
 	Locked	Заблокировано
