@@ -1496,6 +1496,7 @@ fn a_gloss_contour_leaves_the_flat_face_of_a_bevel_unlit() {
             altitude: 30.0,
             use_global_light: false,
             gloss_contour,
+            gloss_anti_alias: false,
             highlight: FxCommon::new(photocraft_color::BlendMode::Overlay, 1.0),
             highlight_color: Color::WHITE,
             shadow: FxCommon::new(photocraft_color::BlendMode::Overlay, 0.16),
