@@ -140,12 +140,9 @@ fn scroll_to_adjustment_control(h: &mut Harness<'_, PhotocraftApp>, label: &str)
 fn adjustment_scope_control_fits_compact_properties_before_scrolling() {
     for theme in crate::theme::ThemeKind::ALL {
         for scale in [1.0, 1.5, 2.0] {
-            for (kind, editor_control) in [
-                ("Hue/Saturation", "Colorize"),
-                ("Curves", "Edit points to modify the curve"),
-                ("Selective Color", "Relative"),
-                ("Color Lookup", "Dither"),
-            ] {
+            for (kind, editor_control) in
+                [("Hue/Saturation", "Colorize"), ("Curves", "Edit points to modify the curve"), ("Selective Color", "Relative"), ("Color Lookup", "Dither")]
+            {
                 let mut h = adjustment_harness(kind, 8, theme, scale, false);
                 let viewport = egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(250.0, 160.0));
                 let rect = h.get_by_label("Clip to layer below").rect();
