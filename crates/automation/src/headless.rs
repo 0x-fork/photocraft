@@ -156,24 +156,22 @@ impl Headless {
     /// `layer.smartObjects.replaceContents`, which takes an ambient `path` and is refused in
     /// automation (#8061). `params` is the command's own (`layer`).
     pub fn replace_smart_object(&mut self, index: Option<usize>, path: &str, params: &Value) -> Result<Value, AutomationError> {
-        let i = self.doc_index(index)?;
-        if self.session.active_index() != Some(i) && !self.session.set_active(i) {
-            return Err(AutomationError::BadRequest(format!("no document at index {i}")));
-        }
-        let mut opts = params.as_object().cloned().unwrap_or_default();
-        opts.insert("path".into(), json!(path));
-        if matches!(&self.filesystem, Filesystem::TrustedLocal) {
-            return self.command_run("layer.smartObjects.replaceContents", Value::Object(opts));
-        }
-        let bytes = match &self.filesystem {
-            Filesystem::Workspace(workspace) => workspace.read(path)?,
-            _ => {
-                return Err(AutomationError::BadRequest("automation filesystem access is not granted: read authority is absent".into()));
+        self.on_doc(index, |this| {
+            let mut opts = params.as_object().cloned().unwrap_or_default();
+            opts.insert("path".into(), json!(path));
+            if matches!(&this.filesystem, Filesystem::TrustedLocal) {
+                return this.command_run("layer.smartObjects.replaceContents", Value::Object(opts));
             }
-        };
-        let name = Path::new(path).file_name().and_then(|name| name.to_str()).unwrap_or(path);
-        self.sync_jobs();
-        Ok(photocraft_engine::smart_cmds::replace_contents_from_bytes(&mut self.session, &Value::Object(opts), name, bytes)?)
+            let bytes = match &this.filesystem {
+                Filesystem::Workspace(workspace) => workspace.read(path)?,
+                _ => {
+                    return Err(AutomationError::BadRequest("automation filesystem access is not granted: read authority is absent".into()));
+                }
+            };
+            let name = Path::new(path).file_name().and_then(|name| name.to_str()).unwrap_or(path);
+            this.sync_jobs();
+            Ok(photocraft_engine::smart_cmds::replace_contents_from_bytes(&mut this.session, &Value::Object(opts), name, bytes)?)
+        })
     }
 
     /// Export each exported layer of a document as its own file beneath the write root: the

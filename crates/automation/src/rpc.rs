@@ -880,7 +880,7 @@ mod tests {
     }
 
     #[test]
-    fn indexed_place_and_data_set_methods_keep_the_active_document() {
+    fn indexed_place_replace_and_data_set_methods_keep_the_active_document() {
         let base = std::env::temp_dir().join(format!("pc-doc-index-active-{}", std::process::id()));
         let root = base.join("workspace");
         std::fs::create_dir_all(&root).unwrap();
@@ -897,6 +897,9 @@ mod tests {
 
         let steps = [
             ("doc.place", json!({"path": "logo.png", "index": 1}), true),
+            // Document 1's active layer is now the placed Smart Object.
+            ("doc.replaceSmartObject", json!({"path": "logo.png", "index": 1}), true),
+            ("doc.replaceSmartObject", json!({"path": "missing.png", "index": 1}), false),
             ("doc.importDataSets", json!({"path": "sets.csv", "index": 1}), true),
             ("doc.exportLayers", json!({"dir": "layers", "index": 1}), true),
             ("doc.exportDataSets", json!({"dir": "sets", "index": 1}), true),
