@@ -515,4 +515,17 @@ mod tests {
         update_frame(&mut point, &TextShape::Point);
         assert_eq!(point, point_frame());
     }
+
+    /// A path frame the import could not read (the layer opened as EngineData's box or point
+    /// text) is saved back as it was, not replaced by a box or point frame.
+    #[test]
+    fn an_unreadable_path_frame_is_kept() {
+        let two_pieces = "<< /1 << /0 [ 0 0 1 1 2 2 3 3 50 50 60 60 70 70 80 80 ] >> /2 << /0 2 >> >>";
+        for shape in [TextShape::Point, TextShape::Box { x: 0.0, y: 0.0, width: 80.0, height: 80.0 }] {
+            let mut entry = E::Dict(vec![("0".into(), frame(two_pieces))]);
+            let before = entry.clone();
+            update_frame(&mut entry, &shape);
+            assert_eq!(entry, before, "{shape:?}");
+        }
+    }
 }
