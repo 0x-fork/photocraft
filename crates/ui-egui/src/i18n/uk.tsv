@@ -2555,6 +2555,11 @@ cameraRaw	Roughness	Шорсткість
 	Content-Aware Move Tool	Інструмент «Переміщення з урахуванням вмісту»
 	TIFF Options	Параметри TIFF
 	Targa Options	Параметри Targa
+	JPEG Options	Параметри JPEG
+	Image Options	Параметри зображення
+	Format Options	Різновид формату
+	Baseline ("Standard")	Базовий («Стандартний»)
+	Baseline Optimized	Базовий оптимізований
 	24 bits/pixel	24 біт/піксель
 	32 bits/pixel	32 біт/піксель
 	Including layers will increase file size.	Додавання шарів збільшить розмір файлу.

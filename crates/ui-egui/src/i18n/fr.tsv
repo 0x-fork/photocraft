@@ -2738,6 +2738,11 @@ cameraRaw	Blending	Fusion
 	Content-Aware Move Tool	Outil Déplacement selon le contenu
 	TIFF Options	Options TIFF
 	Targa Options	Options Targa
+	JPEG Options	Options JPEG
+	Image Options	Options d’image
+	Format Options	Options de format
+	Baseline ("Standard")	Ligne de base (« Standard »)
+	Baseline Optimized	Ligne de base optimisée
 	24 bits/pixel	24 bits/pixel
 	32 bits/pixel	32 bits/pixel
 	Including layers will increase file size.	L'inclusion des calques augmentera la taille du fichier.

@@ -2289,6 +2289,11 @@ cameraRaw	Color	カラー
 	Content-Aware Move Tool	コンテンツに応じた移動ツール
 	TIFF Options	TIFF オプション
 	Targa Options	Targa オプション
+	JPEG Options	JPEG オプション
+	Image Options	画像オプション
+	Format Options	形式オプション
+	Baseline ("Standard")	ベースライン（標準）
+	Baseline Optimized	ベースライン（最適化）
 	24 bits/pixel	24 ビット/ピクセル
 	32 bits/pixel	32 ビット/ピクセル
 	Including layers will increase file size.	レイヤーを含めるとファイルサイズが大きくなります。

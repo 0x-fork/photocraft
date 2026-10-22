@@ -2736,6 +2736,11 @@ cameraRaw	Whites	Brancos
 	Content-Aware Move Tool	Ferramenta Mover sensível ao conteúdo
 	TIFF Options	Opções de TIFF
 	Targa Options	Opções de Targa
+	JPEG Options	Opções de JPEG
+	Image Options	Opções de imagem
+	Format Options	Opções de formato
+	Baseline ("Standard")	Linha de base ("Padrão")
+	Baseline Optimized	Linha de base otimizada
 	24 bits/pixel	24 bits/pixel
 	32 bits/pixel	32 bits/pixel
 	Including layers will increase file size.	Incluir as camadas aumentará o tamanho do arquivo.

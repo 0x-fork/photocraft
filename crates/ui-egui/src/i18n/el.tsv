@@ -1119,6 +1119,11 @@
 	Hold Alt while drawing for straight segments	Κρατήστε πατημένο το Alt κατά τη σχεδίαση για ευθύγραμμα τμήματα
 	TIFF Options	Επιλογές TIFF
 	Targa Options	Επιλογές Targa
+	JPEG Options	Επιλογές JPEG
+	Image Options	Επιλογές εικόνας
+	Format Options	Επιλογές μορφής
+	Baseline ("Standard")	Βασική («Τυπική»)
+	Baseline Optimized	Βασική βελτιστοποιημένη
 	24 bits/pixel	24 bit/εικονοστοιχείο
 	32 bits/pixel	32 bit/εικονοστοιχείο
 	Including layers will increase file size.	Η συμπερίληψη επιπέδων θα αυξήσει το μέγεθος του αρχείου.

@@ -2327,6 +2327,11 @@
 	Content-Aware Move Tool	Inhoudsbewust verplaatsen
 	TIFF Options	TIFF-opties
 	Targa Options	Targa-opties
+	JPEG Options	JPEG-opties
+	Image Options	Afbeeldingsopties
+	Format Options	Indelingsopties
+	Baseline ("Standard")	Basislijn ("Standaard")
+	Baseline Optimized	Basislijn geoptimaliseerd
 	24 bits/pixel	24 bits/pixel
 	32 bits/pixel	32 bits/pixel
 	Including layers will increase file size.	Lagen meenemen vergroot de bestandsgrootte.

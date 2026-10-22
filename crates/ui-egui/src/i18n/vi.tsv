@@ -2503,6 +2503,11 @@ shape	Appearance	Diện mạo
 	Snap to Origin	Bám vào gốc tọa độ
 	Solid	Liền
 	Targa Options	Tùy chọn Targa
+	JPEG Options	Tùy chọn JPEG
+	Image Options	Tùy chọn hình ảnh
+	Format Options	Tùy chọn định dạng
+	Baseline ("Standard")	Đường cơ sở ("Chuẩn")
+	Baseline Optimized	Đường cơ sở tối ưu
 	Target:	Đích:
 	The layer or its mask changed. Drag the mask onto the Trash again.	Lớp hoặc mặt nạ của nó đã thay đổi. Hãy kéo mặt nạ vào Thùng rác lần nữa.
 	There is no crop size or ratio to save	Không có kích thước hoặc tỷ lệ cắt để lưu

@@ -2753,6 +2753,11 @@ cameraRaw	Roughness	Chropowatość
 	Content-Aware Move Tool	Narzędzie Przesunięcie z uwzględnieniem zawartości
 	TIFF Options	Opcje TIFF
 	Targa Options	Opcje Targa
+	JPEG Options	Opcje JPEG
+	Image Options	Opcje obrazu
+	Format Options	Opcje formatu
+	Baseline ("Standard")	Linia bazowa („Standardowa”)
+	Baseline Optimized	Linia bazowa zoptymalizowana
 	24 bits/pixel	24 bity/piksel
 	32 bits/pixel	32 bity/piksel
 	Including layers will increase file size.	Dołączenie warstw zwiększy rozmiar pliku.

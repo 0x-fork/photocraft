@@ -240,7 +240,7 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
                         Some((true, path, d)) => {
                             // Another app changed the file since it was opened or saved: ask first (#6596).
                             let doc = d.doc.id;
-                            crate::disk_change_prompt::intercept(app, doc, &path, false)
+                            crate::disk_change_prompt::intercept(app, doc, &path, false, crate::FormatChoices::default())
                                 .unwrap_or_else(|| app.save_in_place(path, crate::FormatChoices::default()))
                         }
                         Some((false, path, d)) if photocraft_engine::file_cmds::saves_in_place(&path) => {

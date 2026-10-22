@@ -2719,6 +2719,11 @@ cameraRaw	Blending	Stapanje
 	Content-Aware Move Tool	Alatka za pomeranje prema sadržaju
 	TIFF Options	TIFF opcije
 	Targa Options	Targa opcije
+	JPEG Options	JPEG opcije
+	Image Options	Opcije slike
+	Format Options	Opcije formata
+	Baseline ("Standard")	Osnovno („standardno“)
+	Baseline Optimized	Osnovno optimizovano
 	24 bits/pixel	24 bita/piksel
 	32 bits/pixel	32 bita/piksel
 	Including layers will increase file size.	Uključivanje slojeva povećaće veličinu datoteke.

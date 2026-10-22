@@ -563,6 +563,33 @@ fn tga_bits_choose_the_targa_depth() {
     }
 }
 
+/// `--jpeg-format` picks the JPEG's scans: progressive writes a progressive frame (SOF2). One it
+/// doesn't name is refused and nothing is written.
+#[test]
+fn jpeg_format_chooses_the_scans() {
+    let d = tmp("jpeg-format");
+    let a = d.join("a.png");
+    write_png(&a, 16, 8, 3);
+    let marker = |b: &[u8], m: u8| b.windows(2).any(|w| w == [0xFF, m]);
+    for (format, progressive) in [(None, false), (Some("baseline"), false), (Some("optimized"), false), (Some("progressive"), true)] {
+        let out = d.join("a.jpg");
+        let mut convert = bin();
+        convert.arg("convert").arg(&a).arg(&out);
+        if let Some(f) = format {
+            convert.args(["--jpeg-format", f]);
+        }
+        ok(&mut convert);
+        assert_eq!(marker(&std::fs::read(&out).unwrap(), 0xC2), progressive, "--jpeg-format {format:?}");
+    }
+    for bad in ["Progressive", "1", ""] {
+        let out = d.join("bad.jpg");
+        let o = bin().arg("convert").arg(&a).arg(&out).args(["--jpeg-format", bad]).output().unwrap();
+        assert_eq!(o.status.code(), Some(1), "--jpeg-format {bad}");
+        assert!(String::from_utf8_lossy(&o.stderr).contains(&format!("bad --jpeg-format `{bad}`")), "--jpeg-format {bad}");
+        assert!(!out.exists(), "--jpeg-format {bad} wrote a file");
+    }
+}
+
 /// #492: an `--out` folder that is the `--in` folder, however it is spelt, is refused before
 /// anything is written, unless `--in-place` asks for it.
 #[test]

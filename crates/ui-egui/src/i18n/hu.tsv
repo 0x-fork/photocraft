@@ -2992,6 +2992,11 @@ cameraRaw	Yellow	Sárga
 	Table	Táblázat
 	Tabloid	Tabloid
 	Targa Options	Targa-beállítások
+	JPEG Options	JPEG-beállítások
+	Image Options	Képbeállítások
+	Format Options	Formátumbeállítások
+	Baseline ("Standard")	Alapvonalas („Szabványos”)
+	Baseline Optimized	Optimalizált alapvonalas
 	Target:	Cél:
 	Teal Orange	Kékeszöld-narancs
 	The document does not have an embedded colour profile. Working space: {working}.	A dokumentumnak nincs beágyazott színprofilja. Munkaszíntér: {working}.

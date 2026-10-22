@@ -15,7 +15,7 @@ pub const USAGE: &str = "\
 photocraft-cli: headless PhotoCraft
 
 USAGE:
-  photocraft-cli convert <in> <out> [--format <ext>] [--quality <1-100>] [--tiff-layers] [--tga-bits <24|32>] [--dpx-bits <8|10|12|16>] [--dds-compression <none|bc1|bc2|bc3>] [--dds-mipmaps]
+  photocraft-cli convert <in> <out> [--format <ext>] [--quality <1-100>] [--tiff-layers] [--tga-bits <24|32>] [--dpx-bits <8|10|12|16>] [--dds-compression <none|bc1|bc2|bc3>] [--dds-mipmaps] [--jpeg-format <baseline|optimized|progressive>]
       Convert between formats (.pcraft, .psd, .png, .jpg, .tif, .webp, .exr, …).
       TIFF output is flat unless --tiff-layers keeps the layers (Photoshop layer data).
       --quality sets the JPEG or WebP quality; a WebP written with a quality is lossy, without one lossless.
@@ -24,12 +24,15 @@ USAGE:
       --dpx-bits sets a DPX's bits per sample. Without it: 8 for an 8-bit document, else 16.
       --dds-compression sets a DDS texture's compression: none (uncompressed, the default), bc1
       (DXT1: alpha on or off), bc2 (DXT3) or bc3 (DXT5). --dds-mipmaps also writes the full mip chain.
+      --jpeg-format picks a JPEG's scans, as JPEG Options does: baseline (the default), optimized
+      (Huffman tables fitted to the image; RGB is written 4:2:0 and keeps the standard tables, so
+      only Gray and CMYK shrink) or progressive.
   photocraft-cli info <file> [--compact]
       Print the document as JSON (size, mode, depth, layer tree).
-  photocraft-cli run (<file> | --new <json>) --cmd <id> [--params <json>] [--cmd …] [--out <file>] [--format <ext>] [--quality <1-100>] [--tiff-layers] [--tga-bits <24|32>] [--dpx-bits <8|10|12|16>] [--dds-compression <none|bc1|bc2|bc3>] [--dds-mipmaps]
+  photocraft-cli run (<file> | --new <json>) --cmd <id> [--params <json>] [--cmd …] [--out <file>] [--format <ext>] [--quality <1-100>] [--tiff-layers] [--tga-bits <24|32>] [--dpx-bits <8|10|12|16>] [--dds-compression <none|bc1|bc2|bc3>] [--dds-mipmaps] [--jpeg-format <baseline|optimized|progressive>]
       Open a file, run engine commands in order, save the result. Each --params
       applies to the preceding --cmd. Prints each command's JSON result.
-  photocraft-cli batch --actions <actions.json|set.atn> [--action <name>] --in <dir> --out <dir> [--format <ext>] [--quality <1-100>] [--in-place] [--tiff-layers] [--tga-bits <24|32>] [--dpx-bits <8|10|12|16>] [--dds-compression <none|bc1|bc2|bc3>] [--dds-mipmaps]
+  photocraft-cli batch --actions <actions.json|set.atn> [--action <name>] --in <dir> --out <dir> [--format <ext>] [--quality <1-100>] [--in-place] [--tiff-layers] [--tga-bits <24|32>] [--dpx-bits <8|10|12|16>] [--dds-compression <none|bc1|bc2|bc3>] [--dds-mipmaps] [--jpeg-format <baseline|optimized|progressive>]
       Apply an action list to every image in a directory. A Photoshop Actions file (.atn) is a
       set: its action --action names plays, as below. JSON steps are [id, params] pairs,
       {\"command\": id, \"params\": {…}} objects or bare ids, as a recorded action or droplet stores them
@@ -73,20 +76,20 @@ struct Subcommand {
 const SUBCOMMANDS: &[Subcommand] = &[
     Subcommand {
         name: "convert",
-        values: &["--format", "--quality", "--tga-bits", "--dpx-bits", "--dds-compression"],
+        values: &["--format", "--quality", "--tga-bits", "--dpx-bits", "--dds-compression", "--jpeg-format"],
         bare: &["--tiff-layers", "--dds-mipmaps"],
         run: convert,
     },
     Subcommand { name: "info", values: &[], bare: &["--compact"], run: |a, out, _| info(a, out) },
     Subcommand {
         name: "run",
-        values: &["--new", "--cmd", "--params", "--out", "--format", "--quality", "--tga-bits", "--dpx-bits", "--dds-compression"],
+        values: &["--new", "--cmd", "--params", "--out", "--format", "--quality", "--tga-bits", "--dpx-bits", "--dds-compression", "--jpeg-format"],
         bare: &["--tiff-layers", "--dds-mipmaps"],
         run: run_cmds,
     },
     Subcommand {
         name: "batch",
-        values: &["--actions", "--action", "--in", "--out", "--format", "--quality", "--tga-bits", "--dpx-bits", "--dds-compression"],
+        values: &["--actions", "--action", "--in", "--out", "--format", "--quality", "--tga-bits", "--dpx-bits", "--dds-compression", "--jpeg-format"],
         bare: &["--in-place", "--tiff-layers", "--dds-mipmaps"],
         run: batch,
     },
@@ -225,6 +228,10 @@ fn export_opts(a: &Args) -> Result<ExportOptions, String> {
     if let Some(b) = a.get("--dpx-bits") {
         o.encode.dpx_bits =
             Some(b.parse().ok().and_then(photocraft_io::DpxBits::from_bits).ok_or_else(|| format!("bad --dpx-bits `{b}`: expected 8, 10, 12 or 16"))?);
+    }
+    if let Some(f) = a.get("--jpeg-format") {
+        o.encode.jpeg_format =
+            photocraft_codecs::JpegFormat::parse(f).ok_or_else(|| format!("bad --jpeg-format `{f}`: expected baseline, optimized or progressive"))?;
     }
     if let Some(c) = a.get("--dds-compression") {
         o.encode.dds.compression =

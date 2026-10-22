@@ -2725,6 +2725,11 @@ cameraRaw	Blending	Pembauran
 	Content-Aware Move Tool	Alat Content-Aware Move
 	TIFF Options	Opsi TIFF
 	Targa Options	Opsi Targa
+	JPEG Options	Opsi JPEG
+	Image Options	Opsi Gambar
+	Format Options	Opsi Format
+	Baseline ("Standard")	Baseline ("Standar")
+	Baseline Optimized	Baseline Dioptimalkan
 	24 bits/pixel	24 Bit/Piksel
 	32 bits/pixel	32 Bit/Piksel
 	Including layers will increase file size.	Menyertakan layer akan memperbesar ukuran file.

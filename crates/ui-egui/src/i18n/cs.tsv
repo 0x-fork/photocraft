@@ -2314,6 +2314,11 @@ cameraRaw	Color	Barvy
 	Content-Aware Move Tool	Nástroj přesun s ohledem na obsah
 	TIFF Options	Možnosti TIFF
 	Targa Options	Možnosti Targa
+	JPEG Options	Možnosti JPEG
+	Image Options	Možnosti obrazu
+	Format Options	Možnosti formátu
+	Baseline ("Standard")	Základní („Standardní“)
+	Baseline Optimized	Základní optimalizovaný
 	24 bits/pixel	24 bitů/pixel
 	32 bits/pixel	32 bitů/pixel
 	Including layers will increase file size.	Zahrnutí vrstev zvětší velikost souboru.

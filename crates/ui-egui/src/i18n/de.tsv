@@ -2350,6 +2350,11 @@
 	Content-Aware Move Tool	Inhaltsbasiert-verschieben-Werkzeug
 	TIFF Options	TIFF-Optionen
 	Targa Options	Targa-Optionen
+	JPEG Options	JPEG-Optionen
+	Image Options	Bildoptionen
+	Format Options	Formatoptionen
+	Baseline ("Standard")	Baseline („Standard“)
+	Baseline Optimized	Baseline optimiert
 	24 bits/pixel	24 Bit/Pixel
 	32 bits/pixel	32 Bit/Pixel
 	Including layers will increase file size.	Das Einbeziehen von Ebenen vergrößert die Datei.

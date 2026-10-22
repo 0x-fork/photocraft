@@ -2329,6 +2329,11 @@ cameraRaw	Blending	混合
 	Content-Aware Move Tool	内容感知移动工具
 	TIFF Options	TIFF 选项
 	Targa Options	Targa 选项
+	JPEG Options	JPEG 选项
+	Image Options	图像选项
+	Format Options	格式选项
+	Baseline ("Standard")	基线（“标准”）
+	Baseline Optimized	基线已优化
 	24 bits/pixel	24 位/像素
 	32 bits/pixel	32 位/像素
 	Including layers will increase file size.	包含图层会增加文件大小。

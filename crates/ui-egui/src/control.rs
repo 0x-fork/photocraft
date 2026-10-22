@@ -2509,6 +2509,54 @@ mod tests {
         assert_eq!(written.borrow().len(), 3, "a bad tgaBits writes nothing");
     }
 
+    /// `app.save` takes JPEG Options (`quality` 0–12, `jpegFormat`) and never stops at the prompt;
+    /// a value it can't read is an error that writes nothing.
+    #[test]
+    fn automation_save_passes_jpeg_options_without_asking() {
+        use photocraft_codecs::JpegFormat;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        // The JPEG quality (1–100) and format each export was asked for.
+        type Asked = Rc<RefCell<Vec<(Option<u8>, JpegFormat)>>>;
+        let asked: Asked = Rc::default();
+        let written: Rc<RefCell<Vec<String>>> = Rc::default();
+        let (a, w) = (asked.clone(), written.clone());
+        let services = crate::Services {
+            export: Some(Box::new(move |_d: &photocraft_doc::Document, _p: &str, s: &crate::ExportSettings| {
+                a.borrow_mut().push((s.jpeg_quality, s.jpeg_format));
+                Ok((b"out".to_vec(), Vec::new()))
+            })),
+            automation_write: Some(Box::new(move |path: &str, _b: &[u8]| {
+                w.borrow_mut().push(path.to_string());
+                Ok(())
+            })),
+            ..Default::default()
+        };
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), services);
+        let ctx = egui::Context::default();
+        app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        for params in [
+            json!({"path": "a.jpg"}),
+            json!({"path": "b.jpg", "quality": 12, "jpegFormat": "progressive"}),
+            json!({"path": "c.jpg", "jpegFormat": "optimized"}),
+        ] {
+            let r = call(&mut app, &ctx, "app.save", params.clone());
+            assert_eq!(r["result"]["path"], params["path"], "{r}");
+            assert!(app.jpeg_options.is_none(), "automation saves never prompt");
+        }
+        assert_eq!(*asked.borrow(), [(None, JpegFormat::Baseline), (Some(100), JpegFormat::Progressive), (None, JpegFormat::Optimized)]);
+        for bad in [
+            json!({"path": "d.jpg", "quality": 13}),
+            json!({"path": "d.jpg", "quality": "high"}),
+            json!({"path": "d.jpg", "jpegFormat": "fast"}),
+            json!({"path": "d.jpg", "jpegFormat": 2}),
+        ] {
+            let r = call(&mut app, &ctx, "app.save", bad.clone());
+            assert!(r["error"].is_string(), "{bad}: {r}");
+        }
+        assert_eq!(written.borrow().len(), 3, "a bad JPEG option writes nothing");
+    }
+
     /// `app.save` takes the DDS options (`ddsCompression`, `ddsMipmaps`) and never stops at DDS
     /// Options.
     #[test]
