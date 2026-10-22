@@ -1509,6 +1509,10 @@ fn set_to(id: &str, p: &Value) -> Option<Descriptor> {
                 .with("T   ", D::Descriptor(color_desc(hex)?))
         }
         "select.rect" => {
+            match jstr(p, "mode") {
+                None | Some("replace") => {}
+                Some(_) => return None,
+            }
             let (x, y, w, h) = (jnum(p, "x")?, jnum(p, "y")?, jnum(p, "width")?, jnum(p, "height")?);
             let cls = if jbool(p, "ellipse") == Some(true) { "Elps" } else { "Rctn" };
             sel(D::Descriptor(desc(cls).with("Top ", px(y)).with("Left", px(x)).with("Btom", px(y + h)).with("Rght", px(x + w))))
