@@ -247,6 +247,7 @@ pub mod workspace_ui;
 pub mod zoom_hold;
 pub mod zoom_levels;
 pub mod zoom_tool;
+pub mod zoom_window_fit;
 
 use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender};

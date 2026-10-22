@@ -1518,6 +1518,12 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     }
                     Tool::Eyedropper => crate::eyedropper_ui::options(app, ui),
                     Tool::Zoom => {
+                        // Resize Windows to Fit is Preferences › Zoom Resizes Windows itself, as in
+                        // Photoshop: one setting, shown in both places (zoom_window_fit.rs).
+                        let mut fit = app.session.prefs().general.zoom_resizes_windows;
+                        if widgets::checkbox(ui, &mut fit, tl!("Resize Windows to Fit")).changed() {
+                            app.session.prefs.edit(|p| p.general.zoom_resizes_windows = fit);
+                        }
                         widgets::checkbox(ui, &mut app.ui.tool_options.zoom_scrubby, tl!("Scrubby Zoom"));
                         hint(
                             ui,
