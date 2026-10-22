@@ -45,7 +45,14 @@ fn identity_app() -> (PhotocraftApp, RawOpen, Control) {
     let bytes = Arc::new(synthetic_raw());
     let imported = photocraft_io::import("synthetic.dng", &bytes).unwrap();
     let (index, _) = session.open_document(imported.document, None);
-    let raw = RawOpen { document: session.documents()[index].doc.id, name: "synthetic.dng".into(), path: None, bytes: Some(bytes), developed_with: Default::default(), demosaic: Default::default() };
+    let raw = RawOpen {
+        document: session.documents()[index].doc.id,
+        name: "synthetic.dng".into(),
+        path: None,
+        bytes: Some(bytes),
+        developed_with: Default::default(),
+        demosaic: Default::default(),
+    };
     let mut app = PhotocraftApp::new(session, crate::Services::default());
     app.sync_views();
     (app, raw, control)
