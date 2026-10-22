@@ -267,15 +267,30 @@ pub fn load(app: &mut PhotocraftApp) {
     }
 }
 
-/// The save base after loading `stored`: what the file holds, limited to the keys `loaded` (this
-/// version's preferences) has. Whatever loading changed there (a migrated default, the file's
-/// version) then differs from the base, so the next save writes it rather than keeping the old
-/// value under a newer version (#5647). Keys only the file has stay out, so the merge keeps them.
+/// The save base after loading `stored`: what was loaded, with the keys the shift tool switch
+/// migration may change (#5647) put back as the file had them, the way [`repair_invalid`] puts
+/// back unreadable values. The migrated value and the new version then differ from the base, so
+/// the next save writes them rather than keeping the old value under a newer version. Every other
+/// key keeps its loaded value, so the three-way merge leaves another instance's changes alone,
+/// also for keys the file doesn't have yet. A file from a newer version keeps its version.
 fn stored_base(loaded: &Value, stored: &Value) -> Value {
-    match (loaded, stored) {
-        (Value::Object(l), Value::Object(s)) => Value::Object(s.iter().filter_map(|(k, sv)| l.get(k).map(|lv| (k.clone(), stored_base(lv, sv)))).collect()),
-        _ => stored.clone(),
+    let mut base = loaded.clone();
+    let Some(obj) = base.as_object_mut() else {
+        return base;
+    };
+    match stored.get("version") {
+        Some(v) if v.as_u64().is_some_and(|v| v > prefs::PREFS_VERSION) => {}
+        Some(v) => {
+            obj.insert("version".into(), v.clone());
+        }
+        None => {
+            obj.remove("version");
+        }
     }
+    if let (Some(v), Some(tools)) = (stored.pointer("/tools/useShiftKeyForToolSwitch"), obj.get_mut("tools").and_then(Value::as_object_mut)) {
+        tools.insert("useShiftKeyForToolSwitch".into(), v.clone());
+    }
+    base
 }
 
 /// Some saved values couldn't be read and took their defaults (#6611): say which, and write
@@ -3239,6 +3254,40 @@ mod tests {
             tick(&mut next, &ctx);
             assert!(!next.session.prefs().tools.use_shift_key_for_tool_switch, "{saved}: turned off, it stays off");
         }
+    }
+
+    #[test]
+    fn an_old_sparse_file_keeps_another_instances_change() {
+        // Two instances on a version 1 file that lacks most keys: one changes a key the file
+        // doesn't have, the other then saves an unrelated change and must not write its default
+        // over it.
+        let saved = json!({"version": 1, "tools": {"useShiftKeyForToolSwitch": false}});
+        let store = Arc::new(Mutex::new(Some(saved.to_string())));
+        let ctx = egui::Context::default();
+        let (mut a, mut b) = (app_on(&store, Arc::default()), app_on(&store, Arc::default()));
+        tick(&mut a, &ctx);
+        tick(&mut b, &ctx);
+        b.run("prefs.set", json!({"values": {"interface.theme": "studio"}})).unwrap();
+        tick(&mut b, &ctx);
+        assert_eq!(stored(&store)["interface"]["theme"], "studio");
+        a.run("prefs.set", json!({"values": {"performance.historyStates": 12}})).unwrap();
+        tick(&mut a, &ctx);
+        let v = stored(&store);
+        assert_eq!((v["interface"]["theme"].as_str(), v["performance"]["historyStates"].as_u64()), (Some("studio"), Some(12)));
+    }
+
+    #[test]
+    fn a_newer_files_version_is_kept_on_save() {
+        let saved = json!({"version": prefs::PREFS_VERSION + 1, "tools": {"useShiftKeyForToolSwitch": false}});
+        let (mut app, store) = app_with_saved(Some(saved.to_string()));
+        let ctx = egui::Context::default();
+        tick(&mut app, &ctx);
+        assert!(!app.session.prefs().tools.use_shift_key_for_tool_switch, "a newer file isn't migrated");
+        app.run("prefs.set", json!({"values": {"performance.historyStates": 12}})).unwrap();
+        tick(&mut app, &ctx);
+        let v = stored(&store);
+        assert_eq!(v["version"], json!(prefs::PREFS_VERSION + 1));
+        assert_eq!(v["performance"]["historyStates"], 12);
     }
 
     #[test]
