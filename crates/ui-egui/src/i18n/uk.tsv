@@ -4071,13 +4071,6 @@ curves	Smooth	Згладити
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Адаптер GPU
-
-# Contributor workflow labels
-	Paint Load	Завантаження фарби
-	Alt-click the canvas to load the brush tip	Клацніть полотно з Alt, щоб набрати фарбу на кінчик пензля
-	Clean pickup after stroke	Очищати набраний колір після мазка
-	Reload after stroke	Завантажувати знову після мазка
-
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Спочатку підтвердьте або скасуйте відкритий діалог кроку операції
 	Pro Medium Gray	Середньосіра «Профі»

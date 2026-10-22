@@ -467,8 +467,6 @@ pub struct Session {
     docs: Vec<DocState>,
     active: Option<usize>,
     pub tools: ToolState,
-    /// One validated Mixer Brush result awaiting its normal command dispatch. Never persisted.
-    pub(crate) prepared_mixer: Option<brush_cmds::mixer_live::LiveMixer>,
     /// Log of executed commands (for action recording and debugging).
     pub journal: Vec<(String, Value)>,
     /// Coalescing key of the command being executed.

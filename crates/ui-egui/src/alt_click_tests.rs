@@ -111,12 +111,19 @@ fn alt_click_with_the_brush_samples_the_foreground() {
     assert_eq!(h.state().session.tools.foreground, [0.0, 1.0, 0.0, 1.0], "⌥-click sampled green");
 }
 
+/// Alt-click sampling respects the canvas view transform without changing document pixels.
+
 #[test]
+
 fn mixer_alt_click_samples_the_tip_through_zoomed_rotated_canvas_input() {
     for (zoom, rotation) in [(0.5, 0.0), (1.0, 0.0), (2.0, 30.0)] {
         let mut app = two_colours();
         app.run("layer.new.layer", json!({})).unwrap();
-        app.run("tools.setBrush", json!({"brush":{"size":24,"roundness":0.4,"hardness":1.0,"pressureSize":false,"mixer":{"wet":0.0,"mix":0.0}}})).unwrap();
+        app.run(
+            "tools.setBrush",
+            json!({"brush":{"size":24,"roundness":0.4,"hardness":1.0,"pressureSize":false,"mixer":{"wet":0.0,"mix":0.0,"sampleAllLayers":true}}}),
+        )
+        .unwrap();
         let mut h = harness(app);
         h.state_mut().ui.tool = Tool::MixerBrush;
         h.state_mut().ui.views[0].zoom = zoom;
@@ -141,13 +148,20 @@ fn mixer_alt_click_samples_the_tip_through_zoomed_rotated_canvas_input() {
     }
 }
 
+/// Native pointer release commits the shown mixer result before restoring a spring-loaded tool.
+
 #[test]
+
 fn mixer_raw_drag_commits_live_pixels_before_a_spring_tool_returns() {
     for spring in [false, true] {
         let mut app = two_colours();
         app.run("layer.new.layer", json!({})).unwrap();
         app.run("tools.setColors", json!({"foreground":"#0000ff"})).unwrap();
-        app.run("tools.setBrush", json!({"brush":{"size":24,"pressureSize":false,"mixer":{"wet":1.0,"mix":0.5},"smoothing":{"amount":0.0}}})).unwrap();
+        app.run(
+            "tools.setBrush",
+            json!({"brush":{"size":24,"pressureSize":false,"mixer":{"wet":1.0,"mix":0.5,"sampleAllLayers":true},"smoothing":{"amount":0.0}}}),
+        )
+        .unwrap();
         let mut h = harness(app);
         h.state_mut().ui.tool = Tool::MixerBrush;
         let before = h.state().session.active().unwrap().doc.clone();

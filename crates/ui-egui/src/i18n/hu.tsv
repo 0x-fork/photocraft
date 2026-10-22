@@ -4278,13 +4278,6 @@ cameraRaw	Yellow	Sárga
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU-adapter
-
-# Contributor workflow labels
-	Paint Load	Festék betöltése
-	Alt-click the canvas to load the brush tip	Alt-kattintás a vászonra az ecsethegy festékkel való feltöltéséhez
-	Clean pickup after stroke	Felvett szín törlése az ecsetvonás után
-	Reload after stroke	Újratöltés az ecsetvonás után
-
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Előbb hagyd jóvá vagy vond vissza a művelet lépésének nyitott párbeszédablakát
 	Pro Medium Gray	Pro középszürke

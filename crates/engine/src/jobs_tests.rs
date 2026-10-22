@@ -730,7 +730,7 @@ fn a_job_lands_in_the_recording_it_was_started_in_only() {
 
 /// Exercise six terminal job routes so prepared paint snapshots cannot outlive a completed or discarded job.
 #[test]
-fn every_job_terminal_path_drops_a_prepared_mixer_stroke() {
+fn every_job_terminal_path_drops_a_live_commit_stroke() {
     use crate::brush_cmds::mixer_live::LiveMixer;
     use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -758,7 +758,7 @@ fn every_job_terminal_path_drops_a_prepared_mixer_stroke() {
                 },
             )
             .unwrap());
-        assert!(s.prepared_mixer.is_some());
+        assert!(s.live_commit.is_some());
         if outcome == 2 {
             assert!(s.cancel_job(id));
             s.join_cancelled_jobs();
@@ -779,6 +779,6 @@ fn every_job_terminal_path_drops_a_prepared_mixer_stroke() {
             2 => assert!(matches!(event.outcome, JobOutcome::Cancelled)),
             _ => assert!(matches!(event.outcome, JobOutcome::Failed(_))),
         }
-        assert!(s.prepared_mixer.is_none(), "terminal path {outcome} retained the preview");
+        assert!(s.live_commit.is_none(), "terminal path {outcome} retained the preview");
     }
 }

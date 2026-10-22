@@ -606,11 +606,11 @@ fn mixer_brush_options_update_the_persisted_mixer_settings() {
     h.drop_at(at);
     h.run_steps(2);
 
-    assert!(!h.state().session.tools.brush.mixer.sample_all_layers);
+    assert!(h.state().session.tools.brush.mixer.sample_all_layers);
     assert_eq!(h.state().session.journal.len(), initial + 1);
     let (id, params) = h.state().session.journal.last().unwrap();
     assert_eq!(id, "tools.setBrush");
-    assert_eq!(params["brush"]["mixer"]["sampleAllLayers"], false);
+    assert_eq!(params["brush"]["mixer"]["sampleAllLayers"], true);
 }
 
 #[test]

@@ -4434,13 +4434,6 @@ shape	Appearance	Izgled
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU adapter
-
-# Contributor workflow labels
-	Paint Load	Punjenje bojom
-	Alt-click the canvas to load the brush tip	Kliknite na platno uz Alt da napunite vrh četkice bojom
-	Clean pickup after stroke	Očisti pokupljenu boju posle poteza
-	Reload after stroke	Ponovo napuni posle poteza
-
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Prvo potvrdite ili otkažite otvoreni dijalog koraka radnje
 	Pro Medium Gray	Pro srednje siva

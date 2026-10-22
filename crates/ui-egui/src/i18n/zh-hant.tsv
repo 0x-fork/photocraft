@@ -2985,13 +2985,6 @@ curves	Smooth	平滑
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU 介面卡
-
-# Contributor workflow labels
-	Paint Load	載入顏料
-	Alt-click the canvas to load the brush tip	按住 Alt 按一下畫布以為筆尖載入顏料
-	Clean pickup after stroke	筆畫後清除拾取的顏色
-	Reload after stroke	筆畫後重新載入
-
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	請先確認或取消開啟中的動作步驟對話框
 	Pro Medium Gray	專業中灰

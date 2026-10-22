@@ -3843,13 +3843,6 @@ curves	Smooth	Сгладить
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Адаптер GPU
-
-# Contributor workflow labels
-	Paint Load	Загрузка краски
-	Alt-click the canvas to load the brush tip	Щёлкните по холсту с Alt, чтобы набрать краску на кончик кисти
-	Clean pickup after stroke	Очищать набранный цвет после мазка
-	Reload after stroke	Загружать заново после мазка
-
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Сначала подтвердите или отмените открытый диалог шага операции
 	Pro Medium Gray	Средне-серая Pro

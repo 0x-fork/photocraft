@@ -894,7 +894,7 @@ pub(crate) fn cancel_mixer_on_context_change(app: &mut PhotocraftApp, ctx: &egui
     }
     let changed = app.ui.tool != Tool::MixerBrush
         || app.live_stroke.as_ref().is_some_and(|live| !app.session.active().is_some_and(|st| st.doc.id == live.doc && st.revision == live.revision));
-    if changed || ctx.input(|input| !input.focused) || ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+    if changed || ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
         app.drag = None;
         app.live_stroke = None;
         return true;
@@ -8545,13 +8545,16 @@ mod tests {
         }
     }
 
+    /// The held drag shows true mixed paint while Alt sampling remains separate from painting.
+
     #[test]
+
     fn mixer_drag_shows_actual_mixed_paint_before_release_and_alt_never_paints() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
         app.run("file.new", json!({"width":120,"height":60,"background":"#00ff00"})).unwrap();
         app.run("layer.new.layer", json!({})).unwrap();
         app.run("tools.setColors", json!({"foreground":"#ff0000"})).unwrap();
-        app.run("tools.setBrush", json!({"brush":{"size":16,"mixer":{"wet":1.0,"mix":0.7},"smoothing":{"amount":0.0}}})).unwrap();
+        app.run("tools.setBrush", json!({"brush":{"size":16,"mixer":{"wet":1.0,"mix":0.7,"sampleAllLayers":true},"smoothing":{"amount":0.0}}})).unwrap();
         app.ui.tool = Tool::MixerBrush;
         let before = app.session.active().unwrap().doc.clone();
         let count = app.session.active().unwrap().history.past_len();
@@ -8583,7 +8586,10 @@ mod tests {
         assert_eq!(app.session.active().unwrap().doc.layer(id).unwrap().surface().unwrap().rgba(45, 30)[3], 0.0);
     }
 
+    /// Release incorporates its final endpoint and deferred samples in both live and fallback paths.
+
     #[test]
+
     fn mixer_release_includes_a_new_endpoint_and_deferred_frame_samples() {
         for (deferred, failed) in [(false, false), (true, false), (false, true)] {
             let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
@@ -8646,9 +8652,12 @@ mod tests {
         }
     }
 
+    /// Escape and tool changes cancel both ordinary previews and failed-preview fallback gestures.
+
     #[test]
-    fn mixer_escape_focus_loss_and_tool_switch_cancel_without_an_edit() {
-        for mode in 0..6 {
+
+    fn mixer_escape_and_tool_switch_cancel_without_an_edit() {
+        for mode in 0..4 {
             let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
             app.run("file.new", json!({"width":120,"height":60,"background":"#00ff00"})).unwrap();
             app.run("layer.new.layer", json!({})).unwrap();
@@ -8657,12 +8666,12 @@ mod tests {
             let steps = app.session.active().unwrap().history.past_len();
             tool_event(&mut app, ToolEvent::Down { x: 30.0, y: 30.0, pressure: 1.0 }, egui::Modifiers::NONE);
             assert!(app.live_stroke.is_some());
-            if mode >= 3 {
+            if mode >= 2 {
                 app.live_stroke.as_mut().unwrap().preview_failed = true;
             }
-            let mode = mode % 3;
+            let mode = mode % 2;
             let ctx = egui::Context::default();
-            let mut raw = egui::RawInput { focused: mode != 1, ..Default::default() };
+            let mut raw = egui::RawInput { focused: true, ..Default::default() };
             if mode == 0 {
                 raw.events.push(egui::Event::Key {
                     key: egui::Key::Escape,
@@ -8672,7 +8681,7 @@ mod tests {
                     modifiers: egui::Modifiers::NONE,
                 });
             }
-            if mode == 2 {
+            if mode == 1 {
                 app.ui.tool = Tool::Brush;
             }
             ctx.begin_pass(raw);
@@ -8684,6 +8693,32 @@ mod tests {
             assert!(std::sync::Arc::ptr_eq(&before, &app.session.active().unwrap().doc));
             assert_eq!(app.session.active().unwrap().history.past_len(), steps);
         }
+    }
+
+    /// Control-driven strokes remain live in a background window, matching the ordinary Brush.
+    #[test]
+    fn mixer_background_window_keeps_and_commits_control_strokes() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width":120,"height":60,"background":"transparent"})).unwrap();
+        app.run("tools.setBrush", json!({"brush":{"size":12,"pressureSize":false}})).unwrap();
+        let steps = app.session.active().unwrap().history.past_len();
+        let ctx = egui::Context::default();
+        ctx.begin_pass(egui::RawInput { focused: false, ..Default::default() });
+        let (request, _reply) = crate::control::ControlRequest::new(
+            "ui.pointer",
+            json!({"tool":"mixerBrush","events":[{"kind":"down","x":20,"y":30},{"kind":"move","x":60,"y":30}]}),
+        );
+        let _ = crate::control::handle(&mut app, &ctx, &request);
+        assert!(!cancel_mixer_on_context_change(&mut app, &ctx));
+        assert!(app.drag.is_some());
+        let (request, _reply) = crate::control::ControlRequest::new("ui.pointer", json!({"tool":"mixerBrush","events":[{"kind":"up","x":95,"y":30}]}));
+        let _ = crate::control::handle(&mut app, &ctx, &request);
+        let mut output = ctx.end_pass();
+        output.textures_delta.clear();
+        assert_eq!(app.session.active().unwrap().history.past_len(), steps + 1);
+        assert!(app.session.journal.iter().any(|(id, _)| id == "paint.mixerBrush"));
+        let st = app.session.active().unwrap();
+        assert!(st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap().rgba(60, 30)[3] > 0.0);
     }
 
     #[test]

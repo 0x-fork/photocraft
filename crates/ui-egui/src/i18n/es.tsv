@@ -4324,13 +4324,6 @@ navigator	Zoom	Zoom
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptador de GPU
-
-# Contributor workflow labels
-	Paint Load	Carga de pintura
-	Alt-click the canvas to load the brush tip	Haz clic en el lienzo con Alt para cargar la punta del pincel
-	Clean pickup after stroke	Limpiar el color recogido después del trazo
-	Reload after stroke	Recargar después del trazo
-
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Confirme o cancele primero el cuadro de diálogo abierto del paso de la acción
 	Pro Medium Gray	Pro (gris medio)

@@ -3373,13 +3373,6 @@ curves	Smooth	Lisser
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptateur GPU
-
-# Contributor workflow labels
-	Paint Load	Charge de peinture
-	Alt-click the canvas to load the brush tip	Alt-clic sur la zone de travail pour charger la pointe du pinceau
-	Clean pickup after stroke	Nettoyer la couleur prélevée après le trait
-	Reload after stroke	Recharger après le trait
-
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Validez ou annulez d’abord la boîte de dialogue ouverte de l’étape de l’action
 	Pro Medium Gray	Pro gris moyen

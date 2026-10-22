@@ -4107,13 +4107,6 @@ cameraRaw	Dehaze	Odstranění oparu
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptér GPU
-
-# Contributor workflow labels
-	Paint Load	Nabírání barvy
-	Alt-click the canvas to load the brush tip	Kliknutím na plátno s klávesou Alt naberete barvu na špičku štětce
-	Clean pickup after stroke	Vyčistit nabranou barvu po tahu
-	Reload after stroke	Znovu naplnit po tahu
-
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Nejprve potvrďte nebo zrušte otevřený dialog kroku akce
 	Pro Medium Gray	Pro (středně šedý)

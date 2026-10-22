@@ -191,7 +191,6 @@ fn cups_spool(job: &PrintJob) -> std::result::Result<String, SpoolError> {
 /// `craft-print` (`lpstat`, the Windows spooler) where that is the route; over IPP for a named
 /// server and where there is no `lp` (a sandbox).
 fn system_printers(_s: &mut Session, p: &Value) -> Result<Value> {
-    require_live_printer_query(p)?;
     let named = p.get("printServer").and_then(Value::as_str).filter(|v| !v.is_empty());
     if named.is_none() && system_spooler().is_some() {
         let list = craft_print::printers();
@@ -1034,19 +1033,7 @@ fn print_windows(page: &PrintPage, p: &Value, title: &str, copies: u32) -> Resul
     )
 }
 
-/// Driver discovery/settings are external I/O, even when no page is spooled. A dry run must
-/// not block on a disconnected printer or a print server (including in the command panic hunt).
-fn require_live_printer_query(p: &Value) -> Result<()> {
-    if p.get("dryRun").and_then(Value::as_bool).unwrap_or(false) {
-        Err(other("printer queries are unavailable in a dry run; omit dryRun to query the live printer backend"))
-    } else {
-        Ok(())
-    }
-}
-
-/// List native RGB-print destinations only for a live query; dry runs must not contact printer drivers.
-fn printers(_: &mut Session, p: &Value) -> Result<Value> {
-    require_live_printer_query(p)?;
+fn printers(_: &mut Session, _: &Value) -> Result<Value> {
     match craft_print::rgb::printers() {
         Ok(list) => Ok(json!({"supported": true, "printers": list.iter().map(|p| json!({"name": p.name, "default": p.default})).collect::<Vec<_>>()})),
         Err(craft_print::rgb::PrintError::Unsupported) => Ok(json!({"supported": false, "printers": []})),
@@ -1055,7 +1042,6 @@ fn printers(_: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn printer_page(_: &mut Session, p: &Value) -> Result<Value> {
-    require_live_printer_query(p)?;
     // Checked before the printer, so a bad value is the error whether or not a printer answers.
     let landscape = match p.get("orientation").filter(|v| !v.is_null()) {
         None => None,
@@ -1113,9 +1099,7 @@ fn print_one_copy(s: &mut Session, p: &Value) -> Result<Value> {
     let mut q = last_print(s).unwrap_or_else(|| json!({}));
     // A printer remembered from an earlier session may be gone: then the default takes the job,
     // as the Print dialog falls back (#7410). A list that can't be read decides nothing.
-    if !p.get("dryRun").and_then(Value::as_bool).unwrap_or(false)
-        && let Ok(listed) = system_printers(s, &q)
-    {
+    if let Ok(listed) = system_printers(s, &q) {
         let names: Vec<&str> = listed["printers"].as_array().into_iter().flatten().filter_map(|p| p["name"].as_str()).collect();
         drop_vanished_printer(&mut q, &names);
     }
@@ -1302,7 +1286,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Printers",
             menu: &[],
             shortcut: None,
-            params: r##"{"dryRun":bool=false} → {supported, printers: [{name, default}]} (supported: Windows; elsewhere Print spools with lp; dryRun refuses live device queries)"##,
+            params: r##"{} → {supported, printers: [{name, default}]} (supported: Windows; elsewhere Print spools with lp)"##,
             enabled: |_| Ok(()),
             journal: false,
             run: printers,
@@ -1312,7 +1296,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Printer Page",
             menu: &[],
             shortcut: None,
-            params: r##"{"printer":name? (default printer),"printerSettings":hex?,"orientation":"portrait|landscape"? (turn the settings, or the printer's own, that way),"dryRun":bool=false (refuse live device queries)} → {printer, paper: [w,h] pt, printable: [x,y,w,h] pt from the top-left, dpi: [x,y], printerSettings: hex (only with orientation: the turned settings)} (Windows)"##,
+            params: r##"{"printer":name? (default printer),"printerSettings":hex?,"orientation":"portrait|landscape"? (turn the settings, or the printer's own, that way)} → {printer, paper: [w,h] pt, printable: [x,y,w,h] pt from the top-left, dpi: [x,y], printerSettings: hex (only with orientation: the turned settings)} (Windows)"##,
             enabled: |_| Ok(()),
             journal: false,
             run: printer_page,
@@ -1322,7 +1306,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Printers",
             menu: &[],
             shortcut: None,
-            params: r##"{"printServer":str?,"dryRun":bool=false} → {printers:[{name, default}], default:name|null} (the system spooler's printers; a name is Print's "printer"; dryRun refuses live device queries)"##,
+            params: r##"{} → {printers:[{name, default}], default:name|null} (the system spooler's printers; a name is Print's "printer")"##,
             enabled: crate::commands::always,
             journal: false,
             run: system_printers,

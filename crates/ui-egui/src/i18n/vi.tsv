@@ -3854,13 +3854,6 @@ curves	Smooth	Làm mượt
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Bộ điều hợp GPU
-
-# Contributor workflow labels
-	Paint Load	Nạp màu vẽ
-	Alt-click the canvas to load the brush tip	Nhấp vào vùng vẽ trong khi giữ Alt để nạp màu vào đầu cọ
-	Clean pickup after stroke	Xóa màu đã lấy sau nét vẽ
-	Reload after stroke	Nạp lại sau nét vẽ
-
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Hãy xác nhận hoặc hủy hộp thoại bước hành động đang mở trước
 	Pro Medium Gray	Pro xám vừa

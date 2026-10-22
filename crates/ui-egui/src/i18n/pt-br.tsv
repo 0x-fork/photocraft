@@ -4152,13 +4152,6 @@ layerLabel	No Color	Sem cor
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Adaptador de GPU
-
-# Contributor workflow labels
-	Paint Load	Carga de tinta
-	Alt-click the canvas to load the brush tip	Clique na tela com Alt para carregar a ponta do pincel
-	Clean pickup after stroke	Limpar a cor coletada após a pincelada
-	Reload after stroke	Recarregar após a pincelada
-
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Confirme ou cancele primeiro a caixa de diálogo aberta da etapa da ação
 

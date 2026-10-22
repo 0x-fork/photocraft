@@ -35,7 +35,7 @@ pub struct MixerSettings {
 
 impl Default for MixerSettings {
     fn default() -> Self {
-        Self { wet: 0.5, load: 0.5, mix: 0.5, flow: 1.0, sample_all_layers: true, clean_after_stroke: true, load_after_stroke: true }
+        Self { wet: 0.5, load: 0.5, mix: 0.5, flow: 1.0, sample_all_layers: false, clean_after_stroke: true, load_after_stroke: true }
     }
 }
 
@@ -377,7 +377,10 @@ mod tests {
         assert_eq!((st.reservoir, st.amount, st.pickup), (Some(green), 1.0, None));
     }
 
+    /// Spatial paint reservoirs honor independent automatic clean and reload choices.
+
     #[test]
+
     fn spatial_load_obeys_automatic_clean_and_load() {
         let foreground = [0.0, 0.0, 1.0, 1.0];
         let sampled = [1.0, 0.0, 0.0, 1.0];
@@ -398,7 +401,10 @@ mod tests {
         assert!(state.reservoir.is_none(), "Clean stays empty until a new color or Load");
     }
 
+    /// Older serialized reload settings remain compatible with the automatic load field.
+
     #[test]
+
     fn earlier_reload_setting_deserializes_as_automatic_load() {
         let settings: MixerSettings = serde_json::from_value(serde_json::json!({"reloadAfterStroke":false})).unwrap();
         assert!(!settings.load_after_stroke);

@@ -8,7 +8,7 @@
 
 use photocraft_doc::LayerContent;
 use photocraft_geom::Rect;
-use photocraft_paint::mixer::MixerSettings;
+use photocraft_paint::mixer::{MixerSettings, MixerState};
 use photocraft_paint::replace::{Limits, ReplaceMode, ReplaceSettings, Sampling, apply_color_replacement, color_replacement_effect};
 use photocraft_paint::tile::PREVIEW_SIDE;
 use photocraft_paint::{
@@ -462,6 +462,8 @@ pub struct LiveStroke {
 /// document revision, params, seed and points), it takes these pixels instead of rendering the
 /// stroke again.
 pub struct LiveCommit {
+    /// Mixer load before and after the stroke; transient, never serialized into the journal.
+    pub(crate) mixer: Option<(MixerState, MixerState)>,
     pub(crate) cmd: String,
     pub(crate) base: (photocraft_doc::DocId, u64),
     pub(crate) params: Value,
@@ -553,7 +555,16 @@ impl LiveStroke {
     pub fn into_commit(mut self) -> Result<LiveCommit> {
         let bounds = self.bounds();
         let (surf, _) = crate::channel_cmds::target_surface(std::sync::Arc::make_mut(&mut self.doc), self.layer, &self.params)?;
-        Ok(LiveCommit { cmd: self.cmd, base: self.base, params: self.params, seed: Some(self.seed), points: self.points, surface: surf.clone(), bounds })
+        Ok(LiveCommit {
+            mixer: None,
+            cmd: self.cmd,
+            base: self.base,
+            params: self.params,
+            seed: Some(self.seed),
+            points: self.points,
+            surface: surf.clone(),
+            bounds,
+        })
     }
 
     /// Everything the stroke has touched so far.
@@ -1171,7 +1182,7 @@ pub fn specs() -> Vec<CommandSpec> {
         spec!(
             "paint.mixerBrush",
             "Mixer Brush",
-            r##"{"points":[…] (max 65536 samples; long segments are interpolated),"brush":{…}?,"preset":name?,"size":0.5..1024 px?,"wet":0..100=brush.mixer.wet,"load":0..100=brush.mixer.load,"mix":0..100=brush.mixer.mix,"flow":0..100=brush.mixer.flow,"color":"#rrggbb"?=foreground,"sampleAllLayers":bool=brush.mixer.sampleAllLayers,"cleanAfterStroke":bool=brush.mixer.cleanAfterStroke,"loadAfterStroke":bool=brush.mixer.loadAfterStroke,"seed":u64?,"mixerState":{reservoir,amount,pickup,spatial,color} (optional captured replay state; spatial is null or 4096 RGBA colors)}"##,
+            r##"{"points":[…] (max 65536 samples; long segments are interpolated),"brush":{…}?,"preset":name?,"size":0.5..5000 px?,"wet":0..100=brush.mixer.wet,"load":0..100=brush.mixer.load,"mix":0..100=brush.mixer.mix,"flow":0..100=brush.mixer.flow,"color":"#rrggbb"?=foreground,"sampleAllLayers":bool=brush.mixer.sampleAllLayers,"cleanAfterStroke":bool=brush.mixer.cleanAfterStroke,"loadAfterStroke":bool=brush.mixer.loadAfterStroke,"seed":u64?,"mixerState":{reservoir,amount,pickup,spatial,color} (optional captured replay state; spatial is null or 4096 RGBA colors)}"##,
             has_paintable,
             mixer_brush,
             true

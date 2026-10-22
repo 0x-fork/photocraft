@@ -106,7 +106,10 @@ fn reference(
     state.pickup = pickup.map(|p| to_rgba(&fmt, &p));
 }
 
+/// The incremental kernel matches the frozen reference across color models, bit depths and spatial loads.
+
 #[test]
+
 fn contiguous_mixer_matches_frozen_kernel_across_models_depths_and_spatial_loads() {
     use crate::retouch::Region;
     use crate::{BrushContext, BrushSettings, Stroke, StrokePoint};

@@ -3571,13 +3571,6 @@ curves	Smooth	매끄럽게
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU 어댑터
-
-# Contributor workflow labels
-	Paint Load	물감 채우기
-	Alt-click the canvas to load the brush tip	Alt 키를 누른 채 캔버스를 클릭하여 브러시 끝에 물감을 채우세요
-	Clean pickup after stroke	획을 그린 후 묻어난 색 제거
-	Reload after stroke	획을 그린 후 다시 채우기
-
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	먼저 열려 있는 액션 단계 대화 상자를 확인하거나 취소하세요
 	Pro Medium Gray	프로 중간 회색

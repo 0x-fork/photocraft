@@ -534,9 +534,3 @@ cameraRaw	Yellow	पीला
 	Missing delete command	हटाने का कमांड नहीं मिला
 	Invalid delete command	हटाने का कमांड अमान्य है
 	Layer deleted, but confirmation preference could not be saved: {error}	लेयर हटा दी गई, लेकिन पुष्टि की प्राथमिकता सहेजी नहीं जा सकी: {error}
-
-# Contributor-original AI-assisted live mixer labels; native-language review pending.
-	Paint Load	रंग भरना
-	Alt-click the canvas to load the brush tip	ब्रश की नोक पर रंग भरने के लिए कैनवास पर Alt-क्लिक करें
-	Clean pickup after stroke	स्ट्रोक के बाद उठाया गया रंग साफ़ करें
-	Reload after stroke	स्ट्रोक के बाद फिर से रंग भरें

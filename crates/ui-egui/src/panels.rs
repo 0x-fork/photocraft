@@ -1157,31 +1157,6 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         }
                         widgets::vline(ui, 22.0);
                         widgets::checkbox(ui, &mut b.mixer.sample_all_layers, tl!("Sample All Layers"));
-                        ui.menu_button(tl!("Paint Load"), |ui| {
-                            ui.label(tl!("Alt-click the canvas to load the brush tip"));
-                            if ui.button(tl!("Load Brush")).clicked() { let _ = app.run("brush.mixer.load", json!({})); }
-                            if ui.button(tl!("Clean Brush")).clicked() {
-                                let _ = app.run("brush.mixer.clean", json!({}));
-                            }
-                            widgets::checkbox(ui, &mut b.mixer.clean_after_stroke, tl!("Clean the brush after each stroke"));
-                            widgets::checkbox(ui, &mut b.mixer.load_after_stroke, tl!("Load the brush after each stroke"));
-                            let (rect, _) = ui.allocate_exact_size(egui::vec2(64.0, 64.0), egui::Sense::hover());
-                            ui.painter().rect_filled(rect, 0.0, t.canvas);
-                            let state = &app.session.tools.mixer;
-                            let mut buffer = photocraft_compose::Buffer::transparent(photocraft_geom::Rect::new(0, 0, 32, 32));
-                            for (i, pixel) in buffer.px.iter_mut().enumerate() {
-                                *pixel = state.spatial.as_ref().and_then(|v| v.get((i / 32) * 128 + (i % 32) * 2)).copied()
-                                    .or(state.reservoir).unwrap_or([0.0; 4]);
-                                pixel[3] *= state.amount;
-                            }
-                            let display = app.session.active().and_then(|st| app.session.color.canvas_display_for(&st.doc, app.session.color.main_display).ok());
-                            let image = display.map_or_else(|| buffer.to_rgba8(), |display| display.to_rgba8(&buffer));
-                            for y in 0..32 { for x in 0..32 {
-                                let c = image.pixels.get((y * 32 + x) * 4..(y * 32 + x + 1) * 4).unwrap_or(&[0; 4]);
-                                let color = Color32::from_rgba_unmultiplied(c[0],c[1],c[2],c[3]);
-                                ui.painter().rect_filled(egui::Rect::from_min_size(rect.min + egui::vec2(x as f32 * 2.0,y as f32 * 2.0),egui::vec2(2.0,2.0)),0.0,color);
-                            }}
-                        });
                     }
                     Tool::RectMarquee | Tool::EllipseMarquee | Tool::SingleRowMarquee | Tool::SingleColumnMarquee if t.pro => {
                         ui.spacing_mut().item_spacing.x = 2.0;

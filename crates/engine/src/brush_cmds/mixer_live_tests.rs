@@ -22,6 +22,7 @@ fn fixture(fmt: PixelFormat) -> Session {
         Ok(())
     })
     .unwrap();
+    s.tools.brush.mixer.sample_all_layers = true;
     s
 }
 
@@ -31,7 +32,10 @@ fn target(s: &Session) -> Surface {
     st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap().clone()
 }
 
+/// All-layer previews match replay and Undo exactly across supported depths without editing source layers.
+
 #[test]
+
 fn mixer_live_empty_layer_exact_commit_undo_source_preservation_and_chunking() {
     for fmt in [PixelFormat::RGBA8, PixelFormat::RGBA16, PixelFormat::RGBA32F] {
         let mut s = fixture(fmt);
@@ -68,7 +72,10 @@ fn mixer_live_empty_layer_exact_commit_undo_source_preservation_and_chunking() {
     }
 }
 
+/// Current-layer mixing matches the frozen kernel; dropping a preview and cleaning the load paint nothing.
+
 #[test]
+
 fn mixer_live_current_layer_matches_reference_and_cancels() {
     let mut s = fixture(PixelFormat::RGBA32F);
     let p = json!({"points":[[30,30],[60,34],[100,60]],"seed":9,"size":16,"sampleAllLayers":false,"wet":65,"mix":70,"load":90});
@@ -98,7 +105,10 @@ fn mixer_live_current_layer_matches_reference_and_cancels() {
     assert_eq!(target(&s).rgba(30, 30)[3], 0.0, "clean brush must stay empty");
 }
 
+/// Sampling retains a spatial two-color load while leaving document pixels and history alone.
+
 #[test]
+
 fn mixer_sample_is_spatial_and_never_edits_document() {
     let mut s = fixture(PixelFormat::RGBA8);
     let before = s.active().unwrap().doc.clone();
@@ -114,7 +124,10 @@ fn mixer_sample_is_spatial_and_never_edits_document() {
     assert!(s.tools.mixer.spatial.is_some(), "sample persists across strokes");
 }
 
+/// Smoothing tails match replay and invalid input cannot mutate the last valid preview.
+
 #[test]
+
 fn mixer_live_smoothing_tail_and_invalid_input() {
     let mut s = fixture(PixelFormat::RGBA16);
     let p = json!({"points":[[20,40]],"size":12,"seed":42,"brush":{"smoothing":{"amount":0.6,"catchUpOnEnd":true}}});
@@ -132,11 +145,14 @@ fn mixer_live_smoothing_tail_and_invalid_input() {
         live.doc.layer(id).unwrap().surface().unwrap().read_region(s.active().unwrap().doc.bounds()),
         target(&s).read_region(s.active().unwrap().doc.bounds())
     );
-    assert!(s.execute("paint.mixerBrush", json!({"points":[[0,0]],"size":5000})).is_err());
+    assert!(s.execute("paint.mixerBrush", json!({"points":[[0,0]],"size":5001})).is_err());
     assert!(s.execute("brush.mixer.sample", json!({"points":[[0,0],[1,1]]})).is_err());
 }
 
+/// Composite sampling honors source masks and blending while current-layer mode ignores lower paint.
+
 #[test]
+
 fn mixer_sampling_obeys_masks_opacity_blend_and_current_layer_switch() {
     let mut s = fixture(PixelFormat::RGBA8);
     let source = s.active().unwrap().doc.layers.iter().find(|l| l.name == "Source").unwrap().id;
@@ -161,7 +177,10 @@ fn mixer_sampling_obeys_masks_opacity_blend_and_current_layer_switch() {
     assert!(target(&s).rgba(50, 40)[3] > 0.9, "all layers supplies the visible composite");
 }
 
+/// Later overlapping dabs pick up freshly deposited paint from the live composite.
+
 #[test]
+
 fn mixer_overlapping_dabs_resample_the_evolving_composite() {
     let mut s = fixture(PixelFormat::RGBA32F);
     s.execute("tools.setColors", json!({"foreground":"#0000ff"})).unwrap();
@@ -173,7 +192,10 @@ fn mixer_overlapping_dabs_resample_the_evolving_composite() {
     assert!(pixel[2] > 0.5, "deposited blue feeds back into later pickups: {pixel:?}");
 }
 
+/// The shared live commit keeps shown pixels and one Undo step, refusing stale document snapshots.
+
 #[test]
+
 fn mixer_prepared_commit_uses_displayed_pixels_and_rejects_stale_documents() {
     let mut s = fixture(PixelFormat::RGBA8);
     let p = json!({"points":[[20,40]],"size":16,"target":"pixels","seed":55});
@@ -183,9 +205,9 @@ fn mixer_prepared_commit_uses_displayed_pixels_and_rejects_stale_documents() {
     let id = s.active().unwrap().active_layer.unwrap();
     let steps = s.active().unwrap().history.past_len();
     let commit = live.prepare_commit(&mut s).unwrap();
-    assert!(s.prepared_mixer.is_some());
+    assert!(s.live_commit.is_some());
     s.execute("paint.mixerBrush", commit.clone()).unwrap();
-    assert!(s.prepared_mixer.is_none());
+    assert!(s.live_commit.is_none());
     assert_eq!(s.active().unwrap().history.past_len(), steps + 1);
     assert_eq!(target(&s).read_region(shown.bounds()), shown.layer(id).unwrap().surface().unwrap().read_region(shown.bounds()));
     s.execute("edit.undo", json!({})).unwrap();
@@ -196,7 +218,10 @@ fn mixer_prepared_commit_uses_displayed_pixels_and_rejects_stale_documents() {
     assert!(stale.prepare_commit(&mut s).is_err());
 }
 
+/// Load and clean affect tool state without dropping a floating selection or creating document history.
+
 #[test]
+
 fn mixer_load_commands_preserve_floating_selection_and_history() {
     let mut s = fixture(PixelFormat::RGBA8);
     s.execute("select.all", json!({})).unwrap();
@@ -212,7 +237,10 @@ fn mixer_load_commands_preserve_floating_selection_and_history() {
     }
 }
 
+/// Malformed reservoir input is rejected and automatic reload follows the selected setting.
+
 #[test]
+
 fn mixer_rejects_malformed_load_and_retains_or_reloads_paint() {
     let mut s = fixture(PixelFormat::RGBA8);
     let before = s.active().unwrap().doc.clone();
@@ -228,7 +256,10 @@ fn mixer_rejects_malformed_load_and_retains_or_reloads_paint() {
     assert_eq!(s.tools.mixer.amount, 1.0);
 }
 
+/// Large tips keep off-canvas layer pixels and commit the exact preview with reversible history.
+
 #[test]
+
 fn mixer_large_tip_retains_off_canvas_paint_and_commits_the_live_result() {
     let mut s = fixture(PixelFormat::RGBA8);
     let source = s.active().unwrap().doc.clone();
@@ -259,7 +290,10 @@ fn mixer_long_segments_are_interpolated_and_replay_matches_live() {
     }
 }
 
+/// Authorization, validation, unknown commands and missing targets all discard the single-use offer.
+
 #[test]
+
 fn mixer_prepared_offer_is_dropped_on_every_early_dispatch_failure() {
     for failure in 0..4 {
         let mut s = fixture(PixelFormat::RGBA8);
@@ -279,12 +313,15 @@ fn mixer_prepared_offer_is_dropped_on_every_early_dispatch_failure() {
             }
         };
         assert!(result.is_err());
-        assert!(s.prepared_mixer.is_none(), "failed dispatch retained the preview: {failure}");
+        assert!(s.live_commit.is_none(), "failed dispatch retained the preview: {failure}");
         assert!(Arc::ptr_eq(&s.active().unwrap().doc, &before));
     }
 }
 
+/// A stroke beyond the live tile budget still renders on command replay and remains undoable.
+
 #[test]
+
 fn mixer_command_outgrows_the_preview_tile_budget_without_losing_the_stroke() {
     let mut s = fixture(PixelFormat::RGBA8);
     let points: Vec<_> = (0..257).map(|i| [128.0 + (i % 17) as f64 * 512.0, 128.0 + (i / 17) as f64 * 512.0]).collect();
@@ -303,7 +340,10 @@ fn mixer_command_outgrows_the_preview_tile_budget_without_losing_the_stroke() {
     assert!(target(&s).read_region(end).chunks_exact(4).all(|px| px[3] == 0.0));
 }
 
+/// An empty sample reports an error while retaining the previous paint load and document.
+
 #[test]
+
 fn mixer_empty_samples_preserve_the_previous_load_and_document() {
     let mut s = fixture(PixelFormat::RGBA8);
     s.execute("brush.mixer.sample", json!({"points": [[96,48]], "size": 40})).unwrap();
@@ -314,5 +354,69 @@ fn mixer_empty_samples_preserve_the_previous_load_and_document() {
         assert!(error.contains("contains no paint"), "{error}");
         assert_eq!(s.tools.mixer, state);
         assert!(Arc::ptr_eq(&s.active().unwrap().doc, &doc));
+    }
+}
+
+/// Rotating a hard round sampling grid must give zero coverage beyond the footprint, not panic.
+#[test]
+fn mixer_rotated_hard_tip_samples_safely_and_preserves_the_document() {
+    for angle in [45.0, -45.0, 135.0] {
+        let mut s = fixture(PixelFormat::RGBA8);
+        s.execute("tools.setBrush", json!({"brush":{"size":40,"angle":angle,"hardness":1.0,"pressureSize":false}})).unwrap();
+        let before = s.active().unwrap().doc.clone();
+        s.execute("brush.mixer.sample", json!({"points":[[48,48]]})).unwrap();
+        let load = s.tools.mixer.spatial.as_ref().unwrap();
+        assert_eq!(load.len(), 4096);
+        assert!(load.iter().any(|c| c[3] == 0.0));
+        assert!(load.iter().any(|c| c[0] > 0.9 && c[3] > 0.9));
+        assert!(Arc::ptr_eq(&before, &s.active().unwrap().doc));
+    }
+}
+
+/// The default stays current-layer-only; all-layer sampling is an explicit user choice.
+#[test]
+fn mixer_default_does_not_sample_other_layers() {
+    assert!(!MixerSettings::default().sample_all_layers);
+    assert!(!Session::new().tools.brush.mixer.sample_all_layers);
+}
+
+/// Large session tips and spatial reservoirs stay out of each journaled stroke.
+#[test]
+fn mixer_shared_live_commit_keeps_the_journal_compact() {
+    let mut s = fixture(PixelFormat::RGBA8);
+    s.execute("brush.mixer.sample", json!({"points":[[96,48]],"size":40})).unwrap();
+    s.tools.brush.tip = TipShape::Sampled(GrayTile::from_fn(256, 256, |_, _| 1.0));
+    for x in [40.0, 60.0, 80.0] {
+        let p = json!({"points":[[x,48]],"size":12,"seed":7,"wet":0,"mix":0});
+        let live = LiveMixer::begin(&s, &p).unwrap();
+        let id = s.active().unwrap().active_layer.unwrap();
+        let shown = live.doc.layer(id).unwrap().surface().unwrap().clone();
+        let params = live.prepare_commit(&mut s).unwrap();
+        assert!(s.live_commit.is_some());
+        let result = s.execute("paint.mixerBrush", params).unwrap();
+        assert_eq!(result["fromLive"], true);
+        assert_eq!(target(&s), shown);
+        assert!(s.live_commit.is_none());
+        let params = &s.journal.last().unwrap().1;
+        for field in ["brush", "mixerState", "color"] {
+            assert!(params.get(field).is_none(), "{field}");
+        }
+        assert!(serde_json::to_vec(params).unwrap().len() < 1024);
+    }
+}
+
+/// Preview limits never reject valid command sizes, including the maximum session size.
+#[test]
+fn mixer_large_brushes_replay_after_the_preview_budget() {
+    for (size, pressure) in [(2000, 1.0), (5000, 1.0)] {
+        let mut s = fixture(PixelFormat::RGBA8);
+        let before = s.active().unwrap().doc.clone();
+        let params = json!({"points":[[96,48,pressure]],"size":size,"wet":0,"mix":0,"sampleAllLayers":false,
+            "color":"#ff0000","brush":{"pressureSize":true,"hardness":1.0}});
+        assert!(LiveMixer::begin(&s, &params).is_err());
+        s.execute("paint.mixerBrush", params).unwrap();
+        assert!(target(&s).rgba(96, 48)[0] > 0.9);
+        s.execute("edit.undo", json!({})).unwrap();
+        assert_eq!(*s.active().unwrap().doc, *before);
     }
 }

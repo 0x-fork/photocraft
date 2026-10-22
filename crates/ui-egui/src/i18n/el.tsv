@@ -4062,13 +4062,6 @@ curves	Smooth	Εξομάλυνση
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	Προσαρμογέας GPU
-
-# Contributor workflow labels
-	Paint Load	Φόρτωση χρώματος
-	Alt-click the canvas to load the brush tip	Κάντε κλικ στον καμβά με Alt για να φορτώσετε χρώμα στην άκρη του πινέλου
-	Clean pickup after stroke	Καθαρισμός του συλλεγμένου χρώματος μετά την πινελιά
-	Reload after stroke	Επαναφόρτωση μετά την πινελιά
-
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Επιβεβαιώστε ή ακυρώστε πρώτα το ανοιχτό παράθυρο βήματος της ενέργειας
 	Pro Medium Gray	Pro μεσαίου γκρι

@@ -3373,13 +3373,6 @@ curves	Smooth	Glätten
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU-Adapter
-
-# Contributor workflow labels
-	Paint Load	Farbvorrat
-	Alt-click the canvas to load the brush tip	Mit Alt auf die Arbeitsfläche klicken, um die Pinselspitze mit Farbe zu laden
-	Clean pickup after stroke	Aufgenommene Farbe nach dem Strich entfernen
-	Reload after stroke	Nach dem Strich neu laden
-
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Bestätige oder brich zuerst den offenen Dialog des Aktionsschritts ab
 	Pro Medium Gray	Pro (Mittelgrau)

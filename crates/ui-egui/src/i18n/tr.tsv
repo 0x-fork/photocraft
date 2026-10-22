@@ -4092,13 +4092,6 @@ cameraData	Lens	Lens
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU bağdaştırıcısı
-
-# Contributor workflow labels
-	Paint Load	Boya yükleme
-	Alt-click the canvas to load the brush tip	Fırça ucuna boya yüklemek için tuvale Alt ile tıklayın
-	Clean pickup after stroke	Darbeden sonra alınan rengi temizle
-	Reload after stroke	Darbeden sonra yeniden yükle
-
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Önce açık eylem adımı iletişim kutusunu onaylayın veya iptal edin
 	Pro Medium Gray	Pro Orta Gri

@@ -745,7 +745,7 @@ impl Session {
     pub(crate) fn dispatch(&mut self, id: &str, params: Value, background: bool) -> Result<Started> {
         // The offer belongs to this one dispatch. Early errors drop it locally, including
         // authorization, validation, floating-selection and admission failures.
-        let prepared_mixer = self.prepared_mixer.take();
+        let live_commit = self.live_commit.take();
         let spec = crate::commands::find(id).ok_or_else(|| EngineError::UnknownCommand(id.to_string()))?;
         // Params are named fields: anything but an object (or null, meaning none) is a caller
         // mistake, not "use every default".
@@ -814,12 +814,10 @@ impl Session {
         // Last-resort guard (AGENTS.md, Never crash): a command that panics anyway fails with an
         // error instead of taking the app down. `edit` only commits a document after its closure
         // returns, so the documents are unchanged.
-        if id == "paint.mixerBrush" {
-            self.prepared_mixer = prepared_mixer;
-        }
+        self.live_commit = live_commit.filter(|live| live.cmd == id);
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (spec.run)(self, &run_params)))
             .unwrap_or_else(|_| Err(EngineError::Other(format!("`{id}` failed with an internal error (logged); the document is unchanged"))));
-        self.prepared_mixer = None;
+        self.live_commit = None;
         if self.actions.recording.is_none() {
             self.actions.recording = recording;
         }
@@ -1017,7 +1015,7 @@ impl Session {
     fn end_job(&mut self, job: &Running, outcome: JobOutcome) {
         // Every terminal path invalidates a preview, including worker errors, cancellation
         // and discarded results whose document was closed or changed.
-        self.prepared_mixer = None;
+        self.live_commit = None;
         let (state, result, error) = match &outcome {
             JobOutcome::Done(v) => ("done", Some(v.clone()), None),
             JobOutcome::Failed(e) => ("failed", None, Some(e.clone())),

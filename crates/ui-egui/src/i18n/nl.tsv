@@ -4122,13 +4122,6 @@ curves	Smooth	Vloeiend maken
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU-adapter
-
-# Contributor workflow labels
-	Paint Load	Verfvoorraad
-	Alt-click the canvas to load the brush tip	Alt-klik op het canvas om de penseelpunt met verf te laden
-	Clean pickup after stroke	Opgenomen kleur na de streek verwijderen
-	Reload after stroke	Na de streek opnieuw laden
-
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	Bevestig of annuleer eerst het geopende dialoogvenster van de handelingsstap
 	Pro Medium Gray	Pro middelgrijs

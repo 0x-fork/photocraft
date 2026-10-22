@@ -4040,13 +4040,6 @@ curves	Smooth	スムーズ
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU アダプター
-
-# Contributor workflow labels
-	Paint Load	絵の具の補充
-	Alt-click the canvas to load the brush tip	Alt キーを押しながらキャンバスをクリックしてブラシ先端に絵の具を補充
-	Clean pickup after stroke	ストローク後に拾った色を除去
-	Reload after stroke	ストローク後に再補充
-
 # Actions: a step dialog holds a suspended recording (#7365)
 	Confirm or cancel the open action step dialog first	先に開いているアクションのステップのダイアログを確定またはキャンセルしてください
 	Pro Medium Gray	プロ(中間グレー)

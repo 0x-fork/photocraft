@@ -51,7 +51,7 @@ struct Core {
 
 impl Core {
     /// Apply a batch against evolving working pixels and return its damage bounds.
-    /// The dab and footprint limits always apply; the tile limit applies only to live previews.
+    /// The dab limit always applies; footprint and tile budgets apply only to live previews.
     fn apply(&mut self, dabs: &[Dab]) -> Result<Rect> {
         if self.count.saturating_add(dabs.len()) > 250_000 {
             return Err(bad(CMD, "stroke exceeds 250000 dabs; start another stroke"));
@@ -65,7 +65,7 @@ impl Core {
                 continue;
             }
             let full = self.ctx.dab_rect(dab, false);
-            if u64::from(full.width()).saturating_mul(u64::from(full.height())) > 4_194_304 {
+            if self.preview_limits && u64::from(full.width()).saturating_mul(u64::from(full.height())) > 4_194_304 {
                 return Err(bad(CMD, "Mixer Brush footprint exceeds 4194304 pixels"));
             }
             // Float working tiles avoid repeated integer-depth quantization. Initialize only
@@ -148,8 +148,8 @@ impl LiveMixer {
         let points = parse_points(p, CMD)?;
         let brush = resolve_brush(s, p, CMD)?;
         // Reject unsupported sizes before allocating a dense brush footprint.
-        if brush.size > 1024.0 {
-            return Err(bad(CMD, "live Mixer Brush size is limited to 1024 pixels; choose Brush for larger tips"));
+        if preview_limits && brush.size > 1024.0 {
+            return Err(bad(CMD, "live Mixer Brush preview size exceeds 1024 pixels; the stroke will render on release"));
         }
         let bm = &brush.mixer;
         let settings = MixerSettings {
@@ -281,16 +281,11 @@ impl LiveMixer {
         })
     }
 
-    /// Serialize recorded points, the original paint load, resolved brush and seed for deterministic replay.
+    /// Keep the same compact journal params as other paint tools: UI settings, points and seed.
     fn commit_params(&self) -> Result<Value> {
         let mut params = self.core.params.clone();
         params["points"] = serde_json::to_value(&self.points).map_err(|e| bad(CMD, e.to_string()))?;
-        params["brush"] = serde_json::to_value(&self.core.ctx.brush).map_err(|e| bad(CMD, e.to_string()))?;
         params["seed"] = json!(self.seed);
-        params["color"] = json!(self.core.ctx.brush.color);
-        if params.get("mixerState").is_none() {
-            params["mixerState"] = serde_json::to_value(&self.original_state).map_err(|e| bad(CMD, e.to_string()))?;
-        }
         Ok(params)
     }
 
@@ -303,7 +298,22 @@ impl LiveMixer {
             return Err(bad(CMD, "document or loaded paint changed during the stroke"));
         }
         let params = self.commit_params()?;
-        session.prepared_mixer = Some(self);
+        let base = session.active().map(|st| (st.doc.id, st.revision)).ok_or(EngineError::NoDocument)?;
+        let bounds = self.bounds();
+        let mut doc = (*self.doc).clone();
+        let surface = crate::channel_cmds::target_surface(&mut doc, self.core.layer, &params)?.0.clone();
+        let mut after = self.state;
+        after.end_stroke(self.core.ctx.brush.color, self.core.settings.clean_after_stroke, self.core.settings.load_after_stroke);
+        session.live_commit = Some(LiveCommit {
+            cmd: CMD.into(),
+            base,
+            params: params.clone(),
+            seed: Some(self.seed),
+            points: self.points,
+            surface,
+            bounds,
+            mixer: Some((self.original_state, after)),
+        });
         Ok(params)
     }
 }
@@ -311,15 +321,23 @@ impl LiveMixer {
 /// Consume a matching prepared result or replay without the preview tile cap, then commit one history step.
 /// The completed stroke also applies the automatic clean/load settings to the stored paint load.
 pub(super) fn run(s: &mut Session, p: &Value) -> Result<Value> {
-    let cached = s.prepared_mixer.take().filter(|live| {
-        s.active().is_some_and(|st| Arc::ptr_eq(&st.doc, &live.original) && (live.core.layer.is_none() || st.active_layer == live.core.layer))
-            && s.tools.mixer == live.original_state
-            && live.commit_params().is_ok_and(|params| params == *p)
-    });
-    let live = match cached {
-        Some(live) => live,
-        None => LiveMixer::begin_with_limits(s, p, false)?,
-    };
+    let points = parse_points(p, CMD)?;
+    let cached =
+        s.live_commit.take().filter(|live| live.matches(s, CMD, p, &points) && live.mixer.as_ref().is_some_and(|(before, _)| *before == s.tools.mixer));
+    if let Some(live) = cached {
+        let id = if crate::channel_cmds::is_channel_target(p) { None } else { Some(layer_id(s, p)?) };
+        s.edit("Mixer Brush", |doc, _| {
+            *crate::channel_cmds::target_surface(doc, id, p)?.0 = live.surface;
+            Ok(())
+        })?;
+        if let Some((_, after)) = live.mixer {
+            s.tools.mixer = after;
+        }
+        let mut result = damage_json(s, live.bounds);
+        result["fromLive"] = json!(true);
+        return Ok(result);
+    }
+    let live = LiveMixer::begin_with_limits(s, p, false)?;
     let damage = live.bounds();
     s.edit("Mixer Brush", |doc, _| {
         *doc = (*live.doc).clone();
@@ -394,7 +412,8 @@ pub(super) fn sample(s: &mut Session, p: &Value) -> Result<Value> {
                 let x = (dab.center.x as f32 + dx).floor() as i32;
                 let y = (dab.center.y as f32 - up).floor() as i32;
                 let mut color = surface.rgba(x, y);
-                color[3] *= fp.at(x, y).clamp(0.0, 1.0);
+                let coverage = if x >= fp.rect.x0 && x < fp.rect.x1 && y >= fp.rect.y0 && y < fp.rect.y1 { fp.at(x, y) } else { 0.0 };
+                color[3] *= coverage.clamp(0.0, 1.0);
                 load.push(color);
             }
         }
