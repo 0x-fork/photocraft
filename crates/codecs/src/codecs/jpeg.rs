@@ -190,6 +190,10 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Image, CodecError>
     let meta = scan_metadata(bytes);
     if let Some((w, h, nc)) = meta.frame {
         limits.check_bytes(w, h, u64::from(nc.max(1)))?;
+        // Huffman coding spends at least a bit per 8x8 block per component (about 1024:1 for
+        // a flat 4:2:0 image), so a file far smaller than that cannot hold the frame. zune-jpeg
+        // only needs one byte of scan data before it allocates the whole output (#8597).
+        Limits::check_plausible(u64::from(w) * u64::from(h) * u64::from(nc.max(1)), bytes.len(), 1 << 12)?;
     }
     let options = DecoderOptions::default().set_strict_mode(false).set_max_width(65535).set_max_height(65535);
     let mut dec = zune_jpeg::JpegDecoder::new_with_options(ZCursor::new(bytes), options);
