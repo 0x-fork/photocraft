@@ -3605,15 +3605,12 @@ curves	Smooth	매끄럽게
 	Pro Light Gray	프로 밝은 회색
 	Pro Light	프로 밝게
 	Resize Windows to Fit	창 크기 맞추기
-
 	EXR	EXR
-
 # Paragraph direction (TYPE-218-2)
 	Automatic paragraph direction	자동 단락 방향
 	Left-to-right paragraph direction	왼쪽에서 오른쪽 단락 방향
 	Right-to-left paragraph direction	오른쪽에서 왼쪽 단락 방향
 	Not rendered: this adjustment ({key}) is kept as imported.	렌더링되지 않음: 이 조정({key})은 가져온 상태 그대로 유지됩니다.
-
 # Print preview image (#8236)
 	Print preview image	Print preview image
 # Color panel menu: modes, copy commands and colour ramps (#6000)

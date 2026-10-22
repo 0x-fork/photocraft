@@ -3407,15 +3407,12 @@ curves	Smooth	Glätten
 	Pro Light Gray	Pro (Hellgrau)
 	Pro Light	Pro (Hell)
 	Resize Windows to Fit	Fenstergröße anpassen
-
 	EXR	EXR
-
 # Paragraph direction (TYPE-218-2)
 	Automatic paragraph direction	Automatische Absatzrichtung
 	Left-to-right paragraph direction	Absatzrichtung von links nach rechts
 	Right-to-left paragraph direction	Absatzrichtung von rechts nach links
 	Not rendered: this adjustment ({key}) is kept as imported.	Nicht dargestellt: Diese Einstellung ({key}) wird wie importiert beibehalten.
-
 # Print preview image (#8236)
 	Print preview image	Print preview image
 # Color panel menu: modes, copy commands and colour ramps (#6000)

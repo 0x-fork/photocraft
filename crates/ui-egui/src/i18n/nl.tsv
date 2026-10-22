@@ -4155,15 +4155,12 @@ curves	Smooth	Vloeiend maken
 	Pro Light Gray	Pro lichtgrijs
 	Pro Light	Pro licht
 	Resize Windows to Fit	Venstergrootte aanpassen
-
 	EXR	EXR
-
 # Paragraph direction (TYPE-218-2)
 	Automatic paragraph direction	Automatische alinearichting
 	Left-to-right paragraph direction	Alinearichting van links naar rechts
 	Right-to-left paragraph direction	Alinearichting van rechts naar links
 	Not rendered: this adjustment ({key}) is kept as imported.	Niet weergegeven: deze aanpassing ({key}) blijft behouden zoals geïmporteerd.
-
 # Print preview image (#8236)
 	Print preview image	Print preview image
 # Color panel menu: modes, copy commands and colour ramps (#6000)

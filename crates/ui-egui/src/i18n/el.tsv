@@ -4095,15 +4095,12 @@ curves	Smooth	Εξομάλυνση
 	Pro Light Gray	Pro ανοιχτού γκρι
 	Pro Light	Φωτεινό Pro
 	Resize Windows to Fit	Προσαρμογή μεγέθους παραθύρων
-
 	EXR	EXR
-
 # Paragraph direction (TYPE-218-2)
 	Automatic paragraph direction	Αυτόματη κατεύθυνση παραγράφου
 	Left-to-right paragraph direction	Κατεύθυνση παραγράφου από αριστερά προς τα δεξιά
 	Right-to-left paragraph direction	Κατεύθυνση παραγράφου από δεξιά προς τα αριστερά
 	Not rendered: this adjustment ({key}) is kept as imported.	Δεν αποδίδεται: αυτή η προσαρμογή ({key}) διατηρείται όπως εισήχθη.
-
 # Print preview image (#8236)
 	Print preview image	Print preview image
 # Color panel menu: modes, copy commands and colour ramps (#6000)

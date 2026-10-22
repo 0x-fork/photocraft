@@ -4124,15 +4124,12 @@ cameraData	Lens	Lens
 	Pro Light Gray	Pro Açık Gri
 	Pro Light	Profesyonel Işık
 	Resize Windows to Fit	Pencereleri sığacak şekilde boyutlandır
-
 	EXR	EXR
-
 # Paragraph direction (TYPE-218-2)
 	Automatic paragraph direction	Otomatik paragraf yönü
 	Left-to-right paragraph direction	Soldan sağa paragraf yönü
 	Right-to-left paragraph direction	Sağdan sola paragraf yönü
 	Not rendered: this adjustment ({key}) is kept as imported.	Görüntülenmiyor: bu ayarlama ({key}) içe aktarıldığı gibi korunuyor.
-
 # Print preview image (#8236)
 	Print preview image	Print preview image
 # Color panel menu: modes, copy commands and colour ramps (#6000)

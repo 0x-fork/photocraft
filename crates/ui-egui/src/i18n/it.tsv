@@ -4512,15 +4512,12 @@ shape	Appearance	Aspetto
 	Pro Light Gray	Pro grigio chiaro
 	Pro Light	Pro chiaro
 	Resize Windows to Fit	Ridimensiona finestre per adattare
-
 	EXR	EXR
-
 # Paragraph direction (TYPE-218-2)
 	Automatic paragraph direction	Direzione del paragrafo automatica
 	Left-to-right paragraph direction	Direzione del paragrafo da sinistra a destra
 	Right-to-left paragraph direction	Direzione del paragrafo da destra a sinistra
 	Not rendered: this adjustment ({key}) is kept as imported.	Non renderizzato: questa regolazione ({key}) viene conservata come importata.
-
 # Print preview image (#8236)
 	Print preview image	Print preview image
 # Color panel menu: modes, copy commands and colour ramps (#6000)

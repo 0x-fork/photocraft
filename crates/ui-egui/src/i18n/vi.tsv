@@ -3887,15 +3887,12 @@ curves	Smooth	Làm mượt
 	Pro Light Gray	Pro xám nhạt
 	Pro Light	Pro sáng
 	Resize Windows to Fit	Đổi cỡ cửa sổ cho vừa ảnh
-
 	EXR	EXR
-
 # Paragraph direction (TYPE-218-2)
 	Automatic paragraph direction	Hướng đoạn văn tự động
 	Left-to-right paragraph direction	Hướng đoạn văn từ trái sang phải
 	Right-to-left paragraph direction	Hướng đoạn văn từ phải sang trái
 	Not rendered: this adjustment ({key}) is kept as imported.	Không được kết xuất: điều chỉnh này ({key}) được giữ nguyên như khi nhập.
-
 # Print preview image (#8236)
 	Print preview image	Print preview image
 # Color panel menu: modes, copy commands and colour ramps (#6000)

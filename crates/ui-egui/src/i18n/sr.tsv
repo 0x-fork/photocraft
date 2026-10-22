@@ -4455,15 +4455,12 @@ shape	Appearance	Izgled
 	Pro Light Gray	Pro svetlosiva
 	Pro Light	Pro svetla
 	Resize Windows to Fit	Prilagodi veličinu prozora
-
 	EXR	EXR
-
 # Paragraph direction (TYPE-218-2)
 	Automatic paragraph direction	Automatski smer pasusa
 	Left-to-right paragraph direction	Smer pasusa sleva nadesno
 	Right-to-left paragraph direction	Smer pasusa zdesna nalevo
 	Not rendered: this adjustment ({key}) is kept as imported.	Није приказано: ово прилагођавање ({key}) је задржано онако како је увезено.
-
 # Print preview image (#8236)
 	Print preview image	Print preview image
 # PhotoCraft release checks.

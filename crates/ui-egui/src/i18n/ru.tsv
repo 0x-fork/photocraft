@@ -3876,7 +3876,6 @@ curves	Smooth	Сгладить
 	Pro Light Gray	Светло-серая Pro
 	Pro Light	Светлая Pro
 	Resize Windows to Fit	Подгонять размер окон
-
 	EXR	EXR
 	Increase Brush Size	Увеличить размер кисти
 	Increase Type Size	Увеличить размер текста
@@ -4554,8 +4553,6 @@ curves	Smooth	Сгладить
 	↑↓ navigate   ↵ run   esc close	↑↓ навигация   ↵ выполнить   esc закрыть
 	✓ Color Indicates Masked Areas	✓ Цветом обозначены маскированные области
 	✓ Color Indicates Selected Areas	✓ Цветом обозначены выделенные области
-
-
 # Dynamic command-id, plural, and contextual labels (fourth pass).
 @id	edit.clear	Очистить
 @id	edit.purge.undo	Данные отмены
@@ -4602,13 +4599,11 @@ layers	Fill	Заливка
 layers	Fill:	Заливка:
 navigator	Zoom	Масштаб
 shape	Appearance	Оформление
-
 # Paragraph direction (TYPE-218-2)
 	Automatic paragraph direction	Автоматическое направление абзаца
 	Left-to-right paragraph direction	Направление абзаца слева направо
 	Right-to-left paragraph direction	Направление абзаца справа налево
 	Not rendered: this adjustment ({key}) is kept as imported.	Не отображается: эта коррекция ({key}) сохранена как при импорте.
-
 # Print preview image (#8236)
 	Print preview image	Print preview image
 # Color panel menu: modes, copy commands and colour ramps (#6000)

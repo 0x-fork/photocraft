@@ -3055,15 +3055,12 @@ curves	Smooth	平滑
 	Pro Light Gray	专业浅灰
 	Pro Light	专业浅色
 	Resize Windows to Fit	调整窗口大小以适合
-
 	EXR	EXR
-
 # Paragraph direction (TYPE-218-2)
 	Automatic paragraph direction	自动段落方向
 	Left-to-right paragraph direction	从左到右的段落方向
 	Right-to-left paragraph direction	从右到左的段落方向
 	Not rendered: this adjustment ({key}) is kept as imported.	未渲染：此调整（{key}）按导入时的原样保留。
-
 # Print preview image (#8236)
 	Print preview image	Print preview image
 # Color panel menu: modes, copy commands and colour ramps (#6000)

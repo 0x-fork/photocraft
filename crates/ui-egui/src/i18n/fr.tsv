@@ -3407,7 +3407,6 @@ curves	Smooth	Lisser
 	Pro Light Gray	Pro gris clair
 	Pro Light	Pro clair
 	Resize Windows to Fit	Redimensionner les fenêtres
-
 	EXR	EXR
 	(none)	(aucun)
 	32-bit Preview Options	Options d'aperçu 32 bits
@@ -4439,13 +4438,11 @@ layers	Fill	Remplissage
 layers	Fill:	Remplissage :
 navigator	Zoom	Zoom
 shape	Appearance	Apparence
-
 # Paragraph direction (TYPE-218-2)
 	Automatic paragraph direction	Sens du paragraphe automatique
 	Left-to-right paragraph direction	Sens du paragraphe de gauche à droite
 	Right-to-left paragraph direction	Sens du paragraphe de droite à gauche
 	Not rendered: this adjustment ({key}) is kept as imported.	Non rendu : ce réglage ({key}) est conservé tel qu'importé.
-
 # Print preview image (#8236)
 	Print preview image	Print preview image
 # Color panel menu: modes, copy commands and colour ramps (#6000)
