@@ -4018,3 +4018,19 @@ curves	Smooth	Wygładź
 
 # Print preview image (#8236)
 	Print preview image	Print preview image
+# Color panel menu: modes, copy commands and colour ramps (#6000)
+	Hue Cube	Sześcian odcienia
+	Brightness Cube	Sześcian jasności
+	Color Wheel	Koło kolorów
+	RGB Sliders	Suwaki RGB
+	HSB Sliders	Suwaki HSB
+	CMYK Sliders	Suwaki CMYK
+	Lab Sliders	Suwaki Lab
+	Web Color Sliders	Suwaki kolorów internetowych
+	Copy Color as HTML	Kopiuj kolor jako HTML
+	Copy Color's Hex Code	Kopiuj kod szesnastkowy koloru
+	RGB Spectrum	Widmo RGB
+	CMYK Spectrum	Widmo CMYK
+	Grayscale Ramp	Pasek skali szarości
+	Current Colors	Bieżące kolory
+	Make Ramp Web Safe	Ogranicz pasek do kolorów internetowych

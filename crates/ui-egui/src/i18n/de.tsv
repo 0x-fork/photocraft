@@ -3413,3 +3413,20 @@ curves	Smooth	Glätten
 
 # Print preview image (#8236)
 	Print preview image	Print preview image
+# Color panel menu: modes, copy commands and colour ramps (#6000)
+	Hue Cube	Farbtonwürfel
+	Brightness Cube	Helligkeitswürfel
+	Color Wheel	Farbkreis
+	Grayscale Slider	Graustufen-Regler
+	RGB Sliders	RGB-Regler
+	HSB Sliders	HSB-Regler
+	CMYK Sliders	CMYK-Regler
+	Lab Sliders	Lab-Regler
+	Web Color Sliders	Webfarben-Regler
+	Copy Color as HTML	Farbe als HTML kopieren
+	Copy Color's Hex Code	Hex-Code der Farbe kopieren
+	RGB Spectrum	RGB-Spektrum
+	CMYK Spectrum	CMYK-Spektrum
+	Grayscale Ramp	Graustufenbalken
+	Current Colors	Aktuelle Farben
+	Make Ramp Web Safe	Farbbalken auf Webfarben beschränken

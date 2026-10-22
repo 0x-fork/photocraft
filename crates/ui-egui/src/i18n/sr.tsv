@@ -4475,3 +4475,19 @@ shape	Appearance	Izgled
 	Automatically Check for Updates	Automatski proveravaj ažuriranja
 	Installed version: {version}	Instalirana verzija: {version}
 	PhotoCraft {version} is available.	Dostupan je PhotoCraft {version}.
+# Color panel menu: modes, copy commands and colour ramps (#6000)
+	Hue Cube	Kocka nijanse
+	Brightness Cube	Kocka osvetljenosti
+	Color Wheel	Točak boja
+	RGB Sliders	RGB klizači
+	HSB Sliders	HSB klizači
+	CMYK Sliders	CMYK klizači
+	Lab Sliders	Lab klizači
+	Web Color Sliders	Klizači veb boja
+	Copy Color as HTML	Kopiraj boju kao HTML
+	Copy Color's Hex Code	Kopiraj heksadecimalni kod boje
+	RGB Spectrum	RGB spektar
+	CMYK Spectrum	CMYK spektar
+	Grayscale Ramp	Skala nijansi sive
+	Current Colors	Trenutne boje
+	Make Ramp Web Safe	Učini skalu bezbednom za veb

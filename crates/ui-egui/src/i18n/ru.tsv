@@ -4607,3 +4607,19 @@ shape	Appearance	Оформление
 
 # Print preview image (#8236)
 	Print preview image	Print preview image
+# Color panel menu: modes, copy commands and colour ramps (#6000)
+	Hue Cube	Куб цветового тона
+	Brightness Cube	Куб яркости
+	Color Wheel	Цветовой круг
+	RGB Sliders	Ползунки RGB
+	HSB Sliders	Ползунки HSB
+	CMYK Sliders	Ползунки CMYK
+	Lab Sliders	Ползунки Lab
+	Web Color Sliders	Ползунки web-цветов
+	Copy Color as HTML	Копировать цвет как HTML
+	Copy Color's Hex Code	Копировать шестнадцатеричный код цвета
+	RGB Spectrum	Спектр RGB
+	CMYK Spectrum	Спектр CMYK
+	Grayscale Ramp	Шкала градаций серого
+	Current Colors	Текущие цвета
+	Make Ramp Web Safe	Сделать шкалу безопасной для web

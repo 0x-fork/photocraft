@@ -4519,3 +4519,19 @@ shape	Appearance	Aspetto
 
 # Print preview image (#8236)
 	Print preview image	Print preview image
+# Color panel menu: modes, copy commands and colour ramps (#6000)
+	Hue Cube	Cubo tonalità
+	Brightness Cube	Cubo luminosità
+	Color Wheel	Ruota dei colori
+	RGB Sliders	Cursori RGB
+	HSB Sliders	Cursori HSB
+	CMYK Sliders	Cursori CMYK
+	Lab Sliders	Cursori Lab
+	Web Color Sliders	Cursori colori web
+	Copy Color as HTML	Copia colore come HTML
+	Copy Color's Hex Code	Copia codice esadecimale del colore
+	RGB Spectrum	Spettro RGB
+	CMYK Spectrum	Spettro CMYK
+	Grayscale Ramp	Barra scala di grigio
+	Current Colors	Colori correnti
+	Make Ramp Web Safe	Limita la barra ai colori web

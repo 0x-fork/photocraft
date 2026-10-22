@@ -3893,3 +3893,20 @@ curves	Smooth	Làm mượt
 
 # Print preview image (#8236)
 	Print preview image	Print preview image
+# Color panel menu: modes, copy commands and colour ramps (#6000)
+	Hue Cube	Khối sắc màu
+	Brightness Cube	Khối độ sáng
+	Color Wheel	Bánh xe màu
+	Grayscale Slider	Thanh trượt thang xám
+	RGB Sliders	Thanh trượt RGB
+	HSB Sliders	Thanh trượt HSB
+	CMYK Sliders	Thanh trượt CMYK
+	Lab Sliders	Thanh trượt Lab
+	Web Color Sliders	Thanh trượt màu web
+	Copy Color as HTML	Sao chép màu dạng HTML
+	Copy Color's Hex Code	Sao chép mã hex của màu
+	RGB Spectrum	Phổ RGB
+	CMYK Spectrum	Phổ CMYK
+	Grayscale Ramp	Dải thang xám
+	Current Colors	Màu hiện tại
+	Make Ramp Web Safe	Giới hạn dải màu ở màu web
