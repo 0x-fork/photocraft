@@ -552,6 +552,8 @@ fn every_mapped_command_exports_and_imports_back() {
         ("file.placeEmbedded", json!({"path": "/tmp/logo.png", "scale": 50})),
         ("file.placeLinked", json!({"path": "/tmp/logo.png"})),
         ("file.openAs", json!({"path": "/tmp/a.psd"})),
+        ("file.saveAs", json!({"path": "/tmp/out/a.png"})),
+        ("file.saveACopy", json!({"path": "/tmp/out/a.tif"})),
         ("actions.conditional", json!({"if": "hasLayers", "then": "FS8-Layers", "else": "FS8-No-Layers", "set": "S"})),
         ("actions.conditional", json!({"if": "landscape", "then": "Wide", "else": null, "set": "S"})),
         ("tools.setColors", json!({"foreground": "#102030"})),
@@ -2748,4 +2750,99 @@ fn hue_saturation_uses_photoshops_hue_key() {
     let mut p = back.actions[0].steps[0].1.clone();
     normalise(&mut p);
     assert_eq!(p["hue"], json!(30), "{p}");
+}
+
+fn one_action(items: Vec<AtnItem>) -> AtnFile {
+    AtnFile {
+        name: UnicodeString::new_nul("Saves"),
+        expanded: false,
+        actions: vec![AtnAction { name: UnicodeString::new_nul("A"), items, ..Default::default() }],
+        warnings: vec![],
+    }
+}
+
+fn save_as(format: &str, path: &str) -> Descriptor {
+    desc("null").with("As  ", D::Descriptor(desc(format))).with("In  ", path_value(path)).with("DocI", long(53.0))
+}
+
+#[test]
+fn save_as_to_a_file_imports_with_its_destination() {
+    let file = one_action(vec![
+        item("save", "Save", Some(save_as("PNGF", "/out/result.png"))),
+        item("save", "Save", Some(save_as("Google WebPShop", "C:\\out\\result.webp").with("Cpy ", D::Boolean(true)))),
+        item("save", "Save", Some(save_as("JPEG", "/out/result.jpeg"))),
+        item("save", "Save", Some(save_as("WebPFormat", "/out/result.webp"))),
+        item("save", "Save", None),
+        item("save", "Save", Some(desc("null").with("DocI", long(53.0)))),
+    ]);
+    let imp = import(&atn::write(&file).unwrap()).unwrap();
+    assert_eq!(
+        imp.actions[0].steps,
+        [
+            ("file.saveAs".to_string(), json!({"path": "/out/result.png"})),
+            ("file.saveACopy".to_string(), json!({"path": "C:\\out\\result.webp"})),
+            ("file.saveAs".to_string(), json!({"path": "/out/result.jpeg"})),
+            ("file.saveAs".to_string(), json!({"path": "/out/result.webp"})),
+            ("file.save".to_string(), json!({})),
+            ("file.save".to_string(), json!({})),
+        ]
+    );
+    assert!(imp.unsupported.is_empty());
+}
+
+#[test]
+fn save_as_that_cannot_be_mapped_stops_playback_instead_of_saving_over_the_file() {
+    // Before #7102 each of these imported as a plain File › Save, which overwrote the file the
+    // action was played on.
+    let file = one_action(vec![
+        item("save", "Save", Some(save_as("PNGF", "/out/folder"))),
+        item("save", "Save", Some(save_as("PNGF", "/out/v1.png").with("DIDr", D::Boolean(true)))),
+        item("save", "Save", Some(save_as("PNGF", "/out/result.webp"))),
+        item("save", "Save", Some(save_as("GIFf", "/out/result.gif"))),
+        item("save", "Save", Some(desc("null").with("As  ", D::Descriptor(desc("PNGF"))))),
+        // A format that isn't a descriptor, with and without a destination.
+        item("save", "Save", Some(desc("null").with("As  ", long(1.0)))),
+        item("save", "Save", Some(desc("null").with("As  ", long(1.0)).with("In  ", path_value("/out/result.png")))),
+        // A destination with no format at all.
+        item("save", "Save", Some(desc("null").with("In  ", path_value("/out/result.png")))),
+    ]);
+    let imp = import(&atn::write(&file).unwrap()).unwrap();
+    let ids: Vec<&str> = imp.actions[0].steps.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(ids, [PHOTOSHOP_STEP; 8]);
+    assert!(imp.actions[0].disabled.is_empty(), "kept saves stay on, so playback stops on them");
+    // The kept steps are written back byte for byte.
+    let a = &imp.actions[0];
+    let (bytes, skipped) = export("Saves", &[a], &[], false).unwrap();
+    assert!(skipped.is_empty());
+    let back = atn::parse(&bytes).unwrap();
+    for (out, orig) in back.actions[0].items.iter().zip(&file.actions[0].items) {
+        assert_eq!(out.descriptor, orig.descriptor);
+    }
+}
+
+#[test]
+fn saves_round_trip_through_photoshop_events() {
+    let steps = vec![
+        ("file.saveAs".to_string(), json!({"path": "/out/result.psd"})),
+        ("file.saveACopy".to_string(), json!({"path": "/out/copy.webp"})),
+        ("file.save".to_string(), json!({})),
+    ];
+    let a = Action::new("A", steps.clone());
+    let (bytes, skipped) = export("Saves", &[&a], &[], false).unwrap();
+    assert!(skipped.is_empty());
+    let file = atn::parse(&bytes).unwrap();
+    let items = &file.actions[0].items;
+    assert!(items.iter().all(|i| i.event.id() == "save"));
+    let first = items[0].descriptor.as_ref().unwrap();
+    assert_eq!(get_obj(first, "As  ").map(|f| trimmed(&f.class_id)).as_deref(), Some("Pht3"));
+    assert_eq!(first.get("In  ").and_then(path_text).as_deref(), Some("/out/result.psd"));
+    assert_eq!(get_bool(items[1].descriptor.as_ref().unwrap(), "Cpy "), Some(true));
+    // Photoshop's own WebP class, not the plug-in's: Photoshop 2026 rejects `Google WebPShop`.
+    assert_eq!(get_obj(items[1].descriptor.as_ref().unwrap(), "As  ").map(|f| trimmed(&f.class_id)).as_deref(), Some("WebPFormat"));
+    assert_eq!(import(&bytes).unwrap().actions[0].steps, steps);
+
+    // A Save As PhotoCraft can't express in Photoshop's terms is skipped, never exported as a
+    // plain Save.
+    let odd = Action::new("B", vec![("file.saveAs".to_string(), json!({"path": "/out/result.xcf"}))]);
+    assert!(export("Saves", &[&odd], &[], false).is_err());
 }
