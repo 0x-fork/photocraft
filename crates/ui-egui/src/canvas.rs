@@ -1050,14 +1050,52 @@ impl ViewXform {
         let v = app.ui.views.get(app.session.active_index()?)?;
         let (zoom, center) =
             if v.zoom_animating && app.session.prefs().general.animated_zoom { v.display_camera.unwrap_or((v.zoom, v.center)) } else { (v.zoom, v.center) };
-        Some(Self {
-            rect: crate::rulers::content_rect(app, app.last_canvas_rect),
-            zoom: zoom / app.canvas_ppp(),
-            center,
-            flip: app.ui.view.flip_horizontal,
-            rotation: v.rotation,
-            aspect: app.ui.view.display_aspect(),
-        })
+        Some(
+            Self {
+                rect: crate::rulers::content_rect(app, app.last_canvas_rect),
+                zoom: zoom / app.canvas_ppp(),
+                center,
+                flip: app.ui.view.flip_horizontal,
+                rotation: v.rotation,
+                aspect: app.ui.view.display_aspect(),
+            }
+            .pixel_aligned_for(app, app.canvas_ppp()),
+        )
+    }
+
+    fn pixel_aligned_for(self, app: &PhotocraftApp, ppp: f32) -> Self {
+        // Default Crop counter-moves the frame and camera with fractional pointer deltas.
+        // Preserve that continuous mapping so its fixed frame does not wobble during a drag.
+        if crate::crop_mode::moves_image(app) { self } else { self.pixel_aligned(ppp) }
+    }
+
+    /// At integer physical magnifications, texel edges must land on display pixel edges.
+    /// Keep this derived camera shared by images, overlays and input without changing the saved pan.
+    fn pixel_aligned(mut self, ppp: f32) -> Self {
+        if !ppp.is_finite() || ppp <= 0.0 || !self.zoom.is_finite() || self.zoom <= 0.0 || !self.rotation.is_finite() || self.rotation.abs() >= 1e-8 {
+            return self;
+        }
+        let scale = vec2(self.zoom_x(), self.zoom) * ppp;
+        if !scale.is_finite()
+            || scale.x.round() < 1.0
+            || scale.y.round() < 1.0
+            || (scale.x - scale.x.round()).abs() > 1e-5
+            || (scale.y - scale.y.round()).abs() > 1e-5
+        {
+            return self;
+        }
+        let origin = self.to_screen(0.0, 0.0);
+        let physical = origin * ppp;
+        if !physical.is_finite() {
+            return self;
+        }
+        let aligned = pos2(physical.x.round(), physical.y.round()) / ppp;
+        let offset = self.unmap_vec((aligned - origin) / self.zoom);
+        let center = [self.center[0] - offset.x, self.center[1] - offset.y];
+        if center.iter().all(|v| v.is_finite()) {
+            self.center = center;
+        }
+        self
     }
 
     fn sincos(self) -> (f32, f32) {
@@ -3476,7 +3514,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     if view.zoom_animating {
         ctx.request_repaint();
     }
-    let xf = ViewXform { zoom: display_view.zoom / ppp, center: display_view.center, ..target_xf };
+    let xf = ViewXform { zoom: display_view.zoom / ppp, center: display_view.center, ..target_xf }.pixel_aligned_for(app, ppp);
     let pixel_grid = app.ui.view.shows(app.ui.view.show.pixel_grid);
     let response = ui.allocate_rect(rect, Sense::click_and_drag());
     let stroke_dismissal = primary && crate::shape_stroke_ui::dismiss_from_canvas(app, &response);
@@ -3530,8 +3568,8 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 zoom: view.zoom * k as f32 / ppp,
                 // A size-changing preview grows around the old image center; keep the view's pan.
                 center: [
-                    view.center[0] / k as f32 + (preview_size[0] as f32 - original_size[0] as f32) / 2.0,
-                    view.center[1] / k as f32 + (preview_size[1] as f32 - original_size[1] as f32) / 2.0,
+                    xf.center[0] / k as f32 + (preview_size[0] as f32 - original_size[0] as f32) / 2.0,
+                    xf.center[1] / k as f32 + (preview_size[1] as f32 - original_size[1] as f32) / 2.0,
                 ],
                 rotation: if view.rotation.is_finite() { view.rotation.to_radians() } else { 0.0 },
                 shadow: {
@@ -3554,7 +3592,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 doc: doc.id.0,
                 doc_size: [doc.size.width, doc.size.height],
                 zoom: point_zoom,
-                center: view.center,
+                center: xf.center,
                 rotation: if view.rotation.is_finite() { view.rotation.to_radians() } else { 0.0 },
                 shadow: {
                     let t = crate::theme::Tokens::get(&ctx);
@@ -4414,7 +4452,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             display_view.center = view.center;
         }
         display_view.rotation = view.rotation;
-        ViewXform { center: display_view.center, rotation: display_view.rotation, ..xf }
+        ViewXform { center: display_view.center, rotation: display_view.rotation, ..xf }.pixel_aligned_for(app, ppp)
     } else {
         xf
     };
@@ -10059,6 +10097,9 @@ mod display_memo_tests;
 #[path = "canvas/blend_viewport_tests.rs"]
 mod blend_viewport_regression;
 
+#[cfg(test)]
+#[path = "canvas/pixel_alignment_tests.rs"]
+mod pixel_alignment_tests;
 #[cfg(test)]
 mod lasso_preview_tests {
     use super::*;
