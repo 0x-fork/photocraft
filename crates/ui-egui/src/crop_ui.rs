@@ -266,7 +266,8 @@ pub(crate) fn apply_ratio_from(app: &mut PhotocraftApp, base: [f64; 4]) {
 
 fn fit_frame(app: &mut PhotocraftApp) {
     let dpi = app.session.active().map_or(72.0, |s| f64::from(s.doc.resolution_dpi));
-    let sized = crate::crop_size::target(&app.ui.tool_options, dpi).is_some();
+    let pt_per_in = app.session.prefs().units_and_rulers.point_size.per_inch();
+    let sized = crate::crop_size::target(&app.ui.tool_options, dpi, pt_per_in).is_some();
     if let Some(r) = app.ui.crop_rect
         && let Some(ratio) = preset_ratio(app)
         && let Some(fitted) = fitted_ratio(r, ratio)
