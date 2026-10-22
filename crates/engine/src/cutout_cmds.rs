@@ -66,7 +66,8 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
                 }
             }
             crate::extra_cmds::background_to_layer_for_mask(doc, id);
-            doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?.mask = Some(LayerMask { surface: matting::region_surface(&region), ..LayerMask::reveal_all() });
+            let mask = crate::commands::mask_at_depth(LayerMask { surface: matting::region_surface(&region), ..LayerMask::reveal_all() }, doc.depth)?;
+            doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?.mask = Some(mask);
             doc.selection = None;
             let b = region.bbox;
             Ok([b.x0, b.y0, b.width() as i32, b.height() as i32])
