@@ -736,6 +736,19 @@ fn floating_point_raw_data_that_isnt_jpeg_xl_is_unsupported() {
     }
 }
 
+/// WhiteLevel has one value per sample plane: the floats are scaled by the highest, so a plane
+/// with a higher white level than the first keeps its highlights.
+#[test]
+fn floating_point_white_levels_per_plane_scale_from_the_highest() {
+    let (w, h) = (24, 16);
+    let data = noise(w * h * 3, 16);
+    let mut spec = float_jxl_dng(&data, w, h, None);
+    spec.raw_extra.push((50717, Val::Double(vec![0.5, 1.0, 0.5])));
+    let s = sensor(&spec.build());
+    assert_eq!(s.data, data, "scaled by 1.0, the highest: nothing clipped");
+    assert_eq!(s.white, [32767.5, 65535.0, 32767.5]);
+}
+
 /// Floating-point samples are read into four bytes each before they become 16-bit: the limits
 /// are charged for that buffer, not for the two-byte result.
 #[test]
