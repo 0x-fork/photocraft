@@ -2799,14 +2799,18 @@ fn levels_event_to(id: &str, p: &Value) -> Option<Descriptor> {
     })
 }
 
-/// A direct adjustment event (Image › Adjustments › …).
+/// A direct adjustment event (Image › Adjustments › …). The command id is `image.adjustments.<name>`
+/// unless it is given.
 macro_rules! adjustment_event {
     ($code:literal, $class:literal, $name:literal, $label:literal) => {
+        adjustment_event!($code, $class, $name, $label, concat!("image.adjustments.", $name))
+    };
+    ($code:literal, $class:literal, $name:literal, $label:literal, $id:expr) => {
         Event {
             code: $code,
             name: $name,
             label: $label,
-            ids: &[concat!("image.adjustments.", $name)],
+            ids: &[$id],
             from: |d| match adjustment_by_class($class) {
                 Some(a) => adjustment_steps(a, "image.adjustments.", Some(d)),
                 None => Mapped::Unsupported { harmless: false },
@@ -2993,6 +2997,13 @@ fn clipping_to(_: &str, p: &Value) -> Option<Descriptor> {
     Some(desc("null").with("null", layer_ref(p)))
 }
 
+/// A clipping mask event: `clipping_from` / `clipping_to` with one command id.
+macro_rules! clipping_event {
+    ($code:literal, $name:literal, $label:literal, $id:literal) => {
+        Event { code: $code, name: $name, label: $label, ids: &[$id], from: |d| clipping_from(d, $id), to: clipping_to }
+    };
+}
+
 /// Every Photoshop event PhotoCraft maps. The order matters only for the panel label.
 const EVENTS: &[Event] = &[
     // Filters.
@@ -3086,17 +3097,7 @@ const EVENTS: &[Event] = &[
     },
     adjustment_event!("Crvs", "Crvs", "curves", "Curves"),
     adjustment_event!("HStr", "HStr", "hueSaturation", "Hue/Saturation"),
-    Event {
-        code: "BrgC",
-        name: "brightnessEvent",
-        label: "Brightness/Contrast",
-        ids: &["image.adjustments.brightnessContrast"],
-        from: |d| match adjustment_by_class("BrgC") {
-            Some(a) => adjustment_steps(a, "image.adjustments.", Some(d)),
-            None => Mapped::Unsupported { harmless: false },
-        },
-        to: |_, p| adjustment_by_class("BrgC").and_then(|a| (a.to)(p)),
-    },
+    adjustment_event!("BrgC", "BrgC", "brightnessEvent", "Brightness/Contrast", "image.adjustments.brightnessContrast"),
     adjustment_event!("Thrs", "Thrs", "threshold", "Threshold"),
     adjustment_event!("Pstr", "Pstr", "posterize", "Posterize"),
     adjustment_event!("Invr", "Invr", "invert", "Invert"),
@@ -3104,29 +3105,9 @@ const EVENTS: &[Event] = &[
     adjustment_event!("Vbrn", "Vbrn", "vibrance", "Vibrance"),
     adjustment_event!("Exps", "Exps", "exposure", "Exposure"),
     adjustment_event!("PhtF", "PhtF", "photoFilter", "Photo Filter"),
-    Event {
-        code: "",
-        name: "blackAndWhite",
-        label: "Black & White",
-        ids: &["image.adjustments.blackWhite"],
-        from: |d| match adjustment_by_class("BlnW") {
-            Some(a) => adjustment_steps(a, "image.adjustments.", Some(d)),
-            None => Mapped::Unsupported { harmless: false },
-        },
-        to: |_, p| adjustment_by_class("BlnW").and_then(|a| (a.to)(p)),
-    },
+    adjustment_event!("", "BlnW", "blackAndWhite", "Black & White", "image.adjustments.blackWhite"),
     adjustment_event!("ChnM", "ChnM", "channelMixer", "Channel Mixer"),
-    Event {
-        code: "GdMp",
-        name: "gradientMapEvent",
-        label: "Gradient Map",
-        ids: &["image.adjustments.gradientMap"],
-        from: |d| match adjustment_by_class("GdMp") {
-            Some(a) => adjustment_steps(a, "image.adjustments.", Some(d)),
-            None => Mapped::Unsupported { harmless: false },
-        },
-        to: |_, p| adjustment_by_class("GdMp").and_then(|a| (a.to)(p)),
-    },
+    adjustment_event!("GdMp", "GdMp", "gradientMapEvent", "Gradient Map", "image.adjustments.gradientMap"),
     adjustment_event!("SlcC", "SlcC", "selectiveColor", "Selective Color"),
     ev!("Dstt", "desaturate", "Desaturate", "image.adjustments.desaturate", &[]),
     ev!("Eqlz", "equalize", "Equalize", "image.adjustments.equalize", &[]),
@@ -3316,27 +3297,13 @@ const EVENTS: &[Event] = &[
         to: merge_visible_to,
     },
     ev!("Mrg2", "mergeLayersNew", "Merge Layers", "layer.mergeLayers", &[]),
-    Event {
-        code: "Ungr",
-        name: "ungroup",
-        label: "Release Clipping Mask",
-        ids: &["layer.releaseClippingMask"],
-        from: |d| clipping_from(d, "layer.releaseClippingMask"),
-        to: clipping_to,
-    },
+    clipping_event!("Ungr", "ungroup", "Release Clipping Mask", "layer.releaseClippingMask"),
     ev!("CpTL", "copyToLayer", "Layer Via Copy", "layer.new.layerViaCopy", &[]),
     ev!("CtTL", "cutToLayer", "Layer Via Cut", "layer.new.layerViaCut", &[]),
     ev!("", "rasterizeLayer", "Rasterize", "layer.rasterize.layer", &[]),
     ev!("", "selectAllLayers", "Select All Layers", "select.allLayers", &[]),
     ev!("", "selectNoLayers", "Deselect Layers", "select.deselectLayers", &[]),
-    Event {
-        code: "GrpL",
-        name: "groupEvent",
-        label: "Create Clipping Mask",
-        ids: &["layer.createClippingMask"],
-        from: |d| clipping_from(d, "layer.createClippingMask"),
-        to: clipping_to,
-    },
+    clipping_event!("GrpL", "groupEvent", "Create Clipping Mask", "layer.createClippingMask"),
     ev!("", "ungroupLayersEvent", "Ungroup Layers", "layer.ungroupLayers", &[]),
     ev!("", "copyEffects", "Copy Layer Style", "layer.layerStyle.copyLayerStyle", &[]),
     ev!("", "pasteEffects", "Paste Layer Style", "layer.layerStyle.pasteLayerStyle", &[]),
