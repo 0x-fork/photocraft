@@ -20,6 +20,10 @@
 [people.brianblakely]
 sync_github_name = true
 
+[people.abdul-karim-mia]
+real_name = "Abdul karim mia"
+sync_github_name = false
+
 [people.jonathanwxh-cell]
 display_name = "jonathnwxh"
 sync_github_name = false
@@ -229,4 +233,18 @@ real_name = "Giang Nguyen"
 sync_github_name = true
 
 [people.aqibmohd271]
+sync_github_name = true
+
+[people.marcoarnulfo]
+real_name = "Marco Arnulfo"
+display_name = "Marco Arnulfo"
+sync_github_name = false
+
+[people.Gotix-eg]
+real_name = "Ahmed Tammam"
+display_name = "Gotix"
+sync_github_name = true
+
+[people.adi-1108]
+real_name = "Aditya Vishwakarma"
 sync_github_name = true
