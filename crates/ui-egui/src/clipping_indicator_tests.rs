@@ -129,12 +129,7 @@ fn scroll_to_adjustment_control(h: &mut Harness<'_, PhotocraftApp>, label: &str)
         }
         // The label column stays clear of the Color Lookup picker, which consumes wheel input.
         h.hover_at(pos2(16.0, 80.0));
-        h.event(Event::MouseWheel {
-            unit: egui::MouseWheelUnit::Point,
-            delta: vec2(0.0, -80.0),
-            phase: egui::TouchPhase::Move,
-            modifiers: Modifiers::NONE,
-        });
+        h.event(Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -80.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE });
         h.run_steps(4);
     }
     panic!("adjustment control {label:?} was not reachable in the compact viewport");
