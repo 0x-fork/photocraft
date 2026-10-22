@@ -1419,7 +1419,9 @@ fn batch(s: &mut Session, p: &Value) -> Result<Value> {
     let actions = crate::actions_cmds::ActionState { list, playing: s.actions.playing, playback_stack: s.actions.playback_stack.clone(), ..Default::default() };
     let names = batch_naming::plan(&inputs, &output, &format, p)?;
     let save = SaveOpts::from_params(s, p, cmd)?;
-    let run = |scratch: &mut Session, out: &str| {
+    let authorize = s.authorize;
+    let run = move |scratch: &mut Session, out: &str| {
+        scratch.authorize = authorize;
         scratch.actions = actions.clone();
         // The document as the last recorded save found it, written once the action has run so a
         // failing step still writes nothing.
