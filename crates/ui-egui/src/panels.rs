@@ -2802,6 +2802,8 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             {
                 actions.push(done);
             }
+            // Likewise a selected smart filter whose row is gone.
+            crate::smart_ui::forget_hidden(ui.ctx(), doc.id);
         });
     // Leaving the list or hovering an invalid target immediately cancels the temporary
     // image. The release still uses the actual command, not the preview snapshot.
