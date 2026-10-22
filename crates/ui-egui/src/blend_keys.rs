@@ -3,10 +3,8 @@
 //! they set that tool's mode and never the layer's: the Brush's or Pencil's (which also offer
 //! Clear), the Gradient's; the other painting tools are left alone until their options bar has a
 //! Mode. With any other tool (Move, the selection tools…) they set every selected layer's mode.
-//! The step list wraps at either end. Each press is one call of an engine command per layer
-//! (`tools.setBrush`, `layer.setProps`), coalesced into one undo step.
-
-use std::sync::atomic::{AtomicU64, Ordering};
+//! The step list wraps at either end. Each press is one call of an engine command
+//! (`tools.setBrush`, `layer.setProps` with every target layer), so it is one undo step.
 
 use egui::{Event, Key};
 use photocraft_color::BlendMode;
@@ -170,18 +168,16 @@ fn set_gradient_mode(app: &mut PhotocraftApp, mode: BlendMode) {
 /// Sets `mode` on every selected layer that can take it, in one undo step: the locked Background
 /// has no blend mode, and only groups pass through.
 fn set_layers_mode(app: &mut PhotocraftApp, mode: BlendMode) {
-    static PRESSES: AtomicU64 = AtomicU64::new(0);
     let Some(st) = app.session.active() else { return };
-    let ids: Vec<_> = st
+    let ids: Vec<u64> = st
         .selected_layers()
         .into_iter()
         .filter_map(|id| st.doc.layer(id))
         .filter(|l| !crate::doc_props_ui::is_background(&st.doc, l) && (mode != BlendMode::PassThrough || l.is_group()) && l.blend != mode)
-        .map(|l| l.id)
+        .map(|l| l.id.0)
         .collect();
-    let coalesce = format!("blend-keys-{}", PRESSES.fetch_add(1, Ordering::Relaxed));
-    for id in ids {
-        let _ = app.run("layer.setProps", json!({ "layer": id.0, "blend": mode.label(), "coalesce": coalesce }));
+    if !ids.is_empty() {
+        let _ = app.run("layer.setProps", json!({ "layers": ids, "blend": mode.label() }));
     }
 }
 
@@ -477,12 +473,13 @@ mod tests {
         pick_mode(&mut none, Pick::Mode(BlendMode::Multiply));
     }
 
-    /// With a Free Transform box or a Puppet Warp open, ⇧⌥ letters, ⇧+ / ⇧− and the number keys
-    /// still go where the tool sends them: the Brush's mode and opacity with the Brush, the
-    /// layer's with the Move tool. They never pick a tool, so the box stays open, and Enter keeps
-    /// both the transform and the layer's new mode.
+    /// With a Free Transform box open, ⇧⌥ letters and the number keys still go where the tool
+    /// sends them: the Brush's mode and opacity with the Brush, the layer's with the Move tool.
+    /// They never pick a tool, so the box stays open, and Enter keeps both the transform and the
+    /// layer's new mode. Puppet Warp keeps them to itself: its preview is a snapshot taken when it
+    /// started, so a change made meanwhile wouldn't show, and Esc wouldn't take it back.
     #[test]
-    fn keys_follow_the_tool_while_a_transform_or_warp_is_open() {
+    fn keys_follow_the_tool_while_a_transform_is_open_and_a_warp_keeps_them() {
         let ctx = egui::Context::default();
         let mut a = app(Tool::Brush);
         a.run("select.rect", json!({"x": 4, "y": 4, "width": 12, "height": 12})).unwrap();
@@ -518,15 +515,33 @@ mod tests {
         let l = st.doc.layer(st.active_layer.unwrap()).unwrap();
         assert_eq!(l.blend, BlendMode::Difference, "the commit keeps it");
         assert_eq!(l.surface().unwrap().content_bounds().x0, 7, "and the move");
-        // Puppet Warp keeps the other keys to itself, but these still reach the tool or layer.
+        let l_opacity = l.opacity;
+        // Puppet Warp: nothing reaches the layer, the Brush or the History.
         crate::distort_ui::menu(&mut a, &ctx, "edit.puppetWarp", &json!({})).unwrap().unwrap();
         assert!(a.distort.puppet.is_some());
+        let undo = a.session.active().unwrap().history.past_len();
+        a.opacity_keys = None;
         key(&mut a, &ctx, Key::S, shift_alt);
-        assert_eq!(layer_blend(&a), BlendMode::Screen);
+        key(&mut a, &ctx, Key::Plus, egui::Modifiers::SHIFT);
+        key(&mut a, &ctx, Key::Num3, egui::Modifiers::NONE);
         a.ui.tool = Tool::Brush;
         key(&mut a, &ctx, Key::H, shift_alt);
-        assert_eq!(a.session.tools.brush.mode, BlendMode::HardLight);
-        assert_eq!(layer_blend(&a), BlendMode::Screen);
+        key(&mut a, &ctx, Key::Num9, egui::Modifiers::NONE);
+        assert_eq!((layer_blend(&a), opacity(&a)), (BlendMode::Difference, l_opacity), "the layer under the warp is left alone");
+        assert_eq!(a.session.tools.brush.mode, BlendMode::Multiply);
+        assert!((a.session.tools.brush.opacity - 0.5).abs() < 1e-6);
+        assert_eq!(a.session.active().unwrap().history.past_len(), undo, "no History step behind the warp");
         assert!(a.distort.puppet.is_some(), "the warp stays open");
+        // Perspective Warp too.
+        key(&mut a, &ctx, Key::Escape, egui::Modifiers::NONE);
+        assert!(a.distort.puppet.is_none());
+        a.ui.tool = Tool::Move;
+        crate::distort_ui::menu(&mut a, &ctx, "edit.perspectiveWarp", &json!({})).unwrap().unwrap();
+        assert!(a.distort.perspective.is_some());
+        key(&mut a, &ctx, Key::S, shift_alt);
+        key(&mut a, &ctx, Key::Num3, egui::Modifiers::NONE);
+        assert_eq!((layer_blend(&a), opacity(&a)), (BlendMode::Difference, l_opacity));
+        assert_eq!(a.session.active().unwrap().history.past_len(), undo);
+        assert!(a.distort.perspective.is_some());
     }
 }
