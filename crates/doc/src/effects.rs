@@ -39,6 +39,7 @@ pub struct Gradient {
 
 /// Editable colour stops behind a Gradient Overlay's baked render stops.
 /// Older documents have no interpolation record and keep their existing appearance.
+/// Writers must rebake `gradient.stops` from this record, or clear it when replacing the curve.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GradientInterpolation {
     pub method: String,

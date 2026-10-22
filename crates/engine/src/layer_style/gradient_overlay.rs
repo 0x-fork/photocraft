@@ -19,6 +19,7 @@ fn edit_endpoint(stop: Option<&mut (f32, Color)>, params: &Value, key: &str) {
     }
 }
 
+/// Edits recorded source stops, initializing legacy curves from their end colours.
 pub(super) fn overlay(gradient: &mut Gradient, interpolation: &mut Option<GradientInterpolation>, params: &Value) {
     // Reset to Default restores the factory's unbaked interpolation too.
     if params.get("method").and_then(Value::as_str) == Some("custom") {
@@ -37,7 +38,9 @@ pub(super) fn overlay(gradient: &mut Gradient, interpolation: &mut Option<Gradie
     let source = interpolation.get_or_insert_with(|| GradientInterpolation {
         method: requested.unwrap_or("classic").to_ascii_lowercase(),
         smoothness: 100.0,
-        stops: gradient.stops.clone(),
+        // Without a source record, intermediate stops may be baked samples (PSD import or
+        // older method commands). Keep the legacy rebuild-from-ends behaviour on first choice.
+        stops: vec![(0.0, gradient.stops.first().map_or(Color::BLACK, |s| s.1)), (1.0, gradient.stops.last().map_or(Color::WHITE, |s| s.1))],
     });
     if let Some(method) = requested {
         source.method = method.to_ascii_lowercase();
@@ -66,7 +69,65 @@ pub(super) fn overlay(gradient: &mut Gradient, interpolation: &mut Option<Gradie
 #[cfg(test)]
 mod tests {
     use super::*;
+    use photocraft_color::BlendMode;
+    use photocraft_doc::{Effect, FxCommon};
+    use photocraft_io::{GradientMethod, bake_gradient};
     use serde_json::json;
+
+    #[test]
+    fn choosing_a_method_on_a_baked_overlay_rebuilds_from_its_end_colours() {
+        let ends = vec![(0.0, Color::BLACK), (1.0, Color::WHITE)];
+        for imported_method in [GradientMethod::Perceptual, GradientMethod::Smooth] {
+            let gradient = Gradient {
+                stops: bake_gradient(ends.clone(), &[0.5], 1.0, imported_method),
+                opacity_stops: vec![(0.0, 0.25), (0.6, 0.8), (1.0, 0.5)],
+                align: false,
+                offset: (0.2, -0.1),
+                ..Gradient::default()
+            };
+            assert!(gradient.stops.len() > 2);
+            let source_ends = vec![(0.0, gradient.stops.first().unwrap().1), (1.0, gradient.stops.last().unwrap().1)];
+            let mut fx =
+                Effect::GradientOverlay { common: FxCommon::new(BlendMode::Normal, 1.0), gradient: gradient.clone(), dither: true, interpolation: None };
+            super::super::overlay_effect(&mut fx, &json!({"method": "linear"}));
+            let mut expected = gradient;
+            expected.stops = bake_gradient(source_ends.clone(), &[0.5], 1.0, GradientMethod::Linear);
+            assert_eq!(
+                fx,
+                Effect::GradientOverlay {
+                    common: FxCommon::new(BlendMode::Normal, 1.0),
+                    gradient: expected,
+                    dither: true,
+                    interpolation: Some(GradientInterpolation { method: "linear".into(), smoothness: 100.0, stops: source_ends }),
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn endpoint_edits_after_selecting_a_method_recolour_the_whole_baked_overlay() {
+        for same_edit in [false, true] {
+            let mut fx = Effect::GradientOverlay {
+                common: FxCommon::new(BlendMode::Normal, 1.0),
+                gradient: Gradient {
+                    stops: bake_gradient(vec![(0.0, Color::BLACK), (1.0, Color::WHITE)], &[0.5], 1.0, GradientMethod::Smooth),
+                    ..Gradient::default()
+                },
+                dither: false,
+                interpolation: None,
+            };
+            if same_edit {
+                super::super::overlay_effect(&mut fx, &json!({"method": "classic", "from": "#ff0000", "to": "#0000ff"}));
+            } else {
+                super::super::overlay_effect(&mut fx, &json!({"method": "classic"}));
+                super::super::overlay_effect(&mut fx, &json!({"from": "#ff0000", "to": "#0000ff"}));
+            }
+            let ends = vec![(0.0, Color::rgb(1.0, 0.0, 0.0)), (1.0, Color::rgb(0.0, 0.0, 1.0))];
+            let Effect::GradientOverlay { gradient, interpolation, .. } = fx else { panic!("expected overlay") };
+            assert_eq!(gradient.stops, bake_gradient(ends.clone(), &[0.5], 1.0, GradientMethod::Classic));
+            assert_eq!(interpolation.unwrap().stops, ends);
+        }
+    }
 
     #[test]
     fn changing_method_keeps_all_source_stops_and_transparency() {
@@ -78,7 +139,8 @@ mod tests {
             ..Gradient::default()
         };
         let original = gradient.clone();
-        let mut source = None;
+        let mut source = Some(GradientInterpolation { method: "classic".into(), smoothness: 100.0, stops: original.stops.clone() });
+        gradient.stops = bake_gradient(original.stops.clone(), &[0.5, 0.5], 1.0, GradientMethod::Classic);
         for method in ["classic", "smooth", "perceptual", "linear", "classic"] {
             overlay(&mut gradient, &mut source, &json!({"method": method}));
             let source = source.as_ref().unwrap();
@@ -90,6 +152,11 @@ mod tests {
             assert_eq!(gradient.align, original.align);
             assert_eq!(gradient.offset, original.offset);
         }
+        overlay(&mut gradient, &mut source, &json!({"from": "#112233", "to": "#445566"}));
+        let source = source.unwrap();
+        assert_eq!(source.stops.len(), 3);
+        assert_eq!(source.stops[1], original.stops[1], "endpoint edits preserve the middle source stop");
+        assert_eq!(gradient.stops, bake_gradient(source.stops, &[0.5, 0.5], 1.0, GradientMethod::Classic));
     }
 
     #[test]

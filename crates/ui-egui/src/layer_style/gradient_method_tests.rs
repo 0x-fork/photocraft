@@ -68,3 +68,49 @@ fn all_four_methods_roundtrip_through_the_dialog() {
         assert_eq!(effect(&app), &before);
     }
 }
+
+#[test]
+fn baked_overlay_is_unchanged_until_method_selection_then_edits_the_whole_curve() {
+    use photocraft_color::Color;
+    use photocraft_io::{GradientMethod, bake_gradient};
+
+    let mut app = app();
+    app.run("layer.layerStyle.gradientOverlay", json!({})).unwrap();
+    // PSD import and older method commands leave a baked curve without a source record.
+    let state = app.session.active_mut().unwrap();
+    let fx = &mut std::sync::Arc::make_mut(&mut state.doc).layer_mut(state.active_layer.unwrap()).unwrap().effects.items[0];
+    let Effect::GradientOverlay { gradient, interpolation, .. } = fx else { panic!("expected overlay") };
+    gradient.stops = bake_gradient(vec![(0.0, Color::BLACK), (1.0, Color::WHITE)], &[0.5], 1.0, GradientMethod::Smooth);
+    *interpolation = None;
+    let source_ends = vec![(0.0, gradient.stops.first().unwrap().1), (1.0, gradient.stops.last().unwrap().1)];
+
+    let original = effect(&app).clone();
+    let mut pending = fields(&app);
+    let id = pending["effects"][0]["id"].as_str().unwrap().to_string();
+    assert_eq!(pending["effects"][0]["params"]["method"], "custom");
+    confirm(&mut app, &pending).unwrap();
+    assert_eq!(effect(&app), &original);
+
+    set_param(&mut pending, &id, "method", json!("linear"));
+    confirm(&mut app, &pending).unwrap();
+    let selected = effect(&app).clone();
+    let Effect::GradientOverlay { gradient, interpolation, .. } = &selected else { panic!("expected overlay") };
+    assert_eq!(gradient.stops, bake_gradient(source_ends, &[0.5], 1.0, GradientMethod::Linear));
+    assert_eq!(interpolation.as_ref().unwrap().stops.len(), 2);
+
+    let mut reopened = fields(&app);
+    assert_eq!(reopened["effects"][0]["params"]["method"], "linear");
+    set_param(&mut reopened, &id, "from", json!("#ff0000"));
+    set_param(&mut reopened, &id, "to", json!("#0000ff"));
+    confirm(&mut app, &reopened).unwrap();
+    let edited = effect(&app).clone();
+    let Effect::GradientOverlay { gradient, .. } = &edited else { panic!("expected overlay") };
+    assert_eq!(gradient.stops, bake_gradient(vec![(0.0, Color::rgb(1.0, 0.0, 0.0)), (1.0, Color::rgb(0.0, 0.0, 1.0))], &[0.5], 1.0, GradientMethod::Linear));
+    app.run("edit.undo", json!({})).unwrap();
+    assert_eq!(effect(&app), &selected);
+    app.run("edit.redo", json!({})).unwrap();
+    assert_eq!(effect(&app), &edited);
+    let reopened = fields(&app);
+    confirm(&mut app, &reopened).unwrap();
+    assert_eq!(effect(&app), &edited);
+}
