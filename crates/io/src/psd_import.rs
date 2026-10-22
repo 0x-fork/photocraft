@@ -1255,6 +1255,31 @@ mod tests {
         assert!(warnings.iter().any(|w| w.contains("could not be decoded")));
     }
 
+    /// A layer whose bounds hold pixels but whose colour and transparency channels are missing
+    /// lost its pixel data: the open asks before continuing.
+    #[test]
+    fn layer_bounds_without_channel_data_mark_conversion_damaged() {
+        let mut file = testgen::small(Version::Psd, Compression::Raw);
+        file.layers_mut()[0].channels.retain(|c| c.id == CHANNEL_USER_MASK);
+
+        let (_, warnings, damaged) = psd_to_document_decoded_integrity(&file, &photocraft_raster::Interrupt::NONE, None).unwrap();
+        assert!(damaged);
+        assert!(warnings.iter().any(|w| w.contains("no channel data")));
+    }
+
+    /// A layer without pixels (an empty layer, or a text or shape layer written without a
+    /// pixel cache) has empty bounds: nothing is missing, so the file is not damaged even when
+    /// it lists no colour or transparency channel.
+    #[test]
+    fn empty_layer_without_channel_data_is_not_damaged() {
+        let mut file = testgen::small(Version::Psd, Compression::Raw);
+        file.layers_mut()[0].channels.retain(|c| c.id == CHANNEL_USER_MASK);
+        file.layers_mut()[0].rect = Default::default();
+
+        let (_, warnings, damaged) = psd_to_document_decoded_integrity(&file, &photocraft_raster::Interrupt::NONE, None).unwrap();
+        assert!(!damaged, "an empty layer marked the PSD damaged: {warnings:?}");
+    }
+
     /// Verifies healthy layer channels do not mark the PSD as damaged.
     #[test]
     fn valid_layer_channels_keep_conversion_editable() {
