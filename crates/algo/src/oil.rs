@@ -31,11 +31,13 @@ fn stroke_len(stylization: f32) -> f32 {
 }
 
 /// `f32::round` (half away from zero) as an integer, without the `roundf` call `f32::round`
-/// makes on the baseline x86-64 target. Exact for `|v| < 2^22`, which covers every window
-/// coordinate; larger magnitudes saturate like the cast the caller used to perform.
+/// makes on the baseline x86-64 target. The half is added in `f64`, where the sum is exact for
+/// every `|v| < 2^22` (all window coordinates): in `f32` the largest value below `0.5` plus `0.5`
+/// rounds up to `1.0`, which would return `1` where `f32::round` returns `0`. Larger magnitudes
+/// saturate like the cast the caller used to perform.
 #[inline]
 fn round_i32(v: f32) -> i32 {
-    (v + 0.5f32.copysign(v)) as i32
+    (f64::from(v) + 0.5f64.copysign(f64::from(v))) as i32
 }
 
 /// [`round_i32`] clamped into `0..n`.
@@ -230,6 +232,18 @@ mod tests {
                 assert_eq!(round_index(v, n), want, "round_index({v}, {n})");
             }
             v += 0.25;
+        }
+        // The half-integer boundaries are where a `f32` add of the half rounds across the value
+        // `f32::round` keeps below: `0x3eff_ffff` is the largest `f32` under `0.5`.
+        for v in [0.5f32, -0.5, f32::from_bits(0x3eff_ffff), f32::from_bits(0xbeff_ffff)] {
+            assert_eq!(round_i32(v), v.round() as i32, "round_i32({v})");
+        }
+        // Every value one and two steps either side of an integer the LIC coordinates can reach.
+        for k in -40i32..=2100 {
+            let f = k as f32;
+            for v in [f.next_down().next_down(), f.next_down(), f, f.next_up()] {
+                assert_eq!(round_i32(v), v.round() as i32, "round_i32({v}) near {k}");
+            }
         }
         assert_eq!(round_i32(f32::NAN), f32::NAN.round() as i32);
         for n in [1usize, 8] {
