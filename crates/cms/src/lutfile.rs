@@ -107,7 +107,14 @@ pub fn parse_cube(text: &str) -> Result<LutFile, LutError> {
     let (mut dmin, mut dmax) = ([0.0f32; 3], [1.0f32; 3]);
     let mut rows: Vec<f32> = Vec::new();
     for line in text.lines() {
-        let line = line.split('#').next().unwrap_or("").trim();
+        // A '#' inside a quoted TITLE is part of the title, not a comment.
+        let raw = line.trim_start();
+        let skip = if raw.starts_with("TITLE") { raw.find('"').and_then(|q| raw[q + 1..].find('"').map(|e| q + e + 2)) } else { None }.unwrap_or(0);
+        let line = match raw[skip..].find('#') {
+            Some(i) => &raw[..skip + i],
+            None => raw,
+        }
+        .trim();
         if line.is_empty() {
             continue;
         }
@@ -300,6 +307,16 @@ pub fn builtin(id: &str) -> Option<LutFile> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cube_title_with_hash_round_trips() {
+        let l = LutFile::from_fn("Look #3", 2, |c| c);
+        assert_eq!(parse_cube(&write_cube(&l)).unwrap().title, "Look #3");
+        let t = "TITLE \"A #b\" # note\nLUT_3D_SIZE 2 # c\n# comment\n";
+        let rows = "0 0 0 # x\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n";
+        let p = parse_cube(&format!("{t}{rows}")).unwrap();
+        assert_eq!(p.title, "A #b");
+    }
 
     #[test]
     fn cube_domain_is_kept_and_validated() {
