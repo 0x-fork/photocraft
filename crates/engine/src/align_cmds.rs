@@ -502,6 +502,38 @@ mod tests {
         assert!((a[2] - b[2]).abs() < 0.015, "{a:?} {b:?}");
     }
 
+    /// #5745: the top layer hangs off the canvas's right edge, so cropped to the canvas it lies
+    /// wholly over the bottom one. It used to get an all-black mask; now it shows on its side.
+    #[test]
+    fn auto_blend_panorama_of_a_layer_the_canvas_crops_to_all_overlap() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 200, "height": 60, "background": "transparent"})).unwrap();
+        s.execute("layer.new.layer", json!({"name": "left"})).unwrap();
+        s.edit("l", |doc, active| {
+            doc.layer_mut(active.unwrap()).unwrap().surface_mut().unwrap().fill_rect(Rect::new(0, 0, 200, 60), &[0.2, 0.4, 0.5, 1.0]);
+            Ok(())
+        })
+        .unwrap();
+        let left = s.active().unwrap().active_layer.unwrap();
+        s.execute("layer.new.layer", json!({"name": "right"})).unwrap();
+        s.edit("r", |doc, active| {
+            doc.layer_mut(active.unwrap()).unwrap().surface_mut().unwrap().fill_rect(Rect::new(120, 0, 320, 60), &[0.2, 0.4, 0.5, 1.0]);
+            Ok(())
+        })
+        .unwrap();
+        let right = s.active().unwrap().active_layer.unwrap();
+        select(&mut s, &[left, right]);
+        s.execute("edit.autoBlendLayers", json!({"method": "panorama", "seamlessTones": false})).unwrap();
+        let doc = &s.active().unwrap().doc;
+        let ml = doc.layer(left).unwrap().mask.as_ref().unwrap();
+        let mr = doc.layer(right).unwrap().mask.as_ref().unwrap();
+        assert_eq!((ml.value(10, 30), mr.value(10, 30)), (1.0, 0.0));
+        assert_eq!((ml.value(195, 30), mr.value(195, 30)), (0.0, 1.0));
+        for x in 0..200 {
+            assert_eq!(ml.value(x, 30) + mr.value(x, 30), 1.0, "x {x} shows one layer");
+        }
+    }
+
     #[test]
     fn auto_blend_stack_without_seamless() {
         let mut s = Session::new();
