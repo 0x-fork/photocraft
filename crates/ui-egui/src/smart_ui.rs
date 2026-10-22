@@ -222,9 +222,9 @@ pub fn filter_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, doc: &Document, l
     }
     // Every row of `l` is drawn, so a filter of it selected (now, after this pass's clicks) is on
     // screen: see [`forget_hidden`].
-    if ui.ctx().data(|d| d.get_temp::<FilterDrag>(selected_key(doc))).is_some_and(|(layer, _)| layer == l.id.0) {
+    if ui.ctx().data(|d| d.get_temp::<FilterDrag>(selected_key(doc.id))).is_some_and(|(layer, _)| layer == l.id.0) {
         let pass = ui.ctx().cumulative_pass_nr();
-        ui.ctx().data_mut(|d| d.insert_temp(drawn_key(doc), pass));
+        ui.ctx().data_mut(|d| d.insert_temp(drawn_key(doc.id), pass));
     }
 }
 
