@@ -3468,7 +3468,11 @@ pub struct Imported {
 
 fn photoshop_step(item: &AtnItem) -> (String, Value) {
     let descriptor = item.descriptor.as_ref().map(|d| photocraft_paint::tile::b64_encode(&d.to_bytes()));
-    (PHOTOSHOP_STEP.into(), json!({"event": item.event.id(), "name": item.label(), "descriptor": descriptor}))
+    let event_kind = match &item.event {
+        AtnEvent::Code(_) => "code",
+        AtnEvent::Name(_) => "name",
+    };
+    (PHOTOSHOP_STEP.into(), json!({"event": item.event.id(), "eventKind": event_kind, "name": item.label(), "descriptor": descriptor}))
 }
 
 /// Integral floats become integers (`2.0` → `2`), as the commands' own docs and recordings
@@ -3552,9 +3556,16 @@ pub struct Skipped {
 fn export_item(id: &str, params: &Value, set: &str) -> Option<AtnItem> {
     if id == PHOTOSHOP_STEP {
         let event = jstr(params, "event")?;
-        let event = match event.as_bytes() {
-            [a, b, c, d] => AtnEvent::Code([*a, *b, *c, *d]),
-            _ => AtnEvent::name(event),
+        let event = match jstr(params, "eventKind") {
+            Some("code") => AtnEvent::Code(event.as_bytes().try_into().ok()?),
+            Some("name") => AtnEvent::name(event),
+            Some(_) => return None,
+            // Older PhotoCraft action data did not retain the event kind. Keep its previous
+            // best-effort export behavior for compatibility.
+            None => match event.as_bytes() {
+                [a, b, c, d] => AtnEvent::Code([*a, *b, *c, *d]),
+                _ => AtnEvent::name(event),
+            },
         };
         let descriptor = match jstr(params, "descriptor") {
             Some(b64) => Some(Descriptor::from_bytes(&photocraft_paint::tile::b64_decode(b64)?).ok()?),
