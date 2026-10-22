@@ -25,7 +25,6 @@ const HEADER: usize = 128;
 /// DDS_HEADER_DXT10, present when the FourCC is `DX10`.
 const DX10_HEADER: usize = 20;
 
-const DDSD_PITCH: u32 = 0x8;
 const DDSD_DEPTH: u32 = 0x80_0000;
 const DDPF_ALPHAPIXELS: u32 = 0x1;
 const DDPF_FOURCC: u32 = 0x4;
