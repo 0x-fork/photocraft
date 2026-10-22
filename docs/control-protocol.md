@@ -472,7 +472,7 @@ RGB/Grayscale layer. `params: {"smartFilter": {"layer": id, "index": i}}` opens 
 Camera Raw smart filter instead (as double-clicking the filter in the Layers panel does): the
 stored settings over the pixels below that filter, previewed through the filter mask; commit
 then runs `layer.smartFilter.setParams` with every setting. `params.ui` accepts `set` (filter settings), `before`, `scope`, `view`, `commit` and
-`cancel`. All parts of one request are validated before any is applied; a rejected request
+`cancel`, and while a raw file opens also `demosaic` (below). All parts of one request are validated before any is applied; a rejected request
 leaves the settings, view state, preferences and document unchanged (and closes a dialog it
 opened). Unknown `ui` or settings properties, non-boolean `before` / `commit` / `cancel`, and
 `commit` together with `cancel` are errors. Point curves (`pointCurve`, `pointCurveRed`,
@@ -483,14 +483,20 @@ keeps the dialog open for correction. Nothing else writes document history.
 **Opening a raw file.** An interactive open (File › Open, Open Recent, drag and drop, the
 command line) of a camera raw developed from its sensor data shows this dialog first, titled
 "Camera Raw (name)", with **Open** and **Cancel**, as Photoshop opens raws in Adobe Camera Raw.
-`ui.inspect.cameraRaw.openingRaw` is then `{name, path}`. Commit (Open) re-develops the raw when
+`ui.inspect.cameraRaw.openingRaw` is then `{name, path, demosaic}`, `demosaic` being the method
+the raw is to be opened with (`ahd`, `mhc` or `bilinear`): at first the one the open developed it
+with, then whatever `ui.demosaic` or the Demosaic menu at the top of Detail chose. `ui.demosaic`
+is accepted only while a raw file opens (an error otherwise) and an unknown method is refused.
+Commit (Open) re-develops the raw when the demosaic method differs from the one the open used or
 Temperature, Tint, Exposure, Shadows, Highlights, Clarity, Texture or Dehaze changed (as-shot
 white-balance gains, develop exposure, and the other five in linear light before the camera's
 tone curve, as Camera Raw does for raw files; without an as-shot white balance, or without the file's bytes, they stay RGB
 adjustments), applies the remaining settings as one `filter.cameraRaw` step and leaves the
-document unmodified; its result is `{document, redeveloped, filter?}`. Cancel closes the
-document. `app.open` and other automation opens never show the dialog. The preference
-`rawDefaults.openInCameraRaw` (default `true`) turns it off.
+document unmodified; its result is `{document, redeveloped, filter?}`. The preview keeps the
+method the file was opened with. Cancel closes the document. `app.open` and other automation
+opens never show the dialog. The preference `rawDefaults.openInCameraRaw` (default `true`) turns
+it off; `rawDefaults.demosaic` (`ahd` by default, `mhc`, `bilinear`; Preferences › Camera Raw)
+is the method the app's raw opens develop with (interactive opens, `app.open` and Place).
 
 Imported PSD Camera Raw filters whose processing settings are all mapped or neutral use this
 same editor. `params.__cameraRawPsd` is reserved import/export metadata: preserve it when editing

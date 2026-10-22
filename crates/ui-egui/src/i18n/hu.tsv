@@ -4208,6 +4208,13 @@ cameraRaw	Yellow	Sárga
 	Increase Brush Size	Ecsetméret növelése
 	Decrease Brush Hardness	Ecsetkeménység csökkentése
 	Increase Brush Hardness	Ecsetkeménység növelése
+	Demosaic	Demozaikolás
+	How the camera's colour filter mosaic is filled in. It is applied when the file opens; the preview shows the method it was opened with.	Hogyan tölti ki a program a kamera színszűrő-mozaikját. A fájl megnyitásakor érvényesül; az előnézet a megnyitáskor használt módszert mutatja.
+	AHD (adaptive homogeneity)	AHD (adaptív homogenitás)
+	Malvar–He–Cutler	Malvar–He–Cutler
+	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Hirakawa–Parks: a legtisztább élek és a legkevesebb színes szegély, a leglassabb.
+	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	Gradienskorrigált interpoláció: éles és gyors, apró részleteken némi színes szegéllyel.
+	The fastest and the softest, with colour fringing on fine detail.	A leggyorsabb és a leglágyabb, apró részleteken színes szegéllyel.
 	Memory Usage	Memóriahasználat
 	Per-document RAM limit (MB)	Dokumentumonkénti RAM-korlát (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Telepített RAM: {ram} MB; ez a korlát: {percent}%

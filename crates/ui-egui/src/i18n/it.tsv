@@ -4408,6 +4408,13 @@ shape	Appearance	Aspetto
 	GPU Memory (MB, 0 = Automatic)	Memoria GPU (MB, 0 = Automatico)
 	{name} was changed by another app after it was opened or saved here.	{name} è stato modificato da un'altra app dopo essere stato aperto o salvato qui.
 	Replace it with this document, or cancel and use File › Save As to keep both.	Sostituiscilo con questo documento, oppure annulla e usa File › Salva con nome per tenerli entrambi.
+	Demosaic	Demosaicizzazione
+	How the camera's colour filter mosaic is filled in. It is applied when the file opens; the preview shows the method it was opened with.	Come viene completato il mosaico del filtro colore della fotocamera. Si applica all'apertura del file; l'anteprima mostra il metodo con cui è stato aperto.
+	AHD (adaptive homogeneity)	AHD (omogeneità adattiva)
+	Malvar–He–Cutler	Malvar–He–Cutler
+	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Hirakawa–Parks: i bordi più puliti e le minori frange di colore, il più lento.
+	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	Interpolazione con correzione del gradiente: nitida e veloce, con qualche frangia di colore nei dettagli fini.
+	The fastest and the softest, with colour fringing on fine detail.	Il più veloce e il più morbido, con frange di colore nei dettagli fini.
 	Memory Usage	Utilizzo memoria
 	Per-document RAM limit (MB)	Limite RAM per documento (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	RAM installata: {ram} MB; questo limite: {percent}%

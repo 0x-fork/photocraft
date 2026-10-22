@@ -602,7 +602,7 @@ pub(crate) fn after_open(app: &mut PhotocraftApp, name: &str, path: Option<&str>
     app.ui.status_error = false;
     // A raw opens in Camera Raw first; the dialog says how it was developed.
     if crate::camera_raw_ui::wants_open_dialog(app, warnings) {
-        crate::camera_raw_ui::queue_open_dialog(app, name, path, bytes);
+        crate::camera_raw_ui::queue_open_dialog(app, name, path, bytes, warnings);
         notices::io_warnings(app, &opened, &crate::camera_raw_ui::without_develop_note(warnings));
     } else {
         notices::io_warnings(app, &opened, warnings);

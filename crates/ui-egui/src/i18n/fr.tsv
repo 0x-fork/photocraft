@@ -3301,6 +3301,13 @@ curves	Smooth	Lisser
 	Increase Brush Size	Augmenter la taille du pinceau
 	Decrease Brush Hardness	Réduire la dureté du pinceau
 	Increase Brush Hardness	Augmenter la dureté du pinceau
+	Demosaic	Dématriçage
+	How the camera's colour filter mosaic is filled in. It is applied when the file opens; the preview shows the method it was opened with.	Comment la mosaïque du filtre couleur de l'appareil est complétée. Appliqué à l'ouverture du fichier ; l'aperçu montre la méthode avec laquelle il a été ouvert.
+	AHD (adaptive homogeneity)	AHD (homogénéité adaptative)
+	Malvar–He–Cutler	Malvar–He–Cutler
+	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Hirakawa–Parks : les bords les plus nets et le moins de franges colorées ; le plus lent.
+	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	Interpolation corrigée par gradient : nette et rapide, avec quelques franges colorées sur les détails fins.
+	The fastest and the softest, with colour fringing on fine detail.	Le plus rapide et le plus doux, avec des franges colorées sur les détails fins.
 	Memory Usage	Utilisation de la mémoire
 	Per-document RAM limit (MB)	Limite RAM par document (Mo)
 	Installed RAM: {ram} MB; this limit: {percent}%	RAM installée : {ram} Mo ; cette limite : {percent}%

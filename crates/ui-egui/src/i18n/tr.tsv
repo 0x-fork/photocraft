@@ -4019,6 +4019,13 @@ cameraData	Lens	Lens
 	Increase Brush Size	Fırça boyutunu büyüt
 	Decrease Brush Hardness	Fırça sertliğini azalt
 	Increase Brush Hardness	Fırça sertliğini artır
+	Demosaic	Demozaikleme
+	How the camera's colour filter mosaic is filled in. It is applied when the file opens; the preview shows the method it was opened with.	Kameranın renk filtresi mozaiğinin nasıl doldurulduğu. Dosya açılırken uygulanır; önizleme dosyanın açıldığı yöntemi gösterir.
+	AHD (adaptive homogeneity)	AHD (uyarlamalı homojenlik)
+	Malvar–He–Cutler	Malvar–He–Cutler
+	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Hirakawa–Parks: en temiz kenarlar ve en az renk saçağı, en yavaş.
+	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	Gradyan düzeltmeli ara değerleme: keskin ve hızlı, ince ayrıntılarda biraz renk saçağı.
+	The fastest and the softest, with colour fringing on fine detail.	En hızlı ve en yumuşak, ince ayrıntılarda renk saçağı.
 	Memory Usage	Bellek kullanımı
 	Per-document RAM limit (MB)	Belge başına RAM sınırı (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Kurulu RAM: {ram} MB; bu sınır: {percent}%

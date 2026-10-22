@@ -4051,6 +4051,13 @@ curves	Smooth	Vloeiend maken
 	Increase Brush Size	Penseelgrootte vergroten
 	Decrease Brush Hardness	Penseelhardheid verlagen
 	Increase Brush Hardness	Penseelhardheid verhogen
+	Demosaic	Demosaicing
+	How the camera's colour filter mosaic is filled in. It is applied when the file opens; the preview shows the method it was opened with.	Hoe het kleurfiltermozaïek van de camera wordt ingevuld. Wordt toegepast bij het openen van het bestand; de voorvertoning toont de methode waarmee het is geopend.
+	AHD (adaptive homogeneity)	AHD (adaptieve homogeniteit)
+	Malvar–He–Cutler	Malvar–He–Cutler
+	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Hirakawa–Parks: de schoonste randen en de minste kleurranden, het traagst.
+	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	Gradiëntgecorrigeerde interpolatie: scherp en snel, met wat kleurranden in fijne details.
+	The fastest and the softest, with colour fringing on fine detail.	Het snelst en het zachtst, met kleurranden in fijne details.
 	Memory Usage	Geheugengebruik
 	Per-document RAM limit (MB)	RAM-limiet per document (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Geïnstalleerd RAM: {ram} MB; deze limiet: {percent}%

@@ -3968,6 +3968,13 @@ curves	Smooth	スムーズ
 	Increase Brush Size	ブラシサイズを大きく
 	Decrease Brush Hardness	ブラシの硬さを下げる
 	Increase Brush Hardness	ブラシの硬さを上げる
+	Demosaic	デモザイク
+	How the camera's colour filter mosaic is filled in. It is applied when the file opens; the preview shows the method it was opened with.	カメラのカラーフィルター配列をどのように補間するか。ファイルを開くときに適用されます。プレビューは開いたときの方式で表示されます。
+	AHD (adaptive homogeneity)	AHD（適応的均質性）
+	Malvar–He–Cutler	Malvar–He–Cutler
+	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Hirakawa–Parks：エッジが最もきれいで色にじみが最も少ないが、最も遅い。
+	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	勾配補正補間：シャープで高速だが、細部に多少の色にじみが出る。
+	The fastest and the softest, with colour fringing on fine detail.	最も高速で最も柔らかく、細部に色にじみが出る。
 	Memory Usage	メモリ使用量
 	Per-document RAM limit (MB)	ドキュメントあたりの RAM 上限 (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	搭載 RAM: {ram} MB、この上限: {percent}%
