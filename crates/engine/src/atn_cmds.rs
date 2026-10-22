@@ -892,14 +892,23 @@ const ADJUSTMENTS: &[Adjustment] = &[
     adj_fields!("Vbrn", "vibrance", &[F("vibrance", "vibrance", Kind::Long), F("Strt", "saturation", Kind::Long)]),
     adj_fields!("Exps", "exposure", &[F("Exps", "exposure", Kind::Dbl), F("Ofst", "offset", Kind::Dbl), F("gammaCorrection", "gamma", Kind::Dbl)]),
     Adjustment { class: "PhtF", suffix: "photoFilter", from: |d| fields_from(d, PHOTO_FILTER_FIELDS).map(Value::Object), to: photo_filter_to },
-    adj_fields!("BlnW", "blackWhite", BW),
+    adj_fields!("BanW", "blackWhite", BW),
     Adjustment { class: "ChnM", suffix: "channelMixer", from: channel_mixer_from, to: channel_mixer_to },
     Adjustment { class: "SlcC", suffix: "selectiveColor", from: selective_from, to: selective_to },
     Adjustment { class: "GdMp", suffix: "gradientMap", from: gradient_map_from, to: gradient_map_to },
 ];
 
+/// Adjustment classes PhotoCraft once exported, with the class Photoshop uses. Measured in
+/// Photoshop (#8481): a Make whose Black & White type is `BlnW` fails ("the command Make is not
+/// currently available"), `BanW` runs. Import keeps accepting them so actions saved before still
+/// load; export never writes them.
+const LEGACY_CLASSES: &[(&str, &str)] = &[("BlnW", "BanW")];
+
+/// The adjustment with Photoshop class `c`, or the one an old PhotoCraft class stands for.
 fn adjustment_by_class(c: &str) -> Option<&'static Adjustment> {
-    ADJUSTMENTS.iter().find(|a| a.class.trim_end() == c.trim_end())
+    let c = c.trim_end();
+    let c = LEGACY_CLASSES.iter().find(|(old, _)| *old == c).map_or(c, |(_, class)| class);
+    ADJUSTMENTS.iter().find(|a| a.class.trim_end() == c)
 }
 
 const PHOTO_FILTER_FIELDS: &[F] = &[F("Clr ", "color", Kind::Color), F("Dnst", "density", Kind::Long), F("PrsL", "preserveLuminosity", Kind::Bool)];
@@ -3356,7 +3365,7 @@ const EVENTS: &[Event] = &[
     adjustment_event!("Exps", "Exps", "exposure", "Exposure"),
     // Photoshop runs Photo Filter by name only: `PhtF` is the class, not an event (#8301).
     adjustment_event!("", "PhtF", "photoFilter", "Photo Filter"),
-    adjustment_event!("", "BlnW", "blackAndWhite", "Black & White", "image.adjustments.blackWhite"),
+    adjustment_event!("", "BanW", "blackAndWhite", "Black & White", "image.adjustments.blackWhite"),
     adjustment_event!("ChnM", "ChnM", "channelMixer", "Channel Mixer"),
     adjustment_event!("GdMp", "GdMp", "gradientMapEvent", "Gradient Map", "image.adjustments.gradientMap"),
     adjustment_event!("SlcC", "SlcC", "selectiveColor", "Selective Color"),

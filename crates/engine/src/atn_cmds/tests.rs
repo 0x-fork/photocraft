@@ -1805,6 +1805,42 @@ fn photo_filter_saves_under_the_name_photoshop_runs() {
     }
 }
 
+/// A Black & White adjustment layer saves with Photoshop's `BanW` class (#8481): measured in
+/// Photoshop, a Make whose type is `BlnW` is refused. Photoshop's own `BanW` Make loads, and so
+/// does the `BlnW` one PhotoCraft wrote before.
+#[test]
+fn black_white_adjustment_layer_saves_as_photoshops_class_and_old_class_still_imports() {
+    let id = "layer.newAdjustmentLayer.blackWhite";
+    let params = json!({"reds": 17, "yellows": 83, "greens": -12, "cyans": 107, "blues": 51, "magentas": 133, "tint": true, "tintColor": "#c08040"});
+    let mut s = Session::new();
+    s.actions.list.push(Action::new("BW", vec![(id.into(), params.clone())]));
+    let r = s.execute("actions.save", json!({"action": "BW"})).unwrap();
+    assert_eq!(r["skipped"], json!([]));
+    let saved = photocraft_paint::tile::b64_decode(r["data"].as_str().unwrap()).unwrap();
+    let file = atn::parse(&saved).unwrap();
+    let make = file.actions[0].items[0].descriptor.as_ref().unwrap();
+    let kind = get_obj(make, "Usng").and_then(|u| get_obj(u, "Type")).unwrap();
+    assert_eq!(trimmed(&kind.class_id), "BanW");
+    let mut t = Session::new();
+    let r = t.execute("actions.load", json!({"data": b64(&saved)})).unwrap();
+    assert_eq!(r["unsupported"], json!([]), "{r}");
+    assert_eq!(t.actions.list[0].steps, vec![(id.to_string(), params)]);
+
+    // Photoshop's minimal Make (no settings) and an old PhotoCraft Make with a setting both load,
+    // the setting kept; near misses stay Photoshop steps.
+    let make = |class: &str| {
+        let kind = if class == "BlnW" { desc(class).with("Rd  ", long(17.0)) } else { desc(class) };
+        let using = desc("AdjL").with("Type", D::Descriptor(kind));
+        item("Mk  ", "Make", Some(desc("null").with("null", class_ref("AdjL")).with("Usng", D::Descriptor(using))))
+    };
+    let data = set_of("S", vec![("A", ["BanW", "BlnW", "BANW", "BlnWx"].into_iter().map(make).collect())]);
+    let mut t = Session::new();
+    let r = t.execute("actions.load", json!({"data": data})).unwrap();
+    let steps: Vec<&str> = t.actions.list[0].steps.iter().map(|(id, _)| id.as_str()).collect();
+    assert_eq!(steps, [id, id, PHOTOSHOP_STEP, PHOTOSHOP_STEP], "{r}");
+    assert_eq!(t.actions.list[0].steps[1].1["reds"], 17, "{r}");
+}
+
 /// Smart Blur's quality uses Photoshop's `SmBQ` codes (`SBQL`/`SBQM`/`SBQH`): measured in
 /// Photoshop, the old `Hgh `/`Mdm `/`Low ` play back as its fallback quality. Old codes still read.
 #[test]
