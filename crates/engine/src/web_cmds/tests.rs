@@ -474,7 +474,13 @@ fn quick_export_writes_the_format_its_path_names() {
     let dir = tmp("quick_ext");
     let mut s = session(8);
     s.execute("file.export.exportPreferences", json!({"quickExportFormat": "png"})).unwrap();
-    for (name, format, magic) in [("a.jpeg", "jpg", &b"\xFF\xD8\xFF"[..]), ("b.JPG", "jpg", b"\xFF\xD8\xFF"), ("c.gif", "gif", b"GIF8"), ("d.webp", "webp", b"RIFF"), ("e", "png", b"\x89PNG")] {
+    for (name, format, magic) in [
+        ("a.jpeg", "jpg", &b"\xFF\xD8\xFF"[..]),
+        ("b.JPG", "jpg", b"\xFF\xD8\xFF"),
+        ("c.gif", "gif", b"GIF8"),
+        ("d.webp", "webp", b"RIFF"),
+        ("e", "png", b"\x89PNG"),
+    ] {
         let path = format!("{dir}/{name}");
         let r = s.execute("file.export.quickExport", json!({"path": path})).unwrap();
         assert_eq!(r["format"], json!(format), "{name}");
