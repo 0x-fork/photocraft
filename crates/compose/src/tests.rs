@@ -4166,6 +4166,11 @@ fn branchless_floor_matches_floor_bitwise() {
     }
     xs.extend([f32::INFINITY, f32::NEG_INFINITY, f32::NAN, -f32::NAN, f32::MIN_POSITIVE, -f32::MIN_POSITIVE, f32::MAX, f32::MIN]);
     for x in xs {
+        // NaN payloads aren't portable: MSVC's floor quiets a signalling NaN, so NaN only has to stay NaN.
+        if x.is_nan() {
+            assert!(branchless_floor(x).is_nan(), "{:#010x}", x.to_bits());
+            continue;
+        }
         assert_eq!(branchless_floor(x).to_bits(), x.floor().to_bits(), "{x:e} ({:#010x})", x.to_bits());
     }
 }
