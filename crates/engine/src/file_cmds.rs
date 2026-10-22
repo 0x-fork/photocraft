@@ -707,7 +707,7 @@ fn xml_unescape(s: &str) -> String {
     while let Some(i) = rest.find('&') {
         out.push_str(&rest[..i]);
         rest = &rest[i..];
-        let decoded = rest.find(';').filter(|&e| e <= 12).and_then(|e| {
+        let decoded = rest.as_bytes().iter().take(13).position(|&b| b == b';').and_then(|e| {
             let c = match &rest[1..e] {
                 "lt" => '<',
                 "gt" => '>',
