@@ -282,6 +282,52 @@ fn gzip(bytes: &[u8]) -> Vec<u8> {
     e.finish().unwrap()
 }
 
+/// A `data:` URL of `bytes` under `mime`, base64-encoded.
+fn base64_data_url(mime: &str, bytes: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = format!("data:{mime};base64,");
+    for chunk in bytes.chunks(3) {
+        let n = chunk.len();
+        let v = (u32::from(chunk[0]) << 16) | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8) | u32::from(*chunk.get(2).unwrap_or(&0));
+        for i in 0..4 {
+            if i <= n {
+                out.push(T[((v >> (18 - 6 * i)) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn gzip_compressed_embedded_svg_decompresses_once_with_a_size_cap() {
+    // A small gzip-compressed SVG embedded via data URL (SVGZ-in-data-URL) must still import.
+    let inner = format!("<svg {NS} width=\"4\" height=\"4\"><rect width=\"4\" height=\"4\" fill=\"#00ff00\"/></svg>");
+    let url = base64_data_url("image/svg+xml", &gzip(inner.as_bytes()));
+    let r = open(&format!("<svg {NS} width=\"10\" height=\"10\"><image x=\"0\" y=\"0\" width=\"10\" height=\"10\" href=\"{url}\"/></svg>"));
+    assert!(
+        r.document.layers.iter().any(|l| matches!(l.content, LayerContent::Raster(_))),
+        "valid embedded gzip SVG must decode into a raster layer: {:?}",
+        r.document.layers
+    );
+
+    // A gzip-compressed embedded SVG whose decompressed size exceeds the cap must be rejected
+    // by our bounded inflate, not silently decompressed again without a limit by usvg.
+    let mut bomb = format!("<svg {NS} width=\"4\" height=\"4\">").into_bytes();
+    bomb.resize(usize::try_from(svg::MAX_INFLATED_BYTES).unwrap() + 1024, b' ');
+    bomb.extend_from_slice(b"</svg>");
+    let gz = gzip(&bomb);
+    assert!(gz.len() < 2 << 20, "{} bytes compressed", gz.len());
+    let url = base64_data_url("image/svg+xml", &gz);
+    let start = std::time::Instant::now();
+    let r = open(&format!("<svg {NS} width=\"10\" height=\"10\"><image x=\"0\" y=\"0\" width=\"10\" height=\"10\" href=\"{url}\"/></svg>"));
+    assert!(start.elapsed() < std::time::Duration::from_secs(5), "took {:?}", start.elapsed());
+    // The embedded bomb is rejected; the outer drawing may still open (e.g. with a missing
+    // image), but must not have decoded the bomb into a raster layer.
+    assert!(r.document.layers.iter().all(|l| !matches!(l.content, LayerContent::Raster(_))), "{:?}", r.document.layers);
+}
+
 /// 8 000 nested groups (70 KB) overflowed the XML parser's recursion on a 2 MB thread stack, an
 /// abort nothing can catch. It is an error now, found before the parser runs; the thread here
 /// has a small stack so a regression aborts the test instead of passing by luck.

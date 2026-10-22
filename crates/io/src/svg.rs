@@ -194,6 +194,18 @@ fn options(fontdb: Arc<usvg::fontdb::Database>) -> usvg::Options<'static> {
                 return None;
             }
         }
+        // An embedded `image/svg+xml` value can itself be gzip-compressed (SVGZ-in-data-URL).
+        // The default resolver's sub-SVG loader checks for the gzip magic and decompresses
+        // again with no byte limit of its own. Apply our bounded inflate first: if the data is
+        // gzip-compressed, hand the default resolver the already-decompressed (and
+        // size-checked) bytes, which no longer start with the gzip magic, so it parses them
+        // directly instead of decompressing a second time.
+        if (mime == "image/svg+xml" || mime == "text/plain") && data.starts_with(&[0x1f, 0x8b]) {
+            return match inflate(&data) {
+                Ok(xml) if !xml.starts_with(&[0x1f, 0x8b]) => default_resolver("image/svg+xml", std::sync::Arc::new(xml.into_owned()), opts),
+                _ => None,
+            };
+        }
         default_resolver(mime, data, opts)
     });
     usvg::Options {
@@ -231,7 +243,11 @@ fn parse_with(bytes: &[u8], fonts: fn() -> Arc<usvg::fontdb::Database>) -> Resul
     let fontdb = if has_text { fonts() } else { Arc::new(usvg::fontdb::Database::new()) };
     let fontless_text = has_text && fontdb.faces().next().is_none();
     let opt = options(fontdb);
-    let tree = usvg::Tree::from_data(&xml, &opt).map_err(|e| IoError::Svg(e.to_string()))?;
+    // Parse the already-bounded-and-decoded text with from_str, not from_data: from_data
+    // re-checks the gzip magic and would decompress a second time without our size limit if
+    // the inflated content happened to start with a nested gzip stream.
+    let text = std::str::from_utf8(&xml).map_err(|_| IoError::Svg("the SVG is not valid UTF-8".into()))?;
+    let tree = usvg::Tree::from_str(text, &opt).map_err(|e| IoError::Svg(e.to_string()))?;
     Ok(Parsed { tree, fontless_text })
 }
 
@@ -1135,5 +1151,26 @@ mod tests {
         let bad_webp = b"RIFF\x10\x00\x00\x00WEBPVP8 ".to_vec();
         assert!(resolve("image/webp", Arc::new(bad_webp.clone()), &opt).is_none());
         assert!(resolve("text/plain", Arc::new(bad_webp), &opt).is_none());
+    }
+
+    #[test]
+    fn resolve_data_rejects_nested_gzip_and_handles_text_plain_svgz() {
+        use std::io::Write;
+        fn gz(bytes: &[u8]) -> Vec<u8> {
+            let mut e = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+            e.write_all(bytes).unwrap();
+            e.finish().unwrap()
+        }
+        let opt = options(Arc::new(usvg::fontdb::Database::new()));
+        let resolve = &opt.image_href_resolver.resolve_data;
+        let svg = b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"4\" height=\"4\"><rect width=\"4\" height=\"4\"/></svg>";
+        let once = gz(svg);
+        assert!(resolve("image/svg+xml", Arc::new(once.clone()), &opt).is_some());
+        assert!(resolve("text/plain", Arc::new(once.clone()), &opt).is_some());
+
+        // Doubly gzip-compressed payload must be rejected rather than decompressed a second time by usvg.
+        let twice = gz(&once);
+        assert!(resolve("image/svg+xml", Arc::new(twice.clone()), &opt).is_none());
+        assert!(resolve("text/plain", Arc::new(twice), &opt).is_none());
     }
 }
