@@ -119,9 +119,10 @@ impl CameraRawGpu {
 
     /// Develops `px` (`w × h`) with `p`, or `None` when the CPU must: a spatial stage, the pass
     /// still building, a fault, or a GPU error (logged; the dialog then stays on the CPU). `key` names the pixels when they
-    /// are the dialog's unchanged proxy ([`source_key`]), so they upload once.
+    /// are the dialog's unchanged proxy ([`source_key`]), so they upload once. Neutral settings
+    /// are `None` too: the CPU develop returns them at once, a GPU round trip would only cost.
     pub(crate) fn develop(&self, px: &[[f32; 4]], key: Option<u64>, w: usize, h: usize, p: &CameraRaw, float: bool) -> Option<Vec<[f32; 4]>> {
-        if p.spatial() || self.failed.load(Ordering::Relaxed) || !self.health.is_ok() {
+        if p.spatial() || p.is_identity() || self.failed.load(Ordering::Relaxed) || !self.health.is_ok() {
             return None;
         }
         #[cfg(target_arch = "wasm32")]
@@ -262,6 +263,22 @@ mod tests {
             let (backend, shown, cpu) = developed(&mut app, &ctx, per_pixel);
             assert_eq!((backend, shown == cpu), ("cpu", true), "{depth}-bit after a fault");
         }
+    }
+
+    #[test]
+    fn neutral_settings_skip_the_gpu_round_trip() {
+        let _gpu = photocraft_testkit::gpu_lock();
+        let Some((mut app, ctx)) = gpu_app(8) else { return };
+        force_pass(&app);
+        crate::camera_raw_ui::open(&mut app, &ctx).unwrap();
+        if app.camera_raw.as_ref().is_some_and(|d| d.gpu.is_none()) {
+            eprintln!("skipping: the device can't run the Camera Raw pass");
+            return;
+        }
+        let (backend, _, _) = developed(&mut app, &ctx, CameraRaw { exposure: 0.5, ..Default::default() });
+        assert_eq!(backend, "gpu", "a per-pixel setting develops on the GPU");
+        let (backend, shown, cpu) = developed(&mut app, &ctx, CameraRaw::default());
+        assert_eq!((backend, shown == cpu), ("cpu", true), "default settings: the CPU returns them unchanged");
     }
 
     #[test]

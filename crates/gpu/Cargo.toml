@@ -32,4 +32,3 @@ pollster = "1"
 photocraft-vector = { workspace = true }
 # A document-tagged CMYK profile in the tile conversion test.
 photocraft-cms = { workspace = true }
-photocraft-testkit = { workspace = true }
