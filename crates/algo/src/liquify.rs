@@ -663,7 +663,9 @@ pub fn apply_liquify(src: &Surface, field: &LiquifyField) -> Surface {
     if field.is_identity() || b.is_empty() {
         return out;
     }
-    let maxd = f64::from(field.max_displacement()).ceil() as i32 + 3;
+    // A 1D Catmull-Rom stencil's absolute weights sum to at most 5/4, so the 2D
+    // interpolated displacement can reach 25/16 of the largest nodal displacement.
+    let maxd = ((f64::from(field.max_displacement()) * (25.0 / 16.0)).ceil() as i32).saturating_add(3);
     let has_freeze = field.freeze.iter().any(|&f| f > 0.0);
     let tiles: Vec<Rect> = b.tiles().map(|t| t.rect().intersect(&b)).filter(|r| !r.is_empty() && field.touches(*r)).collect();
     let work = |t: &Rect| -> Option<(Rect, Vec<f32>)> {
