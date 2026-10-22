@@ -14,6 +14,8 @@ use serde_json::{Map, Value, json};
 use crate::PhotocraftApp;
 use crate::theme::Tokens;
 
+mod zoom_center;
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Kind {
     Range {
@@ -775,6 +777,12 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
         crate::select_mask_view::controls(ui, f);
     }
     for p in parse_spec(&spec) {
+        if zoom_center::owns(&cmd, f) && matches!(p.key.as_str(), "centerX" | "centerY") {
+            if p.key == "centerX" {
+                zoom_center::row(ui, f);
+            }
+            continue;
+        }
         match p.kind {
             Kind::Range { min, max, default } => {
                 let mut v = f.get(&p.key).and_then(Value::as_f64).unwrap_or(default as f64) as f32;
