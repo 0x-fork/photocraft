@@ -2238,7 +2238,9 @@ pub(crate) fn composite_with_effects_prepared(
             // The stroke blended over the backdrop at full coverage.
             let mut blended = base.clone();
             let ones = Map { w, h, v: share.iter().map(|&s| if s > 0.0 { 1.0 } else { 0.0 }).collect() };
-            paint_fx(&mut blended, &ones, &st.paint, frame(st), anchor, big, st.common.blend, 1.0, patterns);
+            // The share already carries the Dissolve choice, so the paint itself composites as Normal.
+            let paint_blend = if st.common.blend == BlendMode::Dissolve { BlendMode::Normal } else { st.common.blend };
+            paint_fx(&mut blended, &ones, &st.paint, frame(st), anchor, big, paint_blend, 1.0, patterns);
             for ((a, b), s) in acc.iter_mut().zip(&blended.px).zip(&share) {
                 if *s > 0.0 {
                     for c in 0..3 {
