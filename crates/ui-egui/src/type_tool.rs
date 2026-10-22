@@ -460,14 +460,27 @@ pub(crate) fn path_target(app: &PhotocraftApp, x: f64, y: f64) -> Option<PathCli
 /// would make, unless the press edits the type layer under it instead (`pointer_down`: an
 /// unshifted press on shown type), where Photoshop keeps the plain I-beam. The type hit is only
 /// tested over a path, so a hover elsewhere lays out nothing. Nothing while a type edit is open
-/// (a click then commits rather than starting new type) or during a drag (dragging out a text
-/// box, whose release makes a box, not path type).
+/// (a click then commits rather than starting new type). While the button is held it is what the
+/// release makes (`pointer_up`): nothing once the drag is a text box, else the path click at the
+/// press.
 pub(crate) fn hover_path_target(app: &mut PhotocraftApp, x: f64, y: f64, shift: bool) -> Option<PathClick> {
-    if app.ui.text_edit.is_some() || app.drag.is_some() {
+    if app.ui.text_edit.is_some() {
         return None;
+    }
+    if let Some(start) = app.drag.as_ref().map(|d| d.start) {
+        // The press already passed over editing type (`pointer_down`), so no type hit test.
+        return if makes_box(app, start, [x, y]) { None } else { path_target(app, start[0], start[1]) };
     }
     let target = path_target(app, x, y)?;
     (shift || hit_layer(app, x, y).is_none()).then_some(target)
+}
+
+/// Whether a press at `start` released at `end` drags out a paragraph box rather than clicking
+/// (at least 4 screen pixels both ways).
+fn makes_box(app: &PhotocraftApp, start: [f64; 2], end: [f64; 2]) -> bool {
+    let (w, h) = ((end[0] - start[0]).abs(), (end[1] - start[1]).abs());
+    let min = 4.0 / app.point_zoom().max(0.01) as f64;
+    w >= min && h >= min
 }
 
 /// Pointer up. `rect` is the dragged box (document px) when no edit session consumed the press.
@@ -484,7 +497,7 @@ pub fn pointer_up(app: &mut PhotocraftApp, start: [f64; 2], end: [f64; 2]) {
     let mask = app.ui.tool.is_type_mask();
     // A click (not a drag) with the Type tool on a path: area type inside a closed path, type
     // on the path on its outline. The Type Mask tools ignore paths.
-    let target = if !mask && !(w >= min && h >= min) { path_target(app, start[0], start[1]) } else { None };
+    let target = if !mask && !makes_box(app, start, end) { path_target(app, start[0], start[1]) } else { None };
     // Preferences ▸ Type: "Fill new type layers with placeholder text" (on by default). The Type
     // Mask tools start empty, as Photoshop's do.
     let text = if !mask && app.session.prefs().type_.fill_new_type_layers_with_placeholder { PLACEHOLDER } else { "" };

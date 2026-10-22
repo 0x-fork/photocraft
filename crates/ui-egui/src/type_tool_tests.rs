@@ -2837,17 +2837,32 @@ fn clicking_on_a_path_outline_starts_type_on_the_path_where_clicked() {
     );
 }
 
-/// The path pointer shows what a click would do: none while a text box is dragged out over a
-/// path (the release makes a box) or while a type edit is open (a click commits).
+/// The path pointer shows what the release would do: kept while a press on a path is held or
+/// barely moves (the release still makes path type there), none once a text box is dragged out
+/// over a path (the release makes a box) or while a type edit is open (a click commits).
 #[test]
 fn the_path_pointer_is_off_while_dragging_a_text_box_or_editing() {
     use crate::canvas::{ToolEvent, tool_event};
     let mut app = new_app();
     ellipse_layer(&mut app);
     assert!(matches!(super::hover_path_target(&mut app, 400.0, 350.0, false), Some(PathClick::Area { .. })), "a hover inside the shape");
-    tool_event(&mut app, ToolEvent::Down { x: 1200.0, y: 700.0, pressure: 1.0 }, Modifiers::NONE);
+    // Press and hold on the shape, then a flat drag: still a click on release.
+    tool_event(&mut app, ToolEvent::Down { x: 400.0, y: 350.0, pressure: 1.0 }, Modifiers::NONE);
+    assert!(app.drag.is_some(), "the press starts a drag");
+    assert!(matches!(super::hover_path_target(&mut app, 400.0, 350.0, false), Some(PathClick::Area { .. })), "press and hold");
+    tool_event(&mut app, ToolEvent::Move { x: 1200.0, y: 351.0, pressure: 1.0 }, Modifiers::NONE);
+    assert!(matches!(super::hover_path_target(&mut app, 1200.0, 351.0, false), Some(PathClick::Area { .. })), "a flat drag");
+    tool_event(&mut app, ToolEvent::Up { x: 1200.0, y: 351.0 }, Modifiers::NONE);
+    let id = LayerId(app.ui.text_edit.as_ref().expect("editing").layer);
+    assert!(
+        matches!(text_layer(&app.session.active().unwrap().doc, id).unwrap().shape, photocraft_doc::text::TextShape::Area { .. }),
+        "the release made area type"
+    );
+    let mut app = new_app();
+    ellipse_layer(&mut app);
+    tool_event(&mut app, ToolEvent::Down { x: 300.0, y: 300.0, pressure: 1.0 }, Modifiers::NONE);
     tool_event(&mut app, ToolEvent::Move { x: 400.0, y: 350.0, pressure: 1.0 }, Modifiers::NONE);
-    assert!(app.drag.is_some(), "dragging out a box");
+    assert!(app.drag.is_some(), "dragging out a box from inside the shape");
     assert!(super::hover_path_target(&mut app, 400.0, 350.0, false).is_none(), "the drag makes a box, not area type");
     tool_event(&mut app, ToolEvent::Up { x: 400.0, y: 350.0 }, Modifiers::NONE);
     assert!(app.ui.text_edit.is_some(), "the box is being edited");
