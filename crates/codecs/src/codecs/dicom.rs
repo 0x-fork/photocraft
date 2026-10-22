@@ -213,6 +213,9 @@ pub(crate) fn decode(b: &[u8], limits: &Limits) -> Result<Image, CodecError> {
     let bits = get_u16((0x0028, 0x0100)).ok_or_else(|| bad("missing BitsAllocated (0028,0100)"))?;
     let bits_stored = get_u16((0x0028, 0x0101)).unwrap_or(bits);
     let high_bit = get_u16((0x0028, 0x0102)).unwrap_or(bits_stored.saturating_sub(1));
+    if u32::from(high_bit) >= u32::from(bits) {
+        return Err(bad("HighBit is outside the allocated bits"));
+    }
     let signed = get_u16((0x0028, 0x0103)).unwrap_or(0) == 1;
     let planar = get_u16((0x0028, 0x0006)).unwrap_or(0);
     let photometric = tags
@@ -491,6 +494,15 @@ mod tests {
             assert!(decode(&b[..cut.min(b.len())], &Limits::default()).is_err(), "cut {cut}");
         }
         assert!(decode(b"not dicom", &Limits::default()).is_err());
+    }
+
+    #[test]
+    fn high_bit_outside_the_allocated_bits_is_an_error_not_a_panic() {
+        let mut b = synth("1.2.840.10008.1.2.1", true, false, 0, 1, 1, 1, 8, "MONOCHROME2", &[7]);
+        let tag = [0x28, 0x00, 0x02, 0x01, b'U', b'S', 0x02, 0x00];
+        let at = b.windows(tag.len()).position(|w| w == tag).unwrap() + tag.len();
+        b[at..at + 2].copy_from_slice(&200u16.to_le_bytes());
+        assert!(decode(&b, &Limits::default()).is_err());
     }
 
     #[test]
