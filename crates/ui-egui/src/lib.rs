@@ -894,6 +894,11 @@ pub struct PhotocraftApp {
     /// When (in `egui::InputState::time`) to try saving unsaved work for recovery again after a
     /// failed attempt; the app closes only once it succeeded.
     window_recovery_retry: Option<f64>,
+    /// The render state the GPU canvas was built on, kept after it is dropped so Retry GPU can
+    /// build a new one on the same device (see `gpu_status::choose_recovery`, #6577).
+    gpu_render_state: Option<eframe::egui_wgpu::RenderState>,
+    /// Why the GPU canvas was dropped (see `gpu_status::fall_back`).
+    gpu_fault: Option<photocraft_gpu::Fault>,
     /// Run once the first frames have rendered (see [`Self::on_started`]).
     started: Option<gpu_status::StartedHook>,
     /// Frame and canvas-upload timings (exposed via `ui.inspect`).
@@ -1067,6 +1072,8 @@ impl PhotocraftApp {
             window_device: None,
             window_lost: false,
             window_recovery_retry: None,
+            gpu_render_state: None,
+            gpu_fault: None,
             started: None,
             perf: Default::default(),
             stroke_trace: stroke_trace::StrokeTrace::from_env(),
@@ -1109,6 +1116,7 @@ impl PhotocraftApp {
         // The browser has no adapter list (egui-wgpu only has it natively).
         #[cfg(not(target_arch = "wasm32"))]
         self.perf.gpu_info.set_available(&rs.available_adapters);
+        self.gpu_render_state = Some(rs.clone());
         let gpu = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| gpu_canvas::GpuCanvas::with_tile(&rs, Some(tile)))) {
             Ok(gpu) => gpu,
             Err(payload) => {
