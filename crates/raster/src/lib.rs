@@ -476,30 +476,37 @@ impl Surface {
 
     /// Channel `c` at `(x0 + i·step, y)` for `i in 0..out.len()`, looking each tile up once per run
     /// (much faster than per-sample [`Surface::sample_channel`] for strided scans).
+    /// Steps below 1 read consecutive pixels; positions beyond `i32::MAX` read the default pixel.
     pub fn sample_row_strided(&self, y: i32, x0: i32, step: i32, c: usize, out: &mut [f32]) {
-        let step = step.max(1);
+        let step = i64::from(step.max(1));
         let dp = read_sample(&self.default_pixel, self.format.sample, c);
         let n = self.format.channels();
         let ty = y.div_euclid(TILE_SIZE);
         let ly = y.rem_euclid(TILE_SIZE) as usize;
         let mut i = 0;
+        let mut x = i64::from(x0);
         while i < out.len() {
-            let x = x0 + i as i32 * step;
-            let tx = x.div_euclid(TILE_SIZE);
+            if x > i64::from(i32::MAX) {
+                out[i..].fill(dp);
+                break;
+            }
+            let tx = x.div_euclid(i64::from(TILE_SIZE));
             // Samples that fall in this tile.
-            let tile_end = (tx + 1) * TILE_SIZE;
+            let tile_end = (tx + 1) * i64::from(TILE_SIZE);
             let count = (((tile_end - x) + step - 1) / step).max(1) as usize;
-            let end = (i + count).min(out.len());
-            match self.tiles.get(&TileCoord { tx, ty }) {
+            let count = count.min(out.len() - i);
+            let end = i + count;
+            match self.tiles.get(&TileCoord { tx: tx as i32, ty }) {
                 None => out[i..end].fill(dp),
                 Some(t) => {
                     for (k, o) in out[i..end].iter_mut().enumerate() {
-                        let lx = (x + k as i32 * step - tx * TILE_SIZE) as usize;
+                        let lx = (x + k as i64 * step - tx * i64::from(TILE_SIZE)) as usize;
                         *o = read_sample(&t.data, self.format.sample, (ly * TILE_SIZE as usize + lx) * n + c);
                     }
                 }
             }
             i = end;
+            x += count as i64 * step;
         }
     }
 
@@ -1890,6 +1897,40 @@ mod tests {
             let got = snapshot.pixel(x, y);
             for (g, e) in got.iter().zip(&expect) {
                 prop_assert!((g - e).abs() <= 1.0 / 255.0);
+            }
+        }
+    }
+
+    #[test]
+    fn strided_row_sampling_handles_extreme_coordinates_and_steps() {
+        for sample in SampleType::ALL {
+            let mut s = Surface::with_default(PixelFormat::new(ColorMode::Grayscale, sample, false), &[0.25]);
+            for (x, value) in [(i32::MIN, 0.1), (-1, 0.3), (0, 0.4), (i32::MAX - 1, 0.6), (i32::MAX, 0.9)] {
+                s.write_pixel(x, 0, &[value]);
+            }
+            for y in [0, 256] {
+                for (x0, step, len) in [(i32::MAX, 1, 1), (i32::MIN, i32::MAX, 3), (0, i32::MAX, 2), (i32::MAX - 1, 1, 2), (i32::MAX, i32::MAX, 0)] {
+                    let mut out = vec![0.0; len];
+                    s.sample_row_strided(y, x0, step, 0, &mut out);
+                    for (i, &got) in out.iter().enumerate() {
+                        let x = i32::try_from(i64::from(x0) + i as i64 * i64::from(step)).unwrap();
+                        assert_eq!(got, s.sample_channel(x, y, 0), "{sample:?} y={y} x0={x0} step={step} i={i}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn strided_row_sampling_uses_default_past_coordinate_range() {
+        for sample in SampleType::ALL {
+            let mut s = Surface::with_default(PixelFormat::new(ColorMode::Grayscale, sample, false), &[0.25]);
+            s.write_pixel(i32::MAX, 0, &[0.75]);
+            s.write_pixel(i32::MIN, 0, &[1.0]);
+            for step in [1, i32::MAX] {
+                let mut out = [0.0; 4];
+                s.sample_row_strided(0, i32::MAX, step, 0, &mut out);
+                assert_eq!(out, [s.sample_channel(i32::MAX, 0, 0), s.default_pixel()[0], s.default_pixel()[0], s.default_pixel()[0]]);
             }
         }
     }
