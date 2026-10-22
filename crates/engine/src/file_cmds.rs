@@ -1358,7 +1358,12 @@ fn same_format_takes_the_file_names_extension() {
     assert_eq!(same_format("/in/.hidden"), "png");
 }
 
-fn process_outputs<'a>(s: &Session, outputs: impl IntoIterator<Item = (&'a str, String)>, save: SaveOpts, f: &dyn Fn(&mut Session, &str) -> Result<bool>) -> Value {
+fn process_outputs<'a>(
+    s: &Session,
+    outputs: impl IntoIterator<Item = (&'a str, String)>,
+    save: SaveOpts,
+    f: &dyn Fn(&mut Session, &str) -> Result<bool>,
+) -> Value {
     // The scratch sessions have default preferences; a raw opens at the user's Raw Defaults.
     let raw_ppi = s.prefs().raw_defaults.resolution;
     let mut files = Vec::new();
