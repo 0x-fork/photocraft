@@ -684,9 +684,9 @@ impl Compositor {
     /// to the CPU compositor. Where errors only arrive asynchronously (WebGPU), creation is assumed
     /// to have worked.
     pub fn try_new_with_format(device: &wgpu::Device, acc_format: wgpu::TextureFormat) -> Result<Self, Unsupported> {
-        match first_error(device, || Self::new_with_format(device, acc_format)) {
-            (comp, None) => Ok(comp),
-            (_, Some(e)) => Err(Unsupported(format!("couldn't build the compositor's pipelines: {e}"))),
+        match first_error(device, || Self::build(device, acc_format)) {
+            ((comp, None), None) => Ok(comp),
+            ((_, Some(e)), _) | (_, Some(e)) => Err(Unsupported(format!("couldn't build the compositor's pipelines: {e}"))),
         }
     }
 
@@ -694,6 +694,18 @@ impl Compositor {
     /// `Rgba16Float` on adapters that can't render to `Rgba32Float` (e.g. some Intel Vulkan drivers),
     /// which otherwise panics at render-pipeline creation. See `Compositor::preferred_acc_format`.
     pub fn new_with_format(device: &wgpu::Device, acc_format: wgpu::TextureFormat) -> Self {
+        let (comp, error) = Self::build(device, acc_format);
+        if let Some(e) = error {
+            log::error!("GPU compositor: couldn't build its pipelines: {e}");
+        }
+        comp
+    }
+
+    /// The compositor and the first error raised building its (non-map) pipelines. They are
+    /// built in parallel, each inside its own error scope on the thread that builds it (wgpu's
+    /// scopes are per thread): on DX12, FXC compiles one shader at a time and the ~30 pipelines
+    /// took about 8 s on one core (#6419).
+    fn build(device: &wgpu::Device, acc_format: wgpu::TextureFormat) -> (Self, Option<wgpu::Error>) {
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("pc_compose"), source: wgpu::ShaderSource::Wgsl(SHADER.into()) });
         let bgl0 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pc_compose_uniforms"),
@@ -728,19 +740,42 @@ impl Compositor {
                 cache: None,
             }))
         };
-        let mut pipelines: HashMap<_, _> =
-            Kernel::DRAWN.iter().filter(|k| !k.is_map()).filter_map(|&k| Some(((k, acc_format), pipeline(k, acc_format)?))).collect();
         // Effect maps render to R32Float / R16Float, which some adapters (e.g. GL without float
         // render targets) can't: then layer effects use the CPU compositor and the rest stays here.
-        let maps = Kernel::DRAWN.iter().filter(|k| k.is_map()).flat_map(|&k| [(k, MAP32), (k, MAP16)]);
-        let (maps, map_error) = first_error(device, || maps.filter_map(|key| Some((key, pipeline(key.0, key.1)?))).collect::<Vec<_>>());
+        let keys = Kernel::DRAWN.iter().filter(|k| !k.is_map()).map(|&k| (k, acc_format));
+        let keys: Vec<_> = keys.chain(Kernel::DRAWN.iter().filter(|k| k.is_map()).flat_map(|&k| [(k, MAP32), (k, MAP16)])).collect();
+        let built = fx::par_map(keys, |key| {
+            let (built, error) = first_error(device, || pipeline(key.0, key.1));
+            (key, built, error)
+        });
+        let (mut pipelines, mut maps) = (HashMap::new(), Vec::new());
+        let (mut error, mut map_error) = (None, None);
+        for (key, built, e) in built {
+            let map = key.0.is_map();
+            // A failed map pipeline turns all effect maps off below. A failed non-map pipeline
+            // keeps its (invalid) handle: draws look pipelines up by key, so dropping it would
+            // turn a validation error into a missing-key panic on the first draw.
+            if let Some(e) = e {
+                if map {
+                    map_error.get_or_insert(e);
+                    continue;
+                }
+                error.get_or_insert(e);
+            }
+            let Some(p) = built else { continue };
+            if map {
+                maps.push((key, p));
+            } else {
+                pipelines.insert(key, p);
+            }
+        }
         if let Some(e) = &map_error {
             log::info!("GPU compositor: no effect-map pipelines ({e}); layer effects use the CPU");
         } else {
             pipelines.extend(maps);
         }
         let dummy = Tex::new(device, "pc_compose_dummy", 1, 1, wgpu::TextureFormat::Rgba8Unorm, wgpu::TextureUsages::TEXTURE_BINDING).view;
-        Self {
+        let comp = Self {
             kit: Kit { pipelines, bgl0, bgl1, dummy },
             pool: Vec::new(),
             residents: HashMap::new(),
@@ -773,7 +808,8 @@ impl Compositor {
             health: None,
             timer: None,
         }
-        .with_texture_limit(device.limits().max_texture_dimension_2d)
+        .with_texture_limit(device.limits().max_texture_dimension_2d);
+        (comp, error)
     }
 
     fn with_texture_limit(mut self, max: u32) -> Self {
