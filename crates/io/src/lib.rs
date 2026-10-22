@@ -327,6 +327,8 @@ pub fn import_for_open_with(name: &str, bytes: &[u8], max_group_depth: usize, ct
     Ok((result, damaged))
 }
 
+/// Dispatches format-specific importers and propagates a structured PSD damage
+/// flag alongside the ordinary best-effort import result.
 fn import_stages(name: &str, bytes: &[u8], ctl: &photocraft_raster::Interrupt, max_group_depth: usize, damaged: &mut bool) -> Result<ImportResult, IoError> {
     // A declared native extension must reach its loader so malformed bundles retain format errors.
     if has_extension(name, photocraft_format::EXTENSION) || photocraft_format::is_pcraft(bytes) {
@@ -607,6 +609,7 @@ mod tests {
     use super::{import, import_for_open, is_svg_input};
     use photocraft_psd::{Compression, Version, testgen};
 
+    /// Verifies a valid PSD remains editable after import.
     #[test]
     fn valid_psd_can_still_be_edited() {
         let bytes = testgen::small(Version::Psd, Compression::Raw).to_bytes().unwrap();
@@ -614,6 +617,8 @@ mod tests {
         assert!(!imported.source_read_only);
     }
 
+    /// Verifies corrupt PSD channels produce warnings and an interactive damage flag
+    /// without rejecting otherwise readable headless imports.
     #[test]
     fn unreadable_psd_channel_keeps_best_effort_import_and_reports_damage() {
         let mut file = testgen::small(Version::Psd, Compression::Raw);
@@ -631,6 +636,7 @@ mod tests {
         assert_eq!(opened.document.layers.len(), imported.document.layers.len());
     }
 
+    /// Verifies healthy PSD data never requires damage confirmation.
     #[test]
     fn valid_psd_does_not_request_damage_confirmation() {
         let bytes = testgen::small(Version::Psd, Compression::Raw).to_bytes().unwrap();

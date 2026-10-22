@@ -134,6 +134,8 @@ impl Ctx<'_> {
         self.warnings.push(s.into());
     }
 
+    /// Records a PSD decoding failure and marks the import as potentially incomplete.
+    /// Unlike compatibility warnings, this requires interactive confirmation.
     fn warn_unreadable_data(&mut self, s: impl Into<String>) {
         self.damaged = true;
         self.warn(s);
@@ -169,6 +171,7 @@ impl Ctx<'_> {
         Placement { id, transform, perspective, warp }
     }
 
+    /// Decodes a PSD layer channel, marking the document damaged if its data is unreadable.
     fn channel_plane(&mut self, rec: &LayerRecord, id: i16, name: &str) -> Option<Vec<u8>> {
         rec.channel(id)?;
         match rec.decode_channel(id, self.file.header.depth, self.file.header.version) {
@@ -187,6 +190,8 @@ impl Ctx<'_> {
         rec.decode_channel(id, self.file.header.depth, self.file.header.version).ok()
     }
 
+    /// Builds a raster surface from the layer channels, leaving the surface empty if
+    /// any present channel fails to decode rather than inventing replacement pixels.
     fn record_surface(&mut self, rec: &LayerRecord, name: &str) -> Surface {
         let r = rec.rect;
         if r.is_empty() || r.size().is_err() {
@@ -238,6 +243,8 @@ impl Ctx<'_> {
         surf
     }
 
+    /// Restores the selected user mask from its channel and metadata, recording an
+    /// integrity failure if the mask channel cannot be decoded.
     fn record_mask(&mut self, rec: &LayerRecord, name: &str) -> Option<LayerMask> {
         let m = rec.layer_mask()?;
         let (id, rect, default, flags) = match selected_real_mask(rec) {
@@ -798,6 +805,7 @@ fn mark_background(file: &PsdFile, layers: &mut [Layer]) {
     }
 }
 
+/// Converts a parsed PSD into a document, preserving best-effort recovery warnings.
 pub fn psd_to_document(file: &PsdFile) -> (Document, Vec<String>) {
     // Never cancelled, so always `Some`; the fallback is unreachable.
     psd_to_document_with(file, &photocraft_raster::Interrupt::NONE)
@@ -1208,6 +1216,7 @@ mod tests {
         assert_eq!(unicode_names(&data), ["A"]);
     }
 
+    /// Verifies an unreadable layer channel sets the structured damage indicator.
     #[test]
     fn unreadable_layer_channel_marks_conversion_damaged() {
         let mut file = testgen::small(Version::Psd, Compression::Raw);
@@ -1220,6 +1229,7 @@ mod tests {
         assert!(warnings.iter().any(|w| w.contains("could not be decoded")));
     }
 
+    /// Verifies an unreadable user-mask channel sets the structured damage indicator.
     #[test]
     fn unreadable_mask_channel_marks_conversion_damaged() {
         let mut file = testgen::small(Version::Psd, Compression::Raw);
@@ -1231,6 +1241,7 @@ mod tests {
         assert!(warnings.iter().any(|w| w.contains("could not be decoded")));
     }
 
+    /// Verifies healthy layer channels do not mark the PSD as damaged.
     #[test]
     fn valid_layer_channels_keep_conversion_editable() {
         let file = testgen::small(Version::Psd, Compression::Raw);

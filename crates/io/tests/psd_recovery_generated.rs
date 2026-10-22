@@ -10,6 +10,7 @@ mod recovery_psd;
 use photocraft_io::{import, import_for_open};
 use photocraft_psd::PsdFile;
 
+/// Verifies a generated, two-layer PSD opens without source restrictions or damage prompts.
 #[test]
 fn valid_generated_psd_opens_normally() {
     let bytes = recovery_psd::make_psd(false);
@@ -22,6 +23,8 @@ fn valid_generated_psd_opens_normally() {
     assert!(!damaged);
 }
 
+/// Verifies a truncated green PackBits row leaves the PSD container and merged image
+/// readable, while normal import reports a warning and interactive open reports damage.
 #[test]
 fn corrupt_generated_rle_channel_keeps_best_effort_import_and_reports_damage() {
     let bytes = recovery_psd::make_psd(true);
@@ -47,6 +50,7 @@ fn corrupt_generated_rle_channel_keeps_best_effort_import_and_reports_damage() {
     assert_eq!(opened.document.layers.len(), imported.document.layers.len());
 }
 
+/// Verifies a truncated merged preview triggers confirmation without losing intact layers.
 #[test]
 fn damaged_composite_keeps_layers_and_requests_interactive_confirmation() {
     let mut file = PsdFile::from_bytes(&recovery_psd::make_psd(false)).unwrap();
@@ -61,6 +65,7 @@ fn damaged_composite_keeps_layers_and_requests_interactive_confirmation() {
     assert!(opened.warnings.iter().any(|w| w.contains("merged image")));
 }
 
+/// Verifies mismatched resolution metadata produces a warning but no damage prompt.
 #[test]
 fn ordinary_compatibility_warning_does_not_mean_damaged() {
     use photocraft_psd::{ImageResource, ResolutionInfo, resources::ids};
@@ -72,6 +77,7 @@ fn ordinary_compatibility_warning_does_not_mean_damaged() {
     assert!(opened.warnings.iter().any(|w| w.contains("vertical resolution")));
 }
 
+/// Verifies a structurally unparseable PSD still fails instead of offering recovery.
 #[test]
 fn fatal_parse_errors_are_not_turned_into_confirmation_requests() {
     let bytes = b"8BPS\0";

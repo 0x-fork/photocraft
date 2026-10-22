@@ -180,6 +180,8 @@ pub(crate) fn owns_damage(fields: &serde_json::Map<String, Value>) -> bool {
     fields.contains_key(DAMAGE_FIELD)
 }
 
+/// Shows the standard agent-visible confirmation for the first damaged PSD
+/// waiting in the open queue, including its decoding warnings.
 fn show_damage(app: &mut PhotocraftApp) {
     let Some(front) = app.held_opens.front().filter(|h| h.damage_pending) else { return };
     let message = format!(

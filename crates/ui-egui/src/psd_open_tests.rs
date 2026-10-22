@@ -10,6 +10,7 @@ use photocraft_engine::Session;
 use serde_json::{Value, json};
 use std::{cell::RefCell, rc::Rc};
 
+/// Creates a minimal UI application with in-memory import/export services for PSD tests.
 fn app() -> PhotocraftApp {
     let mut app = PhotocraftApp::new(
         Session::new(),
@@ -29,6 +30,7 @@ fn app() -> PhotocraftApp {
     app
 }
 
+/// Runs an agent-facing control command synchronously and returns its JSON result.
 fn call(app: &mut PhotocraftApp, method: &str, params: Value) -> Value {
     let (req, _rx) = control::ControlRequest::new(method, params);
     match control::handle(app, &egui::Context::default(), &req) {
@@ -37,6 +39,7 @@ fn call(app: &mut PhotocraftApp, method: &str, params: Value) -> Value {
     }
 }
 
+/// Inspects the active damage prompt and returns its agent-visible dialog ID.
 fn damage_dialog(app: &mut PhotocraftApp) -> u64 {
     let inspected = call(app, "ui.inspect", json!({}));
     assert_eq!(inspected["ok"], true);
@@ -47,6 +50,7 @@ fn damage_dialog(app: &mut PhotocraftApp) -> u64 {
     dialogs[0]["id"].as_u64().unwrap()
 }
 
+/// Verifies valid layered PSD files open immediately without a confirmation dialog.
 #[test]
 fn healthy_psd_opens_without_a_damage_prompt() {
     let mut app = app();
@@ -56,6 +60,7 @@ fn healthy_psd_opens_without_a_damage_prompt() {
     assert!(!app.session.active().unwrap().source_read_only);
 }
 
+/// Verifies agents can cancel or confirm a damaged PSD using standard dialog commands.
 #[test]
 fn damaged_psd_can_be_cancelled_or_accepted_through_agent_dialog_commands() {
     let mut app = app();
@@ -75,6 +80,7 @@ fn damaged_psd_can_be_cancelled_or_accepted_through_agent_dialog_commands() {
     assert!(app.ui.dialogs.is_empty());
 }
 
+/// Verifies consent retains the original save path and restores ordinary Save behavior.
 #[test]
 fn accepted_psd_keeps_its_source_path_and_uses_the_normal_save_writer() {
     let mut app = app();
@@ -105,6 +111,7 @@ fn accepted_psd_keeps_its_source_path_and_uses_the_normal_save_writer() {
     assert!(app.save_automation(Some("automated-copy.psd".into())).is_ok());
 }
 
+/// Verifies browser-style downloads keep their existing unconfirmed-save semantics.
 #[test]
 fn accepted_psd_uses_web_download_semantics_without_a_special_writer() {
     let mut app = app();
@@ -118,6 +125,7 @@ fn accepted_psd_uses_web_download_semantics_without_a_special_writer() {
     assert!(app.session.active().unwrap().is_dirty(), "an unconfirmed browser download is not a confirmed save");
 }
 
+/// Verifies non-interactive automation imports recover readable content without a dialog.
 #[test]
 fn damaged_psd_automation_import_does_not_require_interactive_confirmation() {
     let mut app = app();
@@ -128,6 +136,7 @@ fn damaged_psd_automation_import_does_not_require_interactive_confirmation() {
     assert!(warnings.iter().any(|w| w.contains("could not be decoded")));
 }
 
+/// Verifies queued damaged PSD files each require independent user confirmation.
 #[test]
 fn cancelling_one_damaged_open_does_not_open_the_next_damaged_file_without_consent() {
     let mut app = app();
@@ -146,6 +155,8 @@ fn cancelling_one_damaged_open_does_not_open_the_next_damaged_file_without_conse
     assert_eq!(app.session.active().unwrap().doc.name, "second.psd");
 }
 
+/// Verifies the damage prompt cannot be bypassed with a color-profile answer and
+/// that the profile question is still shown after accepting the damage.
 #[test]
 fn damage_confirmation_precedes_the_profile_question() {
     let mut app = app();
@@ -167,6 +178,7 @@ fn damage_confirmation_precedes_the_profile_question() {
     assert_eq!(app.session.documents().len(), 1);
 }
 
+/// Verifies background decoding shows only the damage prompt when no profile question exists.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn background_damage_only_open_does_not_create_a_spurious_profile_question() {

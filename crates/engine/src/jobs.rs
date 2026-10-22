@@ -517,6 +517,8 @@ impl Session {
         self.start_open_inner(name, source, true)
     }
 
+    /// Decodes a file in a job and optionally holds damaged PSD content for
+    /// interactive confirmation while leaving headless opens non-interactive.
     fn start_open_inner(&mut self, name: &str, source: OpenSource, confirm_damage: bool) -> Result<Started> {
         let label = format!("Opening {name}");
         let name_w = name.to_string();
@@ -1025,6 +1027,7 @@ mod psd_open_fixture;
 mod psd_open_confirmation_tests {
     use super::*;
 
+    /// Collects either an inline open result or the completed background-job result.
     fn result(s: &mut Session, started: Started) -> Value {
         match started {
             Started::Done(v) => v,
@@ -1032,6 +1035,7 @@ mod psd_open_confirmation_tests {
         }
     }
 
+    /// Verifies headless opens return readable PSD content and warnings without a held prompt.
     #[test]
     fn headless_open_keeps_best_effort_psd_import() {
         let mut s = Session::new();
@@ -1043,6 +1047,7 @@ mod psd_open_confirmation_tests {
         assert!(v["warnings"].as_array().unwrap().iter().any(|w| w.as_str().unwrap().contains("could not be decoded")));
     }
 
+    /// Verifies interactive opens hold damaged PSD files but admit valid files immediately.
     #[test]
     fn interactive_open_holds_only_a_damaged_psd() {
         for corrupt in [false, true] {
