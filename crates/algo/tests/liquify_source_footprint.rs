@@ -15,8 +15,8 @@ fn source(sample: SampleType, shift: i32) -> Surface {
     let mut surface = Surface::new(PixelFormat::new(ColorMode::Rgb, sample, false));
     let mut row = vec![0.0; 1024 * 3];
     for y in 0..512 {
-        for (x, pixel) in row.chunks_exact_mut(3).enumerate() {
-            pixel.copy_from_slice(&[x as f32 / 1024.0, (x % 2) as f32, y as f32 / 512.0]);
+        for (x, pixel) in row.as_chunks_mut::<3>().0.iter_mut().enumerate() {
+            *pixel = [x as f32 / 1024.0, (x % 2) as f32, y as f32 / 512.0];
         }
         surface.write_region(Rect::new(shift, y, shift + 1024, y + 1), &row);
     }
