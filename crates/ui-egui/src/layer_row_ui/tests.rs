@@ -116,6 +116,8 @@ fn a_groups_layers_indent_past_the_group() {
     s.execute("file.new", json!({"width": 64, "height": 48})).unwrap();
     let child = s.execute("layer.new.layer", json!({"name": "Child"})).unwrap()["layer"].as_u64().unwrap();
     let group = s.execute("layer.groupLayers", json!({"name": "Group"})).unwrap()["layer"].as_u64().unwrap();
+    // Group Layers creates the group collapsed; open it so the panel lists its layers.
+    s.execute("layer.setExpanded", json!({"layer": group, "expanded": true})).unwrap();
     let top = s.execute("layer.new.layer", json!({"name": "Top"})).unwrap()["layer"].as_u64().unwrap();
     let h = harness(s, 1.0, "promedium", 290.0);
     let rows = recorded(&h.ctx);
