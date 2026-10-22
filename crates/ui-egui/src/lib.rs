@@ -856,6 +856,9 @@ pub struct PhotocraftApp {
     /// makes shortcut- and dialog-triggered commands pass the same policy as
     /// direct control calls.
     pub(crate) automation_input: bool,
+    /// Action playbacks paused at a step dialog, by the token in that dialog's fields
+    /// ([`actions::RESUME`]): what to play next and the automation gate it paused under.
+    pub(crate) paused_playbacks: actions::PausedPlaybacks,
     /// Levels/Curves histogram cache: (document, adjustment layer, revision it is valid for).
     pub(crate) tone_hist: Option<(DocId, photocraft_doc::LayerId, u64, std::sync::Arc<tone::Histograms>)>,
     /// Histogram panel cache: (document, revision, computed at ms, histograms).
@@ -1087,6 +1090,7 @@ impl PhotocraftApp {
             live_adjust_preview: None,
             synthetic: Vec::new(),
             automation_input: false,
+            paused_playbacks: Default::default(),
             channel_thumbs: None,
             channel_views: HashMap::new(),
             type_layout: None,
