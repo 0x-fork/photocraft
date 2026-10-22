@@ -512,7 +512,11 @@ fn pcx_header_declaring_gigabytes_needs_a_plausible_file_size() {
     b[66..68].copy_from_slice(&65535u16.to_le_bytes());
     b[68..70].copy_from_slice(&1u16.to_le_bytes());
     b.extend_from_slice(&[0xff, 0]);
-    refused_as_implausible(Format::Pcx, &b);
+    // PCX's own minimum-packet check refuses it before the output is allocated.
+    match decode(&b) {
+        Err(CodecError::Malformed { message, .. }) => assert!(message.contains("too short"), "{message}"),
+        other => panic!("expected a too-short refusal, got {:?}", other.map(|i| (i.width(), i.height()))),
+    }
 }
 
 #[test]

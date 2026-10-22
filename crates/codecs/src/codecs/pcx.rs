@@ -65,9 +65,6 @@ pub(crate) fn decode(b: &[u8], limits: &Limits) -> Result<Image, CodecError> {
     limits.check(w, h, ChannelLayout::Rgb, SampleType::U8)?;
     let (bits, planes, stride) = (usize::from(b[3]), usize::from(b[65]), usize::from(le16(b, 66)));
     let row_len = stride.checked_mul(planes).ok_or_else(|| bad("row size overflow"))?;
-    // An RLE packet expands two bytes to at most 63, so the file must hold at least 1/32 of
-    // the declared scanlines before the output is allocated (#8597).
-    Limits::check_plausible((row_len as u64).saturating_mul(u64::from(h)), b.len(), 32)?;
     let total = (w as usize).checked_mul(h as usize).and_then(|n| n.checked_mul(3)).ok_or_else(|| bad("pixel size overflow"))?;
     // The last 769 bytes are the optional VGA palette for 8-bit indexed images.
     let vga = bits == 8 && planes == 1 && b.len() >= HEADER + 769 && b[b.len() - 769] == 0x0c;
@@ -75,8 +72,31 @@ pub(crate) fn decode(b: &[u8], limits: &Limits) -> Result<Image, CodecError> {
         return Err(bad("8-bit indexed PCX has no 256-colour palette"));
     }
     let image_end = if vga { b.len() - 769 } else { b.len() };
+    // A 63-byte RLE packet takes 2 bytes; a trailing remainder of 1 byte below 0xC0
+    // can be encoded as a 1-byte literal, while any larger remainder takes at least 2 bytes.
+    // Because RLE packets may span planes within a scanline (`row_len`), compute the
+    // minimum encoded bytes across the full scanline (`row_len`) and multiply by `h`.
+    // Reject inputs that cannot possibly contain all scanlines before allocating
+    // the decoded image buffer.
+    let min_packets = (row_len / 63)
+        .checked_mul(2)
+        .and_then(|n| {
+            n.checked_add(match row_len % 63 {
+                0 => 0,
+                1 => 1,
+                _ => 2,
+            })
+        })
+        .ok_or_else(|| bad("compressed row size overflow"))?;
+    let min_encoded = min_packets.checked_mul(h as usize).ok_or_else(|| bad("compressed image size overflow"))?;
+    let encoded_len = image_end.saturating_sub(HEADER);
+    if encoded_len < min_encoded {
+        return Err(bad("PCX pixel data is too short for the declared image"));
+    }
     let mut row = vec![0u8; row_len];
-    let mut pixels = vec![0u8; total];
+    let mut pixels = Vec::new();
+    pixels.try_reserve_exact(total).map_err(|_| bad("PCX pixel buffer is too large"))?;
+    pixels.resize(total, 0);
     let mut p = HEADER;
     let width = w as usize;
     for y in 0..h as usize {
