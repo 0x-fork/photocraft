@@ -3,10 +3,11 @@
 //! to select one; drag onto another smart object to move it there, ⌥-drag to copy it, #4271;
 //! drag it up or down its own stack to reorder it).
 
-use egui::{Align2, Color32, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
+use egui::{Color32, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
 use photocraft_doc::{Document, Layer, LayerContent, LayerId, SmartObject};
 use serde_json::{Value, json};
 
+use crate::state::LayerThumbnailSize;
 use crate::theme::Tokens;
 use crate::{PhotocraftApp, icons};
 
@@ -70,6 +71,17 @@ fn filter_label(f: &photocraft_doc::SmartFilter) -> String {
         .map_or_else(|| command.rsplit('.').next().unwrap_or(command).to_string(), |c| tl!(c.label).trim_end_matches('…').to_string())
 }
 
+/// Height of a Smart Filter or effect sub-row. As in Photoshop, these stay compact at every
+/// Layers panel thumbnail size; only the layer row itself grows with its thumbnails.
+pub(crate) const SUB_ROW_H: f32 = 22.0;
+
+/// The Smart Filters header row: (row height, shared-mask thumbnail side). The mask follows the
+/// Layers panel thumbnail size (hidden at None) and the row grows just enough to hold it.
+pub(crate) fn smart_filters_header_geometry(size: LayerThumbnailSize, pro: bool) -> (f32, f32) {
+    let (thumb, _) = crate::layers_panel_ui::thumbnail_geometry(size, pro);
+    if thumb == 0.0 { (SUB_ROW_H, 0.0) } else { ((thumb + 6.0).max(SUB_ROW_H), thumb) }
+}
+
 /// Smart Filters header + one row per filter (top filter first, as in Photoshop) under a smart
 /// layer. Edits are queued in `actions` as engine commands.
 pub fn filter_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, l: &Layer, depth: usize, actions: &mut Vec<(String, Value)>) {
@@ -78,13 +90,14 @@ pub fn filter_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, l: &Layer, depth:
         return;
     }
     let t = Tokens::get(ui.ctx());
+    let (header_height, mask_size) = smart_filters_header_geometry(app.ui.layers_panel_options.thumbnail_size, t.pro);
     let indent = 30.0 + depth as f32 * 14.0 + 34.0;
     let Some(st) = app.session.active() else { return };
     let (active, doc) = (st.active_layer == Some(l.id), st.doc.id);
     let picked = ui.ctx().data(|d| d.get_temp::<FilterDrag>(selected_key(doc)));
     let rows = std::iter::once(None).chain((0..sm.smart_filters.len()).rev().map(Some));
     for index in rows {
-        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click_and_drag());
+        let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), if index.is_none() { header_height } else { SUB_ROW_H }), Sense::click_and_drag());
         if resp.drag_started() {
             ui.ctx().data_mut(|d| d.insert_temp::<FilterDrag>(drag_key(), (l.id.0, index)));
         }
@@ -126,12 +139,23 @@ pub fn filter_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, l: &Layer, depth:
             });
         }
         let x = rect.left() + indent + if index.is_none() { 0.0 } else { 16.0 };
-        if index.is_none() {
-            let sw = Rect::from_center_size(pos2(x - 12.0, rect.center().y), vec2(14.0, 10.0));
+        if index.is_none() && mask_size > 0.0 {
+            // The Smart Filters mask scales along with the thumbnail size, not
+            // independently of the selected Layers panel display preference.
+            let sw = Rect::from_center_size(pos2(x + mask_size / 2.0, rect.center().y), vec2(mask_size, mask_size));
             ui.painter().rect_filled(sw, 1.0, if sm.filter_mask.as_ref().is_some_and(|m| m.enabled) { Color32::from_gray(200) } else { Color32::WHITE });
             ui.painter().rect_stroke(sw, 1.0, Stroke::new(1.0, t.field_border), egui::StrokeKind::Inside);
         }
-        ui.painter().text(pos2(x, rect.center().y), Align2::LEFT_CENTER, &name, egui::FontId::proportional(11.5), if on { t.text_dim } else { t.text_faint });
+        let text_x = if index.is_none() && mask_size > 0.0 { x + mask_size + 7.0 } else { x };
+        crate::layer_row_ui::label(
+            ui.painter(),
+            text_x,
+            rect.center().y,
+            rect.right() - crate::layer_row_ui::RIGHT_PAD,
+            &name,
+            egui::FontId::proportional(11.5),
+            if on { t.text_dim } else { t.text_faint },
+        );
         resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &name));
         if resp.clicked() {
             ui.ctx().data_mut(|d| d.insert_temp::<FilterDrag>(selected_key(doc), (l.id.0, index)));
@@ -314,8 +338,12 @@ pub fn open_editor(app: &mut PhotocraftApp, ctx: &egui::Context, layer: u64, sm:
 /// filter (`layer.smartFilter.setParams`, see [`confirm_command`]) instead of adding another.
 fn edit_filter(app: &mut PhotocraftApp, id: u64, layer: u64, index: usize, params: &Value) {
     if let Some(d) = app.ui.dialog_mut(id) {
-        // The live preview would stack a second copy of the filter on the smart object.
-        d.fields.remove("__preview");
+        // A filter's live preview runs `layer.smartFilter.setParams` on the proxy, as OK does
+        // (`canvas::ensure_filter_preview`, #6324). An adjustment's previews on the layer and
+        // would stack a second copy of it on the smart object.
+        if d.fields.contains_key("__adjust") {
+            d.fields.remove("__preview");
+        }
         d.fields.insert("__smartFilter".into(), json!({"layer": layer, "index": index}));
         if let Value::Object(p) = params {
             for (k, v) in p {
@@ -327,11 +355,59 @@ fn edit_filter(app: &mut PhotocraftApp, id: u64, layer: u64, index: usize, param
     }
 }
 
+/// The command a filter dialog's live preview runs ([`confirm_command`]'s): `layer.smartFilter.setParams`
+/// while it edits a smart filter (#6324), else `command`.
+pub fn preview_command<'a>(fields: &serde_json::Map<String, Value>, command: &'a str) -> &'a str {
+    if fields.contains_key("__smartFilter") { "layer.smartFilter.setParams" } else { command }
+}
+
 /// The command a confirmed filter dialog runs: smart-filter edits update the recorded filter.
 pub fn confirm_command(fields: &serde_json::Map<String, Value>, command: String, params: Value) -> (String, Value) {
     match fields.get("__smartFilter") {
         Some(sf) => ("layer.smartFilter.setParams".into(), json!({"layer": sf["layer"], "index": sf["index"], "params": params})),
         None => (command, params),
+    }
+}
+
+#[cfg(test)]
+mod layer_thumbnail_scaling_tests {
+    use super::*;
+    use egui_kittest::{Harness, kittest::Queryable};
+
+    #[test]
+    fn sub_rows_stay_compact_while_the_smart_filter_mask_follows_thumbnail_setting() {
+        for setting in [LayerThumbnailSize::None, LayerThumbnailSize::Small, LayerThumbnailSize::Medium, LayerThumbnailSize::Large] {
+            let mut session = photocraft_engine::Session::new();
+            session.execute("file.new", json!({"width": 50, "height": 38})).unwrap();
+            session.execute("edit.fill", json!({"color": "#8A42B3"})).unwrap();
+            session.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+            session.execute("filter.blur.gaussianBlur", json!({"radius": 3})).unwrap();
+            session.execute("filter.sharpen.unsharpMask", json!({"amount": 80, "radius": 1, "threshold": 0})).unwrap();
+            session.execute("layer.layerStyle.dropShadow", json!({"size": 2})).unwrap();
+            assert!(matches!(session.active().unwrap().doc.layers.last().unwrap().content, LayerContent::Smart(_)));
+            let mut h = Harness::builder().with_size(vec2(1440.0, 1400.0)).with_max_steps(64).build_eframe(move |cc| {
+                PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+                PhotocraftApp::new(session, crate::Services::default())
+            });
+            h.state_mut().ui.layers_panel_options.thumbnail_size = setting;
+            h.run_steps(8);
+            // Filter and effect rows keep Photoshop's compact height at every thumbnail size.
+            for label in ["Gaussian Blur", "Unsharp Mask", "Effects", "Drop Shadow"] {
+                let rect = h.get_by_label(label).rect();
+                assert!((rect.height() - SUB_ROW_H).abs() < 1.0, "{setting:?}: {label} was {rect:?}, expected {SUB_ROW_H}");
+            }
+            // Only the Smart Filters header grows, just enough for its shared-mask thumbnail.
+            let (header, mask) = smart_filters_header_geometry(setting, true);
+            let rect = h.get_by_label("Smart Filters").rect();
+            assert!((rect.height() - header).abs() < 1.0, "{setting:?}: Smart Filters was {rect:?}, expected {header}");
+            assert!(mask <= header - 6.0 || mask == 0.0, "{setting:?}: a {mask} mask must fit a {header} row");
+            assert_eq!(mask == 0.0, setting == LayerThumbnailSize::None, "{setting:?}: the mask hides only at None");
+            if let Some(dir) = std::env::var_os("PHOTOCRAFT_LAYERS_SNAPSHOTS") {
+                let dir = std::path::PathBuf::from(dir);
+                std::fs::create_dir_all(&dir).unwrap();
+                h.render().unwrap().save(dir.join(format!("layers-sub-rows-{setting:?}.png"))).unwrap();
+            }
+        }
     }
 }
 
@@ -451,5 +527,49 @@ mod tests {
         assert_eq!(sm.smart_filters.len(), 1, "no filter was stacked");
         assert_eq!(sm.smart_filters[0].params.get("brightness").and_then(Value::as_f64), Some(40.0));
         assert_eq!(sm.smart_filters[0].params.get("contrast").and_then(Value::as_f64), Some(-10.0));
+    }
+
+    /// #6324: a smart filter opened for editing previews, and its preview replaces the filter in
+    /// the stack (as OK does) instead of stacking a second one.
+    #[test]
+    fn an_edited_smart_filter_previews_what_ok_gives() {
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 64, "height": 48, "background": "#ffffff"})).unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("select.all", json!({})).unwrap();
+        s.execute("edit.stroke", json!({"width": 4, "color": "#000000", "location": "inside"})).unwrap();
+        s.execute("select.deselect", json!({})).unwrap();
+        let id = s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap()["layer"].as_u64().unwrap();
+        s.execute("filter.blur.gaussianBlur", json!({"radius": 1.0})).unwrap();
+        let mut app = PhotocraftApp::new(s, crate::Services::default());
+        app.background_jobs = false;
+        let smart = |app: &PhotocraftApp, doc: &Document| match &doc.layer(LayerId(id)).unwrap().content {
+            LayerContent::Smart(sm) => sm.clone(),
+            other => panic!("expected a smart object, got {other:?} ({})", app.ui.status),
+        };
+        let sm = smart(&app, &app.session.active().unwrap().doc);
+        open_editor(&mut app, &egui::Context::default(), id, &sm, 0);
+        let d = app.ui.dialogs.last_mut().expect("the filter's dialog opened");
+        assert_eq!(d.fields.get("__preview"), Some(&json!(true)), "the dialog previews");
+        d.fields.insert("radius".into(), json!(6.0));
+        let dialog = d.id;
+
+        crate::canvas::ensure_filter_preview(&mut app, 0, &egui::Context::default()).expect("a preview");
+        let preview = app.filter_preview.as_ref().unwrap();
+        assert_eq!(preview.key.command, "layer.smartFilter.setParams");
+        // The dialog's own preview window matches it to the dialog by that command.
+        let fields = &app.ui.dialogs.last().unwrap().fields;
+        assert_eq!(preview_command(fields, "filter.blur.gaussianBlur"), preview.key.command);
+        assert_eq!(preview_command(&serde_json::Map::new(), "filter.blur.gaussianBlur"), "filter.blur.gaussianBlur");
+        let shown = preview.result.clone().expect("the preview's document");
+        let filters = smart(&app, &shown).smart_filters;
+        assert_eq!(filters.len(), 1, "the edited filter is replaced, not stacked");
+        assert_eq!(filters[0].params.get("radius").and_then(Value::as_f64), Some(6.0));
+        assert_eq!(smart(&app, &app.session.active().unwrap().doc).smart_filters[0].params["radius"], json!(1.0), "the document is untouched");
+
+        crate::dialogs::confirm(&mut app, dialog).unwrap();
+        let doc = &app.session.active().unwrap().doc;
+        assert_eq!(smart(&app, doc).smart_filters.len(), 1);
+        assert!(photocraft_compose::flatten(&shown).px == photocraft_compose::flatten(doc).px, "OK gives what the preview showed");
     }
 }
