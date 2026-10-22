@@ -347,8 +347,8 @@ what an agent can't finish alone.
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-21 | minor | G9: adjustment clipping remains visible in compact Properties (#5231); no readiness percentage or estimate changed |
 | 2026-10-22 | minor | G1: 32-bit Hue/Saturation unclipped with Photoshop's saturation factor, bright colours keep their hue, Colorize's saturation scaled by 1 − \|Lightness\|; photoshop rgb32 hue-saturation and hue-saturation-colorize pass; Photoshop-oracle floor 188 → 190 of 258 (#5781) |
+| 2026-10-21 | minor | G9: adjustment clipping remains visible in compact Properties (#5231); no readiness percentage or estimate changed |
 | 2026-10-21 | minor | #8304: compound layer properties export as separate Set events, rename last; independent Photoshop replay pending; percentages and estimates unchanged |
 | 2026-10-21 | minor | G11: Batch and droplets take the result at the action's recorded Save / Save As step (Photoshop's "Override Action 'Save As' Commands"); estimate unchanged |
 | 2026-10-22 | minor | G8: Auto / Left-to-right / Right-to-left paragraph direction buttons in the Paragraph panel, Properties and the Type options bar (#6793); TYPE-218-2 partial (the visual RTL caret is still missing, and PSD doesn't store the direction yet) |

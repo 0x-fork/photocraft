@@ -231,7 +231,7 @@ Paragraph; the rest open as in-app floating windows.
 | Document tabs: overflow, context menu, reorder | done | UI-217-6; middle-click close #2570 |
 | Layers panel: wheel steps blend modes, drop on New/Trash | partial | UI-217-14 |
 | Layers panel filter-type dropdown (Kind, Name, Effect, Mode, Attribute, Color, Smart Object, Selected, Artboard) | partial | Kind, Name and Mode; the other six missing. `layer_filter_ui.rs`, `ui.set {layerFilter}` (#5048) |
-| Adjustment scope: clipping control visible above tall Properties editors in a compact dock | done (2026-10-20) | `panels.rs`, `clipping_indicator_tests.rs`; #5231; stack-wide default retained |
+| Adjustment scope: clipping control visible above tall Properties editors in a compact dock | done (2026-10-21) | `panels.rs`, `clipping_indicator_tests.rs`; #5231; stack-wide default retained |
 | Smart filter rows: click selects, drag onto another smart object moves, ⌥-drag copies, drag onto Delete removes; with a row selected, the Delete button and the ⌫/Delete key remove that filter, not the smart object | done | `smart_ui.rs`, `layer.smartFilter.transfer` (#4271), `smart_ui::keys` (#4751) |
 | Layers panel: Clip Thumbnails to Layer Bounds (panel menu, `interface.clipThumbnailsToLayerBounds`) | done (2026-10-12) | `layer_thumb_bounds_tests.rs`; #4281. Thumbnail size and the Panel Options dialog to come |
 | Smart filter rows: drag up or down the stack to reorder (a line marks the drop; the bottom filter is applied first) | done | `smart_ui.rs` `reorder_drop`, `layer.smartFilter.move` |
