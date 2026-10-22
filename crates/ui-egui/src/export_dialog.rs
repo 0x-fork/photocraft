@@ -1473,6 +1473,36 @@ mod tests {
         assert_eq!(exact_estimate(&big, &small), Some(at_10), "100 × 100 at 10 %, within it");
     }
 
+    /// #8341: Export As and its reduced preview carry the stroke width with the path.
+    #[test]
+    fn export_as_downscales_stroke_only_shapes_and_preview() {
+        for depth in [8, 16, 32] {
+            let mut session = photocraft_engine::Session::new();
+            session.execute("file.new", json!({"width": 1024, "height": 1024, "depth": depth, "background": "transparent"})).unwrap();
+            let id = session.execute("shape.create", json!({"rect": [256, 256, 512, 512], "fill": null, "stroke": {"width": 32}})).unwrap()["layer"]
+                .as_u64()
+                .unwrap();
+            let doc = session.active().unwrap().doc.clone();
+            let fields = Map::from_iter([("format".into(), json!("png")), ("scale".into(), json!(25))]);
+            for limit in [None, Some(128)] {
+                let out = export_document(&doc, &fields, limit).unwrap();
+                let side = if limit.is_some() { 128 } else { 256 };
+                assert_eq!((out.size.width, out.size.height), (side, side));
+                let shape = out.layer(photocraft_doc::LayerId(id)).unwrap();
+                let photocraft_doc::LayerContent::Shape(shape) = &shape.content else {
+                    panic!("shape lost");
+                };
+                assert_eq!(shape.stroke.as_ref().unwrap().width, side as f32 / 32.0);
+                let pixels = photocraft_compose::flatten(&out);
+                let row = (side / 2 * side) as usize;
+                assert!(pixels.px[row + (side / 4) as usize][3] > 0.99);
+                assert!(pixels.px[row + (side / 4 - side / 32) as usize][3] < 0.01);
+                assert!(pixels.px[row + (side / 2) as usize][3] < 0.01);
+            }
+            assert_eq!(session.active().unwrap().doc, doc, "export leaves the source unchanged");
+        }
+    }
+
     #[test]
     fn export_document_scales_and_flattens() {
         let doc = Document::with_background(
