@@ -1361,8 +1361,10 @@ fn localized_families() -> Arc<HashMap<String, String>> {
 
 /// The font menu's rows: each family with the label it shows (its localized name when `labels`
 /// has one, else the family), matching `query` (lowercase) by either name. With localized labels
-/// the rows sort by label, so the menu stays alphabetical as shown.
-fn font_menu_rows<'a>(families: &'a [String], labels: Option<&'a HashMap<String, String>>, query: &str) -> Vec<(&'a String, &'a str)> {
+/// the rows sort by label, so the menu stays alphabetical as shown. Recently used families are
+/// hoisted to the top, most recent first (Preferences ▸ Type ▸ Recent Fonts); a query hides the
+/// hoisting so the list stays strictly alphabetical while searching.
+fn font_menu_rows<'a>(families: &'a [String], labels: Option<&'a HashMap<String, String>>, query: &str, recents: &[String]) -> Vec<(&'a String, &'a str)> {
     let label = |f: &'a String| labels.and_then(|l| l.get(f)).map_or(f.as_str(), String::as_str);
     let mut rows: Vec<(&String, &str)> = families
         .iter()
@@ -1371,6 +1373,16 @@ fn font_menu_rows<'a>(families: &'a [String], labels: Option<&'a HashMap<String,
         .collect();
     if labels.is_some_and(|l| !l.is_empty()) {
         rows.sort_by_cached_key(|(_, l)| l.to_lowercase());
+    }
+    if query.is_empty() {
+        let mut at = 0;
+        for r in recents {
+            if let Some(i) = rows.iter().position(|(f, _)| *f == r) {
+                let row = rows.remove(i);
+                rows.insert(at, row);
+                at += 1;
+            }
+        }
     }
     rows
 }
@@ -1546,8 +1558,8 @@ pub(crate) fn fonts_ready(ui: &mut egui::Ui, width: f32) -> bool {
 }
 
 /// Searchable font-family combo box.
-fn font_picker(ui: &mut egui::Ui, current: &mut String, width: f32, preview: photocraft_engine::prefs::FontPreview) -> bool {
-    family_picker_in(ui, "type-font", current, width, &families(), preview)
+fn font_picker(ui: &mut egui::Ui, current: &mut String, width: f32, preview: photocraft_engine::prefs::FontPreview, recents: &[String]) -> bool {
+    family_picker_in(ui, "type-font", current, width, &families(), preview, recents)
 }
 
 /// Maximum height of the font menu.
@@ -1555,8 +1567,15 @@ const FONT_MENU_HEIGHT: f32 = 460.0;
 
 /// [`font_picker`] over a given family list (tests pass their own).
 #[cfg(test)]
-fn font_picker_in(ui: &mut egui::Ui, current: &mut String, width: f32, families: &[String], preview: photocraft_engine::prefs::FontPreview) -> bool {
-    family_picker_in(ui, "type-font", current, width, families, preview)
+fn font_picker_in(
+    ui: &mut egui::Ui,
+    current: &mut String,
+    width: f32,
+    families: &[String],
+    preview: photocraft_engine::prefs::FontPreview,
+    recents: &[String],
+) -> bool {
+    family_picker_in(ui, "type-font", current, width, families, preview, recents)
 }
 
 /// Shared by the Type options, Character, style and Glyphs panels. Selection changes still
@@ -1568,6 +1587,7 @@ pub(crate) fn family_picker_in(
     width: f32,
     families: &[String],
     preview: photocraft_engine::prefs::FontPreview,
+    recents: &[String],
 ) -> bool {
     let mut changed = false;
     // A font picked from the open menu (click or Enter): the field keeps the focus afterwards.
@@ -1612,7 +1632,7 @@ pub(crate) fn family_picker_in(
             d.insert_temp(search_id, q.clone());
         });
         let ql = q.to_lowercase();
-        let rows = font_menu_rows(families, labels, &ql);
+        let rows = font_menu_rows(families, labels, &ql, recents);
         if down || up {
             let index = rows.iter().position(|(f, _)| *f == current);
             let next = match index {
@@ -1711,9 +1731,10 @@ pub(crate) fn family_picker_in(
             // the frame. Cancel it, so the arrow only steps the font.
             ui.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
         }
-        // The wheel's step: a negative notch is the next family.
+        // The wheel's step: a negative notch is the next family. Steps use a stable order (no
+        // recents hoisting), so recording the picked family cannot make the next step jump back.
         let notches = f32::from(u8::from(up)) - f32::from(u8::from(down));
-        let rows = font_menu_rows(families, labels, "");
+        let rows = font_menu_rows(families, labels, "", &[]);
         if let Some(i) = rows.iter().position(|(f, _)| *f == current)
             && let Some(n) = wheel_family_index(i, rows.len(), notches)
             && let Some((f, _)) = rows.get(n)
@@ -1733,7 +1754,10 @@ pub(crate) fn family_picker_in(
             ui.input_mut(|i| i.smooth_scroll_delta = egui::Vec2::ZERO);
         }
         let notches = crate::widgets::wheel_notches_of(ui, response.response.id.with("family-wheel"), hovered, 1.0);
-        let rows = font_menu_rows(families, labels, "");
+        // The wheel steps in a stable order: hoisting the family it just picked as recent
+        // would change the order between notches and can jump back to the previous family.
+        // The open menu still shows the recent families first.
+        let rows = font_menu_rows(families, labels, "", &[]);
         if let Some(i) = rows.iter().position(|(f, _)| *f == current)
             && let Some(n) = wheel_family_index(i, rows.len(), notches)
             && let Some((f, _)) = rows.get(n)
@@ -1911,7 +1935,8 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
     // Font family and style menus (one placeholder in their place while the fonts load).
     if fonts_ready(ui, 170.0 + ui.spacing().item_spacing.x + 110.0) {
-        if font_picker(ui, &mut fam, 170.0, app.session.prefs().type_.font_preview) {
+        if font_picker(ui, &mut fam, 170.0, app.session.prefs().type_.font_preview, &app.ui.recent_fonts) {
+            app.note_recent_font(&fam);
             app.ui.tool_options.type_font = fam.clone();
             let st = styles(&fam);
             style = if st.contains(&style) { style } else { st.first().cloned().unwrap_or_else(|| "Regular".into()) };
@@ -2342,7 +2367,8 @@ fn type_sections(app: &mut PhotocraftApp, ui: &mut egui::Ui, character: bool, pa
         let mut ready = true;
         row(ui, &mut |ui| {
             ready = fonts_ready(ui, full);
-            if ready && font_picker(ui, &mut fam, full, app.session.prefs().type_.font_preview) {
+            if ready && font_picker(ui, &mut fam, full, app.session.prefs().type_.font_preview, &app.ui.recent_fonts) {
+                app.note_recent_font(&fam);
                 app.ui.tool_options.type_font = fam.clone();
                 apply(app, ui.ctx(), json!({"font": fam}));
             }
@@ -2650,6 +2676,41 @@ mod tests {
         app.sync_views();
         app.ui.tool = crate::state::Tool::Type;
         app
+    }
+
+    /// Preferences ▸ Type ▸ Recent Fonts caps the recorded list; a re-pick moves to the front and
+    /// 0 keeps no list.
+    #[test]
+    fn note_recent_font_caps_and_de_duplicates() {
+        let mut app = app();
+        for f in ["A", "B", "C"] {
+            app.note_recent_font(f);
+        }
+        assert_eq!(app.ui.recent_fonts, ["C", "B", "A"]);
+        app.run("prefs.set", json!({"path": "type.recentFonts", "value": 2})).unwrap();
+        app.note_recent_font("D");
+        assert_eq!(app.ui.recent_fonts, ["D", "C"], "the cap trims the tail");
+        app.note_recent_font("C");
+        assert_eq!(app.ui.recent_fonts, ["C", "D"], "a re-pick moves to the front");
+        app.run("prefs.set", json!({"path": "type.recentFonts", "value": 0})).unwrap();
+        app.note_recent_font("E");
+        assert!(app.ui.recent_fonts.is_empty(), "0 keeps no list");
+    }
+
+    /// A smaller Recent Fonts cap (or 0) applies to the existing list at once, without waiting
+    /// for the next pick (CodeRabbit review of #3559).
+    #[test]
+    fn lowering_the_recent_fonts_cap_applies_at_once() {
+        let mut app = app();
+        for f in ["A", "B", "C"] {
+            app.note_recent_font(f);
+        }
+        app.run("prefs.set", json!({"path": "type.recentFonts", "value": 2})).unwrap();
+        app.sync_recent_fonts();
+        assert_eq!(app.ui.recent_fonts, ["C", "B"], "the smaller cap trims the tail without a pick");
+        app.run("prefs.set", json!({"path": "type.recentFonts", "value": 0})).unwrap();
+        app.sync_recent_fonts();
+        assert!(app.ui.recent_fonts.is_empty(), "0 clears the list");
     }
 
     fn layer_text(app: &PhotocraftApp) -> String {
