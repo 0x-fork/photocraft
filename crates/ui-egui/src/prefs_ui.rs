@@ -1559,8 +1559,11 @@ fn theme_swatch(ui: &mut egui::Ui, kind: ThemeKind, id: &str, selected: &mut Str
     ui.painter().circle(center, BADGE, t.card, egui::Stroke::new(1.0, t.card_border));
     let (icon, tint) = if favorite { ("star-filled", t.accent) } else { ("star", t.text_dim) };
     let action = if favorite { tl!("Remove from favorites") } else { tl!("Add to favorites") };
-    let star = egui::Button::image(crate::icons::image(icon, 10.0, tint)).frame(false);
-    let response = ui.put(badge, star).on_hover_text(action);
+    // Interact and paint without allocating: a widget placed at `badge` would grow the row by the
+    // 4 px the badge overhangs the swatch, re-centring the swatches after this one whenever the
+    // pointer arrives, and oscillating when that moves the swatch out from under it.
+    let response = ui.interact(badge, ui.id().with((id, "favorite")), Sense::click()).on_hover_text(action);
+    crate::icons::paint(ui, badge, icon, 10.0, tint);
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("{action}: {label}")));
     if response.clicked() {
         if favorite {
