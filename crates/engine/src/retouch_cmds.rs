@@ -1309,7 +1309,7 @@ impl LiveDab {
         let st = s.active().ok_or(EngineError::NoDocument)?;
         let base = (st.doc.id, st.revision);
         let doc = (*st.doc).clone();
-        let mut live = Self::with_effect_on(doc, cmd, p, stroke, id, halo, effect)?;
+        let mut live = Self::with_neighborhood_on(doc, cmd, p, stroke, id, neighborhood, effect)?;
         live.base = Some(base);
         Ok(live)
     }
@@ -1317,12 +1317,24 @@ impl LiveDab {
     /// [`Self::with_effect`] on `doc`, a copy of the active document with what the commit's own
     /// edit does first (the Background Eraser's Background turned into a normal layer, say).
     pub(crate) fn with_effect_on(
-        mut doc: Document,
+        doc: Document,
         cmd: &str,
         p: &Value,
         stroke: Stroke,
         id: Option<LayerId>,
         halo: i32,
+        effect: impl FnOnce(&Surface) -> DabEffect,
+    ) -> Result<Self> {
+        Self::with_neighborhood_on(doc, cmd, p, stroke, id, DabNeighborhood::Halo(halo), effect)
+    }
+
+    fn with_neighborhood_on(
+        mut doc: Document,
+        cmd: &str,
+        p: &Value,
+        stroke: Stroke,
+        id: Option<LayerId>,
+        neighborhood: DabNeighborhood,
         effect: impl FnOnce(&Surface) -> DabEffect,
     ) -> Result<Self> {
         let sel = doc.selection.clone();
