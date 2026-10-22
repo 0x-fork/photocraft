@@ -1823,6 +1823,9 @@ fn transform_to(id: &str, p: &Value) -> Option<Descriptor> {
         return None;
     }
     let target = match id {
+        // The `Trnf` descriptor has no field for a mask, Quick Mask or alpha channel target; a
+        // layer reference would transform the layer's pixels instead.
+        "edit.transform" if !pixel_target(p) => return None,
         "edit.transform" => layer_ref(p),
         "select.transformSelection" => D::Reference(vec![ReferenceItem::Property { class: class("Chnl"), key: code("fsel") }]),
         _ => return None,

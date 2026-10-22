@@ -1800,3 +1800,32 @@ fn adjustment_layer_reset_still_resets() {
     assert_eq!(steps[0], ("layer.setAdjustment".to_string(), json!({})));
     assert_eq!(steps[1].1, json!({"midtones": [10, 0, 0], "kind": "colorBalance"}));
 }
+
+/// A Free Transform recorded against an unlinked mask or an alpha channel must not export as a
+/// layer transform that moves the layer's pixels on replay (#7195).
+#[test]
+fn transform_with_mask_or_channel_target_is_not_exported_as_layer_transform() {
+    for target in [json!("mask"), json!({"channel": 0}), json!("quickMask")] {
+        let a = Action {
+            name: "Probe".into(),
+            steps: vec![("edit.transform".into(), json!({"target": target, "dx": 3, "dy": 2, "scaleX": 100, "interpolation": "nearest"}))],
+            ..Default::default()
+        };
+        assert!(export("Targets", &[&a], &[], false).is_err(), "{target} exported");
+        let (_, skipped) = export("Targets", &[&a], &[], true).unwrap();
+        assert_eq!(skipped, vec![Skipped { action: "Probe".into(), step: 0, id: "edit.transform".into() }]);
+    }
+    for params in [
+        json!({"dx": 3, "dy": 2, "scaleX": 50, "interpolation": "nearest"}),
+        json!({"target": "pixels", "dx": 3, "dy": 2, "scaleX": 50, "interpolation": "nearest"}),
+    ] {
+        let plain = Action { name: "Plain".into(), steps: vec![("edit.transform".into(), params)], ..Default::default() };
+        let (bytes, skipped) = export("Targets", &[&plain], &[], false).unwrap();
+        assert!(skipped.is_empty());
+        let imported = import(&bytes).unwrap();
+        assert_eq!(imported.actions[0].steps, vec![("edit.transform".to_string(), json!({"dx": 3, "dy": 2, "scaleX": 50, "interpolation": "nearest"}))]);
+    }
+    for form in [json!({"quad": [[0, 0], [1, 0], [1, 1], [0, 1]]}), json!({"matrix": [1, 0, 0, 1, 0, 0]}), json!({"rect": [0, 0, 1, 1]})] {
+        assert!(transform_to("edit.transform", &form).is_none());
+    }
+}
