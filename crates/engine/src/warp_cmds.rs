@@ -77,6 +77,9 @@ pub fn warp_from_params(cmd: &str, p: &Value, rect: [f64; 4]) -> Result<Warp> {
         let mut w: Warp = serde_json::from_value(w.clone()).map_err(|e| bad(cmd, format!("bad `warp`: {e}")))?;
         // A cylinder is its values: the mesh is rebuilt from them, whatever was passed.
         if w.style == WarpStyle::Cylinder {
+            if w.vertical || w.h_distort != 0.0 || w.v_distort != 0.0 {
+                return Err(bad(cmd, CYLINDER_SHAPE));
+            }
             w = Warp::cylinder(&w.values, w.bounds).ok_or_else(|| bad(cmd, CYLINDER_VALUES))?;
         }
         if w.mesh.as_ref().is_some_and(|m| !m.is_valid()) {
@@ -96,7 +99,7 @@ pub fn warp_from_params(cmd: &str, p: &Value, rect: [f64; 4]) -> Result<Warp> {
     w.vertical = p.get("vertical").and_then(Value::as_bool).unwrap_or(false);
     if style == WarpStyle::Cylinder {
         if w.vertical || w.h_distort != 0.0 || w.v_distort != 0.0 {
-            return Err(bad(cmd, "a cylinder is horizontal, with no hDistort or vDistort"));
+            return Err(bad(cmd, CYLINDER_SHAPE));
         }
         let values: Option<Vec<f64>> = p.get("values").and_then(Value::as_array).and_then(|a| a.iter().map(Value::as_f64).collect());
         return values.and_then(|v| Warp::cylinder(&v, rect)).ok_or_else(|| bad(cmd, CYLINDER_VALUES));
@@ -123,6 +126,7 @@ pub fn warp_from_params(cmd: &str, p: &Value, rect: [f64; 4]) -> Result<Warp> {
 
 const CYLINDER_VALUES: &str =
     "a cylinder needs `values`: seven numbers [left, bottom, right, top, top depth, bottom depth, wrap 0..1], the right silhouette right of the left one";
+const CYLINDER_SHAPE: &str = "a cylinder is horizontal, with no hDistort or vDistort";
 
 /// A document-space cylinder `w` stored on a smart object, whose placement's inverse is `inv` and
 /// whose warp box `w.bounds` lands on `sb` in source space. A placement that only scales and
@@ -746,6 +750,9 @@ mod tests {
             json!({"style": "cylinder", "values": CYL, "vertical": true}),
             json!({"style": "cylinder", "values": CYL, "hDistort": 10}),
             json!({"warp": {"style": "cylinder", "bounds": [10.0, 10.0, 60.0, 40.0]}}),
+            json!({"warp": {"style": "cylinder", "values": CYL, "bounds": [10.0, 10.0, 60.0, 40.0], "vertical": true}}),
+            json!({"warp": {"style": "cylinder", "values": CYL, "bounds": [10.0, 10.0, 60.0, 40.0], "hDistort": 10.0}}),
+            json!({"warp": {"style": "cylinder", "values": CYL, "bounds": [10.0, 10.0, 60.0, 40.0], "vDistort": -5.0}}),
         ] {
             let e = s.execute("edit.transform.warp", p.clone()).unwrap_err().to_string();
             assert!(e.contains("cylinder"), "{p}: {e}");

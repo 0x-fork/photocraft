@@ -424,14 +424,17 @@ pub fn pointer_up(app: &mut PhotocraftApp, start: [f64; 2], end: [f64; 2]) {
     if let Ok(v) = app.run("type.create", p)
         && let Some(id) = v.get("layer").and_then(serde_json::Value::as_u64)
     {
-        match &target {
-            Some(PathClick::Area { shape }) => {
-                let _ = app.run("type.fillPath", json!({"layer": id, "shape": shape, "coalesce": key}));
-            }
+        // A failed follow-up leaves point text; say why instead of passing over it.
+        let follow_up = match &target {
+            Some(PathClick::Area { shape }) => app.run("type.fillPath", json!({"layer": id, "shape": shape, "coalesce": key})),
             Some(PathClick::OnPath { shape, subpath, start }) => {
-                let _ = app.run("type.attachToPath", json!({"layer": id, "shape": shape, "subpath": subpath, "start": start, "coalesce": key}));
+                app.run("type.attachToPath", json!({"layer": id, "shape": shape, "subpath": subpath, "start": start, "coalesce": key}))
             }
-            None => {}
+            None => Ok(serde_json::Value::Null),
+        };
+        if let Err(e) = follow_up {
+            app.ui.status = e;
+            app.ui.status_error = true;
         }
         if o.type_aa != "sharp" {
             let _ = app.run("type.edit", json!({"layer": id, "antialias": o.type_aa, "coalesce": key}));
