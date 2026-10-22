@@ -1484,6 +1484,9 @@ fn rendering_mode_row(ui: &mut egui::Ui, obj: &mut Map<String, Value>) {
         }
     });
     ui.label(tl!("Automatic uses GPU acceleration when available and falls back to CPU rendering on errors."));
+    // Next to the setting, as for System Title Bar (#1677): the renderer is picked when the
+    // window opens, so a change otherwise looks like it did nothing (#7939).
+    ui.label(RichText::new(tl!("Applies at next launch.")).color(Tokens::get(ui.ctx()).text_dim));
     ui.add_space(8.0);
 }
 
@@ -4121,6 +4124,28 @@ mod tests {
         assert!(!h.state().session.prefs().interface.system_title_bar);
         assert_eq!(stored(&store)["interface"]["systemTitleBar"], false);
         assert!(h.state().custom_titlebar);
+    }
+
+    /// #7939: switching Rendering Mode waits for the next launch, and says so next to the setting.
+    #[test]
+    fn rendering_mode_explains_next_launch() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let obj = json!({"renderingMode": "auto", "historyStates": 50}).as_object().unwrap().clone();
+        let mut h = Harness::new_ui_state(
+            |ui, obj: &mut Map<String, Value>| section_fields(ui, "performance", obj, &[], crate::i18n::Lang::from_pref("en"), None, ""),
+            obj,
+        );
+        h.run_steps(4);
+        h.get_by_label("Rendering Mode");
+        h.get_by_label("Applies at next launch.");
+        // A search that leaves Rendering Mode out leaves its notice out too.
+        let obj = json!({"renderingMode": "auto", "historyStates": 50}).as_object().unwrap().clone();
+        let mut h = Harness::new_ui_state(
+            |ui, obj: &mut Map<String, Value>| section_fields(ui, "performance", obj, &[], crate::i18n::Lang::from_pref("en"), None, "history"),
+            obj,
+        );
+        h.run_steps(4);
+        assert!(h.query_by_label("Applies at next launch.").is_none());
     }
 
     #[test]
