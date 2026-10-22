@@ -4251,6 +4251,8 @@ navigator	Zoom	Zoom
 	Increase Brush Size	Aumentar tamaño del pincel
 	Decrease Brush Hardness	Reducir dureza del pincel
 	Increase Brush Hardness	Aumentar dureza del pincel
+	Move Up	Mover arriba
+	Move Down	Mover abajo
 	Memory Usage	Uso de memoria
 	Per-document RAM limit (MB)	Límite de RAM por documento (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	RAM instalada: {ram} MB; este límite: {percent}%

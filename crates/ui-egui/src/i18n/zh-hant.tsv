@@ -2907,6 +2907,8 @@ curves	Smooth	平滑
 	Increase Brush Size	放大筆刷大小
 	Decrease Brush Hardness	降低筆刷硬度
 	Increase Brush Hardness	提高筆刷硬度
+	Move Up	上移
+	Move Down	下移
 	Memory Usage	記憶體使用量
 	Per-document RAM limit (MB)	每個文件的 RAM 上限 (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	已安裝 RAM：{ram} MB；此上限：{percent}%
