@@ -3282,6 +3282,8 @@ curves	Smooth	Сгладить
 	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Хиракава–Паркс: самые чистые края и меньше всего цветной каймы, самый медленный.
 	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	Интерполяция с коррекцией градиента: резкая и быстрая, с небольшой цветной каймой на мелких деталях.
 	The fastest and the softest, with colour fringing on fine detail.	Самый быстрый и самый мягкий, с цветной каймой на мелких деталях.
+	“{name}” already exists. Replace it?	«{name}» уже существует. Заменить?
+	The name in the save dialog was “{name}”.	В окне сохранения было указано имя «{name}».
 	Memory Usage	Использование памяти
 	Per-document RAM limit (MB)	Лимит ОЗУ на документ (МБ)
 	Installed RAM: {ram} MB; this limit: {percent}%	Установлено ОЗУ: {ram} МБ; этот лимит: {percent}%

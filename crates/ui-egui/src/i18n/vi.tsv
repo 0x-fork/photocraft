@@ -3795,6 +3795,8 @@ curves	Smooth	Làm mượt
 	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Hirakawa–Parks: cạnh sạch nhất và ít viền màu nhất, chậm nhất.
 	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	Nội suy hiệu chỉnh gradient: sắc nét và nhanh, có chút viền màu ở chi tiết nhỏ.
 	The fastest and the softest, with colour fringing on fine detail.	Nhanh nhất và mềm nhất, có viền màu ở chi tiết nhỏ.
+	“{name}” already exists. Replace it?	“{name}” đã tồn tại. Thay thế?
+	The name in the save dialog was “{name}”.	Tên trong hộp thoại lưu là “{name}”.
 	Memory Usage	Sử dụng bộ nhớ
 	Per-document RAM limit (MB)	Giới hạn RAM mỗi tài liệu (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	RAM đã cài: {ram} MB; giới hạn này: {percent}%

@@ -3998,6 +3998,8 @@ curves	Smooth	Згладити
 	Increase Brush Size	Збільшити розмір пензля
 	Decrease Brush Hardness	Зменшити жорсткість пензля
 	Increase Brush Hardness	Збільшити жорсткість пензля
+	“{name}” already exists. Replace it?	«{name}» уже існує. Замінити?
+	The name in the save dialog was “{name}”.	У вікні збереження було вказано назву «{name}».
 # Dynamic color-picker titles and warnings about losing editable layer content.
 	Color Picker (Background Color)	Вибір кольору (колір тла)
 	Color Picker (Foreground Color)	Вибір кольору (основний колір)

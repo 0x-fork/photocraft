@@ -3312,6 +3312,8 @@ curves	Smooth	Glätten
 	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Hirakawa–Parks: die saubersten Kanten und die wenigsten Farbsäume, am langsamsten.
 	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	Gradientenkorrigierte Interpolation: scharf und schnell, mit etwas Farbsäumen an feinen Details.
 	The fastest and the softest, with colour fringing on fine detail.	Am schnellsten und weichsten, mit Farbsäumen an feinen Details.
+	“{name}” already exists. Replace it?	„{name}“ ist bereits vorhanden. Ersetzen?
+	The name in the save dialog was “{name}”.	Der Name im Speichern-Dialog war „{name}“.
 	Memory Usage	Speichernutzung
 	Per-document RAM limit (MB)	RAM-Limit pro Dokument (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Installierter RAM: {ram} MB; dieses Limit: {percent}%

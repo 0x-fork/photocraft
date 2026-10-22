@@ -183,6 +183,7 @@ pub mod proxy;
 pub mod puppet_ui;
 pub mod quick_pick;
 pub mod rasterize_prompt;
+pub mod replace_prompt;
 pub mod retouch_ui;
 mod rgb_histogram;
 pub mod rotate_view;
@@ -448,6 +449,8 @@ pub struct FileStamp {
 }
 /// The [`FileStamp`] of the file at a path, `None` when it can't be read.
 pub type FileStampFn = Box<dyn Fn(&str) -> Option<FileStamp>>;
+/// Whether two paths name one entry in one folder on disk; false when either can't be read.
+pub type SameFileFn = Box<dyn Fn(&str, &str) -> bool>;
 /// Encode a document and write it to a path, reporting the stage to the job; returns the export
 /// warnings. Runs on a worker thread (see [`Services::save_file`]). It must call
 /// [`jobs_ui::SaveCtl::commit`] right before replacing the file, and write nothing if that fails.
@@ -560,6 +563,11 @@ pub struct Services {
     /// Size and modification time of a file (native); `None` on the web, where Save never
     /// writes back to a file.
     pub file_stamp: Option<FileStampFn>,
+    /// Whether two paths name one entry in one folder (native): a save dialog's answer and the
+    /// path the save writes to after Lowercase Extension, on a file system that ignores letter
+    /// case. A hard link is another entry. A save asks before replacing an entry it finds
+    /// different (`replace_prompt`).
+    pub same_file: Option<SameFileFn>,
     /// `write` only asks for the bytes to be kept (a browser download, which the user can
     /// cancel and which reports nothing back), so a save through it names the document but
     /// leaves its changes unsaved and the leave-page guard armed (#4962).

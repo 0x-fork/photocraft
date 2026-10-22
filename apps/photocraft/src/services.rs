@@ -21,8 +21,9 @@ mod recovery_tests;
 /// (.kys), which go to the preset libraries and Edit › Keyboard Shortcuts.
 const OPEN_EXTS: &[&str] = &[
     "pcraft", "pdn", "ora", "xcf", "xcfgz", "gz", "kra", "krz", "psd", "psb", "psdt", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "ico",
-    "qoi", "exr", "hdr", "pbm", "pgm", "ppm", "pam", "pfm", "pcx", "dds", "xpm", "fits", "fit", "fts", "dpx", "cin", "heic", "heif", "hif", "dng", "cr2",
-    "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf", "abr", "grd", "svg", "svgz", "aco", "act", "ase", "kys", "af", "afdesign", "afphoto", "afpub",
+    "qoi", "exr", "hdr", "pbm", "pgm", "ppm", "pam", "pfm", "pcx", "dds", "xpm", "fits", "fit", "fts", "dpx", "cin", "dcm", "dicom", "dc3", "iff", "lbm",
+    "ilbm", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf", "abr", "grd", "svg", "svgz", "aco", "act", "ase",
+    "kys", "af", "afdesign", "afphoto", "afpub",
 ];
 const SVG_EXTS: &[&str] = &["svg", "svgz"];
 
@@ -67,6 +68,7 @@ const OPEN_FILTERS: &[(&str, &[&str])] = &[
     ("Radiance HDR", &["hdr"]),
     ("FITS", &["fits", "fit", "fts"]),
     ("DPX and Cineon", &["dpx", "cin"]),
+    ("Amiga IFF", &["iff", "lbm", "ilbm"]),
     ("Camera Raw", &["dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf"]),
     ("Brushes", &["abr"]),
     ("Gradients", &["grd"]),
@@ -102,6 +104,7 @@ const SAVE_FILTERS: &[(&str, &[&str])] = &[
     ("DPX", &["dpx"]),
     // Game and 3D textures; DDS Options asks for the compression and mipmaps (#1327).
     ("DDS", &["dds"]),
+    ("Cineon", &["cin"]),
 ];
 
 /// Non-document files the shell saves (Swatches panel exports): offered alone, so the dialog
@@ -330,6 +333,44 @@ fn write_atomic_progress(path: &Path, bytes: &[u8], progress: &dyn Fn(f32)) -> R
     photocraft_format::atomic_write_progress(path, bytes, progress).map_err(|e| e.to_string())
 }
 
+/// Whether `a` and `b` reach the same file: the same device and inode on Unix, the same final path
+/// on Windows (where it holds the name's letter case as stored). False when either can't be read.
+fn same_file(a: &Path, b: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        match (std::fs::metadata(a), std::fs::metadata(b)) {
+            (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+            (Ok(a), Ok(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+/// Whether `a` and `b` name one entry in one folder: `same_file` finds they reach the same file
+/// in the same folder, and the folder doesn't list both names. Another spelling of a name on a
+/// file system that ignores letter case is the same entry; a hard link is another entry, which a
+/// save replaces while the first name keeps the old file. False when the folder can't be read.
+fn same_entry(a: &Path, b: &Path, same_file: impl Fn(&Path, &Path) -> bool) -> bool {
+    let folder = |p: &Path| p.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new(".")).to_path_buf();
+    if !same_file(a, b) || !same_file(&folder(a), &folder(b)) {
+        return false;
+    }
+    let (Some(x), Some(y)) = (a.file_name(), b.file_name()) else { return false };
+    if x == y {
+        return true;
+    }
+    let Ok(entries) = std::fs::read_dir(folder(a)) else { return false };
+    let listed: Vec<_> = entries.filter_map(|e| e.ok().map(|e| e.file_name())).collect();
+    !(listed.iter().any(|n| n == x) && listed.iter().any(|n| n == y))
+}
+
 fn export_options(settings: &photocraft_ui_egui::ExportSettings) -> photocraft_io::ExportOptions {
     settings.io_options()
 }
@@ -545,6 +586,7 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
             let meta = std::fs::metadata(path).ok()?;
             Some(photocraft_ui_egui::FileStamp { len: meta.len(), modified: meta.modified().ok() })
         })),
+        same_file: Some(Box::new(|a: &str, b: &str| same_entry(Path::new(a), Path::new(b), same_file))),
         automation_read,
         automation_write,
         automation_open_pcraft,
@@ -1019,6 +1061,50 @@ mod tests {
             assert_eq!(dialog_file_name(name, true).as_deref(), Some(name));
         }
         assert_eq!(dialog_file_name("", true), None);
+    }
+
+    /// A name in another letter case reaches the same file where the file system ignores case
+    /// (Windows, and macOS by default), and only there. Two files with the same contents are two.
+    #[test]
+    fn same_file_follows_the_file_system() {
+        let dir = std::env::temp_dir().join(format!("photocraft-same-file-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (cat, dog, upper) = (dir.join("CAT.psd"), dir.join("dog.psd"), dir.join("CAT.PSD"));
+        std::fs::write(&cat, b"same").unwrap();
+        std::fs::write(&dog, b"same").unwrap();
+        assert!(same_file(&cat, &cat));
+        assert!(!same_file(&cat, &dog));
+        assert_eq!(same_file(&upper, &cat), upper.exists(), "the same file only where letter case is ignored");
+        assert!(!same_file(&dir.join("missing.psd"), &cat));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A hard link is another entry in the folder, though it reaches the same file: a save to it
+    /// replaces that entry and leaves the other name on the old file. Another spelling of a name,
+    /// where letter case is ignored, is the same entry.
+    #[test]
+    fn a_hard_link_is_another_entry() {
+        let dir = std::env::temp_dir().join(format!("photocraft-same-entry-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("other")).unwrap();
+        let (cat, bare, upper, other) = (dir.join("CAT.psd"), dir.join("CAT"), dir.join("CAT.PSD"), dir.join("other").join("CAT.psd"));
+        std::fs::write(&cat, b"cat").unwrap();
+        std::fs::hard_link(&cat, &bare).unwrap();
+        std::fs::hard_link(&cat, &other).unwrap();
+        // Where both names reach one file (one inode on Unix), the folder still lists both.
+        let one_file = |_: &Path, _: &Path| true;
+        assert!(!same_entry(&bare, &cat, one_file));
+        assert!(!same_entry(&bare, &cat, same_file));
+        assert!(!same_entry(&other, &cat, same_file), "another folder");
+        assert!(same_entry(&cat, &cat, one_file));
+        assert!(same_entry(&cat, &cat, same_file));
+        if upper.exists() {
+            assert!(same_entry(&upper, &cat, same_file), "one entry where letter case is ignored");
+        } else {
+            std::fs::hard_link(&cat, &upper).unwrap();
+            assert!(!same_entry(&upper, &cat, same_file), "two entries where letter case tells names apart");
+        }
+        assert!(!same_entry(&dir.join("missing.psd"), &cat, same_file));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

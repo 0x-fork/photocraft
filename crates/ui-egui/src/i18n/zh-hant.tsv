@@ -2924,6 +2924,8 @@ curves	Smooth	平滑
 	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Hirakawa–Parks：邊緣最乾淨、色邊最少，速度最慢。
 	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	梯度校正插值：銳利且快速，細節處有些許色邊。
 	The fastest and the softest, with colour fringing on fine detail.	最快也最柔和，細節處有色邊。
+	“{name}” already exists. Replace it?	「{name}」已存在。要取代它嗎？
+	The name in the save dialog was “{name}”.	儲存對話框中的名稱是「{name}」。
 	Memory Usage	記憶體使用量
 	Per-document RAM limit (MB)	每個文件的 RAM 上限 (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	已安裝 RAM：{ram} MB；此上限：{percent}%
