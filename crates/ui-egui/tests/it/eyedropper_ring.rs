@@ -105,6 +105,7 @@ fn outer_edge_reads(img: &Shot, c: Pos2) -> bool {
 
 #[test]
 fn ring_reads_over_a_flat_area_of_its_own_colour() {
+    let _gpu = photocraft_testkit::gpu_lock();
     let Some(mut h) = harness() else { return };
     h.run_steps(4);
     let c = setup(&mut h);
@@ -126,6 +127,7 @@ fn ring_reads_over_a_flat_area_of_its_own_colour() {
 
 #[test]
 fn show_sampling_ring_off_draws_nothing() {
+    let _gpu = photocraft_testkit::gpu_lock();
     let Some(mut h) = harness() else { return };
     h.run_steps(4);
     let c = setup(&mut h);
