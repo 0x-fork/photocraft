@@ -3907,7 +3907,11 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             .filter(|m| m.command);
         let hand = app.ui.tool == Tool::Hand && !picking && !range_picking && !refine_brushing && !pinning && !shadow_drag && curve_point_press.is_none();
         // ⌘Space / ⌥Space zoom under the dialog as they do without one, before Space pans (#6460).
-        let held_zoom = !middle && matches!(temporary, Some(crate::hold_keys::Temporary::ZoomIn | crate::hold_keys::Temporary::ZoomOut));
+        // With the Hand tool, ⌘ alone is Zoom In (#6434); under Curves that press is the dialog's
+        // point (#7325), not a zoom.
+        let curve_point_with_hand = curve_point_press.is_some() && app.ui.tool == Tool::Hand;
+        let held_zoom =
+            !middle && !curve_point_with_hand && matches!(temporary, Some(crate::hold_keys::Temporary::ZoomIn | crate::hold_keys::Temporary::ZoomOut));
         if held_zoom {
             let alt = ctx.input(|i| i.modifiers.alt);
             if free_hover {
