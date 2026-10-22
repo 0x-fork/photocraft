@@ -1265,6 +1265,7 @@ fn make_effect(f: &FxSpec) -> Effect {
             common: FxCommon::new(*blend, *opacity),
             gradient: Gradient { stops: vec![(0.0, ink_color(*from)), (1.0, ink_color(*to))], ..Default::default() },
             dither: false,
+            interpolation: None,
         },
         FxSpec::Satin { color, blend, opacity, invert } => Effect::Satin(Satin {
             common: FxCommon::new(*blend, *opacity),

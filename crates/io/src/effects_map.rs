@@ -265,7 +265,9 @@ fn parse_one(key: &str, d: &Descriptor) -> Option<Effect> {
         "IrGl" => Effect::InnerGlow(parse_glow(d, true)),
         "FrFX" => Effect::Stroke(parse_stroke(d)),
         "SoFi" => Effect::ColorOverlay { common: common(d, BlendMode::Normal, 1.0), color: color(d, "Clr ") },
-        "GrFl" => Effect::GradientOverlay { common: common(d, BlendMode::Normal, 1.0), gradient: gradient_from(d), dither: bool_of(d, "Dthr") },
+        "GrFl" => {
+            Effect::GradientOverlay { common: common(d, BlendMode::Normal, 1.0), gradient: gradient_from(d), dither: bool_of(d, "Dthr"), interpolation: None }
+        }
         "patternFill" => {
             let (name, id) = pattern_ref(d);
             let (angle, link, phase) = pattern_placement(d);
@@ -440,7 +442,7 @@ fn write_one(e: &Effect) -> (&'static str, Descriptor) {
             ("FrFX", d)
         }
         Effect::ColorOverlay { common: c, color } => ("SoFi", with_common(Descriptor::new("SoFi"), c).with("Clr ", Value::Descriptor(color_to_desc(color)))),
-        Effect::GradientOverlay { common: c, gradient, dither } => {
+        Effect::GradientOverlay { common: c, gradient, dither, .. } => {
             ("GrFl", gradient_keys(with_common(Descriptor::new("GrFl"), c), gradient).with("Dthr", Value::Boolean(*dither)))
         }
         Effect::PatternOverlay { common: c, name, id, scale, angle, link, phase } => (
@@ -711,7 +713,7 @@ mod tests {
                 overprint: true,
             }),
             Effect::ColorOverlay { common: FxCommon::new(BlendMode::Overlay, 0.5), color: Color::rgb(0.0, 0.0, 1.0) },
-            Effect::GradientOverlay { common: FxCommon::new(BlendMode::Normal, 1.0), gradient: g, dither: true },
+            Effect::GradientOverlay { common: FxCommon::new(BlendMode::Normal, 1.0), gradient: g, dither: true, interpolation: None },
             Effect::PatternOverlay {
                 common: FxCommon::new(BlendMode::Normal, 1.0),
                 name: "Bubbles".into(),
