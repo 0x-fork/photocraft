@@ -166,6 +166,9 @@ sync_github_name = true
 real_name = "Sidney Markowitz"
 sync_github_name = true
 
+[people.theoabw]
+real_name = "Theo Wilenius"
+
 [people.TaylorBurke]
 sync_github_name = true
 
