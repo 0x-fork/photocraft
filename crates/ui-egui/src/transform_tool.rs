@@ -5565,6 +5565,67 @@ mod tests {
         assert!(after.points[5] != before.points[5], "the inside of the grid moved");
     }
 
+    /// #7885: a surface drag (a press inside a cell, on no anchor or handle) commits exactly as
+    /// the preview draws it. The layer is a gradient whose colour encodes where each pixel came
+    /// from, so every committed pixel says which source point landed there; the preview puts
+    /// source point `p` at `warp.map(p)`, and the commit must agree.
+    #[test]
+    fn warp_surface_drag_commits_as_previewed() {
+        const N: i32 = 96;
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.execute("file.new", json!({"width": N, "height": N})).unwrap();
+        app.sync_views();
+        app.session.execute("layer.new.layer", json!({})).unwrap();
+        let code = |x: f64, y: f64| [x / (N - 1) as f64, y / (N - 1) as f64];
+        app.session
+            .edit("paint", |doc, a| {
+                let s = doc.layer_mut(a.unwrap()).unwrap().surface_mut().unwrap();
+                for y in 0..N {
+                    for x in 0..N {
+                        let [r, g] = code(x as f64, y as f64);
+                        s.write_pixel(x, y, &[r as f32, g as f32, 0.5, 1.0]);
+                    }
+                }
+                Ok(())
+            })
+            .unwrap();
+        begin_warp(&mut app, &egui::Context::default()).unwrap();
+        let (start, end) = ([30.0, 30.0], [39.0, 25.0]);
+        // A press well inside the top-left cell: a surface drag, not a point drag.
+        warp_pointer(&mut app, ToolEvent::Down { x: start[0], y: start[1], pressure: 1.0 }, 2.0, egui::Modifiers::NONE);
+        assert!(matches!(app.transform_preview.as_ref().unwrap().warp_drag, Some(WarpDrag::Surface { .. })));
+        warp_pointer(&mut app, ToolEvent::Move { x: end[0], y: end[1], pressure: 1.0 }, 2.0, egui::Modifiers::NONE);
+        warp_pointer(&mut app, ToolEvent::Up { x: end[0], y: end[1] }, 2.0, egui::Modifiers::NONE);
+        // What the preview draws: the mapping of the warp the session holds.
+        let previewed = app.ui.transform.as_ref().unwrap().warp.clone().unwrap();
+        let landed = previewed.map(start[0], start[1]);
+        assert!((landed.0 - end[0]).abs() < 1e-6 && (landed.1 - end[1]).abs() < 1e-6, "the grabbed point follows the pointer: {landed:?}");
+        commit(&mut app);
+        assert!(app.ui.transform.is_none(), "{}", app.ui.status);
+        let st = app.session.active().unwrap();
+        let s = st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap();
+        let from = |x: f64, y: f64| {
+            let mut p = [0.0f32; 4];
+            s.read_pixel(x.round() as i32, y.round() as i32, &mut p);
+            [p[0] as f64 * (N - 1) as f64, p[1] as f64 * (N - 1) as f64]
+        };
+        // The grabbed point's pixel moved with the pointer: the drag did not get lost.
+        let got = from(end[0], end[1]);
+        assert!((got[0] - start[0]).abs() < 2.0 && (got[1] - start[1]).abs() < 2.0, "pixel at the drop point came from {got:?}, not {start:?}");
+        // And everywhere else the committed pixels sit where the preview put them.
+        for j in 1..12 {
+            for i in 1..12 {
+                let src = [i as f64 * 8.0, j as f64 * 8.0];
+                let (dx, dy) = previewed.map(src[0], src[1]);
+                if !(1.0..(N - 2) as f64).contains(&dx) || !(1.0..(N - 2) as f64).contains(&dy) {
+                    continue;
+                }
+                let got = from(dx, dy);
+                assert!((got[0] - src[0]).abs() < 2.0 && (got[1] - src[1]).abs() < 2.0, "{src:?} previewed at {:?} but committed {got:?} there", (dx, dy));
+            }
+        }
+    }
+
     #[test]
     fn a_handle_belongs_to_the_anchor_it_hangs_off() {
         assert_eq!(handle_anchor(0, 1), (0, 0));
