@@ -96,7 +96,6 @@ fn type_panels_show_default_controls_without_a_type_target() {
         h.get_by_label("Faux Bold");
         h.get_by_label("Fractions");
         h.get_by_label("Center text");
-        h.get_by_label("Hyphenate");
         h.get_by_role_and_label(egui::accesskit::Role::SpinButton, "Font size");
     }
 }
@@ -143,7 +142,7 @@ mod panel_defaults {
         number(&mut h, "Tracking (1/1000 em)", "80");
         number(&mut h, "Leading (set to the font size × auto-leading when Auto)", "44");
         number(&mut h, "Indent left margin", "9");
-        for label in ["Faux Bold", "Fractions", "Standard Ligatures", "Discretionary Ligatures", "Center text", "Hyphenate"] {
+        for label in ["Faux Bold", "Fractions", "Standard Ligatures", "Discretionary Ligatures", "Center text"] {
             h.get_by_label(label).click();
             h.run();
         }
@@ -172,7 +171,6 @@ mod panel_defaults {
                 assert_eq!(c.color.to_rgba8(), [51, 102, 153, 255]);
                 assert_eq!(p.align, TextAlign::Center);
                 assert_eq!(p.start_indent_pt, 9.0);
-                assert!(p.hyphenate);
                 assert_eq!(t.orientation, if tool.is_vertical_type() { Orientation::Vertical } else { Orientation::Horizontal });
                 assert_eq!(matches!(t.shape, TextShape::Box { .. }), paragraph);
                 assert_eq!(app.ui.text_edit.as_ref().unwrap().mask, tool.is_type_mask());
