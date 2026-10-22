@@ -3,7 +3,7 @@
 //! `cargo xtask corpus --all`. Feature `corpus` (run with `cargo xtask test-corpus`); a missing
 //! corpus fails.
 //!
-//! The io corpus test (`crates/io/tests/corpus.rs`) flattens imported documents, which composite
+//! The io corpus test (`crates/io/tests/it/corpus.rs`) flattens imported documents, which composite
 //! Photoshop's own cached pixels for smart objects and type layers. This test throws those caches
 //! away: every smart object is re-rendered from its embedded source through our smart-filter
 //! stack, and every type layer is re-laid-out and re-rasterised by our text engine; the flatten is

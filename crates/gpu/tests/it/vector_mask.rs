@@ -47,6 +47,7 @@ fn painted(name: &str, fmt: PixelFormat, rgba: [f32; 4]) -> Layer {
 
 #[test]
 fn vector_masks_match_the_cpu() {
+    let _lock = crate::GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(mut g) = gpu() else { return };
     for depth in [SampleType::U8, SampleType::U16] {
         for (inverted, density) in [(false, 1.0), (true, 1.0), (false, 0.6)] {

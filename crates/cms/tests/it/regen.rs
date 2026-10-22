@@ -1,7 +1,7 @@
 //! Regenerates the shipped synthetic CMYK profile when `PHOTOCRAFT_REGEN_PROFILES=1`:
 //!
 //! ```sh
-//! PHOTOCRAFT_REGEN_PROFILES=1 cargo test -p photocraft-cms --release --test regen
+//! PHOTOCRAFT_REGEN_PROFILES=1 cargo test -p photocraft-cms --release --test it -- regen::
 //! ```
 //!
 //! Without the variable the test only checks that the generator's model still matches the

@@ -5,7 +5,7 @@
 //!
 //! The two layered documents run in memory; the streamed files are written to
 //! `$PHOTOCRAFT_FIXTURE_DIR` (default: the system temp dir), removed afterwards, and are opt-in:
-//! `cargo test --release -p photocraft-io --test large_files -- --ignored`.
+//! `cargo test --release -p photocraft-io --test it -- large_files:: --ignored`.
 
 use std::path::PathBuf;
 

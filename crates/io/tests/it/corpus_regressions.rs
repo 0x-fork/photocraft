@@ -1,5 +1,5 @@
 //! Synthetic reproductions of failures found by the psd-tools corpus
-//! (`cargo xtask corpus --psd-tools`; see `tests/corpus.rs`). The corpus
+//! (`cargo xtask corpus --psd-tools`; see `tests/it/corpus.rs`). The corpus
 //! files themselves are never committed: each test rebuilds the relevant
 //! structure from our own documents.
 

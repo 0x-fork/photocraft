@@ -1,7 +1,7 @@
 //! Krita documents opened through the session: read-only source, 16-bit layers, editable
 //! layers with history, and saving as OpenRaster or native. The files come from
 //! `tools/krita-oracles/generate.py` in https://github.com/storytold/photocraft-corpus. Run with
-//! `KRITA_TEST_DIR=<dir> cargo test -p photocraft-engine --test kra -- --ignored --nocapture`.
+//! `KRITA_TEST_DIR=<dir> cargo test -p photocraft-engine --test it -- kra:: --ignored --nocapture`.
 use photocraft_engine::Session;
 use serde_json::json;
 
@@ -24,7 +24,7 @@ fn krita_documents_open_read_only_and_stay_editable() {
     assert!(session.execute("file.save", json!({})).is_err());
 
     // Krita's merged image is the composite (the corpus files carry no ICC profile, so both
-    // sides are sRGB); crates/io/tests/krita_corpus.rs compares every file.
+    // sides are sRGB); crates/io/tests/it/krita_corpus.rs compares every file.
     let ours = photocraft_compose::flatten(&session.active().unwrap().doc);
     let zip_bytes = std::fs::read(&path).unwrap();
     let zip = photocraft_format::zip::ZipReader::new(&zip_bytes).unwrap();

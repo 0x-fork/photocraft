@@ -1,7 +1,7 @@
 //! The canvas is colour-managed (#46): a Display P3 document shows its colours converted to
 //! the (sRGB) monitor on the GPU canvas (display LUT) and on the CPU canvas (flipped views draw
 //! through the CPU path); sRGB documents are shown unchanged. Skips when no GPU adapter with
-//! 32-bit float render targets exists (like `crates/gpu/tests/parity.rs`).
+//! 32-bit float render targets exists (like `crates/gpu/tests/it/parity.rs`).
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};

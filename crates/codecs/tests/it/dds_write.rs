@@ -348,7 +348,7 @@ fn compression_names_round_trip() {
 /// Encode timings on a synthetic ~30 MP texture (6336×4752). Ignored by default; run in release:
 ///
 /// ```sh
-/// cargo test --release -p photocraft-codecs --test dds_write -- --ignored --nocapture
+/// cargo test --release -p photocraft-codecs --test it -- dds_write:: --ignored --nocapture
 /// ```
 #[test]
 #[ignore]

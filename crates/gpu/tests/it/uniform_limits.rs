@@ -5,7 +5,7 @@ use photocraft_doc::{Document, Fill, Layer, LayerContent};
 use photocraft_geom::Size;
 use photocraft_gpu::{Compositor, DeviceHealth, plan, render_to_vec};
 
-static GPU_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+use crate::GPU_LOCK;
 
 fn fills(count: usize) -> Document {
     fills_size(count, Size::new(1, 1))

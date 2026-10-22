@@ -48,8 +48,10 @@ fn isolated(name: &str, check: impl FnOnce()) {
         check();
         return;
     }
+    // The harness names a test by its module path below the crate root.
+    let test = module_path!().split_once("::").map_or(name.to_string(), |(_, m)| format!("{m}::{name}"));
     let mut child = std::process::Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", name, "--nocapture"])
+        .args(["--exact", &test, "--nocapture"])
         .env("PHOTOCRAFT_COMPOUND_CASE", name)
         .spawn()
         .unwrap();

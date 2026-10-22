@@ -8,8 +8,7 @@ use photocraft_geom::{Rect, Size};
 use photocraft_gpu::{Compositor, DeviceHealth, Fault, render_to_vec};
 use photocraft_raster::Surface;
 
-/// Concurrent wgpu instances in one process segfault on some drivers (see `parity.rs`).
-static GPU_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+use crate::GPU_LOCK;
 
 fn device() -> Option<(wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
     let instance = wgpu::Instance::default();

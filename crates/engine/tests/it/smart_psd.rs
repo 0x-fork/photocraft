@@ -331,7 +331,7 @@ fn photoshop_samples() {
 }
 
 /// PSD export of a 24 MP smart object versus the same layer as pixels (release:
-/// `cargo test --release -p photocraft-engine --test smart_psd -- --ignored --nocapture perf`).
+/// `cargo test --release -p photocraft-engine --test it -- --ignored --nocapture smart_psd::perf`).
 #[test]
 #[ignore = "benchmark"]
 fn perf_24mp_smart_object_export() {

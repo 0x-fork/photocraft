@@ -12,9 +12,7 @@ use photocraft_gpu::{Compositor, render_to_vec};
 /// lands on that side at the Hue/Saturation pixel in `adjustment_layers`).
 const TOL: f32 = 1.0 / 255.0 + 4.0 * f32::EPSILON;
 
-/// Concurrent wgpu instances in one process segfault on some drivers (RADV), so the GPU tests
-/// take this lock and hold it until their device is dropped.
-static GPU_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+use crate::GPU_LOCK;
 
 struct Gpu {
     device: wgpu::Device,

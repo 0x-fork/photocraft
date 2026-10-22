@@ -36,7 +36,7 @@ fn check_format(format: Format) {
     }
     if c.exif && format == Format::Tiff {
         // TIFF writes the block's directories as its own and rebuilds a block from them on
-        // reading (tests/tiff_exif.rs); IFD0's orientation here is the image's.
+        // reading (tests/it/tiff_exif.rs); IFD0's orientation here is the image's.
         assert!(!warnings.contains(&FidelityWarning::ExifDropped), "{format:?}");
     } else if c.exif {
         assert_eq!(back.meta.exif, img.meta.exif, "{format:?} exif");

@@ -2,7 +2,7 @@
 //! release:
 //!
 //! ```sh
-//! cargo test --release -p photocraft-codecs --test tiff_bench -- --ignored --nocapture
+//! cargo test --release -p photocraft-codecs --test it -- tiff_bench:: --ignored --nocapture
 //! ```
 
 use crate::common;

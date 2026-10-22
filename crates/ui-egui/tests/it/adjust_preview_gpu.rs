@@ -1,7 +1,7 @@
 //! GPU parity of the Image › Adjustments dialog preview (`adjust_preview`): the document with
 //! the temporary clipped adjustment layer must composite on the wgpu compositor like on the CPU
 //! reference, and like the destructive command's result, for every kind with a dialog. Skips
-//! without an adapter that renders 32-bit float targets (like `crates/gpu/tests/parity.rs`).
+//! without an adapter that renders 32-bit float targets (like `crates/gpu/tests/it/parity.rs`).
 
 use eframe::wgpu;
 use photocraft_color::{BlendMode, Color, ColorMode, PixelFormat, SampleType};

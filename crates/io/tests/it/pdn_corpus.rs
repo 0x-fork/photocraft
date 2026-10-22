@@ -1,5 +1,5 @@
 //! Local PDN oracles are not bundled. Set PDN_TEST_DIR to a directory containing PDNs and their
-//! exported PNGs, then run `cargo test -p photocraft-io --test pdn_corpus -- --ignored --nocapture`.
+//! exported PNGs, then run `cargo test -p photocraft-io --test it -- pdn_corpus:: --ignored --nocapture`.
 
 use std::path::{Path, PathBuf};
 

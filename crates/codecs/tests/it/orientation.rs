@@ -372,7 +372,7 @@ fn every_layout_and_depth_orients_and_inverts() {
 }
 
 /// #285 performance budget: turning a 24 MP photo upright on open adds ≤ 50 ms
-/// (release build: `cargo test --release -p photocraft-codecs --test orientation -- --ignored`).
+/// (release build: `cargo test --release -p photocraft-codecs --test it -- orientation:: --ignored`).
 #[test]
 #[ignore = "timing; run in release"]
 fn rotating_24_mp_is_fast() {

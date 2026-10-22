@@ -25,7 +25,7 @@ fn undecodable_channel_leaves_the_layer_empty() {
 
 /// A flattened 29000² RGB PSB: its merged image decodes to 2.52 GB, past the old 2 GiB cap, which
 /// opened it as a document with no layers. Needs about 12 GB of memory, so it is opt-in:
-/// `cargo test --release -p photocraft-io --test large_psb -- --ignored`.
+/// `cargo test --release -p photocraft-io --test it -- large_psb:: --ignored`.
 #[test]
 #[ignore = "allocates ~12 GB; run in release"]
 fn flattened_psb_with_a_merged_image_over_2_gib_opens() {
