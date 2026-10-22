@@ -63,7 +63,8 @@ pub fn hex(c: [f32; 3]) -> String {
 
 pub fn parse_hex(s: &str) -> Option<[f32; 3]> {
     let h = s.trim().trim_start_matches('#');
-    if h.len() != 6 {
+    // `from_str_radix` accepts a leading '+', so require plain hex digits first.
+    if h.len() != 6 || !h.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
     // `get`, not `[..]`: typed text may be multi-byte, and a byte range can split a character.
@@ -1199,6 +1200,13 @@ mod tests {
     }
 
     /// HSB and hex round-trip sRGB colours.
+    #[test]
+    fn parse_hex_rejects_signs() {
+        assert_eq!(parse_hex("#+f+f+f"), None);
+        assert_eq!(parse_hex("+1+2+3"), None);
+        assert!(parse_hex("#0f0f0f").is_some());
+    }
+
     #[test]
     fn hsv_round_trips() {
         for c in [[1.0, 0.0, 0.0], [0.2, 0.6, 0.4], [0.5, 0.5, 0.5], [0.0, 0.0, 1.0], [0.9, 0.8, 0.1]] {
