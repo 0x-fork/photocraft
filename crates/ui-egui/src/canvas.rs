@@ -230,28 +230,37 @@ impl Drag {
 /// style (fixed ratio / fixed size), ⇧ for a square or circle, ⌥ to draw from the centre.
 pub fn marquee_corners(o: &crate::state::ToolOptions, d: &Drag, end: [f64; 2]) -> ([f64; 2], [f64; 2]) {
     let (shift, alt) = d.marquee_mods();
+    if o.marquee_style == "fixedSize" {
+        // A fixed box is positioned, not sized, by the drag. Using the press plus the drag's
+        // sign pinned it there and flipped it by its full width/height when the pointer crossed
+        // the press. The preview and release both follow the current pointer instead.
+        let (w, h) = (f64::from(o.marquee_width).max(1.0), f64::from(o.marquee_height).max(1.0));
+        let a = if alt { [end[0] - w / 2.0, end[1] - h / 2.0] } else { end };
+        return (a, [a[0] + w, a[1] + h]);
+    }
     let e = crate::chrome_ui::marquee_end(&o.marquee_style, o.marquee_width as f64, o.marquee_height as f64, shift, d.start, end);
     if !alt {
         return (d.start, e);
     }
     let (dx, dy) = (e[0] - d.start[0], e[1] - d.start[1]);
-    // A fixed size is centred on the press point; otherwise the drag is the half extent.
-    let (hx, hy) = if o.marquee_style == "fixedSize" { (dx / 2.0, dy / 2.0) } else { (dx, dy) };
-    ([d.start[0] - hx, d.start[1] - hy], [d.start[0] + hx, d.start[1] + hy])
+    // For a sized marquee the drag is the half extent when drawing from the centre.
+    ([d.start[0] - dx, d.start[1] - dy], [d.start[0] + dx, d.start[1] + dy])
 }
 
 /// The pixel rectangle a Rectangular/Elliptical Marquee drag selects so far: shown live (ants
 /// and readout) exactly as the release commits it, on whole pixel edges as in Photoshop. `None`
 /// while the gesture is still a click (it never left the press point by more than a few screen
 /// pixels at `zoom`, points per document pixel) or the rectangle has no area: a release then
-/// deselects. A one-pixel row or column is a selection (#2391).
+/// deselects. A one-pixel row or column is a selection (#2391). With the Fixed Size style a
+/// click places the selection, as in Photoshop.
 pub(crate) fn marquee_preview_px(o: &crate::state::ToolOptions, d: &Drag, zoom: f32) -> Option<[f64; 4]> {
-    if !matches!(d.tool, Tool::RectMarquee | Tool::EllipseMarquee) || crate::shape_dialog::is_click(d.start, &d.points, zoom) {
+    let fixed = o.marquee_style == "fixedSize";
+    if !matches!(d.tool, Tool::RectMarquee | Tool::EllipseMarquee) || (!fixed && crate::shape_dialog::is_click(d.start, &d.points, zoom)) {
         return None;
     }
     let last = d.points.last().map_or(d.start, |p| [p[0], p[1]]);
     let (a, b) = marquee_corners(o, d, last);
-    let mut r = marquee_px(a, b);
+    let mut r = if fixed { fixed_size_px(a, b, o.marquee_width, o.marquee_height) } else { marquee_px(a, b) };
     if marquee_is_square(o, d) {
         r = square_px(r, d.start, last);
     }
@@ -261,6 +270,16 @@ pub(crate) fn marquee_preview_px(o: &crate::state::ToolOptions, d: &Drag, zoom: 
 /// The pixel rectangle `[x0, y0, x1, y1]` a marquee between two corners selects.
 pub fn marquee_px(a: [f64; 2], b: [f64; 2]) -> [f64; 4] {
     [a[0].min(b[0]).floor(), a[1].min(b[1]).floor(), a[0].max(b[0]).ceil(), a[1].max(b[1]).ceil()]
+}
+
+/// The pixel rectangle of a Fixed Size marquee between the corners `a` and `b`: exactly `w` × `h`
+/// whole pixels. Snapping both edges outwards (`marquee_px`) added a pixel to each side whenever
+/// the press point sat between pixels, so 10 × 10 selected 11 × 11 (#6015). The near edge goes
+/// to the closest pixel edge and the far one is the size away.
+pub fn fixed_size_px(a: [f64; 2], b: [f64; 2], w: f32, h: f32) -> [f64; 4] {
+    let (w, h) = (f64::from(w).round().max(1.0), f64::from(h).round().max(1.0));
+    let (x0, y0) = (a[0].min(b[0]).round(), a[1].min(b[1]).round());
+    [x0, y0, x0 + w, y0 + h]
 }
 
 /// Whether the marquee drag `d` is constrained to a square (or circle): ⇧ during the drag with
@@ -3783,9 +3802,10 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         if tool == Tool::Crop && response.is_pointer_button_down_on() && ui.input(|i| i.pointer.primary_down()) && crate::crop_ui::press(app) {
             ctx.request_repaint();
         }
-        // Capture intent at the press, before egui's drag threshold: Type transforms keep
-        // Command, and marquee add/subtract must not become a live Shift/Alt constraint.
-        let capture_press = tool.is_type() || matches!(tool, Tool::RectMarquee | Tool::EllipseMarquee | Tool::SingleRowMarquee | Tool::SingleColumnMarquee);
+        // Capture intent at the press, before egui's drag threshold or click replay on release:
+        // Type transforms keep Command; selections keep Add/Subtract if Shift/Alt is released.
+        let capture_press = tool.is_type()
+            || matches!(tool, Tool::RectMarquee | Tool::EllipseMarquee | Tool::SingleRowMarquee | Tool::SingleColumnMarquee | Tool::ObjectSelection);
         let tool_press = egui::Id::new(("tool-pointer-press-modifiers", idx));
         if capture_press
             && let Some((p, press_mods)) = ui.input(|i| {
@@ -4026,6 +4046,11 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         {
             let click_button = if app.secondary_erase { PointerButton::Secondary } else { PointerButton::Primary };
             let click_mods = ui.input(|i| pointer_button_modifiers(&i.events, click_button)).unwrap_or(mods);
+            let click_mods = if tool == Tool::ObjectSelection && click_button == PointerButton::Primary {
+                ctx.data(|d| d.get_temp(tool_press)).unwrap_or(click_mods)
+            } else {
+                click_mods
+            };
             let d = xf.to_doc(p);
             match tool {
                 Tool::Zoom if !transform_owns_pointer => {
@@ -5562,8 +5587,10 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
     }
     // Move tool: ⇧ locks the axis, ⌥ duplicates (move_mods.rs).
     let ev = crate::move_mods::filter_event(app, ev, mods);
-    // A live rectangle's corner radius widgets (Path Selection, Rectangle tool).
-    if crate::corner_radius::pointer(app, ev, mods) {
+    // A live shape's corner radius widgets (Path Selection, the shape tools, Move with its
+    // transform controls). Unsnapped, as Free Transform's handles: snapping would pull the press
+    // off a widget onto a nearby vertex or guide, and the shape tool would draw a new shape.
+    if crate::corner_radius::pointer(app, raw, mods) {
         return;
     }
     // Direct Selection, and the Pen's ⌘ (Direct Selection) and ⌥ (Convert Point) modes (#790).
@@ -6515,6 +6542,19 @@ mod tests {
         assert_eq!(square_px(r, [150.8, 151.2], [60.0, 50.7]), [49.0, 50.0, 151.0, 152.0]);
         // Already square: unchanged.
         assert_eq!(square_px([10.0, 20.0, 30.0, 40.0], [10.0, 20.0], [30.0, 40.0]), [10.0, 20.0, 30.0, 40.0]);
+    }
+
+    /// #6015: a Fixed Size marquee pressed between pixels selected one pixel more on each side.
+    #[test]
+    fn fixed_size_px_is_exactly_the_size() {
+        use super::fixed_size_px;
+        // Down-right from (10.4, 20.6): 10 × 10 from the closest pixel edges.
+        assert_eq!(fixed_size_px([10.4, 20.6], [20.4, 30.6], 10.0, 10.0), [10.0, 21.0, 20.0, 31.0]);
+        // Up-left: the far corner is the low one; still exactly the size.
+        assert_eq!(fixed_size_px([10.4, 20.6], [-53.6, -11.4], 64.0, 32.0), [-54.0, -11.0, 10.0, 21.0]);
+        // 1 × 1 is one pixel, and a fractional size rounds to whole pixels.
+        assert_eq!(fixed_size_px([3.5, 3.5], [4.5, 4.5], 1.0, 1.0), [4.0, 4.0, 5.0, 5.0]);
+        assert_eq!(fixed_size_px([0.0, 0.0], [2.6, 2.4], 2.6, 2.4), [0.0, 0.0, 3.0, 2.0]);
     }
 
     #[test]

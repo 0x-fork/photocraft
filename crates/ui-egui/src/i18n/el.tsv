@@ -2361,6 +2361,7 @@
 	Drag to move the active shape's path or the Work Path	Σύρετε για μετακίνηση της διαδρομής του ενεργού σχήματος ή της διαδρομής εργασίας
 	Dual Brush	Διπλό πινέλο
 	Duplicate Path	Διπλασιασμός διαδρομής
+	Rename Path…	Μετονομασία διαδρομής…
 	Duplicate style	Διπλασιασμός στυλ
 	Dust & Scratches	Σκόνη και γρατζουνιές
 	Dust & Scratches…	Σκόνη και γρατζουνιές…
@@ -3861,6 +3862,7 @@ curves	Smooth	Εξομάλυνση
 	Light Gray	Ανοιχτό γκρι
 	Object Finder	Εύρεση αντικειμένων
 	No object found there — drag a rectangle around it	Δεν βρέθηκε αντικείμενο εκεί — σύρετε ένα ορθογώνιο γύρω του
+	The active layer has no pixels here — turn on Sample All Layers or select a layer with pixels	Το ενεργό επίπεδο δεν έχει εικονοστοιχεία εδώ — ενεργοποιήστε τη Δειγματοληψία όλων των επιπέδων ή επιλέξτε ένα επίπεδο με εικονοστοιχεία
 	Remove after each stroke	Αφαίρεση μετά από κάθε πινελιά
 	Apply the removal ({key})	Εφαρμογή της αφαίρεσης ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Πινελιές προς αφαίρεση: {n} (Enter εφαρμόζει, Esc ακυρώνει)

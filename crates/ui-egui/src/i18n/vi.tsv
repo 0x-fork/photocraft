@@ -1273,6 +1273,7 @@
 	Stroke Path	Đi nét đường dẫn
 	Save Path	Lưu đường dẫn
 	Duplicate Path	Nhân bản đường dẫn
+	Rename Path…	Đổi tên đường dẫn…
 	Delete Path	Xóa đường dẫn
 	Delete Vector Mask	Xóa mặt nạ vector
 	Draw with the Pen tool (P) or make a work path from a selection.	Vẽ bằng công cụ Bút (P) hoặc tạo đường dẫn làm việc từ vùng chọn.
@@ -3608,6 +3609,7 @@ curves	Smooth	Làm mượt
 	Response curve	Đường cong phản hồi
 	Object Finder	Trình tìm đối tượng
 	No object found there — drag a rectangle around it	Không tìm thấy đối tượng ở đó — hãy kéo một hình chữ nhật quanh nó
+	The active layer has no pixels here — turn on Sample All Layers or select a layer with pixels	Lớp đang hoạt động không có điểm ảnh ở đây — hãy bật Lấy mẫu mọi lớp hoặc chọn một lớp có điểm ảnh
 	Remove after each stroke	Xóa sau mỗi nét vẽ
 	Apply the removal ({key})	Áp dụng việc xóa ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Nét vẽ cần xóa: {n} (Enter áp dụng, Esc hủy)

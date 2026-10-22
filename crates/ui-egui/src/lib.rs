@@ -1261,6 +1261,9 @@ impl PhotocraftApp {
     }
 
     fn run_command(&mut self, id: &str, params: Value) -> Result<Value, String> {
+        if !vector_ui::cancel_stale(self) {
+            return Err(self.ui.status.clone());
+        }
         if matches!(id, "paint.setSymmetry" | "paint.symmetryFromPath" | "paint.symmetryDisable") {
             self.ui.symmetry_transform = None;
         }
@@ -1333,10 +1336,6 @@ impl PhotocraftApp {
             id,
             "layer.vectorMask.add" | "layer.vectorMask.fromPath" | "layer.vectorMask.revealAll" | "layer.vectorMask.hideAll" | "layer.vectorMask.currentPath"
         ) && on_active_layer;
-        // A draft Pen path belongs to the current document, not the one about to be created.
-        if id == "file.new" && self.ui.pen.is_some() {
-            vector_ui::pen_commit(self, false);
-        }
         let r = if id == "actions.play" {
             actions::play(self, &params)
         } else if photocraft_engine::actions_cmds::shell_view_command(id) {
@@ -1425,16 +1424,16 @@ impl PhotocraftApp {
         self.perf.command_ms = gpu_canvas::now_ms() - t0;
         match &r {
             Ok(_) => {
+                if self.ui.status_error {
+                    self.ui.status.clear();
+                    self.ui.status_error = false;
+                }
                 self.sync_views();
                 let removed = self.session.take_samplers_removed();
-                if removed > 0 {
+                if removed > 0 && !self.ui.status_error {
                     // A canvas-size change (crop, Canvas Size, Image Size, rotation) dropped Color
                     // Sampler points that fell outside the new canvas (#1046).
                     self.ui.status = crate::i18n::trn(crate::i18n::current(), removed as u64, "{n} sample point removed", "{n} sample points removed");
-                    self.ui.status_error = false;
-                }
-                if self.ui.status_error {
-                    self.ui.status.clear();
                     self.ui.status_error = false;
                 }
             }
@@ -1470,6 +1469,8 @@ impl PhotocraftApp {
         crate::canvas::polygon_cancel_stale(self);
         crate::crop_ui::cancel_stale(self);
         crate::perspective_crop_ui::cancel_stale(self);
+        // A pen path under construction belongs to the document it was started on too.
+        vector_ui::cancel_stale(self);
         let ids: Vec<DocId> = self.session.documents().iter().map(|d| d.doc.id).collect();
         // Where the document of view `i` is now. Views not tracked yet keep their index.
         let now = |i: usize| match self.view_docs.get(i) {
@@ -3768,3 +3769,5 @@ mod channel_tint_tests {
 
 #[cfg(test)]
 mod options_hit_area_tests;
+#[cfg(test)]
+mod select_and_mask_button_tests;
