@@ -1246,7 +1246,13 @@ fn humanize(key: &str) -> String {
             s.push(ch);
         }
     }
-    s.replace("Psd", "PSD").replace("Gpu", "GPU").replace("Ui ", "UI ").replace("Mb", "(MB)").replace("Exif", "EXIF").replace("Hud", "HUD")
+    s.replace("Psd", "PSD")
+        .replace("Gpu", "GPU")
+        .replace("Ui ", "UI ")
+        .replace("Mb", "(MB)")
+        .replace("Exif", "EXIF")
+        .replace("Hud", "HUD")
+        .replace("Lut ", "LUT ")
 }
 
 fn choice_label(v: &str) -> String {
