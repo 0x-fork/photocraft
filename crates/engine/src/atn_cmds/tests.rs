@@ -408,6 +408,7 @@ fn every_mapped_command_exports_and_imports_back() {
         ("layerComp.apply", json!({"comp": "Original"})),
         ("actions.play", json!({"action": "Other", "set": "S"})),
         (STOP_MESSAGE, json!({"message": "Hi", "allowContinue": false})),
+        ("document.activate", json!({"offset": -1})),
         // The TrueGrit Texture Supply sets (Debaser, Distress Press, Halftone Zine Machine).
         ("filter.distort.ripple", json!({"amount": 50, "size": "medium"})),
         ("filter.pixelate.crystallize", json!({"cellSize": 5})),
@@ -1192,6 +1193,74 @@ fn channel_ord(value: &str) -> D {
 
 fn fsel(t: D) -> Descriptor {
     desc("null").with("null", D::Reference(vec![ReferenceItem::Property { class: class("Chnl"), key: Id::new("fsel") }])).with("T   ", t)
+}
+
+/// #7103: Photoshop records switching to another open document as a `select` of `Dcmn` by
+/// offset (previous -1, next +1). The template action of the report, which copies from the
+/// source image and pastes into the template opened after it, imports with no Photoshop steps,
+/// plays across the two documents and saves back the same shape. With no previous document
+/// open, playback stops at the switch instead of pasting into the wrong document.
+#[test]
+fn select_document_by_offset_imports_plays_and_saves_back() {
+    let doc = |offset: i32| desc("null").with("null", D::Reference(vec![ReferenceItem::Offset { class: class("Dcmn"), offset }]));
+    // A recorded document id (`DocI`) means nothing in another session: ignored, not written back.
+    let copy_in = vec![
+        item("slct", "Select", Some(doc(-1).with("DocI", long(35.0)))),
+        item("setd", "Set", Some(fsel(enm("Ordn", "Al  ")))),
+        item("copy", "Copy", None),
+        item("slct", "Select", Some(doc(1))),
+        item("past", "Paste", None),
+    ];
+    let data = set_of("Template", vec![("Copy In", copy_in)]);
+
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 8, "height": 8, "name": "source"})).unwrap();
+    s.execute("edit.fill", json!({"contents": "color", "color": "#ff0000"})).unwrap();
+    s.execute("file.new", json!({"width": 8, "height": 8, "name": "template", "background": "transparent"})).unwrap();
+    let r = s.execute("actions.load", json!({"data": data})).unwrap();
+    assert_eq!(r["unsupported"], json!([]), "{r}");
+    let steps = &s.actions.list[0].steps;
+    assert_eq!(steps[0], ("document.activate".to_string(), json!({"offset": -1})));
+    assert_eq!(steps[3], ("document.activate".to_string(), json!({"offset": 1})));
+
+    let pixel = |s: &mut Session| -> Vec<f32> { serde_json::from_value(s.execute("document.pixel", json!({"x": 4, "y": 4})).unwrap()).unwrap() };
+    assert_eq!(pixel(&mut s), [0.0; 4]);
+    let r = s.execute("actions.play", json!({"action": "Copy In"})).unwrap();
+    assert!(r.get("failed").is_none(), "{r}");
+    assert_eq!(s.active().unwrap().doc.name, "template");
+    assert_eq!(s.active().unwrap().doc.layers.len(), 2, "the source's pixels are pasted on a new layer");
+    assert_eq!(pixel(&mut s), [1.0, 0.0, 0.0, 1.0]);
+    assert_eq!(s.documents()[0].doc.layers.len(), 1, "the source is only copied from");
+
+    let first = s.actions.list.clone();
+    let r = s.execute("actions.save", json!({"set": "Template"})).unwrap();
+    assert_eq!(r["skipped"], json!([]));
+    let saved = photocraft_paint::tile::b64_decode(r["data"].as_str().unwrap()).unwrap();
+    let file = atn::parse(&saved).unwrap();
+    let offsets: Vec<i32> = file.actions[0]
+        .items
+        .iter()
+        .filter_map(|i| match get_ref(i.descriptor.as_ref()?, "null")? {
+            [ReferenceItem::Offset { class, offset }] if trimmed(&class.class_id) == "Dcmn" => Some(*offset),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(offsets, [-1, 1]);
+    assert!(file.actions[0].items[0].descriptor.as_ref().unwrap().get("DocI").is_none());
+    let mut t = Session::new();
+    t.execute("actions.load", json!({"data": b64(&saved)})).unwrap();
+    assert_eq!(t.actions.list, first);
+    // An absolute tab index has no Photoshop equivalent: it stays out of a strict save.
+    assert!(export_item("document.activate", &json!({"document": 0}), "S").is_none());
+    assert!(export_item("document.activate", &json!({"document": 0, "offset": 1}), "S").is_none());
+
+    let mut one = Session::new();
+    one.execute("file.new", json!({"width": 8, "height": 8, "name": "template"})).unwrap();
+    one.execute("actions.load", json!({"data": data})).unwrap();
+    let r = one.execute("actions.play", json!({"action": "Copy In"})).unwrap();
+    assert_eq!(r["failed"]["step"], 0, "{r}");
+    assert_eq!(r["failed"]["error"], "no document 1 before the active one, which is 1 of 1", "{r}");
+    assert_eq!(one.active().unwrap().doc.layers.len(), 1);
 }
 
 fn set_of(name: &str, actions: Vec<(&str, Vec<AtnItem>)>) -> String {

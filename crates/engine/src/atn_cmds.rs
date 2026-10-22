@@ -13,7 +13,9 @@
 //! work; tool selections and other steps with no document effect are imported switched off.
 //!
 //! Layer references by name (`select` of layer "Shadow") become `{"layer": "Shadow"}`, which
-//! `commands::layer_param` resolves in whatever document the action plays on (#219).
+//! `commands::layer_param` resolves in whatever document the action plays on (#219). A switch
+//! to another open document (`select` of `Dcmn` by offset) becomes `document.activate
+//! {"offset"}`, the tab that many places from the active one (#7103).
 
 use photocraft_psd::atn::{self, AtnAction, AtnEvent, AtnFile, AtnItem};
 use photocraft_psd::descriptor::{Class, Descriptor, Id, ReferenceItem, UnicodeString, Value as D};
@@ -1595,6 +1597,9 @@ fn select_from(d: &Descriptor) -> Mapped {
             Some(id) => none(id),
             None => Mapped::Unsupported { harmless: false },
         },
+        // Switching to another open document: its offset from the active one, -1 for the previous
+        // tab and 1 for the next (a template action copies from one and pastes into the other, #7103).
+        (Some("Dcmn"), Target::Offset(o)) => step("document.activate", json!({"offset": o})),
         _ => Mapped::Unsupported { harmless: false },
     }
 }
@@ -1633,6 +1638,11 @@ fn select_to(id: &str, p: &Value) -> Option<Descriptor> {
         "layer.addBelowToSelection" => desc("null").with("null", ord("Bckw")).with("selectionModifier", enm("selectionModifierType", "addToSelection")),
         "layer.selectTop" => desc("null").with("null", ord("Frnt")),
         "layer.selectBottom" => desc("null").with("null", ord("Back")),
+        // An absolute tab index has no Photoshop equivalent; an offset is what Photoshop records.
+        "document.activate" if p.get("document").is_none_or(Value::is_null) => {
+            let offset = i32::try_from(p.get("offset")?.as_i64()?).ok()?;
+            desc("null").with("null", D::Reference(vec![ReferenceItem::Offset { class: class("Dcmn"), offset }]))
+        }
         _ => {
             let item = lookup_back(MENU_ITEMS, id)?;
             desc("null").with("null", D::Reference(vec![ReferenceItem::Enumerated { class: class("Mn  "), type_id: code("MnIt"), value: code(item) }]))
@@ -3267,6 +3277,7 @@ const EVENTS: &[Event] = &[
             "view.actualPixels",
             "view.zoomIn",
             "view.zoomOut",
+            "document.activate",
         ],
         from: select_from,
         to: select_to,
