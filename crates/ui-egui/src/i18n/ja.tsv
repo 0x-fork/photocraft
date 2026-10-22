@@ -3956,6 +3956,8 @@ curves	Smooth	スムーズ
 	Increase Brush Size	ブラシサイズを大きく
 	Decrease Brush Hardness	ブラシの硬さを下げる
 	Increase Brush Hardness	ブラシの硬さを上げる
+	“{name}” already exists. Replace it?	「{name}」は既に存在します。置き換えますか？
+	The name in the save dialog was “{name}”.	保存ダイアログで指定した名前は「{name}」でした。
 	Memory Usage	メモリ使用量
 	Per-document RAM limit (MB)	ドキュメントあたりの RAM 上限 (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	搭載 RAM: {ram} MB、この上限: {percent}%

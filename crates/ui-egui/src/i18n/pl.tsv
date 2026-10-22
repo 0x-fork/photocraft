@@ -3878,6 +3878,8 @@ curves	Smooth	Wygładź
 	Increase Brush Size	Zwiększ rozmiar pędzla
 	Decrease Brush Hardness	Zmniejsz twardość pędzla
 	Increase Brush Hardness	Zwiększ twardość pędzla
+	“{name}” already exists. Replace it?	„{name}” już istnieje. Zastąpić?
+	The name in the save dialog was “{name}”.	Nazwa w oknie zapisywania: „{name}”.
 	Memory Usage	Użycie pamięci
 	Per-document RAM limit (MB)	Limit RAM na dokument (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Zainstalowany RAM: {ram} MB; ten limit: {percent}%

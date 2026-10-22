@@ -4196,6 +4196,8 @@ cameraRaw	Yellow	Sárga
 	Increase Brush Size	Ecsetméret növelése
 	Decrease Brush Hardness	Ecsetkeménység csökkentése
 	Increase Brush Hardness	Ecsetkeménység növelése
+	“{name}” already exists. Replace it?	„{name}” már létezik. Lecseréli?
+	The name in the save dialog was “{name}”.	A mentési párbeszédpanelen megadott név: „{name}”.
 	Memory Usage	Memóriahasználat
 	Per-document RAM limit (MB)	Dokumentumonkénti RAM-korlát (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Telepített RAM: {ram} MB; ez a korlát: {percent}%

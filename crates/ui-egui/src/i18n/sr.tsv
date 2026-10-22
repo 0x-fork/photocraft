@@ -4350,6 +4350,8 @@ shape	Appearance	Izgled
 	Increase Brush Size	Povećaj veličinu četkice
 	Decrease Brush Hardness	Smanji tvrdoću četkice
 	Increase Brush Hardness	Povećaj tvrdoću četkice
+	“{name}” already exists. Replace it?	„{name}“ već postoji. Zameniti?
+	The name in the save dialog was “{name}”.	Ime u dijalogu za čuvanje je bilo „{name}“.
 	Memory Usage	Upotreba memorije
 	Per-document RAM limit (MB)	RAM limit po dokumentu (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Instalisan RAM: {ram} MB; ovaj limit: {percent}%

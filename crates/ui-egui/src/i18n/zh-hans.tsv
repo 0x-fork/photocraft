@@ -2912,6 +2912,8 @@ curves	Smooth	平滑
 	Increase Brush Size	增大画笔大小
 	Decrease Brush Hardness	减小画笔硬度
 	Increase Brush Hardness	增大画笔硬度
+	“{name}” already exists. Replace it?	“{name}”已存在。要替换它吗？
+	The name in the save dialog was “{name}”.	存储对话框中的名称是“{name}”。
 	Memory Usage	内存使用
 	Per-document RAM limit (MB)	每个文档的 RAM 上限 (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	已安装 RAM：{ram} MB；此上限：{percent}%

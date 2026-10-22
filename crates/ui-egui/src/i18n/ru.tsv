@@ -3255,6 +3255,8 @@ curves	Smooth	Сгладить
 	Increase Brush Size	Увеличить размер кисти
 	Decrease Brush Hardness	Уменьшить жёсткость кисти
 	Increase Brush Hardness	Увеличить жёсткость кисти
+	“{name}” already exists. Replace it?	«{name}» уже существует. Заменить?
+	The name in the save dialog was “{name}”.	В окне сохранения было указано имя «{name}».
 	Memory Usage	Использование памяти
 	Per-document RAM limit (MB)	Лимит ОЗУ на документ (МБ)
 	Installed RAM: {ram} MB; this limit: {percent}%	Установлено ОЗУ: {ram} МБ; этот лимит: {percent}%
