@@ -961,6 +961,7 @@ fn the_preview_sets_the_type_layers_text_or_the_selection_being_typed() {
     app.run("layer.select", serde_json::json!({"id": id})).ok();
     app.ui.text_edit = Some(crate::state::TextEdit {
         layer: id,
+        document: None,
         caret: 0,
         anchor: 0,
         session: "s".into(),
