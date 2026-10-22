@@ -3037,14 +3037,16 @@ macro_rules! adjustment_event {
 
 const RIPPLE_SIZE: &[(&str, &str)] = &[("Sml", "small"), ("Mdm", "medium"), ("Lrg", "large")];
 
+/// Whether a Select and Mask step carries Refine Edge Brush strokes, which no descriptor holds.
+fn has_refine_strokes(p: &Value) -> bool {
+    p.get("refineStrokes").is_some_and(|v| !v.is_null() && v.as_array().is_none_or(|a| !a.is_empty()))
+}
+
 /// Select and Mask to Photoshop. The descriptor has no field for the Refine Edge Brush, so a
 /// step with `refineStrokes` can't be exported faithfully. One with `sampleAllLayers` is not
 /// exported here either: it exports as `smartBrushWorkspace`.
 fn refine_edge_to(_: &str, p: &Value) -> Option<Descriptor> {
-    if !pixel_target(p)
-        || p.get("sampleAllLayers").is_some()
-        || p.get("refineStrokes").is_some_and(|v| !v.is_null() && v.as_array().is_none_or(|a| !a.is_empty()))
-    {
+    if !pixel_target(p) || p.get("sampleAllLayers").is_some() || has_refine_strokes(p) {
         return None;
     }
     fields_to(p, REFINE_EDGE, desc("null"))
@@ -3614,7 +3616,7 @@ const EVENTS: &[Event] = &[
         },
         to: refine_edge_to,
     },
-    ev!("", "smartBrushWorkspace", "Select and Mask", "select.refineEdge", SMART_BRUSH),
+    ev!("", "smartBrushWorkspace", "Select and Mask", "select.refineEdge", SMART_BRUSH, unless has_refine_strokes),
     ev!("", "autoCutout", "Select Subject", "select.subject", &[F("sampleAllLayers", "sampleAllLayers", Kind::Bool)]),
     Event { code: "ClrR", name: "colorRange", label: "Color Range", ids: &["select.colorRange"], from: color_range_from, to: color_range_to },
     // Edit.

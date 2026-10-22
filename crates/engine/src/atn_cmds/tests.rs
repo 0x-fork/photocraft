@@ -2410,6 +2410,27 @@ fn image_size_round_trip(params: &Value) -> Option<Value> {
     }
 }
 
+/// A step with brush strokes and Sample All Layers is refused by `refineSelectionEdge`; it must
+/// not fall through to `smartBrushWorkspace`, which has no field for the strokes either.
+#[test]
+fn refine_edge_with_strokes_and_sample_all_layers_is_not_exported_without_the_strokes() {
+    let stroke = json!({"points": [[5, 4]], "size": 4, "mode": "add"});
+    let brushed = Action {
+        name: "Probe".into(),
+        steps: vec![("select.refineEdge".into(), json!({"radius": 1, "sampleAllLayers": true, "refineStrokes": [stroke]}))],
+        ..Default::default()
+    };
+    assert!(export("Audit", &[&brushed], &[], false).is_err());
+    let (_, skipped) = export("Audit", &[&brushed], &[], true).unwrap();
+    assert_eq!(skipped, vec![Skipped { action: "Probe".into(), step: 0, id: "select.refineEdge".into() }]);
+    let plain = Action {
+        name: "Plain".into(),
+        steps: vec![("select.refineEdge".into(), json!({"radius": 1, "sampleAllLayers": true, "refineStrokes": []}))],
+        ..Default::default()
+    };
+    assert!(export("Audit", &[&plain], &[], false).is_ok());
+}
+
 /// Photoshop's Select and Mask descriptor as mapped has no field for the Refine Edge Brush,
 /// so a step with brush strokes must not export as a plain Select and Mask without them.
 #[test]
