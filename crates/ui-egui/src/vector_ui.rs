@@ -815,7 +815,8 @@ pub fn curvature_toggle(app: &mut PhotocraftApp, x: f64, y: f64) {
 }
 
 /// The path that path commands act on without a name: the one selected in the Paths panel, else
-/// the work path, else the selected layer's shape path or vector mask; `None` when there's none.
+/// the work path while it is shown (not after Make Selection hid it, #6079), else the selected
+/// layer's shape path or vector mask; `None` when there's none.
 pub fn active_path_name(app: &PhotocraftApp) -> Option<String> {
     let st = app.session.active()?;
     let rows = path_rows(&st.doc, st.active_layer);
@@ -825,7 +826,8 @@ pub fn active_path_name(app: &PhotocraftApp) -> Option<String> {
         PathRow::Saved => r.name.clone(),
     };
     let selected = app.ui.selected_path.as_deref().filter(|s| rows.iter().any(|r| key(r) == *s)).map(str::to_string);
-    selected.or_else(|| rows.iter().find(|r| r.kind == PathRow::Work).map(key)).or_else(|| rows.iter().find(|r| r.kind == PathRow::Layer).map(key))
+    let work = rows.iter().find(|r| r.kind == PathRow::Work).filter(|_| work_path_shown(app)).map(key);
+    selected.or(work).or_else(|| rows.iter().find(|r| r.kind == PathRow::Layer).map(key))
 }
 
 /// The commands that create a fill or adjustment layer and take a `"path"` as its vector mask.
