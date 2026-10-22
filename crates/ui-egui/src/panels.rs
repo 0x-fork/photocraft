@@ -1230,9 +1230,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             }
                         });
                         widgets::vline(ui, 22.0);
-                        if widgets::secondary_button(ui, tl!("Select and Mask…"), 0.0).clicked() {
-                            let _ = crate::menus::invoke(app, ui.ctx(), "select.selectAndMask", json!({}));
-                        }
+                        select_and_mask_button(app, ui);
                     }
                     Tool::Lasso | Tool::PolygonLasso | Tool::MagneticLasso if t.pro => {
                         selection_mode_buttons(app, ui);
@@ -1257,9 +1255,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             }
                             widgets::vline(ui, 22.0);
                         }
-                        if widgets::secondary_button(ui, tl!("Select and Mask…"), 0.0).clicked() {
-                            let _ = crate::menus::invoke(app, ui.ctx(), "select.selectAndMask", json!({}));
-                        }
+                        select_and_mask_button(app, ui);
                         if crate::lasso_ui::active(app) || (app.ui.tool == Tool::PolygonLasso && !app.ui.polygon.is_empty()) {
                             hint(
                                 ui,
@@ -1294,9 +1290,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             let r = app.run("select.subject", json!({}));
                             crate::retouch_ui::report_smart_result(app, r, tl!("No subject found — try Object Selection or the Lasso"));
                         }
-                        if widgets::secondary_button(ui, tl!("Select and Mask…"), 0.0).clicked() {
-                            let _ = crate::menus::invoke(app, ui.ctx(), "select.selectAndMask", json!({}));
-                        }
+                        select_and_mask_button(app, ui);
                     }
                     Tool::PaintBucket if t.pro => {
                         opt_label(ui, tl!("Fill"));
@@ -4722,6 +4716,16 @@ fn effect_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, l: &Layer, depth: usi
             crate::widgets::style_spectrum_popup_menu(ui);
             crate::layer_menu_ui::show_effects(app, ui, l, actions);
         });
+    }
+}
+
+/// The options bar's Select and Mask… button: greyed out, as the menu item is, until there is a
+/// selection (or a layer mask) to refine (#7520).
+fn select_and_mask_button(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    let enabled = crate::menus::is_enabled(app, "select.selectAndMask");
+    let clicked = ui.add_enabled_ui(enabled, |ui| widgets::secondary_button(ui, tl!("Select and Mask…"), 0.0).clicked()).inner;
+    if clicked {
+        let _ = crate::menus::invoke(app, ui.ctx(), "select.selectAndMask", json!({}));
     }
 }
 

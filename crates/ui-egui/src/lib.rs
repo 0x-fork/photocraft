@@ -3600,3 +3600,5 @@ mod channel_tint_tests {
 
 #[cfg(test)]
 mod options_hit_area_tests;
+#[cfg(test)]
+mod select_and_mask_button_tests;
