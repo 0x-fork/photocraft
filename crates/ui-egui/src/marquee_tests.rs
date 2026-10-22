@@ -219,6 +219,107 @@ fn shift_square_pressed_between_pixels_has_equal_sides() {
     }
 }
 
+/// #6015: Fixed Size pressed between pixels selected one pixel more on each side (10 × 10 became
+/// 11 × 11, 1 × 1 became 2 × 2). The readout and the selection are the entered size, and a click
+/// without a drag places it too, as in Photoshop.
+#[test]
+fn fixed_size_selects_exactly_the_entered_size() {
+    for tool in [Tool::RectMarquee, Tool::EllipseMarquee] {
+        for (w, ht) in [(10, 10), (1, 1), (64, 32)] {
+            let mut h = harness(tool);
+            let o = &mut h.state_mut().ui.tool_options;
+            o.marquee_style = "fixedSize".into();
+            (o.marquee_width, o.marquee_height) = (w as f32, ht as f32);
+            press_at(&mut h, 50.4, 60.6, Modifiers::NONE);
+            assert!(readout(&h, w, ht), "{tool:?} {w} × {ht}: the readout shows the entered size");
+            release_at(&mut h, 90.0, 90.0, Modifiers::NONE);
+            assert_eq!(selection(&h), Rect::new(90, 90, 90 + w, 90 + ht), "{tool:?} {w} × {ht}: dragged to the release point");
+
+            // A click: the button goes down and up at one point.
+            h.state_mut().run("select.deselect", json!({})).unwrap();
+            let p = screen(&h, 120.6, 100.4);
+            h.event(egui::Event::PointerMoved(p));
+            h.run_steps(1);
+            button(&mut h, p, true, Modifiers::NONE);
+            button(&mut h, p, false, Modifiers::NONE);
+            h.run_steps(2);
+            assert_eq!(selection(&h), Rect::new(121, 100, 121 + w, 100 + ht), "{tool:?} {w} × {ht}: clicked");
+        }
+    }
+}
+
+/// Fixed Size places a box rather than sizing it: the pointer positions it in every direction,
+/// including crossing the press point, without flipping by the full width or height.
+#[test]
+fn fixed_size_drag_positions_the_box_in_every_direction() {
+    for tool in [Tool::RectMarquee, Tool::EllipseMarquee] {
+        for zoom in [1.0, 16.0] {
+            let mut h = harness(tool);
+            h.state_mut().ui.extras.snap = false;
+            let o = &mut h.state_mut().ui.tool_options;
+            o.marquee_style = "fixedSize".into();
+            (o.marquee_width, o.marquee_height) = (11.0, 11.0);
+            h.state_mut().ui.views[0].zoom = zoom;
+            h.state_mut().ui.views[0].center = [60.0, 70.0];
+            h.run_steps(2);
+            press_at(&mut h, 50.4, 60.6, Modifiers::NONE);
+            for (x, y) in [(58.4, 66.6), (49.4, 59.6), (49.4, 66.6), (58.4, 59.6), (59.4, 60.6)] {
+                move_to(&mut h, x, y);
+                let app = h.state();
+                let r = crate::canvas::marquee_preview_px(&app.ui.tool_options, app.drag.as_ref().unwrap(), zoom).unwrap();
+                let (x, y) = (f64::from(x).round(), f64::from(y).round());
+                assert_eq!(r, [x, y, x + 11.0, y + 11.0], "{tool:?} at zoom {zoom}: follows the pointer");
+                assert!(readout(&h, 11, 11), "the live dimensions stay 11 × 11");
+            }
+            // Commit the release position even if there was no move frame at this point.
+            let p = screen(&h, 60.4, 61.6);
+            button(&mut h, p, false, Modifiers::NONE);
+            h.run_steps(2);
+            assert_eq!(selection(&h), Rect::new(60, 62, 71, 73), "{tool:?}: release commits the final position");
+        }
+    }
+}
+
+#[test]
+fn fixed_size_drag_inside_a_completed_box_still_moves_its_outline() {
+    for snap in [false, true] {
+        for zoom in [1.0, 26.730814] {
+            let mut h = harness(Tool::RectMarquee);
+            h.state_mut().ui.extras.snap = snap;
+            let o = &mut h.state_mut().ui.tool_options;
+            o.marquee_style = "fixedSize".into();
+            (o.marquee_width, o.marquee_height) = (11.0, 11.0);
+            h.state_mut().ui.views[0].zoom = zoom;
+            h.state_mut().ui.views[0].center = [112.0, 110.0];
+            h.run_steps(2);
+            press_at(&mut h, 100.4, 100.6, Modifiers::NONE);
+            release_at(&mut h, 108.4, 106.6, Modifiers::NONE);
+            let r = selection(&h);
+            let (x, y) = ((r.x0 + r.x1) as f32 / 2.0, (r.y0 + r.y1) as f32 / 2.0);
+            press_at(&mut h, x, y, Modifiers::NONE);
+            release_at(&mut h, x + 2.0, y + 1.0, Modifiers::NONE);
+            assert_eq!(selection(&h), r.translate(2, 1), "zoom {zoom}, snap {snap}");
+        }
+    }
+}
+
+#[test]
+fn fixed_size_alt_centers_the_box_at_the_current_pointer() {
+    for tool in [Tool::RectMarquee, Tool::EllipseMarquee] {
+        let mut h = harness(tool);
+        h.state_mut().ui.extras.snap = false;
+        let o = &mut h.state_mut().ui.tool_options;
+        o.marquee_style = "fixedSize".into();
+        (o.marquee_width, o.marquee_height) = (11.0, 11.0);
+        press_at(&mut h, 50.4, 60.6, Modifiers::NONE);
+        mods(&mut h, Modifiers::ALT);
+        move_to(&mut h, 100.4, 100.6);
+        assert!(readout(&h, 11, 11));
+        release_at(&mut h, 110.4, 90.6, Modifiers::ALT);
+        assert_eq!(selection(&h), Rect::new(105, 85, 116, 96), "{tool:?}: Alt centres the moving box");
+    }
+}
+
 /// #204: Preferences › Tools › Show Transformation Values off hides the readout, not the marquee.
 #[test]
 fn show_transformation_values_off_hides_the_readout() {
