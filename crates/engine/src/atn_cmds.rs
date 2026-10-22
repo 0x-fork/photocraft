@@ -3567,17 +3567,6 @@ const EVENTS: &[Event] = &[
         from: |_| step("layer.setExpanded", json!({"all": true, "expanded": false})),
         to: |_, p| (jbool(p, "all") == Some(true) && jbool(p, "expanded") == Some(false)).then(|| desc("null")),
     },
-    Event {
-        code: "",
-        name: "applyComp",
-        label: "Apply Layer Comp",
-        ids: &["layerComp.apply"],
-        from: |d| match get_ref(d, "null").map(target) {
-            Some(Target::Name(n)) => step("layerComp.apply", json!({"comp": n})),
-            _ => Mapped::Unsupported { harmless: false },
-        },
-        to: |_, p| Some(desc("null").with("null", name_ref("compsClass", jstr(p, "comp")?))),
-    },
     ev!("Dfrg", "defringe", "Defringe", "layer.matting.defringe", &[F("Wdth", "width", Kind::Px)]),
     Event {
         code: "Algn",
