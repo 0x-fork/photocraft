@@ -5471,8 +5471,12 @@ mod color_tests {
         assert_eq!(steps(h.state()), before + 2, "the drag is one more step");
         drag(&mut h, min + vec2(200.0, 60.0), min + vec2(100.0, 150.0));
         assert_eq!(steps(h.state()), before + 3, "the next drag another");
-        let name = h.state_mut().run("swatches.list", json!({})).unwrap()["groups"][0]["swatches"][0]["name"].as_str().unwrap().to_string();
+        // The drag ended on black, the first swatch: picking the shape's own colour changes
+        // nothing and adds no step (#5568), so take the second swatch.
+        let fg = h.state().session.tools.foreground;
+        let name = h.state_mut().run("swatches.list", json!({})).unwrap()["groups"][0]["swatches"][1]["name"].as_str().unwrap().to_string();
         crate::swatches_ui::use_swatch(h.state_mut(), &name, false);
+        assert_ne!(h.state().session.tools.foreground, fg, "{name} is another colour");
         assert_eq!(steps(h.state()), before + 4, "the swatch");
         drag(&mut h, min + vec2(150.0, 30.0), min + vec2(220.0, 100.0));
         assert!(is_foreground(h.state()));
