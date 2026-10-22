@@ -91,6 +91,7 @@ pub mod eraser_ui;
 pub mod export_dialog;
 pub mod eyedropper_ui;
 pub mod field_tab;
+pub mod field_wheel;
 pub mod file_dialog;
 pub mod file_open;
 pub mod file_ui;
@@ -2202,6 +2203,8 @@ impl eframe::App for PhotocraftApp {
         self.stroke_trace.cpu_prev(frame.info().cpu_usage);
         // A text field's right-click menu, before any field is drawn (text_field_menu.rs).
         text_field_menu::show(&ctx);
+        // The wheel goes to a focused value field before the canvas or a panel sees it (#5473).
+        field_wheel::begin_frame(&ctx);
         // Each painting tool keeps its own brush (#218), so switch the active tool's brush in
         // before anything this frame reads it (the cursor, the options bar, a stroke).
         paint_mouse::sync_tool_brush(self);
@@ -3077,6 +3080,9 @@ mod blend_dropdown_wheel_tests;
 
 #[cfg(test)]
 mod options_bar_mode_wheel_tests;
+
+#[cfg(test)]
+mod field_wheel_app_tests;
 
 #[cfg(test)]
 mod dropdown_press_tests;

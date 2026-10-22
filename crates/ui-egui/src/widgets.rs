@@ -587,7 +587,20 @@ fn value_field_box(
     // Small ranges (gamma 0.01–9.99, 0–1 centres) need two decimals and a finer drag, like Photoshop.
     let fine = range.end() - range.start() <= 10.0;
     let (lo, hi) = (*range.start(), *range.end());
-    let (step, grid) = arrow_step(ui, slot.id, if fine { 0.01 } else { 1.0 });
+    // The field's id is only known once it's drawn: last frame's, saved under `slot` below.
+    let focused = ui.data(|d| d.get_temp::<egui::Id>(slot.id)).filter(|id| ui.memory(|m| m.has_focus(*id)));
+    let unit = if fine { 0.01 } else { 1.0 };
+    let (step, grid) = arrow_step(ui, slot.id, unit);
+    // The wheel steps it as the arrow keys do (#5473), focused or under the pointer.
+    let notches = crate::field_wheel::notches(ui, slot.id, focused.is_some(), rect);
+    if notches != 0.0
+        && let Some(id) = focused
+        && ui.data(|d| d.get_temp(id.with("arithmetic"))).unwrap_or(false)
+    {
+        // A typed sum works itself out first, as before an arrow step.
+        ui.memory_mut(|m| m.surrender_focus(id));
+    }
+    let step = step + notches * unit;
     // new_child (not scope_builder): a scope would move the parent cursor back to the child rect.
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(field));
     let mut resp = {
@@ -643,15 +656,25 @@ fn value_field_box(
         // Round to 4 decimal places, so repeated 0.1 steps don't leave float errors.
         let v = (v * 1e4).round() / 1e4;
         // `f32::clamp` panics on a reversed or NaN range, which `DragValue::range` accepts.
-        *value = if lo <= hi { v.clamp(lo, hi) } else { v };
-        // Only take focus back after a typed sum gave it up: re-requesting it while held resets
-        // the field's arrow-key filter next frame, and a held arrow then moves focus away (#5474).
-        if !ui.memory(|m| m.has_focus(resp.id)) {
-            ui.memory_mut(|m| m.request_focus(resp.id));
+        let v = if lo <= hi { v.clamp(lo, hi) } else { v };
+        // A wild wheel delta must not leave infinity in the field.
+        if v.is_finite() {
+            *value = v;
         }
-        // The text stays selected, as in Photoshop: typing after a step replaces the value.
-        crate::field_tab::select_all(ui.ctx(), resp.id, &if fine { fmt_num2(f64::from(*value)) } else { fmt_num(f64::from(*value)) });
+        // A wheel step over a field without focus leaves the focus where it is.
+        if focused.is_some() {
+            // Only take focus back after a typed sum gave it up: re-requesting it while held resets
+            // the field's arrow-key filter next frame, and a held arrow then moves focus away (#5474).
+            if !ui.memory(|m| m.has_focus(resp.id)) {
+                ui.memory_mut(|m| m.request_focus(resp.id));
+            }
+            // The text stays selected, as in Photoshop: typing after a step replaces the value.
+            crate::field_tab::select_all(ui.ctx(), resp.id, &if fine { fmt_num2(f64::from(*value)) } else { fmt_num(f64::from(*value)) });
+        }
         resp.mark_changed();
+    }
+    if ui.memory(|m| m.has_focus(resp.id)) {
+        crate::field_wheel::set_focused(ui.ctx(), resp.id, slot.id);
     }
     (resp, rect)
 }
@@ -989,11 +1012,6 @@ pub(crate) fn wheel_notches_of(ui: &Ui, id: egui::Id, hovered: bool, shift_notch
     if !hovered {
         return 0.0;
     }
-    let acc_id = id.with("wheel-acc");
-    let mut acc: f32 = ui.data(|d| d.get_temp(acc_id)).unwrap_or(0.0);
-    let per_line = ui.ctx().options(|o| o.input_options.line_scroll_speed);
-    let per_line = if per_line.is_finite() && per_line > 0.0 { per_line } else { 40.0 };
-    let mut notches = 0.0;
     let wheel: Vec<(egui::MouseWheelUnit, Vec2, bool)> = ui.input(|i| {
         i.events
             .iter()
@@ -1003,7 +1021,17 @@ pub(crate) fn wheel_notches_of(ui: &Ui, id: egui::Id, hovered: bool, shift_notch
             })
             .collect()
     });
-    for (unit, delta, shift) in wheel {
+    count_notches(ui, id.with("wheel-acc"), &wheel, shift_notches)
+}
+
+/// Whole notches in `wheel` (unit, delta, Shift held), a notch with Shift counting
+/// `shift_notches`; fractions carry over in egui memory under `acc_id`.
+pub(crate) fn count_notches(ui: &Ui, acc_id: egui::Id, wheel: &[(egui::MouseWheelUnit, Vec2, bool)], shift_notches: f32) -> f32 {
+    let mut acc: f32 = ui.data(|d| d.get_temp(acc_id)).unwrap_or(0.0);
+    let per_line = ui.ctx().options(|o| o.input_options.line_scroll_speed);
+    let per_line = if per_line.is_finite() && per_line > 0.0 { per_line } else { 40.0 };
+    let mut notches = 0.0;
+    for &(unit, delta, shift) in wheel {
         // Some systems turn Shift+wheel into a horizontal scroll.
         let d = if delta.y != 0.0 { delta.y } else { delta.x };
         acc += match unit {
