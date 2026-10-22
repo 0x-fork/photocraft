@@ -1395,6 +1395,7 @@ fn dissolve_effects_are_speckled_not_faded() {
         size: 4.0,
         position: StrokePosition::Outside,
         paint: FxPaint::Color(Color::rgb(0.0, 0.0, 1.0)),
+        overprint: false,
     })]);
     let band: Vec<[f32; 4]> = ring(&d).into_iter().filter(|(dist, _)| (0..4).contains(dist)).map(|(_, p)| p).collect();
     let blue = band.iter().filter(|p| close4(**p, [0.0, 0.0, 1.0, 1.0])).count();
