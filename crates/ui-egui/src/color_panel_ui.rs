@@ -13,7 +13,8 @@ use egui::{Color32, Mesh, Pos2, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
 use serde_json::json;
 
 use crate::PhotocraftApp;
-use crate::color_picker_ui::{hex, hsv_to_rgb, not_web_safe, out_of_gamut, rgb_to_hsv};
+use crate::color_picker_ui::{hex, not_web_safe, out_of_gamut};
+use photocraft_color::convert::{hsb_to_rgb, rgb_to_hsb};
 use crate::panels::{color_field_fill_id, field_chips, field_hsva, srgb_hsva};
 use crate::state::{ColorPanelMode, ColorRamp};
 use crate::theme::Tokens;
@@ -80,7 +81,7 @@ impl Model {
         let rgb = match self {
             Model::Gray => [1.0 - a / 100.0; 3],
             Model::Rgb | Model::Web => [a / 255.0, b / 255.0, c / 255.0],
-            Model::Hsb => hsv_to_rgb(a, b / 100.0, c / 100.0),
+            Model::Hsb => hsb_to_rgb([a, b / 100.0, c / 100.0]),
             Model::Cmyk => convert::cmyk_to_rgb([a / 100.0, b / 100.0, c / 100.0, d / 100.0]),
             Model::Lab => convert::lab_to_srgb([a, b, c]),
         };
@@ -93,7 +94,7 @@ impl Model {
             Model::Gray => [(1.0 - convert::rgb_to_gray(rgb)) * 100.0, 0.0, 0.0, 0.0],
             Model::Rgb | Model::Web => [rgb[0] * 255.0, rgb[1] * 255.0, rgb[2] * 255.0, 0.0],
             Model::Hsb => {
-                let [h, s, b] = rgb_to_hsv(rgb);
+                let [h, s, b] = rgb_to_hsb(rgb);
                 [h, s * 100.0, b * 100.0, 0.0]
             }
             Model::Cmyk => convert::rgb_to_cmyk(rgb).map(|x| x * 100.0),
@@ -377,7 +378,7 @@ pub(crate) fn ramp_color(ramp: ColorRamp, web_safe: bool, fg: [f32; 3], bg: [f32
     let (x, y) = (x.clamp(0.0, 1.0), y.clamp(0.0, 1.0));
     let spectrum = || {
         let (s, v) = if y < 0.5 { (y * 2.0, 1.0) } else { (1.0, 1.0 - (y - 0.5) * 2.0) };
-        hsv_to_rgb(x.min(0.9999) * 360.0, s, v)
+        hsb_to_rgb([x.min(0.9999) * 360.0, s, v])
     };
     let c = match ramp {
         ColorRamp::RgbSpectrum => spectrum(),
@@ -613,7 +614,7 @@ fn ring_mesh(center: Pos2, inner: f32, outer: f32) -> Mesh {
     for k in 0..=steps {
         let f = k as f32 / steps as f32;
         let a = f * TAU;
-        let c = rgb32(hsv_to_rgb(f * 360.0, 1.0, 1.0));
+        let c = rgb32(hsb_to_rgb([f * 360.0, 1.0, 1.0]));
         let dir = vec2(a.cos(), -a.sin());
         m.colored_vertex(center + dir * inner, c);
         m.colored_vertex(center + dir * outer, c);
@@ -661,7 +662,7 @@ fn triangle_mesh(tri: [Pos2; 3], h: f32) -> Mesh {
     for j in 0..=n {
         for i in 0..=n {
             let (s, b) = (i as f32 / n as f32, j as f32 / n as f32);
-            m.colored_vertex(triangle_point(tri, s, b), rgb32(hsv_to_rgb(h * 360.0, s, b)));
+            m.colored_vertex(triangle_point(tri, s, b), rgb32(hsb_to_rgb([h * 360.0, s, b])));
         }
     }
     let row = (n + 1) as u32;

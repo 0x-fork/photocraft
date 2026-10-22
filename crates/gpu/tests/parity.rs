@@ -4,7 +4,7 @@
 use photocraft_color::{BlendMode, Color, ColorMode, PixelFormat, SampleType};
 use photocraft_doc::adjust::{CurvePoint, HueRange, LevelsChannel};
 use photocraft_doc::{Adjustment, Document, Fill, GradientStyle, Layer, LayerContent, LayerMask};
-use photocraft_geom::{Rect, Size};
+use photocraft_geom::{Rect, Size, TILE_SIZE};
 use photocraft_gpu::{Compositor, render_to_vec};
 
 /// One 8-bit step, plus a few f32 ulps: two results exactly one step apart can differ by a hair
@@ -218,6 +218,29 @@ fn diff_rect(g: &mut Gpu, doc: &Document, rect: Rect, what: &str) -> Result<phot
 
 fn check(g: &mut Gpu, doc: &Document, what: &str) {
     diff_rect(g, doc, doc.bounds(), what).unwrap_or_else(|e| panic!("{e}"));
+}
+
+/// Growing a layer's tile footprint keeps the old texels in the overlap (`keep_overlap`)
+/// while the same update rewrites tiles inside that overlap (#6243): whatever submission
+/// shape the copy takes, the kept overlap must never overwrite tiles the same update
+/// rewrote — the fresh texels win. Every step grows by one tile and rewrites everything
+/// with per-step noise, on the whole-texture and the paged compositor alike, and each
+/// render matches the CPU oracle.
+#[test]
+fn tile_growth_rewrite_keeps_fresh_texels_in_the_overlap() {
+    let Some(mut g) = gpu() else { return };
+    let tile = TILE_SIZE as u32;
+    let steps = 4;
+    let mut doc = Document::new("tile growth", Size::new(steps * tile, tile), ColorMode::Rgb, SampleType::U8);
+    doc.layers.push(Layer::raster("grow", PixelFormat::RGBA8));
+    for step in 1..=steps {
+        // Wider by one tile than at the last render, so the resident's region grows and every
+        // tile inside the kept overlap changes: stale texels cannot masquerade as correct ones.
+        let w = step * tile;
+        let data: Vec<f32> = (0..w * tile * 4).map(|i| rnd(1000 + step, i)).collect();
+        doc.layers[0].surface_mut().unwrap().write_region(Rect::from_xywh(0, 0, w, tile), &data);
+        check(&mut g, &doc, &format!("tile growth step {step}/{steps}"));
+    }
 }
 
 /// Closing a document frees what the compositor holds for it, however its canvas entry went
@@ -891,7 +914,13 @@ fn hard_stop_effects_and_gradient_maps_request_cpu() {
             let paint = FxPaint::Gradient(gradient.clone());
             let effects = [
                 Effect::GradientOverlay { common: FxCommon::new(BlendMode::Normal, 1.0), gradient, dither: false },
-                Effect::Stroke(StrokeFx { common: FxCommon::new(BlendMode::Normal, 1.0), size: 1.0, position: StrokePosition::Inside, paint: paint.clone() }),
+                Effect::Stroke(StrokeFx {
+                    common: FxCommon::new(BlendMode::Normal, 1.0),
+                    size: 1.0,
+                    position: StrokePosition::Inside,
+                    paint: paint.clone(),
+                    overprint: false,
+                }),
                 Effect::InnerGlow(glow(paint.clone(), GlowTechnique::Softer, 1.0, 0.0, GlowSource::Edge)),
                 Effect::OuterGlow(glow(paint, GlowTechnique::Softer, 1.0, 0.0, GlowSource::Edge)),
             ];
@@ -1448,6 +1477,7 @@ fn bevel(style: BevelStyle, up: bool, size: f32, soften: f32) -> Bevel {
         altitude: 35.0,
         use_global_light: true,
         gloss_contour: Contour::Linear,
+        gloss_anti_alias: false,
         highlight: FxCommon::new(BlendMode::Screen, 0.8),
         highlight_color: Color::rgb(1.0, 1.0, 0.9),
         shadow: FxCommon::new(BlendMode::Multiply, 0.7),
@@ -1458,7 +1488,7 @@ fn bevel(style: BevelStyle, up: bool, size: f32, soften: f32) -> Bevel {
 }
 
 fn stroke(size: f32, position: StrokePosition, paint: FxPaint) -> StrokeFx {
-    StrokeFx { common: FxCommon::new(BlendMode::Normal, 0.9), size, position, paint }
+    StrokeFx { common: FxCommon::new(BlendMode::Normal, 0.9), size, position, paint, overprint: false }
 }
 
 fn checker_pattern() -> Pattern {
@@ -1930,7 +1960,7 @@ fn layer_effects_on_shape_layers() {
         let path = Path::new(vec![Subpath::polygon(&[(14.3, 12.6), (70.2, 18.1), (60.7, 58.4), (24.9, 50.2)])]);
         let mut fill = Color::rgb(0.3, 0.6, 0.9);
         fill.alpha = alpha;
-        let mut sh = ShapeLayer { path, fill: Some(Fill::Solid(fill)), stroke: None, live: None, cache: None, psd_raw: None };
+        let mut sh = ShapeLayer { path, fill: Some(Fill::Solid(fill)), stroke: None, live: None, cache: None, psd_raw: None, ..ShapeLayer::default() };
         sh.cache = Some(photocraft_vector::render_shape(&sh, d.pixel_format(), d.bounds()));
         let mut l = Layer::new("shape", LayerContent::Shape(sh));
         l.effects.items = vec![
@@ -1968,7 +1998,7 @@ fn stroke_effects_on_filled_and_stroked_shapes() {
                 paint: Fill::Solid(Color::rgb(0.1, 0.8, 0.2)),
                 ..ShapeStroke::default()
             });
-            let mut sh = ShapeLayer { path, fill: Some(fill), stroke: stroke_v, live: None, cache: None, psd_raw: None };
+            let mut sh = ShapeLayer { path, fill: Some(fill), stroke: stroke_v, live: None, cache: None, psd_raw: None, ..ShapeLayer::default() };
             sh.cache = Some(photocraft_vector::render_shape(&sh, d.pixel_format(), d.bounds()));
             let mut l = Layer::new("shape", LayerContent::Shape(sh));
             if masked {
@@ -2323,7 +2353,15 @@ fn stroked_shapes_with_clipped_layers() {
             d.layers.push(noise_layer("bg", d.pixel_format(), Rect::from_xywh(0, 0, 80, 64), 1, 0.3));
             let path = Path::new(vec![Subpath::polygon(&[(10.3, 8.6), (66.2, 12.1), (58.7, 54.4), (16.9, 48.2)])]);
             let stroke = ShapeStroke { width: 5.0, paint: Fill::Solid(Color::rgb(0.9, 0.9, 0.1)), ..Default::default() };
-            let mut sh = ShapeLayer { path, fill: Some(Fill::Solid(Color::rgb(0.2, 0.3, 0.8))), stroke: Some(stroke), live: None, cache: None, psd_raw: None };
+            let mut sh = ShapeLayer {
+                path,
+                fill: Some(Fill::Solid(Color::rgb(0.2, 0.3, 0.8))),
+                stroke: Some(stroke),
+                live: None,
+                cache: None,
+                psd_raw: None,
+                ..ShapeLayer::default()
+            };
             sh.cache = Some(photocraft_vector::render_shape(&sh, d.pixel_format(), d.bounds()));
             let mut l = Layer::new("shape", LayerContent::Shape(sh));
             l.blend = blend;
@@ -2743,6 +2781,38 @@ fn pages_are_evicted_under_the_budget() {
     check(&mut g, &d, "after eviction");
 }
 
+/// #6563: a page texture that doesn't fit the budget is admitted by first dropping the least
+/// recently used pages of other cells (never the current cell's). With a zero budget every page
+/// created in a cell evicts the previous cell's pages, and the refresh still stays on the GPU
+/// (budget pressure alone never ends it on the CPU) and matches the CPU compositor.
+#[test]
+fn layer_pages_are_admitted_under_a_zero_budget_and_stay_on_the_gpu() {
+    let Some(mut g) = gpu() else { return };
+    let mut d = base_doc(600, 500);
+    d.layers.push(noise_layer("mid", PixelFormat::RGBA8, Rect::new(-20, 10, 590, 480), 61, 0.0));
+    let mut top = noise_layer("top", PixelFormat::RGBA8, Rect::new(30, -15, 620, 510), 62, 0.2);
+    top.blend = BlendMode::Multiply;
+    d.layers.push(top);
+    // Exercise page residency itself: lower-stack checkpoints could skip binding the pages.
+    g.paged.set_composite_cache_budget(0);
+    check(&mut g, &d, "warm");
+    let all = g.paged.resident_bytes();
+    g.paged.set_resident_budget(0);
+    for round in 0..2 {
+        let cpu = photocraft_compose::flatten(&d);
+        let (out, s) = photocraft_gpu::render_to_vec_stats(&mut g.paged, &g.device, &g.queue, &d, d.bounds())
+            .unwrap_or_else(|e| panic!("round {round}: a zero budget must not end the refresh on the CPU: {e}"));
+        let worst = worst_diff(&cpu.px, &out);
+        assert!(worst.0 <= TOL, "round {round}: max diff {:.2}/255 at {}", worst.0 * 255.0, worst.1);
+        assert!(s.cells > 1 && s.evicted > 0, "round {round}: {s:?}");
+        // Evicted pages were created again (uploaded), and only the last cell's are left.
+        assert!(s.tiles_uploaded > 0, "round {round}: {s:?}");
+        assert!(g.paged.resident_bytes() < all, "round {round}: {} of {all}", g.paged.resident_bytes());
+        d.layers[1].surface_mut().unwrap().fill_rect(Rect::new(40 + round * 250, 60, 90 + round * 250, 120), &[0.2, 0.8, 0.3, 1.0]);
+    }
+    check(&mut g, &d, "after zero-budget renders");
+}
+
 #[test]
 fn the_focused_view_stays_resident_after_a_full_refresh() {
     let _gamma = TEXT_GAMMA.lock().unwrap_or_else(|e| e.into_inner());
@@ -2789,4 +2859,37 @@ fn pass_through_clipping_base_with_an_adjustment() {
     clip.clipped = true;
     d.layers.push(clip);
     check(&mut g, &d, "pass-through clipping base with an adjustment");
+}
+
+/// #5846: a shape's Density and Feather soften its fill (its own rendered pixels), with and
+/// without a vector stroke over clipped layers and layer effects: the GPU matches the CPU.
+#[test]
+fn soft_shapes_match_the_cpu() {
+    let Some(mut g) = gpu() else { return };
+    use photocraft_doc::vector::{Path, ShapeLayer, ShapeStroke, Subpath};
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        for (density, feather, stroked, fx) in [(1.0, 6.0, false, false), (0.4, 0.0, true, false), (0.6, 4.0, true, true), (1.0, 3.0, false, true)] {
+            let mut d = fx_doc(90, 70, depth);
+            let path = Path::new(vec![Subpath::polygon(&[(14.3, 12.6), (70.2, 18.1), (60.7, 58.4), (24.9, 50.2)])]);
+            let stroke = stroked.then(|| ShapeStroke { width: 3.0, paint: Fill::Solid(Color::rgb(0.1, 0.8, 0.2)), ..ShapeStroke::default() });
+            let mut sh = ShapeLayer { path, fill: Some(Fill::Solid(Color::rgb(0.3, 0.6, 0.9))), stroke, density, feather, ..ShapeLayer::default() };
+            sh.cache = Some(photocraft_vector::render_shape(&sh, d.pixel_format(), d.bounds()));
+            let mut l = Layer::new("shape", LayerContent::Shape(sh));
+            if fx {
+                l.effects.items = vec![Effect::DropShadow(shadow(BlendMode::Multiply, 0.7, 120.0, 4.0, 5.0, 0.0))];
+            }
+            d.layers.push(l);
+            if stroked {
+                let mut c = noise_layer("clipped", d.pixel_format(), Rect::from_xywh(0, 0, 90, 70), 11, 0.9);
+                c.clipped = true;
+                d.layers.push(c);
+            }
+            let what = format!("{depth:?} density {density} feather {feather} stroked {stroked} fx {fx}");
+            if fx {
+                fx_check(&mut g, &d, &what);
+            } else {
+                check(&mut g, &d, &what);
+            }
+        }
+    }
 }

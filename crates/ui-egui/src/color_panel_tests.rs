@@ -260,7 +260,7 @@ fn color_wheel_ring_sets_hue_and_triangle_sets_saturation_and_brightness() {
     // The triangle's centre: some saturation, some brightness, same hue.
     press(&mut h, center, Modifiers::NONE);
     let after = bytes(h.state().session.tools.foreground);
-    let hsv = crate::color_picker_ui::rgb_to_hsv(after.map(|v| f32::from(v) / 255.0));
+    let hsv = photocraft_color::convert::rgb_to_hsb(after.map(|v| f32::from(v) / 255.0));
     assert!((hsv[0] - 90.0).abs() < 4.0 && hsv[1] < 0.9 && hsv[2] < 0.95, "{after:?} {hsv:?}");
 }
 
