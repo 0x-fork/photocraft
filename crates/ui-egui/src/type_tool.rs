@@ -1468,10 +1468,16 @@ fn localized_families() -> Arc<HashMap<String, String>> {
 
 /// The font menu's rows: each family with the label it shows (its localized name when `labels`
 /// has one, else the family), matching `query` (lowercase) by either name. With localized labels
-/// the rows sort by label, so the menu stays alphabetical as shown. Recently used families are
-/// hoisted to the top, most recent first (Preferences ▸ Type ▸ Recent Fonts); a query hides the
-/// hoisting so the list stays strictly alphabetical while searching.
-fn font_menu_rows<'a>(families: &'a [String], labels: Option<&'a HashMap<String, String>>, query: &str, recents: &[String]) -> Vec<(&'a String, &'a str)> {
+/// the rows sort by label, so the menu stays alphabetical as shown. As in Photoshop, recently
+/// used families also head the menu in their own group, most recent first (Preferences ▸ Type ▸
+/// Recent Fonts), and keep their alphabetical place below it; a query shows each match once.
+/// Returns the rows and how many of them form the recent group.
+fn font_menu_rows<'a>(
+    families: &'a [String],
+    labels: Option<&'a HashMap<String, String>>,
+    query: &str,
+    recents: &[String],
+) -> (Vec<(&'a String, &'a str)>, usize) {
     let label = |f: &'a String| labels.and_then(|l| l.get(f)).map_or(f.as_str(), String::as_str);
     let mut rows: Vec<(&String, &str)> = families
         .iter()
@@ -1481,17 +1487,12 @@ fn font_menu_rows<'a>(families: &'a [String], labels: Option<&'a HashMap<String,
     if labels.is_some_and(|l| !l.is_empty()) {
         rows.sort_by_cached_key(|(_, l)| l.to_lowercase());
     }
-    if query.is_empty() {
-        let mut at = 0;
-        for r in recents {
-            if let Some(i) = rows.iter().position(|(f, _)| *f == r) {
-                let row = rows.remove(i);
-                rows.insert(at, row);
-                at += 1;
-            }
-        }
+    if !query.is_empty() {
+        return (rows, 0);
     }
-    rows
+    let recent: Vec<(&String, &str)> = recents.iter().filter_map(|r| rows.iter().find(|(f, _)| *f == r).copied()).collect();
+    let n = recent.len();
+    (recent.into_iter().chain(rows).collect(), n)
 }
 
 fn weight_name(w: f32) -> &'static str {
@@ -1701,6 +1702,8 @@ pub(crate) fn family_picker_in(
     let mut picked = false;
     let search_id = ui.id().with(("font-search", salt));
     let focus_id = search_id.with("focus");
+    let recents_id = search_id.with("recents");
+    let row_id = search_id.with("row");
     // The list opens on the press, so a press-drag-release picks a font too (#2735).
     let (press, close) = crate::press_menu::PressCombo::before(ui, salt);
     let labels: Option<Arc<HashMap<String, String>>> = ui.ctx().data(|d| d.get_temp(font_labels_id()));
@@ -1739,10 +1742,21 @@ pub(crate) fn family_picker_in(
             d.insert_temp(search_id, q.clone());
         });
         let ql = q.to_lowercase();
-        let rows = font_menu_rows(families, labels, &ql, recents);
+        // The recent group stays as it was when the menu opened: each arrow step applies (and so
+        // records) a family, and moving it to the top would send the next step back up.
+        let open_recents: Vec<String> = ui.data_mut(|d| d.get_temp_mut_or_insert_with(recents_id, || recents.to_vec()).clone());
+        let (rows, n_recent) = font_menu_rows(families, labels, &ql, &open_recents);
+        // A recent family is listed twice. The current family's row is the one the last arrow
+        // selected while it still shows that family, else its alphabetical copy, so the arrows
+        // step through the alphabet as on the closed field.
+        let mut selected = ui
+            .data(|d| d.get_temp::<usize>(row_id))
+            .filter(|&i| rows.get(i).is_some_and(|(f, _)| *f == current))
+            .or_else(|| rows.iter().skip(n_recent).position(|(f, _)| *f == current).map(|i| i + n_recent))
+            .or_else(|| rows.iter().position(|(f, _)| *f == current));
+        let mut stepped = None;
         if down || up {
-            let index = rows.iter().position(|(f, _)| *f == current);
-            let next = match index {
+            let next = match selected {
                 Some(i) if down => i.saturating_add(1).min(rows.len().saturating_sub(1)),
                 Some(i) => i.saturating_sub(1),
                 None if down => 0,
@@ -1753,6 +1767,9 @@ pub(crate) fn family_picker_in(
                 current.clone_from(f);
                 // A served family not fetched yet: start now, as a click does.
                 photocraft_text::served::request(f);
+                stepped = Some(next);
+                selected = Some(next);
+                ui.data_mut(|d| d.insert_temp(row_id, next));
             }
         }
         let accept = enter && rows.iter().any(|(f, _)| *f == current);
@@ -1768,18 +1785,22 @@ pub(crate) fn family_picker_in(
         // stays fixed at the top of the popup.
         let mut hovered: Option<String> = None;
         egui::ScrollArea::vertical().show(ui, |ui| {
-            for (f, label) in rows {
+            for (i, (f, label)) in rows.into_iter().enumerate() {
+                if i == n_recent && n_recent > 0 {
+                    ui.separator();
+                }
                 // Highlighted by its fill alone, as Photoshop's font menu is. A selectable button lays
                 // out its frame's stroke only once hovered or selected, so with the theme's stroke the
                 // row under the pointer (and the selected one) grew and pushed the rows below down:
-                // the list jumped as the pointer moved (#7406).
-                let mut button = egui::Button::selectable(f == current, label).truncate().stroke(egui::Stroke::NONE);
+                // the list jumped as the pointer moved (#7406). One row only, though a recent
+                // family is listed twice.
+                let mut button = egui::Button::selectable(selected == Some(i), label).truncate().stroke(egui::Stroke::NONE);
                 if let Some((size, [_, h])) = preview {
                     button = button
                         .right_text(egui::Atom::custom(ui.id().with(("font-sample", f)), egui::vec2(crate::font_preview::slot_width(ui.ctx(), f, size), h)));
                 }
                 let response = ui.add_sized([330.0, row_h], button);
-                if (down || up) && f == current {
+                if stepped == Some(i) {
                     response.scroll_to_me(Some(egui::Align::Center));
                 }
                 if let Some((size, _)) = preview
@@ -1816,7 +1837,11 @@ pub(crate) fn family_picker_in(
     });
     press.after(&response.response);
     if !egui::ComboBox::is_open(ui.ctx(), response.response.id) {
-        ui.data_mut(|d| d.remove::<bool>(focus_id));
+        ui.data_mut(|d| {
+            d.remove::<bool>(focus_id);
+            d.remove::<Vec<String>>(recents_id);
+            d.remove::<usize>(row_id);
+        });
     }
     let hovered_font = response.inner.unwrap_or_default();
 
@@ -1839,9 +1864,9 @@ pub(crate) fn family_picker_in(
             ui.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
         }
         // The wheel's step: a negative notch is the next family. Steps use a stable order (no
-        // recents hoisting), so recording the picked family cannot make the next step jump back.
+        // recent group), so recording the picked family cannot make the next step jump back.
         let notches = f32::from(u8::from(up)) - f32::from(u8::from(down));
-        let rows = font_menu_rows(families, labels, "", &[]);
+        let (rows, _) = font_menu_rows(families, labels, "", &[]);
         if let Some(i) = rows.iter().position(|(f, _)| *f == current)
             && let Some(n) = wheel_family_index(i, rows.len(), notches)
             && let Some((f, _)) = rows.get(n)
@@ -1861,10 +1886,10 @@ pub(crate) fn family_picker_in(
             ui.input_mut(|i| i.smooth_scroll_delta = egui::Vec2::ZERO);
         }
         let notches = crate::widgets::wheel_notches_of(ui, response.response.id.with("family-wheel"), hovered, 1.0);
-        // The wheel steps in a stable order: hoisting the family it just picked as recent
+        // The wheel steps in a stable order: a recent group holding the family it just picked
         // would change the order between notches and can jump back to the previous family.
         // The open menu still shows the recent families first.
-        let rows = font_menu_rows(families, labels, "", &[]);
+        let (rows, _) = font_menu_rows(families, labels, "", &[]);
         if let Some(i) = rows.iter().position(|(f, _)| *f == current)
             && let Some(n) = wheel_family_index(i, rows.len(), notches)
             && let Some((f, _)) = rows.get(n)
