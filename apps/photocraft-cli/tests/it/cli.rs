@@ -563,6 +563,46 @@ fn tga_bits_choose_the_targa_depth() {
     }
 }
 
+/// #7437: `run <file> --out` to that same file, however `--out` is spelt, is refused before the
+/// file is read or any command runs, unless `--in-place` asks for it (as `batch` does, #492).
+#[test]
+fn run_refuses_to_write_over_its_input() {
+    let d = tmp("run-in-place");
+    write_png(&d.join("in.png"), 8, 4, 7);
+    let before = std::fs::read(d.join("in.png")).unwrap();
+    let run = |out: &Path, extra: &[&str]| {
+        bin().current_dir(&d).args(["run", "in.png", "--cmd", "image.adjustments.invert", "--out"]).arg(out).args(extra).output().unwrap()
+    };
+    let mut outs = vec![PathBuf::from("in.png"), PathBuf::from("./in.png"), d.join("in.png"), d.join(".").join("in.png")];
+    std::fs::hard_link(d.join("in.png"), d.join("hard.png")).unwrap();
+    outs.push(PathBuf::from("hard.png"));
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(d.join("in.png"), d.join("soft.png")).unwrap();
+        outs.push(PathBuf::from("soft.png"));
+    }
+    for out in &outs {
+        for extra in [&[][..], &["--format", "png"][..]] {
+            let o = run(out, extra);
+            let (stdout, err) = (String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
+            assert_eq!(o.status.code(), Some(1), "--out {} {extra:?}: {err}", out.display());
+            assert!(err.contains("is the input file") && err.contains("--in-place"), "{err}");
+            assert!(stdout.is_empty(), "--out {} {extra:?} ran commands: {stdout}", out.display());
+            assert_eq!(std::fs::read(d.join("in.png")).unwrap(), before, "--out {} {extra:?} changed the original", out.display());
+        }
+    }
+    // Another file is written as before, leaving the original alone.
+    ok(bin().current_dir(&d).args(["run", "in.png", "--cmd", "image.adjustments.invert", "--out", "out.png"]));
+    assert!(d.join("out.png").is_file());
+    assert_eq!(std::fs::read(d.join("in.png")).unwrap(), before);
+    // `--in-place` opts in: the inverted result replaces the original, which still opens.
+    ok(bin().current_dir(&d).args(["run", "in.png", "--cmd", "image.adjustments.invert", "--out", "in.png", "--in-place"]));
+    assert_ne!(std::fs::read(d.join("in.png")).unwrap(), before, "--in-place left the original unchanged");
+    let (out, _) = ok(bin().current_dir(&d).args(["info", "in.png", "--compact"]));
+    let info: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!((info["width"].as_u64(), info["height"].as_u64()), (Some(8), Some(4)), "{info}");
+}
+
 /// `--jpeg-format` picks the JPEG's scans: progressive writes a progressive frame (SOF2). One it
 /// doesn't name is refused and nothing is written.
 #[test]
