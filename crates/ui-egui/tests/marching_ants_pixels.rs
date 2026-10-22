@@ -15,6 +15,8 @@ use photocraft_ui_egui::PhotocraftApp;
 use photocraft_ui_egui::canvas::ViewXform;
 use photocraft_ui_egui::control::{ControlRequest, handle};
 use serde_json::{Value, json};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 type Harness = egui_kittest::Harness<'static, PhotocraftApp>;
 
@@ -37,9 +39,15 @@ impl Image {
     }
 }
 
+/// The app on an offscreen wgpu harness, or `None` when no GPU adapter exists. Only a panic
+/// before the app callback runs (creating the adapter) is a skip; one from the app's own setup
+/// fails the test rather than passing it untested.
 fn harness(ppp: f32) -> Option<Harness> {
-    let built = std::panic::catch_unwind(|| {
-        egui_kittest::Harness::builder().with_size(egui::vec2(900.0, 640.0)).with_pixels_per_point(ppp).with_max_steps(64).wgpu().build_eframe(|cc| {
+    let started = Arc::new(AtomicBool::new(false));
+    let started_in = Arc::clone(&started);
+    let built = std::panic::catch_unwind(move || {
+        egui_kittest::Harness::builder().with_size(egui::vec2(900.0, 640.0)).with_pixels_per_point(ppp).with_max_steps(64).wgpu().build_eframe(move |cc| {
+            started_in.store(true, Ordering::SeqCst);
             PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
             let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
             if let Some(rs) = cc.wgpu_render_state.as_ref() {
@@ -50,6 +58,7 @@ fn harness(ppp: f32) -> Option<Harness> {
     });
     match built {
         Ok(h) => Some(h),
+        Err(payload) if started.load(Ordering::SeqCst) => std::panic::resume_unwind(payload),
         Err(_) => {
             eprintln!("skipping: no GPU adapter");
             None
