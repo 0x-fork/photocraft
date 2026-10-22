@@ -1339,6 +1339,8 @@
 	Override Pressure	筆圧を上書き
 	Override Rotation	回転を上書き
 	Override Tilt	傾きを上書き
+	Override Tilt X	傾き X を上書き
+	Override Tilt Y	傾き Y を上書き
 	PRESET DETAILS	プリセットの詳細
 	PSD	PSD
 	Paint Overlay	ペイントオーバーレイ
@@ -4003,6 +4005,11 @@ curves	Smooth	スムーズ
 	The name in the save dialog was “{name}”.	保存ダイアログで指定した名前は「{name}」でした。
 	Move Up	上へ移動
 	Move Down	下へ移動
+	Previous Brush	前のブラシ
+	Next Brush	次のブラシ
+	First Brush	最初のブラシ
+	Last Brush	最後のブラシ
+	Preview size	Preview size
 	Memory Usage	メモリ使用量
 	Per-document RAM limit (MB)	ドキュメントあたりの RAM 上限 (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	搭載 RAM: {ram} MB、この上限: {percent}%

@@ -1352,6 +1352,8 @@
 	Override Pressure	覆寫壓力
 	Override Rotation	覆寫旋轉
 	Override Tilt	覆寫傾斜
+	Override Tilt X	覆寫傾斜 X
+	Override Tilt Y	覆寫傾斜 Y
 	PRESET DETAILS	預設集詳細資料
 	PSD	PSD
 	Paint Overlay	繪畫覆蓋
@@ -2947,6 +2949,11 @@ curves	Smooth	平滑
 	The name in the save dialog was “{name}”.	儲存對話框中的名稱是「{name}」。
 	Move Up	上移
 	Move Down	下移
+	Previous Brush	上一個筆刷
+	Next Brush	下一個筆刷
+	First Brush	第一個筆刷
+	Last Brush	最後一個筆刷
+	Preview size	Preview size
 	Memory Usage	記憶體使用量
 	Per-document RAM limit (MB)	每個文件的 RAM 上限 (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	已安裝 RAM：{ram} MB；此上限：{percent}%

@@ -1351,6 +1351,8 @@
 	Override Pressure	Přepsat přítlak
 	Override Rotation	Přepsat natočení
 	Override Tilt	Přepsat náklon
+	Override Tilt X	Přepsat náklon X
+	Override Tilt Y	Přepsat náklon Y
 	PRESET DETAILS	PODROBNOSTI PŘEDNASTAVENÍ
 	PSD	PSD
 	Paint Overlay	Překryv malby
@@ -4071,6 +4073,11 @@ layers	Fill:	Krytí výplně:
 cameraRaw	Dehaze	Odstranění oparu
 	Move Up	Přesunout nahoru
 	Move Down	Přesunout dolů
+	Previous Brush	Předchozí štětec
+	Next Brush	Další štětec
+	First Brush	První štětec
+	Last Brush	Poslední štětec
+	Preview size	Preview size
 	Memory Usage	Využití paměti
 	Per-document RAM limit (MB)	Limit RAM na dokument (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Nainstalovaná RAM: {ram} MB; tento limit: {percent}%

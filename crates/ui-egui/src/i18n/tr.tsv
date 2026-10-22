@@ -1295,6 +1295,8 @@
 	Override Rotation	Döndürmeyi Geçersiz Kıl
 	Override Tilt	Eğimi Geçersiz Kıl
 	PRESET DETAILS	ÖN AYAR AYRINTILARI
+	Override Tilt X	X Eğimini Geçersiz Kıl
+	Override Tilt Y	Y Eğimini Geçersiz Kıl
 	PSD	PSD
 	Paint Overlay	Boya Kaplaması
 	Panel locations are saved in the workspace. Keyboard shortcuts, menus and toolbar are optional.	Panel konumları çalışma alanına kaydedilir. Klavye kısayolları, menüler ve araç çubuğu isteğe bağlıdır.
@@ -4057,6 +4059,11 @@ cameraData	Lens	Lens
 	The name in the save dialog was “{name}”.	Kaydetme penceresindeki ad '{name}' idi.
 	Move Up	Yukarı taşı
 	Move Down	Aşağı taşı
+	Previous Brush	Önceki fırça
+	Next Brush	Sonraki fırça
+	First Brush	İlk fırça
+	Last Brush	Son fırça
+	Preview size	Preview size
 	Memory Usage	Bellek kullanımı
 	Per-document RAM limit (MB)	Belge başına RAM sınırı (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Kurulu RAM: {ram} MB; bu sınır: {percent}%

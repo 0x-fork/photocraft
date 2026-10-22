@@ -1220,6 +1220,8 @@
 	Override Pressure	Nyomás felülbírálása
 	Override Rotation	Elforgatás felülbírálása
 	Override Tilt	Dőlés felülbírálása
+	Override Tilt X	X dőlés felülbírálása
+	Override Tilt Y	Y dőlés felülbírálása
 	Paints from the document's opening state	A dokumentum megnyitáskori állapotából fest
 	Paper	Papír
 	Paragraph	Bekezdés
@@ -4243,6 +4245,11 @@ cameraRaw	Yellow	Sárga
 	The name in the save dialog was “{name}”.	A mentési párbeszédpanelen megadott név: „{name}”.
 	Move Up	Mozgatás felfelé
 	Move Down	Mozgatás lefelé
+	Previous Brush	Előző ecset
+	Next Brush	Következő ecset
+	First Brush	Első ecset
+	Last Brush	Utolsó ecset
+	Preview size	Preview size
 	Memory Usage	Memóriahasználat
 	Per-document RAM limit (MB)	Dokumentumonkénti RAM-korlát (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Telepített RAM: {ram} MB; ez a korlát: {percent}%

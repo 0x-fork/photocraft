@@ -4182,7 +4182,9 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             app.press_stroke = app.drag.is_some();
         }
         let press_stroke = app.press_stroke;
-        if press_stroke {
+        // A live tool's press that went to the ⌥ eyedropper keeps sampling for the whole press: the
+        // drag recognised later must not decide again with ⌥ already let go and paint (#7802).
+        if press_stroke || (strokes_live(tool) && app.alt_sampling) {
             buttons.started = false;
         }
         if buttons.started
@@ -8869,6 +8871,59 @@ mod tests {
         let dragged = frame(&mut app, vec![egui::Event::PointerMoved(start + vec2(60.0, 0.0))]);
         frame(&mut app, vec![press(start + vec2(60.0, 0.0), false)]);
         assert_ne!(dragged.center, center0, "a secondary window's Hand pans while transforming");
+    }
+
+    #[test]
+    fn letting_go_of_alt_during_an_alt_sample_press_does_not_paint() {
+        // #7802: Alt-pressing with the Brush samples a colour on the press. If Alt was let go
+        // before egui recognised the drag, that drag started a stroke from the sampled point.
+        let ctx = egui::Context::default();
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width": 400, "height": 300, "background": "white"})).unwrap();
+        app.run("layer.new.layer", json!({})).unwrap();
+        app.run("view.actualPixels", json!({})).unwrap();
+        app.ui.tool = Tool::Brush;
+        app.sync_views();
+        let mut view = app.ui.views[0].clone();
+        view.zoom = 1.0;
+        view.center = [200.0, 150.0];
+        view.fit_pending = false;
+        view.fill_pending = false;
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0));
+        let frame = |app: &mut PhotocraftApp, events: Vec<egui::Event>| {
+            let input = egui::RawInput { screen_rect: Some(rect), events, ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| {
+                canvas_view(app, ui, 0, rect, view.clone(), true);
+            });
+            out.textures_delta.clear();
+        };
+        let alt = egui::Modifiers::ALT;
+        let none = egui::Modifiers::NONE;
+        let start = Pos2::new(200.0, 150.0);
+        let press =
+            |pos: Pos2, pressed: bool, modifiers: egui::Modifiers| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers };
+        // Alt released mid-press, and Alt held throughout: both only sample.
+        for release_alt in [true, false] {
+            app.run("tools.setColors", json!({"foreground": [0.0, 0.0, 1.0, 1.0]})).unwrap();
+            let rev = app.session.active().unwrap().revision;
+            frame(&mut app, vec![egui::Event::ModifiersChanged(alt), egui::Event::PointerMoved(start)]);
+            frame(&mut app, vec![press(start, true, alt)]);
+            assert_eq!(app.session.tools.foreground, [1.0, 1.0, 1.0, 1.0], "the press sampled the white canvas");
+            let later = if release_alt { none } else { alt };
+            let end = start + vec2(20.0, 0.0);
+            frame(&mut app, vec![egui::Event::ModifiersChanged(later), egui::Event::PointerMoved(end)]);
+            frame(&mut app, vec![press(end, false, later)]);
+            frame(&mut app, vec![egui::Event::ModifiersChanged(none)]);
+            assert_eq!(app.session.active().unwrap().revision, rev, "release_alt={release_alt}: an Alt-sample press must not paint");
+            assert!(app.drag.is_none() && !app.alt_sampling, "release_alt={release_alt}");
+        }
+        // Without Alt the same gesture paints.
+        let rev = app.session.active().unwrap().revision;
+        frame(&mut app, vec![egui::Event::PointerMoved(start)]);
+        frame(&mut app, vec![press(start, true, none)]);
+        frame(&mut app, vec![egui::Event::PointerMoved(start + vec2(20.0, 0.0))]);
+        frame(&mut app, vec![press(start + vec2(20.0, 0.0), false, none)]);
+        assert!(app.session.active().unwrap().revision > rev, "a plain drag paints");
     }
 
     #[test]

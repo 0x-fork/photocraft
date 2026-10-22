@@ -1330,6 +1330,8 @@
 	Override Pressure	Timpa Tekanan
 	Override Rotation	Timpa Rotasi
 	Override Tilt	Timpa Kemiringan
+	Override Tilt X	Timpa Kemiringan X
+	Override Tilt Y	Timpa Kemiringan Y
 	PRESET DETAILS	DETAIL PRESET
 	PSD	PSD
 	Paint Overlay	Overlay Cat
@@ -3339,6 +3341,11 @@ curves	Smooth	Haluskan
 	The name in the save dialog was “{name}”.	Nama di dialog simpan adalah “{name}”.
 	Move Up	Pindah ke atas
 	Move Down	Pindah ke bawah
+	Previous Brush	Kuas sebelumnya
+	Next Brush	Kuas berikutnya
+	First Brush	Kuas pertama
+	Last Brush	Kuas terakhir
+	Preview size	Preview size
 	Memory Usage	Penggunaan memori
 	Per-document RAM limit (MB)	Batas RAM per dokumen (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	RAM terpasang: {ram} MB; batas ini: {percent}%

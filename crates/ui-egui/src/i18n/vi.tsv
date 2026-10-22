@@ -1189,6 +1189,8 @@
 	Tilt X	Độ nghiêng X
 	Tilt Y	Độ nghiêng Y
 	Override Tilt	Ghi đè nghiêng
+	Override Tilt X	Ghi đè độ nghiêng X
+	Override Tilt Y	Ghi đè độ nghiêng Y
 	Override Rotation	Ghi đè xoay
 	Override Pressure	Ghi đè áp lực
 	Pressure	Áp lực
@@ -3818,6 +3820,11 @@ curves	Smooth	Làm mượt
 	The name in the save dialog was “{name}”.	Tên trong hộp thoại lưu là “{name}”.
 	Move Up	Di chuyển lên
 	Move Down	Di chuyển xuống
+	Previous Brush	Cọ trước
+	Next Brush	Cọ tiếp theo
+	First Brush	Cọ đầu tiên
+	Last Brush	Cọ cuối cùng
+	Preview size	Preview size
 	Memory Usage	Sử dụng bộ nhớ
 	Per-document RAM limit (MB)	Giới hạn RAM mỗi tài liệu (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	RAM đã cài: {ram} MB; giới hạn này: {percent}%

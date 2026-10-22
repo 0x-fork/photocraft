@@ -1371,6 +1371,8 @@
 	Override Pressure	覆盖压感
 	Override Rotation	覆盖旋转
 	Override Tilt	覆盖倾斜
+	Override Tilt X	覆盖 X 倾斜
+	Override Tilt Y	覆盖 Y 倾斜
 	PRESET DETAILS	预设详细信息
 	PSD	PSD
 	Paint Overlay	绘制叠加层
@@ -2983,6 +2985,11 @@ curves	Smooth	平滑
 	The name in the save dialog was “{name}”.	存储对话框中的名称是“{name}”。
 	Move Up	上移
 	Move Down	下移
+	Previous Brush	上一个画笔
+	Next Brush	下一个画笔
+	First Brush	第一个画笔
+	Last Brush	最后一个画笔
+	Preview size	Preview size
 	Memory Usage	内存使用
 	Per-document RAM limit (MB)	每个文档的 RAM 上限 (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	已安装 RAM：{ram} MB；此上限：{percent}%

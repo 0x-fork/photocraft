@@ -802,6 +802,8 @@
 	Override Pressure	Παράκαμψη πίεσης
 	Override Rotation	Παράκαμψη περιστροφής
 	Override Tilt	Παράκαμψη κλίσης
+	Override Tilt X	Παράκαμψη κλίσης X
+	Override Tilt Y	Παράκαμψη κλίσης Y
 	PRESET DETAILS	ΛΕΠΤΟΜΕΡΕΙΕΣ ΠΡΟΕΠΙΛΟΓΗΣ
 	Pattern Size	Μέγεθος μοτίβου
 	Perspective Warp is not active	Ο μετασχηματισμός προοπτικής δεν είναι ενεργός
@@ -4026,6 +4028,11 @@ curves	Smooth	Εξομάλυνση
 	The name in the save dialog was “{name}”.	Το όνομα στο παράθυρο αποθήκευσης ήταν «{name}».
 	Move Up	Μετακίνηση επάνω
 	Move Down	Μετακίνηση κάτω
+	Previous Brush	Προηγούμενο πινέλο
+	Next Brush	Επόμενο πινέλο
+	First Brush	Πρώτο πινέλο
+	Last Brush	Τελευταίο πινέλο
+	Preview size	Preview size
 	Memory Usage	Χρήση μνήμης
 	Per-document RAM limit (MB)	Όριο RAM ανά έγγραφο (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Εγκατεστημένη RAM: {ram} MB· αυτό το όριο: {percent}%

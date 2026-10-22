@@ -578,11 +578,21 @@ mod tests {
         assert_eq!(Lang::from_pref("xx-unknown"), Lang::EN);
     }
 
-    /// The brush size/hardness shortcut rows (`tools.*` commands without a menu item) must be translated in
-    /// every catalog, or they show English in the Keyboard Shortcuts dialog and cannot be found by searching.
+    /// The brush size/hardness and preset-stepping shortcut rows (`tools.*` commands without a menu item) must
+    /// be translated in every catalog, or they show English in the Keyboard Shortcuts dialog and cannot be found
+    /// by searching.
     #[test]
     fn brush_size_and_hardness_shortcuts_are_translated_in_every_language() {
-        let keys = ["Decrease Brush Size", "Increase Brush Size", "Decrease Brush Hardness", "Increase Brush Hardness"];
+        let keys = [
+            "Decrease Brush Size",
+            "Increase Brush Size",
+            "Decrease Brush Hardness",
+            "Increase Brush Hardness",
+            "Previous Brush",
+            "Next Brush",
+            "First Brush",
+            "Last Brush",
+        ];
         for lang in Lang::all().filter(|lang| *lang != Lang::EN) {
             for key in keys {
                 assert!(has(lang, key), "{} has no translation for {key:?}", lang.code());

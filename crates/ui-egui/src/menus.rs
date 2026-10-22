@@ -1317,8 +1317,14 @@ fn released_on(ui: &egui::Ui, item: &egui::Response) -> bool {
 /// True only when the pointer can actually reach a menu title. A tall submenu can be
 /// repositioned upward by egui and overlap the menu bar; in that case the popup's layer is
 /// top-most and hovering it must not switch the open top-level menu.
+///
+/// The title's column extends up to the top of the window: egui lights a widget up to
+/// `interact_radius` away, so with the window maximized a pointer pushed against the screen edge
+/// (above the title's own rect) highlights it and must switch to it too (#7702).
 fn pointer_reaches_title(ctx: &egui::Context, response: &egui::Response, p: egui::Pos2) -> bool {
-    response.interact_rect.contains(p) && ctx.layer_id_at(p) == Some(response.layer_id)
+    let r = response.interact_rect;
+    let column = egui::Rect::from_min_max(egui::pos2(r.left(), f32::NEG_INFINITY), r.max);
+    column.contains(p) && ctx.layer_id_at(p) == Some(response.layer_id)
 }
 
 /// Like a native menu bar (Windows, macOS): while one top-level menu is open, hovering another
@@ -1788,6 +1794,34 @@ mod tests {
             out.textures_delta.clear();
         }
         assert!(!reaches);
+    }
+
+    /// #7702: a pointer at the very top edge of the screen (the window maximized) moving between
+    /// titles switches the open menu, as it does a little lower.
+    #[test]
+    fn hovering_a_title_at_the_screen_edge_switches_the_open_menu() {
+        use egui_kittest::{Harness, kittest::Queryable};
+
+        let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let mut harness = Harness::builder().with_size(egui::vec2(1200.0, 700.0)).build_ui_state(
+            |ui, app| {
+                egui::Frame::NONE.inner_margin(egui::Margin { top: 4, ..Default::default() }).show(ui, |ui| {
+                    menu_bar(app, ui);
+                });
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&harness.ctx, crate::theme::ThemeKind::ALL[0]);
+        harness.run_steps(3);
+        harness.get_by_label("File").click();
+        harness.run_steps(3);
+        assert!(harness.query_by_label_contains("Open…").is_some());
+        let image = harness.get_by_label("Image").rect();
+        assert!(image.top() > 0.0, "the title sits below the screen edge");
+        harness.hover_at(egui::pos2(image.center().x, 0.0));
+        harness.run_steps(4);
+        assert!(harness.query_by_label_contains("Open…").is_none(), "File menu should close");
+        assert!(harness.query_by_label_contains("Duplicate…").is_some(), "Image menu should open from the screen edge");
     }
 
     #[test]

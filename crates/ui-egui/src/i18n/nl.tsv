@@ -1320,6 +1320,8 @@
 	Override Pressure	Druk overschrijven
 	Override Rotation	Rotatie overschrijven
 	Override Tilt	Kanteling overschrijven
+	Override Tilt X	Kanteling X overschrijven
+	Override Tilt Y	Kanteling Y overschrijven
 	PRESET DETAILS	DETAILS VOORINSTELLING
 	PSD	PSD
 	Paint Overlay	Verfbedekking
@@ -4086,6 +4088,11 @@ curves	Smooth	Vloeiend maken
 	The name in the save dialog was “{name}”.	De naam in het venster Opslaan was “{name}”.
 	Move Up	Omhoog
 	Move Down	Omlaag
+	Previous Brush	Vorig penseel
+	Next Brush	Volgend penseel
+	First Brush	Eerste penseel
+	Last Brush	Laatste penseel
+	Preview size	Preview size
 	Memory Usage	Geheugengebruik
 	Per-document RAM limit (MB)	RAM-limiet per document (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Geïnstalleerd RAM: {ram} MB; deze limiet: {percent}%

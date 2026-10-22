@@ -1320,6 +1320,8 @@
 	Override Pressure	Forcer la pression
 	Override Rotation	Forcer la rotation
 	Override Tilt	Forcer l'inclinaison
+	Override Tilt X	Forcer l'inclinaison X
+	Override Tilt Y	Forcer l'inclinaison Y
 	PRESET DETAILS	DÉTAILS DU PRÉRÉGLAGE
 	PSD	PSD
 	Paint Overlay	Superposition de peinture
@@ -3336,6 +3338,11 @@ curves	Smooth	Lisser
 	The name in the save dialog was “{name}”.	Le nom dans la boîte de dialogue d'enregistrement était « {name} ».
 	Move Up	Déplacer vers le haut
 	Move Down	Déplacer vers le bas
+	Previous Brush	Pinceau précédent
+	Next Brush	Pinceau suivant
+	First Brush	Premier pinceau
+	Last Brush	Dernier pinceau
+	Preview size	Preview size
 	Memory Usage	Utilisation de la mémoire
 	Per-document RAM limit (MB)	Limite RAM par document (Mo)
 	Installed RAM: {ram} MB; this limit: {percent}%	RAM installée : {ram} Mo ; cette limite : {percent}%

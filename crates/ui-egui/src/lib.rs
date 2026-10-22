@@ -63,6 +63,7 @@ pub mod color_range_ui;
 pub mod color_table_ui;
 pub mod comps_ui;
 pub mod control;
+mod control_click;
 pub mod corner_radius;
 pub mod credits;
 pub mod crop_mode;
@@ -976,6 +977,7 @@ pub struct PhotocraftApp {
     pub(crate) allow_close: bool,
     /// Pen pressure/tilt from the platform (see `stylus`).
     pub stylus: stylus::Stylus,
+    control_click: control_click::ControlClick,
     /// Run long commands and file opens as background jobs with progress and Cancel (#210; see
     /// `jobs_ui`). The desktop app turns it on; off (the default), everything runs inline as
     /// before, which tests and scripts rely on.
@@ -1135,6 +1137,7 @@ impl PhotocraftApp {
             held_opens: Default::default(),
             allow_close: false,
             stylus: Default::default(),
+            control_click: Default::default(),
             background_jobs: false,
             min_frame_ms: None,
             last_frame_start_ms: 0.0,
@@ -2336,6 +2339,7 @@ impl eframe::App for PhotocraftApp {
             wheel_nav::fold_legacy_pinch(ctx, raw_input);
         }
         raw_input.events.extend(self.take_synthetic_step());
+        self.control_click.normalize(&mut raw_input.events, cfg!(target_os = "macos"));
         // A pen held still is no touch screen's press-and-hold right click (stylus.rs).
         let pen_down = self.stylus.pen_contacts.observe(&raw_input.events);
         stylus::pen_hold_is_no_right_click(ctx, pen_down);

@@ -1315,6 +1315,8 @@
 	Override Pressure	Substituir pressão
 	Override Rotation	Substituir rotação
 	Override Tilt	Substituir inclinação
+	Override Tilt X	Substituir inclinação X
+	Override Tilt Y	Substituir inclinação Y
 	PRESET DETAILS	DETALHES DA PREDEFINIÇÃO
 	PSD	PSD
 	Paint Overlay	Sobreposição de pintura
@@ -4116,6 +4118,11 @@ layerLabel	No Color	Sem cor
 	The name in the save dialog was “{name}”.	O nome na caixa de diálogo Salvar era “{name}”.
 	Move Up	Mover para cima
 	Move Down	Mover para baixo
+	Previous Brush	Pincel anterior
+	Next Brush	Próximo pincel
+	First Brush	Primeiro pincel
+	Last Brush	Último pincel
+	Preview size	Preview size
 	Memory Usage	Uso de memória
 	Per-document RAM limit (MB)	Limite de RAM por documento (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	RAM instalada: {ram} MB; este limite: {percent}%

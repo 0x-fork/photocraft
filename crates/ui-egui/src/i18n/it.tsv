@@ -1336,6 +1336,8 @@
 	Override Pressure	Sovrascrivi pressione
 	Override Rotation	Sovrascrivi rotazione
 	Override Tilt	Sovrascrivi inclinazione
+	Override Tilt X	Sovrascrivi inclinazione X
+	Override Tilt Y	Sovrascrivi inclinazione Y
 	PRESET DETAILS	DETTAGLI PREDEFINITO
 	PSD	PSD
 	Paint Overlay	Sovrapposizione pittura
@@ -4315,6 +4317,11 @@ navigator	Zoom	Zoom
 	Increase Brush Size	Aumenta dimensione pennello
 	Decrease Brush Hardness	Riduci durezza pennello
 	Increase Brush Hardness	Aumenta durezza pennello
+	Previous Brush	Pennello precedente
+	Next Brush	Pennello successivo
+	First Brush	Primo pennello
+	Last Brush	Ultimo pennello
+	Preview size	Preview size
 	Space	Barra spaziatrice
 	Hand Tool (hold)	Strumento Mano (tieni premuto)
 	Zoom In (hold, drag to scrub)	Ingrandisci (tieni premuto, trascina per lo zoom continuo)

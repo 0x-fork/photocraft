@@ -1341,6 +1341,8 @@
 	Override Pressure	Anular presión
 	Override Rotation	Anular rotación
 	Override Tilt	Anular inclinación
+	Override Tilt X	Anular inclinación X
+	Override Tilt Y	Anular inclinación Y
 	PRESET DETAILS	DETALLES DEL AJUSTE PREESTABLECIDO
 	PSD	PSD
 	Paint Overlay	Superposición de pintura
@@ -4288,6 +4290,11 @@ navigator	Zoom	Zoom
 	The name in the save dialog was “{name}”.	El nombre en el cuadro de diálogo Guardar era «{name}».
 	Move Up	Mover arriba
 	Move Down	Mover abajo
+	Previous Brush	Pincel anterior
+	Next Brush	Pincel siguiente
+	First Brush	Primer pincel
+	Last Brush	Último pincel
+	Preview size	Preview size
 	Memory Usage	Uso de memoria
 	Per-document RAM limit (MB)	Límite de RAM por documento (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	RAM instalada: {ram} MB; este límite: {percent}%

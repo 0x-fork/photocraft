@@ -1351,6 +1351,8 @@
 	Override Pressure	Zastąp nacisk
 	Override Rotation	Zastąp obrót
 	Override Tilt	Zastąp nachylenie
+	Override Tilt X	Zastąp nachylenie X
+	Override Tilt Y	Zastąp nachylenie Y
 	PRESET DETAILS	SZCZEGÓŁY USTAWIENIA WSTĘPNEGO
 	PSD	PSD
 	Paint Overlay	Nakładka malowania
@@ -3941,6 +3943,11 @@ curves	Smooth	Wygładź
 	The name in the save dialog was “{name}”.	Nazwa w oknie zapisywania: „{name}”.
 	Move Up	Przesuń w górę
 	Move Down	Przesuń w dół
+	Previous Brush	Poprzedni pędzel
+	Next Brush	Następny pędzel
+	First Brush	Pierwszy pędzel
+	Last Brush	Ostatni pędzel
+	Preview size	Preview size
 	Memory Usage	Użycie pamięci
 	Per-document RAM limit (MB)	Limit RAM na dokument (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Zainstalowany RAM: {ram} MB; ten limit: {percent}%
