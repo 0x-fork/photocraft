@@ -20,10 +20,12 @@ struct Layer {
     pixels: Vec<u8>,
 }
 
+/// Writes the big-endian 32-bit length of a PSD section to the output buffer.
 fn put_len(out: &mut Vec<u8>, len: usize) {
     out.extend_from_slice(&u32::try_from(len).expect("test PSD section fits u32").to_be_bytes());
 }
 
+/// Builds the three RGB planes of the deterministic blue checkerboard background.
 fn background_rgb() -> [Vec<u8>; 3] {
     let mut planes: [Vec<u8>; 3] = std::array::from_fn(|_| Vec::with_capacity(WIDTH * HEIGHT));
     for y in 0..HEIGHT {
@@ -37,6 +39,7 @@ fn background_rgb() -> [Vec<u8>; 3] {
     planes
 }
 
+/// Encodes a layer channel without compression, including its PSD compression marker.
 fn raw_channel(id: i16, pixels: &[u8]) -> Channel {
     let mut data = Vec::with_capacity(2 + pixels.len());
     data.extend_from_slice(&0u16.to_be_bytes()); // 0 = uncompressed
@@ -44,6 +47,8 @@ fn raw_channel(id: i16, pixels: &[u8]) -> Channel {
     Channel { id, data }
 }
 
+/// Encodes constant-color PackBits rows, optionally truncating the middle row.
+/// The corrupt variant keeps the row-length table structurally valid.
 fn rle_channel(id: i16, sample: u8, width: usize, height: usize, corrupt: bool) -> Channel {
     let mut rows: Vec<Vec<u8>> = Vec::with_capacity(height);
     for y in 0..height {
@@ -75,6 +80,7 @@ fn rle_channel(id: i16, sample: u8, width: usize, height: usize, corrupt: bool) 
     Channel { id, data }
 }
 
+/// Serializes a PSD layer record and its channel payloads separately, in file order.
 fn layer(name: &str, rect: (i32, i32, i32, i32), channels: Vec<Channel>) -> Layer {
     let (left, top, right, bottom) = rect;
     let name_bytes = name.as_bytes();
@@ -110,6 +116,8 @@ fn layer(name: &str, rect: (i32, i32, i32, i32), channels: Vec<Channel>) -> Laye
     Layer { record, pixels }
 }
 
+/// Composites the orange rectangle over the checkerboard as an uncompressed
+/// merged RGB image, independent of the deliberately damaged layer channel.
 fn merged_rgb(background: &[Vec<u8>; 3]) -> Vec<u8> {
     let mut planes = background.clone();
     for y in PANEL.1..PANEL.3 {
