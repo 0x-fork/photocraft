@@ -361,7 +361,7 @@ jobs:
           cache-on-failure: true
       - name: Install trunk
         run: |
-          curl -fsSL "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz" \
+          curl --proto '=https' -fsSL "https://github.com/trunk-rs/trunk/releases/download/v${TRUNK_VERSION}/trunk-x86_64-unknown-linux-gnu.tar.gz" \
             | tar -xz -C "$HOME/.cargo/bin" trunk
           trunk --version
       # package.sh runs Trunk's release builds, validates relative URLs, cuts the wasm into
