@@ -2826,6 +2826,13 @@ curves	Smooth	平滑
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	从历史记录面板的源状态绘画
 	Sets the source for the history brush	设置历史记录画笔的源
+# Bevel & Emboss shading controls.
+	Highlight Mode	高光模式
+	Highlight Color	高光颜色
+	Highlight Opacity	高光不透明度
+	Shadow Mode	阴影模式
+	Shadow Color	阴影颜色
+	Shadow Opacity	阴影不透明度
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	使用嵌入的配置文件（{profile}）
 	Convert to the working space ({profile})	转换到工作空间（{profile}）

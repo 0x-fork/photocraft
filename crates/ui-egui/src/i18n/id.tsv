@@ -3194,6 +3194,13 @@ curves	Smooth	Haluskan
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	Melukis dari status sumber panel Riwayat
 	Sets the source for the history brush	Menetapkan sumber untuk kuas riwayat
+# Bevel & Emboss shading controls.
+	Highlight Mode	Mode Sorotan
+	Highlight Color	Warna Sorotan
+	Highlight Opacity	Opasitas Sorotan
+	Shadow Mode	Mode Bayangan
+	Shadow Color	Warna Bayangan
+	Shadow Opacity	Opasitas Bayangan
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	Pakai profil tertanam ({profile})
 	Convert to the working space ({profile})	Konversi ke working space ({profile})

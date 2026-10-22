@@ -3670,6 +3670,13 @@ curves	Smooth	Làm mượt
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	Vẽ từ trạng thái nguồn của bảng Lịch sử
 	Sets the source for the history brush	Đặt nguồn cho cọ lịch sử
+# Bevel & Emboss shading controls.
+	Highlight Mode	Chế độ vùng sáng
+	Highlight Color	Màu vùng sáng
+	Highlight Opacity	Độ mờ vùng sáng
+	Shadow Mode	Chế độ bóng
+	Shadow Color	Màu bóng
+	Shadow Opacity	Độ mờ bóng
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	Dùng hồ sơ nhúng ({profile})
 	Convert to the working space ({profile})	Chuyển sang không gian làm việc ({profile})

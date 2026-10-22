@@ -3207,6 +3207,13 @@ curves	Smooth	Lisser
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	Peint à partir de l'état source du panneau Historique
 	Sets the source for the history brush	Définit la source du pinceau d'historique
+# Bevel & Emboss shading controls.
+	Highlight Mode	Mode des tons clairs
+	Highlight Color	Couleur des tons clairs
+	Highlight Opacity	Opacité des tons clairs
+	Shadow Mode	Mode des ombres
+	Shadow Color	Couleur des ombres
+	Shadow Opacity	Opacité des ombres
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	Utiliser le profil incorporé ({profile})
 	Convert to the working space ({profile})	Convertir vers l'espace de travail ({profile})

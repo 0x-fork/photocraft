@@ -4099,6 +4099,13 @@ cameraRaw	Yellow	Sárga
 	Ink Characteristics	Festék jellemzői
 	Solidity:	Fedőképesség:
 	Redrawing	Újrarajzolás
+# Bevel & Emboss shading controls.
+	Highlight Mode	Csúcsfény módja
+	Highlight Color	Csúcsfény színe
+	Highlight Opacity	Csúcsfény fedettsége
+	Shadow Mode	Árnyék módja
+	Shadow Color	Árnyék színe
+	Shadow Opacity	Árnyék fedettsége
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	A beágyazott profil használata ({profile})
 	Convert to the working space ({profile})	Átalakítás a munkaszíntérbe ({profile})

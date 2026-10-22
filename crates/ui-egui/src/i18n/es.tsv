@@ -4161,6 +4161,13 @@ navigator	Zoom	Zoom
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	Pinta a partir del estado de origen del panel Historia
 	Sets the source for the history brush	Establece el origen del pincel de historia
+# Bevel & Emboss shading controls.
+	Highlight Mode	Modo de luces
+	Highlight Color	Color de luces
+	Highlight Opacity	Opacidad de luces
+	Shadow Mode	Modo de sombras
+	Shadow Color	Color de sombras
+	Shadow Opacity	Opacidad de sombras
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	Usar el perfil incrustado ({profile})
 	Convert to the working space ({profile})	Convertir al espacio de trabajo ({profile})

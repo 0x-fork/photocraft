@@ -3878,6 +3878,13 @@ curves	Smooth	スムーズ
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	ヒストリーパネルのソース状態からペイントします
 	Sets the source for the history brush	ヒストリーブラシのソースを設定します
+# Bevel & Emboss shading controls.
+	Highlight Mode	ハイライトモード
+	Highlight Color	ハイライトカラー
+	Highlight Opacity	ハイライト不透明度
+	Shadow Mode	シャドウモード
+	Shadow Color	シャドウカラー
+	Shadow Opacity	シャドウ不透明度
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	埋め込みプロファイルを使用 ({profile})
 	Convert to the working space ({profile})	作業用スペースに変換 ({profile})

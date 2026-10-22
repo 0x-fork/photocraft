@@ -3898,6 +3898,13 @@ curves	Smooth	Εξομάλυνση
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	Βάφει από την κατάσταση πηγής του πίνακα Ιστορικό
 	Sets the source for the history brush	Ορίζει την πηγή για το πινέλο ιστορικού
+# Bevel & Emboss shading controls.
+	Highlight Mode	Λειτουργία φωτεινών τόνων
+	Highlight Color	Χρώμα φωτεινών τόνων
+	Highlight Opacity	Αδιαφάνεια φωτεινών τόνων
+	Shadow Mode	Λειτουργία σκιών
+	Shadow Color	Χρώμα σκιών
+	Shadow Opacity	Αδιαφάνεια σκιών
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	Χρήση ενσωματωμένου προφίλ ({profile})
 	Convert to the working space ({profile})	Μετατροπή στον χώρο εργασίας ({profile})

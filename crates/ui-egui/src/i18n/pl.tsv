@@ -3798,6 +3798,13 @@ curves	Smooth	Wygładź
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	Maluje ze stanu źródłowego panelu Historia
 	Sets the source for the history brush	Ustawia źródło dla pędzla historii
+# Bevel & Emboss shading controls.
+	Highlight Mode	Tryb świateł
+	Highlight Color	Kolor świateł
+	Highlight Opacity	Krycie świateł
+	Shadow Mode	Tryb cieni
+	Shadow Color	Kolor cieni
+	Shadow Opacity	Krycie cieni
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	Użyj osadzonego profilu ({profile})
 	Convert to the working space ({profile})	Konwertuj na przestrzeń roboczą ({profile})

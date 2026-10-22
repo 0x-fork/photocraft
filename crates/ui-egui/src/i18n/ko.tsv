@@ -3384,6 +3384,13 @@ curves	Smooth	매끄럽게
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	작업 내역 패널의 소스 상태에서 칠합니다
 	Sets the source for the history brush	작업 내역 브러시의 소스를 설정합니다
+# Bevel & Emboss shading controls.
+	Highlight Mode	하이라이트 모드
+	Highlight Color	하이라이트 색상
+	Highlight Opacity	하이라이트 불투명도
+	Shadow Mode	그림자 모드
+	Shadow Color	그림자 색상
+	Shadow Opacity	그림자 불투명도
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	포함된 프로파일 사용({profile})
 	Convert to the working space ({profile})	작업 색상 공간으로 변환({profile})

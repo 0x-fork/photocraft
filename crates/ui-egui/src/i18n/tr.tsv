@@ -3910,6 +3910,13 @@ cameraData	Lens	Lens
 	Ink Characteristics	Mürekkep Özellikleri
 	Solidity:	Doluluk:
 	Redrawing	Yeniden çiziliyor
+# Bevel & Emboss shading controls.
+	Highlight Mode	Vurgu Modu
+	Highlight Color	Vurgu Rengi
+	Highlight Opacity	Vurgu Opaklığı
+	Shadow Mode	Gölge Modu
+	Shadow Color	Gölge Rengi
+	Shadow Opacity	Gölge Opaklığı
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	Gömülü profili kullanın ({profile})
 	Convert to the working space ({profile})	Çalışma alanına dönüştürün ({profile})

@@ -3899,6 +3899,13 @@ curves	Smooth	Згладити
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	Малює з вихідного стану панелі «Історія»
 	Sets the source for the history brush	Задає джерело для пензля історії
+# Bevel & Emboss shading controls.
+	Highlight Mode	Режим світлих тонів
+	Highlight Color	Колір світлих тонів
+	Highlight Opacity	Непрозорість світлих тонів
+	Shadow Mode	Режим тіней
+	Shadow Color	Колір тіней
+	Shadow Opacity	Непрозорість тіней
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	Використати вбудований профіль ({profile})
 	Convert to the working space ({profile})	Перетворити в робочий простір ({profile})
