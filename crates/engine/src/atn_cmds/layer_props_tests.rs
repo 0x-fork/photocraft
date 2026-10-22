@@ -18,7 +18,7 @@ fn compound_properties_export_as_separate_sets_with_rename_last() {
         for (item, (key, value)) in items.iter().zip(expected) {
             assert_eq!(item.event.id(), "setd");
             let descriptor = item.descriptor.as_ref().unwrap();
-            assert_eq!(descriptor.get("null"), Some(&layer_ref(&params)));
+            assert_eq!(descriptor.get("null"), Some(&layer_ref(&params).unwrap()));
             let properties = get_obj(descriptor, "T   ").unwrap();
             assert!(properties.class_id.is("Lyr "));
             assert_eq!(properties.items.len(), 1, "Photoshop must receive each property independently");
