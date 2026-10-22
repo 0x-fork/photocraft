@@ -47,12 +47,19 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
         s,
         "Remove Background",
         move |doc, _, ctx| {
-            ctx.progress(0.1, "Finding subject");
             let found = match (model, backend.as_ref()) {
-                (Some(model), Some(backend)) => with_doc_sampler(doc, Some(id), sample_all, |smp, d| {
-                    crate::model_cmds::infer_region(backend.as_ref(), model, smp, d, photocraft_ml::Prompt::Subject, ctx)
-                })?,
-                _ => with_doc_sampler(doc, Some(id), sample_all, |smp, d| subject::select_subject(smp, d.bounds())),
+                (Some(model), Some(backend)) => {
+                    ctx.progress(0.1, "Finding subject");
+                    with_doc_sampler(doc, Some(id), sample_all, |smp, d| {
+                        crate::model_cmds::infer_region(backend.as_ref(), model, smp, d, photocraft_ml::Prompt::Subject, ctx)
+                    })?
+                }
+                // Cancel reaches the min cuts inside Select Subject, so Esc doesn't wait for them.
+                _ => ctx
+                    .stage(0.1, 0.6, "Finding subject", |ctl| {
+                        with_doc_sampler(doc, Some(id), sample_all, |smp, d| subject::select_subject_with(smp, d.bounds(), ctl))
+                    })
+                    .map_err(|_| EngineError::Cancelled)?,
             };
             let mut region = found.ok_or_else(|| EngineError::Other("no subject found".into()))?;
             if ctx.cancelled() {
@@ -210,6 +217,24 @@ mod tests {
     }
 
     #[test]
+    fn remove_background_cancelled_while_finding_the_subject_changes_nothing() {
+        let (mut s, _) = disc(8);
+        let id = active_id(&s);
+        let before = s.active().unwrap().revision;
+        // The job's cancel reaches Select Subject, which stops at its first check.
+        let ctx = crate::jobs::JobCtx::new();
+        ctx.cancel();
+        s.set_inline_job_ctx(Some(ctx.clone()));
+        assert!(matches!(s.execute(CMD, json!({})), Err(EngineError::Cancelled)));
+        assert_eq!(ctx.message(), "Finding subject");
+        assert_eq!(s.active().unwrap().revision, before);
+        assert!(layer(&s, id).mask.is_none());
+        s.set_inline_job_ctx(None);
+        s.execute(CMD, json!({})).unwrap();
+        assert!(layer(&s, id).mask.is_some());
+    }
+
+    #[test]
     fn remove_background_without_a_subject_leaves_the_document() {
         let mut s = session_with(32, 32, 8, |_, _| [0.5, 0.5, 0.5]);
         let before = s.active().unwrap().revision;
@@ -241,7 +266,7 @@ mod tests {
 
         let (mut s, _) = disc(8);
         let before = s.active().unwrap().revision;
-        assert!(s.execute(CMD, json!({"layer": 999_999})).is_err());
+        assert!(s.execute(CMD, json!({"layer": u64::MAX})).is_err());
         // A `layer` string names a layer; one that isn't there is an error, not the active layer.
         assert!(s.execute(CMD, json!({"layer": "x"})).is_err());
         assert_eq!(s.active().unwrap().revision, before);

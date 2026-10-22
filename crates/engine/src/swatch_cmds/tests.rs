@@ -147,6 +147,64 @@ fn aco_round_trip_keeps_16_bit_values_and_books() {
 }
 
 #[test]
+fn act_round_trip_loads_a_photoshop_color_table() {
+    // A Photoshop-saved table: 256 RGB colors plus the count/transparent trailer.
+    let mut colors = [[0u8; 3]; 256];
+    colors[0] = [255, 255, 255];
+    for (i, c) in colors.iter_mut().enumerate().skip(1) {
+        let v = i as u8;
+        *c = [v, 255 - v, 128];
+    }
+    let file = photocraft_psd::act::write(&colors, Some(256), Some(255)).unwrap();
+    assert_eq!(file.len(), 772);
+    let mut s = Session::new();
+    let r = s.execute("swatches.import", json!({"data": b64_encode(&file), "group": "Table", "mode": "replace"})).unwrap();
+    assert_eq!((r["format"].as_str(), r["count"].as_u64()), (Some("act"), Some(256)));
+    assert_eq!(r["warnings"].as_array().unwrap().len(), 1, "the transparent color is reported");
+    assert_eq!(s.presets.swatches[0].items[0].color, SwatchColor::Rgb([1.0, 1.0, 1.0]));
+    assert_eq!(s.presets.swatches[0].items[1].name, "Swatch 2");
+    // Sniffed by length without a format, and by extension from a path.
+    let r = s.execute("swatches.import", json!({"data": b64_encode(&file), "mode": "replace"})).unwrap();
+    assert_eq!(r["format"].as_str(), Some("act"));
+    // Export keeps the 256 RGB colors; the trailer comes back in canonical form
+    // (swatches have no transparency to preserve).
+    let canon = photocraft_psd::act::write(&colors, Some(256), None).unwrap();
+    assert_eq!(export_bytes(&mut s, json!({"format": "act"})), canon);
+    // A bigger library is capped at 256 with a warning; groups collapse to one list.
+    for i in 0..300 {
+        s.execute("swatches.add", json!({"name": format!("Extra {i}"), "color": {"model": "rgb", "values": [1, 0, 0]}})).unwrap();
+    }
+    let r = s.execute("swatches.export", json!({"format": "act"})).unwrap();
+    assert_eq!(r["count"], 256);
+    assert!(r["warnings"].as_array().unwrap().iter().any(|w| w.as_str().is_some_and(|w| w.contains("first 256"))));
+}
+
+#[test]
+fn act_that_starts_like_an_aco_is_still_an_act() {
+    // First colour 0, 1, 0 and second colour 5, …: the first four bytes read as an .aco version 1
+    // header with five swatches, and the .aco reader would take 50 bytes of junk from it.
+    let mut colors = [[0u8; 3]; 256];
+    colors[0] = [0, 1, 0];
+    for (i, c) in colors.iter_mut().enumerate().skip(1) {
+        *c = [(i as u8).wrapping_add(4), 7, 9];
+    }
+    for file in [photocraft_psd::act::write(&colors, None, None).unwrap(), photocraft_psd::act::write(&colors, Some(256), None).unwrap()] {
+        assert_eq!(&file[..4], &[0, 1, 0, 5]);
+        let mut s = Session::new();
+        let r = s.execute("swatches.import", json!({"data": b64_encode(&file), "mode": "replace"})).unwrap();
+        assert_eq!((r["format"].as_str(), r["count"].as_u64()), (Some("act"), Some(256)), "{} bytes", file.len());
+    }
+    // A real .aco of exactly 768 bytes (ten swatches with 25-character names) stays an .aco.
+    let swatches: Vec<AcoSwatch> = (0..10u16).map(|i| AcoSwatch { name: format!("{i:0>25}"), color: AcoColor::Rgb([i * 1000, 0, 65535]) }).collect();
+    let file = photocraft_psd::aco::write(&swatches).unwrap();
+    assert_eq!(file.len(), photocraft_psd::act::PALETTE_LEN);
+    let mut s = Session::new();
+    let r = s.execute("swatches.import", json!({"data": b64_encode(&file), "mode": "replace"})).unwrap();
+    assert_eq!((r["format"].as_str(), r["count"].as_u64()), (Some("aco"), Some(10)));
+    assert_eq!(s.presets.swatches[0].items[9].name, format!("{:0>25}", 9));
+}
+
+#[test]
 fn ase_round_trip_keeps_groups_floats_and_kinds() {
     let src = AseFile {
         entries: vec![
@@ -289,6 +347,50 @@ fn library_limits() {
     cap_library(&mut g);
     assert_eq!(total(&g), MAX_SWATCHES);
     assert_eq!(g[0].name.chars().count(), MAX_NAME);
+}
+
+/// Groups without a name take the import's group name. The import used to number each repeated
+/// group name by searching the library once for every number it tried, so importing about 10,000
+/// unnamed groups took minutes. The test fails when the import takes more than 20 seconds.
+#[test]
+fn unnamed_groups_are_numbered_in_linear_time() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut s = Session::new();
+        s.execute("swatches.newGroup", json!({"name": "Ink 2"})).unwrap();
+        let n = MAX_GROUPS - s.presets.swatches.len();
+        let paper = AseSwatch { name: "Paper".into(), color: AseColor::Gray(1.0), kind: AseKind::Process };
+        let mut entries = vec![AseEntry::Group { name: String::new(), swatches: Vec::new() }; n];
+        entries[0] = AseEntry::Group { name: String::new(), swatches: vec![paper] };
+        let file = b64_encode(&photocraft_psd::ase::write(&AseFile { entries }).unwrap());
+        let r = s.execute("swatches.import", json!({"data": file, "group": "Ink"})).unwrap();
+        assert_eq!(s.presets.swatches.len(), MAX_GROUPS);
+        let names: Vec<String> = r["groups"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
+        let _ = tx.send(names);
+    });
+    let names = match rx.recv_timeout(std::time::Duration::from_secs(20)) {
+        Ok(names) => names,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => panic!("importing the groups did not finish"),
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => panic!("the import thread panicked"),
+    };
+    // Numbering starts at 1 and skips the number the library already uses.
+    assert_eq!(names[..4], ["Ink", "Ink 1", "Ink 3", "Ink 4"]);
+    assert_eq!(names.last(), Some(&format!("Ink {}", names.len())));
+    assert_eq!(names.iter().collect::<std::collections::HashSet<_>>().len(), names.len());
+}
+
+#[test]
+fn repeated_group_names_take_the_first_free_number() {
+    let mut s = Session::new();
+    for name in ["Brand", "Brand 2"] {
+        s.execute("swatches.newGroup", json!({"name": name})).unwrap();
+    }
+    let paper = AseSwatch { name: "Paper".into(), color: AseColor::Gray(1.0), kind: AseKind::Process };
+    let entries = ["Brand", "Brand", "Brand", "Brand 1"].into_iter().map(|name| AseEntry::Group { name: name.into(), swatches: vec![paper.clone()] }).collect();
+    let file = b64_encode(&photocraft_psd::ase::write(&AseFile { entries }).unwrap());
+    let r = s.execute("swatches.import", json!({"data": file})).unwrap();
+    // The file's "Brand 1" comes after the first "Brand" took that name.
+    assert_eq!(r["groups"], json!(["Brand 1", "Brand 3", "Brand 4", "Brand 1 1"]));
 }
 
 /// A value beyond f32 range used to pass the finite check, become inf as f32 and wrap to a NaN

@@ -514,6 +514,21 @@ mod tests {
         assert_eq!(Lang::from_pref("xx-unknown"), Lang::EN);
     }
 
+    /// The brush size/hardness shortcut rows (`tools.*` commands without a menu item) must be translated in
+    /// every catalog, or they show English in the Keyboard Shortcuts dialog and cannot be found by searching.
+    #[test]
+    fn brush_size_and_hardness_shortcuts_are_translated_in_every_language() {
+        let keys = ["Decrease Brush Size", "Increase Brush Size", "Decrease Brush Hardness", "Increase Brush Hardness"];
+        for lang in Lang::all().filter(|lang| *lang != Lang::EN) {
+            for key in keys {
+                assert!(has(lang, key), "{} has no translation for {key:?}", lang.code());
+            }
+        }
+        let zh = Lang::from_code("zh-hans").expect("zh-hans registered");
+        assert_eq!(tr(zh, "Decrease Brush Size"), "减小画笔大小");
+        assert_eq!(tr(zh, "Increase Brush Size"), "增大画笔大小");
+    }
+
     #[test]
     fn simplified_chinese_covers_dynamic_shortcuts_and_layer_counts() {
         let zh = Lang::from_code("zh-hans").expect("zh-hans registered");
@@ -1201,6 +1216,25 @@ mod tests {
         assert_eq!(tr(Lang::EN, "Seafoam"), "Seafoam");
     }
 
+    /// These labels are passed to `tl!` dynamically, so the literal coverage scan misses them.
+    #[test]
+    fn russian_dynamic_selection_theme_and_measurement_labels_are_translated() {
+        let ru = Lang::from_code("ru").expect("ru registered");
+        let (inverse_label, _) =
+            crate::canvas_tool_menu::SELECTION_MENU.iter().flatten().find(|(_, id)| *id == "select.inverse").expect("selection menu has Select Inverse");
+        assert_eq!(tr(ru, inverse_label), "Инвертировать выделение");
+        for kind in [crate::theme::ThemeKind::ProLight, crate::theme::ThemeKind::ProLightGray] {
+            assert!(has(ru, kind.label()), "Russian theme label missing {}", kind.label());
+        }
+        for (_, label) in photocraft_engine::analysis_cmds::COLUMNS {
+            assert!(has(ru, label), "Russian measurement header missing {label}");
+        }
+        assert_eq!(tr(ru, "Pro (Light)"), "Pro (светлая)");
+        assert_eq!(tr(ru, "Pro (Light Gray)"), "Pro (светло-серая)");
+        assert_eq!(tr(ru, "Date and Time"), "Дата и время");
+        assert_eq!(tr(ru, "Integrated Density"), "Интегральная плотность");
+    }
+
     /// Font style labels are built from dynamic words (weights, "Italic"), so the literal
     /// scanner cannot cover them; "Light" there is a weight, distinct from the Camera Raw
     /// "Light" section (`type_tool::style_label`).
@@ -1238,7 +1272,20 @@ mod tests {
 
     #[test]
     fn mixer_brush_ui_strings_have_translations_in_every_registered_language() {
-        const STRINGS: &[&str] = &["Mixer Brush", "Mixer Brush Tool", "Wet", "Load", "Mix", "Flow", "Sample All Layers"];
+        const STRINGS: &[&str] = &[
+            "Mixer Brush",
+            "Mixer Brush Tool",
+            "Wet",
+            "Load",
+            "Mix",
+            "Flow",
+            "Sample All Layers",
+            "Current Brush Load",
+            "Load Brush",
+            "Clean Brush",
+            "Load the brush after each stroke",
+            "Clean the brush after each stroke",
+        ];
         for lang in Lang::all() {
             for source in STRINGS {
                 let translated = tr(lang, source);

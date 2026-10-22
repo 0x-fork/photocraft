@@ -459,6 +459,11 @@ pub fn handles(id: &str) -> bool {
 }
 
 pub fn is_enabled(app: &PhotocraftApp, id: &str) -> Option<bool> {
+    is_enabled_with_engine(app, id, || app.session.is_enabled(id))
+}
+
+/// Keep picker enablement testable with the engine's native filesystem check disabled.
+fn is_enabled_with_engine(app: &PhotocraftApp, id: &str, engine_enabled: impl FnOnce() -> bool) -> Option<bool> {
     if !handles(id) && !wraps(id) {
         return None;
     }
@@ -476,7 +481,13 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> Option<bool> {
                     || (doc && matches!(&i["window.arrange.".len()..], "floatAllInWindows" | "cascade" | "tile" | "tileAllVertically" | "tileAllHorizontally"))
             }
         },
-        i if wraps(i) => app.session.is_enabled(i),
+        // Embedded placement reads the picker's bytes on every platform. Linked placement keeps
+        // the engine's native filesystem guard because its source must remain reachable.
+        "file.placeEmbedded" => doc && app.services.file_dialog.is_some(),
+        // Batch's dialog is built from an Actions-panel action. Keep it disabled until one
+        // exists instead of opening a menu item that can only report "record an action".
+        "file.automate.batch" => crate::actions::selected_action(app).is_some() && engine_enabled(),
+        i if wraps(i) => engine_enabled(),
         _ => true,
     })
 }
@@ -601,6 +612,9 @@ fn wraps(id: &str) -> bool {
             | "image.calculations"
             | "select.saveSelection"
             | "select.loadSelection"
+            | "layer.videoLayers.newVideoLayerFromFile"
+            | "layer.videoLayers.replaceFootage"
+            | "layer.videoLayers.interpretFootage"
     )
 }
 
@@ -612,7 +626,7 @@ fn no_params(p: &Value) -> bool {
 /// `id` isn't ours.
 pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Value) -> Option<Result<Value, String>> {
     if wraps(id) {
-        return front(app, id, params);
+        return front(app, ctx, id, params);
     }
     if !handles(id) {
         return None;
@@ -696,6 +710,8 @@ fn run(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, p: &Value) -> Res
             k
         };
         o.screen_mode = next.to_string();
+        // Tab's view of the chrome (#6760) lasts only while in Full Screen Mode.
+        app.ui.panels.full_screen_chrome = false;
         // Both full-screen modes take the whole display; the menu bar stays in the first.
         let (full_screen, maximized) = ctx.input(|i| (i.viewport().fullscreen.unwrap_or(false), i.viewport().maximized.unwrap_or(false)));
         let was_maximized = ctx.data(|d| d.get_temp::<bool>(was_maximized_id())).unwrap_or(false);
@@ -853,9 +869,12 @@ fn arrange(app: &mut PhotocraftApp, k: &str, p: &Value) -> Result<Value, String>
             let src = app.ui.views.get(i).cloned().ok_or("no document")?;
             let (zoom, loc, rot) =
                 (matches!(k, "matchZoom" | "matchAll"), matches!(k, "matchLocation" | "matchAll"), matches!(k, "matchRotation" | "matchAll"));
-            let apply = |v: &mut crate::state::View| {
+            // Each view stays within its own document's zoom range (a view not drawn yet has no
+            // `doc_size`, so the size comes from the document).
+            let sizes: Vec<[u32; 2]> = app.session.documents().iter().map(|d| [d.doc.size.width, d.doc.size.height]).collect();
+            let apply = |v: &mut crate::state::View, doc: usize| {
                 if zoom {
-                    v.zoom = src.zoom;
+                    v.zoom = crate::zoom_levels::clamp(src.zoom, sizes.get(doc).copied().unwrap_or(v.doc_size));
                 }
                 if loc {
                     v.center = src.center;
@@ -865,8 +884,8 @@ fn arrange(app: &mut PhotocraftApp, k: &str, p: &Value) -> Result<Value, String>
                 }
                 v.fit_pending = false;
             };
-            app.ui.views.iter_mut().for_each(apply);
-            app.ui.windows.iter_mut().for_each(|w| apply(&mut w.view));
+            app.ui.views.iter_mut().enumerate().for_each(|(d, v)| apply(v, d));
+            app.ui.windows.iter_mut().for_each(|w| apply(&mut w.view, w.document));
             Ok(json!({"zoom": src.zoom, "center": src.center, "rotation": src.rotation}))
         }
         _ => Err(format!("unknown arrangement {k}")),
@@ -985,6 +1004,11 @@ fn form(app: &mut PhotocraftApp, command: &str, label: &str, fields: Value, choi
     app.ui.open_dialog(DialogKind::Command, f)
 }
 
+/// The Batch and Image Processor dialogs' "Include All Subfolders" checkbox reads as Photoshop's.
+fn subfolders_label() -> Value {
+    json!({"includeSubfolders": tl!("Include All Subfolders")})
+}
+
 /// Alt+Cancel (Reset): restore the `__form` params captured at open.
 pub fn reset_form(f: &mut Map<String, Value>) {
     if !f.contains_key("__form") {
@@ -996,6 +1020,10 @@ pub fn reset_form(f: &mut Map<String, Value>) {
 }
 
 fn label_of(key: &str) -> String {
+    // A name that already reads as text ("iPhone 14 Pro Max", "Web 1920") is not camelCase.
+    if key.contains(' ') {
+        return tl!(key).to_owned();
+    }
     let mut out = String::new();
     for (i, c) in key.chars().enumerate() {
         if i == 0 {
@@ -1026,6 +1054,7 @@ mod label_tests {
         crate::i18n::with_language(crate::i18n::Lang::EN, || {
             assert_eq!(label_of("useAntialias"), "Use antialias");
             assert_eq!(label_of("radius"), "Radius");
+            assert_eq!(label_of("iPhone 14 Pro Max"), "iPhone 14 Pro Max");
         });
     }
 }
@@ -1060,6 +1089,16 @@ pub fn form_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     egui::Grid::new("form-dialog").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
         for k in keys {
             let v = f.get(&k).cloned().unwrap_or(Value::Null);
+            if k == "naming" && f.get("__command").and_then(Value::as_str) == Some("file.automate.batch") {
+                let label = ui.label(tl!("File Naming"));
+                let mut naming = v.as_str().unwrap_or_default().to_owned();
+                ui.add(egui::TextEdit::singleline(&mut naming).desired_width(260.0).hint_text("{name}"))
+                    .labelled_by(label.id)
+                    .on_hover_text("{name} · {serial} · {date} (UTC)");
+                f.insert(k, json!(naming));
+                ui.end_row();
+                continue;
+            }
             if k == "quality" && f.get("__command").and_then(Value::as_str) == Some("file.automate.batch") {
                 ui.label(label(&k));
                 let mut custom = v.as_f64().is_some();
@@ -1139,7 +1178,7 @@ fn default_dir(app: &PhotocraftApp) -> String {
     app.session.active().and_then(|d| d.path.as_deref()).and_then(|p| p.rfind(['/', '\\']).map(|i| p[..i].to_string())).unwrap_or_else(|| ".".into())
 }
 
-fn front(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<Value, String>> {
+fn front(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Value) -> Option<Result<Value, String>> {
     if id == "file.closeAll" || id == "file.closeOthers" {
         // Keep the remaining document's view (views are index-aligned with documents).
         let keep = app.session.active_index().and_then(|i| app.ui.views.get(i).cloned());
@@ -1177,15 +1216,24 @@ fn front(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<Val
         "file.openExrParts" => open_exr_parts_dialog(app),
         "file.saveACopy" => Some(save_a_copy(app)),
         "file.placeEmbedded" | "file.placeLinked" => {
+            if app.ui.transform.is_some() {
+                return Some(Err("Commit or cancel the transform first".into()));
+            }
             let doc = match app.active_doc_id() {
                 Ok(doc) => doc,
                 Err(e) => return Some(Err(e)),
             };
             let linked = id == "file.placeLinked";
+            let ctx = ctx.clone();
             Some(app.pick_file_bytes(move |app, name, bytes| {
+                if app.ui.transform.is_some() {
+                    return Err("Commit or cancel the transform first".into());
+                }
                 app.refocus(doc)?;
                 let linked = linked.then(|| name.clone());
-                app.place_bytes(&name, bytes, linked)
+                let result = app.place_bytes(&name, bytes, linked)?;
+                crate::transform_tool::begin_placed(app, &ctx)?;
+                Ok(result)
             }))
         }
         "layer.smartObjects.replaceContents" => {
@@ -1210,6 +1258,29 @@ fn front(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<Val
             Some(app.pick_save(&name, move |app, path| {
                 app.with_document(doc, |app| app.run("layer.smartObjects.convertToLinked", json!({"layer": layer.0, "path": path})))
             }))
+        }
+        "layer.videoLayers.newVideoLayerFromFile" | "layer.videoLayers.replaceFootage" => {
+            let doc = match app.active_doc_id() {
+                Ok(doc) => doc,
+                Err(e) => return Some(Err(e)),
+            };
+            let cmd = id.to_string();
+            Some(app.pick_file_bytes(move |app, path, _bytes| {
+                app.with_document(doc, |app| {
+                    let r = app.run(&cmd, json!({"path": path}));
+                    if r.is_ok() && app.session.active().is_some_and(|d| d.doc.timeline.is_some()) {
+                        app.ui.timeline.open = true;
+                    }
+                    app.sync_views();
+                    r
+                })
+            }))
+        }
+        "layer.videoLayers.interpretFootage" => {
+            let st = app.session.active()?;
+            let id_layer = st.active_layer?;
+            let fps = st.doc.layer(id_layer).and_then(|l| l.video.as_ref()).map_or(30.0, |v| v.fps);
+            dialog(app, json!({"fps": fps}), json!({}))
         }
         "file.fileInfo" => {
             let info = app.session.execute("file.fileInfo", json!({})).ok()?;
@@ -1298,7 +1369,7 @@ fn front(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<Val
         ),
         "file.scripts.imageProcessor" => dialog(
             app,
-            json!({"input": dir, "output": format!("{dir}/processed"), "format": "jpg", "quality": 8, "width": 0, "height": 0, "convertToSrgb": true}),
+            json!({"input": dir, "includeSubfolders": false, "__labels": subfolders_label(), "output": format!("{dir}/processed"), "format": "jpg", "quality": 8, "width": 0, "height": 0, "convertToSrgb": true}),
             json!({"format": ["jpg", "png", "psd", "tiff", "webp"]}),
         ),
         "file.automate.batch" => {
@@ -1309,7 +1380,7 @@ fn front(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<Val
             let name = action.name.clone();
             dialog(
                 app,
-                json!({"action": name, "steps": steps, "input": dir, "output": format!("{dir}/batch"), "format": "same", "quality": null, "__batchQuality": 8}),
+                json!({"action": name, "steps": steps, "input": dir, "includeSubfolders": false, "__labels": subfolders_label(), "output": format!("{dir}/batch"), "format": "same", "quality": null, "__batchQuality": 8, "naming": "", "startingSerial": 1}),
                 json!({"format": ["same", "png", "jpg", "psd", "tiff", "webp"]}),
             )
         }
@@ -1405,32 +1476,32 @@ fn save_a_copy(app: &mut PhotocraftApp) -> Result<Value, String> {
     let suggested = format!("{stem} copy.psd");
     // The copy is of the document as it was when asked.
     app.pick_save(&suggested, move |app, path| {
-        // An RGB Targa asks for its bits per pixel first; the copy is written from the prompt.
+        // An RGB Targa asks for its bits per pixel first, and a DDS texture for its compression;
+        // the copy is written from the prompt.
         let parked = app.with_document(doc.id, |app| {
-            let ask = crate::targa_options_ui::wants_prompt(app, &path);
-            if ask {
+            if crate::targa_options_ui::wants_prompt(app, &path) {
                 crate::targa_options_ui::park(app, path.clone(), true, "file.saveACopy")?;
+                return Ok(true);
             }
-            Ok(ask)
+            if crate::dds_options_ui::wants_prompt(&path) {
+                crate::dds_options_ui::park(app, path.clone(), true, "file.saveACopy")?;
+                return Ok(true);
+            }
+            Ok(false)
         })?;
         if parked {
             return Ok(json!({"path": path, "warnings": []}));
         }
-        let r = write_copy(app, &doc, &path, None)?;
+        let r = write_copy(app, &doc, &path, crate::FormatChoices::default())?;
         app.session.journal.push(("file.saveACopy".into(), json!({"path": path})));
         Ok(r)
     })
 }
 
 /// Writes `doc` to `path` as a copy (Save a Copy, and its replayed action step): the document's
-/// path and saved state are untouched. `tga_bits` is the Targa answer, when there is one.
-pub(crate) fn write_copy(
-    app: &mut PhotocraftApp,
-    doc: &photocraft_doc::Document,
-    path: &str,
-    tga_bits: Option<photocraft_io::TgaBits>,
-) -> Result<Value, String> {
-    let settings = crate::ExportSettings { tga_bits, ..app.save_settings() };
+/// path and saved state are untouched. `choices` are the Targa and DDS answers, when there are any.
+pub(crate) fn write_copy(app: &mut PhotocraftApp, doc: &photocraft_doc::Document, path: &str, choices: crate::FormatChoices) -> Result<Value, String> {
+    let settings = choices.apply(app.save_settings());
     let export = app.services.export.as_ref().ok_or("no exporter configured")?;
     let (bytes, warnings) = export(doc, path, &settings)?;
     let write = app.services.write.as_mut().ok_or("no writer configured")?;
