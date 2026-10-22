@@ -69,3 +69,24 @@ fn a_locked_layer_among_the_selected_layers_refuses_the_whole_mask() {
     assert!(s.execute("layer.layerMask.hideAll", json!({})).is_err());
     assert!(s.active().unwrap().doc.walk().iter().all(|(_, _, l)| l.mask.is_none()), "no layer got a mask");
 }
+
+#[test]
+fn paste_into_a_lock_all_group_refuses_before_pasting() {
+    for cmd in ["edit.pasteSpecial.pasteInto", "edit.pasteSpecial.pasteOutside"] {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 40, "height": 30})).unwrap();
+        let child = s.execute("layer.new.layer", json!({"name": "Child"})).unwrap()["layer"].as_u64().unwrap();
+        s.execute("paint.stroke", json!({"points": [[5, 10], [20, 10]], "size": 8, "hardness": 1.0, "color": "#ff0000"})).unwrap();
+        s.execute("select.all", json!({})).unwrap();
+        s.execute("edit.copy", json!({})).unwrap();
+        let group = s.execute("layer.groupLayers", json!({})).unwrap()["layer"].as_u64().unwrap();
+        s.execute("layer.setProps", json!({"layer": group, "locks": {"all": true}})).unwrap();
+        s.execute("layer.select", json!({"layer": child, "mode": "replace"})).unwrap();
+        s.execute("select.rect", json!({"x": 2, "y": 2, "width": 20, "height": 15})).unwrap();
+        let layers = s.active().unwrap().doc.walk().len();
+        let undo = undo_depth(&s);
+        assert!(s.execute(cmd, json!({})).is_err(), "{cmd}");
+        assert_eq!(s.active().unwrap().doc.walk().len(), layers, "{cmd} pasted no layer");
+        assert_eq!(undo_depth(&s), undo, "{cmd} added no history step");
+    }
+}
