@@ -23,6 +23,7 @@ mod align_bar;
 mod alt_grab;
 pub mod analysis_ui;
 pub mod anchor_tools;
+mod ants;
 pub mod artboard_tool;
 pub mod artboard_ui;
 pub(crate) mod background_redraw;

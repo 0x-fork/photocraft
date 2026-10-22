@@ -2,7 +2,7 @@
 //! ⌥ draws from the centre (both together work too), a "W × H px" readout follows the cursor, and
 //! modifiers held before the drag still pick add/subtract (#188) instead of constraining.
 
-use egui::{Modifiers, PointerButton, Pos2, pos2, vec2};
+use egui::{Modifiers, PointerButton, Pos2, vec2};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use photocraft_geom::Rect;
@@ -438,8 +438,7 @@ fn the_live_outline_matches_the_committed_selection_in_a_rotated_view() {
         if tool == Tool::RectMarquee {
             // Each corner is a corner of the dragged rectangle, mapped: an axis-aligned box
             // through the two diagonal corners puts all four elsewhere.
-            let snap = |p: Pos2| pos2(p.x.round() + 0.5, p.y.round() + 0.5);
-            let want = [[live[0], live[1]], [live[2], live[1]], [live[2], live[3]], [live[0], live[3]]].map(|[x, y]| snap(xf.to_screen(x as f32, y as f32)));
+            let want = [[live[0], live[1]], [live[2], live[1]], [live[2], live[3]], [live[0], live[3]]].map(|[x, y]| xf.to_screen(x as f32, y as f32));
             for (i, (p, w)) in pts.iter().zip(want).enumerate() {
                 assert!((p.x - w.x).abs() < 0.01 && (p.y - w.y).abs() < 0.01, "{tool:?}: corner {i} at {p:?}, the dragged rectangle's corner is at {w:?}");
             }

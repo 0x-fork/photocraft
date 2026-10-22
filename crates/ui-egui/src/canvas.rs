@@ -442,23 +442,20 @@ fn single_line_drag_px(app: &PhotocraftApp, d: &Drag) -> Option<[f64; 4]> {
 ///
 /// A rotated view projects the rectangle onto a rotated one, and an axis-aligned screen box
 /// through two of its corners is a different shape in a different place: the commit was always
-/// right, only the hinting was drawn elsewhere (#2512). Every point is snapped to the half-pixel
-/// grid like every other ants outline (`marching_ants_segments`), so the lines stay crisp at any
-/// zoom (#172).
+/// right, only the hinting was drawn elsewhere (#2512). The points are not snapped: the ants snap
+/// straight edges to device pixels as they draw them (`crate::ants`), like every other outline, so
+/// the lines stay crisp at any zoom (#172) and display scale (#7489).
 pub(crate) fn marquee_ants(xf: &ViewXform, tool: Tool, a: [f64; 2], b: [f64; 2]) -> Vec<Pos2> {
     let (x0, x1) = (a[0].min(b[0]), a[0].max(b[0]));
     let (y0, y1) = (a[1].min(b[1]), a[1].max(b[1]));
-    let at = |x: f64, y: f64| {
-        let p = xf.to_screen(x as f32, y as f32);
-        pos2(p.x.round() + 0.5, p.y.round() + 0.5)
-    };
+    let at = |x: f64, y: f64| xf.to_screen(x as f32, y as f32);
     if tool != Tool::EllipseMarquee {
         return vec![at(x0, y0), at(x1, y0), at(x1, y1), at(x0, y1)];
     }
     // An axis-aligned view (rotation a multiple of 90 degrees) maps the ellipse onto the one
-    // inscribed in the snapped screen box of two opposite corners. Draw that, unsnapped: snapping
-    // each vertex on its own turns the nearly flat arcs at the edge midpoints into 1 px stairs,
-    // whose antialiased steps wash the ants out to grey on white and black.
+    // inscribed in the screen box of two opposite corners. The ants draw its vertices where they
+    // are: snapping each on its own turns the nearly flat arcs at the edge midpoints into 1 px
+    // stairs, whose antialiased steps wash the ants out to grey on white and black.
     let quarter = xf.rotation.rem_euclid(90.0);
     if quarter < 1e-4 || 90.0 - quarter < 1e-4 {
         let r = Rect::from_two_pos(at(x0, y0), at(x1, y1));
@@ -4965,7 +4962,7 @@ pub(crate) fn marching_ants_mapped(painter: &egui::Painter, segs: &[crate::outli
 }
 
 /// The part of the line `a`–`b` inside `r` (Liang–Barsky), if any.
-fn clip_line(r: Rect, a: Pos2, b: Pos2) -> Option<(Pos2, Pos2)> {
+pub(crate) fn clip_line(r: Rect, a: Pos2, b: Pos2) -> Option<(Pos2, Pos2)> {
     // Perspective can put endpoints billions of pixels away. f32 subtraction/interpolation
     // loses viewport-sized differences there, clipping visible ants to the wrong endpoints.
     let (ax, ay) = (f64::from(a.x), f64::from(a.y));
@@ -5005,94 +5002,10 @@ mod transform_outline_clip_tests {
     }
 }
 
-/// Marching ants along lines already placed on screen (a warped outline is a run of short ones).
+/// Marching ants along lines already placed on screen (a warped outline is a run of short ones),
+/// in device pixels like Photoshop's (`crate::ants`, #7489).
 pub(crate) fn marching_ants_lines(painter: &egui::Painter, lines: impl Iterator<Item = (Pos2, Pos2)>, time: f64) {
-    // Longer than any line that fits the view: only its part in view is dashed.
-    const LONG: f32 = 8192.0;
-    let dash = 4.0f32;
-    let phase = ((time * 10.0) % (dash as f64 * 2.0)) as f32;
-    let clip = painter.clip_rect();
-    // Horizontal and vertical segments go in one mesh of 1 px quads, which egui draws as it is: a
-    // line shape per dash took egui ~35 ms a frame to tessellate for a speckled selection seen
-    // whole (about 10⁵ segments), ten frames a second while the selection is shown. A slanted
-    // segment (a transformed outline) stays a line shape, which egui antialiases.
-    let mut mesh = egui::Mesh::default();
-    // A 1 px wide quad from `a` to `b` (`side` is half a pixel across the line).
-    let mut quad = |a: egui::Pos2, b: egui::Pos2, side: egui::Vec2, color: Color32| {
-        let i = mesh.vertices.len() as u32;
-        for p in [a + side, a - side, b - side, b + side] {
-            mesh.colored_vertex(p, color);
-        }
-        mesh.add_triangle(i, i + 1, i + 2);
-        mesh.add_triangle(i, i + 2, i + 3);
-    };
-    for (pa, pb) in lines {
-        // A transformed outline can land anywhere, or nowhere (a point on a Distort's horizon).
-        if !(pa.is_finite() && pb.is_finite() && clip.intersects(Rect::from_two_pos(pa, pb).expand(1.0))) {
-            continue;
-        }
-        let (pa, pb) = if pa.distance(pb) > LONG {
-            let Some(inside) = clip_line(clip.expand(4.0 * dash), pa, pb) else { continue };
-            inside
-        } else {
-            (pa, pb)
-        };
-        let pa = pos2(pa.x.round() + 0.5, pa.y.round() + 0.5);
-        let pb = pos2(pb.x.round() + 0.5, pb.y.round() + 0.5);
-        let len = pa.distance(pb);
-        if len < 0.5 {
-            continue;
-        }
-        let dir = (pb - pa) / len;
-        let side = dir.rot90() * 0.5;
-        let straight = pa.x == pb.x || pa.y == pb.y;
-        if straight {
-            // The white base runs half a pixel past both ends, so joined segments meet at corners.
-            quad(pa - dir * 0.5, pb + dir * 0.5, side, Color32::WHITE);
-        } else {
-            painter.line_segment([pa, pb], Stroke::new(1.0, Color32::WHITE));
-        }
-        // Phase by screen position so dashes line up across joined segments.
-        let start = (pa.x + pa.y + phase).rem_euclid(dash * 2.0);
-        let mut t = -start;
-        while t < len {
-            let s0 = t.max(0.0);
-            let s1 = (t + dash).min(len);
-            if s1 > s0 {
-                if straight {
-                    quad(pa + dir * s0, pa + dir * s1, side, Color32::BLACK);
-                } else {
-                    painter.line_segment([pa + dir * s0, pa + dir * s1], Stroke::new(1.0, Color32::BLACK));
-                }
-            }
-            t += dash * 2.0;
-        }
-    }
-    if !mesh.is_empty() {
-        painter.add(egui::Shape::mesh(mesh));
-    }
-}
-
-#[allow(dead_code)]
-fn marching_ants(painter: &egui::Painter, r: Rect, time: f64) {
-    let dash = 4.0;
-    let offset = ((time * 8.0) % (dash as f64 * 2.0)) as f32;
-    painter.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::WHITE), egui::StrokeKind::Middle);
-    let pts = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
-    for w in pts.windows(2) {
-        let (a, b) = (w[0], w[1]);
-        let len = a.distance(b);
-        let dir = (b - a) / len.max(1e-3);
-        let mut t = -offset;
-        while t < len {
-            let s = t.max(0.0);
-            let e = (t + dash).min(len);
-            if e > s {
-                painter.line_segment([a + dir * s, a + dir * e], Stroke::new(1.0, Color32::BLACK));
-            }
-            t += dash * 2.0;
-        }
-    }
+    crate::ants::draw(painter, lines, time, true);
 }
 
 /// Photoshop crop overlay: the `shield` outside (`crop_shield::fill`; none when disabled), bright
@@ -5647,12 +5560,12 @@ fn draw_drag_preview(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &View
             if let Some(lasso) = &d.lasso {
                 pts.push(xf.to_screen(lasso.cursor[0] as f32, lasso.cursor[1] as f32));
             }
-            // On pixel centres like the marquee's ants, so a 1 pt line stays crisp wherever the
-            // canvas sits (a pixel edge would blur it to grey).
-            let pts: Vec<Pos2> = pts.into_iter().map(|p| p.round() + vec2(0.5, 0.5)).collect();
             // The Lasso's outline is solid until the release makes the selection (#7495); a Patch
             // or Content-Aware Move area keeps its ants.
             if d.tool == Tool::Lasso {
+                // On pixel centres, so a 1 pt line stays crisp wherever the canvas sits (a pixel
+                // edge would blur it to grey).
+                let pts: Vec<Pos2> = pts.into_iter().map(|p| p.round() + vec2(0.5, 0.5)).collect();
                 crate::tool_feedback::draw_solid_path(painter, &pts, false);
             } else {
                 crate::tool_feedback::draw_ants(painter, &pts, false);
