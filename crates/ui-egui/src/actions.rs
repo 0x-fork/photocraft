@@ -524,7 +524,7 @@ pub(crate) fn suspended_guard(app: &PhotocraftApp, id: &str) -> Result<(), Strin
 
 /// A step dialog's command failed: the action ends there.
 pub fn abandoned(app: &mut PhotocraftApp, fields: &serde_json::Map<String, Value>) {
-    let record = fields.get(RESUME).and_then(Value::as_u64).and_then(|t| app.paused_playbacks.paused.get(&t)).and_then(|p| p.record.clone());
+    let record = fields.get(RESUME).and_then(|t| app.paused_playbacks.take(t)).and_then(|p| p.record);
     restore_recording(app, record.as_ref());
 }
 
@@ -608,9 +608,8 @@ pub fn resume(app: &mut PhotocraftApp, fields: &serde_json::Map<String, Value>) 
 
 /// A step dialog cancelled: the action stops there, as in Photoshop.
 pub fn stopped(app: &mut PhotocraftApp, fields: &serde_json::Map<String, Value>) {
-    if let Some(token) = fields.get(RESUME) {
-        let record = app.paused_playbacks.take(token).and_then(|p| p.record);
-        restore_recording(app, record.as_ref());
+    if fields.contains_key(RESUME) {
+        abandoned(app, fields);
         app.ui.status = tl!("Action playback stopped").to_string();
         app.ui.status_error = false;
     }
@@ -1982,6 +1981,18 @@ mod tests {
         assert_eq!(suffixes(&app), 0, "the action stops at the failed step");
         app.run("actions.stop", json!({})).unwrap();
         assert_eq!(app.session.actions.list[1].steps, child_call());
+    }
+
+    #[test]
+    fn an_abandoned_step_dialog_leaves_no_paused_playback() {
+        let mut app = recording_with_dialog_child();
+        let id = pause_child(&mut app);
+        app.ui.dialog_mut(id).unwrap().fields.insert("radius".into(), json!("not a radius"));
+        assert!(crate::dialogs::confirm(&mut app, id).is_err(), "the dialog command fails");
+        assert!(app.paused_playbacks.paused.is_empty(), "the failed dialog ends its pause");
+        app.run("actions.stop", json!({})).unwrap();
+        assert_eq!(app.session.actions.list[1].steps, child_call(), "the call is recorded once");
+        app.run("actions.record", json!({"name": "Next"})).unwrap();
     }
 
     #[test]
