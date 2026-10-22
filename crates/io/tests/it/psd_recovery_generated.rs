@@ -88,8 +88,8 @@ fn fatal_parse_errors_are_not_turned_into_confirmation_requests() {
 /// Generate the same two PSDs on demand for manual testing in the GUI.
 ///
 /// Run with:
-/// cargo test -p photocraft-io --test psd_recovery_generated \
-///   write_psds_for_manual_gui_test -- --ignored --nocapture
+/// cargo test -p photocraft-io --test it \
+///   psd_recovery_generated::write_psds_for_manual_gui_test -- --ignored --nocapture
 ///
 /// The files go to the system's temp folder, not into the repository.
 #[test]
