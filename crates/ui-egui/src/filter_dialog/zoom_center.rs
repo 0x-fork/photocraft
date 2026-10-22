@@ -31,7 +31,7 @@ pub(super) fn row(ui: &mut Ui, fields: &mut Map<String, Value>) {
             ui.set_width(ui.available_width());
             for (key, value) in [("centerX", &mut center.x), ("centerY", &mut center.y)] {
                 let label = super::label(key);
-                let gestures = crate::widgets::RowGestures { reset: Some(0.5), wheel_step: None };
+                let gestures = crate::widgets::RowGestures { reset: Some(0.5), wheel_step: None, ..Default::default() };
                 let slider = crate::widgets::slider_row_with(ui, &label, value, 0.0..=1.0, "", None, gestures);
                 *value = rounded(*value);
                 slider.widget_info(|| egui::WidgetInfo::slider(ui.is_enabled(), f64::from(*value), &label));
