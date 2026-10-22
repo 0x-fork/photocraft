@@ -250,6 +250,19 @@ pub fn apply_char_props(s: &mut CharStyle, p: &Value) -> bool {
     if let Some(v) = p.get("font").or_else(|| p.get("family")).and_then(Value::as_str) {
         s.font_family = v.to_string();
         s.postscript_name = None;
+        // Photoshop accepts either a family name or a face's PostScript name in the font field.
+        // Resolve only exact PostScript matches here so an unknown family remains untouched.
+        let mut text = photocraft_text::shared().lock().unwrap_or_else(|e| e.into_inner());
+        if !text.fonts.has_family(v) {
+            let resolved = text.fonts.resolve_postscript(v);
+            if resolved.exact {
+                s.variations.retain(|f| f.axis != "wght");
+                s.font_family = resolved.family;
+                s.weight = resolved.weight;
+                s.italic = resolved.italic;
+                s.postscript_name = Some(v.to_string());
+            }
+        }
         hit(true);
     }
     if let Some(v) = p.get("fontStyle").and_then(Value::as_str) {
