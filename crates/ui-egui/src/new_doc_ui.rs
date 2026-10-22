@@ -453,7 +453,8 @@ fn saved_presets(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<
                     let response = ui.add_sized(vec2(422.0, 32.0), label).on_hover_text(&preset.name);
                     if response.clicked() {
                         apply_saved_preset(f, preset);
-                        create |= response.double_clicked() || response.triple_clicked();
+                        // Touch-tolerant double-tap (finger jitter > egui's 6 px); see `widgets::second_click`.
+                        create |= widgets::second_click(ui, &response);
                     }
                     if widgets::secondary_button(ui, tl!("Delete"), 76.0).clicked() {
                         match app.run("document.presets.delete", json!({"name":preset.name})) {
@@ -623,7 +624,8 @@ pub fn body(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<Strin
                                     Card::Builtin(p) => apply_preset(f, p, &units),
                                     Card::Recent(settings) => apply_settings(f, settings),
                                 }
-                                create |= resp.double_clicked() || resp.triple_clicked();
+                                // Touch-tolerant double-tap (finger jitter > egui's 6 px); see `widgets::second_click`.
+                                create |= widgets::second_click(ui, &resp);
                             }
                         }
                     });
@@ -1315,6 +1317,28 @@ mod tests {
             h.run_steps(2);
         }
 
+        /// A finger tap at `at`. Events for one phase share a frame (`input_mut`), because `Harness::step` would otherwise run one frame per queued event and drop Touch before the click release (so `second_click` would not see touch).
+        fn touch_tap_at(h: &mut Harness<'static, PhotocraftApp>, at: egui::Pos2) {
+            let touch = |phase| egui::Event::Touch {
+                device_id: egui::TouchDeviceId(1),
+                id: egui::TouchId(1),
+                phase,
+                pos: at,
+                force: None,
+            };
+            let button = |pressed| egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            h.input_mut().events.extend([egui::Event::PointerMoved(at), touch(egui::TouchPhase::Start), button(true)]);
+            h.step();
+            h.input_mut().events.extend([touch(egui::TouchPhase::End), button(false)]);
+            h.step();
+            h.run_steps(1);
+        }
+
         /// The Width (0), Height (1) and Resolution (2) fields.
         fn field(h: &Harness<'static, PhotocraftApp>, i: usize) -> egui::Rect {
             h.query_all_by_role(Role::SpinButton).nth(i).map(|n| n.rect()).expect("a size field")
@@ -1402,6 +1426,33 @@ mod tests {
             assert_eq!(doc.name, "Portrait proof");
             assert_eq!((doc.mode, doc.depth), (photocraft_doc::ColorMode::Cmyk, photocraft_doc::SampleType::U16));
             assert_pixel(&mut h, [0.0; 4]);
+        }
+
+        /// Framework-style touch: the second tap lands ~48 px off (past egui's 6 px and the old 32 px touch slop) and still creates.
+        #[test]
+        fn touch_double_tap_with_jitter_creates_from_builtin_preset() {
+            let mut h = harness();
+            h.get_by_label("Photo").click();
+            h.run_steps(2);
+            let at = preset_title_at(&h, "Portrait, 4 x 6");
+            touch_tap_at(&mut h, at);
+            assert_eq!(fields(&h)["__preset"], "Portrait, 4 x 6");
+            assert!(h.state().session.documents().is_empty(), "first tap only selects");
+            touch_tap_at(&mut h, egui::pos2(at.x + 48.0, at.y));
+            assert_eq!(created(&h), (1200, 1800, 300.0));
+        }
+
+        /// Mouse keeps egui's tight distance: 20 px between clicks is two singles, not a create.
+        #[test]
+        fn mouse_double_click_with_large_jitter_does_not_create() {
+            let mut h = harness();
+            h.get_by_label("Photo").click();
+            h.run_steps(2);
+            let at = preset_title_at(&h, "Portrait, 4 x 6");
+            click_at(&mut h, at);
+            click_at(&mut h, at + egui::vec2(20.0, 0.0));
+            assert!(h.state().session.documents().is_empty());
+            assert_eq!(h.state().ui.dialogs.len(), 1, "dialog stays open");
         }
 
         #[test]
