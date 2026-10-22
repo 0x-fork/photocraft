@@ -106,6 +106,7 @@ fn layer_sel(l: &Layer, selected: &[photocraft_doc::LayerId], instances: &HashMa
         "bounds": bounds,
         "selected": selected.contains(&l.id),
         "linkGroup": l.link_group,
+        "hasXmp": l.xmp.is_some(),
     });
     match &l.content {
         LayerContent::Group(g) => {

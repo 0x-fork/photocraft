@@ -75,6 +75,7 @@ pub mod layer_menu_cmds;
 pub mod layer_multi_cmds;
 pub mod layer_nav_cmds;
 pub mod layer_style;
+pub mod layer_xmp_cmds;
 pub mod lens_cmds;
 pub mod link_watch;
 pub mod magnetic_cmds;

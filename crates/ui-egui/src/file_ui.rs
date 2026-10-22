@@ -918,7 +918,15 @@ fn length_field(ui: &mut egui::Ui, label: &str, pt: &mut f64, units: &str) -> bo
     length_field_prec(ui, label, pt, units, 0)
 }
 
+/// Edits a point-valued length in the selected units, with the requested decimal precision.
+/// Retains the nonnegative 0..=10000 display-unit range used by existing size fields.
 fn length_field_prec(ui: &mut egui::Ui, label: &str, pt: &mut f64, units: &str, decimals: u32) -> bool {
+    length_field_range(ui, label, pt, units, decimals, 0.0..=10000.0)
+}
+
+/// Edits a length stored in print points (72 per inch), returning true for a finite edit.
+/// `range` is in the displayed `units`; a signed range permits negative Top/Left offsets.
+fn length_field_range(ui: &mut egui::Ui, label: &str, pt: &mut f64, units: &str, decimals: u32, range: std::ops::RangeInclusive<f32>) -> bool {
     let t = Tokens::get(ui.ctx());
     let k = unit_pt(units);
     let mut v = (*pt / k) as f32;
@@ -926,7 +934,7 @@ fn length_field_prec(ui: &mut egui::Ui, label: &str, pt: &mut f64, units: &str, 
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(label).color(t.text_dim));
         let before = v;
-        crate::widgets::value_field_prec(ui, &mut v, 0.0..=10000.0, units, 70.0, decimals);
+        crate::widgets::value_field_prec(ui, &mut v, range, units, 70.0, decimals);
         if (v - before).abs() > 1e-4 && v.is_finite() {
             *pt = f64::from(v) * k;
             changed = true;
@@ -997,6 +1005,44 @@ fn browse_pdf(app: &mut PhotocraftApp, id: u64, suggested: &str) {
     }
 }
 
+/// Converts total displacement from a fixed drag-start layout into manual inch offsets.
+/// Resolving Center before the drag avoids a jump; each update replaces the offsets rather
+/// than accumulating movement. Emulsion Down reverses horizontal layout-space movement.
+///
+/// `delta` and the painter use egui points, including on Retina displays; the scale is egui
+/// points per print point (1/72 inch). Applying pixels_per_point would count HiDPI twice.
+/// Invalid scales or nonfinite displacement/offsets return false without changing fields.
+/// Accepted offsets are clamped to the engine's safety bound and Center is disabled.
+fn drag_print_position(f: &mut Map<String, Value>, start: photocraft_engine::print_cmds::PrintLayout, delta: egui::Vec2, points_per_print_point: f32) -> bool {
+    if !points_per_print_point.is_finite() || points_per_print_point <= 0.0 || !delta.is_finite() {
+        return false;
+    }
+    let (x, y, _, h) = start.rect;
+    let direction = if start.emulsion_down { -1.0 } else { 1.0 };
+    let left = (x + direction * f64::from(delta.x) / f64::from(points_per_print_point)) / 72.0;
+    let top = (start.paper.1 - y - h + f64::from(delta.y) / f64::from(points_per_print_point)) / 72.0;
+    if !left.is_finite() || !top.is_finite() {
+        return false;
+    }
+    let limit = photocraft_engine::print_cmds::MAX_POSITION_INCHES;
+    f.insert("center".into(), json!(false));
+    f.insert("left".into(), json!(left.clamp(-limit, limit)));
+    f.insert("top".into(), json!(top.clamp(-limit, limit)));
+    true
+}
+
+/// Maps the engine's bottom-left print-point rectangle into top-left egui coordinates.
+/// `k` is egui points per print point; Emulsion Down mirrors placement across the page,
+/// matching the PDF page transform. Returns the full image bounds for the caller to clip.
+fn print_preview_image(l: photocraft_engine::print_cmds::PrintLayout, page: egui::Rect, k: f32) -> egui::Rect {
+    let (x, y, w, h) = l.rect;
+    let x = if l.emulsion_down { l.paper.0 - x - w } else { x };
+    egui::Rect::from_min_size(egui::pos2(page.left() + x as f32 * k, page.bottom() - (y + h) as f32 * k), egui::vec2(w as f32 * k, h as f32 * k))
+}
+
+/// Draws the print controls and paper-clipped preview using the engine's shared layout.
+/// Dragging the visible image updates dialog offsets live from a fixed gesture origin;
+/// the position row stays present while centered so switching to manual cannot move the page.
 fn print_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>, id: u64) {
     let t = Tokens::get(ui.ctx());
     let Some(doc) = app.session.active().map(|d| d.doc.clone()) else { return };
@@ -1026,19 +1072,39 @@ fn print_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Va
             let (area, _) = ui.allocate_exact_size(egui::vec2(330.0, 400.0), egui::Sense::hover());
             ui.painter().rect_filled(area, 0.0, t.canvas);
             match photocraft_engine::print_cmds::layout(&doc, &p, "file.print") {
-                Ok(l) => {
+                Ok(mut l) => {
                     let (pw, ph) = l.paper;
                     let k = ((area.width() - 20.0) / pw as f32).min((area.height() - 20.0) / ph as f32);
                     let page = egui::Rect::from_center_size(area.center(), egui::vec2(pw as f32 * k, ph as f32 * k));
                     ui.painter().rect_filled(page, 0.0, egui::Color32::WHITE);
                     ui.painter().rect_stroke(page, 0.0, egui::Stroke::new(1.0, t.separator), egui::StrokeKind::Outside);
+                    let mut img = print_preview_image(l, page, k);
+                    let drag_id = ui.id().with(("print-position", id));
+                    let visible = img.intersect(page).intersect(ui.clip_rect());
+                    let response = ui.interact(visible, drag_id, egui::Sense::drag()).on_hover_cursor(egui::CursorIcon::Grab);
+                    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, tl!("Print preview image")));
+                    // Keep a fixed layout and press origin for the whole gesture: rounding and
+                    // the transition from Center must never accumulate or move the grab point.
+                    if response.drag_started_by(egui::PointerButton::Primary)
+                        && let Some(origin) = ui.input(|i| i.pointer.press_origin())
+                    {
+                        ui.data_mut(|d| d.insert_temp(drag_id, (l, origin, k)));
+                    }
+                    if (response.dragged_by(egui::PointerButton::Primary) || response.drag_stopped_by(egui::PointerButton::Primary))
+                        && let Some((start, origin, scale)) = ui.data(|d| d.get_temp::<(photocraft_engine::print_cmds::PrintLayout, egui::Pos2, f32)>(drag_id))
+                        && let Some(pointer) = response.interact_pointer_pos()
+                        && drag_print_position(f, start, pointer - origin, scale)
+                    {
+                        if let Ok(updated) = photocraft_engine::print_cmds::layout(&doc, &params(f), "file.print") {
+                            l = updated;
+                            img = print_preview_image(l, page, k);
+                        }
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                    }
+                    if !ui.input(|i| i.pointer.primary_down()) {
+                        ui.data_mut(|d| d.remove::<(photocraft_engine::print_cmds::PrintLayout, egui::Pos2, f32)>(drag_id));
+                    }
                     let (x, y, w, h) = l.rect;
-                    // Emulsion Down shows the page as it prints: mirrored.
-                    let x = if l.emulsion_down { pw - x - w } else { x };
-                    let img = egui::Rect::from_min_size(
-                        egui::pos2(page.left() + x as f32 * k, page.bottom() - (y + h) as f32 * k),
-                        egui::vec2(w as f32 * k, h as f32 * k),
-                    );
                     let key = egui::Id::new(("print-thumb", doc.id.0, app.session.active().map_or(0, |d| d.revision)));
                     let tex: Option<Arc<egui::TextureHandle>> = ui.data(|d| d.get_temp(key));
                     let tex = tex.unwrap_or_else(|| {
@@ -1057,11 +1123,13 @@ fn print_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Va
                     clip.image(tex.id(), img, uv, egui::Color32::WHITE);
                     let mark = egui::Stroke::new(1.0, egui::Color32::BLACK);
                     if l.marks.corner_crop {
+                        // Bleed puts the marks on the trim line, inside the image edge.
+                        let b = l.marks.bleed as f32 * k;
                         for (c, dx, dy) in
                             [(img.left_top(), -1.0, -1.0), (img.right_top(), 1.0, -1.0), (img.left_bottom(), -1.0, 1.0), (img.right_bottom(), 1.0, 1.0)]
                         {
-                            clip.line_segment([c + egui::vec2(dx * 3.0, 0.0), c + egui::vec2(dx * 12.0, 0.0)], mark);
-                            clip.line_segment([c + egui::vec2(0.0, dy * 3.0), c + egui::vec2(0.0, dy * 12.0)], mark);
+                            clip.line_segment([c + egui::vec2(dx * 3.0, -dy * b), c + egui::vec2(dx * 12.0, -dy * b)], mark);
+                            clip.line_segment([c + egui::vec2(-dx * b, dy * 3.0), c + egui::vec2(-dx * b, dy * 12.0)], mark);
                         }
                     }
                     if l.marks.registration {
@@ -1218,17 +1286,24 @@ fn print_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Va
             dropdown_str(ui, "print-units", f, "units", &[("cm", tl!("Centimeters")), ("mm", tl!("Millimeters")), ("in", tl!("Inches"))], 130.0);
             let units = s(f, "units", "cm");
             check(ui, f, "center", tl!("Center"), true);
-            if !b(f, "center", true) {
+            let centered = b(f, "center", true);
+            let centered_layout = centered.then(|| photocraft_engine::print_cmds::layout(&doc, &params(f), "file.print").ok()).flatten();
+            // Revealing this row during a drag resizes the centered modal and moves the paper.
+            // Keep it present, showing the resolved position while Center owns the offsets.
+            ui.add_enabled_ui(!centered, |ui| {
                 ui.horizontal(|ui| {
                     // Kept in inches (Photoshop's Position fields), shown in the chosen units.
                     for (key, label) in [("top", tl!("Top")), ("left", tl!("Left"))] {
-                        let mut pt = n(f, key, 0.0) * 72.0;
-                        if length_field(ui, label, &mut pt, &units) {
-                            f.insert(key.into(), json!(pt / 72.0));
+                        let mut pt =
+                            centered_layout.map_or_else(|| n(f, key, 0.0) * 72.0, |l| if key == "top" { l.paper.1 - l.rect.1 - l.rect.3 } else { l.rect.0 });
+                        let limit = (photocraft_engine::print_cmds::MAX_POSITION_INCHES * 72.0 / unit_pt(&units)) as f32;
+                        if length_field_range(ui, label, &mut pt, &units, 2, -limit..=limit) {
+                            let limit = photocraft_engine::print_cmds::MAX_POSITION_INCHES;
+                            f.insert(key.into(), json!((pt / 72.0).clamp(-limit, limit)));
                         }
                     }
                 });
-            }
+            });
             check(ui, f, "scaleToFit", tl!("Scale to Fit Media"), false);
             // Scaled Print Size: Scale, Height and Width move together; Print Resolution follows.
             if let Ok(l) = photocraft_engine::print_cmds::layout(&doc, &params(f), "file.print") {
@@ -1332,6 +1407,63 @@ pub(crate) fn print_status(app: &mut PhotocraftApp, r: &Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Checks no-jump centering and nonaccumulating screen displacement against shared layout
+    /// across fit, percentage scaling, orientation and mirroring combinations.
+    #[test]
+    fn print_drag_uses_the_resolved_layout_and_screen_points_without_accumulation() {
+        let (app, _) = app();
+        let doc = &app.session.active().unwrap().doc;
+        for fit in [false, true] {
+            for mirror in [false, true] {
+                for orientation in ["portrait", "landscape"] {
+                    let mut f = json!({"center": true, "scale": 175, "scaleToFit": fit,
+                        "emulsionDown": mirror, "orientation": orientation})
+                    .as_object()
+                    .unwrap()
+                    .clone();
+                    let start = photocraft_engine::print_cmds::layout(doc, &Value::Object(f.clone()), "file.print").unwrap();
+                    let page = egui::Rect::from_min_size(egui::pos2(20.0, 30.0), egui::vec2(start.paper.0 as f32, start.paper.1 as f32));
+                    assert!(drag_print_position(&mut f, start, egui::Vec2::ZERO, 1.0));
+                    let manual = photocraft_engine::print_cmds::layout(doc, &Value::Object(f.clone()), "file.print").unwrap();
+                    assert!((manual.rect.0 - start.rect.0).abs() < 1e-9);
+                    assert!((manual.rect.1 - start.rect.1).abs() < 1e-9);
+                    assert_eq!(manual.scale, start.scale);
+                    for k in [0.25, 0.5, 1.0, 2.0] {
+                        let delta = egui::vec2(-90.0, 45.0) * k;
+                        assert!(drag_print_position(&mut f, start, delta, k));
+                        let moved = photocraft_engine::print_cmds::layout(doc, &Value::Object(f.clone()), "file.print").unwrap();
+                        let old_img = print_preview_image(start, page, k);
+                        let new_img = print_preview_image(moved, page, k);
+                        assert!((new_img.min - old_img.min - delta).length() < 0.001);
+                        assert_eq!((moved.rect.2, moved.rect.3, moved.scale), (start.rect.2, start.rect.3, start.scale));
+                        let once = f.clone();
+                        assert!(drag_print_position(&mut f, start, delta, k));
+                        assert_eq!(f, once, "total drag displacement must not accumulate");
+                    }
+                }
+            }
+        }
+    }
+
+    /// Checks rejected pointer geometry leaves fields untouched and extreme finite drags
+    /// clamp both inch offsets to the same safety limits as numeric positioning.
+    #[test]
+    fn print_drag_rejects_nonfinite_input_and_bounds_offsets() {
+        let (app, _) = app();
+        let doc = &app.session.active().unwrap().doc;
+        let start = photocraft_engine::print_cmds::layout(doc, &json!({}), "file.print").unwrap();
+        let mut f = Map::new();
+        for k in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            assert!(!drag_print_position(&mut f, start, egui::vec2(10.0, 10.0), k));
+            assert!(f.is_empty());
+        }
+        assert!(!drag_print_position(&mut f, start, egui::vec2(f32::NAN, 0.0), 1.0));
+        assert!(f.is_empty());
+        assert!(drag_print_position(&mut f, start, egui::vec2(-f32::MAX, f32::MAX), 1.0));
+        assert_eq!(f["left"], -photocraft_engine::print_cmds::MAX_POSITION_INCHES);
+        assert_eq!(f["top"], photocraft_engine::print_cmds::MAX_POSITION_INCHES);
+    }
 
     fn app() -> (PhotocraftApp, egui::Context) {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
