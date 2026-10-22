@@ -72,8 +72,19 @@ pub(crate) fn decode(b: &[u8], limits: &Limits) -> Result<Image, CodecError> {
         return Err(bad("8-bit indexed PCX has no 256-colour palette"));
     }
     let image_end = if vga { b.len() - 769 } else { b.len() };
+    // Each RLE packet emits at most 63 bytes and occupies at least two bytes.
+    // Reject inputs that cannot possibly contain all scanlines before allocating
+    // the decoded image buffer.
+    let min_packets = stride.div_ceil(63).checked_mul(2).ok_or_else(|| bad("compressed row size overflow"))?;
+    let min_encoded = min_packets.checked_mul(h as usize).and_then(|n| n.checked_mul(planes)).ok_or_else(|| bad("compressed image size overflow"))?;
+    let encoded_len = image_end.saturating_sub(HEADER);
+    if encoded_len < min_encoded {
+        return Err(bad("PCX pixel data is too short for the declared image"));
+    }
     let mut row = vec![0u8; row_len];
-    let mut pixels = vec![0u8; total];
+    let mut pixels = Vec::new();
+    pixels.try_reserve_exact(total).map_err(|_| bad("PCX pixel buffer is too large"))?;
+    pixels.resize(total, 0);
     let mut p = HEADER;
     let width = w as usize;
     for y in 0..h as usize {
