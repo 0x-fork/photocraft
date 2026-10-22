@@ -3612,6 +3612,29 @@ fn export_item(id: &str, params: &Value, set: &str) -> Option<AtnItem> {
     Some(AtnItem { event, dictionary: e.label.as_bytes().to_vec(), descriptor: Some(descriptor), ..Default::default() })
 }
 
+/// Photoshop applies only the rename when a Set mixes it with opacity or blend mode (#8304).
+/// Write each layer property separately, renaming last so named references still resolve.
+fn export_items(id: &str, params: &Value, set: &str) -> Option<Vec<AtnItem>> {
+    let item = export_item(id, params, set)?;
+    if id != "layer.setProps" {
+        return Some(vec![item]);
+    }
+    let descriptor = item.descriptor.as_ref()?;
+    let properties = get_obj(descriptor, "T   ")?;
+    if properties.items.len() <= 1 {
+        return Some(vec![item]);
+    }
+    let target = descriptor.get("null")?;
+    let mut items = Vec::with_capacity(properties.items.len());
+    for (key, value) in properties.items.iter().filter(|(k, _)| !k.is("Nm  ")).chain(properties.items.iter().filter(|(k, _)| k.is("Nm  "))) {
+        let mut property = properties.clone();
+        property.items = vec![(key.clone(), value.clone())];
+        let descriptor = desc("null").with("null", target.clone()).with("T   ", D::Descriptor(property));
+        items.push(AtnItem { descriptor: Some(descriptor), ..item.clone() });
+    }
+    Some(items)
+}
+
 /// An action's key as a shortcut string: `F5`, with Photoshop's Shift and Command options
 /// `Shift+F5`, `Cmd+F5` or `Cmd+Shift+F5` (#7646).
 pub fn function_key_name(key: u16, shift: bool, command: bool) -> String {
@@ -3652,17 +3675,19 @@ pub fn export(
             (out.function_key, out.shift, out.command) = (n, shift, command);
         }
         for (i, (id, params)) in a.steps.iter().enumerate() {
-            let Some(mut item) = export_item(id, params, set) else {
+            let Some(items) = export_items(id, params, set) else {
                 if skip_unsupported {
                     skipped.push(Skipped { action: a.name.clone(), step: i, id: id.clone() });
                     continue;
                 }
                 return Err(format!("step {} of `{}` (`{id}`) has no Photoshop equivalent; pass \"skipUnsupported\": true to leave it out", i + 1, a.name));
             };
-            item.enabled = a.step_enabled(i);
-            item.with_dialog = a.dialogs.contains(&i);
-            item.dialog_options = if item.with_dialog { 2 } else { 0 };
-            out.items.push(item);
+            for mut item in items {
+                item.enabled = a.step_enabled(i);
+                item.with_dialog = a.dialogs.contains(&i);
+                item.dialog_options = if item.with_dialog { 2 } else { 0 };
+                out.items.push(item);
+            }
         }
         file.actions.push(out);
     }
@@ -3881,3 +3906,6 @@ pub fn specs() -> Vec<CommandSpec> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod layer_props_tests;
