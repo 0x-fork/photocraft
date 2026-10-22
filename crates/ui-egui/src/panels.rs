@@ -5054,7 +5054,7 @@ mod color_tests {
         assert_eq!(srgb_bytes(h.state().session.tools.foreground), [0, 255, 0]);
     }
 
-    /// The Color field fills the dock group, never shrinks below 120 pt, and ignores a bad height.
+    /// The Color field fills the dock group, shrinks to leave room for the readout in a short group, and ignores a bad height.
     #[test]
     fn color_field_height_fills_the_group() {
         assert_eq!(color_field_height(None, 300.0), 120.0);
