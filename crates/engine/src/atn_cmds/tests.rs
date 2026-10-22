@@ -886,6 +886,34 @@ fn unsupported_shapes_become_photoshop_steps_not_errors() {
     assert!(imp.actions[0].disabled.is_empty(), "steps with a document effect stay on so playback reports them");
 }
 
+/// #8482: four-byte string events must not become `long` event codes when retained and saved.
+#[test]
+fn save_preserves_the_kind_of_unsupported_atn_events() {
+    let source = AtnFile {
+        name: UnicodeString::new_nul("S"),
+        expanded: false,
+        actions: vec![AtnAction {
+            name: UnicodeString::new_nul("A"),
+            items: vec![
+                AtnItem { event: AtnEvent::Name(b"make".to_vec()), dictionary: b"Make".to_vec(), ..Default::default() },
+                AtnItem { event: AtnEvent::Code(*b"Qwer"), dictionary: b"Unknown code".to_vec(), ..Default::default() },
+            ],
+            ..Default::default()
+        }],
+        warnings: vec![],
+    };
+    let mut session = Session::new();
+    session.execute("actions.load", json!({"data": b64(&atn::write(&source).unwrap())})).unwrap();
+    let saved = session.execute("actions.save", json!({"set": "S"})).unwrap();
+    let bytes = photocraft_paint::tile::b64_decode(saved["data"].as_str().unwrap()).unwrap();
+    let round_trip = atn::parse(&bytes).unwrap();
+
+    assert_eq!(
+        round_trip.actions[0].items.iter().map(|item| item.event.clone()).collect::<Vec<_>>(),
+        [AtnEvent::Name(b"make".to_vec()), AtnEvent::Code(*b"Qwer")]
+    );
+}
+
 /// #6745: the events of a Photoshop 2026 retouching set (ID-photo background swap, whitening,
 /// highlight cleanup, high-pass sharpening), in the stringID form Photoshop wrote them.
 #[test]
