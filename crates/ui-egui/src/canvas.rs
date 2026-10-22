@@ -202,6 +202,9 @@ pub struct CanvasCache {
     /// `revision`, so the Navigator never shows a stale CPU image after GPU-path edits.
     pub tex_revision: u64,
     pub tex_preview_key: u64,
+    /// All uploaded texels are opaque. Screen coverage is checked separately before omitting
+    /// the checker. Updated with uploads, never by scanning during an unchanged frame.
+    pub texture_opaque: bool,
     /// The CPU path's pixel grid for the part of the document in view (pixel_grid.rs).
     pub grid: Option<crate::pixel_grid::GridLines>,
     /// The CPU path's sharper textures of the part in view, over a reduced `texture` (#7568),
@@ -1709,6 +1712,7 @@ pub(crate) fn ensure_texture_in_view(
         on_gpu: false,
         tex_revision: 0,
         tex_preview_key: 0,
+        texture_opaque: false,
         grid: None,
         detail: Vec::new(),
     });
@@ -1724,7 +1728,11 @@ pub(crate) fn ensure_texture_in_view(
             let r = buf.rect;
             if !r.is_empty() {
                 let t1 = crate::gpu_canvas::now_ms();
-                t.set_partial([r.x0 as usize, r.y0 as usize], display_image(display.as_deref(), &buf), canvas_texture_options(factor));
+                let image = display_image(display.as_deref(), &buf);
+                // Partial uploads can disprove opacity. Once transparent, conservatively keep
+                // the checker until a full upload proves the whole texture opaque again.
+                cache.texture_opaque &= image.pixels.iter().all(|p| p.is_opaque());
+                t.set_partial([r.x0 as usize, r.y0 as usize], image, canvas_texture_options(factor));
                 let px = (r.width() as u64 * r.height() as u64).saturating_mul(u64::from(factor).pow(2));
                 app.perf.record("rect", px, t1 - t0, crate::gpu_canvas::now_ms() - t1);
             }
@@ -1733,6 +1741,7 @@ pub(crate) fn ensure_texture_in_view(
             let full = photocraft_compose::render_reduced(&doc, w, h);
             let t1 = crate::gpu_canvas::now_ms();
             let (img, scale) = (display_image(display.as_deref(), &full), 1.0 / factor as f32);
+            cache.texture_opaque = img.pixels.iter().all(|p| p.is_opaque());
             match cache.texture.as_mut() {
                 Some(t) if t.size() == img.size => t.set(img, canvas_texture_options(factor)),
                 _ => cache.texture = Some(ctx.load_texture(format!("canvas-{}-{}", id.0, cache_key(id, output).1), img, canvas_texture_options(factor))),
@@ -2026,6 +2035,7 @@ fn ensure_gpu(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, visible:
         on_gpu: false,
         tex_revision: 0,
         tex_preview_key: 0,
+        texture_opaque: false,
         grid: None,
         detail: Vec::new(),
     });
@@ -3639,12 +3649,15 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 InView { visible: visible_doc_rect(&xf), zoom: view.zoom, key: egui::Id::new(("pc-canvas-detail", ctx.viewport_id(), idx, primary)).value() };
             let textures = ensure_texture_in_view(app, &ctx, idx, output, Some(in_view));
             let tex = textures.as_ref().map(|t| t.texture);
-            paint_cpu_document(&painter, &xf, doc.bounds(), rotated, checkerboard, tex);
+            // Repeated-quad coverage is not proven identical on all Pattern Preview adapters.
+            // Retain its legacy checker submissions, including the central document's.
+            let opaque = !app.ui.view.pattern_preview && app.canvases.get(&cache_key(doc.id, output)).is_some_and(|c| c.texture_opaque) && tex.is_some();
+            paint_cpu_document(&painter, &xf, doc.bounds(), rotated, checkerboard, tex, opaque);
             if let Some((detail, area)) = textures.and_then(|t| t.detail) {
                 paint_cpu_detail(&painter, &xf, doc.bounds(), rotated, checkerboard, detail, area);
             }
             for &c in &pattern {
-                paint_cpu_document(&painter, &pattern_xf(&xf, c, size), doc.bounds(), rotated, checkerboard, tex);
+                paint_cpu_document(&painter, &pattern_xf(&xf, c, size), doc.bounds(), rotated, checkerboard, tex, opaque);
             }
         }
         // Channels panel: alpha / Quick Mask overlays and single-channel views (channel_view.rs).
@@ -4932,11 +4945,12 @@ fn paint_cpu_document(
     rotated: bool,
     checker: Option<(egui::TextureId, f32)>,
     tex: Option<egui::TextureId>,
+    opaque: bool,
 ) {
     let size = [bounds.width() as f32, bounds.height() as f32];
     let img_rect = xf.doc_rect(bounds);
     match checker {
-        Some((checker_id, square)) => {
+        Some((checker_id, square)) if !opaque || tex.is_none() => {
             if rotated {
                 let tiles = vec2(size[0], size[1]) / (2.0 * square);
                 paint_mapped_image(painter, xf, checker_id, Rect::from_min_max(Pos2::ZERO, pos2(tiles.x, tiles.y)), size, Color32::WHITE);
@@ -4945,6 +4959,9 @@ fn paint_cpu_document(
                 painter.image(checker_id, img_rect, Rect::from_min_max(Pos2::ZERO, pos2(tiles.x, tiles.y)), Color32::WHITE);
             }
         }
+        // On software window adapters this hidden full-canvas pass is CPU rasterization too.
+        // Keep the white-background branch unchanged (its antialiased outer edge is visible).
+        Some(_) => {}
         None => {
             if rotated {
                 paint_mapped_quad(painter, xf, size, Color32::WHITE);
@@ -10107,6 +10124,10 @@ mod zoom_animation_tests {
 #[cfg(test)]
 #[path = "canvas_display_memo_tests.rs"]
 mod display_memo_tests;
+
+#[cfg(test)]
+#[path = "canvas_cpu_background_tests.rs"]
+mod cpu_background_tests;
 
 #[cfg(test)]
 #[path = "canvas/blend_viewport_tests.rs"]
