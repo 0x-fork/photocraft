@@ -21,8 +21,9 @@ mod recovery_tests;
 /// (.kys), which go to the preset libraries and Edit › Keyboard Shortcuts.
 const OPEN_EXTS: &[&str] = &[
     "pcraft", "pdn", "ora", "xcf", "xcfgz", "gz", "kra", "krz", "psd", "psb", "psdt", "png", "jpg", "jpeg", "tif", "tiff", "webp", "gif", "bmp", "tga", "ico",
-    "qoi", "exr", "hdr", "pbm", "pgm", "ppm", "pam", "pfm", "pcx", "dds", "xpm", "fits", "fit", "fts", "dpx", "cin", "dcm", "dicom", "dc3", "iff", "lbm", "ilbm", "heic", "heif", "hif", "dng", "cr2",
-    "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf", "abr", "grd", "svg", "svgz", "aco", "act", "ase", "kys", "af", "afdesign", "afphoto", "afpub",
+    "qoi", "exr", "hdr", "pbm", "pgm", "ppm", "pam", "pfm", "pcx", "dds", "xpm", "fits", "fit", "fts", "dpx", "cin", "dcm", "dicom", "dc3", "iff", "lbm",
+    "ilbm", "heic", "heif", "hif", "dng", "cr2", "cr3", "nef", "nrw", "arw", "pef", "orf", "rw2", "raf", "abr", "grd", "svg", "svgz", "aco", "act", "ase",
+    "kys", "af", "afdesign", "afphoto", "afpub",
 ];
 const SVG_EXTS: &[&str] = &["svg", "svgz"];
 
