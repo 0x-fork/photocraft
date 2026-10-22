@@ -113,14 +113,16 @@ fn active(app: &PhotocraftApp) -> [f32; 3] {
     [c[0], c[1], c[2]].map(|x| x.clamp(0.0, 1.0))
 }
 
-/// Set the foreground (and recolour selected type) or the background colour.
-pub(crate) fn set_color(app: &mut PhotocraftApp, background: bool, rgb: [f32; 3]) {
+/// Set the foreground (and recolour selected type or the selected shape's fill, #5568) or the
+/// background colour.
+pub(crate) fn set_color(app: &mut PhotocraftApp, ui: &egui::Ui, background: bool, rgb: [f32; 3]) {
     let c = [rgb[0], rgb[1], rgb[2], 1.0];
     if background {
         app.session.tools.background = c;
     } else {
         app.session.tools.foreground = c;
         crate::type_tool::foreground_changed(app);
+        crate::shape_fill_ui::foreground_changed(app, crate::shape_fill_ui::gesture(ui));
     }
 }
 
@@ -156,7 +158,7 @@ fn current_values(ui: &egui::Ui, model: Model, background: bool, rgb: [f32; 3]) 
 fn apply_values(app: &mut PhotocraftApp, ui: &egui::Ui, model: Model, v: [f32; 4]) {
     let background = app.ui.color_panel.background;
     let rgb = model.to_rgb(v);
-    set_color(app, background, rgb);
+    set_color(app, ui, background, rgb);
     ui.data_mut(|d| d.insert_temp(values_key(model, background), v));
     if model == Model::Hsb && v[2] > 0.5 {
         ui.data_mut(|d| d.insert_temp(field_key(background), (v[0] / 360.0, v[1] / 100.0)));
@@ -365,7 +367,7 @@ fn alerts(app: &mut PhotocraftApp, ui: &mut egui::Ui, col: Rect, rgb: [f32; 3], 
         let resp = ui.interact(icon.union(chip), ui.id().with(("color-panel-alert", slot)), Sense::click());
         resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tip));
         if resp.on_hover_text(tl!(tip)).clicked() {
-            set_color(app, background, near);
+            set_color(app, ui, background, near);
         }
         y += 18.0;
     }
@@ -503,7 +505,7 @@ fn ramp(app: &mut PhotocraftApp, ui: &mut egui::Ui, height: f32) {
         && bar.height() > 0.0
     {
         let c = ramp_color(cp.ramp, cp.web_safe_ramp, fg, bg, (p.x - bar.left()) / bar.width(), (p.y - bar.top()) / bar.height());
-        set_color(app, target, c);
+        set_color(app, ui, target, c);
     }
     resp.context_menu(|ui| {
         widgets::style_spectrum_popup_menu(ui);
@@ -513,7 +515,7 @@ fn ramp(app: &mut PhotocraftApp, ui: &mut egui::Ui, height: f32) {
         let b = ui.interact(r, ui.id().with(("color-panel-box", name)), Sense::click());
         b.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), name));
         if b.clicked() {
-            set_color(app, target, c);
+            set_color(app, ui, target, c);
         }
     }
 }
