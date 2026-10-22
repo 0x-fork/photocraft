@@ -1255,6 +1255,18 @@ fn reveal_in_finder_reveals_the_documents_saved_path() {
     assert_eq!(r["args"], json!(args));
 }
 
+#[cfg(windows)]
+#[test]
+fn reveal_in_finder_on_windows_passes_the_clicked_tabs_saved_path() {
+    let mut s = session(8, 8, 8);
+    s.active_mut().unwrap().path = Some("C:/项目 图片/海报 🖼.png".into());
+    s.execute("file.new", json!({"width": 8, "height": 8, "name": "other"})).unwrap();
+
+    let r = s.execute("file.revealInFinder", json!({"document": 0, "dryRun": true})).unwrap();
+    assert_eq!(r["program"], "explorer");
+    assert_eq!(r["args"], json!(["/select,", r"C:\项目 图片\海报 🖼.png"]));
+}
+
 /// "Include All Subfolders" (AUTO-219-5, #3753): Batch and Image Processor take the images in
 /// subfolders too, each result keeping its subfolder under the output folder (so same-named files
 /// don't collide), and skip the output folder when it sits inside the input folder.
