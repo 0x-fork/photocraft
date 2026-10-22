@@ -217,6 +217,20 @@ pub fn draw_ants(painter: &egui::Painter, points: &[Pos2], closed: bool) {
     painter.extend(ants(points, closed, phase));
 }
 
+/// A selection outline still being drawn (Lasso, Polygonal Lasso, Magnetic Lasso): a solid line,
+/// as Photoshop draws it until the selection is made (#7495). Marching ants are for selections
+/// that exist. A thin dark line on a soft light edge: Photoshop's look on light pixels, and still
+/// visible on dark ones.
+pub fn solid_path(points: &[Pos2], closed: bool) -> Vec<Shape> {
+    let make = |s: Stroke| if closed { Shape::closed_line(points.to_vec(), s) } else { Shape::line(points.to_vec(), s) };
+    vec![make(Stroke::new(3.0, Color32::from_white_alpha(140))), make(Stroke::new(1.0, Color32::BLACK))]
+}
+
+/// Draw [`solid_path`].
+pub fn draw_solid_path(painter: &egui::Painter, points: &[Pos2], closed: bool) {
+    painter.extend(solid_path(points, closed));
+}
+
 /// Polygon approximating the ellipse inscribed in `r` (enough vertices to look smooth).
 pub fn ellipse_points(r: egui::Rect) -> Vec<Pos2> {
     let (c, a, b) = (r.center(), r.width() / 2.0, r.height() / 2.0);
@@ -292,6 +306,18 @@ mod tests {
         assert_eq!(badge_glyph(Badge::Add, c, 3.0).len(), 2);
         assert_eq!(badge_glyph(Badge::Subtract, c, 3.0).len(), 1);
         assert!(badge_glyph(Badge::Intersect, c, 3.0).iter().all(|[a, b]| a.x != b.x && a.y != b.y));
+    }
+
+    /// #7495: an outline still being drawn is one unbroken line (no dashes, nothing marching),
+    /// black over a light edge.
+    #[test]
+    fn solid_path_is_one_unbroken_dark_line_on_a_light_edge() {
+        let pts = [pos2(0.0, 0.0), pos2(40.0, 0.0), pos2(40.0, 30.0)];
+        for closed in [false, true] {
+            let shapes = solid_path(&pts, closed);
+            assert!(shapes.iter().all(|s| matches!(s, Shape::Path(p) if p.closed == closed && p.points.len() == 3)), "{shapes:?}");
+            assert_eq!(strokes(&shapes), vec![Color32::from_white_alpha(140), Color32::BLACK], "the dark line on top");
+        }
     }
 
     #[test]

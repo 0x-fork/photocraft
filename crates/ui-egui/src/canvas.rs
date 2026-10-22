@@ -4916,8 +4916,9 @@ fn draw_tool_state(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform,
                 pts.push(h);
             }
         }
-        // Just the outline and its rubber band: the vertices aren't handles to grab.
-        crate::tool_feedback::draw_ants(painter, &pts, false);
+        // Just the outline and its rubber band (the vertices aren't handles to grab), solid until
+        // the selection is made (#7495).
+        crate::tool_feedback::draw_solid_path(painter, &pts, false);
     }
     crate::crop_straighten::draw(app, painter, |p| xf.to_screen(p[0] as f32, p[1] as f32), hover);
     crate::blur_pins::draw(app, painter, xf);
@@ -5194,7 +5195,13 @@ fn draw_drag_preview(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &View
             // On pixel centres like the marquee's ants, so a 1 pt line stays crisp wherever the
             // canvas sits (a pixel edge would blur it to grey).
             let pts: Vec<Pos2> = pts.into_iter().map(|p| p.round() + vec2(0.5, 0.5)).collect();
-            crate::tool_feedback::draw_ants(painter, &pts, false);
+            // The Lasso's outline is solid until the release makes the selection (#7495); a Patch
+            // or Content-Aware Move area keeps its ants.
+            if d.tool == Tool::Lasso {
+                crate::tool_feedback::draw_solid_path(painter, &pts, false);
+            } else {
+                crate::tool_feedback::draw_ants(painter, &pts, false);
+            }
         }
         Tool::Gradient => {
             let a = xf.to_screen(d.start[0] as f32, d.start[1] as f32);
@@ -9068,3 +9075,71 @@ mod display_memo_tests;
 #[cfg(test)]
 #[path = "canvas/blend_viewport_tests.rs"]
 mod blend_viewport_regression;
+
+#[cfg(test)]
+mod lasso_preview_tests {
+    use super::*;
+
+    fn xf() -> ViewXform {
+        ViewXform { rect: Rect::from_min_size(Pos2::ZERO, vec2(200.0, 200.0)), zoom: 1.0, center: [100.0, 100.0], flip: false, rotation: 0.0, aspect: 1.0 }
+    }
+
+    /// What `draw` paints: (black dashes, black solid paths).
+    fn painted(app: &mut PhotocraftApp, draw: impl Fn(&mut PhotocraftApp, &egui::Painter)) -> (usize, usize) {
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| draw(app, ui.painter()));
+        output.textures_delta.clear();
+        let mut flat = Vec::new();
+        for clipped in output.shapes {
+            let mut stack = vec![clipped.shape];
+            while let Some(shape) = stack.pop() {
+                match shape {
+                    egui::Shape::Vec(v) => stack.extend(v),
+                    s => flat.push(s),
+                }
+            }
+        }
+        let dashes = flat.iter().filter(|s| matches!(s, egui::Shape::LineSegment { stroke, .. } if stroke.color == Color32::BLACK)).count();
+        let solid = flat.iter().filter(|s| matches!(s, egui::Shape::Path(p) if p.stroke.color == egui::epaint::ColorMode::Solid(Color32::BLACK))).count();
+        (dashes, solid)
+    }
+
+    fn document() -> PhotocraftApp {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.execute("file.new", json!({"width": 200, "height": 200})).unwrap();
+        app.sync_views();
+        app
+    }
+
+    /// #7495: as in Photoshop, the Lasso's, Polygonal Lasso's and Magnetic Lasso's outline is a
+    /// solid line until the selection is made; a Patch area dragged out keeps its marching ants.
+    #[test]
+    fn lasso_outlines_are_solid_until_the_selection_is_made() {
+        let points = vec![[20.0, 20.0, 1.0], [120.0, 30.0, 1.0], [150.0, 140.0, 1.0], [40.0, 160.0, 1.0]];
+        for tool in [Tool::Lasso, Tool::Patch] {
+            let mut app = document();
+            app.ui.tool = tool;
+            app.drag = Some(Drag::new(tool, [20.0, 20.0], points.clone(), egui::Modifiers::NONE, false));
+            let (dashes, solid) = painted(&mut app, |app, p| draw_drag_preview(app, p, &xf()));
+            if tool == Tool::Lasso {
+                assert_eq!((dashes, solid), (0, 1), "{tool:?}: one solid outline, no ants");
+            } else {
+                assert!(dashes > 10 && solid == 0, "{tool:?}: still marching ants ({dashes} dashes)");
+            }
+        }
+
+        let mut app = document();
+        app.ui.tool = Tool::PolygonLasso;
+        app.ui.polygon = vec![[20.0, 20.0], [120.0, 30.0], [150.0, 140.0]];
+        let (dashes, solid) = painted(&mut app, |app, p| draw_tool_state(app, p, &xf(), Some(pos2(60.0, 150.0))));
+        assert_eq!((dashes, solid), (0, 1), "Polygonal Lasso: its sides and rubber band are one solid line");
+
+        let mut app = document();
+        app.ui.tool = Tool::MagneticLasso;
+        app.ui.magnetic.path = vec![[20.0, 20.0], [80.0, 25.0], [120.0, 60.0]];
+        app.ui.magnetic.anchors = vec![0, 2];
+        app.ui.magnetic.live = vec![[120.0, 60.0], [130.0, 100.0]];
+        let (dashes, solid) = painted(&mut app, |app, p| draw_tool_state(app, p, &xf(), None));
+        assert_eq!((dashes, solid), (0, 1), "Magnetic Lasso: the traced border is solid");
+    }
+}
