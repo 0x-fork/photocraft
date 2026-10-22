@@ -659,6 +659,10 @@ pub struct Layer {
     pub advanced: AdvancedBlending,
     /// Layer › Video Layers frame stack (None for a normal layer).
     pub video: Option<VideoData>,
+    /// The layer's own XMP packet (Photoshop's `layer.xmpMetadata.rawData`), where scripts and
+    /// embedding apps keep data about the layer under their own namespaces. Copied by
+    /// [`Layer::duplicate`], as in Photoshop. PSD `shmd` › `cust` › `layerXMP`.
+    pub xmp: Option<Arc<str>>,
 }
 
 impl Layer {
@@ -692,6 +696,7 @@ impl Layer {
             blend_if: BlendIf::default(),
             advanced: AdvancedBlending::default(),
             video: None,
+            xmp: None,
         }
     }
     pub fn raster(name: impl Into<String>, format: PixelFormat) -> Self {
