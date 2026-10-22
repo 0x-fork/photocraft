@@ -344,16 +344,15 @@ pub fn without_develop_note(warnings: &[String]) -> Vec<String> {
     warnings.iter().filter(|w| !w.contains(photocraft_io::raw::DEVELOPED_NOTE)).cloned().collect()
 }
 
-/// Queues the open-time dialog for the active document (shown on the next frame).
-pub fn queue_open_dialog(app: &mut PhotocraftApp, name: &str, path: Option<&str>, bytes: Option<&[u8]>) {
-    if let Some(st) = app.session.active() {
-        app.pending_raw_open = Some(RawOpen {
-            document: st.doc.id,
-            name: name.to_string(),
-            path: path.map(str::to_string),
-            bytes: bytes.map(|b| std::sync::Arc::new(b.to_vec())),
-        });
+/// Queues the open-time dialog for the document whose import completed, independent of the
+/// active tab. A delayed completion for a closed document must not review another photograph.
+pub fn queue_open_dialog(app: &mut PhotocraftApp, document: photocraft_doc::DocId, name: &str, path: Option<&str>, bytes: Option<&[u8]>) -> Result<(), String> {
+    if document_index(app, document).is_none() {
+        return Err("the imported raw document is missing".into());
     }
+    app.pending_raw_open =
+        Some(RawOpen { document, name: name.to_string(), path: path.map(str::to_string), bytes: bytes.map(|b| std::sync::Arc::new(b.to_vec())) });
+    Ok(())
 }
 
 /// Opens the queued open-time dialog on its document's (only) layer.
@@ -479,7 +478,8 @@ fn commit_open_raw(app: &mut PhotocraftApp, params: &CameraRaw, raw: &RawOpen) -
 }
 
 /// Swap the default-developed document `doc_id` for the re-developed one, at the same tab
-/// position and with the same path. Returns `{document, previous, warnings, wb}`.
+/// position and with the same path. Returns `{document, docId, previous, warnings, wb}`:
+/// `document` is the tab index at apply time, `docId` is the replacement's stable identity.
 fn replace_raw_document(
     s: &mut photocraft_engine::Session,
     doc_id: photocraft_doc::DocId,
@@ -491,22 +491,24 @@ fn replace_raw_document(
     let path = s.documents().get(index).and_then(|st| st.path.clone());
     s.close(index);
     let (opened, _) = s.open_document(r.document, path);
+    let replacement = s.documents().get(opened).ok_or(photocraft_engine::EngineError::NoDocument)?.doc.id;
     let index = match s.execute("document.move", json!({"document": opened, "to": index})) {
         Ok(moved) => moved.get("document").and_then(Value::as_u64).map_or(opened, |i| i as usize),
         Err(_) => opened,
     };
     s.set_active(index);
-    Ok(json!({"document": index, "previous": doc_id.0, "warnings": r.warnings, "wb": wb}))
+    Ok(json!({"document": index, "docId": replacement.0, "previous": doc_id.0, "warnings": r.warnings, "wb": wb}))
 }
 
 /// After the re-develop: keep the old document's view (zoom, scroll) on the new one, report
 /// the import's notes, then apply the remaining settings.
 fn finish_redevelop(app: &mut PhotocraftApp, params: &CameraRaw, raw: &RawOpen, v: &Value) -> Result<Value, String> {
-    let index = v.get("document").and_then(Value::as_u64).ok_or("the re-develop returned no document")? as usize;
-    if let Some(new_id) = app.session.documents().get(index).map(|st| st.doc.id) {
-        for id in app.view_docs.iter_mut().filter(|id| **id == raw.document) {
-            *id = new_id;
-        }
+    // A preceding completion (for example Save and Close) may have shifted the tab indices.
+    // Validate identity before remapping views, filtering or marking any document unmodified.
+    let replacement = v.get("docId").and_then(Value::as_u64).map(photocraft_doc::DocId).ok_or("the re-develop returned no document identity")?;
+    let index = document_index(app, replacement).ok_or("the re-developed document was closed")?;
+    for id in app.view_docs.iter_mut().filter(|id| **id == raw.document) {
+        *id = replacement;
     }
     let warnings: Vec<String> =
         v.get("warnings").and_then(Value::as_array).map(|a| a.iter().filter_map(|w| w.as_str().map(str::to_string)).collect()).unwrap_or_default();
@@ -1974,3 +1976,7 @@ mod tests {
         assert_eq!(app.camera_raw.as_ref().unwrap().params.clarity, 25.0);
     }
 }
+
+#[cfg(test)]
+#[path = "camera_raw_identity_tests.rs"]
+mod identity_tests;
