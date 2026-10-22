@@ -880,13 +880,27 @@ fn cmd_and_alt_with_the_hand_tool_zoom_in_and_out() {
     assert_eq!(h.state().ui.tool, Tool::Hand, "the Hand is still the tool");
 }
 
-/// A ⌘-drag with the Hand is the Zoom tool's scrubby zoom, not a pan.
+/// A ⌘-drag with the Hand is the Zoom tool's drag, not a pan: a scrubby zoom with Scrubby Zoom on
+/// (the default).
 #[test]
 fn cmd_drag_with_the_hand_tool_is_a_scrubby_zoom() {
     let mut h = harness(Tool::Hand);
     let z0 = h.state().ui.views[0].zoom;
     drag_with(&mut h, Modifiers::COMMAND, 200.0, 150.0, 300.0, 150.0);
     assert!(h.state().ui.views[0].zoom > z0 * 1.5, "{z0} -> {}", h.state().ui.views[0].zoom);
+    assert_eq!(h.state().ui.tool, Tool::Hand);
+}
+
+/// With Scrubby Zoom off, a ⌘-drag with the Hand draws the Zoom tool's rectangle instead. The
+/// drag is nearly vertical, so a scrubby zoom (horizontal motion only) would barely change the
+/// zoom, while zooming to the narrow rectangle fills the view with it.
+#[test]
+fn cmd_drag_with_the_hand_tool_follows_scrubby_zoom_off() {
+    let mut h = harness(Tool::Hand);
+    h.state_mut().ui.tool_options.zoom_scrubby = false;
+    let z0 = h.state().ui.views[0].zoom;
+    drag_with(&mut h, Modifiers::COMMAND, 150.0, 100.0, 160.0, 180.0);
+    assert!(h.state().ui.views[0].zoom > z0 * 2.0, "{z0} -> {}", h.state().ui.views[0].zoom);
     assert_eq!(h.state().ui.tool, Tool::Hand);
 }
 

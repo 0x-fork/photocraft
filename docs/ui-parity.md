@@ -168,7 +168,7 @@ Triangle and Curvature Pen (minus legacy Rounded Rectangle and Targeted Adjustme
 | Behaviour | Status | Evidence |
 |---|---|---|
 | Space = Hand, ⌘Space / ⌘⌥Space = zoom in/out, spring-loaded while held | done | `hold_keys.rs` |
-| Hand tool: ⌘ held = Zoom In, ⌥ (or ⌘⌥) held = Zoom Out; click steps, drag scrubs | done | `hold_keys.rs` `hand_zoom` (#6434); not during Free Transform or once a pan has started |
+| Hand tool: ⌘ held = Zoom In, ⌥ (or ⌘⌥) held = Zoom Out; click steps, drag zooms as the Zoom tool does (scrubs with Scrubby Zoom on, else draws a zoom rectangle) | done | `hold_keys.rs` `hand_zoom` (#6434); not during Free Transform or once a pan has started |
 | Hand tool: ⇧-drag / Scroll All Windows pans every open document; hold H for Bird's Eye View | missing | |
 | Hold any tool letter for a temporary tool | done | `spring_tools.rs`: held ≥ 300 ms or used on the canvas, release gives the previous tool back; ⇧ never springs (#2672) |
 | Scrubby zoom | done | `zoom_tool.rs` |
