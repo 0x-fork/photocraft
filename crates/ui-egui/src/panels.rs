@@ -2781,6 +2781,10 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             if let Some(&(last, last_rect)) = drawn.last() {
                 let below = Rect::from_min_max(pos2(last_rect.left(), last_rect.bottom()), pos2(last_rect.right(), ui.clip_rect().bottom()));
                 layer_drop_zone(app, &ctx, ui, below, (last, last_rect), "below", &mut actions);
+                // A click on that empty space deselects every layer, as in Photoshop (#8100).
+                if below.height() > 0.0 && ui.interact(below, ui.id().with("layers-empty-space"), Sense::click()).clicked() && !selection.is_empty() {
+                    actions.push(("select.deselectLayers".into(), json!({})));
+                }
             }
             // Tab / ⇧Tab in a rename: rename the layer below / above next, as in Photoshop. The
             // Background isn't renamed in place (double-clicking it converts it), so it ends there.
