@@ -609,6 +609,42 @@ fn batch_refuses_to_write_over_its_inputs() {
     assert!(after.iter().zip(&before).all(|(a, b)| a.0 == b.0 && a.1 != b.1), "both inputs replaced");
 }
 
+/// #7437: `convert` to its own input file, however the output is spelt, is refused before
+/// anything is read or written, unless `--in-place` asks for it (as `batch` does, #492).
+#[test]
+fn convert_refuses_to_write_over_its_input() {
+    let d = tmp("convert-in-place");
+    write_png(&d.join("in.png"), 8, 4, 5);
+    let before = std::fs::read(d.join("in.png")).unwrap();
+    let convert = |out: &Path, extra: &[&str]| bin().current_dir(&d).args(["convert", "in.png"]).arg(out).args(extra).output().unwrap();
+    let mut outs = vec![PathBuf::from("in.png"), PathBuf::from("./in.png"), d.join("in.png"), d.join(".").join("in.png")];
+    std::fs::hard_link(d.join("in.png"), d.join("hard.png")).unwrap();
+    outs.push(PathBuf::from("hard.png"));
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(d.join("in.png"), d.join("soft.png")).unwrap();
+        outs.push(PathBuf::from("soft.png"));
+    }
+    for out in &outs {
+        for extra in [&[][..], &["--format", "png"][..], &["--quality", "80"][..]] {
+            let o = convert(out, extra);
+            let err = String::from_utf8_lossy(&o.stderr);
+            assert_eq!(o.status.code(), Some(1), "{} {extra:?}: {err}", out.display());
+            assert!(err.contains("is the input file") && err.contains("--in-place"), "{err}");
+            assert_eq!(std::fs::read(d.join("in.png")).unwrap(), before, "{} {extra:?} changed the original", out.display());
+        }
+    }
+    // Another file converts as before, leaving the original alone.
+    ok(bin().current_dir(&d).args(["convert", "in.png", "out.jpg"]));
+    assert!(d.join("out.jpg").is_file());
+    assert_eq!(std::fs::read(d.join("in.png")).unwrap(), before);
+    // `--in-place` opts in: the result replaces the original, which still opens.
+    ok(bin().current_dir(&d).args(["convert", "in.png", "in.png", "--in-place"]));
+    let (out, _) = ok(bin().current_dir(&d).args(["info", "in.png", "--compact"]));
+    let info: Value = serde_json::from_str(&out).unwrap();
+    assert_eq!((info["width"].as_u64(), info["height"].as_u64()), (Some(8), Some(4)), "{info}");
+}
+
 #[test]
 fn commands_listing() {
     let (out, _) = ok(bin().arg("commands"));
