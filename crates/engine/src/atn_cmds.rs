@@ -1324,7 +1324,7 @@ fn make_to(id: &str, p: &Value) -> Option<Descriptor> {
         "layer.groupLayers" => {
             // An explicit source layer goes in by name like every other layer reference; a
             // step without one keeps the target-layer form (#7236).
-            desc("null").with("null", class_ref("layerSection")).with("From", layer_ref(p)).with("Usng", D::Descriptor(with_name("layerSection")))
+            desc("null").with("null", class_ref("layerSection")).with("From", layer_ref(p)?).with("Usng", D::Descriptor(with_name("layerSection")))
         }
         "layer.new.layerViaCopy" | "layer.new.layerViaCut" => {
             let mut d = desc("null").with("Nw  ", D::Descriptor(desc("Lyr "))).with("Usng", enm("ArSl", "Slct"));
