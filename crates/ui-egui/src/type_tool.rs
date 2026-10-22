@@ -405,45 +405,55 @@ fn arc_length_to(sub: &photocraft_doc::Subpath, seg: usize, t: f64) -> f64 {
     whole + segs.get(seg).map_or(0.0, |s| length(s, t.clamp(0.0, 1.0)))
 }
 
-/// The path a Type tool click at document `(x, y)` would use: the active shape layer's path,
-/// else the work path (the path Photoshop shows), within 4 screen px of its outline or inside it.
-/// None while View › Show › Target Path (or Extras) hides the path, as the canvas then draws none.
+/// The path a Type tool click at document `(x, y)` would use: on the outline (within 6 screen px)
+/// of the active shape layer's path, else of the work path, type on that path; inside a closed
+/// one, area type. The work path's inside counts only while the canvas draws it (selected in the
+/// Paths panel, #6551): a hidden Work Path left after Load as Selection must not turn a plain
+/// click into area type. None while View › Show › Target Path (or Extras) hides paths.
 pub(crate) fn path_target(app: &PhotocraftApp, x: f64, y: f64) -> Option<PathClick> {
     use photocraft_vector::edit::{Hit, hit};
     if !app.ui.view.shows(app.ui.view.show.target_path) {
         return None;
     }
-    let (shape, path) = match crate::vector_ui::active_shape_path(app) {
-        Some((id, p)) => (Some(id), p),
-        None => (None, app.session.active()?.doc.work_path.clone()?),
-    };
+    let shape_path = crate::vector_ui::active_shape_path(app);
+    let work = app.session.active().and_then(|s| s.doc.work_path.clone());
+    let work_shown = app.ui.selected_path.as_deref() == Some("work");
     // The canvas hover runs this every frame and `hit` samples every segment, so a path with more
     // anchors than this is not a click target (the click and the pointer agree: plain point
     // text). 4096 anchors is far beyond hand-drawn paths and shapes yet keeps a frame cheap, and
     // it is the most `type.fillPath` accepts, so every area click target can be filled.
     const MAX_TARGET_KNOTS: usize = photocraft_text::area::MAX_AREA_KNOTS;
-    if path.subpaths.iter().map(|s| s.knots.len()).fold(0usize, usize::saturating_add) > MAX_TARGET_KNOTS {
-        return None;
-    }
-    let tol = 4.0 / app.point_zoom().max(0.01) as f64;
+    let small = |path: &photocraft_doc::vector::Path| path.subpaths.iter().map(|s| s.knots.len()).fold(0usize, usize::saturating_add) <= MAX_TARGET_KNOTS;
+    let tol = 6.0 / app.point_zoom().max(0.01) as f64;
     // Only the horizontal Type tool starts type on a path: vertical type on a path is not laid
     // out yet.
     let vertical = app.ui.tool.is_vertical_type();
-    let on_path = |sp: usize, k: usize, t: f64| {
-        // Type on a path needs a segment to run along (`type.attachToPath` rejects one anchor).
-        let sub = path.subpaths.get(sp).filter(|s| !vertical && s.knots.len() >= 2)?;
-        Some(PathClick::OnPath { shape, subpath: sp, start: arc_length_to(sub, k, t) })
+    let outline = |path: &photocraft_doc::vector::Path, shape: Option<u64>| {
+        let on_path = |sp: usize, k: usize, t: f64| {
+            // Type on a path needs a segment to run along (`type.attachToPath` rejects one anchor).
+            let sub = path.subpaths.get(sp).filter(|s| !vertical && s.knots.len() >= 2)?;
+            Some(PathClick::OnPath { shape, subpath: sp, start: arc_length_to(sub, k, t) })
+        };
+        match hit(path, Point::new(x, y), tol, &[]) {
+            Some(Hit::Segment([sp, k], t)) => on_path(sp, k, t),
+            Some(Hit::Anchor([sp, k])) => on_path(sp, k, 0.0),
+            _ => None,
+        }
     };
-    let outline = match hit(&path, Point::new(x, y), tol, &[]) {
-        Some(Hit::Segment([sp, k], t)) => on_path(sp, k, t),
-        Some(Hit::Anchor([sp, k])) => on_path(sp, k, 0.0),
-        _ => None,
-    };
-    if outline.is_some() {
-        return outline;
+    let inside = |path: &photocraft_doc::vector::Path| photocraft_text::area::AreaShape::new(path, false).is_some_and(|a| a.contains(x as f32, y as f32));
+    if let Some((id, p)) = shape_path.as_ref().filter(|(_, p)| small(p)) {
+        if let Some(c) = outline(p, Some(*id)) {
+            return Some(c);
+        }
+        if inside(p) {
+            return Some(PathClick::Area { shape: Some(*id) });
+        }
     }
-    let area = photocraft_text::area::AreaShape::new(&path, false)?;
-    area.contains(x as f32, y as f32).then_some(PathClick::Area { shape })
+    let w = work.as_ref().filter(|w| small(w))?;
+    if let Some(c) = outline(w, None) {
+        return Some(c);
+    }
+    (work_shown && inside(w)).then_some(PathClick::Area { shape: None })
 }
 
 /// What the Type tool's pointer over document `(x, y)` shows (#218): the path click a press there

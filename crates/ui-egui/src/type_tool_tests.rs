@@ -2913,6 +2913,7 @@ fn paths_with_too_many_anchors_are_not_hover_targets() {
     let mut app = new_app();
     std::sync::Arc::make_mut(&mut app.session.active_mut().unwrap().doc).work_path =
         Some(photocraft_doc::Path::new(vec![photocraft_doc::Subpath::polygon(&ring(4000))]));
+    app.ui.selected_path = Some("work".into());
     assert!(matches!(path_target(&app, 500.0, 400.0), Some(PathClick::Area { shape: None })));
     std::sync::Arc::make_mut(&mut app.session.active_mut().unwrap().doc).work_path =
         Some(photocraft_doc::Path::new(vec![photocraft_doc::Subpath::polygon(&ring(5000))]));
@@ -2925,12 +2926,32 @@ fn hidden_target_path_is_not_a_click_target() {
     let mut app = new_app();
     std::sync::Arc::make_mut(&mut app.session.active_mut().unwrap().doc).work_path =
         Some(photocraft_doc::Path::new(vec![photocraft_doc::Subpath::polygon(&[(300.0, 300.0), (700.0, 300.0), (700.0, 500.0), (300.0, 500.0)])]));
+    app.ui.selected_path = Some("work".into());
     assert!(matches!(path_target(&app, 500.0, 400.0), Some(PathClick::Area { shape: None })));
     app.ui.view.show.target_path = false;
     assert!(path_target(&app, 500.0, 400.0).is_none(), "Target Path off");
     app.ui.view.show.target_path = true;
     app.ui.view.extras = false;
     assert!(path_target(&app, 500.0, 400.0).is_none(), "Extras off");
+}
+
+#[test]
+fn an_unselected_work_path_is_not_an_area_target() {
+    // The canvas draws a Work Path only while it is selected in Paths (or a path tool is active,
+    // #6551). One left unselected, as after Ctrl-click Load as Selection, is invisible with the
+    // Type tool, so a click inside it is plain point text; its outline still takes type on a
+    // path, as before area type (#5180).
+    let mut app = new_app();
+    std::sync::Arc::make_mut(&mut app.session.active_mut().unwrap().doc).work_path =
+        Some(photocraft_doc::Path::new(vec![photocraft_doc::Subpath::polygon(&[(300.0, 300.0), (700.0, 300.0), (700.0, 500.0), (300.0, 500.0)])]));
+    app.ui.selected_path = None;
+    assert!(path_target(&app, 500.0, 400.0).is_none(), "inside a hidden work path");
+    assert!(matches!(path_target(&app, 500.0, 301.0), Some(PathClick::OnPath { shape: None, .. })));
+    click_at(&mut app, 500.0, 400.0);
+    let id = LayerId(app.ui.text_edit.as_ref().expect("editing").layer);
+    assert_eq!(text_layer(&app.session.active().unwrap().doc, id).unwrap().shape, photocraft_doc::text::TextShape::Point);
+    app.ui.selected_path = Some("work".into());
+    assert!(matches!(path_target(&app, 500.0, 400.0), Some(PathClick::Area { shape: None })));
 }
 
 /// Area type is paragraph text too: the justify buttons work on it (#7713 greys them on point text).
