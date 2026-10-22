@@ -2101,6 +2101,10 @@ fn apply_image_from(d: &Descriptor) -> Mapped {
                 let Some(channel) = lookup(SOURCE_CHANNELS, &v).or_else(|| lookup(CHANNELS, &v)) else { return unsupported };
                 source.insert("channel".into(), channel.into());
             }
+            // A named (alpha) channel.
+            ReferenceItem::Name { class, name } if class.class_id.is("Chnl") => {
+                source.insert("channel".into(), name.to_string_lossy().into());
+            }
             ReferenceItem::Name { class, name } if class.class_id.is("Lyr ") => {
                 source.insert("layer".into(), name.to_string_lossy().into());
             }
@@ -2131,6 +2135,26 @@ fn apply_image_from(d: &Descriptor) -> Mapped {
     step("image.applyImage", p)
 }
 
+/// Apply Image's source channel as a `Chnl` reference item. The dialog sends Channels-panel names
+/// ("RGB", "Red", "Alpha 1"), which the command reads case-insensitively: the composite names map to
+/// the composite, colour names to their enumeration, and any other name to a named (alpha) channel,
+/// as Photoshop records it.
+fn apply_image_channel(channel: &str) -> Option<ReferenceItem> {
+    let l = channel.to_ascii_lowercase();
+    let key = match l.as_str() {
+        "rgb" | "cmyk" | "lab" | "merged" => "composite",
+        "layermask" => "mask",
+        // Sources the command knows by keyword but Photoshop has no channel for.
+        "quickmask" | "quick mask" | "vectormask" | "vector mask" => return None,
+        other => other,
+    };
+    Some(match lookup_back(SOURCE_CHANNELS, key).or_else(|| lookup_back(CHANNELS, key)) {
+        Some(chan) => ReferenceItem::Enumerated { class: class("Chnl"), type_id: code("Chnl"), value: code(chan) },
+        None if !channel.trim().is_empty() => ReferenceItem::Name { class: class("Chnl"), name: UnicodeString::new_nul(channel) },
+        None => return None,
+    })
+}
+
 fn apply_image_to(_: &str, p: &Value) -> Option<Descriptor> {
     // The optional blending mask has no descriptor mapping: refuse it rather than drop it,
     // which would widen the edit to the whole layer.
@@ -2141,10 +2165,19 @@ fn apply_image_to(_: &str, p: &Value) -> Option<Descriptor> {
     if mask_channel.is_some_and(|c| !(c.is_null() || c == "none" || c == "")) {
         return None;
     }
-    let source = p.get("source").cloned().unwrap_or(json!({}));
-    let channel = jstr(&source, "channel").unwrap_or("composite");
-    let chan = lookup_back(SOURCE_CHANNELS, channel).or_else(|| lookup_back(CHANNELS, channel))?;
-    let mut items = vec![ReferenceItem::Enumerated { class: class("Chnl"), type_id: code("Chnl"), value: code(chan) }];
+    // The Apply Image dialog sends flat `sourceLayer`/`sourceChannel`/`sourceInvert` fields; read
+    // them as the command does, or the export would quietly reset them to the merged composite.
+    let source = crate::channel_cmds::source_spec(p, "source", "source").unwrap_or(json!({}));
+    // A source from another open document has no event form here: skip the step, don't rewrite it.
+    if source.get("document").is_some_and(|d| !d.is_null()) {
+        return None;
+    }
+    // A layer id or channel index has no name to record: refuse it rather than write the composite.
+    let not_name = |k: &str| source.get(k).is_some_and(|v| !(v.is_null() || v.is_string()));
+    if !source.is_object() || not_name("layer") || not_name("channel") {
+        return None;
+    }
+    let mut items = vec![apply_image_channel(jstr(&source, "channel").unwrap_or("composite"))?];
     match jstr(&source, "layer") {
         Some("merged") | None => items.push(ReferenceItem::Enumerated { class: class("Lyr "), type_id: code("Ordn"), value: code("Mrgd") }),
         Some(name) => items.push(ReferenceItem::Name { class: class("Lyr "), name: UnicodeString::new_nul(name) }),
