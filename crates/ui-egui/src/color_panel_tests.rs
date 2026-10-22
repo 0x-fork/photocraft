@@ -373,3 +373,36 @@ fn web_only_reads_its_old_snake_case_key() {
     let new = serde_json::to_value(old).unwrap();
     assert_eq!((new.get("webOnly"), new.get("web_only")), (Some(&json!(true)), None));
 }
+
+/// Make Ramp Web Safe: a click picks the cell drawn under the pointer, even near its edge. On
+/// the Grayscale Ramp the fifth cell is drawn white, though its right edge rounds to CC.
+#[test]
+fn web_safe_ramp_picks_the_cell_it_draws() {
+    let mut h = color_tab(ThemeKind::Pro, ColorPanelMode::RgbSliders, [0.0, 0.0, 0.0, 1.0]);
+    h.state_mut().ui.color_panel.ramp = ColorRamp::GrayscaleRamp;
+    h.state_mut().ui.color_panel.web_safe_ramp = true;
+    h.run_steps(2);
+    let ramp: Rect = h.get_by_label("Color Ramp").rect();
+    press(&mut h, pos2(ramp.left() + ramp.width() * 4.95 / 48.0, ramp.center().y), Modifiers::NONE);
+    assert_eq!(bytes(h.state().session.tools.foreground), [255, 255, 255]);
+}
+
+/// A Web Color field takes two hex digits only: "+F" is not 0F.
+#[test]
+fn web_field_ignores_a_sign() {
+    let mut h = color_tab(ThemeKind::Pro, ColorPanelMode::WebColorSliders, [0.0, 0.0, 0.0, 1.0]);
+    type_into(&mut h, egui::accesskit::Role::TextInput, 0, "+F");
+    assert_eq!(bytes(h.state().session.tools.foreground), [0, 0, 0]);
+}
+
+/// A click beside the Color Wheel (its area spans the panel) leaves the colour alone.
+#[test]
+fn color_wheel_ignores_clicks_beside_it() {
+    let mut h = color_tab(ThemeKind::Pro, ColorPanelMode::ColorWheel, [0.0, 0.0, 1.0, 1.0]);
+    let area = h.get_by_label("Color Wheel").rect();
+    let (center, _, outer) = crate::color_panel_ui::wheel_geometry(area);
+    let corner = area.left_top() + vec2(3.0, 3.0);
+    assert!(corner.distance(center) > outer + 20.0, "the corner is beside the wheel");
+    press(&mut h, corner, Modifiers::NONE);
+    assert_eq!(bytes(h.state().session.tools.foreground), [0, 0, 255]);
+}

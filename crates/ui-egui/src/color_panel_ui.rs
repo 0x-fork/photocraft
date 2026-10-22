@@ -301,8 +301,10 @@ fn hex_pair(ui: &mut egui::Ui, id: egui::Id, value: &mut f32) -> bool {
     } else {
         ui.data_mut(|d| d.remove::<String>(id));
     }
+    // Two hex digits only: `from_str_radix` would also take a sign ("+F").
     if resp.changed()
         && text.len() == 2
+        && text.bytes().all(|b| b.is_ascii_hexdigit())
         && let Ok(b) = u8::from_str_radix(&text, 16)
     {
         *value = f32::from(b);
@@ -502,7 +504,13 @@ fn ramp(app: &mut PhotocraftApp, ui: &mut egui::Ui, height: f32) {
         && bar.width() > 0.0
         && bar.height() > 0.0
     {
-        let c = ramp_color(cp.ramp, cp.web_safe_ramp, fg, bg, (p.x - bar.left()) / bar.width(), (p.y - bar.top()) / bar.height());
+        let (mut x, mut y) = ((p.x - bar.left()) / bar.width(), (p.y - bar.top()) / bar.height());
+        if cp.web_safe_ramp {
+            // Pick the cell drawn under the pointer: web-safe cells show their centre's colour.
+            let centre = |f: f32, n: usize| ((f * n as f32).floor().clamp(0.0, (n - 1) as f32) + 0.5) / n as f32;
+            (x, y) = (centre(x, RAMP_NX), centre(y, RAMP_NY));
+        }
+        let c = ramp_color(cp.ramp, cp.web_safe_ramp, fg, bg, x, y);
         set_color(app, target, c);
     }
     resp.context_menu(|ui| {
@@ -566,22 +574,32 @@ fn wheel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     {
         // A click is where it landed; a drag goes by where its press began.
         let origin = if resp.clicked() { Some(p) } else { ui.input(|i| i.pointer.press_origin()) };
-        let on_ring = match origin {
+        // `None`: the press began beside the wheel (the area spans the panel), which picks nothing.
+        let part = match origin {
             Some(origin) => {
-                let on_ring = origin.distance(center) >= inner - 2.0;
-                ui.data_mut(|d| d.insert_temp(drag_key, on_ring));
-                on_ring
+                let d = origin.distance(center);
+                // The hue knob reaches past the ring's edge on a small wheel.
+                let part = (d <= outer + 7.0).then_some(d >= inner - 2.0);
+                ui.data_mut(|data| data.insert_temp(drag_key, part));
+                part
             }
-            None => ui.data(|d| d.get_temp::<bool>(drag_key)).unwrap_or(false),
+            None => ui.data(|d| d.get_temp::<Option<bool>>(drag_key)).unwrap_or(Some(false)),
         };
-        if on_ring {
-            let a = (center.y - p.y).atan2(p.x - center.x).rem_euclid(TAU);
-            v[0] = (a / TAU * 360.0).round().rem_euclid(360.0);
-        } else if let Some((s2, b2)) = triangle_sv(tri, p) {
-            v[1] = (s2 * 100.0).round();
-            v[2] = (b2 * 100.0).round();
+        match part {
+            Some(true) => {
+                let a = (center.y - p.y).atan2(p.x - center.x).rem_euclid(TAU);
+                v[0] = (a / TAU * 360.0).round().rem_euclid(360.0);
+                changed = true;
+            }
+            Some(false) => {
+                if let Some((s2, b2)) = triangle_sv(tri, p) {
+                    v[1] = (s2 * 100.0).round();
+                    v[2] = (b2 * 100.0).round();
+                }
+                changed = true;
+            }
+            None => {}
         }
-        changed = true;
     }
     // Knobs: on the ring at the hue, in the triangle at the saturation and brightness.
     let a = h * TAU;
@@ -724,10 +742,8 @@ fn ramp_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 
 /// The Color panel's panel menu, Photoshop's: the modes, the copy commands, the ramps.
 pub(crate) fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    for (i, mode) in ColorPanelMode::ALL.into_iter().enumerate() {
-        if i == 3 {
-            ui.separator();
-        }
+    // One section, as Photoshop's: no separator between Color Wheel and Grayscale Slider.
+    for mode in ColorPanelMode::ALL {
         if check_item(ui, app.ui.color_panel.mode == mode, mode.label()) {
             app.ui.color_panel.mode = mode;
             ui.close();
