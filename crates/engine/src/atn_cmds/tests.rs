@@ -243,6 +243,53 @@ fn a_selective_color_step_in_the_scalar_form_keeps_its_values() {
     assert_eq!(range(&nulled, "reds"), [35.0, 0.0, 0.0, 0.0], "{nulled}");
 }
 
+/// A setting Photoshop's event has no field for is dropped by export, and the step then plays back
+/// as a different edit: Crystallize's `seed` (#7668), Radial Blur's centre, Minimum's and
+/// Maximum's `preserve`. Such a step is refused, as one with no equivalent event already is.
+#[test]
+fn a_setting_the_event_cannot_hold_is_refused() {
+    for (id, params) in [
+        ("filter.pixelate.crystallize", json!({"cellSize": 5, "seed": 37})),
+        ("filter.blur.radialBlur", json!({"amount": 10, "centerX": 0.25, "centerY": 0.5})),
+        ("filter.other.minimum", json!({"radius": 4, "preserve": "roundness"})),
+        ("filter.other.maximum", json!({"radius": 4, "preserve": "roundness"})),
+    ] {
+        let mut s = Session::new();
+        s.actions.list.push(Action::new("A", vec![(id.into(), params)]));
+        let before = s.actions.list[0].steps.clone();
+        let e = s.execute("actions.save", json!({"action": "A"})).unwrap_err().to_string();
+        assert!(e.contains(id), "{id}: {e}");
+        // A refused save leaves the action as it was: the step is still there to be played.
+        assert_eq!(s.actions.list[0].steps, before, "{id}");
+        let r = s.execute("actions.save", json!({"action": "A", "skipUnsupported": true})).unwrap();
+        assert_eq!(r["skipped"], json!([{"action": "A", "step": 0, "id": id}]), "{id}");
+        assert_eq!(s.actions.list[0].steps, before, "{id}: skipping a step does not drop it");
+    }
+}
+
+/// The same steps at the value the event plays as, and with the setting absent: written as before.
+#[test]
+fn settings_at_the_value_the_event_plays_still_export() {
+    for (id, params) in [
+        ("filter.pixelate.crystallize", json!({"cellSize": 5, "seed": 0})),
+        ("filter.pixelate.crystallize", json!({"cellSize": 5})),
+        ("filter.blur.radialBlur", json!({"amount": 10, "centerX": 0.5, "centerY": 0.5})),
+        ("filter.blur.radialBlur", json!({"amount": 10})),
+        ("filter.other.minimum", json!({"radius": 4, "preserve": "squareness"})),
+        ("filter.other.maximum", json!({"radius": 4})),
+        // `preserve` reaches the filter through a comparison with the exact string "roundness",
+        // so these play as squareness -- replay's own value -- and lose nothing by export (#7759
+        // review).
+        ("filter.other.minimum", json!({"radius": 4, "preserve": "Squareness"})),
+        ("filter.other.maximum", json!({"radius": 4, "preserve": "Roundness"})),
+    ] {
+        let mut s = Session::new();
+        s.actions.list.push(Action::new("A", vec![(id.into(), params.clone())]));
+        let r = s.execute("actions.save", json!({"action": "A"})).unwrap_or_else(|e| panic!("{id} {params}: {e}"));
+        assert_eq!(r["skipped"], json!([]), "{id} {params}");
+    }
+}
+
 #[test]
 fn every_mapped_command_exports_and_imports_back() {
     let cases: Vec<(&str, Value)> = vec![

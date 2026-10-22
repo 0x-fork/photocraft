@@ -969,7 +969,7 @@ macro_rules! ev {
                 Some(m) => step($id, Value::Object(m)),
                 None => Mapped::Unsupported { harmless: false },
             },
-            to: |_, p| if pixel_target(p) && !($skip)(p) { fields_to(p, $fields, desc("null")) } else { None },
+            to: |_, p| if pixel_target(p) && !($skip)(p) && holds_its_settings($id, p) { fields_to(p, $fields, desc("null")) } else { None },
         }
     };
 }
@@ -979,6 +979,46 @@ macro_rules! ev {
 /// replay as the default Squareness (#7233).
 fn preserves_roundness(p: &Value) -> bool {
     p.get("preserve").and_then(Value::as_str) == Some("roundness")
+}
+
+/// Settings a mapped event has no field for, by command: `(param, the value the event plays as)`.
+/// Photoshop's event has nowhere to put these, so a step that sets one cannot be written: it
+/// would import as a different edit, silently. Such a step is refused, the way [`pixel_target`]
+/// refuses a filter aimed at a mask -- and no key Photoshop does not define is invented for it,
+/// which the clean-room rule forbids and which would make the file wrong in another reader.
+///
+/// A step that leaves the setting at the value the event plays as exports as before.
+/// How a setting the event cannot carry behaves once the step is replayed without it. Which of
+/// the two a setting takes follows the command's own reading of it, not the parameter spec.
+enum Lost {
+    /// Replay uses this value, so only a step already at it survives. Numbers and strings are
+    /// both compared as written, since the commands below read these settings as written.
+    ReplaysAs(&'static str),
+    /// The command reads only this one spelling as anything other than what replay does, so every
+    /// other value survives -- a differently cased one included, because it too plays as replay's.
+    DiffersAt(&'static str),
+}
+
+const UNHOLDABLE: &[(&str, &[(&str, Lost)])] = &[
+    // Crst carries ClSz only; replay seeds the pattern from 0 (#7668).
+    ("filter.pixelate.crystallize", &[("seed", Lost::ReplaysAs("0"))]),
+    // RdlB carries Amnt, BlrM and BlrQ; replay spins or zooms about the middle of the layer.
+    ("filter.blur.radialBlur", &[("centerX", Lost::ReplaysAs("0.5")), ("centerY", Lost::ReplaysAs("0.5"))]),
+    // Mnm /Mxm carry Rds only; replay keeps squareness, and so does the command for anything but
+    // the exact string "roundness" -- see `preserve` in filters.rs.
+    ("filter.other.minimum", &[("preserve", Lost::DiffersAt("roundness"))]),
+    ("filter.other.maximum", &[("preserve", Lost::DiffersAt("roundness"))]),
+];
+
+/// Whether every setting of `p` that its event cannot hold would play the same without it
+/// (see [`UNHOLDABLE`]).
+fn holds_its_settings(id: &str, p: &Value) -> bool {
+    let Some((_, settings)) = UNHOLDABLE.iter().find(|(cmd, _)| *cmd == id) else { return true };
+    settings.iter().all(|(param, lost)| match (p.get(param), lost) {
+        (None | Some(Value::Null), _) => true,
+        (Some(v), Lost::ReplaysAs(played)) => v.as_str() == Some(played) || v.as_f64().is_some_and(|n| played.parse::<f64>().is_ok_and(|d| n == d)),
+        (Some(v), Lost::DiffersAt(spelling)) => v.as_str() != Some(spelling),
+    })
 }
 
 /// Whether `p` edits the layer's pixels: no `"target"` or `"target":"pixels"`. Photoshop's
