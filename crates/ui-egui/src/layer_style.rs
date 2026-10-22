@@ -14,7 +14,7 @@
 //!   the page-only `blendIfChannel`; `channelNames`: the document's colour channels.
 
 use egui::{Color32, RichText, Sense, Stroke, StrokeKind, vec2};
-use photocraft_doc::effects::{FxPaint, GlowSource, StrokePosition};
+use photocraft_doc::effects::{FxPaint, GlowSource, GlowTechnique, StrokePosition};
 use photocraft_doc::{Effect, Layer};
 use serde_json::{Map, Value, json};
 
@@ -89,6 +89,7 @@ fn spec(kind: &str) -> &'static [(&'static str, &'static str, P)] {
     const TECHNIQUE: &[(&str, &str)] = &[("smooth", "Smooth"), ("chiselHard", "Chisel Hard"), ("chiselSoft", "Chisel Soft")];
     const DIR: &[(&str, &str)] = &[("up", "Up"), ("down", "Down")];
     const SRC: &[(&str, &str)] = &[("edge", "Edge"), ("center", "Center")];
+    const GLOW_TECHNIQUE: &[(&str, &str)] = &[("softer", "Softer"), ("precise", "Precise")];
     const CONTOUR: P = P::Contour(Some("antiAlias"));
     match kind {
         "dropShadow" => &[
@@ -116,24 +117,28 @@ fn spec(kind: &str) -> &'static [(&'static str, &'static str, P)] {
             ("contour", "Contour", CONTOUR),
             ("noise", "Noise", P::Slider(0.0, 100.0, "%")),
         ],
+        // Photoshop's order (#6698): Technique before the spread or choke, Range after the contour.
         "outerGlow" => &[
             ("blend", "Blend Mode", P::Blend),
             ("opacity", "Opacity", P::Slider(0.0, 100.0, "%")),
             ("color", "Color", P::Color),
+            ("technique", "Technique", P::Choice(GLOW_TECHNIQUE)),
             ("spread", "Spread", P::Slider(0.0, 100.0, "%")),
             ("size", "Size", P::Slider(0.0, 250.0, "px")),
-            ("range", "Range", P::Slider(1.0, 100.0, "%")),
             ("contour", "Contour", CONTOUR),
+            ("range", "Range", P::Slider(1.0, 100.0, "%")),
             ("noise", "Noise", P::Slider(0.0, 100.0, "%")),
         ],
         "innerGlow" => &[
             ("blend", "Blend Mode", P::Blend),
             ("opacity", "Opacity", P::Slider(0.0, 100.0, "%")),
             ("color", "Color", P::Color),
+            ("technique", "Technique", P::Choice(GLOW_TECHNIQUE)),
             ("source", "Source", P::Choice(SRC)),
             ("choke", "Choke", P::Slider(0.0, 100.0, "%")),
             ("size", "Size", P::Slider(0.0, 250.0, "px")),
             ("contour", "Contour", CONTOUR),
+            ("range", "Range", P::Slider(1.0, 100.0, "%")),
             ("noise", "Noise", P::Slider(0.0, 100.0, "%")),
         ],
         "stroke" => &[
@@ -141,6 +146,7 @@ fn spec(kind: &str) -> &'static [(&'static str, &'static str, P)] {
             ("position", "Position", P::Choice(POS)),
             ("blend", "Blend Mode", P::Blend),
             ("opacity", "Opacity", P::Slider(0.0, 100.0, "%")),
+            ("overprint", "Overprint", P::Check),
             ("color", "Color", P::Color),
         ],
         "colorOverlay" => &[("blend", "Blend Mode", P::Blend), ("color", "Color", P::Color), ("opacity", "Opacity", P::Slider(0.0, 100.0, "%"))],
@@ -172,7 +178,7 @@ fn spec(kind: &str) -> &'static [(&'static str, &'static str, P)] {
             ("angle", "Angle", P::Angle),
             ("useGlobalLight", "Use Global Light", P::Check),
             ("altitude", "Altitude", P::Slider(0.0, 90.0, "°")),
-            ("glossContour", "Gloss Contour", P::Contour(None)),
+            ("glossContour", "Gloss Contour", P::Contour(Some("glossAntiAlias"))),
             // Bevel & Emboss › Contour element.
             ("contour", "Contour", P::Check),
             ("contourName", "", P::Contour(Some("contourAntiAlias"))),
@@ -243,6 +249,7 @@ fn values_of(e: &Effect, light: f32) -> Value {
             } else {
                 drop_keys(&mut v, &["color"]);
             }
+            set(&mut v, "technique", json!(if g.technique == GlowTechnique::Precise { "precise" } else { "softer" }));
             set(&mut v, if matches!(e, Effect::OuterGlow(_)) { "spread" } else { "choke" }, json!((g.spread * 100.0).round()));
             set(&mut v, "size", json!(g.size));
             set(&mut v, "range", json!((g.range * 100.0).round()));
@@ -266,6 +273,7 @@ fn values_of(e: &Effect, light: f32) -> Value {
                     _ => "outside",
                 }),
             );
+            set(&mut v, "overprint", json!(s.overprint));
             if let FxPaint::Color(c) = &s.paint {
                 set(&mut v, "color", json!(hex(c)));
             } else {
@@ -355,6 +363,7 @@ fn values_of(e: &Effect, light: f32) -> Value {
             set(&mut v, "altitude", json!(b.altitude));
             set(&mut v, "direction", json!(if b.up { "up" } else { "down" }));
             set(&mut v, "glossContour", photocraft_engine::layer_style::contour_param(&b.gloss_contour));
+            set(&mut v, "glossAntiAlias", json!(b.gloss_anti_alias));
             set(&mut v, "contour", json!(b.contour.is_some()));
             if let Some(c) = &b.contour {
                 set(&mut v, "contourName", photocraft_engine::layer_style::contour_param(&c.contour));
@@ -461,6 +470,39 @@ fn remove_instance(f: &mut Map<String, Value>, id: &str) {
 /// the layer's order), the blending options and the selected page. `select`
 /// names a kind to open: its first instance is selected (and enabled), or one
 /// is created. `light` is the document's global light angle.
+/// Whether the selected page is a Drop Shadow or Inner Shadow, which a drag on the image moves
+/// while the dialog is open, as in Photoshop (#5701; [`drag_shadow`]).
+pub fn drags_shadow(f: &Map<String, Value>) -> bool {
+    let selected = f.get("selected").and_then(Value::as_str).unwrap_or_default();
+    entry(f, selected).and_then(|e| e.get("kind")).and_then(Value::as_str).is_some_and(|k| matches!(k, "dropShadow" | "innerShadow"))
+}
+
+/// A drag on the image with a shadow page selected: `start` is true on the press (it records the
+/// shadow's angle and distance then), `total` the pointer's movement since in document pixels.
+/// The shadow's offset follows the pointer, kept as Photoshop's whole-degree angle and whole-pixel
+/// distance (offset = (−cos angle, sin angle) × distance, the light opposite the shadow); with
+/// Use Global Light the shared angle moves too ([`set_param`]).
+pub fn drag_shadow(f: &mut Map<String, Value>, start: bool, total: [f64; 2]) {
+    const KEY: &str = "__shadowDrag";
+    let Some(id) = f.get("selected").and_then(Value::as_str).map(str::to_string).filter(|_| drags_shadow(f)) else { return };
+    let Some(p) = entry(f, &id).and_then(|e| e.get("params")) else { return };
+    if start || f.get(KEY).is_none() {
+        let angle = p.get("angle").and_then(Value::as_f64).unwrap_or(120.0);
+        let distance = p.get("distance").and_then(Value::as_f64).unwrap_or(0.0);
+        f.insert(KEY.into(), json!([angle, distance]));
+    }
+    let Some([angle, distance]) = f.get(KEY).and_then(Value::as_array).and_then(|a| Some([a.first()?.as_f64()?, a.get(1)?.as_f64()?])) else { return };
+    let a = angle.to_radians();
+    let (ox, oy) = (-a.cos() * distance + total[0], a.sin() * distance + total[1]);
+    let d = ox.hypot(oy);
+    if !d.is_finite() {
+        return;
+    }
+    let new_angle = if d >= 0.5 { oy.atan2(-ox).to_degrees().round() } else { angle };
+    set_param(f, &id, "angle", json!(new_angle));
+    set_param(f, &id, "distance", json!(d.round().clamp(0.0, 30000.0)));
+}
+
 pub fn initial_fields(layer: &Layer, select: Option<&str>, light: f32) -> Map<String, Value> {
     let mut f = Map::new();
     f.insert("layer".into(), json!(layer.id.0));
@@ -1346,6 +1388,38 @@ mod tests {
     use super::*;
     use photocraft_doc::StrokeFx;
 
+    /// #5701: with a shadow page selected, a drag on the image moves the shadow: its offset
+    /// follows the pointer, as whole degrees and pixels, the global light angle with it.
+    #[test]
+    fn dragging_on_the_image_moves_the_selected_shadow() {
+        let shadow = |id: &str, kind: &str, global: bool| json!({"id": id, "kind": kind, "on": true, "params": {"angle": 120.0, "distance": 10.0, "useGlobalLight": global}});
+        let mut f = Map::new();
+        f.insert("selected".into(), json!("fx1"));
+        f.insert("globalLight".into(), json!(120.0));
+        f.insert("effects".into(), json!([shadow("fx1", "dropShadow", true), shadow("fx2", "innerShadow", true), shadow("fx3", "dropShadow", false)]));
+        assert!(drags_shadow(&f));
+        let params = |f: &Map<String, Value>, id: &str| {
+            let p = &entry(f, id).unwrap()["params"];
+            (p["angle"].as_f64().unwrap(), p["distance"].as_f64().unwrap())
+        };
+        // The press keeps the shadow where it is: (5, 8.66) px.
+        drag_shadow(&mut f, true, [0.0, 0.0]);
+        assert_eq!(params(&f, "fx1"), (120.0, 10.0));
+        // Dragged to (15, 0): straight right of the layer, the light from the left (180°).
+        drag_shadow(&mut f, false, [10.0, -8.660_254]);
+        assert_eq!(params(&f, "fx1"), (180.0, 15.0));
+        assert_eq!(params(&f, "fx2").0, 180.0, "the global light angle is shared");
+        assert_eq!(params(&f, "fx3"), (120.0, 10.0), "an instance with its own angle is left alone");
+        // Back onto the layer: no offset, and the angle the drag started with.
+        drag_shadow(&mut f, false, [-5.0, -8.660_254]);
+        assert_eq!(params(&f, "fx1"), (120.0, 0.0));
+        // Not on a shadow page: nothing moves.
+        f.insert("selected".into(), json!(BLENDING));
+        assert!(!drags_shadow(&f));
+        drag_shadow(&mut f, true, [50.0, 50.0]);
+        assert_eq!(params(&f, "fx1"), (120.0, 0.0));
+    }
+
     fn session() -> photocraft_engine::Session {
         let mut s = photocraft_engine::Session::new();
         s.execute("file.new", json!({"width": 64, "height": 64})).unwrap();
@@ -1567,6 +1641,40 @@ mod tests {
                 && g.stops[1].1 == photocraft_color::Color::rgb(0.0, 0.0, 1.0)),
             "the gradient is carried, not reset",
         );
+    }
+
+    #[test]
+    fn bevel_gloss_anti_alias_survives_the_dialog() {
+        let mut s = session();
+        s.execute("layer.layerStyle.bevelEmboss", json!({"glossContour": "Ring - Double", "glossAntiAlias": true})).unwrap();
+        let st = s.active().unwrap();
+        let id = st.active_layer.unwrap();
+        let mut f = initial_fields(st.doc.layer(id).unwrap(), None, st.doc.global_light.angle);
+        assert_eq!(effects_of(&f)[0]["params"]["glossAntiAlias"], json!(true));
+        // Editing another setting keeps the gloss contour's Anti-aliased.
+        set_param(&mut f, "fx1", "size", json!(12));
+        apply(&f, |cmd, p| s.execute(cmd, p).map_err(|e| e.to_string())).unwrap();
+        let st = s.active().unwrap();
+        let items = &st.doc.layer(id).unwrap().effects.items;
+        let Some(photocraft_doc::Effect::BevelEmboss(b)) = items.first() else { panic!("{items:?}") };
+        assert_eq!(b.size, 12.0);
+        assert!(b.gloss_anti_alias);
+    }
+
+    #[test]
+    fn stroke_overprint_survives_the_dialog() {
+        let mut s = session();
+        s.execute("layer.layerStyle.stroke", json!({"size": 3, "color": "#000000", "overprint": true})).unwrap();
+        let st = s.active().unwrap();
+        let id = st.active_layer.unwrap();
+        let mut f = initial_fields(st.doc.layer(id).unwrap(), None, st.doc.global_light.angle);
+        assert_eq!(effects_of(&f)[0]["params"]["overprint"], json!(true));
+        // Editing another setting keeps Overprint.
+        set_param(&mut f, "fx1", "size", json!(5));
+        apply(&f, |cmd, p| s.execute(cmd, p).map_err(|e| e.to_string())).unwrap();
+        let strokes = strokes_of(&s);
+        assert_eq!(strokes[0].size, 5.0);
+        assert!(strokes[0].overprint);
     }
 
     #[test]
@@ -1819,6 +1927,48 @@ mod tests {
         assert_eq!(glow["params"]["source"], json!("center"), "the dialog shows the effect's source");
         apply(&f, |cmd, p| s.execute(cmd, p).map_err(|e| e.to_string())).unwrap();
         assert_eq!(source(&s), Some(GlowSource::Center), "OK keeps the source");
+    }
+
+    /// #6698: Inner Glow lacked Photoshop's Technique and Range, Outer Glow its Technique. They
+    /// show in Photoshop's order, the dialog loads them, and OK keeps them.
+    #[test]
+    fn glows_show_and_keep_technique_and_range() {
+        let keys = |kind: &str| spec(kind).iter().map(|(k, _, _)| *k).collect::<Vec<_>>();
+        assert_eq!(keys("innerGlow"), ["blend", "opacity", "color", "technique", "source", "choke", "size", "contour", "range", "noise"]);
+        assert_eq!(keys("outerGlow"), ["blend", "opacity", "color", "technique", "spread", "size", "contour", "range", "noise"]);
+        let mut s = session();
+        s.execute("layer.layerStyle.innerGlow", json!({"technique": "precise", "range": 30})).unwrap();
+        s.execute("layer.layerStyle.outerGlow", json!({"technique": "precise"})).unwrap();
+        let glows = |s: &photocraft_engine::Session| {
+            let d = s.active().unwrap();
+            let id = d.active_layer.unwrap();
+            d.doc
+                .layer(id)
+                .unwrap()
+                .effects
+                .items
+                .iter()
+                .filter_map(|e| match e {
+                    Effect::InnerGlow(g) | Effect::OuterGlow(g) => Some((kind_of(e), g.technique, (g.range * 100.0).round())),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let expected = [("outerGlow", GlowTechnique::Precise, 50.0), ("innerGlow", GlowTechnique::Precise, 30.0)];
+        let mut have = glows(&s);
+        have.sort_by_key(|g| g.0);
+        let mut want = expected.to_vec();
+        want.sort_by_key(|g| g.0);
+        assert_eq!(have, want);
+        let st = s.active().unwrap();
+        let id = st.active_layer.unwrap();
+        let f = initial_fields(st.doc.layer(id).unwrap(), None, st.doc.global_light.angle);
+        let inner = effects_of(&f).iter().find(|e| e["kind"] == json!("innerGlow")).unwrap().clone();
+        assert_eq!((&inner["params"]["technique"], &inner["params"]["range"]), (&json!("precise"), &json!(30.0)), "the dialog shows them");
+        apply(&f, |cmd, p| s.execute(cmd, p).map_err(|e| e.to_string())).unwrap();
+        let mut have = glows(&s);
+        have.sort_by_key(|g| g.0);
+        assert_eq!(have, want, "OK keeps them");
     }
 
     #[test]

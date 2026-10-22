@@ -55,6 +55,27 @@ fn browse_runs_a_script_file() {
 }
 
 #[test]
+fn browse_rejects_photoshop_extendscript() {
+    let dir = tmp("jsx");
+    let jsx = format!("{dir}/hello.jsx");
+    std::fs::write(&jsx, "alert('hi');\n").unwrap();
+    let mut s = Session::new();
+    let err = s.execute("file.scripts.browse", json!({"path": jsx})).unwrap_err().to_string();
+    assert!(err.contains("not Photoshop ExtendScript"), "{err}");
+    assert!(err.contains("JSON"), "{err}");
+    let js = format!("{dir}/hello.js");
+    std::fs::write(&js, "alert('hi');\n").unwrap();
+    assert!(s.execute("file.scripts.browse", json!({"path": js})).is_err());
+    let err = s.execute("file.scripts.browse", json!({"name": "Resize.jsx", "script": "alert(1);"})).unwrap_err().to_string();
+    assert!(err.contains(".js/.jsx"), "{err}");
+    // A JSON script still runs even if the file name is not a Photoshop suffix.
+    let json = format!("{dir}/rotate.json");
+    std::fs::write(&json, r#"[["file.new", {"width": 8, "height": 8}]]"#).unwrap();
+    let r = s.execute("file.scripts.browse", json!({"path": json})).unwrap();
+    assert_eq!(r["ok"], true);
+}
+
+#[test]
 fn recording_browse_script_captures_each_effect_once() {
     let mut s = Session::new();
     s.execute("file.new", json!({"width": 12, "height": 8})).unwrap();
@@ -229,6 +250,38 @@ fn droplets_carry_the_actions_their_play_steps_call() {
     .unwrap();
     let r = fresh.execute("file.automate.runDroplet", json!({"droplet": old, "input": [dir.clone()]})).unwrap();
     assert_eq!(r["files"].as_array().unwrap().len(), inputs.len(), "{r}");
+}
+
+#[test]
+fn droplets_carry_the_actions_their_conditional_steps_call() {
+    use crate::actions_cmds::Action;
+    let dir = tmp("droplet-conditional");
+    let inputs = images(&dir, 2, 40, 20);
+    let mut s = Session::new();
+    let act = |name: &str, steps: Value| -> Action { serde_json::from_value(json!({"name": name, "steps": steps})).unwrap() };
+    s.actions.list = vec![
+        act("Unrelated", json!([["image.imageRotation.180", {}]])),
+        act("Rotate", json!([["image.imageRotation.90cw", {}]])),
+        // The then branch calls Rotate by index, as the panel records it.
+        act("Wide", json!([["actions.play", {"action": 1}]])),
+        act("Tall", json!([["image.imageRotation.180", {}]])),
+    ];
+    let steps = json!([["actions.conditional", {"if": "landscape", "then": "Wide", "else": "Tall"}]]);
+    let out = format!("{dir}/out");
+    let r = s
+        .execute("file.automate.createDroplet", json!({"path": format!("{dir}/Cond"), "steps": steps, "format": "png", "output": out, "shim": false}))
+        .unwrap();
+    let dp = r["path"].as_str().unwrap().to_string();
+    let v: Value = serde_json::from_slice(&std::fs::read(&dp).unwrap()).unwrap();
+    let names: Vec<&str> = v["calledActions"].as_array().unwrap().iter().map(|a| a["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["Rotate", "Wide", "Tall"], "both branches and what they call");
+
+    // A fresh session, as `photocraft-cli droplet` and the droplet shim use.
+    let mut fresh = Session::new();
+    let r = fresh.execute("file.automate.runDroplet", json!({"droplet": dp, "input": [dir.clone()]})).unwrap();
+    assert_eq!(r["files"].as_array().unwrap().len(), inputs.len(), "{r}");
+    let img = photocraft_codecs::decode(&std::fs::read(format!("{out}/img0.png")).unwrap()).unwrap();
+    assert_eq!(img.dimensions(), (20, 40), "the landscape input took the then branch");
 }
 
 #[test]

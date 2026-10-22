@@ -39,6 +39,8 @@ pub static ICONS: &[(&str, &[u8])] = &[
     ("diamond", include_bytes!("../../../assets/icons/diamond.svg")),
     ("direct-select", include_bytes!("../../../assets/icons/direct-select.svg")),
     ("droplet", include_bytes!("../../../assets/icons/droplet.svg")),
+    // Original: a dashed horizontal ellipse (Elliptical Marquee), on Lucide's grid and stroke.
+    ("ellipse-dashed", include_bytes!("../../../assets/icons/ellipse-dashed.svg")),
     ("ellipsis", include_bytes!("../../../assets/icons/ellipsis.svg")),
     ("eraser", include_bytes!("../../../assets/icons/eraser.svg")),
     // Derived from Lucide's eraser (ISC): with a sparkle (Magic Eraser) / a transparency grid (Background Eraser).
@@ -116,6 +118,7 @@ pub static ICONS: &[(&str, &[u8])] = &[
     ("settings", include_bytes!("../../../assets/icons/settings.svg")),
     ("slash", include_bytes!("../../../assets/icons/slash.svg")),
     ("slice-knife", include_bytes!("../../../assets/icons/slice-knife.svg")),
+    ("slice-select", include_bytes!("../../../assets/icons/slice-select.svg")),
     ("sliders-horizontal", include_bytes!("../../../assets/icons/sliders-horizontal.svg")),
     ("sparkles", include_bytes!("../../../assets/icons/sparkles.svg")),
     ("spline", include_bytes!("../../../assets/icons/spline.svg")),

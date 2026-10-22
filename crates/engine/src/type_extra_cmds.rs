@@ -13,7 +13,7 @@ use photocraft_geom::Point;
 use photocraft_text::render::PathEl;
 use serde_json::{Value, json};
 
-use crate::commands::{CommandSpec, layer_param};
+use crate::commands::{CommandSpec, explicit_layer, layer_param};
 use crate::type_cmds::{
     check_text_unlocked, format_targets, has_format_target, is_auto_named, layer_name, refresh, replace_text, style_paragraphs, style_range, with_text_targets,
 };
@@ -477,7 +477,10 @@ fn toggle_opentype(s: &mut Session, p: &Value, tag: &'static str) -> Result<Valu
 // ---------- lorem ipsum / update / fonts / defaults ----------
 
 fn paste_lorem(s: &mut Session, p: &Value) -> Result<Value> {
-    if has_text(s).is_ok() && p.get("new").and_then(Value::as_bool) != Some(true) {
+    // Into the layer `with_text` edits: an explicit "layer" (an error unless it is a type layer),
+    // else the active layer when it is a type layer.
+    let new = p.get("new").and_then(Value::as_bool) == Some(true);
+    if !new && (explicit_layer(s, p)?.is_some() || has_text(s).is_ok()) {
         let caret = with_text(s, p, "Paste Lorem Ipsum", |t, _| {
             let at = p.get("at").and_then(Value::as_u64).map_or(t.text.len(), |c| byte_index(&t.text, c as usize));
             replace_text(t, at, at, LOREM_IPSUM);
@@ -524,16 +527,39 @@ fn style_font_missing(fonts: &mut photocraft_text::FontDb, style: &photocraft_do
     true
 }
 
-/// Font families used by type layers that the font database cannot supply.
+/// The document's type layers, inside groups too.
+fn type_layers(doc: &Document) -> Vec<&TextLayer> {
+    doc.walk()
+        .into_iter()
+        .filter_map(|(_, _, l)| match &l.content {
+            LayerContent::Text(t) => Some(t),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Whether `doc` has a type layer. Only then does checking its fonts need the shared text engine,
+/// whose first use waits for the installed-font scan started at launch: minutes on some machines
+/// (#7332).
+pub fn has_type_layers(doc: &Document) -> bool {
+    doc.walk().iter().any(|(_, _, l)| matches!(l.content, LayerContent::Text(_)))
+}
+
+/// Font families used by type layers that the font database cannot supply. A document without
+/// type returns at once, without touching the shared text engine: the shell asks this on the UI
+/// thread for every file it opens, and waiting there for the font scan froze the window on the
+/// first open after launch (#7332).
 pub fn missing_fonts(doc: &Document) -> Vec<String> {
+    let layers = type_layers(doc);
+    if layers.is_empty() {
+        return Vec::new();
+    }
     let mut engine = photocraft_text::shared().lock().unwrap_or_else(|e| e.into_inner());
     let mut out: Vec<String> = Vec::new();
-    for (_, _, l) in doc.walk() {
-        if let LayerContent::Text(t) = &l.content {
-            for r in t.char_runs() {
-                if style_font_missing(&mut engine.fonts, &r.style) && !out.contains(&r.style.font_family) {
-                    out.push(r.style.font_family);
-                }
+    for t in layers {
+        for r in t.char_runs() {
+            if style_font_missing(&mut engine.fonts, &r.style) && !out.contains(&r.style.font_family) {
+                out.push(r.style.font_family);
             }
         }
     }

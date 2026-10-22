@@ -1,4 +1,4 @@
-//! Custom widgets for the Photocraft look: cards with pill tabs, thin sliders with round knobs,
+//! Custom widgets for the PhotoCraft look: cards with pill tabs, thin sliders with round knobs,
 //! monospace value fields with dimmed units, toggle switches, primary/secondary buttons.
 
 use egui::{Align2, Color32, CornerRadius, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2};
@@ -350,6 +350,25 @@ pub fn value_field_units(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInc
     value_field_in(ui, value, range, "", width, 0.0, FieldOpts { decimals: Some(decimals), units: Some(units), ..Default::default() }).0
 }
 
+/// A [`value_field_prec`] in `units` whose 100 % is a length of `extent` px (Free Transform's W
+/// and H): a length typed while it shows percent becomes that share of `extent` (`40px`, `2in`),
+/// and a percentage typed while it shows a length becomes that share of `extent` (`50%`), at
+/// `units`' resolution (#6284). The field keeps its own unit.
+#[allow(clippy::too_many_arguments)]
+pub fn value_field_extent(
+    ui: &mut Ui,
+    value: &mut f32,
+    range: std::ops::RangeInclusive<f32>,
+    suffix: &str,
+    width: f32,
+    decimals: u32,
+    units: FieldUnits,
+    extent: f64,
+) -> Response {
+    let opts = FieldOpts { decimals: Some(decimals), units: Some(units), extent: Some(extent), ..Default::default() };
+    value_field_in(ui, value, range, suffix, width, 0.0, opts).0
+}
+
 fn field_resolution_id() -> egui::Id {
     egui::Id::new("pc-field-resolution")
 }
@@ -499,6 +518,8 @@ struct FieldOpts {
     decimals: Option<u32>,
     /// The unit typed units convert into (default: the suffix's, at [`set_field_resolution`]).
     units: Option<FieldUnits>,
+    /// The length (px) 100 % stands for, so lengths and percentages convert into each other.
+    extent: Option<f64>,
     wrap_drag: bool,
 }
 
@@ -526,7 +547,7 @@ fn value_field_box(
     trailing: f32,
     opts: FieldOpts,
 ) -> (Response, Rect) {
-    let FieldOpts { decimals, units, wrap_drag } = opts;
+    let FieldOpts { decimals, units, extent, wrap_drag } = opts;
     let t = Tokens::get(ui.ctx());
     let (rect, slot) = ui.allocate_exact_size(size, Sense::hover());
     let scrub = take_label_scrub(ui, rect).map(|s| {
@@ -544,8 +565,8 @@ fn value_field_box(
     // Typed text loses its spaces before parsing, so a " pt" suffix reads as "pt".
     let typed_suffix = suffix.trim();
     let units = match units {
-        Some(u) => crate::numeric_expression::Units { unit: Some(u.unit), suffix: typed_suffix, dpi: u.dpi, ppi: u.ppi },
-        None => crate::numeric_expression::Units { unit: unit_of_suffix(typed_suffix), suffix: typed_suffix, dpi, ppi },
+        Some(u) => crate::numeric_expression::Units { unit: Some(u.unit), suffix: typed_suffix, dpi: u.dpi, ppi: u.ppi, extent },
+        None => crate::numeric_expression::Units { unit: unit_of_suffix(typed_suffix), suffix: typed_suffix, dpi, ppi, extent },
     };
     surface(ui, rect, t.field, false);
     if !t.bevel {
@@ -759,14 +780,20 @@ pub fn text_field_ex(ui: &mut Ui, id: egui::Id, text: &mut String, hint: &str, w
         ui.painter().rect_stroke(rect, t.radius_sm, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
     }
     let font = if mono { theme::mono(12.0) } else { egui::FontId::proportional(12.5) };
-    let mut edit = egui::TextEdit::singleline(text).id(id).hint_text(hint).frame(egui::Frame::NONE).font(font);
+    let inner = rect.shrink2(TEXT_FIELD_PAD);
+    // TextEdit draws its text at the top of its rect; fill the box and centre the line in it, so
+    // the text sits on the field's middle like a dropdown's or value field's.
+    let mut edit =
+        egui::TextEdit::singleline(text).id(id).hint_text(hint).frame(egui::Frame::NONE).font(font).min_size(inner.size()).vertical_align(egui::Align::Center);
     if let Some(limit) = char_limit {
         edit = edit.char_limit(limit);
     }
     // A child Ui keeps the field's selection colour local: `Visuals::selection` also fills selected
     // list rows and slider trails, which must keep the theme's.
     let layout = egui::Layout::centered_and_justified(egui::Direction::TopDown);
-    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(TEXT_FIELD_PAD)).layout(layout));
+    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner).layout(layout));
+    // The theme's 24 pt interact height would make the edit taller than the box's inside.
+    child.spacing_mut().interact_size.y = inner.height();
     child.style_mut().visuals.selection.bg_fill = t.field_selection();
     child.add(edit)
 }
@@ -786,6 +813,8 @@ pub fn focus_first_field(ctx: &egui::Context, on: bool) {
         }
     });
 }
+
+const NUMERIC_INPUT_LIMIT: usize = 128;
 
 /// The number in a [`value_field`]. A typed number applies as it's typed; arithmetic waits for
 /// Enter, Tab or click-away, because per keystroke `5/2` would land first and a caller that
@@ -808,6 +837,25 @@ fn number_edit(
     if ui.is_enabled() {
         crate::field_tab::register(&ctx, id);
     }
+    // Use DragValue's focus check before it builds its TextEdit: oversized events must never
+    // reach text layout. Registering interest also handles focus arriving by Tab this frame.
+    let editing = ui.is_enabled()
+        && ui.memory_mut(|m| {
+            m.interested_in_focus(id, ui.layer_id());
+            m.has_focus(id)
+        });
+    if editing {
+        ui.input_mut(|input| {
+            input.events.retain(|event| {
+                let text = match event {
+                    egui::Event::Text(text) | egui::Event::Paste(text) | egui::Event::Ime(egui::ImeEvent::Commit(text)) => text,
+                    egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) => text,
+                    _ => return true,
+                };
+                text.chars().nth(NUMERIC_INPUT_LIMIT).is_none()
+            });
+        });
+    }
     let held = id.with("arithmetic");
     let math = ui.memory(|m| m.has_focus(id)) && ui.data(|d| d.get_temp(held)).unwrap_or(false);
     ui.data_mut(|d| d.insert_temp(held, math));
@@ -818,6 +866,9 @@ fn number_edit(
     let mut resp = ui.add(
         egui::DragValue::new(value)
             .range(range.clone())
+            // Only edits are clamped (below): showing a value past the range, such as a type layer
+            // scaled to 2400 pt in a 1296 pt field, must not change it (#5717).
+            .clamp_existing_to_range(false)
             // A warp is an absolute-position jump. The scoped scrub below removes that jump.
             .speed(if wrapped_drag { 0.0 } else { speed })
             .custom_formatter(move |v, _| match decimals {
@@ -828,6 +879,10 @@ fn number_edit(
             .update_while_editing(!math)
             // Focus is read when parsing, not above: Tab hands it on inside `ui.add`.
             .custom_parser(move |s| {
+                // Short events can accumulate: reject before either parser normalizes the text.
+                if s.chars().nth(NUMERIC_INPUT_LIMIT).is_some() {
+                    return None;
+                }
                 let v = parse_num_in(s, units);
                 if ctx.memory(|m| m.has_focus(id)) && plain(s).is_none() {
                     // Still typing arithmetic: hold it, and stop applying keystrokes once it parses.
@@ -838,7 +893,12 @@ fn number_edit(
             }),
     );
     if wrap_drag {
-        crate::scrub_wrap::update(ui, &resp, value, before, range, speed, wrapping);
+        crate::scrub_wrap::update(ui, &resp, value, before, range.clone(), speed, wrapping);
+    }
+    let (lo, hi) = (*range.start(), *range.end());
+    // `f32::clamp` panics on a reversed or NaN range, which `DragValue::range` accepts.
+    if *value != before && lo <= hi {
+        *value = value.clamp(lo, hi);
     }
     resp.flags.set(egui::response::Flags::CHANGED, *value != before);
     resp
@@ -887,6 +947,34 @@ pub struct RowGestures {
     /// Each wheel notch over the slider moves the value by this step (up = higher; ×10 with
     /// Shift). Photoshop does this in dialogs, not in the Properties panel.
     pub wheel_step: Option<f32>,
+    /// A curved track: the knob at fraction f of the track is `lo + (hi - lo) * f^k`, so small
+    /// values get fine steps (Photoshop's mask Feather, #6545). Typed, scrubbed and stepped
+    /// values stay linear; only the track maps through the curve.
+    pub curve: Option<f32>,
+}
+
+/// The value at fraction `f` of a track over `lo..=hi`, through `curve` (see [`RowGestures`]).
+pub(crate) fn curve_value(f: f32, lo: f32, hi: f32, curve: Option<f32>) -> f32 {
+    match curve {
+        Some(k) if k.is_finite() && k > 0.0 => lo + f.clamp(0.0, 1.0).powf(k) * (hi - lo),
+        _ => lo + f * (hi - lo),
+    }
+}
+
+/// Where `v` sits on a track over `lo..=hi`, as a fraction: the inverse of [`curve_value`].
+pub(crate) fn curve_fraction(v: f32, lo: f32, hi: f32, curve: Option<f32>) -> f32 {
+    let f = ((v - lo) / (hi - lo)).clamp(0.0, 1.0);
+    match curve {
+        // An unset (NaN) value draws the knob at the start rather than nowhere.
+        Some(k) if k.is_finite() && k > 0.0 => {
+            if f.is_finite() {
+                f.powf(1.0 / k)
+            } else {
+                0.0
+            }
+        }
+        _ => f,
+    }
 }
 
 /// Wheel notches this frame while the pointer is over `resp` (Shift ×10). Wheel lines add up in
@@ -971,7 +1059,7 @@ fn slider_with(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32
         && (resp.dragged() || resp.clicked())
     {
         let f = ((p.x - track.left()) / track.width()).clamp(0.0, 1.0);
-        let nv = lo + f * (hi - lo);
+        let nv = curve_value(f, lo, hi, g.curve);
         if (nv - *value).abs() > f32::EPSILON {
             *value = nv;
             resp.mark_changed();
@@ -994,7 +1082,7 @@ fn slider_with(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32
             }
         }
     }
-    let f = ((*value - lo) / (hi - lo)).clamp(0.0, 1.0);
+    let f = curve_fraction(*value, lo, hi, g.curve);
     let knob_x = track.left() + f * track.width();
     let painter = ui.painter();
     match gradient {
@@ -1028,8 +1116,8 @@ fn slider_with(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32
         let kr = if t.pro { 6.0 } else { 7.0 };
         painter.circle_filled(knob + vec2(0.0, 1.0), kr + 0.5, Color32::from_black_alpha(90));
         painter.circle_filled(knob, kr, if t.pro { Color32::from_gray(236) } else { Color32::WHITE });
-        if t.pro {
-            painter.circle_stroke(knob, kr, Stroke::new(1.0, Color32::from_gray(40)));
+        if let Some(outline) = t.knob_outline() {
+            painter.circle_stroke(knob, kr, Stroke::new(1.0, outline));
         }
         if resp.hovered() || resp.dragged() {
             painter.circle_stroke(knob, 9.5, Stroke::new(2.0, t.accent_soft));
@@ -1179,15 +1267,23 @@ pub struct DialogButton<'a> {
     pub label: &'a str,
     pub min_width: f32,
     pub enabled: bool,
+    /// Take keyboard focus this frame (see [`DialogButton::focus`]).
+    pub focus: bool,
 }
 
 impl<'a> DialogButton<'a> {
     pub fn new(role: ButtonRole, label: &'a str, min_width: f32) -> Self {
-        Self { role, label, min_width, enabled: true }
+        Self { role, label, min_width, enabled: true, focus: false }
     }
 
     pub fn enabled(self, enabled: bool) -> Self {
         Self { enabled, ..self }
+    }
+
+    /// Asks for keyboard focus for this button: from there the arrow keys move between the row's
+    /// buttons and Enter or Space presses the focused one.
+    pub fn focus(self, focus: bool) -> Self {
+        Self { focus, ..self }
     }
 }
 
@@ -1211,6 +1307,9 @@ pub fn dialog_buttons(ui: &mut Ui, buttons: &[DialogButton]) -> Option<ButtonRol
                         if b.role == ButtonRole::Default { primary_button(ui, b.label, b.min_width) } else { secondary_button(ui, b.label, b.min_width) }
                     })
                     .inner;
+                if b.focus && b.enabled {
+                    r.request_focus();
+                }
                 if r.clicked() {
                     hit = Some(b.role);
                 }
@@ -1226,9 +1325,14 @@ fn button_size(ui: &Ui, label: &str, min_width: f32) -> Vec2 {
     button_layout(ui, label, min_width, None, Tokens::get(ui.ctx()).text).1
 }
 
+/// The height of a primary or secondary button (and so of a dialog's button row).
+pub fn button_height(ctx: &egui::Context) -> f32 {
+    if Tokens::get(ctx).pro { 28.0 } else { 30.0 }
+}
+
 fn button_layout(ui: &Ui, label: &str, min_width: f32, height: Option<f32>, fg: Color32) -> (std::sync::Arc<egui::Galley>, Vec2) {
     let galley = ui.painter().layout_no_wrap(tl!(label).to_owned(), theme::medium(13.0), fg);
-    let h = height.unwrap_or(if Tokens::get(ui.ctx()).pro { 28.0 } else { 30.0 });
+    let h = height.unwrap_or(button_height(ui.ctx()));
     let size = vec2((galley.size().x + 28.0).max(min_width), h);
     (galley, size)
 }
@@ -1763,6 +1867,33 @@ fn clean(text: &str) -> String {
 mod tests {
     use egui::{Key, Modifiers};
 
+    /// A light theme rings the slider knob with its outline token; a dark Studio-layout one draws
+    /// the plain knob (#7927).
+    #[test]
+    fn light_themes_draw_the_slider_knob_outline() {
+        use crate::theme::{ThemeKind, Tokens};
+        fn rings(shape: &egui::Shape, out: &mut Vec<egui::Color32>) {
+            match shape {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| rings(s, out)),
+                egui::Shape::Circle(c) if c.radius == 7.0 && c.stroke.width == 1.0 => out.push(c.stroke.color),
+                _ => {}
+            }
+        }
+        for kind in [ThemeKind::StudioLight, ThemeKind::Adwaita, ThemeKind::BreezeLight, ThemeKind::SoftLight, ThemeKind::Studio] {
+            let ctx = egui::Context::default();
+            crate::theme::apply(&ctx, kind);
+            let mut v = 50.0;
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                super::slider(ui, &mut v, 0.0..=100.0, None);
+            });
+            out.textures_delta.clear();
+            let mut found = Vec::new();
+            out.shapes.iter().for_each(|c| rings(&c.shape, &mut found));
+            let want: Vec<_> = Tokens::for_kind(kind).knob_outline().into_iter().collect();
+            assert_eq!(found, want, "{kind:?}");
+        }
+    }
+
     #[test]
     fn checkbox_label_is_a_button_target_not_selectable_text() {
         use egui::CursorIcon;
@@ -1920,6 +2051,7 @@ mod tests {
     /// `%`'s, so the number lines up with the box and its unit (#5150).
     #[test]
     fn value_field_digits_ink_is_centred_and_level_with_the_unit() {
+        let _gpu = photocraft_testkit::gpu_lock();
         let scale = 4.0;
         for kind in [crate::theme::ThemeKind::Pro, crate::theme::ThemeKind::Studio] {
             let mut h = Harness::builder().with_size(egui::vec2(100.0, 40.0)).with_pixels_per_point(scale).wgpu().build_ui_state(
@@ -2040,6 +2172,28 @@ mod tests {
         assert_eq!(press(&mut h, Modifiers::COMMAND, Key::ArrowUp), 0.62);
         let mut h = focused(995.0, 0.0..=1000.0);
         assert_eq!(press(&mut h, Modifiers::SHIFT, Key::ArrowUp), 1000.0);
+    }
+
+    /// #6545: a curved track (the mask Feather) has fine steps at the left and coarse ones toward
+    /// the right end, and the knob drawn for a value lands where that value is picked.
+    #[test]
+    fn curved_track_maps_ends_middle_and_round_trips() {
+        use super::{curve_fraction, curve_value};
+        for (f, want) in [(0.0, 0.0), (0.1, 1.0), (0.2, 8.0), (0.5, 125.0), (1.0, 1000.0)] {
+            assert!((curve_value(f, 0.0, 1000.0, Some(3.0)) - want).abs() < 1e-3, "{f}: {}", curve_value(f, 0.0, 1000.0, Some(3.0)));
+        }
+        assert_eq!(curve_value(0.25, 0.0, 1000.0, None), 250.0, "no curve is the linear track");
+        assert_eq!(curve_value(0.5, 10.0, 20.0, Some(3.0)), 11.25, "the curve starts at the range's low end");
+        for i in 0..=100 {
+            let f = i as f32 / 100.0;
+            let back = curve_fraction(curve_value(f, 0.0, 1000.0, Some(3.0)), 0.0, 1000.0, Some(3.0));
+            assert!((back - f).abs() < 1e-4, "{f} -> {back}");
+            let v = i as f32 * 10.0;
+            let again = curve_value(curve_fraction(v, 0.0, 1000.0, Some(3.0)), 0.0, 1000.0, Some(3.0));
+            assert!((again - v).abs() < 1e-3, "{v} -> {again}");
+        }
+        assert_eq!(curve_fraction(-5.0, 0.0, 1000.0, Some(3.0)), 0.0);
+        assert_eq!(curve_fraction(f32::NAN, 0.0, 1000.0, Some(3.0)), 0.0);
     }
 
     #[test]
@@ -2272,6 +2426,29 @@ mod tests {
         h.key_press(egui::Key::Enter);
         h.run();
         assert_eq!(*h.state(), (25.0, 3));
+    }
+
+    /// #5717: a value past the range shows as it is without reporting a change; an edit is clamped.
+    #[test]
+    fn value_field_keeps_a_shown_value_past_its_range_and_clamps_edits() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let mut h = Harness::builder().with_size(egui::vec2(300.0, 100.0)).build_ui_state(
+            |ui, (v, changes): &mut (f32, u32)| {
+                if super::value_field(ui, v, 0.1..=1296.0, "pt", 90.0).changed() {
+                    *changes += 1;
+                }
+            },
+            (2400.0, 0),
+        );
+        h.run_steps(3);
+        assert_eq!(*h.state(), (2400.0, 0), "showing it changes nothing");
+        h.get_by_role(egui::accesskit::Role::SpinButton).click();
+        h.run();
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+        h.event(egui::Event::Text("5000".into()));
+        h.key_press(egui::Key::Enter);
+        h.run();
+        assert_eq!(h.state().0, 1296.0, "a typed value is clamped");
     }
 
     #[test]
@@ -2605,3 +2782,7 @@ mod screen_color_tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "widgets/numeric_input_tests.rs"]
+mod numeric_input_tests;

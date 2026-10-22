@@ -732,7 +732,6 @@ struct Draw<'a> {
     /// The selected preset's name (by identity, so look-alike duplicates stay distinct).
     current: Option<&'a str>,
     collapsed: &'a [String],
-    filtering: bool,
     grid: bool,
     layout: ListLayout,
     /// The picker cards' parts — name, stroke, tip — from the gear's boxes.
@@ -824,7 +823,7 @@ fn draw_nodes(ui: &mut egui::Ui, d: &Draw, nodes: &[Node], depth: usize, acts: &
             Node::Preset(p) => run.push(p),
             Node::Folder(f) => {
                 flush(ui, &mut run, acts);
-                let open = d.filtering || !d.collapsed.contains(&folder_view_key(d.label, &f.path));
+                let open = !d.collapsed.contains(&folder_view_key(d.label, &f.path));
                 group_header(ui, d.label, d.key, &f.path, open, f.count, acts);
                 if open && depth < MAX_VIEW_DEPTH {
                     draw_nodes(ui, d, &f.children, depth + 1, acts);
@@ -885,6 +884,15 @@ pub fn preset_list(ui: &mut egui::Ui, presets: &[BrushPreset], current: Option<&
     let show = (st.show_name, st.show_stroke, st.show_tip);
     let collapsed = &st.collapsed;
     egui::ScrollArea::vertical().id_salt(layout.id).max_height(layout.max_height).auto_shrink([false, true]).show(ui, |ui| {
+        // A preset, group or folder dragged to the list's top or bottom edge (or past it) scrolls
+        // the list, as the Layers panel's rows do, so it can be dropped on rows out of view (#5741).
+        let dragging = egui::DragAndDrop::has_payload_of_type::<BrushDrag>(ui.ctx()) && ui.input(|i| i.pointer.primary_down());
+        let pointer = ui.ctx().pointer_interact_pos();
+        let delta = crate::panels::layer_drag_edge_scroll(pointer, ui.clip_rect(), dragging, ui.input(|i| i.stable_dt));
+        if delta != 0.0 {
+            ui.scroll_with_delta(vec2(0.0, delta));
+            ui.ctx().request_repaint();
+        }
         ui.spacing_mut().item_spacing.y = 1.0;
         for (label, items) in grouped_presets(presets) {
             let items: Vec<&BrushPreset> =
@@ -898,7 +906,7 @@ pub fn preset_list(ui: &mut egui::Ui, presets: &[BrushPreset], current: Option<&
             if !open {
                 continue;
             }
-            let d = Draw { label: &label, key: &key, presets, current, collapsed, filtering: !filter.is_empty(), grid, layout, show, scale: st.scale };
+            let d = Draw { label: &label, key: &key, presets, current, collapsed, grid, layout, show, scale: st.scale };
             draw_nodes(ui, &d, &folder_tree(&items), 0, &mut acts);
             ui.add_space(2.0);
         }
