@@ -1774,7 +1774,14 @@ pub fn shape_properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, id: photocra
                     });
                 }
             }
-            photocraft_doc::vector::LiveShape::Polygon { sides, star_ratio, .. } => {
+            photocraft_doc::vector::LiveShape::Polygon { sides, star_ratio, corner_radius, .. } => {
+                // One radius rounds every vertex of a triangle, polygon or star, as in Photoshop.
+                ui.horizontal(|ui| {
+                    let mut r = *corner_radius as f32;
+                    if num(ui, tl!("Corner radius"), &mut r, 0.0..=100000.0, "px") {
+                        edit = Some(json!({"cornerRadius": r, "coalesce": key("corner-radius")}));
+                    }
+                });
                 ui.horizontal(|ui| {
                     let mut n = *sides as f32;
                     if num(ui, tl!("Sides"), &mut n, 3.0..=100.0, "") {

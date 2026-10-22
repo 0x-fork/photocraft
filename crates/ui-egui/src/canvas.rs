@@ -5423,8 +5423,10 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
     }
     // Move tool: ⇧ locks the axis, ⌥ duplicates (move_mods.rs).
     let ev = crate::move_mods::filter_event(app, ev, mods);
-    // A live rectangle's corner radius widgets (Path Selection, Rectangle tool).
-    if crate::corner_radius::pointer(app, ev, mods) {
+    // A live shape's corner radius widgets (Path Selection, the shape tools, Move with its
+    // transform controls). Unsnapped, as Free Transform's handles: snapping would pull the press
+    // off a widget onto a nearby vertex or guide, and the shape tool would draw a new shape.
+    if crate::corner_radius::pointer(app, raw, mods) {
         return;
     }
     // Direct Selection, and the Pen's ⌘ (Direct Selection) and ⌥ (Convert Point) modes (#790).
