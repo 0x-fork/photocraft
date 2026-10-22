@@ -1824,7 +1824,8 @@ fn budget_allowance(app: &PhotocraftApp) -> (u64, u64) {
 /// [`crate::filter_dialog::FilterPreviewKey`] under a finished preview and recompute it inline,
 /// the very stall this avoids.
 pub(crate) fn filter_preview_factor(app: &PhotocraftApp, doc: &Document, cmd: &str, params: &serde_json::Value) -> u32 {
-    let k = crate::filter_dialog::preview_factor(cmd, params, crate::proxy::preview_factor(doc, crate::proxy::reduced_previews(app)));
+    // A smart filter edit re-renders the whole stack: every stage constrains the factor.
+    let k = crate::filter_dialog::smart_preview_factor(doc, cmd, params, crate::proxy::preview_factor(doc, crate::proxy::reduced_previews(app)));
     if cfg!(target_arch = "wasm32") { k } else { crate::proxy::view_factor(k, app.current_zoom()) }
 }
 
@@ -1849,13 +1850,11 @@ pub(crate) fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize, ctx: &e
         return None;
     }
     let cmd = d.fields.get("__command")?.as_str()?.to_string();
-    // Previews edit what the command will: a targeted layer mask included (#780), and a smart
-    // filter being edited is replaced in its stack rather than stacked again (#6324).
+    // Previews edit what the command will: a targeted layer mask included (#780).
     let (cmd, mut params) = if d.fields.contains_key("__smartFilter") {
-        crate::smart_ui::confirm_command(&d.fields, cmd, crate::filter_dialog::params_of(&d.fields))
+        crate::smart_filter_dialog::edit_command(app, &d.fields).ok()?
     } else {
-        let params = app.with_mask_target(&cmd, crate::filter_dialog::params_of(&d.fields));
-        (cmd, params)
+        (cmd.clone(), app.with_mask_target(&cmd, crate::filter_dialog::params_of(&d.fields)))
     };
     // Select and Mask previews in its view mode; holding X shows the image without one.
     if crate::select_mask_view::owns(&d.fields) {

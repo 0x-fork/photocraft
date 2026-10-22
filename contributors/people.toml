@@ -192,5 +192,8 @@ sync_github_name = true
 [people.ha1des]
 sync_github_name = true
 
+[people.benandez]
+real_name = "Martin Ball"
+
 [people.WebWork-rrs]
 display_name = "Ratul Paul"
