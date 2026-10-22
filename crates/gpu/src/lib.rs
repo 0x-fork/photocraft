@@ -733,13 +733,15 @@ impl Compositor {
         let (mut error, mut map_error) = (None, None);
         for (key, built, e) in built {
             let map = key.0.is_map();
+            // A failed map pipeline turns all effect maps off below. A failed non-map pipeline
+            // keeps its (invalid) handle: draws look pipelines up by key, so dropping it would
+            // turn a validation error into a missing-key panic on the first draw.
             if let Some(e) = e {
                 if map {
-                    map_error.get_or_insert(e)
-                } else {
-                    error.get_or_insert(e)
-                };
-                continue;
+                    map_error.get_or_insert(e);
+                    continue;
+                }
+                error.get_or_insert(e);
             }
             let Some(p) = built else { continue };
             if map {
