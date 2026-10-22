@@ -34,7 +34,7 @@ pub enum Format {
     Fits,
     /// DPX (SMPTE 268M Digital Picture Exchange): luma, RGB or RGBA film and video frames.
     Dpx,
-    /// Kodak Cineon (`.cin`, the 10-bit film-scan format DPX grew from): read-only.
+    /// Kodak Cineon (`.cin`, the 10-bit film-scan format DPX grew from).
     Cineon,
     /// DICOM single-frame images (uncompressed): read-only.
     Dicom,
@@ -85,11 +85,6 @@ pub const ASYMMETRIC_EXCEPTIONS: &[(Format, &str)] = &[
         Format::Avif,
         "AVIF encode uses ravif (pure Rust) but decoding requires dav1d (C); read stays unsupported \
          until a pure-Rust AV1 decoder is viable. Only enabled with the non-default `avif` feature.",
-    ),
-    (
-        Format::Cineon,
-        "Cineon frames are imported for film work; this crate has no Cineon writer, so save an \
-         imported frame as DPX, TIFF or EXR instead.",
     ),
     (
         Format::Heif,
@@ -281,7 +276,7 @@ pub fn caps(format: Format) -> FormatCaps {
         Format::Fits => FormatCaps { depths: &[S::U8, S::U16, S::F32], layouts: &[L::Gray, L::Rgb], alpha: false, text: true, ..base },
         // `text`: the DPX header fields only (see `fidelity_warnings_with`).
         Format::Dpx => FormatCaps { depths: &[S::U8, S::U16], layouts: &[L::Gray, L::Rgb, L::Rgba], text: true, ..base },
-        Format::Cineon => FormatCaps { read: true, write: false, depths: &[S::U16], layouts: &[L::Gray, L::Rgb], alpha: false, ..base },
+        Format::Cineon => FormatCaps { depths: &[S::U16], layouts: &[L::Gray, L::Rgb], alpha: false, ..base },
         Format::Dicom => FormatCaps { read: true, write: false, depths: &[S::U8, S::U16], layouts: &[L::Gray, L::Rgb], alpha: false, ..base },
         Format::Iff => FormatCaps { read: true, write: false, depths: &[S::U8], layouts: &[L::Rgb, L::Rgba], alpha: true, ..base },
     }

@@ -103,6 +103,7 @@ const SAVE_FILTERS: &[(&str, &[&str])] = &[
     ("DPX", &["dpx"]),
     // Game and 3D textures; DDS Options asks for the compression and mipmaps (#1327).
     ("DDS", &["dds"]),
+    ("Cineon", &["cin"]),
 ];
 
 /// Non-document files the shell saves (Swatches panel exports): offered alone, so the dialog
