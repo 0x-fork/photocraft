@@ -248,3 +248,57 @@ fn the_dialog_body_renders_for_every_tool_and_unit() {
         app.ui.close_dialog(id);
     }
 }
+
+/// The texts a dialog body draws.
+fn body_texts(app: &PhotocraftApp, fields: &mut serde_json::Map<String, Value>) -> Vec<String> {
+    let ctx = egui::Context::default();
+    let mut out = ctx.run_ui(egui::RawInput::default(), |ui| body(app, ui, fields));
+    out.textures_delta.clear();
+    let mut texts = Vec::new();
+    for clip in &out.shapes {
+        if let egui::Shape::Text(t) = &clip.shape {
+            texts.push(t.galley.text().to_string());
+        }
+    }
+    texts
+}
+
+/// #7786: Width and Height show in the unit picked from their right-click menu (the ruler unit
+/// until then), the sizes stay in pixels, and OK remembers the unit with the other values.
+#[test]
+fn width_and_height_show_in_the_picked_unit_and_remember_it() {
+    let mut app = app();
+    press(&mut app, Tool::Rectangle, [10.0, 10.0], [10.0, 10.0]);
+    let id = only_dialog(&app);
+    let mut f = app.ui.dialog_mut(id).unwrap().fields.clone();
+    assert_eq!(f["unit"], json!("pixels"), "the ruler unit at first");
+    // Each of Width and Height: its label, its value, its unit.
+    let sides = |texts: &[String]| -> Vec<(String, String)> {
+        ["Width:", "Height:"]
+            .iter()
+            .filter_map(|l| texts.iter().position(|t| t == l))
+            .filter_map(|i| Some((texts.get(i + 1)?.clone(), texts.get(i + 2)?.clone())))
+            .collect()
+    };
+    let px = ("100".to_string(), "px".to_string());
+    assert_eq!(sides(&body_texts(&app, &mut f)), [px.clone(), px], "shown in pixels");
+    // What the menu's Millimeters sets: 100 px at the document's 72 ppi is 35.28 mm.
+    f.insert("unit".into(), json!("mm"));
+    let mm = ("35.28".to_string(), "mm".to_string());
+    assert_eq!(sides(&body_texts(&app, &mut f)), [mm.clone(), mm]);
+    assert_eq!(f["width"].as_f64(), Some(100.0), "the size stays in pixels");
+    set(&mut app, id, json!({"unit": "mm", "width": 50}));
+    crate::dialogs::confirm(&mut app, id).unwrap();
+    // The next Create Rectangle opens in millimetres, with the remembered size.
+    press(&mut app, Tool::Rectangle, [40.0, 40.0], [40.0, 40.0]);
+    let id = only_dialog(&app);
+    let f = &app.ui.dialog_mut(id).unwrap().fields;
+    assert_eq!((f["unit"].as_str(), f["width"].as_f64()), (Some("mm"), Some(50.0)));
+    // A remembered unit that isn't one falls back to the ruler unit.
+    app.ui.close_dialog(id);
+    app.session.prefs.edit(|p| {
+        p.dialogs.insert("shape.create.rectangle".into(), json!({"unit": "furlongs"}));
+    });
+    press(&mut app, Tool::Rectangle, [40.0, 40.0], [40.0, 40.0]);
+    assert_eq!(app.ui.dialogs[0].fields["unit"], json!("pixels"));
+}
