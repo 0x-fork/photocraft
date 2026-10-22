@@ -2152,6 +2152,10 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Nema putanje od koje bi se napravila selekcija: nacrtajte je alatkom pero ili je izaberite u panelu Putanje.
 	Cancel opening	Otkaži otvaranje
 	Cancelled opening {name}	Otkazano otvaranje: {name}
+	Damaged Photoshop document	Oštećen Photoshop dokument
+	The document “{name}” may be damaged.	Dokument „{name}“ je možda oštećen.
+	Some layers, pixels or masks could not be read. Do you want to continue opening it?	Neki slojevi, pikseli ili maske nisu mogli da se pročitaju. Želite li da nastavite sa otvaranjem?
+	If you continue, saving over the original may permanently discard unreadable data. Save a copy to keep the original.	Ako nastavite, čuvanje preko originala može trajno odbaciti nečitljive podatke. Sačuvajte kopiju da biste zadržali original.
 	The document “{name}” does not have an embedded {mode} profile.	Dokument „{name}“ nema ugrađeni {mode} profil.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Dokument „{name}“ ima ugrađeni profil boja koji se ne slaže sa trenutnim {mode} radnim prostorom.
 	Working: {working}	Radni prostor: {working}

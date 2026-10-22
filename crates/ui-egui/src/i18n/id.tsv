@@ -2186,6 +2186,11 @@
 	No path to make a selection from: draw one with the Pen tool or select one in the Paths panel.	Tidak ada path untuk dibuat seleksi: gambar dengan alat Pen atau pilih salah satu di panel Path.
 	Cancel opening	Batalkan pembukaan
 	Cancelled opening {name}	Pembukaan {name} dibatalkan
+	Damaged Photoshop document	Dokumen Photoshop rusak
+	The document “{name}” may be damaged.	Dokumen “{name}” mungkin rusak.
+	Some layers, pixels or masks could not be read. Do you want to continue opening it?	Beberapa layer, piksel, atau mask tidak dapat dibaca. Lanjutkan membukanya?
+	If you continue, saving over the original may permanently discard unreadable data. Save a copy to keep the original.	Jika Anda melanjutkan, menyimpan di atas file asli dapat membuang data yang tidak terbaca secara permanen. Simpan salinan untuk mempertahankan file asli.
+	Continue	Lanjutkan
 	The document “{name}” does not have an embedded {mode} profile.	Dokumen “{name}” tidak memiliki profil {mode} tertanam.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Dokumen “{name}” memiliki profil warna tertanam yang tidak cocok dengan working space {mode} saat ini.
 	Working: {working}	Working space: {working}

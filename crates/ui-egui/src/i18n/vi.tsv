@@ -1582,6 +1582,11 @@ cameraRaw	Shadows	Vùng tối
 	Esc to cancel	Esc để hủy
 	Cancel opening	Hủy mở tệp
 	Cancelled opening {name}	Đã hủy mở {name}
+	Damaged Photoshop document	Tài liệu Photoshop bị hỏng
+	The document “{name}” may be damaged.	Tài liệu “{name}” có thể đã bị hỏng.
+	Some layers, pixels or masks could not be read. Do you want to continue opening it?	Không thể đọc một số lớp, pixel hoặc mặt nạ. Bạn có muốn tiếp tục mở không?
+	If you continue, saving over the original may permanently discard unreadable data. Save a copy to keep the original.	Nếu tiếp tục, việc lưu đè lên bản gốc có thể loại bỏ vĩnh viễn dữ liệu không đọc được. Hãy lưu một bản sao để giữ bản gốc.
+	Continue	Tiếp tục
 	The document “{name}” does not have an embedded {mode} profile.	Tài liệu “{name}” không có hồ sơ {mode} nhúng.
 	The document “{name}” has an embedded color profile that does not match the current {mode} working space.	Tài liệu “{name}” có hồ sơ màu nhúng không khớp với không gian làm việc {mode} hiện tại.
 	Working: {working}	Không gian làm việc: {working}
