@@ -3078,6 +3078,22 @@ struct RowSel {
     multi: bool,
 }
 
+/// The badge beside the pointer over a thumbnail ⌘-click loads with these modifiers: none for a
+/// new selection, + for ⇧ (add), − for ⌥ (subtract), × for ⇧⌥ (intersect).
+pub(crate) fn thumb_load_badge(m: egui::Modifiers) -> Option<crate::tool_feedback::Badge> {
+    crate::tool_feedback::Badge::from_mode(crate::channels_panel::load_operation(m))
+}
+
+/// The cursor over a thumbnail ⌘-click loads as a selection: a pointing hand, with the selection
+/// mode's badge (#7824).
+fn thumb_load_cursor(ctx: &egui::Context, p: Pos2, m: egui::Modifiers) {
+    ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+    if let Some(badge) = thumb_load_badge(m) {
+        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("thumb-load-badge")));
+        crate::tool_feedback::draw_badge(&painter, p, badge, false);
+    }
+}
+
 /// `layer.select` mode for a click with these modifiers (Photoshop: ⌘-click toggles, ⇧-click
 /// selects a range, a plain click selects one layer).
 fn select_mode(m: egui::Modifiers) -> &'static str {
@@ -3310,15 +3326,25 @@ fn layer_row(
     );
     // ⌘-click a layer, mask or vector-mask thumbnail loads its transparency / mask / path as a
     // selection (⇧ add, ⌥ subtract, ⇧⌥ intersect) instead of changing the layer selection.
-    let thumb_load = resp.clicked().then(|| (ui.input(|i| i.modifiers), resp.interact_pointer_pos())).and_then(|(m, pos)| {
-        let p = pos.filter(|_| m.command)?;
+    let load_at = |m: egui::Modifiers, p: Pos2| {
+        if !m.command {
+            return None;
+        }
         if let Some(kind) = masks.hit(p) {
             return Some(crate::mask_thumbs_ui::load_params(l, kind, m));
         }
         // The Background has no transparency to load: Photoshop treats the click as a plain one.
         (ts > 0.0 && !doc.is_background(l.id) && thumb.expand(2.0).contains(p))
             .then(|| json!({"channel": "transparency", "layer": l.id.0, "operation": crate::channels_panel::load_operation(m)}))
-    });
+    };
+    let thumb_load = resp.clicked().then(|| (ui.input(|i| i.modifiers), resp.interact_pointer_pos())).and_then(|(m, pos)| load_at(m, pos?));
+    // Over a thumbnail that ⌘ would load, the cursor says what the click does, as in Photoshop (#7824).
+    if let Some(p) = resp.hover_pos() {
+        let m = ui.input(|i| i.modifiers);
+        if load_at(m, p).is_some() {
+            thumb_load_cursor(ctx, p, m);
+        }
+    }
     // ⇧-click a mask thumbnail: disable / enable that mask; ⌥-click a layer mask: view it.
     let mask_toggle = resp.clicked().then(|| (ui.input(|i| i.modifiers), resp.interact_pointer_pos())).and_then(|(m, pos)| {
         let kind = masks.hit(pos?)?;

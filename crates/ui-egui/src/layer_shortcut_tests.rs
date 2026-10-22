@@ -208,3 +208,45 @@ fn custom_page_up_and_page_down_bindings_fire() {
     }
     assert_eq!(crate::shortcuts::parse("Shift+Pageup"), Some(egui::KeyboardShortcut::new(Modifiers::SHIFT, Key::PageUp)));
 }
+
+/// Over a thumbnail ⌘-click would load, the pointer is a hand with the selection mode's badge:
+/// none for a new selection, + with ⇧, − with ⌥, × with ⇧⌥ (#7824). Without ⌘, and over the
+/// Background (which has nothing to load), it stays the plain pointer.
+#[test]
+fn command_over_a_thumbnail_shows_the_load_cursor() {
+    use egui::{CursorIcon, Event, pos2, vec2};
+
+    use crate::tool_feedback::Badge;
+    assert_eq!(crate::panels::thumb_load_badge(Modifiers::COMMAND), None);
+    assert_eq!(crate::panels::thumb_load_badge(Modifiers::COMMAND | Modifiers::SHIFT), Some(Badge::Add));
+    assert_eq!(crate::panels::thumb_load_badge(Modifiers::COMMAND | Modifiers::ALT), Some(Badge::Subtract));
+    assert_eq!(crate::panels::thumb_load_badge(Modifiers::COMMAND | Modifiers::SHIFT | Modifiers::ALT), Some(Badge::Intersect));
+
+    let mut s = photocraft_engine::Session::new();
+    s.execute("file.new", json!({"width": 400, "height": 300})).unwrap();
+    let background = s.active().unwrap().active_layer.unwrap().0;
+    let shape = s.execute("layer.new.layer", json!({"name": "Shape"})).unwrap()["layer"].as_u64().unwrap();
+    let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 900.0)).with_step_dt(1.0 / 60.0).with_max_steps(64).build_eframe(move |cc| {
+        PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+        PhotocraftApp::new(s, crate::Services::default())
+    });
+    let ctx = h.ctx.clone();
+    let (r, _) = crate::control::ControlRequest::new("ui.set", json!({"dock": {"collapsed": ["color", "properties", "history", "navigator"]}}));
+    crate::control::handle(h.state_mut(), &ctx, &r);
+    h.run_steps(8);
+    let cursor = |h: &mut egui_kittest::Harness<'_, PhotocraftApp>, layer: u64, modifiers: Modifiers| {
+        let row = crate::layer_row_ui::recorded(&h.ctx).into_iter().find(|r| r.layer == layer).unwrap().row;
+        h.hover_at(pos2(row.left() + 46.0, row.center().y));
+        h.event(Event::ModifiersChanged(modifiers));
+        h.run_steps(2);
+        let icon = h.output().platform_output.cursor_icon;
+        h.event(Event::ModifiersChanged(Modifiers::NONE));
+        h.run_steps(1);
+        icon
+    };
+    for m in [Modifiers::COMMAND, Modifiers::COMMAND | Modifiers::SHIFT, Modifiers::COMMAND | Modifiers::ALT] {
+        assert_eq!(cursor(&mut h, shape, m), CursorIcon::PointingHand, "{m:?}");
+    }
+    assert_ne!(cursor(&mut h, shape, Modifiers::NONE), CursorIcon::PointingHand, "a plain click selects the layer");
+    assert_ne!(cursor(&mut h, background, Modifiers::COMMAND), CursorIcon::PointingHand, "the Background has nothing to load");
+}
