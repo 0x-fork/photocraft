@@ -57,7 +57,8 @@ fn invalid_control_token_exits_with_status_2() {
 
 #[test]
 fn both_token_and_token_file_exits_with_status_2() {
-    // `server_token` rejects the combination of a supplied token and a token file.
+    // The command line rejects a supplied token together with a token file (#7071), before
+    // `server_token` would.
     let dir = std::env::temp_dir().join(format!("photocraft-token-file-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let token_file = dir.join("token.txt");
@@ -65,7 +66,7 @@ fn both_token_and_token_file_exits_with_status_2() {
     let Run { status, stderr } = run_photocraft(&["--control", "0", "--control-token", VALID_TOKEN, "--control-token-file", token_file.to_str().unwrap()]);
     std::fs::remove_dir_all(&dir).ok();
     assert_eq!(status.code(), Some(2), "token + token file must exit 2, stderr: {stderr}");
-    assert!(stderr.contains("cannot configure control authentication"), "stderr: {stderr}");
+    assert!(stderr.contains("cannot be used with"), "stderr: {stderr}");
 }
 
 #[test]

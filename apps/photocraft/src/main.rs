@@ -1,14 +1,7 @@
 //! PhotoCraft desktop app.
 //!
-//! Usage: `photocraft [--control <port>] [--control-token <64-hex> |
-//! --control-token-file <path>] [--automation-read-root <dir>]
-//! [--automation-write-root <dir>] [--safe-gpu] [--in-window-menus] [--present-mode <mode>]
-//! [--frame-latency <n>] [--stroke-trace <stderr|file.csv>] [--new-instance] [--] [files…]`
-//! (`photocraft --help` prints [`USAGE`]; `--version` prints the version).
-//!
-//! Any other argument starting with `-` is a usage error (exit status 2, issue #6431), so a typo
-//! such as `--safegpu` doesn't open the window and then fail to open the flag as a file. A file
-//! whose name starts with `-` goes after `--`.
+//! Usage: `photocraft [options] [--] [files…]`; `photocraft --help` lists the options, which are
+//! declared, with what makes a usage error (exit status 2), in `launch_args`.
 //!
 //! On Windows and Linux a launch hands its files to the PhotoCraft that is already running (new
 //! tabs in its window) and exits; `--new-instance` starts a separate copy instead, as does any
@@ -31,7 +24,8 @@
 //! `{"id":1,"ok":true,"result":…}`. See `photocraft_ui_egui::control` for the methods.
 
 // Release builds on Windows are GUI-subsystem apps, so launching from the Start Menu or Explorer
-// doesn't open a console window. (`--version` output then only shows when redirected.)
+// doesn't open a console window. (`--help`, `--version` and usage errors then only show when
+// redirected.)
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
@@ -80,8 +74,6 @@ mod window_frame;
 
 use photocraft_engine::Session;
 use photocraft_ui_egui::PhotocraftApp;
-
-use launch_args::{LaunchArgs, USAGE, parse_control_port, parse_launch_args, print_stdout, usage_exit_code};
 
 /// Matches the `.desktop` file and hicolor icon name, so Wayland docks pick up the icon.
 const APP_ID: &str = "ai.storyteller.photocraft";
@@ -157,58 +149,24 @@ fn main() -> eframe::Result {
     crash_guard::install_hook();
     // The system font scan can take seconds (minutes on some Macs): run it off the UI thread.
     photocraft_ui_egui::type_tool::warm_fonts();
-    let mut launch = LaunchArgs {
-        automation_read_root: std::env::var_os("PHOTOCRAFT_AUTOMATION_READ_ROOT").map(std::path::PathBuf::from),
-        automation_write_root: std::env::var_os("PHOTOCRAFT_AUTOMATION_WRITE_ROOT").map(std::path::PathBuf::from),
-        in_window_menus: std::env::var_os("PHOTOCRAFT_IN_WINDOW_MENUS").is_some_and(|v| !v.is_empty() && v != "0"),
-        ..Default::default()
-    };
-    if let Some(value) = std::env::var("PHOTOCRAFT_CONTROL_PORT").ok().filter(|v| !v.trim().is_empty()) {
-        match parse_control_port(&value, "PHOTOCRAFT_CONTROL_PORT") {
-            Ok(port) => launch.control_port = Some(port),
-            Err(error) => launch.errors.push(error),
-        }
-    }
-    launch = parse_launch_args(std::env::args_os().skip(1), launch);
-    if launch.help {
-        print_stdout(USAGE);
-        return Ok(());
-    }
-    if launch.version {
-        print_stdout(&format!("photocraft {}\n", photocraft_engine::build_info::long_version()));
-        return Ok(());
-    }
-
-    // A malformed control port must not silently drop the control server (issue #701), a control
-    // or automation flag without its value must not silently fall back to a generated token or
-    // to no root (issue #6429), and an unknown option must not open the window (#6431): name the
-    // bad argument and fail the launch, like `photocraft-cli` does for the same typos. Exit
-    // status 2 is the usual command-line usage error, so a launcher sees the failure.
-    if let Some(code) = usage_exit_code(&launch.errors) {
-        for error in &launch.errors {
-            eprintln!("photocraft: {error}");
-        }
-        eprintln!("Run `photocraft --help` for usage.");
-        std::process::exit(code);
-    }
-    let LaunchArgs {
-        control_port,
-        control_token,
-        control_token_file,
-        automation_read_root,
-        automation_write_root,
-        files,
-        unreadable_paths,
+    // `--help` and `--version` print to standard output and exit 0. A usage error (an unknown
+    // option, a missing or bad value, a bad PHOTOCRAFT_CONTROL_PORT: issues #701, #6429, #6431)
+    // names the argument on standard error and exits 2, so a launcher sees the failure. Neither
+    // panics when the stream is closed or a pipe (`photocraft --help | head -1`).
+    let launch = launch_args::parse(launch_args::command(), std::env::args_os().skip(1)).unwrap_or_else(|e| e.exit());
+    let launch_args::FileNames { openable: files, unreadable: unreadable_paths } = launch.file_names();
+    let launch_args::LaunchArgs {
+        files: _,
         safe_gpu,
-        new_instance,
-        mut launch_options,
-        present_mode_arg,
-        frame_latency_arg,
-        stroke_trace_arg,
         in_window_menus,
-        help: _,
-        version: _,
-        errors: _,
+        new_instance,
+        present_mode,
+        frame_latency,
+        stroke_trace,
+        control: control_port,
+        auth,
+        automation,
+        mut launch_options,
     } = launch;
 
     // The log file lives under the settings directory; opened after the arguments, so `--version`
@@ -224,7 +182,7 @@ fn main() -> eframe::Result {
     // An adapter named in the environment is chosen at startup, which a forwarded launch never reaches.
     let rendering_mode = gpu_startup::read_rendering_prefs(services::prefs_file().as_deref()).1;
     if gpu_startup::adapter_override_is_process_specific(std::env::var("PHOTOCRAFT_GPU_ADAPTER").ok().as_deref(), rendering_mode, gpu_startup::ADAPTER_CHOICE) {
-        launch_options.push("PHOTOCRAFT_GPU_ADAPTER");
+        launch_options.push(launch_args::PerProcess::GpuAdapterEnv);
     }
     // One PhotoCraft per user (#3708): files opened from Explorer or a file manager while it runs
     // become tabs in its window. Only with the per-user settings folder (a portable copy's may be
@@ -305,7 +263,7 @@ fn main() -> eframe::Result {
     }
 
     let control = if let Some(port) = control_port {
-        let (supplied, token_file) = photocraft_automation::security::token_inputs(control_token, control_token_file);
+        let (supplied, token_file) = (auth.control_token, auth.control_token_file);
         let token = match photocraft_automation::security::server_token(supplied.as_deref(), token_file.as_deref()) {
             Ok(token) => token,
             Err(e) => {
@@ -320,7 +278,7 @@ fn main() -> eframe::Result {
         } else {
             eprintln!("photocraft: using supplied control token");
         }
-        let workspace = match photocraft_automation::AuthorizedWorkspace::new(automation_read_root.as_deref(), automation_write_root.as_deref()) {
+        let workspace = match automation.workspace() {
             Ok(workspace) => workspace,
             Err(error) => {
                 eprintln!("photocraft: cannot configure automation workspace: {error}");
@@ -409,7 +367,7 @@ fn main() -> eframe::Result {
         options.wgpu_options.surface.present_mode = eframe::wgpu::PresentMode::AutoNoVsync;
     }
     // Testers' present mode and frame latency overrides (#1343), after the preference.
-    let present = presentation::Overrides::from_args_or_env(present_mode_arg.as_deref(), frame_latency_arg.as_deref());
+    let present = presentation::Overrides::from_args_or_env(present_mode, frame_latency);
     options.wgpu_options.surface = present.apply(options.wgpu_options.surface);
     let present_desc = presentation::describe(&options.wgpu_options.surface, &present);
     // Without vsync, frames are capped at 240 fps (#4472) so repaint loops don't spin flat out.
@@ -487,7 +445,7 @@ fn main() -> eframe::Result {
             let info = &mut app.perf.gpu_info;
             info.preference = pref.name().to_string();
             info.present = present_desc.clone();
-            if let Some(v) = &stroke_trace_arg {
+            if let Some(v) = &stroke_trace {
                 app.stroke_trace.set(v);
             }
             info.selected = if plan.env.is_some() { "env".into() } else { plan.backend.name().to_string() };
@@ -645,9 +603,10 @@ fn main() -> eframe::Result {
             s.finish();
         }
         if let Ok(exe) = std::env::current_exe() {
+            // `--safe-gpu` first: after a `--`, it would be a file name.
             let launched = std::process::Command::new(exe)
-                .args(std::env::args_os().skip(1))
                 .arg("--safe-gpu")
+                .args(std::env::args_os().skip(1))
                 .env_remove("WGPU_BACKEND")
                 .env("PHOTOCRAFT_GPU_STARTUP_FAILURE", &reason)
                 .spawn();

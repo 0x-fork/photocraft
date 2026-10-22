@@ -1,6 +1,6 @@
 //! The control and automation launch options, as clap types: `photocraft-cli mcp` and `serve`
-//! flatten them, and the desktop app is to as well (#7071), so each flag and its
-//! environment variable are declared once. A flag wins over its variable.
+//! flatten them, and so does the desktop app (#7071), so each flag and its environment variable
+//! are declared once. A flag wins over its variable.
 //!
 //! Parse with [`blank_env_is_unset`] applied to the arguments, so an empty variable counts as unset,
 //! and pass a parse error through [`name_env_vars`], so a bad value names the variable it came from.
