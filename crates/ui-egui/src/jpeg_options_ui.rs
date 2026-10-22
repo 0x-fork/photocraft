@@ -1,8 +1,8 @@
-//! JPEG Options: the quality and format File › Save As and Save a Copy ask for before writing a
-//! JPEG, as Photoshop's JPEG Options does. Quality is Photoshop's 0–12 scale (Low 0–4, Medium 5–7,
-//! High 8–9, Maximum 10–12), mapped to the encoder's 1–100 by
-//! `photocraft_engine::file_cmds::jpeg_quality`; Format Options are Baseline ("Standard"),
-//! Baseline Optimized and Progressive. Matte and the size preview aren't offered yet. Re-saving an
+//! JPEG Options: the quality and format File › Save, Save As and Save a Copy ask for before writing
+//! a JPEG, as Photoshop's JPEG Options does. Quality is Photoshop's 0–12 scale (Low 0–4, Medium
+//! 5–7, High 8–9, Maximum 10–12), mapped to the encoder's 1–100 by
+//! `photocraft_engine::file_cmds::jpeg_quality`; Format Options are Baseline ("Standard"), Baseline
+//! Optimized and Progressive. Matte, Scans and the size preview aren't offered yet. Re-saving an
 //! opened JPEG starts at the file's own quality, as File › Save keeps it (#4032).
 //!
 //! The save is parked in [`Prompt`] while the modal is up (egui is immediate-mode) and written
@@ -333,6 +333,29 @@ mod tests {
         assert_eq!(Start::own(255).own_quality, Some(100));
         assert_eq!(Start::percent(85), Start { quality: 10, own_quality: None, format: JpegFormat::Baseline });
         assert_eq!(Start::percent(u32::MAX).quality, MAX_QUALITY);
+    }
+
+    /// The desktop and web exporters write through `ExportSettings::io_options`: the format picked
+    /// in JPEG Options reaches the encoder there, not just the settings.
+    #[test]
+    fn the_answer_reaches_the_encoder() {
+        let doc = photocraft_doc::Document::with_background(
+            "x",
+            photocraft_doc::Size::new(16, 16),
+            photocraft_doc::ColorMode::Rgb,
+            photocraft_doc::SampleType::U8,
+            photocraft_doc::Color::WHITE,
+        );
+        let write = |format| {
+            let settings = JpegChoice { quality: Some(10), format }.apply(ExportSettings::default());
+            photocraft_io::export(&doc, "a.jpg", &settings.io_options()).unwrap().bytes
+        };
+        // Start of frame: 0xFFC0 baseline, 0xFFC2 progressive. Scan data stuffs its 0xFF bytes, and
+        // this small white image's tables and headers hold neither pair, so only the frame marker matches.
+        let sof = |b: &[u8], m: u8| b.windows(2).any(|w| w == [0xFF, m]);
+        let (base, prog) = (write(JpegFormat::Baseline), write(JpegFormat::Progressive));
+        assert!(sof(&base, 0xC0) && !sof(&base, 0xC2), "baseline");
+        assert!(sof(&prog, 0xC2) && !sof(&prog, 0xC0), "progressive");
     }
 
     #[test]
