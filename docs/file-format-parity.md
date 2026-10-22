@@ -142,6 +142,7 @@ remaining gaps in #1606 stay tracked with per-sample corpus ceilings.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-14 | minor | 32-bit Hue/Saturation as Photoshop does it: the raised saturation isn't clipped (saturated colours leave 0..1) and the slider is cut to whole 8-bit levels, and Colorize builds its colour with the saturation times 1 − \|Lightness\| (8 and 16 bits unchanged): photoshop rgb32 hue-saturation and hue-saturation-colorize pass |
 | 2026-10-14 | minor | Lab documents round each adjustment layer's result on the stored L, a, b to whole samples, as Photoshop stores them (the native Lab path): photoshop lab8 curves.psd passes |
 | 2026-10-15 | minor | PSD smart filters: Clouds, Difference Clouds, Fibers and Lens Flare open as editable filters with their seeds, colours and lens, and save like Photoshop (checked against a Photoshop 27 file); render filters on a smart object work within the object, so a flare sits where Photoshop puts it |
 | 2026-10-15 | minor | DDS textures save (#1327): uncompressed or BC1/BC2/BC3 (DXT1/3/5) from a clean-room block encoder, optional box-filtered mip chain, legacy header; DDS Options in Save As and Save a Copy, `ddsCompression`/`ddsMipmaps` for scripts, the CLI and MCP |

@@ -290,6 +290,7 @@ what an agent can't finish alone.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-14 | minor | G1: 32-bit Hue/Saturation unclipped (slider on whole levels) and Colorize's saturation scaled by 1 − \|Lightness\|; photoshop rgb32 hue-saturation and hue-saturation-colorize pass |
 | 2026-10-14 | minor | G1: Lab adjustment layers' results are whole samples (native Lab path); photoshop lab8 curves passes |
 | 2026-10-15 | minor | G1 / #5972 A1: render only provably constant-RGB `GdFl` noise fills; variable noise synthesis remains open |
 | 2026-10-18 | minor | G9: with no selection, Copy takes fill and adjustment layers whole and Paste recreates them (#2344); UI-217-23 stays partial (a single pixel layer copies its pixels only); estimate unchanged |
