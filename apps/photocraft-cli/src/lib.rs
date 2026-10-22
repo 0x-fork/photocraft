@@ -22,28 +22,18 @@ use document::{convert, info, run_cmds};
 pub(crate) use error::{CliError, Result};
 
 /// Run the CLI on its arguments (without the program name). Returns the process exit code (0 ok,
-/// 1 failure, 2 usage). An argument that is not valid Unicode is a usage error naming its position
-/// and a lossy rendering (exit 2), never a panic: `std::env::args()` aborts the process on one
-/// (issue #1108).
+/// 1 failure, 2 usage). clap reads the arguments as they are: a path that is not valid Unicode (a
+/// Latin-1 file name on Linux) is taken, and one where text is expected is a usage error (exit 2).
+/// Never a panic, as `std::env::args()` aborts on one (issue #1108).
 pub fn run<I, T>(args: I, out: &mut dyn Write, err: &mut dyn Write) -> i32
 where
     I: IntoIterator<Item = T>,
     T: Into<OsString>,
 {
-    let mut strings = Vec::new();
-    for (i, a) in args.into_iter().map(Into::into).enumerate() {
-        match a.into_string() {
-            Ok(s) => strings.push(s),
-            Err(raw) => {
-                let usage = <args::Cli as clap::CommandFactory>::command().render_usage();
-                let _ = writeln!(err, "error: argument {} is not valid Unicode: `{}`\n\n{usage}", i + 1, raw.to_string_lossy());
-                return 2;
-            }
-        }
-    }
+    let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
     // Help and `--version` (`help`, `-h`, `<subcommand> --help`, `-V`) come back as errors too,
     // for `out`, exit 0: the subcommand never runs.
-    let cli = match parse(&strings) {
+    let cli = match parse(&args) {
         Ok(cli) => cli,
         Err(e) => {
             let to: &mut dyn Write = if e.use_stderr() { err } else { out };

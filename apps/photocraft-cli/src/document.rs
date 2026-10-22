@@ -5,11 +5,12 @@ use photocraft_automation::{Headless, files};
 use serde_json::{Value, json};
 
 use photocraft_engine::type_extra_cmds::missing_font_warnings;
+use photocraft_io::ExportOptions;
 
 use crate::{
     CliError, Result,
-    args::{ConvertArgs, InfoArgs, RunArgs},
-    output::{JsonStyle, export_opts, print_json, warn_all},
+    args::{ConvertArgs, InfoArgs, RunArgs, Step},
+    output::{JsonStyle, print_json, warn_all},
 };
 
 /// An output that is the input file itself, however it is spelt (relative, with `./`, through a
@@ -18,23 +19,23 @@ use crate::{
 /// folder (#7437). The paths are compared when the command starts and the save opens `output`
 /// again later, so another process swapping in a link meanwhile goes unnoticed: this guards
 /// against mistakes, it is not a security boundary.
-fn refuse_overwriting_input(in_place: bool, input: &str, output: &str) -> Result {
+fn refuse_overwriting_input(in_place: bool, input: &Path, output: &Path) -> Result {
     if !in_place && photocraft_engine::file_cmds::same_file(input, output) {
-        return Err(CliError::OutIsInput(output.to_owned()));
+        return Err(CliError::OutIsInput(output.to_path_buf()));
     }
     Ok(())
 }
 
 pub(crate) fn convert(a: &ConvertArgs, _out: &mut dyn Write, err: &mut dyn Write) -> Result {
     let (input, output) = (&a.input, &a.output);
-    let opts = export_opts(&a.export)?;
+    let opts = ExportOptions::from(&a.export);
     refuse_overwriting_input(a.in_place, input, output)?;
-    let mut o = files::open(Path::new(input))?;
+    let mut o = files::open(input)?;
     // Preferences › Raw Defaults › Resolution at its default, as `run` and `info` open a raw.
     photocraft_engine::file_cmds::raw_defaults(&photocraft_engine::Session::new(), &o.warnings, &mut o.document);
     warn_all(err, &o.warnings);
     warn_all(err, &missing_font_warnings(&o.document));
-    let ws = files::save(&o.document, Path::new(output), a.export.format.as_deref(), &opts, None)?;
+    let ws = files::save(&o.document, output, a.export.format.as_deref(), &opts, None)?;
     warn_all(err, &ws);
     Ok(())
 }
@@ -42,14 +43,14 @@ pub(crate) fn convert(a: &ConvertArgs, _out: &mut dyn Write, err: &mut dyn Write
 pub(crate) fn info(a: &InfoArgs, out: &mut dyn Write) -> Result {
     let file = &a.file;
     let mut h = Headless::trusted_local();
-    let opened = h.open(Path::new(file))?;
+    let opened = h.open(file)?;
     let mut doc = h.inspect(None)?;
     let mut warnings = opened["warnings"].as_array().cloned().unwrap_or_default();
     if let Some(st) = h.session.active() {
         warnings.extend(missing_font_warnings(&st.doc).into_iter().map(Value::String));
     }
     doc["warnings"] = Value::Array(warnings);
-    doc["file"] = json!(file);
+    doc["file"] = json!(file.to_string_lossy());
     // Drop per-session noise.
     if let Value::Object(m) = &mut doc {
         for k in ["history", "canUndo", "canRedo", "revision"] {
@@ -62,44 +63,35 @@ pub(crate) fn info(a: &InfoArgs, out: &mut dyn Write) -> Result {
 /// `(id, params)` pairs from repeated `--cmd`/`--params` flags.
 fn command_list(a: &RunArgs) -> Result<Vec<(String, Value)>> {
     let mut cmds: Vec<(String, Value)> = Vec::new();
-    for (is_cmd, v) in &a.steps {
-        if *is_cmd {
-            cmds.push((v.clone(), json!({})));
-        } else {
-            let last = cmds.last_mut().ok_or(CliError::ParamsBeforeCmd)?;
-            last.1 = serde_json::from_str(v).map_err(|source| CliError::BadParams { id: last.0.clone(), source })?;
+    for step in &a.steps {
+        match step {
+            Step::Cmd(id) => cmds.push((id.clone(), json!({}))),
+            Step::Params(p) => cmds.last_mut().ok_or(CliError::ParamsBeforeCmd)?.1 = p.clone(),
         }
     }
     Ok(cmds)
 }
 
 pub(crate) fn run_cmds(a: &RunArgs, out: &mut dyn Write, err: &mut dyn Write) -> Result {
-    let opts = export_opts(&a.export)?;
+    let opts = ExportOptions::from(&a.export);
     let mut h = Headless::trusted_local();
     // Opening, running commands and exporting can all notice the same missing font:
     // one `run` invocation reports each warning line at most once.
     let mut reported_fonts = std::collections::HashSet::<String>::new();
-    match (a.file.as_deref(), a.new.as_deref()) {
-        (Some(file), None) => {
-            // Refused before the file is read or any command runs.
-            if let Some(out) = &a.out {
-                refuse_overwriting_input(a.in_place, file, out)?;
-            }
-            let o = h.open(Path::new(file))?;
-            let ws: Vec<String> = serde_json::from_value(o["warnings"].clone()).unwrap_or_default();
-            warn_all(err, &ws);
-            reported_fonts.extend(ws);
+    // clap's `source` group gives exactly one of the two, and its `work` group a --cmd or --out.
+    if let Some(new) = &a.new {
+        h.command_run("file.new", new.clone()).map_err(CliError::New)?;
+    } else if let Some(file) = &a.file {
+        // Refused before the file is read or any command runs.
+        if let Some(out) = &a.out {
+            refuse_overwriting_input(a.in_place, file, out)?;
         }
-        (None, Some(new)) => {
-            let p: Value = serde_json::from_str(new).map_err(CliError::BadNew)?;
-            h.command_run("file.new", p).map_err(CliError::New)?;
-        }
-        _ => return Err(CliError::Needs { sub: "run", what: "exactly one of <file> or --new <json>" }),
+        let o = h.open(file)?;
+        let ws: Vec<String> = serde_json::from_value(o["warnings"].clone()).unwrap_or_default();
+        warn_all(err, &ws);
+        reported_fonts.extend(ws);
     }
     let cmds = command_list(a)?;
-    if cmds.is_empty() && a.out.is_none() {
-        return Err(CliError::Needs { sub: "run", what: "at least one --cmd (or --out)" });
-    }
     for (id, params) in cmds {
         let r = h.command_run(&id, params).map_err(|source| CliError::Command { id: id.clone(), source })?;
         if let Some(message) = photocraft_engine::actions_cmds::nested_failure(&id, &r) {
@@ -118,8 +110,8 @@ pub(crate) fn run_cmds(a: &RunArgs, out: &mut dyn Write, err: &mut dyn Write) ->
     let remaining: Vec<String> =
         h.session.active().map(|st| missing_font_warnings(&st.doc)).unwrap_or_default().into_iter().filter(|w| reported_fonts.insert(w.clone())).collect();
     warn_all(err, &remaining);
-    if let Some(o) = &a.out {
-        let r = h.save(None, Some(Path::new(o)), a.export.format.as_deref(), &opts)?;
+    if let Some(o) = a.out.as_deref() {
+        let r = h.save(None, Some(o), a.export.format.as_deref(), &opts)?;
         let ws: Vec<String> = serde_json::from_value(r["warnings"].clone()).unwrap_or_default();
         let ws: Vec<String> = ws.into_iter().filter(|w| reported_fonts.insert(w.clone())).collect();
         warn_all(err, &ws);

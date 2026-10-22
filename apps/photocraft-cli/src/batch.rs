@@ -3,13 +3,14 @@ use std::path::{Path, PathBuf};
 
 use photocraft_automation::Headless;
 use photocraft_engine::actions_cmds::Action;
+use photocraft_io::ExportOptions;
 use serde_json::json;
 
 use crate::{
     CliError, Result,
     actions::load_actions_file,
     args::{BatchArgs, DropletArgs},
-    output::{export_opts, warn_all},
+    output::warn_all,
 };
 
 /// Whether `a` and `b` name the same existing folder, however they are spelt (relative, with a
@@ -47,22 +48,19 @@ fn strip_shell_steps(action: &mut Action) {
 }
 
 pub(crate) fn batch(a: &BatchArgs, out: &mut dyn Write, err: &mut dyn Write) -> Result {
-    let needs = |what| CliError::Needs { sub: "batch", what };
-    let actions_path = a.actions.as_deref().ok_or_else(|| needs("--actions <file>"))?;
-    let in_dir = PathBuf::from(a.in_dir.as_deref().ok_or_else(|| needs("--in <dir>"))?);
-    let out_dir = PathBuf::from(a.out.as_deref().ok_or_else(|| needs("--out <dir>"))?);
-    let (actions, mut set, warnings) = load_actions_file(actions_path, a.action.as_deref())?;
+    let (in_dir, out_dir) = (a.in_dir.as_path(), a.out.as_path());
+    let (actions, mut set, warnings) = load_actions_file(&a.actions, a.action.as_deref())?;
     set.iter_mut().for_each(strip_shell_steps);
     warn_all(err, &warnings);
-    let opts = export_opts(&a.export)?;
+    let opts = ExportOptions::from(&a.export);
     // Results are saved as `<out>/<stem>.<ext>`, so an `--out` that is the `--in` folder would
     // replace the originals (#492).
-    if !a.in_place && same_dir(&in_dir, &out_dir) {
-        return Err(CliError::OutIsIn(out_dir));
+    if !a.in_place && same_dir(in_dir, out_dir) {
+        return Err(CliError::OutIsIn(out_dir.to_path_buf()));
     }
-    std::fs::create_dir_all(&out_dir)?;
-    let mut inputs: Vec<PathBuf> = std::fs::read_dir(&in_dir)
-        .map_err(|source| CliError::ReadDir { path: in_dir.clone(), source })?
+    std::fs::create_dir_all(out_dir)?;
+    let mut inputs: Vec<PathBuf> = std::fs::read_dir(in_dir)
+        .map_err(|source| CliError::ReadDir { path: in_dir.to_path_buf(), source })?
         .flatten()
         .map(|e| e.path())
         .filter(|p| is_input(p))

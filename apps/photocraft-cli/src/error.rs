@@ -17,17 +17,6 @@ pub(crate) enum CliError {
     Json(#[from] serde_json::Error),
     #[error(transparent)]
     Actions(#[from] ActionsError),
-    /// A required argument is missing: `convert needs <in> <out>`.
-    #[error("{sub} needs {what}")]
-    Needs { sub: &'static str, what: &'static str },
-    #[error("bad {flag} `{value}`: expected {expected}")]
-    BadValue { flag: &'static str, value: String, expected: &'static str },
-    #[error("bad --port `{0}`")]
-    BadPort(String),
-    #[error("bad --new JSON: {0}")]
-    BadNew(#[source] serde_json::Error),
-    #[error("bad --params JSON for `{id}`: {source}")]
-    BadParams { id: String, source: serde_json::Error },
     #[error("{}: {source}", path.display())]
     ReadDir { path: PathBuf, source: std::io::Error },
     #[error("--params must follow a --cmd")]
@@ -39,8 +28,8 @@ pub(crate) enum CliError {
     /// A step inside an action the command played failed ([`photocraft_engine::actions_cmds::nested_failure`]).
     #[error("`{id}`: {message}")]
     NestedFailure { id: String, message: String },
-    #[error("{0} is the input file, so the result would replace the original: choose another output, or pass --in-place to overwrite it")]
-    OutIsInput(String),
+    #[error("{} is the input file, so the result would replace the original: choose another output, or pass --in-place to overwrite it", .0.display())]
+    OutIsInput(PathBuf),
     #[error("--out {} is the --in folder, so the results would replace the originals: choose another --out folder, or pass --in-place to overwrite them", .0.display())]
     OutIsIn(PathBuf),
     /// Another input already wrote this output ([`photocraft_engine::file_cmds::OutputClaims::check`]).

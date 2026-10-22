@@ -376,10 +376,13 @@ fn run_errors() {
     let o = bin().args(["run", "--new", "{}", "--cmd", "no.such"]).output().unwrap();
     assert_eq!(o.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&o.stderr).contains("unknown command"));
+    // Neither a --cmd nor --out, and JSON that doesn't parse, are usage errors naming the flag.
     let o = bin().args(["run", "--new", "{}", "--params", "{}"]).output().unwrap();
-    assert_eq!(o.status.code(), Some(1));
+    assert_eq!(o.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("--cmd"));
     let o = bin().args(["run", "--new", "{", "--cmd", "x"]).output().unwrap();
-    assert_eq!(o.status.code(), Some(1));
+    assert_eq!(o.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("--new"));
     // Params must be a JSON object, for `--new` and for each `--params`.
     let o = bin().args(["run", "--new", "[3]", "--cmd", "layer.new.layer"]).output().unwrap();
     assert_eq!(o.status.code(), Some(1));
@@ -542,8 +545,8 @@ fn batch_format_with_leading_dot() {
     }
 }
 
-/// #491: `--quality` outside 1-100 is an error for every subcommand, whatever the number's size,
-/// and nothing is written.
+/// #491: `--quality` outside 1-100 is a usage error for every subcommand, whatever the number's
+/// size, and nothing is written.
 #[test]
 fn quality_outside_1_to_100_is_refused() {
     let d = tmp("quality");
@@ -559,12 +562,12 @@ fn quality_outside_1_to_100_is_refused() {
         run.arg("run").arg(&a).args(["--cmd", "image.adjustments.invert", "--out"]).arg(&out).args(["--quality", q]);
         for cmd in [&mut convert, &mut run] {
             let o = cmd.output().unwrap();
-            assert_eq!(o.status.code(), Some(1), "--quality {q}");
-            assert!(String::from_utf8_lossy(&o.stderr).contains(&format!("bad --quality `{q}`: expected a whole number from 1 to 100")), "--quality {q}");
+            assert_eq!(o.status.code(), Some(2), "--quality {q}");
+            assert!(String::from_utf8_lossy(&o.stderr).contains("--quality"), "--quality {q}");
             assert!(!out.exists(), "--quality {q} wrote a file");
         }
         let o = batch_with(&d, &input, "qb", invert, &["--format", "jpg", "--quality", q]);
-        assert_eq!(o.status.code(), Some(1), "batch --quality {q}");
+        assert_eq!(o.status.code(), Some(2), "batch --quality {q}");
         assert!(!d.join("qb").exists(), "batch --quality {q} wrote a folder");
     }
     // The documented range still encodes, lower quality making a smaller file.
@@ -580,7 +583,7 @@ fn quality_outside_1_to_100_is_refused() {
 }
 
 /// DPX converts both ways, `info` reports its size, mode and depth, and `--dpx-bits` picks the
-/// bits per sample (byte 803 of the header); anything but 8, 10, 12 or 16 is refused (#1049).
+/// bits per sample (byte 803 of the header); anything but 8, 10, 12 or 16 is a usage error (#1049).
 #[test]
 fn dpx_converts_both_ways_with_the_bits_asked_for() {
     let d = tmp("dpx");
@@ -607,15 +610,16 @@ fn dpx_converts_both_ways_with_the_bits_asked_for() {
     for bad in ["24", "0", "abc"] {
         let out = d.join("bad.dpx");
         let o = bin().arg("convert").arg(&a).arg(&out).args(["--dpx-bits", bad]).output().unwrap();
-        assert_eq!(o.status.code(), Some(1), "--dpx-bits {bad}");
-        assert!(String::from_utf8_lossy(&o.stderr).contains(&format!("bad --dpx-bits `{bad}`: expected 8, 10, 12 or 16")), "--dpx-bits {bad}");
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert_eq!(o.status.code(), Some(2), "--dpx-bits {bad}");
+        assert!(err.contains("--dpx-bits") && err.contains("expected 8, 10, 12 or 16"), "--dpx-bits {bad}: {err}");
         assert!(!out.exists(), "--dpx-bits {bad} wrote a file");
     }
 }
 
 /// DDS converts both ways; `--dds-compression` picks the FourCC (bytes 84–87; none writes
 /// uncompressed pixels) and `--dds-mipmaps` the mip count (bytes 28–31). A compression that
-/// isn't none, bc1, bc2 or bc3 is refused and nothing is written (#1327).
+/// isn't none, bc1, bc2 or bc3 is a usage error and nothing is written (#1327).
 #[test]
 fn dds_converts_both_ways_with_the_compression_asked_for() {
     let d = tmp("dds");
@@ -640,14 +644,14 @@ fn dds_converts_both_ways_with_the_compression_asked_for() {
     for bad in ["bc7", "dxt2", ""] {
         let out = d.join("bad.dds");
         let o = bin().arg("convert").arg(&a).arg(&out).args(["--dds-compression", bad]).output().unwrap();
-        assert_eq!(o.status.code(), Some(1), "--dds-compression {bad}");
-        assert!(String::from_utf8_lossy(&o.stderr).contains(&format!("bad --dds-compression `{bad}`")), "--dds-compression {bad}");
+        assert_eq!(o.status.code(), Some(2), "--dds-compression {bad}");
+        assert!(String::from_utf8_lossy(&o.stderr).contains("--dds-compression"), "--dds-compression {bad}");
         assert!(!out.exists(), "--dds-compression {bad} wrote a file");
     }
 }
 
-/// `--tga-bits` picks a TGA's bits per pixel (byte 16 of its header); anything but 24 or 32 is
-/// refused and nothing is written.
+/// `--tga-bits` picks a TGA's bits per pixel (byte 16 of its header); anything but 24 or 32 is a
+/// usage error and nothing is written.
 #[test]
 fn tga_bits_choose_the_targa_depth() {
     let d = tmp("tga-bits");
@@ -666,8 +670,9 @@ fn tga_bits_choose_the_targa_depth() {
     for bad in ["16", "0", "abc", ""] {
         let out = d.join("bad.tga");
         let o = bin().arg("convert").arg(&a).arg(&out).args(["--tga-bits", bad]).output().unwrap();
-        assert_eq!(o.status.code(), Some(1), "--tga-bits {bad}");
-        assert!(String::from_utf8_lossy(&o.stderr).contains(&format!("bad --tga-bits `{bad}`: expected 24 or 32")), "--tga-bits {bad}");
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert_eq!(o.status.code(), Some(2), "--tga-bits {bad}");
+        assert!(err.contains("--tga-bits") && err.contains("expected 24 or 32"), "--tga-bits {bad}: {err}");
         assert!(!out.exists(), "--tga-bits {bad} wrote a file");
     }
 }
@@ -713,7 +718,7 @@ fn run_refuses_to_write_over_its_input() {
 }
 
 /// `--jpeg-format` picks the JPEG's scans: progressive writes a progressive frame (SOF2). One it
-/// doesn't name is refused and nothing is written.
+/// doesn't name is a usage error and nothing is written.
 #[test]
 fn jpeg_format_chooses_the_scans() {
     let d = tmp("jpeg-format");
@@ -733,8 +738,9 @@ fn jpeg_format_chooses_the_scans() {
     for bad in ["Progressive", "1", ""] {
         let out = d.join("bad.jpg");
         let o = bin().arg("convert").arg(&a).arg(&out).args(["--jpeg-format", bad]).output().unwrap();
-        assert_eq!(o.status.code(), Some(1), "--jpeg-format {bad}");
-        assert!(String::from_utf8_lossy(&o.stderr).contains(&format!("bad --jpeg-format `{bad}`")), "--jpeg-format {bad}");
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert_eq!(o.status.code(), Some(2), "--jpeg-format {bad}");
+        assert!(err.contains("--jpeg-format") && err.contains("expected baseline, optimized or progressive"), "--jpeg-format {bad}: {err}");
         assert!(!out.exists(), "--jpeg-format {bad} wrote a file");
     }
 }
@@ -964,19 +970,38 @@ fn tiff_output_is_flat_unless_tiff_layers_is_given() {
 }
 
 /// Issue #1108: a non-Unicode argument (a Latin-1 file name on Linux) used to panic in
-/// `std::env::args()` before anything was printed. It is a usage error naming the argument.
+/// `std::env::args()` before anything was printed. clap reads the arguments as they are: a path
+/// takes one, and text (`--filter`) refuses it with a usage error.
 #[cfg(unix)]
 #[test]
-fn a_non_unicode_argument_is_a_usage_error_not_a_panic() {
+fn a_non_unicode_path_is_taken_and_non_unicode_text_is_a_usage_error() {
+    use std::ffi::OsStr;
     use std::os::unix::ffi::OsStrExt;
-    let name = std::ffi::OsStr::from_bytes(b"caf\xe9.png");
-    for args in [vec![std::ffi::OsStr::new("info"), name], vec![std::ffi::OsStr::new("convert"), name, std::ffi::OsStr::new("out.png")]] {
-        let o = bin().args(&args).output().unwrap();
+    let d = tmp("non-unicode");
+    let name = OsStr::from_bytes(b"caf\xe9.png");
+    // No such file yet: the handler runs and fails on it (exit 1), no usage error.
+    for args in [vec![OsStr::new("info"), name], vec![OsStr::new("convert"), name, OsStr::new("out.png")]] {
+        let o = bin().current_dir(&d).args(&args).output().unwrap();
         let err = String::from_utf8_lossy(&o.stderr);
-        assert_eq!(o.status.code(), Some(2), "{err}");
-        assert!(err.contains("argument 2 is not valid Unicode") && err.contains("caf\u{fffd}.png"), "{err}");
+        assert_eq!(o.status.code(), Some(1), "{args:?}: {err}");
         assert!(!err.contains("panicked"), "{err}");
     }
+    // Linux file systems take the name (macOS ones refuse it). `convert` reads it; `info` opens
+    // through the automation layer, which still needs UTF-8 paths, and says so (exit 1).
+    if cfg!(target_os = "linux") {
+        write_png(&d.join(name), 8, 4, 3);
+        ok(bin().current_dir(&d).arg("convert").arg(name).arg("out.png"));
+        assert!(d.join("out.png").is_file());
+        let o = bin().current_dir(&d).arg("info").arg(name).output().unwrap();
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert_eq!(o.status.code(), Some(1), "{err}");
+        assert!(err.contains("UTF-8"), "{err}");
+    }
+    let o = bin().args([OsStr::new("commands"), OsStr::new("--filter"), name]).output().unwrap();
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert_eq!((o.status.code(), o.stdout.is_empty()), (Some(2), true), "{err}");
+    assert!(err.contains("UTF-8") && !err.contains("panicked"), "{err}");
+    std::fs::remove_dir_all(d).unwrap();
 }
 
 /// `batch --actions set.atn`: a Photoshop Actions file plays like an Actions set, and its steps
@@ -1174,4 +1199,32 @@ fn a_value_starting_with_a_dash_is_written_with_equals() {
     ok(bin().current_dir(&d).args(["run", "--new", r#"{"width":4,"height":4}"#, "--out=-image.png"]));
     assert!(d.join("-image.png").is_file());
     std::fs::remove_dir_all(d).unwrap();
+}
+
+/// `run` takes exactly one of `<FILE>` or `--new`, and `mcp`/`serve` one of `--control-token` or
+/// `--control-token-file`: anything else is a usage error naming the flags, before any work.
+#[test]
+fn either_or_flags_are_usage_errors() {
+    let Invoke { code, stderr: err, .. } = invoke(&["run", "a.png", "--new", "{}", "--cmd", "layer.new.layer"]);
+    assert_eq!(code, 2);
+    assert!(err.contains("--new") && err.contains("cannot be used with"), "{err}");
+    let Invoke { code, stderr: err, .. } = invoke(&["run", "--cmd", "layer.new.layer"]);
+    assert_eq!(code, 2);
+    assert!(err.contains("--new"), "{err}");
+    let Invoke { code, stderr: err, .. } = invoke(&["run", "--new", "{}", "--cmd", "layer.new.layer", "--params", "{"]);
+    assert_eq!(code, 2);
+    assert!(err.contains("--params"), "{err}");
+    let token = "a".repeat(64);
+    for sub in ["mcp", "serve"] {
+        let o = bin().args([sub, "--control-token", token.as_str(), "--control-token-file", "token"]).stdin(Stdio::null()).output().unwrap();
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert_eq!(o.status.code(), Some(2), "{sub}: {err}");
+        assert!(err.contains("--control-token-file") && err.contains("cannot be used with"), "{sub}: {err}");
+    }
+    for port in ["70000", "x"] {
+        let o = bin().args(["serve", "--port", port]).stdin(Stdio::null()).output().unwrap();
+        let err = String::from_utf8_lossy(&o.stderr);
+        assert_eq!(o.status.code(), Some(2), "--port {port}: {err}");
+        assert!(err.contains("--port"), "--port {port}: {err}");
+    }
 }

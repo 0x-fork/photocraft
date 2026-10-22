@@ -85,15 +85,15 @@ pub fn load_actions(text: &str, name: Option<&str>) -> Result<(Steps, Vec<Action
 /// [`load_actions`] for a file on disk: a Photoshop Actions file (`.atn`, by extension or by
 /// its version word) is converted first; the played action's steps with no PhotoCraft
 /// equivalent come back as warnings (they fail at playback, as in Photoshop when a step can't run).
-pub fn load_actions_file(path: &str, name: Option<&str>) -> Result<(Steps, Vec<Action>, Vec<String>), ActionsError> {
-    let bytes = std::fs::read(path).map_err(|source| ActionsError::Read { path: path.into(), source })?;
-    let is_atn = Path::new(path).extension().is_some_and(|e| e.eq_ignore_ascii_case("atn")) || bytes.starts_with(&[0, 0, 0, 16]);
+pub fn load_actions_file(path: &Path, name: Option<&str>) -> Result<(Steps, Vec<Action>, Vec<String>), ActionsError> {
+    let bytes = std::fs::read(path).map_err(|source| ActionsError::Read { path: path.to_path_buf(), source })?;
+    let is_atn = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("atn")) || bytes.starts_with(&[0, 0, 0, 16]);
     if !is_atn {
-        let text = String::from_utf8(bytes).map_err(|source| ActionsError::Utf8 { path: path.into(), source })?;
+        let text = String::from_utf8(bytes).map_err(|source| ActionsError::Utf8 { path: path.to_path_buf(), source })?;
         let (steps, set) = load_actions(&text, name)?;
         return Ok((steps, set, Vec::new()));
     }
-    let imp = photocraft_engine::atn_cmds::import(&bytes).map_err(|message| ActionsError::Atn { path: path.into(), message })?;
+    let imp = photocraft_engine::atn_cmds::import(&bytes).map_err(|message| ActionsError::Atn { path: path.to_path_buf(), message })?;
     let action = match (name, imp.actions.as_slice()) {
         (Some(n), _) => imp.actions.iter().find(|a| a.name == n).ok_or_else(|| ActionsError::NoSuchAtnAction {
             name: n.to_owned(),
@@ -101,7 +101,7 @@ pub fn load_actions_file(path: &str, name: Option<&str>) -> Result<(Steps, Vec<A
             names: names(&imp.actions),
         })?,
         (None, [only]) => only,
-        (None, []) => return Err(ActionsError::EmptyAtn { path: path.into() }),
+        (None, []) => return Err(ActionsError::EmptyAtn { path: path.to_path_buf() }),
         (None, _) => return Err(ActionsError::PickOneAtn { set: imp.set.clone(), names: names(&imp.actions) }),
     };
     let warnings = imp
