@@ -987,7 +987,14 @@ fn show_only(layers: &mut [photocraft_doc::Layer], keep: &[LayerId]) {
             continue;
         }
         match &mut l.content {
-            LayerContent::Group(g) if g.children.iter().any(|c| keep.iter().any(|k| contains(c, *k))) => show_only(&mut g.children, keep),
+            LayerContent::Group(g) if g.children.iter().any(|c| keep.iter().any(|k| contains(c, *k))) => {
+                // This ancestor only clips the covering children. Its background is already
+                // on the base canvas; drawing it again would cover the moving layer in white.
+                if let Some(board) = &mut g.artboard {
+                    board.background = photocraft_doc::ArtboardBackground::Transparent;
+                }
+                show_only(&mut g.children, keep);
+            }
             _ => l.visible = false,
         }
     }
@@ -1006,6 +1013,10 @@ pub(crate) fn solo_layer(layers: &mut [photocraft_doc::Layer], id: LayerId) {
         match &mut l.content {
             LayerContent::Group(g) if g.children.iter().any(|c| contains(c, id)) => {
                 l.clipped = false;
+                // Isolate the child, not the artboard's paper. Keep the board for clipping.
+                if let Some(board) = &mut g.artboard {
+                    board.background = photocraft_doc::ArtboardBackground::Transparent;
+                }
                 solo_layer(&mut g.children, id);
             }
             _ => l.visible = false,
@@ -5187,6 +5198,80 @@ mod tests {
             Color32::from_rgb(255, 0, 0),
             "a sibling in the parent group must not be baked into the moving texture"
         );
+    }
+
+    fn artboard_preview_app(background: photocraft_doc::ArtboardBackground) -> (PhotocraftApp, LayerId, LayerId) {
+        use photocraft_doc::{Artboard, Layer};
+        let mut app = app_with_square(64, photocraft_geom::Rect::new(8, 8, 24, 24));
+        let st = app.session.active_mut().unwrap();
+        let doc = Arc::make_mut(&mut st.doc);
+        let red = doc.layers.pop().unwrap();
+        let red_id = red.id;
+        let mut blue = Layer::raster("covering blue", photocraft_color::PixelFormat::RGBA8);
+        blue.surface_mut().unwrap().fill_rect(photocraft_geom::Rect::new(16, 16, 40, 40), &[0.0, 0.0, 1.0, 1.0]);
+        let mut board = Layer::group("board", vec![red, blue]);
+        let board_id = board.id;
+        if let LayerContent::Group(g) = &mut board.content {
+            let mut ab = Artboard::new(photocraft_geom::Rect::new(0, 0, 64, 64));
+            ab.background = background;
+            g.artboard = Some(ab);
+        }
+        doc.layers = vec![board];
+        (app, board_id, red_id)
+    }
+
+    #[test]
+    fn artboard_transform_overlay_does_not_cover_moving_pixels_with_the_board_background() {
+        use photocraft_doc::ArtboardBackground;
+        for background in [ArtboardBackground::White, ArtboardBackground::Black] {
+            let (mut app, board_id, red_id) = artboard_preview_app(background);
+            let original = app.session.active().unwrap().doc.clone();
+            begin(&mut app, &gpu_ctx()).unwrap();
+            let pv = app.transform_preview.as_ref().unwrap();
+            let (texture, rect) = pv.above.as_ref().unwrap().shown.as_ref().unwrap();
+            let (image, _) = texture.level_image(0).unwrap();
+            let at = |x: i32, y: i32| image.pixels[(y - rect.y0) as usize * image.size[0] + (x - rect.x0) as usize];
+            assert_eq!(at(12, 12), Color32::TRANSPARENT, "the board background belongs under the moving layer");
+            assert_eq!(at(20, 20), Color32::BLUE, "covering siblings must still cover the moving layer");
+            let under = photocraft_compose::render(&pv.doc, photocraft_geom::Rect::new(0, 0, 64, 64));
+            assert_eq!(under.px[12 * 64 + 12], background.rgba().unwrap(), "the board background remains on the base canvas");
+            assert!(!pv.doc.layer(red_id).unwrap().visible);
+            cancel(&mut app);
+            let LayerContent::Group(g) = &app.session.active().unwrap().doc.layer(board_id).unwrap().content else { panic!("board") };
+            assert_eq!(g.artboard.as_ref().unwrap().background, background);
+            assert!(Arc::ptr_eq(&app.session.active().unwrap().doc, &original), "preview and cancellation do not edit the document");
+        }
+    }
+
+    #[test]
+    fn artboard_solo_preview_keeps_holes_transparent_and_the_board_clip() {
+        use photocraft_doc::ArtboardBackground;
+        let (app, board_id, red_id) = artboard_preview_app(ArtboardBackground::White);
+        let original = &app.session.active().unwrap().doc;
+        let mut solo = (**original).clone();
+        solo.layer_mut(red_id).unwrap().surface_mut().unwrap().fill_rect(photocraft_geom::Rect::new(-2, -2, 1, 1), &[1.0, 0.0, 0.0, 1.0]);
+        solo_layer(&mut solo.layers, red_id);
+        let b = photocraft_geom::Rect::new(-2, -2, 66, 66);
+        let rendered = photocraft_compose::render(&solo, b);
+        let at = |x: i32, y: i32| rendered.px[(y + 2) as usize * 68 + (x + 2) as usize];
+        assert_eq!(at(12, 12), [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(at(30, 30), [0.0; 4], "neither the board's white nor another child enters the moving texture");
+        assert_eq!(at(-1, -1), [0.0; 4], "the artboard still clips its children");
+        let LayerContent::Group(g) = &solo.layer(board_id).unwrap().content else { panic!("board") };
+        assert!(g.artboard.is_some(), "keep the board boundary while omitting its background");
+    }
+
+    #[test]
+    fn artboard_moved_as_a_whole_keeps_its_background() {
+        use photocraft_doc::ArtboardBackground;
+        let (app, board_id, _) = artboard_preview_app(ArtboardBackground::Black);
+        let mut doc = (*app.session.active().unwrap().doc).clone();
+        solo_layer(&mut doc.layers, board_id);
+        let rendered = photocraft_compose::render(&doc, photocraft_geom::Rect::new(0, 0, 64, 64));
+        assert_eq!(rendered.px[50 * 64 + 50], [0.0, 0.0, 0.0, 1.0]);
+        show_only(&mut doc.layers, &[board_id]);
+        let rendered = photocraft_compose::render(&doc, photocraft_geom::Rect::new(0, 0, 64, 64));
+        assert_eq!(rendered.px[50 * 64 + 50], [0.0, 0.0, 0.0, 1.0], "a whole covering artboard keeps its own background");
     }
 
     #[test]
