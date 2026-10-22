@@ -459,8 +459,13 @@ pub(crate) fn path_target(app: &PhotocraftApp, x: f64, y: f64) -> Option<PathCli
 /// What the Type tool's pointer over document `(x, y)` shows (#218): the path click a press there
 /// would make, unless the press edits the type layer under it instead (`pointer_down`: an
 /// unshifted press on shown type), where Photoshop keeps the plain I-beam. The type hit is only
-/// tested over a path, so a hover elsewhere lays out nothing.
+/// tested over a path, so a hover elsewhere lays out nothing. Nothing while a type edit is open
+/// (a click then commits rather than starting new type) or during a drag (dragging out a text
+/// box, whose release makes a box, not path type).
 pub(crate) fn hover_path_target(app: &mut PhotocraftApp, x: f64, y: f64, shift: bool) -> Option<PathClick> {
+    if app.ui.text_edit.is_some() || app.drag.is_some() {
+        return None;
+    }
     let target = path_target(app, x, y)?;
     (shift || hit_layer(app, x, y).is_none()).then_some(target)
 }

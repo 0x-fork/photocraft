@@ -2837,6 +2837,23 @@ fn clicking_on_a_path_outline_starts_type_on_the_path_where_clicked() {
     );
 }
 
+/// The path pointer shows what a click would do: none while a text box is dragged out over a
+/// path (the release makes a box) or while a type edit is open (a click commits).
+#[test]
+fn the_path_pointer_is_off_while_dragging_a_text_box_or_editing() {
+    use crate::canvas::{ToolEvent, tool_event};
+    let mut app = new_app();
+    ellipse_layer(&mut app);
+    assert!(matches!(super::hover_path_target(&mut app, 400.0, 350.0, false), Some(PathClick::Area { .. })), "a hover inside the shape");
+    tool_event(&mut app, ToolEvent::Down { x: 1200.0, y: 700.0, pressure: 1.0 }, Modifiers::NONE);
+    tool_event(&mut app, ToolEvent::Move { x: 400.0, y: 350.0, pressure: 1.0 }, Modifiers::NONE);
+    assert!(app.drag.is_some(), "dragging out a box");
+    assert!(super::hover_path_target(&mut app, 400.0, 350.0, false).is_none(), "the drag makes a box, not area type");
+    tool_event(&mut app, ToolEvent::Up { x: 400.0, y: 350.0 }, Modifiers::NONE);
+    assert!(app.ui.text_edit.is_some(), "the box is being edited");
+    assert!(super::hover_path_target(&mut app, 400.0, 350.0, false).is_none(), "a click now commits");
+}
+
 #[test]
 fn click_outside_paths_still_makes_point_text() {
     use photocraft_doc::text::TextShape;
