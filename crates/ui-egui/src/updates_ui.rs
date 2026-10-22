@@ -12,10 +12,13 @@ pub(crate) struct Runtime {
 }
 
 pub(crate) fn check(app: &mut PhotocraftApp, _ctx: &egui::Context, params: Value) -> Result<Value, String> {
-    let result = app.run("help.checkForUpdates", params)?;
-    app.ui.updates_open = true;
-    app.updates_rt.startup_checked = true;
-    Ok(result)
+    let result = app.run("help.checkForUpdates", params);
+    // A check that fails to start still shows its failure and Check Again; the command error stands.
+    if result.is_ok() || matches!(app.session.updates.status, Status::Failed { .. }) {
+        app.ui.updates_open = true;
+        app.updates_rt.startup_checked = true;
+    }
+    result
 }
 
 pub(crate) fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
@@ -207,6 +210,22 @@ mod tests {
         assert!(app.ui.updates_open);
         app.ui.updates_open = false;
         at(&mut app, &ctx, 2.0);
+        assert!(!app.ui.updates_open);
+    }
+
+    #[test]
+    fn a_manual_check_that_fails_to_start_opens_the_status_window() {
+        let mut app =
+            PhotocraftApp::new(Session::new(), Services { check_updates: Some(Box::new(|| Err("Could not start worker".into()))), ..Default::default() });
+        let ctx = egui::Context::default();
+        let error = menus::invoke(&mut app, &ctx, "help.checkForUpdates", serde_json::json!({})).unwrap_err();
+        assert!(error.contains("Could not start worker"), "{error}");
+        assert!(matches!(app.session.updates.status, Status::Failed { .. }));
+        assert!(app.ui.updates_open, "the failure and Check Again are shown");
+        // Bad params are a caller error, not a failed check: nothing opens.
+        app.ui.updates_open = false;
+        app.session.updates.status = Status::Idle;
+        assert!(menus::invoke(&mut app, &ctx, "help.checkForUpdates", serde_json::json!({"x": 1})).is_err());
         assert!(!app.ui.updates_open);
     }
 
