@@ -80,6 +80,7 @@ async fn lists_expected_tools() {
         "doc_open",
         "doc_new",
         "doc_place",
+        "doc_replace_smart_object",
         "doc_export_layers",
         "doc_export_data_sets",
         "doc_import_data_sets",
@@ -700,6 +701,36 @@ async fn doc_place_is_capability_scoped() {
     assert_eq!(after, placed, "nothing outside the root was placed");
     // The ambient command keeps its refusal: the capability-scoped method is the only way in.
     let ambient = call(&client, "command_run", json!({"id": "file.placeEmbedded", "params": {"path": "inside.png"}})).await;
+    assert_eq!(ambient.is_error, Some(true));
+    assert!(text(&ambient).contains("ambient filesystem paths"), "{}", text(&ambient));
+    client.cancel().await.unwrap();
+    cleanup(&base);
+}
+
+/// #8061: Replace Contents reads from the read root through `doc_replace_smart_object`; the
+/// ambient `layer.smartObjects.replaceContents` stays refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn doc_replace_smart_object_is_capability_scoped() {
+    let base = tmp("replace-so");
+    let root = base.join("workspace");
+    let outside = base.join("outside");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    let img = photocraft_codecs::Image::from_u8(8, 6, photocraft_codecs::ChannelLayout::Rgb, vec![42; 144]).unwrap();
+    let bytes = photocraft_codecs::encode(&img, photocraft_codecs::Format::Png, &Default::default()).unwrap();
+    std::fs::write(root.join("inside.png"), &bytes).unwrap();
+    std::fs::write(outside.join("outside.png"), bytes).unwrap();
+    let client = connect(headless_in(&root)).await;
+
+    json_of(&call(&client, "doc_new", json!({"width": 40, "height": 30})).await);
+    let placed = json_of(&call(&client, "doc_place", json!({"path": "inside.png"})).await);
+    let layer = placed["layer"].clone();
+    let replaced = call(&client, "doc_replace_smart_object", json!({"path": "inside.png", "layer": layer})).await;
+    assert_ne!(replaced.is_error, Some(true), "{}", text(&replaced));
+    let refused = call(&client, "doc_replace_smart_object", json!({"path": outside.join("outside.png").to_string_lossy(), "layer": layer})).await;
+    assert_eq!(refused.is_error, Some(true));
+    assert!(text(&refused).contains("must be inside the automation root"), "{}", text(&refused));
+    let ambient = call(&client, "command_run", json!({"id": "layer.smartObjects.replaceContents", "params": {"path": "inside.png", "layer": layer}})).await;
     assert_eq!(ambient.is_error, Some(true));
     assert!(text(&ambient).contains("ambient filesystem paths"), "{}", text(&ambient));
     client.cancel().await.unwrap();
