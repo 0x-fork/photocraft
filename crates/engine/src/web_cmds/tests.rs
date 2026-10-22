@@ -670,6 +670,40 @@ fn image_assets_are_generated_now_and_on_save() {
     assert_eq!(decode(&files[0]).dimensions(), (128, 80));
 }
 
+/// Photoshop's Generator exports an artboard named like an asset at the board's size, transparent
+/// edges included (generator-assets renderer: the canvas bounds are the artboard's), with no
+/// preference. Layers inside the board are still trimmed to their pixels.
+#[test]
+fn image_assets_keep_full_artboards() {
+    let dir = tmp("asset-artboards");
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 64, "height": 48, "name": "boards.psd", "background": "transparent"})).unwrap();
+    s.edit("board", |doc, _| {
+        let fmt = doc.pixel_format();
+        let mut logo = Layer::raster("logo.png", fmt);
+        logo.surface_mut().unwrap().fill_rect(Rect::new(12, 10, 20, 16), &photocraft_raster::from_rgba(&fmt, [1.0, 0.0, 0.0, 1.0]));
+        let board =
+            photocraft_doc::Artboard { rect: Rect::new(4, 6, 44, 36), background: photocraft_doc::ArtboardBackground::Transparent, preset: String::new() };
+        let group = photocraft_doc::Group { children: vec![logo], expanded: true, artboard: Some(board) };
+        doc.layers = vec![Layer::new("board.png", LayerContent::Group(group))];
+        Ok(())
+    })
+    .unwrap();
+
+    let r = s.execute("file.generate.imageAssets", json!({"on": true, "dir": dir})).unwrap();
+    assert!(r["errors"].as_array().unwrap().is_empty(), "{r}");
+    let board = decode(&format!("{dir}/board.png"));
+    assert_eq!(board.dimensions(), (40, 30), "the whole board, not its trimmed pixels");
+    let px = board.to_rgba8();
+    let at = |x: usize, y: usize| &px[(y * 40 + x) * 4..(y * 40 + x) * 4 + 4];
+    assert_eq!(at(0, 0)[3], 0, "the board's empty corner stays transparent");
+    assert_eq!(at(39, 29)[3], 0);
+    // The logo keeps its place on the board: document (12, 10) is board (8, 4).
+    assert!(at(8, 4)[0] > 250 && at(8, 4)[3] == 255, "{:?}", at(8, 4));
+    assert_eq!(at(7, 4)[3], 0);
+    assert_eq!(decode(&format!("{dir}/logo.png")).dimensions(), (8, 6), "a layer on the board is still trimmed");
+}
+
 /// #6614: two layers, or two default variants, naming one file never overwrite each other: the
 /// layer higher in the Layers panel keeps the file, whatever the case of its name, and the
 /// others are reported.

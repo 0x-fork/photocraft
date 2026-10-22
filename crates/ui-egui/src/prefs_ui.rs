@@ -1231,6 +1231,8 @@ fn gpu_memory_lines(app: &PhotocraftApp) -> Vec<String> {
     v
 }
 
+/// The label a preference key shows in the dialog: a few keys have their own wording, the rest
+/// split camelCase into words (`convertToSrgb` → "Convert to srgb").
 fn humanize(key: &str) -> String {
     match key {
         "appearanceMode" => return "Appearance Mode".into(),
