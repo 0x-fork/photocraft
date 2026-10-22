@@ -1859,6 +1859,29 @@ pub fn build_maps(layer: &Layer, shape: Vec<f32>, rect: Rect, light: &GlobalLigh
     build_maps_prepared(layer, shape, rect, light, tex, &prepared)
 }
 
+/// How many region-sized arrays [`build_maps_prepared`] builds for `layer` (what
+/// [`FxMaps::bytes`] counts): the shape, each effect's maps, and a stroke's distance fields. Kept
+/// next to the builder so the effect cache's estimate (#8330) follows it.
+pub(crate) fn map_count(layer: &Layer) -> usize {
+    let items: Vec<&Effect> = layer.effects.items.iter().filter(|e| e.enabled()).collect();
+    let per: usize = items
+        .iter()
+        .map(|e| match e {
+            Effect::DropShadow(_) | Effect::InnerShadow(_) | Effect::OuterGlow(_) | Effect::InnerGlow(_) | Effect::Satin(_) => 1,
+            Effect::BevelEmboss(_) => 2,
+            _ => 0,
+        })
+        .sum();
+    let out_widths: Vec<f32> =
+        items.iter().filter_map(|e| if let Effect::Stroke(st) = e { Some(stroke_widths(st).1) } else { None }).filter(|w| *w > 0.0).collect();
+    let has_stroke = items.iter().any(|e| matches!(e, Effect::Stroke(_)));
+    let outside = usize::from(out_widths.iter().any(|&w| !stroke_outside_exact(w))) + usize::from(out_widths.iter().any(|&w| stroke_outside_exact(w)));
+    let stroke = if has_stroke { 1 + outside } else { 0 };
+    let vector_outline =
+        if has_stroke && matches!(layer.content, photocraft_doc::LayerContent::Shape(_)) && crate::effect_outline(layer).is_none() { outside } else { 0 };
+    1 + per + stroke + vector_outline
+}
+
 pub(crate) fn build_maps_prepared(
     layer: &Layer,
     shape: Vec<f32>,
