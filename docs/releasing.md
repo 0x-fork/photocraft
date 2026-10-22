@@ -22,7 +22,8 @@ HTTPS validates certificates and host names against the operating system's trust
 Tags must be semantic versions (`v0.8.0` or `0.8.0`); only published stable versions newer
 than the installed workspace version trigger a notice. The notice opens the official release
 page to choose an installer; installation remains a user action. Drafts and prereleases do
-not trigger it. Web/headless frontends have no update transport. No release-workflow changes
+not trigger it. Web/headless frontends and the Flatpak (no network in its sandbox; `flatpak update`
+owns updates there) have no update transport. No release-workflow changes
 are required: publishing a newer stable GitHub Release makes it discoverable.
 
 ## Cutting a release
