@@ -183,6 +183,9 @@ pub fn panel_footer<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     ui.painter().line_segment([pos2(r.left() - m.left as f32, y), pos2(r.right() + m.right as f32, y)], Stroke::new(1.0, t.separator));
     let bar = Rect::from_min_size(pos2(r.left(), r.top() + 1.0), vec2(r.width(), FOOTER_BAR));
     let mut bar_ui = ui.new_child(egui::UiBuilder::new().max_rect(bar).layout(egui::Layout::right_to_left(egui::Align::Center)));
+    // The bar runs on over the body's bottom margin, past where the body's own clip ends: without
+    // this its buttons were cut off there, a 26 px hover highlight drawn about 21 px tall.
+    bar_ui.set_clip_rect(bar_ui.clip_rect().union(bar));
     bar_ui.spacing_mut().item_spacing.x = 2.0;
     add(&mut bar_ui)
 }
@@ -793,7 +796,9 @@ pub fn popup_value_field(ui: &mut Ui, name: &str, value: &mut f32, range: std::o
         ui.painter().rect_filled(arrow, t.radius_sm, t.field_border.gamma_multiply(0.6));
     }
     chevron_icon(ui, arrow, ui.style().interact(&resp), open);
+    let parent_layer = resp.layer_id;
     popup.show(|ui| {
+        crate::press_menu::above_parent_ui(parent_layer, ui);
         ui.set_width(POPUP_SLIDER_W);
         let s = slider(ui, value, range, None);
         s.widget_info(|| egui::WidgetInfo::slider(ui.is_enabled(), f64::from(*value), &name));
@@ -1750,6 +1755,7 @@ pub fn swatch_popup(swatch: &Response) -> egui::Popup<'static> {
         ctx.data_mut(|d| d.remove::<f32>(key));
         return popup;
     }
+    crate::press_menu::above_parent(ctx, swatch.layer_id, egui::LayerId::new(egui::Order::Foreground, popup.get_id()));
     // Its width is known from the frame after it opened (egui sizes it unseen first).
     let left = ctx.data(|d| d.get_temp::<f32>(key)).or_else(|| {
         let width = popup.get_expected_size()?.x;
@@ -2154,6 +2160,32 @@ mod tests {
     }
 
     use egui_kittest::{Harness, kittest::Queryable};
+
+    /// A panel footer's buttons are drawn whole. The bar runs on over the body's bottom margin, so a
+    /// body that clips where its content ends (as the panels do) cut the bottom off every button:
+    /// the hover highlight of a 26 px button was about 21 px tall in the Paths, Layers and Channels
+    /// panels (#6238).
+    #[test]
+    fn panel_footer_buttons_are_not_clipped_by_the_body() {
+        let mut h = Harness::new_ui_state(
+            |ui, s: &mut Option<(egui::Rect, egui::Rect, egui::Rect)>| {
+                // A body exactly as tall as the footer takes, clipped there.
+                let body = egui::Rect::from_min_size(ui.max_rect().min, egui::vec2(220.0, super::footer_height(ui)));
+                let mut body_ui = ui.new_child(egui::UiBuilder::new().max_rect(body));
+                body_ui.set_clip_rect(body);
+                super::panel_footer(&mut body_ui, |bar| {
+                    let b = crate::icons::button(bar, "square", 26.0, false, "Button");
+                    *s = Some((b.rect, bar.clip_rect(), body));
+                });
+            },
+            None,
+        );
+        crate::PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run();
+        let (button, clip, body) = h.state().expect("the footer drew its button");
+        assert!(button.bottom() > body.bottom(), "the bar really overruns the body, or this test proves nothing: {button:?} vs {body:?}");
+        assert!(clip.contains_rect(button), "the whole button is inside the clip: {button:?} not in {clip:?}");
+    }
 
     /// #3789: a plain text field is one boxed, outline-free input whose text-selection colour stays
     /// local, so it isn't recoloured for the rest of the frame (selected rows, slider trails).

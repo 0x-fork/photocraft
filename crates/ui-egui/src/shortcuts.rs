@@ -764,6 +764,10 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
             return;
         }
     }
+    // Page Up / Page Down (⌘ sideways, ⇧ a small step), Home and End scroll the canvas (#8057).
+    if crate::page_keys::handle(app, ctx) {
+        return;
+    }
     // 1–0 set opacity, ⇧1–0 flow or fill (`opacity_keys`).
     crate::opacity_keys::handle(app, ctx);
     // ⇧+ / ⇧− step the blend mode (`blend_keys`).

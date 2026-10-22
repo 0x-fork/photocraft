@@ -172,6 +172,9 @@ sync_github_name = true
 real_name = "Sidney Markowitz"
 sync_github_name = true
 
+[people.theoabw]
+real_name = "Theo Wilenius"
+
 [people.TaylorBurke]
 sync_github_name = true
 
@@ -220,3 +223,6 @@ sync_github_name = true
 
 [people.ksaxena149]
 sync_github_name = true
+
+[people.giang17]
+real_name = "Giang Nguyen"

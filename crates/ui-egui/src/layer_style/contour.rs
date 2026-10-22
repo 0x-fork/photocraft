@@ -132,7 +132,9 @@ pub(super) fn row(
         let mut delete: Option<String> = None;
         let mut act: Option<Act> = None;
         let user = &app.session.presets.contours;
+        let parent_layer = arrow.layer_id;
         egui::Popup::from_response(&arrow).open_bool(&mut open).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+            crate::press_menu::above_parent_ui(parent_layer, ui);
             ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
             egui::Grid::new(("contour-presets", effect, key)).spacing(vec2(4.0, 4.0)).show(ui, |ui| {
                 for (i, (name, _)) in CONTOURS.iter().enumerate() {

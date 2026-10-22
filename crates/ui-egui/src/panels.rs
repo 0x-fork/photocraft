@@ -616,8 +616,8 @@ pub fn title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             let gap = egui::Rect::from_x_y_ranges(gap_l.max(full.left())..=gap_r.min(full.right()).max(gap_l), full.y_range());
             ui.ctx().data_mut(|d| d.insert_temp(crate::titlebar::modal_drag_area_id(), gap));
             let drag = ui.interact(gap, ui.id().with("titledrag"), Sense::click_and_drag());
-            if drag.drag_started() {
-                ui.ctx().send_viewport_cmd(egui::ViewportCommand::StartDrag);
+            if drag.drag_started_by(egui::PointerButton::Primary) {
+                crate::titlebar::start_os_move(ui.ctx());
             }
             if drag.double_clicked() {
                 let max = ui.ctx().input(|i| i.viewport().maximized.unwrap_or(false));
@@ -670,16 +670,8 @@ pub fn title_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     let ui = &mut group_ui;
                     ui.spacing_mut().item_spacing.x = 6.0;
                     let mut ws = app.ui.workspace.clone();
-                    let opts = [
-                        // Keys stay English (`apply_workspace` matches them); the dropdown
-                        // shows the labels in the UI language.
-                        ("Essentials".to_string(), tl!("Essentials")),
-                        ("Photography".to_string(), tl!("Photography")),
-                        ("Painting".to_string(), tl!("Painting")),
-                        ("Graphic and Web".to_string(), tl!("Graphic and Web")),
-                        ("Pixel Art".to_string(), tl!("Pixel Art")),
-                        ("Motion".to_string(), tl!("Motion")),
-                    ];
+                    let options = crate::workspace_ui::switcher_options(app);
+                    let opts: Vec<(String, &str)> = options.iter().map(|(k, l)| (k.clone(), l.as_str())).collect();
                     // A narrow bar drops what is also in a menu, the theme toggle first
                     // (Preferences), then search (Edit › Search), and narrows the switcher
                     // (Window › Workspace) before anything runs over.
@@ -1847,8 +1839,18 @@ pub fn right_dock(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     crate::dock::persist(app, ui.ctx());
 }
 
-/// The dock's width range (points). It is the right dock, on the left in a right-to-left UI.
-pub(crate) const DOCK_WIDTH: std::ops::RangeInclusive<f32> = 250.0..=520.0;
+/// The dock's narrowest width (points). It is the right dock, on the left in a right-to-left UI.
+pub(crate) const DOCK_MIN_WIDTH: f32 = 250.0;
+/// What the dock leaves the toolbar and the canvas when it is widest (points).
+const DOCK_LEAVES: f32 = 400.0;
+
+/// The dock's width range (points) in a window `window_width` wide: from [`DOCK_MIN_WIDTH`] to
+/// everything but [`DOCK_LEAVES`], and never capped below the old 520, so two-column layouts can
+/// be as wide as the window allows (#7896).
+pub(crate) fn dock_width_range(window_width: f32) -> std::ops::RangeInclusive<f32> {
+    let max = if window_width.is_finite() { (window_width - DOCK_LEAVES).max(520.0) } else { 520.0 };
+    DOCK_MIN_WIDTH..=max
+}
 
 pub(crate) fn dock_width_id() -> egui::Id {
     egui::Id::new("dock-width-request")
@@ -1856,7 +1858,8 @@ pub(crate) fn dock_width_id() -> egui::Id {
 
 /// Set the right dock's width on the next frame (`ui.set {dockWidth}`); clamped to its range.
 pub fn request_dock_width(ctx: &egui::Context, w: f32) {
-    let w = if w.is_finite() { w.clamp(*DOCK_WIDTH.start(), *DOCK_WIDTH.end()) } else { *DOCK_WIDTH.start() };
+    let range = dock_width_range(ctx.content_rect().width());
+    let w = if w.is_finite() { w.clamp(*range.start(), *range.end()) } else { *range.start() };
     ctx.data_mut(|d| d.insert_temp(dock_width_id(), w));
 }
 
@@ -1879,7 +1882,10 @@ fn dock_panels(app: &mut PhotocraftApp, ui: &mut egui::Ui, p: &crate::state::Pan
         return;
     }
     let margin = if t.pro { 2 } else { 8 };
-    let mut panel = crate::direction::end_panel("dock").resizable(true).default_size(if t.pro { 290.0 } else { 300.0 }).size_range(DOCK_WIDTH);
+    let mut panel = crate::direction::end_panel("dock")
+        .resizable(true)
+        .default_size(if t.pro { 290.0 } else { 300.0 })
+        .size_range(dock_width_range(ui.ctx().content_rect().width()));
     if let Some(w) = ui.ctx().data_mut(|d| d.remove_temp::<f32>(dock_width_id())) {
         panel = panel.exact_size(w);
     }

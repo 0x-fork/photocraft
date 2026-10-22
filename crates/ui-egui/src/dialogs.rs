@@ -50,6 +50,26 @@ pub(crate) fn titlebar_drag_area_is_clear(ctx: &egui::Context, area: egui::Rect)
     rects(ctx).iter().all(|dialog| !dialog.intersects(area))
 }
 
+/// Whether the press that is being held began on a dialog (#6810). The dialog follows the pointer
+/// while its title is dragged, so the press origin ends up outside the (moved) dialog and a canvas
+/// check against the dialog rects alone would take the drag for a canvas drag. Remembered from the
+/// frame of the press, which is the only frame that carries the press event.
+fn press_began_on_dialog(ctx: &egui::Context, rects: &[egui::Rect]) -> bool {
+    let key = egui::Id::new("pc-dialog-press-grabbed");
+    let pressed = ctx.input(|i| {
+        i.events.iter().rev().find_map(|e| match e {
+            egui::Event::PointerButton { pos, pressed: true, .. } => Some(*pos),
+            _ => None,
+        })
+    });
+    if let Some(p) = pressed {
+        let on_dialog = rects.iter().any(|r| r.contains(p));
+        ctx.data_mut(|m| m.insert_temp(key, on_dialog));
+        return on_dialog;
+    }
+    ctx.data(|m| m.get_temp::<bool>(key)).unwrap_or(false)
+}
+
 /// With a dialog open the rest of the window is inert (egui's modal layer), but like Photoshop the
 /// image can still be panned and zoomed under it. The pointer position when it is over `canvas`
 /// and not over a dialog or one of its popups.
@@ -66,12 +86,31 @@ pub fn free_pointer_over(ctx: &egui::Context, canvas: egui::Rect) -> Option<egui
 /// the free canvas. Returns this frame's pointer movement.
 pub fn pan_delta(ctx: &egui::Context, canvas: egui::Rect, hand: bool) -> Option<egui::Vec2> {
     let rects = rects(ctx);
+    let grabbed = press_began_on_dialog(ctx, &rects);
     let (origin, panning, delta) = ctx.input(|i| {
         let p = &i.pointer;
         (p.press_origin(), p.middle_down() || (p.primary_down() && (hand || i.key_down(egui::Key::Space))), p.delta())
     });
     let origin = origin?;
-    (panning && canvas.contains(origin) && !rects.iter().any(|r| r.contains(origin))).then_some(delta)
+    (panning && !grabbed && canvas.contains(origin) && !rects.iter().any(|r| r.contains(origin))).then_some(delta)
+}
+
+/// The primary button's drag and click on the free canvas under an open dialog, as the canvas
+/// response would report them if it weren't inert: for the held Zoom (⌘Space / ⌥Space, #6460).
+/// A drag counts from egui's drag threshold, like `drag_started`.
+pub fn free_buttons(ctx: &egui::Context, canvas: egui::Rect) -> crate::paint_mouse::Buttons {
+    let id = egui::Id::new("pc-dialog-free-drag");
+    let was = ctx.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
+    let rects = rects(ctx);
+    let open_popup = egui::Popup::is_any_open(ctx);
+    let free = |p: egui::Pos2| !open_popup && canvas.contains(p) && !rects.iter().any(|r| r.contains(p));
+    let (down, dragging, clicked) = ctx.input(|i| {
+        let p = &i.pointer;
+        let dragging = p.primary_down() && p.is_decidedly_dragging() && (was || p.press_origin().is_some_and(free));
+        (p.primary_down(), dragging, p.primary_clicked() && p.interact_pos().is_some_and(free))
+    });
+    ctx.data_mut(|d| d.insert_temp(id, dragging));
+    crate::paint_mouse::Buttons { started: dragging && !was, dragged: dragging, stopped: was && !down, clicked }
 }
 
 /// A click or drag with the primary button started on the free canvas under an open dialog, Space
@@ -83,6 +122,7 @@ pub fn free_press(ctx: &egui::Context, canvas: egui::Rect) -> Option<egui::Pos2>
     }
     let rects = rects(ctx);
     let free = |p: egui::Pos2| canvas.contains(p) && !rects.iter().any(|r| r.contains(p));
+    let grabbed = press_began_on_dialog(ctx, &rects);
     ctx.input(|i| {
         if i.key_down(egui::Key::Space) {
             return None;
@@ -94,7 +134,7 @@ pub fn free_press(ctx: &egui::Context, canvas: egui::Rect) -> Option<egui::Pos2>
         if let Some(p) = pressed {
             return free(p).then_some(p);
         }
-        let held = i.pointer.primary_down() && i.pointer.press_origin().is_some_and(free);
+        let held = i.pointer.primary_down() && !grabbed && i.pointer.press_origin().is_some_and(free);
         i.pointer.latest_pos().filter(|p| held && free(*p))
     })
 }
@@ -917,6 +957,30 @@ mod tests {
         assert_eq!(h.state().ui.dialogs.len(), 1, "a title drag doesn't close the dialog");
         let moved = h.get_by_label("Gaussian Blur").rect().min - title.min;
         assert!((moved - egui::vec2(-120.0, 40.0)).length() < 2.0, "the band beside the × moved the dialog: {moved:?}");
+    }
+
+    /// #6810: dragging a dialog's title moves the dialog under the pointer, so the press origin is
+    /// no longer inside it; that drag must not pan the canvas or reach a canvas tool.
+    #[test]
+    fn dragging_a_dialog_title_does_not_pan_the_canvas() {
+        let ctx = egui::Context::default();
+        let canvas = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1000.0, 800.0));
+        let at_press = egui::Rect::from_min_max(egui::pos2(100.0, 100.0), egui::pos2(300.0, 200.0));
+        let moved = egui::Rect::from_min_max(egui::pos2(550.0, 480.0), egui::pos2(750.0, 580.0));
+        let run = |rect: egui::Rect, events: Vec<egui::Event>| {
+            ctx.data_mut(|m| m.insert_temp(egui::Id::new(RECTS), vec![rect]));
+            ctx.begin_pass(egui::RawInput { events, ..Default::default() });
+            let out = (pan_delta(&ctx, canvas, true), free_press(&ctx, canvas));
+            ctx.end_pass().textures_delta.clear();
+            out
+        };
+        let press =
+            egui::Event::PointerButton { pos: egui::pos2(150.0, 120.0), button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE };
+        let (pan, click) = run(at_press, vec![egui::Event::PointerMoved(egui::pos2(150.0, 120.0)), press]);
+        assert!(pan.is_none() && click.is_none(), "the press is on the dialog");
+        let (pan, click) = run(moved, vec![egui::Event::PointerMoved(egui::pos2(600.0, 500.0))]);
+        assert!(pan.is_none(), "the dialog moved away from the press origin: {pan:?}");
+        assert!(click.is_none(), "and the drag is not a canvas tool drag: {click:?}");
     }
 
     #[test]

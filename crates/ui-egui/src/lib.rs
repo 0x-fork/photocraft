@@ -160,6 +160,7 @@ pub mod object_finder;
 mod opacity_keys;
 pub mod open_prompt;
 pub mod outline;
+mod page_keys;
 pub mod paint_mouse;
 pub mod palette;
 mod panel_docking;
@@ -217,6 +218,7 @@ pub mod swatches_ui;
 pub mod symmetry_ui;
 mod tab_strip;
 pub mod targa_options_ui;
+pub mod texel_guard;
 pub mod text_field_menu;
 pub mod theme;
 pub mod tiff_options_ui;
@@ -3240,6 +3242,8 @@ mod warp_text_dialog_tests;
 
 #[cfg(test)]
 mod blend_dropdown_wheel_tests;
+#[cfg(test)]
+mod paths_scroll_tests;
 
 #[cfg(test)]
 mod options_bar_mode_wheel_tests;
