@@ -1440,6 +1440,9 @@ pub fn generate_assets(doc: &Document, dir: &str) -> (Vec<String>, Vec<Value>) {
                     return Err(other(format!("{rel}: another layer already writes this file; rename one of the layers")));
                 }
                 let mut one = match crate::artboard_cmds::artboard_document(doc, *id)? {
+                    // Like Photoshop's Generator, a board with nothing on it is refused rather
+                    // than written as a blank file.
+                    Some(board) if !has_pixels(&board) => return Err(other("the layer is empty")),
                     Some(board) => board,
                     None => crate::layer_menu_cmds::layer_document(doc, *id)?,
                 };
@@ -1489,6 +1492,11 @@ pub fn generate_assets(doc: &Document, dir: &str) -> (Vec<String>, Vec<Value>) {
 }
 
 /// `<document folder>/<document name>-assets`.
+/// Whether any pixel of `doc` is not fully transparent.
+fn has_pixels(doc: &Document) -> bool {
+    photocraft_compose::render(doc, doc.bounds()).px.iter().any(|q| q[3] > 0.0)
+}
+
 pub fn assets_dir(doc_path: &str) -> String {
     let p = std::path::Path::new(doc_path);
     let dir = p.parent().map(|d| d.to_string_lossy().into_owned()).unwrap_or_default();
