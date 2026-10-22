@@ -505,7 +505,7 @@ impl Ctx<'_> {
             self.warn(format!(
                 "layer \"{name}\": its adjustment settings could not be read (unknown adjustment type \"{key}\"); the layer is kept as saved but has no effect"
             ));
-            let raw = rec.block(&k).map(|b| b.data.clone()).unwrap_or_default();
+            let raw = rec.block(&k).map(|b| b.data.as_slice()).unwrap_or_default().into();
             LayerContent::Adjustment(photocraft_doc::Adjustment::Unsupported { psd_key: key, raw })
         } else {
             LayerContent::Raster(self.record_surface(rec, &name))
@@ -870,7 +870,7 @@ pub(crate) fn psd_to_document_decoded(
                 }
             }
             ids::ICC_PROFILE => doc.icc_profile = Some(Arc::new(r.data.clone())),
-            ids::XMP => doc.metadata.xmp = Some(String::from_utf8_lossy(&r.data).into_owned()),
+            ids::XMP => doc.metadata.xmp = Some(String::from_utf8_lossy(&r.data).into()),
             ids::EXIF => doc.metadata.exif = Some(Arc::new(r.data.clone())),
             1032 => parse_guides(&r.data, &mut doc),
             ids::GLOBAL_ANGLE | ids::GLOBAL_ALTITUDE => {
@@ -1087,7 +1087,7 @@ pub(crate) fn psd_to_document_decoded(
                 cx.warn("duotone inks are not interpreted (shown as grayscale)");
             }
             let inks = inks.unwrap_or_else(|| vec![photocraft_doc::DuotoneInk::new("Black", [0.0; 3])]);
-            doc.duotone = Some(photocraft_doc::Duotone { inks, psd_raw: Some(file.color_mode_data.clone()) });
+            doc.duotone = Some(photocraft_doc::Duotone { inks, psd_raw: Some(file.color_mode_data.as_slice().into()) });
         } else if !file.color_mode_data.is_empty() {
             cx.warn("color mode data is not preserved");
         }
