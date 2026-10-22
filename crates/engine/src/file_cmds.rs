@@ -702,7 +702,42 @@ fn xml_escape(s: &str) -> String {
 }
 
 fn xml_unescape(s: &str) -> String {
-    s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&")
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find('&') {
+        out.push_str(&rest[..i]);
+        rest = &rest[i..];
+        let decoded = rest.find(';').filter(|&e| e <= 12).and_then(|e| {
+            let c = match &rest[1..e] {
+                "lt" => '<',
+                "gt" => '>',
+                "quot" => '"',
+                "apos" => '\'',
+                "amp" => '&',
+                n => {
+                    let n = n.strip_prefix('#')?;
+                    let code = match n.strip_prefix(['x', 'X']) {
+                        Some(h) => u32::from_str_radix(h, 16).ok()?,
+                        None => n.parse().ok()?,
+                    };
+                    char::from_u32(code)?
+                }
+            };
+            Some((c, e + 1))
+        });
+        match decoded {
+            Some((c, len)) => {
+                out.push(c);
+                rest = &rest[len..];
+            }
+            None => {
+                out.push('&');
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// The element `<tag …>…</tag>` (first occurrence) as (start, end, inner).
