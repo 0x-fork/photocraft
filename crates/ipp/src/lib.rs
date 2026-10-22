@@ -12,7 +12,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 use std::io::{Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -166,10 +166,7 @@ impl Endpoint {
             Endpoint::Tcp(host, port) => {
                 let addr = (host.as_str(), *port).to_socket_addrs().map_err(|e| Error::Unreachable(format!("{host}:{port}: {e}")))?.next();
                 let addr = addr.ok_or_else(|| Error::Unreachable(format!("{host}:{port}: no address")))?;
-                let s = TcpStream::connect_timeout(&addr, CONNECT).map_err(|e| Error::Unreachable(format!("{host}:{port}: {e}")))?;
-                let _ = s.set_read_timeout(Some(REQUEST));
-                let _ = s.set_write_timeout(Some(REQUEST));
-                Ok(Stream::Tcp(s))
+                open_tcp(host, *port, addr, |addr| TcpStream::connect_timeout(&addr, CONNECT))
             }
         }
     }
@@ -199,6 +196,16 @@ impl std::fmt::Display for Endpoint {
             Endpoint::Tcp(h, p) => write!(f, "{h}:{p}"),
         }
     }
+}
+
+/// Open one address and put the request timeouts on it. The connect call is a parameter so the
+/// refusal path can be tested at all: no port is guaranteed to stay free between picking one and
+/// using it, and what a refused connect reported is what the caller is supposed to hear.
+fn open_tcp(host: &str, port: u16, addr: SocketAddr, open: impl FnOnce(SocketAddr) -> std::io::Result<TcpStream>) -> Result<Stream> {
+    let s = open(addr).map_err(|e| Error::Unreachable(format!("{host}:{port}: {e}")))?;
+    let _ = s.set_read_timeout(Some(REQUEST));
+    let _ = s.set_write_timeout(Some(REQUEST));
+    Ok(Stream::Tcp(s))
 }
 
 enum Stream {
