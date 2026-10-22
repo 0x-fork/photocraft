@@ -1111,9 +1111,12 @@ impl StrokeRenderer {
         // pending buffers few, and the pool keeps them from one composite to the next.
         const BATCH: usize = 256;
         let mut pool = std::mem::take(&mut self.regions.0);
+        // The document's CMYK profile is active per thread: the workers enter the caller's, or a
+        // blend mode other than Normal would convert their tiles through the built-in coated CMYK.
+        let cmyk = photocraft_color::convert::active_cmyk_space();
         for batch in keys.chunks(BATCH) {
             let mut items: Vec<((i32, i32), Rect, Vec<f32>)> = batch.iter().map(|&key| (key, Rect::EMPTY, pool.pop().unwrap_or_default())).collect();
-            for_each_item(&mut items, batch.len() * (COV_TILE * COV_TILE) as usize, |(key, done, region)| {
+            let composite_tile = |(key, done, region): &mut ((i32, i32), Rect, Vec<f32>)| {
                 let (tx, ty) = *key;
                 let Some(tile) = self.cov.tiles.get(&(tx, ty)) else { return };
                 let tr = Rect::new(tx * COV_TILE, ty * COV_TILE, (tx + 1) * COV_TILE, (ty + 1) * COV_TILE).intersect(&bounds);
@@ -1190,6 +1193,9 @@ impl StrokeRenderer {
                     }
                 }
                 *done = tr;
+            };
+            for_each_item(&mut items, batch.len() * (COV_TILE * COV_TILE) as usize, |item| {
+                photocraft_color::convert::with_cmyk_space(cmyk.as_ref(), || composite_tile(item))
             });
             for (_, tr, region) in items {
                 if !tr.is_empty() {
