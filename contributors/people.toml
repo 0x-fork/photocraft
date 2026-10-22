@@ -248,3 +248,6 @@ sync_github_name = true
 [people.adi-1108]
 real_name = "Aditya Vishwakarma"
 sync_github_name = true
+
+[people.benandez]
+real_name = "Martin Ball"
