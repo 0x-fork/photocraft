@@ -4035,3 +4035,15 @@ cameraData	Lens	Lens
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU bağdaştırıcısı
+
+# Art History Brush (#213).
+	Art History Brush Tool	Sanat Tarihi Fırçası Aracı
+	Tight Short	Sıkı Kısa
+	Tight Medium	Sıkı Orta
+	Tight Long	Sıkı Uzun
+	Loose Medium	Gevşek Orta
+	Loose Long	Gevşek Uzun
+	Dab	Benek
+	Tight Curl	Sıkı Kıvrım
+	Loose Curl	Gevşek Kıvrım
+	Stylized dabs from a history state	Bir geçmiş durumundan stilize benekler

@@ -4224,3 +4224,15 @@ cameraRaw	Yellow	Sárga
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU-adapter
+
+# Art History Brush (#213).
+	Art History Brush Tool	Művészi előzményecset eszköz
+	Tight Short	Szoros, rövid
+	Tight Medium	Szoros, közepes
+	Tight Long	Szoros, hosszú
+	Loose Medium	Laza, közepes
+	Loose Long	Laza, hosszú
+	Dab	Pötty
+	Tight Curl	Szoros göndör
+	Loose Curl	Laza göndör
+	Stylized dabs from a history state	Stilizált pöttyök egy előzményállapotból
