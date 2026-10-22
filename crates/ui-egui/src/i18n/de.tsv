@@ -3309,3 +3309,5 @@ curves	Smooth	Glätten
 
 # Graphics Adapter preference (#1885)
 	GPU adapter	GPU-Adapter
+
+	EXR	EXR

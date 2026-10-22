@@ -995,3 +995,38 @@ fn web_exif_that_does_not_fit_is_reported_and_bad_exif_is_harmless() {
         assert_eq!(decode(&path).dimensions(), (64, 48));
     }
 }
+
+#[test]
+fn quick_export_exr_preserves_linear_hdr_and_alpha() {
+    use photocraft_codecs::{ChannelLayout, Format, Image, SampleType};
+    let dir = tmp("quick_exr_hdr");
+    let samples = [-0.25, 2.0, 0.125, 1.0, 4.0, 0.25, 0.5, 0.5];
+    let image = Image::from_f32(2, 1, ChannelLayout::Rgba, &samples).unwrap();
+    let bytes = photocraft_codecs::encode(&image, Format::OpenExr, &Default::default()).unwrap();
+    let doc = photocraft_io::import("hdr.exr", &bytes).unwrap().document;
+    let mut s = Session::new();
+    s.add_document(doc, Some(format!("{dir}/source.psd")));
+    for convert in [true, false] {
+        s.execute("file.export.exportPreferences", json!({"quickExportFormat": "exr", "quickExportLocation": "sameFolder", "convertToSrgb": convert})).unwrap();
+        let result = s.execute("file.export.quickExport", json!({})).unwrap();
+        assert_eq!(result["format"], "exr");
+        let path = format!("{dir}/source.exr");
+        assert_eq!(result["path"], path);
+        assert_eq!(result["bytes"].as_u64(), Some(std::fs::metadata(&path).unwrap().len()));
+        let decoded = decode(&path);
+        assert_eq!(decoded.sample_type(), SampleType::F32);
+        let actual = decoded.convert(ChannelLayout::Rgba, SampleType::F32).to_f32_samples().unwrap();
+        for (got, expected) in actual.iter().zip(samples) {
+            assert!((got - expected).abs() < 0.0001, "EXR preserves scene values: {actual:?}");
+        }
+        assert_eq!(actual.len(), samples.len());
+    }
+    // The format preference must never silently overwrite the source EXR.
+    let own = format!("{dir}/source.exr");
+    s.active_mut().unwrap().path = Some(own.clone());
+    let before = std::fs::read(&own).unwrap();
+    assert!(s.execute("file.export.quickExport", json!({})).is_err());
+    assert_eq!(std::fs::read(&own).unwrap(), before);
+    s.execute("file.export.quickExport", json!({"path": format!("{dir}/explicit.exr")})).unwrap();
+    assert_eq!(decode(&format!("{dir}/explicit.exr")).dimensions(), (2, 1));
+}
