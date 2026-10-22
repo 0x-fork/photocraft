@@ -6553,7 +6553,7 @@ pub fn extra_windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 let rect = ui.available_rect_before_wrap();
                 view = canvas_view(app, ui, w.document, rect, view.clone(), false);
                 // Preferences › Zoom Resizes Windows: a zoom wraps the window around the image.
-                crate::zoom_window_fit::follow(app, ui.ctx(), class, vid, &w, &view, rect);
+                crate::zoom_window_fit::follow(app, ui.ctx(), class, vid, &w, &mut view, rect);
             });
         });
         if let Some(win) = app.ui.windows.iter_mut().find(|x| x.id == w.id) {

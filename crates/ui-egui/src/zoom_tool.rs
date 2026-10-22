@@ -65,7 +65,14 @@ pub fn drag(app: &PhotocraftApp, ctx: &egui::Context, view: &mut View, xf: &View
     if let Some(p) = pointer.filter(|_| b.dragged || b.stopped) {
         match z.rect_to.as_mut() {
             Some(to) => *to = p,
-            None => anchor_view(view, xf, z.anchor, z.doc, scrub_zoom(z.zoom0, p.x - z.anchor.x, view.doc_size), app.ppp),
+            None => {
+                // Only a new zoom re-anchors: a window that Zoom Resizes Windows grew around the
+                // image has centred it since (zoom_window_fit.rs), and the release keeps that.
+                let zoom = scrub_zoom(z.zoom0, p.x - z.anchor.x, view.doc_size);
+                if zoom.to_bits() != view.zoom.to_bits() {
+                    anchor_view(view, xf, z.anchor, z.doc, zoom, app.ppp);
+                }
+            }
         }
         ctx.data_mut(|d| d.insert_temp(id(), z));
     }
@@ -419,6 +426,28 @@ mod tests {
             assert_eq!(view_xf(&h).zoom, target.zoom, "gesture {gesture}");
             assert_eq!(view_xf(&h).center, target.center, "gesture {gesture}");
         }
+    }
+
+    #[test]
+    fn a_scrub_release_keeps_a_view_centred_since_its_last_zoom() {
+        // Zoom Resizes Windows centres the image once its window wraps it (zoom_window_fit.rs):
+        // the release frame, at the same zoom, must not pull it back to the press point.
+        let mut h = harness(true, 1.0);
+        let p0 = h.state().last_canvas_rect.center() + vec2(-150.0, 60.0);
+        h.event(Event::PointerMoved(p0));
+        h.step();
+        press(&mut h, p0, true);
+        let end = p0 + vec2(90.0, 0.0);
+        h.event(Event::PointerMoved(end));
+        h.step();
+        let z = h.state().current_zoom();
+        h.state_mut().ui.views[0].center = [200.0, 150.0];
+        h.step();
+        assert_eq!(h.state().ui.views[0].center, [200.0, 150.0], "a held, unmoved scrub keeps the view");
+        press(&mut h, end, false);
+        h.run_steps(2);
+        assert_eq!(h.state().current_zoom(), z);
+        assert_eq!(h.state().ui.views[0].center, [200.0, 150.0], "the release keeps the view");
     }
 
     #[test]
