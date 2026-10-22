@@ -2695,6 +2695,8 @@
 	GPU acceleration could not continue. Your documents are unchanged.	Akceleracja GPU nie mogła być kontynuowana. Twoje dokumenty nie zostały zmienione.
 	PhotoCraft is using the CPU image compositor. The window may still use your graphics adapter.	PhotoCraft używa kompozytora obrazu CPU. Okno może nadal korzystać z karty graficznej.
 	Retry GPU requires a restart. Save your work first.	Ponowna próba z GPU wymaga restartu. Najpierw zapisz swoją pracę.
+	Retry GPU tries the graphics processor again now.	Spróbuj ponownie z GPU od razu ponawia próbę z procesorem graficznym.
+	GPU acceleration resumed.	Akceleracja GPU wznowiona.
 	Keep Using CPU	Nadal używaj CPU
 	Retry GPU	Spróbuj ponownie z GPU
 	GPU Backend	Backend GPU
@@ -2767,6 +2769,11 @@ cameraRaw	Roughness	Chropowatość
 	Content-Aware Move Tool	Narzędzie Przesunięcie z uwzględnieniem zawartości
 	TIFF Options	Opcje TIFF
 	Targa Options	Opcje Targa
+	JPEG Options	Opcje JPEG
+	Image Options	Opcje obrazu
+	Format Options	Opcje formatu
+	Baseline ("Standard")	Linia bazowa („Standardowa”)
+	Baseline Optimized	Linia bazowa zoptymalizowana
 	24 bits/pixel	24 bity/piksel
 	32 bits/pixel	32 bity/piksel
 	Including layers will increase file size.	Dołączenie warstw zwiększy rozmiar pliku.
@@ -3780,6 +3787,9 @@ curves	Smooth	Wygładź
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Wczytaj operacje…
 	Save Actions…	Zapisz operacje…
+	New Action…	Nowa operacja…
+	Start Recording	Rozpocznij nagrywanie
+	Stop Recording	Zatrzymaj nagrywanie
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Wczytano {n} operację z {file}|Wczytano {n} operacje z {file}|Wczytano {n} operacji z {file}
@@ -3814,6 +3824,13 @@ curves	Smooth	Wygładź
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	Maluje ze stanu źródłowego panelu Historia
 	Sets the source for the history brush	Ustawia źródło dla pędzla historii
+# Bevel & Emboss shading controls.
+	Highlight Mode	Tryb świateł
+	Highlight Color	Kolor świateł
+	Highlight Opacity	Krycie świateł
+	Shadow Mode	Tryb cieni
+	Shadow Color	Kolor cieni
+	Shadow Opacity	Krycie cieni
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	Użyj osadzonego profilu ({profile})
 	Convert to the working space ({profile})	Konwertuj na przestrzeń roboczą ({profile})
@@ -3896,6 +3913,13 @@ curves	Smooth	Wygładź
 	Increase Brush Size	Zwiększ rozmiar pędzla
 	Decrease Brush Hardness	Zmniejsz twardość pędzla
 	Increase Brush Hardness	Zwiększ twardość pędzla
+	Demosaic	Demozaikowanie
+	How the camera's colour filter mosaic is filled in. It is applied when the file opens; the preview shows the method it was opened with.	Sposób uzupełniania mozaiki filtra barwnego aparatu. Stosowany przy otwieraniu pliku; podgląd pokazuje metodę, z którą plik został otwarty.
+	AHD (adaptive homogeneity)	AHD (adaptacyjna jednorodność)
+	Malvar–He–Cutler	Malvar–He–Cutler
+	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Hirakawa–Parks: najczystsze krawędzie i najmniej barwnych obwódek, najwolniejsza.
+	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	Interpolacja z korekcją gradientu: ostra i szybka, z niewielkimi barwnymi obwódkami na drobnych szczegółach.
+	The fastest and the softest, with colour fringing on fine detail.	Najszybsza i najmiększa, z barwnymi obwódkami na drobnych szczegółach.
 	Memory Usage	Użycie pamięci
 	Per-document RAM limit (MB)	Limit RAM na dokument (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Zainstalowany RAM: {ram} MB; ten limit: {percent}%
@@ -3924,3 +3948,4 @@ curves	Smooth	Wygładź
 	Breeze	Breeze
 	Pro Light Gray	Pro (jasnoszary)
 	Pro Light	Pro (jasny)
+	Resize Windows to Fit	Dopasuj rozmiar okien

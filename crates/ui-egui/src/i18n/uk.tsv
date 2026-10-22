@@ -2487,6 +2487,8 @@
 	GPU acceleration could not continue. Your documents are unchanged.	Прискорення GPU не може продовжувати роботу. Ваші документи не змінено.
 	PhotoCraft is using the CPU image compositor. The window may still use your graphics adapter.	PhotoCraft використовує компонувальник зображень CPU. Вікно може й далі використовувати ваш графічний адаптер.
 	Retry GPU requires a restart. Save your work first.	Повторна спроба використати GPU потребує перезапуску. Спочатку збережіть роботу.
+	Retry GPU tries the graphics processor again now.	Повторити спробу з GPU — одразу знову спробувати графічний процесор.
+	GPU acceleration resumed.	Прискорення GPU відновлено.
 	Keep Using CPU	Продовжити з CPU
 	Retry GPU	Повторити спробу з GPU
 	GPU Backend	Графічний бекенд
@@ -2553,6 +2555,11 @@ cameraRaw	Roughness	Шорсткість
 	Content-Aware Move Tool	Інструмент «Переміщення з урахуванням вмісту»
 	TIFF Options	Параметри TIFF
 	Targa Options	Параметри Targa
+	JPEG Options	Параметри JPEG
+	Image Options	Параметри зображення
+	Format Options	Різновид формату
+	Baseline ("Standard")	Базовий («Стандартний»)
+	Baseline Optimized	Базовий оптимізований
 	24 bits/pixel	24 біт/піксель
 	32 bits/pixel	32 біт/піксель
 	Including layers will increase file size.	Додавання шарів збільшить розмір файлу.
@@ -3865,6 +3872,9 @@ curves	Smooth	Згладити
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Завантажити операції…
 	Save Actions…	Зберегти операції…
+	New Action…	Нова операція…
+	Start Recording	Почати запис
+	Stop Recording	Зупинити запис
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Завантажено {n} операцію з {file}|Завантажено {n} операції з {file}|Завантажено {n} операцій з {file}
@@ -3899,6 +3909,13 @@ curves	Smooth	Згладити
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	Малює з вихідного стану панелі «Історія»
 	Sets the source for the history brush	Задає джерело для пензля історії
+# Bevel & Emboss shading controls.
+	Highlight Mode	Режим світлих тонів
+	Highlight Color	Колір світлих тонів
+	Highlight Opacity	Непрозорість світлих тонів
+	Shadow Mode	Режим тіней
+	Shadow Color	Колір тіней
+	Shadow Opacity	Непрозорість тіней
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	Використати вбудований профіль ({profile})
 	Convert to the working space ({profile})	Перетворити в робочий простір ({profile})
@@ -3989,6 +4006,13 @@ curves	Smooth	Згладити
 	This shape layer must be rasterized before proceeding. It will no longer be editable as a shape. Rasterize the shape?	Щоб продовжити, потрібно растеризувати цей шар фігури. Після цього його більше не можна буде редагувати як фігуру. Растеризувати фігуру?
 	This Smart Object must be rasterized before proceeding. Its contents will no longer be editable. Rasterize the Smart Object?	Щоб продовжити, потрібно растеризувати цей смартоб’єкт. Після цього його вміст більше не можна буде редагувати. Растеризувати смартоб’єкт?
 	This fill layer must be rasterized before proceeding. Its fill content will no longer be editable. Rasterize the layer?	Щоб продовжити, потрібно растеризувати цей шар заливки. Після цього його заливку більше не можна буде редагувати. Растеризувати шар?
+	Demosaic	Демозаїк
+	How the camera's colour filter mosaic is filled in. It is applied when the file opens; the preview shows the method it was opened with.	Як відновлюється мозаїка кольорового фільтра камери. Застосовується під час відкриття файлу; попередній перегляд показує метод, з яким файл було відкрито.
+	AHD (adaptive homogeneity)	AHD (адаптивна однорідність)
+	Malvar–He–Cutler	Malvar–He–Cutler
+	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Хіракава–Паркс: найчистіші краї й найменше кольорової облямівки, найповільніший.
+	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	Інтерполяція з корекцією градієнта: різка й швидка, з невеликою кольоровою облямівкою на дрібних деталях.
+	The fastest and the softest, with colour fringing on fine detail.	Найшвидший і найм'якший, з кольоровою облямівкою на дрібних деталях.
 	Memory Usage	Використання пам’яті
 	Per-document RAM limit (MB)	Ліміт RAM на документ (МБ)
 	Installed RAM: {ram} MB; this limit: {percent}%	Встановлено RAM: {ram} МБ; цей ліміт: {percent}%
@@ -4017,3 +4041,4 @@ curves	Smooth	Згладити
 	Breeze	Breeze
 	Pro Light Gray	Світло-сіра «Профі»
 	Pro Light	Світла «Профі»
+	Resize Windows to Fit	Підганяти розмір вікон

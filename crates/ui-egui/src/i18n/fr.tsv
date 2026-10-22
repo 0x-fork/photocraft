@@ -2678,6 +2678,8 @@
 	GPU acceleration could not continue. Your documents are unchanged.	L'accélération GPU n'a pas pu continuer. Vos documents sont intacts.
 	PhotoCraft is using the CPU image compositor. The window may still use your graphics adapter.	PhotoCraft utilise le compositeur d'images CPU. La fenêtre peut encore utiliser votre carte graphique.
 	Retry GPU requires a restart. Save your work first.	Réessayer le GPU nécessite un redémarrage. Enregistrez votre travail au préalable.
+	Retry GPU tries the graphics processor again now.	Réessayer le GPU sollicite de nouveau le processeur graphique dès maintenant.
+	GPU acceleration resumed.	Accélération GPU rétablie.
 	Keep Using CPU	Continuer avec le CPU
 	Retry GPU	Réessayer le GPU
 	GPU Backend	Moteur GPU
@@ -2736,6 +2738,11 @@ cameraRaw	Blending	Fusion
 	Content-Aware Move Tool	Outil Déplacement selon le contenu
 	TIFF Options	Options TIFF
 	Targa Options	Options Targa
+	JPEG Options	Options JPEG
+	Image Options	Options d’image
+	Format Options	Options de format
+	Baseline ("Standard")	Ligne de base (« Standard »)
+	Baseline Optimized	Ligne de base optimisée
 	24 bits/pixel	24 bits/pixel
 	32 bits/pixel	32 bits/pixel
 	Including layers will increase file size.	L'inclusion des calques augmentera la taille du fichier.
@@ -3172,6 +3179,9 @@ curves	Smooth	Lisser
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Charger des actions…
 	Save Actions…	Enregistrer les actions…
+	New Action…	Nouvelle action…
+	Start Recording	Démarrer l'enregistrement
+	Stop Recording	Arrêter l'enregistrement
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{n} action chargée depuis {file}|{n} actions chargées depuis {file}
@@ -3207,6 +3217,13 @@ curves	Smooth	Lisser
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	Peint à partir de l'état source du panneau Historique
 	Sets the source for the history brush	Définit la source du pinceau d'historique
+# Bevel & Emboss shading controls.
+	Highlight Mode	Mode des tons clairs
+	Highlight Color	Couleur des tons clairs
+	Highlight Opacity	Opacité des tons clairs
+	Shadow Mode	Mode des ombres
+	Shadow Color	Couleur des ombres
+	Shadow Opacity	Opacité des ombres
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	Utiliser le profil incorporé ({profile})
 	Convert to the working space ({profile})	Convertir vers l'espace de travail ({profile})
@@ -3291,6 +3308,13 @@ curves	Smooth	Lisser
 	Increase Brush Size	Augmenter la taille du pinceau
 	Decrease Brush Hardness	Réduire la dureté du pinceau
 	Increase Brush Hardness	Augmenter la dureté du pinceau
+	Demosaic	Dématriçage
+	How the camera's colour filter mosaic is filled in. It is applied when the file opens; the preview shows the method it was opened with.	Comment la mosaïque du filtre couleur de l'appareil est complétée. Appliqué à l'ouverture du fichier ; l'aperçu montre la méthode avec laquelle il a été ouvert.
+	AHD (adaptive homogeneity)	AHD (homogénéité adaptative)
+	Malvar–He–Cutler	Malvar–He–Cutler
+	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Hirakawa–Parks : les bords les plus nets et le moins de franges colorées ; le plus lent.
+	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	Interpolation corrigée par gradient : nette et rapide, avec quelques franges colorées sur les détails fins.
+	The fastest and the softest, with colour fringing on fine detail.	Le plus rapide et le plus doux, avec des franges colorées sur les détails fins.
 	Memory Usage	Utilisation de la mémoire
 	Per-document RAM limit (MB)	Limite RAM par document (Mo)
 	Installed RAM: {ram} MB; this limit: {percent}%	RAM installée : {ram} Mo ; cette limite : {percent}%
@@ -3319,3 +3343,4 @@ curves	Smooth	Lisser
 	Breeze	Breeze
 	Pro Light Gray	Pro gris clair
 	Pro Light	Pro clair
+	Resize Windows to Fit	Redimensionner les fenêtres

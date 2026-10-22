@@ -342,6 +342,53 @@ fn a_selective_color_step_in_the_scalar_form_keeps_its_values() {
     assert_eq!(range(&nulled, "reds"), [35.0, 0.0, 0.0, 0.0], "{nulled}");
 }
 
+/// A setting Photoshop's event has no field for is dropped by export, and the step then plays back
+/// as a different edit: Crystallize's `seed` (#7668), Radial Blur's centre, Minimum's and
+/// Maximum's `preserve`. Such a step is refused, as one with no equivalent event already is.
+#[test]
+fn a_setting_the_event_cannot_hold_is_refused() {
+    for (id, params) in [
+        ("filter.pixelate.crystallize", json!({"cellSize": 5, "seed": 37})),
+        ("filter.blur.radialBlur", json!({"amount": 10, "centerX": 0.25, "centerY": 0.5})),
+        ("filter.other.minimum", json!({"radius": 4, "preserve": "roundness"})),
+        ("filter.other.maximum", json!({"radius": 4, "preserve": "roundness"})),
+    ] {
+        let mut s = Session::new();
+        s.actions.list.push(Action::new("A", vec![(id.into(), params)]));
+        let before = s.actions.list[0].steps.clone();
+        let e = s.execute("actions.save", json!({"action": "A"})).unwrap_err().to_string();
+        assert!(e.contains(id), "{id}: {e}");
+        // A refused save leaves the action as it was: the step is still there to be played.
+        assert_eq!(s.actions.list[0].steps, before, "{id}");
+        let r = s.execute("actions.save", json!({"action": "A", "skipUnsupported": true})).unwrap();
+        assert_eq!(r["skipped"], json!([{"action": "A", "step": 0, "id": id}]), "{id}");
+        assert_eq!(s.actions.list[0].steps, before, "{id}: skipping a step does not drop it");
+    }
+}
+
+/// The same steps at the value the event plays as, and with the setting absent: written as before.
+#[test]
+fn settings_at_the_value_the_event_plays_still_export() {
+    for (id, params) in [
+        ("filter.pixelate.crystallize", json!({"cellSize": 5, "seed": 0})),
+        ("filter.pixelate.crystallize", json!({"cellSize": 5})),
+        ("filter.blur.radialBlur", json!({"amount": 10, "centerX": 0.5, "centerY": 0.5})),
+        ("filter.blur.radialBlur", json!({"amount": 10})),
+        ("filter.other.minimum", json!({"radius": 4, "preserve": "squareness"})),
+        ("filter.other.maximum", json!({"radius": 4})),
+        // `preserve` reaches the filter through a comparison with the exact string "roundness",
+        // so these play as squareness -- replay's own value -- and lose nothing by export (#7759
+        // review).
+        ("filter.other.minimum", json!({"radius": 4, "preserve": "Squareness"})),
+        ("filter.other.maximum", json!({"radius": 4, "preserve": "Roundness"})),
+    ] {
+        let mut s = Session::new();
+        s.actions.list.push(Action::new("A", vec![(id.into(), params.clone())]));
+        let r = s.execute("actions.save", json!({"action": "A"})).unwrap_or_else(|e| panic!("{id} {params}: {e}"));
+        assert_eq!(r["skipped"], json!([]), "{id} {params}");
+    }
+}
+
 #[test]
 fn every_mapped_command_exports_and_imports_back() {
     let cases: Vec<(&str, Value)> = vec![
@@ -1785,6 +1832,77 @@ fn canvas_bound_modify_and_placed_pattern_bucket_refuse_strict_export() {
     }
 }
 
+/// #7502, #7512, #7513, #7514: a New Layer step that clips to the layer below, has a colour
+/// label, fills with the neutral colour or goes below the active layer isn't exported, since the
+/// descriptor carries only its name, opacity and mode. Those options at their defaults still
+/// export, and the step round-trips.
+#[test]
+fn new_layer_options_the_descriptor_cannot_carry_refuse_strict_export() {
+    let new_layer = |p: Value| Action { name: "Probe".into(), steps: vec![("layer.new.layer".into(), p)], ..Default::default() };
+    for p in [
+        json!({"name": "New", "clipToPrevious": true}),
+        json!({"name": "New", "color": "red"}),
+        json!({"name": "New", "mode": "Overlay", "fillNeutral": true}),
+        json!({"name": "New", "position": "below"}),
+        json!({"name": "New", "clipToPrevious": 1}),
+    ] {
+        assert!(export("Audit7", &[&new_layer(p.clone())], &[], false).is_err(), "{p}");
+        let (_, skipped) = export("Audit7", &[&new_layer(p.clone())], &[], true).unwrap();
+        assert_eq!(skipped, vec![Skipped { action: "Probe".into(), step: 0, id: "layer.new.layer".into() }], "{p}");
+    }
+    let defaults =
+        json!({"name": "New", "mode": "Multiply", "opacity": 0.6, "clipToPrevious": false, "color": "none", "fillNeutral": false, "position": "above"});
+    let (bytes, skipped) = export("Audit7", &[&new_layer(defaults)], &[], false).unwrap();
+    assert!(skipped.is_empty());
+    let imported = import(&bytes).unwrap();
+    assert_eq!(imported.actions[0].steps, vec![("layer.new.layer".to_string(), json!({"name": "New", "mode": "Multiply", "opacity": 0.6}))]);
+}
+
+/// Options the exported descriptors can't carry refuse strict export (and a partial export skips
+/// the step) instead of exporting a step that replays differently; the forms they can carry still
+/// export (#7196, #7246, #7287, #7503, #7506, #7507).
+#[test]
+fn options_the_descriptors_cannot_carry_refuse_strict_export() {
+    let one = |id: &str, p: Value| Action { name: "Probe".into(), steps: vec![(id.into(), p)], ..Default::default() };
+    let refused = [
+        ("layer.newFillLayer.solidColor", json!({"color": "#c0603080"})),
+        ("layer.newFillLayer.solidColor", json!({"color": "teal"})),
+        ("file.new", json!({"width": 24, "height": 18, "background": "black"})),
+        ("file.new", json!({"width": 24, "height": 18, "background": "#ab2233"})),
+        ("file.new", json!({"width": 24, "height": 18, "background": "backgroundColor", "backgroundColor": [0.2, 0.4, 0.6]})),
+        ("select.loadSelection", json!({"channel": "Alpha 1", "invert": true})),
+        ("select.loadSelection", json!({"channel": "Alpha 1", "operation": "subtract"})),
+        ("layer.setProps", json!({"opacity": 0.5, "locked": true})),
+        ("layer.setProps", json!({"opacity": 0.5, "clipped": true})),
+        ("layer.setProps", json!({"layers": [2, 3], "opacity": 0.5})),
+        ("filter.noise.addNoise", json!({"amount": 30, "seed": 2147483648_u64})),
+        ("filter.noise.addNoise", json!({"amount": 30, "seed": 4294967295_u64})),
+    ];
+    for (id, p) in refused {
+        let err = export("Audit7", &[&one(id, p.clone())], &[], false).unwrap_err();
+        assert!(err.contains(&format!("`{id}`")), "{id} {p}: the error names the step: {err}");
+        let (_, skipped) = export("Audit7", &[&one(id, p.clone())], &[], true).unwrap();
+        assert_eq!(skipped, vec![Skipped { action: "Probe".into(), step: 0, id: id.into() }], "{id} {p}");
+    }
+    let carried = [
+        ("layer.groupLayers", json!({"name": "Group"})),
+        ("layer.newFillLayer.solidColor", json!({"color": "#c06030"})),
+        ("file.new", json!({"width": 24, "height": 18, "background": "white"})),
+        ("file.new", json!({"width": 24, "height": 18, "background": "transparent"})),
+        ("file.new", json!({"width": 24, "height": 18, "background": "backgroundColor"})),
+        ("select.loadSelection", json!({"channel": "Alpha 1", "invert": false, "operation": "new"})),
+        // A named target (a numeric one is #7248, #7262).
+        ("layer.setProps", json!({"layer": "Pixels", "opacity": 0.5, "visible": true})),
+        ("filter.noise.addNoise", json!({"amount": 30, "seed": 2147483647})),
+    ];
+    for (id, p) in carried {
+        let (bytes, skipped) = export("Audit7", &[&one(id, p.clone())], &[], false).unwrap_or_else(|e| panic!("{id} {p}: {e}"));
+        assert!(skipped.is_empty(), "{id} {p}");
+        let imported = import(&bytes).unwrap();
+        assert_eq!(imported.actions[0].steps.first().map(|(i, _)| i.as_str()), Some(id), "{p}");
+    }
+}
+
 /// Photoshop's Close has no document target: a Close of a specific document must not be
 /// exported as a plain Close, which would close the active document on playback.
 #[test]
@@ -1819,6 +1937,108 @@ fn fractional_translation_only_transform_keeps_offset_and_interpolation() {
     assert_eq!(steps[0].0, "edit.transform");
     assert_eq!(steps[0].1.get("dx").and_then(Value::as_f64), Some(0.5));
     assert_eq!(steps[0].1.get("interpolation"), Some(&json!("bilinear")));
+}
+
+#[test]
+fn numeric_layer_references_refuse_silent_fallback_to_current_selection() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+
+    let parse_first_desc = |v: &Value| -> Descriptor {
+        let bytes = photocraft_paint::tile::b64_decode(v["data"].as_str().unwrap()).unwrap();
+        let file = atn::parse(&bytes).unwrap();
+        file.actions[0].items[0].descriptor.clone().unwrap()
+    };
+
+    // Named layer reference exports successfully with Name reference to "A"
+    s.actions.list.push(Action::new("DeleteNamed", vec![("layer.delete".into(), json!({"layer": "A"}))]));
+    let saved_named = s.execute("actions.save", json!({"action": "DeleteNamed"})).unwrap();
+    assert_eq!(saved_named["steps"], 1);
+    let named_desc = parse_first_desc(&saved_named);
+    match get_ref(&named_desc, "null").unwrap() {
+        [ReferenceItem::Name { name, .. }] => assert_eq!(name.to_string_lossy(), "A"),
+        other => panic!("expected Name reference to A, got {other:?}"),
+    }
+
+    // Omitted layer reference (target selection) exports successfully with Trgt enumerated reference
+    s.actions.list.push(Action::new("DeleteTarget", vec![("layer.delete".into(), json!({}))]));
+    let saved_target = s.execute("actions.save", json!({"action": "DeleteTarget"})).unwrap();
+    assert_eq!(saved_target["steps"], 1);
+    let target_desc = parse_first_desc(&saved_target);
+    match get_ref(&target_desc, "null").unwrap() {
+        [ReferenceItem::Enumerated { value, .. }] => assert!(value.is("Trgt")),
+        other => panic!("expected Trgt enumerated reference, got {other:?}"),
+    }
+
+    // Explicit null layer reference also exports successfully as target selection with Trgt enumerated reference
+    s.actions.list.push(Action::new("DeleteNull", vec![("layer.delete".into(), json!({"layer": null}))]));
+    let saved_null = s.execute("actions.save", json!({"action": "DeleteNull"})).unwrap();
+    assert_eq!(saved_null["steps"], 1);
+    let null_desc = parse_first_desc(&saved_null);
+    match get_ref(&null_desc, "null").unwrap() {
+        [ReferenceItem::Enumerated { value, .. }] => assert!(value.is("Trgt")),
+        other => panic!("expected Trgt enumerated reference, got {other:?}"),
+    }
+
+    // Explicit numeric ID reference cannot be silently converted to current target in strict export
+    s.actions.list.push(Action::new("DeleteNumeric", vec![("layer.delete".into(), json!({"layer": 42}))]));
+    let before_actions = s.actions.list.clone();
+    let before_rev = s.active().unwrap().revision;
+    let err_delete = s.execute("actions.save", json!({"action": "DeleteNumeric"}));
+    assert!(err_delete.is_err(), "strict export must reject numeric layer ID for layer.delete rather than falling back to current target");
+    assert_eq!(s.actions.list, before_actions, "session actions must remain unchanged when save fails");
+    assert_eq!(s.active().unwrap().revision, before_rev, "document revision must remain unchanged when save fails");
+    let err_msg = err_delete.unwrap_err().to_string();
+    assert!(err_msg.contains("(`layer.delete` with numeric layer 42)"), "error message should name the numeric layer: {err_msg}");
+
+    // Same rejection and state invariance for remaining commands with numeric layer reference
+    for (name, id, params) in [
+        ("DuplicateNumeric", "layer.duplicate", json!({"layer": 42, "name": "Copy"})),
+        ("DuplicateNewDocNumeric", "layer.duplicate", json!({"layer": 42, "document": "new"})),
+        ("TranslateNumeric", "layer.translate", json!({"layer": 42, "dx": 5, "dy": 5})),
+        ("SetPropsNumeric", "layer.setProps", json!({"layer": 42, "opacity": 0.5})),
+        ("HideNumeric", "layer.hideLayers", json!({"layer": 42})),
+        ("TransformNumeric", "edit.transform", json!({"layer": 42, "dx": 5, "dy": 5})),
+        ("RenameNumeric", "layer.renameLayer", json!({"layer": 42, "name": "Renamed"})),
+        ("LabelNumeric", "layer.setLabelColor", json!({"layer": 42, "color": "red"})),
+        ("ShowNumeric", "layer.showLayers", json!({"layer": 42})),
+        ("SelectNumeric", "layer.select", json!({"layer": 42})),
+        ("BringToFrontNumeric", "layer.arrange.bringToFront", json!({"layer": 42})),
+        ("SendToBackNumeric", "layer.arrange.sendToBack", json!({"layer": 42})),
+        ("BringForwardNumeric", "layer.arrange.bringForward", json!({"layer": 42})),
+        ("SendBackwardNumeric", "layer.arrange.sendBackward", json!({"layer": 42})),
+    ] {
+        s.actions.list.push(Action::new(name, vec![(id.into(), params)]));
+        let before_actions = s.actions.list.clone();
+        let before_rev = s.active().unwrap().revision;
+        assert!(s.execute("actions.save", json!({"action": name})).is_err());
+        assert_eq!(s.actions.list, before_actions, "session actions must remain unchanged when save fails");
+        assert_eq!(s.active().unwrap().revision, before_rev, "document revision must remain unchanged when save fails");
+    }
+
+    // With skipUnsupported: true, numeric layer references are skipped
+    let skipped = s.execute("actions.save", json!({"action": "DeleteNumeric", "skipUnsupported": true})).unwrap();
+    assert_eq!(skipped["steps"], 0);
+    assert_eq!(skipped["skipped"][0]["id"], "layer.delete");
+
+    // Blend-mode shortcut records layer.setProps with active layer ID, which normalises to the target form
+    let active_id = s.active().unwrap().active_layer.unwrap().0;
+    s.execute("actions.record", json!({"name": "RecordBlend"})).unwrap();
+    s.execute("layer.setProps", json!({"layer": active_id, "blend": "multiply"})).unwrap();
+    s.execute("actions.stop", json!({})).unwrap();
+    let saved_blend = s.execute("actions.save", json!({"action": "RecordBlend"})).unwrap();
+    assert_eq!(saved_blend["steps"], 1, "recorded blend shortcut step with active layer id must export successfully as target layer");
+    assert_eq!(saved_blend["skipped"].as_array().unwrap().len(), 0);
+
+    // Record explicit layer.delete of the sole selected layer in a two-layer document
+    s.execute("layer.new.layer", json!({"name": "Second"})).unwrap();
+    let second_id = s.active().unwrap().active_layer.unwrap().0;
+    s.execute("actions.record", json!({"name": "RecordDelete"})).unwrap();
+    s.execute("layer.delete", json!({"layer": second_id})).unwrap();
+    s.execute("actions.stop", json!({})).unwrap();
+    let saved_delete = s.execute("actions.save", json!({"action": "RecordDelete"})).unwrap();
+    assert_eq!(saved_delete["steps"], 1, "recorded explicit delete of sole selected layer must export successfully as target delete");
+    assert_eq!(saved_delete["skipped"].as_array().unwrap().len(), 0);
 }
 
 /// Arbitrary canvas rotation must keep its interpolation through a strict export: dropping it
@@ -2034,6 +2254,29 @@ fn image_size_round_trip(params: &Value) -> Option<Value> {
     }
 }
 
+/// Photoshop's Select and Mask descriptor as mapped has no field for the Refine Edge Brush,
+/// so a step with brush strokes must not export as a plain Select and Mask without them.
+#[test]
+fn refine_edge_with_brush_strokes_is_not_exported_without_them() {
+    for mode in ["add", "subtract"] {
+        let brushed = Action {
+            name: "Probe".into(),
+            steps: vec![("select.refineEdge".into(), json!({"radius": 1, "refineStrokes": [{"points": [[5, 4]], "size": 4, "mode": mode}]}))],
+            ..Default::default()
+        };
+        assert!(export("Audit", &[&brushed], &[], false).is_err(), "{mode}");
+        let (_, skipped) = export("Audit", &[&brushed], &[], true).unwrap();
+        assert_eq!(skipped, vec![Skipped { action: "Probe".into(), step: 0, id: "select.refineEdge".into() }]);
+    }
+    for params in [json!({"radius": 1}), json!({"radius": 1, "refineStrokes": []}), json!({"radius": 1, "refineStrokes": null})] {
+        let plain = Action { name: "Plain".into(), steps: vec![("select.refineEdge".into(), params)], ..Default::default() };
+        let (bytes, skipped) = export("Audit", &[&plain], &[], false).unwrap();
+        assert!(skipped.is_empty());
+        let imported = import(&bytes).unwrap();
+        assert_eq!(imported.actions[0].steps, vec![("select.refineEdge".to_string(), json!({"radius": 1}))]);
+    }
+}
+
 #[test]
 fn image_size_resolution_only_does_not_gain_keep_print_size() {
     // The .atn cannot tell resolution-only from keepPrintSize:true, so the former must not
@@ -2109,4 +2352,59 @@ fn select_rect_mode_strict_export_rejects_unrepresentable_modes() {
     let skipped = s.execute("actions.save", json!({"action": "AddAct", "skipUnsupported": true})).unwrap();
     assert_eq!(skipped["steps"], 0);
     assert_eq!(skipped["skipped"][0]["id"], "select.rect");
+}
+
+#[test]
+fn radial_blur_off_center_strict_export_refuses_silent_recentering() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 16, "height": 16})).unwrap();
+
+    // Default center (omitted) exports successfully
+    s.actions.list.push(Action::new("DefaultCenter", vec![("filter.blur.radialBlur".into(), json!({"amount": 50, "method": "spin", "quality": "good"}))]));
+    let saved = s.execute("actions.save", json!({"action": "DefaultCenter"})).unwrap();
+    assert_eq!(saved["steps"], 1);
+
+    // Explicit (0.5, 0.5) center also exports successfully
+    s.actions.list.push(Action::new(
+        "ExplicitDefaultCenter",
+        vec![("filter.blur.radialBlur".into(), json!({"amount": 50, "method": "spin", "quality": "good", "centerX": 0.5, "centerY": 0.5}))],
+    ));
+    let saved_exp = s.execute("actions.save", json!({"action": "ExplicitDefaultCenter"})).unwrap();
+    assert_eq!(saved_exp["steps"], 1);
+
+    // Off-center radial blur cannot be silently recentered in strict export
+    s.actions.list.push(Action::new(
+        "OffCenter",
+        vec![("filter.blur.radialBlur".into(), json!({"amount": 50, "method": "spin", "quality": "good", "centerX": 0.1, "centerY": 0.2}))],
+    ));
+    let before_actions = s.actions.list.clone();
+    let err = s.execute("actions.save", json!({"action": "OffCenter"}));
+    assert!(err.is_err(), "strict export must reject off-center radial blur rather than silently recentering it");
+    assert_eq!(s.actions.list, before_actions, "actions list must remain unchanged after rejected save");
+
+    // With skipUnsupported: true, off-center radial blur is skipped
+    let skipped = s.execute("actions.save", json!({"action": "OffCenter", "skipUnsupported": true})).unwrap();
+    assert_eq!(skipped["steps"], 0);
+    assert_eq!(skipped["skipped"][0]["id"], "filter.blur.radialBlur");
+
+    // Radial blur targeting a mask must not export as a plain filter that edits pixels
+    s.actions
+        .list
+        .push(Action::new("MaskTarget", vec![("filter.blur.radialBlur".into(), json!({"amount": 50, "method": "spin", "quality": "good", "target": "mask"}))]));
+    let before_actions = s.actions.list.clone();
+    let err_mask = s.execute("actions.save", json!({"action": "MaskTarget"}));
+    assert!(err_mask.is_err(), "strict export must reject radial blur with non-pixel target");
+    assert_eq!(s.actions.list, before_actions, "actions list must remain unchanged after rejected save");
+
+    let skipped_mask = s.execute("actions.save", json!({"action": "MaskTarget", "skipUnsupported": true})).unwrap();
+    assert_eq!(skipped_mask["steps"], 0);
+    assert_eq!(skipped_mask["skipped"][0]["id"], "filter.blur.radialBlur");
+
+    // Explicit pixels target exports successfully
+    s.actions.list.push(Action::new(
+        "PixelsTarget",
+        vec![("filter.blur.radialBlur".into(), json!({"amount": 50, "method": "spin", "quality": "good", "target": "pixels"}))],
+    ));
+    let saved_pixels = s.execute("actions.save", json!({"action": "PixelsTarget"})).unwrap();
+    assert_eq!(saved_pixels["steps"], 1);
 }

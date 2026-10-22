@@ -2660,6 +2660,8 @@
 	GPU acceleration could not continue. Your documents are unchanged.	GPU ubrzanje nije moglo da se nastavi. Vaši dokumenti su nepromenjeni.
 	PhotoCraft is using the CPU image compositor. The window may still use your graphics adapter.	PhotoCraft koristi CPU kompozitor slike. Prozor i dalje može da koristi vaš grafički adapter.
 	Retry GPU requires a restart. Save your work first.	Ponovni pokušaj sa GPU-om zahteva ponovno pokretanje. Prvo sačuvajte svoj rad.
+	Retry GPU tries the graphics processor again now.	Ponovo pokušaj sa GPU-om odmah ponovo isprobava grafički procesor.
+	GPU acceleration resumed.	GPU ubrzanje je nastavljeno.
 	Keep Using CPU	Nastavi sa CPU-om
 	Retry GPU	Ponovo pokušaj sa GPU-om
 	GPU Backend	GPU pozadinski sistem
@@ -2717,6 +2719,11 @@ cameraRaw	Blending	Stapanje
 	Content-Aware Move Tool	Alatka za pomeranje prema sadržaju
 	TIFF Options	TIFF opcije
 	Targa Options	Targa opcije
+	JPEG Options	JPEG opcije
+	Image Options	Opcije slike
+	Format Options	Opcije formata
+	Baseline ("Standard")	Osnovno („standardno“)
+	Baseline Optimized	Osnovno optimizovano
 	24 bits/pixel	24 bita/piksel
 	32 bits/pixel	32 bita/piksel
 	Including layers will increase file size.	Uključivanje slojeva povećaće veličinu datoteke.
@@ -4196,6 +4203,9 @@ shape	Appearance	Izgled
 	Copy Texture to Other Tools	Kopiraj teksturu u druge alatke
 	Load Actions…	Učitaj radnje…
 	Save Actions…	Sačuvaj radnje…
+	New Action…	Nova radnja…
+	Start Recording	Započni snimanje
+	Stop Recording	Zaustavi snimanje
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Učitana je {n} radnja iz {file}|Učitane su {n} radnje iz {file}|Učitano je {n} radnji iz {file}
@@ -4235,6 +4245,14 @@ shape	Appearance	Izgled
 	Ink Characteristics	Karakteristike mastila
 	Solidity:	Punoća:
 	Redrawing	Ponovno iscrtavanje
+
+# Bevel & Emboss shading controls.
+	Highlight Mode	Режим осветљења
+	Highlight Color	Боја осветљења
+	Highlight Opacity	Непрозирност осветљења
+	Shadow Mode	Режим сенке
+	Shadow Color	Боја сенке
+	Shadow Opacity	Непрозирност сенке
 # Edit › Content-Aware Fill workspace
 	Sampling Brush Tool	Alatka četkica za uzorkovanje
 	Sampling Area Overlay	Preklop oblasti uzorkovanja
@@ -4352,6 +4370,13 @@ shape	Appearance	Izgled
 	Increase Brush Size	Povećaj veličinu četkice
 	Decrease Brush Hardness	Smanji tvrdoću četkice
 	Increase Brush Hardness	Povećaj tvrdoću četkice
+	Demosaic	Demozaikovanje
+	How the camera's colour filter mosaic is filled in. It is applied when the file opens; the preview shows the method it was opened with.	Kako se popunjava mozaik filtera boja kamere. Primenjuje se pri otvaranju datoteke; pregled prikazuje metod kojim je datoteka otvorena.
+	AHD (adaptive homogeneity)	AHD (adaptivna homogenost)
+	Malvar–He–Cutler	Malvar–He–Cutler
+	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Hirakawa–Parks: najčistije ivice i najmanje obojenih rubova, najsporiji.
+	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	Interpolacija sa korekcijom gradijenta: oštra i brza, sa malo obojenih rubova na finim detaljima.
+	The fastest and the softest, with colour fringing on fine detail.	Najbrži i najmekši, sa obojenim rubovima na finim detaljima.
 	Memory Usage	Upotreba memorije
 	Per-document RAM limit (MB)	RAM limit po dokumentu (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Instalisan RAM: {ram} MB; ovaj limit: {percent}%
@@ -4379,3 +4404,4 @@ shape	Appearance	Izgled
 	Breeze	Breeze
 	Pro Light Gray	Pro svetlosiva
 	Pro Light	Pro svetla
+	Resize Windows to Fit	Prilagodi veličinu prozora

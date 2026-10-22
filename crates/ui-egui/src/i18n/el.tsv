@@ -1106,6 +1106,8 @@
 	GPU acceleration could not continue. Your documents are unchanged.	Η επιτάχυνση GPU δεν μπόρεσε να συνεχιστεί. Τα έγγραφά σας δεν έχουν αλλάξει.
 	PhotoCraft is using the CPU image compositor. The window may still use your graphics adapter.	Το PhotoCraft χρησιμοποιεί σύνθεση εικόνας μέσω CPU. Το παράθυρο μπορεί να εξακολουθεί να χρησιμοποιεί την κάρτα γραφικών.
 	Retry GPU requires a restart. Save your work first.	Η νέα προσπάθεια χρήσης GPU απαιτεί επανεκκίνηση. Αποθηκεύστε πρώτα την εργασία σας.
+	Retry GPU tries the graphics processor again now.	Η νέα προσπάθεια χρήσης GPU δοκιμάζει ξανά τον επεξεργαστή γραφικών αμέσως.
+	GPU acceleration resumed.	Η επιτάχυνση GPU συνεχίζεται.
 	Keep Using CPU	Συνέχεια με CPU
 	Retry GPU	Νέα προσπάθεια χρήσης GPU
 	GPU Backend	Σύστημα GPU
@@ -1117,6 +1119,11 @@
 	Hold Alt while drawing for straight segments	Κρατήστε πατημένο το Alt κατά τη σχεδίαση για ευθύγραμμα τμήματα
 	TIFF Options	Επιλογές TIFF
 	Targa Options	Επιλογές Targa
+	JPEG Options	Επιλογές JPEG
+	Image Options	Επιλογές εικόνας
+	Format Options	Επιλογές μορφής
+	Baseline ("Standard")	Βασική («Τυπική»)
+	Baseline Optimized	Βασική βελτιστοποιημένη
 	24 bits/pixel	24 bit/εικονοστοιχείο
 	32 bits/pixel	32 bit/εικονοστοιχείο
 	Including layers will increase file size.	Η συμπερίληψη επιπέδων θα αυξήσει το μέγεθος του αρχείου.
@@ -3864,6 +3871,9 @@ curves	Smooth	Εξομάλυνση
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Φόρτωση ενεργειών…
 	Save Actions…	Αποθήκευση ενεργειών…
+	New Action…	Νέα ενέργεια…
+	Start Recording	Έναρξη εγγραφής
+	Stop Recording	Διακοπή εγγραφής
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Φορτώθηκε {n} ενέργεια από το {file}|Φορτώθηκαν {n} ενέργειες από το {file}
@@ -3898,6 +3908,13 @@ curves	Smooth	Εξομάλυνση
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	Βάφει από την κατάσταση πηγής του πίνακα Ιστορικό
 	Sets the source for the history brush	Ορίζει την πηγή για το πινέλο ιστορικού
+# Bevel & Emboss shading controls.
+	Highlight Mode	Λειτουργία φωτεινών τόνων
+	Highlight Color	Χρώμα φωτεινών τόνων
+	Highlight Opacity	Αδιαφάνεια φωτεινών τόνων
+	Shadow Mode	Λειτουργία σκιών
+	Shadow Color	Χρώμα σκιών
+	Shadow Opacity	Αδιαφάνεια σκιών
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	Χρήση ενσωματωμένου προφίλ ({profile})
 	Convert to the working space ({profile})	Μετατροπή στον χώρο εργασίας ({profile})
@@ -3981,6 +3998,13 @@ curves	Smooth	Εξομάλυνση
 	Increase Brush Size	Αύξηση μεγέθους πινέλου
 	Decrease Brush Hardness	Μείωση σκληρότητας πινέλου
 	Increase Brush Hardness	Αύξηση σκληρότητας πινέλου
+	Demosaic	Αποψηφιδοποίηση
+	How the camera's colour filter mosaic is filled in. It is applied when the file opens; the preview shows the method it was opened with.	Πώς συμπληρώνεται το ψηφιδωτό του χρωματικού φίλτρου της κάμερας. Εφαρμόζεται όταν ανοίγει το αρχείο· η προεπισκόπηση δείχνει τη μέθοδο με την οποία άνοιξε.
+	AHD (adaptive homogeneity)	AHD (προσαρμοστική ομοιογένεια)
+	Malvar–He–Cutler	Malvar–He–Cutler
+	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Hirakawa–Parks: οι πιο καθαρές ακμές και τα λιγότερα χρωματικά περιθώρια, η πιο αργή.
+	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	Παρεμβολή με διόρθωση κλίσης: ευκρινής και γρήγορη, με λίγα χρωματικά περιθώρια στις λεπτές λεπτομέρειες.
+	The fastest and the softest, with colour fringing on fine detail.	Η πιο γρήγορη και η πιο μαλακή, με χρωματικά περιθώρια στις λεπτές λεπτομέρειες.
 	Memory Usage	Χρήση μνήμης
 	Per-document RAM limit (MB)	Όριο RAM ανά έγγραφο (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Εγκατεστημένη RAM: {ram} MB· αυτό το όριο: {percent}%
@@ -4008,3 +4032,4 @@ curves	Smooth	Εξομάλυνση
 	Breeze	Breeze
 	Pro Light Gray	Pro ανοιχτού γκρι
 	Pro Light	Φωτεινό Pro
+	Resize Windows to Fit	Προσαρμογή μεγέθους παραθύρων

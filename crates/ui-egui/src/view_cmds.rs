@@ -771,6 +771,8 @@ fn run(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, p: &Value) -> Res
             let screen = app.session.prefs().units_and_rulers.screen_resolution.max(1.0) as f32;
             let z = if id == "view.twoHundredPercent" { 2.0 } else { screen / dpi };
             app.ui.views[i].zoom = crate::zoom_levels::clamp(z, size);
+            app.ui.views[i].request_zoom_animation(app.session.prefs().general.animated_zoom);
+            app.ui.views[i].zoom_anchor = None;
             Ok(json!({"zoom": app.ui.views[i].zoom}))
         }
         "view.fitLayersOnScreen" => fit_layers(app),
@@ -802,6 +804,8 @@ fn fit_layers(app: &mut PhotocraftApp) -> Result<Value, String> {
     v.zoom = crate::zoom_levels::clamp(points * ppp, size);
     v.center = [(b.x0 + b.x1) as f32 / 2.0, (b.y0 + b.y1) as f32 / 2.0];
     v.fit_pending = false;
+    v.request_zoom_animation(app.session.prefs().general.animated_zoom);
+    v.zoom_anchor = None;
     Ok(json!({"zoom": v.zoom, "bounds": [b.x0, b.y0, b.x1, b.y1]}))
 }
 
@@ -816,6 +820,10 @@ fn screen_position(v: &Value) -> Option<[f32; 2]> {
 pub(crate) fn float_window(app: &mut PhotocraftApp, doc: usize, offset: usize) -> u64 {
     let wid = app.ui.alloc_id();
     let mut view = app.ui.views.get(doc).cloned().unwrap_or_default();
+    view.zoom_animating = false;
+    view.zoom_anchor = None;
+    view.zoom_transition = None;
+    view.display_camera = None;
     view.fit_pending = offset > 0 || view.fit_pending;
     app.ui.windows.push(crate::state::DocWindow { id: wid, document: doc, view, open: true, position: None });
     wid
@@ -869,12 +877,14 @@ fn arrange(app: &mut PhotocraftApp, k: &str, p: &Value) -> Result<Value, String>
             let src = app.ui.views.get(i).cloned().ok_or("no document")?;
             let (zoom, loc, rot) =
                 (matches!(k, "matchZoom" | "matchAll"), matches!(k, "matchLocation" | "matchAll"), matches!(k, "matchRotation" | "matchAll"));
+            let animated_zoom = app.session.prefs().general.animated_zoom;
             // Each view stays within its own document's zoom range (a view not drawn yet has no
             // `doc_size`, so the size comes from the document).
             let sizes: Vec<[u32; 2]> = app.session.documents().iter().map(|d| [d.doc.size.width, d.doc.size.height]).collect();
             let apply = |v: &mut crate::state::View, doc: usize| {
                 if zoom {
                     v.zoom = crate::zoom_levels::clamp(src.zoom, sizes.get(doc).copied().unwrap_or(v.doc_size));
+                    v.request_zoom_animation(animated_zoom);
                 }
                 if loc {
                     v.center = src.center;
@@ -1479,8 +1489,8 @@ fn save_a_copy(app: &mut PhotocraftApp) -> Result<Value, String> {
     let suggested = format!("{stem}{}.psd", app.session.prefs().file_handling.copy_suffix());
     // The copy is of the document as it was when asked.
     app.pick_save(&suggested, move |app, path| {
-        // An RGB Targa asks for its bits per pixel first, and a DDS texture for its compression;
-        // the copy is written from the prompt.
+        // An RGB Targa asks for its bits per pixel first, a DDS texture for its compression, and
+        // a JPEG for its JPEG Options; the copy is written from the prompt.
         let parked = app.with_document(doc.id, |app| {
             if crate::targa_options_ui::wants_prompt(app, &path) {
                 crate::targa_options_ui::park(app, path.clone(), true, "file.saveACopy")?;
@@ -1488,6 +1498,10 @@ fn save_a_copy(app: &mut PhotocraftApp) -> Result<Value, String> {
             }
             if crate::dds_options_ui::wants_prompt(&path) {
                 crate::dds_options_ui::park(app, path.clone(), true, "file.saveACopy")?;
+                return Ok(true);
+            }
+            if crate::jpeg_options_ui::wants_prompt(app, &path) {
+                crate::jpeg_options_ui::park(app, path.clone(), true, "file.saveACopy")?;
                 return Ok(true);
             }
             Ok(false)
@@ -1502,7 +1516,8 @@ fn save_a_copy(app: &mut PhotocraftApp) -> Result<Value, String> {
 }
 
 /// Writes `doc` to `path` as a copy (Save a Copy, and its replayed action step): the document's
-/// path and saved state are untouched. `choices` are the Targa and DDS answers, when there are any.
+/// path and saved state are untouched. `choices` are the Targa, DDS and JPEG answers, when there
+/// are any.
 pub(crate) fn write_copy(app: &mut PhotocraftApp, doc: &photocraft_doc::Document, path: &str, choices: crate::FormatChoices) -> Result<Value, String> {
     let settings = choices.apply(app.save_settings());
     let export = app.services.export.as_ref().ok_or("no exporter configured")?;

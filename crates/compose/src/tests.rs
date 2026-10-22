@@ -1525,6 +1525,57 @@ fn satin_and_bevel_stay_inside_shape() {
     assert!(top[1] > bot[1], "{top:?} {bot:?}");
 }
 
+/// #7360: a gloss contour that starts high (Rolling Slope - Descending, as the reporter's PSD
+/// uses) left a bevelled shape's flat face at the full Overlay highlight, (255, 40, 42) on a
+/// (151, 22, 23) fill, where Photoshop leaves the face at the fill colour. The contour maps the
+/// shading, so the flat face stays neutral and only the slopes are shaded.
+#[test]
+fn a_gloss_contour_leaves_the_flat_face_of_a_bevel_unlit() {
+    let fill = [151.0 / 255.0, 22.0 / 255.0, 23.0 / 255.0, 1.0];
+    let rolling = photocraft_doc::Contour::Custom {
+        name: "Rolling Slope - Descending".into(),
+        points: [(0.0078, 1.0), (0.2078, 0.3922), (0.3804, 0.4196), (0.7020, 0.6), (0.9882, 0.0)]
+            .iter()
+            .map(|&(input, output)| CurvePoint { input, output })
+            .collect(),
+        corners: vec![],
+    };
+    let render = |gloss_contour: photocraft_doc::Contour| {
+        let mut d = doc_white(40, 40);
+        let mut l = solid_layer("sq", Rect::new(10, 10, 30, 30), fill);
+        l.effects.items = vec![Effect::BevelEmboss(photocraft_doc::Bevel {
+            enabled: true,
+            style: photocraft_doc::BevelStyle::InnerBevel,
+            technique: photocraft_doc::BevelTechnique::ChiselHard,
+            depth: 1.47,
+            up: false,
+            size: 3.0,
+            soften: 0.0,
+            angle: 90.0,
+            altitude: 30.0,
+            use_global_light: false,
+            gloss_contour,
+            gloss_anti_alias: false,
+            highlight: FxCommon::new(photocraft_color::BlendMode::Overlay, 1.0),
+            highlight_color: Color::WHITE,
+            shadow: FxCommon::new(photocraft_color::BlendMode::Overlay, 0.16),
+            shadow_color: Color::BLACK,
+            contour: None,
+            texture: None,
+        })];
+        d.layers.push(l);
+        d
+    };
+    let d = render(rolling);
+    for (x, y) in [(20, 20), (16, 22), (24, 16)] {
+        let p = px(&d, x, y);
+        assert!(close4(p, fill), "flat face ({x},{y}) keeps the fill: {:?}", p.map(|v| (v * 255.0).round()));
+    }
+    let linear = render(photocraft_doc::Contour::Linear);
+    assert!(close4(px(&linear, 20, 20), fill), "Linear leaves the flat face too");
+    assert!(!close4(px(&d, 20, 11), fill), "the slopes are still shaded");
+}
+
 #[test]
 fn clipped_layer_effects_are_clipped_to_base() {
     let mut d = doc_white(40, 40);

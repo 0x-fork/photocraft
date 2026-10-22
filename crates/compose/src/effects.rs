@@ -1019,12 +1019,7 @@ fn noise(m: &mut Map, amount: f32, x0: i32, y0: i32) {
 fn apply_contour(m: Map, c: &Contour) -> Map {
     match contour_lut(c) {
         None => m,
-        Some(l) => m.map(|v| {
-            let x = v.clamp(0.0, 1.0) * (l.len() - 1) as f32;
-            let i = x.floor() as usize;
-            let j = (i + 1).min(l.len() - 1);
-            l[i] + (l[j] - l[i]) * (x - i as f32)
-        }),
+        Some(l) => m.map(|v| lut_at(&l, v)),
     }
 }
 
@@ -1656,6 +1651,12 @@ fn bevel_maps(shape: &Map, b: &Bevel, light: &GlobalLight, tex: &TextureCtx, pat
     let on_bevel = |x: i64, y: i64| {
         hmap.get(x, y) > BEVEL_H_EPS || (reach_past && [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|(dx, dy)| hmap.get(x + dx, y + dy) > BEVEL_H_EPS))
     };
+    // The gloss contour remaps the shading `n · light` before it splits into highlight (above
+    // what it maps a flat face's `sin(altitude)` to) and shadow. Applied to the highlight and shadow amounts
+    // instead, a contour that starts high (Rolling Slope - Descending) lit every pixel the light
+    // missed, so a bevelled glyph's flat face took the full highlight (#7360) where Photoshop
+    // leaves it at the layer's colour. The Linear contour changes nothing either way.
+    let gloss = contour_lut(&b.gloss_contour);
     let shade_into = |depth: f32, region_kind: u8| -> (Map, Map) {
         let (mut hi, mut sh) = (Map::new(shape.w, shape.h, 0.0), Map::new(shape.w, shape.h, 0.0));
         // Rows on threads: every pixel reads only `hmap` and `shape`.
@@ -1676,7 +1677,7 @@ fn bevel_maps(shape: &Map, b: &Bevel, light: &GlobalLight, tex: &TextureCtx, pat
                     let len = (n[0] * n[0] + n[1] * n[1] + 1.0).sqrt();
                     let shade = (n[0] * light_v[0] + n[1] * light_v[1] + n[2] * light_v[2]) / len;
                     let region = if region_kind == 0 { shape.v[i] } else { f32::from(shape.v[i] < 1.0 - INSIDE_EPS && on_bevel(x, y)) };
-                    let k = shade - se;
+                    let k = gloss.as_ref().map_or(shade - se, |l| lut_at(l, shade) - lut_at(l, se));
                     if k > 0.0 {
                         hi_row[x as usize] = (k / (1.0 - se).max(1e-3)).clamp(0.0, 1.0) * region;
                     } else {
@@ -1685,7 +1686,7 @@ fn bevel_maps(shape: &Map, b: &Bevel, light: &GlobalLight, tex: &TextureCtx, pat
                 }
             },
         );
-        (apply_contour(hi, &b.gloss_contour), apply_contour(sh, &b.gloss_contour))
+        (hi, sh)
     };
     let maps = match g.paint {
         BevelPaint::Inner | BevelPaint::Outer => {

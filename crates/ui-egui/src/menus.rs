@@ -240,7 +240,7 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
                         Some((true, path, d)) => {
                             // Another app changed the file since it was opened or saved: ask first (#6596).
                             let doc = d.doc.id;
-                            crate::disk_change_prompt::intercept(app, doc, &path, false)
+                            crate::disk_change_prompt::intercept(app, doc, &path, false, crate::FormatChoices::default())
                                 .unwrap_or_else(|| app.save_in_place(path, crate::FormatChoices::default()))
                         }
                         Some((false, path, d)) if photocraft_engine::file_cmds::saves_in_place(&path) => {
@@ -2149,7 +2149,7 @@ mod open_recent_tests {
         use photocraft_color::{ColorMode, SampleType};
         use photocraft_geom::Size;
         let services = crate::Services {
-            import: Some(Box::new(|_n: &str, _b: &[u8], _depth: usize| {
+            import: Some(Box::new(|_n: &str, _b: &[u8], _opts: &photocraft_io::ImportOptions| {
                 Ok((photocraft_doc::Document::new("t", Size::new(4, 4), ColorMode::Rgb, SampleType::U8), Vec::new()))
             })),
             ..Default::default()

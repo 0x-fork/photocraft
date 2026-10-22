@@ -2325,6 +2325,8 @@
 	GPU acceleration could not continue. Your documents are unchanged.	Accelerazione GPU non ha potuto continuare. I documenti sono invariati.
 	PhotoCraft is using the CPU image compositor. The window may still use your graphics adapter.	PhotoCraft sta componendo immagini su CPU. La finestra può ancora usare adattatore grafico.
 	Retry GPU requires a restart. Save your work first.	Riprovare GPU richiede riavvio. Salva prima il lavoro.
+	Retry GPU tries the graphics processor again now.	Riprova GPU riprova subito il processore grafico.
+	GPU acceleration resumed.	Accelerazione GPU ripresa.
 	Keep Using CPU	Continua su CPU
 	Retry GPU	Riprova GPU
 	Advanced	Avanzato
@@ -2379,6 +2381,11 @@ cameraRaw	Amount	Quantità
 	Drag or click polygon points · hold Alt during lasso for straight segments · {add} add · {sub} before drawing subtracts	Trascina o fai clic sui punti del poligono · tieni premuto Alt durante il lazo per segmenti dritti · {add} aggiunge · {sub} prima di disegnare sottrae
 	TIFF Options	Opzioni TIFF
 	Targa Options	Opzioni Targa
+	JPEG Options	Opzioni JPEG
+	Image Options	Opzioni immagine
+	Format Options	Opzioni formato
+	Baseline ("Standard")	Linea di base ("Standard")
+	Baseline Optimized	Linea di base ottimizzata
 	24 bits/pixel	24 bit/pixel
 	32 bits/pixel	32 bit/pixel
 	Including layers will increase file size.	Includere i livelli aumenterà le dimensioni del file.
@@ -4130,6 +4137,9 @@ navigator	Zoom	Zoom
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Carica azioni…
 	Save Actions…	Salva azioni…
+	New Action…	Nuova azione…
+	Start Recording	Avvia registrazione
+	Stop Recording	Interrompi registrazione
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Caricata {n} azione da {file}|Caricate {n} azioni da {file}
@@ -4164,6 +4174,13 @@ navigator	Zoom	Zoom
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	Dipinge dallo stato di origine del pannello Cronologia
 	Sets the source for the history brush	Imposta l'origine del pennello storia
+# Bevel & Emboss shading controls.
+	Highlight Mode	Metodo luci
+	Highlight Color	Colore luci
+	Highlight Opacity	Opacità luci
+	Shadow Mode	Metodo ombre
+	Shadow Color	Colore ombre
+	Shadow Opacity	Opacità ombre
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	Usa profilo incorporato ({profile})
 	Convert to the working space ({profile})	Converti in spazio di lavoro ({profile})
@@ -4398,6 +4415,13 @@ shape	Appearance	Aspetto
 	GPU Memory (MB, 0 = Automatic)	Memoria GPU (MB, 0 = Automatico)
 	{name} was changed by another app after it was opened or saved here.	{name} è stato modificato da un'altra app dopo essere stato aperto o salvato qui.
 	Replace it with this document, or cancel and use File › Save As to keep both.	Sostituiscilo con questo documento, oppure annulla e usa File › Salva con nome per tenerli entrambi.
+	Demosaic	Demosaicizzazione
+	How the camera's colour filter mosaic is filled in. It is applied when the file opens; the preview shows the method it was opened with.	Come viene completato il mosaico del filtro colore della fotocamera. Si applica all'apertura del file; l'anteprima mostra il metodo con cui è stato aperto.
+	AHD (adaptive homogeneity)	AHD (omogeneità adattiva)
+	Malvar–He–Cutler	Malvar–He–Cutler
+	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Hirakawa–Parks: i bordi più puliti e le minori frange di colore, il più lento.
+	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	Interpolazione con correzione del gradiente: nitida e veloce, con qualche frangia di colore nei dettagli fini.
+	The fastest and the softest, with colour fringing on fine detail.	Il più veloce e il più morbido, con frange di colore nei dettagli fini.
 	Memory Usage	Utilizzo memoria
 	Per-document RAM limit (MB)	Limite RAM per documento (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	RAM installata: {ram} MB; questo limite: {percent}%
@@ -4425,3 +4449,4 @@ shape	Appearance	Aspetto
 	Breeze	Breeze
 	Pro Light Gray	Pro grigio chiaro
 	Pro Light	Pro chiaro
+	Resize Windows to Fit	Ridimensiona finestre per adattare

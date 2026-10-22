@@ -2257,6 +2257,8 @@
 	PhotoCraft is using the CPU image compositor. The window may still use your graphics adapter.	PhotoCraft, CPU görüntü birleştiricisini kullanıyor. Pencere yine de grafik bağdaştırıcınızı kullanıyor olabilir.
 	Retry GPU requires a restart. Save your work first.	GPU'yu yeniden dene, yeniden başlatma gerektirir. Öncelikle çalışmanızı kaydedin.
 	Keep Using CPU	CPU'yu Kullanmaya Devam Et
+	Retry GPU tries the graphics processor again now.	GPU'yu yeniden dene, grafik işlemciyi hemen yeniden dener.
+	GPU acceleration resumed.	GPU hızlandırması sürdürüldü.
 	Retry GPU	GPU'yu yeniden dene
 	Advanced	Gelişmiş
 	GPU Backend	GPU Arka Ucu
@@ -2299,6 +2301,11 @@
 	Content-Aware Move Tool	İçeriğe Duyarlı Taşıma Aracı
 	TIFF Options	TIFF Seçenekleri
 	Targa Options	Targa Seçenekleri
+	JPEG Options	JPEG Seçenekleri
+	Image Options	Görüntü Seçenekleri
+	Format Options	Biçim Seçenekleri
+	Baseline ("Standard")	Temel (“Standart”)
+	Baseline Optimized	Optimize edilmiş temel
 	24 bits/pixel	24 bit/piksel
 	32 bits/pixel	32 bit/piksel
 	Including layers will increase file size.	Katmanların eklenmesi dosya boyutunu artıracaktır.
@@ -3866,6 +3873,9 @@ cameraData	Lens	Lens
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Eylemleri Yükle…
 	Save Actions…	Eylemleri Kaydet…
+	New Action…	Yeni Eylem…
+	Start Recording	Kaydı Başlat
+	Stop Recording	Kaydı Durdur
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{file} dosyasından {n} eylem yüklendi
@@ -3912,6 +3922,13 @@ cameraData	Lens	Lens
 	Ink Characteristics	Mürekkep Özellikleri
 	Solidity:	Doluluk:
 	Redrawing	Yeniden çiziliyor
+# Bevel & Emboss shading controls.
+	Highlight Mode	Vurgu Modu
+	Highlight Color	Vurgu Rengi
+	Highlight Opacity	Vurgu Opaklığı
+	Shadow Mode	Gölge Modu
+	Shadow Color	Gölge Rengi
+	Shadow Opacity	Gölge Opaklığı
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	Gömülü profili kullanın ({profile})
 	Convert to the working space ({profile})	Çalışma alanına dönüştürün ({profile})
@@ -4011,6 +4028,13 @@ cameraData	Lens	Lens
 	Increase Brush Size	Fırça boyutunu büyüt
 	Decrease Brush Hardness	Fırça sertliğini azalt
 	Increase Brush Hardness	Fırça sertliğini artır
+	Demosaic	Demozaikleme
+	How the camera's colour filter mosaic is filled in. It is applied when the file opens; the preview shows the method it was opened with.	Kameranın renk filtresi mozaiğinin nasıl doldurulduğu. Dosya açılırken uygulanır; önizleme dosyanın açıldığı yöntemi gösterir.
+	AHD (adaptive homogeneity)	AHD (uyarlamalı homojenlik)
+	Malvar–He–Cutler	Malvar–He–Cutler
+	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Hirakawa–Parks: en temiz kenarlar ve en az renk saçağı, en yavaş.
+	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	Gradyan düzeltmeli ara değerleme: keskin ve hızlı, ince ayrıntılarda biraz renk saçağı.
+	The fastest and the softest, with colour fringing on fine detail.	En hızlı ve en yumuşak, ince ayrıntılarda renk saçağı.
 	Memory Usage	Bellek kullanımı
 	Per-document RAM limit (MB)	Belge başına RAM sınırı (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Kurulu RAM: {ram} MB; bu sınır: {percent}%
@@ -4038,3 +4062,4 @@ cameraData	Lens	Lens
 	Breeze	Esinti
 	Pro Light Gray	Pro Açık Gri
 	Pro Light	Profesyonel Işık
+	Resize Windows to Fit	Pencereleri sığacak şekilde boyutlandır

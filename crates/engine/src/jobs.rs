@@ -216,6 +216,7 @@ struct Running {
     /// `dispatch`, once recording resumes). Only that recording gets the job's step: one started
     /// later must not pick up an edit made before it.
     recorded_by: Option<u64>,
+    pre_selected: Option<Vec<LayerId>>,
     doc: Option<DocId>,
     /// The document as the job saw it: applying fails if it was edited meanwhile.
     snapshot: Option<Weak<Document>>,
@@ -405,6 +406,7 @@ pub fn run<T: Send + 'static>(
         params: Value::Null,
         journal: true,
         recorded_by: None,
+        pre_selected: None,
         doc,
         snapshot,
         ctx,
@@ -489,6 +491,14 @@ pub enum OpenSource {
 /// The command id open jobs report (there is no engine command: opening is the shell's).
 pub const OPEN_JOB: &str = "file.open";
 
+/// The import settings files are opened and placed with.
+pub fn import_options(prefs: &crate::prefs::Preferences) -> photocraft_io::ImportOptions {
+    photocraft_io::ImportOptions {
+        max_group_depth: prefs.file_handling.rasterize_svg_groups_deeper_than as usize,
+        demosaic: prefs.raw_defaults.demosaic.method(),
+    }
+}
+
 impl Session {
     /// Run the heavy part of inline (not background) job commands under `ctx`, so another thread
     /// can cancel them: a live preview whose parameters changed stops its stale computation
@@ -515,7 +525,7 @@ impl Session {
         let label = format!("Opening {name}");
         let name_w = name.to_string();
         let name_a = name.to_string();
-        let max_svg_group_depth = self.prefs().file_handling.rasterize_svg_groups_deeper_than as usize;
+        let opts = import_options(self.prefs());
         self.start_job(
             OPEN_JOB,
             json!({"name": name}),
@@ -529,12 +539,12 @@ impl Session {
                 };
                 ctx.check()?;
                 ctx.progress(0.02, "Decoding");
-                let imported = ctx
-                    .stage(0.02, 0.95, "Decoding", |ctl| photocraft_io::import_with_svg_group_depth_and_interrupt(&name_w, &bytes, max_svg_group_depth, ctl))
-                    .map_err(|e| match e {
+                let imported = ctx.stage(0.02, 0.95, "Decoding", |ctl| photocraft_io::import_with_options_and_interrupt(&name_w, &bytes, &opts, ctl)).map_err(
+                    |e| match e {
                         photocraft_io::IoError::Cancelled => EngineError::Cancelled,
                         e => EngineError::Other(e.to_string()),
-                    })?;
+                    },
+                )?;
                 ctx.progress(0.95, "Preparing layers");
                 warm_layer_bounds(&imported.document, || ctx.check())?;
                 // Type layers need the shared text engine, whose first use waits for the
@@ -788,6 +798,7 @@ impl Session {
         self.jobs.spawn = background;
         // Commands this one runs on its own behalf journal after this mark (#3067).
         let nested_from = self.journal.len();
+        let pre_selected = if self.actions.recording.is_some() { self.active().map(|st| st.selected_layers()) } else { None };
         // A replayable command is recorded as one step, so recording pauses while it runs: an
         // action it plays (a script step) must not flush the steps it ran so far into the action
         // being recorded, nor move the recording mark past the entries it is about to replace.
@@ -816,6 +827,7 @@ impl Session {
                 job.params = params;
                 job.journal = spec.journal;
                 job.recorded_by = self.actions.recording.map(|_| self.actions.take);
+                job.pre_selected = pre_selected.clone();
                 let jid = job.id;
                 self.jobs.running.push(job);
                 Ok(Started::Job(jid))
@@ -835,7 +847,7 @@ impl Session {
                         st.fx_collapsed.push(layer_id);
                     }
                 }
-                self.after_command(id, params, spec.journal, Some(nested_from));
+                self.after_command(id, params, spec.journal, Some(nested_from), pre_selected.as_deref());
                 Ok(Started::Done(v))
             }
         }
@@ -873,7 +885,7 @@ impl Session {
     /// dropped, so a recorded action replays the command once, not its steps as well (#3067).
     /// Edit › Transform › Again (and Again on a Copy) is not replayable and keeps the concrete
     /// steps it ran instead.
-    fn after_command(&mut self, id: &str, params: Value, journal: bool, nested_from: Option<usize>) {
+    fn after_command(&mut self, id: &str, params: Value, journal: bool, nested_from: Option<usize>, pre_selected: Option<&[LayerId]>) {
         // A layer-mask view ends when another layer becomes active (#196).
         if let Some(st) = self.active_mut() {
             crate::mask_view_cmds::fix(st);
@@ -890,9 +902,8 @@ impl Session {
         if !crate::brush_cmds::coalesce_journal(self, id, &params) {
             let params = match id {
                 _ if self.actions.recording.is_none() => params,
-                "layer.select" => crate::layer_multi_cmds::recorded_selection(self, params),
                 "layerComp.apply" => crate::comps_cmds::recorded_apply(self, params),
-                _ => params,
+                _ => crate::layer_multi_cmds::recorded_step(self, id, params, pre_selected),
             };
             self.journal.push((id.to_string(), params));
         }
@@ -915,7 +926,7 @@ impl Session {
     }
 
     fn apply_job(&mut self, job: &Running, apply: Option<Apply>, payload: Payload) -> Result<Value> {
-        let Running { label, doc, snapshot, coalesce, color_restrict, layers, command, params, journal, recorded_by, .. } = job;
+        let Running { label, doc, snapshot, coalesce, color_restrict, layers, command, params, journal, recorded_by, pre_selected, .. } = job;
         // A recording started after the job (#7289) keeps what it has so far, and the job's step
         // goes into the journal past its start, so that recording doesn't get it.
         let foreign = self.actions.recording.is_some() && *recorded_by != Some(self.actions.take);
@@ -969,7 +980,7 @@ impl Session {
         // Restoring the viewed document first would attribute Fade and slice updates
         // to that document instead, when the user switched tabs mid-job.
         if r.is_ok() {
-            self.after_command(command, params.clone(), *journal, Some(nested_from));
+            self.after_command(command, params.clone(), *journal, Some(nested_from), pre_selected.as_deref());
             if foreign && let Some((start, _)) = self.actions.recording.as_mut() {
                 *start = self.journal.len();
             }

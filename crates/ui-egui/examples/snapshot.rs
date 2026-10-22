@@ -41,14 +41,15 @@ fn main() {
         arg(&args, "--script").map(|s| serde_json::from_str::<Vec<(String, Value)>>(&s).expect("--script must be [[method, params], …]")).unwrap_or_default();
 
     let services = Services {
-        import: Some(Box::new(|name: &str, bytes: &[u8], depth: usize| {
-            photocraft_io::import_with_svg_group_depth(name, bytes, depth).map(|r| (r.document, r.warnings)).map_err(|e| e.to_string())
+        import: Some(Box::new(|name: &str, bytes: &[u8], opts: &photocraft_io::ImportOptions| {
+            photocraft_io::import_with_options(name, bytes, opts).map(|r| (r.document, r.warnings)).map_err(|e| e.to_string())
         })),
         export: Some(Box::new(|doc: &photocraft_doc::Document, path: &str, settings: &photocraft_ui_egui::ExportSettings| {
             let mut opts = photocraft_io::ExportOptions::default();
             if let Some(q) = settings.jpeg_quality {
                 opts.encode.jpeg_quality = q;
             }
+            opts.encode.jpeg_format = settings.jpeg_format;
             opts.encode.webp_lossless = settings.webp_lossless;
             if let Some(q) = settings.webp_quality {
                 opts.encode.webp_quality = q;

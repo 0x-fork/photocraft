@@ -83,12 +83,12 @@ The transport is `apps/photocraft/src/control_server.rs`, and the handlers are i
 - Engine commands (`engine.execute`, `photocraft-cli run`, MCP `command_run`) reject a param key their `params` doc does not name for the commands listed in `STRICT` (`crates/engine/src/param_check.rs`, today `layer.hideLayers` and `layer.showLayers`): `{"ids":[4]}` is the error `unknown parameter \`ids\` (expected: layer)`, and nothing runs. Other commands still ignore unknown keys until their `params` doc is complete and they are added to that list (`coalesce` and `target` are always accepted).
 - `ui.type {text}`: type text (goes to the focused widget, or to the canvas while the Type tool is editing)
 - `ui.resize {width, height}`: resize the main window
-- `ui.gpu.simulateLoss {error?}`: act as if the wgpu device was lost (or reported an error with `error: true`). The app switches to the CPU image compositor for the rest of the session and shows the same recovery warning as on a real loss. `gpuFallbackNotice` in `ui.inspect` contains the reason while the warning is open. Keep Using CPU saves CPU compatibility for the next launch; Retry GPU saves GPU mode and asks the user to save and restart. The window renderer still requires a working graphics or software adapter. Returns `wasActive` and `gpuInfo`. For testing the fallback. With `destroy: true` it destroys the window's real wgpu device instead, as a driver reset does (see `docs/development.md` › device loss): the app saves every unsaved document for recovery and closes. Returns `destroyed`
+- `ui.gpu.simulateLoss {error?}`: act as if the wgpu device was lost (or reported an error with `error: true`). The app switches to the CPU image compositor (after a loss for the rest of the session; after an error until a successful Retry GPU) and shows the same recovery warning as on a real loss. `gpuFallbackNotice` in `ui.inspect` contains the reason while the warning is open. Keep Using CPU saves CPU compatibility for the next launch. Retry GPU saves GPU mode; after an error (`error: true`) it also builds a new GPU canvas on the same device at once (`gpuInfo.canvas` is `gpu` again, #6577), and after a loss it asks the user to save and restart. The window renderer still requires a working graphics or software adapter. Returns `wasActive` and `gpuInfo`. For testing the fallback. With `destroy: true` it destroys the window's real wgpu device instead, as a driver reset does (see `docs/development.md` › device loss): the app saves every unsaved document for recovery and closes. Returns `destroyed`
 - `ui.screenshot {path?, focus?}`: capture the main window (PNG). With no path the reply contains
   base64 PNG data; a path is relative to the automation write root. Raises the window first
   (default) because occluded macOS windows stop rendering
 - `ui.focus`: bring the main window to the front
-- `app.open {path}` / `app.save {path?, tgaBits?, ddsCompression?, ddsMipmaps?}`: relative file I/O through the configured automation roots (`app.open` reads under the read root, `app.save` writes under the write root; absolute paths, `..` and paths escaping the root are refused, and both fail closed when no root was granted). Both reply with `warnings` (import/export notes such as "adjustment layer flattened"; `[]` when none), also shown to the user in the status bar and as a notice (`notices` in `ui.inspect`); `app.open` also returns the `path` and document `name` (directory `.pcraft` — the native on-disk form — loads through the read root's capability; the single-file (zip) form takes the bytes path), `app.save` the `path` written. `app.save` without `path` writes back only to the document's own PSD, PSB or `.pcraft` file, like File › Save. `tgaBits` (24 or 32) sets a TGA's bits per pixel: 32 writes the alpha channel (or else the transparency) as its alpha, 24 none; without it, 32 with an alpha channel or transparency, else 24. `ddsCompression` (`none`, `bc1`, `bc2` or `bc3`) and `ddsMipmaps` (bool) set a DDS texture's compression and mip chain; without them, uncompressed without mipmaps. Automation saves never show TGA, DDS or TIFF options. Automation opens and saves never fire script events. Use these two rather than `file.open`, `file.save`, `file.saveAs` or `file.saveACopy`, which the control channel refuses (see [Engine commands](#engine-commands))
+- `app.open {path}` / `app.save {path?, tgaBits?, ddsCompression?, ddsMipmaps?, quality?, jpegFormat?}` (JPEG: `quality` on the 0–12 scale, `jpegFormat` `baseline`, `optimized` or `progressive`; automation never shows JPEG Options): relative file I/O through the configured automation roots (`app.open` reads under the read root, `app.save` writes under the write root; absolute paths, `..` and paths escaping the root are refused, and both fail closed when no root was granted). Both reply with `warnings` (import/export notes such as "adjustment layer flattened"; `[]` when none), also shown to the user in the status bar and as a notice (`notices` in `ui.inspect`); `app.open` also returns the `path` and document `name` (directory `.pcraft` — the native on-disk form — loads through the read root's capability; the single-file (zip) form takes the bytes path), `app.save` the `path` written. `app.save` without `path` writes back only to the document's own PSD, PSB or `.pcraft` file, like File › Save. `tgaBits` (24 or 32) sets a TGA's bits per pixel: 32 writes the alpha channel (or else the transparency) as its alpha, 24 none; without it, 32 with an alpha channel or transparency, else 24. `ddsCompression` (`none`, `bc1`, `bc2` or `bc3`) and `ddsMipmaps` (bool) set a DDS texture's compression and mip chain; without them, uncompressed without mipmaps. Automation saves never show TGA, DDS, JPEG or TIFF options. Automation opens and saves never fire script events. Use these two rather than `file.open`, `file.save`, `file.saveAs` or `file.saveACopy`, which the control channel refuses (see [Engine commands](#engine-commands))
 - `app.quit`
 
 ## Engine commands
@@ -472,7 +472,7 @@ RGB/Grayscale layer. `params: {"smartFilter": {"layer": id, "index": i}}` opens 
 Camera Raw smart filter instead (as double-clicking the filter in the Layers panel does): the
 stored settings over the pixels below that filter, previewed through the filter mask; commit
 then runs `layer.smartFilter.setParams` with every setting. `params.ui` accepts `set` (filter settings), `before`, `scope`, `view`, `commit` and
-`cancel`. All parts of one request are validated before any is applied; a rejected request
+`cancel`, and while a raw file opens also `demosaic` (below). All parts of one request are validated before any is applied; a rejected request
 leaves the settings, view state, preferences and document unchanged (and closes a dialog it
 opened). Unknown `ui` or settings properties, non-boolean `before` / `commit` / `cancel`, and
 `commit` together with `cancel` are errors. Point curves (`pointCurve`, `pointCurveRed`,
@@ -483,14 +483,20 @@ keeps the dialog open for correction. Nothing else writes document history.
 **Opening a raw file.** An interactive open (File › Open, Open Recent, drag and drop, the
 command line) of a camera raw developed from its sensor data shows this dialog first, titled
 "Camera Raw (name)", with **Open** and **Cancel**, as Photoshop opens raws in Adobe Camera Raw.
-`ui.inspect.cameraRaw.openingRaw` is then `{name, path}`. Commit (Open) re-develops the raw when
+`ui.inspect.cameraRaw.openingRaw` is then `{name, path, demosaic}`, `demosaic` being the method
+the raw is to be opened with (`ahd`, `mhc` or `bilinear`): at first the one the open developed it
+with, then whatever `ui.demosaic` or the Demosaic menu at the top of Detail chose. `ui.demosaic`
+is accepted only while a raw file opens (an error otherwise) and an unknown method is refused.
+Commit (Open) re-develops the raw when the demosaic method differs from the one the open used or
 Temperature, Tint, Exposure, Shadows, Highlights, Clarity, Texture or Dehaze changed (as-shot
 white-balance gains, develop exposure, and the other five in linear light before the camera's
 tone curve, as Camera Raw does for raw files; without an as-shot white balance, or without the file's bytes, they stay RGB
 adjustments), applies the remaining settings as one `filter.cameraRaw` step and leaves the
-document unmodified; its result is `{document, redeveloped, filter?}`. Cancel closes the
-document. `app.open` and other automation opens never show the dialog. The preference
-`rawDefaults.openInCameraRaw` (default `true`) turns it off.
+document unmodified; its result is `{document, redeveloped, filter?}`. The preview keeps the
+method the file was opened with. Cancel closes the document. `app.open` and other automation
+opens never show the dialog. The preference `rawDefaults.openInCameraRaw` (default `true`) turns
+it off; `rawDefaults.demosaic` (`ahd` by default, `mhc`, `bilinear`; Preferences › Camera Raw)
+is the method the app's raw opens develop with (interactive opens, `app.open` and Place).
 
 Imported PSD Camera Raw filters whose processing settings are all mapped or neutral use this
 same editor. `params.__cameraRawPsd` is reserved import/export metadata: preserve it when editing

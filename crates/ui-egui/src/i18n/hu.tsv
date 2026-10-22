@@ -2992,6 +2992,11 @@ cameraRaw	Yellow	Sárga
 	Table	Táblázat
 	Tabloid	Tabloid
 	Targa Options	Targa-beállítások
+	JPEG Options	JPEG-beállítások
+	Image Options	Képbeállítások
+	Format Options	Formátumbeállítások
+	Baseline ("Standard")	Alapvonalas („Szabványos”)
+	Baseline Optimized	Optimalizált alapvonalas
 	Target:	Cél:
 	Teal Orange	Kékeszöld-narancs
 	The document does not have an embedded colour profile. Working space: {working}.	A dokumentumnak nincs beágyazott színprofilja. Munkaszíntér: {working}.
@@ -3507,6 +3512,8 @@ cameraRaw	Yellow	Sárga
 	Restore	Előző méret
 	Retry GPU	GPU újrapróbálása
 	Retry GPU requires a restart. Save your work first.	A GPU újrapróbálásához újraindítás kell. Előbb mentsd a munkádat.
+	Retry GPU tries the graphics processor again now.	A GPU újrapróbálása most újra megpróbálja a grafikus processzort.
+	GPU acceleration resumed.	A GPU-gyorsítás újra működik.
 	Rgb	RGB
 	Ridges	Hullámgerincek
 	Right	Jobbra
@@ -4053,6 +4060,9 @@ cameraRaw	Yellow	Sárga
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Műveletek betöltése…
 	Save Actions…	Műveletek mentése…
+	New Action…	Új művelet…
+	Start Recording	Felvétel indítása
+	Stop Recording	Felvétel leállítása
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{n} művelet betöltve. Forrás: {file}
@@ -4099,6 +4109,13 @@ cameraRaw	Yellow	Sárga
 	Ink Characteristics	Festék jellemzői
 	Solidity:	Fedőképesség:
 	Redrawing	Újrarajzolás
+# Bevel & Emboss shading controls.
+	Highlight Mode	Csúcsfény módja
+	Highlight Color	Csúcsfény színe
+	Highlight Opacity	Csúcsfény fedettsége
+	Shadow Mode	Árnyék módja
+	Shadow Color	Árnyék színe
+	Shadow Opacity	Árnyék fedettsége
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	A beágyazott profil használata ({profile})
 	Convert to the working space ({profile})	Átalakítás a munkaszíntérbe ({profile})
@@ -4198,6 +4215,13 @@ cameraRaw	Yellow	Sárga
 	Increase Brush Size	Ecsetméret növelése
 	Decrease Brush Hardness	Ecsetkeménység csökkentése
 	Increase Brush Hardness	Ecsetkeménység növelése
+	Demosaic	Demozaikolás
+	How the camera's colour filter mosaic is filled in. It is applied when the file opens; the preview shows the method it was opened with.	Hogyan tölti ki a program a kamera színszűrő-mozaikját. A fájl megnyitásakor érvényesül; az előnézet a megnyitáskor használt módszert mutatja.
+	AHD (adaptive homogeneity)	AHD (adaptív homogenitás)
+	Malvar–He–Cutler	Malvar–He–Cutler
+	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Hirakawa–Parks: a legtisztább élek és a legkevesebb színes szegély, a leglassabb.
+	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	Gradienskorrigált interpoláció: éles és gyors, apró részleteken némi színes szegéllyel.
+	The fastest and the softest, with colour fringing on fine detail.	A leggyorsabb és a leglágyabb, apró részleteken színes szegéllyel.
 	Memory Usage	Memóriahasználat
 	Per-document RAM limit (MB)	Dokumentumonkénti RAM-korlát (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Telepített RAM: {ram} MB; ez a korlát: {percent}%
@@ -4225,3 +4249,4 @@ cameraRaw	Yellow	Sárga
 	Breeze	Breeze
 	Pro Light Gray	Pro világosszürke
 	Pro Light	Pro világos
+	Resize Windows to Fit	Ablakok átméretezése a képhez

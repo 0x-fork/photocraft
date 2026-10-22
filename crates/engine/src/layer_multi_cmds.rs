@@ -118,6 +118,31 @@ pub(crate) fn recorded_selection(s: &Session, mut p: Value) -> Value {
     p
 }
 
+/// Normalise parameters when recording an action step.
+///
+/// For `layer.select`, captures the layer by name. For other commands, if a numeric `layer`
+/// parameter references the document's sole selected layer, normalises it to the target form
+/// (omitting `layer`) so that the recorded step applies to whatever layer is targeted when
+/// replayed or exported to `.atn` (#7248).
+pub(crate) fn recorded_step(s: &Session, id: &str, p: Value, pre_selected: Option<&[LayerId]>) -> Value {
+    if id == "layer.select" {
+        return recorded_selection(s, p);
+    }
+    let Some(layer_id) = p.get("layer").and_then(Value::as_u64).map(LayerId) else { return p };
+    let is_sole_selected = match pre_selected {
+        Some(sel) => sel == [layer_id],
+        None => s.active().is_some_and(|st| st.selected_layers().as_slice() == [layer_id]),
+    };
+    if is_sole_selected {
+        let mut p = p;
+        if let Some(fields) = p.as_object_mut() {
+            fields.remove("layer");
+        }
+        return p;
+    }
+    p
+}
+
 fn selection_target(s: &Session, p: &Value) -> Result<LayerId> {
     let Some(name) = p.get("name") else {
         if p.get("occurrence").is_some() {
@@ -361,6 +386,10 @@ pub fn translate(s: &mut Session, p: &Value) -> Result<Value> {
         }
         Some(other) => return Err(bad("layer.translate", format!("unknown units `{other}` (px|pt)"))),
     };
+    let carry = match p.get("selection") {
+        None | Some(Value::Null) => false,
+        Some(v) => v.as_bool().ok_or_else(|| bad("layer.translate", "`selection` must be a boolean"))?,
+    };
     if dx == 0 && dy == 0 {
         return Ok(Value::Null);
     }
@@ -395,6 +424,11 @@ pub fn translate(s: &mut Session, p: &Value) -> Result<Value> {
         // A board moved past any canvas edge grows the canvas, as a new one does (#1531, #3070).
         if ids.iter().any(|id| doc.layer(*id).is_some_and(|l| l.artboard().is_some())) {
             crate::artboard_cmds::fit_canvas(doc);
+        }
+        // The Move tool carries the selection along when it moves several layers whole, as
+        // Photoshop does (#7538): one step, so Undo takes both back.
+        if carry {
+            doc.selection = doc.selection.as_ref().map(|sel| shift_surface(sel, dx, dy));
         }
         Ok(ids)
     })?;
@@ -3011,6 +3045,39 @@ mod tests {
         let v = s.execute("document.inspect", json!({})).unwrap();
         assert_eq!(v["selectedLayers"], json!([a.0, b.0]));
         assert_eq!(v["layers"][0]["selected"], true);
+    }
+
+    /// #7538: `selection: true` moves the selection with the layers in the same step, as the Move
+    /// tool does with several layers selected; without it the selection stays.
+    #[test]
+    fn translate_can_carry_the_selection_in_the_same_step() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 100, "height": 100, "background": "transparent"})).unwrap();
+        let a = s.active().unwrap().active_layer.unwrap();
+        s.execute("select.rect", json!({"x": 10, "y": 10, "width": 20, "height": 20})).unwrap();
+        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        let b = LayerId(s.execute("layer.new.layer", json!({})).unwrap()["layer"].as_u64().unwrap());
+        s.execute("select.rect", json!({"x": 50, "y": 10, "width": 20, "height": 20})).unwrap();
+        s.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+        s.execute("layer.select", json!({"layer": a.0, "mode": "add"})).unwrap();
+        s.execute("select.rect", json!({"x": 5, "y": 5, "width": 70, "height": 30})).unwrap();
+        let sel = |s: &Session| s.active().unwrap().doc.selection.as_ref().map(|m| m.content_bounds());
+        let bounds = |s: &Session, id: LayerId| s.active().unwrap().doc.layer(id).unwrap().surface().unwrap().content_bounds();
+        let steps = s.active().unwrap().history.past_len();
+        s.execute("layer.translate", json!({"dx": 7, "dy": 20, "selection": true})).unwrap();
+        assert_eq!((bounds(&s, a), bounds(&s, b)), (Rect::new(17, 30, 37, 50), Rect::new(57, 30, 77, 50)));
+        assert_eq!(sel(&s), Some(Rect::new(12, 25, 82, 55)), "the selection came along");
+        assert_eq!(s.active().unwrap().history.past_len(), steps + 1, "one step");
+        s.undo();
+        assert_eq!((sel(&s), bounds(&s, a)), (Some(Rect::new(5, 5, 75, 35)), Rect::new(10, 10, 30, 30)), "undone together");
+        s.execute("layer.translate", json!({"dx": 7, "dy": 20})).unwrap();
+        assert_eq!(sel(&s), Some(Rect::new(5, 5, 75, 35)), "without it the selection stays");
+        let state = |s: &Session| (bounds(s, a), bounds(s, b), sel(s), s.active().unwrap().history.past_len());
+        let before = state(&s);
+        for dx in [1, 0] {
+            assert!(s.execute("layer.translate", json!({"dx": dx, "selection": "yes"})).is_err(), "dx {dx}: a bad `selection` is an error");
+            assert_eq!(state(&s), before, "dx {dx}: and changes nothing");
+        }
     }
 }
 

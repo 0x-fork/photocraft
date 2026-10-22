@@ -1266,6 +1266,8 @@ fn choice_label(v: &str) -> String {
         "dx12" => "DirectX 12".into(),
         "metal" => "Metal".into(),
         "gl" => "OpenGL".into(),
+        "ahd" => "AHD (adaptive homogeneity)".into(),
+        "mhc" => "Malvar–He–Cutler".into(),
         "cpu" => "CPU (no GPU acceleration)".into(),
         v => humanize(v),
     }
@@ -3920,12 +3922,14 @@ mod tests {
         assert!(!prefs::is_hidden("enhancedControls.zoomWithTrackpadPinch"));
         assert!(!prefs::is_hidden("enhancedControls.touchGestures"));
         assert!(prefs::is_hidden("enhancedControls.scrubbySliderAcceleration"));
-        // Camera Raw Defaults shows only "Open in Camera Raw" so far.
+        // Camera Raw Defaults shows "Open in Camera Raw" and the demosaic method so far.
         assert!(has_visible_fields(&values, "rawDefaults"));
         assert!(!prefs::is_hidden("rawDefaults.openInCameraRaw"));
+        assert!(!prefs::is_hidden("rawDefaults.demosaic"));
         assert!(prefs::is_hidden("rawDefaults.applyAutoTone"));
         assert!(!prefs::is_hidden("general.autoShowHomeScreen"));
         assert!(!prefs::is_hidden("general.animatedZoom"));
+        assert!(!prefs::is_hidden("general.zoomResizesWindows"));
         assert!(!prefs::is_hidden("interface.uiScale"));
         assert!(!prefs::is_hidden("interface.uiFontSize"));
         // Hidden values still round-trip through the dialog untouched.

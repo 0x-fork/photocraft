@@ -938,10 +938,12 @@ impl ViewXform {
     /// The main canvas's mapping for the active document as last laid out (inside the rulers).
     pub fn active(app: &PhotocraftApp) -> Option<Self> {
         let v = app.ui.views.get(app.session.active_index()?)?;
+        let (zoom, center) =
+            if v.zoom_animating && app.session.prefs().general.animated_zoom { v.display_camera.unwrap_or((v.zoom, v.center)) } else { (v.zoom, v.center) };
         Some(Self {
             rect: crate::rulers::content_rect(app, app.last_canvas_rect),
-            zoom: v.zoom / app.canvas_ppp(),
-            center: v.center,
+            zoom: zoom / app.canvas_ppp(),
+            center,
             flip: app.ui.view.flip_horizontal,
             rotation: v.rotation,
             aspect: app.ui.view.display_aspect(),
@@ -1046,6 +1048,54 @@ pub fn fit_view(view: &mut View, doc: &Document, area: Vec2, ppp: f32, aspect: f
     view.center = [w / 2.0, h / 2.0];
     view.fit_pending = false;
     view.fill_pending = false;
+}
+
+/// Ease a transient presentation camera over 220 ms without changing the requested camera.
+fn animated_view(view: &mut View, xf: ViewXform, ppp: f32, animated_zoom: bool, time: f64) -> View {
+    if !animated_zoom {
+        view.request_zoom_animation(false);
+    }
+    let target = (view.zoom, view.center);
+    // Clamping, a canvas resize, or another camera command can make the original anchor
+    // incompatible with the requested camera. The target must always win.
+    if let Some((doc, screen)) = view.zoom_anchor {
+        let offset = xf.unmap_vec((pos2(screen[0], screen[1]) - xf.rect.center()) / (view.zoom / ppp));
+        if (doc[0] as f32 - offset.x - view.center[0]).abs() > 0.01 || (doc[1] as f32 - offset.y - view.center[1]).abs() > 0.01 {
+            view.zoom_anchor = None;
+        }
+    }
+    let mut shown = view.clone();
+    if view.zoom_animating {
+        if view.zoom_transition.is_none_or(|a| a.target != target) {
+            view.zoom_transition = Some(crate::state::ZoomTransition { from: view.display_camera.unwrap_or(target), target, started: time });
+        }
+        if let Some(a) = view.zoom_transition {
+            let elapsed = (time - a.started) / 0.22;
+            let t = if elapsed.is_finite() { elapsed.clamp(0.0, 1.0) as f32 } else { 1.0 };
+            let ease = t * t * (3.0 - 2.0 * t);
+            let lerp = |from: f32, to: f32| from + (to - from) * ease;
+            shown.zoom = lerp(a.from.0, target.0);
+            shown.center = [lerp(a.from.1[0], target.1[0]), lerp(a.from.1[1], target.1[1])];
+            if let Some((doc, screen)) = view.zoom_anchor {
+                let zoom = shown.zoom / ppp;
+                if zoom.is_finite() && zoom > 0.0 {
+                    let offset = xf.unmap_vec((pos2(screen[0], screen[1]) - xf.rect.center()) / zoom);
+                    shown.center = [doc[0] as f32 - offset.x, doc[1] as f32 - offset.y];
+                }
+            }
+            if t >= 1.0 {
+                view.zoom_animating = false;
+            }
+        }
+    }
+    if !view.zoom_animating {
+        shown.zoom = target.0;
+        shown.center = target.1;
+        view.zoom_anchor = None;
+        view.zoom_transition = None;
+    }
+    view.display_camera = Some((shown.zoom, shown.center));
+    shown
 }
 
 /// Centre the document and zoom until it fills the canvas. One axis can extend beyond the
@@ -2061,6 +2111,12 @@ fn visible_doc_rect(xf: &ViewXform) -> DRect {
     }
     let c = |v: f64| v.clamp(-1e9, 1e9) as i32;
     DRect::new(c(x0.floor()) - 2, c(y0.floor()) - 2, c(x1.ceil()) + 2, c(y1.ceil()) + 2)
+}
+
+/// Prioritize deferred redraw blocks visible at either the target or the animated display camera.
+/// The displayed camera may still show old texture contents outside the target's visible area.
+fn redraw_focus(target: &ViewXform, displayed: &ViewXform) -> DRect {
+    visible_doc_rect(target).union(&visible_doc_rect(displayed))
 }
 
 /// Zoomed-out Image › Adjustments preview on a large document: the wgpu compositor renders the
@@ -3125,6 +3181,32 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     // Every document view has its rulers, the tiles of Window › Arrange and floating windows
     // too, as in Photoshop (#6017).
     let rect = crate::rulers::content_rect(app, rect);
+    // Both wheel reads share one owner so snap-zoom input is accumulated only once per frame.
+    let wheel_owner = ui.id().with(("canvas-wheel", idx));
+    // Direct navigation starts from the authoritative camera. This also means a click or drag
+    // never maps through a camera that is still moving under the pointer.
+    let (pointer_here, hover_here) = ctx.input(|i| {
+        (
+            (i.pointer.any_pressed() || i.pointer.any_down()) && i.pointer.press_origin().is_some_and(|p| rect.contains(p)),
+            i.pointer.hover_pos().is_some_and(|p| rect.contains(p)),
+        )
+    });
+    let direct_input = pointer_here
+        || (hover_here
+            && crate::wheel_nav::read_with(
+                &ctx,
+                app.session.prefs().general.zoom_with_scroll_wheel,
+                app.session.prefs().enhanced_controls.zoom_with_trackpad_pinch,
+                wheel_owner,
+                hover_here,
+                app.session.prefs().interface.enable_animations,
+                app.session.prefs().enhanced_controls.touch_gestures,
+            )
+            .is_some());
+    if direct_input {
+        view.zoom_animating = false;
+        view.zoom_anchor = None;
+    }
     let doc = app.session.documents()[idx].doc.clone();
     let size = [doc.size.width, doc.size.height];
     if view.doc_size != size {
@@ -3144,12 +3226,22 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     }
     // Preferences › Tools › Overscroll off: clamp before anything is drawn (scrollbars.rs).
     if !app.session.prefs().tools.overscroll && crate::scrollbars::clamp_view_with_aspect(&mut view, rect.size(), ppp, aspect) {
+        view.zoom_anchor = None;
         ctx.request_repaint();
     }
     let flip = app.ui.view.flip_horizontal;
-    // Canvas geometry (ViewXform, ViewParams, painter rects) is in egui points.
-    let point_zoom = view.zoom / ppp;
-    let xf = ViewXform { rect, zoom: point_zoom, center: view.center, flip, rotation: view.rotation, aspect };
+    // Document rendering follows the target; only shader uniforms and overlay geometry ease.
+    let target_xf = ViewXform { rect, zoom: view.zoom / ppp, center: view.center, flip, rotation: view.rotation, aspect };
+    let render_zoom = view.zoom;
+    let mut display_view = animated_view(&mut view, target_xf, ppp, app.session.prefs().general.animated_zoom, ctx.input(|i| i.time));
+    if primary && let Some(stored) = app.ui.views.get_mut(idx) {
+        stored.zoom_animating = view.zoom_animating;
+        stored.display_camera = view.display_camera;
+    }
+    if view.zoom_animating {
+        ctx.request_repaint();
+    }
+    let xf = ViewXform { zoom: display_view.zoom / ppp, center: display_view.center, ..target_xf };
     let pixel_grid = app.ui.view.shows(app.ui.view.show.pixel_grid);
     let response = ui.allocate_rect(rect, Sense::click_and_drag());
     let stroke_dismissal = primary && crate::shape_stroke_ui::dismiss_from_canvas(app, &response);
@@ -3189,8 +3281,9 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         let gpu_ok = crate::gpu_canvas::gpu_view_ok(flip, view.rotation, aspect);
         if app.gpu.is_some()
             && gpu_ok
-            && let Some((k, key, preview_size)) =
-                ensure_adjust_proxy(app, idx, view.zoom).or_else(|| ensure_filter_preview(app, idx, &ctx)).or_else(|| ensure_proxy_preview(app, idx, view.zoom))
+            && let Some((k, key, preview_size)) = ensure_adjust_proxy(app, idx, render_zoom)
+                .or_else(|| ensure_filter_preview(app, idx, &ctx))
+                .or_else(|| ensure_proxy_preview(app, idx, render_zoom))
         {
             on_gpu = true;
             app.navigator_gpu.remove(&doc.id);
@@ -3218,7 +3311,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 offset: [0.0, 0.0],
             };
             paint_gpu_view(&painter, rect, params, &pattern);
-        } else if gpu_ok && ensure_gpu(app, &ctx, idx, visible_doc_rect(&xf)) {
+        } else if gpu_ok && ensure_gpu(app, &ctx, idx, redraw_focus(&target_xf, &xf)) {
             on_gpu = true;
             app.perf.gpu = true;
             // Shadow, checkerboard, document and pixel grid in one custom shader (gpu_canvas.rs).
@@ -3333,8 +3426,10 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         // Select and Mask outlines its refined selection (on its preview proxy, reduced by `k`) in
         // the Marching Ants view and hides the ants in the others.
         let refined = crate::select_mask_view::ants(app, idx);
+        // A floating piece's ants hug the pixels being moved.
+        let floated = floating_outline(app, idx);
         let (outlined, k) = match &refined {
-            None => (doc.selection.as_ref(), 1),
+            None => (floated.as_ref().or(doc.selection.as_ref()), 1),
             Some(None) => (None, 1),
             Some(Some((proxy, k))) => (proxy.selection.as_ref(), (*k).max(1)),
         };
@@ -3420,7 +3515,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
 
         (img_rect, beyond, layer_edges)
     };
-    let painted = if crop_camera { None } else { Some(paint_canvas(app, ui, &view, xf)) };
+    let painted = if crop_camera { None } else { Some(paint_canvas(app, ui, &display_view, xf)) };
     let img_rect = xf.doc_rect(doc.bounds());
 
     // Under an open dialog the canvas widget is inert, but the image still pans and zooms.
@@ -3443,7 +3538,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         &ctx,
         app.session.prefs().general.zoom_with_scroll_wheel,
         app.session.prefs().enhanced_controls.zoom_with_trackpad_pinch,
-        response.id.with("wheel"),
+        wheel_owner,
         nav_hovered,
         app.session.prefs().interface.enable_animations,
         touch_gestures,
@@ -3480,6 +3575,8 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         }
         let rotate_trackpad = app.session.prefs().enhanced_controls.rotate_view_with_trackpad;
         if let Some(delta) = crate::rotate_view::trackpad_delta(&ctx, rotate_trackpad, touch_gestures) {
+            view.zoom_animating = false;
+            view.zoom_anchor = None;
             let next = view.rotation + crate::rotate_view::screen_delta(delta, xf.flip);
             if next.is_finite() {
                 view.rotation = crate::rotate_view::wrap_deg(next);
@@ -3638,6 +3735,8 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     if let Some(d) = crate::flick_pan::frame(&ctx, flick_id, hand_pan && response.dragged() && !stroke_dismissal, response.drag_delta(), flick_on) {
         let d = xf.unmap_vec(d) / (view.zoom / ppp);
         if d.is_finite() {
+            view.zoom_animating = false;
+            view.zoom_anchor = None;
             view.center[0] -= d.x;
             view.center[1] -= d.y;
         }
@@ -3932,7 +4031,11 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 Tool::Zoom if !transform_owns_pointer => {
                     let nz = crate::zoom_levels::step(view.zoom, if zoom_out(click_mods.alt) { -1 } else { 1 }, view.doc_size);
                     let center = app.session.prefs().tools.zoom_clicked_point_to_center;
+                    let doc_anchor = xf.to_doc(p);
+                    let screen_anchor = p;
                     zoom_about(&mut view, &xf, p, nz, center, ppp);
+                    view.request_zoom_animation(app.session.prefs().general.animated_zoom && nz != display_view.zoom);
+                    view.zoom_anchor = (view.zoom_animating && !center).then_some((doc_anchor, [screen_anchor.x, screen_anchor.y]));
                 }
                 // A click with the (temporary) Hand does nothing, never the tool underneath.
                 Tool::Hand | Tool::RotateView => {}
@@ -4025,8 +4128,16 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             ctx.request_repaint();
         }
     }
-    let xf = if crop_camera { ViewXform { center: view.center, rotation: view.rotation, ..xf } } else { xf };
-    let (img_rect, beyond, layer_edges) = painted.unwrap_or_else(|| paint_canvas(app, ui, &view, xf));
+    let xf = if crop_camera {
+        if view.center != target_xf.center {
+            display_view.center = view.center;
+        }
+        display_view.rotation = view.rotation;
+        ViewXform { center: display_view.center, rotation: display_view.rotation, ..xf }
+    } else {
+        xf
+    };
+    let (img_rect, beyond, layer_edges) = painted.unwrap_or_else(|| paint_canvas(app, ui, &display_view, xf));
     // A Hand drag (the tool, Space or the middle button) keeps every overlay on screen, as in
     // Photoshop: the Pen path being drawn, paths, guides, grid, transform box (#6592). Only the
     // tool cursors below give way to the fist.
@@ -4396,9 +4507,6 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     view
 }
 
-/// Zoom to `new_zoom` about the pointer `p`. By default the document point under it stays under
-/// it; with Preferences › Tools › Zoom Clicked Point to Center (`center_on_point`) it moves to the
-/// centre of the view instead (#204).
 /// Where a wheel or pinch zoom anchors for a pointer at `p`: the pointer itself over the image,
 /// otherwise the nearest point of the image (#3720). Anchoring on a pointer out on the gray
 /// pasteboard slid the image away from it, out of the window after a few notches; Photoshop keeps
@@ -4413,6 +4521,8 @@ fn wheel_anchor(xf: &ViewXform, p: Pos2, doc_size: [u32; 2]) -> Pos2 {
     if c == d { p } else { xf.to_screen(c[0] as f32, c[1] as f32) }
 }
 
+/// Zoom to `new_zoom` about `p`: keep its document point under the pointer, or move it to the
+/// view centre when Zoom Clicked Point to Center (`center_on_point`) is enabled.
 fn zoom_about(view: &mut View, xf: &ViewXform, p: Pos2, new_zoom: f32, center_on_point: bool, ppp: f32) {
     let before = xf.to_doc(p);
     view.zoom = new_zoom;
@@ -4994,11 +5104,12 @@ fn transform_controls_several(app: &PhotocraftApp) -> bool {
 /// layers, joined into one.
 fn transform_controls_rect(app: &PhotocraftApp, xf: &ViewXform) -> Option<Rect> {
     let st = app.session.active()?;
-    let b = transform_controls_layers(app)
-        .into_iter()
-        .map(|l| photocraft_engine::transform_cmds::transform_frame(&st.doc, l))
-        .filter(|b| !b.is_empty())
-        .reduce(|a, b| a.union(&b))?;
+    let layers = transform_controls_layers(app);
+    let b = layers.iter().map(|l| photocraft_engine::transform_cmds::transform_frame(&st.doc, l)).filter(|b| !b.is_empty()).reduce(|a, b| a.union(&b))?;
+    // Floating selected pixels are framed by their outline, as their ants are (#7538), not by the
+    // selection they were cut with; a frame round other selected layers too keeps them all.
+    let alone = matches!(layers.as_slice(), [l] if photocraft_engine::float_cmds::floating(st).is_some_and(|f| f.layer == l.id));
+    let b = app.session.active_index().filter(|_| alone).and_then(|idx| floating_outline(app, idx)).map_or(b, |o| o.content_bounds());
     let (dx, dy) = crate::move_ui::floating_offset(app).unwrap_or((0, 0));
     let b = b.translate(dx, dy);
     if b.is_empty() {
@@ -5652,6 +5763,7 @@ pub fn tool_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers)
                     app.ui.status_error = true;
                     return;
                 }
+                crate::snap_ui::follow_cut(app);
                 let mut d = Drag::new(tool, [x, y], vec![[x, y, pressure as f64]], mods, false);
                 d.sel_move = Some(cut);
                 app.drag = Some(d);
@@ -5824,7 +5936,11 @@ fn hidden_target(app: &PhotocraftApp, tool: Tool) -> Option<&'static str> {
 
 /// Is document point `p` inside the active document's selection?
 fn inside_selection(app: &PhotocraftApp, p: [f64; 2]) -> bool {
-    let Some(sel) = app.session.active().and_then(|st| st.doc.selection.as_ref()) else { return false };
+    app.session.active().and_then(|st| st.doc.selection.as_ref()).is_some_and(|sel| covers(sel, p))
+}
+
+/// Does selection surface `sel` cover document point `p`?
+fn covers(sel: &photocraft_raster::Surface, p: [f64; 2]) -> bool {
     let mut v = [0.0f32];
     sel.read_pixel(p[0].floor() as i32, p[1].floor() as i32, &mut v);
     v[0] > 0.0
@@ -5845,7 +5961,10 @@ pub fn selection_drag_kind(app: &PhotocraftApp, tool: Tool, p: [f64; 2], mods: e
     // ⌘ cuts, ⌘⌥ copies (`select.float`'s `copy`).
     let cut = mods.command && !mods.shift;
     if let Some(f) = app.session.active().and_then(photocraft_engine::float_cmds::floating) {
-        let on = inside_selection(app, [p[0] - f64::from(f.offset.0), p[1] - f64::from(f.offset.1)]);
+        // A press on the piece's outline (where its ants are) drags it; one in the margin the cut
+        // left of the selection starts a new selection (#7538).
+        let at = [p[0] - f64::from(f.offset.0), p[1] - f64::from(f.offset.1)];
+        let on = f.parts.outline().map_or_else(|| inside_selection(app, at), |o| covers(o, at));
         return (on && !mods.shift && (!mods.alt || mods.command) && (cut || !clicky)).then_some(true);
     }
     if !inside_selection(app, p) {
@@ -5946,10 +6065,31 @@ pub(crate) fn selection_drag_delta(app: &PhotocraftApp) -> Option<(i32, i32)> {
     Some(((end[0] - d.start[0]).round().clamp(-1e7, 1e7) as i32, (end[1] - d.start[1]).round().clamp(-1e7, 1e7) as i32))
 }
 
+/// The selection a floating piece on document `idx` shows its ants for, before its offset: the
+/// moved pixels' outline, as in Photoshop (#7538); `None` outlines the document's selection. The
+/// surface's tiles are shared, so the clone is cheap.
+pub(crate) fn floating_outline(app: &PhotocraftApp, idx: usize) -> Option<photocraft_raster::Surface> {
+    if app.session.active_index() != Some(idx) {
+        return None;
+    }
+    photocraft_engine::float_cmds::floating(app.session.active()?)?.parts.outline().cloned()
+}
+
 /// Where the selection is drawn relative to where it is: a floating piece's offset plus a drag
 /// in progress.
 fn selection_shown_offset(app: &PhotocraftApp) -> Option<(i32, i32)> {
-    crate::move_ui::floating_offset(app).or_else(|| selection_drag_delta(app))
+    crate::move_ui::floating_offset(app).or_else(|| selection_drag_delta(app)).or_else(|| carried_selection_delta(app))
+}
+
+/// Whole-pixel offset of a Move drag of several layers, which carries the selection along
+/// (`move_ui::carries_selection`): their ants follow the layers while they move (#7538).
+fn carried_selection_delta(app: &PhotocraftApp) -> Option<(i32, i32)> {
+    let d = app.drag.as_ref().filter(|d| d.tool == Tool::Move && d.sel_move.is_none())?;
+    if !crate::move_ui::carries_selection(app) {
+        return None;
+    }
+    let end = d.points.last().map_or(d.start, |p| [p[0], p[1]]);
+    Some(((end[0] - d.start[0]).round().clamp(-1e7, 1e7) as i32, (end[1] - d.start[1]).round().clamp(-1e7, 1e7) as i32))
 }
 
 /// End of a selection drag: move the outline, or the floating piece. A click without moving
@@ -6153,13 +6293,15 @@ pub fn extra_windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
         }
         let mut view = w.view.clone();
         let mut close = false;
-        ctx.show_viewport_immediate(vid, builder, |ui, _class| {
+        ctx.show_viewport_immediate(vid, builder, |ui, class| {
             if ui.ctx().input(|i| i.viewport().close_requested()) {
                 close = true;
             }
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(crate::theme::Tokens::get(ui.ctx()).canvas)).show(ui, |ui| {
                 let rect = ui.available_rect_before_wrap();
                 view = canvas_view(app, ui, w.document, rect, view.clone(), false);
+                // Preferences › Zoom Resizes Windows: a zoom wraps the window around the image.
+                crate::zoom_window_fit::follow(app, ui.ctx(), class, vid, &w, &view, rect);
             });
         });
         if let Some(win) = app.ui.windows.iter_mut().find(|x| x.id == w.id) {
@@ -8587,6 +8729,130 @@ mod transform_controls_tests {
     use super::*;
     use serde_json::json;
 
+    /// #7538: as in Photoshop, the box frames a loose selection until its pixels are moved, then
+    /// the pixels themselves, while they float and once dropped.
+    #[test]
+    fn transform_controls_frame_the_moved_pixels_not_the_marquee() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.execute("file.new", json!({"width": 200, "height": 200, "background": "transparent"})).unwrap();
+        app.session.execute("select.rect", json!({"x": 40, "y": 40, "width": 50, "height": 40})).unwrap();
+        app.session.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        app.session.execute("select.rect", json!({"x": 20, "y": 20, "width": 100, "height": 90})).unwrap();
+        app.sync_views();
+        app.ui.tool = Tool::Move;
+        app.ui.tool_options.move_show_transform = true;
+        let xf =
+            ViewXform { rect: Rect::from_min_size(Pos2::ZERO, vec2(200.0, 200.0)), zoom: 1.0, center: [100.0, 100.0], flip: false, rotation: 0.0, aspect: 1.0 };
+        let frame = |app: &PhotocraftApp| {
+            let r = transform_controls_rect(app, &xf).unwrap();
+            let (lt, rb) = (xf.to_doc(r.left_top()), xf.to_doc(r.right_bottom()));
+            [lt[0], lt[1], rb[0], rb[1]].map(|v| v.round() as i32)
+        };
+        assert_eq!(frame(&app), [20, 20, 120, 110], "the selection, before anything moves");
+        app.run("select.float", json!({"dx": 10, "dy": 5})).unwrap();
+        assert_eq!(frame(&app), [50, 45, 100, 85], "the floating pixels");
+        app.run("select.drop", json!({})).unwrap();
+        assert_eq!(frame(&app), [50, 45, 100, 85], "dropped");
+    }
+
+    /// #7538: with several layers selected the Move tool moves them whole, and the selection goes
+    /// with them, as in Photoshop: its ants follow the drag and it lands with them in one step.
+    #[test]
+    fn moving_several_layers_carries_the_selection() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.execute("file.new", json!({"width": 200, "height": 200, "background": "transparent"})).unwrap();
+        let a = app.session.active().unwrap().active_layer.unwrap();
+        app.session.execute("select.rect", json!({"x": 40, "y": 40, "width": 50, "height": 40})).unwrap();
+        app.session.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        app.session.execute("layer.new.layer", json!({})).unwrap();
+        app.session.execute("select.rect", json!({"x": 120, "y": 120, "width": 30, "height": 30})).unwrap();
+        app.session.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+        app.session.execute("layer.select", json!({"layer": a.0, "mode": "add"})).unwrap();
+        app.session.execute("select.rect", json!({"x": 20, "y": 20, "width": 100, "height": 90})).unwrap();
+        app.sync_views();
+        app.ui.tool = Tool::Move;
+        app.ui.tool_options.move_auto_select = false;
+        app.ui.extras.snap = false;
+        app.ui.view.show.smart_guides = false;
+        let steps = app.session.active().unwrap().history.past_len();
+        let m = egui::Modifiers::NONE;
+        tool_event(&mut app, ToolEvent::Down { x: 60.0, y: 60.0, pressure: 1.0 }, m);
+        tool_event(&mut app, ToolEvent::Move { x: 72.0, y: 68.0, pressure: 1.0 }, m);
+        assert_eq!(selection_shown_offset(&app), Some((12, 8)), "the ants follow the layers");
+        tool_event(&mut app, ToolEvent::Up { x: 72.0, y: 68.0 }, m);
+        let st = app.session.active().unwrap();
+        assert!(photocraft_engine::float_cmds::floating(st).is_none(), "whole layers moved, nothing floats");
+        assert_eq!(st.doc.selection.as_ref().map(|s| s.content_bounds()), Some(photocraft_geom::Rect::new(32, 28, 132, 118)));
+        assert_eq!(st.doc.layer(a).unwrap().surface().unwrap().content_bounds(), photocraft_geom::Rect::new(52, 48, 102, 88));
+        assert_eq!(st.history.past_len(), steps + 1, "one Move step");
+        assert!(app.session.undo());
+        let sel = app.session.active().unwrap().doc.selection.as_ref().map(|s| s.content_bounds());
+        assert_eq!(sel, Some(photocraft_geom::Rect::new(20, 20, 120, 110)), "Undo takes the selection back too");
+
+        // A piece floating (a marquee ⌘-drag with both selected) when the layers are dragged: the
+        // press drops it first, so the ants follow the drag from where it was dropped.
+        app.run("select.float", json!({"dx": 10, "dy": 5})).unwrap();
+        let outline = photocraft_engine::float_cmds::floating(app.session.active().unwrap()).unwrap().parts.outline().unwrap().content_bounds();
+        tool_event(&mut app, ToolEvent::Down { x: 60.0, y: 60.0, pressure: 1.0 }, m);
+        let st = app.session.active().unwrap();
+        assert!(photocraft_engine::float_cmds::floating(st).is_none(), "the press dropped the piece");
+        assert_eq!(st.doc.selection.as_ref().map(|s| s.content_bounds()), Some(outline.translate(10, 5)), "at its offset");
+        tool_event(&mut app, ToolEvent::Move { x: 72.0, y: 68.0, pressure: 1.0 }, m);
+        assert_eq!(selection_shown_offset(&app), Some((12, 8)), "then the ants follow the drag");
+        tool_event(&mut app, ToolEvent::Up { x: 72.0, y: 68.0 }, m);
+        let sel = app.session.active().unwrap().doc.selection.as_ref().map(|s| s.content_bounds());
+        assert_eq!(sel, Some(outline.translate(22, 13)), "released where the ants were");
+    }
+
+    /// A transparent 200² document: a red square (40..90, 40..80) on its layer, a loose marquee
+    /// (20..120, 20..110) round it, cut and floated 10, 5 to the right and down.
+    fn floating_square() -> PhotocraftApp {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.execute("file.new", json!({"width": 200, "height": 200, "background": "transparent"})).unwrap();
+        app.session.execute("select.rect", json!({"x": 40, "y": 40, "width": 50, "height": 40})).unwrap();
+        app.session.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        app.session.execute("select.rect", json!({"x": 20, "y": 20, "width": 100, "height": 90})).unwrap();
+        app.sync_views();
+        app.session.execute("select.float", json!({"dx": 10, "dy": 5})).unwrap();
+        app
+    }
+
+    /// #7538: a selection tool's press on a floating piece's ants drags it; one in the margin its
+    /// cut left of the loose marquee draws a new selection, as the ants say.
+    #[test]
+    fn a_press_in_the_margin_of_a_floating_piece_starts_a_new_selection() {
+        let app = floating_square();
+        let none = egui::Modifiers::NONE;
+        for tool in [Tool::RectMarquee, Tool::Lasso] {
+            assert_eq!(selection_drag_kind(&app, tool, [70.0, 60.0], none), Some(true), "{tool:?}: on the square drags it");
+            assert_eq!(selection_drag_kind(&app, tool, [33.0, 28.0], none), None, "{tool:?}: in the old marquee's margin");
+        }
+    }
+
+    /// Several selected layers keep one frame round them all while the active one's pixels float:
+    /// the piece's outline frames it only when it is the only layer framed.
+    #[test]
+    fn a_floating_piece_among_several_selected_layers_keeps_the_shared_frame() {
+        let mut app = floating_square();
+        app.session.execute("select.drop", json!({})).unwrap();
+        let a = app.session.active().unwrap().active_layer.unwrap();
+        app.session.execute("layer.new.layer", json!({})).unwrap();
+        app.session.execute("select.rect", json!({"x": 150, "y": 150, "width": 20, "height": 20})).unwrap();
+        app.session.execute("edit.fill", json!({"color": "#0000ff"})).unwrap();
+        app.session.execute("layer.select", json!({"layer": a.0, "mode": "add"})).unwrap();
+        app.session.execute("select.rect", json!({"x": 20, "y": 20, "width": 100, "height": 90})).unwrap();
+        app.ui.tool = Tool::Move;
+        app.ui.tool_options.move_show_transform = true;
+        assert!(transform_controls_several(&app), "two layers framed");
+        app.session.execute("select.float", json!({"dx": 5, "dy": 0})).unwrap();
+        assert!(photocraft_engine::float_cmds::floating(app.session.active().unwrap()).is_some());
+        let xf =
+            ViewXform { rect: Rect::from_min_size(Pos2::ZERO, vec2(200.0, 200.0)), zoom: 1.0, center: [100.0, 100.0], flip: false, rotation: 0.0, aspect: 1.0 };
+        let r = transform_controls_rect(&app, &xf).unwrap();
+        let (lt, rb) = (xf.to_doc(r.left_top()), xf.to_doc(r.right_bottom()));
+        assert!(rb[0] - lt[0] > 60.0 && rb[1] - lt[1] > 60.0, "the frame isn't shrunk to the one piece: {lt:?} {rb:?}");
+    }
+
     #[test]
     fn several_selected_layers_share_one_frame_without_handles() {
         // As in Photoshop: Show Transform Controls frames every selected layer. Free Transform
@@ -9078,6 +9344,154 @@ mod rotation_preview_isolation_tests {
     }
 }
 
+#[cfg(test)]
+mod zoom_animation_tests {
+    use super::*;
+
+    /// Screen geometry shared by the zoom-transition regressions.
+    fn camera(view: &View) -> ViewXform {
+        ViewXform { rect: Rect::from_min_size(Pos2::ZERO, vec2(1000.0, 700.0)), zoom: view.zoom, center: view.center, flip: false, rotation: 0.0, aspect: 1.0 }
+    }
+
+    /// A settled camera whose transition state starts empty.
+    fn view() -> View {
+        View { zoom: 1.0, center: [200.0, 150.0], doc_size: [400, 300], fit_pending: false, ..Default::default() }
+    }
+
+    /// Deferred uploads prioritize both visible areas throughout a recentering zoom.
+    #[test]
+    fn deferred_redraw_focus_covers_target_and_displayed_cameras() {
+        for rotation in [0.0, 37.0] {
+            let mut v = view();
+            let mut initial = camera(&v);
+            initial.rotation = rotation;
+            animated_view(&mut v, initial, 1.0, true, 0.0);
+            v.zoom = 2.0;
+            v.center = [1600.0, 900.0];
+            v.request_zoom_animation(true);
+            let target = ViewXform { zoom: v.zoom, center: v.center, ..initial };
+            let target_visible = visible_doc_rect(&target);
+            for time in [0.0, 0.11, 0.22] {
+                let shown = animated_view(&mut v, target, 1.0, true, time);
+                let displayed = ViewXform { zoom: shown.zoom, center: shown.center, ..target };
+                let displayed_visible = visible_doc_rect(&displayed);
+                let focus = redraw_focus(&target, &displayed);
+                assert_eq!(focus.intersect(&target_visible), target_visible);
+                assert_eq!(focus.intersect(&displayed_visible), displayed_visible);
+                if time == 0.0 {
+                    assert_ne!(focus, target_visible, "the old view must also receive priority");
+                }
+            }
+            assert_eq!(redraw_focus(&target, &target), target_visible, "settled views keep the same focus");
+        }
+    }
+
+    #[test]
+    fn disabling_animated_zoom_snaps_a_secondary_canvas_on_its_next_frame() {
+        let ctx = egui::Context::default();
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width": 400, "height": 300})).unwrap();
+        app.sync_views();
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0));
+        let mut secondary = view();
+        let frame = |app: &mut PhotocraftApp, view: View, time: f64| {
+            let input = egui::RawInput { screen_rect: Some(rect), time: Some(time), ..Default::default() };
+            let mut shown = view.clone();
+            let mut out = ctx.run_ui(input, |ui| {
+                shown = canvas_view(app, ui, 0, rect, view.clone(), false);
+            });
+            out.textures_delta.clear();
+            shown
+        };
+        secondary = frame(&mut app, secondary, 0.0);
+        secondary.zoom = 2.0;
+        secondary.request_zoom_animation(true);
+        secondary = frame(&mut app, secondary, 0.01);
+        secondary = frame(&mut app, secondary, 0.12);
+        assert!(secondary.zoom_animating);
+        assert!(secondary.display_camera.unwrap().0 < secondary.zoom);
+        app.run("prefs.set", serde_json::json!({"values": {"general.animatedZoom": false}})).unwrap();
+        secondary = frame(&mut app, secondary, 0.13);
+        assert_eq!(secondary.display_camera, Some((secondary.zoom, secondary.center)));
+        assert_eq!(secondary.zoom, 2.0);
+        assert!(!secondary.zoom_animating && secondary.zoom_transition.is_none() && secondary.zoom_anchor.is_none());
+    }
+
+    #[test]
+    fn animated_zoom_off_cancels_each_views_presentation_camera() {
+        for target in [(2.0, [210.0, 170.0]), (3.0, [250.0, 180.0])] {
+            let mut v = view();
+            let xf = camera(&v);
+            animated_view(&mut v, xf, 1.0, true, 0.0);
+            v.zoom = target.0;
+            v.center = target.1;
+            v.request_zoom_animation(true);
+            animated_view(&mut v, xf, 1.0, true, 0.0);
+            let halfway = animated_view(&mut v, xf, 1.0, true, 0.11);
+            assert_ne!((halfway.zoom, halfway.center), target);
+            v.zoom_anchor = Some(([200.0, 150.0], [500.0, 350.0]));
+            let shown = animated_view(&mut v, xf, 1.0, false, 0.11);
+            assert_eq!((shown.zoom, shown.center), target);
+            assert_eq!(v.display_camera, Some(target));
+            assert!(!v.zoom_animating && v.zoom_anchor.is_none() && v.zoom_transition.is_none());
+        }
+    }
+
+    #[test]
+    fn zoom_animation_obeys_clamped_targets_and_eases_recentering() {
+        let mut v = view();
+        let xf = camera(&v);
+        animated_view(&mut v, xf, 1.0, true, 0.0);
+        let pointer = xf.to_screen(390.0, 150.0);
+        zoom_about(&mut v, &xf, pointer, 2.0, false, 1.0);
+        v.zoom_anchor = Some(([390.0, 150.0], [pointer.x, pointer.y]));
+        v.zoom_animating = true;
+        crate::scrollbars::clamp_view(&mut v, xf.rect.size(), 1.0);
+        let xf = camera(&v);
+        animated_view(&mut v, xf, 1.0, true, 0.0);
+        assert!(v.zoom_anchor.is_none());
+        let done = animated_view(&mut v, xf, 1.0, true, 0.22);
+        assert_eq!((done.zoom, done.center), (v.zoom, v.center));
+        assert!(!v.zoom_animating);
+
+        let mut v = view();
+        let xf = camera(&v);
+        animated_view(&mut v, xf, 1.0, true, 0.0);
+        zoom_about(&mut v, &xf, pointer, 2.0, true, 1.0);
+        v.zoom_animating = true;
+        let target = v.center;
+        let xf = camera(&v);
+        let start = animated_view(&mut v, xf, 1.0, true, 0.0);
+        assert_eq!(start.center, [200.0, 150.0], "recentering must not teleport");
+        let halfway = animated_view(&mut v, xf, 1.0, true, 0.11);
+        assert!(halfway.center[0] > start.center[0] && halfway.center[0] < target[0]);
+        assert_eq!(animated_view(&mut v, xf, 1.0, true, 0.22).center, target);
+    }
+
+    #[test]
+    fn zoom_animation_views_are_independent_and_direct_navigation_snaps() {
+        let mut a = view();
+        let mut b = view();
+        let xf = camera(&a);
+        animated_view(&mut a, xf, 1.0, true, 0.0);
+        animated_view(&mut b, xf, 1.0, true, 0.0);
+        a.zoom = 2.0;
+        a.zoom_animating = true;
+        animated_view(&mut a, xf, 1.0, true, 0.0);
+        b.zoom = 3.0;
+        b.zoom_animating = true;
+        animated_view(&mut b, xf, 1.0, true, 0.11);
+        assert_eq!(animated_view(&mut a, xf, 1.0, true, 0.22).zoom, 2.0);
+        let shown = animated_view(&mut b, xf, 1.0, true, 0.22);
+        assert!(shown.zoom > 1.0 && shown.zoom < 3.0);
+        assert!(b.zoom_animating && !a.zoom_animating);
+        b.zoom_animating = false;
+        b.center = [220.0, 170.0];
+        let shown = animated_view(&mut b, xf, 1.0, true, 0.23);
+        assert_eq!((shown.zoom, shown.center), (b.zoom, b.center));
+        assert!(b.zoom_transition.is_none() && b.zoom_anchor.is_none());
+    }
+}
 #[cfg(test)]
 #[path = "canvas_display_memo_tests.rs"]
 mod display_memo_tests;

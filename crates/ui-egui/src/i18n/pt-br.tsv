@@ -2670,6 +2670,8 @@
 	GPU acceleration could not continue. Your documents are unchanged.	A aceleração por GPU não pôde continuar. Seus documentos não foram alterados.
 	PhotoCraft is using the CPU image compositor. The window may still use your graphics adapter.	O PhotoCraft está usando o compositor de imagens da CPU. A janela ainda pode usar seu adaptador gráfico.
 	Retry GPU requires a restart. Save your work first.	Tentar a GPU novamente exige reiniciar. Salve seu trabalho primeiro.
+	Retry GPU tries the graphics processor again now.	Tentar a GPU novamente tenta o processador gráfico de novo agora.
+	GPU acceleration resumed.	Aceleração por GPU retomada.
 	Keep Using CPU	Continuar usando a CPU
 	Retry GPU	Tentar a GPU novamente
 	GPU Backend	Backend da GPU
@@ -2734,6 +2736,11 @@ cameraRaw	Whites	Brancos
 	Content-Aware Move Tool	Ferramenta Mover sensível ao conteúdo
 	TIFF Options	Opções de TIFF
 	Targa Options	Opções de Targa
+	JPEG Options	Opções de JPEG
+	Image Options	Opções de imagem
+	Format Options	Opções de formato
+	Baseline ("Standard")	Linha de base ("Padrão")
+	Baseline Optimized	Linha de base otimizada
 	24 bits/pixel	24 bits/pixel
 	32 bits/pixel	32 bits/pixel
 	Including layers will increase file size.	Incluir as camadas aumentará o tamanho do arquivo.
@@ -3956,6 +3963,9 @@ layerLabel	No Color	Sem cor
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Carregar ações…
 	Save Actions…	Salvar ações…
+	New Action…	Nova ação…
+	Start Recording	Iniciar gravação
+	Stop Recording	Parar gravação
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{n} ação carregada de {file}|{n} ações carregadas de {file}
@@ -3990,6 +4000,13 @@ layerLabel	No Color	Sem cor
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	Pinta a partir do estado de origem do painel Histórico
 	Sets the source for the history brush	Define a origem do pincel do histórico
+# Bevel & Emboss shading controls.
+	Highlight Mode	Modo de realces
+	Highlight Color	Cor dos realces
+	Highlight Opacity	Opacidade dos realces
+	Shadow Mode	Modo de sombras
+	Shadow Color	Cor das sombras
+	Shadow Opacity	Opacidade das sombras
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	Usar o perfil incorporado ({profile})
 	Convert to the working space ({profile})	Converter para o espaço de trabalho ({profile})
@@ -4071,6 +4088,13 @@ layerLabel	No Color	Sem cor
 	Increase Brush Size	Aumentar tamanho do pincel
 	Decrease Brush Hardness	Diminuir dureza do pincel
 	Increase Brush Hardness	Aumentar dureza do pincel
+	Demosaic	Demosaico
+	How the camera's colour filter mosaic is filled in. It is applied when the file opens; the preview shows the method it was opened with.	Como o mosaico do filtro de cor da câmera é preenchido. É aplicado ao abrir o arquivo; a visualização mostra o método com que ele foi aberto.
+	AHD (adaptive homogeneity)	AHD (homogeneidade adaptativa)
+	Malvar–He–Cutler	Malvar–He–Cutler
+	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Hirakawa–Parks: as bordas mais limpas e o menor franjamento de cor; o mais lento.
+	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	Interpolação com correção de gradiente: nítida e rápida, com algum franjamento de cor em detalhes finos.
+	The fastest and the softest, with colour fringing on fine detail.	O mais rápido e o mais suave, com franjamento de cor em detalhes finos.
 	Memory Usage	Uso de memória
 	Per-document RAM limit (MB)	Limite de RAM por documento (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	RAM instalada: {ram} MB; este limite: {percent}%
@@ -4247,3 +4271,4 @@ layerLabel	No Color	Sem cor
 	Breeze	Breeze
 	Pro Light Gray	Pro cinza claro
 	Pro Light	Pro claro
+	Resize Windows to Fit	Redimensionar janelas para caber

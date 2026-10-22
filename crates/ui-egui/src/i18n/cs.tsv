@@ -2253,6 +2253,8 @@
 	GPU acceleration could not continue. Your documents are unchanged.	Akcelerace GPU nemohla pokračovat. Dokumenty zůstaly nezměněny.
 	PhotoCraft is using the CPU image compositor. The window may still use your graphics adapter.	PhotoCraft skládá obraz pomocí CPU. Okno může nadále používat grafický adaptér.
 	Retry GPU requires a restart. Save your work first.	Opakování GPU vyžaduje restart. Nejprve uložte práci.
+	Retry GPU tries the graphics processor again now.	Opakování GPU zkusí grafický procesor znovu hned teď.
+	GPU acceleration resumed.	Akcelerace GPU obnovena.
 	Keep Using CPU	Pokračovat s CPU
 	Retry GPU	Zkusit GPU znovu
 	Advanced	Pokročilé
@@ -2312,6 +2314,11 @@ cameraRaw	Color	Barvy
 	Content-Aware Move Tool	Nástroj přesun s ohledem na obsah
 	TIFF Options	Možnosti TIFF
 	Targa Options	Možnosti Targa
+	JPEG Options	Možnosti JPEG
+	Image Options	Možnosti obrazu
+	Format Options	Možnosti formátu
+	Baseline ("Standard")	Základní („Standardní“)
+	Baseline Optimized	Základní optimalizovaný
 	24 bits/pixel	24 bitů/pixel
 	32 bits/pixel	32 bitů/pixel
 	Including layers will increase file size.	Zahrnutí vrstev zvětší velikost souboru.
@@ -3777,6 +3784,9 @@ navigator	Zoom	Zvětšení
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Načíst akce…
 	Save Actions…	Uložit akce…
+	New Action…	Nová akce…
+	Start Recording	Zahájit nahrávání
+	Stop Recording	Zastavit nahrávání
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Načtena {n} akce ze souboru {file}|Načteny {n} akce ze souboru {file}|Načteno {n} akcí ze souboru {file}
@@ -3811,6 +3821,13 @@ navigator	Zoom	Zvětšení
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	Maluje ze zdrojového stavu panelu Historie
 	Sets the source for the history brush	Nastaví zdroj pro štětec historie
+# Bevel & Emboss shading controls.
+	Highlight Mode	Režim světel
+	Highlight Color	Barva světel
+	Highlight Opacity	Krytí světel
+	Shadow Mode	Režim stínů
+	Shadow Color	Barva stínů
+	Shadow Opacity	Krytí stínů
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	Použít vložený profil ({profile})
 	Convert to the working space ({profile})	Převést do pracovního prostoru barev ({profile})
@@ -3892,6 +3909,13 @@ navigator	Zoom	Zvětšení
 	Increase Brush Size	Zvětšit velikost štětce
 	Decrease Brush Hardness	Snížit tvrdost štětce
 	Increase Brush Hardness	Zvýšit tvrdost štětce
+	Demosaic	Demozaikování
+	How the camera's colour filter mosaic is filled in. It is applied when the file opens; the preview shows the method it was opened with.	Jak se doplňuje mozaika barevného filtru fotoaparátu. Použije se při otevření souboru; náhled ukazuje metodu, se kterou byl otevřen.
+	AHD (adaptive homogeneity)	AHD (adaptivní homogenita)
+	Malvar–He–Cutler	Malvar–He–Cutler
+	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Hirakawa–Parks: nejčistší hrany a nejméně barevných lemů, nejpomalejší.
+	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	Interpolace s korekcí gradientu: ostrá a rychlá, s mírnými barevnými lemy v jemných detailech.
+	The fastest and the softest, with colour fringing on fine detail.	Nejrychlejší a nejměkčí, s barevnými lemy v jemných detailech.
 	Memory Usage	Využití paměti
 	Per-document RAM limit (MB)	Limit RAM na dokument (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Nainstalovaná RAM: {ram} MB; tento limit: {percent}%
@@ -3919,3 +3943,4 @@ navigator	Zoom	Zvětšení
 	Breeze	Breeze
 	Pro Light Gray	Pro (světle šedý)
 	Pro Light	Pro (světlý)
+	Resize Windows to Fit	Přizpůsobit velikost oken

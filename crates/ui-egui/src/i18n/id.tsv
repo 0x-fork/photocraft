@@ -2707,6 +2707,8 @@ cameraRaw	Blending	Pembauran
 	GPU acceleration could not continue. Your documents are unchanged.	Akselerasi GPU tidak dapat dilanjutkan. Dokumen Anda tidak berubah.
 	PhotoCraft is using the CPU image compositor. The window may still use your graphics adapter.	PhotoCraft menggunakan kompositor gambar CPU. Jendela mungkin masih menggunakan adaptor grafis Anda.
 	Retry GPU requires a restart. Save your work first.	Mencoba GPU lagi memerlukan mulai ulang. Simpan pekerjaan Anda terlebih dahulu.
+	Retry GPU tries the graphics processor again now.	Coba GPU Lagi mencoba prosesor grafis lagi sekarang.
+	GPU acceleration resumed.	Akselerasi GPU dilanjutkan.
 	Keep Using CPU	Tetap Gunakan CPU
 	Retry GPU	Coba GPU Lagi
 	GPU Backend	Backend GPU
@@ -2739,6 +2741,11 @@ cameraRaw	Blending	Pembauran
 	Content-Aware Move Tool	Alat Content-Aware Move
 	TIFF Options	Opsi TIFF
 	Targa Options	Opsi Targa
+	JPEG Options	Opsi JPEG
+	Image Options	Opsi Gambar
+	Format Options	Opsi Format
+	Baseline ("Standard")	Baseline ("Standar")
+	Baseline Optimized	Baseline Dioptimalkan
 	24 bits/pixel	24 Bit/Piksel
 	32 bits/pixel	32 Bit/Piksel
 	Including layers will increase file size.	Menyertakan layer akan memperbesar ukuran file.
@@ -3175,6 +3182,9 @@ curves	Smooth	Haluskan
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	Muat Tindakan…
 	Save Actions…	Simpan Tindakan…
+	New Action…	Tindakan Baru…
+	Start Recording	Mulai Rekaman
+	Stop Recording	Hentikan Rekaman
 	{name} (Photoshop)	{name} (Photoshop)
 	{message} ({note})	{message} ({note})
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{n} tindakan dimuat dari {file}
@@ -3210,6 +3220,13 @@ curves	Smooth	Haluskan
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	Melukis dari status sumber panel Riwayat
 	Sets the source for the history brush	Menetapkan sumber untuk kuas riwayat
+# Bevel & Emboss shading controls.
+	Highlight Mode	Mode Sorotan
+	Highlight Color	Warna Sorotan
+	Highlight Opacity	Opasitas Sorotan
+	Shadow Mode	Mode Bayangan
+	Shadow Color	Warna Bayangan
+	Shadow Opacity	Opasitas Bayangan
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	Pakai profil tertanam ({profile})
 	Convert to the working space ({profile})	Konversi ke working space ({profile})
@@ -3294,6 +3311,13 @@ curves	Smooth	Haluskan
 	Increase Brush Size	Perbesar ukuran kuas
 	Decrease Brush Hardness	Kurangi kekerasan kuas
 	Increase Brush Hardness	Tambah kekerasan kuas
+	Demosaic	Demosaik
+	How the camera's colour filter mosaic is filled in. It is applied when the file opens; the preview shows the method it was opened with.	Cara mosaik filter warna kamera diisi. Diterapkan saat berkas dibuka; pratinjau menampilkan metode yang dipakai saat dibuka.
+	AHD (adaptive homogeneity)	AHD (homogenitas adaptif)
+	Malvar–He–Cutler	Malvar–He–Cutler
+	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Hirakawa–Parks: tepi paling bersih dan pinggiran warna paling sedikit, paling lambat.
+	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	Interpolasi terkoreksi gradien: tajam dan cepat, dengan sedikit pinggiran warna pada detail halus.
+	The fastest and the softest, with colour fringing on fine detail.	Paling cepat dan paling lembut, dengan pinggiran warna pada detail halus.
 	Memory Usage	Penggunaan memori
 	Per-document RAM limit (MB)	Batas RAM per dokumen (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	RAM terpasang: {ram} MB; batas ini: {percent}%
@@ -3322,3 +3346,4 @@ curves	Smooth	Haluskan
 	Breeze	Breeze
 	Pro Light Gray	Pro Abu-abu Terang
 	Pro Light	Pro Terang
+	Resize Windows to Fit	Ubah ukuran jendela agar pas

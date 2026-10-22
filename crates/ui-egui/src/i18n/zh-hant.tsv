@@ -2242,6 +2242,8 @@
 	GPU acceleration could not continue. Your documents are unchanged.	GPU 加速無法繼續。您的文件未變更。
 	PhotoCraft is using the CPU image compositor. The window may still use your graphics adapter.	PhotoCraft 正使用 CPU 合成影像。視窗仍可能使用您的顯示卡。
 	Retry GPU requires a restart. Save your work first.	重試 GPU 需要重新啟動。請先儲存您的工作。
+	Retry GPU tries the graphics processor again now.	重試 GPU 會立即再次嘗試使用圖形處理器。
+	GPU acceleration resumed.	已恢復 GPU 加速。
 	Keep Using CPU	繼續使用 CPU
 	Retry GPU	重試 GPU
 	Advanced	進階
@@ -2297,6 +2299,11 @@ cameraRaw	Blending	混合
 	Content-Aware Move Tool	內容感知移動工具
 	TIFF Options	TIFF 選項
 	Targa Options	Targa 選項
+	JPEG Options	JPEG 選項
+	Image Options	影像選項
+	Format Options	格式選項
+	Baseline ("Standard")	基線（「標準」）
+	Baseline Optimized	基線已最佳化
 	24 bits/pixel	24 位元/像素
 	32 bits/pixel	32 位元/像素
 	Including layers will increase file size.	包含圖層會增加檔案大小。
@@ -2776,6 +2783,9 @@ curves	Smooth	平滑
 # Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
 	Load Actions…	載入動作…
 	Save Actions…	儲存動作…
+	New Action…	新增動作…
+	Start Recording	開始錄製
+	Stop Recording	停止錄製
 	{name} (Photoshop)	{name}（Photoshop）
 	{message} ({note})	{message}（{note}）
 @plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	已從 {file} 載入 {n} 個動作
@@ -2811,6 +2821,13 @@ curves	Smooth	平滑
 # History panel › History Brush source (#2966)
 	Paints from the History panel's source state	從步驟記錄面板的來源狀態繪畫
 	Sets the source for the history brush	設定步驟記錄筆刷的來源
+# Bevel & Emboss shading controls.
+	Highlight Mode	亮部模式
+	Highlight Color	亮部顏色
+	Highlight Opacity	亮部不透明度
+	Shadow Mode	陰影模式
+	Shadow Color	陰影顏色
+	Shadow Opacity	陰影不透明度
 # Embedded Profile Mismatch: profile names beside the choices, Remember this choice
 	Use the embedded profile ({profile})	使用內嵌描述檔 ({profile})
 	Convert to the working space ({profile})	轉換為工作空間 ({profile})
@@ -2900,6 +2917,13 @@ curves	Smooth	平滑
 	Increase Brush Size	放大筆刷大小
 	Decrease Brush Hardness	降低筆刷硬度
 	Increase Brush Hardness	提高筆刷硬度
+	Demosaic	去馬賽克
+	How the camera's colour filter mosaic is filled in. It is applied when the file opens; the preview shows the method it was opened with.	如何填補相機彩色濾鏡陣列的馬賽克。在開啟檔案時套用；預覽顯示開啟時所用的方法。
+	AHD (adaptive homogeneity)	AHD（自適應同質性）
+	Malvar–He–Cutler	Malvar–He–Cutler
+	Hirakawa–Parks: the cleanest edges and the least colour fringing, the slowest.	Hirakawa–Parks：邊緣最乾淨、色邊最少，速度最慢。
+	Gradient-corrected interpolation: sharp and fast, with some colour fringing on fine detail.	梯度校正插值：銳利且快速，細節處有些許色邊。
+	The fastest and the softest, with colour fringing on fine detail.	最快也最柔和，細節處有色邊。
 	Memory Usage	記憶體使用量
 	Per-document RAM limit (MB)	每個文件的 RAM 上限 (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	已安裝 RAM：{ram} MB；此上限：{percent}%
@@ -2929,3 +2953,4 @@ curves	Smooth	平滑
 	Breeze	Breeze
 	Pro Light Gray	專業淺灰
 	Pro Light	專業淺色
+	Resize Windows to Fit	調整視窗大小以符合
