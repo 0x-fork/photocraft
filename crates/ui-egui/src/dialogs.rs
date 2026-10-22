@@ -161,7 +161,15 @@ fn show_modal<T>(
         }
         if let Some(size) = resizable {
             let max = (ctx.content_rect().size() - egui::vec2(40.0, 40.0)).max(egui::vec2(560.0, 400.0));
-            egui::Resize::default().id(id.with("resize")).default_size(size.min(max)).min_size(egui::vec2(560.0, 400.0)).max_size(max).show(ui, contents)
+            // No stroke: Resize outlines its contents 2 points out, an inner box inside the
+            // dialog's frame that left the title and buttons flush against it (#8199).
+            egui::Resize::default()
+                .id(id.with("resize"))
+                .with_stroke(false)
+                .default_size(size.min(max))
+                .min_size(egui::vec2(560.0, 400.0))
+                .max_size(max)
+                .show(ui, contents)
         } else {
             contents(ui)
         }
@@ -1248,5 +1256,46 @@ mod preference_resize_tests {
         // The contents never ask for more than the dialog gives them, so it keeps its size.
         h.run_steps(10);
         assert_eq!(frame(&h), smaller);
+    }
+
+    /// #8199: no outline is drawn just around the contents, which left the title flush against a
+    /// second, inner box instead of the frame's margin like the other dialogs.
+    #[test]
+    fn preferences_has_no_inner_outline_hugging_its_title() {
+        fn find<'a>(shape: &'a egui::Shape, out: &mut Vec<&'a egui::Shape>) {
+            match shape {
+                egui::Shape::Vec(shapes) => shapes.iter().for_each(|s| find(s, out)),
+                s => out.push(s),
+            }
+        }
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        crate::prefs_ui::open_preferences(&mut app, "general");
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1600.0, 1000.0)).build_ui_state(
+            |ui, app| {
+                if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("semibold".into()))) {
+                    show(app, ui.ctx());
+                }
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, Default::default());
+        h.run_steps(5);
+        let mut shapes = Vec::new();
+        h.output().shapes.iter().for_each(|s| find(&s.shape, &mut shapes));
+        let title = shapes
+            .iter()
+            .find_map(|s| match s {
+                egui::Shape::Text(t) if t.galley.job.text == "Preferences" => Some(t.pos),
+                _ => None,
+            })
+            .expect("the title is painted");
+        let hugging: Vec<egui::Rect> = shapes
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Rect(r) if r.stroke.width > 0.0 && r.rect.contains(title) && (0.0..4.0).contains(&(title.x - r.rect.left())) => Some(r.rect),
+                _ => None,
+            })
+            .collect();
+        assert!(hugging.is_empty(), "an outline within 4 points of the title at {title:?}: {hugging:?}");
     }
 }
