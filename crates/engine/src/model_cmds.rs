@@ -29,22 +29,29 @@ pub(crate) fn backend(s: &Session) -> Result<Arc<dyn InferenceBackend>> {
 /// An explicit command choice overrides the saved preference, allowing an action or script to
 /// request the same method every time. Inference never silently falls back or starts a download.
 pub(crate) fn subject_model(s: &Session, p: &Value) -> Result<Option<ModelId>> {
-    model_choice(p, s.prefs().integrations.subject_model.name(), ModelId::BiRefNet)
+    model_choice(p, saved(s, s.prefs().integrations.subject_model.name()), ModelId::BiRefNet)
 }
 
 pub(crate) fn object_model(s: &Session, p: &Value) -> Result<Option<ModelId>> {
-    model_choice(p, s.prefs().integrations.object_model.name(), ModelId::Sam2)
+    model_choice(p, saved(s, s.prefs().integrations.object_model.name()), ModelId::Sam2)
+}
+
+/// The saved choice. Default and web builds can't run a model and hide the choice, so one saved
+/// by a build with local models (the preferences file is shared) means Classical there instead of
+/// failing every Select Subject. Builds with local models keep it strict; explicit params too.
+fn saved(s: &Session, name: &'static str) -> &'static str {
+    if crate::prefs::NATIVE_MODELS || s.model_backend.is_some() { name } else { "classical" }
 }
 
 /// Resolve the preference before dispatch so recorded actions keep the method used, even if
 /// the preference changes before playback. Explicit choices (including invalid ones) stay intact.
 pub(crate) fn inject_model(s: &Session, command: &str, mut params: Value) -> Value {
     let model = match command {
-        "select.subject" | "layer.removeBackground" => s.prefs().integrations.subject_model.name(),
+        "select.subject" | "layer.removeBackground" => saved(s, s.prefs().integrations.subject_model.name()),
         // Point clicks commit the built-in Object Finder's hover result. SAM supports boxes,
         // so record Classical for this route even when the saved box preference is SAM.
         "select.object" if params.get("rect").is_none() && params.get("point").is_some() => "classical",
-        "select.object" => s.prefs().integrations.object_model.name(),
+        "select.object" => saved(s, s.prefs().integrations.object_model.name()),
         _ => return params,
     };
     if params.is_null() {
@@ -376,6 +383,28 @@ mod tests {
     }
 
     #[test]
+    fn a_model_saved_by_a_local_ml_build_means_classical_in_a_build_without_models() {
+        if crate::prefs::NATIVE_MODELS {
+            return;
+        }
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width":8,"height":4,"depth":8,"mode":"rgb"})).unwrap();
+        s.execute("prefs.set", json!({"path":"integrations.subjectModel","value":"birefnet-hr-matting"})).unwrap();
+        s.execute("prefs.set", json!({"path":"integrations.objectModel","value":"sam2.1-large"})).unwrap();
+        s.execute("actions.record", json!({"name":"Saved"})).unwrap();
+        for (cmd, p) in [("select.subject", json!({})), ("select.object", json!({"rect":[0,0,8,4]})), ("layer.removeBackground", json!({}))] {
+            let r = s.execute(cmd, p);
+            assert!(!matches!(&r, Err(EngineError::Other(m)) if m.contains("local models")), "{cmd}: {r:?}");
+        }
+        s.execute("actions.stop", json!({})).unwrap();
+        let steps = &s.actions.list[0].steps;
+        assert!(!steps.is_empty());
+        assert!(steps.iter().all(|(_, p)| p["model"] == "classical"), "{steps:?}");
+        // Asking for a model by name still fails: only the saved choice falls back.
+        assert!(s.execute("select.subject", json!({"model":"birefnet-hr-matting"})).is_err());
+    }
+
+    #[test]
     fn downloads_need_no_document_never_replay_and_removal_resets_only_its_preference() {
         let mut s = Session::new();
         let fake = Arc::new(Fake::default());
@@ -503,8 +532,13 @@ mod tests {
         assert_eq!(fake.calls.lock().unwrap().len(), 2);
         s.model_backend = None;
         let result = s.execute("file.automate.batch", called_action).unwrap();
-        assert_eq!(result["files"], json!([]), "a called action cannot grant a model backend");
-        assert_eq!(result["errors"].as_array().unwrap().len(), 1);
+        if crate::prefs::NATIVE_MODELS {
+            assert_eq!(result["files"], json!([]), "a called action cannot grant a model backend");
+            assert_eq!(result["errors"].as_array().unwrap().len(), 1);
+        } else {
+            // A build without local models reads the saved model as Classical.
+            assert_eq!(result["errors"], json!([]), "{result}");
+        }
         assert_eq!(fake.calls.lock().unwrap().len(), 2);
         let result =
             s.execute("file.automate.batch", json!({"steps":[["select.subject",{"model":"birefnet-hr-matting"}]],"input":[input],"output":output})).unwrap();

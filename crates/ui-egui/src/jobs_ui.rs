@@ -525,6 +525,22 @@ fn on_event(app: &mut PhotocraftApp, ctx: &egui::Context, e: JobEvent) {
             app.sync_views();
             crate::file_ui::print_status(app, result);
         }
+        // With a local model, Select Subject and Object Selection run as jobs: say when they found
+        // nothing, as `report_smart_result` does for the classical ones that finish at once.
+        JobOutcome::Done(ref v)
+            if matches!(e.command.as_str(), "select.subject" | "select.object") && v.get("changed").and_then(Value::as_bool) == Some(false) =>
+        {
+            app.sync_views();
+            app.ui.status = if e.command == "select.subject" && app.active_tool() == crate::state::Tool::ObjectSelection {
+                tl!("No subject found — try a rectangle around the object")
+            } else if e.command == "select.subject" {
+                tl!("No subject found — try Object Selection or the Lasso")
+            } else {
+                tl!("Object Selection found nothing there — try a tighter rectangle")
+            }
+            .into();
+            app.ui.status_error = false;
+        }
         JobOutcome::Done(_) => {
             app.sync_views();
             app.ui.status = e.label;

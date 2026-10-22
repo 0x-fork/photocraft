@@ -937,3 +937,48 @@ fn background_open_warns_about_missing_fonts() {
     let want = vec!["font 'NoSuchFamily4559' is not installed; text may render using a fallback face".to_string()];
     assert!(app.ui.notices.last().is_some_and(|n| n.title.contains("poster.psd") && n.lines == want), "{:?}", app.ui.notices);
 }
+
+/// A local model that never finds anything (an all-transparent mask).
+struct EmptyModel;
+impl photocraft_ml::InferenceBackend for EmptyModel {
+    fn status(&self) -> Vec<photocraft_ml::ModelStatus> {
+        photocraft_ml::MODELS.iter().map(|m| photocraft_ml::ModelStatus { id: m.id, installed: true, busy: false }).collect()
+    }
+    fn download(&self, _: photocraft_ml::ModelId, _: &photocraft_raster::Interrupt<'_>) -> photocraft_ml::Result<()> {
+        Ok(())
+    }
+    fn remove(&self, _: photocraft_ml::ModelId, _: &photocraft_raster::Interrupt<'_>) -> photocraft_ml::Result<()> {
+        Ok(())
+    }
+    fn infer(
+        &self,
+        _: photocraft_ml::ModelId,
+        _: &photocraft_algo::segment::RgbImage,
+        _: photocraft_ml::Prompt,
+        _: &photocraft_raster::Interrupt<'_>,
+    ) -> photocraft_ml::Result<photocraft_ml::AlphaMask> {
+        Ok(photocraft_ml::AlphaMask { width: 4, height: 4, values: vec![0.0; 16], kind: photocraft_ml::MaskKind::Alpha })
+    }
+}
+
+#[test]
+fn a_model_selection_that_finds_nothing_says_so_like_the_classical_one() {
+    use crate::state::Tool;
+    // The same hints as the options bars' classical results (retouch_ui.rs).
+    for (tool, cmd, params, want) in [
+        (Tool::QuickSelection, "select.subject", json!({"model": "birefnet-hr-matting"}), "No subject found — try Object Selection"),
+        (Tool::ObjectSelection, "select.subject", json!({"model": "birefnet-hr-matting"}), "No subject found — try a rectangle"),
+        (Tool::ObjectSelection, "select.object", json!({"model": "sam2.1-large", "rect": [40, 40, 120, 90]}), "Object Selection found nothing there"),
+    ] {
+        let mut h = app_harness();
+        h.state_mut().ui.tool = tool;
+        h.state_mut().session.model_backend = Some(Arc::new(EmptyModel));
+        let r = h.state_mut().run(cmd, params).unwrap();
+        assert_eq!(r["pending"], true, "{cmd} runs as a job: {r}");
+        frames_until(&mut h, 2, |h| h.state().session.jobs().is_empty());
+        let app = h.state();
+        assert!(app.ui.status.contains(want), "{cmd}: {}", app.ui.status);
+        assert!(!app.ui.status_error);
+        assert!(app.session.active().unwrap().doc.selection.is_none(), "{cmd} left the selection alone");
+    }
+}

@@ -297,6 +297,10 @@ pub fn authorize_engine_command(id: &str, params: &Value) -> Result<(), Automati
                 | "layer.videoLayers.newVideoLayerFromFile"
                 | "layer.videoLayers.replaceFootage"
                 | "layer.videoLayers.reloadFrame"
+                // Downloading (about 1.8 GB) or deleting local models writes the app's model
+                // folder, outside any workspace; Preferences › Integrations does it for the user.
+                | "models.download"
+                | "models.remove"
         )
         || command_uses_ambient_path(id, params)
         || profile_command_may_read_ambient(id, params)
@@ -729,6 +733,17 @@ mod tests {
         assert!(workspace.write("junction/new.txt", b"blocked").is_err());
         assert!(!outside.join("new.txt").exists());
         let _ = std::fs::remove_dir(link);
+    }
+
+    #[test]
+    fn local_model_downloads_and_removals_are_not_automation_commands() {
+        for id in ["models.download", "models.remove"] {
+            for model in ["birefnet-hr-matting", "sam2.1-large"] {
+                assert!(authorize_engine_command(id, &serde_json::json!({"id": model})).is_err(), "{id} {model}");
+                assert!(authorize_engine_step(id, &serde_json::json!({"id": model})).is_err(), "{id} {model} as an action step");
+            }
+        }
+        assert!(authorize_engine_command("models.list", &serde_json::json!({})).is_ok());
     }
 
     #[test]

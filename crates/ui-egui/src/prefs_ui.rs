@@ -1759,7 +1759,10 @@ fn interface_groups(ui: &mut egui::Ui, obj: &mut Map<String, Value>, keys: &[Str
     }
     if !checks.is_empty() || !other.is_empty() {
         pref_group(ui, "Options", |ui| {
-            egui::Grid::new("prefs-grid-interface-checks").num_columns(2).spacing([0.0, 7.0]).show(ui, |ui| field_rows(ui, "interface", obj, checks, lang, &Value::Null));
+            egui::Grid::new("prefs-grid-interface-checks")
+                .num_columns(2)
+                .spacing([0.0, 7.0])
+                .show(ui, |ui| field_rows(ui, "interface", obj, checks, lang, &Value::Null));
             grid("interface-options").show(ui, |ui| field_rows(ui, "interface", obj, other, lang, &Value::Null));
         });
     }
@@ -1895,7 +1898,9 @@ fn field_rows(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>, ke
                     .unwrap_or(&[])
                     .iter()
                     .copied()
-                    .filter(|v| !matches!(path.as_str(), "integrations.subjectModel" | "integrations.objectModel") || *v == s || model_choice_available(models, v))
+                    .filter(|v| {
+                        !matches!(path.as_str(), "integrations.subjectModel" | "integrations.objectModel") || *v == s || model_choice_available(models, v)
+                    })
                     .collect();
                 let labels: Vec<String> = opts.iter().map(|o| choice_label(o)).collect();
                 let pairs: Vec<(String, &str)> = opts.iter().map(|o| o.to_string()).zip(labels.iter().map(String::as_str)).collect();
@@ -2755,9 +2760,18 @@ mod tests {
         use egui_kittest::{Harness, kittest::Queryable};
         let values = json!({"memoryUsageMb":50000}).as_object().unwrap().clone();
         assert!(!field_visible("performance", &values, "memoryUsageMb", ""));
-        let mut h = Harness::builder()
-            .with_size(vec2(680.0, 350.0))
-            .build_ui_state(|ui, values| section_fields(ui, "performance", values, &["memoryUsageMb".into()], PreferenceFieldOptions { lang: crate::i18n::Lang::EN, system: None, models: &json!({"available":false}), search: "" }), values);
+        let mut h = Harness::builder().with_size(vec2(680.0, 350.0)).build_ui_state(
+            |ui, values| {
+                section_fields(
+                    ui,
+                    "performance",
+                    values,
+                    &["memoryUsageMb".into()],
+                    PreferenceFieldOptions { lang: crate::i18n::Lang::EN, system: None, models: &json!({"available":false}), search: "" },
+                )
+            },
+            values,
+        );
         h.run_steps(2);
         h.get_by_label("Memory Usage");
         h.get_by_label("Per-document RAM limit (MB)");
@@ -2848,9 +2862,10 @@ mod tests {
         assert!(contains("placeholder", "type"));
         assert!(contains("performance", "performance"));
         assert!(contains("interface.uiScale", "interface"));
-        assert!(contains("BACKGROUND REMOVAL", "integrations"));
-        assert!(contains("Object selection", "integrations"));
-        assert!(contains("integrations.subjectModel", "integrations"));
+        // The model choices exist only in builds that can run local models.
+        assert_eq!(contains("BACKGROUND REMOVAL", "integrations"), prefs::NATIVE_MODELS);
+        assert_eq!(contains("Object selection", "integrations"), prefs::NATIVE_MODELS);
+        assert_eq!(contains("integrations.subjectModel", "integrations"), prefs::NATIVE_MODELS);
         assert!(preference_sections(&values, "this setting does not exist").is_empty());
         assert_eq!(preference_sections(&values, "").len(), SECTIONS.len());
     }
@@ -2858,6 +2873,9 @@ mod tests {
     #[test]
     fn searched_model_preferences_render_only_the_matching_method_without_changing_choices() {
         use egui_kittest::{Harness, kittest::Queryable};
+        if !prefs::NATIVE_MODELS {
+            return; // Hidden without local models (unimplemented_preferences_are_hidden_from_the_dialog).
+        }
         for code in ["en", "el"] {
             let lang = crate::i18n::Lang::from_pref(code);
             let _scope = crate::i18n::language_scope(lang);
@@ -4084,7 +4102,8 @@ mod tests {
         let values = prefs::Preferences::default().to_json();
         assert!(has_visible_fields(&values, "general"));
         assert!(has_visible_fields(&values, "fileHandling"));
-        assert!(has_visible_fields(&values, "integrations"));
+        // Model choices and downloads only where models can run; agent control is still unread.
+        assert_eq!(has_visible_fields(&values, "integrations"), prefs::NATIVE_MODELS);
         assert!(has_visible_fields(&values, "enhancedControls"));
         // Every setting of these sections is still unimplemented.
         assert!(!has_visible_fields(&values, "scratchDisks"));

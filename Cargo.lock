@@ -5146,6 +5146,7 @@ dependencies = [
  "photocraft-geom",
  "photocraft-gpu",
  "photocraft-io",
+ "photocraft-ml",
  "photocraft-paint",
  "photocraft-plugins",
  "photocraft-psd",
