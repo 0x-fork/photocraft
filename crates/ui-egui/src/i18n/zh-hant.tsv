@@ -2903,6 +2903,7 @@ curves	Smooth	平滑
 	Next Brush	下一個筆刷
 	First Brush	第一個筆刷
 	Last Brush	最後一個筆刷
+	Preview size	Preview size
 	Memory Usage	記憶體使用量
 	Per-document RAM limit (MB)	每個文件的 RAM 上限 (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	已安裝 RAM：{ram} MB；此上限：{percent}%

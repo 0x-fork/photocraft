@@ -4202,6 +4202,7 @@ cameraRaw	Yellow	Sárga
 	Next Brush	Következő ecset
 	First Brush	Első ecset
 	Last Brush	Utolsó ecset
+	Preview size	Preview size
 	Memory Usage	Memóriahasználat
 	Per-document RAM limit (MB)	Dokumentumonkénti RAM-korlát (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Telepített RAM: {ram} MB; ez a korlát: {percent}%

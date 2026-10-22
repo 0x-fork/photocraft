@@ -4247,6 +4247,7 @@ navigator	Zoom	Zoom
 	Next Brush	Pincel siguiente
 	First Brush	Primer pincel
 	Last Brush	Último pincel
+	Preview size	Preview size
 	Memory Usage	Uso de memoria
 	Per-document RAM limit (MB)	Límite de RAM por documento (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	RAM instalada: {ram} MB; este límite: {percent}%

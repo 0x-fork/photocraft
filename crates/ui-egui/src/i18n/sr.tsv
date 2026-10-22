@@ -4356,6 +4356,7 @@ shape	Appearance	Izgled
 	Next Brush	Sledeća četkica
 	First Brush	Prva četkica
 	Last Brush	Poslednja četkica
+	Preview size	Preview size
 	Memory Usage	Upotreba memorije
 	Per-document RAM limit (MB)	RAM limit po dokumentu (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Instalisan RAM: {ram} MB; ovaj limit: {percent}%

@@ -4075,6 +4075,7 @@ layerLabel	No Color	Sem cor
 	Next Brush	Próximo pincel
 	First Brush	Primeiro pincel
 	Last Brush	Último pincel
+	Preview size	Preview size
 	Memory Usage	Uso de memória
 	Per-document RAM limit (MB)	Limite de RAM por documento (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	RAM instalada: {ram} MB; este limite: {percent}%

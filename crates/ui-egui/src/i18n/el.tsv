@@ -3985,6 +3985,7 @@ curves	Smooth	Εξομάλυνση
 	Next Brush	Επόμενο πινέλο
 	First Brush	Πρώτο πινέλο
 	Last Brush	Τελευταίο πινέλο
+	Preview size	Preview size
 	Memory Usage	Χρήση μνήμης
 	Per-document RAM limit (MB)	Όριο RAM ανά έγγραφο (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Εγκατεστημένη RAM: {ram} MB· αυτό το όριο: {percent}%

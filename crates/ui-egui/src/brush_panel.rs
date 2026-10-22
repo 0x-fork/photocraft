@@ -98,8 +98,9 @@ pub struct BrushesPanelState {
     pub show_stroke: bool,
     /// The Brush Preset picker's cards: show the tip thumbnail.
     pub show_tip: bool,
-    /// The Brush Preset picker's cards: their size scale, from the picker's footer slider
-    /// (`crate::brush_picker::body`). 1 is the standard size; the cards' width, height and
+    /// The Brush Preset picker's cards and the Brushes tab's grid cells and list rows: their size
+    /// scale, from the picker's footer slider (`crate::brush_picker::body`) or the tab's preview-size
+    /// slider. 1 is the standard size; the cards' width, height and
     /// insides multiply by it (`crate::brushes_tab`) — the height down to a 0.50 floor, the
     /// width all the way — the text holds its 1.0 size, and at or below the compact threshold
     /// the tips drop the size number under them and take their cell whole.

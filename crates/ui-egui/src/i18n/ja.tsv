@@ -3962,6 +3962,7 @@ curves	Smooth	スムーズ
 	Next Brush	次のブラシ
 	First Brush	最初のブラシ
 	Last Brush	最後のブラシ
+	Preview size	Preview size
 	Memory Usage	メモリ使用量
 	Per-document RAM limit (MB)	ドキュメントあたりの RAM 上限 (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	搭載 RAM: {ram} MB、この上限: {percent}%

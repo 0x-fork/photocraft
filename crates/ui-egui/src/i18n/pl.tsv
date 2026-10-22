@@ -3884,6 +3884,7 @@ curves	Smooth	Wygładź
 	Next Brush	Następny pędzel
 	First Brush	Pierwszy pędzel
 	Last Brush	Ostatni pędzel
+	Preview size	Preview size
 	Memory Usage	Użycie pamięci
 	Per-document RAM limit (MB)	Limit RAM na dokument (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Zainstalowany RAM: {ram} MB; ten limit: {percent}%

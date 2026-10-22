@@ -4013,6 +4013,7 @@ cameraData	Lens	Lens
 	Next Brush	Sonraki fırça
 	First Brush	İlk fırça
 	Last Brush	Son fırça
+	Preview size	Preview size
 	Memory Usage	Bellek kullanımı
 	Per-document RAM limit (MB)	Belge başına RAM sınırı (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	Kurulu RAM: {ram} MB; bu sınır: {percent}%

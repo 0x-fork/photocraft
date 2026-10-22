@@ -3261,6 +3261,7 @@ curves	Smooth	Сгладить
 	Next Brush	Следующая кисть
 	First Brush	Первая кисть
 	Last Brush	Последняя кисть
+	Preview size	Preview size
 	Memory Usage	Использование памяти
 	Per-document RAM limit (MB)	Лимит ОЗУ на документ (МБ)
 	Installed RAM: {ram} MB; this limit: {percent}%	Установлено ОЗУ: {ram} МБ; этот лимит: {percent}%

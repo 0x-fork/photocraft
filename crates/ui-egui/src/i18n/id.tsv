@@ -3282,6 +3282,7 @@ curves	Smooth	Haluskan
 	Next Brush	Kuas berikutnya
 	First Brush	Kuas pertama
 	Last Brush	Kuas terakhir
+	Preview size	Preview size
 	Memory Usage	Penggunaan memori
 	Per-document RAM limit (MB)	Batas RAM per dokumen (MB)
 	Installed RAM: {ram} MB; this limit: {percent}%	RAM terpasang: {ram} MB; batas ini: {percent}%

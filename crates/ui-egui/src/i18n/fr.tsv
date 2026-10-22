@@ -3295,6 +3295,7 @@ curves	Smooth	Lisser
 	Next Brush	Pinceau suivant
 	First Brush	Premier pinceau
 	Last Brush	Dernier pinceau
+	Preview size	Preview size
 	Memory Usage	Utilisation de la mémoire
 	Per-document RAM limit (MB)	Limite RAM par document (Mo)
 	Installed RAM: {ram} MB; this limit: {percent}%	RAM installée : {ram} Mo ; cette limite : {percent}%

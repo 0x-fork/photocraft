@@ -1033,7 +1033,7 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         let w = (inner_w - 112.0).clamp(90.0, inner_w - 40.0);
         ui.allocate_ui_with_layout(vec2(w, 18.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
             let scale = &mut app.ui.brushes_panel.scale;
-            let resp = widgets::slider(ui, scale, PREVIEW_SCALE_RANGE, None).on_hover_text("Preview size");
+            let resp = widgets::slider(ui, scale, PREVIEW_SCALE_RANGE, None).on_hover_text(tl!("Preview size"));
             if resp.changed() {
                 *scale = (*scale * 100.0).round() / 100.0;
             }
