@@ -1232,7 +1232,10 @@ mod tests {
             assert!(has(ru, label), "Russian filter label missing: {label}");
         }
         // Dynamic composed status templates.
-        assert_eq!(fmt(tr(ru, "Step {step} ({id}) failed: {error}"), &[("step", "2"), ("id", "file.export"), ("error", "ok")]), "Шаг 2 (file.export) не выполнен: ok");
+        assert_eq!(
+            fmt(tr(ru, "Step {step} ({id}) failed: {error}"), &[("step", "2"), ("id", "file.export"), ("error", "ok")]),
+            "Шаг 2 (file.export) не выполнен: ok"
+        );
         assert_eq!(fmt(tr(ru, "Couldn't open {name}: {error}"), &[("name", "scan.tif"), ("error", "denied")]), "Не удалось открыть scan.tif: denied");
         assert_eq!(fmt(tr(ru, "Exported {path} ({size})"), &[("path", "/tmp/a.png"), ("size", "12 KB")]), "Экспортировано: /tmp/a.png (12 KB)");
         assert_eq!(fmt(tr(ru, "Data Set: {name}  ({index}/{total})"), &[("name", "Set 1"), ("index", "1"), ("total", "2")]), "Набор данных: Set 1  (1/2)");
