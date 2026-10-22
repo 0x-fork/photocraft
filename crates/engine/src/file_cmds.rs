@@ -803,6 +803,18 @@ fn short_num(v: f64, decimals: usize) -> String {
     if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_string() } else { s }
 }
 
+/// `v` to three significant digits, with no trailing zeros (0.031714 → "0.0317", 0.4 → "0.4").
+/// Two decimals threw away most of a slow shutter speed: a stored 0.031714 s printed as "0.03 s",
+/// which is 5 % off, and a stored 0.0215 s printed as "0.02 s", 7 % off (#6958).
+fn sig3(v: f64) -> String {
+    let magnitude = v.abs().log10().floor();
+    // Clamped at both ends: a value at the large end must not ask for a negative field width, and
+    // at the small end the field is widened rather than truncated, so a positive exposure never
+    // reads as "0 s". 320 is beyond f64's decimal range, so it always terminates.
+    let decimals = if magnitude.is_finite() { (2.0 - magnitude).clamp(0.0, 320.0) } else { 0.0 };
+    short_num(v, decimals as usize)
+}
+
 /// Exposure time as cameras print it: "1/250 s" for fractions of a second, "0.4 s" or "2 s"
 /// when the reciprocal isn't a whole number or the exposure is a second or longer.
 fn exposure_text(t: f64) -> Option<String> {
@@ -810,10 +822,18 @@ fn exposure_text(t: f64) -> Option<String> {
         return None;
     }
     let r = 1.0 / t;
-    if t < 1.0 && r.round() > 1.0 && (r - r.round()).abs() <= r * 0.01 {
-        return Some(format!("1/{} s", r.round()));
+    let n = r.round();
+    // Below 1/10 s the reciprocal is above 10, so its nearest whole number puts the shown time
+    // within 5 % of the stored one, and is the form a photographer expects ("1/32 s"). The test
+    // used to be relative to the reciprocal, so it shrank as the exposure slowed: under 1/50 s it
+    // fell below half a rounding step and nearly every fraction fell through to the decimal form
+    // (#6958). Above 1/10 s the fraction is only right when the reciprocal is very nearly whole
+    // (1/2 s, 1/4 s) — 0.4 s stays "0.4 s" rather than becoming "1/3 s".
+    let fraction = n.is_finite() && (1.0..=1e9).contains(&n) && (t < 0.1 || (t < 1.0 && n > 1.0 && (r - n).abs() <= r * 0.01));
+    if fraction {
+        return Some(format!("1/{} s", n as u64));
     }
-    Some(format!("{} s", short_num(t, if t < 1.0 { 2 } else { 1 })))
+    Some(format!("{} s", sig3(t)))
 }
 
 /// EXIF (`2024:02:17 12:40:19`) or XMP (`2024-02-17T12:40:19.00+01:00`) dates as

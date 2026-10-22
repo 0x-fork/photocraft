@@ -568,6 +568,54 @@ fn camera_data_formats_like_photoshop_and_falls_back_to_xmp() {
     assert_eq!(camera_data(Some(b"II*\0\xff\xff\xff\xff"), Some("<exif:FNumber>0/0</exif:FNumber> exif:ExposureTime=\"-1/0\"")), json!({}));
 }
 
+/// A slow shutter speed whose reciprocal is not whole prints as the nearest fraction a camera
+/// would write, not as two decimals. The old 1 %-of-the-reciprocal test shrank as the exposure
+/// slowed, so below 1/50 s it fell below half a rounding step and nearly every such fraction fell
+/// through to the decimal form (#6958).
+#[test]
+fn camera_data_prints_a_slow_exposure_as_the_fraction_a_camera_writes() {
+    let text = |t: f64| exposure_text(t).expect("an exposure");
+    // The two values from the report: 31714/1000000 s and 215/10000 s.
+    assert_eq!(text(0.031_714), "1/32 s", "a stored 0.031714 s is about 1/32 s");
+    assert_eq!(text(0.0215), "1/47 s", "a stored 0.0215 s is about 1/47 s");
+    // The rest of a slow shutter scale, and the exact reciprocals that already worked.
+    assert_eq!(text(0.125), "1/8 s");
+    assert_eq!(text(1.0 / 60.0), "1/60 s");
+    assert_eq!(text(1.0 / 4000.0), "1/4000 s");
+    assert_eq!(text(0.04), "1/25 s");
+    assert_eq!(text(0.09), "1/11 s");
+    // Every shown time stays within 5 % of the stored one — the point of the report.
+    for t in [0.031_714, 0.0215, 0.04, 0.09, 0.125, 1.0 / 60.0, 1.0 / 4000.0] {
+        let n: f64 = text(t).split('/').nth(1).and_then(|d| d.split(' ').next()).expect("1/n s").parse().expect("a number");
+        assert!((1.0 / n / t - 1.0).abs() <= 0.05, "{t} shown as {} is more than 5 % off", text(t));
+    }
+    // A tenth of a second and longer keeps the Photoshop forms: a near-whole reciprocal is a
+    // fraction, anything else is the decimal at three significant digits.
+    assert_eq!(text(0.5), "1/2 s");
+    assert_eq!(text(0.25), "1/4 s");
+    assert_eq!(text(0.4), "0.4 s");
+    assert_eq!(text(0.105), "0.105 s", "two decimals would read 0.11 s");
+    assert_eq!(text(1.25), "1.25 s", "one decimal would read 1.3 s");
+    assert_eq!(text(2.0), "2 s");
+    // A hostile value cannot panic, and a positive exposure never reads as "0 s" (never-crash, rule 9).
+    assert_ne!(exposure_text(f64::MIN_POSITIVE).as_deref(), Some("0 s"));
+    assert_ne!(exposure_text(f64::MIN_POSITIVE), None);
+    assert_eq!(exposure_text(0.0), None);
+    assert_eq!(exposure_text(-1.0), None);
+    assert_eq!(exposure_text(f64::NAN), None);
+    assert_eq!(exposure_text(f64::INFINITY), None);
+    assert_ne!(exposure_text(f64::MAX), None);
+    // The same through a real EXIF block, so the round trip to File Info is covered too.
+    let camera = |t: f64| {
+        let exif = photocraft_algo::exif::build(&photocraft_algo::exif::CameraInfo { exposure_time: Some(t), ..Default::default() });
+        camera_data(Some(&exif), None)["exposure"].as_str().map(str::to_owned)
+    };
+    assert_eq!(camera(0.031_714), Some("1/32 s".to_owned()));
+    assert_eq!(camera(0.0215), Some("1/47 s".to_owned()));
+    // An absurd exposure is capped to one dialog line, as every other camera field is.
+    assert!(camera(f64::MAX).expect("an exposure").len() <= 200, "a huge exposure must stay on one dialog line");
+}
+
 const MULTILINGUAL_XMP: &str = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/">
 <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
 <rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/"
