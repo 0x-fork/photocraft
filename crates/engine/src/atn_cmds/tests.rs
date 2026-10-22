@@ -1580,6 +1580,77 @@ fn minimum_and_maximum_with_roundness_are_not_exported_as_squareness() {
     }
 }
 
+/// #7502, #7512, #7513, #7514: a New Layer step that clips to the layer below, has a colour
+/// label, fills with the neutral colour or goes below the active layer isn't exported, since the
+/// descriptor carries only its name, opacity and mode. Those options at their defaults still
+/// export, and the step round-trips.
+#[test]
+fn new_layer_options_the_descriptor_cannot_carry_refuse_strict_export() {
+    let new_layer = |p: Value| Action { name: "Probe".into(), steps: vec![("layer.new.layer".into(), p)], ..Default::default() };
+    for p in [
+        json!({"name": "New", "clipToPrevious": true}),
+        json!({"name": "New", "color": "red"}),
+        json!({"name": "New", "mode": "Overlay", "fillNeutral": true}),
+        json!({"name": "New", "position": "below"}),
+        json!({"name": "New", "clipToPrevious": 1}),
+    ] {
+        assert!(export("Audit7", &[&new_layer(p.clone())], &[], false).is_err(), "{p}");
+        let (_, skipped) = export("Audit7", &[&new_layer(p.clone())], &[], true).unwrap();
+        assert_eq!(skipped, vec![Skipped { action: "Probe".into(), step: 0, id: "layer.new.layer".into() }], "{p}");
+    }
+    let defaults =
+        json!({"name": "New", "mode": "Multiply", "opacity": 0.6, "clipToPrevious": false, "color": "none", "fillNeutral": false, "position": "above"});
+    let (bytes, skipped) = export("Audit7", &[&new_layer(defaults)], &[], false).unwrap();
+    assert!(skipped.is_empty());
+    let imported = import(&bytes).unwrap();
+    assert_eq!(imported.actions[0].steps, vec![("layer.new.layer".to_string(), json!({"name": "New", "mode": "Multiply", "opacity": 0.6}))]);
+}
+
+/// Options the exported descriptors can't carry refuse strict export (and a partial export skips
+/// the step) instead of exporting a step that replays differently; the forms they can carry still
+/// export (#7196, #7246, #7287, #7503, #7506, #7507).
+#[test]
+fn options_the_descriptors_cannot_carry_refuse_strict_export() {
+    let one = |id: &str, p: Value| Action { name: "Probe".into(), steps: vec![(id.into(), p)], ..Default::default() };
+    let refused = [
+        ("layer.newFillLayer.solidColor", json!({"color": "#c0603080"})),
+        ("layer.newFillLayer.solidColor", json!({"color": "teal"})),
+        ("file.new", json!({"width": 24, "height": 18, "background": "black"})),
+        ("file.new", json!({"width": 24, "height": 18, "background": "#ab2233"})),
+        ("file.new", json!({"width": 24, "height": 18, "background": "backgroundColor", "backgroundColor": [0.2, 0.4, 0.6]})),
+        ("select.loadSelection", json!({"channel": "Alpha 1", "invert": true})),
+        ("select.loadSelection", json!({"channel": "Alpha 1", "operation": "subtract"})),
+        ("layer.setProps", json!({"opacity": 0.5, "locked": true})),
+        ("layer.setProps", json!({"opacity": 0.5, "clipped": true})),
+        ("layer.setProps", json!({"layers": [2, 3], "opacity": 0.5})),
+        ("filter.noise.addNoise", json!({"amount": 30, "seed": 2147483648_u64})),
+        ("filter.noise.addNoise", json!({"amount": 30, "seed": 4294967295_u64})),
+    ];
+    for (id, p) in refused {
+        let err = export("Audit7", &[&one(id, p.clone())], &[], false).unwrap_err();
+        assert!(err.contains(&format!("`{id}`")), "{id} {p}: the error names the step: {err}");
+        let (_, skipped) = export("Audit7", &[&one(id, p.clone())], &[], true).unwrap();
+        assert_eq!(skipped, vec![Skipped { action: "Probe".into(), step: 0, id: id.into() }], "{id} {p}");
+    }
+    let carried = [
+        ("layer.groupLayers", json!({"name": "Group"})),
+        ("layer.newFillLayer.solidColor", json!({"color": "#c06030"})),
+        ("file.new", json!({"width": 24, "height": 18, "background": "white"})),
+        ("file.new", json!({"width": 24, "height": 18, "background": "transparent"})),
+        ("file.new", json!({"width": 24, "height": 18, "background": "backgroundColor"})),
+        ("select.loadSelection", json!({"channel": "Alpha 1", "invert": false, "operation": "new"})),
+        // A named target (a numeric one is #7248, #7262).
+        ("layer.setProps", json!({"layer": "Pixels", "opacity": 0.5, "visible": true})),
+        ("filter.noise.addNoise", json!({"amount": 30, "seed": 2147483647})),
+    ];
+    for (id, p) in carried {
+        let (bytes, skipped) = export("Audit7", &[&one(id, p.clone())], &[], false).unwrap_or_else(|e| panic!("{id} {p}: {e}"));
+        assert!(skipped.is_empty(), "{id} {p}");
+        let imported = import(&bytes).unwrap();
+        assert_eq!(imported.actions[0].steps.first().map(|(i, _)| i.as_str()), Some(id), "{p}");
+    }
+}
+
 /// Photoshop's Close has no document target: a Close of a specific document must not be
 /// exported as a plain Close, which would close the active document on playback.
 #[test]

@@ -443,7 +443,15 @@ fn fields_to(p: &Value, fields: &[F], mut d: Descriptor) -> Option<Descriptor> {
             Kind::Px => px(v.as_f64()?),
             Kind::Pct => pct(v.as_f64()?),
             Kind::Ang => ang(v.as_f64()?),
-            Kind::Long => long(v.as_f64()?),
+            // A value outside the descriptor's 32-bit integer refuses the step rather than being
+            // clamped to another value (an Add Noise seed above i32::MAX replayed as i32::MAX, #7287).
+            Kind::Long => {
+                let n = v.as_f64()?.round();
+                if !(f64::from(i32::MIN)..=f64::from(i32::MAX)).contains(&n) {
+                    return None;
+                }
+                long(n)
+            }
             Kind::ExactLong => {
                 let number = v.as_f64()?;
                 let integer = number as i32;
@@ -1220,6 +1228,18 @@ fn make_to(id: &str, p: &Value) -> Option<Descriptor> {
     };
     Some(match id {
         "layer.new.layer" => {
+            // The descriptor carries the name, opacity and mode only. A step that also clips to
+            // the layer below, labels the layer, fills it with the neutral colour or places it
+            // below the active layer would replay as a different layer, so it isn't exported
+            // (strict export fails, a partial one skips it: #7502, #7512, #7513, #7514).
+            let set = |key: &str, default: Value| p.get(key).is_some_and(|v| !v.is_null() && *v != default);
+            if set("clipToPrevious", Value::Bool(false))
+                || set("color", json!("none"))
+                || set("fillNeutral", Value::Bool(false))
+                || set("position", json!("above"))
+            {
+                return None;
+            }
             let mut u = with_name("Lyr ");
             if let Some(o) = jnum(p, "opacity") {
                 u = u.with("Opct", pct(o * 100.0));
@@ -1242,8 +1262,10 @@ fn make_to(id: &str, p: &Value) -> Option<Descriptor> {
         }
         "layer.newFillLayer.solidColor" => {
             let mut t = desc("solidColorLayer");
-            if let Some(c) = jstr(p, "color").and_then(color_desc) {
-                t = t.with("Clr ", D::Descriptor(c));
+            // The descriptor's colour is opaque RGB: a colour with alpha, or one it can't parse,
+            // would replay as the default black (#7507).
+            if let Some(c) = p.get("color").filter(|v| !v.is_null()) {
+                t = t.with("Clr ", D::Descriptor(c.as_str().and_then(color_desc)?));
             }
             desc("null").with("null", class_ref("contentLayer")).with("Usng", D::Descriptor(desc("contentLayer").with("Type", D::Descriptor(t))))
         }
@@ -1288,10 +1310,19 @@ fn make_to(id: &str, p: &Value) -> Option<Descriptor> {
             }
             n = n.with("Wdth", px(jnum(p, "width").unwrap_or(1920.0))).with("Hght", px(jnum(p, "height").unwrap_or(1080.0)));
             n = n.with("Rslt", D::UnitFloat { unit: *b"#Rsl", value: jnum(p, "resolution").unwrap_or(72.0) });
-            let fill = match jstr(p, "background") {
-                Some("transparent") => "Trns",
-                Some("backgroundColor") => "BckC",
-                _ => "Wht ",
+            // `Fl  ` is white, transparent or Photoshop's own background colour: black, a hex
+            // colour or a given `backgroundColor` would replay as something else (#7503).
+            if p.get("backgroundColor").is_some_and(|v| !v.is_null()) {
+                return None;
+            }
+            let fill = match p.get("background").filter(|v| !v.is_null()) {
+                None => "Wht ",
+                Some(b) => match b.as_str()? {
+                    "white" => "Wht ",
+                    "transparent" => "Trns",
+                    "backgroundColor" => "BckC",
+                    _ => return None,
+                },
             };
             n = n.with("Fl  ", enm("Fl  ", fill)).with("Dpth", long(jnum(p, "depth").unwrap_or(8.0)));
             desc("null").with("Nw  ", D::Descriptor(n))
@@ -1458,6 +1489,14 @@ fn set_to(id: &str, p: &Value) -> Option<Descriptor> {
         "select.all" => sel(enm("Ordn", "Al  ")),
         "select.deselect" => sel(enm("Ordn", "None")),
         "select.reselect" => sel(enm("Ordn", "Prvs")),
+        // The descriptor loads a plain new selection: inverting it or combining it with the current
+        // one (add, subtract, intersect) would be lost (#7506).
+        "select.loadSelection"
+            if p.get("invert").is_some_and(|v| *v != Value::Bool(false) && !v.is_null())
+                || p.get("operation").is_some_and(|v| *v != json!("new") && !v.is_null()) =>
+        {
+            return None;
+        }
         "select.loadSelection" => match jstr(p, "channel")? {
             "transparency" => sel(D::Reference(vec![ReferenceItem::Enumerated { class: class("Chnl"), type_id: Id::new("Chnl"), value: Id::new("Trsp") }])),
             "targeted" => sel(D::Reference(vec![ReferenceItem::Enumerated { class: class("Chnl"), type_id: Id::new("Ordn"), value: Id::new("Trgt") }])),
@@ -1502,6 +1541,12 @@ fn set_to(id: &str, p: &Value) -> Option<Descriptor> {
             sel(D::Descriptor(desc(cls).with("Top ", px(y)).with("Left", px(x)).with("Btom", px(y + h)).with("Rght", px(x + w))))
         }
         "layer.setProps" | "layer.renameLayer" | "layer.setLabelColor" => {
+            // Only these keys map onto the `Lyr ` descriptor; locks, clipping, Advanced Blending
+            // channels or an explicit `layers` list would be dropped (#7196, #7246).
+            const MAPPED: [&str; 7] = ["layer", "name", "opacity", "fill", "blend", "visible", "color"];
+            if p.as_object().is_some_and(|m| m.iter().any(|(k, v)| !v.is_null() && !MAPPED.contains(&k.as_str()))) {
+                return None;
+            }
             let mut t = desc("Lyr ");
             if let Some(n) = jstr(p, "name") {
                 t = t.with("Nm  ", text(n));
