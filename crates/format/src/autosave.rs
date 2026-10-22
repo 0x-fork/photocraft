@@ -20,7 +20,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use photocraft_doc::Document;
 use serde::{Deserialize, Serialize};
 
-use crate::store::write_atomic;
 use crate::{FormatError, PcraftWriter, Result, SaveOptions, SaveStats};
 
 /// Sidecar describing an autosave.
@@ -168,7 +167,7 @@ fn worker(rx: Receiver<Job>, bundle: PathBuf, sidecar: PathBuf, last: Arc<Mutex<
         let r = (|| {
             std::fs::create_dir_all(&bundle)?;
             let stats = writer.save_dir(&job.snapshot, &bundle, &job.opts)?;
-            write_atomic(&sidecar, &serde_json::to_vec_pretty(&job.info)?)?;
+            write_sidecar(&sidecar, &serde_json::to_vec_pretty(&job.info)?)?;
             Ok(stats)
         })();
         if let Ok(mut results) = completed.lock() {
@@ -178,6 +177,72 @@ fn worker(rx: Receiver<Job>, bundle: PathBuf, sidecar: PathBuf, last: Arc<Mutex<
             *g = Some(r);
         }
     }
+}
+
+fn write_sidecar(path: &Path, bytes: &[u8]) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        struct PrivateFs;
+        impl crate::atomic::AtomicFs for PrivateFs {
+            fn write_new(&self, tmp: &Path, bytes: &[u8]) -> std::io::Result<()> {
+                use std::io::Write;
+                let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(tmp)?;
+                f.write_all(bytes)?;
+                crate::atomic::sync_file(&f)
+            }
+            fn rename(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+                crate::atomic::RealFs.rename(from, to)
+            }
+            fn remove(&self, path: &Path) -> std::io::Result<()> {
+                crate::atomic::RealFs.remove(path)
+            }
+            fn sync_dir(&self, dir: &Path) -> std::io::Result<()> {
+                crate::atomic::RealFs.sync_dir(dir)
+            }
+            fn copy_metadata(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+                crate::atomic::RealFs.copy_metadata(from, to)
+            }
+        }
+        crate::atomic::atomic_write_with(&PrivateFs, crate::atomic::RenameRetry::platform(), path, bytes)?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        crate::store::write_atomic(path, bytes)
+    }
+}
+
+fn read_sidecar_bounded(path: &Path, max: usize) -> Option<Vec<u8>> {
+    use std::io::Read;
+    #[cfg(unix)]
+    let mut file = {
+        use rustix::fs::{Mode, OFlags, open};
+        let fd = open(path, OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC, Mode::empty()).ok()?;
+        let file = std::fs::File::from(fd);
+        if !file.metadata().ok()?.is_file() {
+            return None;
+        }
+        let _ = rustix::fs::fcntl_setfl(&file, OFlags::empty());
+        file
+    };
+    #[cfg(not(unix))]
+    let mut file = {
+        if !std::fs::symlink_metadata(path).ok()?.file_type().is_file() {
+            return None;
+        }
+        let file = std::fs::File::open(path).ok()?;
+        if !file.metadata().ok()?.is_file() {
+            return None;
+        }
+        file
+    };
+    let mut bytes = Vec::new();
+    (&mut file).take((max as u64).saturating_add(1)).read_to_end(&mut bytes).ok()?;
+    if bytes.len() > max {
+        return None;
+    }
+    Some(bytes)
 }
 
 /// Recoverable documents in `recovery_dir`, newest first. A sidecar must be named after its own
@@ -191,8 +256,7 @@ pub fn list_recovery(recovery_dir: &Path) -> Vec<RecoveryEntry> {
         let p = e.path();
         if e.file_type().is_ok_and(|ft| ft.is_file())
             && p.extension().is_some_and(|x| x == "json")
-            && e.metadata().is_ok_and(|m| m.len() <= (1 << 20))
-            && let Ok(bytes) = std::fs::read(&p)
+            && let Some(bytes) = read_sidecar_bounded(&p, 1 << 20)
             && let Ok(info) = serde_json::from_slice::<RecoveryInfo>(&bytes)
             && sanitize(&info.key) == info.key
             && p.file_stem().is_some_and(|stem| *stem == *info.key)
