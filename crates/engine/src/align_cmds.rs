@@ -228,7 +228,9 @@ fn auto_blend(s: &mut Session, p: &Value) -> Result<Value> {
         let surfs: Vec<Surface> =
             ids.iter().map(|id| doc.layer(*id).and_then(|l| l.surface()).cloned().ok_or(EngineError::NoLayer(*id))).collect::<Result<_>>()?;
         let order = seam_order(&surfs, 0);
-        let b = seam_blend(&surfs, area, &order, seamless, false, None);
+        // Seamless Tones and Colors also evens out exposure and colour between the layers (gain
+        // compensation over their overlaps), as in Photomerge.
+        let b = seam_blend(&surfs, area, &order, seamless, seamless, None);
         let weights: Vec<Vec<f32>> = b.layers.iter().map(|(_, m)| m.read_region(area)).collect();
         let blended = seamless.then(|| b.composite.read_region(area));
         (weights, blended)
@@ -474,6 +476,30 @@ mod tests {
         assert!(doc.layer(bg).unwrap().mask.is_some());
         s.undo();
         assert!(s.active().unwrap().doc.is_background(bg), "undo restores the Background");
+    }
+
+    /// Seamless Tones and Colors evens out a 10% exposure step between two panorama layers.
+    #[test]
+    fn auto_blend_panorama_seamless_matches_exposure() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 200, "height": 60, "background": "transparent"})).unwrap();
+        let mut ids = Vec::new();
+        for (name, x0, x1, gain) in [("left", 0, 130, 1.0f32), ("right", 70, 200, 1.1)] {
+            s.execute("layer.new.layer", json!({ "name": name })).unwrap();
+            s.edit(name, |doc, active| {
+                doc.layer_mut(active.unwrap()).unwrap().surface_mut().unwrap().fill_rect(Rect::new(x0, 0, x1, 60), &[0.2 * gain, 0.4 * gain, 0.5 * gain, 1.0]);
+                Ok(())
+            })
+            .unwrap();
+            ids.push(s.active().unwrap().active_layer.unwrap());
+        }
+        select(&mut s, &ids);
+        let r = s.execute("edit.autoBlendLayers", json!({"method": "panorama"})).unwrap();
+        let doc = &s.active().unwrap().doc;
+        let blended = doc.layer(LayerId(r["blended"].as_u64().unwrap())).unwrap().surface().unwrap();
+        let (a, b) = (blended.pixel(10, 30), blended.pixel(190, 30));
+        // 0.5 vs 0.55 without gain compensation.
+        assert!((a[2] - b[2]).abs() < 0.015, "{a:?} {b:?}");
     }
 
     #[test]
