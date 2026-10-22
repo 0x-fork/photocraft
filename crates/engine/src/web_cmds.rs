@@ -1091,8 +1091,8 @@ fn quick_export(s: &mut Session, p: &Value) -> Result<Value> {
     let fmt = match crate::file_cmds::extension(&path).as_deref() {
         None => fmt,
         Some("jpg" | "jpeg") => "jpg".into(),
-        Some(e @ ("png" | "gif" | "webp")) => e.into(),
-        Some(e) => return Err(bad(cmd, format!("Quick Export writes PNG, JPEG, GIF or WebP, not .{e}; use Export As"))),
+        Some(e @ ("png" | "gif" | "webp" | "exr")) => e.into(),
+        Some(e) => return Err(bad(cmd, format!("Quick Export writes PNG, JPEG, GIF, WebP or EXR, not .{e}; use Export As"))),
     };
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let doc = d.doc.clone();
