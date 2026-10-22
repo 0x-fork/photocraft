@@ -935,7 +935,8 @@ impl Session {
     }
 
     fn apply_job(&mut self, job: &Running, apply: Option<Apply>, payload: Payload) -> Result<Value> {
-        let Running { label, doc, snapshot, coalesce, color_restrict, filter_mask_layer, layers, command, params, journal, recorded_by, pre_selected, .. } = job;
+        let Running { label, doc, snapshot, coalesce, color_restrict, filter_mask_layer, layers, command, params, journal, recorded_by, pre_selected, .. } =
+            job;
         // A recording started after the job (#7289) keeps what it has so far, and the job's step
         // goes into the journal past its start, so that recording doesn't get it.
         let foreign = self.actions.recording.is_some() && *recorded_by != Some(self.actions.take);
