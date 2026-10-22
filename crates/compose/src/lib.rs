@@ -2000,12 +2000,12 @@ fn effect_region(layer: &Layer, rect: Rect, cx: &Ctx) -> (Rect, bool) {
 /// whole region, would take more than the effect cache budget together. A render needs all of
 /// them, so when they don't fit, building one evicts the next one needed and every render builds
 /// them all again, seconds even for a small rect (#8330). Counted as [`effects::FxMaps::bytes`]
-/// counts them, with only the shape and one map per enabled effect: a lower bound.
+/// counts the built maps ([`effects::map_count`] arrays over each region).
 fn fx_over_budget(layers: &[Layer], canvas: Rect) -> bool {
     fx_region_bytes(layers, canvas) > effect_cache_budget() as u64
 }
 
-/// The lower bound [`fx_over_budget`] compares with the budget.
+/// The bytes [`fx_over_budget`] compares with the budget.
 fn fx_region_bytes(layers: &[Layer], canvas: Rect) -> u64 {
     fn bytes(layers: &[Layer], canvas: Rect, depth: u32) -> u64 {
         let mut total = 0u64;
@@ -2013,7 +2013,7 @@ fn fx_region_bytes(layers: &[Layer], canvas: Rect) -> u64 {
             if effects::has_effects(l) {
                 let m = effects::margin(l);
                 let region = effect_source_bounds(l, canvas).inflate(m).intersect(&canvas.inflate(m));
-                let maps = 1 + l.effects.items.iter().filter(|e| e.enabled()).count() as u64;
+                let maps = effects::map_count(l) as u64;
                 let px = u64::from(region.width()) * u64::from(region.height());
                 total = total.saturating_add(maps.saturating_mul(px).saturating_mul(4));
             }

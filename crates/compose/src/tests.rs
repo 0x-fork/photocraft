@@ -1741,27 +1741,48 @@ fn renders_with_maps_clipped_over_the_budget_match_the_whole_maps() {
 }
 
 #[test]
-fn the_effect_map_estimate_is_a_lower_bound() {
-    // fx_over_budget compares a lower bound of the maps' bytes with the budget: it must not
-    // exceed what building them takes, or a document that fits would lose its shared maps.
-    let d = ordinary_fx_doc(SampleType::U8);
+fn the_effect_map_estimate_counts_the_maps_building_takes() {
+    // fx_over_budget compares the maps' bytes with the budget: too few and a document over it
+    // keeps thrashing, too many and one that fits loses its shared maps. Strokes build distance
+    // fields and overlays nothing beyond the shape (#8372 review), so count what the builder does.
+    let mut d = ordinary_fx_doc(SampleType::U8);
+    let overlay = Effect::ColorOverlay { common: FxCommon::new(photocraft_color::BlendMode::Normal, 1.0), color: Color::rgb(0.0, 1.0, 0.0) };
+    for fx in [vec![overlay], vec![stroke(2.0, StrokePosition::Outside), stroke(60.0, StrokePosition::Outside)], vec![stroke(4.0, StrokePosition::Inside)]] {
+        let mut l = Layer::raster("extra", d.pixel_format());
+        l.surface_mut().unwrap().fill_rect(Rect::new(14, 100, 34, 130), &photocraft_raster::from_rgba(&d.pixel_format(), [0.3, 0.6, 0.9, 1.0]));
+        l.effects.items = fx;
+        d.layers.push(l);
+    }
     let patterns = pattern::PreparedPatterns::new(&d.patterns, pattern::PREPARED_PATTERN_BYTES);
     let cx = Ctx::for_doc(&d, &patterns);
     let mut todo = Vec::new();
     effect_layers(&d.layers, d.bounds(), 0, &mut todo);
-    let built: usize = todo.iter().map(|l| effect_maps(l, d.bounds(), &cx).bytes()).sum();
-    let estimate = fx_region_bytes(&d.layers, d.bounds());
-    assert!(estimate > 0 && estimate <= built as u64, "estimate {estimate} B, built {built} B");
-    // A 9000 x 6000 document with three full layers, each with a drop shadow (#8330's case):
-    // about 1.3 GB, over the default 768 MB. One such layer fits.
-    let mut big = Document::with_background("big", Size::new(9000, 6000), ColorMode::Rgb, SampleType::U8, Color::WHITE);
-    let mut l = Layer::raster("fill", big.pixel_format());
-    l.surface_mut().unwrap().fill_rect(big.bounds(), &photocraft_raster::from_rgba(&big.pixel_format(), [0.8, 0.5, 0.3, 1.0]));
-    l.effects.items = vec![Effect::DropShadow(Shadow { size: 40.0, ..shadow(20.0, 120.0) })];
-    big.layers.push(l.clone());
-    assert!(fx_region_bytes(&big.layers, big.bounds()) < DEFAULT_FX_CACHE_BUDGET as u64);
-    big.layers.extend([l.clone(), l]);
-    assert!(fx_region_bytes(&big.layers, big.bounds()) > DEFAULT_FX_CACHE_BUDGET as u64);
+    assert!(todo.len() > 12);
+    for l in &todo {
+        let built = effect_maps(l, d.bounds(), &cx);
+        let region = effect_region(l, d.bounds(), &cx).0;
+        let counted = effects::map_count(l) * region.width() as usize * region.height() as usize * 4;
+        assert_eq!(counted, built.bytes(), "layer {}", l.name);
+    }
+    // 9000 x 6000 documents, every layer full size.
+    let big = |fx: Vec<Effect>, n: usize| {
+        let mut big = Document::with_background("big", Size::new(9000, 6000), ColorMode::Rgb, SampleType::U8, Color::WHITE);
+        let mut l = Layer::raster("fill", big.pixel_format());
+        l.surface_mut().unwrap().fill_rect(big.bounds(), &photocraft_raster::from_rgba(&big.pixel_format(), [0.8, 0.5, 0.3, 1.0]));
+        l.effects.items = fx;
+        big.layers.extend(std::iter::repeat_n(l, n));
+        fx_region_bytes(&big.layers, big.bounds())
+    };
+    let budget = DEFAULT_FX_CACHE_BUDGET as u64;
+    // #8330's case: three drop shadows (about 1.3 GB) are over the default 768 MB; one fits.
+    let shadow = Effect::DropShadow(Shadow { size: 40.0, ..shadow(20.0, 120.0) });
+    assert!(big(vec![shadow.clone()], 1) < budget);
+    assert!(big(vec![shadow], 3) > budget);
+    // A narrow and a wide stroke: the shape, the inside distance and both outside fields.
+    assert!(big(vec![stroke(2.0, StrokePosition::Outside), stroke(60.0, StrokePosition::Outside)], 1) > budget);
+    // Colour overlays need the shape only: three fit.
+    let overlay = Effect::ColorOverlay { common: FxCommon::new(photocraft_color::BlendMode::Normal, 1.0), color: Color::BLACK };
+    assert!(big(vec![overlay], 3) < budget);
 }
 
 // ---------- PSD-fidelity effect semantics (fitted on Photoshop composites) ----------
