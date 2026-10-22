@@ -3854,6 +3854,26 @@ mod tests {
     }
 
     #[test]
+    fn view_snap_off_survives_a_restart() {
+        let (mut app, store) = app_with_store();
+        let ctx = egui::Context::default();
+        tick(&mut app, &ctx);
+        assert!(app.ui.extras.snap, "on by default");
+        crate::menus::invoke(&mut app, &ctx, "view.snap", json!({})).unwrap();
+        assert!(!app.ui.extras.snap);
+        crate::view_cmds::persist(&mut app, &ctx);
+        tick(&mut app, &ctx);
+        assert_eq!(stored(&store)["viewExtras"], json!({"snap": false}));
+        let saved = store.lock().unwrap().clone().unwrap();
+        let (mut app2, _) = app_with_saved(Some(saved));
+        tick(&mut app2, &ctx);
+        assert!(!app2.ui.extras.snap, "still off after a restart");
+        crate::menus::invoke(&mut app2, &ctx, "view.snap", json!({})).unwrap();
+        crate::view_cmds::persist(&mut app2, &ctx);
+        assert!(app2.session.prefs().view_extras.is_null());
+    }
+
+    #[test]
     fn show_tooltips_preferences_turn_tooltips_off() {
         let (mut app, _) = app_with_store();
         let ctx = egui::Context::default();
