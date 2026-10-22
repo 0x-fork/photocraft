@@ -1473,7 +1473,10 @@ fn front(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Value)
 fn save_a_copy(app: &mut PhotocraftApp) -> Result<Value, String> {
     let doc = app.session.active().ok_or("no document")?.doc.clone();
     let stem = doc.name.rsplit_once('.').map_or(doc.name.as_str(), |(a, _)| a);
-    let suggested = format!("{stem} copy.psd");
+    // "<name> copy.psd", or with Preferences › File Handling › Do not append "copy" to filename
+    // when saving a copy the document's own name (only the extension may change), as in
+    // Photoshop (#8080).
+    let suggested = format!("{stem}{}.psd", app.session.prefs().file_handling.copy_suffix());
     // The copy is of the document as it was when asked.
     app.pick_save(&suggested, move |app, path| {
         // An RGB Targa asks for its bits per pixel first, and a DDS texture for its compression;

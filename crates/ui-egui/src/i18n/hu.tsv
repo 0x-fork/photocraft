@@ -4115,6 +4115,7 @@ cameraRaw	Yellow	Sárga
 	Chisel Hard	Kemény vésés
 	Chisel Soft	Lágy vésés
 	Open color-less EXR as ACEScg	Színinformáció nélküli EXR megnyitása ACEScg-ként
+	Do not append "copy" to filename when saving a copy	Ne fűzze a „copy” szót a fájlnévhez másolat mentésekor
 
 # View › Guides › right-click a guide
 	Edit Selected Guides	Kijelölt segédvonalak szerkesztése

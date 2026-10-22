@@ -4006,6 +4006,7 @@ layerLabel	No Color	Sem cor
 	Chisel Hard	Cinzel duro
 	Chisel Soft	Cinzel suave
 	Open color-less EXR as ACEScg	Abrir EXR sem espaço de cor como ACEScg
+	Do not append "copy" to filename when saving a copy	Não acrescentar "copy" ao nome do arquivo ao salvar uma cópia
 
 # View › Guides › right-click a guide
 	Edit Selected Guides	Editar guias selecionadas

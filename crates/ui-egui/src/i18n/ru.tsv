@@ -3188,6 +3188,7 @@ curves	Smooth	Сгладить
 	Chisel Hard	Жесткая огранка
 	Chisel Soft	Мягкая огранка
 	Open color-less EXR as ACEScg	Открывать EXR без цветового профиля как ACEScg
+	Do not append "copy" to filename when saving a copy	Не добавлять «copy» к имени файла при сохранении копии
 
 # View › Guides › right-click a guide
 	Edit Selected Guides	Изменить выбранные направляющие

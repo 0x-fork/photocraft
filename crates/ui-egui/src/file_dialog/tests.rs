@@ -1128,3 +1128,23 @@ fn save_of_a_flat_file_asks_after_the_dialog_when_another_app_changed_it() {
     assert!(!app.session.active().unwrap().is_dirty());
     assert_eq!(app.session.journal.last().map(|s| s.0.as_str()), Some("file.save"), "still recorded as a plain Save");
 }
+
+/// File › Save a Copy suggests "<name> copy", and with Preferences › File Handling › Do not
+/// append "copy" to filename when saving a copy, the document's own name, as in Photoshop
+/// (#8080). The preference goes through `prefs.set` like the Preferences dialog's checkbox.
+#[test]
+fn save_a_copy_appends_copy_unless_the_preference_says_not_to() {
+    let ctx = egui::Context::default();
+    for (off, name) in [(false, "My image copy.psd"), (true, "My image.psd")] {
+        let want = std::path::Path::new("/pics").join(name).to_string_lossy().into_owned();
+        let (mut app, open, _) = jpeg_app(Some("/pics/My image.JPEG"), false);
+        app.run("prefs.set", json!({"path": "fileHandling.doNotAppendCopy", "value": off})).unwrap();
+        menus::invoke(&mut app, &ctx, "file.saveACopy", json!({})).unwrap();
+        app.poll_file_dialog(&ctx, None);
+        assert!(
+            matches!(open.borrow().as_slice(), [(FileDialogRequest::Save { suggested }, _)] if *suggested == want),
+            "{off}: {:?}",
+            open.borrow().first().map(|(r, _)| r.clone())
+        );
+    }
+}

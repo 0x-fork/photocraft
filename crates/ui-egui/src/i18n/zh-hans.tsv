@@ -2842,6 +2842,7 @@ curves	Smooth	平滑
 	Chisel Hard	雕刻清晰
 	Chisel Soft	雕刻柔和
 	Open color-less EXR as ACEScg	将无色彩空间信息的 EXR 以 ACEScg 打开
+	Do not append "copy" to filename when saving a copy	存储副本时不在文件名后添加“copy”
 # Export As metadata and profile options
 	Color Profile	颜色配置文件
 	EXIF	EXIF

@@ -3976,6 +3976,7 @@ curves	Smooth	Vloeiend maken
 	Chisel Hard	Beitel hard
 	Chisel Soft	Beitel zacht
 	Open color-less EXR as ACEScg	EXR zonder kleurruimte als ACEScg openen
+	Do not append "copy" to filename when saving a copy	Geen "copy" aan de bestandsnaam toevoegen bij het opslaan van een kopie
 
 # View › Guides › right-click a guide
 	Edit Selected Guides	Geselecteerde hulplijnen bewerken
