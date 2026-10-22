@@ -83,7 +83,7 @@ The transport is `apps/photocraft/src/control_server.rs`, and the handlers are i
 - Engine commands (`engine.execute`, `photocraft-cli run`, MCP `command_run`) reject a param key their `params` doc does not name for the commands listed in `STRICT` (`crates/engine/src/param_check.rs`, today `layer.hideLayers` and `layer.showLayers`): `{"ids":[4]}` is the error `unknown parameter \`ids\` (expected: layer)`, and nothing runs. Other commands still ignore unknown keys until their `params` doc is complete and they are added to that list (`coalesce` and `target` are always accepted).
 - `ui.type {text}`: type text (goes to the focused widget, or to the canvas while the Type tool is editing)
 - `ui.resize {width, height}`: resize the main window
-- `ui.gpu.simulateLoss {error?}`: act as if the wgpu device was lost (or reported an error with `error: true`). The app switches to the CPU image compositor for the rest of the session and shows the same recovery warning as on a real loss. `gpuFallbackNotice` in `ui.inspect` contains the reason while the warning is open. Keep Using CPU saves CPU compatibility for the next launch; Retry GPU saves GPU mode and asks the user to save and restart. The window renderer still requires a working graphics or software adapter. Returns `wasActive` and `gpuInfo`. For testing the fallback
+- `ui.gpu.simulateLoss {error?}`: act as if the wgpu device was lost (or reported an error with `error: true`). The app switches to the CPU image compositor for the rest of the session and shows the same recovery warning as on a real loss. `gpuFallbackNotice` in `ui.inspect` contains the reason while the warning is open. Keep Using CPU saves CPU compatibility for the next launch; Retry GPU saves GPU mode and asks the user to save and restart. The window renderer still requires a working graphics or software adapter. Returns `wasActive` and `gpuInfo`. For testing the fallback. With `destroy: true` it destroys the window's real wgpu device instead, as a driver reset does (see `docs/development.md` › device loss): the app saves every unsaved document for recovery and closes. Returns `destroyed`
 - `ui.screenshot {path?, focus?}`: capture the main window (PNG). With no path the reply contains
   base64 PNG data; a path is relative to the automation write root. Raises the window first
   (default) because occluded macOS windows stop rendering
@@ -384,6 +384,11 @@ no MCP framing, no app start-up per command. Configure its file access with the 
 | `doc.select` / `doc.close` | `{index}` / `{index?}` |
 | `batch` | `{steps: [{command, params?, wait?} \| {method, params?}], stopOnError? (true)}` → `{completed, failed, results}` (a step with `wait: false` starts a long command as a background job, like `engine.execute`) |
 | `methods` | the list above |
+
+An `index` targets that one call: `doc.place`, `doc.exportLayers`, `doc.exportDataSets`,
+`doc.importDataSets`, `doc.save`, `doc.inspect` and `doc.render` act on the document at `index`
+without making it the active one, so the next call without `index` still runs on the document
+that was active before (`doc.select` is the method that changes it).
 
 ```sh
 printf '%s\n' \

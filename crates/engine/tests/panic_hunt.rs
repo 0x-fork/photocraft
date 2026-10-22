@@ -107,6 +107,9 @@ fn no_command_panics_or_hangs_on_adversarial_params() {
 /// #4982: a panic the code under test contains still fails the run; a graceful `Err` does not.
 #[test]
 fn contained_panics_count_and_graceful_errors_do_not() {
+    // This checks panic accounting, not cold-start latency. Initialize shared font/command
+    // state before starting the watchdog, just as run_guarded retries one-time setup.
+    drop(fresh());
     let contained = run_watched(|| {
         let _ = catch_unwind(|| panic!("contained, as Session::execute does"));
     });

@@ -466,6 +466,33 @@ fn quick_export_never_replaces_the_documents_own_file_unasked() {
     s.execute("prefs.reset", json!({"path": "export"})).unwrap();
 }
 
+/// #8519: Quick Export as PNG renamed to `photo.jpeg` in the save dialog wrote PNG bytes under a
+/// JPEG name, which upload checks refuse. A Quick Export extension picks the format; another
+/// image extension is refused; no extension keeps Export Preferences' format.
+#[test]
+fn quick_export_writes_the_format_its_path_names() {
+    let dir = tmp("quick_ext");
+    let mut s = session(8);
+    s.execute("file.export.exportPreferences", json!({"quickExportFormat": "png"})).unwrap();
+    for (name, format, magic) in [
+        ("a.jpeg", "jpg", &b"\xFF\xD8\xFF"[..]),
+        ("b.JPG", "jpg", b"\xFF\xD8\xFF"),
+        ("c.gif", "gif", b"GIF8"),
+        ("d.webp", "webp", b"RIFF"),
+        ("e", "png", b"\x89PNG"),
+    ] {
+        let path = format!("{dir}/{name}");
+        let r = s.execute("file.export.quickExport", json!({"path": path})).unwrap();
+        assert_eq!(r["format"], json!(format), "{name}");
+        assert!(std::fs::read(&path).unwrap().starts_with(magic), "{name} holds {format} data");
+    }
+    let tif = format!("{dir}/f.tif");
+    let e = s.execute("file.export.quickExport", json!({"path": tif})).unwrap_err().to_string();
+    assert!(e.contains("Export As"), "{e}");
+    assert!(!std::path::Path::new(&tif).exists());
+    s.execute("prefs.reset", json!({"path": "export"})).unwrap();
+}
+
 #[test]
 fn same_file_sees_through_other_names_for_one_file() {
     let dir = tmp("same_file");
@@ -786,6 +813,21 @@ fn slices_with_the_same_name_get_distinct_files() {
 }
 
 #[test]
+fn overlapping_slices_export_each_pixel_once() {
+    // #7770: without HTML too, a slice covered by a later one is written as its visible pieces.
+    let dir = tmp("overlap_images");
+    let mut s = session(8);
+    s.execute("slice.new", json!({"rect": [0, 0, 40, 30], "name": "under"})).unwrap();
+    s.execute("slice.new", json!({"rect": [20, 15, 40, 30], "name": "over"})).unwrap();
+    let r = s.execute("file.export.saveForWebLegacy", json!({"format": "png24", "dir": dir, "slices": "user"})).unwrap();
+    let mut files: Vec<String> = r["files"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
+    let dims: Vec<(u32, u32)> = files.iter().map(|f| decode(f).dimensions()).collect();
+    files.iter_mut().for_each(|f| *f = f.rsplit('/').next().unwrap().to_string());
+    assert_eq!(files, ["under.png", "under-03.png", "over.png"]);
+    assert_eq!(dims, [(40, 15), (20, 15), (40, 30)]);
+}
+
+#[test]
 fn overlapping_slices_keep_the_later_slice_in_html() {
     // #909: the later slice is on top; the earlier one shows only where it isn't covered.
     let dir = tmp("overlap");
@@ -809,7 +851,10 @@ fn overlapping_slices_keep_the_later_slice_in_html() {
         })
         .sum();
     assert_eq!(area, 64 * 48);
-    assert!(files.iter().any(|f| f.ends_with("images/under_01.png")), "the covered slice is cut into pieces: {files:?}");
+    // As Photoshop names subslices: the first piece keeps the name, the others add their number.
+    let under = files.iter().find(|f| f.ends_with("images/under.png")).unwrap();
+    assert_eq!(decode(under).dimensions(), (40, 15), "the covered slice is cut into pieces: {files:?}");
+    assert!(files.iter().any(|f| f.ends_with("images/under-03.png")), "{files:?}");
 }
 
 #[path = "color_table_tests.rs"]
